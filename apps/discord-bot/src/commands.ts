@@ -54,6 +54,14 @@ export const commandDefs = [
     )
     .addSubcommand((s) =>
       s
+        .setName("export")
+        .setDescription("Export a package's rules as a one-page HTML document")
+        .addStringOption((o) =>
+          o.setName("package").setDescription("Package name").setRequired(true).setAutocomplete(true),
+        ),
+    )
+    .addSubcommand((s) =>
+      s
         .setName("watch")
         .setDescription("Auto-validate every PDF posted in a channel (TO only)")
         .addChannelOption((o) =>

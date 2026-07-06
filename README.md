@@ -40,6 +40,9 @@ global star bans union into every level.
 team rules can instead use **primary/secondary counts** (with "secondary swap": a secondary slot may
 always hold a primary skill, and swap rows let two primary slots buy one secondary). Counts come from
 each added skill's primary/secondary access, matching bbtc.pl's "Primary/Secondary skills" summary.
+- **Export HTML** (Configure tab): downloads a self-contained one-page rules sheet for the current
+  package — matrix/tier/team tables, skill allotment, gold, stars, bans, sideline, special rules —
+  print‑ready. The same renderer backs the bot's `/bbbot export`.
 - **Coaches tab:** every validated coach with a link back to their roster post, filterable by package.
 - Binds to localhost by default. To host it, set `HOST=0.0.0.0` **and** `ADMIN_PASSWORD=<secret>`
   (HTTP Basic auth); put it behind TLS on a public network.
@@ -61,8 +64,9 @@ pnpm start
 All commands live under the `/bbbot` namespace (prevents conflicts with other bots):
 `/bbbot validate roster:<pdf> package:<name>` · `/bbbot report [package] [csv]` ·
 `/bbbot packages` · `/bbbot package show <name>` · `/bbbot package import <document> [skillcosts]` ·
-`/bbbot coach register|lookup|me`. On a valid roster the bot ✅-reacts, DMs the coach, and records
-them in `data-store/validated-rosters.csv`.
+`/bbbot coach register|lookup|me` · `/bbbot export package:<name>` (posts a one-page HTML rules
+sheet). On a valid roster the bot ✅-reacts, DMs the coach, and records them in
+`data-store/validated-rosters.csv`.
 
 ## Why
 

@@ -754,6 +754,30 @@ async function savePackage(status) {
   }
 }
 $("btn-save").addEventListener("click", () => savePackage($("save-status")));
+
+// ---- export one-page HTML rules sheet ----
+async function exportHtml(status) {
+  const pkg = formToPackage();
+  if (!pkg.name) { status.className = "status err"; status.textContent = "Set a tournament name first."; return; }
+  status.className = "status"; status.textContent = "Exporting…";
+  try {
+    const res = await fetch("/api/export", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(pkg) });
+    if (!res.ok) { const j = await res.json().catch(() => ({})); status.className = "status err"; status.textContent = j.error || `Export failed (${res.status})`; return; }
+    const html = await res.text();
+    const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = pkg.name.replace(/[^\w.-]+/g, "-").toLowerCase() + "-rules.html";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    status.className = "status ok"; status.textContent = "Exported ✓";
+  } catch (e) {
+    status.className = "status err"; status.textContent = String(e);
+  }
+}
+$("btn-export").addEventListener("click", () => exportHtml($("save-status")));
 $("btn-save-tiers").addEventListener("click", () => savePackage($("tier-save-status")));
 
 // ---- presets & existing ----

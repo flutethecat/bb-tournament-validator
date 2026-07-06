@@ -11,7 +11,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { TournamentPackage } from "@bb/validator";
+import { loadPackage, renderPackageHtml, type TournamentPackage } from "@bb/validator";
 import { PackageFiles, readCoaches, skillCatalog, starList, teamList } from "./data";
 import { PRESETS } from "./presets";
 
@@ -102,6 +102,16 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
     const found = packages.get(decodeURIComponent(pkgMatch[1]!));
     if (!found) return sendJson(res, 404, { error: "Package not found." });
     return sendJson(res, 200, { pkg: found.pkg, problems: found.problems });
+  }
+
+  if (path === "/api/export" && method === "POST") {
+    const body = (await readBody(req)) as Partial<TournamentPackage>;
+    if (!body || typeof body.name !== "string" || !body.name.trim())
+      return sendJson(res, 400, { error: "A package name is required." });
+    const { pkg } = loadPackage(body);
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(renderPackageHtml(pkg));
+    return;
   }
 
   if (path === "/api/coaches" && method === "GET") {

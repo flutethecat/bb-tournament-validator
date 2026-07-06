@@ -11,6 +11,7 @@ import "dotenv/config";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
+  AttachmentBuilder,
   ChatInputCommandInteraction,
   Client,
   EmbedBuilder,
@@ -21,7 +22,7 @@ import {
   type Message,
 } from "discord.js";
 import { ingestPackageDocument } from "@bb/ingest";
-import type { Roster, ValidationResult } from "@bb/validator";
+import { renderPackageHtml, type Roster, type ValidationResult } from "@bb/validator";
 import { PackageStore } from "./packageStore";
 import { renderProblemsEmbed, renderResultEmbed, validateRosterBytes, type EmbedData } from "./pipeline";
 import { CsvValidatedStore } from "./store/validatedStore";
@@ -225,6 +226,20 @@ async function handleWatches(i: ChatInputCommandInteraction): Promise<void> {
   });
 }
 
+// ---- /bbbot export ----
+async function handleExport(i: ChatInputCommandInteraction): Promise<void> {
+  const name = i.options.getString("package", true);
+  const found = packages.get(name);
+  if (!found) {
+    await i.reply({ content: `Unknown package "${name}". Try /bbbot packages.`, flags: MessageFlags.Ephemeral });
+    return;
+  }
+  const html = renderPackageHtml(found.pkg);
+  const filename = `${found.pkg.name.replace(/[^\w.-]+/g, "-").toLowerCase()}-rules.html`;
+  const file = new AttachmentBuilder(Buffer.from(html, "utf8"), { name: filename });
+  await i.reply({ content: `📄 One-page rules for **${found.pkg.name}** — open the attachment in a browser.`, files: [file] });
+}
+
 // ---- /report ----
 async function handleReport(i: ChatInputCommandInteraction): Promise<void> {
   const packageName = i.options.getString("package") ?? undefined;
@@ -387,6 +402,8 @@ client.on("interactionCreate", async (interaction) => {
         return await handleReport(interaction);
       case "packages":
         return await handlePackages(interaction);
+      case "export":
+        return await handleExport(interaction);
       case "watch":
       case "unwatch":
         return await handleWatch(interaction);

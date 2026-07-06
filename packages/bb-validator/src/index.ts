@@ -59,3 +59,4 @@ export { costSP, isElite } from "./cost/costSP";
 export { ALL_RULES } from "./rules/rules";
 export type { Rule, RuleContext, ResolvedPlayer } from "./rules/types";
 export { validate } from "./validate";
+export { renderPackageHtml } from "./render/packageHtml";
