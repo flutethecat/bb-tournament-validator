@@ -12,6 +12,8 @@
       <nav class="tabs">
         <button class="tab active" data-view="configure">Configure</button>
         <button class="tab" data-view="tiers">Tiers</button>
+        <button class="tab" data-view="matrix">Matrix</button>
+        <button class="tab" data-view="teamrules">Team Rules</button>
         <button class="tab" data-view="coaches">Coaches</button>
       </nav>
     </header>
@@ -71,6 +73,13 @@
                 <label>Max stars<input id="f-star-max" type="number" min="0" value="0" /></label>
                 <label>Max star cost (k)<input id="f-star-cost" type="number" min="0" placeholder="none" /></label>
               </div>
+            </div>
+
+            <div class="card">
+              <h2>Ban Stars? <span class="pill">global</span></h2>
+              <p class="hint">Stars banned here are banned everywhere — tiers, matrix cells, and per-team rules all inherit these automatically.</p>
+              <label>Ban a star (type + Enter)<input id="g-banadd" type="text" list="stars-list" placeholder="Star name…" /></label>
+              <div id="g-banned" class="banned-tags"></div>
             </div>
 
             <div class="card">
@@ -135,6 +144,44 @@
           </div>
           <div id="tier-columns" class="tier-columns"></div>
         </div>
+      </section>
+
+      <!-- ============ MATRIX ============ -->
+      <section id="view-matrix" class="view">
+        <div class="card sticky-actions">
+          <div class="actions">
+            <label class="switch"><input id="m-enabled" type="checkbox" /><span>Use matrix configuration</span></label>
+            <button id="m-addcol">+ Column (cash)</button>
+            <button id="m-addrow">+ Row (skills)</button>
+            <button id="btn-save-matrix" class="primary">Save package</button>
+            <span id="matrix-save-status" class="status"></span>
+          </div>
+          <p class="hint">Columns = total gold (type <code>1150</code> or <code>1.15M</code>). Rows = skill allotment (primary + secondary, optional swap). Drag teams into a cell — that cell sets the team's cash and skills. Saves into the package named on the Configure tab.</p>
+        </div>
+        <div id="matrix-disabled-note" class="card"><p class="hint">Matrix is off. Tick “Use matrix configuration” to build the cash×skills grid.</p></div>
+        <div id="matrix-area" hidden>
+          <div class="card">
+            <h2>Unassigned teams <span id="m-pool-count" class="pill"></span></h2>
+            <div id="m-pool" class="team-drop pool" data-cell="pool"></div>
+          </div>
+          <div class="card matrix-scroll"><table id="matrix-table"></table></div>
+        </div>
+      </section>
+
+      <!-- ============ TEAM RULES ============ -->
+      <section id="view-teamrules" class="view">
+        <div class="card sticky-actions">
+          <div class="actions">
+            <button id="btn-save-teamrules" class="primary">Save package</button>
+            <span id="tr-save-status" class="status"></span>
+            <input id="tr-filter" type="search" placeholder="Filter teams…" />
+          </div>
+          <p class="hint">Per-team overrides (highest precedence). Leave a field blank to inherit from the matrix / tier / package. Gold accepts <code>1150</code> or <code>1.15M</code>. Global bans are inherited automatically; add team-specific bans in the Bans column.</p>
+        </div>
+        <div class="card"><table id="teamrules-table">
+          <thead><tr><th>Team</th><th>Gold</th><th>Primary</th><th>Secondary</th><th>Swap</th><th>Stars</th><th>Bans</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
       </section>
 
       <!-- ============ COACHES ============ -->

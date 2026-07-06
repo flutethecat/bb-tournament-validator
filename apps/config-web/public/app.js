@@ -16,7 +16,26 @@ const state = {
   tierCount: 3,
   assign: {}, // team name -> tier number (0/undefined = pool)
   tierData: {}, // tier number -> { label, gold, starsAllowed, banned: [] }
+  // global bans / team rules / matrix
+  bannedGlobal: [],
+  teamRules: {}, // team -> { gold, primary, secondary, swap, stars: 'inherit'|'yes'|'no', banned: [] }
+  matrix: { enabled: false, columns: [], rows: [], assign: {} }, // assign: team -> "row,col"
+  trFilter: "",
 };
+
+function parseGoldClient(v) {
+  if (v == null) return null;
+  const s = String(v).trim().toLowerCase().replace(/,/g, "");
+  if (s === "") return null;
+  let m = s.match(/^(\d+(?:\.\d+)?)\s*m$/); if (m) return Math.round(parseFloat(m[1]) * 1e6);
+  m = s.match(/^(\d+(?:\.\d+)?)\s*k$/); if (m) return Math.round(parseFloat(m[1]) * 1e3);
+  m = s.match(/^(\d+(?:\.\d+)?)$/); if (!m) return null;
+  const n = parseFloat(m[1]);
+  if (s.includes(".")) return Math.round(n * 1e6);
+  if (n >= 100000) return Math.round(n);
+  return Math.round(n * 1e3);
+}
+const emptyTR = () => ({ gold: "", primary: "", secondary: "", swap: false, stars: "inherit", banned: [] });
 
 // ---- tabs ----
 document.querySelectorAll(".tab").forEach((btn) => {
@@ -27,6 +46,8 @@ document.querySelectorAll(".tab").forEach((btn) => {
     $(`view-${btn.dataset.view}`).classList.add("active");
     if (btn.dataset.view === "coaches") loadCoaches();
     if (btn.dataset.view === "tiers") renderTiers();
+    if (btn.dataset.view === "matrix") renderMatrix();
+    if (btn.dataset.view === "teamrules") renderTeamRules();
   });
 });
 
@@ -148,7 +169,44 @@ function formToPackage() {
       minPlayers: num("f-minplayers", 11),
     },
     ...(state.tiersEnabled ? { tiers: buildTiers() } : {}),
+    ...(state.bannedGlobal.length ? { bannedStars: state.bannedGlobal } : {}),
+    ...(buildTeamRules().length ? { teamRules: buildTeamRules() } : {}),
+    ...(state.matrix.enabled ? { matrix: buildMatrix() } : {}),
   };
+}
+
+function buildTeamRules() {
+  const rules = [];
+  for (const [team, d] of Object.entries(state.teamRules)) {
+    const rule = { team };
+    const gold = parseGoldClient(d.gold);
+    if (gold != null) rule.gold = gold;
+    if (d.primary !== "" && d.primary != null) rule.maxPrimary = Number(d.primary);
+    if (d.secondary !== "" && d.secondary != null) rule.maxSecondary = Number(d.secondary);
+    if (d.swap) rule.secondarySwap = true;
+    if (d.stars === "yes") rule.starPlayersAllowed = true;
+    if (d.stars === "no") rule.starPlayersAllowed = false;
+    if (d.banned && d.banned.length) rule.bannedStars = d.banned;
+    if (Object.keys(rule).length > 1) rules.push(rule); // more than just {team}
+  }
+  return rules;
+}
+
+function buildMatrix() {
+  const columns = state.matrix.columns.map((c) => ({ gold: parseGoldClient(c.gold) || 0 }));
+  const rows = state.matrix.rows.map((r) => ({
+    ...(r.label ? { label: r.label } : {}),
+    primary: Number(r.primary) || 0,
+    secondary: Number(r.secondary) || 0,
+    secondarySwap: !!r.swap,
+  }));
+  const byCell = {};
+  for (const [team, rc] of Object.entries(state.matrix.assign)) {
+    const [row, col] = rc.split(",").map(Number);
+    if (row >= rows.length || col >= columns.length) continue;
+    (byCell[rc] ??= { row, col, teams: [] }).teams.push(team);
+  }
+  return { columns, rows, cells: Object.values(byCell) };
 }
 
 function buildTiers() {
@@ -200,7 +258,218 @@ function packageToForm(p) {
   toggleEliteWrap();
   renderSkills();
   applyTiers(p.tiers);
+  // global bans
+  state.bannedGlobal = [...(p.bannedStars || [])];
+  renderGlobalBans();
+  // team rules
+  state.teamRules = {};
+  for (const tr of p.teamRules || []) {
+    state.teamRules[tr.team] = {
+      gold: tr.gold != null ? tr.gold / 1000 : "",
+      primary: tr.maxPrimary ?? "",
+      secondary: tr.maxSecondary ?? "",
+      swap: !!tr.secondarySwap,
+      stars: tr.starPlayersAllowed === true ? "yes" : tr.starPlayersAllowed === false ? "no" : "inherit",
+      banned: [...(tr.bannedStars || [])],
+    };
+  }
+  renderTeamRules();
+  // matrix
+  applyMatrix(p.matrix);
 }
+
+// ---- global bans ----
+function renderGlobalBans() {
+  $("g-banned").innerHTML = state.bannedGlobal.map((s) => bannedTagG(s)).join("");
+  document.querySelectorAll("#g-banned .banned-tag button").forEach((btn) =>
+    btn.addEventListener("click", (e) => {
+      state.bannedGlobal = state.bannedGlobal.filter((s) => s !== e.target.dataset.star);
+      renderGlobalBans();
+      renderTeamRules();
+    }),
+  );
+}
+const bannedTagG = (s) => `<span class="banned-tag">${esc(s)}<button data-star="${esc(s)}" title="remove">×</button></span>`;
+$("g-banadd").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  const v = e.target.value.trim();
+  if (v && !state.bannedGlobal.includes(v)) state.bannedGlobal.push(v);
+  e.target.value = "";
+  renderGlobalBans();
+  renderTeamRules();
+});
+
+// ---- team rules ----
+function renderTeamRules() {
+  const tbody = document.querySelector("#teamrules-table tbody");
+  const filter = state.trFilter.toLowerCase();
+  tbody.innerHTML = state.teams
+    .filter((tm) => !filter || tm.name.toLowerCase().includes(filter))
+    .map((tm) => {
+      const d = state.teamRules[tm.name] || emptyTR();
+      const inherited = state.bannedGlobal;
+      return `<tr data-team="${esc(tm.name)}">
+        <td>${esc(tm.name)}</td>
+        <td><input class="tr-gold" data-f="gold" type="text" value="${esc(d.gold)}" placeholder="inherit" /></td>
+        <td><input data-f="primary" type="number" min="0" value="${esc(d.primary)}" placeholder="—" /></td>
+        <td><input data-f="secondary" type="number" min="0" value="${esc(d.secondary)}" placeholder="—" /></td>
+        <td style="text-align:center"><input data-f="swap" type="checkbox" ${d.swap ? "checked" : ""} /></td>
+        <td><select data-f="stars"><option value="inherit"${d.stars === "inherit" ? " selected" : ""}>inherit</option><option value="yes"${d.stars === "yes" ? " selected" : ""}>allow</option><option value="no"${d.stars === "no" ? " selected" : ""}>ban</option></select></td>
+        <td class="tr-bans-cell">
+          <input class="tr-baninput" data-f="banadd" type="text" list="stars-list" placeholder="ban a star + Enter" />
+          <div class="banned-tags">${d.banned.map((s) => `<span class="banned-tag">${esc(s)}<button data-f="banrm" data-star="${esc(s)}">×</button></span>`).join("")}</div>
+          ${inherited.length ? `<div class="tr-inherited">+ global: ${inherited.map(esc).join(", ")}</div>` : ""}
+        </td>
+      </tr>`;
+    })
+    .join("");
+  wireTeamRules();
+}
+
+function trOf(team) {
+  return (state.teamRules[team] ??= emptyTR());
+}
+function wireTeamRules() {
+  document.querySelectorAll("#teamrules-table tbody tr").forEach((tr) => {
+    const team = tr.dataset.team;
+    tr.querySelectorAll("input, select").forEach((el) => {
+      const f = el.dataset.f;
+      if (f === "banadd") {
+        el.addEventListener("keydown", (e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          const v = e.target.value.trim();
+          const d = trOf(team);
+          if (v && !d.banned.includes(v)) d.banned.push(v);
+          e.target.value = "";
+          renderTeamRules();
+        });
+      } else if (f === "banrm") {
+        el.addEventListener("click", (e) => {
+          const d = trOf(team);
+          d.banned = d.banned.filter((s) => s !== e.target.dataset.star);
+          renderTeamRules();
+        });
+      } else if (f === "swap") {
+        el.addEventListener("change", (e) => { trOf(team).swap = e.target.checked; });
+      } else {
+        el.addEventListener("input", (e) => { trOf(team)[f] = e.target.value; });
+        el.addEventListener("change", (e) => { trOf(team)[f] = e.target.value; });
+      }
+    });
+  });
+}
+$("tr-filter").addEventListener("input", (e) => { state.trFilter = e.target.value; renderTeamRules(); });
+
+// ---- matrix ----
+function applyMatrix(m) {
+  state.matrix = { enabled: false, columns: [], rows: [], assign: {} };
+  if (m && (m.columns?.length || m.rows?.length)) {
+    state.matrix.enabled = true;
+    state.matrix.columns = (m.columns || []).map((c) => ({ gold: c.gold != null ? String(c.gold / 1000) : "" }));
+    state.matrix.rows = (m.rows || []).map((r) => ({ label: r.label || "", primary: r.primary, secondary: r.secondary, swap: !!r.secondarySwap }));
+    for (const cell of m.cells || []) for (const t of cell.teams) state.matrix.assign[t] = `${cell.row},${cell.col}`;
+  } else {
+    state.matrix.columns = [{ gold: "" }];
+    state.matrix.rows = [{ label: "", primary: 6, secondary: 0, swap: false }];
+  }
+  $("m-enabled").checked = state.matrix.enabled;
+  renderMatrix();
+}
+
+function renderMatrix() {
+  $("matrix-area").hidden = !state.matrix.enabled;
+  $("matrix-disabled-note").hidden = state.matrix.enabled;
+  if (!state.matrix.enabled) return;
+  const { columns: cols, rows } = state.matrix;
+  const valid = (rc) => { const [r, c] = rc.split(",").map(Number); return r < rows.length && c < cols.length; };
+  const assigned = new Set(Object.keys(state.matrix.assign).filter((t) => valid(state.matrix.assign[t])));
+  const pool = state.teams.filter((tm) => !assigned.has(tm.name));
+  $("m-pool").innerHTML = pool.map((tm) => teamChip(tm.name)).join("");
+  $("m-pool-count").textContent = String(pool.length);
+
+  const teamsIn = (r, c) => state.teams.filter((tm) => state.matrix.assign[tm.name] === `${r},${c}`).map((tm) => teamChip(tm.name)).join("");
+  let html = "<tr><th class='mx-corner'></th>";
+  cols.forEach((col, c) => {
+    html += `<th class="mx-colhead"><button class="mx-del" data-delcol="${c}" title="remove column">✕</button><input class="mx-gold" data-c="${c}" type="text" value="${esc(col.gold)}" placeholder="cash e.g. 1150" /></th>`;
+  });
+  html += "</tr>";
+  rows.forEach((row, r) => {
+    html += `<tr><th class="mx-rowhead"><button class="mx-del" data-delrow="${r}" title="remove row">✕</button>
+      <input class="mx-label" data-r="${r}" type="text" value="${esc(row.label)}" placeholder="row label" />
+      <div class="mx-row-nums"><input class="mx-prim" data-r="${r}" type="number" min="0" value="${esc(row.primary)}" title="primary" /><input class="mx-sec" data-r="${r}" type="number" min="0" value="${esc(row.secondary)}" title="secondary" /></div>
+      <label class="mx-swap"><input class="mx-swapcb" data-r="${r}" type="checkbox" ${row.swap ? "checked" : ""} /> secondary swap</label></th>`;
+    cols.forEach((_, c) => {
+      html += `<td class="mx-cell team-drop" data-cell="${r},${c}">${teamsIn(r, c)}</td>`;
+    });
+    html += "</tr>";
+  });
+  $("matrix-table").innerHTML = html;
+  wireMatrix();
+}
+
+function wireMatrix() {
+  document.querySelectorAll(".mx-gold").forEach((el) => el.addEventListener("input", (e) => { state.matrix.columns[+e.target.dataset.c].gold = e.target.value; }));
+  document.querySelectorAll(".mx-label").forEach((el) => el.addEventListener("input", (e) => { state.matrix.rows[+e.target.dataset.r].label = e.target.value; }));
+  document.querySelectorAll(".mx-prim").forEach((el) => el.addEventListener("input", (e) => { state.matrix.rows[+e.target.dataset.r].primary = e.target.value; }));
+  document.querySelectorAll(".mx-sec").forEach((el) => el.addEventListener("input", (e) => { state.matrix.rows[+e.target.dataset.r].secondary = e.target.value; }));
+  document.querySelectorAll(".mx-swapcb").forEach((el) => el.addEventListener("change", (e) => { state.matrix.rows[+e.target.dataset.r].swap = e.target.checked; }));
+  document.querySelectorAll("[data-delcol]").forEach((el) => el.addEventListener("click", (e) => removeMatrixCol(+e.target.dataset.delcol)));
+  document.querySelectorAll("[data-delrow]").forEach((el) => el.addEventListener("click", (e) => removeMatrixRow(+e.target.dataset.delrow)));
+  wireMatrixDnD();
+}
+
+function wireMatrixDnD() {
+  let dragged = null;
+  document.querySelectorAll("#view-matrix .team-chip").forEach((chip) => {
+    chip.addEventListener("dragstart", () => { dragged = chip.dataset.team; chip.classList.add("dragging"); });
+    chip.addEventListener("dragend", () => chip.classList.remove("dragging"));
+  });
+  document.querySelectorAll("#view-matrix .team-drop").forEach((zone) => {
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("dragover"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault(); zone.classList.remove("dragover");
+      if (!dragged) return;
+      if (zone.dataset.cell === "pool") delete state.matrix.assign[dragged];
+      else state.matrix.assign[dragged] = zone.dataset.cell;
+      dragged = null;
+      renderMatrix();
+    });
+  });
+}
+
+function removeMatrixCol(c) {
+  state.matrix.columns.splice(c, 1);
+  const next = {};
+  for (const [t, rc] of Object.entries(state.matrix.assign)) {
+    let [r, cc] = rc.split(",").map(Number);
+    if (cc === c) continue; // team's column removed -> back to pool
+    if (cc > c) cc--;
+    next[t] = `${r},${cc}`;
+  }
+  state.matrix.assign = next;
+  renderMatrix();
+}
+function removeMatrixRow(r) {
+  state.matrix.rows.splice(r, 1);
+  const next = {};
+  for (const [t, rc] of Object.entries(state.matrix.assign)) {
+    let [rr, c] = rc.split(",").map(Number);
+    if (rr === r) continue;
+    if (rr > r) rr--;
+    next[t] = `${rr},${c}`;
+  }
+  state.matrix.assign = next;
+  renderMatrix();
+}
+
+$("m-enabled").addEventListener("change", (e) => { state.matrix.enabled = e.target.checked; renderMatrix(); });
+$("m-addcol").addEventListener("click", () => { state.matrix.columns.push({ gold: "" }); renderMatrix(); });
+$("m-addrow").addEventListener("click", () => { state.matrix.rows.push({ label: "", primary: 6, secondary: 0, swap: false }); renderMatrix(); });
+$("btn-save-matrix").addEventListener("click", () => savePackage($("matrix-save-status")));
+$("btn-save-teamrules").addEventListener("click", () => savePackage($("tr-save-status")));
 
 // ---- tiers: state application + rendering ----
 function applyTiers(tiers) {
@@ -429,6 +698,9 @@ function esc(s) {
   [state.teams, state.stars] = await Promise.all([api("/api/teams"), api("/api/stars")]);
   $("stars-list").innerHTML = state.stars.map((s) => `<option value="${esc(s.name)}"></option>`).join("");
   applyTiers(null); // seed pool/default assignment, tiers off
+  renderGlobalBans();
+  renderTeamRules();
+  applyMatrix(null);
   await loadPresets();
   await loadPackages();
 })();

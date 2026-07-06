@@ -138,3 +138,29 @@ td a { color: var(--gold); }
 .banned-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.3rem; }
 .banned-tag { background: #3a2530; color: #ffb3b3; border: 1px solid #5a2f3a; border-radius: 16px; padding: 0.15rem 0.55rem; font-size: 0.76rem; display: flex; align-items: center; gap: 0.35rem; }
 .banned-tag button { background: none; border: none; color: #ffb3b3; cursor: pointer; padding: 0; font-size: 0.9rem; line-height: 1; }
+
+/* matrix */
+.matrix-scroll { overflow-x: auto; }
+#matrix-table { border-collapse: separate; border-spacing: 4px; }
+#matrix-table th, #matrix-table td { border-bottom: none; padding: 0; vertical-align: top; }
+.mx-corner { min-width: 150px; }
+.mx-colhead, .mx-rowhead { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem; }
+.mx-colhead { min-width: 150px; }
+.mx-colhead input { width: 100%; }
+.mx-rowhead { width: 160px; }
+.mx-rowhead input[type="text"] { width: 100%; margin-bottom: 0.3rem; }
+.mx-rowhead .mx-row-nums { display: flex; gap: 0.3rem; }
+.mx-rowhead .mx-row-nums input { width: 3rem; }
+.mx-rowhead .mx-swap { font-size: 0.72rem; color: var(--ink-dim); display: flex; align-items: center; gap: 0.25rem; margin-top: 0.3rem; }
+.mx-cell { min-width: 150px; min-height: 54px; }
+.mx-del { background: none; border: none; color: var(--ink-dim); cursor: pointer; font-size: 0.75rem; float: right; }
+.mx-del:hover { color: var(--red); }
+
+/* team rules */
+#teamrules-table input[type="number"] { width: 3.4rem; padding: 0.25rem; }
+#teamrules-table input.tr-gold { width: 5rem; padding: 0.25rem; }
+#teamrules-table td { padding: 0.3rem 0.5rem; }
+.tr-bans-cell { min-width: 200px; }
+.tr-bans-cell .banned-tags { margin-top: 0; }
+.tr-baninput { width: 100%; padding: 0.25rem; }
+.tr-inherited { font-size: 0.7rem; color: var(--ink-dim); }
