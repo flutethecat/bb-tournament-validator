@@ -56,12 +56,14 @@ export const squadSize: Rule = {
 export const positionalLimits: Rule = {
   id: "positional-limits",
   needsDatasetRoster: true,
-  check: ({ players, datasetRoster }) => {
+  check: ({ players, datasetRoster, data }) => {
     const findings: Finding[] = [];
     const counts = new Map<string, number>();
     let bigGuys = 0;
     for (const rp of players) {
       if (!rp.position) {
+        // Star Players aren't in positions[]; the star-players rule handles them.
+        if (isStarName(data, rp.player.positionName)) continue;
         findings.push(
           err(
             "positional-limits",
