@@ -11,9 +11,15 @@
  *   /bbbot coach register [fumbbl] [naf-name] [naf]
  *   /bbbot coach lookup key:<key> value:<value>
  *   /bbbot coach me
+ *   /bbbot watch channel:<#ch> package:<name>   (TO, Manage Server)
+ *   /bbbot unwatch channel:<#ch>                (TO, Manage Server)
+ *   /bbbot watches
+ *
+ * Watched channels are the PRIMARY ingestion path: any PDF posted there is
+ * auto-validated against the bound package (✅/❌ on the coach's own post).
  */
 
-import { SlashCommandBuilder } from "discord.js";
+import { ChannelType, SlashCommandBuilder } from "discord.js";
 
 export const commandDefs = [
   new SlashCommandBuilder()
@@ -45,6 +51,40 @@ export const commandDefs = [
     )
     .addSubcommand((s) =>
       s.setName("packages").setDescription("List available tournament packages"),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("watch")
+        .setDescription("Auto-validate every PDF posted in a channel (TO only)")
+        .addChannelOption((o) =>
+          o
+            .setName("channel")
+            .setDescription("Channel to watch")
+            .addChannelTypes(ChannelType.GuildText)
+            .setRequired(true),
+        )
+        .addStringOption((o) =>
+          o
+            .setName("package")
+            .setDescription("Tournament package to validate against")
+            .setRequired(true)
+            .setAutocomplete(true),
+        ),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("unwatch")
+        .setDescription("Stop auto-validating a channel (TO only)")
+        .addChannelOption((o) =>
+          o
+            .setName("channel")
+            .setDescription("Channel to stop watching")
+            .addChannelTypes(ChannelType.GuildText)
+            .setRequired(true),
+        ),
+    )
+    .addSubcommand((s) =>
+      s.setName("watches").setDescription("List watched channels and their packages"),
     )
     .addSubcommandGroup((g) =>
       g

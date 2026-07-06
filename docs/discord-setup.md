@@ -15,9 +15,10 @@ your Discord account).
 2. Click **Reset Token** → copy the token → this is `DISCORD_TOKEN`.
    ⚠ Shown once — if you lose it, reset again. Never commit it; it lives only in `.env`
    (already gitignored).
-3. On the same page, under **Privileged Gateway Intents**: leave all three OFF.
-   The bot only uses slash commands + the `Guilds` intent, which is not privileged —
-   no Message Content, no Presence, no Server Members needed.
+3. On the same page, under **Privileged Gateway Intents**: turn **Message Content Intent ON**
+   (required for watched-channel ingestion — attachments on ordinary messages are hidden from
+   bots without it). Leave Presence and Server Members OFF. Free below 100 servers; the bot
+   fails login with "Used disallowed intents" if this toggle is off.
 
 ## 3. Invite the bot to your server
 
@@ -54,6 +55,24 @@ Leave `DATA_DIR`/`PACKAGES_DIR` empty — defaults are `apps\discord-bot\data-st
 it can become a service or run beside the fork server per decision D3).
 
 All commands are namespaced under **/bbbot** so they can never conflict with another bot.
+
+## 5b. Watched channels — the primary ingestion path
+
+A TO (Manage Server permission) binds a submission channel to a package once:
+
+```
+/bbbot watch channel:#roster-submissions package:Lustrian Superleague (Example)
+```
+
+From then on **every PDF posted in that channel is validated automatically** — no command needed:
+- legal roster → **✅ reaction on the coach's post**, DM confirmation, row in the validated CSV
+  (the /bbbot report link points at the coach's own post);
+- illegal roster → **❌ reaction**, full errors + suggestions **by DM** (if the coach's DMs are
+  closed, the bot posts a one-line mention in-channel so nothing fails silently);
+- unreadable PDF → ❌ + DM explaining it isn't a recognized roster export.
+
+`/bbbot unwatch channel:<#ch>` stops it; `/bbbot watches` lists the bindings.
+`/bbbot validate` remains available for one-off checks in unwatched channels.
 
 ## 6. Smoke test (the live-guild E2E from the plan)
 

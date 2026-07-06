@@ -16,13 +16,17 @@ import {
   EmbedBuilder,
   GatewayIntentBits,
   MessageFlags,
+  PermissionFlagsBits,
   type AutocompleteInteraction,
+  type Message,
 } from "discord.js";
 import { ingestPackageDocument } from "@bb/ingest";
+import type { Roster, ValidationResult } from "@bb/validator";
 import { PackageStore } from "./packageStore";
 import { renderProblemsEmbed, renderResultEmbed, validateRosterBytes, type EmbedData } from "./pipeline";
 import { CsvValidatedStore } from "./store/validatedStore";
 import { FileCoachRegistry, KeyConflictError, type CoachKey } from "./store/coachRegistry";
+import { WatchStore } from "./store/watchStore";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 if (!TOKEN) {
@@ -36,6 +40,44 @@ mkdirSync(DATA_DIR, { recursive: true });
 const packages = new PackageStore(PACKAGES_DIR);
 const validated = new CsvValidatedStore(join(DATA_DIR, "validated-rosters.csv"));
 const coaches = new FileCoachRegistry(join(DATA_DIR, "coaches.json"));
+const watches = new WatchStore(join(DATA_DIR, "watches.json"));
+
+/** Shared success side effects: DM + validated-roster row + coach-registry team. */
+async function recordValidRoster(
+  user: { id: string; username: string; send: (msg: string) => Promise<unknown> },
+  roster: Roster,
+  result: ValidationResult,
+  packageName: string,
+  messageLink: string,
+  sourceName: string,
+): Promise<void> {
+  await user
+    .send(
+      `✅ Your roster **${roster.teamName || sourceName}** (${roster.rosterName}) is legal for **${packageName}** — ${result.recomputedSummary.skillPointsUsed}/${result.recomputedSummary.skillPointBudget} SP.`,
+    )
+    .catch(() => void 0);
+  await validated.upsert({
+    discordUserId: user.id,
+    coachName: roster.coach || user.username,
+    teamName: roster.teamName || sourceName,
+    rosterRace: roster.rosterName,
+    packageName,
+    messageLink,
+    validatedAt: new Date().toISOString(),
+  });
+  try {
+    const entry = await coaches.upsert({ discordUserId: user.id });
+    await coaches.addTeam(entry.id, {
+      tournament: packageName,
+      teamName: roster.teamName || sourceName,
+      rosterRace: roster.rosterName,
+      sourceRef: messageLink,
+      registeredAt: new Date().toISOString(),
+    });
+  } catch {
+    /* registry is best-effort during validation */
+  }
+}
 
 const toEmbed = (d: EmbedData): EmbedBuilder => {
   const e = new EmbedBuilder().setTitle(d.title).setColor(d.color);
@@ -84,40 +126,103 @@ async function handleValidate(i: ChatInputCommandInteraction): Promise<void> {
   const reply = await i.editReply({ embeds: [embed] });
 
   if (result.valid) {
-    // (a) ✅ on the roster post (the bot's reply carrying the attachment result)
-    await reply.react("✅").catch(() => notes.push("Could not add the ✅ reaction."));
-    // (b) DM the coach — closed DMs are a note, never a failure
-    await i.user
-      .send(
-        `✅ Your roster **${roster.teamName || attachment.name}** (${roster.rosterName}) is legal for **${found.pkg.name}** — ${result.recomputedSummary.skillPointsUsed}/${result.recomputedSummary.skillPointBudget} SP.`,
-      )
-      .catch(() => void 0);
-    // (c) record in the validated store (+ coach registry team registration)
+    await reply.react("✅").catch(() => void 0);
     const messageLink = i.guildId
       ? `https://discord.com/channels/${i.guildId}/${reply.channelId}/${reply.id}`
       : "";
-    await validated.upsert({
-      discordUserId: i.user.id,
-      coachName: roster.coach || i.user.username,
-      teamName: roster.teamName || attachment.name,
-      rosterRace: roster.rosterName,
-      packageName: found.pkg.name,
-      messageLink,
-      validatedAt: new Date().toISOString(),
-    });
+    await recordValidRoster(i.user, roster, result, found.pkg.name, messageLink, attachment.name);
+  }
+}
+
+// ---- auto-ingestion: PDFs posted to watched channels (the PRIMARY path) ----
+async function handleWatchedMessage(message: Message): Promise<void> {
+  if (message.author.bot || !message.inGuild()) return;
+  const packageName = watches.get(message.channelId);
+  if (!packageName) return;
+  const pdfs = [...message.attachments.values()].filter(
+    (a) => a.contentType?.includes("pdf") || /\.pdf$/i.test(a.name),
+  );
+  if (pdfs.length === 0) return;
+
+  const found = packages.get(packageName);
+  if (!found) {
+    await message.reply(`⚠ This channel is watched, but its package "${packageName}" no longer exists — ask the TO to re-run /bbbot watch.`).catch(() => void 0);
+    return;
+  }
+
+  // DM-first feedback (owner decision): channel gets only the ✅/❌ reaction.
+  const dmOrFallback = async (embed: EmbedBuilder, fallback: string): Promise<void> => {
+    const dmOk = await message.author
+      .send({ embeds: [embed] })
+      .then(() => true)
+      .catch(() => false);
+    if (!dmOk) await message.reply(fallback).catch(() => void 0);
+  };
+
+  for (const pdf of pdfs.slice(0, 3)) {
     try {
-      const entry = await coaches.upsert({ discordUserId: i.user.id });
-      await coaches.addTeam(entry.id, {
-        tournament: found.pkg.name,
-        teamName: roster.teamName || attachment.name,
-        rosterRace: roster.rosterName,
-        sourceRef: messageLink,
-        registeredAt: new Date().toISOString(),
-      });
-    } catch {
-      /* registry is best-effort during /validate */
+      const bytes = await download(pdf.url);
+      const outcome = await validateRosterBytes(bytes, pdf.name, found.pkg);
+      if (!outcome.ok || !outcome.result || !outcome.roster) {
+        await message.react("❌").catch(() => void 0);
+        await dmOrFallback(
+          toEmbed(renderProblemsEmbed(outcome.problems, pdf.name)),
+          `${message.author} I couldn't read **${pdf.name}** (and your DMs are closed) — is it a bbtc.pl roster export?`,
+        );
+        continue;
+      }
+      const { result, roster } = outcome;
+      if (result.valid) {
+        await message.react("✅").catch(() => void 0);
+        await recordValidRoster(message.author, roster, result, found.pkg.name, message.url, pdf.name);
+      } else {
+        await message.react("❌").catch(() => void 0);
+        await dmOrFallback(
+          toEmbed(renderResultEmbed(result, roster.teamName || pdf.name, found.pkg.name)),
+          `${message.author} **${roster.teamName || pdf.name}** is not legal for **${found.pkg.name}** (details blocked — your DMs are closed; use /bbbot validate for an in-channel result).`,
+        );
+      }
+    } catch (e) {
+      console.error(`watched-message error (${pdf.name}):`, e);
+      await message.react("⚠").catch(() => void 0);
     }
   }
+}
+
+// ---- /bbbot watch|unwatch|watches ----
+async function handleWatch(i: ChatInputCommandInteraction): Promise<void> {
+  if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+    await i.reply({ content: "Watching channels requires Manage Server.", flags: MessageFlags.Ephemeral });
+    return;
+  }
+  const sub = i.options.getSubcommand();
+  if (sub === "watch") {
+    const channel = i.options.getChannel("channel", true);
+    const packageName = i.options.getString("package", true);
+    const found = packages.get(packageName);
+    if (!found) {
+      await i.reply({ content: `Unknown package "${packageName}". Try /bbbot packages.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    watches.set(channel.id, found.pkg.name);
+    await i.reply(
+      `👁 Watching <#${channel.id}> — every PDF posted there is now validated against **${found.pkg.name}** (✅/❌ on the post, details by DM).`,
+    );
+    return;
+  }
+  const channel = i.options.getChannel("channel", true);
+  const removed = watches.remove(channel.id);
+  await i.reply(removed ? `Stopped watching <#${channel.id}>.` : `<#${channel.id}> was not being watched.`);
+}
+
+async function handleWatches(i: ChatInputCommandInteraction): Promise<void> {
+  const all = watches.list();
+  await i.reply({
+    content: all.length
+      ? `Watched channels:\n${all.map((w) => `• <#${w.channelId}> → **${w.packageName}**`).join("\n")}`
+      : "No channels are being watched. TOs: /bbbot watch channel:<#ch> package:<name>.",
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 // ---- /report ----
@@ -253,7 +358,16 @@ async function handleCoach(i: ChatInputCommandInteraction): Promise<void> {
 }
 
 // ---- wiring ----
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+// GuildMessages + MessageContent are required for watched-channel ingestion;
+// MessageContent is PRIVILEGED — it must be toggled ON in the developer portal
+// (Bot → Privileged Gateway Intents → Message Content Intent).
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+});
+
+client.on("messageCreate", (message) => {
+  void handleWatchedMessage(message).catch((e) => console.error("messageCreate error:", e));
+});
 
 client.on("interactionCreate", async (interaction) => {
   try {
@@ -273,6 +387,11 @@ client.on("interactionCreate", async (interaction) => {
         return await handleReport(interaction);
       case "packages":
         return await handlePackages(interaction);
+      case "watch":
+      case "unwatch":
+        return await handleWatch(interaction);
+      case "watches":
+        return await handleWatches(interaction);
     }
   } catch (e) {
     console.error("interaction error:", e);
