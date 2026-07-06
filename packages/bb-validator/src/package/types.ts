@@ -12,6 +12,8 @@ export interface TierDef {
   rosters: string[];
   /** Per-tier gold/team-value cap; null = fall back to the package goldBudget. */
   gold: number | null;
+  /** Per-tier Skill-Point budget; null/undefined = fall back to skillAllotment.skillPointBudget. */
+  skillPointBudget?: number | null;
   /** Whether Star Players may be hired by teams in this tier. */
   starPlayersAllowed: boolean;
   /** Star names banned specifically for this tier. */

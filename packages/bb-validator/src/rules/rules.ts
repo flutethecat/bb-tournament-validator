@@ -167,8 +167,11 @@ export const skillAccessRule: Rule = {
 export const skillPoints: Rule = {
   id: "skill-points",
   needsDatasetRoster: true,
-  check: ({ players, pkg }) => {
+  check: ({ players, pkg, roster }) => {
     const cfg = pkg.skillAllotment;
+    const tier = resolveTier(pkg, roster.rosterName);
+    const budget = tier?.skillPointBudget ?? cfg.skillPointBudget;
+    const where = tier?.skillPointBudget != null ? ` (Tier ${tier.tier})` : "";
     const findings: Finding[] = [];
     let total = 0;
     const teamwide = new Map<string, number>();
@@ -216,14 +219,14 @@ export const skillPoints: Rule = {
             ),
           );
 
-    if (total > cfg.skillPointBudget) {
-      const over = total - cfg.skillPointBudget;
+    if (total > budget) {
+      const over = total - budget;
       findings.push(
         err(
           "skill-points",
-          `Team spends ${total} Skill Points; the budget is ${cfg.skillPointBudget} (${over} over).`,
+          `Team spends ${total} Skill Points; the budget is ${budget}${where} (${over} over).`,
           {
-            expected: `<= ${cfg.skillPointBudget}`,
+            expected: `<= ${budget}`,
             actual: total,
             suggestion: `Drop ${over} SP worth of added skills, or ask the TO to raise the budget to ${total}.`,
           },

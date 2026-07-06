@@ -160,6 +160,7 @@ function buildTiers() {
       ...(d.label ? { label: d.label } : {}),
       rosters: state.teams.filter((tm) => (state.assign[tm.name] || 0) === t).map((tm) => tm.name),
       gold: d.gold != null && d.gold !== "" ? Number(d.gold) * 1000 : null,
+      skillPointBudget: d.sp != null && d.sp !== "" ? Number(d.sp) : null,
       starPlayersAllowed: d.starsAllowed !== false,
       bannedStars: d.banned || [],
     });
@@ -212,6 +213,7 @@ function applyTiers(tiers) {
       state.tierData[t.tier] = {
         label: t.label || "",
         gold: t.gold != null ? t.gold / 1000 : "",
+        sp: t.skillPointBudget != null ? t.skillPointBudget : "",
         starsAllowed: t.starPlayersAllowed !== false,
         banned: [...(t.bannedStars || [])],
       };
@@ -230,7 +232,7 @@ function applyTiers(tiers) {
 
 function ensureTierData() {
   for (let t = 1; t <= state.tierCount; t++) {
-    if (!state.tierData[t]) state.tierData[t] = { label: "", gold: "", starsAllowed: true, banned: [] };
+    if (!state.tierData[t]) state.tierData[t] = { label: "", gold: "", sp: "", starsAllowed: true, banned: [] };
   }
 }
 
@@ -256,6 +258,7 @@ function renderTiers() {
       <h2><span>Tier ${t}</span><span class="tier-badge">${members.length} teams</span></h2>
       <label>Label<input class="t-label" data-t="${t}" type="text" value="${esc(d.label)}" placeholder="e.g. Tier ${t}" /></label>
       <label>Gold budget (k)<input class="t-gold" data-t="${t}" type="number" min="0" value="${esc(d.gold)}" placeholder="none" /></label>
+      <label>Skill-Point budget<input class="t-sp" data-t="${t}" type="number" min="0" value="${esc(d.sp)}" placeholder="package default" /></label>
       <label class="switch"><input class="t-stars" data-t="${t}" type="checkbox" ${d.starsAllowed ? "checked" : ""} /><span>Allow Star Players</span></label>
       <label>Ban a star (type + Enter)<input class="t-banadd" data-t="${t}" type="text" list="stars-list" placeholder="Star name…" /></label>
       <div class="banned-tags" data-t="${t}">${d.banned.map((s) => bannedTag(t, s)).join("")}</div>
@@ -275,6 +278,9 @@ function wireTierControls() {
   );
   document.querySelectorAll(".t-gold").forEach((el) =>
     el.addEventListener("input", (e) => { state.tierData[+e.target.dataset.t].gold = e.target.value; }),
+  );
+  document.querySelectorAll(".t-sp").forEach((el) =>
+    el.addEventListener("input", (e) => { state.tierData[+e.target.dataset.t].sp = e.target.value; }),
   );
   document.querySelectorAll(".t-stars").forEach((el) =>
     el.addEventListener("change", (e) => { state.tierData[+e.target.dataset.t].starsAllowed = e.target.checked; }),

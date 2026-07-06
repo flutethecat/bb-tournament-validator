@@ -70,6 +70,39 @@ describe("per-tier star access + banned stars", () => {
   });
 });
 
+describe("per-tier skill-point budget", () => {
+  it("uses the tier SP budget over the package skillAllotment budget", () => {
+    // one Block added (2 SP elite); package budget 10, tier-1 budget 1 => over
+    const players = roster({ rosterName: "Testers" }).players;
+    players[0] = player({ number: 1, skills: ["Block"] });
+    const base = pkg().skillAllotment;
+    const r = validate(
+      roster({ rosterName: "Testers", players }),
+      pkg({
+        skillAllotment: { ...base, skillPointBudget: 10 },
+        tiers: tiers([{ skillPointBudget: 1 }]),
+      }),
+      fakeData,
+    );
+    const f = errorsOf(r, "skill-points")[0]!;
+    expect(f.message).toMatch(/2 Skill Points; the budget is 1 \(Tier 1\)/);
+    expect(r.recomputedSummary.skillPointBudget).toBe(1);
+  });
+
+  it("falls back to the package budget when the tier leaves SP unset", () => {
+    const players = roster({ rosterName: "Testers" }).players;
+    players[0] = player({ number: 1, skills: ["Block"] });
+    const base = pkg().skillAllotment;
+    const r = validate(
+      roster({ rosterName: "Testers", players }),
+      pkg({ skillAllotment: { ...base, skillPointBudget: 10 }, tiers: tiers() }),
+      fakeData,
+    );
+    expect(errorsOf(r, "skill-points")).toHaveLength(0);
+    expect(r.recomputedSummary.skillPointBudget).toBe(10);
+  });
+});
+
 describe("generic star detection (no tiers)", () => {
   it("detects stars for any team via the dataset star list", () => {
     const players = roster().players;

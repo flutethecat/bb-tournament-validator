@@ -9,6 +9,7 @@ import type { Roster } from "./model/roster";
 import type { Dataset } from "./dataset/types";
 import { addedSkills, findPosition, findRoster, skillAccess } from "./dataset/lookup";
 import type { TournamentPackage } from "./package/types";
+import { resolveTier } from "./package/tiers";
 import { costSP } from "./cost/costSP";
 import { ALL_RULES, recomputeGold } from "./rules/rules";
 import type { ResolvedPlayer, Rule, RuleContext } from "./rules/types";
@@ -75,7 +76,8 @@ export function validate(
     infos: findings.filter((f) => f.severity === "info"),
     recomputedSummary: {
       skillPointsUsed: sp,
-      skillPointBudget: pkg.skillAllotment.skillPointBudget,
+      skillPointBudget:
+        resolveTier(pkg, roster.rosterName)?.skillPointBudget ?? pkg.skillAllotment.skillPointBudget,
       goldUsed: recomputeGold(roster),
       goldBudget: pkg.goldBudget,
       playerCount: roster.players.length,

@@ -31,6 +31,7 @@
           "label": { "type": "string" },
           "rosters": { "type": "array", "items": { "type": "string" } },
           "gold": { "type": ["number", "null"], "description": "Per-tier gold cap; null = fall back to goldBudget." },
+          "skillPointBudget": { "type": ["number", "null"], "description": "Per-tier SP budget; null = fall back to skillAllotment.skillPointBudget." },
           "starPlayersAllowed": { "type": "boolean" },
           "bannedStars": { "type": "array", "items": { "type": "string" } }
         }
