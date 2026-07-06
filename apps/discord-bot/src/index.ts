@@ -29,8 +29,8 @@ if (!TOKEN) {
   console.error("DISCORD_TOKEN is required (see .env.example).");
   process.exit(1);
 }
-const DATA_DIR = resolve(process.env.DATA_DIR ?? "./data-store");
-const PACKAGES_DIR = resolve(process.env.PACKAGES_DIR ?? "../../tournament-packages");
+const DATA_DIR = resolve(process.env.DATA_DIR || "./data-store");
+const PACKAGES_DIR = resolve(process.env.PACKAGES_DIR || "../../tournament-packages");
 mkdirSync(DATA_DIR, { recursive: true });
 
 const packages = new PackageStore(PACKAGES_DIR);
