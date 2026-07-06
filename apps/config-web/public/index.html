@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BB Tournament — Config Pane</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>🏆 BB Tournament <span>Config Pane</span></h1>
+      <nav class="tabs">
+        <button class="tab active" data-view="configure">Configure</button>
+        <button class="tab" data-view="coaches">Coaches</button>
+      </nav>
+    </header>
+
+    <main>
+      <!-- ============ CONFIGURE ============ -->
+      <section id="view-configure" class="view active">
+        <div class="grid">
+          <!-- left column: meta + settings -->
+          <div class="col">
+            <div class="card">
+              <h2>Tournament</h2>
+              <label>Name<input id="f-name" type="text" placeholder="e.g. Lustrian Open 2026" /></label>
+              <label>Date<input id="f-date" type="date" /></label>
+              <label>Eligible rosters
+                <input id="f-rosters" type="text" placeholder="* for all, or: Amazon, Human, Orc" />
+              </label>
+              <label>Description
+                <textarea id="f-desc" rows="2" placeholder="Optional notes shown in /bbbot package show"></textarea>
+              </label>
+              <label class="preset-row">Load a preset
+                <select id="f-preset"><option value="">— choose —</option></select>
+              </label>
+              <label class="preset-row">Edit an existing package
+                <select id="f-existing"><option value="">— new package —</option></select>
+              </label>
+            </div>
+
+            <div class="card">
+              <h2>Skill Points</h2>
+              <div class="rowset">
+                <label>SP budget<input id="f-sp-budget" type="number" min="0" value="0" /></label>
+                <label>Primary skill cost<input id="f-sp-primary" type="number" min="0" value="1" /></label>
+                <label>Secondary = ×primary<input id="f-sp-secmult" type="number" min="0" step="0.5" value="2" /></label>
+                <label>Max skills / player<input id="f-sp-maxplayer" type="number" min="0" value="2" /></label>
+                <label>Max same skill / team<input id="f-sp-maxstack" type="number" min="0" placeholder="none" /></label>
+              </div>
+              <label class="switch">
+                <input id="f-elite-on" type="checkbox" checked />
+                <span>Do Elite skills cost more?</span>
+              </label>
+              <label id="f-elite-wrap">Elite surcharge (SP)<input id="f-sp-elite" type="number" min="0" value="1" /></label>
+            </div>
+
+            <div class="card">
+              <h2>Sideline &amp; Stars</h2>
+              <div class="rowset">
+                <label>Max re-rolls<input id="f-max-rr" type="number" min="0" value="8" /></label>
+                <label>Max apothecary<input id="f-max-apo" type="number" min="0" value="1" /></label>
+                <label>Max cheerleaders<input id="f-max-chr" type="number" min="0" placeholder="none" /></label>
+                <label>Max asst. coaches<input id="f-max-coach" type="number" min="0" placeholder="none" /></label>
+                <label>Max dedicated fans<input id="f-max-fans" type="number" min="0" placeholder="none" /></label>
+                <label>Gold budget (k, optional)<input id="f-gold" type="number" min="0" placeholder="none" /></label>
+              </div>
+              <label class="switch"><input id="f-stars" type="checkbox" /><span>Allow Star Players</span></label>
+              <div class="rowset">
+                <label>Max stars<input id="f-star-max" type="number" min="0" value="0" /></label>
+                <label>Max star cost (k)<input id="f-star-cost" type="number" min="0" placeholder="none" /></label>
+              </div>
+            </div>
+
+            <div class="card">
+              <h2>Special rules</h2>
+              <div class="rowset">
+                <label>Min players<input id="f-minplayers" type="number" min="1" value="11" /></label>
+              </div>
+              <label class="switch"><input id="f-insig" type="checkbox" checked /><span>Insignificant-trait constraint</span></label>
+              <label class="switch"><input id="f-stat" type="checkbox" /><span>Allow stat increases</span></label>
+              <label class="switch"><input id="f-slann" type="checkbox" /><span>Allow Slann</span></label>
+            </div>
+          </div>
+
+          <!-- right column: skills -->
+          <div class="col">
+            <div class="card sticky-actions">
+              <div class="actions">
+                <button id="btn-save" class="primary">Save package</button>
+                <span id="save-status" class="status"></span>
+              </div>
+              <p class="hint">Saving writes a JSON file the bot hot-loads — it takes effect on the next validation, no restart.</p>
+              <input id="skill-filter" type="search" placeholder="Filter skills…" />
+            </div>
+
+            <div class="card">
+              <h2>Elite skills <span id="elite-count" class="pill"></span></h2>
+              <p class="hint">These get the Elite surcharge (when enabled). Toggle a skill's Elite membership, or set a custom SP cost per skill.</p>
+              <div id="skills-elite" class="skill-list"></div>
+            </div>
+
+            <div class="card">
+              <h2>General skills <span id="general-count" class="pill"></span></h2>
+              <div id="skills-general" class="skill-list"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ COACHES ============ -->
+      <section id="view-coaches" class="view">
+        <div class="card">
+          <div class="coaches-head">
+            <h2>Registered coaches</h2>
+            <div class="coaches-controls">
+              <select id="coach-filter"><option value="">All packages</option></select>
+              <button id="coach-refresh">Refresh</button>
+            </div>
+          </div>
+          <table id="coaches-table">
+            <thead>
+              <tr><th>Coach</th><th>Team</th><th>Race</th><th>Package</th><th>Validated</th><th>Roster</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <p id="coaches-empty" class="hint" hidden>No validated rosters yet.</p>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -24,6 +24,8 @@ export interface TournamentPackage {
   name: string;
   ruleset: string; // default "bb2025-default"
   description?: string;
+  /** Optional tournament date (ISO yyyy-mm-dd); informational, not validated. */
+  date?: string;
   /** Base package to merge over (resolved by loadPackage before validate()). */
   extends?: string;
   /** Race names, or ["*"] for all. */

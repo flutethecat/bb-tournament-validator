@@ -1,0 +1,20 @@
+{
+  "name": "config-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TO configuration pane: author tournament packages + coaches dashboard (served over HTTP).",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@bb/validator": "workspace:*",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3",
+    "@types/node": "^24.13.2"
+  }
+}

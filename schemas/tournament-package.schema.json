@@ -11,6 +11,7 @@
     "name": { "type": "string" },
     "ruleset": { "type": "string", "default": "bb2025-default" },
     "description": { "type": "string" },
+    "date": { "type": "string", "description": "Optional tournament date (ISO yyyy-mm-dd); informational." },
     "extends": { "type": "string", "description": "Name/id of a base package to merge over (e.g. 'bb2025-default')." },
 
     "eligibleRosters": {

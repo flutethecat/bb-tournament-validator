@@ -9,6 +9,13 @@
 
 import { DEFAULT_SKILL_ALLOTMENT, type SkillAllotment, type TournamentPackage } from "./types";
 
+/** Recursively-optional view of T (arrays keep their element type). */
+export type DeepPartial<T> = T extends (infer U)[]
+  ? U[]
+  : T extends object
+    ? { [K in keyof T]?: DeepPartial<T[K]> }
+    : T;
+
 export interface CsvSkillCostRow {
   skill: string;
   costSP?: number;
@@ -72,17 +79,20 @@ export function applyCsvOverrides(allotment: SkillAllotment, rows: CsvSkillCostR
 /** Deep-merge a partial package over a base (arrays/scalars replace; objects merge). */
 export function mergePackages(
   base: TournamentPackage,
-  override: Partial<TournamentPackage>,
+  override: DeepPartial<TournamentPackage>,
 ): TournamentPackage {
+  // `base` is always a fully-populated package, so each nested spread yields a
+  // complete sub-object; the assertions keep the DeepPartial override from
+  // widening the result types.
   return {
     ...base,
     ...override,
-    skillAllotment: { ...base.skillAllotment, ...(override.skillAllotment ?? {}) },
-    starPlayers: { ...base.starPlayers, ...(override.starPlayers ?? {}) },
-    inducements: { ...base.inducements, ...(override.inducements ?? {}) },
-    sideline: { ...base.sideline, ...(override.sideline ?? {}) },
-    special: { ...base.special, ...(override.special ?? {}) },
-  };
+    skillAllotment: { ...base.skillAllotment, ...(override.skillAllotment ?? {}) } as SkillAllotment,
+    starPlayers: { ...base.starPlayers, ...(override.starPlayers ?? {}) } as TournamentPackage["starPlayers"],
+    inducements: { ...base.inducements, ...(override.inducements ?? {}) } as TournamentPackage["inducements"],
+    sideline: { ...base.sideline, ...(override.sideline ?? {}) } as TournamentPackage["sideline"],
+    special: { ...base.special, ...(override.special ?? {}) } as TournamentPackage["special"],
+  } as TournamentPackage;
 }
 
 /**
@@ -91,9 +101,9 @@ export function mergePackages(
  * `resolveExtends` maps an `extends` name to its raw package (the caller loads it).
  */
 export function loadPackage(
-  raw: Partial<TournamentPackage>,
+  raw: DeepPartial<TournamentPackage>,
   opts?: {
-    resolveExtends?: (name: string) => Partial<TournamentPackage> | undefined;
+    resolveExtends?: (name: string) => DeepPartial<TournamentPackage> | undefined;
     csvText?: string;
   },
 ): { pkg: TournamentPackage; problems: string[] } {

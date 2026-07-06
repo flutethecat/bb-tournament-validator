@@ -15,6 +15,25 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@24.13.2)(tsx@4.23.0)
 
+  apps/config-web:
+    dependencies:
+      '@bb/validator':
+        specifier: workspace:*
+        version: link:../../packages/bb-validator
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
+    devDependencies:
+      '@types/node':
+        specifier: ^24.13.2
+        version: 24.13.2
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.0
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
   apps/discord-bot:
     dependencies:
       '@bb/ingest':

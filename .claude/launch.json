@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "config-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "config-web", "start"],
+      "port": 4310
+    }
+  ]
+}

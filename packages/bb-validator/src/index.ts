@@ -23,7 +23,7 @@ export type { Access } from "./dataset/lookup";
 export type { TournamentPackage, SkillAllotment } from "./package/types";
 export { DEFAULT_SKILL_ALLOTMENT } from "./package/types";
 export { loadPackage, mergePackages, parseSkillCostCsv, applyCsvOverrides } from "./package/resolve";
-export type { CsvSkillCostRow } from "./package/resolve";
+export type { CsvSkillCostRow, DeepPartial } from "./package/resolve";
 export { costSP, isElite } from "./cost/costSP";
 export { ALL_RULES } from "./rules/rules";
 export type { Rule, RuleContext, ResolvedPlayer } from "./rules/types";
