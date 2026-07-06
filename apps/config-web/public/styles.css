@@ -141,11 +141,11 @@ td a { color: var(--gold); }
 
 /* matrix */
 .matrix-scroll { overflow-x: auto; }
-#matrix-table { border-collapse: separate; border-spacing: 4px; }
+#matrix-table { border-collapse: separate; border-spacing: 4px; table-layout: fixed; width: max-content; }
 #matrix-table th, #matrix-table td { border-bottom: none; vertical-align: top; }
-.mx-corner { min-width: 150px; padding: 0; }
+.mx-corner { width: 160px; padding: 0; }
 .mx-colhead, .mx-rowhead { position: relative; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem; }
-.mx-colhead { min-width: 150px; }
+.mx-colhead { width: 170px; }
 .mx-colhead input { width: 100%; padding-right: 18px; }
 .mx-rowhead { width: 160px; }
 .mx-rowhead input[type="text"] { width: 100%; padding-right: 18px; margin-bottom: 0.3rem; }
@@ -153,8 +153,10 @@ td a { color: var(--gold); }
 .mx-num { display: flex; flex-direction: column; gap: 0.1rem; margin-bottom: 0; font-size: 0.66rem; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.02em; }
 .mx-num input { width: 3rem; padding-right: 0.35rem; }
 .mx-rowhead .mx-swap { font-size: 0.72rem; color: var(--ink-dim); display: flex; align-items: center; gap: 0.25rem; margin-top: 0.3rem; }
-.mx-cell { min-width: 150px; vertical-align: top; padding: 0; }
+.mx-cell { width: 170px; vertical-align: top; padding: 0; }
 .mx-cell .mx-drop { height: 100%; min-height: 54px; margin: 0; }
+/* teams wrap within the fixed column width instead of widening it */
+.mx-drop .team-chip { max-width: 100%; overflow-wrap: anywhere; }
 .mx-del { position: absolute; top: 3px; right: 4px; z-index: 1; background: none; border: none; color: var(--ink-dim); cursor: pointer; font-size: 0.72rem; line-height: 1; padding: 2px; }
 .mx-del:hover { color: var(--red); }
 
