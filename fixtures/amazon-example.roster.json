@@ -1,0 +1,47 @@
+{
+  "$schema": "../schemas/roster.schema.json",
+  "_about": "Golden fixture: the normalized Roster that bb-ingest MUST produce from the supplied bbtc.pl 'Example PDF' Amazon exports. Used to lock the PDF parser (M2) and as validator test input (M1). 'baseSkills'/'addedSkills' are derived against data/bb2025/rosters/amazon.json.",
+  "source": { "format": "bbtc.pl-pdf", "ruleset": "bb2025" },
+  "rosterName": "Amazon",
+  "coach": "COACH NAME",
+  "teamName": "TEAM NAME",
+  "sideline": {
+    "apothecary": true,
+    "assistantCoaches": 0,
+    "cheerleaders": 0,
+    "dedicatedFans": 0,
+    "reRolls": 3
+  },
+  "inducements": [],
+  "leagues": ["Lustrian Superleague"],
+  "specialRules": [],
+  "players": [
+    { "number": 1,  "positionName": "Eagle Warrior",  "MA": 6, "ST": 3, "AG": "3+", "PA": "4+", "AV": "8+", "cost": 50000,  "skills": ["Dodge"], "baseSkills": ["Dodge"], "addedSkills": [], "keywords": ["Human", "Lineman"] },
+    { "number": 2,  "positionName": "Eagle Warrior",  "MA": 6, "ST": 3, "AG": "3+", "PA": "4+", "AV": "8+", "cost": 50000,  "skills": ["Dodge"], "baseSkills": ["Dodge"], "addedSkills": [], "keywords": ["Human", "Lineman"] },
+    { "number": 3,  "positionName": "Python Warrior", "MA": 6, "ST": 3, "AG": "3+", "PA": "3+", "AV": "8+", "cost": 80000,  "skills": ["Dodge", "On the Ball", "Pass", "Safe Pass", "Leader"], "baseSkills": ["Dodge", "On the Ball", "Pass", "Safe Pass"], "addedSkills": ["Leader"], "keywords": ["Human", "Thrower"] },
+    { "number": 4,  "positionName": "Python Warrior", "MA": 6, "ST": 3, "AG": "3+", "PA": "3+", "AV": "8+", "cost": 80000,  "skills": ["Dodge", "On the Ball", "Pass", "Safe Pass", "Block"], "baseSkills": ["Dodge", "On the Ball", "Pass", "Safe Pass"], "addedSkills": ["Block"], "keywords": ["Human", "Thrower"] },
+    { "number": 5,  "positionName": "Piranha Warrior","MA": 7, "ST": 3, "AG": "3+", "PA": "4+", "AV": "8+", "cost": 90000,  "skills": ["Dodge", "Hit and Run", "Jump up", "Block"], "baseSkills": ["Dodge", "Hit and Run", "Jump up"], "addedSkills": ["Block"], "keywords": ["Blitzer", "Human"] },
+    { "number": 6,  "positionName": "Piranha Warrior","MA": 7, "ST": 3, "AG": "3+", "PA": "4+", "AV": "8+", "cost": 90000,  "skills": ["Dodge", "Hit and Run", "Jump up", "Wrestle"], "baseSkills": ["Dodge", "Hit and Run", "Jump up"], "addedSkills": ["Wrestle"], "keywords": ["Blitzer", "Human"] },
+    { "number": 7,  "positionName": "Jaguar Warrior", "MA": 6, "ST": 4, "AG": "3+", "PA": "4+", "AV": "9+", "cost": 110000, "skills": ["Defensive", "Dodge", "Block"], "baseSkills": ["Defensive", "Dodge"], "addedSkills": ["Block"], "keywords": ["Blocker", "Human"] },
+    { "number": 8,  "positionName": "Jaguar Warrior", "MA": 6, "ST": 4, "AG": "3+", "PA": "4+", "AV": "9+", "cost": 110000, "skills": ["Defensive", "Dodge", "Guard"], "baseSkills": ["Defensive", "Dodge"], "addedSkills": ["Guard"], "keywords": ["Blocker", "Human"] },
+    { "number": 9,  "positionName": "Eagle Warrior",  "MA": 6, "ST": 3, "AG": "3+", "PA": "4+", "AV": "8+", "cost": 50000,  "skills": ["Dodge"], "baseSkills": ["Dodge"], "addedSkills": [], "keywords": ["Human", "Lineman"] },
+    { "number": 10, "positionName": "Eagle Warrior",  "MA": 6, "ST": 3, "AG": "3+", "PA": "4+", "AV": "8+", "cost": 50000,  "skills": ["Dodge"], "baseSkills": ["Dodge"], "addedSkills": [], "keywords": ["Human", "Lineman"] },
+    { "number": 11, "positionName": "Eagle Warrior",  "MA": 6, "ST": 3, "AG": "3+", "PA": "4+", "AV": "8+", "cost": 50000,  "skills": ["Dodge"], "baseSkills": ["Dodge"], "addedSkills": [], "keywords": ["Human", "Lineman"] }
+  ],
+  "summary": {
+    "playersCost": 810000,
+    "skillsCost": 160000,
+    "inducementCost": 0,
+    "sidelineCost": 230000,
+    "total": 1200000,
+    "primarySkills": 6,
+    "secondarySkills": 0
+  },
+  "_derivedSkillPoints": {
+    "note": "Under the owner default SP costing (primary 1, elite +1, secondary x2).",
+    "addedSkills": ["Leader", "Block", "Block", "Wrestle", "Block", "Guard"],
+    "perSkillSP": { "Leader": 1, "Block": 2, "Wrestle": 1, "Guard": 2 },
+    "totalSP": 10,
+    "allPrimaryAccess": true
+  }
+}

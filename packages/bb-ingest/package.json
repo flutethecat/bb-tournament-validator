@@ -1,0 +1,28 @@
+{
+  "name": "@bb/ingest",
+  "version": "0.1.0",
+  "description": "Roster + tournament-package ingestion adapters (PDF/text/CSV) producing @bb/validator models.",
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --sourcemap --clean"
+  },
+  "dependencies": {
+    "@bb/validator": "workspace:*",
+    "pdfjs-dist": "^4.10.38"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,58 @@
+/**
+ * SKETCH (unbuilt). Pure lookup helpers over the injected Dataset.
+ * Name matching is deliberately forgiving (case/whitespace/aliases) because names
+ * arrive from PDFs and, later, OCR.
+ */
+
+import type { Dataset, DatasetPosition, DatasetRoster, SkillMeta } from "./types";
+
+export type Access = "primary" | "secondary" | "illegal";
+
+/** Lowercase, collapse whitespace, strip punctuation-ish variance ("Jump up" == "Jump Up"). */
+export function normName(s: string): string {
+  return s.toLowerCase().replace(/[\s_-]+/g, " ").replace(/['’.]/g, "").trim();
+}
+
+export function findRoster(data: Dataset, raceName: string): DatasetRoster | undefined {
+  const want = normName(raceName);
+  for (const r of Object.values(data.rosters)) {
+    if (normName(r.name) === want || normName(r.id) === want) return r;
+  }
+  return undefined;
+}
+
+export function findPosition(roster: DatasetRoster, positionName: string): DatasetPosition | undefined {
+  const want = normName(positionName);
+  for (const p of roster.positions) {
+    if (normName(p.name) === want) return p;
+    if (p.aliases?.some((a) => normName(a) === want)) return p;
+  }
+  return undefined;
+}
+
+export function findSkill(data: Dataset, skillName: string): SkillMeta | undefined {
+  const want = normName(skillName);
+  for (const [name, meta] of Object.entries(data.skills)) {
+    if (normName(name) === want) return meta;
+  }
+  return undefined;
+}
+
+/**
+ * Is `skill` primary, secondary, or illegal for `position`?
+ * Unknown skills and traits are "illegal" — the rule that calls this turns unknowns
+ * into their own explicit finding so data gaps are loud, not silent.
+ */
+export function skillAccess(data: Dataset, position: DatasetPosition, skill: string): Access {
+  const meta = findSkill(data, skill);
+  if (!meta?.category || meta.trait) return "illegal";
+  if (position.primaryCategories.includes(meta.category)) return "primary";
+  if (position.secondaryCategories.includes(meta.category)) return "secondary";
+  return "illegal";
+}
+
+/** Diff a player's printed skills against the position's base skills → added skills. */
+export function addedSkills(position: DatasetPosition, printedSkills: string[]): string[] {
+  const base = new Set(position.skills.map(normName));
+  return printedSkills.filter((s) => !base.has(normName(s)));
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@bb/validator",
+  "version": "0.1.0",
+  "description": "Pure, browser-safe Blood Bowl 2025 tournament roster validator core (no Node built-ins).",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./dataset": {
+      "types": "./dist/dataset/bb2025/index.d.ts",
+      "default": "./dist/dataset/bb2025/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "prepare": "tsup"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3"
+  }
+}

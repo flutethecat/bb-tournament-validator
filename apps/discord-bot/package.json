@@ -1,0 +1,23 @@
+{
+  "name": "discord-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BB Tournament Validator Discord bot (v1: validate bbtc.pl roster PDFs against TO packages).",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "register": "tsx src/registerCommands.ts",
+    "build": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@bb/ingest": "workspace:*",
+    "@bb/validator": "workspace:*",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3",
+    "@types/node": "^24.0.0"
+  }
+}

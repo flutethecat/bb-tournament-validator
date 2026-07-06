@@ -1,0 +1,100 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://fumbbl40k/bb-tournament-validator/schemas/tournament-package.schema.json",
+  "title": "TournamentPackage",
+  "description": "A Blood Bowl 2025 tournament rules package a Tournament Organizer validates rosters against. Authored as JSON/YAML, or produced by ingesting a formatted rules document + optional CSV skill-cost sheet.",
+  "type": "object",
+  "required": ["name", "skillAllotment"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": { "type": "string" },
+    "ruleset": { "type": "string", "default": "bb2025-default" },
+    "description": { "type": "string" },
+    "extends": { "type": "string", "description": "Name/id of a base package to merge over (e.g. 'bb2025-default')." },
+
+    "eligibleRosters": {
+      "type": "array",
+      "description": "Race names allowed. Use ['*'] for all. Optionally scoped by tiers below.",
+      "items": { "type": "string" }
+    },
+    "tiers": {
+      "type": "object",
+      "description": "Optional tier -> roster-name[] mapping for tiered events.",
+      "additionalProperties": { "type": "array", "items": { "type": "string" } }
+    },
+
+    "skillAllotment": {
+      "type": "object",
+      "required": ["skillPointBudget"],
+      "additionalProperties": false,
+      "properties": {
+        "skillPointBudget": { "type": "number", "description": "Total Skill Points a team may spend on ADDED skills." },
+        "primaryCostSP": { "type": "number", "default": 1 },
+        "secondaryMultiplier": { "type": "number", "default": 2, "description": "Secondary (doubles) SP = primaryCostSP * this. Ignored if secondaryCostSP set." },
+        "secondaryCostSP": { "type": ["number", "null"], "default": null, "description": "Explicit flat SP for a secondary skill; overrides secondaryMultiplier." },
+        "eliteSurchargeSP": { "type": "number", "default": 1, "description": "Extra SP added for a skill in the effective Elite set." },
+        "eliteSkills": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["Block", "Guard", "Mighty Blow", "Dodge"],
+          "description": "The effective Elite set for this package. Defaults to the rulebook-Elite skills."
+        },
+        "skillCostSP": {
+          "type": "object",
+          "additionalProperties": { "type": "number" },
+          "default": {},
+          "description": "Per-skill SP overrides (highest precedence). Also loadable from a CSV."
+        },
+        "maxPerPlayer": { "type": ["number", "null"], "default": 2, "description": "Max ADDED skills on a single player." },
+        "maxSameSkillTeamwide": { "type": ["number", "null"], "default": null, "description": "Max copies of one added skill across the whole team." }
+      }
+    },
+
+    "goldBudget": { "type": ["number", "null"], "default": null, "description": "Optional parallel gold cap (team value incl. skills). Null = SP-only tournament." },
+
+    "starPlayers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowed": { "type": "boolean", "default": true },
+        "maxCount": { "type": ["number", "null"], "default": null },
+        "maxCombinedCost": { "type": ["number", "null"], "default": null }
+      }
+    },
+
+    "inducements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowed": { "type": "array", "items": { "type": "string" }, "description": "Inducement ids allowed, or ['*'] for all, [] for none." },
+        "caps": { "type": "object", "additionalProperties": { "type": "number" }, "description": "Per-inducement max overrides." }
+      }
+    },
+
+    "sideline": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxReRolls": { "type": ["number", "null"] },
+        "maxApothecary": { "type": ["number", "null"] },
+        "maxCheerleaders": { "type": ["number", "null"] },
+        "maxAssistantCoaches": { "type": ["number", "null"] },
+        "maxDedicatedFans": { "type": ["number", "null"] }
+      }
+    },
+
+    "special": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "insignificantTraitConstraint": { "type": "boolean", "default": true, "description": "Players with the Insignificant trait may not exceed players without it." },
+        "stalling": { "type": "boolean", "default": true },
+        "slannAllowed": { "type": "boolean", "default": false },
+        "statIncreasesAllowed": { "type": "boolean", "default": false },
+        "bannedSkills": { "type": "array", "items": { "type": "string" }, "default": [] },
+        "minPlayers": { "type": "number", "default": 11 }
+      }
+    }
+  }
+}

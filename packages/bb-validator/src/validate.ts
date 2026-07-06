@@ -1,0 +1,86 @@
+/**
+ * SKETCH (unbuilt). The core entry point: validate(roster, pkg, dataset).
+ * Precomputes per-player resolution once, runs the rule registry, groups findings,
+ * and recomputes the SP/gold summary the bot (and the T1 tournament service) render.
+ */
+
+import type { Finding, ValidationResult } from "./model/findings";
+import type { Roster } from "./model/roster";
+import type { Dataset } from "./dataset/types";
+import { addedSkills, findPosition, findRoster, skillAccess } from "./dataset/lookup";
+import type { TournamentPackage } from "./package/types";
+import { costSP } from "./cost/costSP";
+import { ALL_RULES, recomputeGold } from "./rules/rules";
+import type { ResolvedPlayer, Rule, RuleContext } from "./rules/types";
+import { err } from "./rules/types";
+
+export function validate(
+  roster: Roster,
+  pkg: TournamentPackage,
+  data: Dataset,
+  rules: Rule[] = ALL_RULES,
+): ValidationResult {
+  const findings: Finding[] = [];
+
+  const datasetRoster = findRoster(data, roster.rosterName);
+  if (!datasetRoster) {
+    // M1 is Amazon-only by design: unknown races fail gracefully and loudly,
+    // never with a misleading "valid" result (plan note under Phasing).
+    findings.push(
+      err(
+        "dataset",
+        `The ${roster.rosterName} roster is not in the validator's dataset yet (M1 covers Amazon only).`,
+        { suggestion: "Supported rosters grow in M4; ask the TO or try an Amazon team." },
+      ),
+    );
+  }
+
+  // Resolve each player once: position, added skills, and each added skill's access.
+  const players: ResolvedPlayer[] = roster.players.map((player) => {
+    const position = datasetRoster ? findPosition(datasetRoster, player.positionName) : undefined;
+    const added = position ? addedSkills(position, player.skills) : [];
+    return {
+      player,
+      position,
+      addedSkills: added,
+      access: position ? added.map((s) => skillAccess(data, position, s)) : [],
+    };
+  });
+
+  const ctx: RuleContext = { roster, pkg, data, datasetRoster, players };
+
+  for (const rule of rules) {
+    if (rule.needsDatasetRoster && !datasetRoster) continue;
+    findings.push(...rule.check(ctx));
+  }
+
+  // Recomputed summary (rendered by the bot / client whatever the verdict).
+  let sp = 0;
+  let primary = 0;
+  let secondary = 0;
+  for (const rp of players)
+    rp.addedSkills.forEach((skill, i) => {
+      const access = rp.access[i];
+      if (access === undefined || access === "illegal") return;
+      sp += costSP(skill, access, pkg.skillAllotment);
+      if (access === "primary") primary++;
+      else secondary++;
+    });
+
+  const errors = findings.filter((f) => f.severity === "error");
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings: findings.filter((f) => f.severity === "warning"),
+    infos: findings.filter((f) => f.severity === "info"),
+    recomputedSummary: {
+      skillPointsUsed: sp,
+      skillPointBudget: pkg.skillAllotment.skillPointBudget,
+      goldUsed: recomputeGold(roster),
+      goldBudget: pkg.goldBudget,
+      playerCount: roster.players.length,
+      primarySkillCount: primary,
+      secondarySkillCount: secondary,
+    },
+  };
+}

@@ -1,0 +1,84 @@
+# BB Tournament Validator
+
+A Discord bot + portable validation core that ingests a Blood Bowl team (PDF now, screenshots later)
+and validates it against a **tournament package** defined by a tournament organizer (TO), explaining
+*why* the roster passes or fails each rule and how to fix it.
+
+> Status: **v1 BUILT (M1+M2+M3, 2026-07-06)** — 66/66 tests green, all packages typecheck + build.
+> Next: register the bot with a Discord token and run the live-guild E2E, then M3.5 (FUMBBL API).
+> See [`docs/roadmap.md`](docs/roadmap.md).
+
+## Running the bot
+
+```
+pnpm install && pnpm build && pnpm test          # from the repo root
+cd apps\discord-bot
+copy .env.example .env                            # fill DISCORD_TOKEN, DISCORD_CLIENT_ID, GUILD_ID
+pnpm register                                     # registers slash commands (instant with GUILD_ID)
+pnpm start
+```
+
+Commands: `/validate roster:<pdf> package:<name>` · `/report [package] [csv]` · `/packages` ·
+`/package show <name>` · `/package import <document> [skillcosts.csv]` ·
+`/coach register|lookup|me`. On a valid roster the bot ✅-reacts, DMs the coach, and records them in
+`data-store/validated-rosters.csv`.
+
+## Why
+
+The validation logic will later be reused inside the FUMBBL40k **Tauri + PixiJS** client, whose UI
+runs TypeScript in a **webview (browser engine), not Node**. So the core is designed as pure,
+dependency-light, browser-safe TypeScript with **no Node built-ins** — all I/O (PDF, Discord, files)
+lives in the bot's adapter layer. Scope is **BB2025 only**.
+
+## What's here now (artifacts)
+
+```
+bb-tournament-validator/
+├─ README.md
+├─ docs/
+│  ├─ architecture.md            # monorepo layout, data flow, portability guardrails
+│  ├─ data-model.md              # TypeScript interfaces for Roster / TournamentPackage / results
+│  ├─ tournament-package.md      # how TOs author packages + the Skill-Point costing model
+│  ├─ fumbbl40k-integration.md   # how this project plugs into FUMBBL40k tournament mode (T1)
+│  └─ roadmap.md                 # milestones M1..M6
+├─ schemas/
+│  └─ tournament-package.schema.json
+├─ data/
+│  ├─ bb2025/
+│  │  ├─ rosters/amazon.json     # the only BB2025-reconciled roster in M1 (Amazon)
+│  │  ├─ skills.json             # skill -> category + elite/trait flags
+│  │  └─ inducements.json        # BB2025 inducement types (M4 reconciliation pending)
+│  └─ skill-costs.example.csv    # CSV skill-cost override template
+├─ tournament-packages/
+│  ├─ bb2025-default.json        # baseline package
+│  └─ lustrian-superleague.example.json  # sample package the example roster passes
+├─ packages/                     # (reserved for pnpm workspaces; .ts sketches live here now)
+│  ├─ bb-validator/src/          # UNBUILT code sketches of the pure core
+│  └─ bb-ingest/src/             # UNBUILT ingestion adapter sketches
+├─ apps/
+│  └─ discord-bot/src/           # UNBUILT bot sketches (store + commands)
+└─ fixtures/
+   └─ amazon-example.roster.json # normalized Roster parsed from the supplied bbtc.pl PDFs (golden)
+```
+
+## Ground truth
+
+The two supplied `Example PDF` files are bbtc.pl Amazon exports and are the M1 ground truth. Their
+internal math is fully consistent and pins the Amazon dataset:
+
+- Sideline 230k = 3 re-rolls × 60k + apothecary 50k → **re-roll 60k, apothecary 50k**.
+- "Primary skills 6 / Skills cost 160k" decodes exactly as the 6 added skills
+  (Block×3, Guard, Wrestle, Leader), all in their positions' **primary** categories.
+- Under the owner's **Skill-Point** model (primary 1, Elite +1, secondary ×2) those 6 skills cost
+  **10 SP** — see `fixtures/amazon-example.roster.json` and `packages/lustrian-superleague.example.json`.
+
+## Key decisions
+
+- **Stack:** TypeScript; pure webview-safe core, Node only in the bot.
+- **Ingestion:** PDF/text first; OCR later; BB3 JSON/screenshots on the roadmap (M6).
+- **TO packages:** JSON/YAML canonical, plus rules-document + CSV ingestion.
+- **Skill costing:** configurable **Skill Points** (see `docs/tournament-package.md`).
+- **Dataset:** reuse `fumbbl40k-server` roster XML shape, reconcile values to BB2025 (the shipped
+  XMLs are mostly legacy LRB6). M1 = Amazon only.
+- **On success the bot:** ✅-reacts, DMs the coach, records them to a validated-roster CSV, and can
+  emit a `/report` linking each validated coach to their post.

@@ -1,0 +1,53 @@
+{
+  "$schema": "../schemas/tournament-package.schema.json",
+  "name": "Lustrian Superleague (Example)",
+  "ruleset": "bb2025-default",
+  "extends": "bb2025-default",
+  "description": "Sample tournament package tuned so the supplied bbtc.pl Amazon example roster is LEGAL. Its 6 added skills (Block x3, Guard, Wrestle, Leader) cost exactly 10 SP under the default costing, so skillPointBudget is set to 10. Lower it to 8 to see the same roster fail with suggested fixes.",
+
+  "eligibleRosters": [
+    "Amazon", "Human", "Orc", "Dwarf", "Dark Elf", "Wood Elf",
+    "Skaven", "Chaos Chosen", "Nurgle", "Lizardmen"
+  ],
+
+  "skillAllotment": {
+    "skillPointBudget": 10,
+    "primaryCostSP": 1,
+    "secondaryMultiplier": 2,
+    "eliteSurchargeSP": 1,
+    "eliteSkills": ["Block", "Guard", "Mighty Blow", "Dodge"],
+    "skillCostSP": {},
+    "maxPerPlayer": 2,
+    "maxSameSkillTeamwide": null
+  },
+
+  "goldBudget": null,
+
+  "starPlayers": { "allowed": false, "maxCount": 0, "maxCombinedCost": null },
+
+  "inducements": { "allowed": [], "caps": {} },
+
+  "sideline": {
+    "maxReRolls": 8,
+    "maxApothecary": 1,
+    "maxCheerleaders": 12,
+    "maxAssistantCoaches": 6,
+    "maxDedicatedFans": 6
+  },
+
+  "special": {
+    "insignificantTraitConstraint": true,
+    "stalling": true,
+    "slannAllowed": false,
+    "statIncreasesAllowed": false,
+    "bannedSkills": [],
+    "minPlayers": 11
+  },
+
+  "_expectedResultForExamplePDF": {
+    "valid": true,
+    "skillPointsUsed": 10,
+    "skillPointBudget": 10,
+    "breakdown": "Block(elite=2) x3 = 6, Guard(elite=2) = 2, Wrestle(1) = 1, Leader(1) = 1  ->  10 SP"
+  }
+}

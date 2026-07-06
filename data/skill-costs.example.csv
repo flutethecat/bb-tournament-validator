@@ -1,0 +1,16 @@
+skill,costSP,elite
+# CSV skill-cost override sheet for a tournament package.
+# - Any row here OVERRIDES the package's category-based default for that skill.
+# - Leave this file empty (header only) to use the package defaults.
+# - 'elite' (true/false) can be used to add/remove a skill from the effective Elite set;
+#   the numeric surcharge itself is the package's eliteSurchargeSP.
+# - Costs are in Skill Points (SP), not gold.
+# Precedence: package.skillCostSP (inline) > this CSV > category defaults > BB2025 defaults.
+#
+# Example overrides (delete or edit as needed):
+Block,2,true
+Guard,2,true
+Mighty Blow,2,true
+Dodge,2,true
+Wrestle,1,false
+Leader,1,false

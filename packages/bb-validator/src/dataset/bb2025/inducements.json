@@ -1,0 +1,22 @@
+{
+  "$schema": "../../schemas/inducements.schema.json",
+  "_about": "BB2025 inducement types transcribed from fumbbl40k-server ffb-common inducement/bb2025/InducementCollection.java. Costs/maxima are marked _verify where not yet confirmed against the BB2025 rulebook. Not exercised by the Amazon M1 golden test (the example team has no inducements); full reconciliation is scheduled for M4.",
+  "inducements": [
+    { "id": "assistant_coaches", "name": "Part-time Assistant Coaches", "cost": 10000, "max": 3, "_verify": true },
+    { "id": "cheerleaders", "name": "Temp Agency Cheerleaders", "cost": 10000, "max": 3, "_verify": true },
+    { "id": "bloodweiser_kegs", "name": "Bloodweiser Kegs", "cost": 50000, "max": 2, "_verify": true },
+    { "id": "bribes", "name": "Bribes", "cost": 100000, "reducedCost": 50000, "reducedSpecialRule": "Bribery and Corruption", "max": 3, "_verify": true },
+    { "id": "wandering_apothecaries", "name": "Wandering Apothecaries", "cost": 100000, "max": 2, "requiresApothecary": true, "_verify": true },
+    { "id": "mortuary_assistant", "name": "Mortuary Assistant", "cost": 100000, "max": 1, "_verify": true },
+    { "id": "plague_doctor", "name": "Plague Doctor", "cost": 100000, "max": 1, "_verify": true },
+    { "id": "riotous_rookies", "name": "Riotous Rookies", "cost": 0, "max": 1, "note": "Cost/effect situational.", "_verify": true },
+    { "id": "halfling_master_chef", "name": "Halfling Master Chef", "cost": 300000, "reducedCost": 100000, "reducedSpecialRule": "Halfling Thimble Cup", "max": 1, "_verify": true },
+    { "id": "weather_mage", "name": "Weather Mage", "cost": 100000, "max": 1, "_verify": true },
+    { "id": "wizard", "name": "Hireling Sports-Wizard", "cost": 150000, "max": 1, "_verify": true },
+    { "id": "biased_referee", "name": "Biased Referee", "cost": 100000, "max": 1, "_verify": true },
+    { "id": "special_play_cards", "name": "Special Play Cards", "cost": null, "max": null, "note": "Card decks; cost per card / per deck varies.", "_verify": true },
+    { "id": "infamous_coaching_staff", "name": "Infamous Coaching Staff", "cost": null, "max": null, "note": "Named staff, individual costs.", "_verify": true },
+    { "id": "star_players", "name": "Star Players", "cost": null, "max": 2, "note": "Hired per star cost; eligibility by special rule/keyword.", "_verify": true },
+    { "id": "team_mascot", "name": "Team Mascot", "cost": null, "max": 1, "_verify": true }
+  ]
+}
