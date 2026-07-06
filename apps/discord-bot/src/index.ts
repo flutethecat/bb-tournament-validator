@@ -22,7 +22,7 @@ import {
   type Message,
 } from "discord.js";
 import { ingestPackageDocument } from "@bb/ingest";
-import { renderPackageHtml, type Roster, type ValidationResult } from "@bb/validator";
+import { renderArtPrompt, renderPackageHtml, type Roster, type ValidationResult } from "@bb/validator";
 import { PackageStore } from "./packageStore";
 import { renderProblemsEmbed, renderResultEmbed, validateRosterBytes, type EmbedData } from "./pipeline";
 import { CsvValidatedStore } from "./store/validatedStore";
@@ -240,6 +240,19 @@ async function handleExport(i: ChatInputCommandInteraction): Promise<void> {
   await i.reply({ content: `📄 One-page rules for **${found.pkg.name}** — open the attachment in a browser.`, files: [file] });
 }
 
+// ---- /bbbot artprompt ----
+async function handleArtPrompt(i: ChatInputCommandInteraction): Promise<void> {
+  const name = i.options.getString("package", true);
+  const found = packages.get(name);
+  if (!found) {
+    await i.reply({ content: `Unknown package "${name}". Try /bbbot packages.`, flags: MessageFlags.Ephemeral });
+    return;
+  }
+  const prompt = renderArtPrompt(found.pkg);
+  // Fits in a message; use a code block. (Discord limit 2000 chars — the prompt is well under.)
+  await i.reply({ content: `🎨 AI-art prompt for **${found.pkg.name}**:\n\`\`\`\n${prompt.slice(0, 1900)}\n\`\`\`` });
+}
+
 // ---- /report ----
 async function handleReport(i: ChatInputCommandInteraction): Promise<void> {
   const packageName = i.options.getString("package") ?? undefined;
@@ -404,6 +417,8 @@ client.on("interactionCreate", async (interaction) => {
         return await handlePackages(interaction);
       case "export":
         return await handleExport(interaction);
+      case "artprompt":
+        return await handleArtPrompt(interaction);
       case "watch":
       case "unwatch":
         return await handleWatch(interaction);

@@ -43,6 +43,8 @@ each added skill's primary/secondary access, matching bbtc.pl's "Primary/Seconda
 - **Export HTML** (Configure tab): downloads a self-contained one-page rules sheet for the current
   package — matrix/tier/team tables, skill allotment, gold, stars, bans, sideline, special rules —
   print‑ready. The same renderer backs the bot's `/bbbot export`.
+- **🎨 AI Art Prompt** (Configure tab): generates a copy‑ready prompt for an image model to make
+  tournament key art, derived from the name/date/teams. Same generator backs `/bbbot artprompt`.
 - **Coaches tab:** every validated coach with a link back to their roster post, filterable by package.
 - Binds to localhost by default. To host it, set `HOST=0.0.0.0` **and** `ADMIN_PASSWORD=<secret>`
   (HTTP Basic auth); put it behind TLS on a public network.
@@ -65,8 +67,8 @@ All commands live under the `/bbbot` namespace (prevents conflicts with other bo
 `/bbbot validate roster:<pdf> package:<name>` · `/bbbot report [package] [csv]` ·
 `/bbbot packages` · `/bbbot package show <name>` · `/bbbot package import <document> [skillcosts]` ·
 `/bbbot coach register|lookup|me` · `/bbbot export package:<name>` (posts a one-page HTML rules
-sheet). On a valid roster the bot ✅-reacts, DMs the coach, and records them in
-`data-store/validated-rosters.csv`.
+sheet) · `/bbbot artprompt package:<name>` (an AI-art prompt for the tournament). On a valid roster
+the bot ✅-reacts, DMs the coach, and records them in `data-store/validated-rosters.csv`.
 
 ## Why
 

@@ -778,6 +778,28 @@ async function exportHtml(status) {
   }
 }
 $("btn-export").addEventListener("click", () => exportHtml($("save-status")));
+
+// ---- AI art prompt ----
+async function artPrompt(status) {
+  const pkg = formToPackage();
+  if (!pkg.name) { status.className = "status err"; status.textContent = "Set a tournament name first."; return; }
+  status.className = "status"; status.textContent = "Generating…";
+  try {
+    const res = await api("/api/artprompt", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(pkg) });
+    if (res.error) { status.className = "status err"; status.textContent = res.error; return; }
+    $("artprompt-text").value = res.prompt;
+    $("artprompt-box").hidden = false;
+    status.className = "status ok"; status.textContent = "Prompt ready ↓";
+  } catch (e) {
+    status.className = "status err"; status.textContent = String(e);
+  }
+}
+$("btn-artprompt").addEventListener("click", () => artPrompt($("save-status")));
+$("btn-artcopy").addEventListener("click", async () => {
+  const s = $("artcopy-status");
+  try { await navigator.clipboard.writeText($("artprompt-text").value); s.className = "status ok"; s.textContent = "Copied ✓"; }
+  catch { $("artprompt-text").select(); document.execCommand("copy"); s.className = "status ok"; s.textContent = "Copied ✓"; }
+});
 $("btn-save-tiers").addEventListener("click", () => savePackage($("tier-save-status")));
 
 // ---- presets & existing ----

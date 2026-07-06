@@ -99,7 +99,12 @@
               <div class="actions">
                 <button id="btn-save" class="primary">Save package</button>
                 <button id="btn-export" title="Download a one-page HTML rules sheet for this package">Export HTML</button>
+                <button id="btn-artprompt" title="Generate an AI-art prompt for this tournament">🎨 AI Art Prompt</button>
                 <span id="save-status" class="status"></span>
+              </div>
+              <div id="artprompt-box" hidden>
+                <textarea id="artprompt-text" rows="10" readonly></textarea>
+                <div class="actions"><button id="btn-artcopy">Copy</button><span id="artcopy-status" class="status"></span></div>
               </div>
               <p class="hint">Saving writes a JSON file the bot hot-loads — it takes effect on the next validation, no restart.</p>
               <input id="skill-filter" type="search" placeholder="Filter skills…" />

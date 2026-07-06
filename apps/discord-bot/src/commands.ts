@@ -62,6 +62,14 @@ export const commandDefs = [
     )
     .addSubcommand((s) =>
       s
+        .setName("artprompt")
+        .setDescription("Generate an AI-art prompt for this tournament")
+        .addStringOption((o) =>
+          o.setName("package").setDescription("Package name").setRequired(true).setAutocomplete(true),
+        ),
+    )
+    .addSubcommand((s) =>
+      s
         .setName("watch")
         .setDescription("Auto-validate every PDF posted in a channel (TO only)")
         .addChannelOption((o) =>
