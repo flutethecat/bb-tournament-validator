@@ -11,6 +11,7 @@
       <h1>🏆 BB Tournament <span>Config Pane</span></h1>
       <nav class="tabs">
         <button class="tab active" data-view="configure">Configure</button>
+        <button class="tab" data-view="tiers">Tiers</button>
         <button class="tab" data-view="coaches">Coaches</button>
       </nav>
     </header>
@@ -108,6 +109,34 @@
         </div>
       </section>
 
+      <!-- ============ TIERS ============ -->
+      <section id="view-tiers" class="view">
+        <div class="card sticky-actions">
+          <div class="actions">
+            <label class="switch"><input id="t-enabled" type="checkbox" /><span>Enable tier-based configuration</span></label>
+            <button id="btn-save-tiers" class="primary">Save package</button>
+            <span id="tier-save-status" class="status"></span>
+          </div>
+          <p class="hint">When enabled, a team's tier drives its gold cap, Star Player access, and banned stars — overriding the package-level settings. Drag teams between the pool and tiers. Saves into the same package as the Configure tab (set the name there first).</p>
+          <div class="tier-count">
+            <span>Number of tiers</span>
+            <button id="tier-minus">−</button>
+            <span id="tier-count-val" class="pill">3</span>
+            <button id="tier-plus">+</button>
+          </div>
+        </div>
+
+        <div id="tiers-disabled-note" class="card"><p class="hint">Tier configuration is off — the package uses the “Eligible rosters” field from the Configure tab. Tick “Enable tier-based configuration” above to sort teams into tiers.</p></div>
+
+        <div id="tiers-area" hidden>
+          <div class="card">
+            <h2>Unassigned teams <span id="pool-count" class="pill"></span></h2>
+            <div id="team-pool" class="team-drop pool" data-tier="0"></div>
+          </div>
+          <div id="tier-columns" class="tier-columns"></div>
+        </div>
+      </section>
+
       <!-- ============ COACHES ============ -->
       <section id="view-coaches" class="view">
         <div class="card">
@@ -129,6 +158,7 @@
       </section>
     </main>
 
+    <datalist id="stars-list"></datalist>
     <script src="/app.js"></script>
   </body>
 </html>

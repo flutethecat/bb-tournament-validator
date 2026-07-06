@@ -1,0 +1,125 @@
+{
+  "_about": "BB2025 team list with a SUGGESTED starting tier (editable per tournament). Names are the BB2025 (Third Season) set; sourced from fumbbl40k rosters + curated for BB2025 additions (Black Orc, Imperial Nobility, Khorne, Old World Alliance, Gnome, Snotling).",
+  "teams": [
+    {
+      "name": "Amazon",
+      "defaultTier": 1
+    },
+    {
+      "name": "Chaos Dwarf",
+      "defaultTier": 1
+    },
+    {
+      "name": "Dark Elf",
+      "defaultTier": 1
+    },
+    {
+      "name": "Dwarf",
+      "defaultTier": 1
+    },
+    {
+      "name": "Lizardmen",
+      "defaultTier": 1
+    },
+    {
+      "name": "Necromantic Horror",
+      "defaultTier": 1
+    },
+    {
+      "name": "Orc",
+      "defaultTier": 1
+    },
+    {
+      "name": "Shambling Undead",
+      "defaultTier": 1
+    },
+    {
+      "name": "Skaven",
+      "defaultTier": 1
+    },
+    {
+      "name": "Underworld Denizens",
+      "defaultTier": 1
+    },
+    {
+      "name": "Wood Elf",
+      "defaultTier": 1
+    },
+    {
+      "name": "Chaos Chosen",
+      "defaultTier": 2
+    },
+    {
+      "name": "Elven Union",
+      "defaultTier": 2
+    },
+    {
+      "name": "High Elf",
+      "defaultTier": 2
+    },
+    {
+      "name": "Human",
+      "defaultTier": 2
+    },
+    {
+      "name": "Norse",
+      "defaultTier": 2
+    },
+    {
+      "name": "Nurgle",
+      "defaultTier": 2
+    },
+    {
+      "name": "Tomb Kings",
+      "defaultTier": 2
+    },
+    {
+      "name": "Vampire",
+      "defaultTier": 2
+    },
+    {
+      "name": "Black Orc",
+      "defaultTier": 2
+    },
+    {
+      "name": "Chaos Renegade",
+      "defaultTier": 3
+    },
+    {
+      "name": "Imperial Nobility",
+      "defaultTier": 3
+    },
+    {
+      "name": "Khorne",
+      "defaultTier": 3
+    },
+    {
+      "name": "Old World Alliance",
+      "defaultTier": 3
+    },
+    {
+      "name": "Slann",
+      "defaultTier": 3
+    },
+    {
+      "name": "Goblin",
+      "defaultTier": 4
+    },
+    {
+      "name": "Ogre",
+      "defaultTier": 4
+    },
+    {
+      "name": "Snotling",
+      "defaultTier": 4
+    },
+    {
+      "name": "Gnome",
+      "defaultTier": 4
+    },
+    {
+      "name": "Halfling",
+      "defaultTier": 4
+    }
+  ]
+}

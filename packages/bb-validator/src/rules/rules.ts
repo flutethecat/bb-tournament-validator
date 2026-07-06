@@ -4,15 +4,26 @@
  */
 
 import { costSP } from "../cost/costSP";
-import { findSkill, normName } from "../dataset/lookup";
+import { findSkill, isStarName, normName } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
+import { hasTiers, resolveTier } from "../package/tiers";
 import type { Rule } from "./types";
 import { err, warn } from "./types";
 
-/** 1. Roster eligibility — race ∈ eligibleRosters (+ tier scoping when present). */
+/** 1. Roster eligibility — race in eligibleRosters (or, when tiers are set, in some tier). */
 export const rosterEligibility: Rule = {
   id: "roster-eligibility",
   check: ({ roster, pkg }) => {
+    if (hasTiers(pkg)) {
+      if (resolveTier(pkg, roster.rosterName)) return [];
+      const tierRosters = pkg.tiers!.flatMap((t) => t.rosters);
+      return [
+        err("roster-eligibility", `${roster.rosterName} is not assigned to any tier in "${pkg.name}".`, {
+          actual: roster.rosterName,
+          suggestion: `Eligible teams: ${tierRosters.join(", ") || "none configured"}.`,
+        }),
+      ];
+    }
     if (pkg.eligibleRosters.includes("*")) return [];
     const ok = pkg.eligibleRosters.some((r) => normName(r) === normName(roster.rosterName));
     return ok
@@ -103,23 +114,22 @@ export const positionalLimits: Rule = {
   },
 };
 
-/** 4. Gold budget (optional) — recomputed team gold ≤ goldBudget. Skipped when null. */
+/** 4. Gold budget (optional) — recomputed team gold <= the tier gold cap or the package goldBudget. */
 export const goldBudget: Rule = {
   id: "gold-budget",
   check: ({ roster, pkg }) => {
-    if (pkg.goldBudget == null) return [];
+    const tier = resolveTier(pkg, roster.rosterName);
+    const cap = tier?.gold ?? pkg.goldBudget;
+    if (cap == null) return [];
     const gold = recomputeGold(roster);
-    return gold > pkg.goldBudget
+    const where = tier?.gold != null ? ` (Tier ${tier.tier})` : "";
+    return gold > cap
       ? [
-          err(
-            "gold-budget",
-            `Team costs ${fmtGold(gold)}, over the ${fmtGold(pkg.goldBudget)} budget.`,
-            {
-              expected: `<= ${fmtGold(pkg.goldBudget)}`,
-              actual: fmtGold(gold),
-              suggestion: `Trim ${fmtGold(gold - pkg.goldBudget)}.`,
-            },
-          ),
+          err("gold-budget", `Team costs ${fmtGold(gold)}, over the ${fmtGold(cap)} budget${where}.`, {
+            expected: `<= ${fmtGold(cap)}`,
+            actual: fmtGold(gold),
+            suggestion: `Trim ${fmtGold(gold - cap)}.`,
+          }),
         ]
       : [];
   },
@@ -242,31 +252,48 @@ export const costReconciliation: Rule = {
   },
 };
 
-/** 8. Star players — allowed / maxCount / maxCombinedCost. (Eligibility data lands in M4.) */
+/**
+ * 8. Star players — generic star detection (all teams). Honors tier star access +
+ * per-tier banned stars when tiers are set, else the package-level starPlayers.
+ */
 export const starPlayers: Rule = {
   id: "star-players",
-  needsDatasetRoster: true,
-  check: ({ players, pkg, datasetRoster }) => {
-    const starNames = new Set(datasetRoster!.starPlayers.map((s) => normName(s.name)));
-    const stars = players.filter((rp) => starNames.has(normName(rp.player.positionName)));
+  check: ({ players, pkg, data, roster }) => {
+    const stars = players.filter((rp) => isStarName(data, rp.player.positionName));
     const findings: Finding[] = [];
     if (stars.length === 0) return findings;
-    if (!pkg.starPlayers.allowed)
+
+    const tier = resolveTier(pkg, roster.rosterName);
+    const allowed = tier ? tier.starPlayersAllowed : pkg.starPlayers.allowed;
+    const where = tier ? ` (Tier ${tier.tier})` : "";
+
+    if (!allowed) {
       findings.push(
-        err("star-players", `Star Players are not allowed in "${pkg.name}".`, {
+        err("star-players", `Star Players are not allowed${where} in "${pkg.name}".`, {
           actual: stars.map((s) => s.player.positionName).join(", "),
           suggestion: "Remove the Star Player(s).",
         }),
       );
-    else if (pkg.starPlayers.maxCount != null && stars.length > pkg.starPlayers.maxCount)
+    } else if (pkg.starPlayers.maxCount != null && stars.length > pkg.starPlayers.maxCount) {
       findings.push(
-        err(
-          "star-players",
-          `${stars.length} Star Players; the limit is ${pkg.starPlayers.maxCount}.`,
-          { expected: `<= ${pkg.starPlayers.maxCount}`, actual: stars.length },
-        ),
+        err("star-players", `${stars.length} Star Players; the limit is ${pkg.starPlayers.maxCount}.`, {
+          expected: `<= ${pkg.starPlayers.maxCount}`,
+          actual: stars.length,
+        }),
       );
-    if (pkg.starPlayers.maxCombinedCost != null) {
+    }
+
+    const banned = new Set((tier?.bannedStars ?? []).map(normName));
+    for (const s of stars)
+      if (banned.has(normName(s.player.positionName)))
+        findings.push(
+          err("star-players", `${s.player.positionName} is banned${where} in "${pkg.name}".`, {
+            playerRef: s.player.number,
+            suggestion: `Remove ${s.player.positionName}.`,
+          }),
+        );
+
+    if (allowed && pkg.starPlayers.maxCombinedCost != null) {
       const combined = stars.reduce((a, s) => a + s.player.cost, 0);
       if (combined > pkg.starPlayers.maxCombinedCost)
         findings.push(

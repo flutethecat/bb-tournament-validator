@@ -4,6 +4,20 @@
  * TO-authored files); sketched here as plain interfaces to stay toolchain-free.
  */
 
+/** One tier's roster membership + per-tier overrides (gold, star access, banned stars). */
+export interface TierDef {
+  tier: number;
+  label?: string;
+  /** Race names assigned to this tier. */
+  rosters: string[];
+  /** Per-tier gold/team-value cap; null = fall back to the package goldBudget. */
+  gold: number | null;
+  /** Whether Star Players may be hired by teams in this tier. */
+  starPlayersAllowed: boolean;
+  /** Star names banned specifically for this tier. */
+  bannedStars: string[];
+}
+
 export interface SkillAllotment {
   /** Total SP a team may spend on ADDED skills. */
   skillPointBudget: number;
@@ -28,9 +42,13 @@ export interface TournamentPackage {
   date?: string;
   /** Base package to merge over (resolved by loadPackage before validate()). */
   extends?: string;
-  /** Race names, or ["*"] for all. */
+  /** Race names, or ["*"] for all. When `tiers` is set, tier membership also grants eligibility. */
   eligibleRosters: string[];
-  tiers?: Record<string, string[]>;
+  /**
+   * Tier configuration. When present, a team's tier drives its gold cap, star
+   * access, and banned stars, overriding the package-level equivalents.
+   */
+  tiers?: TierDef[];
   skillAllotment: SkillAllotment;
   /** Optional parallel gold cap; null = SP-only tournament. */
   goldBudget: number | null;

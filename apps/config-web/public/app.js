@@ -9,6 +9,13 @@ const state = {
   eliteSet: [], // effective elite membership (skill names)
   skillCostSP: {}, // per-skill overrides
   filter: "",
+  // tiers
+  teams: [], // [{name, defaultTier}]
+  stars: [], // [{name, teams, cost}]
+  tiersEnabled: false,
+  tierCount: 3,
+  assign: {}, // team name -> tier number (0/undefined = pool)
+  tierData: {}, // tier number -> { label, gold, starsAllowed, banned: [] }
 };
 
 // ---- tabs ----
@@ -19,6 +26,7 @@ document.querySelectorAll(".tab").forEach((btn) => {
     btn.classList.add("active");
     $(`view-${btn.dataset.view}`).classList.add("active");
     if (btn.dataset.view === "coaches") loadCoaches();
+    if (btn.dataset.view === "tiers") renderTiers();
   });
 });
 
@@ -139,7 +147,24 @@ function formToPackage() {
       bannedSkills: [],
       minPlayers: num("f-minplayers", 11),
     },
+    ...(state.tiersEnabled ? { tiers: buildTiers() } : {}),
   };
+}
+
+function buildTiers() {
+  const tiers = [];
+  for (let t = 1; t <= state.tierCount; t++) {
+    const d = state.tierData[t] || {};
+    tiers.push({
+      tier: t,
+      ...(d.label ? { label: d.label } : {}),
+      rosters: state.teams.filter((tm) => (state.assign[tm.name] || 0) === t).map((tm) => tm.name),
+      gold: d.gold != null && d.gold !== "" ? Number(d.gold) * 1000 : null,
+      starPlayersAllowed: d.starsAllowed !== false,
+      bannedStars: d.banned || [],
+    });
+  }
+  return tiers;
 }
 
 function packageToForm(p) {
@@ -173,13 +198,155 @@ function packageToForm(p) {
   $("f-slann").checked = !!p.special?.slannAllowed;
   toggleEliteWrap();
   renderSkills();
+  applyTiers(p.tiers);
 }
 
-// ---- save ----
-$("btn-save").addEventListener("click", async () => {
-  const status = $("save-status");
+// ---- tiers: state application + rendering ----
+function applyTiers(tiers) {
+  state.assign = {};
+  state.tierData = {};
+  if (tiers && tiers.length) {
+    state.tiersEnabled = true;
+    state.tierCount = Math.max(...tiers.map((t) => t.tier));
+    for (const t of tiers) {
+      state.tierData[t.tier] = {
+        label: t.label || "",
+        gold: t.gold != null ? t.gold / 1000 : "",
+        starsAllowed: t.starPlayersAllowed !== false,
+        banned: [...(t.bannedStars || [])],
+      };
+      for (const r of t.rosters) state.assign[r] = t.tier;
+    }
+  } else {
+    state.tiersEnabled = false;
+    state.tierCount = 3;
+    // seed assignment from suggested default tiers (clamped)
+    for (const tm of state.teams) state.assign[tm.name] = Math.min(tm.defaultTier, state.tierCount);
+  }
+  $("t-enabled").checked = state.tiersEnabled;
+  ensureTierData();
+  renderTiers();
+}
+
+function ensureTierData() {
+  for (let t = 1; t <= state.tierCount; t++) {
+    if (!state.tierData[t]) state.tierData[t] = { label: "", gold: "", starsAllowed: true, banned: [] };
+  }
+}
+
+function renderTiers() {
+  $("tiers-area").hidden = !state.tiersEnabled;
+  $("tiers-disabled-note").hidden = state.tiersEnabled;
+  $("tier-count-val").textContent = String(state.tierCount);
+  if (!state.tiersEnabled) return;
+
+  // pool
+  const pool = state.teams.filter((tm) => !((state.assign[tm.name] || 0) >= 1 && state.assign[tm.name] <= state.tierCount));
+  $("team-pool").innerHTML = pool.map((tm) => teamChip(tm.name)).join("");
+  $("pool-count").textContent = String(pool.length);
+
+  // tier columns
+  $("tier-columns").innerHTML = "";
+  for (let t = 1; t <= state.tierCount; t++) {
+    const d = state.tierData[t];
+    const members = state.teams.filter((tm) => (state.assign[tm.name] || 0) === t);
+    const col = document.createElement("div");
+    col.className = "card tier-card";
+    col.innerHTML = `
+      <h2><span>Tier ${t}</span><span class="tier-badge">${members.length} teams</span></h2>
+      <label>Label<input class="t-label" data-t="${t}" type="text" value="${esc(d.label)}" placeholder="e.g. Tier ${t}" /></label>
+      <label>Gold budget (k)<input class="t-gold" data-t="${t}" type="number" min="0" value="${esc(d.gold)}" placeholder="none" /></label>
+      <label class="switch"><input class="t-stars" data-t="${t}" type="checkbox" ${d.starsAllowed ? "checked" : ""} /><span>Allow Star Players</span></label>
+      <label>Ban a star (type + Enter)<input class="t-banadd" data-t="${t}" type="text" list="stars-list" placeholder="Star name…" /></label>
+      <div class="banned-tags" data-t="${t}">${d.banned.map((s) => bannedTag(t, s)).join("")}</div>
+      <div class="team-drop" data-tier="${t}">${members.map((tm) => teamChip(tm.name)).join("")}</div>`;
+    $("tier-columns").appendChild(col);
+  }
+  wireTierControls();
+  wireDnD();
+}
+
+const teamChip = (name) => `<div class="team-chip" draggable="true" data-team="${esc(name)}">${esc(name)}</div>`;
+const bannedTag = (t, s) => `<span class="banned-tag">${esc(s)}<button data-t="${t}" data-star="${esc(s)}" title="remove">×</button></span>`;
+
+function wireTierControls() {
+  document.querySelectorAll(".t-label").forEach((el) =>
+    el.addEventListener("input", (e) => { state.tierData[+e.target.dataset.t].label = e.target.value; }),
+  );
+  document.querySelectorAll(".t-gold").forEach((el) =>
+    el.addEventListener("input", (e) => { state.tierData[+e.target.dataset.t].gold = e.target.value; }),
+  );
+  document.querySelectorAll(".t-stars").forEach((el) =>
+    el.addEventListener("change", (e) => { state.tierData[+e.target.dataset.t].starsAllowed = e.target.checked; }),
+  );
+  document.querySelectorAll(".t-banadd").forEach((el) =>
+    el.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const t = +e.target.dataset.t;
+      const v = e.target.value.trim();
+      if (v && !state.tierData[t].banned.includes(v)) state.tierData[t].banned.push(v);
+      e.target.value = "";
+      renderTiers();
+    }),
+  );
+  document.querySelectorAll(".banned-tag button").forEach((btn) =>
+    btn.addEventListener("click", (e) => {
+      const t = +e.target.dataset.t;
+      state.tierData[t].banned = state.tierData[t].banned.filter((s) => s !== e.target.dataset.star);
+      renderTiers();
+    }),
+  );
+}
+
+function wireDnD() {
+  let dragged = null;
+  document.querySelectorAll(".team-chip").forEach((chip) => {
+    chip.addEventListener("dragstart", (e) => {
+      dragged = chip.dataset.team;
+      chip.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    });
+    chip.addEventListener("dragend", () => chip.classList.remove("dragging"));
+  });
+  document.querySelectorAll(".team-drop").forEach((zone) => {
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("dragover"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zone.classList.remove("dragover");
+      if (!dragged) return;
+      state.assign[dragged] = Number(zone.dataset.tier); // 0 = pool
+      dragged = null;
+      renderTiers();
+    });
+  });
+}
+
+$("t-enabled").addEventListener("change", (e) => {
+  state.tiersEnabled = e.target.checked;
+  if (state.tiersEnabled && Object.keys(state.assign).length === 0)
+    for (const tm of state.teams) state.assign[tm.name] = Math.min(tm.defaultTier, state.tierCount);
+  ensureTierData();
+  renderTiers();
+});
+$("tier-plus").addEventListener("click", () => { if (state.tierCount < 8) { state.tierCount++; ensureTierData(); renderTiers(); } });
+$("tier-minus").addEventListener("click", () => {
+  if (state.tierCount <= 1) return;
+  // teams in the removed tier fall back to the pool
+  for (const [team, t] of Object.entries(state.assign)) if (t === state.tierCount) state.assign[team] = 0;
+  state.tierCount--;
+  renderTiers();
+});
+
+// ---- save (shared by the Configure and Tiers tabs) ----
+async function savePackage(status) {
   const pkg = formToPackage();
-  if (!pkg.name) { status.className = "status err"; status.textContent = "Name is required."; return; }
+  if (!pkg.name) {
+    status.className = "status err";
+    status.textContent = "Set a tournament name on the Configure tab first.";
+    return;
+  }
   status.className = "status"; status.textContent = "Saving…";
   try {
     const res = await api("/api/packages", {
@@ -194,7 +361,9 @@ $("btn-save").addEventListener("click", async () => {
   } catch (e) {
     status.className = "status err"; status.textContent = String(e);
   }
-});
+}
+$("btn-save").addEventListener("click", () => savePackage($("save-status")));
+$("btn-save-tiers").addEventListener("click", () => savePackage($("tier-save-status")));
 
 // ---- presets & existing ----
 async function loadPresets() {
@@ -251,6 +420,9 @@ function esc(s) {
   state.eliteSet = state.skills.elite.map((s) => s.name); // dataset default elite membership
   toggleEliteWrap();
   renderSkills();
+  [state.teams, state.stars] = await Promise.all([api("/api/teams"), api("/api/stars")]);
+  $("stars-list").innerHTML = state.stars.map((s) => `<option value="${esc(s.name)}"></option>`).join("");
+  applyTiers(null); // seed pool/default assignment, tiers off
   await loadPresets();
   await loadPackages();
 })();

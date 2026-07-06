@@ -17,6 +17,16 @@ export interface SkillRow {
   elite: boolean;
 }
 
+/** BB2025 team list (name + suggested tier) for tier configuration. */
+export function teamList() {
+  return bb2025.teams;
+}
+
+/** Star player names (+ teams, cost) for the banned-star autocomplete. */
+export function starList() {
+  return bb2025.stars;
+}
+
 /** All selectable BB2025 skills (traits excluded), split Elite vs General. */
 export function skillCatalog(): { elite: SkillRow[]; general: SkillRow[] } {
   const elite: SkillRow[] = [];

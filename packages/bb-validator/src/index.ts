@@ -15,13 +15,25 @@ export type {
   DatasetPosition,
   DatasetStarPlayer,
   DatasetInducement,
+  DatasetTeam,
+  DatasetStar,
   SkillMeta,
   SkillCategory,
 } from "./dataset/types";
-export { findRoster, findPosition, findSkill, skillAccess, addedSkills, normName } from "./dataset/lookup";
+export {
+  findRoster,
+  findPosition,
+  findSkill,
+  skillAccess,
+  addedSkills,
+  normName,
+  isStarName,
+  starNameSet,
+} from "./dataset/lookup";
 export type { Access } from "./dataset/lookup";
-export type { TournamentPackage, SkillAllotment } from "./package/types";
+export type { TournamentPackage, SkillAllotment, TierDef } from "./package/types";
 export { DEFAULT_SKILL_ALLOTMENT } from "./package/types";
+export { resolveTier, hasTiers } from "./package/tiers";
 export { loadPackage, mergePackages, parseSkillCostCsv, applyCsvOverrides } from "./package/resolve";
 export type { CsvSkillCostRow, DeepPartial } from "./package/resolve";
 export { costSP, isElite } from "./cost/costSP";

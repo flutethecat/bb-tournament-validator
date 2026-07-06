@@ -1,0 +1,592 @@
+{
+  "_about": "Star player names for the config-pane autocomplete + banned-star validation. Extracted from fumbbl40k roster XMLs (legacy team names mapped to BB2025); costs are LEGACY and _verify. Not exhaustive for BB2025.",
+  "stars": [
+    {
+      "name": "Akhorne the Squirrel",
+      "teams": [
+        "Dark Elf",
+        "Dwarf"
+      ],
+      "cost": 80000
+    },
+    {
+      "name": "Barik Farblast",
+      "teams": [
+        "Dwarf"
+      ],
+      "cost": 60000
+    },
+    {
+      "name": "Bertha Bigfist",
+      "teams": [
+        "Amazon",
+        "Halfling",
+        "Ogre"
+      ],
+      "cost": 290000
+    },
+    {
+      "name": "Bomber Dribblesnot",
+      "teams": [
+        "Chaos Renegade",
+        "Goblin",
+        "Ogre",
+        "Orc",
+        "Underworld Denizens"
+      ],
+      "cost": 60000
+    },
+    {
+      "name": "Boomer Eziasson",
+      "teams": [
+        "Dwarf",
+        "Norse"
+      ],
+      "cost": 60000
+    },
+    {
+      "name": "Brick Far'th",
+      "teams": [
+        "Chaos Chosen",
+        "Nurgle",
+        "Ogre"
+      ],
+      "cost": 290000
+    },
+    {
+      "name": "Bryce 'The Slice' Cambuel",
+      "teams": [
+        "Tomb Kings"
+      ],
+      "cost": 130000
+    },
+    {
+      "name": "Count Luthor von Drakenborg",
+      "teams": [
+        "Necromantic Horror",
+        "Shambling Undead",
+        "Vampire"
+      ],
+      "cost": 390000
+    },
+    {
+      "name": "Crazy Igor",
+      "teams": [
+        "Chaos Renegade",
+        "Vampire"
+      ],
+      "cost": 120000
+    },
+    {
+      "name": "Crumbleberry",
+      "teams": [
+        "Chaos Renegade",
+        "Dark Elf",
+        "Dwarf",
+        "Goblin",
+        "Wood Elf"
+      ],
+      "cost": 0
+    },
+    {
+      "name": "Deeproot Strongbranch",
+      "teams": [
+        "Halfling"
+      ],
+      "cost": 300000
+    },
+    {
+      "name": "Dolfar Longstride",
+      "teams": [
+        "Elven Union",
+        "High Elf",
+        "Wood Elf"
+      ],
+      "cost": 150000
+    },
+    {
+      "name": "Eldril Sidewinder",
+      "teams": [
+        "Dark Elf",
+        "Elven Union",
+        "High Elf",
+        "Wood Elf"
+      ],
+      "cost": 200000
+    },
+    {
+      "name": "Fezglitch",
+      "teams": [
+        "Skaven",
+        "Underworld Denizens"
+      ],
+      "cost": 100000
+    },
+    {
+      "name": "Flint Churnblade",
+      "teams": [
+        "Dwarf"
+      ],
+      "cost": 130000
+    },
+    {
+      "name": "Fungus the Loon",
+      "teams": [
+        "Goblin"
+      ],
+      "cost": 80000
+    },
+    {
+      "name": "Glart Smashrip",
+      "teams": [
+        "Chaos Renegade"
+      ],
+      "cost": 195000
+    },
+    {
+      "name": "Glart Smashrip Jr.",
+      "teams": [
+        "Skaven",
+        "Underworld Denizens"
+      ],
+      "cost": 210000
+    },
+    {
+      "name": "Gloriel Summerbloom",
+      "teams": [
+        "Dark Elf"
+      ],
+      "cost": 150000
+    },
+    {
+      "name": "Grak",
+      "teams": [
+        "Chaos Renegade",
+        "Dark Elf",
+        "Dwarf",
+        "Goblin",
+        "Wood Elf"
+      ],
+      "cost": 250000
+    },
+    {
+      "name": "Grashnak Blackhoof",
+      "teams": [
+        "Chaos Chosen",
+        "Chaos Dwarf",
+        "Nurgle"
+      ],
+      "cost": 310000
+    },
+    {
+      "name": "Griff Oberwald",
+      "teams": [
+        "Human"
+      ],
+      "cost": 320000
+    },
+    {
+      "name": "Grim Ironjaw",
+      "teams": [
+        "Dwarf"
+      ],
+      "cost": 220000
+    },
+    {
+      "name": "Grotty",
+      "teams": [
+        "Chaos Chosen",
+        "Nurgle",
+        "Ogre"
+      ],
+      "cost": 290000
+    },
+    {
+      "name": "Hack Enslash",
+      "teams": [
+        "Necromantic Horror",
+        "Shambling Undead",
+        "Tomb Kings"
+      ],
+      "cost": 120000
+    },
+    {
+      "name": "Hakflem Skuttlespike",
+      "teams": [
+        "Chaos Renegade",
+        "Skaven"
+      ],
+      "cost": 180000
+    },
+    {
+      "name": "Headsplitter",
+      "teams": [
+        "Skaven"
+      ],
+      "cost": 340000
+    },
+    {
+      "name": "Helmut Wulf",
+      "teams": [
+        "Amazon",
+        "Chaos Renegade",
+        "Dark Elf",
+        "Human",
+        "Lizardmen",
+        "Norse",
+        "Slann",
+        "Vampire"
+      ],
+      "cost": 110000
+    },
+    {
+      "name": "Hemlock",
+      "teams": [
+        "Lizardmen",
+        "Slann"
+      ],
+      "cost": 170000
+    },
+    {
+      "name": "Horkon Heartripper",
+      "teams": [
+        "Dark Elf"
+      ],
+      "cost": 210000
+    },
+    {
+      "name": "Hthark the Unstoppable",
+      "teams": [
+        "Chaos Dwarf"
+      ],
+      "cost": 310000
+    },
+    {
+      "name": "Hubris Rakarth",
+      "teams": [
+        "Dark Elf",
+        "Elven Union"
+      ],
+      "cost": 260000
+    },
+    {
+      "name": "Humerus Carpal",
+      "teams": [
+        "Tomb Kings"
+      ],
+      "cost": 130000
+    },
+    {
+      "name": "Icepelt Hammerblow",
+      "teams": [
+        "Norse"
+      ],
+      "cost": 330000
+    },
+    {
+      "name": "Ithaca Benoin",
+      "teams": [
+        "Chaos Renegade",
+        "Dark Elf",
+        "Tomb Kings"
+      ],
+      "cost": 220000
+    },
+    {
+      "name": "Ivan 'The Animal' Deathshroud",
+      "teams": [
+        "Tomb Kings"
+      ],
+      "cost": 230000
+    },
+    {
+      "name": "J. Earlice",
+      "teams": [
+        "Necromantic Horror",
+        "Shambling Undead",
+        "Vampire"
+      ],
+      "cost": 180000
+    },
+    {
+      "name": "Jordell Freshbreeze",
+      "teams": [
+        "Elven Union",
+        "Wood Elf"
+      ],
+      "cost": 260000
+    },
+    {
+      "name": "Kiroth Krakeneye",
+      "teams": [
+        "Dark Elf"
+      ],
+      "cost": 160000
+    },
+    {
+      "name": "Lewdgrip Whiparm",
+      "teams": [
+        "Chaos Chosen",
+        "Nurgle"
+      ],
+      "cost": 150000
+    },
+    {
+      "name": "Lord Borak the Despoiler",
+      "teams": [
+        "Chaos Chosen",
+        "Chaos Renegade",
+        "Nurgle"
+      ],
+      "cost": 270000
+    },
+    {
+      "name": "Lottabottol",
+      "teams": [
+        "Lizardmen",
+        "Slann"
+      ],
+      "cost": 220000
+    },
+    {
+      "name": "Lucien Swift",
+      "teams": [
+        "Dark Elf"
+      ],
+      "cost": 340000
+    },
+    {
+      "name": "Max Spleenripper",
+      "teams": [
+        "Chaos Chosen",
+        "Nurgle"
+      ],
+      "cost": 130000
+    },
+    {
+      "name": "Mighty Zug",
+      "teams": [
+        "Human"
+      ],
+      "cost": 260000
+    },
+    {
+      "name": "Morg 'n' Thorg",
+      "teams": [
+        "Amazon",
+        "Chaos Chosen",
+        "Chaos Dwarf",
+        "Chaos Renegade",
+        "Dark Elf",
+        "Dwarf",
+        "Elven Union",
+        "Goblin",
+        "Halfling",
+        "High Elf",
+        "Human",
+        "Lizardmen",
+        "Norse",
+        "Nurgle",
+        "Ogre",
+        "Orc",
+        "Skaven",
+        "Slann",
+        "Underworld Denizens",
+        "Vampire",
+        "Wood Elf"
+      ],
+      "cost": 340000
+    },
+    {
+      "name": "Nobbla Blackwart",
+      "teams": [
+        "Chaos Dwarf",
+        "Goblin",
+        "Ogre",
+        "Underworld Denizens"
+      ],
+      "cost": 130000
+    },
+    {
+      "name": "Prince Moranion",
+      "teams": [
+        "Elven Union",
+        "High Elf"
+      ],
+      "cost": 230000
+    },
+    {
+      "name": "Puggy Baconbreath",
+      "teams": [
+        "Halfling",
+        "Human"
+      ],
+      "cost": 140000
+    },
+    {
+      "name": "Quetzal Leap",
+      "teams": [
+        "Lizardmen",
+        "Slann"
+      ],
+      "cost": 250000
+    },
+    {
+      "name": "Ramtut III",
+      "teams": [
+        "Necromantic Horror",
+        "Shambling Undead",
+        "Tomb Kings"
+      ],
+      "cost": 380000
+    },
+    {
+      "name": "Rashnak Backstabber",
+      "teams": [
+        "Chaos Dwarf"
+      ],
+      "cost": 200000
+    },
+    {
+      "name": "Ripper",
+      "teams": [
+        "Goblin",
+        "Orc"
+      ],
+      "cost": 270000
+    },
+    {
+      "name": "Roxanna Darknail",
+      "teams": [
+        "Amazon",
+        "Dark Elf"
+      ],
+      "cost": 250000
+    },
+    {
+      "name": "Scrappa Sorehead",
+      "teams": [
+        "Goblin",
+        "Ogre",
+        "Orc"
+      ],
+      "cost": 150000
+    },
+    {
+      "name": "Setekh",
+      "teams": [
+        "Necromantic Horror",
+        "Shambling Undead",
+        "Tomb Kings"
+      ],
+      "cost": 220000
+    },
+    {
+      "name": "Sinnedbad",
+      "teams": [
+        "Shambling Undead",
+        "Tomb Kings"
+      ],
+      "cost": 80000
+    },
+    {
+      "name": "Skitter Stab-Stab",
+      "teams": [
+        "Skaven",
+        "Underworld Denizens"
+      ],
+      "cost": 160000
+    },
+    {
+      "name": "Skrull Halfheight",
+      "teams": [
+        "Tomb Kings"
+      ],
+      "cost": 190000
+    },
+    {
+      "name": "Slibli",
+      "teams": [
+        "Lizardmen",
+        "Slann"
+      ],
+      "cost": 250000
+    },
+    {
+      "name": "Soaren Hightower",
+      "teams": [
+        "High Elf"
+      ],
+      "cost": 180000
+    },
+    {
+      "name": "Ugroth Bolgrot",
+      "teams": [
+        "Chaos Renegade",
+        "Orc"
+      ],
+      "cost": 100000
+    },
+    {
+      "name": "Valen Swift",
+      "teams": [
+        "Dark Elf"
+      ],
+      "cost": 0
+    },
+    {
+      "name": "Varag Ghoul-Chewer",
+      "teams": [
+        "Orc"
+      ],
+      "cost": 290000
+    },
+    {
+      "name": "Wilhelm Chaney",
+      "teams": [
+        "Necromantic Horror",
+        "Norse",
+        "Vampire"
+      ],
+      "cost": 240000
+    },
+    {
+      "name": "Willow Rosebark",
+      "teams": [
+        "Amazon",
+        "Dark Elf",
+        "Halfling",
+        "Wood Elf"
+      ],
+      "cost": 150000
+    },
+    {
+      "name": "Zara the Slayer",
+      "teams": [
+        "Amazon",
+        "Dwarf",
+        "Halfling",
+        "High Elf",
+        "Human",
+        "Norse",
+        "Wood Elf"
+      ],
+      "cost": 270000
+    },
+    {
+      "name": "Zolcath the Zoat",
+      "teams": [
+        "Dark Elf"
+      ],
+      "cost": 230000
+    },
+    {
+      "name": "Zzharg Madeye",
+      "teams": [
+        "Chaos Dwarf",
+        "Chaos Renegade"
+      ],
+      "cost": 90000
+    }
+  ]
+}

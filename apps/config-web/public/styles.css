@@ -115,3 +115,26 @@ th { color: var(--ink-dim); font-weight: 600; font-size: 0.8rem; text-transform:
 td a { color: var(--gold); }
 .coaches-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; }
 .coaches-controls { display: flex; gap: 0.5rem; }
+
+/* tiers */
+.tier-count { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem; }
+.tier-count button { width: 32px; height: 32px; font-size: 1.1rem; line-height: 1; padding: 0; }
+.tier-columns { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 1.2rem; }
+.team-drop {
+  display: flex; flex-wrap: wrap; gap: 0.4rem;
+  min-height: 46px; padding: 0.5rem;
+  background: var(--panel-2); border: 1px dashed var(--line); border-radius: 8px;
+}
+.team-drop.dragover { border-color: var(--gold); background: #2b2f3b; }
+.pool { min-height: 60px; }
+.team-chip {
+  background: #2f3646; color: var(--ink); border: 1px solid #3d4557;
+  border-radius: 20px; padding: 0.25rem 0.7rem; font-size: 0.82rem; cursor: grab; user-select: none;
+}
+.team-chip:active { cursor: grabbing; }
+.team-chip.dragging { opacity: 0.4; }
+.tier-card h2 { display: flex; align-items: center; justify-content: space-between; }
+.tier-card .tier-badge { background: var(--gold); color: #111; border-radius: 6px; padding: 0.05rem 0.5rem; font-size: 0.8rem; }
+.banned-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.3rem; }
+.banned-tag { background: #3a2530; color: #ffb3b3; border: 1px solid #5a2f3a; border-radius: 16px; padding: 0.15rem 0.55rem; font-size: 0.76rem; display: flex; align-items: center; gap: 0.35rem; }
+.banned-tag button { background: none; border: none; color: #ffb3b3; cursor: pointer; padding: 0; font-size: 0.9rem; line-height: 1; }

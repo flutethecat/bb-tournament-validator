@@ -20,9 +20,21 @@
       "items": { "type": "string" }
     },
     "tiers": {
-      "type": "object",
-      "description": "Optional tier -> roster-name[] mapping for tiered events.",
-      "additionalProperties": { "type": "array", "items": { "type": "string" } }
+      "type": "array",
+      "description": "Tier configuration. When present, a team's tier drives its gold cap, star access, and banned stars.",
+      "items": {
+        "type": "object",
+        "required": ["tier", "rosters", "gold", "starPlayersAllowed", "bannedStars"],
+        "additionalProperties": false,
+        "properties": {
+          "tier": { "type": "number" },
+          "label": { "type": "string" },
+          "rosters": { "type": "array", "items": { "type": "string" } },
+          "gold": { "type": ["number", "null"], "description": "Per-tier gold cap; null = fall back to goldBudget." },
+          "starPlayersAllowed": { "type": "boolean" },
+          "bannedStars": { "type": "array", "items": { "type": "string" } }
+        }
+      }
     },
 
     "skillAllotment": {

@@ -56,3 +56,13 @@ export function addedSkills(position: DatasetPosition, printedSkills: string[]):
   const base = new Set(position.skills.map(normName));
   return printedSkills.filter((s) => !base.has(normName(s)));
 }
+
+/** Normalized set of all known star-player names (generic, all teams). */
+export function starNameSet(data: Dataset): Set<string> {
+  return new Set(data.stars.map((s) => normName(s.name)));
+}
+
+/** Is this position name a known Star Player? */
+export function isStarName(data: Dataset, positionName: string): boolean {
+  return starNameSet(data).has(normName(positionName));
+}

@@ -61,9 +61,26 @@ export interface DatasetInducement {
   max: number | null;
 }
 
+export interface DatasetTeam {
+  name: string;
+  /** Suggested starting tier (editable per tournament). */
+  defaultTier: number;
+  aliases?: string[];
+}
+
+export interface DatasetStar {
+  name: string;
+  teams: string[];
+  cost: number | null;
+}
+
 export interface Dataset {
   /** Keyed by race name (case-insensitive lookup via helpers). */
   rosters: Record<string, DatasetRoster>;
   skills: Record<string, SkillMeta>;
   inducements: Record<string, DatasetInducement>;
+  /** BB2025 team list (for tier configuration). */
+  teams: DatasetTeam[];
+  /** Star player names (for banned-star config + generic star detection). */
+  stars: DatasetStar[];
 }

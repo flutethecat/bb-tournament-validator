@@ -12,7 +12,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { TournamentPackage } from "@bb/validator";
-import { PackageFiles, readCoaches, skillCatalog } from "./data";
+import { PackageFiles, readCoaches, skillCatalog, starList, teamList } from "./data";
 import { PRESETS } from "./presets";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -79,6 +79,10 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
   const method = req.method ?? "GET";
 
   if (path === "/api/skills" && method === "GET") return sendJson(res, 200, skillCatalog());
+
+  if (path === "/api/teams" && method === "GET") return sendJson(res, 200, teamList());
+
+  if (path === "/api/stars" && method === "GET") return sendJson(res, 200, starList());
 
   if (path === "/api/presets" && method === "GET")
     return sendJson(res, 200, PRESETS.map((p) => ({ id: p.id, label: p.label, pkg: p.pkg })));

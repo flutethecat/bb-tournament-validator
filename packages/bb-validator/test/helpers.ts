@@ -71,6 +71,14 @@ export const fakeData: Dataset = {
   inducements: {
     bribes: { name: "Bribes", cost: 100000, max: 3 },
   },
+  teams: [
+    { name: "Testers", defaultTier: 1 },
+    { name: "Weaklings", defaultTier: 3 },
+  ],
+  stars: [
+    { name: "Star Guy", teams: ["Testers"], cost: 200000 },
+    { name: "Morg 'n' Thorg", teams: ["Testers", "Weaklings"], cost: 340000 },
+  ],
 };
 
 let nextNumber = 1;

@@ -4,13 +4,15 @@
  * disagree on rules-data versions. M1 scope: Amazon only.
  */
 
-import type { Dataset, DatasetRoster, SkillMeta } from "../types";
+import type { Dataset, DatasetRoster, DatasetStar, DatasetTeam, SkillMeta } from "../types";
 import amazonJson from "./rosters/amazon.json";
 import skillsJson from "./skills.json";
 import inducementsJson from "./inducements.json";
+import teamsJson from "./teams.json";
+import starsJson from "./stars.json";
 
 /** Bumped whenever rules data changes; surfaced in ValidationResult for skew checks. */
-export const DATASET_VERSION = "bb2025.1-amazon";
+export const DATASET_VERSION = "bb2025.2-tiers";
 
 function buildDataset(): Dataset {
   const rosters: Record<string, DatasetRoster> = {};
@@ -29,7 +31,10 @@ function buildDataset(): Dataset {
     inducements[ind.id] = { name: ind.name, cost: ind.cost ?? null, max: ind.max ?? null };
   }
 
-  return { rosters, skills, inducements };
+  const teams = teamsJson.teams as DatasetTeam[];
+  const stars = starsJson.stars as DatasetStar[];
+
+  return { rosters, skills, inducements, teams, stars };
 }
 
 export const bb2025: Dataset = buildDataset();
