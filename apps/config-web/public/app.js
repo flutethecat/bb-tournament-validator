@@ -411,7 +411,10 @@ function renderMatrix() {
   rows.forEach((row, r) => {
     html += `<tr><th class="mx-rowhead"><button class="mx-del" data-delrow="${r}" title="remove row">✕</button>
       <input class="mx-label" data-r="${r}" type="text" value="${esc(row.label)}" placeholder="row label" />
-      <div class="mx-row-nums"><input class="mx-prim" data-r="${r}" type="number" min="0" value="${esc(row.primary)}" title="primary" /><input class="mx-sec" data-r="${r}" type="number" min="0" value="${esc(row.secondary)}" title="secondary" /></div>
+      <div class="mx-row-nums">
+        <label class="mx-num"><span>Primary</span><input class="mx-prim" data-r="${r}" type="number" min="0" value="${esc(row.primary)}" /></label>
+        <label class="mx-num"><span>Secondary</span><input class="mx-sec" data-r="${r}" type="number" min="0" value="${esc(row.secondary)}" /></label>
+      </div>
       <label class="mx-swap"><input class="mx-swapcb" data-r="${r}" type="checkbox" ${row.swap ? "checked" : ""} /> secondary swap</label></th>`;
     cols.forEach((_, c) => {
       html += `<td class="mx-cell"><div class="team-drop mx-drop" data-cell="${r},${c}">${teamsIn(r, c)}</div></td>`;

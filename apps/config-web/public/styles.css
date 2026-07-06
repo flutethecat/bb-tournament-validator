@@ -149,8 +149,9 @@ td a { color: var(--gold); }
 .mx-colhead input { width: 100%; }
 .mx-rowhead { width: 160px; }
 .mx-rowhead input[type="text"] { width: 100%; margin-bottom: 0.3rem; }
-.mx-rowhead .mx-row-nums { display: flex; gap: 0.3rem; }
-.mx-rowhead .mx-row-nums input { width: 3rem; }
+.mx-rowhead .mx-row-nums { display: flex; gap: 0.4rem; }
+.mx-num { display: flex; flex-direction: column; gap: 0.1rem; margin-bottom: 0; font-size: 0.66rem; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.02em; }
+.mx-num input { width: 3rem; }
 .mx-rowhead .mx-swap { font-size: 0.72rem; color: var(--ink-dim); display: flex; align-items: center; gap: 0.25rem; margin-top: 0.3rem; }
 .mx-cell { min-width: 150px; vertical-align: top; }
 .mx-cell .mx-drop { height: 100%; min-height: 54px; margin: 0; }
