@@ -317,7 +317,7 @@ function renderTeamRules() {
         <td style="text-align:center"><input data-f="swap" type="checkbox" ${d.swap ? "checked" : ""} /></td>
         <td><select data-f="stars"><option value="inherit"${d.stars === "inherit" ? " selected" : ""}>inherit</option><option value="yes"${d.stars === "yes" ? " selected" : ""}>allow</option><option value="no"${d.stars === "no" ? " selected" : ""}>ban</option></select></td>
         <td class="tr-bans-cell">
-          <input class="tr-baninput" data-f="banadd" type="text" list="stars-list" placeholder="ban a star + Enter" />
+          <input class="tr-baninput star-ac" data-f="banadd" type="text" placeholder="ban a star + Enter" />
           <div class="banned-tags">${d.banned.map((s) => `<span class="banned-tag">${esc(s)}<button data-f="banrm" data-star="${esc(s)}">×</button></span>`).join("")}</div>
           ${inherited.length ? `<div class="tr-inherited">+ global: ${inherited.map(esc).join(", ")}</div>` : ""}
         </td>
@@ -529,7 +529,7 @@ function renderTiers() {
       <label>Gold budget (k)<input class="t-gold" data-t="${t}" type="number" min="0" value="${esc(d.gold)}" placeholder="none" /></label>
       <label>Skill-Point budget<input class="t-sp" data-t="${t}" type="number" min="0" value="${esc(d.sp)}" placeholder="package default" /></label>
       <label class="switch"><input class="t-stars" data-t="${t}" type="checkbox" ${d.starsAllowed ? "checked" : ""} /><span>Allow Star Players</span></label>
-      <label>Ban a star (type + Enter)<input class="t-banadd" data-t="${t}" type="text" list="stars-list" placeholder="Star name…" /></label>
+      <label>Ban a star (type + Enter)<input class="t-banadd star-ac" data-t="${t}" type="text" placeholder="Star name…" /></label>
       <div class="banned-tags" data-t="${t}">${d.banned.map((s) => bannedTag(t, s)).join("")}</div>
       <div class="team-drop" data-tier="${t}">${members.map((tm) => teamChip(tm.name)).join("")}</div>`;
     $("tier-columns").appendChild(col);
@@ -688,6 +688,15 @@ $("coach-filter").addEventListener("change", loadCoaches);
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+
+// Attach the (large) star datalist only to the focused input. Binding one shared
+// datalist to many inputs at once hangs Chrome's renderer, so we bind on demand.
+document.addEventListener("focusin", (e) => {
+  if (e.target.classList && e.target.classList.contains("star-ac")) e.target.setAttribute("list", "stars-list");
+});
+document.addEventListener("focusout", (e) => {
+  if (e.target.classList && e.target.classList.contains("star-ac")) e.target.removeAttribute("list");
+});
 
 // ---- boot ----
 (async function boot() {
