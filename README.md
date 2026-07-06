@@ -8,6 +8,28 @@ and validates it against a **tournament package** defined by a tournament organi
 > Next: register the bot with a Discord token and run the live-guild E2E, then M3.5 (FUMBBL API).
 > See [`docs/roadmap.md`](docs/roadmap.md).
 
+## Running the config pane (TO web UI)
+
+A zero-framework web pane for authoring tournament packages + a coaches dashboard.
+Writes the same `tournament-packages/*.json` the bot hot-loads — changes go live with no restart.
+
+```
+pnpm install
+pnpm --filter config-web start          # → http://127.0.0.1:4310
+```
+
+- **Configure tab:** tournament name/date, eligible rosters, Skill-Point settings, an Elite-vs-General
+  skill list with per-skill cost overrides and a "Do Elite skills cost more?" toggle, sideline/star/
+  special caps. Load a **preset** (BB2025 Default, Resurrection 6+2, Eurobowl 2026 approx, Amorical Cup
+  per-coach subset) or **edit an existing package**, then Save.
+- **Coaches tab:** every validated coach with a link back to their roster post, filterable by package.
+- Binds to localhost by default. To host it, set `HOST=0.0.0.0` **and** `ADMIN_PASSWORD=<secret>`
+  (HTTP Basic auth); put it behind TLS on a public network.
+
+> Presets note: Eurobowl 2026 (gold, per-race) and Amorical Cup (squad format) don't map 1:1 to our
+> per-skill Skill-Point model — those presets capture what maps and flag the rest in their description.
+> Always verify against the official pack.
+
 ## Running the bot
 
 ```
