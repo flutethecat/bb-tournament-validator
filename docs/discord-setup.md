@@ -28,7 +28,7 @@ https://discord.com/oauth2/authorize?client_id=YOUR_APP_ID&scope=bot%20applicati
 ```
 
 `116800` = Send Messages + Embed Links + Attach Files + Add Reactions + Read Message History —
-exactly what /validate (embed + ✅ reaction), /report (CSV attachment) need. Open the URL, pick your
+exactly what /bbbot validate (embed + ✅ reaction), /bbbot report (CSV attachment) need. Open the URL, pick your
 server, Authorize. (You need **Manage Server** on that server.)
 
 ## 4. Get the server id (GUILD_ID)
@@ -45,7 +45,7 @@ globally, which Discord takes up to an hour to propagate — always use `GUILD_I
 cd C:\Users\Jay\Documents\Claude\bb-tournament-validator\apps\discord-bot
 copy .env.example .env
 notepad .env          ← paste DISCORD_TOKEN, DISCORD_CLIENT_ID, GUILD_ID
-pnpm register         ← "Registered 5 commands in guild …"
+pnpm register         ← "Registered 1 commands in guild …"
 pnpm start            ← "Logged in as BB Tournament Validator#1234 …"
 ```
 
@@ -53,21 +53,23 @@ Leave `DATA_DIR`/`PACKAGES_DIR` empty — defaults are `apps\discord-bot\data-st
 `tournament-packages\` folder. The bot process must stay running (it's a normal console app; later
 it can become a service or run beside the fork server per decision D3).
 
+All commands are namespaced under **/bbbot** so they can never conflict with another bot.
+
 ## 6. Smoke test (the live-guild E2E from the plan)
 
 In any channel of the server:
 
-1. `/packages` → should list **BB2025 Default** and **Lustrian Superleague (Example)**.
-2. `/validate` → attach `fixtures\pdfs\Example PDF 1.pdf` → package: start typing "Lus…" and pick
+1. `/bbbot packages` → should list **BB2025 Default** and **Lustrian Superleague (Example)**.
+2. `/bbbot validate` → attach `fixtures\pdfs\Example PDF 1.pdf` → package: start typing "Lus…" and pick
    the autocomplete → expect the **green embed** "✅ TEAM NAME — legal for Lustrian Superleague
    (Example)" showing **10 / 10 SP (6 primary, 0 secondary)**, a **✅ reaction** on the reply, and a
    **DM** from the bot.
-3. `/report` → your entry with a clickable **[roster post]** link; add `csv:true` for the file.
-4. Failure path: `/package import` a text file containing `Skill point budget: 8` +
-   `Name: Strict Test` + `Eligible rosters: Amazon`, then `/validate` the same PDF against
+3. `/bbbot report` → your entry with a clickable **[roster post]** link; add `csv:true` for the file.
+4. Failure path: `/bbbot package import` a text file containing `Skill point budget: 8` +
+   `Name: Strict Test` + `Eligible rosters: Amazon`, then `/bbbot validate` the same PDF against
    **Strict Test** → expect the red embed with "Team spends 10 Skill Points; the budget is 8
    (2 over)" and the suggestion line.
-5. `/coach register fumbbl:<name> naf:<number>` then `/coach me` → your identity entry + the team
+5. `/bbbot coach register fumbbl:<name> naf:<number>` then `/bbbot coach me` → your identity entry + the team
    registered by step 2.
 
 ## Troubleshooting
@@ -78,12 +80,12 @@ In any channel of the server:
 | "Used disallowed intents" on start | You toggled a privileged intent in the portal but the code doesn't request it — turn them all off (step 2.3). |
 | Bot shows offline | Wrong/reset `DISCORD_TOKEN` in `.env`, or `pnpm start` not running. |
 | No DM after a valid roster | Your privacy settings block server-member DMs — the validation itself still succeeds and is recorded; the DM is best-effort by design. |
-| "Unknown package" on /validate | Name must match a package in `tournament-packages\` — use the autocomplete rather than typing freehand. |
+| "Unknown package" on /bbbot validate | Name must match a package in `tournament-packages\` — use the autocomplete rather than typing freehand. |
 | ✅ reaction missing | Bot lacks **Add Reactions** in that channel (check channel-level permission overrides). |
 
 ## What the bot stores (all local, gitignored)
 
 - `data-store\validated-rosters.csv` — one row per validated coach+package (latest wins),
-  incl. the Discord message link `/report` renders.
+  incl. the Discord message link `/bbbot report` renders.
 - `data-store\coaches.json` — the coach identity library (D4).
-- `tournament-packages\*.json` — packages; `/package import` writes new ones here.
+- `tournament-packages\*.json` — packages; `/bbbot package import` writes new ones here.

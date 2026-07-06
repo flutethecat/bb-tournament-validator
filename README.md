@@ -18,10 +18,11 @@ pnpm register                                     # registers slash commands (in
 pnpm start
 ```
 
-Commands: `/validate roster:<pdf> package:<name>` · `/report [package] [csv]` · `/packages` ·
-`/package show <name>` · `/package import <document> [skillcosts.csv]` ·
-`/coach register|lookup|me`. On a valid roster the bot ✅-reacts, DMs the coach, and records them in
-`data-store/validated-rosters.csv`.
+All commands live under the `/bbbot` namespace (prevents conflicts with other bots):
+`/bbbot validate roster:<pdf> package:<name>` · `/bbbot report [package] [csv]` ·
+`/bbbot packages` · `/bbbot package show <name>` · `/bbbot package import <document> [skillcosts]` ·
+`/bbbot coach register|lookup|me`. On a valid roster the bot ✅-reacts, DMs the coach, and records
+them in `data-store/validated-rosters.csv`.
 
 ## Why
 

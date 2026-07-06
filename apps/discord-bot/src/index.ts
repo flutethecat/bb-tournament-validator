@@ -258,20 +258,21 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 client.on("interactionCreate", async (interaction) => {
   try {
     if (interaction.isAutocomplete()) return autocompletePackages(interaction);
-    if (!interaction.isChatInputCommand()) return;
-    switch (interaction.commandName) {
+    if (!interaction.isChatInputCommand() || interaction.commandName !== "bbbot") return;
+    const group = interaction.options.getSubcommandGroup(false);
+    const sub = interaction.options.getSubcommand();
+    if (group === "package")
+      return sub === "show"
+        ? await handlePackageShow(interaction)
+        : await handlePackageImport(interaction);
+    if (group === "coach") return await handleCoach(interaction);
+    switch (sub) {
       case "validate":
         return await handleValidate(interaction);
       case "report":
         return await handleReport(interaction);
       case "packages":
         return await handlePackages(interaction);
-      case "package":
-        return interaction.options.getSubcommand() === "show"
-          ? await handlePackageShow(interaction)
-          : await handlePackageImport(interaction);
-      case "coach":
-        return await handleCoach(interaction);
     }
   } catch (e) {
     console.error("interaction error:", e);
