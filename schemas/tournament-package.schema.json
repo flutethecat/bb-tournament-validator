@@ -61,9 +61,46 @@
           "description": "Per-skill SP overrides (highest precedence). Also loadable from a CSV."
         },
         "maxPerPlayer": { "type": ["number", "null"], "default": 2, "description": "Max ADDED skills on a single player." },
-        "maxSameSkillTeamwide": { "type": ["number", "null"], "default": null, "description": "Max copies of one added skill across the whole team." }
+        "maxSameSkillTeamwide": { "type": ["number", "null"], "default": null, "description": "Max copies of one added skill across the whole team." },
+        "maxPrimary": { "type": ["number", "null"], "description": "COUNT mode: max primary-access added skills (instead of the SP budget)." },
+        "maxSecondary": { "type": ["number", "null"], "description": "COUNT mode: max secondary-access added skills." },
+        "secondarySwap": { "type": "boolean", "description": "Allow trading two primary slots for one secondary." }
       }
     },
+
+    "teamRules": {
+      "type": "array",
+      "description": "Per-team line-item overrides (highest precedence).",
+      "items": {
+        "type": "object",
+        "required": ["team"],
+        "additionalProperties": false,
+        "properties": {
+          "team": { "type": "string" },
+          "gold": { "type": ["number", "null"] },
+          "skillPointBudget": { "type": ["number", "null"] },
+          "maxPrimary": { "type": ["number", "null"] },
+          "maxSecondary": { "type": ["number", "null"] },
+          "secondarySwap": { "type": "boolean" },
+          "starPlayersAllowed": { "type": "boolean" },
+          "bannedStars": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+
+    "matrix": {
+      "type": "object",
+      "description": "Cash x skills grid; a team's cell sets its gold (column) and primary/secondary counts (row).",
+      "required": ["columns", "rows", "cells"],
+      "additionalProperties": false,
+      "properties": {
+        "columns": { "type": "array", "items": { "type": "object", "required": ["gold"], "properties": { "gold": { "type": "number" } } } },
+        "rows": { "type": "array", "items": { "type": "object", "required": ["primary", "secondary", "secondarySwap"], "properties": { "label": { "type": "string" }, "primary": { "type": "number" }, "secondary": { "type": "number" }, "secondarySwap": { "type": "boolean" } } } },
+        "cells": { "type": "array", "items": { "type": "object", "required": ["col", "row", "teams"], "properties": { "col": { "type": "number" }, "row": { "type": "number" }, "teams": { "type": "array", "items": { "type": "string" } }, "starPlayersAllowed": { "type": "boolean" }, "bannedStars": { "type": "array", "items": { "type": "string" } } } } }
+      }
+    },
+
+    "bannedStars": { "type": "array", "items": { "type": "string" }, "description": "Star names banned globally; tiers/matrix/team rules inherit these." },
 
     "goldBudget": { "type": ["number", "null"], "default": null, "description": "Optional parallel gold cap (team value incl. skills). Null = SP-only tournament." },
 

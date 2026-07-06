@@ -31,9 +31,28 @@ export {
   starNameSet,
 } from "./dataset/lookup";
 export type { Access } from "./dataset/lookup";
-export type { TournamentPackage, SkillAllotment, TierDef } from "./package/types";
+export type {
+  TournamentPackage,
+  SkillAllotment,
+  TierDef,
+  TeamRule,
+  Matrix,
+  MatrixColumn,
+  MatrixRow,
+  MatrixCell,
+} from "./package/types";
 export { DEFAULT_SKILL_ALLOTMENT } from "./package/types";
 export { resolveTier, hasTiers } from "./package/tiers";
+export {
+  resolveTeamConfig,
+  resolveMatrixCell,
+  isEligible,
+  eligibleTeamNames,
+  usesCountMode,
+  fitsSkillCounts,
+  parseGold,
+} from "./package/resolveConfig";
+export type { ResolvedTeamConfig } from "./package/resolveConfig";
 export { loadPackage, mergePackages, parseSkillCostCsv, applyCsvOverrides } from "./package/resolve";
 export type { CsvSkillCostRow, DeepPartial } from "./package/resolve";
 export { costSP, isElite } from "./cost/costSP";

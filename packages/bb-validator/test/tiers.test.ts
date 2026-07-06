@@ -21,7 +21,7 @@ describe("resolveTier", () => {
 describe("tier eligibility", () => {
   it("a race in no tier is ineligible when tiers are set", () => {
     const r = validate(roster({ rosterName: "Testers" }), pkg({ tiers: [{ tier: 1, rosters: ["Weaklings"], gold: null, starPlayersAllowed: true, bannedStars: [] }] }), fakeData);
-    expect(errorsOf(r, "roster-eligibility")[0]!.message).toMatch(/not assigned to any tier/);
+    expect(errorsOf(r, "roster-eligibility")[0]!.message).toMatch(/not an eligible roster/);
   });
 
   it("a race in a tier is eligible", () => {
@@ -66,7 +66,7 @@ describe("per-tier star access + banned stars", () => {
       pkg({ tiers: tiers([{ bannedStars: ["Morg 'n' Thorg"] }]) }),
       fakeData,
     );
-    expect(errorsOf(r, "star-players")[0]!.message).toMatch(/Morg 'n' Thorg is banned \(Tier 1\)/);
+    expect(errorsOf(r, "star-players")[0]!.message).toMatch(/Morg 'n' Thorg is banned/);
   });
 });
 

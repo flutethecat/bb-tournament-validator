@@ -6,39 +6,23 @@
 import { costSP } from "../cost/costSP";
 import { findSkill, isStarName, normName } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
-import { hasTiers, resolveTier } from "../package/tiers";
+import { eligibleTeamNames, fitsSkillCounts, isEligible, resolveTeamConfig, sourceLabel, usesCountMode } from "../package/resolveConfig";
 import type { Rule } from "./types";
 import { err, warn } from "./types";
 
-/** 1. Roster eligibility — race in eligibleRosters (or, when tiers are set, in some tier). */
+/** 1. Roster eligibility — across flat / tiers / matrix bucketing. */
 export const rosterEligibility: Rule = {
   id: "roster-eligibility",
   check: ({ roster, pkg }) => {
-    if (hasTiers(pkg)) {
-      if (resolveTier(pkg, roster.rosterName)) return [];
-      const tierRosters = pkg.tiers!.flatMap((t) => t.rosters);
-      return [
-        err("roster-eligibility", `${roster.rosterName} is not assigned to any tier in "${pkg.name}".`, {
-          actual: roster.rosterName,
-          suggestion: `Eligible teams: ${tierRosters.join(", ") || "none configured"}.`,
-        }),
-      ];
-    }
-    if (pkg.eligibleRosters.includes("*")) return [];
-    const ok = pkg.eligibleRosters.some((r) => normName(r) === normName(roster.rosterName));
-    return ok
-      ? []
-      : [
-          err(
-            "roster-eligibility",
-            `${roster.rosterName} is not an eligible roster for "${pkg.name}".`,
-            {
-              expected: pkg.eligibleRosters.join(", "),
-              actual: roster.rosterName,
-              suggestion: `Pick one of: ${pkg.eligibleRosters.join(", ")}.`,
-            },
-          ),
-        ];
+    if (isEligible(pkg, roster.rosterName)) return [];
+    const eligible = eligibleTeamNames(pkg);
+    return [
+      err("roster-eligibility", `${roster.rosterName} is not an eligible roster for "${pkg.name}".`, {
+        expected: eligible.join(", "),
+        actual: roster.rosterName,
+        suggestion: `Eligible teams: ${eligible.join(", ") || "none configured"}.`,
+      }),
+    ];
   },
 };
 
@@ -114,21 +98,20 @@ export const positionalLimits: Rule = {
   },
 };
 
-/** 4. Gold budget (optional) — recomputed team gold <= the tier gold cap or the package goldBudget. */
+/** 4. Gold budget (optional) — recomputed team gold <= the effective (resolved) gold cap. */
 export const goldBudget: Rule = {
   id: "gold-budget",
   check: ({ roster, pkg }) => {
-    const tier = resolveTier(pkg, roster.rosterName);
-    const cap = tier?.gold ?? pkg.goldBudget;
-    if (cap == null) return [];
+    const cfg = resolveTeamConfig(pkg, roster.rosterName);
+    if (cfg.gold == null) return [];
     const gold = recomputeGold(roster);
-    const where = tier?.gold != null ? ` (Tier ${tier.tier})` : "";
-    return gold > cap
+    const where = sourceLabel(cfg);
+    return gold > cfg.gold
       ? [
-          err("gold-budget", `Team costs ${fmtGold(gold)}, over the ${fmtGold(cap)} budget${where}.`, {
-            expected: `<= ${fmtGold(cap)}`,
+          err("gold-budget", `Team costs ${fmtGold(gold)}, over the ${fmtGold(cfg.gold)} budget${where}.`, {
+            expected: `<= ${fmtGold(cfg.gold)}`,
             actual: fmtGold(gold),
-            suggestion: `Trim ${fmtGold(gold - cap)}.`,
+            suggestion: `Trim ${fmtGold(gold - cfg.gold)}.`,
           }),
         ]
       : [];
@@ -169,11 +152,12 @@ export const skillPoints: Rule = {
   needsDatasetRoster: true,
   check: ({ players, pkg, roster }) => {
     const cfg = pkg.skillAllotment;
-    const tier = resolveTier(pkg, roster.rosterName);
-    const budget = tier?.skillPointBudget ?? cfg.skillPointBudget;
-    const where = tier?.skillPointBudget != null ? ` (Tier ${tier.tier})` : "";
+    const resolved = resolveTeamConfig(pkg, roster.rosterName);
+    const where = sourceLabel(resolved);
     const findings: Finding[] = [];
     let total = 0;
+    let primaryCount = 0;
+    let secondaryCount = 0;
     const teamwide = new Map<string, number>();
 
     for (const rp of players) {
@@ -202,8 +186,10 @@ export const skillPoints: Rule = {
         );
       rp.addedSkills.forEach((skill, i) => {
         const access = rp.access[i];
-        if (access === undefined || access === "illegal") return; // only price legal picks
+        if (access === undefined || access === "illegal") return; // only count legal picks
         total += costSP(skill, access, cfg);
+        if (access === "primary") primaryCount++;
+        else secondaryCount++;
         teamwide.set(normName(skill), (teamwide.get(normName(skill)) ?? 0) + 1);
       });
     }
@@ -219,14 +205,33 @@ export const skillPoints: Rule = {
             ),
           );
 
-    if (total > budget) {
-      const over = total - budget;
+    if (usesCountMode(resolved)) {
+      // COUNT mode: separate primary/secondary limits (with optional Secondary Swap).
+      if (!fitsSkillCounts(primaryCount, secondaryCount, resolved.maxPrimary, resolved.maxSecondary, resolved.secondarySwap)) {
+        const allot =
+          `${resolved.maxPrimary ?? "∞"} primary` +
+          (resolved.maxSecondary != null ? ` + ${resolved.maxSecondary} secondary` : "") +
+          (resolved.secondarySwap ? " (secondary swap allowed)" : "");
+        findings.push(
+          err(
+            "skill-points",
+            `Team took ${primaryCount} primary + ${secondaryCount} secondary skills; the allotment is ${allot}${where}.`,
+            {
+              expected: allot,
+              actual: `${primaryCount} primary + ${secondaryCount} secondary`,
+              suggestion: "Drop or re-allocate added skills to fit the primary/secondary allotment.",
+            },
+          ),
+        );
+      }
+    } else if (total > resolved.skillPointBudget) {
+      const over = total - resolved.skillPointBudget;
       findings.push(
         err(
           "skill-points",
-          `Team spends ${total} Skill Points; the budget is ${budget}${where} (${over} over).`,
+          `Team spends ${total} Skill Points; the budget is ${resolved.skillPointBudget}${where} (${over} over).`,
           {
-            expected: `<= ${budget}`,
+            expected: `<= ${resolved.skillPointBudget}`,
             actual: total,
             suggestion: `Drop ${over} SP worth of added skills, or ask the TO to raise the budget to ${total}.`,
           },
@@ -266,9 +271,9 @@ export const starPlayers: Rule = {
     const findings: Finding[] = [];
     if (stars.length === 0) return findings;
 
-    const tier = resolveTier(pkg, roster.rosterName);
-    const allowed = tier ? tier.starPlayersAllowed : pkg.starPlayers.allowed;
-    const where = tier ? ` (Tier ${tier.tier})` : "";
+    const resolved = resolveTeamConfig(pkg, roster.rosterName);
+    const allowed = resolved.starPlayersAllowed;
+    const where = sourceLabel(resolved);
 
     if (!allowed) {
       findings.push(
@@ -286,11 +291,11 @@ export const starPlayers: Rule = {
       );
     }
 
-    const banned = new Set((tier?.bannedStars ?? []).map(normName));
+    const banned = new Set(resolved.bannedStars.map(normName));
     for (const s of stars)
       if (banned.has(normName(s.player.positionName)))
         findings.push(
-          err("star-players", `${s.player.positionName} is banned${where} in "${pkg.name}".`, {
+          err("star-players", `${s.player.positionName} is banned in "${pkg.name}".`, {
             playerRef: s.player.number,
             suggestion: `Remove ${s.player.positionName}.`,
           }),

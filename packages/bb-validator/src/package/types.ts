@@ -34,6 +34,52 @@ export interface SkillAllotment {
   skillCostSP: Record<string, number>; // default {}
   maxPerPlayer: number | null; // default 2
   maxSameSkillTeamwide: number | null; // default null
+  /**
+   * COUNT mode (alternative to the SP pool). When maxPrimary and/or maxSecondary
+   * are set, added skills are limited by COUNT per access category instead of the
+   * SP budget. Counts come from each added skill's primary/secondary access (which
+   * matches the bbtc.pl "Primary skills / Secondary skills" summary).
+   */
+  maxPrimary?: number | null;
+  maxSecondary?: number | null;
+  /** Row-level "Secondary Swap": two primary slots may be traded for one secondary. */
+  secondarySwap?: boolean;
+}
+
+/** Per-team override (line-item rules). Any unset field falls back up the chain. */
+export interface TeamRule {
+  team: string;
+  gold?: number | null;
+  skillPointBudget?: number | null;
+  maxPrimary?: number | null;
+  maxSecondary?: number | null;
+  secondarySwap?: boolean;
+  starPlayersAllowed?: boolean;
+  bannedStars?: string[];
+}
+
+export interface MatrixColumn {
+  /** Total gold allowed for team construction (in gold, e.g. 1150000). */
+  gold: number;
+}
+export interface MatrixRow {
+  label?: string;
+  primary: number;
+  secondary: number;
+  secondarySwap: boolean;
+}
+export interface MatrixCell {
+  col: number;
+  row: number;
+  teams: string[];
+  starPlayersAllowed?: boolean;
+  bannedStars?: string[];
+}
+/** A cash×skills grid; a team's cell sets its gold (column) and skill counts (row). */
+export interface Matrix {
+  columns: MatrixColumn[];
+  rows: MatrixRow[];
+  cells: MatrixCell[];
 }
 
 export interface TournamentPackage {
@@ -51,6 +97,12 @@ export interface TournamentPackage {
    * access, and banned stars, overriding the package-level equivalents.
    */
   tiers?: TierDef[];
+  /** Per-team line-item overrides (highest precedence). */
+  teamRules?: TeamRule[];
+  /** Cash×skills matrix; a team's cell sets its gold + primary/secondary counts. */
+  matrix?: Matrix;
+  /** Star names banned globally; tiers/matrix/team rules inherit (union) these. */
+  bannedStars?: string[];
   skillAllotment: SkillAllotment;
   /** Optional parallel gold cap; null = SP-only tournament. */
   goldBudget: number | null;
