@@ -74,6 +74,13 @@ From then on **every PDF posted in that channel is validated automatically** —
 `/bbbot unwatch channel:<#ch>` stops it; `/bbbot watches` lists the bindings.
 `/bbbot validate` remains available for one-off checks in unwatched channels.
 
+> **Private-channel gotcha (learned the hard way):** even with **Administrator**, the bot may not
+> see a **private** channel until it's explicitly added to it. Administrator overrides *permissions*
+> but Discord still won't deliver messages from a private channel the bot isn't a member of. Fix:
+> open the channel → **Edit Channel → Permissions/Members → add the bot** (or a role it has). Public
+> channels work with no extra step. If `/bbbot watch` succeeds but nothing happens when a PDF is
+> posted, this is almost always the cause.
+
 ## 6. Smoke test (the live-guild E2E from the plan)
 
 In any channel of the server:
@@ -101,6 +108,7 @@ In any channel of the server:
 | No DM after a valid roster | Your privacy settings block server-member DMs — the validation itself still succeeds and is recorded; the DM is best-effort by design. |
 | "Unknown package" on /bbbot validate | Name must match a package in `tournament-packages\` — use the autocomplete rather than typing freehand. |
 | ✅ reaction missing | Bot lacks **Add Reactions** in that channel (check channel-level permission overrides). |
+| Watched channel does nothing on upload | The channel is **private** and the bot isn't a member — add the bot to it (Administrator does NOT bypass this for private channels). |
 
 ## What the bot stores (all local, gitignored)
 
