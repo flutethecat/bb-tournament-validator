@@ -172,13 +172,15 @@
       <section id="view-teamrules" class="view">
         <div class="card sticky-actions">
           <div class="actions">
+            <label class="switch"><input id="tr-enabled" type="checkbox" /><span>Use team-based rules</span></label>
             <button id="btn-save-teamrules" class="primary">Save package</button>
             <span id="tr-save-status" class="status"></span>
             <input id="tr-filter" type="search" placeholder="Filter teams…" />
           </div>
-          <p class="hint">Per-team overrides (highest precedence). Leave a field blank to inherit from the matrix / tier / package. Gold accepts <code>1150</code> or <code>1.15M</code>. Global bans are inherited automatically; add team-specific bans in the Bans column.</p>
+          <p class="hint">One of Tiers / Matrix / Team Rules is active at a time — switching converts your current rules over. Per-team line items: gold accepts <code>1150</code> or <code>1.15M</code>; leave a field blank to inherit from the package. Global bans are inherited automatically.</p>
         </div>
-        <div class="card"><table id="teamrules-table">
+        <div id="teamrules-disabled-note" class="card"><p class="hint">Team-based rules are off. Tick “Use team-based rules” to edit per-team overrides (this will convert any Tiers/Matrix rules you already have).</p></div>
+        <div id="teamrules-wrap" class="card"><table id="teamrules-table">
           <thead><tr><th>Team</th><th>Gold</th><th>Primary</th><th>Secondary</th><th>Swap</th><th>Stars</th><th>Bans</th></tr></thead>
           <tbody></tbody>
         </table></div>

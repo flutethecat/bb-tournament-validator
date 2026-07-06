@@ -21,6 +21,8 @@ const state = {
   teamRules: {}, // team -> { gold, primary, secondary, swap, stars: 'inherit'|'yes'|'no', banned: [] }
   matrix: { enabled: false, columns: [], rows: [], assign: {} }, // assign: team -> "row,col"
   trFilter: "",
+  // exactly one advanced config mode is active at a time
+  mode: "flat", // 'flat' | 'tiers' | 'matrix' | 'teamrules'
 };
 
 function parseGoldClient(v) {
@@ -168,10 +170,10 @@ function formToPackage() {
       bannedSkills: [],
       minPlayers: num("f-minplayers", 11),
     },
-    ...(state.tiersEnabled ? { tiers: buildTiers() } : {}),
+    ...(state.mode === "tiers" ? { tiers: buildTiers() } : {}),
+    ...(state.mode === "matrix" ? { matrix: buildMatrix() } : {}),
+    ...(state.mode === "teamrules" && buildTeamRules().length ? { teamRules: buildTeamRules() } : {}),
     ...(state.bannedGlobal.length ? { bannedStars: state.bannedGlobal } : {}),
-    ...(buildTeamRules().length ? { teamRules: buildTeamRules() } : {}),
-    ...(state.matrix.enabled ? { matrix: buildMatrix() } : {}),
   };
 }
 
@@ -273,9 +275,16 @@ function packageToForm(p) {
       banned: [...(tr.bannedStars || [])],
     };
   }
-  renderTeamRules();
   // matrix
   applyMatrix(p.matrix);
+  // exclusive mode: pick one by precedence (legacy packages may carry several)
+  state.mode = p.matrix ? "matrix" : (p.tiers && p.tiers.length) ? "tiers" : (p.teamRules && p.teamRules.length) ? "teamrules" : "flat";
+  state.tiersEnabled = state.mode === "tiers";
+  state.matrix.enabled = state.mode === "matrix";
+  syncModeUI();
+  renderTiers();
+  renderMatrix();
+  renderTeamRules();
 }
 
 // ---- global bans ----
@@ -302,6 +311,10 @@ $("g-banadd").addEventListener("keydown", (e) => {
 
 // ---- team rules ----
 function renderTeamRules() {
+  const active = state.mode === "teamrules";
+  if ($("teamrules-wrap")) $("teamrules-wrap").hidden = !active;
+  if ($("teamrules-disabled-note")) $("teamrules-disabled-note").hidden = active;
+  if (!active) return;
   const tbody = document.querySelector("#teamrules-table tbody");
   const filter = state.trFilter.toLowerCase();
   tbody.innerHTML = state.teams
@@ -401,7 +414,7 @@ function renderMatrix() {
       <div class="mx-row-nums"><input class="mx-prim" data-r="${r}" type="number" min="0" value="${esc(row.primary)}" title="primary" /><input class="mx-sec" data-r="${r}" type="number" min="0" value="${esc(row.secondary)}" title="secondary" /></div>
       <label class="mx-swap"><input class="mx-swapcb" data-r="${r}" type="checkbox" ${row.swap ? "checked" : ""} /> secondary swap</label></th>`;
     cols.forEach((_, c) => {
-      html += `<td class="mx-cell team-drop" data-cell="${r},${c}">${teamsIn(r, c)}</td>`;
+      html += `<td class="mx-cell"><div class="team-drop mx-drop" data-cell="${r},${c}">${teamsIn(r, c)}</div></td>`;
     });
     html += "</tr>";
   });
@@ -465,11 +478,117 @@ function removeMatrixRow(r) {
   renderMatrix();
 }
 
-$("m-enabled").addEventListener("change", (e) => { state.matrix.enabled = e.target.checked; renderMatrix(); });
+$("m-enabled").addEventListener("change", (e) => setMode(e.target.checked ? "matrix" : "flat"));
 $("m-addcol").addEventListener("click", () => { state.matrix.columns.push({ gold: "" }); renderMatrix(); });
 $("m-addrow").addEventListener("click", () => { state.matrix.rows.push({ label: "", primary: 6, secondary: 0, swap: false }); renderMatrix(); });
 $("btn-save-matrix").addEventListener("click", () => savePackage($("matrix-save-status")));
 $("btn-save-teamrules").addEventListener("click", () => savePackage($("tr-save-status")));
+
+// ---- exclusive mode switching (Tiers / Matrix / Team Rules) ----
+// Read the effective per-team config from whatever mode is currently active.
+function deriveCurrent() {
+  const out = {};
+  if (state.mode === "tiers") {
+    for (let t = 1; t <= state.tierCount; t++) {
+      const d = state.tierData[t] || {};
+      for (const tm of state.teams)
+        if ((state.assign[tm.name] || 0) === t)
+          out[tm.name] = { gold: d.gold, sp: d.sp, stars: d.starsAllowed === false ? "no" : "inherit", banned: [...(d.banned || [])] };
+    }
+  } else if (state.mode === "matrix") {
+    for (const [team, rc] of Object.entries(state.matrix.assign)) {
+      const [r, c] = rc.split(",").map(Number);
+      const row = state.matrix.rows[r], col = state.matrix.columns[c];
+      if (!row || !col) continue;
+      out[team] = { gold: col.gold, primary: row.primary, secondary: row.secondary, swap: !!row.swap, banned: [] };
+    }
+  } else if (state.mode === "teamrules") {
+    for (const [team, d] of Object.entries(state.teamRules))
+      out[team] = { gold: d.gold, primary: d.primary, secondary: d.secondary, swap: d.swap, stars: d.stars, banned: [...(d.banned || [])] };
+  }
+  return out;
+}
+
+function buildTeamRulesFrom(d) {
+  state.teamRules = {};
+  for (const [team, v] of Object.entries(d)) {
+    const tr = emptyTR();
+    if (v.gold != null && v.gold !== "") tr.gold = String(v.gold);
+    if (v.primary != null && v.primary !== "") tr.primary = String(v.primary);
+    if (v.secondary != null && v.secondary !== "") tr.secondary = String(v.secondary);
+    if (v.swap) tr.swap = true;
+    tr.stars = v.stars === "yes" ? "yes" : v.stars === "no" ? "no" : "inherit";
+    if (v.banned) tr.banned = [...v.banned];
+    state.teamRules[team] = tr;
+  }
+}
+
+function buildMatrixFrom(d) {
+  const entries = Object.entries(d);
+  const golds = [...new Set(entries.map(([, v]) => String(v.gold ?? "")).filter((g) => g !== ""))];
+  const rowKeys = [...new Set(entries.map(([, v]) => `${v.primary ?? 0}|${v.secondary ?? 0}|${v.swap ? 1 : 0}`))];
+  state.matrix.columns = (golds.length ? golds : [""]).map((g) => ({ gold: g }));
+  state.matrix.rows = (rowKeys.length ? rowKeys : ["0|0|0"]).map((k) => { const [p, s, sw] = k.split("|"); return { label: "", primary: Number(p), secondary: Number(s), swap: sw === "1" }; });
+  state.matrix.assign = {};
+  for (const [team, v] of entries) {
+    const c = golds.indexOf(String(v.gold ?? ""));
+    const r = rowKeys.indexOf(`${v.primary ?? 0}|${v.secondary ?? 0}|${v.swap ? 1 : 0}`);
+    if (c >= 0 && r >= 0) state.matrix.assign[team] = `${r},${c}`;
+  }
+}
+
+function buildTiersFrom(d) {
+  const entries = Object.entries(d);
+  if (entries.length === 0) {
+    // from flat: seed suggested default tiers
+    state.tierCount = 3;
+    ensureTierData();
+    state.assign = {};
+    for (const tm of state.teams) state.assign[tm.name] = Math.min(tm.defaultTier, state.tierCount);
+    return;
+  }
+  const groups = new Map();
+  for (const [team, v] of entries) {
+    const key = `${v.gold ?? ""}|${v.sp ?? ""}|${v.stars ?? ""}|${(v.banned || []).join(",")}`;
+    if (!groups.has(key)) groups.set(key, { v, teams: [] });
+    groups.get(key).teams.push(team);
+  }
+  state.tierCount = Math.max(1, groups.size);
+  state.tierData = {};
+  ensureTierData();
+  state.assign = {};
+  let t = 1;
+  for (const { v, teams } of groups.values()) {
+    state.tierData[t] = { label: "", gold: v.gold ?? "", sp: v.sp ?? "", starsAllowed: v.stars !== "no", banned: [...(v.banned || [])] };
+    for (const tm of teams) state.assign[tm] = t;
+    t++;
+  }
+}
+
+function setMode(newMode) {
+  if (newMode === state.mode) return;
+  const derived = deriveCurrent();
+  // clear every advanced mode
+  state.tiersEnabled = false;
+  state.matrix.enabled = false;
+  state.matrix.assign = {};
+  state.teamRules = {};
+  state.mode = newMode;
+  if (newMode === "tiers") { state.tiersEnabled = true; buildTiersFrom(derived); }
+  else if (newMode === "matrix") { state.matrix.enabled = true; buildMatrixFrom(derived); if (!state.matrix.columns.length) state.matrix.columns = [{ gold: "" }]; if (!state.matrix.rows.length) state.matrix.rows = [{ label: "", primary: 6, secondary: 0, swap: false }]; }
+  else if (newMode === "teamrules") buildTeamRulesFrom(derived);
+  syncModeUI();
+  renderTiers();
+  renderMatrix();
+  renderTeamRules();
+}
+
+function syncModeUI() {
+  $("t-enabled").checked = state.mode === "tiers";
+  $("m-enabled").checked = state.mode === "matrix";
+  if ($("tr-enabled")) $("tr-enabled").checked = state.mode === "teamrules";
+}
+$("tr-enabled").addEventListener("change", (e) => setMode(e.target.checked ? "teamrules" : "flat"));
 
 // ---- tiers: state application + rendering ----
 function applyTiers(tiers) {
@@ -598,13 +717,7 @@ function wireDnD() {
   });
 }
 
-$("t-enabled").addEventListener("change", (e) => {
-  state.tiersEnabled = e.target.checked;
-  if (state.tiersEnabled && Object.keys(state.assign).length === 0)
-    for (const tm of state.teams) state.assign[tm.name] = Math.min(tm.defaultTier, state.tierCount);
-  ensureTierData();
-  renderTiers();
-});
+$("t-enabled").addEventListener("change", (e) => setMode(e.target.checked ? "tiers" : "flat"));
 $("tier-plus").addEventListener("click", () => { if (state.tierCount < 8) { state.tierCount++; ensureTierData(); renderTiers(); } });
 $("tier-minus").addEventListener("click", () => {
   if (state.tierCount <= 1) return;
@@ -707,9 +820,11 @@ document.addEventListener("focusout", (e) => {
   [state.teams, state.stars] = await Promise.all([api("/api/teams"), api("/api/stars")]);
   $("stars-list").innerHTML = state.stars.map((s) => `<option value="${esc(s.name)}"></option>`).join("");
   applyTiers(null); // seed pool/default assignment, tiers off
+  applyMatrix(null);
+  state.mode = "flat";
+  syncModeUI();
   renderGlobalBans();
   renderTeamRules();
-  applyMatrix(null);
   await loadPresets();
   await loadPackages();
 })();
