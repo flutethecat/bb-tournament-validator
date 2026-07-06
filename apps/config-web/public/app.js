@@ -327,7 +327,7 @@ function renderTeamRules() {
         <td><input class="tr-gold" data-f="gold" type="text" value="${esc(d.gold)}" placeholder="inherit" /></td>
         <td><input data-f="primary" type="number" min="0" value="${esc(d.primary)}" placeholder="—" /></td>
         <td><input data-f="secondary" type="number" min="0" value="${esc(d.secondary)}" placeholder="—" /></td>
-        <td style="text-align:center"><input data-f="swap" type="checkbox" ${d.swap ? "checked" : ""} /></td>
+        <td style="text-align:center"><input data-f="swap" type="checkbox" ${d.swap ? "checked" : ""} title="Secondary Swap = Swap 2 primaries for 1 secondary" /></td>
         <td><select data-f="stars"><option value="inherit"${d.stars === "inherit" ? " selected" : ""}>inherit</option><option value="yes"${d.stars === "yes" ? " selected" : ""}>allow</option><option value="no"${d.stars === "no" ? " selected" : ""}>ban</option></select></td>
         <td class="tr-bans-cell">
           <input class="tr-baninput star-ac" data-f="banadd" type="text" placeholder="ban a star + Enter" />
@@ -415,7 +415,7 @@ function renderMatrix() {
         <label class="mx-num"><span>Primary</span><input class="mx-prim" data-r="${r}" type="number" min="0" value="${esc(row.primary)}" /></label>
         <label class="mx-num"><span>Secondary</span><input class="mx-sec" data-r="${r}" type="number" min="0" value="${esc(row.secondary)}" /></label>
       </div>
-      <label class="mx-swap"><input class="mx-swapcb" data-r="${r}" type="checkbox" ${row.swap ? "checked" : ""} /> secondary swap</label></th>`;
+      <label class="mx-swap" title="Secondary Swap = Swap 2 primaries for 1 secondary"><input class="mx-swapcb" data-r="${r}" type="checkbox" ${row.swap ? "checked" : ""} /> secondary swap</label></th>`;
     cols.forEach((_, c) => {
       html += `<td class="mx-cell"><div class="team-drop mx-drop" data-cell="${r},${c}">${teamsIn(r, c)}</div></td>`;
     });

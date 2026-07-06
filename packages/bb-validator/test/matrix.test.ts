@@ -70,6 +70,34 @@ describe("count-mode validation (team rule)", () => {
     expect(errorsOf(r, "skill-points")[0]!.message).toMatch(/7 primary \+ 0 secondary.*6 primary/);
   });
 
+  it("secondary swap is honored during validation: 2 secondaries fit 4 primary + 0 secondary when swap is on", () => {
+    // 2 secondary-access skills (Side Step, Dodge = Agility). Allotment 4 primary + 0 secondary.
+    // With swap each secondary costs 2 primary slots -> 2 secondaries need 4 primary = exactly fits.
+    const rosterSwap = rosterWithSkills([], ["Side Step", "Dodge"]);
+    const on = validate(
+      rosterSwap,
+      pkg({ teamRules: [{ team: "Testers", maxPrimary: 4, maxSecondary: 0, secondarySwap: true }] }),
+      fakeData,
+    );
+    expect(errorsOf(on, "skill-points")).toHaveLength(0);
+
+    // Same team WITHOUT swap -> 2 secondaries can't fit 0 secondary slots.
+    const off = validate(
+      rosterWithSkills([], ["Side Step", "Dodge"]),
+      pkg({ teamRules: [{ team: "Testers", maxPrimary: 4, maxSecondary: 0, secondarySwap: false }] }),
+      fakeData,
+    );
+    expect(errorsOf(off, "skill-points")[0]!.message).toMatch(/0 primary \+ 2 secondary/);
+
+    // Swap on but only 3 primary slots -> not enough to trade for 2 secondaries (needs 4).
+    const short = validate(
+      rosterWithSkills([], ["Side Step", "Dodge"]),
+      pkg({ teamRules: [{ team: "Testers", maxPrimary: 3, maxSecondary: 0, secondarySwap: true }] }),
+      fakeData,
+    );
+    expect(errorsOf(short, "skill-points")).toHaveLength(1);
+  });
+
   it("counts secondary-access skills separately", () => {
     // 1 secondary (Side Step=Agility) vs allotment 8 primary + 0 secondary, no swap -> fail
     const r = validate(
