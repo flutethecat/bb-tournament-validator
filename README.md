@@ -4,9 +4,9 @@ A Discord bot + portable validation core that ingests a Blood Bowl team (PDF now
 and validates it against a **tournament package** defined by a tournament organizer (TO), explaining
 *why* the roster passes or fails each rule and how to fix it.
 
-> Status: **v1 BUILT (M1+M2+M3, 2026-07-06)** — 66/66 tests green, all packages typecheck + build.
-> Next: register the bot with a Discord token and run the live-guild E2E, then M3.5 (FUMBBL API).
-> See [`docs/roadmap.md`](docs/roadmap.md).
+> Status (2026-07-06): **built + working** — 126 tests green, all packages typecheck + build. Bot,
+> config pane, all 30 BB2025 teams, matrix/tier/team-rule config, HTML export + AI-art prompt.
+> **New here? Read [`docs/RESUME.md`](docs/RESUME.md) first** — it's the current handoff/status.
 
 ## Running the config pane (TO web UI)
 
@@ -77,35 +77,21 @@ runs TypeScript in a **webview (browser engine), not Node**. So the core is desi
 dependency-light, browser-safe TypeScript with **no Node built-ins** — all I/O (PDF, Discord, files)
 lives in the bot's adapter layer. Scope is **BB2025 only**.
 
-## What's here now (artifacts)
+## Layout
 
 ```
 bb-tournament-validator/
-├─ README.md
-├─ docs/
-│  ├─ architecture.md            # monorepo layout, data flow, portability guardrails
-│  ├─ data-model.md              # TypeScript interfaces for Roster / TournamentPackage / results
-│  ├─ tournament-package.md      # how TOs author packages + the Skill-Point costing model
-│  ├─ fumbbl40k-integration.md   # how this project plugs into FUMBBL40k tournament mode (T1)
-│  └─ roadmap.md                 # milestones M1..M6
-├─ schemas/
-│  └─ tournament-package.schema.json
-├─ data/
-│  ├─ bb2025/
-│  │  ├─ rosters/amazon.json     # the only BB2025-reconciled roster in M1 (Amazon)
-│  │  ├─ skills.json             # skill -> category + elite/trait flags
-│  │  └─ inducements.json        # BB2025 inducement types (M4 reconciliation pending)
-│  └─ skill-costs.example.csv    # CSV skill-cost override template
-├─ tournament-packages/
-│  ├─ bb2025-default.json        # baseline package
-│  └─ lustrian-superleague.example.json  # sample package the example roster passes
-├─ packages/                     # (reserved for pnpm workspaces; .ts sketches live here now)
-│  ├─ bb-validator/src/          # UNBUILT code sketches of the pure core
-│  └─ bb-ingest/src/             # UNBUILT ingestion adapter sketches
+├─ packages/
+│  ├─ bb-validator/    # pure core: model, resolver, rules, costing, renderers, bundled BB2025 dataset
+│  │  └─ scripts/generate_dataset.py   # regenerates the 30-team dataset from FUMBBL + fork skills
+│  └─ bb-ingest/       # bbtc.pl PDF → Roster; rules-doc/CSV package ingest
 ├─ apps/
-│  └─ discord-bot/src/           # UNBUILT bot sketches (store + commands)
-└─ fixtures/
-   └─ amazon-example.roster.json # normalized Roster parsed from the supplied bbtc.pl PDFs (golden)
+│  ├─ discord-bot/     # discord.js /bbbot commands + stores
+│  └─ config-web/      # zero-framework HTTP server + vanilla config pane
+├─ tournament-packages/  # TO package JSONs (hot-loaded by the bot + config pane)
+├─ fixtures/           # amazon-example.roster.json + the two example PDFs (golden)
+├─ schemas/            # tournament-package.schema.json
+└─ docs/               # RESUME.md (start here), architecture, data-model, roadmap, etc.
 ```
 
 ## Ground truth
