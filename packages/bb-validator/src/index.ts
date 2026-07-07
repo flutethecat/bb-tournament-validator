@@ -29,6 +29,8 @@ export {
   normName,
   isStarName,
   starNameSet,
+  findStar,
+  starEligibleForTeam,
 } from "./dataset/lookup";
 export type { Access } from "./dataset/lookup";
 export type {

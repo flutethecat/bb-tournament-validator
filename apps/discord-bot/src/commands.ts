@@ -3,7 +3,7 @@
  * (owner directive 2026-07-06) so the bot can never conflict with other bots'
  * command names in a shared server.
  *
- *   /bbbot validate roster:<pdf> package:<name>
+ *   /bbbot validate package:<name> [roster:<pdf>] [fumbbl-team:<id>]
  *   /bbbot report [package] [csv]
  *   /bbbot packages
  *   /bbbot package show <name>
@@ -28,16 +28,19 @@ export const commandDefs = [
     .addSubcommand((s) =>
       s
         .setName("validate")
-        .setDescription("Validate a roster PDF against a tournament package")
-        .addAttachmentOption((o) =>
-          o.setName("roster").setDescription("bbtc.pl roster PDF export").setRequired(true),
-        )
+        .setDescription("Validate a roster (PDF upload or FUMBBL team id) against a tournament package")
         .addStringOption((o) =>
           o
             .setName("package")
             .setDescription("Tournament package name (see /bbbot packages)")
             .setRequired(true)
             .setAutocomplete(true),
+        )
+        .addAttachmentOption((o) =>
+          o.setName("roster").setDescription("bbtc.pl roster PDF export"),
+        )
+        .addIntegerOption((o) =>
+          o.setName("fumbbl-team").setDescription("FUMBBL team id (alternative to a PDF upload)"),
         ),
     )
     .addSubcommand((s) =>

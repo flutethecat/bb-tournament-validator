@@ -4,7 +4,7 @@
  * T1 service adapter seam later (POST /entrants runs exactly this).
  */
 
-import { bbtcPdfSource, ingestRoster } from "@bb/ingest";
+import { bbtcPdfSource, fumbblTeamToRoster, ingestRoster } from "@bb/ingest";
 import { validate, type Roster, type TournamentPackage, type ValidationResult } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 
@@ -25,6 +25,30 @@ export async function validateRosterBytes(
   if (!ingest.roster) return { ok: false, problems: ingest.problems };
   const result = validate(ingest.roster, pkg, bb2025);
   return { ok: true, roster: ingest.roster, result, problems: ingest.problems };
+}
+
+/** Fetch a FUMBBL team by id and validate it (the fumbbl-team:<id> path). */
+export async function validateFumbblTeam(
+  teamId: string,
+  pkg: TournamentPackage,
+): Promise<PipelineOutcome> {
+  let team: unknown;
+  try {
+    const res = await fetch(`https://fumbbl.com/api/team/get/${encodeURIComponent(teamId)}`, {
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) return { ok: false, problems: [`FUMBBL API error for team ${teamId}: HTTP ${res.status}.`] };
+    team = await res.json();
+  } catch (e) {
+    return { ok: false, problems: [`Could not reach FUMBBL: ${(e as Error).message}`] };
+  }
+  if (!team || typeof team !== "object" || !Array.isArray((team as { players?: unknown }).players)) {
+    return { ok: false, problems: [`FUMBBL team ${teamId} not found or has no players (private team or wrong id?).`] };
+  }
+  const { roster, problems } = fumbblTeamToRoster(team, bb2025);
+  if (!roster) return { ok: false, problems };
+  const result = validate(roster, pkg, bb2025);
+  return { ok: true, roster, result, problems };
 }
 
 const GREEN = 0x22e05a;

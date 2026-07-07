@@ -1,8 +1,8 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-06 · HEAD = position-keywords commit (this doc commit sits just above it) ·
-**131 tests green, all packages typecheck + build.**
+Last updated 2026-07-06 · HEAD = FUMBBL team-ingestion commit ·
+**135 tests green, all packages typecheck + build.**
 
 ## What this is
 A Discord bot + a portable TS validation core + a TO web config pane that validate Blood Bowl **2025**
@@ -125,8 +125,14 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
    `roster_keyword_map`, title-cased + sorted to match the bbtc.pl print (Amazon fixture is the gate:
    new parity test in `datasetGate.test.ts`). One upstream FUMBBL gap (Renegade Skaven, no XML
    keywords) filled via `KEYWORD_OVERRIDES`. Refresh in place with `generate_dataset.py --keywords-only`.
-4. **M3.5 / v2 — FUMBBL API roster ingestion** (`/bbbot validate fumbbl-team:<id>`): natural now that
-   we already talk to the FUMBBL API.
+4. ~~**M3.5 — FUMBBL API roster ingestion**~~ ✅ **DONE (code).** `/bbbot validate package:<name>
+   [roster:<pdf>] [fumbbl-team:<id>]` — pass a FUMBBL team id instead of a PDF. `fumbblTeamToRoster`
+   (bb-ingest, the M6 JSON→Roster seam) converts `fumbbl.com/api/team/get/{id}` JSON → `Roster`,
+   filling stats/cost/keywords from the dataset position (FUMBBL omits per-player stats; no rule reads
+   printed stats) and skills from the team; `validateFumbblTeam` in the bot pipeline fetches + validates.
+   +4 converter tests (135 green). ⚠ **Must `pnpm register` + restart the bot** to expose the new option.
+   Known limit: FUMBBL *league* teams carry earned stat-ups as pseudo-skills (`+AG`/`+MA`) that show as
+   "unknown skill" — fresh tournament teams don't have these; refine later if league teams need support.
 5. **Push to GitHub** (private, `flutethecat`) so the client can consume `@bb/validator` via a git tag
    (decision D7). Repo is local-git only.
 6. **Run the bot persistently** (Windows service / beside the fork server — decision D3).

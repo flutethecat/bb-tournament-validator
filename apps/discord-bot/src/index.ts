@@ -24,7 +24,7 @@ import {
 import { ingestPackageDocument } from "@bb/ingest";
 import { renderArtPrompt, renderPackageHtml, type Roster, type ValidationResult } from "@bb/validator";
 import { PackageStore } from "./packageStore";
-import { renderProblemsEmbed, renderResultEmbed, validateRosterBytes, type EmbedData } from "./pipeline";
+import { renderProblemsEmbed, renderResultEmbed, validateFumbblTeam, validateRosterBytes, type EmbedData } from "./pipeline";
 import { CsvValidatedStore } from "./store/validatedStore";
 import { FileCoachRegistry, KeyConflictError, type CoachKey } from "./store/coachRegistry";
 import { WatchStore } from "./store/watchStore";
@@ -93,10 +93,20 @@ async function download(url: string): Promise<Uint8Array> {
   return new Uint8Array(await res.arrayBuffer());
 }
 
-// ---- /validate ----
+// ---- /validate (PDF upload OR FUMBBL team id) ----
 async function handleValidate(i: ChatInputCommandInteraction): Promise<void> {
-  const attachment = i.options.getAttachment("roster", true);
+  const attachment = i.options.getAttachment("roster");
+  const fumbblTeam = i.options.getInteger("fumbbl-team");
   const packageName = i.options.getString("package", true);
+
+  if (!attachment && fumbblTeam == null) {
+    await i.reply({ content: "Provide a roster PDF **or** a fumbbl-team id.", flags: MessageFlags.Ephemeral });
+    return;
+  }
+  if (attachment && fumbblTeam != null) {
+    await i.reply({ content: "Provide just one of roster PDF or fumbbl-team, not both.", flags: MessageFlags.Ephemeral });
+    return;
+  }
   await i.deferReply();
 
   const found = packages.get(packageName);
@@ -105,24 +115,29 @@ async function handleValidate(i: ChatInputCommandInteraction): Promise<void> {
     return;
   }
   const notes: string[] = [...found.problems];
+  const sourceName = attachment ? attachment.name : `FUMBBL team ${fumbblTeam}`;
 
   let outcome;
   try {
-    const bytes = await download(attachment.url);
-    outcome = await validateRosterBytes(bytes, attachment.name, found.pkg);
+    if (attachment) {
+      const bytes = await download(attachment.url);
+      outcome = await validateRosterBytes(bytes, attachment.name, found.pkg);
+    } else {
+      outcome = await validateFumbblTeam(String(fumbblTeam), found.pkg);
+    }
   } catch (e) {
-    await i.editReply(`Could not process the attachment: ${(e as Error).message}`);
+    await i.editReply(`Could not process the roster: ${(e as Error).message}`);
     return;
   }
 
   if (!outcome.ok || !outcome.result || !outcome.roster) {
-    await i.editReply({ embeds: [toEmbed(renderProblemsEmbed(outcome.problems, attachment.name))] });
+    await i.editReply({ embeds: [toEmbed(renderProblemsEmbed(outcome.problems, sourceName))] });
     return;
   }
   notes.push(...outcome.problems);
 
   const { result, roster } = outcome;
-  const embed = toEmbed(renderResultEmbed(result, roster.teamName || "Team", found.pkg.name));
+  const embed = toEmbed(renderResultEmbed(result, roster.teamName || sourceName, found.pkg.name));
   if (notes.length) embed.setFooter({ text: notes.slice(0, 3).join(" | ").slice(0, 2048) });
   const reply = await i.editReply({ embeds: [embed] });
 
@@ -131,7 +146,7 @@ async function handleValidate(i: ChatInputCommandInteraction): Promise<void> {
     const messageLink = i.guildId
       ? `https://discord.com/channels/${i.guildId}/${reply.channelId}/${reply.id}`
       : "";
-    await recordValidRoster(i.user, roster, result, found.pkg.name, messageLink, attachment.name);
+    await recordValidRoster(i.user, roster, result, found.pkg.name, messageLink, sourceName);
   }
 }
 
