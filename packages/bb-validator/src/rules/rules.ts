@@ -311,7 +311,11 @@ export const skillPackages: Rule = {
     }
 
     const spUsed = skillSP + starSP;
-    const goldUsed = recomputeGold(roster) - (pkg.starPlayers.paidInSkillPoints ? starGold : 0);
+    // Gold budget is the team BUILD cost: skills are paid in SP (not gold), and stars
+    // too when paidInSkillPoints — exclude both so they aren't double-counted.
+    const skillsGold = roster.summary?.skillsCost ?? 0;
+    const goldUsed =
+      recomputeGold(roster) - skillsGold - (pkg.starPlayers.paidInSkillPoints ? starGold : 0);
     const maxOnAPlayer = players.reduce((m, rp) => Math.max(m, rp.addedSkills.length), 0);
 
     const fits = packs.some(

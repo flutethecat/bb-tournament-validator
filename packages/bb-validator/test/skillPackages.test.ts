@@ -74,6 +74,17 @@ describe("skill-packages (choose-one gold+SP)", () => {
     expect(f.some((x) => /not available in Tier 1/.test(x.message))).toBe(true);
   });
 
+  it("excludes SP-paid skill cost from the gold budget", () => {
+    const players = roster().players; // 11 x 50k = 550k build gold
+    // The sheet's summary bundles 500k of skills-gold; without exclusion gold would be 1050k.
+    const ro = roster({
+      players,
+      summary: { playersCost: 550000, skillsCost: 500000, inducementCost: 0, sidelineCost: 0, total: 1050000 },
+    });
+    const r = validate(ro, spikePkg({}, [{ gold: 1000000, skillPointBudget: 6, maxPerPlayer: 1 }]), fakeData);
+    expect(errorsOf(r, "skill-packages")).toHaveLength(0); // 550k build fits; skills are SP, not gold
+  });
+
   it("enforces per-package maxPerPlayer (stacking)", () => {
     const players = roster().players;
     players[0] = player({ number: 1, skills: ["Block", "Tackle"] }); // 2 skills on one player

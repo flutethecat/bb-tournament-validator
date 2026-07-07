@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { findRoster } from "@bb/validator";
+import { findRoster, normName } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
+
+describe("normName drops FUMBBL roster annotations", () => {
+  it("strips the trait asterisk and parenthetical values", () => {
+    expect(normName("Frenzy*")).toBe(normName("Frenzy"));
+    expect(normName("Loner (4+)")).toBe(normName("Loner"));
+    expect(normName("Animosity (Goblin)*")).toBe(normName("Animosity"));
+    expect(normName("Mighty Blow (+1)")).toBe(normName("Mighty Blow"));
+  });
+});
 
 describe("findRoster tolerant matching (real dataset)", () => {
   it("resolves short/variant race names to the canonical team", () => {

@@ -8,9 +8,20 @@ import type { Dataset, DatasetPosition, DatasetRoster, DatasetStar, SkillMeta } 
 
 export type Access = "primary" | "secondary" | "illegal";
 
-/** Lowercase, collapse whitespace, strip punctuation-ish variance ("Jump up" == "Jump Up"). */
+/**
+ * Lowercase, collapse whitespace, strip punctuation-ish variance ("Jump up" == "Jump Up").
+ * Also drops FUMBBL roster annotations so a printed skill matches the dataset name:
+ *   - a trailing `*` (trait/innate marker): "Frenzy*" == "Frenzy"
+ *   - parenthetical values: "Loner (4+)" / "Animosity (Goblin)" == "Loner" / "Animosity"
+ */
 export function normName(s: string): string {
-  return s.toLowerCase().replace(/[\s_-]+/g, " ").replace(/['’.]/g, "").trim();
+  return s
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ") // "(4+)", "(goblin)", "(+1)"
+    .replace(/\*/g, " ")
+    .replace(/[\s_-]+/g, " ")
+    .replace(/['’.]/g, "")
+    .trim();
 }
 
 /** Non-substring race abbreviations seen on roster sheets (substring variants are handled below). */
