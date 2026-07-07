@@ -173,6 +173,41 @@ describe("star-players", () => {
     );
     expect(errorsOf(r, "star-players")[0]!.message).toMatch(/200k combined.*150k/);
   });
+
+  const withNamedStar = (name: string, cost = 100000) => {
+    const players = roster().players;
+    players[10] = player({ number: 11, positionName: name, cost });
+    return roster({ players });
+  };
+
+  it("accepts a star eligible for the team", () => {
+    const r = validate(withStar(), pkg(), fakeData);
+    expect(errorsOf(r, "star-players")).toHaveLength(0);
+  });
+
+  it("flags a star not eligible for the team", () => {
+    const r = validate(withNamedStar("Weakling Star"), pkg(), fakeData);
+    const f = errorsOf(r, "star-players");
+    expect(f).toHaveLength(1);
+    expect(f[0]!.message).toMatch(/cannot play for Testers/);
+    expect(f[0]!.expected).toMatch(/Weaklings/);
+  });
+
+  it("skips eligibility when a star has no team data", () => {
+    const r = validate(withNamedStar("Free Agent", 0), pkg(), fakeData);
+    expect(errorsOf(r, "star-players")).toHaveLength(0);
+  });
+
+  it("does not report eligibility when stars are disallowed entirely", () => {
+    const r = validate(
+      withNamedStar("Weakling Star"),
+      pkg({ starPlayers: { allowed: false, maxCount: 0, maxCombinedCost: null } }),
+      fakeData,
+    );
+    const f = errorsOf(r, "star-players");
+    expect(f).toHaveLength(1);
+    expect(f[0]!.message).toMatch(/not allowed/);
+  });
 });
 
 describe("inducements", () => {

@@ -4,7 +4,7 @@
  */
 
 import { costSP } from "../cost/costSP";
-import { findSkill, isStarName, normName } from "../dataset/lookup";
+import { findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
 import { eligibleTeamNames, fitsSkillCounts, isEligible, resolveTeamConfig, sourceLabel, usesCountMode } from "../package/resolveConfig";
 import type { Rule } from "./types";
@@ -302,6 +302,26 @@ export const starPlayers: Rule = {
             suggestion: `Remove ${s.player.positionName}.`,
           }),
         );
+
+    // Eligibility: BB2025 gates each star to teams sharing its "plays for" special
+    // rules (baked into star.teams). Only meaningful when stars are allowed; a
+    // banned star is already reported above; stars with no eligibility data pass.
+    if (allowed) {
+      const teamName = findRoster(data, roster.rosterName)?.name ?? roster.rosterName;
+      for (const s of stars) {
+        if (banned.has(normName(s.player.positionName))) continue;
+        const star = findStar(data, s.player.positionName);
+        if (star && !starEligibleForTeam(star, teamName))
+          findings.push(
+            err("star-players", `${s.player.positionName} cannot play for ${teamName}.`, {
+              playerRef: s.player.number,
+              expected: `a team from: ${star.teams.join(", ")}`,
+              actual: teamName,
+              suggestion: `Remove ${s.player.positionName} — not eligible for ${teamName}.`,
+            }),
+          );
+      }
+    }
 
     if (allowed && pkg.starPlayers.maxCombinedCost != null) {
       const combined = stars.reduce((a, s) => a + s.player.cost, 0);

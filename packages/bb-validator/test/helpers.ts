@@ -76,8 +76,10 @@ export const fakeData: Dataset = {
     { name: "Weaklings", defaultTier: 3 },
   ],
   stars: [
-    { name: "Star Guy", teams: ["Testers"], cost: 200000 },
+    { name: "Star Guy", teams: ["Testers"], cost: 200000, playsFor: ["Test League"] },
     { name: "Morg 'n' Thorg", teams: ["Testers", "Weaklings"], cost: 340000 },
+    { name: "Weakling Star", teams: ["Weaklings"], cost: 100000, playsFor: ["Weakling League"] },
+    { name: "Free Agent", teams: [], cost: 0, playsFor: [] },
   ],
 };
 

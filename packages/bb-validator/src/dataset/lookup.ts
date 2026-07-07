@@ -4,7 +4,7 @@
  * arrive from PDFs and, later, OCR.
  */
 
-import type { Dataset, DatasetPosition, DatasetRoster, SkillMeta } from "./types";
+import type { Dataset, DatasetPosition, DatasetRoster, DatasetStar, SkillMeta } from "./types";
 
 export type Access = "primary" | "secondary" | "illegal";
 
@@ -74,4 +74,21 @@ export function starNameSet(data: Dataset): Set<string> {
 /** Is this position name a known Star Player? */
 export function isStarName(data: Dataset, positionName: string): boolean {
   return starNameSet(data).has(normName(positionName));
+}
+
+/** Look up a star's dataset entry by (forgiving) name. */
+export function findStar(data: Dataset, starName: string): DatasetStar | undefined {
+  const want = normName(starName);
+  return data.stars.find((s) => normName(s.name) === want);
+}
+
+/**
+ * May `teamName` hire star `star`? BB2025 gates stars by "plays for" special
+ * rules (baked into `star.teams` at dataset-gen time). Returns true when the star
+ * has no eligibility data (empty `teams`) so data gaps never wrongly reject a roster.
+ */
+export function starEligibleForTeam(star: DatasetStar, teamName: string): boolean {
+  if (!star.teams || star.teams.length === 0) return true;
+  const want = normName(teamName);
+  return star.teams.some((t) => normName(t) === want);
 }

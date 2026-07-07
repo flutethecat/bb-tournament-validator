@@ -14,8 +14,10 @@ Writes:
   packages/bb-validator/src/dataset/bb2025/rosters.json   (array of 30 teams)
   packages/bb-validator/src/dataset/bb2025/skills.json
   packages/bb-validator/src/dataset/bb2025/teams.json     (name + suggested tier)
+  packages/bb-validator/src/dataset/bb2025/stars.json     (stars + eligible teams, from roster 8513)
 
 Run:  python packages/bb-validator/scripts/generate_dataset.py
+      python packages/bb-validator/scripts/generate_dataset.py --stars-only  (stars only; reuses local rosters.json)
 Requires network access to fumbbl.com and the sibling fork repo checked out.
 """
 import glob
@@ -123,7 +125,81 @@ def convert_roster(rid):
     }
 
 
+# FUMBBL's "_Star Players" roster (ruleset 3906). Each position carries `playsFor`
+# — the special-rule keywords that gate which teams may hire the star. A star is
+# eligible for a team iff the team shares one of those special rules.
+STAR_ROSTER_ID = "8513"
+
+# FUMBBL's roster API collapses the Chaos deity rules to a single display string
+# "Favoured of..." per team, while stars name the specific god ("Favoured of
+# Khorne", etc.). This maps each team that carries the generic rule to the set of
+# deity keywords it satisfies. Specific-deity teams satisfy only their own god;
+# the "pick-any-mark" Chaos teams (Chosen/Renegade/Norse) satisfy all — chosen
+# to avoid falsely REJECTING a legal roster in a live tournament (over-rejection
+# is the worse failure for a TO validator). Revisit if FUMBBL exposes per-team gods.
+ALL_DEITIES = ["Favoured of Khorne", "Favoured of Nurgle", "Favoured of Hashut",
+               "Favoured of Tzeentch", "Favoured of Slaanesh", "Favoured of Chaos Undivided"]
+FAVOURED_MAP = {
+    "Chaos Dwarf": ["Favoured of Hashut"],
+    "Khorne": ["Favoured of Khorne"],
+    "Nurgle": ["Favoured of Nurgle"],
+    "Chaos Chosen": ALL_DEITIES,
+    "Chaos Renegade": ALL_DEITIES,
+    "Norse": ALL_DEITIES,
+}
+
+
+def team_special_rules(rosters):
+    """team name -> set of special rules it satisfies (deity rules expanded)."""
+    out = {}
+    for r in rosters:
+        rules = set(r.get("specialRules", []))
+        if "Favoured of..." in rules:
+            rules.discard("Favoured of...")
+            rules.update(FAVOURED_MAP.get(r["name"], ALL_DEITIES))
+        out[r["name"]] = rules
+    return out
+
+
+def build_stars(rosters):
+    """Star players + resolved eligible team lists, from FUMBBL roster 8513."""
+    tsr = team_special_rules(rosters)
+    all_teams = [r["name"] for r in rosters]
+    d = get(f"roster/get/{STAR_ROSTER_ID}")
+    stars = []
+    for p in sorted(d["positions"], key=lambda x: x["title"]):
+        plays_for = p.get("playsFor", [])
+        if "(Any)" in plays_for:
+            teams = list(all_teams)
+        elif "(Negate Availability)" in plays_for:
+            # Plays for every team EXCEPT those sharing the listed exclusion keyword(s).
+            excl = {k for k in plays_for if not k.startswith("(")}
+            teams = [t for t in all_teams if not (tsr[t] & excl)]
+        else:
+            want = set(plays_for)
+            teams = [t for t in all_teams if tsr[t] & want]
+        stars.append({
+            "name": p["title"],
+            "cost": int(p["cost"]),
+            "playsFor": plays_for,
+            "teams": teams,
+        })
+    return stars
+
+
+def write_stars(rosters):
+    stars = build_stars(rosters)
+    json.dump({"_about": "BB2025 star players from FUMBBL roster 8513 (_Star Players). `playsFor` = special-rule keywords gating eligibility; `teams` = resolved eligible BB2025 team names (see build_stars/FAVOURED_MAP in scripts/generate_dataset.py).", "stars": stars},
+              open(os.path.join(OUT, "stars.json"), "w", encoding="utf-8"), indent=1)
+    print(f"Wrote {len(stars)} stars to {OUT}")
+
+
 def main():
+    if "--stars-only" in sys.argv:
+        # Reuse the committed rosters.json (their specialRules) instead of refetching all 30.
+        rosters = json.load(open(os.path.join(OUT, "rosters.json"), encoding="utf-8"))["rosters"]
+        write_stars(rosters)
+        return
     print("Fetching FUMBBL roster list for ruleset", RULESET)
     listing = [r for r in get(f"roster/list/{RULESET}") if r.get("playable") == "1"]
     print(f"  {len(listing)} playable rosters")
@@ -149,6 +225,7 @@ def main():
     teams = [{"name": r["name"], "defaultTier": r["tier"] or 2} for r in rosters]
 
     os.makedirs(OUT, exist_ok=True)
+    write_stars(rosters)
     json.dump({"_about": "BB2025 rosters generated from FUMBBL ruleset 3906 (see scripts/generate_dataset.py). Category codes G/A/S/P/M/D -> General/Agility/Strength/Passing/Mutation/Devious.", "rosters": rosters},
               open(os.path.join(OUT, "rosters.json"), "w", encoding="utf-8"), indent=1)
     json.dump({"_about": "BB2025 skill metadata: category (incl. Devious) from the fumbbl40k-server fork's bb2025 skill classes; elite defaults to {Block,Guard,Mighty Blow,Dodge}; traits not selectable.", "categories": ["General", "Agility", "Strength", "Passing", "Mutation", "Devious"], "skills": skills},

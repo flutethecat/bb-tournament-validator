@@ -70,8 +70,11 @@ export interface DatasetTeam {
 
 export interface DatasetStar {
   name: string;
+  /** BB2025 team names this star may be hired by (resolved from `playsFor`). Empty = no eligibility data. */
   teams: string[];
   cost: number | null;
+  /** FUMBBL special-rule keywords gating eligibility, e.g. ["Badlands Brawl"] or ["(Any)"]. Provenance for `teams`. */
+  playsFor?: string[];
 }
 
 export interface Dataset {

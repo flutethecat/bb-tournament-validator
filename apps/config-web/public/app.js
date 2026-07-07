@@ -851,10 +851,38 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// Attach the (large) star datalist only to the focused input. Binding one shared
-// datalist to many inputs at once hangs Chrome's renderer, so we bind on demand.
+// Which teams does a ban input apply to? Team Rules row = its one team; a tier
+// column = the teams assigned to that tier; the global ban is team-agnostic (null).
+function teamsForStarInput(el) {
+  if (el.id === "g-banadd") return null;
+  if (el.dataset.t != null) {
+    const t = +el.dataset.t;
+    return state.teams.filter((tm) => (state.assign[tm.name] || 0) === t).map((tm) => tm.name);
+  }
+  const row = el.closest("tr[data-team]");
+  return row ? [row.dataset.team] : null;
+}
+
+// Stars a set of teams may actually hire. Appearance is gated behind eligibility
+// data: stars with no `teams` are occluded everywhere (you can't meaningfully pick
+// one to ban). `null` teams = any team (global bans) → every star that HAS data.
+function eligibleStarNames(teamNames) {
+  const gated = state.stars.filter((s) => s.teams && s.teams.length > 0);
+  if (!teamNames) return gated.map((s) => s.name);
+  const want = new Set(teamNames.map((t) => t.toLowerCase()));
+  return gated
+    .filter((s) => s.teams.some((t) => want.has(t.toLowerCase())))
+    .map((s) => s.name);
+}
+
+// Attach the star datalist only to the focused input, rebuilt to that input's
+// eligible stars. Binding one shared datalist to many inputs at once hangs Chrome's
+// renderer, so we bind on demand — and a context-filtered (smaller) list is safer still.
 document.addEventListener("focusin", (e) => {
-  if (e.target.classList && e.target.classList.contains("star-ac")) e.target.setAttribute("list", "stars-list");
+  if (!(e.target.classList && e.target.classList.contains("star-ac"))) return;
+  const names = eligibleStarNames(teamsForStarInput(e.target));
+  $("stars-list").innerHTML = names.map((n) => `<option value="${esc(n)}"></option>`).join("");
+  e.target.setAttribute("list", "stars-list");
 });
 document.addEventListener("focusout", (e) => {
   if (e.target.classList && e.target.classList.contains("star-ac")) e.target.removeAttribute("list");

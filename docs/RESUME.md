@@ -1,7 +1,8 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-06 · HEAD `7092790` · **126 tests green, all packages typecheck + build.**
+Last updated 2026-07-06 · HEAD `5ab5161` (+ uncommitted star-eligibility work) ·
+**130 tests green, all packages typecheck + build.**
 
 ## What this is
 A Discord bot + a portable TS validation core + a TO web config pane that validate Blood Bowl **2025**
@@ -59,8 +60,8 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
 - Ingest bbtc.pl PDFs (golden-tested on the two example PDFs) + rules-doc/CSV packages.
 - Validate: eligibility, squad size, positional limits (skips stars), gold budget, skill access,
   Skill-Point **or** primary/secondary **count** allotment (secondary swap = 2 primaries → 1
-  secondary, enforced), cost reconciliation, star players (generic detection + bans), inducements,
-  sideline, special rules.
+  secondary, enforced), cost reconciliation, star players (generic detection + bans + **per-team
+  eligibility**), inducements, sideline, special rules.
 - Four exclusive config modes with best-effort conversion between them; global star bans inherited.
 - **Cash×skills Matrix** (drag/drop, gold notation `1150`/`1.15M`, columns capped + teams wrap).
 - Per-tier gold/SP/stars/bans; per-team line-item rules.
@@ -100,8 +101,22 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
   verified via DOM/geometry inspection instead.
 
 ## Open items / next steps (prioritized)
-1. **Star-player eligibility** — we detect + ban stars but don't enforce *which* stars a team may
-   hire. FUMBBL exposes `_Star Players` roster (id 8513) + per-team `plays for` rules.
+1. ~~**Star-player eligibility**~~ ✅ **DONE (uncommitted).** `stars.json` is now regenerated from
+   FUMBBL `_Star Players` roster **8513** (67 stars) carrying `playsFor` (special-rule keywords) →
+   resolved to an explicit eligible `teams` list at dataset-gen time (`build_stars`/`FAVOURED_MAP` in
+   `generate_dataset.py`; run `--stars-only` to refresh from local `rosters.json`). The `star-players`
+   rule enforces eligibility (`starEligibleForTeam` in `lookup.ts`): a star on a team it can't play for
+   → error. `(Any)` = all teams; `(Negate Availability)` = all-except-listed (Morg minus Sylvanian
+   Spotlight); the collapsed FUMBBL `"Favoured of..."` team rule is expanded per team by `FAVOURED_MAP`
+   (specific-deity teams = own god; generic Chaos teams Chosen/Renegade/Norse = all gods, permissive to
+   avoid false rejections — **revisit if FUMBBL exposes per-team gods**). Stars with empty `teams`
+   (Frank 'n' Stein, Bryce Cambuel — no FUMBBL `playsFor`) skip eligibility so data gaps never reject.
+   DATASET_VERSION → `bb2025.4-star-eligibility`. **Config pane:** the star-ban autocomplete is now
+   context-aware (`eligibleStarNames`/`teamsForStarInput` in `app.js`) — Team Rules offers only that
+   team's eligible stars, a Tier offers the union across its member teams, the global ban offers every
+   star that HAS eligibility data; banning a star no relevant team can field is occluded (a no-op that
+   should never occur). Appearance is gated behind eligibility data: the 2 empty-`teams` stars are
+   occluded everywhere in the picker (the validator still doesn't reject them — data-gap safety).
 2. **Inducement costs/gating** — `data/bb2025/inducements.json` still has `_verify` placeholders;
    FUMBBL ruleset options likely hold the real numbers.
 3. **Position keywords** — dataset positions have empty `keywords` (FUMBBL API omits them); needed for
