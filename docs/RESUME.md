@@ -8,6 +8,33 @@ A Discord bot + a portable TS validation core + a TO web config pane that valida
 rosters against tournament packages. The core (`@bb/validator`) is pure, Node-free, browser-safe TS
 so it can later drop into the FUMBBL40k Tauri/PixiJS client (see `docs/fumbbl40k-integration.md`).
 
+## Relationship to FUMBBL40k (why this exists — strategic context)
+This project is **not standalone forever** — it's built to branch into the sibling **FUMBBL40k**
+project, and the two are already wired together:
+
+- **FUMBBL40k** (`C:\Users\Jay\Documents\Claude\fumbbl40k-client` + `fumbbl40k-server`, both private
+  GitHub `flutethecat`) is a fork of FFB (github.com/christerk/ffb) building a **Tauri v2 + Vue 3 +
+  PixiJS** cross-platform Blood Bowl client that speaks the FFB WebSocket protocol, plus a forked
+  Java server for async play + leagues. Its full context is in the `[[fumbbl40k-project]]` memory.
+- **This validator's core is that project's tournament-validation engine.** The FUMBBL40k client has a
+  **T1 tournament-play plan** (`fumbbl40k-client/docs/tournament-play-plan.md`): a client *tournament
+  mode* + an authoritative *tournament service*, both of which **bundle `@bb/validator`** as the
+  single validation engine (client for instant local pre-validation, service as the authority — one
+  package, two consumers, no drift). The service also ingests this project's `ValidatedStore` design
+  and the Discord bot becomes a thin adapter over the service API.
+- **That is why the core is pure/Node-free** — it has to run in the Tauri **webview** (a browser JS
+  engine, not Node). Every "keep I/O out of the core" decision traces back to this.
+- **Shared data lineage:** this validator's dataset is pulled from **FUMBBL's own API** (ruleset 3906)
+  and the fork's skill categories — the same data the FUMBBL40k client/server already use. So the two
+  projects stay consistent by construction.
+- **Integration mechanics + all cross-project decisions (D1–D8)** — consumption via git-tag pin,
+  dataset bundled inside the core package, client touchpoints (`TournamentView.vue`, a `tournament`
+  Pinia store, settings service URL, movable §A5b dialogs, the endGame/case-299 result hook), and the
+  parity/E2E test plan — are in **`docs/fumbbl40k-integration.md`** (its §6 has the decision record).
+- **Consequence for future work:** keep `@bb/validator` framework-agnostic and its result/render
+  shapes stable; new validation lives in the core (not the bot/service) so both consumers get it;
+  favour server-derived signals. When FUMBBL40k work resumes, this repo is a dependency of it.
+
 ## Verify the state
 ```
 pnpm install
