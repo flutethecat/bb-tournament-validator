@@ -1,0 +1,831 @@
+{
+  "$schema": "../schemas/tournament-package.schema.json",
+  "name": "Spike! 2026",
+  "ruleset": "bb2025-default",
+  "description": "Spike! 2026 (TG Rules Pack). 6 tiers, each choosing one of 3 gold+SP skill packages. Skills: primary 1 SP, secondary 2 SP, elite +0.5 SP. Stars hired with Skill Points, priced per tier (max 2). Min 11 players, no stat increases, 1 skill/player (stacking only via Tier 6 Pack 2). STAR SP TABLE transcribed from the rules-pack image - spot-check before competitive use. Highlander star rule is opponent-dependent and not enforced in single-roster validation.",
+  "eligibleRosters": [
+    "Amazon",
+    "Black Orc",
+    "Bretonnian",
+    "Chaos Chosen",
+    "Chaos Dwarf",
+    "Chaos Renegade",
+    "Dark Elf",
+    "Dwarf",
+    "Elven Union",
+    "Gnome",
+    "Goblin",
+    "Halfling",
+    "High Elf",
+    "Human",
+    "Imperial Nobility",
+    "Khorne",
+    "Lizardmen",
+    "Necromantic Horror",
+    "Norse",
+    "Nurgle",
+    "Ogre",
+    "Old World Alliance",
+    "Orc",
+    "Shambling Undead",
+    "Skaven",
+    "Snotling",
+    "Tomb Kings",
+    "Underworld Denizens",
+    "Vampire",
+    "Wood Elf"
+  ],
+  "skillAllotment": {
+    "skillPointBudget": 0,
+    "primaryCostSP": 1,
+    "secondaryMultiplier": 2,
+    "eliteSurchargeSP": 0.5,
+    "eliteSkills": [
+      "Block",
+      "Guard",
+      "Mighty Blow",
+      "Dodge"
+    ],
+    "skillCostSP": {},
+    "maxPerPlayer": 1,
+    "maxSameSkillTeamwide": null
+  },
+  "goldBudget": null,
+  "starPlayers": {
+    "allowed": true,
+    "maxCount": 2,
+    "maxCombinedCost": null,
+    "paidInSkillPoints": true,
+    "spCostByTier": {
+      "Akhorne the Squirrel": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "Anqi Panqi": [
+        null,
+        3,
+        null,
+        null,
+        null,
+        null
+      ],
+      "Barik Farblast": [
+        0,
+        null,
+        0,
+        0,
+        0,
+        0
+      ],
+      "Bilerot Vomitflesh": [
+        null,
+        null,
+        3,
+        3,
+        null,
+        null
+      ],
+      "Boa Kon'ssstrictor": [
+        null,
+        2,
+        null,
+        null,
+        null,
+        null
+      ],
+      "Bommer Dribblesnot": [
+        null,
+        null,
+        null,
+        null,
+        9,
+        10
+      ],
+      "Captain Karina Von Rieze": [
+        null,
+        4,
+        null,
+        4,
+        null,
+        null
+      ],
+      "Cindy Piewhistle": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        10
+      ],
+      "Count Luthor": [
+        null,
+        5,
+        null,
+        5,
+        null,
+        null
+      ],
+      "Deeproot Strongbranch": [
+        null,
+        4,
+        null,
+        null,
+        null,
+        4
+      ],
+      "Dribl": [
+        null,
+        5,
+        null,
+        null,
+        null,
+        null
+      ],
+      "Drul": [
+        null,
+        5,
+        null,
+        null,
+        null,
+        null
+      ],
+      "Eldrel Sidewinder": [
+        null,
+        4,
+        null,
+        4,
+        null,
+        null
+      ],
+      "Estelle La Veneaux": [
+        null,
+        4,
+        null,
+        null,
+        null,
+        null
+      ],
+      "Fungus the Loon": [
+        null,
+        3,
+        null,
+        3,
+        3,
+        3
+      ],
+      "Glart Smashrip": [
+        null,
+        4,
+        null,
+        null,
+        5,
+        5
+      ],
+      "Gloriel Summerbloom": [
+        null,
+        2,
+        null,
+        2,
+        null,
+        null
+      ],
+      "Glottal Stop": [
+        null,
+        3,
+        null,
+        null,
+        null,
+        null
+      ],
+      "Gombrindal": [
+        3,
+        null,
+        3,
+        3,
+        3,
+        3
+      ],
+      "Grak": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "Crumbleberry": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "Grashnack Blackhoof": [
+        null,
+        null,
+        3,
+        3,
+        3,
+        null
+      ],
+      "Gretchen Watcher": [
+        null,
+        1,
+        null,
+        1,
+        null,
+        null
+      ],
+      "Griff Oberwald": [
+        null,
+        null,
+        8,
+        8,
+        9,
+        null
+      ],
+      "Grim Ironjaw": [
+        null,
+        null,
+        4,
+        null,
+        null,
+        4
+      ],
+      "Guffle Pusmaw": [
+        null,
+        null,
+        2,
+        2,
+        null,
+        null
+      ],
+      "Hackflem Skuttlespike": [
+        null,
+        6,
+        null,
+        null,
+        null,
+        null
+      ],
+      "Helmut Wulf": [
+        3,
+        null,
+        3,
+        3,
+        3,
+        null
+      ],
+      "H'Thark the Unstoppable": [
+        null,
+        5,
+        null,
+        5,
+        6,
+        7
+      ],
+      "Ivan the Animal": [
+        null,
+        5,
+        null,
+        5,
+        null,
+        null
+      ],
+      "Ivar Eriksson": [
+        4,
+        null,
+        4,
+        4,
+        4,
+        null
+      ],
+      "Jerimah Kool": [
+        null,
+        4,
+        null,
+        4,
+        null,
+        null
+      ],
+      "Josef Bugman": [
+        3,
+        null,
+        3,
+        3,
+        3,
+        3
+      ],
+      "Jordell Freshbreeze": [
+        null,
+        3,
+        null,
+        3,
+        null,
+        5
+      ],
+      "Karla Von Kill": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        null
+      ],
+      "Kiroth Krackeneye": [
+        null,
+        3,
+        null,
+        3,
+        null,
+        null
+      ],
+      "Kreek Rustgouger": [
+        null,
+        5,
+        null,
+        null,
+        5,
+        5
+      ],
+      "Lord Borak": [
+        null,
+        null,
+        4,
+        4,
+        4,
+        null
+      ],
+      "Lucien Swift": [
+        null,
+        3,
+        null,
+        3,
+        null,
+        null
+      ],
+      "Valen Swift": [
+        null,
+        3,
+        null,
+        3,
+        null,
+        null
+      ],
+      "Maple Highgrove": [
+        null,
+        5,
+        null,
+        null,
+        null,
+        4
+      ],
+      "Max Spleenripper": [
+        null,
+        null,
+        null,
+        3,
+        3,
+        null
+      ],
+      "Morg 'n' Thorg": [
+        null,
+        null,
+        8,
+        8,
+        9,
+        9
+      ],
+      "Nobbla Blackwart": [
+        null,
+        4,
+        null,
+        5,
+        5,
+        5
+      ],
+      "Puggy Baconbreath": [
+        3,
+        null,
+        3,
+        3,
+        3,
+        3
+      ],
+      "Rashnack Backstabber": [
+        null,
+        2,
+        null,
+        2,
+        2,
+        2
+      ],
+      "Ripper Bolgrot": [
+        null,
+        4,
+        null,
+        4,
+        4,
+        4
+      ],
+      "Rodney Roachbait": [
+        null,
+        2,
+        null,
+        null,
+        null,
+        2
+      ],
+      "Rowana Forestfoot": [
+        null,
+        3,
+        null,
+        null,
+        null,
+        3
+      ],
+      "Roxanna Darknail": [
+        null,
+        3,
+        null,
+        3,
+        null,
+        null
+      ],
+      "Rumbelow Sheepskin": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        3
+      ],
+      "Scrappa Sorehead": [
+        null,
+        2,
+        null,
+        2,
+        2,
+        2
+      ],
+      "Scyla Anfingrimm": [
+        null,
+        null,
+        null,
+        4,
+        4,
+        null
+      ],
+      "Skitter Stab Stab": [
+        null,
+        4,
+        null,
+        null,
+        null,
+        null
+      ],
+      "Skrog Snowpelt": [
+        5,
+        null,
+        5,
+        5,
+        6,
+        6
+      ],
+      "Skrull Halfheight": [
+        null,
+        0,
+        0,
+        0,
+        null,
+        0
+      ],
+      "Swiftvine Shimmershard": [
+        null,
+        2,
+        null,
+        null,
+        null,
+        2
+      ],
+      "The Black Gobbo": [
+        null,
+        6,
+        null,
+        7,
+        7,
+        8
+      ],
+      "The Mighty Zug": [
+        3,
+        null,
+        3,
+        3,
+        3,
+        3
+      ],
+      "Thorsson Stoutmead": [
+        5,
+        null,
+        5,
+        5,
+        5,
+        6
+      ],
+      "Wilhelm Chaney": [
+        null,
+        4,
+        null,
+        4,
+        null,
+        null
+      ],
+      "Willow Rosebark": [
+        null,
+        1,
+        null,
+        null,
+        null,
+        1
+      ],
+      "Withergrasp Doubledrool": [
+        null,
+        null,
+        2,
+        2,
+        null,
+        null
+      ],
+      "Varag Ghoul-Chewer": [
+        null,
+        4,
+        null,
+        5,
+        5,
+        5
+      ],
+      "Zolcath the Zoat": [
+        null,
+        4,
+        null,
+        4,
+        null,
+        null
+      ],
+      "Zzarg Madeye": [
+        null,
+        null,
+        null,
+        2,
+        2,
+        null
+      ]
+    }
+  },
+  "inducements": {
+    "allowed": [
+      "temp_agency_cheerleaders",
+      "part_time_assistant_coaches",
+      "team_mascot",
+      "weather_mage",
+      "bloodweiser_kegs",
+      "bribes",
+      "extra_team_training",
+      "halfling_master_chef",
+      "biased_referee"
+    ],
+    "caps": {}
+  },
+  "sideline": {
+    "maxReRolls": 8,
+    "maxApothecary": 1,
+    "maxCheerleaders": null,
+    "maxAssistantCoaches": null,
+    "maxDedicatedFans": null
+  },
+  "special": {
+    "insignificantTraitConstraint": true,
+    "stalling": true,
+    "slannAllowed": false,
+    "statIncreasesAllowed": false,
+    "bannedSkills": [],
+    "minPlayers": 11
+  },
+  "tiers": [
+    {
+      "tier": 1,
+      "label": "Tier 1",
+      "rosters": [
+        "Old World Alliance"
+      ],
+      "gold": 1100000,
+      "skillPointBudget": 6,
+      "starPlayersAllowed": true,
+      "bannedStars": [],
+      "skillPackages": [
+        {
+          "label": "Pack 1",
+          "gold": 1100000,
+          "skillPointBudget": 6,
+          "maxPerPlayer": 1
+        },
+        {
+          "label": "Pack 2",
+          "gold": 1070000,
+          "skillPointBudget": 7,
+          "maxPerPlayer": 1
+        },
+        {
+          "label": "Pack 3",
+          "gold": 1130000,
+          "skillPointBudget": 5,
+          "maxPerPlayer": 1
+        }
+      ]
+    },
+    {
+      "tier": 2,
+      "label": "Tier 2",
+      "rosters": [
+        "Dark Elf",
+        "High Elf",
+        "Skaven",
+        "Orc",
+        "Shambling Undead",
+        "Underworld Denizens",
+        "Wood Elf",
+        "Lizardmen",
+        "Amazon",
+        "Necromantic Horror"
+      ],
+      "gold": 1105000,
+      "skillPointBudget": 7,
+      "starPlayersAllowed": true,
+      "bannedStars": [],
+      "skillPackages": [
+        {
+          "label": "Pack 1",
+          "gold": 1105000,
+          "skillPointBudget": 7,
+          "maxPerPlayer": 1
+        },
+        {
+          "label": "Pack 2",
+          "gold": 1075000,
+          "skillPointBudget": 8,
+          "maxPerPlayer": 1
+        },
+        {
+          "label": "Pack 3",
+          "gold": 1135000,
+          "skillPointBudget": 6,
+          "maxPerPlayer": 1
+        }
+      ]
+    },
+    {
+      "tier": 3,
+      "label": "Tier 3",
+      "rosters": [
+        "Dwarf",
+        "Human",
+        "Nurgle",
+        "Norse"
+      ],
+      "gold": 1110000,
+      "skillPointBudget": 8,
+      "starPlayersAllowed": true,
+      "bannedStars": [],
+      "skillPackages": [
+        {
+          "label": "Pack 1",
+          "gold": 1110000,
+          "skillPointBudget": 8,
+          "maxPerPlayer": 1
+        },
+        {
+          "label": "Pack 2",
+          "gold": 1080000,
+          "skillPointBudget": 9,
+          "maxPerPlayer": 1
+        },
+        {
+          "label": "Pack 3",
+          "gold": 1140000,
+          "skillPointBudget": 7,
+          "maxPerPlayer": 1
+        }
+      ]
+    },
+    {
+      "tier": 4,
+      "label": "Tier 4",
+      "rosters": [
+        "Elven Union",
+        "Imperial Nobility",
+        "Tomb Kings",
+        "Vampire",
+        "Chaos Chosen",
+        "Chaos Renegade",
+        "Chaos Dwarf"
+      ],
+      "gold": 1120000,
+      "skillPointBudget": 9,
+      "starPlayersAllowed": true,
+      "bannedStars": [],
+      "skillPackages": [
+        {
+          "label": "Pack 1",
+          "gold": 1120000,
+          "skillPointBudget": 9,
+          "maxPerPlayer": 1
+        },
+        {
+          "label": "Pack 2",
+          "gold": 1090000,
+          "skillPointBudget": 10,
+          "maxPerPlayer": 1
+        },
+        {
+          "label": "Pack 3",
+          "gold": 1150000,
+          "skillPointBudget": 8,
+          "maxPerPlayer": 1
+        }
+      ]
+    },
+    {
+      "tier": 5,
+      "label": "Tier 5",
+      "rosters": [
+        "Black Orc",
+        "Bretonnian",
+        "Snotling",
+        "Khorne"
+      ],
+      "gold": 1130000,
+      "skillPointBudget": 10,
+      "starPlayersAllowed": true,
+      "bannedStars": [],
+      "skillPackages": [
+        {
+          "label": "Pack 1",
+          "gold": 1130000,
+          "skillPointBudget": 10,
+          "maxPerPlayer": 1
+        },
+        {
+          "label": "Pack 2",
+          "gold": 1100000,
+          "skillPointBudget": 11,
+          "maxPerPlayer": 1
+        },
+        {
+          "label": "Pack 3",
+          "gold": 1160000,
+          "skillPointBudget": 9,
+          "maxPerPlayer": 1
+        }
+      ]
+    },
+    {
+      "tier": 6,
+      "label": "Tier 6",
+      "rosters": [
+        "Gnome",
+        "Goblin",
+        "Halfling",
+        "Ogre"
+      ],
+      "gold": 1140000,
+      "skillPointBudget": 11,
+      "starPlayersAllowed": true,
+      "bannedStars": [],
+      "skillPackages": [
+        {
+          "label": "Pack 1",
+          "gold": 1140000,
+          "skillPointBudget": 11,
+          "maxPerPlayer": 1
+        },
+        {
+          "label": "Pack 2",
+          "gold": 1110000,
+          "skillPointBudget": 12,
+          "maxPerPlayer": 2
+        },
+        {
+          "label": "Pack 3",
+          "gold": 1170000,
+          "skillPointBudget": 10,
+          "maxPerPlayer": 1
+        }
+      ]
+    }
+  ]
+}

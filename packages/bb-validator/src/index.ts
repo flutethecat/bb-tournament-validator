@@ -36,6 +36,7 @@ export type { Access } from "./dataset/lookup";
 export type {
   TournamentPackage,
   SkillAllotment,
+  SkillPackage,
   TierDef,
   TeamRule,
   Matrix,

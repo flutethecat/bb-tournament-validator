@@ -7,7 +7,7 @@
  */
 
 import { normName } from "../dataset/lookup";
-import type { MatrixCell, TournamentPackage } from "./types";
+import type { MatrixCell, SkillPackage, TournamentPackage } from "./types";
 import { resolveTier } from "./tiers";
 
 export interface ResolvedTeamConfig {
@@ -19,6 +19,8 @@ export interface ResolvedTeamConfig {
   secondarySwap: boolean;
   /** Skill stacking cap: max players with >1 added skill (null = no cap). */
   maxStackedPlayers: number | null;
+  /** Choose-one gold+SP packages (Spike!-style); when set, gold/SP legality = "fits any package". */
+  skillPackages?: SkillPackage[];
   starPlayersAllowed: boolean;
   bannedStars: string[];
   /** Which source set the skill/gold limits — for messaging. */
@@ -91,6 +93,7 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     if (tier.maxSecondary != null) cfg.maxSecondary = tier.maxSecondary;
     if (tier.secondarySwap !== undefined) cfg.secondarySwap = tier.secondarySwap;
     if (tier.maxStackedPlayers !== undefined) cfg.maxStackedPlayers = tier.maxStackedPlayers;
+    if (tier.skillPackages?.length) cfg.skillPackages = tier.skillPackages;
     cfg.starPlayersAllowed = tier.starPlayersAllowed;
     addBans(tier.bannedStars);
     cfg.source = "tier";

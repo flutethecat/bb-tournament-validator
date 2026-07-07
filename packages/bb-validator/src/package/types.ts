@@ -4,6 +4,19 @@
  * TO-authored files); sketched here as plain interfaces to stay toolchain-free.
  */
 
+/**
+ * A gold+SP "skill package" a coach may choose (Spike!-style). A roster is legal
+ * if it fits ANY package: gold spend ≤ `gold` AND SP spend ≤ `skillPointBudget`
+ * (and per-player skill count ≤ `maxPerPlayer` when set). Offered per tier.
+ */
+export interface SkillPackage {
+  label?: string;
+  gold: number;
+  skillPointBudget: number;
+  /** Max added skills per player under this package (e.g. Spike: 1, or 2 for a stacking pack). */
+  maxPerPlayer?: number | null;
+}
+
 /** One tier's roster membership + per-tier overrides (gold, star access, banned stars). */
 export interface TierDef {
   tier: number;
@@ -14,6 +27,8 @@ export interface TierDef {
   gold: number | null;
   /** Per-tier Skill-Point budget; null/undefined = fall back to skillAllotment.skillPointBudget. */
   skillPointBudget?: number | null;
+  /** Choose-one-of gold+SP packages for this tier (Spike!-style); legal if the roster fits any. */
+  skillPackages?: SkillPackage[];
   /** Per-tier COUNT-mode primary-skill allotment (set with maxSecondary to use count mode). */
   maxPrimary?: number | null;
   /** Per-tier COUNT-mode secondary-skill allotment. */
@@ -126,6 +141,14 @@ export interface TournamentPackage {
     allowed: boolean;
     maxCount: number | null;
     maxCombinedCost: number | null;
+    /**
+     * Spike!-style: stars are hired with SKILL POINTS, priced per tier. Maps a star
+     * name → SP cost indexed by (tier − 1); null/absent entry = not available in that
+     * tier. When set, the star's SP cost counts against the tier's SP package.
+     */
+    spCostByTier?: Record<string, (number | null)[]>;
+    /** When true, a star's gold cost is NOT counted against the gold budget (paid in SP instead). */
+    paidInSkillPoints?: boolean;
   };
   inducements: {
     /** Inducement ids, ["*"] for all, [] for none. */

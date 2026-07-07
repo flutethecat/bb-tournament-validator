@@ -105,6 +105,7 @@ export const goldBudget: Rule = {
   id: "gold-budget",
   check: ({ roster, pkg }) => {
     const cfg = resolveTeamConfig(pkg, roster.rosterName);
+    if (cfg.skillPackages?.length) return []; // gold is checked jointly with SP by skill-packages
     if (cfg.gold == null) return [];
     const gold = recomputeGold(roster);
     const where = sourceLabel(cfg);
@@ -176,7 +177,7 @@ export const skillPoints: Rule = {
           );
         seen.add(s);
       }
-      if (cfg.maxPerPlayer != null && rp.addedSkills.length > cfg.maxPerPlayer)
+      if (!resolved.skillPackages?.length && cfg.maxPerPlayer != null && rp.addedSkills.length > cfg.maxPerPlayer)
         findings.push(
           err(
             "skill-points",
@@ -223,7 +224,9 @@ export const skillPoints: Rule = {
         ),
       );
 
-    if (usesCountMode(resolved)) {
+    if (resolved.skillPackages?.length) {
+      // Gold+SP legality is owned by the skill-packages rule (joint disjunction).
+    } else if (usesCountMode(resolved)) {
       // COUNT mode: separate primary/secondary limits (with optional Secondary Swap).
       if (!fitsSkillCounts(primaryCount, secondaryCount, resolved.maxPrimary, resolved.maxSecondary, resolved.secondarySwap)) {
         const allot =
@@ -252,6 +255,87 @@ export const skillPoints: Rule = {
             expected: `<= ${resolved.skillPointBudget}`,
             actual: total,
             suggestion: `Drop ${over} SP worth of added skills, or ask the TO to raise the budget to ${total}.`,
+          },
+        ),
+      );
+    }
+    return findings;
+  },
+};
+
+/**
+ * 6b. Skill packages (Spike!-style) — when a tier offers choose-one gold+SP packages,
+ * the roster is legal if it fits ANY: gold spend ≤ pack.gold AND SP spend ≤ pack.SP
+ * AND (per-player skills ≤ pack.maxPerPlayer). SP spend = added-skill SP + per-tier
+ * star SP; when stars are paid in SP, their gold is excluded from the gold spend.
+ * Unavailable stars for the team's tier are flagged here.
+ */
+export const skillPackages: Rule = {
+  id: "skill-packages",
+  check: ({ roster, pkg, players, data }) => {
+    const cfg = resolveTeamConfig(pkg, roster.rosterName);
+    const packs = cfg.skillPackages;
+    if (!packs?.length) return [];
+    const findings: Finding[] = [];
+
+    let skillSP = 0;
+    for (const rp of players)
+      rp.addedSkills.forEach((s, i) => {
+        const a = rp.access[i];
+        if (a === undefined || a === "illegal") return; // only legal picks cost SP
+        skillSP += costSP(s, a, pkg.skillAllotment);
+      });
+
+    // Stars: per-tier SP cost + availability; optionally exclude their gold.
+    const tierIdx = (cfg.tierNumber ?? 1) - 1;
+    const spTable = pkg.starPlayers.spCostByTier;
+    let starSP = 0;
+    let starGold = 0;
+    for (const rp of players) {
+      if (!isStarName(data, rp.player.positionName)) continue;
+      starGold += rp.player.cost;
+      if (!spTable) continue;
+      const star = findStar(data, rp.player.positionName);
+      const key = Object.keys(spTable).find(
+        (k) => normName(k) === normName(star?.name ?? rp.player.positionName),
+      );
+      const cost = key ? spTable[key]?.[tierIdx] : undefined;
+      if (cost == null)
+        findings.push(
+          err("skill-packages", `${rp.player.positionName} is not available in Tier ${cfg.tierNumber ?? "?"}.`, {
+            playerRef: rp.player.number,
+            suggestion: `Remove ${rp.player.positionName} — no Tier ${cfg.tierNumber ?? "?"} SP price.`,
+          }),
+        );
+      else starSP += cost;
+    }
+
+    const spUsed = skillSP + starSP;
+    const goldUsed = recomputeGold(roster) - (pkg.starPlayers.paidInSkillPoints ? starGold : 0);
+    const maxOnAPlayer = players.reduce((m, rp) => Math.max(m, rp.addedSkills.length), 0);
+
+    const fits = packs.some(
+      (p) =>
+        goldUsed <= p.gold &&
+        spUsed <= p.skillPointBudget &&
+        (p.maxPerPlayer == null || maxOnAPlayer <= p.maxPerPlayer),
+    );
+    if (!fits) {
+      const opts = packs
+        .map(
+          (p) =>
+            `${p.label ? `${p.label}: ` : ""}${p.skillPointBudget} SP @ ${fmtGold(p.gold)}` +
+            (p.maxPerPlayer != null ? ` (≤${p.maxPerPlayer}/player)` : ""),
+        )
+        .join("; ");
+      findings.push(
+        err(
+          "skill-packages",
+          `Team uses ${spUsed} SP + ${fmtGold(goldUsed)}${sourceLabel(cfg)}; no skill package fits.`,
+          {
+            expected: opts,
+            actual: `${spUsed} SP + ${fmtGold(goldUsed)}` + (maxOnAPlayer > 1 ? `, ${maxOnAPlayer} skills on one player` : ""),
+            suggestion: `Fit a package: ${opts}.`,
           },
         ),
       );
@@ -482,6 +566,7 @@ export const ALL_RULES: Rule[] = [
   goldBudget,
   skillAccessRule,
   skillPoints,
+  skillPackages,
   costReconciliation,
   starPlayers,
   inducements,

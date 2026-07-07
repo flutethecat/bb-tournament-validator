@@ -68,6 +68,11 @@ export function validate(
     });
 
   const errors = findings.filter((f) => f.severity === "error");
+  const rc = resolveTeamConfig(pkg, roster.rosterName);
+  // With choose-one packages, show the most generous SP as the headline budget.
+  const spBudget = rc.skillPackages?.length
+    ? Math.max(...rc.skillPackages.map((p) => p.skillPointBudget))
+    : rc.skillPointBudget;
   return {
     valid: errors.length === 0,
     errors,
@@ -75,7 +80,7 @@ export function validate(
     infos: findings.filter((f) => f.severity === "info"),
     recomputedSummary: {
       skillPointsUsed: sp,
-      skillPointBudget: resolveTeamConfig(pkg, roster.rosterName).skillPointBudget,
+      skillPointBudget: spBudget,
       goldUsed: recomputeGold(roster),
       goldBudget: pkg.goldBudget,
       playerCount: roster.players.length,
