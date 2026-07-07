@@ -160,10 +160,12 @@ export const skillPoints: Rule = {
     let total = 0;
     let primaryCount = 0;
     let secondaryCount = 0;
+    let stackedPlayers = 0;
     const teamwide = new Map<string, number>();
 
     for (const rp of players) {
       if (!rp.position) continue;
+      if (rp.addedSkills.length > 1) stackedPlayers++;
       const seen = new Set<string>();
       for (const s of rp.player.skills.map(normName)) {
         if (seen.has(s))
@@ -206,6 +208,20 @@ export const skillPoints: Rule = {
               { expected: `<= ${cfg.maxSameSkillTeamwide}`, actual: count },
             ),
           );
+
+    // Skill stacking: at most N players may carry more than one added skill.
+    if (resolved.maxStackedPlayers != null && stackedPlayers > resolved.maxStackedPlayers)
+      findings.push(
+        err(
+          "skill-points",
+          `${stackedPlayers} players have more than one added skill; skill stacking allows at most ${resolved.maxStackedPlayers}${where}.`,
+          {
+            expected: `<= ${resolved.maxStackedPlayers} stacked players`,
+            actual: stackedPlayers,
+            suggestion: `Reduce ${stackedPlayers - resolved.maxStackedPlayers} player(s) to a single added skill.`,
+          },
+        ),
+      );
 
     if (usesCountMode(resolved)) {
       // COUNT mode: separate primary/secondary limits (with optional Secondary Swap).

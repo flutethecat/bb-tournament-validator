@@ -14,6 +14,14 @@ export interface TierDef {
   gold: number | null;
   /** Per-tier Skill-Point budget; null/undefined = fall back to skillAllotment.skillPointBudget. */
   skillPointBudget?: number | null;
+  /** Per-tier COUNT-mode primary-skill allotment (set with maxSecondary to use count mode). */
+  maxPrimary?: number | null;
+  /** Per-tier COUNT-mode secondary-skill allotment. */
+  maxSecondary?: number | null;
+  /** Row-level "Secondary Swap": two primary slots may be traded for one secondary. */
+  secondarySwap?: boolean;
+  /** Skill stacking: max players allowed >1 added skill (null/undefined = no cap). */
+  maxStackedPlayers?: number | null;
   /** Whether Star Players may be hired by teams in this tier. */
   starPlayersAllowed: boolean;
   /** Star names banned specifically for this tier. */
@@ -35,6 +43,11 @@ export interface SkillAllotment {
   maxPerPlayer: number | null; // default 2
   maxSameSkillTeamwide: number | null; // default null
   /**
+   * Skill stacking (flat default): max players allowed to carry MORE THAN ONE
+   * added skill. null = no cap. Tiers / matrix rows / team rules override it.
+   */
+  maxStackedPlayers?: number | null; // default null
+  /**
    * COUNT mode (alternative to the SP pool). When maxPrimary and/or maxSecondary
    * are set, added skills are limited by COUNT per access category instead of the
    * SP budget. Counts come from each added skill's primary/secondary access (which
@@ -54,6 +67,7 @@ export interface TeamRule {
   maxPrimary?: number | null;
   maxSecondary?: number | null;
   secondarySwap?: boolean;
+  maxStackedPlayers?: number | null;
   starPlayersAllowed?: boolean;
   bannedStars?: string[];
 }
@@ -67,6 +81,8 @@ export interface MatrixRow {
   primary: number;
   secondary: number;
   secondarySwap: boolean;
+  /** Skill stacking: max players allowed >1 added skill (null/undefined = no cap). */
+  maxStackedPlayers?: number | null;
 }
 export interface MatrixCell {
   col: number;
@@ -144,4 +160,5 @@ export const DEFAULT_SKILL_ALLOTMENT: SkillAllotment = {
   skillCostSP: {},
   maxPerPlayer: 2,
   maxSameSkillTeamwide: null,
+  maxStackedPlayers: null,
 };

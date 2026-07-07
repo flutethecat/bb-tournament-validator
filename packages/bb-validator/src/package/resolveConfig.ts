@@ -17,6 +17,8 @@ export interface ResolvedTeamConfig {
   maxPrimary: number | null;
   maxSecondary: number | null;
   secondarySwap: boolean;
+  /** Skill stacking cap: max players with >1 added skill (null = no cap). */
+  maxStackedPlayers: number | null;
   starPlayersAllowed: boolean;
   bannedStars: string[];
   /** Which source set the skill/gold limits — for messaging. */
@@ -37,7 +39,15 @@ export function sourceLabel(cfg: ResolvedTeamConfig): string {
 export function resolveMatrixCell(
   pkg: TournamentPackage,
   race: string,
-): (MatrixCell & { gold: number; primary: number; secondary: number; secondarySwap: boolean }) | undefined {
+):
+  | (MatrixCell & {
+      gold: number;
+      primary: number;
+      secondary: number;
+      secondarySwap: boolean;
+      maxStackedPlayers?: number | null;
+    })
+  | undefined {
   const m = pkg.matrix;
   if (!m) return undefined;
   const want = normName(race);
@@ -46,7 +56,14 @@ export function resolveMatrixCell(
   const col = m.columns[cell.col];
   const row = m.rows[cell.row];
   if (!col || !row) return undefined;
-  return { ...cell, gold: col.gold, primary: row.primary, secondary: row.secondary, secondarySwap: row.secondarySwap };
+  return {
+    ...cell,
+    gold: col.gold,
+    primary: row.primary,
+    secondary: row.secondary,
+    secondarySwap: row.secondarySwap,
+    maxStackedPlayers: row.maxStackedPlayers,
+  };
 }
 
 export function resolveTeamConfig(pkg: TournamentPackage, race: string): ResolvedTeamConfig {
@@ -57,6 +74,7 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     maxPrimary: sa.maxPrimary ?? null,
     maxSecondary: sa.maxSecondary ?? null,
     secondarySwap: sa.secondarySwap ?? false,
+    maxStackedPlayers: sa.maxStackedPlayers ?? null,
     starPlayersAllowed: pkg.starPlayers.allowed,
     bannedStars: [...(pkg.bannedStars ?? [])],
     source: "flat",
@@ -69,6 +87,10 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
   if (tier) {
     if (tier.gold != null) cfg.gold = tier.gold;
     if (tier.skillPointBudget != null) cfg.skillPointBudget = tier.skillPointBudget;
+    if (tier.maxPrimary != null) cfg.maxPrimary = tier.maxPrimary;
+    if (tier.maxSecondary != null) cfg.maxSecondary = tier.maxSecondary;
+    if (tier.secondarySwap !== undefined) cfg.secondarySwap = tier.secondarySwap;
+    if (tier.maxStackedPlayers !== undefined) cfg.maxStackedPlayers = tier.maxStackedPlayers;
     cfg.starPlayersAllowed = tier.starPlayersAllowed;
     addBans(tier.bannedStars);
     cfg.source = "tier";
@@ -81,6 +103,7 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     cfg.maxPrimary = cell.primary;
     cfg.maxSecondary = cell.secondary;
     cfg.secondarySwap = cell.secondarySwap;
+    if (cell.maxStackedPlayers !== undefined) cfg.maxStackedPlayers = cell.maxStackedPlayers;
     if (cell.starPlayersAllowed != null) cfg.starPlayersAllowed = cell.starPlayersAllowed;
     addBans(cell.bannedStars);
     cfg.source = "matrix";
@@ -93,6 +116,7 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     if (tr.maxPrimary !== undefined) cfg.maxPrimary = tr.maxPrimary;
     if (tr.maxSecondary !== undefined) cfg.maxSecondary = tr.maxSecondary;
     if (tr.secondarySwap !== undefined) cfg.secondarySwap = tr.secondarySwap;
+    if (tr.maxStackedPlayers !== undefined) cfg.maxStackedPlayers = tr.maxStackedPlayers;
     if (tr.starPlayersAllowed !== undefined) cfg.starPlayersAllowed = tr.starPlayersAllowed;
     addBans(tr.bannedStars);
     cfg.source = "team";

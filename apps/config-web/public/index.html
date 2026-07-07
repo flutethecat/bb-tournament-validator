@@ -50,6 +50,7 @@
                 <label>Secondary = ×primary<input id="f-sp-secmult" type="number" min="0" step="0.5" value="2" /></label>
                 <label>Max skills / player<input id="f-sp-maxplayer" type="number" min="0" value="2" /></label>
                 <label>Max same skill / team<input id="f-sp-maxstack" type="number" min="0" placeholder="none" /></label>
+                <label title="Max players allowed more than one added skill (blank = no limit)">Skill stacking (players &gt;1 skill)<input id="f-sp-stackplayers" type="number" min="0" placeholder="no limit" /></label>
               </div>
               <label class="switch">
                 <input id="f-elite-on" type="checkbox" checked />
@@ -187,7 +188,7 @@
         </div>
         <div id="teamrules-disabled-note" class="card"><p class="hint">Team-based rules are off. Tick “Use team-based rules” to edit per-team overrides (this will convert any Tiers/Matrix rules you already have).</p></div>
         <div id="teamrules-wrap" class="card"><table id="teamrules-table">
-          <thead><tr><th>Team</th><th>Gold</th><th>Primary</th><th>Secondary</th><th title="Secondary Swap = Swap 2 primaries for 1 secondary">Swap</th><th>Stars</th><th>Bans</th></tr></thead>
+          <thead><tr><th>Team</th><th>Gold</th><th>Primary</th><th>Secondary</th><th title="Secondary Swap = Swap 2 primaries for 1 secondary">Swap</th><th title="Max players allowed more than one added skill">Stacking</th><th>Stars</th><th>Bans</th></tr></thead>
           <tbody></tbody>
         </table></div>
       </section>

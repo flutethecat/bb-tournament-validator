@@ -37,7 +37,7 @@ function parseGoldClient(v) {
   if (n >= 100000) return Math.round(n);
   return Math.round(n * 1e3);
 }
-const emptyTR = () => ({ gold: "", primary: "", secondary: "", swap: false, stars: "inherit", banned: [] });
+const emptyTR = () => ({ gold: "", primary: "", secondary: "", swap: false, stack: "", stars: "inherit", banned: [] });
 
 // ---- tabs ----
 document.querySelectorAll(".tab").forEach((btn) => {
@@ -147,6 +147,7 @@ function formToPackage() {
       skillCostSP: state.skillCostSP,
       maxPerPlayer: optNum("f-sp-maxplayer"),
       maxSameSkillTeamwide: optNum("f-sp-maxstack"),
+      maxStackedPlayers: optNum("f-sp-stackplayers"),
     },
     goldBudget: $("f-gold").value.trim() === "" ? null : num("f-gold", 0) * 1000,
     starPlayers: {
@@ -186,6 +187,7 @@ function buildTeamRules() {
     if (d.primary !== "" && d.primary != null) rule.maxPrimary = Number(d.primary);
     if (d.secondary !== "" && d.secondary != null) rule.maxSecondary = Number(d.secondary);
     if (d.swap) rule.secondarySwap = true;
+    if (d.stack !== "" && d.stack != null) rule.maxStackedPlayers = Number(d.stack);
     if (d.stars === "yes") rule.starPlayersAllowed = true;
     if (d.stars === "no") rule.starPlayersAllowed = false;
     if (d.banned && d.banned.length) rule.bannedStars = d.banned;
@@ -201,6 +203,7 @@ function buildMatrix() {
     primary: Number(r.primary) || 0,
     secondary: Number(r.secondary) || 0,
     secondarySwap: !!r.swap,
+    ...(r.stack !== "" && r.stack != null ? { maxStackedPlayers: Number(r.stack) } : {}),
   }));
   const byCell = {};
   for (const [team, rc] of Object.entries(state.matrix.assign)) {
@@ -221,6 +224,10 @@ function buildTiers() {
       rosters: state.teams.filter((tm) => (state.assign[tm.name] || 0) === t).map((tm) => tm.name),
       gold: d.gold != null && d.gold !== "" ? Number(d.gold) * 1000 : null,
       skillPointBudget: d.sp != null && d.sp !== "" ? Number(d.sp) : null,
+      ...(d.primary !== "" && d.primary != null ? { maxPrimary: Number(d.primary) } : {}),
+      ...(d.secondary !== "" && d.secondary != null ? { maxSecondary: Number(d.secondary) } : {}),
+      ...(d.swap ? { secondarySwap: true } : {}),
+      ...(d.stack !== "" && d.stack != null ? { maxStackedPlayers: Number(d.stack) } : {}),
       starPlayersAllowed: d.starsAllowed !== false,
       bannedStars: d.banned || [],
     });
@@ -239,6 +246,7 @@ function packageToForm(p) {
   $("f-sp-secmult").value = sa.secondaryMultiplier ?? 2;
   $("f-sp-maxplayer").value = sa.maxPerPlayer ?? "";
   $("f-sp-maxstack").value = sa.maxSameSkillTeamwide ?? "";
+  $("f-sp-stackplayers").value = sa.maxStackedPlayers ?? "";
   const surcharge = sa.eliteSurchargeSP ?? 1;
   $("f-elite-on").checked = surcharge > 0;
   $("f-sp-elite").value = surcharge > 0 ? surcharge : 1;
@@ -271,6 +279,7 @@ function packageToForm(p) {
       primary: tr.maxPrimary ?? "",
       secondary: tr.maxSecondary ?? "",
       swap: !!tr.secondarySwap,
+      stack: tr.maxStackedPlayers ?? "",
       stars: tr.starPlayersAllowed === true ? "yes" : tr.starPlayersAllowed === false ? "no" : "inherit",
       banned: [...(tr.bannedStars || [])],
     };
@@ -328,6 +337,7 @@ function renderTeamRules() {
         <td><input data-f="primary" type="number" min="0" value="${esc(d.primary)}" placeholder="—" /></td>
         <td><input data-f="secondary" type="number" min="0" value="${esc(d.secondary)}" placeholder="—" /></td>
         <td style="text-align:center"><input data-f="swap" type="checkbox" ${d.swap ? "checked" : ""} title="Secondary Swap = Swap 2 primaries for 1 secondary" /></td>
+        <td><input data-f="stack" type="number" min="0" value="${esc(d.stack)}" placeholder="—" title="Max players with >1 added skill" /></td>
         <td><select data-f="stars"><option value="inherit"${d.stars === "inherit" ? " selected" : ""}>inherit</option><option value="yes"${d.stars === "yes" ? " selected" : ""}>allow</option><option value="no"${d.stars === "no" ? " selected" : ""}>ban</option></select></td>
         <td class="tr-bans-cell">
           <input class="tr-baninput star-ac" data-f="banadd" type="text" placeholder="ban a star + Enter" />
@@ -381,11 +391,11 @@ function applyMatrix(m) {
   if (m && (m.columns?.length || m.rows?.length)) {
     state.matrix.enabled = true;
     state.matrix.columns = (m.columns || []).map((c) => ({ gold: c.gold != null ? String(c.gold / 1000) : "" }));
-    state.matrix.rows = (m.rows || []).map((r) => ({ label: r.label || "", primary: r.primary, secondary: r.secondary, swap: !!r.secondarySwap }));
+    state.matrix.rows = (m.rows || []).map((r) => ({ label: r.label || "", primary: r.primary, secondary: r.secondary, swap: !!r.secondarySwap, stack: r.maxStackedPlayers != null ? r.maxStackedPlayers : "" }));
     for (const cell of m.cells || []) for (const t of cell.teams) state.matrix.assign[t] = `${cell.row},${cell.col}`;
   } else {
     state.matrix.columns = [{ gold: "" }];
-    state.matrix.rows = [{ label: "", primary: 6, secondary: 0, swap: false }];
+    state.matrix.rows = [{ label: "", primary: 6, secondary: 0, swap: false, stack: "" }];
   }
   $("m-enabled").checked = state.matrix.enabled;
   renderMatrix();
@@ -414,6 +424,7 @@ function renderMatrix() {
       <div class="mx-row-nums">
         <label class="mx-num"><span>Primary</span><input class="mx-prim" data-r="${r}" type="number" min="0" value="${esc(row.primary)}" /></label>
         <label class="mx-num"><span>Secondary</span><input class="mx-sec" data-r="${r}" type="number" min="0" value="${esc(row.secondary)}" /></label>
+        <label class="mx-num" title="Max players allowed more than one added skill"><span>Stacking</span><input class="mx-stack" data-r="${r}" type="number" min="0" value="${esc(row.stack)}" placeholder="—" /></label>
       </div>
       <label class="mx-swap" title="Secondary Swap = Swap 2 primaries for 1 secondary"><input class="mx-swapcb" data-r="${r}" type="checkbox" ${row.swap ? "checked" : ""} /> secondary swap</label></th>`;
     cols.forEach((_, c) => {
@@ -430,6 +441,7 @@ function wireMatrix() {
   document.querySelectorAll(".mx-label").forEach((el) => el.addEventListener("input", (e) => { state.matrix.rows[+e.target.dataset.r].label = e.target.value; }));
   document.querySelectorAll(".mx-prim").forEach((el) => el.addEventListener("input", (e) => { state.matrix.rows[+e.target.dataset.r].primary = e.target.value; }));
   document.querySelectorAll(".mx-sec").forEach((el) => el.addEventListener("input", (e) => { state.matrix.rows[+e.target.dataset.r].secondary = e.target.value; }));
+  document.querySelectorAll(".mx-stack").forEach((el) => el.addEventListener("input", (e) => { state.matrix.rows[+e.target.dataset.r].stack = e.target.value; }));
   document.querySelectorAll(".mx-swapcb").forEach((el) => el.addEventListener("change", (e) => { state.matrix.rows[+e.target.dataset.r].swap = e.target.checked; }));
   document.querySelectorAll("[data-delcol]").forEach((el) => el.addEventListener("click", (e) => removeMatrixCol(+e.target.dataset.delcol)));
   document.querySelectorAll("[data-delrow]").forEach((el) => el.addEventListener("click", (e) => removeMatrixRow(+e.target.dataset.delrow)));
@@ -483,7 +495,7 @@ function removeMatrixRow(r) {
 
 $("m-enabled").addEventListener("change", (e) => setMode(e.target.checked ? "matrix" : "flat"));
 $("m-addcol").addEventListener("click", () => { state.matrix.columns.push({ gold: "" }); renderMatrix(); });
-$("m-addrow").addEventListener("click", () => { state.matrix.rows.push({ label: "", primary: 6, secondary: 0, swap: false }); renderMatrix(); });
+$("m-addrow").addEventListener("click", () => { state.matrix.rows.push({ label: "", primary: 6, secondary: 0, swap: false, stack: "" }); renderMatrix(); });
 $("btn-save-matrix").addEventListener("click", () => savePackage($("matrix-save-status")));
 $("btn-save-teamrules").addEventListener("click", () => savePackage($("tr-save-status")));
 
@@ -496,18 +508,18 @@ function deriveCurrent() {
       const d = state.tierData[t] || {};
       for (const tm of state.teams)
         if ((state.assign[tm.name] || 0) === t)
-          out[tm.name] = { gold: d.gold, sp: d.sp, stars: d.starsAllowed === false ? "no" : "inherit", banned: [...(d.banned || [])] };
+          out[tm.name] = { gold: d.gold, sp: d.sp, primary: d.primary, secondary: d.secondary, swap: d.swap, stack: d.stack, stars: d.starsAllowed === false ? "no" : "inherit", banned: [...(d.banned || [])] };
     }
   } else if (state.mode === "matrix") {
     for (const [team, rc] of Object.entries(state.matrix.assign)) {
       const [r, c] = rc.split(",").map(Number);
       const row = state.matrix.rows[r], col = state.matrix.columns[c];
       if (!row || !col) continue;
-      out[team] = { gold: col.gold, primary: row.primary, secondary: row.secondary, swap: !!row.swap, banned: [] };
+      out[team] = { gold: col.gold, primary: row.primary, secondary: row.secondary, swap: !!row.swap, stack: row.stack, banned: [] };
     }
   } else if (state.mode === "teamrules") {
     for (const [team, d] of Object.entries(state.teamRules))
-      out[team] = { gold: d.gold, primary: d.primary, secondary: d.secondary, swap: d.swap, stars: d.stars, banned: [...(d.banned || [])] };
+      out[team] = { gold: d.gold, primary: d.primary, secondary: d.secondary, swap: d.swap, stack: d.stack, stars: d.stars, banned: [...(d.banned || [])] };
   }
   return out;
 }
@@ -520,6 +532,7 @@ function buildTeamRulesFrom(d) {
     if (v.primary != null && v.primary !== "") tr.primary = String(v.primary);
     if (v.secondary != null && v.secondary !== "") tr.secondary = String(v.secondary);
     if (v.swap) tr.swap = true;
+    if (v.stack != null && v.stack !== "") tr.stack = String(v.stack);
     tr.stars = v.stars === "yes" ? "yes" : v.stars === "no" ? "no" : "inherit";
     if (v.banned) tr.banned = [...v.banned];
     state.teamRules[team] = tr;
@@ -529,13 +542,14 @@ function buildTeamRulesFrom(d) {
 function buildMatrixFrom(d) {
   const entries = Object.entries(d);
   const golds = [...new Set(entries.map(([, v]) => String(v.gold ?? "")).filter((g) => g !== ""))];
-  const rowKeys = [...new Set(entries.map(([, v]) => `${v.primary ?? 0}|${v.secondary ?? 0}|${v.swap ? 1 : 0}`))];
+  const rowKey = (v) => `${v.primary ?? 0}|${v.secondary ?? 0}|${v.swap ? 1 : 0}|${v.stack ?? ""}`;
+  const rowKeys = [...new Set(entries.map(([, v]) => rowKey(v)))];
   state.matrix.columns = (golds.length ? golds : [""]).map((g) => ({ gold: g }));
-  state.matrix.rows = (rowKeys.length ? rowKeys : ["0|0|0"]).map((k) => { const [p, s, sw] = k.split("|"); return { label: "", primary: Number(p), secondary: Number(s), swap: sw === "1" }; });
+  state.matrix.rows = (rowKeys.length ? rowKeys : ["0|0|0|"]).map((k) => { const [p, s, sw, st] = k.split("|"); return { label: "", primary: Number(p), secondary: Number(s), swap: sw === "1", stack: st }; });
   state.matrix.assign = {};
   for (const [team, v] of entries) {
     const c = golds.indexOf(String(v.gold ?? ""));
-    const r = rowKeys.indexOf(`${v.primary ?? 0}|${v.secondary ?? 0}|${v.swap ? 1 : 0}`);
+    const r = rowKeys.indexOf(rowKey(v));
     if (c >= 0 && r >= 0) state.matrix.assign[team] = `${r},${c}`;
   }
 }
@@ -552,7 +566,7 @@ function buildTiersFrom(d) {
   }
   const groups = new Map();
   for (const [team, v] of entries) {
-    const key = `${v.gold ?? ""}|${v.sp ?? ""}|${v.stars ?? ""}|${(v.banned || []).join(",")}`;
+    const key = `${v.gold ?? ""}|${v.sp ?? ""}|${v.primary ?? ""}|${v.secondary ?? ""}|${v.swap ? 1 : 0}|${v.stack ?? ""}|${v.stars ?? ""}|${(v.banned || []).join(",")}`;
     if (!groups.has(key)) groups.set(key, { v, teams: [] });
     groups.get(key).teams.push(team);
   }
@@ -562,7 +576,7 @@ function buildTiersFrom(d) {
   state.assign = {};
   let t = 1;
   for (const { v, teams } of groups.values()) {
-    state.tierData[t] = { label: "", gold: v.gold ?? "", sp: v.sp ?? "", starsAllowed: v.stars !== "no", banned: [...(v.banned || [])] };
+    state.tierData[t] = { label: "", gold: v.gold ?? "", sp: v.sp ?? "", primary: v.primary ?? "", secondary: v.secondary ?? "", swap: !!v.swap, stack: v.stack ?? "", starsAllowed: v.stars !== "no", banned: [...(v.banned || [])] };
     for (const tm of teams) state.assign[tm] = t;
     t++;
   }
@@ -578,7 +592,7 @@ function setMode(newMode) {
   state.teamRules = {};
   state.mode = newMode;
   if (newMode === "tiers") { state.tiersEnabled = true; buildTiersFrom(derived); }
-  else if (newMode === "matrix") { state.matrix.enabled = true; buildMatrixFrom(derived); if (!state.matrix.columns.length) state.matrix.columns = [{ gold: "" }]; if (!state.matrix.rows.length) state.matrix.rows = [{ label: "", primary: 6, secondary: 0, swap: false }]; }
+  else if (newMode === "matrix") { state.matrix.enabled = true; buildMatrixFrom(derived); if (!state.matrix.columns.length) state.matrix.columns = [{ gold: "" }]; if (!state.matrix.rows.length) state.matrix.rows = [{ label: "", primary: 6, secondary: 0, swap: false, stack: "" }]; }
   else if (newMode === "teamrules") buildTeamRulesFrom(derived);
   syncModeUI();
   renderTiers();
@@ -605,6 +619,10 @@ function applyTiers(tiers) {
         label: t.label || "",
         gold: t.gold != null ? t.gold / 1000 : "",
         sp: t.skillPointBudget != null ? t.skillPointBudget : "",
+        primary: t.maxPrimary != null ? t.maxPrimary : "",
+        secondary: t.maxSecondary != null ? t.maxSecondary : "",
+        swap: !!t.secondarySwap,
+        stack: t.maxStackedPlayers != null ? t.maxStackedPlayers : "",
         starsAllowed: t.starPlayersAllowed !== false,
         banned: [...(t.bannedStars || [])],
       };
@@ -623,7 +641,7 @@ function applyTiers(tiers) {
 
 function ensureTierData() {
   for (let t = 1; t <= state.tierCount; t++) {
-    if (!state.tierData[t]) state.tierData[t] = { label: "", gold: "", sp: "", starsAllowed: true, banned: [] };
+    if (!state.tierData[t]) state.tierData[t] = { label: "", gold: "", sp: "", primary: "", secondary: "", swap: false, stack: "", starsAllowed: true, banned: [] };
   }
 }
 
@@ -650,6 +668,12 @@ function renderTiers() {
       <label>Label<input class="t-label" data-t="${t}" type="text" value="${esc(d.label)}" placeholder="e.g. Tier ${t}" /></label>
       <label>Gold budget (k)<input class="t-gold" data-t="${t}" type="number" min="0" value="${esc(d.gold)}" placeholder="none" /></label>
       <label>Skill-Point budget<input class="t-sp" data-t="${t}" type="number" min="0" value="${esc(d.sp)}" placeholder="package default" /></label>
+      <div class="rowset">
+        <label title="Count-mode: primary-access added skills allowed (blank = use SP budget)">Primary allotment<input class="t-primary" data-t="${t}" type="number" min="0" value="${esc(d.primary)}" placeholder="SP mode" /></label>
+        <label title="Count-mode: secondary-access added skills allowed">Secondary allotment<input class="t-secondary" data-t="${t}" type="number" min="0" value="${esc(d.secondary)}" placeholder="SP mode" /></label>
+      </div>
+      <label class="switch"><input class="t-swap" data-t="${t}" type="checkbox" ${d.swap ? "checked" : ""} /><span title="Trade 2 primary slots for 1 secondary">Secondary Swap</span></label>
+      <label title="Max players allowed more than one added skill (blank = no limit)">Skill stacking (players &gt;1 skill)<input class="t-stack" data-t="${t}" type="number" min="0" value="${esc(d.stack)}" placeholder="no limit" /></label>
       <label class="switch"><input class="t-stars" data-t="${t}" type="checkbox" ${d.starsAllowed ? "checked" : ""} /><span>Allow Star Players</span></label>
       <label>Ban a star (type + Enter)<input class="t-banadd star-ac" data-t="${t}" type="text" placeholder="Star name…" /></label>
       <div class="banned-tags" data-t="${t}">${d.banned.map((s) => bannedTag(t, s)).join("")}</div>
@@ -672,6 +696,18 @@ function wireTierControls() {
   );
   document.querySelectorAll(".t-sp").forEach((el) =>
     el.addEventListener("input", (e) => { state.tierData[+e.target.dataset.t].sp = e.target.value; }),
+  );
+  document.querySelectorAll(".t-primary").forEach((el) =>
+    el.addEventListener("input", (e) => { state.tierData[+e.target.dataset.t].primary = e.target.value; }),
+  );
+  document.querySelectorAll(".t-secondary").forEach((el) =>
+    el.addEventListener("input", (e) => { state.tierData[+e.target.dataset.t].secondary = e.target.value; }),
+  );
+  document.querySelectorAll(".t-swap").forEach((el) =>
+    el.addEventListener("change", (e) => { state.tierData[+e.target.dataset.t].swap = e.target.checked; }),
+  );
+  document.querySelectorAll(".t-stack").forEach((el) =>
+    el.addEventListener("input", (e) => { state.tierData[+e.target.dataset.t].stack = e.target.value; }),
   );
   document.querySelectorAll(".t-stars").forEach((el) =>
     el.addEventListener("change", (e) => { state.tierData[+e.target.dataset.t].starsAllowed = e.target.checked; }),

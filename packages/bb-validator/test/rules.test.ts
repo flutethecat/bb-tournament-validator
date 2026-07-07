@@ -128,6 +128,32 @@ describe("skill-points", () => {
     expect(errorsOf(r, "skill-points")[0]!.message).toMatch(/3 added skills.*limit is 2/);
   });
 
+  it("enforces skill stacking (max players with >1 added skill)", () => {
+    const players = roster().players;
+    players[0] = player({ number: 1, skills: ["Block", "Tackle"] });
+    players[1] = player({ number: 2, skills: ["Block", "Wrestle"] });
+    const r = validate(
+      roster({ players }),
+      pkg({ skillAllotment: { ...pkg().skillAllotment, skillPointBudget: 20, maxStackedPlayers: 1 } }),
+      fakeData,
+    );
+    const f = errorsOf(r, "skill-points").find((x) => /skill stacking/.test(x.message));
+    expect(f).toBeDefined();
+    expect(f!.message).toMatch(/2 players have more than one added skill.*at most 1/);
+  });
+
+  it("allows stacking up to the cap", () => {
+    const players = roster().players;
+    players[0] = player({ number: 1, skills: ["Block", "Tackle"] });
+    players[1] = player({ number: 2, skills: ["Block", "Wrestle"] });
+    const r = validate(
+      roster({ players }),
+      pkg({ skillAllotment: { ...pkg().skillAllotment, skillPointBudget: 20, maxStackedPlayers: 2 } }),
+      fakeData,
+    );
+    expect(errorsOf(r, "skill-points").some((x) => /skill stacking/.test(x.message))).toBe(false);
+  });
+
   it("enforces maxSameSkillTeamwide", () => {
     const players = roster().players;
     players[0] = player({ number: 1, skills: ["Wrestle"] });

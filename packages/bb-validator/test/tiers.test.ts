@@ -103,6 +103,34 @@ describe("per-tier skill-point budget", () => {
   });
 });
 
+describe("per-tier skill allotment (count mode + stacking)", () => {
+  it("a tier's primary/secondary counts switch it to count mode", () => {
+    const players = roster({ rosterName: "Testers" }).players;
+    players[0] = player({ number: 1, skills: ["Block", "Tackle"] }); // 2 primary on a Lineman
+    const r = validate(
+      roster({ rosterName: "Testers", players }),
+      pkg({ tiers: tiers([{ maxPrimary: 1, maxSecondary: 0 }]) }),
+      fakeData,
+    );
+    const f = errorsOf(r, "skill-points")[0]!;
+    expect(f.message).toMatch(/2 primary.*allotment is 1 primary/);
+    expect(f.message).toMatch(/Tier 1/);
+  });
+
+  it("a tier can cap skill stacking", () => {
+    const players = roster({ rosterName: "Testers" }).players;
+    players[0] = player({ number: 1, skills: ["Block", "Tackle"] });
+    players[1] = player({ number: 2, skills: ["Block", "Wrestle"] });
+    const r = validate(
+      roster({ rosterName: "Testers", players }),
+      pkg({ tiers: tiers([{ maxStackedPlayers: 1 }]) }),
+      fakeData,
+    );
+    const f = errorsOf(r, "skill-points").find((x) => /skill stacking/.test(x.message))!;
+    expect(f.message).toMatch(/at most 1 \(Tier 1\)/);
+  });
+});
+
 describe("generic star detection (no tiers)", () => {
   it("detects stars for any team via the dataset star list", () => {
     const players = roster().players;
