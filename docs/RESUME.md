@@ -1,7 +1,7 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-07 · HEAD = FUMBBL-PDF-fixes commit · published: `flutethecat/bb-tournament-validator` (private, tag `v0.1.0`) ·
+Last updated 2026-07-07 · HEAD = Spike elite-cost fix · published: `flutethecat/bb-tournament-validator` (private, tag **`v0.1.1`** = current; `v0.1.0` = pre-Spike) ·
 **153 tests green, all packages typecheck + build.**
 
 ## What this is
