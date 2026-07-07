@@ -7,7 +7,7 @@
 import type { Finding, ValidationResult } from "./model/findings";
 import type { Roster } from "./model/roster";
 import type { Dataset } from "./dataset/types";
-import { addedSkills, findPosition, findRoster, skillAccess } from "./dataset/lookup";
+import { addedSkills, findPosition, findRoster, normName, skillAccess } from "./dataset/lookup";
 import type { TournamentPackage } from "./package/types";
 import { resolveTeamConfig } from "./package/resolveConfig";
 import { costSP } from "./cost/costSP";
@@ -33,6 +33,12 @@ export function validate(
         { suggestion: "Check the race name; the dataset covers the 30 BB2025 teams." },
       ),
     );
+  }
+
+  // Canonicalize the race name to the dataset spelling (e.g. a PDF's "Underworld" →
+  // "Underworld Denizens") so eligibility, tiers, and resolveTeamConfig all match.
+  if (datasetRoster && normName(datasetRoster.name) !== normName(roster.rosterName)) {
+    roster = { ...roster, rosterName: datasetRoster.name };
   }
 
   // Resolve each player once: position, added skills, and each added skill's access.

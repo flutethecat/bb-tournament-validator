@@ -13,10 +13,33 @@ export function normName(s: string): string {
   return s.toLowerCase().replace(/[\s_-]+/g, " ").replace(/['’.]/g, "").trim();
 }
 
+/** Non-substring race abbreviations seen on roster sheets (substring variants are handled below). */
+const RACE_ALIASES: Record<string, string> = {
+  owa: "Old World Alliance",
+};
+
 export function findRoster(data: Dataset, raceName: string): DatasetRoster | undefined {
   const want = normName(raceName);
-  for (const r of Object.values(data.rosters)) {
+  const rosters = Object.values(data.rosters);
+  for (const r of rosters) {
     if (normName(r.name) === want || normName(r.id) === want) return r;
+  }
+  // Explicit abbreviations that aren't substrings (e.g. "OWA").
+  const alias = RACE_ALIASES[want];
+  if (alias) {
+    const hit = rosters.find((r) => normName(r.name) === normName(alias));
+    if (hit) return hit;
+  }
+  // Unique-containment fallback: forgives short/variant race names on PDFs, e.g.
+  // "Underworld" → "Underworld Denizens", "Undead" → "Shambling Undead", plurals
+  // like "Chaos Renegades". Requires a UNIQUE match so ambiguous names (e.g. "Chaos"
+  // → Chosen/Dwarf/Renegade) fail loudly rather than resolving wrongly.
+  if (want.length >= 4) {
+    const hits = rosters.filter((r) => {
+      const n = normName(r.name);
+      return n.includes(want) || want.includes(n);
+    });
+    if (hits.length === 1) return hits[0];
   }
   return undefined;
 }
