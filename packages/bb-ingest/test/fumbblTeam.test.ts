@@ -63,6 +63,14 @@ describe("fumbblTeamToRoster", () => {
     expect(roster!.players[0]!.cost).toBe(0);
   });
 
+  it("handles special rules as a name-keyed object (FUMBBL's populated shape)", () => {
+    const { roster } = fumbblTeamToRoster(
+      { ...team, specialRules: { "Worlds Edge Superleague": [], "Bribery and Corruption": [] } as Record<string, unknown> },
+      bb2025,
+    );
+    expect(roster!.specialRules).toEqual(["Worlds Edge Superleague", "Bribery and Corruption"]);
+  });
+
   it("refuses a team with no roster/race", () => {
     const { roster, problems } = fumbblTeamToRoster({ players: [{ position: "Eagle Warrior" }] }, bb2025);
     expect(roster).toBeUndefined();

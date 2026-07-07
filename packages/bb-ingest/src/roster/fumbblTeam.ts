@@ -31,7 +31,8 @@ export interface FumbblTeam {
   dedicatedFans?: number | null;
   /** Legacy field; falls back to dedicated fans when the newer one is absent. */
   fanFactor?: number | null;
-  specialRules?: (string | { name?: string })[];
+  /** FUMBBL returns `[]` when empty but a name-keyed object when populated. */
+  specialRules?: (string | { name?: string })[] | Record<string, unknown>;
   players?: FumbblPlayer[];
 }
 
@@ -52,6 +53,13 @@ function nameOf(v: unknown): string {
   if (typeof v === "string") return v;
   if (v && typeof v === "object" && "name" in v) return String((v as { name?: unknown }).name ?? "");
   return "";
+}
+
+/** FUMBBL serializes team special rules as `[]` when empty but a name-keyed object when populated. */
+function specialRuleNames(sr: FumbblTeam["specialRules"]): string[] {
+  if (!sr) return [];
+  if (Array.isArray(sr)) return sr.map(nameOf).filter(Boolean);
+  return Object.keys(sr);
 }
 
 export function fumbblTeamToRoster(team: FumbblTeam, data: Dataset): FumbblConversion {
@@ -115,7 +123,7 @@ export function fumbblTeamToRoster(team: FumbblTeam, data: Dataset): FumbblConve
     },
     inducements: [],
     leagues: [],
-    specialRules: (team.specialRules ?? []).map(nameOf).filter(Boolean),
+    specialRules: specialRuleNames(team.specialRules),
     players,
   };
   return { roster, problems };
