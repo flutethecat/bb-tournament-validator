@@ -551,10 +551,13 @@ export const specialRules: Rule = {
 export function recomputeGold(roster: {
   players: { cost: number }[];
   inducements: { cost?: number; count?: number }[];
-  summary?: { skillsCost: number; sidelineCost: number } | undefined;
+  summary?: { skillsCost: number; sidelineCost: number; inducementCost?: number } | undefined;
 }): number {
   const players = roster.players.reduce((a, p) => a + p.cost, 0);
-  const inducements = roster.inducements.reduce((a, i) => a + (i.cost ?? 0) * (i.count ?? 1), 0);
+  // Prefer the array's own costs; many sources (bbtc.pl PDFs) list inducement NAMES
+  // without per-item costs, so fall back to the sheet's inducement total.
+  const inducementArr = roster.inducements.reduce((a, i) => a + (i.cost ?? 0) * (i.count ?? 1), 0);
+  const inducements = inducementArr > 0 ? inducementArr : roster.summary?.inducementCost ?? 0;
   const skills = roster.summary?.skillsCost ?? 0;
   const sidelineGold = roster.summary?.sidelineCost ?? 0;
   return players + skills + inducements + sidelineGold;

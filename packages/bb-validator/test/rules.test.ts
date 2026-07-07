@@ -268,6 +268,18 @@ describe("inducements", () => {
   });
 });
 
+describe("recomputeGold inducement fallback", () => {
+  it("counts inducement gold from the summary when line items carry no cost", () => {
+    // bbtc.pl lists inducement NAMES without per-item costs; the sheet total must still count.
+    const ro = roster({
+      inducements: [{ name: "Halfling Master Chef" }],
+      summary: { playersCost: 550000, skillsCost: 0, inducementCost: 300000, sidelineCost: 0, total: 850000 },
+    });
+    const r = validate(ro, pkg(), fakeData);
+    expect(r.recomputedSummary.goldUsed).toBe(850000); // 550k players + 300k inducements
+  });
+});
+
 describe("sideline", () => {
   it("flags package caps and roster maxima", () => {
     const r = validate(
