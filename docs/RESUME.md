@@ -1,8 +1,8 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-06 · HEAD = skill-stacking/tier-allotment commit ·
-**139 tests green, all packages typecheck + build.**
+Last updated 2026-07-06 · HEAD = skill-stacking export/surfacing commit ·
+**140 tests green, all packages typecheck + build.**
 
 ## What this is
 A Discord bot + a portable TS validation core + a TO web config pane that validate Blood Bowl **2025**
@@ -66,7 +66,8 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
   **Tiers now also support count-mode Primary/Secondary allotment + Secondary Swap** (like matrix/team
   rules). **Skill Stacking** (`maxStackedPlayers`) is in all four modes: caps how many players may carry
   >1 added skill (null = no cap); resolved per-team (flat < tier < matrix row < team rule) and enforced
-  in the `skill-points` rule. Not yet surfaced in the HTML export / `/bbbot package show` (follow-up).
+  in the `skill-points` rule. Surfaced everywhere: config pane, one-page HTML export (tier Skills/Stacking
+  columns, matrix row notes, team-rules Stacking column, flat hint) and `/bbbot package show`.
 - **Cash×skills Matrix** (drag/drop, gold notation `1150`/`1.15M`, columns capped + teams wrap).
 - Per-tier gold/SP/stars/bans; per-team line-item rules.
 - Export one-page HTML rules sheet + AI-art prompt (bot commands + config buttons).

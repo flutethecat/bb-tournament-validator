@@ -319,7 +319,7 @@ async function handlePackageShow(i: ChatInputCommandInteraction): Promise<void> 
         name: "Skill Points",
         value:
           `budget ${sa.skillPointBudget} · primary ${sa.primaryCostSP} SP · secondary ${sa.secondaryCostSP ?? `${sa.primaryCostSP}×${sa.secondaryMultiplier}`} SP · elite +${sa.eliteSurchargeSP}\n` +
-          `elite set: ${sa.eliteSkills.join(", ")} · max/player ${sa.maxPerPlayer ?? "—"}`,
+          `elite set: ${sa.eliteSkills.join(", ")} · max/player ${sa.maxPerPlayer ?? "—"} · stacking ${sa.maxStackedPlayers != null ? `≤ ${sa.maxStackedPlayers} players >1 skill` : "unlimited"}`,
       },
       {
         name: "Stars / Gold / Sideline",

@@ -47,6 +47,22 @@ describe("renderPackageHtml", () => {
     expect(html).toContain("Morg &#39;n&#39; Thorg"); // escaped
   });
 
+  it("renders skill stacking and per-tier count-mode allotment", () => {
+    const base = pkg().skillAllotment;
+    const flat = renderPackageHtml(pkg({ skillAllotment: { ...base, maxStackedPlayers: 3 } }));
+    expect(flat).toContain("max 3 players with >1 added skill");
+
+    const tiered = renderPackageHtml(
+      pkg({
+        tiers: [
+          { tier: 1, rosters: ["Amazon"], gold: null, maxPrimary: 3, maxSecondary: 2, secondarySwap: true, maxStackedPlayers: 2, starPlayersAllowed: true, bannedStars: [] },
+        ],
+      }),
+    );
+    expect(tiered).toContain("Stacking");
+    expect(tiered).toContain("3 primary + 2 secondary");
+  });
+
   it("escapes HTML in names to avoid injection", () => {
     const html = renderPackageHtml(pkg({ name: "<script>alert(1)</script>" }));
     expect(html).not.toContain("<script>alert(1)</script>");

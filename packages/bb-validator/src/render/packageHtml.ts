@@ -13,6 +13,21 @@ const gp = (n: number | null | undefined): string => (n == null ? "—" : `${n.t
 
 const yesNo = (b: boolean): string => (b ? "Yes" : "No");
 
+/** Count-mode ("3 primary + 2 secondary ↔") or SP-budget allotment text. */
+function allotText(
+  primary?: number | null,
+  secondary?: number | null,
+  swap?: boolean,
+  sp?: number | null,
+): string {
+  if (primary != null || secondary != null)
+    return `${primary ?? "∞"} primary${secondary != null ? ` + ${secondary} secondary` : ""}${swap ? " ↔" : ""}`;
+  return sp != null ? `${sp} SP` : "—";
+}
+
+/** Skill-stacking cap ("max players with >1 added skill"); "—" = no cap. */
+const stackText = (n: number | null | undefined): string => (n == null ? "—" : String(n));
+
 function skillCostLine(pkg: TournamentPackage): string {
   const sa = pkg.skillAllotment;
   const sec = sa.secondaryCostSP != null ? `${sa.secondaryCostSP} SP` : `${sa.secondaryMultiplier}× primary`;
@@ -37,10 +52,11 @@ function matrixSection(pkg: TournamentPackage): string {
     .map((row, r) => {
       const label = row.label || `${row.primary} primary${row.secondary ? ` + ${row.secondary} secondary` : ""}`;
       const swap = row.secondarySwap ? ' <span class="swap" title="Swap 2 primaries for 1 secondary">↔ swap</span>' : "";
+      const stack = row.maxStackedPlayers != null ? ` <span class="swap" title="Max players with >1 added skill">· stack ≤ ${row.maxStackedPlayers}</span>` : "";
       const cells = m.columns
         .map((_, c) => `<td>${teamsAt(r, c).map(esc).join("<br>") || "—"}</td>`)
         .join("");
-      return `<tr><th class="rowhead">${esc(label)}${swap}</th>${cells}</tr>`;
+      return `<tr><th class="rowhead">${esc(label)}${swap}${stack}</th>${cells}</tr>`;
     })
     .join("");
   return section(
@@ -57,14 +73,16 @@ function tiersSection(pkg: TournamentPackage): string {
     .map(
       (t) =>
         `<tr><th class="rowhead">Tier ${t.tier}${t.label ? ` — ${esc(t.label)}` : ""}</th>
-         <td>${gp(t.gold)}</td><td>${t.skillPointBudget != null ? `${t.skillPointBudget} SP` : "—"}</td>
+         <td>${gp(t.gold)}</td><td>${esc(allotText(t.maxPrimary, t.maxSecondary, t.secondarySwap, t.skillPointBudget))}</td>
+         <td>${stackText(t.maxStackedPlayers)}</td>
          <td>${yesNo(t.starPlayersAllowed)}</td><td>${t.bannedStars.map(esc).join(", ") || "—"}</td>
          <td>${t.rosters.map(esc).join(", ")}</td></tr>`,
     )
     .join("");
   return section(
     "Tiers",
-    `<table><thead><tr><th></th><th>Gold</th><th>Skill Pts</th><th>Stars</th><th>Banned stars</th><th>Teams</th></tr></thead><tbody>${rows}</tbody></table>`,
+    `<p class="hint">Skills = SP budget or count-mode allotment (“↔” = swap 2 primaries for 1 secondary). Stacking = max players allowed more than one added skill.</p>
+     <table><thead><tr><th></th><th>Gold</th><th>Skills</th><th>Stacking</th><th>Stars</th><th>Banned stars</th><th>Teams</th></tr></thead><tbody>${rows}</tbody></table>`,
   );
 }
 
@@ -77,14 +95,15 @@ function teamRulesSection(pkg: TournamentPackage): string {
          <td>${t.maxPrimary != null ? t.maxPrimary : "—"}</td>
          <td>${t.maxSecondary != null ? t.maxSecondary : "—"}</td>
          <td>${t.secondarySwap ? "↔" : "—"}</td>
+         <td>${stackText(t.maxStackedPlayers)}</td>
          <td>${t.starPlayersAllowed === undefined ? "inherit" : yesNo(t.starPlayersAllowed)}</td>
          <td>${(t.bannedStars ?? []).map(esc).join(", ") || "—"}</td></tr>`,
     )
     .join("");
   return section(
     "Team Rules",
-    `<p class="hint">“↔” = Secondary Swap: swap 2 primaries for 1 secondary. Blank fields inherit the package defaults.</p>
-     <table><thead><tr><th></th><th>Gold</th><th>Primary</th><th>Secondary</th><th>Swap</th><th>Stars</th><th>Banned stars</th></tr></thead><tbody>${rows}</tbody></table>`,
+    `<p class="hint">“↔” = Secondary Swap: swap 2 primaries for 1 secondary. Stacking = max players with >1 added skill. Blank fields inherit the package defaults.</p>
+     <table><thead><tr><th></th><th>Gold</th><th>Primary</th><th>Secondary</th><th>Swap</th><th>Stacking</th><th>Stars</th><th>Banned stars</th></tr></thead><tbody>${rows}</tbody></table>`,
   );
 }
 
@@ -97,7 +116,7 @@ function flatSkillSection(pkg: TournamentPackage): string {
       : `${sa.skillPointBudget} Skill Points`;
   return section(
     "Skill Allotment",
-    `<p><strong>${esc(budget)}</strong></p><p class="hint">${esc(skillCostLine(pkg))}${sa.maxPerPlayer != null ? ` · max ${sa.maxPerPlayer} added skills per player` : ""}${sa.maxSameSkillTeamwide != null ? ` · max ${sa.maxSameSkillTeamwide} of a skill team-wide` : ""}</p>`,
+    `<p><strong>${esc(budget)}</strong></p><p class="hint">${esc(skillCostLine(pkg))}${sa.maxPerPlayer != null ? ` · max ${sa.maxPerPlayer} added skills per player` : ""}${sa.maxSameSkillTeamwide != null ? ` · max ${sa.maxSameSkillTeamwide} of a skill team-wide` : ""}${sa.maxStackedPlayers != null ? ` · max ${sa.maxStackedPlayers} players with >1 added skill` : ""}</p>`,
   );
 }
 
