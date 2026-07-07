@@ -1,0 +1,4714 @@
+{
+ "_about": "BB2025 rosters generated from FUMBBL ruleset 3906 (see scripts/generate_dataset.py). Category codes G/A/S/P/M/D -> General/Agility/Strength/Passing/Mutation/Devious.",
+ "rosters": [
+  {
+   "id": "amazon",
+   "name": "Amazon",
+   "ruleset": "bb2025",
+   "tier": 1,
+   "specialRules": [
+    "Lustrian Superleague"
+   ],
+   "reRollCost": 60000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "amazon.eagle_warrior",
+     "name": "Eagle Warrior",
+     "type": "positional",
+     "max": 16,
+     "cost": 50000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Dodge"
+     ],
+     "primaryCategories": [
+      "General"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "amazon.python_warrior",
+     "name": "Python Warrior",
+     "type": "positional",
+     "max": 2,
+     "cost": 80000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "On the Ball",
+      "Pass",
+      "Safe Pass"
+     ],
+     "primaryCategories": [
+      "General",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "amazon.piranha_warrior",
+     "name": "Piranha Warrior",
+     "type": "positional",
+     "max": 2,
+     "cost": 90000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Jump Up",
+      "Hit and Run"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "amazon.jaguar_warrior_blocker",
+     "name": "Jaguar Warrior Blocker",
+     "type": "blocker",
+     "max": 2,
+     "cost": 110000,
+     "MA": 6,
+     "ST": 4,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Dodge",
+      "Defensive"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "black_orc",
+   "name": "Black Orc",
+   "ruleset": "bb2025",
+   "tier": 2,
+   "specialRules": [
+    "Badlands Brawl",
+    "Bribery and Corruption",
+    "Brawlin' Brutes"
+   ],
+   "reRollCost": 60000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "black_orc.goblin_bruiser",
+     "name": "Goblin Bruiser",
+     "type": "positional",
+     "max": 16,
+     "cost": 45000,
+     "MA": 6,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Thick Skull",
+      "Right Stuff",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "black_orc.black_orc",
+     "name": "Black Orc",
+     "type": "positional",
+     "max": 6,
+     "cost": 90000,
+     "MA": 4,
+     "ST": 4,
+     "AG": "4+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Brawler",
+      "Grab"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "black_orc.trained_troll",
+     "name": "Trained Troll",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 115000,
+     "MA": 4,
+     "ST": 5,
+     "AG": "5+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Always Hungry",
+      "Projectile Vomit",
+      "Really Stupid",
+      "Regeneration",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "bretonnian",
+   "name": "Bretonnian",
+   "ruleset": "bb2025",
+   "tier": 2,
+   "specialRules": [
+    "Old World Classic"
+   ],
+   "reRollCost": 60000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "bretonnian.bretonnian_squire",
+     "name": "Bretonnian Squire",
+     "type": "positional",
+     "max": 16,
+     "cost": 50000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Wrestle"
+     ],
+     "primaryCategories": [
+      "General"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "bretonnian.bretonnian_knight_catcher",
+     "name": "Bretonnian Knight Catcher",
+     "type": "catcher",
+     "max": 2,
+     "cost": 85000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Catch",
+      "Dauntless",
+      "Nerves of Steel"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "bretonnian.bretonnian_knight_thrower",
+     "name": "Bretonnian Knight Thrower",
+     "type": "thrower",
+     "max": 2,
+     "cost": 80000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [
+      "Dauntless",
+      "Nerves of Steel",
+      "Pass"
+     ],
+     "primaryCategories": [
+      "General",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "bretonnian.grail_knight",
+     "name": "Grail Knight",
+     "type": "positional",
+     "max": 2,
+     "cost": 95000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "10+",
+     "skills": [
+      "Block",
+      "Dauntless",
+      "Steady Footing"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "chaos_chosen",
+   "name": "Chaos Chosen",
+   "ruleset": "bb2025",
+   "tier": 2,
+   "specialRules": [
+    "Favoured of...",
+    "Chaos Clash"
+   ],
+   "reRollCost": 50000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "chaos_chosen.beastman_runner_lineman",
+     "name": "Beastman Runner Lineman",
+     "type": "runner",
+     "max": 16,
+     "cost": 55000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [
+      "Horns",
+      "Thick Skull"
+     ],
+     "primaryCategories": [
+      "General",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength",
+      "Passing",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_chosen.chaos_chosen",
+     "name": "Chaos Chosen",
+     "type": "positional",
+     "max": 4,
+     "cost": 100000,
+     "MA": 5,
+     "ST": 4,
+     "AG": "3+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Arm Bar"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_chosen.chaos_troll",
+     "name": "Chaos Troll",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 115000,
+     "MA": 4,
+     "ST": 5,
+     "AG": "5+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Always Hungry",
+      "Loner",
+      "Projectile Vomit",
+      "Really Stupid",
+      "Regeneration",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_chosen.ogre",
+     "name": "Ogre",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 140000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Thick Skull",
+      "Bone Head",
+      "Loner",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_chosen.minotaur",
+     "name": "Minotaur",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 150000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "9+",
+     "skills": [
+      "Frenzy",
+      "Horns",
+      "Mighty Blow",
+      "Thick Skull",
+      "Loner",
+      "Unchannelled Fury"
+     ],
+     "primaryCategories": [
+      "Strength",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "chaos_dwarf",
+   "name": "Chaos Dwarf",
+   "ruleset": "bb2025",
+   "tier": 1,
+   "specialRules": [
+    "Badlands Brawl",
+    "Favoured of...",
+    "Chaos Clash"
+   ],
+   "reRollCost": 70000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "chaos_dwarf.hobgoblin_lineman",
+     "name": "Hobgoblin Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 40000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [],
+     "primaryCategories": [
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_dwarf.chaos_dwarf_blocker",
+     "name": "Chaos Dwarf Blocker",
+     "type": "blocker",
+     "max": 4,
+     "cost": 70000,
+     "MA": 4,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Block",
+      "Iron Hard Skin",
+      "Thick Skull"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious",
+      "Mutation"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_dwarf.bull_centaur_blitzer",
+     "name": "Bull Centaur Blitzer",
+     "type": "blitzer",
+     "max": 2,
+     "cost": 130000,
+     "MA": 6,
+     "ST": 4,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Sprint",
+      "Sure Feet",
+      "Thick Skull",
+      "Unsteady"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious",
+      "Mutation"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_dwarf.minotaur",
+     "name": "Minotaur",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 150000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "9+",
+     "skills": [
+      "Frenzy",
+      "Horns",
+      "Mighty Blow",
+      "Thick Skull",
+      "Loner",
+      "Unchannelled Fury"
+     ],
+     "primaryCategories": [
+      "Strength",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_dwarf.sneaky_stabba",
+     "name": "Sneaky Stabba",
+     "type": "positional",
+     "max": 2,
+     "cost": 60000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "5+",
+     "AV": "8+",
+     "skills": [
+      "Shadowing",
+      "Stab"
+     ],
+     "primaryCategories": [
+      "General",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_dwarf.flamesmith",
+     "name": "Flamesmith",
+     "type": "positional",
+     "max": 2,
+     "cost": 80000,
+     "MA": 5,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Disturbing Presence",
+      "Brawler",
+      "Thick Skull",
+      "Breathe Fire"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious",
+      "Mutation"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "chaos_renegade",
+   "name": "Chaos Renegade",
+   "ruleset": "bb2025",
+   "tier": 3,
+   "specialRules": [
+    "Favoured of...",
+    "Chaos Clash"
+   ],
+   "reRollCost": 70000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 3,
+   "positions": [
+    {
+     "id": "chaos_renegade.renegade_human",
+     "name": "Renegade Human",
+     "type": "positional",
+     "max": 16,
+     "cost": 50000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Animosity"
+     ],
+     "primaryCategories": [
+      "General",
+      "Devious",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_renegade.renegade_human_thrower",
+     "name": "Renegade Human Thrower",
+     "type": "thrower",
+     "max": 1,
+     "cost": 75000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [
+      "Sure Hands",
+      "Pass",
+      "Animosity"
+     ],
+     "primaryCategories": [
+      "General",
+      "Passing",
+      "Devious",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_renegade.renegade_goblin",
+     "name": "Renegade Goblin",
+     "type": "positional",
+     "max": 1,
+     "cost": 40000,
+     "MA": 6,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Animosity",
+      "Right Stuff",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Devious",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_renegade.renegade_orc",
+     "name": "Renegade Orc",
+     "type": "positional",
+     "max": 1,
+     "cost": 50000,
+     "MA": 5,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "10+",
+     "skills": [
+      "Animosity"
+     ],
+     "primaryCategories": [
+      "General",
+      "Devious",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_renegade.renegade_skaven",
+     "name": "Renegade Skaven",
+     "type": "positional",
+     "max": 1,
+     "cost": 50000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Animosity"
+     ],
+     "primaryCategories": [
+      "General",
+      "Devious",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_renegade.renegade_dark_elf",
+     "name": "Renegade Dark Elf",
+     "type": "positional",
+     "max": 1,
+     "cost": 65000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [
+      "Animosity"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility",
+      "Devious",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_renegade.troll",
+     "name": "Troll",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 115000,
+     "MA": 4,
+     "ST": 5,
+     "AG": "5+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Always Hungry",
+      "Loner",
+      "Projectile Vomit",
+      "Really Stupid",
+      "Regeneration",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Passing",
+      "Mutation"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_renegade.ogre",
+     "name": "Ogre",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 140000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Thick Skull",
+      "Bone Head",
+      "Loner",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Mutation"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_renegade.minotaur",
+     "name": "Minotaur",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 150000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "9+",
+     "skills": [
+      "Frenzy",
+      "Horns",
+      "Mighty Blow",
+      "Thick Skull",
+      "Loner",
+      "Unchannelled Fury"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Mutation"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "chaos_renegade.rat_ogre",
+     "name": "Rat Ogre",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 150000,
+     "MA": 6,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "9+",
+     "skills": [
+      "Frenzy",
+      "Prehensile Tail",
+      "Mighty Blow",
+      "Animal Savagery",
+      "Loner"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Mutation"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "dark_elf",
+   "name": "Dark Elf",
+   "ruleset": "bb2025",
+   "tier": 1,
+   "specialRules": [
+    "Elven Kingdoms League"
+   ],
+   "reRollCost": 50000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "dark_elf.dark_elf_lineman",
+     "name": "Dark Elf Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 65000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "dark_elf.dark_elf_runner",
+     "name": "Dark Elf Runner",
+     "type": "runner",
+     "max": 2,
+     "cost": 80000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "3+",
+     "AV": "8+",
+     "skills": [
+      "Dump-off",
+      "Punt"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "dark_elf.dark_elf_blitzer",
+     "name": "Dark Elf Blitzer",
+     "type": "blitzer",
+     "max": 2,
+     "cost": 105000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [
+      "Block"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Passing",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "dark_elf.dark_elf_assassin",
+     "name": "Dark Elf Assassin",
+     "type": "positional",
+     "max": 2,
+     "cost": 90000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Shadowing",
+      "Stab",
+      "Hit and Run"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "dark_elf.witch_elf",
+     "name": "Witch Elf",
+     "type": "positional",
+     "max": 2,
+     "cost": 110000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Jump Up",
+      "Frenzy"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "dwarf",
+   "name": "Dwarf",
+   "ruleset": "bb2025",
+   "tier": 1,
+   "specialRules": [
+    "Worlds Edge Superleague",
+    "Bribery and Corruption",
+    "Brawlin' Brutes"
+   ],
+   "reRollCost": 60000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "dwarf.dwarf_blocker_lineman",
+     "name": "Dwarf Blocker Lineman",
+     "type": "blocker",
+     "max": 16,
+     "cost": 70000,
+     "MA": 4,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Defensive",
+      "Block",
+      "Thick Skull"
+     ],
+     "primaryCategories": [
+      "General",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "dwarf.dwarf_runner",
+     "name": "Dwarf Runner",
+     "type": "runner",
+     "max": 2,
+     "cost": 80000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Sprint",
+      "Sure Hands",
+      "Thick Skull"
+     ],
+     "primaryCategories": [
+      "General",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "dwarf.dwarf_blitzer",
+     "name": "Dwarf Blitzer",
+     "type": "blitzer",
+     "max": 2,
+     "cost": 100000,
+     "MA": 5,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "4+",
+     "AV": "10+",
+     "skills": [
+      "Diving Tackle",
+      "Block",
+      "Tackle",
+      "Thick Skull"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "dwarf.troll_slayer",
+     "name": "Troll Slayer",
+     "type": "positional",
+     "max": 2,
+     "cost": 95000,
+     "MA": 5,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "5+",
+     "AV": "9+",
+     "skills": [
+      "Block",
+      "Dauntless",
+      "Frenzy",
+      "Thick Skull",
+      "Hatred"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "dwarf.deathroller",
+     "name": "Deathroller",
+     "type": "positional",
+     "max": 1,
+     "cost": 170000,
+     "MA": 5,
+     "ST": 7,
+     "AG": "5+",
+     "PA": "-",
+     "AV": "11+",
+     "skills": [
+      "Dirty Player",
+      "Break Tackle",
+      "Juggernaut",
+      "Mighty Blow",
+      "Stand Firm",
+      "Loner",
+      "No Ball",
+      "Secret Weapon"
+     ],
+     "primaryCategories": [
+      "Strength",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "elven_union",
+   "name": "Elven Union",
+   "ruleset": "bb2025",
+   "tier": 2,
+   "specialRules": [
+    "Elven Kingdoms League"
+   ],
+   "reRollCost": 50000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "elven_union.elf_lineman",
+     "name": "Elf Lineman",
+     "type": "lineman",
+     "max": 12,
+     "cost": 65000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "3+",
+     "AV": "8+",
+     "skills": [
+      "Fumblerooski"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "elven_union.elf_thrower",
+     "name": "Elf Thrower",
+     "type": "thrower",
+     "max": 2,
+     "cost": 75000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "2+",
+     "AV": "8+",
+     "skills": [
+      "Hail Mary Pass",
+      "Pass"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "elven_union.elf_catcher",
+     "name": "Elf Catcher",
+     "type": "catcher",
+     "max": 2,
+     "cost": 100000,
+     "MA": 8,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Catch",
+      "Diving Catch",
+      "Nerves of Steel"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "elven_union.elf_blitzer",
+     "name": "Elf Blitzer",
+     "type": "blitzer",
+     "max": 2,
+     "cost": 115000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [
+      "Sidestep",
+      "Block"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Passing"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "gnome",
+   "name": "Gnome",
+   "ruleset": "bb2025",
+   "tier": 4,
+   "specialRules": [
+    "Halfling Thimble Cup",
+    "Woodland League"
+   ],
+   "reRollCost": 50000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 2,
+   "positions": [
+    {
+     "id": "gnome.altern_forest_treeman",
+     "name": "Altern Forest Treeman",
+     "type": "bigguy",
+     "max": 2,
+     "cost": 120000,
+     "MA": 2,
+     "ST": 6,
+     "AG": "5+",
+     "PA": "5+",
+     "AV": "11+",
+     "skills": [
+      "Mighty Blow",
+      "Stand Firm",
+      "Strong Arm",
+      "Thick Skull",
+      "Take Root",
+      "Timmm-ber!",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "gnome.gnome_beastmaster",
+     "name": "Gnome Beastmaster",
+     "type": "positional",
+     "max": 2,
+     "cost": 55000,
+     "MA": 5,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Jump Up",
+      "Wrestle",
+      "Guard",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "gnome.gnome_illusionist",
+     "name": "Gnome Illusionist",
+     "type": "positional",
+     "max": 2,
+     "cost": 50000,
+     "MA": 5,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "7+",
+     "skills": [
+      "Jump Up",
+      "Wrestle",
+      "Stunty",
+      "Trickster"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "gnome.woodland_fox",
+     "name": "Woodland Fox",
+     "type": "positional",
+     "max": 2,
+     "cost": 50000,
+     "MA": 7,
+     "ST": 2,
+     "AG": "2+",
+     "PA": "-",
+     "AV": "6+",
+     "skills": [
+      "Dodge",
+      "Sidestep",
+      "Stunty",
+      "My Ball"
+     ],
+     "primaryCategories": [],
+     "secondaryCategories": [
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "gnome.gnome_lineman",
+     "name": "Gnome Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 40000,
+     "MA": 5,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "7+",
+     "skills": [
+      "Jump Up",
+      "Wrestle",
+      "Right Stuff",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "goblin",
+   "name": "Goblin",
+   "ruleset": "bb2025",
+   "tier": 4,
+   "specialRules": [
+    "Badlands Brawl",
+    "Underworld Challenge",
+    "Bribery and Corruption"
+   ],
+   "reRollCost": 60000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 2,
+   "positions": [
+    {
+     "id": "goblin.goblin_lineman",
+     "name": "Goblin Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 40000,
+     "MA": 6,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Right Stuff",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "goblin.bomma",
+     "name": "Bomma",
+     "type": "positional",
+     "max": 1,
+     "cost": 45000,
+     "MA": 6,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Bombardier",
+      "Secret Weapon",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Passing",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "goblin.looney",
+     "name": "Looney",
+     "type": "positional",
+     "max": 1,
+     "cost": 40000,
+     "MA": 6,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "-",
+     "AV": "8+",
+     "skills": [
+      "Chainsaw",
+      "No Ball",
+      "Secret Weapon",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "goblin.pogoer",
+     "name": "Pogoer",
+     "type": "positional",
+     "max": 1,
+     "cost": 75000,
+     "MA": 7,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Pogo",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "goblin.ooligan",
+     "name": "'Ooligan",
+     "type": "positional",
+     "max": 1,
+     "cost": 60000,
+     "MA": 6,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "5+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Dirty Player",
+      "Disturbing Presence",
+      "Right Stuff",
+      "Stunty",
+      "Taunt"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "goblin.doom_diver",
+     "name": "Doom Diver",
+     "type": "positional",
+     "max": 1,
+     "cost": 65000,
+     "MA": 6,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "6+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Right Stuff",
+      "Stunty",
+      "Swoop"
+     ],
+     "primaryCategories": [
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "goblin.trained_troll",
+     "name": "Trained Troll",
+     "type": "bigguy",
+     "max": 2,
+     "cost": 115000,
+     "MA": 4,
+     "ST": 5,
+     "AG": "5+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Always Hungry",
+      "Projectile Vomit",
+      "Really Stupid",
+      "Regeneration",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "goblin.fanatic",
+     "name": "Fanatic",
+     "type": "positional",
+     "max": 1,
+     "cost": 70000,
+     "MA": 3,
+     "ST": 7,
+     "AG": "3+",
+     "PA": "-",
+     "AV": "8+",
+     "skills": [
+      "Ball & Chain",
+      "No Ball",
+      "Secret Weapon",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Strength",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "halfling",
+   "name": "Halfling",
+   "ruleset": "bb2025",
+   "tier": 4,
+   "specialRules": [
+    "Halfling Thimble Cup",
+    "Woodland League"
+   ],
+   "reRollCost": 60000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 2,
+   "positions": [
+    {
+     "id": "halfling.halfling_hopeful",
+     "name": "Halfling Hopeful",
+     "type": "lineman",
+     "max": 16,
+     "cost": 30000,
+     "MA": 5,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "7+",
+     "skills": [
+      "Dodge",
+      "Right Stuff",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "halfling.halfling_hefty",
+     "name": "Halfling Hefty",
+     "type": "positional",
+     "max": 2,
+     "cost": 50000,
+     "MA": 5,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Fend",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "halfling.halfling_catcher",
+     "name": "Halfling Catcher",
+     "type": "catcher",
+     "max": 2,
+     "cost": 55000,
+     "MA": 5,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "7+",
+     "skills": [
+      "Catch",
+      "Dodge",
+      "Sprint",
+      "Right Stuff",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "halfling.altern_forest_treeman",
+     "name": "Altern Forest Treeman",
+     "type": "bigguy",
+     "max": 2,
+     "cost": 120000,
+     "MA": 2,
+     "ST": 6,
+     "AG": "5+",
+     "PA": "5+",
+     "AV": "11+",
+     "skills": [
+      "Mighty Blow",
+      "Stand Firm",
+      "Strong Arm",
+      "Thick Skull",
+      "Take Root",
+      "Timmm-ber!",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "high_elf",
+   "name": "High Elf",
+   "ruleset": "bb2025",
+   "tier": 2,
+   "specialRules": [
+    "Elven Kingdoms League"
+   ],
+   "reRollCost": 50000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "high_elf.high_elf_lineman",
+     "name": "High Elf Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 65000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "high_elf.phoenix_warrior",
+     "name": "Phoenix Warrior",
+     "type": "positional",
+     "max": 2,
+     "cost": 90000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "2+",
+     "AV": "9+",
+     "skills": [
+      "Cloud Burster",
+      "Pass",
+      "Safe Pass"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "high_elf.white_lion",
+     "name": "White Lion",
+     "type": "positional",
+     "max": 2,
+     "cost": 110000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [
+      "Wrestle",
+      "Claws"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "high_elf.dragon_prince",
+     "name": "Dragon Prince",
+     "type": "positional",
+     "max": 2,
+     "cost": 110000,
+     "MA": 8,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Block",
+      "My Ball",
+      "Steady Footing"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "human",
+   "name": "Human",
+   "ruleset": "bb2025",
+   "tier": 2,
+   "specialRules": [
+    "Old World Classic",
+    "Team Captain"
+   ],
+   "reRollCost": 50000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "human.human_lineman",
+     "name": "Human Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 50000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [],
+     "primaryCategories": [
+      "General"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "human.human_thrower",
+     "name": "Human Thrower",
+     "type": "thrower",
+     "max": 2,
+     "cost": 75000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [
+      "Sure Hands",
+      "Pass"
+     ],
+     "primaryCategories": [
+      "General",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "human.human_catcher",
+     "name": "Human Catcher",
+     "type": "catcher",
+     "max": 2,
+     "cost": 75000,
+     "MA": 8,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Catch",
+      "Dodge"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Passing",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "human.human_blitzer",
+     "name": "Human Blitzer",
+     "type": "blitzer",
+     "max": 2,
+     "cost": 85000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Block",
+      "Tackle"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "human.halfling_hopeful",
+     "name": "Halfling Hopeful",
+     "type": "lineman",
+     "max": 3,
+     "cost": 30000,
+     "MA": 5,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "7+",
+     "skills": [
+      "Dodge",
+      "Right Stuff",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "human.ogre",
+     "name": "Ogre",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 140000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Thick Skull",
+      "Bone Head",
+      "Loner",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "imperial_nobility",
+   "name": "Imperial Nobility",
+   "ruleset": "bb2025",
+   "tier": 3,
+   "specialRules": [
+    "Old World Classic"
+   ],
+   "reRollCost": 60000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "imperial_nobility.imperial_retainer",
+     "name": "Imperial Retainer",
+     "type": "positional",
+     "max": 16,
+     "cost": 45000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Fend"
+     ],
+     "primaryCategories": [
+      "General"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "imperial_nobility.imperial_thrower",
+     "name": "Imperial Thrower",
+     "type": "thrower",
+     "max": 2,
+     "cost": 75000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "2+",
+     "AV": "9+",
+     "skills": [
+      "Pro",
+      "Pass",
+      "Give and Go"
+     ],
+     "primaryCategories": [
+      "General",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "imperial_nobility.noble_blitzer",
+     "name": "Noble Blitzer",
+     "type": "blitzer",
+     "max": 2,
+     "cost": 90000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Catch",
+      "Block",
+      "Pro"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "imperial_nobility.bodyguard",
+     "name": "Bodyguard",
+     "type": "positional",
+     "max": 4,
+     "cost": 85000,
+     "MA": 5,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Wrestle",
+      "Stand Firm"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "imperial_nobility.ogre",
+     "name": "Ogre",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 140000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Thick Skull",
+      "Bone Head",
+      "Loner",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "khorne",
+   "name": "Khorne",
+   "ruleset": "bb2025",
+   "tier": 3,
+   "specialRules": [
+    "Favoured of...",
+    "Brawlin' Brutes",
+    "Chaos Clash"
+   ],
+   "reRollCost": 60000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "khorne.bloodborn_marauder",
+     "name": "Bloodborn Marauder",
+     "type": "positional",
+     "max": 16,
+     "cost": 50000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Frenzy"
+     ],
+     "primaryCategories": [
+      "General",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "khorne.khorngor",
+     "name": "Khorngor",
+     "type": "positional",
+     "max": 2,
+     "cost": 70000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Jump Up",
+      "Horns",
+      "Juggernaut",
+      "Thick Skull"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Passing",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "khorne.bloodseeker",
+     "name": "Bloodseeker",
+     "type": "positional",
+     "max": 4,
+     "cost": 105000,
+     "MA": 5,
+     "ST": 4,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Frenzy"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "khorne.bloodspawn",
+     "name": "Bloodspawn",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 160000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "9+",
+     "skills": [
+      "Frenzy",
+      "Claws",
+      "Mighty Blow",
+      "Loner",
+      "Unchannelled Fury"
+     ],
+     "primaryCategories": [
+      "Strength",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "lizardmen",
+   "name": "Lizardmen",
+   "ruleset": "bb2025",
+   "tier": 1,
+   "specialRules": [
+    "Lustrian Superleague"
+   ],
+   "reRollCost": 70000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "lizardmen.skink_lineman",
+     "name": "Skink Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 60000,
+     "MA": 8,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Passing",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "lizardmen.chameleon_skink",
+     "name": "Chameleon Skink",
+     "type": "positional",
+     "max": 2,
+     "cost": 70000,
+     "MA": 7,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Shadowing",
+      "On the Ball",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "lizardmen.saurus_blocker",
+     "name": "Saurus Blocker",
+     "type": "blocker",
+     "max": 6,
+     "cost": 90000,
+     "MA": 6,
+     "ST": 4,
+     "AG": "5+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Juggernaut",
+      "Unsteady"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "lizardmen.kroxigor",
+     "name": "Kroxigor",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 140000,
+     "MA": 6,
+     "ST": 5,
+     "AG": "5+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Prehensile Tail",
+      "Mighty Blow",
+      "Thick Skull",
+      "Bone Head",
+      "Loner"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "necromantic_horror",
+   "name": "Necromantic Horror",
+   "ruleset": "bb2025",
+   "tier": 1,
+   "specialRules": [
+    "Sylvanian Spotlight",
+    "Masters of Undeath"
+   ],
+   "reRollCost": 70000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": false,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "necromantic_horror.zombie_lineman",
+     "name": "Zombie Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 40000,
+     "MA": 4,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "9+",
+     "skills": [
+      "Regeneration",
+      "Eye Gouge",
+      "Unsteady"
+     ],
+     "primaryCategories": [
+      "General",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "necromantic_horror.ghoul_runner",
+     "name": "Ghoul Runner",
+     "type": "runner",
+     "max": 2,
+     "cost": 75000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Regeneration"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Passing",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "necromantic_horror.wraith",
+     "name": "Wraith",
+     "type": "positional",
+     "max": 2,
+     "cost": 85000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "-",
+     "AV": "9+",
+     "skills": [
+      "Sidestep",
+      "Block",
+      "Foul Appearance",
+      "No Ball",
+      "Regeneration"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "necromantic_horror.werewolf",
+     "name": "Werewolf",
+     "type": "positional",
+     "max": 2,
+     "cost": 120000,
+     "MA": 8,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [
+      "Frenzy",
+      "Claws",
+      "Regeneration"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Passing",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "necromantic_horror.flesh_golem",
+     "name": "Flesh Golem",
+     "type": "positional",
+     "max": 2,
+     "cost": 110000,
+     "MA": 4,
+     "ST": 4,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Stand Firm",
+      "Thick Skull",
+      "Regeneration",
+      "Unsteady"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "norse",
+   "name": "Norse",
+   "ruleset": "bb2025",
+   "tier": 2,
+   "specialRules": [
+    "Old World Classic",
+    "Favoured of...",
+    "Chaos Clash"
+   ],
+   "reRollCost": 60000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "norse.norse_raider",
+     "name": "Norse Raider",
+     "type": "positional",
+     "max": 16,
+     "cost": 50000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Block",
+      "Thick Skull",
+      "Drunkard",
+      "Unsteady"
+     ],
+     "primaryCategories": [
+      "General"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "norse.norse_berserker",
+     "name": "Norse Berserker",
+     "type": "positional",
+     "max": 2,
+     "cost": 90000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "5+",
+     "AV": "8+",
+     "skills": [
+      "Jump Up",
+      "Block",
+      "Frenzy"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "norse.ulfwerener",
+     "name": "Ulfwerener",
+     "type": "positional",
+     "max": 2,
+     "cost": 105000,
+     "MA": 6,
+     "ST": 4,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "9+",
+     "skills": [
+      "Frenzy",
+      "Unsteady"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "norse.yhetee",
+     "name": "Yhetee",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 140000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "9+",
+     "skills": [
+      "Frenzy",
+      "Claws",
+      "Disturbing Presence",
+      "Loner",
+      "Unchannelled Fury"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "norse.beer_boar",
+     "name": "Beer Boar",
+     "type": "positional",
+     "max": 2,
+     "cost": 20000,
+     "MA": 5,
+     "ST": 1,
+     "AG": "3+",
+     "PA": "-",
+     "AV": "6+",
+     "skills": [
+      "Dodge",
+      "No Ball",
+      "Stunty",
+      "Titchy",
+      "Pick-me-up"
+     ],
+     "primaryCategories": [],
+     "secondaryCategories": [
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "norse.valkyrie",
+     "name": "Valkyrie",
+     "type": "positional",
+     "max": 2,
+     "cost": 95000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "8+",
+     "skills": [
+      "Catch",
+      "Dauntless",
+      "Strip Ball",
+      "Pass"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "nurgle",
+   "name": "Nurgle",
+   "ruleset": "bb2025",
+   "tier": 2,
+   "specialRules": [
+    "Favoured of...",
+    "Brawlin' Brutes",
+    "Chaos Clash"
+   ],
+   "reRollCost": 60000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": false,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "nurgle.rotter_lineman",
+     "name": "Rotter Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 40000,
+     "MA": 5,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "9+",
+     "skills": [
+      "Decay",
+      "Plague Ridden"
+     ],
+     "primaryCategories": [
+      "General",
+      "Mutation",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "nurgle.pestigor",
+     "name": "Pestigor",
+     "type": "positional",
+     "max": 2,
+     "cost": 70000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Horns",
+      "Thick Skull",
+      "Plague Ridden",
+      "Regeneration",
+      "Steady Footing"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Passing",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "nurgle.bloater",
+     "name": "Bloater",
+     "type": "positional",
+     "max": 4,
+     "cost": 110000,
+     "MA": 4,
+     "ST": 4,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Disturbing Presence",
+      "Foul Appearance",
+      "Stand Firm",
+      "Plague Ridden",
+      "Regeneration",
+      "Unsteady"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "nurgle.rotspawn",
+     "name": "Rotspawn",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 140000,
+     "MA": 4,
+     "ST": 5,
+     "AG": "5+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Disturbing Presence",
+      "Foul Appearance",
+      "Tentacles",
+      "Mighty Blow",
+      "Loner",
+      "Plague Ridden",
+      "Really Stupid",
+      "Regeneration",
+      "Pick-me-up"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Mutation",
+      "Devious"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "ogre",
+   "name": "Ogre",
+   "ruleset": "bb2025",
+   "tier": 4,
+   "specialRules": [
+    "Badlands Brawl",
+    "Worlds Edge Superleague",
+    "Low Cost Linemen",
+    "Brawlin' Brutes"
+   ],
+   "reRollCost": 70000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 6,
+   "positions": [
+    {
+     "id": "ogre.gnoblar_lineman",
+     "name": "Gnoblar Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 15000,
+     "MA": 5,
+     "ST": 1,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "6+",
+     "skills": [
+      "Dodge",
+      "Sidestep",
+      "Right Stuff",
+      "Stunty",
+      "Titchy"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "ogre.ogre_runt_punter",
+     "name": "Ogre Runt Punter",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 145000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "4+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Thick Skull",
+      "Bone Head",
+      "Kick Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "ogre.ogre_blocker",
+     "name": "Ogre Blocker",
+     "type": "bigguy",
+     "max": 5,
+     "cost": 140000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Thick Skull",
+      "Bone Head",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Passing",
+      "Devious"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "old_world_alliance",
+   "name": "Old World Alliance",
+   "ruleset": "bb2025",
+   "tier": 3,
+   "specialRules": [
+    "Old World Classic"
+   ],
+   "reRollCost": 70000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "old_world_alliance.human_lineman",
+     "name": "Human Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 50000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [],
+     "primaryCategories": [
+      "General"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "old_world_alliance.human_thrower",
+     "name": "Human Thrower",
+     "type": "thrower",
+     "max": 1,
+     "cost": 75000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [
+      "Sure Hands",
+      "Pass"
+     ],
+     "primaryCategories": [
+      "General",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "old_world_alliance.human_catcher",
+     "name": "Human Catcher",
+     "type": "catcher",
+     "max": 1,
+     "cost": 75000,
+     "MA": 8,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Catch",
+      "Dodge"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "old_world_alliance.human_blitzer",
+     "name": "Human Blitzer",
+     "type": "blitzer",
+     "max": 1,
+     "cost": 85000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Block",
+      "Tackle"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "old_world_alliance.dwarf_lineman",
+     "name": "Dwarf Lineman",
+     "type": "lineman",
+     "max": 3,
+     "cost": 70000,
+     "MA": 4,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Defensive",
+      "Block",
+      "Thick Skull"
+     ],
+     "primaryCategories": [
+      "General",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "old_world_alliance.dwarf_runner",
+     "name": "Dwarf Runner",
+     "type": "runner",
+     "max": 1,
+     "cost": 80000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Sprint",
+      "Sure Hands",
+      "Thick Skull"
+     ],
+     "primaryCategories": [
+      "General",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "old_world_alliance.dwarf_blitzer",
+     "name": "Dwarf Blitzer",
+     "type": "blitzer",
+     "max": 1,
+     "cost": 100000,
+     "MA": 5,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "4+",
+     "AV": "10+",
+     "skills": [
+      "Diving Tackle",
+      "Block",
+      "Tackle",
+      "Thick Skull"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "old_world_alliance.troll_slayer",
+     "name": "Troll Slayer",
+     "type": "positional",
+     "max": 1,
+     "cost": 95000,
+     "MA": 5,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "5+",
+     "AV": "9+",
+     "skills": [
+      "Block",
+      "Dauntless",
+      "Frenzy",
+      "Thick Skull",
+      "Hatred"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "old_world_alliance.halfling_hopeful",
+     "name": "Halfling Hopeful",
+     "type": "lineman",
+     "max": 3,
+     "cost": 30000,
+     "MA": 5,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "7+",
+     "skills": [
+      "Dodge",
+      "Right Stuff",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "old_world_alliance.ogre",
+     "name": "Ogre",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 140000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Thick Skull",
+      "Bone Head",
+      "Loner",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "old_world_alliance.altern_forest_treeman",
+     "name": "Altern Forest Treeman",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 120000,
+     "MA": 2,
+     "ST": 6,
+     "AG": "5+",
+     "PA": "5+",
+     "AV": "11+",
+     "skills": [
+      "Mighty Blow",
+      "Stand Firm",
+      "Strong Arm",
+      "Thick Skull",
+      "Loner",
+      "Take Root",
+      "Timmm-ber!",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "orc",
+   "name": "Orc",
+   "ruleset": "bb2025",
+   "tier": 1,
+   "specialRules": [
+    "Badlands Brawl",
+    "Brawlin' Brutes",
+    "Team Captain"
+   ],
+   "reRollCost": 60000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "orc.orc_lineman",
+     "name": "Orc Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 50000,
+     "MA": 5,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "10+",
+     "skills": [],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "orc.orc_thrower",
+     "name": "Orc Thrower",
+     "type": "thrower",
+     "max": 2,
+     "cost": 75000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [
+      "Sure Hands",
+      "Pass"
+     ],
+     "primaryCategories": [
+      "General",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "orc.orc_blitzer",
+     "name": "Orc Blitzer",
+     "type": "blitzer",
+     "max": 2,
+     "cost": 85000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "10+",
+     "skills": [
+      "Block",
+      "Break Tackle"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "orc.big_un_blocker",
+     "name": "Big Un Blocker",
+     "type": "blocker",
+     "max": 2,
+     "cost": 95000,
+     "MA": 5,
+     "ST": 4,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Thick Skull",
+      "Taunt",
+      "Unsteady"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "orc.goblin_lineman",
+     "name": "Goblin Lineman",
+     "type": "lineman",
+     "max": 4,
+     "cost": 40000,
+     "MA": 6,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Right Stuff",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "orc.troll",
+     "name": "Troll",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 115000,
+     "MA": 4,
+     "ST": 5,
+     "AG": "5+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Always Hungry",
+      "Loner",
+      "Projectile Vomit",
+      "Really Stupid",
+      "Regeneration",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "shambling_undead",
+   "name": "Shambling Undead",
+   "ruleset": "bb2025",
+   "tier": 1,
+   "specialRules": [
+    "Sylvanian Spotlight",
+    "Masters of Undeath"
+   ],
+   "reRollCost": 70000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": false,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "shambling_undead.skeleton_lineman",
+     "name": "Skeleton Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 40000,
+     "MA": 5,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "8+",
+     "skills": [
+      "Thick Skull",
+      "Regeneration"
+     ],
+     "primaryCategories": [
+      "General"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "shambling_undead.zombie_lineman",
+     "name": "Zombie Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 40000,
+     "MA": 4,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "9+",
+     "skills": [
+      "Regeneration",
+      "Eye Gouge",
+      "Unsteady"
+     ],
+     "primaryCategories": [
+      "General",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "shambling_undead.ghoul_runner",
+     "name": "Ghoul Runner",
+     "type": "runner",
+     "max": 2,
+     "cost": 75000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "3+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Regeneration"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Passing",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "shambling_undead.wight_blitzer",
+     "name": "Wight Blitzer",
+     "type": "blitzer",
+     "max": 2,
+     "cost": 95000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "5+",
+     "AV": "9+",
+     "skills": [
+      "Block",
+      "Tackle",
+      "Thick Skull",
+      "Regeneration"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "shambling_undead.mummy",
+     "name": "Mummy",
+     "type": "positional",
+     "max": 2,
+     "cost": 125000,
+     "MA": 3,
+     "ST": 5,
+     "AG": "5+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Regeneration"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "skaven",
+   "name": "Skaven",
+   "ruleset": "bb2025",
+   "tier": 1,
+   "specialRules": [
+    "Underworld Challenge"
+   ],
+   "reRollCost": 50000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "skaven.skaven_clanrat",
+     "name": "Skaven Clanrat",
+     "type": "positional",
+     "max": 16,
+     "cost": 50000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [],
+     "primaryCategories": [
+      "General",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength",
+      "Mutation"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "skaven.skaven_thrower",
+     "name": "Skaven Thrower",
+     "type": "thrower",
+     "max": 2,
+     "cost": 80000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "2+",
+     "AV": "8+",
+     "skills": [
+      "Sure Hands",
+      "Pass"
+     ],
+     "primaryCategories": [
+      "General",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength",
+      "Mutation",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "skaven.gutter_runner",
+     "name": "Gutter Runner",
+     "type": "runner",
+     "max": 2,
+     "cost": 85000,
+     "MA": 9,
+     "ST": 2,
+     "AG": "2+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Stab"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Mutation"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "skaven.blitzer",
+     "name": "Blitzer",
+     "type": "blitzer",
+     "max": 2,
+     "cost": 90000,
+     "MA": 8,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "5+",
+     "AV": "9+",
+     "skills": [
+      "Block",
+      "Strip Ball"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Mutation",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "skaven.rat_ogre",
+     "name": "Rat Ogre",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 150000,
+     "MA": 6,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "9+",
+     "skills": [
+      "Frenzy",
+      "Prehensile Tail",
+      "Mighty Blow",
+      "Animal Savagery",
+      "Loner"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Mutation"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "snotling",
+   "name": "Snotling",
+   "ruleset": "bb2025",
+   "tier": 4,
+   "specialRules": [
+    "Underworld Challenge",
+    "Bribery and Corruption",
+    "Low Cost Linemen",
+    "Swarming"
+   ],
+   "reRollCost": 70000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 4,
+   "positions": [
+    {
+     "id": "snotling.snotling_lineman",
+     "name": "Snotling Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 15000,
+     "MA": 5,
+     "ST": 1,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "6+",
+     "skills": [
+      "Dodge",
+      "Sidestep",
+      "Right Stuff",
+      "Stunty",
+      "Titchy",
+      "Insignificant"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "snotling.fungus_flinga",
+     "name": "Fungus Flinga",
+     "type": "positional",
+     "max": 2,
+     "cost": 30000,
+     "MA": 5,
+     "ST": 1,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "6+",
+     "skills": [
+      "Dodge",
+      "Sidestep",
+      "Bombardier",
+      "Right Stuff",
+      "Secret Weapon",
+      "Stunty",
+      "Titchy"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Passing",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "snotling.fun_hoppa",
+     "name": "Fun-hoppa",
+     "type": "positional",
+     "max": 2,
+     "cost": 20000,
+     "MA": 6,
+     "ST": 1,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "6+",
+     "skills": [
+      "Dodge",
+      "Sidestep",
+      "Pogo",
+      "Right Stuff",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "snotling.stilty_runna",
+     "name": "Stilty Runna",
+     "type": "positional",
+     "max": 2,
+     "cost": 20000,
+     "MA": 6,
+     "ST": 1,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "6+",
+     "skills": [
+      "Dodge",
+      "Sidestep",
+      "Sprint",
+      "Right Stuff",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "snotling.pump_wagon",
+     "name": "Pump Wagon",
+     "type": "bigguy",
+     "max": 2,
+     "cost": 100000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "5+",
+     "PA": "6+",
+     "AV": "9+",
+     "skills": [
+      "Dirty Player",
+      "Juggernaut",
+      "Mighty Blow",
+      "Stand Firm",
+      "Really Stupid"
+     ],
+     "primaryCategories": [
+      "Strength",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "snotling.trained_troll",
+     "name": "Trained Troll",
+     "type": "bigguy",
+     "max": 2,
+     "cost": 115000,
+     "MA": 4,
+     "ST": 5,
+     "AG": "5+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Always Hungry",
+      "Projectile Vomit",
+      "Really Stupid",
+      "Regeneration",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "tomb_kings",
+   "name": "Tomb Kings",
+   "ruleset": "bb2025",
+   "tier": 2,
+   "specialRules": [
+    "Sylvanian Spotlight",
+    "Masters of Undeath"
+   ],
+   "reRollCost": 60000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": false,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "tomb_kings.skeleton_lineman",
+     "name": "Skeleton Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 40000,
+     "MA": 5,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "8+",
+     "skills": [
+      "Thick Skull",
+      "Regeneration"
+     ],
+     "primaryCategories": [
+      "General"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "tomb_kings.tomb_kings_thrower",
+     "name": "Tomb Kings Thrower",
+     "type": "thrower",
+     "max": 2,
+     "cost": 65000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "3+",
+     "AV": "9+",
+     "skills": [
+      "Sure Hands",
+      "Pass",
+      "Thick Skull",
+      "Regeneration"
+     ],
+     "primaryCategories": [
+      "General",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "tomb_kings.tomb_kings_blitzer",
+     "name": "Tomb Kings Blitzer",
+     "type": "blitzer",
+     "max": 2,
+     "cost": 85000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "4+",
+     "PA": "5+",
+     "AV": "9+",
+     "skills": [
+      "Block",
+      "Thick Skull",
+      "Regeneration"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "tomb_kings.tomb_guardian",
+     "name": "Tomb Guardian",
+     "type": "positional",
+     "max": 4,
+     "cost": 115000,
+     "MA": 4,
+     "ST": 5,
+     "AG": "5+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Brawler",
+      "Decay",
+      "Regeneration"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "underworld_denizens",
+   "name": "Underworld Denizens",
+   "ruleset": "bb2025",
+   "tier": 1,
+   "specialRules": [
+    "Underworld Challenge",
+    "Bribery and Corruption"
+   ],
+   "reRollCost": 70000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "underworld_denizens.goblin_lineman",
+     "name": "Goblin Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 40000,
+     "MA": 6,
+     "ST": 2,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Right Stuff",
+      "Stunty"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Mutation",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Strength",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "underworld_denizens.snotling_lineman",
+     "name": "Snotling Lineman",
+     "type": "lineman",
+     "max": 6,
+     "cost": 15000,
+     "MA": 5,
+     "ST": 1,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "6+",
+     "skills": [
+      "Dodge",
+      "Sidestep",
+      "Right Stuff",
+      "Stunty",
+      "Titchy",
+      "Insignificant"
+     ],
+     "primaryCategories": [
+      "Agility",
+      "Mutation",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "General"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "underworld_denizens.skaven_clanrat",
+     "name": "Skaven Clanrat",
+     "type": "positional",
+     "max": 3,
+     "cost": 50000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Animosity"
+     ],
+     "primaryCategories": [
+      "General",
+      "Mutation",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "underworld_denizens.skaven_thrower",
+     "name": "Skaven Thrower",
+     "type": "thrower",
+     "max": 1,
+     "cost": 80000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "2+",
+     "AV": "8+",
+     "skills": [
+      "Sure Hands",
+      "Pass",
+      "Animosity"
+     ],
+     "primaryCategories": [
+      "General",
+      "Passing",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "underworld_denizens.gutter_runner",
+     "name": "Gutter Runner",
+     "type": "runner",
+     "max": 1,
+     "cost": 85000,
+     "MA": 9,
+     "ST": 2,
+     "AG": "2+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Animosity",
+      "Stab"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility",
+      "Mutation",
+      "Devious"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "underworld_denizens.skaven_blitzer",
+     "name": "Skaven Blitzer",
+     "type": "blitzer",
+     "max": 1,
+     "cost": 90000,
+     "MA": 8,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Block",
+      "Strip Ball",
+      "Animosity"
+     ],
+     "primaryCategories": [
+      "General",
+      "Strength",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Devious"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "underworld_denizens.troll",
+     "name": "Troll",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 115000,
+     "MA": 4,
+     "ST": 5,
+     "AG": "5+",
+     "PA": "5+",
+     "AV": "10+",
+     "skills": [
+      "Mighty Blow",
+      "Always Hungry",
+      "Loner",
+      "Projectile Vomit",
+      "Really Stupid",
+      "Regeneration",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "underworld_denizens.rat_ogre",
+     "name": "Rat Ogre",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 150000,
+     "MA": 6,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "9+",
+     "skills": [
+      "Frenzy",
+      "Prehensile Tail",
+      "Mighty Blow",
+      "Animal Savagery",
+      "Loner"
+     ],
+     "primaryCategories": [
+      "Strength",
+      "Mutation"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "vampire",
+   "name": "Vampire",
+   "ruleset": "bb2025",
+   "tier": 2,
+   "specialRules": [
+    "Sylvanian Spotlight",
+    "Masters of Undeath"
+   ],
+   "reRollCost": 60000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "vampire.thrall_lineman",
+     "name": "Thrall Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 40000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "8+",
+     "skills": [],
+     "primaryCategories": [
+      "General"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "vampire.vampire_runner",
+     "name": "Vampire Runner",
+     "type": "runner",
+     "max": 2,
+     "cost": 100000,
+     "MA": 8,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "3+",
+     "AV": "8+",
+     "skills": [
+      "Hypnotic Gaze",
+      "Regeneration",
+      "Bloodlust"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Passing",
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "vampire.vampire_thrower",
+     "name": "Vampire Thrower",
+     "type": "thrower",
+     "max": 2,
+     "cost": 110000,
+     "MA": 6,
+     "ST": 4,
+     "AG": "2+",
+     "PA": "2+",
+     "AV": "9+",
+     "skills": [
+      "Pass",
+      "Hypnotic Gaze",
+      "Regeneration",
+      "Bloodlust"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "vampire.vampire_blitzer",
+     "name": "Vampire Blitzer",
+     "type": "blitzer",
+     "max": 2,
+     "cost": 110000,
+     "MA": 6,
+     "ST": 4,
+     "AG": "2+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Juggernaut",
+      "Hypnotic Gaze",
+      "Regeneration",
+      "Bloodlust"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility",
+      "Strength"
+     ],
+     "secondaryCategories": [],
+     "keywords": []
+    },
+    {
+     "id": "vampire.vargheist",
+     "name": "Vargheist",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 150000,
+     "MA": 5,
+     "ST": 5,
+     "AG": "4+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Frenzy",
+      "Claws",
+      "Loner",
+      "Regeneration",
+      "Bloodlust"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "General"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "wood_elf",
+   "name": "Wood Elf",
+   "ruleset": "bb2025",
+   "tier": 1,
+   "specialRules": [
+    "Elven Kingdoms League",
+    "Woodland League"
+   ],
+   "reRollCost": 50000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "wood_elf.wood_elf_lineman",
+     "name": "Wood Elf Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 65000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "3+",
+     "AV": "8+",
+     "skills": [],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "wood_elf.wood_elf_thrower",
+     "name": "Wood Elf Thrower",
+     "type": "thrower",
+     "max": 2,
+     "cost": 85000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "2+",
+     "AV": "8+",
+     "skills": [
+      "Safe Pair of Hands",
+      "Pass"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "secondaryCategories": [
+      "Strength"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "wood_elf.wood_elf_catcher",
+     "name": "Wood Elf Catcher",
+     "type": "catcher",
+     "max": 2,
+     "cost": 90000,
+     "MA": 8,
+     "ST": 2,
+     "AG": "2+",
+     "PA": "3+",
+     "AV": "8+",
+     "skills": [
+      "Catch",
+      "Dodge",
+      "Sprint"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "wood_elf.wardancer",
+     "name": "Wardancer",
+     "type": "positional",
+     "max": 2,
+     "cost": 130000,
+     "MA": 8,
+     "ST": 3,
+     "AG": "2+",
+     "PA": "3+",
+     "AV": "8+",
+     "skills": [
+      "Dodge",
+      "Leap",
+      "Block"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Passing"
+     ],
+     "keywords": []
+    },
+    {
+     "id": "wood_elf.loren_forest_treeman",
+     "name": "Loren Forest Treeman",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 120000,
+     "MA": 2,
+     "ST": 6,
+     "AG": "5+",
+     "PA": "5+",
+     "AV": "11+",
+     "skills": [
+      "Mighty Blow",
+      "Stand Firm",
+      "Strong Arm",
+      "Thick Skull",
+      "Loner",
+      "Take Root",
+      "Throw Team-mate"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility",
+      "Passing"
+     ],
+     "keywords": []
+    }
+   ],
+   "starPlayers": []
+  }
+ ]
+}

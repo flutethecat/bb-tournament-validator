@@ -25,13 +25,12 @@ export function validate(
 
   const datasetRoster = findRoster(data, roster.rosterName);
   if (!datasetRoster) {
-    // M1 is Amazon-only by design: unknown races fail gracefully and loudly,
-    // never with a misleading "valid" result (plan note under Phasing).
+    // Unknown races fail gracefully and loudly, never with a misleading "valid" result.
     findings.push(
       err(
         "dataset",
-        `The ${roster.rosterName} roster is not in the validator's dataset yet (M1 covers Amazon only).`,
-        { suggestion: "Supported rosters grow in M4; ask the TO or try an Amazon team." },
+        `The ${roster.rosterName} roster is not in the BB2025 dataset.`,
+        { suggestion: "Check the race name; the dataset covers the 30 BB2025 teams." },
       ),
     );
   }

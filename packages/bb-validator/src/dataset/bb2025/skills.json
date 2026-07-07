@@ -1,99 +1,605 @@
 {
-  "$schema": "../../schemas/skills.schema.json",
-  "_about": "BB2025 skill metadata used by the validator: category (for primary/secondary access checks) plus flags. 'elite' marks the rulebook-Elite skills (tagged ELITE in the BB2025 glossary); the tournament package's eliteSkills list defaults to these but is fully configurable. 'trait' skills are not normally selectable as skill choices. Descriptions live in fumbbl40k-client skillDescriptions.json and are joined at build time.",
-  "categories": ["General", "Agility", "Strength", "Passing", "Mutation"],
-  "skills": {
-    "Block":            { "category": "General", "elite": true },
-    "Dauntless":        { "category": "General" },
-    "Dirty Player":     { "category": "General" },
-    "Fend":             { "category": "General" },
-    "Frenzy":           { "category": "General" },
-    "Kick":             { "category": "General" },
-    "Pro":              { "category": "General" },
-    "Shadowing":        { "category": "General" },
-    "Strip Ball":       { "category": "General" },
-    "Sure Hands":       { "category": "General" },
-    "Tackle":           { "category": "General" },
-    "Wrestle":          { "category": "General" },
-
-    "Catch":            { "category": "Agility" },
-    "Defensive":        { "category": "Agility" },
-    "Diving Catch":     { "category": "Agility" },
-    "Diving Tackle":    { "category": "Agility" },
-    "Dodge":            { "category": "Agility", "elite": true },
-    "Jump Up":          { "category": "Agility" },
-    "Leap":             { "category": "Agility" },
-    "Safe Pair of Hands": { "category": "Agility" },
-    "Side Step":        { "category": "Agility" },
-    "Sneaky Git":       { "category": "Agility" },
-    "Sprint":           { "category": "Agility" },
-    "Sure Feet":        { "category": "Agility" },
-
-    "Accurate":         { "category": "Passing" },
-    "Cannoneer":        { "category": "Passing" },
-    "Cloud Burster":    { "category": "Passing" },
-    "Dump-Off":         { "category": "Passing" },
-    "Fumblerooskie":    { "category": "Passing" },
-    "Hail Mary Pass":   { "category": "Passing" },
-    "Leader":           { "category": "Passing" },
-    "Nerves of Steel":  { "category": "Passing" },
-    "On the Ball":      { "category": "Passing" },
-    "Pass":             { "category": "Passing" },
-    "Running Pass":     { "category": "Passing" },
-    "Safe Pass":        { "category": "Passing" },
-
-    "Arm Bar":          { "category": "Strength" },
-    "Brawler":          { "category": "Strength" },
-    "Break Tackle":     { "category": "Strength" },
-    "Grab":             { "category": "Strength" },
-    "Guard":            { "category": "Strength", "elite": true },
-    "Juggernaut":       { "category": "Strength" },
-    "Mighty Blow":      { "category": "Strength", "elite": true },
-    "Multiple Block":   { "category": "Strength" },
-    "Pile Driver":      { "category": "Strength" },
-    "Stand Firm":       { "category": "Strength" },
-    "Strong Arm":       { "category": "Strength" },
-    "Thick Skull":      { "category": "Strength" },
-
-    "Big Hand":         { "category": "Mutation" },
-    "Claws":            { "category": "Mutation" },
-    "Disturbing Presence": { "category": "Mutation" },
-    "Extra Arms":       { "category": "Mutation" },
-    "Foul Appearance":  { "category": "Mutation" },
-    "Horns":            { "category": "Mutation" },
-    "Iron Hard Skin":   { "category": "Mutation" },
-    "Monstrous Mouth":  { "category": "Mutation" },
-    "Prehensile Tail":  { "category": "Mutation" },
-    "Tentacles":        { "category": "Mutation" },
-    "Two Heads":        { "category": "Mutation" },
-    "Very Long Legs":   { "category": "Mutation" },
-
-    "Hit and Run":      { "category": "Agility", "_verify": true, "note": "New BB2025 skill; category unconfirmed. Appears as a base skill on Amazon Piranha Warriors so its category does not affect the M1 Amazon golden test." },
-
-    "Animal Savagery":  { "trait": true },
-    "Ball and Chain":   { "trait": true },
-    "Bombardier":       { "trait": true },
-    "Bone Head":        { "trait": true },
-    "Chainsaw":         { "trait": true },
-    "Decay":            { "trait": true },
-    "Hypnotic Gaze":    { "trait": true },
-    "Loner":            { "trait": true, "note": "Usually carries a value, e.g. Loner (4+)." },
-    "No Hands":         { "trait": true },
-    "Projectile Vomit": { "trait": true },
-    "Really Stupid":    { "trait": true },
-    "Regeneration":     { "trait": true },
-    "Right Stuff":      { "trait": true },
-    "Secret Weapon":    { "trait": true },
-    "Stab":             { "trait": true },
-    "Stakes":           { "trait": true },
-    "Stunty":           { "trait": true },
-    "Take Root":        { "trait": true },
-    "Throw Team-Mate":  { "trait": true },
-    "Titchy":           { "trait": true },
-    "Unchannelled Fury":{ "trait": true }
+ "_about": "BB2025 skill metadata: category (incl. Devious) from the fumbbl40k-server fork's bb2025 skill classes; elite defaults to {Block,Guard,Mighty Blow,Dodge}; traits not selectable.",
+ "categories": [
+  "General",
+  "Agility",
+  "Strength",
+  "Passing",
+  "Mutation",
+  "Devious"
+ ],
+ "skills": {
+  "A Sneaky Pair": {
+   "trait": true
   },
-  "_notes": [
-    "This is a curated starter set covering the standard BB2025 skill list. It should be reconciled against the full 104-entry fumbbl40k-client skillDescriptions.json and the BB2025 rulebook glossary before production.",
-    "The default Elite set requested by the owner is exactly { Block, Guard, Mighty Blow, Dodge } and is marked with elite:true here; packages may override the effective Elite set."
-  ]
+  "Accurate": {
+   "category": "Passing"
+  },
+  "All You Can Eat": {
+   "trait": true
+  },
+  "Always Hungry": {
+   "trait": true
+  },
+  "Animal Savagery": {
+   "trait": true
+  },
+  "Animosity": {
+   "trait": true
+  },
+  "Arm Bar": {
+   "category": "Strength"
+  },
+  "Baleful Hex": {
+   "trait": true
+  },
+  "Ball and Chain": {
+   "trait": true
+  },
+  "Beer Barrel Bash!": {
+   "trait": true
+  },
+  "Big Hand": {
+   "category": "Mutation"
+  },
+  "Black Ink": {
+   "trait": true
+  },
+  "Blast It!": {
+   "trait": true
+  },
+  "Blind Rage": {
+   "trait": true
+  },
+  "Block": {
+   "category": "General",
+   "elite": true
+  },
+  "Blood Lust": {
+   "trait": true
+  },
+  "Bloodlust": {
+   "trait": true
+  },
+  "Bombardier": {
+   "trait": true
+  },
+  "Bone Head": {
+   "trait": true
+  },
+  "Bone-Head": {
+   "trait": true
+  },
+  "Bounding Leap": {
+   "trait": true
+  },
+  "Brawler": {
+   "category": "Strength"
+  },
+  "Break Tackle": {
+   "category": "Strength"
+  },
+  "Breathe Fire": {
+   "trait": true
+  },
+  "Brutal Block": {
+   "trait": true
+  },
+  "Bugman's XXXXXX": {
+   "trait": true
+  },
+  "Bullseye": {
+   "category": "Strength"
+  },
+  "Burst of Speed": {
+   "trait": true
+  },
+  "Cannoneer": {
+   "category": "Passing"
+  },
+  "Catch": {
+   "category": "Agility"
+  },
+  "Catch of the Day": {
+   "trait": true
+  },
+  "Chainsaw": {
+   "trait": true
+  },
+  "Claw": {
+   "category": "Mutation"
+  },
+  "Claws": {
+   "category": "Mutation"
+  },
+  "Cloud Burster": {
+   "category": "Passing"
+  },
+  "Consummate Professional": {
+   "trait": true
+  },
+  "Crushing Blow": {
+   "trait": true
+  },
+  "Dauntless": {
+   "category": "General"
+  },
+  "Decay": {
+   "trait": true
+  },
+  "Defensive": {
+   "category": "Agility"
+  },
+  "Dirty Player": {
+   "category": "Devious"
+  },
+  "Disposable": {
+   "trait": true
+  },
+  "Disturbing Presence": {
+   "category": "Mutation"
+  },
+  "Diving Catch": {
+   "category": "Agility"
+  },
+  "Diving Tackle": {
+   "category": "Agility"
+  },
+  "Dodge": {
+   "category": "Agility",
+   "elite": true
+  },
+  "Drunkard": {
+   "trait": true
+  },
+  "Dump-Off": {
+   "category": "Passing"
+  },
+  "Dwarfen Grit": {
+   "trait": true
+  },
+  "Dwarfen Scourge": {
+   "trait": true
+  },
+  "Dwarven Scourge": {
+   "trait": true
+  },
+  "Extra Arms": {
+   "category": "Mutation"
+  },
+  "Eye Gouge": {
+   "category": "Devious"
+  },
+  "Fan Favourite": {
+   "trait": true
+  },
+  "Fend": {
+   "category": "General"
+  },
+  "Foul Appearance": {
+   "category": "Mutation"
+  },
+  "Frenzied Rush": {
+   "trait": true
+  },
+  "Frenzy": {
+   "category": "General"
+  },
+  "Fumblerooski": {
+   "category": "Devious"
+  },
+  "Fumblerooskie": {
+   "category": "Passing"
+  },
+  "Furious Outburst": {
+   "trait": true
+  },
+  "Fury of the Blood God": {
+   "trait": true
+  },
+  "Ghostly Flames": {
+   "trait": true
+  },
+  "Give and Go": {
+   "category": "Passing"
+  },
+  "Gored By The Bull": {
+   "trait": true
+  },
+  "Grab": {
+   "category": "Strength"
+  },
+  "Guard": {
+   "category": "Strength",
+   "elite": true
+  },
+  "Hail Mary Pass": {
+   "category": "Passing"
+  },
+  "Halfling Luck": {
+   "trait": true
+  },
+  "Hatred": {
+   "trait": true
+  },
+  "Hit And Run": {
+   "trait": true
+  },
+  "Horns": {
+   "category": "Mutation"
+  },
+  "Hypnotic Gaze": {
+   "trait": true
+  },
+  "I'll be back!": {
+   "trait": true
+  },
+  "Incorporeal": {
+   "trait": true
+  },
+  "Indomitable": {
+   "trait": true
+  },
+  "Insignificant": {
+   "trait": true
+  },
+  "Iron Hard Skin": {
+   "category": "Mutation"
+  },
+  "Juggernaut": {
+   "category": "Strength"
+  },
+  "Jump Up": {
+   "category": "Agility"
+  },
+  "Kaboom!": {
+   "trait": true
+  },
+  "Keen Player": {
+   "trait": true
+  },
+  "Kick": {
+   "category": "General"
+  },
+  "Kick 'em while they're down!": {
+   "trait": true
+  },
+  "Kick Team-Mate": {
+   "trait": true
+  },
+  "Kick-Off Return": {
+   "category": "General"
+  },
+  "Krump and Smash": {
+   "trait": true
+  },
+  "Leader": {
+   "category": "Passing"
+  },
+  "Leap": {
+   "category": "Agility"
+  },
+  "Lethal Flight": {
+   "category": "Devious"
+  },
+  "Lone Fouler": {
+   "category": "Devious"
+  },
+  "Loner": {
+   "trait": true
+  },
+  "Look Into My Eyes": {
+   "trait": true
+  },
+  "Lord of Chaos": {
+   "trait": true
+  },
+  "Master Assassin": {
+   "trait": true
+  },
+  "Maximum Carnage": {
+   "trait": true
+  },
+  "Mesmerising Dance": {
+   "trait": true
+  },
+  "Mesmerizing Dance": {
+   "trait": true
+  },
+  "Mighty Blow": {
+   "category": "Strength",
+   "elite": true
+  },
+  "Monstrous Mouth": {
+   "category": "Mutation"
+  },
+  "Multiple Block": {
+   "category": "Strength"
+  },
+  "My Ball": {
+   "trait": true
+  },
+  "Nerves of Steel": {
+   "category": "Passing"
+  },
+  "No Ball": {
+   "trait": true
+  },
+  "No Hands": {
+   "trait": true
+  },
+  "Nurgle's Rot": {
+   "trait": true
+  },
+  "Old Pro": {
+   "trait": true
+  },
+  "On The Ball": {
+   "category": "Passing"
+  },
+  "Pass": {
+   "category": "Passing"
+  },
+  "Pass Block": {
+   "category": "General"
+  },
+  "Pick-me-up": {
+   "trait": true
+  },
+  "Pile Driver": {
+   "category": "Devious"
+  },
+  "Piling On": {
+   "category": "Strength"
+  },
+  "Plague Ridden": {
+   "trait": true
+  },
+  "Pogo": {
+   "trait": true
+  },
+  "Pogo Stick": {
+   "trait": true
+  },
+  "Prehensile Tail": {
+   "category": "Mutation"
+  },
+  "Primal Savagery": {
+   "trait": true
+  },
+  "Pro": {
+   "category": "General"
+  },
+  "Projectile Vomit": {
+   "trait": true
+  },
+  "Pump Up The Crowd": {
+   "trait": true
+  },
+  "Punt": {
+   "category": "Passing"
+  },
+  "Put the Boot In": {
+   "category": "Devious"
+  },
+  "Putrid Regurgitation": {
+   "trait": true
+  },
+  "Quick Bite": {
+   "trait": true
+  },
+  "Quick Foul": {
+   "category": "Devious"
+  },
+  "Raiding Party": {
+   "trait": true
+  },
+  "Ram": {
+   "trait": true
+  },
+  "Really Stupid": {
+   "trait": true
+  },
+  "Regeneration": {
+   "trait": true
+  },
+  "Reliable": {
+   "trait": true
+  },
+  "Right Stuff": {
+   "trait": true
+  },
+  "Running Pass": {
+   "category": "Passing"
+  },
+  "Saboteur": {
+   "category": "Devious"
+  },
+  "Safe Pair Of Hands": {
+   "category": "Agility"
+  },
+  "Safe Pass": {
+   "category": "Passing"
+  },
+  "Safe Throw": {
+   "category": "Passing"
+  },
+  "Savage Blow": {
+   "trait": true
+  },
+  "Savage Mauling": {
+   "trait": true
+  },
+  "Secret Weapon": {
+   "trait": true
+  },
+  "Shadowing": {
+   "category": "Devious"
+  },
+  "Shot to Nothing": {
+   "trait": true
+  },
+  "Side Step": {
+   "category": "Agility"
+  },
+  "Sidestep": {
+   "category": "Agility"
+  },
+  "Slashing Nails": {
+   "trait": true
+  },
+  "Slayer": {
+   "trait": true
+  },
+  "Sneakiest of the Lot": {
+   "trait": true
+  },
+  "Sneaky Git": {
+   "category": "Devious"
+  },
+  "Sprint": {
+   "category": "Agility"
+  },
+  "Stab": {
+   "trait": true
+  },
+  "Stakes": {
+   "trait": true
+  },
+  "Stand Firm": {
+   "category": "Strength"
+  },
+  "Star of the Show": {
+   "trait": true
+  },
+  "Steady Footing": {
+   "trait": true
+  },
+  "Strip Ball": {
+   "category": "General"
+  },
+  "Strong Arm": {
+   "category": "Strength"
+  },
+  "Strong Passing Game": {
+   "trait": true
+  },
+  "Stunty": {
+   "trait": true
+  },
+  "Sure Feet": {
+   "category": "Agility"
+  },
+  "Sure Hands": {
+   "category": "General"
+  },
+  "Swarming": {
+   "trait": true
+  },
+  "Swift As The Breeze": {
+   "trait": true
+  },
+  "Swoop": {
+   "trait": true
+  },
+  "Tackle": {
+   "category": "General"
+  },
+  "Take Root": {
+   "trait": true
+  },
+  "Tasty Morsel": {
+   "trait": true
+  },
+  "Taunt": {
+   "category": "General"
+  },
+  "Team Captain": {
+   "trait": true
+  },
+  "Tentacles": {
+   "category": "Mutation"
+  },
+  "The Ballista": {
+   "trait": true
+  },
+  "The Flashing Blade": {
+   "trait": true
+  },
+  "Thick Skull": {
+   "category": "Strength"
+  },
+  "Thinking Man's Troll": {
+   "trait": true
+  },
+  "Throw Team-Mate": {
+   "trait": true
+  },
+  "Timmm-ber!": {
+   "trait": true
+  },
+  "Titchy": {
+   "trait": true
+  },
+  "Toxin Connoisseur": {
+   "trait": true
+  },
+  "Treacherous": {
+   "trait": true
+  },
+  "Trickster": {
+   "trait": true
+  },
+  "Two Heads": {
+   "category": "Mutation"
+  },
+  "Two for One": {
+   "trait": true
+  },
+  "Unchannelled Fury": {
+   "trait": true
+  },
+  "Unsteady": {
+   "trait": true
+  },
+  "Unstoppable Momentum": {
+   "trait": true
+  },
+  "Very Long Legs": {
+   "category": "Mutation"
+  },
+  "Vicious Vines": {
+   "trait": true
+  },
+  "Violent Innovator": {
+   "category": "Devious"
+  },
+  "Watch Out!": {
+   "trait": true
+  },
+  "Weeping Dagger": {
+   "trait": true
+  },
+  "Whirling Dervish": {
+   "trait": true
+  },
+  "Wild Animal": {
+   "trait": true
+  },
+  "Wisdom of the White Dwarf": {
+   "trait": true
+  },
+  "Woodland Fury": {
+   "trait": true
+  },
+  "Working in Tandem": {
+   "trait": true
+  },
+  "Wrestle": {
+   "category": "General"
+  },
+  "Yoink!": {
+   "trait": true
+  }
+ }
 }

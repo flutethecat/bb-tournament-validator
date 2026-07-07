@@ -125,7 +125,6 @@ internal math is fully consistent and pins the Amazon dataset:
 - **Ingestion:** PDF/text first; OCR later; BB3 JSON/screenshots on the roadmap (M6).
 - **TO packages:** JSON/YAML canonical, plus rules-document + CSV ingestion.
 - **Skill costing:** configurable **Skill Points** (see `docs/tournament-package.md`).
-- **Dataset:** reuse `fumbbl40k-server` roster XML shape, reconcile values to BB2025 (the shipped
-  XMLs are mostly legacy LRB6). M1 = Amazon only.
+- **Dataset:** all 30 BB2025 teams, generated from FUMBBL ruleset 3906 (`packages/bb-validator/scripts/generate_dataset.py`); skill categories (incl. Devious) from the fumbbl40k-server fork.
 - **On success the bot:** ✅-reacts, DMs the coach, records them to a validated-roster CSV, and can
   emit a `/report` linking each validated coach to their post.

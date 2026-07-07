@@ -40,13 +40,16 @@ describe("Amazon dataset gate (example PDFs are ground truth)", () => {
   });
 
   it("positional quantity limits match BB2025 Amazon (16/2/2/2)", () => {
-    const byName = Object.fromEntries(amazon!.positions.map((p) => [p.name, p.max]));
-    expect(byName).toEqual({
-      "Eagle Warrior": 16,
-      "Python Warrior": 2,
-      "Piranha Warrior": 2,
-      "Jaguar Warrior": 2,
-    });
+    const limits: [string, number][] = [
+      ["Eagle Warrior", 16],
+      ["Python Warrior", 2],
+      ["Piranha Warrior", 2],
+      ["Jaguar Warrior", 2],
+    ];
+    for (const [name, max] of limits) {
+      expect(findPosition(amazon!, name), name).toBeDefined();
+      expect(findPosition(amazon!, name)!.max, name).toBe(max);
+    }
   });
 
   it("sideline math reproduces the PDF: 3 re-rolls x 60k + apothecary 50k = 230k", () => {

@@ -27,6 +27,15 @@ export function findPosition(roster: DatasetRoster, positionName: string): Datas
     if (normName(p.name) === want) return p;
     if (p.aliases?.some((a) => normName(a) === want)) return p;
   }
+  // Fallback: tolerate role-suffix variance within a roster, e.g. a sheet's
+  // "Jaguar Warrior" vs the dataset's "Jaguar Warrior Blocker". Scoped to one
+  // roster's positions, so collisions are unlikely; require a substantial match.
+  if (want.length >= 4) {
+    for (const p of roster.positions) {
+      const n = normName(p.name);
+      if (n.includes(want) || want.includes(n)) return p;
+    }
+  }
   return undefined;
 }
 

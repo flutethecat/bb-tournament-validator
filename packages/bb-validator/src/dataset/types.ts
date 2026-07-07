@@ -5,7 +5,7 @@
 
 import type { Target } from "../model/roster";
 
-export type SkillCategory = "General" | "Agility" | "Strength" | "Passing" | "Mutation";
+export type SkillCategory = "General" | "Agility" | "Strength" | "Passing" | "Mutation" | "Devious";
 
 export interface DatasetPosition {
   id: string;

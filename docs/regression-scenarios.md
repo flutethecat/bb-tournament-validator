@@ -24,9 +24,10 @@ Amazon roster** (`fixtures/amazon-example.roster.json`) — i.e. production data
 | R4 | Team-rule gold overrides the flat `goldBudget` (precedence team > flat) | resolves to team gold; **valid** |
 | R5 | Secondary Swap feasibility on real positions (2 secondaries vs 4-primary allotment) | **fits with swap**, **fails without** |
 | R6 | Global banned star on the roster | banned-star error; **star is NOT mis-flagged as an unknown position** |
-| R7 | Unknown race (Orc) against the M1 Amazon-only dataset | graceful `dataset` error, `valid:false` |
+| R7 | Unknown race (Slann, absent from ruleset 3906) | graceful `dataset` error, `valid:false` |
 | R8 | `renderPackageHtml` + `renderArtPrompt` for all four modes (flat / tiers / matrix / team-rules) | standalone HTML + prompt, both mention the teams |
 | R9 | `loadPackage` normalizes a partial package (defaults filled, overrides kept) | budget/surcharge kept, defaults applied |
+| R10 | Dataset breadth: all 30 teams resolve; Devious skill legal where a position has Devious access; Mutation skill illegal without access | breadth + category access correct |
 
 ## Covered by focused suites (also regression-relevant)
 

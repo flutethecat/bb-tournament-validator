@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  findRoster,
   loadPackage,
   renderArtPrompt,
   renderPackageHtml,
@@ -128,9 +129,9 @@ describe("R6 — global banned star is caught (and stars aren't mis-flagged as b
   });
 });
 
-describe("R7 — unknown race fails gracefully (M1 Amazon-only dataset)", () => {
-  it("errors clearly instead of validating a race we have no data for", () => {
-    const r = validate({ ...amazon(), rosterName: "Orc" }, load({ name: "R7", eligibleRosters: ["*"], skillAllotment: { skillPointBudget: 10 } }), bb2025);
+describe("R7 — unknown race fails gracefully", () => {
+  it("errors clearly for a race not in the dataset (Slann is not in ruleset 3906)", () => {
+    const r = validate({ ...amazon(), rosterName: "Slann" }, load({ name: "R7", eligibleRosters: ["*"], skillAllotment: { skillPointBudget: 10 } }), bb2025);
     expect(r.valid).toBe(false);
     expect(r.errors.some((e) => e.ruleId === "dataset")).toBe(true);
   });
@@ -152,6 +153,32 @@ describe("R8 — renderers work for every config mode", () => {
     const p = renderArtPrompt(load({ name: `Mode ${_m}`, ...extra }));
     expect(p).toContain("Amazon");
     expect(p).toMatch(/BLOOD BOWL/i);
+  });
+});
+
+describe("R10 — dataset breadth: all 30 BB2025 teams + Devious access", () => {
+  const orcLine = (n: number, extra: string[] = []): RosterPlayer => ({
+    number: n, positionName: "Orc Lineman", MA: 5, ST: 3, AG: "3+", PA: "4+", AV: "9+", skills: extra, keywords: ["Orc", "Lineman"], cost: 50000,
+  });
+  const orcTeam = (extra0: string[]) => ({
+    ...amazon(), rosterName: "Orc",
+    players: Array.from({ length: 11 }, (_, i) => orcLine(i + 1, i === 0 ? extra0 : [])),
+  });
+
+  it("has all 30 teams and resolves several non-Amazon races", () => {
+    expect(Object.values(bb2025.rosters).length).toBeGreaterThanOrEqual(30);
+    for (const t of ["Orc", "Dwarf", "Lizardmen", "Skaven", "Nurgle", "Chaos Chosen", "Wood Elf"])
+      expect(findRoster(bb2025, t), t).toBeDefined();
+  });
+
+  it("a Devious skill is legal where the position has Devious access (Orc Lineman)", () => {
+    const pkg = load({ name: "R10a", eligibleRosters: ["Orc"], skillAllotment: { skillPointBudget: 5 } });
+    expect(errs(validate(orcTeam(["Dirty Player"]), pkg, bb2025), "skill-access")).toHaveLength(0);
+  });
+
+  it("a Mutation skill is illegal on an Orc Lineman (no Mutation access)", () => {
+    const pkg = load({ name: "R10b", eligibleRosters: ["Orc"], skillAllotment: { skillPointBudget: 5 } });
+    expect(errs(validate(orcTeam(["Claw"]), pkg, bb2025), "skill-access")[0]!.message).toMatch(/Claw/);
   });
 });
 

@@ -232,6 +232,6 @@ describe("unknown race (M1 graceful fail)", () => {
   it("errors clearly instead of validating misleadingly", () => {
     const r = validate(roster({ rosterName: "Orc" }), pkg({ eligibleRosters: ["*"] }), fakeData);
     expect(r.valid).toBe(false);
-    expect(r.errors.some((f) => f.ruleId === "dataset" && /not in the validator's dataset/.test(f.message))).toBe(true);
+    expect(r.errors.some((f) => f.ruleId === "dataset" && /not in the BB2025 dataset/.test(f.message))).toBe(true);
   });
 });
