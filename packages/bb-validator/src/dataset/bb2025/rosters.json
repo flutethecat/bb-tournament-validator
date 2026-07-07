@@ -35,7 +35,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman"
+     ]
     },
     {
      "id": "amazon.python_warrior",
@@ -62,7 +65,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Thrower"
+     ]
     },
     {
      "id": "amazon.piranha_warrior",
@@ -87,7 +93,10 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Human"
+     ]
     },
     {
      "id": "amazon.jaguar_warrior_blocker",
@@ -111,7 +120,10 @@
      "secondaryCategories": [
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Human"
+     ]
     }
    ],
    "starPlayers": []
@@ -157,7 +169,10 @@
       "Strength",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Goblin",
+      "Lineman"
+     ]
     },
     {
      "id": "black_orc.black_orc",
@@ -182,7 +197,10 @@
       "Agility",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Orc"
+     ]
     },
     {
      "id": "black_orc.trained_troll",
@@ -211,7 +229,10 @@
       "Agility",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Troll"
+     ]
     }
    ],
    "starPlayers": []
@@ -250,7 +271,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman"
+     ]
     },
     {
      "id": "bretonnian.bretonnian_knight_catcher",
@@ -275,7 +299,10 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Catcher",
+      "Human"
+     ]
     },
     {
      "id": "bretonnian.bretonnian_knight_thrower",
@@ -301,7 +328,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Thrower"
+     ]
     },
     {
      "id": "bretonnian.grail_knight",
@@ -326,7 +356,10 @@
      "secondaryCategories": [
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Human"
+     ]
     }
    ],
    "starPlayers": []
@@ -370,7 +403,10 @@
       "Passing",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Beastman",
+      "Lineman"
+     ]
     },
     {
      "id": "chaos_chosen.chaos_chosen",
@@ -395,7 +431,10 @@
       "Agility",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Human"
+     ]
     },
     {
      "id": "chaos_chosen.chaos_troll",
@@ -426,7 +465,10 @@
       "Agility",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Troll"
+     ]
     },
     {
      "id": "chaos_chosen.ogre",
@@ -454,7 +496,10 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Ogre"
+     ]
     },
     {
      "id": "chaos_chosen.minotaur",
@@ -483,7 +528,10 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Minotaur"
+     ]
     }
    ],
    "starPlayers": []
@@ -523,7 +571,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Goblin",
+      "Lineman"
+     ]
     },
     {
      "id": "chaos_dwarf.chaos_dwarf_blocker",
@@ -550,7 +601,10 @@
       "Devious",
       "Mutation"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Dwarf"
+     ]
     },
     {
      "id": "chaos_dwarf.bull_centaur_blitzer",
@@ -578,7 +632,10 @@
       "Devious",
       "Mutation"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Dwarf"
+     ]
     },
     {
      "id": "chaos_dwarf.minotaur",
@@ -607,7 +664,10 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Minotaur"
+     ]
     },
     {
      "id": "chaos_dwarf.sneaky_stabba",
@@ -632,7 +692,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Goblin",
+      "Special"
+     ]
     },
     {
      "id": "chaos_dwarf.flamesmith",
@@ -660,7 +723,10 @@
       "Devious",
       "Mutation"
      ],
-     "keywords": []
+     "keywords": [
+      "Dwarf",
+      "Special"
+     ]
     }
    ],
    "starPlayers": []
@@ -702,7 +768,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman"
+     ]
     },
     {
      "id": "chaos_renegade.renegade_human_thrower",
@@ -730,7 +799,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Thrower"
+     ]
     },
     {
      "id": "chaos_renegade.renegade_goblin",
@@ -758,7 +830,10 @@
       "General",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Goblin",
+      "Lineman"
+     ]
     },
     {
      "id": "chaos_renegade.renegade_orc",
@@ -783,7 +858,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Lineman",
+      "Orc"
+     ]
     },
     {
      "id": "chaos_renegade.renegade_skaven",
@@ -808,7 +886,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Lineman",
+      "Skaven"
+     ]
     },
     {
      "id": "chaos_renegade.renegade_dark_elf",
@@ -833,7 +914,10 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Elf",
+      "Lineman"
+     ]
     },
     {
      "id": "chaos_renegade.troll",
@@ -864,7 +948,10 @@
       "Passing",
       "Mutation"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Troll"
+     ]
     },
     {
      "id": "chaos_renegade.ogre",
@@ -892,7 +979,10 @@
       "Agility",
       "Mutation"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Ogre"
+     ]
     },
     {
      "id": "chaos_renegade.minotaur",
@@ -921,7 +1011,10 @@
       "Agility",
       "Mutation"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Minotaur"
+     ]
     },
     {
      "id": "chaos_renegade.rat_ogre",
@@ -949,7 +1042,10 @@
       "Agility",
       "Mutation"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Skaven"
+     ]
     }
    ],
    "starPlayers": []
@@ -987,7 +1083,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Elf",
+      "Lineman"
+     ]
     },
     {
      "id": "dark_elf.dark_elf_runner",
@@ -1013,7 +1112,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Elf",
+      "Runner"
+     ]
     },
     {
      "id": "dark_elf.dark_elf_blitzer",
@@ -1038,7 +1140,10 @@
       "Passing",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Elf"
+     ]
     },
     {
      "id": "dark_elf.dark_elf_assassin",
@@ -1064,7 +1169,10 @@
       "General",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Elf",
+      "Special"
+     ]
     },
     {
      "id": "dark_elf.witch_elf",
@@ -1090,7 +1198,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Elf",
+      "Special"
+     ]
     }
    ],
    "starPlayers": []
@@ -1133,7 +1244,10 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Dwarf",
+      "Lineman"
+     ]
     },
     {
      "id": "dwarf.dwarf_runner",
@@ -1159,7 +1273,10 @@
       "Strength",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Dwarf",
+      "Runner"
+     ]
     },
     {
      "id": "dwarf.dwarf_blitzer",
@@ -1185,7 +1302,10 @@
      "secondaryCategories": [
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Dwarf"
+     ]
     },
     {
      "id": "dwarf.troll_slayer",
@@ -1212,7 +1332,10 @@
      "secondaryCategories": [
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Dwarf",
+      "Special"
+     ]
     },
     {
      "id": "dwarf.deathroller",
@@ -1242,7 +1365,11 @@
      "secondaryCategories": [
       "General"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Dwarf",
+      "Special"
+     ]
     }
    ],
    "starPlayers": []
@@ -1281,7 +1408,10 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Elf",
+      "Lineman"
+     ]
     },
     {
      "id": "elven_union.elf_thrower",
@@ -1306,7 +1436,10 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Elf",
+      "Thrower"
+     ]
     },
     {
      "id": "elven_union.elf_catcher",
@@ -1331,7 +1464,10 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Catcher",
+      "Elf"
+     ]
     },
     {
      "id": "elven_union.elf_blitzer",
@@ -1356,7 +1492,10 @@
       "Strength",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Elf"
+     ]
     }
    ],
    "starPlayers": []
@@ -1403,7 +1542,10 @@
       "Agility",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Treeman"
+     ]
     },
     {
      "id": "gnome.gnome_beastmaster",
@@ -1430,7 +1572,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Gnome"
+     ]
     },
     {
      "id": "gnome.gnome_illusionist",
@@ -1457,7 +1602,10 @@
       "General",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Gnome",
+      "Special"
+     ]
     },
     {
      "id": "gnome.woodland_fox",
@@ -1480,7 +1628,10 @@
      "secondaryCategories": [
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Animal",
+      "Runner"
+     ]
     },
     {
      "id": "gnome.gnome_lineman",
@@ -1507,7 +1658,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Gnome",
+      "Lineman"
+     ]
     }
    ],
    "starPlayers": []
@@ -1552,7 +1706,10 @@
       "Strength",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Goblin",
+      "Lineman"
+     ]
     },
     {
      "id": "goblin.bomma",
@@ -1580,7 +1737,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Goblin",
+      "Special"
+     ]
     },
     {
      "id": "goblin.looney",
@@ -1607,7 +1767,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Goblin",
+      "Special"
+     ]
     },
     {
      "id": "goblin.pogoer",
@@ -1633,7 +1796,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Goblin",
+      "Special"
+     ]
     },
     {
      "id": "goblin.ooligan",
@@ -1662,7 +1828,10 @@
       "General",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Goblin",
+      "Special"
+     ]
     },
     {
      "id": "goblin.doom_diver",
@@ -1689,7 +1858,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Goblin",
+      "Special"
+     ]
     },
     {
      "id": "goblin.trained_troll",
@@ -1718,7 +1890,10 @@
       "Agility",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Troll"
+     ]
     },
     {
      "id": "goblin.fanatic",
@@ -1745,7 +1920,10 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Goblin",
+      "Special"
+     ]
     }
    ],
    "starPlayers": []
@@ -1788,7 +1966,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Halfling",
+      "Lineman"
+     ]
     },
     {
      "id": "halfling.halfling_hefty",
@@ -1815,7 +1996,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Halfling"
+     ]
     },
     {
      "id": "halfling.halfling_catcher",
@@ -1843,7 +2027,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Catcher",
+      "Halfling"
+     ]
     },
     {
      "id": "halfling.altern_forest_treeman",
@@ -1873,7 +2060,10 @@
       "Agility",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Treeman"
+     ]
     }
    ],
    "starPlayers": []
@@ -1910,7 +2100,10 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Elf",
+      "Lineman"
+     ]
     },
     {
      "id": "high_elf.phoenix_warrior",
@@ -1936,7 +2129,10 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Elf",
+      "Thrower"
+     ]
     },
     {
      "id": "high_elf.white_lion",
@@ -1961,7 +2157,10 @@
       "Strength",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Elf"
+     ]
     },
     {
      "id": "high_elf.dragon_prince",
@@ -1986,7 +2185,11 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Elf",
+      "Runner"
+     ]
     }
    ],
    "starPlayers": []
@@ -2025,7 +2228,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman"
+     ]
     },
     {
      "id": "human.human_thrower",
@@ -2051,7 +2257,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Thrower"
+     ]
     },
     {
      "id": "human.human_catcher",
@@ -2077,7 +2286,10 @@
       "Passing",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Catcher",
+      "Human"
+     ]
     },
     {
      "id": "human.human_blitzer",
@@ -2102,7 +2314,10 @@
       "Agility",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Human"
+     ]
     },
     {
      "id": "human.halfling_hopeful",
@@ -2128,7 +2343,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Halfling",
+      "Lineman"
+     ]
     },
     {
      "id": "human.ogre",
@@ -2155,7 +2373,10 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Ogre"
+     ]
     }
    ],
    "starPlayers": []
@@ -2194,7 +2415,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman"
+     ]
     },
     {
      "id": "imperial_nobility.imperial_thrower",
@@ -2220,7 +2444,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Thrower"
+     ]
     },
     {
      "id": "imperial_nobility.noble_blitzer",
@@ -2246,7 +2473,10 @@
       "Strength",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Human"
+     ]
     },
     {
      "id": "imperial_nobility.bodyguard",
@@ -2270,7 +2500,10 @@
      "secondaryCategories": [
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Human"
+     ]
     },
     {
      "id": "imperial_nobility.ogre",
@@ -2297,7 +2530,10 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Ogre"
+     ]
     }
    ],
    "starPlayers": []
@@ -2340,7 +2576,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman"
+     ]
     },
     {
      "id": "khorne.khorngor",
@@ -2369,7 +2608,10 @@
       "Passing",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Beastman",
+      "Runner"
+     ]
     },
     {
      "id": "khorne.bloodseeker",
@@ -2394,7 +2636,10 @@
       "Agility",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Human"
+     ]
     },
     {
      "id": "khorne.bloodspawn",
@@ -2422,7 +2667,10 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Spawn"
+     ]
     }
    ],
    "starPlayers": []
@@ -2464,7 +2712,10 @@
       "Passing",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Lineman",
+      "Lizardman"
+     ]
     },
     {
      "id": "lizardmen.chameleon_skink",
@@ -2492,7 +2743,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Lizardman",
+      "Thrower"
+     ]
     },
     {
      "id": "lizardmen.saurus_blocker",
@@ -2516,7 +2770,10 @@
      "secondaryCategories": [
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Lizardman"
+     ]
     },
     {
      "id": "lizardmen.kroxigor",
@@ -2543,7 +2800,10 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Lizardman"
+     ]
     }
    ],
    "starPlayers": []
@@ -2586,7 +2846,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman"
+     ]
     },
     {
      "id": "necromantic_horror.ghoul_runner",
@@ -2612,7 +2875,11 @@
       "Passing",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Ghoul",
+      "Runner",
+      "Undead"
+     ]
     },
     {
      "id": "necromantic_horror.wraith",
@@ -2639,7 +2906,11 @@
      "secondaryCategories": [
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Undead",
+      "Wraith"
+     ]
     },
     {
      "id": "necromantic_horror.werewolf",
@@ -2666,7 +2937,11 @@
       "Passing",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Undead",
+      "Werewolf"
+     ]
     },
     {
      "id": "necromantic_horror.flesh_golem",
@@ -2693,7 +2968,11 @@
       "Agility",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Construct",
+      "Undead"
+     ]
     }
    ],
    "starPlayers": []
@@ -2738,7 +3017,10 @@
       "Strength",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman"
+     ]
     },
     {
      "id": "norse.norse_berserker",
@@ -2764,7 +3046,10 @@
       "Agility",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Human"
+     ]
     },
     {
      "id": "norse.ulfwerener",
@@ -2788,7 +3073,10 @@
      "secondaryCategories": [
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Human"
+     ]
     },
     {
      "id": "norse.yhetee",
@@ -2815,7 +3103,10 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Yhetee"
+     ]
     },
     {
      "id": "norse.beer_boar",
@@ -2839,7 +3130,10 @@
      "secondaryCategories": [
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Animal",
+      "Special"
+     ]
     },
     {
      "id": "norse.valkyrie",
@@ -2866,7 +3160,11 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Catcher",
+      "Human",
+      "Thrower"
+     ]
     }
    ],
    "starPlayers": []
@@ -2910,7 +3208,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman"
+     ]
     },
     {
      "id": "nurgle.pestigor",
@@ -2940,7 +3241,10 @@
       "Passing",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Beastman",
+      "Runner"
+     ]
     },
     {
      "id": "nurgle.bloater",
@@ -2970,7 +3274,10 @@
       "Agility",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Human"
+     ]
     },
     {
      "id": "nurgle.rotspawn",
@@ -3002,7 +3309,10 @@
       "Mutation",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Spawn"
+     ]
     }
    ],
    "starPlayers": []
@@ -3048,7 +3358,10 @@
      "secondaryCategories": [
       "General"
      ],
-     "keywords": []
+     "keywords": [
+      "Gnoblar",
+      "Lineman"
+     ]
     },
     {
      "id": "ogre.ogre_runt_punter",
@@ -3076,7 +3389,11 @@
       "Agility",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Ogre",
+      "Thrower"
+     ]
     },
     {
      "id": "ogre.ogre_blocker",
@@ -3104,7 +3421,11 @@
       "Passing",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Blocker",
+      "Ogre"
+     ]
     }
    ],
    "starPlayers": []
@@ -3141,7 +3462,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman"
+     ]
     },
     {
      "id": "old_world_alliance.human_thrower",
@@ -3166,7 +3490,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Thrower"
+     ]
     },
     {
      "id": "old_world_alliance.human_catcher",
@@ -3191,7 +3518,10 @@
       "Strength",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Catcher",
+      "Human"
+     ]
     },
     {
      "id": "old_world_alliance.human_blitzer",
@@ -3215,7 +3545,10 @@
      "secondaryCategories": [
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Human"
+     ]
     },
     {
      "id": "old_world_alliance.dwarf_lineman",
@@ -3240,7 +3573,10 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Dwarf",
+      "Lineman"
+     ]
     },
     {
      "id": "old_world_alliance.dwarf_runner",
@@ -3266,7 +3602,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Dwarf",
+      "Runner"
+     ]
     },
     {
      "id": "old_world_alliance.dwarf_blitzer",
@@ -3292,7 +3631,10 @@
      "secondaryCategories": [
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Dwarf"
+     ]
     },
     {
      "id": "old_world_alliance.troll_slayer",
@@ -3319,7 +3661,10 @@
      "secondaryCategories": [
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Dwarf",
+      "Special"
+     ]
     },
     {
      "id": "old_world_alliance.halfling_hopeful",
@@ -3344,7 +3689,10 @@
       "General",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Halfling",
+      "Lineman"
+     ]
     },
     {
      "id": "old_world_alliance.ogre",
@@ -3371,7 +3719,10 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Ogre"
+     ]
     },
     {
      "id": "old_world_alliance.altern_forest_treeman",
@@ -3402,7 +3753,10 @@
       "Agility",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Treeman"
+     ]
     }
    ],
    "starPlayers": []
@@ -3442,7 +3796,10 @@
       "Agility",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Lineman",
+      "Orc"
+     ]
     },
     {
      "id": "orc.orc_thrower",
@@ -3468,7 +3825,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Orc",
+      "Thrower"
+     ]
     },
     {
      "id": "orc.orc_blitzer",
@@ -3493,7 +3853,10 @@
       "Agility",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Orc"
+     ]
     },
     {
      "id": "orc.big_un_blocker",
@@ -3520,7 +3883,10 @@
       "Agility",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blocker",
+      "Orc"
+     ]
     },
     {
      "id": "orc.goblin_lineman",
@@ -3547,7 +3913,10 @@
       "Strength",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Goblin",
+      "Lineman"
+     ]
     },
     {
      "id": "orc.troll",
@@ -3577,7 +3946,10 @@
       "Agility",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Troll"
+     ]
     }
    ],
    "starPlayers": []
@@ -3619,7 +3991,12 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman",
+      "Skeleton",
+      "Undead"
+     ]
     },
     {
      "id": "shambling_undead.zombie_lineman",
@@ -3645,7 +4022,12 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman",
+      "Undead",
+      "Zombie"
+     ]
     },
     {
      "id": "shambling_undead.ghoul_runner",
@@ -3671,7 +4053,11 @@
       "Passing",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Ghoul",
+      "Runner",
+      "Undead"
+     ]
     },
     {
      "id": "shambling_undead.wight_blitzer",
@@ -3698,7 +4084,12 @@
       "Agility",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Human",
+      "Skeleton",
+      "Undead"
+     ]
     },
     {
      "id": "shambling_undead.mummy",
@@ -3722,7 +4113,12 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Blocker",
+      "Human",
+      "Undead"
+     ]
     }
    ],
    "starPlayers": []
@@ -3761,7 +4157,10 @@
       "Strength",
       "Mutation"
      ],
-     "keywords": []
+     "keywords": [
+      "Lineman",
+      "Skaven"
+     ]
     },
     {
      "id": "skaven.skaven_thrower",
@@ -3788,7 +4187,10 @@
       "Mutation",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Skaven",
+      "Thrower"
+     ]
     },
     {
      "id": "skaven.gutter_runner",
@@ -3814,7 +4216,10 @@
       "Strength",
       "Mutation"
      ],
-     "keywords": []
+     "keywords": [
+      "Runner",
+      "Skaven"
+     ]
     },
     {
      "id": "skaven.blitzer",
@@ -3840,7 +4245,10 @@
       "Mutation",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Skaven"
+     ]
     },
     {
      "id": "skaven.rat_ogre",
@@ -3868,7 +4276,10 @@
       "Agility",
       "Mutation"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Skaven"
+     ]
     }
    ],
    "starPlayers": []
@@ -3915,7 +4326,10 @@
      "secondaryCategories": [
       "General"
      ],
-     "keywords": []
+     "keywords": [
+      "Lineman",
+      "Snotling"
+     ]
     },
     {
      "id": "snotling.fungus_flinga",
@@ -3945,7 +4359,10 @@
      "secondaryCategories": [
       "General"
      ],
-     "keywords": []
+     "keywords": [
+      "Snotling",
+      "Special"
+     ]
     },
     {
      "id": "snotling.fun_hoppa",
@@ -3972,7 +4389,10 @@
      "secondaryCategories": [
       "General"
      ],
-     "keywords": []
+     "keywords": [
+      "Snotling",
+      "Special"
+     ]
     },
     {
      "id": "snotling.stilty_runna",
@@ -3999,7 +4419,10 @@
      "secondaryCategories": [
       "General"
      ],
-     "keywords": []
+     "keywords": [
+      "Runner",
+      "Snotling"
+     ]
     },
     {
      "id": "snotling.pump_wagon",
@@ -4027,7 +4450,11 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Snotling",
+      "Special"
+     ]
     },
     {
      "id": "snotling.trained_troll",
@@ -4056,7 +4483,10 @@
       "Agility",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Troll"
+     ]
     }
    ],
    "starPlayers": []
@@ -4098,7 +4528,12 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman",
+      "Skeleton",
+      "Undead"
+     ]
     },
     {
      "id": "tomb_kings.tomb_kings_thrower",
@@ -4126,7 +4561,12 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Skeleton",
+      "Thrower",
+      "Undead"
+     ]
     },
     {
      "id": "tomb_kings.tomb_kings_blitzer",
@@ -4152,7 +4592,12 @@
       "Agility",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Human",
+      "Skeleton",
+      "Undead"
+     ]
     },
     {
      "id": "tomb_kings.tomb_guardian",
@@ -4177,7 +4622,12 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Blocker",
+      "Human",
+      "Undead"
+     ]
     }
    ],
    "starPlayers": []
@@ -4222,7 +4672,10 @@
       "Strength",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Goblin",
+      "Lineman"
+     ]
     },
     {
      "id": "underworld_denizens.snotling_lineman",
@@ -4251,7 +4704,10 @@
      "secondaryCategories": [
       "General"
      ],
-     "keywords": []
+     "keywords": [
+      "Lineman",
+      "Snotling"
+     ]
     },
     {
      "id": "underworld_denizens.skaven_clanrat",
@@ -4276,7 +4732,10 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Lineman",
+      "Skaven"
+     ]
     },
     {
      "id": "underworld_denizens.skaven_thrower",
@@ -4304,7 +4763,10 @@
       "Strength",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Skaven",
+      "Thrower"
+     ]
     },
     {
      "id": "underworld_denizens.gutter_runner",
@@ -4331,7 +4793,10 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Runner",
+      "Skaven"
+     ]
     },
     {
      "id": "underworld_denizens.skaven_blitzer",
@@ -4358,7 +4823,10 @@
       "Agility",
       "Devious"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Skaven"
+     ]
     },
     {
      "id": "underworld_denizens.troll",
@@ -4389,7 +4857,10 @@
       "Agility",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Troll"
+     ]
     },
     {
      "id": "underworld_denizens.rat_ogre",
@@ -4417,7 +4888,10 @@
       "General",
       "Agility"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Skaven"
+     ]
     }
    ],
    "starPlayers": []
@@ -4455,7 +4929,11 @@
       "Agility",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Human",
+      "Lineman",
+      "Thrall"
+     ]
     },
     {
      "id": "vampire.vampire_runner",
@@ -4481,7 +4959,11 @@
       "Passing",
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Runner",
+      "Undead",
+      "Vampire"
+     ]
     },
     {
      "id": "vampire.vampire_thrower",
@@ -4508,7 +4990,11 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Thrower",
+      "Undead",
+      "Vampire"
+     ]
     },
     {
      "id": "vampire.vampire_blitzer",
@@ -4533,7 +5019,11 @@
       "Strength"
      ],
      "secondaryCategories": [],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Undead",
+      "Vampire"
+     ]
     },
     {
      "id": "vampire.vargheist",
@@ -4560,7 +5050,11 @@
       "Agility",
       "General"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Undead",
+      "Vampire"
+     ]
     }
    ],
    "starPlayers": []
@@ -4598,7 +5092,10 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Elf",
+      "Lineman"
+     ]
     },
     {
      "id": "wood_elf.wood_elf_thrower",
@@ -4623,7 +5120,10 @@
      "secondaryCategories": [
       "Strength"
      ],
-     "keywords": []
+     "keywords": [
+      "Elf",
+      "Thrower"
+     ]
     },
     {
      "id": "wood_elf.wood_elf_catcher",
@@ -4649,7 +5149,10 @@
       "Strength",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Catcher",
+      "Elf"
+     ]
     },
     {
      "id": "wood_elf.wardancer",
@@ -4675,7 +5178,10 @@
       "Strength",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Blitzer",
+      "Elf"
+     ]
     },
     {
      "id": "wood_elf.loren_forest_treeman",
@@ -4705,7 +5211,10 @@
       "Agility",
       "Passing"
      ],
-     "keywords": []
+     "keywords": [
+      "Big Guy",
+      "Treeman"
+     ]
     }
    ],
    "starPlayers": []

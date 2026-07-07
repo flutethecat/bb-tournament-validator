@@ -1,8 +1,8 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-06 · HEAD `186a8aa` (star eligibility; this doc commit sits just above it) ·
-**130 tests green, all packages typecheck + build.**
+Last updated 2026-07-06 · HEAD = position-keywords commit (this doc commit sits just above it) ·
+**131 tests green, all packages typecheck + build.**
 
 ## What this is
 A Discord bot + a portable TS validation core + a TO web config pane that validate Blood Bowl **2025**
@@ -119,8 +119,12 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
    occluded everywhere in the picker (the validator still doesn't reject them — data-gap safety).
 2. **Inducement costs/gating** — `data/bb2025/inducements.json` still has `_verify` placeholders;
    FUMBBL ruleset options likely hold the real numbers.
-3. **Position keywords** — dataset positions have empty `keywords` (FUMBBL API omits them); needed for
-   the FUMBBL40k client's T1 keyword-gating. Infer or source separately.
+3. ~~**Position keywords**~~ ✅ **DONE.** All 159 positions (30 teams) now carry `keywords` (race +
+   role, e.g. `["Human","Lineman"]`) for FUMBBL40k's T1 keyword-gating. Sourced from FUMBBL's roster
+   **XML** (`fumbbl.com/xml:roster?id=<rid>`) — the JSON API omits them; parsed in
+   `roster_keyword_map`, title-cased + sorted to match the bbtc.pl print (Amazon fixture is the gate:
+   new parity test in `datasetGate.test.ts`). One upstream FUMBBL gap (Renegade Skaven, no XML
+   keywords) filled via `KEYWORD_OVERRIDES`. Refresh in place with `generate_dataset.py --keywords-only`.
 4. **M3.5 / v2 — FUMBBL API roster ingestion** (`/bbbot validate fumbbl-team:<id>`): natural now that
    we already talk to the FUMBBL API.
 5. **Push to GitHub** (private, `flutethecat`) so the client can consume `@bb/validator` via a git tag

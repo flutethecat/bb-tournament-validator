@@ -39,6 +39,13 @@ describe("Amazon dataset gate (example PDFs are ground truth)", () => {
     }
   });
 
+  it("position keywords match the PDF's printed keywords (race + role)", () => {
+    for (const p of fixture.players) {
+      const pos = findPosition(amazon!, p.positionName)!;
+      expect([...pos.keywords].sort(), `#${p.number} ${p.positionName}`).toEqual([...p.keywords].sort());
+    }
+  });
+
   it("positional quantity limits match BB2025 Amazon (16/2/2/2)", () => {
     const limits: [string, number][] = [
       ["Eagle Warrior", 16],

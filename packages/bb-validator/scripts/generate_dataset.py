@@ -16,8 +16,12 @@ Writes:
   packages/bb-validator/src/dataset/bb2025/teams.json     (name + suggested tier)
   packages/bb-validator/src/dataset/bb2025/stars.json     (stars + eligible teams, from roster 8513)
 
+Position keywords (race + role, e.g. Human/Lineman) come from FUMBBL's roster XML
+(https://fumbbl.com/xml:roster?id=<rid>) — the JSON API omits them.
+
 Run:  python packages/bb-validator/scripts/generate_dataset.py
-      python packages/bb-validator/scripts/generate_dataset.py --stars-only  (stars only; reuses local rosters.json)
+      python packages/bb-validator/scripts/generate_dataset.py --stars-only     (stars only; reuses local rosters.json)
+      python packages/bb-validator/scripts/generate_dataset.py --keywords-only  (inject position keywords in place)
 Requires network access to fumbbl.com and the sibling fork repo checked out.
 """
 import glob
@@ -49,6 +53,37 @@ TIER = {
 def get(path):
     with urllib.request.urlopen(f"{API}/{path}", timeout=30) as r:
         return json.load(r)
+
+
+# FUMBBL's roster XML omits keywords for a handful of positions (upstream data-entry
+# gaps). These are unambiguous from the position's race + role and are filled
+# explicitly so downstream keyword gating isn't blind. Applied only when the XML
+# yields nothing for that position name.
+KEYWORD_OVERRIDES = {
+    "Renegade Skaven": ["Lineman", "Skaven"],
+}
+
+
+def roster_keyword_map(rid):
+    """position name -> [keywords] from FUMBBL's roster XML (the JSON API omits them).
+
+    Keywords (race + role, e.g. Human/Lineman) are title-cased + sorted to match the
+    bbtc.pl-printed rosters (see the Amazon fixture, which is ground truth)."""
+    url = f"https://fumbbl.com/xml:roster?id={rid}"
+    try:
+        with urllib.request.urlopen(url, timeout=30) as r:
+            xml = r.read().decode("utf-8", "replace")
+    except Exception as e:  # noqa: BLE001 — network best-effort; positions fall back to []
+        print("  ! keyword XML fetch failed for roster", rid, "-", e)
+        return {}
+    out = {}
+    for m in re.finditer(r"<position\b.*?</position>", xml, re.S):
+        blk = m.group(0)
+        nm = re.search(r"<name>([^<]*)</name>", blk)
+        if not nm:
+            continue
+        out[nm.group(1)] = sorted({w.title() for w in re.findall(r"<keyword>([^<]+)</keyword>", blk)})
+    return out
 
 
 def slug(s):
@@ -91,6 +126,7 @@ def base_skill(name):
 
 def convert_roster(rid):
     d = get(f"roster/get/{rid}")
+    kwmap = roster_keyword_map(rid)
     positions = []
     for p in d["positions"]:
         s = p["stats"]
@@ -108,7 +144,7 @@ def convert_roster(rid):
             "skills": [base_skill(x) for x in p.get("skills", [])],
             "primaryCategories": [CODE_TO_CATEGORY[c] for c in p.get("normalSkills", []) if c in CODE_TO_CATEGORY],
             "secondaryCategories": [CODE_TO_CATEGORY[c] for c in p.get("doubleSkills", []) if c in CODE_TO_CATEGORY],
-            "keywords": [],
+            "keywords": kwmap.get(p["title"]) or KEYWORD_OVERRIDES.get(p["title"], []),
         })
     return {
         "id": slug(d["name"]),
@@ -199,6 +235,26 @@ def main():
         # Reuse the committed rosters.json (their specialRules) instead of refetching all 30.
         rosters = json.load(open(os.path.join(OUT, "rosters.json"), encoding="utf-8"))["rosters"]
         write_stars(rosters)
+        return
+
+    if "--keywords-only" in sys.argv:
+        # Inject position keywords into the committed rosters.json in place (minimal diff),
+        # fetching only each roster's XML rather than refetching the whole dataset.
+        path = os.path.join(OUT, "rosters.json")
+        data = json.load(open(path, encoding="utf-8"))
+        name_to_id = {r["name"]: r["id"] for r in get(f"roster/list/{RULESET}") if r.get("playable") == "1"}
+        gaps = 0
+        for r in data["rosters"]:
+            rid = name_to_id.get(r["name"])
+            kwmap = roster_keyword_map(rid) if rid else {}
+            hit = 0
+            for p in r["positions"]:
+                p["keywords"] = kwmap.get(p["name"]) or KEYWORD_OVERRIDES.get(p["name"], [])
+                hit += 1 if p["keywords"] else 0
+            gaps += len(r["positions"]) - hit
+            print(f"  {r['name']}: {hit}/{len(r['positions'])} positions keyworded")
+        json.dump(data, open(path, "w", encoding="utf-8"), indent=1)
+        print(f"\nWrote keywords to {path} ({gaps} positions with no keyword data)")
         return
     print("Fetching FUMBBL roster list for ruleset", RULESET)
     listing = [r for r in get(f"roster/list/{RULESET}") if r.get("playable") == "1"]
