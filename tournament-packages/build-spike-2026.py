@@ -147,9 +147,13 @@ def main():
             "skillPointBudget": 0,
             "primaryCostSP": 1,
             "secondaryMultiplier": 2,
-            "eliteSurchargeSP": 0.5,
+            # Elite skills are a FLAT 1.5 SP per the rules pack ("Elite Skills 1.5 SP"),
+            # not a +0.5 surcharge on top of primary/secondary — so an elite skill taken at
+            # secondary access is 1.5, not 2.5. Encoded as per-skill overrides (which win
+            # outright), so eliteSurcharge is unused here.
+            "eliteSurchargeSP": 0,
             "eliteSkills": ["Block", "Guard", "Mighty Blow", "Dodge"],
-            "skillCostSP": {},
+            "skillCostSP": {"Block": 1.5, "Guard": 1.5, "Mighty Blow": 1.5, "Dodge": 1.5},
             "maxPerPlayer": 1,
             "maxSameSkillTeamwide": None,
         },

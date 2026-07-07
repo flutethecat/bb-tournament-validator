@@ -39,14 +39,19 @@
     "skillPointBudget": 0,
     "primaryCostSP": 1,
     "secondaryMultiplier": 2,
-    "eliteSurchargeSP": 0.5,
+    "eliteSurchargeSP": 0,
     "eliteSkills": [
       "Block",
       "Guard",
       "Mighty Blow",
       "Dodge"
     ],
-    "skillCostSP": {},
+    "skillCostSP": {
+      "Block": 1.5,
+      "Guard": 1.5,
+      "Mighty Blow": 1.5,
+      "Dodge": 1.5
+    },
     "maxPerPlayer": 1,
     "maxSameSkillTeamwide": null
   },
