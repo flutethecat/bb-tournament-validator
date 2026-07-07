@@ -1,7 +1,7 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-06 · HEAD `5ab5161` (+ uncommitted star-eligibility work) ·
+Last updated 2026-07-06 · HEAD `186a8aa` (star eligibility; this doc commit sits just above it) ·
 **130 tests green, all packages typecheck + build.**
 
 ## What this is
