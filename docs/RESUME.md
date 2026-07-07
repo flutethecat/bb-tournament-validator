@@ -1,8 +1,8 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-07 · HEAD = Spike! 2026 commit · published: `flutethecat/bb-tournament-validator` (private, tag `v0.1.0`) ·
-**148 tests green, all packages typecheck + build.**
+Last updated 2026-07-07 · HEAD = FUMBBL-PDF-fixes commit · published: `flutethecat/bb-tournament-validator` (private, tag `v0.1.0`) ·
+**153 tests green, all packages typecheck + build.**
 
 ## What this is
 A Discord bot + a portable TS validation core + a TO web config pane that validate Blood Bowl **2025**
@@ -106,6 +106,13 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
 - ⚠ Private channels need the bot **added to the channel** even with Administrator.
 
 ## Key gotchas / durable lessons
+- **FUMBBL "team details" PDFs** (not bbtc.pl) mostly parse via `bbtcPdfSource`, but the **header
+  mis-parses** (race/coach/teamName split wrong — e.g. race "Underworld", teamName "COACH NAME",
+  coach "Denizens"). Legality is fine (race canonicalizes; skills/gold correct) but the embed
+  title/CSV coach are wrong. Prefer `/bbbot validate fumbbl-team:<id>` for FUMBBL teams. A proper
+  team-details header adapter is a follow-up. FUMBBL skills carry a trait `*` and `(4+)`/`(Goblin)`
+  annotations — `normName` now strips them. Skills/stars are SP-paid, so their gold is excluded from
+  the tier gold cap (skill-packages rule).
 - Never bind one big `<datalist>` to many inputs — it hangs Chrome's renderer (looks like "lost
   styling"). Star inputs use `.star-ac` + attach `list` on focus only.
 - Matrix cells: keep `<td>` a table cell; the flex drop-zone is an inner `<div>` (else cells stack).
