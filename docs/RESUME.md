@@ -1,7 +1,7 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-06 · HEAD = inducement-costs commit ·
+Last updated 2026-07-06 · HEAD = inducement-costs commit · published: `flutethecat/bb-tournament-validator` (private, tag `v0.1.0`) ·
 **142 tests green, all packages typecheck + build.**
 
 ## What this is
@@ -142,10 +142,13 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
    +4 converter tests (135 green). ⚠ **Must `pnpm register` + restart the bot** to expose the new option.
    Known limit: FUMBBL *league* teams carry earned stat-ups as pseudo-skills (`+AG`/`+MA`) that show as
    "unknown skill" — fresh tournament teams don't have these; refine later if league teams need support.
-5. **Push to GitHub** (private, `flutethecat`) so the client can consume `@bb/validator` via a git tag
-   (decision D7). Repo is local-git only.
-6. **Run the bot persistently** (Windows service / beside the fork server — decision D3).
-7. Fix/avoid the flaky screenshot workflow for UI verification.
+5. ~~**Push to GitHub**~~ ✅ **DONE.** Private repo **`flutethecat/bb-tournament-validator`**
+   (https://github.com/flutethecat/bb-tournament-validator), `master` tracked, tagged **`v0.1.0`** so
+   FUMBBL40k can pin `@bb/validator` via git tag (D7). `.env`/`data-store/` gitignored; history scanned
+   clean of the bot token before publishing.
+6. **Run the bot persistently** — owner does NOT want it hosted here; **find real hosting** (VPS / beside
+   the fork server — decision D3). PARKING-LOT until a host is chosen.
+7. ~~Screenshot workflow~~ **PARKING-LOT** (owner). Keep verifying UI via DOM/geometry inspection.
 
 ## Pointers
 - Full plan: `C:\Users\Jay\.claude\plans\c-users-jay-desktop-example-pdf-2-pdf-c-functional-pebble.md`
