@@ -1,22 +1,141 @@
 {
-  "$schema": "../../schemas/inducements.schema.json",
-  "_about": "BB2025 inducement types transcribed from fumbbl40k-server ffb-common inducement/bb2025/InducementCollection.java. Costs/maxima are marked _verify where not yet confirmed against the BB2025 rulebook. Not exercised by the Amazon M1 golden test (the example team has no inducements); full reconciliation is scheduled for M4.",
-  "inducements": [
-    { "id": "assistant_coaches", "name": "Part-time Assistant Coaches", "cost": 10000, "max": 3, "_verify": true },
-    { "id": "cheerleaders", "name": "Temp Agency Cheerleaders", "cost": 10000, "max": 3, "_verify": true },
-    { "id": "bloodweiser_kegs", "name": "Bloodweiser Kegs", "cost": 50000, "max": 2, "_verify": true },
-    { "id": "bribes", "name": "Bribes", "cost": 100000, "reducedCost": 50000, "reducedSpecialRule": "Bribery and Corruption", "max": 3, "_verify": true },
-    { "id": "wandering_apothecaries", "name": "Wandering Apothecaries", "cost": 100000, "max": 2, "requiresApothecary": true, "_verify": true },
-    { "id": "mortuary_assistant", "name": "Mortuary Assistant", "cost": 100000, "max": 1, "_verify": true },
-    { "id": "plague_doctor", "name": "Plague Doctor", "cost": 100000, "max": 1, "_verify": true },
-    { "id": "riotous_rookies", "name": "Riotous Rookies", "cost": 0, "max": 1, "note": "Cost/effect situational.", "_verify": true },
-    { "id": "halfling_master_chef", "name": "Halfling Master Chef", "cost": 300000, "reducedCost": 100000, "reducedSpecialRule": "Halfling Thimble Cup", "max": 1, "_verify": true },
-    { "id": "weather_mage", "name": "Weather Mage", "cost": 100000, "max": 1, "_verify": true },
-    { "id": "wizard", "name": "Hireling Sports-Wizard", "cost": 150000, "max": 1, "_verify": true },
-    { "id": "biased_referee", "name": "Biased Referee", "cost": 100000, "max": 1, "_verify": true },
-    { "id": "special_play_cards", "name": "Special Play Cards", "cost": null, "max": null, "note": "Card decks; cost per card / per deck varies.", "_verify": true },
-    { "id": "infamous_coaching_staff", "name": "Infamous Coaching Staff", "cost": null, "max": null, "note": "Named staff, individual costs.", "_verify": true },
-    { "id": "star_players", "name": "Star Players", "cost": null, "max": 2, "note": "Hired per star cost; eligibility by special rule/keyword.", "_verify": true },
-    { "id": "team_mascot", "name": "Team Mascot", "cost": null, "max": 1, "_verify": true }
-  ]
+ "$schema": "../../schemas/inducements.schema.json",
+ "_about": "BB2025 inducements from FUMBBL ruleset 3906 clientOptions (authoritative per-ruleset costs/caps). `reduced*` apply when the team has `reducedSpecialRule`. See INDUCEMENT_MAP in scripts/generate_dataset.py.",
+ "inducements": [
+  {
+   "id": "part_time_assistant_coaches",
+   "name": "Part-time Assistant Coaches",
+   "cost": 20000,
+   "max": 5
+  },
+  {
+   "id": "temp_agency_cheerleaders",
+   "name": "Temp Agency Cheerleaders",
+   "cost": 5000,
+   "max": 5
+  },
+  {
+   "id": "bloodweiser_kegs",
+   "name": "Bloodweiser Kegs",
+   "cost": 50000,
+   "max": 2
+  },
+  {
+   "id": "bribes",
+   "name": "Bribes",
+   "cost": 100000,
+   "max": 3,
+   "reducedCost": 50000,
+   "reducedMax": 6,
+   "reducedSpecialRule": "Bribery and Corruption"
+  },
+  {
+   "id": "wandering_apothecaries",
+   "name": "Wandering Apothecaries",
+   "cost": 100000,
+   "max": 2,
+   "requiresApothecary": true
+  },
+  {
+   "id": "mortuary_assistant",
+   "name": "Mortuary Assistant",
+   "cost": 100000,
+   "max": 1
+  },
+  {
+   "id": "plague_doctor",
+   "name": "Plague Doctor",
+   "cost": 100000,
+   "max": 1
+  },
+  {
+   "id": "igor",
+   "name": "Igor",
+   "cost": 100000,
+   "max": 1
+  },
+  {
+   "id": "riotous_rookies",
+   "name": "Riotous Rookies",
+   "cost": 150000,
+   "max": 1
+  },
+  {
+   "id": "halfling_master_chef",
+   "name": "Halfling Master Chef",
+   "cost": 300000,
+   "max": 1,
+   "reducedCost": 100000,
+   "reducedMax": 1,
+   "reducedSpecialRule": "Halfling Thimble Cup"
+  },
+  {
+   "id": "extra_team_training",
+   "name": "Extra Team Training",
+   "cost": 100000,
+   "max": 8
+  },
+  {
+   "id": "weather_mage",
+   "name": "Weather Mage",
+   "cost": 25000,
+   "max": 1
+  },
+  {
+   "id": "hireling_sports_wizard",
+   "name": "Hireling Sports-Wizard",
+   "cost": 150000,
+   "max": 1
+  },
+  {
+   "id": "biased_referee",
+   "name": "Biased Referee",
+   "cost": 120000,
+   "max": 1,
+   "reducedCost": 80000,
+   "reducedMax": 1,
+   "reducedSpecialRule": "Bribery and Corruption"
+  },
+  {
+   "id": "team_mascot",
+   "name": "Team Mascot",
+   "cost": 25000,
+   "max": 1
+  },
+  {
+   "id": "prayers_to_nuffle",
+   "name": "Prayers to Nuffle",
+   "cost": 30000,
+   "max": 3
+  },
+  {
+   "id": "mercenaries",
+   "name": "Mercenaries",
+   "cost": 30000,
+   "max": 3,
+   "skillCost": 50000,
+   "note": "+extra cost over the player's base cost; +skill cost per added skill."
+  },
+  {
+   "id": "special_play_cards",
+   "name": "Special Play Cards",
+   "cost": 100000,
+   "max": null,
+   "note": "Cost per card; deck sizes vary."
+  },
+  {
+   "id": "star_players",
+   "name": "Star Players",
+   "cost": null,
+   "max": 2,
+   "note": "Hired at each star's own cost; eligibility by special rule / keyword."
+  },
+  {
+   "id": "infamous_coaching_staff",
+   "name": "Infamous Coaching Staff",
+   "cost": null,
+   "max": 2,
+   "note": "Named staff, individual costs."
+  }
+ ]
 }

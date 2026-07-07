@@ -1,8 +1,8 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-06 · HEAD = skill-stacking export/surfacing commit ·
-**140 tests green, all packages typecheck + build.**
+Last updated 2026-07-06 · HEAD = inducement-costs commit ·
+**142 tests green, all packages typecheck + build.**
 
 ## What this is
 A Discord bot + a portable TS validation core + a TO web config pane that validate Blood Bowl **2025**
@@ -122,8 +122,12 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
    star that HAS eligibility data; banning a star no relevant team can field is occluded (a no-op that
    should never occur). Appearance is gated behind eligibility data: the 2 empty-`teams` stars are
    occluded everywhere in the picker (the validator still doesn't reject them — data-gap safety).
-2. **Inducement costs/gating** — `data/bb2025/inducements.json` still has `_verify` placeholders;
-   FUMBBL ruleset options likely hold the real numbers.
+2. ~~**Inducement costs/gating**~~ ✅ **DONE.** `inducements.json` (20 inducements) is regenerated from
+   FUMBBL ruleset **3906 `clientOptions`** (authoritative per-ruleset costs/caps) — no more `_verify`.
+   Reduced-cost special rules captured (`reducedCost`/`reducedMax`/`reducedSpecialRule`: Bribes 3→6 &
+   50k under Bribery and Corruption, Master Chef under Halfling Thimble Cup, Biased Ref under B&C). The
+   `inducements` rule now raises the cap when the team carries the unlocking special rule. Regenerate
+   with `generate_dataset.py --inducements-only`. DATASET_VERSION → `bb2025.5-inducements`. (+2 tests.)
 3. ~~**Position keywords**~~ ✅ **DONE.** All 159 positions (30 teams) now carry `keywords` (race +
    role, e.g. `["Human","Lineman"]`) for FUMBBL40k's T1 keyword-gating. Sourced from FUMBBL's roster
    **XML** (`fumbbl.com/xml:roster?id=<rid>`) — the JSON API omits them; parsed in

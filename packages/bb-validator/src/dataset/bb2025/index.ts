@@ -12,7 +12,7 @@ import teamsJson from "./teams.json";
 import starsJson from "./stars.json";
 
 /** Bumped whenever rules data changes; surfaced in ValidationResult for skew checks. */
-export const DATASET_VERSION = "bb2025.4-star-eligibility";
+export const DATASET_VERSION = "bb2025.5-inducements";
 
 function buildDataset(): Dataset {
   const rosters: Record<string, DatasetRoster> = {};
@@ -27,8 +27,15 @@ function buildDataset(): Dataset {
   }
 
   const inducements: Dataset["inducements"] = {};
-  for (const ind of inducementsJson.inducements) {
-    inducements[ind.id] = { name: ind.name, cost: ind.cost ?? null, max: ind.max ?? null };
+  for (const ind of inducementsJson.inducements as Array<Record<string, unknown>>) {
+    inducements[ind.id as string] = {
+      name: ind.name as string,
+      cost: (ind.cost as number | null) ?? null,
+      max: (ind.max as number | null) ?? null,
+      reducedMax: (ind.reducedMax as number | null | undefined) ?? undefined,
+      reducedCost: (ind.reducedCost as number | null | undefined) ?? undefined,
+      reducedSpecialRule: (ind.reducedSpecialRule as string | undefined) ?? undefined,
+    };
   }
 
   const teams = teamsJson.teams as DatasetTeam[];

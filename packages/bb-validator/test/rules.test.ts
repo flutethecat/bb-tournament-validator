@@ -247,6 +247,25 @@ describe("inducements", () => {
     // cap from dataset (max 3)
     expect(errorsOf(r, "inducements").some((f) => /4× Bribes exceeds the limit of 3/.test(f.message))).toBe(true);
   });
+
+  it("raises the cap under a reduced-cost special rule", () => {
+    // 4 Bribes: over the base 3, but Bribery and Corruption raises the cap to 6.
+    const r = validate(
+      roster({ specialRules: ["Bribery and Corruption"], inducements: [{ id: "bribes", name: "Bribes", count: 4 }] }),
+      pkg(),
+      fakeData,
+    );
+    expect(errorsOf(r, "inducements")).toHaveLength(0);
+  });
+
+  it("still enforces the reduced cap ceiling", () => {
+    const r = validate(
+      roster({ specialRules: ["Bribery and Corruption"], inducements: [{ id: "bribes", name: "Bribes", count: 7 }] }),
+      pkg(),
+      fakeData,
+    );
+    expect(errorsOf(r, "inducements").some((f) => /7× Bribes exceeds the limit of 6/.test(f.message))).toBe(true);
+  });
 });
 
 describe("sideline", () => {

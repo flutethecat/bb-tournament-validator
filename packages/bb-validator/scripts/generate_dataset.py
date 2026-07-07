@@ -22,6 +22,7 @@ Position keywords (race + role, e.g. Human/Lineman) come from FUMBBL's roster XM
 Run:  python packages/bb-validator/scripts/generate_dataset.py
       python packages/bb-validator/scripts/generate_dataset.py --stars-only     (stars only; reuses local rosters.json)
       python packages/bb-validator/scripts/generate_dataset.py --keywords-only  (inject position keywords in place)
+      python packages/bb-validator/scripts/generate_dataset.py --inducements-only  (rewrite inducements.json)
 Requires network access to fumbbl.com and the sibling fork repo checked out.
 """
 import glob
@@ -230,7 +231,73 @@ def write_stars(rosters):
     print(f"Wrote {len(stars)} stars to {OUT}")
 
 
+# BB2025 inducements → FUMBBL ruleset `clientOptions` cost/max fields (the authoritative
+# per-ruleset numbers). `reduced*` fields apply when the team has the named special rule
+# (e.g. Bribes drop to 50k / max 6 under "Bribery and Corruption").
+INDUCEMENT_MAP = [
+    ("part_time_assistant_coaches", "Part-time Assistant Coaches", "inducementPartTimeCoachCost", "inducementPartTimeCoachMax", {}),
+    ("temp_agency_cheerleaders", "Temp Agency Cheerleaders", "inducementTempCheerleaderCost", "inducementTempCheerleaderMax", {}),
+    ("bloodweiser_kegs", "Bloodweiser Kegs", "inducementKegsCost", "inducementKegsMax", {}),
+    ("bribes", "Bribes", "inducementBribesCost", "inducementBribesMax",
+     {"reducedCost": "inducementBribesReducedCost", "reducedMax": "inducementBribesReducedMax", "reducedSpecialRule": "Bribery and Corruption"}),
+    ("wandering_apothecaries", "Wandering Apothecaries", "inducementAposCost", "inducementAposMax", {"requiresApothecary": True}),
+    ("mortuary_assistant", "Mortuary Assistant", "inducementMortuaryAssistantsCost", "inducementMortuaryAssistantsMax", {}),
+    ("plague_doctor", "Plague Doctor", "inducementPlagueDoctorsCost", "inducementPlagueDoctorsMax", {}),
+    ("igor", "Igor", "inducementIgorsCost", "inducementIgorsMax", {}),
+    ("riotous_rookies", "Riotous Rookies", "inducementRiotousRookiesCost", "inducementRiotousRookiesMax", {}),
+    ("halfling_master_chef", "Halfling Master Chef", "inducementChefsCost", "inducementChefsMax",
+     {"reducedCost": "inducementChefsReducedCost", "reducedMax": "inducementChefsReducedMax", "reducedSpecialRule": "Halfling Thimble Cup"}),
+    ("extra_team_training", "Extra Team Training", "inducementExtraTrainingCost", "inducementExtraTrainingMax", {}),
+    ("weather_mage", "Weather Mage", "inducementWeatherMageCost", "inducementWeatherMageMax", {}),
+    ("hireling_sports_wizard", "Hireling Sports-Wizard", "inducementWizardsCost", "inducementWizardsMax", {}),
+    ("biased_referee", "Biased Referee", "inducementBiasedRefCost", "inducementBiasedRefMax",
+     {"reducedCost": "inducementBiasedRefReducedCost", "reducedMax": "inducementBiasedRefReducedMax", "reducedSpecialRule": "Bribery and Corruption"}),
+    ("team_mascot", "Team Mascot", "inducementMascotCost", "inducementMascotMax", {}),
+    ("prayers_to_nuffle", "Prayers to Nuffle", "inducementPrayersCost", "inducementPrayersMax", {}),
+    ("mercenaries", "Mercenaries", "inducementMercenariesExtraCost", "inducementMercenariesMax",
+     {"skillCost": "inducementMercenariesSkillCost", "note": "+extra cost over the player's base cost; +skill cost per added skill."}),
+    ("special_play_cards", "Special Play Cards", "cardsSpecialPlayCost", None, {"note": "Cost per card; deck sizes vary."}),
+    ("star_players", "Star Players", None, "inducementStarsMax", {"note": "Hired at each star's own cost; eligibility by special rule / keyword."}),
+    ("infamous_coaching_staff", "Infamous Coaching Staff", None, "inducementStaffMax", {"note": "Named staff, individual costs."}),
+]
+
+
+def build_inducements():
+    """Authoritative BB2025 inducement costs/caps from FUMBBL ruleset clientOptions."""
+    co = get(f"ruleset/get/{RULESET}")["options"]["clientOptions"]
+    out = []
+    for iid, name, cost_f, max_f, extra in INDUCEMENT_MAP:
+        entry = {"id": iid, "name": name,
+                 "cost": co.get(cost_f) if cost_f else None,
+                 "max": co.get(max_f) if max_f else None}
+        if "reducedCost" in extra:
+            entry["reducedCost"] = co.get(extra["reducedCost"])
+            entry["reducedMax"] = co.get(extra["reducedMax"])
+            entry["reducedSpecialRule"] = extra["reducedSpecialRule"]
+        if extra.get("requiresApothecary"):
+            entry["requiresApothecary"] = True
+        if "skillCost" in extra:
+            entry["skillCost"] = co.get(extra["skillCost"])
+        if "note" in extra:
+            entry["note"] = extra["note"]
+        out.append(entry)
+    return out
+
+
+def write_inducements():
+    inds = build_inducements()
+    json.dump({"$schema": "../../schemas/inducements.schema.json",
+               "_about": f"BB2025 inducements from FUMBBL ruleset {RULESET} clientOptions (authoritative per-ruleset costs/caps). `reduced*` apply when the team has `reducedSpecialRule`. See INDUCEMENT_MAP in scripts/generate_dataset.py.",
+               "inducements": inds},
+              open(os.path.join(OUT, "inducements.json"), "w", encoding="utf-8"), indent=1)
+    print(f"Wrote {len(inds)} inducements to {OUT}")
+
+
 def main():
+    if "--inducements-only" in sys.argv:
+        write_inducements()
+        return
+
     if "--stars-only" in sys.argv:
         # Reuse the committed rosters.json (their specialRules) instead of refetching all 30.
         rosters = json.load(open(os.path.join(OUT, "rosters.json"), encoding="utf-8"))["rosters"]
@@ -282,6 +349,7 @@ def main():
 
     os.makedirs(OUT, exist_ok=True)
     write_stars(rosters)
+    write_inducements()
     json.dump({"_about": "BB2025 rosters generated from FUMBBL ruleset 3906 (see scripts/generate_dataset.py). Category codes G/A/S/P/M/D -> General/Agility/Strength/Passing/Mutation/Devious.", "rosters": rosters},
               open(os.path.join(OUT, "rosters.json"), "w", encoding="utf-8"), indent=1)
     json.dump({"_about": "BB2025 skill metadata: category (incl. Devious) from the fumbbl40k-server fork's bb2025 skill classes; elite defaults to {Block,Guard,Mighty Blow,Dodge}; traits not selectable.", "categories": ["General", "Agility", "Strength", "Passing", "Mutation", "Devious"], "skills": skills},

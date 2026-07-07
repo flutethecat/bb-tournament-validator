@@ -354,13 +354,19 @@ export const starPlayers: Rule = {
   },
 };
 
-/** 9. Inducements — types allowed + caps. (Cost data reconciled in M4.) */
+/**
+ * 9. Inducements — types allowed + caps. Dataset caps use the BB2025 rulebook
+ * maxima; a reduced-cap special rule (e.g. Bribery and Corruption → 6 Bribes)
+ * raises the cap when the team carries that rule.
+ */
 export const inducements: Rule = {
   id: "inducements",
   check: ({ roster, pkg, data }) => {
     const findings: Finding[] = [];
+    const teamRules = new Set(roster.specialRules.map(normName));
     for (const ind of roster.inducements) {
       const id = ind.id ?? normName(ind.name).replace(/ /g, "_");
+      const meta = data.inducements[id];
       const allowed =
         pkg.inducements.allowed.includes("*") || pkg.inducements.allowed.includes(id);
       if (!allowed)
@@ -369,7 +375,10 @@ export const inducements: Rule = {
             suggestion: "Remove it.",
           }),
         );
-      const cap = pkg.inducements.caps[id] ?? data.inducements[id]?.max ?? null;
+      // Reduced cap applies only when the team has the unlocking special rule.
+      const hasReduced = meta?.reducedSpecialRule != null && teamRules.has(normName(meta.reducedSpecialRule));
+      const datasetCap = hasReduced ? meta?.reducedMax ?? meta?.max : meta?.max;
+      const cap = pkg.inducements.caps[id] ?? datasetCap ?? null;
       if (cap != null && (ind.count ?? 1) > cap)
         findings.push(
           err("inducements", `${ind.count ?? 1}× ${ind.name} exceeds the limit of ${cap}.`, {

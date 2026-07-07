@@ -59,6 +59,12 @@ export interface DatasetInducement {
   name: string;
   cost: number | null;
   max: number | null;
+  /** Reduced cap when the team has `reducedSpecialRule` (e.g. Bribes: 3 → 6 under Bribery and Corruption). */
+  reducedMax?: number | null;
+  /** Reduced per-unit cost under `reducedSpecialRule`. */
+  reducedCost?: number | null;
+  /** Special rule that unlocks `reducedMax`/`reducedCost`. */
+  reducedSpecialRule?: string;
 }
 
 export interface DatasetTeam {

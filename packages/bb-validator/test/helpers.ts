@@ -69,7 +69,7 @@ export const fakeData: Dataset = {
     Insignificant: { trait: true },
   },
   inducements: {
-    bribes: { name: "Bribes", cost: 100000, max: 3 },
+    bribes: { name: "Bribes", cost: 100000, max: 3, reducedMax: 6, reducedSpecialRule: "Bribery and Corruption" },
   },
   teams: [
     { name: "Testers", defaultTier: 1 },
