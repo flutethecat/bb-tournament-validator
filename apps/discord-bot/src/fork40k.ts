@@ -9,61 +9,15 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import mysql from "mysql2/promise";
-import { buildForkJnlp, jnlpFilename } from "@bb/fork-jnlp";
+import {
+  buildForkJnlp,
+  createForkAccount,
+  forkConfigFromEnv,
+  jnlpFilename,
+  type ForkConfig,
+} from "@bb/fork-ops";
 
-export { buildForkJnlp, jnlpFilename };
-
-/** hex(md5("12345")) — the fixed test password for provisioned fork coaches. */
-const MD5_12345 = "827ccb0eea8a706c4c34a16891f84e7b";
-
-export interface ForkConfig {
-  dbHost: string;
-  dbPort: number;
-  dbUser: string;
-  dbPassword: string;
-  dbName: string;
-  teamsDir: string;
-}
-
-/** Build fork config from env; undefined when FORK_TEAMS_DIR is unset (feature off). */
-export function forkConfigFromEnv(): ForkConfig | undefined {
-  const teamsDir = process.env.FORK_TEAMS_DIR;
-  if (!teamsDir) return undefined;
-  return {
-    dbHost: process.env.FORK_DB_HOST || "127.0.0.1",
-    dbPort: Number(process.env.FORK_DB_PORT || 3316),
-    dbUser: process.env.FORK_DB_USER || "ffb",
-    dbPassword: process.env.FORK_DB_PASSWORD || "ffb",
-    dbName: process.env.FORK_DB_NAME || "ffblive",
-    teamsDir,
-  };
-}
-
-/**
- * Create (or reset) a fork test coach with password "12345". Parameterized — the
- * username is never interpolated into SQL.
- */
-export async function createForkAccount(cfg: ForkConfig, username: string): Promise<void> {
-  const name = username.trim();
-  if (!name) throw new Error("Username is required.");
-  if (name.length > 40) throw new Error("Username must be ≤ 40 characters (ffb_coaches.name).");
-  const conn = await mysql.createConnection({
-    host: cfg.dbHost,
-    port: cfg.dbPort,
-    user: cfg.dbUser,
-    password: cfg.dbPassword,
-    database: cfg.dbName,
-  });
-  try {
-    await conn.execute(
-      "INSERT INTO ffb_coaches (name, password) VALUES (?, ?) ON DUPLICATE KEY UPDATE password = VALUES(password)",
-      [name, MD5_12345],
-    );
-  } finally {
-    await conn.end();
-  }
-}
+export { buildForkJnlp, createForkAccount, forkConfigFromEnv, jnlpFilename, type ForkConfig };
 
 export interface CopiedTeam {
   teamId: string;

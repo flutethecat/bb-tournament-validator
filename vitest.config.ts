@@ -10,7 +10,7 @@ export default defineConfig({
       ),
       "@bb/validator": fileURLToPath(new URL("./packages/bb-validator/src/index.ts", import.meta.url)),
       "@bb/ingest": fileURLToPath(new URL("./packages/bb-ingest/src/index.ts", import.meta.url)),
-      "@bb/fork-jnlp": fileURLToPath(new URL("./packages/bb-fork-jnlp/src/index.ts", import.meta.url)),
+      "@bb/fork-ops": fileURLToPath(new URL("./packages/bb-fork-ops/src/index.ts", import.meta.url)),
     },
   },
   test: {

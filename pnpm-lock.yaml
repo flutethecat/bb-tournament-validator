@@ -17,9 +17,9 @@ importers:
 
   apps/config-web:
     dependencies:
-      '@bb/fork-jnlp':
+      '@bb/fork-ops':
         specifier: workspace:*
-        version: link:../../packages/bb-fork-jnlp
+        version: link:../../packages/bb-fork-ops
       '@bb/validator':
         specifier: workspace:*
         version: link:../../packages/bb-validator
@@ -39,9 +39,9 @@ importers:
 
   apps/discord-bot:
     dependencies:
-      '@bb/fork-jnlp':
+      '@bb/fork-ops':
         specifier: workspace:*
-        version: link:../../packages/bb-fork-jnlp
+        version: link:../../packages/bb-fork-ops
       '@bb/ingest':
         specifier: workspace:*
         version: link:../../packages/bb-ingest
@@ -54,9 +54,6 @@ importers:
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
-      mysql2:
-        specifier: ^3.22.6
-        version: 3.22.6(@types/node@24.13.2)
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -68,7 +65,11 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
-  packages/bb-fork-jnlp:
+  packages/bb-fork-ops:
+    dependencies:
+      mysql2:
+        specifier: ^3.22.6
+        version: 3.22.6(@types/node@24.13.2)
     devDependencies:
       '@types/node':
         specifier: ^24.13.2

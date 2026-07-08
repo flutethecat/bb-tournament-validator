@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@bb/fork-jnlp": "workspace:*",
+    "@bb/fork-ops": "workspace:*",
     "@bb/validator": "workspace:*",
     "dotenv": "^16.4.7"
   },

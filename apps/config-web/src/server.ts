@@ -12,19 +12,22 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadPackage, renderArtPrompt, renderPackageHtml, type TournamentPackage } from "@bb/validator";
-import { buildForkJnlp, jnlpFilename } from "@bb/fork-jnlp";
+import { buildForkJnlp, createForkAccount, forkDbConfigFromEnv, jnlpFilename } from "@bb/fork-ops";
 import { PackageFiles, readCoaches, skillCatalog, starList, teamList } from "./data";
 import { PRESETS } from "./presets";
 
 /**
- * Endpoints reachable without ADMIN_PASSWORD even when it's set: the FUMBBL40k
- * client fetches this machine-to-machine (no user, no Basic-auth credentials to
- * send), so gating it behind Basic auth would just break the one-click Launch flow.
- * It carries no package/roster data — only builds a JNLP from caller-supplied
- * coach/team/game values — so leaving it open is a low-stakes tradeoff for a
- * same-machine/LAN dev tool. Revisit if this server is ever exposed beyond that.
+ * Endpoints reachable without ADMIN_PASSWORD even when it's set, AND always sent
+ * with CORS (access-control-allow-origin: *) on every response — success or error.
+ * The FUMBBL40k client fetches these machine-to-machine (no user, no Basic-auth
+ * credentials, no same-origin page to inherit cookies from), so gating behind Basic
+ * auth or omitting CORS on an error path would just silently break the client flow
+ * (a browser can't even READ a response body without CORS, error or not). Neither
+ * route touches package/roster data — only caller-supplied coach/team/game values —
+ * so leaving them open is a low-stakes tradeoff for a same-machine/LAN dev tool.
+ * Revisit if this server is ever exposed beyond that.
  */
-const PUBLIC_PATHS = new Set(["/api/fork/jnlp"]);
+const PUBLIC_PATHS = new Set(["/api/fork/jnlp", "/api/fork/register"]);
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = resolve(HERE, "../public");
@@ -140,7 +143,8 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
   }
 
   // FUMBBL40k client's one-click Launch: fetch a fork-join JNLP directly (no Discord
-  // round-trip). Machine-to-machine — see PUBLIC_PATHS for why this bypasses auth.
+  // round-trip). Machine-to-machine — see PUBLIC_PATHS for why this bypasses auth
+  // (CORS is set centrally in the server handler, covering this route's errors too).
   if (path === "/api/fork/jnlp" && method === "GET") {
     const coach = query.get("coach")?.trim();
     const teamId = query.get("teamId")?.trim();
@@ -152,10 +156,24 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
     res.writeHead(200, {
       "content-type": "application/x-java-jnlp-file; charset=utf-8",
       "content-disposition": `attachment; filename="${jnlpFilename(gameName, coach)}"`,
-      "access-control-allow-origin": "*", // dev-browser build uses window.fetch; desktop uses tauriFetch (no CORS)
     });
     res.end(jnlp);
     return;
+  }
+
+  // FUMBBL40k client's "Register this coach on the fork" button (Connection pane).
+  // Idempotent upsert — same fork coach, calling it again just resets the password.
+  if (path === "/api/fork/register" && method === "GET") {
+    const coach = query.get("coach")?.trim();
+    if (!coach) return sendJson(res, 400, { error: "coach is required." });
+    const cfg = forkDbConfigFromEnv();
+    if (!cfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
+    try {
+      await createForkAccount(cfg, coach);
+      return sendJson(res, 200, { ok: true, coach });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
   }
 
   sendJson(res, 404, { error: "Unknown endpoint." });
@@ -165,6 +183,9 @@ const server = createServer((req, res) => {
   void (async () => {
     try {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+      // Set CORS before any handler writes a response, so it's on EVERY response for
+      // these routes — success or error (a browser can't read either without it).
+      if (PUBLIC_PATHS.has(url.pathname)) res.setHeader("access-control-allow-origin", "*");
       if (!authorized(req, url.pathname)) {
         res.writeHead(401, { "www-authenticate": 'Basic realm="BB Config"' }).end("auth required");
         return;

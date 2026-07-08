@@ -11,12 +11,11 @@
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@bb/fork-jnlp": "workspace:*",
+    "@bb/fork-ops": "workspace:*",
     "@bb/ingest": "workspace:*",
     "@bb/validator": "workspace:*",
     "discord.js": "^14.16.3",
-    "dotenv": "^16.4.7",
-    "mysql2": "^3.22.6"
+    "dotenv": "^16.4.7"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

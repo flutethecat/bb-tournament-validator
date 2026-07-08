@@ -1,7 +1,7 @@
 {
-  "name": "@bb/fork-jnlp",
+  "name": "@bb/fork-ops",
   "version": "0.1.0",
-  "description": "Pure FUMBBL40k fork-join JNLP builder — shared by the Discord bot and the config-web API so both produce byte-identical JNLPs.",
+  "description": "Shared FUMBBL40k fork-ops logic (JNLP building, fork coach account provisioning) — used by both the Discord bot and the config-web API so they behave identically.",
   "type": "module",
   "license": "MIT",
   "files": [
@@ -15,6 +15,9 @@
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --sourcemap --clean"
+  },
+  "dependencies": {
+    "mysql2": "^3.22.6"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
