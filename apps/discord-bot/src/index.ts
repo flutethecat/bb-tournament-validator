@@ -404,30 +404,27 @@ async function handleCoach(i: ChatInputCommandInteraction): Promise<void> {
 }
 
 // ---- /bbbot 40k (fork admin — Manage Server) ----
-/** Post one coach's fork JNLP to a channel, @-mentioning them if we know their Discord id. */
-async function postForkJnlp(
+/** Send one (registered) coach's fork JNLP to the channel, @-mentioning them. */
+async function sendCoachJnlp(
   i: ChatInputCommandInteraction,
   channelId: string,
-  url: string,
+  team: Awaited<ReturnType<typeof fetchForkTeam>>,
+  discordUserId: string,
   game: string,
   password: string | undefined,
-): Promise<string> {
-  const t = await fetchForkTeam(url);
-  const jnlp = buildForkJnlp({ coach: t.coach, teamId: t.teamId, gameName: game, password });
-  const entry = await coaches.lookup("fumbblName", t.coach);
-  const mention = entry?.discordUserId ? `<@${entry.discordUserId}>` : `**${t.coach}**`;
+): Promise<void> {
+  const jnlp = buildForkJnlp({ coach: team.coach, teamId: team.teamId, gameName: game, password });
+  const file = new AttachmentBuilder(Buffer.from(jnlp, "utf8"), { name: jnlpFilename(game, team.coach) });
   const content =
-    `${mention} — your fork-join JNLP for game **${game}** (team **${t.teamName}**, id ${t.teamId}).\n` +
+    `<@${discordUserId}> — your fork-join JNLP for game **${game}** (team **${team.teamName}**, id ${team.teamId}).\n` +
     `Open it in the FUMBBL40k client; both coaches join game **${game}** (2nd join starts the match).`;
-  const file = new AttachmentBuilder(Buffer.from(jnlp, "utf8"), { name: jnlpFilename(game, t.coach) });
   const ch = await i.client.channels.fetch(channelId);
   if (!ch?.isTextBased()) throw new Error(`Channel <#${channelId}> is not a text channel.`);
   await (ch as unknown as { send: (o: unknown) => Promise<unknown> }).send({
     content,
     files: [file],
-    allowedMentions: { users: entry?.discordUserId ? [entry.discordUserId] : [] },
+    allowedMentions: { users: [discordUserId] },
   });
-  return `${t.coach}${entry?.discordUserId ? " (pinged)" : " (no Discord link — set with /bbbot coach register)"}`;
 }
 
 async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
@@ -457,9 +454,27 @@ async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
         await i.editReply("⚠ No FUMBBL40k channel set. Run `/bbbot 40k setchannel channel:<#ch>` first.");
         return;
       }
-      const lines: string[] = [];
-      for (const url of urls) lines.push(await postForkJnlp(i, channelId, url, game, password));
-      await i.editReply(`✅ Launched **${game}** → <#${channelId}>:\n${lines.map((l) => `• ${l}`).join("\n")}`);
+      // Resolve every coach and GATE on FUMBBL-account registration — no JNLP goes
+      // out (so the game can't start) until each coach has linked their identity.
+      const resolved: { team: Awaited<ReturnType<typeof fetchForkTeam>>; discordUserId?: string }[] = [];
+      for (const url of urls) {
+        const team = await fetchForkTeam(url);
+        const entry = await coaches.lookup("fumbblName", team.coach);
+        resolved.push({ team, discordUserId: entry?.discordUserId });
+      }
+      const unregistered = resolved.filter((r) => !r.discordUserId);
+      if (unregistered.length) {
+        await i.editReply(
+          `🚫 Can't launch **${game}** — every coach must register their FUMBBL account first:\n` +
+            unregistered.map((r) => `• **${r.team.coach}** → \`/bbbot coach register fumbbl:${r.team.coach}\``).join("\n") +
+            `\nRe-run the launch once they've registered.`,
+        );
+        return;
+      }
+      for (const r of resolved) await sendCoachJnlp(i, channelId, r.team, r.discordUserId!, game, password);
+      await i.editReply(
+        `✅ Launched **${game}** → <#${channelId}>:\n${resolved.map((r) => `• ${r.team.coach} (pinged)`).join("\n")}`,
+      );
       return;
     }
 

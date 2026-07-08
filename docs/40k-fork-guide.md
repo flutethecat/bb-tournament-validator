@@ -29,17 +29,16 @@ There are two roles:
 
 ## Part A — For Coaches
 
-### 1. Link your FUMBBL name to Discord (do this once)
-
-So the bot can **@-ping you** when your game JNLP is ready:
+### 1. Link your FUMBBL name to Discord (REQUIRED, do this once)
 
 ```
 /bbbot coach register fumbbl:<your-FUMBBL-coach-name>
 ```
 
 Use your **exact** FUMBBL coach name (the one that owns your team — e.g. `Gondra87`,
-not `Gondra`). Without this, your JNLP still gets posted, but with your name as plain
-text and no ping.
+not `Gondra`). **This is mandatory:** the bot will **not launch a game** until every
+coach in it has registered — the launch is blocked and names the coaches who still need
+to register. Registration is also what lets the bot **@-ping you** with your JNLP.
 
 ### 2. Get your fork account
 
@@ -109,12 +108,19 @@ Post the JNLP(s) to the 40k channel, pinging each coach:
 - `team:` / `team2:` — the two teams (team2 optional; omit it to post just one side).
 - `password:` — optional, defaults to `12345`.
 
-Each coach gets a post with their `.jnlp` and an @mention (if they've registered). Your
-**ephemeral reply** confirms delivery and flags anyone unlinked, e.g.:
+Each coach gets a post with their `.jnlp` and an @mention. **Registration is enforced:**
+if any coach hasn't linked their FUMBBL account, the launch is **blocked** and lists who
+still needs to register — no JNLPs go out, so the game can't start until everyone's ready:
+
+> 🚫 Can't launch **FriendlyBowl** — every coach must register their FUMBBL account first:
+> • **Flutethecat** → `/bbbot coach register fumbbl:Flutethecat`
+> Re-run the launch once they've registered.
+
+Once all coaches are registered:
 
 > ✅ Launched **FriendlyBowl** → #40k-games:
 > • Gondra87 (pinged)
-> • Flutethecat (no Discord link — set with /bbbot coach register)
+> • Flutethecat (pinged)
 
 ---
 
@@ -123,7 +129,7 @@ Each coach gets a post with their `.jnlp` and an @mention (if they've registered
 1. **Admin, once:** `/bbbot 40k setchannel channel:#40k-games`
 2. **Admin, per coach:** `/bbbot 40k createaccount username:<coach>` (exact team-owner name)
 3. **Admin, per team:** `/bbbot 40k copyteam url:<team-url>` → then **restart the FFB game server**
-4. **Coach, once:** `/bbbot coach register fumbbl:<coach>` (for the @ping)
+4. **Coach, once (REQUIRED):** `/bbbot coach register fumbbl:<coach>` — launch is blocked until every coach has done this
 5. **Admin:** `/bbbot 40k launch game:<name> team:<url> team2:<url>`
 6. **Each coach:** download the `.jnlp` → open in the FUMBBL40k client → 2nd join starts the match
 
@@ -133,7 +139,7 @@ Each coach gets a post with their `.jnlp` and an @mention (if they've registered
 
 | Symptom | Cause / fix |
 |---|---|
-| Coach isn't pinged (plain name) | They haven't run `/bbbot coach register fumbbl:<name>`. |
+| Launch blocked / "must register first" | A coach hasn't run `/bbbot coach register fumbbl:<name>` — registration is required before a game can launch. |
 | "created … " but can't join | Coach name must **match the team's `<coach>`** exactly (e.g. `Gondra87`, not `Gondra`). |
 | Team not found when joining | Run `copyteam`, then **restart the FFB game server** (loads teams at boot). |
 | JNLP won't connect | Set/confirm the **fork IP in the client** (the JNLP has no host by design). |
