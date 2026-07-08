@@ -434,14 +434,32 @@ async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
       const password = i.options.getString("password") ?? undefined;
       const t = await fetchForkTeam(i.options.getString("team", true));
       const jnlp = buildForkJnlp({ coach: t.coach, teamId: t.teamId, gameName: game, password });
-      const file = new AttachmentBuilder(Buffer.from(jnlp, "utf8"), { name: jnlpFilename(game, t.coach) });
-      await i.editReply({
-        content:
-          `🎮 Fork-join JNLP for **${t.coach}** — team **${t.teamName}** (id ${t.teamId}), game **${game}**.\n` +
-          `Open it in the FUMBBL40k client. Both coaches must join the SAME game name **${game}**; the 2nd join starts the match. ` +
-          `The coach account **${t.coach}** (pw ${password || "12345"}) and its team must already exist on the fork.`,
-        files: [file],
-      });
+      // Fresh AttachmentBuilder per send (Discord consumes the stream).
+      const file = () => new AttachmentBuilder(Buffer.from(jnlp, "utf8"), { name: jnlpFilename(game, t.coach) });
+      const msg =
+        `🎮 Fork-join JNLP — coach **${t.coach}**, team **${t.teamName}** (id ${t.teamId}), game **${game}**.\n` +
+        `Open it in the FUMBBL40k client. Both coaches join the SAME game name **${game}** (2nd join starts the match).`;
+      // Surface the JNLP into the watched channel(s) so coaches can grab it.
+      const posted: string[] = [];
+      for (const w of watches.list()) {
+        try {
+          const ch = await i.client.channels.fetch(w.channelId);
+          if (ch?.isTextBased()) {
+            await (ch as unknown as { send: (o: unknown) => Promise<unknown> }).send({ content: msg, files: [file()] });
+            posted.push(`<#${w.channelId}>`);
+          }
+        } catch {
+          /* channel gone or not accessible — skip */
+        }
+      }
+      if (posted.length) {
+        await i.editReply(`✅ Posted **${t.coach}**'s fork JNLP to ${posted.join(", ")}.`);
+      } else {
+        await i.editReply({
+          content: `⚠ No watched channel to post to — set one with \`/bbbot watch\`. Here's the file directly:\n${msg}`,
+          files: [file()],
+        });
+      }
     }
   } catch (e) {
     await i.editReply(`❌ Fork command failed: ${(e as Error).message}`);
