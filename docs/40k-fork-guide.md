@@ -167,13 +167,28 @@ release link is a fallback).
   cuts (de-duped on version+gitSha, so no double-posts).
 - **Daily 9 AM publish (Pacific):** a Windows Scheduled Task **"FUMBBL40k Daily Build
   Announce"** runs `apps/discord-bot/scripts/daily-announce.cmd` → `pnpm announce` each
-  morning, publishing the previous night's build if it's new. This backstops the poller
-  for when the bot process isn't running. (Runs only while the machine is logged in; log
-  at `apps/discord-bot/data-store/announce.log`.)
+  morning, publishing the previous night's build **and** the daily summary if either is
+  new. This backstops both pollers for when the bot process isn't running. (Runs only
+  while the machine is logged in; log at `apps/discord-bot/data-store/announce.log`.)
 - **Manual re-post:** `/bbbot 40k announce` posts the latest build on demand.
 
 > The change log itself is owned by the FUMBBL40k client (it curates `highlights` per
 > build); the bot never parses changelogs — it renders whatever the manifest provides.
+
+### Daily work summary
+
+Separately, the bot also auto-publishes the **shared cross-track daily summary**
+(`fumbbl40k-client/docs/daily-summary.md` — the single end-of-day file all three
+tracks append to). It reads the file's **topmost day** directly and posts it as its
+own embed to the announce channel — de-duped on date, so it only posts once per day.
+
+- **Auto-post:** picked up by the same 60s poller as the build manifest, and by the
+  **daily 9 AM task** (below) as a backstop.
+- **Manual re-post:** `/bbbot 40k daily`.
+
+The build announcement and the daily summary post back-to-back in the same channel
+when the 9 AM task runs, so "here's the new build" and "here's what changed today"
+land together.
 
 ---
 
@@ -187,5 +202,6 @@ release link is a fallback).
 | `copyteam url:<fumbbl-team-url>` | Copy a FUMBBL team onto the fork (restart server after) |
 | `launch game:<name> team:<url> [team2:<url>] [password:<pw>]` | Post JNLP(s), @-ping each coach |
 | `announce` | Re-post the latest FUMBBL40k build announcement |
+| `daily` | Re-post today's FUMBBL40k daily work summary |
 
 Plus (any coach): `/bbbot coach register fumbbl:<name>` — link FUMBBL identity (required to launch + for pings).

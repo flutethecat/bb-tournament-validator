@@ -1,7 +1,9 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-07 · HEAD `c559809` (validator core + FUMBBL40k bot integration) · published: `flutethecat/bb-tournament-validator` (private; tag **`v0.1.1`** predates Spike/fork work — cut a fresh tag before FUMBBL40k pins it) ·
+Last updated 2026-07-08 · HEAD `cdb1a88` (validator core + FUMBBL40k bot integration, incl. daily-summary
+auto-publish) · published: `flutethecat/bb-tournament-validator` (private; tag **`v0.1.1`** predates
+Spike/fork work — cut a fresh tag before FUMBBL40k pins it) ·
 **154 tests green, all packages typecheck + build.**
 
 ## What this is
@@ -114,11 +116,19 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
   (contract `fumbbl40k.build-manifest/1|2`) every 60s and posts new cuts (What's-new change log +
   attached installer, or `downloadUrl` link fallback) to the announce channel; de-dupes on
   version+gitSha (state `data-store/build-announce.json`).
+- **Daily-summary announcer:** the bot also polls the shared cross-track end-of-day file
+  `fumbbl40k-client/docs/daily-summary.md` every 60s and posts the **topmost day's entry** (parsed:
+  stops at the first `---` or next `## ` heading, so same-day appendices like "## Smoke test" are
+  excluded) as its own embed to the announce channel; de-dupes on date (state
+  `data-store/daily-summary-announce.json`). Read the FILE directly (not a cross-session tagged
+  message) — the compiling session may reset right after compiling, so a live-message trigger isn't
+  robust. Manual re-post: `/bbbot 40k daily`.
 - **⏰ Windows Scheduled Task "FUMBBL40k Daily Build Announce"** runs `apps\discord-bot\scripts\
   daily-announce.cmd` daily at **09:00 local (= Pacific, machine TZ)** → `pnpm announce`
-  (`src/announceOnce.ts`): one-shot login, publishes the latest build if new (shares the de-dupe
-  state with the poller), exits. Backstops the poller when the bot isn't running. Log:
-  `data-store/announce.log`. Manage via `Get-ScheduledTask -TaskName "FUMBBL40k Daily Build Announce"`.
+  (`src/announceOnce.ts`): one-shot login, publishes the latest build **and** the daily summary if new
+  (shares de-dupe state with the pollers), exits. Backstops both pollers when the bot isn't running.
+  Log: `data-store/announce.log`. Manage via `Get-ScheduledTask -TaskName "FUMBBL40k Daily Build
+  Announce"`.
 
 ## Key gotchas / durable lessons
 - **FUMBBL "team details" PDFs** (not bbtc.pl) mostly parse via `bbtcPdfSource`, but the **header
