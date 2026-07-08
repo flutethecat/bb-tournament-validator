@@ -148,6 +148,7 @@ Once all coaches are registered:
 | "Fork provisioning isn't configured" | `createaccount`/`copyteam` only work when the bot runs **on the fork host** with `FORK_*` env set. `setchannel`/`launch` don't need it. |
 | "No FUMBBL40k channel set" | Run `/bbbot 40k setchannel` first. |
 | Game won't start | Both coaches must join the **same game name**; the **second** join starts it. |
+| `copyteam` warns "no fork roster matches …" | The fork's roster set predates BB2025 — as of 2026-07-08 it's **missing Black Orc, Khorne, Snotling, Gnome, Imperial Nobility, and Old World Alliance** entirely, and uses legacy names for others (e.g. "Underworld" not "Underworld Denizens"). The team copies fine, but the fork server can't load/play it until that roster is imported. Not fixable from the bot side — it's fork roster DATA, not code. |
 
 ---
 

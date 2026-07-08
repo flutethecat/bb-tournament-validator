@@ -1,9 +1,9 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-08 · HEAD `cdb1a88` (validator core + FUMBBL40k bot integration, incl. daily-summary
-auto-publish) · published: `flutethecat/bb-tournament-validator` (private; tag **`v0.1.1`** predates
-Spike/fork work — cut a fresh tag before FUMBBL40k pins it) ·
+Last updated 2026-07-08 · HEAD `7940e1a` (validator core + FUMBBL40k bot integration, incl. daily-summary
+auto-publish + copyteam fork-roster-support warning) · published: `flutethecat/bb-tournament-validator`
+(private; tag **`v0.1.1`** predates Spike/fork work — cut a fresh tag before FUMBBL40k pins it) ·
 **154 tests green, all packages typecheck + build.**
 
 ## What this is
@@ -110,8 +110,13 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
 - ⚠ Private channels need the bot **added to the channel** even with Administrator.
 - **FUMBBL40k fork admin** (`/bbbot 40k`, Manage Server, needs the bot on the fork host + `FORK_*` env):
   `setchannel` (games/JNLP channel), `announcechannel` (build-announce channel), `createaccount`,
-  `copyteam`, `launch` (posts fork-join JNLPs, @-pings each coach — **gated on `/bbbot coach register
-  fumbbl:<name>`**), `announce` (re-post latest build). Guide: `docs/40k-fork-guide.md`. Deps: `mysql2`.
+  `copyteam` (**warns if the team's race has no matching fork roster** — the fork's roster set predates
+  BB2025; as of 2026-07-08 missing Black Orc/Khorne/Snotling/Gnome/Imperial Nobility/Old World Alliance
+  entirely + legacy names for others — `forkSupportsRace`/`RACE_ALIASES` in `fork40k.ts`, curated not
+  fuzzy-substring on purpose, see its comment for the "Orc" ⊂ "Black Orc" false-positive it avoids),
+  `launch` (posts fork-join JNLPs, @-pings each coach — **gated on `/bbbot coach register
+  fumbbl:<name>`**), `announce` (re-post latest build), `daily` (re-post daily summary). Guide:
+  `docs/40k-fork-guide.md`. Deps: `mysql2`.
 - **Build announcer:** the bot polls the FUMBBL40k client's `dist-manifest/latest-build.json`
   (contract `fumbbl40k.build-manifest/1|2`) every 60s and posts new cuts (What's-new change log +
   attached installer, or `downloadUrl` link fallback) to the announce channel; de-dupes on
