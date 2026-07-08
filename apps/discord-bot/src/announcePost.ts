@@ -8,6 +8,7 @@
 import { existsSync, statSync } from "node:fs";
 import { AttachmentBuilder, type Client, EmbedBuilder } from "discord.js";
 import { type AnnounceState, type BuildManifest, fmtBytes, readManifest } from "./buildAnnounce";
+import { type DailySummary, type DailySummaryState, readTopDailySummary } from "./dailySummary";
 
 const BUILD_COLOR: Record<string, number> = { test: 0xe0a020, rc: 0x3a7bd5, release: 0x22e05a };
 
@@ -76,4 +77,33 @@ export async function announceLatestBuild(
   });
   state.mark(m);
   return `✅ Announced FUMBBL40k v${m.version} (${m.channel}) → <#${channelId}>${attachment ? " (installer attached)" : ""}.`;
+}
+
+export function renderDailySummaryEmbed(d: DailySummary): EmbedBuilder {
+  return new EmbedBuilder()
+    .setTitle(`FUMBBL40k — ${d.date} daily summary`)
+    .setColor(0x8a4ab0)
+    .setDescription(d.body.slice(0, 4000));
+}
+
+/**
+ * Post the top day's summary from the shared daily-summary.md to `channelId`.
+ * `force` bypasses the date de-dupe. Read directly from the file (not a cross-session
+ * message) so publishing doesn't depend on the compiling session surviving to send it.
+ */
+export async function announceLatestDailySummary(
+  client: Client,
+  channelId: string | undefined,
+  state: DailySummaryState,
+  force: boolean,
+): Promise<string> {
+  const d = readTopDailySummary();
+  if (!d) return "No readable daily summary found.";
+  if (!channelId) return "No announce channel set — run `/bbbot 40k announcechannel`.";
+  if (!force && !state.isNew(d)) return `${d.date} daily summary is already announced.`;
+  const ch = await client.channels.fetch(channelId);
+  if (!ch?.isTextBased()) return `<#${channelId}> is not a text channel.`;
+  await (ch as unknown as { send: (o: unknown) => Promise<unknown> }).send({ embeds: [renderDailySummaryEmbed(d)] });
+  state.mark(d);
+  return `✅ Announced the ${d.date} daily summary → <#${channelId}>.`;
 }

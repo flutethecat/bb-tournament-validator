@@ -31,7 +31,8 @@ import { WatchStore } from "./store/watchStore";
 import { Fork40kStore } from "./store/fork40kStore";
 import { buildForkJnlp, copyForkTeam, createForkAccount, fetchForkTeam, forkConfigFromEnv, jnlpFilename } from "./fork40k";
 import { AnnounceState, readManifest } from "./buildAnnounce";
-import { announceLatestBuild } from "./announcePost";
+import { DailySummaryState, readTopDailySummary } from "./dailySummary";
+import { announceLatestBuild, announceLatestDailySummary } from "./announcePost";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 if (!TOKEN) {
@@ -48,6 +49,7 @@ const coaches = new FileCoachRegistry(join(DATA_DIR, "coaches.json"));
 const watches = new WatchStore(join(DATA_DIR, "watches.json"));
 const fork40k = new Fork40kStore(join(DATA_DIR, "fork40k.json"));
 const announceState = new AnnounceState(join(DATA_DIR, "build-announce.json"));
+const dailySummaryState = new DailySummaryState(join(DATA_DIR, "daily-summary-announce.json"));
 
 /** Shared success side effects: DM + validated-roster row + coach-registry team. */
 async function recordValidRoster(
@@ -495,6 +497,11 @@ async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
       return;
     }
 
+    if (sub === "daily") {
+      await i.editReply(await announceDailySummary(true));
+      return;
+    }
+
     // createaccount / copyteam need the fork-host config (DB + teams dir).
     const cfg = forkConfigFromEnv();
     if (!cfg) {
@@ -535,6 +542,27 @@ async function pollBuildManifest(): Promise<void> {
     return;
   }
   if (announceState.isNew(m)) console.log(await announceBuild(false));
+}
+
+/** Post the top day's entry from the shared daily-summary.md. `force` bypasses de-dupe. */
+async function announceDailySummary(force: boolean): Promise<string> {
+  return announceLatestDailySummary(client, fork40k.getAnnounceChannel(), dailySummaryState, force);
+}
+
+/**
+ * Poll the shared daily-summary.md; auto-announce a genuinely new day's entry. First
+ * run seeds silently — same rationale as the build poller (don't re-post history).
+ * The 40k track compiles this ~11:50 PM, so in practice this only fires once per day.
+ */
+async function pollDailySummary(): Promise<void> {
+  const d = readTopDailySummary();
+  if (!d) return;
+  if (dailySummaryState.isEmpty()) {
+    dailySummaryState.mark(d);
+    console.log(`Daily-summary announcer seeded at ${d.date}; new days will auto-announce.`);
+    return;
+  }
+  if (dailySummaryState.isNew(d)) console.log(await announceDailySummary(false));
 }
 
 // ---- wiring ----
@@ -596,9 +624,13 @@ async function autocompletePackages(i: AutocompleteInteraction): Promise<void> {
 
 client.once("clientReady", () => {
   console.log(`Logged in as ${client.user?.tag}. Packages dir: ${PACKAGES_DIR}. Data dir: ${DATA_DIR}.`);
-  // Watch the FUMBBL40k build manifest and auto-announce new cuts.
+  // Watch the FUMBBL40k build manifest + shared daily-summary.md; auto-announce new cuts/days.
   void pollBuildManifest().catch((e) => console.error("build poll error:", e));
-  setInterval(() => void pollBuildManifest().catch((e) => console.error("build poll error:", e)), 60_000);
+  void pollDailySummary().catch((e) => console.error("daily-summary poll error:", e));
+  setInterval(() => {
+    void pollBuildManifest().catch((e) => console.error("build poll error:", e));
+    void pollDailySummary().catch((e) => console.error("daily-summary poll error:", e));
+  }, 60_000);
 });
 
 void client.login(TOKEN);

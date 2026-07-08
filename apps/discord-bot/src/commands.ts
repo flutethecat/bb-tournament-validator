@@ -14,6 +14,7 @@
  *   /bbbot 40k copyteam <url>                 (fork admin, Manage Server)
  *   /bbbot 40k launch <game> <team> [team2] [pw]  (posts JNLP(s) to the 40k channel, @-ing each coach)
  *   /bbbot 40k announce                       (re-post the latest FUMBBL40k build manifest)
+ *   /bbbot 40k daily                          (re-post today's shared daily work summary)
  *   /bbbot coach register [fumbbl] [naf-name] [naf]
  *   /bbbot coach lookup key:<key> value:<value>
  *   /bbbot coach me
@@ -181,6 +182,9 @@ export const commandDefs = [
         )
         .addSubcommand((s) =>
           s.setName("announce").setDescription("Re-post the latest FUMBBL40k build announcement to the 40k channel"),
+        )
+        .addSubcommand((s) =>
+          s.setName("daily").setDescription("Re-post today's FUMBBL40k daily work summary"),
         )
         .addSubcommand((s) =>
           s
