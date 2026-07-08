@@ -1,13 +1,15 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-07 · HEAD = Spike elite-cost fix · published: `flutethecat/bb-tournament-validator` (private, tag **`v0.1.1`** = current; `v0.1.0` = pre-Spike) ·
-**153 tests green, all packages typecheck + build.**
+Last updated 2026-07-07 · HEAD `c559809` (validator core + FUMBBL40k bot integration) · published: `flutethecat/bb-tournament-validator` (private; tag **`v0.1.1`** predates Spike/fork work — cut a fresh tag before FUMBBL40k pins it) ·
+**154 tests green, all packages typecheck + build.**
 
 ## What this is
 A Discord bot + a portable TS validation core + a TO web config pane that validate Blood Bowl **2025**
 rosters against tournament packages. The core (`@bb/validator`) is pure, Node-free, browser-safe TS
 so it can later drop into the FUMBBL40k Tauri/PixiJS client (see `docs/fumbbl40k-integration.md`).
+The Discord bot **also hosts FUMBBL40k fork ops** (`/bbbot 40k …` — account/team provisioning, JNLP
+game-launching, and an automated build announcer with a daily 9AM publish; see `docs/40k-fork-guide.md`).
 
 ## Relationship to FUMBBL40k (why this exists — strategic context)
 This project is **not standalone forever** — it's built to branch into the sibling **FUMBBL40k**

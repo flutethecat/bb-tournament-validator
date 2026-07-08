@@ -1,7 +1,9 @@
-# FUMBBL40k Fork — How to Register & Launch Games
+# FUMBBL40k Fork — Register, Launch Games & Build Announcements
 
-A practical guide to getting a coach onto the **FUMBBL40k test fork** and launching a
-game, driven from Discord with the **Blood Bowl Tournament Bot** (`/bbbot 40k …`).
+A practical guide to getting a coach onto the **FUMBBL40k test fork**, launching a game,
+and the automated build announcements — all driven from Discord with the **Blood Bowl
+Tournament Bot** (`/bbbot 40k …`). Game launching is below; build announcements have their
+own section near the end.
 
 There are two roles:
 
@@ -149,13 +151,41 @@ Once all coaches are registered:
 
 ---
 
+## Build announcements (separate from games)
+
+The bot also announces new FUMBBL40k client builds to testers. It reads the client's
+build manifest (`fumbbl40k-client/dist-manifest/latest-build.json`) and posts an embed
+with the **"What's new" change log** (author-curated per build, rendered verbatim), the
+installer details, and the **installer attached** (auth-free download; the private-repo
+release link is a fallback).
+
+- **Set the announce channel** (kept separate from the games channel):
+  ```
+  /bbbot 40k announcechannel channel:#build-updates
+  ```
+- **Auto-post:** while the bot is running it polls the manifest every 60s and posts new
+  cuts (de-duped on version+gitSha, so no double-posts).
+- **Daily 9 AM publish (Pacific):** a Windows Scheduled Task **"FUMBBL40k Daily Build
+  Announce"** runs `apps/discord-bot/scripts/daily-announce.cmd` → `pnpm announce` each
+  morning, publishing the previous night's build if it's new. This backstops the poller
+  for when the bot process isn't running. (Runs only while the machine is logged in; log
+  at `apps/discord-bot/data-store/announce.log`.)
+- **Manual re-post:** `/bbbot 40k announce` posts the latest build on demand.
+
+> The change log itself is owned by the FUMBBL40k client (it curates `highlights` per
+> build); the bot never parses changelogs — it renders whatever the manifest provides.
+
+---
+
 ## Command reference (`/bbbot 40k`, Manage Server)
 
 | Command | Purpose |
 |---|---|
-| `setchannel channel:<#ch>` | Set the channel where JNLPs are posted |
+| `setchannel channel:<#ch>` | Set the channel where **game JNLPs** are posted |
+| `announcechannel channel:<#ch>` | Set the channel for **build announcements** |
 | `createaccount username:<name>` | Create/reset a fork coach (password `12345`) |
 | `copyteam url:<fumbbl-team-url>` | Copy a FUMBBL team onto the fork (restart server after) |
 | `launch game:<name> team:<url> [team2:<url>] [password:<pw>]` | Post JNLP(s), @-ping each coach |
+| `announce` | Re-post the latest FUMBBL40k build announcement |
 
-Plus (any coach): `/bbbot coach register fumbbl:<name>` — link FUMBBL identity for pings.
+Plus (any coach): `/bbbot coach register fumbbl:<name>` — link FUMBBL identity (required to launch + for pings).
