@@ -25,6 +25,14 @@ client session wrote and committed: `C:\Users\Jay\Documents\Claude\fumbbl40k-cli
 (commit `c6ee70e`). READ THAT FILE IN FULL FIRST — this prompt summarizes it, but the spec is the source
 of truth for exact param names/response shapes.
 
+**The client side is already fully built and E2E-validated** (fumbbl40k-client `3c0efea`, cases 428–429):
+Create-Game modal (opponent autocomplete, team-library browser card list, Ingest Team button,
+challenge→waiting→poll-matchstatus→open-JNLP flow) and the password-carrying register modal. They ran
+the whole flow against a local stub and it worked end-to-end (paired fork game vs a bot opponent, reached
+a live turn). This means: **you only need to build the server side** — no client work, no back-and-forth
+needed on the shape, just match the spec exactly and it will light up with zero client changes. The 40k
+session will ping if any route/param needs adjusting on their end.
+
 **Gist:** 6 new/updated GET routes on `apps/config-web/src/server.ts` (same pattern as the two already-
 shipped routes, `/api/fork/jnlp` and `/api/fork/register` — GET+query params, ACAO:* via the `PUBLIC_PATHS`
 allow-list, errors as non-2xx `{error}`):

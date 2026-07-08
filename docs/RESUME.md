@@ -10,12 +10,17 @@ build.**
 go-ahead — `data-store/announce-hold.json`). Nothing will post (poller, `/bbbot 40k announce/daily`, or
 the 9AM task) until `/bbbot 40k resume` is run. Check this before assuming the pipeline is broken.
 
-🔜 **NEXT UP (not yet started): fork team library + Create-Game matchmaking.** The FUMBBL40k client
-session wrote a full spec (`fumbbl40k-client\docs\fork-team-browser-spec.md`, commit `c6ee70e`) for 6
-new/updated `/api/fork/*` routes (register-with-password, library, library/ingest, coaches-autocomplete,
+🔜 **NEXT UP (not yet started, server side): fork team library + Create-Game matchmaking.** The FUMBBL40k
+client session wrote a full spec (`fumbbl40k-client\docs\fork-team-browser-spec.md`, commit `c6ee70e`) for
+6 new/updated `/api/fork/*` routes (register-with-password, library, library/ingest, coaches-autocomplete,
 challenge, matchstatus, cancel). Owner deferred the build to a fresh session/context —
 **`docs/fork-library-resume-prompt.md` has the copy-paste resume prompt** with the full plan, two flagged
 design decisions (with recommendations), and everything the fresh session needs. Start there.
+**Client side is DONE** (fumbbl40k-client `3c0efea`, cases 428–429): Create-Game modal, opponent
+autocomplete, team-library browser, Ingest Team, challenge→waiting→poll→open-JNLP flow, and the
+password-carrying register modal — all built and E2E-validated against a local stub of the spec (full
+flow incl. a live paired fork game vs a bot opponent). It'll light up with zero further client changes
+once the server routes land; degrades gracefully (clear errors) until then.
 
 ## What this is
 A Discord bot + a portable TS validation core + a TO web config pane that validate Blood Bowl **2025**
