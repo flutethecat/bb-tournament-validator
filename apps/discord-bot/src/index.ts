@@ -436,11 +436,20 @@ async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
   }
   const sub = i.options.getSubcommand();
 
-  // setchannel just records a Discord channel — no fork-host config needed.
+  // Channel setters just record a Discord channel — no fork-host config needed.
   if (sub === "setchannel") {
     const channel = i.options.getChannel("channel", true);
     fork40k.setChannel(channel.id);
     await i.reply({ content: `✅ FUMBBL40k JNLPs will be posted to <#${channel.id}>.`, flags: MessageFlags.Ephemeral });
+    return;
+  }
+  if (sub === "announcechannel") {
+    const channel = i.options.getChannel("channel", true);
+    fork40k.setAnnounceChannel(channel.id);
+    await i.reply({
+      content: `✅ FUMBBL40k build announcements will be posted to <#${channel.id}>.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
@@ -541,8 +550,8 @@ function renderBuildEmbed(m: BuildManifest): EmbedBuilder {
 async function announceBuild(force: boolean): Promise<string> {
   const m = readManifest();
   if (!m) return "No readable build manifest found.";
-  const channelId = fork40k.getChannel();
-  if (!channelId) return "No FUMBBL40k channel set — run `/bbbot 40k setchannel`.";
+  const channelId = fork40k.getAnnounceChannel();
+  if (!channelId) return "No announce channel set — run `/bbbot 40k announcechannel` (or `/bbbot 40k setchannel`).";
   if (!force && !announceState.isNew(m)) return `v${m.version} (${m.gitSha}) is already announced.`;
   const ch = await client.channels.fetch(channelId);
   if (!ch?.isTextBased()) return `<#${channelId}> is not a text channel.`;

@@ -8,7 +8,8 @@
  *   /bbbot packages
  *   /bbbot package show <name>
  *   /bbbot package import <document> [skillcosts]
- *   /bbbot 40k setchannel <#channel>          (fork admin, Manage Server)
+ *   /bbbot 40k setchannel <#channel>          (games/JNLP channel, Manage Server)
+ *   /bbbot 40k announcechannel <#channel>     (build-announce channel, Manage Server)
  *   /bbbot 40k createaccount <username>       (fork admin, Manage Server)
  *   /bbbot 40k copyteam <url>                 (fork admin, Manage Server)
  *   /bbbot 40k launch <game> <team> [team2] [pw]  (posts JNLP(s) to the 40k channel, @-ing each coach)
@@ -146,6 +147,18 @@ export const commandDefs = [
               o
                 .setName("channel")
                 .setDescription("Channel for FUMBBL40k JNLPs")
+                .addChannelTypes(ChannelType.GuildText)
+                .setRequired(true),
+            ),
+        )
+        .addSubcommand((s) =>
+          s
+            .setName("announcechannel")
+            .setDescription("Set the channel for FUMBBL40k build announcements")
+            .addChannelOption((o) =>
+              o
+                .setName("channel")
+                .setDescription("Channel for build announcements")
                 .addChannelTypes(ChannelType.GuildText)
                 .setRequired(true),
             ),
