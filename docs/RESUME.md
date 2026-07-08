@@ -250,8 +250,10 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
    (both `Register-ScheduledTask` and `schtasks /create` returned Access Denied from the non-elevated agent
    shell, same reason the daily-announce task had to be made with elevation). Current instance is a
    detached `Start-Process` (survives a session/terminal close, NOT a reboot). **To make it fully durable,
-   run this ONCE in an elevated PowerShell:**
-   `schtasks /create /tn "FUMBBL40k config-web" /tr "cmd /c \"C:\Users\Jay\Documents\Claude\bb-tournament-validator\apps\config-web\scripts\serve.cmd\"" /sc ONLOGON /rl LIMITED /f`
+   run this ONCE in an ELEVATED PowerShell** (cmdlet form — no quoting traps, removes the default 72h run
+   limit + restarts on crash; do NOT use cmd-style `\"` escaping in PowerShell — it swallows `/sc`):
+   `$a=New-ScheduledTaskAction -Execute cmd.exe -Argument '/c "C:\Users\Jay\Documents\Claude\bb-tournament-validator\apps\config-web\scripts\serve.cmd"'; $s=New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew; $s.ExecutionTimeLimit="PT0S"; Register-ScheduledTask -TaskName "FUMBBL40k config-web" -Action $a -Trigger (New-ScheduledTaskTrigger -AtLogOn) -Settings $s -RunLevel Limited -Force`
+   (simpler `schtasks` alt, leaves the 72h limit — the .cmd path has no spaces so NO inner quotes: `schtasks /create /tn "FUMBBL40k config-web" /tr "C:\Users\Jay\Documents\Claude\bb-tournament-validator\apps\config-web\scripts\serve.cmd" /sc ONLOGON /rl LIMITED /f`)
    After a reboot (until the task exists), relaunch: `Start-Process cmd '/c "…\apps\config-web\scripts\serve.cmd"' -WindowStyle Hidden`.
 7. ~~Screenshot workflow~~ **PARKING-LOT** (owner). Keep verifying UI via DOM/geometry inspection.
 
