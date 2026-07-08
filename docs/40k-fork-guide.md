@@ -124,16 +124,24 @@ Once all coaches are registered:
 > • Gondra87 (pinged)
 > • Flutethecat (pinged)
 
-### One-click launch (from the FUMBBL40k client itself)
+### One-click launch + register (from the FUMBBL40k client itself)
 
-The client's own Play button can skip Discord entirely: it calls
-`GET {config-web}/api/fork/jnlp?coach=<name>&teamId=<id>&gameName=<name>&password=<pw>`
-and opens the returned JNLP in-process. This is served by **config-web** (default
-`http://<fork-host>:4310`, the client's fork controls let a coach override it),
-**not** the Discord bot — no registration gate, no channel post, just a direct JNLP
-fetch. It's the same `buildForkJnlp` logic as `/bbbot 40k launch` (shared package
-`@bb/fork-jnlp`), so both paths produce identical JNLPs. `coach`, `teamId`, and
-`gameName` are required (400 otherwise); `password` defaults to `12345`.
+The client's own UI can skip Discord entirely for two things, both served by
+**config-web** (default `http://<fork-host>:4310`, overridable in the client's fork
+controls) — **not** the Discord bot, so no registration gate and no channel post:
+
+- **Launch (Play button):** `GET /api/fork/jnlp?coach=<name>&teamId=<id>&gameName=<name>&password=<pw>`
+  returns a JNLP attachment, opened in-process. `coach`, `teamId`, `gameName` required
+  (400 otherwise); `password` defaults to `12345`.
+- **Register (Connection pane):** `GET /api/fork/register?coach=<name>` upserts the
+  coach into the fork DB (same idempotent behavior as `/bbbot 40k createaccount`,
+  fixed password `12345`) and returns `{ok:true,coach}` or `{error}`. Needs
+  `apps/config-web/.env` to carry `FORK_DB_*` (same values as the bot's `.env`) — 503
+  if unset.
+
+Both share `@bb/fork-ops` with the bot's `/bbbot 40k` commands, so config-web and the
+bot always behave identically. Both bypass `ADMIN_PASSWORD` and carry CORS on every
+response (success or error) — see `PUBLIC_PATHS` in `server.ts`.
 
 ---
 

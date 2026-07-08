@@ -1,10 +1,11 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-08 · HEAD `5bfdec4` (validator core + FUMBBL40k bot integration, incl. daily-summary
-auto-publish + copyteam fork-roster-support warning + announcement hold + config-web one-click-launch
-endpoint) · published: `flutethecat/bb-tournament-validator` (private; tag **`v0.1.1`** predates Spike/fork
-work — cut a fresh tag before FUMBBL40k pins it) · **160 tests green, all packages typecheck + build.**
+Last updated 2026-07-08 · HEAD `0dce3ce` (validator core + FUMBBL40k bot integration, incl. daily-summary
+auto-publish + copyteam fork-roster-support warning + announcement hold + config-web one-click launch +
+register endpoints) · published: `flutethecat/bb-tournament-validator` (private; tag **`v0.1.1`** predates
+Spike/fork work — cut a fresh tag before FUMBBL40k pins it) · **166 tests green, all packages typecheck +
+build.**
 ⚠ **Build/daily-summary announcements are currently HELD** (owner asked to pause today's upload pending
 go-ahead — `data-store/announce-hold.json`). Nothing will post (poller, `/bbbot 40k announce/daily`, or
 the 9AM task) until `/bbbot 40k resume` is run. Check this before assuming the pipeline is broken.
@@ -120,13 +121,18 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
   cross-repo note below), `launch` (posts fork-join JNLPs, @-pings each coach — **gated on `/bbbot coach
   register fumbbl:<name>`**), `announce` (re-post latest build), `daily` (re-post daily summary). Guide:
   `docs/40k-fork-guide.md`. Deps: `mysql2`.
-- **`@bb/fork-jnlp`** (`packages/bb-fork-jnlp/`): the shared, pure JNLP-building logic (`buildForkJnlp`/
-  `jnlpFilename`) — used by BOTH the bot's `/bbbot 40k launch` and config-web's `GET /api/fork/jnlp`
-  (below), so they produce byte-identical JNLPs. `discord-bot/src/fork40k.ts` imports + re-exports it.
-- **Config-web one-click launch:** `GET /api/fork/jnlp?coach&teamId&gameName&password` returns a JNLP
-  attachment — the FUMBBL40k client's Play button fetches this directly (no Discord round-trip). Bypasses
-  `ADMIN_PASSWORD` (`PUBLIC_PATHS` in `server.ts`) since it's a machine-to-machine fetch with no user
-  credentials; carries no package/roster data, only builds from caller-supplied values.
+- **`@bb/fork-ops`** (`packages/bb-fork-ops/`, renamed from `@bb/fork-jnlp` once a 2nd shared need showed
+  up): `buildForkJnlp`/`jnlpFilename` (pure) + `createForkAccount`/`forkConfigFromEnv`/`forkDbConfigFromEnv`
+  (mysql2) — used by BOTH the bot's `/bbbot 40k` commands and config-web's `/api/fork/*` routes (below), so
+  they behave identically instead of drifting. `ForkDbConfig` (DB-only, gated on `FORK_DB_HOST`) vs
+  `ForkConfig` (+ `teamsDir`, gated on `FORK_TEAMS_DIR` — the bot's original signal, unchanged).
+  `discord-bot/src/fork40k.ts` imports + re-exports (zero behavior change).
+- **Config-web fork endpoints** (`apps/config-web/.env` needs `FORK_DB_*` — same values as the bot's):
+  `GET /api/fork/jnlp?coach&teamId&gameName&password` (one-click Launch, JNLP attachment) and
+  `GET /api/fork/register?coach` (one-click "Register this coach on the fork", `{ok,coach}`/`{error}`).
+  Both bypass `ADMIN_PASSWORD` (`PUBLIC_PATHS` in `server.ts`) — machine-to-machine, no user credentials —
+  and get CORS (`access-control-allow-origin: *`) on **every** response including errors (set centrally in
+  the request handler, not per-route, so a missing-param 400 is still readable by a browser client).
 - **Build announcer:** the bot polls the FUMBBL40k client's `dist-manifest/latest-build.json`
   (contract `fumbbl40k.build-manifest/1|2`) every 60s and posts new cuts (What's-new change log +
   attached installer, or `downloadUrl` link fallback) to the announce channel; de-dupes on
