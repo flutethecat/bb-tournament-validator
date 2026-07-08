@@ -1,7 +1,7 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-08 · HEAD `0dce3ce` (validator core + FUMBBL40k bot integration, incl. daily-summary
+Last updated 2026-07-08 · HEAD `e71c526` (validator core + FUMBBL40k bot integration, incl. daily-summary
 auto-publish + copyteam fork-roster-support warning + announcement hold + config-web one-click launch +
 register endpoints) · published: `flutethecat/bb-tournament-validator` (private; tag **`v0.1.1`** predates
 Spike/fork work — cut a fresh tag before FUMBBL40k pins it) · **166 tests green, all packages typecheck +
@@ -9,6 +9,13 @@ build.**
 ⚠ **Build/daily-summary announcements are currently HELD** (owner asked to pause today's upload pending
 go-ahead — `data-store/announce-hold.json`). Nothing will post (poller, `/bbbot 40k announce/daily`, or
 the 9AM task) until `/bbbot 40k resume` is run. Check this before assuming the pipeline is broken.
+
+🔜 **NEXT UP (not yet started): fork team library + Create-Game matchmaking.** The FUMBBL40k client
+session wrote a full spec (`fumbbl40k-client\docs\fork-team-browser-spec.md`, commit `c6ee70e`) for 6
+new/updated `/api/fork/*` routes (register-with-password, library, library/ingest, coaches-autocomplete,
+challenge, matchstatus, cancel). Owner deferred the build to a fresh session/context —
+**`docs/fork-library-resume-prompt.md` has the copy-paste resume prompt** with the full plan, two flagged
+design decisions (with recommendations), and everything the fresh session needs. Start there.
 
 ## What this is
 A Discord bot + a portable TS validation core + a TO web config pane that validate Blood Bowl **2025**
@@ -216,6 +223,8 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
 - Full plan: `C:\Users\Jay\.claude\plans\c-users-jay-desktop-example-pdf-2-pdf-c-functional-pebble.md`
 - Docs: `docs/architecture.md`, `docs/data-model.md`, `docs/tournament-package.md`,
   `docs/fumbbl40k-integration.md`, `docs/discord-setup.md`, `docs/regression-scenarios.md`,
-  `docs/roadmap.md`, `docs/40k-fork-guide.md` (coach + admin how-to for `/bbbot 40k` game launching).
+  `docs/roadmap.md`, `docs/40k-fork-guide.md` (coach + admin how-to for `/bbbot 40k` game launching),
+  `docs/fork-library-resume-prompt.md` (**NEXT UP** — copy-paste resume prompt for the fork team
+  library + Create-Game matchmaking build, not yet started).
 - Decisions D1–D8 (source of truth, precedence, identity, pinning, etc.):
   `docs/fumbbl40k-integration.md` §6.
