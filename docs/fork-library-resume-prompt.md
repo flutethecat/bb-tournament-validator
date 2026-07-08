@@ -47,6 +47,11 @@ allow-list, errors as non-2xx `{error}`):
    chosen password ("regtest99" for their test row `ClientRegTest`) was silently discarded — the real DB
    password is still "12345". Fix this first; it's the smallest of the 6 items and unblocks their
    already-passing UI test for real.
+   🔴 **Priority: this is a lockout trap, not just a cosmetic gap.** The 40k session confirmed they will
+   **NOT ship the register modal in an installer** until this is wired — client stores the coach's chosen
+   password locally, but the fork account still has "12345", so the coach's own game-join later fails
+   silently. Fix + verify (their side will re-run the register E2E and actually log in with the chosen
+   password) before touching the other 5 routes.
 2. **`/api/fork/library?coach`** → `{teams: LibraryTeam[]}` — list a coach's ingested teams.
 3. **`/api/fork/library/ingest?coach&team`** → ingest a FUMBBL team (id or URL) into the coach's library.
    Reuses `fetchForkTeam` + `copyForkTeam` (already in `@bb/fork-ops`) + parses `currentTeamValue`/
