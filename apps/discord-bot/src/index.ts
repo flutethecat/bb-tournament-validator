@@ -528,6 +528,11 @@ function renderBuildEmbed(m: BuildManifest): EmbedBuilder {
       { name: "SHA-256", value: `\`${m.installer.sha256.slice(0, 16)}…\``, inline: true },
       { name: "Build", value: `commit \`${m.gitSha}\` · ${m.date}`, inline: true },
     );
+  // Manifest v2+: a download link (GitHub release asset). Renders when present.
+  if (m.downloadUrl) {
+    e.setURL(m.downloadUrl);
+    e.addFields({ name: "Download", value: `📥 [${m.installer.file}](${m.downloadUrl})` });
+  }
   if (m.notes) e.setFooter({ text: m.notes.slice(0, 2048) });
   return e;
 }

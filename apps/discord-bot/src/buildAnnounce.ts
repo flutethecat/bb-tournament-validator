@@ -26,6 +26,8 @@ export interface BuildManifest {
   };
   highlights: string[];
   notes?: string;
+  /** Manifest v2+: where testers download the installer (e.g. a GitHub release asset URL). */
+  downloadUrl?: string;
 }
 
 /** Where the client writes latest-build.json (both repos live on this box). Env-overridable. */
