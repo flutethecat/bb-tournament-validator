@@ -1,10 +1,10 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-08 · HEAD `0a51c7c` (validator core + FUMBBL40k bot integration, incl. daily-summary
-auto-publish + copyteam fork-roster-support warning + announcement hold) · published:
-`flutethecat/bb-tournament-validator` (private; tag **`v0.1.1`** predates Spike/fork work — cut a fresh
-tag before FUMBBL40k pins it) · **154 tests green, all packages typecheck + build.**
+Last updated 2026-07-08 · HEAD `5bfdec4` (validator core + FUMBBL40k bot integration, incl. daily-summary
+auto-publish + copyteam fork-roster-support warning + announcement hold + config-web one-click-launch
+endpoint) · published: `flutethecat/bb-tournament-validator` (private; tag **`v0.1.1`** predates Spike/fork
+work — cut a fresh tag before FUMBBL40k pins it) · **160 tests green, all packages typecheck + build.**
 ⚠ **Build/daily-summary announcements are currently HELD** (owner asked to pause today's upload pending
 go-ahead — `data-store/announce-hold.json`). Nothing will post (poller, `/bbbot 40k announce/daily`, or
 the 9AM task) until `/bbbot 40k resume` is run. Check this before assuming the pipeline is broken.
@@ -113,13 +113,20 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
 - ⚠ Private channels need the bot **added to the channel** even with Administrator.
 - **FUMBBL40k fork admin** (`/bbbot 40k`, Manage Server, needs the bot on the fork host + `FORK_*` env):
   `setchannel` (games/JNLP channel), `announcechannel` (build-announce channel), `createaccount`,
-  `copyteam` (**warns if the team's race has no matching fork roster** — the fork's roster set predates
-  BB2025; as of 2026-07-08 missing Black Orc/Khorne/Snotling/Gnome/Imperial Nobility/Old World Alliance
-  entirely + legacy names for others — `forkSupportsRace`/`RACE_ALIASES` in `fork40k.ts`, curated not
-  fuzzy-substring on purpose, see its comment for the "Orc" ⊂ "Black Orc" false-positive it avoids),
-  `launch` (posts fork-join JNLPs, @-pings each coach — **gated on `/bbbot coach register
-  fumbbl:<name>`**), `announce` (re-post latest build), `daily` (re-post daily summary). Guide:
+  `copyteam` (**warns if the team's race has no matching fork roster** — `forkSupportsRace`/`RACE_ALIASES`
+  in `fork40k.ts`, curated not fuzzy-substring on purpose, see its comment for the "Orc" ⊂ "Black Orc"
+  false-positive it avoids; the original 6-race gap — Black Orc/Khorne/Snotling/Gnome/Imperial Nobility/
+  Old World Alliance — was closed 2026-07-08 by generating those roster XMLs, see the fumbbl40k-server
+  cross-repo note below), `launch` (posts fork-join JNLPs, @-pings each coach — **gated on `/bbbot coach
+  register fumbbl:<name>`**), `announce` (re-post latest build), `daily` (re-post daily summary). Guide:
   `docs/40k-fork-guide.md`. Deps: `mysql2`.
+- **`@bb/fork-jnlp`** (`packages/bb-fork-jnlp/`): the shared, pure JNLP-building logic (`buildForkJnlp`/
+  `jnlpFilename`) — used by BOTH the bot's `/bbbot 40k launch` and config-web's `GET /api/fork/jnlp`
+  (below), so they produce byte-identical JNLPs. `discord-bot/src/fork40k.ts` imports + re-exports it.
+- **Config-web one-click launch:** `GET /api/fork/jnlp?coach&teamId&gameName&password` returns a JNLP
+  attachment — the FUMBBL40k client's Play button fetches this directly (no Discord round-trip). Bypasses
+  `ADMIN_PASSWORD` (`PUBLIC_PATHS` in `server.ts`) since it's a machine-to-machine fetch with no user
+  credentials; carries no package/roster data, only builds from caller-supplied values.
 - **Build announcer:** the bot polls the FUMBBL40k client's `dist-manifest/latest-build.json`
   (contract `fumbbl40k.build-manifest/1|2`) every 60s and posts new cuts (What's-new change log +
   attached installer, or `downloadUrl` link fallback) to the announce channel; de-dupes on

@@ -124,6 +124,17 @@ Once all coaches are registered:
 > • Gondra87 (pinged)
 > • Flutethecat (pinged)
 
+### One-click launch (from the FUMBBL40k client itself)
+
+The client's own Play button can skip Discord entirely: it calls
+`GET {config-web}/api/fork/jnlp?coach=<name>&teamId=<id>&gameName=<name>&password=<pw>`
+and opens the returned JNLP in-process. This is served by **config-web** (default
+`http://<fork-host>:4310`, the client's fork controls let a coach override it),
+**not** the Discord bot — no registration gate, no channel post, just a direct JNLP
+fetch. It's the same `buildForkJnlp` logic as `/bbbot 40k launch` (shared package
+`@bb/fork-jnlp`), so both paths produce identical JNLPs. `coach`, `teamId`, and
+`gameName` are required (400 otherwise); `password` defaults to `12345`.
+
 ---
 
 ## End-to-end checklist (one game)
