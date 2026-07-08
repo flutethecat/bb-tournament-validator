@@ -15,6 +15,8 @@
  *   /bbbot 40k launch <game> <team> [team2] [pw]  (posts JNLP(s) to the 40k channel, @-ing each coach)
  *   /bbbot 40k announce                       (re-post the latest FUMBBL40k build manifest)
  *   /bbbot 40k daily                          (re-post today's shared daily work summary)
+ *   /bbbot 40k hold [reason]                  (pause build/daily-summary announcements)
+ *   /bbbot 40k resume                         (resume them)
  *   /bbbot coach register [fumbbl] [naf-name] [naf]
  *   /bbbot coach lookup key:<key> value:<value>
  *   /bbbot coach me
@@ -185,6 +187,15 @@ export const commandDefs = [
         )
         .addSubcommand((s) =>
           s.setName("daily").setDescription("Re-post today's FUMBBL40k daily work summary"),
+        )
+        .addSubcommand((s) =>
+          s
+            .setName("hold")
+            .setDescription("Pause build/daily-summary announcements until /bbbot 40k resume")
+            .addStringOption((o) => o.setName("reason").setDescription("Optional note")),
+        )
+        .addSubcommand((s) =>
+          s.setName("resume").setDescription("Resume build/daily-summary announcements"),
         )
         .addSubcommand((s) =>
           s

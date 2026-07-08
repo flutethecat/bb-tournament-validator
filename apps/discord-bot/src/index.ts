@@ -33,6 +33,7 @@ import { buildForkJnlp, copyForkTeam, createForkAccount, fetchForkTeam, forkConf
 import { AnnounceState, readManifest } from "./buildAnnounce";
 import { DailySummaryState, readTopDailySummary } from "./dailySummary";
 import { announceLatestBuild, announceLatestDailySummary } from "./announcePost";
+import { AnnounceHold } from "./announceHold";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 if (!TOKEN) {
@@ -50,6 +51,7 @@ const watches = new WatchStore(join(DATA_DIR, "watches.json"));
 const fork40k = new Fork40kStore(join(DATA_DIR, "fork40k.json"));
 const announceState = new AnnounceState(join(DATA_DIR, "build-announce.json"));
 const dailySummaryState = new DailySummaryState(join(DATA_DIR, "daily-summary-announce.json"));
+const announceHold = new AnnounceHold(join(DATA_DIR, "announce-hold.json"));
 
 /** Shared success side effects: DM + validated-roster row + coach-registry team. */
 async function recordValidRoster(
@@ -502,6 +504,19 @@ async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
       return;
     }
 
+    if (sub === "hold") {
+      const reason = i.options.getString("reason") ?? undefined;
+      announceHold.hold(reason);
+      await i.editReply(`⏸ Announcements HELD${reason ? ` (${reason})` : ""}. Nothing will post until \`/bbbot 40k resume\`.`);
+      return;
+    }
+
+    if (sub === "resume") {
+      announceHold.resume();
+      await i.editReply("▶️ Announcements RESUMED — the next new build/daily-summary will post normally.");
+      return;
+    }
+
     // createaccount / copyteam need the fork-host config (DB + teams dir).
     const cfg = forkConfigFromEnv();
     if (!cfg) {
@@ -530,7 +545,7 @@ async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
 // ---- FUMBBL40k build announcer ----
 /** Post the current build manifest to the announce channel. `force` bypasses de-dupe. */
 async function announceBuild(force: boolean): Promise<string> {
-  return announceLatestBuild(client, fork40k.getAnnounceChannel(), announceState, force);
+  return announceLatestBuild(client, fork40k.getAnnounceChannel(), announceState, force, announceHold);
 }
 
 /** Poll the manifest; auto-announce genuinely-new builds. First run seeds silently. */
@@ -547,7 +562,7 @@ async function pollBuildManifest(): Promise<void> {
 
 /** Post the top day's entry from the shared daily-summary.md. `force` bypasses de-dupe. */
 async function announceDailySummary(force: boolean): Promise<string> {
-  return announceLatestDailySummary(client, fork40k.getAnnounceChannel(), dailySummaryState, force);
+  return announceLatestDailySummary(client, fork40k.getAnnounceChannel(), dailySummaryState, force, announceHold);
 }
 
 /**

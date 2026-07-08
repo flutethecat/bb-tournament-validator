@@ -9,6 +9,14 @@ import { existsSync, statSync } from "node:fs";
 import { AttachmentBuilder, type Client, EmbedBuilder } from "discord.js";
 import { type AnnounceState, type BuildManifest, fmtBytes, readManifest } from "./buildAnnounce";
 import { type DailySummary, type DailySummaryState, readTopDailySummary } from "./dailySummary";
+import type { AnnounceHold } from "./announceHold";
+
+/** Held message, shared by both announce functions. `force` does NOT bypass a hold. */
+function heldMessage(hold: AnnounceHold): string | undefined {
+  if (!hold.isHeld()) return undefined;
+  const s = hold.status();
+  return `⏸ Announcements are HELD${s.reason ? ` (${s.reason})` : ""} — pending go-ahead. Nothing posted; run \`/bbbot 40k resume\` to lift it.`;
+}
 
 const BUILD_COLOR: Record<string, number> = { test: 0xe0a020, rc: 0x3a7bd5, release: 0x22e05a };
 
@@ -63,7 +71,10 @@ export async function announceLatestBuild(
   channelId: string | undefined,
   state: AnnounceState,
   force: boolean,
+  hold: AnnounceHold,
 ): Promise<string> {
+  const held = heldMessage(hold);
+  if (held) return held;
   const m = readManifest();
   if (!m) return "No readable build manifest found.";
   if (!channelId) return "No announce channel set — run `/bbbot 40k announcechannel`.";
@@ -96,7 +107,10 @@ export async function announceLatestDailySummary(
   channelId: string | undefined,
   state: DailySummaryState,
   force: boolean,
+  hold: AnnounceHold,
 ): Promise<string> {
+  const held = heldMessage(hold);
+  if (held) return held;
   const d = readTopDailySummary();
   if (!d) return "No readable daily summary found.";
   if (!channelId) return "No announce channel set — run `/bbbot 40k announcechannel`.";

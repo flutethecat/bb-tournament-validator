@@ -17,6 +17,7 @@ import { Client, GatewayIntentBits } from "discord.js";
 import { Fork40kStore } from "./store/fork40kStore";
 import { AnnounceState } from "./buildAnnounce";
 import { DailySummaryState } from "./dailySummary";
+import { AnnounceHold } from "./announceHold";
 import { announceLatestBuild, announceLatestDailySummary } from "./announcePost";
 
 const token = process.env.DISCORD_TOKEN;
@@ -28,6 +29,7 @@ const DATA_DIR = resolve(process.env.DATA_DIR || "./data-store");
 const fork40k = new Fork40kStore(join(DATA_DIR, "fork40k.json"));
 const announceState = new AnnounceState(join(DATA_DIR, "build-announce.json"));
 const dailySummaryState = new DailySummaryState(join(DATA_DIR, "daily-summary-announce.json"));
+const announceHold = new AnnounceHold(join(DATA_DIR, "announce-hold.json"));
 const force = process.argv.includes("--force");
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -35,9 +37,9 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 client.once("clientReady", async () => {
   try {
     const channelId = fork40k.getAnnounceChannel();
-    const buildMsg = await announceLatestBuild(client, channelId, announceState, force);
+    const buildMsg = await announceLatestBuild(client, channelId, announceState, force, announceHold);
     console.log(`[announceOnce ${new Date().toISOString()}] ${buildMsg}`);
-    const dailyMsg = await announceLatestDailySummary(client, channelId, dailySummaryState, force);
+    const dailyMsg = await announceLatestDailySummary(client, channelId, dailySummaryState, force, announceHold);
     console.log(`[announceOnce ${new Date().toISOString()}] ${dailyMsg}`);
   } catch (e) {
     console.error("[announceOnce] failed:", e);
