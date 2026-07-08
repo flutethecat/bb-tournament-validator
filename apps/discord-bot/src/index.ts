@@ -518,7 +518,8 @@ async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
       const t = await copyForkTeam(cfg, i.options.getString("url", true));
       await i.editReply(
         `✅ Copied **${t.teamName}** (coach **${t.coach}**, id ${t.teamId}) → \`${t.path}\`.\n` +
-          `⚠ A fork coach named **${t.coach}** must exist (\`/bbbot 40k createaccount ${t.coach}\`), and the FFB game server must restart to load the team.`,
+          `⚠ A fork coach named **${t.coach}** must exist (\`/bbbot 40k createaccount ${t.coach}\`), and the FFB game server must restart to load the team.` +
+          (t.raceWarning ? `\n⚠ ${t.raceWarning}` : ""),
       );
     }
   } catch (e) {
