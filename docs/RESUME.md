@@ -243,18 +243,17 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
    clean of the bot token before publishing.
 6. **Run the bot persistently** — owner does NOT want the DISCORD BOT hosted here; **find real hosting**
    (VPS / beside the fork server — decision D3). PARKING-LOT until a host is chosen.
-6b. **config-web MUST stay hosted** (owner directive 2026-07-08 — "stay up unless otherwise directed";
-   Register + Create Game in the client hard-require it on :4310). Kept alive by
-   `apps/config-web/scripts/serve.cmd` (tsx src/server.ts → :4310, logs to `data-store/config-web.log`).
-   ⚠ **Reboot persistence is NOT yet wired** — creating a Windows scheduled task needs an ELEVATED shell
-   (both `Register-ScheduledTask` and `schtasks /create` returned Access Denied from the non-elevated agent
-   shell, same reason the daily-announce task had to be made with elevation). Current instance is a
-   detached `Start-Process` (survives a session/terminal close, NOT a reboot). **To make it fully durable,
-   run this ONCE in an ELEVATED PowerShell** (cmdlet form — no quoting traps, removes the default 72h run
-   limit + restarts on crash; do NOT use cmd-style `\"` escaping in PowerShell — it swallows `/sc`):
-   `$a=New-ScheduledTaskAction -Execute cmd.exe -Argument '/c "C:\Users\Jay\Documents\Claude\bb-tournament-validator\apps\config-web\scripts\serve.cmd"'; $s=New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew; $s.ExecutionTimeLimit="PT0S"; Register-ScheduledTask -TaskName "FUMBBL40k config-web" -Action $a -Trigger (New-ScheduledTaskTrigger -AtLogOn) -Settings $s -RunLevel Limited -Force`
-   (simpler `schtasks` alt, leaves the 72h limit — the .cmd path has no spaces so NO inner quotes: `schtasks /create /tn "FUMBBL40k config-web" /tr "C:\Users\Jay\Documents\Claude\bb-tournament-validator\apps\config-web\scripts\serve.cmd" /sc ONLOGON /rl LIMITED /f`)
-   After a reboot (until the task exists), relaunch: `Start-Process cmd '/c "…\apps\config-web\scripts\serve.cmd"' -WindowStyle Hidden`.
+6b. ✅ **config-web is durably HOSTED** (owner directive 2026-07-08 — "stay up unless otherwise directed";
+   Register + Create Game in the client hard-require it on :4310). **Windows scheduled task "FUMBBL40k
+   config-web" (owner registered it elevated 2026-07-08) runs `apps/config-web/scripts/serve.cmd` (tsx
+   src/server.ts → :4310, logs to `data-store/config-web.log`) AtLogOn, unlimited runtime, restart-on-crash
+   ×3.** Verified live: task Running, 4310 serving all `/api/fork/*` routes. Survives session close, logoff,
+   and reboot (re-fires at logon).
+   - Manage: `Get-ScheduledTask -TaskName "FUMBBL40k config-web"` / `Start-ScheduledTask` / `Stop-ScheduledTask`.
+   - If ever down before the next logon, relaunch now: `Start-Process cmd '/c "C:\Users\Jay\Documents\Claude\bb-tournament-validator\apps\config-web\scripts\serve.cmd"' -WindowStyle Hidden`.
+   - ⚠ Registering the task needs an ELEVATED shell (the non-elevated agent shell gets Access Denied on
+     `Register-ScheduledTask`/`schtasks /create`); in PowerShell use the cmdlet form (New-ScheduledTaskAction
+     + Register-ScheduledTask), NOT cmd-style `\"` escaping (it swallows `/sc`). serve.cmd path has no spaces.
 7. ~~Screenshot workflow~~ **PARKING-LOT** (owner). Keep verifying UI via DOM/geometry inspection.
 
 ## Pointers
