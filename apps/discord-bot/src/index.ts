@@ -28,7 +28,7 @@ import { renderProblemsEmbed, renderResultEmbed, validateFumbblTeam, validateRos
 import { CsvValidatedStore } from "./store/validatedStore";
 import { FileCoachRegistry, KeyConflictError, type CoachKey } from "./store/coachRegistry";
 import { WatchStore } from "./store/watchStore";
-import { copyForkTeam, createForkAccount, forkConfigFromEnv } from "./fork40k";
+import { buildForkJnlp, copyForkTeam, createForkAccount, fetchForkTeam, forkConfigFromEnv, jnlpFilename } from "./fork40k";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 if (!TOKEN) {
@@ -429,6 +429,19 @@ async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
         `✅ Copied **${t.teamName}** (coach **${t.coach}**, id ${t.teamId}) → \`${t.path}\`.\n` +
           `⚠ A fork coach named **${t.coach}** must exist (\`/bbbot 40k createaccount ${t.coach}\`), and the FFB game server must restart to load the team.`,
       );
+    } else if (sub === "launch") {
+      const game = i.options.getString("game", true).trim();
+      const password = i.options.getString("password") ?? undefined;
+      const t = await fetchForkTeam(i.options.getString("team", true));
+      const jnlp = buildForkJnlp({ coach: t.coach, teamId: t.teamId, gameName: game, password });
+      const file = new AttachmentBuilder(Buffer.from(jnlp, "utf8"), { name: jnlpFilename(game, t.coach) });
+      await i.editReply({
+        content:
+          `🎮 Fork-join JNLP for **${t.coach}** — team **${t.teamName}** (id ${t.teamId}), game **${game}**.\n` +
+          `Open it in the FUMBBL40k client. Both coaches must join the SAME game name **${game}**; the 2nd join starts the match. ` +
+          `The coach account **${t.coach}** (pw ${password || "12345"}) and its team must already exist on the fork.`,
+        files: [file],
+      });
     }
   } catch (e) {
     await i.editReply(`❌ Fork command failed: ${(e as Error).message}`);

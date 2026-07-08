@@ -78,11 +78,18 @@ export function parseTeamId(input: string): string | undefined {
 /** Filesystem-safe token (prevents path traversal from an external coach name). */
 const safe = (s: string): string => s.replace(/[^\w.-]+/g, "_").replace(/^\.+/, "") || "unknown";
 
-/**
- * Fetch a FUMBBL team's XML and save it into the fork's teams dir as
- * `team_<coach>_<id>.xml`. The FFB game server must restart to load new team files.
- */
-export async function copyForkTeam(cfg: ForkConfig, url: string): Promise<CopiedTeam> {
+const xmlEscape = (s: string): string =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c]!);
+
+export interface ForkTeam {
+  teamId: string;
+  teamName: string;
+  coach: string;
+  xml: string;
+}
+
+/** Fetch a FUMBBL team from a /t/<id> URL (or id) and pull its coach + name. */
+export async function fetchForkTeam(url: string): Promise<ForkTeam> {
   const teamId = parseTeamId(url);
   if (!teamId) throw new Error(`Couldn't find a team id in "${url}" — expected https://fumbbl.com/t/<id>.`);
   const res = await fetch(`https://fumbbl.com/xml:team?id=${teamId}`, { headers: { accept: "application/xml" } });
@@ -91,8 +98,43 @@ export async function copyForkTeam(cfg: ForkConfig, url: string): Promise<Copied
   const coach = (xml.match(/<coach>([^<]*)<\/coach>/i)?.[1] ?? "").trim();
   const teamName = (xml.match(/<name>([^<]*)<\/name>/i)?.[1] ?? "").trim();
   if (!coach) throw new Error(`No <coach> found in the team XML for ${teamId} (private team or wrong id?).`);
-  mkdirSync(cfg.teamsDir, { recursive: true });
-  const path = join(cfg.teamsDir, `team_${safe(coach)}_${teamId}.xml`);
-  writeFileSync(path, xml, "utf8");
-  return { teamId, teamName, coach, path };
+  return { teamId, teamName, coach, xml };
 }
+
+/**
+ * Fetch a FUMBBL team's XML and save it into the fork's teams dir as
+ * `team_<coach>_<id>.xml`. The FFB game server must restart to load new team files.
+ */
+export async function copyForkTeam(cfg: ForkConfig, url: string): Promise<CopiedTeam> {
+  const t = await fetchForkTeam(url);
+  mkdirSync(cfg.teamsDir, { recursive: true });
+  const path = join(cfg.teamsDir, `team_${safe(t.coach)}_${t.teamId}.xml`);
+  writeFileSync(path, t.xml, "utf8");
+  return { teamId: t.teamId, teamName: t.teamName, coach: t.coach, path };
+}
+
+/**
+ * Build a fork-join JNLP for the FFB client (standalone `-fork` join). The fork HOST
+ * is deliberately omitted — the client uses its configured fork IP. `coach` must match
+ * the team's owner; both coaches join with the SAME `gameName` (2nd join starts the game).
+ */
+export function buildForkJnlp(opts: { coach: string; teamId: string; gameName: string; password?: string }): string {
+  const coach = xmlEscape(opts.coach);
+  const gameName = xmlEscape(opts.gameName);
+  const password = xmlEscape(opts.password || "12345");
+  const teamId = xmlEscape(opts.teamId);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<jnlp><information><title>FUMBBL40k fork - ${gameName} (${coach})</title><vendor>FUMBBL40k</vendor></information>
+<application-desc>
+  <argument>-player</argument><argument>-fork</argument>
+  <argument>-coach</argument><argument>${coach}</argument>
+  <argument>-password</argument><argument>${password}</argument>
+  <argument>-gameName</argument><argument>${gameName}</argument>
+  <argument>-teamId</argument><argument>${teamId}</argument>
+</application-desc></jnlp>
+`;
+}
+
+/** A safe download filename for a coach's game JNLP. */
+export const jnlpFilename = (gameName: string, coach: string): string =>
+  `fork_${safe(gameName)}_${safe(coach)}.jnlp`;

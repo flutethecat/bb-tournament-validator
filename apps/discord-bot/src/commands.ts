@@ -10,6 +10,7 @@
  *   /bbbot package import <document> [skillcosts]
  *   /bbbot 40k createaccount <username>   (fork admin, Manage Server)
  *   /bbbot 40k copyteam <url>             (fork admin, Manage Server)
+ *   /bbbot 40k launch <team> <game> [pw] (fork admin, Manage Server)
  *   /bbbot coach register [fumbbl] [naf-name] [naf]
  *   /bbbot coach lookup key:<key> value:<value>
  *   /bbbot coach me
@@ -149,6 +150,20 @@ export const commandDefs = [
             .setDescription("Copy a FUMBBL team onto the fork")
             .addStringOption((o) =>
               o.setName("url").setDescription("https://fumbbl.com/t/<id>").setRequired(true),
+            ),
+        )
+        .addSubcommand((s) =>
+          s
+            .setName("launch")
+            .setDescription("Generate a fork-join .jnlp for a team's coach")
+            .addStringOption((o) =>
+              o.setName("team").setDescription("FUMBBL team URL or id").setRequired(true),
+            )
+            .addStringOption((o) =>
+              o.setName("game").setDescription("Game name (both coaches use the same one)").setRequired(true),
+            )
+            .addStringOption((o) =>
+              o.setName("password").setDescription("Fork password (default 12345)"),
             ),
         ),
     )
