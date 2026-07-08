@@ -8,7 +8,7 @@
  */
 
 import "dotenv/config";
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   AttachmentBuilder,
@@ -30,7 +30,8 @@ import { FileCoachRegistry, KeyConflictError, type CoachKey } from "./store/coac
 import { WatchStore } from "./store/watchStore";
 import { Fork40kStore } from "./store/fork40kStore";
 import { buildForkJnlp, copyForkTeam, createForkAccount, fetchForkTeam, forkConfigFromEnv, jnlpFilename } from "./fork40k";
-import { AnnounceState, fmtBytes, readManifest, type BuildManifest } from "./buildAnnounce";
+import { AnnounceState, readManifest } from "./buildAnnounce";
+import { announceLatestBuild } from "./announcePost";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 if (!TOKEN) {
@@ -519,70 +520,9 @@ async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
 }
 
 // ---- FUMBBL40k build announcer ----
-const BUILD_COLOR: Record<string, number> = { test: 0xe0a020, rc: 0x3a7bd5, release: 0x22e05a };
-
-function renderBuildEmbed(m: BuildManifest): EmbedBuilder {
-  const e = new EmbedBuilder()
-    .setTitle(`FUMBBL40k v${m.version} (${m.channel.toUpperCase()})`)
-    .setColor(BUILD_COLOR[m.channel] ?? 0x8a4ab0)
-    .setDescription(
-      (m.highlights.length
-        ? `**What's new**\n${m.highlights.map((h) => `• ${h}`).join("\n")}`
-        : "_(no change-log highlights in this build)_"
-      ).slice(0, 4000),
-    )
-    .addFields(
-      {
-        name: "Installer",
-        value: `${m.installer.file}${m.installer.present ? "" : " ⚠ missing"}\n${fmtBytes(m.installer.bytes)}`,
-        inline: true,
-      },
-      { name: "SHA-256", value: `\`${m.installer.sha256.slice(0, 16)}…\``, inline: true },
-      { name: "Build", value: `commit \`${m.gitSha}\` · ${m.date}`, inline: true },
-    );
-  // Manifest v2+: a download link (GitHub release asset). Renders when present.
-  if (m.downloadUrl) {
-    e.setURL(m.downloadUrl);
-    e.addFields({ name: "Download", value: `📥 [${m.installer.file}](${m.downloadUrl})` });
-  }
-  if (m.notes) e.setFooter({ text: m.notes.slice(0, 2048) });
-  return e;
-}
-
-/** Discord non-Nitro upload limit (25 MiB), with headroom for the embed. */
-const MAX_ATTACH_BYTES = 24 * 1024 * 1024;
-
-/**
- * The installer as a Discord attachment, when it's on this box and small enough.
- * Auth-free delivery for testers (the private-repo release URL needs repo access).
- */
-function installerAttachment(m: BuildManifest): AttachmentBuilder | undefined {
-  const p = m.installer.absPath;
-  if (!m.installer.present || !p || !existsSync(p)) return undefined;
-  try {
-    if (statSync(p).size > MAX_ATTACH_BYTES) return undefined; // too big to attach; link only
-  } catch {
-    return undefined;
-  }
-  return new AttachmentBuilder(p, { name: m.installer.file });
-}
-
-/** Post the current manifest to the 40k channel. `force` bypasses the de-dupe. */
+/** Post the current build manifest to the announce channel. `force` bypasses de-dupe. */
 async function announceBuild(force: boolean): Promise<string> {
-  const m = readManifest();
-  if (!m) return "No readable build manifest found.";
-  const channelId = fork40k.getAnnounceChannel();
-  if (!channelId) return "No announce channel set — run `/bbbot 40k announcechannel` (or `/bbbot 40k setchannel`).";
-  if (!force && !announceState.isNew(m)) return `v${m.version} (${m.gitSha}) is already announced.`;
-  const ch = await client.channels.fetch(channelId);
-  if (!ch?.isTextBased()) return `<#${channelId}> is not a text channel.`;
-  const attachment = installerAttachment(m);
-  await (ch as unknown as { send: (o: unknown) => Promise<unknown> }).send({
-    embeds: [renderBuildEmbed(m)],
-    ...(attachment ? { files: [attachment] } : {}),
-  });
-  announceState.mark(m);
-  return `✅ Announced FUMBBL40k v${m.version} (${m.channel}) → <#${channelId}>${attachment ? " (installer attached)" : ""}.`;
+  return announceLatestBuild(client, fork40k.getAnnounceChannel(), announceState, force);
 }
 
 /** Poll the manifest; auto-announce genuinely-new builds. First run seeds silently. */
