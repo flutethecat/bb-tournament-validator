@@ -170,6 +170,6 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
 - Full plan: `C:\Users\Jay\.claude\plans\c-users-jay-desktop-example-pdf-2-pdf-c-functional-pebble.md`
 - Docs: `docs/architecture.md`, `docs/data-model.md`, `docs/tournament-package.md`,
   `docs/fumbbl40k-integration.md`, `docs/discord-setup.md`, `docs/regression-scenarios.md`,
-  `docs/roadmap.md`.
+  `docs/roadmap.md`, `docs/40k-fork-guide.md` (coach + admin how-to for `/bbbot 40k` game launching).
 - Decisions D1–D8 (source of truth, precedence, identity, pinning, etc.):
   `docs/fumbbl40k-integration.md` §6.
