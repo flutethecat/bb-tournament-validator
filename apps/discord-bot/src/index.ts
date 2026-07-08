@@ -8,7 +8,7 @@
  */
 
 import "dotenv/config";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   AttachmentBuilder,
@@ -549,6 +549,24 @@ function renderBuildEmbed(m: BuildManifest): EmbedBuilder {
   return e;
 }
 
+/** Discord non-Nitro upload limit (25 MiB), with headroom for the embed. */
+const MAX_ATTACH_BYTES = 24 * 1024 * 1024;
+
+/**
+ * The installer as a Discord attachment, when it's on this box and small enough.
+ * Auth-free delivery for testers (the private-repo release URL needs repo access).
+ */
+function installerAttachment(m: BuildManifest): AttachmentBuilder | undefined {
+  const p = m.installer.absPath;
+  if (!m.installer.present || !p || !existsSync(p)) return undefined;
+  try {
+    if (statSync(p).size > MAX_ATTACH_BYTES) return undefined; // too big to attach; link only
+  } catch {
+    return undefined;
+  }
+  return new AttachmentBuilder(p, { name: m.installer.file });
+}
+
 /** Post the current manifest to the 40k channel. `force` bypasses the de-dupe. */
 async function announceBuild(force: boolean): Promise<string> {
   const m = readManifest();
@@ -558,9 +576,13 @@ async function announceBuild(force: boolean): Promise<string> {
   if (!force && !announceState.isNew(m)) return `v${m.version} (${m.gitSha}) is already announced.`;
   const ch = await client.channels.fetch(channelId);
   if (!ch?.isTextBased()) return `<#${channelId}> is not a text channel.`;
-  await (ch as unknown as { send: (o: unknown) => Promise<unknown> }).send({ embeds: [renderBuildEmbed(m)] });
+  const attachment = installerAttachment(m);
+  await (ch as unknown as { send: (o: unknown) => Promise<unknown> }).send({
+    embeds: [renderBuildEmbed(m)],
+    ...(attachment ? { files: [attachment] } : {}),
+  });
   announceState.mark(m);
-  return `✅ Announced FUMBBL40k v${m.version} (${m.channel}) → <#${channelId}>.`;
+  return `✅ Announced FUMBBL40k v${m.version} (${m.channel}) → <#${channelId}>${attachment ? " (installer attached)" : ""}.`;
 }
 
 /** Poll the manifest; auto-announce genuinely-new builds. First run seeds silently. */
