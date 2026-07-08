@@ -8,9 +8,10 @@
  *   /bbbot packages
  *   /bbbot package show <name>
  *   /bbbot package import <document> [skillcosts]
- *   /bbbot 40k createaccount <username>   (fork admin, Manage Server)
- *   /bbbot 40k copyteam <url>             (fork admin, Manage Server)
- *   /bbbot 40k launch <team> <game> [pw] (fork admin, Manage Server)
+ *   /bbbot 40k setchannel <#channel>          (fork admin, Manage Server)
+ *   /bbbot 40k createaccount <username>       (fork admin, Manage Server)
+ *   /bbbot 40k copyteam <url>                 (fork admin, Manage Server)
+ *   /bbbot 40k launch <game> <team> [team2] [pw]  (posts JNLP(s) to the 40k channel, @-ing each coach)
  *   /bbbot coach register [fumbbl] [naf-name] [naf]
  *   /bbbot coach lookup key:<key> value:<value>
  *   /bbbot coach me
@@ -138,6 +139,18 @@ export const commandDefs = [
         .setDescription("FUMBBL40k fork admin (Manage Server)")
         .addSubcommand((s) =>
           s
+            .setName("setchannel")
+            .setDescription("Set the channel where fork JNLPs are posted to coaches")
+            .addChannelOption((o) =>
+              o
+                .setName("channel")
+                .setDescription("Channel for FUMBBL40k JNLPs")
+                .addChannelTypes(ChannelType.GuildText)
+                .setRequired(true),
+            ),
+        )
+        .addSubcommand((s) =>
+          s
             .setName("createaccount")
             .setDescription("Create/reset a fork test coach (password 12345)")
             .addStringOption((o) =>
@@ -155,12 +168,15 @@ export const commandDefs = [
         .addSubcommand((s) =>
           s
             .setName("launch")
-            .setDescription("Generate a fork-join .jnlp for a team's coach")
-            .addStringOption((o) =>
-              o.setName("team").setDescription("FUMBBL team URL or id").setRequired(true),
-            )
+            .setDescription("Post fork-join .jnlp(s) to the 40k channel, @-ing each coach")
             .addStringOption((o) =>
               o.setName("game").setDescription("Game name (both coaches use the same one)").setRequired(true),
+            )
+            .addStringOption((o) =>
+              o.setName("team").setDescription("First team's FUMBBL URL or id").setRequired(true),
+            )
+            .addStringOption((o) =>
+              o.setName("team2").setDescription("Opponent's FUMBBL URL or id (optional)"),
             )
             .addStringOption((o) =>
               o.setName("password").setDescription("Fork password (default 12345)"),

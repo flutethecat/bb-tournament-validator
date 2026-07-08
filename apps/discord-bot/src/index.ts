@@ -28,6 +28,7 @@ import { renderProblemsEmbed, renderResultEmbed, validateFumbblTeam, validateRos
 import { CsvValidatedStore } from "./store/validatedStore";
 import { FileCoachRegistry, KeyConflictError, type CoachKey } from "./store/coachRegistry";
 import { WatchStore } from "./store/watchStore";
+import { Fork40kStore } from "./store/fork40kStore";
 import { buildForkJnlp, copyForkTeam, createForkAccount, fetchForkTeam, forkConfigFromEnv, jnlpFilename } from "./fork40k";
 
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -43,6 +44,7 @@ const packages = new PackageStore(PACKAGES_DIR);
 const validated = new CsvValidatedStore(join(DATA_DIR, "validated-rosters.csv"));
 const coaches = new FileCoachRegistry(join(DATA_DIR, "coaches.json"));
 const watches = new WatchStore(join(DATA_DIR, "watches.json"));
+const fork40k = new Fork40kStore(join(DATA_DIR, "fork40k.json"));
 
 /** Shared success side effects: DM + validated-roster row + coach-registry team. */
 async function recordValidRoster(
@@ -402,23 +404,73 @@ async function handleCoach(i: ChatInputCommandInteraction): Promise<void> {
 }
 
 // ---- /bbbot 40k (fork admin — Manage Server) ----
+/** Post one coach's fork JNLP to a channel, @-mentioning them if we know their Discord id. */
+async function postForkJnlp(
+  i: ChatInputCommandInteraction,
+  channelId: string,
+  url: string,
+  game: string,
+  password: string | undefined,
+): Promise<string> {
+  const t = await fetchForkTeam(url);
+  const jnlp = buildForkJnlp({ coach: t.coach, teamId: t.teamId, gameName: game, password });
+  const entry = await coaches.lookup("fumbblName", t.coach);
+  const mention = entry?.discordUserId ? `<@${entry.discordUserId}>` : `**${t.coach}**`;
+  const content =
+    `${mention} — your fork-join JNLP for game **${game}** (team **${t.teamName}**, id ${t.teamId}).\n` +
+    `Open it in the FUMBBL40k client; both coaches join game **${game}** (2nd join starts the match).`;
+  const file = new AttachmentBuilder(Buffer.from(jnlp, "utf8"), { name: jnlpFilename(game, t.coach) });
+  const ch = await i.client.channels.fetch(channelId);
+  if (!ch?.isTextBased()) throw new Error(`Channel <#${channelId}> is not a text channel.`);
+  await (ch as unknown as { send: (o: unknown) => Promise<unknown> }).send({
+    content,
+    files: [file],
+    allowedMentions: { users: entry?.discordUserId ? [entry.discordUserId] : [] },
+  });
+  return `${t.coach}${entry?.discordUserId ? " (pinged)" : " (no Discord link — set with /bbbot coach register)"}`;
+}
+
 async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
   if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
     await i.reply({ content: "FUMBBL40k fork admin requires Manage Server.", flags: MessageFlags.Ephemeral });
     return;
   }
-  const cfg = forkConfigFromEnv();
-  if (!cfg) {
-    await i.reply({
-      content:
-        "Fork provisioning isn't configured — set `FORK_TEAMS_DIR` (+ `FORK_DB_*`) in the bot's `.env`, and run the bot on the fork host.",
-      flags: MessageFlags.Ephemeral,
-    });
+  const sub = i.options.getSubcommand();
+
+  // setchannel just records a Discord channel — no fork-host config needed.
+  if (sub === "setchannel") {
+    const channel = i.options.getChannel("channel", true);
+    fork40k.setChannel(channel.id);
+    await i.reply({ content: `✅ FUMBBL40k JNLPs will be posted to <#${channel.id}>.`, flags: MessageFlags.Ephemeral });
     return;
   }
-  const sub = i.options.getSubcommand();
+
   await i.deferReply({ flags: MessageFlags.Ephemeral });
   try {
+    if (sub === "launch") {
+      const game = i.options.getString("game", true).trim();
+      const password = i.options.getString("password") ?? undefined;
+      const urls = [i.options.getString("team", true), i.options.getString("team2")].filter(Boolean) as string[];
+      // Post to the dedicated 40k channel; fall back to any roster-watched channel.
+      const channelId = fork40k.getChannel() ?? watches.list()[0]?.channelId;
+      if (!channelId) {
+        await i.editReply("⚠ No FUMBBL40k channel set. Run `/bbbot 40k setchannel channel:<#ch>` first.");
+        return;
+      }
+      const lines: string[] = [];
+      for (const url of urls) lines.push(await postForkJnlp(i, channelId, url, game, password));
+      await i.editReply(`✅ Launched **${game}** → <#${channelId}>:\n${lines.map((l) => `• ${l}`).join("\n")}`);
+      return;
+    }
+
+    // createaccount / copyteam need the fork-host config (DB + teams dir).
+    const cfg = forkConfigFromEnv();
+    if (!cfg) {
+      await i.editReply(
+        "Fork provisioning isn't configured — set `FORK_TEAMS_DIR` (+ `FORK_DB_*`) in the bot's `.env`, and run the bot on the fork host.",
+      );
+      return;
+    }
     if (sub === "createaccount") {
       const username = i.options.getString("username", true).trim();
       await createForkAccount(cfg, username);
@@ -429,37 +481,6 @@ async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
         `✅ Copied **${t.teamName}** (coach **${t.coach}**, id ${t.teamId}) → \`${t.path}\`.\n` +
           `⚠ A fork coach named **${t.coach}** must exist (\`/bbbot 40k createaccount ${t.coach}\`), and the FFB game server must restart to load the team.`,
       );
-    } else if (sub === "launch") {
-      const game = i.options.getString("game", true).trim();
-      const password = i.options.getString("password") ?? undefined;
-      const t = await fetchForkTeam(i.options.getString("team", true));
-      const jnlp = buildForkJnlp({ coach: t.coach, teamId: t.teamId, gameName: game, password });
-      // Fresh AttachmentBuilder per send (Discord consumes the stream).
-      const file = () => new AttachmentBuilder(Buffer.from(jnlp, "utf8"), { name: jnlpFilename(game, t.coach) });
-      const msg =
-        `🎮 Fork-join JNLP — coach **${t.coach}**, team **${t.teamName}** (id ${t.teamId}), game **${game}**.\n` +
-        `Open it in the FUMBBL40k client. Both coaches join the SAME game name **${game}** (2nd join starts the match).`;
-      // Surface the JNLP into the watched channel(s) so coaches can grab it.
-      const posted: string[] = [];
-      for (const w of watches.list()) {
-        try {
-          const ch = await i.client.channels.fetch(w.channelId);
-          if (ch?.isTextBased()) {
-            await (ch as unknown as { send: (o: unknown) => Promise<unknown> }).send({ content: msg, files: [file()] });
-            posted.push(`<#${w.channelId}>`);
-          }
-        } catch {
-          /* channel gone or not accessible — skip */
-        }
-      }
-      if (posted.length) {
-        await i.editReply(`✅ Posted **${t.coach}**'s fork JNLP to ${posted.join(", ")}.`);
-      } else {
-        await i.editReply({
-          content: `⚠ No watched channel to post to — set one with \`/bbbot watch\`. Here's the file directly:\n${msg}`,
-          files: [file()],
-        });
-      }
     }
   } catch (e) {
     await i.editReply(`❌ Fork command failed: ${(e as Error).message}`);
