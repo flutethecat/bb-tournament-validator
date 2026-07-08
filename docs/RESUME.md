@@ -1,10 +1,13 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-08 · HEAD `7940e1a` (validator core + FUMBBL40k bot integration, incl. daily-summary
-auto-publish + copyteam fork-roster-support warning) · published: `flutethecat/bb-tournament-validator`
-(private; tag **`v0.1.1`** predates Spike/fork work — cut a fresh tag before FUMBBL40k pins it) ·
-**154 tests green, all packages typecheck + build.**
+Last updated 2026-07-08 · HEAD `0a51c7c` (validator core + FUMBBL40k bot integration, incl. daily-summary
+auto-publish + copyteam fork-roster-support warning + announcement hold) · published:
+`flutethecat/bb-tournament-validator` (private; tag **`v0.1.1`** predates Spike/fork work — cut a fresh
+tag before FUMBBL40k pins it) · **154 tests green, all packages typecheck + build.**
+⚠ **Build/daily-summary announcements are currently HELD** (owner asked to pause today's upload pending
+go-ahead — `data-store/announce-hold.json`). Nothing will post (poller, `/bbbot 40k announce/daily`, or
+the 9AM task) until `/bbbot 40k resume` is run. Check this before assuming the pipeline is broken.
 
 ## What this is
 A Discord bot + a portable TS validation core + a TO web config pane that validate Blood Bowl **2025**

@@ -191,6 +191,15 @@ The build announcement and the daily summary post back-to-back in the same chann
 when the 9 AM task runs, so "here's the new build" and "here's what changed today"
 land together.
 
+### Pausing announcements
+
+`/bbbot 40k hold [reason]` pauses ALL build/daily-summary posting — the poller, the
+manual commands, and the 9 AM task all check it, and **`force` does not bypass a
+hold**. Nothing is lost while held: whatever was pending still posts once you run
+`/bbbot 40k resume`. Check `data-store/announce-hold.json` (or the top of
+`docs/RESUME.md`) to see if a hold is currently active before assuming the pipeline
+is broken.
+
 ---
 
 ## Command reference (`/bbbot 40k`, Manage Server)
@@ -204,5 +213,7 @@ land together.
 | `launch game:<name> team:<url> [team2:<url>] [password:<pw>]` | Post JNLP(s), @-ping each coach |
 | `announce` | Re-post the latest FUMBBL40k build announcement |
 | `daily` | Re-post today's FUMBBL40k daily work summary |
+| `hold [reason:<text>]` | Pause ALL build/daily-summary announcements until `resume` |
+| `resume` | Resume announcements |
 
 Plus (any coach): `/bbbot coach register fumbbl:<name>` — link FUMBBL identity (required to launch + for pings).
