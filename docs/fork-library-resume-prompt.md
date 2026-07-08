@@ -41,6 +41,12 @@ allow-list, errors as non-2xx `{error}`):
    user-chosen password instead of the fixed `12345`. Update `createForkAccount` (in `@bb/fork-ops`,
    `packages/bb-fork-ops/src/index.ts`) to accept + md5 the given password instead of hardcoding
    `MD5_12345`. Keep the idempotent upsert behavior.
+   ⚠ **Confirmed broken today (2026-07-08):** the route currently reads+ignores any `password` query
+   param — `createForkAccount` still always writes `MD5_12345` regardless. The 40k session tested the
+   register modal against the live endpoint and got `{ok}` (coach-row creation genuinely works), but the
+   chosen password ("regtest99" for their test row `ClientRegTest`) was silently discarded — the real DB
+   password is still "12345". Fix this first; it's the smallest of the 6 items and unblocks their
+   already-passing UI test for real.
 2. **`/api/fork/library?coach`** → `{teams: LibraryTeam[]}` — list a coach's ingested teams.
 3. **`/api/fork/library/ingest?coach&team`** → ingest a FUMBBL team (id or URL) into the coach's library.
    Reuses `fetchForkTeam` + `copyForkTeam` (already in `@bb/fork-ops`) + parses `currentTeamValue`/
