@@ -10,6 +10,9 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import mysql from "mysql2/promise";
+import { buildForkJnlp, jnlpFilename } from "@bb/fork-jnlp";
+
+export { buildForkJnlp, jnlpFilename };
 
 /** hex(md5("12345")) — the fixed test password for provisioned fork coaches. */
 const MD5_12345 = "827ccb0eea8a706c4c34a16891f84e7b";
@@ -79,9 +82,6 @@ export function parseTeamId(input: string): string | undefined {
 
 /** Filesystem-safe token (prevents path traversal from an external coach name). */
 const safe = (s: string): string => s.replace(/[^\w.-]+/g, "_").replace(/^\.+/, "") || "unknown";
-
-const xmlEscape = (s: string): string =>
-  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c]!);
 
 export interface ForkTeam {
   teamId: string;
@@ -175,29 +175,3 @@ export async function copyForkTeam(cfg: ForkConfig, url: string): Promise<Copied
   }
   return { teamId: t.teamId, teamName: t.teamName, coach: t.coach, path, raceWarning };
 }
-
-/**
- * Build a fork-join JNLP for the FFB client (standalone `-fork` join). The fork HOST
- * is deliberately omitted — the client uses its configured fork IP. `coach` must match
- * the team's owner; both coaches join with the SAME `gameName` (2nd join starts the game).
- */
-export function buildForkJnlp(opts: { coach: string; teamId: string; gameName: string; password?: string }): string {
-  const coach = xmlEscape(opts.coach);
-  const gameName = xmlEscape(opts.gameName);
-  const password = xmlEscape(opts.password || "12345");
-  const teamId = xmlEscape(opts.teamId);
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<jnlp><information><title>FUMBBL40k fork - ${gameName} (${coach})</title><vendor>FUMBBL40k</vendor></information>
-<application-desc>
-  <argument>-player</argument><argument>-fork</argument>
-  <argument>-coach</argument><argument>${coach}</argument>
-  <argument>-password</argument><argument>${password}</argument>
-  <argument>-gameName</argument><argument>${gameName}</argument>
-  <argument>-teamId</argument><argument>${teamId}</argument>
-</application-desc></jnlp>
-`;
-}
-
-/** A safe download filename for a coach's game JNLP. */
-export const jnlpFilename = (gameName: string, coach: string): string =>
-  `fork_${safe(gameName)}_${safe(coach)}.jnlp`;

@@ -12,8 +12,19 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadPackage, renderArtPrompt, renderPackageHtml, type TournamentPackage } from "@bb/validator";
+import { buildForkJnlp, jnlpFilename } from "@bb/fork-jnlp";
 import { PackageFiles, readCoaches, skillCatalog, starList, teamList } from "./data";
 import { PRESETS } from "./presets";
+
+/**
+ * Endpoints reachable without ADMIN_PASSWORD even when it's set: the FUMBBL40k
+ * client fetches this machine-to-machine (no user, no Basic-auth credentials to
+ * send), so gating it behind Basic auth would just break the one-click Launch flow.
+ * It carries no package/roster data — only builds a JNLP from caller-supplied
+ * coach/team/game values — so leaving it open is a low-stakes tradeoff for a
+ * same-machine/LAN dev tool. Revisit if this server is ever exposed beyond that.
+ */
+const PUBLIC_PATHS = new Set(["/api/fork/jnlp"]);
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = resolve(HERE, "../public");
@@ -41,8 +52,9 @@ const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
   res.end(payload);
 };
 
-function authorized(req: IncomingMessage): boolean {
+function authorized(req: IncomingMessage, pathname: string): boolean {
   if (!ADMIN_PASSWORD) return true; // open when no password set (localhost default)
+  if (PUBLIC_PATHS.has(pathname)) return true;
   const header = req.headers.authorization ?? "";
   const m = header.match(/^Basic (.+)$/);
   if (!m) return false;
@@ -127,17 +139,36 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
     return sendJson(res, 200, readCoaches(VALIDATED_CSV, pkg));
   }
 
+  // FUMBBL40k client's one-click Launch: fetch a fork-join JNLP directly (no Discord
+  // round-trip). Machine-to-machine — see PUBLIC_PATHS for why this bypasses auth.
+  if (path === "/api/fork/jnlp" && method === "GET") {
+    const coach = query.get("coach")?.trim();
+    const teamId = query.get("teamId")?.trim();
+    const gameName = query.get("gameName")?.trim();
+    const password = query.get("password")?.trim() || undefined;
+    if (!coach || !teamId || !gameName)
+      return sendJson(res, 400, { error: "coach, teamId and gameName are required." });
+    const jnlp = buildForkJnlp({ coach, teamId, gameName, password });
+    res.writeHead(200, {
+      "content-type": "application/x-java-jnlp-file; charset=utf-8",
+      "content-disposition": `attachment; filename="${jnlpFilename(gameName, coach)}"`,
+      "access-control-allow-origin": "*", // dev-browser build uses window.fetch; desktop uses tauriFetch (no CORS)
+    });
+    res.end(jnlp);
+    return;
+  }
+
   sendJson(res, 404, { error: "Unknown endpoint." });
 }
 
 const server = createServer((req, res) => {
   void (async () => {
     try {
-      if (!authorized(req)) {
+      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+      if (!authorized(req, url.pathname)) {
         res.writeHead(401, { "www-authenticate": 'Basic realm="BB Config"' }).end("auth required");
         return;
       }
-      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
       if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url.pathname, url.searchParams);
       await serveStatic(res, url.pathname);
     } catch (e) {

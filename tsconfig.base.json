@@ -18,7 +18,8 @@
     "paths": {
       "@bb/validator": ["packages/bb-validator/src/index.ts"],
       "@bb/validator/dataset": ["packages/bb-validator/src/dataset/bb2025/index.ts"],
-      "@bb/ingest": ["packages/bb-ingest/src/index.ts"]
+      "@bb/ingest": ["packages/bb-ingest/src/index.ts"],
+      "@bb/fork-jnlp": ["packages/bb-fork-jnlp/src/index.ts"]
     }
   }
 }

@@ -11,6 +11,7 @@
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@bb/fork-jnlp": "workspace:*",
     "@bb/ingest": "workspace:*",
     "@bb/validator": "workspace:*",
     "discord.js": "^14.16.3",
