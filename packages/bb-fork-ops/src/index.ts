@@ -4,13 +4,15 @@
  * duplicating (and silently drifting from) the same fork-account/JNLP contract.
  */
 
+import { createHash } from "node:crypto";
 import mysql from "mysql2/promise";
+import { xmlEscape, safe } from "./util.js";
 
-const xmlEscape = (s: string): string =>
-  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c]!);
-
-/** Filesystem-safe token (prevents path traversal from an external coach/game name). */
-const safe = (s: string): string => s.replace(/[^\w.-]+/g, "_").replace(/^\.+/, "") || "unknown";
+// Team fetching / library / matchmaking live in submodules; re-exported here so
+// consumers keep importing everything from "@bb/fork-ops".
+export * from "./teams.js";
+export * from "./library.js";
+export * from "./matchmaking.js";
 
 /**
  * Build a fork-join JNLP for the FFB client (standalone `-fork` join). The fork HOST
@@ -38,8 +40,11 @@ export function buildForkJnlp(opts: { coach: string; teamId: string; gameName: s
 export const jnlpFilename = (gameName: string, coach: string): string =>
   `fork_${safe(gameName)}_${safe(coach)}.jnlp`;
 
-/** hex(md5("12345")) — the fixed test password for provisioned fork coaches. */
-const MD5_12345 = "827ccb0eea8a706c4c34a16891f84e7b";
+/** hex(md5(pw)) — FFB stores coach passwords as an md5 hex digest. */
+const md5hex = (s: string): string => createHash("md5").update(s, "utf8").digest("hex");
+
+/** hex(md5("12345")) — the default test password when a coach doesn't choose one. */
+const MD5_12345 = md5hex("12345");
 
 export interface ForkDbConfig {
   dbHost: string;
@@ -92,14 +97,7 @@ export function forkConfigFromEnv(): ForkConfig | undefined {
   return { ...(forkDbConfigFromEnv() ?? DB_DEFAULTS), teamsDir };
 }
 
-/**
- * Create (or reset) a fork test coach with password "12345". Parameterized — the
- * username is never interpolated into SQL.
- */
-export async function createForkAccount(cfg: ForkDbConfig, username: string): Promise<void> {
-  const name = username.trim();
-  if (!name) throw new Error("Username is required.");
-  if (name.length > 40) throw new Error("Username must be ≤ 40 characters (ffb_coaches.name).");
+async function withConn<T>(cfg: ForkDbConfig, fn: (conn: mysql.Connection) => Promise<T>): Promise<T> {
   const conn = await mysql.createConnection({
     host: cfg.dbHost,
     port: cfg.dbPort,
@@ -108,11 +106,52 @@ export async function createForkAccount(cfg: ForkDbConfig, username: string): Pr
     database: cfg.dbName,
   });
   try {
-    await conn.execute(
-      "INSERT INTO ffb_coaches (name, password) VALUES (?, ?) ON DUPLICATE KEY UPDATE password = VALUES(password)",
-      [name, MD5_12345],
-    );
+    return await fn(conn);
   } finally {
     await conn.end();
   }
+}
+
+/**
+ * Create (or reset) a fork test coach. Uses the coach's chosen `password` (md5-hashed)
+ * when given, else the fixed test password "12345" (the bot's `createaccount` has no
+ * password prompt). Parameterized — the username is never interpolated into SQL.
+ */
+export async function createForkAccount(cfg: ForkDbConfig, username: string, password?: string): Promise<void> {
+  const name = username.trim();
+  if (!name) throw new Error("Username is required.");
+  if (name.length > 40) throw new Error("Username must be ≤ 40 characters (ffb_coaches.name).");
+  const hash = password && password.length > 0 ? md5hex(password) : MD5_12345;
+  await withConn(cfg, (conn) =>
+    conn.execute(
+      "INSERT INTO ffb_coaches (name, password) VALUES (?, ?) ON DUPLICATE KEY UPDATE password = VALUES(password)",
+      [name, hash],
+    ),
+  );
+}
+
+/**
+ * Case-insensitive prefix/substring search over fork coach names for opponent
+ * autocomplete. LIKE wildcards in `q` are escaped so a "%"/"_" can't broaden the match;
+ * `limit` is clamped to a bounded integer and inlined (LIKE ? placeholders are fine, but
+ * a validated integer LIMIT avoids mysql2's prepared-LIMIT quirks). `exclude` drops the
+ * requesting coach (you can't challenge yourself).
+ */
+export async function queryCoaches(cfg: ForkDbConfig, q: string, limit = 10, exclude?: string): Promise<string[]> {
+  const needle = (q ?? "").trim();
+  const lim = Math.min(50, Math.max(1, Math.floor(limit) || 10));
+  // Escape LIKE metachars so "%"/"_" in the query can't broaden the match. Uses "!" as
+  // the ESCAPE char (not backslash) to avoid backslash-doubling ambiguity between the JS
+  // string literal and MariaDB's own string parsing.
+  const escaped = needle.replace(/[!%_]/g, (c) => `!${c}`);
+  const rows = await withConn(cfg, async (conn) => {
+    const [r] = await conn.execute(
+      `SELECT name FROM ffb_coaches
+       WHERE LOWER(name) LIKE LOWER(?) ESCAPE '!'${exclude ? " AND LOWER(name) <> LOWER(?)" : ""}
+       ORDER BY name LIMIT ${lim}`,
+      exclude ? [`%${escaped}%`, exclude] : [`%${escaped}%`],
+    );
+    return r as Array<{ name: string }>;
+  });
+  return rows.map((row) => row.name);
 }

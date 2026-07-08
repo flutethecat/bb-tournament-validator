@@ -12,7 +12,17 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadPackage, renderArtPrompt, renderPackageHtml, type TournamentPackage } from "@bb/validator";
-import { buildForkJnlp, createForkAccount, forkDbConfigFromEnv, jnlpFilename } from "@bb/fork-ops";
+import {
+  buildForkJnlp,
+  createForkAccount,
+  forkConfigFromEnv,
+  forkDbConfigFromEnv,
+  ingestForkTeam,
+  jnlpFilename,
+  Matchmaker,
+  queryCoaches,
+  readLibrary,
+} from "@bb/fork-ops";
 import { PackageFiles, readCoaches, skillCatalog, starList, teamList } from "./data";
 import { PRESETS } from "./presets";
 
@@ -27,7 +37,16 @@ import { PRESETS } from "./presets";
  * so leaving them open is a low-stakes tradeoff for a same-machine/LAN dev tool.
  * Revisit if this server is ever exposed beyond that.
  */
-const PUBLIC_PATHS = new Set(["/api/fork/jnlp", "/api/fork/register"]);
+const PUBLIC_PATHS = new Set([
+  "/api/fork/jnlp",
+  "/api/fork/register",
+  "/api/fork/library",
+  "/api/fork/library/ingest",
+  "/api/fork/coaches",
+  "/api/fork/challenge",
+  "/api/fork/matchstatus",
+  "/api/fork/cancel",
+]);
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = resolve(HERE, "../public");
@@ -38,8 +57,12 @@ const PACKAGES_DIR = resolve(process.env.PACKAGES_DIR || join(HERE, "../../../to
 const VALIDATED_CSV = resolve(
   process.env.VALIDATED_CSV || join(HERE, "../../discord-bot/data-store/validated-rosters.csv"),
 );
+// Fork team libraries (one JSON file per coach). Defaults under config-web's data-store.
+const LIBRARY_DIR = resolve(process.env.FORK_LIBRARY_DIR || join(HERE, "../data-store/library"));
 
 const packages = new PackageFiles(PACKAGES_DIR);
+// Process-local matchmaking state (poll-based delivery, ~10min TTL) — see @bb/fork-ops.
+const matchmaker = new Matchmaker();
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -163,17 +186,88 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
 
   // FUMBBL40k client's "Register this coach on the fork" button (Connection pane).
   // Idempotent upsert — same fork coach, calling it again just resets the password.
+  // The client (case 428) sends the coach's chosen password; if omitted we fall back
+  // to the fixed test password "12345" (backwards compatible with the old caller).
   if (path === "/api/fork/register" && method === "GET") {
     const coach = query.get("coach")?.trim();
+    const password = query.get("password")?.trim() || undefined;
     if (!coach) return sendJson(res, 400, { error: "coach is required." });
     const cfg = forkDbConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
     try {
-      await createForkAccount(cfg, coach);
+      await createForkAccount(cfg, coach, password);
       return sendJson(res, 200, { ok: true, coach });
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
     }
+  }
+
+  // List a coach's fork team library.
+  if (path === "/api/fork/library" && method === "GET") {
+    const coach = query.get("coach")?.trim();
+    if (!coach) return sendJson(res, 400, { error: "coach is required." });
+    return sendJson(res, 200, { teams: readLibrary(LIBRARY_DIR, coach) });
+  }
+
+  // Ingest a FUMBBL team (id or /t/<id> URL) into a coach's library: fetch → re-coach →
+  // save XML into the fork's teams dir → upsert the LibraryTeam row. Needs FORK_TEAMS_DIR.
+  if (path === "/api/fork/library/ingest" && method === "GET") {
+    const coach = query.get("coach")?.trim();
+    const team = query.get("team")?.trim();
+    if (!coach || !team) return sendJson(res, 400, { error: "coach and team are required." });
+    const cfg = forkConfigFromEnv();
+    if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
+    try {
+      const result = await ingestForkTeam(cfg, LIBRARY_DIR, coach, team);
+      return sendJson(res, 200, { ok: true, ...result });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  // Opponent-name autocomplete against fork coach names.
+  if (path === "/api/fork/coaches" && method === "GET") {
+    const q = query.get("q") ?? "";
+    const limit = Number(query.get("limit") ?? 10);
+    const exclude = query.get("coach")?.trim() || undefined;
+    const cfg = forkDbConfigFromEnv();
+    if (!cfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
+    try {
+      return sendJson(res, 200, { coaches: await queryCoaches(cfg, q, limit, exclude) });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  // Enter matchmaking: record my pending challenge. Instant reciprocal matches are
+  // delivered via the next matchstatus poll (both sides), so this always returns waiting.
+  if (path === "/api/fork/challenge" && method === "GET") {
+    const coach = query.get("coach")?.trim();
+    const teamId = query.get("teamId")?.trim();
+    const opponent = query.get("opponent")?.trim();
+    const password = query.get("password")?.trim() || undefined;
+    if (!coach || !teamId || !opponent)
+      return sendJson(res, 400, { error: "coach, teamId and opponent are required." });
+    try {
+      return sendJson(res, 200, matchmaker.challenge({ coach, teamId, opponent, password }));
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  // Poll for a match. Returns {status:"waiting"} or {status:"matched",gameName,opponent,jnlp}.
+  if (path === "/api/fork/matchstatus" && method === "GET") {
+    const coach = query.get("coach")?.trim();
+    if (!coach) return sendJson(res, 400, { error: "coach is required." });
+    return sendJson(res, 200, matchmaker.matchstatus(coach));
+  }
+
+  // Drop my pending challenge.
+  if (path === "/api/fork/cancel" && method === "GET") {
+    const coach = query.get("coach")?.trim();
+    if (!coach) return sendJson(res, 400, { error: "coach is required." });
+    matchmaker.cancel(coach);
+    return sendJson(res, 200, { ok: true });
   }
 
   sendJson(res, 404, { error: "Unknown endpoint." });

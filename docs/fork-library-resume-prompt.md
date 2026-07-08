@@ -1,5 +1,10 @@
 # RESUME PROMPT — Fork Team Library + Create-Game Matchmaking
 
+> ✅ **DONE (2026-07-08).** This build is complete and verified live — all 6 routes + the register-password
+> fix shipped on config-web, `@bb/fork-ops` grew `teams.ts`/`library.ts`/`matchmaking.ts`, 185 tests green.
+> See `docs/RESUME.md` (fork-endpoints section) for the current contract. This file is kept for the
+> historical plan + the two recorded design decisions (persist ingested teams; `needsRestart:true` for v1).
+
 Copy/paste the block below as your first message in a fresh session to pick up this task.
 
 ---

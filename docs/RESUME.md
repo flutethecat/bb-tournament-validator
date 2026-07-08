@@ -1,26 +1,26 @@
 # RESUME — read this first
 
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
-Last updated 2026-07-08 · HEAD `e71c526` (validator core + FUMBBL40k bot integration, incl. daily-summary
-auto-publish + copyteam fork-roster-support warning + announcement hold + config-web one-click launch +
-register endpoints) · published: `flutethecat/bb-tournament-validator` (private; tag **`v0.1.1`** predates
-Spike/fork work — cut a fresh tag before FUMBBL40k pins it) · **166 tests green, all packages typecheck +
-build.**
+Last updated 2026-07-08 · validator core + FUMBBL40k bot integration (daily-summary auto-publish +
+copyteam fork-roster-support warning + announcement hold + config-web one-click launch/register +
+**fork team library + Create-Game matchmaking**) · published: `flutethecat/bb-tournament-validator`
+(private; tag **`v0.1.1`** predates Spike/fork work — cut a fresh tag before FUMBBL40k pins it) ·
+**185 tests green, all packages typecheck + build.**
 ⚠ **Build/daily-summary announcements are currently HELD** (owner asked to pause today's upload pending
 go-ahead — `data-store/announce-hold.json`). Nothing will post (poller, `/bbbot 40k announce/daily`, or
 the 9AM task) until `/bbbot 40k resume` is run. Check this before assuming the pipeline is broken.
 
-🔜 **NEXT UP (not yet started, server side): fork team library + Create-Game matchmaking.** The FUMBBL40k
-client session wrote a full spec (`fumbbl40k-client\docs\fork-team-browser-spec.md`, commit `c6ee70e`) for
-6 new/updated `/api/fork/*` routes (register-with-password, library, library/ingest, coaches-autocomplete,
-challenge, matchstatus, cancel). Owner deferred the build to a fresh session/context —
-**`docs/fork-library-resume-prompt.md` has the copy-paste resume prompt** with the full plan, two flagged
-design decisions (with recommendations), and everything the fresh session needs. Start there.
-**Client side is DONE** (fumbbl40k-client `3c0efea`, cases 428–429): Create-Game modal, opponent
-autocomplete, team-library browser, Ingest Team, challenge→waiting→poll→open-JNLP flow, and the
-password-carrying register modal — all built and E2E-validated against a local stub of the spec (full
-flow incl. a live paired fork game vs a bot opponent). It'll light up with zero further client changes
-once the server routes land; degrades gracefully (clear errors) until then.
+✅ **DONE: fork team library + Create-Game matchmaking** (both sides shipped, 2026-07-08). Server built
+per the spec (`fumbbl40k-client\docs\fork-team-browser-spec.md`, `c6ee70e`): 6 new `/api/fork/*` routes +
+the register-password fix, all on config-web (see the fork-endpoints section below). Verified live against
+the running fork (MariaDB 3316): matchmaking pairs both sides on a shared gameName with correct per-side
+JNLPs; ingest fetches a real FUMBBL team, re-coaches + writes its XML, upserts the library row; register
+now persists the coach's chosen password (confirmed the stored md5 matches). **Client side** was already
+done (fumbbl40k-client `3c0efea`, cases 428–429, E2E-validated vs a local stub). Two design decisions I
+made (recorded, not silent defaults): **(1)** ingested teams **persist** (XML kept in the fork's teams/
+dir + a JSON library row per coach — survive a rebuild as long as files are kept); **(2)** ingest returns
+**`needsRestart:true`** for v1 (no FFB hot team-cache reload — out of scope, that's fork-server code). The
+build spec/plan is preserved in `docs/fork-library-resume-prompt.md` for reference.
 
 ## What this is
 A Discord bot + a portable TS validation core + a TO web config pane that validate Blood Bowl **2025**
@@ -134,17 +134,33 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
   register fumbbl:<name>`**), `announce` (re-post latest build), `daily` (re-post daily summary). Guide:
   `docs/40k-fork-guide.md`. Deps: `mysql2`.
 - **`@bb/fork-ops`** (`packages/bb-fork-ops/`, renamed from `@bb/fork-jnlp` once a 2nd shared need showed
-  up): `buildForkJnlp`/`jnlpFilename` (pure) + `createForkAccount`/`forkConfigFromEnv`/`forkDbConfigFromEnv`
-  (mysql2) — used by BOTH the bot's `/bbbot 40k` commands and config-web's `/api/fork/*` routes (below), so
-  they behave identically instead of drifting. `ForkDbConfig` (DB-only, gated on `FORK_DB_HOST`) vs
-  `ForkConfig` (+ `teamsDir`, gated on `FORK_TEAMS_DIR` — the bot's original signal, unchanged).
-  `discord-bot/src/fork40k.ts` imports + re-exports (zero behavior change).
-- **Config-web fork endpoints** (`apps/config-web/.env` needs `FORK_DB_*` — same values as the bot's):
-  `GET /api/fork/jnlp?coach&teamId&gameName&password` (one-click Launch, JNLP attachment) and
-  `GET /api/fork/register?coach` (one-click "Register this coach on the fork", `{ok,coach}`/`{error}`).
-  Both bypass `ADMIN_PASSWORD` (`PUBLIC_PATHS` in `server.ts`) — machine-to-machine, no user credentials —
-  and get CORS (`access-control-allow-origin: *`) on **every** response including errors (set centrally in
-  the request handler, not per-route, so a missing-param 400 is still readable by a browser client).
+  up): `buildForkJnlp`/`jnlpFilename` (pure) + `createForkAccount`/`queryCoaches`/`forkConfigFromEnv`/
+  `forkDbConfigFromEnv` (mysql2) + the team-fetch/ingest helpers (`fetchForkTeam`/`copyForkTeam`/
+  `parseTeamId`/`forkSupportsRace`/`parseTeamXmlMeta`/`ingestForkTeam`, lifted here from the bot's
+  `fork40k.ts` once config-web needed them too — `teams.ts`) + the library store (`library.ts` —
+  `readLibrary`/`upsertLibraryTeam`/`LibraryTeam`) + `Matchmaker` (`matchmaking.ts`, in-memory, poll-based,
+  ~10min TTL). Used by BOTH the bot's `/bbbot 40k` commands and config-web's `/api/fork/*` routes so they
+  can't drift. `ForkDbConfig` (DB-only, gated on `FORK_DB_HOST`) vs `ForkConfig` (+ `teamsDir`, gated on
+  `FORK_TEAMS_DIR`). `discord-bot/src/fork40k.ts` is now a thin re-export barrel.
+  `createForkAccount(cfg, name, password?)` md5s the chosen password (defaults to "12345" when omitted).
+- **Config-web fork endpoints** (all GET, all in `PUBLIC_PATHS` → bypass `ADMIN_PASSWORD`, all get
+  `access-control-allow-origin: *` on **every** response incl. errors — set centrally in the request
+  handler so a missing-param 400 is still readable by a browser client). `.env` needs `FORK_DB_*` (register/
+  coaches/matchmaking) and `FORK_TEAMS_DIR` (ingest); `FORK_LIBRARY_DIR` optional (defaults to
+  `apps/config-web/data-store/library`):
+  - `GET /api/fork/jnlp?coach&teamId&gameName&password` — one-click Launch (JNLP attachment).
+  - `GET /api/fork/register?coach&password` — register/reset a fork coach with the **chosen password**
+    (md5-hashed); `password` optional → "12345". `{ok,coach}`/`{error}`.
+  - `GET /api/fork/library?coach` → `{teams:LibraryTeam[]}`.
+  - `GET /api/fork/library/ingest?coach&team` → `{ok,team,raceWarning?,needsRestart}` — fetch a FUMBBL team
+    (id or /t/URL), re-coach + write its XML to the fork teams dir, upsert the library row.
+  - `GET /api/fork/coaches?q&limit&coach` → `{coaches:[name]}` — opponent autocomplete (`coach` excludes
+    self; LIKE metachars escaped).
+  - `GET /api/fork/challenge?coach&teamId&opponent&password` → `{status:"waiting"}` (reciprocal match is
+    delivered via the next poll for both sides).
+  - `GET /api/fork/matchstatus?coach` → `{status:"waiting"}` | `{status:"matched",gameName,opponent,jnlp}`
+    (matched result is consumed on read).
+  - `GET /api/fork/cancel?coach` → `{ok}`.
 - **Build announcer:** the bot polls the FUMBBL40k client's `dist-manifest/latest-build.json`
   (contract `fumbbl40k.build-manifest/1|2`) every 60s and posts new cuts (What's-new change log +
   attached installer, or `downloadUrl` link fallback) to the announce channel; de-dupes on
