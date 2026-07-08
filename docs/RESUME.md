@@ -104,6 +104,19 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
 - The bot runs as a foreground process that dies with the session. To bring it back:
   `cd apps\discord-bot && pnpm register && pnpm start` (register only needed after command changes).
 - ⚠ Private channels need the bot **added to the channel** even with Administrator.
+- **FUMBBL40k fork admin** (`/bbbot 40k`, Manage Server, needs the bot on the fork host + `FORK_*` env):
+  `setchannel` (games/JNLP channel), `announcechannel` (build-announce channel), `createaccount`,
+  `copyteam`, `launch` (posts fork-join JNLPs, @-pings each coach — **gated on `/bbbot coach register
+  fumbbl:<name>`**), `announce` (re-post latest build). Guide: `docs/40k-fork-guide.md`. Deps: `mysql2`.
+- **Build announcer:** the bot polls the FUMBBL40k client's `dist-manifest/latest-build.json`
+  (contract `fumbbl40k.build-manifest/1|2`) every 60s and posts new cuts (What's-new change log +
+  attached installer, or `downloadUrl` link fallback) to the announce channel; de-dupes on
+  version+gitSha (state `data-store/build-announce.json`).
+- **⏰ Windows Scheduled Task "FUMBBL40k Daily Build Announce"** runs `apps\discord-bot\scripts\
+  daily-announce.cmd` daily at **09:00 local (= Pacific, machine TZ)** → `pnpm announce`
+  (`src/announceOnce.ts`): one-shot login, publishes the latest build if new (shares the de-dupe
+  state with the poller), exits. Backstops the poller when the bot isn't running. Log:
+  `data-store/announce.log`. Manage via `Get-ScheduledTask -TaskName "FUMBBL40k Daily Build Announce"`.
 
 ## Key gotchas / durable lessons
 - **FUMBBL "team details" PDFs** (not bbtc.pl) mostly parse via `bbtcPdfSource`, but the **header
