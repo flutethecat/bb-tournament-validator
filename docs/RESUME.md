@@ -1,5 +1,10 @@
 # RESUME — read this first
 
+> **Session callsign: General Veers** — this (the Tournament Bot / BB Tournament Validator) track's identity
+> in the FUMBBL40k convo family. Siblings: **Tarkin** (Fumbbl40k client), **Colonel Aurek Voss** (FUMBBL
+> Classic), **Wulff Yularen** (artifact orchestrator, `local_18db1e04…`). Use this name on cross-session
+> messages so a future Tournament Bot session is recognized consistently.
+
 Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-tournament-validator\`).
 Last updated 2026-07-08 · validator core + FUMBBL40k bot integration (daily-summary auto-publish +
 copyteam fork-roster-support warning + announcement hold + config-web one-click launch/register +
