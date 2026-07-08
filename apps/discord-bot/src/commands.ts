@@ -12,6 +12,7 @@
  *   /bbbot 40k createaccount <username>       (fork admin, Manage Server)
  *   /bbbot 40k copyteam <url>                 (fork admin, Manage Server)
  *   /bbbot 40k launch <game> <team> [team2] [pw]  (posts JNLP(s) to the 40k channel, @-ing each coach)
+ *   /bbbot 40k announce                       (re-post the latest FUMBBL40k build manifest)
  *   /bbbot coach register [fumbbl] [naf-name] [naf]
  *   /bbbot coach lookup key:<key> value:<value>
  *   /bbbot coach me
@@ -164,6 +165,9 @@ export const commandDefs = [
             .addStringOption((o) =>
               o.setName("url").setDescription("https://fumbbl.com/t/<id>").setRequired(true),
             ),
+        )
+        .addSubcommand((s) =>
+          s.setName("announce").setDescription("Re-post the latest FUMBBL40k build announcement to the 40k channel"),
         )
         .addSubcommand((s) =>
           s

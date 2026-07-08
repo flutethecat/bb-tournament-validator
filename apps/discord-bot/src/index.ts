@@ -30,6 +30,7 @@ import { FileCoachRegistry, KeyConflictError, type CoachKey } from "./store/coac
 import { WatchStore } from "./store/watchStore";
 import { Fork40kStore } from "./store/fork40kStore";
 import { buildForkJnlp, copyForkTeam, createForkAccount, fetchForkTeam, forkConfigFromEnv, jnlpFilename } from "./fork40k";
+import { AnnounceState, fmtBytes, readManifest, type BuildManifest } from "./buildAnnounce";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 if (!TOKEN) {
@@ -45,6 +46,7 @@ const validated = new CsvValidatedStore(join(DATA_DIR, "validated-rosters.csv"))
 const coaches = new FileCoachRegistry(join(DATA_DIR, "coaches.json"));
 const watches = new WatchStore(join(DATA_DIR, "watches.json"));
 const fork40k = new Fork40kStore(join(DATA_DIR, "fork40k.json"));
+const announceState = new AnnounceState(join(DATA_DIR, "build-announce.json"));
 
 /** Shared success side effects: DM + validated-roster row + coach-registry team. */
 async function recordValidRoster(
@@ -478,6 +480,11 @@ async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
       return;
     }
 
+    if (sub === "announce") {
+      await i.editReply(await announceBuild(true));
+      return;
+    }
+
     // createaccount / copyteam need the fork-host config (DB + teams dir).
     const cfg = forkConfigFromEnv();
     if (!cfg) {
@@ -500,6 +507,55 @@ async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
   } catch (e) {
     await i.editReply(`❌ Fork command failed: ${(e as Error).message}`);
   }
+}
+
+// ---- FUMBBL40k build announcer ----
+const BUILD_COLOR: Record<string, number> = { test: 0xe0a020, rc: 0x3a7bd5, release: 0x22e05a };
+
+function renderBuildEmbed(m: BuildManifest): EmbedBuilder {
+  const e = new EmbedBuilder()
+    .setTitle(`FUMBBL40k v${m.version} (${m.channel.toUpperCase()})`)
+    .setColor(BUILD_COLOR[m.channel] ?? 0x8a4ab0)
+    .setDescription(
+      (m.highlights.length ? m.highlights.map((h) => `• ${h}`).join("\n") : "_(no highlights)_").slice(0, 4000),
+    )
+    .addFields(
+      {
+        name: "Installer",
+        value: `${m.installer.file}${m.installer.present ? "" : " ⚠ missing"}\n${fmtBytes(m.installer.bytes)}`,
+        inline: true,
+      },
+      { name: "SHA-256", value: `\`${m.installer.sha256.slice(0, 16)}…\``, inline: true },
+      { name: "Build", value: `commit \`${m.gitSha}\` · ${m.date}`, inline: true },
+    );
+  if (m.notes) e.setFooter({ text: m.notes.slice(0, 2048) });
+  return e;
+}
+
+/** Post the current manifest to the 40k channel. `force` bypasses the de-dupe. */
+async function announceBuild(force: boolean): Promise<string> {
+  const m = readManifest();
+  if (!m) return "No readable build manifest found.";
+  const channelId = fork40k.getChannel();
+  if (!channelId) return "No FUMBBL40k channel set — run `/bbbot 40k setchannel`.";
+  if (!force && !announceState.isNew(m)) return `v${m.version} (${m.gitSha}) is already announced.`;
+  const ch = await client.channels.fetch(channelId);
+  if (!ch?.isTextBased()) return `<#${channelId}> is not a text channel.`;
+  await (ch as unknown as { send: (o: unknown) => Promise<unknown> }).send({ embeds: [renderBuildEmbed(m)] });
+  announceState.mark(m);
+  return `✅ Announced FUMBBL40k v${m.version} (${m.channel}) → <#${channelId}>.`;
+}
+
+/** Poll the manifest; auto-announce genuinely-new builds. First run seeds silently. */
+async function pollBuildManifest(): Promise<void> {
+  const m = readManifest();
+  if (!m) return;
+  if (announceState.isEmpty()) {
+    announceState.mark(m); // seed — don't announce the build that already exists at first boot
+    console.log(`Build announcer seeded at v${m.version} (${m.gitSha}); new builds will auto-announce.`);
+    return;
+  }
+  if (announceState.isNew(m)) console.log(await announceBuild(false));
 }
 
 // ---- wiring ----
@@ -561,6 +617,9 @@ async function autocompletePackages(i: AutocompleteInteraction): Promise<void> {
 
 client.once("clientReady", () => {
   console.log(`Logged in as ${client.user?.tag}. Packages dir: ${PACKAGES_DIR}. Data dir: ${DATA_DIR}.`);
+  // Watch the FUMBBL40k build manifest and auto-announce new cuts.
+  void pollBuildManifest().catch((e) => console.error("build poll error:", e));
+  setInterval(() => void pollBuildManifest().catch((e) => console.error("build poll error:", e)), 60_000);
 });
 
 void client.login(TOKEN);
