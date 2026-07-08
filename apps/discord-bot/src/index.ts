@@ -526,7 +526,10 @@ function renderBuildEmbed(m: BuildManifest): EmbedBuilder {
     .setTitle(`FUMBBL40k v${m.version} (${m.channel.toUpperCase()})`)
     .setColor(BUILD_COLOR[m.channel] ?? 0x8a4ab0)
     .setDescription(
-      (m.highlights.length ? m.highlights.map((h) => `• ${h}`).join("\n") : "_(no highlights)_").slice(0, 4000),
+      (m.highlights.length
+        ? `**What's new**\n${m.highlights.map((h) => `• ${h}`).join("\n")}`
+        : "_(no change-log highlights in this build)_"
+      ).slice(0, 4000),
     )
     .addFields(
       {
