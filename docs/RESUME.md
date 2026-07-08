@@ -11,9 +11,9 @@ copyteam fork-roster-support warning + announcement hold + config-web one-click 
 **fork team library + Create-Game matchmaking**) · published: `flutethecat/bb-tournament-validator`
 (private; tag **`v0.2.0`** = current pin point — Spike! ruleset + all fork-ops + library/matchmaking;
 v0.1.0/v0.1.1 predate that work) · **185 tests green, all packages typecheck + build.**
-⚠ **Build/daily-summary announcements are currently HELD** (owner asked to pause today's upload pending
-go-ahead — `data-store/announce-hold.json`). Nothing will post (poller, `/bbbot 40k announce/daily`, or
-the 9AM task) until `/bbbot 40k resume` is run. Check this before assuming the pipeline is broken.
+✅ **Announce hold LIFTED 2026-07-08** (owner go-ahead) — the pipeline is live again and **v0.1.14 (test)
+was announced** to the announce channel (installer attached; de-dupe state `build-announce.json` marked
+`0.1.14`/`b95324f`). To pause again: `/bbbot 40k hold`; `data-store/announce-hold.json` is the switch.
 
 ✅ **DONE: fork team library + Create-Game matchmaking** (both sides shipped, 2026-07-08). Server built
 per the spec (`fumbbl40k-client\docs\fork-team-browser-spec.md`, `c6ee70e`): 6 new `/api/fork/*` routes +
