@@ -9,8 +9,8 @@ Handoff for the **BB Tournament Validator** (`C:\Users\Jay\Documents\Claude\bb-t
 Last updated 2026-07-08 · validator core + FUMBBL40k bot integration (daily-summary auto-publish +
 copyteam fork-roster-support warning + announcement hold + config-web one-click launch/register +
 **fork team library + Create-Game matchmaking**) · published: `flutethecat/bb-tournament-validator`
-(private; tag **`v0.1.1`** predates Spike/fork work — cut a fresh tag before FUMBBL40k pins it) ·
-**185 tests green, all packages typecheck + build.**
+(private; tag **`v0.2.0`** = current pin point — Spike! ruleset + all fork-ops + library/matchmaking;
+v0.1.0/v0.1.1 predate that work) · **185 tests green, all packages typecheck + build.**
 ⚠ **Build/daily-summary announcements are currently HELD** (owner asked to pause today's upload pending
 go-ahead — `data-store/announce-hold.json`). Nothing will post (poller, `/bbbot 40k announce/daily`, or
 the 9AM task) until `/bbbot 40k resume` is run. Check this before assuming the pipeline is broken.
