@@ -8,6 +8,8 @@
  *   /bbbot packages
  *   /bbbot package show <name>
  *   /bbbot package import <document> [skillcosts]
+ *   /bbbot 40k createaccount <username>   (fork admin, Manage Server)
+ *   /bbbot 40k copyteam <url>             (fork admin, Manage Server)
  *   /bbbot coach register [fumbbl] [naf-name] [naf]
  *   /bbbot coach lookup key:<key> value:<value>
  *   /bbbot coach me
@@ -126,6 +128,27 @@ export const commandDefs = [
             )
             .addAttachmentOption((o) =>
               o.setName("skillcosts").setDescription("CSV skill-cost overrides (skill,costSP,elite)"),
+            ),
+        ),
+    )
+    .addSubcommandGroup((g) =>
+      g
+        .setName("40k")
+        .setDescription("FUMBBL40k fork admin (Manage Server)")
+        .addSubcommand((s) =>
+          s
+            .setName("createaccount")
+            .setDescription("Create/reset a fork test coach (password 12345)")
+            .addStringOption((o) =>
+              o.setName("username").setDescription("Coach name (must match the team's owner to join)").setRequired(true),
+            ),
+        )
+        .addSubcommand((s) =>
+          s
+            .setName("copyteam")
+            .setDescription("Copy a FUMBBL team onto the fork")
+            .addStringOption((o) =>
+              o.setName("url").setDescription("https://fumbbl.com/t/<id>").setRequired(true),
             ),
         ),
     )

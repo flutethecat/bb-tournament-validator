@@ -28,6 +28,7 @@ import { renderProblemsEmbed, renderResultEmbed, validateFumbblTeam, validateRos
 import { CsvValidatedStore } from "./store/validatedStore";
 import { FileCoachRegistry, KeyConflictError, type CoachKey } from "./store/coachRegistry";
 import { WatchStore } from "./store/watchStore";
+import { copyForkTeam, createForkAccount, forkConfigFromEnv } from "./fork40k";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 if (!TOKEN) {
@@ -400,6 +401,40 @@ async function handleCoach(i: ChatInputCommandInteraction): Promise<void> {
   });
 }
 
+// ---- /bbbot 40k (fork admin — Manage Server) ----
+async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
+  if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+    await i.reply({ content: "FUMBBL40k fork admin requires Manage Server.", flags: MessageFlags.Ephemeral });
+    return;
+  }
+  const cfg = forkConfigFromEnv();
+  if (!cfg) {
+    await i.reply({
+      content:
+        "Fork provisioning isn't configured — set `FORK_TEAMS_DIR` (+ `FORK_DB_*`) in the bot's `.env`, and run the bot on the fork host.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+  const sub = i.options.getSubcommand();
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+  try {
+    if (sub === "createaccount") {
+      const username = i.options.getString("username", true).trim();
+      await createForkAccount(cfg, username);
+      await i.editReply(`✅ Fork coach **${username}** created/reset — password \`12345\`.`);
+    } else if (sub === "copyteam") {
+      const t = await copyForkTeam(cfg, i.options.getString("url", true));
+      await i.editReply(
+        `✅ Copied **${t.teamName}** (coach **${t.coach}**, id ${t.teamId}) → \`${t.path}\`.\n` +
+          `⚠ A fork coach named **${t.coach}** must exist (\`/bbbot 40k createaccount ${t.coach}\`), and the FFB game server must restart to load the team.`,
+      );
+    }
+  } catch (e) {
+    await i.editReply(`❌ Fork command failed: ${(e as Error).message}`);
+  }
+}
+
 // ---- wiring ----
 // GuildMessages + MessageContent are required for watched-channel ingestion;
 // MessageContent is PRIVILEGED — it must be toggled ON in the developer portal
@@ -422,6 +457,7 @@ client.on("interactionCreate", async (interaction) => {
       return sub === "show"
         ? await handlePackageShow(interaction)
         : await handlePackageImport(interaction);
+    if (group === "40k") return await handleFork40k(interaction);
     if (group === "coach") return await handleCoach(interaction);
     switch (sub) {
       case "validate":
