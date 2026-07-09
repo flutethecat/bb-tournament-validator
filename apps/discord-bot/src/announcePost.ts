@@ -21,12 +21,14 @@ function heldMessage(hold: AnnounceHold): string | undefined {
 const BUILD_COLOR: Record<string, number> = { test: 0xe0a020, rc: 0x3a7bd5, release: 0x22e05a };
 
 /**
- * The "FUMBBL40k Tester" role, pinged at the head of a BUILD announcement (not the daily
- * summary). Env-overridable; default is the role id resolved from the TABBL guild. Set
- * `FORK_TESTER_ROLE_ID=` (empty) to disable the ping. The role is non-mentionable, but the
- * bot (Administrator) can still ping it via an explicit allowedMentions.roles entry.
+ * The "FUMBBL40k Tester" role, pinged at the head of EVERY BUILD announcement (not the daily
+ * summary) — a build announce must always ping the testers (owner/Yularen directive). The id
+ * is overridable via `FORK_TESTER_ROLE_ID` (e.g. a different guild), but an empty/unset value
+ * falls back to the default rather than silently disabling the ping — that `||` (not `??`) is
+ * deliberate, so a blank env var can't drop the ping the way it did on 2026-07-09. The role is
+ * non-mentionable, but the bot (Administrator) pings it via an explicit allowedMentions.roles.
  */
-const TESTER_ROLE_ID = process.env.FORK_TESTER_ROLE_ID ?? "1522793395750310028";
+const TESTER_ROLE_ID = process.env.FORK_TESTER_ROLE_ID || "1522793395750310028";
 
 /** Discord non-Nitro upload limit (25 MiB), with headroom for the embed. */
 const MAX_ATTACH_BYTES = 24 * 1024 * 1024;

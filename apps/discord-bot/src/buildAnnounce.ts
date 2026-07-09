@@ -5,6 +5,7 @@
  * parse changelogs. Pure I/O + typing here; the embed + posting live in index.ts.
  */
 
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -36,6 +37,35 @@ export function manifestPath(): string {
     process.env.FORK_BUILD_MANIFEST ||
     "C:\\Users\\Jay\\Documents\\Claude\\fumbbl40k-client\\dist-manifest\\latest-build.json"
   );
+}
+
+/** The client repo root — two levels up from the manifest (<root>/dist-manifest/latest-build.json). */
+function clientRepoRoot(): string {
+  return dirname(dirname(manifestPath()));
+}
+
+/**
+ * Is this manifest's commit a TAGGED release? The auto-announce poller only fires on tagged
+ * builds, so an interim rebuild (the manifest re-emitted mid-iteration, as happened 4× on
+ * 2026-07-09) can no longer spam the channel. Manual announces (`/bbbot 40k announce`,
+ * `pnpm announce --force`) intentionally bypass this gate. Returns the release tag name if
+ * the commit is tagged `vX.Y.Z...`, else undefined. **Fails CLOSED** (undefined) when git
+ * is unavailable or the sha is unknown — better to hold than to auto-post an unverified build.
+ */
+export function manifestReleaseTag(m: BuildManifest, repoRoot = clientRepoRoot()): string | undefined {
+  if (!m.gitSha || m.gitSha === "unknown") return undefined;
+  try {
+    const out = execFileSync("git", ["-C", repoRoot, "tag", "--points-at", m.gitSha], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return out
+      .split("\n")
+      .map((t) => t.trim())
+      .find((t) => /^v\d+\.\d+\.\d+/.test(t));
+  } catch {
+    return undefined;
+  }
 }
 
 /** Read + minimally validate the manifest; undefined if missing/unreadable/wrong schema. */

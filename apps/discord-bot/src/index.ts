@@ -30,7 +30,7 @@ import { FileCoachRegistry, KeyConflictError, type CoachKey } from "./store/coac
 import { WatchStore } from "./store/watchStore";
 import { Fork40kStore } from "./store/fork40kStore";
 import { buildForkJnlp, copyForkTeam, createForkAccount, fetchForkTeam, forkConfigFromEnv, jnlpFilename } from "./fork40k";
-import { AnnounceState, readManifest } from "./buildAnnounce";
+import { AnnounceState, manifestReleaseTag, readManifest } from "./buildAnnounce";
 import { DailySummaryState, readTopDailySummary } from "./dailySummary";
 import { announceLatestBuild, announceLatestDailySummary } from "./announcePost";
 import { AnnounceHold } from "./announceHold";
@@ -548,7 +548,13 @@ async function announceBuild(force: boolean): Promise<string> {
   return announceLatestBuild(client, fork40k.getAnnounceChannel(), announceState, force, announceHold);
 }
 
-/** Poll the manifest; auto-announce genuinely-new builds. First run seeds silently. */
+/**
+ * Poll the manifest; auto-announce genuinely-new builds. First run seeds silently.
+ * TAG-GATED: the poller only auto-announces a build whose commit is a `vX.Y.Z` release tag,
+ * so interim rebuilds (the manifest re-emitted mid-iteration) can't spam the channel. An
+ * untagged new build is held with a log line — post it deliberately with `/bbbot 40k announce`
+ * (which bypasses this gate) once it's the real cut.
+ */
 async function pollBuildManifest(): Promise<void> {
   const m = readManifest();
   if (!m) return;
@@ -557,7 +563,17 @@ async function pollBuildManifest(): Promise<void> {
     console.log(`Build announcer seeded at v${m.version} (${m.gitSha}); new builds will auto-announce.`);
     return;
   }
-  if (announceState.isNew(m)) console.log(await announceBuild(false));
+  if (!announceState.isNew(m)) return;
+  const tag = manifestReleaseTag(m);
+  if (!tag) {
+    // Don't mark state — a later re-emit at the tagged commit still reads as new and posts.
+    console.log(
+      `Build manifest v${m.version} (${m.gitSha}) is not a tagged release — holding auto-announce ` +
+        `(use \`/bbbot 40k announce\` to post it manually).`,
+    );
+    return;
+  }
+  console.log(await announceBuild(false));
 }
 
 /** Post the top day's entry from the shared daily-summary.md. `force` bypasses de-dupe. */
