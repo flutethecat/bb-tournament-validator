@@ -104,6 +104,9 @@ describe("Matchmaker", () => {
       const a = mm.matchstatus("Kalimar");
       const b = mm.matchstatus("BattleLore");
       if (a.status !== "matched" || b.status !== "matched") throw new Error("unreachable");
+      // Surfaced as a first-class field (wire-proves the client's -gameId consumer), not only in the JNLP.
+      expect(a.gameId).toBe("42");
+      expect(b.gameId).toBe("42");
       expect(a.jnlp).toContain("<argument>-gameId</argument><argument>42</argument>");
       expect(b.jnlp).toContain("<argument>-gameId</argument><argument>42</argument>");
       // gameName is still present too (additive, not a replacement).

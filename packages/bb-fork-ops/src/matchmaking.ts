@@ -35,6 +35,8 @@ interface Challenge {
 
 interface MatchDelivery {
   gameName: string;
+  /** The server-scheduled gameId, when scheduling succeeded (else undefined → gameName join). */
+  gameId?: string;
   opponent: string;
   jnlp: string;
   createdAt: number;
@@ -42,7 +44,7 @@ interface MatchDelivery {
 
 export type MatchStatus =
   | { status: "waiting" }
-  | { status: "matched"; gameName: string; opponent: string; jnlp: string };
+  | { status: "matched"; gameName: string; gameId?: string; opponent: string; jnlp: string };
 
 /** Injected so pure matchmaking logic stays testable without real fork/HTTP access. */
 export type ForkGameScheduler = (teamHomeId: string, teamAwayId: string) => Promise<{ gameId: string } | undefined>;
@@ -137,12 +139,14 @@ export class Matchmaker {
 
     this.matched.set(this.key(a.coach), {
       gameName,
+      gameId,
       opponent: b.coach,
       jnlp: buildForkJnlp({ coach: a.coach, teamId: a.teamId, gameName, password: a.password, gameId }),
       createdAt: at,
     });
     this.matched.set(this.key(b.coach), {
       gameName,
+      gameId,
       opponent: a.coach,
       jnlp: buildForkJnlp({ coach: b.coach, teamId: b.teamId, gameName, password: b.password, gameId }),
       createdAt: at,
@@ -161,7 +165,7 @@ export class Matchmaker {
     const m = this.matched.get(k);
     if (m) {
       this.matched.delete(k);
-      return { status: "matched", gameName: m.gameName, opponent: m.opponent, jnlp: m.jnlp };
+      return { status: "matched", gameName: m.gameName, gameId: m.gameId, opponent: m.opponent, jnlp: m.jnlp };
     }
     return { status: "waiting" };
   }
