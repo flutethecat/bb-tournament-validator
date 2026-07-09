@@ -20,6 +20,14 @@ function heldMessage(hold: AnnounceHold): string | undefined {
 
 const BUILD_COLOR: Record<string, number> = { test: 0xe0a020, rc: 0x3a7bd5, release: 0x22e05a };
 
+/**
+ * The "FUMBBL40k Tester" role, pinged at the head of a BUILD announcement (not the daily
+ * summary). Env-overridable; default is the role id resolved from the TABBL guild. Set
+ * `FORK_TESTER_ROLE_ID=` (empty) to disable the ping. The role is non-mentionable, but the
+ * bot (Administrator) can still ping it via an explicit allowedMentions.roles entry.
+ */
+const TESTER_ROLE_ID = process.env.FORK_TESTER_ROLE_ID ?? "1522793395750310028";
+
 /** Discord non-Nitro upload limit (25 MiB), with headroom for the embed. */
 const MAX_ATTACH_BYTES = 24 * 1024 * 1024;
 
@@ -82,7 +90,11 @@ export async function announceLatestBuild(
   const ch = await client.channels.fetch(channelId);
   if (!ch?.isTextBased()) return `<#${channelId}> is not a text channel.`;
   const attachment = installerAttachment(m);
+  const testerPing = TESTER_ROLE_ID
+    ? { content: `<@&${TESTER_ROLE_ID}> — new FUMBBL40k build`, allowedMentions: { roles: [TESTER_ROLE_ID] } }
+    : {};
   await (ch as unknown as { send: (o: unknown) => Promise<unknown> }).send({
+    ...testerPing,
     embeds: [renderBuildEmbed(m)],
     ...(attachment ? { files: [attachment] } : {}),
   });

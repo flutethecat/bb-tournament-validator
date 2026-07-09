@@ -178,7 +178,11 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
   explicit owner directive.)
 - **Build announcer:** the bot polls the FUMBBL40k client's `dist-manifest/latest-build.json`
   (contract `fumbbl40k.build-manifest/1|2`) every 60s and posts new cuts (What's-new change log +
-  attached installer, or `downloadUrl` link fallback) to the announce channel; de-dupes on
+  attached installer, or `downloadUrl` link fallback) to the announce channel — **pinging the
+  "FUMBBL40k Tester" role at the message head** (`<@&…>` content + `allowedMentions.roles`; role id
+  `1522793395750310028`, env-override `FORK_TESTER_ROLE_ID`, empty disables; daily summaries do NOT ping).
+  ⚠ Code changes to the announcer only take effect via `pnpm announce` (announceOnce loads fresh source) or
+  a bot RESTART — the long-running bot process serves whatever code it started with. De-dupes on
   version+gitSha (state `data-store/build-announce.json`).
 - **Daily-summary announcer:** the bot also polls the shared cross-track end-of-day file
   `fumbbl40k-client/docs/daily-summary.md` every 60s and posts the **topmost day's entry** (parsed:
