@@ -13,6 +13,13 @@
  * fails for any reason, this falls back to the original scheme: a shared, deterministic
  * gameName that both sides join by (first join creates the game, second starts it) —
  * proven, so a scheduling failure never blocks a challenge from pairing.
+ *
+ * Auth: if a `verifyChallenger` function is supplied, a challenge must carry the coach's
+ * own password and verify against the fork DB before it counts toward mutuality. Without
+ * this, "mutual consent" is spoofable — anyone could issue both sides of a challenge
+ * under someone else's name and make config-web fire admin `schedule` on their behalf
+ * (Yularen's #admin-gate-security amendment §4b). Optional/backward-compatible, same
+ * injection shape as `scheduleGame`, for the same testability reason.
  */
 
 import { buildForkJnlp } from "./index.js";
@@ -40,6 +47,9 @@ export type MatchStatus =
 /** Injected so pure matchmaking logic stays testable without real fork/HTTP access. */
 export type ForkGameScheduler = (teamHomeId: string, teamAwayId: string) => Promise<{ gameId: string } | undefined>;
 
+/** Injected coach-password check (see the auth note above); `true` only on a verified match. */
+export type ChallengeVerifier = (coach: string, password: string) => Promise<boolean>;
+
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
 
 export class Matchmaker {
@@ -48,11 +58,18 @@ export class Matchmaker {
   private readonly ttlMs: number;
   private readonly now: () => number;
   private readonly scheduleGame?: ForkGameScheduler;
+  private readonly verifyChallenger?: ChallengeVerifier;
 
-  constructor(opts?: { ttlMs?: number; now?: () => number; scheduleGame?: ForkGameScheduler }) {
+  constructor(opts?: {
+    ttlMs?: number;
+    now?: () => number;
+    scheduleGame?: ForkGameScheduler;
+    verifyChallenger?: ChallengeVerifier;
+  }) {
     this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
     this.now = opts?.now ?? Date.now;
     this.scheduleGame = opts?.scheduleGame;
+    this.verifyChallenger = opts?.verifyChallenger;
   }
 
   /** Case-insensitive key so "Kalimar" and "kalimar" are the same coach. */
@@ -82,6 +99,12 @@ export class Matchmaker {
     if (!opts.teamId?.trim()) throw new Error("teamId is required.");
     if (!opponent) throw new Error("opponent is required.");
     if (this.key(coach) === this.key(opponent)) throw new Error("You can't challenge yourself.");
+
+    if (this.verifyChallenger) {
+      if (!opts.password) throw new Error("A password is required to challenge.");
+      const ok = await this.verifyChallenger(coach, opts.password);
+      if (!ok) throw new Error("Invalid coach name or password.");
+    }
 
     const mine: Challenge = { coach, teamId: opts.teamId.trim(), opponent, password: opts.password, createdAt: this.now() };
     this.pending.set(this.key(coach), mine);

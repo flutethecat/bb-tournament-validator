@@ -140,4 +140,42 @@ describe("Matchmaker", () => {
       expect(a.jnlp).not.toContain("-gameId");
     });
   });
+
+  describe("with a verifyChallenger function (authenticated mutual consent)", () => {
+    it("rejects a challenge with no password when verification is configured", async () => {
+      const mm = new Matchmaker({ verifyChallenger: async () => true });
+      await expect(mm.challenge({ coach: "A", teamId: "1", opponent: "B" })).rejects.toThrow(/password is required/i);
+    });
+
+    it("rejects a challenge that fails verification, without registering it as pending", async () => {
+      const mm = new Matchmaker({ verifyChallenger: async (coach) => coach !== "A" });
+      await expect(
+        mm.challenge({ coach: "A", teamId: "1", opponent: "B", password: "wrong" }),
+      ).rejects.toThrow(/invalid coach name or password/i);
+      // B's reciprocal challenge must NOT find A's — the rejected attempt left no state behind.
+      await expect(mm.challenge({ coach: "B", teamId: "2", opponent: "A", password: "pwB" })).resolves.toEqual({
+        status: "waiting",
+      });
+    });
+
+    it("cannot be spoofed by one caller issuing both sides of a 'mutual' challenge", async () => {
+      // Only the real "A" and real "B" passwords verify — an attacker guessing wrong for
+      // either side never gets a schedule-worthy mutual pair.
+      const verified = new Set(["A:secretA", "B:secretB"]);
+      const mm = new Matchmaker({ verifyChallenger: async (coach, pw) => verified.has(`${coach}:${pw}`) });
+      await mm.challenge({ coach: "A", teamId: "1", opponent: "B", password: "secretA" });
+      await expect(
+        mm.challenge({ coach: "B", teamId: "2", opponent: "A", password: "guessed-wrong" }),
+      ).rejects.toThrow(/invalid coach name or password/i);
+      expect(mm.matchstatus("A")).toEqual({ status: "waiting" }); // never paired
+    });
+
+    it("pairs normally once both sides verify", async () => {
+      const mm = new Matchmaker({ verifyChallenger: async () => true });
+      await mm.challenge({ coach: "A", teamId: "1", opponent: "B", password: "pwA" });
+      await mm.challenge({ coach: "B", teamId: "2", opponent: "A", password: "pwB" });
+      expect(mm.matchstatus("A").status).toBe("matched");
+      expect(mm.matchstatus("B").status).toBe("matched");
+    });
+  });
 });

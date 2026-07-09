@@ -121,3 +121,45 @@ export async function scheduleForkGame(
   }
   return { gameId };
 }
+
+/**
+ * Generic authenticated admin call — challenge → response → `GET /admin/<op>?response=...
+ * &<params>`, returning the raw XML. Backs the read/manage ops below (`list`, `cache`,
+ * `close`, `delete`, `concede`, `message`) per `ForVeers-admin-schedule-panel-spec.md` §6.
+ * Deliberately excludes destructive/irreversible ops (`shutdown`, `redeploy`, `purgetest`)
+ * from this module entirely — the spec calls for hard-gating those out of the panel, and
+ * the simplest hard gate is "the code to call them doesn't exist here."
+ */
+async function adminCommand(cfg: ForkAdminConfig, op: string, params: Record<string, string> = {}): Promise<string> {
+  const challenge = await adminChallenge(cfg);
+  const response = adminResponse(challenge, cfg.passwordMd5Hex);
+  const qs = new URLSearchParams({ response, ...params }).toString();
+  const res = await fetchWithTimeout(`${cfg.baseUrl}/admin/${op}?${qs}`);
+  const xml = await res.text();
+  const error = xmlTag(xml, "error");
+  if (error) throw new Error(`fork admin/${op}: ${error}`);
+  if (!res.ok) throw new Error(`fork admin/${op} failed (HTTP ${res.status}): ${xml.slice(0, 300)}`);
+  return xml;
+}
+
+/** `list <status>` — scheduled/active/finished/all games. Raw XML; caller/route normalizes. */
+export const adminList = (cfg: ForkAdminConfig, status = "all"): Promise<string> => adminCommand(cfg, "list", { status });
+
+/** `cache` — the admin API's live game-cache dump. Raw XML; caller/route normalizes. */
+export const adminCache = (cfg: ForkAdminConfig): Promise<string> => adminCommand(cfg, "cache");
+
+/** `close <id>` — end a game cleanly. */
+export const adminClose = (cfg: ForkAdminConfig, gameId: string): Promise<string> =>
+  adminCommand(cfg, "close", { id: gameId });
+
+/** `delete <id>` — remove a game (irreversible for that game row, but not server-destructive). */
+export const adminDelete = (cfg: ForkAdminConfig, gameId: string): Promise<string> =>
+  adminCommand(cfg, "delete", { id: gameId });
+
+/** `concede <id> <teamId>` — force a concession for one side of a stuck game. */
+export const adminConcede = (cfg: ForkAdminConfig, gameId: string, teamId: string): Promise<string> =>
+  adminCommand(cfg, "concede", { id: gameId, teamId });
+
+/** `message <text>` — broadcast an admin message to connected sessions. */
+export const adminMessage = (cfg: ForkAdminConfig, text: string): Promise<string> =>
+  adminCommand(cfg, "message", { msg: text });

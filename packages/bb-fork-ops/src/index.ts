@@ -154,6 +154,25 @@ export async function createForkAccount(cfg: ForkDbConfig, username: string, pas
  * a validated integer LIMIT avoids mysql2's prepared-LIMIT quirks). `exclude` drops the
  * requesting coach (you can't challenge yourself).
  */
+/**
+ * Verify a coach's password against `ffb_coaches` (md5 hex comparison, same hash the
+ * fork itself uses). Used to authenticate `/api/fork/challenge` — without this, anyone
+ * can issue BOTH sides of a "mutual" challenge under someone else's name and make
+ * config-web fire admin `schedule` on their behalf (Yularen's #admin-gate-security
+ * amendment §4b). Returns false (not a throw) for an unknown coach or wrong password —
+ * callers should treat both identically to avoid leaking which one it was.
+ */
+export async function verifyCoachPassword(cfg: ForkDbConfig, username: string, password: string): Promise<boolean> {
+  const name = username.trim();
+  if (!name || !password) return false;
+  const hash = md5hex(password);
+  const rows = await withConn(cfg, async (conn) => {
+    const [r] = await conn.execute("SELECT password FROM ffb_coaches WHERE name = ?", [name]);
+    return r as Array<{ password: string }>;
+  });
+  return rows.length > 0 && rows[0]!.password === hash;
+}
+
 export async function queryCoaches(cfg: ForkDbConfig, q: string, limit = 10, exclude?: string): Promise<string[]> {
   const needle = (q ?? "").trim();
   const lim = Math.min(50, Math.max(1, Math.floor(limit) || 10));

@@ -13,6 +13,12 @@ import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadPackage, renderArtPrompt, renderPackageHtml, type TournamentPackage } from "@bb/validator";
 import {
+  adminCache,
+  adminClose,
+  adminConcede,
+  adminDelete,
+  adminList,
+  adminMessage,
   buildForkJnlp,
   createForkAccount,
   forkAdminConfigFromEnv,
@@ -27,6 +33,7 @@ import {
   reloadFork,
   scheduleForkGame,
   upsertLibraryTeam,
+  verifyCoachPassword,
 } from "@bb/fork-ops";
 import { PackageFiles, readCoaches, skillCatalog, starList, teamList } from "./data";
 import { PRESETS } from "./presets";
@@ -76,9 +83,17 @@ const packages = new PackageFiles(PACKAGES_DIR);
 // (inside Matchmaker.pair) on any scheduling failure, so this is additive, not a hard
 // dependency.
 const forkAdminCfg = forkAdminConfigFromEnv();
+// Authenticates /api/fork/challenge against the fork DB when it's configured, so
+// "mutual consent" can't be spoofed by one caller issuing both sides under someone
+// else's name (Yularen's #admin-gate-security amendment §4b). Off (open, dev-mode) when
+// FORK_DB_HOST isn't set — same opt-in gate the other DB-backed routes already use.
+const challengeDbCfg = forkDbConfigFromEnv();
 const matchmaker = new Matchmaker({
   scheduleGame: forkAdminCfg
     ? (teamHomeId, teamAwayId) => scheduleForkGame(forkAdminCfg, teamHomeId, teamAwayId)
+    : undefined,
+  verifyChallenger: challengeDbCfg
+    ? (coach, password) => verifyCoachPassword(challengeDbCfg, coach, password)
     : undefined,
 });
 
@@ -105,6 +120,26 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   const decoded = Buffer.from(m[1]!, "base64").toString("utf8");
   const password = decoded.slice(decoded.indexOf(":") + 1);
   return password === ADMIN_PASSWORD;
+}
+
+/**
+ * Gate for the admin-panel/proxy routes (§5/§6 of ForVeers-admin-schedule-panel-spec.md):
+ * these expose real admin power (close/delete/concede/broadcast a live game) and must
+ * NOT ride on `authorized()`'s open-by-default behavior. `authorized()` returns `true`
+ * for everything when `ADMIN_PASSWORD` is unset (the historical "open on localhost dev"
+ * default) — fine for reads, wrong for admin mutations on a box that's bound 0.0.0.0
+ * with testers actively connected (Yularen's #admin-gate-security amendment §5b). So
+ * these routes independently require `ADMIN_PASSWORD` to be configured, on top of
+ * whatever `authorized()` already enforced to get this far.
+ */
+function requireAdminGate(res: ServerResponse): boolean {
+  if (!ADMIN_PASSWORD) {
+    sendJson(res, 503, {
+      error: "Admin routes require ADMIN_PASSWORD to be set on this host (real auth, not open-by-default).",
+    });
+    return false;
+  }
+  return true;
 }
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
@@ -317,6 +352,72 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
     if (!coach) return sendJson(res, 400, { error: "coach is required." });
     matchmaker.cancel(coach);
     return sendJson(res, 200, { ok: true });
+  }
+
+  // --- Admin panel / proxy routes (ForVeers-admin-schedule-panel-spec.md §5/§6) ---
+  // Real admin power (see requireAdminGate) — never added to PUBLIC_PATHS, and gated
+  // independently of authorized()'s open-by-default behavior. Raw fork XML is returned
+  // as-is (not yet parsed into normalized JSON): the admin `list`/`cache` response shape
+  // hasn't been verified live against the fork the way `challenge`/`schedule` have been,
+  // so surfacing the real XML now beats guessing a JSON shape that might not match.
+
+  if (path === "/api/fork/games" && method === "GET") {
+    if (!requireAdminGate(res)) return;
+    if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
+    const status = query.get("status") ?? "all";
+    try {
+      const xml = await (status === "cache" ? adminCache(forkAdminCfg) : adminList(forkAdminCfg, status));
+      return sendJson(res, 200, { xml });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  // Direct/manual schedule (TO-driven matchmaking from the panel) — distinct from the
+  // challenge-gated auto-schedule in /api/fork/challenge, same underlying admin call.
+  if (path === "/api/fork/schedule" && method === "POST") {
+    if (!requireAdminGate(res)) return;
+    if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
+    const body = (await readBody(req)) as { homeTeamId?: string; awayTeamId?: string };
+    if (!body.homeTeamId || !body.awayTeamId)
+      return sendJson(res, 400, { error: "homeTeamId and awayTeamId are required." });
+    try {
+      return sendJson(res, 200, await scheduleForkGame(forkAdminCfg, body.homeTeamId, body.awayTeamId));
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  const gameMatch = path.match(/^\/api\/fork\/game\/([^/]+)\/(close|delete|concede)$/);
+  if (gameMatch && method === "POST") {
+    if (!requireAdminGate(res)) return;
+    if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
+    const [, gameId, op] = gameMatch;
+    try {
+      let xml: string;
+      if (op === "close") xml = await adminClose(forkAdminCfg, gameId!);
+      else if (op === "delete") xml = await adminDelete(forkAdminCfg, gameId!);
+      else {
+        const body = (await readBody(req)) as { teamId?: string };
+        if (!body.teamId) return sendJson(res, 400, { error: "teamId is required to concede." });
+        xml = await adminConcede(forkAdminCfg, gameId!, body.teamId);
+      }
+      return sendJson(res, 200, { ok: true, xml });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  if (path === "/api/fork/message" && method === "POST") {
+    if (!requireAdminGate(res)) return;
+    if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
+    const body = (await readBody(req)) as { text?: string };
+    if (!body.text?.trim()) return sendJson(res, 400, { error: "text is required." });
+    try {
+      return sendJson(res, 200, { ok: true, xml: await adminMessage(forkAdminCfg, body.text) });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
   }
 
   sendJson(res, 404, { error: "Unknown endpoint." });
