@@ -101,5 +101,5 @@ naming each other. Order doesn't matter — whoever's second triggers the start.
 
 *Notes for maintainers: this guide targets the fork-API-working client build (v0.2.0+). The v0.2.0 UI
 restructure may move some controls — reconcile the exact labels/locations against the shipped v0.2.0 UI
-before wide distribution. Remote testers require config-web to be reachable at the fork's address
-(`HOST=0.0.0.0` + port 4310 forwarded); it is loopback-only by default.*
+before wide distribution. config-web now binds `0.0.0.0` (LAN-reachable at `192.168.0.8:4310`); for the
+PUBLIC fork IP to work, port 4310 must still be forwarded on the router (no UPnP → manual).*
