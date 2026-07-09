@@ -11,9 +11,12 @@ copyteam fork-roster-support warning + announcement hold + config-web one-click 
 **fork team library + Create-Game matchmaking**) · published: `flutethecat/bb-tournament-validator`
 (private; tag **`v0.2.0`** = current pin point — Spike! ruleset + all fork-ops + library/matchmaking;
 v0.1.0/v0.1.1 predate that work) · **185 tests green, all packages typecheck + build.**
-✅ **Announce hold LIFTED 2026-07-08** (owner go-ahead) — the pipeline is live again and **v0.1.14 (test)
-was announced** to the announce channel (installer attached; de-dupe state `build-announce.json` marked
-`0.1.14`/`b95324f`). To pause again: `/bbbot 40k hold`; `data-store/announce-hold.json` is the switch.
+⏸️ **Announce pipeline is HOLD-BY-DEFAULT** (2026-07-08, under the Veers-executes / Yularen-coordinates
+split — see Live-bot-ops "Duties split"). Nothing auto-posts: **Yularen gates each build** (validates the
+changelog, calls announce), then **Veers lifts the hold + runs the announcer**. The hold keeps whatever's
+pending un-marked, so a build cut while held still posts once released. v0.1.14 was already announced
+(de-dupe `build-announce.json` = `0.1.14`/`b95324f`). Switch: `data-store/announce-hold.json` (`/bbbot 40k
+hold|resume`); resume ONLY on Yularen's gate call (or an explicit owner override).
 
 ✅ **DONE: fork team library + Create-Game matchmaking** (both sides shipped, 2026-07-08). Server built
 per the spec (`fumbbl40k-client\docs\fork-team-browser-spec.md`, `c6ee70e`): 6 new `/api/fork/*` routes +
