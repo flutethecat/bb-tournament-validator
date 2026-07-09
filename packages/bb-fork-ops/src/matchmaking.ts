@@ -1,13 +1,18 @@
 /**
  * In-memory Create-Game matchmaking. A coach enters a challenge naming their team and
  * an opponent; when the opponent has a reciprocal pending challenge, the two are paired
- * on a shared gameName and each side is handed its own fork-join JNLP (its own coach /
- * team / password + the shared gameName). Both open their JNLP → they join the same
- * game by name (first join creates, second starts — existing fork behaviour).
+ * and each side is handed its own fork-join JNLP (its own coach/team/password + a shared
+ * join target). Delivery is poll-based (`matchstatus`): the client polls ~2s while
+ * waiting. State is process-local with a short TTL — fine for v1 on a single config-web
+ * instance; a DB or pub/sub would be needed only if this is ever load-balanced.
  *
- * Delivery is poll-based (`matchstatus`): the client polls ~2s while waiting. State is
- * process-local with a short TTL — fine for v1 on a single config-web instance; a DB or
- * pub/sub would be needed only if this is ever load-balanced across processes.
+ * Join target: if a `scheduleGame` function is supplied (see `scheduleForkGame` in
+ * forkAdmin.ts), pairing calls the fork's own admin API to create a REAL game server-side
+ * and get an authoritative gameId — both JNLPs carry `-gameId`, which the fork's join
+ * handler always prefers over gameName. If scheduling isn't configured, or the call
+ * fails for any reason, this falls back to the original scheme: a shared, deterministic
+ * gameName that both sides join by (first join creates the game, second starts it) —
+ * proven, so a scheduling failure never blocks a challenge from pairing.
  */
 
 import { buildForkJnlp } from "./index.js";
@@ -32,6 +37,9 @@ export type MatchStatus =
   | { status: "waiting" }
   | { status: "matched"; gameName: string; opponent: string; jnlp: string };
 
+/** Injected so pure matchmaking logic stays testable without real fork/HTTP access. */
+export type ForkGameScheduler = (teamHomeId: string, teamAwayId: string) => Promise<{ gameId: string } | undefined>;
+
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
 
 export class Matchmaker {
@@ -39,10 +47,12 @@ export class Matchmaker {
   private readonly matched = new Map<string, MatchDelivery>();
   private readonly ttlMs: number;
   private readonly now: () => number;
+  private readonly scheduleGame?: ForkGameScheduler;
 
-  constructor(opts?: { ttlMs?: number; now?: () => number }) {
+  constructor(opts?: { ttlMs?: number; now?: () => number; scheduleGame?: ForkGameScheduler }) {
     this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
     this.now = opts?.now ?? Date.now;
+    this.scheduleGame = opts?.scheduleGame;
   }
 
   /** Case-insensitive key so "Kalimar" and "kalimar" are the same coach. */
@@ -57,11 +67,14 @@ export class Matchmaker {
   }
 
   /**
-   * Enter (or refresh) a pending challenge. Always returns `{status:"waiting"}` — an
+   * Enter (or refresh) a pending challenge. Always resolves `{status:"waiting"}` — an
    * instant reciprocal match is delivered via the next `matchstatus` poll for BOTH
-   * sides, keeping one code path (the client's flow is always challenge → poll).
+   * sides, keeping one code path (the client's flow is always challenge → poll). Async
+   * because pairing may call out to the fork's admin API to schedule a real game; the
+   * caller awaits so the response only comes back once pairing has fully resolved
+   * (including the gameName-fallback path on a scheduling failure) — no partial state.
    */
-  challenge(opts: { coach: string; teamId: string; opponent: string; password?: string }): { status: "waiting" } {
+  async challenge(opts: { coach: string; teamId: string; opponent: string; password?: string }): Promise<{ status: "waiting" }> {
     this.sweep();
     const coach = opts.coach.trim();
     const opponent = opts.opponent.trim();
@@ -76,26 +89,39 @@ export class Matchmaker {
     // Reciprocal? The opponent must already be waiting AND naming me.
     const theirs = this.pending.get(this.key(opponent));
     if (theirs && this.key(theirs.opponent) === this.key(coach)) {
-      this.pair(mine, theirs);
+      await this.pair(mine, theirs);
     }
     return { status: "waiting" };
   }
 
-  private pair(a: Challenge, b: Challenge): void {
-    // Deterministic, order-independent shared game name.
-    const names = [a.coach, b.coach].sort((x, y) => x.localeCompare(y));
-    const gameName = `chal_${safe(names[0]!)}_${safe(names[1]!)}_${this.now()}`;
+  private async pair(a: Challenge, b: Challenge): Promise<void> {
+    // Deterministic, order-independent — same ordering used for both the gameName and
+    // the home/away assignment passed to scheduleGame.
+    const sorted = [a, b].sort((x, y) => x.coach.localeCompare(y.coach));
+    const first = sorted[0]!;
+    const second = sorted[1]!;
+    const gameName = `chal_${safe(first.coach)}_${safe(second.coach)}_${this.now()}`;
     const at = this.now();
+
+    let gameId: string | undefined;
+    if (this.scheduleGame) {
+      try {
+        gameId = (await this.scheduleGame(first.teamId, second.teamId))?.gameId;
+      } catch {
+        gameId = undefined; // fall back to the gameName-only scheme below, not a hard failure
+      }
+    }
+
     this.matched.set(this.key(a.coach), {
       gameName,
       opponent: b.coach,
-      jnlp: buildForkJnlp({ coach: a.coach, teamId: a.teamId, gameName, password: a.password }),
+      jnlp: buildForkJnlp({ coach: a.coach, teamId: a.teamId, gameName, password: a.password, gameId }),
       createdAt: at,
     });
     this.matched.set(this.key(b.coach), {
       gameName,
       opponent: a.coach,
-      jnlp: buildForkJnlp({ coach: b.coach, teamId: b.teamId, gameName, password: b.password }),
+      jnlp: buildForkJnlp({ coach: b.coach, teamId: b.teamId, gameName, password: b.password, gameId }),
       createdAt: at,
     });
     this.pending.delete(this.key(a.coach));

@@ -8,23 +8,39 @@ import { createHash } from "node:crypto";
 import mysql from "mysql2/promise";
 import { xmlEscape, safe } from "./util.js";
 
-// Team fetching / library / matchmaking / fork-reload live in submodules; re-exported
-// here so consumers keep importing everything from "@bb/fork-ops".
+// Team fetching / library / matchmaking / fork-reload / admin API live in submodules;
+// re-exported here so consumers keep importing everything from "@bb/fork-ops".
 export * from "./teams.js";
 export * from "./library.js";
 export * from "./matchmaking.js";
 export * from "./forkReload.js";
+export * from "./forkAdmin.js";
 
 /**
  * Build a fork-join JNLP for the FFB client (standalone `-fork` join). The fork HOST
  * is deliberately omitted — the client uses its configured fork IP. `coach` must match
- * the team's owner; both coaches join with the SAME `gameName` (2nd join starts the game).
+ * the team's owner. Without `gameId`: both coaches join with the SAME `gameName` (2nd
+ * join starts the game — the original scheme). With `gameId` (from `scheduleForkGame`,
+ * a real server-scheduled game): the client's `-fork` join reads `-gameId` as the
+ * authoritative join target once it supports it (per `ServerCommandHandlerJoinApproved`,
+ * gameId always takes priority over gameName server-side, so including both is safe —
+ * this is additive, not a replacement, until the client picks it up).
  */
-export function buildForkJnlp(opts: { coach: string; teamId: string; gameName: string; password?: string }): string {
+export function buildForkJnlp(opts: {
+  coach: string;
+  teamId: string;
+  gameName: string;
+  password?: string;
+  gameId?: string | number;
+}): string {
   const coach = xmlEscape(opts.coach);
   const gameName = xmlEscape(opts.gameName);
   const password = xmlEscape(opts.password || "12345");
   const teamId = xmlEscape(opts.teamId);
+  const gameIdArg =
+    opts.gameId != null && String(opts.gameId).trim() !== "" && String(opts.gameId) !== "0"
+      ? `\n  <argument>-gameId</argument><argument>${xmlEscape(String(opts.gameId))}</argument>`
+      : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <jnlp><information><title>FUMBBL40k fork - ${gameName} (${coach})</title><vendor>FUMBBL40k</vendor></information>
 <application-desc>
@@ -32,7 +48,7 @@ export function buildForkJnlp(opts: { coach: string; teamId: string; gameName: s
   <argument>-coach</argument><argument>${coach}</argument>
   <argument>-password</argument><argument>${password}</argument>
   <argument>-gameName</argument><argument>${gameName}</argument>
-  <argument>-teamId</argument><argument>${teamId}</argument>
+  <argument>-teamId</argument><argument>${teamId}</argument>${gameIdArg}
 </application-desc></jnlp>
 `;
 }

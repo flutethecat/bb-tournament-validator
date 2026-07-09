@@ -15,6 +15,7 @@ import { loadPackage, renderArtPrompt, renderPackageHtml, type TournamentPackage
 import {
   buildForkJnlp,
   createForkAccount,
+  forkAdminConfigFromEnv,
   forkConfigFromEnv,
   forkDbConfigFromEnv,
   ingestForkTeam,
@@ -24,6 +25,7 @@ import {
   queryCoaches,
   readLibrary,
   reloadFork,
+  scheduleForkGame,
   upsertLibraryTeam,
 } from "@bb/fork-ops";
 import { PackageFiles, readCoaches, skillCatalog, starList, teamList } from "./data";
@@ -68,7 +70,17 @@ const FORK_STATE_DIR = resolve(join(HERE, "../data-store"));
 
 const packages = new PackageFiles(PACKAGES_DIR);
 // Process-local matchmaking state (poll-based delivery, ~10min TTL) — see @bb/fork-ops.
-const matchmaker = new Matchmaker();
+// When FORK_ADMIN_PASSWORD is configured, pairing schedules a real game via the fork's own
+// admin API (an authoritative gameId, same mechanism the owner used by hand) instead of
+// relying solely on both sides guessing a shared gameName; falls back automatically
+// (inside Matchmaker.pair) on any scheduling failure, so this is additive, not a hard
+// dependency.
+const forkAdminCfg = forkAdminConfigFromEnv();
+const matchmaker = new Matchmaker({
+  scheduleGame: forkAdminCfg
+    ? (teamHomeId, teamAwayId) => scheduleForkGame(forkAdminCfg, teamHomeId, teamAwayId)
+    : undefined,
+});
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -286,7 +298,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
       });
     }
     try {
-      return sendJson(res, 200, matchmaker.challenge({ coach, teamId, opponent, password }));
+      return sendJson(res, 200, await matchmaker.challenge({ coach, teamId, opponent, password }));
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
     }
