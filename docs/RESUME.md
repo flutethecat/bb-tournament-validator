@@ -160,15 +160,33 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
   - `GET /api/fork/register?coach&password` — register/reset a fork coach with the **chosen password**
     (md5-hashed); `password` optional → "12345". `{ok,coach}`/`{error}`.
   - `GET /api/fork/library?coach` → `{teams:LibraryTeam[]}`.
-  - `GET /api/fork/library/ingest?coach&team` → `{ok,team,raceWarning?,needsRestart}` — fetch a FUMBBL team
-    (id or /t/URL), re-coach + write its XML to the fork teams dir, upsert the library row.
+  - `GET /api/fork/library/ingest?coach&team` → `{ok,team,raceWarning?,needsRestart,reload}` — fetch a
+    FUMBBL team (id or /t/URL) AND its roster (`xml:roster?team=<id>`, by-team-id — the lookup the fork's
+    `RosterCache` actually uses; **2026-07-09 fix** — ingest used to write only the team XML, so a game
+    would silently fail to start unless the team's race happened to already have a roster installed),
+    re-coach + write both to the fork's dirs, **attempt an automatic fork (`:22227`) reload** so it's
+    playable without a manual restart (refuses safely if the fork looks busy — recent log activity —
+    rather than killing a live game), upsert the library row. `forkLoadable`/`needsRestart` reflect
+    whether the reload actually landed; `reload:{reloaded,reason?}` explains why if not.
+  - `GET /api/fork/reload` → `{reloaded,reason?}` — manually retry a fork reload (e.g. after a busy-fork
+    refusal, or a batch of ingests).
   - `GET /api/fork/coaches?q&limit&coach` → `{coaches:[name]}` — opponent autocomplete (`coach` excludes
     self; LIKE metachars escaped).
   - `GET /api/fork/challenge?coach&teamId&opponent&password` → `{status:"waiting"}` (reciprocal match is
-    delivered via the next poll for both sides).
+    delivered via the next poll for both sides). **2026-07-09:** refuses (409 + clear message) a team
+    that isn't loaded on the CURRENTLY RUNNING fork yet (checked fresh via `isLoadedOnFork`, not a stale
+    library flag) — this is what actually closes the silent-failure bug; ingest alone wasn't enough.
   - `GET /api/fork/matchstatus?coach` → `{status:"waiting"}` | `{status:"matched",gameName,opponent,jnlp}`
     (matched result is consumed on read).
   - `GET /api/fork/cancel?coach` → `{ok}`.
+- **`@bb/fork-ops` gained `forkReload.ts`** (`reloadFork`, `isLoadedOnFork`) and `teams.ts` gained
+  `fetchForkRoster`/`installForkRoster` — see the 2026-07-09 fix above. Reload state lives in
+  `apps/config-web/data-store/fork-reload-state.json` (gitignored; seed it with the current time on a
+  fresh checkout so pre-existing library teams aren't wrongly marked un-loaded). **NOT done** (flagged to
+  Tarkin, deliberately out of scope for a same-night fix): the fork server's own Java-side safety net
+  (log + reject-with-reason instead of a silent `IllegalStateException`/teardown — spec R5) and the
+  client UI touchpoints (surfacing ingest/reload state, disabling Challenge until loadable — spec §5).
+  Full spec: `docs/artifact-orchestration/ForVeers-fork-roster-spec.md` (Tarkin, 2026-07-09).
 - **Duties split (owner 2026-07-08):** build **DISTRIBUTION EXECUTION** stays with the Tournament Bot /
   General Veers — this module owns the announce code + architecture (the announcer, scheduled task, hold
   switch) and performs the actual publish/push. Build **DISTRIBUTION COORDINATION** lives with **Yularen**
