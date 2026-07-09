@@ -12,6 +12,7 @@ import { xmlEscape, safe } from "./util.js";
 import type { ForkConfig } from "./index.js";
 import type { LibraryTeam } from "./library.js";
 import { upsertLibraryTeam } from "./library.js";
+import { isLoadedOnFork } from "./forkReload.js";
 
 export interface CopiedTeam {
   teamId: string;
@@ -57,6 +58,40 @@ export async function fetchForkTeam(url: string): Promise<ForkTeam> {
     /* best-effort */
   }
   return { teamId, teamName, coach, raceName, xml };
+}
+
+/**
+ * Fetch the roster XML the fork actually needs for a given team, keyed BY TEAM ID
+ * (`xml:roster?team=<teamId>` → `<roster team="<teamId>">…`) — not `api/roster/get/<rosterId>`,
+ * which is a different JSON schema the fork's Java RosterCache can't parse. This is the fix
+ * for the "team ingests but the game silently fails to start" bug: `RosterCache` resolves a
+ * roster by team id OR roster id, and a copied/ingested team never had its roster installed
+ * at all before this. Throws (doesn't return a partial/empty file) on any failure — the caller
+ * must not write a broken roster.
+ */
+export async function fetchForkRoster(teamId: string): Promise<string> {
+  const res = await fetch(`https://fumbbl.com/xml:roster?team=${teamId}`, { headers: { accept: "application/xml" } });
+  if (!res.ok) throw new Error(`FUMBBL xml:roster?team=${teamId}: HTTP ${res.status}.`);
+  const xml = await res.text();
+  if (!/<roster\b/i.test(xml)) throw new Error(`FUMBBL xml:roster?team=${teamId} didn't return a <roster> document.`);
+  return xml;
+}
+
+/** Where a team's roster XML lives — the sibling `rosters/` dir next to the fork's `teams/` dir. */
+const rostersDirFor = (teamsDir: string): string => join(dirname(teamsDir), "rosters");
+
+/**
+ * Fetch + write the roster for `teamId` into the fork's rosters dir as
+ * `roster_team_<teamId>.xml` — keyed by team id (the attribute RosterCache actually reads),
+ * so this is correct regardless of coach, FUMBBL rosterId, or race-name matching.
+ */
+export async function installForkRoster(teamsDir: string, teamId: string): Promise<string> {
+  const xml = await fetchForkRoster(teamId);
+  const dir = rostersDirFor(teamsDir);
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `roster_team_${safe(teamId)}.xml`);
+  writeFileSync(path, xml, "utf8");
+  return path;
 }
 
 /** Names of the rosters the fork server currently has loaded (sibling `rosters/` dir next to `teams/`). */
@@ -119,9 +154,10 @@ export async function copyForkTeam(cfg: ForkConfig, url: string, opts?: { asCoac
   mkdirSync(cfg.teamsDir, { recursive: true });
   const path = join(cfg.teamsDir, `team_${safe(owner)}_${t.teamId}.xml`);
   writeFileSync(path, xml, "utf8");
+  await installForkRoster(cfg.teamsDir, t.teamId);
   let raceWarning: string | undefined;
   if (t.raceName && !forkSupportsRace(t.raceName, forkRosterNames(cfg.teamsDir))) {
-    raceWarning = `No fork roster matches "${t.raceName}" — this team likely won't load/play correctly until that roster is imported on the fork.`;
+    raceWarning = `No fork roster matches "${t.raceName}" by name — the by-team-id roster is installed, so this is informational only, not blocking.`;
   }
   return { teamId: t.teamId, teamName: t.teamName, coach: owner, path, raceWarning };
 }
@@ -163,16 +199,20 @@ export function parseTeamXmlMeta(xml: string): {
 
 /**
  * Full library ingest: fetch a FUMBBL team, re-coach it to `requestingCoach`, save its
- * XML into the fork's teams dir, compute fork-load compatibility, and upsert a
- * LibraryTeam row into `libDir`. Returns the row plus a race warning and a
- * `needsRestart` flag (a newly-written team file only becomes joinable after the FFB
- * server restarts — the fork has no hot team-cache reload; see the resume-prompt notes).
+ * XML AND its roster XML (by-team-id — see `installForkRoster`; this is the fix for the
+ * "team ingests but the game silently fails to start" bug) into the fork's dirs, and
+ * upsert a LibraryTeam row into `libDir`. `forkLoadable`/`needsRestart` reflect whether
+ * the CURRENTLY RUNNING fork has actually loaded this ingest yet (via `stateDir`'s reload
+ * marker — see forkReload.ts) — a fresh ingest is never loadable until a reload happens,
+ * even though the files are written immediately. The caller (config-web) is expected to
+ * trigger a reload right after this and re-upsert once it succeeds.
  */
 export async function ingestForkTeam(
   cfg: ForkConfig,
   libDir: string,
   requestingCoach: string,
   teamUrl: string,
+  stateDir: string,
 ): Promise<{ team: LibraryTeam; raceWarning?: string; needsRestart: boolean }> {
   const coach = requestingCoach.trim();
   if (!coach) throw new Error("A coach name is required.");
@@ -182,11 +222,13 @@ export async function ingestForkTeam(
   const xml = recoachXml(t.xml, coach);
   const path = join(cfg.teamsDir, `team_${safe(coach)}_${t.teamId}.xml`);
   writeFileSync(path, xml, "utf8");
+  await installForkRoster(cfg.teamsDir, t.teamId);
 
-  const forkLoadable = !t.raceName || forkSupportsRace(t.raceName, forkRosterNames(cfg.teamsDir));
+  const ingestedAt = new Date().toISOString();
+  const forkLoadable = isLoadedOnFork(stateDir, ingestedAt);
   const raceWarning =
-    t.raceName && !forkLoadable
-      ? `No fork roster matches "${t.raceName}" — this team likely won't load/play correctly until that roster is imported on the fork.`
+    t.raceName && !forkSupportsRace(t.raceName, forkRosterNames(cfg.teamsDir))
+      ? `No fork roster matches "${t.raceName}" by name — the by-team-id roster is installed regardless, so this is informational only.`
       : undefined;
 
   const team: LibraryTeam = {
@@ -200,8 +242,8 @@ export async function ingestForkTeam(
     fanFactor: meta.fanFactor,
     apothecary: meta.apothecary,
     forkLoadable,
-    ingestedAt: new Date().toISOString(),
+    ingestedAt,
   };
   upsertLibraryTeam(libDir, coach, team);
-  return { team, raceWarning, needsRestart: true };
+  return { team, raceWarning, needsRestart: !forkLoadable };
 }

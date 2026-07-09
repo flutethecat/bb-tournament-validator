@@ -8,11 +8,12 @@ import { createHash } from "node:crypto";
 import mysql from "mysql2/promise";
 import { xmlEscape, safe } from "./util.js";
 
-// Team fetching / library / matchmaking live in submodules; re-exported here so
-// consumers keep importing everything from "@bb/fork-ops".
+// Team fetching / library / matchmaking / fork-reload live in submodules; re-exported
+// here so consumers keep importing everything from "@bb/fork-ops".
 export * from "./teams.js";
 export * from "./library.js";
 export * from "./matchmaking.js";
+export * from "./forkReload.js";
 
 /**
  * Build a fork-join JNLP for the FFB client (standalone `-fork` join). The fork HOST

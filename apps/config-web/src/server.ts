@@ -18,10 +18,13 @@ import {
   forkConfigFromEnv,
   forkDbConfigFromEnv,
   ingestForkTeam,
+  isLoadedOnFork,
   jnlpFilename,
   Matchmaker,
   queryCoaches,
   readLibrary,
+  reloadFork,
+  upsertLibraryTeam,
 } from "@bb/fork-ops";
 import { PackageFiles, readCoaches, skillCatalog, starList, teamList } from "./data";
 import { PRESETS } from "./presets";
@@ -46,6 +49,7 @@ const PUBLIC_PATHS = new Set([
   "/api/fork/challenge",
   "/api/fork/matchstatus",
   "/api/fork/cancel",
+  "/api/fork/reload",
 ]);
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -59,6 +63,8 @@ const VALIDATED_CSV = resolve(
 );
 // Fork team libraries (one JSON file per coach). Defaults under config-web's data-store.
 const LIBRARY_DIR = resolve(process.env.FORK_LIBRARY_DIR || join(HERE, "../data-store/library"));
+// Tracks the last successful fork (game server) reload — see @bb/fork-ops's forkReload.
+const FORK_STATE_DIR = resolve(join(HERE, "../data-store"));
 
 const packages = new PackageFiles(PACKAGES_DIR);
 // Process-local matchmaking state (poll-based delivery, ~10min TTL) — see @bb/fork-ops.
@@ -210,7 +216,9 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
   }
 
   // Ingest a FUMBBL team (id or /t/<id> URL) into a coach's library: fetch → re-coach →
-  // save XML into the fork's teams dir → upsert the LibraryTeam row. Needs FORK_TEAMS_DIR.
+  // save team + roster XML into the fork's dirs → upsert the LibraryTeam row → attempt an
+  // automatic fork reload so the ingest is actually joinable without a manual restart
+  // (closes the ingest→challenge race — see @bb/fork-ops's forkReload / R3). Needs FORK_TEAMS_DIR.
   if (path === "/api/fork/library/ingest" && method === "GET") {
     const coach = query.get("coach")?.trim();
     const team = query.get("team")?.trim();
@@ -218,8 +226,27 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
     const cfg = forkConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
     try {
-      const result = await ingestForkTeam(cfg, LIBRARY_DIR, coach, team);
-      return sendJson(res, 200, { ok: true, ...result });
+      const result = await ingestForkTeam(cfg, LIBRARY_DIR, coach, team, FORK_STATE_DIR);
+      const reload = await reloadFork(cfg, FORK_STATE_DIR);
+      if (reload.reloaded) {
+        result.team.forkLoadable = true;
+        upsertLibraryTeam(LIBRARY_DIR, coach, result.team);
+        result.needsRestart = false;
+      }
+      return sendJson(res, 200, { ok: true, ...result, reload });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  // Manually trigger a fork (game server) reload — e.g. after a batch of ingests, or to
+  // retry a reload that was skipped because the fork looked busy. No-ops safely (returns
+  // {reloaded:false,reason}) rather than force-killing a live game.
+  if (path === "/api/fork/reload" && method === "GET") {
+    const cfg = forkConfigFromEnv();
+    if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
+    try {
+      return sendJson(res, 200, await reloadFork(cfg, FORK_STATE_DIR));
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
     }
@@ -241,6 +268,9 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
 
   // Enter matchmaking: record my pending challenge. Instant reciprocal matches are
   // delivered via the next matchstatus poll (both sides), so this always returns waiting.
+  // Gated on the team being roster-loadable on the CURRENTLY RUNNING fork (re-derived fresh,
+  // not trusting a possibly-stale library flag) — refusing here is what prevents the silent
+  // join-timeout: a team whose roster isn't loaded yet must never be allowed into a challenge.
   if (path === "/api/fork/challenge" && method === "GET") {
     const coach = query.get("coach")?.trim();
     const teamId = query.get("teamId")?.trim();
@@ -248,6 +278,13 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
     const password = query.get("password")?.trim() || undefined;
     if (!coach || !teamId || !opponent)
       return sendJson(res, 400, { error: "coach, teamId and opponent are required." });
+    const team = readLibrary(LIBRARY_DIR, coach).find((t) => t.teamId === teamId);
+    if (!team) return sendJson(res, 400, { error: `Team ${teamId} isn't in ${coach}'s library.` });
+    if (!isLoadedOnFork(FORK_STATE_DIR, team.ingestedAt)) {
+      return sendJson(res, 409, {
+        error: `"${team.teamName}" isn't loaded on the fork yet — it needs a reload after being ingested. Try again shortly, or ask an admin to run a reload.`,
+      });
+    }
     try {
       return sendJson(res, 200, matchmaker.challenge({ coach, teamId, opponent, password }));
     } catch (e) {
