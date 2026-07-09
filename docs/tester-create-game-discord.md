@@ -27,6 +27,7 @@ Coordinate first (here in Discord): you name them, they name you. Order doesn't 
 • *"config-web unreachable"* → the Bot server isn't reachable. Running the fork locally? Set fork IP to `127.0.0.1`. Otherwise ping the organiser.
 • *Can't join a team you just ingested* → it needs a **fork restart**.
 • *"Set your coach name first"* → do **step 2**.
+• *Stuck mid-game (a pick won't resolve)* → type **`/stuck`** or **`/pass`** in the in-game chat to default it + pass your turn (**`/help`** lists commands).
 • *Options missing / nothing happens* → you're on an old build; grab **v0.2.0+**.
 
 ---

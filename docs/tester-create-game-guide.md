@@ -95,6 +95,7 @@ naming each other. Order doesn't matter — whoever's second triggers the start.
 | **Ingest works but you can't join with the team** | A freshly ingested team needs a **fork restart** before it's joinable. Ask the organiser to restart the fork. |
 | **"Set your FUMBBL40k coach name first"** | You haven't registered / set your coach yet — do **Step 2** (Settings → Connection → Register). |
 | **Stuck on "Waiting for &lt;opponent&gt;"** | The match only starts once your opponent challenges **you** back by name. Confirm they've entered your exact coach name and hit Create Game. |
+| **Stuck mid-game — a pick/decision won't resolve** | Type **`/stuck`** (or **`/pass`**) in the in-game **chat** to default the pending pick and pass your turn. **`/help`** lists the commands. (v0.2.0+, Play mode.) |
 | **Nothing happens / features missing** | Make sure you're on a **v0.2.0+** build. Earlier builds can't reach the Bot. |
 
 ---
