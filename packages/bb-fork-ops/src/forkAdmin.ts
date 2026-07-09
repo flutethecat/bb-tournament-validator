@@ -160,6 +160,8 @@ export const adminDelete = (cfg: ForkAdminConfig, gameId: string): Promise<strin
 export const adminConcede = (cfg: ForkAdminConfig, gameId: string, teamId: string): Promise<string> =>
   adminCommand(cfg, "concede", { id: gameId, teamId });
 
-/** `message <text>` — broadcast an admin message to connected sessions. */
+/** `message <text>` — broadcast an admin message to connected sessions. The servlet reads
+ *  the `message` query param (per server-dev.ini's `admin.url.message` + AdminServlet's
+ *  _PARAMETER_MESSSAGE = "message") — NOT `msg`, which it silently ignores. */
 export const adminMessage = (cfg: ForkAdminConfig, text: string): Promise<string> =>
-  adminCommand(cfg, "message", { msg: text });
+  adminCommand(cfg, "message", { message: text });
