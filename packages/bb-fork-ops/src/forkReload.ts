@@ -1,18 +1,25 @@
 /**
  * Fork game-server (FFB, :22227) reload — closes the "ingest→challenge race" gap:
  * TeamCache/RosterCache load team + roster XML ONCE at startup, so a freshly-ingested
- * team/roster isn't joinable until the fork restarts. This module restarts it safely
- * (refuses if the fork looks busy) and tracks WHEN the last successful reload happened,
- * so callers can tell whether a given ingest is actually live on the running server.
+ * team/roster isn't joinable until the caches are reloaded. Two mechanisms, preferred in
+ * order:
+ *   1. the fork's admin `refresh` command (hot cache-reload, NO restart) — instant and
+ *      SAFE during live games (the caches are only read at new game create/join, so
+ *      in-progress games are untouched); needs FORK_ADMIN_PASSWORD.
+ *   2. a full process restart (fallback) — refuses if the fork's log looks busy, since a
+ *      restart WOULD kill a live game.
+ * Either way it records WHEN the last successful reload happened, so callers can tell
+ * whether a given ingest is actually live on the running server.
  *
- * Windows-only (matches the rest of this project's deployment target): shells out to
- * `netstat`/`taskkill` rather than pulling in a process-management dependency.
+ * The restart fallback is Windows-only (matches this project's deployment target): shells
+ * out to `netstat`/`taskkill` rather than pulling in a process-management dependency.
  */
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ForkConfig } from "./index.js";
+import { adminRefresh, forkAdminConfigFromEnv, type ForkAdminConfig } from "./forkAdmin.js";
 
 /** How long the fork's log must be quiet before we'll restart it (avoids killing a live game). */
 const DEFAULT_QUIET_MS = 15_000;
@@ -76,19 +83,49 @@ async function portIsListening(port: number): Promise<boolean> {
 export interface ReloadResult {
   reloaded: boolean;
   reason?: string;
+  /** How the reload happened when it succeeded: a hot cache refresh, or a process restart. */
+  method?: "refresh" | "restart";
+  /** Cache counts reported by the admin `refresh` (only set on the refresh path). */
+  teams?: number;
+  rosters?: number;
 }
 
 /**
- * Restart the FFB game server so newly-written team/roster XML is picked up.
- * Refuses (no-op) if the fork's log shows recent activity — a crude but safe "is a
- * game live" guard (matches the manual check this project has used all along: don't
- * restart while the log is actively being written to).
+ * Reload the fork's team/roster caches so newly-written XML is picked up. Prefers the
+ * admin `refresh` hot-reload (no restart, safe during live games) when the admin API is
+ * configured; falls back to a full process restart, which refuses (no-op) if the fork's
+ * log shows recent activity — a crude but safe "is a game live" guard for the restart path
+ * only (the refresh path doesn't need it).
+ *
+ * `opts.refresh` / `opts.adminCfg` are injection points for tests; in production the admin
+ * config is read from the environment (FORK_ADMIN_PASSWORD).
  */
 export async function reloadFork(
   cfg: ForkConfig,
   stateDir: string,
-  opts?: { quietMs?: number; javaPath?: string; gamePort?: number },
+  opts?: {
+    quietMs?: number;
+    javaPath?: string;
+    gamePort?: number;
+    adminCfg?: ForkAdminConfig;
+    refresh?: () => Promise<{ teams: number; rosters: number }>;
+  },
 ): Promise<ReloadResult> {
+  // 1. Prefer the hot admin refresh. Instant, and safe even mid-game — so unlike the
+  //    restart below it needs no busy-guard. Fall through to the restart on any failure.
+  const adminCfg = opts?.adminCfg ?? forkAdminConfigFromEnv();
+  const refresh = opts?.refresh ?? (adminCfg ? () => adminRefresh(adminCfg) : undefined);
+  if (refresh) {
+    try {
+      const counts = await refresh();
+      writeReloadState(stateDir, { lastReloadAt: new Date().toISOString() });
+      return { reloaded: true, method: "refresh", teams: counts.teams, rosters: counts.rosters };
+    } catch {
+      /* admin refresh unreachable/failed — fall back to the process restart below */
+    }
+  }
+
+  // 2. Fallback: full process restart.
   const ffbDir = dirname(cfg.teamsDir);
   const quietMs = opts?.quietMs ?? DEFAULT_QUIET_MS;
   const gamePort = opts?.gamePort ?? Number(process.env.FORK_GAME_PORT || 22227);
@@ -124,7 +161,7 @@ export async function reloadFork(
   while (Date.now() < deadline) {
     if (await portIsListening(gamePort)) {
       writeReloadState(stateDir, { lastReloadAt: new Date().toISOString() });
-      return { reloaded: true };
+      return { reloaded: true, method: "restart" };
     }
     await sleep(1000);
   }

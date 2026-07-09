@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isLoadedOnFork } from "@bb/fork-ops";
+import { isLoadedOnFork, reloadFork } from "@bb/fork-ops";
+import type { ForkConfig } from "@bb/fork-ops";
 
 let dir: string;
 beforeEach(() => {
@@ -32,5 +33,24 @@ describe("isLoadedOnFork", () => {
   it("treats an unreadable/corrupt state file the same as no state (fails safe)", () => {
     writeFileSync(join(dir, "fork-reload-state.json"), "{not json");
     expect(isLoadedOnFork(dir, new Date().toISOString())).toBe(false);
+  });
+});
+
+describe("reloadFork — admin refresh preference", () => {
+  const cfg = { teamsDir: "C:/nope/teams" } as ForkConfig; // never touched on the refresh path
+
+  it("uses the injected hot refresh (no restart), records the reload, and returns counts", async () => {
+    let called = 0;
+    const before = new Date().toISOString();
+    const res = await reloadFork(cfg, dir, {
+      refresh: async () => {
+        called++;
+        return { teams: 52, rosters: 51 };
+      },
+    });
+    expect(called).toBe(1);
+    expect(res).toMatchObject({ reloaded: true, method: "refresh", teams: 52, rosters: 51 });
+    // The reload marker was written, so a team ingested just before now reads as loaded.
+    expect(isLoadedOnFork(dir, before)).toBe(true);
   });
 });

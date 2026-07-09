@@ -160,6 +160,20 @@ export const adminDelete = (cfg: ForkAdminConfig, gameId: string): Promise<strin
 export const adminConcede = (cfg: ForkAdminConfig, gameId: string, teamId: string): Promise<string> =>
   adminCommand(cfg, "concede", { id: gameId, teamId });
 
+/**
+ * `refresh` — hot-reload the fork's standalone team/roster caches from disk, so a
+ * newly-ingested team/roster becomes joinable WITHOUT a server restart. Safe during live
+ * games (the caches are only read at new game create/join; in-progress games are untouched).
+ * Returns the post-reload cache counts.
+ */
+export async function adminRefresh(cfg: ForkAdminConfig): Promise<{ teams: number; rosters: number }> {
+  const xml = await adminCommand(cfg, "refresh");
+  return {
+    teams: Number(/teams="(\d+)"/.exec(xml)?.[1] ?? 0),
+    rosters: Number(/rosters="(\d+)"/.exec(xml)?.[1] ?? 0),
+  };
+}
+
 /** `message <text>` — broadcast an admin message to connected sessions. The servlet reads
  *  the `message` query param (per server-dev.ini's `admin.url.message` + AdminServlet's
  *  _PARAMETER_MESSSAGE = "message") — NOT `msg`, which it silently ignores. */
