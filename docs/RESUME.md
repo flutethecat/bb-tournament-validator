@@ -166,6 +166,13 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
   - `GET /api/fork/matchstatus?coach` → `{status:"waiting"}` | `{status:"matched",gameName,opponent,jnlp}`
     (matched result is consumed on read).
   - `GET /api/fork/cancel?coach` → `{ok}`.
+- **Duties split (owner 2026-07-08):** build **DISTRIBUTION EXECUTION** stays with the Tournament Bot /
+  General Veers — this module owns the announce code + architecture (the announcer, scheduled task, hold
+  switch) and performs the actual publish/push. Build **DISTRIBUTION COORDINATION** lives with **Yularen**
+  (the orchestrator): release gating / when to announce, changelog validation, version + artifact tracking,
+  hold on/off decisions, and cross-convo "who's on what version" comms. Veers executes on Yularen's
+  coordination; Yularen doesn't touch the plumbing. (Owner overrides both — e.g. the announce hold was an
+  explicit owner directive.)
 - **Build announcer:** the bot polls the FUMBBL40k client's `dist-manifest/latest-build.json`
   (contract `fumbbl40k.build-manifest/1|2`) every 60s and posts new cuts (What's-new change log +
   attached installer, or `downloadUrl` link fallback) to the announce channel; de-dupes on
