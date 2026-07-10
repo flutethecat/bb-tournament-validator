@@ -146,3 +146,31 @@ export function readCoaches(csvPath: string, packageName?: string): CoachRow[] {
   });
   return packageName ? rows.filter((r) => r.packageName === packageName) : rows;
 }
+
+// ---------- tournament coach registry (discord-bot's coaches.json) ----------
+
+/**
+ * Mirrors `apps/discord-bot/src/store/coachRegistry.ts`'s `CoachEntry` shape. Read-only
+ * here and deliberately NOT imported from the discord-bot package: this reads the same
+ * JSON file the bot's `FileCoachRegistry` owns (same pattern as `VALIDATED_CSV` already
+ * pointing into discord-bot/data-store), so the users panel sees the bot's live data
+ * without config-web taking a code dependency on the bot app.
+ */
+export interface CoachRegistryEntry {
+  id: string;
+  discordUserId?: string;
+  fumbblName?: string;
+  nafName?: string;
+  nafId?: string;
+  teams: { tournament: string; teamName: string; rosterRace: string }[];
+  updatedAt: string;
+}
+
+export function readCoachRegistry(jsonPath: string): CoachRegistryEntry[] {
+  if (!existsSync(jsonPath)) return [];
+  try {
+    return JSON.parse(readFileSync(jsonPath, "utf8")) as CoachRegistryEntry[];
+  } catch {
+    return [];
+  }
+}

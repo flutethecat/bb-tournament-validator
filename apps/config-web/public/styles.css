@@ -34,6 +34,16 @@ body {
 .topbar h1 { font-size: 1.15rem; margin: 0; font-weight: 700; }
 .topbar h1 span { color: var(--gold); font-weight: 500; }
 
+/* Second-level nav (a page's own sub-tabs, under the app-level Tournaments/Users bar). */
+.topbar.subbar {
+  padding: 0.5rem 1.4rem;
+  background: var(--panel);
+  position: static;
+  top: auto;
+  z-index: 9;
+}
+.subbar-label { color: var(--ink-dim); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
 .tabs { display: flex; gap: 0.4rem; }
 .tab {
   background: transparent;

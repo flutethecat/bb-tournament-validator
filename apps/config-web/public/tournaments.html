@@ -3,12 +3,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>BB Tournament — Config Pane</title>
+    <title>FUMBBL Bot Panel — Tournaments</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <header class="topbar">
-      <h1>🏆 BB Tournament <span>Config Pane</span></h1>
+      <h1>🏆 FUMBBL Bot Panel</h1>
+      <nav class="tabs">
+        <a class="tab active" href="/tournaments.html">Tournaments</a>
+        <a class="tab" href="/users.html">Users</a>
+      </nav>
+    </header>
+    <header class="topbar subbar">
+      <span class="subbar-label">Tournament Config</span>
       <nav class="tabs">
         <button class="tab active" data-view="configure">Configure</button>
         <button class="tab" data-view="tiers">Tiers</button>

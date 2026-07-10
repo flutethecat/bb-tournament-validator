@@ -9,6 +9,7 @@
 import "dotenv/config";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadPackage, renderArtPrompt, renderPackageHtml, type TournamentPackage } from "@bb/validator";
@@ -18,15 +19,19 @@ import {
   adminConcede,
   adminDelete,
   adminList,
+  adminListLive,
   adminMessage,
   buildForkJnlp,
   createForkAccount,
   forkAdminConfigFromEnv,
   forkConfigFromEnv,
   forkDbConfigFromEnv,
+  HOME_AWAY_MODES,
+  type HomeAwayMode,
   ingestForkTeam,
   isLoadedOnFork,
   jnlpFilename,
+  listForkCoaches,
   Matchmaker,
   queryCoaches,
   readLibrary,
@@ -35,7 +40,7 @@ import {
   upsertLibraryTeam,
   verifyCoachPassword,
 } from "@bb/fork-ops";
-import { PackageFiles, readCoaches, skillCatalog, starList, teamList } from "./data";
+import { PackageFiles, readCoachRegistry, readCoaches, skillCatalog, starList, teamList } from "./data";
 import { PRESETS } from "./presets";
 
 /**
@@ -70,6 +75,12 @@ const PACKAGES_DIR = resolve(process.env.PACKAGES_DIR || join(HERE, "../../../to
 const VALIDATED_CSV = resolve(
   process.env.VALIDATED_CSV || join(HERE, "../../discord-bot/data-store/validated-rosters.csv"),
 );
+// Same-file read of the bot's coach identity registry (fumbblName/nafName/discordUserId) —
+// lets the users panel link a fork account to its tournament identity by name, without
+// config-web taking a code dependency on the discord-bot app.
+const COACH_REGISTRY_JSON = resolve(
+  process.env.COACH_REGISTRY_JSON || join(HERE, "../../discord-bot/data-store/coaches.json"),
+);
 // Fork team libraries (one JSON file per coach). Defaults under config-web's data-store.
 const LIBRARY_DIR = resolve(process.env.FORK_LIBRARY_DIR || join(HERE, "../data-store/library"));
 // Tracks the last successful fork (game server) reload — see @bb/fork-ops's forkReload.
@@ -88,6 +99,23 @@ const forkAdminCfg = forkAdminConfigFromEnv();
 // else's name (Yularen's #admin-gate-security amendment §4b). Off (open, dev-mode) when
 // FORK_DB_HOST isn't set — same opt-in gate the other DB-backed routes already use.
 const challengeDbCfg = forkDbConfigFromEnv();
+
+// Persisted matchmaker settings (home/away policy) — survives a config-web restart so the
+// admin's control-panel choice isn't lost. Tiny JSON in the same data-store as fork state.
+const MATCHMAKING_SETTINGS_FILE = resolve(join(FORK_STATE_DIR, "matchmaking-settings.json"));
+function loadHomeAwayMode(): HomeAwayMode | undefined {
+  try {
+    const raw = JSON.parse(readFileSync(MATCHMAKING_SETTINGS_FILE, "utf8")) as { homeAwayMode?: string };
+    return HOME_AWAY_MODES.find((m) => m === raw.homeAwayMode);
+  } catch {
+    return undefined; // no file / unreadable → matchmaker default
+  }
+}
+function saveHomeAwayMode(mode: HomeAwayMode): void {
+  mkdirSync(FORK_STATE_DIR, { recursive: true });
+  writeFileSync(MATCHMAKING_SETTINGS_FILE, JSON.stringify({ homeAwayMode: mode }, null, 2), "utf8");
+}
+
 const matchmaker = new Matchmaker({
   scheduleGame: forkAdminCfg
     ? (teamHomeId, teamAwayId) => scheduleForkGame(forkAdminCfg, teamHomeId, teamAwayId)
@@ -95,6 +123,7 @@ const matchmaker = new Matchmaker({
   verifyChallenger: challengeDbCfg
     ? (coach, password) => verifyCoachPassword(challengeDbCfg, coach, password)
     : undefined,
+  homeAwayMode: loadHomeAwayMode(),
 });
 
 const MIME: Record<string, string> = {
@@ -415,6 +444,166 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
     if (!body.text?.trim()) return sendJson(res, 400, { error: "text is required." });
     try {
       return sendJson(res, 200, { ok: true, xml: await adminMessage(forkAdminCfg, body.text) });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  // --- Matchmaking settings (home/away policy toggle) ---
+  // Read is admin-gated (it's a control-panel setting); the current mode + the available
+  // choices back the panel's toggle. Change persists so it survives a config-web restart.
+  if (path === "/api/fork/matchmaking-settings" && method === "GET") {
+    if (!requireAdminGate(res)) return;
+    return sendJson(res, 200, { homeAwayMode: matchmaker.getHomeAwayMode(), modes: HOME_AWAY_MODES });
+  }
+  if (path === "/api/fork/matchmaking-settings" && method === "POST") {
+    if (!requireAdminGate(res)) return;
+    const body = (await readBody(req)) as { homeAwayMode?: string };
+    const mode = HOME_AWAY_MODES.find((m) => m === body.homeAwayMode);
+    if (!mode)
+      return sendJson(res, 400, { error: `homeAwayMode must be one of: ${HOME_AWAY_MODES.join(", ")}.` });
+    try {
+      matchmaker.setHomeAwayMode(mode);
+      saveHomeAwayMode(mode);
+      return sendJson(res, 200, { ok: true, homeAwayMode: mode });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  // --- Users control panel (master table: fork accounts <-> tournament identity) ---
+
+  // Master table: every `ffb_coaches` fork account, left-joined (by case-insensitive
+  // name match) against the tournament coach registry's `fumbblName`, annotated with
+  // whether that coach is currently in a live game (see LIVE_GAME_STATUSES — there is
+  // no single "all games" admin call, so this queries every in-play status and merges).
+  if (path === "/api/fork/users" && method === "GET") {
+    if (!requireAdminGate(res)) return;
+    const dbCfg = forkDbConfigFromEnv();
+    if (!dbCfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
+    try {
+      const [forkNames, registry] = await Promise.all([
+        listForkCoaches(dbCfg),
+        Promise.resolve(readCoachRegistry(COACH_REGISTRY_JSON)),
+      ]);
+      const registryByName = new Map(
+        registry.filter((e) => e.fumbblName).map((e) => [e.fumbblName!.trim().toLowerCase(), e]),
+      );
+      let liveGames: Awaited<ReturnType<typeof adminListLive>> = [];
+      if (forkAdminCfg) {
+        try {
+          liveGames = await adminListLive(forkAdminCfg);
+        } catch {
+          // Fork admin unreachable — the table still renders, just without live-status.
+        }
+      }
+      const gamesByCoach = new Map<string, (typeof liveGames)[number][]>();
+      for (const g of liveGames) {
+        for (const [coach, side] of [
+          [g.homeCoach, "home"],
+          [g.awayCoach, "away"],
+        ] as const) {
+          const key = coach.trim().toLowerCase();
+          if (!key) continue;
+          if (!gamesByCoach.has(key)) gamesByCoach.set(key, []);
+          gamesByCoach.get(key)!.push({ ...g, mySide: side } as (typeof liveGames)[number] & { mySide: string });
+        }
+      }
+      const seen = new Set<string>();
+      const rows = forkNames.map((name) => {
+        const key = name.trim().toLowerCase();
+        seen.add(key);
+        const linked = registryByName.get(key);
+        return {
+          fumbblName: name,
+          linked: linked
+            ? {
+                id: linked.id,
+                discordUserId: linked.discordUserId,
+                nafName: linked.nafName,
+                nafId: linked.nafId,
+                teamCount: linked.teams.length,
+              }
+            : null,
+          games: gamesByCoach.get(key) ?? [],
+        };
+      });
+      // Registry entries with a fumbblName that ISN'T a fork account — surfaced so a
+      // linked tournament identity is never silently hidden just because the coach
+      // hasn't created (or hasn't yet re-created) their fork account.
+      for (const e of registry) {
+        const key = e.fumbblName?.trim().toLowerCase();
+        if (!key || seen.has(key)) continue;
+        rows.push({
+          fumbblName: e.fumbblName!,
+          linked: { id: e.id, discordUserId: e.discordUserId, nafName: e.nafName, nafId: e.nafId, teamCount: e.teams.length },
+          games: [],
+        });
+      }
+      rows.sort((a, b) => a.fumbblName.localeCompare(b.fumbblName));
+      return sendJson(res, 200, { users: rows });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  // Live games for one coach (home or away, case-insensitive) — backs the "In-Game" popup.
+  const userGamesMatch = path.match(/^\/api\/fork\/user\/([^/]+)\/games$/);
+  if (userGamesMatch && method === "GET") {
+    if (!requireAdminGate(res)) return;
+    if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
+    const name = decodeURIComponent(userGamesMatch[1]!).trim().toLowerCase();
+    try {
+      const games = (await adminListLive(forkAdminCfg)).filter(
+        (g) => g.homeCoach.trim().toLowerCase() === name || g.awayCoach.trim().toLowerCase() === name,
+      );
+      return sendJson(res, 200, { games });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  // Reset (or create) a fork account's password. Reuses the same upsert the client's
+  // "Register this coach" button drives — a password reset IS just re-issuing that call.
+  if (path === "/api/fork/user/reset-password" && method === "POST") {
+    if (!requireAdminGate(res)) return;
+    const dbCfg = forkDbConfigFromEnv();
+    if (!dbCfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
+    const body = (await readBody(req)) as { username?: string; password?: string };
+    if (!body.username?.trim()) return sendJson(res, 400, { error: "username is required." });
+    try {
+      await createForkAccount(dbCfg, body.username, body.password);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  // Clear every live game (any in-play status) this coach is part of, home or away.
+  // Deletes rather than closes — "clear" is meant to fully reset a stuck coach, not
+  // leave finished-looking rows behind. Reports which gameIds were cleared and any
+  // per-game delete failures rather than failing the whole request on one bad id.
+  if (path === "/api/fork/user/clear-games" && method === "POST") {
+    if (!requireAdminGate(res)) return;
+    if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
+    const body = (await readBody(req)) as { username?: string };
+    if (!body.username?.trim()) return sendJson(res, 400, { error: "username is required." });
+    const name = body.username.trim().toLowerCase();
+    try {
+      const games = (await adminListLive(forkAdminCfg)).filter(
+        (g) => g.homeCoach.trim().toLowerCase() === name || g.awayCoach.trim().toLowerCase() === name,
+      );
+      const cleared: string[] = [];
+      const failed: { gameId: string; error: string }[] = [];
+      for (const g of games) {
+        try {
+          await adminDelete(forkAdminCfg, g.gameId);
+          cleared.push(g.gameId);
+        } catch (e) {
+          failed.push({ gameId: g.gameId, error: (e as Error).message });
+        }
+      }
+      return sendJson(res, 200, { ok: failed.length === 0, cleared, failed });
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
     }
