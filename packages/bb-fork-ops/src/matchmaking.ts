@@ -52,26 +52,61 @@ export type ForkGameScheduler = (teamHomeId: string, teamAwayId: string) => Prom
 /** Injected coach-password check (see the auth note above); `true` only on a verified match. */
 export type ChallengeVerifier = (coach: string, password: string) => Promise<boolean>;
 
+/**
+ * How home/away is assigned when a pair is scheduled (which team the fork gets as
+ * `teamHomeId`). Home/away drives the pregame coin toss and pitch/dugout side, so a
+ * FIXED assignment systematically favours one coach — hence these fairer options:
+ *  - `"alternating"` (default) — deterministic + reproducible ("seeded"): the two coaches
+ *    swap home/away each time THIS pair meets. The FIRST meeting is alphabetical by coach
+ *    (so a one-off pairing is stable/predictable, and prior behaviour is preserved).
+ *  - `"random"` — a fresh coin flip per pairing (fair on average, not reproducible).
+ * Note: this only affects the server-scheduled path. On the gameName-only fallback the
+ * fork assigns home by JOIN ORDER, which this can't control.
+ */
+export type HomeAwayMode = "alternating" | "random";
+export const HOME_AWAY_MODES: HomeAwayMode[] = ["alternating", "random"];
+export const DEFAULT_HOME_AWAY_MODE: HomeAwayMode = "alternating";
+
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
 
 export class Matchmaker {
   private readonly pending = new Map<string, Challenge>();
   private readonly matched = new Map<string, MatchDelivery>();
+  /** Per-pair meeting counter (keyed by the sorted coach pair) — drives "alternating". */
+  private readonly pairMeetings = new Map<string, number>();
   private readonly ttlMs: number;
   private readonly now: () => number;
+  private readonly random: () => number;
   private readonly scheduleGame?: ForkGameScheduler;
   private readonly verifyChallenger?: ChallengeVerifier;
+  private homeAwayMode: HomeAwayMode;
 
   constructor(opts?: {
     ttlMs?: number;
     now?: () => number;
+    /** Injectable RNG (0..1) so "random" mode is deterministic under test. */
+    random?: () => number;
     scheduleGame?: ForkGameScheduler;
     verifyChallenger?: ChallengeVerifier;
+    homeAwayMode?: HomeAwayMode;
   }) {
     this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
     this.now = opts?.now ?? Date.now;
+    this.random = opts?.random ?? Math.random;
     this.scheduleGame = opts?.scheduleGame;
     this.verifyChallenger = opts?.verifyChallenger;
+    this.homeAwayMode = opts?.homeAwayMode ?? DEFAULT_HOME_AWAY_MODE;
+  }
+
+  /** Current home/away assignment policy (see HomeAwayMode). */
+  getHomeAwayMode(): HomeAwayMode {
+    return this.homeAwayMode;
+  }
+
+  /** Switch the home/away policy at runtime (backs the control-panel toggle). */
+  setHomeAwayMode(mode: HomeAwayMode): void {
+    if (!HOME_AWAY_MODES.includes(mode)) throw new Error(`Unknown home/away mode: ${mode}`);
+    this.homeAwayMode = mode;
   }
 
   /** Case-insensitive key so "Kalimar" and "kalimar" are the same coach. */
@@ -120,18 +155,22 @@ export class Matchmaker {
   }
 
   private async pair(a: Challenge, b: Challenge): Promise<void> {
-    // Deterministic, order-independent — same ordering used for both the gameName and
-    // the home/away assignment passed to scheduleGame.
+    // Stable, order-independent ordering — used for the gameName (so it's predictable/
+    // reproducible regardless of who challenged first) AND as the base ordering the
+    // home/away policy is applied on top of.
     const sorted = [a, b].sort((x, y) => x.coach.localeCompare(y.coach));
     const first = sorted[0]!;
     const second = sorted[1]!;
     const gameName = `chal_${safe(first.coach)}_${safe(second.coach)}_${this.now()}`;
     const at = this.now();
 
+    // Decide which of the two is HOME for the scheduled game (see HomeAwayMode).
+    const [home, away] = this.assignHomeAway(first, second);
+
     let gameId: string | undefined;
     if (this.scheduleGame) {
       try {
-        gameId = (await this.scheduleGame(first.teamId, second.teamId))?.gameId;
+        gameId = (await this.scheduleGame(home.teamId, away.teamId))?.gameId;
       } catch {
         gameId = undefined; // fall back to the gameName-only scheme below, not a hard failure
       }
@@ -153,6 +192,26 @@ export class Matchmaker {
     });
     this.pending.delete(this.key(a.coach));
     this.pending.delete(this.key(b.coach));
+  }
+
+  /**
+   * Apply the home/away policy to a stably-ordered pair (`first` < `second` by coach).
+   * Returns `[home, away]`.
+   *  - "alternating": swap on every ODD meeting of this exact pair. Meeting 0 (first ever)
+   *    keeps the sorted order, so a one-off pairing is stable/alphabetical.
+   *  - "random": swap on a coin flip (injectable RNG).
+   */
+  private assignHomeAway(first: Challenge, second: Challenge): [Challenge, Challenge] {
+    let swap: boolean;
+    if (this.homeAwayMode === "random") {
+      swap = this.random() < 0.5;
+    } else {
+      const pairKey = `${this.key(first.coach)}|${this.key(second.coach)}`;
+      const meeting = this.pairMeetings.get(pairKey) ?? 0;
+      this.pairMeetings.set(pairKey, meeting + 1);
+      swap = meeting % 2 === 1;
+    }
+    return swap ? [second, first] : [first, second];
   }
 
   /**

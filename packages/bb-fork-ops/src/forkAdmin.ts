@@ -145,20 +145,107 @@ async function adminCommand(cfg: ForkAdminConfig, op: string, params: Record<str
 /** `list <status>` — scheduled/active/finished/all games. Raw XML; caller/route normalizes. */
 export const adminList = (cfg: ForkAdminConfig, status = "all"): Promise<string> => adminCommand(cfg, "list", { status });
 
+export interface AdminGameEntry {
+  gameId: string;
+  status: string;
+  half: number;
+  turn: number;
+  started?: string;
+  finished?: string;
+  lastUpdated?: string;
+  homeTeamId: string;
+  homeTeamName: string;
+  homeCoach: string;
+  awayTeamId: string;
+  awayTeamName: string;
+  awayCoach: string;
+}
+
+const attr = (tag: string, name: string): string | undefined => tag.match(new RegExp(`${name}="([^"]*)"`))?.[1];
+
+/**
+ * Parse `admin/list`'s `<list><game id=".." status=".." half=".." turn=".."><team
+ * home="true" id=".." name=".." coach=".."/><team home="false" .../></game>...</list>`
+ * (per upstream `AdminListEntry.addToXml`) into structured entries. Regex-based, not a
+ * full XML parser — the servlet's output is flat/attribute-only (no nested text content
+ * or entities beyond XML-escaping), so this is a safe, dependency-free match for the
+ * shape it actually produces.
+ */
+export function parseAdminGameList(xml: string): AdminGameEntry[] {
+  const entries: AdminGameEntry[] = [];
+  const gameRe = /<game\b([^>]*)>([\s\S]*?)<\/game>/g;
+  let m: RegExpExecArray | null;
+  while ((m = gameRe.exec(xml))) {
+    const [, gameAttrs, body] = m;
+    const teams = [...body!.matchAll(/<team\b([^>]*)\/>/g)].map((t) => t[1]!);
+    const home = teams.find((t) => attr(t, "home") === "true");
+    const away = teams.find((t) => attr(t, "home") === "false");
+    const gameId = attr(gameAttrs!, "id");
+    if (!gameId || !home || !away) continue;
+    entries.push({
+      gameId,
+      status: attr(gameAttrs!, "status") ?? "",
+      half: Number(attr(gameAttrs!, "half") ?? 0),
+      turn: Number(attr(gameAttrs!, "turn") ?? 0),
+      started: attr(gameAttrs!, "started"),
+      finished: attr(gameAttrs!, "finished"),
+      lastUpdated: attr(gameAttrs!, "lastUpdated"),
+      homeTeamId: attr(home, "id") ?? "",
+      homeTeamName: attr(home, "name") ?? "",
+      homeCoach: attr(home, "coach") ?? "",
+      awayTeamId: attr(away, "id") ?? "",
+      awayTeamName: attr(away, "name") ?? "",
+      awayCoach: attr(away, "coach") ?? "",
+    });
+  }
+  return entries;
+}
+
+/**
+ * Statuses that represent a game still "in play" (per upstream `GameStatus` — note
+ * there is NO "all" status: `admin/list?status=all` resolves to `GameStatusFactory
+ * .forName("all")` = null server-side, which silently returns an EMPTY list, not
+ * everything — a real trap if you assume "all" means "all"). To see every live game,
+ * query each of these statuses and merge.
+ */
+export const LIVE_GAME_STATUSES = ["scheduled", "starting", "active", "paused"] as const;
+
+/** Fetch + merge `admin/list` across every "in play" status (see `LIVE_GAME_STATUSES`),
+ *  parsed into structured entries. This is the correct way to answer "what games are
+ *  live right now", since a single `status=all` call returns nothing.
+ *  Deduped by gameId: the per-status calls run in parallel, so a game whose status
+ *  transitions (e.g. active -> paused) between two of them can legitimately be returned
+ *  by both — observed live against the real fork. Last-seen wins (order follows
+ *  `LIVE_GAME_STATUSES`), which is an acceptable, harmless race (worst case: the
+ *  reported status/half/turn for that one entry is a query or two stale). */
+export async function adminListLive(cfg: ForkAdminConfig): Promise<AdminGameEntry[]> {
+  const xmls = await Promise.all(LIVE_GAME_STATUSES.map((status) => adminList(cfg, status)));
+  const byId = new Map<string, AdminGameEntry>();
+  for (const entry of xmls.flatMap(parseAdminGameList)) byId.set(entry.gameId, entry);
+  return [...byId.values()];
+}
+
 /** `cache` — the admin API's live game-cache dump. Raw XML; caller/route normalizes. */
 export const adminCache = (cfg: ForkAdminConfig): Promise<string> => adminCommand(cfg, "cache");
 
-/** `close <id>` — end a game cleanly. */
+/**
+ * `close <gameId>` — end a game cleanly. ⚠ Param name is `gameId`, NOT `id` — the
+ * servlet's `_PARAMETER_GAME_ID = "gameId"` (verified against upstream
+ * `AdminServlet.handleClose`/`handleDelete`/`handleConcede`, all read `gameId`). The
+ * three `adminCommand` calls below previously sent `id`, which the servlet doesn't
+ * recognize — every close/delete/concede call has always failed with "Invalid or
+ * missing gameId parameter" (thrown, not silent, but never actually worked).
+ */
 export const adminClose = (cfg: ForkAdminConfig, gameId: string): Promise<string> =>
-  adminCommand(cfg, "close", { id: gameId });
+  adminCommand(cfg, "close", { gameId });
 
-/** `delete <id>` — remove a game (irreversible for that game row, but not server-destructive). */
+/** `delete <gameId>` — remove a game (irreversible for that game row, but not server-destructive). */
 export const adminDelete = (cfg: ForkAdminConfig, gameId: string): Promise<string> =>
-  adminCommand(cfg, "delete", { id: gameId });
+  adminCommand(cfg, "delete", { gameId });
 
-/** `concede <id> <teamId>` — force a concession for one side of a stuck game. */
+/** `concede <gameId> <teamId>` — force a concession for one side of a stuck game. */
 export const adminConcede = (cfg: ForkAdminConfig, gameId: string, teamId: string): Promise<string> =>
-  adminCommand(cfg, "concede", { id: gameId, teamId });
+  adminCommand(cfg, "concede", { gameId, teamId });
 
 /**
  * `refresh` — hot-reload the fork's standalone team/roster caches from disk, so a

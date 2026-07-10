@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { adminClose, adminList, adminMessage, adminResponse, forkAdminConfigFromEnv } from "@bb/fork-ops";
+import {
+  adminClose,
+  adminConcede,
+  adminList,
+  adminListLive,
+  adminMessage,
+  adminResponse,
+  forkAdminConfigFromEnv,
+  LIVE_GAME_STATUSES,
+  parseAdminGameList,
+} from "@bb/fork-ops";
 
 describe("adminResponse", () => {
   // Golden vector derived from the LIVE fork (2026-07-09): GET /admin/challenge returned
@@ -105,7 +115,7 @@ describe("admin panel proxy ops (mocked fetch)", () => {
     );
     await adminClose(cfg, "77");
     expect(calls[1]).toContain("/admin/close?");
-    expect(calls[1]).toContain("id=77");
+    expect(calls[1]).toContain("gameId=77");
   });
 
   it("adminMessage surfaces the servlet's <error> as a thrown Error", async () => {
@@ -117,5 +127,119 @@ describe("admin panel proxy ops (mocked fetch)", () => {
       }),
     );
     await expect(adminMessage(cfg, "hello")).rejects.toThrow(/challenge expired/);
+  });
+});
+
+// Regression coverage for the gameId (not "id") param name bug — see forkAdmin.ts's
+// note on adminClose/adminDelete/adminConcede, discovered while building the users panel.
+describe("close/delete/concede send the servlet's actual param name (gameId, not id)", () => {
+  const cfg = { baseUrl: "http://127.0.0.1:22227", passwordMd5Hex: "098f6bcd4621d373cade4e832627b4f6" };
+  const CHALLENGE_XML = "<result><challenge>3c67e0dacb39754d058e398f9911ab71</challenge></result>";
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("adminConcede sends gameId and teamId, never id", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        if (url.includes("/admin/challenge")) return new Response(CHALLENGE_XML);
+        return new Response("<result><status>ok</status></result>");
+      }),
+    );
+    await adminConcede(cfg, "42", "9");
+    expect(calls[1]).toContain("/admin/concede?");
+    expect(calls[1]).toContain("gameId=42");
+    expect(calls[1]).toContain("teamId=9");
+    expect(calls[1]).not.toMatch(/[?&]id=/);
+  });
+});
+
+describe("parseAdminGameList", () => {
+  it("parses a <list> of <game> entries with home/away <team> attributes", () => {
+    const xml = `<result><list size="2">
+      <game id="280" started="2026-07-09T10:00:00.000" lastUpdated="2026-07-09T10:05:00.000" half="1" turn="3" status="active" swappedOut="false" testMode="true">
+        <team id="teamA" home="true" name="BlackOrc" coach="Kalimar"/>
+        <team id="teamB" home="false" name="Khorne" coach="BattleLore"/>
+      </game>
+      <game id="281" half="0" turn="0" status="scheduled" swappedOut="false" testMode="true">
+        <team id="teamC" home="true" name="Gnome" coach="flutethecat"/>
+        <team id="teamD" home="false" name="Snotling" coach="BlaideMontague"/>
+      </game>
+    </list></result>`;
+    const entries = parseAdminGameList(xml);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      gameId: "280",
+      status: "active",
+      half: 1,
+      turn: 3,
+      homeCoach: "Kalimar",
+      awayCoach: "BattleLore",
+      homeTeamName: "BlackOrc",
+      awayTeamName: "Khorne",
+    });
+    expect(entries[1]).toMatchObject({ gameId: "281", status: "scheduled", homeCoach: "flutethecat" });
+  });
+
+  it("returns an empty array for an empty <list/>", () => {
+    expect(parseAdminGameList('<result><list size="0"/></result>')).toEqual([]);
+  });
+
+  it("skips a malformed <game> missing a team", () => {
+    const xml = `<result><list size="1"><game id="5" status="active" half="0" turn="0">
+      <team id="teamA" home="true" name="Foo" coach="Bar"/>
+    </game></list></result>`;
+    expect(parseAdminGameList(xml)).toEqual([]);
+  });
+});
+
+describe("adminListLive", () => {
+  const cfg = { baseUrl: "http://127.0.0.1:22227", passwordMd5Hex: "098f6bcd4621d373cade4e832627b4f6" };
+  const CHALLENGE_XML = "<result><challenge>3c67e0dacb39754d058e398f9911ab71</challenge></result>";
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("queries every LIVE_GAME_STATUSES entry and merges the parsed results", async () => {
+    const statusesQueried: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/admin/challenge")) return new Response(CHALLENGE_XML);
+        const status = new URL(url).searchParams.get("status")!;
+        statusesQueried.push(status);
+        if (status === "active") {
+          return new Response(
+            `<result><list size="1"><game id="1" status="active" half="1" turn="1">
+              <team id="a" home="true" name="A" coach="coachA"/><team id="b" home="false" name="B" coach="coachB"/>
+            </game></list></result>`,
+          );
+        }
+        return new Response('<result><list size="0"/></result>');
+      }),
+    );
+    const games = await adminListLive(cfg);
+    expect(statusesQueried.sort()).toEqual([...LIVE_GAME_STATUSES].sort());
+    expect(games).toHaveLength(1);
+    expect(games[0]!.homeCoach).toBe("coachA");
+  });
+
+  it("dedupes a gameId that appears under two statuses (a status transition mid-query)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/admin/challenge")) return new Response(CHALLENGE_XML);
+        const status = new URL(url).searchParams.get("status")!;
+        const gameXml = (st: string) =>
+          `<result><list size="1"><game id="99" status="${st}" half="1" turn="1">
+            <team id="a" home="true" name="A" coach="coachA"/><team id="b" home="false" name="B" coach="coachB"/>
+          </game></list></result>`;
+        if (status === "active") return new Response(gameXml("active"));
+        if (status === "paused") return new Response(gameXml("paused"));
+        return new Response('<result><list size="0"/></result>');
+      }),
+    );
+    const games = await adminListLive(cfg);
+    expect(games).toHaveLength(1);
+    expect(games[0]!.gameId).toBe("99");
   });
 });

@@ -181,4 +181,77 @@ describe("Matchmaker", () => {
       expect(mm.matchstatus("B").status).toBe("matched");
     });
   });
+
+  describe("home/away assignment", () => {
+    it("defaults to alternating, whose FIRST meeting is alphabetical (backward compatible)", async () => {
+      const calls: Array<[string, string]> = [];
+      const mm = new Matchmaker({
+        scheduleGame: async (home, away) => {
+          calls.push([home, away]);
+          return { gameId: "1" };
+        },
+      });
+      expect(mm.getHomeAwayMode()).toBe("alternating");
+      await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore" });
+      await mm.challenge({ coach: "BattleLore", teamId: "222", opponent: "Kalimar" });
+      // BattleLore < Kalimar alphabetically → BattleLore(222) is home on the first meeting.
+      expect(calls[0]).toEqual(["222", "111"]);
+    });
+
+    it("alternating swaps home/away each time the SAME pair meets again", async () => {
+      const calls: Array<[string, string]> = [];
+      const mm = new Matchmaker({
+        scheduleGame: async (home, away) => {
+          calls.push([home, away]);
+          return { gameId: "g" };
+        },
+      });
+      for (let i = 0; i < 4; i++) {
+        await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore" });
+        await mm.challenge({ coach: "BattleLore", teamId: "222", opponent: "Kalimar" });
+        mm.matchstatus("Kalimar");
+        mm.matchstatus("BattleLore");
+      }
+      // Meetings 0,2 → sorted (222 home); meetings 1,3 → swapped (111 home).
+      expect(calls).toEqual([
+        ["222", "111"],
+        ["111", "222"],
+        ["222", "111"],
+        ["111", "222"],
+      ]);
+    });
+
+    it("random mode uses the injected RNG to pick home", async () => {
+      const calls: Array<[string, string]> = [];
+      const seq = [0.9, 0.1]; // >=0.5 → no swap; <0.5 → swap
+      let i = 0;
+      const mm = new Matchmaker({
+        homeAwayMode: "random",
+        random: () => seq[i++]!,
+        scheduleGame: async (home, away) => {
+          calls.push([home, away]);
+          return { gameId: "g" };
+        },
+      });
+      for (let n = 0; n < 2; n++) {
+        await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore" });
+        await mm.challenge({ coach: "BattleLore", teamId: "222", opponent: "Kalimar" });
+        mm.matchstatus("Kalimar");
+        mm.matchstatus("BattleLore");
+      }
+      expect(calls).toEqual([
+        ["222", "111"], // 0.9 → no swap → sorted, BattleLore(222) home
+        ["111", "222"], // 0.1 → swap → Kalimar(111) home
+      ]);
+    });
+
+    it("setHomeAwayMode switches policy at runtime and rejects unknown modes", () => {
+      const mm = new Matchmaker();
+      mm.setHomeAwayMode("random");
+      expect(mm.getHomeAwayMode()).toBe("random");
+      mm.setHomeAwayMode("alternating");
+      expect(mm.getHomeAwayMode()).toBe("alternating");
+      expect(() => mm.setHomeAwayMode("bogus" as never)).toThrow(/unknown home\/away mode/i);
+    });
+  });
 });

@@ -191,3 +191,12 @@ export async function queryCoaches(cfg: ForkDbConfig, q: string, limit = 10, exc
   });
   return rows.map((row) => row.name);
 }
+
+/** Every registered fork account name — backs the users control panel's master table. */
+export async function listForkCoaches(cfg: ForkDbConfig): Promise<string[]> {
+  const rows = await withConn(cfg, async (conn) => {
+    const [r] = await conn.execute("SELECT name FROM ffb_coaches ORDER BY name");
+    return r as Array<{ name: string }>;
+  });
+  return rows.map((row) => row.name);
+}
