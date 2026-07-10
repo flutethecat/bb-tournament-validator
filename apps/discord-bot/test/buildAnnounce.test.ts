@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { manifestReleaseTag, type BuildManifest } from "../src/buildAnnounce";
+import { devBuildMarker, manifestReleaseTag, type BuildManifest } from "../src/buildAnnounce";
 
 const mkManifest = (gitSha: string): BuildManifest => ({
   schema: "fumbbl40k.build-manifest/2",
@@ -50,5 +50,30 @@ describe("manifestReleaseTag (tag-gating for the auto-announce poller)", () => {
   // Sanity guard so the "bogus repo" test isn't a false pass because git is missing entirely.
   it("git is available in this environment (guards the fails-closed tests)", () => {
     expect(existsSync(thisRepo)).toBe(true);
+  });
+});
+
+describe("devBuildMarker (dev-build deploy tripwire)", () => {
+  const withInstaller = (version: string, file: string): BuildManifest => ({
+    ...mkManifest("abc1234"),
+    version,
+    installer: { file, bytes: 1, sha256: "a", present: true },
+  });
+
+  it("passes a BARE release (no letter) — version + installer both clean", () => {
+    expect(devBuildMarker(withInstaller("0.2.8", "FUMBBL40k_0.2.8_x64-setup.exe"))).toBeUndefined();
+  });
+
+  it("flags a lettered version field", () => {
+    expect(devBuildMarker(withInstaller("0.2.8d", "FUMBBL40k_0.2.8_x64-setup.exe"))).toBe("0.2.8d");
+  });
+
+  it("flags a lettered installer filename even when the version field is bare", () => {
+    // The real dev-cut case: package.json version stays bare, only the filename carries the letter.
+    expect(devBuildMarker(withInstaller("0.2.8", "FUMBBL40k_0.2.8d_x64-setup.exe"))).toBe("0.2.8d");
+  });
+
+  it("does not false-positive on the bare filename's own version or the '40k'/'x64' tokens", () => {
+    expect(devBuildMarker(withInstaller("0.2.10", "FUMBBL40k_0.2.10_x64-setup.exe"))).toBeUndefined();
   });
 });

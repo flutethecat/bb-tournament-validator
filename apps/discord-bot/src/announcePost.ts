@@ -7,7 +7,7 @@
 
 import { existsSync, statSync } from "node:fs";
 import { AttachmentBuilder, type Client, EmbedBuilder } from "discord.js";
-import { type AnnounceState, type BuildManifest, fmtBytes, readManifest } from "./buildAnnounce";
+import { type AnnounceState, type BuildManifest, devBuildMarker, fmtBytes, readManifest } from "./buildAnnounce";
 import { type DailySummary, type DailySummaryState, readTopDailySummary } from "./dailySummary";
 import type { AnnounceHold } from "./announceHold";
 
@@ -88,6 +88,12 @@ export async function announceLatestBuild(
   const m = readManifest();
   if (!m) return "No readable build manifest found.";
   if (!channelId) return "No announce channel set — run `/bbbot 40k announcechannel`.";
+  // DEV-BUILD TRIPWIRE: refuse to announce a lettered dev cut, even with --force (a dev
+  // build must NEVER be published). Does NOT mark de-dupe, so a proper BARE rebuild still
+  // announces afterward. (owner "check if we're deploying dev fixes"; see buildAnnounce.)
+  const devMarker = devBuildMarker(m);
+  if (devMarker)
+    return `⛔ REFUSED: manifest looks like a DEV build (\`${devMarker}\`) — the published release must be the BARE version (e.g. 0.2.8, no letter). Rebuild from the gate-passed tag with a plain \`pnpm build\` (no dev-cut env), then re-emit. Not announced, de-dupe untouched.`;
   if (!force && !state.isNew(m)) return `v${m.version} (${m.gitSha}) is already announced.`;
   const ch = await client.channels.fetch(channelId);
   if (!ch?.isTextBased()) return `<#${channelId}> is not a text channel.`;

@@ -68,6 +68,22 @@ export function manifestReleaseTag(m: BuildManifest, repoRoot = clientRepoRoot()
   }
 }
 
+/**
+ * DEV-BUILD TRIPWIRE (owner directive 2026-07-10, "check if we're deploying dev fixes").
+ * A published release must identify as the BARE version (`0.2.8`). A LETTER suffix
+ * (`0.2.8d`) marks a DEV cut (see the dev-version-nomenclature scheme) that must NEVER be
+ * announced/deployed. Checks BOTH the manifest `version` and the installer filename (the
+ * letter rides in the filename `FUMBBL40k_0.2.8d_x64-setup.exe`; the semver `version`
+ * field normally stays bare, so the filename is the real signal — belt-and-suspenders).
+ * Returns the offending lettered token if it looks like a dev build, else undefined.
+ */
+export function devBuildMarker(m: BuildManifest): string | undefined {
+  const v = (m.version || "").trim();
+  if (/^\d+\.\d+\.\d+[a-z]+$/i.test(v)) return v;
+  const fileMatch = (m.installer?.file || "").match(/(\d+\.\d+\.\d+[a-z]+)/i);
+  return fileMatch ? fileMatch[1] : undefined;
+}
+
 /** Read + minimally validate the manifest; undefined if missing/unreadable/wrong schema. */
 export function readManifest(path = manifestPath()): BuildManifest | undefined {
   if (!existsSync(path)) return undefined;
