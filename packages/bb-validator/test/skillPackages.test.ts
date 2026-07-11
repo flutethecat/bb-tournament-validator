@@ -5,7 +5,10 @@ import { fakeData, pkg, player, roster } from "./helpers";
 const errorsOf = (r: ReturnType<typeof validate>, id: string) => r.errors.filter((f) => f.ruleId === id);
 
 /** A Spike!-style package: Testers in Tier 1 with choose-one gold+SP packages. */
-function spikePkg(over: Partial<TournamentPackage> = {}, packs?: { gold: number; skillPointBudget: number; maxPerPlayer?: number }[]) {
+function spikePkg(
+  over: Partial<TournamentPackage> = {},
+  packs?: { gold: number; skillPointBudget: number; maxPerPlayer?: number; starPlayersAllowed?: boolean }[],
+) {
   return pkg({
     goldBudget: null,
     tiers: [
@@ -91,5 +94,69 @@ describe("skill-packages (choose-one gold+SP)", () => {
     // Only a maxPerPlayer:1 package available -> stacking illegal even though SP fits.
     const r = validate(roster({ players }), spikePkg({}, [{ gold: 1000000, skillPointBudget: 10, maxPerPlayer: 1 }]), fakeData);
     expect(errorsOf(r, "skill-packages")[0]!.message).toMatch(/no skill package fits/);
+  });
+});
+
+describe("skill-packages: global (package-level) vs tier-unique", () => {
+  it("GLOBAL packages apply to a tier that has none of its own", () => {
+    const players = roster().players;
+    for (let i = 0; i < 4; i++) players[i] = player({ number: i + 1, skills: ["Block"] }); // 8 SP
+    // Tier has no skillPackages; the global set caps at 6 -> 8 SP fails against the global.
+    const p = pkg({
+      goldBudget: null,
+      skillPackages: [{ gold: 1000000, skillPointBudget: 6, maxPerPlayer: 1 }],
+      tiers: [{ tier: 1, rosters: ["Testers"], gold: 1000000, starPlayersAllowed: true, bannedStars: [] }],
+    });
+    expect(errorsOf(validate(roster({ players }), p, fakeData), "skill-packages")[0]!.message).toMatch(/no skill package fits/);
+  });
+
+  it("a TIER's own packages OVERRIDE the global set for that tier", () => {
+    const players = roster().players;
+    for (let i = 0; i < 4; i++) players[i] = player({ number: i + 1, skills: ["Block"] }); // 8 SP
+    // Global caps at 6 (would fail), but the tier overrides with an 8-SP pack -> passes.
+    const p = pkg({
+      goldBudget: null,
+      skillPackages: [{ gold: 1000000, skillPointBudget: 6, maxPerPlayer: 1 }],
+      tiers: [
+        {
+          tier: 1,
+          rosters: ["Testers"],
+          gold: 1000000,
+          starPlayersAllowed: true,
+          bannedStars: [],
+          skillPackages: [{ gold: 1000000, skillPointBudget: 8, maxPerPlayer: 1 }],
+        },
+      ],
+    });
+    expect(errorsOf(validate(roster({ players }), p, fakeData), "skill-packages")).toHaveLength(0);
+  });
+});
+
+describe("skill-packages: per-package star access lever", () => {
+  const starBase = { allowed: true, maxCount: 2, maxCombinedCost: null, paidInSkillPoints: true, spCostByTier: { "Star Guy": [0] } };
+  const withStar = () => {
+    const players = roster().players.slice(0, 10);
+    players.push(player({ number: 11, positionName: "Star Guy", cost: 200000 }));
+    return roster({ players });
+  };
+
+  it("a roster WITH a star fails when the only fitting package forbids stars", () => {
+    const p = spikePkg({ starPlayers: starBase }, [{ gold: 1000000, skillPointBudget: 6, maxPerPlayer: 1, starPlayersAllowed: false }]);
+    expect(errorsOf(validate(withStar(), p, fakeData), "skill-packages")[0]!.message).toMatch(/no skill package fits/);
+  });
+
+  it("the same roster passes when a star-allowing package fits", () => {
+    const p = spikePkg({ starPlayers: starBase }, [
+      { gold: 1000000, skillPointBudget: 6, maxPerPlayer: 1, starPlayersAllowed: false },
+      { gold: 1000000, skillPointBudget: 6, maxPerPlayer: 1, starPlayersAllowed: true },
+    ]);
+    expect(errorsOf(validate(withStar(), p, fakeData), "skill-packages")).toHaveLength(0);
+  });
+
+  it("a star-free roster is unaffected by a no-stars package", () => {
+    const players = roster().players;
+    players[0] = player({ number: 1, skills: ["Block"] }); // 2 SP, no star
+    const p = spikePkg({}, [{ gold: 1000000, skillPointBudget: 6, maxPerPlayer: 1, starPlayersAllowed: false }]);
+    expect(errorsOf(validate(roster({ players }), p, fakeData), "skill-packages")).toHaveLength(0);
   });
 });

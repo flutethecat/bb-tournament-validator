@@ -81,6 +81,8 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     bannedStars: [...(pkg.bannedStars ?? [])],
     source: "flat",
   };
+  // GLOBAL packages apply everywhere as the base; a tier's own packages override below.
+  if (pkg.skillPackages?.length) cfg.skillPackages = pkg.skillPackages;
   const addBans = (names?: string[]) => {
     for (const n of names ?? []) if (!cfg.bannedStars.some((b) => normName(b) === normName(n))) cfg.bannedStars.push(n);
   };
@@ -123,6 +125,14 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     if (tr.starPlayersAllowed !== undefined) cfg.starPlayersAllowed = tr.starPlayersAllowed;
     addBans(tr.bannedStars);
     cfg.source = "team";
+  }
+
+  // When skill packages are active, star ACCESS is owned by the packages (a per-package
+  // lever): stars are allowed iff at least one active package permits them. This keeps the
+  // eligibility (`star-players`) rule aligned — the finer "a roster WITH stars must fit a
+  // star-allowing package" check is enforced in the `skill-packages` rule itself.
+  if (cfg.skillPackages?.length) {
+    cfg.starPlayersAllowed = cfg.skillPackages.some((p) => p.starPlayersAllowed !== false);
   }
 
   return cfg;

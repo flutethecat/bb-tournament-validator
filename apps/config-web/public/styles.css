@@ -149,6 +149,18 @@ td a { color: var(--gold); }
 .banned-tag { background: #3a2530; color: #ffb3b3; border: 1px solid #5a2f3a; border-radius: 16px; padding: 0.15rem 0.55rem; font-size: 0.76rem; display: flex; align-items: center; gap: 0.35rem; }
 .banned-tag button { background: none; border: none; color: #ffb3b3; cursor: pointer; padding: 0; font-size: 0.9rem; line-height: 1; }
 
+/* skill packages (Global + per-tier Unique) */
+.pk-list { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.2rem 0 0.4rem; }
+.pk-row { display: grid; grid-template-columns: minmax(0,1.4fr) 0.9fr 0.7fr 0.7fr auto auto; gap: 0.35rem; align-items: center; }
+.pk-row input[type="text"], .pk-row input[type="number"] { width: 100%; padding: 0.3rem 0.4rem; font-size: 0.82rem; }
+.pk-stars { display: flex; align-items: center; gap: 0.2rem; color: var(--gold); font-size: 0.95rem; white-space: nowrap; }
+.pk-del { background: none; border: 1px solid var(--line); color: var(--ink-dim); border-radius: 6px; cursor: pointer; padding: 0.2rem 0.45rem; line-height: 1; }
+.pk-del:hover { color: var(--red); border-color: var(--red); }
+.pk-add.ghost-sm { background: transparent; color: var(--gold); border: 1px dashed var(--line); border-radius: var(--radius); padding: 0.3rem 0.7rem; cursor: pointer; font-size: 0.82rem; align-self: flex-start; }
+.pk-empty { margin: 0.2rem 0; font-style: italic; }
+.pk-section { border-top: 1px solid var(--line); margin-top: 0.5rem; padding-top: 0.5rem; }
+.pk-head { font-size: 0.8rem; color: var(--ink-dim); margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.4rem; }
+
 /* matrix */
 .matrix-scroll { overflow-x: auto; }
 #matrix-table { border-collapse: separate; border-spacing: 4px; table-layout: fixed; width: max-content; }

@@ -15,7 +15,9 @@ const state = {
   tiersEnabled: false,
   tierCount: 3,
   assign: {}, // team name -> tier number (0/undefined = pool)
-  tierData: {}, // tier number -> { label, gold, starsAllowed, banned: [] }
+  tierData: {}, // tier number -> { label, gold, starsAllowed, banned: [], packages: [] }
+  // global skill packages (choose-one gold+SP+star packs applied across all tiers)
+  globalPackages: [], // [{ label, gold(k), sp, maxPerPlayer, stars(bool) }]
   // global bans / team rules / matrix
   bannedGlobal: [],
   teamRules: {}, // team -> { gold, primary, secondary, swap, stars: 'inherit'|'yes'|'no', banned: [] }
@@ -154,6 +156,10 @@ function formToPackage() {
       allowed: $("f-stars").checked,
       maxCount: optNum("f-star-max"),
       maxCombinedCost: $("f-star-cost").value.trim() === "" ? null : num("f-star-cost", 0) * 1000,
+      // Preserve Spike! star-SP fields losslessly (no grid editor for these yet — the
+      // per-tier star-SP-cost UI is the next task; until then a save must not DROP them).
+      ...(state.starSpCostByTier ? { spCostByTier: state.starSpCostByTier } : {}),
+      ...(state.starPaidInSP ? { paidInSkillPoints: true } : {}),
     },
     inducements: { allowed: ["*"], caps: {} },
     sideline: {
@@ -171,6 +177,7 @@ function formToPackage() {
       bannedSkills: [],
       minPlayers: num("f-minplayers", 11),
     },
+    ...(state.globalPackages.length ? { skillPackages: buildPackages(state.globalPackages) } : {}),
     ...(state.mode === "tiers" ? { tiers: buildTiers() } : {}),
     ...(state.mode === "matrix" ? { matrix: buildMatrix() } : {}),
     ...(state.mode === "teamrules" && buildTeamRules().length ? { teamRules: buildTeamRules() } : {}),
@@ -228,6 +235,7 @@ function buildTiers() {
       ...(d.secondary !== "" && d.secondary != null ? { maxSecondary: Number(d.secondary) } : {}),
       ...(d.swap ? { secondarySwap: true } : {}),
       ...(d.stack !== "" && d.stack != null ? { maxStackedPlayers: Number(d.stack) } : {}),
+      ...(d.packages && d.packages.length ? { skillPackages: buildPackages(d.packages) } : {}),
       starPlayersAllowed: d.starsAllowed !== false,
       bannedStars: d.banned || [],
     });
@@ -256,6 +264,9 @@ function packageToForm(p) {
   $("f-stars").checked = !!(p.starPlayers && p.starPlayers.allowed);
   $("f-star-max").value = p.starPlayers?.maxCount ?? 0;
   $("f-star-cost").value = p.starPlayers?.maxCombinedCost != null ? p.starPlayers.maxCombinedCost / 1000 : "";
+  // Carry the Spike! star-SP fields through untouched (no editor yet — see formToPackage).
+  state.starSpCostByTier = p.starPlayers?.spCostByTier || null;
+  state.starPaidInSP = !!p.starPlayers?.paidInSkillPoints;
   $("f-max-rr").value = p.sideline?.maxReRolls ?? "";
   $("f-max-apo").value = p.sideline?.maxApothecary ?? "";
   $("f-max-chr").value = p.sideline?.maxCheerleaders ?? "";
@@ -267,6 +278,9 @@ function packageToForm(p) {
   $("f-slann").checked = !!p.special?.slannAllowed;
   toggleEliteWrap();
   renderSkills();
+  // global skill packages
+  state.globalPackages = (p.skillPackages || []).map(pkgToForm);
+  renderGlobalPackages();
   applyTiers(p.tiers);
   // global bans
   state.bannedGlobal = [...(p.bannedStars || [])];
@@ -294,6 +308,89 @@ function packageToForm(p) {
   renderTiers();
   renderMatrix();
   renderTeamRules();
+}
+
+// ---- skill packages (shared editor for Global + per-tier Unique) ----
+// A form-side package row: { label, gold(k), sp, maxPerPlayer, stars(bool) }. All values
+// are ABSOLUTE entries (not relative to a base). scope = 'global' | tier number.
+function pkgList(scope) {
+  if (scope === "global") return state.globalPackages;
+  const t = state.tierData[+scope];
+  if (!t) return [];
+  if (!t.packages) t.packages = [];
+  return t.packages;
+}
+function pkgToForm(p) {
+  return {
+    label: p.label || "",
+    gold: p.gold != null ? p.gold / 1000 : "",
+    sp: p.skillPointBudget ?? "",
+    maxPerPlayer: p.maxPerPlayer ?? "",
+    stars: p.starPlayersAllowed !== false,
+  };
+}
+function pkgFromForm(d) {
+  return {
+    ...(d.label ? { label: d.label } : {}),
+    gold: d.gold !== "" && d.gold != null ? Number(d.gold) * 1000 : 0,
+    skillPointBudget: d.sp !== "" && d.sp != null ? Number(d.sp) : 0,
+    ...(d.maxPerPlayer !== "" && d.maxPerPlayer != null ? { maxPerPlayer: Number(d.maxPerPlayer) } : {}),
+    ...(d.stars === false ? { starPlayersAllowed: false } : {}),
+  };
+}
+const buildPackages = (list) => (list || []).map(pkgFromForm);
+
+function packageRowsHtml(list, scope) {
+  const rows = (list || [])
+    .map(
+      (d, i) => `
+      <div class="pk-row" data-scope="${scope}" data-i="${i}">
+        <input class="pk-label" data-scope="${scope}" data-i="${i}" type="text" value="${esc(d.label)}" placeholder="Pack ${i + 1}" title="Label" />
+        <input class="pk-gold" data-scope="${scope}" data-i="${i}" type="number" min="0" value="${esc(d.gold)}" placeholder="gold k" title="Gold budget (k)" />
+        <input class="pk-sp" data-scope="${scope}" data-i="${i}" type="number" min="0" value="${esc(d.sp)}" placeholder="SP" title="Skill-Point budget" />
+        <input class="pk-mpp" data-scope="${scope}" data-i="${i}" type="number" min="0" value="${esc(d.maxPerPlayer)}" placeholder="/plyr" title="Max skills per player (blank = no cap)" />
+        <label class="pk-stars" title="May this package field Star Players?"><input class="pk-starchk" data-scope="${scope}" data-i="${i}" type="checkbox" ${d.stars ? "checked" : ""} />★</label>
+        <button class="pk-del" data-scope="${scope}" data-i="${i}" title="remove package">×</button>
+      </div>`,
+    )
+    .join("");
+  return `<div class="pk-list">${rows || '<p class="hint pk-empty">No packages — a coach can build freely under the tier/package gold+SP.</p>'}</div>
+    <button class="pk-add ghost-sm" data-scope="${scope}">＋ Add package</button>`;
+}
+
+// Wire the .pk-* inputs/buttons within a root element for a given scope. Called after
+// each (re)render of a package list. reRender = how to redraw that scope's editor.
+function wirePackages(rootEl, scope, reRender) {
+  const upd = (sel, key, prop = "value") =>
+    rootEl.querySelectorAll(sel).forEach((el) =>
+      el.addEventListener(prop === "checked" ? "change" : "input", (e) => {
+        pkgList(scope)[+e.target.dataset.i][key] = prop === "checked" ? e.target.checked : e.target.value;
+      }),
+    );
+  upd(".pk-label", "label");
+  upd(".pk-gold", "gold");
+  upd(".pk-sp", "sp");
+  upd(".pk-mpp", "maxPerPlayer");
+  upd(".pk-starchk", "stars", "checked");
+  rootEl.querySelectorAll(".pk-del").forEach((btn) =>
+    btn.addEventListener("click", (e) => {
+      pkgList(scope).splice(+e.target.dataset.i, 1);
+      reRender();
+    }),
+  );
+  rootEl.querySelectorAll(".pk-add").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      pkgList(scope).push({ label: "", gold: "", sp: "", maxPerPlayer: "", stars: true });
+      reRender();
+    }),
+  );
+}
+
+function renderGlobalPackages() {
+  const host = $("global-packages");
+  if (!host) return;
+  host.innerHTML = packageRowsHtml(state.globalPackages, "global");
+  wirePackages(host, "global", renderGlobalPackages);
 }
 
 // ---- global bans ----
@@ -576,7 +673,7 @@ function buildTiersFrom(d) {
   state.assign = {};
   let t = 1;
   for (const { v, teams } of groups.values()) {
-    state.tierData[t] = { label: "", gold: v.gold ?? "", sp: v.sp ?? "", primary: v.primary ?? "", secondary: v.secondary ?? "", swap: !!v.swap, stack: v.stack ?? "", starsAllowed: v.stars !== "no", banned: [...(v.banned || [])] };
+    state.tierData[t] = { label: "", gold: v.gold ?? "", sp: v.sp ?? "", primary: v.primary ?? "", secondary: v.secondary ?? "", swap: !!v.swap, stack: v.stack ?? "", starsAllowed: v.stars !== "no", banned: [...(v.banned || [])], packages: [] };
     for (const tm of teams) state.assign[tm] = t;
     t++;
   }
@@ -625,6 +722,7 @@ function applyTiers(tiers) {
         stack: t.maxStackedPlayers != null ? t.maxStackedPlayers : "",
         starsAllowed: t.starPlayersAllowed !== false,
         banned: [...(t.bannedStars || [])],
+        packages: (t.skillPackages || []).map(pkgToForm),
       };
       for (const r of t.rosters) state.assign[r] = t.tier;
     }
@@ -641,7 +739,8 @@ function applyTiers(tiers) {
 
 function ensureTierData() {
   for (let t = 1; t <= state.tierCount; t++) {
-    if (!state.tierData[t]) state.tierData[t] = { label: "", gold: "", sp: "", primary: "", secondary: "", swap: false, stack: "", starsAllowed: true, banned: [] };
+    if (!state.tierData[t]) state.tierData[t] = { label: "", gold: "", sp: "", primary: "", secondary: "", swap: false, stack: "", starsAllowed: true, banned: [], packages: [] };
+    else if (!state.tierData[t].packages) state.tierData[t].packages = [];
   }
 }
 
@@ -675,6 +774,10 @@ function renderTiers() {
       <label class="switch"><input class="t-swap" data-t="${t}" type="checkbox" ${d.swap ? "checked" : ""} /><span title="Trade 2 primary slots for 1 secondary">Secondary Swap</span></label>
       <label title="Max players allowed more than one added skill (blank = no limit)">Skill stacking (players &gt;1 skill)<input class="t-stack" data-t="${t}" type="number" min="0" value="${esc(d.stack)}" placeholder="no limit" /></label>
       <label class="switch"><input class="t-stars" data-t="${t}" type="checkbox" ${d.starsAllowed ? "checked" : ""} /><span>Allow Star Players</span></label>
+      <div class="pk-section">
+        <div class="pk-head">Unique skill packages ${(d.packages && d.packages.length) ? `<span class="pill">${d.packages.length}</span>` : `<span class="hint">(inherits Global)</span>`}</div>
+        <div class="pk-host" data-t="${t}">${packageRowsHtml(d.packages, String(t))}</div>
+      </div>
       <label>Ban a star (type + Enter)<input class="t-banadd star-ac" data-t="${t}" type="text" placeholder="Star name…" /></label>
       <div class="banned-tags" data-t="${t}">${d.banned.map((s) => bannedTag(t, s)).join("")}</div>
       <div class="team-drop" data-tier="${t}">${members.map((tm) => teamChip(tm.name)).join("")}</div>`;
@@ -729,6 +832,10 @@ function wireTierControls() {
       state.tierData[t].banned = state.tierData[t].banned.filter((s) => s !== e.target.dataset.star);
       renderTiers();
     }),
+  );
+  // per-tier Unique packages (add/remove re-renders the whole tier grid to refresh the count)
+  document.querySelectorAll(".pk-host").forEach((host) =>
+    wirePackages(host, host.dataset.t, renderTiers),
   );
 }
 
@@ -936,6 +1043,7 @@ document.addEventListener("focusout", (e) => {
   applyMatrix(null);
   state.mode = "flat";
   syncModeUI();
+  renderGlobalPackages();
   renderGlobalBans();
   renderTeamRules();
   await loadPresets();

@@ -291,8 +291,10 @@ export const skillPackages: Rule = {
     const spTable = pkg.starPlayers.spCostByTier;
     let starSP = 0;
     let starGold = 0;
+    let hasStars = false;
     for (const rp of players) {
       if (!isStarName(data, rp.player.positionName)) continue;
+      hasStars = true;
       starGold += rp.player.cost;
       if (!spTable) continue;
       const star = findStar(data, rp.player.positionName);
@@ -322,14 +324,16 @@ export const skillPackages: Rule = {
       (p) =>
         goldUsed <= p.gold &&
         spUsed <= p.skillPointBudget &&
-        (p.maxPerPlayer == null || maxOnAPlayer <= p.maxPerPlayer),
+        (p.maxPerPlayer == null || maxOnAPlayer <= p.maxPerPlayer) &&
+        (!hasStars || p.starPlayersAllowed !== false),
     );
     if (!fits) {
       const opts = packs
         .map(
           (p) =>
             `${p.label ? `${p.label}: ` : ""}${p.skillPointBudget} SP @ ${fmtGold(p.gold)}` +
-            (p.maxPerPlayer != null ? ` (≤${p.maxPerPlayer}/player)` : ""),
+            (p.maxPerPlayer != null ? ` (≤${p.maxPerPlayer}/player)` : "") +
+            (p.starPlayersAllowed === false ? " (no stars)" : ""),
         )
         .join("; ");
       findings.push(

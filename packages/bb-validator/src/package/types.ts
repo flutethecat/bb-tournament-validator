@@ -7,7 +7,11 @@
 /**
  * A gold+SP "skill package" a coach may choose (Spike!-style). A roster is legal
  * if it fits ANY package: gold spend ≤ `gold` AND SP spend ≤ `skillPointBudget`
- * (and per-player skill count ≤ `maxPerPlayer` when set). Offered per tier.
+ * (and per-player skill count ≤ `maxPerPlayer` when set, and — if the roster fields
+ * a Star — the package permits stars). All values are ABSOLUTE (the value a coach may
+ * spend under this package), NOT deltas from a base. Offered globally (package-level
+ * `TournamentPackage.skillPackages`, applied to every tier) or per-tier
+ * (`TierDef.skillPackages`, which OVERRIDES the global set for that tier).
  */
 export interface SkillPackage {
   label?: string;
@@ -15,6 +19,8 @@ export interface SkillPackage {
   skillPointBudget: number;
   /** Max added skills per player under this package (e.g. Spike: 1, or 2 for a stacking pack). */
   maxPerPlayer?: number | null;
+  /** Whether a roster on THIS package may field Star Players. Absent/true = allowed. */
+  starPlayersAllowed?: boolean;
 }
 
 /** One tier's roster membership + per-tier overrides (gold, star access, banned stars). */
@@ -123,6 +129,13 @@ export interface TournamentPackage {
   extends?: string;
   /** Race names, or ["*"] for all. When `tiers` is set, tier membership also grants eligibility. */
   eligibleRosters: string[];
+  /**
+   * GLOBAL skill packages (Spike!-style choose-one gold+SP+star packs) offered across
+   * EVERY tier. A roster is legal if it fits any package. A tier that defines its own
+   * `TierDef.skillPackages` OVERRIDES this global set for that tier; tiers without their
+   * own packages inherit these. In a non-tiered package these apply to all teams.
+   */
+  skillPackages?: SkillPackage[];
   /**
    * Tier configuration. When present, a team's tier drives its gold cap, star
    * access, and banned stars, overriding the package-level equivalents.
