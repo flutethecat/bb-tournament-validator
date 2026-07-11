@@ -10,8 +10,19 @@ import { extractPdfPages, type PdfLine } from "../pdf/extractText";
 import type { IngestInput, IngestResult, RosterSource } from "./rosterSource";
 
 const TABLE_HEADER = /#\s*POSITION\s+MA\s+ST\s+AG\s+PA\s+AV\s+SKILLS\s+COST/i;
-const PLAYER_ROW =
-  /^(\d{1,2})\s+(.+?)\s+(\d{1,2})\s+(\d)\s+(\d\+)\s+(\d\+|-)\s+(\d{1,2}\+)\s*(.*?)\s*(\d+)k$/;
+// The number + position + 5 stats that begin a player row. Skills and cost are
+// intentionally NOT anchored here: a long skills list wraps onto a second (and
+// even third) physical line, and the number/stats/cost land on the row's
+// vertically-centred baseline while the skills split above and below it. We
+// match the anchor, then re-attach wrapped fragments by proximity (below).
+const PLAYER_ANCHOR =
+  /^(\d{1,2})\s+(.+?)\s+(\d{1,2})\s+(\d)\s+(\d\+)\s+(\d\+|-)\s+(\d{1,2}\+)\s*(.*)$/;
+const COST = /(\d+)\s*k\b/g;
+// Max vertical gap (in PDF units) between a wrapped skill fragment and its
+// anchor row. Row-to-row spacing on these sheets is ~16–17; a wrap sits ~5–6
+// away. A comfortable threshold merges true wraps but still flags a genuinely
+// stray line a full row away.
+const WRAP_MAX_DY = 12;
 const BULLET = /^[••�]\s*/;
 
 export const bbtcPdfSource: RosterSource = {
@@ -141,14 +152,54 @@ export const bbtcPdfSource: RosterSource = {
     }
 
     // --- player rows: between the table header and the Keywords line ---
+    // Each row starts at an "anchor" line (number + position + stats). A long
+    // skills list wraps onto extra physical lines; those fragments carry no
+    // anchor and are re-attached to the nearest anchor by vertical proximity.
     const players: RosterPlayer[] = [];
     const rowEnd = kwIdx >= 0 ? kwIdx : lines.length;
-    for (const l of lines.slice(headerIdx + 1, rowEnd)) {
-      const m = l.text.match(PLAYER_ROW);
-      if (!m) {
-        problems.push(`Unrecognized player row: "${l.text}" — refusing to guess.`);
+    const region = lines.slice(headerIdx + 1, rowEnd).filter((l) => l.text.trim());
+    const anchors: { line: PdfLine; m: RegExpMatchArray }[] = [];
+    const fragments: PdfLine[] = [];
+    for (const l of region) {
+      const m = l.text.match(PLAYER_ANCHOR);
+      if (m) anchors.push({ line: l, m });
+      else fragments.push(l);
+    }
+    // Wrapped skill fragments -> nearest anchor by Y (skills text keyed by Y so
+    // reading order — above the anchor, the anchor's own tail, then below — is
+    // preserved when we reassemble).
+    const extraByAnchor = new Map<PdfLine, PdfLine[]>();
+    for (const frag of fragments) {
+      let best: PdfLine | undefined;
+      let bestDy = Infinity;
+      for (const a of anchors) {
+        const dy = Math.abs(a.line.y - frag.y);
+        if (dy < bestDy) {
+          bestDy = dy;
+          best = a.line;
+        }
+      }
+      if (best && bestDy <= WRAP_MAX_DY) {
+        (extraByAnchor.get(best) ?? extraByAnchor.set(best, []).get(best)!).push(frag);
+      } else {
+        problems.push(`Unrecognized player row: "${frag.text}" — refusing to guess.`);
+      }
+    }
+
+    for (const { line, m } of anchors) {
+      // Reassemble the full skills+cost text in reading order (top to bottom).
+      const pieces = [{ y: line.y, text: m[8]!.trim() }, ...(extraByAnchor.get(line) ?? [])]
+        .sort((a, b) => b.y - a.y)
+        .map((p) => p.text)
+        .filter(Boolean);
+      const combined = pieces.join(" ");
+      const costs = [...combined.matchAll(COST)];
+      const costM = costs[costs.length - 1];
+      if (!costM) {
+        problems.push(`Player row missing a cost: "${line.text}" — refusing to guess.`);
         continue;
       }
+      const skillsText = (combined.slice(0, costM.index) + combined.slice(costM.index! + costM[0].length)).trim();
       const positionName = m[2]!.trim();
       players.push({
         number: Number(m[1]),
@@ -158,11 +209,12 @@ export const bbtcPdfSource: RosterSource = {
         AG: m[5] as Target,
         PA: m[6] as Target,
         AV: m[7] as Target,
-        skills: m[8]! ? m[8]!.split(",").map((s) => s.trim()).filter(Boolean) : [],
+        skills: skillsText ? skillsText.split(",").map((s) => s.trim()).filter(Boolean) : [],
         keywords: keywordsByPosition.get(positionName) ?? [],
-        cost: Number(m[9]) * 1000,
+        cost: Number(costM[1]) * 1000,
       });
     }
+    players.sort((a, b) => a.number - b.number);
     if (players.length === 0) problems.push("No player rows parsed from the table.");
 
     const roster: Roster = {
@@ -178,7 +230,7 @@ export const bbtcPdfSource: RosterSource = {
     };
 
     // Loud failure: structural problems mean the roster should not be trusted.
-    const fatal = problems.some((p) => /Unrecognized player row|No player rows|does not look like/.test(p));
+    const fatal = problems.some((p) => /Unrecognized player row|missing a cost|No player rows|does not look like/.test(p));
     return fatal ? { sourceId: this.id, problems } : { roster, sourceId: this.id, problems };
   },
 };

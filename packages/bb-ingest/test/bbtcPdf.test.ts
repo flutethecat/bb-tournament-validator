@@ -83,6 +83,33 @@ describe.each(["Example PDF 1.pdf", "Example PDF 2.pdf"])("golden parse of %s", 
   });
 });
 
+describe("wrapped skill lines (long skills list spans multiple physical rows)", () => {
+  it("re-attaches skills that wrap above and below the anchor row", async () => {
+    // The two Trained Trolls have a 7-skill list that wraps: the number/stats/
+    // cost sit on the centred baseline while the skills split onto a line above
+    // and a line below ('Block' lands on its own line). Both must be recovered.
+    const parsed = await parsePdf("wrapped-skills-snotling.pdf");
+    expect(parsed.players).toHaveLength(16);
+    const trolls = parsed.players.filter((p) => p.positionName === "Trained Troll");
+    expect(trolls).toHaveLength(2);
+    for (const t of trolls) {
+      expect(t.cost).toBe(115000);
+      expect(t.skills).toEqual([
+        "Always Hungry*",
+        "Mighty Blow",
+        "Projectile Vomit",
+        "Really Stupid*",
+        "Regeneration",
+        "Throw Team-mate",
+        "Block",
+      ]);
+    }
+    // A non-wrapping row on the same sheet is still parsed correctly.
+    const hoppa = parsed.players.find((p) => p.number === 5);
+    expect(hoppa?.skills).toEqual(["Dodge", "Pogo", "Right Stuff*", "Sidestep", "Stunty*"]);
+  });
+});
+
 describe("loud failure on non-bbtc input", () => {
   it("refuses to guess on unrecognized bytes", async () => {
     const result = await ingestRoster(
