@@ -25,6 +25,21 @@ const COST = /(\d+)\s*k\b/g;
 const WRAP_MAX_DY = 12;
 const BULLET = /^[••�]\s*/;
 
+/**
+ * A bbtc.pl BB2020 export vs the BB2025 one. BB2020 summarises as "Team budget
+ * X/Y" with an SPP pool and "Max skill stacks"; BB2025 itemises "Players cost /
+ * Skills cost / Inducement cost / Sideline cost". The decisive tell is the
+ * budget line: BB2020 has "Team budget …" and never the BB2025 "Players cost …".
+ */
+export function isBb2020Export(fullText: string): boolean {
+  const hasTeamBudget = /Team budget\s+\d/i.test(fullText);
+  const hasItemisedCosts = /Players cost\s+\d/i.test(fullText);
+  const bb2020Markers = [/\bSPP\b\s*\d/i, /Max skill stacks/i, /Trade\s+\d+\s*SPP/i].filter((re) =>
+    re.test(fullText),
+  ).length;
+  return hasTeamBudget && !hasItemisedCosts && bb2020Markers >= 1;
+}
+
 export const bbtcPdfSource: RosterSource = {
   id: "bbtc-pdf",
   accepts: ["pdf"],
@@ -52,6 +67,20 @@ export const bbtcPdfSource: RosterSource = {
         sourceId: this.id,
         problems: [
           "This does not look like a bbtc.pl roster export (missing the '# POSITION … COST' table or SUMMARY block). Supported formats: bbtc.pl PDF.",
+        ],
+      };
+    }
+
+    // Reject BB2020 exports up front. Their SUMMARY uses "Team budget X/Y" + SPP
+    // (skills baked into player value at +20k primary / +40k secondary) rather
+    // than the BB2025 "Players cost / Skills cost / …" breakdown this parser reads,
+    // so a BB2020 sheet would otherwise validate on a silently-zeroed summary.
+    // This tool validates BB2025 rosters only — don't guess a BB2020 team's gold.
+    if (isBb2020Export(fullText)) {
+      return {
+        sourceId: this.id,
+        problems: [
+          "This looks like a BB2020 roster export (Team budget / SPP format). This tool validates BB2025 rosters. Please re-export the team as BB2025 and resubmit.",
         ],
       };
     }

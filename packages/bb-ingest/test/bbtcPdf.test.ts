@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { bbtcPdfSource, ingestRoster } from "@bb/ingest";
+import { isBb2020Export } from "../src/roster/bbtcPdf";
 import {
   loadPackage,
   validate,
@@ -107,6 +108,27 @@ describe("wrapped skill lines (long skills list spans multiple physical rows)", 
     // A non-wrapping row on the same sheet is still parsed correctly.
     const hoppa = parsed.players.find((p) => p.number === 5);
     expect(hoppa?.skills).toEqual(["Dodge", "Pogo", "Right Stuff*", "Sidestep", "Stunty*"]);
+  });
+});
+
+describe("BB2020 exports are rejected up front (not silently mis-validated)", () => {
+  it("refuses a BB2020 roster with a clear re-export message and no roster", async () => {
+    const bytes = new Uint8Array(readFileSync(pdfPath("bb2020-elven-union.pdf")));
+    const result = await ingestRoster({ kind: "pdf", bytes, filename: "bb2020-elven-union.pdf" }, [bbtcPdfSource]);
+    expect(result.roster).toBeUndefined();
+    expect(result.problems.some((p) => /BB2020 roster export/.test(p))).toBe(true);
+    expect(result.problems.some((p) => /re-export the team as BB2025/.test(p))).toBe(true);
+  });
+
+  it("isBb2020Export discriminates BB2020 (Team budget/SPP) from BB2025 (itemised costs)", () => {
+    // BB2020: Team budget + SPP, no itemised "Players cost".
+    expect(isBb2020Export("SUMMARY\nTeam budget 1130k/1130k\nSPP 56/56\nMax skill stacks 2")).toBe(true);
+    // BB2025: itemised costs, no Team budget.
+    expect(
+      isBb2020Export("SUMMARY\nPlayers cost 655k\nSkills cost 180k\nSideline cost 70k"),
+    ).toBe(false);
+    // A "Team budget" phrase alone (no BB2020 markers) is not enough to reject.
+    expect(isBb2020Export("Team budget 1000k")).toBe(false);
   });
 });
 
