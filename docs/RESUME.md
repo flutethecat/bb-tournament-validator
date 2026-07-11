@@ -105,10 +105,16 @@ pnpm build           # builds @bb/validator (tsup, platform:neutral)
   fits ANY — the `skill-packages` rule does the gold∧SP∧maxPerPlayer disjunction, and goldBudget/
   skillPoints yield to it). **Stars priced in Skill Points per tier** (`starPlayers.spCostByTier`,
   null=unavailable; `paidInSkillPoints` excludes star gold). Validates the live Dwarf team (t/1263233)
-  correctly as NOT legal (9.5 SP > Tier 3's 9-SP max). ⚠ **star SP table transcribed from a rules-pack
-  image — spot-check**. ⚠ **the config pane can't author packages/star-SP yet** — editing spike-2026
-  there and saving would DROP `skillPackages`/`spCostByTier`; author via the generator. Follow-ups:
-  config-pane authoring for skill packages + the HTML export doesn't yet render the 3 packs per tier.
+  correctly as NOT legal (9.5 SP > Tier 3's 9-SP max).
+  ✅ **CONFIG-PANE SKILL-PACKAGE AUTHORING DONE (2026-07-11, `1b95a92`):** two modes — **Global** packages
+  (new package-level `TournamentPackage.skillPackages`, Configure tab, apply across all tiers) + **Unique**
+  packages (per-tier `TierDef.skillPackages`, Tiers tab, override the global set for that tier). Levers =
+  Gold / SP / Star-access (absolute entries, not deltas) + optional max-skills/player. Validator: per-package
+  star access enforced (a roster with a star must fit a star-allowing package); +5 tests (125 green). Editing
+  spike-2026 in the pane is now **LOSSLESS** — `skillPackages` authorable, `spCostByTier`/`paidInSkillPoints`
+  pass through untouched (old save-corruption fixed). ⚠ REMAINING: (1) **star-SP-by-tier GRID editor** (the
+  66×6 matrix is preserved but not yet EDITABLE in the UI — next task); (2) **HTML export** doesn't render the
+  packs / star-SP yet; (3) **star SP table** still wants a spot-check vs the rules-pack image.
 - Discord bot live behaviors: ✅ react + DM + CSV row on valid roster; `/report` links; watched-channel
   auto-ingestion (needs Message Content intent).
 
