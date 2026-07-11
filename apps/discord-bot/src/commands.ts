@@ -23,6 +23,7 @@
  *   /bbbot watch channel:<#ch> package:<name>   (TO, Manage Server)
  *   /bbbot unwatch channel:<#ch>                (TO, Manage Server)
  *   /bbbot watches
+ *   /bbbot expired                              (TO, Manage Server — deprecate past-date channels)
  *
  * Watched channels are the PRIMARY ingestion path: any PDF posted there is
  * auto-validated against the bound package (✅/❌ on the coach's own post).
@@ -113,6 +114,11 @@ export const commandDefs = [
     )
     .addSubcommand((s) =>
       s.setName("watches").setDescription("List watched channels and their packages"),
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("expired")
+        .setDescription("Report watched channels whose tournament date has passed (TO only)"),
     )
     .addSubcommandGroup((g) =>
       g

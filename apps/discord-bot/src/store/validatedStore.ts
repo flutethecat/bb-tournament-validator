@@ -23,6 +23,8 @@ export interface ValidatedEntry {
 export interface ValidatedStore {
   /** Latest wins per (discordUserId, packageName). */
   upsert(entry: ValidatedEntry): Promise<void>;
+  /** The coach's existing entry for a package, if any (drives the resubmission prompt). */
+  find(discordUserId: string, packageName: string): Promise<ValidatedEntry | undefined>;
   list(packageName?: string): Promise<ValidatedEntry[]>;
   /** Raw CSV for /report's optional attachment. */
   exportCsv(packageName?: string): Promise<string>;
@@ -87,6 +89,12 @@ export class CsvValidatedStore implements ValidatedStore {
     );
     entries.push(entry);
     this.write(entries);
+  }
+
+  async find(discordUserId: string, packageName: string): Promise<ValidatedEntry | undefined> {
+    return this.read().find(
+      (e) => e.discordUserId === discordUserId && e.packageName === packageName,
+    );
   }
 
   async list(packageName?: string): Promise<ValidatedEntry[]> {

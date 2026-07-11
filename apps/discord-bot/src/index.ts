@@ -11,23 +11,34 @@ import "dotenv/config";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
+  ActionRowBuilder,
   AttachmentBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ChatInputCommandInteraction,
   Client,
   EmbedBuilder,
   GatewayIntentBits,
   MessageFlags,
   PermissionFlagsBits,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   type AutocompleteInteraction,
+  type ButtonInteraction,
   type Message,
+  type StringSelectMenuInteraction,
+  type User,
 } from "discord.js";
 import { ingestPackageDocument } from "@bb/ingest";
 import { renderArtPrompt, renderPackageHtml, type Roster, type ValidationResult } from "@bb/validator";
 import { PackageStore } from "./packageStore";
 import { renderProblemsEmbed, renderResultEmbed, validateFumbblTeam, validateRosterBytes, type EmbedData } from "./pipeline";
-import { CsvValidatedStore } from "./store/validatedStore";
-import { FileCoachRegistry, KeyConflictError, type CoachKey } from "./store/coachRegistry";
+import { CsvValidatedStore, type ValidatedEntry } from "./store/validatedStore";
+import { FileCoachRegistry, KeyConflictError, type CoachKey, type CoachTeamRegistration } from "./store/coachRegistry";
+import { PendingResubmissionStore } from "./store/pendingResubmissions";
 import { WatchStore } from "./store/watchStore";
+import { PendingChannelResolutionStore } from "./store/pendingChannelResolutions";
+import { resolveChannelPackage, tournamentDateStatus } from "./channelTournament";
 import { Fork40kStore } from "./store/fork40kStore";
 import { buildForkJnlp, copyForkTeam, createForkAccount, fetchForkTeam, forkConfigFromEnv, jnlpFilename } from "./fork40k";
 import { AnnounceState, manifestReleaseTag, readManifest } from "./buildAnnounce";
@@ -52,41 +63,130 @@ const fork40k = new Fork40kStore(join(DATA_DIR, "fork40k.json"));
 const announceState = new AnnounceState(join(DATA_DIR, "build-announce.json"));
 const dailySummaryState = new DailySummaryState(join(DATA_DIR, "daily-summary-announce.json"));
 const announceHold = new AnnounceHold(join(DATA_DIR, "announce-hold.json"));
+const pendingResubs = new PendingResubmissionStore();
+const pendingChannelResos = new PendingChannelResolutionStore();
 
-/** Shared success side effects: DM + validated-roster row + coach-registry team. */
+/** Persist an entrant record: validated-roster row + coach-registry team. */
+async function commitEntry(entry: ValidatedEntry, team: CoachTeamRegistration): Promise<void> {
+  await validated.upsert(entry);
+  try {
+    const coach = await coaches.upsert({ discordUserId: entry.discordUserId });
+    await coaches.addTeam(coach.id, team);
+  } catch {
+    /* registry is best-effort during validation */
+  }
+}
+
+/**
+ * Shared success side effects. On a coach's FIRST submission for a package we
+ * record immediately (and DM the legal confirmation). On a RESUBMISSION we DM a
+ * "replace your earlier entry?" prompt with buttons and hold the new entry
+ * pending — nothing is overwritten until they confirm (handleResubButton).
+ * If the coach's DMs are closed we can't ask, so we fall back to the historical
+ * latest-wins behaviour and log it.
+ */
 async function recordValidRoster(
-  user: { id: string; username: string; send: (msg: string) => Promise<unknown> },
+  user: User,
   roster: Roster,
   result: ValidationResult,
   packageName: string,
   messageLink: string,
   sourceName: string,
 ): Promise<void> {
-  await user
-    .send(
-      `✅ Your roster **${roster.teamName || sourceName}** (${roster.rosterName}) is legal for **${packageName}** — ${result.recomputedSummary.skillPointsUsed}/${result.recomputedSummary.skillPointBudget} SP.`,
-    )
-    .catch(() => void 0);
-  await validated.upsert({
+  const teamName = roster.teamName || sourceName;
+  const legalLine = `✅ Your roster **${teamName}** (${roster.rosterName}) is legal for **${packageName}** — ${result.recomputedSummary.skillPointsUsed}/${result.recomputedSummary.skillPointBudget} SP.`;
+  const newEntry: ValidatedEntry = {
     discordUserId: user.id,
     coachName: roster.coach || user.username,
-    teamName: roster.teamName || sourceName,
+    teamName,
     rosterRace: roster.rosterName,
     packageName,
     messageLink,
     validatedAt: new Date().toISOString(),
+  };
+  const registryTeam: CoachTeamRegistration = {
+    tournament: packageName,
+    teamName,
+    rosterRace: roster.rosterName,
+    sourceRef: messageLink,
+    registeredAt: newEntry.validatedAt,
+  };
+
+  const previous = await validated.find(user.id, packageName);
+  if (!previous) {
+    await user.send(legalLine).catch(() => void 0);
+    await commitEntry(newEntry, registryTeam);
+    return;
+  }
+
+  // Resubmission: ask before overwriting the earlier entry.
+  const pending = pendingResubs.create({
+    discordUserId: user.id,
+    packageName,
+    newEntry,
+    registryTeam,
+    previous: {
+      teamName: previous.teamName,
+      messageLink: previous.messageLink,
+      validatedAt: previous.validatedAt,
+    },
   });
-  try {
-    const entry = await coaches.upsert({ discordUserId: user.id });
-    await coaches.addTeam(entry.id, {
-      tournament: packageName,
-      teamName: roster.teamName || sourceName,
-      rosterRace: roster.rosterName,
-      sourceRef: messageLink,
-      registeredAt: new Date().toISOString(),
-    });
-  } catch {
-    /* registry is best-effort during validation */
+  const when = Number.isNaN(Date.parse(previous.validatedAt))
+    ? "earlier"
+    : `<t:${Math.floor(Date.parse(previous.validatedAt) / 1000)}:R>`;
+  const prevRef = previous.messageLink ? ` ([roster post](${previous.messageLink}))` : "";
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(`resub:yes:${pending.token}`).setLabel("Replace it").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`resub:no:${pending.token}`).setLabel("Keep original").setStyle(ButtonStyle.Secondary),
+  );
+  const sent = await user
+    .send({
+      content:
+        `${legalLine}\n\n` +
+        `⚠️ You already submitted **${previous.teamName}** for **${packageName}** (${when})${prevRef}.\n` +
+        `Do you want to **replace** it with **${teamName}**? Your earlier entry will be deleted.`,
+      components: [row],
+    })
+    .then(() => true)
+    .catch(() => false);
+  if (!sent) {
+    // DMs closed — can't obtain consent; preserve latest-wins so the newest legal roster is on record.
+    pendingResubs.take(pending.token);
+    await commitEntry(newEntry, registryTeam);
+    console.log(
+      `Resubmission for ${user.id} / ${packageName}: DMs closed, auto-replaced without confirmation.`,
+    );
+  }
+}
+
+/** Coach clicked Replace / Keep on the resubmission DM prompt. */
+async function handleResubButton(i: ButtonInteraction): Promise<void> {
+  const [ns, action, token] = i.customId.split(":");
+  if (ns !== "resub" || !token) return;
+  const pending = pendingResubs.take(token);
+  if (!pending) {
+    await i.update({ content: "This request has expired or was already handled.", components: [] }).catch(() => void 0);
+    return;
+  }
+  if (pending.discordUserId !== i.user.id) {
+    await i.reply({ content: "This confirmation isn't yours.", flags: MessageFlags.Ephemeral }).catch(() => void 0);
+    return;
+  }
+  if (action === "yes") {
+    await commitEntry(pending.newEntry, pending.registryTeam);
+    await i
+      .update({
+        content: `✅ Replaced **${pending.previous.teamName}** with **${pending.newEntry.teamName}** for **${pending.packageName}**. Your earlier entry has been deleted.`,
+        components: [],
+      })
+      .catch(() => void 0);
+  } else {
+    await i
+      .update({
+        content: `↩️ Kept your original **${pending.previous.teamName}** for **${pending.packageName}**. The new submission was discarded — nothing changed.`,
+        components: [],
+      })
+      .catch(() => void 0);
   }
 }
 
@@ -161,20 +261,50 @@ async function handleValidate(i: ChatInputCommandInteraction): Promise<void> {
 }
 
 // ---- auto-ingestion: PDFs posted to watched channels (the PRIMARY path) ----
-async function handleWatchedMessage(message: Message): Promise<void> {
-  if (message.author.bot || !message.inGuild()) return;
-  const packageName = watches.get(message.channelId);
-  if (!packageName) return;
-  const pdfs = [...message.attachments.values()].filter(
+const pdfAttachments = (message: Message) =>
+  [...message.attachments.values()].filter(
     (a) => a.contentType?.includes("pdf") || /\.pdf$/i.test(a.name),
   );
-  if (pdfs.length === 0) return;
 
-  const found = packages.get(packageName);
-  if (!found) {
-    await message.reply(`⚠ This channel is watched, but its package "${packageName}" no longer exists — ask the TO to re-run /bbbot watch.`).catch(() => void 0);
+const channelName = (message: Message): string =>
+  (message.channel as { name?: string }).name ?? "";
+
+async function handleWatchedMessage(message: Message): Promise<void> {
+  if (message.author.bot || !message.inGuild()) return;
+  if (pdfAttachments(message).length === 0) return;
+
+  // Resolve the tournament: an explicit /watch binding wins; otherwise derive it
+  // from a dated channel name like #09-12-spike.
+  const watched = watches.get(message.channelId);
+  if (watched) {
+    const found = packages.get(watched);
+    if (!found) {
+      await message.reply(`⚠ This channel is watched, but its package "${watched}" no longer exists — ask the TO to re-run /bbbot watch.`).catch(() => void 0);
+      return;
+    }
+    await processRosterMessage(message, found);
     return;
   }
+
+  const resolution = resolveChannelPackage(channelName(message), packages.names());
+  if (resolution.match) {
+    const found = packages.get(resolution.match);
+    if (found) await processRosterMessage(message, found);
+    return;
+  }
+  // Only prompt in channels that look like tournament channels — otherwise a PDF
+  // dropped in #general would trigger a question. Ambiguous or unmatched → ask.
+  if (resolution.looksLikeTournamentChannel) {
+    await promptForTournament(message, resolution.candidates);
+  }
+}
+
+type FoundPackage = NonNullable<ReturnType<typeof packages.get>>;
+
+/** Validate every roster PDF on a message against the resolved package. */
+async function processRosterMessage(message: Message, found: FoundPackage): Promise<void> {
+  const pdfs = pdfAttachments(message);
+  if (pdfs.length === 0) return;
 
   // DM-first feedback (owner decision): channel gets only the ✅/❌ reaction.
   const dmOrFallback = async (embed: EmbedBuilder, fallback: string): Promise<void> => {
@@ -215,6 +345,92 @@ async function handleWatchedMessage(message: Message): Promise<void> {
   }
 }
 
+const NOT_LISTED = "__not_listed__";
+
+/**
+ * The channel name didn't resolve to a single package — ask the coach which
+ * tournament this is. Offer the near-matches first (ambiguous case), else the
+ * full package list, plus an escape hatch that loops in a TO.
+ */
+async function promptForTournament(message: Message, candidates: string[]): Promise<void> {
+  const options = (candidates.length ? candidates : packages.names()).slice(0, 24);
+  if (options.length === 0) {
+    // Nothing to offer — go straight to the organizers.
+    await escalateToOrganizer(message);
+    return;
+  }
+  const pending = pendingChannelResos.create({
+    channelId: message.channelId,
+    messageId: message.id,
+    userId: message.author.id,
+  });
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`chtour:${pending.token}`)
+    .setPlaceholder("Choose the tournament this roster is for…")
+    .addOptions(
+      ...options.map((n) => new StringSelectMenuOptionBuilder().setLabel(n.slice(0, 100)).setValue(n.slice(0, 100))),
+      new StringSelectMenuOptionBuilder()
+        .setLabel("It's not listed — ask an organizer")
+        .setValue(NOT_LISTED)
+        .setEmoji("🚫"),
+    );
+  const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+  await message
+    .reply({
+      content:
+        `${message.author} thanks for the roster! I couldn't tell which tournament **#${channelName(message)}** is for` +
+        (candidates.length ? " — did you mean one of these?" : ".") +
+        `\nPick it below and I'll validate your team.`,
+      components: [row],
+    })
+    .catch(() => void 0);
+}
+
+/** Coach picked a tournament (or "not listed") from the prompt menu. */
+async function handleChannelTournamentSelect(i: StringSelectMenuInteraction): Promise<void> {
+  if (!i.customId.startsWith("chtour:")) return;
+  const pending = pendingChannelResos.take(i.customId.slice("chtour:".length));
+  if (!pending) {
+    await i.update({ content: "This request has expired — please re-post your roster.", components: [] }).catch(() => void 0);
+    return;
+  }
+  if (pending.userId !== i.user.id) {
+    await i.reply({ content: "Only the coach who posted this roster can answer.", flags: MessageFlags.Ephemeral }).catch(() => void 0);
+    return;
+  }
+  const choice = i.values[0];
+  const message = await i.channel?.messages.fetch(pending.messageId).catch(() => null);
+
+  if (choice === NOT_LISTED || !choice) {
+    if (message) await escalateToOrganizer(message);
+    await i.update({ content: "🚫 Flagged for a tournament organizer — they'll get this channel set up.", components: [] }).catch(() => void 0);
+    return;
+  }
+  const found = packages.get(choice);
+  if (!found) {
+    await i.update({ content: `Package **${choice}** no longer exists — ask an organizer to re-check.`, components: [] }).catch(() => void 0);
+    return;
+  }
+  await i.update({ content: `Validating your roster against **${found.pkg.name}**… (results by DM)`, components: [] }).catch(() => void 0);
+  if (message) await processRosterMessage(message, found);
+}
+
+/**
+ * Neither the channel name nor the coach could identify the tournament — loop in
+ * the organizers. Posts in-channel (visible to TOs, who hold Manage Server) with
+ * the two ways to bind it: rename the channel or run /bbbot watch.
+ */
+async function escalateToOrganizer(message: Message): Promise<void> {
+  await message
+    .reply(
+      `⚠️ I couldn't match this channel to a tournament and none was selected.\n` +
+        `**Organizers:** either rename this channel to \`MM-DD-<tournament>\` (e.g. \`#09-12-spike\`), ` +
+        `or run \`/bbbot watch channel:<#${message.channelId}> package:<name>\` to bind it. ` +
+        `I'll validate rosters here automatically once it's set.`,
+    )
+    .catch(() => void 0);
+}
+
 // ---- /bbbot watch|unwatch|watches ----
 async function handleWatch(i: ChatInputCommandInteraction): Promise<void> {
   if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
@@ -249,6 +465,75 @@ async function handleWatches(i: ChatInputCommandInteraction): Promise<void> {
       : "No channels are being watched. TOs: /bbbot watch channel:<#ch> package:<name>.",
     flags: MessageFlags.Ephemeral,
   });
+}
+
+// ---- /bbbot expired (report past-date watched channels; offer to deprecate) ----
+const fmtDate = (d: Date): string =>
+  d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+
+async function handleExpired(i: ChatInputCommandInteraction): Promise<void> {
+  if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+    await i.reply({ content: "Reviewing tournament watches requires Manage Server.", flags: MessageFlags.Ephemeral });
+    return;
+  }
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const expired: { channelId: string; name: string; packageName: string; date: Date }[] = [];
+  for (const w of watches.list()) {
+    const ch = await i.client.channels.fetch(w.channelId).catch(() => null);
+    const name = (ch as { name?: string } | null)?.name;
+    if (!name) continue; // channel gone or unnamed — the date lives in the name
+    const status = tournamentDateStatus(name);
+    if (status?.passed) expired.push({ channelId: w.channelId, name, packageName: w.packageName, date: status.date });
+  }
+
+  if (expired.length === 0) {
+    await i.editReply("✅ No watched channels have a tournament date in the past. Nothing to deprecate.");
+    return;
+  }
+  expired.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  const embed = new EmbedBuilder()
+    .setTitle(`⌛ ${expired.length} watched channel${expired.length > 1 ? "s" : ""} past their tournament date`)
+    .setColor(0xd08a30)
+    .setDescription(
+      expired.map((e) => `• <#${e.channelId}> (\`#${e.name}\`) → **${e.packageName}** — ${fmtDate(e.date)}`).join("\n").slice(0, 4000),
+    )
+    .setFooter({ text: "Select any you want to stop watching. This only unbinds the channel; nothing is deleted." });
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId("wexp:deprecate")
+    .setPlaceholder("Deprecate watching for…")
+    .setMinValues(1)
+    .setMaxValues(expired.length)
+    .addOptions(
+      expired.map((e) =>
+        new StringSelectMenuOptionBuilder()
+          .setLabel(`#${e.name}`.slice(0, 100))
+          .setDescription(`${e.packageName} · ${fmtDate(e.date)}`.slice(0, 100))
+          .setValue(e.channelId),
+      ),
+    );
+  const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+  await i.editReply({ embeds: [embed], components: [row] });
+}
+
+/** TO selected which past-date channels to stop watching. */
+async function handleDeprecateSelect(i: StringSelectMenuInteraction): Promise<void> {
+  if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+    await i.reply({ content: "Deprecating a watch requires Manage Server.", flags: MessageFlags.Ephemeral }).catch(() => void 0);
+    return;
+  }
+  const removed = i.values.filter((channelId) => watches.remove(channelId));
+  const lines = removed.map((c) => `• <#${c}>`).join("\n");
+  await i
+    .update({
+      content: removed.length
+        ? `🗑 Stopped watching ${removed.length} channel${removed.length > 1 ? "s" : ""}:\n${lines}\nRe-bind any of them anytime with \`/bbbot watch\`.`
+        : "Those channels were already not being watched.",
+      embeds: [],
+      components: [],
+    })
+    .catch(() => void 0);
 }
 
 // ---- /bbbot export ----
@@ -612,6 +897,11 @@ client.on("messageCreate", (message) => {
 client.on("interactionCreate", async (interaction) => {
   try {
     if (interaction.isAutocomplete()) return autocompletePackages(interaction);
+    if (interaction.isButton()) return await handleResubButton(interaction);
+    if (interaction.isStringSelectMenu())
+      return interaction.customId.startsWith("wexp:")
+        ? await handleDeprecateSelect(interaction)
+        : await handleChannelTournamentSelect(interaction);
     if (!interaction.isChatInputCommand() || interaction.commandName !== "bbbot") return;
     const group = interaction.options.getSubcommandGroup(false);
     const sub = interaction.options.getSubcommand();
@@ -637,6 +927,8 @@ client.on("interactionCreate", async (interaction) => {
         return await handleWatch(interaction);
       case "watches":
         return await handleWatches(interaction);
+      case "expired":
+        return await handleExpired(interaction);
     }
   } catch (e) {
     console.error("interaction error:", e);
