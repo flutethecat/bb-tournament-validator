@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { composeTeam, parseForkRoster, mintTeamId, validate } from "@bb/validator";
+import { composeTeam, parseForkRoster, mintTeamId, rosterOptions, validate } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { pkg } from "./helpers";
 
@@ -27,6 +27,18 @@ describe("parseForkRoster", () => {
     // Grak / Crumbleberry / Morg / Akhorne are Stars → dropped in V1.
     expect(r.positions.some((p) => /grak|crumbleberry|morg|akhorne/i.test(p.name))).toBe(false);
     expect(r.positions.every((p) => !/star/i.test(p.type))).toBe(true);
+  });
+});
+
+describe("rosterOptions", () => {
+  it("enriches fork positions with dataset cost/cap/stats for the picker", () => {
+    const o = rosterOptions(snotlingXml, bb2025);
+    expect(o.rosterId).toBe("snotling.bb2025");
+    expect(o.reRollCost).toBe(70000);
+    const lineman = o.positions.find((p) => p.positionId === "66199");
+    expect(lineman).toMatchObject({ name: "Snotling Lineman", cost: 15000, max: 16, MA: 5, AG: "3+" });
+    // Stars excluded (they never reach the picker).
+    expect(o.positions.some((p) => /grak|morg/i.test(p.name))).toBe(false);
   });
 });
 

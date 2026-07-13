@@ -108,6 +108,65 @@ export function parseForkRoster(xml: string): ForkRoster {
   };
 }
 
+/** A pickable position for the builder UI: the fork's numeric id + the dataset's stats/cost/cap. */
+export interface RosterOption {
+  positionId: string;
+  name: string;
+  cost: number;
+  /** Max copies allowed (dataset `max`, e.g. 0-16 / 0-2). */
+  max: number;
+  MA: number;
+  ST: number;
+  AG: string;
+  PA: string;
+  AV: string;
+  skills: string[];
+}
+
+export interface RosterOptions {
+  rosterId: string;
+  raceName: string;
+  reRollCost: number;
+  maxReRolls: number;
+  apothecaryAllowed: boolean;
+  positions: RosterOption[];
+}
+
+/**
+ * The buildable positions for one race — the fork roster's numeric positionIds bridged to the
+ * dataset (by name) for cost/cap/stats. Feeds the builder's picker. Positions the dataset can't
+ * resolve by name are dropped (defensive; the on-disk 30 all resolve).
+ */
+export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptions {
+  const fork = parseForkRoster(forkRosterXml);
+  const dsRoster = findRoster(data, fork.raceName);
+  const positions: RosterOption[] = [];
+  for (const p of fork.positions) {
+    const ds = dsRoster ? findPosition(dsRoster, p.name) : undefined;
+    if (!ds) continue;
+    positions.push({
+      positionId: p.positionId,
+      name: ds.name,
+      cost: ds.cost,
+      max: ds.max,
+      MA: ds.MA,
+      ST: ds.ST,
+      AG: ds.AG,
+      PA: ds.PA,
+      AV: ds.AV,
+      skills: [...ds.skills],
+    });
+  }
+  return {
+    rosterId: fork.rosterId,
+    raceName: fork.raceName,
+    reRollCost: fork.reRollCost,
+    maxReRolls: fork.maxReRolls,
+    apothecaryAllowed: fork.apothecaryAllowed,
+    positions,
+  };
+}
+
 /** Collision-proof team id in the reserved `tb_` namespace (string ⇒ never collides with numeric FUMBBL ids). */
 export function mintTeamId(coach: string, raceName: string, now = Date.now()): string {
   return `tb_${slug(coach)}_${slug(raceName)}_${now.toString(36)}`;

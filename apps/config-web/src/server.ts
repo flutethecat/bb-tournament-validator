@@ -9,10 +9,20 @@
 import "dotenv/config";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { extname, join, normalize, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadPackage, renderArtPrompt, renderPackageHtml, type TournamentPackage } from "@bb/validator";
+import {
+  composeTeam,
+  loadPackage,
+  renderArtPrompt,
+  renderPackageHtml,
+  rosterOptions,
+  validate,
+  type TeamPick,
+  type TournamentPackage,
+} from "@bb/validator";
+import { bb2025 } from "@bb/validator/dataset";
 import {
   adminCache,
   adminClose,
@@ -137,6 +147,77 @@ const matchmaker = new Matchmaker({
     : undefined,
   homeAwayMode: initialSettings.homeAwayMode,
 });
+
+// --- Team Builder (V1) ---
+// Baseline ruleset for standalone builds (owner-ruled): open-league, 1000k gold, no SP, no
+// stars. Enforces CORE roster legality only (position caps, team size, gold, big-guy caps) —
+// tournament-layer constraints (e.g. the Insignificant-trait ratio) are relaxed so a plain
+// build of an inherently-Insignificant roster (Snotling, Halfling…) is legal. When the
+// tournament-provisioning flow calls the composer later it swaps in the TO package — same
+// validate(), different pkg.
+const { pkg: TEAM_BUILDER_BASELINE } = loadPackage({
+  name: "Team Builder Baseline",
+  goldBudget: 1_000_000,
+  eligibleRosters: ["*"],
+  special: { insignificantTraitConstraint: false },
+});
+
+/** The base BB2025 rosters on disk, keyed by rosterId. "Base" = a non-numeric rosterId
+ *  (imported team rosters carry numeric ids) whose race the dataset resolves. */
+function loadBaseForkRosters(teamsDir: string): Map<string, string> {
+  const dir = join(dirname(teamsDir), "rosters");
+  const out = new Map<string, string>();
+  if (!existsSync(dir)) return out;
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith(".xml")) continue;
+    try {
+      const xml = readFileSync(join(dir, f), "utf8");
+      const opts = rosterOptions(xml, bb2025);
+      if (opts.rosterId && /\D/.test(opts.rosterId) && opts.positions.length > 0 && !out.has(opts.rosterId)) {
+        out.set(opts.rosterId, xml);
+      }
+    } catch {
+      /* skip unreadable / non-roster xml */
+    }
+  }
+  return out;
+}
+
+interface TeamBuilderBody {
+  rosterId?: string;
+  coach?: string;
+  teamName?: string;
+  picks?: TeamPick[];
+  reRolls?: number;
+  apothecary?: boolean;
+  cheerleaders?: number;
+  assistantCoaches?: number;
+  dedicatedFans?: number;
+}
+
+/** Resolve a builder request to a composed team (throws with a client-safe message on bad input). */
+function composeFromBody(teamsDir: string, body: TeamBuilderBody) {
+  if (!body.rosterId) throw new Error("rosterId is required.");
+  if (!body.coach?.trim()) throw new Error("coach is required.");
+  if (!body.teamName?.trim()) throw new Error("teamName is required.");
+  if (!Array.isArray(body.picks) || body.picks.length === 0) throw new Error("At least one player pick is required.");
+  const xml = loadBaseForkRosters(teamsDir).get(body.rosterId);
+  if (!xml) throw new Error(`Unknown rosterId "${body.rosterId}".`);
+  return composeTeam(
+    {
+      forkRosterXml: xml,
+      coach: body.coach.trim(),
+      teamName: body.teamName.trim(),
+      picks: body.picks,
+      reRolls: body.reRolls ?? 0,
+      apothecary: body.apothecary === true,
+      cheerleaders: body.cheerleaders,
+      assistantCoaches: body.assistantCoaches,
+      dedicatedFans: body.dedicatedFans,
+    },
+    bb2025,
+  );
+}
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -486,6 +567,60 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
     try {
       saveMatchmakingSettings();
       return sendJson(res, 200, { ok: true, homeAwayMode: matchmaker.getHomeAwayMode(), overtime: overtimeEnabled });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  // --- Team Builder (V1): compose a legal team from picks → fork-loadable XML ---
+  // List the base BB2025 rosters + their pickable positions (cost/cap/stats) for the builder.
+  if (path === "/api/fork/rosters" && method === "GET") {
+    if (!requireAdminGate(res)) return;
+    const cfg = forkConfigFromEnv();
+    if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
+    const rosters = [...loadBaseForkRosters(cfg.teamsDir).values()]
+      .map((xml) => rosterOptions(xml, bb2025))
+      .sort((a, b) => a.raceName.localeCompare(b.raceName));
+    return sendJson(res, 200, { rosters, goldBudget: 1_000_000 });
+  }
+
+  // Preview: compose + validate, no write. Returns legality findings + the recomputed summary.
+  if (path === "/api/fork/team-builder/preview" && method === "POST") {
+    if (!requireAdminGate(res)) return;
+    const cfg = forkConfigFromEnv();
+    if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
+    try {
+      const composed = composeFromBody(cfg.teamsDir, (await readBody(req)) as TeamBuilderBody);
+      const result = validate(composed.roster, TEAM_BUILDER_BASELINE, bb2025);
+      return sendJson(res, 200, {
+        valid: result.valid,
+        errors: result.errors,
+        warnings: result.warnings,
+        summary: result.recomputedSummary,
+        players: composed.roster.players.length,
+      });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  // Build: re-validate SERVER-SIDE (never trust the client), then write team XML + hot-reload.
+  if (path === "/api/fork/team-builder/build" && method === "POST") {
+    if (!requireAdminGate(res)) return;
+    const cfg = forkConfigFromEnv();
+    if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
+    try {
+      const composed = composeFromBody(cfg.teamsDir, (await readBody(req)) as TeamBuilderBody);
+      const result = validate(composed.roster, TEAM_BUILDER_BASELINE, bb2025);
+      if (!result.valid) {
+        return sendJson(res, 400, { error: "Team is not legal — fix the findings and rebuild.", errors: result.errors, summary: result.recomputedSummary });
+      }
+      mkdirSync(cfg.teamsDir, { recursive: true });
+      const coachTag = composed.roster.coach.replace(/[^\w.-]+/g, "_") || "coach";
+      const file = join(cfg.teamsDir, `team_${coachTag}_${composed.teamId}.xml`);
+      writeFileSync(file, composed.xml, "utf8");
+      const reload = await reloadFork(cfg, FORK_STATE_DIR);
+      return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: result.recomputedSummary });
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
     }
