@@ -36,6 +36,9 @@
   table { width:100%; border-collapse:collapse; font-size:12.5px; }
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--edge); vertical-align:top; }
   th { color:var(--dim); font-weight:600; }
+  th.sortable { cursor:pointer; user-select:none; white-space:nowrap; }
+  th.sortable:hover { color:var(--ink); }
+  th .caret { font-size:9px; opacity:.85; margin-left:3px; }
   td.mono, .mono { font-family:ui-monospace,Consolas,monospace; }
   .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:9px; border:1px solid var(--edge); color:var(--dim); }
   .pill.idle { color:var(--dim); }
@@ -72,6 +75,7 @@
   <nav class="apptabs">
     <a class="apptab" href="/tournaments.html">Tournaments</a>
     <a class="apptab active" href="/users.html">Users</a>
+    <a class="apptab" id="fork-admin-link" href="#" target="_blank" rel="noopener">Fork Admin ↗</a>
   </nav>
   <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
     <button class="ghost" onclick="loadUsers()">&#8635; Refresh</button>
@@ -92,6 +96,17 @@
       </button>
     </div>
     <div class="status-line" id="ha-status"></div>
+    <p class="hint" style="margin-top:14px;">Enable <b>overtime</b> on newly-scheduled games: a tie after the 2nd half goes to an overtime
+      half, then the roll-off finale if still level. Off by default (games just end in a draw). Per-game — existing games are unaffected.</p>
+    <div class="seg" id="ot-toggle" role="group" aria-label="Overtime for scheduled games">
+      <button type="button" class="seg-btn" data-ot="off" onclick="setOvertime(false)">
+        Off <span class="seg-sub">(tie ends the game)</span>
+      </button>
+      <button type="button" class="seg-btn" data-ot="on" onclick="setOvertime(true)">
+        On <span class="seg-sub">(OT half + roll-off)</span>
+      </button>
+    </div>
+    <div class="status-line" id="ot-status"></div>
   </section>
   <section class="card">
     <h2 style="margin-top:0;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);">Master table</h2>
@@ -113,6 +128,9 @@
 <script>
 const $ = (id) => document.getElementById(id);
 
+// Cross-port jump to the fork's own admin panel (same host, port 22227).
+$("fork-admin-link").href = "http://" + (location.hostname || "127.0.0.1") + ":22227/panel.html";
+
 async function api(path, opts) {
   const res = await fetch(path, opts);
   const body = await res.json().catch(() => ({}));
@@ -131,6 +149,41 @@ function escapeHtml(s) {
 }
 
 let usersCache = [];
+// Default view: busiest coaches first (In-Game before Idle), then by name.
+let sortState = { field: 'activity', dir: 'desc' };
+
+// Higher = more active. A coach's rank is their most-active live game (0 = Idle).
+const STATUS_PRIORITY = { active: 5, starting: 4, paused: 3, scheduled: 2 };
+function activityRank(u) {
+  if (!u.games || !u.games.length) return 0;
+  return Math.max(...u.games.map((g) => STATUS_PRIORITY[String(g.status).toLowerCase()] ?? 1));
+}
+
+function sortedUsers() {
+  const dir = sortState.dir === 'asc' ? 1 : -1;
+  const byName = (a, b) => String(a.fumbblName).localeCompare(String(b.fumbblName), undefined, { sensitivity: 'base' });
+  return [...usersCache].sort((a, b) => {
+    if (sortState.field === 'name') return dir * byName(a, b);
+    // activity: primary by rank in the chosen direction, then always A→Z by name
+    const r = activityRank(b) - activityRank(a); // desc-natural
+    return (dir === -1 ? r : -r) || byName(a, b);
+  });
+}
+
+function setSort(field) {
+  if (sortState.field === field) {
+    sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortState.field = field;
+    sortState.dir = field === 'activity' ? 'desc' : 'asc'; // activity defaults to busiest-first
+  }
+  renderTable();
+}
+
+function caret(field) {
+  if (sortState.field !== field) return '<span class="caret">↕</span>';
+  return `<span class="caret">${sortState.dir === 'asc' ? '▲' : '▼'}</span>`;
+}
 
 async function loadUsers() {
   $('table-wrap').innerHTML = '<p class="hint">Loading&hellip;</p>';
@@ -138,19 +191,24 @@ async function loadUsers() {
   try {
     const { users } = await api('/api/fork/users');
     usersCache = users;
-    renderTable(users);
+    renderTable();
   } catch (e) {
     $('table-wrap').innerHTML = '';
     setTableStatus('Failed to load: ' + e.message, false);
   }
 }
 
-function renderTable(users) {
-  if (!users.length) {
+function renderTable() {
+  if (!usersCache.length) {
     $('table-wrap').innerHTML = '<p class="hint">No fork accounts or linked coaches found.</p>';
     return;
   }
-  let html = '<table><thead><tr><th>FUMBBL coach</th><th>Linked tournament identity</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+  const users = sortedUsers();
+  let html = '<table><thead><tr>'
+    + `<th class="sortable" onclick="setSort('name')" title="Sort by coach name">FUMBBL coach ${caret('name')}</th>`
+    + '<th>Linked tournament identity</th>'
+    + `<th class="sortable" onclick="setSort('activity')" title="Sort by activity (In-Game first)">Status ${caret('activity')}</th>`
+    + '<th>Actions</th></tr></thead><tbody>';
   for (const u of users) {
     const linked = u.linked
       ? [
@@ -261,13 +319,41 @@ function renderHomeAway(mode) {
     b.classList.toggle('active', b.dataset.mode === mode);
   });
 }
+function renderOvertime(on) {
+  document.querySelectorAll('#ot-toggle .seg-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.ot === (on ? 'on' : 'off'));
+  });
+}
 async function loadHomeAway() {
   try {
-    const { homeAwayMode } = await api('/api/fork/matchmaking-settings');
+    const { homeAwayMode, overtime } = await api('/api/fork/matchmaking-settings');
     renderHomeAway(homeAwayMode);
+    renderOvertime(overtime);
   } catch (e) {
     document.getElementById('ha-status').textContent = 'Could not load matchmaking settings: ' + e.message;
     document.getElementById('ha-status').className = 'status-line bad';
+  }
+}
+async function setOvertime(on) {
+  const btns = document.querySelectorAll('#ot-toggle .seg-btn');
+  btns.forEach((b) => (b.disabled = true));
+  const statusEl = document.getElementById('ot-status');
+  try {
+    const r = await api('/api/fork/matchmaking-settings', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ overtime: on }),
+    });
+    renderOvertime(r.overtime);
+    statusEl.textContent = r.overtime
+      ? 'Overtime ON — new scheduled games break ties with an OT half + roll-off.'
+      : 'Overtime OFF — new scheduled games end tied after the 2nd half.';
+    statusEl.className = 'status-line ok';
+  } catch (e) {
+    statusEl.textContent = 'Failed: ' + e.message;
+    statusEl.className = 'status-line bad';
+  } finally {
+    btns.forEach((b) => (b.disabled = false));
   }
 }
 async function setHomeAway(mode) {

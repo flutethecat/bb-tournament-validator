@@ -12,6 +12,7 @@
       <nav class="tabs">
         <a class="tab active" href="/tournaments.html">Tournaments</a>
         <a class="tab" href="/users.html">Users</a>
+        <a class="tab" id="fork-admin-link" href="#" target="_blank" rel="noopener">Fork Admin ↗</a>
       </nav>
     </header>
     <header class="topbar subbar">
@@ -232,5 +233,10 @@
 
     <datalist id="stars-list"></datalist>
     <script src="/app.js"></script>
+    <script>
+      // Cross-port jump to the fork's own admin panel (same host, port 22227).
+      document.getElementById("fork-admin-link").href =
+        "http://" + (location.hostname || "127.0.0.1") + ":22227/panel.html";
+    </script>
   </body>
 </html>

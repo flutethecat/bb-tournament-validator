@@ -103,27 +103,39 @@ const challengeDbCfg = forkDbConfigFromEnv();
 // Persisted matchmaker settings (home/away policy) — survives a config-web restart so the
 // admin's control-panel choice isn't lost. Tiny JSON in the same data-store as fork state.
 const MATCHMAKING_SETTINGS_FILE = resolve(join(FORK_STATE_DIR, "matchmaking-settings.json"));
-function loadHomeAwayMode(): HomeAwayMode | undefined {
+function loadMatchmakingSettings(): { homeAwayMode?: HomeAwayMode; overtime: boolean } {
   try {
-    const raw = JSON.parse(readFileSync(MATCHMAKING_SETTINGS_FILE, "utf8")) as { homeAwayMode?: string };
-    return HOME_AWAY_MODES.find((m) => m === raw.homeAwayMode);
+    const raw = JSON.parse(readFileSync(MATCHMAKING_SETTINGS_FILE, "utf8")) as {
+      homeAwayMode?: string;
+      overtime?: boolean;
+    };
+    return {
+      homeAwayMode: HOME_AWAY_MODES.find((m) => m === raw.homeAwayMode),
+      overtime: raw.overtime === true,
+    };
   } catch {
-    return undefined; // no file / unreadable → matchmaker default
+    return { overtime: false }; // no file / unreadable → matchmaker defaults, overtime off
   }
 }
-function saveHomeAwayMode(mode: HomeAwayMode): void {
+function saveMatchmakingSettings(): void {
   mkdirSync(FORK_STATE_DIR, { recursive: true });
-  writeFileSync(MATCHMAKING_SETTINGS_FILE, JSON.stringify({ homeAwayMode: mode }, null, 2), "utf8");
+  const settings = { homeAwayMode: matchmaker.getHomeAwayMode(), overtime: overtimeEnabled };
+  writeFileSync(MATCHMAKING_SETTINGS_FILE, JSON.stringify(settings, null, 2), "utf8");
 }
+
+const initialSettings = loadMatchmakingSettings();
+// Per-game OVERTIME opt-in (default off): mutable so the schedule closure below and the
+// direct /api/fork/schedule handler read the CURRENT toggle value, not a startup snapshot.
+let overtimeEnabled = initialSettings.overtime;
 
 const matchmaker = new Matchmaker({
   scheduleGame: forkAdminCfg
-    ? (teamHomeId, teamAwayId) => scheduleForkGame(forkAdminCfg, teamHomeId, teamAwayId)
+    ? (teamHomeId, teamAwayId) => scheduleForkGame(forkAdminCfg, teamHomeId, teamAwayId, { overtime: overtimeEnabled })
     : undefined,
   verifyChallenger: challengeDbCfg
     ? (coach, password) => verifyCoachPassword(challengeDbCfg, coach, password)
     : undefined,
-  homeAwayMode: loadHomeAwayMode(),
+  homeAwayMode: initialSettings.homeAwayMode,
 });
 
 const MIME: Record<string, string> = {
@@ -411,7 +423,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
     if (!body.homeTeamId || !body.awayTeamId)
       return sendJson(res, 400, { error: "homeTeamId and awayTeamId are required." });
     try {
-      return sendJson(res, 200, await scheduleForkGame(forkAdminCfg, body.homeTeamId, body.awayTeamId));
+      return sendJson(res, 200, await scheduleForkGame(forkAdminCfg, body.homeTeamId, body.awayTeamId, { overtime: overtimeEnabled }));
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
     }
@@ -454,18 +466,26 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
   // choices back the panel's toggle. Change persists so it survives a config-web restart.
   if (path === "/api/fork/matchmaking-settings" && method === "GET") {
     if (!requireAdminGate(res)) return;
-    return sendJson(res, 200, { homeAwayMode: matchmaker.getHomeAwayMode(), modes: HOME_AWAY_MODES });
+    return sendJson(res, 200, { homeAwayMode: matchmaker.getHomeAwayMode(), modes: HOME_AWAY_MODES, overtime: overtimeEnabled });
   }
   if (path === "/api/fork/matchmaking-settings" && method === "POST") {
     if (!requireAdminGate(res)) return;
-    const body = (await readBody(req)) as { homeAwayMode?: string };
-    const mode = HOME_AWAY_MODES.find((m) => m === body.homeAwayMode);
-    if (!mode)
-      return sendJson(res, 400, { error: `homeAwayMode must be one of: ${HOME_AWAY_MODES.join(", ")}.` });
-    try {
+    const body = (await readBody(req)) as { homeAwayMode?: string; overtime?: boolean };
+    // homeAwayMode and overtime are independently optional — a toggle POST may set either.
+    if (body.homeAwayMode !== undefined) {
+      const mode = HOME_AWAY_MODES.find((m) => m === body.homeAwayMode);
+      if (!mode)
+        return sendJson(res, 400, { error: `homeAwayMode must be one of: ${HOME_AWAY_MODES.join(", ")}.` });
       matchmaker.setHomeAwayMode(mode);
-      saveHomeAwayMode(mode);
-      return sendJson(res, 200, { ok: true, homeAwayMode: mode });
+    }
+    if (body.overtime !== undefined) {
+      if (typeof body.overtime !== "boolean")
+        return sendJson(res, 400, { error: "overtime must be a boolean." });
+      overtimeEnabled = body.overtime;
+    }
+    try {
+      saveMatchmakingSettings();
+      return sendJson(res, 200, { ok: true, homeAwayMode: matchmaker.getHomeAwayMode(), overtime: overtimeEnabled });
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
     }

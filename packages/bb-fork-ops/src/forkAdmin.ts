@@ -104,10 +104,14 @@ export async function scheduleForkGame(
   cfg: ForkAdminConfig,
   teamHomeId: string,
   teamAwayId: string,
+  opts?: { overtime?: boolean },
 ): Promise<{ gameId: string }> {
   const challenge = await adminChallenge(cfg);
   const response = adminResponse(challenge, cfg.passwordMd5Hex);
-  const url = `${cfg.baseUrl}/admin/schedule?response=${encodeURIComponent(response)}&teamHomeId=${encodeURIComponent(teamHomeId)}&teamAwayId=${encodeURIComponent(teamAwayId)}`;
+  // OVERTIME is a per-game opt-in on the fork's /admin/schedule (default off server-side):
+  // only send it when the caller asked, so a tie only goes to overtime + shootout on request.
+  const overtimeParam = opts?.overtime ? "&overtime=true" : "";
+  const url = `${cfg.baseUrl}/admin/schedule?response=${encodeURIComponent(response)}&teamHomeId=${encodeURIComponent(teamHomeId)}&teamAwayId=${encodeURIComponent(teamAwayId)}${overtimeParam}`;
   // Longer budget than the default: this is the call known to hang server-side (see file
   // header) rather than error quickly, so give a real scheduling attempt a fair chance
   // before treating it as failed.
