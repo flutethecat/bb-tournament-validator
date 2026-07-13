@@ -70,18 +70,33 @@ export function manifestReleaseTag(m: BuildManifest, repoRoot = clientRepoRoot()
 
 /**
  * DEV-BUILD TRIPWIRE (owner directive 2026-07-10, "check if we're deploying dev fixes").
- * A published release must identify as the BARE version (`0.2.8`). A LETTER suffix
- * (`0.2.8d`) marks a DEV cut (see the dev-version-nomenclature scheme) that must NEVER be
- * announced/deployed. Checks BOTH the manifest `version` and the installer filename (the
- * letter rides in the filename `FUMBBL40k_0.2.8d_x64-setup.exe`; the semver `version`
- * field normally stays bare, so the filename is the real signal — belt-and-suspenders).
- * Returns the offending lettered token if it looks like a dev build, else undefined.
+ * A published release must be the BARE version (`0.3.0`) built from a gate-passed tag. Refuse
+ * anything that looks like a non-publishable artifact. The full reject set (owner-directed):
+ *   - LETTERED dev cut  — `0.2.8d` (dev-version-nomenclature scheme)
+ *   - ORDER-66 port build — `0.2.8-o66a` / `…-o66ar` (a distinct label; the nsis dir can hold
+ *     stale `o66ar–av` installers next to the bare release — a bare manifest pointing at a
+ *     stale o66 installer file must still be refused)
+ *   - SUPER-FUMBBL-named — a pre-migration rename leak (product/filename says "Super FUMBBL"
+ *     before the coordinated identifier migration)
+ * Checks BOTH the manifest `version` and the installer filename (the label rides in the
+ * filename; the semver `version` field normally stays bare, so the filename is the real
+ * signal — belt-and-suspenders). Returns the offending token if it looks unpublishable, else
+ * undefined.
  */
 export function devBuildMarker(m: BuildManifest): string | undefined {
   const v = (m.version || "").trim();
+  const file = m.installer?.file || "";
+  const product = m.product || "";
+  // Lettered dev cut (0.2.8d) — in the version field or the filename.
   if (/^\d+\.\d+\.\d+[a-z]+$/i.test(v)) return v;
-  const fileMatch = (m.installer?.file || "").match(/(\d+\.\d+\.\d+[a-z]+)/i);
-  return fileMatch ? fileMatch[1] : undefined;
+  const letterFile = file.match(/(\d+\.\d+\.\d+[a-z]+)/i);
+  if (letterFile) return letterFile[1];
+  // Order-66 port build (…-o66a / …-o66ar) — hyphenated, so the lettered check above misses it.
+  const o66 = `${v} ${file}`.match(/o66[a-z]+/i);
+  if (o66) return o66[0];
+  // Super-FUMBBL pre-migration leak — the shipping product/filename must still be "FUMBBL40k".
+  if (/super[\s_-]?fumbbl/i.test(`${product} ${file}`)) return `Super-FUMBBL (${product || file})`;
+  return undefined;
 }
 
 /** Read + minimally validate the manifest; undefined if missing/unreadable/wrong schema. */

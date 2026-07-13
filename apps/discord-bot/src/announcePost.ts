@@ -93,7 +93,7 @@ export async function announceLatestBuild(
   // announces afterward. (owner "check if we're deploying dev fixes"; see buildAnnounce.)
   const devMarker = devBuildMarker(m);
   if (devMarker)
-    return `⛔ REFUSED: manifest looks like a DEV build (\`${devMarker}\`) — the published release must be the BARE version (e.g. 0.2.8, no letter). Rebuild from the gate-passed tag with a plain \`pnpm build\` (no dev-cut env), then re-emit. Not announced, de-dupe untouched.`;
+    return `⛔ REFUSED: manifest/installer looks unpublishable (\`${devMarker}\`) — the release must be the BARE \`FUMBBL40k_x.y.z\` (no letter, no \`o66\`, no "Super FUMBBL") built from a gate-passed tag. This often means the manifest points at a stale dev/o66 installer in the nsis dir. Rebuild the bare release, confirm the manifest installer file, then re-emit. Not announced, de-dupe untouched.`;
   if (!force && !state.isNew(m)) return `v${m.version} (${m.gitSha}) is already announced.`;
   const ch = await client.channels.fetch(channelId);
   if (!ch?.isTextBased()) return `<#${channelId}> is not a text channel.`;

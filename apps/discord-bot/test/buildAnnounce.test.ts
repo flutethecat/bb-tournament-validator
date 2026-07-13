@@ -76,4 +76,27 @@ describe("devBuildMarker (dev-build deploy tripwire)", () => {
   it("does not false-positive on the bare filename's own version or the '40k'/'x64' tokens", () => {
     expect(devBuildMarker(withInstaller("0.2.10", "FUMBBL40k_0.2.10_x64-setup.exe"))).toBeUndefined();
   });
+
+  it("passes a bare 0.3.0 release (the current tester candidate)", () => {
+    expect(devBuildMarker(withInstaller("0.3.0", "FUMBBL40k_0.3.0_x64-setup.exe"))).toBeUndefined();
+  });
+
+  it("flags an order-66 port build (hyphenated label the lettered check misses)", () => {
+    expect(devBuildMarker(withInstaller("0.2.8-o66ar", "FUMBBL40k_0.2.8-o66ar_x64-setup.exe"))).toBe("o66ar");
+  });
+
+  it("flags a bare manifest that points at a STALE o66 installer file in the nsis dir", () => {
+    // The exact 0.3.0-deploy risk: version bumped bare, but the picked-up installer is a leftover o66 cut.
+    expect(devBuildMarker(withInstaller("0.3.0", "FUMBBL40k_0.2.8-o66av_x64-setup.exe"))).toBe("o66av");
+  });
+
+  it("flags a Super-FUMBBL pre-migration rename leak (product or filename)", () => {
+    const superProduct: BuildManifest = {
+      ...mkManifest("abc1234"),
+      product: "Super FUMBBL",
+      version: "0.3.0",
+      installer: { file: "SuperFUMBBL_0.3.0_x64-setup.exe", bytes: 1, sha256: "a", present: true },
+    };
+    expect(devBuildMarker(superProduct)).toMatch(/Super-FUMBBL/);
+  });
 });
