@@ -1,13 +1,13 @@
 :root {
-  --bg: #14161c;
-  --panel: #1d2029;
-  --panel-2: #242833;
-  --ink: #e7e9ee;
-  --ink-dim: #9aa0ad;
-  --line: #333846;
-  --gold: #f5c518;
-  --green: #22e05a;
-  --red: #e0483b;
+  --bg: var(--ui-secondary);
+  --panel: var(--ui-surface);
+  --panel-2: var(--ui-surface-2);
+  --ink: var(--ui-text);
+  --ink-dim: var(--ui-muted);
+  --line: var(--ui-border);
+  --gold: var(--ui-primary);
+  --green: var(--ui-success);
+  --red: var(--ui-danger);
   --radius: 10px;
 }
 
@@ -25,7 +25,7 @@ body {
   justify-content: space-between;
   gap: 1rem;
   padding: 0.9rem 1.4rem;
-  background: linear-gradient(180deg, #1c1f27, #14161c);
+  background: linear-gradient(180deg, var(--ui-surface), var(--ui-secondary));
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
@@ -55,7 +55,7 @@ body {
   font-size: 0.95rem;
 }
 .tab:hover { color: var(--ink); }
-.tab.active { color: #111; background: var(--gold); font-weight: 600; }
+.tab.active { color: var(--ui-text-on-primary); background: var(--gold); font-weight: 600; }
 
 main { padding: 1.2rem; max-width: 1200px; margin: 0 auto; }
 .view { display: none; }
@@ -86,14 +86,14 @@ input, select, textarea {
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--gold); outline-offset: -1px; }
 
 .rowset { display: grid; grid-template-columns: 1fr 1fr; gap: 0 0.8rem; }
-.preset-row select { border-color: #3a4256; }
+.preset-row select { border-color: var(--ui-border); }
 
 .switch { flex-direction: row; align-items: center; gap: 0.5rem; color: var(--ink); font-size: 0.9rem; }
 .switch input { width: 16px; height: 16px; }
 
 .sticky-actions { position: sticky; top: 66px; z-index: 5; }
 .actions { display: flex; align-items: center; gap: 0.8rem; }
-button.primary { background: var(--gold); color: #111; font-weight: 600; border: none; padding: 0.55rem 1.1rem; border-radius: 8px; cursor: pointer; }
+button.primary { background: var(--gold); color: var(--ui-text-on-primary); font-weight: 600; border: none; padding: 0.55rem 1.1rem; border-radius: 8px; cursor: pointer; }
 button.primary:hover { filter: brightness(1.08); }
 button { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.45rem 0.9rem; cursor: pointer; }
 .status { font-size: 0.85rem; }
@@ -117,7 +117,7 @@ button { background: var(--panel-2); color: var(--ink); border: 1px solid var(--
 .skill-row .sk-cost { color: var(--gold); font-variant-numeric: tabular-nums; font-size: 0.8rem; min-width: 3.2rem; text-align: right; }
 .skill-row input[type="number"] { width: 3.6rem; padding: 0.25rem 0.35rem; }
 .skill-row .sk-elite { display: flex; align-items: center; gap: 0.25rem; font-size: 0.72rem; color: var(--ink-dim); }
-.skill-row.overridden .sk-cost { color: #7fd7ff; }
+.skill-row.overridden .sk-cost { color: var(--ui-info); }
 
 table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 th, td { text-align: left; padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--line); }
@@ -144,7 +144,7 @@ td a { color: var(--gold); }
 .team-chip:active { cursor: grabbing; }
 .team-chip.dragging { opacity: 0.4; }
 .tier-card h2 { display: flex; align-items: center; justify-content: space-between; }
-.tier-card .tier-badge { background: var(--gold); color: #111; border-radius: 6px; padding: 0.05rem 0.5rem; font-size: 0.8rem; }
+.tier-card .tier-badge { background: var(--gold); color: var(--ui-text-on-primary); border-radius: 6px; padding: 0.05rem 0.5rem; font-size: 0.8rem; }
 .banned-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.3rem; }
 .banned-tag { background: #3a2530; color: #ffb3b3; border: 1px solid #5a2f3a; border-radius: 16px; padding: 0.15rem 0.55rem; font-size: 0.76rem; display: flex; align-items: center; gap: 0.35rem; }
 .banned-tag button { background: none; border: none; color: #ffb3b3; cursor: pointer; padding: 0; font-size: 0.9rem; line-height: 1; }

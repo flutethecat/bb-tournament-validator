@@ -14,21 +14,24 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>FUMBBL Bot Panel — Users</title>
+<link rel="stylesheet" href="/theme.css" />
+<script src="/theme.js"></script>
 <style>
-  :root { --bg:#12151c; --card:#1b2029; --edge:#2b3340; --ink:#e6e9ef; --dim:#8a94a6; --accent:#e0a020; --ok:#22c07a; --bad:#e0555f; --blue:#4a90d9; }
+  /* Aliased onto the shared --ui-* theme tokens (theme.css). */
+  :root { --bg:var(--ui-secondary); --card:var(--ui-surface); --edge:var(--ui-border); --ink:var(--ui-text); --dim:var(--ui-muted); --accent:var(--ui-primary); --ok:var(--ui-success); --bad:var(--ui-danger); --blue:var(--ui-info); }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif; }
-  header { padding:14px 20px; border-bottom:1px solid var(--edge); display:flex; align-items:center; gap:14px; flex-wrap:wrap; background:#151a22; position:sticky; top:0; z-index:5; }
+  header { padding:14px 20px; border-bottom:1px solid var(--edge); display:flex; align-items:center; gap:14px; flex-wrap:wrap; background:var(--ui-surface); position:sticky; top:0; z-index:5; }
   header h1 { font-size:16px; margin:0; font-weight:600; }
   header a { color:var(--blue); text-decoration:none; font-size:12.5px; }
   .apptabs { display:flex; gap:6px; }
   .apptab { color:var(--dim); text-decoration:none; font-size:12.5px; padding:5px 12px; border-radius:8px; border:1px solid transparent; }
   .apptab:hover { color:var(--ink); }
-  .apptab.active { color:#1a1400; background:var(--accent); font-weight:600; }
+  .apptab.active { color:var(--ui-text-on-primary); background:var(--accent); font-weight:600; }
   main { max-width:1100px; margin:0 auto; padding:18px 20px 60px; }
   .card { background:var(--card); border:1px solid var(--edge); border-radius:10px; padding:14px 16px; margin-bottom:16px; }
   .hint { color:var(--dim); font-size:11.5px; margin:2px 0 8px; }
-  button { font:inherit; background:var(--accent); color:#1a1400; border:0; border-radius:6px; padding:6px 11px; font-weight:600; cursor:pointer; }
+  button { font:inherit; background:var(--accent); color:var(--ui-text-on-primary); border:0; border-radius:6px; padding:6px 11px; font-weight:600; cursor:pointer; }
   button.ghost { background:transparent; color:var(--ink); border:1px solid var(--edge); }
   button.danger { background:var(--bad); color:#fff; }
   button:hover { filter:brightness(1.08); }
@@ -53,8 +56,8 @@
   .seg-btn { background:transparent; color:var(--dim); border:0; border-radius:0; padding:8px 14px; font-weight:600; cursor:pointer; border-right:1px solid var(--edge); }
   .seg-btn:last-child { border-right:0; }
   .seg-btn:hover { color:var(--ink); }
-  .seg-btn.active { background:var(--accent); color:#1a1400; }
-  .seg-btn.active .seg-sub { color:#4a3800; }
+  .seg-btn.active { background:var(--accent); color:var(--ui-text-on-primary); }
+  .seg-btn.active .seg-sub { color:var(--ui-text-on-primary); opacity:.75; }
   .seg-sub { font-weight:400; font-size:11px; color:var(--dim); }
   .seg-btn:disabled { opacity:.6; cursor:default; }
   .overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; z-index:20; }

@@ -1,0 +1,67 @@
+/*
+  Config-web UI theme tokens — mirrors the client's canonical deriveTheme output EXACTLY
+  (Tarkin 03dc2ecd; per black-red-ui-scheme.md). Presets-only via [data-theme]: Black/Red
+  (default, dark) + FUMBBL (variant, light). Do NOT re-derive — these hex are canonical so
+  config-web and the client surfaces match (Voss acceptance = client==config-web parity).
+*/
+:root,
+:root[data-theme="brand-red"] {
+  --ui-primary: #A10005;
+  --ui-secondary: #000000;
+  --ui-surface: #0d0d0d;
+  --ui-surface-2: #242424;
+  --ui-accent: #A10005;
+  --ui-hover: #2e0a0b;
+  --ui-active: #A10005;
+  --ui-border: #510003;
+  --ui-text-on-primary: #ffffff;
+  --ui-text-on-secondary: #ffffff;
+  --ui-text: #e6e9ef;
+  --ui-muted: #848689;
+}
+:root[data-theme="fumbbl"] {
+  --ui-primary: #1A401C;
+  --ui-secondary: #E7DDC7;
+  --ui-surface: #dbd2bd;
+  --ui-surface-2: #cec5b1;
+  --ui-accent: #1A401C;
+  --ui-hover: #b1b29a;
+  --ui-active: #1A401C;
+  --ui-border: #818f72;
+  --ui-text-on-primary: #ffffff;
+  --ui-text-on-secondary: #111111;
+  --ui-text: #141414;
+  --ui-muted: #6e6a60;
+}
+/* Fixed semantics — identical in both presets (Tarkin canonical). */
+:root {
+  --ui-danger: #ff4d4d;
+  --ui-success: #3fb463;
+  --ui-info: #4a86c8;
+}
+
+/* Focus ring — theme-primary, on every interactive element (shared with the client). */
+:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
+}
+
+/* Presets-only theme toggle (fixed, top-right) — config-web has no client settings store. */
+.theme-toggle {
+  position: fixed;
+  top: 10px;
+  right: 12px;
+  z-index: 50;
+  font: 11px/1 system-ui, Segoe UI, sans-serif;
+  background: var(--ui-surface-2);
+  color: var(--ui-text);
+  border: 1px solid var(--ui-border);
+  border-radius: 7px;
+  padding: 5px 9px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.theme-toggle:hover {
+  opacity: 1;
+  border-color: var(--ui-primary);
+}

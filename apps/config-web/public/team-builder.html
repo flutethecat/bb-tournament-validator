@@ -10,25 +10,28 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>FUMBBL Bot Panel — Team Builder</title>
+<link rel="stylesheet" href="/theme.css" />
+<script src="/theme.js"></script>
 <style>
-  :root { --bg:#12151c; --card:#1b2029; --edge:#2b3340; --ink:#e6e9ef; --dim:#8a94a6; --accent:#e0a020; --ok:#22c07a; --bad:#e0555f; --blue:#4a90d9; }
+  /* Aliased onto the shared --ui-* theme tokens (theme.css) — the whole page flips with the preset. */
+  :root { --bg:var(--ui-secondary); --card:var(--ui-surface); --edge:var(--ui-border); --ink:var(--ui-text); --dim:var(--ui-muted); --accent:var(--ui-primary); --ok:var(--ui-success); --bad:var(--ui-danger); --blue:var(--ui-info); }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif; }
-  header { padding:14px 20px; border-bottom:1px solid var(--edge); display:flex; align-items:center; gap:14px; flex-wrap:wrap; background:#151a22; position:sticky; top:0; z-index:5; }
+  header { padding:14px 20px; border-bottom:1px solid var(--edge); display:flex; align-items:center; gap:14px; flex-wrap:wrap; background:var(--ui-surface); position:sticky; top:0; z-index:5; }
   header h1 { font-size:16px; margin:0; font-weight:600; }
   .apptabs { display:flex; gap:6px; }
   .apptab { color:var(--dim); text-decoration:none; font-size:12.5px; padding:5px 12px; border-radius:8px; border:1px solid transparent; }
   .apptab:hover { color:var(--ink); }
-  .apptab.active { color:#1a1400; background:var(--accent); font-weight:600; }
+  .apptab.active { color:var(--ui-text-on-primary); background:var(--accent); font-weight:600; }
   main { max-width:1080px; margin:0 auto; padding:18px 20px 80px; display:grid; grid-template-columns:1fr 320px; gap:16px; align-items:start; }
   @media (max-width:820px){ main { grid-template-columns:1fr; } }
   .card { background:var(--card); border:1px solid var(--edge); border-radius:10px; padding:14px 16px; margin-bottom:16px; }
   h2 { margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); }
   .hint { color:var(--dim); font-size:11.5px; margin:2px 0 10px; }
   label { display:block; font-size:12px; color:var(--dim); margin-bottom:10px; }
-  input, select { width:100%; margin-top:3px; background:#12151c; color:var(--ink); border:1px solid var(--edge); border-radius:6px; padding:7px 9px; font:inherit; }
+  input, select { width:100%; margin-top:3px; background:var(--ui-surface); color:var(--ink); border:1px solid var(--edge); border-radius:6px; padding:7px 9px; font:inherit; }
   input[type=number] { width:80px; }
-  button { font:inherit; background:var(--accent); color:#1a1400; border:0; border-radius:6px; padding:8px 13px; font-weight:600; cursor:pointer; }
+  button { font:inherit; background:var(--accent); color:var(--ui-text-on-primary); border:0; border-radius:6px; padding:8px 13px; font-weight:600; cursor:pointer; }
   button.ghost { background:transparent; color:var(--ink); border:1px solid var(--edge); padding:2px 9px; }
   button:hover { filter:brightness(1.08); } button:disabled { opacity:.5; cursor:not-allowed; }
   table { width:100%; border-collapse:collapse; font-size:12.5px; }
