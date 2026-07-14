@@ -74,6 +74,12 @@ const PUBLIC_PATHS = new Set([
   "/api/fork/matchstatus",
   "/api/fork/cancel",
   "/api/fork/reload",
+  // Team Builder V2 (in-client): reachable without the ADMIN password so a tester's client
+  // can fetch/preview/build via its config-web seam. rosters+preview are open reads; build
+  // does its own admin-OR-coach-password auth in-handler (see the build route).
+  "/api/fork/rosters",
+  "/api/fork/team-builder/preview",
+  "/api/fork/team-builder/build",
 ]);
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -193,6 +199,8 @@ interface TeamBuilderBody {
   cheerleaders?: number;
   assistantCoaches?: number;
   dedicatedFans?: number;
+  /** V2 coach-auth on the build path — the caller's fork-join password (not used by compose). */
+  password?: string;
 }
 
 /** Resolve a builder request to a composed team (throws with a client-safe message on bad input). */
@@ -262,6 +270,19 @@ function requireAdminGate(res: ServerResponse): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * Is this request carrying the admin Basic-auth password? Mirrors `authorized()`'s check,
+ * but usable INSIDE a handler for a PUBLIC_PATHS route (which `authorized()` waves through) —
+ * lets the Team Builder V2 build route accept the TO/admin path OR fall through to coach-auth.
+ */
+function isAdminAuthed(req: IncomingMessage): boolean {
+  if (!ADMIN_PASSWORD) return false;
+  const m = (req.headers.authorization ?? "").match(/^Basic (.+)$/);
+  if (!m) return false;
+  const decoded = Buffer.from(m[1]!, "base64").toString("utf8");
+  return decoded.slice(decoded.indexOf(":") + 1) === ADMIN_PASSWORD;
 }
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
@@ -575,7 +596,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
   // --- Team Builder (V1): compose a legal team from picks → fork-loadable XML ---
   // List the base BB2025 rosters + their pickable positions (cost/cap/stats) for the builder.
   if (path === "/api/fork/rosters" && method === "GET") {
-    if (!requireAdminGate(res)) return;
+    // V2: open read (non-mutating, public BB2025 roster data) — reachable by a coach's client.
     const cfg = forkConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
     const rosters = [...loadBaseForkRosters(cfg.teamsDir).values()]
@@ -586,7 +607,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
 
   // Preview: compose + validate, no write. Returns legality findings + the recomputed summary.
   if (path === "/api/fork/team-builder/preview" && method === "POST") {
-    if (!requireAdminGate(res)) return;
+    // V2: open (non-mutating) — the caller previews their own picks; reveals nothing sensitive.
     const cfg = forkConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
     try {
@@ -605,12 +626,26 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
   }
 
   // Build: re-validate SERVER-SIDE (never trust the client), then write team XML + hot-reload.
+  // V2 auth (owner-ruled): TO path = admin Basic-auth (unchanged); else a coach may build a team
+  // ONLY for their own authenticated coach — verify {coach, password} against ffb_coaches
+  // (verifyCoachPassword, same md5 the fork uses), and the built team's coach must equal it.
   if (path === "/api/fork/team-builder/build" && method === "POST") {
-    if (!requireAdminGate(res)) return;
     const cfg = forkConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
+    const body = (await readBody(req)) as TeamBuilderBody;
+    if (!isAdminAuthed(req)) {
+      const coach = body.coach?.trim();
+      if (!coach || !body.password)
+        return sendJson(res, 401, { error: "Build requires admin auth, or your coach name + fork password." });
+      if (!challengeDbCfg)
+        return sendJson(res, 503, { error: "Coach auth unavailable (fork DB not configured); admin auth required." });
+      if (!(await verifyCoachPassword(challengeDbCfg, coach, body.password)))
+        return sendJson(res, 401, { error: "Coach authentication failed (wrong coach or password)." });
+      // The built team's coach === the authenticated coach: composeFromBody uses body.coach, and we
+      // just verified body.password for body.coach — so a coach can only build under their own name.
+    }
     try {
-      const composed = composeFromBody(cfg.teamsDir, (await readBody(req)) as TeamBuilderBody);
+      const composed = composeFromBody(cfg.teamsDir, body);
       const result = validate(composed.roster, TEAM_BUILDER_BASELINE, bb2025);
       if (!result.valid) {
         return sendJson(res, 400, { error: "Team is not legal — fix the findings and rebuild.", errors: result.errors, summary: result.recomputedSummary });
@@ -772,8 +807,18 @@ const server = createServer((req, res) => {
     try {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
       // Set CORS before any handler writes a response, so it's on EVERY response for
-      // these routes — success or error (a browser can't read either without it).
-      if (PUBLIC_PATHS.has(url.pathname)) res.setHeader("access-control-allow-origin", "*");
+      // these routes — success or error (a browser can't read either without it). The
+      // Team Builder V2 POST routes carry a JSON body (+ optional auth header), so a
+      // cross-origin client browser sends a preflight — answer it here.
+      if (PUBLIC_PATHS.has(url.pathname)) {
+        res.setHeader("access-control-allow-origin", "*");
+        res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
+        res.setHeader("access-control-allow-headers", "content-type,authorization");
+        if (req.method === "OPTIONS") {
+          res.writeHead(204).end();
+          return;
+        }
+      }
       if (!authorized(req, url.pathname)) {
         res.writeHead(401, { "www-authenticate": 'Basic realm="BB Config"' }).end("auth required");
         return;
