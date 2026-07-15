@@ -225,6 +225,20 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     dedicatedFans: input.dedicatedFans ?? 1,
     reRolls: input.reRolls,
   };
+  // Team-value line items. sidelineCost (re-rolls at the roster-specific reRollCost, apothecary,
+  // coaches, cheerleaders, extra dedicated fans) MUST live on roster.summary: recomputeGold() reads
+  // summary.sidelineCost, so a composed team without it under-counts by the whole staff cost — both
+  // the preview total AND the over-budget guard (goldBudget) then silently omit sideline staff
+  // (owner playtest P3: a 955k team previewed under-budget). The reRoll cost is roster-specific, so
+  // this is the only place that can compute it — the validator can't derive it from roster.sideline.
+  const playersGold = players.reduce((s, p) => s + p.cost, 0);
+  const staffGold =
+    input.reRolls * fork.reRollCost +
+    (input.apothecary ? 50000 : 0) +
+    (input.assistantCoaches ?? 0) * 10000 +
+    (input.cheerleaders ?? 0) * 10000 +
+    Math.max(0, (input.dedicatedFans ?? 1) - 1) * 10000;
+
   const roster: Roster = {
     rosterName: dsRoster.name,
     coach: input.coach,
@@ -234,18 +248,18 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     leagues: [],
     specialRules: [...dsRoster.specialRules],
     players,
+    summary: {
+      playersCost: playersGold,
+      skillsCost: 0,
+      inducementCost: 0,
+      sidelineCost: staffGold,
+      total: playersGold + staffGold,
+    },
   };
 
   // Advisory team value for the XML header (the server recomputes from positions on load;
   // fork-native hand-authored teams carry TV in units of 10k — 1000k ⇒ ~100). Round-trip
   // test confirms the server accepts/recomputes this.
-  const playersGold = players.reduce((s, p) => s + p.cost, 0);
-  const staffGold =
-    input.reRolls * fork.reRollCost +
-    (input.apothecary ? 50000 : 0) +
-    (input.assistantCoaches ?? 0) * 10000 +
-    (input.cheerleaders ?? 0) * 10000 +
-    Math.max(0, (input.dedicatedFans ?? 1) - 1) * 10000;
   const tvUnits = Math.round((playersGold + staffGold) / 10000);
 
   const xml =

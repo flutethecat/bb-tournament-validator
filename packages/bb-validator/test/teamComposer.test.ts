@@ -101,4 +101,36 @@ describe("composeTeam", () => {
       /not in the Snotling roster/,
     );
   });
+
+  it("counts sideline staff in the summary + the recomputed (preview) gold — owner P3", () => {
+    // Snotling reRoll = 70k; input = 3 re-rolls (210k) + apothecary (50k), no coaches/cheerleaders,
+    // 1 dedicated fan (0 extra) => 260k of sideline staff. Before the fix, roster.summary was absent
+    // so recomputeGold() read sidelineCost as 0 and both the preview total and the over-budget guard
+    // silently omitted staff.
+    const r = composeTeam(input, bb2025, 42);
+    const staffGold = 3 * 70000 + 50000;
+    const playersGold = r.roster.players.reduce((s, p) => s + p.cost, 0);
+    expect(r.roster.summary?.sidelineCost).toBe(staffGold);
+    expect(r.roster.summary?.total).toBe(playersGold + staffGold);
+
+    const result = validate(r.roster, pkg({ eligibleRosters: ["Snotling"], goldBudget: null }), bb2025);
+    // The number the preview renders (recomputedSummary.goldUsed) now INCLUDES the staff cost.
+    expect(result.recomputedSummary.goldUsed).toBe(playersGold + staffGold);
+    // Populated summary is self-consistent => no spurious cost-reconciliation warning.
+    expect([...result.warnings].some((f) => f.ruleId === "cost-reconciliation")).toBe(false);
+  });
+
+  it("admits/rejects at the budget WITH staff included (over-budget guard, owner P3)", () => {
+    const r = composeTeam(input, bb2025, 42);
+    const staffGold = 3 * 70000 + 50000;
+    const playersGold = r.roster.players.reduce((s, p) => s + p.cost, 0);
+    const total = playersGold + staffGold;
+    // A budget that would PASS if staff were omitted but FAILS once staff is counted must reject —
+    // this is the "validator must not admit an over-budget team the preview blessed" guarantee.
+    const between = validate(r.roster, pkg({ eligibleRosters: ["Snotling"], goldBudget: playersGold + 1 }), bb2025);
+    expect(between.errors.some((f) => f.ruleId === "gold-budget")).toBe(true);
+    // A budget at/above the true total (players + staff) passes the gold check.
+    const ample = validate(r.roster, pkg({ eligibleRosters: ["Snotling"], goldBudget: total }), bb2025);
+    expect(ample.errors.some((f) => f.ruleId === "gold-budget")).toBe(false);
+  });
 });
