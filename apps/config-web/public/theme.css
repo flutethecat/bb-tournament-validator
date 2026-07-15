@@ -1,10 +1,8 @@
 /*
-  Config-web UI theme tokens — mirror the client's canonical deriveTheme (per
-  black-red-ui-scheme.md). Presets-only via [data-theme]: Black/Red (default, dark) +
-  FUMBBL (variant, light). Keep in sync with deriveTheme (Fives) — client==config-web parity.
-  OWNER OVERRIDE 2026-07-14: Black/Red primary/accent/active darkened 25% (#A10005 -> #790004);
-  routed to Fives to re-derive the canonical set — RE-MIRROR the full published set when it lands
-  (also pending: corrected red --ui-focus + --ui-text-dim #5f6163).
+  Config-web UI theme tokens — MIRROR the client's canonical deriveTheme (Fives, `c050c727`)
+  EXACTLY, so config-web / SpectateView / App.vue never diverge (Echo asserts the presets).
+  Presets-only via [data-theme]: Black/Red (default, dark) + FUMBBL (variant, light).
+  Owner 2026-07-14: Black/Red primary darkened −25% (#A10005 -> #790004); rest re-derived.
 */
 :root,
 :root[data-theme="brand-red"] {
@@ -13,14 +11,16 @@
   --ui-surface: #0d0d0d;
   --ui-surface-2: #242424;
   --ui-accent: #790004;
-  --ui-hover: #2e0a0b;
+  --ui-hover: #250a0b;
   --ui-active: #790004;
-  --ui-border: #510003;
+  --ui-border: #3d0002;
   --ui-focus: #ff3b3b;
+  --ui-focus-halo: #ffffff;
   --ui-text-on-primary: #ffffff;
   --ui-text-on-secondary: #ffffff;
   --ui-text: #e6e9ef;
   --ui-muted: #848689;
+  --ui-text-dim: #5f6163;
 }
 :root[data-theme="fumbbl"] {
   --ui-primary: #1A401C;
@@ -32,24 +32,28 @@
   --ui-active: #1A401C;
   --ui-border: #818f72;
   --ui-focus: #8b1a1a;
+  --ui-focus-halo: #ffffff;
   --ui-text-on-primary: #ffffff;
-  --ui-text-on-secondary: #111111;
+  --ui-text-on-secondary: #000000;
   --ui-text: #141414;
   --ui-muted: #6e6a60;
+  --ui-text-dim: #8f8a7d;
 }
-/* Fixed semantics — identical in both presets (Tarkin canonical). */
+/* Fixed semantics — identical in both presets (Fives canonical). */
 :root {
   --ui-danger: #ff4d4d;
   --ui-success: #3fb463;
   --ui-info: #4a86c8;
 }
 
-/* Focus ring — the dedicated RED --ui-focus token (Fives e7f151c9; owner red-focus ruling),
-   NOT --ui-primary. 2px offset + a soft halo close the ring-vs-fill contrast (per Fives). */
+/* Focus ring = RED + white halo (dual-ring). Canonical CSS from Fives — VERBATIM so
+   config-web / SpectateView / App.vue never diverge. The red alone can't clear 3:1 vs a
+   red/green button fill; the halo layer carries the contrast (Echo asserts the composite). */
 :focus-visible {
-  outline: 2px solid var(--ui-focus);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ui-focus) 40%, transparent);
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--ui-focus-halo),  /* inner: hugs the control, ≥3:1 vs the button fill */
+    0 0 0 4px var(--ui-focus);        /* outer: red ring, ≥3:1 vs the surface */
 }
 
 /* Presets-only theme toggle (fixed, top-right) — config-web has no client settings store. */
