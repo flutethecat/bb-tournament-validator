@@ -161,7 +161,7 @@ function renderPositions() {
   if (!current) { $("positions").innerHTML = '<p class="hint">Choose a race to see its positions.</p>'; return; }
   $("positions").innerHTML =
     '<table><thead><tr><th>Position</th><th class="r">Cost</th><th class="c">Max</th><th class="c">MA/ST/AG/PA/AV</th><th class="c">Count</th></tr></thead><tbody>' +
-    current.positions.map((p) => {
+    [...current.positions].sort((a, b) => a.cost - b.cost).map((p) => {
       const n = counts.get(p.positionId) || 0;
       return `<tr>
         <td>${esc(p.name)}</td>
