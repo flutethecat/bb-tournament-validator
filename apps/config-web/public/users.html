@@ -34,7 +34,7 @@
   button { font:inherit; background:var(--accent); color:var(--ui-text-on-primary); border:0; border-radius:6px; padding:6px 11px; font-weight:600; cursor:pointer; }
   button.ghost { background:transparent; color:var(--ink); border:1px solid var(--edge); }
   button.danger { background:var(--bad); color:#fff; }
-  button:hover { filter:brightness(1.08); }
+  button:not(.ghost):not(.danger):hover { background:var(--ui-hover); } button.ghost:hover, button.danger:hover { filter:brightness(1.2); }
   button:disabled { opacity:.5; cursor:not-allowed; }
   table { width:100%; border-collapse:collapse; font-size:12.5px; }
   th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--edge); vertical-align:top; }

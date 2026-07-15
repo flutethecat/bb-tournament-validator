@@ -94,7 +94,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--gold); outl
 .sticky-actions { position: sticky; top: 66px; z-index: 5; }
 .actions { display: flex; align-items: center; gap: 0.8rem; }
 button.primary { background: var(--gold); color: var(--ui-text-on-primary); font-weight: 600; border: none; padding: 0.55rem 1.1rem; border-radius: 8px; cursor: pointer; }
-button.primary:hover { filter: brightness(1.08); }
+button.primary:hover { background: var(--ui-hover); filter: none; }
 button { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.45rem 0.9rem; cursor: pointer; }
 .status { font-size: 0.85rem; }
 .status.ok { color: var(--green); }

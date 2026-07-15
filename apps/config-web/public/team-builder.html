@@ -33,7 +33,7 @@
   input[type=number] { width:80px; }
   button { font:inherit; background:var(--accent); color:var(--ui-text-on-primary); border:0; border-radius:6px; padding:8px 13px; font-weight:600; cursor:pointer; }
   button.ghost { background:transparent; color:var(--ink); border:1px solid var(--edge); padding:2px 9px; }
-  button:hover { filter:brightness(1.08); } button:disabled { opacity:.5; cursor:not-allowed; }
+  button:not(.ghost):hover { background:var(--ui-hover); } button.ghost:hover { filter:brightness(1.35); } button:disabled { opacity:.5; cursor:not-allowed; }
   table { width:100%; border-collapse:collapse; font-size:12.5px; }
   th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--edge); }
   th { color:var(--dim); font-weight:600; }

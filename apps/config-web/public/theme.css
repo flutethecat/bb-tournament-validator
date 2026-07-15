@@ -16,6 +16,7 @@
   --ui-hover: #2e0a0b;
   --ui-active: #790004;
   --ui-border: #510003;
+  --ui-focus: #ff3b3b;
   --ui-text-on-primary: #ffffff;
   --ui-text-on-secondary: #ffffff;
   --ui-text: #e6e9ef;
@@ -30,6 +31,7 @@
   --ui-hover: #b1b29a;
   --ui-active: #1A401C;
   --ui-border: #818f72;
+  --ui-focus: #8b1a1a;
   --ui-text-on-primary: #ffffff;
   --ui-text-on-secondary: #111111;
   --ui-text: #141414;
@@ -42,10 +44,12 @@
   --ui-info: #4a86c8;
 }
 
-/* Focus ring — theme-primary, on every interactive element (shared with the client). */
+/* Focus ring — the dedicated RED --ui-focus token (Fives e7f151c9; owner red-focus ruling),
+   NOT --ui-primary. 2px offset + a soft halo close the ring-vs-fill contrast (per Fives). */
 :focus-visible {
-  outline: 2px solid var(--ui-primary);
+  outline: 2px solid var(--ui-focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ui-focus) 40%, transparent);
 }
 
 /* Presets-only theme toggle (fixed, top-right) — config-web has no client settings store. */
