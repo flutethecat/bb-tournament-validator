@@ -6,7 +6,7 @@
  * browser-safe (it depends on mysql2).
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { xmlEscape, safe } from "./util.js";
 import type { ForkConfig } from "./index.js";
@@ -139,6 +139,31 @@ export function forkSupportsRace(raceName: string, rosterNames: string[]): boole
 }
 
 /**
+ * A teamId must map to EXACTLY ONE file. Remove any pre-existing `team_<anyCoach>_<id>.xml`
+ * before writing a fresh one, so re-ingesting the same team under a different coach can't
+ * leave two files with the same id. The fork's team cache keys on the teamId alone, so a
+ * duplicate-id file (different coach prefix) makes it resolve the team to the WRONG owner →
+ * startGame CHECK_OWNERSHIP fails with "Not Your Team" and the join silently aborts (the
+ * owner-reported 1272390 Kalimar-vs-flutethecat collision, 2026-07-15). Returns the removed names.
+ */
+function removeExistingTeamFilesForId(teamsDir: string, teamId: string): string[] {
+  if (!existsSync(teamsDir)) return [];
+  const suffix = `_${teamId}.xml`;
+  const removed: string[] = [];
+  for (const f of readdirSync(teamsDir)) {
+    if (f.startsWith("team_") && f.endsWith(suffix)) {
+      try {
+        unlinkSync(join(teamsDir, f));
+        removed.push(f);
+      } catch {
+        /* best-effort: a stale handle shouldn't block the write */
+      }
+    }
+  }
+  return removed;
+}
+
+/**
  * Fetch a FUMBBL team's XML and save it into the fork's teams dir as
  * `team_<coach>_<id>.xml`. The FFB game server must restart to load new team files.
  * Warns (doesn't block) when the team's race has no matching roster loaded on the
@@ -152,6 +177,7 @@ export async function copyForkTeam(cfg: ForkConfig, url: string, opts?: { asCoac
   const owner = opts?.asCoach?.trim() || t.coach;
   const xml = recoachXml(t.xml, owner);
   mkdirSync(cfg.teamsDir, { recursive: true });
+  removeExistingTeamFilesForId(cfg.teamsDir, t.teamId);
   const path = join(cfg.teamsDir, `team_${safe(owner)}_${t.teamId}.xml`);
   writeFileSync(path, xml, "utf8");
   await installForkRoster(cfg.teamsDir, t.teamId);
@@ -220,6 +246,7 @@ export async function ingestForkTeam(
   const meta = parseTeamXmlMeta(t.xml);
   mkdirSync(cfg.teamsDir, { recursive: true });
   const xml = recoachXml(t.xml, coach);
+  removeExistingTeamFilesForId(cfg.teamsDir, t.teamId);
   const path = join(cfg.teamsDir, `team_${safe(coach)}_${t.teamId}.xml`);
   writeFileSync(path, xml, "utf8");
   await installForkRoster(cfg.teamsDir, t.teamId);
