@@ -10,7 +10,8 @@
   --ui-secondary: #000000;
   --ui-surface: #0d0d0d;
   --ui-surface-2: #242424;
-  --ui-accent: #790004;
+  --ui-accent: #a55456;
+  --ui-text-on-accent: #ffffff;
   --ui-hover: #250a0b;
   --ui-active: #790004;
   --ui-border: #3d0002;
