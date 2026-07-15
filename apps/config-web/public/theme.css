@@ -1,18 +1,20 @@
 /*
-  Config-web UI theme tokens — mirrors the client's canonical deriveTheme output EXACTLY
-  (Tarkin 03dc2ecd; per black-red-ui-scheme.md). Presets-only via [data-theme]: Black/Red
-  (default, dark) + FUMBBL (variant, light). Do NOT re-derive — these hex are canonical so
-  config-web and the client surfaces match (Voss acceptance = client==config-web parity).
+  Config-web UI theme tokens — mirror the client's canonical deriveTheme (per
+  black-red-ui-scheme.md). Presets-only via [data-theme]: Black/Red (default, dark) +
+  FUMBBL (variant, light). Keep in sync with deriveTheme (Fives) — client==config-web parity.
+  OWNER OVERRIDE 2026-07-14: Black/Red primary/accent/active darkened 25% (#A10005 -> #790004);
+  routed to Fives to re-derive the canonical set — RE-MIRROR the full published set when it lands
+  (also pending: corrected red --ui-focus + --ui-text-dim #5f6163).
 */
 :root,
 :root[data-theme="brand-red"] {
-  --ui-primary: #A10005;
+  --ui-primary: #790004;
   --ui-secondary: #000000;
   --ui-surface: #0d0d0d;
   --ui-surface-2: #242424;
-  --ui-accent: #A10005;
+  --ui-accent: #790004;
   --ui-hover: #2e0a0b;
-  --ui-active: #A10005;
+  --ui-active: #790004;
   --ui-border: #510003;
   --ui-text-on-primary: #ffffff;
   --ui-text-on-secondary: #ffffff;
