@@ -25,6 +25,20 @@ export interface ForkRosterPosition {
   gender: string;
   /** "Regular" | "Big Guy" | "Star" — Stars are excluded from V1 team-building. */
   type: string;
+  // ── Roster-intrinsic fields (present in the position XML block) ──
+  // Used ONLY by the Secret League / dataset-free builder path (#52): SL races aren't in the
+  // bb2025 dataset, but the roster XML is fully self-describing. The dataset path ignores these.
+  /** Max copies allowed (<quantity>) — the per-position cap. */
+  quantity?: number;
+  /** Gold cost (<cost>). */
+  cost?: number;
+  MA?: number;
+  ST?: number;
+  /** Raw characteristic ints from the XML (<agility>/<passing>/<armour>); PA/AG=0 ⇒ none. */
+  AG?: number;
+  PA?: number;
+  AV?: number;
+  skills?: string[];
 }
 
 export interface ForkRoster {
@@ -83,7 +97,12 @@ const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "").s
  */
 export function parseForkRoster(xml: string): ForkRoster {
   const header = xml.split(/<position\b/i)[0] ?? xml;
-  const rosterId = xml.match(/<roster\b[^>]*\bid="([^"]+)"/i)?.[1] ?? "";
+  // Base bb2025 rosters carry <roster id="snotling.bb2025">; Secret League / imported rosters carry
+  // <roster team="1064979"> instead (no id attr) — fall back to the team id so SL rosters have a key.
+  const rosterId =
+    xml.match(/<roster\b[^>]*\bid="([^"]+)"/i)?.[1] ??
+    xml.match(/<roster\b[^>]*\bteam="([^"]+)"/i)?.[1] ??
+    "";
   const raceName = strTag(header, "name") ?? "";
   const positions: ForkRosterPosition[] = [];
   for (const block of xml.match(/<position\b[\s\S]*?<\/position>/gi) ?? []) {
@@ -91,11 +110,23 @@ export function parseForkRoster(xml: string): ForkRoster {
     if (!positionId) continue;
     const type = strTag(block, "type") ?? "Regular";
     if (/star/i.test(type)) continue; // V1: base positions only, no stars
+    // Skills live in <skillList><skill [value="n"]>Name</skill>…</skillList>.
+    const skillList = block.match(/<skillList>([\s\S]*?)<\/skillList>/i)?.[1] ?? "";
+    const skills = [...skillList.matchAll(/<skill\b[^>]*>([^<]+)<\/skill>/gi)].map((m) => m[1]!.trim());
     positions.push({
       positionId,
       name: strTag(block, "name") ?? "",
       gender: strTag(block, "gender") ?? "random",
       type,
+      // Roster-intrinsic (SL builder path); the dataset path ignores these.
+      quantity: numTag(block, "quantity"),
+      cost: numTag(block, "cost"),
+      MA: numTag(block, "movement"),
+      ST: numTag(block, "strength"),
+      AG: numTag(block, "agility"),
+      PA: numTag(block, "passing"),
+      AV: numTag(block, "armour"),
+      skills,
     });
   }
   return {
@@ -157,6 +188,39 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
       skills: [...ds.skills],
     });
   }
+  return {
+    rosterId: fork.rosterId,
+    raceName: fork.raceName,
+    reRollCost: fork.reRollCost,
+    maxReRolls: fork.maxReRolls,
+    apothecaryAllowed: fork.apothecaryAllowed,
+    positions,
+  };
+}
+
+/**
+ * The buildable positions for a SECRET LEAGUE / custom race the bb2025 dataset does NOT carry (#52,
+ * option A). Same shape as {@link rosterOptions}, but every field is sourced ROSTER-INTRINSICALLY from
+ * the fork roster XML itself (cost/cap/stats/skills all present in each <position> block) — no dataset
+ * lookup, so it scales to any SL roster with zero dataset edits. The dataset stays authoritative for the
+ * 30 official races; this is the parallel path for the numeric-rosterId SL teams the dataset can't
+ * resolve. AG/PA/AV are rendered `n+` (PA/AG=0 ⇒ "-", i.e. no passing / no agility roll offered).
+ */
+export function rosterOptionsIntrinsic(forkRosterXml: string): RosterOptions {
+  const fork = parseForkRoster(forkRosterXml);
+  const plus = (n: number | undefined): string => (n && n > 0 ? `${n}+` : "-");
+  const positions: RosterOption[] = fork.positions.map((p) => ({
+    positionId: p.positionId,
+    name: p.name,
+    cost: p.cost ?? 0,
+    max: p.quantity ?? 0,
+    MA: p.MA ?? 0,
+    ST: p.ST ?? 0,
+    AG: plus(p.AG),
+    PA: plus(p.PA),
+    AV: p.AV != null ? `${p.AV}+` : "-",
+    skills: p.skills ?? [],
+  }));
   return {
     rosterId: fork.rosterId,
     raceName: fork.raceName,
