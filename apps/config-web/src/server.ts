@@ -52,6 +52,7 @@ import {
 } from "@bb/fork-ops";
 import { PackageFiles, readCoachRegistry, readCoaches, skillCatalog, starList, teamList } from "./data";
 import { PRESETS } from "./presets";
+import { attachSuper } from "./super/index.js";
 
 /**
  * Endpoints reachable without ADMIN_PASSWORD even when it's set, AND always sent
@@ -837,3 +838,12 @@ server.listen(PORT, HOST, () => {
   console.log(`  coaches  : ${VALIDATED_CSV}`);
   console.log(`  auth     : ${ADMIN_PASSWORD ? "password required" : "OPEN (set ADMIN_PASSWORD to lock)"}`);
 });
+
+// Super Module (presentation sidecar) — flag-gated + double-guarded on config presence. attachSuper is
+// a no-op unless SUPER_ENABLED=1, and construction failure disables Super without touching the HTTP
+// server (SM-3). config-web serving is unaffected in every case.
+if (challengeDbCfg && forkAdminCfg) {
+  attachSuper(server, { dbCfg: challengeDbCfg, forkCfg: forkAdminCfg });
+} else if (process.env.SUPER_ENABLED === "1") {
+  console.log("[super] SUPER_ENABLED set but fork DB/admin config missing — Super stays OFF.");
+}

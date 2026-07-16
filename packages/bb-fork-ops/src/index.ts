@@ -173,6 +173,33 @@ export async function verifyCoachPassword(cfg: ForkDbConfig, username: string, p
   return rows.length > 0 && rows[0]!.password === hash;
 }
 
+/**
+ * Verify a coach's Super-channel challenge-response WITHOUT the plaintext ever crossing the wire
+ * (Super Module SM-5/RC-2). `ffb_coaches.password` is already stored as `md5(pw)`, so the server can
+ * recompute the expected response `md5(nonce + ts + md5(pw))` from the stored digest and compare it to
+ * what the client sent — the password AND its md5 both stay server-side. Returns false (never throws)
+ * for an unknown coach or a wrong response; callers treat both identically (no which-one leak, same as
+ * `verifyCoachPassword`). The stored digest is NEVER returned out of this function.
+ */
+export async function verifyCoachChallenge(
+  cfg: ForkDbConfig,
+  username: string,
+  nonce: string,
+  ts: string,
+  response: string,
+): Promise<boolean> {
+  const name = username.trim();
+  if (!name || !nonce || !ts || !response) return false;
+  const rows = await withConn(cfg, async (conn) => {
+    const [r] = await conn.execute("SELECT password FROM ffb_coaches WHERE name = ?", [name]);
+    return r as Array<{ password: string }>;
+  });
+  if (rows.length === 0) return false;
+  const storedMd5 = rows[0]!.password; // md5(pw) hex — stays here
+  const expected = md5hex(`${nonce}${ts}${storedMd5}`);
+  return response === expected;
+}
+
 export async function queryCoaches(cfg: ForkDbConfig, q: string, limit = 10, exclude?: string): Promise<string[]> {
   const needle = (q ?? "").trim();
   const lim = Math.min(50, Math.max(1, Math.floor(limit) || 10));

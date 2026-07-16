@@ -146,6 +146,59 @@ async function adminCommand(cfg: ForkAdminConfig, op: string, params: Record<str
   return xml;
 }
 
+/**
+ * Authoritative SEAT truth for {gameId, coach}: is this coach the HOME or AWAY coach of the game, in
+ * the SERVER/GLOBAL (un-mirrored) frame? Used by the Super Module to normalize presentation coordinates
+ * (SM-1/RC-1) — a client can't tell the service its own global seat because its FFB model is
+ * perspective-mirrored (self-as-home always), so the service must read the seat from the server.
+ *
+ * Returns "home" / "away" for a participant, or null when the coach is NOT a participant of the game
+ * (⇒ reject the Super handshake — admit-unverified is forbidden).
+ *
+ * Endpoint contract CONFIRMED against fork source (`GameStateServlet.java` + the game/team JSON model):
+ *   - `/gamestate/get` REQUIRES the admin challenge-auth (`checkResponse`, keyed on ADMIN_PASSWORD) — it
+ *     is NOT open-read. Flow: GET `/gamestate/challenge` → `<challenge>` → response = the same XOR/MD5
+ *     scheme as the /admin ops (`adminResponse`) → GET `/gamestate/get?response=…&gameId=…`.
+ *   - The body is JSON (`gameState.toJsonValue()`), NOT XML. Shape (keys confirmed via IJsonOption /
+ *     Game/Team.toJsonValue): `{ game: { teamHome: { coach }, teamAway: { coach } } }`, with possible
+ *     denormalized `game.teamHomeCoach` / `game.teamAwayCoach` mirrors.
+ *
+ * ⚠ VERIFY-OWED AT STAGE-5 (live): the coach JSON PATH above is source-grounded but unconfirmed against
+ * a live capture — TK captures one `/gamestate/get` JSON from an active game so this exact navigation is
+ * proven end-to-end. This function is the single swap point; the Super service depends only on the
+ * SeatResolver interface, not on this shape. `includeLog=false` keeps the payload small.
+ */
+export async function forkGameSeat(cfg: ForkAdminConfig, gameId: string, coach: string): Promise<"home" | "away" | null> {
+  const wanted = coach.trim().toLowerCase();
+  if (!gameId || !wanted) return null;
+  // 1. gamestate-servlet challenge (its OWN /gamestate/challenge, not /admin/challenge) → response.
+  const chRes = await fetchWithTimeout(`${cfg.baseUrl}/gamestate/challenge`);
+  const chXml = await chRes.text();
+  const challenge = xmlTag(chXml, "challenge");
+  if (!chRes.ok || !challenge) throw new Error(`fork gamestate/challenge failed (HTTP ${chRes.status})`);
+  const response = adminResponse(challenge, cfg.passwordMd5Hex);
+  // 2. authenticated get (JSON).
+  const res = await fetchWithTimeout(
+    `${cfg.baseUrl}/gamestate/get?response=${encodeURIComponent(response)}&gameId=${encodeURIComponent(gameId)}&includeLog=false`,
+  );
+  const text = await res.text();
+  if (!res.ok) throw new Error(`fork gamestate/get failed (HTTP ${res.status}): ${text.slice(0, 200)}`);
+  let json: unknown;
+  try { json = JSON.parse(text); } catch { throw new Error(`fork gamestate/get returned non-JSON (${text.slice(0, 120)})`); }
+  const game = (json as { game?: Record<string, unknown> }).game ?? (json as Record<string, unknown>);
+  const teamCoach = (side: "teamHome" | "teamAway", flat: "teamHomeCoach" | "teamAwayCoach"): string => {
+    const team = game[side] as { coach?: unknown } | undefined;
+    const nested = typeof team?.coach === "string" ? team.coach : undefined;
+    const denorm = typeof game[flat] === "string" ? (game[flat] as string) : undefined;
+    return (nested ?? denorm ?? "").trim().toLowerCase();
+  };
+  const homeCoach = teamCoach("teamHome", "teamHomeCoach");
+  const awayCoach = teamCoach("teamAway", "teamAwayCoach");
+  if (homeCoach && homeCoach === wanted) return "home";
+  if (awayCoach && awayCoach === wanted) return "away";
+  return null; // not a participant
+}
+
 /** `list <status>` — scheduled/active/finished/all games. Raw XML; caller/route normalizes. */
 export const adminList = (cfg: ForkAdminConfig, status = "all"): Promise<string> => adminCommand(cfg, "list", { status });
 
