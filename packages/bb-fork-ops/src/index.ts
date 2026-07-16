@@ -196,8 +196,13 @@ export async function verifyCoachChallenge(
   });
   if (rows.length === 0) return false;
   const storedMd5 = rows[0]!.password; // md5(pw) hex — stays here
-  const expected = md5hex(`${nonce}${ts}${storedMd5}`);
-  return response === expected;
+  return response === challengeResponseHex(nonce, ts, storedMd5);
+}
+
+/** Pure Super challenge-response hash: `md5(nonce + ts + md5(pw))`. Extracted from
+ *  {@link verifyCoachChallenge} so the security-sensitive compare is unit-testable without a DB. */
+export function challengeResponseHex(nonce: string, ts: string, storedMd5Hex: string): string {
+  return md5hex(`${nonce}${ts}${storedMd5Hex}`);
 }
 
 export async function queryCoaches(cfg: ForkDbConfig, q: string, limit = 10, exclude?: string): Promise<string[]> {

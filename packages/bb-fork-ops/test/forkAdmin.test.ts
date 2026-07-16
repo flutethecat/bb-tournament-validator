@@ -6,10 +6,12 @@ import {
   adminListLive,
   adminMessage,
   adminResponse,
+  challengeResponseHex,
   forkAdminConfigFromEnv,
   LIVE_GAME_STATUSES,
   parseAdminGameList,
 } from "@bb/fork-ops";
+import { createHash } from "node:crypto";
 
 describe("adminResponse", () => {
   // Golden vector derived from the LIVE fork (2026-07-09): GET /admin/challenge returned
@@ -241,5 +243,34 @@ describe("adminListLive", () => {
     const games = await adminListLive(cfg);
     expect(games).toHaveLength(1);
     expect(games[0]!.gameId).toBe("99");
+  });
+});
+
+describe("challengeResponseHex (Super coach challenge-response, SM-5/RC-2)", () => {
+  const md5 = (s: string) => createHash("md5").update(s).digest("hex");
+
+  it("computes md5(nonce + ts + storedMd5) — the exact form verifyCoachChallenge compares", () => {
+    const nonce = "abc123";
+    const ts = "1700000000000";
+    const storedMd5 = md5("hunter2"); // ffb_coaches.password is md5(pw)
+    expect(challengeResponseHex(nonce, ts, storedMd5)).toBe(md5(`${nonce}${ts}${storedMd5}`));
+  });
+
+  it("a correct client response (password-derived) matches; a wrong password does NOT", () => {
+    const nonce = "n0nce";
+    const ts = "1700000000001";
+    const realMd5 = md5("correct-horse");
+    // client computes response from the password it typed:
+    const clientResponse = md5(`${nonce}${ts}${md5("correct-horse")}`);
+    expect(clientResponse).toBe(challengeResponseHex(nonce, ts, realMd5)); // authenticates
+    const attacker = md5(`${nonce}${ts}${md5("wrong-password")}`);
+    expect(attacker).not.toBe(challengeResponseHex(nonce, ts, realMd5)); // rejected
+  });
+
+  it("is nonce-bound (replay a response under a fresh nonce fails)", () => {
+    const storedMd5 = md5("pw");
+    const r1 = challengeResponseHex("nonceA", "1", storedMd5);
+    const r2 = challengeResponseHex("nonceB", "1", storedMd5);
+    expect(r1).not.toBe(r2);
   });
 });

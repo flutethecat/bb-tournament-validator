@@ -13,7 +13,26 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { randomBytes } from "node:crypto";
 
-type Seat = "home" | "away";
+export type Seat = "home" | "away";
+
+// ── Pure, unit-testable core (extracted for the fast-follow teeth; the service methods delegate here) ──
+
+/** X-only perspective mirror between a seat's local frame and the server/global frame, per upstream
+ *  `FieldCoordinate.transform()` (x' = 25 − x, y unchanged). Self-inverse: applying it twice is identity,
+ *  which is why the same function serves local→global and global→local. */
+export function mirrorX(x: number, seat: Seat): number {
+  return seat === "away" ? PITCH_W - 1 - x : x; // FIELD_WIDTH-1-x ⇒ 25-x
+}
+
+/** Active feature set for a game: the ∩ of every present member's advertised caps with what the service
+ *  offers — but only once ≥2 members are present (a lone coach ⇒ everything inert). Pure fn of the inputs
+ *  so membership/recompute is testable without sockets. */
+export function computeActiveFeatures(memberCaps: ReadonlyArray<ReadonlySet<string>>, serviceCaps: ReadonlySet<string>): Set<string> {
+  if (memberCaps.length < 2) return new Set();
+  let active = new Set(serviceCaps);
+  for (const caps of memberCaps) active = new Set([...active].filter((k) => caps.has(k)));
+  return active;
+}
 
 /** Verify a coach's challenge-response WITHOUT ever seeing the plaintext (SM-5/RC-2). The concrete impl
  *  recomputes md5(nonce+ts+md5(pw)) from the stored `ffb_coaches.password` (already an md5 hex). */
@@ -54,7 +73,6 @@ interface GameRoom {
   activeFeatures: Set<string>;
 }
 
-const MAX_X = PITCH_W - 1; // 25
 
 export class SuperService {
   private readonly rooms = new Map<string, GameRoom>();
@@ -148,14 +166,8 @@ export class SuperService {
    *  featureSet frame to EVERY current member — so a late-joining coach flips the first connector's
    *  features on the instant they arrive. */
   private recomputeAndBroadcast(room: GameRoom): void {
-    const svc = new Set(serviceCapabilities());
     const members = [...room.members.values()];
-    let active = new Set<string>();
-    if (members.length >= 2) {
-      // intersect every member's caps with the service set
-      active = new Set(svc);
-      for (const m of members) active = new Set([...active].filter((k) => m.caps.has(k)));
-    }
+    const active = computeActiveFeatures(members.map((m) => m.caps), new Set(serviceCapabilities()));
     room.activeFeatures = active;
     const list = [...active];
     for (const m of members) {
@@ -177,7 +189,9 @@ export class SuperService {
     if (!feature) return;                         // unknown/disabled feature → drop (SC-5 kill switch)
     if (!room.activeFeatures.has(featureKey)) return; // not active for this game → drop
 
-    // Rate/coalesce (SM-2): keep-latest, cap per feature per connection.
+    // Rate limit (SM-2): DROP within-interval publishes, cap per feature per connection. (For a hover
+    // stream this is effectively latest-wins — the next accepted frame carries the current position;
+    // it drops the intervening frames rather than buffering+flushing the last one.)
     const now = Date.now();
     const last = me.lastPublish.get(featureKey) ?? 0;
     if (now - last < this.minPublishIntervalMs) return;
@@ -216,16 +230,16 @@ export class SuperService {
   // not reachable by on-pitch hover coords; a future off-pitch coord feature must revisit those.)
   // Seat is CACHED per Participant at handshake (SM-6 resolve) — the relay never re-polls gamestate.
 
-  /** Publisher-local → server/global. X-only mirror for the away seat (see citation above). */
+  /** Publisher-local → server/global (delegates to the pure `mirrorX`). */
   private toGlobal(p: Record<string, unknown>, seat: Seat): Record<string, unknown> {
     if (typeof p.x !== "number") return p;
-    return { ...p, x: seat === "away" ? MAX_X - p.x : p.x };
+    return { ...p, x: mirrorX(p.x, seat) };
   }
 
-  /** Server/global → recipient-local. Symmetric with toGlobal (x-only). */
+  /** Server/global → recipient-local (same x-only mirror; `mirrorX` is self-inverse). */
   private toLocal(p: Record<string, unknown>, seat: Seat): Record<string, unknown> {
     if (typeof p.x !== "number") return p;
-    return { ...p, x: seat === "away" ? MAX_X - p.x : p.x };
+    return { ...p, x: mirrorX(p.x, seat) };
   }
 
   private removeConn(conn: WsConnection): void {
