@@ -22,6 +22,7 @@ import {
   rosterOptionsIntrinsic,
   validate,
   type ComposeIntrinsicResult,
+  type Roster,
   type TeamPick,
   type TournamentPackage,
 } from "@bb/validator";
@@ -218,6 +219,44 @@ function loadSecretLeagueForkRosters(teamsDir: string): Map<string, string> {
     }
   }
   return out;
+}
+
+/**
+ * Register a Team-Builder-created team in the coach's LIBRARY (#52 stage-5 bounce, TK-421).
+ *
+ * A built team was written to `teams/` + fork-reloaded, but the challenge route resolves a coach's
+ * teams from the per-coach library JSON (`readLibrary`, `bb-fork-ops/library.ts`) — NOT from `teams/`.
+ * `upsertLibraryTeam` had exactly ONE call site (the team-IMPORT path), so EVERY builder-created team
+ * (base AND Secret League) was unplayable: the challenge 400s with "Team <id> isn't in <coach>'s
+ * library." This mirrors the import path's upsert so a built team is actually challengeable.
+ *
+ * ⚠ `ingestedAt` MUST be stamped BEFORE the fork reload: the challenge route's `isLoadedOnFork` gates
+ * on `ingestedAt <= lastReloadAt`, so a timestamp taken after the reload would 409 ("isn't loaded on
+ * the fork yet") until the next reload.
+ * ⚠ `teamValue` is TV in THOUSANDS (LibraryTeam's contract). It's derived from the composed summary,
+ * not parsed back off our XML: the composer writes `<currentTeamValue>` in fork-native 10k units
+ * (830k ⇒ 83), which `parseTeamXmlMeta`'s `>= 10000` heuristic would read as a literal 83.
+ */
+function registerBuiltTeam(
+  roster: Roster,
+  teamId: string,
+  totalGold: number,
+  ingestedAt: string,
+  forkLoadable: boolean,
+): void {
+  upsertLibraryTeam(LIBRARY_DIR, roster.coach, {
+    teamId,
+    teamName: roster.teamName,
+    race: roster.rosterName,
+    coach: roster.coach,
+    teamValue: Math.round(totalGold / 1000),
+    gold: 0, // a freshly built team has no treasury
+    rerolls: roster.sideline.reRolls,
+    fanFactor: roster.sideline.dedicatedFans,
+    apothecary: roster.sideline.apothecary,
+    forkLoadable,
+    ingestedAt,
+  });
 }
 
 interface TeamBuilderBody {
@@ -737,7 +776,9 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
         const coachTag = composed.roster.coach.replace(/[^\w.-]+/g, "_") || "coach";
         const file = join(cfg.teamsDir, `team_${coachTag}_${composed.teamId}.xml`);
         writeFileSync(file, composed.xml, "utf8");
+        const ingestedAt = new Date().toISOString(); // before the reload — see registerBuiltTeam
         const reload = await reloadFork(cfg, FORK_STATE_DIR);
+        registerBuiltTeam(composed.roster, composed.teamId, composed.roster.summary!.total, ingestedAt, reload.reloaded);
         return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: composed.roster.summary, intrinsic: true });
       }
       const composed = composeFromBody(cfg.teamsDir, body);
@@ -749,7 +790,11 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
       const coachTag = composed.roster.coach.replace(/[^\w.-]+/g, "_") || "coach";
       const file = join(cfg.teamsDir, `team_${coachTag}_${composed.teamId}.xml`);
       writeFileSync(file, composed.xml, "utf8");
+      const ingestedAt = new Date().toISOString(); // before the reload — see registerBuiltTeam
       const reload = await reloadFork(cfg, FORK_STATE_DIR);
+      // goldUsed = the validator's RECOMPUTED total (validate() ran on this path — prefer it over the
+      // composer's own figure). The SL branch uses the composed summary, its strongest available number.
+      registerBuiltTeam(composed.roster, composed.teamId, result.recomputedSummary.goldUsed, ingestedAt, reload.reloaded);
       return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: result.recomputedSummary });
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
