@@ -30,8 +30,15 @@ const BUILD_COLOR: Record<string, number> = { test: 0xe0a020, rc: 0x3a7bd5, rele
  */
 const TESTER_ROLE_ID = process.env.FORK_TESTER_ROLE_ID || "1522793395750310028";
 
-/** Discord non-Nitro upload limit (25 MiB), with headroom for the embed. */
-const MAX_ATTACH_BYTES = 24 * 1024 * 1024;
+/**
+ * Attachment size ceiling. The announce guild (TABBL) is Boost tier 2 ⇒ a real 50 MiB upload
+ * limit, so 24 MiB was ~26 MiB too conservative and SILENTLY dropped v0.3.1 (25.4 MiB) — the
+ * embed posted with no installer. Raised to 45 MiB (headroom under the 50 MiB tier-2 cap for the
+ * embed + multipart overhead). NB: if the guild ever drops below tier 2 this must come down, and
+ * `installerAttachment` returning undefined here should FAIL LOUD, not ship a payload-less post
+ * (spec'd follow-up: a green announce that attaches nothing must be impossible).
+ */
+const MAX_ATTACH_BYTES = 45 * 1024 * 1024;
 
 export function renderBuildEmbed(m: BuildManifest): EmbedBuilder {
   const e = new EmbedBuilder()
