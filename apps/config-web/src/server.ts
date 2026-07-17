@@ -14,11 +14,14 @@ import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   composeTeam,
+  composeTeamIntrinsic,
   loadPackage,
   renderArtPrompt,
   renderPackageHtml,
   rosterOptions,
+  rosterOptionsIntrinsic,
   validate,
+  type ComposeIntrinsicResult,
   type TeamPick,
   type TournamentPackage,
 } from "@bb/validator";
@@ -190,6 +193,33 @@ function loadBaseForkRosters(teamsDir: string): Map<string, string> {
   return out;
 }
 
+/** A Secret League rosterId is the numeric fork team-id fallback (`1064979`); base BB2025 rosters
+ *  carry a slug id (`snotling.bb2025`). This is the discriminator between the dataset path and the
+ *  roster-intrinsic path (#52 A). */
+const isSlRosterId = (id: string): boolean => /^\d+$/.test(id);
+
+/** Secret League / imported rosters the bb2025 dataset can't resolve (numeric rosterId), keyed by
+ *  rosterId. Parsed roster-intrinsically (stats/cost/caps from the XML itself) — the parallel of
+ *  {@link loadBaseForkRosters} for off-dataset races (#52 A). */
+function loadSecretLeagueForkRosters(teamsDir: string): Map<string, string> {
+  const dir = join(dirname(teamsDir), "rosters");
+  const out = new Map<string, string>();
+  if (!existsSync(dir)) return out;
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith(".xml")) continue;
+    try {
+      const xml = readFileSync(join(dir, f), "utf8");
+      const opts = rosterOptionsIntrinsic(xml);
+      if (opts.rosterId && isSlRosterId(opts.rosterId) && opts.positions.length > 0 && !out.has(opts.rosterId)) {
+        out.set(opts.rosterId, xml);
+      }
+    } catch {
+      /* skip unreadable / non-roster xml */
+    }
+  }
+  return out;
+}
+
 interface TeamBuilderBody {
   rosterId?: string;
   coach?: string;
@@ -200,8 +230,35 @@ interface TeamBuilderBody {
   cheerleaders?: number;
   assistantCoaches?: number;
   dedicatedFans?: number;
+  /** Secret League path only: the TO-configured TV budget cap in gold (the fixed 1000k baseline
+   *  can't fit SL TVs). Omitted ⇒ no budget check (the TO gates the cap out-of-band). */
+  budget?: number;
   /** V2 coach-auth on the build path — the caller's fork-join password (not used by compose). */
   password?: string;
+}
+
+/** Resolve a Secret League builder request to a composed team + roster-intrinsic legality (#52 A).
+ *  Legality is enforced by the composer (off-dataset ⇒ dataset `validate()` can't run) — the caller
+ *  checks `.legal`/`.issues`, never the dataset validator. */
+function composeIntrinsicFromBody(teamsDir: string, body: TeamBuilderBody): ComposeIntrinsicResult {
+  if (!body.rosterId) throw new Error("rosterId is required.");
+  if (!body.coach?.trim()) throw new Error("coach is required.");
+  if (!body.teamName?.trim()) throw new Error("teamName is required.");
+  if (!Array.isArray(body.picks) || body.picks.length === 0) throw new Error("At least one player pick is required.");
+  const xml = loadSecretLeagueForkRosters(teamsDir).get(body.rosterId);
+  if (!xml) throw new Error(`Unknown Secret League rosterId "${body.rosterId}".`);
+  return composeTeamIntrinsic({
+    forkRosterXml: xml,
+    coach: body.coach.trim(),
+    teamName: body.teamName.trim(),
+    picks: body.picks,
+    reRolls: body.reRolls ?? 0,
+    apothecary: body.apothecary === true,
+    cheerleaders: body.cheerleaders,
+    assistantCoaches: body.assistantCoaches,
+    dedicatedFans: body.dedicatedFans,
+    budget: body.budget,
+  });
 }
 
 /** Resolve a builder request to a composed team (throws with a client-safe message on bad input). */
@@ -603,7 +660,13 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
     const rosters = [...loadBaseForkRosters(cfg.teamsDir).values()]
       .map((xml) => rosterOptions(xml, bb2025))
       .sort((a, b) => a.raceName.localeCompare(b.raceName));
-    return sendJson(res, 200, { rosters, goldBudget: 1_000_000 });
+    // Secret League / imported rosters the bb2025 dataset can't resolve (#52 A): parsed
+    // roster-intrinsically. Budget is TO-configurable per roster (not the fixed 1000k), so the
+    // client supplies `budget` on preview/build for these.
+    const slRosters = [...loadSecretLeagueForkRosters(cfg.teamsDir).values()]
+      .map((xml) => rosterOptionsIntrinsic(xml))
+      .sort((a, b) => a.raceName.localeCompare(b.raceName));
+    return sendJson(res, 200, { rosters, slRosters, goldBudget: 1_000_000, slBudgetConfigurable: true });
   }
 
   // Preview: compose + validate, no write. Returns legality findings + the recomputed summary.
@@ -612,7 +675,20 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
     const cfg = forkConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
     try {
-      const composed = composeFromBody(cfg.teamsDir, (await readBody(req)) as TeamBuilderBody);
+      const body = (await readBody(req)) as TeamBuilderBody;
+      // Secret League path (#52 A): off-dataset roster → compose + validate roster-intrinsically.
+      if (body.rosterId && isSlRosterId(body.rosterId)) {
+        const composed = composeIntrinsicFromBody(cfg.teamsDir, body);
+        return sendJson(res, 200, {
+          valid: composed.legal,
+          errors: composed.issues.map((i) => i.message),
+          warnings: [],
+          summary: composed.roster.summary,
+          players: composed.roster.players.length,
+          intrinsic: true,
+        });
+      }
+      const composed = composeFromBody(cfg.teamsDir, body);
       const result = validate(composed.roster, TEAM_BUILDER_BASELINE, bb2025);
       return sendJson(res, 200, {
         valid: result.valid,
@@ -646,6 +722,24 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
       // just verified body.password for body.coach — so a coach can only build under their own name.
     }
     try {
+      // Secret League path (#52 A): off-dataset → compose + enforce roster-intrinsic legality here
+      // (the dataset `validate()` can't run for a race the dataset doesn't carry). Same write+reload.
+      if (body.rosterId && isSlRosterId(body.rosterId)) {
+        const composed = composeIntrinsicFromBody(cfg.teamsDir, body);
+        if (!composed.legal) {
+          return sendJson(res, 400, {
+            error: "Team is not legal — fix the findings and rebuild.",
+            errors: composed.issues.map((i) => i.message),
+            summary: composed.roster.summary,
+          });
+        }
+        mkdirSync(cfg.teamsDir, { recursive: true });
+        const coachTag = composed.roster.coach.replace(/[^\w.-]+/g, "_") || "coach";
+        const file = join(cfg.teamsDir, `team_${coachTag}_${composed.teamId}.xml`);
+        writeFileSync(file, composed.xml, "utf8");
+        const reload = await reloadFork(cfg, FORK_STATE_DIR);
+        return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: composed.roster.summary, intrinsic: true });
+      }
       const composed = composeFromBody(cfg.teamsDir, body);
       const result = validate(composed.roster, TEAM_BUILDER_BASELINE, bb2025);
       if (!result.valid) {
