@@ -138,23 +138,42 @@ const FALLBACK = [
   "Ask me something with a bit of Blood Bowl in it and I'll give you a proper earful.",
 ];
 
-/** Build the grognard's answer to a (mention-stripped) question. Pure + total — never throws. */
-export function grognardReply(question: string): string {
-  const q = (question || "").slice(0, 500);
-  const seed = hash(q.toLowerCase() || "empty");
+// Overheard the channel chatter and picked up the topic there rather than in the question itself.
+const OVERHEARD = [
+  "Couldn't help overhearing you lot — ",
+  "Been earwigging the table, and — ",
+  "You've all been bangin' on about it, so — ",
+  "I hear the shop talk, you know — ",
+];
 
-  if (!q.trim()) {
+/**
+ * Build the grognard's answer. Pure + total — never throws.
+ * `context` is recent channel chatter (last few messages); when the QUESTION has no topic
+ * of its own, the grognard picks up on whatever the channel's been discussing instead.
+ */
+export function grognardReply(question: string, context = ""): string {
+  const q = (question || "").slice(0, 500);
+  const ctx = (context || "").slice(0, 1500);
+  const seed = hash((q + "|" + ctx).toLowerCase() || "empty");
+
+  // Topic priority: what they ASKED wins; otherwise fall back to what the channel's been ON about.
+  const qTopic = q.trim() ? TOPICS.find((t) => t.test.test(q)) : undefined;
+  const ctxTopic = qTopic ? undefined : TOPICS.find((t) => t.test.test(ctx));
+  const topic = qTopic ?? ctxTopic;
+
+  if (!q.trim() && !topic) {
     return `${pick(OPENERS, seed)}Well? Spit it out. I haven't got all edition. ${pick(FUN, seed >> 3)}`;
   }
 
-  const topic = TOPICS.find((t) => t.test.test(q));
   const body = topic ? pick(topic.lines, seed >> 2) : pick(FALLBACK, seed >> 2);
+  // If the topic came from the channel (not the question), tip the hat to it.
+  const overheard = ctxTopic ? pick(OVERHEARD, seed >> 4) : "";
 
   // Weave in a bit of Jarvis-worship or fun-preaching about two times out of three.
   const flavourRoll = seed % 3;
   const flavour = flavourRoll === 0 ? "" : flavourRoll === 1 ? ` ${pick(JARVIS, seed >> 5)}` : ` ${pick(FUN, seed >> 5)}`;
 
-  return `${pick(OPENERS, seed >> 1)}${body}${flavour}`.slice(0, 1900);
+  return `${pick(OPENERS, seed >> 1)}${overheard}${body}${flavour}`.slice(0, 1900);
 }
 
 /**
@@ -167,9 +186,24 @@ export async function handleGrognardMention(message: Message, botUserId: string 
   if (message.mentions.everyone) return false; // don't get baited by @everyone
   if (!message.mentions.users.has(botUserId)) return false;
 
-  const question = message.content.replace(/<@!?\d+>/g, " ").replace(/\s+/g, " ").trim();
+  const strip = (s: string): string => s.replace(/<@!?\d+>/g, " ").replace(/\s+/g, " ").trim();
+  const question = strip(message.content);
+
+  // Context awareness: read the last handful of messages so the grognard can pick up on
+  // whatever the channel's been chewing over. Best-effort — a fetch failure just means no context.
+  let context = "";
   try {
-    await message.reply(grognardReply(question));
+    const recent = await message.channel.messages.fetch({ limit: 8, before: message.id });
+    context = recent
+      .map((m) => (m.author.bot ? "" : strip(m.content)))
+      .filter((t) => t.length > 0)
+      .join(" ");
+  } catch {
+    /* no history access → answer from the question alone */
+  }
+
+  try {
+    await message.reply(grognardReply(question, context));
   } catch {
     /* a failed reply is not worth crashing the listener over */
   }
