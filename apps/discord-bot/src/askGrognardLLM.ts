@@ -25,6 +25,9 @@ import { fileURLToPath } from "url";
 import { loadRulesCorpus, looksLikeRulesQuestion } from "./rules";
 
 const MODEL = process.env.GROGNARD_MODEL || "claude-haiku-4-5";
+// The rules-intent classifier is always a cheap binary yes/no, independent of the reply model —
+// so a bumped GROGNARD_MODEL (e.g. Opus) never makes intent-detection expensive.
+const CLASSIFIER_MODEL = "claude-haiku-4-5";
 
 // Notebook lives in the bot's data-store (resolved relative to this file, so it's cwd-independent).
 const MEMORY_PATH = fileURLToPath(new URL("../data-store/grognard-memory.md", import.meta.url));
@@ -129,6 +132,38 @@ async function curateMemory(question: string, context: string, reply: string): P
 }
 
 /**
+ * Second tier of rules-intent detection: when the cheap regex (looksLikeRulesQuestion) DOESN'T
+ * fire, ask a tiny Haiku classifier whether this is really a rules question phrased casually
+ * ("so if my guy trips going into a tackle zone, does he still get the block?"). Best-effort and
+ * cheap (a one-word yes/no); on any error we treat it as banter. This is the "understand it even
+ * when they don't say 'rules'" half of the fork.
+ */
+async function classifyRulesIntent(question: string, context: string): Promise<boolean> {
+  const c = getClient();
+  if (!c) return false;
+  try {
+    const resp = await c.messages.create(
+      {
+        model: CLASSIFIER_MODEL,
+        max_tokens: 3,
+        system:
+          "You label a chat message for a Blood Bowl bot. Is the message asking a BLOOD BOWL RULES question — how the game works, what's allowed/legal, how a skill/action/dice roll resolves, or what happens in a specific in-game situation — as opposed to banter, opinions, greetings, or general team chit-chat? A genuine rules question need NOT contain the word 'rule'. Answer with exactly one word: YES or NO.",
+        messages: [
+          {
+            role: "user",
+            content: `${context ? `Recent context:\n${context.slice(0, 500)}\n\n` : ""}Message:\n${question.slice(0, 400)}`,
+          },
+        ],
+      },
+      { timeout: 8000 },
+    );
+    return /\byes\b/i.test(textOf(resp));
+  } catch {
+    return false; // best-effort — a failed classifier just means we answer as banter
+  }
+}
+
+/**
  * Ask Claude to voice the grognard. Returns the reply text, or null on any problem
  * (no key, timeout, API error, empty output) so the caller can fall back to the canned bank.
  * Draws on the shop notebook for flavour, and (on success) curates a new note in the background.
@@ -141,12 +176,19 @@ export async function grognardReplyLLM(question: string, context = ""): Promise<
   const ctx = (context || "").slice(0, 1500).trim();
   const memory = await loadMemory();
 
-  // Rules path: if it reads like a rules question and the local mirror is present, attach the
+  // Rules path (forked intent detection): does this need the rulebook? Tier 1 is the cheap regex
+  // (looksLikeRulesQuestion) — an instant yes on explicitly rules-shaped phrasing. Tier 2, only
+  // when the regex misses (and a rulebook exists to make it worth a call), asks a tiny Haiku
+  // classifier so casually-phrased rules questions still get grounded. Either tier → attach the
   // BB2025 rulebook as a FROZEN, prompt-CACHED system block so he answers for real. Persona +
   // rulebook are byte-stable across every rules query → the cache_control breakpoint lets the
   // first query write the cache and the rest read it at ~0.1x. Volatile bits (notebook, recent
   // chatter, the question) live in the user turn, AFTER the cached prefix, so they never bust it.
-  const corpus = looksLikeRulesQuestion(q) ? loadRulesCorpus() : null;
+  let isRules = looksLikeRulesQuestion(q);
+  if (!isRules && q.length > 8 && loadRulesCorpus()) {
+    isRules = await classifyRulesIntent(q, ctx);
+  }
+  const corpus = isRules ? loadRulesCorpus() : null;
   const system: string | Anthropic.TextBlockParam[] = corpus
     ? [
         { type: "text", text: SYSTEM + RULES_ADDENDUM },
