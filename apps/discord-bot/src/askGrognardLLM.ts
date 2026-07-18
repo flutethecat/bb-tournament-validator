@@ -5,13 +5,13 @@
  * returns nothing, `grognardReplyLLM` returns null and the caller falls back to the
  * guaranteed canned engine. The gimmick keeps working with or without a key.
  *
- * Model: defaults to claude-opus-4-8; override with GROGNARD_MODEL (e.g.
- * claude-haiku-4-5 to trim cost on a chatty channel).
+ * Model: defaults to claude-haiku-4-5 (cheap — this fires on every @mention of a gimmick
+ * bot, and quality genuinely doesn't matter here); override with GROGNARD_MODEL to bump it.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
 
-const MODEL = process.env.GROGNARD_MODEL || "claude-opus-4-8";
+const MODEL = process.env.GROGNARD_MODEL || "claude-haiku-4-5";
 
 const SYSTEM = `You are "BB-Bot", but you answer in the voice of a grizzled old grognard who runs the counter at a friendly local game store and has played Blood Bowl since the very first edition.
 
