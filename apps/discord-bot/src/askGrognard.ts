@@ -189,7 +189,10 @@ export async function handleGrognardMention(message: Message, botUserId: string 
   if (!botUserId) return false;
   if (message.author.bot || !message.inGuild()) return false;
   if (message.mentions.everyone) return false; // don't get baited by @everyone
-  if (!message.mentions.users.has(botUserId)) return false;
+  // Require a DIRECT, typed @mention in the content. `ignoreRepliedUser: true` drops the implicit
+  // ping Discord adds when someone merely REPLIES to one of the bot's messages — those shouldn't
+  // summon the grognard. A real `@BB-Bot` in the message body still matches (reply or not).
+  if (!message.mentions.has(botUserId, { ignoreRepliedUser: true })) return false;
 
   const strip = (s: string): string => s.replace(/<@!?\d+>/g, " ").replace(/\s+/g, " ").trim();
   const question = strip(message.content);
