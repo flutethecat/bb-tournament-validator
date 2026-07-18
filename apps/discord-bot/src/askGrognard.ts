@@ -3,13 +3,18 @@
  * old FLGS grognard who's played Blood Bowl since First Edition, worships Jarvis Johnson,
  * and will tell you — at length — that the game is meant to be played FOR FUN.
  *
- * Deliberately dependency-free: no LLM, no API key, no network. Topic keywords in the
- * question steer which persona bank we draw from; a hash of the message keeps repeats
- * varied without being random-per-render. It doesn't have to be smart — it has to be
- * grumpy, and it has to work.
+ * The engine below (`grognardReply`) is deliberately dependency-free: no LLM, no API key,
+ * no network. Topic keywords steer which persona bank we draw from; a hash of the message
+ * keeps repeats varied without being random-per-render. It doesn't have to be smart — it
+ * has to be grumpy, and it has to work.
+ *
+ * An OPTIONAL LLM voice sits in front of it (askGrognardLLM.ts): when ANTHROPIC_API_KEY is
+ * set, `handleGrognardMention` lets Claude answer in character, and falls back to this
+ * canned engine whenever the LLM is unavailable or errors. No key ⇒ pure canned, always works.
  */
 
 import type { Message } from "discord.js";
+import { grognardReplyLLM } from "./askGrognardLLM";
 
 // ─── deterministic-but-varied pick (hash the text so the same question is stable-ish) ───
 function hash(s: string): number {
@@ -202,8 +207,10 @@ export async function handleGrognardMention(message: Message, botUserId: string 
     /* no history access → answer from the question alone */
   }
 
+  // LLM voice first (if a key is configured); canned engine is the guaranteed fallback.
+  const reply = (await grognardReplyLLM(question, context)) ?? grognardReply(question, context);
   try {
-    await message.reply(grognardReply(question, context));
+    await message.reply(reply);
   } catch {
     /* a failed reply is not worth crashing the listener over */
   }
