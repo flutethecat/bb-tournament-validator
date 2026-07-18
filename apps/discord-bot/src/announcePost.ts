@@ -34,9 +34,10 @@ const TESTER_ROLE_ID = process.env.FORK_TESTER_ROLE_ID || "1522793395750310028";
  * Attachment size ceiling. The announce guild (TABBL) is Boost tier 2 ⇒ a real 50 MiB upload
  * limit, so 24 MiB was ~26 MiB too conservative and SILENTLY dropped v0.3.1 (25.4 MiB) — the
  * embed posted with no installer. Raised to 45 MiB (headroom under the 50 MiB tier-2 cap for the
- * embed + multipart overhead). NB: if the guild ever drops below tier 2 this must come down, and
- * `installerAttachment` returning undefined here should FAIL LOUD, not ship a payload-less post
- * (spec'd follow-up: a green announce that attaches nothing must be impossible).
+ * embed + multipart overhead). NB: if the guild ever drops below tier 2 this must come down.
+ * When an installer is EXPECTED but can't be attached, the announce now FAILS LOUD instead of
+ * shipping a payload-less post — enforced by `installerFailLoud` below (the 0.3.1 silent-drop
+ * that this raised ceiling patched over; a green announce that attaches nothing is now impossible).
  */
 const MAX_ATTACH_BYTES = 45 * 1024 * 1024;
 
@@ -80,6 +81,45 @@ export function installerAttachment(m: BuildManifest): AttachmentBuilder | undef
 }
 
 /**
+ * If the manifest CLAIMS an installer is present but it can't actually be attached, return the
+ * concrete reason (for the fail-loud guard). Returns undefined when the manifest claims no
+ * installer, or when the claimed installer can be attached fine.
+ */
+function installerAttachBlocker(m: BuildManifest): string | undefined {
+  if (!m.installer.present) return undefined; // manifest claims none → nothing to fail on here
+  const p = m.installer.absPath;
+  if (!p || !existsSync(p)) return `installer not found on this box (${m.installer.file})`;
+  try {
+    const size = statSync(p).size;
+    if (size > MAX_ATTACH_BYTES) {
+      return `installer ${fmtBytes(size)} exceeds the ${fmtBytes(MAX_ATTACH_BYTES)} attach ceiling`;
+    }
+  } catch {
+    return `installer unreadable (${m.installer.file})`;
+  }
+  return undefined;
+}
+
+/**
+ * FAIL-LOUD guard. Returns a refusal string when this build must NOT be announced because an
+ * installer is EXPECTED but won't reach the post — else null (safe to announce). Pure + testable.
+ * Two ways an installer is "expected": (a) the manifest says installer.present but it can't be
+ * attached (missing/too-big/unreadable — the exact 0.3.1 silent-drop), or (b) it's a `release`
+ * channel cut, whose whole purpose is to deliver the installer, yet the manifest reports none.
+ * A `test`/`rc` build with a legitimately-absent installer is still allowed (embed flags ⚠ missing).
+ */
+export function installerFailLoud(m: BuildManifest): string | null {
+  const blocker = installerAttachBlocker(m);
+  if (blocker) {
+    return `⛔ REFUSED (fail-loud): v${m.version} (${m.channel}) would announce with NO installer — ${blocker}. Nothing posted, de-dupe untouched. Fix the installer/manifest and re-emit.`;
+  }
+  if (m.channel === "release" && !m.installer.present) {
+    return `⛔ REFUSED (fail-loud): a release announce must ship its installer, but the manifest reports installer.present=false (${m.installer.file}). Nothing posted, de-dupe untouched.`;
+  }
+  return null;
+}
+
+/**
  * Post the current manifest to `channelId`. `force` bypasses the version+gitSha
  * de-dupe. Returns a human status string (no throw on the expected no-op cases).
  */
@@ -101,6 +141,10 @@ export async function announceLatestBuild(
   const devMarker = devBuildMarker(m);
   if (devMarker)
     return `⛔ REFUSED: manifest/installer looks unpublishable (\`${devMarker}\`) — the release must be the BARE \`FUMBBL40k_x.y.z\` (no letter, no \`o66\`, no "Super FUMBBL") built from a gate-passed tag. This often means the manifest points at a stale dev/o66 installer in the nsis dir. Rebuild the bare release, confirm the manifest installer file, then re-emit. Not announced, de-dupe untouched.`;
+  // FAIL LOUD before any post: an expected-but-unattachable installer must never ship a ✅ embed
+  // with no download (the 0.3.1 silent drop). Refuses regardless of `force`; de-dupe untouched.
+  const failLoud = installerFailLoud(m);
+  if (failLoud) return failLoud;
   if (!force && !state.isNew(m)) return `v${m.version} (${m.gitSha}) is already announced.`;
   const ch = await client.channels.fetch(channelId);
   if (!ch?.isTextBased()) return `<#${channelId}> is not a text channel.`;
