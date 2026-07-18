@@ -210,7 +210,11 @@ export async function handleGrognardMention(message: Message, botUserId: string 
   // LLM voice first (if a key is configured); canned engine is the guaranteed fallback.
   const reply = (await grognardReplyLLM(question, context)) ?? grognardReply(question, context);
   try {
-    await message.reply(reply);
+    // SECURITY: the LLM reply is model-generated text, so a prompt-injected grognard could
+    // emit @everyone/@here/a role ping. `parse: []` makes Discord treat ALL mentions as inert
+    // text — nothing is ever pinged from a grognard reply. (Belt-and-braces for the canned
+    // bank too; the announce path keeps its own allowedMentions and is unaffected.)
+    await message.reply({ content: reply, allowedMentions: { parse: [] } });
   } catch {
     /* a failed reply is not worth crashing the listener over */
   }
