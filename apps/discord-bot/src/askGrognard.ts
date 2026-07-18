@@ -198,7 +198,7 @@ export async function handleGrognardMention(message: Message, botUserId: string 
   // whatever the channel's been chewing over. Best-effort — a fetch failure just means no context.
   let context = "";
   try {
-    const recent = await message.channel.messages.fetch({ limit: 8, before: message.id });
+    const recent = await message.channel.messages.fetch({ limit: 10, before: message.id });
     context = recent
       .map((m) => (m.author.bot ? "" : strip(m.content)))
       .filter((t) => t.length > 0)
