@@ -211,10 +211,12 @@ export async function handleGrognardMention(message: Message, botUserId: string 
   const reply = (await grognardReplyLLM(question, context)) ?? grognardReply(question, context);
   try {
     // SECURITY: the LLM reply is model-generated text, so a prompt-injected grognard could
-    // emit @everyone/@here/a role ping. `parse: []` makes Discord treat ALL mentions as inert
-    // text — nothing is ever pinged from a grognard reply. (Belt-and-braces for the canned
-    // bank too; the announce path keeps its own allowedMentions and is unaffected.)
-    await message.reply({ content: reply, allowedMentions: { parse: [] } });
+    // emit @everyone/@here/a role/user ping. `parse: []` makes Discord treat ALL mentions in
+    // the CONTENT as inert text. `repliedUser: true` still notifies the person we're replying
+    // to — that ping is structural (the message author), not injectable, so it's safe and it
+    // keeps the "you got an answer" UX. (Belt-and-braces for the canned bank too; the announce
+    // path keeps its own allowedMentions and is unaffected.)
+    await message.reply({ content: reply, allowedMentions: { parse: [], repliedUser: true } });
   } catch {
     /* a failed reply is not worth crashing the listener over */
   }
