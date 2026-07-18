@@ -31,6 +31,7 @@ import {
 } from "discord.js";
 import { ingestPackageDocument } from "@bb/ingest";
 import { renderArtPrompt, renderPackageHtml, type Roster, type ValidationResult } from "@bb/validator";
+import { handleGrognardMention } from "./askGrognard";
 import { PackageStore } from "./packageStore";
 import { renderProblemsEmbed, renderResultEmbed, validateFumbblTeam, validateRosterBytes, type EmbedData } from "./pipeline";
 import { CsvValidatedStore, type ValidatedEntry } from "./store/validatedStore";
@@ -891,7 +892,11 @@ const client = new Client({
 });
 
 client.on("messageCreate", (message) => {
-  void handleWatchedMessage(message).catch((e) => console.error("messageCreate error:", e));
+  // "Ask BB-Bot" (gimmick): a direct @-mention gets a grognard answer and short-circuits;
+  // otherwise fall through to the tournament PDF watcher.
+  void handleGrognardMention(message, client.user?.id)
+    .then((handled) => (handled ? undefined : handleWatchedMessage(message)))
+    .catch((e) => console.error("messageCreate error:", e));
 });
 
 client.on("interactionCreate", async (interaction) => {
