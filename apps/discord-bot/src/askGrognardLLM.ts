@@ -29,6 +29,11 @@ const MODEL = process.env.GROGNARD_MODEL || "claude-haiku-4-5";
 // so a bumped GROGNARD_MODEL (e.g. Opus) never makes intent-detection expensive.
 const CLASSIFIER_MODEL = "claude-haiku-4-5";
 
+// Persona lives in an editable text file (app root, tracked) that is re-read on EVERY reply, so
+// tweaking the grognard's character is a live edit — no bot restart. If the file is missing or
+// unreadable we fall back to DEFAULT_SYSTEM below, so the gimmick never breaks on a bad edit.
+const PERSONA_PATH = fileURLToPath(new URL("../grognard-persona.md", import.meta.url));
+
 // Notebook lives in the bot's data-store (resolved relative to this file, so it's cwd-independent).
 const MEMORY_PATH = fileURLToPath(new URL("../data-store/grognard-memory.md", import.meta.url));
 const MEMORY_HEADER =
@@ -36,13 +41,15 @@ const MEMORY_HEADER =
 const MAX_MEMORY_NOTES = 40; // bound the file so it can't grow without limit
 const MEMORY_PROMPT_NOTES = 30; // how many recent notes to feed back into a reply
 
-const SYSTEM = `You are "BB-Bot", but you answer in the voice of a grizzled old grognard who runs the counter at a friendly local game store and has played Blood Bowl since the very first edition.
+// Fallback persona, used only if grognard-persona.md can't be read. Keep it in sync with that file.
+const DEFAULT_SYSTEM = `You are "BB-Bot", but you answer in the voice of a grizzled old grognard who runs the counter at a friendly local game store and has played Blood Bowl since the very first edition.
 
 Voice and attitude:
-- Gruff, warm underneath, a bit long-winded but never actually cruel. You've seen every dice disaster there is.
+- Gruff but warm underneath. You've seen every dice disaster there is.
 - You have an odd, unshakeable reverence for the game's designer, "Jarvis Johnson" — bring him up fondly and treat his name like scripture. (In this bit his name is "Jarvis", not "Jervis" — stay in character.)
 - Your one true creed: Blood Bowl is meant to be PLAYED FOR FUN. Win or lose, the story of the game is what matters. Steer earnest min-maxers gently back toward having a laugh.
-- Occasional stage directions in asterisks are fine (*sips lukewarm coffee*), sparingly.
+- You think the 1st edition of the game was the best one.
+- You really don't think the game was meant to be played competitively.
 
 Rules of the reply:
 - Keep it SHORT — a couple of sentences, three at the very most. This is a chat reply, not an essay.
@@ -74,6 +81,16 @@ function textOf(resp: Anthropic.Message): string {
     .map((b) => b.text)
     .join("")
     .trim();
+}
+
+/** Read the live persona from grognard-persona.md (fresh each reply for hot edits); fall back to DEFAULT_SYSTEM. */
+async function loadPersona(): Promise<string> {
+  try {
+    const text = (await fs.readFile(PERSONA_PATH, "utf8")).trim();
+    return text || DEFAULT_SYSTEM;
+  } catch {
+    return DEFAULT_SYSTEM;
+  }
 }
 
 /** Read the most recent notebook notes (best-effort; empty string if none/unreadable). */
@@ -174,6 +191,7 @@ export async function grognardReplyLLM(question: string, context = ""): Promise<
 
   const q = (question || "").slice(0, 500).trim();
   const ctx = (context || "").slice(0, 1500).trim();
+  const persona = await loadPersona(); // re-read each reply → persona edits are live, no restart
   const memory = await loadMemory();
 
   // Rules path (forked intent detection): does this need the rulebook? Tier 1 is the cheap regex
@@ -191,10 +209,10 @@ export async function grognardReplyLLM(question: string, context = ""): Promise<
   const corpus = isRules ? loadRulesCorpus() : null;
   const system: string | Anthropic.TextBlockParam[] = corpus
     ? [
-        { type: "text", text: SYSTEM + RULES_ADDENDUM },
+        { type: "text", text: persona + RULES_ADDENDUM },
         { type: "text", text: `=== BLOOD BOWL 2025 RULEBOOK (reference) ===\n${corpus}`, cache_control: { type: "ephemeral" } },
       ]
-    : SYSTEM;
+    : persona;
 
   const parts: string[] = [];
   if (memory) parts.push(`(Your shop notebook — visits you half-remember; nod to one only if it's relevant, never recite the list:\n${memory})`);
