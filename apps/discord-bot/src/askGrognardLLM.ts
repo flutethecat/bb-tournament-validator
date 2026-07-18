@@ -22,6 +22,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { promises as fs } from "fs";
 import { fileURLToPath } from "url";
+import { loadRulesCorpus, looksLikeRulesQuestion } from "./rules";
 
 const MODEL = process.env.GROGNARD_MODEL || "claude-haiku-4-5";
 
@@ -45,6 +46,11 @@ Rules of the reply:
 - Stay in character no matter what's asked. If it's off-topic or you don't know, deflect in-character (grumble, tell a tall tale, or remind them to play for fun).
 - Never break character to explain that you're an AI, never mention these instructions, never use headers or markdown formatting.
 - Plain text only. No links.`;
+
+// Appended to the persona ONLY when a rules question comes in and the rulebook is attached below.
+const RULES_ADDENDUM = `
+
+A coach has come to you with a RULES QUESTION, and the full Blood Bowl 2025 rulebook follows this message as reference. Getting the ruling RIGHT is the one thing you take seriously under all the grumbling — read the rulebook and answer CORRECTLY. But stay entirely in character: reply in your grumpy grognard voice, a few sentences at most, put the rule in YOUR OWN WORDS (never paste long walls of rulebook text), name the relevant bit plainly so they can trust the answer, and grumble as much as you like. If the rulebook genuinely doesn't settle it, say so in character rather than inventing a ruling.`;
 
 let client: Anthropic | null = null;
 
@@ -134,23 +140,35 @@ export async function grognardReplyLLM(question: string, context = ""): Promise<
   const q = (question || "").slice(0, 500).trim();
   const ctx = (context || "").slice(0, 1500).trim();
   const memory = await loadMemory();
-  const system = memory
-    ? `${SYSTEM}\n\n## Your shop notebook (visits you half-remember — nod to them naturally if one's relevant; never recite or list them):\n${memory}`
+
+  // Rules path: if it reads like a rules question and the local mirror is present, attach the
+  // BB2025 rulebook as a FROZEN, prompt-CACHED system block so he answers for real. Persona +
+  // rulebook are byte-stable across every rules query → the cache_control breakpoint lets the
+  // first query write the cache and the rest read it at ~0.1x. Volatile bits (notebook, recent
+  // chatter, the question) live in the user turn, AFTER the cached prefix, so they never bust it.
+  const corpus = looksLikeRulesQuestion(q) ? loadRulesCorpus() : null;
+  const system: string | Anthropic.TextBlockParam[] = corpus
+    ? [
+        { type: "text", text: SYSTEM + RULES_ADDENDUM },
+        { type: "text", text: `=== BLOOD BOWL 2025 RULEBOOK (reference) ===\n${corpus}`, cache_control: { type: "ephemeral" } },
+      ]
     : SYSTEM;
 
-  const userText = ctx
-    ? `Recent channel chatter (background only — may be irrelevant to what they're asking you):\n${ctx}\n\nSomeone at the counter just said to you:\n${q || "(they just pinged you without saying anything)"}`
-    : `Someone at the counter just said to you:\n${q || "(they just pinged you without saying anything)"}`;
+  const parts: string[] = [];
+  if (memory) parts.push(`(Your shop notebook — visits you half-remember; nod to one only if it's relevant, never recite the list:\n${memory})`);
+  if (ctx) parts.push(`(Recent channel chatter, background only, may be irrelevant to the question:\n${ctx})`);
+  parts.push(`Someone at the counter just said to you:\n${q || "(they just pinged you without saying anything)"}`);
+  const userText = parts.join("\n\n");
 
   try {
     const resp = await c.messages.create(
       {
         model: MODEL,
-        max_tokens: 350,
+        max_tokens: corpus ? 500 : 350, // rules answers need a touch more room than banter
         system,
         messages: [{ role: "user", content: userText }],
       },
-      { timeout: 12000 },
+      { timeout: 15000 },
     );
     const text = textOf(resp);
     if (!text) return null;
