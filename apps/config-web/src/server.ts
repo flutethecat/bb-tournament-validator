@@ -57,6 +57,7 @@ import {
 import { PackageFiles, readCoachRegistry, readCoaches, skillCatalog, starList, teamList } from "./data";
 import { PRESETS } from "./presets";
 import { attachSuper } from "./super/index.js";
+import { createSiteBackend } from "./site-backend/index.js";
 
 /**
  * Endpoints reachable without ADMIN_PASSWORD even when it's set, AND always sent
@@ -942,10 +943,19 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
   sendJson(res, 404, { error: "Unknown endpoint." });
 }
 
+// Dialect-1 `xml:` site-backend (spec-team-portal §3). Flag-gated (SITE_BACKEND_ENABLED) + additive:
+// undefined unless the flag is set AND fork teams-dir + DB are configured, in which case it claims only
+// the NEW `/xml:*` + fumbbl-client `/api/{clientoptions,name}` paths. Nothing config-web serves today
+// hits those, so an un-flagged deploy is byte-behaviour-identical (strand-proof).
+const siteBackend = createSiteBackend();
+
 const server = createServer((req, res) => {
   void (async () => {
     try {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+      // The fork calls these machine-to-machine (a Java HTTP client, no Basic-auth) — dispatch BEFORE
+      // authorized() so an ADMIN_PASSWORD'd host doesn't 401 the fork. Returns false for non-xml paths.
+      if (siteBackend && (await siteBackend.handle(req, res, url.pathname, url.searchParams))) return;
       // Set CORS before any handler writes a response, so it's on EVERY response for
       // these routes — success or error (a browser can't read either without it). The
       // Team Builder V2 POST routes carry a JSON body (+ optional auth header), so a

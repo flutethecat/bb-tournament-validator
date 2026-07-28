@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import mysql from "mysql2/promise";
 import { xmlEscape, safe } from "./util.js";
+import { adminResponse } from "./forkAdmin.js";
 
 // Team fetching / library / matchmaking / fork-reload / admin API live in submodules;
 // re-exported here so consumers keep importing everything from "@bb/fork-ops".
@@ -203,6 +204,36 @@ export async function verifyCoachChallenge(
  *  {@link verifyCoachChallenge} so the security-sensitive compare is unit-testable without a DB. */
 export function challengeResponseHex(nonce: string, ts: string, storedMd5Hex: string): string {
   return md5hex(`${nonce}${ts}${storedMd5Hex}`);
+}
+
+/**
+ * Verify a FUMBBL-mode join challenge/response when config-web plays the SITE side of the
+ * fork's connected-mode auth (site-backend `xml:auth?op=response`). The fork's own
+ * `UtilFumbblRequest`/`PasswordChallenge` are the contract: the client hashed the config-web
+ * -issued challenge with `PasswordChallenge.createResponse(challenge, md5(pw))`, and the site
+ * must recompute the same from the coach's stored `ffb_coaches.password` (= md5(pw)) and compare.
+ *
+ * Reuses {@link adminResponse} — the verified term-for-term replica of upstream's
+ * `PasswordChallenge.createResponse` (SR-142 TP-1: reuse the replica, never hand-roll). The
+ * stored digest never leaves this function (same no-leak discipline as {@link verifyCoachChallenge});
+ * returns false — never throws — for an unknown coach or a wrong response, and callers treat both
+ * identically. `challengeHex` is the exact single-use nonce the site-backend issued at op=challenge.
+ */
+export async function verifyForkAuthChallenge(
+  cfg: ForkDbConfig,
+  username: string,
+  challengeHex: string,
+  submittedResponse: string,
+): Promise<boolean> {
+  const name = username.trim();
+  if (!name || !challengeHex || !submittedResponse) return false;
+  const rows = await withConn(cfg, async (conn) => {
+    const [r] = await conn.execute("SELECT password FROM ffb_coaches WHERE name = ?", [name]);
+    return r as Array<{ password: string }>;
+  });
+  if (rows.length === 0) return false;
+  const storedMd5 = rows[0]!.password; // md5(pw) hex — stays here
+  return submittedResponse.trim() === adminResponse(challengeHex, storedMd5);
 }
 
 export async function queryCoaches(cfg: ForkDbConfig, q: string, limit = 10, exclude?: string): Promise<string[]> {
