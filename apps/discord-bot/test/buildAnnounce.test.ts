@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { devBuildMarker, manifestReleaseTag, type BuildManifest } from "../src/buildAnnounce";
+import { existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { AnnounceState, devBuildMarker, manifestReleaseTag, type BuildManifest } from "../src/buildAnnounce";
 
 const mkManifest = (gitSha: string): BuildManifest => ({
   schema: "fumbbl40k.build-manifest/2",
@@ -98,5 +100,37 @@ describe("devBuildMarker (dev-build deploy tripwire)", () => {
       installer: { file: "SuperFUMBBL_0.3.0_x64-setup.exe", bytes: 1, sha256: "a", present: true },
     };
     expect(devBuildMarker(superProduct)).toMatch(/Super-FUMBBL/);
+  });
+});
+
+describe("AnnounceState.isRegression (stale-manifest regression guard, the v0.3.10 near-miss)", () => {
+  let dir: string;
+  const stateAt = (version: string, gitSha: string): AnnounceState => {
+    dir = mkdtempSync(join(tmpdir(), "ann-"));
+    const f = join(dir, "state.json");
+    writeFileSync(f, JSON.stringify({ version, gitSha }));
+    return new AnnounceState(f);
+  };
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("flags a version OLDER than the last announced (the exact 0.3.10-window bug: main manifest 0.3.8 vs ledger 0.3.10)", () => {
+    const s = stateAt("0.3.10", "6f56e41f");
+    expect(s.isRegression({ ...mkManifest("d53e722f"), version: "0.3.8" })).toBe(true);
+    expect(s.isRegression({ ...mkManifest("c0d4a8af"), version: "0.3.9" })).toBe(true);
+  });
+
+  it("does NOT flag the same version, a re-cut at a new sha, or a newer version", () => {
+    const s = stateAt("0.3.10", "6f56e41f");
+    expect(s.isRegression({ ...mkManifest("6f56e41f"), version: "0.3.10" })).toBe(false); // same
+    expect(s.isRegression({ ...mkManifest("abcd1234"), version: "0.3.10" })).toBe(false); // re-cut, isNew handles it
+    expect(s.isRegression({ ...mkManifest("deadbeef"), version: "0.3.11" })).toBe(false); // newer patch
+    expect(s.isRegression({ ...mkManifest("deadbeef"), version: "0.4.0" })).toBe(false); // newer minor
+    expect(s.isRegression({ ...mkManifest("deadbeef"), version: "1.0.0" })).toBe(false); // newer major
+  });
+
+  it("never flags when nothing has been announced yet (empty ledger)", () => {
+    dir = mkdtempSync(join(tmpdir(), "ann-"));
+    const s = new AnnounceState(join(dir, "nope.json"));
+    expect(s.isRegression({ ...mkManifest("x"), version: "0.0.1" })).toBe(false);
   });
 });
