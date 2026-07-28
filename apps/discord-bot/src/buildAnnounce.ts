@@ -142,6 +142,27 @@ export class AnnounceState {
     return d.version !== m.version || d.gitSha !== m.gitSha;
   }
 
+  /**
+   * True when this manifest's version is semver-OLDER than the last announced one — i.e. a STALE
+   * manifest file, not a new cut. `isNew` alone can't tell them apart: a stale-but-tagged manifest
+   * (e.g. the main checkout still reading 0.3.8 after 0.3.10 announced from a worktree) reads as
+   * "new" and would regression-post the moment the hold lifts. That near-miss happened at the
+   * v0.3.10 cut, with only the armed hold in the way — this guard removes the hold's load-bearing
+   * role for that class. Bare x.y.z compare; lettered dev versions never reach the announce path
+   * (devBuildMarker refuses them upstream of this).
+   */
+  isRegression(m: BuildManifest): boolean {
+    const last = this.read().version;
+    if (!last) return false;
+    const parts = (v: string): number[] => v.split(".").map((p) => Number.parseInt(p, 10) || 0);
+    const [a, b] = [parts(m.version), parts(last)];
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const d = (a[i] ?? 0) - (b[i] ?? 0);
+      if (d !== 0) return d < 0;
+    }
+    return false; // equal version, different sha ⇒ not a regression; isNew handles it
+  }
+
   mark(m: BuildManifest): void {
     this.write({ version: m.version, gitSha: m.gitSha });
   }

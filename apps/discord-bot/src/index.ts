@@ -850,6 +850,16 @@ async function pollBuildManifest(): Promise<void> {
     return;
   }
   if (!announceState.isNew(m)) return;
+  if (announceState.isRegression(m)) {
+    // A stale manifest file (older version than last announced), NOT a new cut — e.g. the main
+    // checkout lagging after a worktree-built release. Never auto-announce it; refresh the manifest
+    // or post deliberately with `/bbbot 40k announce` if it's genuinely intended.
+    console.log(
+      `Build manifest v${m.version} (${m.gitSha}) is OLDER than the last announced release — ` +
+        `stale manifest, holding auto-announce.`,
+    );
+    return;
+  }
   const tag = manifestReleaseTag(m);
   if (!tag) {
     // Don't mark state — a later re-emit at the tagged commit still reads as new and posts.
