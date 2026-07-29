@@ -219,6 +219,7 @@ describe("handleXmlRequest (Dialect-1 router)", () => {
       banking: { resultsDir: join(root, "results"), teamsDir },
       verifyAuth: async (_coach, nonce, response) => response === adminResponse(nonce, storedMd5),
       log: () => {},
+      serviceUser: "forkservice",
     };
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -227,6 +228,14 @@ describe("handleXmlRequest (Dialect-1 router)", () => {
     const res = mockRes();
     const handled = await handleXmlRequest(getReq() as never, res as never, path, new URLSearchParams(qs), deps);
     return { handled, res };
+  };
+
+  /** The fork's service-user dance: fetch a fresh challenge for `fumbbl.user`, compute the response
+   *  (getFumbblAuthChallengeResponseForFumbblUser) — one per mutating call, single-use. */
+  const serviceResponse = async () => {
+    const ch = await call("/xml:auth", "op=challenge&coach=forkservice");
+    const nonce = ch.res.body.match(/<challenge>([^<]+)<\/challenge>/)![1]!;
+    return adminResponse(nonce, storedMd5);
   };
 
   it("returns false for a non-xml path (server.ts falls through)", async () => {
@@ -262,17 +271,50 @@ describe("handleXmlRequest (Dialect-1 router)", () => {
   });
 
   it("xml:gamestate create then check reflect the registry (fail-loud on unknown team)", async () => {
-    expect((await call("/xml:gamestate", "op=create&game=g9&team1=900001&team2=900002")).res.body).toContain("<result>ok</result>");
+    const resp = await serviceResponse();
+    expect((await call("/xml:gamestate", `op=create&response=${resp}&game=g9&team1=900001&team2=900002`)).res.body).toContain(
+      "<result>ok</result>",
+    );
     expect((await call("/xml:gamestate", "op=check&team1=900001&team2=900002")).res.body).toContain("<result>ok</result>");
     expect((await call("/xml:gamestate", "op=check&team1=900001&team2=777")).res.body).toContain("<result>error</result>");
   });
 
-  it("xml:result banks a multipart upload end-to-end", async () => {
+  it("xml:gamestate MUTATING ops REFUSE a missing/wrong service response; check needs none (upstream template parity)", async () => {
+    // No response at all
+    const noResp = await call("/xml:gamestate", "op=create&game=g9&team1=900001&team2=900002");
+    expect(noResp.res.body).toContain("<result>error</result>");
+    expect(noResp.res.body).toContain("auth:");
+    // Wrong response against a live challenge
+    await call("/xml:auth", "op=challenge&coach=forkservice");
+    const bad = await call("/xml:gamestate", "op=create&response=deadbeef&game=g9&team1=900001&team2=900002");
+    expect(bad.res.body).toContain("auth: service auth failed");
+    // The registry never saw the game
+    expect(deps.games.get("g9")).toBeUndefined();
+  });
+
+  it("service nonce is SINGLE-USE — a captured response cannot be replayed on a second mutating call", async () => {
+    const resp = await serviceResponse();
+    expect((await call("/xml:gamestate", `op=create&response=${resp}&game=g1&team1=900001&team2=900002`)).res.body).toContain(
+      "<result>ok</result>",
+    );
+    const replay = await call("/xml:gamestate", `op=update&response=${resp}&gameid=g1&half=1&turn=2`);
+    expect(replay.res.body).toContain("auth: no outstanding service challenge");
+  });
+
+  it("serviceUser UNSET ⇒ mutating verbs refused (never accept-all)", async () => {
+    deps.serviceUser = undefined;
+    const resp = await call("/xml:gamestate", "op=create&response=whatever&game=g9&team1=900001&team2=900002");
+    expect(resp.res.body).toContain("auth: service auth unconfigured");
+  });
+
+  const postResult = async (responsePart: string, includeF = true) => {
     const boundary = "----b";
     const body = Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="response"\r\n\r\nresp\r\n` +
-        `--${boundary}\r\nContent-Disposition: form-data; name="f"; filename="result.xml"\r\nContent-Type: text/xml\r\n\r\n` +
-        `${SAMPLE_RESULT}\r\n--${boundary}--\r\n`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="response"\r\n\r\n${responsePart}\r\n` +
+        (includeF
+          ? `--${boundary}\r\nContent-Disposition: form-data; name="f"; filename="result.xml"\r\nContent-Type: text/xml\r\n\r\n${SAMPLE_RESULT}\r\n`
+          : "") +
+        `--${boundary}--\r\n`,
       "utf8",
     );
     const req = Readable.from([body]) as unknown as Record<string, unknown>;
@@ -280,20 +322,41 @@ describe("handleXmlRequest (Dialect-1 router)", () => {
     req.headers = { "content-type": `multipart/form-data; boundary=${boundary}` };
     const res = mockRes();
     const handled = await handleXmlRequest(req as never, res as never, "/xml:result", new URLSearchParams(), deps);
+    return { handled, res };
+  };
+
+  it("xml:result banks a multipart upload end-to-end (valid service response part)", async () => {
+    const { handled, res } = await postResult(await serviceResponse());
     expect(handled).toBe(true);
     expect(res.body).toContain("<result>success</result>");
     expect(readFileSync(join(deps.teamsDir, "team_flutethecat_900001.xml"), "utf8")).toContain(`currentSpps="7"`);
   });
 
+  it("xml:result REFUSES an invalid service response — nothing parsed, nothing banked", async () => {
+    const before = readFileSync(join(deps.teamsDir, "team_flutethecat_900001.xml"), "utf8");
+    const { res } = await postResult("not-a-valid-response");
+    expect(res.body).toContain("<result>error</result>");
+    expect(res.body).toContain("auth:");
+    expect(readFileSync(join(deps.teamsDir, "team_flutethecat_900001.xml"), "utf8")).toBe(before); // untouched
+  });
+
   it("xml:result FAILS LOUD on a missing f part (never banks a truncated upload)", async () => {
-    const boundary = "----b";
-    const body = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="response"\r\n\r\nresp\r\n--${boundary}--\r\n`, "utf8");
-    const req = Readable.from([body]) as unknown as Record<string, unknown>;
-    req.method = "POST";
-    req.headers = { "content-type": `multipart/form-data; boundary=${boundary}` };
-    const res = mockRes();
-    await handleXmlRequest(req as never, res as never, "/xml:result", new URLSearchParams(), deps);
+    const { res } = await postResult(await serviceResponse(), false);
     expect(res.body).toContain("<result>error</result>");
     expect(res.body).toContain("missing result part");
+  });
+
+  it("xml:chatlog requires the service response on its form body", async () => {
+    const post = async (form: string) => {
+      const req = Readable.from([Buffer.from(form, "utf8")]) as unknown as Record<string, unknown>;
+      req.method = "POST";
+      req.headers = { "content-type": "application/x-www-form-urlencoded" };
+      const res = mockRes();
+      await handleXmlRequest(req as never, res as never, "/xml:chatlog", new URLSearchParams(), deps);
+      return res;
+    };
+    expect((await post("response=bogus&chat=hi")).body).toContain("<result>failure</result>");
+    const good = await post(`response=${await serviceResponse()}&chat=hi`);
+    expect(good.body).toContain("<result>success</result>");
   });
 });

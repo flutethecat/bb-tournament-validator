@@ -58,6 +58,17 @@ export interface SiteBackendDeps {
   legacyPlaintextVerify?: (coach: string, credential: string) => Promise<boolean>;
   /** Optional sink for chat + residual/diagnostic lines (defaults to console.log). */
   log?: (msg: string) => void;
+  /**
+   * The fork's machine-to-machine service coach (`fumbbl.user` in the fork ini; e.g. "forkservice").
+   * The MUTATING verbs — gamestate create/resume/update/remove, xml:result, xml:chatlog — REQUIRE a
+   * valid challenge-response from THIS coach: the fork fetches a fresh challenge per call
+   * (UtilFumbblRequest.getFumbblAuthChallengeResponseForFumbblUser) and sends it as the `response`
+   * query param (ini `fumbbl.gamestate.create=…&response=$1…`), the multipart `response` part
+   * (UtilServerHttpClient.postMultipartXml:86), or the form `response` field (postAuthorizedForm:98).
+   * `op=check`/`op=options` stay UNAUTHENTICATED — upstream's URL templates carry no $response there.
+   * Unset ⇒ mutating verbs are REFUSED (fail-loud), never accept-all.
+   */
+  serviceUser?: string;
 }
 
 const XML_CT = { "content-type": "text/xml; charset=utf-8" } as const;
@@ -105,6 +116,24 @@ function rosterFileFor(rostersDir: string, rosterId: string): string | undefined
 
 const esc = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/**
+ * Verify the service-user `response` a mutating verb carried. Same single-use nonce dance as coach
+ * auth (consume-then-verify — a consumed nonce can never be replayed). The fork's RequestProcessor
+ * is a single sequential queue, so its challenge→response pairs never interleave per coach.
+ */
+async function verifyService(
+  deps: SiteBackendDeps,
+  submitted: string | undefined | null,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const user = deps.serviceUser?.trim();
+  if (!user) return { ok: false, reason: "service auth unconfigured — mutating verb refused" };
+  const s = (submitted ?? "").trim();
+  if (!s) return { ok: false, reason: "missing service response" };
+  const nonce = deps.nonce.consume(user);
+  if (!nonce) return { ok: false, reason: "no outstanding service challenge" };
+  return (await deps.verifyAuth(user, nonce, s)) ? { ok: true } : { ok: false, reason: "service auth failed" };
+}
 
 /** Build the `<teams coach>` list from the on-disk team files whose `<coach>` matches (case-insensitive,
  *  mirroring the fork's equalsIgnoreCase coach handling). Schema: TeamList/TeamListEntry (cited). */
@@ -197,6 +226,14 @@ export async function handleXmlRequest(
   // ── xml:gamestate ── lifecycle over the registry (TP-4 fail-loud) ───────────────
   if (path === "xml:gamestate") {
     const op = query.get("op");
+    // Service-user auth on the MUTATING ops only — check/options carry no $response upstream.
+    if (op === "create" || op === "resume" || op === "update" || op === "remove") {
+      const auth = await verifyService(deps, query.get("response"));
+      if (!auth.ok) {
+        log(`gamestate ${op} REFUSED: ${auth.reason}`);
+        return (sendXml(res, 200, renderGameState({ ok: false, reason: `auth: ${auth.reason}` })), true);
+      }
+    }
     const g = deps.games;
     let outcome;
     switch (op) {
@@ -228,6 +265,12 @@ export async function handleXmlRequest(
     const boundary = boundaryFromContentType(req.headers["content-type"]);
     if (!boundary) return (sendXml(res, 400, resultXml(false, "not multipart/form-data")), true);
     const parts = parseMultipart(await readRawBody(req), boundary);
+    // Service-user auth FIRST (multipart `response` part, postMultipartXml:86) — never parse/bank unauthenticated.
+    const resultAuth = await verifyService(deps, parts.get("response")?.value);
+    if (!resultAuth.ok) {
+      log(`result REFUSED: ${resultAuth.reason}`);
+      return (sendXml(res, 200, resultXml(false, `auth: ${resultAuth.reason}`)), true);
+    }
     const f = parts.get("f");
     if (!f || !f.value.trim()) return (sendXml(res, 400, resultXml(false, "missing result part 'f'")), true);
     let parsed;
@@ -245,8 +288,15 @@ export async function handleXmlRequest(
     return (sendXml(res, 200, resultXml(true, `banked ${banked.applied.length} team(s)`)), true);
   }
 
-  // ── xml:chatlog ── accept + log only (v1) ───────────────────────────────────────
+  // ── xml:chatlog ── accept + log only (v1); service-auth'd (form `response`, postAuthorizedForm:98) ──
   if (path === "xml:chatlog") {
+    if ((req.method ?? "GET") !== "POST") return (sendXml(res, 405, "<result>failure</result>"), true);
+    const form = new URLSearchParams((await readRawBody(req)).toString("utf8"));
+    const chatAuth = await verifyService(deps, form.get("response"));
+    if (!chatAuth.ok) {
+      log(`chatlog REFUSED: ${chatAuth.reason}`);
+      return (sendXml(res, 200, "<result>failure</result>"), true);
+    }
     log("chatlog received (logged only, v1)");
     return (sendXml(res, 200, "<result>success</result>"), true);
   }

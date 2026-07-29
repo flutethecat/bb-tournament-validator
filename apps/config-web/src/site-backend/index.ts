@@ -68,6 +68,9 @@ export function createSiteBackend(): { handle: SiteBackendHandle } | undefined {
     banking,
     verifyAuth: (coach, challengeHex, response) => verifyForkAuthChallenge(dbCfg, coach, challengeHex, response),
     accountProperties: process.env.SITE_BACKEND_ACCOUNT_PROPERTIES,
+    // Service-user hardening: mutating xml: verbs require this coach's challenge-response (fork ini
+    // `fumbbl.user`; row must exist in ffb_coaches — C-1 cutover checklist item for the LIVE schema).
+    serviceUser: process.env.SITE_BACKEND_SERVICE_USER?.trim() || "forkservice",
     legacyPlaintextVerify: process.env.SITE_BACKEND_LEGACY_AUTH === "1"
       ? (coach, credential) => verifyCoachPassword(dbCfg, coach, credential)
       : undefined,
