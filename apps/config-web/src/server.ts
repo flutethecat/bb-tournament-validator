@@ -47,6 +47,7 @@ import {
   jnlpFilename,
   listForkCoaches,
   Matchmaker,
+  listCoachGames,
   queryCoaches,
   readLibrary,
   reloadFork,
@@ -86,6 +87,10 @@ const PUBLIC_PATHS = new Set([
   "/api/fork/rosters",
   "/api/fork/team-builder/preview",
   "/api/fork/team-builder/build",
+  // #210 "your games in progress" (in-client lobby panel): reachable without the ADMIN password;
+  // does its own admin-OR-coach-password auth in-handler (SR-197 TP-1 — list scoped to the
+  // AUTHENTICATED coach, never an arbitrary ?coach= param).
+  "/api/fork/my-games",
 ]);
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -739,6 +744,31 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
       });
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
+
+  // #210 "your games in progress": server-derived rows from ffb_games_info (the ratified source —
+  // Pipeline §3.4 measurement, Meero SR-195/SR-197). AUTH (SR-197 TP-1, V2-build-route precedent):
+  // admin Basic-auth may list for any coach (TO support view); otherwise {coach, password} is
+  // verified against ffb_coaches and the list is scoped to THE AUTHENTICATED coach only — the
+  // coach filter derives from proven identity, never from an unauthenticated parameter.
+  // Rows carry gameId = the #211 rejoin handle (id-join needs NO teamId — SR-197 convergence).
+  if (path === "/api/fork/my-games" && method === "POST") {
+    if (!challengeDbCfg)
+      return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
+    const body = (await readBody(req)) as { coach?: string; password?: string };
+    const coach = body.coach?.trim();
+    if (!coach) return sendJson(res, 400, { error: "coach is required" });
+    if (!isAdminAuthed(req)) {
+      if (!body.password)
+        return sendJson(res, 401, { error: "Listing your games requires your coach name + fork password (or admin auth)." });
+      if (!(await verifyCoachPassword(challengeDbCfg, coach, body.password)))
+        return sendJson(res, 401, { error: "Coach authentication failed (wrong coach or password)." });
+    }
+    try {
+      return sendJson(res, 200, { coach, games: await listCoachGames(challengeDbCfg, coach) });
+    } catch (e) {
+      return sendJson(res, 500, { error: (e as Error).message });
     }
   }
 
