@@ -264,12 +264,16 @@ export async function listForkCoaches(cfg: ForkDbConfig): Promise<string[]> {
   return rows.map((row) => row.name);
 }
 
-/** One row of a coach's in-progress games — the #210 lobby panel's server-derived source. */
+/** One row of a coach's in-progress/scheduled games — the #210 lobby panel's server-derived source. */
 export interface CoachGameRow {
   /** ffb_games_info primary key — THE rejoin handle (no game name exists in the DB; #211 id-join). */
   gameId: number;
-  /** 'starting' | 'active' | 'paused' (GameStatus.getName() vocabulary). */
+  /** 'scheduled' | 'starting' | 'active' | 'paused' (GameStatus.getName() vocabulary). */
   status: string;
+  /** DS-1 discriminator: false for a scheduled ('O') game the panel labels distinctly, true otherwise. */
+  inProgress: boolean;
+  /** When the game was scheduled (the 'O' rows' timestamp; started is NULL for them). */
+  scheduled: string | null;
   started: string | null;
   half: number;
   turn: number;
@@ -281,12 +285,13 @@ export interface CoachGameRow {
   opponentTeamName: string;
 }
 
-const GAME_STATUS_NAMES: Record<string, string> = { S: "starting", A: "active", P: "paused" };
+const GAME_STATUS_NAMES: Record<string, string> = { O: "scheduled", S: "starting", A: "active", P: "paused" };
 
 /**
  * A coach's in-progress games from `ffb_games_info` — the #210-ratified authoritative source
- * (Pipeline §3.4 measurement; Meero SR-195/SR-197). Status ∈ {S,A,P} — the de-cached PAUSED
- * class (game-776) is the recovery case; SCHEDULED 'O' is excluded pending the DS-1 spec call.
+ * (Pipeline §3.4 measurement; Meero SR-195/SR-197). Status ∈ {O,S,A,P} — the de-cached PAUSED
+ * class (game-776) is the recovery case; SCHEDULED 'O' rides per the DS-1 ruling (spec-210:
+ * scheduled games SHOW, distinctly labeled — the `inProgress` discriminator carries that).
  * `testing=0` keeps rig games out. DS-2 (binding): coach equality here rides the columns'
  * `utf8mb3_uca1400_ai_ci` collation (verified on live `ffblive` via information_schema, probe
  * 'GONDRA87'→17 rows), which matches the fork join path's `equalsIgnoreCase` semantics; the
@@ -299,16 +304,16 @@ export async function listCoachGames(cfg: ForkDbConfig, coach: string): Promise<
   if (!who) return [];
   const rows = await withConn(cfg, async (conn) => {
     const [r] = await conn.execute(
-      `SELECT id, started, coach_home, team_home_id, team_home_name,
+      `SELECT id, scheduled, started, coach_home, team_home_id, team_home_name,
               coach_away, team_away_id, team_away_name, half, turn, status
        FROM ffb_games_info
-       WHERE status IN ('S','A','P') AND testing = 0
+       WHERE status IN ('O','S','A','P') AND testing = 0
          AND (LOWER(coach_home) = LOWER(?) OR LOWER(coach_away) = LOWER(?))
        ORDER BY started DESC, id DESC`,
       [who, who],
     );
     return r as Array<{
-      id: number; started: Date | null;
+      id: number; scheduled: Date | null; started: Date | null;
       coach_home: string | null; team_home_id: string | null; team_home_name: string | null;
       coach_away: string | null; team_away_id: string | null; team_away_name: string | null;
       half: number; turn: number; status: string;
@@ -320,6 +325,8 @@ export async function listCoachGames(cfg: ForkDbConfig, coach: string): Promise<
     return {
       gameId: Number(row.id),
       status: GAME_STATUS_NAMES[row.status] ?? row.status,
+      inProgress: row.status !== "O",
+      scheduled: row.scheduled ? new Date(row.scheduled).toISOString() : null,
       started: row.started ? new Date(row.started).toISOString() : null,
       half: row.half,
       turn: row.turn,
