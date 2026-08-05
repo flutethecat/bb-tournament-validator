@@ -1,5 +1,5 @@
 {
- "_about": "BB2025 skill metadata: category (incl. Devious) from the fumbbl40k-server fork's bb2025 skill classes; elite defaults to {Block,Guard,Mighty Blow,Dodge}; traits not selectable.",
+ "_about": "BB2025 skill catalog — server-derived from the fumbbl40k-server fork skill classes (@RulesCollection BB2025|COMMON + SkillCategory), SR-260/#329. Selectable categories {General,Agility,Strength,Passing,Mutation,Devious}; everything else (TRAIT/EXTRAORDINARY/stat) = trait:true, not offered as an added skill. Steady Footing(General)+Hit And Run(Agility) are owner-set BB2025 skills (fork still tags them TRAIT — a server-parity lag). Elite = rulebook set {Block,Guard,Mighty Blow,Dodge}.",
  "categories": [
   "General",
   "Agility",
@@ -55,9 +55,6 @@
    "category": "General",
    "elite": true
   },
-  "Blood Lust": {
-   "trait": true
-  },
   "Bloodlust": {
    "trait": true
   },
@@ -65,9 +62,6 @@
    "trait": true
   },
   "Bone Head": {
-   "trait": true
-  },
-  "Bone-Head": {
    "trait": true
   },
   "Bounding Leap": {
@@ -82,17 +76,11 @@
   "Breathe Fire": {
    "trait": true
   },
-  "Brutal Block": {
-   "trait": true
-  },
   "Bugman's XXXXXX": {
    "trait": true
   },
   "Bullseye": {
    "category": "Strength"
-  },
-  "Burst of Speed": {
-   "trait": true
   },
   "Cannoneer": {
    "category": "Passing"
@@ -106,17 +94,11 @@
   "Chainsaw": {
    "trait": true
   },
-  "Claw": {
-   "category": "Mutation"
-  },
   "Claws": {
    "category": "Mutation"
   },
   "Cloud Burster": {
    "category": "Passing"
-  },
-  "Consummate Professional": {
-   "trait": true
   },
   "Crushing Blow": {
    "trait": true
@@ -132,9 +114,6 @@
   },
   "Dirty Player": {
    "category": "Devious"
-  },
-  "Disposable": {
-   "trait": true
   },
   "Disturbing Presence": {
    "category": "Mutation"
@@ -158,9 +137,6 @@
   "Dwarfen Grit": {
    "trait": true
   },
-  "Dwarfen Scourge": {
-   "trait": true
-  },
   "Dwarven Scourge": {
    "trait": true
   },
@@ -169,9 +145,6 @@
   },
   "Eye Gouge": {
    "category": "Devious"
-  },
-  "Fan Favourite": {
-   "trait": true
   },
   "Fend": {
    "category": "General"
@@ -188,16 +161,10 @@
   "Fumblerooski": {
    "category": "Devious"
   },
-  "Fumblerooskie": {
-   "category": "Passing"
-  },
   "Furious Outburst": {
    "trait": true
   },
   "Fury of the Blood God": {
-   "trait": true
-  },
-  "Ghostly Flames": {
    "trait": true
   },
   "Give and Go": {
@@ -223,7 +190,7 @@
    "trait": true
   },
   "Hit And Run": {
-   "trait": true
+   "category": "Agility"
   },
   "Horns": {
    "category": "Mutation"
@@ -267,9 +234,6 @@
   "Kick Team-Mate": {
    "trait": true
   },
-  "Kick-Off Return": {
-   "category": "General"
-  },
   "Krump and Smash": {
    "trait": true
   },
@@ -303,9 +267,6 @@
   "Mesmerising Dance": {
    "trait": true
   },
-  "Mesmerizing Dance": {
-   "trait": true
-  },
   "Mighty Blow": {
    "category": "Strength",
    "elite": true
@@ -325,12 +286,6 @@
   "No Ball": {
    "trait": true
   },
-  "No Hands": {
-   "trait": true
-  },
-  "Nurgle's Rot": {
-   "trait": true
-  },
   "Old Pro": {
    "trait": true
   },
@@ -340,25 +295,16 @@
   "Pass": {
    "category": "Passing"
   },
-  "Pass Block": {
-   "category": "General"
-  },
   "Pick-me-up": {
    "trait": true
   },
   "Pile Driver": {
    "category": "Devious"
   },
-  "Piling On": {
-   "category": "Strength"
-  },
   "Plague Ridden": {
    "trait": true
   },
   "Pogo": {
-   "trait": true
-  },
-  "Pogo Stick": {
    "trait": true
   },
   "Prehensile Tail": {
@@ -409,9 +355,6 @@
   "Right Stuff": {
    "trait": true
   },
-  "Running Pass": {
-   "category": "Passing"
-  },
   "Saboteur": {
    "category": "Devious"
   },
@@ -419,9 +362,6 @@
    "category": "Agility"
   },
   "Safe Pass": {
-   "category": "Passing"
-  },
-  "Safe Throw": {
    "category": "Passing"
   },
   "Savage Blow": {
@@ -438,9 +378,6 @@
   },
   "Shot to Nothing": {
    "trait": true
-  },
-  "Side Step": {
-   "category": "Agility"
   },
   "Sidestep": {
    "category": "Agility"
@@ -463,9 +400,6 @@
   "Stab": {
    "trait": true
   },
-  "Stakes": {
-   "trait": true
-  },
   "Stand Firm": {
    "category": "Strength"
   },
@@ -473,7 +407,7 @@
    "trait": true
   },
   "Steady Footing": {
-   "trait": true
+   "category": "General"
   },
   "Strip Ball": {
    "category": "General"
@@ -492,9 +426,6 @@
   },
   "Sure Hands": {
    "category": "General"
-  },
-  "Swarming": {
-   "trait": true
   },
   "Swift As The Breeze": {
    "trait": true
@@ -553,9 +484,6 @@
   "Two Heads": {
    "category": "Mutation"
   },
-  "Two for One": {
-   "trait": true
-  },
   "Unchannelled Fury": {
    "trait": true
   },
@@ -577,13 +505,7 @@
   "Watch Out!": {
    "trait": true
   },
-  "Weeping Dagger": {
-   "trait": true
-  },
   "Whirling Dervish": {
-   "trait": true
-  },
-  "Wild Animal": {
    "trait": true
   },
   "Wisdom of the White Dwarf": {
