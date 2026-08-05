@@ -16,11 +16,14 @@ import { fileURLToPath } from "node:url";
 import {
   composeTeam,
   composeTeamIntrinsic,
+  findPosition,
+  findRoster,
   loadPackage,
   renderArtPrompt,
   renderPackageHtml,
   rosterOptions,
   rosterOptionsIntrinsic,
+  skillAccess,
   validate,
   type ComposeIntrinsicResult,
   type Roster,
@@ -94,6 +97,7 @@ const PUBLIC_PATHS = new Set([
   // can fetch/preview/build via its config-web seam. rosters+preview are open reads; build
   // does its own admin-OR-coach-password auth in-handler (see the build route).
   "/api/fork/rosters",
+  "/api/fork/team-builder/legal-skills",
   "/api/fork/team-builder/preview",
   "/api/fork/team-builder/build",
   // #210 "your games in progress" (in-client lobby panel): reachable without the ADMIN password;
@@ -765,6 +769,63 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
       .map((xml) => rosterOptionsIntrinsic(xml))
       .sort((a, b) => a.raceName.localeCompare(b.raceName));
     return sendJson(res, 200, { rosters, slRosters, goldBudget: 1_000_000, slBudgetConfigurable: true });
+  }
+
+  if (path === "/api/fork/team-builder/legal-skills" && method === "GET") {
+    const cfg = forkConfigFromEnv();
+    if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
+    const rosterId = query.get("rosterId")?.trim();
+    const positionId = query.get("positionId")?.trim();
+    if (!rosterId || !positionId)
+      return sendJson(res, 400, { error: "rosterId and positionId are required." });
+
+    const ro = [...loadBaseForkRosters(cfg.teamsDir).values()]
+      .map((xml) => rosterOptions(xml, bb2025))
+      .find((candidate) => candidate.rosterId === rosterId);
+    if (!ro) return sendJson(res, 400, { error: `rosterId "${rosterId}" not found.` });
+
+    const opt = ro.positions.find((position) => position.positionId === positionId);
+    if (!opt) return sendJson(res, 400, { error: `positionId "${positionId}" not in roster ${rosterId}.` });
+    const positionName = opt.name;
+
+    if (isSlRosterId(rosterId)) {
+      return sendJson(res, 200, {
+        rosterId,
+        positionId,
+        positionName,
+        primary: [],
+        secondary: [],
+        alreadyPrinted: opt.skills,
+        intrinsic: true,
+      });
+    }
+
+    const dsRoster = findRoster(bb2025, ro.raceName);
+    const dsPos = dsRoster ? findPosition(dsRoster, positionName) : undefined;
+    if (!dsPos)
+      return sendJson(res, 400, { error: `position "${positionName}" not resolvable in the bb2025 dataset.` });
+
+    const alreadyPrinted = new Set(dsPos.skills.map((skill) => skill.trim().toLowerCase()));
+    const primary = [];
+    const secondary = [];
+    for (const [skillName, meta] of Object.entries(bb2025.skills)) {
+      if (meta.trait || alreadyPrinted.has(skillName.trim().toLowerCase())) continue;
+      const access = skillAccess(bb2025, dsPos, skillName);
+      const skill = { skill: skillName, category: meta.category, elite: !!meta.elite };
+      if (access === "primary") primary.push(skill);
+      else if (access === "secondary") secondary.push(skill);
+    }
+    primary.sort((a, b) => a.skill.localeCompare(b.skill));
+    secondary.sort((a, b) => a.skill.localeCompare(b.skill));
+
+    return sendJson(res, 200, {
+      rosterId,
+      positionId,
+      positionName,
+      primary,
+      secondary,
+      alreadyPrinted: opt.skills,
+    });
   }
 
   // Preview: compose + validate, no write. Returns legality findings + the recomputed summary.
