@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tournament Rules Construction</title>
+  <link rel="stylesheet" href="./tournament-rules.css">
+  <script src="./tournament-rules.js" defer></script>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="brand-header">
+      <img class="brand-logo" src="./assets/super-fumbbl-logo.png" alt="Super FUMBBL">
+      <div class="brand-copy">
+        <div class="page-title"><span>T</span>ournament <span>R</span>ules <span>C</span>onstruction</div>
+        <div class="page-subtitle">config-web · organizer console · localhost:4310</div>
+      </div>
+      <a class="back-link" href="./index.html">← Back to Client</a>
+    </header>
+
+    <div id="toolbar" class="toolbar" aria-label="Package and login controls"></div>
+
+    <main class="main-grid">
+      <div id="editor" class="editor-column" aria-live="polite"></div>
+      <aside id="right-rail" class="right-rail" aria-label="Package actions and summary"></aside>
+    </main>
+
+    <footer class="footer">
+      <span id="connection-state" class="connected">● connecting</span>
+      <span>config-web :4310</span>
+      <span class="footer-spacer"></span>
+      <span>rules engine BB2025</span>
+    </footer>
+  </div>
+</body>
+</html>
