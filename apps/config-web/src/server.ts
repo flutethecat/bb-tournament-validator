@@ -1218,10 +1218,20 @@ function isLocalBind(host: string): boolean {
   return normalizedHost === "localhost" || normalizedHost === "127.0.0.1" || normalizedHost === "::1" || normalizedHost === "[::1]";
 }
 
-const LISTEN_HOST = AUTH_SIDECAR && !isLocalBind(HOST) ? "127.0.0.1" : HOST;
+// Owner directive 08-05: expose config-web publicly over plain HTTP to unblock tester create-game.
+// AUTH_SIDECAR_ALLOW_INSECURE_PUBLIC=1 consciously overrides the plain-HTTP-refuse guard so the sidecar
+// may bind a non-localhost HOST. Safe for the tester box: it is already port-forwarded, every create-game
+// route is in PUBLIC_PATHS, and organizer writes still require a session. Cleartext-over-HTTP is the
+// accepted tester posture; TLS is still owed before any competitive/non-tester exposure (Meero SR-260).
+const ALLOW_INSECURE_PUBLIC = process.env.AUTH_SIDECAR_ALLOW_INSECURE_PUBLIC === "1";
+const LISTEN_HOST = AUTH_SIDECAR && !isLocalBind(HOST) && !ALLOW_INSECURE_PUBLIC ? "127.0.0.1" : HOST;
 if (AUTH_SIDECAR && LISTEN_HOST !== HOST) {
   console.error(
-    `[auth-sidecar] Refusing non-localhost HOST=${HOST} because config-web serves plain HTTP; binding to ${LISTEN_HOST}.`,
+    `[auth-sidecar] Refusing non-localhost HOST=${HOST} because config-web serves plain HTTP; binding to ${LISTEN_HOST}. Set AUTH_SIDECAR_ALLOW_INSECURE_PUBLIC=1 to override.`,
+  );
+} else if (AUTH_SIDECAR && ALLOW_INSECURE_PUBLIC && !isLocalBind(HOST)) {
+  console.warn(
+    `[auth-sidecar] AUTH_SIDECAR_ALLOW_INSECURE_PUBLIC=1 — binding ${HOST}:${PORT} over PLAIN HTTP; session cookies + coach creds travel in cleartext (TLS owed pre-competitive).`,
   );
 }
 
