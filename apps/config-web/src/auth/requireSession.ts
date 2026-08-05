@@ -41,7 +41,9 @@ function isPublicRequest(method: string, pathname: string): boolean {
   if (pathname === "/login" && (method === "GET" || method === "HEAD")) return true;
   if (
     (method === "GET" || method === "HEAD") &&
-    (pathname === "/tournament-rules.html" ||
+    (pathname === "/" ||
+      pathname === "/index.html" ||
+      pathname === "/tournament-rules.html" ||
       pathname === "/tournament-rules.css" ||
       pathname === "/tournament-rules.js" ||
       pathname.startsWith("/assets/") ||

@@ -373,13 +373,16 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   // Public rules-builder surface: the TO ruleset editor authenticates IN-UI via a bearer
   // token (POST /api/auth/login → gate on POST /api/packages), so its page + static deps
   // must load without the admin Basic-auth prompt. GET/HEAD only, on the specific
-  // rules-builder paths + shared /assets/ — every other admin page (index/users/
-  // tournaments) stays Basic-gated; writes remain token/Basic-gated in-handler.
+  // rules-builder paths + shared /assets/ + the "/" landing and /index.html (they redirect
+  // to the public editor, the default landing — owner 2026-08-05). The users/tournaments
+  // panels stay Basic-gated; writes remain token/Basic-gated in-handler.
   {
     const method = req.method ?? "GET";
     if (
       (method === "GET" || method === "HEAD") &&
-      (pathname === "/tournament-rules.html" ||
+      (pathname === "/" ||
+        pathname === "/index.html" ||
+        pathname === "/tournament-rules.html" ||
         pathname === "/tournament-rules.css" ||
         pathname === "/tournament-rules.js" ||
         pathname.startsWith("/assets/"))
