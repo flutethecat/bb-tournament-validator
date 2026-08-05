@@ -20,13 +20,19 @@ describe("parseForkRoster", () => {
     expect(r.apothecaryAllowed).toBe(true);
   });
 
-  it("keeps base positions with their NUMERIC positionId and excludes Stars", () => {
+  it("keeps base positions with their NUMERIC positionId and includes Stars", () => {
     const r = parseForkRoster(snotlingXml);
     const lineman = r.positions.find((p) => p.name === "Snotling Lineman");
     expect(lineman?.positionId).toBe("66199"); // numeric FUMBBL id, not the dataset slug
-    // Grak / Crumbleberry / Morg / Akhorne are Stars → dropped in V1.
-    expect(r.positions.some((p) => /grak|crumbleberry|morg|akhorne/i.test(p.name))).toBe(false);
-    expect(r.positions.every((p) => !/star/i.test(p.type))).toBe(true);
+    expect(lineman?.isStar).toBe(false);
+    expect(r.positions.find((p) => p.positionId === "65801")).toMatchObject({
+      name: "Morg 'n' Thorg",
+      isStar: true,
+    });
+    expect(r.positions.find((p) => p.positionId === "65814")).toMatchObject({
+      name: "Akhorne the Squirrel",
+      isStar: true,
+    });
   });
 });
 
@@ -37,8 +43,12 @@ describe("rosterOptions", () => {
     expect(o.reRollCost).toBe(70000);
     const lineman = o.positions.find((p) => p.positionId === "66199");
     expect(lineman).toMatchObject({ name: "Snotling Lineman", cost: 15000, max: 16, MA: 5, AG: "3+" });
-    // Stars excluded (they never reach the picker).
-    expect(o.positions.some((p) => /grak|morg/i.test(p.name))).toBe(false);
+    expect(o.positions.find((p) => p.positionId === "65801")).toMatchObject({
+      name: "Morg 'n' Thorg",
+      cost: 340000,
+      max: 1,
+      isStar: true,
+    });
   });
 });
 
@@ -88,6 +98,100 @@ describe("composeTeam", () => {
     expect(r.xml).toContain(`id="${r.teamId}1"`);
   });
 
+  it("keeps the existing non-star team XML byte-unchanged", () => {
+    const r = composeTeam(input, bb2025, 42);
+    expect(r.xml).toBe(
+      `<?xml version="1.0" encoding="UTF-8"?>\n\n<team id="tb_kalimar_snotling_16">\n\n` +
+        `\t<coach>Kalimar</coach>\n` +
+        `\t<name>Kalimar's Snotling</name>\n` +
+        `\t<race>Snotling</race>\n` +
+        `\t<rosterId>snotling.bb2025</rosterId>\n` +
+        `\t<reRolls>3</reRolls>\n` +
+        `\t<fanFactor>1</fanFactor>\n` +
+        `\t<apothecaries>1</apothecaries>\n` +
+        `\t<teamRating>65</teamRating>\n` +
+        `\t<currentTeamValue>65</currentTeamValue>\n` +
+        `\t<teamStrength>65</teamStrength>\n` +
+        `\t<division>[X]</division>\n\n` +
+        `\t<specialRules></specialRules>\n\n` +
+        `\t<player nr="1" id="tb_kalimar_snotling_161"><name>Snotling Lineman 1</name><gender>random</gender><positionId>66199</positionId><skillList></skillList></player>\n` +
+        `\t<player nr="2" id="tb_kalimar_snotling_162"><name>Snotling Lineman 2</name><gender>random</gender><positionId>66199</positionId><skillList></skillList></player>\n` +
+        `\t<player nr="3" id="tb_kalimar_snotling_163"><name>Snotling Lineman 3</name><gender>random</gender><positionId>66199</positionId><skillList></skillList></player>\n` +
+        `\t<player nr="4" id="tb_kalimar_snotling_164"><name>Snotling Lineman 4</name><gender>random</gender><positionId>66199</positionId><skillList></skillList></player>\n` +
+        `\t<player nr="5" id="tb_kalimar_snotling_165"><name>Snotling Lineman 5</name><gender>random</gender><positionId>66199</positionId><skillList></skillList></player>\n` +
+        `\t<player nr="6" id="tb_kalimar_snotling_166"><name>Snotling Lineman 6</name><gender>random</gender><positionId>66199</positionId><skillList></skillList></player>\n` +
+        `\t<player nr="7" id="tb_kalimar_snotling_167"><name>Fun-hoppa 1</name><gender>random</gender><positionId>66201</positionId><skillList></skillList></player>\n` +
+        `\t<player nr="8" id="tb_kalimar_snotling_168"><name>Fun-hoppa 2</name><gender>random</gender><positionId>66201</positionId><skillList></skillList></player>\n` +
+        `\t<player nr="9" id="tb_kalimar_snotling_169"><name>Trained Troll 1</name><gender>random</gender><positionId>66204</positionId><skillList></skillList></player>\n` +
+        `\t<player nr="10" id="tb_kalimar_snotling_1610"><name>Trained Troll 2</name><gender>random</gender><positionId>66204</positionId><skillList></skillList></player>\n` +
+        `\t<player nr="11" id="tb_kalimar_snotling_1611"><name>Fungus Flinga 1</name><gender>random</gender><positionId>66200</positionId><skillList></skillList></player>\n\n` +
+        `</team>\n`,
+    );
+  });
+
+  it("builds a roster-intrinsic Star with its fixed name and empty XML skillList", () => {
+    const withStar = {
+      ...input,
+      picks: [
+        { positionId: "66199", count: 5 },
+        { positionId: "65801", count: 1 },
+        ...input.picks.slice(1),
+      ],
+    };
+    const r = composeTeam(withStar, bb2025, 42);
+    expect(r.roster.players).toHaveLength(11);
+    expect(r.roster.players.some((p) => p.positionName === "Morg 'n' Thorg")).toBe(true);
+    expect(r.xml).toContain(
+      `<player nr="6" id="${r.teamId}6"><name>Morg 'n' Thorg</name><gender>male</gender>` +
+        `<positionId>65801</positionId><skillList></skillList></player>`,
+    );
+  });
+
+  it("rejects chosen skills on a Star", () => {
+    const withStarSkill = {
+      ...input,
+      picks: [{ positionId: "65801", count: 1, chosenSkills: ["Block"] }],
+    };
+    expect(() => composeTeam(withStarSkill, bb2025, 42)).toThrow(/star player.*chosen skills/i);
+  });
+
+  it("enforces a Star's roster quantity cap", () => {
+    const overStarCap = { ...input, picks: [{ positionId: "65801", count: 2 }] };
+    expect(() => composeTeam(overStarCap, bb2025, 42)).toThrow(/star player.*max 1/i);
+  });
+
+  // Tournament builder (owner 08-04): per-player ROSTER-LEGAL chosen skills.
+  // Snotling Lineman (66199) categories = normal[Agility,Devious] + double[General]:
+  // "Block" (General) is legal (secondary access); "Guard" (Strength) is illegal (no Strength access).
+  it("injects a roster-LEGAL chosen skill into each copy's player + team XML", () => {
+    const withSkill = {
+      ...input,
+      picks: [{ positionId: "66199", count: 6, chosenSkills: ["Block"] }, ...input.picks.slice(1)],
+    };
+    const r = composeTeam(withSkill, bb2025, 42);
+    expect(r.xml).toContain("<skill>Block</skill>");
+    const linemen = r.roster.players.filter((p) => p.positionName === "Snotling Lineman");
+    expect(linemen).toHaveLength(6);
+    expect(linemen.every((p) => p.skills.includes("Block"))).toBe(true);
+    expect(linemen[0]!.skills).toContain("Dodge"); // printed skills preserved
+  });
+
+  it("REJECTS an off-category chosen skill (roster-legal enforcement)", () => {
+    const bad = {
+      ...input,
+      picks: [{ positionId: "66199", count: 6, chosenSkills: ["Guard"] }, ...input.picks.slice(1)],
+    };
+    expect(() => composeTeam(bad, bb2025, 42)).toThrow(/not a legal skill/i);
+  });
+
+  it("REJECTS a chosen skill the position already prints (no duplicates)", () => {
+    const dup = {
+      ...input,
+      picks: [{ positionId: "66199", count: 6, chosenSkills: ["Dodge"] }, ...input.picks.slice(1)],
+    };
+    expect(() => composeTeam(dup, bb2025, 42)).toThrow(/already has/i);
+  });
+
   it("produces a Roster the validator resolves (positions + race known to the dataset)", () => {
     const r = composeTeam(input, bb2025, 42);
     const result = validate(r.roster, pkg({ eligibleRosters: ["Snotling"], goldBudget: null }), bb2025);
@@ -96,7 +200,7 @@ describe("composeTeam", () => {
     expect(r.roster.players.every((p) => p.positionName.length > 0)).toBe(true);
   });
 
-  it("rejects a pick whose positionId is not in the roster (or is a Star)", () => {
+  it("rejects a pick whose positionId is not in the roster", () => {
     expect(() => composeTeam({ ...input, picks: [{ positionId: "99999", count: 1 }] }, bb2025, 42)).toThrow(
       /not in the Snotling roster/,
     );

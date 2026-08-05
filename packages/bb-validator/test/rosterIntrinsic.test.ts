@@ -42,10 +42,11 @@ describe("parseForkRoster — roster-intrinsic fields (Secret League)", () => {
     expect(ogre.skills).toEqual(["Animal Savagery", "Frenzy", "Mighty Blow", "Prehensile Tail"]);
   });
 
-  it("still excludes Stars (V1)", () => {
+  it("includes roster-intrinsic Stars (Renta Star)", () => {
     const r = parseForkRoster(slXml);
-    expect(r.positions.map((p) => p.name)).not.toContain("Renta Star");
-    expect(r.positions).toHaveLength(2);
+    expect(r.positions.map((p) => p.name)).toContain("Renta Star");
+    expect(r.positions.find((p) => p.name === "Renta Star")!.isStar).toBe(true);
+    expect(r.positions).toHaveLength(3);
   });
 });
 
@@ -68,10 +69,14 @@ describe("rosterOptionsIntrinsic — dataset-free builder options", () => {
     expect(slave.skills).toEqual(["Dodge"]);
   });
 
-  it("proves the gap it fills: the DATASET path drops every SL position (race not in bb2025)", () => {
-    // rosterOptions (dataset-bridged) can't resolve Clan Moulder → zero positions; intrinsic recovers them.
-    expect(rosterOptions(slXml, bb2025).positions).toHaveLength(0);
-    expect(rosterOptionsIntrinsic(slXml).positions).toHaveLength(2);
+  it("proves the gap it fills: the DATASET path drops SL regular positions (race not in bb2025)", () => {
+    // rosterOptions (dataset-bridged) can't resolve Clan Moulder's regular positions → only the
+    // roster-intrinsic Star survives; the intrinsic path recovers all. SL races use the intrinsic path.
+    const ds = rosterOptions(slXml, bb2025).positions;
+    expect(ds).toHaveLength(1);
+    expect(ds[0]!.name).toBe("Renta Star");
+    expect(ds[0]!.isStar).toBe(true);
+    expect(rosterOptionsIntrinsic(slXml).positions).toHaveLength(3);
   });
 });
 
@@ -151,7 +156,7 @@ describe("composeTeamIntrinsic — dataset-free compose + roster-intrinsic legal
     expect(r.issues.find((i) => i.code === "big_guy_cap")?.message).toContain("2 Big Guys");
   });
 
-  it("throws on an unknown/Star positionId (structural error, not a legality issue)", () => {
-    expect(() => composeTeamIntrinsic(base({ picks: [{ positionId: "99999", count: 1 }] }), 111)).toThrow(/99999/);
+  it("throws on an unknown positionId (structural error, not a legality issue)", () => {
+    expect(() => composeTeamIntrinsic(base({ picks: [{ positionId: "88888", count: 1 }] }), 111)).toThrow(/88888/);
   });
 });

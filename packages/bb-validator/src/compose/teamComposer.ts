@@ -14,7 +14,7 @@
  */
 
 import type { Dataset } from "../dataset/types";
-import { findPosition, findRoster, normName } from "../dataset/lookup";
+import { findPosition, findRoster, normName, skillAccess } from "../dataset/lookup";
 import type { Roster, RosterPlayer, Target } from "../model/roster";
 
 /** A player position as read from a fork roster XML on disk (numeric positionId). */
@@ -23,8 +23,10 @@ export interface ForkRosterPosition {
   positionId: string;
   name: string;
   gender: string;
-  /** "Regular" | "Big Guy" | "Star" — Stars are excluded from V1 team-building. */
+  /** "Regular" | "Big Guy" | "Star". */
   type: string;
+  /** True when the fork position is a roster-intrinsic Star player. */
+  isStar: boolean;
   // ── Roster-intrinsic fields (present in the position XML block) ──
   // Used ONLY by the Secret League / dataset-free builder path (#52): SL races aren't in the
   // bb2025 dataset, but the roster XML is fully self-describing. The dataset path ignores these.
@@ -51,13 +53,20 @@ export interface ForkRoster {
   apothecaryAllowed: boolean;
   /** Roster-intrinsic (SL) cap on total "Big Guy"-type players (<maxBigGuys>); undefined ⇒ no roster cap. */
   maxBigGuys?: number;
-  /** Non-star positions only (id-keyed elsewhere; order preserved for the picker UI). */
+  /** Positions in roster order, including roster-intrinsic Stars. */
   positions: ForkRosterPosition[];
 }
 
 export interface TeamPick {
   positionId: string;
   count: number;
+  /**
+   * Tournament builder (owner 08-04): extra skills chosen for EACH of the `count` players in this pick.
+   * ROSTER-LEGAL only — every entry must be `primary`/`secondary` access for the position (see
+   * {@link skillAccess}); traits, unknowns, and skills the position already prints are rejected. To give
+   * two players of the same position DIFFERENT skills, emit two `count:1` picks. Ignored by the SL path.
+   */
+  chosenSkills?: string[];
 }
 
 export interface ComposeInput {
@@ -95,7 +104,7 @@ const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "").s
 /**
  * Parse a fork roster XML into the fields the composer needs. The roster's own header
  * (id/name/reroll/apothecary) sits before the first `<position>`; each `<position>` block
- * carries the numeric id + name + gender + type. Star positions are dropped (out of V1).
+ * carries the numeric id + name + gender + type.
  */
 export function parseForkRoster(xml: string): ForkRoster {
   const header = xml.split(/<position\b/i)[0] ?? xml;
@@ -111,7 +120,6 @@ export function parseForkRoster(xml: string): ForkRoster {
     const positionId = block.match(/<position\b[^>]*\bid="([^"]+)"/i)?.[1];
     if (!positionId) continue;
     const type = strTag(block, "type") ?? "Regular";
-    if (/star/i.test(type)) continue; // V1: base positions only, no stars
     // Skills live in <skillList><skill [value="n"]>Name</skill>…</skillList>.
     const skillList = block.match(/<skillList>([\s\S]*?)<\/skillList>/i)?.[1] ?? "";
     const skills = [...skillList.matchAll(/<skill\b[^>]*>([^<]+)<\/skill>/gi)].map((m) => m[1]!.trim());
@@ -120,6 +128,7 @@ export function parseForkRoster(xml: string): ForkRoster {
       name: strTag(block, "name") ?? "",
       gender: strTag(block, "gender") ?? "random",
       type,
+      isStar: /star/i.test(type),
       // Roster-intrinsic (SL builder path); the dataset path ignores these.
       quantity: numTag(block, "quantity"),
       cost: numTag(block, "cost"),
@@ -155,6 +164,8 @@ export interface RosterOption {
   PA: string;
   AV: string;
   skills: string[];
+  /** Present only for roster-intrinsic Star players. */
+  isStar?: boolean;
 }
 
 export interface RosterOptions {
@@ -169,13 +180,33 @@ export interface RosterOptions {
 /**
  * The buildable positions for one race — the fork roster's numeric positionIds bridged to the
  * dataset (by name) for cost/cap/stats. Feeds the builder's picker. Positions the dataset can't
- * resolve by name are dropped (defensive; the on-disk 30 all resolve).
+ * resolve by name are dropped, except Stars, whose blocks are self-describing.
  */
 export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptions {
   const fork = parseForkRoster(forkRosterXml);
   const dsRoster = findRoster(data, fork.raceName);
   const positions: RosterOption[] = [];
+  const plus = (n: number | undefined): string => (n && n > 0 ? `${n}+` : "-");
   for (const p of fork.positions) {
+    // Roster-intrinsic Stars present in this XML are always eligible.
+    // TODO(spec-B special-rule stars): requires a team-chosen special-rule value and an off-roster
+    // star pool with a roster positionId; neither input exists in the current composer contract.
+    if (p.isStar) {
+      positions.push({
+        positionId: p.positionId,
+        name: p.name,
+        cost: p.cost ?? 0,
+        max: p.quantity ?? 1,
+        MA: p.MA ?? 0,
+        ST: p.ST ?? 0,
+        AG: plus(p.AG),
+        PA: plus(p.PA),
+        AV: plus(p.AV),
+        skills: [...(p.skills ?? [])],
+        isStar: true,
+      });
+      continue;
+    }
     const ds = dsRoster ? findPosition(dsRoster, p.name) : undefined;
     if (!ds) continue;
     positions.push({
@@ -223,6 +254,7 @@ export function rosterOptionsIntrinsic(forkRosterXml: string): RosterOptions {
     PA: plus(p.PA),
     AV: p.AV != null ? `${p.AV}+` : "-",
     skills: p.skills ?? [],
+    ...(p.isStar ? { isStar: true } : {}),
   }));
   return {
     rosterId: fork.rosterId,
@@ -266,7 +298,7 @@ export interface ComposeIntrinsicResult extends ComposeResult {
  * edits. Because the dataset `validate()` core can't run for an off-dataset race, legality is enforced
  * HERE against the roster's own caps and the configured budget, and returned as structured `issues` +
  * a `legal` flag (the admission-guard the edge checks — a preview that shows an over-cap team must not
- * be persistable). Structurally-invalid picks (unknown/Star positionId) still throw.
+ * be persistable). Structurally-invalid picks (unknown positionId) still throw.
  */
 export function composeTeamIntrinsic(input: ComposeIntrinsicInput, now = Date.now()): ComposeIntrinsicResult {
   const fork = parseForkRoster(input.forkRosterXml);
@@ -285,7 +317,7 @@ export function composeTeamIntrinsic(input: ComposeIntrinsicInput, now = Date.no
 
   for (const pick of input.picks) {
     const forkPos = byId.get(pick.positionId);
-    if (!forkPos) throw new Error(`positionId "${pick.positionId}" is not in the ${fork.raceName} roster (or is a Star).`);
+    if (!forkPos) throw new Error(`positionId "${pick.positionId}" is not in the ${fork.raceName} roster.`);
     const count = Math.max(0, pick.count | 0);
     perPosition.set(pick.positionId, (perPosition.get(pick.positionId) ?? 0) + count);
     for (let i = 0; i < count; i++) {
@@ -305,7 +337,7 @@ export function composeTeamIntrinsic(input: ComposeIntrinsicInput, now = Date.no
         keywords: [],
         cost: forkPos.cost ?? 0,
       });
-      const playerName = `${forkPos.name} ${idx}`;
+      const playerName = forkPos.isStar ? forkPos.name : `${forkPos.name} ${idx}`;
       xmlPlayers.push(
         `\t<player nr="${nr}" id="${teamId}${nr}"><name>${xmlEscape(playerName)}</name>` +
           `<gender>${xmlEscape(forkPos.gender)}</gender><positionId>${xmlEscape(pick.positionId)}</positionId>` +
@@ -392,6 +424,39 @@ export function mintTeamId(coach: string, raceName: string, now = Date.now()): s
  * dataset, name-bridged) and emits the fork team XML (numeric positionId + rosterId from
  * the roster XML). Throws on an unknown pick or a race the dataset doesn't carry.
  */
+/**
+ * Tournament builder (owner 08-04): validate a pick's chosen extra skills against the dataset position
+ * and return the accepted list (input order). ROSTER-LEGAL only — each skill must be `primary`/`secondary`
+ * access for the position ({@link skillAccess}: its category ∈ the position's primary/secondary categories;
+ * traits and unknowns are illegal), must not duplicate a skill the position already prints, and must not
+ * repeat within the pick. Throws a CLIENT-SAFE error on the first violation (the config-web endpoint
+ * surfaces the message); server-side authoritative — never trust the panel's own filtering.
+ */
+function resolveChosenSkills(
+  data: Dataset,
+  dsPos: NonNullable<ReturnType<typeof findPosition>>,
+  chosen: string[] | undefined,
+): string[] {
+  if (!chosen || chosen.length === 0) return [];
+  const printed = new Set(dsPos.skills.map(normName));
+  const seen = new Set<string>();
+  const accepted: string[] = [];
+  for (const raw of chosen) {
+    const skill = raw.trim();
+    if (!skill) continue;
+    const key = normName(skill);
+    if (printed.has(key)) throw new Error(`${dsPos.name} already has "${skill}".`);
+    if (seen.has(key)) throw new Error(`Duplicate chosen skill "${skill}" on ${dsPos.name}.`);
+    if (skillAccess(data, dsPos, skill) === "illegal")
+      throw new Error(
+        `"${skill}" is not a legal skill for ${dsPos.name} — pick one of its primary or secondary skills (traits and off-category skills aren't allowed).`,
+      );
+    seen.add(key);
+    accepted.push(skill);
+  }
+  return accepted;
+}
+
 export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()): ComposeResult {
   const fork = parseForkRoster(input.forkRosterXml);
   const dsRoster = findRoster(data, fork.raceName);
@@ -402,12 +467,48 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
   const players: RosterPlayer[] = [];
   const xmlPlayers: string[] = [];
   const perPosition = new Map<string, number>();
+  const plus = (n: number | undefined): Target => (n && n > 0 ? (`${n}+` as Target) : "-");
+  const avTarget = (n: number | undefined): Target => (n != null ? (`${n}+` as Target) : "-");
 
   for (const pick of input.picks) {
     const forkPos = byId.get(pick.positionId);
-    if (!forkPos) throw new Error(`positionId "${pick.positionId}" is not in the ${fork.raceName} roster (or is a Star).`);
+    if (!forkPos) throw new Error(`positionId "${pick.positionId}" is not in the ${fork.raceName} roster.`);
+    if (forkPos.isStar) {
+      if (pick.chosenSkills && pick.chosenSkills.length > 0)
+        throw new Error(`Star player ${forkPos.name} cannot take chosen skills.`);
+      const count = Math.max(0, pick.count | 0);
+      const previousCount = perPosition.get(forkPos.name) ?? 0;
+      const cap = forkPos.quantity ?? 1;
+      if (previousCount + count > cap)
+        throw new Error(`Star player ${forkPos.name} exceeds roster max ${cap}.`);
+      for (let i = 0; i < count; i++) {
+        const nr = players.length + 1;
+        perPosition.set(forkPos.name, previousCount + i + 1);
+        players.push({
+          number: nr,
+          positionName: forkPos.name,
+          MA: forkPos.MA ?? 0,
+          ST: forkPos.ST ?? 0,
+          AG: plus(forkPos.AG),
+          PA: plus(forkPos.PA),
+          AV: avTarget(forkPos.AV),
+          skills: [...(forkPos.skills ?? [])],
+          keywords: [],
+          cost: forkPos.cost ?? 0,
+        });
+        xmlPlayers.push(
+          `\t<player nr="${nr}" id="${teamId}${nr}"><name>${xmlEscape(forkPos.name)}</name>` +
+            `<gender>${xmlEscape(forkPos.gender)}</gender><positionId>${xmlEscape(pick.positionId)}</positionId>` +
+            `<skillList></skillList></player>`,
+        );
+      }
+      continue;
+    }
     const dsPos = findPosition(dsRoster, forkPos.name);
     if (!dsPos) throw new Error(`Position "${forkPos.name}" is not in the ${fork.raceName} dataset roster.`);
+    // Tournament builder: roster-legal chosen skills for this pick, applied to each of its `count` copies.
+    const chosenSkills = resolveChosenSkills(data, dsPos, pick.chosenSkills);
+    const chosenSkillXml = chosenSkills.map((s) => `<skill>${xmlEscape(s)}</skill>`).join("");
     for (let i = 0; i < Math.max(0, pick.count | 0); i++) {
       const nr = players.length + 1;
       const idx = (perPosition.get(dsPos.name) ?? 0) + 1;
@@ -420,7 +521,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
         AG: dsPos.AG,
         PA: dsPos.PA,
         AV: dsPos.AV,
-        skills: [...dsPos.skills],
+        skills: [...dsPos.skills, ...chosenSkills],
         keywords: [...dsPos.keywords],
         cost: dsPos.cost,
       });
@@ -428,7 +529,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
       xmlPlayers.push(
         `\t<player nr="${nr}" id="${teamId}${nr}"><name>${xmlEscape(playerName)}</name>` +
           `<gender>${xmlEscape(forkPos.gender)}</gender><positionId>${xmlEscape(pick.positionId)}</positionId>` +
-          `<skillList></skillList></player>`,
+          `<skillList>${chosenSkillXml}</skillList></player>`,
       );
     }
   }
