@@ -295,6 +295,9 @@ interface TeamBuilderBody {
   budget?: number;
   /** V2 coach-auth on the build path — the caller's fork-join password (not used by compose). */
   password?: string;
+  /** Custom UAT mode (owner 08-04): apply ANY chosen skill/trait to a base roster with NO legality
+   *  or budget validation — preview/build never reject. Gating comes later. */
+  custom?: boolean;
 }
 
 /** Resolve a Secret League builder request to a composed team + roster-intrinsic legality (#52 A).
@@ -340,6 +343,7 @@ function composeFromBody(teamsDir: string, body: TeamBuilderBody) {
       cheerleaders: body.cheerleaders,
       assistantCoaches: body.assistantCoaches,
       dedicatedFans: body.dedicatedFans,
+      custom: body.custom === true,
     },
     bb2025,
   );
@@ -849,12 +853,14 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
       }
       const composed = composeFromBody(cfg.teamsDir, body);
       const result = validate(composed.roster, TEAM_BUILDER_BASELINE, bb2025);
+      // Custom UAT mode: never block — always valid, findings surfaced as informational warnings.
       return sendJson(res, 200, {
-        valid: result.valid,
-        errors: result.errors,
-        warnings: result.warnings,
+        valid: body.custom ? true : result.valid,
+        errors: body.custom ? [] : result.errors,
+        warnings: body.custom ? [...result.errors, ...result.warnings] : result.warnings,
         summary: result.recomputedSummary,
         players: composed.roster.players.length,
+        ...(body.custom ? { custom: true } : {}),
       });
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
@@ -928,7 +934,8 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
       }
       const composed = composeFromBody(cfg.teamsDir, body);
       const result = validate(composed.roster, TEAM_BUILDER_BASELINE, bb2025);
-      if (!result.valid) {
+      // Custom UAT mode (owner 08-04): apply the choice, no validation gate — never reject.
+      if (!body.custom && !result.valid) {
         return sendJson(res, 400, { error: "Team is not legal — fix the findings and rebuild.", errors: result.errors, summary: result.recomputedSummary });
       }
       mkdirSync(cfg.teamsDir, { recursive: true });

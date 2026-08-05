@@ -80,6 +80,8 @@ export interface ComposeInput {
   cheerleaders?: number;
   assistantCoaches?: number;
   dedicatedFans?: number;
+  /** Custom UAT mode (owner 08-04): apply ANY chosen skill/trait as-is — bypass the roster-legal check. */
+  custom?: boolean;
 }
 
 export interface ComposeResult {
@@ -507,7 +509,10 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     const dsPos = findPosition(dsRoster, forkPos.name);
     if (!dsPos) throw new Error(`Position "${forkPos.name}" is not in the ${fork.raceName} dataset roster.`);
     // Tournament builder: roster-legal chosen skills for this pick, applied to each of its `count` copies.
-    const chosenSkills = resolveChosenSkills(data, dsPos, pick.chosenSkills);
+    // Custom UAT mode (owner 08-04): apply ANY chosen skill/trait as-is — no roster-legal check.
+    const chosenSkills = input.custom
+      ? (pick.chosenSkills ?? []).map((s) => s.trim()).filter(Boolean)
+      : resolveChosenSkills(data, dsPos, pick.chosenSkills);
     const chosenSkillXml = chosenSkills.map((s) => `<skill>${xmlEscape(s)}</skill>`).join("");
     for (let i = 0; i < Math.max(0, pick.count | 0); i++) {
       const nr = players.length + 1;
