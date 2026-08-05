@@ -7,6 +7,7 @@
  */
 
 import "dotenv/config";
+import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -72,6 +73,14 @@ import { createSiteBackend } from "./site-backend/index.js";
  * Revisit if this server is ever exposed beyond that.
  */
 const PUBLIC_PATHS = new Set([
+  "/api/auth/login",
+  "/api/skills",
+  "/api/stars",
+  "/api/teams",
+  "/api/presets",
+  "/api/packages",
+  "/api/export",
+  "/api/artprompt",
   "/api/fork/jnlp",
   "/api/fork/register",
   "/api/fork/library",
@@ -98,6 +107,8 @@ const PUBLIC_DIR = resolve(HERE, "../public");
 const PORT = Number(process.env.PORT ?? 4310);
 const HOST = process.env.HOST ?? "127.0.0.1";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+const TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
+const sessionTokens = new Map<string, number>();
 const PACKAGES_DIR = resolve(process.env.PACKAGES_DIR || join(HERE, "../../../tournament-packages"));
 const VALIDATED_CSV = resolve(
   process.env.VALIDATED_CSV || join(HERE, "../../discord-bot/data-store/validated-rosters.csv"),
@@ -347,6 +358,7 @@ const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
 function authorized(req: IncomingMessage, pathname: string): boolean {
   if (!ADMIN_PASSWORD) return true; // open when no password set (localhost default)
   if (PUBLIC_PATHS.has(pathname)) return true;
+  if (pathname.startsWith("/api/packages/")) return true;
   const header = req.headers.authorization ?? "";
   const m = header.match(/^Basic (.+)$/);
   if (!m) return false;
@@ -388,6 +400,19 @@ function isAdminAuthed(req: IncomingMessage): boolean {
   return decoded.slice(decoded.indexOf(":") + 1) === ADMIN_PASSWORD;
 }
 
+function isTokenAuthed(req: IncomingMessage): boolean {
+  const m = (req.headers.authorization ?? "").match(/^Bearer (.+)$/);
+  if (!m) return false;
+  const token = m[1]!;
+  const expiry = sessionTokens.get(token);
+  if (expiry === undefined) return false;
+  if (expiry <= Date.now()) {
+    sessionTokens.delete(token);
+    return false;
+  }
+  return true;
+}
+
 async function readBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const c of req) chunks.push(c as Buffer);
@@ -424,9 +449,21 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, path: string
   if (path === "/api/presets" && method === "GET")
     return sendJson(res, 200, PRESETS.map((p) => ({ id: p.id, label: p.label, pkg: p.pkg })));
 
+  if (path === "/api/auth/login" && method === "POST") {
+    if (!ADMIN_PASSWORD)
+      return sendJson(res, 503, { error: "Login is unavailable: ADMIN_PASSWORD is not configured on this host." });
+    const body = (await readBody(req)) as { password?: string } | null;
+    if (body?.password !== ADMIN_PASSWORD) return sendJson(res, 401, { error: "Invalid password." });
+    const token = randomBytes(32).toString("hex");
+    const expiry = Date.now() + TOKEN_TTL_MS;
+    sessionTokens.set(token, expiry);
+    return sendJson(res, 200, { token, expiresAt: new Date(expiry).toISOString() });
+  }
+
   if (path === "/api/packages" && method === "GET") return sendJson(res, 200, packages.list());
 
   if (path === "/api/packages" && method === "POST") {
+    if (ADMIN_PASSWORD && !isAdminAuthed(req) && !isTokenAuthed(req)) return sendJson(res, 401, { error: "Saving a package requires login (bearer token) or admin auth." });
     const body = (await readBody(req)) as Partial<TournamentPackage>;
     if (!body || typeof body.name !== "string" || !body.name.trim())
       return sendJson(res, 400, { error: "A package name is required." });
