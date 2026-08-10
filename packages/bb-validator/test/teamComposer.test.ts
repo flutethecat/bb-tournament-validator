@@ -25,12 +25,19 @@ describe("parseForkRoster", () => {
     const lineman = r.positions.find((p) => p.name === "Snotling Lineman");
     expect(lineman?.positionId).toBe("66199"); // numeric FUMBBL id, not the dataset slug
     expect(lineman?.isStar).toBe(false);
+    expect(lineman?.urlPortrait).toBe("i/643472");
+    expect(lineman?.urlIconSet).toBe("i/643392.png");
     expect(r.positions.find((p) => p.positionId === "65801")).toMatchObject({
       name: "Morg 'n' Thorg",
       isStar: true,
     });
     expect(r.positions.find((p) => p.positionId === "65814")).toMatchObject({
       name: "Akhorne the Squirrel",
+      isStar: true,
+    });
+    expect(r.positions.find((p) => p.name === "Grak")).toMatchObject({
+      urlPortrait: "i/674104",
+      urlIconSet: "i/674105.gif",
       isStar: true,
     });
   });
@@ -42,12 +49,21 @@ describe("rosterOptions", () => {
     expect(o.rosterId).toBe("snotling.bb2025");
     expect(o.reRollCost).toBe(70000);
     const lineman = o.positions.find((p) => p.positionId === "66199");
-    expect(lineman).toMatchObject({ name: "Snotling Lineman", cost: 15000, max: 16, MA: 5, AG: "3+" });
+    expect(lineman).toMatchObject({
+      name: "Snotling Lineman",
+      cost: 15000,
+      max: 16,
+      MA: 5,
+      AG: "3+",
+      urlPortrait: "i/643472",
+      urlIconSet: "i/643392.png",
+    });
     expect(o.positions.find((p) => p.positionId === "65801")).toMatchObject({
       name: "Morg 'n' Thorg",
       cost: 340000,
       max: 1,
       isStar: true,
+      urlIconSet: "i/674075.png",
     });
   });
 });

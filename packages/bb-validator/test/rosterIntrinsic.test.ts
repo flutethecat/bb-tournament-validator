@@ -69,6 +69,28 @@ describe("rosterOptionsIntrinsic — dataset-free builder options", () => {
     expect(slave.skills).toEqual(["Dodge"]);
   });
 
+  it("preserves icon metadata for intrinsic regular and Star positions", () => {
+    const withAssets = slXml
+      .replace(
+        "<skillList><skill>Animal Savagery</skill>",
+        '<portrait>i/800001</portrait><iconSet size="4" mimeType="image/png">i/800002.png</iconSet><skillList><skill>Animal Savagery</skill>',
+      )
+      .replace(
+        "<skillList><skill>Loner</skill>",
+        '<portrait>i/800003</portrait><iconSet size="1" mimeType="image/gif">i/800004.gif</iconSet><skillList><skill>Loner</skill>',
+      );
+    const opts = rosterOptionsIntrinsic(withAssets);
+    expect(opts.positions.find((p) => p.name === "Rat Ogre")).toMatchObject({
+      urlPortrait: "i/800001",
+      urlIconSet: "i/800002.png",
+    });
+    expect(opts.positions.find((p) => p.name === "Renta Star")).toMatchObject({
+      isStar: true,
+      urlPortrait: "i/800003",
+      urlIconSet: "i/800004.gif",
+    });
+  });
+
   it("proves the gap it fills: the DATASET path drops SL regular positions (race not in bb2025)", () => {
     // rosterOptions (dataset-bridged) can't resolve Clan Moulder's regular positions → only the
     // roster-intrinsic Star survives; the intrinsic path recovers all. SL races use the intrinsic path.

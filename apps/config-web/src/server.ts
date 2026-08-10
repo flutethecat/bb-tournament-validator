@@ -65,6 +65,7 @@ import { handleAuthPortal } from "./auth/portal.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
 import { attachSuper } from "./super/index.js";
 import { createSiteBackend } from "./site-backend/index.js";
+import { teamBuilderWireError } from "./teamBuilderWire.js";
 
 /**
  * Endpoints reachable without ADMIN_PASSWORD even when it's set, AND always sent
@@ -884,6 +885,8 @@ async function handleApi(
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
     try {
       const body = (await readBody(req)) as TeamBuilderBody;
+      const wireError = teamBuilderWireError(body);
+      if (wireError) return sendJson(res, 400, { error: wireError });
       // Secret League path (#52 A): off-dataset roster → compose + validate roster-intrinsically.
       if (body.rosterId && isSlRosterId(body.rosterId)) {
         const composed = composeIntrinsicFromBody(cfg.teamsDir, body);
@@ -945,6 +948,8 @@ async function handleApi(
     const cfg = forkConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
     const body = (await readBody(req)) as TeamBuilderBody;
+    const wireError = teamBuilderWireError(body);
+    if (wireError) return sendJson(res, 400, { error: wireError });
     if (auth) {
       body.coach = auth.coach;
     } else if (!isAdminAuthed(req)) {

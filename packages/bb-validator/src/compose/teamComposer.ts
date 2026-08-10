@@ -41,6 +41,10 @@ export interface ForkRosterPosition {
   PA?: number;
   AV?: number;
   skills?: string[];
+  /** Upstream FUMBBL image reference, e.g. `i/643472`. */
+  urlPortrait?: string;
+  /** Upstream FUMBBL sprite-sheet reference, e.g. `i/643392.png`. */
+  urlIconSet?: string;
 }
 
 export interface ForkRoster {
@@ -98,6 +102,8 @@ const numTag = (xml: string, tag: string): number | undefined => {
 };
 const strTag = (xml: string, tag: string): string | undefined =>
   xml.match(new RegExp(`<${tag}>([^<]*)</${tag}>`, "i"))?.[1]?.trim();
+const strTagWithAttributes = (xml: string, tag: string): string | undefined =>
+  xml.match(new RegExp(`<${tag}\\b[^>]*>([^<]*)</${tag}>`, "i"))?.[1]?.trim();
 
 const xmlEscape = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -140,6 +146,8 @@ export function parseForkRoster(xml: string): ForkRoster {
       PA: numTag(block, "passing"),
       AV: numTag(block, "armour"),
       skills,
+      urlPortrait: strTag(block, "portrait"),
+      urlIconSet: strTagWithAttributes(block, "iconSet"),
     });
   }
   return {
@@ -168,6 +176,10 @@ export interface RosterOption {
   skills: string[];
   /** Present only for roster-intrinsic Star players. */
   isStar?: boolean;
+  /** Direct upstream metadata; the client must allow-list before resolving. */
+  urlPortrait?: string;
+  /** Direct upstream metadata; the client renders the first sprite frame. */
+  urlIconSet?: string;
 }
 
 export interface RosterOptions {
@@ -206,6 +218,8 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
         AV: plus(p.AV),
         skills: [...(p.skills ?? [])],
         isStar: true,
+        urlPortrait: p.urlPortrait,
+        urlIconSet: p.urlIconSet,
       });
       continue;
     }
@@ -222,6 +236,8 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
       PA: ds.PA,
       AV: ds.AV,
       skills: [...ds.skills],
+      urlPortrait: p.urlPortrait,
+      urlIconSet: p.urlIconSet,
     });
   }
   return {
@@ -257,6 +273,8 @@ export function rosterOptionsIntrinsic(forkRosterXml: string): RosterOptions {
     AV: p.AV != null ? `${p.AV}+` : "-",
     skills: p.skills ?? [],
     ...(p.isStar ? { isStar: true } : {}),
+    urlPortrait: p.urlPortrait,
+    urlIconSet: p.urlIconSet,
   }));
   return {
     rosterId: fork.rosterId,
