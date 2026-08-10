@@ -11,6 +11,7 @@ import { addedSkills, findPosition, findRoster, normName, skillAccess } from "./
 import type { TournamentPackage } from "./package/types";
 import { resolveTeamConfig } from "./package/resolveConfig";
 import { costSP } from "./cost/costSP";
+import { costGold, inducementsGold, staffGold } from "./cost/costGold";
 import { ALL_RULES, recomputeGold } from "./rules/rules";
 import type { ResolvedPlayer, Rule, RuleContext } from "./rules/types";
 import { err } from "./rules/types";
@@ -64,14 +65,19 @@ export function validate(
   let sp = 0;
   let primary = 0;
   let secondary = 0;
+  let skillsCost = 0;
   for (const rp of players)
     rp.addedSkills.forEach((skill, i) => {
       const access = rp.access[i];
       if (access === undefined || access === "illegal") return;
       sp += costSP(skill, access, pkg.skillAllotment);
+      skillsCost += costGold(skill, access, pkg.skillAllotment);
       if (access === "primary") primary++;
       else secondary++;
     });
+  // Owner 2026-08-10 cost buckets: Staff (players + sideline) · Inducements · Skills (added-skill gold).
+  const staffCost = staffGold(roster);
+  const inducementsCost = inducementsGold(roster);
 
   const errors = findings.filter((f) => f.severity === "error");
   const rc = resolveTeamConfig(pkg, roster.rosterName);
@@ -92,6 +98,9 @@ export function validate(
       playerCount: roster.players.length,
       primarySkillCount: primary,
       secondarySkillCount: secondary,
+      staffCost,
+      inducementsCost,
+      skillsCost,
     },
   };
 }

@@ -61,6 +61,16 @@ export interface SkillAllotment {
   eliteSkills: string[]; // default ["Block","Guard","Mighty Blow","Dodge"]
   /** Per-skill overrides — highest precedence. Loadable from CSV. */
   skillCostSP: Record<string, number>; // default {}
+  /**
+   * GOLD cost of an added skill (owner 2026-08-10 cost-bucket model), parallel to the SP knobs.
+   * All optional; costGold() falls back to the owner's 2026-08-04 flat defaults when unset:
+   * primary 20k, secondary 40k, elite surcharge +10k (⇒ elite-primary 30k, elite-secondary 50k).
+   */
+  primaryCostGold?: number; // default 20000
+  secondaryCostGold?: number; // default 40000
+  eliteSurchargeGold?: number; // default 10000
+  /** Per-skill gold overrides — highest precedence, mirrors skillCostSP. */
+  skillCostGold?: Record<string, number>; // default {}
   maxPerPlayer: number | null; // default 2
   maxSameSkillTeamwide: number | null; // default null
   /**
@@ -150,6 +160,13 @@ export interface TournamentPackage {
   skillAllotment: SkillAllotment;
   /** Optional parallel gold cap; null = SP-only tournament. */
   goldBudget: number | null;
+  /**
+   * When true, the gold cap is a HARD total-value limit: added-skill gold counts against
+   * goldBudget alongside Staff + Inducements. Default (false/undefined) = added skills add TV
+   * but do NOT eat the roster budget — the cap checks creation gold (Staff + Inducements) only
+   * (owner 2026-08-10).
+   */
+  goldCapIncludesAddedSkills?: boolean;
   starPlayers: {
     allowed: boolean;
     maxCount: number | null;

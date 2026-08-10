@@ -27,6 +27,11 @@ export interface RecomputedSummary {
   playerCount: number;
   primarySkillCount: number;
   secondarySkillCount: number;
+  /** Gold cost buckets (owner 2026-08-10). staffCost = players + sideline; skillsCost =
+   *  added-skill gold. staffCost + inducementsCost + skillsCost is the team's total value. */
+  staffCost: number;
+  inducementsCost: number;
+  skillsCost: number;
 }
 
 export interface ValidationResult {

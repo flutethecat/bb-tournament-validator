@@ -59,6 +59,7 @@ export type { ResolvedTeamConfig } from "./package/resolveConfig";
 export { loadPackage, mergePackages, parseSkillCostCsv, applyCsvOverrides } from "./package/resolve";
 export type { CsvSkillCostRow, DeepPartial } from "./package/resolve";
 export { costSP, isElite } from "./cost/costSP";
+export { costGold, staffGold, inducementsGold, skillsGold, DEFAULT_SKILL_GOLD } from "./cost/costGold";
 export { ALL_RULES } from "./rules/rules";
 export type { Rule, RuleContext, ResolvedPlayer } from "./rules/types";
 export { validate } from "./validate";
