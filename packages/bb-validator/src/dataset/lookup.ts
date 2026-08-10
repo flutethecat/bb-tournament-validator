@@ -126,3 +126,27 @@ export function starEligibleForTeam(star: DatasetStar, teamName: string): boolea
   const want = normName(teamName);
   return star.teams.some((t) => normName(t) === want);
 }
+
+/** May a team carrying `specialRule` hire `star`? */
+export function starEligibleBySpecialRule(star: DatasetStar, specialRule: string): boolean {
+  if (!star.playsFor || star.playsFor.length === 0) return true;
+  const want = normName(specialRule);
+  if (!want) return false;
+  // Check the universal sentinel before normName strips parenthetical text.
+  if (star.playsFor.some((rule) => rule.trim().toLowerCase() === "(any)")) return true;
+  return star.playsFor.some((rule) => normName(rule) === want);
+}
+
+/**
+ * The stars a team may hire, DERIVED from eligibility (owner 2026-08-10: "stars should be derived
+ * from their eligibility" — never offered from an off-roster pool or injected as positions). The
+ * star pool filtered to those that play for `teamName`, optionally narrowed to a chosen
+ * `specialRule` value. e.g. a Gnome team that picks "Woodland League" derives Jordell Freshbreeze;
+ * a "Halfling Thimble Cup" Gnome team does not.
+ */
+export function eligibleStarsFor(data: Dataset, teamName: string, specialRule?: string): DatasetStar[] {
+  const rule = specialRule?.trim();
+  return data.stars.filter(
+    (s) => starEligibleForTeam(s, teamName) && (rule ? starEligibleBySpecialRule(s, rule) : true),
+  );
+}

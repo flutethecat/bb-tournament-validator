@@ -145,6 +145,72 @@ describe("composeTeam", () => {
     );
   });
 
+  it("applies custom chosenStats to the composed player and emitted player XML", () => {
+    const r = composeTeam(
+      {
+        ...input,
+        custom: true,
+        picks: [
+          {
+            positionId: "66199",
+            count: 1,
+            chosenStats: { MA: 6, ST: 2, AG: 2, PA: 4, AV: 8 },
+          },
+        ],
+      },
+      bb2025,
+      42,
+    );
+
+    expect(r.roster.players[0]).toMatchObject({
+      MA: 6,
+      ST: 2,
+      AG: "2+",
+      PA: "4+",
+      AV: "8+",
+      cost: 15000,
+    });
+    expect(r.xml).toContain(
+      `<positionId>66199</positionId><movement>6</movement><strength>2</strength>` +
+        `<agility>2</agility><passing>4</passing><armour>8</armour><skillList></skillList>`,
+    );
+  });
+
+  it("marks a custom-built team and gated validation rejects it (SR-258)", () => {
+    const custom = composeTeam({ ...input, custom: true }, bb2025, 42);
+    expect(custom.roster.custom).toBe(true);
+    expect(custom.xml).toContain("<custom>true</custom>");
+    expect(validate(custom.roster, pkg(), bb2025).errors.some((e) => e.ruleId === "custom-team")).toBe(true);
+
+    const plain = composeTeam(input, bb2025, 42);
+    expect(plain.roster.custom).toBe(false);
+    expect(plain.xml).not.toContain("<custom>");
+    expect(validate(plain.roster, pkg(), bb2025).errors.some((e) => e.ruleId === "custom-team")).toBe(false);
+  });
+
+  it("ignores chosenStats outside custom mode and preserves the baseline output byte-for-byte", () => {
+    const baseline = composeTeam(input, bb2025, 42);
+    const ignored = composeTeam(
+      {
+        ...input,
+        custom: false,
+        picks: [
+          {
+            ...input.picks[0]!,
+            chosenStats: { MA: 6, ST: 2, AG: 2, PA: 4, AV: 8 },
+          },
+          ...input.picks.slice(1),
+        ],
+      },
+      bb2025,
+      42,
+    );
+
+    expect(ignored.roster.players).toEqual(baseline.roster.players);
+    expect(ignored.xml).toBe(baseline.xml);
+    expect(ignored.xml).not.toMatch(/<(?:movement|strength|agility|passing|armour)>/);
+  });
+
   it("builds a roster-intrinsic Star with its fixed name and empty XML skillList", () => {
     const withStar = {
       ...input,

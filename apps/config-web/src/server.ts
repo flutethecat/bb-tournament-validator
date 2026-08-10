@@ -294,6 +294,7 @@ interface TeamBuilderBody {
   cheerleaders?: number;
   assistantCoaches?: number;
   dedicatedFans?: number;
+  specialRule?: string;
   /** Secret League path only: the TO-configured TV budget cap in gold (the fixed 1000k baseline
    *  can't fit SL TVs). Omitted ⇒ no budget check (the TO gates the cap out-of-band). */
   budget?: number;
@@ -347,6 +348,7 @@ function composeFromBody(teamsDir: string, body: TeamBuilderBody) {
       cheerleaders: body.cheerleaders,
       assistantCoaches: body.assistantCoaches,
       dedicatedFans: body.dedicatedFans,
+      specialRule: body.specialRule,
       custom: body.custom === true,
     },
     bb2025,

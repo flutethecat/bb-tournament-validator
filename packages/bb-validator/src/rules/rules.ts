@@ -569,8 +569,30 @@ export function recomputeGold(roster: {
 
 export const fmtGold = (n: number): string => `${Math.round(n / 1000)}k`;
 
+/**
+ * Custom-mode gate (owner SR-258) — a team composed in CUSTOM mode bypassed legality + budget
+ * (free skills AND free characteristic edits). Its output is marked `roster.custom` (teamComposer);
+ * gated tournament validation must REJECT it. The team-builder's own custom PREVIEW collapses this
+ * (like every finding) to a warning, so the experimental flow is unaffected — the error only bites
+ * when a custom-built team is validated against a real package.
+ */
+export const customTeamGate: Rule = {
+  id: "custom-team",
+  check: ({ roster }) =>
+    roster.custom
+      ? [
+          err("custom-team", "Team was built in custom mode (free skills/characteristics) — not tournament-legal.", {
+            expected: "a legally-composed team",
+            actual: "custom-mode team",
+            suggestion: "Rebuild without custom mode to enter a tournament.",
+          }),
+        ]
+      : [],
+};
+
 /** The M1 registry, in plan order. */
 export const ALL_RULES: Rule[] = [
+  customTeamGate,
   rosterEligibility,
   squadSize,
   positionalLimits,

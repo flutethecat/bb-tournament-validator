@@ -14,7 +14,14 @@
  */
 
 import type { Dataset } from "../dataset/types";
-import { findPosition, findRoster, normName, skillAccess } from "../dataset/lookup";
+import {
+  findPosition,
+  findRoster,
+  findStar,
+  normName,
+  skillAccess,
+  starEligibleBySpecialRule,
+} from "../dataset/lookup";
 import type { Roster, RosterPlayer, Target } from "../model/roster";
 
 /** A player position as read from a fork roster XML on disk (numeric positionId). */
@@ -64,6 +71,8 @@ export interface ForkRoster {
 export interface TeamPick {
   positionId: string;
   count: number;
+  /** Custom-mode characteristic overrides for each player in this pick. */
+  chosenStats?: { MA?: number; ST?: number; AG?: number; PA?: number; AV?: number };
   /**
    * Tournament builder (owner 08-04): extra skills chosen for EACH of the `count` players in this pick.
    * ROSTER-LEGAL only — every entry must be `primary`/`secondary` access for the position (see
@@ -84,6 +93,8 @@ export interface ComposeInput {
   cheerleaders?: number;
   assistantCoaches?: number;
   dedicatedFans?: number;
+  /** One chosen value from the race's special-rules menu. */
+  specialRule?: string;
   /** Custom UAT mode (owner 08-04): apply ANY chosen skill/trait as-is — bypass the roster-legal check. */
   custom?: boolean;
 }
@@ -399,6 +410,7 @@ export function composeTeamIntrinsic(input: ComposeIntrinsicInput, now = Date.no
     rosterName: fork.raceName,
     coach: input.coach,
     teamName: input.teamName,
+    custom: input.custom === true,
     sideline: {
       apothecary: input.apothecary,
       assistantCoaches: input.assistantCoaches ?? 0,
@@ -426,6 +438,7 @@ export function composeTeamIntrinsic(input: ComposeIntrinsicInput, now = Date.no
     `\t<teamRating>${tvUnits}</teamRating>\n` +
     `\t<currentTeamValue>${tvUnits}</currentTeamValue>\n` +
     `\t<teamStrength>${tvUnits}</teamStrength>\n` +
+    (input.custom ? `\t<custom>true</custom>\n` : "") +
     `\t<division>[X]</division>\n\n` +
     `\t<specialRules></specialRules>\n\n` +
     xmlPlayers.join("\n") +
@@ -481,6 +494,12 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
   const fork = parseForkRoster(input.forkRosterXml);
   const dsRoster = findRoster(data, fork.raceName);
   if (!dsRoster) throw new Error(`Race "${fork.raceName}" is not in the BB2025 dataset.`);
+  const requestedSpecialRule = input.specialRule?.trim() || undefined;
+  const specialRule = requestedSpecialRule
+    ? dsRoster.specialRules.find((rule) => normName(rule) === normName(requestedSpecialRule))
+    : undefined;
+  if (requestedSpecialRule && !specialRule)
+    throw new Error(`Special rule "${requestedSpecialRule}" is not available to ${dsRoster.name}.`);
   const byId = new Map(fork.positions.map((p) => [p.positionId, p]));
 
   const teamId = mintTeamId(input.coach, fork.raceName, now);
@@ -494,6 +513,9 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     const forkPos = byId.get(pick.positionId);
     if (!forkPos) throw new Error(`positionId "${pick.positionId}" is not in the ${fork.raceName} roster.`);
     if (forkPos.isStar) {
+      const star = findStar(data, forkPos.name);
+      if (specialRule && star && !starEligibleBySpecialRule(star, specialRule))
+        throw new Error(`Star player ${forkPos.name} is not eligible under ${specialRule}.`);
       if (pick.chosenSkills && pick.chosenSkills.length > 0)
         throw new Error(`Star player ${forkPos.name} cannot take chosen skills.`);
       const count = Math.max(0, pick.count | 0);
@@ -532,6 +554,16 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
       ? (pick.chosenSkills ?? []).map((s) => s.trim()).filter(Boolean)
       : resolveChosenSkills(data, dsPos, pick.chosenSkills);
     const chosenSkillXml = chosenSkills.map((s) => `<skill>${xmlEscape(s)}</skill>`).join("");
+    const chosenStats = input.custom === true ? pick.chosenStats : undefined;
+    const chosenStatXml = chosenStats
+      ? [
+          chosenStats.MA !== undefined ? `<movement>${chosenStats.MA}</movement>` : "",
+          chosenStats.ST !== undefined ? `<strength>${chosenStats.ST}</strength>` : "",
+          chosenStats.AG !== undefined ? `<agility>${chosenStats.AG}</agility>` : "",
+          chosenStats.PA !== undefined ? `<passing>${chosenStats.PA}</passing>` : "",
+          chosenStats.AV !== undefined ? `<armour>${chosenStats.AV}</armour>` : "",
+        ].join("")
+      : "";
     for (let i = 0; i < Math.max(0, pick.count | 0); i++) {
       const nr = players.length + 1;
       const idx = (perPosition.get(dsPos.name) ?? 0) + 1;
@@ -539,11 +571,11 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
       players.push({
         number: nr,
         positionName: dsPos.name,
-        MA: dsPos.MA,
-        ST: dsPos.ST,
-        AG: dsPos.AG,
-        PA: dsPos.PA,
-        AV: dsPos.AV,
+        MA: chosenStats?.MA ?? dsPos.MA,
+        ST: chosenStats?.ST ?? dsPos.ST,
+        AG: chosenStats?.AG !== undefined ? plus(chosenStats.AG) : dsPos.AG,
+        PA: chosenStats?.PA !== undefined ? plus(chosenStats.PA) : dsPos.PA,
+        AV: chosenStats?.AV !== undefined ? avTarget(chosenStats.AV) : dsPos.AV,
         skills: [...dsPos.skills, ...chosenSkills],
         keywords: [...dsPos.keywords],
         cost: dsPos.cost,
@@ -552,7 +584,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
       xmlPlayers.push(
         `\t<player nr="${nr}" id="${teamId}${nr}"><name>${xmlEscape(playerName)}</name>` +
           `<gender>${xmlEscape(forkPos.gender)}</gender><positionId>${xmlEscape(pick.positionId)}</positionId>` +
-          `<skillList>${chosenSkillXml}</skillList></player>`,
+          `${chosenStatXml}<skillList>${chosenSkillXml}</skillList></player>`,
       );
     }
   }
@@ -582,10 +614,11 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     rosterName: dsRoster.name,
     coach: input.coach,
     teamName: input.teamName,
+    custom: input.custom === true,
     sideline,
     inducements: [],
     leagues: [],
-    specialRules: [...dsRoster.specialRules],
+    specialRules: specialRule ? [specialRule] : [...dsRoster.specialRules],
     players,
     summary: {
       playersCost: playersGold,
@@ -613,6 +646,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     `\t<teamRating>${tvUnits}</teamRating>\n` +
     `\t<currentTeamValue>${tvUnits}</currentTeamValue>\n` +
     `\t<teamStrength>${tvUnits}</teamStrength>\n` +
+    (input.custom ? `\t<custom>true</custom>\n` : "") +
     `\t<division>[X]</division>\n\n` +
     `\t<specialRules></specialRules>\n\n` +
     xmlPlayers.join("\n") +

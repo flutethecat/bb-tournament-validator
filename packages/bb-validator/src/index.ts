@@ -31,6 +31,8 @@ export {
   starNameSet,
   findStar,
   starEligibleForTeam,
+  starEligibleBySpecialRule,
+  eligibleStarsFor,
 } from "./dataset/lookup";
 export type { Access } from "./dataset/lookup";
 export type {

@@ -61,6 +61,9 @@ export interface Roster {
   leagues: string[];
   specialRules: string[];
   players: RosterPlayer[];
+  /** True when composed in CUSTOM mode (owner bypass of legality/budget). Gated tournament
+   *  validation must reject or re-price such a team — its free skills/stats aren't legal (SR-258). */
+  custom?: boolean;
   /** Present when the source printed one (bbtc.pl does); cross-checked, never trusted. */
   summary?: RosterSummary;
 }
