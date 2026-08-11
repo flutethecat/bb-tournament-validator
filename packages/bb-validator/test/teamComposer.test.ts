@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { composeTeam, parseForkRoster, mintTeamId, rosterOptions, validate } from "@bb/validator";
+import { composeTeam, parseForkRoster, teamCustomFromXml, mintTeamId, rosterOptions, validate } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { pkg } from "./helpers";
 
@@ -186,6 +186,16 @@ describe("composeTeam", () => {
     expect(plain.roster.custom).toBe(false);
     expect(plain.xml).not.toContain("<custom>");
     expect(validate(plain.roster, pkg(), bb2025).errors.some((e) => e.ruleId === "custom-team")).toBe(false);
+  });
+
+  it("SR-258 submit path: the custom flag survives serialization and drives the gate on parse-back", () => {
+    // The real attack path: a custom team's EXPORTED xml, read back, must still reject in gated validation.
+    const customXml = composeTeam({ ...input, custom: true }, bb2025, 42).xml;
+    expect(teamCustomFromXml(customXml)).toBe(true);
+    const reparsed = { ...composeTeam(input, bb2025, 42).roster, custom: teamCustomFromXml(customXml) };
+    expect(validate(reparsed, pkg(), bb2025).errors.some((e) => e.ruleId === "custom-team")).toBe(true);
+    // a genuinely non-custom export reads false → the gate does not fire
+    expect(teamCustomFromXml(composeTeam(input, bb2025, 42).xml)).toBe(false);
   });
 
   it("ignores chosenStats outside custom mode and preserves the baseline output byte-for-byte", () => {

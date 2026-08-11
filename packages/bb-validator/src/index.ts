@@ -69,6 +69,7 @@ export {
   composeTeam,
   composeTeamIntrinsic,
   parseForkRoster,
+  teamCustomFromXml,
   mintTeamId,
   rosterOptions,
   rosterOptionsIntrinsic,

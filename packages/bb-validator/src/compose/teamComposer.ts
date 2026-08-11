@@ -125,6 +125,16 @@ const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "").s
  * (id/name/reroll/apothecary) sits before the first `<position>`; each `<position>` block
  * carries the numeric id + name + gender + type.
  */
+/**
+ * Read the SR-258 custom marker back out of a composed team's XML — the ENFORCEMENT hook for the
+ * submit path. A custom team's exported XML must re-validate as custom, or a gated tournament would
+ * accept its free skills/stats. There is no team-XML→Roster parser today (validate() only runs on the
+ * in-memory composed roster), so any future team-submit parser MUST set `roster.custom` via this.
+ */
+export function teamCustomFromXml(xml: string): boolean {
+  return /<custom>\s*true\s*<\/custom>/i.test(xml);
+}
+
 export function parseForkRoster(xml: string): ForkRoster {
   const header = xml.split(/<position\b/i)[0] ?? xml;
   // Base bb2025 rosters carry <roster id="snotling.bb2025">; Secret League / imported rosters carry
