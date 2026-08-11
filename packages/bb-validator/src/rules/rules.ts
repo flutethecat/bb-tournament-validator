@@ -4,6 +4,7 @@
  */
 
 import { costSP } from "../cost/costSP";
+import { skillsGold } from "../cost/costGold";
 import { findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
 import { eligibleTeamNames, fitsSkillCounts, isEligible, resolveTeamConfig, sourceLabel, usesCountMode } from "../package/resolveConfig";
@@ -103,11 +104,17 @@ export const positionalLimits: Rule = {
 /** 4. Gold budget (optional) — recomputed team gold <= the effective (resolved) gold cap. */
 export const goldBudget: Rule = {
   id: "gold-budget",
-  check: ({ roster, pkg }) => {
+  check: ({ roster, pkg, data }) => {
     const cfg = resolveTeamConfig(pkg, roster.rosterName);
     if (cfg.skillPackages?.length) return []; // gold is checked jointly with SP by skill-packages
     if (cfg.gold == null) return [];
-    const gold = recomputeGold(roster);
+    // Default: skills add TV but don't eat the cap (owner 2026-08-10). A HARD gold limit
+    // (goldCapIncludesAddedSkills) counts them — Meero option (c): strip whatever recomputeGold
+    // already counted for skills (0 for a built team, the sheet value for a submitted one) and add
+    // the flat-model skillsGold. No double-count; real-TV (players/staff/inducements/stars) intact.
+    const gold = pkg.goldCapIncludesAddedSkills
+      ? recomputeGold(roster) - (roster.summary?.skillsCost ?? 0) + skillsGold(roster, data, pkg)
+      : recomputeGold(roster);
     const where = sourceLabel(cfg);
     return gold > cfg.gold
       ? [

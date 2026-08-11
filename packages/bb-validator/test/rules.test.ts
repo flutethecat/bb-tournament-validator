@@ -74,6 +74,22 @@ describe("gold-budget", () => {
     const r = validate(roster(), pkg({ goldBudget: 500000 }), fakeData);
     expect(errorsOf(r, "gold-budget")[0]!.message).toMatch(/550k.*500k/);
   });
+
+  // Meero option (c): goldCapIncludesAddedSkills strips recomputeGold's skill portion and re-prices
+  // by the flat model. 11x50k players + 100k printed skill cost = 650k.
+  const withSkillCost = roster({
+    summary: { playersCost: 550000, skillsCost: 100000, inducementCost: 0, sidelineCost: 0, total: 650000 },
+  });
+
+  it("default: added-skill gold does NOT eat the cap (650k > 600k flags)", () => {
+    const r = validate(withSkillCost, pkg({ goldBudget: 600000 }), fakeData);
+    expect(errorsOf(r, "gold-budget")).toHaveLength(1);
+  });
+
+  it("hard gold limit strips the counted skill gold, no double-count (650k − 100k + 0 = 550k ≤ 600k)", () => {
+    const r = validate(withSkillCost, pkg({ goldBudget: 600000, goldCapIncludesAddedSkills: true }), fakeData);
+    expect(errorsOf(r, "gold-budget")).toHaveLength(0);
+  });
 });
 
 describe("skill-access", () => {
