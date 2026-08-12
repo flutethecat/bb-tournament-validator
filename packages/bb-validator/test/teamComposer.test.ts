@@ -66,6 +66,24 @@ describe("rosterOptions", () => {
       urlIconSet: "i/674075.png",
     });
   });
+
+  it("derives Big Guy position groups from dataset types and omits inert groups", () => {
+    const snotling = rosterOptions(snotlingXml, bb2025);
+    expect(snotling.positions.filter((p) => p.type === "bigguy")).toHaveLength(2);
+    expect(snotling.positionGroups).toEqual([
+      { positions: ["66203", "66204"], max: 4, label: "Big Guy" },
+    ]);
+
+    const inertAmazonXml =
+      '<roster id="amazon.bb2025"><name>Amazon</name><reRollCost>60000</reRollCost>' +
+      "<maxReRolls>8</maxReRolls><apothecary>true</apothecary><maxBigGuys>1</maxBigGuys>" +
+      '<position id="70000"><quantity>16</quantity><name>Eagle Warrior</name><type>Regular</type></position>' +
+      "</roster>";
+    const amazon = rosterOptions(inertAmazonXml, bb2025);
+    expect(amazon.positions).toHaveLength(1);
+    expect(amazon.positions[0]?.type).toBe("positional");
+    expect(amazon.positionGroups).toBeUndefined();
+  });
 });
 
 describe("mintTeamId", () => {

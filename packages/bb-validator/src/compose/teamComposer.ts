@@ -186,6 +186,8 @@ export function parseForkRoster(xml: string): ForkRoster {
 export interface RosterOption {
   positionId: string;
   name: string;
+  /** Dataset position classification, e.g. `lineman` or `bigguy`. */
+  type?: string;
   cost: number;
   /** Max copies allowed (dataset `max`, e.g. 0-16 / 0-2). */
   max: number;
@@ -210,6 +212,7 @@ export interface RosterOptions {
   maxReRolls: number;
   apothecaryAllowed: boolean;
   positions: RosterOption[];
+  positionGroups?: Array<{ positions: string[]; max: number; label: string }>;
 }
 
 /**
@@ -249,6 +252,7 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
     positions.push({
       positionId: p.positionId,
       name: ds.name,
+      type: ds.type,
       cost: ds.cost,
       max: ds.max,
       MA: ds.MA,
@@ -261,6 +265,15 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
       urlIconSet: p.urlIconSet,
     });
   }
+  const bigGuyPositionIds = positions
+    .filter((position) => position.type === "bigguy")
+    .map((position) => position.positionId);
+  // [2026-08-11] Meero, "TB1 Big-Guy group-limit CITE": group every dataset `type: "bigguy"`
+  // position under the roster-level dataset `maxBigGuys`; inert rosters naturally produce no group.
+  const positionGroups =
+    dsRoster && dsRoster.maxBigGuys > 0 && bigGuyPositionIds.length > 0
+      ? [{ positions: bigGuyPositionIds, max: dsRoster.maxBigGuys, label: "Big Guy" }]
+      : undefined;
   return {
     rosterId: fork.rosterId,
     raceName: fork.raceName,
@@ -268,6 +281,7 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
     maxReRolls: fork.maxReRolls,
     apothecaryAllowed: fork.apothecaryAllowed,
     positions,
+    ...(positionGroups ? { positionGroups } : {}),
   };
 }
 
