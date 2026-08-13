@@ -120,6 +120,27 @@ const xmlEscape = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24) || "x";
 
+// [2026-08-12] Swarming P1 (Nom producer patch, Snotling-only per the enum-gap ruling): the fork's
+// StepSwarming gates on the TEAM's specialRules containing SWARMING, but composeTeam emitted an empty
+// <specialRules>. Emit Snotling's four ENUM-VALID rules only (several dataset rule names — Chaos Clash,
+// Team Captain, Woodland League, the truncated "Favoured of..." — are not accepted by the fork's
+// SpecialRule.from, so a general emit would write dead data). Generalization rides the bulk data pass.
+// Keys are normName() output (which collapses whitespace to single spaces, does NOT strip it).
+const SNOTLING_RUNTIME_RULES = new Set([
+  "underworld challenge",
+  "bribery and corruption",
+  "low cost linemen",
+  "swarming",
+]);
+
+const snotlingRuntimeRules = (rosterName: string, rosterRules: readonly string[]): string[] =>
+  normName(rosterName) === "snotling"
+    ? rosterRules.filter((rule) => SNOTLING_RUNTIME_RULES.has(normName(rule)))
+    : [];
+
+const emitSpecialRulesXml = (rules: readonly string[]): string =>
+  `\t<specialRules>${rules.map((rule) => `<rule>${xmlEscape(rule)}</rule>`).join("")}</specialRules>\n\n`;
+
 /**
  * Parse a fork roster XML into the fields the composer needs. The roster's own header
  * (id/name/reroll/apothecary) sits before the first `<position>`; each `<position>` block
@@ -642,7 +663,9 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     sideline,
     inducements: [],
     leagues: [],
-    specialRules: specialRule ? [specialRule] : [...dsRoster.specialRules],
+    specialRules: normName(dsRoster.name) === "snotling"
+      ? snotlingRuntimeRules(dsRoster.name, dsRoster.specialRules)
+      : (specialRule ? [specialRule] : [...dsRoster.specialRules]),
     players,
     summary: {
       playersCost: playersGold,
@@ -672,7 +695,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     `\t<teamStrength>${tvUnits}</teamStrength>\n` +
     (input.custom ? `\t<custom>true</custom>\n` : "") +
     `\t<division>[X]</division>\n\n` +
-    `\t<specialRules></specialRules>\n\n` +
+    emitSpecialRulesXml(snotlingRuntimeRules(dsRoster.name, roster.specialRules)) +
     xmlPlayers.join("\n") +
     `\n\n</team>\n`;
 

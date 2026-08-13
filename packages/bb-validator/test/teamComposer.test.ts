@@ -147,7 +147,8 @@ describe("composeTeam", () => {
         `\t<currentTeamValue>65</currentTeamValue>\n` +
         `\t<teamStrength>65</teamStrength>\n` +
         `\t<division>[X]</division>\n\n` +
-        `\t<specialRules></specialRules>\n\n` +
+        `\t<specialRules><rule>Underworld Challenge</rule><rule>Bribery and Corruption</rule>` +
+        `<rule>Low Cost Linemen</rule><rule>Swarming</rule></specialRules>\n\n` +
         `\t<player nr="1" id="tb_kalimar_snotling_161"><name>Snotling Lineman 1</name><gender>random</gender><positionId>66199</positionId><skillList></skillList></player>\n` +
         `\t<player nr="2" id="tb_kalimar_snotling_162"><name>Snotling Lineman 2</name><gender>random</gender><positionId>66199</positionId><skillList></skillList></player>\n` +
         `\t<player nr="3" id="tb_kalimar_snotling_163"><name>Snotling Lineman 3</name><gender>random</gender><positionId>66199</positionId><skillList></skillList></player>\n` +
@@ -161,6 +162,17 @@ describe("composeTeam", () => {
         `\t<player nr="11" id="tb_kalimar_snotling_1611"><name>Fungus Flinga 1</name><gender>random</gender><positionId>66200</positionId><skillList></skillList></player>\n\n` +
         `</team>\n`,
     );
+  });
+
+  it("keeps all upstream-compatible Snotling runtime rules when star eligibility is selected", () => {
+    const r = composeTeam({ ...input, specialRule: "Underworld Challenge" }, bb2025, 42);
+    expect(r.roster.specialRules).toEqual([
+      "Underworld Challenge",
+      "Bribery and Corruption",
+      "Low Cost Linemen",
+      "Swarming",
+    ]);
+    expect(r.xml).toContain("<rule>Swarming</rule>");
   });
 
   it("applies custom chosenStats to the composed player and emitted player XML", () => {
