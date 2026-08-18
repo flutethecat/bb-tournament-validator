@@ -1,0 +1,8 @@
+# Caddy reverse-proxy for config-web (:4310) — TLS via Let's Encrypt.
+# Prep only: not serving until owner port-forwards 80+443 and Caddy is started.
+# HTTP->HTTPS redirect on :80 is automatic for a hostname site block.
+
+superfumbbltest.duckdns.org {
+	# ACME cert auto-issued/renewed by Caddy (needs 80+443 reachable).
+	reverse_proxy 127.0.0.1:4310
+}
