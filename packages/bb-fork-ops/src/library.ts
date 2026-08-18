@@ -69,3 +69,25 @@ export function libraryCoaches(baseDir: string): string[] {
     .filter((f) => f.endsWith(".json"))
     .map((f) => f.slice(0, -".json".length));
 }
+
+/**
+ * Find an existing team whose name collides with `teamName`, across EVERY coach's
+ * library (FUMBBL team names are globally unique, not per-coach — see the duplicate-name
+ * guard on team creation in config-web's server.ts). Comparison is trimmed + case-insensitive.
+ * `excludeTeamId` lets a resubmission/update of the SAME team pass through without
+ * tripping on its own existing row.
+ */
+export function findLibraryTeamByName(
+  baseDir: string,
+  teamName: string,
+  excludeTeamId?: string,
+): LibraryTeam | undefined {
+  const want = teamName.trim().toLowerCase();
+  for (const coach of libraryCoaches(baseDir)) {
+    for (const t of readLibrary(baseDir, coach)) {
+      if (t.teamId === excludeTeamId) continue;
+      if (t.teamName.trim().toLowerCase() === want) return t;
+    }
+  }
+  return undefined;
+}

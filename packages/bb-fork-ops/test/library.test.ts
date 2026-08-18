@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readLibrary, removeLibraryTeam, upsertLibraryTeam, type LibraryTeam } from "@bb/fork-ops";
+import {
+  findLibraryTeamByName,
+  readLibrary,
+  removeLibraryTeam,
+  upsertLibraryTeam,
+  type LibraryTeam,
+} from "@bb/fork-ops";
 
 let dir: string;
 beforeEach(() => {
@@ -58,5 +64,31 @@ describe("library store", () => {
     const after = removeLibraryTeam(dir, "Flutethecat", "1");
     expect(after.map((t) => t.teamId)).toEqual(["2"]);
     expect(readLibrary(dir, "Flutethecat").map((t) => t.teamId)).toEqual(["2"]);
+  });
+});
+
+describe("findLibraryTeamByName (duplicate-name guard)", () => {
+  it("finds a collision across DIFFERENT coaches — team names are global, not per-coach", () => {
+    upsertLibraryTeam(dir, "Flutethecat", team({ teamId: "1", teamName: "The Bad Guys", coach: "Flutethecat" }));
+    const hit = findLibraryTeamByName(dir, "The Bad Guys", "Gondra87");
+    expect(hit?.teamId).toBe("1");
+  });
+
+  it("is case-insensitive and trims whitespace", () => {
+    upsertLibraryTeam(dir, "Flutethecat", team({ teamId: "1", teamName: "The Bad Guys" }));
+    expect(findLibraryTeamByName(dir, "  the bad guys  ")?.teamId).toBe("1");
+  });
+
+  it("returns undefined when no team has that name", () => {
+    upsertLibraryTeam(dir, "Flutethecat", team({ teamId: "1", teamName: "The Bad Guys" }));
+    expect(findLibraryTeamByName(dir, "Nobody Home")).toBeUndefined();
+  });
+
+  it("excludes the team being updated via excludeTeamId, so a resubmission doesn't collide with itself", () => {
+    upsertLibraryTeam(dir, "Flutethecat", team({ teamId: "1", teamName: "The Bad Guys" }));
+    expect(findLibraryTeamByName(dir, "The Bad Guys", "1")).toBeUndefined();
+    // a DIFFERENT existing team still collides even when excluding some other id
+    upsertLibraryTeam(dir, "Gondra87", team({ teamId: "2", teamName: "The Bad Guys", coach: "Gondra87" }));
+    expect(findLibraryTeamByName(dir, "The Bad Guys", "1")?.teamId).toBe("2");
   });
 });

@@ -46,7 +46,9 @@ import {
   forkDbConfigFromEnv,
   HOME_AWAY_MODES,
   type HomeAwayMode,
+  fetchForkTeam,
   ingestForkTeam,
+  findLibraryTeamByName,
   isLoadedOnFork,
   jnlpFilename,
   listForkCoaches,
@@ -262,6 +264,19 @@ function loadSecretLeagueForkRosters(teamsDir: string): Map<string, string> {
  * not parsed back off our XML: the composer writes `<currentTeamValue>` in fork-native 10k units
  * (830k ⇒ 83), which `parseTeamXmlMeta`'s `>= 10000` heuristic would read as a literal 83.
  */
+/**
+ * Reject a team NAME that collides with any already-created team, globally (FUMBBL names
+ * are unique fork-wide, not per-coach — see findLibraryTeamByName). `excludeTeamId` lets a
+ * resubmission of the SAME team (same teamId) pass through without tripping on its own row;
+ * currently every team-builder build mints a fresh teamId (mintTeamId), so this exclusion
+ * is a no-op today but is kept for whenever a true in-place-update path exists.
+ */
+function duplicateTeamNameError(teamName: string, excludeTeamId?: string): string | undefined {
+  const clash = findLibraryTeamByName(LIBRARY_DIR, teamName, excludeTeamId);
+  if (!clash) return undefined;
+  return `A team named "${teamName.trim()}" already exists — choose another name.`;
+}
+
 function registerBuiltTeam(
   roster: Roster,
   teamId: string,
@@ -628,6 +643,13 @@ async function handleApi(
     const cfg = forkConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
     try {
+      // Peek the FUMBBL team's name/id BEFORE persisting anything, so a name collision with an
+      // already-created team is declined instead of silently landing two same-named teams in the
+      // library (FUMBBL names are globally unique; excludeTeamId lets a re-ingest of the SAME
+      // team — ownership move / refresh — pass through without tripping on its own row).
+      const peek = await fetchForkTeam(team);
+      const dupError = duplicateTeamNameError(peek.teamName, peek.teamId);
+      if (dupError) return sendJson(res, 409, { error: dupError });
       const result = await ingestForkTeam(cfg, LIBRARY_DIR, coach, team, FORK_STATE_DIR);
       const reload = await reloadFork(cfg, FORK_STATE_DIR);
       if (reload.reloaded) {
@@ -977,6 +999,8 @@ async function handleApi(
             summary: composed.roster.summary,
           });
         }
+        const dupError = duplicateTeamNameError(composed.roster.teamName, composed.teamId);
+        if (dupError) return sendJson(res, 409, { error: dupError });
         mkdirSync(cfg.teamsDir, { recursive: true });
         const coachTag = composed.roster.coach.replace(/[^\w.-]+/g, "_") || "coach";
         const file = join(cfg.teamsDir, `team_${coachTag}_${composed.teamId}.xml`);
@@ -992,6 +1016,8 @@ async function handleApi(
       if (!body.custom && !result.valid) {
         return sendJson(res, 400, { error: "Team is not legal — fix the findings and rebuild.", errors: result.errors, summary: result.recomputedSummary });
       }
+      const dupError = duplicateTeamNameError(composed.roster.teamName, composed.teamId);
+      if (dupError) return sendJson(res, 409, { error: dupError });
       mkdirSync(cfg.teamsDir, { recursive: true });
       const coachTag = composed.roster.coach.replace(/[^\w.-]+/g, "_") || "coach";
       const file = join(cfg.teamsDir, `team_${coachTag}_${composed.teamId}.xml`);
