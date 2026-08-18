@@ -78,10 +78,12 @@ import { legacyPasswordAuthCounts, noteLegacyPasswordAuth } from "./auth/depreca
 import { attachSuper } from "./super/index.js";
 import { createSiteBackend } from "./site-backend/index.js";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
+import { corsDecision, parseAllowedOrigins } from "./cors.js";
+import { customModeError } from "./customGate.js";
 
 /**
  * Endpoints reachable without ADMIN_PASSWORD even when it's set, AND always sent
- * with CORS (access-control-allow-origin: *) on every response — success or error.
+ * with CORS headers (allowlist-reflected origin — SR-260 ④) on every response — success or error.
  * The FUMBBL40k client fetches these machine-to-machine (no user, no Basic-auth
  * credentials, no same-origin page to inherit cookies from), so gating behind Basic
  * auth or omitting CORS on an error path would just silently break the client flow
@@ -132,6 +134,8 @@ const PUBLIC_DIR = resolve(HERE, "../public");
 const PORT = Number(process.env.PORT ?? 4310);
 const HOST = process.env.HOST ?? "127.0.0.1";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+// SR-260 ④: browser origins allowed cross-origin access. Unset ⇒ same-origin/no-Origin only.
+const CORS_ALLOWLIST = parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS);
 const AUTH_SIDECAR = process.env.AUTH_SIDECAR_ENABLED === "1";
 const TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 const sessionTokens = new Map<string, number>();
@@ -1060,6 +1064,9 @@ async function handleApi(
       const body = (await readBody(req)) as TeamBuilderBody;
       const wireError = teamBuilderWireError(body);
       if (wireError) return sendJson(res, 400, { error: wireError });
+      // SR-260 ③: custom mode skips validation — organizer/admin only, even on preview.
+      const customError = customModeError({ custom: body.custom, organizer: auth?.organizer === true, adminAuthed: isAdminAuthed(req) || isTokenAuthed(req) });
+      if (customError) return sendJson(res, 403, { error: customError });
       const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
       if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
       // Secret League path (#52 A): off-dataset roster → compose + validate roster-intrinsically.
@@ -1135,6 +1142,9 @@ async function handleApi(
     const body = (await readBody(req)) as TeamBuilderBody;
     const wireError = teamBuilderWireError(body);
     if (wireError) return sendJson(res, 400, { error: wireError });
+    // SR-260 ③: custom mode skips the validation gate below — organizer/admin only, fail closed.
+    const customError = customModeError({ custom: body.custom, organizer: auth?.organizer === true, adminAuthed: isAdminAuthed(req) || isTokenAuthed(req) });
+    if (customError) return sendJson(res, 403, { error: customError });
     const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
     if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
     if (auth) {
@@ -1353,18 +1363,28 @@ const server = createServer((req, res) => {
       // The fork calls these machine-to-machine (a Java HTTP client, no Basic-auth) — dispatch BEFORE
       // authorized() so an ADMIN_PASSWORD'd host doesn't 401 the fork. Returns false for non-xml paths.
       if (siteBackend && (await siteBackend.handle(req, res, url.pathname, url.searchParams))) return;
-      // Set CORS before any handler writes a response, so it's on EVERY response for
-      // these routes — success or error (a browser can't read either without it). The
-      // Team Builder V2 POST routes carry a JSON body (+ optional auth header), so a
-      // cross-origin client browser sends a preflight — answer it here.
-      if (PUBLIC_PATHS.has(url.pathname)) {
-        res.setHeader("access-control-allow-origin", "*");
+      // SR-260 ④: allowlist CORS replacing the old wildcard. Set headers before any handler
+      // writes, so they ride EVERY response — success or error (a browser can't read either
+      // without them). No-Origin callers (curl, tauriFetch, the fork's Java client) are
+      // untouched; an allowed origin is reflected (never *); any other Origin on an /api
+      // path is refused outright — fail closed.
+      const cors = corsDecision(req.headers.origin, req.headers.host, CORS_ALLOWLIST);
+      if (cors.kind === "allowed") {
+        res.setHeader("access-control-allow-origin", cors.origin);
+        res.setHeader("vary", "origin");
         res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
-        res.setHeader("access-control-allow-headers", "content-type,authorization");
+        res.setHeader("access-control-allow-headers", "content-type,authorization,x-cw-auth");
+      } else if (cors.kind === "denied" && url.pathname.startsWith("/api/")) {
         if (req.method === "OPTIONS") {
-          res.writeHead(204).end();
+          res.writeHead(403).end();
           return;
         }
+        return sendJson(res, 403, { error: "Origin not allowed (CORS_ALLOWED_ORIGINS)." });
+      }
+      // Preflight: answer for allowed origins, plus the historical no-Origin 204 on public paths.
+      if (req.method === "OPTIONS" && (cors.kind === "allowed" || PUBLIC_PATHS.has(url.pathname))) {
+        res.writeHead(204).end();
+        return;
       }
       if (AUTH_SIDECAR) {
         if (
