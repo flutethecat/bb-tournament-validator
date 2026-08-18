@@ -71,8 +71,20 @@ export function parseCookies(header: string | undefined): Map<string, string> {
   return cookies;
 }
 
+/**
+ * `Authorization: Bearer <token>` — the FUMBBL40k client's session carrier. The Tauri client has no
+ * cookie jar to inherit a same-origin session from, so it holds the token itself; Bearer (not a
+ * cookie) is also why the client needs no CSRF header (a cross-site form cannot set this header).
+ * Returns undefined for a Basic header, leaving the admin Basic path untouched.
+ */
+export function bearerTokenFromRequest(req: IncomingMessage): string | undefined {
+  const match = (req.headers.authorization ?? "").match(/^Bearer\s+(\S+)$/i);
+  return match ? match[1] : undefined;
+}
+
+/** Bearer first (client), then the portal's cookie (browser). Both resolve into the SAME store. */
 export function sessionTokenFromRequest(req: IncomingMessage): string | undefined {
-  return parseCookies(req.headers.cookie).get(SESSION_COOKIE_NAME);
+  return bearerTokenFromRequest(req) ?? parseCookies(req.headers.cookie).get(SESSION_COOKIE_NAME);
 }
 
 export function sessionFromRequest(req: IncomingMessage): Session | undefined {
