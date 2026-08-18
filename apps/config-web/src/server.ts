@@ -67,7 +67,7 @@ import {
   verifyCoachDigest,
 } from "@bb/fork-ops";
 import { PackageFiles, readCoachRegistry, readCoaches, skillCatalog, starList, teamList } from "./data";
-import { packageResponseInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
+import { packageResponseInfo, packageRulesInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
 import { PRESETS } from "./presets";
 import { handleAuthPortal } from "./auth/portal.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
@@ -613,7 +613,14 @@ async function handleApi(
   if (pkgMatch && method === "GET") {
     const found = packages.get(decodeURIComponent(pkgMatch[1]!));
     if (!found) return sendJson(res, 404, { error: "Package not found." });
-    return sendJson(res, 200, { pkg: found.pkg, problems: found.problems });
+    // `rules` (additive): the derived tier summary + (with ?roster=) that race's effective
+    // rules and budget — lets the Slot Builder show the ruleset and lock the build budget
+    // WITHOUT a preview round-trip (a preview needs picks + coach + team name first).
+    return sendJson(res, 200, {
+      pkg: found.pkg,
+      problems: found.problems,
+      rules: packageRulesInfo(found.pkg, query.get("roster")),
+    });
   }
 
   if (path === "/api/export" && method === "POST") {

@@ -142,6 +142,7 @@ def main():
         "name": "Spike! 2026",
         "ruleset": "bb2025-default",
         "description": "Spike! 2026 (TG Rules Pack). 6 tiers, each choosing one of 3 gold+SP skill packages. Skills: primary 1 SP, secondary 2 SP, elite +0.5 SP. Stars hired with Skill Points, priced per tier (max 2). Min 11 players, no stat increases, 1 skill/player (stacking only via Tier 6 Pack 2). STAR SP TABLE transcribed from the rules-pack image - spot-check before competitive use. Highlander star rule is opponent-dependent and not enforced in single-roster validation.",
+        "dataNote": "Star SP table transcribed from the rules-pack image - spot-check before competitive use.",
         "eligibleRosters": sorted({tm for _, _, ts in TIERS.values() for tm in ts}),
         "skillAllotment": {
             "skillPointBudget": 0,
