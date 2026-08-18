@@ -41,6 +41,8 @@ import {
   adminMessage,
   buildForkJnlp,
   createForkAccount,
+  createForkAccountDigest,
+  coachSecretDigest,
   forkAdminConfigFromEnv,
   forkConfigFromEnv,
   forkDbConfigFromEnv,
@@ -62,6 +64,7 @@ import {
   scheduleForkGame,
   upsertLibraryTeam,
   verifyCoachPassword,
+  verifyCoachDigest,
 } from "@bb/fork-ops";
 import { PackageFiles, readCoachRegistry, readCoaches, skillCatalog, starList, teamList } from "./data";
 import { packageResponseInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
@@ -193,8 +196,10 @@ const matchmaker = new Matchmaker({
   scheduleGame: forkAdminCfg
     ? (teamHomeId, teamAwayId) => scheduleForkGame(forkAdminCfg, teamHomeId, teamAwayId, { overtime: overtimeEnabled })
     : undefined,
+  // Digest form: matchmaking reduces either credential carrier to md5(pw) at admission,
+  // so the clear text never reaches this check (owner security ruling 08-17).
   verifyChallenger: challengeDbCfg
-    ? (coach, password) => verifyCoachPassword(challengeDbCfg, coach, password)
+    ? (coach, passwordMd5) => verifyCoachDigest(challengeDbCfg, coach, passwordMd5)
     : undefined,
   homeAwayMode: initialSettings.homeAwayMode,
 });
@@ -627,8 +632,8 @@ async function handleApi(
     const result = await coachLogin(req, {
       body,
       authenticationAvailable: challengeDbCfg !== undefined,
-      verifyCoachPassword: (coach, password) =>
-        challengeDbCfg ? verifyCoachPassword(challengeDbCfg, coach, password) : Promise.resolve(false),
+      verifyCoachDigest: (coach, passwordMd5) =>
+        challengeDbCfg ? verifyCoachDigest(challengeDbCfg, coach, passwordMd5) : Promise.resolve(false),
     });
     return sendCoachLogin(res, result);
   }
@@ -647,10 +652,24 @@ async function handleApi(
     const coach = query.get("coach")?.trim();
     const teamId = query.get("teamId")?.trim();
     const gameName = query.get("gameName")?.trim();
-    const password = query.get("password")?.trim() || undefined;
     if (!coach || !teamId || !gameName)
       return sendJson(res, 400, { error: "coach, teamId and gameName are required." });
-    const jnlp = buildForkJnlp({ coach, teamId, gameName, password });
+    // Dual-accept: `passwordMd5` (current clients) or `password` (deprecated). The JNLP
+    // carries whichever we end up with as `-passwordMd5`, so the clear text no longer
+    // lands in a file on the coach's disk. See buildForkJnlp for why this argument is
+    // ours to rename (upstream has no password argument at all).
+    let jnlpDigest: string | undefined;
+    try {
+      const reduced = coachSecretDigest({
+        passwordMd5: query.get("passwordMd5")?.trim() || undefined,
+        password: query.get("password")?.trim() || undefined,
+      });
+      jnlpDigest = reduced.digest;
+      if (reduced.legacy) noteLegacyPasswordAuth("fork/jnlp");
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+    const jnlp = buildForkJnlp({ coach, teamId, gameName, passwordMd5: jnlpDigest });
     res.writeHead(200, {
       "content-type": "application/x-java-jnlp-file; charset=utf-8",
       "content-disposition": `attachment; filename="${jnlpFilename(gameName, coach)}"`,
@@ -665,12 +684,19 @@ async function handleApi(
   // to the fixed test password "12345" (backwards compatible with the old caller).
   if (path === "/api/fork/register" && method === "GET") {
     const coach = query.get("coach")?.trim();
-    const password = query.get("password")?.trim() || undefined;
     if (!coach) return sendJson(res, 400, { error: "coach is required." });
     const cfg = forkDbConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
     try {
-      await createForkAccount(cfg, coach, password);
+      // Dual-accept, same as login. This route SETS the password, so a clear-text
+      // `password=` here used to put the coach's chosen secret into the query string of
+      // every access and proxy log on the way; `passwordMd5` ends that.
+      const { digest, legacy } = coachSecretDigest({
+        passwordMd5: query.get("passwordMd5")?.trim() || undefined,
+        password: query.get("password")?.trim() || undefined,
+      });
+      if (legacy) noteLegacyPasswordAuth("fork/register");
+      await createForkAccountDigest(cfg, coach, digest);
       return sendJson(res, 200, { ok: true, coach });
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
@@ -808,15 +834,21 @@ async function handleApi(
   // Gated on the team being roster-loadable on the CURRENTLY RUNNING fork (re-derived fresh,
   // not trusting a possibly-stale library flag) — refusing here is what prevents the silent
   // join-timeout: a team whose roster isn't loaded yet must never be allowed into a challenge.
-  // ⚠ `password` here is NOT (only) an auth credential: matchmaking.ts carries it into the matched
-  // side's fork-join JNLP (`<argument>-password</argument>`), i.e. it IS the FFB game-server join
-  // credential. Tokens cannot replace it — the fork stores md5 and the JNLP needs cleartext. Same
-  // for /api/fork/jnlp. That path is the upstream wire and stays out of scope (owner ruling 08-17).
+  // ⚠ The credential here is NOT (only) an auth credential: matchmaking.ts carries it into the
+  // matched side's fork-join JNLP, i.e. it IS the FFB game-server join credential, so a session
+  // token cannot replace it. But it does NOT have to be cleartext: the fork's standalone join
+  // handler compares the CLIENT_JOIN field verbatim against `ffb_coaches.password`, which IS
+  // md5(pw) hex — so the digest is exactly what the join needs. (An earlier note here called this
+  // path "upstream wire" that "needs cleartext"; upstream's ClientParameters has no password
+  // argument at all, so it is fork-local and ours to change. See the client-repo audit
+  // docs/credential-plaintext-audit.md §3.) Dual-accept `passwordMd5` / `password` as elsewhere.
   if (path === "/api/fork/challenge" && method === "GET") {
     const coach = query.get("coach")?.trim();
     const teamId = query.get("teamId")?.trim();
     const opponent = query.get("opponent")?.trim();
     const password = query.get("password")?.trim() || undefined;
+    const passwordMd5 = query.get("passwordMd5")?.trim() || undefined;
+    if (password && !passwordMd5) noteLegacyPasswordAuth("fork/challenge");
     if (!coach || !teamId || !opponent)
       return sendJson(res, 400, { error: "coach, teamId and opponent are required." });
     const team = readLibrary(LIBRARY_DIR, coach).find((t) => t.teamId === teamId);
@@ -827,7 +859,7 @@ async function handleApi(
       });
     }
     try {
-      return sendJson(res, 200, await matchmaker.challenge({ coach, teamId, opponent, password }));
+      return sendJson(res, 200, await matchmaker.challenge({ coach, teamId, opponent, password, passwordMd5 }));
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
     }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { Matchmaker } from "@bb/fork-ops";
+
+/** The fork stores md5(pw) hex, and matchmaking now works in that digest throughout. */
+const md5 = (v: string): string => createHash("md5").update(v, "utf8").digest("hex");
 
 describe("Matchmaker", () => {
   it("returns waiting for a lone challenge", async () => {
@@ -26,14 +30,18 @@ describe("Matchmaker", () => {
     expect(a.opponent).toBe("BattleLore");
     expect(b.opponent).toBe("Kalimar");
 
-    // Each JNLP carries that side's own coach / team / password.
+    // Each JNLP carries that side's own coach / team / credential. The credential rides as
+    // the md5 DIGEST (owner ruling 08-17) — matchmaking reduces whichever carrier arrived at
+    // admission, so a coach's clear-text password never reaches the file they download.
     expect(a.jnlp).toContain("<argument>-coach</argument><argument>Kalimar</argument>");
     expect(a.jnlp).toContain("<argument>-teamId</argument><argument>111</argument>");
-    expect(a.jnlp).toContain("<argument>-password</argument><argument>pwK</argument>");
+    expect(a.jnlp).toContain(`<argument>-passwordMd5</argument><argument>${md5("pwK")}</argument>`);
+    expect(a.jnlp).not.toContain("pwK<");
     expect(a.jnlp).toContain(`<argument>-gameName</argument><argument>${a.gameName}</argument>`);
     expect(b.jnlp).toContain("<argument>-coach</argument><argument>BattleLore</argument>");
     expect(b.jnlp).toContain("<argument>-teamId</argument><argument>222</argument>");
-    expect(b.jnlp).toContain("<argument>-password</argument><argument>pwB</argument>");
+    expect(b.jnlp).toContain(`<argument>-passwordMd5</argument><argument>${md5("pwB")}</argument>`);
+    expect(b.jnlp).not.toContain("pwB<");
     // No scheduleGame configured -> no -gameId argument (gameName-only fallback scheme).
     expect(a.jnlp).not.toContain("-gameId");
     expect(b.jnlp).not.toContain("-gameId");
@@ -161,11 +169,43 @@ describe("Matchmaker", () => {
       });
     });
 
+    it("accepts a pre-hashed passwordMd5 as well as a clear-text password", async () => {
+      // Dual-accept at the matchmaking door: a client that already pre-hashed (the point of
+      // the 08-17 ruling) and one still sending clear text must both be able to challenge,
+      // and must reduce to the SAME digest so either can pair with either.
+      const seen: string[] = [];
+      const mm = new Matchmaker({
+        verifyChallenger: async (_coach, digest) => {
+          seen.push(digest);
+          return true;
+        },
+      });
+      await mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: md5("pw") });
+      await mm.challenge({ coach: "B", teamId: "2", opponent: "A", password: "pw" });
+      expect(seen).toEqual([md5("pw"), md5("pw")]);
+
+      // …and both sides still paired, each JNLP carrying the digest.
+      const a = mm.matchstatus("A");
+      expect(a.status).toBe("matched");
+      if (a.status === "matched") {
+        expect(a.jnlp).toContain(`<argument>-passwordMd5</argument><argument>${md5("pw")}</argument>`);
+        expect(a.jnlp).not.toContain(">pw<");
+      }
+    });
+
+    it("rejects a malformed passwordMd5 rather than treating it as a password", async () => {
+      const mm = new Matchmaker({ verifyChallenger: async () => true });
+      await expect(
+        mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: "not-a-digest" }),
+      ).rejects.toThrow(/32-character hex/);
+    });
+
     it("cannot be spoofed by one caller issuing both sides of a 'mutual' challenge", async () => {
       // Only the real "A" and real "B" passwords verify — an attacker guessing wrong for
       // either side never gets a schedule-worthy mutual pair.
-      const verified = new Set(["A:secretA", "B:secretB"]);
-      const mm = new Matchmaker({ verifyChallenger: async (coach, pw) => verified.has(`${coach}:${pw}`) });
+      // Keyed by DIGEST, because that is what the verifier is handed now.
+      const verified = new Set([`A:${md5("secretA")}`, `B:${md5("secretB")}`]);
+      const mm = new Matchmaker({ verifyChallenger: async (coach, digest) => verified.has(`${coach}:${digest}`) });
       await mm.challenge({ coach: "A", teamId: "1", opponent: "B", password: "secretA" });
       await expect(
         mm.challenge({ coach: "B", teamId: "2", opponent: "A", password: "guessed-wrong" }),

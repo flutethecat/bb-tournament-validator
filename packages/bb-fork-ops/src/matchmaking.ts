@@ -22,14 +22,17 @@
  * injection shape as `scheduleGame`, for the same testability reason.
  */
 
-import { buildForkJnlp } from "./index.js";
+import { buildForkJnlp, coachSecretDigest } from "./index.js";
 import { safe } from "./util.js";
 
 interface Challenge {
   coach: string;
   teamId: string;
   opponent: string;
-  password?: string;
+  /** hex md5(pw). The clear text is normalized away at admission (coachSecretDigest), so
+   *  matchmaking never holds a plain password — it only carries the digest into each
+   *  side's JNLP as `-passwordMd5`. Owner security ruling 08-17. */
+  passwordMd5?: string;
   createdAt: number;
 }
 
@@ -49,8 +52,9 @@ export type MatchStatus =
 /** Injected so pure matchmaking logic stays testable without real fork/HTTP access. */
 export type ForkGameScheduler = (teamHomeId: string, teamAwayId: string) => Promise<{ gameId: string } | undefined>;
 
-/** Injected coach-password check (see the auth note above); `true` only on a verified match. */
-export type ChallengeVerifier = (coach: string, password: string) => Promise<boolean>;
+/** Injected coach-credential check (see the auth note above); `true` only on a verified
+ *  match. Takes the md5 DIGEST, not the clear text — see Challenge.passwordMd5. */
+export type ChallengeVerifier = (coach: string, passwordMd5: string) => Promise<boolean>;
 
 /**
  * How home/away is assigned when a pair is scheduled (which team the fork gets as
@@ -128,7 +132,15 @@ export class Matchmaker {
    * caller awaits so the response only comes back once pairing has fully resolved
    * (including the gameName-fallback path on a scheduling failure) — no partial state.
    */
-  async challenge(opts: { coach: string; teamId: string; opponent: string; password?: string }): Promise<{ status: "waiting" }> {
+  async challenge(opts: {
+    coach: string;
+    teamId: string;
+    opponent: string;
+    /** Deprecated clear-text form, accepted for one release. */
+    password?: string;
+    /** hex md5(pw) — the preferred form. */
+    passwordMd5?: string;
+  }): Promise<{ status: "waiting" }> {
     this.sweep();
     const coach = opts.coach.trim();
     const opponent = opts.opponent.trim();
@@ -137,13 +149,17 @@ export class Matchmaker {
     if (!opponent) throw new Error("opponent is required.");
     if (this.key(coach) === this.key(opponent)) throw new Error("You can't challenge yourself.");
 
+    // Accept either carrier and reduce to the digest immediately, so nothing downstream
+    // (verification, the pending map, the delivered JNLP) ever sees a clear-text password.
+    const { digest } = coachSecretDigest(opts);
+
     if (this.verifyChallenger) {
-      if (!opts.password) throw new Error("A password is required to challenge.");
-      const ok = await this.verifyChallenger(coach, opts.password);
+      if (!digest) throw new Error("A password is required to challenge.");
+      const ok = await this.verifyChallenger(coach, digest);
       if (!ok) throw new Error("Invalid coach name or password.");
     }
 
-    const mine: Challenge = { coach, teamId: opts.teamId.trim(), opponent, password: opts.password, createdAt: this.now() };
+    const mine: Challenge = { coach, teamId: opts.teamId.trim(), opponent, passwordMd5: digest, createdAt: this.now() };
     this.pending.set(this.key(coach), mine);
 
     // Reciprocal? The opponent must already be waiting AND naming me.
@@ -180,14 +196,14 @@ export class Matchmaker {
       gameName,
       gameId,
       opponent: b.coach,
-      jnlp: buildForkJnlp({ coach: a.coach, teamId: a.teamId, gameName, password: a.password, gameId }),
+      jnlp: buildForkJnlp({ coach: a.coach, teamId: a.teamId, gameName, passwordMd5: a.passwordMd5, gameId }),
       createdAt: at,
     });
     this.matched.set(this.key(b.coach), {
       gameName,
       gameId,
       opponent: a.coach,
-      jnlp: buildForkJnlp({ coach: b.coach, teamId: b.teamId, gameName, password: b.password, gameId }),
+      jnlp: buildForkJnlp({ coach: b.coach, teamId: b.teamId, gameName, passwordMd5: b.passwordMd5, gameId }),
       createdAt: at,
     });
     this.pending.delete(this.key(a.coach));
