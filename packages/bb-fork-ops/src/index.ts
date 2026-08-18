@@ -283,37 +283,70 @@ export interface CoachGameRow {
   myTeamName: string;
   opponentCoach: string;
   opponentTeamName: string;
+  /** When the game finished — present ONLY for `scope: "finished"` rows (additive; the
+   * `scope: "active"` shape carries no such key, keeping that response byte-identical
+   * to the pre-#finished-games contract). */
+  finished?: string | null;
 }
 
-const GAME_STATUS_NAMES: Record<string, string> = { O: "scheduled", S: "starting", A: "active", P: "paused" };
+/** `listCoachGames` scope: `"active"` (default, unchanged) or `"finished"` (#finished-games). */
+export type CoachGameScope = "active" | "finished";
+
+const GAME_STATUS_NAMES: Record<string, string> = {
+  O: "scheduled", S: "starting", A: "active", P: "paused",
+  F: "finished", U: "uploaded", B: "backuped",
+};
+
+/** Status codes per scope (upstream `GameStatus` type-strings, `ffb-common/GameStatus.java`). */
+const SCOPE_STATUSES: Record<CoachGameScope, readonly string[]> = {
+  active: ["O", "S", "A", "P"],
+  finished: ["F", "U", "B"],
+};
+
+/** Cap on `scope: "finished"` rows — history, not a live list; keep the query/payload bounded. */
+const FINISHED_GAMES_LIMIT = 50;
 
 /**
- * A coach's in-progress games from `ffb_games_info` — the #210-ratified authoritative source
- * (Pipeline §3.4 measurement; Meero SR-195/SR-197). Status ∈ {O,S,A,P} — the de-cached PAUSED
- * class (game-776) is the recovery case; SCHEDULED 'O' rides per the DS-1 ruling (spec-210:
- * scheduled games SHOW, distinctly labeled — the `inProgress` discriminator carries that).
- * `testing=0` keeps rig games out. DS-2 (binding): coach equality here rides the columns'
- * `utf8mb3_uca1400_ai_ci` collation (verified on live `ffblive` via information_schema, probe
- * 'GONDRA87'→17 rows), which matches the fork join path's `equalsIgnoreCase` semantics; the
- * explicit LOWER() compare belts a schema whose collation might differ, it does not replace
- * the collation cite. Sort: newest `started` first, then id.
+ * A coach's games from `ffb_games_info` — the #210-ratified authoritative source (Pipeline
+ * §3.4 measurement; Meero SR-195/SR-197). `scope: "active"` (default) ∈ {O,S,A,P} — the
+ * de-cached PAUSED class (game-776) is the recovery case; SCHEDULED 'O' rides per the DS-1
+ * ruling (spec-210: scheduled games SHOW, distinctly labeled — the `inProgress` discriminator
+ * carries that). `scope: "finished"` ∈ {F,U,B} (upstream `GameStatus`: FINISHED/UPLOADED/
+ * BACKUPED — a fork game never lands in LOADING/REPLAYING, those are client-only, "not
+ * written to db" per the enum's own comment) — newest-finished-first, capped at
+ * `FINISHED_GAMES_LIMIT`; each row carries `finished` (the other scope does not — see
+ * `CoachGameRow`). `testing=0` keeps rig games out in both scopes. DS-2 (binding): coach
+ * equality here rides the columns' `utf8mb3_uca1400_ai_ci` collation (verified on live
+ * `ffblive` via information_schema, probe 'GONDRA87'→17 rows), which matches the fork join
+ * path's `equalsIgnoreCase` semantics; the explicit LOWER() compare belts a schema whose
+ * collation might differ, it does not replace the collation cite.
  * ⚠ `last_updated` is NULL in practice — never key freshness on it (measurement caveat).
  */
-export async function listCoachGames(cfg: ForkDbConfig, coach: string): Promise<CoachGameRow[]> {
+export async function listCoachGames(
+  cfg: ForkDbConfig,
+  coach: string,
+  scope: CoachGameScope = "active",
+): Promise<CoachGameRow[]> {
   const who = (coach ?? "").trim();
   if (!who) return [];
+  const statuses = SCOPE_STATUSES[scope];
+  const statusList = statuses.map((s) => `'${s}'`).join(",");
+  const orderLimit =
+    scope === "finished"
+      ? `ORDER BY finished DESC, id DESC LIMIT ${FINISHED_GAMES_LIMIT}`
+      : `ORDER BY started DESC, id DESC`;
   const rows = await withConn(cfg, async (conn) => {
     const [r] = await conn.execute(
-      `SELECT id, scheduled, started, coach_home, team_home_id, team_home_name,
+      `SELECT id, scheduled, started, finished, coach_home, team_home_id, team_home_name,
               coach_away, team_away_id, team_away_name, half, turn, status
        FROM ffb_games_info
-       WHERE status IN ('O','S','A','P') AND testing = 0
+       WHERE status IN (${statusList}) AND testing = 0
          AND (LOWER(coach_home) = LOWER(?) OR LOWER(coach_away) = LOWER(?))
-       ORDER BY started DESC, id DESC`,
+       ${orderLimit}`,
       [who, who],
     );
     return r as Array<{
-      id: number; scheduled: Date | null; started: Date | null;
+      id: number; scheduled: Date | null; started: Date | null; finished: Date | null;
       coach_home: string | null; team_home_id: string | null; team_home_name: string | null;
       coach_away: string | null; team_away_id: string | null; team_away_name: string | null;
       half: number; turn: number; status: string;
@@ -322,7 +355,7 @@ export async function listCoachGames(cfg: ForkDbConfig, coach: string): Promise<
   const lc = who.toLowerCase();
   return rows.map((row) => {
     const seat: "home" | "away" = (row.coach_home ?? "").toLowerCase() === lc ? "home" : "away";
-    return {
+    const base: CoachGameRow = {
       gameId: Number(row.id),
       status: GAME_STATUS_NAMES[row.status] ?? row.status,
       inProgress: row.status !== "O",
@@ -336,5 +369,7 @@ export async function listCoachGames(cfg: ForkDbConfig, coach: string): Promise<
       opponentCoach: (seat === "home" ? row.coach_away : row.coach_home) ?? "",
       opponentTeamName: (seat === "home" ? row.team_away_name : row.team_home_name) ?? "",
     };
+    if (scope === "finished") base.finished = row.finished ? new Date(row.finished).toISOString() : null;
+    return base;
   });
 }

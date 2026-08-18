@@ -54,6 +54,7 @@ import {
   listForkCoaches,
   Matchmaker,
   listCoachGames,
+  type CoachGameScope,
   queryCoaches,
   readLibrary,
   reloadFork,
@@ -992,10 +993,14 @@ async function handleApi(
   // verified against ffb_coaches and the list is scoped to THE AUTHENTICATED coach only — the
   // coach filter derives from proven identity, never from an unauthenticated parameter.
   // Rows carry gameId = the #211 rejoin handle (id-join needs NO teamId — SR-197 convergence).
+  // Additive `scope` (replay-launcher history feature): omitted/anything-but-"finished" =
+  // the original active-set query, byte-identical response — existing callers see NO change.
+  // `scope: "finished"` swaps in the coach's finished/uploaded/backuped games (newest-finished
+  // first, capped) with an added `finished` timestamp per row (see `listCoachGames`).
   if (path === "/api/fork/my-games" && method === "POST") {
     if (!challengeDbCfg)
       return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
-    const body = (await readBody(req)) as { coach?: string; password?: string };
+    const body = (await readBody(req)) as { coach?: string; password?: string; scope?: string };
     const coach = auth?.coach ?? body.coach?.trim();
     if (!coach) return sendJson(res, 400, { error: "coach is required" });
     if (!auth && !isAdminAuthed(req)) {
@@ -1006,8 +1011,9 @@ async function handleApi(
       if (!(await verifyCoachPassword(challengeDbCfg, coach, body.password)))
         return sendJson(res, 401, { error: "Coach authentication failed (wrong coach or password)." });
     }
+    const scope: CoachGameScope = body.scope === "finished" ? "finished" : "active";
     try {
-      return sendJson(res, 200, { coach, games: await listCoachGames(challengeDbCfg, coach) });
+      return sendJson(res, 200, { coach, games: await listCoachGames(challengeDbCfg, coach, scope) });
     } catch (e) {
       return sendJson(res, 500, { error: (e as Error).message });
     }
