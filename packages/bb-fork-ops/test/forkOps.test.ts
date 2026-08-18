@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildForkJnlp, forkConfigFromEnv, forkDbConfigFromEnv, jnlpFilename } from "@bb/fork-ops";
+import { createHash } from "node:crypto";
+import {
+  buildForkJnlp,
+  coachSecretDigest,
+  forkConfigFromEnv,
+  forkDbConfigFromEnv,
+  isMd5Hex,
+  jnlpFilename,
+} from "@bb/fork-ops";
+
+const md5 = (s: string): string => createHash("md5").update(s, "utf8").digest("hex");
 
 const FORK_ENV_KEYS = [
   "FORK_DB_HOST",
@@ -36,6 +46,40 @@ describe("buildForkJnlp", () => {
 
   it("uses an explicit password when given", () => {
     const jnlp = buildForkJnlp({ coach: "A", teamId: "1", gameName: "G", password: "hunter2" });
+    expect(jnlp).toContain("<argument>-password</argument><argument>hunter2</argument>");
+  });
+
+  // --- Credential carrier (owner security ruling 08-17). `-passwordMd5` is preferred so the
+  // coach's clear-text password never lands in a downloaded file on their disk. Neither
+  // spelling is upstream wire — upstream's ClientParameters has no password argument at all
+  // and throws on unknown ones — so this rename costs nothing in parity.
+
+  it("carries a pre-hashed credential as -passwordMd5, with no clear text anywhere", () => {
+    const digest = md5("hunter2");
+    const jnlp = buildForkJnlp({ coach: "A", teamId: "1", gameName: "G", passwordMd5: digest });
+    expect(jnlp).toContain(`<argument>-passwordMd5</argument><argument>${digest}</argument>`);
+    expect(jnlp).not.toContain("hunter2");
+    expect(jnlp).not.toContain("-password<");
+  });
+
+  it("prefers the digest over a clear-text password when both are supplied", () => {
+    const digest = md5("hunter2");
+    const jnlp = buildForkJnlp({ coach: "A", teamId: "1", gameName: "G", password: "hunter2", passwordMd5: digest });
+    expect(jnlp).toContain(`<argument>-passwordMd5</argument><argument>${digest}</argument>`);
+    expect(jnlp).not.toContain("hunter2</argument>");
+  });
+
+  it("normalizes a digest to lower case", () => {
+    const digest = md5("hunter2");
+    const jnlp = buildForkJnlp({ coach: "A", teamId: "1", gameName: "G", passwordMd5: digest.toUpperCase() });
+    expect(jnlp).toContain(`<argument>-passwordMd5</argument><argument>${digest}</argument>`);
+  });
+
+  it("falls back to the legacy -password argument for a malformed digest", () => {
+    // Back-compat must not become a silent trapdoor: a junk digest is not quietly emitted
+    // as a credential the fork could never match. It falls back to the documented legacy
+    // path, which callers can still see and the deprecation counter still records.
+    const jnlp = buildForkJnlp({ coach: "A", teamId: "1", gameName: "G", passwordMd5: "junk", password: "hunter2" });
     expect(jnlp).toContain("<argument>-password</argument><argument>hunter2</argument>");
   });
 
@@ -125,5 +169,50 @@ describe("forkConfigFromEnv", () => {
       dbName: "ffblive",
       teamsDir: "C:\\fork\\teams",
     });
+  });
+});
+
+describe("coachSecretDigest — dual-accept credential normalization", () => {
+  it("passes a valid digest through, lower-cased, and marks it non-legacy", () => {
+    const digest = md5("hunter2");
+    expect(coachSecretDigest({ passwordMd5: digest.toUpperCase() })).toEqual({ digest, legacy: false });
+  });
+
+  it("hashes a clear-text password and flags it legacy for the migration counter", () => {
+    expect(coachSecretDigest({ password: "hunter2" })).toEqual({ digest: md5("hunter2"), legacy: true });
+  });
+
+  it("prefers the digest when both carriers arrive", () => {
+    const digest = md5("hunter2");
+    expect(coachSecretDigest({ passwordMd5: digest, password: "something-else" })).toEqual({ digest, legacy: false });
+  });
+
+  it("reports no credential at all rather than inventing one", () => {
+    expect(coachSecretDigest({})).toEqual({ digest: undefined, legacy: false });
+    expect(coachSecretDigest({ password: "" })).toEqual({ digest: undefined, legacy: false });
+  });
+
+  it("throws on a malformed digest instead of double-hashing it", () => {
+    // The failure mode this guards: md5("not-a-digest") is a perfectly well-formed digest
+    // that matches nothing, so the error would surface as an inexplicable wrong-password.
+    for (const bad of ["not-a-digest", md5("x").slice(0, 31), `${md5("x")}ff`, "gg".repeat(16)]) {
+      expect(() => coachSecretDigest({ passwordMd5: bad })).toThrow(/32-character hex/);
+    }
+  });
+});
+
+describe("isMd5Hex", () => {
+  it("accepts exactly 32 hex characters, either case", () => {
+    expect(isMd5Hex(md5("x"))).toBe(true);
+    expect(isMd5Hex(md5("x").toUpperCase())).toBe(true);
+  });
+
+  it("rejects wrong lengths, non-hex, and absent values", () => {
+    expect(isMd5Hex(md5("x").slice(0, 31))).toBe(false);
+    expect(isMd5Hex(`${md5("x")}0`)).toBe(false);
+    expect(isMd5Hex("gg".repeat(16))).toBe(false);
+    expect(isMd5Hex("")).toBe(false);
+    expect(isMd5Hex(undefined)).toBe(false);
+    expect(isMd5Hex(null)).toBe(false);
   });
 });

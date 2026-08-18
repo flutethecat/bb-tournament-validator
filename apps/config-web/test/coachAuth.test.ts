@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { IncomingMessage } from "node:http";
+import { createHash } from "node:crypto";
 import { coachLogin } from "../src/auth/coachLogin.js";
 import {
   SESSION_COOKIE_NAME,
@@ -26,10 +27,15 @@ function fakeRequest(headers: Record<string, string> = {}, ip = "10.0.0.9"): Inc
   return { headers, socket: { remoteAddress: ip }, method: "POST" } as unknown as IncomingMessage;
 }
 
+/** The digest the fork actually stores for "hunter2" — `ffb_coaches.password` IS md5(pw) hex. */
+const HUNTER2_MD5 = createHash("md5").update("hunter2", "utf8").digest("hex");
+
+// The route now verifies the DIGEST (owner ruling 08-17); a legacy clear-text `password`
+// body still works because the route md5s it before this stub ever sees it.
 const OPTIONS = {
   authenticationAvailable: true,
-  verifyCoachPassword: (coach: string, password: string) =>
-    Promise.resolve(coach === "Tarkin" && password === "hunter2"),
+  verifyCoachDigest: (coach: string, passwordMd5: string) =>
+    Promise.resolve(coach === "Tarkin" && passwordMd5 === HUNTER2_MD5),
 };
 
 function issued(body: unknown): { token: string; coach: string; expiresAt: string } {
@@ -91,6 +97,70 @@ describe("POST /api/fork/login — coach credential exchange", () => {
     expect(locked.status).toBe(429);
     expect(locked.headers?.["retry-after"]).toBeDefined();
     expect(attemptsByCoach.get("tarkin")?.failures).toBe(MAX_FAILURES);
+  });
+
+  // --- Dual-accept: pre-hashed (current clients) vs clear text (deprecated back-compat).
+  // Owner security ruling 08-17. The point of the pre-hashed form is that the clear text
+  // never reaches the wire; the point of keeping the clear-text form for one release is
+  // that clients already in the field don't break on the day the server updates.
+
+  it("accepts a pre-hashed passwordMd5 and never sees the clear text", async () => {
+    const result = await coachLogin(fakeRequest(), {
+      ...OPTIONS,
+      body: { coach: "Tarkin", passwordMd5: HUNTER2_MD5 },
+    });
+    expect(result.status).toBe(200);
+    expect(issued(result.body).coach).toBe("Tarkin");
+    // Nothing in the exchange carries the clear text — that IS the fix.
+    expect(JSON.stringify(result.body)).not.toContain("hunter2");
+    deleteSession(issued(result.body).token);
+  });
+
+  it("accepts the digest case-insensitively (hex is hex)", async () => {
+    const result = await coachLogin(fakeRequest(), {
+      ...OPTIONS,
+      body: { coach: "Tarkin", passwordMd5: HUNTER2_MD5.toUpperCase() },
+    });
+    expect(result.status).toBe(200);
+    deleteSession(issued(result.body).token);
+  });
+
+  it("still accepts a legacy clear-text password, and counts it for the migration", async () => {
+    const result = await coachLogin(fakeRequest(), { ...OPTIONS, body: { coach: "Tarkin", password: "hunter2" } });
+    expect(result.status).toBe(200);
+    expect(legacyPasswordAuthCounts()["fork/login"]).toBe(1);
+    deleteSession(issued(result.body).token);
+  });
+
+  it("does NOT count the pre-hashed form as legacy", async () => {
+    const result = await coachLogin(fakeRequest(), { ...OPTIONS, body: { coach: "Tarkin", passwordMd5: HUNTER2_MD5 } });
+    expect(legacyPasswordAuthCounts()["fork/login"]).toBeUndefined();
+    deleteSession(issued(result.body).token);
+  });
+
+  it("prefers passwordMd5 when both carriers are present", async () => {
+    const result = await coachLogin(fakeRequest(), {
+      ...OPTIONS,
+      body: { coach: "Tarkin", passwordMd5: HUNTER2_MD5, password: "totally-wrong" },
+    });
+    expect(result.status).toBe(200);
+    expect(legacyPasswordAuthCounts()["fork/login"]).toBeUndefined();
+    deleteSession(issued(result.body).token);
+  });
+
+  it("400s on a malformed digest instead of hashing it into a confusing 401", async () => {
+    // Failing loud matters here: silently md5-ing a malformed digest would authenticate
+    // nobody and look exactly like a wrong password, sending a debugger down the wrong path.
+    for (const bad of ["not-a-digest", HUNTER2_MD5.slice(0, 31), `${HUNTER2_MD5}ab`, "zz".repeat(16)]) {
+      const result = await coachLogin(fakeRequest(), { ...OPTIONS, body: { coach: "Tarkin", passwordMd5: bad } });
+      expect(result.status).toBe(400);
+    }
+  });
+
+  it("rejects a wrong digest with 401, same as a wrong password", async () => {
+    const result = await coachLogin(fakeRequest(), { ...OPTIONS, body: { coach: "Tarkin", passwordMd5: "a".repeat(32) } });
+    expect(result.status).toBe(401);
+    expect(result.body).not.toHaveProperty("token");
   });
 
   it("clears the failure budget on a successful login", async () => {
