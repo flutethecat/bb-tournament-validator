@@ -133,6 +133,9 @@ export interface TournamentPackage {
   name: string;
   ruleset: string; // default "bb2025-default"
   description?: string;
+  /** Short data-quality caveat surfaced in small print by rules-rendering UIs
+   *  (e.g. "star SP table transcribed from an image — spot-check"). */
+  dataNote?: string;
   /** Optional tournament date (ISO yyyy-mm-dd); informational, not validated. */
   date?: string;
   /** Base package to merge over (resolved by loadPackage before validate()). */
