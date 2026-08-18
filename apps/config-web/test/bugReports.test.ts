@@ -13,6 +13,7 @@ import {
   bugReportAccessError,
   getBugReport,
   listBugReports,
+  normalizeGameService,
   readJsonCapped,
   reportTimesByCoach,
   sanitizeComponent,
@@ -58,6 +59,45 @@ describe("POST /api/bug-reports — submitBugReport", () => {
     expect(raw).not.toContain("password");
     expect(readFileSync(join(d, id, "wire.log"), "utf8")).toBe("WIRE");
     expect(readFileSync(join(d, id, "app.log"), "utf8")).toBe("APP");
+  });
+
+  it("persists gameService (owner 08-18) and names the folder <service>-<id> when both are present", async () => {
+    const d = dir();
+    const result = await submitBugReport(
+      { ...BASE, gameId: "1932766", gameService: "fumbbl" },
+      undefined,
+      deps(d),
+    );
+    expect(result.status).toBe(200);
+    const { id } = result.body as { id: string };
+    expect(id).toContain("fumbbl-1932766");
+    const report = JSON.parse(readFileSync(join(d, id, "report.json"), "utf8")) as Record<string, unknown>;
+    expect(report.gameService).toBe("fumbbl");
+    expect(report.gameId).toBe("1932766");
+  });
+
+  it("nulls an unrecognized gameService and keeps it OUT of the folder name", async () => {
+    const d = dir();
+    const result = await submitBugReport(
+      { ...BASE, gameId: "868", gameService: "../../evil" },
+      undefined,
+      deps(d),
+    );
+    expect(result.status).toBe(200);
+    const { id } = result.body as { id: string };
+    expect(id).toContain("_868");
+    expect(id).not.toContain("evil");
+    const report = JSON.parse(readFileSync(join(d, id, "report.json"), "utf8")) as Record<string, unknown>;
+    expect(report.gameService).toBeNull();
+  });
+
+  it("persists gameService without letting a serviceless/gameless report change folder naming", async () => {
+    const d = dir();
+    // service but NO game id: folder stays <stamp>_<coach>_nogame — a bare service label would lie.
+    const result = await submitBugReport({ ...BASE, gameService: "fork" }, undefined, deps(d));
+    const { id } = result.body as { id: string };
+    expect(id).toMatch(/_nogame$/);
+    expect((JSON.parse(readFileSync(join(d, id, "report.json"), "utf8")) as { gameService: string }).gameService).toBe("fork");
   });
 
   it("omits log files that weren't provided", async () => {
@@ -147,6 +187,16 @@ describe("readJsonCapped", () => {
   });
 });
 
+describe("normalizeGameService", () => {
+  it("allowlists fumbbl/fork; everything else (incl. absent) is null", () => {
+    expect(normalizeGameService("fumbbl")).toBe("fumbbl");
+    expect(normalizeGameService("fork")).toBe("fork");
+    expect(normalizeGameService("FUMBBL")).toBeNull();
+    expect(normalizeGameService(7)).toBeNull();
+    expect(normalizeGameService(undefined)).toBeNull();
+  });
+});
+
 describe("sanitizeComponent", () => {
   it("allowlists [A-Za-z0-9_-], truncates, and falls back when empty", () => {
     expect(sanitizeComponent("../../etc", "fallback")).toBe("etc");
@@ -166,11 +216,13 @@ describe("GET gates + reads", () => {
   it("lists newest-first with truncated descriptions; get returns the full report.json", async () => {
     const d = dir();
     const first = await submitBugReport({ ...BASE, description: "y".repeat(300) }, undefined, deps(d), Date.UTC(2026, 7, 18, 10));
-    const second = await submitBugReport({ ...BASE, gameId: "g2" }, undefined, deps(d), Date.UTC(2026, 7, 18, 11));
+    const second = await submitBugReport({ ...BASE, gameId: "g2", gameService: "fork" }, undefined, deps(d), Date.UTC(2026, 7, 18, 11));
     const rows = listBugReports(d);
     expect(rows.map((r) => r.id)).toEqual([(second.body as { id: string }).id, (first.body as { id: string }).id]);
     expect(rows[1]!.description).toHaveLength(200);
     expect(rows[0]!.gameId).toBe("g2");
+    expect(rows[0]!.gameService).toBe("fork");
+    expect(rows[1]!.gameService).toBeNull(); // report filed without the field
     const full = getBugReport(d, rows[1]!.id) as { description: string };
     expect(full.description).toHaveLength(300);
   });

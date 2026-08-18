@@ -76,6 +76,7 @@ export interface BugReportBody {
   passwordMd5?: string;
   description?: string;
   gameId?: string;
+  gameService?: string;
   clientVersion?: string;
   wireLog?: string;
   appLog?: string;
@@ -95,6 +96,12 @@ export interface BugReportResult {
 }
 
 const asTrimmed = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+
+/** Owner 08-18: which SERVICE the game id belongs to. Strict allowlist — an unknown value from a
+ *  future/foreign client degrades to null (unknown), never to a trusted-looking string. */
+export function normalizeGameService(v: unknown): "fumbbl" | "fork" | null {
+  return v === "fumbbl" || v === "fork" ? v : null;
+}
 
 export async function submitBugReport(
   raw: unknown,
@@ -161,10 +168,13 @@ export async function submitBugReport(
       headers: { "retry-after": String(Math.max(1, Math.ceil(remaining / 1000))) },
     };
 
-  // --- store: <UTC-timestamp>_<coach>_<gameId|nogame>/ — every component allowlisted ---
+  // --- store: <UTC-timestamp>_<coach>_<[service-]gameId|nogame>/ — every component allowlisted ---
   const gameId = asTrimmed(body.gameId);
+  const gameService = normalizeGameService(body.gameService);
+  // Owner 08-18: the folder self-identifies WHICH service the id belongs to when both are known.
+  const gameComponent = gameService && gameId ? `${gameService}-${gameId}` : gameId;
   const stamp = new Date(now).toISOString().replace(/[:.]/g, "-");
-  const base = `${stamp}_${sanitizeComponent(coach, "coach")}_${sanitizeComponent(gameId, "nogame")}`;
+  const base = `${stamp}_${sanitizeComponent(coach, "coach")}_${sanitizeComponent(gameComponent, "nogame")}`;
   let id = base;
   for (let n = 1; existsSync(join(deps.dir, id)); n += 1) id = `${base}-${n}`;
   const reportDir = join(deps.dir, id);
@@ -177,6 +187,7 @@ export async function submitBugReport(
     submittedAt: new Date(now).toISOString(),
     description,
     gameId: gameId ?? null,
+    gameService,
     clientVersion: asTrimmed(body.clientVersion) ?? null,
     context: contextJson ? (JSON.parse(contextJson) as unknown) : null,
     files: {
@@ -196,6 +207,7 @@ export interface BugReportRow {
   id: string;
   coach: string;
   gameId: string | null;
+  gameService: "fumbbl" | "fork" | null;
   clientVersion: string | null;
   description: string;
   submittedAt: string;
@@ -215,6 +227,7 @@ export function listBugReports(dir: string): BugReportRow[] {
         id: entry.name,
         coach: r.coach ?? "",
         gameId: r.gameId ?? null,
+        gameService: normalizeGameService(r.gameService), // pre-08-18 reports have no field → null
         clientVersion: r.clientVersion ?? null,
         description: (r.description ?? "").slice(0, 200),
         submittedAt: r.submittedAt ?? "",
