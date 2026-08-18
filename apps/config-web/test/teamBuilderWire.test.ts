@@ -6,9 +6,12 @@ describe("teamBuilderWireError", () => {
     expect(teamBuilderWireError(body)).toBe("request body must be a JSON object.");
   });
 
-  it.each([{}, { apothecary: true }, { apothecary: false }])("accepts %j", (body) => {
-    expect(teamBuilderWireError(body)).toBeNull();
-  });
+  it.each([{}, { apothecary: true }, { apothecary: false }, { packageName: "bb2025-default" }])(
+    "accepts %j",
+    (body) => {
+      expect(teamBuilderWireError(body)).toBeNull();
+    },
+  );
 
   it.each([
     { apothecary: 0 },
@@ -18,4 +21,11 @@ describe("teamBuilderWireError", () => {
   ])("rejects %j", (body) => {
     expect(teamBuilderWireError(body)).toBe("apothecary must be a boolean when supplied.");
   });
+
+  it.each([{ packageName: 1 }, { packageName: true }, { packageName: null }])(
+    "rejects %j",
+    (body) => {
+      expect(teamBuilderWireError(body)).toBe("packageName must be a string when supplied.");
+    },
+  );
 });

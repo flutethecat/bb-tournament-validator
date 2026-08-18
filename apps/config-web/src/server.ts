@@ -64,6 +64,7 @@ import {
   verifyCoachPassword,
 } from "@bb/fork-ops";
 import { PackageFiles, readCoachRegistry, readCoaches, skillCatalog, starList, teamList } from "./data";
+import { packageResponseInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
 import { PRESETS } from "./presets";
 import { handleAuthPortal } from "./auth/portal.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
@@ -330,6 +331,9 @@ interface TeamBuilderBody {
   /** Custom UAT mode (owner 08-04): apply ANY chosen skill/trait to a base roster with NO legality
    *  or budget validation — preview/build never reject. Gating comes later. */
   custom?: boolean;
+  /** Tournament ruleset picker (owner GO): validate against this saved package instead of the
+   *  standalone baseline. Omitted ⇒ current baseline behavior, byte-identical. Unknown name ⇒ 4xx. */
+  packageName?: string;
 }
 
 /** Resolve a Secret League builder request to a composed team + roster-intrinsic legality (#52 A).
@@ -1024,7 +1028,10 @@ async function handleApi(
       const body = (await readBody(req)) as TeamBuilderBody;
       const wireError = teamBuilderWireError(body);
       if (wireError) return sendJson(res, 400, { error: wireError });
+      const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
+      if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
       // Secret League path (#52 A): off-dataset roster → compose + validate roster-intrinsically.
+      // (Packages don't apply here — the dataset validator can't run for an off-dataset race.)
       if (body.rosterId && isSlRosterId(body.rosterId)) {
         const composed = composeIntrinsicFromBody(cfg.teamsDir, body);
         return sendJson(res, 200, {
@@ -1037,7 +1044,8 @@ async function handleApi(
         });
       }
       const composed = composeFromBody(cfg.teamsDir, body);
-      const result = validate(composed.roster, TEAM_BUILDER_BASELINE, bb2025);
+      const result = validate(composed.roster, resolvedPkg.pkg, bb2025);
+      const packageInfo = packageResponseInfo(resolvedPkg, composed.roster.rosterName);
       // Custom UAT mode: never block — always valid, findings surfaced as informational warnings.
       return sendJson(res, 200, {
         valid: body.custom ? true : result.valid,
@@ -1046,6 +1054,7 @@ async function handleApi(
         summary: result.recomputedSummary,
         players: composed.roster.players.length,
         ...(body.custom ? { custom: true } : {}),
+        ...(packageInfo ? { package: packageInfo } : {}),
       });
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
@@ -1094,6 +1103,8 @@ async function handleApi(
     const body = (await readBody(req)) as TeamBuilderBody;
     const wireError = teamBuilderWireError(body);
     if (wireError) return sendJson(res, 400, { error: wireError });
+    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
+    if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
     if (auth) {
       body.coach = auth.coach;
     } else if (!isAdminAuthed(req)) {
@@ -1133,10 +1144,11 @@ async function handleApi(
         return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: composed.roster.summary, intrinsic: true });
       }
       const composed = composeFromBody(cfg.teamsDir, body);
-      const result = validate(composed.roster, TEAM_BUILDER_BASELINE, bb2025);
+      const result = validate(composed.roster, resolvedPkg.pkg, bb2025);
+      const packageInfo = packageResponseInfo(resolvedPkg, composed.roster.rosterName);
       // Custom UAT mode (owner 08-04): apply the choice, no validation gate — never reject.
       if (!body.custom && !result.valid) {
-        return sendJson(res, 400, { error: "Team is not legal — fix the findings and rebuild.", errors: result.errors, summary: result.recomputedSummary });
+        return sendJson(res, 400, { error: "Team is not legal — fix the findings and rebuild.", errors: result.errors, summary: result.recomputedSummary, ...(packageInfo ? { package: packageInfo } : {}) });
       }
       const dupError = duplicateTeamNameError(composed.roster.teamName, composed.teamId);
       if (dupError) return sendJson(res, 409, { error: dupError });
@@ -1149,7 +1161,7 @@ async function handleApi(
       // goldUsed = the validator's RECOMPUTED total (validate() ran on this path — prefer it over the
       // composer's own figure). The SL branch uses the composed summary, its strongest available number.
       registerBuiltTeam(composed.roster, composed.teamId, result.recomputedSummary.goldUsed, ingestedAt, reload.reloaded);
-      return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: result.recomputedSummary });
+      return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: result.recomputedSummary, ...(packageInfo ? { package: packageInfo } : {}) });
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
     }
