@@ -8,45 +8,18 @@ import {
   sessionFromRequest,
   sessionTokenFromRequest,
 } from "./session.js";
-
-interface LoginAttempt {
-  failures: number;
-  windowStarted: number;
-  lockedUntil: number;
-}
+import {
+  attemptState,
+  attemptsByCoach,
+  attemptsByIp,
+  lockoutRemaining,
+  normalizeCoach,
+  recordFailure,
+} from "./loginAttempts.js";
 
 export interface PortalOptions {
   verifyCoachPassword: (username: string, password: string) => Promise<boolean>;
   authenticationAvailable: boolean;
-}
-
-const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
-const LOCKOUT_MS = 15 * 60 * 1000;
-const MAX_FAILURES = 5;
-const attemptsByIp = new Map<string, LoginAttempt>();
-const attemptsByCoach = new Map<string, LoginAttempt>();
-
-function normalizeCoach(coach: string): string {
-  return coach.trim().toLowerCase();
-}
-
-function attemptState(map: Map<string, LoginAttempt>, key: string, now: number): LoginAttempt {
-  const current = map.get(key);
-  if (!current || (current.lockedUntil <= now && now - current.windowStarted >= ATTEMPT_WINDOW_MS)) {
-    const fresh = { failures: 0, windowStarted: now, lockedUntil: 0 };
-    map.set(key, fresh);
-    return fresh;
-  }
-  return current;
-}
-
-function lockoutRemaining(state: LoginAttempt, now: number): number {
-  return Math.max(0, state.lockedUntil - now);
-}
-
-function recordFailure(state: LoginAttempt, now: number): void {
-  state.failures += 1;
-  if (state.failures >= MAX_FAILURES) state.lockedUntil = now + LOCKOUT_MS;
 }
 
 function clientIp(req: IncomingMessage): string {

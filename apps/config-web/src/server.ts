@@ -63,6 +63,10 @@ import { PackageFiles, readCoachRegistry, readCoaches, skillCatalog, starList, t
 import { PRESETS } from "./presets";
 import { handleAuthPortal } from "./auth/portal.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
+import { coachLogin, sendCoachLogin } from "./auth/coachLogin.js";
+import { bearerTokenFromRequest, getSession } from "./auth/session.js";
+import { isOrganizer } from "./auth/organizers.js";
+import { legacyPasswordAuthCounts, noteLegacyPasswordAuth } from "./auth/deprecation.js";
 import { attachSuper } from "./super/index.js";
 import { createSiteBackend } from "./site-backend/index.js";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
@@ -80,6 +84,9 @@ import { teamBuilderWireError } from "./teamBuilderWire.js";
  */
 const PUBLIC_PATHS = new Set([
   "/api/auth/login",
+  // Coach credential exchange (owner ruling 08-17). Public BY NATURE — it is the door you knock on
+  // WITHOUT a token, and it is the only route that should ever see a coach password.
+  "/api/fork/login",
   "/api/skills",
   "/api/stars",
   "/api/teams",
@@ -438,6 +445,16 @@ function isAdminAuthed(req: IncomingMessage): boolean {
   return decoded.slice(decoded.indexOf(":") + 1) === ADMIN_PASSWORD;
 }
 
+/**
+ * Coach identity proven by `Authorization: Bearer <token>` from POST /api/fork/login. Distinct from
+ * `isTokenAuthed` below, which reads the ADMIN token store (`sessionTokens`) — the two Bearer stores
+ * never overlap, so an admin token yields no coach identity and a coach token no admin rights.
+ */
+function bearerIdentity(req: IncomingMessage): SessionIdentity | undefined {
+  const session = getSession(bearerTokenFromRequest(req));
+  return session ? { coach: session.coach, organizer: isOrganizer(session.coach) } : undefined;
+}
+
 function isTokenAuthed(req: IncomingMessage): boolean {
   const m = (req.headers.authorization ?? "").match(/^Bearer (.+)$/);
   if (!m) return false;
@@ -573,6 +590,32 @@ async function handleApi(
     return sendJson(res, 200, readCoaches(VALIDATED_CSV, pkg));
   }
 
+  // Coach credential exchange → session token (owner security ruling 08-17). See auth/coachLogin.ts:
+  // this is the ONE route a coach password may travel on; every guarded route below prefers the
+  // resulting `Authorization: Bearer <token>` and treats a password param as deprecated back-compat.
+  if (path === "/api/fork/login" && method === "POST") {
+    let body: unknown;
+    try {
+      body = await readBody(req);
+    } catch {
+      return sendJson(res, 400, { error: "Invalid JSON request body." });
+    }
+    const result = await coachLogin(req, {
+      body,
+      authenticationAvailable: challengeDbCfg !== undefined,
+      verifyCoachPassword: (coach, password) =>
+        challengeDbCfg ? verifyCoachPassword(challengeDbCfg, coach, password) : Promise.resolve(false),
+    });
+    return sendCoachLogin(res, result);
+  }
+
+  // Migration telemetry (never credentials — see auth/deprecation.ts). Admin-gated: it tells a TO
+  // whether any client in the field still sends passwords, i.e. whether the back-compat path can go.
+  if (path === "/api/fork/legacy-password-auth" && method === "GET") {
+    if (!requireAdminGate(res, auth)) return;
+    return sendJson(res, 200, { counts: legacyPasswordAuthCounts() });
+  }
+
   // FUMBBL40k client's one-click Launch: fetch a fork-join JNLP directly (no Discord
   // round-trip). Machine-to-machine — see PUBLIC_PATHS for why this bypasses auth
   // (CORS is set centrally in the server handler, covering this route's errors too).
@@ -673,6 +716,10 @@ async function handleApi(
   // Gated on the team being roster-loadable on the CURRENTLY RUNNING fork (re-derived fresh,
   // not trusting a possibly-stale library flag) — refusing here is what prevents the silent
   // join-timeout: a team whose roster isn't loaded yet must never be allowed into a challenge.
+  // ⚠ `password` here is NOT (only) an auth credential: matchmaking.ts carries it into the matched
+  // side's fork-join JNLP (`<argument>-password</argument>`), i.e. it IS the FFB game-server join
+  // credential. Tokens cannot replace it — the fork stores md5 and the JNLP needs cleartext. Same
+  // for /api/fork/jnlp. That path is the upstream wire and stays out of scope (owner ruling 08-17).
   if (path === "/api/fork/challenge" && method === "GET") {
     const coach = query.get("coach")?.trim();
     const teamId = query.get("teamId")?.trim();
@@ -931,7 +978,9 @@ async function handleApi(
     if (!coach) return sendJson(res, 400, { error: "coach is required" });
     if (!auth && !isAdminAuthed(req)) {
       if (!body.password)
-        return sendJson(res, 401, { error: "Listing your games requires your coach name + fork password (or admin auth)." });
+        return sendJson(res, 401, { error: "Listing your games requires a session token (POST /api/fork/login), or your coach name + fork password (or admin auth)." });
+      // DEPRECATED back-compat (owner ruling 08-17): accepted this release for clients in the field.
+      noteLegacyPasswordAuth("/api/fork/my-games");
       if (!(await verifyCoachPassword(challengeDbCfg, coach, body.password)))
         return sendJson(res, 401, { error: "Coach authentication failed (wrong coach or password)." });
     }
@@ -957,9 +1006,11 @@ async function handleApi(
     } else if (!isAdminAuthed(req)) {
       const coach = body.coach?.trim();
       if (!coach || !body.password)
-        return sendJson(res, 401, { error: "Build requires admin auth, or your coach name + fork password." });
+        return sendJson(res, 401, { error: "Build requires a session token (POST /api/fork/login), or admin auth, or your coach name + fork password." });
       if (!challengeDbCfg)
         return sendJson(res, 503, { error: "Coach auth unavailable (fork DB not configured); admin auth required." });
+      // DEPRECATED back-compat (owner ruling 08-17) — the token path above is the supported one.
+      noteLegacyPasswordAuth("/api/fork/team-builder/build");
       if (!(await verifyCoachPassword(challengeDbCfg, coach, body.password)))
         return sendJson(res, 401, { error: "Coach authentication failed (wrong coach or password)." });
       // The built team's coach === the authenticated coach: composeFromBody uses body.coach, and we
@@ -1202,7 +1253,11 @@ const server = createServer((req, res) => {
             error: auth ? "Organizer access required." : "Authentication required.",
           });
         }
-        if (auth && isStateChangingApiWrite(method, url.pathname) && req.headers["x-cw-auth"] !== "1") {
+        // X-CW-Auth is a CSRF guard, and CSRF is a COOKIE problem: a cross-site form can make the
+        // browser attach cw_session, but it cannot set an Authorization header. A request that
+        // authenticated by Bearer is therefore exempt (owner ruling 08-17 — the FUMBBL40k client
+        // carries a token, not a cookie, and must not need a second ceremonial header).
+        if (auth && !bearerTokenFromRequest(req) && isStateChangingApiWrite(method, url.pathname) && req.headers["x-cw-auth"] !== "1") {
           return sendJson(res, 403, { error: "Missing required X-CW-Auth header." });
         }
         if (url.pathname.startsWith("/api/"))
@@ -1215,7 +1270,13 @@ const server = createServer((req, res) => {
           return;
         }
       }
-      if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url.pathname, url.searchParams);
+      // Sidecar-OFF path (the live host: ADMIN_PASSWORD mode). The coach session store is NOT
+      // sidecar-gated — the owner's ruling has to land where the testers actually are — so resolve a
+      // Bearer identity here too. It only ever ADDS proven identity: routes that consult `auth`
+      // (my-games, team-builder/build) previously required a password param instead, and
+      // requireAdminGate ignores `auth` entirely unless AUTH_SIDECAR is on, so no admin surface widens.
+      if (url.pathname.startsWith("/api/"))
+        return await handleApi(req, res, url.pathname, url.searchParams, bearerIdentity(req));
       await serveStatic(res, url.pathname);
     } catch (e) {
       sendJson(res, 500, { error: (e as Error).message });
