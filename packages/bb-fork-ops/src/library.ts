@@ -29,6 +29,12 @@ export interface LibraryTeam {
   /** false ⇒ no matching fork roster loaded; the client warns but still lists it. */
   forkLoadable: boolean;
   ingestedAt: string;
+  /** Soft-retirement flag (owner ruling 08-18 "Retire Team"). The row is kept — never removed —
+   *  so game history tied to this teamId stays intact; `readLibrary` still returns it, and
+   *  callers that want the "active" set filter on `!retired` themselves (see config-web's
+   *  GET /api/fork/library, which is the only such caller today). */
+  retired?: boolean;
+  retiredAt?: string;
 }
 
 const fileFor = (baseDir: string, coach: string): string => join(baseDir, `${safe(coach).toLowerCase()}.json`);
@@ -60,6 +66,23 @@ export function removeLibraryTeam(baseDir: string, coach: string, teamId: string
   const teams = readLibrary(baseDir, coach).filter((t) => t.teamId !== teamId);
   if (existsSync(baseDir)) writeFileSync(fileFor(baseDir, coach), JSON.stringify(teams, null, 2), "utf8");
   return teams;
+}
+
+/**
+ * Soft-retire a team in a coach's library (owner ruling 08-18 "Retire Team"): flags the row
+ * `retired: true` + stamps `retiredAt` instead of deleting it — the fork's team XML and any
+ * played-game history for this teamId are untouched, only the library's own bookkeeping
+ * changes. Idempotent (re-retiring just refreshes `retiredAt`). Returns the updated team, or
+ * undefined if no team with that id exists in the coach's library.
+ */
+export function retireLibraryTeam(baseDir: string, coach: string, teamId: string): LibraryTeam | undefined {
+  const teams = readLibrary(baseDir, coach);
+  const index = teams.findIndex((t) => t.teamId === teamId);
+  if (index === -1) return undefined;
+  const updated: LibraryTeam = { ...teams[index]!, retired: true, retiredAt: new Date().toISOString() };
+  teams[index] = updated;
+  writeFileSync(fileFor(baseDir, coach), JSON.stringify(teams, null, 2), "utf8");
+  return updated;
 }
 
 /** List every coach that has a library file (used only for housekeeping/debugging). */

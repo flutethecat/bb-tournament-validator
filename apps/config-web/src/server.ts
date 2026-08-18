@@ -57,6 +57,7 @@ import {
   queryCoaches,
   readLibrary,
   reloadFork,
+  retireLibraryTeam,
   scheduleForkGame,
   upsertLibraryTeam,
   verifyCoachPassword,
@@ -100,6 +101,9 @@ const PUBLIC_PATHS = new Set([
   "/api/fork/register",
   "/api/fork/library",
   "/api/fork/library/ingest",
+  // Retire Team (owner ruling 08-18): coach-scoped, does its own admin-OR-coach-password
+  // auth in-handler exactly like team-builder/build below.
+  "/api/fork/library/retire",
   "/api/fork/coaches",
   "/api/fork/challenge",
   "/api/fork/matchstatus",
@@ -668,11 +672,72 @@ async function handleApi(
     }
   }
 
-  // List a coach's fork team library.
+  // List a coach's fork team library. Retired teams (see /library/retire below) are dropped
+  // from this list — the row is kept on disk (audit trail, never deleted) but a retired team
+  // has no business showing up as pickable inventory.
   if (path === "/api/fork/library" && method === "GET") {
     const coach = query.get("coach")?.trim();
     if (!coach) return sendJson(res, 400, { error: "coach is required." });
-    return sendJson(res, 200, { teams: readLibrary(LIBRARY_DIR, coach) });
+    return sendJson(res, 200, { teams: readLibrary(LIBRARY_DIR, coach).filter((t) => !t.retired) });
+  }
+
+  // Retire a team from a coach's fork library (owner ruling 08-18 "Retire Team", mirroring
+  // upstream FUMBBL's site-side retirement). RESEARCH FINDING: the FFB game-server DOES define
+  // a TeamStatus.RETIRED enum value (ffb-common TeamStatus.java / TeamStatusFactory.java, id 4)
+  // but nothing in the fork's server code ever sets it — retirement is a FUMBBL SITE function,
+  // not an FFB wire action, so there is no game-server call to mirror. The fork's own MariaDB
+  // has no teams table either (only `ffb_coaches` — team state lives as XML under
+  // FORK_TEAMS_DIR, loaded at reload time), so this fork's actual authority over "does this
+  // team still count" is config-web's library JSON. Retirement here is therefore a soft-delete
+  // at that layer: the LIBRARY row is flagged `retired` (see retireLibraryTeam) — never deleted,
+  // so a played game's history keeps resolving the same teamId — and the coach-scoped listing
+  // above drops it. Same auth shape as team-builder/build: Bearer session, OR admin auth, OR
+  // coach name + fork password (deprecated back-compat) — and ONLY the owning coach may retire
+  // their own team (auth.coach / the verified coach name IS the library key we look the team up
+  // under, so there is no path to retiring someone else's team).
+  if (path === "/api/fork/library/retire" && method === "GET") {
+    const bodyCoach = query.get("coach")?.trim();
+    const teamId = query.get("team")?.trim();
+    const password = query.get("password")?.trim() || undefined;
+    if (!teamId) return sendJson(res, 400, { error: "team is required." });
+    let coach: string;
+    if (auth) {
+      coach = auth.coach;
+    } else if (isAdminAuthed(req)) {
+      if (!bodyCoach) return sendJson(res, 400, { error: "coach is required." });
+      coach = bodyCoach;
+    } else {
+      if (!bodyCoach || !password) {
+        return sendJson(res, 401, {
+          error: "Retire requires a session token (POST /api/fork/login), or admin auth, or your coach name + fork password.",
+        });
+      }
+      if (!challengeDbCfg) return sendJson(res, 503, { error: "Coach auth unavailable (fork DB not configured); admin auth required." });
+      // DEPRECATED back-compat (owner ruling 08-17) — the token path above is the supported one.
+      noteLegacyPasswordAuth("/api/fork/library/retire");
+      if (!(await verifyCoachPassword(challengeDbCfg, bodyCoach, password)))
+        return sendJson(res, 401, { error: "Coach authentication failed (wrong coach or password)." });
+      coach = bodyCoach;
+    }
+    const team = readLibrary(LIBRARY_DIR, coach).find((t) => t.teamId === teamId);
+    if (!team) return sendJson(res, 404, { error: `Team ${teamId} isn't in ${coach}'s library.` });
+    if (team.retired) return sendJson(res, 200, { ok: true, team }); // idempotent
+    // Best-effort in-progress-game guard: only checkable when the fork admin API is configured
+    // (FORK_ADMIN_PASSWORD). Unreachable/unconfigured admin API doesn't block retirement — it's
+    // a diagnostic-only check layered on top of the library-only source of truth.
+    if (forkAdminCfg) {
+      try {
+        const live = await adminListLive(forkAdminCfg);
+        if (live.some((g) => g.homeTeamId === teamId || g.awayTeamId === teamId)) {
+          return sendJson(res, 409, { error: `"${team.teamName}" has a game in progress and can't be retired yet.` });
+        }
+      } catch {
+        // fork admin unreachable — proceed; this check is advisory, not authoritative.
+      }
+    }
+    const retired = retireLibraryTeam(LIBRARY_DIR, coach, teamId);
+    if (!retired) return sendJson(res, 404, { error: `Team ${teamId} isn't in ${coach}'s library.` });
+    return sendJson(res, 200, { ok: true, team: retired });
   }
 
   // Ingest a FUMBBL team (id or /t/<id> URL) into a coach's library: fetch → re-coach →

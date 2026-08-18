@@ -6,6 +6,7 @@ import {
   findLibraryTeamByName,
   readLibrary,
   removeLibraryTeam,
+  retireLibraryTeam,
   upsertLibraryTeam,
   type LibraryTeam,
 } from "@bb/fork-ops";
@@ -64,6 +65,39 @@ describe("library store", () => {
     const after = removeLibraryTeam(dir, "Flutethecat", "1");
     expect(after.map((t) => t.teamId)).toEqual(["2"]);
     expect(readLibrary(dir, "Flutethecat").map((t) => t.teamId)).toEqual(["2"]);
+  });
+});
+
+describe("retireLibraryTeam (soft-delete, owner ruling 08-18)", () => {
+  it("flags a team retired and stamps retiredAt, without removing it", () => {
+    upsertLibraryTeam(dir, "Flutethecat", team({ teamId: "1" }));
+    const retired = retireLibraryTeam(dir, "Flutethecat", "1");
+    expect(retired?.retired).toBe(true);
+    expect(retired?.retiredAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    const stored = readLibrary(dir, "Flutethecat");
+    expect(stored).toHaveLength(1); // kept, not deleted
+    expect(stored[0]!.retired).toBe(true);
+  });
+
+  it("returns undefined for a teamId not in the coach's library", () => {
+    upsertLibraryTeam(dir, "Flutethecat", team({ teamId: "1" }));
+    expect(retireLibraryTeam(dir, "Flutethecat", "999")).toBeUndefined();
+  });
+
+  it("is idempotent: retiring an already-retired team just refreshes retiredAt", () => {
+    upsertLibraryTeam(dir, "Flutethecat", team({ teamId: "1" }));
+    const first = retireLibraryTeam(dir, "Flutethecat", "1");
+    const second = retireLibraryTeam(dir, "Flutethecat", "1");
+    expect(second?.retired).toBe(true);
+    expect(readLibrary(dir, "Flutethecat")).toHaveLength(1);
+    expect(first).toBeDefined();
+  });
+
+  it("does not affect other coaches' libraries", () => {
+    upsertLibraryTeam(dir, "Flutethecat", team({ teamId: "1" }));
+    upsertLibraryTeam(dir, "Gondra87", team({ teamId: "1", coach: "Gondra87" }));
+    retireLibraryTeam(dir, "Flutethecat", "1");
+    expect(readLibrary(dir, "Gondra87")[0]!.retired).toBeUndefined();
   });
 });
 
