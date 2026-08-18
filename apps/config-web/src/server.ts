@@ -80,6 +80,15 @@ import { createSiteBackend } from "./site-backend/index.js";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
 import { corsDecision, parseAllowedOrigins } from "./cors.js";
 import { customModeError } from "./customGate.js";
+import {
+  BUG_REPORT_BODY_CAP,
+  BodyTooLargeError,
+  bugReportAccessError,
+  getBugReport,
+  listBugReports,
+  readJsonCapped,
+  submitBugReport,
+} from "./bugReports.js";
 
 /**
  * Endpoints reachable without ADMIN_PASSWORD even when it's set, AND always sent
@@ -127,6 +136,10 @@ const PUBLIC_PATHS = new Set([
   // does its own admin-OR-coach-password auth in-handler (SR-197 TP-1 — list scoped to the
   // AUTHENTICATED coach, never an arbitrary ?coach= param).
   "/api/fork/my-games",
+  // Bug-report ingestion (owner feature 08-18): POST does its own coach auth in-handler
+  // (session token OR coach creds — a report must be attributable); the GET listing/read
+  // on the same path is organizer/admin-gated in-handler, fail closed (see bugReports.ts).
+  "/api/bug-reports",
 ]);
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -151,6 +164,8 @@ const COACH_REGISTRY_JSON = resolve(
 );
 // Fork team libraries (one JSON file per coach). Defaults under config-web's data-store.
 const LIBRARY_DIR = resolve(process.env.FORK_LIBRARY_DIR || join(HERE, "../data-store/library"));
+// Bug reports land here (one folder per report) for later ingestion by the owner.
+const BUG_REPORTS_DIR = resolve(process.env.BUG_REPORTS_DIR || join(HERE, "../bug-reports"));
 // Tracks the last successful fork (game server) reload — see @bb/fork-ops's forkReload.
 const FORK_STATE_DIR = resolve(join(HERE, "../data-store"));
 
@@ -549,7 +564,8 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     isOrganizerWrite(method, pathname) ||
     pathname === "/api/auth/login" ||
     pathname === "/api/auth/logout" ||
-    pathname === "/api/fork/team-builder/build"
+    pathname === "/api/fork/team-builder/build" ||
+    pathname === "/api/bug-reports"
   );
 }
 
@@ -1130,6 +1146,38 @@ async function handleApi(
     } catch (e) {
       return sendJson(res, 500, { error: (e as Error).message });
     }
+  }
+
+  // --- Bug-report ingestion (owner feature 08-18) --- see bugReports.ts for auth/limits.
+  if (path === "/api/bug-reports" && method === "POST") {
+    let body: unknown;
+    try {
+      // Route-specific 15MB cap, enforced while reading (readBody has no cap; this route
+      // carries multi-MB logs, so it gets its own guarded reader — others are untouched).
+      body = await readJsonCapped(req, BUG_REPORT_BODY_CAP);
+    } catch (e) {
+      if (e instanceof BodyTooLargeError) return sendJson(res, 413, { error: e.message });
+      return sendJson(res, 400, { error: "Invalid JSON request body." });
+    }
+    const result = await submitBugReport(body, auth, {
+      dir: BUG_REPORTS_DIR,
+      authenticationAvailable: challengeDbCfg !== undefined,
+      verifyCoachDigest: (coach, passwordMd5) =>
+        challengeDbCfg ? verifyCoachDigest(challengeDbCfg, coach, passwordMd5) : Promise.resolve(false),
+    });
+    if (result.headers) res.writeHead(result.status, { "content-type": "application/json; charset=utf-8", ...result.headers }).end(JSON.stringify(result.body));
+    else sendJson(res, result.status, result.body);
+    return;
+  }
+
+  // Organizer/admin listing + read (fail closed — same idiom as custom:true, SR-260 ③).
+  if ((path === "/api/bug-reports" || path.startsWith("/api/bug-reports/")) && method === "GET") {
+    const gateError = bugReportAccessError({ organizer: auth?.organizer === true, adminAuthed: isAdminAuthed(req) || isTokenAuthed(req) });
+    if (gateError) return sendJson(res, 403, { error: gateError });
+    if (path === "/api/bug-reports") return sendJson(res, 200, { reports: listBugReports(BUG_REPORTS_DIR) });
+    const report = getBugReport(BUG_REPORTS_DIR, decodeURIComponent(path.slice("/api/bug-reports/".length)));
+    if (!report) return sendJson(res, 404, { error: "Bug report not found." });
+    return sendJson(res, 200, { report });
   }
 
   // Build: re-validate SERVER-SIDE (never trust the client), then write team XML + hot-reload.

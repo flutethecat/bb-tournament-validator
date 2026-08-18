@@ -36,6 +36,8 @@ const PUBLIC_API_METHODS = new Map<string, ReadonlySet<string>>([
   ["/api/fork/team-builder/preview", new Set(["POST"])],
   ["/api/fork/team-builder/build", new Set(["POST"])],
   ["/api/fork/my-games", new Set(["POST"])],
+  // POST does its own coach auth in-handler; the GETs stay session+organizer-gated.
+  ["/api/bug-reports", new Set(["POST"])],
 ]);
 
 function isPublicRequest(method: string, pathname: string): boolean {
