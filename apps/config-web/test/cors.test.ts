@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { corsDecision, parseAllowedOrigins } from "../src/cors.js";
+import { APP_WEBVIEW_ORIGINS, corsDecision, parseAllowedOrigins } from "../src/cors.js";
 
 describe("parseAllowedOrigins", () => {
   it("splits, trims, lowercases, and drops trailing slashes + empties", () => {
     const set = parseAllowedOrigins(" https://To.Example.com/ , http://localhost:5173 ,, ");
-    expect(set).toEqual(new Set(["https://to.example.com", "http://localhost:5173"]));
+    expect(set).toEqual(new Set([...APP_WEBVIEW_ORIGINS, "https://to.example.com", "http://localhost:5173"]));
   });
 
-  it("unset env yields an empty allowlist (same-origin/no-Origin only)", () => {
-    expect(parseAllowedOrigins(undefined).size).toBe(0);
+  it("unset env yields exactly the app WebView origins (08-18: Tauri v2 plugin-http sends Origin)", () => {
+    expect(parseAllowedOrigins(undefined)).toEqual(new Set(APP_WEBVIEW_ORIGINS));
+  });
+
+  it("the packaged app's WebView origin is allowed by default", () => {
+    const set = parseAllowedOrigins(undefined);
+    expect(corsDecision("http://tauri.localhost", "cfg.example:4310", set).kind).toBe("allowed");
+    expect(corsDecision("tauri://localhost", "cfg.example:4310", set).kind).toBe("allowed");
   });
 });
 
