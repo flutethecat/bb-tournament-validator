@@ -17,7 +17,7 @@ import { coachSecretDigest } from "@bb/fork-ops";
 import { noteLegacyPasswordAuth } from "./auth/deprecation.js";
 import type { SessionIdentity } from "./auth/requireSession.js";
 
-export const BUG_REPORT_BODY_CAP = 15 * 1024 * 1024; // route-specific; other routes keep today's readBody
+export const BUG_REPORT_BODY_CAP = 32 * 1024 * 1024; // route-specific; JSON-escaping can ~2x a 12MB log, so the raw-body cap leaves headroom (client caps: wire 12MB + app 2MB). Other routes keep today's readBody
 export const WIRE_LOG_CAP = 12 * 1024 * 1024;
 export const APP_LOG_CAP = 2 * 1024 * 1024;
 export const CONTEXT_CAP = 32 * 1024; // serialized
