@@ -103,6 +103,7 @@ import { createSiteBackend } from "./site-backend/index.js";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
 import { corsDecision, parseAllowedOrigins } from "./cors.js";
 import { forkGamesEndpoint } from "./forkGames.js";
+import { teamDetailEndpoint, teamDetailIdFromPath } from "./teamDetail.js";
 import {
   BUG_REPORT_BODY_CAP,
   BodyTooLargeError,
@@ -372,6 +373,7 @@ function registerBuiltTeam(
   totalGold: number,
   ingestedAt: string,
   forkLoadable: boolean,
+  rulesetPackName?: string,
 ): void {
   upsertLibraryTeam(LIBRARY_DIR, roster.coach, {
     teamId,
@@ -383,6 +385,7 @@ function registerBuiltTeam(
     rerolls: roster.sideline.reRolls,
     fanFactor: roster.sideline.dedicatedFans,
     apothecary: roster.sideline.apothecary,
+    rulesetPackName,
     forkLoadable,
     ingestedAt,
   });
@@ -480,6 +483,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   if (!ADMIN_PASSWORD) return true; // open when no password set (localhost default)
   if (PUBLIC_PATHS.has(pathname)) return true;
   if (pathname.startsWith("/api/packages/")) return true;
+  if ((req.method === "GET" || req.method === "HEAD") && teamDetailIdFromPath(pathname)) return true;
   // Public rules-builder surface: the TO ruleset editor authenticates IN-UI via a bearer
   // token (POST /api/auth/login → gate on POST /api/packages), so its page + static deps
   // must load without the admin Basic-auth prompt. GET/HEAD only, on the specific
@@ -899,6 +903,15 @@ async function handleApi(
   if (path === "/api/skills" && method === "GET") return sendJson(res, 200, skillCatalog());
 
   if (path === "/api/teams" && method === "GET") return sendJson(res, 200, teamList());
+
+  const detailTeamId = teamDetailIdFromPath(path);
+  if (detailTeamId && method === "GET") {
+    const result = teamDetailEndpoint(auth, detailTeamId, {
+      libraryDir: LIBRARY_DIR,
+      teamsDir: forkConfigFromEnv()?.teamsDir,
+    });
+    return sendJson(res, result.status, result.body);
+  }
 
   if (path === "/api/stars" && method === "GET") return sendJson(res, 200, starList());
 
@@ -1635,7 +1648,14 @@ async function handleApi(
       const reload = await reloadFork(cfg, FORK_STATE_DIR);
       // goldUsed = the validator's RECOMPUTED total (validate() ran on this path — prefer it over the
       // composer's own figure). The SL branch uses the composed summary, its strongest available number.
-      registerBuiltTeam(composed.roster, composed.teamId, result.recomputedSummary.goldUsed, ingestedAt, reload.reloaded);
+      registerBuiltTeam(
+        composed.roster,
+        composed.teamId,
+        result.recomputedSummary.goldUsed,
+        ingestedAt,
+        reload.reloaded,
+        resolvedPkg.selected?.name,
+      );
       return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: result.recomputedSummary, ...(packageInfo ? { package: packageInfo } : {}) });
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });

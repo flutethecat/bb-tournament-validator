@@ -26,6 +26,8 @@ export interface LibraryTeam {
   rerolls?: number;
   fanFactor?: number;
   apothecary?: boolean;
+  /** Tournament package used by the team builder; absent for imports and older rows. */
+  rulesetPackName?: string;
   /** false ⇒ no matching fork roster loaded; the client warns but still lists it. */
   forkLoadable: boolean;
   ingestedAt: string;
