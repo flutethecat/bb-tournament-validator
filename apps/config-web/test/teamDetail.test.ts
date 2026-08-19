@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -61,6 +61,21 @@ describe("GET /api/teams/:id/detail", () => {
     });
   });
 
+  it("rejects a matching library row when stored XML belongs to another coach", () => {
+    const d = dirs();
+    upsertLibraryTeam(d.libraryDir, "Tarkin", STORED_TEAM);
+    writeFileSync(
+      join(d.teamsDir, "team_Gondra87_1272390.xml"),
+      '<team id="1272390"><coach>Gondra87</coach><name>Stale Row</name></team>',
+      "utf8",
+    );
+
+    expect(teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "1272390", d)).toEqual({
+      status: 404,
+      body: { error: "Team not found." },
+    });
+  });
+
   it("returns the sanitized parsed roster from stored team XML", () => {
     const d = dirs();
     upsertLibraryTeam(d.libraryDir, "Tarkin", STORED_TEAM);
@@ -69,7 +84,7 @@ describe("GET /api/teams/:id/detail", () => {
     mkdirSync(rostersDir);
     cpSync(join(FIXTURES, "roster-team-detail.xml"), join(rostersDir, "roster_team_1272390.xml"));
 
-    expect(teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "1272390", d)).toEqual({
+    expect(teamDetailEndpoint({ coach: "tArKiN", organizer: false }, "1272390", d)).toEqual({
       status: 200,
       body: {
         team: {
@@ -79,6 +94,8 @@ describe("GET /api/teams/:id/detail", () => {
           rerolls: 2,
           apothecary: true,
           fanFactor: 3,
+          assistantCoaches: 1,
+          cheerleaders: 2,
           treasury: 35000,
           teamValue: 955,
           rulesetPackName: null,

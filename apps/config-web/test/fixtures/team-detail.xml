@@ -7,6 +7,8 @@
   <reRolls>2</reRolls>
   <dedicatedFans>3</dedicatedFans>
   <apothecaries>1</apothecaries>
+  <assistantCoaches>1</assistantCoaches>
+  <cheerleaders>2</cheerleaders>
   <currentTeamValue>955000</currentTeamValue>
   <treasury>35000</treasury>
   <player status="MissNextGame" mng="true" nr="1" id="17854689">

@@ -23,6 +23,8 @@ export interface TeamDetail {
   rerolls: number;
   apothecary: boolean;
   fanFactor: number;
+  assistantCoaches: number;
+  cheerleaders: number;
   treasury: number;
   teamValue: number;
   rulesetPackName: string | null;
@@ -65,7 +67,7 @@ const numberElement = (scope: string, tag: string): number | undefined => {
 
 const safePart = (value: string): string => value.replace(/[^\w.-]+/g, "_") || "unknown";
 
-function storedTeamXml(teamsDir: string, teamId: string): string | undefined {
+export function storedTeamXml(teamsDir: string, teamId: string): string | undefined {
   if (!existsSync(teamsDir)) return undefined;
   const suffix = `_${safePart(teamId)}.xml`;
   for (const file of readdirSync(teamsDir)) {
@@ -74,6 +76,22 @@ function storedTeamXml(teamsDir: string, teamId: string): string | undefined {
     if (decodeXml(attr(xml.match(/<team\b[^>]*>/i)?.[0] ?? "", "id") ?? "") === teamId) return xml;
   }
   return undefined;
+}
+
+export const coachNamesEqual = (left: string, right: string): boolean =>
+  left.trim().toLowerCase() === right.trim().toLowerCase();
+
+export const storedTeamCoach = (xml: string): string | undefined => element(xml, "coach");
+
+export function storedTeamHasHistory(xml: string): boolean {
+  if (/<(?:playerStatistics|starPlayerPoints|statistics)\b/i.test(xml)) return true;
+  for (const found of xml.matchAll(/<player\b[^>]*>[\s\S]*?<\/player>/gi)) {
+    const player = found[0]!;
+    const status = decodeXml(attr(player.match(/<player\b[^>]*>/i)?.[0] ?? "", "status") ?? "") || null;
+    if (currentSpp(player) > 0 || /<injury\b/i.test(player) || playerMng(player, status)) return true;
+    if ((numberElement(player, "playedGames") ?? numberElement(player, "games") ?? 0) > 0) return true;
+  }
+  return /<(?:playedGames|games)>\s*[1-9]\d*\s*<\//i.test(xml);
 }
 
 function storedRosterXml(teamsDir: string, teamId: string): string | undefined {
@@ -158,6 +176,8 @@ export function parseStoredTeamDetail(
     rerolls: meta.rerolls ?? stored.rerolls ?? 0,
     apothecary: meta.apothecary ?? stored.apothecary ?? false,
     fanFactor: meta.fanFactor ?? stored.fanFactor ?? 0,
+    assistantCoaches: numberElement(xml, "assistantCoaches") ?? 0,
+    cheerleaders: numberElement(xml, "cheerleaders") ?? 0,
     treasury: /<treasury>/i.test(xml) ? meta.gold : stored.gold,
     teamValue: hasTeamValue ? meta.teamValue : stored.teamValue,
     rulesetPackName: stored.rulesetPackName ?? null,
@@ -182,7 +202,9 @@ export function teamDetailEndpoint(
 ): TeamDetailEndpointResult {
   if (!auth) return { status: 401, body: { error: "Authentication required." } };
   const stored = readLibrary(deps.libraryDir, auth.coach).find((team) => team.teamId === teamId);
-  if (!stored) return { status: 404, body: { error: "Team not found." } };
+  if (!stored || !coachNamesEqual(stored.coach, auth.coach)) {
+    return { status: 404, body: { error: "Team not found." } };
+  }
   if (!deps.teamsDir) {
     return { status: 503, body: { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." } };
   }
@@ -190,6 +212,9 @@ export function teamDetailEndpoint(
   try {
     const xml = storedTeamXml(deps.teamsDir, teamId);
     if (!xml) return { status: 404, body: { error: "Stored team data not found." } };
+    if (!coachNamesEqual(storedTeamCoach(xml) ?? "", auth.coach)) {
+      return { status: 404, body: { error: "Team not found." } };
+    }
     return {
       status: 200,
       body: { team: parseStoredTeamDetail(xml, stored, storedRosterXml(deps.teamsDir, teamId)) },

@@ -1568,7 +1568,7 @@ async function handleApi(
       // The built team's coach === the authenticated coach: composeFromBody uses body.coach, and we
       // just verified body.password for body.coach — so a coach can only build under their own name.
     }
-    const target = resolveTeamBuilderBuildTarget(LIBRARY_DIR, body.coach?.trim() ?? "", body.teamId);
+    const target = resolveTeamBuilderBuildTarget(LIBRARY_DIR, cfg.teamsDir, body.coach?.trim() ?? "", body.teamId);
     if (!target.ok) return sendJson(res, target.status, { error: target.error });
     try {
       // Secret League path (#52 A): off-dataset → compose + enforce roster-intrinsic legality here

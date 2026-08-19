@@ -1,20 +1,39 @@
 import { readLibrary, upsertLibraryTeam } from "@bb/fork-ops";
 import type { ComposeResult, Roster } from "@bb/validator";
+import { coachNamesEqual, storedTeamCoach, storedTeamHasHistory, storedTeamXml } from "./teamDetail.js";
 
 export type TeamBuilderBuildTarget =
   | { ok: true; teamId?: string }
-  | { ok: false; status: 400 | 404; error: string };
+  | { ok: false; status: 400 | 404 | 409; error: string };
 
 /** Resolve an optional edit target within the authenticated coach's library. */
 export function resolveTeamBuilderBuildTarget(
   libraryDir: string,
+  teamsDir: string,
   coach: string,
   requestedTeamId: string | undefined,
 ): TeamBuilderBuildTarget {
   if (requestedTeamId === undefined) return { ok: true };
   const teamId = requestedTeamId.trim();
   if (!teamId) return { ok: false, status: 400, error: "teamId must be a non-empty string when supplied." };
-  if (!readLibrary(libraryDir, coach).some((team) => team.teamId === teamId)) {
+  const stored = readLibrary(libraryDir, coach).find((team) => team.teamId === teamId);
+  if (!stored || !coachNamesEqual(stored.coach, coach)) {
+    return { ok: false, status: 404, error: "Team not found." };
+  }
+  try {
+    const xml = storedTeamXml(teamsDir, teamId);
+    if (!xml || !coachNamesEqual(storedTeamCoach(xml) ?? "", coach)) {
+      return { ok: false, status: 404, error: "Team not found." };
+    }
+    if (stored.retired) return { ok: false, status: 409, error: "Retired teams can't be edited." };
+    if (storedTeamHasHistory(xml)) {
+      return {
+        ok: false,
+        status: 409,
+        error: "This team has match history; editing played teams isn't supported yet.",
+      };
+    }
+  } catch {
     return { ok: false, status: 404, error: "Team not found." };
   }
   return { ok: true, teamId };
