@@ -922,8 +922,9 @@ async function login() {
   try {
     const result = await requestJson("/api/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
+      // Portal CSRF guard: cookie-less pages still must send X-CW-Auth; body needs the coach name too.
+      headers: { "Content-Type": "application/json", "X-CW-Auth": "1" },
+      body: JSON.stringify({ username, password }),
     });
     state.token = result.token;
     state.account = username;
@@ -1019,7 +1020,7 @@ async function exportPackage() {
   try {
     const response = await fetch("/api/export", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-CW-Auth": "1" },
       body: JSON.stringify(serializePackage()),
     });
     if (!response.ok) {
