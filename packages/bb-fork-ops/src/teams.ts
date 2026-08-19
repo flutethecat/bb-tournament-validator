@@ -271,6 +271,6 @@ export async function ingestForkTeam(
     forkLoadable,
     ingestedAt,
   };
-  upsertLibraryTeam(libDir, coach, team);
+  upsertLibraryTeam(libDir, coach, team, { preserveRetirement: false });
   return { team, raceWarning, needsRestart: !forkLoadable };
 }

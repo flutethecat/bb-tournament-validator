@@ -54,11 +54,16 @@ export function readLibrary(baseDir: string, coach: string): LibraryTeam[] {
 }
 
 /** Insert or replace a team in a coach's library (keyed on teamId); returns the new list. */
-export function upsertLibraryTeam(baseDir: string, coach: string, team: LibraryTeam): LibraryTeam[] {
+export function upsertLibraryTeam(
+  baseDir: string,
+  coach: string,
+  team: LibraryTeam,
+  opts?: { preserveRetirement?: boolean },
+): LibraryTeam[] {
   mkdirSync(baseDir, { recursive: true });
   const current = readLibrary(baseDir, coach);
   const existing = current.find((t) => t.teamId === team.teamId);
-  const retirement = existing
+  const retirement = existing && opts?.preserveRetirement !== false
     ? {
         ...(Object.hasOwn(existing, "retired") ? { retired: existing.retired } : {}),
         ...(Object.hasOwn(existing, "retiredAt") ? { retiredAt: existing.retiredAt } : {}),

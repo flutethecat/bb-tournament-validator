@@ -102,6 +102,7 @@ import { createSiteBackend } from "./site-backend/index.js";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
 import { registerBuiltTeam, resolveTeamBuilderBuildTarget, retargetComposedTeam } from "./teamBuilderBuild.js";
 import { corsDecision, parseAllowedOrigins } from "./cors.js";
+import { teamEditingError } from "./customGate.js";
 import { forkGamesEndpoint } from "./forkGames.js";
 import { teamDetailEndpoint, teamDetailIdFromPath } from "./teamDetail.js";
 import {
@@ -1548,6 +1549,9 @@ async function handleApi(
     const body = (await readBody(req)) as TeamBuilderBody;
     const wireError = teamBuilderWireError(body);
     if (wireError) return sendJson(res, 400, { error: wireError });
+    const adminAuthed = isAdminAuthed(req) || isTokenAuthed(req);
+    const editingError = teamEditingError({ teamId: body.teamId, organizer: auth?.organizer === true, adminAuthed });
+    if (editingError) return sendJson(res, 403, { error: editingError });
     // Custom mode (owner 08-19): open to any fork player — no organizer/admin gate. The coach-auth
     // block below still runs, so a custom team can only be written by an authenticated fork coach
     // (under their own name), or admin. Custom just skips the legality/budget validation, not auth.

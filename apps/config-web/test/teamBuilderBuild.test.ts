@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { readLibrary, upsertLibraryTeam, type LibraryTeam } from "@bb/fork-ops";
 import type { ComposeResult, Roster } from "@bb/validator";
+import { teamEditingError } from "../src/customGate.js";
 import {
   registerBuiltTeam,
   resolveTeamBuilderBuildTarget,
@@ -107,6 +108,7 @@ describe("team-builder build target", () => {
     upsertLibraryTeam(d.libraryDir, "Gondra87", stored("foreign", "Gondra87"));
     const before = readLibrary(d.libraryDir, "Gondra87");
 
+    expect(teamEditingError({ teamId, organizer: true, adminAuthed: false })).toBeUndefined();
     expect(resolveTeamBuilderBuildTarget(d.libraryDir, d.teamsDir, "Tarkin", teamId)).toEqual({
       ok: false,
       status: 404,
@@ -140,6 +142,7 @@ describe("team-builder build target", () => {
     const beforeRow = readLibrary(d.libraryDir, "Tarkin");
     const beforeXml = readFileSync(path, "utf8");
 
+    expect(teamEditingError({ teamId: "1272390", organizer: false, adminAuthed: true })).toBeUndefined();
     expect(resolveTeamBuilderBuildTarget(d.libraryDir, d.teamsDir, "Tarkin", "1272390")).toEqual({
       ok: false,
       status: 409,
@@ -157,6 +160,7 @@ describe("team-builder build target", () => {
     const beforeRow = readLibrary(d.libraryDir, "Tarkin");
     const beforeXml = readFileSync(path, "utf8");
 
+    expect(teamEditingError({ teamId: "owned", organizer: true, adminAuthed: false })).toBeUndefined();
     expect(resolveTeamBuilderBuildTarget(d.libraryDir, d.teamsDir, "Tarkin", "owned")).toEqual({
       ok: false,
       status: 409,
@@ -166,11 +170,11 @@ describe("team-builder build target", () => {
     expect(readFileSync(path, "utf8")).toBe(beforeXml);
   });
 
-  it("does not drop retirement metadata when an existing row is upserted", () => {
+  it("does not drop retirement metadata when builder registration upserts a row", () => {
     const d = dirs();
     const retiredAt = "2026-08-18T00:00:00.000Z";
     upsertLibraryTeam(d.libraryDir, "Tarkin", { ...stored("owned"), retired: true, retiredAt });
-    upsertLibraryTeam(d.libraryDir, "Tarkin", { ...stored("owned"), teamName: "Replacement" });
+    registerBuiltTeam(d.libraryDir, roster(), "owned", 975_000, "2026-08-19T12:00:00.000Z", true);
 
     expect(readLibrary(d.libraryDir, "Tarkin")[0]).toMatchObject({ retired: true, retiredAt });
   });
