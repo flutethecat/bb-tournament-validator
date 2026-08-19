@@ -80,6 +80,7 @@ import { createSiteBackend } from "./site-backend/index.js";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
 import { corsDecision, parseAllowedOrigins } from "./cors.js";
 import { customModeError } from "./customGate.js";
+import { forkGamesEndpoint } from "./forkGames.js";
 import {
   BUG_REPORT_BODY_CAP,
   BodyTooLargeError,
@@ -136,6 +137,8 @@ const PUBLIC_PATHS = new Set([
   // does its own admin-OR-coach-password auth in-handler (SR-197 TP-1 — list scoped to the
   // AUTHENTICATED coach, never an arbitrary ?coach= param).
   "/api/fork/my-games",
+  // Session-gated in-handler; bypasses the separate legacy ADMIN_PASSWORD gate.
+  "/api/fork/games",
   // Bug-report ingestion (owner feature 08-18): POST does its own coach auth in-handler
   // (session token OR coach creds — a report must be attributable); the GET listing/read
   // on the same path is organizer/admin-gated in-handler, fail closed (see bugReports.ts).
@@ -854,6 +857,11 @@ async function handleApi(
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
     }
+  }
+
+  if (path === "/api/fork/games" && method === "GET") {
+    const result = await forkGamesEndpoint(auth !== undefined, forkAdminCfg);
+    return sendJson(res, result.status, result.body);
   }
 
   // Enter matchmaking: record my pending challenge. Instant reciprocal matches are
