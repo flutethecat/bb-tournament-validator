@@ -11,5 +11,9 @@ export function teamBuilderWireError(body: unknown): string | null {
   if (packageName !== undefined && typeof packageName !== "string") {
     return "packageName must be a string when supplied.";
   }
+  const teamId = (body as Record<string, unknown>).teamId;
+  if (teamId !== undefined && (typeof teamId !== "string" || !teamId.trim())) {
+    return "teamId must be a non-empty string when supplied.";
+  }
   return null;
 }

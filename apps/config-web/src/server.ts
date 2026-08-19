@@ -26,7 +26,6 @@ import {
   skillAccess,
   validate,
   type ComposeIntrinsicResult,
-  type Roster,
   type TeamPick,
   type TournamentPackage,
 } from "@bb/validator";
@@ -101,6 +100,7 @@ import { legacyPasswordAuthCounts, noteLegacyPasswordAuth } from "./auth/depreca
 import { attachSuper } from "./super/index.js";
 import { createSiteBackend } from "./site-backend/index.js";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
+import { registerBuiltTeam, resolveTeamBuilderBuildTarget, retargetComposedTeam } from "./teamBuilderBuild.js";
 import { corsDecision, parseAllowedOrigins } from "./cors.js";
 import { forkGamesEndpoint } from "./forkGames.js";
 import { teamDetailEndpoint, teamDetailIdFromPath } from "./teamDetail.js";
@@ -339,56 +339,14 @@ function loadSecretLeagueForkRosters(teamsDir: string): Map<string, string> {
 }
 
 /**
- * Register a Team-Builder-created team in the coach's LIBRARY (#52 stage-5 bounce, TK-421).
- *
- * A built team was written to `teams/` + fork-reloaded, but the challenge route resolves a coach's
- * teams from the per-coach library JSON (`readLibrary`, `bb-fork-ops/library.ts`) — NOT from `teams/`.
- * `upsertLibraryTeam` had exactly ONE call site (the team-IMPORT path), so EVERY builder-created team
- * (base AND Secret League) was unplayable: the challenge 400s with "Team <id> isn't in <coach>'s
- * library." This mirrors the import path's upsert so a built team is actually challengeable.
- *
- * ⚠ `ingestedAt` MUST be stamped BEFORE the fork reload: the challenge route's `isLoadedOnFork` gates
- * on `ingestedAt <= lastReloadAt`, so a timestamp taken after the reload would 409 ("isn't loaded on
- * the fork yet") until the next reload.
- * ⚠ `teamValue` is TV in THOUSANDS (LibraryTeam's contract). It's derived from the composed summary,
- * not parsed back off our XML: the composer writes `<currentTeamValue>` in fork-native 10k units
- * (830k ⇒ 83), which `parseTeamXmlMeta`'s `>= 10000` heuristic would read as a literal 83.
- */
-/**
  * Reject a team NAME that collides with any already-created team, globally (FUMBBL names
  * are unique fork-wide, not per-coach — see findLibraryTeamByName). `excludeTeamId` lets a
- * resubmission of the SAME team (same teamId) pass through without tripping on its own row;
- * currently every team-builder build mints a fresh teamId (mintTeamId), so this exclusion
- * is a no-op today but is kept for whenever a true in-place-update path exists.
+ * resubmission of the SAME team (same teamId) pass through without tripping on its own row.
  */
 function duplicateTeamNameError(teamName: string, excludeTeamId?: string): string | undefined {
   const clash = findLibraryTeamByName(LIBRARY_DIR, teamName, excludeTeamId);
   if (!clash) return undefined;
   return `A team named "${teamName.trim()}" already exists — choose another name.`;
-}
-
-function registerBuiltTeam(
-  roster: Roster,
-  teamId: string,
-  totalGold: number,
-  ingestedAt: string,
-  forkLoadable: boolean,
-  rulesetPackName?: string,
-): void {
-  upsertLibraryTeam(LIBRARY_DIR, roster.coach, {
-    teamId,
-    teamName: roster.teamName,
-    race: roster.rosterName,
-    coach: roster.coach,
-    teamValue: Math.round(totalGold / 1000),
-    gold: 0, // a freshly built team has no treasury
-    rerolls: roster.sideline.reRolls,
-    fanFactor: roster.sideline.dedicatedFans,
-    apothecary: roster.sideline.apothecary,
-    rulesetPackName,
-    forkLoadable,
-    ingestedAt,
-  });
 }
 
 interface TeamBuilderBody {
@@ -413,6 +371,8 @@ interface TeamBuilderBody {
   /** Tournament ruleset picker (owner GO): validate against this saved package instead of the
    *  standalone baseline. Omitted ⇒ current baseline behavior, byte-identical. Unknown name ⇒ 4xx. */
   packageName?: string;
+  /** Existing coach-owned library team to replace. Omitted mints a new team as before. */
+  teamId?: string;
 }
 
 /** Resolve a Secret League builder request to a composed team + roster-intrinsic legality (#52 A).
@@ -1608,11 +1568,13 @@ async function handleApi(
       // The built team's coach === the authenticated coach: composeFromBody uses body.coach, and we
       // just verified body.password for body.coach — so a coach can only build under their own name.
     }
+    const target = resolveTeamBuilderBuildTarget(LIBRARY_DIR, body.coach?.trim() ?? "", body.teamId);
+    if (!target.ok) return sendJson(res, target.status, { error: target.error });
     try {
       // Secret League path (#52 A): off-dataset → compose + enforce roster-intrinsic legality here
       // (the dataset `validate()` can't run for a race the dataset doesn't carry). Same write+reload.
       if (body.rosterId && isSlRosterId(body.rosterId)) {
-        const composed = composeIntrinsicFromBody(cfg.teamsDir, body);
+        const composed = retargetComposedTeam(composeIntrinsicFromBody(cfg.teamsDir, body), target.teamId);
         if (!composed.legal) {
           return sendJson(res, 400, {
             error: "Team is not legal — fix the findings and rebuild.",
@@ -1628,10 +1590,10 @@ async function handleApi(
         writeFileSync(file, composed.xml, "utf8");
         const ingestedAt = new Date().toISOString(); // before the reload — see registerBuiltTeam
         const reload = await reloadFork(cfg, FORK_STATE_DIR);
-        registerBuiltTeam(composed.roster, composed.teamId, composed.roster.summary!.total, ingestedAt, reload.reloaded);
+        registerBuiltTeam(LIBRARY_DIR, composed.roster, composed.teamId, composed.roster.summary!.total, ingestedAt, reload.reloaded);
         return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: composed.roster.summary, intrinsic: true });
       }
-      const composed = composeFromBody(cfg.teamsDir, body);
+      const composed = retargetComposedTeam(composeFromBody(cfg.teamsDir, body), target.teamId);
       const result = validate(composed.roster, resolvedPkg.pkg, bb2025);
       const packageInfo = packageResponseInfo(resolvedPkg, composed.roster.rosterName);
       // Custom UAT mode (owner 08-04): apply the choice, no validation gate — never reject.
@@ -1649,6 +1611,7 @@ async function handleApi(
       // goldUsed = the validator's RECOMPUTED total (validate() ran on this path — prefer it over the
       // composer's own figure). The SL branch uses the composed summary, its strongest available number.
       registerBuiltTeam(
+        LIBRARY_DIR,
         composed.roster,
         composed.teamId,
         result.recomputedSummary.goldUsed,

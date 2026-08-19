@@ -6,7 +6,7 @@ describe("teamBuilderWireError", () => {
     expect(teamBuilderWireError(body)).toBe("request body must be a JSON object.");
   });
 
-  it.each([{}, { apothecary: true }, { apothecary: false }, { packageName: "bb2025-default" }])(
+  it.each([{}, { apothecary: true }, { apothecary: false }, { packageName: "bb2025-default" }, { teamId: "123" }])(
     "accepts %j",
     (body) => {
       expect(teamBuilderWireError(body)).toBeNull();
@@ -26,6 +26,13 @@ describe("teamBuilderWireError", () => {
     "rejects %j",
     (body) => {
       expect(teamBuilderWireError(body)).toBe("packageName must be a string when supplied.");
+    },
+  );
+
+  it.each([{ teamId: 1 }, { teamId: true }, { teamId: null }, { teamId: "  " }])(
+    "rejects %j",
+    (body) => {
+      expect(teamBuilderWireError(body)).toBe("teamId must be a non-empty string when supplied.");
     },
   );
 });
