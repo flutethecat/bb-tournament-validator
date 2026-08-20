@@ -255,8 +255,8 @@ function renderUserRow(user) {
     <td><button type="button" class="flag-toggle${record.silenced ? " active" : ""}" role="switch" aria-checked="${record.silenced}" data-action="toggle-silenced" data-fork-name="${forkName}"${pending}>${record.silenced ? "Silenced" : "Normal"}</button></td>
     <td class="actions-cell"><div class="row-actions">
       <button type="button" class="btn compact" data-action="edit-identities" data-fork-name="${forkName}">Identities</button>
-      <button type="button" class="btn compact" data-action="reset-password" data-fork-name="${forkName}"${pending}>Reset fork password</button>
-      <button type="button" class="btn danger compact" data-action="clear-games" data-fork-name="${forkName}"${pending}>Clear games</button>
+      <button type="button" class="btn compact" data-action="reset-password" data-fork-name="${forkName}"${pending}>Reset PW</button>
+      <button type="button" class="btn danger compact" data-action="clear-games" data-fork-name="${forkName}"${pending}>Clear</button>
     </div></td>
   </tr>`;
   return row + (normalizeName(state.editingIdentity) === normalizeName(user.fumbblName) ? renderIdentityEditor(user, record) : "");

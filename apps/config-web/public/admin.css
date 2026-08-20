@@ -1,15 +1,19 @@
-.admin-table-wrap { overflow-x: auto; }
+.admin-table-wrap {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
 
 .admin-table {
   width: 100%;
-  min-width: 1120px;
+  min-width: 840px;
   border-collapse: collapse;
   font-size: 12px;
 }
 
 .admin-table th,
 .admin-table td {
-  padding: 9px 8px;
+  padding: 8px 5px;
   border-bottom: 1px solid #303030;
   text-align: left;
   vertical-align: top;
@@ -26,8 +30,8 @@
 
 .admin-table tbody tr:hover > td { background: #1b1616; }
 .admin-table .account-cell { color: var(--cream); font-family: ui-monospace, Consolas, monospace; }
-.admin-table .control { width: 112px; padding: 5px 7px; font-size: 11px; }
-.admin-table .actions-cell { min-width: 180px; }
+.admin-table .control { width: 96px; padding: 5px 6px; font-size: 11px; }
+.admin-table .actions-cell { min-width: 128px; }
 
 .identity-list,
 .row-actions,
