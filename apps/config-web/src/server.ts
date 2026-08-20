@@ -40,10 +40,13 @@ import {
   adminListLive,
   adminMessage,
   buildForkJnlp,
+  coachExists,
   createForkAccount,
   createForkAccountDigest,
+  createForkAccountDigestIfAvailable,
   coachSecretDigest,
   forkAdminConfigFromEnv,
+  forkCoachPasswordDigest,
   forkConfigFromEnv,
   forkDbConfigFromEnv,
   HOME_AWAY_MODES,
@@ -73,11 +76,22 @@ import { PRESETS } from "./presets";
 import { handleAuthPortal } from "./auth/portal.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
 import { coachLogin, sendCoachLogin } from "./auth/coachLogin.js";
-import { bearerTokenFromRequest, getSession, sessionTokenFromRequest } from "./auth/session.js";
+import {
+  bearerTokenFromRequest,
+  buildSessionCookie,
+  createSession,
+  getSession,
+  parseCookies,
+  requestUsesTls,
+  sessionFromRequest,
+  sessionTokenFromRequest,
+} from "./auth/session.js";
 import { BANNED_ACCOUNT_MESSAGE, coachLevel, isAdmin, isBanned, isOrganizer } from "./auth/access.js";
 import {
-  normalizeForkName,
+  normalizeFfbCoachId,
+  ownIdentityRecord,
   readIdentities,
+  updateOwnAccount,
   upsertIdentity,
   type CoachIdentities,
   type CoachIdentityRecord,
@@ -98,6 +112,24 @@ import {
   readJsonCapped,
   submitBugReport,
 } from "./bugReports.js";
+import {
+  DISCORD_OAUTH_STATE_COOKIE,
+  DISCORD_PENDING_COOKIE,
+  PendingSsoStore,
+  buildClearDiscordOauthStateCookie,
+  buildClearDiscordPendingCookie,
+  buildDiscordOauthStateCookie,
+  buildDiscordPendingCookie,
+  coachNameAvailable,
+  discordAvatarUrl,
+  discordAuthorizeUrl,
+  discordOauthConfigFromEnv,
+  discordOauthStateMatches,
+  fetchDiscordIdentity,
+  newDiscordOauthState,
+  sessionOwnsCoach,
+  shouldBlockExistingRegistration,
+} from "./auth/discordSso.js";
 
 /**
  * Endpoints reachable without ADMIN_PASSWORD even when it's set, AND always sent
@@ -113,6 +145,11 @@ import {
 const PUBLIC_PATHS = new Set([
   "/api/auth/login",
   "/api/auth/session",
+  "/api/auth/discord/start",
+  "/api/auth/discord/callback",
+  "/api/auth/discord/pending",
+  "/api/auth/discord/complete",
+  "/api/fork/name-available",
   // Coach credential exchange (owner ruling 08-17). Public BY NATURE — it is the door you knock on
   // WITHOUT a token, and it is the only route that should ever see a coach password.
   "/api/fork/login",
@@ -166,6 +203,7 @@ const CORS_ALLOWLIST = parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS);
 const AUTH_SIDECAR = process.env.AUTH_SIDECAR_ENABLED === "1";
 const TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 const sessionTokens = new Map<string, number>();
+const pendingDiscordSso = new PendingSsoStore();
 const PACKAGES_DIR = resolve(process.env.PACKAGES_DIR || join(HERE, "../../../tournament-packages"));
 const VALIDATED_CSV = resolve(
   process.env.VALIDATED_CSV || join(HERE, "../../discord-bot/data-store/validated-rosters.csv"),
@@ -457,6 +495,8 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
         pathname === "/tournament-rules.html" ||
         pathname === "/tournament-rules.css" ||
         pathname === "/tournament-rules.js" ||
+        pathname === "/discord-complete.html" ||
+        pathname === "/discord-complete.js" ||
         pathname === "/admin.html" ||
         pathname === "/admin.css" ||
         pathname === "/admin.js" ||
@@ -515,8 +555,8 @@ function isAdminAuthed(req: IncomingMessage): boolean {
  * `isTokenAuthed` below, which reads the ADMIN token store (`sessionTokens`) — the two Bearer stores
  * never overlap, so an admin token yields no coach identity and a coach token no admin rights.
  */
-function bearerIdentity(req: IncomingMessage): SessionIdentity | undefined {
-  const session = getSession(bearerTokenFromRequest(req));
+function requestIdentity(req: IncomingMessage): SessionIdentity | undefined {
+  const session = sessionFromRequest(req);
   return session
     ? {
         coach: session.coach,
@@ -595,7 +635,8 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/auth/logout" ||
     pathname === "/api/fork/team-builder/build" ||
     pathname === "/api/bug-reports" ||
-    pathname === "/api/admin/identities"
+    pathname === "/api/admin/identities" ||
+    pathname === "/api/account"
   );
 }
 
@@ -609,6 +650,12 @@ function libraryOwnerForTeam(teamId: string): string | undefined {
     return undefined;
   }
   return undefined;
+}
+
+function ffbCoachIdForDiscordId(discordId: string): string | undefined {
+  return Object.values(readIdentities().coaches).find(
+    (record) => record.identities?.discordUserId === discordId,
+  )?.ffbCoachId;
 }
 
 async function handleApi(
@@ -632,6 +679,169 @@ async function handleApi(
     });
   }
 
+  if (path === "/api/auth/discord/start" && method === "GET") {
+    const config = discordOauthConfigFromEnv();
+    if (!config) return sendJson(res, 503, { error: "Discord SSO not configured" });
+    const state = newDiscordOauthState();
+    res.writeHead(302, {
+      location: discordAuthorizeUrl(config, state),
+      "set-cookie": buildDiscordOauthStateCookie(state, requestUsesTls(req)),
+      "cache-control": "no-store",
+    });
+    res.end();
+    return;
+  }
+
+  if (path === "/api/auth/discord/callback" && method === "GET") {
+    const config = discordOauthConfigFromEnv();
+    if (!config) return sendJson(res, 503, { error: "Discord SSO not configured" });
+    const secure = requestUsesTls(req);
+    const cookies = parseCookies(req.headers.cookie);
+    if (!discordOauthStateMatches(cookies.get(DISCORD_OAUTH_STATE_COOKIE), query.get("state"))) {
+      res.setHeader("set-cookie", buildClearDiscordOauthStateCookie(secure));
+      return sendJson(res, 400, { error: "Invalid Discord OAuth state." });
+    }
+    const code = query.get("code");
+    if (!code) {
+      res.setHeader("set-cookie", buildClearDiscordOauthStateCookie(secure));
+      return sendJson(res, 400, { error: "Discord OAuth code is required." });
+    }
+    try {
+      const identity = await fetchDiscordIdentity(config, code);
+      const pendingToken = pendingDiscordSso.create(identity);
+      res.writeHead(302, {
+        location: "/discord-complete.html",
+        "set-cookie": [
+          buildClearDiscordOauthStateCookie(secure),
+          buildDiscordPendingCookie(pendingToken, secure),
+        ],
+        "cache-control": "no-store",
+      });
+      res.end();
+      return;
+    } catch (error) {
+      res.setHeader("set-cookie", buildClearDiscordOauthStateCookie(secure));
+      const message = error instanceof Error ? error.message : "Discord OAuth failed.";
+      return sendJson(res, 502, { error: message });
+    }
+  }
+
+  if (path === "/api/auth/discord/pending" && method === "GET") {
+    res.setHeader("cache-control", "no-store");
+    if (!discordOauthConfigFromEnv()) return sendJson(res, 503, { error: "Discord SSO not configured" });
+    const token = parseCookies(req.headers.cookie).get(DISCORD_PENDING_COOKIE);
+    const pending = pendingDiscordSso.get(token);
+    if (!pending) return sendJson(res, 404, { pending: false });
+    return sendJson(res, 200, {
+      pending: true,
+      discordId: pending.discordId,
+      discordUsername: pending.discordUsername,
+      avatar: discordAvatarUrl(pending.discordId, pending.discordAvatarHash) ?? null,
+      email: pending.email ?? null,
+      existingFfbCoachId: ffbCoachIdForDiscordId(pending.discordId) ?? null,
+    });
+  }
+
+  if (path === "/api/auth/discord/complete" && method === "POST") {
+    res.setHeader("cache-control", "no-store");
+    if (!discordOauthConfigFromEnv()) return sendJson(res, 503, { error: "Discord SSO not configured" });
+    const secure = requestUsesTls(req);
+    const pendingToken = parseCookies(req.headers.cookie).get(DISCORD_PENDING_COOKIE);
+    const pending = pendingDiscordSso.get(pendingToken);
+    if (!pending) return sendJson(res, 401, { error: "Discord verification expired or is missing." });
+
+    let rawBody: unknown;
+    try {
+      rawBody = await readBody(req);
+    } catch {
+      return sendJson(res, 400, { error: "Invalid JSON request body." });
+    }
+    if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody))
+      return sendJson(res, 400, { error: "A JSON object is required." });
+    const body = rawBody as { ffbCoachId?: unknown };
+    const existingFfbCoachId = ffbCoachIdForDiscordId(pending.discordId);
+    const submittedFfbCoachId = typeof body.ffbCoachId === "string" ? body.ffbCoachId.trim() : "";
+    const ffbCoachId = existingFfbCoachId ?? submittedFfbCoachId;
+    if (!ffbCoachId) return sendJson(res, 400, { error: "ffbCoachId is required." });
+    if (ffbCoachId.length > 40) return sendJson(res, 400, { error: "ffbCoachId must be at most 40 characters." });
+
+    const dbCfg = forkDbConfigFromEnv();
+    if (!dbCfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
+    try {
+      const digest = coachSecretDigest({ password: randomBytes(32).toString("hex") }).digest;
+      if (!digest) throw new Error("Could not generate a fork credential.");
+      if (existingFfbCoachId) {
+        await createForkAccountDigest(dbCfg, ffbCoachId, digest);
+      } else {
+        if (await coachExists(dbCfg, ffbCoachId))
+          return sendJson(res, 409, { error: "That fork coach name already exists." });
+        if (!(await createForkAccountDigestIfAvailable(dbCfg, ffbCoachId, digest)))
+          return sendJson(res, 409, { error: "That fork coach name already exists." });
+      }
+
+      const key = normalizeFfbCoachId(ffbCoachId);
+      const previous = readIdentities().coaches[key];
+      const identities: CoachIdentities = {
+        ...(previous?.identities ?? {}),
+        discordUserId: pending.discordId,
+        discordUsername: pending.discordUsername,
+      };
+      if (pending.email) identities.email = pending.email;
+      else delete identities.email;
+      upsertIdentity({
+        ffbCoachId,
+        level: previous?.level ?? "player",
+        banned: previous?.banned ?? false,
+        silenced: previous?.silenced ?? false,
+        note: previous?.note ?? "",
+        profile: {
+          ...(previous?.profile ?? {}),
+          displayName: pending.discordUsername,
+          avatar: discordAvatarUrl(pending.discordId, pending.discordAvatarHash) ?? previous?.profile.avatar ?? "",
+        },
+        identities,
+        updatedAt: new Date().toISOString(),
+        updatedBy: "discord-sso",
+      });
+
+      const { token: sessionToken } = createSession(ffbCoachId);
+      pendingDiscordSso.delete(pendingToken);
+      res.setHeader("set-cookie", [
+        buildClearDiscordPendingCookie(secure),
+        buildSessionCookie(sessionToken, secure),
+      ]);
+      return sendJson(res, 200, { ok: true, coach: ffbCoachId });
+    } catch (error) {
+      return sendJson(res, 400, { error: (error as Error).message });
+    }
+  }
+
+  if (path === "/api/account" && method === "GET") {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    try {
+      return sendJson(res, 200, ownIdentityRecord(auth.coach));
+    } catch (error) {
+      return sendJson(res, 400, { error: (error as Error).message });
+    }
+  }
+
+  if (path === "/api/account" && method === "PATCH") {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    let rawBody: unknown;
+    try {
+      rawBody = await readBody(req);
+    } catch {
+      return sendJson(res, 400, { error: "Invalid JSON request body." });
+    }
+    if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody))
+      return sendJson(res, 400, { error: "A JSON object is required." });
+    try {
+      return sendJson(res, 200, updateOwnAccount(auth.coach, rawBody));
+    } catch (error) {
+      return sendJson(res, 400, { error: (error as Error).message });
+    }
+  }
+
   if (path === "/api/admin/identities" && method === "GET") {
     if (!requireAdminLevel(req, res, auth)) return;
     return sendJson(res, 200, { coaches: readIdentities().coaches });
@@ -643,8 +853,8 @@ async function handleApi(
     if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody))
       return sendJson(res, 400, { error: "A JSON object is required." });
     const body = rawBody as Record<string, unknown>;
-    const forkName = typeof body.forkName === "string" ? body.forkName.trim() : "";
-    if (!forkName) return sendJson(res, 400, { error: "forkName is required." });
+    const ffbCoachId = typeof body.ffbCoachId === "string" ? body.ffbCoachId.trim() : "";
+    if (!ffbCoachId) return sendJson(res, 400, { error: "ffbCoachId is required." });
     const levels: CoachLevel[] = ["player", "organizer", "admin"];
     if (body.level !== undefined && !levels.includes(body.level as CoachLevel))
       return sendJson(res, 400, { error: "level must be player, organizer, or admin." });
@@ -657,22 +867,23 @@ async function handleApi(
     if (body.identities !== undefined && (!body.identities || typeof body.identities !== "object" || Array.isArray(body.identities)))
       return sendJson(res, 400, { error: "identities must be an object." });
 
-    const key = normalizeForkName(forkName);
+    const key = normalizeFfbCoachId(ffbCoachId);
     const previous = readIdentities().coaches[key];
     const identities: CoachIdentities = { ...(previous?.identities ?? {}) };
     const identityPatch = (body.identities ?? {}) as Record<string, unknown>;
-    for (const field of ["discordUserId", "discordUsername", "nafName", "nafId", "tournamentCoachId"] as const) {
+    for (const field of ["discordUserId", "discordUsername", "email", "nafName", "nafId", "tournamentCoachId"] as const) {
       const value = identityPatch[field];
       if (value === undefined) continue;
       if (typeof value !== "string") return sendJson(res, 400, { error: `identities.${field} must be a string.` });
       identities[field] = value;
     }
     const record: CoachIdentityRecord = {
-      forkName,
+      ffbCoachId,
       level: (body.level as CoachLevel | undefined) ?? previous?.level ?? "player",
       banned: (body.banned as boolean | undefined) ?? previous?.banned ?? false,
       silenced: (body.silenced as boolean | undefined) ?? previous?.silenced ?? false,
       note: (body.note as string | undefined) ?? previous?.note ?? "",
+      profile: previous?.profile ?? {},
       identities,
       updatedAt: new Date().toISOString(),
       updatedBy: auth?.coach ?? "admin",
@@ -804,13 +1015,40 @@ async function handleApi(
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
     }
+    const sessionCoach = auth?.coach;
+    if (!jnlpDigest && sessionOwnsCoach(sessionCoach, coach)) {
+      const dbCfg = forkDbConfigFromEnv();
+      if (!dbCfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
+      try {
+        jnlpDigest = await forkCoachPasswordDigest(dbCfg, sessionCoach!);
+      } catch (error) {
+        return sendJson(res, 400, { error: (error as Error).message });
+      }
+      if (!jnlpDigest) return sendJson(res, 404, { error: "Fork coach account not found." });
+    }
     const jnlp = buildForkJnlp({ coach, teamId, gameName, passwordMd5: jnlpDigest });
     res.writeHead(200, {
       "content-type": "application/x-java-jnlp-file; charset=utf-8",
       "content-disposition": `attachment; filename="${jnlpFilename(gameName, coach)}"`,
+      "cache-control": "no-store",
     });
     res.end(jnlp);
     return;
+  }
+
+  if (path === "/api/fork/name-available" && method === "GET") {
+    const coach = query.get("coach")?.trim();
+    if (!coach) return sendJson(res, 400, { error: "coach is required." });
+    if (coach.length > 40) return sendJson(res, 400, { error: "coach must be at most 40 characters." });
+    const cfg = forkDbConfigFromEnv();
+    if (!cfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
+    try {
+      return sendJson(res, 200, {
+        available: await coachNameAvailable(coach, (name) => coachExists(cfg, name)),
+      });
+    } catch (error) {
+      return sendJson(res, 400, { error: (error as Error).message });
+    }
   }
 
   // FUMBBL40k client's "Register this coach on the fork" button (Connection pane).
@@ -823,6 +1061,18 @@ async function handleApi(
     const cfg = forkDbConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
     try {
+      const exists = await coachExists(cfg, coach);
+      const requesterCoach = auth?.coach ?? getSession(sessionTokenFromRequest(req))?.coach;
+      if (shouldBlockExistingRegistration({
+        exists,
+        requestedCoach: coach,
+        sessionCoach: requesterCoach,
+        adminAuthed: isAdminAuthed(req) || isTokenAuthed(req) || auth?.admin === true,
+      })) {
+        return sendJson(res, 403, {
+          error: "That account already exists — sign in or use Discord to reset its password.",
+        });
+      }
       // Dual-accept, same as login. This route SETS the password, so a clear-text
       // `password=` here used to put the coach's chosen secret into the query string of
       // every access and proxy log on the way; `passwordMd5` ends that.
@@ -1555,7 +1805,7 @@ const server = createServer((req, res) => {
       if (cors.kind === "allowed") {
         res.setHeader("access-control-allow-origin", cors.origin);
         res.setHeader("vary", "origin");
-        res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
+        res.setHeader("access-control-allow-methods", "GET,POST,PATCH,OPTIONS");
         res.setHeader("access-control-allow-headers", "content-type,authorization,x-cw-auth");
       } else if (cors.kind === "denied" && url.pathname.startsWith("/api/")) {
         if (req.method === "OPTIONS") {
@@ -1609,18 +1859,29 @@ const server = createServer((req, res) => {
         await serveStatic(res, url.pathname);
         return;
       } else {
-        if (!authorized(req, url.pathname)) {
+        const auth = requestIdentity(req);
+        const accountSession = url.pathname === "/api/account" && auth !== undefined;
+        if (!authorized(req, url.pathname) && !accountSession) {
           res.writeHead(401, { "www-authenticate": 'Basic realm="BB Config"' }).end("auth required");
           return;
         }
+        const method = req.method ?? "GET";
+        if (
+          accountSession &&
+          !bearerTokenFromRequest(req) &&
+          isStateChangingApiWrite(method, url.pathname) &&
+          req.headers["x-cw-auth"] !== "1"
+        ) {
+          return sendJson(res, 403, { error: "Missing required X-CW-Auth header." });
+        }
+        if (url.pathname.startsWith("/api/"))
+          return await handleApi(req, res, url.pathname, url.searchParams, auth);
       }
       // Sidecar-OFF path (the live host: ADMIN_PASSWORD mode). The coach session store is NOT
       // sidecar-gated — the owner's ruling has to land where the testers actually are — so resolve a
       // Bearer identity here too. It only ever ADDS proven identity: routes that consult `auth`
       // (my-games, team-builder/build) previously required a password param instead, and
       // requireAdminGate ignores `auth` entirely unless AUTH_SIDECAR is on, so no admin surface widens.
-      if (url.pathname.startsWith("/api/"))
-        return await handleApi(req, res, url.pathname, url.searchParams, bearerIdentity(req));
       await serveStatic(res, url.pathname);
     } catch (e) {
       sendJson(res, 500, { error: (e as Error).message });

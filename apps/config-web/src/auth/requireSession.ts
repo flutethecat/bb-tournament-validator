@@ -16,6 +16,11 @@ export type SessionDecision =
 const PUBLIC_API_METHODS = new Map<string, ReadonlySet<string>>([
   ["/api/auth/login", new Set(["POST"])],
   ["/api/auth/session", new Set(["GET", "HEAD"])],
+  ["/api/auth/discord/start", new Set(["GET"])],
+  ["/api/auth/discord/callback", new Set(["GET"])],
+  ["/api/auth/discord/pending", new Set(["GET"])],
+  ["/api/auth/discord/complete", new Set(["POST"])],
+  ["/api/fork/name-available", new Set(["GET"])],
   ["/api/fork/login", new Set(["POST"])],
   ["/api/skills", new Set(["GET", "HEAD"])],
   ["/api/stars", new Set(["GET", "HEAD"])],
@@ -51,6 +56,8 @@ function isPublicRequest(method: string, pathname: string): boolean {
       pathname === "/tournament-rules.html" ||
       pathname === "/tournament-rules.css" ||
       pathname === "/tournament-rules.js" ||
+      pathname === "/discord-complete.html" ||
+      pathname === "/discord-complete.js" ||
       pathname === "/admin.html" ||
       pathname === "/admin.css" ||
       pathname === "/admin.js" ||

@@ -100,7 +100,7 @@ function derivedIdentities(user) {
 function identityRecord(user) {
   const overlay = state.identities[normalizeName(user.fumbblName)];
   return {
-    forkName: String(overlay?.forkName ?? user.fumbblName ?? ""),
+    ffbCoachId: String(overlay?.ffbCoachId ?? user.fumbblName ?? ""),
     level: ["player", "organizer", "admin"].includes(overlay?.level) ? overlay.level : "player",
     banned: overlay?.banned === true,
     silenced: overlay?.silenced === true,
@@ -116,8 +116,8 @@ function mergedUsers() {
     byName.set(normalizeName(forkName), { ...user, fumbblName: forkName, games: safeArray(user.games) });
   }
   for (const [key, record] of Object.entries(state.identities)) {
-    if (!byName.has(key) && record?.forkName) {
-      byName.set(key, { fumbblName: String(record.forkName), linked: null, games: [] });
+    if (!byName.has(key) && record?.ffbCoachId) {
+      byName.set(key, { fumbblName: String(record.ffbCoachId), linked: null, games: [] });
     }
   }
   return [...byName.values()].sort((a, b) => {
@@ -507,7 +507,7 @@ async function updateIdentity(forkName, patch) {
   setMessage("");
   render();
   try {
-    const result = await requestJson("/api/admin/identities", authOptions("POST", { forkName, ...patch }));
+    const result = await requestJson("/api/admin/identities", authOptions("POST", { ffbCoachId: forkName, ...patch }));
     state.identities[normalizeName(forkName)] = result.coach;
     setMessage(`Saved admin identity settings for ${forkName}.`);
   } catch (error) {

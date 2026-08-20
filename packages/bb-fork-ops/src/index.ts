@@ -226,6 +226,55 @@ export async function createForkAccountDigest(cfg: ForkDbConfig, username: strin
   );
 }
 
+/** Atomically creates a coach without changing an existing account. */
+export async function createForkAccountDigestIfAvailable(
+  cfg: ForkDbConfig,
+  username: string,
+  digest: string,
+): Promise<boolean> {
+  const name = username.trim();
+  if (!name) throw new Error("Username is required.");
+  if (name.length > 40) throw new Error("Username must be ≤ 40 characters (ffb_coaches.name).");
+  if (!isMd5Hex(digest)) throw new Error("passwordMd5 must be a 32-character hex md5 digest.");
+  return withConn(cfg, async (conn) => {
+    const [result] = await conn.execute(
+      "INSERT IGNORE INTO ffb_coaches (name, password) VALUES (?, ?)",
+      [name, digest.toLowerCase()],
+    );
+    return coachAccountClaimed((result as mysql.ResultSetHeader).affectedRows);
+  });
+}
+
+export function coachAccountClaimed(affectedRows: number): boolean {
+  return affectedRows === 1;
+}
+
+/** Reads the fork's stored join credential for a separately authenticated coach. */
+export async function forkCoachPasswordDigest(
+  cfg: ForkDbConfig,
+  username: string,
+): Promise<string | undefined> {
+  const name = username.trim();
+  if (!name) return undefined;
+  const rows = await withConn(cfg, async (conn) => {
+    const [result] = await conn.execute("SELECT password FROM ffb_coaches WHERE name = ?", [name]);
+    return result as Array<{ password?: unknown }>;
+  });
+  const digest = rows[0]?.password;
+  return typeof digest === "string" && isMd5Hex(digest) ? digest.toLowerCase() : undefined;
+}
+
+/** Whether a fork coach name is already registered. Parameterized and case behavior follows the DB collation. */
+export async function coachExists(cfg: ForkDbConfig, username: string): Promise<boolean> {
+  const name = username.trim();
+  if (!name) return false;
+  const rows = await withConn(cfg, async (conn) => {
+    const [result] = await conn.execute("SELECT 1 FROM ffb_coaches WHERE name = ? LIMIT 1", [name]);
+    return result as Array<Record<string, unknown>>;
+  });
+  return rows.length > 0;
+}
+
 /**
  * Case-insensitive prefix/substring search over fork coach names for opponent
  * autocomplete. LIKE wildcards in `q` are escaped so a "%"/"_" can't broaden the match;

@@ -1,10 +1,10 @@
 import { isOrganizer as isLegacyOrganizer } from "./organizers.js";
-import { normalizeForkName, readIdentities, type CoachIdentityRecord, type CoachLevel } from "./identitiesStore.js";
+import { normalizeFfbCoachId, readIdentities, type CoachIdentityRecord, type CoachLevel } from "./identitiesStore.js";
 
 export const BANNED_ACCOUNT_MESSAGE = "This account is banned from Super FUMBBL. Contact an organizer.";
 
 function recordFor(coach: string): CoachIdentityRecord | undefined {
-  return readIdentities().coaches[normalizeForkName(coach)];
+  return readIdentities().coaches[normalizeFfbCoachId(coach)];
 }
 
 export function isBanned(coach: string): boolean {

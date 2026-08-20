@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Complete Discord Sign-In</title>
+  <link rel="stylesheet" href="./tournament-rules.css">
+  <script src="./discord-complete.js" defer></script>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="brand-header">
+      <img class="brand-logo" src="./assets/super-fumbbl-logo.png" alt="Super FUMBBL">
+      <div class="brand-copy">
+        <div class="page-title"><span>D</span>iscord <span>S</span>ign-In</div>
+        <div class="page-subtitle">Verify your identity and choose your fork coach name</div>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <div class="editor-column">
+        <section class="panel" aria-labelledby="completion-title">
+          <div class="section-head">
+            <div class="section-title" id="completion-title">Loading Discord verification…</div>
+          </div>
+          <div id="status" class="notice" role="status" aria-live="polite">Checking your Discord sign-in.</div>
+          <form id="completion-form" hidden>
+            <div class="form-grid">
+              <label class="field">
+                <span class="field-label">Verified Discord username</span>
+                <input id="discord-username" class="control" readonly>
+              </label>
+              <label class="field">
+                <span class="field-label">Verified Discord email</span>
+                <input id="discord-email" class="control" readonly>
+              </label>
+              <label class="field" id="fork-name-field">
+                <span class="field-label">Fork coach name</span>
+                <input id="ffb-coach-id" class="control" maxlength="40" required autocomplete="username">
+                <span id="name-availability" class="field-help" role="status" aria-live="polite"></span>
+              </label>
+            </div>
+            <div class="inline-controls">
+              <button id="submit-button" class="btn primary" type="submit">Complete sign-in</button>
+            </div>
+          </form>
+          <div id="success" class="saved-banner" hidden></div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <span>Discord SSO</span>
+      <span class="footer-spacer"></span>
+      <a href="./">Return to config web</a>
+    </footer>
+  </div>
+</body>
+</html>

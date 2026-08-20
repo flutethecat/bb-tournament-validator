@@ -22,11 +22,12 @@ function setStores(
 
 function identity(level: "player" | "organizer" | "admin", flags: { banned?: boolean; silenced?: boolean } = {}) {
   return {
-    forkName: "Tarkin",
+    ffbCoachId: "Tarkin",
     level,
     banned: flags.banned === true,
     silenced: flags.silenced === true,
     note: "",
+    profile: {},
     identities: {},
     updatedAt: "2026-08-19T00:00:00.000Z",
     updatedBy: "RootAdmin",
@@ -43,7 +44,10 @@ afterEach(() => {
 
 describe("coach access", () => {
   it("resolves stored levels and defaults unknown coaches to player", () => {
-    setStores({ organizer: { ...identity("organizer"), forkName: "Organizer" }, admin: identity("admin") });
+    setStores({
+      organizer: { ...identity("organizer"), ffbCoachId: "Organizer" },
+      admin: { ...identity("admin"), ffbCoachId: "Admin" },
+    });
     expect(coachLevel("unknown")).toBe("player");
     expect(coachLevel(" ORGANIZER ")).toBe("organizer");
     expect(coachLevel("ADMIN")).toBe("admin");
