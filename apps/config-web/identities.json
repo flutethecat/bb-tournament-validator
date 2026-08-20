@@ -1,4 +1,15 @@
 {
   "version": 1,
-  "coaches": {}
+  "coaches": {
+    "flutethecat": {
+      "forkName": "Flutethecat",
+      "level": "admin",
+      "banned": false,
+      "silenced": false,
+      "note": "Bootstrap admin (owner).",
+      "identities": {},
+      "updatedAt": "2026-08-20T00:00:00Z",
+      "updatedBy": "veers-bootstrap"
+    }
+  }
 }
