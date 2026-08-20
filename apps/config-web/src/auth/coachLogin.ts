@@ -19,6 +19,7 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { coachSecretDigest } from "@bb/fork-ops";
+import { BANNED_ACCOUNT_MESSAGE, isBanned } from "./access.js";
 import { noteLegacyPasswordAuth } from "./deprecation.js";
 import { createSession, SESSION_TTL_MS } from "./session.js";
 import {
@@ -120,6 +121,7 @@ export async function coachLogin(
     recordFailure(coachAttempt, now);
     return { status: 401, body: { error: "Invalid coach name or password." } };
   }
+  if (isBanned(coach)) return { status: 403, body: { error: BANNED_ACCOUNT_MESSAGE } };
 
   attemptsByIp.delete(ipKey);
   attemptsByCoach.delete(coachKey);

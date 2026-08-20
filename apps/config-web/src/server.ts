@@ -53,6 +53,7 @@ import {
   findLibraryTeamByName,
   isLoadedOnFork,
   jnlpFilename,
+  libraryCoaches,
   listForkCoaches,
   Matchmaker,
   listCoachGames,
@@ -73,7 +74,15 @@ import { handleAuthPortal } from "./auth/portal.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
 import { coachLogin, sendCoachLogin } from "./auth/coachLogin.js";
 import { bearerTokenFromRequest, getSession } from "./auth/session.js";
-import { isOrganizer } from "./auth/organizers.js";
+import { BANNED_ACCOUNT_MESSAGE, coachLevel, isAdmin, isBanned, isOrganizer } from "./auth/access.js";
+import {
+  normalizeForkName,
+  readIdentities,
+  upsertIdentity,
+  type CoachIdentities,
+  type CoachIdentityRecord,
+  type CoachLevel,
+} from "./auth/identitiesStore.js";
 import { legacyPasswordAuthCounts, noteLegacyPasswordAuth } from "./auth/deprecation.js";
 import { attachSuper } from "./super/index.js";
 import { createSiteBackend } from "./site-backend/index.js";
@@ -106,6 +115,8 @@ const PUBLIC_PATHS = new Set([
   // Coach credential exchange (owner ruling 08-17). Public BY NATURE — it is the door you knock on
   // WITHOUT a token, and it is the only route that should ever see a coach password.
   "/api/fork/login",
+  // Internally true-admin-gated; listed here so sidecar-off admin Bearer tokens can reach the handler.
+  "/api/admin/identities",
   "/api/skills",
   "/api/stars",
   "/api/teams",
@@ -502,7 +513,13 @@ function isAdminAuthed(req: IncomingMessage): boolean {
  */
 function bearerIdentity(req: IncomingMessage): SessionIdentity | undefined {
   const session = getSession(bearerTokenFromRequest(req));
-  return session ? { coach: session.coach, organizer: isOrganizer(session.coach) } : undefined;
+  return session
+    ? {
+        coach: session.coach,
+        organizer: coachLevel(session.coach) !== "player" || isOrganizer(session.coach),
+        admin: isAdmin(session.coach),
+      }
+    : undefined;
 }
 
 function isTokenAuthed(req: IncomingMessage): boolean {
@@ -516,6 +533,12 @@ function isTokenAuthed(req: IncomingMessage): boolean {
     return false;
   }
   return true;
+}
+
+function requireAdminLevel(req: IncomingMessage, res: ServerResponse, auth?: SessionIdentity): boolean {
+  if (auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req)) return true;
+  sendJson(res, auth ? 403 : 401, { error: auth ? "Admin access required." : "Authentication required." });
+  return false;
 }
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
@@ -567,8 +590,21 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/auth/login" ||
     pathname === "/api/auth/logout" ||
     pathname === "/api/fork/team-builder/build" ||
-    pathname === "/api/bug-reports"
+    pathname === "/api/bug-reports" ||
+    pathname === "/api/admin/identities"
   );
+}
+
+function libraryOwnerForTeam(teamId: string): string | undefined {
+  try {
+    for (const libraryCoach of libraryCoaches(LIBRARY_DIR)) {
+      const team = readLibrary(LIBRARY_DIR, libraryCoach).find((entry) => entry?.teamId === teamId);
+      if (team) return (typeof team.coach === "string" ? team.coach.trim() : "") || libraryCoach;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 async function handleApi(
@@ -579,6 +615,59 @@ async function handleApi(
   auth?: SessionIdentity,
 ): Promise<void> {
   const method = req.method ?? "GET";
+
+  if (path === "/api/admin/identities" && method === "GET") {
+    if (!requireAdminLevel(req, res, auth)) return;
+    return sendJson(res, 200, { coaches: readIdentities().coaches });
+  }
+
+  if (path === "/api/admin/identities" && method === "POST") {
+    if (!requireAdminLevel(req, res, auth)) return;
+    const rawBody = await readBody(req);
+    if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody))
+      return sendJson(res, 400, { error: "A JSON object is required." });
+    const body = rawBody as Record<string, unknown>;
+    const forkName = typeof body.forkName === "string" ? body.forkName.trim() : "";
+    if (!forkName) return sendJson(res, 400, { error: "forkName is required." });
+    const levels: CoachLevel[] = ["player", "organizer", "admin"];
+    if (body.level !== undefined && !levels.includes(body.level as CoachLevel))
+      return sendJson(res, 400, { error: "level must be player, organizer, or admin." });
+    if (body.banned !== undefined && typeof body.banned !== "boolean")
+      return sendJson(res, 400, { error: "banned must be a boolean." });
+    if (body.silenced !== undefined && typeof body.silenced !== "boolean")
+      return sendJson(res, 400, { error: "silenced must be a boolean." });
+    if (body.note !== undefined && typeof body.note !== "string")
+      return sendJson(res, 400, { error: "note must be a string." });
+    if (body.identities !== undefined && (!body.identities || typeof body.identities !== "object" || Array.isArray(body.identities)))
+      return sendJson(res, 400, { error: "identities must be an object." });
+
+    const key = normalizeForkName(forkName);
+    const previous = readIdentities().coaches[key];
+    const identities: CoachIdentities = { ...(previous?.identities ?? {}) };
+    const identityPatch = (body.identities ?? {}) as Record<string, unknown>;
+    for (const field of ["discordUserId", "discordUsername", "nafName", "nafId", "tournamentCoachId"] as const) {
+      const value = identityPatch[field];
+      if (value === undefined) continue;
+      if (typeof value !== "string") return sendJson(res, 400, { error: `identities.${field} must be a string.` });
+      identities[field] = value;
+    }
+    const record: CoachIdentityRecord = {
+      forkName,
+      level: (body.level as CoachLevel | undefined) ?? previous?.level ?? "player",
+      banned: (body.banned as boolean | undefined) ?? previous?.banned ?? false,
+      silenced: (body.silenced as boolean | undefined) ?? previous?.silenced ?? false,
+      note: (body.note as string | undefined) ?? previous?.note ?? "",
+      identities,
+      updatedAt: new Date().toISOString(),
+      updatedBy: auth?.coach ?? "admin",
+    };
+    try {
+      const store = upsertIdentity(record);
+      return sendJson(res, 200, { ok: true, coach: store.coaches[key] });
+    } catch (e) {
+      return sendJson(res, 400, { error: (e as Error).message });
+    }
+  }
 
   if (path === "/api/skills" && method === "GET") return sendJson(res, 200, skillCatalog());
 
@@ -683,6 +772,7 @@ async function handleApi(
     const gameName = query.get("gameName")?.trim();
     if (!coach || !teamId || !gameName)
       return sendJson(res, 400, { error: "coach, teamId and gameName are required." });
+    if (isBanned(coach)) return sendJson(res, 403, { error: BANNED_ACCOUNT_MESSAGE });
     // Dual-accept: `passwordMd5` (current clients) or `password` (deprecated). The JNLP
     // carries whichever we end up with as `-passwordMd5`, so the clear text no longer
     // lands in a file on the coach's disk. See buildForkJnlp for why this argument is
@@ -885,6 +975,10 @@ async function handleApi(
     if (password && !passwordMd5) noteLegacyPasswordAuth("fork/challenge");
     if (!coach || !teamId || !opponent)
       return sendJson(res, 400, { error: "coach, teamId and opponent are required." });
+    if (isBanned(coach))
+      return sendJson(res, 403, { error: BANNED_ACCOUNT_MESSAGE, side: "coach", coach });
+    if (isBanned(opponent))
+      return sendJson(res, 403, { error: BANNED_ACCOUNT_MESSAGE, side: "opponent", coach: opponent });
     const team = readLibrary(LIBRARY_DIR, coach).find((t) => t.teamId === teamId);
     if (!team) return sendJson(res, 400, { error: `Team ${teamId} isn't in ${coach}'s library.` });
     if (!isLoadedOnFork(FORK_STATE_DIR, team.ingestedAt)) {
@@ -941,6 +1035,18 @@ async function handleApi(
     const body = (await readBody(req)) as { homeTeamId?: string; awayTeamId?: string };
     if (!body.homeTeamId || !body.awayTeamId)
       return sendJson(res, 400, { error: "homeTeamId and awayTeamId are required." });
+    for (const [side, teamId] of [
+      ["home", body.homeTeamId],
+      ["away", body.awayTeamId],
+    ] as const) {
+      const owner = libraryOwnerForTeam(teamId);
+      if (!owner) {
+        console.warn(`[ban-enforcement] Could not resolve ${side} team ${teamId} to a coach; allowing schedule.`);
+        continue;
+      }
+      if (isBanned(owner))
+        return sendJson(res, 403, { error: BANNED_ACCOUNT_MESSAGE, side, coach: owner });
+    }
     try {
       return sendJson(res, 200, await scheduleForkGame(forkAdminCfg, body.homeTeamId, body.awayTeamId, { overtime: overtimeEnabled }));
     } catch (e) {

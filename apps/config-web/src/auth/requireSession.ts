@@ -1,10 +1,11 @@
 import type { IncomingMessage } from "node:http";
-import { isOrganizer } from "./organizers.js";
+import { coachLevel, isAdmin, isOrganizer } from "./access.js";
 import { sessionFromRequest } from "./session.js";
 
 export interface SessionIdentity {
   coach: string;
   organizer: boolean;
+  admin: boolean;
 }
 
 export type SessionDecision =
@@ -58,7 +59,13 @@ function isPublicRequest(method: string, pathname: string): boolean {
 
 export function requireSession(req: IncomingMessage, pathname: string, search: string): SessionDecision {
   const session = sessionFromRequest(req);
-  const identity = session ? { coach: session.coach, organizer: isOrganizer(session.coach) } : undefined;
+  const identity = session
+    ? {
+        coach: session.coach,
+        organizer: coachLevel(session.coach) !== "player" || isOrganizer(session.coach),
+        admin: isAdmin(session.coach),
+      }
+    : undefined;
   const method = req.method ?? "GET";
 
   if (isPublicRequest(method, pathname)) return identity ? { kind: "allow", identity } : { kind: "allow" };

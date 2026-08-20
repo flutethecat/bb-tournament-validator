@@ -114,7 +114,7 @@ describe("POST /api/bug-reports — submitBugReport", () => {
     const d = dir();
     const result = await submitBugReport(
       { description: "Session-authed report." },
-      { coach: "Fives", organizer: false },
+      { coach: "Fives", organizer: false, admin: false },
       deps(d),
     );
     expect(result.status).toBe(200);
@@ -169,7 +169,7 @@ describe("POST /api/bug-reports — submitBugReport", () => {
     const d = dir();
     const result = await submitBugReport(
       { description: "traversal", gameId: "../../../etc/passwd" },
-      { coach: "..\\..\\evil", organizer: false },
+      { coach: "..\\..\\evil", organizer: false, admin: false },
       deps(d),
     );
     expect(result.status).toBe(200);

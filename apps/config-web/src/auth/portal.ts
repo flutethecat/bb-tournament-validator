@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { BANNED_ACCOUNT_MESSAGE, isBanned } from "./access.js";
 import {
   buildClearSessionCookie,
   buildSessionCookie,
@@ -188,6 +189,10 @@ export async function handleAuthPortal(
       recordFailure(ipAttempt, now);
       recordFailure(coachAttempt, now);
       sendJson(res, 401, { error: "Invalid coach name or password." });
+      return true;
+    }
+    if (isBanned(username.trim())) {
+      sendJson(res, 403, { error: BANNED_ACCOUNT_MESSAGE });
       return true;
     }
 
