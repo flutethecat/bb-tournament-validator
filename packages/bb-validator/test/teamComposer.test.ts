@@ -48,6 +48,7 @@ describe("rosterOptions", () => {
     const o = rosterOptions(snotlingXml, bb2025);
     expect(o.rosterId).toBe("snotling.bb2025");
     expect(o.reRollCost).toBe(70000);
+    expect(o.leagueOptions).toEqual(["Underworld Challenge"]);
     const lineman = o.positions.find((p) => p.positionId === "66199");
     expect(lineman).toMatchObject({
       name: "Snotling Lineman",
@@ -65,6 +66,8 @@ describe("rosterOptions", () => {
       isStar: true,
       urlIconSet: "i/674075.png",
     });
+    expect(o.positions.filter((p) => p.isStar).every((p) => Array.isArray(p.playsFor))).toBe(true);
+    expect(o.positions.find((p) => p.name === "Akhorne the Squirrel")?.playsFor).toEqual(["(Any)"]);
   });
 
   it("derives Big Guy position groups from dataset types and omits inert groups", () => {
@@ -173,6 +176,52 @@ describe("composeTeam", () => {
       "Swarming",
     ]);
     expect(r.xml).toContain("<rule>Swarming</rule>");
+  });
+
+  it("emits enum-valid chosen rules and omits enum gaps", () => {
+    const halflingXml =
+      '<roster id="halfling.bb2025"><name>Halfling</name><reRollCost>60000</reRollCost>' +
+      "<maxReRolls>8</maxReRolls><apothecary>true</apothecary>" +
+      '<position id="70001"><quantity>16</quantity><name>Halfling Hopeful</name>' +
+      "<gender>random</gender><type>Regular</type></position></roster>";
+    const base = {
+      forkRosterXml: halflingXml,
+      coach: "Kalimar",
+      teamName: "League Test",
+      picks: [{ positionId: "70001", count: 1 }],
+      reRolls: 0,
+      apothecary: false,
+    };
+
+    const valid = composeTeam({ ...base, specialRule: "Halfling Thimble Cup" }, bb2025, 42);
+    expect(valid.xml).toContain("<specialRules><rule>Halfling Thimble Cup</rule></specialRules>");
+
+    const enumGap = composeTeam({ ...base, specialRule: "Woodland League" }, bb2025, 42);
+    expect(enumGap.roster.specialRules).toEqual(["Woodland League"]);
+    expect(enumGap.xml).toContain("<specialRules></specialRules>");
+    expect(enumGap.xml).not.toContain("<rule>Woodland League</rule>");
+  });
+
+  it("accepts and emits a de-truncated enum-valid deity choice", () => {
+    const norseXml =
+      '<roster id="norse.bb2025"><name>Norse</name><reRollCost>60000</reRollCost>' +
+      "<maxReRolls>8</maxReRolls><apothecary>true</apothecary></roster>";
+    const result = composeTeam(
+      {
+        forkRosterXml: norseXml,
+        coach: "Kalimar",
+        teamName: "Norse League Test",
+        picks: [],
+        reRolls: 0,
+        apothecary: false,
+        specialRule: "Favoured of Khorne",
+      },
+      bb2025,
+      42,
+    );
+
+    expect(result.roster.specialRules).toEqual(["Favoured of Khorne"]);
+    expect(result.xml).toContain("<specialRules><rule>Favoured of Khorne</rule></specialRules>");
   });
 
   it("applies custom chosenStats to the composed player and emitted player XML", () => {

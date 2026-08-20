@@ -14,6 +14,7 @@
  */
 
 import type { Dataset } from "../dataset/types";
+import { leagueMenuForRoster } from "../dataset/leagueMenu";
 import {
   findPosition,
   findRoster,
@@ -120,23 +121,36 @@ const xmlEscape = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24) || "x";
 
-// [2026-08-12] Swarming P1 (Nom producer patch, Snotling-only per the enum-gap ruling): the fork's
-// StepSwarming gates on the TEAM's specialRules containing SWARMING, but composeTeam emitted an empty
-// <specialRules>. Emit Snotling's four ENUM-VALID rules only (several dataset rule names — Chaos Clash,
-// Team Captain, Woodland League, the truncated "Favoured of..." — are not accepted by the fork's
-// SpecialRule.from, so a general emit would write dead data). Generalization rides the bulk data pass.
-// Keys are normName() output (which collapses whitespace to single spaces, does NOT strip it).
-const SNOTLING_RUNTIME_RULES = new Set([
-  "underworld challenge",
-  "bribery and corruption",
-  "low cost linemen",
-  "swarming",
+// fumbbl40k-server/ffb-common/src/main/java/com/fumbbl/ffb/model/SpecialRule.java
+const FORK_SPECIAL_RULE_NAMES = new Set([
+  "Badlands Brawl",
+  "Elven Kingdoms League",
+  "Halfling Thimble Cup",
+  "Lustrian Superleague",
+  "Old World Classic",
+  "Sylvanian Spotlight",
+  "Underworld Challenge",
+  "Worlds Edge Superleague",
+  "Bribery and Corruption",
+  "Favoured of Chaos Undivided",
+  "Favoured of Khorne",
+  "Favoured of Nurgle",
+  "Favoured of Tzeentch",
+  "Favoured of Slaanesh",
+  "Low Cost Linemen",
+  "Swarming",
+  "Masters of Undeath",
+  "Brawlin' Brutes",
 ]);
 
-const snotlingRuntimeRules = (rosterName: string, rosterRules: readonly string[]): string[] =>
-  normName(rosterName) === "snotling"
-    ? rosterRules.filter((rule) => SNOTLING_RUNTIME_RULES.has(normName(rule)))
-    : [];
+const runtimeSpecialRules = (
+  rosterName: string,
+  rosterRules: readonly string[],
+  chosenRule?: string,
+): string[] => {
+  const candidates = normName(rosterName) === "snotling" ? rosterRules : chosenRule ? [chosenRule] : [];
+  return candidates.filter((rule) => FORK_SPECIAL_RULE_NAMES.has(rule));
+};
 
 const emitSpecialRulesXml = (rules: readonly string[]): string =>
   `\t<specialRules>${rules.map((rule) => `<rule>${xmlEscape(rule)}</rule>`).join("")}</specialRules>\n\n`;
@@ -220,6 +234,8 @@ export interface RosterOption {
   skills: string[];
   /** Present only for roster-intrinsic Star players. */
   isStar?: boolean;
+  /** Star-player league affiliations; present on every `isStar` position. */
+  playsFor?: string[];
   /** Direct upstream metadata; the client must allow-list before resolving. */
   urlPortrait?: string;
   /** Direct upstream metadata; the client renders the first sprite frame. */
@@ -232,6 +248,8 @@ export interface RosterOptions {
   reRollCost: number;
   maxReRolls: number;
   apothecaryAllowed: boolean;
+  /** De-truncated pick-one league affiliations used for star eligibility. */
+  leagueOptions: string[];
   positions: RosterOption[];
   positionGroups?: Array<{ positions: string[]; max: number; label: string }>;
 }
@@ -251,6 +269,7 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
     // TODO(spec-B special-rule stars): requires a team-chosen special-rule value and an off-roster
     // star pool with a roster positionId; neither input exists in the current composer contract.
     if (p.isStar) {
+      const star = findStar(data, p.name);
       positions.push({
         positionId: p.positionId,
         name: p.name,
@@ -263,6 +282,7 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
         AV: plus(p.AV),
         skills: [...(p.skills ?? [])],
         isStar: true,
+        playsFor: [...(star?.playsFor ?? [])],
         urlPortrait: p.urlPortrait,
         urlIconSet: p.urlIconSet,
       });
@@ -301,6 +321,7 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
     reRollCost: fork.reRollCost,
     maxReRolls: fork.maxReRolls,
     apothecaryAllowed: fork.apothecaryAllowed,
+    leagueOptions: dsRoster ? leagueMenuForRoster(dsRoster).leagueOptions : [],
     positions,
     ...(positionGroups ? { positionGroups } : {}),
   };
@@ -314,7 +335,7 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
  * 30 official races; this is the parallel path for the numeric-rosterId SL teams the dataset can't
  * resolve. AG/PA/AV are rendered `n+` (PA/AG=0 ⇒ "-", i.e. no passing / no agility roll offered).
  */
-export function rosterOptionsIntrinsic(forkRosterXml: string): RosterOptions {
+export function rosterOptionsIntrinsic(forkRosterXml: string, data?: Dataset): RosterOptions {
   const fork = parseForkRoster(forkRosterXml);
   const plus = (n: number | undefined): string => (n && n > 0 ? `${n}+` : "-");
   const positions: RosterOption[] = fork.positions.map((p) => ({
@@ -328,7 +349,9 @@ export function rosterOptionsIntrinsic(forkRosterXml: string): RosterOptions {
     PA: plus(p.PA),
     AV: p.AV != null ? `${p.AV}+` : "-",
     skills: p.skills ?? [],
-    ...(p.isStar ? { isStar: true } : {}),
+    ...(p.isStar
+      ? { isStar: true as const, playsFor: [...(data ? findStar(data, p.name)?.playsFor ?? [] : [])] }
+      : {}),
     urlPortrait: p.urlPortrait,
     urlIconSet: p.urlIconSet,
   }));
@@ -338,6 +361,7 @@ export function rosterOptionsIntrinsic(forkRosterXml: string): RosterOptions {
     reRollCost: fork.reRollCost,
     maxReRolls: fork.maxReRolls,
     apothecaryAllowed: fork.apothecaryAllowed,
+    leagueOptions: [],
     positions,
   };
 }
@@ -540,8 +564,11 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
   const dsRoster = findRoster(data, fork.raceName);
   if (!dsRoster) throw new Error(`Race "${fork.raceName}" is not in the BB2025 dataset.`);
   const requestedSpecialRule = input.specialRule?.trim() || undefined;
+  const leagueOptions = leagueMenuForRoster(dsRoster).leagueOptions;
   const specialRule = requestedSpecialRule
-    ? dsRoster.specialRules.find((rule) => normName(rule) === normName(requestedSpecialRule))
+    ? [...leagueOptions, ...dsRoster.specialRules].find(
+        (rule) => normName(rule) === normName(requestedSpecialRule),
+      )
     : undefined;
   if (requestedSpecialRule && !specialRule)
     throw new Error(`Special rule "${requestedSpecialRule}" is not available to ${dsRoster.name}.`);
@@ -664,7 +691,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     inducements: [],
     leagues: [],
     specialRules: normName(dsRoster.name) === "snotling"
-      ? snotlingRuntimeRules(dsRoster.name, dsRoster.specialRules)
+      ? runtimeSpecialRules(dsRoster.name, dsRoster.specialRules)
       : (specialRule ? [specialRule] : [...dsRoster.specialRules]),
     players,
     summary: {
@@ -695,7 +722,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     `\t<teamStrength>${tvUnits}</teamStrength>\n` +
     (input.custom ? `\t<custom>true</custom>\n` : "") +
     `\t<division>[X]</division>\n\n` +
-    emitSpecialRulesXml(snotlingRuntimeRules(dsRoster.name, roster.specialRules)) +
+    emitSpecialRulesXml(runtimeSpecialRules(dsRoster.name, dsRoster.specialRules, specialRule)) +
     xmlPlayers.join("\n") +
     `\n\n</team>\n`;
 

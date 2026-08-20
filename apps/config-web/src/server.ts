@@ -1395,7 +1395,7 @@ async function handleApi(
     // roster-intrinsically. Budget is TO-configurable per roster (not the fixed 1000k), so the
     // client supplies `budget` on preview/build for these.
     const slRosters = [...loadSecretLeagueForkRosters(cfg.teamsDir).values()]
-      .map((xml) => rosterOptionsIntrinsic(xml))
+      .map((xml) => rosterOptionsIntrinsic(xml, bb2025))
       .sort((a, b) => a.raceName.localeCompare(b.raceName));
     return sendJson(res, 200, { rosters, slRosters, goldBudget: 1_000_000, slBudgetConfigurable: true });
   }
