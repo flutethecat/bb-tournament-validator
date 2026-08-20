@@ -1,0 +1,127 @@
+.admin-table-wrap { overflow-x: auto; }
+
+.admin-table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 9px 8px;
+  border-bottom: 1px solid #303030;
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-table th {
+  color: var(--muted);
+  background: #141414;
+  font-size: 10px;
+  font-weight: normal;
+  letter-spacing: .1em;
+  white-space: nowrap;
+}
+
+.admin-table tbody tr:hover > td { background: #1b1616; }
+.admin-table .account-cell { color: var(--cream); font-family: ui-monospace, Consolas, monospace; }
+.admin-table .control { width: 112px; padding: 5px 7px; font-size: 11px; }
+.admin-table .actions-cell { min-width: 180px; }
+
+.identity-list,
+.row-actions,
+.game-actions,
+.segment-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.identity-chip { cursor: default; }
+.identity-empty { color: #666; font-size: 11px; font-style: italic; }
+
+.identity-editor-cell { padding: 12px 14px 16px !important; background: #111 !important; }
+.identity-editor { border-color: #3d0002; background: #151010; box-shadow: none; }
+.identity-editor .form-grid { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+
+.flag-toggle {
+  display: inline-flex;
+  min-width: 72px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #444;
+  border-radius: 12px;
+  background: var(--control-dim);
+  color: var(--muted);
+  padding: 4px 9px;
+  font-size: 10px;
+  letter-spacing: .08em;
+  cursor: pointer;
+}
+
+.flag-toggle::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #555;
+  content: "";
+}
+
+.flag-toggle.active { border-color: var(--amber); color: var(--amber); background: #211a08; }
+.flag-toggle.active::before { background: var(--amber); box-shadow: 0 0 6px rgba(232,163,61,.65); }
+.flag-toggle.banned.active { border-color: var(--heading); color: #ffd9d9; background: #2a0002; }
+.flag-toggle.banned.active::before { background: var(--heading); }
+.flag-toggle:disabled { opacity: .55; cursor: not-allowed; }
+
+.status-badge { cursor: default; }
+.status-badge.in-game { border-color: #1a6b32; background: #122c14; color: #c9e8c9; cursor: pointer; }
+.status-badge.in-game:hover { border-color: var(--green); }
+
+.btn.danger { border-color: #b52d32; background: #5a0004; color: #fff; }
+.btn.compact { padding: 4px 9px; font-size: 10px; }
+
+.message-banner { margin-bottom: 2px; }
+.message-banner.error { border-color: #ff4d4d; background: #2a0002; color: #ffd9d9; }
+
+.game-row { gap: 9px; }
+.game-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
+.game-matchup { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.game-side { border: 1px solid #303030; border-radius: 4px; background: var(--row); padding: 8px 10px; }
+.game-side strong { display: block; color: var(--cream); font-weight: normal; }
+.game-side span { color: var(--muted); font-size: 11px; }
+
+.segment-group .chip { border-radius: 4px; }
+.rail-form { display: flex; flex-direction: column; gap: 9px; }
+.rail-form .btn { align-self: flex-start; }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0,0,0,.78);
+}
+
+.admin-modal {
+  width: min(720px, 100%);
+  max-height: 86vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 10px 34px rgba(0,0,0,.8);
+  padding: 18px;
+}
+
+.modal-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.modal-head .section-title { flex: 1; }
+
+@media (max-width: 760px) {
+  .identity-editor .form-grid,
+  .game-matchup { grid-template-columns: 1fr; }
+}

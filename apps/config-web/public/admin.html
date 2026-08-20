@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Super FUMBBL — Admin Console</title>
+  <link rel="stylesheet" href="./tournament-rules.css">
+  <link rel="stylesheet" href="./admin.css">
+  <script src="./admin.js" defer></script>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="brand-header">
+      <img class="brand-logo" src="./assets/super-fumbbl-logo.png" alt="Super FUMBBL">
+      <div class="brand-copy">
+        <div class="page-title"><span>A</span>dmin <span>C</span>onsole</div>
+        <div class="page-subtitle">config-web · fork administration · localhost:4310</div>
+      </div>
+      <a class="back-link" href="./tournament-rules.html">← Tournament Rules</a>
+    </header>
+
+    <div id="toolbar" class="toolbar" aria-label="Admin section and login controls"></div>
+
+    <main class="main-grid">
+      <div id="workspace" class="editor-column" aria-live="polite"></div>
+      <aside id="right-rail" class="right-rail" aria-label="Admin actions and summary"></aside>
+    </main>
+
+    <div id="modal-root"></div>
+
+    <footer class="footer">
+      <span id="connection-state" class="disconnected">● signed out</span>
+      <span>config-web :4310</span>
+      <span class="footer-spacer"></span>
+      <span>Super FUMBBL administration</span>
+    </footer>
+  </div>
+</body>
+</html>
