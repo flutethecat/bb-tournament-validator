@@ -4,3 +4,9 @@ dist/
 .env
 data-store/
 coverage/
+
+# PII — never commit (owner directive 2026-08-20). The identity store holds emails +
+# Discord ids; bug reports hold user-submitted content. Seed shape lives in
+# apps/config-web/identities.example.json.
+apps/config-web/identities.json
+apps/config-web/bug-reports/
