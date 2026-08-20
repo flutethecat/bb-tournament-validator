@@ -79,7 +79,6 @@ import { attachSuper } from "./super/index.js";
 import { createSiteBackend } from "./site-backend/index.js";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
 import { corsDecision, parseAllowedOrigins } from "./cors.js";
-import { customModeError } from "./customGate.js";
 import { forkGamesEndpoint } from "./forkGames.js";
 import {
   BUG_REPORT_BODY_CAP,
@@ -1095,9 +1094,8 @@ async function handleApi(
       const body = (await readBody(req)) as TeamBuilderBody;
       const wireError = teamBuilderWireError(body);
       if (wireError) return sendJson(res, 400, { error: wireError });
-      // SR-260 ③: custom mode skips validation — organizer/admin only, even on preview.
-      const customError = customModeError({ custom: body.custom, organizer: auth?.organizer === true, adminAuthed: isAdminAuthed(req) || isTokenAuthed(req) });
-      if (customError) return sendJson(res, 403, { error: customError });
+      // Custom mode (owner 08-19): open to any fork player — no organizer/admin gate. Preview is
+      // non-mutating, and the build route still authenticates the coach before any write.
       const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
       if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
       // Secret League path (#52 A): off-dataset roster → compose + validate roster-intrinsically.
@@ -1205,9 +1203,9 @@ async function handleApi(
     const body = (await readBody(req)) as TeamBuilderBody;
     const wireError = teamBuilderWireError(body);
     if (wireError) return sendJson(res, 400, { error: wireError });
-    // SR-260 ③: custom mode skips the validation gate below — organizer/admin only, fail closed.
-    const customError = customModeError({ custom: body.custom, organizer: auth?.organizer === true, adminAuthed: isAdminAuthed(req) || isTokenAuthed(req) });
-    if (customError) return sendJson(res, 403, { error: customError });
+    // Custom mode (owner 08-19): open to any fork player — no organizer/admin gate. The coach-auth
+    // block below still runs, so a custom team can only be written by an authenticated fork coach
+    // (under their own name), or admin. Custom just skips the legality/budget validation, not auth.
     const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
     if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
     if (auth) {

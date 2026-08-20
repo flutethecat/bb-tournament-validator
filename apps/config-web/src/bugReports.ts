@@ -62,8 +62,8 @@ function noteReport(coach: string, now: number): void {
 }
 
 /**
- * Organizer/admin gate for the read routes — same fail-closed idiom as customGate.ts:
- * no organizer identity and no admin auth (including ADMIN_PASSWORD unset) ⇒ refused.
+ * Organizer/admin gate for the read routes — fail-closed: no organizer identity and no
+ * admin auth (including ADMIN_PASSWORD unset) ⇒ refused.
  */
 export function bugReportAccessError(opts: { organizer: boolean; adminAuthed: boolean }): string | undefined {
   if (opts.organizer || opts.adminAuthed) return undefined;
