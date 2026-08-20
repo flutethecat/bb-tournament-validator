@@ -496,9 +496,11 @@ function renderMatrix() {
   const matrix = matrixForDisplay();
   const cells = new Set(matrix.cells.map((cell) => `${cell.row}-${cell.col}`));
   let grid = '<div></div>';
-  matrix.columns.slice(0, 3).forEach((column) => { grid += `<div class="matrix-head">${escapeHtml(goldToK(column.gold))}k</div>`; });
+  matrix.columns.slice(0, 3).forEach((column, colIndex) => {
+    grid += `<div class="matrix-head"><input class="control" data-action="matrix-col-gold" data-col="${colIndex}" type="number" min="0" step="1" value="${escapeHtml(goldToK(column.gold))}" aria-label="Column gold in thousands"> K</div>`;
+  });
   matrix.rows.slice(0, 3).forEach((row, rowIndex) => {
-    grid += `<div class="matrix-head row-head">${escapeHtml(row.primary)} pri / ${escapeHtml(row.secondary)} sec</div>`;
+    grid += `<div class="matrix-head row-head"><input class="control" data-action="matrix-row-primary" data-row="${rowIndex}" type="number" min="0" step="1" value="${escapeHtml(row.primary)}" aria-label="Row primary skills"> pri / <input class="control" data-action="matrix-row-secondary" data-row="${rowIndex}" type="number" min="0" step="1" value="${escapeHtml(row.secondary)}" aria-label="Row secondary skills"> sec</div>`;
     matrix.columns.slice(0, 3).forEach((_column, colIndex) => {
       const active = cells.has(`${rowIndex}-${colIndex}`);
       const existing = matrix.cells.find((cell) => cell.row === rowIndex && cell.col === colIndex);
@@ -855,6 +857,30 @@ function handleEditorAction(action, target) {
 
 function handleEditorChange(target) {
   if (!state.pkg) return;
+
+  switch (target.dataset.action) {
+    case "matrix-col-gold": {
+      state.pkg.matrix = matrixForDisplay();
+      const col = Number(target.dataset.col);
+      const value = numberOr(target.value, Number.NaN);
+      if (!Number.isNaN(value)) state.pkg.matrix.columns[col].gold = kToGold(Math.max(0, Math.round(value)));
+      markDirty(); render(); return;
+    }
+    case "matrix-row-primary": {
+      state.pkg.matrix = matrixForDisplay();
+      const row = Number(target.dataset.row);
+      const value = numberOr(target.value, Number.NaN);
+      if (!Number.isNaN(value)) state.pkg.matrix.rows[row].primary = Math.max(0, Math.round(value));
+      markDirty(); render(); return;
+    }
+    case "matrix-row-secondary": {
+      state.pkg.matrix = matrixForDisplay();
+      const row = Number(target.dataset.row);
+      const value = numberOr(target.value, Number.NaN);
+      if (!Number.isNaN(value)) state.pkg.matrix.rows[row].secondary = Math.max(0, Math.round(value));
+      markDirty(); render(); return;
+    }
+  }
 
   if (target.dataset.control === "override-skill") {
     state.overrideSkill = target.value;

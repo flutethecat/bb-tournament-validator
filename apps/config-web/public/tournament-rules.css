@@ -230,6 +230,8 @@ textarea.control { min-height: 58px; resize: vertical; line-height: 1.4; }
 .matrix-grid { display: grid; grid-template-columns: 142px repeat(3, 92px); gap: 2px; width: max-content; font-size: 12px; }
 .matrix-head { padding: 7px 8px; background: #2a0002; color: var(--heading); text-align: center; }
 .matrix-head.row-head { text-align: left; }
+.matrix-head input { width: 54px; padding: 3px 4px; font-size: 11px; text-align: right; }
+.matrix-head.row-head input { width: 35px; }
 .matrix-cell { border: 1px solid transparent; background: var(--row); color: #666; padding: 7px 8px; text-align: center; cursor: pointer; }
 .matrix-cell:hover { border-color: var(--carmine); }
 .matrix-cell.active { background: #122c14; color: var(--green); }
