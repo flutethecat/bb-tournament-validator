@@ -15,6 +15,7 @@ export type SessionDecision =
 
 const PUBLIC_API_METHODS = new Map<string, ReadonlySet<string>>([
   ["/api/auth/login", new Set(["POST"])],
+  ["/api/auth/session", new Set(["GET", "HEAD"])],
   ["/api/fork/login", new Set(["POST"])],
   ["/api/skills", new Set(["GET", "HEAD"])],
   ["/api/stars", new Set(["GET", "HEAD"])],

@@ -73,7 +73,7 @@ import { PRESETS } from "./presets";
 import { handleAuthPortal } from "./auth/portal.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
 import { coachLogin, sendCoachLogin } from "./auth/coachLogin.js";
-import { bearerTokenFromRequest, getSession } from "./auth/session.js";
+import { bearerTokenFromRequest, getSession, sessionTokenFromRequest } from "./auth/session.js";
 import { BANNED_ACCOUNT_MESSAGE, coachLevel, isAdmin, isBanned, isOrganizer } from "./auth/access.js";
 import {
   normalizeForkName,
@@ -112,6 +112,7 @@ import {
  */
 const PUBLIC_PATHS = new Set([
   "/api/auth/login",
+  "/api/auth/session",
   // Coach credential exchange (owner ruling 08-17). Public BY NATURE — it is the door you knock on
   // WITHOUT a token, and it is the only route that should ever see a coach password.
   "/api/fork/login",
@@ -618,6 +619,18 @@ async function handleApi(
   auth?: SessionIdentity,
 ): Promise<void> {
   const method = req.method ?? "GET";
+
+  if (path === "/api/auth/session" && (method === "GET" || method === "HEAD")) {
+    if (!auth) return sendJson(res, 200, { authenticated: false });
+    const session = getSession(sessionTokenFromRequest(req));
+    return sendJson(res, 200, {
+      authenticated: true,
+      coach: auth.coach,
+      organizer: auth.organizer,
+      admin: auth.admin,
+      ...(session ? { expiresAt: new Date(session.expiry).toISOString() } : {}),
+    });
+  }
 
   if (path === "/api/admin/identities" && method === "GET") {
     if (!requireAdminLevel(req, res, auth)) return;

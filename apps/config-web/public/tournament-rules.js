@@ -49,6 +49,7 @@ const DEFAULT_SKILL_ALLOTMENT = {
 };
 
 const state = {
+  authed: false,
   token: null,
   account: "",
   loginUser: "",
@@ -330,7 +331,7 @@ function renderToolbar() {
     ? '<option value="">— open saved package —</option>' + options(state.packageNames, state.selectedPackage)
     : '<option value="">— no saved packages —</option>';
   const presetOptions = '<option value="">—</option>' + options(state.presets, "", (preset) => preset.id, (preset) => preset.label);
-  const login = state.token
+  const login = state.authed || state.token
     ? `<span class="login-status">● ${escapeHtml(state.account)} · token expires ${escapeHtml(state.expiresAt)}</span>
        <button type="button" class="btn" data-action="logout">Log Out</button>`
     : `<label class="visually-hidden" for="login-user">Username</label>
@@ -657,7 +658,7 @@ function renderRightRail() {
     <div class="skill-key">
       <span class="skill-key-label">${title("Skill Key")}</span><span class="cat-general">General</span><span class="cat-agility">Agility</span><span class="cat-strength">Strength</span><span class="cat-devious">Devious</span><span class="cat-mutations">Mutations</span><span class="cat-traits">Traits</span>
     </div>
-    <button type="button" class="btn primary big" data-action="save"${state.token && !state.busy ? "" : " disabled"}>${state.busy ? "Working…" : "Save Package"}</button>
+    <button type="button" class="btn primary big" data-action="save"${(state.authed || state.token) && !state.busy ? "" : " disabled"}>${state.busy ? "Working…" : "Save Package"}</button>
     <button type="button" class="btn big" data-action="export"${state.busy ? " disabled" : ""}>Export Printable Rules Sheet</button>
     ${validation}${saved}${exported}${notices}
     <div class="summary-card">
@@ -952,12 +953,14 @@ async function login() {
       headers: { "Content-Type": "application/json", "X-CW-Auth": "1" },
       body: JSON.stringify({ username, password }),
     });
+    state.authed = true;
     state.token = result.token;
     state.account = username;
     state.loginUser = "";
     state.expiresAt = result.expiresAt;
     state.problems = [];
   } catch (error) {
+    state.authed = false;
     state.token = null;
     state.account = "";
     state.expiresAt = "";
@@ -970,6 +973,7 @@ async function login() {
 
 function logout() {
   state.loginUser = state.account;
+  state.authed = false;
   state.token = null;
   state.account = "";
   state.expiresAt = "";
@@ -1001,18 +1005,17 @@ function loadPreset(id) {
 }
 
 async function savePackage() {
-  if (!state.token || state.busy) return;
+  if (!(state.authed || state.token) || state.busy) return;
   state.busy = true;
   state.saved = null;
   state.exported = false;
   render();
   try {
+    const headers = { "Content-Type": "application/json", "X-CW-Auth": "1" };
+    if (state.token) headers.Authorization = `Bearer ${state.token}`;
     const result = await requestJson("/api/packages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${state.token}`,
-      },
+      headers,
       body: JSON.stringify(serializePackage()),
     });
     state.problems = safeArray(result.problems).map(String);
@@ -1027,6 +1030,7 @@ async function savePackage() {
   } catch (error) {
     state.problems = [serverMessage(error)];
     if (error.status === 401) {
+      state.authed = false;
       state.token = null;
       state.account = "";
       state.expiresAt = "";
@@ -1093,7 +1097,7 @@ toolbar.addEventListener("change", (event) => {
 });
 
 toolbar.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !state.token) login();
+  if (event.key === "Enter" && !(state.authed || state.token)) login();
 });
 
 editor.addEventListener("click", (event) => {
@@ -1142,6 +1146,20 @@ rightRail.addEventListener("click", (event) => {
 
 async function initialize() {
   render();
+  try {
+    const session = await requestJson("/api/auth/session");
+    if (session?.authenticated === true) {
+      state.authed = true;
+      state.account = String(session.coach ?? "");
+      if (typeof session.token === "string" && session.token) state.token = session.token;
+      state.loginUser = "";
+      state.expiresAt = String(session.expiresAt ?? "");
+      state.problems = [];
+      render();
+    }
+  } catch {
+    // Stay signed out when the session probe is unavailable.
+  }
   const requests = [
     ["packages", requestJson("/api/packages")],
     ["presets", requestJson("/api/presets")],

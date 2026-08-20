@@ -719,4 +719,20 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-render();
+async function initialize() {
+  render();
+  try {
+    const result = await requestJson("/api/auth/session");
+    if (result?.authenticated !== true) return;
+    state.authed = true;
+    state.account = String(result.coach ?? "");
+    state.token = null;
+    state.expiresAt = String(result.expiresAt ?? "");
+    render();
+    await loadData();
+  } catch {
+    // Stay signed out when the session probe is unavailable.
+  }
+}
+
+initialize();
