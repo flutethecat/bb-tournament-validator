@@ -105,6 +105,7 @@ import { corsDecision, parseAllowedOrigins } from "./cors.js";
 import { teamEditingError } from "./customGate.js";
 import { forkGamesEndpoint } from "./forkGames.js";
 import { teamDetailEndpoint, teamDetailIdFromPath } from "./teamDetail.js";
+import { advancementPath, teamAdvancementEndpoint, type AdvancementAction } from "./teamAdvancement.js";
 import {
   BUG_REPORT_BODY_CAP,
   BodyTooLargeError,
@@ -206,6 +207,7 @@ const AUTH_SIDECAR = process.env.AUTH_SIDECAR_ENABLED === "1";
 const TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 const sessionTokens = new Map<string, number>();
 const pendingDiscordSso = new PendingSsoStore();
+const TEAM_ADVANCEMENT_TOKEN_SECRET = randomBytes(32).toString("hex");
 const PACKAGES_DIR = resolve(process.env.PACKAGES_DIR || join(HERE, "../../../tournament-packages"));
 const VALIDATED_CSV = resolve(
   process.env.VALIDATED_CSV || join(HERE, "../../discord-bot/data-store/validated-rosters.csv"),
@@ -445,6 +447,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
   if (pathname.startsWith("/api/packages/")) return true;
   if ((req.method === "GET" || req.method === "HEAD") && teamDetailIdFromPath(pathname)) return true;
+  if (req.method === "POST" && advancementPath(pathname)) return true;
   // Public rules-builder surface: the TO ruleset editor authenticates IN-UI via a bearer
   // token (POST /api/auth/login → gate on POST /api/packages), so its page + static deps
   // must load without the admin Basic-auth prompt. GET/HEAD only, on the specific
@@ -601,7 +604,8 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/fork/team-builder/build" ||
     pathname === "/api/bug-reports" ||
     pathname === "/api/admin/identities" ||
-    pathname === "/api/account"
+    pathname === "/api/account" ||
+    /^\/api\/teams\/[^/]+\/advancement$/.test(pathname)
   );
 }
 
@@ -872,6 +876,24 @@ async function handleApi(
       teamsDir: forkConfigFromEnv()?.teamsDir,
     });
     return sendJson(res, result.status, result.body);
+  }
+
+  const advancementTeamId = advancementPath(path);
+  if (advancementTeamId && method === "POST") {
+    const cfg = forkConfigFromEnv();
+    const body = (await readBody(req)) as AdvancementAction | undefined;
+    const result = teamAdvancementEndpoint(auth, advancementTeamId, body, {
+      libraryDir: LIBRARY_DIR,
+      teamsDir: cfg?.teamsDir,
+      tokenSecret: TEAM_ADVANCEMENT_TOKEN_SECRET,
+    });
+    if (result.status !== 200 || !("ok" in result.body) || !cfg) return sendJson(res, result.status, result.body);
+    try {
+      const reload = await reloadFork(cfg, FORK_STATE_DIR);
+      return sendJson(res, 200, { ...result.body, reload });
+    } catch {
+      return sendJson(res, 500, { error: "The advancement was saved, but the fork could not reload it. Refresh before retrying." });
+    }
   }
 
   if (path === "/api/stars" && method === "GET") return sendJson(res, 200, starList());

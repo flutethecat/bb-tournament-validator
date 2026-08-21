@@ -135,11 +135,19 @@ describe("buildBankTasks (server-derived apply, CE-1)", () => {
     const homeTask = tasks.find((t) => t.teamId === "900001")!;
     const out = homeTask.applyFn(TEAM_XML);
     expect(out).toContain(`currentSpps="7"`); // SET, not 1+6
+    expect(out).toContain(`earnedSpps="6"`); // lifetime earned is incremented separately from spendable SPP
     expect(out).toContain("<touchdowns>1</touchdowns>"); // 0 + 1
     expect(out).toContain("<casualties>2</casualties>"); // 1 + 1
     expect(out).toContain("<blocks>38</blocks>"); // 35 + 3
     expect(out).toContain("<fouls>1</fouls>"); // 0 + 1
     expect(out).toContain("<mvps>1</mvps>"); // unchanged (no playerAward)
+  });
+
+  it("accumulates lifetime earned SPP without changing the authoritative current-total semantics", () => {
+    const prior = TEAM_XML.replace('currentSpps="1"', 'currentSpps="1" earnedSpps="9"');
+    const out = buildBankTasks(parseFumbblResult(SAMPLE_RESULT)).find((t) => t.teamId === "900001")!.applyFn(prior);
+    expect(out).toContain('currentSpps="7"');
+    expect(out).toContain('earnedSpps="15"');
   });
 
   it("appends serious injuries to <injuryList> per the fork-parser schema (SR-185 ②)", () => {

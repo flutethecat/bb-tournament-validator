@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseTeamXmlMeta, readLibrary, type LibraryTeam } from "@bb/fork-ops";
 import type { SessionIdentity } from "./auth/requireSession.js";
+import { playerProgression, teamRevision, type AdvancementCosts } from "./teamAdvancement.js";
 
 export interface TeamDetailPlayer {
   id: string;
@@ -12,6 +13,20 @@ export interface TeamDetailPlayer {
   skills: string[];
   injuries: string[];
   spp: number;
+  earnedSpp: number;
+  advancements: number;
+  rank: string;
+  advancementCosts: AdvancementCosts | null;
+  primaryCategories: string[];
+  secondaryCategories: string[];
+  primarySkills: string[];
+  secondarySkills: string[];
+  movement: number | null;
+  strength: number | null;
+  agility: number | null;
+  passing: number | null;
+  armour: number | null;
+  currentValue: number;
   mng: boolean;
   status: string | null;
 }
@@ -28,6 +43,7 @@ export interface TeamDetail {
   treasury: number;
   teamValue: number;
   rulesetPackName: string | null;
+  revision: string;
   players: TeamDetailPlayer[];
 }
 
@@ -154,6 +170,7 @@ export function parseStoredTeamDetail(
       .filter(Boolean);
     const rawNumber = Number(attr(opening, "nr") ?? attr(opening, "number"));
 
+    const progression = playerProgression(block, rosterXml);
     players.push({
       id: decodeXml(attr(opening, "id") ?? ""),
       number: Number.isFinite(rawNumber) ? rawNumber : 0,
@@ -163,6 +180,20 @@ export function parseStoredTeamDetail(
       skills,
       injuries,
       spp: currentSpp(block),
+      earnedSpp: progression.earnedSpp,
+      advancements: progression.advancements,
+      rank: progression.rank,
+      advancementCosts: progression.costs,
+      primaryCategories: progression.primaryCategories,
+      secondaryCategories: progression.secondaryCategories,
+      primarySkills: progression.primarySkills,
+      secondarySkills: progression.secondarySkills,
+      movement: progression.characteristics.MA,
+      strength: progression.characteristics.ST,
+      agility: progression.characteristics.AG,
+      passing: progression.characteristics.PA,
+      armour: progression.characteristics.AV,
+      currentValue: progression.currentValue,
       mng: playerMng(block, status),
       status,
     });
@@ -181,6 +212,7 @@ export function parseStoredTeamDetail(
     treasury: /<treasury>/i.test(xml) ? meta.gold : stored.gold,
     teamValue: hasTeamValue ? meta.teamValue : stored.teamValue,
     rulesetPackName: stored.rulesetPackName ?? null,
+    revision: teamRevision(xml),
     players,
   };
 }

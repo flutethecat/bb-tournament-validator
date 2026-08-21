@@ -84,10 +84,10 @@ describe("GET /api/teams/:id/detail", () => {
     mkdirSync(rostersDir);
     cpSync(join(FIXTURES, "roster-team-detail.xml"), join(rostersDir, "roster_team_1272390.xml"));
 
-    expect(teamDetailEndpoint({ coach: "tArKiN", organizer: false }, "1272390", d)).toEqual({
-      status: 200,
-      body: {
-        team: {
+    const result = teamDetailEndpoint({ coach: "tArKiN", organizer: false }, "1272390", d);
+    expect(result.status).toBe(200);
+    if (result.status !== 200) throw new Error(result.body.error);
+    expect(result.body.team).toMatchObject({
           id: "1272390",
           name: "Da & Boyz",
           race: "Black Orc",
@@ -109,6 +109,18 @@ describe("GET /api/teams/:id/detail", () => {
               skills: ["Block", "Guard"],
               injuries: ["Smashed Knee"],
               spp: 12,
+              earnedSpp: 0,
+              advancements: 2,
+              rank: "Emerging Star",
+              advancementCosts: { randomPrimary: 6, chosenPrimary: 12, chosenSecondary: 16, characteristic: 20 },
+              primaryCategories: ["General", "Strength"],
+              secondaryCategories: ["Agility"],
+              movement: 4,
+              strength: 4,
+              agility: 4,
+              passing: 5,
+              armour: 10,
+              currentValue: 150000,
               mng: true,
               status: "MissNextGame",
             },
@@ -121,12 +133,17 @@ describe("GET /api/teams/:id/detail", () => {
               skills: [],
               injuries: [],
               spp: 0,
+              earnedSpp: 0,
+              advancements: 0,
+              rank: "Experienced",
               mng: false,
               status: "Active",
             },
           ],
-        },
-      },
     });
+    expect(result.body.team.revision).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.body.team.players[0]!.primarySkills).toContain("Mighty Blow");
+    expect(result.body.team.players[0]!.primarySkills).not.toContain("Block");
+    expect(result.body.team.players[0]!.secondarySkills).toContain("Dodge");
   });
 });

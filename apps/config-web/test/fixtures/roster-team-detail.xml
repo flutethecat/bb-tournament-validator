@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <roster team="1272390">
   <name>Black Orc</name>
-  <position id="860401"><name>Black Orc</name><skillList><skill>Brawler</skill></skillList></position>
-  <position id="860402"><name>Goblin Bruiser</name><skillList><skill>Dodge</skill></skillList></position>
+  <position id="860401"><name>Black Orc</name><cost>90000</cost><movement>4</movement><strength>4</strength><agility>4</agility><passing>5</passing><armour>10</armour><skillList><skill>Brawler</skill></skillList><skillCategoryList><normal>General</normal><normal>Strength</normal><double>Agility</double></skillCategoryList></position>
+  <position id="860402"><name>Goblin Bruiser</name><cost>45000</cost><movement>6</movement><strength>2</strength><agility>3</agility><passing>4</passing><armour>8</armour><skillList><skill>Dodge</skill></skillList><skillCategoryList><normal>Agility</normal><double>General</double></skillCategoryList></position>
 </roster>

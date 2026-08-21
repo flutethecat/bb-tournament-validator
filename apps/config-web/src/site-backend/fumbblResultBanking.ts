@@ -67,6 +67,20 @@ function setCurrentSpps(playerBlock: string, current: number): string {
   return playerBlock.replace(/<playerStatistics\b/, `<playerStatistics currentSpps="${current}"`);
 }
 
+/** Lifetime earned SPP is distinct from the spendable current balance. The result carries this-game
+ *  earned as a server-derived delta, so bank it onto the team XML for Team Library progression display. */
+function addEarnedSpps(playerBlock: string, earned: number | undefined): string {
+  if (earned === undefined || earned === 0) return playerBlock;
+  const opening = playerBlock.match(/<playerStatistics\b[^>]*>/)?.[0];
+  if (!opening) return playerBlock;
+  const prior = Number(opening.match(/\bearnedSpps="(\d+)"/)?.[1] ?? 0);
+  const next = prior + earned;
+  if (/\bearnedSpps="\d+"/.test(opening)) {
+    return playerBlock.replace(/(<playerStatistics\b[^>]*\bearnedSpps=")\d+("[^>]*>)/, `$1${next}$2`);
+  }
+  return playerBlock.replace(/<playerStatistics\b/, `<playerStatistics earnedSpps="${next}"`);
+}
+
 /** Increment a `<tag>N</tag>` counter inside a scope by `delta` (no-op if delta 0 or tag absent). */
 function bumpCounter(scope: string, tag: string, delta: number): string {
   if (delta === 0) return scope;
@@ -94,6 +108,7 @@ function appendInjuries(playerBlock: string, injuries: string[]): string {
 function applyToPlayerBlock(block: string, pr: ParsedPlayerResult): string {
   let out = block;
   if (pr.currentSpps !== undefined) out = setCurrentSpps(out, pr.currentSpps);
+  out = addEarnedSpps(out, pr.earnedSpps);
   for (const s of STAT_INCREMENTS) out = bumpCounter(out, s.teamTag, s.from(pr));
   out = appendInjuries(out, pr.injuries);
   return out;
