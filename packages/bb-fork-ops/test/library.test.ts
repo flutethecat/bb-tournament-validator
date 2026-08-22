@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -65,6 +65,13 @@ describe("library store", () => {
     const after = removeLibraryTeam(dir, "Flutethecat", "1");
     expect(after.map((t) => t.teamId)).toEqual(["2"]);
     expect(readLibrary(dir, "Flutethecat").map((t) => t.teamId)).toEqual(["2"]);
+  });
+
+  it("does not overwrite corrupt library metadata during a mutation", () => {
+    const file = join(dir, "flutethecat.json");
+    writeFileSync(file, "{not-json", "utf8");
+    expect(() => upsertLibraryTeam(dir, "Flutethecat", team({ teamId: "1" }))).toThrow();
+    expect(readFileSync(file, "utf8")).toBe("{not-json");
   });
 });
 

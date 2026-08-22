@@ -80,22 +80,52 @@ export interface ParsedGameResult {
   teams: ParsedTeamResult[];
 }
 
-const attr = (s: string, name: string): string | undefined =>
-  s.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1];
+const attr = (s: string, name: string): string | undefined => {
+  const assignments = [...s.matchAll(new RegExp(`\\b${name}\\s*=`, "g"))];
+  if (assignments.length > 1) throw new Error(`duplicate ${name} attribute`);
+  if (!assignments.length) return undefined;
+  const exact = s.match(new RegExp(`\\b${name}="([^"]*)"`));
+  if (!exact) throw new Error(`malformed ${name} attribute`);
+  return exact[1];
+};
 
 /** `<tag>text</tag>` — first occurrence within `scope`. Value is XML-unescaped. */
 const el = (scope: string, tag: string): string | undefined => {
-  const m = scope.match(new RegExp(`<${tag}>([^<]*)</${tag}>`, "i"));
-  return m ? unescapeXml(m[1]!) : undefined;
+  const occurrences = [...scope.matchAll(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}>`, "gi"))];
+  if (occurrences.length > 1) throw new Error(`duplicate <${tag}> element`);
+  if (!occurrences.length) {
+    if (new RegExp(`<${tag}\\b`, "i").test(scope)) throw new Error(`malformed <${tag}> element`);
+    return undefined;
+  }
+  const m = occurrences[0]![0].match(new RegExp(`^<${tag}>([^<]*)</${tag}>$`, "i"));
+  if (!m) throw new Error(`malformed <${tag}> element`);
+  return unescapeXml(m[1]!);
 };
 
 const num = (scope: string, tag: string): number | undefined => {
   const v = el(scope, tag);
-  return v === undefined ? undefined : Number(v);
+  if (v === undefined) return undefined;
+  const parsed = Number(v);
+  if (!Number.isSafeInteger(parsed)) throw new Error(`invalid <${tag}> integer`);
+  return parsed;
 };
 
-/** Element value coerced to a boolean the way `UtilXml.addValueElement(boolean)` emits it ("true"/"false"). */
-const bool = (scope: string, tag: string): boolean => el(scope, tag)?.trim().toLowerCase() === "true";
+/** Optional boolean exactly as `UtilXml.addValueElement(boolean)` emits it. */
+const bool = (scope: string, tag: string): boolean => {
+  const value = el(scope, tag)?.trim().toLowerCase();
+  if (value === undefined) return false;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`invalid <${tag}> boolean`);
+};
+
+const integerAttr = (scope: string, name: string, fallback = 0): number => {
+  const raw = attr(scope, name);
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed)) throw new Error(`invalid ${name} integer attribute`);
+  return parsed;
+};
 
 const unescapeXml = (s: string): string =>
   s
@@ -110,11 +140,20 @@ function blocks(scope: string, tag: string): string[] {
   const out: string[] = [];
   const re = new RegExp(`<${tag}\\b([^>]*?)(/>|>([\\s\\S]*?)</${tag}>)`, "g");
   let m: RegExpExecArray | null;
-  while ((m = re.exec(scope))) out.push(m[0]!);
+  while ((m = re.exec(scope))) {
+    if (m[1]?.includes("<")) throw new Error(`malformed <${tag}> opening tag`);
+    out.push(m[0]!);
+  }
   return out;
 }
 
 function parsePlayerResult(block: string): ParsedPlayerResult {
+  for (const container of ["starPlayerPoints", "statistics", "gainedHatred"] as const) {
+    const parsed = blocks(block, container);
+    const tokens = [...block.matchAll(new RegExp(`<${container}\\b`, "gi"))];
+    if (parsed.length > 1) throw new Error(`duplicate <${container}> container`);
+    if (tokens.length !== parsed.length) throw new Error(`malformed <${container}> container`);
+  }
   // The <statistics> and <starPlayerPoints> children carry the counters; they live inside `block`,
   // so scoped `num()` over the whole block finds them (each counter tag is unique within a player).
   return {
@@ -145,19 +184,81 @@ function parsePlayerResult(block: string): ParsedPlayerResult {
 
 /** Read an attribute off the `<starPlayerPoints current=".." earned=".."/>` opening tag, if present. */
 function spAttr(block: string, name: "current" | "earned"): number | undefined {
-  const sp = block.match(/<starPlayerPoints\b([^>]*)>/);
-  if (!sp) return undefined;
-  const v = attr(sp[1]!, name);
-  return v === undefined ? undefined : Number(v);
+  const containers = blocks(block, "starPlayerPoints");
+  if (containers.length > 1) throw new Error("duplicate <starPlayerPoints> container");
+  if (!containers.length) return undefined;
+  const opening = containers[0]!.match(/^<starPlayerPoints\b([^>]*)>/);
+  if (!opening) throw new Error("malformed <starPlayerPoints> container");
+  const v = attr(opening[1]!, name);
+  if (v === undefined) return undefined;
+  const parsed = Number(v);
+  if (!Number.isSafeInteger(parsed)) throw new Error(`invalid starPlayerPoints ${name} integer`);
+  return parsed;
+}
+
+// Fork replay ids legitimately contain ':' (for example `test:...`). Slashes and controls are
+// not logical-id characters; banking additionally hashes/sanitizes every filesystem filename.
+const SAFE_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+const requireNonnegative = (label: string, value: number | undefined): void => {
+  if (value !== undefined && value < 0) throw new Error(`${label} must be nonnegative`);
+};
+
+function validateParsedResult(result: ParsedGameResult): void {
+  if (!SAFE_ID.test(result.gameId)) throw new Error("gameResult replayId contains unsupported characters or length");
+  requireNonnegative("halves", result.halves);
+  const teamIds = new Set<string>();
+  for (const team of result.teams) {
+    if (!SAFE_ID.test(team.teamId)) throw new Error("teamResult teamId contains unsupported characters or length");
+    if (teamIds.has(team.teamId)) throw new Error(`duplicate teamResult teamId ${team.teamId}`);
+    teamIds.add(team.teamId);
+    for (const [label, value] of Object.entries({
+      score: team.score, spectators: team.spectators, fame: team.fame, fanFactor: team.fanFactor,
+      winnings: team.winnings, spirallingExpenses: team.spirallingExpenses,
+      pettyCashTransferred: team.pettyCashTransferred, pettyCashUsed: team.pettyCashUsed,
+      teamValue: team.teamValue, treasurySpentOnInducements: team.treasurySpentOnInducements,
+      badlyHurt: team.casualtiesSuffered.badlyHurt, seriousInjury: team.casualtiesSuffered.seriousInjury,
+      rip: team.casualtiesSuffered.rip,
+    })) requireNonnegative(label, value);
+    if (team.dedicatedFansModifier !== undefined && Math.abs(team.dedicatedFansModifier) > 7) {
+      throw new Error("dedicatedFansModifier is outside the supported range");
+    }
+    const playerIds = new Set<string>();
+    for (const player of team.players) {
+      if (!SAFE_ID.test(player.playerId)) throw new Error("playerResult playerId contains unsupported characters or length");
+      if (playerIds.has(player.playerId)) throw new Error(`duplicate playerResult playerId ${player.playerId}`);
+      playerIds.add(player.playerId);
+      for (const [label, value] of Object.entries({
+        currentSpps: player.currentSpps, earnedSpps: player.earnedSpps, completions: player.completions,
+        touchdowns: player.touchdowns, deflections: player.deflections, interceptions: player.interceptions,
+        casualties: player.casualties, playerAwards: player.playerAwards, landings: player.landings,
+        blocks: player.blocks, fouls: player.fouls, turnsPlayed: player.turnsPlayed,
+      })) requireNonnegative(label, value);
+      // The server serializer deliberately emits signed yardage. It is still parsed by `num`,
+      // which requires a finite safe integer; do not reject legitimate negative movement.
+      for (const [label, value] of Object.entries({ rushing: player.rushing, passing: player.passing })) {
+        if (!Number.isSafeInteger(value)) throw new Error(`${label} must be a safe integer`);
+      }
+    }
+  }
 }
 
 function parseTeamResult(block: string): ParsedTeamResult {
   // Player results live inside <playerResultList> — isolate it so team-level counters (e.g. `casualties`
   // as a player stat) aren't confused with team fields. Team fields sit BEFORE the list.
-  const listMatch = block.match(/<playerResultList\b[^>]*>([\s\S]*?)<\/playerResultList>/);
+  const lists = blocks(block, "playerResultList");
+  if (lists.length !== 1) throw new Error("teamResult must contain exactly one <playerResultList>");
+  const listMatch = lists[0]!.match(/^<playerResultList\b[^>]*>([\s\S]*?)<\/playerResultList>$/);
+  if (!listMatch) throw new Error("malformed <playerResultList>");
   const listInner = listMatch?.[1] ?? "";
   const teamScope = listMatch ? block.slice(0, block.indexOf(listMatch[0])) : block;
-  const cas = teamScope.match(/<casualtiesSuffered\b([^>]*)\/>/)?.[1] ?? "";
+  const casualtyContainers = blocks(teamScope, "casualtiesSuffered");
+  if (casualtyContainers.length > 1) throw new Error("duplicate <casualtiesSuffered> container");
+  if ([...teamScope.matchAll(/<casualtiesSuffered\b/gi)].length !== casualtyContainers.length) {
+    throw new Error("malformed <casualtiesSuffered> container");
+  }
+  const casualtyMatch = casualtyContainers[0]?.match(/^<casualtiesSuffered\b([^>]*)\/>$/);
+  if (casualtyContainers.length && !casualtyMatch) throw new Error("malformed <casualtiesSuffered> container");
+  const cas = casualtyMatch?.[1] ?? "";
   const conceded = bool(teamScope, "conceded");
   return {
     teamId: attr(block, "teamId") ?? "",
@@ -178,9 +279,9 @@ function parseTeamResult(block: string): ParsedTeamResult {
     teamValue: num(teamScope, "teamValue"),
     treasurySpentOnInducements: num(teamScope, "treasurySpentOnInducements"),
     casualtiesSuffered: {
-      badlyHurt: Number(attr(cas, "badlyHurt") ?? 0),
-      seriousInjury: Number(attr(cas, "seriousInjury") ?? 0),
-      rip: Number(attr(cas, "rip") ?? 0),
+      badlyHurt: integerAttr(cas, "badlyHurt"),
+      seriousInjury: integerAttr(cas, "seriousInjury"),
+      rip: integerAttr(cas, "rip"),
     },
     players: blocks(listInner, "playerResult").map(parsePlayerResult),
   };
@@ -192,13 +293,16 @@ function parseTeamResult(block: string): ParsedTeamResult {
  * document with zero teams still parses (returns `teams: []`) — the caller decides that's a fail.
  */
 export function parseFumbblResult(xml: string): ParsedGameResult {
-  const root = xml.match(/<gameResult\b([^>]*)>([\s\S]*)<\/gameResult>/);
+  const root = xml.match(/^\s*<gameResult\b([^>]*)>([\s\S]*)<\/gameResult>\s*$/);
   if (!root) throw new Error("not a FumbblResult document (no <gameResult> root)");
   const gameId = attr(root[1]!, "replayId");
   if (!gameId) throw new Error("FumbblResult <gameResult> has no replayId");
-  return {
+  const result: ParsedGameResult = {
     gameId,
     halves: Number(attr(root[1]!, "halves") ?? 0),
     teams: blocks(root[2]!, "teamResult").map(parseTeamResult),
   };
+  if (!Number.isSafeInteger(result.halves)) throw new Error("invalid gameResult halves integer");
+  validateParsedResult(result);
+  return result;
 }

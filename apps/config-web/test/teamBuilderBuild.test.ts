@@ -85,7 +85,7 @@ describe("team-builder build target", () => {
     writeTeam(d.teamsDir, "owned", "Tarkin");
 
     const target = resolveTeamBuilderBuildTarget(d.libraryDir, d.teamsDir, "tArKiN", " owned ");
-    expect(target).toEqual({ ok: true, teamId: "owned" });
+    expect(target).toMatchObject({ ok: true, teamId: "owned" });
     if (!target.ok) throw new Error("unreachable");
     const edited = retargetComposedTeam(composed(), target.teamId);
     registerBuiltTeam(d.libraryDir, edited.roster, edited.teamId, 975_000, "2026-08-19T12:00:00.000Z", true, "New Cup");
@@ -134,6 +134,14 @@ describe("team-builder build target", () => {
     expect(readFileSync(path, "utf8")).toBe(beforeXml);
   });
 
+  it("returns the exact validated edit path when the filename coach prefix has different casing", () => {
+    const d = dirs();
+    upsertLibraryTeam(d.libraryDir, "Tarkin", stored("owned"));
+    const path = join(d.teamsDir, "team_TARKIN_owned.xml");
+    writeFileSync(path, '<team id="owned"><coach>Tarkin</coach><player id="p1"><name>Player</name></player></team>', "utf8");
+    expect(resolveTeamBuilderBuildTarget(d.libraryDir, d.teamsDir, "tarkin", "owned")).toEqual({ ok: true, teamId: "owned", path });
+  });
+
   it("refuses a played team with 409 and leaves its XML and row unchanged", () => {
     const d = dirs();
     upsertLibraryTeam(d.libraryDir, "Tarkin", stored("1272390"));
@@ -150,6 +158,20 @@ describe("team-builder build target", () => {
     });
     expect(readLibrary(d.libraryDir, "Tarkin")).toEqual(beforeRow);
     expect(readFileSync(path, "utf8")).toBe(beforeXml);
+  });
+
+  it("refuses legacy acquired skills even when old XML has no SPP, stats, or audit", () => {
+    const d = dirs();
+    upsertLibraryTeam(d.libraryDir, "Tarkin", stored("skilled"));
+    const path = writeTeam(d.teamsDir, "skilled", "Tarkin");
+    const xml = readFileSync(path, "utf8").replace("</player>", "<skillList><skill>Wrestle</skill></skillList></player>");
+    writeFileSync(path, xml, "utf8");
+
+    expect(resolveTeamBuilderBuildTarget(d.libraryDir, d.teamsDir, "Tarkin", "skilled")).toMatchObject({
+      ok: false,
+      status: 409,
+    });
+    expect(readFileSync(path, "utf8")).toBe(xml);
   });
 
   it("rejects a retired edit target with 409 and no write", () => {

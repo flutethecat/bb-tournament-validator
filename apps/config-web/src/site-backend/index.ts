@@ -11,10 +11,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { forkConfigFromEnv, forkDbConfigFromEnv, verifyForkAuthChallenge, verifyCoachPassword } from "@bb/fork-ops";
+import { acquireTeamNameWriteLock, forkCacheReloadRequired, forkConfigFromEnv, forkDbConfigFromEnv, verifyForkAuthChallenge, verifyCoachPassword } from "@bb/fork-ops";
 import { NonceStore } from "./nonceStore.js";
 import { GameStateRegistry } from "./gameState.js";
-import { recoverInterrupted, type BankingDirs } from "./banking.js";
+import { recoverInterrupted, replayDeferredGameResults, type BankingDirs } from "./banking.js";
 import { handleXmlRequest, type SiteBackendDeps } from "./xmlRouter.js";
 
 export type SiteBackendHandle = (
@@ -39,7 +39,10 @@ export interface SiteBackendConfig {
  * auth verify REQUIRES the fork DB (coach digests live in `ffb_coaches`); without it, coach auth can't be
  * honestly performed, so the backend declines rather than accept-all.
  */
-export function createSiteBackend(): { handle: SiteBackendHandle } | undefined {
+export async function createSiteBackend(
+  libraryDir?: string,
+  reloadCache?: () => Promise<boolean>,
+): Promise<{ handle: SiteBackendHandle } | undefined> {
   if (process.env.SITE_BACKEND_ENABLED !== "1") return undefined;
   const forkCfg = forkConfigFromEnv();
   const dbCfg = forkDbConfigFromEnv();
@@ -53,11 +56,18 @@ export function createSiteBackend(): { handle: SiteBackendHandle } | undefined {
   }
   const teamsDir = forkCfg.teamsDir;
   const resultsDir = join(dirname(teamsDir), "results");
-  const banking: BankingDirs = { resultsDir, teamsDir };
+  const banking: BankingDirs = { resultsDir, teamsDir, libraryDir };
 
   // BR-3: restore any interrupted mid-apply before serving a single result.
-  const { recovered } = recoverInterrupted(banking);
+  const { recovered, errors } = recoverInterrupted(banking);
+  if (errors.length) throw new Error(`Banking recovery failed closed: ${errors.join("; ")}`);
   if (recovered.length) console.log(`[site-backend] recovered ${recovered.length} interrupted apply(s): ${recovered.join(", ")}`);
+  if (forkCacheReloadRequired(teamsDir)) {
+    if (!reloadCache || !(await reloadCache())) throw new Error("Banking recovery requires a fork cache reload before the site backend can serve.");
+  }
+  const deferred = await replayDeferredGameResults(banking, reloadCache);
+  if (deferred.errors.length) throw new Error(`Deferred result recovery failed closed: ${deferred.errors.join("; ")}`);
+  if (deferred.replayed.length) console.log(`[site-backend] replayed ${deferred.replayed.length} deferred result(s): ${deferred.replayed.join(", ")}`);
 
   const deps: SiteBackendDeps = {
     nonce: new NonceStore(),
@@ -71,6 +81,9 @@ export function createSiteBackend(): { handle: SiteBackendHandle } | undefined {
     // Service-user hardening: mutating xml: verbs require this coach's challenge-response (fork ini
     // `fumbbl.user`; row must exist in ffb_coaches — C-1 cutover checklist item for the LIVE schema).
     serviceUser: process.env.SITE_BACKEND_SERVICE_USER?.trim() || "forkservice",
+    cacheCoherent: () => !forkCacheReloadRequired(teamsDir),
+    acquireCacheGeneration: () => acquireTeamNameWriteLock(teamsDir),
+    reloadCache,
     legacyPlaintextVerify: process.env.SITE_BACKEND_LEGACY_AUTH === "1"
       ? (coach, credential) => verifyCoachPassword(dbCfg, coach, credential)
       : undefined,

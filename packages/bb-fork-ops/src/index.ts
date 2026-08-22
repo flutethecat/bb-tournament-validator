@@ -16,6 +16,7 @@ export * from "./library.js";
 export * from "./matchmaking.js";
 export * from "./forkReload.js";
 export * from "./forkAdmin.js";
+export * from "./locks.js";
 
 /**
  * Build a fork-join JNLP for the FFB client (standalone `-fork` join). The fork HOST

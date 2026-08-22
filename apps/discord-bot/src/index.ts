@@ -41,7 +41,7 @@ import { WatchStore } from "./store/watchStore";
 import { PendingChannelResolutionStore } from "./store/pendingChannelResolutions";
 import { resolveChannelPackage, tournamentDateStatus } from "./channelTournament";
 import { Fork40kStore } from "./store/fork40kStore";
-import { buildForkJnlp, copyForkTeam, createForkAccount, fetchForkTeam, forkConfigFromEnv, jnlpFilename } from "./fork40k";
+import { adminListLive, buildForkJnlp, copyForkTeam, createForkAccount, fetchForkTeam, forkAdminConfigFromEnv, forkConfigFromEnv, jnlpFilename } from "./fork40k";
 import { AnnounceState, manifestReleaseTag, readManifest } from "./buildAnnounce";
 import { DailySummaryState, readTopDailySummary } from "./dailySummary";
 import { announceLatestBuild, announceLatestDailySummary } from "./announcePost";
@@ -816,7 +816,13 @@ async function handleFork40k(i: ChatInputCommandInteraction): Promise<void> {
       await createForkAccount(cfg, username);
       await i.editReply(`✅ Fork coach **${username}** created/reset — password \`12345\`.`);
     } else if (sub === "copyteam") {
-      const t = await copyForkTeam(cfg, i.options.getString("url", true));
+      const adminCfg = forkAdminConfigFromEnv();
+      const t = await copyForkTeam(cfg, i.options.getString("url", true), {
+        isTeamActive: adminCfg ? async (teamId) => {
+          const live = await adminListLive(adminCfg);
+          return live.some((game) => game.homeTeamId === teamId || game.awayTeamId === teamId);
+        } : undefined,
+      });
       await i.editReply(
         `✅ Copied **${t.teamName}** (coach **${t.coach}**, id ${t.teamId}) → \`${t.path}\`.\n` +
           `⚠ A fork coach named **${t.coach}** must exist (\`/bbbot 40k createaccount ${t.coach}\`), and the FFB game server must restart to load the team.` +

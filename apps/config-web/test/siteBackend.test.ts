@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { NonceStore } from "../src/site-backend/nonceStore.js";
-import { bankGameResult, recoverInterrupted, type BankingDirs, type TeamBankTask } from "../src/site-backend/banking.js";
-import { adminResponse } from "@bb/fork-ops";
+import { bankGameResult, bankingLedgerStem, recoverInterrupted, type BankingDirs, type TeamBankTask } from "../src/site-backend/banking.js";
+import { acknowledgeForkCacheReload, adminResponse, markForkCacheReloadRequired, readLibrary, upsertLibraryTeam } from "@bb/fork-ops";
 
 // ── TP-5: bounded, single-use nonce store ──────────────────────────────────────
 describe("NonceStore (TP-5 bounded by construction)", () => {
@@ -79,13 +80,16 @@ describe("bankGameResult (C-2 crash-safe two-phase ledger)", () => {
 
   const bumpSpp = (xml: string): string => xml.replace(/<spp>(\d+)<\/spp>/, (_, n) => `<spp>${Number(n) + 6}</spp>`);
   const task = (teamId: string, fn = bumpSpp): TeamBankTask => ({ teamId, applyFn: fn });
+  const ledger = (gameId: string, teamId: string): string => join(dirs.resultsDir, "ledger", `${bankingLedgerStem(gameId, teamId)}.json`);
+  const quarantineFile = (gameId: string, teamId: string, suffix: string): string =>
+    join(dirs.resultsDir, "quarantine", `${bankingLedgerStem(gameId, teamId)}.${suffix}`);
 
   it("applies a clean result and marks APPLIED", () => {
     const r = bankGameResult(dirs, "g1", [task("900001")], "<gameResult/>");
     expect(r.ok).toBe(true);
     expect(r.applied).toEqual(["900001"]);
     expect(readFileSync(join(dirs.teamsDir, "team_flutethecat_900001.xml"), "utf8")).toContain("<spp>6</spp>");
-    const marker = JSON.parse(readFileSync(join(dirs.resultsDir, "ledger", "g1_900001.json"), "utf8"));
+    const marker = JSON.parse(readFileSync(ledger("g1", "900001"), "utf8"));
     expect(marker.phase).toBe("APPLIED");
   });
 
@@ -93,6 +97,35 @@ describe("bankGameResult (C-2 crash-safe two-phase ledger)", () => {
     bankGameResult(dirs, "g1", [task("900001")], "<gameResult/>");
     bankGameResult(dirs, "g1", [task("900001")], "<gameResult/>"); // replay
     expect(readFileSync(join(dirs.teamsDir, "team_flutethecat_900001.xml"), "utf8")).toContain("<spp>6</spp>"); // not 12
+  });
+
+  it("defers banking while an earlier team/cache transaction requires recovery", () => {
+    markForkCacheReloadRequired(dirs.teamsDir, "unresolved prior transaction");
+    const result = bankGameResult(dirs, "g-deferred", [task("900001")], "<gameResult/>");
+    expect(result.ok).toBe(false);
+    expect(result.quarantined?.[0]?.reason).toMatch(/deferred until team\/cache recovery/i);
+    expect(readFileSync(join(dirs.teamsDir, "team_flutethecat_900001.xml"), "utf8")).toContain("<spp>0</spp>");
+    expect(existsSync(ledger("g-deferred", "900001"))).toBe(false);
+  });
+
+  it("uses an unambiguous tuple ledger key and verifies marker identity", () => {
+    expect(bankingLedgerStem("test:a", "b_c")).not.toBe(bankingLedgerStem("test:a_b", "c"));
+    const firstTeam = join(dirs.teamsDir, "team_x_b_c.xml");
+    writeFileSync(firstTeam, '<team id="b_c"><spp>0</spp></team>', "utf8");
+    expect(bankGameResult(dirs, "test:a", [task("b_c")], "<gameResult/>").ok).toBe(true);
+    acknowledgeForkCacheReload(dirs.teamsDir); // simulate the successful reload between distinct results
+    rmSync(firstTeam);
+    const secondTeam = join(dirs.teamsDir, "team_x_c.xml");
+    writeFileSync(secondTeam, '<team id="c"><spp>0</spp></team>', "utf8");
+    expect(bankGameResult(dirs, "test:a_b", [task("c")], "<gameResult/>").ok).toBe(true);
+    expect(readFileSync(secondTeam, "utf8")).toContain("<spp>6</spp>");
+    expect(readdirSync(join(dirs.resultsDir, "ledger")).filter((file) => file.endsWith(".json"))).toHaveLength(2);
+
+    acknowledgeForkCacheReload(dirs.teamsDir);
+    const marker = JSON.parse(readFileSync(ledger("test:a_b", "c"), "utf8"));
+    writeFileSync(ledger("test:a_b", "c"), JSON.stringify({ ...marker, gameId: "different" }), "utf8");
+    expect(bankGameResult(dirs, "test:a_b", [task("c")], "<gameResult/>").ok).toBe(false);
+    expect(readFileSync(secondTeam, "utf8")).toContain("<spp>6</spp>");
   });
 
   it("CRASH-SAFE: a throw mid-apply leaves the team file intact and recoverable (BR-3, kill-mid-apply)", () => {
@@ -106,21 +139,21 @@ describe("bankGameResult (C-2 crash-safe two-phase ledger)", () => {
     expect(existsSync(join(dirs.resultsDir, "quarantine"))).toBe(true);
   });
 
-  it("RECOVERS an interrupted IN_PROGRESS marker on startup (simulated crash after backup, before commit)", () => {
-    // Simulate a real mid-apply crash: backup exists, team file half-mutated, marker stuck IN_PROGRESS.
+  it("never restores an interrupted backup over an unknown later team mutation", () => {
     const teamFile = join(dirs.teamsDir, "team_flutethecat_900001.xml");
     mkdirSync(join(dirs.resultsDir, "ledger"), { recursive: true });
     writeFileSync(`${teamFile}.bank-bak`, "<team id=\"900001\"><spp>0</spp></team>", "utf8");
     writeFileSync(teamFile, "<team id=\"900001\"><spp>GARBAGE-PARTIAL", "utf8"); // corrupt half-write
-    writeFileSync(join(dirs.resultsDir, "ledger", "g1_900001.json"), JSON.stringify({
+    writeFileSync(ledger("g1", "900001"), JSON.stringify({
       gameId: "g1", teamId: "900001", phase: "IN_PROGRESS", teamFile,
       bakFile: `${teamFile}.bank-bak`, teamSizeAtRead: 0, teamMtimeAtRead: 0, startedAt: 0,
     }), "utf8");
 
     const { recovered } = recoverInterrupted(dirs);
-    expect(recovered).toEqual(["g1_900001"]);
-    expect(readFileSync(teamFile, "utf8")).toBe("<team id=\"900001\"><spp>0</spp></team>"); // restored
-    expect(existsSync(join(dirs.resultsDir, "ledger", "g1_900001.json"))).toBe(false); // marker cleared
+    expect(recovered).toEqual([]);
+    expect(readFileSync(teamFile, "utf8")).toBe("<team id=\"900001\"><spp>GARBAGE-PARTIAL");
+    expect(existsSync(quarantineFile("g1", "900001", "error.txt"))).toBe(true);
+    expect(existsSync(ledger("g1", "900001"))).toBe(true);
   });
 
   it("recovery leaves an APPLIED marker untouched (does not roll back completed work)", () => {
@@ -130,9 +163,125 @@ describe("bankGameResult (C-2 crash-safe two-phase ledger)", () => {
     expect(readFileSync(join(dirs.teamsDir, "team_flutethecat_900001.xml"), "utf8")).toContain("<spp>6</spp>");
   });
 
+  it("recognizes a commit that completed before the APPLIED marker flip", () => {
+    const teamFile = join(dirs.teamsDir, "team_flutethecat_900001.xml");
+    const before = readFileSync(teamFile, "utf8");
+    const applied = before.replace("<spp>0</spp>", "<spp>6</spp>");
+    const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+    mkdirSync(join(dirs.resultsDir, "ledger"), { recursive: true });
+    writeFileSync(teamFile, applied, "utf8");
+    writeFileSync(`${teamFile}.bank-bak`, before, "utf8");
+    writeFileSync(ledger("g1", "900001"), JSON.stringify({
+      gameId: "g1", teamId: "900001", phase: "IN_PROGRESS", teamFile, bakFile: `${teamFile}.bank-bak`,
+      teamSizeAtRead: before.length, teamMtimeAtRead: 0, beforeHash: digest(before), appliedHash: digest(applied), startedAt: 0,
+    }), "utf8");
+    expect(recoverInterrupted(dirs).recovered).toEqual(["g1_900001"]);
+    expect(JSON.parse(readFileSync(ledger("g1", "900001"), "utf8")).phase).toBe("APPLIED");
+    expect(readFileSync(teamFile, "utf8")).toBe(applied);
+  });
+
+  it("recovers an IN_PROGRESS retry instead of double-banking the applied XML", () => {
+    const teamFile = join(dirs.teamsDir, "team_flutethecat_900001.xml");
+    const before = readFileSync(teamFile, "utf8");
+    const applied = bumpSpp(before);
+    const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+    mkdirSync(join(dirs.resultsDir, "ledger"), { recursive: true });
+    writeFileSync(teamFile, applied, "utf8");
+    writeFileSync(`${teamFile}.bank-bak`, before, "utf8");
+    writeFileSync(ledger("g-retry", "900001"), JSON.stringify({
+      gameId: "g-retry", teamId: "900001", phase: "IN_PROGRESS", teamFile, bakFile: `${teamFile}.bank-bak`,
+      teamSizeAtRead: before.length, teamMtimeAtRead: 0, beforeHash: digest(before), appliedHash: digest(applied), startedAt: 0,
+    }), "utf8");
+
+    expect(bankGameResult(dirs, "g-retry", [task("900001")], "<gameResult/>").ok).toBe(true);
+    expect(readFileSync(teamFile, "utf8")).toBe(applied);
+    expect(JSON.parse(readFileSync(ledger("g-retry", "900001"), "utf8")).phase).toBe("APPLIED");
+  });
+
+  it("quarantines an unreadable existing marker rather than treating the retry as fresh", () => {
+    const teamFile = join(dirs.teamsDir, "team_flutethecat_900001.xml");
+    mkdirSync(join(dirs.resultsDir, "ledger"), { recursive: true });
+    writeFileSync(ledger("g-unreadable", "900001"), "{broken", "utf8");
+    expect(bankGameResult(dirs, "g-unreadable", [task("900001")], "<gameResult/>").ok).toBe(false);
+    expect(readFileSync(teamFile, "utf8")).toContain("<spp>0</spp>");
+    expect(existsSync(quarantineFile("g-unreadable", "900001", "error.txt"))).toBe(true);
+  });
+
+  it("reconciles library metadata when recovery finds an applied XML write", () => {
+    const libraryDir = join(root, "library");
+    const teamFile = join(dirs.teamsDir, "team_flutethecat_900001.xml");
+    const before = '<team id="900001"><coach>flutethecat</coach><currentTeamValue>1000000</currentTeamValue><spp>0</spp></team>';
+    const applied = before.replace("1000000", "1020000").replace("<spp>0</spp>", "<spp>6</spp>");
+    const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+    upsertLibraryTeam(libraryDir, "flutethecat", { teamId: "900001", teamName: "T", race: "Human", coach: "flutethecat", teamValue: 1000, gold: 0, forkLoadable: true, ingestedAt: "2026-01-01T00:00:00Z" });
+    mkdirSync(join(dirs.resultsDir, "ledger"), { recursive: true });
+    writeFileSync(teamFile, applied, "utf8");
+    writeFileSync(`${teamFile}.bank-bak`, before, "utf8");
+    writeFileSync(ledger("g-recover-tv", "900001"), JSON.stringify({
+      gameId: "g-recover-tv", teamId: "900001", phase: "IN_PROGRESS", teamFile, bakFile: `${teamFile}.bank-bak`,
+      teamSizeAtRead: before.length, teamMtimeAtRead: 0, beforeHash: digest(before), appliedHash: digest(applied), startedAt: 0,
+    }), "utf8");
+
+    expect(recoverInterrupted({ ...dirs, libraryDir }).recovered).toEqual(["g-recover-tv_900001"]);
+    expect(readLibrary(libraryDir, "flutethecat")[0]?.teamValue).toBe(1020);
+  });
+
+  it("restores library metadata when recovery finds the before XML generation", () => {
+    const libraryDir = join(root, "library");
+    const teamFile = join(dirs.teamsDir, "team_flutethecat_900001.xml");
+    const before = '<team id="900001"><coach>flutethecat</coach><currentTeamValue>1000000</currentTeamValue><spp>0</spp></team>';
+    const applied = before.replace("1000000", "1020000").replace("<spp>0</spp>", "<spp>6</spp>");
+    const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+    upsertLibraryTeam(libraryDir, "flutethecat", { teamId: "900001", teamName: "T", race: "Human", coach: "flutethecat", teamValue: 1020, gold: 0, forkLoadable: true, ingestedAt: "2026-01-01T00:00:00Z" });
+    mkdirSync(join(dirs.resultsDir, "ledger"), { recursive: true });
+    writeFileSync(teamFile, before, "utf8");
+    writeFileSync(`${teamFile}.bank-bak`, before, "utf8");
+    writeFileSync(ledger("g-rollback-tv", "900001"), JSON.stringify({
+      gameId: "g-rollback-tv", teamId: "900001", phase: "IN_PROGRESS", teamFile, bakFile: `${teamFile}.bank-bak`,
+      teamSizeAtRead: before.length, teamMtimeAtRead: 0, beforeHash: digest(before), appliedHash: digest(applied), startedAt: 0,
+    }), "utf8");
+
+    expect(recoverInterrupted({ ...dirs, libraryDir }).recovered).toEqual(["g-rollback-tv_900001"]);
+    expect(readLibrary(libraryDir, "flutethecat")[0]?.teamValue).toBe(1000);
+    expect(existsSync(ledger("g-rollback-tv", "900001"))).toBe(false);
+  });
+
   it("AV-2: an unresolvable teamId quarantines rather than writing", () => {
     const r = bankGameResult(dirs, "g1", [task("999999")], "<gameResult/>");
     expect(r.ok).toBe(false);
     expect(readdirSync(join(dirs.resultsDir, "quarantine")).some((f) => f.startsWith("g1_999999"))).toBe(true);
+  });
+
+  it("bounds ledger and quarantine filenames for maximum-length logical ids", () => {
+    const gameId = "g".repeat(128);
+    const teamId = "t".repeat(128);
+    expect(bankGameResult(dirs, gameId, [task(teamId)], "<gameResult/>").ok).toBe(false);
+    const filenames = readdirSync(join(dirs.resultsDir, "quarantine"));
+    expect(filenames.length).toBeGreaterThan(0);
+    expect(filenames.every((filename) => filename.length <= 255)).toBe(true);
+    expect(filenames.some((filename) => filename.startsWith(bankingLedgerStem(gameId, teamId)))).toBe(true);
+  });
+
+  it("synchronizes persistent library TV metadata under the same team transaction", () => {
+    const libraryDir = join(root, "library");
+    const teamFile = join(dirs.teamsDir, "team_flutethecat_900001.xml");
+    writeFileSync(teamFile, '<team id="900001"><coach>flutethecat</coach><spp>0</spp></team>', "utf8");
+    upsertLibraryTeam(libraryDir, "flutethecat", { teamId: "900001", teamName: "T", race: "Human", coach: "flutethecat", teamValue: 1000, gold: 0, forkLoadable: true, ingestedAt: "2026-01-01T00:00:00Z" });
+    const syncedDirs = { ...dirs, libraryDir };
+    const tvTask: TeamBankTask = { teamId: "900001", applyFn: (xml) => xml.replace("<spp>0</spp>", "<spp>6</spp>").replace("</team>", "<currentTeamValue>1020000</currentTeamValue></team>") };
+    expect(bankGameResult(syncedDirs, "g-tv", [tvTask], "<gameResult/>").ok).toBe(true);
+    expect(readLibrary(libraryDir, "flutethecat")[0]?.teamValue).toBe(1020);
+  });
+
+  it("fails closed and restores XML when existing library metadata is malformed", () => {
+    const libraryDir = join(root, "library");
+    const teamFile = join(dirs.teamsDir, "team_flutethecat_900001.xml");
+    mkdirSync(libraryDir, { recursive: true });
+    writeFileSync(teamFile, '<team id="900001"><coach>flutethecat</coach><spp>0</spp></team>', "utf8");
+    writeFileSync(join(libraryDir, "flutethecat.json"), "{broken", "utf8");
+    const result = bankGameResult({ ...dirs, libraryDir }, "g-bad-library", [task("900001")], "<gameResult/>");
+    expect(result.ok).toBe(false);
+    expect(readFileSync(teamFile, "utf8")).toContain("<spp>0</spp>");
+    expect(existsSync(ledger("g-bad-library", "900001"))).toBe(true);
   });
 });

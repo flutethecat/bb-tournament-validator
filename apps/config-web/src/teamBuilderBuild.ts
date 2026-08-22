@@ -1,9 +1,9 @@
-import { readLibrary, upsertLibraryTeam } from "@bb/fork-ops";
+import { readLibrary, upsertLibraryTeam, type LibraryTeam } from "@bb/fork-ops";
 import type { ComposeResult, Roster } from "@bb/validator";
-import { coachNamesEqual, storedTeamCoach, storedTeamHasHistory, storedTeamXml } from "./teamDetail.js";
+import { coachNamesEqual, storedTeamCoach, storedTeamFile, storedTeamHasHistory } from "./teamDetail.js";
 
 export type TeamBuilderBuildTarget =
-  | { ok: true; teamId?: string }
+  | { ok: true; teamId?: string; path?: string }
   | { ok: false; status: 400 | 404 | 409; error: string };
 
 /** Resolve an optional edit target within the authenticated coach's library. */
@@ -21,22 +21,22 @@ export function resolveTeamBuilderBuildTarget(
     return { ok: false, status: 404, error: "Team not found." };
   }
   try {
-    const xml = storedTeamXml(teamsDir, teamId);
-    if (!xml || !coachNamesEqual(storedTeamCoach(xml) ?? "", coach)) {
+    const teamFile = storedTeamFile(teamsDir, teamId);
+    if (!teamFile || !coachNamesEqual(storedTeamCoach(teamFile.xml) ?? "", coach)) {
       return { ok: false, status: 404, error: "Team not found." };
     }
     if (stored.retired) return { ok: false, status: 409, error: "Retired teams can't be edited." };
-    if (storedTeamHasHistory(xml)) {
+    if (storedTeamHasHistory(teamFile.xml)) {
       return {
         ok: false,
         status: 409,
         error: "This team has match history; editing played teams isn't supported yet.",
       };
     }
+    return { ok: true, teamId, path: teamFile.path };
   } catch {
     return { ok: false, status: 404, error: "Team not found." };
   }
-  return { ok: true, teamId };
 }
 
 /** Keep freshly minted player ids, but make the composed XML overwrite the requested team. */
@@ -57,7 +57,20 @@ export function registerBuiltTeam(
   rulesetPackName?: string,
 ): void {
   // Stamp before reload at the call site so forkLoadable reflects this exact write.
-  upsertLibraryTeam(libraryDir, roster.coach, {
+  upsertLibraryTeam(libraryDir, roster.coach, builtLibraryTeam(
+    roster, teamId, totalGold, ingestedAt, forkLoadable, rulesetPackName,
+  ));
+}
+
+export function builtLibraryTeam(
+  roster: Roster,
+  teamId: string,
+  totalGold: number,
+  ingestedAt: string,
+  forkLoadable: boolean,
+  rulesetPackName?: string,
+): LibraryTeam {
+  return {
     teamId,
     teamName: roster.teamName,
     race: roster.rosterName,
@@ -70,5 +83,5 @@ export function registerBuiltTeam(
     rulesetPackName,
     forkLoadable,
     ingestedAt,
-  });
+  };
 }

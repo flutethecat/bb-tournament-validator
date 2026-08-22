@@ -10,7 +10,7 @@ import "dotenv/config";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -38,15 +38,24 @@ import {
   adminList,
   adminListLive,
   adminMessage,
+  acknowledgeForkCacheReload,
+  acknowledgeRecoveredTeamTransactions,
+  acknowledgeRestoredTeamXmlTransaction,
+  acquireTeamNameWriteLock,
+  acquireTeamWriteLock,
+  atomicWriteTextFile,
+  beginTeamXmlTransaction,
   buildForkJnlp,
   coachExists,
   createForkAccount,
   createForkAccountDigest,
   createForkAccountDigestIfAvailable,
   coachSecretDigest,
+  commitTeamXmlTransaction,
   forkAdminConfigFromEnv,
   forkCoachPasswordDigest,
   forkConfigFromEnv,
+  forkCacheReloadRequired,
   forkDbConfigFromEnv,
   HOME_AWAY_MODES,
   type HomeAwayMode,
@@ -57,15 +66,19 @@ import {
   jnlpFilename,
   libraryCoaches,
   listForkCoaches,
+  markForkCacheReloadRequired,
   Matchmaker,
   listCoachGames,
   type CoachGameScope,
   queryCoaches,
   readLibrary,
+  recoverTeamFileTransactions,
+  restoreTeamXmlTransaction,
   reloadFork,
   retireLibraryTeam,
   scheduleForkGame,
   upsertLibraryTeam,
+  updateTeamXmlTransactionLibraryTeam,
   verifyCoachPassword,
   verifyCoachDigest,
 } from "@bb/fork-ops";
@@ -99,13 +112,21 @@ import {
 import { legacyPasswordAuthCounts, noteLegacyPasswordAuth } from "./auth/deprecation.js";
 import { attachSuper } from "./super/index.js";
 import { createSiteBackend } from "./site-backend/index.js";
+import { replayDeferredGameResults } from "./site-backend/banking.js";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
-import { registerBuiltTeam, resolveTeamBuilderBuildTarget, retargetComposedTeam } from "./teamBuilderBuild.js";
+import { builtLibraryTeam, registerBuiltTeam, resolveTeamBuilderBuildTarget, retargetComposedTeam } from "./teamBuilderBuild.js";
 import { corsDecision, parseAllowedOrigins } from "./cors.js";
 import { teamEditingError } from "./customGate.js";
 import { forkGamesEndpoint } from "./forkGames.js";
 import { teamDetailEndpoint, teamDetailIdFromPath } from "./teamDetail.js";
-import { advancementPath, teamAdvancementEndpoint, type AdvancementAction } from "./teamAdvancement.js";
+import { advancementPath, teamAdvancementEndpoint } from "./teamAdvancement.js";
+import { libraryIngestOwnershipError, parseLibraryIngestRequest } from "./teamIngestSecurity.js";
+import {
+  DEFAULT_JSON_BODY_CAP,
+  JsonBodyError,
+  MUTATION_JSON_BODY_CAP,
+  readJsonBody,
+} from "./requestBody.js";
 import {
   BUG_REPORT_BODY_CAP,
   BodyTooLargeError,
@@ -553,12 +574,8 @@ function requireAdminLevel(req: IncomingMessage, res: ServerResponse, auth?: Ses
   return false;
 }
 
-async function readBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
-  const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : {};
-}
+const readBody = (req: IncomingMessage, maxBytes = DEFAULT_JSON_BODY_CAP): Promise<unknown> =>
+  readJsonBody(req, maxBytes);
 
 async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> {
   const rel = urlPath === "/" ? "/index.html" : urlPath;
@@ -601,6 +618,9 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     isOrganizerWrite(method, pathname) ||
     pathname === "/api/auth/login" ||
     pathname === "/api/auth/logout" ||
+    pathname === "/api/fork/library/ingest" ||
+    pathname === "/api/fork/library/retire" ||
+    pathname === "/api/fork/reload" ||
     pathname === "/api/fork/team-builder/build" ||
     pathname === "/api/bug-reports" ||
     pathname === "/api/admin/identities" ||
@@ -635,6 +655,30 @@ async function handleApi(
   auth?: SessionIdentity,
 ): Promise<void> {
   const method = req.method ?? "GET";
+  const cacheGateCfg = forkConfigFromEnv();
+  const gameStartDelivery = [
+    "/api/fork/challenge",
+    "/api/fork/matchstatus",
+    "/api/fork/my-games",
+    "/api/fork/schedule",
+    "/api/fork/jnlp",
+  ].includes(path);
+  const gameStartGenerationLock = gameStartDelivery && cacheGateCfg
+    ? acquireTeamNameWriteLock(cacheGateCfg.teamsDir)
+    : undefined;
+  if (gameStartDelivery && cacheGateCfg && !gameStartGenerationLock) {
+    return sendJson(res, 409, { error: "A team/cache generation update is in progress; game start delivery is temporarily paused." });
+  }
+  try {
+  const requiresCoherentTeamCache = /^\/api\/teams\/[^/]+\/advancement$/.test(path) || [
+    "/api/fork/library/ingest",
+    "/api/fork/library/retire",
+    "/api/fork/team-builder/build",
+    ...(gameStartDelivery ? [path] : []),
+  ].includes(path);
+  if (requiresCoherentTeamCache && cacheGateCfg && forkCacheReloadRequired(cacheGateCfg.teamsDir)) {
+    return sendJson(res, 503, { error: "The fork team cache requires recovery reload; team mutations and game starts are temporarily disabled." });
+  }
 
   if (path === "/api/auth/session" && (method === "GET" || method === "HEAD")) {
     if (!auth) return sendJson(res, 200, { authenticated: false });
@@ -874,6 +918,7 @@ async function handleApi(
     const result = teamDetailEndpoint(auth, detailTeamId, {
       libraryDir: LIBRARY_DIR,
       teamsDir: forkConfigFromEnv()?.teamsDir,
+      tokenSecret: TEAM_ADVANCEMENT_TOKEN_SECRET,
     });
     return sendJson(res, result.status, result.body);
   }
@@ -881,19 +926,18 @@ async function handleApi(
   const advancementTeamId = advancementPath(path);
   if (advancementTeamId && method === "POST") {
     const cfg = forkConfigFromEnv();
-    const body = (await readBody(req)) as AdvancementAction | undefined;
-    const result = teamAdvancementEndpoint(auth, advancementTeamId, body, {
+    const body = await readBody(req, MUTATION_JSON_BODY_CAP);
+    const result = await teamAdvancementEndpoint(auth, advancementTeamId, body, {
       libraryDir: LIBRARY_DIR,
       teamsDir: cfg?.teamsDir,
       tokenSecret: TEAM_ADVANCEMENT_TOKEN_SECRET,
+      reload: cfg ? () => reloadFork(cfg, FORK_STATE_DIR) : undefined,
+      isTeamActive: forkAdminCfg ? async (teamId) => {
+        const live = await adminListLive(forkAdminCfg);
+        return live.some((game) => game.homeTeamId === teamId || game.awayTeamId === teamId);
+      } : undefined,
     });
-    if (result.status !== 200 || !("ok" in result.body) || !cfg) return sendJson(res, result.status, result.body);
-    try {
-      const reload = await reloadFork(cfg, FORK_STATE_DIR);
-      return sendJson(res, 200, { ...result.body, reload });
-    } catch {
-      return sendJson(res, 500, { error: "The advancement was saved, but the fork could not reload it. Refresh before retrying." });
-    }
+    return sendJson(res, result.status, result.body);
   }
 
   if (path === "/api/stars" && method === "GET") return sendJson(res, 200, starList());
@@ -1108,58 +1152,70 @@ async function handleApi(
   // their own team (auth.coach / the verified coach name IS the library key we look the team up
   // under, so there is no path to retiring someone else's team).
   if (path === "/api/fork/library/retire" && method === "GET") {
-    const bodyCoach = query.get("coach")?.trim();
-    const teamId = query.get("team")?.trim();
-    const password = query.get("password")?.trim() || undefined;
-    if (!teamId) return sendJson(res, 400, { error: "team is required." });
+    return sendJson(res, 405, { error: "Retirement is a state-changing POST operation." });
+  }
+  if (path === "/api/fork/library/retire" && method === "POST") {
+    const adminAuthed = isAdminAuthed(req) || isTokenAuthed(req);
+    if (!auth && !adminAuthed) return sendJson(res, 401, { error: "Authentication required." });
+    const body = await readBody(req, MUTATION_JSON_BODY_CAP);
+    if (!body || typeof body !== "object" || Array.isArray(body)) return sendJson(res, 400, { error: "A JSON object is required." });
+    const fields = Object.keys(body as Record<string, unknown>);
+    if (fields.some((field) => field !== "teamId" && field !== "coach")) return sendJson(res, 400, { error: "Retire has unexpected fields." });
+    const bodyCoach = typeof (body as Record<string, unknown>).coach === "string" ? (body as { coach: string }).coach.trim() : undefined;
+    const teamId = typeof (body as Record<string, unknown>).teamId === "string" ? (body as { teamId: string }).teamId.trim() : undefined;
+    if (!teamId) return sendJson(res, 400, { error: "teamId is required." });
     let coach: string;
     if (auth) {
       coach = auth.coach;
-    } else if (isAdminAuthed(req)) {
+    } else if (adminAuthed) {
       if (!bodyCoach) return sendJson(res, 400, { error: "coach is required." });
       coach = bodyCoach;
     } else {
-      if (!bodyCoach || !password) {
-        return sendJson(res, 401, {
-          error: "Retire requires a session token (POST /api/fork/login), or admin auth, or your coach name + fork password.",
-        });
-      }
-      if (!challengeDbCfg) return sendJson(res, 503, { error: "Coach auth unavailable (fork DB not configured); admin auth required." });
-      // DEPRECATED back-compat (owner ruling 08-17) — the token path above is the supported one.
-      noteLegacyPasswordAuth("/api/fork/library/retire");
-      if (!(await verifyCoachPassword(challengeDbCfg, bodyCoach, password)))
-        return sendJson(res, 401, { error: "Coach authentication failed (wrong coach or password)." });
-      coach = bodyCoach;
+      return sendJson(res, 401, { error: "Authentication required." });
     }
-    const team = readLibrary(LIBRARY_DIR, coach).find((t) => t.teamId === teamId);
-    if (!team) return sendJson(res, 404, { error: `Team ${teamId} isn't in ${coach}'s library.` });
-    if (team.retired) return sendJson(res, 200, { ok: true, team }); // idempotent
-    // Best-effort in-progress-game guard: only checkable when the fork admin API is configured
-    // (FORK_ADMIN_PASSWORD). Unreachable/unconfigured admin API doesn't block retirement — it's
-    // a diagnostic-only check layered on top of the library-only source of truth.
-    if (forkAdminCfg) {
+    const retireCfg = forkConfigFromEnv();
+    if (!retireCfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
+    const retirementGenerationLock = acquireTeamNameWriteLock(retireCfg.teamsDir);
+    if (!retirementGenerationLock) return sendJson(res, 409, { error: "Another team/cache generation update is in progress." });
+    const retirementLock = acquireTeamWriteLock(retireCfg.teamsDir, teamId);
+    if (!retirementLock) {
+      retirementGenerationLock.release();
+      return sendJson(res, 409, { error: "Another update is already in progress for this team." });
+    }
+    try {
+      const team = readLibrary(LIBRARY_DIR, coach).find((t) => t.teamId === teamId);
+      if (!team) return sendJson(res, 404, { error: `Team ${teamId} isn't in ${coach}'s library.` });
+      if (team.retired) return sendJson(res, 200, { ok: true, team }); // idempotent
+      if (!forkAdminCfg) return sendJson(res, 503, { error: "Team activity cannot be verified on this host; retirement is unavailable." });
       try {
         const live = await adminListLive(forkAdminCfg);
         if (live.some((g) => g.homeTeamId === teamId || g.awayTeamId === teamId)) {
           return sendJson(res, 409, { error: `"${team.teamName}" has a game in progress and can't be retired yet.` });
         }
       } catch {
-        // fork admin unreachable — proceed; this check is advisory, not authoritative.
+        return sendJson(res, 503, { error: "Team activity cannot be verified right now; retirement is unavailable." });
       }
+      const retired = retireLibraryTeam(LIBRARY_DIR, coach, teamId);
+      if (!retired) return sendJson(res, 404, { error: `Team ${teamId} isn't in ${coach}'s library.` });
+      return sendJson(res, 200, { ok: true, team: retired });
+    } finally {
+      retirementLock.release();
+      retirementGenerationLock.release();
     }
-    const retired = retireLibraryTeam(LIBRARY_DIR, coach, teamId);
-    if (!retired) return sendJson(res, 404, { error: `Team ${teamId} isn't in ${coach}'s library.` });
-    return sendJson(res, 200, { ok: true, team: retired });
   }
 
   // Ingest a FUMBBL team (id or /t/<id> URL) into a coach's library: fetch → re-coach →
   // save team + roster XML into the fork's dirs → upsert the LibraryTeam row → attempt an
   // automatic fork reload so the ingest is actually joinable without a manual restart
   // (closes the ingest→challenge race — see @bb/fork-ops's forkReload / R3). Needs FORK_TEAMS_DIR.
-  if (path === "/api/fork/library/ingest" && method === "GET") {
-    const coach = query.get("coach")?.trim();
-    const team = query.get("team")?.trim();
-    if (!coach || !team) return sendJson(res, 400, { error: "coach and team are required." });
+  if (path === "/api/fork/library/ingest" && method === "POST") {
+    const adminAuthed = isAdminAuthed(req) || isTokenAuthed(req);
+    // Do not buffer an unauthenticated public request before rejecting it.
+    if (!auth && !adminAuthed) return sendJson(res, 401, { error: "Authentication required." });
+    const body = await readBody(req, MUTATION_JSON_BODY_CAP);
+    const ingest = parseLibraryIngestRequest(body, auth, adminAuthed);
+    if (!ingest.ok) return sendJson(res, ingest.status, { error: ingest.error });
+    const { coach, team, allowRecovery } = ingest;
     const cfg = forkConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
     try {
@@ -1168,18 +1224,35 @@ async function handleApi(
       // library (FUMBBL names are globally unique; excludeTeamId lets a re-ingest of the SAME
       // team — ownership move / refresh — pass through without tripping on its own row).
       const peek = await fetchForkTeam(team);
-      const dupError = duplicateTeamNameError(peek.teamName, peek.teamId);
-      if (dupError) return sendJson(res, 409, { error: dupError });
-      const result = await ingestForkTeam(cfg, LIBRARY_DIR, coach, team, FORK_STATE_DIR);
-      const reload = await reloadFork(cfg, FORK_STATE_DIR);
-      if (reload.reloaded) {
-        result.team.forkLoadable = true;
-        upsertLibraryTeam(LIBRARY_DIR, coach, result.team);
-        result.needsRestart = false;
+      const ownershipError = libraryIngestOwnershipError(ingest, peek.coach);
+      if (ownershipError) return sendJson(res, 403, { error: ownershipError });
+      const nameLock = acquireTeamNameWriteLock(cfg.teamsDir);
+      if (!nameLock) return sendJson(res, 409, { error: "Another team name update is already in progress." });
+      try {
+        const dupError = duplicateTeamNameError(peek.teamName, peek.teamId);
+        if (dupError) return sendJson(res, 409, { error: dupError });
+        const result = await ingestForkTeam(cfg, LIBRARY_DIR, coach, team, FORK_STATE_DIR, {
+          allowReplaceProgressed: allowRecovery,
+          fetchedTeam: peek,
+          teamNameLockHeld: true,
+          isTeamActive: forkAdminCfg ? async (teamId) => {
+            const live = await adminListLive(forkAdminCfg);
+            return live.some((game) => game.homeTeamId === teamId || game.awayTeamId === teamId);
+          } : undefined,
+          reload: () => reloadFork(cfg, FORK_STATE_DIR),
+        });
+        return sendJson(res, 200, { ok: true, ...result });
+      } finally {
+        nameLock.release();
       }
-      return sendJson(res, 200, { ok: true, ...result, reload });
     } catch (e) {
-      return sendJson(res, 400, { error: (e as Error).message });
+      const error = (e as Error).message;
+      const status = /activity cannot be verified/i.test(error)
+        ? 503
+        : /another update|progression or match history|game in progress|game started during/i.test(error)
+          ? 409
+          : 400;
+      return sendJson(res, status, { error });
     }
   }
 
@@ -1187,12 +1260,42 @@ async function handleApi(
   // retry a reload that was skipped because the fork looked busy. No-ops safely (returns
   // {reloaded:false,reason}) rather than force-killing a live game.
   if (path === "/api/fork/reload" && method === "GET") {
+    return sendJson(res, 405, { error: "Fork reload requires authenticated POST." });
+  }
+  if (path === "/api/fork/reload" && method === "POST") {
+    if (auth?.organizer !== true && !isAdminAuthed(req) && !isTokenAuthed(req)) {
+      return sendJson(res, auth ? 403 : 401, { error: auth ? "Organizer access required." : "Authentication required." });
+    }
     const cfg = forkConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
+    const generationLock = acquireTeamNameWriteLock(cfg.teamsDir);
+    if (!generationLock) return sendJson(res, 409, { error: "Another team/cache generation update is in progress." });
     try {
-      return sendJson(res, 200, await reloadFork(cfg, FORK_STATE_DIR));
+      const recovery = recoverTeamFileTransactions(cfg.teamsDir);
+      if (recovery.errors.length) return sendJson(res, 503, { error: `Team transaction recovery failed closed: ${recovery.errors.join("; ")}` });
+      const reload = await reloadFork(cfg, FORK_STATE_DIR);
+      if (reload.reloaded) {
+        acknowledgeRecoveredTeamTransactions(recovery.receipts);
+        acknowledgeForkCacheReload(cfg.teamsDir);
+        const deferred = await replayDeferredGameResults(
+          { teamsDir: cfg.teamsDir, resultsDir: join(dirname(cfg.teamsDir), "results"), libraryDir: LIBRARY_DIR },
+          async () => {
+            const replayReload = await reloadFork(cfg, FORK_STATE_DIR);
+            if (replayReload.reloaded) acknowledgeForkCacheReload(cfg.teamsDir);
+            return replayReload.reloaded;
+          },
+          true,
+        );
+        if (deferred.errors.length) {
+          return sendJson(res, 503, { error: `Fork reloaded, but deferred result recovery failed closed: ${deferred.errors.join("; ")}` });
+        }
+        return sendJson(res, 200, { ...reload, replayedResults: deferred.replayed });
+      }
+      return sendJson(res, 200, reload);
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });
+    } finally {
+      generationLock.release();
     }
   }
 
@@ -1596,7 +1699,37 @@ async function handleApi(
     }
     const target = resolveTeamBuilderBuildTarget(LIBRARY_DIR, cfg.teamsDir, body.coach?.trim() ?? "", body.teamId);
     if (!target.ok) return sendJson(res, target.status, { error: target.error });
+    mkdirSync(cfg.teamsDir, { recursive: true });
+    const nameLock = acquireTeamNameWriteLock(cfg.teamsDir);
+    if (!nameLock) return sendJson(res, 409, { error: "Another team name update is already in progress." });
+    let teamLock = target.teamId ? acquireTeamWriteLock(cfg.teamsDir, target.teamId) : undefined;
+    if (target.teamId && !teamLock) {
+      nameLock.release();
+      return sendJson(res, 409, { error: "Another update is already in progress for this team." });
+    }
+    const targetIsActive = async (): Promise<boolean> => {
+      if (!target.teamId) return false;
+      if (!forkAdminCfg) throw new Error("Team activity cannot be verified on this host; editing is unavailable.");
+      try {
+        const live = await adminListLive(forkAdminCfg);
+        return live.some((game) => game.homeTeamId === target.teamId || game.awayTeamId === target.teamId);
+      } catch (error) {
+        if (/activity cannot be verified/i.test((error as Error).message)) throw error;
+        throw new Error("Team activity cannot be verified right now; editing is unavailable.");
+      }
+    };
     try {
+      // Replacement writers share the team lock and fail closed unless the authoritative live-game
+      // source confirms the team is inactive. New teams have no possible active-game identity yet.
+      if (target.teamId) {
+        try {
+          if (await targetIsActive()) {
+            return sendJson(res, 409, { error: "This team has a game in progress and cannot be edited." });
+          }
+        } catch {
+          return sendJson(res, 503, { error: "Team activity cannot be verified right now; editing is unavailable." });
+        }
+      }
       // Secret League path (#52 A): off-dataset → compose + enforce roster-intrinsic legality here
       // (the dataset `validate()` can't run for a race the dataset doesn't carry). Same write+reload.
       if (body.rosterId && isSlRosterId(body.rosterId)) {
@@ -1610,14 +1743,48 @@ async function handleApi(
         }
         const dupError = duplicateTeamNameError(composed.roster.teamName, composed.teamId);
         if (dupError) return sendJson(res, 409, { error: dupError });
-        mkdirSync(cfg.teamsDir, { recursive: true });
         const coachTag = composed.roster.coach.replace(/[^\w.-]+/g, "_") || "coach";
-        const file = join(cfg.teamsDir, `team_${coachTag}_${composed.teamId}.xml`);
-        writeFileSync(file, composed.xml, "utf8");
-        const ingestedAt = new Date().toISOString(); // before the reload — see registerBuiltTeam
-        const reload = await reloadFork(cfg, FORK_STATE_DIR);
-        registerBuiltTeam(LIBRARY_DIR, composed.roster, composed.teamId, composed.roster.summary!.total, ingestedAt, reload.reloaded);
-        return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: composed.roster.summary, intrinsic: true });
+        const newFile = join(cfg.teamsDir, `team_${coachTag}_${composed.teamId}.xml`);
+        teamLock ??= acquireTeamWriteLock(cfg.teamsDir, composed.teamId);
+        if (!teamLock) return sendJson(res, 409, { error: "Another update is already in progress for this team." });
+        const commitTarget = resolveTeamBuilderBuildTarget(LIBRARY_DIR, cfg.teamsDir, composed.roster.coach, target.teamId);
+        if (!commitTarget.ok) return sendJson(res, commitTarget.status, { error: commitTarget.error });
+        const file = commitTarget.path ?? newFile;
+        const ingestedAt = new Date().toISOString();
+        const transaction = beginTeamXmlTransaction({
+          teamsDir: cfg.teamsDir,
+          teamId: composed.teamId,
+          targetPath: file,
+          teamXml: composed.xml,
+          library: {
+            baseDir: LIBRARY_DIR,
+            coach: composed.roster.coach,
+            team: builtLibraryTeam(composed.roster, composed.teamId, composed.roster.summary!.total, ingestedAt, false),
+          },
+        });
+        try {
+          atomicWriteTextFile(file, composed.xml);
+          if (await targetIsActive()) throw new Error("A game started during the team edit; the replacement was rolled back.");
+          const reload = await reloadFork(cfg, FORK_STATE_DIR);
+          registerBuiltTeam(LIBRARY_DIR, composed.roster, composed.teamId, composed.roster.summary!.total, ingestedAt, reload.reloaded);
+          updateTeamXmlTransactionLibraryTeam(
+            transaction,
+            builtLibraryTeam(composed.roster, composed.teamId, composed.roster.summary!.total, ingestedAt, reload.reloaded),
+          );
+          commitTeamXmlTransaction(transaction, reload.reloaded);
+          return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: composed.roster.summary, intrinsic: true });
+        } catch (error) {
+          restoreTeamXmlTransaction(transaction);
+          try {
+            const restored = await reloadFork(cfg, FORK_STATE_DIR);
+            if (!restored.reloaded) throw new Error(restored.reason ?? "restored generation reload refused");
+            acknowledgeRestoredTeamXmlTransaction(transaction);
+          } catch (reloadError) {
+            markForkCacheReloadRequired(cfg.teamsDir, `Team Builder rollback could not be loaded: ${(reloadError as Error).message}`);
+            throw new Error(`${(error as Error).message}; restored generation awaits recovery reload: ${(reloadError as Error).message}`);
+          }
+          throw error;
+        }
       }
       const composed = retargetComposedTeam(composeFromBody(cfg.teamsDir, body), target.teamId);
       const result = validate(composed.roster, resolvedPkg.pkg, bb2025);
@@ -1628,26 +1795,69 @@ async function handleApi(
       }
       const dupError = duplicateTeamNameError(composed.roster.teamName, composed.teamId);
       if (dupError) return sendJson(res, 409, { error: dupError });
-      mkdirSync(cfg.teamsDir, { recursive: true });
       const coachTag = composed.roster.coach.replace(/[^\w.-]+/g, "_") || "coach";
-      const file = join(cfg.teamsDir, `team_${coachTag}_${composed.teamId}.xml`);
-      writeFileSync(file, composed.xml, "utf8");
-      const ingestedAt = new Date().toISOString(); // before the reload — see registerBuiltTeam
-      const reload = await reloadFork(cfg, FORK_STATE_DIR);
-      // goldUsed = the validator's RECOMPUTED total (validate() ran on this path — prefer it over the
-      // composer's own figure). The SL branch uses the composed summary, its strongest available number.
-      registerBuiltTeam(
-        LIBRARY_DIR,
-        composed.roster,
-        composed.teamId,
-        result.recomputedSummary.goldUsed,
-        ingestedAt,
-        reload.reloaded,
-        resolvedPkg.selected?.name,
-      );
-      return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: result.recomputedSummary, ...(packageInfo ? { package: packageInfo } : {}) });
+      const newFile = join(cfg.teamsDir, `team_${coachTag}_${composed.teamId}.xml`);
+      teamLock ??= acquireTeamWriteLock(cfg.teamsDir, composed.teamId);
+      if (!teamLock) return sendJson(res, 409, { error: "Another update is already in progress for this team." });
+      const commitTarget = resolveTeamBuilderBuildTarget(LIBRARY_DIR, cfg.teamsDir, composed.roster.coach, target.teamId);
+      if (!commitTarget.ok) return sendJson(res, commitTarget.status, { error: commitTarget.error });
+      const file = commitTarget.path ?? newFile;
+      const ingestedAt = new Date().toISOString();
+      const transaction = beginTeamXmlTransaction({
+        teamsDir: cfg.teamsDir,
+        teamId: composed.teamId,
+        targetPath: file,
+        teamXml: composed.xml,
+        library: {
+          baseDir: LIBRARY_DIR,
+          coach: composed.roster.coach,
+          team: builtLibraryTeam(
+            composed.roster, composed.teamId, result.recomputedSummary.goldUsed, ingestedAt, false, resolvedPkg.selected?.name,
+          ),
+        },
+      });
+      try {
+        atomicWriteTextFile(file, composed.xml);
+        if (await targetIsActive()) throw new Error("A game started during the team edit; the replacement was rolled back.");
+        const reload = await reloadFork(cfg, FORK_STATE_DIR);
+        // goldUsed = the validator's RECOMPUTED total (validate() ran on this path — prefer it over the
+        // composer's own figure). The SL branch uses the composed summary, its strongest available number.
+        registerBuiltTeam(
+          LIBRARY_DIR,
+          composed.roster,
+          composed.teamId,
+          result.recomputedSummary.goldUsed,
+          ingestedAt,
+          reload.reloaded,
+          resolvedPkg.selected?.name,
+        );
+        updateTeamXmlTransactionLibraryTeam(
+          transaction,
+          builtLibraryTeam(
+            composed.roster, composed.teamId, result.recomputedSummary.goldUsed, ingestedAt, reload.reloaded, resolvedPkg.selected?.name,
+          ),
+        );
+        commitTeamXmlTransaction(transaction, reload.reloaded);
+        return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: result.recomputedSummary, ...(packageInfo ? { package: packageInfo } : {}) });
+      } catch (error) {
+        restoreTeamXmlTransaction(transaction);
+        try {
+          const restored = await reloadFork(cfg, FORK_STATE_DIR);
+          if (!restored.reloaded) throw new Error(restored.reason ?? "restored generation reload refused");
+          acknowledgeRestoredTeamXmlTransaction(transaction);
+        } catch (reloadError) {
+          markForkCacheReloadRequired(cfg.teamsDir, `Team Builder rollback could not be loaded: ${(reloadError as Error).message}`);
+          throw new Error(`${(error as Error).message}; restored generation awaits recovery reload: ${(reloadError as Error).message}`);
+        }
+        throw error;
+      }
     } catch (e) {
-      return sendJson(res, 400, { error: (e as Error).message });
+      const error = (e as Error).message;
+      const status = /activity cannot be verified/i.test(error) ? 503 : /game started during/i.test(error) ? 409 : 400;
+      return sendJson(res, status, { error });
+    } finally {
+      teamLock?.release();
+      nameLock.release();
     }
   }
 
@@ -1790,13 +2000,53 @@ async function handleApi(
   }
 
   sendJson(res, 404, { error: "Unknown endpoint." });
+  } finally {
+    gameStartGenerationLock?.release();
+  }
 }
 
 // Dialect-1 `xml:` site-backend (spec-team-portal §3). Flag-gated (SITE_BACKEND_ENABLED) + additive:
 // undefined unless the flag is set AND fork teams-dir + DB are configured, in which case it claims only
 // the NEW `/xml:*` + fumbbl-client `/api/{clientoptions,name}` paths. Nothing config-web serves today
 // hits those, so an un-flagged deploy is byte-behaviour-identical (strand-proof).
-const siteBackend = createSiteBackend();
+// Reconcile team/roster/library generations before banking recovery inspects any team file.
+// Journals are acknowledged only after the fork confirms the reconciled generation is loaded.
+const startupForkCfg = forkConfigFromEnv();
+if (startupForkCfg) {
+  const generationLock = acquireTeamNameWriteLock(startupForkCfg.teamsDir);
+  if (!generationLock) throw new Error("Team transaction recovery could not acquire the global cache-generation lock.");
+  try {
+    const recovery = recoverTeamFileTransactions(startupForkCfg.teamsDir);
+    if (recovery.errors.length) {
+      throw new Error(`Team transaction recovery failed closed: ${recovery.errors.join("; ")}`);
+    }
+    if (recovery.recovered.length || forkCacheReloadRequired(startupForkCfg.teamsDir)) {
+      const reload = await reloadFork(startupForkCfg, FORK_STATE_DIR);
+      if (!reload.reloaded) {
+        throw new Error(`Recovered team transactions could not be loaded by the fork: ${reload.reason ?? "reload refused"}`);
+      }
+      acknowledgeRecoveredTeamTransactions(recovery.receipts);
+      acknowledgeForkCacheReload(startupForkCfg.teamsDir);
+      console.log(`[team-recovery] reconciled ${recovery.recovered.join(", ")} and reloaded the fork.`);
+    }
+  } finally {
+    generationLock.release();
+  }
+}
+
+const siteBackend = await createSiteBackend(LIBRARY_DIR, async () => {
+  const cfg = forkConfigFromEnv();
+  if (!cfg) return false;
+  const generationLock = acquireTeamNameWriteLock(cfg.teamsDir);
+  if (!generationLock) return false;
+  try {
+    const reload = await reloadFork(cfg, FORK_STATE_DIR);
+    if (reload.reloaded) acknowledgeForkCacheReload(cfg.teamsDir);
+    return reload.reloaded;
+  } finally {
+    generationLock.release();
+  }
+});
 
 const server = createServer((req, res) => {
   void (async () => {
@@ -1893,6 +2143,7 @@ const server = createServer((req, res) => {
       // requireAdminGate ignores `auth` entirely unless AUTH_SIDECAR is on, so no admin surface widens.
       await serveStatic(res, url.pathname);
     } catch (e) {
+      if (e instanceof JsonBodyError) return sendJson(res, e.status, { error: e.message });
       sendJson(res, 500, { error: (e as Error).message });
     }
   })();

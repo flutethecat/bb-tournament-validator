@@ -1,8 +1,14 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseTeamXmlMeta, readLibrary, type LibraryTeam } from "@bb/fork-ops";
+import { bb2025 } from "@bb/validator/dataset";
 import type { SessionIdentity } from "./auth/requireSession.js";
-import { playerProgression, teamRevision, type AdvancementCosts } from "./teamAdvancement.js";
+import { pendingAdvancementForPlayer, playerProgression, runtimeSafeCharacteristicAvailable, teamRevision, type AdvancementCosts, type PendingAdvancementResponse } from "./teamAdvancement.js";
+
+export interface Capability {
+  available: boolean;
+  reason?: string;
+}
 
 export interface TeamDetailPlayer {
   id: string;
@@ -13,10 +19,12 @@ export interface TeamDetailPlayer {
   skills: string[];
   injuries: string[];
   spp: number;
-  earnedSpp: number;
+  earnedSpp: number | null;
   advancements: number;
   rank: string;
   advancementCosts: AdvancementCosts | null;
+  advancementMethods: Record<"randomPrimary" | "chosenPrimary" | "chosenSecondary" | "characteristic", Capability>;
+  pendingAdvancement: PendingAdvancementResponse | null;
   primaryCategories: string[];
   secondaryCategories: string[];
   primarySkills: string[];
@@ -43,6 +51,9 @@ export interface TeamDetail {
   treasury: number;
   teamValue: number;
   rulesetPackName: string | null;
+  leagues: string[];
+  specialRules: string[];
+  canEditRoster: Capability;
   revision: string;
   players: TeamDetailPlayer[];
 }
@@ -54,6 +65,8 @@ export type TeamDetailEndpointResult =
 export interface TeamDetailDeps {
   libraryDir: string;
   teamsDir?: string;
+  tokenSecret?: string;
+  now?: () => number;
 }
 
 const attr = (scope: string, name: string): string | undefined =>
@@ -83,15 +96,21 @@ const numberElement = (scope: string, tag: string): number | undefined => {
 
 const safePart = (value: string): string => value.replace(/[^\w.-]+/g, "_") || "unknown";
 
-export function storedTeamXml(teamsDir: string, teamId: string): string | undefined {
+export function storedTeamFile(teamsDir: string, teamId: string): { path: string; xml: string } | undefined {
   if (!existsSync(teamsDir)) return undefined;
   const suffix = `_${safePart(teamId)}.xml`;
+  const matches: Array<{ path: string; xml: string }> = [];
   for (const file of readdirSync(teamsDir)) {
     if (!file.startsWith("team_") || !file.endsWith(suffix)) continue;
-    const xml = readFileSync(join(teamsDir, file), "utf8");
-    if (decodeXml(attr(xml.match(/<team\b[^>]*>/i)?.[0] ?? "", "id") ?? "") === teamId) return xml;
+    const path = join(teamsDir, file);
+    const xml = readFileSync(path, "utf8");
+    if (decodeXml(attr(xml.match(/<team\b[^>]*>/i)?.[0] ?? "", "id") ?? "") === teamId) matches.push({ path, xml });
   }
-  return undefined;
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+export function storedTeamXml(teamsDir: string, teamId: string): string | undefined {
+  return storedTeamFile(teamsDir, teamId)?.xml;
 }
 
 export const coachNamesEqual = (left: string, right: string): boolean =>
@@ -100,11 +119,16 @@ export const coachNamesEqual = (left: string, right: string): boolean =>
 export const storedTeamCoach = (xml: string): string | undefined => element(xml, "coach");
 
 export function storedTeamHasHistory(xml: string): boolean {
-  if (/<(?:playerStatistics|starPlayerPoints|statistics)\b/i.test(xml)) return true;
+  if (/<(?:pendingAdvancement|advancement)\b/i.test(xml)) return true;
   for (const found of xml.matchAll(/<player\b[^>]*>[\s\S]*?<\/player>/gi)) {
     const player = found[0]!;
+    // Intrinsic skills live in roster XML. A player-level skill is an acquired/customized player
+    // state that whole-roster recomposition cannot preserve safely, even when old XML has no audit.
+    if (/<skill\b/i.test(player)) return true;
     const status = decodeXml(attr(player.match(/<player\b[^>]*>/i)?.[0] ?? "", "status") ?? "") || null;
     if (currentSpp(player) > 0 || /<injury\b/i.test(player) || playerMng(player, status)) return true;
+    if (/<(?:playerStatistics|starPlayerPoints)\b[^>]*(?:earnedSpps|earned)="[1-9]\d*"/i.test(player)) return true;
+    if (/<(?:completions|touchdowns|interceptions|casualties|mvps|passing|rushing|blocks|fouls)>\s*[1-9]\d*\s*<\//i.test(player)) return true;
     if ((numberElement(player, "playedGames") ?? numberElement(player, "games") ?? 0) > 0) return true;
   }
   return /<(?:playedGames|games)>\s*[1-9]\d*\s*<\//i.test(xml);
@@ -142,6 +166,7 @@ function currentSpp(playerXml: string): number {
 }
 
 function playerMng(playerXml: string, status: string | null): boolean {
+  if (/<injury\b[^>]*\brecovering="true"/i.test(playerXml)) return true;
   const raw = attr(playerXml.match(/<player\b[^>]*>/i)?.[0] ?? "", "mng") ??
     element(playerXml, "mng") ?? element(playerXml, "missNextGame");
   if (raw !== undefined) return raw === "1" || raw.toLowerCase() === "true";
@@ -152,10 +177,13 @@ export function parseStoredTeamDetail(
   xml: string,
   stored: LibraryTeam,
   rosterXml?: string,
+  context?: { auth: SessionIdentity; tokenSecret: string; now?: number },
 ): TeamDetail {
   const meta = parseTeamXmlMeta(xml);
   const names = positionNames(rosterXml);
   const players: TeamDetailPlayer[] = [];
+  const revision = teamRevision(xml);
+  const hasAnyPending = /<pendingAdvancement\b/i.test(xml);
 
   for (const found of xml.matchAll(/<player\b([^>]*)>([\s\S]*?)<\/player>/gi)) {
     const block = found[0]!;
@@ -171,6 +199,37 @@ export function parseStoredTeamDetail(
     const rawNumber = Number(attr(opening, "nr") ?? attr(opening, "number"));
 
     const progression = playerProgression(block, rosterXml);
+    const pendingAdvancement = context
+      ? pendingAdvancementForPlayer(context.auth, stored.teamId, decodeXml(attr(opening, "id") ?? ""), revision, block, context.tokenSecret, context.now)
+      : null;
+    const unavailable = (reason: string): Capability => ({ available: false, reason });
+    const spp = currentSpp(block);
+    const commonReason = stored.retired
+      ? "Retired teams cannot gain advancements."
+      : !progression.costs
+        ? (progression.rank === "Ineligible" ? "This player type cannot gain advancements." : "This player already has six advancements.")
+        : hasAnyPending ? "Finish the team's pending advancement before starting another." : undefined;
+    const methodReason = (method: keyof AdvancementCosts): string | undefined => {
+      if (commonReason) return commonReason;
+      const cost = progression.costs?.[method];
+      return cost !== undefined && spp < cost ? `Needs ${cost} SPP; ${spp} available.` : undefined;
+    };
+    const primaryAvailable = progression.primarySkills.some((skill) => bb2025.skills[skill]?.elite !== true);
+    const primaryScopeReason = "Elite Skills are unavailable until the fork runtime can represent their surcharge exactly.";
+    const characteristicScopeReason = "MA, Secondary fallback, and Elite fallback results are unavailable until the fork runtime can represent them exactly.";
+    const randomReason = methodReason("randomPrimary");
+    const chosenReason = methodReason("chosenPrimary");
+    const characteristicReason = methodReason("characteristic");
+    const advancementMethods: TeamDetailPlayer["advancementMethods"] = {
+      randomPrimary: randomReason ? unavailable(randomReason) : primaryAvailable ? { available: true, reason: primaryScopeReason } : unavailable("No runtime-safe non-Elite Primary Skills remain."),
+      chosenPrimary: chosenReason ? unavailable(chosenReason) : primaryAvailable ? { available: true, reason: primaryScopeReason } : unavailable("No runtime-safe non-Elite Primary Skills remain."),
+      chosenSecondary: commonReason ? unavailable(commonReason) : unavailable("Secondary advancements are unavailable until the fork runtime can represent their pricing exactly."),
+      characteristic: characteristicReason
+        ? unavailable(characteristicReason)
+        : runtimeSafeCharacteristicAvailable(block, rosterXml)
+          ? { available: true, reason: characteristicScopeReason }
+          : unavailable("No runtime-safe Characteristic or Primary fallback remains for this player."),
+    };
     players.push({
       id: decodeXml(attr(opening, "id") ?? ""),
       number: Number.isFinite(rawNumber) ? rawNumber : 0,
@@ -179,11 +238,13 @@ export function parseStoredTeamDetail(
       positionId,
       skills,
       injuries,
-      spp: currentSpp(block),
+      spp,
       earnedSpp: progression.earnedSpp,
       advancements: progression.advancements,
       rank: progression.rank,
       advancementCosts: progression.costs,
+      advancementMethods,
+      pendingAdvancement,
       primaryCategories: progression.primaryCategories,
       secondaryCategories: progression.secondaryCategories,
       primarySkills: progression.primarySkills,
@@ -199,7 +260,25 @@ export function parseStoredTeamDetail(
     });
   }
 
-  const hasTeamValue = /<(?:currentTeamValue|teamValue)>/i.test(xml);
+  const hasTeamValue = /<(?:currentTeamValue|teamValue|teamRating)>/i.test(xml);
+  const listValues = (scope: string, tag: string): string[] => [...scope.matchAll(new RegExp(`<${tag}\\b[^>]*>([^<]*)</${tag}>`, "gi"))]
+    .map((match) => decodeXml(match[1]!).trim()).filter(Boolean);
+  const leagues = [...new Set([...listValues(xml, "league"), ...listValues(rosterXml ?? "", "league")])];
+  const nestedRules = (scope: string): string[] => [...scope.matchAll(/<specialRules\b[^>]*>([\s\S]*?)<\/specialRules>/gi)]
+    .flatMap((match) => listValues(match[1]!, "rule"));
+  const specialRules = [...new Set([
+    ...listValues(xml, "specialRule"),
+    ...listValues(rosterXml ?? "", "specialRule"),
+    ...nestedRules(xml),
+    ...nestedRules(rosterXml ?? ""),
+  ])];
+  const canEditRoster: Capability = stored.retired
+    ? { available: false, reason: "Retired teams cannot be edited." }
+    : storedTeamHasHistory(xml)
+      ? { available: false, reason: "Whole-roster editing is unavailable after a team has match history; use player progression instead." }
+      : context?.auth.organizer === true
+        ? { available: true }
+        : { available: false, reason: "Whole-roster editing requires organizer access; team owners may still use player progression." };
   return {
     id: stored.teamId,
     name: element(xml, "name") ?? stored.teamName,
@@ -212,7 +291,10 @@ export function parseStoredTeamDetail(
     treasury: /<treasury>/i.test(xml) ? meta.gold : stored.gold,
     teamValue: hasTeamValue ? meta.teamValue : stored.teamValue,
     rulesetPackName: stored.rulesetPackName ?? null,
-    revision: teamRevision(xml),
+    leagues,
+    specialRules,
+    canEditRoster,
+    revision,
     players,
   };
 }
@@ -249,7 +331,7 @@ export function teamDetailEndpoint(
     }
     return {
       status: 200,
-      body: { team: parseStoredTeamDetail(xml, stored, storedRosterXml(deps.teamsDir, teamId)) },
+      body: { team: parseStoredTeamDetail(xml, stored, storedRosterXml(deps.teamsDir, teamId), deps.tokenSecret ? { auth, tokenSecret: deps.tokenSecret, now: deps.now?.() } : undefined) },
     };
   } catch {
     return { status: 500, body: { error: "Stored team data could not be read." } };

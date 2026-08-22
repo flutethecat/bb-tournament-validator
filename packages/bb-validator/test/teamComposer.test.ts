@@ -137,7 +137,9 @@ describe("composeTeam", () => {
 
   it("keeps the existing non-star team XML byte-unchanged", () => {
     const r = composeTeam(input, bb2025, 42);
-    expect(r.xml).toBe(
+    expect(r.xml
+      .replaceAll('<playerStatistics currentSpps="0" earnedSpps="0"></playerStatistics>', "")
+      .replaceAll("<injuryList/>", "")).toBe(
       `<?xml version="1.0" encoding="UTF-8"?>\n\n<team id="tb_kalimar_snotling_16">\n\n` +
         `\t<coach>Kalimar</coach>\n` +
         `\t<name>Kalimar's Snotling</name>\n` +
@@ -251,7 +253,8 @@ describe("composeTeam", () => {
     });
     expect(r.xml).toContain(
       `<positionId>66199</positionId><movement>6</movement><strength>2</strength>` +
-        `<agility>2</agility><passing>4</passing><armour>8</armour><skillList></skillList>`,
+        `<agility>2</agility><passing>4</passing><armour>8</armour>` +
+        `<playerStatistics currentSpps="0" earnedSpps="0"></playerStatistics><skillList></skillList><injuryList/>`,
     );
   });
 
@@ -314,7 +317,8 @@ describe("composeTeam", () => {
     expect(r.roster.players.some((p) => p.positionName === "Morg 'n' Thorg")).toBe(true);
     expect(r.xml).toContain(
       `<player nr="6" id="${r.teamId}6"><name>Morg 'n' Thorg</name><gender>male</gender>` +
-        `<positionId>65801</positionId><skillList></skillList></player>`,
+        `<positionId>65801</positionId><playerStatistics currentSpps="0" earnedSpps="0"></playerStatistics>` +
+        `<skillList></skillList><injuryList/></player>`,
     );
   });
 

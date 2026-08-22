@@ -10,9 +10,11 @@
 export {
   buildForkJnlp,
   copyForkTeam,
+  adminListLive,
   createForkAccount,
   fetchForkTeam,
   forkConfigFromEnv,
+  forkAdminConfigFromEnv,
   forkRosterNames,
   forkSupportsRace,
   ingestForkTeam,

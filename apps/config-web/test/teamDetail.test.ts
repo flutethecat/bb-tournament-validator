@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -109,7 +109,7 @@ describe("GET /api/teams/:id/detail", () => {
               skills: ["Block", "Guard"],
               injuries: ["Smashed Knee"],
               spp: 12,
-              earnedSpp: 0,
+          earnedSpp: null,
               advancements: 2,
               rank: "Emerging Star",
               advancementCosts: { randomPrimary: 6, chosenPrimary: 12, chosenSecondary: 16, characteristic: 20 },
@@ -142,8 +142,44 @@ describe("GET /api/teams/:id/detail", () => {
           ],
     });
     expect(result.body.team.revision).toMatch(/^[a-f0-9]{64}$/);
-    expect(result.body.team.players[0]!.primarySkills).toContain("Mighty Blow");
+    expect(result.body.team.players[0]!.primarySkills).not.toContain("Mighty Blow"); // Elite is fail-closed until runtime surcharge support exists.
+    expect(result.body.team.players[0]!.primarySkills).toContain("Wrestle");
     expect(result.body.team.players[0]!.primarySkills).not.toContain("Block");
     expect(result.body.team.players[0]!.secondarySkills).toContain("Dodge");
+  });
+
+  it("exposes exact league/rule metadata and role-aware whole-roster capability", () => {
+    const d = dirs();
+    upsertLibraryTeam(d.libraryDir, "Tarkin", STORED_TEAM);
+    writeFileSync(join(d.teamsDir, "team_Tarkin_1272390.xml"), '<team id="1272390"><coach>Tarkin</coach><name>Fresh</name><race>Human</race><league>Old World Classic</league><specialRule>Favoured of Nuffle</specialRule><currentTeamValue>1000000</currentTeamValue><player status="Active" nr="1" id="p"><name>Rookie</name><positionId>h1</positionId><playerStatistics currentSpps="0"><games>0</games></playerStatistics><skillList/><injuryList/></player></team>', "utf8");
+    const rostersDir = join(d.root, "rosters");
+    mkdirSync(rostersDir);
+    writeFileSync(join(rostersDir, "roster_team_1272390.xml"), '<roster><league>Old World Classic</league><specialRules><rule>Favoured of Nuffle</rule><rule>Bribery and Corruption</rule></specialRules><position id="h1"><name>Lineman</name><cost>50000</cost><movement>6</movement><strength>3</strength><agility>3</agility><passing>4</passing><armour>9</armour><skillList/><skillCategoryList><normal>General</normal><double>Agility</double></skillCategoryList></position></roster>', "utf8");
+
+    const owner = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "1272390", { ...d, tokenSecret: "secret" });
+    if (owner.status !== 200) throw new Error(owner.body.error);
+    expect(owner.body.team).toMatchObject({ leagues: ["Old World Classic"], specialRules: ["Favoured of Nuffle", "Bribery and Corruption"], canEditRoster: { available: false } });
+    expect(owner.body.team.players[0]!.advancementMethods).toMatchObject({
+      chosenSecondary: { available: false },
+      chosenPrimary: { available: false, reason: "Needs 6 SPP; 0 available." },
+    });
+
+    const organizer = teamDetailEndpoint({ coach: "Tarkin", organizer: true }, "1272390", { ...d, tokenSecret: "secret" });
+    if (organizer.status !== 200) throw new Error(organizer.body.error);
+    expect(organizer.body.team.canEditRoster).toEqual({ available: true });
+
+    const acquiredPath = join(d.teamsDir, "team_Tarkin_1272390.xml");
+    writeFileSync(acquiredPath, readFileSync(acquiredPath, "utf8").replace("<skillList/>", "<skillList><skill>Wrestle</skill></skillList>"), "utf8");
+    const progressed = teamDetailEndpoint({ coach: "Tarkin", organizer: true }, "1272390", { ...d, tokenSecret: "secret" });
+    if (progressed.status !== 200) throw new Error(progressed.body.error);
+    expect(progressed.body.team.canEditRoster).toMatchObject({ available: false });
+
+    upsertLibraryTeam(d.libraryDir, "Tarkin", { ...STORED_TEAM, retired: true, retiredAt: "2026-08-22T00:00:00Z" });
+    const retired = teamDetailEndpoint({ coach: "Tarkin", organizer: true }, "1272390", { ...d, tokenSecret: "secret" });
+    if (retired.status !== 200) throw new Error(retired.body.error);
+    expect(Object.values(retired.body.team.players[0]!.advancementMethods)).toSatisfy(
+      (methods: Array<{ available: boolean; reason?: string }>) =>
+        methods.every((method) => method.available === false && /Retired/.test(method.reason ?? "")),
+    );
   });
 });

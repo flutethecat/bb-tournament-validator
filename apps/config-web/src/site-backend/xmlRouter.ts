@@ -26,7 +26,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { bankGameResult, type BankingDirs } from "./banking.js";
+import { bankGameResult, deferGameResult, type BankingDirs } from "./banking.js";
 import { GameStateRegistry, renderGameState } from "./gameState.js";
 import type { NonceStore } from "./nonceStore.js";
 import { parseFumbblResult } from "./fumbblResult.js";
@@ -69,6 +69,10 @@ export interface SiteBackendDeps {
    * Unset ⇒ mutating verbs are REFUSED (fail-loud), never accept-all.
    */
   serviceUser?: string;
+  /** Fail-closed gate while team XML and the fork's loaded cache are being reconciled. */
+  cacheCoherent?: () => boolean;
+  acquireCacheGeneration?: () => { release(): void } | undefined;
+  reloadCache?: () => Promise<boolean>;
 }
 
 const XML_CT = { "content-type": "text/xml; charset=utf-8" } as const;
@@ -79,11 +83,21 @@ const sendXml = (res: ServerResponse, status: number, xml: string): void => {
   res.end(xml);
 };
 
-/** Read the full raw request body as a Buffer (multipart bodies are binary — do NOT utf8-decode early). */
-async function readRawBody(req: IncomingMessage): Promise<Buffer> {
+const RESULT_BODY_CAP = 10 * 1024 * 1024;
+const CHATLOG_BODY_CAP = 1024 * 1024;
+class RawBodyTooLargeError extends Error {}
+
+/** Read a bounded raw body (multipart bodies are binary — do NOT utf8-decode early). */
+async function readRawBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
-  return Buffer.concat(chunks);
+  let total = 0;
+  for await (const c of req) {
+    const chunk = c as Buffer;
+    total += chunk.byteLength;
+    if (total > maxBytes) throw new RawBodyTooLargeError(`request body exceeds ${maxBytes} bytes`);
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, total);
 }
 
 /** Resolve a team file by fork team id (`team_<coach>_<id>.xml`), same suffix match banking.ts uses. */
@@ -234,9 +248,18 @@ export async function handleXmlRequest(
         return (sendXml(res, 200, renderGameState({ ok: false, reason: `auth: ${auth.reason}` })), true);
       }
     }
-    const g = deps.games;
-    let outcome;
-    switch (op) {
+    const gameStart = op === "create" || op === "resume";
+    const generationLock = gameStart ? deps.acquireCacheGeneration?.() : undefined;
+    if (gameStart && deps.acquireCacheGeneration && !generationLock) {
+      return (sendXml(res, 200, renderGameState({ ok: false, reason: "team/cache generation update in progress" })), true);
+    }
+    try {
+      if (gameStart && deps.cacheCoherent?.() === false) {
+        return (sendXml(res, 200, renderGameState({ ok: false, reason: "fork team cache requires recovery reload" })), true);
+      }
+      const g = deps.games;
+      let outcome;
+      switch (op) {
       case "check":
       case "options":
         outcome = g.check(query.get("team1") ?? undefined, query.get("team2") ?? undefined);
@@ -255,8 +278,11 @@ export async function handleXmlRequest(
         break;
       default:
         outcome = { ok: false as const, reason: `unknown gamestate op ${op}` };
+      }
+      return (sendXml(res, 200, renderGameState(outcome)), true);
+    } finally {
+      generationLock?.release();
     }
-    return (sendXml(res, 200, renderGameState(outcome)), true);
   }
 
   // ── xml:result ── multipart upload → parse → bank (TP-4 fail-loud + quarantine) ─
@@ -264,7 +290,14 @@ export async function handleXmlRequest(
     if ((req.method ?? "GET") !== "POST") return (sendXml(res, 405, resultXml(false, "result requires POST")), true);
     const boundary = boundaryFromContentType(req.headers["content-type"]);
     if (!boundary) return (sendXml(res, 400, resultXml(false, "not multipart/form-data")), true);
-    const parts = parseMultipart(await readRawBody(req), boundary);
+    let resultBody: Buffer;
+    try {
+      resultBody = await readRawBody(req, RESULT_BODY_CAP);
+    } catch (error) {
+      if (error instanceof RawBodyTooLargeError) return (sendXml(res, 413, resultXml(false, error.message)), true);
+      throw error;
+    }
+    const parts = parseMultipart(resultBody, boundary);
     // Service-user auth FIRST (multipart `response` part, postMultipartXml:86) — never parse/bank unauthenticated.
     const resultAuth = await verifyService(deps, parts.get("response")?.value);
     if (!resultAuth.ok) {
@@ -281,17 +314,45 @@ export async function handleXmlRequest(
       return (sendXml(res, 200, resultXml(false, `malformed result: ${(e as Error).message}`)), true);
     }
     if (parsed.teams.length === 0) return (sendXml(res, 200, resultXml(false, "result has no teamResult")), true);
-    const banked = bankGameResult(deps.banking, parsed.gameId, buildBankTasks(parsed), f.value);
+    const banked = bankGameResult(deps.banking, parsed.gameId, buildBankTasks(parsed, deps.teamsDir), f.value);
     // Flag (never drop) the server numbers a v1 apply doesn't yet bank — treasury/injuries/fans.
     log(`result g${parsed.gameId}: applied=[${banked.applied.join(",")}] residual=${JSON.stringify(unbankedResidual(parsed))}`);
-    if (!banked.ok) return (sendXml(res, 200, resultXml(false, "one or more teams quarantined — see results/quarantine")), true);
+    if (!banked.ok) {
+      if (banked.deferred) {
+        try {
+          await deferGameResult(deps.banking, parsed.gameId, f.value);
+          // The fork uploads once and only advances its own terminal game state on success. Once the
+          // exact authenticated payload is durable, the API owns replay and can acknowledge receipt.
+          return (sendXml(res, 200, resultXml(true, "result queued safely for banking after team/cache recovery")), true);
+        } catch (error) {
+          return (sendXml(res, 200, resultXml(false, `result could not be retained: ${(error as Error).message}`)), true);
+        }
+      }
+      return (sendXml(res, 200, resultXml(false, "one or more teams quarantined — see results/quarantine")), true);
+    }
+    if (deps.reloadCache) {
+      let reloaded = false;
+      try { reloaded = await deps.reloadCache(); } catch { /* marker remains and gates new games */ }
+      if (!reloaded) {
+        // Banking is already durable and idempotently ledgered. Acknowledge the one-shot upload so
+        // the fork can close the finished game; the retained marker gates new games until reload.
+        return (sendXml(res, 200, resultXml(true, "banked safely; fork cache reload remains pending")), true);
+      }
+    }
     return (sendXml(res, 200, resultXml(true, `banked ${banked.applied.length} team(s)`)), true);
   }
 
   // ── xml:chatlog ── accept + log only (v1); service-auth'd (form `response`, postAuthorizedForm:98) ──
   if (path === "xml:chatlog") {
     if ((req.method ?? "GET") !== "POST") return (sendXml(res, 405, "<result>failure</result>"), true);
-    const form = new URLSearchParams((await readRawBody(req)).toString("utf8"));
+    let chatBody: Buffer;
+    try {
+      chatBody = await readRawBody(req, CHATLOG_BODY_CAP);
+    } catch (error) {
+      if (error instanceof RawBodyTooLargeError) return (sendXml(res, 413, "<result>failure</result>"), true);
+      throw error;
+    }
+    const form = new URLSearchParams(chatBody.toString("utf8"));
     const chatAuth = await verifyService(deps, form.get("response"));
     if (!chatAuth.ok) {
       log(`chatlog REFUSED: ${chatAuth.reason}`);

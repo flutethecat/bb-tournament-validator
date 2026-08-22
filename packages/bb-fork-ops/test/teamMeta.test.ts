@@ -26,6 +26,11 @@ describe("parseTeamXmlMeta", () => {
     expect(m.apothecary).toBe(true);
   });
 
+  it("normalizes the Team Builder's native 10k TV units to library thousands", () => {
+    const xml = `<team><teamRating>65</teamRating><currentTeamValue>65</currentTeamValue><teamStrength>65</teamStrength><treasury>0</treasury></team>`;
+    expect(parseTeamXmlMeta(xml).teamValue).toBe(650);
+  });
+
   it("defaults missing numbers safely", () => {
     const m = parseTeamXmlMeta("<team></team>");
     expect(m).toEqual({ teamValue: 0, gold: 0, rerolls: undefined, fanFactor: undefined, apothecary: undefined });

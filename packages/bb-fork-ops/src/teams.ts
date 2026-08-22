@@ -6,13 +6,15 @@
  * browser-safe (it depends on mysql2).
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { xmlEscape, safe } from "./util.js";
 import type { ForkConfig } from "./index.js";
-import type { LibraryTeam } from "./library.js";
-import { upsertLibraryTeam } from "./library.js";
-import { isLoadedOnFork } from "./forkReload.js";
+import type { LibraryOwnershipSnapshot, LibraryTeam } from "./library.js";
+import { readLibrary, replaceLibraryTeamOwnership, restoreLibraryOwnership, snapshotLibraryTeamOwnership } from "./library.js";
+import { isLoadedOnFork, type ReloadResult } from "./forkReload.js";
+import { acknowledgeForkCacheReload, acquireTeamNameWriteLock, acquireTeamWriteLock, atomicWriteTextFile, markForkCacheReloadRequired } from "./locks.js";
 
 export interface CopiedTeam {
   teamId: string;
@@ -80,6 +82,192 @@ export async function fetchForkRoster(teamId: string): Promise<string> {
 /** Where a team's roster XML lives — the sibling `rosters/` dir next to the fork's `teams/` dir. */
 const rostersDirFor = (teamsDir: string): string => join(dirname(teamsDir), "rosters");
 
+interface TeamFileTransactionJournal {
+  version: 1;
+  phase: "PREPARED" | "COMMITTED";
+  teamId: string;
+  targetPath: string;
+  teamXml: string;
+  priorTeams: Array<{ path: string; xml: string }>;
+  rosterPath?: string;
+  rosterXml?: string;
+  priorRoster?: string | null;
+  removeOtherTeamFiles?: boolean;
+  library?: {
+    baseDir: string;
+    coach: string;
+    team: LibraryTeam;
+    prior: LibraryOwnershipSnapshot;
+  };
+}
+
+const transactionDirectory = (teamsDir: string): string => join(teamsDir, ".team-transactions");
+const transactionPath = (teamsDir: string, teamId: string): string =>
+  join(transactionDirectory(teamsDir), `${createHash("sha256").update(teamId).digest("hex")}.json`);
+
+function writeTransactionJournal(teamsDir: string, journal: TeamFileTransactionJournal): string {
+  const path = transactionPath(teamsDir, journal.teamId);
+  atomicWriteTextFile(path, JSON.stringify(journal));
+  return path;
+}
+
+function beginTransactionJournal(teamsDir: string, journal: TeamFileTransactionJournal): string {
+  const path = transactionPath(teamsDir, journal.teamId);
+  if (existsSync(path)) throw new Error("A durable recovery transaction is already pending for this team; restart config-web to reconcile it.");
+  return writeTransactionJournal(teamsDir, journal);
+}
+
+function validateJournal(value: unknown): value is TeamFileTransactionJournal {
+  if (!value || typeof value !== "object") return false;
+  const j = value as Partial<TeamFileTransactionJournal>;
+  return j.version === 1 && (j.phase === "PREPARED" || j.phase === "COMMITTED") &&
+    typeof j.teamId === "string" && typeof j.targetPath === "string" && typeof j.teamXml === "string" &&
+    ((j.rosterPath === undefined && j.rosterXml === undefined && j.priorRoster === undefined) ||
+      (typeof j.rosterPath === "string" && typeof j.rosterXml === "string" && (typeof j.priorRoster === "string" || j.priorRoster === null))) &&
+    Array.isArray(j.priorTeams) && j.priorTeams.every((entry) => entry && typeof entry.path === "string" && typeof entry.xml === "string");
+}
+
+function restorePreparedTransaction(journal: TeamFileTransactionJournal): void {
+  for (const path of new Set([journal.targetPath, ...journal.priorTeams.map((entry) => entry.path)])) {
+    if (existsSync(path)) unlinkSync(path);
+  }
+  for (const snapshot of journal.priorTeams) atomicWriteTextFile(snapshot.path, snapshot.xml);
+  if (journal.rosterPath) {
+    if (journal.priorRoster === null) {
+      if (existsSync(journal.rosterPath)) unlinkSync(journal.rosterPath);
+    } else if (journal.priorRoster !== undefined) {
+      atomicWriteTextFile(journal.rosterPath, journal.priorRoster);
+    }
+  }
+  if (journal.library) restoreLibraryOwnership(journal.library.baseDir, journal.library.prior);
+}
+
+function completeCommittedTransaction(teamsDir: string, journal: TeamFileTransactionJournal): void {
+  atomicWriteTextFile(journal.targetPath, journal.teamXml);
+  if (journal.rosterPath && journal.rosterXml !== undefined) atomicWriteTextFile(journal.rosterPath, journal.rosterXml);
+  if (journal.removeOtherTeamFiles) removeExistingTeamFilesForId(teamsDir, journal.teamId, journal.targetPath);
+  if (journal.library) replaceLibraryTeamOwnership(journal.library.baseDir, journal.library.coach, journal.library.team);
+}
+
+/**
+ * Reconcile durable team/roster/library journals left by a process crash. PREPARED generations roll
+ * back; COMMITTED generations complete idempotently. Unreadable journals remain quarantined in place
+ * and are reported, so a later writer cannot silently treat an ambiguous generation as fresh.
+ */
+export function recoverTeamFileTransactions(
+  teamsDir: string,
+  opts?: { includeLibraryTransactions?: boolean },
+): { recovered: string[]; errors: string[]; receipts: Array<{ teamId: string; path: string; hash: string }> } {
+  const dir = transactionDirectory(teamsDir);
+  if (!existsSync(dir)) return { recovered: [], errors: [], receipts: [] };
+  const recovered: string[] = [];
+  const errors: string[] = [];
+  const receipts: Array<{ teamId: string; path: string; hash: string }> = [];
+  for (const name of readdirSync(dir).filter((entry) => entry.endsWith(".json"))) {
+    const path = join(dir, name);
+    let journal: TeamFileTransactionJournal;
+    try {
+      const raw = readFileSync(path, "utf8");
+      const parsed: unknown = JSON.parse(raw);
+      if (!validateJournal(parsed)) throw new Error("invalid transaction journal shape");
+      journal = parsed;
+      // The Discord copy process cannot safely refresh a config-web ingest generation that may
+      // already have reached the fork cache. It recovers copy-only journals; config-web startup
+      // owns library-bearing recovery and reloads the fork before accepting traffic.
+      if (journal.library && opts?.includeLibraryTransactions === false) continue;
+      const lock = acquireTeamWriteLock(teamsDir, journal.teamId, Date.now(), true);
+      if (!lock) throw new Error("team is currently locked");
+      try {
+        if (journal.phase === "PREPARED") restorePreparedTransaction(journal);
+        else completeCommittedTransaction(teamsDir, journal);
+        recovered.push(journal.teamId);
+        receipts.push({ teamId: journal.teamId, path, hash: createHash("sha256").update(raw).digest("hex") });
+      } finally {
+        lock.release();
+      }
+    } catch (error) {
+      errors.push(`${name}: ${(error as Error).message}`);
+    }
+  }
+  return { recovered, errors, receipts };
+}
+
+/** Remove only journals whose exact generation was reconciled and then cache-reloaded by the caller. */
+export function acknowledgeRecoveredTeamTransactions(receipts: Array<{ path: string; hash: string }>): void {
+  for (const receipt of receipts) {
+    if (!existsSync(receipt.path)) continue;
+    const current = readFileSync(receipt.path, "utf8");
+    if (createHash("sha256").update(current).digest("hex") !== receipt.hash) {
+      throw new Error(`Team transaction journal changed before reload acknowledgement: ${receipt.path}`);
+    }
+    unlinkSync(receipt.path);
+  }
+}
+
+export interface TeamXmlTransactionHandle {
+  teamsDir: string;
+  journalPath: string;
+  journal: TeamFileTransactionJournal;
+}
+
+/** Begin a crash-recoverable single-team XML/library mutation. Caller already holds the team lock. */
+export function beginTeamXmlTransaction(input: {
+  teamsDir: string;
+  teamId: string;
+  targetPath: string;
+  teamXml: string;
+  library?: { baseDir: string; coach: string; team: LibraryTeam };
+}): TeamXmlTransactionHandle {
+  const priorTeams = existsSync(input.targetPath) ? [{ path: input.targetPath, xml: readFileSync(input.targetPath, "utf8") }] : [];
+  const journal: TeamFileTransactionJournal = {
+    version: 1,
+    phase: "PREPARED",
+    teamId: input.teamId,
+    targetPath: input.targetPath,
+    teamXml: input.teamXml,
+    priorTeams,
+    ...(input.library ? {
+      library: {
+        ...input.library,
+        prior: snapshotLibraryTeamOwnership(input.library.baseDir, input.teamId),
+      },
+    } : {}),
+  };
+  const journalPath = beginTransactionJournal(input.teamsDir, journal);
+  try {
+    markForkCacheReloadRequired(input.teamsDir, `Team ${input.teamId} mutation requires a fork cache reload.`);
+  } catch (error) {
+    // PREPARED remains authoritative and startup recovery will restore/reload the old generation.
+    throw error;
+  }
+  return { teamsDir: input.teamsDir, journalPath, journal };
+}
+
+/** COMMITTED is the point of no return; cleanup failures leave startup enough state to complete safely. */
+export function commitTeamXmlTransaction(handle: TeamXmlTransactionHandle, cacheReloaded = true): void {
+  writeTransactionJournal(handle.teamsDir, { ...handle.journal, phase: "COMMITTED" });
+  if (cacheReloaded) {
+    try { acknowledgeForkCacheReload(handle.teamsDir); } catch { /* startup will retry */ }
+  }
+  try { unlinkSync(handle.journalPath); } catch { /* startup will complete COMMITTED */ }
+}
+
+export function updateTeamXmlTransactionLibraryTeam(handle: TeamXmlTransactionHandle, team: LibraryTeam): void {
+  if (!handle.journal.library) throw new Error("This team transaction has no library generation.");
+  handle.journal.library.team = team;
+  writeTransactionJournal(handle.teamsDir, handle.journal);
+}
+
+/** Restore PREPARED disk/library state. A successful cache reload must follow before acknowledgement. */
+export function restoreTeamXmlTransaction(handle: TeamXmlTransactionHandle): void {
+  restorePreparedTransaction(handle.journal);
+}
+
+export function acknowledgeRestoredTeamXmlTransaction(handle: TeamXmlTransactionHandle): void {
+  acknowledgeForkCacheReload(handle.teamsDir);
+  if (existsSync(handle.journalPath)) unlinkSync(handle.journalPath);
+}
+
 /**
  * Fetch + write the roster for `teamId` into the fork's rosters dir as
  * `roster_team_<teamId>.xml` — keyed by team id (the attribute RosterCache actually reads),
@@ -90,7 +278,17 @@ export async function installForkRoster(teamsDir: string, teamId: string): Promi
   const dir = rostersDirFor(teamsDir);
   mkdirSync(dir, { recursive: true });
   const path = join(dir, `roster_team_${safe(teamId)}.xml`);
-  writeFileSync(path, xml, "utf8");
+  const generationLock = acquireTeamNameWriteLock(teamsDir);
+  if (!generationLock) throw new Error("Another team/cache generation update is already in progress.");
+  const lock = acquireTeamWriteLock(teamsDir, teamId);
+  if (!lock) {
+    generationLock.release();
+    throw new Error("Another update is already in progress for this team.");
+  }
+  try {
+    markForkCacheReloadRequired(teamsDir, `Installed roster ${teamId} requires a fork cache reload.`);
+    atomicWriteTextFile(path, xml);
+  } finally { lock.release(); generationLock.release(); }
   return path;
 }
 
@@ -146,21 +344,32 @@ export function forkSupportsRace(raceName: string, rosterNames: string[]): boole
  * startGame CHECK_OWNERSHIP fails with "Not Your Team" and the join silently aborts (the
  * owner-reported 1272390 Kalimar-vs-flutethecat collision, 2026-07-15). Returns the removed names.
  */
-function removeExistingTeamFilesForId(teamsDir: string, teamId: string): string[] {
+function removeExistingTeamFilesForId(teamsDir: string, teamId: string, keepPath?: string): string[] {
   if (!existsSync(teamsDir)) return [];
   const suffix = `_${teamId}.xml`;
   const removed: string[] = [];
   for (const f of readdirSync(teamsDir)) {
     if (f.startsWith("team_") && f.endsWith(suffix)) {
-      try {
-        unlinkSync(join(teamsDir, f));
-        removed.push(f);
-      } catch {
-        /* best-effort: a stale handle shouldn't block the write */
-      }
+      const candidate = join(teamsDir, f);
+      if (keepPath && candidate === keepPath) continue;
+      unlinkSync(candidate);
+      removed.push(f);
     }
   }
   return removed;
+}
+
+function duplicateStoredTeamName(teamsDir: string, teamName: string, excludeTeamId: string): string | undefined {
+  const wanted = teamName.trim().toLowerCase();
+  if (!wanted || !existsSync(teamsDir)) return undefined;
+  for (const file of readdirSync(teamsDir).filter((name) => name.startsWith("team_") && name.endsWith(".xml"))) {
+    const stored = readFileSync(join(teamsDir, file), "utf8");
+    const id = (stored.match(/<team\b[^>]*\bid="([^"]+)"/i)?.[1] ?? stored.match(/<id>([^<]*)<\/id>/i)?.[1] ?? "").trim();
+    if (id === excludeTeamId) continue;
+    const name = stored.match(/<name>([^<]*)<\/name>/i)?.[1]?.trim();
+    if (name?.toLowerCase() === wanted) return id || file;
+  }
+  return undefined;
 }
 
 /**
@@ -172,15 +381,70 @@ function removeExistingTeamFilesForId(teamsDir: string, teamId: string): string[
  * `opts.asCoach` re-coaches the saved XML to that coach (used by the library ingest so
  * the requesting coach — not the team's original FUMBBL owner — can join with it).
  */
-export async function copyForkTeam(cfg: ForkConfig, url: string, opts?: { asCoach?: string }): Promise<CopiedTeam> {
+export async function copyForkTeam(
+  cfg: ForkConfig,
+  url: string,
+  opts?: { asCoach?: string; allowReplaceProgressed?: boolean; isTeamActive?: (teamId: string) => Promise<boolean> },
+): Promise<CopiedTeam> {
   const t = await fetchForkTeam(url);
+  const rosterXml = await fetchForkRoster(t.teamId);
   const owner = opts?.asCoach?.trim() || t.coach;
   const xml = recoachXml(t.xml, owner);
   mkdirSync(cfg.teamsDir, { recursive: true });
-  removeExistingTeamFilesForId(cfg.teamsDir, t.teamId);
+  const nameLock = acquireTeamNameWriteLock(cfg.teamsDir);
+  if (!nameLock) throw new Error("Another team name update is already in progress.");
+  const lock = acquireTeamWriteLock(cfg.teamsDir, t.teamId);
+  if (!lock) {
+    nameLock.release();
+    throw new Error("Another update is already in progress for this team.");
+  }
   const path = join(cfg.teamsDir, `team_${safe(owner)}_${t.teamId}.xml`);
-  writeFileSync(path, xml, "utf8");
-  await installForkRoster(cfg.teamsDir, t.teamId);
+  try {
+    const duplicateId = duplicateStoredTeamName(cfg.teamsDir, t.teamName, t.teamId);
+    if (duplicateId) throw new Error(`A different local team (${duplicateId}) already uses the name "${t.teamName}".`);
+    if (!opts?.isTeamActive) throw new Error("Team activity cannot be verified on this host; copy is unavailable.");
+    let active: boolean;
+    try { active = await opts.isTeamActive(t.teamId); }
+    catch { throw new Error("Team activity cannot be verified on this host; copy is unavailable."); }
+    if (active) throw new Error("This team has a game in progress and cannot be copied or replaced.");
+    const suffix = `_${t.teamId}.xml`;
+    const existingFiles = readdirSync(cfg.teamsDir).filter((file) => file.startsWith("team_") && file.endsWith(suffix));
+    const snapshots = existingFiles.map((file) => ({ path: join(cfg.teamsDir, file), xml: readFileSync(join(cfg.teamsDir, file), "utf8") }));
+    if (!opts?.allowReplaceProgressed && snapshots.some((snapshot) => teamXmlHasProgressionOrHistory(snapshot.xml))) {
+      throw new Error("This local team has progression or match history and cannot be destructively copied. Use an explicit organizer recovery/merge path.");
+    }
+    const rosterPath = join(rostersDirFor(cfg.teamsDir), `roster_team_${safe(t.teamId)}.xml`);
+    const rosterBefore = existsSync(rosterPath) ? readFileSync(rosterPath, "utf8") : undefined;
+    const journal: TeamFileTransactionJournal = {
+      version: 1, phase: "PREPARED", teamId: t.teamId, targetPath: path, teamXml: xml,
+      priorTeams: snapshots, rosterPath, rosterXml, priorRoster: rosterBefore ?? null,
+    };
+    const journalPath = beginTransactionJournal(cfg.teamsDir, journal);
+    markForkCacheReloadRequired(cfg.teamsDir, `Copying team ${t.teamId} requires a fork cache reload.`);
+    try {
+      atomicWriteTextFile(path, xml);
+      atomicWriteTextFile(rosterPath, rosterXml);
+      removeExistingTeamFilesForId(cfg.teamsDir, t.teamId, path);
+      let stillActive: boolean;
+      try { stillActive = await opts.isTeamActive(t.teamId); }
+      catch { throw new Error("Team activity cannot be verified after the copy; the replacement was rolled back."); }
+      if (stillActive) throw new Error("A game started during the team copy; the replacement was rolled back.");
+      writeTransactionJournal(cfg.teamsDir, { ...journal, phase: "COMMITTED" });
+      try { unlinkSync(journalPath); } catch { /* COMMITTED is the point of no return; startup completes it */ }
+    } catch (error) {
+      try {
+        restorePreparedTransaction(journal);
+        acknowledgeForkCacheReload(cfg.teamsDir);
+        if (existsSync(journalPath)) unlinkSync(journalPath);
+      } catch (rollbackError) {
+        throw new Error(`${(error as Error).message}; durable rollback remains pending: ${(rollbackError as Error).message}`);
+      }
+      throw error;
+    }
+  } finally {
+    lock.release();
+    nameLock.release();
+  }
   let raceWarning: string | undefined;
   if (t.raceName && !forkSupportsRace(t.raceName, forkRosterNames(cfg.teamsDir))) {
     raceWarning = `No fork roster matches "${t.raceName}" by name — the by-team-id roster is installed, so this is informational only, not blocking.`;
@@ -210,8 +474,9 @@ export function parseTeamXmlMeta(xml: string): {
     const m = xml.match(new RegExp(`<${tag}>\\s*(-?\\d+)\\s*</${tag}>`, "i"));
     return m ? Number(m[1]) : undefined;
   };
-  const rawTv = num("currentTeamValue") ?? num("teamValue") ?? 0;
-  const teamValue = rawTv >= 10000 ? Math.round(rawTv / 1000) : rawTv;
+  const builderDialect = num("teamRating") !== undefined || num("teamStrength") !== undefined;
+  const rawTv = num("currentTeamValue") ?? num("teamValue") ?? num("teamRating") ?? 0;
+  const teamValue = builderDialect ? Math.round(rawTv * 10) : rawTv >= 10000 ? Math.round(rawTv / 1000) : rawTv;
   const gold = num("treasury") ?? 0;
   const apo = num("apothecaries");
   return {
@@ -239,38 +504,133 @@ export async function ingestForkTeam(
   requestingCoach: string,
   teamUrl: string,
   stateDir: string,
-): Promise<{ team: LibraryTeam; raceWarning?: string; needsRestart: boolean }> {
+  opts?: {
+    allowReplaceProgressed?: boolean;
+    fetchedTeam?: ForkTeam;
+    reload?: () => Promise<ReloadResult>;
+    isTeamActive?: (teamId: string) => Promise<boolean>;
+    /** Caller already holds the shared global name lock across its final collision recheck. */
+    teamNameLockHeld?: boolean;
+  },
+): Promise<{ team: LibraryTeam; raceWarning?: string; needsRestart: boolean; reload?: ReloadResult }> {
   const coach = requestingCoach.trim();
   if (!coach) throw new Error("A coach name is required.");
-  const t = await fetchForkTeam(teamUrl);
+  const t = opts?.fetchedTeam ?? await fetchForkTeam(teamUrl);
+  const rosterXml = await fetchForkRoster(t.teamId);
   const meta = parseTeamXmlMeta(t.xml);
   mkdirSync(cfg.teamsDir, { recursive: true });
   const xml = recoachXml(t.xml, coach);
-  removeExistingTeamFilesForId(cfg.teamsDir, t.teamId);
   const path = join(cfg.teamsDir, `team_${safe(coach)}_${t.teamId}.xml`);
-  writeFileSync(path, xml, "utf8");
-  await installForkRoster(cfg.teamsDir, t.teamId);
+  const nameLock = opts?.teamNameLockHeld ? undefined : acquireTeamNameWriteLock(cfg.teamsDir);
+  if (!opts?.teamNameLockHeld && !nameLock) throw new Error("Another team name update is already in progress.");
+  const lock = acquireTeamWriteLock(cfg.teamsDir, t.teamId);
+  if (!lock) {
+    nameLock?.release();
+    throw new Error("Another update is already in progress for this team.");
+  }
+  try {
+    if (!opts?.isTeamActive) {
+      throw new Error("Team activity cannot be verified on this host; ingest is unavailable.");
+    }
+    let active: boolean;
+    try {
+      active = await opts.isTeamActive(t.teamId);
+    } catch {
+      throw new Error("Team activity cannot be verified on this host; ingest is unavailable.");
+    }
+    if (active) {
+      throw new Error("This team has a game in progress and cannot be ingested or replaced.");
+    }
+    const suffix = `_${t.teamId}.xml`;
+    const existingFiles = readdirSync(cfg.teamsDir).filter((file) => file.startsWith("team_") && file.endsWith(suffix));
+    if (!opts?.allowReplaceProgressed && existingFiles.some((file) => teamXmlHasProgressionOrHistory(readFileSync(join(cfg.teamsDir, file), "utf8")))) {
+      throw new Error("This local team has progression or match history and cannot be destructively re-ingested. Ask an organizer to use the explicit recovery/merge path.");
+    }
+    const snapshots = existingFiles.map((file) => ({ path: join(cfg.teamsDir, file), xml: readFileSync(join(cfg.teamsDir, file), "utf8") }));
+    const rosterPath = join(rostersDirFor(cfg.teamsDir), `roster_team_${safe(t.teamId)}.xml`);
+    const rosterBefore = existsSync(rosterPath) ? readFileSync(rosterPath, "utf8") : undefined;
+    const ingestedAt = new Date().toISOString();
+    const forkLoadable = isLoadedOnFork(stateDir, ingestedAt);
+    const raceWarning =
+      t.raceName && !forkSupportsRace(t.raceName, forkRosterNames(cfg.teamsDir))
+        ? `No fork roster matches "${t.raceName}" by name — the by-team-id roster is installed regardless, so this is informational only.`
+        : undefined;
+    const team: LibraryTeam = {
+      teamId: t.teamId,
+      teamName: t.teamName,
+      race: t.raceName ?? "Unknown",
+      coach,
+      teamValue: meta.teamValue,
+      gold: meta.gold,
+      rerolls: meta.rerolls,
+      fanFactor: meta.fanFactor,
+      apothecary: meta.apothecary,
+      forkLoadable,
+      ingestedAt,
+    };
+    const journal: TeamFileTransactionJournal = {
+      version: 1, phase: "PREPARED", teamId: t.teamId, targetPath: path, teamXml: xml,
+      priorTeams: snapshots, rosterPath, rosterXml, priorRoster: rosterBefore ?? null,
+      library: { baseDir: libDir, coach, team, prior: snapshotLibraryTeamOwnership(libDir, t.teamId) },
+    };
+    const journalPath = beginTransactionJournal(cfg.teamsDir, journal);
+    markForkCacheReloadRequired(cfg.teamsDir, `Ingesting team ${t.teamId} requires a fork cache reload.`);
+    try {
+      atomicWriteTextFile(path, xml);
+      atomicWriteTextFile(rosterPath, rosterXml);
+      removeExistingTeamFilesForId(cfg.teamsDir, t.teamId, path);
+      replaceLibraryTeamOwnership(libDir, coach, team);
+      let stillActive: boolean;
+      try { stillActive = await opts.isTeamActive(t.teamId); }
+      catch { throw new Error("Team activity cannot be verified before ingest reload; the replacement was rolled back."); }
+      if (stillActive) throw new Error("A game started during team ingest; the replacement was rolled back.");
+      const reload = opts?.reload ? await opts.reload() : undefined;
+      if (reload?.reloaded) {
+        team.forkLoadable = true;
+        replaceLibraryTeamOwnership(libDir, coach, team);
+      }
+      const committed: TeamFileTransactionJournal = {
+        ...journal,
+        phase: "COMMITTED",
+        library: { ...journal.library!, team },
+      };
+      writeTransactionJournal(cfg.teamsDir, committed);
+      if (reload?.reloaded) {
+        try { acknowledgeForkCacheReload(cfg.teamsDir); } catch { /* COMMITTED journal remains authoritative */ }
+      }
+      try { unlinkSync(journalPath); } catch { /* COMMITTED is the point of no return; startup completes it */ }
+      return { team, raceWarning, needsRestart: !team.forkLoadable, ...(reload ? { reload } : {}) };
+    } catch (error) {
+      try {
+        restorePreparedTransaction(journal);
+      } catch (rollbackError) {
+        throw new Error(`${(error as Error).message}; durable rollback remains pending: ${(rollbackError as Error).message}`);
+      }
+      if (opts?.reload) {
+        try {
+          const restored = await opts.reload();
+          if (!restored.reloaded) throw new Error(restored.reason ?? "restored generation reload refused");
+          acknowledgeForkCacheReload(cfg.teamsDir);
+        } catch (reloadError) {
+          markForkCacheReloadRequired(cfg.teamsDir, `Rollback of team ${t.teamId} could not be loaded: ${(reloadError as Error).message}`);
+          throw new Error(`${(error as Error).message}; restored generation awaits startup recovery: ${(reloadError as Error).message}`);
+        }
+      }
+      if (existsSync(journalPath)) unlinkSync(journalPath);
+      throw error;
+    }
+  } finally {
+    lock.release();
+    nameLock?.release();
+  }
+}
 
-  const ingestedAt = new Date().toISOString();
-  const forkLoadable = isLoadedOnFork(stateDir, ingestedAt);
-  const raceWarning =
-    t.raceName && !forkSupportsRace(t.raceName, forkRosterNames(cfg.teamsDir))
-      ? `No fork roster matches "${t.raceName}" by name — the by-team-id roster is installed regardless, so this is informational only.`
-      : undefined;
-
-  const team: LibraryTeam = {
-    teamId: t.teamId,
-    teamName: t.teamName,
-    race: t.raceName ?? "Unknown",
-    coach,
-    teamValue: meta.teamValue,
-    gold: meta.gold,
-    rerolls: meta.rerolls,
-    fanFactor: meta.fanFactor,
-    apothecary: meta.apothecary,
-    forkLoadable,
-    ingestedAt,
-  };
-  upsertLibraryTeam(libDir, coach, team, { preserveRetirement: false });
-  return { team, raceWarning, needsRestart: !forkLoadable };
+export function teamXmlHasProgressionOrHistory(xml: string): boolean {
+  if (/<(?:pendingAdvancement|advancement)\b/i.test(xml)) return true;
+  if (/<injury\b/i.test(xml)) return true;
+  // In stored team XML, player-level skills are additions; intrinsic position skills live in the
+  // roster XML. Treat even a zero-SPP added skill as progression and require explicit recovery.
+  if (/<player\b[^>]*>[\s\S]*?<skill\b/i.test(xml)) return true;
+  if (/<(?:playerStatistics|starPlayerPoints)\b[^>]*(?:currentSpps|earnedSpps|current|earned)="[1-9]\d*"/i.test(xml)) return true;
+  return /<(?:playedGames|games|completions|touchdowns|interceptions|casualties|mvps|passing|rushing|blocks|fouls)>\s*[1-9]\d*\s*<\//i.test(xml);
 }

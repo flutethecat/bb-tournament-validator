@@ -441,7 +441,7 @@ export function composeTeamIntrinsic(input: ComposeIntrinsicInput, now = Date.no
       xmlPlayers.push(
         `\t<player nr="${nr}" id="${teamId}${nr}"><name>${xmlEscape(playerName)}</name>` +
           `<gender>${xmlEscape(forkPos.gender)}</gender><positionId>${xmlEscape(pick.positionId)}</positionId>` +
-          `<skillList></skillList></player>`,
+          `<playerStatistics currentSpps="0" earnedSpps="0"></playerStatistics><skillList></skillList><injuryList/></player>`,
       );
     }
   }
@@ -613,7 +613,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
         xmlPlayers.push(
           `\t<player nr="${nr}" id="${teamId}${nr}"><name>${xmlEscape(forkPos.name)}</name>` +
             `<gender>${xmlEscape(forkPos.gender)}</gender><positionId>${xmlEscape(pick.positionId)}</positionId>` +
-            `<skillList></skillList></player>`,
+            `<playerStatistics currentSpps="0" earnedSpps="0"></playerStatistics><skillList></skillList><injuryList/></player>`,
         );
       }
       continue;
@@ -656,7 +656,8 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
       xmlPlayers.push(
         `\t<player nr="${nr}" id="${teamId}${nr}"><name>${xmlEscape(playerName)}</name>` +
           `<gender>${xmlEscape(forkPos.gender)}</gender><positionId>${xmlEscape(pick.positionId)}</positionId>` +
-          `${chosenStatXml}<skillList>${chosenSkillXml}</skillList></player>`,
+          `${chosenStatXml}<playerStatistics currentSpps="0" earnedSpps="0"></playerStatistics>` +
+          `<skillList>${chosenSkillXml}</skillList><injuryList/></player>`,
       );
     }
   }

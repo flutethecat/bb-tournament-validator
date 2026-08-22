@@ -32,7 +32,7 @@ const PUBLIC_API_METHODS = new Map<string, ReadonlySet<string>>([
   ["/api/fork/jnlp", new Set(["GET", "HEAD"])],
   ["/api/fork/register", new Set(["GET", "HEAD"])],
   ["/api/fork/library", new Set(["GET", "HEAD"])],
-  ["/api/fork/library/ingest", new Set(["GET", "HEAD"])],
+  ["/api/fork/library/ingest", new Set(["POST"])],
   ["/api/fork/coaches", new Set(["GET", "HEAD"])],
   ["/api/fork/challenge", new Set(["GET", "HEAD"])],
   ["/api/fork/matchstatus", new Set(["GET", "HEAD"])],
