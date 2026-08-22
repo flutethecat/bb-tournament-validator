@@ -1,10 +1,12 @@
 import type { SessionIdentity } from "./auth/requireSession.js";
 
+type IngestIdentity = Pick<SessionIdentity, "coach" | "organizer">;
+
 export type IngestDecision =
   | { ok: true; coach: string; team: string; allowRecovery: boolean; privileged: boolean }
   | { ok: false; status: 400 | 401 | 403; error: string };
 
-export function parseLibraryIngestRequest(body: unknown, auth: SessionIdentity | undefined, adminAuthed: boolean): IngestDecision {
+export function parseLibraryIngestRequest(body: unknown, auth: IngestIdentity | undefined, adminAuthed: boolean): IngestDecision {
   if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, status: 400, error: "A JSON request body is required." };
   const values = body as Record<string, unknown>;
   if (Object.keys(values).some((key) => !["coach", "team", "recovery"].includes(key)) ||

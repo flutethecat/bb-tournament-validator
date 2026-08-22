@@ -22,6 +22,8 @@ import {
 import type { SkillCategory } from "@bb/validator";
 import type { SessionIdentity } from "./auth/requireSession.js";
 
+type AdvancementIdentity = Pick<SessionIdentity, "coach" | "organizer">;
+
 export type AdvancementMethod = "randomPrimary" | "chosenPrimary" | "chosenSecondary" | "characteristic";
 export type Characteristic = "MA" | "ST" | "AG" | "PA" | "AV";
 
@@ -439,7 +441,7 @@ function findTeamPending(xml: string): { playerId: string; pending: StoredPendin
   return undefined;
 }
 
-function claimForStored(auth: SessionIdentity, teamId: string, playerId: string, revision: string, pending: StoredPending, expiresAt: number): RollClaim {
+function claimForStored(auth: AdvancementIdentity, teamId: string, playerId: string, revision: string, pending: StoredPending, expiresAt: number): RollClaim {
   return { coach: auth.coach, teamId, playerId, revision, ...pending, expiresAt };
 }
 
@@ -453,7 +455,7 @@ function pendingResponse(claim: RollClaim, secret: string): PendingAdvancementRe
 
 /** Reissue a transport token for a durable XML reservation without rerolling or re-debiting. */
 export function pendingAdvancementForPlayer(
-  auth: SessionIdentity,
+  auth: AdvancementIdentity,
   teamId: string,
   playerId: string,
   revision: string,
@@ -666,7 +668,7 @@ function claimMatchesPending(claim: RollClaim, pending: StoredPending): boolean 
     sameStrings(claim.primaryFallbacks, pending.primaryFallbacks) && sameStrings(claim.secondaryFallbacks, pending.secondaryFallbacks);
 }
 
-export async function teamAdvancementEndpoint(auth: SessionIdentity | undefined, teamId: string, rawAction: unknown, deps: AdvancementDeps): Promise<AdvancementEndpointResult> {
+export async function teamAdvancementEndpoint(auth: AdvancementIdentity | undefined, teamId: string, rawAction: unknown, deps: AdvancementDeps): Promise<AdvancementEndpointResult> {
   if (!auth) return endpointError(401, "Authentication required.");
   if (!boundedString(teamId, 128)) return endpointError(400, "A valid team id is required.");
   const parsedAction = parseAdvancementAction(rawAction);

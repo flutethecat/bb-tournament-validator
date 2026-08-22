@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { parseTeamXmlMeta, readLibrary, type LibraryTeam } from "@bb/fork-ops";
 import { bb2025 } from "@bb/validator/dataset";
 import type { SessionIdentity } from "./auth/requireSession.js";
+
+type TeamDetailIdentity = Pick<SessionIdentity, "coach" | "organizer">;
 import { pendingAdvancementForPlayer, playerProgression, runtimeSafeCharacteristicAvailable, teamRevision, type AdvancementCosts, type PendingAdvancementResponse } from "./teamAdvancement.js";
 
 export interface Capability {
@@ -177,7 +179,7 @@ export function parseStoredTeamDetail(
   xml: string,
   stored: LibraryTeam,
   rosterXml?: string,
-  context?: { auth: SessionIdentity; tokenSecret: string; now?: number },
+  context?: { auth: TeamDetailIdentity; tokenSecret: string; now?: number },
 ): TeamDetail {
   const meta = parseTeamXmlMeta(xml);
   const names = positionNames(rosterXml);
@@ -310,7 +312,7 @@ export function teamDetailIdFromPath(pathname: string): string | undefined {
 }
 
 export function teamDetailEndpoint(
-  auth: SessionIdentity | undefined,
+  auth: TeamDetailIdentity | undefined,
   teamId: string,
   deps: TeamDetailDeps,
 ): TeamDetailEndpointResult {
