@@ -128,15 +128,34 @@ describe("bankGameResult (C-2 crash-safe two-phase ledger)", () => {
     expect(readFileSync(secondTeam, "utf8")).toContain("<spp>6</spp>");
   });
 
-  it("CRASH-SAFE: a throw mid-apply leaves the team file intact and recoverable (BR-3, kill-mid-apply)", () => {
-    // apply throws AFTER the IN_PROGRESS marker + .bak are written but BEFORE commit
+  it("preflights a throwing apply function before writing any team transaction", () => {
     const boom = () => { throw new Error("killed mid-apply"); };
     const r = bankGameResult(dirs, "g1", [task("900001", boom)], "<gameResult/>");
     expect(r.ok).toBe(false);
-    // team file is unchanged (restored from .bak), NOT half-written
+    // team file is unchanged because deterministic validation finishes before mutation.
     expect(readFileSync(join(dirs.teamsDir, "team_flutethecat_900001.xml"), "utf8")).toContain("<spp>0</spp>");
     // it landed in quarantine, never a partial bank
     expect(existsSync(join(dirs.resultsDir, "quarantine"))).toBe(true);
+  });
+
+  it("AV-3: refuses to overwrite an external team XML change between read and commit", () => {
+    const teamFile = join(dirs.teamsDir, "team_flutethecat_900001.xml");
+    let calls = 0;
+    const changesOutsideSharedLock = (xml: string): string => {
+      calls += 1;
+      // The first call is the game-atomic dry run. Simulate an unsupported external editor during
+      // the real apply so the commit guard must compare bytes, not rely on lock convention alone.
+      if (calls === 2) writeFileSync(teamFile, '<team id="900001"><spp>9</spp></team>', "utf8");
+      return bumpSpp(xml);
+    };
+
+    const result = bankGameResult(dirs, "g-external", [task("900001", changesOutsideSharedLock)], "<gameResult/>");
+
+    expect(result.ok).toBe(false);
+    expect(readFileSync(teamFile, "utf8")).toContain("<spp>9</spp>");
+    expect(existsSync(ledger("g-external", "900001"))).toBe(false);
+    expect(readFileSync(quarantineFile("g-external", "900001", "error.txt"), "utf8"))
+      .toMatch(/changed after banking read and before commit/i);
   });
 
   it("never restores an interrupted backup over an unknown later team mutation", () => {
@@ -190,7 +209,8 @@ describe("bankGameResult (C-2 crash-safe two-phase ledger)", () => {
     writeFileSync(`${teamFile}.bank-bak`, before, "utf8");
     writeFileSync(ledger("g-retry", "900001"), JSON.stringify({
       gameId: "g-retry", teamId: "900001", phase: "IN_PROGRESS", teamFile, bakFile: `${teamFile}.bank-bak`,
-      teamSizeAtRead: before.length, teamMtimeAtRead: 0, beforeHash: digest(before), appliedHash: digest(applied), startedAt: 0,
+      teamSizeAtRead: before.length, teamMtimeAtRead: 0, beforeHash: digest(before), appliedHash: digest(applied),
+      resultHash: digest("<gameResult/>"), startedAt: 0,
     }), "utf8");
 
     expect(bankGameResult(dirs, "g-retry", [task("900001")], "<gameResult/>").ok).toBe(true);

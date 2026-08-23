@@ -6,8 +6,8 @@
  * ⚖ SERVER-DERIVED LAW / CE-1: every field written here is a number the GAME SERVER computed and put in
  * the `FumbblResult` upload — we SET or BANK it, we NEVER recompute a rules outcome, and we NEVER silently
  * coerce (Meero SR-185 general form: reject or quarantine, never silently clamp). Concretely:
- *   • `currentSpps` — SET to `<starPlayerPoints @current>`, the authoritative post-game TOTAL (NOT
- *     old+earned; the server already did that sum). Cited: `FumbblResult.java:353` current=getCurrentSpps().
+ *   • `currentSpps` — verify persisted spendable SPP equals `<starPlayerPoints @current>`, the pre-game
+ *     baseline seeded by `GameCache`, then SET to baseline + server-computed `@earned`.
  *   • lifetime stat counters — INCREMENTED by this game's explicit `<statistics>` values
  *     (`FumbblResult.java:399-417`) and `<playerAwards>`→mvps (`:387`). old+thisGame is banking a
  *     server-computed delta, not deriving one.
@@ -25,10 +25,14 @@
  *     over-range case (a natural-6 win already at max fans) that quarantines is DATA that the cap is
  *     website-side (owner-class, same family as treasury ①) — surfaced, not silently absorbed.
  *
- * 🔴 STILL NOT WRITTEN (owner-class, flagged via {@link unbankedResidual}, never dropped): the TREASURY /
- * winnings / spiralling-expenses / petty-cash composition. The final treasury is NOT in the result (only
- * the COMPONENTS) and the composition rule is fumbbl.com website-side, absent from fork source AND the
- * FUMBBLUI-derived contract (SR-185: owner-class, Christer-1:1). Inventing it would violate CE-1.
+ *   • BB2025 treasury — BANK the two server-owned components with no rules recomputation:
+ *     `treasury_new = treasury_old - treasurySpentOnInducements + winnings`. The BB2025 start sequence
+ *     explicitly records the part paid from roster treasury in `treasurySpentOnInducements`; its
+ *     `pettyCashUsed` is TV-difference allowance usage and therefore does not touch stored treasury.
+ *     `StepWinnings` has already folded stalling and concession into `<winnings>`; `stalled` is
+ *     display/audit state here and MUST NOT cause another subtraction.
+ *     Legacy-only `fanFactorModifier` / `pettyCashTransferred` / `spirallingExpenses` payloads are
+ *     rejected before any team task is built because their website-side composition is not BB2025.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -327,8 +331,7 @@ function recoverPriorInjuries(xml: string): string {
 
 /** Apply this game's numbers to ONE `<player ... id="PLAYERID">…</player>` block. Server-derived only. */
 function applyToPlayerBlock(block: string, pr: ParsedPlayerResult): string {
-  let out = block;
-  if (pr.currentSpps !== undefined) out = setCurrentSpps(out, pr.currentSpps);
+  let out = bankCurrentSpps(block, pr.currentSpps, pr.earnedSpps);
   out = addEarnedSpps(out, pr.earnedSpps);
   for (const s of STAT_INCREMENTS) out = bumpCounter(out, s.teamTag, s.from(pr));
   out = appendGainedHatred(out, pr.gainedHatred);
@@ -365,6 +368,87 @@ function applyDedicatedFans(teamXml: string, modifier: number | undefined): stri
   return teamXml.replace(element, element.replace(m[1]!, String(next)));
 }
 
+/** Read the fork roster player's spendable SPP baseline. Missing statistics/currentSpps is canonical 0. */
+function readCurrentSpps(playerBlock: string): number {
+  const openings = [...playerBlock.matchAll(/<playerStatistics\b[^>]*>/gi)];
+  if (openings.length === 0) {
+    if (/<playerStatistics\b/i.test(playerBlock)) throw new Error("persistent playerStatistics is malformed");
+    return 0;
+  }
+  if (openings.length !== 1) throw new Error("persistent player must contain at most one playerStatistics element");
+  const opening = openings[0]![0];
+  assertStatisticsOpening(opening);
+  const assignments = [...opening.matchAll(/\bcurrentSpps\s*=/gi)];
+  if (assignments.length > 1) throw new Error("playerStatistics has duplicate currentSpps attributes");
+  if (!assignments.length) return 0;
+  const exact = opening.match(/\bcurrentSpps="(\d+)"/i);
+  const current = exact ? Number(exact[1]) : Number.NaN;
+  if (!Number.isSafeInteger(current) || current < 0) throw new Error("playerStatistics has malformed currentSpps");
+  return current;
+}
+
+function bankCurrentSpps(playerBlock: string, baseline: number | undefined, earned: number | undefined): string {
+  if (baseline === undefined && earned === undefined) return playerBlock;
+  if (baseline === undefined || earned === undefined) throw new Error("server SPP result is missing its baseline or earned delta");
+  const persisted = readCurrentSpps(playerBlock);
+  if (persisted !== baseline) {
+    throw new Error(`server SPP baseline ${baseline} does not match persisted currentSpps ${persisted}`);
+  }
+  const next = baseline + earned;
+  if (!Number.isSafeInteger(next) || next < 0) throw new Error("currentSpps result would overflow or become invalid");
+  return setCurrentSpps(playerBlock, next);
+}
+
+/**
+ * Apply the BB2025 server-owned treasury components exactly once inside the normal per-team ledger.
+ * `winnings` and `treasurySpentOnInducements` are omitted by the serializer when zero, so absence is
+ * the exact zero delta. `pettyCashUsed` is deliberately not part of this equation: in the BB2025
+ * inducement step it is the TV-difference allowance consumed after the treasury contribution has
+ * already been split into `treasurySpentOnInducements`.
+ */
+function applyBb2025Treasury(teamXml: string, team: ParsedTeamResult): string {
+  const winnings = team.winnings ?? 0;
+  const spent = team.treasurySpentOnInducements ?? 0;
+
+  // Team-level state must live before the first player. Do not accept a nested/player treasury tag.
+  const playerAt = teamXml.search(/<player\b/i);
+  const header = playerAt < 0 ? teamXml : teamXml.slice(0, playerAt);
+  const tail = playerAt < 0 ? "" : teamXml.slice(playerAt);
+  const occurrences = [...header.matchAll(/<treasury\b[^>]*>[\s\S]*?<\/treasury>/gi)];
+  if (occurrences.length !== 1) {
+    throw new Error("BB2025 banking requires exactly one stored treasury value");
+  }
+  const element = occurrences[0]![0];
+  const exact = element.match(/^<treasury>\s*(\d+)\s*<\/treasury>$/i);
+  if (!exact) throw new Error("stored treasury value is malformed");
+  const prior = Number(exact[1]);
+  if (!Number.isSafeInteger(prior) || prior < 0 || spent > prior) {
+    throw new Error(`stored treasury ${exact[1]} cannot fund server-recorded inducement spend ${spent}`);
+  }
+  const next = prior - spent + winnings;
+  if (!Number.isSafeInteger(next) || next < 0) throw new Error("BB2025 treasury update would overflow or become negative");
+  return header.replace(element, element.replace(exact[1]!, String(next))) + tail;
+}
+
+/** Reject fields whose only step-owned producers belong to pre-BB2020/BB2025 banking contracts. */
+function assertBb2025ResultContract(team: ParsedTeamResult): void {
+  if (team.fanFactorModifier !== undefined) {
+    throw new Error(`team ${team.teamId} carries legacy fanFactorModifier; BB2025 banking refuses it`);
+  }
+  if (team.spirallingExpenses !== undefined) {
+    throw new Error(`team ${team.teamId} carries legacy spirallingExpenses; BB2025 banking refuses it`);
+  }
+  if (team.pettyCashTransferred !== undefined) {
+    throw new Error(`team ${team.teamId} carries legacy pettyCashTransferred; BB2025 banking refuses it`);
+  }
+  if (team.conceded && team.players.some((player) => player.currentSpps !== undefined || player.earnedSpps !== undefined)) {
+    throw new Error(`team ${team.teamId} conceded but carries starPlayerPoints cleared by canonical BB2025 end-game`);
+  }
+  if (team.players.some((player) => player.defecting) && (!team.conceded || team.concededLegally !== false)) {
+    throw new Error(`team ${team.teamId} carries server defection outside an illegal concession`);
+  }
+}
+
 /**
  * Build the applyFn for one team: apply the team-level df delta, then for each player result find its
  * `<player id="…">` block and apply the server numbers. Unknown playerIds are skipped (a star/merc in the
@@ -385,7 +469,10 @@ function makeApplyFn(team: ParsedTeamResult, roster: string | undefined): (xml: 
     const header = xml.slice(0, Math.max(0, xml.search(/<player\b/i)) || xml.length);
     const tracksTotalValue = /<(?:teamValue|tournamentWeight|teamRating|rating)>/i.test(header);
     const tracksCurrentValue = /<(?:currentTeamValue|teamStrength|strength)>/i.test(header);
-    let out = applyDedicatedFans(recoverPriorInjuries(xml), team.dedicatedFansModifier);
+    let out = applyBb2025Treasury(
+      applyDedicatedFans(recoverPriorInjuries(xml), team.dedicatedFansModifier),
+      team,
+    );
     let totalDelta = 0;
     let currentDelta = 0;
     for (const pr of team.players) {
@@ -406,7 +493,8 @@ function makeApplyFn(team: ParsedTeamResult, roster: string | undefined): (xml: 
       out = out.replace(re, (_m, open: string, inner: string, close: string) => {
         if (pr.defecting || pr.injuries.some(isDeadInjury)) return "";
         const living = { ...pr, injuries: pr.injuries.filter((injury) => !isDeadInjury(injury)) };
-        return `${open}${applyToPlayerBlock(inner, living)}${close}`;
+        const postConcession = team.conceded ? setCurrentSpps(inner, 0) : inner;
+        return `${open}${applyToPlayerBlock(postConcession, living)}${close}`;
       });
       const after = out.match(re)?.[0];
       const died = after === undefined;
@@ -432,31 +520,29 @@ const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 /** One `TeamBankTask` per team in the result. Feed straight into `bankGameResult`. */
 export function buildBankTasks(result: ParsedGameResult, teamsDir?: string): TeamBankTask[] {
+  // Validate the whole upload before returning any mutable task. A mixed legacy/BB2025 payload must
+  // not apply one team and fail on the other.
+  if (result.teams.length !== 2) throw new Error(`BB2025 result requires exactly two teamResult elements; found ${result.teams.length}`);
+  for (const team of result.teams) assertBb2025ResultContract(team);
   return result.teams.map((team) => ({
     teamId: team.teamId,
     applyFn: makeApplyFn(team, rosterForTeam(teamsDir, team.teamId)),
   }));
 }
 
-/** The server-computed numbers a v1 apply deliberately does NOT bank — the TREASURY composition (owner-
- *  class, SR-185 ①). Surfaced so the caller records them alongside the ledger instead of dropping them
- *  silently. SPP / stats / injuries / dedicatedFans are now banked, so they are NOT residual. */
+/** Unsupported legacy treasury components. Clean BB2025 results have no residuals. */
 export interface UnbankedResidual {
   teamId: string;
-  winnings?: number;
+  fanFactorModifier?: number;
   spirallingExpenses?: number;
-  treasurySpentOnInducements?: number;
   pettyCashTransferred?: number;
-  pettyCashUsed?: number;
 }
 
 export function unbankedResidual(result: ParsedGameResult): UnbankedResidual[] {
-  return result.teams.map((team) => ({
-    teamId: team.teamId,
-    winnings: team.winnings,
-    spirallingExpenses: team.spirallingExpenses,
-    treasurySpentOnInducements: team.treasurySpentOnInducements,
-    pettyCashTransferred: team.pettyCashTransferred,
-    pettyCashUsed: team.pettyCashUsed,
-  }));
+  return result.teams.flatMap((team) => {
+    return team.fanFactorModifier !== undefined || team.spirallingExpenses !== undefined || team.pettyCashTransferred !== undefined
+      ? [{ teamId: team.teamId, fanFactorModifier: team.fanFactorModifier, spirallingExpenses: team.spirallingExpenses,
+        pettyCashTransferred: team.pettyCashTransferred }]
+      : [];
+  });
 }

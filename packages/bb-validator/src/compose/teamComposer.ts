@@ -503,6 +503,7 @@ export function composeTeamIntrinsic(input: ComposeIntrinsicInput, now = Date.no
     `\t<rosterId>${xmlEscape(fork.rosterId)}</rosterId>\n` +
     `\t<reRolls>${input.reRolls}</reRolls>\n` +
     `\t<fanFactor>${input.dedicatedFans ?? 1}</fanFactor>\n` +
+    `\t<treasury>0</treasury>\n` +
     `\t<apothecaries>${input.apothecary ? 1 : 0}</apothecaries>\n` +
     `\t<teamRating>${tvUnits}</teamRating>\n` +
     `\t<currentTeamValue>${tvUnits}</currentTeamValue>\n` +
@@ -717,6 +718,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     `\t<rosterId>${xmlEscape(fork.rosterId)}</rosterId>\n` +
     `\t<reRolls>${input.reRolls}</reRolls>\n` +
     `\t<fanFactor>${input.dedicatedFans ?? 1}</fanFactor>\n` +
+    `\t<treasury>0</treasury>\n` +
     `\t<apothecaries>${input.apothecary ? 1 : 0}</apothecaries>\n` +
     `\t<teamRating>${tvUnits}</teamRating>\n` +
     `\t<currentTeamValue>${tvUnits}</currentTeamValue>\n` +

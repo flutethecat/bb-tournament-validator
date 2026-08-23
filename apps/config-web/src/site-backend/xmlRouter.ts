@@ -314,16 +314,23 @@ export async function handleXmlRequest(
       return (sendXml(res, 200, resultXml(false, `malformed result: ${(e as Error).message}`)), true);
     }
     if (parsed.teams.length === 0) return (sendXml(res, 200, resultXml(false, "result has no teamResult")), true);
-    const banked = bankGameResult(deps.banking, parsed.gameId, buildBankTasks(parsed, deps.teamsDir), f.value);
-    // Flag (never drop) the server numbers a v1 apply doesn't yet bank — treasury/injuries/fans.
+    let tasks;
+    try {
+      tasks = buildBankTasks(parsed, deps.teamsDir);
+    } catch (error) {
+      log(`result g${parsed.gameId} REFUSED before banking: ${(error as Error).message}`);
+      return (sendXml(res, 200, resultXml(false, `unsupported result contract: ${(error as Error).message}`)), true);
+    }
+    const banked = bankGameResult(deps.banking, parsed.gameId, tasks, f.value);
+    // Clean BB2025 results have no residuals; legacy-only treasury components are refused above.
     log(`result g${parsed.gameId}: applied=[${banked.applied.join(",")}] residual=${JSON.stringify(unbankedResidual(parsed))}`);
     if (!banked.ok) {
       if (banked.deferred) {
         try {
           await deferGameResult(deps.banking, parsed.gameId, f.value);
-          // The fork uploads once and only advances its own terminal game state on success. Once the
-          // exact authenticated payload is durable, the API owns replay and can acknowledge receipt.
-          return (sendXml(res, 200, resultXml(true, "result queued safely for banking after team/cache recovery")), true);
+          // Retain the exact authenticated one-shot payload, but do not tell the fork it was banked.
+          // A success response is terminal server-side; only an exact APPLIED ledger may authorize it.
+          return (sendXml(res, 200, resultXml(false, "result retained safely; banking awaits team/cache recovery")), true);
         } catch (error) {
           return (sendXml(res, 200, resultXml(false, `result could not be retained: ${(error as Error).message}`)), true);
         }

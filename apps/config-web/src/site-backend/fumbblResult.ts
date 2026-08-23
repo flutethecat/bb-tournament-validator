@@ -13,9 +13,9 @@
  * server-computed numbers into a typed object. The banking apply (`fumbblResultBanking.ts`) consumes
  * it. Deliberately split so the parser is unit-testable against a captured upload with no filesystem.
  *
- * ⚠ FIDELITY: `starPlayerPoints @current` is the AUTHORITATIVE post-game SPP TOTAL the server computed
- * (`PlayerResult.getCurrentSpps()`), and `@earned` is that game's gain. The banker SETS current, it does
- * not add earned to a local base — that is CE-1 (bank the server's number, never recompute).
+ * ⚠ FIDELITY: `starPlayerPoints @current` is the PRE-GAME spendable SPP baseline copied from the
+ * roster player into PlayerResult by GameCache; `@earned` is the server-computed match delta. The banker
+ * verifies the persisted baseline and writes `current + earned`.
  */
 
 /** A single `<playerResult>` (`FumbblResult.java:330-440`). Absent optional counters default to 0. */
@@ -26,9 +26,9 @@ export interface ParsedPlayerResult {
   name?: string;
   gender?: string;
   defecting: boolean;
-  /** `<starPlayerPoints @current>` — the AUTHORITATIVE new total (set, don't add). undefined ⇒ no SPP block. */
+  /** `<starPlayerPoints @current>` — authoritative PRE-GAME spendable SPP baseline. */
   currentSpps?: number;
-  /** `<starPlayerPoints @earned>` — this game's gain (for audit/logging; banking uses current). */
+  /** `<starPlayerPoints @earned>` — this game's server-computed gain. */
   earnedSpps?: number;
   completions: number;
   touchdowns: number;
@@ -47,6 +47,18 @@ export interface ParsedPlayerResult {
   /** `<gainedHatred><keyword>` lowercased keywords (`:429-434`). */
   gainedHatred: string[];
 }
+
+/** Exact BB2025 `SeriousInjury.getName()` values accepted by `SeriousInjuryFactory.forName`. */
+const BB2025_SERIOUS_INJURIES = new Set([
+  "Seriously Hurt (MNG)",
+  "Serious Injury (NI)",
+  "Head Injury (-AV)",
+  "Smashed Knee (-MA)",
+  "Broken Arm (-PA)",
+  "Dislocated Hip (-AG)",
+  "Dislocated Shoulder (-ST)",
+  "Dead (RIP)",
+]);
 
 /** A `<teamResult teamId>` (`FumbblResult.java:158-232`). Money/modifier fields are omitted by the
  *  serializer when zero/non-positive — absent ⇒ 0 (or false), which the banker treats as "no delta". */
@@ -233,6 +245,17 @@ function validateParsedResult(result: ParsedGameResult): void {
         casualties: player.casualties, playerAwards: player.playerAwards, landings: player.landings,
         blocks: player.blocks, fouls: player.fouls, turnsPlayed: player.turnsPlayed,
       })) requireNonnegative(label, value);
+      if ((player.currentSpps === undefined) !== (player.earnedSpps === undefined)) {
+        throw new Error("starPlayerPoints must carry both current baseline and earned delta");
+      }
+      if (player.earnedSpps !== undefined && player.earnedSpps === 0) {
+        throw new Error("serialized starPlayerPoints earned delta must be positive");
+      }
+      for (const injury of player.injuries) {
+        if (!BB2025_SERIOUS_INJURIES.has(injury)) {
+          throw new Error(`unknown BB2025 serious injury ${JSON.stringify(injury)}`);
+        }
+      }
       // The server serializer deliberately emits signed yardage. It is still parsed by `num`,
       // which requires a finite safe integer; do not reject legitimate negative movement.
       for (const [label, value] of Object.entries({ rushing: player.rushing, passing: player.passing })) {
@@ -259,7 +282,18 @@ function parseTeamResult(block: string): ParsedTeamResult {
   const casualtyMatch = casualtyContainers[0]?.match(/^<casualtiesSuffered\b([^>]*)\/>$/);
   if (casualtyContainers.length && !casualtyMatch) throw new Error("malformed <casualtiesSuffered> container");
   const cas = casualtyMatch?.[1] ?? "";
+  const concededElement = el(teamScope, "conceded");
+  const stalledElement = el(teamScope, "stalled");
+  if (concededElement === undefined) throw new Error("teamResult is missing canonical <conceded>");
+  if (stalledElement === undefined) throw new Error("teamResult is missing canonical <stalled>");
   const conceded = bool(teamScope, "conceded");
+  const concededLegallyElement = el(teamScope, "concededLegally");
+  if (conceded && concededLegallyElement === undefined) {
+    throw new Error("conceded teamResult is missing canonical <concededLegally>");
+  }
+  if (!conceded && concededLegallyElement !== undefined) {
+    throw new Error("non-conceded teamResult must not carry <concededLegally>");
+  }
   return {
     teamId: attr(block, "teamId") ?? "",
     score: num(teamScope, "score") ?? 0,

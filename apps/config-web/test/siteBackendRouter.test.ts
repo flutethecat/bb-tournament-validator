@@ -10,7 +10,7 @@ import { boundaryFromContentType, parseMultipart } from "../src/site-backend/mul
 import { GameStateRegistry, renderGameState } from "../src/site-backend/gameState.js";
 import { handleXmlRequest, type SiteBackendDeps } from "../src/site-backend/xmlRouter.js";
 import { replayDeferredGameResults } from "../src/site-backend/banking.js";
-import { acknowledgeForkCacheReload, acquirePendingGameResultsWriteLock, acquireTeamNameWriteLock, adminResponse, forkCacheReloadRequired, markForkCacheReloadRequired } from "@bb/fork-ops";
+import { acknowledgeForkCacheReload, acquirePendingGameResultsWriteLock, acquireTeamNameWriteLock, adminResponse, forkCacheReloadRequired, markForkCacheReloadRequired, readLibrary, upsertLibraryTeam } from "@bb/fork-ops";
 import { composeTeamIntrinsic } from "@bb/validator";
 
 // A FumbblResult document shaped exactly by the fork's FumbblResult.addToXml serializer.
@@ -22,9 +22,9 @@ const SAMPLE_RESULT = `<gameResult replayId="55123" halves="2">
     <playerResultList>
       <playerResult playerId="17854689" playerType="regular" gender="nonbinary" name="tzofiana" positionId="66238">
         <defecting>false</defecting>
-        <starPlayerPoints current="7" earned="6"><touchdowns>1</touchdowns><casualties>1</casualties></starPlayerPoints>
+        <starPlayerPoints current="1" earned="6"><touchdowns>1</touchdowns><casualties>1</casualties></starPlayerPoints>
         <statistics><blocks>3</blocks><fouls>1</fouls><turnsPlayed>16</turnsPlayed></statistics>
-        <injury>SmashedKnee</injury>
+        <injury>Smashed Knee (-MA)</injury>
       </playerResult>
     </playerResultList>
   </teamResult>
@@ -48,13 +48,13 @@ describe("parseFumbblResult", () => {
     expect(home.casualtiesSuffered).toEqual({ badlyHurt: 1, seriousInjury: 0, rip: 0 });
     const p = home.players[0]!;
     expect(p.playerId).toBe("17854689");
-    expect(p.currentSpps).toBe(7); // authoritative total (@current), not old+earned
+    expect(p.currentSpps).toBe(1); // authoritative pre-game baseline
     expect(p.earnedSpps).toBe(6);
     expect(p.touchdowns).toBe(1);
     expect(p.casualties).toBe(1);
     expect(p.blocks).toBe(3);
     expect(p.fouls).toBe(1);
-    expect(p.injuries).toEqual(["SmashedKnee"]);
+    expect(p.injuries).toEqual(["Smashed Knee (-MA)"]);
   });
 
   it("reads concededLegally only when conceded", () => {
@@ -62,6 +62,14 @@ describe("parseFumbblResult", () => {
     expect(r.teams[0]!.concededLegally).toBeUndefined();
     expect(r.teams[1]!.conceded).toBe(true);
     expect(r.teams[1]!.concededLegally).toBe(true);
+    expect(() => parseFumbblResult(SAMPLE_RESULT.replace(
+      "<conceded>false</conceded>",
+      "<conceded>false</conceded><concededLegally>false</concededLegally>",
+    ))).toThrow(/non-conceded.*concededLegally/i);
+    expect(() => parseFumbblResult(SAMPLE_RESULT.replace(
+      "<conceded>true</conceded><concededLegally>true</concededLegally>",
+      "<conceded>true</conceded>",
+    ))).toThrow(/missing canonical <concededLegally>/i);
   });
 
   it("rejects traversal IDs, NaN, negative counters, and unsafe fan modifiers", () => {
@@ -69,6 +77,8 @@ describe("parseFumbblResult", () => {
     expect(() => parseFumbblResult(SAMPLE_RESULT.replace("<score>2</score>", "<score>NaN</score>"))).toThrow(/score/);
     expect(() => parseFumbblResult(SAMPLE_RESULT.replace("<touchdowns>1</touchdowns>", "<touchdowns>-1</touchdowns>"))).toThrow(/touchdowns/);
     expect(() => parseFumbblResult(SAMPLE_RESULT.replace("<dedicatedFansModifier>1</dedicatedFansModifier>", "<dedicatedFansModifier>8</dedicatedFansModifier>"))).toThrow(/dedicatedFansModifier/);
+    expect(() => parseFumbblResult(SAMPLE_RESULT.replace("Smashed Knee (-MA)", "SmashedKnee")))
+      .toThrow(/unknown BB2025 serious injury/i);
   });
 
   it("rejects malformed booleans and duplicate team/player identities", () => {
@@ -81,7 +91,7 @@ describe("parseFumbblResult", () => {
 
   it("rejects duplicate scalars, duplicate SPP containers, and data outside the root", () => {
     expect(() => parseFumbblResult(SAMPLE_RESULT.replace("<score>2</score>", "<score>2</score><score>1</score>"))).toThrow(/duplicate <score>/i);
-    expect(() => parseFumbblResult(SAMPLE_RESULT.replace('current="7"', 'current="7" current="8"'))).toThrow(/duplicate current attribute/i);
+    expect(() => parseFumbblResult(SAMPLE_RESULT.replace('current="1"', 'current="1" current="8"'))).toThrow(/duplicate current attribute/i);
     const spp = SAMPLE_RESULT.match(/<starPlayerPoints\b[\s\S]*?<\/starPlayerPoints>/)![0];
     expect(() => parseFumbblResult(SAMPLE_RESULT.replace(spp, `${spp}${spp}`))).toThrow(/duplicate <starPlayerPoints>/i);
     expect(() => parseFumbblResult(`${SAMPLE_RESULT}<trailing/>`)).toThrow(/no <gameResult> root/i);
@@ -159,18 +169,18 @@ describe("GameStateRegistry (TP-4 fail-loud)", () => {
 
 describe("buildBankTasks (server-derived apply, CE-1)", () => {
   const TEAM_XML =
-    `<team id="900001"><dedicatedFans>3</dedicatedFans><coach>flutethecat</coach><name>T</name>` +
+    `<team id="900001"><dedicatedFans>3</dedicatedFans><coach>flutethecat</coach><name>T</name><treasury>60000</treasury>` +
     `<player status="Active" nr="1" id="17854689"><name>tzofiana</name>` +
     `<playerStatistics currentSpps="1"><completions>0</completions><touchdowns>0</touchdowns>` +
     `<interceptions>0</interceptions><casualties>1</casualties><mvps>1</mvps><passing>0</passing>` +
     `<rushing>0</rushing><blocks>35</blocks><fouls>0</fouls><games>5</games></playerStatistics>` +
     `<injuryList/></player></team>`;
 
-  it("sets currentSpps to the authoritative total and bumps lifetime counters", () => {
+  it("verifies the pre-game SPP baseline, adds the server-earned delta, and bumps lifetime counters", () => {
     const tasks = buildBankTasks(parseFumbblResult(SAMPLE_RESULT));
     const homeTask = tasks.find((t) => t.teamId === "900001")!;
     const out = homeTask.applyFn(TEAM_XML);
-    expect(out).toContain(`currentSpps="7"`); // SET, not 1+6
+    expect(out).toContain(`currentSpps="7"`); // baseline 1 + server-earned 6
     expect(out).toContain(`earnedSpps="7"`); // no prior advancement: authoritative current total is exact lifetime SPP
     expect(out).toContain("<touchdowns>1</touchdowns>"); // 0 + 1
     expect(out).toContain("<casualties>2</casualties>"); // 1 + 1
@@ -179,7 +189,7 @@ describe("buildBankTasks (server-derived apply, CE-1)", () => {
     expect(out).toContain("<mvps>1</mvps>"); // unchanged (no playerAward)
   });
 
-  it("accumulates lifetime earned SPP without changing the authoritative current-total semantics", () => {
+  it("accumulates lifetime earned SPP independently of the spendable baseline-plus-delta balance", () => {
     const prior = TEAM_XML.replace('currentSpps="1"', 'currentSpps="1" earnedSpps="9"');
     const out = buildBankTasks(parseFumbblResult(SAMPLE_RESULT)).find((t) => t.teamId === "900001")!.applyFn(prior);
     expect(out).toContain('currentSpps="7"');
@@ -195,9 +205,10 @@ describe("buildBankTasks (server-derived apply, CE-1)", () => {
 
   it("creates canonical statistics and missing zero counters on a player's first result", () => {
     const withoutStatistics = TEAM_XML.replace(/<playerStatistics\b[^>]*>[\s\S]*?<\/playerStatistics>/, "");
-    const out = buildBankTasks(parseFumbblResult(SAMPLE_RESULT)).find((t) => t.teamId === "900001")!.applyFn(withoutStatistics);
-    expect(out).toMatch(/<playerStatistics\b[^>]*\bcurrentSpps="7"[^>]*>/);
-    expect(out).toMatch(/<playerStatistics\b[^>]*\bearnedSpps="7"[^>]*>/);
+    const firstResult = SAMPLE_RESULT.replace('current="1"', 'current="0"');
+    const out = buildBankTasks(parseFumbblResult(firstResult)).find((t) => t.teamId === "900001")!.applyFn(withoutStatistics);
+    expect(out).toMatch(/<playerStatistics\b[^>]*\bcurrentSpps="6"[^>]*>/);
+    expect(out).toMatch(/<playerStatistics\b[^>]*\bearnedSpps="6"[^>]*>/);
     expect(out).toContain("<touchdowns>1</touchdowns>");
     expect(out).toContain("<casualties>1</casualties>");
     expect(out).toContain("<blocks>3</blocks>");
@@ -239,11 +250,10 @@ describe("buildBankTasks (server-derived apply, CE-1)", () => {
       const firstResult = SAMPLE_RESULT.match(/<playerResult playerId="17854689"[\s\S]*?<\/playerResult>/)![0]
         .replace('playerId="17854689"', `playerId="${playerIds[0]}"`)
         .replace('positionId="66238"', 'positionId="43609"')
-        .replace('current="7"', 'current="6"');
+        .replace('current="1"', 'current="0"');
       const quietResults = playerIds.slice(1).map((id) =>
         `<playerResult playerId="${id}" playerType="regular" name="quiet" positionId="43609">` +
-        `<defecting>false</defecting><starPlayerPoints current="0" earned="0"></starPlayerPoints>` +
-        `<statistics></statistics></playerResult>`).join("");
+        `<defecting>false</defecting><statistics></statistics></playerResult>`).join("");
       const resultXml = SAMPLE_RESULT
         .replace('teamId="900001"', `teamId="${composed.teamId}"`)
         .replace(/<playerResultList>[\s\S]*?<\/playerResultList>/, `<playerResultList>${firstResult}${quietResults}</playerResultList>`);
@@ -252,7 +262,7 @@ describe("buildBankTasks (server-derived apply, CE-1)", () => {
         .find((task) => task.teamId === composed.teamId)!.applyFn(composed.xml);
       expect(out).toContain('currentSpps="6" earnedSpps="6"');
       expect(out).toContain("<touchdowns>1</touchdowns>");
-      expect(out).toContain('<injuryList><injury recovering="true">SmashedKnee</injury></injuryList>');
+      expect(out).toContain('<injuryList><injury recovering="true">Smashed Knee (-MA)</injury></injuryList>');
       expect(out).toContain("<fanFactor>2</fanFactor>");
       expect(out).toContain("<teamRating>62</teamRating>");
       expect(out).toContain("<currentTeamValue>58</currentTeamValue>");
@@ -265,12 +275,91 @@ describe("buildBankTasks (server-derived apply, CE-1)", () => {
   it("appends serious injuries to <injuryList> per the fork-parser schema (SR-185 ②)", () => {
     const tasks = buildBankTasks(parseFumbblResult(SAMPLE_RESULT));
     const out = tasks.find((t) => t.teamId === "900001")!.applyFn(TEAM_XML);
-    expect(out).toContain('<injuryList><injury recovering="true">SmashedKnee</injury></injuryList>');
+    expect(out).toContain('<injuryList><injury recovering="true">Smashed Knee (-MA)</injury></injuryList>');
   });
 
   it("banks dedicatedFans VERBATIM when in range (SR-185 ③, no clamp)", () => {
     const out = buildBankTasks(parseFumbblResult(SAMPLE_RESULT)).find((t) => t.teamId === "900001")!.applyFn(TEAM_XML);
     expect(out).toContain("<dedicatedFans>4</dedicatedFans>"); // 3 + modifier 1, not clamped
+  });
+
+  it("fails closed when the server SPP baseline does not match persistent pre-game state", () => {
+    const stale = SAMPLE_RESULT.replace('current="1"', 'current="2"');
+    const task = buildBankTasks(parseFumbblResult(stale)).find((candidate) => candidate.teamId === "900001")!;
+    expect(() => task.applyFn(TEAM_XML)).toThrow(/baseline 2 does not match persisted currentSpps 1/i);
+  });
+
+  it("rejects malformed SPP pairs and overflow instead of guessing a balance", () => {
+    expect(() => parseFumbblResult(SAMPLE_RESULT.replace(' current="1"', ""))).toThrow(/both current baseline and earned delta/i);
+    expect(() => parseFumbblResult(SAMPLE_RESULT.replace(' earned="6"', ""))).toThrow(/both current baseline and earned delta/i);
+    expect(() => parseFumbblResult(SAMPLE_RESULT.replace('earned="6"', 'earned="0"'))).toThrow(/earned delta must be positive/i);
+    const max = Number.MAX_SAFE_INTEGER;
+    const overflow = SAMPLE_RESULT.replace('current="1" earned="6"', `current="${max}" earned="1"`);
+    const stored = TEAM_XML.replace('currentSpps="1"', `currentSpps="${max}"`);
+    expect(() => buildBankTasks(parseFumbblResult(overflow)).find((candidate) => candidate.teamId === "900001")!
+      .applyFn(stored)).toThrow(/overflow/i);
+  });
+
+  it("clears spendable current SPP on canonical BB2025 concession while preserving lifetime provenance", () => {
+    const conceded = SAMPLE_RESULT
+      .replace("<conceded>false</conceded>", "<conceded>true</conceded><concededLegally>false</concededLegally>")
+      .replace(/<starPlayerPoints\b[\s\S]*?<\/starPlayerPoints>/, "");
+    const prior = TEAM_XML.replace('currentSpps="1"', 'currentSpps="1" earnedSpps="9"');
+    const out = buildBankTasks(parseFumbblResult(conceded)).find((candidate) => candidate.teamId === "900001")!.applyFn(prior);
+    expect(out).toContain('currentSpps="0"');
+    expect(out).toContain('earnedSpps="9"');
+    expect(() => buildBankTasks(parseFumbblResult(conceded.replace("<statistics>",
+      '<starPlayerPoints current="1" earned="1"></starPlayerPoints><statistics>'))))
+      .toThrow(/conceded but carries starPlayerPoints/i);
+  });
+
+  it("banks BB2025 treasury from the server's explicit winnings and treasury-spend components", () => {
+    const result = SAMPLE_RESULT.replace("<winnings>60000</winnings>",
+      "<winnings>60000</winnings><treasurySpentOnInducements>20000</treasurySpentOnInducements>");
+    const out = buildBankTasks(parseFumbblResult(result)).find((task) => task.teamId === "900001")!
+      .applyFn(TEAM_XML.replace("<treasury>60000</treasury>", "<treasury>100000</treasury>"));
+    expect(out).toContain("<treasury>140000</treasury>"); // 100000 - 20000 + 60000
+  });
+
+  it("does not subtract BB2025 TV-difference petty-cash allowance from stored treasury", () => {
+    const result = SAMPLE_RESULT.replace("<winnings>60000</winnings>",
+      "<winnings>60000</winnings><pettyCashUsed>50000</pettyCashUsed>");
+    const out = buildBankTasks(parseFumbblResult(result)).find((task) => task.teamId === "900001")!.applyFn(TEAM_XML);
+    expect(out).toContain("<treasury>120000</treasury>");
+  });
+
+  it("does not double-apply the stalling penalty already folded into server winnings", () => {
+    const stalled = SAMPLE_RESULT.replace("<stalled>false</stalled>", "<stalled>true</stalled>");
+    const out = buildBankTasks(parseFumbblResult(stalled)).find((task) => task.teamId === "900001")!
+      .applyFn(TEAM_XML);
+    expect(out).toContain("<treasury>120000</treasury>"); // stored 60000 + server-owned winnings 60000
+  });
+
+  it("fails closed on unrepresentable treasury and legacy money contracts", () => {
+    const task = buildBankTasks(parseFumbblResult(SAMPLE_RESULT)).find((candidate) => candidate.teamId === "900001")!;
+    expect(() => task.applyFn(TEAM_XML.replace("<treasury>60000</treasury>", ""))).toThrow(/exactly one stored treasury/i);
+    expect(() => task.applyFn(TEAM_XML.replace("<treasury>60000</treasury>", "<treasury>NaN</treasury>")))
+      .toThrow(/treasury value is malformed/i);
+    expect(() => task.applyFn(TEAM_XML.replace("<treasury>60000</treasury>", '<treasury currency="gold">60000</treasury>')))
+      .toThrow(/treasury value is malformed/i);
+    const overspend = SAMPLE_RESULT.replace("<winnings>60000</winnings>",
+      "<winnings>60000</winnings><treasurySpentOnInducements>70000</treasurySpentOnInducements>");
+    expect(() => buildBankTasks(parseFumbblResult(overspend)).find((candidate) => candidate.teamId === "900001")!
+      .applyFn(TEAM_XML)).toThrow(/cannot fund/i);
+    expect(() => buildBankTasks(parseFumbblResult(SAMPLE_RESULT.replace("<winnings>60000</winnings>",
+      "<winnings>60000</winnings><pettyCashTransferred>10000</pettyCashTransferred>"))))
+      .toThrow(/legacy pettyCashTransferred/i);
+    expect(() => buildBankTasks(parseFumbblResult(SAMPLE_RESULT.replace("<winnings>60000</winnings>",
+      "<winnings>60000</winnings><spirallingExpenses>10000</spirallingExpenses>"))))
+      .toThrow(/legacy spirallingExpenses/i);
+    expect(() => buildBankTasks(parseFumbblResult(SAMPLE_RESULT.replace("<winnings>60000</winnings>",
+      "<winnings>60000</winnings><fanFactorModifier>1</fanFactorModifier>"))))
+      .toThrow(/legacy fanFactorModifier/i);
+    for (const legacyTag of ["fanFactorModifier", "spirallingExpenses", "pettyCashTransferred"]) {
+      expect(() => buildBankTasks(parseFumbblResult(SAMPLE_RESULT.replace("<winnings>60000</winnings>",
+        `<winnings>60000</winnings><${legacyTag}>0</${legacyTag}>`))))
+        .toThrow(new RegExp(`legacy ${legacyTag}`, "i"));
+    }
   });
 
   it("QUARANTINES (throws) an out-of-range dedicatedFans instead of clamping (SR-185 ③)", () => {
@@ -290,12 +379,13 @@ describe("buildBankTasks (server-derived apply, CE-1)", () => {
     const out = buildBankTasks(parseFumbblResult(SAMPLE_RESULT)).find((t) => t.teamId === "900001")!.applyFn(prior);
     expect(out).toContain("<injury>Smashed Knee (-MA)</injury>");
     expect(out).not.toContain(">Seriously Hurt (MNG)</injury>");
-    expect(out).toContain('<injury recovering="true">SmashedKnee</injury>');
+    expect(out).toContain('<injury recovering="true">Smashed Knee (-MA)</injury>');
   });
 
   it("continues accumulating a signed yardage counter across later games", () => {
     const first = SAMPLE_RESULT.replace("</statistics>", "<passing>-3</passing></statistics>");
-    const second = SAMPLE_RESULT.replace("</statistics>", "<passing>2</passing></statistics>");
+    const second = SAMPLE_RESULT.replace(/<starPlayerPoints\b[\s\S]*?<\/starPlayerPoints>/, "")
+      .replace("</statistics>", "<passing>2</passing></statistics>");
     const firstOut = buildBankTasks(parseFumbblResult(first)).find((t) => t.teamId === "900001")!.applyFn(TEAM_XML);
     expect(firstOut).toContain("<passing>-3</passing>");
     const secondOut = buildBankTasks(parseFumbblResult(second)).find((t) => t.teamId === "900001")!.applyFn(firstOut);
@@ -303,13 +393,23 @@ describe("buildBankTasks (server-derived apply, CE-1)", () => {
   });
 
   it("removes a dead roster player instead of leaving a playable ghost", () => {
-    const deadResult = SAMPLE_RESULT.replace("<injury>SmashedKnee</injury>", "<injury>Dead (RIP)</injury>");
+    const deadResult = SAMPLE_RESULT.replace("<injury>Smashed Knee (-MA)</injury>", "<injury>Dead (RIP)</injury>");
     const out = buildBankTasks(parseFumbblResult(deadResult)).find((t) => t.teamId === "900001")!.applyFn(TEAM_XML);
     expect(out).not.toContain('id="17854689"');
   });
 
   it("removes a server-marked defecting player", () => {
-    const defecting = SAMPLE_RESULT.replace("<defecting>false</defecting>", "<defecting>true</defecting>");
+    expect(() => buildBankTasks(parseFumbblResult(
+      SAMPLE_RESULT.replace("<defecting>false</defecting>", "<defecting>true</defecting>"),
+    ))).toThrow(/defection outside an illegal concession/i);
+    const defecting = SAMPLE_RESULT
+      .replace("<conceded>false</conceded>", "<conceded>true</conceded><concededLegally>false</concededLegally>")
+      .replace(
+        '<teamResult teamId="900002">\n    <score>1</score><conceded>true</conceded><concededLegally>true</concededLegally>',
+        '<teamResult teamId="900002">\n    <score>1</score><conceded>false</conceded>',
+      )
+      .replace(/<starPlayerPoints\b[\s\S]*?<\/starPlayerPoints>/, "")
+      .replace("<defecting>false</defecting>", "<defecting>true</defecting>");
     const out = buildBankTasks(parseFumbblResult(defecting)).find((t) => t.teamId === "900001")!.applyFn(TEAM_XML);
     expect(out).not.toContain('id="17854689"');
   });
@@ -319,7 +419,9 @@ describe("buildBankTasks (server-derived apply, CE-1)", () => {
     const task = buildBankTasks(parseFumbblResult(hatred)).find((t) => t.teamId === "900001")!;
     const withSkillList = TEAM_XML.replace("<injuryList/>", "<skillList/><injuryList/>");
     const first = task.applyFn(withSkillList);
-    const second = task.applyFn(first);
+    const secondResult = hatred.replace(/<starPlayerPoints\b[\s\S]*?<\/starPlayerPoints>/, "");
+    const second = buildBankTasks(parseFumbblResult(secondResult)).find((candidate) => candidate.teamId === "900001")!
+      .applyFn(first);
     expect(first).toContain('<skill value="orc">Hatred</skill>');
     expect((second.match(/>Hatred<\/skill>/g) ?? []).length).toBe(1);
   });
@@ -338,6 +440,29 @@ describe("buildBankTasks (server-derived apply, CE-1)", () => {
       .not.toThrow();
   });
 
+  it("banks a pre-game journeyman by persistent id while preserving its website-owned status", () => {
+    const journeyman = TEAM_XML.replace('status="Active"', 'status="journeyman"')
+      .replace("<injuryList/>", "<skillList><skill>Loner</skill></skillList><injuryList/>");
+    const out = buildBankTasks(parseFumbblResult(SAMPLE_RESULT)).find((task) => task.teamId === "900001")!
+      .applyFn(journeyman);
+    expect(out).toContain('<player status="journeyman" nr="1" id="17854689">');
+    expect(out).toContain("<skill>Loner</skill>");
+    expect(out).toContain('currentSpps="7"');
+  });
+
+  it("fails closed on server-created Raised From Dead and Plague Ridden insertions until retention is selected", () => {
+    const extra = SAMPLE_RESULT.match(/<playerResult playerId="17854689"[\s\S]*?<\/playerResult>/)![0]
+      .replace('playerId="17854689"', 'playerId="victimR1"')
+      .replace(/<starPlayerPoints\b[\s\S]*?<\/starPlayerPoints>/, "")
+      .replace("<injury>Smashed Knee (-MA)</injury>", "");
+    for (const playerType of ["RaisedFromDead", "PlagueRidden"]) {
+      const result = SAMPLE_RESULT.replace("</playerResultList>",
+        `${extra.replace('playerType="regular"', `playerType="${playerType}"`)}</playerResultList>`);
+      expect(() => buildBankTasks(parseFumbblResult(result)).find((task) => task.teamId === "900001")!
+        .applyFn(TEAM_XML)).toThrow(new RegExp(`server-created ${playerType} player victimR1`, "i"));
+    }
+  });
+
   it("rejects a truncated result before recovering an omitted persistent player", () => {
     const second = `<player status="Active" nr="2" id="p2"><name>omitted</name>` +
       `<playerStatistics currentSpps="0"><completions>0</completions><touchdowns>0</touchdowns>` +
@@ -352,7 +477,7 @@ describe("buildBankTasks (server-derived apply, CE-1)", () => {
   it("creates a missing injuryList but rejects a malformed existing representation", () => {
     const noInjuryList = TEAM_XML.replace("<injuryList/>", "");
     expect(buildBankTasks(parseFumbblResult(SAMPLE_RESULT)).find((t) => t.teamId === "900001")!.applyFn(noInjuryList))
-      .toContain('<injuryList><injury recovering="true">SmashedKnee</injury></injuryList>');
+      .toContain('<injuryList><injury recovering="true">Smashed Knee (-MA)</injury></injuryList>');
     expect(() => buildBankTasks(parseFumbblResult(SAMPLE_RESULT)).find((t) => t.teamId === "900001")!
       .applyFn(TEAM_XML.replace("<injuryList/>", "<injuryList>"))).toThrow(/injuryList is malformed/i);
   });
@@ -374,15 +499,23 @@ describe("buildBankTasks (server-derived apply, CE-1)", () => {
       const mng = buildBankTasks(parseFumbblResult(SAMPLE_RESULT), teamsDir).find((t) => t.teamId === "900001")!.applyFn(valued);
       expect(mng).toContain("<teamValue>100000</teamValue>");
       expect(mng).toContain("<currentTeamValue>0</currentTeamValue>");
-      const recoveredResult = SAMPLE_RESULT.replace("<injury>SmashedKnee</injury>", "");
+      const recoveredResult = SAMPLE_RESULT.replace(/<starPlayerPoints\b[\s\S]*?<\/starPlayerPoints>/, "")
+        .replace("<injury>Smashed Knee (-MA)</injury>", "");
       const recovered = buildBankTasks(parseFumbblResult(recoveredResult), teamsDir).find((t) => t.teamId === "900001")!.applyFn(mng);
       expect(recovered).toContain("<currentTeamValue>100000</currentTeamValue>");
-      const deadResult = SAMPLE_RESULT.replace("<injury>SmashedKnee</injury>", "<injury>Dead (RIP)</injury>");
+      const deadResult = SAMPLE_RESULT.replace(/<starPlayerPoints\b[\s\S]*?<\/starPlayerPoints>/, "")
+        .replace("<injury>Smashed Knee (-MA)</injury>", "<injury>Dead (RIP)</injury>");
       const dead = buildBankTasks(parseFumbblResult(deadResult), teamsDir).find((t) => t.teamId === "900001")!.applyFn(recovered);
       expect(dead).toContain("<teamValue>0</teamValue>");
       expect(dead).toContain("<currentTeamValue>0</currentTeamValue>");
-      const defectingResult = SAMPLE_RESULT.replace("<defecting>false</defecting>", "<defecting>true</defecting>")
-        .replace("<injury>SmashedKnee</injury>", "");
+      const defectingResult = SAMPLE_RESULT.replace(/<starPlayerPoints\b[\s\S]*?<\/starPlayerPoints>/, "")
+        .replace("<conceded>false</conceded>", "<conceded>true</conceded><concededLegally>false</concededLegally>")
+        .replace(
+          '<teamResult teamId="900002">\n    <score>1</score><conceded>true</conceded><concededLegally>true</concededLegally>',
+          '<teamResult teamId="900002">\n    <score>1</score><conceded>false</conceded>',
+        )
+        .replace("<defecting>false</defecting>", "<defecting>true</defecting>")
+        .replace("<injury>Smashed Knee (-MA)</injury>", "");
       const defected = buildBankTasks(parseFumbblResult(defectingResult), teamsDir).find((t) => t.teamId === "900001")!.applyFn(valued);
       expect(defected).toContain("<teamValue>0</teamValue>");
       expect(defected).toContain("<currentTeamValue>0</currentTeamValue>");
@@ -397,11 +530,8 @@ describe("buildBankTasks (server-derived apply, CE-1)", () => {
     }
   });
 
-  it("residual now carries ONLY the owner-class treasury components (SPP/stats/injuries/df are banked)", () => {
-    const residual = unbankedResidual(parseFumbblResult(SAMPLE_RESULT));
-    const home = residual.find((r) => r.teamId === "900001")!;
-    expect(home.winnings).toBe(60000);
-    expect("injuries" in home).toBe(false); // injuries are banked, not residual
+  it("has no unbanked residual for a clean BB2025 result", () => {
+    expect(unbankedResidual(parseFumbblResult(SAMPLE_RESULT))).toEqual([]);
   });
 });
 
@@ -443,9 +573,14 @@ describe("handleXmlRequest (Dialect-1 router)", () => {
     );
     writeFileSync(
       join(teamsDir, "team_gondra87_900002.xml"),
-      `<team id="900002" status="1"><coach>Gondra87</coach><name>Away</name><rosterId>8587</rosterId></team>`,
+      `<team id="900002" status="1"><coach>Gondra87</coach><name>Away</name><rosterId>8587</rosterId><treasury>0</treasury></team>`,
       "utf8",
     );
+    const libraryDir = join(root, "library");
+    upsertLibraryTeam(libraryDir, "flutethecat", {
+      teamId: "900001", teamName: "Home", race: "Test", coach: "flutethecat", teamValue: 1300,
+      gold: 60000, forkLoadable: true, ingestedAt: "2026-08-22T00:00:00Z",
+    });
     deps = {
       nonce: new NonceStore(),
       games: new GameStateRegistry({
@@ -453,7 +588,7 @@ describe("handleXmlRequest (Dialect-1 router)", () => {
           existsSync(join(teamsDir, `team_flutethecat_${id}.xml`)) || existsSync(join(teamsDir, `team_gondra87_${id}.xml`)),
       }),
       teamsDir,
-      banking: { resultsDir: join(root, "results"), teamsDir },
+      banking: { resultsDir: join(root, "results"), teamsDir, libraryDir },
       verifyAuth: async (_coach, nonce, response) => response === adminResponse(nonce, storedMd5),
       log: () => {},
       serviceUser: "forkservice",
@@ -552,12 +687,12 @@ describe("handleXmlRequest (Dialect-1 router)", () => {
     expect(resp.res.body).toContain("auth: service auth unconfigured");
   });
 
-  const postResult = async (responsePart: string, includeF = true) => {
+  const postResult = async (responsePart: string, includeF = true, resultXml = SAMPLE_RESULT) => {
     const boundary = "----b";
     const body = Buffer.from(
       `--${boundary}\r\nContent-Disposition: form-data; name="response"\r\n\r\n${responsePart}\r\n` +
         (includeF
-          ? `--${boundary}\r\nContent-Disposition: form-data; name="f"; filename="result.xml"\r\nContent-Type: text/xml\r\n\r\n${SAMPLE_RESULT}\r\n`
+          ? `--${boundary}\r\nContent-Disposition: form-data; name="f"; filename="result.xml"\r\nContent-Type: text/xml\r\n\r\n${resultXml}\r\n`
           : "") +
         `--${boundary}--\r\n`,
       "utf8",
@@ -574,7 +709,128 @@ describe("handleXmlRequest (Dialect-1 router)", () => {
     const { handled, res } = await postResult(await serviceResponse());
     expect(handled).toBe(true);
     expect(res.body).toContain("<result>success</result>");
-    expect(readFileSync(join(deps.teamsDir, "team_flutethecat_900001.xml"), "utf8")).toContain(`currentSpps="7"`);
+    const stored = readFileSync(join(deps.teamsDir, "team_flutethecat_900001.xml"), "utf8");
+    expect(stored).toContain(`currentSpps="7"`);
+    expect(stored).toContain("<treasury>120000</treasury>");
+    expect(readLibrary(deps.banking.libraryDir!, "flutethecat")[0]?.gold).toBe(120000);
+  });
+
+  it("banks server-owned stalled winnings without applying a second client-side penalty", async () => {
+    const stalled = SAMPLE_RESULT.replace("<stalled>false</stalled>", "<stalled>true</stalled>");
+    const response = await postResult(await serviceResponse(), true, stalled);
+    expect(response.res.body).toContain("<result>success</result>");
+    const stored = readFileSync(join(deps.teamsDir, "team_flutethecat_900001.xml"), "utf8");
+    expect(stored).toContain("<treasury>120000</treasury>");
+    expect(readLibrary(deps.banking.libraryDir!, "flutethecat")[0]?.gold).toBe(120000);
+  });
+
+  it("removes exactly the server-marked defector and adjusts persistent total/current TV", async () => {
+    const teamFile = join(deps.teamsDir, "team_flutethecat_900001.xml");
+    const secondPlayer = `<player status="Active" nr="2" id="stay"><name>stays</name><positionId>66238</positionId>` +
+      `<playerStatistics currentSpps="5"><games>5</games></playerStatistics><injuryList/></player>`;
+    const before = readFileSync(teamFile, "utf8")
+      .replace("<teamValue>1300000</teamValue>", "<teamValue>1300000</teamValue><currentTeamValue>1300000</currentTeamValue>")
+      .replace("<name>tzofiana</name>", "<name>tzofiana</name><positionId>66238</positionId>")
+      .replace("</team>", `${secondPlayer}</team>`);
+    writeFileSync(teamFile, before, "utf8");
+    const rostersDir = join(root, "rosters");
+    mkdirSync(rostersDir, { recursive: true });
+    writeFileSync(join(rostersDir, "roster_team_900001.xml"),
+      `<roster><position id="66238"><cost>40000</cost><movement>6</movement><strength>3</strength>` +
+      `<agility>3</agility><passing>4</passing><armour>9</armour><skillList/></position></roster>`, "utf8");
+
+    const quietPlayer = `<playerResult playerId="stay" playerType="regular" name="stays" positionId="66238">` +
+      `<defecting>false</defecting><statistics></statistics></playerResult>`;
+    const defecting = SAMPLE_RESULT
+      .replace("<conceded>false</conceded>", "<conceded>true</conceded><concededLegally>false</concededLegally>")
+      .replace(
+        '<teamResult teamId="900002">\n    <score>1</score><conceded>true</conceded><concededLegally>true</concededLegally>',
+        '<teamResult teamId="900002">\n    <score>1</score><conceded>false</conceded>',
+      )
+      .replace(/<starPlayerPoints\b[\s\S]*?<\/starPlayerPoints>/, "")
+      .replace("<defecting>false</defecting>", "<defecting>true</defecting>")
+      .replace("</playerResultList>", `${quietPlayer}</playerResultList>`);
+    const response = await postResult(await serviceResponse(), true, defecting);
+    expect(response.res.body).toContain("<result>success</result>");
+    const stored = readFileSync(teamFile, "utf8");
+    expect(stored).not.toContain('id="17854689"');
+    expect(stored).toContain('id="stay"');
+    expect(stored).toContain("<teamValue>1260000</teamValue>");
+    expect(stored).toContain("<currentTeamValue>1260000</currentTeamValue>");
+    expect(readLibrary(deps.banking.libraryDir!, "flutethecat")[0]?.teamValue).toBe(1260);
+  });
+
+  it("banks a first-match zero SPP baseline as baseline plus the server-earned delta", async () => {
+    const teamFile = join(deps.teamsDir, "team_flutethecat_900001.xml");
+    writeFileSync(teamFile, readFileSync(teamFile, "utf8").replace('currentSpps="1"', 'currentSpps="0"'), "utf8");
+    const firstMatch = SAMPLE_RESULT.replace('current="1"', 'current="0"');
+    const response = await postResult(await serviceResponse(), true, firstMatch);
+    expect(response.res.body).toContain("<result>success</result>");
+    expect(readFileSync(teamFile, "utf8")).toContain('currentSpps="6"');
+  });
+
+  it("refuses stale, incomplete, or overflowing SPP state before either team mutates", async () => {
+    const teamFile = join(deps.teamsDir, "team_flutethecat_900001.xml");
+    const before = readFileSync(teamFile, "utf8");
+    const stale = await postResult(await serviceResponse(), true, SAMPLE_RESULT.replace('current="1"', 'current="2"'));
+    expect(stale.res.body).toContain("<result>error</result>");
+    expect(readFileSync(teamFile, "utf8")).toBe(before);
+
+    const incomplete = await postResult(await serviceResponse(), true, SAMPLE_RESULT.replace(' current="1"', ""));
+    expect(incomplete.res.body).toContain("<result>error</result>");
+    expect(incomplete.res.body).toContain("malformed result");
+    expect(readFileSync(teamFile, "utf8")).toBe(before);
+
+    const max = Number.MAX_SAFE_INTEGER;
+    const maxStored = before.replace('currentSpps="1"', `currentSpps="${max}"`);
+    writeFileSync(teamFile, maxStored, "utf8");
+    const overflowResult = SAMPLE_RESULT.replace('current="1" earned="6"', `current="${max}" earned="1"`);
+    const overflow = await postResult(await serviceResponse(), true, overflowResult);
+    expect(overflow.res.body).toContain("<result>error</result>");
+    expect(readFileSync(teamFile, "utf8")).toBe(maxStored);
+  });
+
+  it("banks canonical upstream concession by clearing every persistent player's spendable SPP", async () => {
+    const conceded = SAMPLE_RESULT
+      .replace("<conceded>false</conceded>", "<conceded>true</conceded><concededLegally>false</concededLegally>")
+      .replace("<winnings>60000</winnings>", "")
+      .replace(/<starPlayerPoints\b[\s\S]*?<\/starPlayerPoints>/, "");
+    const response = await postResult(await serviceResponse(), true, conceded);
+    expect(response.res.body).toContain("<result>success</result>");
+    expect(readFileSync(join(deps.teamsDir, "team_flutethecat_900001.xml"), "utf8")).toContain('currentSpps="0"');
+  });
+
+  it("banks treasury purchases and winnings once across identical retries, and refuses a conflicting retry", async () => {
+    const purchased = SAMPLE_RESULT.replace("<winnings>60000</winnings>",
+      "<winnings>60000</winnings><treasurySpentOnInducements>20000</treasurySpentOnInducements>");
+    expect((await postResult(await serviceResponse(), true, purchased)).res.body).toContain("<result>success</result>");
+    const teamFile = join(deps.teamsDir, "team_flutethecat_900001.xml");
+    expect(readFileSync(teamFile, "utf8")).toContain("<treasury>100000</treasury>");
+    expect(readLibrary(deps.banking.libraryDir!, "flutethecat")[0]?.gold).toBe(100000);
+
+    expect((await postResult(await serviceResponse(), true, purchased)).res.body).toContain("<result>success</result>");
+    expect(readFileSync(teamFile, "utf8")).toContain("<treasury>100000</treasury>");
+
+    const conflicting = purchased.replace("<winnings>60000</winnings>", "<winnings>70000</winnings>");
+    const conflict = await postResult(await serviceResponse(), true, conflicting);
+    expect(conflict.res.body).toContain("<result>error</result>");
+    expect(readFileSync(teamFile, "utf8")).toContain("<treasury>100000</treasury>");
+  });
+
+  it("refuses legacy or incomplete result contracts before mutating either team", async () => {
+    const teamFile = join(deps.teamsDir, "team_flutethecat_900001.xml");
+    const before = readFileSync(teamFile, "utf8");
+    const legacy = SAMPLE_RESULT.replace("<winnings>60000</winnings>",
+      "<winnings>60000</winnings><pettyCashTransferred>10000</pettyCashTransferred>");
+    const legacyResponse = await postResult(await serviceResponse(), true, legacy);
+    expect(legacyResponse.res.body).toContain("<result>error</result>");
+    expect(legacyResponse.res.body).toContain("unsupported result contract");
+    expect(readFileSync(teamFile, "utf8")).toBe(before);
+
+    const oneTeam = SAMPLE_RESULT.replace(/\s*<teamResult teamId="900002">[\s\S]*?<\/teamResult>/, "");
+    const incomplete = await postResult(await serviceResponse(), true, oneTeam);
+    expect(incomplete.res.body).toContain("<result>error</result>");
+    expect(readFileSync(teamFile, "utf8")).toBe(before);
   });
 
   it("acknowledges a durably banked one-shot result when cache reload remains pending", async () => {
@@ -586,7 +842,7 @@ describe("handleXmlRequest (Dialect-1 router)", () => {
     expect(readFileSync(join(deps.teamsDir, "team_flutethecat_900001.xml"), "utf8")).toContain(`currentSpps="7"`);
   });
 
-  it("durably retains a one-shot result during cache recovery and replays it while the generation lock is held", async () => {
+  it("durably retains but does not acknowledge a one-shot result until recovery replays exact banking", async () => {
     const activeMutation = acquireTeamNameWriteLock(deps.teamsDir)!;
     const queuePublication = acquirePendingGameResultsWriteLock(deps.teamsDir)!;
     let uploadSettled = false;
@@ -597,8 +853,8 @@ describe("handleXmlRequest (Dialect-1 router)", () => {
     queuePublication.release();
     const { res } = await upload;
     activeMutation.release();
-    expect(res.body).toContain("<result>success</result>");
-    expect(res.body).toContain("result queued safely");
+    expect(res.body).toContain("<result>error</result>");
+    expect(res.body).toContain("result retained safely");
     expect(readFileSync(join(deps.teamsDir, "team_flutethecat_900001.xml"), "utf8")).toContain(`currentSpps="1"`);
 
     const pendingDir = join(deps.banking.resultsDir, "pending");
@@ -627,7 +883,13 @@ describe("handleXmlRequest (Dialect-1 router)", () => {
     expect(replayed).toEqual({ replayed: ["55123"], errors: [] });
     expect(forkCacheReloadRequired(deps.teamsDir)).toBe(false);
     expect(readdirSync(pendingDir)).toEqual([]);
-    expect(readFileSync(join(deps.teamsDir, "team_flutethecat_900001.xml"), "utf8")).toContain(`currentSpps="7"`);
+    const replayedTeam = readFileSync(join(deps.teamsDir, "team_flutethecat_900001.xml"), "utf8");
+    expect(replayedTeam).toContain(`currentSpps="7"`);
+    expect(replayedTeam).toContain("<treasury>120000</treasury>");
+    const terminalRetry = await postResult(await serviceResponse());
+    expect(terminalRetry.res.body).toContain("<result>success</result>");
+    expect(readFileSync(join(deps.teamsDir, "team_flutethecat_900001.xml"), "utf8"))
+      .toContain("<treasury>120000</treasury>");
   });
 
   it("xml:result REFUSES an invalid service response — nothing parsed, nothing banked", async () => {

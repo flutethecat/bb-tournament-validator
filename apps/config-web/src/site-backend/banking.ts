@@ -19,7 +19,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { acknowledgePendingGameResults, acquirePendingGameResultsWriteLock, acquireTeamNameWriteLock, acquireTeamWriteLock, atomicWriteTextFile, forkCacheGenerationReloadRequired, forkCacheReloadRequired, markForkCacheReloadRequired, markPendingGameResults, parseTeamXmlMeta, readLibraryStrict, upsertLibraryTeam, type FileWriteLock } from "@bb/fork-ops";
 import { parseFumbblResult } from "./fumbblResult.js";
@@ -38,6 +38,8 @@ export interface LedgerMarker {
   teamMtimeAtRead: number; // AV-3: mtimeMs at read time
   beforeHash?: string;
   appliedHash?: string;
+  /** Hash of the complete authenticated FumbblResult payload; binds idempotency to content, not ID alone. */
+  resultHash?: string;
   startedAt: number;
   appliedAt?: number;
 }
@@ -138,7 +140,8 @@ const readMarker = (p: string): LedgerMarker | undefined => {
     if (typeof marker.gameId !== "string" || !marker.gameId || typeof marker.teamId !== "string" || !marker.teamId ||
       (marker.phase !== "IN_PROGRESS" && marker.phase !== "APPLIED") || typeof marker.teamFile !== "string" ||
       typeof marker.bakFile !== "string" || typeof marker.teamSizeAtRead !== "number" || typeof marker.teamMtimeAtRead !== "number" ||
-      typeof marker.startedAt !== "number") return undefined;
+      typeof marker.startedAt !== "number" ||
+      (marker.resultHash !== undefined && (typeof marker.resultHash !== "string" || !/^[a-f0-9]{64}$/.test(marker.resultHash)))) return undefined;
     return marker as unknown as LedgerMarker;
   } catch {
     return undefined;
@@ -152,11 +155,16 @@ const readMarker = (p: string): LedgerMarker | undefined => {
  */
 function applyOneTeam(dirs: BankingDirs, gameId: string, task: TeamBankTask, resultXml: string): boolean {
   const { teamId } = task;
+  const incomingResultHash = hash(resultXml);
   const mp = markerPath(dirs, gameId, teamId);
   if (existsSync(mp)) {
     const existing = readMarker(mp);
     const sameIdentity = existing?.gameId === gameId && existing.teamId === teamId;
-    if (existing?.phase === "APPLIED" && sameIdentity) return true; // already banked — idempotent
+    if (existing?.phase === "APPLIED" && sameIdentity) {
+      if (existing.resultHash === incomingResultHash) return true; // identical payload already banked
+      quarantine(dirs, gameId, teamId, "banking retry payload conflicts with the applied result ledger", resultXml);
+      return false;
+    }
     if (existing && !sameIdentity) {
       quarantine(dirs, gameId, teamId, "banking ledger identity does not match its tuple key", resultXml);
       return false;
@@ -165,7 +173,11 @@ function applyOneTeam(dirs: BankingDirs, gameId: string, task: TeamBankTask, res
     // never overwrite its backup/hash record and apply again from the possibly-applied XML.
     recoverInterrupted(dirs, true);
     const recovered = readMarker(mp);
-    if (recovered?.phase === "APPLIED" && recovered.gameId === gameId && recovered.teamId === teamId) return true;
+    if (recovered?.phase === "APPLIED" && recovered.gameId === gameId && recovered.teamId === teamId) {
+      if (recovered.resultHash === incomingResultHash) return true;
+      quarantine(dirs, gameId, teamId, "recovered banking payload conflicts with the retry result", resultXml);
+      return false;
+    }
     if (existsSync(mp)) {
       quarantine(
         dirs,
@@ -190,6 +202,12 @@ function applyOneTeam(dirs: BankingDirs, gameId: string, task: TeamBankTask, res
       return false;
     }
     const beforeXml = readFileSync(teamFile, "utf8");
+    const teamStatAtRead = statSync(teamFile);
+    const teamSizeAtRead = Buffer.byteLength(beforeXml);
+    if (teamStatAtRead.size !== teamSizeAtRead) {
+      quarantine(dirs, gameId, teamId, "team XML changed while its banking snapshot was read", resultXml);
+      return false;
+    }
     const bakFile = `${teamFile}.bank-bak`;
 
     let newXml: string;
@@ -200,18 +218,34 @@ function applyOneTeam(dirs: BankingDirs, gameId: string, task: TeamBankTask, res
       return false;
     }
 
-    // PHASE 1: back up + record IN_PROGRESS *before* any mutation.
-    copyFileSync(teamFile, bakFile);
+    // AV-3: our team lock serializes every fork/config-web writer, but it cannot compel an unrelated
+    // process that ignores the lock. Re-read immediately before committing and compare both metadata
+    // and content. This closes the practical stale-read window without pretending Node can impose a
+    // mandatory cross-process lock on arbitrary external editors. The final atomic rename remains the
+    // commit boundary; operators must route all supported writers through the shared team lock.
+    const commitStat = statSync(teamFile);
+    const commitXml = readFileSync(teamFile, "utf8");
+    if (commitStat.size !== teamStatAtRead.size || commitStat.mtimeMs !== teamStatAtRead.mtimeMs ||
+      hash(commitXml) !== hash(beforeXml)) {
+      quarantine(dirs, gameId, teamId, "team XML changed after banking read and before commit", resultXml);
+      return false;
+    }
+
+    // PHASE 1: persist the exact validated snapshot + record IN_PROGRESS *before* any mutation.
+    // Do not copy the live path here: an external writer between validation and backup would otherwise
+    // poison recovery authority with bytes that were never used to calculate `newXml`.
+    atomicWriteTextFile(bakFile, beforeXml);
     const marker: LedgerMarker = {
       gameId,
       teamId,
       phase: "IN_PROGRESS",
       teamFile,
       bakFile,
-      teamSizeAtRead: Buffer.byteLength(beforeXml),
-      teamMtimeAtRead: 0,
+      teamSizeAtRead,
+      teamMtimeAtRead: teamStatAtRead.mtimeMs,
       beforeHash: hash(beforeXml),
       appliedHash: hash(newXml),
+      resultHash: incomingResultHash,
       startedAt: 0,
     };
     writeMarker(dirs, marker);
@@ -353,8 +387,9 @@ export function recoverInterrupted(dirs: BankingDirs, generationLockHeld = false
 }
 
 /**
- * Bank a full game result: apply every team task under its own ledger. A per-team quarantine does
- * NOT abort the other team (each is its own (gameId,teamId) unit). Returns the outcome for the
+ * Bank a full game result: deterministically preflight every team before the first mutation, then
+ * apply each team under its own ledger. Validation failure aborts the game atomically; an unexpected
+ * commit-time failure is quarantined in its `(gameId,teamId)` transaction. Returns the outcome for the
  * `xml:result` responder to turn into `<result>success</result>` (all applied) or a failure.
  */
 export function bankGameResult(
@@ -379,6 +414,29 @@ export function bankGameResult(
     };
   }
   try {
+    // A byte-identical server retry after exact banking is already terminal even while the cache
+    // reload marker remains. Conversely, the same replay/team tuple with different authenticated
+    // content is a hard conflict, not work that may be deferred behind that marker.
+    const incomingResultHash = hash(resultXml);
+    const existingApplied = tasks.map((task) => ({ task, marker: readMarker(markerPath(dirs, gameId, task.teamId)) }));
+    if (existingApplied.length > 0 && existingApplied.every(({ task, marker }) =>
+      marker?.phase === "APPLIED" && marker.gameId === gameId && marker.teamId === task.teamId &&
+      marker.resultHash === incomingResultHash)) {
+      return { ok: true, gameId, applied: tasks.map((task) => task.teamId) };
+    }
+    const conflictingApplied = existingApplied.filter(({ task, marker }) => marker?.phase === "APPLIED" &&
+      marker.gameId === gameId && marker.teamId === task.teamId && marker.resultHash !== incomingResultHash);
+    if (conflictingApplied.length) {
+      for (const { task } of conflictingApplied) {
+        quarantine(dirs, gameId, task.teamId, "banking retry payload conflicts with the applied result ledger", resultXml);
+      }
+      return {
+        ok: false,
+        gameId,
+        applied,
+        quarantined: conflictingApplied.map(({ task }) => ({ teamId: task.teamId, reason: "see results/quarantine" })),
+      };
+    }
     // Never bank atop an unresolved team transaction or stale cache generation. The operator/startup
     // recovery path must reconcile its journal and reload first; this result can then be retried.
     if (replayingDeferred ? forkCacheGenerationReloadRequired(dirs.teamsDir) : forkCacheReloadRequired(dirs.teamsDir)) {
@@ -389,6 +447,24 @@ export function bankGameResult(
         applied,
         quarantined: tasks.map((task) => ({ teamId: task.teamId, reason: "banking deferred until team/cache recovery completes" })),
       };
+    }
+    // Dry-run every not-yet-applied team under the generation lock before the first mutation. This
+    // makes deterministic payload/team validation game-atomic: a stale SPP baseline or malformed
+    // treasury on one side cannot bank the other side and poison a corrected server retry.
+    for (const { task, marker } of existingApplied) {
+      if (marker?.phase === "APPLIED" && marker.gameId === gameId && marker.teamId === task.teamId &&
+        marker.resultHash === incomingResultHash) continue;
+      const teamFile = teamFilePath(dirs, task.teamId);
+      if (!teamFile) {
+        quarantine(dirs, gameId, task.teamId, `no team file resolves for teamId ${task.teamId} (ownership)`, resultXml);
+        return { ok: false, gameId, applied, quarantined: [{ teamId: task.teamId, reason: "see results/quarantine" }] };
+      }
+      try {
+        task.applyFn(readFileSync(teamFile, "utf8"));
+      } catch (error) {
+        quarantine(dirs, gameId, task.teamId, `preflight apply threw: ${(error as Error).message}`, resultXml);
+        return { ok: false, gameId, applied, quarantined: [{ teamId: task.teamId, reason: "see results/quarantine" }] };
+      }
     }
     for (const t of tasks) {
       const ok = applyOneTeam(dirs, gameId, t, resultXml);

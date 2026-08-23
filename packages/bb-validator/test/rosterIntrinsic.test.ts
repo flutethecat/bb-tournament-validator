@@ -115,6 +115,7 @@ describe("composeTeamIntrinsic — dataset-free compose + roster-intrinsic legal
 
   it("composes a legal SL team with intrinsic stats/cost, no dataset needed", () => {
     const r = composeTeamIntrinsic(base({ budget: 1_000_000 }), 111);
+    expect(r.xml).toContain("<treasury>0</treasury>");
     expect(r.legal).toBe(true);
     expect(r.issues).toHaveLength(0);
     expect(r.roster.players).toHaveLength(11);

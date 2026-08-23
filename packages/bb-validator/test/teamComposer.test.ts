@@ -132,6 +132,7 @@ describe("composeTeam", () => {
     // Team-level XML: fork rosterId + coach + player ids namespaced under the team id.
     expect(r.xml).toContain("<rosterId>snotling.bb2025</rosterId>");
     expect(r.xml).toContain("<coach>Kalimar</coach>");
+    expect(r.xml).toContain("<treasury>0</treasury>");
     expect(r.xml).toContain(`id="${r.teamId}1"`);
   });
 
@@ -147,6 +148,7 @@ describe("composeTeam", () => {
         `\t<rosterId>snotling.bb2025</rosterId>\n` +
         `\t<reRolls>3</reRolls>\n` +
         `\t<fanFactor>1</fanFactor>\n` +
+        `\t<treasury>0</treasury>\n` +
         `\t<apothecaries>1</apothecaries>\n` +
         `\t<teamRating>65</teamRating>\n` +
         `\t<currentTeamValue>65</currentTeamValue>\n` +
