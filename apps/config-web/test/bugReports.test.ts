@@ -110,6 +110,15 @@ describe("POST /api/bug-reports — submitBugReport", () => {
     expect(files).toEqual({ wireLog: null, appLog: null });
   });
 
+  it("accepts explicit null log attachments from clients with logging disabled", async () => {
+    const d = dir();
+    const result = await submitBugReport({ ...BASE, wireLog: null, appLog: null }, undefined, deps(d));
+    expect(result.status).toBe(200);
+    const { id } = result.body as { id: string };
+    expect(existsSync(join(d, id, "wire.log"))).toBe(false);
+    expect(existsSync(join(d, id, "app.log"))).toBe(false);
+  });
+
   it("accepts a Bearer session identity instead of body creds", async () => {
     const d = dir();
     const result = await submitBugReport(

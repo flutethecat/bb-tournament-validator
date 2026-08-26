@@ -78,8 +78,8 @@ export interface BugReportBody {
   gameId?: string;
   gameService?: string;
   clientVersion?: string;
-  wireLog?: string;
-  appLog?: string;
+  wireLog?: string | null;
+  appLog?: string | null;
   context?: unknown;
 }
 
@@ -142,9 +142,9 @@ export async function submitBugReport(
   if (!description) return { status: 400, body: { error: "description is required." } };
   if (description.length > DESCRIPTION_CAP)
     return { status: 400, body: { error: `description exceeds ${DESCRIPTION_CAP} characters.` } };
-  if (body.wireLog !== undefined && typeof body.wireLog !== "string")
+  if (body.wireLog != null && typeof body.wireLog !== "string")
     return { status: 400, body: { error: "wireLog must be a string." } };
-  if (body.appLog !== undefined && typeof body.appLog !== "string")
+  if (body.appLog != null && typeof body.appLog !== "string")
     return { status: 400, body: { error: "appLog must be a string." } };
   if (body.wireLog && Buffer.byteLength(body.wireLog, "utf8") > WIRE_LOG_CAP)
     return { status: 413, body: { error: `wireLog exceeds the ${WIRE_LOG_CAP / (1024 * 1024)}MB limit.` } };
