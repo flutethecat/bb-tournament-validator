@@ -136,6 +136,28 @@ describe("composeTeam", () => {
     expect(r.xml).toContain(`id="${r.teamId}1"`);
   });
 
+  it("emits fork-native predefined inducements while treasury remains zero", () => {
+    const tournament = composeTeam({
+      ...input,
+      rosteredInducements: [
+        { key: "bloodweiser_kegs", count: 2 },
+        { key: "prayers_to_nuffle", count: 1 },
+      ],
+    }, bb2025, 42);
+    expect(tournament.xml).toContain("<treasury>0</treasury>");
+    expect(tournament.xml).toContain(
+      '<inducementSet>\n\t\t<inducement type="bloodweiserBabes" value="2" uses="0"/>\n' +
+      '\t\t<inducement type="prayers" value="1" uses="0"/>\n\t</inducementSet>',
+    );
+    expect(tournament.xml).not.toContain("<starPlayerSet>");
+    expect(tournament.xml).not.toContain("<card>");
+    expect(tournament.xml).not.toContain("<prayer>");
+    expect(tournament.roster.inducements).toEqual([
+      { id: "bloodweiser_kegs", name: "Bloodweiser Kegs", count: 2, cost: 50_000 },
+      { id: "prayers_to_nuffle", name: "Prayers to Nuffle", count: 1, cost: 30_000 },
+    ]);
+  });
+
   it("keeps the existing non-star team XML byte-unchanged", () => {
     const r = composeTeam(input, bb2025, 42);
     expect(r.xml
@@ -180,6 +202,34 @@ describe("composeTeam", () => {
       "Swarming",
     ]);
     expect(r.xml).toContain("<rule>Swarming</rule>");
+  });
+
+  it("always emits Underworld's Bribery and Corruption independently of its league choice", () => {
+    const underworldXml =
+      '<roster id="underworld_denizens.bb2025"><name>Underworld Denizens</name>' +
+      '<reRollCost>70000</reRollCost><maxReRolls>8</maxReRolls><apothecary>true</apothecary>' +
+      '<position id="71001"><quantity>16</quantity><name>Goblin Lineman</name>' +
+      '<gender>random</gender><type>Regular</type></position></roster>';
+    const underworld = {
+      forkRosterXml: underworldXml,
+      coach: "Kalimar",
+      teamName: "Runtime Rules",
+      picks: [{ positionId: "71001", count: 1 }],
+      reRolls: 0,
+      apothecary: false,
+    };
+    const intrinsicOnly = composeTeam(underworld, bb2025, 42);
+    expect(intrinsicOnly.roster.specialRules).toEqual(["Underworld Challenge", "Bribery and Corruption"]);
+    expect(intrinsicOnly.xml).toContain(
+      "<specialRules><rule>Bribery and Corruption</rule></specialRules>",
+    );
+    expect(intrinsicOnly.xml).not.toContain("<rule>Underworld Challenge</rule>");
+
+    const affiliated = composeTeam({ ...underworld, specialRule: "Underworld Challenge" }, bb2025, 42);
+    expect(affiliated.roster.specialRules).toEqual(["Underworld Challenge"]);
+    expect(affiliated.xml).toContain(
+      "<specialRules><rule>Bribery and Corruption</rule><rule>Underworld Challenge</rule></specialRules>",
+    );
   });
 
   it("emits enum-valid chosen rules and omits enum gaps", () => {

@@ -57,6 +57,8 @@ export interface SkillMeta {
 
 export interface DatasetInducement {
   name: string;
+  /** Exact InducementType.getName() value used by the fork's Inducement XML. */
+  wireName?: string;
   cost: number | null;
   max: number | null;
   /** Reduced cap when the team has `reducedSpecialRule` (e.g. Bribes: 3 → 6 under Bribery and Corruption). */

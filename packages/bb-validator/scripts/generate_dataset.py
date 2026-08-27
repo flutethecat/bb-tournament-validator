@@ -261,6 +261,28 @@ INDUCEMENT_MAP = [
     ("infamous_coaching_staff", "Infamous Coaching Staff", None, "inducementStaffMax", {"note": "Named staff, individual costs."}),
 ]
 
+# Exact InducementType.getName() values from the fork's BB2025 InducementCollection.
+# Entries needing richer XML than a single <inducement type/value/uses/> are intentionally absent.
+INDUCEMENT_WIRE_NAMES = {
+    "part_time_assistant_coaches": "partTimeCoach",
+    "temp_agency_cheerleaders": "tempCheerleader",
+    "bloodweiser_kegs": "bloodweiserBabes",
+    "bribes": "bribes",
+    "wandering_apothecaries": "wanderingApothecaries",
+    "mortuary_assistant": "mortuaryAssistant",
+    "plague_doctor": "plagueDoctor",
+    "riotous_rookies": "riotousRookies",
+    "halfling_master_chef": "halflingMasterChef",
+    "extra_team_training": "extraTeamTraining",
+    "weather_mage": "weatherMage",
+    "hireling_sports_wizard": "wizard",
+    "biased_referee": "biasedRef",
+    "team_mascot": "teamMascot",
+    "prayers_to_nuffle": "prayers",
+    # The tournament-rules picker labels this generic validator id as Josef Bugman.
+    "infamous_coaching_staff": "josefBugman",
+}
+
 
 def build_inducements():
     """Authoritative BB2025 inducement costs/caps from FUMBBL ruleset clientOptions."""
@@ -270,6 +292,8 @@ def build_inducements():
         entry = {"id": iid, "name": name,
                  "cost": co.get(cost_f) if cost_f else None,
                  "max": co.get(max_f) if max_f else None}
+        if iid in INDUCEMENT_WIRE_NAMES:
+            entry["wireName"] = INDUCEMENT_WIRE_NAMES[iid]
         if "reducedCost" in extra:
             entry["reducedCost"] = co.get(extra["reducedCost"])
             entry["reducedMax"] = co.get(extra["reducedMax"])

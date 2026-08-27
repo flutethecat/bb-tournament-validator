@@ -6,7 +6,8 @@ describe("teamBuilderWireError", () => {
     expect(teamBuilderWireError(body)).toBe("request body must be a JSON object.");
   });
 
-  it.each([{}, { apothecary: true }, { apothecary: false }, { packageName: "bb2025-default" }, { teamId: "123" }])(
+  it.each([{}, { apothecary: true }, { apothecary: false }, { packageName: "bb2025-default" }, { teamId: "123" },
+    { rosteredInducements: [{ key: "bloodweiser_kegs", count: 2 }] }])(
     "accepts %j",
     (body) => {
       expect(teamBuilderWireError(body)).toBeNull();
@@ -33,6 +34,18 @@ describe("teamBuilderWireError", () => {
     "rejects %j",
     (body) => {
       expect(teamBuilderWireError(body)).toBe("teamId must be a non-empty string when supplied.");
+    },
+  );
+
+  it.each([
+    { rosteredInducements: {} },
+    { rosteredInducements: [null] },
+    { rosteredInducements: [{ key: "", count: 1 }] },
+    { rosteredInducements: [{ key: "bribes", count: 0 }] },
+  ])(
+    "rejects %j",
+    (body) => {
+      expect(teamBuilderWireError(body)).toMatch(/rosteredInducements|rostered inducement/i);
     },
   );
 });

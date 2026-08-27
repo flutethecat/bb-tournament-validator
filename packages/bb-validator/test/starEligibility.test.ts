@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { eligibleStarsFor, findStar, normName, starEligibleBySpecialRule } from "@bb/validator";
+import {
+  eligibleStarsFor,
+  findStar,
+  normName,
+  starEligibleBySpecialRule,
+  starEligibleForLeagueSelection,
+} from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 
 const jordell = findStar(bb2025, "Jordell Freshbreeze");
@@ -52,5 +58,53 @@ describe("eligibleStarsFor (stars derived from eligibility — owner 2026-08-10)
 
   it("an off-eligibility star is never derived (Woodland stars stay off a Thimble-Cup team)", () => {
     expect(names("Halfling Thimble Cup").has("Swiftvine Glimmershard")).toBe(false);
+  });
+});
+
+describe("starEligibleForLeagueSelection", () => {
+  const star = (name: string) => {
+    const found = findStar(bb2025, name);
+    if (!found) throw new Error(`${name} is missing from the BB2025 dataset.`);
+    return found;
+  };
+
+  it("keeps Khorne's complete authoritative list under Favoured of Khorne", () => {
+    const options = ["Favoured of Khorne"];
+    for (const name of [
+      "Akhorne the Squirrel",
+      "Max Spleenripper",
+      "Scyla Anfingrimm",
+      "Grashnak Blackhoof",
+      "Grak",
+      "Crumbleberry",
+      "Lord Borak the Despoiler",
+      "Morg 'n' Thorg",
+    ]) {
+      expect(starEligibleForLeagueSelection(star(name), options, options[0]!)).toBe(true);
+    }
+  });
+
+  it("keeps Nurgle's complete authoritative list under Favoured of Nurgle", () => {
+    const options = ["Favoured of Nurgle"];
+    for (const name of [
+      "Akhorne the Squirrel",
+      "Guffle Pusmaw",
+      "Withergrasp Doubledrool",
+      "Bilerot Vomitflesh",
+      "Grashnak Blackhoof",
+      "Grak",
+      "Crumbleberry",
+      "Lord Borak the Despoiler",
+      "Morg 'n' Thorg",
+    ]) {
+      expect(starEligibleForLeagueSelection(star(name), options, options[0]!)).toBe(true);
+    }
+  });
+
+  it("applies Morg's Sylvanian Spotlight exclusion", () => {
+    const morg = star("Morg 'n' Thorg");
+    const options = ["Sylvanian Spotlight", "Old World Classic"];
+    expect(starEligibleForLeagueSelection(morg, options, "Sylvanian Spotlight")).toBe(false);
+    expect(starEligibleForLeagueSelection(morg, options, "Old World Classic")).toBe(true);
   });
 });

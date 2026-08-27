@@ -30,6 +30,7 @@ function buildDataset(): Dataset {
   for (const ind of inducementsJson.inducements as Array<Record<string, unknown>>) {
     inducements[ind.id as string] = {
       name: ind.name as string,
+      wireName: (ind.wireName as string | undefined) ?? undefined,
       cost: (ind.cost as number | null) ?? null,
       max: (ind.max as number | null) ?? null,
       reducedMax: (ind.reducedMax as number | null | undefined) ?? undefined,

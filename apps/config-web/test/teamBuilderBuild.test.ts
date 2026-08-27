@@ -213,4 +213,30 @@ describe("team-builder build target", () => {
     registerBuiltTeam(d.libraryDir, created.roster, created.teamId, 900_000, "2026-08-19T12:00:00.000Z", false);
     expect(readLibrary(d.libraryDir, "Tarkin").map((team) => team.teamId)).toEqual(["tb_tarkin_human_new"]);
   });
+
+  it("persists composed inducement and Star Player picks on the library row", () => {
+    const d = dirs();
+    const picked: Roster = {
+      ...roster(),
+      inducements: [{ id: "bloodweiser_kegs", name: "Bloodweiser Kegs", count: 2 }],
+      players: [{
+        number: 12,
+        positionName: "Akhorne the Squirrel",
+        MA: 7,
+        ST: 1,
+        AG: "2+",
+        PA: "-",
+        AV: "6+",
+        skills: [],
+        keywords: [],
+        cost: 80_000,
+      }],
+    };
+
+    registerBuiltTeam(d.libraryDir, picked, "tournament-team", 980_000, "2026-08-20T00:00:00.000Z", true);
+    expect(readLibrary(d.libraryDir, "Tarkin")[0]).toMatchObject({
+      rosteredInducements: [{ key: "bloodweiser_kegs", count: 2 }],
+      rosteredStars: ["Akhorne the Squirrel"],
+    });
+  });
 });

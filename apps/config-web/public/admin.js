@@ -10,6 +10,7 @@ const state = {
   users: [],
   identities: {},
   games: [],
+  libraryTeams: [],
   settings: { homeAwayMode: "", overtime: false },
   errors: {},
   loading: false,
@@ -18,6 +19,7 @@ const state = {
   editingIdentity: "",
   modal: null,
   message: null,
+  tournamentResult: null,
 };
 
 const toolbar = document.querySelector("#toolbar");
@@ -81,6 +83,11 @@ function title(words) {
 
 function normalizeName(value) {
   return String(value ?? "").trim().toLowerCase();
+}
+
+function goldLabel(value) {
+  const gold = Number(value);
+  return Number.isFinite(gold) ? `${gold.toLocaleString()} gold` : "unknown treasury";
 }
 
 function gameId(game) {
@@ -338,6 +345,14 @@ function renderUserRail() {
 function renderGameRail() {
   const mode = state.settings.homeAwayMode;
   const overtime = state.settings.overtime === true;
+  const tournamentOptions = state.libraryTeams.map((team) => {
+    const id = String(team?.teamId ?? "").trim();
+    const label = `${String(team?.teamName ?? id)} — ${String(team?.coach ?? "unknown coach")}`;
+    return id ? `<option value="${escapeHtml(id)}" label="${escapeHtml(label)}"></option>` : "";
+  }).join("");
+  const tournamentResult = state.tournamentResult?.gameId
+    ? `<div class="notice">Game <strong>${escapeHtml(state.tournamentResult.gameId)}</strong> launched.<br>Home: ${escapeHtml(state.tournamentResult.home?.coach)} — ${escapeHtml(goldLabel(state.tournamentResult.home?.treasury))}<br>Away: ${escapeHtml(state.tournamentResult.away?.coach)} — ${escapeHtml(goldLabel(state.tournamentResult.away?.treasury))}</div>`
+    : "";
   return `<section class="panel">
     <div class="section-title">${title("Matchmaking")}</div>
     <div class="field"><span class="field-label">Home / away</span><div class="segment-group">
@@ -363,6 +378,18 @@ function renderGameRail() {
       <label class="field"><span class="field-label">Home team ID</span><input id="schedule-home" class="control" inputmode="numeric"></label>
       <label class="field"><span class="field-label">Away team ID</span><input id="schedule-away" class="control" inputmode="numeric"></label>
       <button type="button" class="btn primary" data-action="schedule">Schedule</button>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="section-title">${title("Tournament Match")}</div>
+    <div class="hint">Pre-loads each roster's saved inducements, reloads both teams, and schedules the match. Star Players already ride the roster.</div>
+    <div class="rail-form">
+      <datalist id="tournament-team-options">${tournamentOptions}</datalist>
+      <label class="field"><span class="field-label">Home team</span><input id="tournament-home" class="control" list="tournament-team-options" placeholder="Team ID"></label>
+      <label class="field"><span class="field-label">Away team</span><input id="tournament-away" class="control" list="tournament-team-options" placeholder="Team ID"></label>
+      <label class="field"><span class="field-label">Package name (optional)</span><input id="tournament-package" class="control" placeholder="Tournament package"></label>
+      <button type="button" class="btn primary" data-action="tournament-launch">Launch</button>
+      ${tournamentResult}
     </div>
   </section>`;
 }
@@ -461,6 +488,7 @@ async function logout() {
   state.users = [];
   state.identities = {};
   state.games = [];
+  state.libraryTeams = [];
   state.errors = {};
   state.connected = false;
   state.editingIdentity = "";
@@ -496,6 +524,16 @@ async function loadData() {
     if (label === "Live games") state.games = safeArray(value?.games ?? value);
     if (label === "Matchmaking settings") state.settings = { homeAwayMode: String(value?.homeAwayMode ?? ""), overtime: value?.overtime === true };
   });
+  const libraryCoaches = [...new Set(mergedUsers().map((user) => String(user.fumbblName ?? "").trim()).filter(Boolean))];
+  const libraries = await Promise.allSettled(libraryCoaches.map((coach) =>
+    requestJson(`/api/fork/library?coach=${encodeURIComponent(coach)}`, authOptions()),
+  ));
+  state.libraryTeams = libraries.flatMap((result) => result.status === "fulfilled" ? safeArray(result.value?.teams) : [])
+    .filter((team) => team?.retired !== true && String(team?.teamId ?? "").trim())
+    .sort((left, right) => {
+      const coachOrder = String(left.coach ?? "").localeCompare(String(right.coach ?? ""));
+      return coachOrder || String(left.teamName ?? "").localeCompare(String(right.teamName ?? ""));
+    });
   state.connected = successes > 0;
   state.loading = false;
   render();
@@ -640,6 +678,35 @@ async function scheduleGame() {
   }
 }
 
+async function launchTournamentMatch() {
+  const homeTeamId = document.querySelector("#tournament-home")?.value.trim() ?? "";
+  const awayTeamId = document.querySelector("#tournament-away")?.value.trim() ?? "";
+  const packageName = document.querySelector("#tournament-package")?.value.trim() ?? "";
+  if (!homeTeamId || !awayTeamId) {
+    setMessage("Choose both tournament teams.", "error");
+    render();
+    return;
+  }
+  if (homeTeamId === awayTeamId) {
+    setMessage("Choose two different tournament teams.", "error");
+    render();
+    return;
+  }
+  try {
+    const result = await requestJson("/api/fork/tournament-match", authOptions("POST", {
+      homeTeamId,
+      awayTeamId,
+      ...(packageName ? { packageName } : {}),
+    }));
+    state.tournamentResult = result;
+    setMessage(`Tournament game ${String(result?.gameId ?? "")} launched.`);
+    await loadData();
+  } catch (error) {
+    setMessage(serverMessage(error), "error");
+    render();
+  }
+}
+
 toolbar.addEventListener("click", (event) => {
   const target = event.target.closest("[data-action]");
   if (!target) return;
@@ -696,6 +763,7 @@ rightRail.addEventListener("click", (event) => {
   if (target.dataset.action === "overtime") updateMatchmaking({ overtime: target.dataset.enabled === "true" });
   if (target.dataset.action === "broadcast") broadcastMessage();
   if (target.dataset.action === "schedule") scheduleGame();
+  if (target.dataset.action === "tournament-launch") launchTournamentMatch();
 });
 
 rightRail.addEventListener("change", () => {});

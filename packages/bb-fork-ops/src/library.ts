@@ -29,6 +29,10 @@ export interface LibraryTeam {
   apothecary?: boolean;
   /** Tournament package used by the team builder; absent for imports and older rows. */
   rulesetPackName?: string;
+  /** Tournament-builder inducement picks. Absent on imports/legacy rows means none. */
+  rosteredInducements?: Array<{ key: string; count: number }>;
+  /** Inert tournament-builder Star metadata. Stars ride roster players; never instructions or gold math. */
+  rosteredStars?: string[];
   /** false ⇒ no matching fork roster loaded; the client warns but still lists it. */
   forkLoadable: boolean;
   ingestedAt: string;

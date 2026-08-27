@@ -81,6 +81,7 @@ import {
   updateTeamXmlTransactionLibraryTeam,
   verifyCoachPassword,
   verifyCoachDigest,
+  type LibraryTeam,
 } from "@bb/fork-ops";
 import { PackageFiles, readCoachRegistry, readCoaches, skillCatalog, starList, teamList } from "./data";
 import { packageResponseInfo, packageRulesInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
@@ -118,7 +119,13 @@ import { builtLibraryTeam, registerBuiltTeam, resolveTeamBuilderBuildTarget, ret
 import { corsDecision, parseAllowedOrigins } from "./cors.js";
 import { teamEditingError } from "./customGate.js";
 import { forkGamesEndpoint } from "./forkGames.js";
-import { teamDetailEndpoint, teamDetailIdFromPath } from "./teamDetail.js";
+import {
+  coachNamesEqual,
+  storedTeamCoach,
+  storedTeamFile,
+  teamDetailEndpoint,
+  teamDetailIdFromPath,
+} from "./teamDetail.js";
 import { advancementPath, teamAdvancementEndpoint } from "./teamAdvancement.js";
 import { libraryIngestOwnershipError, parseLibraryIngestRequest } from "./teamIngestSecurity.js";
 import {
@@ -136,6 +143,15 @@ import {
   readJsonCapped,
   submitBugReport,
 } from "./bugReports.js";
+import {
+  TournamentMatchAccessError,
+  TournamentMatchStore,
+  buildInstructions,
+  ensureTournamentInducementSetXml,
+  instructionsForSession,
+  teamSpecialRulesFromXml,
+  type TournamentMatchMetadata,
+} from "./tournamentMatch.js";
 import {
   DISCORD_OAUTH_STATE_COOKIE,
   DISCORD_PENDING_COOKIE,
@@ -245,6 +261,7 @@ const LIBRARY_DIR = resolve(process.env.FORK_LIBRARY_DIR || join(HERE, "../data-
 const BUG_REPORTS_DIR = resolve(process.env.BUG_REPORTS_DIR || join(HERE, "../bug-reports"));
 // Tracks the last successful fork (game server) reload — see @bb/fork-ops's forkReload.
 const FORK_STATE_DIR = resolve(join(HERE, "../data-store"));
+const tournamentMatches = new TournamentMatchStore(FORK_STATE_DIR);
 
 const packages = new PackageFiles(PACKAGES_DIR);
 // Process-local matchmaking state (poll-based delivery, ~10min TTL) — see @bb/fork-ops.
@@ -397,6 +414,8 @@ interface TeamBuilderBody {
   packageName?: string;
   /** Existing coach-owned library team to replace. Omitted mints a new team as before. */
   teamId?: string;
+  /** Tournament-only predefined inducements. */
+  rosteredInducements?: Array<{ key: string; count: number }>;
 }
 
 /** Resolve a Secret League builder request to a composed team + roster-intrinsic legality (#52 A).
@@ -444,6 +463,7 @@ function composeFromBody(teamsDir: string, body: TeamBuilderBody) {
       dedicatedFans: body.dedicatedFans,
       specialRule: body.specialRule,
       custom: body.custom === true,
+      rosteredInducements: body.rosteredInducements,
     },
     bb2025,
   );
@@ -463,9 +483,17 @@ const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
   res.end(payload);
 };
 
+function tournamentInstructionsGameId(pathname: string): string | undefined {
+  const encoded = pathname.match(/^\/api\/fork\/match\/([^/]+)\/instructions$/)?.[1];
+  if (!encoded) return undefined;
+  try { return decodeURIComponent(encoded); } catch { return undefined; }
+}
+
 function authorized(req: IncomingMessage, pathname: string): boolean {
   if (!ADMIN_PASSWORD) return true; // open when no password set (localhost default)
   if (PUBLIC_PATHS.has(pathname)) return true;
+  // Dynamic coach-scoped route: bypass legacy Basic auth, then enforce the proven session in-handler.
+  if (tournamentInstructionsGameId(pathname)) return true;
   if (pathname.startsWith("/api/packages/")) return true;
   if ((req.method === "GET" || req.method === "HEAD") && teamDetailIdFromPath(pathname)) return true;
   if (req.method === "POST" && advancementPath(pathname)) return true;
@@ -603,6 +631,7 @@ function isOrganizerWrite(method: string, pathname: string): boolean {
     pathname.startsWith("/admin/") ||
     pathname.startsWith("/api/admin/") ||
     pathname === "/api/fork/schedule" ||
+    pathname === "/api/fork/tournament-match" ||
     pathname === "/api/fork/message" ||
     pathname === "/api/fork/matchmaking-settings" ||
     pathname === "/api/fork/user/reset-password" ||
@@ -641,6 +670,18 @@ function libraryOwnerForTeam(teamId: string): string | undefined {
   return undefined;
 }
 
+function libraryTeamForId(teamId: string): LibraryTeam | undefined {
+  try {
+    for (const libraryCoach of libraryCoaches(LIBRARY_DIR)) {
+      const team = readLibrary(LIBRARY_DIR, libraryCoach).find((entry) => entry?.teamId === teamId);
+      if (team) return team;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 function ffbCoachIdForDiscordId(discordId: string): string | undefined {
   return Object.values(readIdentities().coaches).find(
     (record) => record.identities?.discordUserId === discordId,
@@ -661,6 +702,7 @@ async function handleApi(
     "/api/fork/matchstatus",
     "/api/fork/my-games",
     "/api/fork/schedule",
+    "/api/fork/tournament-match",
     "/api/fork/jnlp",
   ].includes(path);
   const gameStartGenerationLock = gameStartDelivery && cacheGateCfg
@@ -1419,6 +1461,134 @@ async function handleApi(
     }
   }
 
+  if (path === "/api/fork/tournament-match" && method === "POST") {
+    if (!requireAdminGate(res, auth)) return;
+    if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
+    const cfg = forkConfigFromEnv();
+    if (!cfg) return sendJson(res, 503, { error: "Fork teams dir not configured on this host (set FORK_TEAMS_DIR)." });
+    const raw = await readBody(req);
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+      return sendJson(res, 400, { error: "A JSON object is required." });
+    const body = raw as { homeTeamId?: unknown; awayTeamId?: unknown; packageName?: unknown };
+    const homeTeamId = typeof body.homeTeamId === "string" ? body.homeTeamId.trim() : "";
+    const awayTeamId = typeof body.awayTeamId === "string" ? body.awayTeamId.trim() : "";
+    if (!homeTeamId || !awayTeamId)
+      return sendJson(res, 400, { error: "homeTeamId and awayTeamId are required." });
+    if (homeTeamId === awayTeamId)
+      return sendJson(res, 400, { error: "homeTeamId and awayTeamId must identify different teams." });
+    if (body.packageName !== undefined && typeof body.packageName !== "string")
+      return sendJson(res, 400, { error: "packageName must be a string when supplied." });
+
+    const homeTeam = libraryTeamForId(homeTeamId);
+    const awayTeam = libraryTeamForId(awayTeamId);
+    if (!homeTeam) return sendJson(res, 404, { error: `Team ${homeTeamId} was not found in the library.`, side: "home" });
+    if (!awayTeam) return sendJson(res, 404, { error: `Team ${awayTeamId} was not found in the library.`, side: "away" });
+    for (const [side, team] of [["home", homeTeam], ["away", awayTeam]] as const) {
+      if (isBanned(team.coach))
+        return sendJson(res, 403, { error: BANNED_ACCOUNT_MESSAGE, side, coach: team.coach });
+    }
+
+    const homeFile = storedTeamFile(cfg.teamsDir, homeTeamId);
+    const awayFile = storedTeamFile(cfg.teamsDir, awayTeamId);
+    if (!homeFile) return sendJson(res, 404, { error: `Stored XML for team ${homeTeamId} was not found.`, side: "home" });
+    if (!awayFile) return sendJson(res, 404, { error: `Stored XML for team ${awayTeamId} was not found.`, side: "away" });
+    if (!coachNamesEqual(storedTeamCoach(homeFile.xml) ?? "", homeTeam.coach))
+      return sendJson(res, 409, { error: `Stored XML ownership for team ${homeTeamId} does not match its library row.` });
+    if (!coachNamesEqual(storedTeamCoach(awayFile.xml) ?? "", awayTeam.coach))
+      return sendJson(res, 409, { error: `Stored XML ownership for team ${awayTeamId} does not match its library row.` });
+
+    let homeInstructions;
+    let awayInstructions;
+    let teamsToRefresh;
+    try {
+      homeInstructions = buildInstructions(homeTeam, teamSpecialRulesFromXml(homeFile.xml));
+      awayInstructions = buildInstructions(awayTeam, teamSpecialRulesFromXml(awayFile.xml));
+      teamsToRefresh = [
+        { team: homeTeam, file: homeFile, xml: ensureTournamentInducementSetXml(homeTeam, homeFile.xml) },
+        { team: awayTeam, file: awayFile, xml: ensureTournamentInducementSetXml(awayTeam, awayFile.xml) },
+      ]
+        .filter((entry) => entry.xml !== entry.file.xml)
+        .sort((left, right) => left.team.teamId.localeCompare(right.team.teamId));
+    } catch (error) {
+      return sendJson(res, 400, { error: (error as Error).message });
+    }
+
+    const locks = [] as NonNullable<ReturnType<typeof acquireTeamWriteLock>>[];
+    const transactions = [] as ReturnType<typeof beginTeamXmlTransaction>[];
+    let scheduledGameId: string | undefined;
+    try {
+      for (const entry of teamsToRefresh) {
+        const lock = acquireTeamWriteLock(cfg.teamsDir, entry.team.teamId);
+        if (!lock) throw new Error(`Another update is already in progress for team ${entry.team.teamId}.`);
+        locks.push(lock);
+      }
+      for (const entry of teamsToRefresh) {
+        const transaction = beginTeamXmlTransaction({
+          teamsDir: cfg.teamsDir,
+          teamId: entry.team.teamId,
+          targetPath: entry.file.path,
+          teamXml: entry.xml,
+        });
+        transactions.push(transaction);
+        atomicWriteTextFile(entry.file.path, entry.xml);
+      }
+      const reload = await reloadFork(cfg, FORK_STATE_DIR);
+      if (!reload.reloaded) throw new Error(reload.reason ?? "Fork reload did not complete.");
+      const scheduled = await scheduleForkGame(forkAdminCfg, homeTeamId, awayTeamId, { overtime: overtimeEnabled });
+      scheduledGameId = scheduled.gameId;
+      for (const transaction of transactions) commitTeamXmlTransaction(transaction, true);
+
+      const packageName = typeof body.packageName === "string" ? body.packageName.trim() : "";
+      const metadata: TournamentMatchMetadata = {
+        gameId: scheduled.gameId,
+        ...(packageName ? { packageName } : {}),
+        home: { ffbCoachId: homeTeam.coach, teamId: homeTeam.teamId, instructions: homeInstructions },
+        away: { ffbCoachId: awayTeam.coach, teamId: awayTeam.teamId, instructions: awayInstructions },
+        createdAt: new Date().toISOString(),
+      };
+      tournamentMatches.put(metadata);
+      return sendJson(res, 200, {
+        gameId: scheduled.gameId,
+        home: { coach: homeTeam.coach, treasury: homeInstructions.treasury },
+        away: { coach: awayTeam.coach, treasury: awayInstructions.treasury },
+      });
+    } catch (error) {
+      if (!scheduledGameId && transactions.length) {
+        for (const transaction of [...transactions].reverse()) restoreTeamXmlTransaction(transaction);
+        try {
+          const restored = await reloadFork(cfg, FORK_STATE_DIR);
+          if (!restored.reloaded) throw new Error(restored.reason ?? "restored generation reload refused");
+          for (const transaction of transactions) acknowledgeRestoredTeamXmlTransaction(transaction);
+        } catch (reloadError) {
+          markForkCacheReloadRequired(cfg.teamsDir, `Tournament match rollback could not be loaded: ${(reloadError as Error).message}`);
+          return sendJson(res, 503, { error: `${(error as Error).message}; restored generation awaits recovery reload: ${(reloadError as Error).message}` });
+        }
+      }
+      return sendJson(res, scheduledGameId ? 500 : 400, {
+        error: scheduledGameId
+          ? `Game ${scheduledGameId} was scheduled, but its tournament metadata could not be persisted: ${(error as Error).message}`
+          : (error as Error).message,
+        ...(scheduledGameId ? { gameId: scheduledGameId } : {}),
+      });
+    } finally {
+      for (const lock of locks.reverse()) lock.release();
+    }
+  }
+
+  const tournamentGameId = tournamentInstructionsGameId(path);
+  if (tournamentGameId && method === "GET") {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    const match = tournamentMatches.get(tournamentGameId);
+    if (!match) return sendJson(res, 404, { error: "Tournament match not found." });
+    try {
+      return sendJson(res, 200, instructionsForSession(match, auth, query.get("side")));
+    } catch (error) {
+      if (error instanceof TournamentMatchAccessError)
+        return sendJson(res, error.status, { error: error.message });
+      throw error;
+    }
+  }
+
   const gameMatch = path.match(/^\/api\/fork\/game\/([^/]+)\/(close|delete|concede)$/);
   if (gameMatch && method === "POST") {
     if (!requireAdminGate(res, auth)) return;
@@ -2119,7 +2289,9 @@ const server = createServer((req, res) => {
         return;
       } else {
         const auth = requestIdentity(req);
-        const accountSession = url.pathname === "/api/account" && auth !== undefined;
+        const accountSession = auth !== undefined && (
+          url.pathname === "/api/account" || tournamentInstructionsGameId(url.pathname) !== undefined
+        );
         if (!authorized(req, url.pathname) && !accountSession) {
           res.writeHead(401, { "www-authenticate": 'Basic realm="BB Config"' }).end("auth required");
           return;

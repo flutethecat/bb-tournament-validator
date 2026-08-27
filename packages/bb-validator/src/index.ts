@@ -32,6 +32,7 @@ export {
   findStar,
   starEligibleForTeam,
   starEligibleBySpecialRule,
+  starEligibleForLeagueSelection,
   eligibleStarsFor,
 } from "./dataset/lookup";
 export type { Access } from "./dataset/lookup";
@@ -70,6 +71,7 @@ export {
   composeTeamIntrinsic,
   parseForkRoster,
   teamCustomFromXml,
+  withRosteredInducementSet,
   mintTeamId,
   rosterOptions,
   rosterOptionsIntrinsic,

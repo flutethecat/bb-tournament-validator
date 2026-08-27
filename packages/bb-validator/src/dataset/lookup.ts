@@ -138,6 +138,35 @@ export function starEligibleBySpecialRule(star: DatasetStar, specialRule: string
 }
 
 /**
+ * Validate a star against one selected league affiliation while retaining
+ * roster-intrinsic affiliations such as Chaos Clash. Morg uses upstream's
+ * inverse `(Negate Availability)` form and is available unless the selected
+ * affiliation is one of the following exclusions.
+ */
+export function starEligibleForLeagueSelection(
+  star: DatasetStar,
+  leagueOptions: readonly string[],
+  selectedRule: string,
+): boolean {
+  const selected = normName(selectedRule);
+  if (!selected) return false;
+  const playsFor = star.playsFor ?? [];
+  if (playsFor.length === 0) return true;
+  if (playsFor.some((rule) => rule.trim().toLowerCase() === "(any)")) return true;
+
+  const negated = playsFor.some((rule) => rule.trim().toLowerCase() === "(negate availability)");
+  if (negated) {
+    return !playsFor.some(
+      (rule) => rule.trim().toLowerCase() !== "(negate availability)" && normName(rule) === selected,
+    );
+  }
+  if (playsFor.some((rule) => normName(rule) === selected)) return true;
+
+  const selectable = new Set(leagueOptions.map(normName));
+  return !playsFor.some((rule) => selectable.has(normName(rule)));
+}
+
+/**
  * The stars a team may hire, DERIVED from eligibility (owner 2026-08-10: "stars should be derived
  * from their eligibility" — never offered from an off-roster pool or injected as positions). The
  * star pool filtered to those that play for `teamName`, optionally narrowed to a chosen

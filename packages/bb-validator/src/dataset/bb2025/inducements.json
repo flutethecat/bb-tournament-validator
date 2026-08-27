@@ -5,24 +5,28 @@
   {
    "id": "part_time_assistant_coaches",
    "name": "Part-time Assistant Coaches",
+   "wireName": "partTimeCoach",
    "cost": 20000,
    "max": 5
   },
   {
    "id": "temp_agency_cheerleaders",
    "name": "Temp Agency Cheerleaders",
+   "wireName": "tempCheerleader",
    "cost": 5000,
    "max": 5
   },
   {
    "id": "bloodweiser_kegs",
    "name": "Bloodweiser Kegs",
+   "wireName": "bloodweiserBabes",
    "cost": 50000,
    "max": 2
   },
   {
    "id": "bribes",
    "name": "Bribes",
+   "wireName": "bribes",
    "cost": 100000,
    "max": 3,
    "reducedCost": 50000,
@@ -32,6 +36,7 @@
   {
    "id": "wandering_apothecaries",
    "name": "Wandering Apothecaries",
+   "wireName": "wanderingApothecaries",
    "cost": 100000,
    "max": 2,
    "requiresApothecary": true
@@ -39,12 +44,14 @@
   {
    "id": "mortuary_assistant",
    "name": "Mortuary Assistant",
+   "wireName": "mortuaryAssistant",
    "cost": 100000,
    "max": 1
   },
   {
    "id": "plague_doctor",
    "name": "Plague Doctor",
+   "wireName": "plagueDoctor",
    "cost": 100000,
    "max": 1
   },
@@ -57,12 +64,14 @@
   {
    "id": "riotous_rookies",
    "name": "Riotous Rookies",
+   "wireName": "riotousRookies",
    "cost": 150000,
    "max": 1
   },
   {
    "id": "halfling_master_chef",
    "name": "Halfling Master Chef",
+   "wireName": "halflingMasterChef",
    "cost": 300000,
    "max": 1,
    "reducedCost": 100000,
@@ -72,24 +81,28 @@
   {
    "id": "extra_team_training",
    "name": "Extra Team Training",
+   "wireName": "extraTeamTraining",
    "cost": 100000,
    "max": 8
   },
   {
    "id": "weather_mage",
    "name": "Weather Mage",
+   "wireName": "weatherMage",
    "cost": 25000,
    "max": 1
   },
   {
    "id": "hireling_sports_wizard",
    "name": "Hireling Sports-Wizard",
+   "wireName": "wizard",
    "cost": 150000,
    "max": 1
   },
   {
    "id": "biased_referee",
    "name": "Biased Referee",
+   "wireName": "biasedRef",
    "cost": 120000,
    "max": 1,
    "reducedCost": 80000,
@@ -99,12 +112,14 @@
   {
    "id": "team_mascot",
    "name": "Team Mascot",
+   "wireName": "teamMascot",
    "cost": 25000,
    "max": 1
   },
   {
    "id": "prayers_to_nuffle",
    "name": "Prayers to Nuffle",
+   "wireName": "prayers",
    "cost": 30000,
    "max": 3
   },
@@ -133,6 +148,7 @@
   {
    "id": "infamous_coaching_staff",
    "name": "Infamous Coaching Staff",
+   "wireName": "josefBugman",
    "cost": null,
    "max": 2,
    "note": "Named staff, individual costs."

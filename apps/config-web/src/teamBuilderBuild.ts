@@ -1,5 +1,6 @@
 import { readLibrary, upsertLibraryTeam, type LibraryTeam } from "@bb/fork-ops";
-import type { ComposeResult, Roster } from "@bb/validator";
+import { findStar, isStarName, normName, type ComposeResult, type Roster } from "@bb/validator";
+import { bb2025 } from "@bb/validator/dataset";
 import { coachNamesEqual, storedTeamCoach, storedTeamFile, storedTeamHasHistory } from "./teamDetail.js";
 
 export type TeamBuilderBuildTarget =
@@ -70,6 +71,13 @@ export function builtLibraryTeam(
   forkLoadable: boolean,
   rulesetPackName?: string,
 ): LibraryTeam {
+  const rosteredInducements = roster.inducements.map((inducement) => ({
+    key: inducement.id?.trim() || normName(inducement.name).replace(/ /g, "_"),
+    count: inducement.count ?? 1,
+  }));
+  const rosteredStars = roster.players
+    .filter((player) => isStarName(bb2025, player.positionName))
+    .map((player) => findStar(bb2025, player.positionName)?.name ?? player.positionName);
   return {
     teamId,
     teamName: roster.teamName,
@@ -81,6 +89,8 @@ export function builtLibraryTeam(
     fanFactor: roster.sideline.dedicatedFans,
     apothecary: roster.sideline.apothecary,
     rulesetPackName,
+    ...(rosteredInducements.length ? { rosteredInducements } : {}),
+    ...(rosteredStars.length ? { rosteredStars } : {}),
     forkLoadable,
     ingestedAt,
   };

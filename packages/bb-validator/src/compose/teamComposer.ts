@@ -21,7 +21,7 @@ import {
   findStar,
   normName,
   skillAccess,
-  starEligibleBySpecialRule,
+  starEligibleForLeagueSelection,
 } from "../dataset/lookup";
 import type { Roster, RosterPlayer, Target } from "../model/roster";
 
@@ -98,6 +98,8 @@ export interface ComposeInput {
   specialRule?: string;
   /** Custom UAT mode (owner 08-04): apply ANY chosen skill/trait as-is — bypass the roster-legal check. */
   custom?: boolean;
+  /** Tournament-only predefined inducements. Omit for ordinary builds. */
+  rosteredInducements?: Array<{ key: string; count: number }>;
 }
 
 export interface ComposeResult {
@@ -121,6 +123,53 @@ const xmlEscape = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24) || "x";
 
+function resolveRosteredInducements(
+  picks: readonly { key: string; count: number }[] | undefined,
+  data: Dataset,
+  specialRules: readonly string[] = [],
+): Array<{ key: string; count: number; name: string; cost: number; wireName: string }> {
+  const seen = new Set<string>();
+  const normalizedRules = new Set(specialRules.map(normName));
+  return (picks ?? []).map((pick) => {
+    const key = pick.key.trim();
+    if (!key) throw new Error("Rostered inducement key is required.");
+    if (seen.has(key)) throw new Error(`Rostered inducement "${key}" is listed more than once.`);
+    seen.add(key);
+    if (!Number.isSafeInteger(pick.count) || pick.count <= 0)
+      throw new Error(`Rostered inducement "${key}" count must be a positive safe integer.`);
+    const catalog = data.inducements[key];
+    if (!catalog) throw new Error(`Cannot resolve rostered inducement catalog key "${key}".`);
+    if (!catalog.wireName) throw new Error(`Cannot resolve fork wire name for rostered inducement "${key}".`);
+    const reduced = catalog.reducedSpecialRule && normalizedRules.has(normName(catalog.reducedSpecialRule));
+    const cost = reduced ? catalog.reducedCost : catalog.cost;
+    if (!Number.isSafeInteger(cost) || (cost ?? -1) < 0)
+      throw new Error(`Cannot resolve fixed gold cost for rostered inducement "${key}".`);
+    return { key, count: pick.count, name: catalog.name, cost: cost!, wireName: catalog.wireName };
+  });
+}
+
+const emitInducementSetXml = (
+  inducements: readonly { wireName: string; count: number }[],
+): string => inducements.length
+  ? `\t<inducementSet>\n${inducements.map((pick) =>
+      `\t\t<inducement type="${xmlEscape(pick.wireName)}" value="${pick.count}" uses="0"/>`,
+    ).join("\n")}\n\t</inducementSet>\n\n`
+  : "";
+
+/** Add the fork-native predefined-inducement block to a legacy composed team XML. */
+export function withRosteredInducementSet(
+  xml: string,
+  picks: readonly { key: string; count: number }[],
+  data: Dataset,
+): string {
+  if (picks.length === 0 || /<inducementSet\b/i.test(xml)) return xml;
+  const inducements = resolveRosteredInducements(picks, data);
+  const closingTeam = xml.match(/\s*<\/team>\s*$/i);
+  if (!closingTeam) throw new Error("Composed team XML is missing its closing </team> element.");
+  const prefix = xml.slice(0, closingTeam.index).replace(/\s*$/, "");
+  return `${prefix}\n\n${emitInducementSetXml(inducements)}</team>\n`;
+}
+
 // fumbbl40k-server/ffb-common/src/main/java/com/fumbbl/ffb/model/SpecialRule.java
 const FORK_SPECIAL_RULE_NAMES = new Set([
   "Badlands Brawl",
@@ -143,14 +192,26 @@ const FORK_SPECIAL_RULE_NAMES = new Set([
   "Brawlin' Brutes",
 ]);
 
-const runtimeSpecialRules = (
+const selectedSpecialRules = (
   rosterName: string,
   rosterRules: readonly string[],
   chosenRule?: string,
 ): string[] => {
-  const candidates = normName(rosterName) === "snotling" ? rosterRules : chosenRule ? [chosenRule] : [];
-  return candidates.filter((rule) => FORK_SPECIAL_RULE_NAMES.has(rule));
+  // Snotling XML historically carries its complete rule list and remains byte-stable. Every other roster
+  // carries all intrinsic mechanics plus its one optional league affiliation. Previously non-Snotling
+  // teams emitted only `chosenRule`, silently dropping Underworld's Bribery and Corruption at runtime.
+  return normName(rosterName) === "snotling"
+    ? [...rosterRules]
+    : [...leagueMenuForRoster({ name: rosterName, specialRules: [...rosterRules] }).alwaysOn,
+      ...(chosenRule ? [chosenRule] : [])];
 };
+
+const runtimeSpecialRules = (
+  rosterName: string,
+  rosterRules: readonly string[],
+  chosenRule?: string,
+): string[] => selectedSpecialRules(rosterName, rosterRules, chosenRule)
+  .filter((rule) => FORK_SPECIAL_RULE_NAMES.has(rule));
 
 const emitSpecialRulesXml = (rules: readonly string[]): string =>
   `\t<specialRules>${rules.map((rule) => `<rule>${xmlEscape(rule)}</rule>`).join("")}</specialRules>\n\n`;
@@ -370,7 +431,7 @@ export function rosterOptionsIntrinsic(forkRosterXml: string, data?: Dataset): R
 // SECRET LEAGUE / dataset-free compose path (#52, option A)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface ComposeIntrinsicInput extends ComposeInput {
+export interface ComposeIntrinsicInput extends Omit<ComposeInput, "rosteredInducements"> {
   /**
    * TV budget cap in gold — the tournament/SL budget the TO configures (per Yularen's ruling: the
    * fixed 1000k baseline can't fit SL TVs, so the cap is a configurable input, not a constant). If
@@ -573,6 +634,11 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     : undefined;
   if (requestedSpecialRule && !specialRule)
     throw new Error(`Special rule "${requestedSpecialRule}" is not available to ${dsRoster.name}.`);
+  const rosteredInducements = resolveRosteredInducements(
+    input.rosteredInducements,
+    data,
+    runtimeSpecialRules(dsRoster.name, dsRoster.specialRules, specialRule),
+  );
   const byId = new Map(fork.positions.map((p) => [p.positionId, p]));
 
   const teamId = mintTeamId(input.coach, fork.raceName, now);
@@ -587,7 +653,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     if (!forkPos) throw new Error(`positionId "${pick.positionId}" is not in the ${fork.raceName} roster.`);
     if (forkPos.isStar) {
       const star = findStar(data, forkPos.name);
-      if (specialRule && star && !starEligibleBySpecialRule(star, specialRule))
+      if (specialRule && star && !starEligibleForLeagueSelection(star, leagueOptions, specialRule))
         throw new Error(`Star player ${forkPos.name} is not eligible under ${specialRule}.`);
       if (pick.chosenSkills && pick.chosenSkills.length > 0)
         throw new Error(`Star player ${forkPos.name} cannot take chosen skills.`);
@@ -683,6 +749,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     (input.assistantCoaches ?? 0) * 10000 +
     (input.cheerleaders ?? 0) * 10000 +
     Math.max(0, (input.dedicatedFans ?? 1) - 1) * 10000;
+  const inducementGold = rosteredInducements.reduce((sum, pick) => sum + pick.cost * pick.count, 0);
 
   const roster: Roster = {
     rosterName: dsRoster.name,
@@ -690,7 +757,12 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     teamName: input.teamName,
     custom: input.custom === true,
     sideline,
-    inducements: [],
+    inducements: rosteredInducements.map((pick) => ({
+      id: pick.key,
+      name: pick.name,
+      count: pick.count,
+      cost: pick.cost,
+    })),
     leagues: [],
     specialRules: normName(dsRoster.name) === "snotling"
       ? runtimeSpecialRules(dsRoster.name, dsRoster.specialRules)
@@ -699,16 +771,16 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     summary: {
       playersCost: playersGold,
       skillsCost: 0,
-      inducementCost: 0,
+      inducementCost: inducementGold,
       sidelineCost: staffGold,
-      total: playersGold + staffGold,
+      total: playersGold + staffGold + inducementGold,
     },
   };
 
   // Advisory team value for the XML header (the server recomputes from positions on load;
   // fork-native hand-authored teams carry TV in units of 10k — 1000k ⇒ ~100). Round-trip
   // test confirms the server accepts/recomputes this.
-  const tvUnits = Math.round((playersGold + staffGold) / 10000);
+  const tvUnits = Math.round((playersGold + staffGold + inducementGold) / 10000);
 
   const xml =
     `<?xml version="1.0" encoding="UTF-8"?>\n\n<team id="${teamId}">\n\n` +
@@ -726,6 +798,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     (input.custom ? `\t<custom>true</custom>\n` : "") +
     `\t<division>[X]</division>\n\n` +
     emitSpecialRulesXml(runtimeSpecialRules(dsRoster.name, dsRoster.specialRules, specialRule)) +
+    emitInducementSetXml(rosteredInducements) +
     xmlPlayers.join("\n") +
     `\n\n</team>\n`;
 
