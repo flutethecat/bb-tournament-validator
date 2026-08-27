@@ -121,9 +121,12 @@ export class TournamentResultStore {
 
 /** Discover every retained finished game; the fork has no usable `status=all`. */
 export async function discoverFinishedGames(cfg: ForkAdminConfig): Promise<AdminGameEntry[]> {
-  const xmls = await Promise.all(FINISHED_GAME_STATUSES.map((status) => adminList(cfg, status)));
   const byGameId = new Map<string, AdminGameEntry>();
-  for (const game of xmls.flatMap(parseAdminGameList)) byGameId.set(game.gameId, game);
+  // SEQUENTIAL on purpose: the admin servlet keeps ONE fLastChallenge — concurrent
+  // challenge->command pairs invalidate each other and one list silently parses to [].
+  for (const status of FINISHED_GAME_STATUSES) {
+    for (const game of parseAdminGameList(await adminList(cfg, status))) byGameId.set(game.gameId, game);
+  }
   return [...byGameId.values()];
 }
 
