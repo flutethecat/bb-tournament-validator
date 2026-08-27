@@ -41,6 +41,7 @@ const PUBLIC_API_METHODS = new Map<string, ReadonlySet<string>>([
   ["/api/fork/rosters", new Set(["GET", "HEAD"])],
   ["/api/fork/team-builder/legal-skills", new Set(["GET", "HEAD"])],
   ["/api/fork/team-builder/inducements", new Set(["GET", "HEAD"])],
+  ["/api/fork/team-builder/tiers", new Set(["GET", "HEAD"])],
   ["/api/fork/team-builder/preview", new Set(["POST"])],
   ["/api/fork/team-builder/build", new Set(["POST"])],
   ["/api/fork/my-games", new Set(["POST"])],

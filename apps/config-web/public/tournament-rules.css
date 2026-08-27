@@ -196,6 +196,7 @@ textarea.control { min-height: 58px; resize: vertical; line-height: 1.4; }
 .race-chip { padding: 3px 10px; font-size: 12px; background: var(--row); color: #777; border-color: #333; }
 .race-chip.active { background: #2a0002; color: #fff; }
 .tier-badge { border-radius: 6px; padding: 0 5px; color: #fff; font-size: 9px; letter-spacing: 0; }
+.tier-badge.tier-default { opacity: 0.45; }
 .tier-1 { background: #12459c; }.tier-2 { background: #1a401c; }.tier-3 { background: #6a4a10; }.tier-4 { background: #4a1010; }
 
 .notice {

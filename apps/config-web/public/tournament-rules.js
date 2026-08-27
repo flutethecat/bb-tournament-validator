@@ -259,6 +259,11 @@ function tierClass(tier) {
   return `tier-${value}`;
 }
 
+function assignedTierFor(raceName) {
+  const tier = safeArray(state.pkg?.tiers).find((entry) => safeArray(entry.rosters).includes(raceName));
+  return tier?.tier ?? null;
+}
+
 function isAllRaces() {
   return state.pkg.eligibleRosters.includes("*");
 }
@@ -418,8 +423,10 @@ function renderRaces() {
   const selected = new Set(state.pkg.eligibleRosters);
   const chips = state.teams.map((team) => {
     const active = all || selected.has(team.name);
+    const assignedTier = assignedTierFor(team.name);
+    const displayedTier = assignedTier ?? team.defaultTier;
     return `<button type="button" class="chip race-chip${active ? " active" : ""}" data-action="toggle-race" data-name="${escapeHtml(team.name)}">
-      ${escapeHtml(team.name)} <span class="tier-badge ${tierClass(team.defaultTier)}">T${escapeHtml(team.defaultTier ?? "?")}</span>
+      ${escapeHtml(team.name)} <span class="tier-badge ${tierClass(displayedTier)}${assignedTier == null ? " tier-default" : ""}">T${escapeHtml(displayedTier ?? "?")}</span>
     </button>`;
   }).join("");
   const count = all ? `all ${state.teams.length} races eligible` : `${state.pkg.eligibleRosters.length} of ${state.teams.length} selected`;
@@ -545,10 +552,14 @@ function renderTiers() {
         </div>
       </div>`;
   }).join("");
-  const poolChips = unassigned.map((team) => `
-    <button type="button" draggable="true" class="chip race-chip tier-pool-chip" data-action="assign-tier-team" data-team="${escapeHtml(team.name)}" data-tier-source="pool">
-      ${escapeHtml(team.name)} <span class="tier-badge ${tierClass(team.defaultTier)}">T${escapeHtml(team.defaultTier ?? "?")}</span>
-    </button>`).join("");
+  const poolChips = unassigned.map((team) => {
+    const assignedTier = assignedTierFor(team.name);
+    const displayedTier = assignedTier ?? team.defaultTier;
+    return `
+      <button type="button" draggable="true" class="chip race-chip tier-pool-chip" data-action="assign-tier-team" data-team="${escapeHtml(team.name)}" data-tier-source="pool">
+        ${escapeHtml(team.name)} <span class="tier-badge ${tierClass(displayedTier)}${assignedTier == null ? " tier-default" : ""}">T${escapeHtml(displayedTier ?? "?")}</span>
+      </button>`;
+  }).join("");
   return `
     <div class="inset-list">
       <div class="hint">Per-tier caps override the package caps. Races default to their live dataset tier. Click a tier to select it, then click or drag an unassigned team.</div>

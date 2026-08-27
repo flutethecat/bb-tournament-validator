@@ -117,6 +117,7 @@ import { replayDeferredGameResults } from "./site-backend/banking.js";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
 import { builtLibraryTeam, registerBuiltTeam, resolveTeamBuilderBuildTarget, retargetComposedTeam } from "./teamBuilderBuild.js";
 import { teamBuilderInducementCatalog } from "./teamBuilderInducements.js";
+import { teamBuilderTierCatalog } from "./teamBuilderTiers.js";
 import { corsDecision, parseAllowedOrigins } from "./cors.js";
 import { teamEditingError } from "./customGate.js";
 import { forkGamesEndpoint } from "./forkGames.js";
@@ -223,6 +224,7 @@ const PUBLIC_PATHS = new Set([
   "/api/fork/rosters",
   "/api/fork/team-builder/legal-skills",
   "/api/fork/team-builder/inducements",
+  "/api/fork/team-builder/tiers",
   "/api/fork/team-builder/preview",
   "/api/fork/team-builder/build",
   // #210 "your games in progress" (in-client lobby panel): reachable without the ADMIN password;
@@ -1745,6 +1747,13 @@ async function handleApi(
     const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName);
     if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
     return sendJson(res, 200, { inducements: teamBuilderInducementCatalog(resolvedPkg.pkg, bb2025) });
+  }
+
+  if (path === "/api/fork/team-builder/tiers" && method === "GET") {
+    const packageName = query.get("packageName")?.trim() || undefined;
+    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName);
+    if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
+    return sendJson(res, 200, { races: teamBuilderTierCatalog(resolvedPkg.pkg, bb2025) });
   }
 
   // Preview: compose + validate, no write. Returns legality findings + the recomputed summary.
