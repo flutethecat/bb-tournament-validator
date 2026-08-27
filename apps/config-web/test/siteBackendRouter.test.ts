@@ -602,6 +602,24 @@ describe("handleXmlRequest (Dialect-1 router)", () => {
     return { handled, res };
   };
 
+  it("GET api/name/generate serves the Java dialect: a raw JSON-quoted name string", async () => {
+    const { handled, res } = await call("/api/name/generate/orc/male");
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(200);
+    // StepRiotousRookies unquotes the raw body — it must be a quoted plain string, never [] or {name}.
+    const name = JSON.parse(res.body);
+    expect(typeof name).toBe("string");
+    expect(name.trim().length).toBeGreaterThan(2);
+  });
+
+  it("POST api/name/generate falls through to server.ts's {name} contract handler", async () => {
+    const res = mockRes();
+    const handled = await handleXmlRequest(
+      { method: "POST", headers: {} } as never, res as never, "/api/name/generate/default/female", new URLSearchParams(), deps,
+    );
+    expect(handled).toBe(false);
+  });
+
   /** The fork's service-user dance: fetch a fresh challenge for `fumbbl.user`, compute the response
    *  (getFumbblAuthChallengeResponseForFumbblUser) — one per mutating call, single-use. */
   const serviceResponse = async () => {

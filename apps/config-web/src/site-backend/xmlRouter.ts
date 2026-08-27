@@ -20,7 +20,7 @@
  *   xml:result  (multipart: response + f)           FumbblRequestUploadResults      → <result>success</result><description>…</description>
  *   xml:chatlog (form: response + chat)             FumbblRequestUploadTalk         → logged only
  *   api/clientoptions/get/$1                        *LoadPlayerMarkings             → JSON (non-fatal stub)
- *   api/name/generate/…                             name generator                  → JSON (non-fatal stub)
+ *   api/name/generate/{gen}/{gender}                name generator (GET = Java)     → JSON-quoted string; POST falls through to server.ts ({name})
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -32,6 +32,7 @@ import type { NonceStore } from "./nonceStore.js";
 import { parseFumbblResult } from "./fumbblResult.js";
 import { buildBankTasks, unbankedResidual } from "./fumbblResultBanking.js";
 import { boundaryFromContentType, parseMultipart } from "./multipart.js";
+import { NAME_GENERATE_GENDERS, generateName } from "../nameGenerate.js";
 
 export interface SiteBackendDeps {
   nonce: NonceStore;
@@ -376,8 +377,16 @@ export async function handleXmlRequest(
     return true;
   }
   if (path.startsWith("api/name/generate")) {
+    // Two dialects share this path. The Java fork GETs it (StepRiotousRookies.rookieName →
+    // UtilServerHttpClient.fetchPage + unquote) and expects upstream FUMBBL's raw JSON-quoted
+    // string — the old "[]" stub literally named Riotous Rookies "[]". The FUMBBLUI contract
+    // POSTs it and gets {name} from server.ts's handler, so POST falls through (return false).
+    if ((req.method ?? "GET") === "POST") return false;
+    const segments = path.split("/");
+    const generator = decodeURIComponent(segments[3] ?? "default");
+    const gender = decodeURIComponent(segments[4] ?? "neutral");
     res.writeHead(200, JSON_CT);
-    res.end("[]");
+    res.end(JSON.stringify(generateName(generator, NAME_GENERATE_GENDERS.has(gender) ? gender : "neutral")));
     return true;
   }
 
