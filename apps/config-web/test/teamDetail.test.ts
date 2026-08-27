@@ -263,3 +263,53 @@ describe("GET /api/teams/:id/detail", () => {
     );
   });
 });
+
+describe("§3E schema widening", () => {
+  const TEAM_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<team id="1272390">
+  <coach>Tarkin</coach>
+  <name>Da &amp; Boyz</name>
+  <race>Human</race>
+  <rosterId>human</rosterId>
+  <reRolls>2</reRolls>
+  <fanFactor>3</fanFactor>
+  <treasury>35000</treasury>
+  <player nr="1" id="p1"><name>Fresh</name><gender>female</gender><positionId>lineman</positionId><skillList></skillList></player>
+  <player status="journeyman" nr="2" id="p2"><name>Journey</name><gender>neutral</gender><positionId>lineman</positionId><skillList><skill value="4">Loner</skill></skillList></player>
+<firedPlayers>
+<firedPlayer reason="retired" nr="3" id="p3"><firedName>Gone</firedName><gender>male</gender><positionId>lineman</positionId><skillList></skillList></firedPlayer>
+</firedPlayers>
+</team>
+`;
+  const ROSTER_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<roster id="human"><name>Human</name><reRollCost>50000</reRollCost><nameGenerator>human</nameGenerator>
+<position id="lineman"><quantity>16</quantity><name>Lineman</name><type>Regular</type><gender>random</gender><cost>50000</cost></position>
+</roster>
+`;
+
+  async function widened(status?: string) {
+    const { parseStoredTeamDetail } = await import("../src/teamDetail.js");
+    const xml = status === undefined ? TEAM_XML : TEAM_XML.replace('<team id="1272390">', `<team id="1272390" status="${status}">`);
+    return parseStoredTeamDetail(xml, STORED_TEAM, ROSTER_XML);
+  }
+
+  it("emits gender, journeyman, refundable, teamStatus, nameGenerator, and firedPlayers", async () => {
+    const team = await widened();
+    expect(team.teamStatus).toBe("0");
+    expect(team.nameGenerator).toBe("human");
+    expect(team.players.map((p) => p.gender)).toEqual(["female", "neutral"]);
+    expect(team.players.map((p) => p.journeyman)).toEqual([false, true]);
+    expect(team.players[0]!.refundable).toBe(true);
+    // The journeyman's Loner skill counts as history, so it is not refundable.
+    expect(team.players[1]!.refundable).toBe(false);
+    expect(team.firedPlayers).toEqual([
+      { id: "p3", name: "Gone", position: "Lineman", positionId: "lineman", reason: "retired" },
+    ]);
+  });
+
+  it("kills refundable on a non-NEW team and reports the raw status", async () => {
+    const team = await widened("1");
+    expect(team.teamStatus).toBe("1");
+    expect(team.players[0]!.refundable).toBe(false);
+  });
+});

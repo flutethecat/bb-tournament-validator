@@ -39,6 +39,17 @@ export interface TeamDetailPlayer {
   currentValue: number;
   mng: boolean;
   status: string | null;
+  gender: string | null;
+  journeyman: boolean;
+  refundable: boolean;
+}
+
+export interface TeamDetailFiredPlayer {
+  id: string;
+  name: string;
+  position: string | null;
+  positionId: string;
+  reason: string;
 }
 
 export interface TeamDetail {
@@ -58,6 +69,11 @@ export interface TeamDetail {
   canEditRoster: Capability;
   revision: string;
   players: TeamDetailPlayer[];
+  /** Raw stored status ("0" new / "1" active / upstream values); absent in the XML = "0". */
+  teamStatus: string;
+  /** The roster XML's <nameGenerator> id for name/generate; "default" when the roster carries none. */
+  nameGenerator: string;
+  firedPlayers: TeamDetailFiredPlayer[];
 }
 
 export type TeamDetailEndpointResult =
@@ -192,6 +208,11 @@ export function parseStoredTeamDetail(
   const players: TeamDetailPlayer[] = [];
   const revision = teamRevision(xml);
   const hasAnyPending = /<pendingAdvancement\b/i.test(xml);
+  const header = xml.split(/<player\b/i)[0] ?? xml;
+  const teamStatus = (element(header, "status") ??
+    decodeXml(attr(xml.match(/<team\b[^>]*>/i)?.[0] ?? "", "status") ?? "").trim()) || "0";
+  // Refunds exist only on a NEW team (raw status 0/absent) — mirrors teamMutation's refundPlayer gate.
+  const teamIsNew = /^(?:|0|new)$/i.test(teamStatus.replace(/[\s_-]+/g, ""));
 
   for (const found of xml.matchAll(/<player\b([^>]*)>([\s\S]*?)<\/player>/gi)) {
     const block = found[0]!;
@@ -265,6 +286,27 @@ export function parseStoredTeamDetail(
       currentValue: progression.currentValue,
       mng: playerMng(block, status),
       status,
+      gender: element(block, "gender") ?? null,
+      journeyman: status !== null && /^journeyman$/i.test(status),
+      // Mirrors teamMutation's refundPlayer gate: NEW team, no acquired skills/injuries/SPP/games.
+      refundable: teamIsNew && skills.length === 0 && injuries.length === 0 && spp === 0 &&
+        !playerMng(block, status) &&
+        !/<(?:playedGames|games)>\s*[1-9]/i.test(block),
+    });
+  }
+
+  const firedPlayers: TeamDetailFiredPlayer[] = [];
+  for (const found of xml.matchAll(/<firedPlayer\b([^>]*)>([\s\S]*?)<\/firedPlayer>/gi)) {
+    const block = found[0]!;
+    const opening = found[1]!;
+    const positionId = element(block, "positionId") ?? decodeXml(attr(opening, "positionId") ?? "");
+    firedPlayers.push({
+      id: decodeXml(attr(opening, "id") ?? ""),
+      // Fired blocks carry <firedName> (renamed so the Java SAX parser cannot take it for the team name).
+      name: element(block, "firedName") ?? element(block, "name") ?? "",
+      position: names.get(positionId) ?? element(block, "position") ?? null,
+      positionId,
+      reason: decodeXml(attr(opening, "reason") ?? "") || "fired",
     });
   }
 
@@ -304,6 +346,9 @@ export function parseStoredTeamDetail(
     canEditRoster,
     revision,
     players,
+    teamStatus,
+    nameGenerator: (rosterXml ? element(rosterXml, "nameGenerator") : undefined) ?? "default",
+    firedPlayers,
   };
 }
 

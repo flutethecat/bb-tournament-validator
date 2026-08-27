@@ -135,6 +135,7 @@ import {
   teamMutationEndpoint,
   teamMutationOperation,
 } from "./teamMutation.js";
+import { NAME_GENERATE_GENDERS, generateName, nameGeneratePath } from "./nameGenerate.js";
 import { libraryIngestOwnershipError, parseLibraryIngestRequest } from "./teamIngestSecurity.js";
 import {
   DEFAULT_JSON_BODY_CAP,
@@ -994,6 +995,17 @@ async function handleApi(
     const body = await readBody(req, MUTATION_JSON_BODY_CAP);
     const result = teamCheckNameEndpoint(body, duplicateTeamNameError);
     return sendJson(res, result.status, result.body);
+  }
+
+  // name/generate/{generator}/{gender} — public read-only like checkName. The contract's Layer A
+  // POSTs it with a null/{} body; Layer B tolerance accepts GET too. Body (if any) is drained/ignored.
+  const nameGen = nameGeneratePath(path);
+  if (nameGen && (method === "POST" || method === "GET")) {
+    if (method === "POST") await readBody(req, MUTATION_JSON_BODY_CAP).catch(() => undefined);
+    if (!NAME_GENERATE_GENDERS.has(nameGen.gender)) {
+      return sendJson(res, 400, { error: "gender must be male, female, or neutral." });
+    }
+    return sendJson(res, 200, { name: generateName(nameGen.generator, nameGen.gender) });
   }
 
   const mutationOperation = teamMutationOperation(path);
@@ -2323,6 +2335,10 @@ const server = createServer((req, res) => {
       // Name availability is a public, read-only POST like /api/fork/name-available. Dispatch it
       // before the optional auth sidecar so both deployment modes expose the same posture.
       if (req.method === "POST" && url.pathname === "/api/team/checkName") {
+        return await handleApi(req, res, url.pathname, url.searchParams);
+      }
+      // name/generate is the same public read-only posture as checkName (contract §3A).
+      if ((req.method === "POST" || req.method === "GET") && nameGeneratePath(url.pathname)) {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
       if (AUTH_SIDECAR) {

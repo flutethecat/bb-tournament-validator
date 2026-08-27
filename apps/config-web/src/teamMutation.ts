@@ -16,6 +16,7 @@ import {
   type ReloadResult,
 } from "@bb/fork-ops";
 import { coachNamesEqual, storedTeamCoach, storedTeamFile } from "./teamDetail.js";
+import { playerProgression } from "./teamAdvancement.js";
 
 export type TeamMutationOperation =
   | "renumber"
@@ -29,7 +30,16 @@ export type TeamMutationOperation =
   | "addApothecary"
   | "fireApothecary"
   | "changeDedicatedFans"
-  | "rename";
+  | "rename"
+  | "addPlayer"
+  | "firePlayer"
+  | "retirePlayer"
+  | "temporaryRetirePlayer"
+  | "undoTemporaryRetire"
+  | "rehirePlayer"
+  | "refundPlayer"
+  | "ready"
+  | "unready";
 
 const MUTATION_OPERATIONS = new Set<TeamMutationOperation>([
   "renumber",
@@ -44,6 +54,15 @@ const MUTATION_OPERATIONS = new Set<TeamMutationOperation>([
   "fireApothecary",
   "changeDedicatedFans",
   "rename",
+  "addPlayer",
+  "firePlayer",
+  "retirePlayer",
+  "temporaryRetirePlayer",
+  "undoTemporaryRetire",
+  "rehirePlayer",
+  "refundPlayer",
+  "ready",
+  "unready",
 ]);
 
 export interface TeamMutationIdentity {
@@ -60,7 +79,7 @@ export interface TeamMutationDeps {
 }
 
 export type TeamMutationResult =
-  | { status: 200; body: { ok: true; teamId: string; reload: ReloadResult } }
+  | { status: 200; body: { ok: true; teamId: string; reload: ReloadResult } & Record<string, unknown> }
   | { status: 400 | 401 | 404 | 409 | 500 | 503; body: { error: string } };
 
 export type TeamCheckNameResult =
@@ -334,6 +353,441 @@ function renumber(xml: string, playerNumbers: JsonObject): string {
   return updated;
 }
 
+// ── P3: player lifecycle + ready/unready (contract §3C) ──────────────────────────────────────────
+//
+// Dispatcher rulings without contract provenance, chosen fail-safe and commented at the site:
+// fired/retired players are stored as <firedPlayer> nodes (never nested <player> — the Java server's
+// team parser must not field them); no refunds anywhere except the NEW-team refundPlayer buy-back;
+// no agent fee on re-hire (the fork has no season provenance); ready is gated to NEW teams (post-game
+// re-ready is a production HOLD) and never triggers Expensive Mistakes (no season/redraft provenance).
+
+const ROSTER_OPERATIONS = new Set<TeamMutationOperation>([
+  "addPlayer",
+  "firePlayer",
+  "retirePlayer",
+  "temporaryRetirePlayer",
+  "undoTemporaryRetire",
+  "rehirePlayer",
+  "refundPlayer",
+  "ready",
+  "unready",
+]);
+
+const MAX_TEAM_PLAYERS = 16;
+const MIN_READY_PLAYERS = 11;
+
+interface PlayerBlock {
+  block: string;
+  opening: string;
+  id: string;
+  nr: number | undefined;
+  status: string;
+  positionId: string;
+}
+
+function parsePlayerBlock(block: string): PlayerBlock {
+  const opening = block.match(/<(?:fired)?[pP]layer\b[^>]*>/i)?.[0] ?? "";
+  const nrRaw = element(block, "number") ?? attr(opening, "nr") ?? attr(opening, "number");
+  const nr = Number(nrRaw);
+  return {
+    block,
+    opening,
+    id: decodeXml(attr(opening, "id") ?? ""),
+    nr: Number.isSafeInteger(nr) ? nr : undefined,
+    status: decodeXml(attr(opening, "status") ?? ""),
+    positionId: element(block, "positionId") ?? decodeXml(attr(opening, "positionId") ?? ""),
+  };
+}
+
+function activePlayerBlocks(xml: string): PlayerBlock[] {
+  return [...xml.matchAll(/<player\b[^>]*>[\s\S]*?<\/player>/gi)].map((match) => parsePlayerBlock(match[0]!));
+}
+
+function firedPlayerBlocks(xml: string): PlayerBlock[] {
+  return [...xml.matchAll(/<firedPlayer\b[^>]*>[\s\S]*?<\/firedPlayer>/gi)].map((match) => parsePlayerBlock(match[0]!));
+}
+
+interface RosterPosition {
+  id: string;
+  name: string;
+  type: string;
+  quantity: number;
+  cost: number;
+  gender: string;
+}
+
+function rosterPositions(rosterXml: string): Map<string, RosterPosition> {
+  const positions = new Map<string, RosterPosition>();
+  for (const found of rosterXml.matchAll(/<position\b([^>]*)>([\s\S]*?)<\/position>/gi)) {
+    const id = decodeXml(attr(found[1]!, "id") ?? "");
+    if (!id) continue;
+    const body = found[2]!;
+    const quantity = Number(element(body, "quantity") ?? "");
+    const cost = Number(element(body, "cost") ?? "");
+    positions.set(id, {
+      id,
+      name: element(body, "name") ?? "",
+      type: element(body, "type") ?? "",
+      quantity: Number.isSafeInteger(quantity) && quantity >= 0 ? quantity : 0,
+      cost: Number.isSafeInteger(cost) && cost >= 0 ? cost : 0,
+      gender: (element(body, "gender") ?? "").toLowerCase(),
+    });
+  }
+  return positions;
+}
+
+type TeamStatusClass = "NEW" | "ACTIVE" | "OTHER";
+
+function teamStatusClass(raw: string): TeamStatusClass {
+  const status = raw.trim().toUpperCase().replace(/[\s_-]+/g, "");
+  if (status === "" || status === "NEW" || status === "0") return "NEW";
+  if (status === "1" || status === "ACTIVE") return "ACTIVE";
+  return "OTHER";
+}
+
+/** Writes the raw FUMBBL status value ("0" new / "1" active) wherever this dialect stores it. */
+function writeTeamStatus(xml: string, value: string): string {
+  const firstPlayer = xml.search(/<player\b/i);
+  const header = firstPlayer === -1 ? xml : xml.slice(0, firstPlayer);
+  const statusElements = [...header.matchAll(/<status\b[^>]*>[^<]*<\/status>/gi)];
+  if (statusElements.length > 1) return fail(500, "Stored team XML has duplicate <status> values.");
+  if (statusElements.length === 1) return setTeamTextTag(xml, "status", value);
+  const root = xml.match(/<team\b[^>]*>/i)?.[0];
+  if (!root) return fail(500, "Stored team XML is missing its team element.");
+  const next = /\bstatus="[^"]*"/i.test(root)
+    ? root.replace(/\bstatus="[^"]*"/i, `status="${encodeXml(value)}"`)
+    : root.replace(/>$/, ` status="${encodeXml(value)}">`);
+  return xml.replace(root, next);
+}
+
+function lowestFreeNumber(taken: ReadonlySet<number>): number {
+  for (let candidate = 1; candidate <= 99; candidate++) if (!taken.has(candidate)) return candidate;
+  return fail(400, "No free player number from 1 to 99 remains.");
+}
+
+/** Fork-generated player ids use `<teamId>h<n>` — collision-free within the team and string-safe on the Java side (builder teams prove string ids play). */
+function newPlayerId(xml: string, teamId: string): string {
+  const prefix = `${teamId}h`;
+  let max = 0;
+  for (const found of xml.matchAll(new RegExp(`\\bid="${escapeRe(prefix)}(\\d+)"`, "gi"))) {
+    max = Math.max(max, Number(found[1]!));
+  }
+  return `${prefix}${max + 1}`;
+}
+
+/** The stored dialect is "rich" (fork/FUMBBL ingest: status attrs, playerStatistics) or "compact" (builder). */
+function richPlayerDialect(players: readonly PlayerBlock[], teamId: string): boolean {
+  if (players.length > 0) return players.some((player) => /<playerStatistics\b/i.test(player.block));
+  return /^\d+$/.test(teamId);
+}
+
+interface NewPlayerFields {
+  id: string;
+  nr: number;
+  name: string;
+  gender: string;
+  positionId: string;
+  positionName: string;
+  status: string;
+  extraSkills: readonly string[];
+}
+
+function buildPlayerNode(rich: boolean, fields: NewPlayerFields): string {
+  const skills = fields.extraSkills
+    .map((skill) => (skill === "Loner" ? `<skill value="4">Loner</skill>` : `<skill>${encodeXml(skill)}</skill>`))
+    .join("");
+  if (!rich) {
+    const status = fields.status === "Active" ? "" : ` status="${encodeXml(fields.status)}"`;
+    return `\t<player nr="${fields.nr}" id="${encodeXml(fields.id)}"${status}><name>${encodeXml(fields.name)}</name><gender>${fields.gender}</gender><positionId>${encodeXml(fields.positionId)}</positionId><skillList>${skills}</skillList></player>`;
+  }
+  const statistics = ["completions", "touchdowns", "interceptions", "casualties", "mvps", "passing", "rushing", "blocks", "fouls", "games"]
+    .map((tag) => `            <${tag}>0</${tag}>`)
+    .join("\n");
+  return [
+    `    <player status="${encodeXml(fields.status)}" nr="${fields.nr}" id="${encodeXml(fields.id)}">`,
+    `        <name>${encodeXml(fields.name)}</name>`,
+    `        <gender>${fields.gender}</gender>`,
+    `        <positionId>${encodeXml(fields.positionId)}</positionId>`,
+    `        <position>${encodeXml(fields.positionName)}</position>`,
+    `        <playerStatistics currentSpps="0">`,
+    statistics,
+    `        </playerStatistics>`,
+    skills ? `        <skillList>${skills}</skillList>` : `        <skillList/>`,
+    `        <injuryList/>`,
+    `    </player>`,
+  ].join("\n");
+}
+
+function insertPlayerNode(xml: string, node: string): string {
+  const lastClose = xml.toLowerCase().lastIndexOf("</player>");
+  if (lastClose !== -1) {
+    const end = lastClose + "</player>".length;
+    return `${xml.slice(0, end)}\n${node}${xml.slice(end)}`;
+  }
+  const fired = xml.search(/<firedPlayers\b/i);
+  if (fired !== -1) return `${xml.slice(0, fired)}${node}\n${xml.slice(fired)}`;
+  if (!/<\/team>/i.test(xml)) return fail(500, "Stored team XML is missing its closing team element.");
+  return xml.replace(/\s*<\/team>/i, `\n${node}\n</team>`);
+}
+
+function appendFiredPlayerNode(xml: string, node: string): string {
+  if (/<\/firedPlayers>/i.test(xml)) return xml.replace(/\s*<\/firedPlayers>/i, `\n${node}\n</firedPlayers>`);
+  if (!/<\/team>/i.test(xml)) return fail(500, "Stored team XML is missing its closing team element.");
+  return xml.replace(/\s*<\/team>/i, `\n<firedPlayers>\n${node}\n</firedPlayers>\n</team>`);
+}
+
+function withPlayerStatus(block: string, status: string): string {
+  const opening = block.match(/<player\b[^>]*>/i)?.[0] ?? fail(500, "The player block is missing its opening tag.");
+  const nextOpening = /\bstatus="[^"]*"/i.test(opening)
+    ? opening.replace(/\bstatus="[^"]*"/i, `status="${encodeXml(status)}"`)
+    : opening.replace(/<player\b/i, `<player status="${encodeXml(status)}"`);
+  return block.replace(opening, nextOpening);
+}
+
+function withPlayerNumber(block: string, nr: number): string {
+  if (element(block, "number") !== undefined) return setTextTag(block, "number", String(nr));
+  const opening = block.match(/<player\b[^>]*>/i)?.[0] ?? "";
+  if (/\bnr="[^"]*"/i.test(opening)) return block.replace(opening, opening.replace(/\bnr="[^"]*"/i, `nr="${nr}"`));
+  if (/\bnumber="[^"]*"/i.test(opening)) return block.replace(opening, opening.replace(/\bnumber="[^"]*"/i, `number="${nr}"`));
+  return block.replace(opening, opening.replace(/<player\b/i, `<player nr="${nr}"`));
+}
+
+function playerIdFromBody(value: unknown): string {
+  if (typeof value === "string" && value.trim() && value.trim().length <= 128) return value.trim();
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return String(value);
+  return fail(400, "playerId must be a non-empty string or non-negative integer.");
+}
+
+function playerHasHistory(block: string): boolean {
+  if (/<skill\b/i.test(block) || /<injury\b/i.test(block)) return true;
+  const statistics = block.match(/<playerStatistics\b[^>]*/i)?.[0] ?? "";
+  const starPoints = block.match(/<starPlayerPoints\b[^>]*/i)?.[0] ?? "";
+  const spp = Number(attr(statistics, "currentSpps") ?? attr(starPoints, "current") ?? 0);
+  if (Number.isFinite(spp) && spp > 0) return true;
+  return /<(?:playedGames|games)>\s*[1-9]/i.test(block);
+}
+
+function requireRoster(rosterXml: string | undefined, purpose: string): string {
+  return rosterXml ?? fail(500, `Stored roster XML is required to ${purpose}.`);
+}
+
+function currentTreasury(xml: string): number {
+  return integerTag(xml, ["treasury"], { required: true });
+}
+
+function debitTreasury(xml: string, cost: number, description: string): string {
+  const treasury = currentTreasury(xml);
+  if (treasury < cost) return fail(400, `Insufficient treasury: ${description} requires ${cost}.`);
+  return setIntegerTag(xml, ["treasury"], "treasury", treasury - cost);
+}
+
+function applyRosterOperation(
+  operation: TeamMutationOperation,
+  body: JsonObject,
+  teamXml: string,
+  rosterXml: string | undefined,
+  teamId: string,
+): { xml: string; extra?: Record<string, unknown> } {
+  const players = activePlayerBlocks(teamXml);
+
+  if (operation === "addPlayer") {
+    if (!hasExactKeys(body, ["teamId", "positionId", "gender", "name"])) {
+      return fail(400, "addPlayer requires exactly {teamId, positionId, gender, name}.");
+    }
+    const gender = typeof body.gender === "string" ? body.gender : "";
+    if (!/^(?:male|female|neutral)$/.test(gender)) return fail(400, "gender must be male, female, or neutral (lowercase).");
+    if (typeof body.name !== "string" || body.name.trim().length === 0) return fail(400, "Player name must not be empty.");
+    if (body.name.trim().length > 100) return fail(400, "Player name must be at most 100 characters.");
+    const positionId = typeof body.positionId === "number" && Number.isSafeInteger(body.positionId)
+      ? String(body.positionId)
+      : typeof body.positionId === "string" ? body.positionId.trim() : "";
+    if (!positionId) return fail(400, "positionId must be a non-empty string or integer.");
+    const position = rosterPositions(requireRoster(rosterXml, "hire a player")).get(positionId);
+    if (!position) return fail(400, `Unknown positionId ${positionId} for this team's roster.`);
+    // Stars and Infamous Staff are induced per game, never hired onto the stored roster.
+    if (/star|staff/i.test(position.type)) return fail(400, `${position.name} is induced per game and cannot be hired onto the roster.`);
+    if (players.length >= MAX_TEAM_PLAYERS) return fail(400, `A team may not have more than ${MAX_TEAM_PLAYERS} players.`);
+    const samePosition = players.filter((player) => player.positionId === positionId).length;
+    if (position.quantity > 0 && samePosition >= position.quantity) {
+      return fail(400, `A team may not have more than ${position.quantity} of ${position.name}.`);
+    }
+    let xml = debitTreasury(teamXml, position.cost, `hiring a ${position.name}`);
+    const nr = lowestFreeNumber(new Set(players.map((player) => player.nr).filter((n): n is number => n !== undefined)));
+    const id = newPlayerId(xml, teamId);
+    const node = buildPlayerNode(richPlayerDialect(players, teamId), {
+      id,
+      nr,
+      name: (body.name as string).trim(),
+      gender,
+      positionId,
+      positionName: position.name,
+      status: "Active",
+      extraSkills: [],
+    });
+    xml = insertPlayerNode(xml, node);
+    return { xml: bumpTeamValueAggregates(xml, position.cost), extra: { playerId: id, number: nr } };
+  }
+
+  if (operation === "ready") {
+    if (!hasExactKeys(body, ["teamId", "journeymen"]) || !Array.isArray(body.journeymen)) {
+      return fail(400, "ready requires exactly {teamId, journeymen: []}.");
+    }
+    const statusClass = teamStatusClass(teamStatus(teamXml));
+    if (statusClass === "ACTIVE") return fail(400, "The team is already ready.");
+    if (statusClass === "OTHER") {
+      return fail(400, "Only a NEW team can be made ready on the fork; post-game ready is unavailable until post-game parity completes.");
+    }
+    const fieldable = players.filter((player) => !/temporarilyretired/i.test(player.status.replace(/[\s_-]+/g, "")));
+    let xml = teamXml;
+    let tvDelta = 0;
+    const hired: Array<{ playerId: string; number: number }> = [];
+    if (fieldable.length >= MIN_READY_PLAYERS) {
+      if (body.journeymen.length > 0) return fail(400, "This team does not need journeymen.");
+    } else {
+      const need = MIN_READY_PLAYERS - fieldable.length;
+      const positions = rosterPositions(requireRoster(rosterXml, "provision journeymen"));
+      const picks: Array<{ position: RosterPosition; quantity: number }> = [];
+      let total = 0;
+      for (const entry of body.journeymen) {
+        if (!isRecord(entry) || !hasExactKeys(entry, ["positionId", "quantity"]) || !Number.isSafeInteger(entry.quantity) || (entry.quantity as number) < 1) {
+          return fail(400, "Each journeyman pick requires exactly {positionId, quantity} with a positive integer quantity.");
+        }
+        const positionId = typeof entry.positionId === "number" ? String(entry.positionId) : typeof entry.positionId === "string" ? entry.positionId.trim() : "";
+        const position = positions.get(positionId);
+        if (!position) return fail(400, `Unknown journeyman positionId ${positionId}.`);
+        // Contract §4: journeyman-legal positions are the 12/16-quantity linemen.
+        if (position.quantity !== 12 && position.quantity !== 16) {
+          return fail(400, `${position.name} is not a journeyman-legal position (roster quantity must be 12 or 16).`);
+        }
+        picks.push({ position, quantity: entry.quantity as number });
+        total += entry.quantity as number;
+      }
+      if (total !== need) return fail(400, `This team needs exactly ${need} journeymen to field ${MIN_READY_PLAYERS} players.`);
+      if (players.length + need > MAX_TEAM_PLAYERS) return fail(400, `A team may not have more than ${MAX_TEAM_PLAYERS} players.`);
+      const taken = new Set(players.map((player) => player.nr).filter((n): n is number => n !== undefined));
+      const rich = richPlayerDialect(players, teamId);
+      let sequence = 0;
+      for (const pick of picks) {
+        for (let i = 0; i < pick.quantity; i++) {
+          sequence++;
+          const nr = lowestFreeNumber(taken);
+          taken.add(nr);
+          const id = newPlayerId(xml, teamId);
+          // Handoff §7 shape: a stable player node with status="journeyman", ordinary player type, and Loner.
+          // A "random" roster gender is provisioned as neutral (no random source is owed here).
+          const gender = /^(?:male|female|neutral)$/.test(pick.position.gender) ? pick.position.gender : "neutral";
+          const node = buildPlayerNode(rich, {
+            id,
+            nr,
+            name: `Journeyman ${pick.position.name} ${sequence}`,
+            gender,
+            positionId: pick.position.id,
+            positionName: pick.position.name,
+            status: "journeyman",
+            extraSkills: ["Loner"],
+          });
+          xml = insertPlayerNode(xml, node);
+          // Journeymen cost no gold but count toward team value at position cost.
+          tvDelta += pick.position.cost;
+          hired.push({ playerId: id, number: nr });
+        }
+      }
+    }
+    xml = writeTeamStatus(bumpTeamValueAggregates(xml, tvDelta), "1");
+    // Expensive Mistakes is deliberately never triggered: the fork has no season/redraft provenance.
+    return { xml, extra: hired.length > 0 ? { journeymen: hired } : {} };
+  }
+
+  if (operation === "unready") {
+    if (!hasExactKeys(body, ["teamId"])) return fail(400, "unready requires exactly {teamId}.");
+    if (teamStatusClass(teamStatus(teamXml)) !== "ACTIVE") return fail(400, "Only a ready team can be unreadied.");
+    return { xml: writeTeamStatus(teamXml, "0") };
+  }
+
+  // Remaining operations all take exactly {teamId, playerId}.
+  if (!hasExactKeys(body, ["teamId", "playerId"])) return fail(400, `${operation} requires exactly {teamId, playerId}.`);
+  const playerId = playerIdFromBody(body.playerId);
+
+  if (operation === "rehirePlayer") {
+    const fired = firedPlayerBlocks(teamXml).find((player) => player.id === playerId);
+    if (!fired) return fail(400, "Player not found among this team's fired players.");
+    if (players.length >= MAX_TEAM_PLAYERS) return fail(400, `A team may not have more than ${MAX_TEAM_PLAYERS} players.`);
+    const roster = requireRoster(rosterXml, "price a re-hire");
+    const position = rosterPositions(roster).get(fired.positionId);
+    if (position && position.quantity > 0 && players.filter((player) => player.positionId === fired.positionId).length >= position.quantity) {
+      return fail(400, `A team may not have more than ${position.quantity} of ${position.name}.`);
+    }
+    // Re-hire price = the player's current value; no agent fee (the fork has no season provenance).
+    const value = playerProgression(fired.block, roster).currentValue;
+    let xml = debitTreasury(teamXml, value, "re-hiring this player");
+    xml = xml.replace(fired.block, "");
+    xml = xml.replace(/<firedPlayers>\s*<\/firedPlayers>\s*\n?/i, "");
+    let restored = fired.block
+      .replace(/^<firedPlayer\b/i, "<player")
+      .replace(/<\/firedPlayer>$/i, "</player>")
+      .replace(/<firedName\b/i, "<name")
+      .replace(/<\/firedName>/i, "</name>")
+      .replace(/<firedRace\b/i, "<race")
+      .replace(/<\/firedRace>/i, "</race>")
+      .replace(/\breason="[^"]*"\s?/i, "");
+    restored = withPlayerStatus(restored, "Active");
+    restored = withPlayerNumber(restored, lowestFreeNumber(new Set(players.map((player) => player.nr).filter((n): n is number => n !== undefined))));
+    xml = insertPlayerNode(xml, restored);
+    return { xml: bumpTeamValueAggregates(xml, value) };
+  }
+
+  const target = players.find((player) => player.id === playerId);
+  if (!target) return fail(400, "Player not found on this team.");
+
+  if (operation === "temporaryRetirePlayer") {
+    if (/temporarilyretired/i.test(target.status.replace(/[\s_-]+/g, ""))) return fail(400, "This player is already temporarily retired.");
+    if (/journeyman/i.test(target.status)) return fail(400, "A journeyman cannot be temporarily retired.");
+    // Team value is deliberately unchanged: the fork has no provenance for temporary-retirement TV relief.
+    return { xml: teamXml.replace(target.block, withPlayerStatus(target.block, "TemporarilyRetired")) };
+  }
+
+  if (operation === "undoTemporaryRetire") {
+    if (!/temporarilyretired/i.test(target.status.replace(/[\s_-]+/g, ""))) return fail(400, "This player is not temporarily retired.");
+    return { xml: teamXml.replace(target.block, withPlayerStatus(target.block, "Active")) };
+  }
+
+  if (/<pendingAdvancement\b/i.test(teamXml)) {
+    return fail(400, "Finish the team's pending advancement before removing players.");
+  }
+  const value = playerProgression(target.block, requireRoster(rosterXml, "value this player")).currentValue;
+
+  if (operation === "firePlayer" || operation === "retirePlayer") {
+    const reason = operation === "firePlayer" ? "fired" : "retired";
+    // No refund (the standing dispatcher ruling). The node is preserved for re-hire and the
+    // firedPlayers[] detail section, renamed <firedPlayer> so the Java team parser never fields it.
+    // The Java SAX handler stays on Team for unknown tags, so the child <name>/<race> tags must
+    // also be renamed — a bare <name> inside <firedPlayers> would overwrite the TEAM name on load.
+    const moved = target.block
+      .replace(/^<player\b/i, `<firedPlayer reason="${reason}"`)
+      .replace(/<\/player>$/i, "</firedPlayer>")
+      .replace(/<name\b/i, "<firedName")
+      .replace(/<\/name>/i, "</firedName>")
+      .replace(/<race\b/i, "<firedRace")
+      .replace(/<\/race>/i, "</firedRace>");
+    let xml = teamXml.replace(target.block, "");
+    xml = appendFiredPlayerNode(xml, moved);
+    return { xml: bumpTeamValueAggregates(xml, -value) };
+  }
+
+  // refundPlayer: the NEW-team buy-back — full position-cost refund, node removed outright.
+  if (teamStatusClass(teamStatus(teamXml)) !== "NEW") {
+    return fail(400, "Refunds are only available before a team's first game.");
+  }
+  if (playerHasHistory(target.block)) return fail(400, "A player with skills, injuries, or match history cannot be refunded.");
+  const position = rosterPositions(requireRoster(rosterXml, "price a refund")).get(target.positionId);
+  if (!position) return fail(400, `The player's position ${target.positionId} is unknown to this team's roster; no refund price exists.`);
+  let xml = setIntegerTag(teamXml, ["treasury"], "treasury", currentTreasury(teamXml) + position.cost);
+  xml = xml.replace(target.block, "");
+  // Contract §3C: refundPlayer responds {number}; non-zero would mean re-added as a journeyman,
+  // which the fork's pre-play refund never does.
+  return { xml: bumpTeamValueAggregates(xml, -value), extra: { number: 0 } };
+}
+
 function applyOperation(
   operation: TeamMutationOperation,
   body: JsonObject,
@@ -341,7 +795,8 @@ function applyOperation(
   rosterXml: string | undefined,
   duplicateNameError: TeamMutationDeps["duplicateNameError"],
   teamId: string,
-): { xml: string; teamName?: string } {
+): { xml: string; teamName?: string; extra?: Record<string, unknown> } {
+  if (ROSTER_OPERATIONS.has(operation)) return applyRosterOperation(operation, body, teamXml, rosterXml, teamId);
   if (operation === "renumber") {
     if (!hasExactKeys(body, ["teamId", "playerNumbers"]) || !isRecord(body.playerNumbers)) {
       return fail(400, "renumber requires exactly {teamId, playerNumbers}.");
@@ -521,7 +976,7 @@ export async function teamMutationEndpoint(
       // Reload refusal is reported but is not grounds to undo an already-coherent disk mutation.
       const reload = await reloadResult(deps.reload);
       commitTeamXmlTransaction(transaction, reload.reloaded);
-      return { status: 200, body: { ok: true, teamId, reload } };
+      return { status: 200, body: { ok: true, teamId, ...applied.extra, reload } };
     } catch (error) {
       try {
         restoreTeamXmlTransaction(transaction);

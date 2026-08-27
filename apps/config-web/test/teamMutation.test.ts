@@ -379,3 +379,228 @@ describe("POST /api/team/checkName", () => {
     expect(d.reloads()).toBe(0);
   });
 });
+
+// ── P3: player lifecycle + ready/unready ─────────────────────────────────────────────────────────
+
+const P3_ROSTER = `<?xml version="1.0" encoding="UTF-8"?>
+<roster id="human">
+  <name>Human</name>
+  <reRollCost>60000</reRollCost>
+  <apothecary>true</apothecary>
+  <nameGenerator>human</nameGenerator>
+  <position id="lineman"><quantity>16</quantity><name>Lineman</name><type>Regular</type><gender>random</gender><cost>50000</cost></position>
+  <position id="blitzer"><quantity>4</quantity><name>Blitzer</name><type>Regular</type><gender>male</gender><cost>90000</cost></position>
+  <position id="star1"><quantity>1</quantity><name>Griff Oberwald</name><type>Star</type><gender>male</gender><cost>300000</cost></position>
+</roster>
+`;
+
+function teamWithPlayers(count: number, status?: string): string {
+  const players = Array.from({ length: count }, (_, i) =>
+    `  <player nr="${i + 1}" id="p${i + 1}"><name>Player ${i + 1}</name><positionId>lineman</positionId><skillList></skillList></player>`).join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<team id="42"${status !== undefined ? ` status="${status}"` : ""}>
+  <coach>Tarkin</coach>
+  <name>Mutation Humans</name>
+  <race>Human</race>
+  <rosterId>human</rosterId>
+  <reRolls>2</reRolls>
+  <fanFactor>2</fanFactor>
+  <treasury>200000</treasury>
+  <apothecaries>0</apothecaries>
+  <teamRating>100</teamRating>
+  <currentTeamValue>100</currentTeamValue>
+  <teamStrength>100</teamStrength>
+${players}
+</team>
+`;
+}
+
+describe("P3 player lifecycle", () => {
+  it.each([
+    "addPlayer",
+    "firePlayer",
+    "retirePlayer",
+    "temporaryRetirePlayer",
+    "undoTemporaryRetire",
+    "rehirePlayer",
+    "refundPlayer",
+    "ready",
+    "unready",
+  ] as const)("maps /api/team/%s as a state-changing mutation", (operation) => {
+    const path = `/api/team/${operation}`;
+    expect(teamMutationOperation(path)).toBe(operation);
+    expect(isTeamMutationWritePath(path)).toBe(true);
+  });
+
+  it("hires a player: debits cost, assigns lowest free number, bumps TV, returns {playerId, number}", async () => {
+    const d = setup(teamWithPlayers(2), P3_ROSTER);
+    const result = await mutate(d, "addPlayer", { teamId: "42", positionId: "blitzer", gender: "male", name: "New Guy" });
+
+    expect(result).toMatchObject({ status: 200, body: { ok: true, playerId: "42h1", number: 3 } });
+    const xml = readFileSync(d.teamFile, "utf8");
+    expect(xml).toMatch(/<player nr="3" id="42h1"><name>New Guy<\/name><gender>male<\/gender><positionId>blitzer<\/positionId>/);
+    expect(xml).toContain("<treasury>110000</treasury>");
+    expect(xml).toContain("<teamRating>109</teamRating>");
+    expect(d.reloads()).toBe(1);
+  });
+
+  it("builds a rich player node for the fork-ingest dialect", async () => {
+    const rich = teamWithPlayers(1).replace(
+      /<player nr="1" id="p1">.*<\/player>/,
+      `  <player status="Active" nr="1" id="p1"><name>One</name><positionId>lineman</positionId><playerStatistics currentSpps="0"><games>0</games></playerStatistics></player>`,
+    );
+    const d = setup(rich, P3_ROSTER);
+    const result = await mutate(d, "addPlayer", { teamId: "42", positionId: "lineman", gender: "female", name: "Ricci" });
+
+    expect(result.status).toBe(200);
+    const xml = readFileSync(d.teamFile, "utf8");
+    expect(xml).toMatch(/<player status="Active" nr="2" id="42h1">/);
+    expect(xml).toContain('<playerStatistics currentSpps="0">');
+    expect(xml).toContain("<position>Lineman</position>");
+  });
+
+  it("rejects star hires, bad genders, unknown positions, and over-cap hires without writing", async () => {
+    const d = setup(teamWithPlayers(2), P3_ROSTER);
+    const before = snapshot(d);
+    const star = await mutate(d, "addPlayer", { teamId: "42", positionId: "star1", gender: "male", name: "Griff" });
+    const gender = await mutate(d, "addPlayer", { teamId: "42", positionId: "blitzer", gender: "Male", name: "X" });
+    const unknown = await mutate(d, "addPlayer", { teamId: "42", positionId: "nope", gender: "male", name: "X" });
+
+    expect(star).toMatchObject({ status: 400, body: { error: expect.stringMatching(/induced per game/i) } });
+    expect(gender).toMatchObject({ status: 400, body: { error: expect.stringMatching(/male, female, or neutral/i) } });
+    expect(unknown).toMatchObject({ status: 400, body: { error: expect.stringMatching(/unknown positionId/i) } });
+    expect(snapshot(d)).toEqual(before);
+
+    const full = setup(teamWithPlayers(16), P3_ROSTER);
+    const capped = await mutate(full, "addPlayer", { teamId: "42", positionId: "blitzer", gender: "male", name: "X" });
+    expect(capped).toMatchObject({ status: 400, body: { error: expect.stringMatching(/more than 16 players/i) } });
+  });
+
+  it("rejects an unaffordable hire atomically", async () => {
+    const d = setup(teamWithPlayers(2).replace("<treasury>200000</treasury>", "<treasury>10000</treasury>"), P3_ROSTER);
+    const before = snapshot(d);
+    const result = await mutate(d, "addPlayer", { teamId: "42", positionId: "blitzer", gender: "male", name: "X" });
+
+    expect(result).toMatchObject({ status: 400, body: { error: expect.stringMatching(/insufficient treasury/i) } });
+    expect(snapshot(d)).toEqual(before);
+  });
+
+  it("fires a player into <firedPlayer> with neutralized child tags, no refund, TV down", async () => {
+    const d = setup(teamWithPlayers(2), P3_ROSTER);
+    const result = await mutate(d, "firePlayer", { teamId: "42", playerId: "p1" });
+
+    expect(result.status).toBe(200);
+    const xml = readFileSync(d.teamFile, "utf8");
+    expect(xml).not.toMatch(/<player\b[^>]*id="p1"/);
+    expect(xml).toMatch(/<firedPlayer reason="fired"[^>]*id="p1"/);
+    expect(xml).toContain("<firedName>Player 1</firedName>");
+    expect(xml).not.toMatch(/<firedPlayer[^>]*>[\s\S]*?<name>/);
+    expect(xml).toContain("<treasury>200000</treasury>");
+    expect(xml).toContain("<teamRating>95</teamRating>");
+  });
+
+  it("retires with reason=retired and re-hires at current value with a fresh number", async () => {
+    const d = setup(teamWithPlayers(2), P3_ROSTER);
+    await mutate(d, "retirePlayer", { teamId: "42", playerId: "p1" });
+    expect(readFileSync(d.teamFile, "utf8")).toMatch(/<firedPlayer reason="retired"/);
+
+    const rehired = await mutate(d, "rehirePlayer", { teamId: "42", playerId: "p1" });
+    expect(rehired.status).toBe(200);
+    const xml = readFileSync(d.teamFile, "utf8");
+    expect(xml).not.toMatch(/<firedPlayer\b/);
+    expect(xml).toMatch(/<player status="Active" nr="1" id="p1"><name>Player 1<\/name>/);
+    expect(xml).toContain("<treasury>150000</treasury>");
+    expect(xml).toContain("<teamRating>100</teamRating>");
+  });
+
+  it("refunds an unplayed player on a NEW team and removes the node outright", async () => {
+    const d = setup(teamWithPlayers(2), P3_ROSTER);
+    const result = await mutate(d, "refundPlayer", { teamId: "42", playerId: "p2" });
+
+    expect(result).toMatchObject({ status: 200, body: { number: 0 } });
+    const xml = readFileSync(d.teamFile, "utf8");
+    expect(xml).not.toContain('id="p2"');
+    expect(xml).toContain("<treasury>250000</treasury>");
+    expect(xml).toContain("<teamRating>95</teamRating>");
+  });
+
+  it("refuses refunds on non-NEW teams and on players with history", async () => {
+    const active = setup(teamWithPlayers(2, "1"), P3_ROSTER);
+    const refused = await mutate(active, "refundPlayer", { teamId: "42", playerId: "p1" });
+    expect(refused).toMatchObject({ status: 400, body: { error: expect.stringMatching(/before a team's first game/i) } });
+
+    const skilled = setup(teamWithPlayers(2).replace("<skillList></skillList>", "<skillList><skill>Block</skill></skillList>"), P3_ROSTER);
+    const history = await mutate(skilled, "refundPlayer", { teamId: "42", playerId: "p1" });
+    expect(history).toMatchObject({ status: 400, body: { error: expect.stringMatching(/cannot be refunded/i) } });
+  });
+
+  it("toggles temporary retirement via the status attribute", async () => {
+    const d = setup(teamWithPlayers(2), P3_ROSTER);
+    await mutate(d, "temporaryRetirePlayer", { teamId: "42", playerId: "p1" });
+    expect(readFileSync(d.teamFile, "utf8")).toMatch(/<player status="TemporarilyRetired" nr="1" id="p1">/);
+
+    const again = await mutate(d, "temporaryRetirePlayer", { teamId: "42", playerId: "p1" });
+    expect(again).toMatchObject({ status: 400, body: { error: expect.stringMatching(/already temporarily retired/i) } });
+
+    await mutate(d, "undoTemporaryRetire", { teamId: "42", playerId: "p1" });
+    expect(readFileSync(d.teamFile, "utf8")).toMatch(/<player status="Active" nr="1" id="p1">/);
+
+    const notRetired = await mutate(d, "undoTemporaryRetire", { teamId: "42", playerId: "p2" });
+    expect(notRetired).toMatchObject({ status: 400, body: { error: expect.stringMatching(/not temporarily retired/i) } });
+  });
+});
+
+describe("P3 ready/unready", () => {
+  it("readies an 11-player NEW team without journeymen and writes status 1", async () => {
+    const d = setup(teamWithPlayers(11), P3_ROSTER);
+    const result = await mutate(d, "ready", { teamId: "42", journeymen: [] });
+
+    expect(result.status).toBe(200);
+    expect((result.body as Record<string, unknown>).expensiveMistakes).toBeUndefined();
+    expect(readFileSync(d.teamFile, "utf8")).toMatch(/<team id="42" status="1">/);
+  });
+
+  it("requires exactly the missing journeymen and provisions them per the handoff shape", async () => {
+    const d = setup(teamWithPlayers(9), P3_ROSTER);
+    const short = await mutate(d, "ready", { teamId: "42", journeymen: [] });
+    expect(short).toMatchObject({ status: 400, body: { error: expect.stringMatching(/exactly 2 journeymen/i) } });
+
+    const wrongPosition = await mutate(d, "ready", { teamId: "42", journeymen: [{ positionId: "blitzer", quantity: 2 }] });
+    expect(wrongPosition).toMatchObject({ status: 400, body: { error: expect.stringMatching(/not a journeyman-legal position/i) } });
+
+    const result = await mutate(d, "ready", { teamId: "42", journeymen: [{ positionId: "lineman", quantity: 2 }] });
+    expect(result.status).toBe(200);
+    expect((result.body as { journeymen?: unknown[] }).journeymen).toHaveLength(2);
+    const xml = readFileSync(d.teamFile, "utf8");
+    expect(xml.match(/status="journeyman"/g)).toHaveLength(2);
+    expect(xml).toContain('<skill value="4">Loner</skill>');
+    expect(xml).toContain("<treasury>200000</treasury>");
+    expect(xml).toContain("<teamRating>110</teamRating>");
+    expect(xml).toMatch(/status="1"/);
+  });
+
+  it("refuses ready on active and post-game statuses, and unready outside active", async () => {
+    const active = setup(teamWithPlayers(11, "1"), P3_ROSTER);
+    expect(await mutate(active, "ready", { teamId: "42", journeymen: [] })).toMatchObject({
+      status: 400, body: { error: expect.stringMatching(/already ready/i) },
+    });
+
+    const postGame = setup(teamWithPlayers(11, "7"), P3_ROSTER);
+    expect(await mutate(postGame, "ready", { teamId: "42", journeymen: [] })).toMatchObject({
+      status: 400, body: { error: expect.stringMatching(/post-game parity/i) },
+    });
+
+    const fresh = setup(teamWithPlayers(11), P3_ROSTER);
+    expect(await mutate(fresh, "unready", { teamId: "42" })).toMatchObject({
+      status: 400, body: { error: expect.stringMatching(/only a ready team/i) },
+    });
+  });
+
+  it("unreadies an active team back to status 0", async () => {
+    const d = setup(teamWithPlayers(11, "1"), P3_ROSTER);
+    const result = await mutate(d, "unready", { teamId: "42" });
+
+    expect(result.status).toBe(200);
+    expect(readFileSync(d.teamFile, "utf8")).toMatch(/<team id="42" status="0">/);
+  });
+});
