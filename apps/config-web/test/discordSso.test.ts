@@ -11,6 +11,7 @@ import {
   PendingSsoStore,
   coachNameAvailable,
   completeDiscordCoachAssociation,
+  discordAvatarUrl,
   discordSsoEnabled,
   discordStartHostGuard,
   sessionOwnsCoach,
@@ -230,6 +231,7 @@ describe("Discord SSO coach ownership association", () => {
   const pending = {
     discordId: "discord-123",
     discordUsername: "Discord Tarkin",
+    discordAvatarHash: "new-avatar-hash",
     email: "tarkin@example.test",
     next: "/admin.html",
   };
@@ -354,6 +356,7 @@ describe("Discord SSO coach ownership association", () => {
         nafName: "Tarkin NAF",
         discordUserId: "discord-123",
         discordUsername: "Discord Tarkin",
+        discordAvatarHash: "new-avatar-hash",
         email: "tarkin@example.test",
       },
       updatedAt: "2026-08-27T12:00:00.000Z",
@@ -365,14 +368,20 @@ describe("Discord SSO coach ownership association", () => {
   it("keeps the already-linked Discord auto-login path free of fork DB access", async () => {
     const linkedIdentity: CoachIdentityRecord = {
       ...existingIdentity,
-      identities: { ...existingIdentity.identities, discordUserId: pending.discordId },
+      identities: {
+        ...existingIdentity.identities,
+        discordUserId: pending.discordId,
+        discordUsername: "Stale username",
+        discordAvatarHash: "stale-avatar-hash",
+        email: "stale@example.test",
+      },
     };
     let sessions = 0;
-    let upserts = 0;
+    let refreshedRecord: CoachIdentityRecord | undefined;
     const linkedDeps = deps({
       identity: linkedIdentity,
       onSession: (coach) => { sessions += 1; return `${coach}-session`; },
-      onUpsert: () => { upserts += 1; },
+      onUpsert: (record) => { refreshedRecord = record; },
     });
     linkedDeps.fork.coachExists = async () => { throw new Error("fork DB must not be read"); };
     linkedDeps.fork.verifyCoachDigest = async () => { throw new Error("fork password must not be verified"); };
@@ -392,7 +401,27 @@ describe("Discord SSO coach ownership association", () => {
       sessionToken: "Tarkin-session",
     });
     expect(sessions).toBe(1);
-    expect(upserts).toBe(1);
+    expect(refreshedRecord).toEqual({
+      ...linkedIdentity,
+      profile: existingIdentity.profile,
+      identities: {
+        nafName: "Tarkin NAF",
+        discordUserId: "discord-123",
+        discordUsername: "Discord Tarkin",
+        discordAvatarHash: "new-avatar-hash",
+        email: "tarkin@example.test",
+      },
+      updatedAt: expect.any(String),
+      updatedBy: "discord-sso",
+    });
+  });
+
+  it("derives Discord avatar URLs only when both persisted identity fields are present", () => {
+    expect(discordAvatarUrl("discord-123", "new-avatar-hash")).toBe(
+      "https://cdn.discordapp.com/avatars/discord-123/new-avatar-hash.png?size=256",
+    );
+    expect(discordAvatarUrl("discord-123", undefined)).toBeUndefined();
+    expect(discordAvatarUrl("", "new-avatar-hash")).toBeUndefined();
   });
 
   it("keeps banned coaches out of both linking and already-linked login", async () => {
@@ -423,11 +452,11 @@ describe("Discord SSO coach ownership association", () => {
   it("keeps the generated-digest atomic creation path for a new coach name", async () => {
     let createdCoach = "";
     let generatedDigest = "";
-    let upserts = 0;
+    let createdIdentity: CoachIdentityRecord | undefined;
     const newCoachDeps = deps({
       identity: null,
       coachExists: false,
-      onUpsert: () => { upserts += 1; },
+      onUpsert: (record) => { createdIdentity = record; },
       onSession: (coach) => `${coach}-session`,
     });
     newCoachDeps.fork.createForkAccountDigestIfAvailable = async (coach, digest) => {
@@ -452,7 +481,19 @@ describe("Discord SSO coach ownership association", () => {
     expect(createdCoach).toBe("Fives");
     expect(generatedDigest).toMatch(/^[a-f0-9]{32}$/);
     expect(generatedDigest).not.toBe(createHash("md5").update("must-not-be-used-for-new-account").digest("hex"));
-    expect(upserts).toBe(1);
+    expect(createdIdentity).toMatchObject({
+      ffbCoachId: "Fives",
+      profile: {
+        displayName: "Fives",
+        avatar: "https://cdn.discordapp.com/avatars/discord-123/new-avatar-hash.png?size=256",
+      },
+      identities: {
+        discordUserId: "discord-123",
+        discordUsername: "Fives",
+        discordAvatarHash: "new-avatar-hash",
+        email: "tarkin@example.test",
+      },
+    });
   });
 });
 

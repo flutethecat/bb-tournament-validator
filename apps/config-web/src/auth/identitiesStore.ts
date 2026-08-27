@@ -8,6 +8,7 @@ export type CoachLevel = "player" | "organizer" | "admin";
 export interface CoachIdentities {
   discordUserId?: string;
   discordUsername?: string;
+  discordAvatarHash?: string;
   email?: string;
   nafName?: string;
   nafId?: string;
@@ -60,6 +61,7 @@ const LOCAL_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const IDENTITY_FIELDS = new Set<keyof CoachIdentities>([
   "discordUserId",
   "discordUsername",
+  "discordAvatarHash",
   "email",
   "nafName",
   "nafId",

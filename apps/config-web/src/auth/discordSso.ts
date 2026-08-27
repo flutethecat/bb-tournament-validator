@@ -336,10 +336,13 @@ export function buildClearDiscordPendingCookie(secure: boolean): string {
 }
 
 export function discordAuthorizeUrl(config: DiscordOauthConfig, state: string): string {
+  // prompt=consent: always show Discord's authorize screen (it names the active Discord account and
+  // offers its own account switcher), so a sign-out → sign-in round-trip visibly re-runs the OAuth
+  // flow with whatever Discord identity the browser currently holds (owner 08-27).
   return "https://discord.com/api/oauth2/authorize" +
     `?response_type=code&client_id=${encodeURIComponent(config.clientId)}` +
     `&redirect_uri=${encodeURIComponent(config.redirectUri)}` +
-    `&scope=identify%20email&state=${encodeURIComponent(state)}`;
+    `&scope=identify%20email&prompt=consent&state=${encodeURIComponent(state)}`;
 }
 
 export type DiscordStartHostGuard =
@@ -488,6 +491,8 @@ export async function completeDiscordCoachAssociation(
     discordUserId: pending.discordId,
     discordUsername: pending.discordUsername,
   };
+  if (pending.discordAvatarHash) identities.discordAvatarHash = pending.discordAvatarHash;
+  else delete identities.discordAvatarHash;
   if (pending.email) identities.email = pending.email;
   else delete identities.email;
 

@@ -56,7 +56,12 @@ describe("identities store", () => {
     upsertIdentity({
       ...record("GONDRA87", "admin"),
       profile: { displayName: "Gondra", pronouns: "he/him" },
-      identities: { discordUserId: "123", email: "gondra@example.test", nafName: "Gondra" },
+      identities: {
+        discordUserId: "123",
+        discordAvatarHash: "avatar-hash",
+        email: "gondra@example.test",
+        nafName: "Gondra",
+      },
     });
     upsertIdentity(record("Fives", "organizer"));
 
@@ -65,7 +70,12 @@ describe("identities store", () => {
       ffbCoachId: "GONDRA87",
       level: "admin",
       profile: { displayName: "Gondra", pronouns: "he/him" },
-      identities: { discordUserId: "123", email: "gondra@example.test", nafName: "Gondra" },
+      identities: {
+        discordUserId: "123",
+        discordAvatarHash: "avatar-hash",
+        email: "gondra@example.test",
+        nafName: "Gondra",
+      },
     });
     expect(store.coaches.fives?.ffbCoachId).toBe("Fives");
     expect(readdirSync(dir)).toEqual(["identities.json"]);
@@ -92,6 +102,14 @@ describe("identities store", () => {
       ...record("Tarkin"),
       profile: Object.fromEntries(Array.from({ length: MAX_PROFILE_KEYS + 1 }, (_, index) => [`key${index}`, "value"])),
     })).toThrow(new RegExp(`profile must have at most ${MAX_PROFILE_KEYS} keys`));
+  });
+
+  it("applies sibling identity-field bounds to Discord avatar hashes", () => {
+    tempStore();
+    expect(() => upsertIdentity({
+      ...record("Tarkin"),
+      identities: { discordAvatarHash: "x".repeat(201) },
+    })).toThrow(/identities\.discordAvatarHash must be at most 200 characters/);
   });
 
   it("reads a legacy forkName record as ffbCoachId in memory", () => {
@@ -133,7 +151,7 @@ describe("identities store", () => {
       profile: { displayName: "Grand Moff", pronouns: "he/him" },
       level: "admin",
       banned: false,
-      identities: { discordUserId: "attacker" },
+      identities: { discordUserId: "attacker", discordAvatarHash: "attacker-hash" },
     }, new Date("2026-08-20T12:00:00.000Z"));
 
     expect(updated).toMatchObject({
@@ -145,6 +163,7 @@ describe("identities store", () => {
       updatedAt: "2026-08-20T12:00:00.000Z",
       updatedBy: "Tarkin",
     });
+    expect(updated.identities).toEqual({ discordUserId: "123" });
   });
 
   it("sets scheduling and round-trips normalized local availability", () => {
@@ -202,7 +221,7 @@ describe("identities store", () => {
       scheduling: { timezone: "UTC" },
       level: "admin",
       banned: false,
-      identities: { discordUserId: "attacker" },
+      identities: { discordUserId: "attacker", discordAvatarHash: "attacker-hash" },
     }, new Date("2026-08-20T12:00:00.000Z"));
 
     expect(updated).toMatchObject({
@@ -211,6 +230,7 @@ describe("identities store", () => {
       identities: { discordUserId: "123" },
       profile: { displayName: "Grand Moff" },
     });
+    expect(updated.identities).toEqual({ discordUserId: "123" });
     expect(updated.scheduling).toEqual({ timezone: "UTC" });
   });
 

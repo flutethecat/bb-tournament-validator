@@ -893,7 +893,14 @@ async function handleApi(
   if (path === "/api/account" && method === "GET") {
     if (!auth) return sendJson(res, 401, { error: "Authentication required." });
     try {
-      return sendJson(res, 200, ownIdentityRecord(auth.coach));
+      const record = ownIdentityRecord(auth.coach);
+      return sendJson(res, 200, {
+        ...record,
+        discordAvatarUrl: discordAvatarUrl(
+          record.identities.discordUserId ?? "",
+          record.identities.discordAvatarHash,
+        ),
+      });
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
     }
