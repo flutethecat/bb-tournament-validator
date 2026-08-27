@@ -459,6 +459,8 @@ interface TeamBuilderBody {
   teamId?: string;
   /** Tournament-only predefined inducements. */
   rosteredInducements?: Array<{ key: string; count: number }>;
+  /** Client-wire alias: the shipped TeamBuilderView sends the same list as `inducements`. */
+  inducements?: Array<{ key: string; count: number }>;
 }
 
 /** Resolve a Secret League builder request to a composed team + roster-intrinsic legality (#52 A).
@@ -506,7 +508,7 @@ function composeFromBody(teamsDir: string, body: TeamBuilderBody) {
       dedicatedFans: body.dedicatedFans,
       specialRule: body.specialRule,
       custom: body.custom === true,
-      rosteredInducements: body.rosteredInducements,
+      rosteredInducements: body.rosteredInducements ?? body.inducements,
     },
     bb2025,
   );

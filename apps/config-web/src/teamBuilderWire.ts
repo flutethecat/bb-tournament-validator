@@ -15,7 +15,9 @@ export function teamBuilderWireError(body: unknown): string | null {
   if (teamId !== undefined && (typeof teamId !== "string" || !teamId.trim())) {
     return "teamId must be a non-empty string when supplied.";
   }
-  const rosteredInducements = (body as Record<string, unknown>).rosteredInducements;
+  // The shipped client TeamBuilderView sends this list as `inducements`; accept both names.
+  const raw = body as Record<string, unknown>;
+  const rosteredInducements = raw.rosteredInducements ?? raw.inducements;
   if (rosteredInducements !== undefined) {
     if (!Array.isArray(rosteredInducements)) return "rosteredInducements must be an array when supplied.";
     for (const pick of rosteredInducements) {

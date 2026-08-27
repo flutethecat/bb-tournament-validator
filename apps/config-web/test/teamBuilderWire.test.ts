@@ -37,6 +37,18 @@ describe("teamBuilderWireError", () => {
     },
   );
 
+  // The shipped client sends the list as `inducements` — the alias must validate identically
+  // (the silent-drop regression behind the missing Team Mascot, 08-27).
+  it.each([{ inducements: [{ key: "team_mascot", count: 1 }] }])("accepts client alias %j", (body) => {
+    expect(teamBuilderWireError(body)).toBeNull();
+  });
+  it.each([{ inducements: [{ key: "", count: 1 }] }, { inducements: [{ key: "bribes", count: 0 }] }])(
+    "rejects client alias %j",
+    (body) => {
+      expect(teamBuilderWireError(body)).toMatch(/rosteredInducements|rostered inducement/i);
+    },
+  );
+
   it.each([
     { rosteredInducements: {} },
     { rosteredInducements: [null] },
