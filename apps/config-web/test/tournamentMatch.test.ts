@@ -71,8 +71,11 @@ describe("buildInstructions", () => {
   it("throws rather than guessing an unresolved price", () => {
     expect(() => buildInstructions(team({ rosteredInducements: [{ key: "mystery_box", count: 1 }] })))
       .toThrow(/cannot resolve inducement price/i);
-    expect(() => buildInstructions(team({ rosteredInducements: [{ key: "infamous_coaching_staff", count: 1 }] })))
-      .toThrow(/fixed wire-gold price/i);
+  });
+
+  it("uses the fixed fork price for rosterable infamous coaching staff", () => {
+    expect(buildInstructions(team({ rosteredInducements: [{ key: "infamous_coaching_staff", count: 1 }] })))
+      .toEqual({ treasury: 100_000, inducements: [{ key: "infamous_coaching_staff", count: 1 }] });
   });
 });
 

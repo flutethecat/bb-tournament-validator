@@ -36,6 +36,7 @@ export {
   eligibleStarsFor,
 } from "./dataset/lookup";
 export type { Access } from "./dataset/lookup";
+export { inducementWireGold } from "./dataset/inducements";
 export type {
   TournamentPackage,
   SkillAllotment,

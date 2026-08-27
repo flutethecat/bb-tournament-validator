@@ -116,6 +116,7 @@ import { createSiteBackend } from "./site-backend/index.js";
 import { replayDeferredGameResults } from "./site-backend/banking.js";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
 import { builtLibraryTeam, registerBuiltTeam, resolveTeamBuilderBuildTarget, retargetComposedTeam } from "./teamBuilderBuild.js";
+import { teamBuilderInducementCatalog } from "./teamBuilderInducements.js";
 import { corsDecision, parseAllowedOrigins } from "./cors.js";
 import { teamEditingError } from "./customGate.js";
 import { forkGamesEndpoint } from "./forkGames.js";
@@ -215,10 +216,11 @@ const PUBLIC_PATHS = new Set([
   "/api/fork/cancel",
   "/api/fork/reload",
   // Team Builder V2 (in-client): reachable without the ADMIN password so a tester's client
-  // can fetch/preview/build via its config-web seam. rosters+preview are open reads; build
+  // can fetch/preview/build via its config-web seam. rosters/catalog/preview are open reads; build
   // does its own admin-OR-coach-password auth in-handler (see the build route).
   "/api/fork/rosters",
   "/api/fork/team-builder/legal-skills",
+  "/api/fork/team-builder/inducements",
   "/api/fork/team-builder/preview",
   "/api/fork/team-builder/build",
   // #210 "your games in progress" (in-client lobby panel): reachable without the ADMIN password;
@@ -1724,6 +1726,13 @@ async function handleApi(
       secondary,
       alreadyPrinted: opt.skills,
     });
+  }
+
+  if (path === "/api/fork/team-builder/inducements" && method === "GET") {
+    const packageName = query.get("packageName")?.trim() || undefined;
+    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName);
+    if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
+    return sendJson(res, 200, { inducements: teamBuilderInducementCatalog(resolvedPkg.pkg, bb2025) });
   }
 
   // Preview: compose + validate, no write. Returns legality findings + the recomputed summary.

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile, type LibraryTeam } from "@bb/fork-ops";
-import { normName, withRosteredInducementSet } from "@bb/validator";
+import { inducementWireGold, withRosteredInducementSet } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 
 export interface TournamentMatchInstructions {
@@ -30,18 +30,11 @@ interface TournamentMatchStoreFile {
 
 const emptyStore = (): TournamentMatchStoreFile => ({ version: 1, matches: {} });
 
-function fixedGold(value: number | null | undefined, label: string): number {
-  if (value == null || !Number.isSafeInteger(value) || value < 0)
-    throw new Error(`Cannot resolve a fixed wire-gold price for ${label}.`);
-  return value;
-}
-
 /** Build the informational predefined-inducement list and its wire-gold value. */
 export function buildInstructions(
   team: LibraryTeam,
   specialRules: readonly string[] = [],
 ): TournamentMatchInstructions {
-  const normalizedRules = new Set(specialRules.map(normName));
   const seen = new Set<string>();
   const inducements = (team.rosteredInducements ?? []).map((pick) => {
     const key = pick.key.trim();
@@ -50,10 +43,7 @@ export function buildInstructions(
     seen.add(key);
     if (!Number.isSafeInteger(pick.count) || pick.count <= 0)
       throw new Error(`Team ${team.teamId} has an invalid count for inducement ${key}.`);
-    const catalog = bb2025.inducements[key];
-    if (!catalog) throw new Error(`Cannot resolve inducement price for catalog key "${key}".`);
-    const reduced = catalog.reducedSpecialRule && normalizedRules.has(normName(catalog.reducedSpecialRule));
-    const unitGold = fixedGold(reduced ? catalog.reducedCost : catalog.cost, `inducement "${key}"`);
+    const unitGold = inducementWireGold(bb2025, key, specialRules);
     return { key, count: pick.count, unitGold };
   });
 

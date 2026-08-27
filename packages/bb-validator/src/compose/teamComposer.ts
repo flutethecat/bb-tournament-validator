@@ -15,6 +15,7 @@
 
 import type { Dataset } from "../dataset/types";
 import { leagueMenuForRoster } from "../dataset/leagueMenu";
+import { inducementWireGold } from "../dataset/inducements";
 import {
   findPosition,
   findRoster,
@@ -129,7 +130,6 @@ function resolveRosteredInducements(
   specialRules: readonly string[] = [],
 ): Array<{ key: string; count: number; name: string; cost: number; wireName: string }> {
   const seen = new Set<string>();
-  const normalizedRules = new Set(specialRules.map(normName));
   return (picks ?? []).map((pick) => {
     const key = pick.key.trim();
     if (!key) throw new Error("Rostered inducement key is required.");
@@ -140,11 +140,8 @@ function resolveRosteredInducements(
     const catalog = data.inducements[key];
     if (!catalog) throw new Error(`Cannot resolve rostered inducement catalog key "${key}".`);
     if (!catalog.wireName) throw new Error(`Cannot resolve fork wire name for rostered inducement "${key}".`);
-    const reduced = catalog.reducedSpecialRule && normalizedRules.has(normName(catalog.reducedSpecialRule));
-    const cost = reduced ? catalog.reducedCost : catalog.cost;
-    if (!Number.isSafeInteger(cost) || (cost ?? -1) < 0)
-      throw new Error(`Cannot resolve fixed gold cost for rostered inducement "${key}".`);
-    return { key, count: pick.count, name: catalog.name, cost: cost!, wireName: catalog.wireName };
+    const cost = inducementWireGold(data, key, specialRules);
+    return { key, count: pick.count, name: catalog.name, cost, wireName: catalog.wireName };
   });
 }
 

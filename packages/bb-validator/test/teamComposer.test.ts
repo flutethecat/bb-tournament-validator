@@ -158,6 +158,46 @@ describe("composeTeam", () => {
     ]);
   });
 
+  describe("team-builder preview inducement validation", () => {
+    const preview = (
+      rosteredInducements: Array<{ key: string; count: number }>,
+      allowed: string[],
+      caps: Record<string, number> = {},
+      budget: number | null = null,
+    ) => {
+      const composed = composeTeam({ ...input, rosteredInducements }, bb2025, 42);
+      const tournamentPackage = pkg({
+        eligibleRosters: ["Snotling"],
+        goldBudget: budget,
+        inducements: { allowed, caps },
+        special: { ...pkg().special, insignificantTraitConstraint: false },
+      });
+      return { composed, result: validate(composed.roster, tournamentPackage, bb2025) };
+    };
+
+    it("rejects a disallowed composed inducement", () => {
+      const { result } = preview([{ key: "bloodweiser_kegs", count: 1 }], []);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((finding) => finding.ruleId === "inducements" && /not allowed/.test(finding.message))).toBe(true);
+    });
+
+    it("rejects a composed inducement count over the package cap", () => {
+      const { result } = preview([{ key: "bloodweiser_kegs", count: 2 }], ["bloodweiser_kegs"], { bloodweiser_kegs: 1 });
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((finding) => finding.ruleId === "inducements" && /exceeds the limit of 1/.test(finding.message))).toBe(true);
+    });
+
+    it("accepts allowed picks and counts their full cost against creation gold", () => {
+      const picks = [{ key: "bloodweiser_kegs", count: 2 }];
+      const composed = composeTeam({ ...input, rosteredInducements: picks }, bb2025, 42);
+      const budget = composed.roster.summary!.total;
+      const { result } = preview(picks, ["bloodweiser_kegs"], {}, budget);
+      expect(result.valid).toBe(true);
+      expect(result.recomputedSummary.goldUsed).toBe(budget);
+      expect(composed.roster.summary!.inducementCost).toBe(100_000);
+    });
+  });
+
   it("keeps the existing non-star team XML byte-unchanged", () => {
     const r = composeTeam(input, bb2025, 42);
     expect(r.xml

@@ -149,9 +149,9 @@
    "id": "infamous_coaching_staff",
    "name": "Infamous Coaching Staff",
    "wireName": "josefBugman",
-   "cost": null,
-   "max": 2,
-   "note": "Named staff, individual costs."
+   "cost": 100000,
+   "max": 1,
+   "note": "Josef Bugman. Cost/max = the fork server's option defaults (GameOptionFactory: INDUCEMENT_JOSEF_BUGMAN_COST 100000, _MAX 1) — the wire price the server charges."
   }
  ]
 }
