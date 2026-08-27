@@ -64,19 +64,20 @@ async function checkAvailability() {
 }
 
 async function completeSignIn(coach) {
-  const result = await requestJson("/api/auth/discord/complete", {
+  return requestJson("/api/auth/discord/complete", {
     method: "POST",
     headers: { "content-type": "application/json", "x-cw-auth": "1" },
     body: JSON.stringify({ ffbCoachId: coach }),
   });
-  return typeof result.coach === "string" ? result.coach : coach;
 }
 
-function showSuccess(coach) {
+function finishSignIn(result, fallbackCoach) {
+  const coach = typeof result.coach === "string" ? result.coach : fallbackCoach;
   form.hidden = true;
   status.hidden = true;
   success.hidden = false;
   success.textContent = `You're signed in as ${coach}.`;
+  location.assign(typeof result.next === "string" ? result.next : "/");
 }
 
 async function initialize() {
@@ -93,7 +94,7 @@ async function initialize() {
     if (existingFfbCoachId) {
       title.textContent = `Signing in as ${existingFfbCoachId}`;
       status.textContent = "Completing your Discord sign-in…";
-      showSuccess(await completeSignIn(existingFfbCoachId));
+      finishSignIn(await completeSignIn(existingFfbCoachId), existingFfbCoachId);
       return;
     }
 
@@ -130,7 +131,7 @@ form.addEventListener("submit", async (event) => {
   status.hidden = false;
   status.textContent = "Creating your fork account…";
   try {
-    showSuccess(await completeSignIn(coach));
+    finishSignIn(await completeSignIn(coach), coach);
   } catch (error) {
     showError(error);
     await checkAvailability();

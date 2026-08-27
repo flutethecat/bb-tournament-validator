@@ -3,10 +3,13 @@ import type { IncomingMessage } from "node:http";
 import { coachAccountClaimed } from "@bb/fork-ops";
 import {
   DISCORD_SSO_TTL_MS,
+  DiscordOauthStateStore,
   PendingSsoStore,
   coachNameAvailable,
+  discordSsoEnabled,
   sessionOwnsCoach,
   shouldBlockExistingRegistration,
+  validatedNextPath,
 } from "../src/auth/discordSso.js";
 import { requireSession } from "../src/auth/requireSession.js";
 
@@ -20,6 +23,7 @@ describe("pending Discord SSO store", () => {
       discordUsername: "Tarkin",
       discordAvatarHash: "avatar-hash",
       email: "tarkin@example.test",
+      next: "/admin.html",
     };
     const token = store.create(identity, 1_000);
 
@@ -30,10 +34,45 @@ describe("pending Discord SSO store", () => {
 
   it("expires pending identities at the ten-minute TTL", () => {
     const store = new PendingSsoStore();
-    const token = store.create({ discordId: "1", discordUsername: "Fives" }, 5_000);
+    const token = store.create({ discordId: "1", discordUsername: "Fives", next: "/" }, 5_000);
 
     expect(store.get(token, 5_000 + DISCORD_SSO_TTL_MS - 1)).toBeDefined();
     expect(store.get(token, 5_000 + DISCORD_SSO_TTL_MS)).toBeUndefined();
+  });
+});
+
+describe("Discord SSO redirect destination", () => {
+  it("accepts a same-origin absolute path and rejects unsafe or invalid values", () => {
+    expect(validatedNextPath("/admin.html")).toBe("/admin.html");
+    expect(validatedNextPath("//evil.com")).toBe("/");
+    expect(validatedNextPath("https://evil.com")).toBe("/");
+    expect(validatedNextPath("\\evil")).toBe("/");
+    expect(validatedNextPath("")).toBe("/");
+    expect(validatedNextPath(42)).toBe("/");
+  });
+
+  it("binds the destination to one-time server-side OAuth state", () => {
+    const store = new DiscordOauthStateStore();
+    const state = store.create("/admin.html", 1_000);
+
+    expect(store.consume(state, 1_001)).toBe("/admin.html");
+    expect(store.consume(state, 1_002)).toBeUndefined();
+  });
+});
+
+describe("Discord SSO enabled probe", () => {
+  it("requires all three non-empty Discord OAuth environment variables", () => {
+    const configured = {
+      DISCORD_CLIENT_ID: "client-id",
+      DISCORD_CLIENT_SECRET: "client-secret",
+      DISCORD_OAUTH_REDIRECT_URI: "http://localhost/api/auth/discord/callback",
+    };
+
+    expect(discordSsoEnabled(configured)).toBe(true);
+    for (const missing of Object.keys(configured)) {
+      expect(discordSsoEnabled({ ...configured, [missing]: undefined })).toBe(false);
+    }
+    expect(discordSsoEnabled({ ...configured, DISCORD_CLIENT_SECRET: "   " })).toBe(false);
   });
 });
 

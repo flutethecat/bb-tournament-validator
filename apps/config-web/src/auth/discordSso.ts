@@ -14,15 +14,54 @@ export interface DiscordOauthConfig {
   redirectUri: string;
 }
 
-export interface PendingDiscordSso {
+export interface DiscordIdentity {
   discordId: string;
   discordUsername: string;
   discordAvatarHash?: string;
   email?: string;
 }
 
+export interface PendingDiscordSso extends DiscordIdentity {
+  next: string;
+}
+
 interface StoredPendingDiscordSso extends PendingDiscordSso {
   expiry: number;
+}
+
+interface StoredDiscordOauthState {
+  next: string;
+  expiry: number;
+}
+
+export class DiscordOauthStateStore {
+  private readonly states = new Map<string, StoredDiscordOauthState>();
+
+  create(next: unknown, now = Date.now()): string {
+    this.prune(now);
+    const state = newDiscordOauthState();
+    this.states.set(state, { next: validatedNextPath(next), expiry: now + DISCORD_SSO_TTL_MS });
+    return state;
+  }
+
+  consume(state: string | undefined, now = Date.now()): string | undefined {
+    this.prune(now);
+    if (!state || !TOKEN_PATTERN.test(state)) return undefined;
+    const record = this.states.get(state);
+    if (!record) return undefined;
+    this.states.delete(state);
+    return record.next;
+  }
+
+  delete(state: string | undefined): boolean {
+    return state ? this.states.delete(state) : false;
+  }
+
+  private prune(now: number): void {
+    for (const [state, record] of this.states) {
+      if (record.expiry <= now) this.states.delete(state);
+    }
+  }
 }
 
 export class PendingSsoStore {
@@ -31,7 +70,7 @@ export class PendingSsoStore {
   create(record: PendingDiscordSso, now = Date.now()): string {
     this.prune(now);
     const token = randomBytes(TOKEN_BYTES).toString("hex");
-    this.pending.set(token, { ...record, expiry: now + DISCORD_SSO_TTL_MS });
+    this.pending.set(token, { ...record, next: validatedNextPath(record.next), expiry: now + DISCORD_SSO_TTL_MS });
     return token;
   }
 
@@ -62,6 +101,28 @@ export function discordOauthConfigFromEnv(
   const clientSecret = env.DISCORD_CLIENT_SECRET?.trim();
   const redirectUri = env.DISCORD_OAUTH_REDIRECT_URI?.trim();
   return clientId && clientSecret && redirectUri ? { clientId, clientSecret, redirectUri } : undefined;
+}
+
+export function discordSsoEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return discordOauthConfigFromEnv(env) !== undefined;
+}
+
+export function validatedNextPath(candidate: unknown): string {
+  if (
+    typeof candidate !== "string" ||
+    !candidate ||
+    !candidate.startsWith("/") ||
+    candidate.startsWith("//") ||
+    candidate.includes("\\")
+  )
+    return "/";
+  try {
+    const base = new URL("http://config-web.local/");
+    const parsed = new URL(candidate, base);
+    return parsed.origin === base.origin && parsed.username === "" && parsed.password === "" ? candidate : "/";
+  } catch {
+    return "/";
+  }
 }
 
 export function newDiscordOauthState(): string {
@@ -125,7 +186,7 @@ export async function fetchDiscordIdentity(
   config: DiscordOauthConfig,
   code: string,
   fetchFn: typeof fetch = fetch,
-): Promise<PendingDiscordSso> {
+): Promise<DiscordIdentity> {
   const form = new URLSearchParams({
     grant_type: "authorization_code",
     code,

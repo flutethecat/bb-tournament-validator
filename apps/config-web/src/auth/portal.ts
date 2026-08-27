@@ -17,10 +17,12 @@ import {
   normalizeCoach,
   recordFailure,
 } from "./loginAttempts.js";
+import { validatedNextPath } from "./discordSso.js";
 
 export interface PortalOptions {
   verifyCoachPassword: (username: string, password: string) => Promise<boolean>;
   authenticationAvailable: boolean;
+  discordSsoEnabled: boolean;
 }
 
 function clientIp(req: IncomingMessage): string {
@@ -45,26 +47,13 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return raw ? (JSON.parse(raw) as unknown) : {};
 }
 
-export function localNext(candidate: string | null | undefined): string {
-  if (
-    !candidate ||
-    !candidate.startsWith("/") ||
-    candidate.includes("//") ||
-    candidate.includes("\\") ||
-    /^[a-z][a-z\d+.-]*:/i.test(candidate.slice(1))
-  )
-    return "/";
-  try {
-    const base = new URL("http://config-web.local/");
-    const parsed = new URL(candidate, base);
-    return parsed.origin === base.origin && parsed.username === "" && parsed.password === "" ? candidate : "/";
-  } catch {
-    return "/";
-  }
-}
-
-function loginPage(next: string): string {
+function loginPage(next: string, discordSsoEnabled: boolean): string {
   const serializedNext = JSON.stringify(next).replace(/</g, "\\u003c");
+  const discordHref = `/api/auth/discord/start?next=${encodeURIComponent(next)}`;
+  const discordLogin = discordSsoEnabled
+    ? `<div class="divider"><span>or</span></div>
+    <a class="discord-login" href="${discordHref}">Sign in with Discord</a>`
+    : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -80,6 +69,9 @@ function loginPage(next: string): string {
     input, button { width: 100%; padding: .7rem; border-radius: .4rem; box-sizing: border-box; font: inherit; }
     input { border: 1px solid #4b5563; background: #111827; color: inherit; }
     button { margin-top: 1.25rem; border: 0; background: #2563eb; color: white; font-weight: 700; cursor: pointer; }
+    .divider { display: flex; align-items: center; gap: .75rem; margin: .5rem 0 1rem; color: #9ca3af; }
+    .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid #4b5563; }
+    .discord-login { display: block; padding: .7rem; border-radius: .4rem; background: #5865f2; color: white; font-weight: 700; text-align: center; text-decoration: none; }
     #error { min-height: 1.25rem; color: #fca5a5; }
   </style>
 </head>
@@ -95,6 +87,7 @@ function loginPage(next: string): string {
       <button type="submit">Sign in</button>
       <p id="error" role="alert"></p>
     </form>
+    ${discordLogin}
   </main>
   <script>
     const next = ${serializedNext};
@@ -127,12 +120,12 @@ export async function handleAuthPortal(
   const method = req.method ?? "GET";
 
   if (url.pathname === "/login" && (method === "GET" || method === "HEAD")) {
-    const next = localNext(url.searchParams.get("next"));
+    const next = validatedNextPath(url.searchParams.get("next"));
     if (sessionFromRequest(req)) {
       res.writeHead(302, { location: next, "cache-control": "no-store" }).end();
       return true;
     }
-    const html = loginPage(next);
+    const html = loginPage(next, options.discordSsoEnabled);
     res.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
@@ -199,7 +192,7 @@ export async function handleAuthPortal(
     attemptsByIp.delete(ipKey);
     attemptsByCoach.delete(coachKey);
     const { token } = createSession(username.trim(), now);
-    const next = localNext(url.searchParams.get("next"));
+    const next = validatedNextPath(url.searchParams.get("next"));
     sendJson(res, 200, { ok: true, next }, { "set-cookie": buildSessionCookie(token, requestUsesTls(req)) });
     return true;
   }

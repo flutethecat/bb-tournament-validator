@@ -6,6 +6,7 @@ const state = {
   account: "",
   loginUser: "",
   expiresAt: "",
+  discordSsoEnabled: false,
   section: "users",
   users: [],
   identities: {},
@@ -191,7 +192,8 @@ function renderToolbar() {
        <input id="login-user" class="control" style="width:130px" autocomplete="username" placeholder="Username" value="${escapeHtml(state.loginUser)}">
        <label class="visually-hidden" for="login-password">Password</label>
        <input id="login-password" class="control" style="width:140px" type="password" autocomplete="current-password" placeholder="Password">
-       <button type="button" class="btn primary" data-action="login"${state.busy ? " disabled" : ""}>Log In</button>`;
+       <button type="button" class="btn primary" data-action="login"${state.busy ? " disabled" : ""}>Log In</button>
+       ${state.discordSsoEnabled ? '<button type="button" class="btn" data-action="discord-login">Discord</button>' : ""}`;
 
   toolbar.innerHTML = `
     <span class="toolbar-label">Section</span>
@@ -711,6 +713,7 @@ toolbar.addEventListener("click", (event) => {
   const target = event.target.closest("[data-action]");
   if (!target) return;
   if (target.dataset.action === "login") login();
+  if (target.dataset.action === "discord-login") location.assign("/api/auth/discord/start?next=/admin.html");
   if (target.dataset.action === "logout") logout();
   if (target.dataset.action === "section") {
     state.section = target.dataset.section === "games" ? "games" : "users";
@@ -791,7 +794,11 @@ async function initialize() {
   render();
   try {
     const result = await requestJson("/api/auth/session");
-    if (result?.authenticated !== true) return;
+    state.discordSsoEnabled = result?.discordSsoEnabled === true;
+    if (result?.authenticated !== true) {
+      render();
+      return;
+    }
     state.authed = true;
     state.account = String(result.coach ?? "");
     state.token = null;

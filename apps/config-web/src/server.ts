@@ -156,6 +156,7 @@ import {
 import {
   DISCORD_OAUTH_STATE_COOKIE,
   DISCORD_PENDING_COOKIE,
+  DiscordOauthStateStore,
   PendingSsoStore,
   buildClearDiscordOauthStateCookie,
   buildClearDiscordPendingCookie,
@@ -165,11 +166,12 @@ import {
   discordAvatarUrl,
   discordAuthorizeUrl,
   discordOauthConfigFromEnv,
+  discordSsoEnabled,
   discordOauthStateMatches,
   fetchDiscordIdentity,
-  newDiscordOauthState,
   sessionOwnsCoach,
   shouldBlockExistingRegistration,
+  validatedNextPath,
 } from "./auth/discordSso.js";
 
 /**
@@ -245,6 +247,7 @@ const CORS_ALLOWLIST = parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS);
 const AUTH_SIDECAR = process.env.AUTH_SIDECAR_ENABLED === "1";
 const TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 const sessionTokens = new Map<string, number>();
+const discordOauthStates = new DiscordOauthStateStore();
 const pendingDiscordSso = new PendingSsoStore();
 const TEAM_ADVANCEMENT_TOKEN_SECRET = randomBytes(32).toString("hex");
 const PACKAGES_DIR = resolve(process.env.PACKAGES_DIR || join(HERE, "../../../tournament-packages"));
@@ -725,10 +728,12 @@ async function handleApi(
   }
 
   if (path === "/api/auth/session" && (method === "GET" || method === "HEAD")) {
-    if (!auth) return sendJson(res, 200, { authenticated: false });
+    const ssoEnabled = discordSsoEnabled();
+    if (!auth) return sendJson(res, 200, { authenticated: false, discordSsoEnabled: ssoEnabled });
     const session = getSession(sessionTokenFromRequest(req));
     return sendJson(res, 200, {
       authenticated: true,
+      discordSsoEnabled: ssoEnabled,
       coach: auth.coach,
       organizer: auth.organizer,
       admin: auth.admin,
@@ -739,7 +744,7 @@ async function handleApi(
   if (path === "/api/auth/discord/start" && method === "GET") {
     const config = discordOauthConfigFromEnv();
     if (!config) return sendJson(res, 503, { error: "Discord SSO not configured" });
-    const state = newDiscordOauthState();
+    const state = discordOauthStates.create(validatedNextPath(query.get("next")));
     res.writeHead(302, {
       location: discordAuthorizeUrl(config, state),
       "set-cookie": buildDiscordOauthStateCookie(state, requestUsesTls(req)),
@@ -754,9 +759,16 @@ async function handleApi(
     if (!config) return sendJson(res, 503, { error: "Discord SSO not configured" });
     const secure = requestUsesTls(req);
     const cookies = parseCookies(req.headers.cookie);
-    if (!discordOauthStateMatches(cookies.get(DISCORD_OAUTH_STATE_COOKIE), query.get("state"))) {
+    const expectedState = cookies.get(DISCORD_OAUTH_STATE_COOKIE);
+    if (!discordOauthStateMatches(expectedState, query.get("state"))) {
+      discordOauthStates.delete(expectedState);
       res.setHeader("set-cookie", buildClearDiscordOauthStateCookie(secure));
       return sendJson(res, 400, { error: "Invalid Discord OAuth state." });
+    }
+    const next = discordOauthStates.consume(expectedState);
+    if (!next) {
+      res.setHeader("set-cookie", buildClearDiscordOauthStateCookie(secure));
+      return sendJson(res, 400, { error: "Invalid or expired Discord OAuth state." });
     }
     const code = query.get("code");
     if (!code) {
@@ -765,7 +777,7 @@ async function handleApi(
     }
     try {
       const identity = await fetchDiscordIdentity(config, code);
-      const pendingToken = pendingDiscordSso.create(identity);
+      const pendingToken = pendingDiscordSso.create({ ...identity, next });
       res.writeHead(302, {
         location: "/discord-complete.html",
         "set-cookie": [
@@ -785,7 +797,7 @@ async function handleApi(
 
   if (path === "/api/auth/discord/pending" && method === "GET") {
     res.setHeader("cache-control", "no-store");
-    if (!discordOauthConfigFromEnv()) return sendJson(res, 503, { error: "Discord SSO not configured" });
+    if (!discordSsoEnabled()) return sendJson(res, 503, { error: "Discord SSO not configured" });
     const token = parseCookies(req.headers.cookie).get(DISCORD_PENDING_COOKIE);
     const pending = pendingDiscordSso.get(token);
     if (!pending) return sendJson(res, 404, { pending: false });
@@ -801,7 +813,7 @@ async function handleApi(
 
   if (path === "/api/auth/discord/complete" && method === "POST") {
     res.setHeader("cache-control", "no-store");
-    if (!discordOauthConfigFromEnv()) return sendJson(res, 503, { error: "Discord SSO not configured" });
+    if (!discordSsoEnabled()) return sendJson(res, 503, { error: "Discord SSO not configured" });
     const secure = requestUsesTls(req);
     const pendingToken = parseCookies(req.headers.cookie).get(DISCORD_PENDING_COOKIE);
     const pending = pendingDiscordSso.get(pendingToken);
@@ -867,7 +879,7 @@ async function handleApi(
         buildClearDiscordPendingCookie(secure),
         buildSessionCookie(sessionToken, secure),
       ]);
-      return sendJson(res, 200, { ok: true, coach: ffbCoachId });
+      return sendJson(res, 200, { ok: true, coach: ffbCoachId, next: pending.next });
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
     }
@@ -2261,6 +2273,7 @@ const server = createServer((req, res) => {
         if (
           await handleAuthPortal(req, res, url, {
             authenticationAvailable: challengeDbCfg !== undefined,
+            discordSsoEnabled: discordSsoEnabled(),
             verifyCoachPassword: (username, password) =>
               challengeDbCfg ? verifyCoachPassword(challengeDbCfg, username, password) : Promise.resolve(false),
           })
