@@ -75,28 +75,25 @@
           <span class="hub-card-description">Manage teams, identities, live games, scheduling, and fork controls.</span>
           <span class="hub-card-destination">admin.html</span>
         </a>
-        <a class="hub-card" href="./users.html">
+        <a class="hub-card" href="./admin.html#teams">
+          <span class="hub-card-name">Teams</span>
+          <span class="hub-card-description">Search any team and edit it with full admin control.</span>
+          <span class="hub-card-destination">admin.html › Teams</span>
+        </a>
+        <a class="hub-card" href="./admin.html#users">
           <span class="hub-card-name">Users</span>
-          <span class="hub-card-description">View fork accounts and their linked tournament identities.</span>
-          <span class="hub-card-destination">users.html</span>
+          <span class="hub-card-description">Fork accounts, identity library, levels, and bans.</span>
+          <span class="hub-card-destination">admin.html › Users</span>
         </a>
-        <a class="hub-card" href="./tournaments.html">
-          <span class="hub-card-name">Tournaments</span>
-          <span class="hub-card-description">Open the tournament operations and scheduling panel.</span>
-          <span class="hub-card-destination">tournaments.html</span>
-        </a>
-        <a id="fork-panel-card" class="hub-card external" href="http://127.0.0.1:22227/panel.html">
-          <span class="hub-card-name">Fork Server Panel</span>
-          <span class="hub-card-description">Open the fork server’s native administration panel on port 22227.</span>
-          <span class="hub-card-destination">panel.html :22227</span>
+        <a class="hub-card" href="./admin.html#games">
+          <span class="hub-card-name">Game Controls</span>
+          <span class="hub-card-description">Live games: close, delete, concede, and fork game operations.</span>
+          <span class="hub-card-destination">admin.html › Game Controls</span>
         </a>
       </nav>
     </main>
 
     <footer class="footer"><span>Super FUMBBL control panel</span><span class="footer-spacer"></span><span>config-web :4310</span></footer>
   </div>
-  <script>
-    document.getElementById("fork-panel-card").href = "http://" + (location.hostname || "127.0.0.1") + ":22227/panel.html";
-  </script>
 </body>
 </html>

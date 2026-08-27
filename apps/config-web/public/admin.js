@@ -7,7 +7,8 @@ const state = {
   loginUser: "",
   expiresAt: "",
   discordSsoEnabled: false,
-  section: "users",
+  // Deep-linkable: control-panel cards land on admin.html#users/#teams/#games.
+  section: ["users", "teams", "games"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "users",
   users: [],
   identities: {},
   games: [],
@@ -1042,6 +1043,7 @@ toolbar.addEventListener("click", (event) => {
   if (target.dataset.action === "logout") logout();
   if (target.dataset.action === "section") {
     state.section = ["users", "teams", "games"].includes(target.dataset.section) ? target.dataset.section : "users";
+    location.hash = state.section;
     state.editingIdentity = "";
     setMessage("");
     render();
