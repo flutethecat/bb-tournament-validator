@@ -2,6 +2,7 @@
 
 const state = {
   authed: false,
+  admin: false,
   token: null,
   account: "",
   loginUser: "",
@@ -9,6 +10,7 @@ const state = {
   discordSsoEnabled: false,
   // Deep-linkable: control-panel cards land on admin.html#users/#teams/#games.
   section: ["users", "teams", "games"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "users",
+  userFilter: "",
   users: [],
   identities: {},
   games: [],
@@ -28,7 +30,9 @@ const state = {
   selectedTeam: null,
   teamDetail: null,
   teamRosters: [],
+  teamSkills: [],
   teamLoading: false,
+  expandedPlayerId: "",
 };
 
 const toolbar = document.querySelector("#toolbar");
@@ -281,22 +285,36 @@ function renderUserRow(user) {
   return row + (normalizeName(state.editingIdentity) === normalizeName(user.fumbblName) ? renderIdentityEditor(user, record) : "");
 }
 
+function filteredUsers() {
+  const all = mergedUsers();
+  const needle = state.userFilter.trim().toLowerCase();
+  if (!needle) return all;
+  return all.filter((user) => {
+    if (String(user.fumbblName ?? "").toLowerCase().includes(needle)) return true;
+    const record = state.identities[normalizeName(user.fumbblName)];
+    return Object.values(record?.identities ?? {}).some((value) => String(value ?? "").toLowerCase().includes(needle));
+  });
+}
+
 function renderUsers() {
-  const users = mergedUsers();
-  if (state.loading && !users.length) return '<div class="loading-banner">Loading users and identity library…</div>';
+  const all = mergedUsers();
+  const users = filteredUsers();
+  if (state.loading && !all.length) return '<div class="loading-banner">Loading users and identity library…</div>';
   return `${renderMessage()}${renderErrors()}
     <section class="panel">
       <div class="section-head">
         <div class="section-title">${title("Fork Accounts")}</div>
-        <span class="section-note">${escapeHtml(users.length)} account${users.length === 1 ? "" : "s"} · fork account is the primary ID</span>
+        <span class="section-note">${state.userFilter.trim() ? `${escapeHtml(users.length)} of ${escapeHtml(all.length)} accounts` : `${escapeHtml(all.length)} account${all.length === 1 ? "" : "s"}`} · fork account is the primary ID</span>
         <span class="grow"></span>
+        <label class="visually-hidden" for="user-filter">Filter accounts</label>
+        <input id="user-filter" class="control" autocomplete="off" value="${escapeHtml(state.userFilter)}" placeholder="Filter by account or identity">
         <button type="button" class="btn" data-action="refresh">Refresh</button>
       </div>
       <div class="notice">Silenced is a display-only flag. It does not suppress or mute in-game chat.</div>
       ${users.length ? `<div class="admin-table-wrap"><table class="admin-table">
         <thead><tr><th>Fork account</th><th>Level</th><th>Status</th><th>Attached identities</th><th>Banned</th><th>Silenced</th><th>Actions</th></tr></thead>
         <tbody>${users.map(renderUserRow).join("")}</tbody>
-      </table></div>` : '<div class="hint">No fork accounts are available.</div>'}
+      </table></div>` : all.length ? '<div class="hint">No accounts match the filter.</div>' : '<div class="hint">No fork accounts are available.</div>'}
     </section>`;
 }
 
@@ -411,6 +429,57 @@ function selectedTeamRoster() {
   return safeArray(state.teamRosters).find((roster) => normalizeName(roster?.raceName) === race) ?? null;
 }
 
+function selectedPlayerPosition(player) {
+  return safeArray(selectedTeamRoster()?.positions).find((position) => String(position?.positionId) === String(player?.positionId)) ?? null;
+}
+
+function rosterStat(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const match = String(value ?? "").match(/^\s*(\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
+function playerStatModifier(player, position, stat, field) {
+  const base = rosterStat(position?.[stat]);
+  const rawCurrent = player?.[field];
+  const current = rawCurrent === null || rawCurrent === undefined ? Number.NaN : Number(rawCurrent);
+  if (base === null || base < 1 || !Number.isFinite(current) || current < 1) return null;
+  return stat === "AG" || stat === "PA" ? base - current : current - base;
+}
+
+function renderPlayerCorrectionPanel(player) {
+  if (!state.admin || state.expandedPlayerId !== String(player.id)) return "";
+  const position = selectedPlayerPosition(player);
+  const skills = safeArray(player.skills).filter((skill) => !/^\+(?:MA|ST|AG|PA|AV)$/i.test(String(skill)));
+  const injuries = safeArray(player.injuryDetails).length
+    ? safeArray(player.injuryDetails)
+    : safeArray(player.injuries).map((name) => ({ name, recovering: false }));
+  const stats = [
+    ["MA", "movement"],
+    ["ST", "strength"],
+    ["AG", "agility"],
+    ["PA", "passing"],
+    ["AV", "armour"],
+  ];
+  return `<tr><td colspan="6"><div class="inset-list" data-player-panel="${escapeHtml(player.id)}">
+    <div class="inset-row"><span class="grow"><strong>Skills</strong><span class="team-player-detail">Acquired player-level skills</span></span></div>
+    ${skills.length ? skills.map((skill) => `<div class="inset-row"><span class="grow">${escapeHtml(skill)}</span><button type="button" class="btn compact" data-action="remove-player-skill" data-player-id="${escapeHtml(player.id)}" data-skill="${escapeHtml(skill)}">Remove</button></div>`).join("") : '<div class="hint">No acquired catalog skills.</div>'}
+    <div class="inline-controls"><label class="field grow"><span class="field-label">Add skill</span><input class="control" list="team-skill-catalog" data-add-player-skill maxlength="100"></label><button type="button" class="btn" data-action="add-player-skill" data-player-id="${escapeHtml(player.id)}">Add</button></div>
+    <datalist id="team-skill-catalog">${safeArray(state.teamSkills).map((skill) => `<option value="${escapeHtml(skill)}"></option>`).join("")}</datalist>
+    <div class="inset-row"><span class="grow"><strong>Injuries</strong><span class="team-player-detail">Exact stored text and recovery state</span></span></div>
+    ${injuries.length ? injuries.map((injury) => `<div class="inset-row"><span class="grow">${escapeHtml(injury.name)}${injury.recovering ? ' <span class="chip active">recovering</span>' : ""}</span><button type="button" class="btn compact" data-action="remove-player-injury" data-player-id="${escapeHtml(player.id)}" data-injury="${escapeHtml(injury.name)}">Remove</button></div>`).join("") : '<div class="hint">No injuries.</div>'}
+    <div class="inline-controls"><label class="field grow"><span class="field-label">Injury text</span><input class="control" data-add-player-injury maxlength="200"></label><label class="field"><span class="field-label">Recovering</span><input type="checkbox" data-add-player-injury-recovering></label><button type="button" class="btn" data-action="add-player-injury" data-player-id="${escapeHtml(player.id)}">Add</button></div>
+    <div class="inset-row"><span class="grow"><strong>Characteristics</strong><span class="team-player-detail">Positive modifier = improvement; negative = canonical lasting injury</span></span></div>
+    ${stats.map(([stat, field]) => {
+      const modifier = playerStatModifier(player, position, stat, field);
+      const current = player?.[field];
+      const base = rosterStat(position?.[stat]);
+      const disabled = modifier === null;
+      return `<div class="inset-row"><span class="grow"><strong>${stat} ${escapeHtml(current ?? "—")}</strong><span class="team-player-detail">base ${escapeHtml(base ?? "unknown")}</span></span><label class="field"><span class="field-label">Modifier</span><input class="control tiny" type="number" min="-10" max="10" data-player-stat-modifier data-stat="${stat}" value="${escapeHtml(modifier ?? "")}"${disabled ? " disabled" : ""}></label><button type="button" class="btn compact" data-action="save-player-stat" data-player-id="${escapeHtml(player.id)}" data-stat="${stat}"${disabled ? " disabled" : ""}>Save</button></div>`;
+    }).join("")}
+  </div></td></tr>`;
+}
+
 function renderTeamSearch() {
   const modes = [
     ["name", "Team name"],
@@ -464,15 +533,17 @@ function renderTeamPlayers(team) {
     <div class="section-head"><div class="section-title">${title("Players")}</div><span class="section-note">${players.length} rostered · ${fired.length} fired / retired</span><span class="grow"></span><button type="button" class="btn" data-action="save-renumber">Save numbers</button></div>
     ${players.length ? `<div class="admin-table-wrap"><table class="admin-table team-player-table"><thead><tr><th>#</th><th>Player</th><th>Position</th><th>Status</th><th>Value</th><th>Actions</th></tr></thead><tbody>${players.map((player) => {
       const temporary = /temporarilyretired/i.test(String(player.status ?? "").replace(/[\s_-]+/g, ""));
+      const expanded = state.admin && state.expandedPlayerId === String(player.id);
       return `<tr><td><input class="control tiny" type="number" min="1" max="99" data-player-number data-player-id="${escapeHtml(player.id)}" value="${escapeHtml(player.number)}"></td>
         <td><span class="team-player-name">${escapeHtml(player.name)}</span><span class="team-player-detail">ID ${escapeHtml(player.id)}${player.skills?.length ? ` · ${escapeHtml(player.skills.join(", "))}` : ""}${player.injuries?.length ? ` · ${escapeHtml(player.injuries.join(", "))}` : ""}</span></td>
         <td>${escapeHtml(player.position ?? player.positionId)}</td><td>${escapeHtml(player.status ?? "Active")}</td><td>${escapeHtml(goldLabel(player.currentValue))}</td>
         <td class="actions-cell"><div class="row-actions">
+          ${state.admin ? `<button type="button" class="btn compact" data-action="toggle-player-editor" data-player-id="${escapeHtml(player.id)}" aria-expanded="${expanded}">${expanded ? "Collapse" : "Edit"}</button>` : ""}
           <button type="button" class="btn compact" data-action="player-mutation" data-operation="firePlayer" data-player-id="${escapeHtml(player.id)}">Fire</button>
           <button type="button" class="btn compact" data-action="player-mutation" data-operation="retirePlayer" data-player-id="${escapeHtml(player.id)}">Retire</button>
           <button type="button" class="btn compact" data-action="player-mutation" data-operation="${temporary ? "undoTemporaryRetire" : "temporaryRetirePlayer"}" data-player-id="${escapeHtml(player.id)}">${temporary ? "Undo temp" : "Temp retire"}</button>
           <button type="button" class="btn compact" data-action="player-mutation" data-operation="refundPlayer" data-player-id="${escapeHtml(player.id)}">Refund</button>
-        </div></td></tr>`;
+        </div></td></tr>${renderPlayerCorrectionPanel(player)}`;
     }).join("")}</tbody></table></div>` : '<div class="hint">This team has no rostered players.</div>'}
   </section>
   <section class="panel">
@@ -591,9 +662,18 @@ async function login() {
     state.account = username;
     state.loginUser = "";
     state.expiresAt = String(result?.expiresAt ?? "");
+    if (typeof state.token === "string" && state.token.length > 0) {
+      state.admin = true;
+    } else {
+      const session = await requestJson("/api/auth/session");
+      state.admin = session?.admin === true;
+      state.account = String(session?.coach ?? username);
+      state.expiresAt = String(session?.expiresAt ?? state.expiresAt);
+    }
     setMessage("");
   } catch (error) {
     state.authed = false;
+    state.admin = false;
     state.token = null;
     state.account = "";
     state.expiresAt = "";
@@ -613,6 +693,7 @@ async function logout() {
     // Local logout still succeeds if the server request fails.
   }
   state.authed = false;
+  state.admin = false;
   state.token = null;
   state.account = "";
   state.expiresAt = "";
@@ -628,7 +709,9 @@ async function logout() {
   state.selectedTeam = null;
   state.teamDetail = null;
   state.teamRosters = [];
+  state.teamSkills = [];
   state.teamLoading = false;
+  state.expandedPlayerId = "";
   setMessage("");
   render();
 }
@@ -897,7 +980,8 @@ async function loadSelectedTeam() {
   state.teamLoading = true;
   render();
   const requests = [requestJson(`/api/teams/${encodeURIComponent(teamId)}/detail`, authOptions())];
-  if (!state.teamRosters.length) requests.push(requestJson("/api/fork/rosters", authOptions()));
+  const rosterIndex = state.teamRosters.length ? -1 : requests.push(requestJson("/api/fork/rosters", authOptions())) - 1;
+  const skillIndex = state.teamSkills.length ? -1 : requests.push(requestJson("/api/skills", authOptions())) - 1;
   const results = await Promise.allSettled(requests);
   const detailResult = results[0];
   if (detailResult.status === "rejected") {
@@ -907,12 +991,22 @@ async function loadSelectedTeam() {
     state.teamDetail = detailResult.value?.team ?? null;
     if (!state.teamDetail) setMessage("Team detail response did not include a team.", "error");
   }
-  const rosterResult = results[1];
+  const warnings = [];
+  const rosterResult = rosterIndex >= 0 ? results[rosterIndex] : undefined;
   if (rosterResult?.status === "fulfilled") {
     state.teamRosters = [...safeArray(rosterResult.value?.rosters), ...safeArray(rosterResult.value?.slRosters)];
   } else if (rosterResult?.status === "rejected") {
-    setMessage(`Team detail loaded, but the roster position catalog failed: ${serverMessage(rosterResult.reason)}`, "error");
+    warnings.push(`roster position catalog failed: ${serverMessage(rosterResult.reason)}`);
   }
+  const skillResult = skillIndex >= 0 ? results[skillIndex] : undefined;
+  if (skillResult?.status === "fulfilled") {
+    state.teamSkills = [...safeArray(skillResult.value?.general), ...safeArray(skillResult.value?.elite)]
+      .map((entry) => String(entry?.name ?? "").trim())
+      .filter(Boolean);
+  } else if (skillResult?.status === "rejected") {
+    warnings.push(`skill catalog failed: ${serverMessage(skillResult.reason)}`);
+  }
+  if (warnings.length) setMessage(`Team detail loaded, but the ${warnings.join("; ")}`, "error");
   state.teamLoading = false;
   render();
 }
@@ -922,6 +1016,7 @@ async function selectTeam(teamId) {
   if (!row) return;
   state.selectedTeam = row;
   state.teamDetail = null;
+  state.expandedPlayerId = "";
   setMessage("");
   await loadSelectedTeam();
 }
@@ -934,7 +1029,8 @@ async function mutateSelectedTeam(operation, patch = {}, success = "Team updated
   render();
   let mutationCompleted = false;
   try {
-    await requestJson(`/api/team/${encodeURIComponent(operation)}`, authOptions("POST", { teamId, ...patch }));
+    const operationPath = String(operation).split("/").map(encodeURIComponent).join("/");
+    await requestJson(`/api/team/${operationPath}`, authOptions("POST", { teamId, ...patch }));
     mutationCompleted = true;
     const detail = await requestJson(`/api/teams/${encodeURIComponent(teamId)}/detail`, authOptions());
     state.teamDetail = detail?.team ?? null;
@@ -976,8 +1072,65 @@ async function renameSelectedTeam() {
   await mutateSelectedTeam("rename", { newName }, `Renamed team to ${newName}.`);
 }
 
+function playerCorrectionPanel(playerId) {
+  return [...document.querySelectorAll("[data-player-panel]")]
+    .find((panel) => String(panel.dataset.playerPanel) === String(playerId)) ?? null;
+}
+
 function runTeamEditorAction(target) {
   const action = target.dataset.action;
+  const correctionPlayerId = target.dataset.playerId;
+  if (action === "toggle-player-editor" && state.admin && correctionPlayerId) {
+    state.expandedPlayerId = state.expandedPlayerId === correctionPlayerId ? "" : correctionPlayerId;
+    setMessage("");
+    render();
+    return;
+  }
+  if (state.admin && correctionPlayerId && action === "add-player-skill") {
+    const skill = playerCorrectionPanel(correctionPlayerId)?.querySelector("[data-add-player-skill]")?.value.trim() ?? "";
+    if (!skill) {
+      setMessage("Choose a catalog skill to add.", "error");
+      render();
+    } else {
+      mutateSelectedTeam("player/addSkill", { playerId: correctionPlayerId, skill }, `Added ${skill}.`);
+    }
+    return;
+  }
+  if (state.admin && correctionPlayerId && action === "remove-player-skill") {
+    const skill = target.dataset.skill;
+    if (skill) mutateSelectedTeam("player/removeSkill", { playerId: correctionPlayerId, skill }, `Removed ${skill}.`);
+    return;
+  }
+  if (state.admin && correctionPlayerId && action === "add-player-injury") {
+    const panel = playerCorrectionPanel(correctionPlayerId);
+    const injury = panel?.querySelector("[data-add-player-injury]")?.value.trim() ?? "";
+    const recovering = panel?.querySelector("[data-add-player-injury-recovering]")?.checked === true;
+    if (!injury) {
+      setMessage("Enter injury text to add.", "error");
+      render();
+    } else {
+      mutateSelectedTeam("player/addInjury", { playerId: correctionPlayerId, injury, recovering }, `Added ${injury}.`);
+    }
+    return;
+  }
+  if (state.admin && correctionPlayerId && action === "remove-player-injury") {
+    const injury = target.dataset.injury;
+    if (injury) mutateSelectedTeam("player/removeInjury", { playerId: correctionPlayerId, injury }, `Removed ${injury}.`);
+    return;
+  }
+  if (state.admin && correctionPlayerId && action === "save-player-stat") {
+    const stat = target.dataset.stat;
+    const input = [...(playerCorrectionPanel(correctionPlayerId)?.querySelectorAll("[data-player-stat-modifier]") ?? [])]
+      .find((entry) => entry.dataset.stat === stat);
+    const modifier = Number(input?.value);
+    if (!stat || !Number.isInteger(modifier) || modifier < -10 || modifier > 10) {
+      setMessage("Stat modifier must be an integer from -10 to 10.", "error");
+      render();
+    } else {
+      mutateSelectedTeam("player/setStatModifier", { playerId: correctionPlayerId, stat, modifier }, `${stat} modifier set to ${modifier}.`);
+    }
+    return;
+  }
   if (action === "team-mutation") {
     const operation = target.dataset.operation;
     if (operation) mutateSelectedTeam(operation, {}, `${operation} completed.`);
@@ -1073,6 +1226,12 @@ workspace.addEventListener("click", (event) => {
   if (action === "team-search") searchTeams();
   if (action === "select-team") selectTeam(target.dataset.teamId ?? "");
   if ([
+    "toggle-player-editor",
+    "add-player-skill",
+    "remove-player-skill",
+    "add-player-injury",
+    "remove-player-injury",
+    "save-player-stat",
     "team-mutation",
     "player-mutation",
     "save-dedicated-fans",
@@ -1121,6 +1280,18 @@ workspace.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && event.target.id === "team-search-query") searchTeams();
 });
 
+// Live account filter: full re-render loses focus, so restore caret after.
+workspace.addEventListener("input", (event) => {
+  if (event.target.id !== "user-filter") return;
+  state.userFilter = event.target.value;
+  render();
+  const input = document.querySelector("#user-filter");
+  if (input) {
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+});
+
 rightRail.addEventListener("change", () => {});
 
 modalRoot.addEventListener("click", (event) => {
@@ -1152,6 +1323,7 @@ async function initialize() {
       return;
     }
     state.authed = true;
+    state.admin = result?.admin === true;
     state.account = String(result.coach ?? "");
     state.token = null;
     state.expiresAt = String(result.expiresAt ?? "");

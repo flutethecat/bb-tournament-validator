@@ -140,6 +140,7 @@ import {
 } from "./teamDetail.js";
 import { advancementPath, teamAdvancementEndpoint } from "./teamAdvancement.js";
 import {
+  isAdminPlayerTeamMutation,
   isTeamMutationWritePath,
   teamCheckNameEndpoint,
   teamMutationEndpoint,
@@ -768,6 +769,8 @@ async function handleApi(
     return sendJson(res, 409, { error: "A team/cache generation update is in progress; game start delivery is temporarily paused." });
   }
   try {
+  const earlyMutationOperation = method === "POST" ? teamMutationOperation(path) : undefined;
+  if (earlyMutationOperation && isAdminPlayerTeamMutation(earlyMutationOperation) && !requireAdminLevel(req, res, auth)) return;
   const requiresCoherentTeamCache = isTeamMutationWritePath(path) || /^\/api\/teams\/[^/]+\/advancement$/.test(path) || [
     "/api/fork/library/ingest",
     "/api/fork/library/retire",

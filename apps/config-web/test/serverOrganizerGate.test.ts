@@ -62,11 +62,19 @@ beforeAll(async () => {
     { teamId: "120", teamName: "Storm Lords", race: "Human", coach: "Tarkin", teamValue: 1000, gold: 0, forkLoadable: true, ingestedAt: "2026-08-01T00:00:00.000Z" },
     { teamId: "121", teamName: "Desert Storm", race: "Orc", coach: "Tarkin", teamValue: 1000, gold: 0, forkLoadable: false, ingestedAt: "2026-08-02T00:00:00.000Z" },
   ]), "utf8");
+  writeFileSync(join(root, "library", "plaincoach.json"), JSON.stringify([
+    { teamId: "122", teamName: "Plain Owners", race: "Human", coach: "PlainCoach", teamValue: 1000, gold: 0, forkLoadable: true, ingestedAt: "2026-08-03T00:00:00.000Z" },
+  ]), "utf8");
+  writeFileSync(join(root, "library", "organizercoach.json"), JSON.stringify([
+    { teamId: "123", teamName: "Organizer Owners", race: "Human", coach: "OrganizerCoach", teamValue: 1000, gold: 0, forkLoadable: true, ingestedAt: "2026-08-04T00:00:00.000Z" },
+  ]), "utf8");
   writeFileSync(
     join(root, "teams", "team_Tarkin_120.xml"),
     '<team id="120"><coach>Tarkin</coach><name>Storm Lords</name></team>',
     "utf8",
   );
+  writeFileSync(join(root, "teams", "team_PlainCoach_122.xml"), '<team id="122"><coach>PlainCoach</coach><name>Plain Owners</name><player id="plain-player"><skillList/><injuryList/></player></team>', "utf8");
+  writeFileSync(join(root, "teams", "team_OrganizerCoach_123.xml"), '<team id="123"><coach>OrganizerCoach</coach><name>Organizer Owners</name><player id="organizer-player"><skillList/><injuryList/></player></team>', "utf8");
 
   ({ server } = await import("../src/server.js"));
   if (!server.listening) await once(server, "listening");
@@ -133,6 +141,38 @@ describe("POST /api/team/setResurrection organizer gate", () => {
     expect(await allowed.json()).toMatchObject({ ok: true, teamId: "120", reload: { reloaded: false } });
     expect(readFileSync(join(root, "teams", "team_Tarkin_120.xml"), "utf8"))
       .toContain('resurrection="true"');
+  });
+});
+
+describe("admin-only player correction HTTP gates", () => {
+  const operations = [
+    ["player/addSkill", { skill: "Block" }],
+    ["player/removeSkill", { skill: "Block" }],
+    ["player/addInjury", { injury: "Seriously Hurt (MNG)", recovering: true }],
+    ["player/removeInjury", { injury: "Seriously Hurt (MNG)" }],
+    ["player/setStatModifier", { stat: "MA", modifier: 1 }],
+  ] as const;
+
+  it.each(operations)("rejects a plain coach on their own team for %s", async (operation, patch) => {
+    const coach = createSession("PlainCoach");
+    const response = await fetch(`${origin}/api/team/${operation}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${coach.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ teamId: "122", playerId: "plain-player", ...patch }),
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "Admin access required." });
+  });
+
+  it.each(operations)("rejects an organizer on their own team for %s", async (operation, patch) => {
+    const organizer = createSession("OrganizerCoach");
+    const response = await fetch(`${origin}/api/team/${operation}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${organizer.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ teamId: "123", playerId: "organizer-player", ...patch }),
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "Admin access required." });
   });
 });
 

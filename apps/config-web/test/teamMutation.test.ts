@@ -44,6 +44,18 @@ const ROSTER = `<?xml version="1.0" encoding="UTF-8"?>
 </roster>
 `;
 
+const ADMIN_PLAYER_TEAM = `<?xml version="1.0" encoding="UTF-8"?>
+<team id="42" status="1">
+  <coach>Tarkin</coach><name>Mutation Humans</name><race>Human</race><rosterId>human</rosterId>
+  <treasury>200000</treasury><teamRating>100</teamRating><currentTeamValue>100</currentTeamValue><teamStrength>100</teamStrength>
+  <player status="Active" nr="1" id="p1"><name>One</name><positionId>lineman</positionId><playerStatistics currentSpps="0"><games>0</games></playerStatistics><skillList/><injuryList/></player>
+</team>
+`;
+
+const ADMIN_PLAYER_ROSTER = `<?xml version="1.0" encoding="UTF-8"?>
+<roster id="human"><name>Human</name><position id="lineman"><name>Lineman</name><type>Regular</type><quantity>16</quantity><cost>50000</cost><movement>6</movement><strength>3</strength><agility>3</agility><passing>4</passing><armour>9</armour><skillList/><skillCategoryList><normal>General</normal><double>Agility</double><double>Strength</double></skillCategoryList></position></roster>
+`;
+
 const STORED: LibraryTeam = {
   teamId: "42",
   teamName: "Mutation Humans",
@@ -385,6 +397,123 @@ describe("P2 team mutations", () => {
     expect(result).toMatchObject({ status: 400, body: { error: expect.stringMatching(/resurrection must be a boolean/i) } });
     expect(snapshot(d)).toEqual(before);
     expect(d.reloads()).toBe(0);
+  });
+});
+
+describe("admin-only native player corrections", () => {
+  it.each([
+    "player/addSkill",
+    "player/removeSkill",
+    "player/addInjury",
+    "player/removeInjury",
+    "player/setStatModifier",
+  ] as const)("maps /api/team/%s and rejects a non-admin owner before inspecting the team", async (operation) => {
+    const path = `/api/team/${operation}`;
+    expect(teamMutationOperation(path)).toBe(operation);
+    expect(isTeamMutationWritePath(path)).toBe(true);
+    const d = setup(ADMIN_PLAYER_TEAM, ADMIN_PLAYER_ROSTER);
+    const result = await teamMutationEndpoint(auth, operation, { teamId: "42" }, d.deps);
+    expect(result).toEqual({ status: 403, body: { error: "Admin access required." } });
+    expect(d.reloads()).toBe(0);
+  });
+
+  it("adds and removes a catalog skill, updates value from playerProgression, and handles invalid/duplicate requests deterministically", async () => {
+    const d = setup(ADMIN_PLAYER_TEAM, ADMIN_PLAYER_ROSTER);
+    const admin = { admin: true };
+
+    const unknown = await teamMutationEndpoint(admin, "player/addSkill", { teamId: "42", playerId: "p1", skill: "Definitely Not A Skill" }, d.deps);
+    expect(unknown).toMatchObject({ status: 400, body: { error: expect.stringMatching(/unknown skill/i) } });
+
+    const added = await teamMutationEndpoint(admin, "player/addSkill", { teamId: "42", playerId: "p1", skill: "Block" }, d.deps);
+    expect(added).toMatchObject({ status: 200, body: { ok: true, playerId: "p1" } });
+    expect(readFileSync(d.teamFile, "utf8")).toContain("<skillList><skill>Block</skill></skillList>");
+    expect(readFileSync(d.teamFile, "utf8")).toContain("<teamRating>103</teamRating>");
+    let detail = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "42", d);
+    if (detail.status !== 200) throw new Error(detail.body.error);
+    expect(detail.body.team.players[0]).toMatchObject({ skills: ["Block"], currentValue: 80_000 });
+
+    const afterAdd = snapshot(d);
+    const duplicate = await teamMutationEndpoint(admin, "player/addSkill", { teamId: "42", playerId: "p1", skill: "Block" }, d.deps);
+    expect(duplicate).toMatchObject({ status: 400, body: { error: expect.stringMatching(/already has Block/i) } });
+    expect(snapshot(d)).toEqual(afterAdd);
+
+    expect((await teamMutationEndpoint(admin, "player/removeSkill", { teamId: "42", playerId: "p1", skill: "Block" }, d.deps)).status).toBe(200);
+    detail = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "42", d);
+    if (detail.status !== 200) throw new Error(detail.body.error);
+    expect(detail.body.team.players[0]).toMatchObject({ skills: [], currentValue: 50_000 });
+    expect(readFileSync(d.teamFile, "utf8")).toContain("<teamRating>100</teamRating>");
+
+    const absent = await teamMutationEndpoint(admin, "player/removeSkill", { teamId: "42", playerId: "p1", skill: "Block" }, d.deps);
+    expect(absent).toMatchObject({ status: 400, body: { error: expect.stringMatching(/does not have acquired skill/i) } });
+  });
+
+  it("round-trips injury text and recovering state, then rejects an absent removal", async () => {
+    const d = setup(ADMIN_PLAYER_TEAM, ADMIN_PLAYER_ROSTER);
+    const admin = { admin: true };
+    const injury = "Smashed Knee (-MA)";
+
+    expect((await teamMutationEndpoint(admin, "player/addInjury", { teamId: "42", playerId: "p1", injury, recovering: true }, d.deps)).status).toBe(200);
+    expect(readFileSync(d.teamFile, "utf8")).toContain('<injury recovering="true">Smashed Knee (-MA)</injury>');
+    let detail = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "42", d);
+    if (detail.status !== 200) throw new Error(detail.body.error);
+    expect(detail.body.team.players[0]).toMatchObject({
+      injuries: [injury],
+      injuryDetails: [{ name: injury, recovering: true }],
+      movement: 5,
+      mng: true,
+    });
+
+    expect((await teamMutationEndpoint(admin, "player/removeInjury", { teamId: "42", playerId: "p1", injury }, d.deps)).status).toBe(200);
+    detail = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "42", d);
+    if (detail.status !== 200) throw new Error(detail.body.error);
+    expect(detail.body.team.players[0]).toMatchObject({ injuries: [], injuryDetails: [], movement: 6, mng: false });
+
+    const absent = await teamMutationEndpoint(admin, "player/removeInjury", { teamId: "42", playerId: "p1", injury }, d.deps);
+    expect(absent).toMatchObject({ status: 400, body: { error: expect.stringMatching(/does not have injury/i) } });
+
+    const lasting = "Serious Injury (NI)";
+    expect((await teamMutationEndpoint(admin, "player/addInjury", { teamId: "42", playerId: "p1", injury: lasting }, d.deps)).status).toBe(200);
+    expect(readFileSync(d.teamFile, "utf8")).toContain('<injury recovering="false">Serious Injury (NI)</injury>');
+    detail = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "42", d);
+    if (detail.status !== 200) throw new Error(detail.body.error);
+    expect(detail.body.team.players[0]?.injuryDetails).toEqual([{ name: lasting, recovering: false }]);
+  });
+
+  it("sets signed stat modifiers through native +STAT skills and canonical injuries and re-derives detail", async () => {
+    const d = setup(ADMIN_PLAYER_TEAM, ADMIN_PLAYER_ROSTER);
+    const admin = { admin: true };
+
+    expect((await teamMutationEndpoint(admin, "player/setStatModifier", { teamId: "42", playerId: "p1", stat: "MA", modifier: 1 }, d.deps)).status).toBe(200);
+    expect(readFileSync(d.teamFile, "utf8")).toContain("<skill>+MA</skill>");
+    let detail = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "42", d);
+    if (detail.status !== 200) throw new Error(detail.body.error);
+    expect(detail.body.team.players[0]).toMatchObject({ movement: 7, currentValue: 70_000 });
+    expect(detail.body.team.teamValue).toBe(1020);
+
+    expect((await teamMutationEndpoint(admin, "player/setStatModifier", { teamId: "42", playerId: "p1", stat: "MA", modifier: -1 }, d.deps)).status).toBe(200);
+    const reducedXml = readFileSync(d.teamFile, "utf8");
+    expect(reducedXml).not.toContain("<skill>+MA</skill>");
+    expect(reducedXml).toContain('<injury recovering="false">Smashed Knee (-MA)</injury>');
+    detail = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "42", d);
+    if (detail.status !== 200) throw new Error(detail.body.error);
+    expect(detail.body.team.players[0]).toMatchObject({ movement: 5, currentValue: 50_000 });
+    expect(detail.body.team.teamValue).toBe(1000);
+
+    expect((await teamMutationEndpoint(admin, "player/setStatModifier", { teamId: "42", playerId: "p1", stat: "MA", modifier: 0 }, d.deps)).status).toBe(200);
+    detail = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "42", d);
+    if (detail.status !== 200) throw new Error(detail.body.error);
+    expect(detail.body.team.players[0]).toMatchObject({ movement: 6, injuries: [] });
+
+    expect((await teamMutationEndpoint(admin, "player/setStatModifier", { teamId: "42", playerId: "p1", stat: "AG", modifier: 1 }, d.deps)).status).toBe(200);
+    detail = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "42", d);
+    if (detail.status !== 200) throw new Error(detail.body.error);
+    expect(detail.body.team.players[0]).toMatchObject({ agility: 2, currentValue: 80_000 });
+
+    expect((await teamMutationEndpoint(admin, "player/setStatModifier", { teamId: "42", playerId: "p1", stat: "AG", modifier: -1 }, d.deps)).status).toBe(200);
+    detail = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "42", d);
+    if (detail.status !== 200) throw new Error(detail.body.error);
+    expect(detail.body.team.players[0]).toMatchObject({ agility: 4, currentValue: 50_000 });
+    expect(readFileSync(d.teamFile, "utf8")).toContain('<injury recovering="false">Dislocated Hip (-AG)</injury>');
   });
 });
 

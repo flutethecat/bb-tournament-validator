@@ -16,7 +16,8 @@ import {
   type ReloadResult,
 } from "@bb/fork-ops";
 import { coachNamesEqual, storedTeamCoach, storedTeamFile } from "./teamDetail.js";
-import { playerProgression } from "./teamAdvancement.js";
+import { playerProgression, type Characteristic } from "./teamAdvancement.js";
+import { skillCatalog } from "./data.js";
 
 export type TeamMutationOperation =
   | "renumber"
@@ -38,6 +39,11 @@ export type TeamMutationOperation =
   | "undoTemporaryRetire"
   | "rehirePlayer"
   | "refundPlayer"
+  | "player/addSkill"
+  | "player/removeSkill"
+  | "player/addInjury"
+  | "player/removeInjury"
+  | "player/setStatModifier"
   | "setResurrection"
   | "ready"
   | "unready";
@@ -62,6 +68,11 @@ const MUTATION_OPERATIONS = new Set<TeamMutationOperation>([
   "undoTemporaryRetire",
   "rehirePlayer",
   "refundPlayer",
+  "player/addSkill",
+  "player/removeSkill",
+  "player/addInjury",
+  "player/removeInjury",
+  "player/setStatModifier",
   "setResurrection",
   "ready",
   "unready",
@@ -70,6 +81,18 @@ const MUTATION_OPERATIONS = new Set<TeamMutationOperation>([
 export interface TeamMutationIdentity {
   coach?: string;
   admin: boolean;
+}
+
+const ADMIN_PLAYER_OPERATIONS = new Set<TeamMutationOperation>([
+  "player/addSkill",
+  "player/removeSkill",
+  "player/addInjury",
+  "player/removeInjury",
+  "player/setStatModifier",
+]);
+
+export function isAdminPlayerTeamMutation(operation: TeamMutationOperation): boolean {
+  return ADMIN_PLAYER_OPERATIONS.has(operation);
 }
 
 export interface TeamMutationDeps {
@@ -82,7 +105,7 @@ export interface TeamMutationDeps {
 
 export type TeamMutationResult =
   | { status: 200; body: { ok: true; teamId: string; reload: ReloadResult } & Record<string, unknown> }
-  | { status: 400 | 401 | 404 | 409 | 500 | 503; body: { error: string } };
+  | { status: 400 | 401 | 403 | 404 | 409 | 500 | 503; body: { error: string } };
 
 export type TeamCheckNameResult =
   | { status: 200; body: { ok: true } | { ok: false; error: string } }
@@ -91,7 +114,7 @@ export type TeamCheckNameResult =
 type JsonObject = Record<string, unknown>;
 
 class EndpointFailure extends Error {
-  constructor(readonly status: 400 | 401 | 404 | 409 | 500 | 503, message: string) {
+  constructor(readonly status: 400 | 401 | 403 | 404 | 409 | 500 | 503, message: string) {
     super(message);
   }
 }
@@ -170,7 +193,7 @@ export function teamNameValidationError(value: unknown): string | undefined {
 }
 
 export function teamMutationOperation(pathname: string): TeamMutationOperation | undefined {
-  const operation = pathname.match(/^\/api\/team\/([^/]+)$/)?.[1] as TeamMutationOperation | undefined;
+  const operation = pathname.match(/^\/api\/team\/(.+)$/)?.[1] as TeamMutationOperation | undefined;
   return operation && MUTATION_OPERATIONS.has(operation) ? operation : undefined;
 }
 
@@ -432,6 +455,7 @@ interface RosterPosition {
   quantity: number;
   cost: number;
   gender: string;
+  skills: string[];
 }
 
 function rosterPositions(rosterXml: string): Map<string, RosterPosition> {
@@ -449,6 +473,9 @@ function rosterPositions(rosterXml: string): Map<string, RosterPosition> {
       quantity: Number.isSafeInteger(quantity) && quantity >= 0 ? quantity : 0,
       cost: Number.isSafeInteger(cost) && cost >= 0 ? cost : 0,
       gender: (element(body, "gender") ?? "").toLowerCase(),
+      skills: [...body.matchAll(/<skill\b[^>]*>([^<]*)<\/skill>/gi)]
+        .map((match) => decodeXml(match[1]!).trim())
+        .filter(Boolean),
     });
   }
   return positions;
@@ -574,6 +601,154 @@ function playerIdFromBody(value: unknown): string {
   if (typeof value === "string" && value.trim() && value.trim().length <= 128) return value.trim();
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return String(value);
   return fail(400, "playerId must be a non-empty string or non-negative integer.");
+}
+
+interface PlayerListItem {
+  full: string;
+  text: string;
+}
+
+function playerListItems(block: string, tag: "skill" | "injury"): PlayerListItem[] {
+  return [...block.matchAll(new RegExp(`<${tag}\\b[^>]*>([^<]*)</${tag}>`, "gi"))]
+    .map((match) => ({ full: match[0]!, text: decodeXml(match[1]!).trim() }));
+}
+
+function appendPlayerListItem(block: string, listTag: "skillList" | "injuryList", node: string): string {
+  const lists = [...block.matchAll(new RegExp(`<${listTag}\\b[^>]*(?:/\\s*>|>[\\s\\S]*?</${listTag}>)`, "gi"))];
+  if (lists.length !== 1) return fail(500, `Stored player XML has a missing or duplicate <${listTag}>.`);
+  const full = lists[0]![0];
+  if (new RegExp(`^<${listTag}\\b[^>]*/\\s*>$`, "i").test(full)) {
+    const attrs = full.match(new RegExp(`^<${listTag}\\b([^>]*)/\\s*>$`, "i"))?.[1] ?? "";
+    return block.replace(full, `<${listTag}${attrs}>${node}</${listTag}>`);
+  }
+  return block.replace(full, full.replace(new RegExp(`</${listTag}>$`, "i"), `${node}</${listTag}>`));
+}
+
+function removePlayerListItem(block: string, item: PlayerListItem): string {
+  return block.replace(item.full, "");
+}
+
+const STAT_INJURY: Record<Characteristic, string> = {
+  MA: "Smashed Knee (-MA)",
+  ST: "Dislocated Shoulder (-ST)",
+  AG: "Dislocated Hip (-AG)",
+  PA: "Broken Arm (-PA)",
+  AV: "Head Injury (-AV)",
+};
+
+const statInjuryKey = (value: string): string => value.replace(/[^a-z]/gi, "").toLowerCase();
+
+function setPlayerStatModifier(block: string, stat: Characteristic, modifier: number): string {
+  const statSkill = `+${stat}`;
+  let updated = block;
+  for (const item of playerListItems(updated, "skill").filter((entry) => entry.text.toUpperCase() === statSkill)) {
+    updated = removePlayerListItem(updated, item);
+  }
+  const injuryKey = statInjuryKey(STAT_INJURY[stat]);
+  for (const item of playerListItems(updated, "injury").filter((entry) => statInjuryKey(entry.text) === injuryKey)) {
+    updated = removePlayerListItem(updated, item);
+  }
+  if (modifier > 0) {
+    for (let count = 0; count < modifier; count++) {
+      updated = appendPlayerListItem(updated, "skillList", `<skill>${statSkill}</skill>`);
+    }
+  } else if (modifier < 0) {
+    for (let count = 0; count < -modifier; count++) {
+      updated = appendPlayerListItem(updated, "injuryList", `<injury recovering="false">${STAT_INJURY[stat]}</injury>`);
+    }
+  }
+  return updated;
+}
+
+function applyAdminPlayerOperation(
+  operation: TeamMutationOperation,
+  body: JsonObject,
+  teamXml: string,
+  rosterXml: string | undefined,
+): { xml: string; extra?: Record<string, unknown> } {
+  const injuryOperation = operation === "player/addInjury" || operation === "player/removeInjury";
+  const expectedKeys = operation === "player/setStatModifier"
+    ? ["teamId", "playerId", "stat", "modifier"]
+    : operation === "player/addInjury" && Object.hasOwn(body, "recovering")
+      ? ["teamId", "playerId", "injury", "recovering"]
+      : injuryOperation
+        ? ["teamId", "playerId", "injury"]
+        : ["teamId", "playerId", "skill"];
+  if (!hasExactKeys(body, expectedKeys)) {
+    const shape = operation === "player/setStatModifier"
+      ? "{teamId, playerId, stat, modifier}"
+      : injuryOperation
+        ? operation === "player/addInjury" ? "{teamId, playerId, injury, recovering?}" : "{teamId, playerId, injury}"
+        : "{teamId, playerId, skill}";
+    return fail(400, `${operation} requires exactly ${shape}.`);
+  }
+
+  const playerId = playerIdFromBody(body.playerId);
+  const target = activePlayerBlocks(teamXml).find((player) => player.id === playerId);
+  if (!target) return fail(400, "Player not found on this team.");
+
+  if (operation === "player/addSkill" || operation === "player/removeSkill") {
+    if (typeof body.skill !== "string") return fail(400, "skill must be a catalog skill name.");
+    const skill = body.skill.trim();
+    const catalog = [...skillCatalog().general, ...skillCatalog().elite];
+    if (!catalog.some((entry) => entry.name === skill)) return fail(400, `Unknown skill ${skill || "(empty)"}.`);
+    const acquired = playerListItems(target.block, "skill");
+    if (operation === "player/addSkill") {
+      const roster = requireRoster(rosterXml, "value this skill edit");
+      const position = rosterPositions(roster).get(target.positionId) ?? fail(500, `The player's position ${target.positionId} is unknown to this team's roster; its skill value cannot be derived.`);
+      const intrinsic = position.skills;
+      if ([...intrinsic, ...acquired.map((entry) => entry.text)].some((owned) => owned.toLowerCase() === skill.toLowerCase())) {
+        return fail(400, `Player already has ${skill}.`);
+      }
+      const nextBlock = appendPlayerListItem(target.block, "skillList", `<skill>${encodeXml(skill)}</skill>`);
+      const delta = playerProgression(nextBlock, roster).currentValue - playerProgression(target.block, roster).currentValue;
+      return { xml: bumpTeamValueAggregates(teamXml.replace(target.block, nextBlock), delta), extra: { playerId } };
+    }
+    const found = acquired.find((entry) => entry.text === skill);
+    if (!found) return fail(400, `Player does not have acquired skill ${skill}.`);
+    const roster = requireRoster(rosterXml, "value this skill edit");
+    if (!rosterPositions(roster).has(target.positionId)) {
+      return fail(500, `The player's position ${target.positionId} is unknown to this team's roster; its skill value cannot be derived.`);
+    }
+    const nextBlock = removePlayerListItem(target.block, found);
+    const delta = playerProgression(nextBlock, roster).currentValue - playerProgression(target.block, roster).currentValue;
+    return { xml: bumpTeamValueAggregates(teamXml.replace(target.block, nextBlock), delta), extra: { playerId } };
+  }
+
+  if (injuryOperation) {
+    if (typeof body.injury !== "string" || body.injury.trim().length === 0 || body.injury.trim().length > 200) {
+      return fail(400, "injury must be a non-empty string of at most 200 characters.");
+    }
+    const injury = body.injury.trim();
+    if (operation === "player/addInjury") {
+      if (Object.hasOwn(body, "recovering") && typeof body.recovering !== "boolean") {
+        return fail(400, "recovering must be a boolean when provided.");
+      }
+      const recovering = body.recovering === true;
+      const node = `<injury recovering="${recovering}">${encodeXml(injury)}</injury>`;
+      const nextBlock = appendPlayerListItem(target.block, "injuryList", node);
+      return { xml: teamXml.replace(target.block, nextBlock), extra: { playerId } };
+    }
+    const found = playerListItems(target.block, "injury").find((entry) => entry.text === injury);
+    if (!found) return fail(400, `Player does not have injury ${injury}.`);
+    return { xml: teamXml.replace(target.block, removePlayerListItem(target.block, found)), extra: { playerId } };
+  }
+
+  const validStats = new Set<Characteristic>(["MA", "ST", "AG", "PA", "AV"]);
+  if (typeof body.stat !== "string" || !validStats.has(body.stat as Characteristic)) {
+    return fail(400, "stat must be one of MA, ST, AG, PA, or AV.");
+  }
+  if (!Number.isSafeInteger(body.modifier) || (body.modifier as number) < -10 || (body.modifier as number) > 10) {
+    return fail(400, "modifier must be an integer from -10 to 10.");
+  }
+  const stat = body.stat as Characteristic;
+  const roster = requireRoster(rosterXml, "derive this stat edit");
+  const nextBlock = setPlayerStatModifier(target.block, stat, body.modifier as number);
+  const afterProgression = playerProgression(nextBlock, roster);
+  const derived = afterProgression.characteristics[stat];
+  if (derived === null || derived < 1) return fail(400, `The requested ${stat} modifier does not produce a valid positive characteristic.`);
+  const delta = afterProgression.currentValue - playerProgression(target.block, roster).currentValue;
+  return { xml: bumpTeamValueAggregates(teamXml.replace(target.block, nextBlock), delta), extra: { playerId, stat, modifier: body.modifier } };
 }
 
 function playerHasHistory(block: string): boolean {
@@ -822,6 +997,7 @@ function applyOperation(
   teamId: string,
   admin: boolean,
 ): { xml: string; teamName?: string; extra?: Record<string, unknown> } {
+  if (isAdminPlayerTeamMutation(operation)) return applyAdminPlayerOperation(operation, body, teamXml, rosterXml);
   if (ROSTER_OPERATIONS.has(operation)) return applyRosterOperation(operation, body, teamXml, rosterXml, teamId, admin);
   if (operation === "renumber") {
     if (!hasExactKeys(body, ["teamId", "playerNumbers"]) || !isRecord(body.playerNumbers)) {
@@ -956,6 +1132,9 @@ export async function teamMutationEndpoint(
   deps: TeamMutationDeps,
 ): Promise<TeamMutationResult> {
   if (!auth) return { status: 401, body: { error: "Authentication required." } };
+  if (isAdminPlayerTeamMutation(operation) && !auth.admin) {
+    return { status: 403, body: { error: "Admin access required." } };
+  }
   if (!isRecord(rawBody) || !Object.hasOwn(rawBody, "teamId")) {
     return { status: 400, body: { error: `${operation} requires a JSON object containing teamId.` } };
   }
