@@ -32,6 +32,8 @@ export interface RecomputedSummary {
   staffCost: number;
   inducementsCost: number;
   skillsCost: number;
+  /** Gold value of rostered Star Players, whether paid in gold or Skill Points. */
+  starsCost: number;
 }
 
 export interface ValidationResult {

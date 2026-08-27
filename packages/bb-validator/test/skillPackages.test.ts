@@ -61,7 +61,11 @@ describe("skill-packages (choose-one gold+SP)", () => {
     };
     // Package SP budget 3: star costs exactly 3 SP -> fits (skill SP 0).
     const okPkg = spikePkg({ starPlayers: base }, [{ gold: 1000000, skillPointBudget: 3, maxPerPlayer: 1 }]);
-    expect(errorsOf(validate(roster({ players }), okPkg, fakeData), "skill-packages")).toHaveLength(0);
+    const ok = validate(roster({ players }), okPkg, fakeData);
+    expect(errorsOf(ok, "skill-packages")).toHaveLength(0);
+    expect(ok.recomputedSummary.goldUsed).toBe(500000);
+    expect(ok.recomputedSummary.skillPointsUsed).toBe(3);
+    expect(ok.recomputedSummary.starsCost).toBe(200000);
     // Package SP budget 2: the 3-SP star no longer fits.
     const tightPkg = spikePkg({ starPlayers: base }, [{ gold: 1000000, skillPointBudget: 2, maxPerPlayer: 1 }]);
     expect(errorsOf(validate(roster({ players }), tightPkg, fakeData), "skill-packages")[0]!.message).toMatch(/no skill package fits/);
@@ -94,6 +98,61 @@ describe("skill-packages (choose-one gold+SP)", () => {
     // Only a maxPerPlayer:1 package available -> stacking illegal even though SP fits.
     const r = validate(roster({ players }), spikePkg({}, [{ gold: 1000000, skillPointBudget: 10, maxPerPlayer: 1 }]), fakeData);
     expect(errorsOf(r, "skill-packages")[0]!.message).toMatch(/no skill package fits/);
+  });
+});
+
+describe("star cost accounting without choose-one packages", () => {
+  const withStar = () => {
+    const players = roster().players.slice(0, 10);
+    players.push(player({ number: 11, positionName: "Star Guy", cost: 200000 }));
+    return roster({ players });
+  };
+
+  it.each([false, true])(
+    "excludes SP-paid Star gold from the flat gold-cap rule when goldCapIncludesAddedSkills=%s",
+    (goldCapIncludesAddedSkills) => {
+      const p = pkg({
+        goldBudget: 500000,
+        goldCapIncludesAddedSkills,
+        tiers: [
+          {
+            tier: 1,
+            rosters: ["Testers"],
+            gold: 500000,
+            starPlayersAllowed: true,
+            bannedStars: [],
+          },
+        ],
+        starPlayers: {
+          allowed: true,
+          maxCount: 2,
+          maxCombinedCost: null,
+          paidInSkillPoints: true,
+          spCostByTier: { "Star Guy": [3] },
+        },
+      });
+      const result = validate(withStar(), p, fakeData);
+      expect(errorsOf(result, "gold-budget")).toHaveLength(0);
+      expect(result.recomputedSummary.goldUsed).toBe(500000);
+      expect(result.recomputedSummary.skillPointsUsed).toBe(3);
+    },
+  );
+
+  it("keeps non-SP-paid Star summary accounting unchanged when no SP table exists", () => {
+    const result = validate(withStar(), pkg(), fakeData);
+    expect(result.recomputedSummary).toEqual({
+      skillPointsUsed: 0,
+      skillPointBudget: 6,
+      goldUsed: 700000,
+      goldBudget: null,
+      playerCount: 11,
+      primarySkillCount: 0,
+      secondarySkillCount: 0,
+      staffCost: 700000,
+      inducementsCost: 0,
+      skillsCost: 0,
+      starsCost: 200000,
+    });
   });
 });
 

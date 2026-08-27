@@ -5,10 +5,12 @@
 
 import { costSP } from "../cost/costSP";
 import { skillsGold } from "../cost/costGold";
+import type { Dataset } from "../dataset/types";
 import { findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
+import type { TournamentPackage } from "../package/types";
 import { eligibleTeamNames, fitsSkillCounts, isEligible, resolveTeamConfig, sourceLabel, usesCountMode } from "../package/resolveConfig";
-import type { Rule } from "./types";
+import type { ResolvedPlayer, Rule } from "./types";
 import { err, warn } from "./types";
 
 /** 1. Roster eligibility — across flat / tiers / matrix bucketing. */
@@ -104,17 +106,19 @@ export const positionalLimits: Rule = {
 /** 4. Gold budget (optional) — recomputed team gold <= the effective (resolved) gold cap. */
 export const goldBudget: Rule = {
   id: "gold-budget",
-  check: ({ roster, pkg, data }) => {
+  check: ({ roster, pkg, data, players }) => {
     const cfg = resolveTeamConfig(pkg, roster.rosterName);
     if (cfg.skillPackages?.length) return []; // gold is checked jointly with SP by skill-packages
     if (cfg.gold == null) return [];
     // Default: skills add TV but don't eat the cap (owner 2026-08-10). A HARD gold limit
     // (goldCapIncludesAddedSkills) counts them — Meero option (c): strip whatever recomputeGold
     // already counted for skills (0 for a built team, the sheet value for a submitted one) and add
-    // the flat-model skillsGold. No double-count; real-TV (players/staff/inducements/stars) intact.
-    const gold = pkg.goldCapIncludesAddedSkills
+    // the flat-model skillsGold. No double-count; SP-paid Star gold is then excluded in either mode.
+    const { starGold } = starCosts(players, pkg, data, cfg.tierNumber);
+    const spPaidStarGold = pkg.starPlayers.paidInSkillPoints ? starGold : 0;
+    const gold = (pkg.goldCapIncludesAddedSkills
       ? recomputeGold(roster) - (roster.summary?.skillsCost ?? 0) + skillsGold(roster, data, pkg)
-      : recomputeGold(roster);
+      : recomputeGold(roster)) - spPaidStarGold;
     const where = sourceLabel(cfg);
     return gold > cfg.gold
       ? [
@@ -309,15 +313,13 @@ export const skillPackages: Rule = {
       });
 
     // Stars: per-tier SP cost + availability; optionally exclude their gold.
+    const { starGold, starSP } = starCosts(players, pkg, data, cfg.tierNumber);
     const tierIdx = (cfg.tierNumber ?? 1) - 1;
     const spTable = pkg.starPlayers.spCostByTier;
-    let starSP = 0;
-    let starGold = 0;
     let hasStars = false;
     for (const rp of players) {
       if (!isStarName(data, rp.player.positionName)) continue;
       hasStars = true;
-      starGold += rp.player.cost;
       if (!spTable) continue;
       const star = findStar(data, rp.player.positionName);
       const key = Object.keys(spTable).find(
@@ -331,7 +333,6 @@ export const skillPackages: Rule = {
             suggestion: `Remove ${rp.player.positionName} — no Tier ${cfg.tierNumber ?? "?"} SP price.`,
           }),
         );
-      else starSP += cost;
     }
 
     const spUsed = skillSP + starSP;
@@ -572,6 +573,31 @@ export const specialRules: Rule = {
 };
 
 // ---- shared helpers ----
+
+/** Return Star Player gold value and per-tier SP charge; missing tier prices cost 0 SP. */
+export function starCosts(
+  players: readonly Pick<ResolvedPlayer, "player">[],
+  pkg: TournamentPackage,
+  data: Dataset,
+  tierNumber?: number,
+): { starGold: number; starSP: number } {
+  const tierIdx = (tierNumber ?? 1) - 1;
+  const spTable = pkg.starPlayers.spCostByTier;
+  let starGold = 0;
+  let starSP = 0;
+  for (const rp of players) {
+    if (!isStarName(data, rp.player.positionName)) continue;
+    starGold += rp.player.cost;
+    if (!spTable) continue;
+    const star = findStar(data, rp.player.positionName);
+    const key = Object.keys(spTable).find(
+      (k) => normName(k) === normName(star?.name ?? rp.player.positionName),
+    );
+    const cost = key ? spTable[key]?.[tierIdx] : undefined;
+    if (cost != null) starSP += cost;
+  }
+  return { starGold, starSP };
+}
 
 /** Recompute team gold from line items. */
 export function recomputeGold(roster: {

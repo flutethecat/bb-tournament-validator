@@ -12,7 +12,7 @@ import type { TournamentPackage } from "./package/types";
 import { resolveTeamConfig } from "./package/resolveConfig";
 import { costSP } from "./cost/costSP";
 import { costGold, inducementsGold, staffGold } from "./cost/costGold";
-import { ALL_RULES, recomputeGold } from "./rules/rules";
+import { ALL_RULES, recomputeGold, starCosts } from "./rules/rules";
 import type { ResolvedPlayer, Rule, RuleContext } from "./rules/types";
 import { err } from "./rules/types";
 
@@ -81,6 +81,7 @@ export function validate(
 
   const errors = findings.filter((f) => f.severity === "error");
   const rc = resolveTeamConfig(pkg, roster.rosterName);
+  const { starGold, starSP } = starCosts(players, pkg, data, rc.tierNumber);
   // With choose-one packages, show the most generous SP as the headline budget.
   const spBudget = rc.skillPackages?.length
     ? Math.max(...rc.skillPackages.map((p) => p.skillPointBudget))
@@ -91,9 +92,9 @@ export function validate(
     warnings: findings.filter((f) => f.severity === "warning"),
     infos: findings.filter((f) => f.severity === "info"),
     recomputedSummary: {
-      skillPointsUsed: sp,
+      skillPointsUsed: sp + starSP,
       skillPointBudget: spBudget,
-      goldUsed: recomputeGold(roster),
+      goldUsed: recomputeGold(roster) - (pkg.starPlayers.paidInSkillPoints ? starGold : 0),
       goldBudget: pkg.goldBudget,
       playerCount: roster.players.length,
       primarySkillCount: primary,
@@ -101,6 +102,7 @@ export function validate(
       staffCost,
       inducementsCost,
       skillsCost,
+      starsCost: starGold,
     },
   };
 }
