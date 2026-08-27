@@ -271,10 +271,14 @@ function matrixForDisplay() {
   const rows = [...safeArray(existing.rows)];
   const defaults = [1150000, 1100000, 1050000];
   const rowDefaults = [[6, 0], [5, 1], [4, 2]];
-  while (columns.length < 3) columns.push({ gold: defaults[columns.length] });
-  while (rows.length < 3) {
-    const values = rowDefaults[rows.length];
-    rows.push({ primary: values[0], secondary: values[1], secondarySwap: false });
+  if (columns.length === 0) {
+    while (columns.length < 3) columns.push({ gold: defaults[columns.length] });
+  }
+  if (rows.length === 0) {
+    while (rows.length < 3) {
+      const values = rowDefaults[rows.length];
+      rows.push({ primary: values[0], secondary: values[1], secondarySwap: false });
+    }
   }
   return { ...existing, columns, rows, cells: safeArray(existing.cells) };
 }
@@ -497,12 +501,18 @@ function renderMatrix() {
   const matrix = matrixForDisplay();
   const cells = new Set(matrix.cells.map((cell) => `${cell.row}-${cell.col}`));
   let grid = '<div></div>';
-  matrix.columns.slice(0, 3).forEach((column, colIndex) => {
-    grid += `<div class="matrix-head"><input class="control" data-action="matrix-col-gold" data-col="${colIndex}" type="number" min="0" step="1" value="${escapeHtml(goldToK(column.gold))}" aria-label="Column gold in thousands"> K</div>`;
+  matrix.columns.forEach((column, colIndex) => {
+    grid += `<div class="matrix-head matrix-col-head">
+      <button type="button" class="remove matrix-remove" data-action="remove-matrix-column" data-col="${colIndex}" aria-label="Remove column ${colIndex + 1}"${matrix.columns.length <= 1 ? " disabled" : ""}>&times;</button>
+      <span><input class="control" data-action="matrix-col-gold" data-col="${colIndex}" type="number" min="0" step="1" value="${escapeHtml(goldToK(column.gold))}" aria-label="Column gold in thousands"> K</span>
+    </div>`;
   });
-  matrix.rows.slice(0, 3).forEach((row, rowIndex) => {
-    grid += `<div class="matrix-head row-head"><input class="control" data-action="matrix-row-primary" data-row="${rowIndex}" type="number" min="0" step="1" value="${escapeHtml(row.primary)}" aria-label="Row primary skills"> pri / <input class="control" data-action="matrix-row-secondary" data-row="${rowIndex}" type="number" min="0" step="1" value="${escapeHtml(row.secondary)}" aria-label="Row secondary skills"> sec</div>`;
-    matrix.columns.slice(0, 3).forEach((_column, colIndex) => {
+  matrix.rows.forEach((row, rowIndex) => {
+    grid += `<div class="matrix-head row-head">
+      <div class="matrix-row-fields"><input class="control" data-action="matrix-row-primary" data-row="${rowIndex}" type="number" min="0" step="1" value="${escapeHtml(row.primary)}" aria-label="Row primary skills"> pri / <input class="control" data-action="matrix-row-secondary" data-row="${rowIndex}" type="number" min="0" step="1" value="${escapeHtml(row.secondary)}" aria-label="Row secondary skills"> sec</div>
+      <div class="matrix-row-actions"><label><input data-action="matrix-row-swap" data-row="${rowIndex}" type="checkbox"${row.secondarySwap === true ? " checked" : ""}> Swap</label><button type="button" class="remove matrix-remove" data-action="remove-matrix-row" data-row="${rowIndex}" aria-label="Remove row ${rowIndex + 1}"${matrix.rows.length <= 1 ? " disabled" : ""}>&times;</button></div>
+    </div>`;
+    matrix.columns.forEach((_column, colIndex) => {
       const active = cells.has(`${rowIndex}-${colIndex}`);
       const existing = matrix.cells.find((cell) => cell.row === rowIndex && cell.col === colIndex);
       const teamCount = safeArray(existing?.teams).length;
@@ -512,7 +522,8 @@ function renderMatrix() {
   return `
     <div class="inset-list">
       <div class="hint">Cash × skills grid — click cells to allow / deny. Loaded team assignments are preserved in their cells.</div>
-      <div class="matrix-wrap"><div class="matrix-grid">${grid}</div></div>
+      <div class="matrix-wrap"><div class="matrix-grid" style="grid-template-columns: 142px repeat(${matrix.columns.length}, 92px)">${grid}</div></div>
+      <div class="inline-controls"><button type="button" class="btn" data-action="add-matrix-column">+ Add Column</button><button type="button" class="btn" data-action="add-matrix-row">+ Add Row</button></div>
     </div>`;
 }
 
@@ -809,6 +820,36 @@ function handleEditorAction(action, target) {
       else state.pkg.matrix.cells.push({ col, row, teams: [] });
       break;
     }
+    case "add-matrix-column": {
+      state.pkg.matrix = matrixForDisplay();
+      const lastGold = state.pkg.matrix.columns.at(-1)?.gold;
+      state.pkg.matrix.columns.push({ gold: numberOr(lastGold, 1100000) + 50000 });
+      break;
+    }
+    case "remove-matrix-column": {
+      state.pkg.matrix = matrixForDisplay();
+      const col = Number(target.dataset.col);
+      if (!Number.isInteger(col) || col < 0 || col >= state.pkg.matrix.columns.length || state.pkg.matrix.columns.length <= 1) return;
+      state.pkg.matrix.columns.splice(col, 1);
+      state.pkg.matrix.cells = state.pkg.matrix.cells
+        .filter((cell) => cell.col !== col)
+        .map((cell) => cell.col > col ? { ...cell, col: cell.col - 1 } : cell);
+      break;
+    }
+    case "add-matrix-row":
+      state.pkg.matrix = matrixForDisplay();
+      state.pkg.matrix.rows.push({ primary: 6, secondary: 0, secondarySwap: false });
+      break;
+    case "remove-matrix-row": {
+      state.pkg.matrix = matrixForDisplay();
+      const row = Number(target.dataset.row);
+      if (!Number.isInteger(row) || row < 0 || row >= state.pkg.matrix.rows.length || state.pkg.matrix.rows.length <= 1) return;
+      state.pkg.matrix.rows.splice(row, 1);
+      state.pkg.matrix.cells = state.pkg.matrix.cells
+        .filter((cell) => cell.row !== row)
+        .map((cell) => cell.row > row ? { ...cell, row: cell.row - 1 } : cell);
+      break;
+    }
     case "toggle-stars":
       state.pkg.starPlayers.allowed = !state.pkg.starPlayers.allowed;
       break;
@@ -879,6 +920,12 @@ function handleEditorChange(target) {
       const row = Number(target.dataset.row);
       const value = numberOr(target.value, Number.NaN);
       if (!Number.isNaN(value)) state.pkg.matrix.rows[row].secondary = Math.max(0, Math.round(value));
+      markDirty(); render(); return;
+    }
+    case "matrix-row-swap": {
+      state.pkg.matrix = matrixForDisplay();
+      const row = Number(target.dataset.row);
+      if (state.pkg.matrix.rows[row]) state.pkg.matrix.rows[row].secondarySwap = target.checked;
       markDirty(); render(); return;
     }
   }

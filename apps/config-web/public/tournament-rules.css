@@ -227,11 +227,18 @@ textarea.control { min-height: 58px; resize: vertical; line-height: 1.4; }
 .remove:hover { color: var(--heading); }
 
 .matrix-wrap { overflow-x: auto; }
-.matrix-grid { display: grid; grid-template-columns: 142px repeat(3, 92px); gap: 2px; width: max-content; font-size: 12px; }
+.matrix-grid { display: grid; gap: 2px; width: max-content; font-size: 12px; }
 .matrix-head { padding: 7px 8px; background: #2a0002; color: var(--heading); text-align: center; }
 .matrix-head.row-head { text-align: left; }
 .matrix-head input { width: 54px; padding: 3px 4px; font-size: 11px; text-align: right; }
 .matrix-head.row-head input { width: 35px; }
+.matrix-col-head { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.matrix-col-head .matrix-remove { align-self: flex-end; }
+.matrix-row-fields { white-space: nowrap; }
+.matrix-row-actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 4px; color: var(--muted); font-size: 10px; }
+.matrix-row-actions label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
+.matrix-head.row-head .matrix-row-actions input { width: auto; margin: 0; padding: 0; }
+.matrix-remove:disabled { color: #3b3b3b; cursor: not-allowed; }
 .matrix-cell { border: 1px solid transparent; background: var(--row); color: #666; padding: 7px 8px; text-align: center; cursor: pointer; }
 .matrix-cell:hover { border-color: var(--carmine); }
 .matrix-cell.active { background: #122c14; color: var(--green); }
