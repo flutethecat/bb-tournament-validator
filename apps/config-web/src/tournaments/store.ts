@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
-import { calculateStandings, generateSwissPairings } from "./pairing.js";
+import { calculateStandings, generateTournamentPairings } from "./pairing.js";
 import type {
   ScheduledMatchRecord,
   TournamentDataFileV2,
@@ -16,9 +17,12 @@ export const DEFAULT_WAITING_LEASE_MS = 45_000;
 export const MIN_WAITING_LEASE_MS = 15_000;
 export const MAX_WAITING_LEASE_MS = 5 * 60_000;
 
-type TournamentDataFileV1 = Partial<Omit<TournamentDataFileV2, "version" | "waitingPresence">> & {
+type LegacyTournamentRecord = Omit<TournamentRecord, "format" | "packageName" | "maxPlayers"> &
+  Partial<Pick<TournamentRecord, "format" | "packageName" | "maxPlayers">>;
+
+type TournamentDataFileV1 = Partial<Omit<TournamentDataFileV2, "version" | "waitingPresence" | "tournaments">> & {
   version: 1;
-  tournaments?: TournamentRecord[] | Record<string, TournamentRecord>;
+  tournaments?: LegacyTournamentRecord[] | Record<string, LegacyTournamentRecord>;
   entrants?: TournamentEntrantRecord[] | Record<string, TournamentEntrantRecord>;
   rounds?: TournamentRoundRecord[] | Record<string, TournamentRoundRecord>;
   scheduledMatches?: ScheduledMatchRecord[] | Record<string, ScheduledMatchRecord>;
@@ -37,6 +41,17 @@ const emptyData = (): TournamentDataFileV2 => ({
 const keyed = <T extends { id: string }>(value: T[] | Record<string, T> | undefined): Record<string, T> =>
   Array.isArray(value) ? Object.fromEntries(value.map((item) => [item.id, item])) : { ...(value ?? {}) };
 
+const normalizedTournaments = (
+  value: LegacyTournamentRecord[] | Record<string, LegacyTournamentRecord> | undefined,
+): Record<string, TournamentRecord> => Object.fromEntries(
+  Object.entries(keyed(value)).map(([id, tournament]) => [id, {
+    ...tournament,
+    format: tournament.format ?? "swiss",
+    packageName: tournament.packageName ?? "",
+    maxPlayers: tournament.maxPlayers ?? 0,
+  }]),
+);
+
 /** The only on-disk migration. V1 records are preserved and gain the lease table. */
 export function migrateTournamentData(value: unknown): TournamentDataFileV2 {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Tournament data must be an object.");
@@ -44,7 +59,7 @@ export function migrateTournamentData(value: unknown): TournamentDataFileV2 {
   if (parsed.version === 1) {
     return {
       version: 2,
-      tournaments: keyed(parsed.tournaments),
+      tournaments: normalizedTournaments(parsed.tournaments),
       entrants: keyed(parsed.entrants),
       rounds: keyed(parsed.rounds),
       standings: {},
@@ -57,7 +72,10 @@ export function migrateTournamentData(value: unknown): TournamentDataFileV2 {
     if (!parsed[field] || typeof parsed[field] !== "object" || Array.isArray(parsed[field]))
       throw new Error(`Tournament data ${field} must be an object.`);
   }
-  return structuredClone(parsed);
+  return {
+    ...structuredClone(parsed),
+    tournaments: normalizedTournaments(parsed.tournaments as unknown as Record<string, LegacyTournamentRecord>),
+  };
 }
 
 const coachKey = (value: string): string => value.trim().toLowerCase();
@@ -114,6 +132,98 @@ export class TournamentStore {
     return Object.values(this.snapshot().tournaments)
       .filter((tournament) => tournament.status === "active")
       .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
+  }
+
+  tournaments(statuses: readonly TournamentRecord["status"][]): TournamentRecord[] {
+    const allowed = new Set(statuses);
+    return Object.values(this.snapshot().tournaments)
+      .filter((tournament) => allowed.has(tournament.status))
+      .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
+  }
+
+  createTournament(
+    input: Pick<TournamentRecord, "name" | "packageName" | "maxPlayers" | "format">,
+    now = new Date(),
+  ): TournamentRecord {
+    return this.mutate((data) => {
+      const timestamp = now.toISOString();
+      const record: TournamentRecord = {
+        id: randomUUID(),
+        name: input.name,
+        status: "draft",
+        format: input.format,
+        packageName: input.packageName,
+        maxPlayers: input.maxPlayers,
+        roundCount: input.format === "roundRobin"
+          ? input.maxPlayers - (input.maxPlayers % 2 === 0 ? 1 : 0)
+          : Math.max(1, Math.ceil(Math.log2(input.maxPlayers))),
+        currentRound: 0,
+        tiebreakers: ["buchholz", "sonnebornBerger", "touchdownDifferential", "casualtyDifferential", "seed"],
+        points: { win: 3, draw: 1, loss: 0, bye: 3 },
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      data.tournaments[record.id] = record;
+      return record;
+    });
+  }
+
+  registerEntrant(
+    tournamentId: string,
+    coach: VerifiedCoachIdentity,
+    teamId: string,
+    now = new Date(),
+  ): TournamentEntrantRecord {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      if (!(["draft", "active"] as TournamentRecord["status"][]).includes(tournament.status))
+        throw new TournamentStoreError(400, "Tournament registration is closed.");
+      if (Object.values(data.rounds).some((round) => round.tournamentId === tournamentId && round.number === 1))
+        throw new TournamentStoreError(400, "Tournament registration is closed after round 1 is generated.");
+      assertVerifiedCoach(coach);
+      if (!teamId.trim()) throw new TournamentStoreError(400, "teamId is required.");
+      const entrants = Object.values(data.entrants).filter((entrant) => entrant.tournamentId === tournamentId);
+      if (entrants.some((entrant) => coachKey(entrant.coach.ffbCoachId) === coachKey(coach.ffbCoachId)))
+        throw new TournamentStoreError(400, "Coach is already entered in this tournament.");
+      if (tournament.maxPlayers > 0 && entrants.filter((entrant) => entrant.droppedAt === undefined).length >= tournament.maxPlayers)
+        throw new TournamentStoreError(400, "Tournament is full.");
+      const seed = entrants.reduce((highest, entrant) => Math.max(highest, entrant.seed), 0) + 1;
+      const entrant: TournamentEntrantRecord = {
+        id: `${tournamentId}:entrant:${seed}`,
+        tournamentId,
+        seed,
+        coach,
+        teamId: teamId.trim(),
+        registeredAt: now.toISOString(),
+      };
+      assertId(entrant.id, "entrant id");
+      data.entrants[entrant.id] = entrant;
+      tournament.updatedAt = now.toISOString();
+      delete data.standings[tournamentId];
+      return entrant;
+    });
+  }
+
+  dropEntrant(
+    tournamentId: string,
+    entrantId: string,
+    authenticatedCoach: string,
+    organizer: boolean,
+    now = new Date(),
+  ): TournamentEntrantRecord {
+    return this.mutate((data) => {
+      const entrant = data.entrants[entrantId];
+      if (!entrant || entrant.tournamentId !== tournamentId)
+        throw new TournamentStoreError(404, "Tournament entrant not found.");
+      if (!organizer && coachKey(entrant.coach.ffbCoachId) !== coachKey(authenticatedCoach))
+        throw new TournamentStoreError(403, "You may withdraw only your own tournament entry.");
+      if (!entrant.droppedAt) entrant.droppedAt = now.toISOString();
+      const tournament = data.tournaments[tournamentId];
+      if (tournament) tournament.updatedAt = now.toISOString();
+      delete data.standings[tournamentId];
+      return entrant;
+    });
   }
 
   tournament(tournamentId: string): TournamentRecord | undefined {
@@ -174,11 +284,24 @@ export class TournamentStore {
       if (existingRounds.some((round) => round.status !== "completed"))
         throw new TournamentStoreError(409, "Complete the current round before generating another.");
       const number = existingRounds.length + 1;
-      if (number > tournament.roundCount) throw new TournamentStoreError(409, "All configured rounds already exist.");
       const entrants = Object.values(data.entrants).filter((entrant) => entrant.tournamentId === tournamentId);
+      if (number === 1 && tournament.format !== "swiss") {
+        const activeCount = entrants.filter((entrant) => entrant.droppedAt === undefined).length;
+        tournament.roundCount = tournament.format === "roundRobin"
+          ? Math.max(1, activeCount - (activeCount % 2 === 0 ? 1 : 0))
+          : Math.max(1, Math.ceil(Math.log2(Math.max(2, activeCount))));
+      }
+      if (number > tournament.roundCount) throw new TournamentStoreError(409, "All configured rounds already exist.");
       for (const entrant of entrants) assertVerifiedCoach(entrant.coach);
       const priorMatches = Object.values(data.scheduledMatches).filter((match) => match.tournamentId === tournamentId);
-      const pairings = generateSwissPairings(entrants, priorMatches, tournament.points, tournament.tiebreakers);
+      const pairings = generateTournamentPairings(
+        tournament.format,
+        number,
+        entrants,
+        priorMatches,
+        tournament.points,
+        tournament.tiebreakers,
+      );
       const roundId = `${tournamentId}:round:${number}`;
       assertId(roundId, "round id");
       const timestamp = now.toISOString();

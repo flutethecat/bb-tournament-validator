@@ -1,13 +1,17 @@
 # Tournament API foundation
 
 Config-Web persists the tournament domain in `data-store/tournaments.json`. The checked-in
-schema is `schemas/tournaments.schema.json`; runtime migration accepts V1 array/object maps and
-writes V2 with durable standings snapshots and expiring waiting-presence leases.
+schema is `schemas/tournaments.schema.json`; runtime migration accepts V1 array/object maps,
+normalizes legacy V2 tournament rows with the creation-field defaults, and writes V2 with durable
+standings snapshots and expiring waiting-presence leases.
 
 ## Client reads
 
 - `GET /api/fork/tournaments?status=active` returns `{ tournaments }` (the portal alias is
   `/api/tournaments`). Only active tournaments are returned.
+- `GET /api/fork/tournaments?status=draft` returns draft tournaments for the creation and
+  registration screen; list rows include the active entrant count and, for an authenticated
+  entrant, their own entrant id.
 - `GET /api/fork/tournaments/:id` returns `{ tournament, entrants, rounds, standings,
   scheduledMatches }`. The scheduled array is empty without a coach session, participant-scoped
   with a coach Bearer token, and unscoped for organizers.

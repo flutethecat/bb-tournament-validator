@@ -2,6 +2,7 @@ import type {
   ScheduledMatchRecord,
   TournamentEntrantRecord,
   TournamentPoints,
+  TournamentRecord,
   TournamentStandingRow,
   TournamentTiebreaker,
 } from "./types.js";
@@ -221,4 +222,108 @@ export function generateSwissPairings(
   };
 
   return [...pairings, ...search(pool).pairs];
+}
+
+/** Deterministic circle-method schedule; roundNumber is one-based. */
+export function generateRoundRobinPairings(
+  entrants: readonly TournamentEntrantRecord[],
+  roundNumber: number,
+): SwissPairing[] {
+  const ordered = activeEntrants(entrants)
+    .sort((left, right) => left.seed - right.seed || left.id.localeCompare(right.id));
+  if (ordered.length < 2) return ordered.map((entrant) => ({ homeEntrantId: entrant.id }));
+  const slots: Array<TournamentEntrantRecord | undefined> = [...ordered];
+  if (slots.length % 2 === 1) slots.push(undefined);
+  const scheduleRounds = slots.length - 1;
+  if (!Number.isSafeInteger(roundNumber) || roundNumber < 1 || roundNumber > scheduleRounds) return [];
+  for (let round = 1; round < roundNumber; round += 1) {
+    slots.splice(1, 0, slots.pop());
+  }
+  const pairings: SwissPairing[] = [];
+  for (let index = 0; index < slots.length / 2; index += 1) {
+    const left = slots[index];
+    const right = slots[slots.length - 1 - index];
+    if (left && right) pairings.push({ homeEntrantId: left.id, awayEntrantId: right.id });
+    else if (left || right) pairings.push({ homeEntrantId: (left ?? right)!.id });
+  }
+  return pairings;
+}
+
+function bracketSeedOrder(size: number): number[] {
+  let order = [1, 2];
+  for (let bracketSize = 4; bracketSize <= size; bracketSize *= 2) {
+    order = order.flatMap((seed) => [seed, bracketSize + 1 - seed]);
+  }
+  return order;
+}
+
+function knockoutWinner(
+  match: ScheduledMatchRecord,
+  standingRanks: ReadonlyMap<string, number>,
+): string | undefined {
+  if (match.status !== "completed" || !match.result) return undefined;
+  if (!match.away) return match.home.entrantId;
+  if (match.result.homeScore > match.result.awayScore) return match.home.entrantId;
+  if (match.result.awayScore > match.result.homeScore) return match.away.entrantId;
+  return (standingRanks.get(match.home.entrantId) ?? Number.MAX_SAFE_INTEGER) <=
+    (standingRanks.get(match.away.entrantId) ?? Number.MAX_SAFE_INTEGER)
+    ? match.home.entrantId
+    : match.away.entrantId;
+}
+
+/** Single-elimination bracket. First-round byes go to the highest seeds. */
+export function generateKnockoutPairings(
+  entrants: readonly TournamentEntrantRecord[],
+  matches: readonly ScheduledMatchRecord[],
+  roundNumber: number,
+  points: TournamentPoints,
+  tiebreakers: readonly TournamentTiebreaker[],
+): SwissPairing[] {
+  const ordered = activeEntrants(entrants)
+    .sort((left, right) => left.seed - right.seed || left.id.localeCompare(right.id));
+  if (ordered.length === 0) return [];
+  if (roundNumber === 1) {
+    const bracketSize = 2 ** Math.ceil(Math.log2(Math.max(2, ordered.length)));
+    const bySeed = new Map(ordered.map((entrant, index) => [index + 1, entrant]));
+    const slots = bracketSeedOrder(bracketSize).map((seed) => bySeed.get(seed));
+    const pairings: SwissPairing[] = [];
+    for (let index = 0; index < slots.length; index += 2) {
+      const home = slots[index];
+      const away = slots[index + 1];
+      if (home && away) pairings.push({ homeEntrantId: home.id, awayEntrantId: away.id });
+      else if (home || away) pairings.push({ homeEntrantId: (home ?? away)!.id });
+    }
+    return pairings;
+  }
+  const priorRound = matches
+    .filter((match) => match.roundNumber === roundNumber - 1)
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const standingRanks = new Map(
+    calculateStandings(entrants, matches, points, tiebreakers).map((row) => [row.entrantId, row.rank]),
+  );
+  const winners = priorRound.flatMap((match) => {
+    const winner = knockoutWinner(match, standingRanks);
+    return winner ? [winner] : [];
+  });
+  const pairings: SwissPairing[] = [];
+  for (let index = 0; index < winners.length; index += 2) {
+    const homeEntrantId = winners[index];
+    if (!homeEntrantId) continue;
+    const awayEntrantId = winners[index + 1];
+    pairings.push(awayEntrantId ? { homeEntrantId, awayEntrantId } : { homeEntrantId });
+  }
+  return pairings;
+}
+
+export function generateTournamentPairings(
+  format: TournamentRecord["format"],
+  roundNumber: number,
+  entrants: readonly TournamentEntrantRecord[],
+  matches: readonly ScheduledMatchRecord[],
+  points: TournamentPoints,
+  tiebreakers: readonly TournamentTiebreaker[],
+): SwissPairing[] {
+  if (format === "roundRobin") return generateRoundRobinPairings(entrants, roundNumber);
+  if (format === "knockout") return generateKnockoutPairings(entrants, matches, roundNumber, points, tiebreakers);
+  return generateSwissPairings(entrants, matches, points, tiebreakers);
 }

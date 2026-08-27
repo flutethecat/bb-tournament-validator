@@ -41,12 +41,14 @@
     "tournament": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "status", "format", "roundCount", "currentRound", "tiebreakers", "points", "createdAt", "updatedAt"],
+      "required": ["id", "name", "status", "format", "packageName", "maxPlayers", "roundCount", "currentRound", "tiebreakers", "points", "createdAt", "updatedAt"],
       "properties": {
         "id": { "$ref": "#/$defs/id" },
-        "name": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
         "status": { "enum": ["draft", "active", "completed", "cancelled"] },
-        "format": { "const": "swiss" },
+        "format": { "enum": ["swiss", "roundRobin", "knockout"] },
+        "packageName": { "type": "string" },
+        "maxPlayers": { "type": "integer", "minimum": 0 },
         "roundCount": { "type": "integer", "minimum": 1 },
         "currentRound": { "type": "integer", "minimum": 0 },
         "tiebreakers": {

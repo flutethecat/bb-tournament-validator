@@ -1,12 +1,69 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta http-equiv="refresh" content="0; url=/admin.html" />
-    <title>Super FUMBBL — Admin Console</title>
-  </head>
-  <body>
-    <p><a href="/admin.html">Redirecting to the Admin Console&hellip;</a></p>
-    <script>location.replace('/admin.html');</script>
-  </body>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Super FUMBBL — Tournaments</title>
+  <link rel="stylesheet" href="./theme.css">
+  <link rel="stylesheet" href="./tournament-rules.css">
+  <script src="./theme.js" defer></script>
+  <script src="./tournaments.js" defer></script>
+  <style>
+    body { background: var(--ui-secondary); color: var(--ui-text); }
+    .page-shell { background: var(--ui-secondary); }
+    .tournament-main { flex: 1; width: min(1180px, 100%); margin: 0 auto; padding: 24px 20px 64px; }
+    .tournament-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-surface); }
+    .toolbar-spacer { flex: 1; }
+    .login-fields { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .message { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-surface); }
+    .message.error { border-color: var(--ui-danger, #b64b4b); color: #ffb5b5; }
+    .content-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .85fr); gap: 16px; margin-top: 16px; }
+    .panel { border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-surface); box-shadow: 0 5px 16px rgba(0,0,0,.28); }
+    .panel-heading { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--ui-border); color: var(--ui-heading); font-size: 15px; letter-spacing: .08em; }
+    .panel-body { padding: 14px 16px; }
+    .tournament-list { display: grid; gap: 10px; }
+    .tournament-card { padding: 14px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-secondary); }
+    .card-top, .card-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .card-top h3 { flex: 1; margin: 0; color: var(--ui-heading); font-size: 15px; }
+    .meta { margin: 8px 0; color: var(--ui-muted); font-size: 12px; line-height: 1.55; }
+    .badge { padding: 2px 7px; border: 1px solid var(--ui-border); border-radius: 999px; color: var(--ui-text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .field { display: grid; gap: 5px; color: var(--ui-muted); font-size: 11px; }
+    .field.full { grid-column: 1 / -1; }
+    .detail-section + .detail-section { margin-top: 18px; }
+    .detail-section h3 { margin: 0 0 8px; color: var(--ui-heading); font-size: 13px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { padding: 7px 6px; border-bottom: 1px solid var(--ui-border); text-align: left; white-space: nowrap; }
+    th { color: var(--ui-text-dim); font-weight: normal; text-transform: uppercase; letter-spacing: .06em; }
+    .empty { color: var(--ui-muted); font-size: 12px; line-height: 1.6; }
+    .registration-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    @media (max-width: 820px) { .content-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 560px) { .tournament-main { padding: 16px 10px 40px; } .form-grid { grid-template-columns: 1fr; } .field.full { grid-column: auto; } }
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="brand-header">
+      <img class="brand-logo" src="./assets/super-fumbbl-logo.png" alt="Super FUMBBL">
+      <div class="brand-copy">
+        <div class="page-title"><span>T</span>ournaments</div>
+        <div class="page-subtitle">competitions · registration · standings</div>
+      </div>
+      <a class="back-link" href="./control-panel.html">← Control Panel</a>
+    </header>
+    <main class="tournament-main">
+      <div id="toolbar" class="tournament-toolbar" aria-label="Tournament session controls"></div>
+      <div id="message" aria-live="polite"></div>
+      <div class="content-grid">
+        <section class="panel">
+          <h2 class="panel-heading">Active &amp; Draft Tournaments</h2>
+          <div id="tournament-list" class="panel-body tournament-list" aria-live="polite"></div>
+        </section>
+        <aside id="side-panel" class="panel" aria-live="polite"></aside>
+      </div>
+    </main>
+    <footer class="footer"><span id="connection-state">● signed out</span><span class="footer-spacer"></span><span>config-web :4310</span></footer>
+  </div>
+</body>
 </html>

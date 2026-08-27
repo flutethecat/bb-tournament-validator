@@ -307,9 +307,10 @@ const LIBRARY_DIR = resolve(process.env.FORK_LIBRARY_DIR || join(HERE, "../data-
 const BUG_REPORTS_DIR = resolve(process.env.BUG_REPORTS_DIR || join(HERE, "../bug-reports"));
 // Tracks the last successful fork (game server) reload — see @bb/fork-ops's forkReload.
 const FORK_STATE_DIR = resolve(join(HERE, "../data-store"));
+const TOURNAMENTS_DIR = resolve(process.env.TOURNAMENTS_DIR || FORK_STATE_DIR);
 const tournamentMatches = new TournamentMatchStore(FORK_STATE_DIR);
 const tournamentResults = new TournamentResultStore(FORK_STATE_DIR);
-const tournamentStore = new TournamentStore(FORK_STATE_DIR);
+const tournamentStore = new TournamentStore(TOURNAMENTS_DIR);
 
 const packages = new PackageFiles(PACKAGES_DIR);
 // Process-local matchmaking state (poll-based delivery, ~10min TTL) — see @bb/fork-ops.
@@ -590,6 +591,8 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
         pathname === "/admin.html" ||
         pathname === "/admin.css" ||
         pathname === "/admin.js" ||
+        pathname === "/tournaments.html" ||
+        pathname === "/tournaments.js" ||
         pathname.startsWith("/assets/"))
     )
       return true;
@@ -711,8 +714,10 @@ function isOrganizerWrite(method: string, pathname: string): boolean {
     pathname === "/api/fork/user/clear-games" ||
     pathname === "/api/team/setResurrection" ||
     /^\/api\/fork\/game\/[^/]+\/(close|delete|concede)$/.test(pathname) ||
-    /^\/api\/(users|tournaments|schedule)(\/|$)/.test(pathname) ||
-    pathname.startsWith("/api/fork/tournaments/")
+    /^\/api\/(users|schedule)(\/|$)/.test(pathname) ||
+    pathname === "/api/tournaments" ||
+    pathname === "/api/fork/tournaments" ||
+    /^\/api\/(?:fork\/)?tournaments\/[^/]+\/rounds$/.test(pathname)
   );
 }
 
@@ -731,6 +736,8 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/admin/identities/naf" ||
     pathname === "/api/account" ||
     isTeamMutationWritePath(pathname) ||
+    pathname.startsWith("/api/tournaments/") ||
+    pathname.startsWith("/api/fork/tournaments/") ||
     pathname.startsWith("/api/scheduled-matches/") ||
     /^\/api\/teams\/[^/]+\/advancement$/.test(pathname)
   );
@@ -821,6 +828,8 @@ async function handleApi(
     const result = await tournamentApi(method, path, query, auth, body, {
       store: tournamentStore,
       teamBuild: (teamId) => libraryTeamForId(teamId),
+      packageExists: (packageName) => packages.get(packageName) !== undefined,
+      teamOwner: (teamId) => libraryOwnerForTeam(teamId),
     });
     if (result) {
       if (result.status === 204) {
@@ -2504,7 +2513,10 @@ export const server = createServer((req, res) => {
           url.pathname === "/index.html" ||
           url.pathname === "/control-panel.html" ||
           url.pathname === "/theme.css" ||
-          url.pathname === "/theme.js")
+          url.pathname === "/theme.js" ||
+          url.pathname === "/tournament-rules.css" ||
+          url.pathname === "/tournaments.html" ||
+          url.pathname === "/tournaments.js")
       ) {
         await serveStatic(res, url.pathname);
         return;

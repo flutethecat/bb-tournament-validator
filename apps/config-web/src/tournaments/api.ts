@@ -1,4 +1,4 @@
-import { generateSwissPairings } from "./pairing.js";
+import { generateTournamentPairings } from "./pairing.js";
 import { TournamentStore, TournamentStoreError } from "./store.js";
 import type { ScheduledMatchRecord, TournamentEntrantRecord, VerifiedCoachIdentity } from "./types.js";
 
@@ -11,6 +11,8 @@ export interface TournamentApiIdentity {
 export interface TournamentApiDeps {
   store: TournamentStore;
   teamBuild(teamId: string): unknown | undefined;
+  packageExists?(packageName: string): boolean;
+  teamOwner?(teamId: string): string | undefined;
   now?: () => Date;
 }
 
@@ -134,7 +136,14 @@ function projectedOpponent(
       },
     };
   }
-  const pair = generateSwissPairings(entrants, matches, tournament.points, tournament.tiebreakers)
+  const pair = generateTournamentPairings(
+    tournament.format,
+    tournament.currentRound + 1,
+    entrants,
+    matches,
+    tournament.points,
+    tournament.tiebreakers,
+  )
     .find((candidate) => candidate.homeEntrantId === entrant.id || candidate.awayEntrantId === entrant.id);
   if (!pair) return { status: 200, body: { tournamentId, entrantId: entrant.id, provisional: true, opponent: null } };
   const otherId = pair.homeEntrantId === entrant.id ? pair.awayEntrantId : pair.homeEntrantId;
@@ -163,12 +172,86 @@ export async function tournamentApi(
   path = path.replace(/^\/api\/fork\/tournaments(?=\/|$)/, "/api/tournaments");
   const now = deps.now?.() ?? new Date();
   try {
+    if (path === "/api/tournaments" && method === "POST") {
+      const identity = authenticated(auth);
+      if (!identity.organizer) return { status: 403, body: { error: "Organizer access required." } };
+      const input = jsonObject(body);
+      if (typeof input.name !== "string" || !input.name.trim())
+        return { status: 400, body: { error: "name is required." } };
+      const name = input.name.trim();
+      if (name.length > 100) return { status: 400, body: { error: "name must be at most 100 characters." } };
+      if (typeof input.packageName !== "string" || !input.packageName.trim())
+        return { status: 400, body: { error: "packageName is required." } };
+      const packageName = input.packageName.trim();
+      if (deps.packageExists?.(packageName) !== true)
+        return { status: 400, body: { error: "Unknown tournament rules package." } };
+      const maxPlayers = integer(input.maxPlayers, "maxPlayers");
+      if (maxPlayers < 2) return { status: 400, body: { error: "maxPlayers must be at least 2." } };
+      if (!(input.format === "swiss" || input.format === "roundRobin" || input.format === "knockout"))
+        return { status: 400, body: { error: "format must be swiss, roundRobin, or knockout." } };
+      return {
+        status: 201,
+        body: {
+          tournament: deps.store.createTournament({ name, packageName, maxPlayers, format: input.format }, now),
+        },
+      };
+    }
+
     if (path === "/api/tournaments" && method === "GET") {
-      const tournaments = deps.store.activeTournaments().map((tournament) => ({
-        ...tournament,
-        entrantCount: deps.store.entrants(tournament.id).filter((entrant) => entrant.droppedAt === undefined).length,
-      }));
+      const requestedStatus = query.get("status");
+      const source = requestedStatus === "draft"
+        ? deps.store.tournaments(["draft"])
+        : deps.store.activeTournaments();
+      const tournaments = source.map((tournament) => {
+        const entrants = deps.store.entrants(tournament.id);
+        const ownEntrant = auth
+          ? entrants.find((entrant) => coachKey(entrant.coach.ffbCoachId) === coachKey(auth.coach))
+          : undefined;
+        return {
+          ...tournament,
+          entrantCount: entrants.filter((entrant) => entrant.droppedAt === undefined).length,
+          ...(ownEntrant ? { myEntrantId: ownEntrant.id, myDroppedAt: ownEntrant.droppedAt } : {}),
+        };
+      });
       return { status: 200, body: { tournaments } };
+    }
+
+    const entrantCollectionMatch = path.match(/^\/api\/tournaments\/([^/]+)\/entrants$/);
+    if (entrantCollectionMatch && method === "POST") {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(entrantCollectionMatch[1]!);
+      if (!tournamentId) return { status: 400, body: { error: "Invalid tournament id." } };
+      const input = jsonObject(body);
+      if (typeof input.teamId !== "string" || !input.teamId.trim())
+        return { status: 400, body: { error: "teamId is required." } };
+      const requestedCoach = input.coach;
+      if (requestedCoach !== undefined && (typeof requestedCoach !== "string" || !requestedCoach.trim()))
+        return { status: 400, body: { error: "coach must be a non-empty string." } };
+      const targetCoach = typeof requestedCoach === "string" ? requestedCoach.trim() : identity.coach;
+      if (!identity.organizer && coachKey(targetCoach) !== coachKey(identity.coach))
+        return { status: 403, body: { error: "Only an organizer may register another coach." } };
+      const teamId = input.teamId.trim();
+      const owner = deps.teamOwner?.(teamId);
+      if (!owner || coachKey(owner) !== coachKey(targetCoach))
+        return { status: 400, body: { error: "Team is not owned by the target coach." } };
+      const entrant = deps.store.registerEntrant(tournamentId, {
+        coachId: targetCoach,
+        ffbCoachId: targetCoach,
+        verifiedAt: now.toISOString(),
+      }, teamId, now);
+      return { status: 201, body: { entrant } };
+    }
+
+    const entrantItemMatch = path.match(/^\/api\/tournaments\/([^/]+)\/entrants\/([^/]+)$/);
+    if (entrantItemMatch && method === "DELETE") {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(entrantItemMatch[1]!);
+      const entrantId = decoded(entrantItemMatch[2]!);
+      if (!tournamentId || !entrantId) return { status: 400, body: { error: "Invalid tournament entrant path." } };
+      return {
+        status: 200,
+        body: { entrant: deps.store.dropEntrant(tournamentId, entrantId, identity.coach, identity.organizer, now) },
+      };
     }
 
     const standingsMatch = path.match(/^\/api\/tournaments\/([^/]+)\/standings$/);

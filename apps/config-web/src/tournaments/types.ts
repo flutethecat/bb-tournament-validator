@@ -31,7 +31,10 @@ export interface TournamentRecord {
   id: string;
   name: string;
   status: TournamentStatus;
-  format: "swiss";
+  format: "swiss" | "roundRobin" | "knockout";
+  packageName: string;
+  /** Zero is accepted only for migrated legacy data and means uncapped. */
+  maxPlayers: number;
   roundCount: number;
   currentRound: number;
   tiebreakers: TournamentTiebreaker[];

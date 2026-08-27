@@ -18,6 +18,8 @@ function tournament(): TournamentRecord {
     name: "Spike Cup",
     status: "active",
     format: "swiss",
+    packageName: "Spike 2026",
+    maxPlayers: 16,
     roundCount: 3,
     currentRound: 1,
     tiebreakers: ["buchholz", "touchdownDifferential", "seed"],
