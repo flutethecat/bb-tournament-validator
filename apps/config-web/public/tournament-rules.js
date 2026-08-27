@@ -283,6 +283,14 @@ function matrixForDisplay() {
   return { ...existing, columns, rows, cells: safeArray(existing.cells) };
 }
 
+function starTierCostsForDisplay(name) {
+  const tierCount = state.pkg.tiers.length;
+  const existing = safeArray(state.pkg.starPlayers.spCostByTier?.[name]);
+  const costs = existing.slice(0, tierCount).map((value) => value == null ? null : numberOr(value, null));
+  while (costs.length < tierCount) costs.push(null);
+  return costs;
+}
+
 function serializePackage() {
   const output = clone(state.pkg);
   output.name = String(output.name ?? "").trim();
@@ -311,6 +319,17 @@ function serializePackage() {
     delete output.tiers;
     output.matrix = matrixForDisplay();
   }
+
+  const tierCount = safeArray(output.tiers).length;
+  const spCostByTier = {};
+  Object.entries(output.starPlayers.spCostByTier ?? {}).forEach(([name, values]) => {
+    const costs = safeArray(values).slice(0, tierCount).map((value) => value == null ? null : numberOr(value, null));
+    while (costs.length < tierCount) costs.push(null);
+    if (costs.some((value) => value != null)) spCostByTier[name] = costs;
+  });
+  if (Object.keys(spCostByTier).length) output.starPlayers.spCostByTier = spCostByTier;
+  else delete output.starPlayers.spCostByTier;
+  if (output.starPlayers.paidInSkillPoints !== true) delete output.starPlayers.paidInSkillPoints;
 
   return output;
 }
@@ -458,18 +477,39 @@ function renderSkillPoints() {
 }
 
 function renderTiers() {
-  const rows = state.pkg.tiers.map((tier, index) => `
-    <div class="inset-row">
-      <input class="control tiny" data-tier-index="${index}" data-tier-field="tier" type="number" min="1" value="${escapeHtml(tier.tier ?? index + 1)}" aria-label="Tier number">
-      <input class="control" style="width:130px" data-tier-index="${index}" data-tier-field="label" value="${escapeHtml(tier.label ?? `Tier ${tier.tier ?? index + 1}`)}" aria-label="Tier label">
-      <input class="control grow" data-tier-index="${index}" data-tier-field="rosters" value="${escapeHtml(safeArray(tier.rosters).join(", "))}" aria-label="Tier races, comma separated">
-      <input class="control compact" data-tier-index="${index}" data-tier-field="gold" type="number" min="0" value="${escapeHtml(goldToK(tier.gold))}" aria-label="Tier gold in thousands">
-      <span class="hint">k</span>
-      <input class="control tiny" data-tier-index="${index}" data-tier-field="skillPointBudget" type="number" min="0" value="${escapeHtml(tier.skillPointBudget ?? "")}" aria-label="Tier SP">
-      <span class="hint">SP</span>
-      ${chip("Stars", `toggle-tier-stars:${index}`, tier.starPlayersAllowed !== false)}
-      <button type="button" class="remove" data-action="remove-tier" data-index="${index}" aria-label="Remove tier">✕</button>
-    </div>`).join("");
+  const rows = state.pkg.tiers.map((tier, index) => {
+    const packs = safeArray(tier.skillPackages).map((skillPackage, packIndex) => `
+      <div class="inset-row tier-pack-row">
+        <input class="control grow" data-action="tier-pack-label" data-tier="${index}" data-pack="${packIndex}" value="${escapeHtml(skillPackage.label ?? `Pack ${packIndex + 1}`)}" aria-label="Tier ${index + 1} pack label">
+        <input class="control compact" data-action="tier-pack-gold" data-tier="${index}" data-pack="${packIndex}" type="number" min="0" value="${escapeHtml(goldToK(skillPackage.gold))}" aria-label="Tier ${index + 1} pack gold in thousands"><span class="hint">k</span>
+        <input class="control tiny" data-action="tier-pack-sp" data-tier="${index}" data-pack="${packIndex}" type="number" min="0" value="${escapeHtml(skillPackage.skillPointBudget ?? 0)}" aria-label="Tier ${index + 1} pack SP"><span class="hint">SP</span>
+        <input class="control tiny" data-action="tier-pack-maxper" data-tier="${index}" data-pack="${packIndex}" type="number" min="0" value="${escapeHtml(skillPackage.maxPerPlayer ?? "")}" placeholder="default" aria-label="Tier ${index + 1} pack max skills per player">
+        <span class="hint">max/player</span>
+        <button type="button" class="remove" data-action="tier-pack-remove" data-tier="${index}" data-pack="${packIndex}" aria-label="Remove ${escapeHtml(skillPackage.label ?? `Pack ${packIndex + 1}`)}">✕</button>
+      </div>`).join("");
+    return `
+      <div class="tier-block">
+        <div class="inset-row tier-main-row">
+          <input class="control tiny" data-tier-index="${index}" data-tier-field="tier" type="number" min="1" value="${escapeHtml(tier.tier ?? index + 1)}" aria-label="Tier number">
+          <input class="control" style="width:130px" data-tier-index="${index}" data-tier-field="label" value="${escapeHtml(tier.label ?? `Tier ${tier.tier ?? index + 1}`)}" aria-label="Tier label">
+          <input class="control grow" data-tier-index="${index}" data-tier-field="rosters" value="${escapeHtml(safeArray(tier.rosters).join(", "))}" aria-label="Tier races, comma separated">
+          <input class="control compact" data-tier-index="${index}" data-tier-field="gold" type="number" min="0" value="${escapeHtml(goldToK(tier.gold))}" aria-label="Tier gold in thousands">
+          <span class="hint">k</span>
+          <input class="control tiny" data-tier-index="${index}" data-tier-field="skillPointBudget" type="number" min="0" value="${escapeHtml(tier.skillPointBudget ?? "")}" aria-label="Tier SP">
+          <span class="hint">SP</span>
+          ${chip("Stars", `toggle-tier-stars:${index}`, tier.starPlayersAllowed !== false)}
+          <button type="button" class="remove" data-action="remove-tier" data-index="${index}" aria-label="Remove tier">✕</button>
+        </div>
+        <div class="tier-pack-list">
+          <div class="subheading">Skill Packages</div>
+          ${packs || '<div class="hint">No tier-specific packs; global packages apply if configured.</div>'}
+          <div class="inline-controls">
+            <button type="button" class="btn" data-action="tier-pack-add" data-tier="${index}">+ Add Pack</button>
+            <button type="button" class="btn" data-action="tier-pack-generate" data-tier="${index}">Generate 3 Spike packs</button>
+          </div>
+        </div>
+      </div>`;
+  }).join("");
   return `
     <div class="inset-list">
       <div class="hint">Per-tier caps override the package caps. Races default to their live dataset tier.</div>
@@ -556,9 +596,28 @@ function renderStars() {
   const starNames = state.stars.map((star) => star.name);
   const missingBans = state.pkg.bannedStars.filter((name) => !starNames.includes(name));
   const allNames = [...starNames, ...missingBans];
-  const allowedChips = allNames.filter((name) => !banned.has(name)).map((name) => `<button type="button" draggable="true" class="star-chip" data-action="move-star-banned" data-star="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join("");
+  const allowedNames = allNames.filter((name) => !banned.has(name));
+  const allowedChips = allowedNames.map((name) => `<button type="button" draggable="true" class="star-chip" data-action="move-star-banned" data-star="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join("");
   const bannedChips = allNames.filter((name) => banned.has(name)).map((name) => `<button type="button" draggable="true" class="star-chip" data-action="move-star-allowed" data-star="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join("");
   const allMegaBanned = MEGA_STARS.every((name) => banned.has(name));
+  const tierCount = state.pkg.tiers.length;
+  const spGrid = tierCount && allowedNames.length ? `
+    <div class="star-sp-section">
+      <div class="section-head">
+        <div class="subheading grow">Star SP Cost by Tier</div>
+        <label class="star-sp-paid"><input type="checkbox" data-action="stars-paid-sp"${state.pkg.starPlayers.paidInSkillPoints === true ? " checked" : ""}> Stars paid in SP, not gold</label>
+      </div>
+      <div class="star-sp-grid-wrap">
+        <table class="star-sp-grid">
+          <thead><tr><th>Star Player</th>${state.pkg.tiers.map((tier, index) => `<th title="${escapeHtml(tier.label ?? `Tier ${index + 1}`)}">Tier ${index + 1}</th>`).join("")}</tr></thead>
+          <tbody>${allowedNames.map((name) => {
+            const costs = starTierCostsForDisplay(name);
+            return `<tr><th>${escapeHtml(name)}</th>${costs.map((cost, tierIndex) => `<td><input class="control star-sp-input" data-action="star-tier-sp-cost" data-star="${escapeHtml(name)}" data-tier="${tierIndex}" type="number" min="0" value="${escapeHtml(cost ?? "")}" placeholder="✕" aria-label="${escapeHtml(name)} Tier ${tierIndex + 1} SP cost"></td>`).join("")}</tr>`;
+          }).join("")}</tbody>
+        </table>
+      </div>
+      <div class="hint">Blank means the Star Player is not available in that tier.</div>
+    </div>` : "";
   return `
     <section class="panel">
       <div class="section-head">
@@ -584,6 +643,7 @@ function renderStars() {
         <span class="hint grow">Drag a star between columns (clicking a chip also moves it across).</span>
         <button type="button" class="btn primary" data-action="toggle-mega-stars">⚑ ${allMegaBanned ? "Unban" : "Ban"} Mega-Stars</button>
       </div>
+      ${spGrid}
     </section>`;
 }
 
@@ -785,6 +845,11 @@ function handleEditorAction(action, target) {
       break;
     case "remove-tier":
       state.pkg.tiers.splice(Number(target.dataset.index), 1);
+      Object.keys(state.pkg.starPlayers.spCostByTier ?? {}).forEach((name) => {
+        const costs = safeArray(state.pkg.starPlayers.spCostByTier[name]);
+        costs.splice(Number(target.dataset.index), 1);
+        state.pkg.starPlayers.spCostByTier[name] = costs.slice(0, state.pkg.tiers.length);
+      });
       break;
     case "add-tier": {
       const tierNumber = state.pkg.tiers.length + 1;
@@ -797,6 +862,39 @@ function handleEditorAction(action, target) {
         starPlayersAllowed: state.pkg.starPlayers.allowed,
         bannedStars: [],
       });
+      Object.keys(state.pkg.starPlayers.spCostByTier ?? {}).forEach((name) => {
+        state.pkg.starPlayers.spCostByTier[name] = starTierCostsForDisplay(name);
+      });
+      break;
+    }
+    case "tier-pack-add": {
+      const tier = state.pkg.tiers[Number(target.dataset.tier)];
+      if (!tier) return;
+      tier.skillPackages ??= [];
+      tier.skillPackages.push({
+        label: `Pack ${tier.skillPackages.length + 1}`,
+        gold: numberOr(tier.gold, state.pkg.goldBudget ?? 0),
+        skillPointBudget: numberOr(tier.skillPointBudget, state.pkg.skillAllotment.skillPointBudget ?? 0),
+      });
+      break;
+    }
+    case "tier-pack-remove": {
+      const tier = state.pkg.tiers[Number(target.dataset.tier)];
+      if (!tier) return;
+      tier.skillPackages = safeArray(tier.skillPackages);
+      tier.skillPackages.splice(Number(target.dataset.pack), 1);
+      break;
+    }
+    case "tier-pack-generate": {
+      const tier = state.pkg.tiers[Number(target.dataset.tier)];
+      if (!tier) return;
+      const baseGold = numberOr(tier.gold, state.pkg.goldBudget ?? 0);
+      const baseSp = numberOr(tier.skillPointBudget, state.pkg.skillAllotment.skillPointBudget ?? 0);
+      tier.skillPackages = [
+        { label: "Pack 1", gold: baseGold, skillPointBudget: baseSp },
+        { label: "Pack 2", gold: baseGold - 30000, skillPointBudget: baseSp + 1 },
+        { label: "Pack 3", gold: baseGold + 30000, skillPointBudget: baseSp - 1 },
+      ];
       break;
     }
     case "remove-package":
@@ -901,6 +999,37 @@ function handleEditorChange(target) {
   if (!state.pkg) return;
 
   switch (target.dataset.action) {
+    case "tier-pack-label":
+    case "tier-pack-gold":
+    case "tier-pack-sp":
+    case "tier-pack-maxper": {
+      const tier = state.pkg.tiers[Number(target.dataset.tier)];
+      const item = safeArray(tier?.skillPackages)[Number(target.dataset.pack)];
+      if (!item) return;
+      if (target.dataset.action === "tier-pack-label") item.label = target.value;
+      if (target.dataset.action === "tier-pack-gold") item.gold = kToGold(target.value) ?? 0;
+      if (target.dataset.action === "tier-pack-sp") item.skillPointBudget = numberOr(target.value, 0);
+      if (target.dataset.action === "tier-pack-maxper") {
+        const maxPerPlayer = nullableNumber(target.value);
+        if (maxPerPlayer == null) delete item.maxPerPlayer;
+        else item.maxPerPlayer = maxPerPlayer;
+      }
+      markDirty(); render(); return;
+    }
+    case "star-tier-sp-cost": {
+      const name = target.dataset.star;
+      const tierIndex = Number(target.dataset.tier);
+      if (!name || !Number.isInteger(tierIndex) || tierIndex < 0 || tierIndex >= state.pkg.tiers.length) return;
+      state.pkg.starPlayers.spCostByTier ??= {};
+      const costs = starTierCostsForDisplay(name);
+      costs[tierIndex] = nullableNumber(target.value);
+      state.pkg.starPlayers.spCostByTier[name] = costs;
+      markDirty(); render(); return;
+    }
+    case "stars-paid-sp":
+      if (target.checked) state.pkg.starPlayers.paidInSkillPoints = true;
+      else delete state.pkg.starPlayers.paidInSkillPoints;
+      markDirty(); render(); return;
     case "matrix-col-gold": {
       state.pkg.matrix = matrixForDisplay();
       const col = Number(target.dataset.col);
