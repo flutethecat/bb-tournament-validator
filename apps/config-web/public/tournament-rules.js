@@ -291,6 +291,28 @@ function starTierCostsForDisplay(name) {
   return costs;
 }
 
+function pairedStarNames(name) {
+  const star = state.stars.find((s) => s.name === name);
+  const partner = star?.pairedWith;
+  if (!partner) return [name];
+  // Marquee star first (higher cost), alphabetical on ties — "Grak & Crumbleberry", not "Crumbleberry & Grak".
+  const partnerStar = state.stars.find((s) => s.name === partner);
+  return [ [name, star], [partner, partnerStar] ]
+    .sort((a, b) => ((b[1]?.cost ?? 0) - (a[1]?.cost ?? 0)) || a[0].localeCompare(b[0]))
+    .map((entry) => entry[0]);
+}
+
+function groupedStars(names) {
+  const available = new Set(names);
+  const seen = new Set();
+  return names.flatMap((name) => {
+    if (seen.has(name)) return [];
+    const group = pairedStarNames(name).filter((member) => available.has(member));
+    group.forEach((member) => seen.add(member));
+    return [{ names: group, label: group.join(" & ") }];
+  });
+}
+
 function serializePackage() {
   const output = clone(state.pkg);
   output.name = String(output.name ?? "").trim();
@@ -562,7 +584,7 @@ function renderMatrix() {
   return `
     <div class="inset-list">
       <div class="hint">Cash × skills grid — click cells to allow / deny. Loaded team assignments are preserved in their cells.</div>
-      <div class="matrix-wrap"><div class="matrix-grid" style="grid-template-columns: 142px repeat(${matrix.columns.length}, 92px)">${grid}</div></div>
+      <div class="matrix-wrap" data-preserve-scroll="matrix"><div class="matrix-grid" style="grid-template-columns: 142px repeat(${matrix.columns.length}, 92px)">${grid}</div></div>
       <div class="inline-controls"><button type="button" class="btn" data-action="add-matrix-column">+ Add Column</button><button type="button" class="btn" data-action="add-matrix-row">+ Add Row</button></div>
     </div>`;
 }
@@ -596,23 +618,26 @@ function renderStars() {
   const starNames = state.stars.map((star) => star.name);
   const missingBans = state.pkg.bannedStars.filter((name) => !starNames.includes(name));
   const allNames = [...starNames, ...missingBans];
-  const allowedNames = allNames.filter((name) => !banned.has(name));
-  const allowedChips = allowedNames.map((name) => `<button type="button" draggable="true" class="star-chip" data-action="move-star-banned" data-star="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join("");
-  const bannedChips = allNames.filter((name) => banned.has(name)).map((name) => `<button type="button" draggable="true" class="star-chip" data-action="move-star-allowed" data-star="${escapeHtml(name)}">${escapeHtml(name)}</button>`).join("");
+  const starRows = groupedStars(allNames);
+  const allowedRows = starRows.filter((row) => row.names.every((name) => !banned.has(name)));
+  const bannedRows = starRows.filter((row) => row.names.some((name) => banned.has(name)));
+  const allowedChips = allowedRows.map((row) => `<button type="button" draggable="true" class="star-chip" data-action="move-star-banned" data-star="${escapeHtml(row.names[0])}">${escapeHtml(row.label)}</button>`).join("");
+  const bannedChips = bannedRows.map((row) => `<button type="button" draggable="true" class="star-chip" data-action="move-star-allowed" data-star="${escapeHtml(row.names[0])}">${escapeHtml(row.label)}</button>`).join("");
   const allMegaBanned = MEGA_STARS.every((name) => banned.has(name));
   const tierCount = state.pkg.tiers.length;
-  const spGrid = tierCount && allowedNames.length ? `
+  const spGrid = tierCount && allowedRows.length ? `
     <div class="star-sp-section">
       <div class="section-head">
         <div class="subheading grow">Star SP Cost by Tier</div>
         <label class="star-sp-paid"><input type="checkbox" data-action="stars-paid-sp"${state.pkg.starPlayers.paidInSkillPoints === true ? " checked" : ""}> Stars paid in SP, not gold</label>
       </div>
-      <div class="star-sp-grid-wrap">
+      <div class="star-sp-grid-wrap" data-preserve-scroll="star-sp-grid">
         <table class="star-sp-grid">
           <thead><tr><th>Star Player</th>${state.pkg.tiers.map((tier, index) => `<th title="${escapeHtml(tier.label ?? `Tier ${index + 1}`)}">Tier ${index + 1}</th>`).join("")}</tr></thead>
-          <tbody>${allowedNames.map((name) => {
+          <tbody>${allowedRows.map((row) => {
+            const name = row.names[0];
             const costs = starTierCostsForDisplay(name);
-            return `<tr><th>${escapeHtml(name)}</th>${costs.map((cost, tierIndex) => `<td><input class="control star-sp-input" data-action="star-tier-sp-cost" data-star="${escapeHtml(name)}" data-tier="${tierIndex}" type="number" min="0" value="${escapeHtml(cost ?? "")}" placeholder="✕" aria-label="${escapeHtml(name)} Tier ${tierIndex + 1} SP cost"></td>`).join("")}</tr>`;
+            return `<tr><th>${escapeHtml(row.label)}</th>${costs.map((cost, tierIndex) => `<td><input class="control star-sp-input" data-action="star-tier-sp-cost" data-star="${escapeHtml(name)}" data-tier="${tierIndex}" type="number" min="0" value="${escapeHtml(cost ?? "")}" placeholder="✕" aria-label="${escapeHtml(row.label)} Tier ${tierIndex + 1} SP cost"></td>`).join("")}</tr>`;
           }).join("")}</tbody>
         </table>
       </div>
@@ -631,11 +656,11 @@ function renderStars() {
       </div>
       <div class="star-columns">
         <div class="star-column allowed" data-drop-zone="allowed">
-          <div class="star-column-title">Allowed Stars (${allNames.length - banned.size})</div>
+          <div class="star-column-title">Allowed Stars (${allowedRows.reduce((count, row) => count + row.names.length, 0)})</div>
           <div class="chip-list grow">${allowedChips || '<span class="hint">None</span>'}</div>
         </div>
         <div class="star-column banned" data-drop-zone="banned">
-          <div class="star-column-title">Banned Stars (${banned.size})</div>
+          <div class="star-column-title">Banned Stars (${bannedRows.reduce((count, row) => count + row.names.length, 0)})</div>
           <div class="chip-list grow">${bannedChips || '<span class="hint">None</span>'}</div>
         </div>
       </div>
@@ -760,8 +785,17 @@ function renderEditor() {
 }
 
 function render() {
+  const scroll = [...document.querySelectorAll("[data-preserve-scroll]")].map((element) => [element.dataset.preserveScroll, element.scrollTop, element.scrollLeft]);
+  const active = document.activeElement?.matches('[data-action="star-tier-sp-cost"]')
+    ? [document.activeElement.dataset.star, document.activeElement.dataset.tier]
+    : null;
   renderToolbar();
   renderEditor();
+  scroll.forEach(([key, top, left]) => {
+    const element = [...document.querySelectorAll("[data-preserve-scroll]")].find((candidate) => candidate.dataset.preserveScroll === key);
+    if (element) { element.scrollTop = top; element.scrollLeft = left; }
+  });
+  if (active) [...editor.querySelectorAll('[data-action="star-tier-sp-cost"]')].find((input) => input.dataset.star === active[0] && input.dataset.tier === active[1])?.focus();
   renderRightRail();
   connectionState.textContent = state.connected ? "● connected" : "● connection issue";
   connectionState.className = state.connected ? "connected" : "disconnected";
@@ -785,8 +819,10 @@ function toggleRace(name) {
 
 function moveStar(name, destination) {
   const banned = new Set(state.pkg.bannedStars);
-  if (destination === "banned") banned.add(name);
-  else banned.delete(name);
+  pairedStarNames(name).forEach((starName) => {
+    if (destination === "banned") banned.add(starName);
+    else banned.delete(starName);
+  });
   state.pkg.bannedStars = [...banned];
   markDirty();
   render();
@@ -1023,7 +1059,7 @@ function handleEditorChange(target) {
       state.pkg.starPlayers.spCostByTier ??= {};
       const costs = starTierCostsForDisplay(name);
       costs[tierIndex] = nullableNumber(target.value);
-      state.pkg.starPlayers.spCostByTier[name] = costs;
+      pairedStarNames(name).forEach((starName) => { state.pkg.starPlayers.spCostByTier[starName] = [...costs]; });
       markDirty(); render(); return;
     }
     case "stars-paid-sp":

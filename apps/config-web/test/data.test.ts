@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PackageFiles, readCoaches, skillCatalog } from "../src/data";
+import { PackageFiles, readCoaches, skillCatalog, starList } from "../src/data";
 import { PRESETS } from "../src/presets";
 
 const dir = () => mkdtempSync(join(tmpdir(), "bbtv-cw-"));
@@ -18,6 +18,20 @@ describe("skillCatalog", () => {
     const all = [...cat.elite, ...cat.general].map((s) => s.name);
     expect(all).not.toContain("Loner");
     expect(all).not.toContain("Regeneration");
+  });
+});
+
+describe("starList", () => {
+  it("surfaces reciprocal inseparable-pair metadata", () => {
+    const partners = Object.fromEntries(starList().filter((star) => star.pairedWith).map((star) => [star.name, star.pairedWith]));
+    expect(partners).toEqual({
+      Crumbleberry: "Grak",
+      Dribl: "Drull",
+      Drull: "Dribl",
+      Grak: "Crumbleberry",
+      "Lucien Swift": "Valen Swift",
+      "Valen Swift": "Lucien Swift",
+    });
   });
 });
 

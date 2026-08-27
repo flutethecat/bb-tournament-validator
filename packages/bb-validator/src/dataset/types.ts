@@ -78,6 +78,8 @@ export interface DatasetTeam {
 
 export interface DatasetStar {
   name: string;
+  /** Inseparable roster partner, sourced from roster XML `teamWithPositionId`. */
+  pairedWith?: string;
   /** BB2025 team names this star may be hired by (resolved from `playsFor`). Empty = no eligibility data. */
   teams: string[];
   cost: number | null;

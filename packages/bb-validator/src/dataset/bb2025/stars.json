@@ -161,6 +161,7 @@
   },
   {
    "name": "Crumbleberry",
+   "pairedWith": "Grak",
    "cost": 0,
    "playsFor": [
     "(Any)"
@@ -212,6 +213,7 @@
   },
   {
    "name": "Dribl",
+   "pairedWith": "Drull",
    "cost": 0,
    "playsFor": [
     "Lustrian Superleague"
@@ -223,6 +225,7 @@
   },
   {
    "name": "Drull",
+   "pairedWith": "Dribl",
    "cost": 230000,
    "playsFor": [
     "Lustrian Superleague"
@@ -319,6 +322,7 @@
   },
   {
    "name": "Grak",
+   "pairedWith": "Crumbleberry",
    "cost": 250000,
    "playsFor": [
     "(Any)"
@@ -603,6 +607,7 @@
   },
   {
    "name": "Lucien Swift",
+   "pairedWith": "Valen Swift",
    "cost": 300000,
    "playsFor": [
     "Elven Kingdoms League"
@@ -933,6 +938,7 @@
   },
   {
    "name": "Valen Swift",
+   "pairedWith": "Lucien Swift",
    "cost": 0,
    "playsFor": [
     "Elven Kingdoms League"
