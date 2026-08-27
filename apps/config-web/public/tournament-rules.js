@@ -295,10 +295,10 @@ function pairedStarNames(name) {
   const star = state.stars.find((s) => s.name === name);
   const partner = star?.pairedWith;
   if (!partner) return [name];
-  // Marquee star first (higher cost), alphabetical on ties — "Grak & Crumbleberry", not "Crumbleberry & Grak".
+  // Dataset-declared lead star first (pairPrimary — "Grak & Crumbleberry", "Dribl & Drull"); alphabetical fallback.
   const partnerStar = state.stars.find((s) => s.name === partner);
   return [ [name, star], [partner, partnerStar] ]
-    .sort((a, b) => ((b[1]?.cost ?? 0) - (a[1]?.cost ?? 0)) || a[0].localeCompare(b[0]))
+    .sort((a, b) => ((b[1]?.pairPrimary ? 1 : 0) - (a[1]?.pairPrimary ? 1 : 0)) || a[0].localeCompare(b[0]))
     .map((entry) => entry[0]);
 }
 

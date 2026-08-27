@@ -221,7 +221,8 @@
    "teams": [
     "Amazon",
     "Lizardmen"
-   ]
+   ],
+   "pairPrimary": true
   },
   {
    "name": "Drull",
@@ -358,7 +359,8 @@
     "Underworld Denizens",
     "Vampire",
     "Wood Elf"
-   ]
+   ],
+   "pairPrimary": true
   },
   {
    "name": "Grashnak Blackhoof",
@@ -376,7 +378,7 @@
    ]
   },
   {
-   "name": "Gretchen W\u00e4chter",
+   "name": "Gretchen Wächter",
    "cost": 180000,
    "playsFor": [
     "Sylvanian Spotlight"
@@ -617,7 +619,8 @@
     "Elven Union",
     "High Elf",
     "Wood Elf"
-   ]
+   ],
+   "pairPrimary": true
   },
   {
    "name": "Maple Highgrove",

@@ -80,6 +80,8 @@ export interface DatasetStar {
   name: string;
   /** Inseparable roster partner, sourced from roster XML `teamWithPositionId`. */
   pairedWith?: string;
+  /** Lead star of a pair for display ordering ("Grak & Crumbleberry", "Dribl & Drull"). */
+  pairPrimary?: boolean;
   /** BB2025 team names this star may be hired by (resolved from `playsFor`). Empty = no eligibility data. */
   teams: string[];
   cost: number | null;
