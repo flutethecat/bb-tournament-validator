@@ -32,3 +32,20 @@ and contains only the absent opponent when exactly one waits. The organizer-only
 Launch/result writes use optimistic `revision` checks. A participant may `POST` actions `retry` or
 `dismiss` only for `launch_failed`; either transition increments the revision and clears leases.
 Organizer launch/result reporters use `PATCH /launch` and `PATCH /result` respectively.
+
+## Tournament creation (owner requirements, 2026-08-27 — the Create Tournament entry point)
+
+Owner-specified entry pane, visible to ORGANIZERS as a button on the Tournaments screen
+(`tournaments.html` becomes a real page; it is currently a legacy redirect stub to admin.html):
+
+1. **Ruleset selection** — the tournament binds to a saved tournament-rules package
+   (the sets created in tournament-rules.html; source = the PackageFiles listing).
+   Gap closed by adding `packageName` to `TournamentRecord`.
+2. **# of Players** — an entrant cap (`maxPlayers`) enforced at registration.
+3. **Type of competition** — `format: "swiss" | "roundRobin" | "knockout"`; pairing.ts grows
+   round-robin (circle method) and knockout (single-elimination, byes to top seeds) beside swiss.
+4. **Name of competition** — already present (`name`).
+
+`POST /api/fork/tournaments` (organizer-gated) creates a draft tournament with those four fields;
+activation and round generation ride the existing organizer round ops. The foundation's
+swiss-only literal, missing package binding, and missing cap are the gaps this closes.
