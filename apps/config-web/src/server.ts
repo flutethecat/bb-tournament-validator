@@ -162,6 +162,14 @@ import {
   type TournamentMatchMetadata,
 } from "./tournamentMatch.js";
 import {
+  TournamentResultStore,
+  aggregateStandings,
+  discoverFinishedGames,
+  mayReadResult,
+  pullFinishedGameResult,
+  refreshFinishedResults,
+} from "./tournamentResults.js";
+import {
   DISCORD_OAUTH_STATE_COOKIE,
   DISCORD_PENDING_COOKIE,
   DiscordOauthStateStore,
@@ -244,6 +252,8 @@ const PUBLIC_PATHS = new Set([
   "/api/fork/my-games",
   // Session-gated in-handler; bypasses the separate legacy ADMIN_PASSWORD gate.
   "/api/fork/games",
+  // Public, server-derived standings read; refreshes only missing retained finished results.
+  "/api/fork/records",
   // Bug-report ingestion (owner feature 08-18): POST does its own coach auth in-handler
   // (session token OR coach creds — a report must be attributable); the GET listing/read
   // on the same path is organizer/admin-gated in-handler, fail closed (see bugReports.ts).
@@ -280,6 +290,7 @@ const BUG_REPORTS_DIR = resolve(process.env.BUG_REPORTS_DIR || join(HERE, "../bu
 // Tracks the last successful fork (game server) reload — see @bb/fork-ops's forkReload.
 const FORK_STATE_DIR = resolve(join(HERE, "../data-store"));
 const tournamentMatches = new TournamentMatchStore(FORK_STATE_DIR);
+const tournamentResults = new TournamentResultStore(FORK_STATE_DIR);
 
 const packages = new PackageFiles(PACKAGES_DIR);
 // Process-local matchmaking state (poll-based delivery, ~10min TTL) — see @bb/fork-ops.
@@ -507,11 +518,18 @@ function tournamentInstructionsGameId(pathname: string): string | undefined {
   try { return decodeURIComponent(encoded); } catch { return undefined; }
 }
 
+function tournamentResultGameId(pathname: string): string | undefined {
+  const encoded = pathname.match(/^\/api\/fork\/match\/([^/]+)\/result$/)?.[1];
+  if (!encoded) return undefined;
+  try { return decodeURIComponent(encoded); } catch { return undefined; }
+}
+
 function authorized(req: IncomingMessage, pathname: string): boolean {
   if (!ADMIN_PASSWORD) return true; // open when no password set (localhost default)
   if (PUBLIC_PATHS.has(pathname)) return true;
   // Dynamic coach-scoped route: bypass legacy Basic auth, then enforce the proven session in-handler.
   if (tournamentInstructionsGameId(pathname)) return true;
+  if (tournamentResultGameId(pathname)) return true;
   if (pathname.startsWith("/api/packages/")) return true;
   if ((req.method === "GET" || req.method === "HEAD") && teamDetailIdFromPath(pathname)) return true;
   if (req.method === "POST" && advancementPath(pathname)) return true;
@@ -1430,6 +1448,23 @@ async function handleApi(
     return sendJson(res, result.status, result.body);
   }
 
+  if (path === "/api/fork/records" && method === "GET") {
+    if (!forkAdminCfg) return sendJson(res, 502, { error: "fork server unreachable" });
+    try {
+      await refreshFinishedResults(forkAdminCfg, tournamentResults);
+      return sendJson(res, 200, aggregateStandings(
+        tournamentResults.list(),
+        (gameId) => tournamentMatches.get(gameId),
+        {
+          ...(query.get("coach")?.trim() ? { coach: query.get("coach")! } : {}),
+          ...(query.get("packageName")?.trim() ? { packageName: query.get("packageName")! } : {}),
+        },
+      ));
+    } catch {
+      return sendJson(res, 502, { error: "fork server unreachable" });
+    }
+  }
+
   // Enter matchmaking: record my pending challenge. Instant reciprocal matches are
   // delivered via the next matchstatus poll (both sides), so this always returns waiting.
   // Gated on the team being roster-loadable on the CURRENTLY RUNNING fork (re-derived fresh,
@@ -1656,6 +1691,23 @@ async function handleApi(
       if (error instanceof TournamentMatchAccessError)
         return sendJson(res, error.status, { error: error.message });
       throw error;
+    }
+  }
+
+  const tournamentResultId = tournamentResultGameId(path);
+  if (tournamentResultId && method === "GET") {
+    const adminAuthed = auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req);
+    if (!auth && !adminAuthed) return sendJson(res, 401, { error: "Authentication required." });
+    if (!forkAdminCfg) return sendJson(res, 503, { error: "Fork admin API not configured on this host (set FORK_ADMIN_PASSWORD)." });
+    try {
+      const game = (await discoverFinishedGames(forkAdminCfg)).find((entry) => entry.gameId === tournamentResultId);
+      if (!game) return sendJson(res, 404, { error: "Finished match not found." });
+      const metadata = tournamentMatches.get(tournamentResultId);
+      if (!mayReadResult(game, metadata, { coach: auth?.coach, admin: adminAuthed }))
+        return sendJson(res, 403, { error: "You may fetch results only for your own matches." });
+      return sendJson(res, 200, await pullFinishedGameResult(forkAdminCfg, tournamentResults, game));
+    } catch (error) {
+      return sendJson(res, 502, { error: (error as Error).message });
     }
   }
 
@@ -2337,6 +2389,9 @@ const server = createServer((req, res) => {
       if (req.method === "POST" && url.pathname === "/api/team/checkName") {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
+      if (req.method === "GET" && url.pathname === "/api/fork/records") {
+        return await handleApi(req, res, url.pathname, url.searchParams);
+      }
       // name/generate is the same public read-only posture as checkName (contract §3A).
       if ((req.method === "POST" || req.method === "GET") && nameGeneratePath(url.pathname)) {
         return await handleApi(req, res, url.pathname, url.searchParams);
@@ -2384,7 +2439,9 @@ const server = createServer((req, res) => {
       } else {
         const auth = requestIdentity(req);
         const accountSession = auth !== undefined && (
-          url.pathname === "/api/account" || tournamentInstructionsGameId(url.pathname) !== undefined
+          url.pathname === "/api/account" ||
+          tournamentInstructionsGameId(url.pathname) !== undefined ||
+          tournamentResultGameId(url.pathname) !== undefined
         );
         if (!authorized(req, url.pathname) && !accountSession) {
           res.writeHead(401, { "www-authenticate": 'Basic realm="BB Config"' }).end("auth required");

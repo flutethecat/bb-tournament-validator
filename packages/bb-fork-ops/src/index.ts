@@ -16,6 +16,7 @@ export * from "./library.js";
 export * from "./matchmaking.js";
 export * from "./forkReload.js";
 export * from "./forkAdmin.js";
+export { gamestateResult } from "./forkAdmin.js";
 export * from "./locks.js";
 
 /**

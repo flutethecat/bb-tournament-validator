@@ -199,6 +199,117 @@ export async function forkGameSeat(cfg: ForkAdminConfig, gameId: string, coach: 
   return null; // not a participant
 }
 
+/** Compact, authoritative result payload returned by the finished-game endpoint. */
+export interface GamestatePlayerResult {
+  playerId: string;
+  name: string;
+  touchdowns: number;
+  casualtiesCaused: number;
+  blocks: number;
+  fouls: number;
+  completions: number;
+  interceptions: number;
+  deflections: number;
+  mvp: number;
+}
+
+export interface GamestateTeamResult {
+  teamId: string;
+  score: number;
+  winnings: number;
+  penaltyScore: number;
+  conceded: boolean;
+  casualtiesSuffered: { bh: number; si: number; rip: number };
+  players: GamestatePlayerResult[];
+}
+
+export interface GamestateResult {
+  teams: GamestateTeamResult[];
+}
+
+const xmlDecode = (value: string): string =>
+  value
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+
+const resultAttr = (attributes: string, name: string): string | undefined =>
+  attributes.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, "i"))?.[1];
+
+const resultNumber = (xml: string, tag: string): number => {
+  const value = Number(xmlTag(xml, tag) ?? 0);
+  return Number.isFinite(value) ? value : 0;
+};
+
+function parseGamestateResultXml(xml: string): GamestateResult {
+  if (!/<gameResult\b/i.test(xml)) throw new Error(`fork gamestate/result returned invalid XML (${xml.slice(0, 120)})`);
+  const teams: GamestateTeamResult[] = [];
+  for (const teamMatch of xml.matchAll(/<teamResult\b([^>]*)>([\s\S]*?)<\/teamResult>/gi)) {
+    const teamId = xmlDecode(resultAttr(teamMatch[1]!, "teamId") ?? "");
+    const body = teamMatch[2]!;
+    if (!teamId) throw new Error("fork gamestate/result returned a teamResult without teamId");
+    const casualtyTag = body.match(/<casualtiesSuffered\b([^>]*)\/?\s*>/i)?.[1] ?? "";
+    const casualtyNumber = (name: string): number => {
+      const value = Number(resultAttr(casualtyTag, name) ?? 0);
+      return Number.isFinite(value) ? value : 0;
+    };
+    const players: GamestatePlayerResult[] = [];
+    for (const playerMatch of body.matchAll(/<playerResult\b([^>]*)>([\s\S]*?)<\/playerResult>/gi)) {
+      const playerBody = playerMatch[2]!;
+      const spp = playerBody.match(/<starPlayerPoints\b[^>]*>([\s\S]*?)<\/starPlayerPoints>/i)?.[1] ?? "";
+      const statistics = playerBody.match(/<statistics\b[^>]*>([\s\S]*?)<\/statistics>/i)?.[1] ?? "";
+      players.push({
+        playerId: xmlDecode(resultAttr(playerMatch[1]!, "playerId") ?? ""),
+        name: xmlDecode(resultAttr(playerMatch[1]!, "name") ?? ""),
+        touchdowns: resultNumber(spp, "touchdowns"),
+        casualtiesCaused: resultNumber(spp, "casualties"),
+        blocks: resultNumber(statistics, "blocks"),
+        fouls: resultNumber(statistics, "fouls"),
+        completions: resultNumber(spp, "completions"),
+        interceptions: resultNumber(spp, "interceptions"),
+        deflections: resultNumber(spp, "deflections"),
+        mvp: resultNumber(spp, "playerAwards"),
+      });
+    }
+    teams.push({
+      teamId,
+      score: resultNumber(body, "score"),
+      winnings: resultNumber(body, "winnings"),
+      // Upstream FumbblResult.addToXml emits <penaltyScore> only when >= 0 (shootout happened);
+      // absent means "no penalty score" and MUST stay -1, or every normal game reads as 0-0.
+      penaltyScore: xmlTag(body, "penaltyScore") === undefined ? -1 : resultNumber(body, "penaltyScore"),
+      conceded: /^(?:true|1)$/i.test(xmlTag(body, "conceded")?.trim() ?? ""),
+      casualtiesSuffered: {
+        bh: casualtyNumber("badlyHurt"),
+        si: casualtyNumber("seriousInjury"),
+        rip: casualtyNumber("rip"),
+      },
+      players,
+    });
+  }
+  if (teams.length !== 2) throw new Error(`fork gamestate/result returned ${teams.length} teamResult blocks; expected 2`);
+  return { teams };
+}
+
+/** Pull the authoritative, finished-game result XML using a fresh one-shot challenge. */
+export async function gamestateResult(cfg: ForkAdminConfig, gameId: string): Promise<GamestateResult> {
+  const chRes = await fetchWithTimeout(`${cfg.baseUrl}/gamestate/challenge`);
+  const chXml = await chRes.text();
+  const challenge = xmlTag(chXml, "challenge");
+  if (!chRes.ok || !challenge) throw new Error(`fork gamestate/challenge failed (HTTP ${chRes.status})`);
+  const response = adminResponse(challenge, cfg.passwordMd5Hex);
+  const res = await fetchWithTimeout(
+    `${cfg.baseUrl}/gamestate/result?response=${encodeURIComponent(response)}&gameId=${encodeURIComponent(gameId)}`,
+  );
+  const xml = await res.text();
+  const error = xmlTag(xml, "error");
+  if (error) throw new Error(`fork gamestate/result: ${error}`);
+  if (!res.ok) throw new Error(`fork gamestate/result failed (HTTP ${res.status}): ${xml.slice(0, 200)}`);
+  return parseGamestateResultXml(xml);
+}
+
 /** `list <status>` — scheduled/active/finished/all games. Raw XML; caller/route normalizes. */
 export const adminList = (cfg: ForkAdminConfig, status = "all"): Promise<string> => adminCommand(cfg, "list", { status });
 
