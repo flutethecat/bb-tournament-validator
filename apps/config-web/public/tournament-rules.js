@@ -54,6 +54,7 @@ const state = {
   account: "",
   loginUser: "",
   expiresAt: "",
+  discordSsoEnabled: false,
   packageNames: [],
   selectedPackage: "",
   presets: [],
@@ -391,7 +392,8 @@ function renderToolbar() {
        <input id="login-user" class="control" style="width:130px" autocomplete="username" placeholder="Username" value="${escapeHtml(state.loginUser)}">
        <label class="visually-hidden" for="login-password">Password</label>
        <input id="login-password" class="control" style="width:140px" type="password" autocomplete="current-password" placeholder="Password">
-       <button type="button" class="btn primary" data-action="login">Log In</button>`;
+       <button type="button" class="btn primary" data-action="login">Log In</button>
+       ${state.discordSsoEnabled ? '<button type="button" class="btn" data-action="discord-login">Discord</button>' : ""}`;
 
   toolbar.innerHTML = `
     <span class="toolbar-label">Package</span>
@@ -1367,6 +1369,7 @@ toolbar.addEventListener("click", (event) => {
   const target = event.target.closest("[data-action]");
   if (!target) return;
   if (target.dataset.action === "login") login();
+  if (target.dataset.action === "discord-login") location.assign("/api/auth/discord/start?next=/tournament-rules.html");
   if (target.dataset.action === "logout") logout();
 });
 
@@ -1463,6 +1466,7 @@ async function initialize() {
   render();
   try {
     const session = await requestJson("/api/auth/session");
+    state.discordSsoEnabled = session?.discordSsoEnabled === true;
     if (session?.authenticated === true) {
       state.authed = true;
       state.account = String(session.coach ?? "");
@@ -1470,8 +1474,8 @@ async function initialize() {
       state.loginUser = "";
       state.expiresAt = String(session.expiresAt ?? "");
       state.problems = [];
-      render();
     }
+    render();
   } catch {
     // Stay signed out when the session probe is unavailable.
   }
