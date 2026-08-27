@@ -71,6 +71,8 @@ const state = {
   overrideCost: 2,
   bannedSkill: "",
   dragStar: "",
+  dragTeam: "",
+  activeTier: 0,
   view: { system: "skillpoints", skillMode: "pool", swapRate: 2 },
 };
 
@@ -218,6 +220,7 @@ function inferView(pkg) {
 function loadPackageIntoEditor(pkg, problems) {
   state.pkg = normalizePackage(pkg);
   state.view = inferView(state.pkg);
+  state.activeTier = 0;
   state.problems = safeArray(problems).map(String);
   state.saved = null;
   state.exported = false;
@@ -499,7 +502,17 @@ function renderSkillPoints() {
 }
 
 function renderTiers() {
+  const activeTier = state.pkg.tiers.length
+    ? Math.min(Math.max(state.activeTier, 0), state.pkg.tiers.length - 1)
+    : -1;
+  const assigned = new Set(state.pkg.tiers.flatMap((tier) => safeArray(tier.rosters)));
+  const unassigned = state.teams.filter((team) => !assigned.has(team.name));
   const rows = state.pkg.tiers.map((tier, index) => {
+    const rosterChips = safeArray(tier.rosters).map((name) => `
+      <span class="chip race-chip active tier-team-chip" draggable="true" data-team="${escapeHtml(name)}" data-tier-source="${index}">
+        <span>${escapeHtml(name)}</span>
+        <button type="button" class="remove" data-action="remove-tier-team" data-team="${escapeHtml(name)}" data-tier="${index}" aria-label="Remove ${escapeHtml(name)} from tier">&times;</button>
+      </span>`).join("");
     const packs = safeArray(tier.skillPackages).map((skillPackage, packIndex) => `
       <div class="inset-row tier-pack-row">
         <input class="control grow" data-action="tier-pack-label" data-tier="${index}" data-pack="${packIndex}" value="${escapeHtml(skillPackage.label ?? `Pack ${packIndex + 1}`)}" aria-label="Tier ${index + 1} pack label">
@@ -510,11 +523,10 @@ function renderTiers() {
         <button type="button" class="remove" data-action="tier-pack-remove" data-tier="${index}" data-pack="${packIndex}" aria-label="Remove ${escapeHtml(skillPackage.label ?? `Pack ${packIndex + 1}`)}">✕</button>
       </div>`).join("");
     return `
-      <div class="tier-block">
+      <div class="tier-block${index === activeTier ? " active" : ""}" data-tier-block="${index}" data-tier-drop="${index}">
         <div class="inset-row tier-main-row">
           <input class="control tiny" data-tier-index="${index}" data-tier-field="tier" type="number" min="1" value="${escapeHtml(tier.tier ?? index + 1)}" aria-label="Tier number">
           <input class="control" style="width:130px" data-tier-index="${index}" data-tier-field="label" value="${escapeHtml(tier.label ?? `Tier ${tier.tier ?? index + 1}`)}" aria-label="Tier label">
-          <input class="control grow" data-tier-index="${index}" data-tier-field="rosters" value="${escapeHtml(safeArray(tier.rosters).join(", "))}" aria-label="Tier races, comma separated">
           <input class="control compact" data-tier-index="${index}" data-tier-field="gold" type="number" min="0" value="${escapeHtml(goldToK(tier.gold))}" aria-label="Tier gold in thousands">
           <span class="hint">k</span>
           <input class="control tiny" data-tier-index="${index}" data-tier-field="skillPointBudget" type="number" min="0" value="${escapeHtml(tier.skillPointBudget ?? "")}" aria-label="Tier SP">
@@ -522,6 +534,7 @@ function renderTiers() {
           ${chip("Stars", `toggle-tier-stars:${index}`, tier.starPlayersAllowed !== false)}
           <button type="button" class="remove" data-action="remove-tier" data-index="${index}" aria-label="Remove tier">✕</button>
         </div>
+        <div class="tier-team-list chip-list">${rosterChips || '<span class="hint">Drop teams here.</span>'}</div>
         <div class="tier-pack-list">
           <div class="subheading">Skill Packages</div>
           ${packs || '<div class="hint">No tier-specific packs; global packages apply if configured.</div>'}
@@ -532,11 +545,23 @@ function renderTiers() {
         </div>
       </div>`;
   }).join("");
+  const poolChips = unassigned.map((team) => `
+    <button type="button" draggable="true" class="chip race-chip tier-pool-chip" data-action="assign-tier-team" data-team="${escapeHtml(team.name)}" data-tier-source="pool">
+      ${escapeHtml(team.name)} <span class="tier-badge ${tierClass(team.defaultTier)}">T${escapeHtml(team.defaultTier ?? "?")}</span>
+    </button>`).join("");
   return `
     <div class="inset-list">
-      <div class="hint">Per-tier caps override the package caps. Races default to their live dataset tier.</div>
-      ${rows || '<div class="hint">No tiers defined.</div>'}
-      <button type="button" class="btn" data-action="add-tier" style="align-self:flex-start">+ Add Tier</button>
+      <div class="hint">Per-tier caps override the package caps. Races default to their live dataset tier. Click a tier to select it, then click or drag an unassigned team.</div>
+      <div class="tiers-layout">
+        <div class="inset-list tiers-list">
+          ${rows || '<div class="hint">No tiers defined.</div>'}
+          <button type="button" class="btn" data-action="add-tier" style="align-self:flex-start">+ Add Tier</button>
+        </div>
+        <aside class="tier-team-pool" data-preserve-scroll="tier-team-pool">
+          <div class="subheading">Unassigned teams (${unassigned.length})</div>
+          <div class="tier-pool-list">${poolChips || '<span class="hint">All dataset teams are assigned.</span>'}</div>
+        </aside>
+      </div>
     </div>`;
 }
 
@@ -828,6 +853,29 @@ function moveStar(name, destination) {
   render();
 }
 
+function assignTeamToTier(name, tierIndex) {
+  const tier = state.pkg.tiers[tierIndex];
+  if (!name || !tier) return;
+  state.pkg.tiers.forEach((item) => {
+    item.rosters = safeArray(item.rosters).filter((roster) => roster !== name);
+  });
+  tier.rosters.push(name);
+  state.activeTier = tierIndex;
+  markDirty();
+  render();
+}
+
+function removeTeamFromTier(name, tierIndex) {
+  const tier = state.pkg.tiers[tierIndex];
+  if (!name || !tier) return;
+  tier.rosters = safeArray(tier.rosters);
+  if (!tier.rosters.includes(name)) return;
+  tier.rosters = tier.rosters.filter((roster) => roster !== name);
+  state.activeTier = tierIndex;
+  markDirty();
+  render();
+}
+
 function handleEditorAction(action, target) {
   if (!state.pkg) return;
 
@@ -879,20 +927,25 @@ function handleEditorAction(action, target) {
     case "add-override":
       if (state.overrideSkill) state.pkg.skillAllotment.skillCostSP[state.overrideSkill] = numberOr(state.overrideCost, 2);
       break;
-    case "remove-tier":
-      state.pkg.tiers.splice(Number(target.dataset.index), 1);
+    case "remove-tier": {
+      const removedIndex = Number(target.dataset.index);
+      state.pkg.tiers.splice(removedIndex, 1);
+      if (state.activeTier > removedIndex) state.activeTier -= 1;
+      else if (state.activeTier === removedIndex) state.activeTier = Math.min(removedIndex, state.pkg.tiers.length - 1);
       Object.keys(state.pkg.starPlayers.spCostByTier ?? {}).forEach((name) => {
         const costs = safeArray(state.pkg.starPlayers.spCostByTier[name]);
-        costs.splice(Number(target.dataset.index), 1);
+        costs.splice(removedIndex, 1);
         state.pkg.starPlayers.spCostByTier[name] = costs.slice(0, state.pkg.tiers.length);
       });
       break;
+    }
     case "add-tier": {
       const tierNumber = state.pkg.tiers.length + 1;
+      const assigned = new Set(state.pkg.tiers.flatMap((tier) => safeArray(tier.rosters)));
       state.pkg.tiers.push({
         tier: tierNumber,
         label: `Tier ${tierNumber}`,
-        rosters: state.teams.filter((team) => Number(team.defaultTier) === tierNumber).map((team) => team.name),
+        rosters: state.teams.filter((team) => Number(team.defaultTier) === tierNumber && !assigned.has(team.name)).map((team) => team.name),
         gold: state.pkg.goldBudget,
         skillPointBudget: state.pkg.skillAllotment.skillPointBudget,
         starPlayersAllowed: state.pkg.starPlayers.allowed,
@@ -901,8 +954,13 @@ function handleEditorAction(action, target) {
       Object.keys(state.pkg.starPlayers.spCostByTier ?? {}).forEach((name) => {
         state.pkg.starPlayers.spCostByTier[name] = starTierCostsForDisplay(name);
       });
+      if (state.pkg.tiers.length === 1) state.activeTier = 0;
       break;
     }
+    case "assign-tier-team":
+      assignTeamToTier(target.dataset.team, state.activeTier); return;
+    case "remove-tier-team":
+      removeTeamFromTier(target.dataset.team, Number(target.dataset.tier)); return;
     case "tier-pack-add": {
       const tier = state.pkg.tiers[Number(target.dataset.tier)];
       if (!tier) return;
@@ -1114,7 +1172,6 @@ function handleEditorChange(target) {
     const field = target.dataset.tierField;
     if (field === "tier") tier.tier = numberOr(target.value, tier.tier ?? 1);
     if (field === "label") tier.label = target.value;
-    if (field === "rosters") tier.rosters = target.value.split(",").map((value) => value.trim()).filter(Boolean);
     if (field === "gold") tier.gold = kToGold(target.value);
     if (field === "skillPointBudget") tier.skillPointBudget = nullableNumber(target.value);
     markDirty(); render(); return;
@@ -1313,6 +1370,11 @@ toolbar.addEventListener("keydown", (event) => {
 });
 
 editor.addEventListener("click", (event) => {
+  const tierBlock = event.target.closest("[data-tier-block]");
+  if (tierBlock) {
+    state.activeTier = Number(tierBlock.dataset.tierBlock);
+    editor.querySelectorAll("[data-tier-block]").forEach((block) => block.classList.toggle("active", block === tierBlock));
+  }
   const target = event.target.closest("[data-action]");
   if (target) handleEditorAction(target.dataset.action, target);
 });
@@ -1320,15 +1382,29 @@ editor.addEventListener("click", (event) => {
 editor.addEventListener("change", (event) => handleEditorChange(event.target));
 
 editor.addEventListener("dragstart", (event) => {
+  const team = event.target.closest("[data-team]")?.dataset.team;
+  if (team) {
+    state.dragTeam = team;
+    state.dragStar = "";
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-tier-team", team);
+    event.dataTransfer.setData("text/plain", team);
+    return;
+  }
   const star = event.target.closest("[data-star]")?.dataset.star;
   if (!star) return;
+  state.dragTeam = "";
   state.dragStar = star;
   event.dataTransfer.effectAllowed = "move";
   event.dataTransfer.setData("text/plain", star);
 });
 
 editor.addEventListener("dragover", (event) => {
-  const zone = event.target.closest("[data-drop-zone]");
+  const zone = state.dragTeam
+    ? event.target.closest("[data-tier-drop]")
+    : state.dragStar
+      ? event.target.closest("[data-drop-zone]")
+      : null;
   if (!zone) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = "move";
@@ -1336,18 +1412,34 @@ editor.addEventListener("dragover", (event) => {
 });
 
 editor.addEventListener("dragleave", (event) => {
-  const zone = event.target.closest("[data-drop-zone]");
+  const zone = event.target.closest("[data-tier-drop], [data-drop-zone]");
   if (zone && !zone.contains(event.relatedTarget)) zone.classList.remove("drag-over");
 });
 
 editor.addEventListener("drop", (event) => {
-  const zone = event.target.closest("[data-drop-zone]");
+  const zone = state.dragTeam
+    ? event.target.closest("[data-tier-drop]")
+    : state.dragStar
+      ? event.target.closest("[data-drop-zone]")
+      : null;
   if (!zone) return;
   event.preventDefault();
   zone.classList.remove("drag-over");
+  if (zone.dataset.tierDrop != null) {
+    const name = event.dataTransfer.getData("application/x-tier-team") || state.dragTeam;
+    state.dragTeam = "";
+    if (name) assignTeamToTier(name, Number(zone.dataset.tierDrop));
+    return;
+  }
   const name = event.dataTransfer.getData("text/plain") || state.dragStar;
   state.dragStar = "";
   if (name) moveStar(name, zone.dataset.dropZone);
+});
+
+editor.addEventListener("dragend", () => {
+  state.dragTeam = "";
+  state.dragStar = "";
+  editor.querySelectorAll(".drag-over").forEach((zone) => zone.classList.remove("drag-over"));
 });
 
 rightRail.addEventListener("click", (event) => {
