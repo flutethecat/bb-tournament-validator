@@ -129,6 +129,12 @@ import {
   teamDetailIdFromPath,
 } from "./teamDetail.js";
 import { advancementPath, teamAdvancementEndpoint } from "./teamAdvancement.js";
+import {
+  isTeamMutationWritePath,
+  teamCheckNameEndpoint,
+  teamMutationEndpoint,
+  teamMutationOperation,
+} from "./teamMutation.js";
 import { libraryIngestOwnershipError, parseLibraryIngestRequest } from "./teamIngestSecurity.js";
 import {
   DEFAULT_JSON_BODY_CAP,
@@ -197,6 +203,7 @@ const PUBLIC_PATHS = new Set([
   "/api/auth/discord/pending",
   "/api/auth/discord/complete",
   "/api/fork/name-available",
+  "/api/team/checkName",
   // Coach credential exchange (owner ruling 08-17). Public BY NATURE — it is the door you knock on
   // WITHOUT a token, and it is the only route that should ever see a coach password.
   "/api/fork/login",
@@ -507,6 +514,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   if (pathname.startsWith("/api/packages/")) return true;
   if ((req.method === "GET" || req.method === "HEAD") && teamDetailIdFromPath(pathname)) return true;
   if (req.method === "POST" && advancementPath(pathname)) return true;
+  if (req.method === "POST" && (pathname === "/api/team/checkName" || isTeamMutationWritePath(pathname))) return true;
   // Public rules-builder surface: the TO ruleset editor authenticates IN-UI via a bearer
   // token (POST /api/auth/login → gate on POST /api/packages), so its page + static deps
   // must load without the admin Basic-auth prompt. GET/HEAD only, on the specific
@@ -664,6 +672,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/bug-reports" ||
     pathname === "/api/admin/identities" ||
     pathname === "/api/account" ||
+    isTeamMutationWritePath(pathname) ||
     /^\/api\/teams\/[^/]+\/advancement$/.test(pathname)
   );
 }
@@ -722,7 +731,7 @@ async function handleApi(
     return sendJson(res, 409, { error: "A team/cache generation update is in progress; game start delivery is temporarily paused." });
   }
   try {
-  const requiresCoherentTeamCache = /^\/api\/teams\/[^/]+\/advancement$/.test(path) || [
+  const requiresCoherentTeamCache = isTeamMutationWritePath(path) || /^\/api\/teams\/[^/]+\/advancement$/.test(path) || [
     "/api/fork/library/ingest",
     "/api/fork/library/retire",
     "/api/fork/team-builder/build",
@@ -980,6 +989,29 @@ async function handleApi(
   if (path === "/api/skills" && method === "GET") return sendJson(res, 200, skillCatalog());
 
   if (path === "/api/teams" && method === "GET") return sendJson(res, 200, teamList());
+
+  if (path === "/api/team/checkName" && method === "POST") {
+    const body = await readBody(req, MUTATION_JSON_BODY_CAP);
+    const result = teamCheckNameEndpoint(body, duplicateTeamNameError);
+    return sendJson(res, result.status, result.body);
+  }
+
+  const mutationOperation = teamMutationOperation(path);
+  if (mutationOperation && method === "POST") {
+    const cfg = forkConfigFromEnv();
+    const body = await readBody(req, MUTATION_JSON_BODY_CAP);
+    const adminAuthed = auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req);
+    const identity = auth || adminAuthed
+      ? { coach: auth?.coach, admin: adminAuthed }
+      : undefined;
+    const result = await teamMutationEndpoint(identity, mutationOperation, body, {
+      libraryDir: LIBRARY_DIR,
+      teamsDir: cfg?.teamsDir,
+      reload: cfg ? () => reloadFork(cfg, FORK_STATE_DIR) : undefined,
+      duplicateNameError: duplicateTeamNameError,
+    });
+    return sendJson(res, result.status, result.body);
+  }
 
   const detailTeamId = teamDetailIdFromPath(path);
   if (detailTeamId && method === "GET") {
@@ -2287,6 +2319,11 @@ const server = createServer((req, res) => {
       if (req.method === "OPTIONS" && (cors.kind === "allowed" || PUBLIC_PATHS.has(url.pathname))) {
         res.writeHead(204).end();
         return;
+      }
+      // Name availability is a public, read-only POST like /api/fork/name-available. Dispatch it
+      // before the optional auth sidecar so both deployment modes expose the same posture.
+      if (req.method === "POST" && url.pathname === "/api/team/checkName") {
+        return await handleApi(req, res, url.pathname, url.searchParams);
       }
       if (AUTH_SIDECAR) {
         if (
