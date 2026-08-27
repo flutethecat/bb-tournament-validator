@@ -100,6 +100,70 @@
 .rail-form { display: flex; flex-direction: column; gap: 9px; }
 .rail-form .btn { align-self: flex-start; }
 
+.team-search-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.team-search-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  max-height: 310px;
+  overflow-y: auto;
+}
+
+.team-result {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid #343434;
+  border-radius: 4px;
+  background: var(--row);
+  color: var(--text);
+  padding: 9px 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.team-result:hover,
+.team-result.active { border-color: var(--carmine); background: #2a0002; }
+.team-result-name { overflow: hidden; color: var(--cream); text-overflow: ellipsis; white-space: nowrap; }
+.team-result-meta,
+.team-player-detail { display: block; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.team-player-name { display: block; color: var(--cream); }
+
+.team-editor-head { border-color: #8a3a3d; }
+.team-metrics,
+.team-resource-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.team-metrics > div,
+.team-resource {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid #303030;
+  border-radius: 4px;
+  background: var(--row);
+  padding: 9px 10px;
+}
+
+.team-metrics span,
+.team-resource > span { color: var(--muted); font-size: 10px; letter-spacing: .08em; }
+.team-metrics strong,
+.team-resource strong { overflow-wrap: anywhere; color: var(--cream); font-weight: normal; }
+.team-resource .row-actions { margin-top: auto; }
+.team-df-field { max-width: 150px; }
+.team-player-table { min-width: 960px; }
+.journeyman-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -127,5 +191,9 @@
 
 @media (max-width: 760px) {
   .identity-editor .form-grid,
-  .game-matchup { grid-template-columns: 1fr; }
+  .game-matchup,
+  .team-search-results,
+  .team-metrics,
+  .team-resource-grid { grid-template-columns: 1fr; }
+  .team-search-bar { grid-template-columns: 1fr; }
 }

@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,11 +19,17 @@ beforeAll(async () => {
     IDENTITIES_FILE: join(root, "identities.json"),
     ORGANIZERS_FILE: join(root, "organizers.json"),
     FORK_LIBRARY_DIR: join(root, "library"),
+    FORK_TEAMS_DIR: join(root, "teams"),
+    FORK_ADMIN_PASSWORD: "",
   })) {
     previousEnv.set(name, process.env[name]);
     process.env[name] = value;
   }
   mkdirSync(join(root, "library"), { recursive: true });
+  mkdirSync(join(root, "teams"), { recursive: true });
+  mkdirSync(join(root, "log"), { recursive: true });
+  // Trip reloadFork's busy guard so this test never kills or spawns the fork process.
+  writeFileSync(join(root, "log", "default.log"), "");
   writeFileSync(join(root, "identities.json"), JSON.stringify({
     version: 1,
     coaches: {
@@ -38,9 +44,29 @@ beforeAll(async () => {
         updatedAt: "2026-08-27T00:00:00.000Z",
         updatedBy: "RootAdmin",
       },
+      admincoach: {
+        ffbCoachId: "AdminCoach",
+        level: "admin",
+        banned: false,
+        silenced: false,
+        note: "",
+        profile: {},
+        identities: {},
+        updatedAt: "2026-08-27T00:00:00.000Z",
+        updatedBy: "RootAdmin",
+      },
     },
   }), "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
+  writeFileSync(join(root, "library", "tarkin.json"), JSON.stringify([
+    { teamId: "120", teamName: "Storm Lords", race: "Human", coach: "Tarkin", teamValue: 1000, gold: 0, forkLoadable: true, ingestedAt: "2026-08-01T00:00:00.000Z" },
+    { teamId: "121", teamName: "Desert Storm", race: "Orc", coach: "Tarkin", teamValue: 1000, gold: 0, forkLoadable: false, ingestedAt: "2026-08-02T00:00:00.000Z" },
+  ]), "utf8");
+  writeFileSync(
+    join(root, "teams", "team_Tarkin_120.xml"),
+    '<team id="120"><coach>Tarkin</coach><name>Storm Lords</name></team>',
+    "utf8",
+  );
 
   ({ server } = await import("../src/server.js"));
   if (!server.listening) await once(server, "listening");
@@ -75,6 +101,76 @@ describe("POST /api/team/setResurrection organizer gate", () => {
     });
     expect(coach.status).toBe(403);
     expect(await coach.json()).toEqual({ error: "Organizer access required." });
+  });
+
+  it("allows an organizer to set resurrection cross-team without relaxing other cross-team mutations", async () => {
+    const organizer = createSession("OrganizerCoach");
+    const headers = { authorization: `Bearer ${organizer.token}`, "content-type": "application/json" };
+    const refundBody = JSON.stringify({ teamId: "120", playerId: "p1" });
+    const forbidden = await fetch(`${origin}/api/team/refundPlayer`, {
+      method: "POST",
+      headers,
+      body: refundBody,
+    });
+    expect(forbidden.status).toBe(404);
+    expect(await forbidden.json()).toEqual({ error: "Team not found." });
+
+    const plain = createSession("PlainCoach");
+    const plainForbidden = await fetch(`${origin}/api/team/refundPlayer`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${plain.token}`, "content-type": "application/json" },
+      body: refundBody,
+    });
+    expect(plainForbidden.status).toBe(404);
+    expect(await plainForbidden.json()).toEqual({ error: "Team not found." });
+
+    const allowed = await fetch(`${origin}/api/team/setResurrection`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ teamId: "120", resurrection: true }),
+    });
+    expect(allowed.status).toBe(200);
+    expect(await allowed.json()).toMatchObject({ ok: true, teamId: "120", reload: { reloaded: false } });
+    expect(readFileSync(join(root, "teams", "team_Tarkin_120.xml"), "utf8"))
+      .toContain('resurrection="true"');
+  });
+});
+
+describe("admin team search HTTP gate", () => {
+  it("rejects unauthenticated and plain-coach sessions, then returns ranked rows to an admin", async () => {
+    const path = `${origin}/api/admin/teams/search?q=storm&mode=name`;
+    expect((await fetch(path)).status).toBe(401);
+
+    const plain = createSession("PlainCoach");
+    const forbidden = await fetch(path, { headers: { authorization: `Bearer ${plain.token}` } });
+    expect(forbidden.status).toBe(403);
+    expect(await forbidden.json()).toEqual({ error: "Admin access required." });
+
+    const organizer = createSession("OrganizerCoach");
+    const organizerForbidden = await fetch(path, { headers: { authorization: `Bearer ${organizer.token}` } });
+    expect(organizerForbidden.status).toBe(403);
+    expect(await organizerForbidden.json()).toEqual({ error: "Admin access required." });
+
+    const admin = createSession("AdminCoach");
+    const allowed = await fetch(path, { headers: { authorization: `Bearer ${admin.token}` } });
+    expect(allowed.status).toBe(200);
+    expect(await allowed.json()).toEqual([
+      { teamId: "120", name: "Storm Lords", coach: "Tarkin", roster: "Human", status: "loaded" },
+      { teamId: "121", name: "Desert Storm", coach: "Tarkin", roster: "Orc", status: "not loaded" },
+    ]);
+  });
+});
+
+describe("control-panel landing", () => {
+  it("serves the hub at /, /index.html, and its direct URL while keeping the rules editor direct", async () => {
+    for (const path of ["/", "/index.html", "/control-panel.html"]) {
+      const response = await fetch(`${origin}${path}`);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain("Choose a workspace");
+    }
+    const rules = await fetch(`${origin}/tournament-rules.html`);
+    expect(rules.status).toBe(200);
+    expect(await rules.text()).toContain("Tournament Rules");
   });
 });
 

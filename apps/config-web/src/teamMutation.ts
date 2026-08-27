@@ -605,6 +605,7 @@ function applyRosterOperation(
   teamXml: string,
   rosterXml: string | undefined,
   teamId: string,
+  admin: boolean,
 ): { xml: string; extra?: Record<string, unknown> } {
   const players = activePlayerBlocks(teamXml);
 
@@ -652,7 +653,7 @@ function applyRosterOperation(
     }
     const statusClass = teamStatusClass(teamStatus(teamXml));
     if (statusClass === "ACTIVE") return fail(400, "The team is already ready.");
-    if (statusClass === "OTHER") {
+    if (statusClass === "OTHER" && !admin) {
       return fail(400, "Only a NEW team can be made ready on the fork; post-game ready is unavailable until post-game parity completes.");
     }
     const fieldable = players.filter((player) => !/temporarilyretired/i.test(player.status.replace(/[\s_-]+/g, "")));
@@ -759,13 +760,13 @@ function applyRosterOperation(
 
   if (operation === "temporaryRetirePlayer") {
     if (/temporarilyretired/i.test(target.status.replace(/[\s_-]+/g, ""))) return fail(400, "This player is already temporarily retired.");
-    if (/journeyman/i.test(target.status)) return fail(400, "A journeyman cannot be temporarily retired.");
+    if (!admin && /journeyman/i.test(target.status)) return fail(400, "A journeyman cannot be temporarily retired.");
     const freshStatReduction = [...target.block.matchAll(/<injury\b([^>]*)>([^<]*)<\/injury>/gi)].some((injury) => {
       if (attr(injury[1]!, "recovering") !== "true") return false;
       const name = decodeXml(injury[2]!).trim();
       return /\(\s*-[^)]*[a-z0-9][^)]*\)/i.test(name) || /-\s*(?:\d+\s*)?[a-z]{1,4}\b/i.test(name);
     });
-    if (!freshStatReduction) return fail(400, "Temporary retirement requires a fresh stat-reducing injury.");
+    if (!admin && !freshStatReduction) return fail(400, "Temporary retirement requires a fresh stat-reducing injury.");
     // Team value is deliberately unchanged: the fork has no provenance for temporary-retirement TV relief.
     return { xml: teamXml.replace(target.block, withPlayerStatus(target.block, "TemporarilyRetired")) };
   }
@@ -799,7 +800,7 @@ function applyRosterOperation(
   }
 
   // refundPlayer: the NEW-team buy-back — full position-cost refund, node removed outright.
-  if (teamStatusClass(teamStatus(teamXml)) !== "NEW") {
+  if (!admin && teamStatusClass(teamStatus(teamXml)) !== "NEW") {
     return fail(400, "Refunds are only available before a team's first game.");
   }
   if (playerHasHistory(target.block)) return fail(400, "A player with skills, injuries, or match history cannot be refunded.");
@@ -819,8 +820,9 @@ function applyOperation(
   rosterXml: string | undefined,
   duplicateNameError: TeamMutationDeps["duplicateNameError"],
   teamId: string,
+  admin: boolean,
 ): { xml: string; teamName?: string; extra?: Record<string, unknown> } {
-  if (ROSTER_OPERATIONS.has(operation)) return applyRosterOperation(operation, body, teamXml, rosterXml, teamId);
+  if (ROSTER_OPERATIONS.has(operation)) return applyRosterOperation(operation, body, teamXml, rosterXml, teamId, admin);
   if (operation === "renumber") {
     if (!hasExactKeys(body, ["teamId", "playerNumbers"]) || !isRecord(body.playerNumbers)) {
       return fail(400, "renumber requires exactly {teamId, playerNumbers}.");
@@ -992,7 +994,7 @@ export async function teamMutationEndpoint(
       return { status: 404, body: { error: "Team not found." } };
     }
     const roster = storedRosterXml(deps.teamsDir, teamId, stored.xml);
-    const applied = applyOperation(operation, rawBody, stored.xml, roster, deps.duplicateNameError, teamId);
+    const applied = applyOperation(operation, rawBody, stored.xml, roster, deps.duplicateNameError, teamId, auth.admin);
     const after = syncedLibraryTeam(target.team, applied.xml, applied.teamName);
     const transaction = beginTeamXmlTransaction({
       teamsDir: deps.teamsDir,

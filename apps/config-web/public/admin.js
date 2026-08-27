@@ -21,6 +21,13 @@ const state = {
   modal: null,
   message: null,
   tournamentResult: null,
+  teamSearchMode: "name",
+  teamQuery: "",
+  teamResults: [],
+  selectedTeam: null,
+  teamDetail: null,
+  teamRosters: [],
+  teamLoading: false,
 };
 
 const toolbar = document.querySelector("#toolbar");
@@ -198,6 +205,7 @@ function renderToolbar() {
   toolbar.innerHTML = `
     <span class="toolbar-label">Section</span>
     <button type="button" class="chip${state.section === "users" ? " active" : ""}" data-action="section" data-section="users">Users</button>
+    <button type="button" class="chip${state.section === "teams" ? " active" : ""}" data-action="section" data-section="teams">Teams</button>
     <button type="button" class="chip${state.section === "games" ? " active" : ""}" data-action="section" data-section="games">Game Controls</button>
     <span class="toolbar-spacer"></span>
     ${login}`;
@@ -397,6 +405,122 @@ function renderGameRail() {
   </section>`;
 }
 
+function selectedTeamRoster() {
+  const race = normalizeName(state.teamDetail?.race);
+  return safeArray(state.teamRosters).find((roster) => normalizeName(roster?.raceName) === race) ?? null;
+}
+
+function renderTeamSearch() {
+  const modes = [
+    ["name", "Team name"],
+    ["id", "Team ID"],
+    ["coach", "Coach"],
+  ];
+  const results = safeArray(state.teamResults);
+  return `<section class="panel">
+    <div class="section-head">
+      <div class="section-title">${title("Find Teams")}</div>
+      <span class="section-note">Search the complete stored fork library</span>
+    </div>
+    <div class="segment-group">${modes.map(([mode, label]) => `<button type="button" class="chip${state.teamSearchMode === mode ? " active" : ""}" data-action="team-search-mode" data-mode="${mode}">${label}</button>`).join("")}</div>
+    <div class="team-search-bar">
+      <label class="visually-hidden" for="team-search-query">Team search</label>
+      <input id="team-search-query" class="control" autocomplete="off" value="${escapeHtml(state.teamQuery)}" placeholder="${state.teamSearchMode === "coach" ? "Coach name" : state.teamSearchMode === "id" ? "Team ID" : "Team name"}">
+      <button type="button" class="btn primary" data-action="team-search"${state.teamLoading ? " disabled" : ""}>Search</button>
+    </div>
+    ${results.length ? `<div class="team-search-results" role="list">${results.map((row) => `<button type="button" class="team-result${state.selectedTeam?.teamId === row.teamId ? " active" : ""}" data-action="select-team" data-team-id="${escapeHtml(row.teamId)}" role="listitem">
+      <span class="team-result-name">${escapeHtml(row.name)}</span>
+      <span class="team-result-meta">#${escapeHtml(row.teamId)} · ${escapeHtml(row.coach)}${row.roster ? ` · ${escapeHtml(row.roster)}` : ""}${row.status ? ` · ${escapeHtml(row.status)}` : ""}</span>
+    </button>`).join("")}</div>` : state.teamQuery && !state.teamLoading ? '<div class="hint">No matching stored teams.</div>' : '<div class="hint">Choose a mode, enter a query, then select a result to edit the team.</div>'}
+  </section>`;
+}
+
+function renderTeamStaff(team) {
+  return `<section class="panel">
+    <div class="section-title">${title("Team Resources")}</div>
+    <div class="team-resource-grid">
+      <div class="team-resource"><span>Rerolls</span><strong>${escapeHtml(team.rerolls)}</strong><div class="row-actions"><button class="btn step" data-action="team-mutation" data-operation="removeReroll">−</button><button class="btn step" data-action="team-mutation" data-operation="addReroll">+</button></div></div>
+      <div class="team-resource"><span>Assistant coaches</span><strong>${escapeHtml(team.assistantCoaches)}</strong><div class="row-actions"><button class="btn step" data-action="team-mutation" data-operation="fireAssistantCoach">−</button><button class="btn step" data-action="team-mutation" data-operation="addAssistantCoach">+</button></div></div>
+      <div class="team-resource"><span>Cheerleaders</span><strong>${escapeHtml(team.cheerleaders)}</strong><div class="row-actions"><button class="btn step" data-action="team-mutation" data-operation="fireCheerleader">−</button><button class="btn step" data-action="team-mutation" data-operation="addCheerleader">+</button></div></div>
+      <div class="team-resource"><span>Apothecary</span><strong>${team.apothecary ? "Yes" : "No"}</strong><div class="row-actions"><button class="btn compact" data-action="team-mutation" data-operation="fireApothecary">Fire</button><button class="btn compact" data-action="team-mutation" data-operation="addApothecary">Add</button></div></div>
+    </div>
+    <div class="inline-controls">
+      <label class="field team-df-field"><span class="field-label">Dedicated fans</span><input id="team-dedicated-fans" class="control tiny" type="number" min="1" max="6" value="${escapeHtml(team.fanFactor)}"></label>
+      <button type="button" class="btn" data-action="save-dedicated-fans">Save dedicated fans</button>
+    </div>
+  </section>`;
+}
+
+function renderTeamPlayers(team) {
+  const players = safeArray(team.players);
+  const fired = safeArray(team.firedPlayers);
+  const roster = selectedTeamRoster();
+  const positions = safeArray(roster?.positions).filter((position) => position?.isStar !== true && !/star|staff/i.test(String(position?.type ?? "")));
+  const fieldable = players.filter((player) => !/temporarilyretired/i.test(String(player?.status ?? "").replace(/[\s_-]+/g, ""))).length;
+  const needed = Math.max(0, 11 - fieldable);
+  const journeymanPositions = positions.filter((position) => position.max === 12 || position.max === 16);
+  return `<section class="panel">
+    <div class="section-head"><div class="section-title">${title("Players")}</div><span class="section-note">${players.length} rostered · ${fired.length} fired / retired</span><span class="grow"></span><button type="button" class="btn" data-action="save-renumber">Save numbers</button></div>
+    ${players.length ? `<div class="admin-table-wrap"><table class="admin-table team-player-table"><thead><tr><th>#</th><th>Player</th><th>Position</th><th>Status</th><th>Value</th><th>Actions</th></tr></thead><tbody>${players.map((player) => {
+      const temporary = /temporarilyretired/i.test(String(player.status ?? "").replace(/[\s_-]+/g, ""));
+      return `<tr><td><input class="control tiny" type="number" min="1" max="99" data-player-number data-player-id="${escapeHtml(player.id)}" value="${escapeHtml(player.number)}"></td>
+        <td><span class="team-player-name">${escapeHtml(player.name)}</span><span class="team-player-detail">ID ${escapeHtml(player.id)}${player.skills?.length ? ` · ${escapeHtml(player.skills.join(", "))}` : ""}${player.injuries?.length ? ` · ${escapeHtml(player.injuries.join(", "))}` : ""}</span></td>
+        <td>${escapeHtml(player.position ?? player.positionId)}</td><td>${escapeHtml(player.status ?? "Active")}</td><td>${escapeHtml(goldLabel(player.currentValue))}</td>
+        <td class="actions-cell"><div class="row-actions">
+          <button type="button" class="btn compact" data-action="player-mutation" data-operation="firePlayer" data-player-id="${escapeHtml(player.id)}">Fire</button>
+          <button type="button" class="btn compact" data-action="player-mutation" data-operation="retirePlayer" data-player-id="${escapeHtml(player.id)}">Retire</button>
+          <button type="button" class="btn compact" data-action="player-mutation" data-operation="${temporary ? "undoTemporaryRetire" : "temporaryRetirePlayer"}" data-player-id="${escapeHtml(player.id)}">${temporary ? "Undo temp" : "Temp retire"}</button>
+          <button type="button" class="btn compact" data-action="player-mutation" data-operation="refundPlayer" data-player-id="${escapeHtml(player.id)}">Refund</button>
+        </div></td></tr>`;
+    }).join("")}</tbody></table></div>` : '<div class="hint">This team has no rostered players.</div>'}
+  </section>
+  <section class="panel">
+    <div class="section-title">${title("Hire Player")}</div>
+    ${positions.length ? `<div class="form-grid three">
+      <label class="field"><span class="field-label">Position</span><select id="team-player-position" class="control">${positions.map((position) => `<option value="${escapeHtml(position.positionId)}">${escapeHtml(position.name)} · ${escapeHtml(goldLabel(position.cost))} · max ${escapeHtml(position.max)}</option>`).join("")}</select></label>
+      <label class="field"><span class="field-label">Name</span><input id="team-player-name" class="control" maxlength="100"></label>
+      <label class="field"><span class="field-label">Gender</span><select id="team-player-gender" class="control"><option value="male">Male</option><option value="female">Female</option><option value="neutral">Neutral</option></select></label>
+    </div><button type="button" class="btn primary" data-action="add-player">Add player</button>` : '<div class="validation">The stored roster could not be matched in the server roster catalog, so no authoritative position picker is available.</div>'}
+  </section>
+  <section class="panel">
+    <div class="section-title">${title("Fired Players")}</div>
+    ${fired.length ? `<div class="inset-list">${fired.map((player) => `<div class="inset-row"><span class="grow"><span class="team-player-name">${escapeHtml(player.name)}</span><span class="team-player-detail">${escapeHtml(player.position ?? player.positionId)} · ${escapeHtml(player.reason)}</span></span><button type="button" class="btn" data-action="player-mutation" data-operation="rehirePlayer" data-player-id="${escapeHtml(player.id)}">Rehire</button></div>`).join("")}</div>` : '<div class="hint">No fired or retired players are stored.</div>'}
+  </section>
+  <section class="panel">
+    <div class="section-title">${title("Ready State")}</div>
+    <div class="hint">The server remains authoritative for fieldable-player and journeyman rules. Enter any required journeyman quantities before Ready.</div>
+    ${journeymanPositions.length ? `<div class="journeyman-grid">${journeymanPositions.map((position) => `<label class="field"><span class="field-label">${escapeHtml(position.name)} journeymen</span><input class="control tiny" type="number" min="0" max="16" value="0" data-journeyman-position="${escapeHtml(position.positionId)}"></label>`).join("")}</div>` : ""}
+    <div class="inline-controls"><span class="chip">${needed} needed for 11 fieldable</span><button type="button" class="btn primary" data-action="ready-team">Ready</button><button type="button" class="btn" data-action="team-mutation" data-operation="unready">Unready</button></div>
+  </section>`;
+}
+
+function renderTeamEditor() {
+  const team = state.teamDetail;
+  if (state.teamLoading && !team) return '<div class="loading-banner">Loading team detail…</div>';
+  if (!team) return '<section class="panel"><div class="hint">Select a search result to open the full team editor.</div></section>';
+  return `<section class="panel team-editor-head">
+    <div class="section-head"><div><div class="section-title">${escapeHtml(team.name)}</div><div class="section-note">#${escapeHtml(team.id)} · ${escapeHtml(state.selectedTeam?.coach ?? "")} · ${escapeHtml(team.race)}</div></div><span class="grow"></span><button type="button" class="btn" data-action="refresh-team">Refresh detail</button></div>
+    <div class="team-metrics"><div><span>Treasury</span><strong>${escapeHtml(goldLabel(team.treasury))}</strong></div><div><span>Team value</span><strong>${escapeHtml(team.teamValue)}</strong></div><div><span>Status</span><strong>${escapeHtml(team.teamStatus)}</strong></div><div><span>Revision</span><strong>${escapeHtml(team.revision)}</strong></div></div>
+    <div class="form-grid">
+      <label class="field"><span class="field-label">Team name</span><input id="team-new-name" class="control" maxlength="100" value="${escapeHtml(team.name)}"></label>
+      <div class="field"><span class="field-label">Rename (pre-flight name check)</span><button type="button" class="btn" data-action="rename-team">Check &amp; rename</button></div>
+    </div>
+    <div class="inline-controls"><button type="button" class="flag-toggle${team.resurrection === true ? " active" : ""}" role="switch" aria-checked="${team.resurrection === true}" data-action="team-resurrection" data-enabled="${team.resurrection !== true}">Resurrection ${team.resurrection === true ? "on" : "off"}</button></div>
+  </section>
+  ${renderTeamStaff(team)}
+  ${renderTeamPlayers(team)}`;
+}
+
+function renderTeams() {
+  return `${renderMessage()}${renderErrors()}${renderTeamSearch()}${renderTeamEditor()}`;
+}
+
+function renderTeamRail() {
+  const team = state.teamDetail;
+  return `<section class="summary-card"><div class="rail-title">${title("Admin Team Editor")}</div><div class="boundary-note">Admin authorization resolves the stored owner on the server. All mutation controls remain available; XML integrity, authoritative prices, roster caps, treasury, and value bookkeeping are still enforced server-side.</div></section>
+  ${team ? `<section class="summary-card"><div class="rail-title">${title("Selected Team")}</div><div class="summary-row"><span>Name</span><span>${escapeHtml(team.name)}</span></div><div class="summary-row"><span>ID</span><span>${escapeHtml(team.id)}</span></div><div class="summary-row"><span>Coach</span><span>${escapeHtml(state.selectedTeam?.coach ?? "")}</span></div><div class="summary-row"><span>Roster</span><span>${escapeHtml(team.race)}</span></div><div class="summary-row"><span>Players</span><span>${escapeHtml(safeArray(team.players).length)}</span></div></section>` : ""}`;
+}
+
 function renderModal() {
   if (!state.modal) {
     modalRoot.innerHTML = "";
@@ -431,6 +555,9 @@ function render() {
   } else if (state.section === "users") {
     workspace.innerHTML = renderUsers();
     rightRail.innerHTML = renderUserRail();
+  } else if (state.section === "teams") {
+    workspace.innerHTML = renderTeams();
+    rightRail.innerHTML = renderTeamRail();
   } else {
     workspace.innerHTML = renderGames();
     rightRail.innerHTML = renderGameRail();
@@ -496,6 +623,11 @@ async function logout() {
   state.connected = false;
   state.editingIdentity = "";
   state.modal = null;
+  state.teamResults = [];
+  state.selectedTeam = null;
+  state.teamDetail = null;
+  state.teamRosters = [];
+  state.teamLoading = false;
   setMessage("");
   render();
 }
@@ -733,6 +865,175 @@ async function launchTournamentMatch() {
   }
 }
 
+async function searchTeams() {
+  const query = document.querySelector("#team-search-query")?.value.trim() ?? state.teamQuery.trim();
+  state.teamQuery = query;
+  if (!query) {
+    state.teamResults = [];
+    setMessage("Enter a team name, team ID, or coach name to search.", "error");
+    render();
+    return;
+  }
+  state.teamLoading = true;
+  setMessage("");
+  render();
+  try {
+    const result = await requestJson(`/api/admin/teams/search?q=${encodeURIComponent(query)}&mode=${encodeURIComponent(state.teamSearchMode)}`, authOptions());
+    state.teamResults = safeArray(result);
+    if (!state.teamResults.length) setMessage(`No ${state.teamSearchMode} matches for “${query}”.`, "error");
+  } catch (error) {
+    state.teamResults = [];
+    setMessage(serverMessage(error), "error");
+  } finally {
+    state.teamLoading = false;
+    render();
+  }
+}
+
+async function loadSelectedTeam() {
+  const teamId = String(state.selectedTeam?.teamId ?? "");
+  if (!teamId) return;
+  state.teamLoading = true;
+  render();
+  const requests = [requestJson(`/api/teams/${encodeURIComponent(teamId)}/detail`, authOptions())];
+  if (!state.teamRosters.length) requests.push(requestJson("/api/fork/rosters", authOptions()));
+  const results = await Promise.allSettled(requests);
+  const detailResult = results[0];
+  if (detailResult.status === "rejected") {
+    state.teamDetail = null;
+    setMessage(serverMessage(detailResult.reason), "error");
+  } else {
+    state.teamDetail = detailResult.value?.team ?? null;
+    if (!state.teamDetail) setMessage("Team detail response did not include a team.", "error");
+  }
+  const rosterResult = results[1];
+  if (rosterResult?.status === "fulfilled") {
+    state.teamRosters = [...safeArray(rosterResult.value?.rosters), ...safeArray(rosterResult.value?.slRosters)];
+  } else if (rosterResult?.status === "rejected") {
+    setMessage(`Team detail loaded, but the roster position catalog failed: ${serverMessage(rosterResult.reason)}`, "error");
+  }
+  state.teamLoading = false;
+  render();
+}
+
+async function selectTeam(teamId) {
+  const row = safeArray(state.teamResults).find((entry) => String(entry?.teamId) === String(teamId));
+  if (!row) return;
+  state.selectedTeam = row;
+  state.teamDetail = null;
+  setMessage("");
+  await loadSelectedTeam();
+}
+
+async function mutateSelectedTeam(operation, patch = {}, success = "Team updated.") {
+  const teamId = String(state.selectedTeam?.teamId ?? "");
+  if (!teamId || state.busy) return;
+  state.busy = true;
+  setMessage("");
+  render();
+  let mutationCompleted = false;
+  try {
+    await requestJson(`/api/team/${encodeURIComponent(operation)}`, authOptions("POST", { teamId, ...patch }));
+    mutationCompleted = true;
+    const detail = await requestJson(`/api/teams/${encodeURIComponent(teamId)}/detail`, authOptions());
+    state.teamDetail = detail?.team ?? null;
+    if (!state.teamDetail) throw new Error("Team detail response did not include a team.");
+    state.selectedTeam = { ...state.selectedTeam, name: state.teamDetail.name, roster: state.teamDetail.race };
+    setMessage(success);
+  } catch (error) {
+    setMessage(mutationCompleted ? `The mutation completed, but detail refresh failed: ${serverMessage(error)}` : serverMessage(error), "error");
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function renameSelectedTeam() {
+  const newName = document.querySelector("#team-new-name")?.value.trim() ?? "";
+  if (!newName) {
+    setMessage("Enter a non-empty team name.", "error");
+    render();
+    return;
+  }
+  if (newName === state.teamDetail?.name) {
+    setMessage("Enter a different team name before renaming.", "error");
+    render();
+    return;
+  }
+  try {
+    const preflight = await requestJson("/api/team/checkName", authOptions("POST", { name: newName }));
+    if (preflight?.ok !== true) {
+      setMessage(String(preflight?.error ?? "That team name is unavailable."), "error");
+      render();
+      return;
+    }
+  } catch (error) {
+    setMessage(serverMessage(error), "error");
+    render();
+    return;
+  }
+  await mutateSelectedTeam("rename", { newName }, `Renamed team to ${newName}.`);
+}
+
+function runTeamEditorAction(target) {
+  const action = target.dataset.action;
+  if (action === "team-mutation") {
+    const operation = target.dataset.operation;
+    if (operation) mutateSelectedTeam(operation, {}, `${operation} completed.`);
+  }
+  if (action === "player-mutation") {
+    const operation = target.dataset.operation;
+    const playerId = target.dataset.playerId;
+    if (operation && playerId) mutateSelectedTeam(operation, { playerId }, `${operation} completed.`);
+  }
+  if (action === "save-dedicated-fans") {
+    const newDf = Number(document.querySelector("#team-dedicated-fans")?.value);
+    if (!Number.isInteger(newDf)) {
+      setMessage("Dedicated fans must be an integer from 1 to 6.", "error");
+      render();
+    } else {
+      mutateSelectedTeam("changeDedicatedFans", { newDf }, "Dedicated fans updated.");
+    }
+  }
+  if (action === "save-renumber") {
+    const playerNumbers = {};
+    let valid = true;
+    document.querySelectorAll("[data-player-number]").forEach((input) => {
+      const number = Number(input.value);
+      if (!Number.isInteger(number)) valid = false;
+      playerNumbers[input.dataset.playerId] = number;
+    });
+    if (!valid) {
+      setMessage("Every player number must be an integer from 1 to 99.", "error");
+      render();
+    } else {
+      mutateSelectedTeam("renumber", { playerNumbers }, "Player numbers saved.");
+    }
+  }
+  if (action === "add-player") {
+    const positionId = document.querySelector("#team-player-position")?.value ?? "";
+    const name = document.querySelector("#team-player-name")?.value.trim() ?? "";
+    const gender = document.querySelector("#team-player-gender")?.value ?? "";
+    if (!positionId || !name || !gender) {
+      setMessage("Choose a position, player name, and gender.", "error");
+      render();
+    } else {
+      mutateSelectedTeam("addPlayer", { positionId, name, gender }, `Added ${name}.`);
+    }
+  }
+  if (action === "ready-team") {
+    const journeymen = [...document.querySelectorAll("[data-journeyman-position]")]
+      .map((input) => ({ positionId: input.dataset.journeymanPosition, quantity: Number(input.value) }))
+      .filter((entry) => Number.isInteger(entry.quantity) && entry.quantity > 0);
+    mutateSelectedTeam("ready", { journeymen }, "Team readied.");
+  }
+  if (action === "team-resurrection") {
+    mutateSelectedTeam("setResurrection", { resurrection: target.dataset.enabled === "true" }, "Resurrection setting updated.");
+  }
+  if (action === "rename-team") renameSelectedTeam();
+  if (action === "refresh-team") loadSelectedTeam();
+}
+
 toolbar.addEventListener("click", (event) => {
   const target = event.target.closest("[data-action]");
   if (!target) return;
@@ -740,7 +1041,7 @@ toolbar.addEventListener("click", (event) => {
   if (target.dataset.action === "discord-login") location.assign("/api/auth/discord/start?next=/admin.html");
   if (target.dataset.action === "logout") logout();
   if (target.dataset.action === "section") {
-    state.section = target.dataset.section === "games" ? "games" : "users";
+    state.section = ["users", "teams", "games"].includes(target.dataset.section) ? target.dataset.section : "users";
     state.editingIdentity = "";
     setMessage("");
     render();
@@ -760,6 +1061,26 @@ workspace.addEventListener("click", (event) => {
   if (!target) return;
   const action = target.dataset.action;
   const forkName = target.dataset.forkName ?? "";
+  if (action === "team-search-mode") {
+    state.teamQuery = document.querySelector("#team-search-query")?.value ?? state.teamQuery;
+    state.teamSearchMode = target.dataset.mode ?? "name";
+    state.teamResults = [];
+    setMessage("");
+    render();
+  }
+  if (action === "team-search") searchTeams();
+  if (action === "select-team") selectTeam(target.dataset.teamId ?? "");
+  if ([
+    "team-mutation",
+    "player-mutation",
+    "save-dedicated-fans",
+    "save-renumber",
+    "add-player",
+    "ready-team",
+    "team-resurrection",
+    "rename-team",
+    "refresh-team",
+  ].includes(action)) runTeamEditorAction(target);
   if (action === "refresh") loadData();
   if (action === "edit-identities") { state.editingIdentity = forkName; render(); }
   if (action === "cancel-identities") { state.editingIdentity = ""; render(); }
@@ -792,6 +1113,10 @@ rightRail.addEventListener("click", (event) => {
   if (target.dataset.action === "broadcast") broadcastMessage();
   if (target.dataset.action === "schedule") scheduleGame();
   if (target.dataset.action === "tournament-launch") launchTournamentMatch();
+});
+
+workspace.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && event.target.id === "team-search-query") searchTeams();
 });
 
 rightRail.addEventListener("change", () => {});

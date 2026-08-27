@@ -563,6 +563,18 @@ describe("P3 player lifecycle", () => {
     expect(history).toMatchObject({ status: 400, body: { error: expect.stringMatching(/cannot be refunded/i) } });
   });
 
+  it("lets only admins bypass the refund NEW-team gate", async () => {
+    const d = setup(teamWithPlayers(2, "1"), P3_ROSTER);
+    expect(await mutate(d, "refundPlayer", { teamId: "42", playerId: "p1" })).toMatchObject({
+      status: 400,
+      body: { error: expect.stringMatching(/before a team's first game/i) },
+    });
+    expect(await teamMutationEndpoint({ admin: true }, "refundPlayer", { teamId: "42", playerId: "p1" }, d.deps)).toMatchObject({
+      status: 200,
+      body: { number: 0 },
+    });
+  });
+
   it("toggles temporary retirement via the status attribute", async () => {
     const eligible = teamWithPlayers(2).replace(
       "<skillList></skillList></player>",
@@ -606,6 +618,26 @@ describe("P3 player lifecycle", () => {
     const result = await mutate(d, "temporaryRetirePlayer", { teamId: "42", playerId: "p1" });
     expect(result).toMatchObject({ status: 400, body: { error: expect.stringMatching(/fresh stat-reducing injury/i) } });
     expect(snapshot(d)).toEqual(before);
+  });
+
+  it("lets only admins bypass temporary-retirement recency and journeyman gates", async () => {
+    const oldInjury = teamWithPlayers(2).replace(
+      "<skillList></skillList></player>",
+      "<skillList></skillList><injuryList><injury>Smashed Knee (-MA)</injury></injuryList></player>",
+    );
+    const old = setup(oldInjury, P3_ROSTER);
+    expect(await mutate(old, "temporaryRetirePlayer", { teamId: "42", playerId: "p1" })).toMatchObject({
+      status: 400,
+      body: { error: expect.stringMatching(/fresh stat-reducing injury/i) },
+    });
+    expect(await teamMutationEndpoint({ admin: true }, "temporaryRetirePlayer", { teamId: "42", playerId: "p1" }, old.deps)).toMatchObject({ status: 200 });
+
+    const journeyman = setup(teamWithPlayers(2).replace('<player nr="1" id="p1">', '<player status="journeyman" nr="1" id="p1">'), P3_ROSTER);
+    expect(await mutate(journeyman, "temporaryRetirePlayer", { teamId: "42", playerId: "p1" })).toMatchObject({
+      status: 400,
+      body: { error: expect.stringMatching(/journeyman/i) },
+    });
+    expect(await teamMutationEndpoint({ admin: true }, "temporaryRetirePlayer", { teamId: "42", playerId: "p1" }, journeyman.deps)).toMatchObject({ status: 200 });
   });
 });
 
@@ -653,6 +685,15 @@ describe("P3 ready/unready", () => {
     expect(await mutate(fresh, "unready", { teamId: "42" })).toMatchObject({
       status: 400, body: { error: expect.stringMatching(/only a ready team/i) },
     });
+  });
+
+  it("lets only admins bypass the ready NEW-team gate", async () => {
+    const d = setup(teamWithPlayers(11, "7"), P3_ROSTER);
+    expect(await mutate(d, "ready", { teamId: "42", journeymen: [] })).toMatchObject({
+      status: 400,
+      body: { error: expect.stringMatching(/post-game parity/i) },
+    });
+    expect(await teamMutationEndpoint({ admin: true }, "ready", { teamId: "42", journeymen: [] }, d.deps)).toMatchObject({ status: 200 });
   });
 
   it("unreadies an active team back to status 0", async () => {

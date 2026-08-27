@@ -83,7 +83,16 @@ import {
   verifyCoachDigest,
   type LibraryTeam,
 } from "@bb/fork-ops";
-import { PackageFiles, readCoachRegistry, readCoaches, skillCatalog, starList, teamList } from "./data";
+import {
+  PackageFiles,
+  readCoachRegistry,
+  readCoaches,
+  searchStoredAdminTeams,
+  skillCatalog,
+  starList,
+  teamList,
+  type AdminTeamSearchMode,
+} from "./data";
 import { packageResponseInfo, packageRulesInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
 import { PRESETS } from "./presets";
 import { handleAuthPortal } from "./auth/portal.js";
@@ -219,6 +228,7 @@ const PUBLIC_PATHS = new Set([
   "/api/fork/login",
   // Internally true-admin-gated; listed here so sidecar-off admin Bearer tokens can reach the handler.
   "/api/admin/identities",
+  "/api/admin/teams/search",
   // Internally organizer-or-admin gated; PUBLIC_PATHS matching is exact, so keep the literal here.
   "/api/admin/identities/naf",
   "/api/skills",
@@ -549,6 +559,9 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
       (method === "GET" || method === "HEAD") &&
       (pathname === "/" ||
         pathname === "/index.html" ||
+        pathname === "/control-panel.html" ||
+        pathname === "/theme.css" ||
+        pathname === "/theme.js" ||
         pathname === "/tournament-rules.html" ||
         pathname === "/tournament-rules.css" ||
         pathname === "/tournament-rules.js" ||
@@ -646,7 +659,7 @@ const readBody = (req: IncomingMessage, maxBytes = DEFAULT_JSON_BODY_CAP): Promi
   readJsonBody(req, maxBytes);
 
 async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> {
-  const rel = urlPath === "/" ? "/index.html" : urlPath;
+  const rel = urlPath === "/" || urlPath === "/index.html" ? "/control-panel.html" : urlPath;
   // prevent path traversal
   const full = normalize(join(PUBLIC_DIR, rel));
   if (!full.startsWith(PUBLIC_DIR)) {
@@ -1037,6 +1050,17 @@ async function handleApi(
     }
   }
 
+  if (path === "/api/admin/teams/search" && method === "GET") {
+    if (!requireAdminLevel(req, res, auth)) return;
+    const q = query.get("q")?.trim() ?? "";
+    const rawMode = query.get("mode");
+    if (q.length > 200) return sendJson(res, 400, { error: "q must be at most 200 characters." });
+    if (rawMode !== "name" && rawMode !== "id" && rawMode !== "coach") {
+      return sendJson(res, 400, { error: "mode must be name, id, or coach." });
+    }
+    return sendJson(res, 200, searchStoredAdminTeams(LIBRARY_DIR, q, rawMode as AdminTeamSearchMode));
+  }
+
   if (path === "/api/skills" && method === "GET") return sendJson(res, 200, skillCatalog());
 
   if (path === "/api/teams" && method === "GET") return sendJson(res, 200, teamList());
@@ -1077,7 +1101,14 @@ async function handleApi(
 
   const detailTeamId = teamDetailIdFromPath(path);
   if (detailTeamId && method === "GET") {
-    const result = teamDetailEndpoint(auth, detailTeamId, {
+    const adminAuthed = auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req);
+    let detailAuth = auth;
+    if (adminAuthed) {
+      const owner = libraryOwnerForTeam(detailTeamId);
+      if (!owner) return sendJson(res, 404, { error: "Team not found." });
+      detailAuth = { coach: owner, organizer: true, admin: true };
+    }
+    const result = teamDetailEndpoint(detailAuth, detailTeamId, {
       libraryDir: LIBRARY_DIR,
       teamsDir: forkConfigFromEnv()?.teamsDir,
       tokenSecret: TEAM_ADVANCEMENT_TOKEN_SECRET,
@@ -2427,6 +2458,17 @@ export const server = createServer((req, res) => {
       // name/generate is the same public read-only posture as checkName (contract §3A).
       if ((req.method === "POST" || req.method === "GET") && nameGeneratePath(url.pathname)) {
         return await handleApi(req, res, url.pathname, url.searchParams);
+      }
+      if (
+        (req.method === "GET" || req.method === "HEAD") &&
+        (url.pathname === "/" ||
+          url.pathname === "/index.html" ||
+          url.pathname === "/control-panel.html" ||
+          url.pathname === "/theme.css" ||
+          url.pathname === "/theme.js")
+      ) {
+        await serveStatic(res, url.pathname);
+        return;
       }
       if (AUTH_SIDECAR) {
         if (

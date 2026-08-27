@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Super FUMBBL — Control Panel</title>
+  <link rel="stylesheet" href="./theme.css">
+  <link rel="stylesheet" href="./tournament-rules.css">
+  <script src="./theme.js" defer></script>
+  <style>
+    body { background: var(--ui-secondary); color: var(--ui-text); }
+    .page-shell { background: var(--ui-secondary); }
+    .hub-main { flex: 1; width: min(1120px, 100%); margin: 0 auto; padding: 34px 20px 64px; }
+    .hub-intro { max-width: 720px; margin-bottom: 24px; }
+    .hub-intro h1 { margin: 0 0 8px; color: var(--ui-heading); font-size: 21px; font-weight: normal; letter-spacing: .12em; }
+    .hub-intro p { margin: 0; color: var(--ui-muted); line-height: 1.6; }
+    .hub-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .hub-card {
+      display: flex;
+      min-height: 150px;
+      flex-direction: column;
+      gap: 12px;
+      border: 1px solid var(--ui-border);
+      border-radius: 7px;
+      background: var(--ui-surface);
+      color: var(--ui-text);
+      padding: 20px;
+      box-shadow: 0 5px 16px rgba(0,0,0,.38);
+      text-decoration: none;
+      transition: border-color .14s ease, transform .14s ease, background .14s ease;
+    }
+    .hub-card:hover { border-color: var(--ui-primary); background: var(--ui-hover); color: var(--ui-text); transform: translateY(-2px); }
+    .hub-card:focus-visible { border-color: var(--ui-focus); }
+    .hub-card-name { color: var(--ui-heading); font-size: 15px; letter-spacing: .08em; }
+    .hub-card-description { flex: 1; color: var(--ui-muted); font-size: 12px; line-height: 1.55; }
+    .hub-card-destination { color: var(--ui-text-dim); font: 10px ui-monospace, Consolas, monospace; letter-spacing: .04em; }
+    .hub-card.external .hub-card-destination::after { content: " ↗"; }
+    @media (max-width: 850px) { .hub-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 560px) {
+      .brand-header { padding-right: 125px; }
+      .hub-main { padding: 24px 12px 48px; }
+      .hub-grid { grid-template-columns: 1fr; }
+      .hub-card { min-height: 126px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="brand-header">
+      <img class="brand-logo" src="./assets/super-fumbbl-logo.png" alt="Super FUMBBL">
+      <div class="brand-copy">
+        <div class="page-title"><span>C</span>ontrol <span>P</span>anel</div>
+        <div class="page-subtitle">config-web · tournament and fork operations</div>
+      </div>
+    </header>
+
+    <main class="hub-main">
+      <div class="hub-intro">
+        <h1>Choose a workspace</h1>
+        <p>Build teams, configure tournaments, and administer the fork from one landing page. Protected destinations apply their own login gates.</p>
+      </div>
+      <nav class="hub-grid" aria-label="Config web destinations">
+        <a class="hub-card" href="./tournament-rules.html">
+          <span class="hub-card-name">Tournament Rules Editor</span>
+          <span class="hub-card-description">Create, validate, import, and export tournament rules packages.</span>
+          <span class="hub-card-destination">tournament-rules.html</span>
+        </a>
+        <a class="hub-card" href="./team-builder.html">
+          <span class="hub-card-name">Team Builder</span>
+          <span class="hub-card-description">Compose a legal roster and install it into a coach’s fork library.</span>
+          <span class="hub-card-destination">team-builder.html</span>
+        </a>
+        <a class="hub-card" href="./admin.html">
+          <span class="hub-card-name">Admin Console</span>
+          <span class="hub-card-description">Manage teams, identities, live games, scheduling, and fork controls.</span>
+          <span class="hub-card-destination">admin.html</span>
+        </a>
+        <a class="hub-card" href="./users.html">
+          <span class="hub-card-name">Users</span>
+          <span class="hub-card-description">View fork accounts and their linked tournament identities.</span>
+          <span class="hub-card-destination">users.html</span>
+        </a>
+        <a class="hub-card" href="./tournaments.html">
+          <span class="hub-card-name">Tournaments</span>
+          <span class="hub-card-description">Open the tournament operations and scheduling panel.</span>
+          <span class="hub-card-destination">tournaments.html</span>
+        </a>
+        <a id="fork-panel-card" class="hub-card external" href="http://127.0.0.1:22227/panel.html">
+          <span class="hub-card-name">Fork Server Panel</span>
+          <span class="hub-card-description">Open the fork server’s native administration panel on port 22227.</span>
+          <span class="hub-card-destination">panel.html :22227</span>
+        </a>
+      </nav>
+    </main>
+
+    <footer class="footer"><span>Super FUMBBL control panel</span><span class="footer-spacer"></span><span>config-web :4310</span></footer>
+  </div>
+  <script>
+    document.getElementById("fork-panel-card").href = "http://" + (location.hostname || "127.0.0.1") + ":22227/panel.html";
+  </script>
+</body>
+</html>
