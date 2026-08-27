@@ -235,11 +235,26 @@ export const skillPoints: Rule = {
       // Gold+SP legality is owned by the skill-packages rule (joint disjunction).
     } else if (usesCountMode(resolved)) {
       // COUNT mode: separate primary/secondary limits (with optional Secondary Swap).
-      if (!fitsSkillCounts(primaryCount, secondaryCount, resolved.maxPrimary, resolved.maxSecondary, resolved.secondarySwap)) {
+      if (
+        !fitsSkillCounts(
+          primaryCount,
+          secondaryCount,
+          resolved.maxPrimary,
+          resolved.maxSecondary,
+          resolved.secondarySwap,
+          resolved.secondarySwapRatio,
+          resolved.secondarySwapMax,
+        )
+      ) {
+        const swapTerms = resolved.secondarySwap
+          ? ` (secondary swap allowed: ${resolved.secondarySwapRatio} primary -> 1 secondary${
+              resolved.secondarySwapMax != null ? `, max ${resolved.secondarySwapMax}` : ""
+            })`
+          : "";
         const allot =
           `${resolved.maxPrimary ?? "∞"} primary` +
           (resolved.maxSecondary != null ? ` + ${resolved.maxSecondary} secondary` : "") +
-          (resolved.secondarySwap ? " (secondary swap allowed)" : "");
+          swapTerms;
         findings.push(
           err(
             "skill-points",

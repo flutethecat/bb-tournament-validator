@@ -18,12 +18,21 @@ function allotText(
   primary?: number | null,
   secondary?: number | null,
   swap?: boolean,
+  swapRatio?: number,
+  swapMax?: number | null,
   sp?: number | null,
 ): string {
   if (primary != null || secondary != null)
-    return `${primary ?? "∞"} primary${secondary != null ? ` + ${secondary} secondary` : ""}${swap ? " ↔" : ""}`;
+    return `${primary ?? "∞"} primary${secondary != null ? ` + ${secondary} secondary` : ""}${swap ? ` ${swapMarker(swapRatio, swapMax)}` : ""}`;
   return sp != null ? `${sp} SP` : "—";
 }
+
+const swapDescription = (ratio = 2, max?: number | null): string =>
+  `Swap ${ratio} primaries for 1 secondary${max != null ? ` · max ${max}` : ""}`;
+
+/** Keep the legacy plain glyph for the default uncapped 2:1 swap. */
+const swapMarker = (ratio = 2, max?: number | null): string =>
+  ratio === 2 && max == null ? "↔" : `↔ ${ratio}:1${max != null ? ` · max ${max}` : ""}`;
 
 /** Skill-stacking cap ("max players with >1 added skill"); "—" = no cap. */
 const stackText = (n: number | null | undefined): string => (n == null ? "—" : String(n));
@@ -45,13 +54,18 @@ function mode(pkg: TournamentPackage): "matrix" | "tiers" | "teamRules" | "flat"
 
 function matrixSection(pkg: TournamentPackage): string {
   const m = pkg.matrix!;
+  const base = pkg.skillAllotment;
   const teamsAt = (r: number, c: number) =>
     m.cells.filter((cell) => cell.row === r && cell.col === c).flatMap((cell) => cell.teams);
   const head = m.columns.map((col) => `<th>${gp(col.gold)}</th>`).join("");
   const rows = m.rows
     .map((row, r) => {
       const label = row.label || `${row.primary} primary${row.secondary ? ` + ${row.secondary} secondary` : ""}`;
-      const swap = row.secondarySwap ? ' <span class="swap" title="Swap 2 primaries for 1 secondary">↔ swap</span>' : "";
+      const swapRatio = row.secondarySwapRatio ?? base.secondarySwapRatio;
+      const swapMax = row.secondarySwapMax !== undefined ? row.secondarySwapMax : base.secondarySwapMax;
+      const swap = row.secondarySwap
+        ? ` <span class="swap" title="${esc(swapDescription(swapRatio, swapMax))}">${swapMarker(swapRatio, swapMax)} swap</span>`
+        : "";
       const stack = row.maxStackedPlayers != null ? ` <span class="swap" title="Max players with >1 added skill">· stack ≤ ${row.maxStackedPlayers}</span>` : "";
       const cells = m.columns
         .map((_, c) => `<td>${teamsAt(r, c).map(esc).join("<br>") || "—"}</td>`)
@@ -61,48 +75,53 @@ function matrixSection(pkg: TournamentPackage): string {
     .join("");
   return section(
     "Cash × Skills Matrix",
-    `<p class="hint">Each team sits at a cash column (total gold) and a skills row (primary + secondary allotment). “↔ swap” = swap 2 primaries for 1 secondary.</p>
+    `<p class="hint">Each team sits at a cash column (total gold) and a skills row (primary + secondary allotment). Hover a “↔ swap” marker for its terms.</p>
      <table class="matrix"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}</tbody></table>`,
   );
 }
 
 function tiersSection(pkg: TournamentPackage): string {
+  const base = pkg.skillAllotment;
   const rows = pkg
     .tiers!.slice()
     .sort((a, b) => a.tier - b.tier)
-    .map(
-      (t) =>
-        `<tr><th class="rowhead">Tier ${t.tier}${t.label ? ` — ${esc(t.label)}` : ""}</th>
-         <td>${gp(t.gold)}</td><td>${esc(allotText(t.maxPrimary, t.maxSecondary, t.secondarySwap, t.skillPointBudget))}</td>
+    .map((t) => {
+      const swap = t.secondarySwap ?? base.secondarySwap;
+      const swapRatio = t.secondarySwapRatio ?? base.secondarySwapRatio;
+      const swapMax = t.secondarySwapMax !== undefined ? t.secondarySwapMax : base.secondarySwapMax;
+      return `<tr><th class="rowhead">Tier ${t.tier}${t.label ? ` — ${esc(t.label)}` : ""}</th>
+         <td>${gp(t.gold)}</td><td title="${swap ? esc(swapDescription(swapRatio, swapMax)) : ""}">${esc(allotText(t.maxPrimary, t.maxSecondary, swap, swapRatio, swapMax, t.skillPointBudget))}</td>
          <td>${stackText(t.maxStackedPlayers)}</td>
          <td>${yesNo(t.starPlayersAllowed)}</td><td>${t.bannedStars.map(esc).join(", ") || "—"}</td>
-         <td>${t.rosters.map(esc).join(", ")}</td></tr>`,
-    )
+         <td>${t.rosters.map(esc).join(", ")}</td></tr>`;
+    })
     .join("");
   return section(
     "Tiers",
-    `<p class="hint">Skills = SP budget or count-mode allotment (“↔” = swap 2 primaries for 1 secondary). Stacking = max players allowed more than one added skill.</p>
+    `<p class="hint">Skills = SP budget or count-mode allotment (hover “↔” for swap terms). Stacking = max players allowed more than one added skill.</p>
      <table><thead><tr><th></th><th>Gold</th><th>Skills</th><th>Stacking</th><th>Stars</th><th>Banned stars</th><th>Teams</th></tr></thead><tbody>${rows}</tbody></table>`,
   );
 }
 
 function teamRulesSection(pkg: TournamentPackage): string {
+  const base = pkg.skillAllotment;
   const rows = pkg
-    .teamRules!.map(
-      (t) =>
-        `<tr><th class="rowhead">${esc(t.team)}</th>
+    .teamRules!.map((t) => {
+      const swapRatio = t.secondarySwapRatio ?? base.secondarySwapRatio;
+      const swapMax = t.secondarySwapMax !== undefined ? t.secondarySwapMax : base.secondarySwapMax;
+      return `<tr><th class="rowhead">${esc(t.team)}</th>
          <td>${gp(t.gold ?? null)}</td>
          <td>${t.maxPrimary != null ? t.maxPrimary : "—"}</td>
          <td>${t.maxSecondary != null ? t.maxSecondary : "—"}</td>
-         <td>${t.secondarySwap ? "↔" : "—"}</td>
+         <td title="${t.secondarySwap ? esc(swapDescription(swapRatio, swapMax)) : ""}">${t.secondarySwap ? swapMarker(swapRatio, swapMax) : "—"}</td>
          <td>${stackText(t.maxStackedPlayers)}</td>
          <td>${t.starPlayersAllowed === undefined ? "inherit" : yesNo(t.starPlayersAllowed)}</td>
-         <td>${(t.bannedStars ?? []).map(esc).join(", ") || "—"}</td></tr>`,
-    )
+         <td>${(t.bannedStars ?? []).map(esc).join(", ") || "—"}</td></tr>`;
+    })
     .join("");
   return section(
     "Team Rules",
-    `<p class="hint">“↔” = Secondary Swap: swap 2 primaries for 1 secondary. Stacking = max players with >1 added skill. Blank fields inherit the package defaults.</p>
+    `<p class="hint">“↔” = Secondary Swap (hover for terms). Stacking = max players with >1 added skill. Blank fields inherit the package defaults.</p>
      <table><thead><tr><th></th><th>Gold</th><th>Primary</th><th>Secondary</th><th>Swap</th><th>Stacking</th><th>Stars</th><th>Banned stars</th></tr></thead><tbody>${rows}</tbody></table>`,
   );
 }
@@ -112,7 +131,9 @@ function flatSkillSection(pkg: TournamentPackage): string {
   const budget =
     sa.maxPrimary != null || sa.maxSecondary != null
       ? `${sa.maxPrimary ?? "∞"} primary${sa.maxSecondary != null ? ` + ${sa.maxSecondary} secondary` : ""}` +
-        (sa.secondarySwap ? " (↔ swap 2 primaries for 1 secondary)" : "")
+        (sa.secondarySwap
+          ? ` (↔ ${swapDescription(sa.secondarySwapRatio, sa.secondarySwapMax).toLowerCase()})`
+          : "")
       : `${sa.skillPointBudget} Skill Points`;
   return section(
     "Skill Allotment",

@@ -63,6 +63,32 @@ describe("renderPackageHtml", () => {
     expect(tiered).toContain("3 primary + 2 secondary");
   });
 
+  it("renders custom secondary swap ratio and cap while keeping legacy swaps plain", () => {
+    const custom = renderPackageHtml(
+      pkg({
+        matrix: {
+          columns: [{ gold: 1_110_000 }],
+          rows: [{ primary: 6, secondary: 0, secondarySwap: true, secondarySwapRatio: 3, secondarySwapMax: 1 }],
+          cells: [{ col: 0, row: 0, teams: ["Amazon"] }],
+        },
+      }),
+    );
+    expect(custom).toContain('title="Swap 3 primaries for 1 secondary · max 1"');
+    expect(custom).toContain("↔ 3:1 · max 1 swap");
+
+    const legacy = renderPackageHtml(
+      pkg({
+        matrix: {
+          columns: [{ gold: 1_110_000 }],
+          rows: [{ primary: 4, secondary: 0, secondarySwap: true }],
+          cells: [{ col: 0, row: 0, teams: ["Amazon"] }],
+        },
+      }),
+    );
+    expect(legacy).toContain("↔ swap</span>");
+    expect(legacy).not.toContain("↔ 2:1");
+  });
+
   it("escapes HTML in names to avoid injection", () => {
     const html = renderPackageHtml(pkg({ name: "<script>alert(1)</script>" }));
     expect(html).not.toContain("<script>alert(1)</script>");

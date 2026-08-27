@@ -49,6 +49,28 @@ describe("fitsSkillCounts", () => {
     expect(fitsSkillCounts(7, 1, 8, 0, true)).toBe(false); // 8 - 2 = 6 primary slots < 7
     expect(fitsSkillCounts(6, 1, 8, 0, false)).toBe(false); // no swap allowed
   });
+
+  it("caps a 2:1 secondary swap at one conversion", () => {
+    expect(fitsSkillCounts(2, 1, 4, 0, true, 2, 1)).toBe(true);
+    expect(fitsSkillCounts(0, 2, 4, 0, true, 2, 1)).toBe(false);
+  });
+
+  it("treats max 0 like swap-off even when enabled", () => {
+    expect(fitsSkillCounts(2, 1, 4, 0, true, 2, 0)).toBe(false);
+  });
+
+  it("supports a 3:1 secondary swap ratio", () => {
+    expect(fitsSkillCounts(3, 1, 6, 0, true, 3)).toBe(true);
+    expect(fitsSkillCounts(4, 1, 6, 0, true, 3)).toBe(false);
+  });
+
+  it("keeps legacy boolean-only swaps uncapped at 2:1", () => {
+    expect(fitsSkillCounts(0, 2, 4, 0, true)).toBe(true);
+  });
+
+  it("allows finite swap demand against an unlimited primary cap", () => {
+    expect(fitsSkillCounts(0, 2, null, 0, true)).toBe(true);
+  });
 });
 
 describe("count-mode validation (team rule)", () => {
@@ -108,6 +130,21 @@ describe("count-mode validation (team rule)", () => {
     // 1 secondary skill can downgrade? No: downgrade is secondary-SLOT holding primary-skill, not the reverse.
     expect(errorsOf(r, "skill-points")[0]!.message).toMatch(/0 primary \+ 1 secondary/);
   });
+
+  it("reports the secondary swap ratio and cap on failure", () => {
+    const r = validate(
+      rosterWithSkills([], ["Side Step", "Dodge"]),
+      pkg({
+        teamRules: [
+          { team: "Testers", maxPrimary: 4, maxSecondary: 0, secondarySwap: true, secondarySwapRatio: 2, secondarySwapMax: 1 },
+        ],
+      }),
+      fakeData,
+    );
+    expect(errorsOf(r, "skill-points")[0]!.message).toContain(
+      "secondary swap allowed: 2 primary -> 1 secondary, max 1",
+    );
+  });
 });
 
 describe("matrix resolution", () => {
@@ -143,6 +180,21 @@ describe("matrix resolution", () => {
       fakeData,
     );
     expect(errorsOf(r, "skill-points")[0]!.message).toMatch(/7 primary.*\(matrix\)/);
+  });
+
+  it("a matrix row's swap max overrides the flat allotment", () => {
+    const p = pkg({
+      skillAllotment: { ...pkg().skillAllotment, secondarySwapRatio: 3, secondarySwapMax: 4 },
+      matrix: {
+        columns: [{ gold: 1_110_000 }],
+        rows: [{ primary: 4, secondary: 0, secondarySwap: true, secondarySwapMax: 1 }],
+        cells: [{ col: 0, row: 0, teams: ["Testers"] }],
+      },
+    });
+    const cfg = resolveTeamConfig(p, "Testers");
+    expect(cfg.secondarySwapRatio).toBe(3);
+    expect(cfg.secondarySwapMax).toBe(1);
+    expect(errorsOf(validate(rosterWithSkills([], ["Side Step", "Dodge"]), p, fakeData), "skill-points")).toHaveLength(1);
   });
 
   it("a team not in the matrix is ineligible", () => {

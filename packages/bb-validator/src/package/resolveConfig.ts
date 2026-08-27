@@ -17,6 +17,8 @@ export interface ResolvedTeamConfig {
   maxPrimary: number | null;
   maxSecondary: number | null;
   secondarySwap: boolean;
+  secondarySwapRatio: number;
+  secondarySwapMax: number | null;
   /** Skill stacking cap: max players with >1 added skill (null = no cap). */
   maxStackedPlayers: number | null;
   /** Choose-one gold+SP packages (Spike!-style); when set, gold/SP legality = "fits any package". */
@@ -47,6 +49,8 @@ export function resolveMatrixCell(
       primary: number;
       secondary: number;
       secondarySwap: boolean;
+      secondarySwapRatio?: number;
+      secondarySwapMax?: number | null;
       maxStackedPlayers?: number | null;
     })
   | undefined {
@@ -64,6 +68,8 @@ export function resolveMatrixCell(
     primary: row.primary,
     secondary: row.secondary,
     secondarySwap: row.secondarySwap,
+    secondarySwapRatio: row.secondarySwapRatio,
+    secondarySwapMax: row.secondarySwapMax,
     maxStackedPlayers: row.maxStackedPlayers,
   };
 }
@@ -76,6 +82,8 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     maxPrimary: sa.maxPrimary ?? null,
     maxSecondary: sa.maxSecondary ?? null,
     secondarySwap: sa.secondarySwap ?? false,
+    secondarySwapRatio: sa.secondarySwapRatio ?? 2,
+    secondarySwapMax: sa.secondarySwapMax ?? null,
     maxStackedPlayers: sa.maxStackedPlayers ?? null,
     starPlayersAllowed: pkg.starPlayers.allowed,
     bannedStars: [...(pkg.bannedStars ?? [])],
@@ -94,6 +102,8 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     if (tier.maxPrimary != null) cfg.maxPrimary = tier.maxPrimary;
     if (tier.maxSecondary != null) cfg.maxSecondary = tier.maxSecondary;
     if (tier.secondarySwap !== undefined) cfg.secondarySwap = tier.secondarySwap;
+    if (tier.secondarySwapRatio !== undefined) cfg.secondarySwapRatio = tier.secondarySwapRatio;
+    if (tier.secondarySwapMax !== undefined) cfg.secondarySwapMax = tier.secondarySwapMax;
     if (tier.maxStackedPlayers !== undefined) cfg.maxStackedPlayers = tier.maxStackedPlayers;
     if (tier.skillPackages?.length) cfg.skillPackages = tier.skillPackages;
     cfg.starPlayersAllowed = tier.starPlayersAllowed;
@@ -108,6 +118,8 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     cfg.maxPrimary = cell.primary;
     cfg.maxSecondary = cell.secondary;
     cfg.secondarySwap = cell.secondarySwap;
+    if (cell.secondarySwapRatio !== undefined) cfg.secondarySwapRatio = cell.secondarySwapRatio;
+    if (cell.secondarySwapMax !== undefined) cfg.secondarySwapMax = cell.secondarySwapMax;
     if (cell.maxStackedPlayers !== undefined) cfg.maxStackedPlayers = cell.maxStackedPlayers;
     if (cell.starPlayersAllowed != null) cfg.starPlayersAllowed = cell.starPlayersAllowed;
     addBans(cell.bannedStars);
@@ -121,6 +133,8 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     if (tr.maxPrimary !== undefined) cfg.maxPrimary = tr.maxPrimary;
     if (tr.maxSecondary !== undefined) cfg.maxSecondary = tr.maxSecondary;
     if (tr.secondarySwap !== undefined) cfg.secondarySwap = tr.secondarySwap;
+    if (tr.secondarySwapRatio !== undefined) cfg.secondarySwapRatio = tr.secondarySwapRatio;
+    if (tr.secondarySwapMax !== undefined) cfg.secondarySwapMax = tr.secondarySwapMax;
     if (tr.maxStackedPlayers !== undefined) cfg.maxStackedPlayers = tr.maxStackedPlayers;
     if (tr.starPlayersAllowed !== undefined) cfg.starPlayersAllowed = tr.starPlayersAllowed;
     addBans(tr.bannedStars);
@@ -163,7 +177,8 @@ export function eligibleTeamNames(pkg: TournamentPackage): string[] {
  * Can a team that used `p` primary-access and `s` secondary-access added skills
  * fit within `P` primary + `S` secondary slots?
  * General rule (always): a secondary slot may hold a primary skill (downgrade).
- * Secondary Swap (when allowed): two primary slots may be traded for one secondary.
+ * Secondary Swap (when allowed): `secondarySwapRatio` primary slots may be
+ * traded for one secondary, up to `secondarySwapMax` times when capped.
  */
 export function fitsSkillCounts(
   p: number,
@@ -171,13 +186,17 @@ export function fitsSkillCounts(
   P: number | null,
   S: number | null,
   secondarySwap: boolean,
+  secondarySwapRatio = 2,
+  secondarySwapMax: number | null = null,
 ): boolean {
   const primaryCap = P ?? Infinity;
   const secondaryCap = S ?? Infinity;
-  const maxSwap = secondarySwap && Number.isFinite(primaryCap) ? Math.floor(primaryCap / 2) : 0;
-  // k = secondary skills satisfied by trading 2 primary slots.
-  for (let k = 0; k <= Math.min(s, maxSwap); k++) {
-    const primaryLeft = primaryCap - 2 * k;
+  const capByPrimary = Number.isFinite(primaryCap) ? Math.floor(primaryCap / secondarySwapRatio) : Infinity;
+  const capByMax = secondarySwapMax ?? Infinity;
+  const maxSwap = secondarySwap ? Math.min(s, capByPrimary, capByMax) : 0;
+  // k = secondary skills satisfied by trading primary slots.
+  for (let k = 0; k <= maxSwap; k++) {
+    const primaryLeft = primaryCap - secondarySwapRatio * k;
     const secondaryForSecondary = s - k;
     if (primaryLeft < 0) break;
     if (secondaryForSecondary > secondaryCap) continue;

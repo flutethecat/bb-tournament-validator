@@ -41,6 +41,10 @@ export interface TierDef {
   maxSecondary?: number | null;
   /** Row-level "Secondary Swap": two primary slots may be traded for one secondary. */
   secondarySwap?: boolean;
+  /** Primary slots spent per secondary swap (default 2). */
+  secondarySwapRatio?: number;
+  /** Maximum secondary swaps; null/undefined = unlimited. */
+  secondarySwapMax?: number | null;
   /** Skill stacking: max players allowed >1 added skill (null/undefined = no cap). */
   maxStackedPlayers?: number | null;
   /** Whether Star Players may be hired by teams in this tier. */
@@ -88,6 +92,10 @@ export interface SkillAllotment {
   maxSecondary?: number | null;
   /** Row-level "Secondary Swap": two primary slots may be traded for one secondary. */
   secondarySwap?: boolean;
+  /** Primary slots spent per secondary swap (default 2). */
+  secondarySwapRatio?: number;
+  /** Maximum secondary swaps; null/undefined = unlimited. */
+  secondarySwapMax?: number | null;
 }
 
 /** Per-team override (line-item rules). Any unset field falls back up the chain. */
@@ -98,6 +106,10 @@ export interface TeamRule {
   maxPrimary?: number | null;
   maxSecondary?: number | null;
   secondarySwap?: boolean;
+  /** Primary slots spent per secondary swap (default 2). */
+  secondarySwapRatio?: number;
+  /** Maximum secondary swaps; null/undefined = unlimited. */
+  secondarySwapMax?: number | null;
   maxStackedPlayers?: number | null;
   starPlayersAllowed?: boolean;
   bannedStars?: string[];
@@ -112,6 +124,10 @@ export interface MatrixRow {
   primary: number;
   secondary: number;
   secondarySwap: boolean;
+  /** Primary slots spent per secondary swap (default 2). */
+  secondarySwapRatio?: number;
+  /** Maximum secondary swaps; null/undefined = unlimited. */
+  secondarySwapMax?: number | null;
   /** Skill stacking: max players allowed >1 added skill (null/undefined = no cap). */
   maxStackedPlayers?: number | null;
 }

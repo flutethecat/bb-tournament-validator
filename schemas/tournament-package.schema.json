@@ -33,6 +33,8 @@
           "rosters": { "type": "array", "items": { "type": "string" } },
           "gold": { "type": ["number", "null"], "description": "Per-tier gold cap; null = fall back to goldBudget." },
           "skillPointBudget": { "type": ["number", "null"], "description": "Per-tier SP budget; null = fall back to skillAllotment.skillPointBudget." },
+          "secondarySwapRatio": { "type": "number", "minimum": 1, "multipleOf": 1, "description": "Primary slots spent per secondary swap (default 2)." },
+          "secondarySwapMax": { "type": ["number", "null"], "minimum": 0, "multipleOf": 1, "description": "Maximum secondary swaps; null means unlimited." },
           "starPlayersAllowed": { "type": "boolean" },
           "bannedStars": { "type": "array", "items": { "type": "string" } }
         }
@@ -65,7 +67,9 @@
         "maxSameSkillTeamwide": { "type": ["number", "null"], "default": null, "description": "Max copies of one added skill across the whole team." },
         "maxPrimary": { "type": ["number", "null"], "description": "COUNT mode: max primary-access added skills (instead of the SP budget)." },
         "maxSecondary": { "type": ["number", "null"], "description": "COUNT mode: max secondary-access added skills." },
-        "secondarySwap": { "type": "boolean", "description": "Allow trading two primary slots for one secondary." }
+        "secondarySwap": { "type": "boolean", "description": "Allow trading two primary slots for one secondary." },
+        "secondarySwapRatio": { "type": "number", "minimum": 1, "multipleOf": 1, "description": "Primary slots spent per secondary swap (default 2)." },
+        "secondarySwapMax": { "type": ["number", "null"], "minimum": 0, "multipleOf": 1, "description": "Maximum secondary swaps; null means unlimited." }
       }
     },
 
@@ -83,6 +87,8 @@
           "maxPrimary": { "type": ["number", "null"] },
           "maxSecondary": { "type": ["number", "null"] },
           "secondarySwap": { "type": "boolean" },
+          "secondarySwapRatio": { "type": "number", "minimum": 1, "multipleOf": 1, "description": "Primary slots spent per secondary swap (default 2)." },
+          "secondarySwapMax": { "type": ["number", "null"], "minimum": 0, "multipleOf": 1, "description": "Maximum secondary swaps; null means unlimited." },
           "starPlayersAllowed": { "type": "boolean" },
           "bannedStars": { "type": "array", "items": { "type": "string" } }
         }
@@ -96,7 +102,7 @@
       "additionalProperties": false,
       "properties": {
         "columns": { "type": "array", "items": { "type": "object", "required": ["gold"], "properties": { "gold": { "type": "number" } } } },
-        "rows": { "type": "array", "items": { "type": "object", "required": ["primary", "secondary", "secondarySwap"], "properties": { "label": { "type": "string" }, "primary": { "type": "number" }, "secondary": { "type": "number" }, "secondarySwap": { "type": "boolean" } } } },
+        "rows": { "type": "array", "items": { "type": "object", "required": ["primary", "secondary", "secondarySwap"], "properties": { "label": { "type": "string" }, "primary": { "type": "number" }, "secondary": { "type": "number" }, "secondarySwap": { "type": "boolean" }, "secondarySwapRatio": { "type": "number", "minimum": 1, "multipleOf": 1, "description": "Primary slots spent per secondary swap (default 2)." }, "secondarySwapMax": { "type": ["number", "null"], "minimum": 0, "multipleOf": 1, "description": "Maximum secondary swaps; null means unlimited." } } } },
         "cells": { "type": "array", "items": { "type": "object", "required": ["col", "row", "teams"], "properties": { "col": { "type": "number" }, "row": { "type": "number" }, "teams": { "type": "array", "items": { "type": "string" } }, "starPlayersAllowed": { "type": "boolean" }, "bannedStars": { "type": "array", "items": { "type": "string" } } } } }
       }
     },
