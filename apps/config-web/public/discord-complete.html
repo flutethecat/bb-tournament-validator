@@ -13,7 +13,7 @@
       <img class="brand-logo" src="./assets/super-fumbbl-logo.png" alt="Super FUMBBL">
       <div class="brand-copy">
         <div class="page-title"><span>D</span>iscord <span>S</span>ign-In</div>
-        <div class="page-subtitle">Verify your identity and choose your fork coach name</div>
+        <div class="page-subtitle">Verify your identity and link or create your fork coach</div>
       </div>
     </header>
 
@@ -38,6 +38,11 @@
                 <span class="field-label">Fork coach name</span>
                 <input id="ffb-coach-id" class="control" maxlength="40" required autocomplete="username">
                 <span id="name-availability" class="field-help" role="status" aria-live="polite"></span>
+              </label>
+              <label class="field" id="fork-password-field" hidden>
+                <span class="field-label">Existing fork password</span>
+                <input id="fork-password" class="control" type="password" autocomplete="current-password">
+                <span class="field-help">Used once to prove ownership. Your existing game account and password are not changed.</span>
               </label>
             </div>
             <div class="inline-controls">

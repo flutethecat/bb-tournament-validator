@@ -164,11 +164,14 @@ import {
   buildDiscordOauthStateCookie,
   buildDiscordPendingCookie,
   coachNameAvailable,
+  completeDiscordCoachAssociation,
   discordAvatarUrl,
   discordAuthorizeUrl,
+  discordCompletionErrorUrl,
   discordOauthConfigFromEnv,
   discordSsoEnabled,
   discordOauthStateMatches,
+  discordStartHostGuard,
   fetchDiscordIdentity,
   sessionOwnsCoach,
   shouldBlockExistingRegistration,
@@ -746,6 +749,12 @@ async function handleApi(
   if (path === "/api/auth/discord/start" && method === "GET") {
     const config = discordOauthConfigFromEnv();
     if (!config) return sendJson(res, 503, { error: "Discord SSO not configured" });
+    const hostGuard = discordStartHostGuard(config, req.headers.host, query);
+    if (hostGuard.kind === "redirect") {
+      res.writeHead(hostGuard.status, { location: hostGuard.location, "cache-control": "no-store" });
+      res.end();
+      return;
+    }
     const state = discordOauthStates.create(validatedNextPath(query.get("next")));
     res.writeHead(302, {
       location: discordAuthorizeUrl(config, state),
@@ -762,15 +771,30 @@ async function handleApi(
     const secure = requestUsesTls(req);
     const cookies = parseCookies(req.headers.cookie);
     const expectedState = cookies.get(DISCORD_OAUTH_STATE_COOKIE);
-    if (!discordOauthStateMatches(expectedState, query.get("state"))) {
+    const submittedState = query.get("state");
+    const failState = (error: "host-browser-mismatch" | "expired" | "invalid-state") => {
+      res.writeHead(302, {
+        location: discordCompletionErrorUrl(config, error),
+        "set-cookie": buildClearDiscordOauthStateCookie(secure),
+        "cache-control": "no-store",
+      });
+      res.end();
+    };
+    if (!expectedState) {
+      failState(submittedState && discordOauthStates.has(submittedState)
+        ? "host-browser-mismatch"
+        : "expired");
+      return;
+    }
+    if (!discordOauthStateMatches(expectedState, submittedState)) {
       discordOauthStates.delete(expectedState);
-      res.setHeader("set-cookie", buildClearDiscordOauthStateCookie(secure));
-      return sendJson(res, 400, { error: "Invalid Discord OAuth state." });
+      failState("invalid-state");
+      return;
     }
     const next = discordOauthStates.consume(expectedState);
     if (!next) {
-      res.setHeader("set-cookie", buildClearDiscordOauthStateCookie(secure));
-      return sendJson(res, 400, { error: "Invalid or expired Discord OAuth state." });
+      failState("expired");
+      return;
     }
     const code = query.get("code");
     if (!code) {
@@ -829,59 +853,38 @@ async function handleApi(
     }
     if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody))
       return sendJson(res, 400, { error: "A JSON object is required." });
-    const body = rawBody as { ffbCoachId?: unknown };
     const existingFfbCoachId = ffbCoachIdForDiscordId(pending.discordId);
-    const submittedFfbCoachId = typeof body.ffbCoachId === "string" ? body.ffbCoachId.trim() : "";
-    const ffbCoachId = existingFfbCoachId ?? submittedFfbCoachId;
-    if (!ffbCoachId) return sendJson(res, 400, { error: "ffbCoachId is required." });
-    if (ffbCoachId.length > 40) return sendJson(res, 400, { error: "ffbCoachId must be at most 40 characters." });
-
     const dbCfg = forkDbConfigFromEnv();
-    if (!dbCfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
     try {
-      const digest = coachSecretDigest({ password: randomBytes(32).toString("hex") }).digest;
-      if (!digest) throw new Error("Could not generate a fork credential.");
-      if (existingFfbCoachId) {
-        await createForkAccountDigest(dbCfg, ffbCoachId, digest);
-      } else {
-        if (await coachExists(dbCfg, ffbCoachId))
-          return sendJson(res, 409, { error: "That fork coach name already exists." });
-        if (!(await createForkAccountDigestIfAvailable(dbCfg, ffbCoachId, digest)))
-          return sendJson(res, 409, { error: "That fork coach name already exists." });
+      const result = await completeDiscordCoachAssociation(
+        req,
+        pending,
+        rawBody as Record<string, unknown>,
+        existingFfbCoachId,
+        {
+          fork: dbCfg ? {
+            coachExists: (coach) => coachExists(dbCfg, coach),
+            verifyCoachDigest: (coach, passwordMd5) => verifyCoachDigest(dbCfg, coach, passwordMd5),
+            createForkAccountDigestIfAvailable: (coach, passwordMd5) =>
+              createForkAccountDigestIfAvailable(dbCfg, coach, passwordMd5),
+          } : undefined,
+          identityForCoach: (coach) => readIdentities().coaches[normalizeFfbCoachId(coach)],
+          isCoachBanned: isBanned,
+          upsertIdentity: (record) => { upsertIdentity(record); },
+          createSessionToken: (coach, now) => createSession(coach, now).token,
+        },
+      );
+      for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);
+      if (result.status !== 200 || !result.sessionToken) {
+        return sendJson(res, result.status, result.body);
       }
 
-      const key = normalizeFfbCoachId(ffbCoachId);
-      const previous = readIdentities().coaches[key];
-      const identities: CoachIdentities = {
-        ...(previous?.identities ?? {}),
-        discordUserId: pending.discordId,
-        discordUsername: pending.discordUsername,
-      };
-      if (pending.email) identities.email = pending.email;
-      else delete identities.email;
-      upsertIdentity({
-        ffbCoachId,
-        level: previous?.level ?? "player",
-        banned: previous?.banned ?? false,
-        silenced: previous?.silenced ?? false,
-        note: previous?.note ?? "",
-        profile: {
-          ...(previous?.profile ?? {}),
-          displayName: pending.discordUsername,
-          avatar: discordAvatarUrl(pending.discordId, pending.discordAvatarHash) ?? previous?.profile.avatar ?? "",
-        },
-        identities,
-        updatedAt: new Date().toISOString(),
-        updatedBy: "discord-sso",
-      });
-
-      const { token: sessionToken } = createSession(ffbCoachId);
       pendingDiscordSso.delete(pendingToken);
       res.setHeader("set-cookie", [
         buildClearDiscordPendingCookie(secure),
-        buildSessionCookie(sessionToken, secure),
+        buildSessionCookie(result.sessionToken, secure),
       ]);
-      return sendJson(res, 200, { ok: true, coach: ffbCoachId, next: pending.next });
+      return sendJson(res, result.status, result.body);
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
     }

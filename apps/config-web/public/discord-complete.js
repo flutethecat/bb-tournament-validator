@@ -6,6 +6,8 @@ const form = document.querySelector("#completion-form");
 const discordUsername = document.querySelector("#discord-username");
 const discordEmail = document.querySelector("#discord-email");
 const ffbCoachId = document.querySelector("#ffb-coach-id");
+const forkPasswordField = document.querySelector("#fork-password-field");
+const forkPassword = document.querySelector("#fork-password");
 const nameAvailability = document.querySelector("#name-availability");
 const submitButton = document.querySelector("#submit-button");
 const success = document.querySelector("#success");
@@ -13,6 +15,27 @@ const success = document.querySelector("#success");
 let availabilityRequest = 0;
 let availabilityTimer;
 let chosenNameAvailable = false;
+let linkingExistingCoach = false;
+let nameChecked = false;
+
+function updateSubmitState() {
+  submitButton.disabled = !nameChecked || (linkingExistingCoach && !forkPassword.value);
+}
+
+function setLinkingMode(enabled) {
+  linkingExistingCoach = enabled;
+  forkPasswordField.hidden = !enabled;
+  forkPassword.required = enabled;
+  updateSubmitState();
+}
+
+class RequestError extends Error {
+  constructor(message, responseStatus, data) {
+    super(message);
+    this.responseStatus = responseStatus;
+    this.data = data;
+  }
+}
 
 async function requestJson(path, options) {
   const response = await fetch(path, options);
@@ -23,7 +46,11 @@ async function requestJson(path, options) {
     // The status fallback below does not expose response text.
   }
   if (!response.ok) {
-    throw new Error(typeof data?.error === "string" ? data.error : `Request failed (${response.status}).`);
+    throw new RequestError(
+      typeof data?.error === "string" ? data.error : `Request failed (${response.status}).`,
+      response.status,
+      data,
+    );
   }
   return data;
 }
@@ -37,7 +64,8 @@ async function checkAvailability() {
   const coach = ffbCoachId.value.trim();
   const request = ++availabilityRequest;
   chosenNameAvailable = false;
-  submitButton.disabled = true;
+  nameChecked = false;
+  setLinkingMode(false);
   if (!coach) {
     nameAvailability.textContent = "Enter a coach name.";
     return false;
@@ -51,11 +79,17 @@ async function checkAvailability() {
     const result = await requestJson(`/api/fork/name-available?coach=${encodeURIComponent(coach)}`);
     if (request !== availabilityRequest || coach !== ffbCoachId.value.trim()) return false;
     chosenNameAvailable = result.available === true;
-    nameAvailability.textContent = chosenNameAvailable
-      ? "That coach name is available."
-      : "That coach name is already taken.";
-    submitButton.disabled = !chosenNameAvailable;
-    return chosenNameAvailable;
+    nameChecked = true;
+    setLinkingMode(result.canLink === true);
+    if (linkingExistingCoach) {
+      nameAvailability.textContent = "That coach already exists. Enter its fork password to link it without changing the account.";
+    } else {
+      nameAvailability.textContent = chosenNameAvailable
+        ? "That coach name is available."
+        : "That coach name is already taken. Continue to check whether it can be linked.";
+    }
+    updateSubmitState();
+    return true;
   } catch (error) {
     if (request !== availabilityRequest) return false;
     nameAvailability.textContent = error instanceof Error ? error.message : String(error);
@@ -63,11 +97,11 @@ async function checkAvailability() {
   }
 }
 
-async function completeSignIn(coach) {
+async function completeSignIn(coach, password) {
   return requestJson("/api/auth/discord/complete", {
     method: "POST",
     headers: { "content-type": "application/json", "x-cw-auth": "1" },
-    body: JSON.stringify({ ffbCoachId: coach }),
+    body: JSON.stringify({ ffbCoachId: coach, ...(password ? { password } : {}) }),
   });
 }
 
@@ -81,6 +115,26 @@ function finishSignIn(result, fallbackCoach) {
 }
 
 async function initialize() {
+  const callbackError = new URLSearchParams(location.search).get("error");
+  if (callbackError === "host-browser-mismatch") {
+    title.textContent = "Discord sign-in browser mismatch";
+    showError(
+      `This sign-in did not return to the browser or profile that started it. ` +
+      `Config-Web must use ${location.host}. Open Config-Web at ${location.origin}/ and try again in the same browser/profile.`,
+    );
+    return;
+  }
+  if (callbackError === "expired") {
+    title.textContent = "Discord sign-in expired";
+    showError(`This Discord sign-in expired. Open Config-Web at ${location.origin}/ and start again.`);
+    return;
+  }
+  if (callbackError === "invalid-state") {
+    title.textContent = "Discord sign-in could not be verified";
+    showError(`Invalid Discord OAuth state. Start again from ${location.origin}/.`);
+    return;
+  }
+
   try {
     const pending = await requestJson("/api/auth/discord/pending");
     const username = typeof pending.discordUsername === "string" ? pending.discordUsername : "";
@@ -98,7 +152,7 @@ async function initialize() {
       return;
     }
 
-    title.textContent = "Register your fork coach account";
+    title.textContent = "Link or register your fork coach account";
     ffbCoachId.value = username;
     status.hidden = true;
     form.hidden = false;
@@ -113,28 +167,48 @@ async function initialize() {
 ffbCoachId.addEventListener("input", () => {
   clearTimeout(availabilityTimer);
   chosenNameAvailable = false;
-  submitButton.disabled = true;
+  nameChecked = false;
+  forkPassword.value = "";
+  setLinkingMode(false);
   nameAvailability.textContent = "Waiting to check availability…";
   availabilityTimer = setTimeout(() => void checkAvailability(), 250);
 });
+
+forkPassword.addEventListener("input", updateSubmitState);
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   clearTimeout(availabilityTimer);
   const coach = ffbCoachId.value.trim();
-  if (!chosenNameAvailable && !(await checkAvailability())) {
-    showError(new Error("Choose an available fork coach name."));
+  if (!nameChecked && !(await checkAvailability())) {
+    showError(new Error("Enter a valid fork coach name."));
+    return;
+  }
+  if (linkingExistingCoach && !forkPassword.value) {
+    showError(new Error("Enter the existing fork password to link this coach."));
     return;
   }
 
   submitButton.disabled = true;
   status.hidden = false;
-  status.textContent = "Creating your fork account…";
+  status.textContent = linkingExistingCoach
+    ? "Verifying and linking your existing fork account…"
+    : chosenNameAvailable
+      ? "Creating your fork account…"
+      : "Checking whether this fork account can be linked…";
   try {
-    finishSignIn(await completeSignIn(coach), coach);
+    finishSignIn(await completeSignIn(coach, linkingExistingCoach ? forkPassword.value : undefined), coach);
   } catch (error) {
     showError(error);
-    await checkAvailability();
+    if (error instanceof RequestError && error.data?.canLink === true) {
+      nameChecked = true;
+      chosenNameAvailable = false;
+      setLinkingMode(true);
+      nameAvailability.textContent = "That coach already exists. Enter its fork password to link it without changing the account.";
+      forkPassword.focus();
+    } else {
+      updateSubmitState();
+    }
   }
 });
 
