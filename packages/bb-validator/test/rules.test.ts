@@ -119,17 +119,18 @@ describe("skill-access", () => {
 
 describe("skill-points", () => {
   it("prices primary vs secondary correctly and flags over-budget with suggestion", () => {
-    // Block primary (2 SP elite) x2, Dodge secondary on Lineman (2x1+1=3 SP) => 7 > 6
+    // Owner +0.5 elite model: Block primary (1.5 SP elite) x3, Dodge secondary (2+0.5=2.5 SP) => 7 > 6
     const players = roster().players;
     players[0] = player({ number: 1, skills: ["Block"] });
     players[1] = player({ number: 2, skills: ["Block"] });
-    players[2] = player({ number: 3, skills: ["Dodge"] });
+    players[2] = player({ number: 3, skills: ["Block"] });
+    players[3] = player({ number: 4, skills: ["Dodge"] });
     const r = validate(roster({ players }), pkg(), fakeData);
     const f = errorsOf(r, "skill-points")[0]!;
     expect(f.message).toMatch(/7 Skill Points.*budget is 6.*1 over/);
     expect(f.suggestion).toMatch(/raise the budget to 7/);
     expect(r.recomputedSummary.skillPointsUsed).toBe(7);
-    expect(r.recomputedSummary.primarySkillCount).toBe(2);
+    expect(r.recomputedSummary.primarySkillCount).toBe(3);
     expect(r.recomputedSummary.secondarySkillCount).toBe(1);
   });
 

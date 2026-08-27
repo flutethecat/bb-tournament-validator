@@ -60,7 +60,7 @@ export interface SkillAllotment {
   /** Secondary SP = primaryCostSP * this. Ignored when secondaryCostSP is set. */
   secondaryMultiplier: number; // default 2
   secondaryCostSP?: number | null; // default null
-  eliteSurchargeSP: number; // default 1
+  eliteSurchargeSP: number; // default 0.5 (owner SP-model ruling 08-27: +0.5 elite surcharge)
   /** Effective Elite set; defaults to the rulebook-Elite skills. */
   eliteSkills: string[]; // default ["Block","Guard","Mighty Blow","Dodge"]
   /** Per-skill overrides — highest precedence. Loadable from CSV. */
@@ -227,7 +227,7 @@ export const DEFAULT_SKILL_ALLOTMENT: SkillAllotment = {
   primaryCostSP: 1,
   secondaryMultiplier: 2,
   secondaryCostSP: null,
-  eliteSurchargeSP: 1,
+  eliteSurchargeSP: 0.5,
   eliteSkills: ["Block", "Guard", "Mighty Blow", "Dodge"],
   skillCostSP: {},
   maxPerPlayer: 2,

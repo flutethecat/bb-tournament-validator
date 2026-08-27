@@ -41,8 +41,8 @@ describe("skill-packages (choose-one gold+SP)", () => {
 
   it("fails when SP exceeds every package", () => {
     const players = roster().players;
-    // 4 players x Block (elite primary = 2 SP) = 8 SP; both packs cap at 6/7.
-    for (let i = 0; i < 4; i++) players[i] = player({ number: i + 1, skills: ["Block"] });
+    // Owner +0.5 model: 5 players x Block (elite primary = 1.5 SP) = 7.5 SP; both packs cap at 6/7.
+    for (let i = 0; i < 5; i++) players[i] = player({ number: i + 1, skills: ["Block"] });
     const r = validate(roster({ players }), spikePkg(), fakeData);
     const f = errorsOf(r, "skill-packages");
     expect(f).toHaveLength(1);
@@ -159,8 +159,8 @@ describe("star cost accounting without choose-one packages", () => {
 describe("skill-packages: global (package-level) vs tier-unique", () => {
   it("GLOBAL packages apply to a tier that has none of its own", () => {
     const players = roster().players;
-    for (let i = 0; i < 4; i++) players[i] = player({ number: i + 1, skills: ["Block"] }); // 8 SP
-    // Tier has no skillPackages; the global set caps at 6 -> 8 SP fails against the global.
+    for (let i = 0; i < 5; i++) players[i] = player({ number: i + 1, skills: ["Block"] }); // 7.5 SP (+0.5 model)
+    // Tier has no skillPackages; the global set caps at 6 -> 7.5 SP fails against the global.
     const p = pkg({
       goldBudget: null,
       skillPackages: [{ gold: 1000000, skillPointBudget: 6, maxPerPlayer: 1 }],

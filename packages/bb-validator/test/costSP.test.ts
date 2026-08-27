@@ -20,20 +20,20 @@ describe("costSP defaults (owner spec)", () => {
     expect(costSP("Leader", "primary", cfg())).toBe(1);
   });
 
-  it("the four default Elite skills cost 2 SP as primary (+1 surcharge)", () => {
+  it("the four default Elite skills cost 1.5 SP as primary (+0.5 surcharge — owner ruling 08-27)", () => {
     for (const s of ["Block", "Guard", "Mighty Blow", "Dodge"]) {
-      expect(costSP(s, "primary", cfg())).toBe(2);
+      expect(costSP(s, "primary", cfg())).toBe(1.5);
     }
   });
 
   it("secondary = 2x primary by default", () => {
     expect(costSP("Wrestle", "secondary", cfg())).toBe(2);
-    expect(costSP("Block", "secondary", cfg())).toBe(3); // 2 + elite 1
+    expect(costSP("Block", "secondary", cfg())).toBe(2.5); // 2 + elite 0.5
   });
 
   it("elite matching is name-normalized", () => {
-    expect(costSP("block", "primary", cfg())).toBe(2);
-    expect(costSP("MIGHTY BLOW", "primary", cfg())).toBe(2);
+    expect(costSP("block", "primary", cfg())).toBe(1.5);
+    expect(costSP("MIGHTY BLOW", "primary", cfg())).toBe(1.5);
   });
 });
 
@@ -41,12 +41,12 @@ describe("costSP configurability", () => {
   it("explicit secondaryCostSP overrides the multiplier", () => {
     const c = cfg({ secondaryCostSP: 5 });
     expect(costSP("Wrestle", "secondary", c)).toBe(5);
-    expect(costSP("Block", "secondary", c)).toBe(6);
+    expect(costSP("Block", "secondary", c)).toBe(5.5);
   });
 
   it("changing the Elite set re-prices", () => {
     const c = cfg({ eliteSkills: ["Wrestle"] });
-    expect(costSP("Wrestle", "primary", c)).toBe(2);
+    expect(costSP("Wrestle", "primary", c)).toBe(1.5);
     expect(costSP("Block", "primary", c)).toBe(1); // no longer elite
   });
 
@@ -92,7 +92,7 @@ describe("CSV overrides", () => {
   it("CSV elite column edits the effective Elite set", () => {
     const { rows } = parseSkillCostCsv("skill,costSP,elite\nWrestle,,true\nDodge,,false\n");
     const merged = applyCsvOverrides(cfg(), rows);
-    expect(costSP("Wrestle", "primary", merged)).toBe(2);
+    expect(costSP("Wrestle", "primary", merged)).toBe(1.5);
     expect(costSP("Dodge", "primary", merged)).toBe(1);
   });
 });

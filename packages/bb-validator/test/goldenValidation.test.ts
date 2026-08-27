@@ -23,11 +23,11 @@ function lustrian(): TournamentPackage {
 }
 
 describe("golden validation of the example Amazon roster", () => {
-  it("PASSES the Lustrian Superleague sample package at exactly 10/10 SP", () => {
+  it("PASSES the Lustrian Superleague sample package at 8/10 SP (owner +0.5 elite model)", () => {
     const result = validate(fixture, lustrian(), bb2025);
     expect(result.errors).toEqual([]);
     expect(result.valid).toBe(true);
-    expect(result.recomputedSummary.skillPointsUsed).toBe(10);
+    expect(result.recomputedSummary.skillPointsUsed).toBe(8); // 6 primary + 4 elite × 0.5 (owner ruling 08-27)
     expect(result.recomputedSummary.skillPointBudget).toBe(10);
     // matches the PDF's own summary: 6 primary, 0 secondary
     expect(result.recomputedSummary.primarySkillCount).toBe(6);
@@ -37,15 +37,15 @@ describe("golden validation of the example Amazon roster", () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it("FAILS a stricter package (8 SP budget) with the right message and suggestion", () => {
+  it("FAILS a stricter package (7 SP budget) with the right message and suggestion", () => {
     const strict = lustrian();
-    strict.skillAllotment.skillPointBudget = 8;
+    strict.skillAllotment.skillPointBudget = 7;
     const result = validate(fixture, strict, bb2025);
     expect(result.valid).toBe(false);
     const f = result.errors.find((e) => e.ruleId === "skill-points");
     expect(f).toBeDefined();
-    expect(f!.message).toMatch(/10 Skill Points.*budget is 8.*2 over/);
-    expect(f!.suggestion).toMatch(/raise the budget to 10/);
+    expect(f!.message).toMatch(/8 Skill Points.*budget is 7.*1 over/);
+    expect(f!.suggestion).toMatch(/raise the budget to 8/);
   });
 
   it("FAILS when Amazon is not eligible", () => {

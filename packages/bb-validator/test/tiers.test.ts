@@ -72,7 +72,7 @@ describe("per-tier star access + banned stars", () => {
 
 describe("per-tier skill-point budget", () => {
   it("uses the tier SP budget over the package skillAllotment budget", () => {
-    // one Block added (2 SP elite); package budget 10, tier-1 budget 1 => over
+    // one Block added (1.5 SP elite, +0.5 model); package budget 10, tier-1 budget 1 => over
     const players = roster({ rosterName: "Testers" }).players;
     players[0] = player({ number: 1, skills: ["Block"] });
     const base = pkg().skillAllotment;
@@ -85,7 +85,7 @@ describe("per-tier skill-point budget", () => {
       fakeData,
     );
     const f = errorsOf(r, "skill-points")[0]!;
-    expect(f.message).toMatch(/2 Skill Points; the budget is 1 \(Tier 1\)/);
+    expect(f.message).toMatch(/1\.5 Skill Points; the budget is 1 \(Tier 1\)/);
     expect(r.recomputedSummary.skillPointBudget).toBe(1);
   });
 
