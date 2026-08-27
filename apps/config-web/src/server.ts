@@ -102,6 +102,7 @@ import {
 import { BANNED_ACCOUNT_MESSAGE, coachLevel, isAdmin, isBanned, isOrganizer } from "./auth/access.js";
 import {
   normalizeFfbCoachId,
+  organizerUpdateIdentity,
   ownIdentityRecord,
   readIdentities,
   updateOwnAccount,
@@ -218,6 +219,8 @@ const PUBLIC_PATHS = new Set([
   "/api/fork/login",
   // Internally true-admin-gated; listed here so sidecar-off admin Bearer tokens can reach the handler.
   "/api/admin/identities",
+  // Internally organizer-or-admin gated; PUBLIC_PATHS matching is exact, so keep the literal here.
+  "/api/admin/identities/naf",
   "/api/skills",
   "/api/stars",
   "/api/teams",
@@ -691,6 +694,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/fork/team-builder/build" ||
     pathname === "/api/bug-reports" ||
     pathname === "/api/admin/identities" ||
+    pathname === "/api/admin/identities/naf" ||
     pathname === "/api/account" ||
     isTeamMutationWritePath(pathname) ||
     /^\/api\/teams\/[^/]+\/advancement$/.test(pathname)
@@ -947,6 +951,33 @@ async function handleApi(
       return sendJson(res, 400, { error: "A JSON object is required." });
     try {
       return sendJson(res, 200, updateOwnAccount(auth.coach, rawBody));
+    } catch (error) {
+      return sendJson(res, 400, { error: (error as Error).message });
+    }
+  }
+
+  if (path === "/api/admin/identities/naf" && method === "POST") {
+    if (auth?.organizer !== true && !isAdminAuthed(req) && !isTokenAuthed(req)) {
+      return sendJson(res, auth ? 403 : 401, {
+        error: auth ? "Organizer access required." : "Authentication required.",
+      });
+    }
+    const rawBody = await readBody(req);
+    if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody))
+      return sendJson(res, 400, { error: "A JSON object is required." });
+    const body = rawBody as Record<string, unknown>;
+    const ffbCoachId = typeof body.ffbCoachId === "string" ? body.ffbCoachId.trim() : "";
+    if (!ffbCoachId) return sendJson(res, 400, { error: "ffbCoachId is required." });
+    try {
+      const identityPatch = Object.fromEntries(
+        Object.entries(body).filter(([field]) => field !== "ffbCoachId"),
+      );
+      const coach = organizerUpdateIdentity(
+        auth?.coach ?? "admin",
+        ffbCoachId,
+        identityPatch,
+      );
+      return sendJson(res, 200, { ok: true, coach });
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
     }
@@ -2441,6 +2472,7 @@ export const server = createServer((req, res) => {
         const auth = requestIdentity(req);
         const accountSession = auth !== undefined && (
           url.pathname === "/api/account" ||
+          url.pathname === "/api/admin/identities/naf" ||
           tournamentInstructionsGameId(url.pathname) !== undefined ||
           tournamentResultGameId(url.pathname) !== undefined
         );

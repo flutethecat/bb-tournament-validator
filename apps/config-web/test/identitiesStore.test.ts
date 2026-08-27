@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   MAX_FFB_COACH_ID_LENGTH,
   MAX_PROFILE_KEYS,
+  organizerUpdateIdentity,
   ownIdentityRecord,
   readIdentities,
   updateOwnAccount,
@@ -151,7 +152,6 @@ describe("identities store", () => {
       profile: { displayName: "Grand Moff", pronouns: "he/him" },
       level: "admin",
       banned: false,
-      identities: { discordUserId: "attacker", discordAvatarHash: "attacker-hash" },
     }, new Date("2026-08-20T12:00:00.000Z"));
 
     expect(updated).toMatchObject({
@@ -204,7 +204,77 @@ describe("identities store", () => {
 
   it("rejects an own-account patch without profile or scheduling", () => {
     tempStore();
-    expect(() => updateOwnAccount("Tarkin", {})).toThrow(/profile or scheduling is required/);
+    expect(() => updateOwnAccount("Tarkin", {})).toThrow(/profile, scheduling, or identities is required/);
+  });
+
+  it("updates and persists the caller's whitelisted self-service identities", () => {
+    tempStore();
+
+    const updated = updateOwnAccount("Tarkin", {
+      identities: { nafId: "12345", secondaryEmail: "x@y" },
+    }, new Date("2026-08-27T12:00:00.000Z"));
+
+    expect(updated.identities).toEqual({ nafId: "12345", secondaryEmail: "x@y" });
+    expect(readIdentities().coaches.tarkin?.identities).toEqual({
+      nafId: "12345",
+      secondaryEmail: "x@y",
+    });
+  });
+
+  it.each(["email", "discordUserId", "nafName"])(
+    "rejects identities.%s from an own-account patch by name",
+    (field) => {
+      tempStore();
+      expect(() => updateOwnAccount("Tarkin", {
+        identities: { [field]: "attacker" },
+      })).toThrow(new RegExp(`identities\\.${field}`));
+    },
+  );
+
+  it("clears self-service identities with empty strings and validates secondaryEmail", () => {
+    tempStore();
+    upsertIdentity({
+      ...record("Tarkin"),
+      identities: { nafId: "12345", secondaryEmail: "old@example.test" },
+    });
+
+    expect(() => updateOwnAccount("Tarkin", {
+      identities: { secondaryEmail: "notanemail" },
+    })).toThrow(/identities\.secondaryEmail/);
+
+    const cleared = updateOwnAccount("Tarkin", {
+      identities: { nafId: "", secondaryEmail: "" },
+    });
+    expect(cleared.identities).toEqual({});
+    expect(readIdentities().coaches.tarkin?.identities).toEqual({});
+  });
+
+  it("lets organizers update only NAF identity fields and stamps the acting coach", () => {
+    tempStore();
+    upsertIdentity({
+      ...record("TargetCoach"),
+      identities: { email: "sso@example.test", nafName: "Old NAF" },
+    });
+
+    const updated = organizerUpdateIdentity(
+      "OrganizerCoach",
+      "TargetCoach",
+      { nafName: "New NAF", nafId: "98765" },
+      new Date("2026-08-27T13:00:00.000Z"),
+    );
+    expect(updated.identities).toEqual({
+      email: "sso@example.test",
+      nafName: "New NAF",
+      nafId: "98765",
+    });
+    expect(updated).toMatchObject({
+      updatedAt: "2026-08-27T13:00:00.000Z",
+      updatedBy: "OrganizerCoach",
+    });
+    expect(() => organizerUpdateIdentity("OrganizerCoach", "TargetCoach", { email: "attacker@example.test" }))
+      .toThrow(/email/);
+    expect(() => organizerUpdateIdentity("OrganizerCoach", "TargetCoach", { discordUserId: "attacker" }))
+      .toThrow(/discordUserId/);
   });
 
   it("preserves privileged fields during profile and scheduling edits", () => {
@@ -221,7 +291,6 @@ describe("identities store", () => {
       scheduling: { timezone: "UTC" },
       level: "admin",
       banned: false,
-      identities: { discordUserId: "attacker", discordAvatarHash: "attacker-hash" },
     }, new Date("2026-08-20T12:00:00.000Z"));
 
     expect(updated).toMatchObject({

@@ -229,11 +229,12 @@ function renderIdentityEditor(user, record) {
           <label class="field"><span class="field-label">Discord user ID</span><input class="control" data-identity-field="discordUserId" value="${escapeHtml(values.discordUserId)}"></label>
           <label class="field"><span class="field-label">Discord username</span><input class="control" data-identity-field="discordUsername" value="${escapeHtml(values.discordUsername)}"></label>
           <label class="field"><span class="field-label">Tournament coach ID</span><input class="control" data-identity-field="tournamentCoachId" value="${escapeHtml(values.tournamentCoachId)}"></label>
-          <label class="field"><span class="field-label">NAF name</span><input class="control" data-identity-field="nafName" value="${escapeHtml(values.nafName)}"></label>
-          <label class="field"><span class="field-label">NAF ID</span><input class="control" data-identity-field="nafId" value="${escapeHtml(values.nafId)}"></label>
+          <label class="field"><span class="field-label">NAF name</span><input class="control" data-identity-field="nafName" data-naf-field="nafName" value="${escapeHtml(values.nafName)}"></label>
+          <label class="field"><span class="field-label">NAF ID</span><input class="control" data-identity-field="nafId" data-naf-field="nafId" value="${escapeHtml(values.nafId)}"></label>
         </div>
         <div class="inline-controls">
-          <button type="button" class="btn primary" data-action="save-identities" data-fork-name="${forkName}">Save Identities</button>
+          <button type="button" class="btn primary" data-action="save-naf-identity" data-fork-name="${forkName}">Save NAF Identity</button>
+          <button type="button" class="btn" data-action="save-identities" data-fork-name="${forkName}">Save Admin Identities</button>
           <button type="button" class="btn" data-action="cancel-identities">Cancel</button>
         </div>
       </div>
@@ -562,11 +563,34 @@ async function saveIdentities(forkName) {
   const editor = [...document.querySelectorAll("[data-identity-editor]")].find((element) => normalizeName(element.dataset.identityEditor) === normalizeName(forkName));
   if (!editor) return;
   const identities = {};
-  editor.querySelectorAll("[data-identity-field]").forEach((input) => {
+  editor.querySelectorAll("[data-identity-field]:not([data-naf-field])").forEach((input) => {
     identities[input.dataset.identityField] = input.value.trim();
   });
   state.editingIdentity = "";
   await updateIdentity(forkName, { identities });
+}
+
+async function saveNafIdentity(forkName) {
+  const editor = [...document.querySelectorAll("[data-identity-editor]")].find((element) => normalizeName(element.dataset.identityEditor) === normalizeName(forkName));
+  if (!editor || !state.authed || state.busy) return;
+  const nafIdentity = {};
+  editor.querySelectorAll("[data-naf-field]").forEach((input) => {
+    nafIdentity[input.dataset.nafField] = input.value.trim();
+  });
+  state.busy = true;
+  state.editingIdentity = "";
+  setMessage("");
+  render();
+  try {
+    const result = await requestJson("/api/admin/identities/naf", authOptions("POST", { ffbCoachId: forkName, ...nafIdentity }));
+    state.identities[normalizeName(forkName)] = result.coach;
+    setMessage(`Saved NAF identity for ${forkName}.`);
+  } catch (error) {
+    setMessage(serverMessage(error), "error");
+  } finally {
+    state.busy = false;
+    render();
+  }
 }
 
 async function resetPassword(forkName) {
@@ -739,6 +763,7 @@ workspace.addEventListener("click", (event) => {
   if (action === "refresh") loadData();
   if (action === "edit-identities") { state.editingIdentity = forkName; render(); }
   if (action === "cancel-identities") { state.editingIdentity = ""; render(); }
+  if (action === "save-naf-identity") saveNafIdentity(forkName);
   if (action === "save-identities") saveIdentities(forkName);
   if (action === "toggle-banned") {
     const user = mergedUsers().find((entry) => normalizeName(entry.fumbblName) === normalizeName(forkName));

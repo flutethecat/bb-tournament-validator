@@ -125,6 +125,11 @@ avatar, identities.email/discordUserId/discordUsername), creates the session.
   `ffbCoachId`, `level`, `banned`, `silenced`, `identities.*` (those are admin/SSO-owned). Stamp updatedAt +
   updatedBy = auth.coach. Add `/api/account` to the CSRF `isStateChangingApiWrite` list (PATCH/POST). It is
   NOT public — a normal session-gated route.
+  - **Owner ruling 2026-08-27:** `identities.nafId` and `identities.secondaryEmail` are now coach-self-service
+    via `PATCH /api/account`, under an exact whitelist; all other `identities.*` keys remain admin/SSO-owned.
+    Organizers may set `nafName` and `nafId` for any coach via `POST /api/admin/identities/naf`. Owner intent:
+    organizers manage NAF identity for coaches in their tournaments; no tournament-participant registry exists
+    yet, so the enforceable gate is organizer level.
 - Add a unit test: a coach can PATCH their own `profile` (incl. a freeform key) but cannot touch level/ban via it.
 
 ## Out of scope (note, don't build)

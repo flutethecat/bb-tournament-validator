@@ -10,6 +10,7 @@ export interface CoachIdentities {
   discordUsername?: string;
   discordAvatarHash?: string;
   email?: string;
+  secondaryEmail?: string;
   nafName?: string;
   nafId?: string;
   tournamentCoachId?: string;
@@ -63,6 +64,7 @@ const IDENTITY_FIELDS = new Set<keyof CoachIdentities>([
   "discordUsername",
   "discordAvatarHash",
   "email",
+  "secondaryEmail",
   "nafName",
   "nafId",
   "tournamentCoachId",
@@ -82,6 +84,13 @@ function boundedString(value: unknown, field: string, max: number): string {
   if (typeof value !== "string") throw new Error(`${field} must be a string.`);
   if (value.length > max) throw new Error(`${field} must be at most ${max} characters.`);
   return value;
+}
+
+function boundedSecondaryEmail(value: unknown, field: string): string {
+  const email = boundedString(value, field, MAX_IDENTITY_VALUE_LENGTH);
+  if (email && !/^[^@\s]+@[^@\s]+$/.test(email))
+    throw new Error(`${field} must be a valid email address.`);
+  return email;
 }
 
 export function normalizedProfile(value: unknown, field = "profile"): CoachProfile {
@@ -147,11 +156,9 @@ function normalizedRecord(value: unknown, allowLegacy = false): CoachIdentityRec
   const identities: CoachIdentities = {};
   for (const [identityField, item] of Object.entries(record.identities)) {
     if (!IDENTITY_FIELDS.has(identityField as keyof CoachIdentities)) continue;
-    identities[identityField as keyof CoachIdentities] = boundedString(
-      item,
-      `identities.${identityField}`,
-      MAX_IDENTITY_VALUE_LENGTH,
-    );
+    identities[identityField as keyof CoachIdentities] = identityField === "secondaryEmail"
+      ? boundedSecondaryEmail(item, `identities.${identityField}`)
+      : boundedString(item, `identities.${identityField}`, MAX_IDENTITY_VALUE_LENGTH);
   }
   const scheduling = record.scheduling === undefined
     ? undefined
@@ -216,7 +223,9 @@ export function updateOwnAccount(coach: string, body: unknown, now = new Date())
   const patch = body as Record<string, unknown>;
   const hasProfile = "profile" in patch;
   const hasScheduling = "scheduling" in patch;
-  if (!hasProfile && !hasScheduling) throw new Error("profile or scheduling is required.");
+  const hasIdentities = "identities" in patch;
+  if (!hasProfile && !hasScheduling && !hasIdentities)
+    throw new Error("profile, scheduling, or identities is required.");
   const previous = ownIdentityRecord(coach);
   const profile = hasProfile
     ? normalizedProfile({ ...previous.profile, ...normalizedProfile(patch.profile, "profile") })
@@ -224,13 +233,57 @@ export function updateOwnAccount(coach: string, body: unknown, now = new Date())
   const scheduling = hasScheduling
     ? normalizedScheduling(patch.scheduling, "scheduling")
     : previous.scheduling;
+  const identities: CoachIdentities = { ...previous.identities };
+  if (hasIdentities) {
+    if (!patch.identities || typeof patch.identities !== "object" || Array.isArray(patch.identities))
+      throw new Error("identities must be an object.");
+    for (const [field, item] of Object.entries(patch.identities)) {
+      if (field !== "nafId" && field !== "secondaryEmail")
+        throw new Error(`identities.${field} is not editable through /api/account.`);
+      const value = field === "secondaryEmail"
+        ? boundedSecondaryEmail(item, `identities.${field}`)
+        : boundedString(item, `identities.${field}`, MAX_IDENTITY_VALUE_LENGTH);
+      if (value === "") delete identities[field];
+      else identities[field] = value;
+    }
+  }
   const { scheduling: _previousScheduling, ...base } = previous;
   return upsertIdentity({
     ...base,
     profile,
+    identities,
     ...(scheduling ? { scheduling } : {}),
     updatedAt: now.toISOString(),
     updatedBy: previous.ffbCoachId,
+  }).coaches[normalizeFfbCoachId(previous.ffbCoachId)]!;
+}
+
+export function organizerUpdateIdentity(
+  actingCoach: string,
+  targetFfbCoachId: string,
+  body: unknown,
+  now = new Date(),
+): CoachIdentityRecord {
+  if (!body || typeof body !== "object" || Array.isArray(body))
+    throw new Error("A JSON object is required.");
+  const previous = ownIdentityRecord(targetFfbCoachId);
+  const identities: CoachIdentities = { ...previous.identities };
+  for (const [field, item] of Object.entries(body)) {
+    if (field !== "nafName" && field !== "nafId")
+      throw new Error(`${field} is not editable through the organizer NAF identity route.`);
+    if (item === undefined) continue;
+    const value = boundedString(item, field, MAX_IDENTITY_VALUE_LENGTH);
+    if (value === "") delete identities[field];
+    else identities[field] = value;
+  }
+
+  // Owner intent: organizers manage NAF identity for coaches in their tournaments. No
+  // tournament-participant registry exists yet, so organizer level is the enforceable gate.
+  return upsertIdentity({
+    ...previous,
+    identities,
+    updatedAt: now.toISOString(),
+    updatedBy: actingCoach,
   }).coaches[normalizeFfbCoachId(previous.ffbCoachId)]!;
 }
 
