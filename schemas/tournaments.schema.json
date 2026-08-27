@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fumbbl40k.example/schemas/tournaments.schema.json",
+  "title": "Config-Web tournament data store",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "tournaments", "entrants", "rounds", "standings", "scheduledMatches", "waitingPresence"],
+  "properties": {
+    "version": { "const": 2 },
+    "tournaments": { "type": "object", "additionalProperties": { "$ref": "#/$defs/tournament" } },
+    "entrants": { "type": "object", "additionalProperties": { "$ref": "#/$defs/entrant" } },
+    "rounds": { "type": "object", "additionalProperties": { "$ref": "#/$defs/round" } },
+    "standings": { "type": "object", "additionalProperties": { "$ref": "#/$defs/standings" } },
+    "scheduledMatches": { "type": "object", "additionalProperties": { "$ref": "#/$defs/scheduledMatch" } },
+    "waitingPresence": { "type": "object", "additionalProperties": { "$ref": "#/$defs/lease" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[A-Za-z0-9_.:-]+$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "verifiedCoach": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coachId", "ffbCoachId", "verifiedAt"],
+      "properties": {
+        "coachId": { "$ref": "#/$defs/id" },
+        "ffbCoachId": { "type": "string", "minLength": 1 },
+        "discordUserId": { "type": "string", "minLength": 1 },
+        "verifiedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "side": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrantId", "coach", "teamId"],
+      "properties": {
+        "entrantId": { "$ref": "#/$defs/id" },
+        "coach": { "$ref": "#/$defs/verifiedCoach" },
+        "teamId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "tournament": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "status", "format", "roundCount", "currentRound", "tiebreakers", "points", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["draft", "active", "completed", "cancelled"] },
+        "format": { "const": "swiss" },
+        "roundCount": { "type": "integer", "minimum": 1 },
+        "currentRound": { "type": "integer", "minimum": 0 },
+        "tiebreakers": {
+          "type": "array",
+          "items": { "enum": ["buchholz", "sonnebornBerger", "opponentWinPercentage", "headToHead", "touchdownDifferential", "touchdownsFor", "casualtyDifferential", "casualtiesFor", "seed"] }
+        },
+        "points": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["win", "draw", "loss", "bye"],
+          "properties": {
+            "win": { "type": "number" }, "draw": { "type": "number" }, "loss": { "type": "number" }, "bye": { "type": "number" }
+          }
+        },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "updatedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "entrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "tournamentId", "seed", "coach", "teamId", "registeredAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "tournamentId": { "$ref": "#/$defs/id" },
+        "seed": { "type": "integer", "minimum": 1 }, "coach": { "$ref": "#/$defs/verifiedCoach" },
+        "teamId": { "type": "string", "minLength": 1 }, "registeredAt": { "$ref": "#/$defs/timestamp" },
+        "droppedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "round": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "tournamentId", "number", "status", "scheduledMatchIds", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "tournamentId": { "$ref": "#/$defs/id" },
+        "number": { "type": "integer", "minimum": 1 }, "status": { "enum": ["pending", "active", "completed"] },
+        "scheduledMatchIds": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "createdAt": { "$ref": "#/$defs/timestamp" }, "completedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "standingRow": {
+      "type": "object",
+      "required": ["rank", "entrantId", "coachId", "teamId", "played", "wins", "draws", "losses", "byes", "points", "touchdownsFor", "touchdownsAgainst", "touchdownDifferential", "casualtiesFor", "casualtiesAgainst", "casualtyDifferential", "buchholz", "sonnebornBerger", "opponentWinPercentage", "seed"],
+      "properties": {
+        "rank": { "type": "integer" }, "entrantId": { "$ref": "#/$defs/id" }, "coachId": { "type": "string" }, "teamId": { "type": "string" },
+        "played": { "type": "integer" }, "wins": { "type": "integer" }, "draws": { "type": "integer" }, "losses": { "type": "integer" }, "byes": { "type": "integer" },
+        "points": { "type": "number" }, "touchdownsFor": { "type": "integer" }, "touchdownsAgainst": { "type": "integer" }, "touchdownDifferential": { "type": "integer" },
+        "casualtiesFor": { "type": "integer" }, "casualtiesAgainst": { "type": "integer" }, "casualtyDifferential": { "type": "integer" },
+        "buchholz": { "type": "number" }, "sonnebornBerger": { "type": "number" }, "opponentWinPercentage": { "type": "number" }, "seed": { "type": "integer" }
+      }
+    },
+    "standings": {
+      "type": "object",
+      "required": ["tournamentId", "matchRevision", "rows", "calculatedAt"],
+      "properties": {
+        "tournamentId": { "$ref": "#/$defs/id" }, "matchRevision": { "type": "string" },
+        "rows": { "type": "array", "items": { "$ref": "#/$defs/standingRow" } }, "calculatedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "scheduledMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "tournamentId", "roundId", "roundNumber", "home", "status", "revision", "launch", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "tournamentId": { "$ref": "#/$defs/id" }, "roundId": { "$ref": "#/$defs/id" }, "roundNumber": { "type": "integer", "minimum": 1 },
+        "home": { "$ref": "#/$defs/side" }, "away": { "$ref": "#/$defs/side" },
+        "status": { "enum": ["scheduled", "launching", "launched", "launch_failed", "dismissed", "completed", "cancelled"] },
+        "revision": { "type": "integer", "minimum": 1 },
+        "launch": {
+          "type": "object",
+          "required": ["challengePath", "jnlpPath", "retryCount"],
+          "properties": {
+            "challengePath": { "const": "/api/fork/challenge" }, "jnlpPath": { "const": "/api/fork/jnlp" },
+            "gameName": { "type": "string" }, "gameId": { "type": "string" }, "lastAttemptAt": { "$ref": "#/$defs/timestamp" },
+            "launchedAt": { "$ref": "#/$defs/timestamp" }, "retryCount": { "type": "integer", "minimum": 0 }, "lastError": { "type": "string" }
+          }
+        },
+        "result": {
+          "type": "object",
+          "required": ["homeScore", "awayScore", "reportedAt"],
+          "properties": {
+            "homeScore": { "type": "integer", "minimum": 0 }, "awayScore": { "type": "integer", "minimum": 0 },
+            "homeCasualties": { "type": "integer", "minimum": 0 }, "awayCasualties": { "type": "integer", "minimum": 0 }, "reportedAt": { "$ref": "#/$defs/timestamp" }
+          }
+        },
+        "createdAt": { "$ref": "#/$defs/timestamp" }, "updatedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheduledMatchId", "coachId", "renewedAt", "expiresAt"],
+      "properties": {
+        "scheduledMatchId": { "$ref": "#/$defs/id" }, "coachId": { "type": "string", "minLength": 1 },
+        "renewedAt": { "$ref": "#/$defs/timestamp" }, "expiresAt": { "$ref": "#/$defs/timestamp" }
+      }
+    }
+  }
+}

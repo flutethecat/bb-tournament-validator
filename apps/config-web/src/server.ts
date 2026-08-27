@@ -203,6 +203,8 @@ import {
   shouldBlockExistingRegistration,
   validatedNextPath,
 } from "./auth/discordSso.js";
+import { TournamentStore } from "./tournaments/store.js";
+import { tournamentApi } from "./tournaments/api.js";
 
 /**
  * Endpoints reachable without ADMIN_PASSWORD even when it's set, AND always sent
@@ -272,6 +274,8 @@ const PUBLIC_PATHS = new Set([
   // (session token OR coach creds — a report must be attributable); the GET listing/read
   // on the same path is organizer/admin-gated in-handler, fail closed (see bugReports.ts).
   "/api/bug-reports",
+  "/api/tournaments",
+  "/api/fork/tournaments",
 ]);
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -305,6 +309,7 @@ const BUG_REPORTS_DIR = resolve(process.env.BUG_REPORTS_DIR || join(HERE, "../bu
 const FORK_STATE_DIR = resolve(join(HERE, "../data-store"));
 const tournamentMatches = new TournamentMatchStore(FORK_STATE_DIR);
 const tournamentResults = new TournamentResultStore(FORK_STATE_DIR);
+const tournamentStore = new TournamentStore(FORK_STATE_DIR);
 
 const packages = new PackageFiles(PACKAGES_DIR);
 // Process-local matchmaking state (poll-based delivery, ~10min TTL) — see @bb/fork-ops.
@@ -543,10 +548,22 @@ function tournamentResultGameId(pathname: string): string | undefined {
 function authorized(req: IncomingMessage, pathname: string): boolean {
   if (!ADMIN_PASSWORD) return true; // open when no password set (localhost default)
   if (PUBLIC_PATHS.has(pathname)) return true;
+  // Tournament reads/writes do their own participant/organizer checks from the coach Bearer
+  // session. They must bypass the unrelated legacy Basic gate on sidecar-off hosts.
+  if (
+    pathname === "/api/scheduled-matches" ||
+    pathname.startsWith("/api/scheduled-matches/") ||
+    pathname.startsWith("/api/tournaments/") ||
+    pathname.startsWith("/api/fork/tournaments/")
+  ) return true;
   // Dynamic coach-scoped route: bypass legacy Basic auth, then enforce the proven session in-handler.
   if (tournamentInstructionsGameId(pathname)) return true;
   if (tournamentResultGameId(pathname)) return true;
   if (pathname.startsWith("/api/packages/")) return true;
+  if (
+    (req.method === "GET" || req.method === "HEAD") &&
+    (/^\/api\/(?:fork\/)?tournaments\/[^/]+$/.test(pathname) || /^\/api\/(?:fork\/)?tournaments\/[^/]+\/standings$/.test(pathname))
+  ) return true;
   if ((req.method === "GET" || req.method === "HEAD") && teamDetailIdFromPath(pathname)) return true;
   if (req.method === "POST" && advancementPath(pathname)) return true;
   if (req.method === "POST" && (pathname === "/api/team/checkName" || isTeamMutationWritePath(pathname))) return true;
@@ -694,7 +711,8 @@ function isOrganizerWrite(method: string, pathname: string): boolean {
     pathname === "/api/fork/user/clear-games" ||
     pathname === "/api/team/setResurrection" ||
     /^\/api\/fork\/game\/[^/]+\/(close|delete|concede)$/.test(pathname) ||
-    /^\/api\/(users|tournaments|schedule)(\/|$)/.test(pathname)
+    /^\/api\/(users|tournaments|schedule)(\/|$)/.test(pathname) ||
+    pathname.startsWith("/api/fork/tournaments/")
   );
 }
 
@@ -713,6 +731,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/admin/identities/naf" ||
     pathname === "/api/account" ||
     isTeamMutationWritePath(pathname) ||
+    pathname.startsWith("/api/scheduled-matches/") ||
     /^\/api\/teams\/[^/]+\/advancement$/.test(pathname)
   );
 }
@@ -795,6 +814,21 @@ async function handleApi(
       admin: auth.admin,
       ...(session ? { expiresAt: new Date(session.expiry).toISOString() } : {}),
     });
+  }
+
+  if (path === "/api/tournaments" || path.startsWith("/api/tournaments/") || path === "/api/fork/tournaments" || path.startsWith("/api/fork/tournaments/") || path.startsWith("/api/scheduled-matches")) {
+    const body = WRITE_METHODS.has(method) && method !== "DELETE" ? await readBody(req) : undefined;
+    const result = await tournamentApi(method, path, query, auth, body, {
+      store: tournamentStore,
+      teamBuild: (teamId) => libraryTeamForId(teamId),
+    });
+    if (result) {
+      if (result.status === 204) {
+        res.writeHead(204).end();
+        return;
+      }
+      return sendJson(res, result.status, result.body);
+    }
   }
 
   if (path === "/api/auth/discord/start" && method === "GET") {
@@ -2438,7 +2472,7 @@ export const server = createServer((req, res) => {
       if (cors.kind === "allowed") {
         res.setHeader("access-control-allow-origin", cors.origin);
         res.setHeader("vary", "origin");
-        res.setHeader("access-control-allow-methods", "GET,POST,PATCH,OPTIONS");
+        res.setHeader("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS");
         res.setHeader("access-control-allow-headers", "content-type,authorization,x-cw-auth");
       } else if (cors.kind === "denied" && url.pathname.startsWith("/api/")) {
         if (req.method === "OPTIONS") {

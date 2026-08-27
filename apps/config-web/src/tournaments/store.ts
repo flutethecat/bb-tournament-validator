@@ -1,0 +1,382 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { atomicWriteTextFile } from "@bb/fork-ops";
+import { calculateStandings, generateSwissPairings } from "./pairing.js";
+import type {
+  ScheduledMatchRecord,
+  TournamentDataFileV2,
+  TournamentEntrantRecord,
+  TournamentRecord,
+  TournamentRoundRecord,
+  VerifiedCoachIdentity,
+  WaitingPresenceLease,
+} from "./types.js";
+
+export const DEFAULT_WAITING_LEASE_MS = 45_000;
+export const MIN_WAITING_LEASE_MS = 15_000;
+export const MAX_WAITING_LEASE_MS = 5 * 60_000;
+
+type TournamentDataFileV1 = Partial<Omit<TournamentDataFileV2, "version" | "waitingPresence">> & {
+  version: 1;
+  tournaments?: TournamentRecord[] | Record<string, TournamentRecord>;
+  entrants?: TournamentEntrantRecord[] | Record<string, TournamentEntrantRecord>;
+  rounds?: TournamentRoundRecord[] | Record<string, TournamentRoundRecord>;
+  scheduledMatches?: ScheduledMatchRecord[] | Record<string, ScheduledMatchRecord>;
+};
+
+const emptyData = (): TournamentDataFileV2 => ({
+  version: 2,
+  tournaments: {},
+  entrants: {},
+  rounds: {},
+  standings: {},
+  scheduledMatches: {},
+  waitingPresence: {},
+});
+
+const keyed = <T extends { id: string }>(value: T[] | Record<string, T> | undefined): Record<string, T> =>
+  Array.isArray(value) ? Object.fromEntries(value.map((item) => [item.id, item])) : { ...(value ?? {}) };
+
+/** The only on-disk migration. V1 records are preserved and gain the lease table. */
+export function migrateTournamentData(value: unknown): TournamentDataFileV2 {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Tournament data must be an object.");
+  const parsed = value as TournamentDataFileV1 | TournamentDataFileV2;
+  if (parsed.version === 1) {
+    return {
+      version: 2,
+      tournaments: keyed(parsed.tournaments),
+      entrants: keyed(parsed.entrants),
+      rounds: keyed(parsed.rounds),
+      standings: {},
+      scheduledMatches: keyed(parsed.scheduledMatches),
+      waitingPresence: {},
+    };
+  }
+  if (parsed.version !== 2) throw new Error("Unsupported tournament data version.");
+  for (const field of ["tournaments", "entrants", "rounds", "standings", "scheduledMatches", "waitingPresence"] as const) {
+    if (!parsed[field] || typeof parsed[field] !== "object" || Array.isArray(parsed[field]))
+      throw new Error(`Tournament data ${field} must be an object.`);
+  }
+  return structuredClone(parsed);
+}
+
+const coachKey = (value: string): string => value.trim().toLowerCase();
+const leaseKey = (matchId: string, coachId: string): string => `${matchId}\0${coachKey(coachId)}`;
+
+function assertId(value: string, label: string): void {
+  if (!value.trim() || value.length > 120 || !/^[A-Za-z0-9_.:-]+$/.test(value))
+    throw new Error(`${label} must contain only letters, digits, dot, underscore, colon, or dash.`);
+}
+
+function assertVerifiedCoach(identity: VerifiedCoachIdentity): void {
+  assertId(identity.coachId, "coachId");
+  if (!identity.ffbCoachId.trim()) throw new Error("ffbCoachId is required.");
+  if (!Number.isFinite(Date.parse(identity.verifiedAt))) throw new Error("verifiedAt must be an ISO timestamp.");
+}
+
+function participants(match: ScheduledMatchRecord): VerifiedCoachIdentity[] {
+  return [match.home.coach, ...(match.away ? [match.away.coach] : [])];
+}
+
+export class TournamentStoreError extends Error {
+  constructor(readonly status: 400 | 401 | 403 | 404 | 409, message: string) {
+    super(message);
+  }
+}
+
+export class TournamentStore {
+  private readonly file: string;
+
+  constructor(dataDir: string) {
+    this.file = join(dataDir, "tournaments.json");
+  }
+
+  snapshot(): TournamentDataFileV2 {
+    if (!existsSync(this.file)) return emptyData();
+    return migrateTournamentData(JSON.parse(readFileSync(this.file, "utf8")) as unknown);
+  }
+
+  /** Intended for migrations, administrative import, and deterministic tests. */
+  writeSnapshot(value: TournamentDataFileV2): TournamentDataFileV2 {
+    const normalized = migrateTournamentData(value);
+    atomicWriteTextFile(this.file, `${JSON.stringify(normalized, null, 2)}\n`);
+    return structuredClone(normalized);
+  }
+
+  private mutate<T>(change: (data: TournamentDataFileV2) => T): T {
+    const data = this.snapshot();
+    const result = change(data);
+    this.writeSnapshot(data);
+    return structuredClone(result);
+  }
+
+  activeTournaments(): TournamentRecord[] {
+    return Object.values(this.snapshot().tournaments)
+      .filter((tournament) => tournament.status === "active")
+      .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
+  }
+
+  tournament(tournamentId: string): TournamentRecord | undefined {
+    return this.snapshot().tournaments[tournamentId];
+  }
+
+  entrants(tournamentId: string): TournamentEntrantRecord[] {
+    return Object.values(this.snapshot().entrants)
+      .filter((entrant) => entrant.tournamentId === tournamentId)
+      .sort((left, right) => left.seed - right.seed || left.id.localeCompare(right.id));
+  }
+
+  rounds(tournamentId: string): TournamentRoundRecord[] {
+    return Object.values(this.snapshot().rounds)
+      .filter((round) => round.tournamentId === tournamentId)
+      .sort((left, right) => left.number - right.number);
+  }
+
+  matches(tournamentId?: string): ScheduledMatchRecord[] {
+    return Object.values(this.snapshot().scheduledMatches)
+      .filter((match) => tournamentId === undefined || match.tournamentId === tournamentId)
+      .sort((left, right) => left.roundNumber - right.roundNumber || left.id.localeCompare(right.id));
+  }
+
+  match(matchId: string): ScheduledMatchRecord | undefined {
+    return this.snapshot().scheduledMatches[matchId];
+  }
+
+  standings(tournamentId: string) {
+    const snapshot = this.snapshot();
+    const tournament = snapshot.tournaments[tournamentId];
+    if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+    const entrants = Object.values(snapshot.entrants).filter((entrant) => entrant.tournamentId === tournamentId);
+    const matches = Object.values(snapshot.scheduledMatches)
+      .filter((match) => match.tournamentId === tournamentId)
+      .sort((left, right) => left.id.localeCompare(right.id));
+    const matchRevision = matches.map((match) => `${match.id}:${match.revision}:${match.status}`).join("|");
+    const cached = snapshot.standings[tournamentId];
+    if (cached?.matchRevision === matchRevision) return cached.rows;
+    const rows = calculateStandings(entrants, matches, tournament.points, tournament.tiebreakers);
+    this.mutate((data) => {
+      data.standings[tournamentId] = {
+        tournamentId,
+        matchRevision,
+        rows,
+        calculatedAt: new Date().toISOString(),
+      };
+    });
+    return rows;
+  }
+
+  generateNextRound(tournamentId: string, now = new Date()): TournamentRoundRecord {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      if (tournament.status !== "active") throw new TournamentStoreError(409, "Only an active tournament can generate a round.");
+      const existingRounds = Object.values(data.rounds).filter((round) => round.tournamentId === tournamentId);
+      if (existingRounds.some((round) => round.status !== "completed"))
+        throw new TournamentStoreError(409, "Complete the current round before generating another.");
+      const number = existingRounds.length + 1;
+      if (number > tournament.roundCount) throw new TournamentStoreError(409, "All configured rounds already exist.");
+      const entrants = Object.values(data.entrants).filter((entrant) => entrant.tournamentId === tournamentId);
+      for (const entrant of entrants) assertVerifiedCoach(entrant.coach);
+      const priorMatches = Object.values(data.scheduledMatches).filter((match) => match.tournamentId === tournamentId);
+      const pairings = generateSwissPairings(entrants, priorMatches, tournament.points, tournament.tiebreakers);
+      const roundId = `${tournamentId}:round:${number}`;
+      assertId(roundId, "round id");
+      const timestamp = now.toISOString();
+      const scheduledMatchIds: string[] = [];
+      pairings.forEach((pairing, index) => {
+        const id = `${roundId}:match:${index + 1}`;
+        const homeEntrant = data.entrants[pairing.homeEntrantId];
+        const awayEntrant = pairing.awayEntrantId ? data.entrants[pairing.awayEntrantId] : undefined;
+        if (!homeEntrant || (pairing.awayEntrantId && !awayEntrant)) throw new Error("Pairing references an unknown entrant.");
+        const match: ScheduledMatchRecord = {
+          id,
+          tournamentId,
+          roundId,
+          roundNumber: number,
+          home: { entrantId: homeEntrant.id, coach: homeEntrant.coach, teamId: homeEntrant.teamId },
+          ...(awayEntrant ? { away: { entrantId: awayEntrant.id, coach: awayEntrant.coach, teamId: awayEntrant.teamId } } : {}),
+          status: awayEntrant ? "scheduled" : "completed",
+          revision: 1,
+          launch: { challengePath: "/api/fork/challenge", jnlpPath: "/api/fork/jnlp", retryCount: 0 },
+          ...(awayEntrant ? {} : { result: { homeScore: 0, awayScore: 0, reportedAt: timestamp } }),
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        data.scheduledMatches[id] = match;
+        scheduledMatchIds.push(id);
+      });
+      const round: TournamentRoundRecord = {
+        id: roundId,
+        tournamentId,
+        number,
+        status: pairings.every((pairing) => pairing.awayEntrantId === undefined) ? "completed" : "active",
+        scheduledMatchIds,
+        createdAt: timestamp,
+      };
+      data.rounds[roundId] = round;
+      data.tournaments[tournamentId] = { ...tournament, currentRound: number, updatedAt: timestamp };
+      return round;
+    });
+  }
+
+  activeLeases(matchId: string, now = new Date()): WaitingPresenceLease[] {
+    const current = now.getTime();
+    return Object.values(this.snapshot().waitingPresence)
+      .filter((lease) => lease.scheduledMatchId === matchId && Date.parse(lease.expiresAt) > current)
+      .sort((left, right) => left.coachId.localeCompare(right.coachId));
+  }
+
+  renewWaiting(matchId: string, authenticatedCoach: string, ttlMs = DEFAULT_WAITING_LEASE_MS, now = new Date()): WaitingPresenceLease {
+    return this.mutate((data) => {
+      const match = data.scheduledMatches[matchId];
+      if (!match) throw new TournamentStoreError(404, "Scheduled match not found.");
+      const coach = participants(match).find((candidate) => coachKey(candidate.ffbCoachId) === coachKey(authenticatedCoach));
+      if (!coach) throw new TournamentStoreError(403, "Only a scheduled participant can renew waiting presence.");
+      if (!["scheduled", "launching", "launch_failed"].includes(match.status))
+        throw new TournamentStoreError(409, "Waiting presence is closed for this match.");
+      if (!Number.isFinite(ttlMs) || ttlMs < MIN_WAITING_LEASE_MS || ttlMs > MAX_WAITING_LEASE_MS)
+        throw new TournamentStoreError(400, `ttlMs must be between ${MIN_WAITING_LEASE_MS} and ${MAX_WAITING_LEASE_MS}.`);
+      const lease: WaitingPresenceLease = {
+        scheduledMatchId: matchId,
+        coachId: coach.ffbCoachId,
+        renewedAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
+      };
+      data.waitingPresence[leaseKey(matchId, coach.ffbCoachId)] = lease;
+      return lease;
+    });
+  }
+
+  clearWaiting(matchId: string, authenticatedCoach: string): boolean {
+    return this.mutate((data) => {
+      const match = data.scheduledMatches[matchId];
+      if (!match) throw new TournamentStoreError(404, "Scheduled match not found.");
+      const coach = participants(match).find((candidate) => coachKey(candidate.ffbCoachId) === coachKey(authenticatedCoach));
+      if (!coach) throw new TournamentStoreError(403, "Only a scheduled participant can clear waiting presence.");
+      return delete data.waitingPresence[leaseKey(matchId, coach.ffbCoachId)];
+    });
+  }
+
+  /** Empty unless at least one participant is waiting; never targets a coach with an active lease. */
+  notificationAudience(matchId: string, now = new Date()): VerifiedCoachIdentity[] {
+    const match = this.match(matchId);
+    if (!match?.away || !["scheduled", "launching", "launch_failed"].includes(match.status)) return [];
+    const waiting = new Set(this.activeLeases(matchId, now).map((lease) => coachKey(lease.coachId)));
+    if (waiting.size === 0) return [];
+    return participants(match).filter((coach) => !waiting.has(coachKey(coach.ffbCoachId)));
+  }
+
+  applyMatchAction(matchId: string, authenticatedCoach: string, action: "retry" | "dismiss", expectedRevision: number, now = new Date()): ScheduledMatchRecord {
+    return this.mutate((data) => {
+      const match = data.scheduledMatches[matchId];
+      if (!match) throw new TournamentStoreError(404, "Scheduled match not found.");
+      if (!participants(match).some((coach) => coachKey(coach.ffbCoachId) === coachKey(authenticatedCoach)))
+        throw new TournamentStoreError(403, "Only a scheduled participant can change this match.");
+      if (!Number.isSafeInteger(expectedRevision) || match.revision !== expectedRevision)
+        throw new TournamentStoreError(409, `Scheduled match revision changed; current revision is ${match.revision}.`);
+      if (action === "retry" && match.status !== "launch_failed")
+        throw new TournamentStoreError(409, "Retry is available only after a launch failure.");
+      if (action === "dismiss" && match.status !== "launch_failed")
+        throw new TournamentStoreError(409, "Dismiss is available only after a launch failure.");
+      const updated: ScheduledMatchRecord = {
+        ...match,
+        status: action === "retry" ? "scheduled" : "dismissed",
+        revision: match.revision + 1,
+        launch: action === "retry"
+          ? { ...match.launch, retryCount: match.launch.retryCount + 1, lastError: undefined }
+          : match.launch,
+        updatedAt: now.toISOString(),
+      };
+      data.scheduledMatches[matchId] = updated;
+      for (const key of Object.keys(data.waitingPresence)) {
+        if (data.waitingPresence[key]?.scheduledMatchId === matchId) delete data.waitingPresence[key];
+      }
+      return updated;
+    });
+  }
+
+  recordLaunch(
+    matchId: string,
+    input: {
+      expectedRevision: number;
+      status: "launching" | "launched" | "launch_failed";
+      gameName?: string;
+      gameId?: string;
+      error?: string;
+    },
+    now = new Date(),
+  ): ScheduledMatchRecord {
+    return this.mutate((data) => {
+      const match = data.scheduledMatches[matchId];
+      if (!match) throw new TournamentStoreError(404, "Scheduled match not found.");
+      if (!Number.isSafeInteger(input.expectedRevision) || match.revision !== input.expectedRevision)
+        throw new TournamentStoreError(409, `Scheduled match revision changed; current revision is ${match.revision}.`);
+      if (input.status === "launched" && !input.gameName?.trim() && !input.gameId?.trim())
+        throw new TournamentStoreError(400, "A launched match requires gameName or gameId.");
+      if (input.status === "launch_failed" && !input.error?.trim())
+        throw new TournamentStoreError(400, "A launch failure requires an error message.");
+      const timestamp = now.toISOString();
+      const updated: ScheduledMatchRecord = {
+        ...match,
+        status: input.status,
+        revision: match.revision + 1,
+        launch: {
+          ...match.launch,
+          ...(input.gameName?.trim() ? { gameName: input.gameName.trim() } : {}),
+          ...(input.gameId?.trim() ? { gameId: input.gameId.trim() } : {}),
+          lastAttemptAt: timestamp,
+          ...(input.status === "launched" ? { launchedAt: timestamp, lastError: undefined } : {}),
+          ...(input.status === "launch_failed" ? { lastError: input.error!.trim() } : {}),
+        },
+        updatedAt: timestamp,
+      };
+      data.scheduledMatches[matchId] = updated;
+      return updated;
+    });
+  }
+
+  recordResult(
+    matchId: string,
+    input: { expectedRevision: number; homeScore: number; awayScore: number; homeCasualties?: number; awayCasualties?: number },
+    now = new Date(),
+  ): ScheduledMatchRecord {
+    return this.mutate((data) => {
+      const match = data.scheduledMatches[matchId];
+      if (!match) throw new TournamentStoreError(404, "Scheduled match not found.");
+      if (!match.away) throw new TournamentStoreError(409, "A bye already has an automatic result.");
+      if (!Number.isSafeInteger(input.expectedRevision) || match.revision !== input.expectedRevision)
+        throw new TournamentStoreError(409, `Scheduled match revision changed; current revision is ${match.revision}.`);
+      for (const [field, value] of Object.entries(input).filter(([field]) => field !== "expectedRevision")) {
+        if (!Number.isSafeInteger(value) || (value as number) < 0)
+          throw new TournamentStoreError(400, `${field} must be a non-negative integer.`);
+      }
+      const timestamp = now.toISOString();
+      const updated: ScheduledMatchRecord = {
+        ...match,
+        status: "completed",
+        revision: match.revision + 1,
+        result: {
+          homeScore: input.homeScore,
+          awayScore: input.awayScore,
+          ...(input.homeCasualties === undefined ? {} : { homeCasualties: input.homeCasualties }),
+          ...(input.awayCasualties === undefined ? {} : { awayCasualties: input.awayCasualties }),
+          reportedAt: timestamp,
+        },
+        updatedAt: timestamp,
+      };
+      data.scheduledMatches[matchId] = updated;
+      const round = data.rounds[match.roundId];
+      if (round && round.scheduledMatchIds.every((id) => data.scheduledMatches[id]?.status === "completed")) {
+        data.rounds[round.id] = { ...round, status: "completed", completedAt: timestamp };
+        const tournament = data.tournaments[match.tournamentId];
+        if (tournament && round.number >= tournament.roundCount)
+          data.tournaments[tournament.id] = { ...tournament, status: "completed", updatedAt: timestamp };
+      }
+      delete data.standings[match.tournamentId];
+      for (const key of Object.keys(data.waitingPresence)) {
+        if (data.waitingPresence[key]?.scheduledMatchId === matchId) delete data.waitingPresence[key];
+      }
+      return updated;
+    });
+  }
+}

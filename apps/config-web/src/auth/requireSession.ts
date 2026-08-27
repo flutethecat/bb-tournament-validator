@@ -67,6 +67,16 @@ function isPublicRequest(method: string, pathname: string): boolean {
       pathname.startsWith("/api/packages/"))
   )
     return true;
+  if (
+    (method === "GET" || method === "HEAD") &&
+    (pathname === "/api/tournaments" ||
+      pathname === "/api/fork/tournaments" ||
+      /^\/api\/tournaments\/[^/]+$/.test(pathname) ||
+      /^\/api\/tournaments\/[^/]+\/standings$/.test(pathname) ||
+      /^\/api\/fork\/tournaments\/[^/]+$/.test(pathname) ||
+      /^\/api\/fork\/tournaments\/[^/]+\/standings$/.test(pathname))
+  )
+    return true;
   return PUBLIC_API_METHODS.get(pathname)?.has(method) === true;
 }
 
