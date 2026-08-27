@@ -108,6 +108,7 @@ describe("GET /api/teams/:id/detail", () => {
               positionId: "860401",
               skills: ["Block", "Guard"],
               injuries: ["Smashed Knee"],
+              injuryDetails: [{ name: "Smashed Knee", recovering: false }],
               spp: 12,
           earnedSpp: null,
               advancements: 2,
@@ -132,6 +133,7 @@ describe("GET /api/teams/:id/detail", () => {
               positionId: "860402",
               skills: [],
               injuries: [],
+              injuryDetails: [],
               spp: 0,
               earnedSpp: 0,
               advancements: 0,
@@ -311,5 +313,20 @@ describe("§3E schema widening", () => {
     const team = await widened("1");
     expect(team.teamStatus).toBe("1");
     expect(team.players[0]!.refundable).toBe(false);
+  });
+
+  it("emits injuryDetails from the same nodes without changing injuries", async () => {
+    const { parseStoredTeamDetail } = await import("../src/teamDetail.js");
+    const xml = TEAM_XML.replace(
+      "<skillList></skillList></player>",
+      '<skillList></skillList><injuryList><injury>Head Injury (-AV)</injury><injury recovering="true">Broken Arm (-PA)</injury></injuryList></player>',
+    );
+    const team = parseStoredTeamDetail(xml, STORED_TEAM, ROSTER_XML);
+
+    expect(team.players[0]!.injuries).toEqual(["Head Injury (-AV)", "Broken Arm (-PA)"]);
+    expect(team.players[0]!.injuryDetails).toEqual([
+      { name: "Head Injury (-AV)", recovering: false },
+      { name: "Broken Arm (-PA)", recovering: true },
+    ]);
   });
 });

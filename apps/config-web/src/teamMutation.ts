@@ -38,6 +38,7 @@ export type TeamMutationOperation =
   | "undoTemporaryRetire"
   | "rehirePlayer"
   | "refundPlayer"
+  | "setResurrection"
   | "ready"
   | "unready";
 
@@ -61,6 +62,7 @@ const MUTATION_OPERATIONS = new Set<TeamMutationOperation>([
   "undoTemporaryRetire",
   "rehirePlayer",
   "refundPlayer",
+  "setResurrection",
   "ready",
   "unready",
 ]);
@@ -138,6 +140,22 @@ function teamIdFromBody(value: unknown): string {
     return String(value);
   }
   return fail(400, "teamId must be a non-empty string or non-negative integer.");
+}
+
+function setTeamResurrection(xml: string, resurrection: boolean): string {
+  const opening = xml.match(/<team\b[^>]*>/i)?.[0];
+  if (!opening) return fail(500, "Stored team XML has no root team element.");
+  let updated = opening;
+  if (resurrection) {
+    // Upstream ffb-common Team.startXmlElement for XML_TAG "team" reads only the id attribute;
+    // unknown root attributes are ignored (ffb-common/src/main/java/com/fumbbl/ffb/model/Team.java).
+    updated = /\bresurrection="[^"]*"/i.test(opening)
+      ? opening.replace(/\bresurrection="[^"]*"/i, 'resurrection="true"')
+      : opening.replace(/>$/, ' resurrection="true">');
+  } else {
+    updated = opening.replace(/\s+resurrection="[^"]*"/gi, "");
+  }
+  return updated === opening ? xml : xml.replace(opening, updated);
 }
 
 /**
@@ -742,6 +760,12 @@ function applyRosterOperation(
   if (operation === "temporaryRetirePlayer") {
     if (/temporarilyretired/i.test(target.status.replace(/[\s_-]+/g, ""))) return fail(400, "This player is already temporarily retired.");
     if (/journeyman/i.test(target.status)) return fail(400, "A journeyman cannot be temporarily retired.");
+    const freshStatReduction = [...target.block.matchAll(/<injury\b([^>]*)>([^<]*)<\/injury>/gi)].some((injury) => {
+      if (attr(injury[1]!, "recovering") !== "true") return false;
+      const name = decodeXml(injury[2]!).trim();
+      return /\(\s*-[^)]*[a-z0-9][^)]*\)/i.test(name) || /-\s*(?:\d+\s*)?[a-z]{1,4}\b/i.test(name);
+    });
+    if (!freshStatReduction) return fail(400, "Temporary retirement requires a fresh stat-reducing injury.");
     // Team value is deliberately unchanged: the fork has no provenance for temporary-retirement TV relief.
     return { xml: teamXml.replace(target.block, withPlayerStatus(target.block, "TemporarilyRetired")) };
   }
@@ -826,6 +850,13 @@ function applyOperation(
     const duplicateError = duplicateNameError(newName, teamId);
     if (duplicateError) return fail(409, duplicateError);
     return { xml: setTeamTextTag(teamXml, "name", newName), teamName: newName };
+  }
+  if (operation === "setResurrection") {
+    if (!hasExactKeys(body, ["teamId", "resurrection"])) {
+      return fail(400, "setResurrection requires exactly {teamId, resurrection}.");
+    }
+    if (typeof body.resurrection !== "boolean") return fail(400, "resurrection must be a boolean.");
+    return { xml: setTeamResurrection(teamXml, body.resurrection) };
   }
 
   if (!hasExactKeys(body, ["teamId"])) return fail(400, `${operation} requires exactly {teamId}.`);

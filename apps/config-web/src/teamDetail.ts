@@ -20,6 +20,7 @@ export interface TeamDetailPlayer {
   positionId: string;
   skills: string[];
   injuries: string[];
+  injuryDetails: Array<{ name: string; recovering: boolean }>;
   spp: number;
   earnedSpp: number | null;
   advancements: number;
@@ -74,6 +75,7 @@ export interface TeamDetail {
   /** The roster XML's <nameGenerator> id for name/generate; "default" when the roster carries none. */
   nameGenerator: string;
   firedPlayers: TeamDetailFiredPlayer[];
+  resurrection?: boolean;
 }
 
 export type TeamDetailEndpointResult =
@@ -209,8 +211,9 @@ export function parseStoredTeamDetail(
   const revision = teamRevision(xml);
   const hasAnyPending = /<pendingAdvancement\b/i.test(xml);
   const header = xml.split(/<player\b/i)[0] ?? xml;
+  const teamOpening = xml.match(/<team\b[^>]*>/i)?.[0] ?? "";
   const teamStatus = (element(header, "status") ??
-    decodeXml(attr(xml.match(/<team\b[^>]*>/i)?.[0] ?? "", "status") ?? "").trim()) || "0";
+    decodeXml(attr(teamOpening, "status") ?? "").trim()) || "0";
   // Refunds exist only on a NEW team (raw status 0/absent) — mirrors teamMutation's refundPlayer gate.
   const teamIsNew = /^(?:|0|new)$/i.test(teamStatus.replace(/[\s_-]+/g, ""));
 
@@ -222,9 +225,13 @@ export function parseStoredTeamDetail(
     const skills = [...block.matchAll(/<skill\b[^>]*>([^<]*)<\/skill>/gi)]
       .map((match) => decodeXml(match[1]!).trim())
       .filter(Boolean);
-    const injuries = [...block.matchAll(/<injury\b[^>]*>([^<]*)<\/injury>/gi)]
-      .map((match) => decodeXml(match[1]!).trim())
-      .filter(Boolean);
+    const injuryDetails = [...block.matchAll(/<injury\b([^>]*)>([^<]*)<\/injury>/gi)]
+      .map((match) => ({
+        name: decodeXml(match[2]!).trim(),
+        recovering: attr(match[1]!, "recovering") === "true",
+      }))
+      .filter((injury) => injury.name.length > 0);
+    const injuries = injuryDetails.map((injury) => injury.name);
     const rawNumber = Number(attr(opening, "nr") ?? attr(opening, "number"));
 
     const progression = playerProgression(block, rosterXml);
@@ -267,6 +274,7 @@ export function parseStoredTeamDetail(
       positionId,
       skills,
       injuries,
+      injuryDetails,
       spp,
       earnedSpp: progression.earnedSpp,
       advancements: progression.advancements,
@@ -349,6 +357,7 @@ export function parseStoredTeamDetail(
     teamStatus,
     nameGenerator: (rosterXml ? element(rosterXml, "nameGenerator") : undefined) ?? "default",
     firedPlayers,
+    ...(attr(teamOpening, "resurrection") === "true" ? { resurrection: true } : {}),
   };
 }
 

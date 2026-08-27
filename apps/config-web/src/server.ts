@@ -673,6 +673,7 @@ function isOrganizerWrite(method: string, pathname: string): boolean {
     pathname === "/api/fork/matchmaking-settings" ||
     pathname === "/api/fork/user/reset-password" ||
     pathname === "/api/fork/user/clear-games" ||
+    pathname === "/api/team/setResurrection" ||
     /^\/api\/fork\/game\/[^/]+\/(close|delete|concede)$/.test(pathname) ||
     /^\/api\/(users|tournaments|schedule)(\/|$)/.test(pathname)
   );
@@ -1032,7 +1033,7 @@ async function handleApi(
     const body = await readBody(req, MUTATION_JSON_BODY_CAP);
     const adminAuthed = auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req);
     const identity = auth || adminAuthed
-      ? { coach: auth?.coach, admin: adminAuthed }
+      ? { coach: auth?.coach, admin: adminAuthed || (mutationOperation === "setResurrection" && auth?.organizer === true) }
       : undefined;
     const result = await teamMutationEndpoint(identity, mutationOperation, body, {
       libraryDir: LIBRARY_DIR,
@@ -2354,7 +2355,7 @@ const siteBackend = await createSiteBackend(LIBRARY_DIR, async () => {
   }
 });
 
-const server = createServer((req, res) => {
+export const server = createServer((req, res) => {
   void (async () => {
     try {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);

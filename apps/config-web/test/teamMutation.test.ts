@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { findLibraryTeamByName, readLibrary, upsertLibraryTeam, type LibraryTeam, type ReloadResult } from "@bb/fork-ops";
+import { teamDetailEndpoint } from "../src/teamDetail.js";
 import {
   isTeamMutationWritePath,
   teamCheckNameEndpoint,
@@ -129,6 +130,7 @@ describe("P2 team mutations", () => {
     "fireApothecary",
     "changeDedicatedFans",
     "rename",
+    "setResurrection",
   ] as const)("maps /api/team/%s as a state-changing mutation", (operation) => {
     const path = `/api/team/${operation}`;
     expect(teamMutationOperation(path)).toBe(operation);
@@ -357,6 +359,33 @@ describe("P2 team mutations", () => {
     expect((await teamMutationEndpoint({ coach: "Other", admin: false }, "addReroll", { teamId: "42" }, d.deps)).status).toBe(404);
     expect((await teamMutationEndpoint({ admin: true }, "addReroll", { teamId: "42" }, d.deps)).status).toBe(200);
   });
+
+  it("round-trips the resurrection root attribute and omits false from detail", async () => {
+    const d = setup();
+
+    expect((await mutate(d, "setResurrection", { teamId: "42", resurrection: true })).status).toBe(200);
+    expect((await mutate(d, "setResurrection", { teamId: "42", resurrection: true })).status).toBe(200);
+    expect(readFileSync(d.teamFile, "utf8").match(/\bresurrection="true"/g)).toHaveLength(1);
+    const enabled = teamDetailEndpoint({ coach: "Tarkin", organizer: true }, "42", d);
+    if (enabled.status !== 200) throw new Error(enabled.body.error);
+    expect(enabled.body.team.resurrection).toBe(true);
+
+    expect((await mutate(d, "setResurrection", { teamId: "42", resurrection: false })).status).toBe(200);
+    expect(readFileSync(d.teamFile, "utf8")).not.toContain("resurrection=");
+    const disabled = teamDetailEndpoint({ coach: "Tarkin", organizer: true }, "42", d);
+    if (disabled.status !== 200) throw new Error(disabled.body.error);
+    expect(disabled.body.team).not.toHaveProperty("resurrection");
+  });
+
+  it("requires a boolean resurrection value without writing", async () => {
+    const d = setup();
+    const before = snapshot(d);
+    const result = await mutate(d, "setResurrection", { teamId: "42", resurrection: "true" });
+
+    expect(result).toMatchObject({ status: 400, body: { error: expect.stringMatching(/resurrection must be a boolean/i) } });
+    expect(snapshot(d)).toEqual(before);
+    expect(d.reloads()).toBe(0);
+  });
 });
 
 describe("POST /api/team/checkName", () => {
@@ -535,7 +564,11 @@ describe("P3 player lifecycle", () => {
   });
 
   it("toggles temporary retirement via the status attribute", async () => {
-    const d = setup(teamWithPlayers(2), P3_ROSTER);
+    const eligible = teamWithPlayers(2).replace(
+      "<skillList></skillList></player>",
+      '<skillList></skillList><injuryList><injury recovering="true">Smashed Knee (-MA)</injury></injuryList></player>',
+    );
+    const d = setup(eligible, P3_ROSTER);
     await mutate(d, "temporaryRetirePlayer", { teamId: "42", playerId: "p1" });
     expect(readFileSync(d.teamFile, "utf8")).toMatch(/<player status="TemporarilyRetired" nr="1" id="p1">/);
 
@@ -547,6 +580,32 @@ describe("P3 player lifecycle", () => {
 
     const notRetired = await mutate(d, "undoTemporaryRetire", { teamId: "42", playerId: "p2" });
     expect(notRetired).toMatchObject({ status: 400, body: { error: expect.stringMatching(/not temporarily retired/i) } });
+  });
+
+  it("rejects temporary retirement for an old stat reduction", async () => {
+    const oldInjury = teamWithPlayers(2).replace(
+      "<skillList></skillList></player>",
+      "<skillList></skillList><injuryList><injury>Smashed Knee (-MA)</injury></injuryList></player>",
+    );
+    const d = setup(oldInjury, P3_ROSTER);
+    const before = snapshot(d);
+
+    const result = await mutate(d, "temporaryRetirePlayer", { teamId: "42", playerId: "p1" });
+    expect(result).toMatchObject({ status: 400, body: { error: expect.stringMatching(/fresh stat-reducing injury/i) } });
+    expect(snapshot(d)).toEqual(before);
+  });
+
+  it("rejects temporary retirement for a recovering non-stat injury", async () => {
+    const mngOnly = teamWithPlayers(2).replace(
+      "<skillList></skillList></player>",
+      '<skillList></skillList><injuryList><injury recovering="true">Seriously Hurt (MNG)</injury></injuryList></player>',
+    );
+    const d = setup(mngOnly, P3_ROSTER);
+    const before = snapshot(d);
+
+    const result = await mutate(d, "temporaryRetirePlayer", { teamId: "42", playerId: "p1" });
+    expect(result).toMatchObject({ status: 400, body: { error: expect.stringMatching(/fresh stat-reducing injury/i) } });
+    expect(snapshot(d)).toEqual(before);
   });
 });
 
