@@ -49,3 +49,17 @@ Owner-specified entry pane, visible to ORGANIZERS as a button on the Tournaments
 `POST /api/fork/tournaments` (organizer-gated) creates a draft tournament with those four fields;
 activation and round generation ride the existing organizer round ops. The foundation's
 swiss-only literal, missing package binding, and missing cap are the gaps this closes.
+
+## Entrant registration contract (Veers ruling 2026-08-27, closing the honest-stop gap)
+
+`POST /api/fork/tournaments/:id/entrants` — coach session required. Body `{teamId}`.
+- Binds the AUTHENTICATED coach + their OWN library team (ownership resolved via the fork
+  library, same source the admin teams search uses); an organizer session may instead pass
+  `{teamId, coach}` to register another coach (manual seeding).
+- Rejections (honest 400): tournament not draft/active or round 1 already generated; coach
+  already entered (one seat per coach); team not owned by the target coach; **entrant count
+  at `maxPlayers` ("Tournament is full.")** — this is where the cap binds.
+- Seat shape = the existing `TournamentEntrantRecord` (`VerifiedCoachIdentity` from the
+  session; seed = next ordinal at registration; organizer reseeding is a later concern).
+- `DELETE .../entrants/:entrantId` — self or organizer; sets `droppedAt` (foundation field),
+  never removes the row (pairing history integrity).
