@@ -148,6 +148,86 @@ describe("GET /api/teams/:id/detail", () => {
     expect(result.body.team.players[0]!.secondarySkills).toContain("Dodge");
   });
 
+  it("resolves positions and progression from the team's rosterId roster", () => {
+    const d = dirs();
+    upsertLibraryTeam(d.libraryDir, "Tarkin", STORED_TEAM);
+    cpSync(join(FIXTURES, "team-detail.xml"), join(d.teamsDir, "team_Tarkin_1272390.xml"));
+    const rostersDir = join(d.root, "rosters");
+    mkdirSync(rostersDir);
+    cpSync(join(FIXTURES, "roster-team-detail.xml"), join(rostersDir, "roster_8604.xml"));
+
+    const result = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "1272390", d);
+    expect(result.status).toBe(200);
+    if (result.status !== 200) throw new Error(result.body.error);
+    expect(result.body.team.players).toMatchObject([
+      {
+        position: "Black Orc",
+        rank: "Emerging Star",
+        advancementCosts: { randomPrimary: 6, chosenPrimary: 12, chosenSecondary: 16, characteristic: 20 },
+        movement: 4,
+        strength: 4,
+        agility: 4,
+        passing: 5,
+        armour: 10,
+      },
+      {
+        position: "Goblin Bruiser",
+        rank: "Experienced",
+        movement: 6,
+        strength: 2,
+        agility: 3,
+        passing: 4,
+        armour: 8,
+      },
+    ]);
+  });
+
+  it("prefers the per-team roster when both roster files exist", () => {
+    const d = dirs();
+    upsertLibraryTeam(d.libraryDir, "Tarkin", STORED_TEAM);
+    cpSync(join(FIXTURES, "team-detail.xml"), join(d.teamsDir, "team_Tarkin_1272390.xml"));
+    const rostersDir = join(d.root, "rosters");
+    mkdirSync(rostersDir);
+    cpSync(join(FIXTURES, "roster-team-detail.xml"), join(rostersDir, "roster_team_1272390.xml"));
+    writeFileSync(
+      join(rostersDir, "roster_8604.xml"),
+      '<roster><position id="860401"><name>Wrong fallback</name><cost>10000</cost><movement>1</movement><strength>1</strength><agility>1</agility><passing>1</passing><armour>1</armour><skillList/><skillCategoryList/></position></roster>',
+      "utf8",
+    );
+
+    const result = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "1272390", d);
+    expect(result.status).toBe(200);
+    if (result.status !== 200) throw new Error(result.body.error);
+    expect(result.body.team.players[0]).toMatchObject({
+      position: "Black Orc",
+      movement: 4,
+      strength: 4,
+      currentValue: 150000,
+    });
+  });
+
+  it("keeps players ineligible with null characteristics when no roster file exists", () => {
+    const d = dirs();
+    upsertLibraryTeam(d.libraryDir, "Tarkin", STORED_TEAM);
+    cpSync(join(FIXTURES, "team-detail.xml"), join(d.teamsDir, "team_Tarkin_1272390.xml"));
+
+    const result = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "1272390", d);
+    expect(result.status).toBe(200);
+    if (result.status !== 200) throw new Error(result.body.error);
+    expect(result.body.team.players).toHaveLength(2);
+    expect(result.body.team.players).toSatisfy(
+      (players: typeof result.body.team.players) => players.every((player) =>
+        player.position === null &&
+        player.rank === "Ineligible" &&
+        player.advancementCosts === null &&
+        player.movement === null &&
+        player.strength === null &&
+        player.agility === null &&
+        player.passing === null &&
+        player.armour === null),
+    );
+  });
+
   it("exposes exact league/rule metadata and role-aware whole-roster capability", () => {
     const d = dirs();
     upsertLibraryTeam(d.libraryDir, "Tarkin", STORED_TEAM);

@@ -136,8 +136,14 @@ export function storedTeamHasHistory(xml: string): boolean {
   return /<(?:playedGames|games)>\s*[1-9]\d*\s*<\//i.test(xml);
 }
 
-function storedRosterXml(teamsDir: string, teamId: string): string | undefined {
-  const file = join(dirname(teamsDir), "rosters", `roster_team_${safePart(teamId)}.xml`);
+function storedRosterXml(teamsDir: string, teamId: string, teamXml: string): string | undefined {
+  const rostersDir = join(dirname(teamsDir), "rosters");
+  let file = join(rostersDir, `roster_team_${safePart(teamId)}.xml`);
+  if (!existsSync(file)) {
+    const rosterId = element(teamXml, "rosterId");
+    if (!rosterId) return undefined;
+    file = join(rostersDir, `roster_${safePart(rosterId)}.xml`);
+  }
   if (!existsSync(file)) return undefined;
   try {
     return readFileSync(file, "utf8");
@@ -333,7 +339,7 @@ export function teamDetailEndpoint(
     }
     return {
       status: 200,
-      body: { team: parseStoredTeamDetail(xml, stored, storedRosterXml(deps.teamsDir, teamId), deps.tokenSecret ? { auth, tokenSecret: deps.tokenSecret, now: deps.now?.() } : undefined) },
+      body: { team: parseStoredTeamDetail(xml, stored, storedRosterXml(deps.teamsDir, teamId, xml), deps.tokenSecret ? { auth, tokenSecret: deps.tokenSecret, now: deps.now?.() } : undefined) },
     };
   } catch {
     return { status: 500, body: { error: "Stored team data could not be read." } };
