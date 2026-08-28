@@ -1,4 +1,5 @@
 import { generateTournamentPairings } from "./pairing.js";
+import { NafExportError, renderNafTournamentXml } from "./nafExport.js";
 import { TournamentStore, TournamentStoreError } from "./store.js";
 import type {
   ScheduledMatchRecord,
@@ -16,15 +17,22 @@ export interface TournamentApiIdentity {
 
 export interface TournamentApiDeps {
   store: TournamentStore;
-  teamBuild(teamId: string): unknown | undefined;
+  teamBuild(teamId: string, coachId?: string): unknown | undefined;
+  identityRecord?(coachId: string): {
+    ffbCoachId: string;
+    identities: { nafName?: string; nafId?: string };
+  } | undefined;
   packageExists?(packageName: string): boolean;
   teamOwner?(teamId: string): string | undefined;
+  coachRating?(coach: string): number | undefined;
   now?: () => Date;
 }
 
 export interface TournamentApiResult {
   status: number;
   body: unknown;
+  headers?: Record<string, string>;
+  contentType?: string;
 }
 
 const coachKey = (value: string): string => value.trim().toLowerCase();
@@ -50,9 +58,31 @@ function primaryTiebreaker(value: unknown): TournamentPrimaryTiebreaker {
   return value;
 }
 
+function requestedRoundCount(value: unknown): number {
+  const count = integer(value, "roundCount");
+  if (count < 1 || count > 50) throw new TournamentStoreError(400, "roundCount must be between 1 and 50.");
+  return count;
+}
+
+function csvCell(value: unknown): string {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function exportFilename(name: string, format: "csv" | "json" | "naf"): string {
+  const base = name.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "tournament";
+  return format === "naf" ? `${base}-naf.xml` : `${base}.${format}`;
+}
+
 function authenticated(auth: TournamentApiIdentity | undefined): TournamentApiIdentity {
   if (!auth) throw new TournamentStoreError(401, "Authentication required.");
   return auth;
+}
+
+function requireTournamentManager(tournament: TournamentRecord, auth: TournamentApiIdentity): void {
+  if (auth.admin) return;
+  if (tournament.organizerCoachId && coachKey(auth.coach) === coachKey(tournament.organizerCoachId)) return;
+  throw new TournamentStoreError(403, "You are not this tournament's organizer.");
 }
 
 function isParticipant(match: ScheduledMatchRecord, coach: string): boolean {
@@ -221,6 +251,9 @@ export async function tournamentApi(
       if (maxPlayers < 2) return { status: 400, body: { error: "maxPlayers must be at least 2." } };
       if (!(input.format === "swiss" || input.format === "roundRobin" || input.format === "knockout"))
         return { status: 400, body: { error: "format must be swiss, roundRobin, or knockout." } };
+      const roundCount = input.roundCount === undefined ? undefined : requestedRoundCount(input.roundCount);
+      if (roundCount !== undefined && input.format !== "swiss")
+        return { status: 400, body: { error: "roundCount can be set only for Swiss tournaments." } };
       const chosenTiebreaker = input.primaryTiebreaker === undefined
         ? "buchholz"
         : primaryTiebreaker(input.primaryTiebreaker);
@@ -232,7 +265,9 @@ export async function tournamentApi(
             packageName,
             maxPlayers,
             format: input.format,
+            organizerCoachId: identity.coach,
             primaryTiebreaker: chosenTiebreaker,
+            ...(roundCount === undefined ? {} : { roundCount }),
           }, now),
         },
       };
@@ -248,7 +283,9 @@ export async function tournamentApi(
             ? deps.store.tournaments(["completed"])
             : query.get("status") === "draft"
               ? deps.store.tournaments(["draft"])
-              : deps.store.activeTournaments();
+              : query.get("status") === "completed"
+                ? deps.store.tournaments(["completed"])
+                : deps.store.activeTournaments();
       const nameQuery = query.get("q")?.trim().toLowerCase();
       let filtered = nameQuery
         ? source.filter((tournament) => tournament.name.toLowerCase().includes(nameQuery))
@@ -292,8 +329,11 @@ export async function tournamentApi(
       if (requestedCoach !== undefined && (typeof requestedCoach !== "string" || !requestedCoach.trim()))
         return { status: 400, body: { error: "coach must be a non-empty string." } };
       const targetCoach = typeof requestedCoach === "string" ? requestedCoach.trim() : identity.coach;
-      if (!identity.organizer && coachKey(targetCoach) !== coachKey(identity.coach))
-        return { status: 403, body: { error: "Only an organizer may register another coach." } };
+      if (coachKey(targetCoach) !== coachKey(identity.coach)) {
+        const tournament = deps.store.tournament(tournamentId);
+        if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
+        requireTournamentManager(tournament, identity);
+      }
       const teamId = input.teamId.trim();
       const owner = deps.teamOwner?.(teamId);
       if (!owner || coachKey(owner) !== coachKey(targetCoach))
@@ -312,9 +352,15 @@ export async function tournamentApi(
       const tournamentId = decoded(entrantItemMatch[1]!);
       const entrantId = decoded(entrantItemMatch[2]!);
       if (!tournamentId || !entrantId) return { status: 400, body: { error: "Invalid tournament entrant path." } };
+      const tournament = deps.store.tournament(tournamentId);
+      if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
+      const entrant = deps.store.entrants(tournamentId).find((candidate) => candidate.id === entrantId);
+      if (!entrant) return { status: 404, body: { error: "Tournament entrant not found." } };
+      const selfDrop = coachKey(entrant.coach.ffbCoachId) === coachKey(identity.coach);
+      if (!selfDrop) requireTournamentManager(tournament, identity);
       return {
         status: 200,
-        body: { entrant: deps.store.dropEntrant(tournamentId, entrantId, identity.coach, identity.organizer, now) },
+        body: { entrant: deps.store.dropEntrant(tournamentId, entrantId, identity.coach, !selfDrop, now) },
       };
     }
 
@@ -328,13 +374,22 @@ export async function tournamentApi(
     const detailMatch = path.match(/^\/api\/tournaments\/([^/]+)$/);
     if (detailMatch && method === "PATCH") {
       const identity = authenticated(auth);
-      if (!identity.organizer) return { status: 403, body: { error: "Organizer access required." } };
       const tournamentId = decoded(detailMatch[1]!);
       if (!tournamentId) return { status: 400, body: { error: "Invalid tournament id." } };
+      const existing = deps.store.tournament(tournamentId);
+      if (!existing) return { status: 404, body: { error: "Tournament not found." } };
+      requireTournamentManager(existing, identity);
       const input = jsonObject(body);
-      const patch: Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt">> & {
+      const patch: Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "roundCount" | "organizerCoachId">> & {
         primaryTiebreaker?: TournamentPrimaryTiebreaker;
       } = {};
+      if (input.organizerCoachId !== undefined) {
+        if (!identity.admin)
+          return { status: 403, body: { error: "Only an admin may change organizerCoachId." } };
+        if (typeof input.organizerCoachId !== "string" || !input.organizerCoachId.trim())
+          return { status: 400, body: { error: "organizerCoachId must be a non-empty string." } };
+        patch.organizerCoachId = input.organizerCoachId;
+      }
       if (input.maxPlayers !== undefined) patch.maxPlayers = integer(input.maxPlayers, "maxPlayers");
       if (input.format !== undefined) {
         if (!(input.format === "swiss" || input.format === "roundRobin" || input.format === "knockout"))
@@ -356,10 +411,97 @@ export async function tournamentApi(
       }
       if (input.primaryTiebreaker !== undefined)
         patch.primaryTiebreaker = primaryTiebreaker(input.primaryTiebreaker);
+      if (input.roundCount !== undefined) patch.roundCount = requestedRoundCount(input.roundCount);
       const tournament = deps.store.updateTournament(tournamentId, patch, now);
       return {
         status: 200,
         body: { tournament: clientTournament(tournament, deps.store.entrants(tournamentId), auth) },
+      };
+    }
+
+    const finishMatch = path.match(/^\/api\/tournaments\/([^/]+)\/finish$/);
+    if (finishMatch && method === "POST") {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(finishMatch[1]!);
+      if (!tournamentId) return { status: 400, body: { error: "Invalid tournament id." } };
+      const tournament = deps.store.tournament(tournamentId);
+      if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
+      requireTournamentManager(tournament, identity);
+      return { status: 200, body: { tournament: deps.store.finishTournament(tournamentId, now) } };
+    }
+
+    const exportMatch = path.match(/^\/api\/tournaments\/([^/]+)\/export$/);
+    if (exportMatch && method === "GET") {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(exportMatch[1]!);
+      const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
+      if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
+      requireTournamentManager(tournament, identity);
+      // An omitted format intentionally defaults to JSON for browser/API convenience.
+      const format = query.get("format") ?? "json";
+      if (!(format === "json" || format === "csv" || format === "naf"))
+        return { status: 400, body: { error: "format must be csv, json, or naf." } };
+      const standings = deps.store.standings(tournament.id);
+      const headers = {
+        "content-disposition": `attachment; filename="${exportFilename(tournament.name, format)}"`,
+      };
+      if (format === "json") {
+        return {
+          status: 200,
+          headers,
+          body: {
+            tournament,
+            entrants: deps.store.entrants(tournament.id),
+            rounds: deps.store.rounds(tournament.id),
+            standings,
+            matches: deps.store.matches(tournament.id),
+          },
+        };
+      }
+      if (format === "naf") {
+        if (!deps.identityRecord)
+          return { status: 503, body: { error: "Canonical identity storage is unavailable." } };
+        try {
+          return {
+            status: 200,
+            headers,
+            contentType: "application/xml; charset=utf-8",
+            body: renderNafTournamentXml({
+              tournament,
+              organizerCoachId: tournament.organizerCoachId ?? identity.coach,
+              entrants: deps.store.entrants(tournament.id),
+              matches: deps.store.matches(tournament.id),
+              identityRecord: deps.identityRecord,
+              teamBuild: deps.teamBuild,
+            }),
+          };
+        } catch (error) {
+          if (error instanceof NafExportError)
+            return { status: 400, body: { error: error.message, problems: error.problems } };
+          throw error;
+        }
+      }
+      const columns = ["rank", "coach", "team", "played", "W", "D", "L", "points", "tdDiff", "casDiff"];
+      const rows = standings.map((row) => {
+        const team = deps.teamBuild(row.teamId);
+        return [
+          row.rank,
+          row.coachId,
+          stringField(team, "teamName") ?? row.teamId,
+          row.played,
+          row.wins,
+          row.draws,
+          row.losses,
+          row.points,
+          row.touchdownDifferential,
+          row.casualtyDifferential,
+        ].map(csvCell).join(",");
+      });
+      return {
+        status: 200,
+        headers,
+        contentType: "text/csv; charset=utf-8",
+        body: [columns.join(","), ...rows].join("\r\n") + "\r\n",
       };
     }
     if (detailMatch && method === "GET") {
@@ -434,10 +576,12 @@ export async function tournamentApi(
     const roundMatch = path.match(/^\/api\/tournaments\/([^/]+)\/rounds$/);
     if (roundMatch && method === "POST") {
       const identity = authenticated(auth);
-      if (!identity.organizer) return { status: 403, body: { error: "Organizer access required." } };
       const tournamentId = decoded(roundMatch[1]!);
       if (!tournamentId) return { status: 400, body: { error: "Invalid tournament id." } };
-      return { status: 201, body: { round: deps.store.generateNextRound(tournamentId, now) } };
+      const tournament = deps.store.tournament(tournamentId);
+      if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
+      requireTournamentManager(tournament, identity);
+      return { status: 200, body: { round: deps.store.generateNextRound(tournamentId, now, deps.coachRating) } };
     }
 
     if (path === "/api/scheduled-matches" && method === "GET") {

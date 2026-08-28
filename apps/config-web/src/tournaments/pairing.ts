@@ -39,7 +39,7 @@ function headToHead(left: StandingRow, right: StandingRow, matches: readonly Sch
   return rightScore - leftScore;
 }
 
-function stableTieFlip(tournamentId: string, leftId: string, rightId: string): number {
+export function stableTieFlip(tournamentId: string, leftId: string, rightId: string): number {
   if (leftId === rightId) return 0;
   const pair = [leftId, rightId].sort();
   const coin = createHash("sha256").update(`${tournamentId}\0${pair[0]}\0${pair[1]}`).digest()[0]! & 1;
@@ -175,6 +175,23 @@ export function generateSwissPairings(
   points: TournamentPoints,
   tiebreakers: readonly TournamentTiebreaker[],
 ): SwissPairing[] {
+  if (completed(matches).length === 0) {
+    const ordered = activeEntrants(entrants)
+      .sort((left, right) => left.seed - right.seed || left.id.localeCompare(right.id));
+    const pairings: SwissPairing[] = [];
+    if (ordered.length % 2 === 1) {
+      pairings.push({ homeEntrantId: ordered.pop()!.id });
+    }
+    const half = ordered.length / 2;
+    for (let index = 0; index < half; index += 1) {
+      pairings.push({
+        homeEntrantId: ordered[index]!.id,
+        awayEntrantId: ordered[index + half]!.id,
+      });
+    }
+    return pairings;
+  }
+
   const standings = calculateStandings(entrants, matches, points, tiebreakers);
   const played = new Set<string>();
   const byeRecipients = new Set<string>();

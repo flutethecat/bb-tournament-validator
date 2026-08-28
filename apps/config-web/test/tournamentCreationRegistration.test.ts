@@ -65,6 +65,7 @@ describe("tournament creation contract", () => {
       maxPlayers: 8,
       format: "swiss",
       currentRound: 0,
+      organizerCoachId: "Veers",
       tiebreakers: ["buchholz", "touchdownDifferential", "casualtyDifferential"],
     });
     expect(created.tiebreakers).not.toContain("seed");
@@ -146,7 +147,7 @@ describe("entrant registration contract", () => {
     const manual = await call(store, "POST", path, organizer, { teamId: "team-bob", coach: "Bob" });
     expect(manual).toMatchObject({ status: 201, body: { entrant: { seed: 1, coach: { ffbCoachId: "Bob" } } } });
     const forbidden = await call(store, "POST", path, coach("Alice"), { teamId: "team-carol", coach: "Carol" });
-    expect(forbidden).toMatchObject({ status: 403, body: { error: "Only an organizer may register another coach." } });
+    expect(forbidden).toMatchObject({ status: 403, body: { error: "You are not this tournament's organizer." } });
   });
 
   it("soft-drops an entrant for self or organizer and never removes the row", async () => {

@@ -2,10 +2,11 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
-import { calculateStandings, generateTournamentPairings } from "./pairing.js";
+import { calculateStandings, generateTournamentPairings, stableTieFlip } from "./pairing.js";
 import type {
   ScheduledMatchRecord,
   TournamentDataFileV2,
+  TournamentDataFileV3,
   TournamentEntrantRecord,
   TournamentPrimaryTiebreaker,
   TournamentRecord,
@@ -21,7 +22,7 @@ const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[
 const tiebreakerLadder = (primary: TournamentPrimaryTiebreaker): TournamentRecord["tiebreakers"] =>
   [primary, "touchdownDifferential", "casualtyDifferential"];
 
-type TournamentUpdate = Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt">> & {
+type TournamentUpdate = Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "roundCount" | "organizerCoachId">> & {
   primaryTiebreaker?: TournamentPrimaryTiebreaker;
 };
 
@@ -36,8 +37,8 @@ type TournamentDataFileV1 = Partial<Omit<TournamentDataFileV2, "version" | "wait
   scheduledMatches?: ScheduledMatchRecord[] | Record<string, ScheduledMatchRecord>;
 };
 
-const emptyData = (): TournamentDataFileV2 => ({
-  version: 2,
+const emptyData = (): TournamentDataFileV3 => ({
+  version: 3,
   tournaments: {},
   entrants: {},
   rounds: {},
@@ -57,16 +58,17 @@ const normalizedTournaments = (
     format: tournament.format ?? "swiss",
     packageName: tournament.packageName ?? "",
     maxPlayers: tournament.maxPlayers ?? 0,
+    roundCountExplicit: tournament.roundCountExplicit === true,
   }]),
 );
 
-/** The only on-disk migration. V1 records are preserved and gain the lease table. */
-export function migrateTournamentData(value: unknown): TournamentDataFileV2 {
+/** Runtime migration: V1/V2 remain readable and are atomically rewritten as V3 on the next store mutation. */
+export function migrateTournamentData(value: unknown): TournamentDataFileV3 {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Tournament data must be an object.");
-  const parsed = value as TournamentDataFileV1 | TournamentDataFileV2;
+  const parsed = value as TournamentDataFileV1 | TournamentDataFileV2 | TournamentDataFileV3;
   if (parsed.version === 1) {
     return {
-      version: 2,
+      version: 3,
       tournaments: normalizedTournaments(parsed.tournaments),
       entrants: keyed(parsed.entrants),
       rounds: keyed(parsed.rounds),
@@ -75,13 +77,14 @@ export function migrateTournamentData(value: unknown): TournamentDataFileV2 {
       waitingPresence: {},
     };
   }
-  if (parsed.version !== 2) throw new Error("Unsupported tournament data version.");
+  if (parsed.version !== 2 && parsed.version !== 3) throw new Error("Unsupported tournament data version.");
   for (const field of ["tournaments", "entrants", "rounds", "standings", "scheduledMatches", "waitingPresence"] as const) {
     if (!parsed[field] || typeof parsed[field] !== "object" || Array.isArray(parsed[field]))
       throw new Error(`Tournament data ${field} must be an object.`);
   }
   return {
     ...structuredClone(parsed),
+    version: 3,
     tournaments: normalizedTournaments(parsed.tournaments as unknown as Record<string, LegacyTournamentRecord>),
   };
 }
@@ -117,19 +120,19 @@ export class TournamentStore {
     this.file = join(dataDir, "tournaments.json");
   }
 
-  snapshot(): TournamentDataFileV2 {
+  snapshot(): TournamentDataFileV3 {
     if (!existsSync(this.file)) return emptyData();
     return migrateTournamentData(JSON.parse(readFileSync(this.file, "utf8")) as unknown);
   }
 
   /** Intended for migrations, administrative import, and deterministic tests. */
-  writeSnapshot(value: TournamentDataFileV2): TournamentDataFileV2 {
+  writeSnapshot(value: TournamentDataFileV2 | TournamentDataFileV3): TournamentDataFileV3 {
     const normalized = migrateTournamentData(value);
     atomicWriteTextFile(this.file, `${JSON.stringify(normalized, null, 2)}\n`);
     return structuredClone(normalized);
   }
 
-  private mutate<T>(change: (data: TournamentDataFileV2) => T): T {
+  private mutate<T>(change: (data: TournamentDataFileV3) => T): T {
     const data = this.snapshot();
     const result = change(data);
     this.writeSnapshot(data);
@@ -151,12 +154,23 @@ export class TournamentStore {
 
   createTournament(
     input: Pick<TournamentRecord, "name" | "packageName" | "maxPlayers" | "format"> & {
+      organizerCoachId: string;
       primaryTiebreaker?: TournamentPrimaryTiebreaker;
+      roundCount?: number;
     },
     now = new Date(),
   ): TournamentRecord {
     return this.mutate((data) => {
+      if (input.roundCount !== undefined &&
+        (input.format !== "swiss" || input.roundCount < 1 || input.roundCount > 50)) {
+        throw new TournamentStoreError(400, input.format !== "swiss"
+          ? "roundCount can be set only for Swiss tournaments."
+          : "roundCount must be between 1 and 50.");
+      }
       const timestamp = now.toISOString();
+      const organizerCoachId = input.organizerCoachId.trim();
+      if (!organizerCoachId || organizerCoachId.length > 40)
+        throw new TournamentStoreError(400, "organizerCoachId must be a non-empty coach id of at most 40 characters.");
       const record: TournamentRecord = {
         id: randomUUID(),
         name: input.name,
@@ -164,12 +178,14 @@ export class TournamentStore {
         format: input.format,
         packageName: input.packageName,
         maxPlayers: input.maxPlayers,
-        roundCount: input.format === "roundRobin"
+        roundCount: input.roundCount ?? (input.format === "roundRobin"
           ? input.maxPlayers - (input.maxPlayers % 2 === 0 ? 1 : 0)
-          : Math.max(1, Math.ceil(Math.log2(input.maxPlayers))),
+          : Math.max(1, Math.ceil(Math.log2(input.maxPlayers)))),
+        roundCountExplicit: input.roundCount !== undefined,
         currentRound: 0,
         tiebreakers: tiebreakerLadder(input.primaryTiebreaker ?? "buchholz"),
         points: { win: 3, draw: 1, loss: 0, bye: 3 },
+        organizerCoachId,
         createdAt: timestamp,
         updatedAt: timestamp,
       };
@@ -194,6 +210,13 @@ export class TournamentStore {
         throw new TournamentStoreError(400, `maxPlayers cannot be below the current non-dropped entrant count of ${entrantCount}.`);
       if (patch.maxPlayers !== undefined && patch.maxPlayers < 2)
         throw new TournamentStoreError(400, "maxPlayers must be at least 2.");
+      const resultingFormat = patch.format ?? tournament.format;
+      if (patch.roundCount !== undefined) {
+        if (resultingFormat !== "swiss")
+          throw new TournamentStoreError(400, "roundCount can be set only for Swiss tournaments.");
+        if (patch.roundCount < 1 || patch.roundCount < tournament.currentRound || patch.roundCount > 50)
+          throw new TournamentStoreError(400, `roundCount must be between ${Math.max(1, tournament.currentRound)} and 50.`);
+      }
       const hasRounds = Object.values(data.rounds).some((round) => round.tournamentId === tournamentId);
       if (patch.format !== undefined && hasRounds)
         throw new TournamentStoreError(400, "Format is locked once rounds exist.");
@@ -202,6 +225,8 @@ export class TournamentStore {
       if (patch.startsAt !== undefined && patch.startsAt !== "" &&
         (!ISO_DATE_TIME.test(patch.startsAt) || !Number.isFinite(Date.parse(patch.startsAt))))
         throw new TournamentStoreError(400, "startsAt must be an ISO-8601 timestamp.");
+      if (patch.organizerCoachId !== undefined && (!patch.organizerCoachId.trim() || patch.organizerCoachId.trim().length > 40))
+        throw new TournamentStoreError(400, "organizerCoachId must be a non-empty coach id of at most 40 characters.");
       if (patch.maxPlayers !== undefined) tournament.maxPlayers = patch.maxPlayers;
       if (patch.format !== undefined) tournament.format = patch.format;
       if (patch.packageName !== undefined) tournament.packageName = patch.packageName;
@@ -211,10 +236,17 @@ export class TournamentStore {
       }
       if (patch.startsAt === "") delete tournament.startsAt;
       else if (patch.startsAt !== undefined) tournament.startsAt = patch.startsAt;
-      if (!hasRounds && (patch.maxPlayers !== undefined || patch.format !== undefined)) {
+      if (patch.organizerCoachId !== undefined) tournament.organizerCoachId = patch.organizerCoachId.trim();
+      if (patch.roundCount !== undefined) {
+        tournament.roundCount = patch.roundCount;
+        tournament.roundCountExplicit = true;
+      } else if (!hasRounds && (patch.maxPlayers !== undefined || patch.format !== undefined) &&
+        (tournament.format !== "swiss" || tournament.roundCountExplicit !== true)) {
+        // Explicit Swiss counts survive unrelated maxPlayers edits; derived formats/counts do not.
         tournament.roundCount = tournament.format === "roundRobin"
           ? tournament.maxPlayers - (tournament.maxPlayers % 2 === 0 ? 1 : 0)
           : Math.max(1, Math.ceil(Math.log2(tournament.maxPlayers)));
+        tournament.roundCountExplicit = false;
       }
       tournament.updatedAt = now.toISOString();
       return tournament;
@@ -328,7 +360,11 @@ export class TournamentStore {
     return rows;
   }
 
-  generateNextRound(tournamentId: string, now = new Date()): TournamentRoundRecord {
+  generateNextRound(
+    tournamentId: string,
+    now = new Date(),
+    coachRating: (coach: string) => number | undefined = () => undefined,
+  ): TournamentRoundRecord {
     return this.mutate((data) => {
       const tournament = data.tournaments[tournamentId];
       if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
@@ -338,11 +374,22 @@ export class TournamentStore {
         throw new TournamentStoreError(409, "Complete the current round before generating another.");
       const number = existingRounds.length + 1;
       const entrants = Object.values(data.entrants).filter((entrant) => entrant.tournamentId === tournamentId);
+      if (number === 1) {
+        const seeded = entrants.filter((entrant) => entrant.droppedAt === undefined).sort((left, right) => {
+          const ratingDifference = (coachRating(right.coach.ffbCoachId) ?? 1500) -
+            (coachRating(left.coach.ffbCoachId) ?? 1500);
+          return ratingDifference || stableTieFlip(tournamentId, left.id, right.id);
+        });
+        seeded.forEach((entrant, index) => {
+          entrant.seed = index + 1;
+        });
+      }
       if (number === 1 && tournament.format !== "swiss") {
         const activeCount = entrants.filter((entrant) => entrant.droppedAt === undefined).length;
         tournament.roundCount = tournament.format === "roundRobin"
           ? Math.max(1, activeCount - (activeCount % 2 === 0 ? 1 : 0))
           : Math.max(1, Math.ceil(Math.log2(Math.max(2, activeCount))));
+        tournament.roundCountExplicit = false;
       }
       if (number > tournament.roundCount) throw new TournamentStoreError(409, "All configured rounds already exist.");
       for (const entrant of entrants) assertVerifiedCoach(entrant.coach);
@@ -392,6 +439,36 @@ export class TournamentStore {
       data.rounds[roundId] = round;
       data.tournaments[tournamentId] = { ...tournament, currentRound: number, updatedAt: timestamp };
       return round;
+    });
+  }
+
+  finishTournament(tournamentId: string, now = new Date()): TournamentRecord {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      if (tournament.status === "completed")
+        throw new TournamentStoreError(400, "Tournament is already completed.");
+      if (tournament.status !== "active")
+        throw new TournamentStoreError(400, "Only an active tournament can be finished.");
+      const timestamp = now.toISOString();
+      const openStatuses: ScheduledMatchRecord["status"][] = ["scheduled", "launching", "launched", "launch_failed"];
+      for (const match of Object.values(data.scheduledMatches)) {
+        if (match.tournamentId !== tournamentId || !openStatuses.includes(match.status)) continue;
+        data.scheduledMatches[match.id] = {
+          ...match,
+          status: "cancelled",
+          revision: match.revision + 1,
+          updatedAt: timestamp,
+        };
+      }
+      for (const key of Object.keys(data.waitingPresence)) {
+        const matchId = data.waitingPresence[key]?.scheduledMatchId;
+        if (matchId && data.scheduledMatches[matchId]?.tournamentId === tournamentId) delete data.waitingPresence[key];
+      }
+      tournament.status = "completed";
+      tournament.updatedAt = timestamp;
+      delete data.standings[tournamentId];
+      return tournament;
     });
   }
 
@@ -485,6 +562,9 @@ export class TournamentStore {
     return this.mutate((data) => {
       const match = data.scheduledMatches[matchId];
       if (!match) throw new TournamentStoreError(404, "Scheduled match not found.");
+      if (data.tournaments[match.tournamentId]?.status === "completed" ||
+        (["completed", "cancelled", "dismissed"] as ScheduledMatchRecord["status"][]).includes(match.status))
+        throw new TournamentStoreError(409, "This scheduled match is closed.");
       if (!Number.isSafeInteger(input.expectedRevision) || match.revision !== input.expectedRevision)
         throw new TournamentStoreError(409, `Scheduled match revision changed; current revision is ${match.revision}.`);
       if (input.status === "launched" && !input.gameName?.trim() && !input.gameId?.trim())
@@ -520,6 +600,8 @@ export class TournamentStore {
       const match = data.scheduledMatches[matchId];
       if (!match) throw new TournamentStoreError(404, "Scheduled match not found.");
       if (!match.away) throw new TournamentStoreError(409, "A bye already has an automatic result.");
+      if (data.tournaments[match.tournamentId]?.status === "completed" || match.status === "cancelled" || match.status === "dismissed")
+        throw new TournamentStoreError(409, "This scheduled match is closed.");
       if (!Number.isSafeInteger(input.expectedRevision) || match.revision !== input.expectedRevision)
         throw new TournamentStoreError(409, `Scheduled match revision changed; current revision is ${match.revision}.`);
       for (const [field, value] of Object.entries(input).filter(([field]) => field !== "expectedRevision")) {

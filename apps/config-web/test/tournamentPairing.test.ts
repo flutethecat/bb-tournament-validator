@@ -34,11 +34,11 @@ function completedMatch(id: string, home: number, away: number | undefined, home
 }
 
 describe("Swiss pairing", () => {
-  it("is deterministic for equal first-round entrants", () => {
+  it("folds the seeded top half against the bottom half in an even opening round", () => {
     const entrants = [1, 2, 3, 4].map(entrant);
     expect(generateSwissPairings(entrants, [], points, tiebreakers)).toEqual([
-      { homeEntrantId: "e1", awayEntrantId: "e2" },
-      { homeEntrantId: "e3", awayEntrantId: "e4" },
+      { homeEntrantId: "e1", awayEntrantId: "e3" },
+      { homeEntrantId: "e2", awayEntrantId: "e4" },
     ]);
     expect(generateSwissPairings(entrants, [], points, tiebreakers))
       .toEqual(generateSwissPairings(entrants, [], points, tiebreakers));
@@ -60,6 +60,14 @@ describe("Swiss pairing", () => {
     expect(first[0]).toEqual({ homeEntrantId: "e3" });
     const second = generateSwissPairings(entrants, [completedMatch("bye", 3, undefined, 0, 0)], points, tiebreakers);
     expect(second.find((pair) => pair.awayEntrantId === undefined)?.homeEntrantId).toBe("e2");
+  });
+
+  it("gives the lowest seed the bye before folding an odd opening field", () => {
+    expect(generateSwissPairings([1, 2, 3, 4, 5].map(entrant), [], points, tiebreakers)).toEqual([
+      { homeEntrantId: "e5" },
+      { homeEntrantId: "e1", awayEntrantId: "e3" },
+      { homeEntrantId: "e2", awayEntrantId: "e4" },
+    ]);
   });
 });
 

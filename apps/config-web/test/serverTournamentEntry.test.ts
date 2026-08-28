@@ -110,6 +110,18 @@ describe("tournament entry HTTP tiers", () => {
     const payload = await response.json() as { tournament: { id: string; status: string } };
     tournamentId = payload.tournament.id;
     expect(payload.tournament.status).toBe("draft");
+
+    expect((await fetch(`${origin}/api/fork/tournaments/${tournamentId}/export?format=json`)).status).toBe(401);
+    const coachExport = await fetch(`${origin}/api/fork/tournaments/${tournamentId}/export?format=json`, {
+      headers: { authorization: `Bearer ${plain.token}` },
+    });
+    expect(coachExport.status).toBe(403);
+    const ownerExport = await fetch(`${origin}/api/fork/tournaments/${tournamentId}/export?format=json`, {
+      headers: { authorization: `Bearer ${organizer.token}` },
+    });
+    expect(ownerExport.status).toBe(200);
+    expect(ownerExport.headers.get("content-disposition")).toBe('attachment; filename="HTTP-Cup.json"');
+    expect(await ownerExport.json()).toMatchObject({ tournament: { id: tournamentId }, matches: [] });
   });
 
   it("walls PATCH at organizer auth and applies cookie CSRF", async () => {
@@ -139,7 +151,7 @@ describe("tournament entry HTTP tiers", () => {
     expect(self.status).toBe(201);
     const other = await post(`/api/fork/tournaments/${tournamentId}/entrants`, plain.token, { teamId: "502", coach: "OtherCoach" });
     expect(other.status).toBe(403);
-    expect(await other.json()).toEqual({ error: "Only an organizer may register another coach." });
+    expect(await other.json()).toEqual({ error: "You are not this tournament's organizer." });
   });
 
   it("lets an organizer register another coach through the same ownership contract", async () => {

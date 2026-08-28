@@ -28,6 +28,7 @@ function create(store: TournamentStore): TournamentRecord {
     packageName: "Spike 2026",
     maxPlayers: 8,
     format: "swiss",
+    organizerCoachId: organizer.coach,
   }, createdAt);
 }
 
@@ -81,7 +82,7 @@ describe("organizer tournament live-edit", () => {
     });
     expect(await call(store, "PATCH", path, coach, { maxPlayers: 10 })).toEqual({
       status: 403,
-      body: { error: "Organizer access required." },
+      body: { error: "You are not this tournament's organizer." },
     });
     expect(await call(store, "PATCH", path, organizer, { maxPlayers: 10 })).toMatchObject({
       status: 200,

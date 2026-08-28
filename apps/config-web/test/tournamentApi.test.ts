@@ -113,7 +113,7 @@ describe("tournament data migration and reads", () => {
 
   it("migrates array-shaped V1 data and adds presence leases", () => {
     const migrated = migrateTournamentData({ version: 1, tournaments: [tournament()], entrants: [], rounds: [], scheduledMatches: [] });
-    expect(migrated.version).toBe(2);
+    expect(migrated.version).toBe(3);
     expect(migrated.tournaments["spike-cup"]?.name).toBe("Spike Cup");
     expect(migrated.waitingPresence).toEqual({});
   });

@@ -4,6 +4,7 @@ const state = {
   token: null,
   coach: "",
   organizer: false,
+  admin: false,
   loginUser: "",
   tournaments: [],
   packages: [],
@@ -70,6 +71,12 @@ function formatLabel(format) {
   return format === "roundRobin" ? "Round-Robin" : format === "knockout" ? "Knockout" : "Swiss";
 }
 
+function canManageTournament(tournament) {
+  if (state.admin) return true;
+  return Boolean(state.coach && tournament?.organizerCoachId &&
+    state.coach.trim().toLowerCase() === String(tournament.organizerCoachId).trim().toLowerCase());
+}
+
 // UTC wall time keeps datetime-local stable across browser time zones.
 function toDateTimeLocal(value) {
   if (!value) return "";
@@ -133,7 +140,7 @@ function ownEntrant(tournamentId) {
 
 function renderTournamentList() {
   if (!state.tournaments.length) {
-    listRoot.innerHTML = '<div class="empty">No active or draft tournaments are available.</div>';
+    listRoot.innerHTML = '<div class="empty">No tournaments are available.</div>';
     return;
   }
   listRoot.innerHTML = state.tournaments.map((tournament) => {
@@ -177,6 +184,7 @@ function renderCreate() {
       <label class="field">Type<select class="control" name="format">
         <option value="swiss">Swiss</option><option value="roundRobin">Round-Robin</option><option value="knockout">Knockout</option>
       </select></label>
+      <label class="field" data-swiss-rounds>Rounds<input class="control" name="roundCount" type="number" min="1" max="50" step="1" placeholder="Auto"></label>
       <label class="field">Ranking<select class="control" name="primaryTiebreaker">
         <option value="buchholz">Buchholz</option><option value="sonnebornBerger">Sonneborn-Berger</option>
       </select></label>
@@ -194,7 +202,8 @@ function renderDetail() {
   const entrants = safeArray(state.detail.entrants);
   const standings = safeArray(state.detail.standings);
   const packages = packageOptions(tournament.packageName);
-  const editForm = state.organizer ? `<section class="detail-section"><h3>Edit tournament</h3>
+  const canManage = canManageTournament(tournament);
+  const editForm = canManage ? `<section class="detail-section"><h3>Edit tournament</h3>
     <form id="edit-form" class="form-grid edit-form">
       <label class="field">Number of players<input class="control" name="maxPlayers" type="number" min="0" step="1" value="${escapeHtml(tournament.maxPlayers)}" required></label>
       <label class="field">Type<select class="control" name="format">
@@ -202,6 +211,7 @@ function renderDetail() {
         <option value="roundRobin"${tournament.format === "roundRobin" ? " selected" : ""}>Round-Robin</option>
         <option value="knockout"${tournament.format === "knockout" ? " selected" : ""}>Knockout</option>
       </select></label>
+      <label class="field" data-swiss-rounds${tournament.format === "swiss" ? "" : " hidden"}>Rounds<input class="control" name="roundCount" type="number" min="${escapeHtml(Math.max(1, Number(tournament.currentRound) || 0))}" max="50" step="1" value="${escapeHtml(tournament.roundCount)}" required></label>
       <label class="field">Ranking<select class="control" name="primaryTiebreaker"${tournament.status === "completed" ? " disabled" : ""}>
         <option value="buchholz"${tournament.tiebreakers?.[0] === "sonnebornBerger" ? "" : " selected"}>Buchholz</option>
         <option value="sonnebornBerger"${tournament.tiebreakers?.[0] === "sonnebornBerger" ? " selected" : ""}>Sonneborn-Berger</option>
@@ -211,11 +221,19 @@ function renderDetail() {
       <div class="field full"><button class="btn primary" type="submit"${state.busy || !packages ? " disabled" : ""}>Save</button></div>
     </form>
   </section>` : "";
+  const actions = canManage ? `<section class="detail-section"><h3>Results</h3><div class="card-actions">
+    ${tournament.status === "active" ? `<button type="button" class="btn" data-action="finish"${state.busy ? " disabled" : ""}>Finish tournament</button>` : ""}
+    <label class="field">Export format<select class="control" id="export-format">
+      <option value="csv">CSV</option><option value="json">JSON</option><option value="naf">NAF submission</option>
+    </select></label>
+    <button type="button" class="btn" data-action="export"${state.busy ? " disabled" : ""}>Export</button>
+  </div></section>` : "";
   const entrantRows = entrants.map((entrant) => `<tr><td>${escapeHtml(entrant.seed)}</td><td>${escapeHtml(entrant.teamName ?? entrant.teamId)}</td><td>${escapeHtml(entrant.coachId ?? entrant.coach?.ffbCoachId)}</td><td>${entrant.droppedAt ? "Dropped" : "Entered"}</td></tr>`).join("");
   const standingRows = standings.map((row) => `<tr><td>${escapeHtml(row.rank)}</td><td>${escapeHtml(row.coachId)}</td><td>${escapeHtml(row.played)}</td><td>${escapeHtml(row.wins)}-${escapeHtml(row.draws)}-${escapeHtml(row.losses)}</td><td>${escapeHtml(row.points)}</td></tr>`).join("");
   sidePanel.innerHTML = `<h2 class="panel-heading">${escapeHtml(tournament.name)}</h2><div class="panel-body">
     <div class="meta">${escapeHtml(formatLabel(tournament.format))} · ${escapeHtml(tournament.packageName || "Legacy ruleset")} · round ${escapeHtml(tournament.currentRound)} / ${escapeHtml(tournament.roundCount)}</div>
     ${editForm}
+    ${actions}
     <section class="detail-section"><h3>Entrants</h3><div class="table-wrap"><table><thead><tr><th>Seed</th><th>Team</th><th>Coach</th><th>Status</th></tr></thead><tbody>${entrantRows || '<tr><td colspan="4">No entrants.</td></tr>'}</tbody></table></div></section>
     <section class="detail-section"><h3>Standings</h3><div class="table-wrap"><table><thead><tr><th>Rank</th><th>Coach</th><th>Played</th><th>W-D-L</th><th>Pts</th></tr></thead><tbody>${standingRows || '<tr><td colspan="5">No standings yet.</td></tr>'}</tbody></table></div></section>
   </div>`;
@@ -230,11 +248,12 @@ function render() {
 
 async function loadTournaments() {
   try {
-    const [active, draft] = await Promise.all([
+    const [active, draft, completed] = await Promise.all([
       requestJson("/api/fork/tournaments?status=active", authOptions()),
       requestJson("/api/fork/tournaments?status=draft", authOptions()),
+      requestJson("/api/fork/tournaments?status=completed", authOptions()),
     ]);
-    const rows = [...safeArray(active?.tournaments), ...safeArray(draft?.tournaments)];
+    const rows = [...safeArray(active?.tournaments), ...safeArray(draft?.tournaments), ...safeArray(completed?.tournaments)];
     state.tournaments = rows.sort((left, right) => String(left.name).localeCompare(String(right.name)) || String(left.id).localeCompare(String(right.id)));
   } catch (error) {
     setMessage(serverMessage(error), true);
@@ -273,6 +292,7 @@ async function login() {
     const session = await requestJson("/api/auth/session", authOptions());
     state.coach = String(session.coach ?? loginResult.coach ?? username);
     state.organizer = session.organizer === true || session.admin === true;
+    state.admin = session.admin === true;
     state.ownTeams = safeArray((await requestJson(`/api/fork/library?coach=${encodeURIComponent(state.coach)}`, authOptions())).teams);
     state.loginUser = "";
     setMessage("");
@@ -294,6 +314,7 @@ async function restoreSession() {
     if (session?.authenticated !== true) return;
     state.coach = String(session.coach ?? "");
     state.organizer = session.organizer === true || session.admin === true;
+    state.admin = session.admin === true;
     state.ownTeams = safeArray((await requestJson(`/api/fork/library?coach=${encodeURIComponent(state.coach)}`, authOptions())).teams);
   } catch {
     // Public tournament browsing remains available when the session probe fails.
@@ -305,12 +326,15 @@ async function createTournament(form) {
   state.busy = true;
   render();
   try {
+    const roundCount = String(values.get("roundCount") ?? "").trim();
+    const format = String(values.get("format") ?? "");
     const result = await requestJson("/api/fork/tournaments", authOptions("POST", {
       name: String(values.get("name") ?? ""),
       packageName: String(values.get("packageName") ?? ""),
       maxPlayers: Number(values.get("maxPlayers")),
-      format: String(values.get("format") ?? ""),
+      format,
       primaryTiebreaker: String(values.get("primaryTiebreaker") ?? ""),
+      ...(format === "swiss" && roundCount ? { roundCount: Number(roundCount) } : {}),
     }));
     state.creating = false;
     setMessage("");
@@ -334,12 +358,15 @@ async function editTournament(form) {
   const packageName = String(values.get("packageName") ?? "");
   const startsAt = fromDateTimeLocal(String(values.get("startsAt") ?? ""));
   const primaryTiebreaker = values.get("primaryTiebreaker");
+  const roundCount = Number(values.get("roundCount"));
   if (maxPlayers !== Number(tournament.maxPlayers)) patch.maxPlayers = maxPlayers;
   if (format !== tournament.format) patch.format = format;
   if (packageName !== tournament.packageName) patch.packageName = packageName;
   if (startsAt !== fromDateTimeLocal(toDateTimeLocal(tournament.startsAt))) patch.startsAt = startsAt;
   if (primaryTiebreaker !== null && primaryTiebreaker !== tournament.tiebreakers?.[0])
     patch.primaryTiebreaker = String(primaryTiebreaker);
+  if (format === "swiss" && (tournament.format !== "swiss" || roundCount !== Number(tournament.roundCount)))
+    patch.roundCount = roundCount;
   state.busy = true;
   render();
   try {
@@ -347,6 +374,58 @@ async function editTournament(form) {
     setMessage("");
     await loadTournaments();
     await loadDetail(tournament.id);
+  } catch (error) {
+    setMessage(serverMessage(error), true);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function finishTournament() {
+  const tournament = state.detail?.tournament;
+  if (!tournament || !confirm(`Finish ${tournament.name}? Open matches will be cancelled.`)) return;
+  state.busy = true;
+  render();
+  try {
+    await requestJson(`/api/fork/tournaments/${encodeURIComponent(tournament.id)}/finish`, authOptions("POST", {}));
+    setMessage("");
+    await loadTournaments();
+    await loadDetail(tournament.id);
+  } catch (error) {
+    setMessage(serverMessage(error), true);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function exportTournament() {
+  const tournament = state.detail?.tournament;
+  if (!tournament || !canManageTournament(tournament)) return;
+  const format = document.querySelector("#export-format")?.value ?? "csv";
+  state.busy = true;
+  render();
+  try {
+    const response = await fetch(`/api/fork/tournaments/${encodeURIComponent(tournament.id)}/export?format=${encodeURIComponent(format)}`, authOptions());
+    if (!response.ok) {
+      let data;
+      try { data = await response.json(); } catch { data = null; }
+      const error = new Error(typeof data?.error === "string" ? data.error : `Request failed (${response.status}).`);
+      error.serverError = typeof data?.error === "string" ? data.error : undefined;
+      throw error;
+    }
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `tournament.${format}`;
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setMessage("");
   } catch (error) {
     setMessage(serverMessage(error), true);
   } finally {
@@ -396,7 +475,7 @@ toolbar.addEventListener("click", (event) => {
   if (action === "login") void login();
   if (action === "logout") {
     state.loginUser = state.coach;
-    state.token = null; state.coach = ""; state.organizer = false; state.ownTeams = []; state.detail = null;
+    state.token = null; state.coach = ""; state.organizer = false; state.admin = false; state.ownTeams = []; state.detail = null;
     setMessage(""); render(); void loadTournaments();
   }
   if (action === "show-create") { state.creating = true; state.selectedId = ""; state.detail = null; render(); }
@@ -420,6 +499,18 @@ sidePanel.addEventListener("submit", (event) => {
   event.preventDefault();
   if (event.target.id === "create-form") void createTournament(event.target);
   else void editTournament(event.target);
+});
+
+sidePanel.addEventListener("change", (event) => {
+  if (event.target.name !== "format") return;
+  const rounds = event.target.form?.querySelector("[data-swiss-rounds]");
+  if (rounds) rounds.hidden = event.target.value !== "swiss";
+});
+
+sidePanel.addEventListener("click", (event) => {
+  const action = event.target.closest("[data-action]")?.dataset.action;
+  if (action === "finish") void finishTournament();
+  if (action === "export") void exportTournament();
 });
 
 async function initialize() {

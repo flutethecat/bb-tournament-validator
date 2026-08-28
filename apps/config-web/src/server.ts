@@ -180,6 +180,7 @@ import {
   pullFinishedGameResult,
   refreshFinishedResults,
 } from "./tournamentResults.js";
+import { computeElo } from "./coachElo.js";
 import {
   DISCORD_OAUTH_STATE_COOKIE,
   DISCORD_PENDING_COOKIE,
@@ -306,7 +307,7 @@ const LIBRARY_DIR = resolve(process.env.FORK_LIBRARY_DIR || join(HERE, "../data-
 // Bug reports land here (one folder per report) for later ingestion by the owner.
 const BUG_REPORTS_DIR = resolve(process.env.BUG_REPORTS_DIR || join(HERE, "../bug-reports"));
 // Tracks the last successful fork (game server) reload — see @bb/fork-ops's forkReload.
-const FORK_STATE_DIR = resolve(join(HERE, "../data-store"));
+const FORK_STATE_DIR = resolve(process.env.FORK_STATE_DIR || join(HERE, "../data-store"));
 const TOURNAMENTS_DIR = resolve(process.env.TOURNAMENTS_DIR || FORK_STATE_DIR);
 const tournamentMatches = new TournamentMatchStore(FORK_STATE_DIR);
 const tournamentResults = new TournamentResultStore(FORK_STATE_DIR);
@@ -716,9 +717,7 @@ function isOrganizerWrite(method: string, pathname: string): boolean {
     /^\/api\/fork\/game\/[^/]+\/(close|delete|concede)$/.test(pathname) ||
     /^\/api\/(users|schedule)(\/|$)/.test(pathname) ||
     pathname === "/api/tournaments" ||
-    pathname === "/api/fork/tournaments" ||
-    (method === "PATCH" && /^\/api\/(?:fork\/)?tournaments\/[^/]+$/.test(pathname)) ||
-    /^\/api\/(?:fork\/)?tournaments\/[^/]+\/rounds$/.test(pathname)
+    pathname === "/api/fork/tournaments"
   );
 }
 
@@ -826,15 +825,27 @@ async function handleApi(
 
   if (path === "/api/tournaments" || path.startsWith("/api/tournaments/") || path === "/api/fork/tournaments" || path.startsWith("/api/fork/tournaments/") || path.startsWith("/api/scheduled-matches")) {
     const body = WRITE_METHODS.has(method) && method !== "DELETE" ? await readBody(req) : undefined;
+    let eloSnapshot: ReturnType<typeof computeElo> | undefined;
     const result = await tournamentApi(method, path, query, auth, body, {
       store: tournamentStore,
       teamBuild: (teamId) => libraryTeamForId(teamId),
+      identityRecord: (coachId) => ownIdentityRecord(coachId),
       packageExists: (packageName) => packages.get(packageName) !== undefined,
       teamOwner: (teamId) => libraryOwnerForTeam(teamId),
+      coachRating: (coach) => {
+        eloSnapshot ??= computeElo(tournamentResults.list());
+        return eloSnapshot.get(coach.trim().toLowerCase())?.rating;
+      },
     });
     if (result) {
       if (result.status === 204) {
         res.writeHead(204).end();
+        return;
+      }
+      for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);
+      if (result.contentType) {
+        res.writeHead(result.status, { "content-type": result.contentType });
+        res.end(String(result.body));
         return;
       }
       return sendJson(res, result.status, result.body);
@@ -989,8 +1000,14 @@ async function handleApi(
     if (!auth) return sendJson(res, 401, { error: "Authentication required." });
     try {
       const record = ownIdentityRecord(auth.coach);
+      const elo = computeElo(tournamentResults.list()).get(auth.coach.trim().toLowerCase()) ?? {
+        rating: 1500,
+        games: 0,
+        provisional: true,
+      };
       return sendJson(res, 200, {
         ...record,
+        elo,
         discordAvatarUrl: discordAvatarUrl(
           record.identities.discordUserId ?? "",
           record.identities.discordAvatarHash,
@@ -1564,14 +1581,20 @@ async function handleApi(
     if (!forkAdminCfg) return sendJson(res, 502, { error: "fork server unreachable" });
     try {
       await refreshFinishedResults(forkAdminCfg, tournamentResults);
-      return sendJson(res, 200, aggregateStandings(
-        tournamentResults.list(),
+      const results = tournamentResults.list();
+      const elo = computeElo(results);
+      const rows = aggregateStandings(
+        results,
         (gameId) => tournamentMatches.get(gameId),
         {
           ...(query.get("coach")?.trim() ? { coach: query.get("coach")! } : {}),
           ...(query.get("packageName")?.trim() ? { packageName: query.get("packageName")! } : {}),
         },
-      ));
+      ).map((row) => {
+        const rating = elo.get(row.coach.trim().toLowerCase()) ?? { rating: 1500, provisional: true };
+        return { ...row, elo: rating.rating, provisional: rating.provisional };
+      });
+      return sendJson(res, 200, rows);
     } catch {
       return sendJson(res, 502, { error: "fork server unreachable" });
     }

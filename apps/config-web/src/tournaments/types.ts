@@ -37,10 +37,14 @@ export interface TournamentRecord {
   /** Zero is accepted only for migrated legacy data and means uncapped. */
   maxPlayers: number;
   roundCount: number;
+  /** True only when an organizer selected the Swiss round count instead of using the derived default. */
+  roundCountExplicit?: boolean;
   currentRound: number;
   tiebreakers: TournamentTiebreaker[];
   points: TournamentPoints;
   startsAt?: string;
+  /** Absent only on legacy records, which remain admin-only until ownership is assigned. */
+  organizerCoachId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -159,4 +163,8 @@ export interface TournamentDataFileV2 {
   standings: Record<string, TournamentStandingsRecord>;
   scheduledMatches: Record<string, ScheduledMatchRecord>;
   waitingPresence: Record<string, WaitingPresenceLease>;
+}
+
+export interface TournamentDataFileV3 extends Omit<TournamentDataFileV2, "version"> {
+  version: 3;
 }
