@@ -92,3 +92,8 @@ PATCH → re-fetch; server errors verbatim). Client portal stays read-only for n
    Create pane and the Edit pane (dropdown). Existing records keep their stored ladder;
    PATCHing the choice rewrites it. Same rounds-lock as format? NO — tiebreakers are a ranking
    display/standings concern, safe to change until completion; lock only when status=completed.
+
+### Amendment (owner): seed is NOT a tiebreaker
+The ladder is `[chosen, "touchdownDifferential", "casualtyDifferential"]` — no trailing "seed".
+Full ties rank equal (stable store order for display); knockout BRACKET seeding still uses
+`entrant.seed` (registration ordinal) — that is placement, not ranking.
