@@ -67,3 +67,19 @@ swiss-only literal, missing package binding, and missing cap are the gaps this c
   session; seed = next ordinal at registration; organizer reseeding is a later concern).
 - `DELETE .../entrants/:entrantId` — self or organizer; sets `droppedAt` (foundation field),
   never removes the row (pairing history integrity).
+
+## Organizer live-edit (owner requirements 2026-08-27 eve)
+
+`PATCH /api/fork/tournaments/:id` — organizer-gated, partial body, effective immediately:
+1. **maxPlayers** — editable any time, but never below the current non-dropped entrant count
+   (honest 400 naming the floor).
+2. **format** (swiss | roundRobin | knockout) — editable only while NO round exists (a format
+   flip would orphan pairing history); afterwards 400 "Format is locked once rounds exist."
+3. **packageName** (ruleset) — validated against saved packages; same no-rounds lock as format
+   (entrants built teams against the old ruleset — re-validation on change is a later concern,
+   the lock keeps it honest for now).
+4. **startsAt** — NEW optional ISO-8601 field on TournamentRecord (schema bump + migration
+   default absent); freely editable; emitted on list/detail (portal decoders ignore unknown
+   keys — verified against tournamentApi.ts record() picks).
+UI: the web tournaments.html detail pane gains an organizer-only Edit form (pre-filled, save →
+PATCH → re-fetch; server errors verbatim). Client portal stays read-only for now.
