@@ -62,3 +62,10 @@ draws = 0.5. Small-pool-friendly and explainable; Glicko-2 rejected for now (opa
   Account & Identity pane shows it read-only (derived — not a profile field, NOT identities.json).
 - Ad-hoc and tournament games both count (all fork results are real games); a later owner call
   may scope it per-package like standings.
+
+### Addendum (owner): Elo drives initial seeding
+When a tournament's FIRST round is generated, entrant `seed` values are (re)assigned by Elo
+rank at that moment (snapshot — later rating drift doesn't reshuffle a running bracket);
+Elo ties break by the tournament's stable hash-flip. Before round 1 exists, displayed seeds
+are provisional registration ordinals. Knockout brackets and any seed display consume the
+Elo-derived seed; standings RANKING still never uses seed (owner ruling above stands).
