@@ -833,7 +833,11 @@ async function handleApi(
       packageExists: (packageName) => packages.get(packageName) !== undefined,
       teamOwner: (teamId) => libraryOwnerForTeam(teamId),
       coachRating: (coach) => {
-        eloSnapshot ??= computeElo(tournamentResults.list());
+        // Seeding uses TOURNAMENT ELO (owner 08-27: only tournament matches move the
+        // competitive rating); all-provisional fields fall to the stable tie-flip fairly.
+        eloSnapshot ??= computeElo(
+          tournamentResults.list().filter((game) => tournamentMatches.get(game.gameId) !== undefined),
+        );
         return eloSnapshot.get(coach.trim().toLowerCase())?.rating;
       },
     });
@@ -1000,14 +1004,18 @@ async function handleApi(
     if (!auth) return sendJson(res, 401, { error: "Authentication required." });
     try {
       const record = ownIdentityRecord(auth.coach);
-      const elo = computeElo(tournamentResults.list()).get(auth.coach.trim().toLowerCase()) ?? {
-        rating: 1500,
-        games: 0,
-        provisional: true,
-      };
+      const accountResults = tournamentResults.list();
+      const accountKey = auth.coach.trim().toLowerCase();
+      const eloDefault = { rating: 1500, games: 0, provisional: true };
+      const elo = computeElo(accountResults).get(accountKey) ?? eloDefault;
+      // Tournament ELO = only games carrying tournament-match metadata (owner ruling 08-27).
+      const tournamentElo = computeElo(
+        accountResults.filter((game) => tournamentMatches.get(game.gameId) !== undefined),
+      ).get(accountKey) ?? eloDefault;
       return sendJson(res, 200, {
         ...record,
         elo,
+        tournamentElo,
         discordAvatarUrl: discordAvatarUrl(
           record.identities.discordUserId ?? "",
           record.identities.discordAvatarHash,
@@ -1583,6 +1591,9 @@ async function handleApi(
       await refreshFinishedResults(forkAdminCfg, tournamentResults);
       const results = tournamentResults.list();
       const elo = computeElo(results);
+      // Owner ruling 08-27: only tournament matches move the competitive rating — Global ELO
+      // (all games) and Tournament ELO (games with tournament-match metadata) are separate.
+      const tournamentOnly = computeElo(results.filter((game) => tournamentMatches.get(game.gameId) !== undefined));
       const rows = aggregateStandings(
         results,
         (gameId) => tournamentMatches.get(gameId),
@@ -1591,8 +1602,14 @@ async function handleApi(
           ...(query.get("packageName")?.trim() ? { packageName: query.get("packageName")! } : {}),
         },
       ).map((row) => {
-        const rating = elo.get(row.coach.trim().toLowerCase()) ?? { rating: 1500, provisional: true };
-        return { ...row, elo: rating.rating, provisional: rating.provisional };
+        const key = row.coach.trim().toLowerCase();
+        const rating = elo.get(key) ?? { rating: 1500, provisional: true };
+        const tRating = tournamentOnly.get(key) ?? { rating: 1500, provisional: true };
+        return {
+          ...row,
+          elo: rating.rating, provisional: rating.provisional,
+          tournamentElo: tRating.rating, tournamentProvisional: tRating.provisional,
+        };
       });
       return sendJson(res, 200, rows);
     } catch {

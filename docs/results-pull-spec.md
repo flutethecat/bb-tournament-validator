@@ -78,3 +78,12 @@ Swiss adopts the FIDE opening convention on top of Elo seeding:
 - Later rounds keep the existing cost-minimized score-group pairing (rematch wall, points gap,
   rank distance). Full FIDE Dutch float/S1-S2 mechanics per-round are explicitly NOT
   implemented — the FIDE adoption here is seeding + the round-1 fold, documented honestly.
+
+### Ruling (owner): dual ratings — Global ELO and Tournament ELO
+Two ratings per coach, same K=32/1500 engine, both derived-never-stored:
+- **Global ELO** — every retained finished game (the original computation): `elo`/`provisional`.
+- **Tournament ELO** — ONLY games carrying tournament-match metadata:
+  `tournamentElo`/`tournamentProvisional` on records rows; `tournamentElo {rating, games,
+  provisional}` on /api/account. Only tournament matches move the competitive rating.
+- **Seeding uses Tournament ELO** (the competitive rating); an all-provisional field falls to
+  the stable tie-flip, i.e. fair random pairing numbers for a first-ever event.
