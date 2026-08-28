@@ -38,6 +38,7 @@ export interface DiscordIdentity {
 
 export interface PendingDiscordSso extends DiscordIdentity {
   next: string;
+  desktopFlowId?: string;
 }
 
 export interface DiscordSsoForkAccountDeps {
@@ -67,6 +68,7 @@ interface StoredPendingDiscordSso extends PendingDiscordSso {
 
 interface StoredDiscordOauthState {
   next: string;
+  desktopFlowId?: string;
   expiry: number;
 }
 
@@ -131,22 +133,35 @@ export class DiscordOauthStateStore {
 
   constructor(private readonly filePath = DEFAULT_STATE_STORE_FILE) {}
 
-  create(next: unknown, now = Date.now()): string {
+  create(next: unknown, now = Date.now(), desktopFlowId?: string): string {
     this.loadAndPrune(now);
     const state = newDiscordOauthState();
-    this.states.set(state, { next: validatedNextPath(next), expiry: now + DISCORD_SSO_TTL_MS });
+    this.states.set(state, {
+      next: validatedNextPath(next),
+      ...(desktopFlowId ? { desktopFlowId } : {}),
+      expiry: now + DISCORD_SSO_TTL_MS,
+    });
     this.persist();
     return state;
   }
 
   consume(state: string | undefined, now = Date.now()): string | undefined {
+    return this.consumeRecord(state, now)?.next;
+  }
+
+  consumeRecord(state: string | undefined, now = Date.now()):
+    | { next: string; desktopFlowId?: string }
+    | undefined {
     this.loadAndPrune(now);
     if (!state || !TOKEN_PATTERN.test(state)) return undefined;
     const record = this.states.get(state);
     if (!record) return undefined;
     this.states.delete(state);
     this.persist();
-    return record.next;
+    return {
+      next: record.next,
+      ...(record.desktopFlowId ? { desktopFlowId: record.desktopFlowId } : {}),
+    };
   }
 
   has(state: string | null | undefined, now = Date.now()): boolean {
@@ -166,7 +181,13 @@ export class DiscordOauthStateStore {
       this.states = loadEntries(this.filePath, (_state, value) => {
         if (!isObject(value) || typeof value.next !== "string" || typeof value.expiry !== "number")
           return undefined;
-        return { next: validatedNextPath(value.next), expiry: value.expiry };
+        return {
+          next: validatedNextPath(value.next),
+          ...(typeof value.desktopFlowId === "string" && TOKEN_PATTERN.test(value.desktopFlowId)
+            ? { desktopFlowId: value.desktopFlowId }
+            : {}),
+          expiry: value.expiry,
+        };
       });
       this.loaded = true;
     }
@@ -204,6 +225,7 @@ export class PendingSsoStore {
       ...(record.discordAvatarHash ? { discordAvatarHash: record.discordAvatarHash } : {}),
       ...(record.email ? { email: record.email } : {}),
       next: validatedNextPath(record.next),
+      ...(record.desktopFlowId ? { desktopFlowId: record.desktopFlowId } : {}),
       expiry: now + DISCORD_SSO_TTL_MS,
     });
     this.persist();
@@ -247,6 +269,9 @@ export class PendingSsoStore {
             : {}),
           ...(typeof value.email === "string" && value.email ? { email: value.email } : {}),
           next: validatedNextPath(value.next),
+          ...(typeof value.desktopFlowId === "string" && TOKEN_PATTERN.test(value.desktopFlowId)
+            ? { desktopFlowId: value.desktopFlowId }
+            : {}),
           expiry: value.expiry,
         };
       });
@@ -398,9 +423,26 @@ export async function completeDiscordCoachAssociation(
   existingFfbCoachId: string | undefined,
   deps: DiscordSsoCompletionDeps,
   now = Date.now(),
+  options: { requiredFfbCoachId?: string; allowCreate?: boolean } = {},
 ): Promise<DiscordSsoCompletionResult> {
   const submittedFfbCoachId = typeof rawBody.ffbCoachId === "string" ? rawBody.ffbCoachId.trim() : "";
-  const requestedFfbCoachId = existingFfbCoachId ?? submittedFfbCoachId;
+  const requiredFfbCoachId = options.requiredFfbCoachId?.trim() ?? "";
+  if (
+    requiredFfbCoachId && existingFfbCoachId &&
+    requiredFfbCoachId.toLocaleLowerCase() !== existingFfbCoachId.trim().toLocaleLowerCase()
+  ) {
+    return {
+      status: 409,
+      body: { error: "That Discord identity is already linked to a different fork coach." },
+    };
+  }
+  if (
+    requiredFfbCoachId && submittedFfbCoachId &&
+    requiredFfbCoachId.toLocaleLowerCase() !== submittedFfbCoachId.toLocaleLowerCase()
+  ) {
+    return { status: 400, body: { error: "The fork coach does not match the desktop sign-in request." } };
+  }
+  const requestedFfbCoachId = requiredFfbCoachId || existingFfbCoachId || submittedFfbCoachId;
   if (!requestedFfbCoachId)
     return { status: 400, body: { error: "ffbCoachId is required." } };
   if (requestedFfbCoachId.length > 40)
@@ -476,6 +518,12 @@ export async function completeDiscordCoachAssociation(
       if (!token) throw new Error("Fork credential exchange did not return a session token.");
       sessionToken = token;
     } else {
+      if (options.allowCreate === false) {
+        return {
+          status: 404,
+          body: { error: "That fork coach account does not exist. Create it before signing in." },
+        };
+      }
       // New-name path: preserve the existing generated-password + atomic insert behavior.
       const digest = coachSecretDigest({ password: randomBytes(32).toString("hex") }).digest;
       if (!digest) throw new Error("Could not generate a fork credential.");

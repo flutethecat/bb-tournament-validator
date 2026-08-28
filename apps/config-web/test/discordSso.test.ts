@@ -116,6 +116,15 @@ describe("Discord SSO redirect destination", () => {
     expect(store.consume(state, 1_002)).toBeUndefined();
   });
 
+  it("carries a desktop flow id through the one-time OAuth state", () => {
+    const store = new DiscordOauthStateStore(storeFile("desktop-state.json"));
+    const desktopFlowId = "a".repeat(64);
+    const oauthState = store.create("/", 1_000, desktopFlowId);
+
+    expect(store.consumeRecord(oauthState, 1_001)).toEqual({ next: "/", desktopFlowId });
+    expect(store.consumeRecord(oauthState, 1_002)).toBeUndefined();
+  });
+
   it("survives a restart and consumes persisted state exactly once", () => {
     const file = storeFile("state.json");
     const state = new DiscordOauthStateStore(file).create("/admin.html", 1_000);
@@ -303,6 +312,61 @@ describe("Discord SSO coach ownership association", () => {
     expect(verified).toBe(false);
     expect(forkWrites).toBe(0);
     expect(upserts).toBe(0);
+  });
+
+  it("binds desktop sign-in to the requested fork id and never creates an account", async () => {
+    let forkWrites = 0;
+    const result = await completeDiscordCoachAssociation(
+      request(),
+      pending,
+      { ffbCoachId: "Discord Tarkin" },
+      undefined,
+      deps({ identity: null, coachExists: false, onForkWrite: () => { forkWrites += 1; } }),
+      1_000,
+      { requiredFfbCoachId: "Tarkin", allowCreate: false },
+    );
+
+    expect(result).toEqual({
+      status: 400,
+      body: { error: "The fork coach does not match the desktop sign-in request." },
+    });
+    expect(forkWrites).toBe(0);
+  });
+
+  it("rejects a missing requested desktop fork account instead of creating the Discord-named user", async () => {
+    let forkWrites = 0;
+    const result = await completeDiscordCoachAssociation(
+      request(),
+      pending,
+      { ffbCoachId: "Tarkin" },
+      undefined,
+      deps({ identity: null, coachExists: false, onForkWrite: () => { forkWrites += 1; } }),
+      1_000,
+      { requiredFfbCoachId: "Tarkin", allowCreate: false },
+    );
+
+    expect(result).toEqual({
+      status: 404,
+      body: { error: "That fork coach account does not exist. Create it before signing in." },
+    });
+    expect(forkWrites).toBe(0);
+  });
+
+  it("rejects a desktop coach when Discord is already linked to a different fork id", async () => {
+    const result = await completeDiscordCoachAssociation(
+      request(),
+      pending,
+      { ffbCoachId: "Fives" },
+      "Tarkin",
+      deps(),
+      1_000,
+      { requiredFfbCoachId: "Fives", allowCreate: false },
+    );
+
+    expect(result).toEqual({
+      status: 409,
+      body: { error: "That Discord identity is already linked to a different fork coach." },
+    });
   });
 
   it("returns 403 and does not link when the fork password is wrong", async () => {

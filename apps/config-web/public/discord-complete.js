@@ -17,9 +17,11 @@ let availabilityTimer;
 let chosenNameAvailable = false;
 let linkingExistingCoach = false;
 let nameChecked = false;
+let desktopSignIn = false;
 
 function updateSubmitState() {
-  submitButton.disabled = !nameChecked || (linkingExistingCoach && !forkPassword.value);
+  submitButton.disabled = !nameChecked || (desktopSignIn && chosenNameAvailable) ||
+    (linkingExistingCoach && !forkPassword.value);
 }
 
 function setLinkingMode(enabled) {
@@ -85,7 +87,9 @@ async function checkAvailability() {
       nameAvailability.textContent = "That coach already exists. Enter its fork password to link it without changing the account.";
     } else {
       nameAvailability.textContent = chosenNameAvailable
-        ? "That coach name is available."
+        ? desktopSignIn
+          ? "That fork coach does not exist. Create the account in Super FUMBBL before signing in."
+          : "That coach name is available."
         : "That coach name is already taken. Continue to check whether it can be linked.";
     }
     updateSubmitState();
@@ -110,6 +114,10 @@ function finishSignIn(result, fallbackCoach) {
   form.hidden = true;
   status.hidden = true;
   success.hidden = false;
+  if (result.clientHandoff === true) {
+    success.textContent = `Authorization complete for ${coach}. Return to Super FUMBBL; the desktop client is claiming the session now.`;
+    return;
+  }
   success.textContent = `You're signed in as ${coach}.`;
   location.assign(typeof result.next === "string" ? result.next : "/");
 }
@@ -142,18 +150,31 @@ async function initialize() {
     const existingFfbCoachId = typeof pending.existingFfbCoachId === "string"
       ? pending.existingFfbCoachId
       : null;
+    const requestedFfbCoachId = typeof pending.requestedFfbCoachId === "string"
+      ? pending.requestedFfbCoachId
+      : null;
+
+    desktopSignIn = pending.desktop === true;
+    if (desktopSignIn && requestedFfbCoachId && existingFfbCoachId &&
+      requestedFfbCoachId.toLocaleLowerCase() !== existingFfbCoachId.toLocaleLowerCase()) {
+      throw new Error("This Discord identity is already linked to a different fork coach. Sign out and use the matching fork account.");
+    }
 
     discordUsername.value = username;
     discordEmail.value = email || "Not provided as a verified email";
-    if (existingFfbCoachId) {
+    if (existingFfbCoachId && (!requestedFfbCoachId ||
+      existingFfbCoachId.toLocaleLowerCase() === requestedFfbCoachId.toLocaleLowerCase())) {
       title.textContent = `Signing in as ${existingFfbCoachId}`;
       status.textContent = "Completing your Discord sign-in…";
       finishSignIn(await completeSignIn(existingFfbCoachId), existingFfbCoachId);
       return;
     }
 
-    title.textContent = "Link or register your fork coach account";
-    ffbCoachId.value = username;
+    title.textContent = requestedFfbCoachId
+      ? `Link Discord to ${requestedFfbCoachId}`
+      : "Link or register your fork coach account";
+    ffbCoachId.value = requestedFfbCoachId || username;
+    ffbCoachId.readOnly = Boolean(requestedFfbCoachId);
     status.hidden = true;
     form.hidden = false;
     ffbCoachId.focus();

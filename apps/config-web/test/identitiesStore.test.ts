@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   MAX_FFB_COACH_ID_LENGTH,
   MAX_PROFILE_KEYS,
+  mergeIdentityRecords,
   organizerUpdateIdentity,
   ownIdentityRecord,
   readIdentities,
@@ -103,6 +104,54 @@ describe("identities store", () => {
       ...record("Tarkin"),
       profile: Object.fromEntries(Array.from({ length: MAX_PROFILE_KEYS + 1 }, (_, index) => [`key${index}`, "value"])),
     })).toThrow(new RegExp(`profile must have at most ${MAX_PROFILE_KEYS} keys`));
+  });
+
+  it("merges an accidental Discord identity into the real fork coach and removes only the source identity row", () => {
+    tempStore();
+    upsertIdentity({
+      ...record("DiscordName", "admin"),
+      profile: { displayName: "Discord Display", avatar: "https://avatar.example/discord.png" },
+      identities: { discordUserId: "123", discordUsername: "DiscordName", email: "discord@example.test" },
+    });
+    upsertIdentity({
+      ...record("RealForkId", "organizer"),
+      banned: true,
+      profile: { displayName: "Real Coach" },
+      identities: { nafId: "98765" },
+    });
+
+    const merged = mergeIdentityRecords(
+      "DiscordName",
+      "RealForkId",
+      "RootAdmin",
+      new Date("2026-08-28T12:00:00.000Z"),
+    );
+
+    expect(merged.coach).toMatchObject({
+      ffbCoachId: "RealForkId",
+      level: "organizer",
+      banned: true,
+      profile: { displayName: "Real Coach", avatar: "https://avatar.example/discord.png" },
+      identities: {
+        nafId: "98765",
+        discordUserId: "123",
+        discordUsername: "DiscordName",
+        email: "discord@example.test",
+      },
+      updatedBy: "RootAdmin",
+    });
+    expect(readIdentities().coaches.discordname).toBeUndefined();
+    expect(readIdentities().coaches.realforkid).toEqual(merged.coach);
+  });
+
+  it("refuses identity merges with conflicting fields and preserves both records", () => {
+    tempStore();
+    upsertIdentity({ ...record("Source"), identities: { discordUserId: "source-discord" } });
+    upsertIdentity({ ...record("Target"), identities: { discordUserId: "target-discord" } });
+
+    expect(() => mergeIdentityRecords("Source", "Target", "RootAdmin"))
+      .toThrow(/identities\.discordUserId conflicts/);
+    expect(Object.keys(readIdentities().coaches).sort()).toEqual(["source", "target"]);
   });
 
   it("applies sibling identity-field bounds to Discord avatar hashes", () => {

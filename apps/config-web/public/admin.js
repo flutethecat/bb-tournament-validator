@@ -278,6 +278,7 @@ function renderUserRow(user) {
     <td><button type="button" class="flag-toggle${record.silenced ? " active" : ""}" role="switch" aria-checked="${record.silenced}" data-action="toggle-silenced" data-fork-name="${forkName}"${pending}>${record.silenced ? "Silenced" : "Normal"}</button></td>
     <td class="actions-cell"><div class="row-actions">
       <button type="button" class="btn compact" data-action="edit-identities" data-fork-name="${forkName}">Identities</button>
+      <button type="button" class="btn compact" data-action="merge-identities" data-fork-name="${forkName}"${state.identities[normalizeName(user.fumbblName)] ? pending : " disabled"}>Merge IDs</button>
       <button type="button" class="btn compact" data-action="reset-password" data-fork-name="${forkName}"${pending}>Reset PW</button>
       <button type="button" class="btn danger compact" data-action="clear-games" data-fork-name="${forkName}"${pending}>Clear</button>
     </div></td>
@@ -1072,6 +1073,44 @@ async function renameSelectedTeam() {
   await mutateSelectedTeam("rename", { newName }, `Renamed team to ${newName}.`);
 }
 
+async function mergeIdentities(sourceFfbCoachId) {
+  if (!state.authed || state.busy) return;
+  const candidates = mergedUsers()
+    .map((user) => String(user.fumbblName ?? "").trim())
+    .filter((name) => name && normalizeName(name) !== normalizeName(sourceFfbCoachId));
+  const targetFfbCoachId = window.prompt(
+    `Merge identity metadata from "${sourceFfbCoachId}" into which real fork coach?\n\nAvailable accounts: ${candidates.join(", ")}`,
+  )?.trim();
+  if (!targetFfbCoachId) return;
+  if (!candidates.some((name) => normalizeName(name) === normalizeName(targetFfbCoachId))) {
+    setMessage(`Target fork coach "${targetFfbCoachId}" is not in the users list.`, "error");
+    render();
+    return;
+  }
+  if (!window.confirm(
+    `Move Discord/profile identity metadata from "${sourceFfbCoachId}" to "${targetFfbCoachId}"?\n\n` +
+    `The source identity-library row will be removed. Its underlying fork account, teams, and games will not be deleted. Conflicting attached-identity fields will stop the merge.`,
+  )) return;
+  state.busy = true;
+  setMessage("");
+  render();
+  try {
+    const result = await requestJson("/api/admin/identities/merge", authOptions("POST", {
+      sourceFfbCoachId,
+      targetFfbCoachId,
+    }));
+    delete state.identities[normalizeName(sourceFfbCoachId)];
+    state.identities[normalizeName(targetFfbCoachId)] = result.coach;
+    setMessage(`Merged identity metadata from ${sourceFfbCoachId} into ${targetFfbCoachId}.`);
+    await loadData();
+  } catch (error) {
+    setMessage(serverMessage(error), "error");
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
 function playerCorrectionPanel(playerId) {
   return [...document.querySelectorAll("[data-player-panel]")]
     .find((panel) => String(panel.dataset.playerPanel) === String(playerId)) ?? null;
@@ -1247,6 +1286,7 @@ workspace.addEventListener("click", (event) => {
   if (action === "cancel-identities") { state.editingIdentity = ""; render(); }
   if (action === "save-naf-identity") saveNafIdentity(forkName);
   if (action === "save-identities") saveIdentities(forkName);
+  if (action === "merge-identities") mergeIdentities(forkName);
   if (action === "toggle-banned") {
     const user = mergedUsers().find((entry) => normalizeName(entry.fumbblName) === normalizeName(forkName));
     if (user) updateIdentity(forkName, { banned: !identityRecord(user).banned });

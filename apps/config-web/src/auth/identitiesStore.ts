@@ -295,6 +295,11 @@ export function upsertIdentity(record: CoachIdentityRecord): IdentityStore {
     version: 1,
     coaches: { ...current.coaches, [key]: normalized },
   };
+  writeIdentityStore(store);
+  return store;
+}
+
+function writeIdentityStore(store: IdentityStore): void {
   const payload = `${JSON.stringify(store, null, 2)}\n`;
   if (Buffer.byteLength(payload, "utf8") > MAX_IDENTITIES_FILE_BYTES)
     throw new Error(`identities store must be at most ${MAX_IDENTITIES_FILE_BYTES} bytes.`);
@@ -310,5 +315,66 @@ export function upsertIdentity(record: CoachIdentityRecord): IdentityStore {
     if (existsSync(temp)) unlinkSync(temp);
     throw error;
   }
-  return store;
+}
+
+function mergeStringMaps(
+  target: Record<string, string | undefined>,
+  source: Record<string, string | undefined>,
+  field: string,
+): Record<string, string | undefined> {
+  const merged = { ...target };
+  for (const [key, sourceValue] of Object.entries(source)) {
+    if (!sourceValue) continue;
+    const targetValue = merged[key];
+    if (targetValue && targetValue !== sourceValue) {
+      throw new Error(`${field}.${key} conflicts between the source and target identities.`);
+    }
+    merged[key] = sourceValue;
+  }
+  return merged;
+}
+
+/**
+ * Move identity/profile metadata from an accidental source identity onto the real
+ * fork coach. The target's permissions and moderation flags remain authoritative.
+ * The source identity-store row is removed atomically; this deliberately does not
+ * delete or rename the underlying fork account, teams, or games.
+ */
+export function mergeIdentityRecords(
+  sourceFfbCoachId: string,
+  targetFfbCoachId: string,
+  actingCoach: string,
+  now = new Date(),
+): { sourceFfbCoachId: string; coach: CoachIdentityRecord } {
+  const sourceKey = normalizeFfbCoachId(sourceFfbCoachId);
+  const targetKey = normalizeFfbCoachId(targetFfbCoachId);
+  if (!sourceKey || !targetKey) throw new Error("sourceFfbCoachId and targetFfbCoachId are required.");
+  if (sourceKey === targetKey) throw new Error("Source and target fork coaches must be different.");
+  const current = readIdentities();
+  const source = current.coaches[sourceKey];
+  if (!source) throw new Error("Source identity record was not found.");
+  const target = current.coaches[targetKey] ?? ownIdentityRecord(targetFfbCoachId);
+  const identities = mergeStringMaps(
+    target.identities as Record<string, string | undefined>,
+    source.identities as Record<string, string | undefined>,
+    "identities",
+  ) as CoachIdentities;
+  // Profile/scheduling belong to the real fork coach: fill target gaps from the
+  // accidental identity, but never overwrite the target's own preferences.
+  const profile = { ...source.profile, ...target.profile } as CoachProfile;
+  const coach = normalizedRecord({
+    ...target,
+    ffbCoachId: target.ffbCoachId || targetFfbCoachId.trim(),
+    profile,
+    identities,
+    ...(target.scheduling ?? source.scheduling
+      ? { scheduling: target.scheduling ?? source.scheduling }
+      : {}),
+    updatedAt: now.toISOString(),
+    updatedBy: actingCoach,
+  });
+  const coaches = { ...current.coaches, [targetKey]: coach };
+  delete coaches[sourceKey];
+  writeIdentityStore({ version: 1, coaches });
+  return { sourceFfbCoachId: source.ffbCoachId, coach };
 }

@@ -100,8 +100,10 @@ import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
 import { coachLogin, sendCoachLogin } from "./auth/coachLogin.js";
 import {
   bearerTokenFromRequest,
+  buildClearSessionCookie,
   buildSessionCookie,
   createSession,
+  deleteSession,
   getSession,
   parseCookies,
   requestUsesTls,
@@ -111,6 +113,7 @@ import {
 import { BANNED_ACCOUNT_MESSAGE, coachLevel, isAdmin, isBanned, isOrganizer } from "./auth/access.js";
 import {
   normalizeFfbCoachId,
+  mergeIdentityRecords,
   organizerUpdateIdentity,
   ownIdentityRecord,
   readIdentities,
@@ -204,6 +207,11 @@ import {
   shouldBlockExistingRegistration,
   validatedNextPath,
 } from "./auth/discordSso.js";
+import {
+  DesktopClaimStore,
+  validateDesktopClaimProof,
+  validateDesktopClaimStart,
+} from "./auth/desktopClaim.js";
 import { TournamentStore } from "./tournaments/store.js";
 import { tournamentApi } from "./tournaments/api.js";
 
@@ -225,6 +233,9 @@ const PUBLIC_PATHS = new Set([
   "/api/auth/discord/callback",
   "/api/auth/discord/pending",
   "/api/auth/discord/complete",
+  "/api/auth/desktop/start",
+  "/api/auth/desktop/claim",
+  "/api/auth/desktop/cancel",
   "/api/fork/name-available",
   "/api/team/checkName",
   // Coach credential exchange (owner ruling 08-17). Public BY NATURE — it is the door you knock on
@@ -232,6 +243,7 @@ const PUBLIC_PATHS = new Set([
   "/api/fork/login",
   // Internally true-admin-gated; listed here so sidecar-off admin Bearer tokens can reach the handler.
   "/api/admin/identities",
+  "/api/admin/identities/merge",
   "/api/admin/teams/search",
   // Internally organizer-or-admin gated; PUBLIC_PATHS matching is exact, so keep the literal here.
   "/api/admin/identities/naf",
@@ -291,6 +303,7 @@ const TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 const sessionTokens = new Map<string, number>();
 const discordOauthStates = new DiscordOauthStateStore();
 const pendingDiscordSso = new PendingSsoStore();
+const desktopClaims = new DesktopClaimStore((token) => { deleteSession(token); });
 const TEAM_ADVANCEMENT_TOKEN_SECRET = randomBytes(32).toString("hex");
 const PACKAGES_DIR = resolve(process.env.PACKAGES_DIR || join(HERE, "../../../tournament-packages"));
 const VALIDATED_CSV = resolve(
@@ -856,6 +869,52 @@ async function handleApi(
     }
   }
 
+  if (path === "/api/auth/desktop/start" && method === "POST") {
+    if (!discordSsoEnabled()) return sendJson(res, 503, { error: "Discord SSO not configured" });
+    let body: unknown;
+    try {
+      body = await readBody(req);
+    } catch {
+      return sendJson(res, 400, { error: "Invalid JSON request body." });
+    }
+    const input = validateDesktopClaimStart(body);
+    if (!input) {
+      return sendJson(res, 400, {
+        error: "A fork coach, client state, and an S256 PKCE challenge are required.",
+      });
+    }
+    let created: ReturnType<DesktopClaimStore["create"]>;
+    try {
+      created = desktopClaims.create(input);
+    } catch (error) {
+      return sendJson(res, 429, { error: (error as Error).message });
+    }
+    return sendJson(res, 201, {
+      ...created,
+      authorizationPath: `/api/auth/discord/start?desktop=${encodeURIComponent(created.flowId)}`,
+    });
+  }
+
+  if ((path === "/api/auth/desktop/claim" || path === "/api/auth/desktop/cancel") && method === "POST") {
+    let body: unknown;
+    try {
+      body = await readBody(req);
+    } catch {
+      return sendJson(res, 400, { error: "Invalid JSON request body." });
+    }
+    const proof = validateDesktopClaimProof(body);
+    if (!proof) return sendJson(res, 400, { error: "Invalid desktop claim proof." });
+    const result = path.endsWith("/cancel")
+      ? desktopClaims.cancel(proof)
+      : desktopClaims.claim(proof);
+    if (result.kind === "complete") return sendJson(res, 200, result);
+    if (result.kind === "pending") return sendJson(res, 202, result);
+    if (result.kind === "expired") return sendJson(res, 410, { error: "Desktop sign-in expired." });
+    if (result.kind === "cancelled") return sendJson(res, 409, { error: "Desktop sign-in was cancelled." });
+    if (result.kind === "replayed") return sendJson(res, 409, { error: "Desktop sign-in was already claimed." });
+    return sendJson(res, 400, { error: "Desktop claim state or PKCE verification failed." });
+  }
+
   if (path === "/api/auth/discord/start" && method === "GET") {
     const config = discordOauthConfigFromEnv();
     if (!config) return sendJson(res, 503, { error: "Discord SSO not configured" });
@@ -865,7 +924,17 @@ async function handleApi(
       res.end();
       return;
     }
-    const state = discordOauthStates.create(validatedNextPath(query.get("next")));
+    const desktopFlow = query.has("desktop")
+      ? desktopClaims.beginAuthorization(query.get("desktop"))
+      : undefined;
+    if (query.has("desktop") && !desktopFlow) {
+      return sendJson(res, 410, { error: "Desktop sign-in is invalid, expired, or already started." });
+    }
+    const state = discordOauthStates.create(
+      validatedNextPath(query.get("next")),
+      Date.now(),
+      desktopFlow?.flowId,
+    );
     res.writeHead(302, {
       location: discordAuthorizeUrl(config, state),
       "set-cookie": buildDiscordOauthStateCookie(state, requestUsesTls(req)),
@@ -901,8 +970,8 @@ async function handleApi(
       failState("invalid-state");
       return;
     }
-    const next = discordOauthStates.consume(expectedState);
-    if (!next) {
+    const oauthState = discordOauthStates.consumeRecord(expectedState);
+    if (!oauthState) {
       failState("expired");
       return;
     }
@@ -913,7 +982,11 @@ async function handleApi(
     }
     try {
       const identity = await fetchDiscordIdentity(config, code);
-      const pendingToken = pendingDiscordSso.create({ ...identity, next });
+      const pendingToken = pendingDiscordSso.create({
+        ...identity,
+        next: oauthState.next,
+        ...(oauthState.desktopFlowId ? { desktopFlowId: oauthState.desktopFlowId } : {}),
+      });
       res.writeHead(302, {
         location: "/discord-complete.html",
         "set-cookie": [
@@ -937,6 +1010,13 @@ async function handleApi(
     const token = parseCookies(req.headers.cookie).get(DISCORD_PENDING_COOKIE);
     const pending = pendingDiscordSso.get(token);
     if (!pending) return sendJson(res, 404, { pending: false });
+    const requestedFfbCoachId = pending.desktopFlowId
+      ? desktopClaims.expectedCoach(pending.desktopFlowId)
+      : undefined;
+    if (pending.desktopFlowId && !requestedFfbCoachId) {
+      pendingDiscordSso.delete(token);
+      return sendJson(res, 410, { error: "Desktop sign-in expired." });
+    }
     return sendJson(res, 200, {
       pending: true,
       discordId: pending.discordId,
@@ -944,6 +1024,8 @@ async function handleApi(
       avatar: discordAvatarUrl(pending.discordId, pending.discordAvatarHash) ?? null,
       email: pending.email ?? null,
       existingFfbCoachId: ffbCoachIdForDiscordId(pending.discordId) ?? null,
+      requestedFfbCoachId: requestedFfbCoachId ?? null,
+      desktop: Boolean(pending.desktopFlowId),
     });
   }
 
@@ -964,6 +1046,14 @@ async function handleApi(
     if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody))
       return sendJson(res, 400, { error: "A JSON object is required." });
     const existingFfbCoachId = ffbCoachIdForDiscordId(pending.discordId);
+    const requiredFfbCoachId = pending.desktopFlowId
+      ? desktopClaims.expectedCoach(pending.desktopFlowId)
+      : undefined;
+    if (pending.desktopFlowId && !requiredFfbCoachId) {
+      pendingDiscordSso.delete(pendingToken);
+      res.setHeader("set-cookie", buildClearDiscordPendingCookie(secure));
+      return sendJson(res, 410, { error: "Desktop sign-in expired." });
+    }
     const dbCfg = forkDbConfigFromEnv();
     try {
       const result = await completeDiscordCoachAssociation(
@@ -983,6 +1073,10 @@ async function handleApi(
           upsertIdentity: (record) => { upsertIdentity(record); },
           createSessionToken: (coach, now) => createSession(coach, now).token,
         },
+        Date.now(),
+        pending.desktopFlowId
+          ? { requiredFfbCoachId, allowCreate: false }
+          : {},
       );
       for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);
       if (result.status !== 200 || !result.sessionToken) {
@@ -990,6 +1084,27 @@ async function handleApi(
       }
 
       pendingDiscordSso.delete(pendingToken);
+      if (pending.desktopFlowId) {
+        const session = getSession(result.sessionToken);
+        const handedOff = session && desktopClaims.complete(pending.desktopFlowId, {
+          token: result.sessionToken,
+          coach: session.coach,
+          expiresAt: new Date(session.expiry).toISOString(),
+        });
+        if (!handedOff) {
+          deleteSession(result.sessionToken);
+          res.setHeader("set-cookie", [
+            buildClearDiscordPendingCookie(secure),
+            buildClearSessionCookie(secure),
+          ]);
+          return sendJson(res, 409, { error: "Desktop sign-in is no longer claimable." });
+        }
+        res.setHeader("set-cookie", [
+          buildClearDiscordPendingCookie(secure),
+          buildClearSessionCookie(secure),
+        ]);
+        return sendJson(res, 200, { ...result.body, clientHandoff: true });
+      }
       res.setHeader("set-cookie", [
         buildClearDiscordPendingCookie(secure),
         buildSessionCookie(result.sessionToken, secure),
@@ -1073,6 +1188,33 @@ async function handleApi(
   if (path === "/api/admin/identities" && method === "GET") {
     if (!requireAdminLevel(req, res, auth)) return;
     return sendJson(res, 200, { coaches: readIdentities().coaches });
+  }
+
+  if (path === "/api/admin/identities/merge" && method === "POST") {
+    if (!requireAdminLevel(req, res, auth)) return;
+    const rawBody = await readBody(req);
+    if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody))
+      return sendJson(res, 400, { error: "A JSON object is required." });
+    const body = rawBody as Record<string, unknown>;
+    const sourceFfbCoachId = typeof body.sourceFfbCoachId === "string" ? body.sourceFfbCoachId.trim() : "";
+    const targetFfbCoachId = typeof body.targetFfbCoachId === "string" ? body.targetFfbCoachId.trim() : "";
+    if (!sourceFfbCoachId || !targetFfbCoachId) {
+      return sendJson(res, 400, { error: "sourceFfbCoachId and targetFfbCoachId are required." });
+    }
+    const dbCfg = forkDbConfigFromEnv();
+    if (dbCfg && !(await coachExists(dbCfg, targetFfbCoachId))) {
+      return sendJson(res, 404, { error: "Target fork coach account was not found." });
+    }
+    try {
+      const merged = mergeIdentityRecords(
+        sourceFfbCoachId,
+        targetFfbCoachId,
+        auth?.coach ?? "admin",
+      );
+      return sendJson(res, 200, { ok: true, ...merged });
+    } catch (error) {
+      return sendJson(res, 409, { error: (error as Error).message });
+    }
   }
 
   if (path === "/api/admin/identities" && method === "POST") {
