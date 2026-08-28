@@ -69,3 +69,12 @@ rank at that moment (snapshot — later rating drift doesn't reshuffle a running
 Elo ties break by the tournament's stable hash-flip. Before round 1 exists, displayed seeds
 are provisional registration ordinals. Knockout brackets and any seed display consume the
 Elo-derived seed; standings RANKING still never uses seed (owner ruling above stands).
+
+### Ruling (owner): FIDE-style setup adopted
+Swiss adopts the FIDE opening convention on top of Elo seeding:
+- Pairing numbers = Elo-rank snapshot (1 = highest) assigned at round-1 generation (above).
+- **Round 1 (and any round generated with zero completed games): top-half-vs-bottom-half fold**
+  — with 2n entrants, #1 plays #n+1, #2 plays #n+2, … (bye, if odd, still goes lowest).
+- Later rounds keep the existing cost-minimized score-group pairing (rematch wall, points gap,
+  rank distance). Full FIDE Dutch float/S1-S2 mechanics per-round are explicitly NOT
+  implemented — the FIDE adoption here is seeding + the round-1 fold, documented honestly.
