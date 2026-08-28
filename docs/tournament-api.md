@@ -119,3 +119,13 @@ pairs, decided "at random" from the entrants' perspective.
    content-disposition attachment naming the tournament. UI: organizer Edit pane gains a
    Rounds field (swiss), a Finish tournament button (confirm prompt), and an Export results
    button (visible to everyone on completed tournaments, organizer always).
+
+### Addendum (owner): NAF export option
+`?format=naf` on the export endpoint — HARVEST the existing Codex module
+`apps/config-web/src/tournaments/nafExport.ts` from branch `codex/tournament-platform-integration`
+(NAF submission XML: entrant NAF name/number from the identity library, race + TV, organizer NAF
+name, match results; `NafExportError` lists every missing/invalid NAF field per coach). Adapt to
+current types (`registrationSnapshot` optional — fall back to teamBuild as the module already
+does). NAF format is ORGANIZER-gated (it embeds member numbers), unlike public csv/json; its
+error surfaces verbatim so the organizer knows exactly which coaches to chase — who can now
+self-fill nafId on the Account pane, or the organizer via /api/admin/identities/naf.
