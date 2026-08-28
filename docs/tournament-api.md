@@ -97,3 +97,9 @@ PATCH → re-fetch; server errors verbatim). Client portal stays read-only for n
 The ladder is `[chosen, "touchdownDifferential", "casualtyDifferential"]` — no trailing "seed".
 Full ties rank equal (stable store order for display); knockout BRACKET seeding still uses
 `entrant.seed` (registration ordinal) — that is placement, not ranking.
+
+### Amendment 2 (owner): full ties = random flip
+A remaining tie ranks by RANDOM FLIP — but the flip must be STABLE (standings cannot reshuffle
+per refresh): derive it from a deterministic hash of (tournamentId, the two entrantIds) so the
+coin lands the same way for the same pair all tournament, with no stored state. Unbiased across
+pairs, decided "at random" from the entrants' perspective.
