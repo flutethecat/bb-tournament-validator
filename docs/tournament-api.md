@@ -83,3 +83,12 @@ swiss-only literal, missing package binding, and missing cap are the gaps this c
    keys — verified against tournamentApi.ts record() picks).
 UI: the web tournaments.html detail pane gains an organizer-only Edit form (pre-filled, save →
 PATCH → re-fetch; server errors verbatim). Client portal stays read-only for now.
+
+### Addendum (owner, same eve): primary tiebreaker choice
+5. **primaryTiebreaker** — `"buchholz" | "sonnebornBerger"`, DEFAULT buchholz. On create AND the
+   organizer PATCH. The choice sets the record's tiebreaker ladder to
+   `[chosen, "touchdownDifferential", "casualtyDifferential", "seed"]` (the unchosen head drops
+   out — the contract reflects the admin's pick, not both). Editable in tournaments.html on the
+   Create pane and the Edit pane (dropdown). Existing records keep their stored ladder;
+   PATCHing the choice rewrites it. Same rounds-lock as format? NO — tiebreakers are a ranking
+   display/standings concern, safe to change until completion; lock only when status=completed.
