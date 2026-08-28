@@ -47,3 +47,18 @@ file:line receipts in the session record. NO upload path, NO server mode change,
 - The full result-upload architecture (Routes A/B) is documented in
   `docs/tournament-match-launcher-spec.md` + Yularen's connected-mode material; A = the eventual
   cutover, B = declined for now, C = this doc.
+
+## Coach Elo (owner ask 2026-08-27 eve — rides the Route C results store)
+
+**Variant (Veers pins, owner may re-rule):** classic Elo with draw support — K=32, start 1500,
+draws = 0.5. Small-pool-friendly and explainable; Glicko-2 rejected for now (opaque to players).
+- **Derived, never stored**: recomputed from ALL retained finished games (the store keeps them
+  indefinitely), processed chronologically (game finished timestamp, gameId as tie-order).
+  Outcome per game = deriveTeamResult's W/D/L (penaltyScore-aware). Deterministic: same history
+  in, same ratings out — no migration, no drift, cacheable in memory keyed by results count.
+- **Provisional flag** while a coach has < 10 counted games.
+- **Surfaces**: `/api/fork/records` rows gain `elo` + `provisional`; `/api/account` gains
+  `elo {rating, games, provisional}`; client Statistics blade gains an Elo column and the
+  Account & Identity pane shows it read-only (derived — not a profile field, NOT identities.json).
+- Ad-hoc and tournament games both count (all fork results are real games); a later owner call
+  may scope it per-package like standings.
