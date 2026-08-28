@@ -103,3 +103,19 @@ A remaining tie ranks by RANDOM FLIP — but the flip must be STABLE (standings 
 per refresh): derive it from a deterministic hash of (tournamentId, the two entrantIds) so the
 coin lands the same way for the same pair all tournament, with no stored state. Unbiased across
 pairs, decided "at random" from the entrants' perspective.
+
+## Rounds, finish, export (owner requirements 2026-08-27 late)
+
+1. **Swiss roundCount is organizer-settable** — on create AND PATCH, swiss only (roundRobin/
+   knockout keep their derived counts; setting there = 400). Floor: ≥1 and ≥ currentRound
+   (rounds already generated can't be unmade); no ceiling beyond sanity (≤ 50). Absent on
+   create keeps the ceil(log2(maxPlayers)) default.
+2. **`POST /api/fork/tournaments/:id/finish`** — organizer-gated manual completion from
+   active: status→completed immediately, standings freeze as they stand, still-open scheduled
+   matches → cancelled (leases cleared). Idempotent 400 on already-completed.
+3. **`GET /api/fork/tournaments/:id/export?format=csv|json`** — public read (results are
+   public data): `json` = full dump {tournament, entrants, rounds, standings, matches+results};
+   `csv` = standings table (rank, coach, team, played, W-D-L, points, tdDiff, casDiff) with
+   content-disposition attachment naming the tournament. UI: organizer Edit pane gains a
+   Rounds field (swiss), a Finish tournament button (confirm prompt), and an Export results
+   button (visible to everyone on completed tournaments, organizer always).
