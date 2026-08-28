@@ -129,3 +129,14 @@ current types (`registrationSnapshot` optional — fall back to teamBuild as the
 does). NAF format is ORGANIZER-gated (it embeds member numbers), unlike public csv/json; its
 error surfaces verbatim so the organizer knows exactly which coaches to chase — who can now
 self-fill nafId on the Account pane, or the organizer via /api/admin/identities/naf.
+
+### Ruling (owner): per-tournament organizer ownership
+1. **Export is organizer-only in EVERY format** (csv/json/naf alike — supersedes the public-read
+   line above).
+2. **All tournament write/read-sensitive permissions scope to THE tournament's own organizer +
+   site admins** — not organizer-level generally. `TournamentRecord` gains `organizerCoachId`
+   (stamped from the creating session at POST create; migration: absent on existing records =
+   admin-only until an admin PATCHes an owner in — PATCH accepts `organizerCoachId`, admin-only
+   field). Every gated op (PATCH edit, rounds, finish, export, entrant manual-seeding/drop-other)
+   checks `coach === tournament.organizerCoachId || admin`; a different organizer gets 403
+   "You are not this tournament's organizer." Coach self-registration/self-drop unchanged.
