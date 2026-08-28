@@ -1,6 +1,12 @@
 import { generateTournamentPairings } from "./pairing.js";
 import { TournamentStore, TournamentStoreError } from "./store.js";
-import type { ScheduledMatchRecord, TournamentEntrantRecord, TournamentRecord, VerifiedCoachIdentity } from "./types.js";
+import type {
+  ScheduledMatchRecord,
+  TournamentEntrantRecord,
+  TournamentPrimaryTiebreaker,
+  TournamentRecord,
+  VerifiedCoachIdentity,
+} from "./types.js";
 
 export interface TournamentApiIdentity {
   coach: string;
@@ -36,6 +42,12 @@ function jsonObject(body: unknown): Record<string, unknown> {
 function integer(value: unknown, field: string): number {
   if (!Number.isSafeInteger(value)) throw new TournamentStoreError(400, `${field} must be an integer.`);
   return value as number;
+}
+
+function primaryTiebreaker(value: unknown): TournamentPrimaryTiebreaker {
+  if (!(value === "buchholz" || value === "sonnebornBerger"))
+    throw new TournamentStoreError(400, "primaryTiebreaker must be buchholz or sonnebornBerger.");
+  return value;
 }
 
 function authenticated(auth: TournamentApiIdentity | undefined): TournamentApiIdentity {
@@ -115,11 +127,13 @@ function clientTournament(
   entrants: TournamentEntrantRecord[],
   auth?: TournamentApiIdentity,
 ) {
+  const { startsAt, ...record } = tournament;
   const ownEntrant = auth
     ? entrants.find((entrant) => coachKey(entrant.coach.ffbCoachId) === coachKey(auth.coach))
     : undefined;
   return {
-    ...tournament,
+    ...record,
+    ...(startsAt === undefined ? {} : { startsAt }),
     ...(tournament.packageName.trim() ? { rulesetPackName: tournament.packageName } : {}),
     entrantCount: entrants.filter((entrant) => entrant.droppedAt === undefined).length,
     ...(ownEntrant ? { myEntrantId: ownEntrant.id, myDroppedAt: ownEntrant.droppedAt } : {}),
@@ -207,10 +221,19 @@ export async function tournamentApi(
       if (maxPlayers < 2) return { status: 400, body: { error: "maxPlayers must be at least 2." } };
       if (!(input.format === "swiss" || input.format === "roundRobin" || input.format === "knockout"))
         return { status: 400, body: { error: "format must be swiss, roundRobin, or knockout." } };
+      const chosenTiebreaker = input.primaryTiebreaker === undefined
+        ? "buchholz"
+        : primaryTiebreaker(input.primaryTiebreaker);
       return {
         status: 201,
         body: {
-          tournament: deps.store.createTournament({ name, packageName, maxPlayers, format: input.format }, now),
+          tournament: deps.store.createTournament({
+            name,
+            packageName,
+            maxPlayers,
+            format: input.format,
+            primaryTiebreaker: chosenTiebreaker,
+          }, now),
         },
       };
     }
@@ -303,6 +326,42 @@ export async function tournamentApi(
     }
 
     const detailMatch = path.match(/^\/api\/tournaments\/([^/]+)$/);
+    if (detailMatch && method === "PATCH") {
+      const identity = authenticated(auth);
+      if (!identity.organizer) return { status: 403, body: { error: "Organizer access required." } };
+      const tournamentId = decoded(detailMatch[1]!);
+      if (!tournamentId) return { status: 400, body: { error: "Invalid tournament id." } };
+      const input = jsonObject(body);
+      const patch: Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt">> & {
+        primaryTiebreaker?: TournamentPrimaryTiebreaker;
+      } = {};
+      if (input.maxPlayers !== undefined) patch.maxPlayers = integer(input.maxPlayers, "maxPlayers");
+      if (input.format !== undefined) {
+        if (!(input.format === "swiss" || input.format === "roundRobin" || input.format === "knockout"))
+          return { status: 400, body: { error: "format must be swiss, roundRobin, or knockout." } };
+        patch.format = input.format;
+      }
+      if (input.packageName !== undefined) {
+        if (typeof input.packageName !== "string" || !input.packageName.trim())
+          return { status: 400, body: { error: "packageName is required." } };
+        const packageName = input.packageName.trim();
+        if (deps.packageExists?.(packageName) !== true)
+          return { status: 400, body: { error: "Unknown tournament rules package." } };
+        patch.packageName = packageName;
+      }
+      if (input.startsAt !== undefined) {
+        if (typeof input.startsAt !== "string")
+          return { status: 400, body: { error: "startsAt must be a string." } };
+        patch.startsAt = input.startsAt;
+      }
+      if (input.primaryTiebreaker !== undefined)
+        patch.primaryTiebreaker = primaryTiebreaker(input.primaryTiebreaker);
+      const tournament = deps.store.updateTournament(tournamentId, patch, now);
+      return {
+        status: 200,
+        body: { tournament: clientTournament(tournament, deps.store.entrants(tournamentId), auth) },
+      };
+    }
     if (detailMatch && method === "GET") {
       const tournamentId = decoded(detailMatch[1]!);
       const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;

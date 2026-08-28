@@ -9,9 +9,10 @@ export type ScheduledMatchStatus =
   | "completed"
   | "cancelled";
 
+export type TournamentPrimaryTiebreaker = "buchholz" | "sonnebornBerger";
+
 export type TournamentTiebreaker =
-  | "buchholz"
-  | "sonnebornBerger"
+  | TournamentPrimaryTiebreaker
   | "opponentWinPercentage"
   | "headToHead"
   | "touchdownDifferential"
@@ -39,6 +40,7 @@ export interface TournamentRecord {
   currentRound: number;
   tiebreakers: TournamentTiebreaker[];
   points: TournamentPoints;
+  startsAt?: string;
   createdAt: string;
   updatedAt: string;
 }

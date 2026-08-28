@@ -88,4 +88,13 @@ describe("standings", () => {
       casualtyDifferential: 2,
     });
   });
+
+  it("uses a stable pair-symmetric flip when two entrants remain fully tied", () => {
+    const entrants = [entrant(1), entrant(2)];
+    const ladder = ["buchholz", "touchdownDifferential", "casualtyDifferential"] as const;
+    const expected = calculateStandings(entrants, [], points, ladder).map((row) => row.entrantId);
+
+    expect(calculateStandings(entrants, [], points, ladder).map((row) => row.entrantId)).toEqual(expected);
+    expect(calculateStandings([...entrants].reverse(), [], points, ladder).map((row) => row.entrantId)).toEqual(expected);
+  });
 });

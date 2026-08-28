@@ -65,7 +65,9 @@ describe("tournament creation contract", () => {
       maxPlayers: 8,
       format: "swiss",
       currentRound: 0,
+      tiebreakers: ["buchholz", "touchdownDifferential", "casualtyDifferential"],
     });
+    expect(created.tiebreakers).not.toContain("seed");
     expect((await call(store, "POST", "/api/fork/tournaments", coach("Alice"), {
       name: "Nope", packageName: "Spike 2026", maxPlayers: 4, format: "swiss",
     }))?.status).toBe(403);
@@ -79,6 +81,33 @@ describe("tournament creation contract", () => {
     expect((await call(store, "POST", "/api/fork/tournaments", organizer, {
       name: "Bad format", packageName: "Spike 2026", maxPlayers: 4, format: "ladder",
     }))?.status).toBe(400);
+  });
+
+  it("accepts Sonneborn-Berger as the primary tiebreaker and rejects invalid choices", async () => {
+    const store = newStore();
+    const result = await call(store, "POST", "/api/fork/tournaments", organizer, {
+      name: "Sonneborn Cup",
+      packageName: "Spike 2026",
+      maxPlayers: 4,
+      format: "swiss",
+      primaryTiebreaker: "sonnebornBerger",
+    });
+    expect(result).toMatchObject({
+      status: 201,
+      body: { tournament: { tiebreakers: ["sonnebornBerger", "touchdownDifferential", "casualtyDifferential"] } },
+    });
+    expect((result?.body as { tournament: TournamentRecord }).tournament.tiebreakers).not.toContain("seed");
+
+    expect(await call(store, "POST", "/api/fork/tournaments", organizer, {
+      name: "Bad Ranking",
+      packageName: "Spike 2026",
+      maxPlayers: 4,
+      format: "swiss",
+      primaryTiebreaker: "seed",
+    })).toEqual({
+      status: 400,
+      body: { error: "primaryTiebreaker must be buchholz or sonnebornBerger." },
+    });
   });
 });
 

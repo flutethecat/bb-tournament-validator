@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createSession } from "../src/auth/session.js";
+import { createSession, SESSION_COOKIE_NAME } from "../src/auth/session.js";
 
 const root = mkdtempSync(join(tmpdir(), "server-tournament-entry-"));
 const previousEnv = new Map<string, string | undefined>();
@@ -76,6 +76,17 @@ function post(path: string, token: string | undefined, body: unknown) {
   });
 }
 
+function patch(path: string, token: string | undefined, body: unknown) {
+  return fetch(`${origin}${path}`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 describe("tournament entry HTTP tiers", () => {
   let tournamentId = "";
 
@@ -99,6 +110,26 @@ describe("tournament entry HTTP tiers", () => {
     const payload = await response.json() as { tournament: { id: string; status: string } };
     tournamentId = payload.tournament.id;
     expect(payload.tournament.status).toBe("draft");
+  });
+
+  it("walls PATCH at organizer auth and applies cookie CSRF", async () => {
+    const path = `/api/fork/tournaments/${tournamentId}`;
+    expect((await patch(path, undefined, { maxPlayers: 3 })).status).toBe(401);
+    const plain = createSession("PlainCoach");
+    expect((await patch(path, plain.token, { maxPlayers: 3 })).status).toBe(403);
+
+    const organizer = createSession("OrganizerCoach");
+    const missingCsrf = await fetch(`${origin}${path}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", cookie: `${SESSION_COOKIE_NAME}=${organizer.token}` },
+      body: JSON.stringify({ maxPlayers: 3 }),
+    });
+    expect(missingCsrf.status).toBe(403);
+    expect(await missingCsrf.json()).toEqual({ error: "Missing required X-CW-Auth header." });
+
+    const response = await patch(path, organizer.token, { maxPlayers: 3 });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ tournament: { id: tournamentId, maxPlayers: 3 } });
   });
 
   it("lets a coach self-register but not register another coach", async () => {

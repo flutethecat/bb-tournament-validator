@@ -717,6 +717,7 @@ function isOrganizerWrite(method: string, pathname: string): boolean {
     /^\/api\/(users|schedule)(\/|$)/.test(pathname) ||
     pathname === "/api/tournaments" ||
     pathname === "/api/fork/tournaments" ||
+    (method === "PATCH" && /^\/api\/(?:fork\/)?tournaments\/[^/]+$/.test(pathname)) ||
     /^\/api\/(?:fork\/)?tournaments\/[^/]+\/rounds$/.test(pathname)
   );
 }

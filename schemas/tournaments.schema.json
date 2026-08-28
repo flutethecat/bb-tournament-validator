@@ -63,6 +63,7 @@
             "win": { "type": "number" }, "draw": { "type": "number" }, "loss": { "type": "number" }, "bye": { "type": "number" }
           }
         },
+        "startsAt": { "$ref": "#/$defs/timestamp" },
         "createdAt": { "$ref": "#/$defs/timestamp" },
         "updatedAt": { "$ref": "#/$defs/timestamp" }
       }

@@ -70,6 +70,28 @@ function formatLabel(format) {
   return format === "roundRobin" ? "Round-Robin" : format === "knockout" ? "Knockout" : "Swiss";
 }
 
+// UTC wall time keeps datetime-local stable across browser time zones.
+function toDateTimeLocal(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 16) : "";
+}
+
+function fromDateTimeLocal(value) {
+  return value ? `${value}:00.000Z` : "";
+}
+
+function packageOptions(selected) {
+  const names = state.packages.map((entry) => String(entry.name ?? ""));
+  const current = selected !== undefined && !names.includes(selected)
+    ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected || "Legacy ruleset")}</option>`
+    : "";
+  return current + state.packages.map((entry) => {
+    const name = String(entry.name ?? "");
+    return `<option value="${escapeHtml(name)}"${name === selected ? " selected" : ""}>${escapeHtml(name)}</option>`;
+  }).join("");
+}
+
 function setMessage(message, error = false) {
   state.message = message;
   state.error = error;
@@ -146,7 +168,7 @@ function renderTeamPicker(tournamentId) {
 }
 
 function renderCreate() {
-  const options = state.packages.map((entry) => `<option value="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</option>`).join("");
+  const options = packageOptions();
   sidePanel.innerHTML = `<h2 class="panel-heading">Create Tournament</h2><div class="panel-body">
     <form id="create-form" class="form-grid">
       <label class="field full">Name<input class="control" name="name" maxlength="100" required></label>
@@ -154,6 +176,9 @@ function renderCreate() {
       <label class="field"># of Players<input class="control" name="maxPlayers" type="number" min="2" step="1" value="8" required></label>
       <label class="field">Type<select class="control" name="format">
         <option value="swiss">Swiss</option><option value="roundRobin">Round-Robin</option><option value="knockout">Knockout</option>
+      </select></label>
+      <label class="field">Ranking<select class="control" name="primaryTiebreaker">
+        <option value="buchholz">Buchholz</option><option value="sonnebornBerger">Sonneborn-Berger</option>
       </select></label>
       <div class="field full"><button class="btn primary" type="submit"${state.busy || !options ? " disabled" : ""}>Create Draft</button></div>
     </form>
@@ -168,10 +193,29 @@ function renderDetail() {
   const { tournament } = state.detail;
   const entrants = safeArray(state.detail.entrants);
   const standings = safeArray(state.detail.standings);
+  const packages = packageOptions(tournament.packageName);
+  const editForm = state.organizer ? `<section class="detail-section"><h3>Edit tournament</h3>
+    <form id="edit-form" class="form-grid edit-form">
+      <label class="field">Number of players<input class="control" name="maxPlayers" type="number" min="0" step="1" value="${escapeHtml(tournament.maxPlayers)}" required></label>
+      <label class="field">Type<select class="control" name="format">
+        <option value="swiss"${tournament.format === "swiss" ? " selected" : ""}>Swiss</option>
+        <option value="roundRobin"${tournament.format === "roundRobin" ? " selected" : ""}>Round-Robin</option>
+        <option value="knockout"${tournament.format === "knockout" ? " selected" : ""}>Knockout</option>
+      </select></label>
+      <label class="field">Ranking<select class="control" name="primaryTiebreaker"${tournament.status === "completed" ? " disabled" : ""}>
+        <option value="buchholz"${tournament.tiebreakers?.[0] === "sonnebornBerger" ? "" : " selected"}>Buchholz</option>
+        <option value="sonnebornBerger"${tournament.tiebreakers?.[0] === "sonnebornBerger" ? " selected" : ""}>Sonneborn-Berger</option>
+      </select></label>
+      <label class="field full">Ruleset<select class="control" name="packageName" required>${packages || '<option value="">No saved packages</option>'}</select></label>
+      <label class="field full">Start date<input class="control" name="startsAt" type="datetime-local" value="${escapeHtml(toDateTimeLocal(tournament.startsAt))}"></label>
+      <div class="field full"><button class="btn primary" type="submit"${state.busy || !packages ? " disabled" : ""}>Save</button></div>
+    </form>
+  </section>` : "";
   const entrantRows = entrants.map((entrant) => `<tr><td>${escapeHtml(entrant.seed)}</td><td>${escapeHtml(entrant.teamName ?? entrant.teamId)}</td><td>${escapeHtml(entrant.coachId ?? entrant.coach?.ffbCoachId)}</td><td>${entrant.droppedAt ? "Dropped" : "Entered"}</td></tr>`).join("");
   const standingRows = standings.map((row) => `<tr><td>${escapeHtml(row.rank)}</td><td>${escapeHtml(row.coachId)}</td><td>${escapeHtml(row.played)}</td><td>${escapeHtml(row.wins)}-${escapeHtml(row.draws)}-${escapeHtml(row.losses)}</td><td>${escapeHtml(row.points)}</td></tr>`).join("");
   sidePanel.innerHTML = `<h2 class="panel-heading">${escapeHtml(tournament.name)}</h2><div class="panel-body">
     <div class="meta">${escapeHtml(formatLabel(tournament.format))} · ${escapeHtml(tournament.packageName || "Legacy ruleset")} · round ${escapeHtml(tournament.currentRound)} / ${escapeHtml(tournament.roundCount)}</div>
+    ${editForm}
     <section class="detail-section"><h3>Entrants</h3><div class="table-wrap"><table><thead><tr><th>Seed</th><th>Team</th><th>Coach</th><th>Status</th></tr></thead><tbody>${entrantRows || '<tr><td colspan="4">No entrants.</td></tr>'}</tbody></table></div></section>
     <section class="detail-section"><h3>Standings</h3><div class="table-wrap"><table><thead><tr><th>Rank</th><th>Coach</th><th>Played</th><th>W-D-L</th><th>Pts</th></tr></thead><tbody>${standingRows || '<tr><td colspan="5">No standings yet.</td></tr>'}</tbody></table></div></section>
   </div>`;
@@ -266,11 +310,43 @@ async function createTournament(form) {
       packageName: String(values.get("packageName") ?? ""),
       maxPlayers: Number(values.get("maxPlayers")),
       format: String(values.get("format") ?? ""),
+      primaryTiebreaker: String(values.get("primaryTiebreaker") ?? ""),
     }));
     state.creating = false;
     setMessage("");
     await loadTournaments();
     await loadDetail(result.tournament.id);
+  } catch (error) {
+    setMessage(serverMessage(error), true);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function editTournament(form) {
+  const tournament = state.detail?.tournament;
+  if (!tournament) return;
+  const values = new FormData(form);
+  const patch = {};
+  const maxPlayers = Number(values.get("maxPlayers"));
+  const format = String(values.get("format") ?? "");
+  const packageName = String(values.get("packageName") ?? "");
+  const startsAt = fromDateTimeLocal(String(values.get("startsAt") ?? ""));
+  const primaryTiebreaker = values.get("primaryTiebreaker");
+  if (maxPlayers !== Number(tournament.maxPlayers)) patch.maxPlayers = maxPlayers;
+  if (format !== tournament.format) patch.format = format;
+  if (packageName !== tournament.packageName) patch.packageName = packageName;
+  if (startsAt !== fromDateTimeLocal(toDateTimeLocal(tournament.startsAt))) patch.startsAt = startsAt;
+  if (primaryTiebreaker !== null && primaryTiebreaker !== tournament.tiebreakers?.[0])
+    patch.primaryTiebreaker = String(primaryTiebreaker);
+  state.busy = true;
+  render();
+  try {
+    await requestJson(`/api/fork/tournaments/${encodeURIComponent(tournament.id)}`, authOptions("PATCH", patch));
+    setMessage("");
+    await loadTournaments();
+    await loadDetail(tournament.id);
   } catch (error) {
     setMessage(serverMessage(error), true);
   } finally {
@@ -340,9 +416,10 @@ listRoot.addEventListener("click", (event) => {
 });
 
 sidePanel.addEventListener("submit", (event) => {
-  if (event.target.id !== "create-form") return;
+  if (!(event.target.id === "create-form" || event.target.id === "edit-form")) return;
   event.preventDefault();
-  void createTournament(event.target);
+  if (event.target.id === "create-form") void createTournament(event.target);
+  else void editTournament(event.target);
 });
 
 async function initialize() {

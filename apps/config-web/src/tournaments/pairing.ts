@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   ScheduledMatchRecord,
   TournamentEntrantRecord,
@@ -38,12 +39,22 @@ function headToHead(left: StandingRow, right: StandingRow, matches: readonly Sch
   return rightScore - leftScore;
 }
 
+function stableTieFlip(tournamentId: string, leftId: string, rightId: string): number {
+  if (leftId === rightId) return 0;
+  const pair = [leftId, rightId].sort();
+  const coin = createHash("sha256").update(`${tournamentId}\0${pair[0]}\0${pair[1]}`).digest()[0]! & 1;
+  // Canonical pair order makes either comparator direction choose the same entrant.
+  const winner = pair[coin]!;
+  return leftId === winner ? -1 : 1;
+}
+
 export function calculateStandings(
   entrants: readonly TournamentEntrantRecord[],
   matches: readonly ScheduledMatchRecord[],
   points: TournamentPoints,
   tiebreakers: readonly TournamentTiebreaker[],
 ): StandingRow[] {
+  const tournamentId = entrants[0]?.tournamentId ?? "";
   const rows = new Map<string, Omit<StandingRow, "rank">>();
   for (const entrant of activeEntrants(entrants)) {
     rows.set(entrant.id, {
@@ -147,7 +158,7 @@ export function calculateStandings(
         : compareValue(left as StandingRow, right as StandingRow, key);
       if (difference !== 0) return difference;
     }
-    return left.seed - right.seed || left.entrantId.localeCompare(right.entrantId);
+    return stableTieFlip(tournamentId, left.entrantId, right.entrantId);
   });
   return ranked.map((row, index) => ({ rank: index + 1, ...row }));
 }

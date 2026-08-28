@@ -7,6 +7,7 @@ import type {
   ScheduledMatchRecord,
   TournamentDataFileV2,
   TournamentEntrantRecord,
+  TournamentPrimaryTiebreaker,
   TournamentRecord,
   TournamentRoundRecord,
   VerifiedCoachIdentity,
@@ -16,6 +17,13 @@ import type {
 export const DEFAULT_WAITING_LEASE_MS = 45_000;
 export const MIN_WAITING_LEASE_MS = 15_000;
 export const MAX_WAITING_LEASE_MS = 5 * 60_000;
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
+const tiebreakerLadder = (primary: TournamentPrimaryTiebreaker): TournamentRecord["tiebreakers"] =>
+  [primary, "touchdownDifferential", "casualtyDifferential"];
+
+type TournamentUpdate = Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt">> & {
+  primaryTiebreaker?: TournamentPrimaryTiebreaker;
+};
 
 type LegacyTournamentRecord = Omit<TournamentRecord, "format" | "packageName" | "maxPlayers"> &
   Partial<Pick<TournamentRecord, "format" | "packageName" | "maxPlayers">>;
@@ -142,7 +150,9 @@ export class TournamentStore {
   }
 
   createTournament(
-    input: Pick<TournamentRecord, "name" | "packageName" | "maxPlayers" | "format">,
+    input: Pick<TournamentRecord, "name" | "packageName" | "maxPlayers" | "format"> & {
+      primaryTiebreaker?: TournamentPrimaryTiebreaker;
+    },
     now = new Date(),
   ): TournamentRecord {
     return this.mutate((data) => {
@@ -158,13 +168,56 @@ export class TournamentStore {
           ? input.maxPlayers - (input.maxPlayers % 2 === 0 ? 1 : 0)
           : Math.max(1, Math.ceil(Math.log2(input.maxPlayers))),
         currentRound: 0,
-        tiebreakers: ["buchholz", "sonnebornBerger", "touchdownDifferential", "casualtyDifferential", "seed"],
+        tiebreakers: tiebreakerLadder(input.primaryTiebreaker ?? "buchholz"),
         points: { win: 3, draw: 1, loss: 0, bye: 3 },
         createdAt: timestamp,
         updatedAt: timestamp,
       };
       data.tournaments[record.id] = record;
       return record;
+    });
+  }
+
+  updateTournament(
+    tournamentId: string,
+    patch: TournamentUpdate,
+    now = new Date(),
+  ): TournamentRecord {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      if (patch.primaryTiebreaker !== undefined && tournament.status === "completed")
+        throw new TournamentStoreError(400, "Ranking is locked once the tournament is completed.");
+      const entrantCount = Object.values(data.entrants)
+        .filter((entrant) => entrant.tournamentId === tournamentId && entrant.droppedAt === undefined).length;
+      if (patch.maxPlayers !== undefined && patch.maxPlayers < entrantCount)
+        throw new TournamentStoreError(400, `maxPlayers cannot be below the current non-dropped entrant count of ${entrantCount}.`);
+      if (patch.maxPlayers !== undefined && patch.maxPlayers < 2)
+        throw new TournamentStoreError(400, "maxPlayers must be at least 2.");
+      const hasRounds = Object.values(data.rounds).some((round) => round.tournamentId === tournamentId);
+      if (patch.format !== undefined && hasRounds)
+        throw new TournamentStoreError(400, "Format is locked once rounds exist.");
+      if (patch.packageName !== undefined && hasRounds)
+        throw new TournamentStoreError(400, "Ruleset is locked once rounds exist.");
+      if (patch.startsAt !== undefined && patch.startsAt !== "" &&
+        (!ISO_DATE_TIME.test(patch.startsAt) || !Number.isFinite(Date.parse(patch.startsAt))))
+        throw new TournamentStoreError(400, "startsAt must be an ISO-8601 timestamp.");
+      if (patch.maxPlayers !== undefined) tournament.maxPlayers = patch.maxPlayers;
+      if (patch.format !== undefined) tournament.format = patch.format;
+      if (patch.packageName !== undefined) tournament.packageName = patch.packageName;
+      if (patch.primaryTiebreaker !== undefined) {
+        tournament.tiebreakers = tiebreakerLadder(patch.primaryTiebreaker);
+        delete data.standings[tournamentId];
+      }
+      if (patch.startsAt === "") delete tournament.startsAt;
+      else if (patch.startsAt !== undefined) tournament.startsAt = patch.startsAt;
+      if (!hasRounds && (patch.maxPlayers !== undefined || patch.format !== undefined)) {
+        tournament.roundCount = tournament.format === "roundRobin"
+          ? tournament.maxPlayers - (tournament.maxPlayers % 2 === 0 ? 1 : 0)
+          : Math.max(1, Math.ceil(Math.log2(tournament.maxPlayers)));
+      }
+      tournament.updatedAt = now.toISOString();
+      return tournament;
     });
   }
 
