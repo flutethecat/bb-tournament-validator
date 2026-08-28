@@ -1,6 +1,6 @@
 import { generateTournamentPairings } from "./pairing.js";
 import { TournamentStore, TournamentStoreError } from "./store.js";
-import type { ScheduledMatchRecord, TournamentEntrantRecord, VerifiedCoachIdentity } from "./types.js";
+import type { ScheduledMatchRecord, TournamentEntrantRecord, TournamentRecord, VerifiedCoachIdentity } from "./types.js";
 
 export interface TournamentApiIdentity {
   coach: string;
@@ -22,6 +22,7 @@ export interface TournamentApiResult {
 }
 
 const coachKey = (value: string): string => value.trim().toLowerCase();
+const TOURNAMENT_PAGE_SIZE = 20;
 
 function decoded(value: string): string | undefined {
   try { return decodeURIComponent(value); } catch { return undefined; }
@@ -109,6 +110,22 @@ function clientMatch(
   };
 }
 
+function clientTournament(
+  tournament: TournamentRecord,
+  entrants: TournamentEntrantRecord[],
+  auth?: TournamentApiIdentity,
+) {
+  const ownEntrant = auth
+    ? entrants.find((entrant) => coachKey(entrant.coach.ffbCoachId) === coachKey(auth.coach))
+    : undefined;
+  return {
+    ...tournament,
+    ...(tournament.packageName.trim() ? { rulesetPackName: tournament.packageName } : {}),
+    entrantCount: entrants.filter((entrant) => entrant.droppedAt === undefined).length,
+    ...(ownEntrant ? { myEntrantId: ownEntrant.id, myDroppedAt: ownEntrant.droppedAt } : {}),
+  };
+}
+
 function projectedOpponent(
   store: TournamentStore,
   tournamentId: string,
@@ -168,6 +185,7 @@ export async function tournamentApi(
   body: unknown,
   deps: TournamentApiDeps,
 ): Promise<TournamentApiResult | undefined> {
+  const portalListAlias = path === "/api/tournaments";
   // `/api/fork/tournaments` is the Tauri-facing spelling; keep the shorter portal spelling too.
   path = path.replace(/^\/api\/fork\/tournaments(?=\/|$)/, "/api/tournaments");
   const now = deps.now?.() ?? new Date();
@@ -198,22 +216,45 @@ export async function tournamentApi(
     }
 
     if (path === "/api/tournaments" && method === "GET") {
-      const requestedStatus = query.get("status");
-      const source = requestedStatus === "draft"
-        ? deps.store.tournaments(["draft"])
-        : deps.store.activeTournaments();
-      const tournaments = source.map((tournament) => {
-        const entrants = deps.store.entrants(tournament.id);
-        const ownEntrant = auth
-          ? entrants.find((entrant) => coachKey(entrant.coach.ffbCoachId) === coachKey(auth.coach))
-          : undefined;
-        return {
-          ...tournament,
-          entrantCount: entrants.filter((entrant) => entrant.droppedAt === undefined).length,
-          ...(ownEntrant ? { myEntrantId: ownEntrant.id, myDroppedAt: ownEntrant.droppedAt } : {}),
-        };
-      });
-      return { status: 200, body: { tournaments } };
+      const category = query.get("category");
+      const source = category === "active"
+        ? deps.store.tournaments(["active"])
+        : category === "future"
+          ? deps.store.tournaments(["draft"])
+          : category === "finished"
+            ? deps.store.tournaments(["completed"])
+            : query.get("status") === "draft"
+              ? deps.store.tournaments(["draft"])
+              : deps.store.activeTournaments();
+      const nameQuery = query.get("q")?.trim().toLowerCase();
+      let filtered = nameQuery
+        ? source.filter((tournament) => tournament.name.toLowerCase().includes(nameQuery))
+        : source;
+      // apps/tauri/src/game/tournamentApi.ts:145 hard-rejects non-Swiss items AND one bad item
+      // throws the whole list. The client resolves ForkApi.get('tournaments') to the FORK
+      // spelling (forkChallenge.ts builds `/api/fork/${path}`), so path alone cannot identify
+      // the portal — key on its dialect instead: only the portal sends `category=`. The web
+      // tournaments.js uses `status=`/bare and keeps seeing all formats. Lift when the client widens.
+      if (portalListAlias || query.get("category") !== null) {
+        filtered = filtered.filter((tournament) => tournament.format === "swiss");
+      }
+      const requestedPage = Number(query.get("page"));
+      const page = Number.isSafeInteger(requestedPage) && requestedPage >= 1 ? requestedPage : 1;
+      const total = filtered.length;
+      const offset = (page - 1) * TOURNAMENT_PAGE_SIZE;
+      const tournaments = filtered
+        .slice(offset, offset + TOURNAMENT_PAGE_SIZE)
+        .map((tournament) => clientTournament(tournament, deps.store.entrants(tournament.id), auth));
+      return {
+        status: 200,
+        body: {
+          tournaments,
+          page,
+          pageSize: TOURNAMENT_PAGE_SIZE,
+          total,
+          hasMore: offset + TOURNAMENT_PAGE_SIZE < total,
+        },
+      };
     }
 
     const entrantCollectionMatch = path.match(/^\/api\/tournaments\/([^/]+)\/entrants$/);
@@ -266,6 +307,7 @@ export async function tournamentApi(
       const tournamentId = decoded(detailMatch[1]!);
       const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
       if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
+      const entrants = deps.store.entrants(tournament.id);
       const scheduledMatches = auth
         ? deps.store.matches(tournament.id)
           .filter((match) => auth.organizer || isParticipant(match, auth.coach))
@@ -274,8 +316,8 @@ export async function tournamentApi(
       return {
         status: 200,
         body: {
-          tournament,
-          entrants: deps.store.entrants(tournament.id).map(({ coach, ...entrant }) => {
+          tournament: clientTournament(tournament, entrants, auth),
+          entrants: entrants.map(({ coach, ...entrant }) => {
             const team = deps.teamBuild(entrant.teamId);
             return {
               ...entrant,
