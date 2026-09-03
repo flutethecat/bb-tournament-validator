@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import { bb2025 } from "@bb/validator/dataset";
-import { findPosition, findRoster, normName, type Roster } from "@bb/validator";
+import { findPosition, findRoster, findStar, normName, type Roster } from "@bb/validator";
 import fixtureJson from "../../../fixtures/amazon-example.roster.json";
 
 const fixture = fixtureJson as unknown as Roster;
@@ -67,5 +67,19 @@ describe("Amazon dataset gate (example PDFs are ground truth)", () => {
 
   it("players cost sums to the PDF's 810k", () => {
     expect(fixture.players.reduce((a, p) => a + p.cost, 0)).toBe(fixture.summary!.playersCost);
+  });
+});
+
+describe("Star Player dataset gate", () => {
+  it("includes Secret Weapon on the known BB2025 stars", () => {
+    for (const name of [
+      "Bomber Dribblesnot",
+      "Fungus the Loon",
+      "Nobbla Blackwart",
+      "Barik Farblast",
+      "Kreek Rustgouger",
+    ]) {
+      expect(findStar(bb2025, name)?.skills?.map(normName), name).toContain(normName("Secret Weapon"));
+    }
   });
 });

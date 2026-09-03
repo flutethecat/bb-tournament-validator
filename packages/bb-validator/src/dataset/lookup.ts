@@ -8,6 +8,10 @@ import type { Dataset, DatasetPosition, DatasetRoster, DatasetStar, SkillMeta } 
 
 export type Access = "primary" | "secondary" | "illegal";
 
+export interface Star extends DatasetStar {
+  skills?: string[];
+}
+
 /**
  * Lowercase, collapse whitespace, strip punctuation-ish variance ("Jump up" == "Jump Up").
  * Also drops FUMBBL roster annotations so a printed skill matches the dataset name:
@@ -111,7 +115,7 @@ export function isStarName(data: Dataset, positionName: string): boolean {
 }
 
 /** Look up a star's dataset entry by (forgiving) name. */
-export function findStar(data: Dataset, starName: string): DatasetStar | undefined {
+export function findStar(data: Dataset, starName: string): Star | undefined {
   const want = normName(starName);
   return data.stars.find((s) => normName(s.name) === want);
 }
@@ -121,14 +125,14 @@ export function findStar(data: Dataset, starName: string): DatasetStar | undefin
  * rules (baked into `star.teams` at dataset-gen time). Returns true when the star
  * has no eligibility data (empty `teams`) so data gaps never wrongly reject a roster.
  */
-export function starEligibleForTeam(star: DatasetStar, teamName: string): boolean {
+export function starEligibleForTeam(star: Star, teamName: string): boolean {
   if (!star.teams || star.teams.length === 0) return true;
   const want = normName(teamName);
   return star.teams.some((t) => normName(t) === want);
 }
 
 /** May a team carrying `specialRule` hire `star`? */
-export function starEligibleBySpecialRule(star: DatasetStar, specialRule: string): boolean {
+export function starEligibleBySpecialRule(star: Star, specialRule: string): boolean {
   if (!star.playsFor || star.playsFor.length === 0) return true;
   const want = normName(specialRule);
   if (!want) return false;
@@ -144,7 +148,7 @@ export function starEligibleBySpecialRule(star: DatasetStar, specialRule: string
  * affiliation is one of the following exclusions.
  */
 export function starEligibleForLeagueSelection(
-  star: DatasetStar,
+  star: Star,
   leagueOptions: readonly string[],
   selectedRule: string,
 ): boolean {
@@ -173,7 +177,7 @@ export function starEligibleForLeagueSelection(
  * `specialRule` value. e.g. a Gnome team that picks "Woodland League" derives Jordell Freshbreeze;
  * a "Halfling Thimble Cup" Gnome team does not.
  */
-export function eligibleStarsFor(data: Dataset, teamName: string, specialRule?: string): DatasetStar[] {
+export function eligibleStarsFor(data: Dataset, teamName: string, specialRule?: string): Star[] {
   const rule = specialRule?.trim();
   return data.stars.filter(
     (s) => starEligibleForTeam(s, teamName) && (rule ? starEligibleBySpecialRule(s, rule) : true),

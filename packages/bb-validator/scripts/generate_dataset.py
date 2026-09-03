@@ -198,8 +198,9 @@ def team_special_rules(rosters):
     return out
 
 
-def build_stars(rosters):
+def build_stars(rosters, existing_stars=None):
     """Star players + resolved eligible team lists, from FUMBBL roster 8513."""
+    existing_by_name = {star["name"]: star for star in (existing_stars or [])}
     tsr = team_special_rules(rosters)
     all_teams = [r["name"] for r in rosters]
     d = get(f"roster/get/{STAR_ROSTER_ID}")
@@ -215,19 +216,32 @@ def build_stars(rosters):
         else:
             want = set(plays_for)
             teams = [t for t in all_teams if tsr[t] & want]
-        stars.append({
+        star = {
             "name": p["title"],
             "cost": int(p["cost"]),
             "playsFor": plays_for,
             "teams": teams,
-        })
+        }
+        existing = existing_by_name.get(p["title"], {})
+        for key in ("pairedWith", "pairPrimary"):
+            if key in existing:
+                star[key] = existing[key]
+        star["skills"] = list(p.get("skills", []))
+        stars.append(star)
     return stars
 
 
 def write_stars(rosters):
-    stars = build_stars(rosters)
-    json.dump({"_about": "BB2025 star players from FUMBBL roster 8513 (_Star Players). `playsFor` = special-rule keywords gating eligibility; `teams` = resolved eligible BB2025 team names (see build_stars/FAVOURED_MAP in scripts/generate_dataset.py).", "stars": stars},
-              open(os.path.join(OUT, "stars.json"), "w", encoding="utf-8"), indent=1)
+    path = os.path.join(OUT, "stars.json")
+    existing_stars = []
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as existing_file:
+            existing_stars = json.load(existing_file).get("stars", [])
+    stars = build_stars(rosters, existing_stars)
+    with open(path, "w", encoding="utf-8") as output_file:
+        json.dump({"_about": "BB2025 star players from FUMBBL roster 8513 (_Star Players). `playsFor` = special-rule keywords gating eligibility; `teams` = resolved eligible BB2025 team names (see build_stars/FAVOURED_MAP in scripts/generate_dataset.py).", "stars": stars},
+                  output_file, indent=1, ensure_ascii=False)
+        output_file.write("\n")
     print(f"Wrote {len(stars)} stars to {OUT}")
 
 

@@ -106,6 +106,7 @@ export interface RaceRulesInfo {
     spTax?: TournamentPackage["starPlayers"]["spTaxByCombinedCost"];
   };
   bannedStars: string[];
+  capOverrides?: TournamentPackage["inducements"]["capOverrides"];
 }
 
 /** Derive one race's effective rules from the package config (resolveTeamConfig is the
@@ -140,6 +141,7 @@ export function packageRaceRules(pkg: TournamentPackage, race: string): RaceRule
       ...(pkg.starPlayers.spTaxByCombinedCost ? { spTax: pkg.starPlayers.spTaxByCombinedCost } : {}),
     },
     bannedStars: cfg.bannedStars,
+    ...(pkg.inducements.capOverrides ? { capOverrides: pkg.inducements.capOverrides } : {}),
   };
 }
 
@@ -155,6 +157,7 @@ export function packageRulesInfo(
   name: string;
   dataNote?: string;
   stackSurchargeSP: number;
+  capOverrides?: TournamentPackage["inducements"]["capOverrides"];
   budget?: number | null;
   tierSummary: TierSummaryRow[];
   race?: RaceRulesInfo;
@@ -164,6 +167,7 @@ export function packageRulesInfo(
     name: pkg.name,
     ...(pkg.dataNote ? { dataNote: pkg.dataNote } : {}),
     stackSurchargeSP: pkg.skillAllotment.stackSurchargeSP ?? 0,
+    ...(pkg.inducements.capOverrides ? { capOverrides: pkg.inducements.capOverrides } : {}),
     tierSummary: packageTierSummary(pkg),
     ...(race ? { budget: race.gold, race } : {}),
   };

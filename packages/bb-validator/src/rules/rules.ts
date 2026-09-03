@@ -498,9 +498,13 @@ export const starPlayers: Rule = {
  */
 export const inducements: Rule = {
   id: "inducements",
-  check: ({ roster, pkg, data }) => {
+  check: ({ roster, pkg, data, players }) => {
     const findings: Finding[] = [];
     const teamRules = new Set(roster.specialRules.map(normName));
+    const stars = rosteredStars(players, data).flatMap(({ player }) => {
+      const star = findStar(data, player.positionName);
+      return star ? [{ name: star.name, skills: star.skills ?? [] }] : [];
+    });
     for (const ind of roster.inducements) {
       const id = ind.id ?? normName(ind.name).replace(/ /g, "_");
       const meta = data.inducements[id];
@@ -515,10 +519,25 @@ export const inducements: Rule = {
       // Reduced cap applies only when the team has the unlocking special rule.
       const hasReduced = meta?.reducedSpecialRule != null && teamRules.has(normName(meta.reducedSpecialRule));
       const datasetCap = hasReduced ? meta?.reducedMax ?? meta?.max : meta?.max;
-      const cap = pkg.inducements.caps[id] ?? datasetCap ?? null;
+      let cap = pkg.inducements.caps[id] ?? datasetCap ?? null;
+      let trigger: { skill: string; starNames: string[]; note?: string } | undefined;
+      for (const override of pkg.inducements.capOverrides ?? []) {
+        const skill = override.when?.starHasSkill;
+        if (!skill) continue;
+        const matchingStars = stars.filter((star) =>
+          star.skills.some((starSkill) => normName(starSkill) === normName(skill)),
+        );
+        const overrideCap = override.caps?.[id];
+        if (matchingStars.length > 0 && overrideCap != null && (cap == null || overrideCap < cap)) {
+          cap = overrideCap;
+          trigger = { skill, starNames: matchingStars.map((star) => star.name), note: override.note };
+        }
+      }
       if (cap != null && (ind.count ?? 1) > cap)
         findings.push(
-          err("inducements", `${ind.count ?? 1}× ${ind.name} exceeds the limit of ${cap}.`, {
+          err("inducements", trigger
+            ? `${ind.count ?? 1}× ${ind.name}; the limit is ${cap} while a ${trigger.skill} star is rostered (${trigger.starNames.join(", ")}).${trigger.note ? ` ${trigger.note}.` : ""}`
+            : `${ind.count ?? 1}× ${ind.name} exceeds the limit of ${cap}.`, {
             expected: `<= ${cap}`,
             actual: ind.count ?? 1,
           }),

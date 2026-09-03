@@ -213,6 +213,12 @@ export interface TournamentPackage {
     /** Inducement ids, ["*"] for all, [] for none. */
     allowed: string[];
     caps: Record<string, number>;
+    /** Conditional caps, applied on top of `caps` (lowest wins) when the condition holds. */
+    capOverrides?: {
+      when: { starHasSkill: string };
+      caps: Record<string, number>;
+      note?: string;
+    }[];
   };
   sideline: {
     maxReRolls: number | null;

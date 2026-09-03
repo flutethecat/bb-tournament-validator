@@ -140,7 +140,27 @@
       "additionalProperties": false,
       "properties": {
         "allowed": { "type": "array", "items": { "type": "string" }, "description": "Inducement ids allowed, or ['*'] for all, [] for none." },
-        "caps": { "type": "object", "additionalProperties": { "type": "number" }, "description": "Per-inducement max overrides." }
+        "caps": { "type": "object", "additionalProperties": { "type": "number" }, "description": "Per-inducement max overrides." },
+        "capOverrides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["when", "caps"],
+            "additionalProperties": false,
+            "properties": {
+              "when": {
+                "type": "object",
+                "required": ["starHasSkill"],
+                "additionalProperties": false,
+                "properties": {
+                  "starHasSkill": { "type": "string", "minLength": 1 }
+                }
+              },
+              "caps": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } },
+              "note": { "type": "string" }
+            }
+          }
+        }
       }
     },
 

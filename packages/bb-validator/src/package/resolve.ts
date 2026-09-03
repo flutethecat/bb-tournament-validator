@@ -174,5 +174,16 @@ export function loadPackage(
       pkg = { ...pkg, starPlayers };
     }
   }
+
+  for (const [overrideIndex, override] of (pkg.inducements.capOverrides ?? []).entries()) {
+    if (!override.when?.starHasSkill?.trim()) {
+      problems.push(`inducements.capOverrides[${overrideIndex}].when.starHasSkill must not be empty`);
+    }
+    for (const [id, cap] of Object.entries(override.caps ?? {})) {
+      if (cap < 0) {
+        problems.push(`inducements.capOverrides[${overrideIndex}].caps.${id} must be non-negative`);
+      }
+    }
+  }
   return { pkg, problems };
 }
