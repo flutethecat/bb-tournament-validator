@@ -7,11 +7,11 @@ describe("renderPackageHtml", () => {
     const html = renderPackageHtml(pkg({ name: "Lustrian Open", date: "2026-08-01" }));
     expect(html).toMatch(/^<!doctype html>/i);
     expect(html).toContain("Lustrian Open");
-    expect(html).toContain("2026-08-01");
-    expect(html).toContain("Skill Allotment");
+    expect(html).toContain("1 August 2026");
+    expect(html).toContain("Skills");
     expect(html).toContain("Star Players");
-    expect(html).toContain("Sideline");
-    expect(html).toContain("Special Rules");
+    expect(html).toContain("Sideline caps");
+    expect(html).toContain("At a glance");
   });
 
   it("renders a matrix as a cash x skills table with team names and swap markers", () => {
@@ -27,7 +27,7 @@ describe("renderPackageHtml", () => {
       ],
     };
     const html = renderPackageHtml(pkg({ matrix }));
-    expect(html).toContain("Cash × Skills Matrix");
+    expect(html).toContain("Cash × skills matrix");
     expect(html).toContain("1,110,000 gp");
     expect(html).toContain("Amazon");
     expect(html).toContain("Orc");
@@ -41,8 +41,8 @@ describe("renderPackageHtml", () => {
         tiers: [{ tier: 1, rosters: ["Amazon", "Orc"], gold: 1_150_000, skillPointBudget: 6, starPlayersAllowed: false, bannedStars: [] }],
       }),
     );
-    expect(html).toContain("Tiers");
-    expect(html).toContain("Tier 1");
+    expect(html).toContain("Team tiers");
+    expect(html).toContain("Effective rules by team");
     expect(html).toContain("1,150,000 gp");
     expect(html).toContain("Morg &#39;n&#39; Thorg"); // escaped
   });
@@ -50,7 +50,7 @@ describe("renderPackageHtml", () => {
   it("renders skill stacking and per-tier count-mode allotment", () => {
     const base = pkg().skillAllotment;
     const flat = renderPackageHtml(pkg({ skillAllotment: { ...base, maxStackedPlayers: 3 } }));
-    expect(flat).toContain("max 3 players with >1 added skill");
+    expect(flat).toContain("Default stacking: Up to 3 players may carry 2 skills");
 
     const tiered = renderPackageHtml(
       pkg({
@@ -73,8 +73,7 @@ describe("renderPackageHtml", () => {
         },
       }),
     );
-    expect(custom).toContain('title="Swap 3 primaries for 1 secondary · max 1"');
-    expect(custom).toContain("↔ 3:1 · max 1 swap");
+    expect(custom).toContain("Swap 3 primaries for 1 secondary · maximum 1");
 
     const legacy = renderPackageHtml(
       pkg({
@@ -85,8 +84,7 @@ describe("renderPackageHtml", () => {
         },
       }),
     );
-    expect(legacy).toContain("↔ swap</span>");
-    expect(legacy).not.toContain("↔ 2:1");
+    expect(legacy).toContain("Swap 2 primaries for 1 secondary");
   });
 
   it("escapes HTML in names to avoid injection", () => {

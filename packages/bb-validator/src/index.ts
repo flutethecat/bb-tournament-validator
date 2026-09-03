@@ -90,4 +90,6 @@ export type {
   RosterOptions,
 } from "./compose/teamComposer";
 export { renderPackageHtml } from "./render/packageHtml";
+export { renderRulesPage, renderRulesPageNotFound } from "./render/rulesPage";
+export type { RulesPageOptions } from "./render/rulesPage";
 export { renderArtPrompt } from "./render/artPrompt";
