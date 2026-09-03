@@ -49,11 +49,11 @@ describe("renderRulesPage", () => {
     expect(chips).toEqual(chips.slice().sort((left, right) => left.localeCompare(right)));
   });
 
-  it("splits the NAF hand-check data note into seven numbered items", () => {
+  it("splits the NAF hand-check data note into four numbered items (three were absorbed by the validator knobs)", () => {
     const html = renderRulesPage(naf(), { generatedAt });
 
     expect(html).toContain("Hand-checked by the TO");
-    expect(html.match(/class="data-note-item"/g)).toHaveLength(7);
+    expect(html.match(/class="data-note-item"/g)).toHaveLength(4);
     expect(html).toContain("These rules are not enforced by the validator.");
   });
 
