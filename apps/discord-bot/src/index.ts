@@ -33,6 +33,7 @@ import { ingestPackageDocument } from "@bb/ingest";
 import { renderArtPrompt, renderPackageHtml, type Roster, type ValidationResult } from "@bb/validator";
 import { handleGrognardMention } from "./askGrognard";
 import { PackageStore } from "./packageStore";
+import { publicRulesUrl } from "./publicRulesUrl";
 import { renderProblemsEmbed, renderResultEmbed, validateFumbblTeam, validateRosterBytes, type EmbedData } from "./pipeline";
 import { CsvValidatedStore, type ValidatedEntry } from "./store/validatedStore";
 import { FileCoachRegistry, KeyConflictError, type CoachKey, type CoachTeamRegistration } from "./store/coachRegistry";
@@ -95,7 +96,7 @@ async function recordValidRoster(
   sourceName: string,
 ): Promise<void> {
   const teamName = roster.teamName || sourceName;
-  const legalLine = `✅ Your roster **${teamName}** (${roster.rosterName}) is legal for **${packageName}** — ${result.recomputedSummary.skillPointsUsed}/${result.recomputedSummary.skillPointBudget} SP.`;
+  const legalLine = `✅ Your roster **${teamName}** (${roster.rosterName}) is legal for **${packageName}** — ${result.recomputedSummary.skillPointsUsed}/${result.recomputedSummary.skillPointBudget} SP.\n${publicRulesUrl(packageName)}`;
   const newEntry: ValidatedEntry = {
     discordUserId: user.id,
     coachName: roster.coach || user.username,
@@ -177,14 +178,14 @@ async function handleResubButton(i: ButtonInteraction): Promise<void> {
     await commitEntry(pending.newEntry, pending.registryTeam);
     await i
       .update({
-        content: `✅ Replaced **${pending.previous.teamName}** with **${pending.newEntry.teamName}** for **${pending.packageName}**. Your earlier entry has been deleted.`,
+        content: `✅ Replaced **${pending.previous.teamName}** with **${pending.newEntry.teamName}** for **${pending.packageName}**. Your earlier entry has been deleted.\n${publicRulesUrl(pending.packageName)}`,
         components: [],
       })
       .catch(() => void 0);
   } else {
     await i
       .update({
-        content: `↩️ Kept your original **${pending.previous.teamName}** for **${pending.packageName}**. The new submission was discarded — nothing changed.`,
+        content: `↩️ Kept your original **${pending.previous.teamName}** for **${pending.packageName}**. The new submission was discarded — nothing changed.\n${publicRulesUrl(pending.packageName)}`,
         components: [],
       })
       .catch(() => void 0);
@@ -412,7 +413,7 @@ async function handleChannelTournamentSelect(i: StringSelectMenuInteraction): Pr
     await i.update({ content: `Package **${choice}** no longer exists — ask an organizer to re-check.`, components: [] }).catch(() => void 0);
     return;
   }
-  await i.update({ content: `Validating your roster against **${found.pkg.name}**… (results by DM)`, components: [] }).catch(() => void 0);
+  await i.update({ content: `Validating your roster against **${found.pkg.name}**… (results by DM)\n${publicRulesUrl(found.pkg.name)}`, components: [] }).catch(() => void 0);
   if (message) await processRosterMessage(message, found);
 }
 
@@ -449,7 +450,7 @@ async function handleWatch(i: ChatInputCommandInteraction): Promise<void> {
     }
     watches.set(channel.id, found.pkg.name);
     await i.reply(
-      `👁 Watching <#${channel.id}> — every PDF posted there is now validated against **${found.pkg.name}** (✅/❌ on the post, details by DM).`,
+      `👁 Watching <#${channel.id}> — every PDF posted there is now validated against **${found.pkg.name}** (✅/❌ on the post, details by DM).\n${publicRulesUrl(found.pkg.name)}`,
     );
     return;
   }
@@ -462,7 +463,7 @@ async function handleWatches(i: ChatInputCommandInteraction): Promise<void> {
   const all = watches.list();
   await i.reply({
     content: all.length
-      ? `Watched channels:\n${all.map((w) => `• <#${w.channelId}> → **${w.packageName}**`).join("\n")}`
+      ? `Watched channels:\n${all.map((w) => `• <#${w.channelId}> → **${w.packageName}** — ${publicRulesUrl(w.packageName)}`).join("\n")}`
       : "No channels are being watched. TOs: /bbbot watch channel:<#ch> package:<name>.",
     flags: MessageFlags.Ephemeral,
   });
@@ -548,7 +549,7 @@ async function handleExport(i: ChatInputCommandInteraction): Promise<void> {
   const html = renderPackageHtml(found.pkg);
   const filename = `${found.pkg.name.replace(/[^\w.-]+/g, "-").toLowerCase()}-rules.html`;
   const file = new AttachmentBuilder(Buffer.from(html, "utf8"), { name: filename });
-  await i.reply({ content: `📄 One-page rules for **${found.pkg.name}** — open the attachment in a browser.`, files: [file] });
+  await i.reply({ content: `📄 One-page rules for **${found.pkg.name}** — open the attachment in a browser.\n${publicRulesUrl(found.pkg.name)}`, files: [file] });
 }
 
 // ---- /bbbot artprompt ----
@@ -592,7 +593,7 @@ async function handleReport(i: ChatInputCommandInteraction): Promise<void> {
 async function handlePackages(i: ChatInputCommandInteraction): Promise<void> {
   const names = packages.names();
   await i.reply({
-    content: names.length ? `Available packages:\n${names.map((n) => `• ${n}`).join("\n")}` : "No packages found.",
+    content: names.length ? `Available packages:\n${names.map((n) => `• ${n} — ${publicRulesUrl(n)}`).join("\n")}` : "No packages found.",
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -626,7 +627,7 @@ async function handlePackageShow(i: ChatInputCommandInteraction): Promise<void> 
         value: `min players ${p.special.minPlayers} · banned: ${p.special.bannedSkills.join(", ") || "none"}`,
       },
     );
-  await i.reply({ embeds: [embed] });
+  await i.reply({ content: publicRulesUrl(p.name), embeds: [embed] });
 }
 
 async function handlePackageImport(i: ChatInputCommandInteraction): Promise<void> {
@@ -653,7 +654,7 @@ async function handlePackageImport(i: ChatInputCommandInteraction): Promise<void
     }
     const path = packages.save(pkg);
     const report = problems.length ? `\n⚠ Review:\n${problems.map((p) => `• ${p}`).join("\n")}` : "";
-    await i.editReply(`Imported **${pkg.name}** → \`${path}\`.${report}`.slice(0, 1900));
+    await i.editReply(`Imported **${pkg.name}** → \`${path}\`.\n${publicRulesUrl(pkg.name)}${report}`.slice(0, 1900));
   } catch (e) {
     await i.editReply(`Import failed: ${(e as Error).message}`);
   }

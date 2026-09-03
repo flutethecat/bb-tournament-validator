@@ -788,12 +788,16 @@ function renderRightRail() {
   const stars = state.pkg.starPlayers.allowed
     ? `max ${state.pkg.starPlayers.maxCount ?? "none"}${state.pkg.bannedStars.length ? ` · ${state.pkg.bannedStars.length} banned` : ""}`
     : "not allowed";
+  const publicPage = state.saved
+    ? `<a class="btn big" href="/rules/${encodeURIComponent(state.saved.file.replace(/\.json$/i, ""))}" target="_blank" rel="noopener">View public page</a>`
+    : "";
   rightRail.innerHTML = `
     <div class="skill-key">
       <span class="skill-key-label">${title("Skill Key")}</span><span class="cat-general">General</span><span class="cat-agility">Agility</span><span class="cat-strength">Strength</span><span class="cat-devious">Devious</span><span class="cat-mutations">Mutations</span><span class="cat-traits">Traits</span>
     </div>
     <button type="button" class="btn primary big" data-action="save"${(state.authed || state.token) && !state.busy ? "" : " disabled"}>${state.busy ? "Working…" : "Save Package"}</button>
-    <button type="button" class="btn big" data-action="export"${state.busy ? " disabled" : ""}>Export Printable Rules Sheet</button>
+    ${publicPage}
+    <button type="button" class="btn big" data-action="export"${state.busy ? " disabled" : ""}>Download sheet</button>
     ${validation}${saved}${exported}${notices}
     <div class="summary-card">
       <div class="rail-title">${title("Package Summary")}</div>
