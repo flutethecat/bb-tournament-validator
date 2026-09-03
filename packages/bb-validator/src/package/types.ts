@@ -200,6 +200,12 @@ export interface TournamentPackage {
      * tier. When set, the star's SP cost counts against the tier's SP package.
      */
     spCostByTier?: Record<string, (number | null)[]>;
+    /**
+     * SPP tax on the skill budget by COMBINED star gold. Brackets are ascending and inclusive
+     * of `upToGold`; the last bracket uses `upToGold: null` (open-ended). Applies only when the
+     * roster has at least one Star Player. Mutually exclusive with spCostByTier (Spike! model).
+     */
+    spTaxByCombinedCost?: { upToGold: number | null; sp: number }[];
     /** When true, a star's gold cost is NOT counted against the gold budget (paid in SP instead). */
     paidInSkillPoints?: boolean;
   };

@@ -103,6 +103,7 @@ export interface RaceRulesInfo {
     /** Star SP price list for THIS race's tier (spCostByTier packages only);
      *  stars with no price in the tier are omitted. Sorted cheap-first. */
     spCosts?: { name: string; sp: number }[];
+    spTax?: TournamentPackage["starPlayers"]["spTaxByCombinedCost"];
   };
   bannedStars: string[];
 }
@@ -136,6 +137,7 @@ export function packageRaceRules(pkg: TournamentPackage, race: string): RaceRule
       maxCount: pkg.starPlayers.maxCount,
       paidInSkillPoints: pkg.starPlayers.paidInSkillPoints === true,
       ...(spCosts ? { spCosts } : {}),
+      ...(pkg.starPlayers.spTaxByCombinedCost ? { spTax: pkg.starPlayers.spTaxByCombinedCost } : {}),
     },
     bannedStars: cfg.bannedStars,
   };

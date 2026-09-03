@@ -5,12 +5,14 @@
 
 import { costSP } from "../cost/costSP";
 import { skillsGold } from "../cost/costGold";
+import { starTaxSP } from "../cost/starTax";
 import type { Dataset } from "../dataset/types";
 import { findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
 import type { TournamentPackage } from "../package/types";
 import { eligibleTeamNames, fitsSkillCounts, isEligible, resolveTeamConfig, sourceLabel, usesCountMode } from "../package/resolveConfig";
 import type { ResolvedPlayer, Rule } from "./types";
+import { rosteredStars } from "./starDetection";
 import { err, warn } from "./types";
 
 /** 1. Roster eligibility — across flat / tiers / matrix bucketing. */
@@ -164,7 +166,7 @@ export const skillAccessRule: Rule = {
 export const skillPoints: Rule = {
   id: "skill-points",
   needsDatasetRoster: true,
-  check: ({ players, pkg, roster }) => {
+  check: ({ players, pkg, roster, data }) => {
     const cfg = pkg.skillAllotment;
     const resolved = resolveTeamConfig(pkg, roster.rosterName);
     const where = sourceLabel(resolved);
@@ -218,6 +220,10 @@ export const skillPoints: Rule = {
 
     const skillsTotal = total;
     total += stackingSurcharge;
+    const stars = rosteredStars(players, data);
+    const combinedStarGold = stars.reduce((sum, star) => sum + star.player.cost, 0);
+    const starTax = starTaxSP(pkg.starPlayers.spTaxByCombinedCost, combinedStarGold, stars.length);
+    total += starTax;
 
     if (cfg.maxSameSkillTeamwide != null)
       for (const [skill, count] of teamwide)
@@ -282,10 +288,13 @@ export const skillPoints: Rule = {
       }
     } else if (total > resolved.skillPointBudget) {
       const over = total - resolved.skillPointBudget;
-      const breakdown = stackingSurcharge > 0
-        ? ` (${skillsTotal} in skills + ${stackingSurcharge} stacking surcharge)`
+      const breakdownParts: string[] = [];
+      if (stackingSurcharge > 0) breakdownParts.push(`${stackingSurcharge} stacking surcharge`);
+      if (starTax > 0) breakdownParts.push(`${starTax} Star Player tax at ${fmtGold(combinedStarGold)} of stars`);
+      const breakdown = breakdownParts.length > 0
+        ? ` (${skillsTotal} in skills + ${breakdownParts.join(" + ")})`
         : "";
-      const actual = stackingSurcharge > 0 ? `${total} (${skillsTotal} in skills + ${stackingSurcharge} stacking surcharge)` : total;
+      const actual = breakdownParts.length > 0 ? `${total}${breakdown}` : total;
       findings.push(
         err(
           "skill-points",
@@ -413,7 +422,7 @@ export const costReconciliation: Rule = {
 export const starPlayers: Rule = {
   id: "star-players",
   check: ({ players, pkg, data, roster }) => {
-    const stars = players.filter((rp) => isStarName(data, rp.player.positionName));
+    const stars = rosteredStars(players, data);
     const findings: Finding[] = [];
     if (stars.length === 0) return findings;
 

@@ -119,7 +119,19 @@
       "properties": {
         "allowed": { "type": "boolean", "default": true },
         "maxCount": { "type": ["number", "null"], "default": null },
-        "maxCombinedCost": { "type": ["number", "null"], "default": null }
+        "maxCombinedCost": { "type": ["number", "null"], "default": null },
+        "spTaxByCombinedCost": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["upToGold", "sp"],
+            "additionalProperties": false,
+            "properties": {
+              "upToGold": { "type": ["number", "null"] },
+              "sp": { "type": "number", "minimum": 0 }
+            }
+          }
+        }
       }
     },
 
