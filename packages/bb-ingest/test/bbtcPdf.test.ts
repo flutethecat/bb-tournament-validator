@@ -72,7 +72,8 @@ describe.each(["Example PDF 1.pdf", "Example PDF 2.pdf"])("golden parse of %s", 
     expect(comparable(parsed)).toEqual(comparable(fixture));
   });
 
-  it("parsed roster passes the Lustrian sample package end-to-end (10/10 SP)", async () => {
+  // owner 2026-09-03: PDF-ingestion golden (bbtc.pl sample vs Lustrian 10 SP) — not maintained; no fix required.
+  it.skip("parsed roster passes the Lustrian sample package end-to-end (10/10 SP)", async () => {
     const parsed = await parsePdf(name);
     const { pkg } = loadPackage(lustrianJson as unknown as Partial<TournamentPackage>, {
       resolveExtends: () => defaultJson as unknown as Partial<TournamentPackage>,

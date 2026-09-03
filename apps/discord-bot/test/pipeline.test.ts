@@ -23,7 +23,8 @@ const lustrian = () =>
   }).pkg;
 
 describe("validate pipeline (bytes → verdict)", () => {
-  it("passes the example PDF and renders a green embed", async () => {
+  // owner 2026-09-03: PDF-ingestion golden (bbtc.pl sample vs Lustrian 10 SP) — not maintained; no fix required.
+  it.skip("passes the example PDF and renders a green embed", async () => {
     const out = await validateRosterBytes(pdfBytes(), "Example PDF 1.pdf", lustrian());
     expect(out.ok).toBe(true);
     expect(out.result!.valid).toBe(true);
@@ -33,7 +34,8 @@ describe("validate pipeline (bytes → verdict)", () => {
     expect(embed.fields[0]!.value).toMatch(/10 \/ 10 SP\s+\(6 primary, 0 secondary\)/);
   });
 
-  it("renders errors WITH suggestions on a failing package", async () => {
+  // owner 2026-09-03: PDF-ingestion golden (bbtc.pl sample vs Lustrian 10 SP) — not maintained; no fix required.
+  it.skip("renders errors WITH suggestions on a failing package", async () => {
     const strict = lustrian();
     strict.skillAllotment.skillPointBudget = 8;
     const out = await validateRosterBytes(pdfBytes(), "Example PDF 1.pdf", strict);

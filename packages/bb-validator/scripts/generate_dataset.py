@@ -198,6 +198,10 @@ def team_special_rules(rosters):
     return out
 
 
+# Owner ruling 2026-09-03: present on FUMBBL roster 8513 but NOT BB2025 stars - excluded from the dataset.
+NOT_BB2025_STARS = {"Bryce 'the Slice' Cambuel", "Frank 'n' Stein"}
+
+
 def build_stars(rosters, existing_stars=None):
     """Star players + resolved eligible team lists, from FUMBBL roster 8513."""
     existing_by_name = {star["name"]: star for star in (existing_stars or [])}
@@ -206,6 +210,8 @@ def build_stars(rosters, existing_stars=None):
     d = get(f"roster/get/{STAR_ROSTER_ID}")
     stars = []
     for p in sorted(d["positions"], key=lambda x: x["title"]):
+        if p["title"] in NOT_BB2025_STARS:
+            continue
         plays_for = p.get("playsFor", [])
         if "(Any)" in plays_for:
             teams = list(all_teams)
