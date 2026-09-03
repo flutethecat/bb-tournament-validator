@@ -1,0 +1,428 @@
+{
+  "$schema": "../schemas/tournament-package.schema.json",
+  "name": "NAF World Cup 2027 (Malta) - Rules Pack V2.1",
+  "ruleset": "bb2025-default",
+  "description": "Blood Bowl World Cup 2027 draft ruleset V2.1 (NAF, Malta). Resurrection squad event: 6 coaches per squad, one race per squad, no SPP earned in play, injuries do not carry over. Per-race Gold Budget (1,080k-1,200k) and SPP skill budget (44/52/58/60/66) from the Tiers and Skill Sets table. Skills: 1st primary 6 SPP, 1st secondary 10 SPP, Elite +2 SPP; random skills and stat increases forbidden. Max 2 added skills on a player; only marked teams may stack (one helmet = one player may stack, two helmets = up to two players). Stars only for marked teams and only after 11 rostered players; 15 named stars banned. Inducements limited to Team Mascot, Bloodweiser Kegs (0-2), Bribes, Riotous Rookies (Ogre/Snotling), Halfling Master Chef, plus Cheerleaders, Assistant Coaches and Dedicated Fans at book cost.",
+  "dataNote": "Transcribed from NAF-World-Cup-Rules-V2.1.pdf p.2-4; the tier table was read from an image, spot-check before use. NOT enforced by the package model, TO checks by hand: (1) a 2nd skill on the same player costs +2 SPP (8 primary / 12 secondary); (2) Star Player SPP tax by cumulative star gold (0-199k: 18 SPP, 200-299k: 24, 300k+: 32); (3) a Secret Weapon star caps Bribes at 2; (4) squad rules (no duplicate race or star within a squad; a star fielded by both squads double-books and sits out); (5) unspent gold/SPP is lost; (6) Masters of Undeath / Plague Ridden additions are removed after each match; (7) all teams count as equal CTV for Prayers to Nuffle. Slann is encoded from the pack but only selectable once the BB2025 dataset supplies it.",
+  "eligibleRosters": [
+    "Orc",
+    "High Elf",
+    "Skaven",
+    "Underworld Denizens",
+    "Amazon",
+    "Shambling Undead",
+    "Snotling",
+    "Dark Elf",
+    "Old World Alliance",
+    "Nurgle",
+    "Human",
+    "Lizardmen",
+    "Wood Elf",
+    "Chaos Chosen",
+    "Imperial Nobility",
+    "Tomb Kings",
+    "Chaos Renegade",
+    "Necromantic Horror",
+    "Bretonnian",
+    "Black Orc",
+    "Goblin",
+    "Slann",
+    "Chaos Dwarf",
+    "Elven Union",
+    "Halfling",
+    "Ogre",
+    "Vampire",
+    "Khorne",
+    "Norse",
+    "Gnome",
+    "Dwarf"
+  ],
+  "skillAllotment": {
+    "skillPointBudget": 0,
+    "primaryCostSP": 6,
+    "secondaryMultiplier": 2,
+    "secondaryCostSP": 10,
+    "eliteSurchargeSP": 2,
+    "eliteSkills": [
+      "Block",
+      "Guard",
+      "Mighty Blow",
+      "Dodge"
+    ],
+    "skillCostSP": {},
+    "maxPerPlayer": 2,
+    "maxSameSkillTeamwide": null,
+    "maxStackedPlayers": 0
+  },
+  "goldBudget": null,
+  "goldCapIncludesAddedSkills": false,
+  "starPlayers": {
+    "allowed": true,
+    "maxCount": null,
+    "maxCombinedCost": null,
+    "paidInSkillPoints": false
+  },
+  "bannedStars": [
+    "H'Thark the Unstoppable",
+    "Lord Borak the Despoiler",
+    "Morg 'n' Thorg",
+    "Deeproot Strongbranch",
+    "Hakflem Skuttlespike",
+    "Skitter Stab-Stab",
+    "Ripper Bolgrot",
+    "Cindy Piewhistle",
+    "Griff Oberwald",
+    "Ivar Eriksson",
+    "Jordell Freshbreeze",
+    "Maple Highgrove",
+    "Skrorg Snowpelt",
+    "Grak",
+    "Crumbleberry",
+    "Varag Ghoul-Chewer"
+  ],
+  "inducements": {
+    "allowed": [
+      "team_mascot",
+      "bloodweiser_kegs",
+      "bribes",
+      "riotous_rookies",
+      "halfling_master_chef"
+    ],
+    "caps": {
+      "bloodweiser_kegs": 2
+    }
+  },
+  "sideline": {
+    "maxReRolls": 8,
+    "maxApothecary": 1,
+    "maxCheerleaders": null,
+    "maxAssistantCoaches": null,
+    "maxDedicatedFans": null
+  },
+  "special": {
+    "insignificantTraitConstraint": true,
+    "stalling": true,
+    "slannAllowed": true,
+    "statIncreasesAllowed": false,
+    "bannedSkills": [],
+    "minPlayers": 11
+  },
+  "tiers": [
+    {
+      "tier": 1,
+      "label": "Gold Budget 1,080,000 (SPP, stacking and star access per team via teamRules)",
+      "rosters": [
+        "Orc",
+        "High Elf",
+        "Skaven",
+        "Underworld Denizens",
+        "Amazon",
+        "Shambling Undead",
+        "Snotling"
+      ],
+      "gold": 1080000,
+      "skillPointBudget": null,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    },
+    {
+      "tier": 2,
+      "label": "Gold Budget 1,100,000 (SPP, stacking and star access per team via teamRules)",
+      "rosters": [
+        "Dark Elf",
+        "Old World Alliance",
+        "Nurgle",
+        "Human"
+      ],
+      "gold": 1100000,
+      "skillPointBudget": null,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    },
+    {
+      "tier": 3,
+      "label": "Gold Budget 1,140,000 (SPP, stacking and star access per team via teamRules)",
+      "rosters": [
+        "Lizardmen",
+        "Wood Elf",
+        "Chaos Chosen",
+        "Imperial Nobility",
+        "Tomb Kings",
+        "Chaos Renegade"
+      ],
+      "gold": 1140000,
+      "skillPointBudget": null,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    },
+    {
+      "tier": 4,
+      "label": "Gold Budget 1,160,000 (SPP, stacking and star access per team via teamRules)",
+      "rosters": [
+        "Necromantic Horror",
+        "Bretonnian",
+        "Black Orc",
+        "Goblin"
+      ],
+      "gold": 1160000,
+      "skillPointBudget": null,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    },
+    {
+      "tier": 5,
+      "label": "Gold Budget 1,180,000 (SPP, stacking and star access per team via teamRules)",
+      "rosters": [
+        "Slann",
+        "Chaos Dwarf",
+        "Elven Union",
+        "Halfling",
+        "Ogre"
+      ],
+      "gold": 1180000,
+      "skillPointBudget": null,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    },
+    {
+      "tier": 6,
+      "label": "Gold Budget 1,200,000 (SPP, stacking and star access per team via teamRules)",
+      "rosters": [
+        "Vampire",
+        "Khorne",
+        "Norse",
+        "Gnome",
+        "Dwarf"
+      ],
+      "gold": 1200000,
+      "skillPointBudget": null,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    }
+  ],
+  "teamRules": [
+    {
+      "team": "Orc",
+      "gold": 1080000,
+      "skillPointBudget": 44,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "High Elf",
+      "gold": 1080000,
+      "skillPointBudget": 44,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Skaven",
+      "gold": 1080000,
+      "skillPointBudget": 44,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Underworld Denizens",
+      "gold": 1080000,
+      "skillPointBudget": 44,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Amazon",
+      "gold": 1080000,
+      "skillPointBudget": 44,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Shambling Undead",
+      "gold": 1080000,
+      "skillPointBudget": 52,
+      "maxStackedPlayers": 1,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Snotling",
+      "gold": 1080000,
+      "skillPointBudget": 60,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": true
+    },
+    {
+      "team": "Dark Elf",
+      "gold": 1100000,
+      "skillPointBudget": 44,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Old World Alliance",
+      "gold": 1100000,
+      "skillPointBudget": 44,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Nurgle",
+      "gold": 1100000,
+      "skillPointBudget": 52,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Human",
+      "gold": 1100000,
+      "skillPointBudget": 58,
+      "maxStackedPlayers": 1,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Lizardmen",
+      "gold": 1140000,
+      "skillPointBudget": 44,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Wood Elf",
+      "gold": 1140000,
+      "skillPointBudget": 44,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Chaos Chosen",
+      "gold": 1140000,
+      "skillPointBudget": 58,
+      "maxStackedPlayers": 2,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Imperial Nobility",
+      "gold": 1140000,
+      "skillPointBudget": 58,
+      "maxStackedPlayers": 1,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Tomb Kings",
+      "gold": 1140000,
+      "skillPointBudget": 58,
+      "maxStackedPlayers": 1,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Chaos Renegade",
+      "gold": 1140000,
+      "skillPointBudget": 66,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": true
+    },
+    {
+      "team": "Necromantic Horror",
+      "gold": 1160000,
+      "skillPointBudget": 52,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Bretonnian",
+      "gold": 1160000,
+      "skillPointBudget": 58,
+      "maxStackedPlayers": 1,
+      "starPlayersAllowed": true
+    },
+    {
+      "team": "Black Orc",
+      "gold": 1160000,
+      "skillPointBudget": 60,
+      "maxStackedPlayers": 2,
+      "starPlayersAllowed": true
+    },
+    {
+      "team": "Goblin",
+      "gold": 1160000,
+      "skillPointBudget": 60,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": true
+    },
+    {
+      "team": "Slann",
+      "gold": 1180000,
+      "skillPointBudget": 52,
+      "maxStackedPlayers": 1,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Chaos Dwarf",
+      "gold": 1180000,
+      "skillPointBudget": 58,
+      "maxStackedPlayers": 2,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Elven Union",
+      "gold": 1180000,
+      "skillPointBudget": 60,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Halfling",
+      "gold": 1180000,
+      "skillPointBudget": 60,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": true
+    },
+    {
+      "team": "Ogre",
+      "gold": 1180000,
+      "skillPointBudget": 66,
+      "maxStackedPlayers": 2,
+      "starPlayersAllowed": true
+    },
+    {
+      "team": "Vampire",
+      "gold": 1200000,
+      "skillPointBudget": 44,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Khorne",
+      "gold": 1200000,
+      "skillPointBudget": 58,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": false
+    },
+    {
+      "team": "Norse",
+      "gold": 1200000,
+      "skillPointBudget": 58,
+      "maxStackedPlayers": 2,
+      "starPlayersAllowed": true
+    },
+    {
+      "team": "Gnome",
+      "gold": 1200000,
+      "skillPointBudget": 58,
+      "maxStackedPlayers": 0,
+      "starPlayersAllowed": true
+    },
+    {
+      "team": "Dwarf",
+      "gold": 1200000,
+      "skillPointBudget": 60,
+      "maxStackedPlayers": 2,
+      "starPlayersAllowed": false
+    }
+  ]
+}
