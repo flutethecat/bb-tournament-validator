@@ -20,7 +20,8 @@ import {
   findRoster,
   loadPackage,
   renderArtPrompt,
-  renderPackageHtml,
+  renderRulesPage,
+  renderRulesPageNotFound,
   rosterOptions,
   rosterOptionsIntrinsic,
   skillAccess,
@@ -575,6 +576,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   if (tournamentInstructionsGameId(pathname)) return true;
   if (tournamentResultGameId(pathname)) return true;
   if (pathname.startsWith("/api/packages/")) return true;
+  if ((req.method === "GET" || req.method === "HEAD") && pathname.startsWith("/rules/")) return true;
   if (
     (req.method === "GET" || req.method === "HEAD") &&
     (/^\/api\/(?:fork\/)?tournaments\/[^/]+$/.test(pathname) || /^\/api\/(?:fork\/)?tournaments\/[^/]+\/standings$/.test(pathname))
@@ -1394,9 +1396,9 @@ async function handleApi(
     const body = (await readBody(req)) as Partial<TournamentPackage>;
     if (!body || typeof body.name !== "string" || !body.name.trim())
       return sendJson(res, 400, { error: "A package name is required." });
-    const { pkg } = loadPackage(body);
+    const { pkg, problems } = loadPackage(body);
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(renderPackageHtml(pkg));
+    res.end(renderRulesPage(pkg, { problems, generatedAt: new Date() }));
     return;
   }
 
@@ -2690,6 +2692,30 @@ export const server = createServer((req, res) => {
       if ((req.method === "POST" || req.method === "GET") && nameGeneratePath(url.pathname)) {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
+      const rulesMatch = url.pathname.match(/^\/rules\/(.+)$/);
+      if (rulesMatch) {
+        const method = req.method ?? "GET";
+        if (method !== "GET" && method !== "HEAD") {
+          res.writeHead(405, { allow: "GET, HEAD", "cache-control": "no-cache" }).end("method not allowed");
+          return;
+        }
+        let packageId = rulesMatch[1]!;
+        try { packageId = decodeURIComponent(packageId); } catch { /* Treat malformed escapes as an unknown id. */ }
+        const found = packages.get(packageId);
+        const html = found
+          ? renderRulesPage(found.pkg, {
+              roster: url.searchParams.get("roster") ?? undefined,
+              problems: found.problems,
+              generatedAt: new Date(),
+            })
+          : renderRulesPageNotFound(packageId);
+        res.writeHead(found ? 200 : 404, {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-cache",
+        });
+        res.end(method === "HEAD" ? undefined : html);
+        return;
+      }
       if (
         (req.method === "GET" || req.method === "HEAD") &&
         (url.pathname === "/" ||
@@ -2697,6 +2723,7 @@ export const server = createServer((req, res) => {
           url.pathname === "/control-panel.html" ||
           url.pathname === "/theme.css" ||
           url.pathname === "/theme.js" ||
+          url.pathname === "/rules-page.css" ||
           url.pathname === "/tournament-rules.css" ||
           url.pathname === "/tournaments.html" ||
           url.pathname === "/tournaments.js")

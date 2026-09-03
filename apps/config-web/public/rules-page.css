@@ -1,0 +1,406 @@
+:root {
+  color-scheme: dark;
+}
+
+:root[data-theme="fumbbl"] {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--ui-secondary);
+  color: var(--ui-text);
+  font: 15px/1.5 system-ui, "Segoe UI", sans-serif;
+}
+
+a {
+  color: var(--ui-heading);
+}
+
+.rules-page {
+  width: min(100% - 32px, 960px);
+  margin: 0 auto;
+  padding: 40px 0 28px;
+}
+
+.rules-page > header,
+.rules-page section,
+.rules-page aside,
+.rules-page > footer {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+}
+
+.rules-page > header {
+  padding: 28px 32px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 6px;
+  color: var(--ui-heading);
+  font-size: clamp(1.8rem, 5vw, 2.8rem);
+  line-height: 1.1;
+}
+
+h2 {
+  margin-bottom: 16px;
+  color: var(--ui-heading);
+  font-size: 1.25rem;
+}
+
+h3 {
+  margin-bottom: 8px;
+  color: var(--ui-heading);
+  font-size: 1rem;
+}
+
+.metadata,
+.footnote,
+.eligibility-note,
+.copy-status {
+  color: var(--ui-muted);
+}
+
+.metadata {
+  margin-bottom: 16px;
+}
+
+.lede {
+  max-width: 72ch;
+  margin-bottom: 0;
+  font-size: 1.08rem;
+}
+
+main > section,
+main > aside,
+.rules-page > footer {
+  margin-top: 18px;
+  padding: 22px 26px;
+}
+
+.rules-page > header .callout {
+  margin-top: 20px;
+  padding: 18px 20px;
+  background: var(--ui-surface-2);
+}
+
+.callout {
+  border-inline-start: 5px solid var(--ui-accent);
+}
+
+.callout h2 {
+  margin-bottom: 8px;
+}
+
+.callout :last-child,
+section :last-child,
+aside :last-child {
+  margin-bottom: 0;
+}
+
+.problems {
+  border-inline-start-color: var(--ui-danger);
+}
+
+.rules-tools {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+}
+
+.roster-picker {
+  display: flex;
+  flex: 1;
+  align-items: end;
+  gap: 10px;
+}
+
+.roster-picker label {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  color: var(--ui-muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+select,
+button {
+  min-height: 40px;
+  border: 1px solid var(--ui-border);
+  border-radius: 7px;
+  font: inherit;
+}
+
+select {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--ui-surface-2);
+  color: var(--ui-text);
+}
+
+button {
+  padding: 7px 14px;
+  background: var(--ui-primary);
+  color: var(--ui-text-on-primary);
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--ui-hover);
+}
+
+.copy-status {
+  align-self: center;
+  min-width: 7rem;
+  font-size: 0.86rem;
+}
+
+.race-panel {
+  border-inline-start: 5px solid var(--ui-info);
+}
+
+dl {
+  margin: 0;
+}
+
+.at-a-glance,
+.race-panel dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 22px;
+}
+
+dl > div {
+  min-width: 0;
+}
+
+dt {
+  color: var(--ui-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+dd {
+  margin: 2px 0 0;
+  font-weight: 650;
+}
+
+ul,
+ol {
+  padding-left: 1.35rem;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.banned-star-chip {
+  padding: 3px 9px;
+  background: var(--ui-surface-2);
+  border: 1px solid var(--ui-border);
+  border-radius: 999px;
+  font-size: 0.84rem;
+}
+
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+caption {
+  padding-bottom: 8px;
+  color: var(--ui-muted);
+  font-weight: 650;
+  text-align: left;
+}
+
+th,
+td {
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--ui-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+thead th,
+.gold-band th {
+  background: var(--ui-surface-2);
+  color: var(--ui-text);
+}
+
+tbody th {
+  color: var(--ui-text);
+}
+
+.team-row[aria-current="true"] > * {
+  background: var(--ui-hover);
+  font-weight: 700;
+}
+
+.team-row[aria-current="true"] > :first-child {
+  box-shadow: inset 4px 0 var(--ui-info);
+}
+
+.compact-table {
+  max-width: 720px;
+  margin-top: 16px;
+}
+
+.footnote,
+.eligibility-note {
+  margin-top: 10px;
+  font-size: 0.86rem;
+}
+
+.rules-page > footer {
+  color: var(--ui-muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .rules-page {
+    width: min(100% - 20px, 960px);
+    padding-top: 22px;
+  }
+
+  .rules-page > header,
+  main > section,
+  main > aside,
+  .rules-page > footer {
+    padding: 18px;
+  }
+
+  .rules-tools,
+  .roster-picker {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .copy-status {
+    min-width: 0;
+  }
+
+  .at-a-glance,
+  .race-panel dl {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 9pt;
+    line-height: 1.25;
+  }
+
+  .rules-page {
+    width: 100%;
+    padding: 0;
+  }
+
+  .rules-tools,
+  .theme-toggle {
+    display: none !important;
+  }
+
+  .rules-page > header,
+  .rules-page section,
+  .rules-page aside,
+  .rules-page > footer {
+    break-inside: avoid;
+    margin-top: 5mm;
+    padding: 3mm;
+    background: #fff !important;
+    border-color: #000 !important;
+    border-radius: 0;
+  }
+
+  .rules-page > header {
+    margin-top: 0;
+  }
+
+  h1,
+  h2,
+  h3,
+  .metadata,
+  .footnote,
+  .eligibility-note,
+  caption,
+  dt {
+    color: #000 !important;
+  }
+
+  h1 {
+    font-size: 20pt;
+  }
+
+  h2 {
+    margin-bottom: 2mm;
+    font-size: 12pt;
+  }
+
+  p,
+  ul,
+  ol {
+    margin-bottom: 2mm;
+  }
+
+  table {
+    font-size: 7.5pt;
+  }
+
+  th,
+  td {
+    padding: 1.2mm;
+    background: #fff !important;
+    border: 1px solid #000 !important;
+  }
+
+  .banned-star-chip {
+    padding: 0.5mm 1.5mm;
+    background: #fff !important;
+    border-color: #000 !important;
+  }
+}
