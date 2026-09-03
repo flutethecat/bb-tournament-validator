@@ -3,7 +3,7 @@
   "name": "NAF World Cup 2027 (Malta) - Rules Pack V2.1",
   "ruleset": "bb2025-default",
   "description": "Blood Bowl World Cup 2027 draft ruleset V2.1 (NAF, Malta). Resurrection squad event: 6 coaches per squad, one race per squad, no SPP earned in play, injuries do not carry over. Per-race Gold Budget (1,080k-1,200k) and SPP skill budget (44/52/58/60/66) from the Tiers and Skill Sets table. Skills: 1st primary 6 SPP, 1st secondary 10 SPP, Elite +2 SPP; random skills and stat increases forbidden. Max 2 added skills on a player; only marked teams may stack (one helmet = one player may stack, two helmets = up to two players). Stars only for marked teams and only after 11 rostered players; 15 named stars banned. Inducements limited to Team Mascot, Bloodweiser Kegs (0-2), Bribes, Riotous Rookies (Ogre/Snotling), Halfling Master Chef, plus Cheerleaders, Assistant Coaches and Dedicated Fans at book cost.",
-  "dataNote": "Transcribed from NAF-World-Cup-Rules-V2.1.pdf p.2-4; the tier table was read from an image, spot-check before use. NOT enforced by the package model, TO checks by hand: (1) a 2nd skill on the same player costs +2 SPP (8 primary / 12 secondary); (2) Star Player SPP tax by cumulative star gold (0-199k: 18 SPP, 200-299k: 24, 300k+: 32); (3) a Secret Weapon star caps Bribes at 2; (4) squad rules (no duplicate race or star within a squad; a star fielded by both squads double-books and sits out); (5) unspent gold/SPP is lost; (6) Masters of Undeath / Plague Ridden additions are removed after each match; (7) all teams count as equal CTV for Prayers to Nuffle. Slann is encoded from the pack but only selectable once the BB2025 dataset supplies it.",
+  "dataNote": "Transcribed from NAF-World-Cup-Rules-V2.1.pdf p.2-4; the tier table was read from an image, spot-check before use. NOT enforced by the package model, TO checks by hand: (1) squad rules (no duplicate race or star within a squad; a star fielded by both squads double-books and sits out); (2) unspent gold/SPP is lost; (3) Masters of Undeath / Plague Ridden additions are removed after each match; (4) all teams count as equal CTV for Prayers to Nuffle. Slann is encoded from the pack but only selectable once the BB2025 dataset supplies it.",
   "eligibleRosters": [
     "Orc",
     "High Elf",
@@ -43,6 +43,7 @@
     "secondaryMultiplier": 2,
     "secondaryCostSP": 10,
     "eliteSurchargeSP": 2,
+    "stackSurchargeSP": 2,
     "eliteSkills": [
       "Block",
       "Guard",
@@ -60,6 +61,20 @@
     "allowed": true,
     "maxCount": null,
     "maxCombinedCost": null,
+    "spTaxByCombinedCost": [
+      {
+        "upToGold": 199999,
+        "sp": 18
+      },
+      {
+        "upToGold": 299999,
+        "sp": 24
+      },
+      {
+        "upToGold": null,
+        "sp": 32
+      }
+    ],
     "paidInSkillPoints": false
   },
   "bannedStars": [
@@ -90,7 +105,18 @@
     ],
     "caps": {
       "bloodweiser_kegs": 2
-    }
+    },
+    "capOverrides": [
+      {
+        "when": {
+          "starHasSkill": "Secret Weapon"
+        },
+        "caps": {
+          "bribes": 2
+        },
+        "note": "Secret Weapon star on roster"
+      }
+    ]
   },
   "sideline": {
     "maxReRolls": 8,

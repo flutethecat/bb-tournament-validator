@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { loadPackage, type TournamentPackage } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import nafJson from "../../../tournament-packages/naf-world-cup-2027.json";
-import { packageRaceRules, packageTierSummary } from "../src/teamBuilderPackage";
+import { packageRaceRules, packageRulesInfo, packageTierSummary } from "../src/teamBuilderPackage";
 
 const { pkg, problems } = loadPackage(nafJson as unknown as Partial<TournamentPackage>);
 
@@ -51,7 +51,26 @@ describe("NAF World Cup 2027 V2.1 package", () => {
   });
 
   it("prices skills per the pack and bans the listed stars (Grak and Crumbleberry as two names)", () => {
-    expect(pkg.skillAllotment).toMatchObject({ primaryCostSP: 6, secondaryCostSP: 10, eliteSurchargeSP: 2, maxPerPlayer: 2 });
+    expect(problems).toEqual([]);
+    expect(pkg.skillAllotment).toMatchObject({
+      primaryCostSP: 6,
+      secondaryCostSP: 10,
+      eliteSurchargeSP: 2,
+      stackSurchargeSP: 2,
+      maxPerPlayer: 2,
+    });
+    expect(pkg.starPlayers.spTaxByCombinedCost).toEqual([
+      { upToGold: 199999, sp: 18 },
+      { upToGold: 299999, sp: 24 },
+      { upToGold: null, sp: 32 },
+    ]);
+    expect(pkg.inducements.capOverrides).toEqual([{
+      when: { starHasSkill: "Secret Weapon" },
+      caps: { bribes: 2 },
+      note: "Secret Weapon star on roster",
+    }]);
+    expect(packageRaceRules(pkg, "Black Orc").capOverrides).toEqual(pkg.inducements.capOverrides);
+    expect(packageRulesInfo(pkg, "Black Orc").capOverrides).toEqual(pkg.inducements.capOverrides);
     expect(pkg.bannedStars).toHaveLength(16);
     const known = new Set(bb2025.stars.map((s) => s.name));
     expect((pkg.bannedStars ?? []).filter((n) => !known.has(n))).toEqual([]);
@@ -59,6 +78,11 @@ describe("NAF World Cup 2027 V2.1 package", () => {
     expect(pkg.inducements).toEqual({
       allowed: ["team_mascot", "bloodweiser_kegs", "bribes", "riotous_rookies", "halfling_master_chef"],
       caps: { bloodweiser_kegs: 2 },
+      capOverrides: [{
+        when: { starHasSkill: "Secret Weapon" },
+        caps: { bribes: 2 },
+        note: "Secret Weapon star on roster",
+      }],
     });
   });
 });
