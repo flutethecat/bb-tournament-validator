@@ -152,6 +152,7 @@ export function packageRulesInfo(
 ): {
   name: string;
   dataNote?: string;
+  stackSurchargeSP: number;
   budget?: number | null;
   tierSummary: TierSummaryRow[];
   race?: RaceRulesInfo;
@@ -160,6 +161,7 @@ export function packageRulesInfo(
   return {
     name: pkg.name,
     ...(pkg.dataNote ? { dataNote: pkg.dataNote } : {}),
+    stackSurchargeSP: pkg.skillAllotment.stackSurchargeSP ?? 0,
     tierSummary: packageTierSummary(pkg),
     ...(race ? { budget: race.gold, race } : {}),
   };

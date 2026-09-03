@@ -51,6 +51,7 @@
         "secondaryMultiplier": { "type": "number", "default": 2, "description": "Secondary (doubles) SP = primaryCostSP * this. Ignored if secondaryCostSP set." },
         "secondaryCostSP": { "type": ["number", "null"], "default": null, "description": "Explicit flat SP for a secondary skill; overrides secondaryMultiplier." },
         "eliteSurchargeSP": { "type": "number", "default": 1, "description": "Extra SP added for a skill in the effective Elite set." },
+        "stackSurchargeSP": { "type": "number", "minimum": 0, "description": "Extra SP charged for each added skill beyond a player's first." },
         "eliteSkills": {
           "type": "array",
           "items": { "type": "string" },
@@ -63,6 +64,7 @@
           "default": {},
           "description": "Per-skill SP overrides (highest precedence). Also loadable from a CSV."
         },
+        "stackSurchargeGold": { "type": "number", "minimum": 0, "description": "Extra gold charged for each added skill beyond a player's first." },
         "maxPerPlayer": { "type": ["number", "null"], "default": 2, "description": "Max ADDED skills on a single player." },
         "maxSameSkillTeamwide": { "type": ["number", "null"], "default": null, "description": "Max copies of one added skill across the whole team." },
         "maxPrimary": { "type": ["number", "null"], "description": "COUNT mode: max primary-access added skills (instead of the SP budget)." },

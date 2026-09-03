@@ -170,6 +170,7 @@ export const skillPoints: Rule = {
     const where = sourceLabel(resolved);
     const findings: Finding[] = [];
     let total = 0;
+    let stackingSurcharge = 0;
     let primaryCount = 0;
     let secondaryCount = 0;
     let stackedPlayers = 0;
@@ -208,7 +209,15 @@ export const skillPoints: Rule = {
         else secondaryCount++;
         teamwide.set(normName(skill), (teamwide.get(normName(skill)) ?? 0) + 1);
       });
+      const legalPicks = rp.addedSkills.filter((_, i) => {
+        const access = rp.access[i];
+        return access !== undefined && access !== "illegal";
+      }).length;
+      stackingSurcharge += Math.max(0, legalPicks - 1) * (cfg.stackSurchargeSP ?? 0);
     }
+
+    const skillsTotal = total;
+    total += stackingSurcharge;
 
     if (cfg.maxSameSkillTeamwide != null)
       for (const [skill, count] of teamwide)
@@ -273,13 +282,17 @@ export const skillPoints: Rule = {
       }
     } else if (total > resolved.skillPointBudget) {
       const over = total - resolved.skillPointBudget;
+      const breakdown = stackingSurcharge > 0
+        ? ` (${skillsTotal} in skills + ${stackingSurcharge} stacking surcharge)`
+        : "";
+      const actual = stackingSurcharge > 0 ? `${total} (${skillsTotal} in skills + ${stackingSurcharge} stacking surcharge)` : total;
       findings.push(
         err(
           "skill-points",
-          `Team spends ${total} Skill Points; the budget is ${resolved.skillPointBudget}${where} (${over} over).`,
+          `Team spends ${total} Skill Points${breakdown}; the budget is ${resolved.skillPointBudget}${where} (${over} over).`,
           {
             expected: `<= ${resolved.skillPointBudget}`,
-            actual: total,
+            actual,
             suggestion: `Drop ${over} SP worth of added skills, or ask the TO to raise the budget to ${total}.`,
           },
         ),

@@ -69,11 +69,15 @@ export function skillsGold(roster: Roster, data: Dataset, pkg: TournamentPackage
   for (const player of roster.players) {
     const position = findPosition(dsRoster, player.positionName);
     if (!position) continue;
-    for (const skill of addedSkills(position, player.skills)) {
+    const skills = addedSkills(position, player.skills);
+    let legalPicks = 0;
+    for (const skill of skills) {
       const access = skillAccess(data, position, skill);
       if (access === "illegal") continue;
       gold += costGold(skill, access, pkg.skillAllotment);
+      legalPicks++;
     }
+    gold += Math.max(0, legalPicks - 1) * (pkg.skillAllotment.stackSurchargeGold ?? 0);
   }
   return gold;
 }

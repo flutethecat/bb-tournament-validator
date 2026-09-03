@@ -61,6 +61,8 @@ export interface SkillAllotment {
   secondaryMultiplier: number; // default 2
   secondaryCostSP?: number | null; // default null
   eliteSurchargeSP: number; // default 0.5 (owner SP-model ruling 08-27: +0.5 elite surcharge)
+  /** Extra SP charged for each added skill beyond a player's FIRST (NAF: +2). Default 0. */
+  stackSurchargeSP?: number;
   /** Effective Elite set; defaults to the rulebook-Elite skills. */
   eliteSkills: string[]; // default ["Block","Guard","Mighty Blow","Dodge"]
   /** Per-skill overrides — highest precedence. Loadable from CSV. */
@@ -73,6 +75,8 @@ export interface SkillAllotment {
   primaryCostGold?: number; // default 20000
   secondaryCostGold?: number; // default 40000
   eliteSurchargeGold?: number; // default 10000
+  /** Gold twin, parallel to primaryCostGold etc. Default 0. */
+  stackSurchargeGold?: number;
   /** Per-skill gold overrides — highest precedence, mirrors skillCostSP. */
   skillCostGold?: Record<string, number>; // default {}
   maxPerPlayer: number | null; // default 2
@@ -228,6 +232,7 @@ export const DEFAULT_SKILL_ALLOTMENT: SkillAllotment = {
   secondaryMultiplier: 2,
   secondaryCostSP: null,
   eliteSurchargeSP: 0.5,
+  stackSurchargeSP: 0,
   eliteSkills: ["Block", "Guard", "Mighty Blow", "Dodge"],
   skillCostSP: {},
   maxPerPlayer: 2,
