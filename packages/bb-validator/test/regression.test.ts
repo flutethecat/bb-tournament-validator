@@ -130,8 +130,8 @@ describe("R6 — global banned star is caught (and stars aren't mis-flagged as b
 });
 
 describe("R7 — unknown race fails gracefully", () => {
-  it("errors clearly for a race not in the dataset (Slann is not in ruleset 3906)", () => {
-    const r = validate({ ...amazon(), rosterName: "Slann" }, load({ name: "R7", eligibleRosters: ["*"], skillAllotment: { skillPointBudget: 10 } }), bb2025);
+  it("errors clearly for a race not in the dataset (a race the dataset has never heard of)", () => {
+    const r = validate({ ...amazon(), rosterName: "Squig Herders" }, load({ name: "R7", eligibleRosters: ["*"], skillAllotment: { skillPointBudget: 10 } }), bb2025);
     expect(r.valid).toBe(false);
     expect(r.errors.some((e) => e.ruleId === "dataset")).toBe(true);
   });

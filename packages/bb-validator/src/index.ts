@@ -64,7 +64,6 @@ export { loadPackage, mergePackages, parseSkillCostCsv, applyCsvOverrides } from
 export type { CsvSkillCostRow, DeepPartial } from "./package/resolve";
 export { costSP, isElite } from "./cost/costSP";
 export { costGold, staffGold, inducementsGold, skillsGold, DEFAULT_SKILL_GOLD } from "./cost/costGold";
-export { starTaxSP } from "./cost/starTax";
 export { ALL_RULES } from "./rules/rules";
 export type { Rule, RuleContext, ResolvedPlayer } from "./rules/types";
 export { validate } from "./validate";
@@ -91,6 +90,4 @@ export type {
   RosterOptions,
 } from "./compose/teamComposer";
 export { renderPackageHtml } from "./render/packageHtml";
-export { renderRulesPage, renderRulesPageNotFound } from "./render/rulesPage";
-export type { RulesPageOptions } from "./render/rulesPage";
 export { renderArtPrompt } from "./render/artPrompt";

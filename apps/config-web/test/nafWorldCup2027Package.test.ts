@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { loadPackage, type TournamentPackage } from "@bb/validator";
+import { findRoster, loadPackage, type TournamentPackage } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import nafJson from "../../../tournament-packages/naf-world-cup-2027.json";
-import { packageRaceRules, packageRulesInfo, packageTierSummary } from "../src/teamBuilderPackage";
+import { packageRaceRules, packageTierSummary } from "../src/teamBuilderPackage";
 
 const { pkg, problems } = loadPackage(nafJson as unknown as Partial<TournamentPackage>);
 
@@ -13,8 +13,22 @@ describe("NAF World Cup 2027 V2.1 package", () => {
     const assigned = pkg.tiers?.flatMap((tier) => tier.rosters) ?? [];
     expect(assigned).toHaveLength(31);
     expect(new Set(assigned).size).toBe(31);
-    expect(assigned.filter((name) => !rosterNames.has(name))).toEqual(["Slann"]);
+    expect(assigned.filter((name) => !rosterNames.has(name))).toEqual([]); // owner 09-09: Slann now in the dataset (roster 9179)
     expect((pkg.teamRules ?? []).map((r) => r.team).sort()).toEqual([...assigned].sort());
+  });
+
+  it("Slann (FUMBBL roster 9179, 'Slann 2025') is in the dataset and resolves for the pack (owner 09-09)", () => {
+    const slann = findRoster(bb2025, "Slann 2025");
+    expect(slann?.name).toBe("Slann");
+    expect(slann?.specialRules).toEqual(["Lustrian Superleague"]);
+    expect(slann?.positions.map((p) => [p.name, p.max, p.cost])).toEqual([
+      ["Kroxigor", 1, 140000], ["Blitzer", 2, 100000], ["Catcher", 2, 80000], ["Lineman", 16, 60000],
+    ]);
+    const rules = packageRaceRules(pkg, "Slann");
+    expect(rules.gold).toBe(1_180_000);
+    expect(rules.skillPointBudget).toBe(52);
+    expect(rules.stars.allowed).toBe(false);
+    expect(bb2025.stars.find((s) => s.name === "Glotl Stop")?.teams).toContain("Slann");
   });
 
   it("encodes the six Gold Budget rows", () => {
@@ -51,26 +65,8 @@ describe("NAF World Cup 2027 V2.1 package", () => {
   });
 
   it("prices skills per the pack and bans the listed stars (Grak and Crumbleberry as two names)", () => {
-    expect(problems).toEqual([]);
-    expect(pkg.skillAllotment).toMatchObject({
-      primaryCostSP: 6,
-      secondaryCostSP: 10,
-      eliteSurchargeSP: 2,
-      stackSurchargeSP: 2,
-      maxPerPlayer: 2,
-    });
-    expect(pkg.starPlayers.spTaxByCombinedCost).toEqual([
-      { upToGold: 199999, sp: 18 },
-      { upToGold: 299999, sp: 24 },
-      { upToGold: null, sp: 32 },
-    ]);
-    expect(pkg.inducements.capOverrides).toEqual([{
-      when: { starHasSkill: "Secret Weapon" },
-      caps: { bribes: 2 },
-      note: "Secret Weapon star on roster",
-    }]);
-    expect(packageRaceRules(pkg, "Black Orc").capOverrides).toEqual(pkg.inducements.capOverrides);
-    expect(packageRulesInfo(pkg, "Black Orc").capOverrides).toEqual(pkg.inducements.capOverrides);
+    expect(pkg.skillAllotment).toMatchObject({ primaryCostSP: 6, secondaryCostSP: 10, eliteSurchargeSP: 2, stackSurchargeSP: 2, maxPerPlayer: 2 }); // owner 09-09: 2nd skill +2
+    expect(packageRaceRules(pkg, "Orc").skillCosts).toEqual({ primary: 6, secondary: 10, eliteSurcharge: 2, stackSurcharge: 2, eliteSkills: ["Block", "Guard", "Mighty Blow", "Dodge"] });
     expect(pkg.bannedStars).toHaveLength(16);
     const known = new Set(bb2025.stars.map((s) => s.name));
     expect((pkg.bannedStars ?? []).filter((n) => !known.has(n))).toEqual([]);
@@ -78,11 +74,6 @@ describe("NAF World Cup 2027 V2.1 package", () => {
     expect(pkg.inducements).toEqual({
       allowed: ["team_mascot", "bloodweiser_kegs", "bribes", "riotous_rookies", "halfling_master_chef"],
       caps: { bloodweiser_kegs: 2 },
-      capOverrides: [{
-        when: { starHasSkill: "Secret Weapon" },
-        caps: { bribes: 2 },
-        note: "Secret Weapon star on roster",
-      }],
     });
   });
 });

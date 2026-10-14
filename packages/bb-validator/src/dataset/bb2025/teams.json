@@ -102,6 +102,10 @@
    "defaultTier": 1
   },
   {
+   "name": "Slann",
+   "defaultTier": 2
+  },
+  {
    "name": "Snotling",
    "defaultTier": 4
   },

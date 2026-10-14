@@ -5,14 +5,12 @@
 
 import { costSP } from "../cost/costSP";
 import { skillsGold } from "../cost/costGold";
-import { starTaxSP } from "../cost/starTax";
 import type { Dataset } from "../dataset/types";
 import { findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
 import type { TournamentPackage } from "../package/types";
 import { eligibleTeamNames, fitsSkillCounts, isEligible, resolveTeamConfig, sourceLabel, usesCountMode } from "../package/resolveConfig";
 import type { ResolvedPlayer, Rule } from "./types";
-import { rosteredStars } from "./starDetection";
 import { err, warn } from "./types";
 
 /** 1. Roster eligibility — across flat / tiers / matrix bucketing. */
@@ -166,13 +164,13 @@ export const skillAccessRule: Rule = {
 export const skillPoints: Rule = {
   id: "skill-points",
   needsDatasetRoster: true,
-  check: ({ players, pkg, roster, data }) => {
+  check: ({ players, pkg, roster }) => {
     const cfg = pkg.skillAllotment;
     const resolved = resolveTeamConfig(pkg, roster.rosterName);
     const where = sourceLabel(resolved);
     const findings: Finding[] = [];
     let total = 0;
-    let stackingSurcharge = 0;
+    let stackSurcharge = 0; // owner 09-09: NAF per-player stacking surcharge, reported separately when it bites
     let primaryCount = 0;
     let secondaryCount = 0;
     let stackedPlayers = 0;
@@ -211,19 +209,14 @@ export const skillPoints: Rule = {
         else secondaryCount++;
         teamwide.set(normName(skill), (teamwide.get(normName(skill)) ?? 0) + 1);
       });
-      const legalPicks = rp.addedSkills.filter((_, i) => {
-        const access = rp.access[i];
-        return access !== undefined && access !== "illegal";
-      }).length;
-      stackingSurcharge += Math.max(0, legalPicks - 1) * (cfg.stackSurchargeSP ?? 0);
+      // Owner 09-09 (NAF World Cup V2.1 p.3): every legal added skill beyond a player's first costs +stackSurchargeSP.
+      const legalPicks = rp.addedSkills.filter((_, i) => rp.access[i] !== undefined && rp.access[i] !== "illegal").length;
+      const extra = Math.max(0, legalPicks - 1);
+      if (extra > 0 && (cfg.stackSurchargeSP ?? 0) > 0) {
+        total += extra * cfg.stackSurchargeSP;
+        stackSurcharge += extra * cfg.stackSurchargeSP;
+      }
     }
-
-    const skillsTotal = total;
-    total += stackingSurcharge;
-    const stars = rosteredStars(players, data);
-    const combinedStarGold = stars.reduce((sum, star) => sum + star.player.cost, 0);
-    const starTax = starTaxSP(pkg.starPlayers.spTaxByCombinedCost, combinedStarGold, stars.length);
-    total += starTax;
 
     if (cfg.maxSameSkillTeamwide != null)
       for (const [skill, count] of teamwide)
@@ -288,20 +281,14 @@ export const skillPoints: Rule = {
       }
     } else if (total > resolved.skillPointBudget) {
       const over = total - resolved.skillPointBudget;
-      const breakdownParts: string[] = [];
-      if (stackingSurcharge > 0) breakdownParts.push(`${stackingSurcharge} stacking surcharge`);
-      if (starTax > 0) breakdownParts.push(`${starTax} Star Player tax at ${fmtGold(combinedStarGold)} of stars`);
-      const breakdown = breakdownParts.length > 0
-        ? ` (${skillsTotal} in skills + ${breakdownParts.join(" + ")})`
-        : "";
-      const actual = breakdownParts.length > 0 ? `${total}${breakdown}` : total;
+      const breakdown = stackSurcharge > 0 ? ` (${total - stackSurcharge} in skills + ${stackSurcharge} stacking surcharge)` : "";
       findings.push(
         err(
           "skill-points",
           `Team spends ${total} Skill Points${breakdown}; the budget is ${resolved.skillPointBudget}${where} (${over} over).`,
           {
             expected: `<= ${resolved.skillPointBudget}`,
-            actual,
+            actual: stackSurcharge > 0 ? `${total}${breakdown}` : total,
             suggestion: `Drop ${over} SP worth of added skills, or ask the TO to raise the budget to ${total}.`,
           },
         ),
@@ -422,7 +409,7 @@ export const costReconciliation: Rule = {
 export const starPlayers: Rule = {
   id: "star-players",
   check: ({ players, pkg, data, roster }) => {
-    const stars = rosteredStars(players, data);
+    const stars = players.filter((rp) => isStarName(data, rp.player.positionName));
     const findings: Finding[] = [];
     if (stars.length === 0) return findings;
 
@@ -498,13 +485,9 @@ export const starPlayers: Rule = {
  */
 export const inducements: Rule = {
   id: "inducements",
-  check: ({ roster, pkg, data, players }) => {
+  check: ({ roster, pkg, data }) => {
     const findings: Finding[] = [];
     const teamRules = new Set(roster.specialRules.map(normName));
-    const stars = rosteredStars(players, data).flatMap(({ player }) => {
-      const star = findStar(data, player.positionName);
-      return star ? [{ name: star.name, skills: star.skills ?? [] }] : [];
-    });
     for (const ind of roster.inducements) {
       const id = ind.id ?? normName(ind.name).replace(/ /g, "_");
       const meta = data.inducements[id];
@@ -519,25 +502,10 @@ export const inducements: Rule = {
       // Reduced cap applies only when the team has the unlocking special rule.
       const hasReduced = meta?.reducedSpecialRule != null && teamRules.has(normName(meta.reducedSpecialRule));
       const datasetCap = hasReduced ? meta?.reducedMax ?? meta?.max : meta?.max;
-      let cap = pkg.inducements.caps[id] ?? datasetCap ?? null;
-      let trigger: { skill: string; starNames: string[]; note?: string } | undefined;
-      for (const override of pkg.inducements.capOverrides ?? []) {
-        const skill = override.when?.starHasSkill;
-        if (!skill) continue;
-        const matchingStars = stars.filter((star) =>
-          star.skills.some((starSkill) => normName(starSkill) === normName(skill)),
-        );
-        const overrideCap = override.caps?.[id];
-        if (matchingStars.length > 0 && overrideCap != null && (cap == null || overrideCap < cap)) {
-          cap = overrideCap;
-          trigger = { skill, starNames: matchingStars.map((star) => star.name), note: override.note };
-        }
-      }
+      const cap = pkg.inducements.caps[id] ?? datasetCap ?? null;
       if (cap != null && (ind.count ?? 1) > cap)
         findings.push(
-          err("inducements", trigger
-            ? `${ind.count ?? 1}× ${ind.name}; the limit is ${cap} while a ${trigger.skill} star is rostered (${trigger.starNames.join(", ")}).${trigger.note ? ` ${trigger.note}.` : ""}`
-            : `${ind.count ?? 1}× ${ind.name} exceeds the limit of ${cap}.`, {
+          err("inducements", `${ind.count ?? 1}× ${ind.name} exceeds the limit of ${cap}.`, {
             expected: `<= ${cap}`,
             actual: ind.count ?? 1,
           }),

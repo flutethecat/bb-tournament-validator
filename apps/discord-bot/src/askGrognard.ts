@@ -8,13 +8,14 @@
  * keeps repeats varied without being random-per-render. It doesn't have to be smart — it
  * has to be grumpy, and it has to work.
  *
- * An OPTIONAL LLM voice sits in front of it (askGrognardLLM.ts): when ANTHROPIC_API_KEY is
- * set, `handleGrognardMention` lets Claude answer in character, and falls back to this
- * canned engine whenever the LLM is unavailable or errors. No key ⇒ pure canned, always works.
+ * An OPTIONAL LLM voice sits in front of it (askGrognardLLM.ts): a routed backend (Claude, or
+ * Sol 5.6 via the Codex CLI — picked by the GROGNARD_BACKEND setting) answers in character, and
+ * falls back to this canned engine whenever the LLM is unavailable or errors. Route off/no
+ * backend ⇒ pure canned, always works.
  */
 
 import type { Message } from "discord.js";
-import { grognardReplyLLM } from "./askGrognardLLM";
+import { grognardReplyLLM, activeBackend, holdingLineLLM } from "./askGrognardLLM";
 
 // ─── deterministic-but-varied pick (hash the text so the same question is stable-ish) ───
 function hash(s: string): number {
@@ -46,14 +47,17 @@ const FUN = [
   "Play for the story, not the standings. That's free advice, worth every penny.",
   "The trophy gathers dust. The tale of the exploding Troll lasts forever.",
 ];
+// Verbal openers only — no asterisk stage-directions (no squinting/leaning/etc.), per owner 2026-07-22.
 const OPENERS = [
-  "*sips lukewarm coffee* ",
-  "*adjusts glasses, sighs* ",
-  "*leans on the glass counter* ",
-  "*sets down a very chipped Ogre miniature* ",
-  "Right, listen here, kid. ",
+  "Right, listen here,",
   "Hah. ",
-  "Back in my day — and I mean the actual day — ",
+  "Back in my day",
+  "Hrmph. ",
+  "Tell you what. ",
+  "Listen. ",
+  "Bah. ",
+  "Well, shag me sideways,",
+  "I once overheard a young kid named Kav talk about this exact thing",
 ];
 
 // ─── topic banks ───
@@ -127,10 +131,11 @@ const TOPICS: readonly Topic[] = [
     ],
   },
   {
-    test: /\b(fumbbl|online|app|client|bot40k|40k|digital)\b/i,
+    test: /\b(fumbbl|online|app|client|bot40k|40k|digital|bb3|bloodbowl3)\b/i,
     lines: [
       "Playing on a screen, are we? In my day the ball scattered onto the floor and stayed there. Progress, I suppose.",
       "The little computer's fine, fine. But nothing beats the sound of a fistful of block dice on real felt.",
+	  "Heh, I get you kids all like sitting at home but if you can't see the look of pain on someone's face as you roll double pows uphill then why bother?",
     ],
   },
 ];
@@ -174,9 +179,14 @@ export function grognardReply(question: string, context = ""): string {
   // If the topic came from the channel (not the question), tip the hat to it.
   const overheard = ctxTopic ? pick(OVERHEARD, seed >> 4) : "";
 
-  // Weave in a bit of Jarvis-worship or fun-preaching about two times out of three.
-  const flavourRoll = seed % 3;
-  const flavour = flavourRoll === 0 ? "" : flavourRoll === 1 ? ` ${pick(JARVIS, seed >> 5)}` : ` ${pick(FUN, seed >> 5)}`;
+// Add Jarvis flavor about one time in six; fun flavor about one time in three.
+const flavourRoll = seed % 6;
+const flavour =
+  flavourRoll === 0
+    ? ` ${pick(JARVIS, seed >> 5)}`
+    : flavourRoll <= 2
+      ? ` ${pick(FUN, seed >> 5)}`
+      : "";
 
   return `${pick(OPENERS, seed >> 1)}${overheard}${body}${flavour}`.slice(0, 1900);
 }
@@ -201,7 +211,7 @@ export async function handleGrognardMention(message: Message, botUserId: string 
   // whatever the channel's been chewing over. Best-effort — a fetch failure just means no context.
   let context = "";
   try {
-    const recent = await message.channel.messages.fetch({ limit: 10, before: message.id });
+    const recent = await message.channel.messages.fetch({ limit: 20, before: message.id });
     context = recent
       .map((m) => (m.author.bot ? "" : strip(m.content)))
       .filter((t) => t.length > 0)
@@ -210,8 +220,26 @@ export async function handleGrognardMention(message: Message, botUserId: string 
     /* no history access → answer from the question alone */
   }
 
-  // LLM voice first (if a key is configured); canned engine is the guaranteed fallback.
-  const reply = (await grognardReplyLLM(question, context)) ?? grognardReply(question, context);
+  // Kick off the (possibly slow) LLM reply immediately so it runs while we acknowledge.
+  const replyPromise = grognardReplyLLM(question, context);
+
+  // On the Codex CLI path the reply can take many seconds (a spawned session), so acknowledge the
+  // user RIGHT AWAY with a quick in-character "give me a second" — voiced by the fast Haiku side
+  // when it's configured, else a fixed literal line. We edit THIS same message into the real answer
+  // below, so the channel sees one reply that updates rather than two. Only the slow (codex) path
+  // gets a holding message; the claude/off paths answer fast enough to reply once.
+  let holding: Message | null = null;
+  if (activeBackend() === "codex") {
+    const holdText = (await holdingLineLLM(question)) ?? "Hold up, let me think about this, give me a second.";
+    try {
+      holding = await message.reply({ content: holdText, allowedMentions: { parse: [], repliedUser: true } });
+    } catch {
+      /* if the ack fails, we still deliver the real reply below */
+    }
+  }
+
+  // LLM voice first (if configured); canned engine is the guaranteed fallback.
+  const reply = (await replyPromise) ?? grognardReply(question, context);
   try {
     // SECURITY: the LLM reply is model-generated text, so a prompt-injected grognard could
     // emit @everyone/@here/a role/user ping. `parse: []` makes Discord treat ALL mentions in
@@ -219,7 +247,12 @@ export async function handleGrognardMention(message: Message, botUserId: string 
     // to — that ping is structural (the message author), not injectable, so it's safe and it
     // keeps the "you got an answer" UX. (Belt-and-braces for the canned bank too; the announce
     // path keeps its own allowedMentions and is unaffected.)
-    await message.reply({ content: reply, allowedMentions: { parse: [], repliedUser: true } });
+    if (holding) {
+      // Replace the "give me a second" placeholder with the real grumble.
+      await holding.edit({ content: reply, allowedMentions: { parse: [], repliedUser: true } });
+    } else {
+      await message.reply({ content: reply, allowedMentions: { parse: [], repliedUser: true } });
+    }
   } catch {
     /* a failed reply is not worth crashing the listener over */
   }

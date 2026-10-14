@@ -16,6 +16,13 @@ describe("parseAllowedOrigins", () => {
     expect(corsDecision("http://tauri.localhost", "cfg.example:4310", set).kind).toBe("allowed");
     expect(corsDecision("tauri://localhost", "cfg.example:4310", set).kind).toBe("allowed");
   });
+
+  it("the 1.0.31+ app-patch page origins are allowed by default (owner 10-01: bug reports 403'd on the preflight)", () => {
+    const set = parseAllowedOrigins(undefined);
+    expect(corsDecision("http://sfapp.localhost", "cfg.example:4310", set).kind).toBe("allowed");
+    expect(corsDecision("https://sfapp.localhost", "cfg.example:4310", set).kind).toBe("allowed");
+    expect(corsDecision("sfapp://localhost", "cfg.example:4310", set).kind).toBe("allowed");
+  });
 });
 
 describe("corsDecision", () => {

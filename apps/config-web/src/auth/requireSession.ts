@@ -58,6 +58,11 @@ function isPublicRequest(method: string, pathname: string): boolean {
     (method === "GET" || method === "HEAD") &&
     (pathname === "/" ||
       pathname === "/index.html" ||
+      pathname === "/theme.css" ||
+      pathname === "/theme.js" ||
+      pathname === "/team-builder.html" ||
+      pathname === "/team-builder.css" ||
+      pathname === "/team-builder.js" ||
       pathname === "/tournament-rules.html" ||
       pathname === "/tournament-rules.css" ||
       pathname === "/tournament-rules.js" ||

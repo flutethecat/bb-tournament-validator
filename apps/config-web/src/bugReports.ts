@@ -17,11 +17,13 @@ import { coachSecretDigest } from "@bb/fork-ops";
 import { noteLegacyPasswordAuth } from "./auth/deprecation.js";
 import type { SessionIdentity } from "./auth/requireSession.js";
 
-export const BUG_REPORT_BODY_CAP = 32 * 1024 * 1024; // route-specific; JSON-escaping can ~2x a 12MB log, so the raw-body cap leaves headroom (client caps: wire 12MB + app 2MB). Other routes keep today's readBody
+export const BUG_REPORT_BODY_CAP = 48 * 1024 * 1024; // logs plus an optional base64 screenshot
 export const WIRE_LOG_CAP = 12 * 1024 * 1024;
 export const APP_LOG_CAP = 2 * 1024 * 1024;
 export const CONTEXT_CAP = 32 * 1024; // serialized
 export const DESCRIPTION_CAP = 4000; // chars
+export const SCREENSHOT_CAP = 5 * 1024 * 1024;
+export const TRIAGE_TEXT_CAP = 8000;
 export const RATE_LIMIT_MAX = 10;
 export const RATE_WINDOW_MS = 60 * 60 * 1000;
 
@@ -74,6 +76,8 @@ export interface BugReportBody {
   coach?: string;
   password?: string;
   passwordMd5?: string;
+  /** Owner 09-10: set by the PUBLIC client edition (no fork account) — accepted unauthenticated, filed as `fumbbl:<coach>`. */
+  publicEdition?: boolean;
   description?: string;
   gameId?: string;
   gameService?: string;
@@ -81,6 +85,12 @@ export interface BugReportBody {
   wireLog?: string | null;
   appLog?: string | null;
   context?: unknown;
+  kind?: "bug" | "feedback";
+  screenshot?: {
+    fileName?: string;
+    mimeType?: string;
+    base64?: string;
+  };
 }
 
 export interface BugReportDeps {
@@ -103,6 +113,33 @@ export function normalizeGameService(v: unknown): "fumbbl" | "fork" | null {
   return v === "fumbbl" || v === "fork" ? v : null;
 }
 
+export type ReportKind = "bug" | "feedback";
+export type ReportTriageStatus = "new" | "triaged" | "in-progress" | "resolved" | "closed";
+
+const TRIAGE_STATUSES = new Set<ReportTriageStatus>(["new", "triaged", "in-progress", "resolved", "closed"]);
+const SCREENSHOT_TYPES: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+};
+
+function decodeScreenshot(value: BugReportBody["screenshot"]):
+  | { bytes: Buffer; fileName: string; mimeType: string }
+  | { error: string }
+  | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object") return { error: "screenshot must be an object." };
+  const mimeType = typeof value.mimeType === "string" ? value.mimeType.toLowerCase() : "";
+  const extension = SCREENSHOT_TYPES[mimeType];
+  if (!extension) return { error: "screenshot must be a PNG, JPEG, or WebP image." };
+  if (typeof value.base64 !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(value.base64))
+    return { error: "screenshot base64 is invalid." };
+  const bytes = Buffer.from(value.base64, "base64");
+  if (bytes.length === 0) return { error: "screenshot is empty." };
+  if (bytes.length > SCREENSHOT_CAP) return { error: `screenshot exceeds the ${SCREENSHOT_CAP / (1024 * 1024)}MB limit.` };
+  return { bytes, fileName: `screenshot.${extension}`, mimeType };
+}
+
 export async function submitBugReport(
   raw: unknown,
   auth: SessionIdentity | undefined,
@@ -115,6 +152,11 @@ export async function submitBugReport(
   let coach: string;
   if (auth) {
     coach = auth.coach;
+  } else if (body.publicEdition === true) {
+    // Owner 09-10: the PUBLIC client edition (github.com/flutethecat/superfumbbl-client) has no fork account. Its
+    // reports are accepted unauthenticated, filed under `fumbbl:<claimed FUMBBL coach>` so triage can tell them
+    // apart, and share the per-coach rate limit (10/hour) — anonymous senders pool under `fumbbl:anonymous`.
+    coach = `fumbbl:${(asTrimmed(body.coach) || "anonymous").slice(0, 40)}`;
   } else {
     const bodyCoach = asTrimmed(body.coach);
     if (!bodyCoach || (!body.password && !body.passwordMd5))
@@ -142,6 +184,12 @@ export async function submitBugReport(
   if (!description) return { status: 400, body: { error: "description is required." } };
   if (description.length > DESCRIPTION_CAP)
     return { status: 400, body: { error: `description exceeds ${DESCRIPTION_CAP} characters.` } };
+  const kind: ReportKind = body.kind === "feedback" ? "feedback" : "bug";
+  if (body.kind !== undefined && body.kind !== "bug" && body.kind !== "feedback")
+    return { status: 400, body: { error: "kind must be bug or feedback." } };
+  const screenshot = decodeScreenshot(body.screenshot);
+  if (screenshot && "error" in screenshot)
+    return { status: screenshot.error.includes("exceeds") ? 413 : 400, body: { error: screenshot.error } };
   if (body.wireLog != null && typeof body.wireLog !== "string")
     return { status: 400, body: { error: "wireLog must be a string." } };
   if (body.appLog != null && typeof body.appLog !== "string")
@@ -186,6 +234,7 @@ export async function submitBugReport(
     coach, // the AUTHENTICATED coach, not a free-form claim
     submittedAt: new Date(now).toISOString(),
     description,
+    kind,
     gameId: gameId ?? null,
     gameService,
     clientVersion: asTrimmed(body.clientVersion) ?? null,
@@ -193,11 +242,21 @@ export async function submitBugReport(
     files: {
       wireLog: body.wireLog ? "wire.log" : null,
       appLog: body.appLog ? "app.log" : null,
+      screenshot: screenshot?.fileName ?? null,
+      screenshotMimeType: screenshot?.mimeType ?? null,
+    },
+    triage: {
+      status: "new" as ReportTriageStatus,
+      rootCause: "",
+      reason: "",
+      updatedAt: null,
+      updatedBy: null,
     },
   };
   writeFileSync(join(reportDir, "report.json"), JSON.stringify(report, null, 2), "utf8");
   if (body.wireLog) writeFileSync(join(reportDir, "wire.log"), body.wireLog, "utf8");
   if (body.appLog) writeFileSync(join(reportDir, "app.log"), body.appLog, "utf8");
+  if (screenshot) writeFileSync(join(reportDir, screenshot.fileName), screenshot.bytes);
 
   noteReport(coach, now);
   return { status: 200, body: { ok: true, id } };
@@ -211,6 +270,25 @@ export interface BugReportRow {
   clientVersion: string | null;
   description: string;
   submittedAt: string;
+  kind: ReportKind;
+  triage: {
+    status: ReportTriageStatus;
+    rootCause: string;
+    reason: string;
+    updatedAt: string | null;
+    updatedBy: string | null;
+  };
+}
+
+function normalizedTriage(value: unknown): BugReportRow["triage"] {
+  const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return {
+    status: TRIAGE_STATUSES.has(raw.status as ReportTriageStatus) ? raw.status as ReportTriageStatus : "new",
+    rootCause: typeof raw.rootCause === "string" ? raw.rootCause : "",
+    reason: typeof raw.reason === "string" ? raw.reason : "",
+    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
+    updatedBy: typeof raw.updatedBy === "string" ? raw.updatedBy : null,
+  };
 }
 
 /** Listing for the organizer view: metadata only, description truncated to 200 chars. */
@@ -231,6 +309,8 @@ export function listBugReports(dir: string): BugReportRow[] {
         clientVersion: r.clientVersion ?? null,
         description: (r.description ?? "").slice(0, 200),
         submittedAt: r.submittedAt ?? "",
+        kind: r.kind === "feedback" ? "feedback" : "bug",
+        triage: normalizedTriage(r.triage),
       });
     } catch {
       /* skip malformed folders */
@@ -250,4 +330,48 @@ export function getBugReport(dir: string, id: string): unknown | undefined {
   } catch {
     return undefined;
   }
+}
+
+export function updateBugReportTriage(
+  dir: string,
+  id: string,
+  raw: unknown,
+  actor: string,
+  now = Date.now(),
+): BugReportResult {
+  const current = getBugReport(dir, id);
+  if (!current || typeof current !== "object") return { status: 404, body: { error: "Bug report not found." } };
+  const body = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const status = body.status;
+  const rootCause = body.rootCause;
+  const reason = body.reason;
+  if (!TRIAGE_STATUSES.has(status as ReportTriageStatus))
+    return { status: 400, body: { error: "status must be new, triaged, in-progress, resolved, or closed." } };
+  if (typeof rootCause !== "string" || typeof reason !== "string")
+    return { status: 400, body: { error: "rootCause and reason must be strings." } };
+  if (rootCause.length > TRIAGE_TEXT_CAP || reason.length > TRIAGE_TEXT_CAP)
+    return { status: 400, body: { error: `rootCause and reason are limited to ${TRIAGE_TEXT_CAP} characters each.` } };
+  const report = {
+    ...(current as Record<string, unknown>),
+    triage: {
+      status,
+      rootCause: rootCause.trim(),
+      reason: reason.trim(),
+      updatedAt: new Date(now).toISOString(),
+      updatedBy: actor,
+    },
+  };
+  writeFileSync(join(dir, id, "report.json"), JSON.stringify(report, null, 2), "utf8");
+  return { status: 200, body: { ok: true, report } };
+}
+
+export function getBugReportScreenshot(dir: string, id: string): { mimeType: string; base64: string } | undefined {
+  const report = getBugReport(dir, id) as { files?: { screenshot?: unknown; screenshotMimeType?: unknown } } | undefined;
+  if (!report) return undefined;
+  const fileName = typeof report.files?.screenshot === "string" ? report.files.screenshot : "";
+  const mimeType = typeof report.files?.screenshotMimeType === "string" ? report.files.screenshotMimeType : "";
+  if (!/^screenshot\.(png|jpg|webp)$/.test(fileName) || !SCREENSHOT_TYPES[mimeType]) return undefined;
+  const file = join(dir, id, fileName);
+  if (!existsSync(file)) return undefined;
+  return { mimeType, base64: readFileSync(file).toString("base64") };
 }

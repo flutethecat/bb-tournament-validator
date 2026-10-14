@@ -33,7 +33,6 @@ import { ingestPackageDocument } from "@bb/ingest";
 import { renderArtPrompt, renderPackageHtml, type Roster, type ValidationResult } from "@bb/validator";
 import { handleGrognardMention } from "./askGrognard";
 import { PackageStore } from "./packageStore";
-import { publicRulesUrl } from "./publicRulesUrl";
 import { renderProblemsEmbed, renderResultEmbed, validateFumbblTeam, validateRosterBytes, type EmbedData } from "./pipeline";
 import { CsvValidatedStore, type ValidatedEntry } from "./store/validatedStore";
 import { FileCoachRegistry, KeyConflictError, type CoachKey, type CoachTeamRegistration } from "./store/coachRegistry";
@@ -47,6 +46,7 @@ import { AnnounceState, manifestReleaseTag, readManifest } from "./buildAnnounce
 import { DailySummaryState, readTopDailySummary } from "./dailySummary";
 import { announceLatestBuild, announceLatestDailySummary } from "./announcePost";
 import { AnnounceHold } from "./announceHold";
+import { BugReportNotifyState, bugReportNotifyContextFromEnv, handleBugTriageButton, handleBugTriageModal, pollBugReports } from "./bugReportNotify";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 if (!TOKEN) {
@@ -64,6 +64,8 @@ const watches = new WatchStore(join(DATA_DIR, "watches.json"));
 const fork40k = new Fork40kStore(join(DATA_DIR, "fork40k.json"));
 const announceState = new AnnounceState(join(DATA_DIR, "build-announce.json"));
 const dailySummaryState = new DailySummaryState(join(DATA_DIR, "daily-summary-announce.json"));
+// Owner 09-08: bug-report triage notifier (config-web poll → DM/channel card with triage buttons).
+const bugReportNotifyState = new BugReportNotifyState(join(DATA_DIR, "bug-report-notify.json"));
 const announceHold = new AnnounceHold(join(DATA_DIR, "announce-hold.json"));
 const pendingResubs = new PendingResubmissionStore();
 const pendingChannelResos = new PendingChannelResolutionStore();
@@ -96,7 +98,7 @@ async function recordValidRoster(
   sourceName: string,
 ): Promise<void> {
   const teamName = roster.teamName || sourceName;
-  const legalLine = `✅ Your roster **${teamName}** (${roster.rosterName}) is legal for **${packageName}** — ${result.recomputedSummary.skillPointsUsed}/${result.recomputedSummary.skillPointBudget} SP.\n${publicRulesUrl(packageName)}`;
+  const legalLine = `✅ Your roster **${teamName}** (${roster.rosterName}) is legal for **${packageName}** — ${result.recomputedSummary.skillPointsUsed}/${result.recomputedSummary.skillPointBudget} SP.`;
   const newEntry: ValidatedEntry = {
     discordUserId: user.id,
     coachName: roster.coach || user.username,
@@ -178,14 +180,14 @@ async function handleResubButton(i: ButtonInteraction): Promise<void> {
     await commitEntry(pending.newEntry, pending.registryTeam);
     await i
       .update({
-        content: `✅ Replaced **${pending.previous.teamName}** with **${pending.newEntry.teamName}** for **${pending.packageName}**. Your earlier entry has been deleted.\n${publicRulesUrl(pending.packageName)}`,
+        content: `✅ Replaced **${pending.previous.teamName}** with **${pending.newEntry.teamName}** for **${pending.packageName}**. Your earlier entry has been deleted.`,
         components: [],
       })
       .catch(() => void 0);
   } else {
     await i
       .update({
-        content: `↩️ Kept your original **${pending.previous.teamName}** for **${pending.packageName}**. The new submission was discarded — nothing changed.\n${publicRulesUrl(pending.packageName)}`,
+        content: `↩️ Kept your original **${pending.previous.teamName}** for **${pending.packageName}**. The new submission was discarded — nothing changed.`,
         components: [],
       })
       .catch(() => void 0);
@@ -413,7 +415,7 @@ async function handleChannelTournamentSelect(i: StringSelectMenuInteraction): Pr
     await i.update({ content: `Package **${choice}** no longer exists — ask an organizer to re-check.`, components: [] }).catch(() => void 0);
     return;
   }
-  await i.update({ content: `Validating your roster against **${found.pkg.name}**… (results by DM)\n${publicRulesUrl(found.pkg.name)}`, components: [] }).catch(() => void 0);
+  await i.update({ content: `Validating your roster against **${found.pkg.name}**… (results by DM)`, components: [] }).catch(() => void 0);
   if (message) await processRosterMessage(message, found);
 }
 
@@ -450,7 +452,7 @@ async function handleWatch(i: ChatInputCommandInteraction): Promise<void> {
     }
     watches.set(channel.id, found.pkg.name);
     await i.reply(
-      `👁 Watching <#${channel.id}> — every PDF posted there is now validated against **${found.pkg.name}** (✅/❌ on the post, details by DM).\n${publicRulesUrl(found.pkg.name)}`,
+      `👁 Watching <#${channel.id}> — every PDF posted there is now validated against **${found.pkg.name}** (✅/❌ on the post, details by DM).`,
     );
     return;
   }
@@ -463,7 +465,7 @@ async function handleWatches(i: ChatInputCommandInteraction): Promise<void> {
   const all = watches.list();
   await i.reply({
     content: all.length
-      ? `Watched channels:\n${all.map((w) => `• <#${w.channelId}> → **${w.packageName}** — ${publicRulesUrl(w.packageName)}`).join("\n")}`
+      ? `Watched channels:\n${all.map((w) => `• <#${w.channelId}> → **${w.packageName}**`).join("\n")}`
       : "No channels are being watched. TOs: /bbbot watch channel:<#ch> package:<name>.",
     flags: MessageFlags.Ephemeral,
   });
@@ -549,7 +551,7 @@ async function handleExport(i: ChatInputCommandInteraction): Promise<void> {
   const html = renderPackageHtml(found.pkg);
   const filename = `${found.pkg.name.replace(/[^\w.-]+/g, "-").toLowerCase()}-rules.html`;
   const file = new AttachmentBuilder(Buffer.from(html, "utf8"), { name: filename });
-  await i.reply({ content: `📄 One-page rules for **${found.pkg.name}** — open the attachment in a browser.\n${publicRulesUrl(found.pkg.name)}`, files: [file] });
+  await i.reply({ content: `📄 One-page rules for **${found.pkg.name}** — open the attachment in a browser.`, files: [file] });
 }
 
 // ---- /bbbot artprompt ----
@@ -593,7 +595,7 @@ async function handleReport(i: ChatInputCommandInteraction): Promise<void> {
 async function handlePackages(i: ChatInputCommandInteraction): Promise<void> {
   const names = packages.names();
   await i.reply({
-    content: names.length ? `Available packages:\n${names.map((n) => `• ${n} — ${publicRulesUrl(n)}`).join("\n")}` : "No packages found.",
+    content: names.length ? `Available packages:\n${names.map((n) => `• ${n}`).join("\n")}` : "No packages found.",
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -627,7 +629,7 @@ async function handlePackageShow(i: ChatInputCommandInteraction): Promise<void> 
         value: `min players ${p.special.minPlayers} · banned: ${p.special.bannedSkills.join(", ") || "none"}`,
       },
     );
-  await i.reply({ content: publicRulesUrl(p.name), embeds: [embed] });
+  await i.reply({ embeds: [embed] });
 }
 
 async function handlePackageImport(i: ChatInputCommandInteraction): Promise<void> {
@@ -654,7 +656,7 @@ async function handlePackageImport(i: ChatInputCommandInteraction): Promise<void
     }
     const path = packages.save(pkg);
     const report = problems.length ? `\n⚠ Review:\n${problems.map((p) => `• ${p}`).join("\n")}` : "";
-    await i.editReply(`Imported **${pkg.name}** → \`${path}\`.\n${publicRulesUrl(pkg.name)}${report}`.slice(0, 1900));
+    await i.editReply(`Imported **${pkg.name}** → \`${path}\`.${report}`.slice(0, 1900));
   } catch (e) {
     await i.editReply(`Import failed: ${(e as Error).message}`);
   }
@@ -919,7 +921,14 @@ client.on("messageCreate", (message) => {
 client.on("interactionCreate", async (interaction) => {
   try {
     if (interaction.isAutocomplete()) return autocompletePackages(interaction);
-    if (interaction.isButton()) return await handleResubButton(interaction);
+    if (interaction.isButton()) {
+      if (bugReportNotify && (await handleBugTriageButton(interaction, bugReportNotify))) return;
+      return await handleResubButton(interaction);
+    }
+    if (interaction.isModalSubmit()) {
+      if (bugReportNotify) await handleBugTriageModal(interaction, bugReportNotify);
+      return;
+    }
     if (interaction.isStringSelectMenu())
       return interaction.customId.startsWith("wexp:")
         ? await handleDeprecateSelect(interaction)
@@ -973,10 +982,24 @@ client.once("clientReady", () => {
   // Watch the FUMBBL40k build manifest + shared daily-summary.md; auto-announce new cuts/days.
   void pollBuildManifest().catch((e) => console.error("build poll error:", e));
   void pollDailySummary().catch((e) => console.error("daily-summary poll error:", e));
+  bugReportNotify = bugReportNotifyContextFromEnv(client, bugReportNotifyState);
+  if (bugReportNotify) void pollBugReportsLogged();
+  else console.log("Bug-report notifier OFF (set CONFIG_WEB_ADMIN_PASSWORD + BUG_REPORT_NOTIFY_USER_ID/CHANNEL_ID).");
   setInterval(() => {
     void pollBuildManifest().catch((e) => console.error("build poll error:", e));
     void pollDailySummary().catch((e) => console.error("daily-summary poll error:", e));
+    if (bugReportNotify) void pollBugReportsLogged();
   }, 60_000);
 });
+
+let bugReportNotify: ReturnType<typeof bugReportNotifyContextFromEnv>;
+async function pollBugReportsLogged(): Promise<void> {
+  try {
+    const note = await pollBugReports(bugReportNotify!);
+    if (note) console.log(note);
+  } catch (e) {
+    console.error("bug-report poll error:", (e as Error).message);
+  }
+}
 
 void client.login(TOKEN);

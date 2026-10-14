@@ -7,8 +7,14 @@
  * origins are allowlisted by default, still explicit, never a wildcard.
  */
 
-/** The FUMBBL40k desktop app's WebView origins (Windows WebView2 + macOS WKWebView schemes). */
-export const APP_WEBVIEW_ORIGINS = ["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"];
+/** The FUMBBL40k desktop app's WebView origins (Windows WebView2 + macOS WKWebView schemes).
+ *  Owner 10-01: Super FUMBBL 1.0.31+ serves its page through its own `sfapp` scheme (the app-patch channel), so the
+ *  WebView origin became `http://sfapp.localhost` (WebView2) / `sfapp://localhost` (WKWebView, WebKitGTK) — the
+ *  public client's bug reports 403'd on the preflight until these were added. The old tauri origins stay for 1.0.30-. */
+export const APP_WEBVIEW_ORIGINS = [
+  "http://tauri.localhost", "https://tauri.localhost", "tauri://localhost",
+  "http://sfapp.localhost", "https://sfapp.localhost", "sfapp://localhost",
+];
 
 /** Parse CORS_ALLOWED_ORIGINS (comma-separated origins) into a normalized set. */
 export function parseAllowedOrigins(raw: string | undefined): Set<string> {

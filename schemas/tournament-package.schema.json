@@ -51,7 +51,7 @@
         "secondaryMultiplier": { "type": "number", "default": 2, "description": "Secondary (doubles) SP = primaryCostSP * this. Ignored if secondaryCostSP set." },
         "secondaryCostSP": { "type": ["number", "null"], "default": null, "description": "Explicit flat SP for a secondary skill; overrides secondaryMultiplier." },
         "eliteSurchargeSP": { "type": "number", "default": 1, "description": "Extra SP added for a skill in the effective Elite set." },
-        "stackSurchargeSP": { "type": "number", "minimum": 0, "description": "Extra SP charged for each added skill beyond a player's first." },
+        "stackSurchargeSP": { "type": "number", "minimum": 0, "default": 0, "description": "Extra SP charged for each added skill beyond a player's FIRST (NAF World Cup: +2, so a 2nd primary is 8 and a 2nd secondary 12)." },
         "eliteSkills": {
           "type": "array",
           "items": { "type": "string" },
@@ -64,7 +64,6 @@
           "default": {},
           "description": "Per-skill SP overrides (highest precedence). Also loadable from a CSV."
         },
-        "stackSurchargeGold": { "type": "number", "minimum": 0, "description": "Extra gold charged for each added skill beyond a player's first." },
         "maxPerPlayer": { "type": ["number", "null"], "default": 2, "description": "Max ADDED skills on a single player." },
         "maxSameSkillTeamwide": { "type": ["number", "null"], "default": null, "description": "Max copies of one added skill across the whole team." },
         "maxPrimary": { "type": ["number", "null"], "description": "COUNT mode: max primary-access added skills (instead of the SP budget)." },
@@ -119,19 +118,7 @@
       "properties": {
         "allowed": { "type": "boolean", "default": true },
         "maxCount": { "type": ["number", "null"], "default": null },
-        "maxCombinedCost": { "type": ["number", "null"], "default": null },
-        "spTaxByCombinedCost": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["upToGold", "sp"],
-            "additionalProperties": false,
-            "properties": {
-              "upToGold": { "type": ["number", "null"] },
-              "sp": { "type": "number", "minimum": 0 }
-            }
-          }
-        }
+        "maxCombinedCost": { "type": ["number", "null"], "default": null }
       }
     },
 
@@ -140,27 +127,7 @@
       "additionalProperties": false,
       "properties": {
         "allowed": { "type": "array", "items": { "type": "string" }, "description": "Inducement ids allowed, or ['*'] for all, [] for none." },
-        "caps": { "type": "object", "additionalProperties": { "type": "number" }, "description": "Per-inducement max overrides." },
-        "capOverrides": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["when", "caps"],
-            "additionalProperties": false,
-            "properties": {
-              "when": {
-                "type": "object",
-                "required": ["starHasSkill"],
-                "additionalProperties": false,
-                "properties": {
-                  "starHasSkill": { "type": "string", "minLength": 1 }
-                }
-              },
-              "caps": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } },
-              "note": { "type": "string" }
-            }
-          }
-        }
+        "caps": { "type": "object", "additionalProperties": { "type": "number" }, "description": "Per-inducement max overrides." }
       }
     },
 

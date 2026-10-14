@@ -5,7 +5,7 @@ import { bb2025 } from "@bb/validator/dataset";
 import type { SessionIdentity } from "./auth/requireSession.js";
 
 type TeamDetailIdentity = Pick<SessionIdentity, "coach" | "organizer">;
-import { pendingAdvancementForPlayer, playerProgression, runtimeSafeCharacteristicAvailable, teamRevision, type AdvancementCosts, type PendingAdvancementResponse } from "./teamAdvancement.js";
+import { pendingAdvancementForPlayer, playerProgression, rosterXmlById, runtimeSafeCharacteristicAvailable, teamRevision, type AdvancementCosts, type PendingAdvancementResponse } from "./teamAdvancement.js";
 
 export interface Capability {
   available: boolean;
@@ -156,18 +156,13 @@ export function storedTeamHasHistory(xml: string): boolean {
 
 function storedRosterXml(teamsDir: string, teamId: string, teamXml: string): string | undefined {
   const rostersDir = join(dirname(teamsDir), "rosters");
-  let file = join(rostersDir, `roster_team_${safePart(teamId)}.xml`);
-  if (!existsSync(file)) {
-    const rosterId = element(teamXml, "rosterId");
-    if (!rosterId) return undefined;
-    file = join(rostersDir, `roster_${safePart(rosterId)}.xml`);
+  const file = join(rostersDir, `roster_team_${safePart(teamId)}.xml`);
+  if (existsSync(file)) {
+    try { return readFileSync(file, "utf8"); } catch { return undefined; }
   }
-  if (!existsSync(file)) return undefined;
-  try {
-    return readFileSync(file, "utf8");
-  } catch {
-    return undefined;
-  }
+  // Owner 09-20: base rosters are `roster_<race>.xml` with `<roster id="amazon.bb2025">`; match by that id.
+  const rosterId = element(teamXml, "rosterId");
+  return rosterId ? rosterXmlById(rostersDir, rosterId) : undefined;
 }
 
 function positionNames(rosterXml: string | undefined): Map<string, string> {

@@ -51,6 +51,21 @@ TIER = {
 }
 
 
+# Owner 09-09: rosters outside ruleset 3906's playable list that the dataset still carries. FUMBBL roster 9179
+# is the 'Slann 2025' roster (NAF World Cup 2027 Slann); it is stored under the pack's name 'Slann'.
+EXTRA_ROSTERS = {"9179": {"name": "Slann", "tier": 2}}
+
+
+def convert_extra_roster(rid, override):
+    r = convert_roster(rid)
+    r["name"] = override["name"]
+    r["id"] = slug(override["name"])
+    r["tier"] = override.get("tier")
+    for p in r["positions"]:
+        p["id"] = f"{r['id']}.{p['id'].split('.', 1)[1]}"
+    return r
+
+
 def get(path):
     with urllib.request.urlopen(f"{API}/{path}", timeout=30) as r:
         return json.load(r)
@@ -198,20 +213,13 @@ def team_special_rules(rosters):
     return out
 
 
-# Owner ruling 2026-09-03: present on FUMBBL roster 8513 but NOT BB2025 stars - excluded from the dataset.
-NOT_BB2025_STARS = {"Bryce 'the Slice' Cambuel", "Frank 'n' Stein"}
-
-
-def build_stars(rosters, existing_stars=None):
+def build_stars(rosters):
     """Star players + resolved eligible team lists, from FUMBBL roster 8513."""
-    existing_by_name = {star["name"]: star for star in (existing_stars or [])}
     tsr = team_special_rules(rosters)
     all_teams = [r["name"] for r in rosters]
     d = get(f"roster/get/{STAR_ROSTER_ID}")
     stars = []
     for p in sorted(d["positions"], key=lambda x: x["title"]):
-        if p["title"] in NOT_BB2025_STARS:
-            continue
         plays_for = p.get("playsFor", [])
         if "(Any)" in plays_for:
             teams = list(all_teams)
@@ -222,32 +230,19 @@ def build_stars(rosters, existing_stars=None):
         else:
             want = set(plays_for)
             teams = [t for t in all_teams if tsr[t] & want]
-        star = {
+        stars.append({
             "name": p["title"],
             "cost": int(p["cost"]),
             "playsFor": plays_for,
             "teams": teams,
-        }
-        existing = existing_by_name.get(p["title"], {})
-        for key in ("pairedWith", "pairPrimary"):
-            if key in existing:
-                star[key] = existing[key]
-        star["skills"] = list(p.get("skills", []))
-        stars.append(star)
+        })
     return stars
 
 
 def write_stars(rosters):
-    path = os.path.join(OUT, "stars.json")
-    existing_stars = []
-    if os.path.exists(path):
-        with open(path, encoding="utf-8") as existing_file:
-            existing_stars = json.load(existing_file).get("stars", [])
-    stars = build_stars(rosters, existing_stars)
-    with open(path, "w", encoding="utf-8") as output_file:
-        json.dump({"_about": "BB2025 star players from FUMBBL roster 8513 (_Star Players). `playsFor` = special-rule keywords gating eligibility; `teams` = resolved eligible BB2025 team names (see build_stars/FAVOURED_MAP in scripts/generate_dataset.py).", "stars": stars},
-                  output_file, indent=1, ensure_ascii=False)
-        output_file.write("\n")
+    stars = build_stars(rosters)
+    json.dump({"_about": "BB2025 star players from FUMBBL roster 8513 (_Star Players). `playsFor` = special-rule keywords gating eligibility; `teams` = resolved eligible BB2025 team names (see build_stars/FAVOURED_MAP in scripts/generate_dataset.py).", "stars": stars},
+              open(os.path.join(OUT, "stars.json"), "w", encoding="utf-8"), indent=1)
     print(f"Wrote {len(stars)} stars to {OUT}")
 
 
@@ -374,6 +369,10 @@ def main():
     for r in sorted(listing, key=lambda x: x["name"]):
         print("  -", r["name"])
         rosters.append(convert_roster(r["id"]))
+    for rid, override in EXTRA_ROSTERS.items():
+        print("  -", override["name"], "(extra roster", rid + ")")
+        rosters.append(convert_extra_roster(rid, override))
+    rosters.sort(key=lambda x: x["name"])
 
     # skills.json from fork categories
     cats = fork_skill_categories()

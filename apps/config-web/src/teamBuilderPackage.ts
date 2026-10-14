@@ -93,6 +93,9 @@ export interface RaceRulesInfo {
   tierLabel?: string;
   gold: number | null;
   skillPointBudget: number;
+  /** Owner 09-09: the pack's SP prices so the client's live tracker prices skills exactly as the validator does
+   *  (primary/secondary base, +elite surcharge, +stack surcharge per added skill beyond a player's first). */
+  skillCosts: { primary: number; secondary: number; eliteSurcharge: number; stackSurcharge: number; eliteSkills: string[] };
   maxPerPlayer: number | null;
   /** Choose-one packs in force for this race (tier's own, else global). */
   packs: PackSummary[];
@@ -103,10 +106,8 @@ export interface RaceRulesInfo {
     /** Star SP price list for THIS race's tier (spCostByTier packages only);
      *  stars with no price in the tier are omitted. Sorted cheap-first. */
     spCosts?: { name: string; sp: number }[];
-    spTax?: TournamentPackage["starPlayers"]["spTaxByCombinedCost"];
   };
   bannedStars: string[];
-  capOverrides?: TournamentPackage["inducements"]["capOverrides"];
 }
 
 /** Derive one race's effective rules from the package config (resolveTeamConfig is the
@@ -131,6 +132,13 @@ export function packageRaceRules(pkg: TournamentPackage, race: string): RaceRule
     ...(tierDef ? { tierLabel: tierDef.label ?? `Tier ${tierDef.tier}` } : {}),
     gold: cfg.gold,
     skillPointBudget: cfg.skillPointBudget,
+    skillCosts: {
+      primary: pkg.skillAllotment.primaryCostSP,
+      secondary: pkg.skillAllotment.secondaryCostSP ?? pkg.skillAllotment.primaryCostSP * pkg.skillAllotment.secondaryMultiplier,
+      eliteSurcharge: pkg.skillAllotment.eliteSurchargeSP,
+      stackSurcharge: pkg.skillAllotment.stackSurchargeSP ?? 0,
+      eliteSkills: [...pkg.skillAllotment.eliteSkills],
+    },
     maxPerPlayer: pkg.skillAllotment.maxPerPlayer,
     packs: packSummaries(cfg.skillPackages),
     stars: {
@@ -138,10 +146,8 @@ export function packageRaceRules(pkg: TournamentPackage, race: string): RaceRule
       maxCount: pkg.starPlayers.maxCount,
       paidInSkillPoints: pkg.starPlayers.paidInSkillPoints === true,
       ...(spCosts ? { spCosts } : {}),
-      ...(pkg.starPlayers.spTaxByCombinedCost ? { spTax: pkg.starPlayers.spTaxByCombinedCost } : {}),
     },
     bannedStars: cfg.bannedStars,
-    ...(pkg.inducements.capOverrides ? { capOverrides: pkg.inducements.capOverrides } : {}),
   };
 }
 
@@ -156,8 +162,6 @@ export function packageRulesInfo(
 ): {
   name: string;
   dataNote?: string;
-  stackSurchargeSP: number;
-  capOverrides?: TournamentPackage["inducements"]["capOverrides"];
   budget?: number | null;
   tierSummary: TierSummaryRow[];
   race?: RaceRulesInfo;
@@ -166,8 +170,6 @@ export function packageRulesInfo(
   return {
     name: pkg.name,
     ...(pkg.dataNote ? { dataNote: pkg.dataNote } : {}),
-    stackSurchargeSP: pkg.skillAllotment.stackSurchargeSP ?? 0,
-    ...(pkg.inducements.capOverrides ? { capOverrides: pkg.inducements.capOverrides } : {}),
     tierSummary: packageTierSummary(pkg),
     ...(race ? { budget: race.gold, race } : {}),
   };

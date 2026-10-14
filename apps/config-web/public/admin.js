@@ -8,8 +8,8 @@ const state = {
   loginUser: "",
   expiresAt: "",
   discordSsoEnabled: false,
-  // Deep-linkable: control-panel cards land on admin.html#users/#teams/#games.
-  section: ["users", "teams", "games"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "users",
+  // Deep-linkable: control-panel cards land on admin.html#users/#teams/#games/#reports.
+  section: ["users", "teams", "games", "reports"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "users",
   userFilter: "",
   users: [],
   identities: {},
@@ -33,6 +33,9 @@ const state = {
   teamSkills: [],
   teamLoading: false,
   expandedPlayerId: "",
+  reports: [],
+  selectedReport: null,
+  reportLoading: false,
 };
 
 const toolbar = document.querySelector("#toolbar");
@@ -212,6 +215,7 @@ function renderToolbar() {
     <button type="button" class="chip${state.section === "users" ? " active" : ""}" data-action="section" data-section="users">Users</button>
     <button type="button" class="chip${state.section === "teams" ? " active" : ""}" data-action="section" data-section="teams">Teams</button>
     <button type="button" class="chip${state.section === "games" ? " active" : ""}" data-action="section" data-section="games">Game Controls</button>
+    <button type="button" class="chip${state.section === "reports" ? " active" : ""}" data-action="section" data-section="reports">Reports</button>
     <span class="toolbar-spacer"></span>
     ${login}`;
 }
@@ -631,6 +635,9 @@ function render() {
   } else if (state.section === "teams") {
     workspace.innerHTML = renderTeams();
     rightRail.innerHTML = renderTeamRail();
+  } else if (state.section === "reports") {
+    workspace.innerHTML = renderReports();
+    rightRail.innerHTML = renderReportRail();
   } else {
     workspace.innerHTML = renderGames();
     rightRail.innerHTML = renderGameRail();
@@ -713,6 +720,9 @@ async function logout() {
   state.teamSkills = [];
   state.teamLoading = false;
   state.expandedPlayerId = "";
+  state.reports = [];
+  state.selectedReport = null;
+  state.reportLoading = false;
   setMessage("");
   render();
 }
@@ -727,6 +737,7 @@ async function loadData() {
     ["Identity library", "/api/admin/identities"],
     ["Live games", "/api/fork/games"],
     ["Matchmaking settings", "/api/fork/matchmaking-settings"],
+    ["Reports", "/api/bug-reports"],
   ];
   const results = await Promise.allSettled(requests.map(([, path]) => requestJson(path, authOptions())));
   let successes = 0;
@@ -743,6 +754,7 @@ async function loadData() {
     if (label === "Identity library") state.identities = value?.coaches && typeof value.coaches === "object" ? value.coaches : {};
     if (label === "Live games") state.games = safeArray(value?.games ?? value);
     if (label === "Matchmaking settings") state.settings = { homeAwayMode: String(value?.homeAwayMode ?? ""), overtime: value?.overtime === true };
+    if (label === "Reports") state.reports = safeArray(value?.reports);
   });
   const libraryCoaches = [...new Set(mergedUsers().map((user) => String(user.fumbblName ?? "").trim()).filter(Boolean))];
   const libraries = await Promise.allSettled(libraryCoaches.map((coach) =>
@@ -1073,6 +1085,103 @@ async function renameSelectedTeam() {
   await mutateSelectedTeam("rename", { newName }, `Renamed team to ${newName}.`);
 }
 
+function reportTriage(report) {
+  return {
+    status: String(report?.triage?.status ?? "new"),
+    rootCause: String(report?.triage?.rootCause ?? ""),
+    reason: String(report?.triage?.reason ?? ""),
+    updatedAt: String(report?.triage?.updatedAt ?? ""),
+    updatedBy: String(report?.triage?.updatedBy ?? ""),
+  };
+}
+
+function renderReports() {
+  const rows = safeArray(state.reports);
+  const selected = state.selectedReport;
+  const list = rows.length ? rows.map((report) => {
+    const triage = reportTriage(report);
+    const active = selected?.id === report.id ? " active" : "";
+    return `<button type="button" class="report-row${active}" data-action="select-report" data-report-id="${escapeHtml(report.id)}">
+      <span class="report-row-head"><strong>${escapeHtml(report.kind === "feedback" ? "Feedback" : "Bug report")}</strong><span class="chip report-status ${escapeHtml(triage.status)}">${escapeHtml(triage.status)}</span></span>
+      <span>${escapeHtml(report.description)}</span>
+      <span class="report-row-meta">${escapeHtml(report.coach)} · ${escapeHtml(report.gameService ?? "no service")}${report.gameId ? ` #${escapeHtml(report.gameId)}` : ""} · ${escapeHtml(report.submittedAt)}</span>
+    </button>`;
+  }).join("") : '<div class="hint">No reports have been submitted.</div>';
+
+  let detail = '<section class="panel"><div class="hint">Select a report or feedback item to triage it.</div></section>';
+  if (state.reportLoading) detail = '<div class="loading-banner">Loading report…</div>';
+  else if (selected) {
+    const triage = reportTriage(selected);
+    const files = selected.files ?? {};
+    const screenshot = files.screenshot
+      ? `<div class="report-screenshot"><img src="data:${escapeHtml(files.screenshotMimeType)};base64,${escapeHtml(selected.screenshotBase64 ?? "")}" alt="Attached screenshot"></div>`
+      : '<div class="hint">No screenshot attached.</div>';
+    detail = `<section class="panel report-detail">
+      <div class="section-head"><div><div class="section-title">${title(selected.kind === "feedback" ? "Feedback Detail" : "Bug Report Detail")}</div><div class="section-note">${escapeHtml(selected.id)}</div></div><span class="grow"></span><button type="button" class="btn" data-action="refresh-report" data-report-id="${escapeHtml(selected.id)}">Refresh</button></div>
+      <div class="report-facts"><div><span>Coach</span><strong>${escapeHtml(selected.coach)}</strong></div><div><span>Build</span><strong>${escapeHtml(selected.clientVersion ?? "unknown")}</strong></div><div><span>Game</span><strong>${escapeHtml(selected.gameService ?? "none")}${selected.gameId ? ` #${escapeHtml(selected.gameId)}` : ""}</strong></div><div><span>Submitted</span><strong>${escapeHtml(selected.submittedAt)}</strong></div></div>
+      <div class="report-description">${escapeHtml(selected.description)}</div>
+      ${screenshot}
+      <div class="form-grid report-triage-grid">
+        <label class="field"><span class="field-label">Status</span><select id="report-status" class="control">
+          ${["new", "triaged", "in-progress", "resolved", "closed"].map((status) => `<option value="${status}"${triage.status === status ? " selected" : ""}>${status}</option>`).join("")}
+        </select></label>
+        <label class="field report-wide"><span class="field-label">Root cause</span><textarea id="report-root-cause" class="control" rows="5" maxlength="8000" placeholder="What caused this issue?">${escapeHtml(triage.rootCause)}</textarea></label>
+        <label class="field report-wide"><span class="field-label">Reason / disposition</span><textarea id="report-reason" class="control" rows="5" maxlength="8000" placeholder="Why was this status chosen, and what should happen next?">${escapeHtml(triage.reason)}</textarea></label>
+      </div>
+      <div class="inline-controls"><button type="button" class="btn primary" data-action="save-report-triage" data-report-id="${escapeHtml(selected.id)}">Save Triage</button>${triage.updatedAt ? `<span class="hint">Last updated ${escapeHtml(triage.updatedAt)} by ${escapeHtml(triage.updatedBy || "unknown")}</span>` : ""}</div>
+    </section>`;
+  }
+  return `${renderMessage()}${renderErrors()}<div class="reports-layout"><section class="panel report-list"><div class="section-head"><div class="section-title">${title("Report Queue")}</div><span class="grow"></span><button type="button" class="btn" data-action="refresh-reports">Refresh</button></div>${list}</section><div>${detail}</div></div>`;
+}
+
+function renderReportRail() {
+  const rows = safeArray(state.reports);
+  const counts = Object.fromEntries(["new", "triaged", "in-progress", "resolved", "closed"].map((status) => [status, rows.filter((r) => reportTriage(r).status === status).length]));
+  return `<section class="summary-card"><div class="rail-title">${title("Report Triage")}</div><div class="boundary-note">Bug reports and feedback share this organizer queue. Root-cause and disposition notes remain attached to each report.</div></section>
+  <section class="summary-card"><div class="rail-title">${title("Queue Summary")}</div>${Object.entries(counts).map(([status, count]) => `<div class="summary-row"><span>${escapeHtml(status)}</span><span>${escapeHtml(count)}</span></div>`).join("")}</section>`;
+}
+
+async function loadReport(id) {
+  if (!id || state.reportLoading) return;
+  state.reportLoading = true;
+  setMessage("");
+  render();
+  try {
+    const result = await requestJson(`/api/bug-reports/${encodeURIComponent(id)}`, authOptions());
+    const report = result?.report ?? null;
+    if (report?.files?.screenshot) {
+      const image = await requestJson(`/api/bug-reports/${encodeURIComponent(id)}/screenshot`, authOptions());
+      report.screenshotBase64 = String(image?.base64 ?? "");
+    }
+    state.selectedReport = report;
+  } catch (error) {
+    setMessage(serverMessage(error), "error");
+  } finally {
+    state.reportLoading = false;
+    render();
+  }
+}
+
+async function saveReportTriage(id) {
+  const status = document.querySelector("#report-status")?.value ?? "new";
+  const rootCause = document.querySelector("#report-root-cause")?.value ?? "";
+  const reason = document.querySelector("#report-reason")?.value ?? "";
+  state.busy = true;
+  setMessage("");
+  try {
+    const result = await requestJson(`/api/bug-reports/${encodeURIComponent(id)}`, authOptions("PATCH", { status, rootCause, reason }));
+    state.selectedReport = { ...result.report, screenshotBase64: state.selectedReport?.screenshotBase64 ?? "" };
+    const index = state.reports.findIndex((report) => report.id === id);
+    if (index >= 0) state.reports[index] = { ...state.reports[index], triage: result.report.triage };
+    setMessage(`Saved triage for ${id}.`);
+  } catch (error) {
+    setMessage(serverMessage(error), "error");
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
 async function mergeIdentities(sourceFfbCoachId) {
   if (!state.authed || state.busy) return;
   const candidates = mergedUsers()
@@ -1234,7 +1343,7 @@ toolbar.addEventListener("click", (event) => {
   if (target.dataset.action === "discord-login") location.assign("/api/auth/discord/start?next=/admin.html");
   if (target.dataset.action === "logout") logout();
   if (target.dataset.action === "section") {
-    state.section = ["users", "teams", "games"].includes(target.dataset.section) ? target.dataset.section : "users";
+    state.section = ["users", "teams", "games", "reports"].includes(target.dataset.section) ? target.dataset.section : "users";
     location.hash = state.section;
     state.editingIdentity = "";
     setMessage("");
@@ -1255,6 +1364,9 @@ workspace.addEventListener("click", (event) => {
   if (!target) return;
   const action = target.dataset.action;
   const forkName = target.dataset.forkName ?? "";
+  if (action === "select-report" || action === "refresh-report") loadReport(target.dataset.reportId ?? "");
+  if (action === "save-report-triage") saveReportTriage(target.dataset.reportId ?? "");
+  if (action === "refresh-reports") loadData();
   if (action === "team-search-mode") {
     state.teamQuery = document.querySelector("#team-search-query")?.value ?? state.teamQuery;
     state.teamSearchMode = target.dataset.mode ?? "name";

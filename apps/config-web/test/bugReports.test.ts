@@ -12,12 +12,14 @@ import {
   WIRE_LOG_CAP,
   bugReportAccessError,
   getBugReport,
+  getBugReportScreenshot,
   listBugReports,
   normalizeGameService,
   readJsonCapped,
   reportTimesByCoach,
   sanitizeComponent,
   submitBugReport,
+  updateBugReportTriage,
 } from "../src/bugReports.js";
 
 const HUNTER2_MD5 = createHash("md5").update("hunter2", "utf8").digest("hex");
@@ -107,7 +109,30 @@ describe("POST /api/bug-reports — submitBugReport", () => {
     expect(existsSync(join(d, id, "wire.log"))).toBe(false);
     expect(existsSync(join(d, id, "app.log"))).toBe(false);
     const files = (JSON.parse(readFileSync(join(d, id, "report.json"), "utf8")) as { files: unknown }).files;
-    expect(files).toEqual({ wireLog: null, appLog: null });
+    expect(files).toEqual({ wireLog: null, appLog: null, screenshot: null, screenshotMimeType: null });
+  });
+
+  it("stores feedback with a validated screenshot and default triage state", async () => {
+    const d = dir();
+    const bytes = Buffer.from("not-a-real-png-but-binary-storage-is-lossless");
+    const result = await submitBugReport({
+      ...BASE,
+      kind: "feedback",
+      screenshot: { fileName: "board.png", mimeType: "image/png", base64: bytes.toString("base64") },
+    }, undefined, deps(d));
+    expect(result.status).toBe(200);
+    const { id } = result.body as { id: string };
+    const report = getBugReport(d, id) as Record<string, unknown>;
+    expect(report.kind).toBe("feedback");
+    expect(report.triage).toMatchObject({ status: "new", rootCause: "", reason: "" });
+    expect(getBugReportScreenshot(d, id)).toEqual({ mimeType: "image/png", base64: bytes.toString("base64") });
+  });
+
+  it("rejects unsupported or malformed screenshots", async () => {
+    const d = dir();
+    expect((await submitBugReport({ ...BASE, screenshot: { mimeType: "image/svg+xml", base64: "PHN2Zz4=" } }, undefined, deps(d))).status).toBe(400);
+    expect((await submitBugReport({ ...BASE, screenshot: { mimeType: "image/png", base64: "%%%" } }, undefined, deps(d))).status).toBe(400);
+    expect(readdirSync(d)).toEqual([]);
   });
 
   it("accepts explicit null log attachments from clients with logging disabled", async () => {
@@ -138,6 +163,26 @@ describe("POST /api/bug-reports — submitBugReport", () => {
       deps(dir()),
     );
     expect(result.status).toBe(200);
+  });
+
+  it("accepts a PUBLIC-edition report (owner 09-10) without creds, filed as fumbbl:<coach>, rate-limited per coach", async () => {
+    const d = dir();
+    const ok = await submitBugReport(
+      { coach: "SomeFumbblCoach", publicEdition: true, description: "public edition report" },
+      undefined,
+      deps(d),
+    );
+    expect(ok.status).toBe(200);
+    const folder = readdirSync(d)[0];
+    const report = JSON.parse(readFileSync(join(d, folder, "report.json"), "utf8"));
+    expect(report.coach).toBe("fumbbl:SomeFumbblCoach");
+    expect(report).not.toHaveProperty("publicEdition");
+    // no claimed coach → pooled under fumbbl:anonymous; a non-boolean flag still needs creds
+    const anon = await submitBugReport({ publicEdition: true, description: "anon" }, undefined, deps(d));
+    expect(anon.status).toBe(200);
+    expect((await submitBugReport({ coach: "X", publicEdition: "true", description: "bad flag" }, undefined, deps(d))).status).toBe(401);
+    for (let i = 0; i < RATE_LIMIT_MAX; i++) reportTimesByCoach.set("fumbbl:spammer", [...(reportTimesByCoach.get("fumbbl:spammer") ?? []), Date.now()]);
+    expect((await submitBugReport({ coach: "Spammer", publicEdition: true, description: "over" }, undefined, deps(d))).status).toBe(429);
   });
 
   it("401s wrong creds and missing creds; 503 when the fork DB is unavailable", async () => {
@@ -240,5 +285,34 @@ describe("GET gates + reads", () => {
     const d = dir();
     expect(getBugReport(d, "../secrets")).toBeUndefined();
     expect(getBugReport(d, "nope")).toBeUndefined();
+  });
+
+  it("updates triage fields with an audit identity and exposes them in the list", async () => {
+    const d = dir();
+    const submitted = await submitBugReport(BASE, undefined, deps(d), Date.UTC(2026, 7, 18, 10));
+    const id = (submitted.body as { id: string }).id;
+    const updated = updateBugReportTriage(d, id, {
+      status: "in-progress",
+      rootCause: "Stale movement metadata",
+      reason: "Offer surface was not regenerated",
+    }, "OrganizerOne", Date.UTC(2026, 7, 18, 11));
+    expect(updated.status).toBe(200);
+    expect(listBugReports(d)[0]).toMatchObject({
+      kind: "bug",
+      triage: {
+        status: "in-progress",
+        rootCause: "Stale movement metadata",
+        reason: "Offer surface was not regenerated",
+        updatedBy: "OrganizerOne",
+      },
+    });
+  });
+
+  it("fails closed for invalid triage updates", async () => {
+    const d = dir();
+    const submitted = await submitBugReport(BASE, undefined, deps(d));
+    const id = (submitted.body as { id: string }).id;
+    expect(updateBugReportTriage(d, id, { status: "deleted", rootCause: "", reason: "" }, "admin").status).toBe(400);
+    expect(updateBugReportTriage(d, "../escape", { status: "new", rootCause: "", reason: "" }, "admin").status).toBe(404);
   });
 });

@@ -147,43 +147,5 @@ export function loadPackage(
     problems.push(...csvProblems);
     pkg = { ...pkg, skillAllotment: applyCsvOverrides(pkg.skillAllotment, rows) };
   }
-
-  const brackets = pkg.starPlayers.spTaxByCombinedCost;
-  if (brackets) {
-    const nullIndexes = brackets.flatMap((bracket, index) => bracket.upToGold === null ? [index] : []);
-    if (nullIndexes.length !== 1 || nullIndexes[0] !== brackets.length - 1) {
-      problems.push("starPlayers.spTaxByCombinedCost must have exactly one trailing null upToGold bracket");
-    }
-
-    let previous = -Infinity;
-    for (const [index, bracket] of brackets.entries()) {
-      if (bracket.sp < 0) {
-        problems.push(`starPlayers.spTaxByCombinedCost[${index}].sp must be non-negative`);
-      }
-      if (bracket.upToGold === null) continue;
-      if (bracket.upToGold <= previous) {
-        problems.push("starPlayers.spTaxByCombinedCost upToGold brackets must be ascending");
-        break;
-      }
-      previous = bracket.upToGold;
-    }
-
-    if (pkg.starPlayers.spCostByTier) {
-      problems.push("starPlayers.spTaxByCombinedCost and starPlayers.spCostByTier are mutually exclusive; ignoring spTaxByCombinedCost");
-      const { spTaxByCombinedCost: _ignored, ...starPlayers } = pkg.starPlayers;
-      pkg = { ...pkg, starPlayers };
-    }
-  }
-
-  for (const [overrideIndex, override] of (pkg.inducements.capOverrides ?? []).entries()) {
-    if (!override.when?.starHasSkill?.trim()) {
-      problems.push(`inducements.capOverrides[${overrideIndex}].when.starHasSkill must not be empty`);
-    }
-    for (const [id, cap] of Object.entries(override.caps ?? {})) {
-      if (cap < 0) {
-        problems.push(`inducements.capOverrides[${overrideIndex}].caps.${id} must be non-negative`);
-      }
-    }
-  }
   return { pkg, problems };
 }

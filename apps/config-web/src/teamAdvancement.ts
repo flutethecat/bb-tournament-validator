@@ -170,9 +170,30 @@ function teamFile(teamsDir: string, teamId: string): { path: string; xml: string
   return matches.length === 1 ? matches[0] : undefined;
 }
 
+/** Owner 09-20: the roster a team names by id. Base BB2025 rosters live as `roster_<race>.xml` while the team
+ *  records `<rosterId>amazon.bb2025</rosterId>` — the file name never matched, so every such team lost its
+ *  position names and stats (the client showed initials and "—"). Match the roster's own `<roster id="…">`. */
+export function rosterXmlById(rostersDir: string, rosterId: string): string | undefined {
+  if (!rosterId || !existsSync(rostersDir)) return undefined;
+  const direct = join(rostersDir, `roster_${safePart(rosterId)}.xml`);
+  if (existsSync(direct)) return readFileSync(direct, "utf8");
+  for (const file of readdirSync(rostersDir)) {
+    if (!file.startsWith("roster_") || !file.endsWith(".xml")) continue;
+    try {
+      const xml = readFileSync(join(rostersDir, file), "utf8");
+      const opening = xml.match(/<roster\b[^>]*>/i)?.[0] ?? "";
+      if (decodeXml(attr(opening, "id") ?? "") === rosterId) return xml;
+    } catch { /* skip unreadable */ }
+  }
+  return undefined;
+}
+
 function rosterXml(teamsDir: string, teamId: string): string | undefined {
   const path = join(dirname(teamsDir), "rosters", `roster_team_${safePart(teamId)}.xml`);
-  return existsSync(path) ? readFileSync(path, "utf8") : undefined;
+  if (existsSync(path)) return readFileSync(path, "utf8");
+  const team = teamFile(teamsDir, teamId);
+  const rosterId = team ? element(team.xml, "rosterId") : undefined;
+  return rosterId ? rosterXmlById(join(dirname(teamsDir), "rosters"), rosterId) : undefined;
 }
 
 function playerBlock(xml: string, playerId: string): string | undefined {

@@ -220,6 +220,24 @@ describe("guarded routes under the sidecar", () => {
     expect(requireSession(fakeRequest(), "/api/fork/login", "").kind).toBe("allow");
   });
 
+  it("lets an unauthenticated coach load the builder's embedded login shell", () => {
+    const request = fakeRequest();
+    request.method = "GET";
+    for (const path of [
+      "/team-builder.html",
+      "/team-builder.css",
+      "/team-builder.js",
+      "/theme.css",
+      "/theme.js",
+    ]) {
+      expect(requireSession(request, path, "").kind).toBe("allow");
+    }
+    expect(requireSession(request, "/users.html", "")).toEqual({
+      kind: "redirect",
+      location: "/login?next=%2Fusers.html",
+    });
+  });
+
   it("admits a bearer-carrying request to a non-public API route as the token's coach", async () => {
     const login = await coachLogin(fakeRequest(), { ...OPTIONS, body: { coach: "Tarkin", password: "hunter2" } });
     const { token } = issued(login.body);

@@ -1,259 +1,162 @@
 <!DOCTYPE html>
 <!--
-  FUMBBL Bot Panel — Team Builder (V1). Served by config-web. Compose a legal BB2025 team
-  from the base rosters on disk (@bb/validator rules engine) → emit fork-loadable team XML →
-  /admin/refresh → attach to an existing fork coach → appears in Create Game.
-  Owner-ruled V1: fixed 1000k baseline, pick-existing coach only, no stars/inducements.
+  Portable Team Builder shell. The interaction language mirrors the Vite
+  TeamBuilderView while keeping this page dependency-free: no Vue, Vite, or
+  Tauri runtime is required. The existing config-web JSON endpoints remain the
+  only integration boundary.
 -->
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>FUMBBL Bot Panel — Team Builder</title>
-<link rel="stylesheet" href="/theme.css" />
-<script src="/theme.js"></script>
-<style>
-  /* Aliased onto the shared --ui-* theme tokens (theme.css) — the whole page flips with the preset. */
-  :root { --bg:var(--ui-secondary); --card:var(--ui-surface); --edge:var(--ui-border); --ink:var(--ui-text); --dim:var(--ui-muted); --accent:var(--ui-primary); --ok:var(--ui-success); --bad:var(--ui-danger); --blue:var(--ui-info); }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif; }
-  header { padding:14px 20px; border-bottom:1px solid var(--edge); display:flex; align-items:center; gap:14px; flex-wrap:wrap; background:var(--ui-surface); position:sticky; top:0; z-index:5; }
-  header h1 { font-size:16px; margin:0; font-weight:600; }
-  .apptabs { display:flex; gap:6px; }
-  .apptab { color:var(--dim); text-decoration:none; font-size:12.5px; padding:5px 12px; border-radius:8px; border:1px solid transparent; }
-  .apptab:hover { color:var(--ink); }
-  .apptab.active { color:var(--ui-text-on-primary); background:var(--accent); font-weight:600; }
-  main { max-width:1080px; margin:0 auto; padding:18px 20px 80px; display:grid; grid-template-columns:1fr 320px; gap:16px; align-items:start; }
-  @media (max-width:820px){ main { grid-template-columns:1fr; } }
-  .card { background:var(--card); border:1px solid var(--edge); border-radius:10px; padding:14px 16px; margin-bottom:16px; }
-  h2 { margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--ui-heading); }
-  .hint { color:var(--dim); font-size:11.5px; margin:2px 0 10px; }
-  label { display:block; font-size:12px; color:var(--dim); margin-bottom:10px; }
-  input, select { width:100%; margin-top:3px; background:var(--ui-surface); color:var(--ink); border:1px solid var(--edge); border-radius:6px; padding:7px 9px; font:inherit; }
-  input[type=number] { width:80px; }
-  button { font:inherit; background:var(--accent); color:var(--ui-text-on-primary); border:0; border-radius:6px; padding:8px 13px; font-weight:600; cursor:pointer; }
-  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--edge); padding:2px 9px; }
-  button:not(.ghost):hover { background:var(--ui-hover); } button.ghost:hover { filter:brightness(1.35); } button:disabled { opacity:.5; cursor:not-allowed; }
-  table { width:100%; border-collapse:collapse; font-size:12.5px; }
-  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--edge); }
-  th { color:var(--dim); font-weight:600; }
-  td.r, th.r { text-align:right; } td.c, th.c { text-align:center; }
-  .count { display:inline-flex; align-items:center; gap:6px; }
-  .count b { min-width:16px; text-align:center; }
-  .pill { display:inline-block; font-size:11px; padding:1px 7px; border-radius:9px; border:1px solid var(--edge); color:var(--dim); }
-  .side { position:sticky; top:70px; }
-  .metric { display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid var(--edge); font-size:13px; }
-  .metric b.over { color:var(--bad); } .metric b.ok { color:var(--ok); }
-  .finding { font-size:12px; padding:6px 8px; border-radius:6px; margin-top:6px; }
-  .finding.err { background:#2a1c1f; border:1px solid var(--bad); color:#ffb3b8; }
-  .finding.warn { background:#2a2612; border:1px solid var(--accent); color:#e6c98a; }
-  .status-line { font-size:12.5px; margin-top:10px; min-height:18px; }
-  .status-line.ok { color:var(--ok); } .status-line.bad { color:var(--bad); }
-  #build-btn { width:100%; margin-top:12px; padding:10px; }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Super FUMBBL — Team Management</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/team-builder.css" />
+  <script src="/theme.js" defer></script>
+  <script src="/team-builder.js" defer></script>
 </head>
 <body>
-<header>
-  <h1>🏆 FUMBBL Bot Panel</h1>
-  <nav class="apptabs">
-    <a class="apptab" href="/tournaments.html">Tournaments</a>
-    <a class="apptab" href="/users.html">Users</a>
-    <a class="apptab active" href="/team-builder.html">Team Builder</a>
-    <a class="apptab" id="fork-admin-link" href="#" target="_blank" rel="noopener">Fork Admin ↗</a>
-  </nav>
-</header>
+  <header class="console-shell">
+    <a class="brand-lockup" href="/control-panel.html" aria-label="Super FUMBBL control panel">
+      <strong>Super FUMBBL</strong>
+      <small>Fantasy Football</small>
+    </a>
+    <span class="environment-stamp">Test environment</span>
+    <nav class="console-tabs" aria-label="Config web sections">
+      <a href="/tournaments.html">Tournaments</a>
+      <a href="/users.html">Users</a>
+      <a class="active" href="/team-builder.html" aria-current="page">Team</a>
+      <a id="fork-admin-link" href="#" target="_blank" rel="noopener">Fork Admin ↗</a>
+    </nav>
+  </header>
 
-<main>
-  <div>
-    <section class="card">
-      <h2>Team</h2>
-      <p class="hint">Compose a legal BB2025 team, then install it on the fork. Budget is a fixed 1000k. Stars &amp; inducements aren't in V1.</p>
-      <label>Race
-        <select id="race"><option value="">Loading rosters…</option></select>
-      </label>
-      <label>Coach <span class="pill">existing fork account</span>
-        <input id="coach" list="coach-list" placeholder="pick a fork coach…" autocomplete="off" />
-        <datalist id="coach-list"></datalist>
-      </label>
-      <label>Team name<input id="team-name" placeholder="e.g. Kalimar's Snotling" /></label>
+  <main class="team-builder-view" aria-labelledby="team-builder-title">
+    <header class="view-header">
+      <div>
+        <h1 id="team-builder-title"><span>T</span>eam <span>M</span>anagement</h1>
+        <p>Coach: <strong id="current-coach-label">Choose an existing fork account below</strong>.</p>
+      </div>
+      <div class="build-key" aria-label="Builder limits">
+        <span><b>BB</b>2025</span>
+        <span>1,000k budget</span>
+        <span>11–16 players</span>
+      </div>
+    </header>
+
+    <aside class="test-environment-notice" role="note" aria-label="Test environment notice">
+      <strong>Test environment</strong>
+      <span>Teams created here are installed on the Super FUMBBL fork and do not alter official FUMBBL teams.</span>
+    </aside>
+
+    <section id="session-panel" class="session-panel" aria-labelledby="session-title">
+      <div class="session-intro">
+        <span class="session-kicker">Fork account</span>
+        <strong id="session-title">Sign in to create your team</strong>
+        <small>Your coach identity is attached to the team and reused for the final server-side authorization check.</small>
+      </div>
+      <form id="login-form" class="session-form">
+        <label>
+          <span>Coach name</span>
+          <input id="login-user" autocomplete="username" placeholder="Fork coach name" />
+        </label>
+        <label>
+          <span>Password</span>
+          <input id="login-password" type="password" autocomplete="current-password" placeholder="Fork password" />
+        </label>
+        <button id="login-button" class="session-button" type="submit">Log In</button>
+        <a id="discord-login" class="session-button secondary" href="/api/auth/discord/start?next=/team-builder.html" hidden>Discord</a>
+      </form>
+      <div id="signed-in-session" class="signed-in-session" hidden>
+        <span class="session-dot" aria-hidden="true"></span>
+        <span>Signed in as <strong id="signed-in-coach"></strong></span>
+        <button id="logout-button" class="session-button secondary" type="button">Log Out</button>
+      </div>
+      <div id="login-message" class="session-message" role="status" aria-live="polite"></div>
     </section>
 
-    <section class="card">
-      <h2>Players <span class="pill" id="player-count">0</span></h2>
-      <div id="positions"><p class="hint">Choose a race to see its positions.</p></div>
-    </section>
+    <section class="builder-panel">
+      <div class="builder-heading">Create Team — Slot Builder</div>
 
-    <section class="card">
-      <h2>Sideline</h2>
-      <label>Re-rolls <span class="pill" id="rr-info"></span>
-        <input id="rerolls" type="number" min="0" value="0" />
-      </label>
-      <label class="c" style="display:flex;align-items:center;gap:8px;">
-        <input id="apo" type="checkbox" style="width:auto;margin:0;" /> Apothecary (50k)
-      </label>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <label>Assistant coaches<input id="asst" type="number" min="0" value="0" /></label>
-        <label>Cheerleaders<input id="cheer" type="number" min="0" value="0" /></label>
-        <label>Dedicated fans<input id="fans" type="number" min="1" value="1" /></label>
+      <div class="form-grid">
+        <label>
+          <span>Ruleset Preset</span>
+          <select id="package"><option value="">Standard 1,000k</option></select>
+        </label>
+        <label>
+          <span>Team Name</span>
+          <input id="team-name" type="text" maxlength="60" placeholder="Name your team" autocomplete="off" />
+        </label>
+        <label>
+          <span>Roster</span>
+          <select id="race"><option value="">Loading rosters…</option></select>
+        </label>
+        <label>
+          <span>Coach</span>
+          <input id="coach" list="coach-list" placeholder="Choose a fork coach" autocomplete="off" />
+          <datalist id="coach-list"></datalist>
+        </label>
+      </div>
+
+      <aside id="package-note" class="package-note" role="note" hidden>
+        <strong id="package-note-title"></strong>
+        <span id="package-note-copy"></span>
+      </aside>
+
+      <div id="builder-status" class="status-copy" role="status" aria-live="polite"></div>
+
+      <div class="builder-layout">
+        <div class="builder-main">
+          <section class="add-players-panel" aria-labelledby="add-players-title">
+            <div class="section-title" id="add-players-title"><span>A</span>dd <span>P</span>layers</div>
+            <div id="name-gate-toast" class="name-gate-toast" role="status" hidden>Name your team before adding players.</div>
+            <div id="positions" class="position-grid">
+              <p class="status-copy">Choose a roster to see its positions.</p>
+            </div>
+          </section>
+
+          <section class="roster-section" aria-labelledby="roster-slots-title">
+            <div class="section-title" id="roster-slots-title">
+              <span>R</span>oster <span>S</span>lots <small id="player-count">0 / 16</small>
+            </div>
+            <div class="roster-scroll">
+              <div class="roster-header roster-grid" aria-hidden="true">
+                <span>#</span><span>Player</span><span>Stats</span><span>Skills &amp; Traits</span><span>Cost</span><span></span>
+              </div>
+              <div id="roster-slots" class="roster-slots">
+                <div class="roster-empty">Add a player from a position card above.</div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="right-rail">
+          <section class="value-card" id="value-card">
+            <div class="section-title"><span>T</span>eam <span>V</span>alue<span id="refresh-dot" class="refresh-dot" hidden></span></div>
+            <div class="value-line"><span>Players</span><strong id="m-players">0</strong></div>
+            <div class="value-line"><span>Staff</span><strong id="m-staff">0k</strong></div>
+            <div class="value-line"><span>Skills</span><strong>0k</strong></div>
+            <div class="value-line total"><span>Total</span><strong id="m-gold">0k</strong></div>
+            <div class="budget-line"><span>Available team budget</span><strong id="m-budget">1,000k</strong></div>
+          </section>
+
+          <section id="validity-card" class="live-card validity-card" hidden aria-live="polite">
+            <div id="validity-headline" class="validity-headline"></div>
+            <div id="findings"></div>
+          </section>
+
+          <form class="live-card submit-card" id="build-form">
+            <button class="create-button" id="build-btn" type="submit" disabled>Create Team</button>
+          </form>
+
+          <section id="build-result" class="result-banner" hidden role="status" aria-live="polite"></section>
+
+          <section class="rail-section staff-section" aria-labelledby="staff-title">
+            <div class="section-title" id="staff-title"><span>S</span>ideline <span>S</span>taff</div>
+            <div id="staff-controls"></div>
+          </section>
+        </aside>
       </div>
     </section>
-  </div>
-
-  <div class="side">
-    <section class="card">
-      <h2>Summary</h2>
-      <div class="metric"><span>Players</span><b id="m-players">0</b></div>
-      <div class="metric"><span>Gold used</span><b id="m-gold">0k</b></div>
-      <div class="metric"><span>Budget</span><b>1000k</b></div>
-      <div id="findings"></div>
-      <button id="build-btn" disabled>Build &amp; install</button>
-      <div class="status-line" id="build-status"></div>
-    </section>
-  </div>
-</main>
-
-<script>
-const $ = (id) => document.getElementById(id);
-$("fork-admin-link").href = "http://" + (location.hostname || "127.0.0.1") + ":22227/panel.html";
-
-async function api(path, opts) {
-  const res = await fetch(path, opts);
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(body.error || `HTTP ${res.status}`), { body });
-  return body;
-}
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
-const kk = (g) => (g / 1000) + "k";
-
-let rosters = [];        // [{rosterId, raceName, reRollCost, maxReRolls, apothecaryAllowed, positions:[...]}]
-let current = null;      // selected roster
-const counts = new Map(); // positionId -> count
-
-async function boot() {
-  try {
-    const [{ rosters: r }, { users }] = await Promise.all([
-      api("/api/fork/rosters"),
-      api("/api/fork/users").catch(() => ({ users: [] })),
-    ]);
-    rosters = r;
-    $("race").innerHTML = '<option value="">— choose a race —</option>' +
-      rosters.map((x) => `<option value="${esc(x.rosterId)}">${esc(x.raceName)}</option>`).join("");
-    $("coach-list").innerHTML = (users || []).map((u) => `<option value="${esc(u.fumbblName)}"></option>`).join("");
-    if (!rosters.length) $("race").innerHTML = '<option value="">No base rosters installed on the fork</option>';
-  } catch (e) {
-    $("race").innerHTML = `<option value="">Failed to load: ${esc(e.message)}</option>`;
-  }
-}
-
-$("race").onchange = () => {
-  current = rosters.find((x) => x.rosterId === $("race").value) || null;
-  counts.clear();
-  $("team-name").value = $("team-name").value || (current ? current.raceName + " team" : "");
-  renderPositions();
-  if (current) {
-    $("rr-info").textContent = `${kk(current.reRollCost)} each · max ${current.maxReRolls}`;
-    $("apo").disabled = !current.apothecaryAllowed;
-  }
-  schedulePreview();
-};
-
-function renderPositions() {
-  if (!current) { $("positions").innerHTML = '<p class="hint">Choose a race to see its positions.</p>'; return; }
-  $("positions").innerHTML =
-    '<table><thead><tr><th>Position</th><th class="r">Cost</th><th class="c">Max</th><th class="c">MA/ST/AG/PA/AV</th><th class="c">Count</th></tr></thead><tbody>' +
-    [...current.positions].sort((a, b) => b.cost - a.cost).map((p) => {
-      const n = counts.get(p.positionId) || 0;
-      return `<tr>
-        <td>${esc(p.name)}</td>
-        <td class="r">${kk(p.cost)}</td>
-        <td class="c">${p.max}</td>
-        <td class="c mono">${p.MA}/${p.ST}/${esc(p.AG)}/${esc(p.PA)}/${esc(p.AV)}</td>
-        <td class="c"><span class="count">
-          <button class="ghost" onclick="bump('${esc(p.positionId)}',-1)">−</button>
-          <b id="n-${esc(p.positionId)}">${n}</b>
-          <button class="ghost" onclick="bump('${esc(p.positionId)}',1,${p.max})">+</button>
-        </span></td></tr>`;
-    }).join("") + "</tbody></table>";
-}
-
-function bump(positionId, delta, max) {
-  const total = [...counts.values()].reduce((a, b) => a + b, 0);
-  let n = (counts.get(positionId) || 0) + delta;
-  if (n < 0) n = 0;
-  if (delta > 0 && max != null && n > max) return;      // per-position cap
-  if (delta > 0 && total >= 16) return;                 // team size cap
-  counts.set(positionId, n);
-  const el = $("n-" + positionId); if (el) el.textContent = n;
-  schedulePreview();
-}
-window.bump = bump;
-
-function picks() {
-  return [...counts.entries()].filter(([, n]) => n > 0).map(([positionId, count]) => ({ positionId, count }));
-}
-function body() {
-  return {
-    rosterId: current?.rosterId,
-    coach: $("coach").value.trim(),
-    teamName: $("team-name").value.trim(),
-    picks: picks(),
-    reRolls: Number($("rerolls").value) || 0,
-    apothecary: $("apo").checked,
-    assistantCoaches: Number($("asst").value) || 0,
-    cheerleaders: Number($("cheer").value) || 0,
-    dedicatedFans: Number($("fans").value) || 1,
-  };
-}
-
-let previewTimer = null;
-function schedulePreview() { clearTimeout(previewTimer); previewTimer = setTimeout(preview, 250); }
-["rerolls","apo","asst","cheer","fans"].forEach((id) => $(id).addEventListener("change", schedulePreview));
-
-async function preview() {
-  const p = picks();
-  const total = p.reduce((a, b) => a + b.count, 0);
-  $("player-count").textContent = total;
-  $("m-players").textContent = total;
-  if (!current || total === 0) {
-    $("m-gold").textContent = "0k"; $("findings").innerHTML = ""; $("build-btn").disabled = true; return;
-  }
-  try {
-    const r = await api("/api/fork/team-builder/preview", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body()),
-    });
-    const gold = r.summary?.goldUsed ?? 0;
-    const over = r.summary?.goldBudget != null && gold > r.summary.goldBudget;
-    $("m-gold").innerHTML = `<b class="${over ? "over" : "ok"}">${kk(gold)}</b>`;
-    const findings = [...(r.errors || []).map((f) => ["err", f]), ...(r.warnings || []).map((f) => ["warn", f])];
-    $("findings").innerHTML = findings.length
-      ? findings.map(([k, f]) => `<div class="finding ${k}">${esc(f.message)}${f.suggestion ? " — " + esc(f.suggestion) : ""}</div>`).join("")
-      : '<div class="finding" style="color:var(--ok);border:1px solid #1c5;">Legal team ✓</div>';
-    const ready = r.valid && $("coach").value.trim() && $("team-name").value.trim();
-    $("build-btn").disabled = !ready;
-  } catch (e) {
-    $("findings").innerHTML = `<div class="finding err">${esc(e.message)}</div>`;
-    $("build-btn").disabled = true;
-  }
-}
-
-$("build-btn").onclick = async () => {
-  $("build-btn").disabled = true;
-  const s = $("build-status"); s.textContent = "Building…"; s.className = "status-line";
-  try {
-    const r = await api("/api/fork/team-builder/build", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body()),
-    });
-    s.textContent = `Installed ${r.teamId} ✓ — reloaded, ready in Create Game.`;
-    s.className = "status-line ok";
-  } catch (e) {
-    s.textContent = "Build failed: " + e.message;
-    s.className = "status-line bad";
-    $("build-btn").disabled = false;
-  }
-};
-
-["coach","team-name"].forEach((id) => $(id).addEventListener("input", () => { if (current && picks().length) schedulePreview(); }));
-boot();
-</script>
+  </main>
 </body>
 </html>

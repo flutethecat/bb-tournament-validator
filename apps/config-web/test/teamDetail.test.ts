@@ -329,4 +329,26 @@ describe("§3E schema widening", () => {
       { name: "Broken Arm (-PA)", recovering: true },
     ]);
   });
+
+  it("resolves a base BB2025 roster by its <roster id> when the team names it as <race>.bb2025 (owner 09-20)", () => {
+    const d = dirs();
+    upsertLibraryTeam(d.libraryDir, "Tarkin", STORED_TEAM);
+    const teamXml = readFileSync(join(FIXTURES, "team-detail.xml"), "utf8").replace("<rosterId>8604</rosterId>", "<rosterId>blackorc.bb2025</rosterId>");
+    writeFileSync(join(d.teamsDir, "team_Tarkin_1272390.xml"), teamXml);
+    const rostersDir = join(d.root, "rosters");
+    mkdirSync(rostersDir);
+    const rosterXml = readFileSync(join(FIXTURES, "roster-team-detail.xml"), "utf8").replace(/<roster\b[^>]*>/, '<roster id="blackorc.bb2025">');
+    writeFileSync(join(rostersDir, "roster_blackorc.xml"), rosterXml); // the on-disk name never carries the .bb2025 suffix
+
+    const result = teamDetailEndpoint({ coach: "Tarkin", organizer: false }, "1272390", d);
+    expect(result.status).toBe(200);
+    if (result.status !== 200) throw new Error(result.body.error);
+    const players = result.body.team.players;
+    expect(players.length).toBeGreaterThan(0);
+    for (const player of players) {
+      expect(player.position).toBeTruthy();
+      expect(player.movement).not.toBeNull();
+      expect(player.armour).not.toBeNull();
+    }
+  });
 });

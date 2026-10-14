@@ -20,8 +20,7 @@ import {
   findRoster,
   loadPackage,
   renderArtPrompt,
-  renderRulesPage,
-  renderRulesPageNotFound,
+  renderPackageHtml,
   rosterOptions,
   rosterOptionsIntrinsic,
   skillAccess,
@@ -133,6 +132,7 @@ import { builtLibraryTeam, registerBuiltTeam, resolveTeamBuilderBuildTarget, ret
 import { teamBuilderInducementCatalog } from "./teamBuilderInducements.js";
 import { teamBuilderTierCatalog } from "./teamBuilderTiers.js";
 import { corsDecision, parseAllowedOrigins } from "./cors.js";
+import { createTranslateHandler } from "./translate/route.js";
 import { teamEditingError } from "./customGate.js";
 import { forkGamesEndpoint } from "./forkGames.js";
 import {
@@ -163,9 +163,11 @@ import {
   BodyTooLargeError,
   bugReportAccessError,
   getBugReport,
+  getBugReportScreenshot,
   listBugReports,
   readJsonCapped,
   submitBugReport,
+  updateBugReportTriage,
 } from "./bugReports.js";
 import {
   TournamentMatchAccessError,
@@ -290,7 +292,12 @@ const PUBLIC_PATHS = new Set([
   "/api/bug-reports",
   "/api/tournaments",
   "/api/fork/tournaments",
+  // Chat auto-translate relay (owner 10-12): the public desktop client holds no provider key, so it
+  // calls here. Guarded in-handler by size limits + per-IP/per-coach rate limits (src/translate/).
+  "/api/translate",
+  "/api/translate/languages",
 ]);
+const translateHandler = createTranslateHandler();
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = resolve(HERE, "../public");
@@ -576,7 +583,6 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   if (tournamentInstructionsGameId(pathname)) return true;
   if (tournamentResultGameId(pathname)) return true;
   if (pathname.startsWith("/api/packages/")) return true;
-  if ((req.method === "GET" || req.method === "HEAD") && pathname.startsWith("/rules/")) return true;
   if (
     (req.method === "GET" || req.method === "HEAD") &&
     (/^\/api\/(?:fork\/)?tournaments\/[^/]+$/.test(pathname) || /^\/api\/(?:fork\/)?tournaments\/[^/]+\/standings$/.test(pathname))
@@ -609,6 +615,9 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
         pathname === "/admin.js" ||
         pathname === "/tournaments.html" ||
         pathname === "/tournaments.js" ||
+        pathname === "/team-builder.html" ||
+        pathname === "/team-builder.css" ||
+        pathname === "/team-builder.js" ||
         pathname.startsWith("/assets/"))
     )
       return true;
@@ -1396,9 +1405,9 @@ async function handleApi(
     const body = (await readBody(req)) as Partial<TournamentPackage>;
     if (!body || typeof body.name !== "string" || !body.name.trim())
       return sendJson(res, 400, { error: "A package name is required." });
-    const { pkg, problems } = loadPackage(body);
+    const { pkg } = loadPackage(body);
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(renderRulesPage(pkg, { problems, generatedAt: new Date() }));
+    res.end(renderPackageHtml(pkg));
     return;
   }
 
@@ -2238,8 +2247,8 @@ async function handleApi(
   if (path === "/api/bug-reports" && method === "POST") {
     let body: unknown;
     try {
-      // Route-specific 15MB cap, enforced while reading (readBody has no cap; this route
-      // carries multi-MB logs, so it gets its own guarded reader — others are untouched).
+      // Route-specific cap, enforced while reading (readBody has no cap; this route carries
+      // multi-MB logs plus an optional screenshot, so it gets its own guarded reader).
       body = await readJsonCapped(req, BUG_REPORT_BODY_CAP);
     } catch (e) {
       if (e instanceof BodyTooLargeError) return sendJson(res, 413, { error: e.message });
@@ -2261,9 +2270,31 @@ async function handleApi(
     const gateError = bugReportAccessError({ organizer: auth?.organizer === true, adminAuthed: isAdminAuthed(req) || isTokenAuthed(req) });
     if (gateError) return sendJson(res, 403, { error: gateError });
     if (path === "/api/bug-reports") return sendJson(res, 200, { reports: listBugReports(BUG_REPORTS_DIR) });
-    const report = getBugReport(BUG_REPORTS_DIR, decodeURIComponent(path.slice("/api/bug-reports/".length)));
+    const suffix = decodeURIComponent(path.slice("/api/bug-reports/".length));
+    if (suffix.endsWith("/screenshot")) {
+      const screenshot = getBugReportScreenshot(BUG_REPORTS_DIR, suffix.slice(0, -"/screenshot".length));
+      if (!screenshot) return sendJson(res, 404, { error: "Report screenshot not found." });
+      return sendJson(res, 200, screenshot);
+    }
+    const report = getBugReport(BUG_REPORTS_DIR, suffix);
     if (!report) return sendJson(res, 404, { error: "Bug report not found." });
     return sendJson(res, 200, { report });
+  }
+
+  if (path.startsWith("/api/bug-reports/") && method === "PATCH") {
+    const gateError = bugReportAccessError({ organizer: auth?.organizer === true, adminAuthed: isAdminAuthed(req) || isTokenAuthed(req) });
+    if (gateError) return sendJson(res, 403, { error: gateError });
+    let body: unknown;
+    try {
+      body = await readJsonCapped(req, 32 * 1024);
+    } catch (e) {
+      if (e instanceof BodyTooLargeError) return sendJson(res, 413, { error: e.message });
+      return sendJson(res, 400, { error: "Invalid JSON request body." });
+    }
+    const id = decodeURIComponent(path.slice("/api/bug-reports/".length));
+    const actor = auth?.coach ?? (isTokenAuthed(req) ? "admin-token" : "admin");
+    const result = updateBugReportTriage(BUG_REPORTS_DIR, id, body, actor);
+    return sendJson(res, result.status, result.body);
   }
 
   // Build: re-validate SERVER-SIDE (never trust the client), then write team XML + hot-reload.
@@ -2667,7 +2698,8 @@ export const server = createServer((req, res) => {
         res.setHeader("access-control-allow-origin", cors.origin);
         res.setHeader("vary", "origin");
         res.setHeader("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS");
-        res.setHeader("access-control-allow-headers", "content-type,authorization,x-cw-auth");
+        res.setHeader("access-control-allow-headers", "content-type,authorization,x-cw-auth,x-super-fumbbl-coach");
+        res.setHeader("access-control-expose-headers", "retry-after");
       } else if (cors.kind === "denied" && url.pathname.startsWith("/api/")) {
         if (req.method === "OPTIONS") {
           res.writeHead(403).end();
@@ -2680,6 +2712,8 @@ export const server = createServer((req, res) => {
         res.writeHead(204).end();
         return;
       }
+      // Chat translate relay: public in both deployment modes, dispatched before the auth sidecar.
+      if (await translateHandler(req, res, url.pathname)) return;
       // Name availability is a public, read-only POST like /api/fork/name-available. Dispatch it
       // before the optional auth sidecar so both deployment modes expose the same posture.
       if (req.method === "POST" && url.pathname === "/api/team/checkName") {
@@ -2692,30 +2726,6 @@ export const server = createServer((req, res) => {
       if ((req.method === "POST" || req.method === "GET") && nameGeneratePath(url.pathname)) {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
-      const rulesMatch = url.pathname.match(/^\/rules\/(.+)$/);
-      if (rulesMatch) {
-        const method = req.method ?? "GET";
-        if (method !== "GET" && method !== "HEAD") {
-          res.writeHead(405, { allow: "GET, HEAD", "cache-control": "no-cache" }).end("method not allowed");
-          return;
-        }
-        let packageId = rulesMatch[1]!;
-        try { packageId = decodeURIComponent(packageId); } catch { /* Treat malformed escapes as an unknown id. */ }
-        const found = packages.get(packageId);
-        const html = found
-          ? renderRulesPage(found.pkg, {
-              roster: url.searchParams.get("roster") ?? undefined,
-              problems: found.problems,
-              generatedAt: new Date(),
-            })
-          : renderRulesPageNotFound(packageId);
-        res.writeHead(found ? 200 : 404, {
-          "content-type": "text/html; charset=utf-8",
-          "cache-control": "no-cache",
-        });
-        res.end(method === "HEAD" ? undefined : html);
-        return;
-      }
       if (
         (req.method === "GET" || req.method === "HEAD") &&
         (url.pathname === "/" ||
@@ -2723,7 +2733,6 @@ export const server = createServer((req, res) => {
           url.pathname === "/control-panel.html" ||
           url.pathname === "/theme.css" ||
           url.pathname === "/theme.js" ||
-          url.pathname === "/rules-page.css" ||
           url.pathname === "/tournament-rules.css" ||
           url.pathname === "/tournaments.html" ||
           url.pathname === "/tournaments.js")

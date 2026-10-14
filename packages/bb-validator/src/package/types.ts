@@ -61,8 +61,9 @@ export interface SkillAllotment {
   secondaryMultiplier: number; // default 2
   secondaryCostSP?: number | null; // default null
   eliteSurchargeSP: number; // default 0.5 (owner SP-model ruling 08-27: +0.5 elite surcharge)
-  /** Extra SP charged for each added skill beyond a player's FIRST (NAF: +2). Default 0. */
-  stackSurchargeSP?: number;
+  /** Extra SP for each added skill beyond a player's FIRST (NAF World Cup: +2 → 2nd primary 8, 2nd secondary 12).
+   *  Flat per extra skill, so pick order does not matter. Default 0. Owner 09-09. */
+  stackSurchargeSP: number;
   /** Effective Elite set; defaults to the rulebook-Elite skills. */
   eliteSkills: string[]; // default ["Block","Guard","Mighty Blow","Dodge"]
   /** Per-skill overrides — highest precedence. Loadable from CSV. */
@@ -75,8 +76,6 @@ export interface SkillAllotment {
   primaryCostGold?: number; // default 20000
   secondaryCostGold?: number; // default 40000
   eliteSurchargeGold?: number; // default 10000
-  /** Gold twin, parallel to primaryCostGold etc. Default 0. */
-  stackSurchargeGold?: number;
   /** Per-skill gold overrides — highest precedence, mirrors skillCostSP. */
   skillCostGold?: Record<string, number>; // default {}
   maxPerPlayer: number | null; // default 2
@@ -200,12 +199,6 @@ export interface TournamentPackage {
      * tier. When set, the star's SP cost counts against the tier's SP package.
      */
     spCostByTier?: Record<string, (number | null)[]>;
-    /**
-     * SPP tax on the skill budget by COMBINED star gold. Brackets are ascending and inclusive
-     * of `upToGold`; the last bracket uses `upToGold: null` (open-ended). Applies only when the
-     * roster has at least one Star Player. Mutually exclusive with spCostByTier (Spike! model).
-     */
-    spTaxByCombinedCost?: { upToGold: number | null; sp: number }[];
     /** When true, a star's gold cost is NOT counted against the gold budget (paid in SP instead). */
     paidInSkillPoints?: boolean;
   };
@@ -213,12 +206,6 @@ export interface TournamentPackage {
     /** Inducement ids, ["*"] for all, [] for none. */
     allowed: string[];
     caps: Record<string, number>;
-    /** Conditional caps, applied on top of `caps` (lowest wins) when the condition holds. */
-    capOverrides?: {
-      when: { starHasSkill: string };
-      caps: Record<string, number>;
-      note?: string;
-    }[];
   };
   sideline: {
     maxReRolls: number | null;

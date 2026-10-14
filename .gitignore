@@ -10,3 +10,8 @@ coverage/
 # apps/config-web/identities.example.json.
 apps/config-web/identities.json
 apps/config-web/bug-reports/
+
+# runtime logs + caches (never commit)
+*.log
+*.out
+__pycache__/

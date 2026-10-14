@@ -1,5 +1,5 @@
 {
- "_about": "BB2025 rosters generated from FUMBBL ruleset 3906 (see scripts/generate_dataset.py). Category codes G/A/S/P/M/D -> General/Agility/Strength/Passing/Mutation/Devious.",
+ "_about": "BB2025 rosters generated from FUMBBL ruleset 3906 (see scripts/generate_dataset.py). Category codes G/A/S/P/M/D -> General/Agility/Strength/Passing/Mutation/Devious. Slann = FUMBBL roster 9179 ('Slann 2025', NAF World Cup 2027 Slann) added 2026-09-09 via EXTRA_ROSTERS.",
  "rosters": [
   {
    "id": "amazon",
@@ -4279,6 +4279,138 @@
      "keywords": [
       "Big Guy",
       "Skaven"
+     ]
+    }
+   ],
+   "starPlayers": []
+  },
+  {
+   "id": "slann",
+   "name": "Slann",
+   "ruleset": "bb2025",
+   "tier": 2,
+   "specialRules": [
+    "Lustrian Superleague"
+   ],
+   "reRollCost": 50000,
+   "maxReRolls": 8,
+   "apothecaryAllowed": true,
+   "maxBigGuys": 1,
+   "positions": [
+    {
+     "id": "slann.kroxigor",
+     "name": "Kroxigor",
+     "type": "bigguy",
+     "max": 1,
+     "cost": 140000,
+     "MA": 6,
+     "ST": 5,
+     "AG": "5+",
+     "PA": "6+",
+     "AV": "10+",
+     "skills": [
+      "Prehensile Tail",
+      "Mighty Blow",
+      "Thick Skull",
+      "Bone Head",
+      "Loner"
+     ],
+     "primaryCategories": [
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "keywords": [
+      "Big Guy",
+      "Lizardman"
+     ]
+    },
+    {
+     "id": "slann.blitzer",
+     "name": "Blitzer",
+     "type": "blitzer",
+     "max": 2,
+     "cost": 100000,
+     "MA": 7,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Diving Tackle",
+      "Jump Up",
+      "Pogo",
+      "Hit and Run"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility",
+      "Strength"
+     ],
+     "secondaryCategories": [
+      "Passing"
+     ],
+     "keywords": [
+      "Blitzer",
+      "Lizardman"
+     ]
+    },
+    {
+     "id": "slann.catcher",
+     "name": "Catcher",
+     "type": "catcher",
+     "max": 2,
+     "cost": 80000,
+     "MA": 7,
+     "ST": 2,
+     "AG": "2+",
+     "PA": "3+",
+     "AV": "8+",
+     "skills": [
+      "Diving Catch",
+      "Very Long Legs",
+      "On the Ball",
+      "Pogo"
+     ],
+     "primaryCategories": [
+      "General",
+      "Agility"
+     ],
+     "secondaryCategories": [
+      "Strength",
+      "Passing"
+     ],
+     "keywords": [
+      "Catcher",
+      "Lizardman"
+     ]
+    },
+    {
+     "id": "slann.lineman",
+     "name": "Lineman",
+     "type": "lineman",
+     "max": 16,
+     "cost": 60000,
+     "MA": 6,
+     "ST": 3,
+     "AG": "3+",
+     "PA": "4+",
+     "AV": "9+",
+     "skills": [
+      "Pogo"
+     ],
+     "primaryCategories": [
+      "General"
+     ],
+     "secondaryCategories": [
+      "Agility",
+      "Strength"
+     ],
+     "keywords": [
+      "Lineman",
+      "Lizardman"
      ]
     }
    ],
