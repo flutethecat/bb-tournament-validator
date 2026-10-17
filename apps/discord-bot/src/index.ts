@@ -1002,4 +1002,14 @@ async function pollBugReportsLogged(): Promise<void> {
   }
 }
 
-void client.login(TOKEN);
+// Owner 10-16: the bot died on 10-15 16:35 with an UNHANDLED 'error' from the gateway WebSocket (handshake timed out)
+// and stayed down for a day (five bug-report cards went unannounced). discord.js reconnects by itself as long as the
+// error is observed: log every client / shard error, and never let a stray rejection or exception end the process.
+client.on("error", (e) => console.error("discord client error:", (e as Error).message ?? e));
+client.on("shardError", (e, shardId) => console.error(`discord shard ${shardId} error:`, (e as Error).message ?? e));
+client.on("shardDisconnect", (event, shardId) => console.warn(`discord shard ${shardId} disconnected (${event.code}); reconnecting`));
+client.on("shardReconnecting", (shardId) => console.warn(`discord shard ${shardId} reconnecting`));
+client.on("shardResume", (shardId) => console.log(`discord shard ${shardId} resumed`));
+process.on("unhandledRejection", (e) => console.error("unhandled rejection:", (e as Error)?.message ?? e));
+process.on("uncaughtException", (e) => console.error("uncaught exception (kept running):", e?.message ?? e));
+void client.login(TOKEN).catch((e) => { console.error("login failed:", (e as Error).message ?? e); process.exit(1); });
