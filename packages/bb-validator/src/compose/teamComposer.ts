@@ -50,11 +50,25 @@ export interface ForkRosterPosition {
   PA?: number;
   AV?: number;
   skills?: string[];
+  /** Printed skills WITH their XML parameter, e.g. "Hatred (Undead)", "Loner (4+)". */
+  skillsDisplay?: string[];
+  /** `<keywords><keyword>` as the XML prints them (lower-case on base rosters). */
+  keywords?: string[];
+  /** Paired-star partner (`<teamWithPositionId>`), e.g. Grak ↔ Crumbleberry. */
+  teamWithPositionId?: string;
   /** Upstream FUMBBL image reference, e.g. `i/643472`. */
   urlPortrait?: string;
   /** Upstream FUMBBL sprite-sheet reference, e.g. `i/643392.png`. */
   urlIconSet?: string;
 }
+
+/** "Hatred" + value "undead" → "Hatred (Undead)"; numeric values are rolls: "Loner (4+)". */
+const skillWithValue = (name: string, value: string | undefined): string => {
+  const v = value?.trim();
+  if (!v) return name;
+  if (/^\d+$/.test(v)) return `${name} (${v}+)`;
+  return `${name} (${v.charAt(0).toUpperCase()}${v.slice(1)})`;
+};
 
 export interface ForkRoster {
   /** The <roster id> attr, e.g. "snotling.bb2025" — the team XML's <rosterId> + RosterCache key. */
@@ -252,7 +266,12 @@ export function parseForkRoster(xml: string): ForkRoster {
     const type = strTag(block, "type") ?? "Regular";
     // Skills live in <skillList><skill [value="n"]>Name</skill>…</skillList>.
     const skillList = block.match(/<skillList>([\s\S]*?)<\/skillList>/i)?.[1] ?? "";
-    const skills = [...skillList.matchAll(/<skill\b[^>]*>([^<]+)<\/skill>/gi)].map((m) => m[1]!.trim());
+    const skillMatches = [...skillList.matchAll(/<skill\b([^>]*)>([^<]+)<\/skill>/gi)];
+    const skills = skillMatches.map((m) => m[2]!.trim());
+    const skillsDisplay = skillMatches.map((m) => skillWithValue(m[2]!.trim(), /\bvalue="([^"]*)"/i.exec(m[1]!)?.[1]));
+    const keywordList = block.match(/<keywords>([\s\S]*?)<\/keywords>/i)?.[1] ?? "";
+    const keywords = [...keywordList.matchAll(/<keyword>([^<]+)<\/keyword>/gi)].map((m) => m[1]!.trim());
+    const teamWithPositionId = strTag(block, "teamWithPositionId") || undefined;
     positions.push({
       positionId,
       name: strTag(block, "name") ?? "",
@@ -268,6 +287,9 @@ export function parseForkRoster(xml: string): ForkRoster {
       PA: numTag(block, "passing"),
       AV: numTag(block, "armour"),
       skills,
+      skillsDisplay,
+      keywords,
+      ...(teamWithPositionId ? { teamWithPositionId } : {}),
       urlPortrait: strTag(block, "portrait"),
       urlIconSet: strTagWithAttributes(block, "iconSet"),
     });
@@ -298,6 +320,13 @@ export interface RosterOption {
   PA: string;
   AV: string;
   skills: string[];
+  /** Printed skills with parameters as the roster XML has them ("Hatred (Undead)", "Loner (4+)");
+   *  falls back to `skills` when the XML prints none. Display only — `skills` stays the match key. */
+  skillsDisplay: string[];
+  /** Position keywords (dataset, e.g. ["Dwarf","Blitzer"]; XML keywords for Stars / SL rosters). */
+  keywords: string[];
+  /** Paired-star partner positionId (`<teamWithPositionId>`), when the XML has one. */
+  teamWithPositionId?: string;
   /** Present only for roster-intrinsic Star players. */
   isStar?: boolean;
   /** Star-player league affiliations; present on every `isStar` position. */
@@ -316,6 +345,8 @@ export interface RosterOptions {
   apothecaryAllowed: boolean;
   /** De-truncated pick-one league affiliations used for star eligibility. */
   leagueOptions: string[];
+  /** Always-on roster special rules (e.g. Dwarf: Brawlin' Brutes, Bribery and Corruption), separate from leagueOptions. */
+  specialRules: string[];
   positions: RosterOption[];
   positionGroups?: Array<{ positions: string[]; max: number; label: string }>;
 }
@@ -347,6 +378,9 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
         PA: plus(p.PA),
         AV: plus(p.AV),
         skills: [...(p.skills ?? [])],
+        skillsDisplay: p.skillsDisplay?.length ? [...p.skillsDisplay] : [...(p.skills ?? [])],
+        keywords: [...(p.keywords ?? [])],
+        ...(p.teamWithPositionId ? { teamWithPositionId: p.teamWithPositionId } : {}),
         isStar: true,
         playsFor: [...(star?.playsFor ?? [])],
         urlPortrait: p.urlPortrait,
@@ -368,6 +402,9 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
       PA: ds.PA,
       AV: ds.AV,
       skills: [...ds.skills],
+      skillsDisplay: p.skillsDisplay?.length ? [...p.skillsDisplay] : [...ds.skills],
+      keywords: [...ds.keywords],
+      ...(p.teamWithPositionId ? { teamWithPositionId: p.teamWithPositionId } : {}),
       urlPortrait: p.urlPortrait,
       urlIconSet: p.urlIconSet,
     });
@@ -388,6 +425,7 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
     maxReRolls: fork.maxReRolls,
     apothecaryAllowed: fork.apothecaryAllowed,
     leagueOptions: dsRoster ? leagueMenuForRoster(dsRoster).leagueOptions : [],
+    specialRules: dsRoster ? [...leagueMenuForRoster(dsRoster).alwaysOn] : [],
     positions,
     ...(positionGroups ? { positionGroups } : {}),
   };
@@ -415,6 +453,9 @@ export function rosterOptionsIntrinsic(forkRosterXml: string, data?: Dataset): R
     PA: plus(p.PA),
     AV: p.AV != null ? `${p.AV}+` : "-",
     skills: p.skills ?? [],
+    skillsDisplay: p.skillsDisplay?.length ? [...p.skillsDisplay] : [...(p.skills ?? [])],
+    keywords: [...(p.keywords ?? [])],
+    ...(p.teamWithPositionId ? { teamWithPositionId: p.teamWithPositionId } : {}),
     ...(p.isStar
       ? { isStar: true as const, playsFor: [...(data ? findStar(data, p.name)?.playsFor ?? [] : [])] }
       : {}),
@@ -428,6 +469,7 @@ export function rosterOptionsIntrinsic(forkRosterXml: string, data?: Dataset): R
     maxReRolls: fork.maxReRolls,
     apothecaryAllowed: fork.apothecaryAllowed,
     leagueOptions: [],
+    specialRules: [...(forkRosterXml.split(/<position\b/i)[0] ?? "").matchAll(/<rule>([^<]+)<\/rule>/gi)].map((m) => m[1]!.trim()),
     positions,
   };
 }
