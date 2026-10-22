@@ -26,6 +26,15 @@ export function teamBuilderWireError(body: unknown): string | null {
   if (Array.isArray(picks)) {
     for (const pick of picks) {
       if (!pick || typeof pick !== "object" || Array.isArray(pick)) continue; // composer reports bad picks
+      const stats = (pick as Record<string, unknown>).chosenStats;
+      if (stats !== undefined) {
+        if (!stats || typeof stats !== "object" || Array.isArray(stats)) return "chosenStats must be an object when supplied.";
+        for (const [k, v] of Object.entries(stats as Record<string, unknown>)) {
+          if (!STAT_INCREASE_KEYS.has(k)) return "chosenStats keys must be MA, ST, AG, PA or AV.";
+          if (v !== undefined && (typeof v !== "number" || !Number.isSafeInteger(v) || v < 0 || v > 20))
+            return `chosenStats.${k} must be an integer between 0 and 20.`;
+        }
+      }
       const incs = (pick as Record<string, unknown>).chosenStatIncreases;
       if (incs === undefined) continue;
       if (!Array.isArray(incs)) return "chosenStatIncreases must be an array when supplied.";
@@ -33,6 +42,7 @@ export function teamBuilderWireError(body: unknown): string | null {
       for (const k of incs)
         if (typeof k !== "string" || !STAT_INCREASE_KEYS.has(k))
           return "each chosenStatIncreases entry must be one of MA, ST, AG, PA, AV.";
+      if (new Set(incs).size !== incs.length) return "chosenStatIncreases may not repeat a characteristic.";
     }
   }
   // The shipped client TeamBuilderView sends this list as `inducements`; accept both names.

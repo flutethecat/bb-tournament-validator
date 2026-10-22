@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   composeTeam,
+  MAX_STAT_STEPS,
+  statIncreasesOf,
   findRoster,
   findStar,
   loadPackage,
@@ -312,5 +314,44 @@ describe("Small Gods package", () => {
     expect(teamBuilderWireError({ picks: [{ positionId: "1", count: 1, chosenStatIncreases: ["WS"] }] })).toBe(
       "each chosenStatIncreases entry must be one of MA, ST, AG, PA, AV.",
     );
+  });
+});
+
+describe("stat-increase hardening (review 10-22)", () => {
+  it("rejects non-finite / out-of-range chosenStats and repeated increases on the wire", () => {
+    const pick = (extra: Record<string, unknown>) => ({ picks: [{ positionId: "1", count: 1, ...extra }] });
+    expect(teamBuilderWireError(pick({ chosenStats: { MA: Number.POSITIVE_INFINITY } }))).toBe("chosenStats.MA must be an integer between 0 and 20.");
+    expect(teamBuilderWireError(JSON.parse('{"picks":[{"positionId":"1","count":1,"chosenStats":{"MA":1e309}}]}'))).toMatch(/between 0 and 20/);
+    expect(teamBuilderWireError(pick({ chosenStats: { MA: 1.5 } }))).toMatch(/between 0 and 20/);
+    expect(teamBuilderWireError(pick({ chosenStats: { XX: 3 } }))).toBe("chosenStats keys must be MA, ST, AG, PA or AV.");
+    expect(teamBuilderWireError(pick({ chosenStats: { MA: 7 } }))).toBeNull();
+    expect(teamBuilderWireError(pick({ chosenStatIncreases: ["AV", "AV"] }))).toBe("chosenStatIncreases may not repeat a characteristic.");
+  });
+
+  it("bounds the stat-diff loop even for an Infinity characteristic", () => {
+    const dsPos = findRoster(bb2025, "Dwarf")!.positions[0]!;
+    const player = { number: 1, positionName: dsPos.name, MA: Number.POSITIVE_INFINITY, ST: dsPos.ST, AG: dsPos.AG, PA: dsPos.PA, AV: dsPos.AV, skills: [], keywords: [], cost: dsPos.cost };
+    expect(statIncreasesOf(player, dsPos)).toHaveLength(MAX_STAT_STEPS);
+  });
+
+  it("fails closed: a package without the statIncreases knob rejects any increase", () => {
+    const { pkg: legacy } = loadPackage({ name: "Legacy Cup", eligibleRosters: ["*"] });
+    const composed = composeTeam(
+      { forkRosterXml: forkXml("Dwarf"), coach: "C", teamName: "T", picks: [{ positionId: "1", count: 11, chosenStatIncreases: ["ST"] }], reRolls: 0, apothecary: false },
+      bb2025,
+      42,
+    );
+    const result = validate(composed.roster, legacy, bb2025);
+    expect(result.valid).toBe(false);
+    expect(ruleErrors(result, "stat-increases")[0]!.message).toBe(
+      "#1 Dwarf Blocker Lineman has a characteristic increase (+ST); stat increases are not allowed in this package.",
+    );
+    // The composer refuses increases on a Star pick outright.
+    expect(() =>
+      composeTeam(
+        { forkRosterXml: forkXml("Dwarf", ["Grombrindal"]), coach: "C", teamName: "T", picks: [{ positionId: "s1", count: 1, chosenStatIncreases: ["AV"] }], reRolls: 0, apothecary: false },
+        bb2025,
+      ),
+    ).toThrow(/cannot take characteristic increases/);
   });
 });

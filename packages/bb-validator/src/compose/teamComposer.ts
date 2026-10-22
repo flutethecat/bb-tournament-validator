@@ -684,7 +684,12 @@ function applyStatIncreases(
   base: TeamPick["chosenStats"],
   increases: TeamPick["chosenStatIncreases"],
 ): TeamPick["chosenStats"] {
+  if (base)
+    for (const [k, v] of Object.entries(base))
+      if (v !== undefined && (!Number.isSafeInteger(v) || v < 0 || v > 20))
+        throw new Error(`chosenStats.${k} must be an integer between 0 and 20.`);
   if (!increases || increases.length === 0) return base;
+  if (increases.length > 5) throw new Error("At most 5 characteristic increases per pick.");
   const out = { ...(base ?? {}) };
   for (const raw of increases) {
     const key = String(raw).trim().toUpperCase();

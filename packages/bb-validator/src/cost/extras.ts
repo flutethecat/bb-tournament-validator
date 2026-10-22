@@ -18,11 +18,17 @@ const target = (t: string | undefined): number | null => {
   return m ? Number(m[1]) : null;
 };
 
+/** Cap on detected steps per characteristic: no legal BB2025 player is more than a few steps off
+ *  its position, and an unbounded diff (e.g. a crafted MA of 1e309 → Infinity) must never drive
+ *  an unbounded loop. Anything non-finite counts as the cap. */
+export const MAX_STAT_STEPS = 10;
+
 /** The characteristic increases a player carries vs its dataset position (repeats = multiple steps). */
 export function statIncreasesOf(player: RosterPlayer, position: DatasetPosition): StatKey[] {
   const out: StatKey[] = [];
   const push = (k: StatKey, n: number) => {
-    for (let i = 0; i < n; i++) out.push(k);
+    const steps = Number.isFinite(n) ? Math.min(MAX_STAT_STEPS, Math.max(0, Math.floor(n))) : n > 0 ? MAX_STAT_STEPS : 0;
+    for (let i = 0; i < steps; i++) out.push(k);
   };
   push("MA", Math.max(0, player.MA - position.MA));
   push("ST", Math.max(0, player.ST - position.ST));

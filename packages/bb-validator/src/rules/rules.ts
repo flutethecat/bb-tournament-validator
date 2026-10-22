@@ -504,7 +504,10 @@ export const statIncreasesRule: Rule = {
   check: ({ players, pkg, roster, data }) => {
     const cfg = resolveTeamConfig(pkg, roster.rosterName);
     const si = cfg.statIncreases;
-    if (!si) return [];
+    // No `statIncreases` knob anywhere: only the legacy `special.statIncreasesAllowed: true`
+    // leaves increases unchecked; otherwise ANY increase is illegal (the builder applies
+    // chosenStatIncreases regardless of package, so this must fail closed).
+    if (!si && pkg.special.statIncreasesAllowed === true) return [];
     const where = sourceLabel(cfg);
     const findings: Finding[] = [];
     for (const rp of players) {
@@ -513,6 +516,15 @@ export const statIncreasesRule: Rule = {
       if (incs.length === 0) continue;
       const label = `#${rp.player.number} ${rp.position.name}`;
       const shown = incs.map((k) => `+${k}`).join(", ");
+      if (!si) {
+        findings.push(
+          err("stat-increases", `${label} has a characteristic increase (${shown}); stat increases are not allowed in this package.`, {
+            playerRef: rp.player.number,
+            suggestion: `Remove the increase from ${label}.`,
+          }),
+        );
+        continue;
+      }
       if (si.allowed.length === 0) {
         findings.push(
           err("stat-increases", `${label} has a characteristic increase (${shown}); stat increases are not allowed${where}.`, {
