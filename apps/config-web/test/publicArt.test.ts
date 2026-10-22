@@ -26,6 +26,7 @@ describe("public team-builder art routes", () => {
       "/sprites//x.png",
       "/sprites/Amazon/x.png",
       "/crests/x.png/",
+      "/crests/amazon.svg",
       "/admin.js",
       "/spritesx/a.png",
     ]) expect(isPublicArtPath(bad)).toBe(false);

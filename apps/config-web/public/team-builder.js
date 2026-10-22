@@ -1343,8 +1343,9 @@ ${rosterSheetHtml(model)}
     const chips = group.skills.map((skill) => {
       const innate = skill.innate === true || printedNames.has(skill.skill);
       const added = slot.chosenSkills.includes(skill.skill);
+      const blocked = !innate && !added && Boolean(skillPickBlock(slot, skill.skill));
       const price = mode === "custom" || innate ? "" : `+${gold((section.access === "secondary" ? SECONDARY_GOLD : PRIMARY_GOLD) + (skill.elite ? ELITE_GOLD : 0))}`;
-      return `<span class="skill-chip-cell"><button type="button" class="skill-chip ${categoryClass(skill.category)}${innate ? " innate" : ""}${added ? " added" : ""}" data-pick-skill="${esc(skill.skill)}" ${innate || added ? "disabled" : ""}>
+      return `<span class="skill-chip-cell"><button type="button" class="skill-chip ${categoryClass(skill.category)}${innate ? " innate" : ""}${added ? " added" : ""}" data-pick-skill="${esc(skill.skill)}" ${innate || added || blocked ? `disabled${blocked ? ` title="${esc(skillPickBlock(slot, skill.skill))}"` : ""}` : ""}>
         <span class="skill-chip-main">${skill.elite ? '<span class="elite-mark" title="Elite skill" aria-label="Elite">◆</span>' : ""}${skillIconHtml(skill.skill)}<span>${esc(skill.skill)}</span>${innate ? '<span class="skill-owned-check" aria-label="Already printed">✓</span>' : ""}</span>
         <span class="skill-chip-meta"><small>${esc(price)}</small></span>
       </button>${added ? `<button type="button" class="skill-chip-remove" data-unpick-skill="${esc(skill.skill)}" aria-label="Remove ${esc(skill.skill)}">×</button>` : ""}</span>`;
@@ -1865,14 +1866,13 @@ ${rosterSheetHtml(model)}
   function removeSlot(index) {
     const slot = slots[index];
     if (!slot) return;
+    resetPickers();
     const pair = allStarChoices().find((choice) => choice.paired && choice.members.some((m) => m.positionId === slot.positionId));
     if (pair) {
       removeStarChoice(pair.key);
       return;
     }
     slots.splice(index, 1);
-    if (skillPickerIndex === index) skillPickerIndex = null;
-    else if (skillPickerIndex != null && skillPickerIndex > index) skillPickerIndex--;
     changed();
   }
   function addStarChoice(key) {
@@ -1889,6 +1889,7 @@ ${rosterSheetHtml(model)}
   function removeStarChoice(key) {
     const choice = allStarChoices().find((c) => c.key === key);
     if (!choice) return;
+    resetPickers();
     for (const member of choice.members) {
       const index = slots.map((s) => s.positionId).lastIndexOf(member.positionId);
       if (index >= 0) slots.splice(index, 1);
@@ -1899,25 +1900,70 @@ ${rosterSheetHtml(model)}
   // ── modal dialogs (Add skill / Add stat): native <dialog>.showModal — Esc, backdrop and ✕ close; focus
   //    moves into the dialog and returns to the row's button on close. ──
   let modalReturn = null; // { selector } of the button that opened the open modal
-  function openModal(dialog, returnSelector) {
-    modalReturn = returnSelector;
+  function openModal(dialog, returnSelector, index) {
+    modalReturn = { selector: returnSelector, index };
+    dialog.dataset.modalActive = "1";
     if (dialog.open) return;
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.setAttribute("open", "");
     dialog.querySelector(".picker-close")?.focus();
   }
+  // Cleanup runs synchronously from closeModal (and idempotently from the native close / cancel events):
+  // some embedded browsers drop the async `close` event, which would leave the picker index live.
+  const modalCleanups = new Map(); // dialog -> () => void (registered with the listeners below)
   function closeModal(dialog) {
-    if (!dialog?.open) return;
-    if (typeof dialog.close === "function") dialog.close();
-    else {
-      dialog.removeAttribute("open");
-      dialog.dispatchEvent(new Event("close"));
+    if (!dialog) return;
+    if (dialog.open) {
+      if (typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
+    }
+    finishModal(dialog);
+  }
+  function finishModal(dialog) {
+    if (dialog.dataset.modalActive !== "1") return;
+    dialog.dataset.modalActive = "0";
+    modalCleanups.get(dialog)?.();
+  }
+  /** Close both pickers without moving focus — the roster under them is being replaced. */
+  function resetPickers() {
+    modalReturn = null;
+    closeModal($("skill-picker"));
+    closeModal($("stat-picker"));
+    skillPickerIndex = null;
+    statPickerIndex = null;
+  }
+  /** Focus the opener again; if it is gone or disabled (last allowed stat taken), the nearest enabled control in
+   *  the same roster row (Add Skill / Add Stat / a chip ×), else the row itself. */
+  function restoreModalFocus() {
+    const target = modalReturn;
+    modalReturn = null;
+    if (!target) return;
+    const opener = document.querySelector(target.selector);
+    if (opener && !opener.disabled) return opener.focus();
+    const i = target.index;
+    const fallback = [`[data-skill-slot="${i}"]`, `[data-stat-slot="${i}"]`, `[data-remove-stat="${i}"]`, `[data-remove-skill="${i}"]`]
+      .map((selector) => document.querySelector(selector))
+      .find((element) => element && !element.disabled);
+    if (fallback) return fallback.focus();
+    const row = document.querySelectorAll("#roster-slots .roster-row")[i];
+    if (row) {
+      row.tabIndex = -1;
+      row.focus();
     }
   }
-  function restoreModalFocus() {
-    const selector = modalReturn;
-    modalReturn = null;
-    if (selector) document.querySelector(selector)?.focus();
+  /** Why the open picker's player can't take `skill` now ("" = allowed). Re-checked right before mutating. */
+  function skillPickBlock(slot, skill) {
+    const position = slot ? positionById(slot.positionId) : null;
+    if (!slot || !position || position.isStar || !canEditSkills()) return "This player can't take added skills.";
+    if (slot.chosenSkills.includes(skill)) return "Already added.";
+    if ((position.skills ?? []).some((printed) => String(printed).replace(/\s*\(.*\)\s*$/, "").replace(/\*+$/, "") === skill)) return "Already printed.";
+    if (statRules() && exclusiveStatAndSkill() && (slot.chosenStatIncreases ?? []).some((stat) => allowedStatList().includes(stat))) return "A player with a stat increase can't also have an added skill.";
+    if (mode !== "custom") {
+      const set = legalSkillsCache.get(legalKey(slot.positionId));
+      if (!set || ![...set.primary, ...set.secondary].some((entry) => entry.skill === skill)) return "Not a legal skill for this position.";
+    }
+    if (!moreSkillsAllowed(slot)) return "This player can't take another skill.";
+    return "";
   }
   /** Whether the player in the open picker may still take another added skill (keeps the modal open). */
   function moreSkillsAllowed(slot) {
@@ -1925,6 +1971,8 @@ ${rosterSheetHtml(model)}
     const caps = [];
     const perPlayer = raceRules()?.maxPerPlayer;
     if (typeof perPlayer === "number") caps.push(perPlayer);
+    const packPerPlayer = selectedPackSummary()?.maxPerPlayer;
+    if (typeof packPerPlayer === "number") caps.push(packPerPlayer);
     const rules = tierRules();
     if (rules) {
       if (rules.maxStackedPlayers === 0) caps.push(1);
@@ -1943,7 +1991,7 @@ ${rosterSheetHtml(model)}
     pickerCategory = null;
     renderRoster();
     renderSkillPicker();
-    openModal($("skill-picker"), `[data-skill-slot="${index}"]`);
+    openModal($("skill-picker"), `[data-skill-slot="${index}"]`, index);
     try {
       await ensureSkillCatalog();
       if (mode !== "custom") await ensureLegalSkills(slot.positionId);
@@ -1955,8 +2003,7 @@ ${rosterSheetHtml(model)}
   }
   function addSkill(skill) {
     const slot = slots[skillPickerIndex];
-    if (!slot || slot.chosenSkills.includes(skill)) return;
-    if (statRules() && exclusiveStatAndSkill() && slot.chosenStatIncreases.length) return;
+    if (skillPickBlock(slot, skill)) return; // full eligibility (cap checked BEFORE adding)
     slot.chosenSkills.push(skill);
     changed({ positions: false });
     if (!moreSkillsAllowed(slot)) closeModal($("skill-picker"));
@@ -1964,6 +2011,8 @@ ${rosterSheetHtml(model)}
   // ── Add stat modal ──
   let statPickerIndex = null;
   function statOptionState(slot, position, stat) {
+    if (!slot || !position || position.isStar || !statRules()) return "This player can't take a stat increase.";
+    if (!allowedStatList().includes(stat)) return `${stat} increases aren't allowed in this tier.`;
     const chosen = slot.chosenStatIncreases ?? [];
     const noValue = (stat === "PA" || stat === "AG") && !/\d/.test(String(position?.[stat] ?? ""));
     if (noValue) return `This position has no ${stat} to improve.`;
@@ -1998,7 +2047,7 @@ ${rosterSheetHtml(model)}
     if (!slots[index]) return;
     statPickerIndex = index;
     renderStatPicker();
-    openModal($("stat-picker"), `[data-stat-slot="${index}"]`);
+    openModal($("stat-picker"), `[data-stat-slot="${index}"]`, index);
   }
   function removeSkill(index, skill) {
     const slot = slots[index];
@@ -2007,10 +2056,11 @@ ${rosterSheetHtml(model)}
     changed({ positions: false });
   }
   function setStatIncrease(index, stat) {
-    const slot = slots[index];
+    const slot = index == null ? null : slots[index];
     if (!slot || !stat) return;
+    // Full eligibility right before mutating: star, tier allow-list, "-" PA/AG, per-player max, skill lock.
+    if (statOptionState(slot, positionById(slot.positionId), stat)) return;
     const live = slot.chosenStatIncreases.filter((s) => allowedStatList().includes(s));
-    if (live.includes(stat) || live.length >= maxStatsPerPlayer()) return;
     slot.chosenStatIncreases = [...live, stat];
     changed({ positions: false });
   }
@@ -2050,8 +2100,8 @@ ${rosterSheetHtml(model)}
       editingTeamId = null;
       $("edit-hint").hidden = true;
     }
+    resetPickers();
     mode = next;
-    skillPickerIndex = null;
     if (mode === "library") {
       renderMode();
       loadLibrary();
@@ -2064,10 +2114,10 @@ ${rosterSheetHtml(model)}
     schedulePreview();
   }
   function selectRoster(rosterId) {
+    resetPickers();
     current = rosters.find((roster) => roster.rosterId === rosterId) ?? null;
     slots = [];
     staff = freshStaff();
-    skillPickerIndex = null;
     selectedSkillPack = null;
     preview = null;
     leagueSelection = Core.reconcileLeagueSelection(leagueOptions(), { selectedLeague: "", explicit: false });
@@ -2099,6 +2149,7 @@ ${rosterSheetHtml(model)}
   // ════════════════ restore (saves + library edit) ════════════════
   /** Restore the whole builder from a TeamBuilderBody (saved draft). */
   async function applyBody(body) {
+    resetPickers();
     const nextMode = body.custom ? "custom" : body.packageName ? "tournament" : "create";
     mode = nextMode;
     editingTeamId = typeof body.teamId === "string" && body.teamId.trim() ? body.teamId : null;
@@ -2521,6 +2572,7 @@ ${rosterSheetHtml(model)}
   async function choosePackage(name) {
     if (name !== $("package").value && current && !confirmDiscard()) return;
     if (name !== $("package").value) {
+      resetPickers();
       current = null;
       slots = [];
       staff = freshStaff();
@@ -2631,6 +2683,7 @@ ${rosterSheetHtml(model)}
 
   $("race").addEventListener("change", () => selectRoster($("race").value));
   $("package").addEventListener("change", async () => {
+    resetPickers();
     selectedSkillPack = null;
     preview = null;
     await Promise.all([loadPackageRules(), loadInducements()]);
@@ -2691,18 +2744,32 @@ ${rosterSheetHtml(model)}
     const statPicker = event.target.closest("[data-stat-slot]");
     if (statPicker && !statPicker.disabled) openStatPicker(Number(statPicker.dataset.statSlot));
   });
-  $("skill-picker").addEventListener("close", () => {
+  /** A click on the ::backdrop lands on the <dialog> itself — but so does one on the dialog's own padding;
+   *  only a point outside the dialog's box counts as the backdrop. */
+  function isBackdropClick(event, dialog) {
+    if (event.target !== dialog) return false;
+    const box = dialog.getBoundingClientRect();
+    return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+  }
+  modalCleanups.set($("skill-picker"), () => {
     skillPickerIndex = null;
     renderRoster();
     restoreModalFocus();
   });
-  $("stat-picker").addEventListener("close", () => {
+  modalCleanups.set($("stat-picker"), () => {
     statPickerIndex = null;
     renderRoster();
     restoreModalFocus();
   });
+  for (const dialog of [$("skill-picker"), $("stat-picker")]) {
+    dialog.addEventListener("close", () => finishModal(dialog));
+    dialog.addEventListener("cancel", (event) => { // Esc
+      event.preventDefault();
+      closeModal(dialog);
+    });
+  }
   $("stat-picker").addEventListener("click", (event) => {
-    if (event.target === $("stat-picker") || event.target.closest("#stat-picker-close")) return closeModal($("stat-picker"));
+    if (isBackdropClick(event, $("stat-picker")) || event.target.closest("#stat-picker-close")) return closeModal($("stat-picker"));
     const pick = event.target.closest("[data-pick-stat]");
     if (pick && !pick.disabled) {
       setStatIncrease(statPickerIndex, pick.dataset.pickStat);
@@ -2711,7 +2778,7 @@ ${rosterSheetHtml(model)}
   });
   $("skill-picker").addEventListener("click", (event) => {
     // Backdrop clicks land on the <dialog> element itself.
-    if (event.target === $("skill-picker") || event.target.closest("#skill-picker-close")) {
+    if (isBackdropClick(event, $("skill-picker")) || event.target.closest("#skill-picker-close")) {
       closeModal($("skill-picker"));
       return;
     }

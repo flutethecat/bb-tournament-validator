@@ -3,7 +3,7 @@
 Outputs (committed):
   apps/config-web/public/sprites/<race>/<role>.png   idle portrait, home kit, native size
   apps/config-web/public/sprites/manifest.json       roles per race + the resolver's alias table
-  apps/config-web/public/crests/<key>.png|svg        team crest, home kit
+  apps/config-web/public/crests/<key>.png            team crest, home kit
   apps/config-web/public/crests/manifest.json        crest key -> file
   apps/config-web/public/icons/inducements/<icon>.png + manifest.json   inducement key -> icon
 
@@ -21,8 +21,11 @@ Mirrors the client exactly:
   * skill icons = the "Illustrated - Default" family (packages/ffb-pitch/assets/skill-badges-illustrated,
     file name = canonical key per skillIcons.ts: lower-case a-z0-9, then skillIconAliases.json), box-filtered
     from the 128 px masters to 40 px.
-  * crests = apps/tauri/src/game/teamCrests.ts: a raster pair (<key>.png + <key>-away.png) beats the
-    SVG placeholder; the SVG is written with the HOME kit colours substituted and square px size.
+  * crests = apps/tauri/src/game/teamCrests.ts: only accepted raster pairs (<key>.png + <key>-away.png),
+    home file; races still on the SVG placeholder get no crest (the builder serves PNG only).
+  * safety: manifest values used as path segments must be ^[a-z0-9-]+$ and every output path must stay
+    inside public/<sprites|crests|icons>; inducement icons are copied fail-closed — never anything listed in
+    the client's public-export.exclude or byte-identical to a file under apps/tauri/public/fumbbl-assets.
 
 Usage (Python with Pillow; run isolated):
   python -I apps/config-web/tools/build-builder-art.py [--repo <client checkout>] [--ref origin/order-66]
@@ -64,6 +67,31 @@ def git(repo, *args):
 
 def show(repo, ref, path):
     return git(repo, "show", f"{ref}:{path}")
+
+
+SLUG = re.compile(r"^[a-z0-9-]+$")
+EXPORT_EXCLUDE = "public-export.exclude"
+FUMBBL_ASSETS = "apps/tauri/public/fumbbl-assets"
+
+
+ICON_SLUG = re.compile(r"^[a-z0-9_-]+$")  # the client's resource icon names use snake_case
+
+
+def slug(value, what, pattern=SLUG):
+    """Source-manifest values become output path segments: accept plain slugs only."""
+    text = str(value)
+    if not pattern.fullmatch(text):
+        raise SystemExit(f"refusing unsafe {what} {text!r} (expected {pattern.pattern})")
+    return text
+
+
+def output_path(folder, *segments):
+    """public/<folder>/<segments...>, asserted to stay inside public/<folder>."""
+    base = os.path.realpath(os.path.join(PUBLIC, folder))
+    full = os.path.realpath(os.path.join(base, *segments))
+    if os.path.commonpath([base, full]) != base:
+        raise SystemExit(f"refusing to write outside public/{folder}: {full}")
+    return full
 
 
 def js_round(value):
@@ -128,9 +156,10 @@ def build_sprites(repo, ref):
             shutil.rmtree(full)
     races = {}
     for (race, role), (_, entry) in sorted(chosen.items()):
+        race, role = slug(race, "race"), slug(role, "role")
         portrait = idle_portrait(show(repo, ref, f"{WALK}/{entry['file']}"), entry)
         rel = f"sprites/{race}/{role}.png"
-        save_png(portrait, os.path.join(PUBLIC, *rel.split("/")))
+        save_png(portrait, output_path("sprites", race, f"{role}.png"))
         races.setdefault(race, {})[role] = rel
     sha = git(repo, "rev-parse", ref).decode().strip()
     doc = {
@@ -159,25 +188,20 @@ def build_crests(repo, ref):
     os.makedirs(out_dir, exist_ok=True)
     crests = {}
     for key in sorted(svgs):
+        key = slug(key, "crest key")
         if f"{key}.png" in pngs and f"{key}-away.png" in pngs:
             image = Image.open(io.BytesIO(show(repo, ref, f"{CRESTS}/{key}.png"))).convert("RGBA")
             if image.width > CREST_PX or image.height > CREST_PX:
                 image.thumbnail((CREST_PX, CREST_PX), Image.Resampling.LANCZOS)
-            save_png(image, os.path.join(out_dir, f"{key}.png"))
+            save_png(image, output_path("crests", f"{key}.png"))
             crests[key] = f"crests/{key}.png"
         else:
-            svg = show(repo, ref, f"{CRESTS}/{key}.svg").decode("utf-8")
-            svg = re.sub(r"var\(--crest-team-dark\s*,\s*[^)]+\)", HOME_KIT["dark"], svg)
-            svg = re.sub(r"var\(--crest-team\s*,\s*[^)]+\)", HOME_KIT["team"], svg)
-            svg = re.sub(r"<svg\b([^>]*)>", lambda m: m.group(0) if re.search(r"\bwidth=", m.group(1))
-                         else f'<svg{m.group(1)} width="{CREST_PX}" height="{CREST_PX}">', svg, count=1)
-            with open(os.path.join(out_dir, f"{key}.svg"), "w", encoding="utf-8", newline="\n") as f:
-                f.write(svg)
-            crests[key] = f"crests/{key}.svg"
+            # PNG only: the builder serves no SVG. A race without an accepted raster pair gets no crest.
+            print(f"skip crest {key}: no raster pair (the SVG placeholder is not shipped)")
     sha = git(repo, "rev-parse", ref).decode().strip()
     doc = {
         "_about": "Super FUMBBL team crests (home kit) for the HTML team builders; key = roster race key, letters only "
-                  "(teamCrests.ts crestKey). Raster pairs win over the SVG placeholders. Generated by "
+                  "(teamCrests.ts crestKey). Accepted raster pairs only (PNG); races without one get no crest. Generated by "
                   "apps/config-web/tools/build-builder-art.py — do not edit by hand.",
         "source": {"ref": ref, "commit": sha, "path": CRESTS},
         "crests": crests,
@@ -195,9 +219,43 @@ def inducement_icon_map(ts_source):
     return dict(re.findall(r"([A-Za-z0-9_]+)\s*:\s*'([a-z0-9_]+)'", match.group(1)))
 
 
+def excluded_paths(repo, ref):
+    """The client's public-export.exclude as path prefixes (fail closed: unreadable => abort)."""
+    try:
+        text = show(repo, ref, EXPORT_EXCLUDE).decode("utf-8")
+    except subprocess.CalledProcessError as error:
+        raise SystemExit(f"cannot read {EXPORT_EXCLUDE} at {ref}; refusing to copy icons") from error
+    return [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
+def blob_ids(repo, ref, path):
+    """{blob sha} of every file under a tree (byte-identical files share the sha)."""
+    try:
+        out = git(repo, "ls-tree", "-r", f"{ref}:{path}").decode()
+    except subprocess.CalledProcessError:
+        return set()
+    return {line.split()[2] for line in out.splitlines() if line.strip()}
+
+
 def build_icons(repo, ref):
     icons_by_type = inducement_icon_map(show(repo, ref, COACH_PANEL_CHIPS_TS).decode("utf-8"))
-    available = {n[:-4] for n in git(repo, "ls-tree", "--name-only", f"{ref}:{RESOURCES}").decode().split() if n.endswith(".png")}
+    excluded = excluded_paths(repo, ref)
+    fumbbl_blobs = blob_ids(repo, ref, FUMBBL_ASSETS)
+    if not fumbbl_blobs:
+        raise SystemExit(f"cannot list {FUMBBL_ASSETS} at {ref}; refusing to copy icons (fail closed)")
+    listing = git(repo, "ls-tree", f"{ref}:{RESOURCES}").decode().splitlines()
+    resource_blobs = {line.split("\t")[1][:-4]: line.split()[2] for line in listing if line.endswith(".png")}
+    available = set()
+    for name, blob in resource_blobs.items():
+        path = f"{RESOURCES}/{name}.png"
+        if name in ICON_DENYLIST:
+            print(f"skip icon {name}: denylisted (upstream FUMBBL art)")
+        elif any(path == rule.rstrip("/") or path.startswith(rule.rstrip("/") + "/") for rule in excluded):
+            print(f"skip icon {name}: excluded by {EXPORT_EXCLUDE}")
+        elif blob in fumbbl_blobs:
+            print(f"skip icon {name}: byte-identical to a file under {FUMBBL_ASSETS}")
+        else:
+            available.add(name)
     with open(DATASET_INDUCEMENTS, encoding="utf-8") as f:
         catalog = json.load(f)["inducements"]
     out_dir = os.path.join(PUBLIC, "icons", "inducements")
@@ -211,14 +269,14 @@ def build_icons(repo, ref):
     for item in catalog:
         key = item["id"]
         icon = icons_by_type.get(item.get("wireName") or "") or icons_by_type.get(camel(key))
-        if not icon or icon not in available or icon in ICON_DENYLIST:
+        if not icon or icon not in available:
             missing.append(key)
             continue
         if icon not in written:
             image = Image.open(io.BytesIO(show(repo, ref, f"{RESOURCES}/{icon}.png"))).convert("RGBA")
             if image.width > ICON_PX or image.height > ICON_PX:
                 image.thumbnail((ICON_PX, ICON_PX), Image.Resampling.BOX)
-            image.save(os.path.join(out_dir, f"{icon}.png"), format="PNG", optimize=True)
+            image.save(output_path(os.path.join("icons", "inducements"), f"{slug(icon, 'icon', ICON_SLUG)}.png"), format="PNG", optimize=True)
             written.add(icon)
         icons[key] = f"icons/inducements/{icon}.png"
     sha = git(repo, "rev-parse", ref).decode().strip()
@@ -250,7 +308,7 @@ def build_skill_icons(repo, ref):
     for key in keys:
         image = Image.open(io.BytesIO(show(repo, ref, f"{SKILL_BADGES}/128/{key}.png"))).convert("RGBA")
         image = image.resize((SKILL_PX, SKILL_PX), Image.Resampling.BOX)
-        image.save(os.path.join(out_dir, f"{key}.png"), format="PNG", optimize=True)
+        image.save(output_path(os.path.join("icons", "skills"), f"{slug(key, 'skill key')}.png"), format="PNG", optimize=True)
         icons[key] = f"icons/skills/{key}.png"
     sha = git(repo, "rev-parse", ref).decode().strip()
     doc = {

@@ -492,3 +492,50 @@ describe("team builder page — modals and skill icons", () => {
     }
   });
 });
+
+describe("team builder page — review round 3", () => {
+  it("closes and resets both pickers whenever the roster under them is replaced", () => {
+    expect(js).toContain("function resetPickers()");
+    for (const fn of ["function removeSlot(index) {", "function removeStarChoice(key) {", "function selectRoster(rosterId) {", "async function applyBody(body) {"]) {
+      const body = js.slice(js.indexOf(fn), js.indexOf(fn) + 400);
+      expect(body, fn).toContain("resetPickers();");
+    }
+    expect(js.slice(js.indexOf("async function selectMode("), js.indexOf("async function selectMode(") + 300)).toContain("resetPickers();");
+    expect(js.slice(js.indexOf("async function choosePackage("), js.indexOf("async function choosePackage(") + 300)).toContain("resetPickers();");
+  });
+
+  it("re-checks eligibility right before mutating and caps skills before adding", () => {
+    const add = js.slice(js.indexOf("function addSkill(skill) {"), js.indexOf("function addSkill(skill) {") + 300);
+    expect(add.indexOf("skillPickBlock(slot, skill)")).toBeLessThan(add.indexOf("chosenSkills.push"));
+    const set = js.slice(js.indexOf("function setStatIncrease(index, stat) {"), js.indexOf("function setStatIncrease(index, stat) {") + 800);
+    expect(set.indexOf("statOptionState(slot, positionById(slot.positionId), stat)")).toBeLessThan(set.indexOf("slot.chosenStatIncreases = ["));
+    expect(js).toContain("selectedPackSummary()?.maxPerPlayer");
+    const block = js.slice(js.indexOf("function skillPickBlock("), js.indexOf("function skillPickBlock(") + 1400);
+    for (const reason of ["position.isStar", "exclusiveStatAndSkill()", "Not a legal skill", "moreSkillsAllowed(slot)"]) expect(block).toContain(reason);
+    const state = js.slice(js.indexOf("function statOptionState("), js.indexOf("function statOptionState(") + 900);
+    for (const reason of ["position.isStar", "allowedStatList().includes(stat)", "to improve", "maxStatsPerPlayer()", "exclusiveStatAndSkill()"]) expect(state).toContain(reason);
+  });
+
+  it("returns focus to an enabled control in the row and only closes on true backdrop clicks", () => {
+    const focus = js.slice(js.indexOf("function restoreModalFocus()"), js.indexOf("function restoreModalFocus()") + 900);
+    expect(focus).toContain("opener && !opener.disabled");
+    expect(focus).toContain('[data-remove-stat="${i}"]');
+    expect(focus).toContain("row.focus()");
+    expect(js).toContain("function isBackdropClick(event, dialog)");
+    expect(js).not.toContain('event.target === $("skill-picker") ||');
+  });
+
+  it("ships PNG crests only", () => {
+    const crests = JSON.parse(readFileSync(new URL("crests/manifest.json", publicDir), "utf8"));
+    expect(Object.values(crests.crests).every((path) => String(path).endsWith(".png"))).toBe(true);
+  });
+});
+
+describe("team builder page — modal cleanup", () => {
+  it("cleans up synchronously on close and handles Esc via cancel (no reliance on the async close event)", () => {
+    const close = js.slice(js.indexOf("function closeModal(dialog) {"), js.indexOf("function closeModal(dialog) {") + 300);
+    expect(close).toContain("finishModal(dialog);");
+    expect(js).toContain('dialog.dataset.modalActive !== "1"');
+    expect(js).toContain('dialog.addEventListener("cancel", (event) => { // Esc');
+  });
+});
