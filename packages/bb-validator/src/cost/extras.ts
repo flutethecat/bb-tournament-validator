@@ -23,7 +23,24 @@ const target = (t: string | undefined): number | null => {
  *  an unbounded loop. Anything non-finite counts as the cap. */
 export const MAX_STAT_STEPS = 10;
 
-/** The characteristic increases a player carries vs its dataset position (repeats = multiple steps). */
+/** Characteristics whose diff vs the position exceeds MAX_STAT_STEPS (or is non-finite). Such a
+ *  player is ILLEGAL (the stat-increases rule errors); statIncreasesOf only lists the bounded steps. */
+export function statIncreasesOverLimit(player: RosterPlayer, position: DatasetPosition): StatKey[] {
+  const over: StatKey[] = [];
+  const check = (k: StatKey, n: number | null) => {
+    if (n != null && (!Number.isFinite(n) ? n > 0 || Number.isNaN(n) : n > MAX_STAT_STEPS)) over.push(k);
+  };
+  check("MA", player.MA - position.MA);
+  check("ST", player.ST - position.ST);
+  const d = (a: number | null, b: number | null) => (a != null && b != null ? a - b : null);
+  check("AG", d(target(position.AG), target(player.AG)));
+  check("PA", d(target(position.PA), target(player.PA)));
+  check("AV", d(target(player.AV), target(position.AV)));
+  return over;
+}
+
+/** The characteristic increases a player carries vs its dataset position (repeats = multiple steps).
+ *  Bounded at MAX_STAT_STEPS per characteristic; see statIncreasesOverLimit for the excess. */
 export function statIncreasesOf(player: RosterPlayer, position: DatasetPosition): StatKey[] {
   const out: StatKey[] = [];
   const push = (k: StatKey, n: number) => {

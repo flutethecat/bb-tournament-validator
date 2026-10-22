@@ -4,7 +4,7 @@
  */
 
 import { costSP, isElite } from "../cost/costSP";
-import { starPackPicks, statIncreasesGold, statIncreasesOf } from "../cost/extras";
+import { MAX_STAT_STEPS, starPackPicks, statIncreasesGold, statIncreasesOf, statIncreasesOverLimit } from "../cost/extras";
 import { skillsGold } from "../cost/costGold";
 import type { Dataset } from "../dataset/types";
 import { findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
@@ -512,6 +512,18 @@ export const statIncreasesRule: Rule = {
     const findings: Finding[] = [];
     for (const rp of players) {
       if (!rp.position || isStarName(data, rp.player.positionName)) continue;
+      // A characteristic more than MAX_STAT_STEPS (or non-finitely) above its position is never
+      // legal — error instead of silently pricing the bounded steps.
+      const over = statIncreasesOverLimit(rp.player, rp.position);
+      if (over.length) {
+        findings.push(
+          err("stat-increases", `#${rp.player.number} ${rp.position.name}: ${over.join(", ")} is more than ${MAX_STAT_STEPS} steps above the position — over the characteristic limit.`, {
+            playerRef: rp.player.number,
+            suggestion: `Restore ${over.join(", ")} on #${rp.player.number} to a legal value.`,
+          }),
+        );
+        continue;
+      }
       const incs = statIncreasesOf(rp.player, rp.position);
       if (incs.length === 0) continue;
       const label = `#${rp.player.number} ${rp.position.name}`;

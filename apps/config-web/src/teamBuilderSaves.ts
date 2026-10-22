@@ -86,11 +86,15 @@ export const summarizeSave = (s: TeamBuilderSave): TeamBuilderSaveSummary => ({
   createdAt: s.createdAt,
 });
 
-/** TeamBuilderBody fields a BUILD may persist into a save (unknown fields are dropped). */
+/** TeamBuilderBody fields a BUILD may persist into a save (unknown fields are dropped). Audited
+ *  against team-builder.js requestBody(): every field it sends except `coach` (the session coach
+ *  always wins) — incl. `skillPack`, the chosen choose-one skill package. */
 const BUILD_BODY_FIELDS = [
   "rosterId", "teamName", "picks", "reRolls", "apothecary", "cheerleaders", "assistantCoaches",
-  "dedicatedFans", "specialRule", "budget", "custom", "packageName", "teamId", "rosteredInducements", "inducements",
+  "dedicatedFans", "specialRule", "budget", "custom", "packageName", "skillPack", "teamId",
+  "rosteredInducements", "inducements",
 ] as const;
+const INDUCEMENT_FIELDS = ["key", "count"] as const;
 const PICK_FIELDS = ["positionId", "count", "chosenSkills", "chosenStatIncreases", "chosenStats"] as const;
 
 function pickFields<K extends string>(src: Record<string, unknown>, keys: readonly K[]): Record<string, unknown> {
@@ -102,8 +106,13 @@ function pickFields<K extends string>(src: Record<string, unknown>, keys: readon
 /** Whitelist a build body to TeamBuilderBody fields (and pick fields) for storage. */
 export function buildBodyForSave(body: Record<string, unknown>): Record<string, unknown> {
   const out = pickFields(body, BUILD_BODY_FIELDS);
-  if (Array.isArray(out.picks))
-    out.picks = out.picks.map((p) => (p && typeof p === "object" && !Array.isArray(p) ? pickFields(p as Record<string, unknown>, PICK_FIELDS) : p));
+  const each = (list: unknown, keys: readonly string[]) =>
+    Array.isArray(list)
+      ? list.map((p) => (p && typeof p === "object" && !Array.isArray(p) ? pickFields(p as Record<string, unknown>, keys) : p))
+      : list;
+  if (out.picks !== undefined) out.picks = each(out.picks, PICK_FIELDS);
+  if (out.rosteredInducements !== undefined) out.rosteredInducements = each(out.rosteredInducements, INDUCEMENT_FIELDS);
+  if (out.inducements !== undefined) out.inducements = each(out.inducements, INDUCEMENT_FIELDS);
   return out;
 }
 

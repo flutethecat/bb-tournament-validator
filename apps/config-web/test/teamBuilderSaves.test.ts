@@ -247,3 +247,18 @@ describe("team-builder saves store hardening (review 10-22)", () => {
     expect(recordBuild(deps(), "Whitelist", { teamId: "tb_h", teamName: "Huge", body: huge })).toBeUndefined();
   });
 });
+
+describe("build-body whitelist audit (re-review 10-22)", () => {
+  it("keeps skillPack and reduces inducement entries to {key,count}", () => {
+    const out = buildBodyForSave({
+      ...sheet("P"),
+      skillPack: "Pack 2",
+      rosteredInducements: [{ key: "bribes", count: 1, cost: -999, note: "x" }],
+      inducements: [{ key: "team_mascot", count: 1, extra: true }],
+    });
+    expect(out.skillPack).toBe("Pack 2");
+    expect(out.rosteredInducements).toEqual([{ key: "bribes", count: 1 }]);
+    expect(out.inducements).toEqual([{ key: "team_mascot", count: 1 }]);
+    expect(out.coach).toBeUndefined();
+  });
+});

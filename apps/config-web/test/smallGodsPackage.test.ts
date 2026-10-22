@@ -325,7 +325,9 @@ describe("stat-increase hardening (review 10-22)", () => {
     expect(teamBuilderWireError(pick({ chosenStats: { MA: 1.5 } }))).toMatch(/between 0 and 20/);
     expect(teamBuilderWireError(pick({ chosenStats: { XX: 3 } }))).toBe("chosenStats keys must be MA, ST, AG, PA or AV.");
     expect(teamBuilderWireError(pick({ chosenStats: { MA: 7 } }))).toBeNull();
-    expect(teamBuilderWireError(pick({ chosenStatIncreases: ["AV", "AV"] }))).toBe("chosenStatIncreases may not repeat a characteristic.");
+    // Repeats are a per-package question (maxPerPlayer) for the validator; the wire only bounds the list.
+    expect(teamBuilderWireError(pick({ chosenStatIncreases: ["MA", "MA"] }))).toBeNull();
+    expect(teamBuilderWireError(pick({ chosenStatIncreases: ["MA", "MA", "MA", "MA", "MA", "MA"] }))).toBe("chosenStatIncreases may list at most 5 entries.");
   });
 
   it("bounds the stat-diff loop even for an Infinity characteristic", () => {
@@ -394,5 +396,34 @@ describe("package knob load checks + legacy summary shape (review 10-22)", () =>
     expect("starFeesCost" in summary).toBe(false);
     const sg = validate(composed.roster, pkg, bb2025).recomputedSummary;
     expect(sg).toMatchObject({ statIncreasesCost: 0, starFeesCost: 0 });
+  });
+});
+
+describe("stat-increase overflow is an error, not a clamp (re-review 10-22)", () => {
+  it("rejects a characteristic far above its position even when maxPerPlayer would allow it", () => {
+    const { pkg: lax } = loadPackage({
+      name: "Lax Cup",
+      eligibleRosters: ["*"],
+      statIncreases: { allowed: ["MA"], costGold: { MA: 20000 }, maxPerPlayer: 10 },
+    });
+    const composed = composeTeam(
+      { forkRosterXml: forkXml("Dwarf"), coach: "C", teamName: "T", picks: [{ positionId: "1", count: 11 }], reRolls: 0, apothecary: false },
+      bb2025,
+      42,
+    );
+    composed.roster.players[0] = { ...composed.roster.players[0]!, MA: 100 };
+    const result = validate(composed.roster, lax, bb2025);
+    expect(result.valid).toBe(false);
+    expect(ruleErrors(result, "stat-increases")[0]!.message).toBe(
+      "#1 Dwarf Blocker Lineman: MA is more than 10 steps above the position — over the characteristic limit.",
+    );
+    // A double +MA within maxPerPlayer 2 stays legal (repeats are allowed when the package allows them).
+    const { pkg: two } = loadPackage({ name: "Two Cup", eligibleRosters: ["*"], statIncreases: { allowed: ["MA"], maxPerPlayer: 2 } });
+    const ok = composeTeam(
+      { forkRosterXml: forkXml("Dwarf"), coach: "C", teamName: "T", picks: [{ positionId: "1", count: 11, chosenStatIncreases: ["MA", "MA"] }], reRolls: 0, apothecary: false },
+      bb2025,
+      42,
+    );
+    expect(ruleErrors(validate(ok.roster, two, bb2025), "stat-increases")).toEqual([]);
   });
 });

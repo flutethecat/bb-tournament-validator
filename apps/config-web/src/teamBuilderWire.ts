@@ -42,7 +42,6 @@ export function teamBuilderWireError(body: unknown): string | null {
       for (const k of incs)
         if (typeof k !== "string" || !STAT_INCREASE_KEYS.has(k))
           return "each chosenStatIncreases entry must be one of MA, ST, AG, PA, AV.";
-      if (new Set(incs).size !== incs.length) return "chosenStatIncreases may not repeat a characteristic.";
     }
   }
   // The shipped client TeamBuilderView sends this list as `inducements`; accept both names.
