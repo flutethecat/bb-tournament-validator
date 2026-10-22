@@ -618,6 +618,8 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .tier-table thead th { color: var(--ui-skill-strength); background: color-mix(in srgb, var(--ui-primary) 34%, var(--ui-surface)); letter-spacing: .06em; }
 .tier-table tbody th { color: var(--ui-gold); font-weight: 500; text-align: center; }
 .tier-table small { color: var(--ui-muted); }
+.tier-pack-exception { margin-top: 4px; color: var(--ui-muted); }
+.tier-pack-exception b { color: var(--ui-eggshell); font-weight: 500; }
 
 /* ── Roster rows: chips, stat picks, actions ── */
 .row-stats > span.improved { border-color: var(--ui-info); }

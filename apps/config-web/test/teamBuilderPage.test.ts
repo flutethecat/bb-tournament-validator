@@ -85,7 +85,7 @@ describe("team builder page — ruleset knobs", () => {
     const lines = core.tierLimitLines(core.normalizeTierRules(rules));
     expect(lines).toContain("Secondary skills: max 2");
     expect(lines).toContain("Elite skills: max 4 total, max 2 of the same skill");
-    expect(lines.join("\n")).toMatch(/Stacked players: max 1 \(≤2 skills · ≤1 secondary · ≤1 elite\)/);
+    expect(lines.join("\n")).toMatch(/Stacked players: max 1 \(max 2 skills · max 1 secondary · max 1 elite\)/);
     expect(lines.join("\n")).toMatch(/Characteristics: \+1 stat \(20k\)/);
     expect(lines.join("\n")).toMatch(/Star packs: Legends \+50k once \(max 1\)/);
   });
@@ -101,7 +101,7 @@ describe("team builder page — ruleset knobs", () => {
     const markup = core.tierTableHtml(table);
     expect(markup).toContain("Star packs");
     expect(markup).toContain("Dwarf <small>(1,455k)</small>");
-    expect(markup).toContain("≤2 skills · ≤1 secondary · ≤1 elite");
+    expect(markup).toContain("max 2 skills · max 1 secondary · max 1 elite");
     // A server that predates the knobs still gets a tier/roster table.
     expect(core.tierTableHtml(core.tierTable([{ name: "Dwarf", tier: 5 }], [{ tier: 5, gold: 1_100_000 }]))).not.toContain("Star packs");
   });
@@ -230,6 +230,30 @@ describe("team builder page — roster sheet", () => {
     expect(doc).toContain('"Noto Serif"');
     expect(core.sheetFileName(model)).toBe("Amorical_Dwarves_w_Bribe_roster.html");
     expect(core.esc("<script>")).toBe("&lt;script&gt;");
+  });
+});
+
+describe("team builder page — merged server shapes", () => {
+  it("reads statIncreases.allowed as the list of raisable characteristics", () => {
+    const t5 = core.normalizeTierRules({ rules: { statIncreases: { allowed: ["AV", "PA"], costGold: { MA: 20_000, PA: 20_000, AV: 10_000 } } } });
+    expect(t5.statIncreases.stats).toEqual(["AV", "PA"]);
+    expect(core.statIncreaseLabel(t5.statIncreases)).toBe("+PA 20k, +AV 10k");
+    expect(core.normalizeTierRules({ rules: { statIncreases: { allowed: [], costGold: { AV: 10_000 } } } }).statIncreases).toBeNull();
+  });
+
+  it("names rosters whose star packs differ from the rest of their tier", () => {
+    const free = { id: "free", label: "Free", fee: 0, feeMode: "each", max: 2, stars: [] };
+    const mega = { id: "mega", label: "Mega Star", fee: 80_000, feeMode: "each", max: 1, stars: [] };
+    const markup = core.tierTableHtml(core.tierTable([
+      { name: "Chaos Chosen", tier: 4, gold: 1_395_000, rules: { maxSecondary: 4, starPacks: [free] } },
+      { name: "Tomb Kings", tier: 4, gold: 1_380_000, rules: { maxSecondary: 4, starPacks: [free] } },
+      { name: "Snotling", tier: 4, gold: 1_435_000, rules: { maxSecondary: 4, starPacks: [free, mega] } },
+    ]));
+    expect(markup).toContain("Free (max 2)<div class=\"tier-pack-exception\"><b>Snotling:</b> Free (max 2) · Mega Star +80k each (max 1)</div>");
+  });
+
+  it("prints position names in regular weight", () => {
+    expect(core.SHEET_CSS).toContain(".rs-roster td.pos{white-space:nowrap;font-weight:400;}");
   });
 });
 

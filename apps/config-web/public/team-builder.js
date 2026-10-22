@@ -236,7 +236,12 @@
       const src = raw.rules && typeof raw.rules === "object" ? raw.rules : raw;
       const keys = ["maxSecondary", "eliteMaxTotal", "eliteMaxSameSkill", "maxStackedPlayers", "stackedPlayer", "statIncreases", "starPacks", "maxStars"];
       if (!keys.some((key) => key in src)) return null;
-      const stat = src.statIncreases && typeof src.statIncreases === "object" ? src.statIncreases : null;
+      let stat = src.statIncreases && typeof src.statIncreases === "object" ? src.statIncreases : null;
+      // `allowed` is either a boolean or the list of characteristics this tier may raise ([] = none).
+      if (stat && Array.isArray(stat.allowed)) {
+        const stats = stat.allowed.map((s) => String(s).toUpperCase()).filter((s) => STATS.includes(s));
+        stat = stats.length ? { ...stat, stats } : null;
+      }
       return {
         tier: src.tier ?? raw.tier ?? null,
         maxSecondary: src.maxSecondary ?? null,
@@ -253,19 +258,23 @@
     function stackLabel(stacked) {
       if (!stacked) return "—";
       const parts = [];
-      if (isNum(stacked.maxSkills)) parts.push(`≤${countLabel(stacked.maxSkills, "skill")}`);
-      if (isNum(stacked.maxSecondary)) parts.push(`≤${stacked.maxSecondary} secondary`);
-      if (isNum(stacked.maxElite)) parts.push(`≤${stacked.maxElite} elite`);
+      // Plain "max" wording: the page's display font has no "≤" glyph.
+      if (isNum(stacked.maxSkills)) parts.push(`max ${countLabel(stacked.maxSkills, "skill")}`);
+      if (isNum(stacked.maxSecondary)) parts.push(`max ${stacked.maxSecondary} secondary`);
+      if (isNum(stacked.maxElite)) parts.push(`max ${stacked.maxElite} elite`);
       return parts.join(" · ") || "—";
     }
     function statIncreaseLabel(stat) {
       if (!stat) return "—";
       const cost = stat.costGold;
-      if (isNum(cost)) return `+1 stat (${gold(cost)})`;
+      const allowed = Array.isArray(stat.stats) ? stat.stats : null;
+      if (isNum(cost)) return allowed ? allowed.map((k) => `+${k} ${gold(cost)}`).join(", ") : `+1 stat (${gold(cost)})`;
       if (cost && typeof cost === "object") {
-        return Object.entries(cost).filter(([, v]) => isNum(v)).map(([k, v]) => `${k} ${gold(v)}`).join(", ") || "Allowed";
+        return Object.entries(cost)
+          .filter(([k, v]) => isNum(v) && (!allowed || allowed.includes(k)))
+          .map(([k, v]) => `+${k} ${gold(v)}`).join(", ") || "Allowed";
       }
-      return "Allowed";
+      return allowed ? allowed.map((k) => `+${k}`).join(", ") : "Allowed";
     }
     function starPackLabel(pack) {
       const fee = isNum(pack.fee) && pack.fee > 0 ? ` +${gold(pack.fee)}${pack.feeMode === "each" ? " each" : " once"}` : "";
@@ -286,7 +295,7 @@
       if (rules.maxStackedPlayers != null) {
         lines.push(`Stacked players: max ${rules.maxStackedPlayers}${rules.stackedPlayer ? ` (${stackLabel(rules.stackedPlayer)})` : ""}`);
       }
-      if (rules.statIncreases) lines.push(`Characteristics: ${statIncreaseLabel(rules.statIncreases)} per player, max ${rules.statIncreases.maxPerPlayer ?? 1}`);
+      if (rules.statIncreases) lines.push(`Characteristics: ${statIncreaseLabel(rules.statIncreases)} (max ${rules.statIncreases.maxPerPlayer ?? 1} per player)`);
       if (rules.maxStars != null) lines.push(`Star players: max ${rules.maxStars}`);
       if (rules.starPacks?.length) lines.push(`Star packs: ${rules.starPacks.map(starPackLabel).join(" · ")}`);
       return lines;
@@ -300,7 +309,8 @@
         const entry = byTier.get(tier) ?? { tier, rosters: [], rules: null };
         const summaryGold = (tierSummary ?? []).find((t) => t.tier === tier)?.gold;
         const rowGold = row.gold ?? row.goldCap ?? row.budget ?? row.rules?.gold ?? summaryGold ?? null;
-        entry.rosters.push({ name: row.name, gold: isNum(rowGold) ? rowGold : null });
+        const rowRules = normalizeTierRules(row);
+        entry.rosters.push({ name: row.name, gold: isNum(rowGold) ? rowGold : null, starPacks: rowRules?.starPacks ?? [] });
         entry.rules = entry.rules ?? normalizeTierRules(row);
         byTier.set(tier, entry);
       }
@@ -319,7 +329,16 @@
         if (!detailed) return `<tr><th scope="row">${row.tier}</th><td>${rosters}</td></tr>`;
         const r = row.rules ?? {};
         const elite = [r.eliteMaxTotal != null ? `${r.eliteMaxTotal} total` : "", r.eliteMaxSameSkill != null ? `${r.eliteMaxSameSkill} same` : ""].filter(Boolean).join(" · ") || "—";
-        return `<tr><th scope="row">${row.tier}</th><td>${rosters}</td><td>${r.maxSecondary ?? "—"}</td><td>${esc(elite)}</td><td>${r.maxStackedPlayers ?? "—"}</td><td>${esc(stackLabel(r.stackedPlayer))}</td><td>${esc(statIncreaseLabel(r.statIncreases))}</td><td>${r.starPacks?.length ? r.starPacks.map((p) => esc(starPackLabel(p))).join("<br>") : "—"}</td></tr>`;
+        // Star packs can differ per roster inside a tier (e.g. an underdog roster unlocking every pack):
+        // show the tier's common set, then name the rosters that differ.
+        const packKey = (packs) => packs.map((p) => starPackLabel(p)).join("<br>");
+        const tally = new Map();
+        for (const roster of row.rosters) tally.set(packKey(roster.starPacks), (tally.get(packKey(roster.starPacks)) ?? 0) + 1);
+        const common = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+        const exceptions = row.rosters.filter((roster) => packKey(roster.starPacks) !== common)
+          .map((roster) => `<div class="tier-pack-exception"><b>${esc(roster.name)}:</b> ${roster.starPacks.length ? roster.starPacks.map((p) => esc(starPackLabel(p))).join(" · ") : "none"}</div>`).join("");
+        const packsCell = (common ? common.split("<br>").map(esc).join("<br>") : "—") + exceptions;
+        return `<tr><th scope="row">${row.tier}</th><td>${rosters}</td><td>${r.maxSecondary ?? "—"}</td><td>${esc(elite)}</td><td>${r.maxStackedPlayers ?? "—"}</td><td>${esc(stackLabel(r.stackedPlayer))}</td><td>${esc(statIncreaseLabel(r.statIncreases))}</td><td>${packsCell}</td></tr>`;
       }).join("");
       return `<thead>${head}</thead><tbody>${body}</tbody>`;
     }
@@ -492,7 +511,7 @@
 .rs-roster th,.rs-roster td{border:1px solid #000;padding:3px 5px;vertical-align:top;}
 .rs-roster th{font-size:9pt;font-weight:700;text-align:center;background:#f1f1f1;}
 .rs-roster td.num{width:28px;text-align:center;}
-.rs-roster td.pos{white-space:nowrap;font-weight:600;}
+.rs-roster td.pos{white-space:nowrap;font-weight:400;}
 .rs-roster td.stat{width:34px;text-align:center;}
 .roster-sheet .rs-roster td.stat.improved{font-weight:700;color:#1a73c8;}
 .rs-roster td.cost{width:58px;text-align:right;white-space:nowrap;}
@@ -593,6 +612,7 @@ ${rosterSheetHtml(model)}
   let nameGateTimer = null;
   let authToken = null;
   let authCoach = "";
+  let authOrganizer = false; // whole-roster editing (build with teamId) is organizer-only server-side
   let authBusy = false;
   let buildBusy = false;
   let discordSsoEnabled = false;
@@ -796,6 +816,7 @@ ${rosterSheetHtml(model)}
   }
   function sessionExpired(message) {
     authToken = null;
+    authOrganizer = false;
     setSessionCoach("");
     loginFeedback = message;
     loginFeedbackError = true;
@@ -808,6 +829,7 @@ ${rosterSheetHtml(model)}
       const session = await api("/api/auth/session");
       discordSsoEnabled = session.discordSsoEnabled === true;
       if (session.authenticated === true) setSessionCoach(session.coach);
+      authOrganizer = session.authenticated === true && session.organizer === true;
     } catch {
       // The builder remains browsable and exposes its own login form.
     }
@@ -834,6 +856,7 @@ ${rosterSheetHtml(model)}
       const session = await api("/api/auth/session");
       discordSsoEnabled = session.discordSsoEnabled === true;
       setSessionCoach(session.coach ?? result.coach ?? username);
+      authOrganizer = session.organizer === true;
       $("login-user").value = "";
       loginFeedback = "";
     } catch (error) {
@@ -859,6 +882,7 @@ ${rosterSheetHtml(model)}
       // Local sign-out still completes if the server session already expired.
     }
     authToken = null;
+    authOrganizer = false;
     setSessionCoach("");
     authBusy = false;
     loginFeedback = "Signed out.";
@@ -1515,6 +1539,11 @@ ${rosterSheetHtml(model)}
       $("build-result").className = "result-banner success";
       $("build-result").innerHTML = `<strong>${editingTeamId ? "Team Saved ✓" : "Team Created ✓"}</strong><span>Installed ${esc(result.teamId)} — ready in Create Game.</span>`;
       $("build-result").hidden = false;
+      if (currentSave && result.teamId && authOrganizer) {
+        // The save is now linked to this fork team: further builds from it update the team.
+        editingTeamId = result.teamId;
+        renderMode();
+      }
       if (currentSave) loadSaves();
     } catch (error) {
       if (error.status === 401) sessionExpired("Your session expired. Sign in again to create the team.");
@@ -1814,7 +1843,7 @@ ${rosterSheetHtml(model)}
       savesAvailable = true;
       saves = Array.isArray(data.saves) ? data.saves : [];
       if (currentSave && !saves.some((save) => save.id === currentSave.id)) currentSave = null;
-      $("saves-status").textContent = "";
+      if (/^Couldn't/.test($("saves-status").textContent)) $("saves-status").textContent = "";
     } catch (error) {
       savesError(error, "list");
     }
@@ -1851,7 +1880,8 @@ ${rosterSheetHtml(model)}
       if (!save?.body) throw new Error("Saved team has no builder state.");
       currentSave = { id: save.id ?? id, name: save.name ?? "" };
       $("saves-status").textContent = `Loaded “${currentSave.name}”.`;
-      await applyBody(save.body);
+      // A save that was already built edits its fork team instead of minting a second one.
+      await applyBody(authOrganizer && save.teamId && !save.body.teamId ? { ...save.body, teamId: save.teamId } : save.body);
       renderSaves();
     } catch (error) {
       savesError(error, "load the team");
