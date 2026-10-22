@@ -70,6 +70,30 @@ tweak the Elite set without editing JSON. Empty (header-only) = use package defa
 - **`special`** — Insignificant-trait constraint, stalling, Slann, stat increases, `bannedSkills`,
   `minPlayers`.
 
+## Elite caps, stacked-player caps, stat increases, star packs
+
+Generic knobs (first used by [`small-gods.json`](../tournament-packages/small-gods.json)). Each is
+settable flat, per tier, or per team rule and resolves through `resolveTeamConfig` (team rule > tier >
+flat). Absent everywhere ⇒ the rule is not checked, so existing packages behave exactly as before.
+
+| Field | Where | Meaning |
+|-------|-------|---------|
+| `eliteMaxTotal` | `skillAllotment` / tier / team rule | Team cap on ELITE added skills. |
+| `eliteMaxSameSkill` | `skillAllotment` / tier / team rule | Cap on copies of any ONE elite skill (e.g. ≤ 4 Guard). |
+| `stackedPlayer: { maxSkills, maxSecondary, maxElite }` | `skillAllotment` / tier / team rule | Caps on a player with MORE than one added skill (`maxSecondary: 0` = primary-only stacks). Merged field-by-field. Non-stacked players are limited to one skill by definition; `maxStackedPlayers` still caps how many players may stack. |
+| `statIncreases: { allowed, costGold, maxPerPlayer, exclusiveWithSkills }` | package / tier / team rule | Characteristic increases, detected by diffing a player's printed stats against its dataset position (MA/ST/AV +1, AG/PA one step better). A more specific level MERGES over the less specific one (a tier can set only `allowed`). `exclusiveWithSkills` forbids skills on a player with an increase. |
+| `rosterGold` | tier | Per-race gold caps within one tier (race → gold). |
+| `starPacks: [{ id, label, fee, feeMode, max, stars }]` | package | Every hired star must be in a pack open to the team. `feeMode: "once"` charges the fee once per pack, `"each"` per pick. A dataset pair (`pairedWith`, e.g. Grak & Crumbleberry) is ONE pick; with packs, `starPlayers.maxCount` counts picks. |
+| `starPacksAllowed` | package / tier / team rule | Pack ids open to the team (absent = all). |
+
+Stat-increase gold and star-pack fees are reported as `recomputedSummary.statIncreasesCost` and
+`starFeesCost`, and count inside the cap (and `goldUsed`) when `goldCapIncludesAddedSkills` is true.
+Rule ids: `elite-skills`, `stacked-player`, `stat-increases`, `star-packs` (stack COUNT stays on
+`skill-points`, the overall star count on `star-players`).
+
+The team builder applies a pick's `chosenStatIncreases` (e.g. `["AV"]`) to each player of the pick
+and writes the new characteristic into the team XML the same way custom-mode `chosenStats` are.
+
 ## Validation output
 
 The validator returns structured `errors` / `warnings` / `infos`, each with a human-readable

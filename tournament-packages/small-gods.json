@@ -1,0 +1,452 @@
+{
+  "$schema": "../schemas/tournament-package.schema.json",
+  "name": "Small Gods",
+  "ruleset": "bb2025-default",
+  "description": "Small Gods tiered ruleset. Six tiers; each roster has its own team-value cap (1225k-1500k) and ALL added-skill gold counts inside it (primary 20k, secondary 40k, elite +10k; elite = Block, Guard, Mighty Blow, Dodge). Primary skills are limited only by gold; secondary skills team-wide: T1 1, T2 2, T3 3, T4 4, T5 8, T6 10. Elite: T1 max 3 total, T2 max 4 total, T3-T4 max 4 of any one elite skill, T5 max 6 of any one, T6 unlimited. Stacked players (more than one added skill, max 3 each): T1 1, T2 1, T3 2, T4 3, T5 4, T6 6; T1-T2 stacks are primary-only, T3-T4 at most 2 secondary, T5 at most 2 secondary and 2 elite, T6 any. Every other player takes at most one skill. Characteristics: none in T1-T3, +AV or +PA in T4-T5, +AV/+PA/+MA in T6; one per player, and a player with a stat increase takes no skills (+MA 20k, +PA 20k, +AV 10k). Stars: max 2 overall, from four packs - Free (no fee, max 2), Star (+20k once for up to 2), Super Star (+40k, max 1), Mega Star (+80k, max 1); a paired star counts as one pick. T1 no stars; T2-T5 Free pack only (Snotling and Gnome: all packs); T6 all packs. Fees count inside the cap. Minimum 11 players.",
+  "dataNote": "Stat-increase gold (+MA 20k, +PA 20k, +AV 10k) is taken from the BB2025 advancement table - spot-check against the Small Gods PDF. Josef Bugman (Free pack) and Night Goblin (Tier 6, 1480k) are encoded from the PDF but are not in the active BB2025 dataset, so they are not selectable. Star names were mapped to dataset spellings (Boa Kon'sstriktr, Grombrindal, 'Captain' Karina von Riesz, Mighty Zug, H'Thark the Unstoppable, Dribl & Drull).",
+  "eligibleRosters": [
+    "Orc",
+    "Old World Alliance",
+    "Underworld Denizens",
+    "High Elf",
+    "Amazon",
+    "Dark Elf",
+    "Wood Elf",
+    "Skaven",
+    "Human",
+    "Shambling Undead",
+    "Lizardmen",
+    "Nurgle",
+    "Necromantic Horror",
+    "Norse",
+    "Slann",
+    "Vampire",
+    "Imperial Nobility",
+    "Tomb Kings",
+    "Chaos Chosen",
+    "Elven Union",
+    "Chaos Dwarf",
+    "Snotling",
+    "Bretonnian",
+    "Khorne",
+    "Dwarf",
+    "Black Orc",
+    "Chaos Renegade",
+    "Gnome",
+    "Goblin",
+    "Halfling",
+    "Night Goblin",
+    "Ogre"
+  ],
+  "skillAllotment": {
+    "skillPointBudget": 0,
+    "primaryCostSP": 1,
+    "secondaryMultiplier": 2,
+    "secondaryCostSP": null,
+    "eliteSurchargeSP": 0,
+    "eliteSkills": [
+      "Block",
+      "Guard",
+      "Mighty Blow",
+      "Dodge"
+    ],
+    "skillCostSP": {},
+    "primaryCostGold": 20000,
+    "secondaryCostGold": 40000,
+    "eliteSurchargeGold": 10000,
+    "skillCostGold": {},
+    "maxPerPlayer": 3,
+    "maxSameSkillTeamwide": null,
+    "stackedPlayer": {
+      "maxSkills": 3
+    }
+  },
+  "goldBudget": null,
+  "goldCapIncludesAddedSkills": true,
+  "statIncreases": {
+    "allowed": [],
+    "costGold": {
+      "MA": 20000,
+      "PA": 20000,
+      "AV": 10000
+    },
+    "maxPerPlayer": 1,
+    "exclusiveWithSkills": true
+  },
+  "starPacks": [
+    {
+      "id": "free",
+      "label": "Free",
+      "fee": 0,
+      "feeMode": "each",
+      "max": 2,
+      "stars": [
+        "Akhorne the Squirrel",
+        "Barik Farblast",
+        "Gloriel Summerbloom",
+        "Josef Bugman",
+        "Skrull Halfheight"
+      ]
+    },
+    {
+      "id": "star",
+      "label": "Star",
+      "fee": 20000,
+      "feeMode": "once",
+      "max": 2,
+      "stars": [
+        "Anqi Panqi",
+        "Bilerot Vomitflesh",
+        "Boa Kon'sstriktr",
+        "Glotl Stop",
+        "Grombrindal",
+        "Grashnak Blackhoof",
+        "Gretchen Wächter",
+        "Guffle Pusmaw",
+        "Helmut Wulf",
+        "Kiroth Krakeneye",
+        "Max Spleenripper",
+        "Puggy Baconbreath",
+        "Rashnak Backstabber",
+        "Rodney Roachbait",
+        "Rowana Forestfoot",
+        "Rumbelow Sheepskin",
+        "Scrappa Sorehead",
+        "Swiftvine Glimmershard",
+        "Willow Rosebark",
+        "Withergrasp Doubledrool",
+        "Zzharg Madeye"
+      ]
+    },
+    {
+      "id": "super",
+      "label": "Super Star",
+      "fee": 40000,
+      "feeMode": "each",
+      "max": 1,
+      "stars": [
+        "'Captain' Karina von Riesz",
+        "Count Luthor von Drakenborg",
+        "Eldril Sidewinder",
+        "Estelle la Veneaux",
+        "Fungus the Loon",
+        "Glart Smashrip",
+        "Grak",
+        "Crumbleberry",
+        "Grim Ironjaw",
+        "Ivan 'The Animal' Deathshroud",
+        "Ivar Eriksson",
+        "Jeremiah Kool",
+        "Jordell Freshbreeze",
+        "Karla Von Kill",
+        "Lucien Swift",
+        "Valen Swift",
+        "Maple Highgrove",
+        "Nobbla Blackwart",
+        "Roxanna Darknail",
+        "Scyla Anfingrimm",
+        "Skitter Stab-Stab",
+        "The Black Gobbo",
+        "Mighty Zug",
+        "Thorsson Stoutmead",
+        "Wilhelm Chaney",
+        "Varag Ghoul-Chewer",
+        "Zolcath the Zoat"
+      ]
+    },
+    {
+      "id": "mega",
+      "label": "Mega Star",
+      "fee": 80000,
+      "feeMode": "each",
+      "max": 1,
+      "stars": [
+        "Bomber Dribblesnot",
+        "Cindy Piewhistle",
+        "Deeproot Strongbranch",
+        "Dribl",
+        "Drull",
+        "Griff Oberwald",
+        "Lord Borak the Despoiler",
+        "Hakflem Skuttlespike",
+        "H'Thark the Unstoppable",
+        "Kreek Rustgouger",
+        "Morg 'n' Thorg",
+        "Ripper Bolgrot",
+        "Skrorg Snowpelt"
+      ]
+    }
+  ],
+  "starPlayers": {
+    "allowed": true,
+    "maxCount": 2,
+    "maxCombinedCost": null
+  },
+  "tiers": [
+    {
+      "tier": 1,
+      "label": "Tier 1",
+      "rosters": [
+        "Orc",
+        "Old World Alliance",
+        "Underworld Denizens",
+        "High Elf",
+        "Amazon"
+      ],
+      "gold": 1225000,
+      "rosterGold": {
+        "Orc": 1225000,
+        "Old World Alliance": 1225000,
+        "Underworld Denizens": 1225000,
+        "High Elf": 1260000,
+        "Amazon": 1265000
+      },
+      "maxPrimary": null,
+      "maxSecondary": 1,
+      "maxStackedPlayers": 1,
+      "eliteMaxTotal": 3,
+      "eliteMaxSameSkill": null,
+      "stackedPlayer": {
+        "maxSkills": 3,
+        "maxSecondary": 0,
+        "maxElite": null
+      },
+      "statIncreases": {
+        "allowed": []
+      },
+      "starPacksAllowed": [],
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    },
+    {
+      "tier": 2,
+      "label": "Tier 2",
+      "rosters": [
+        "Dark Elf",
+        "Wood Elf",
+        "Skaven",
+        "Human"
+      ],
+      "gold": 1275000,
+      "rosterGold": {
+        "Dark Elf": 1275000,
+        "Wood Elf": 1285000,
+        "Skaven": 1290000,
+        "Human": 1305000
+      },
+      "maxPrimary": null,
+      "maxSecondary": 2,
+      "maxStackedPlayers": 1,
+      "eliteMaxTotal": 4,
+      "eliteMaxSameSkill": null,
+      "stackedPlayer": {
+        "maxSkills": 3,
+        "maxSecondary": 0,
+        "maxElite": null
+      },
+      "statIncreases": {
+        "allowed": []
+      },
+      "starPacksAllowed": [
+        "free"
+      ],
+      "starPlayersAllowed": true,
+      "bannedStars": []
+    },
+    {
+      "tier": 3,
+      "label": "Tier 3",
+      "rosters": [
+        "Shambling Undead",
+        "Lizardmen",
+        "Nurgle",
+        "Necromantic Horror",
+        "Norse",
+        "Slann",
+        "Vampire"
+      ],
+      "gold": 1320000,
+      "rosterGold": {
+        "Shambling Undead": 1320000,
+        "Lizardmen": 1340000,
+        "Nurgle": 1340000,
+        "Necromantic Horror": 1350000,
+        "Norse": 1350000,
+        "Slann": 1360000,
+        "Vampire": 1365000
+      },
+      "maxPrimary": null,
+      "maxSecondary": 3,
+      "maxStackedPlayers": 2,
+      "eliteMaxTotal": null,
+      "eliteMaxSameSkill": 4,
+      "stackedPlayer": {
+        "maxSkills": 3,
+        "maxSecondary": 2,
+        "maxElite": null
+      },
+      "statIncreases": {
+        "allowed": []
+      },
+      "starPacksAllowed": [
+        "free"
+      ],
+      "starPlayersAllowed": true,
+      "bannedStars": []
+    },
+    {
+      "tier": 4,
+      "label": "Tier 4",
+      "rosters": [
+        "Imperial Nobility",
+        "Tomb Kings",
+        "Chaos Chosen",
+        "Elven Union",
+        "Chaos Dwarf",
+        "Snotling"
+      ],
+      "gold": 1380000,
+      "rosterGold": {
+        "Imperial Nobility": 1380000,
+        "Tomb Kings": 1380000,
+        "Chaos Chosen": 1395000,
+        "Elven Union": 1395000,
+        "Chaos Dwarf": 1410000,
+        "Snotling": 1435000
+      },
+      "maxPrimary": null,
+      "maxSecondary": 4,
+      "maxStackedPlayers": 3,
+      "eliteMaxTotal": null,
+      "eliteMaxSameSkill": 4,
+      "stackedPlayer": {
+        "maxSkills": 3,
+        "maxSecondary": 2,
+        "maxElite": null
+      },
+      "statIncreases": {
+        "allowed": [
+          "AV",
+          "PA"
+        ]
+      },
+      "starPacksAllowed": [
+        "free"
+      ],
+      "starPlayersAllowed": true,
+      "bannedStars": []
+    },
+    {
+      "tier": 5,
+      "label": "Tier 5",
+      "rosters": [
+        "Bretonnian",
+        "Khorne",
+        "Dwarf",
+        "Black Orc",
+        "Chaos Renegade",
+        "Gnome"
+      ],
+      "gold": 1440000,
+      "rosterGold": {
+        "Bretonnian": 1440000,
+        "Khorne": 1450000,
+        "Dwarf": 1455000,
+        "Black Orc": 1460000,
+        "Chaos Renegade": 1470000,
+        "Gnome": 1470000
+      },
+      "maxPrimary": null,
+      "maxSecondary": 8,
+      "maxStackedPlayers": 4,
+      "eliteMaxTotal": null,
+      "eliteMaxSameSkill": 6,
+      "stackedPlayer": {
+        "maxSkills": 3,
+        "maxSecondary": 2,
+        "maxElite": 2
+      },
+      "statIncreases": {
+        "allowed": [
+          "AV",
+          "PA"
+        ]
+      },
+      "starPacksAllowed": [
+        "free"
+      ],
+      "starPlayersAllowed": true,
+      "bannedStars": []
+    },
+    {
+      "tier": 6,
+      "label": "Tier 6",
+      "rosters": [
+        "Goblin",
+        "Halfling",
+        "Night Goblin",
+        "Ogre"
+      ],
+      "gold": 1480000,
+      "rosterGold": {
+        "Goblin": 1480000,
+        "Halfling": 1480000,
+        "Night Goblin": 1480000,
+        "Ogre": 1500000
+      },
+      "maxPrimary": null,
+      "maxSecondary": 10,
+      "maxStackedPlayers": 6,
+      "eliteMaxTotal": null,
+      "eliteMaxSameSkill": null,
+      "stackedPlayer": {
+        "maxSkills": 3,
+        "maxSecondary": null,
+        "maxElite": null
+      },
+      "statIncreases": {
+        "allowed": [
+          "AV",
+          "PA",
+          "MA"
+        ]
+      },
+      "starPacksAllowed": [
+        "free",
+        "star",
+        "super",
+        "mega"
+      ],
+      "starPlayersAllowed": true,
+      "bannedStars": []
+    }
+  ],
+  "teamRules": [
+    {
+      "team": "Snotling",
+      "starPacksAllowed": [
+        "free",
+        "star",
+        "super",
+        "mega"
+      ]
+    },
+    {
+      "team": "Gnome",
+      "starPacksAllowed": [
+        "free",
+        "star",
+        "super",
+        "mega"
+      ]
+    }
+  ],
+  "special": {
+    "insignificantTraitConstraint": true,
+    "stalling": true,
+    "slannAllowed": true,
+    "statIncreasesAllowed": true,
+    "bannedSkills": [],
+    "minPlayers": 11
+  }
+}
