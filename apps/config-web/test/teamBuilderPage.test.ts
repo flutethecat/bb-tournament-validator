@@ -462,3 +462,33 @@ describe("team builder page — Super FUMBBL art", () => {
     expect(sheetCode).not.toMatch(/sprite|crest|icons\//);
   });
 });
+
+describe("team builder page — modals and skill icons", () => {
+  const ttHtml = readFileSync(new URL("tournament-team-builder.html", publicDir), "utf8");
+  const skillIcons = JSON.parse(readFileSync(new URL("icons/skills/manifest.json", publicDir), "utf8"));
+
+  it("opens Add skill / Add stat as native modal dialogs on both pages", () => {
+    for (const page of [html, ttHtml]) {
+      expect(page).toContain('<dialog id="skill-picker" class="builder-modal"');
+      expect(page).toContain('<dialog id="stat-picker" class="builder-modal stat-modal"');
+      expect(page).not.toContain('class="skill-picker-panel"');
+    }
+    expect(js).toContain("dialog.showModal()");
+    expect(js).toContain("if (!moreSkillsAllowed(slot)) closeModal($(\"skill-picker\"));");
+    expect(js).toContain("<span>Add</span><span>Stat</span>");
+    expect(js).not.toContain("function statControl(");
+    expect(css).toMatch(/@media \(max-width: 600px\) \{\s*\.builder-modal,/);
+  });
+
+  it("maps skill names to the client's canonical icon keys", () => {
+    expect(core.skillIconKey("Thick Skull", skillIcons.aliases)).toBe("thickskull");
+    expect(core.skillIconKey("Foul Appearance", skillIcons.aliases)).toBe("foulappearence");
+    expect(core.skillIconKey("Claws", skillIcons.aliases)).toBe("claw");
+    expect(core.skillIconKey("Hatred (Troll)*", skillIcons.aliases)).toBe("hatred");
+    expect(core.skillIconKey("Loner (4+)", skillIcons.aliases)).toBe("loner");
+    expect(core.skillIconKey("+AV", skillIcons.aliases)).toBe("statupav");
+    for (const name of ["Block", "Guard", "Mighty Blow", "Dodge", "Hatred", "Loner", "Frenzy", "Dirty Player"]) {
+      expect(skillIcons.icons[core.skillIconKey(name, skillIcons.aliases)], name).toBeTruthy();
+    }
+  });
+});

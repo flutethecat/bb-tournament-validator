@@ -188,14 +188,6 @@
             </div>
           </section>
 
-          <section id="skill-picker" class="skill-picker-panel" hidden aria-labelledby="skill-picker-heading">
-            <div class="skill-picker-head">
-              <span id="skill-picker-heading" class="skill-picker-heading">Add Skill</span>
-              <button type="button" class="picker-close" id="skill-picker-close" aria-label="Close skill picker">×</button>
-            </div>
-            <div id="skill-picker-body" class="skill-picker-body"></div>
-          </section>
-
           <section id="star-section" class="star-section" hidden aria-labelledby="star-title">
             <div class="section-title" id="star-title"><span>S</span>tar <span>P</span>layers <small id="star-cap"></small></div>
             <div id="star-list" class="star-card"></div>
@@ -242,6 +234,22 @@
       </div>
     </section>
   </main>
+
+  <!-- Add skill / Add stat: native modal dialogs (showModal), shared by both builder pages. -->
+  <dialog id="skill-picker" class="builder-modal" aria-labelledby="skill-picker-heading">
+    <div class="skill-picker-head">
+      <h2 id="skill-picker-heading" class="skill-picker-heading">Add skill</h2>
+      <button type="button" class="picker-close" id="skill-picker-close" aria-label="Close">×</button>
+    </div>
+    <div id="skill-picker-body" class="skill-picker-body"></div>
+  </dialog>
+  <dialog id="stat-picker" class="builder-modal stat-modal" aria-labelledby="stat-picker-heading">
+    <div class="skill-picker-head">
+      <h2 id="stat-picker-heading" class="skill-picker-heading">Add stat</h2>
+      <button type="button" class="picker-close" id="stat-picker-close" aria-label="Close">×</button>
+    </div>
+    <div id="stat-picker-body" class="skill-picker-body"></div>
+  </dialog>
 
   <!-- Print-only roster sheet (window.print). Filled on export from the live builder state. -->
   <section id="roster-sheet" class="roster-sheet-host" aria-label="Printable roster sheet"></section>

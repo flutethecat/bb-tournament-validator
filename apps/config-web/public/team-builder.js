@@ -683,8 +683,21 @@ ${rosterSheetHtml(model)}
       return own.filter((k) => !shared.includes(k));
     }
 
+    /**
+     * skillIcons.ts canonicalSkillIconKey: "+AV"-style characteristics → statupav; otherwise lower-case a-z0-9,
+     * then the client's alias table. The builder first drops a display parameter ("Hatred (Troll)", "Loner (4+)")
+     * and roster asterisks — the client only ever sees bare skill names.
+     */
+    function skillIconKey(skillName, aliases) {
+      const bare = String(skillName ?? "").replace(/\*+$/, "").replace(/\s*\([^)]*\)\s*$/, "").replace(/\*+$/, "").trim();
+      const characteristic = /^([+-])(AG|MA|MV|AV|ST|PA)$/i.exec(bare);
+      if (characteristic) return `stat${characteristic[1] === "+" ? "up" : "down"}${characteristic[2].toLowerCase()}`;
+      const key = bare.toLowerCase().replace(/[^a-z0-9]/g, "");
+      return (aliases && Object.prototype.hasOwnProperty.call(aliases, key) ? String(aliases[key]) : key);
+    }
+
     return {
-      esc, gold, norm, num, STATS, deriveStatChanges, rosterRaceKey, resolveSprite, resolveCrest, roleKeywords, ROLE_KEYWORDS,
+      esc, gold, norm, num, STATS, deriveStatChanges, skillIconKey, rosterRaceKey, resolveSprite, resolveCrest, roleKeywords, ROLE_KEYWORDS,
       normalizeLeagueOptions, leagueFieldPresentation, reconcileLeagueSelection, explicitLeagueSpecialRule, starEligibleForLeague,
       buildStarChoices, positionGroupCapped, buildPicks, slotsFromPicks,
       improvedStats, statIncreaseCost, normalizeTierRules, tierLimitLines, tierTable, tierTableHtml, starPacksFor, starPackLabel,
@@ -775,6 +788,7 @@ ${rosterSheetHtml(model)}
   let spriteManifest = null; // /sprites/manifest.json (Super FUMBBL walk-sheet idle portraits)
   let crestManifest = null; // /crests/manifest.json (Super FUMBBL team crests)
   let iconManifest = null; // /icons/inducements/manifest.json (Super FUMBBL inducement icons)
+  let skillIconManifest = null; // /icons/skills/manifest.json ("Illustrated - Default" skill icons)
 
   $("fork-admin-link").href = `http://${location.hostname || "127.0.0.1"}:22227/panel.html`;
 
@@ -1025,7 +1039,8 @@ ${rosterSheetHtml(model)}
     return path ? `<img class="crest-image${cls ? ` ${cls}` : ""}" src="/${esc(path)}" alt="" aria-hidden="true" loading="lazy" decoding="async">` : "";
   }
   async function loadArtManifests() {
-    const [sprites, crests, icons] = await Promise.allSettled([api("/sprites/manifest.json"), api("/crests/manifest.json"), api("/icons/inducements/manifest.json")]);
+    const [sprites, crests, icons, skillIcons] = await Promise.allSettled([api("/sprites/manifest.json"), api("/crests/manifest.json"), api("/icons/inducements/manifest.json"), api("/icons/skills/manifest.json")]);
+    skillIconManifest = skillIcons.status === "fulfilled" && skillIcons.value?.icons ? skillIcons.value : null;
     iconManifest = icons.status === "fulfilled" && icons.value?.icons ? icons.value : null;
     spriteManifest = sprites.status === "fulfilled" && sprites.value?.races ? sprites.value : null;
     crestManifest = crests.status === "fulfilled" && crests.value?.crests ? crests.value : null;
@@ -1048,8 +1063,13 @@ ${rosterSheetHtml(model)}
       `<span${stats[stat].improved ? ' class="improved"' : ""}><b>${esc(stats[stat].value)}</b><small>${stat}</small></span>`
     ).join("")}</div>`;
   }
+  /** Skill icon left of the name; no icon → nothing (no gap). */
+  function skillIconHtml(skill) {
+    const path = skillIconManifest?.icons?.[Core.skillIconKey(skill, skillIconManifest.aliases)];
+    return path ? `<img class="skill-icon" src="/${esc(path)}" alt="" aria-hidden="true" loading="lazy" decoding="async">` : "";
+  }
   function printedSkillChips(position) {
-    return (position?.skills ?? []).map((skill) => `<span class="${skillClass(skill)}">${esc(skill)}</span>`).join("");
+    return (position?.skills ?? []).map((skill) => `<span class="${skillClass(skill)}">${skillIconHtml(skill)}${esc(skill)}</span>`).join("");
   }
 
   function renderMode() {
@@ -1179,29 +1199,6 @@ ${rosterSheetHtml(model)}
       }).join("");
   }
 
-  function statControl(slot, index, position) {
-    const rules = statRules();
-    if (!rules || position?.isStar) return "";
-    const chosen = slot.chosenStatIncreases ?? [];
-    const blocked = exclusiveStatAndSkill() && slot.chosenSkills.length > 0;
-    const stats = (Array.isArray(rules.stats) && rules.stats.length ? rules.stats : Core.STATS)
-      .filter((stat) => !(stat === "PA" && String(position?.PA ?? "-").trim() === "-"));
-    const options = stats.map((stat) => {
-      const cost = Core.statIncreaseCost(rules, stat);
-      return `<option value="${esc(stat)}">+${esc(stat)}${cost != null ? ` (${gold(cost)})` : ""}</option>`;
-    }).join("");
-    if (maxStatsPerPlayer() <= 1) {
-      return `<label class="stat-pick" title="${blocked ? "A player with an added skill can't also take a stat increase." : "Characteristic increase"}">
-        <span>Stat</span>
-        <select data-stat-slot="${index}" ${blocked ? "disabled" : ""} aria-label="Stat increase for player ${index + 1}">
-          <option value="">—</option>${options}
-        </select></label>`;
-    }
-    const chips = chosen.map((stat) => `<span class="chosen-chip stat-chip">+${esc(stat)}<button type="button" data-remove-stat="${index}" data-stat="${esc(stat)}" aria-label="Remove +${esc(stat)}">×</button></span>`).join("");
-    const full = chosen.length >= maxStatsPerPlayer();
-    return `<span class="stat-pick">${chips}${full || blocked ? "" : `<select data-stat-slot="${index}" aria-label="Add stat increase"><option value="">+ Stat</option>${options}</select>`}</span>`;
-  }
-
   function renderRoster() {
     $("player-count").textContent = `${slots.length} / ${MAX_PLAYERS}`;
     if (!slots.length) {
@@ -1215,15 +1212,21 @@ ${rosterSheetHtml(model)}
       const blockedSkills = Boolean(statRules()) && exclusiveStatAndSkill() && (slot.chosenStatIncreases ?? []).length > 0;
       const added = edit && !star ? slot.chosenSkills.map((skill) => {
         const access = skillAccess(slot.positionId, skill);
-        return `<span class="chosen-chip ${skillClass(skill)} access-${access}">${esc(skill)}<button type="button" data-remove-skill="${index}" data-skill="${esc(skill)}" aria-label="Remove ${esc(skill)}">×</button></span>`;
+        return `<span class="chosen-chip ${skillClass(skill)} access-${access}">${skillIconHtml(skill)}${esc(skill)}<button type="button" data-remove-skill="${index}" data-skill="${esc(skill)}" aria-label="Remove ${esc(skill)}">×</button></span>`;
       }).join("") : "";
       const liveStats = (slot.chosenStatIncreases ?? []).filter((stat) => allowedStatList().includes(stat));
-      const statChips = liveStats.length && maxStatsPerPlayer() <= 1
-        ? slot.chosenStatIncreases.map((stat) => `<span class="chosen-chip stat-chip">+${esc(stat)}</span>`).join("")
-        : "";
-      const select = edit ? statControl(slot, index, position) : "";
+      const statChips = liveStats.map((stat) => `<span class="chosen-chip stat-chip">${skillIconHtml(`+${stat}`)}+${esc(stat)}<button type="button" data-remove-stat="${index}" data-stat="${esc(stat)}" aria-label="Remove +${esc(stat)}">×</button></span>`).join("");
+      const select = "";
       const skillButton = edit && !star
         ? `<button type="button" class="skill-add-btn${skillPickerIndex === index ? " open" : ""}" data-skill-slot="${index}" ${blockedSkills ? 'disabled title="A player with a stat increase can\'t also have an added skill."' : ""}><span>Add</span><span>Skill</span></button>`
+        : "";
+      // Add Stat: only when this tier lets the race raise characteristics; mutual lock with added skills.
+      const statLocked = exclusiveStatAndSkill() && slot.chosenSkills.length > 0;
+      const statFull = liveStats.length >= maxStatsPerPlayer();
+      const statButton = edit && !star && statRules() && allowedStatList().length
+        ? `<button type="button" class="skill-add-btn stat-add-btn" data-stat-slot="${index}" ${statLocked
+          ? 'disabled title="A player with an added skill can\'t also take a stat increase."'
+          : statFull ? `disabled title="Max ${maxStatsPerPlayer()} stat increase${maxStatsPerPlayer() === 1 ? "" : "s"} per player."` : ""}><span>Add</span><span>Stat</span></button>`
         : "";
       return `<div class="roster-row roster-grid${skillPickerIndex === index ? " picking" : ""}">
         <span class="slot-number">${index + 1}</span>
@@ -1235,16 +1238,11 @@ ${rosterSheetHtml(model)}
         <div class="row-skills">${printedSkillChips(position)}${added}${statChips}${select}</div>
         <span class="cost">${gold(position?.cost)}</span>
         <div class="row-actions">
-          ${skillButton}
+          ${skillButton}${statButton}
           <span class="fire-cell"><button class="remove-player" type="button" data-remove-slot="${index}" aria-label="Remove ${esc(position?.name ?? "player")}">×</button><small class="fire-label">FIRE</small></span>
         </div>
       </div>`;
     }).join("");
-    // Restore select values (rendered as strings, set after insertion).
-    document.querySelectorAll("[data-stat-slot]").forEach((select) => {
-      const slot = slots[Number(select.dataset.statSlot)];
-      if (slot && maxStatsPerPlayer() <= 1) select.value = slot.chosenStatIncreases?.[0] ?? "";
-    });
   }
 
   async function ensureSkillCatalog() {
@@ -1307,11 +1305,10 @@ ${rosterSheetHtml(model)}
     const slot = skillPickerIndex != null ? slots[skillPickerIndex] : null;
     const position = slot ? positionById(slot.positionId) : null;
     if (!slot || !position || position.isStar || !canEditSkills()) {
-      panel.hidden = true;
+      closeModal(panel);
       return;
     }
-    panel.hidden = false;
-    $("skill-picker-heading").textContent = `${mode === "custom" ? "All Skills" : "Add Skill"} — #${skillPickerIndex + 1} ${position.name}`;
+    $("skill-picker-heading").textContent = `${mode === "custom" ? "All skills" : "Add skill"} — #${skillPickerIndex + 1} ${position.name}`;
     const body = $("skill-picker-body");
     const set = pickerSet(slot);
     if (!set) {
@@ -1348,7 +1345,7 @@ ${rosterSheetHtml(model)}
       const added = slot.chosenSkills.includes(skill.skill);
       const price = mode === "custom" || innate ? "" : `+${gold((section.access === "secondary" ? SECONDARY_GOLD : PRIMARY_GOLD) + (skill.elite ? ELITE_GOLD : 0))}`;
       return `<span class="skill-chip-cell"><button type="button" class="skill-chip ${categoryClass(skill.category)}${innate ? " innate" : ""}${added ? " added" : ""}" data-pick-skill="${esc(skill.skill)}" ${innate || added ? "disabled" : ""}>
-        <span class="skill-chip-main">${skill.elite ? '<span class="elite-mark" title="Elite skill" aria-label="Elite">◆</span>' : ""}<span>${esc(skill.skill)}</span>${innate ? '<span class="skill-owned-check" aria-label="Already printed">✓</span>' : ""}</span>
+        <span class="skill-chip-main">${skill.elite ? '<span class="elite-mark" title="Elite skill" aria-label="Elite">◆</span>' : ""}${skillIconHtml(skill.skill)}<span>${esc(skill.skill)}</span>${innate ? '<span class="skill-owned-check" aria-label="Already printed">✓</span>' : ""}</span>
         <span class="skill-chip-meta"><small>${esc(price)}</small></span>
       </button>${added ? `<button type="button" class="skill-chip-remove" data-unpick-skill="${esc(skill.skill)}" aria-label="Remove ${esc(skill.skill)}">×</button>` : ""}</span>`;
     }).join("");
@@ -1899,19 +1896,54 @@ ${rosterSheetHtml(model)}
     skillPickerIndex = null;
     changed();
   }
-  async function openSkillPicker(index) {
-    if (skillPickerIndex === index) {
-      skillPickerIndex = null;
-      renderRoster();
-      renderSkillPicker();
-      return;
+  // ── modal dialogs (Add skill / Add stat): native <dialog>.showModal — Esc, backdrop and ✕ close; focus
+  //    moves into the dialog and returns to the row's button on close. ──
+  let modalReturn = null; // { selector } of the button that opened the open modal
+  function openModal(dialog, returnSelector) {
+    modalReturn = returnSelector;
+    if (dialog.open) return;
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", "");
+    dialog.querySelector(".picker-close")?.focus();
+  }
+  function closeModal(dialog) {
+    if (!dialog?.open) return;
+    if (typeof dialog.close === "function") dialog.close();
+    else {
+      dialog.removeAttribute("open");
+      dialog.dispatchEvent(new Event("close"));
     }
+  }
+  function restoreModalFocus() {
+    const selector = modalReturn;
+    modalReturn = null;
+    if (selector) document.querySelector(selector)?.focus();
+  }
+  /** Whether the player in the open picker may still take another added skill (keeps the modal open). */
+  function moreSkillsAllowed(slot) {
+    if (mode === "custom") return true;
+    const caps = [];
+    const perPlayer = raceRules()?.maxPerPlayer;
+    if (typeof perPlayer === "number") caps.push(perPlayer);
+    const rules = tierRules();
+    if (rules) {
+      if (rules.maxStackedPlayers === 0) caps.push(1);
+      else {
+        if (typeof rules.stackedPlayer?.maxSkills === "number") caps.push(rules.stackedPlayer.maxSkills);
+        const othersStacked = slots.filter((other) => other !== slot && other.chosenSkills.length > 1).length;
+        if (typeof rules.maxStackedPlayers === "number" && slot.chosenSkills.length <= 1 && othersStacked >= rules.maxStackedPlayers) caps.push(1);
+      }
+    }
+    return !caps.length || slot.chosenSkills.length < Math.min(...caps);
+  }
+  async function openSkillPicker(index) {
     const slot = slots[index];
     if (!slot) return;
     skillPickerIndex = index;
     pickerCategory = null;
     renderRoster();
     renderSkillPicker();
+    openModal($("skill-picker"), `[data-skill-slot="${index}"]`);
     try {
       await ensureSkillCatalog();
       if (mode !== "custom") await ensureLegalSkills(slot.positionId);
@@ -1920,7 +1952,6 @@ ${rosterSheetHtml(model)}
       return;
     }
     if (skillPickerIndex === index) renderSkillPicker();
-    $("skill-picker").scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
   function addSkill(skill) {
     const slot = slots[skillPickerIndex];
@@ -1928,6 +1959,46 @@ ${rosterSheetHtml(model)}
     if (statRules() && exclusiveStatAndSkill() && slot.chosenStatIncreases.length) return;
     slot.chosenSkills.push(skill);
     changed({ positions: false });
+    if (!moreSkillsAllowed(slot)) closeModal($("skill-picker"));
+  }
+  // ── Add stat modal ──
+  let statPickerIndex = null;
+  function statOptionState(slot, position, stat) {
+    const chosen = slot.chosenStatIncreases ?? [];
+    const noValue = (stat === "PA" || stat === "AG") && !/\d/.test(String(position?.[stat] ?? ""));
+    if (noValue) return `This position has no ${stat} to improve.`;
+    if (chosen.includes(stat)) return "Already taken.";
+    if (chosen.filter((s) => allowedStatList().includes(s)).length >= maxStatsPerPlayer()) return `Max ${maxStatsPerPlayer()} per player.`;
+    if (exclusiveStatAndSkill() && slot.chosenSkills.length) return "A player with an added skill can't also take a stat increase.";
+    return "";
+  }
+  function renderStatPicker() {
+    const dialog = $("stat-picker");
+    const slot = statPickerIndex != null ? slots[statPickerIndex] : null;
+    const position = slot ? positionById(slot.positionId) : null;
+    const rules = statRules();
+    if (!slot || !position || position.isStar || !rules) {
+      closeModal(dialog);
+      return;
+    }
+    $("stat-picker-heading").textContent = `Add stat — #${statPickerIndex + 1} ${position.name}`;
+    const chosen = (slot.chosenStatIncreases ?? []).filter((s) => allowedStatList().includes(s));
+    const now = Core.improvedStats(position, chosen);
+    $("stat-picker-body").innerHTML = `<div class="stat-option-grid">${allowedStatList().map((stat) => {
+      const reason = statOptionState(slot, position, stat);
+      const next = Core.improvedStats(position, [...chosen, stat]);
+      const cost = Core.statIncreaseCost(rules, stat);
+      return `<button type="button" class="stat-option" data-pick-stat="${esc(stat)}" ${reason ? `disabled title="${esc(reason)}"` : ""}>
+        <span class="stat-option-main">${skillIconHtml(`+${stat}`)}<b>+${esc(stat)}</b><span class="stat-option-values">${esc(now[stat].value)} → ${esc(reason && /no /.test(reason) ? now[stat].value : next[stat].value)}</span></span>
+        <small>${cost != null ? `+${gold(cost)}` : ""}${reason ? ` · ${esc(reason)}` : ""}</small>
+      </button>`;
+    }).join("")}</div>`;
+  }
+  function openStatPicker(index) {
+    if (!slots[index]) return;
+    statPickerIndex = index;
+    renderStatPicker();
+    openModal($("stat-picker"), `[data-stat-slot="${index}"]`);
   }
   function removeSkill(index, skill) {
     const slot = slots[index];
@@ -1937,9 +2008,10 @@ ${rosterSheetHtml(model)}
   }
   function setStatIncrease(index, stat) {
     const slot = slots[index];
-    if (!slot) return;
-    if (maxStatsPerPlayer() <= 1) slot.chosenStatIncreases = stat ? [stat] : [];
-    else if (stat && !slot.chosenStatIncreases.includes(stat) && slot.chosenStatIncreases.length < maxStatsPerPlayer()) slot.chosenStatIncreases.push(stat);
+    if (!slot || !stat) return;
+    const live = slot.chosenStatIncreases.filter((s) => allowedStatList().includes(s));
+    if (live.includes(stat) || live.length >= maxStatsPerPlayer()) return;
+    slot.chosenStatIncreases = [...live, stat];
     changed({ positions: false });
   }
   function stepStaff(key, delta) {
@@ -2615,17 +2687,32 @@ ${rosterSheetHtml(model)}
       return changed({ positions: false });
     }
     const picker = event.target.closest("[data-skill-slot]");
-    if (picker) openSkillPicker(Number(picker.dataset.skillSlot));
+    if (picker && !picker.disabled) return openSkillPicker(Number(picker.dataset.skillSlot));
+    const statPicker = event.target.closest("[data-stat-slot]");
+    if (statPicker && !statPicker.disabled) openStatPicker(Number(statPicker.dataset.statSlot));
   });
-  $("roster-slots").addEventListener("change", (event) => {
-    const select = event.target.closest("[data-stat-slot]");
-    if (select) setStatIncrease(Number(select.dataset.statSlot), select.value);
+  $("skill-picker").addEventListener("close", () => {
+    skillPickerIndex = null;
+    renderRoster();
+    restoreModalFocus();
+  });
+  $("stat-picker").addEventListener("close", () => {
+    statPickerIndex = null;
+    renderRoster();
+    restoreModalFocus();
+  });
+  $("stat-picker").addEventListener("click", (event) => {
+    if (event.target === $("stat-picker") || event.target.closest("#stat-picker-close")) return closeModal($("stat-picker"));
+    const pick = event.target.closest("[data-pick-stat]");
+    if (pick && !pick.disabled) {
+      setStatIncrease(statPickerIndex, pick.dataset.pickStat);
+      closeModal($("stat-picker"));
+    }
   });
   $("skill-picker").addEventListener("click", (event) => {
-    if (event.target.closest("#skill-picker-close")) {
-      skillPickerIndex = null;
-      renderRoster();
-      renderSkillPicker();
+    // Backdrop clicks land on the <dialog> element itself.
+    if (event.target === $("skill-picker") || event.target.closest("#skill-picker-close")) {
+      closeModal($("skill-picker"));
       return;
     }
     const blade = event.target.closest("[data-blade]");
