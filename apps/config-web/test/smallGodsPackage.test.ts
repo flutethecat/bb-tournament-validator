@@ -355,3 +355,44 @@ describe("stat-increase hardening (review 10-22)", () => {
     ).toThrow(/cannot take characteristic increases/);
   });
 });
+
+describe("package knob load checks + legacy summary shape (review 10-22)", () => {
+  it("reports bad knob values and never lets a negative cost or fee lower a team's price", () => {
+    const { pkg: bad, problems: p } = loadPackage({
+      name: "Bad Knobs",
+      eligibleRosters: ["*"],
+      statIncreases: { allowed: ["AV"], costGold: { AV: -50000, PA: Number.NaN }, maxPerPlayer: 1.5 },
+      starPacks: [{ id: "x", fee: -20000, max: -1, feeMode: "both" as never, stars: ["Grombrindal"] }],
+      skillAllotment: { skillPointBudget: 0, eliteMaxTotal: 2.5, stackedPlayer: { maxSecondary: -1 } },
+      tiers: [{ tier: 1, rosters: ["Dwarf"], gold: null, rosterGold: { Dwarf: -1 }, starPlayersAllowed: true, bannedStars: [] }],
+    } as never);
+    expect(p).toEqual([
+      "skillAllotment.eliteMaxTotal must be a non-negative integer or null.",
+      "skillAllotment.stackedPlayer.maxSecondary must be a non-negative integer or null.",
+      "package.statIncreases.costGold.AV must be a non-negative number (ignored).",
+      "package.statIncreases.costGold.PA must be a non-negative number (ignored).",
+      "package.statIncreases.maxPerPlayer must be a non-negative integer or null.",
+      "tiers[1].rosterGold.Dwarf must be a non-negative number.",
+      "starPacks[x].max must be a non-negative integer or null.",
+      'starPacks[x].feeMode must be "once" or "each".',
+      "starPacks[x].fee must be a non-negative number (treated as 0).",
+    ]);
+    expect(bad.statIncreases!.costGold).toEqual({});
+    expect(bad.starPacks![0]!.fee).toBe(0);
+    expect(problems).toEqual([]); // Small Gods itself is clean
+  });
+
+  it("keeps the legacy recomputedSummary shape when the new knobs are unused", () => {
+    const { pkg: legacy } = loadPackage({ name: "Legacy Cup", eligibleRosters: ["*"] });
+    const composed = composeTeam(
+      { forkRosterXml: forkXml("Dwarf"), coach: "C", teamName: "T", picks: [{ positionId: "1", count: 11 }], reRolls: 0, apothecary: false },
+      bb2025,
+      42,
+    );
+    const summary = validate(composed.roster, legacy, bb2025).recomputedSummary;
+    expect("statIncreasesCost" in summary).toBe(false);
+    expect("starFeesCost" in summary).toBe(false);
+    const sg = validate(composed.roster, pkg, bb2025).recomputedSummary;
+    expect(sg).toMatchObject({ statIncreasesCost: 0, starFeesCost: 0 });
+  });
+});

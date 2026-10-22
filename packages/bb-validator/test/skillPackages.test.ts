@@ -152,8 +152,6 @@ describe("star cost accounting without choose-one packages", () => {
       inducementsCost: 0,
       skillsCost: 0,
       starsCost: 200000,
-      statIncreasesCost: 0,
-      starFeesCost: 0,
     });
   });
 });

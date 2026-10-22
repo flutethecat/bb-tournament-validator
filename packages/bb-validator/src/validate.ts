@@ -112,8 +112,10 @@ export function validate(
       inducementsCost,
       skillsCost,
       starsCost: starGold,
-      statIncreasesCost,
-      starFeesCost,
+      // Only for packages that use these knobs (legacy responses stay byte-identical).
+      ...(rc.statIncreases || pkg.starPacks?.length || statIncreasesCost || starFeesCost
+        ? { statIncreasesCost, starFeesCost }
+        : {}),
     },
   };
 }

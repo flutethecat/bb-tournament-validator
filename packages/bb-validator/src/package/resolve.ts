@@ -7,7 +7,70 @@
  * happen in bb-ingest / the bot / the tournament service.
  */
 
-import { DEFAULT_SKILL_ALLOTMENT, type SkillAllotment, type TournamentPackage } from "./types";
+import {
+  DEFAULT_SKILL_ALLOTMENT,
+  type ExtraSkillKnobs,
+  type SkillAllotment,
+  type StatIncreaseRule,
+  type TournamentPackage,
+} from "./types";
+
+const isMoney = (v: unknown): boolean => typeof v === "number" && Number.isFinite(v) && v >= 0;
+const isCap = (v: unknown): boolean => v === null || v === undefined || (typeof v === "number" && Number.isSafeInteger(v) && v >= 0);
+
+/**
+ * Load-time checks for the generic elite / stack / stat-increase / star-pack knobs. Every bad value
+ * is reported in `problems`; bad GOLD values (negative / non-finite costs and fees, which could
+ * only ever LOWER a team's cost) are also dropped so they price as 0. Bad caps are reported only —
+ * a negative cap already fails closed.
+ */
+export function checkExtraKnobs(pkg: TournamentPackage): { pkg: TournamentPackage; problems: string[] } {
+  const problems: string[] = [];
+  const cleanStat = (where: string, si: StatIncreaseRule | null | undefined): StatIncreaseRule | null | undefined => {
+    if (!si) return si;
+    const costGold: Record<string, number> = {};
+    for (const [k, v] of Object.entries(si.costGold ?? {})) {
+      if (isMoney(v)) costGold[k] = v as number;
+      else problems.push(`${where}.statIncreases.costGold.${k} must be a non-negative number (ignored).`);
+    }
+    if (!isCap(si.maxPerPlayer)) problems.push(`${where}.statIncreases.maxPerPlayer must be a non-negative integer or null.`);
+    return si.costGold ? { ...si, costGold } : si;
+  };
+  const checkCaps = (where: string, k: ExtraSkillKnobs & { maxStackedPlayers?: number | null }) => {
+    for (const f of ["eliteMaxTotal", "eliteMaxSameSkill", "maxStackedPlayers"] as const)
+      if (!isCap(k[f])) problems.push(`${where}.${f} must be a non-negative integer or null.`);
+    for (const f of ["maxSkills", "maxSecondary", "maxElite"] as const)
+      if (k.stackedPlayer && !isCap(k.stackedPlayer[f])) problems.push(`${where}.stackedPlayer.${f} must be a non-negative integer or null.`);
+  };
+  checkCaps("skillAllotment", pkg.skillAllotment);
+  const out: TournamentPackage = { ...pkg };
+  if (pkg.statIncreases !== undefined) out.statIncreases = cleanStat("package", pkg.statIncreases);
+  if (pkg.tiers)
+    out.tiers = pkg.tiers.map((t) => {
+      const where = `tiers[${t.tier}]`;
+      checkCaps(where, t);
+      for (const [r, g] of Object.entries(t.rosterGold ?? {}))
+        if (!isMoney(g)) problems.push(`${where}.rosterGold.${r} must be a non-negative number.`);
+      return t.statIncreases !== undefined ? { ...t, statIncreases: cleanStat(where, t.statIncreases) } : t;
+    });
+  if (pkg.teamRules)
+    out.teamRules = pkg.teamRules.map((r) => {
+      const where = `teamRules[${r.team}]`;
+      checkCaps(where, r);
+      return r.statIncreases !== undefined ? { ...r, statIncreases: cleanStat(where, r.statIncreases) } : r;
+    });
+  if (pkg.starPacks)
+    out.starPacks = pkg.starPacks.map((p) => {
+      const where = `starPacks[${p.id}]`;
+      if (!isCap(p.max)) problems.push(`${where}.max must be a non-negative integer or null.`);
+      if (p.feeMode !== undefined && p.feeMode !== "once" && p.feeMode !== "each")
+        problems.push(`${where}.feeMode must be "once" or "each".`);
+      if (isMoney(p.fee)) return p;
+      problems.push(`${where}.fee must be a non-negative number (treated as 0).`);
+      return { ...p, fee: 0 };
+    });
+  return { pkg: out, problems };
+}
 
 /** Recursively-optional view of T (arrays keep their element type). */
 export type DeepPartial<T> = T extends (infer U)[]
@@ -141,6 +204,9 @@ export function loadPackage(
     else problems.push(`extends "${raw.extends}" could not be resolved; using defaults`);
   }
   pkg = mergePackages(pkg, raw);
+  const knobs = checkExtraKnobs(pkg);
+  pkg = knobs.pkg;
+  problems.push(...knobs.problems);
 
   if (opts?.csvText !== undefined) {
     const { rows, problems: csvProblems } = parseSkillCostCsv(opts.csvText);
