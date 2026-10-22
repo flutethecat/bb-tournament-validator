@@ -2260,7 +2260,11 @@ async function handleApi(
         }
         return sendJson(res, 405, { error: "Use GET, PUT or DELETE." });
       } catch (e) {
-        return sendJson(res, 409, { error: (e as Error).message });
+        // Fixed messages only — a raw fs error would leak server paths.
+        const busy = /in progress/i.test((e as Error).message);
+        return busy
+          ? sendJson(res, 409, { error: "Another save is in progress; try again." })
+          : sendJson(res, 500, { error: "Could not update saved teams right now." });
       }
     }
   }

@@ -5,12 +5,13 @@
  * produced it (package, picks with chosenSkills/chosenStatIncreases, sideline, inducements,
  * special rule). This supplemental store keeps that body so the HTML builder can recall a sheet,
  * and links it to the fork `teamId` once built. One JSON file per coach under the config-web
- * data-store (coach key normalised like the fork library: safe(coach).toLowerCase()), written
+ * data-store, named by the sha256 of the EXACT coach name (fork coach names are case-sensitive, so
+ * the key must be injective: "Foo"/"foo", "A B"/"A_B" and Windows device names never collide), written
  * atomically under a per-coach file lock. Identity is ALWAYS the caller's proven session coach —
  * this module never takes a coach from a request body or query.
  */
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { acquireFileWriteLock, atomicWriteTextFile } from "@bb/fork-ops";
@@ -42,8 +43,9 @@ export type SaveResult =
   | { ok: true; status: 200 | 201; save: TeamBuilderSave }
   | { ok: false; status: 400 | 404 | 409; error: string };
 
-const safeKey = (coach: string): string =>
-  (coach.replace(/[^\w.-]+/g, "_").replace(/^\.+/, "") || "unknown").toLowerCase();
+/** Injective, filesystem-safe key for an exact coach name. */
+export const coachSaveKey = (coach: string): string => createHash("sha256").update(coach, "utf8").digest("hex");
+const safeKey = coachSaveKey;
 const fileFor = (dir: string, coach: string): string => join(dir, `${safeKey(coach)}.json`);
 const lockFor = (dir: string, coach: string): string => join(dir, ".locks", `${safeKey(coach)}.lock`);
 
@@ -54,7 +56,7 @@ export function readSaves(dir: string, coach: string): TeamBuilderSave[] {
   if (!existsSync(file)) return [];
   try {
     const parsed = JSON.parse(readFileSync(file, "utf8")) as { coach?: string; saves?: TeamBuilderSave[] };
-    if (!parsed || typeof parsed.coach !== "string" || parsed.coach.toLowerCase() !== coach.toLowerCase()) return [];
+    if (!parsed || typeof parsed.coach !== "string" || parsed.coach !== coach) return [];
     return Array.isArray(parsed.saves) ? parsed.saves : [];
   } catch {
     return [];
@@ -83,6 +85,27 @@ export const summarizeSave = (s: TeamBuilderSave): TeamBuilderSaveSummary => ({
   updatedAt: s.updatedAt,
   createdAt: s.createdAt,
 });
+
+/** TeamBuilderBody fields a BUILD may persist into a save (unknown fields are dropped). */
+const BUILD_BODY_FIELDS = [
+  "rosterId", "teamName", "picks", "reRolls", "apothecary", "cheerleaders", "assistantCoaches",
+  "dedicatedFans", "specialRule", "budget", "custom", "packageName", "teamId", "rosteredInducements", "inducements",
+] as const;
+const PICK_FIELDS = ["positionId", "count", "chosenSkills", "chosenStatIncreases", "chosenStats"] as const;
+
+function pickFields<K extends string>(src: Record<string, unknown>, keys: readonly K[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of keys) if (src[k] !== undefined) out[k] = src[k];
+  return out;
+}
+
+/** Whitelist a build body to TeamBuilderBody fields (and pick fields) for storage. */
+export function buildBodyForSave(body: Record<string, unknown>): Record<string, unknown> {
+  const out = pickFields(body, BUILD_BODY_FIELDS);
+  if (Array.isArray(out.picks))
+    out.picks = out.picks.map((p) => (p && typeof p === "object" && !Array.isArray(p) ? pickFields(p as Record<string, unknown>, PICK_FIELDS) : p));
+  return out;
+}
 
 /** Strip credentials and validate a builder body for storage. */
 export function sanitizeSaveBody(body: unknown): { body: Record<string, unknown> } | { error: string } {
@@ -201,7 +224,9 @@ export function recordBuild(
   try {
     const b = sanitizeSaveBody(built.body);
     if ("error" in b) return undefined;
-    const body = b.body;
+    const body = buildBodyForSave(b.body);
+    // Same cap as the save routes: never persist an oversized build body.
+    if (Buffer.byteLength(JSON.stringify(body), "utf8") > TEAM_BUILDER_SAVES_BODY_CAP) return undefined;
     const at = (deps.now?.() ?? new Date()).toISOString();
     const lastPreview = built.summary && typeof built.summary === "object" ? (built.summary as Record<string, unknown>) : undefined;
     return withSaves(deps.dir, coach, (saves) => {

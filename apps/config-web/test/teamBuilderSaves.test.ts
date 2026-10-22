@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { findRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { createSession, SESSION_COOKIE_NAME } from "../src/auth/session.js";
-import { createSave, readSaves, recordBuild, teamBuilderSavesPath } from "../src/teamBuilderSaves.js";
+import { TEAM_BUILDER_SAVES_BODY_CAP, buildBodyForSave, coachSaveKey, createSave, readSaves, recordBuild, teamBuilderSavesPath } from "../src/teamBuilderSaves.js";
 
 const root = mkdtempSync(join(tmpdir(), "team-builder-saves-"));
 const previousEnv = new Map<string, string | undefined>();
@@ -120,7 +120,7 @@ describe("team-builder saves HTTP", () => {
     saveId = save.id;
     expect(save).toMatchObject({ name: "Grudge XI", packageName: "Small Gods", rosterId: "dwarf.bb2025", raceName: "Dwarf", teamId: null, lastPreview: { goldUsed: 1000000 } });
     expect(save.body.password).toBeUndefined();
-    expect(readFileSync(join(root, "saves", "alice.json"), "utf8")).not.toContain("hunter2");
+    expect(readFileSync(join(root, "saves", `${coachSaveKey("Alice")}.json`), "utf8")).not.toContain("hunter2");
 
     const list = (await (await call("GET", "/api/fork/team-builder/saves", alice.token)).json()) as { saves: Array<Record<string, unknown>> };
     expect(list.saves).toEqual([
@@ -213,5 +213,37 @@ describe("team-builder saves HTTP", () => {
     expect(again).toBe(fresh);
     expect(readSaves(dir, "Dave")).toHaveLength(2);
     expect(readSaves(dir, "Dave").find((x) => x.id === fresh)!.body.reRolls).toBe(3);
+  });
+});
+
+describe("team-builder saves store hardening (review 10-22)", () => {
+  const deps = () => ({ dir: join(root, "hardening"), raceNameFor: () => "Dwarf" });
+
+  it("keys coaches injectively: case, spacing and device names never share a file", () => {
+    for (const [a, b] of [["Foo", "foo"], ["A B", "A_B"], ["CON", "con"]] as const) {
+      expect(coachSaveKey(a)).not.toBe(coachSaveKey(b));
+      const made = createSave(deps(), a, { name: `${a} XI`, body: sheet("x") });
+      expect(made.ok).toBe(true);
+      expect(readSaves(deps().dir, b)).toEqual([]);
+      expect(readSaves(deps().dir, a)).toHaveLength(1);
+    }
+    expect(coachSaveKey("CON")).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("whitelists build bodies and refuses to store an oversized one", () => {
+    const body = { ...sheet("W"), evil: { nested: true }, picks: [{ positionId: "1", count: 11, junk: "x" }] };
+    expect(buildBodyForSave(body)).toEqual({
+      rosterId: "dwarf.bb2025",
+      teamName: "W",
+      picks: [{ positionId: "1", count: 11 }],
+      reRolls: 2,
+      apothecary: true,
+    });
+    const id = recordBuild(deps(), "Whitelist", { teamId: "tb_w", teamName: "W", body });
+    const stored = readSaves(deps().dir, "Whitelist").find((x) => x.id === id)!;
+    expect(stored.body.evil).toBeUndefined();
+    expect(stored.body.coach).toBeUndefined();
+    const huge = { ...sheet("Huge"), specialRule: "x".repeat(TEAM_BUILDER_SAVES_BODY_CAP + 1) };
+    expect(recordBuild(deps(), "Whitelist", { teamId: "tb_h", teamName: "Huge", body: huge })).toBeUndefined();
   });
 });

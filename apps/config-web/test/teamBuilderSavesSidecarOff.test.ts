@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSession, SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { coachSaveKey } from "../src/teamBuilderSaves.js";
 
 // Sidecar-OFF (the live ADMIN_PASSWORD host mode): saves must bypass the legacy Basic gate and be
 // enforced by the coach session in-handler, with JSON 401s and the cookie CSRF header.
@@ -76,5 +77,20 @@ describe("team-builder saves with the auth sidecar off", () => {
       body: JSON.stringify(body),
     });
     expect(csrf.status).toBe(403);
+  });
+
+  it("answers a storage failure with a fixed message (no server paths)", async () => {
+    // A directory squatting on the coach's save file makes the atomic rename fail.
+    mkdirSync(join(root, "saves", `${coachSaveKey("Broken")}.json`), { recursive: true });
+    const s = createSession("Broken");
+    const res = await fetch(`${origin}/api/fork/team-builder/saves`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${s.token}` },
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(JSON.parse(text)).toEqual({ error: "Could not update saved teams right now." });
+    expect(text).not.toMatch(/team-builder-saves-off|\.json|EISDIR|EPERM/);
   });
 });
