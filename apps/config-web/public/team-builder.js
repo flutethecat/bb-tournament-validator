@@ -358,7 +358,7 @@
         const row = {
           position: position.name ?? "Unknown position",
           stats,
-          printed: [...(position.skills ?? [])].sort((x, y) => x.localeCompare(y)),
+          printed: [...(Array.isArray(position.skillsDisplay) && position.skillsDisplay.length ? position.skillsDisplay : position.skills ?? [])].sort((x, y) => x.localeCompare(y)),
           added,
           statIncreases: (player.chosenStatIncreases ?? []).map((s) => String(s).toUpperCase()),
           cost: position.cost ?? null,
