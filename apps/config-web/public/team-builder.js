@@ -24,6 +24,14 @@
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
     }[char]));
     const isNum = (value) => typeof value === "number" && Number.isFinite(value);
+    /** Coerce a server/package value to a finite number, else null — every number rendered into
+     *  markup passes through here (or gold()), so a hostile package can't smuggle HTML in a "number". */
+    const num = (value) => {
+      if (value === null || value === undefined || value === "" || typeof value === "boolean") return null;
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    };
+    const str = (value) => (value === null || value === undefined ? "" : String(value));
     const gold = (value) => isNum(value) ? `${Math.round(value / 1000).toLocaleString("en-US")}k` : "—";
     const norm = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
     const STATS = ["MA", "ST", "AG", "PA", "AV"];
@@ -155,12 +163,25 @@
     function buildPicks(slots, options = {}) {
       const withSkills = options.skills !== false;
       const withStats = options.stats === true;
+      const allowedStats = Array.isArray(options.allowedStats) ? options.allowedStats : null;
+      const withCustomStats = options.customStats === true;
       const picks = [];
       let last = null;
       for (const slot of slots ?? []) {
         const chosenSkills = withSkills && !slot.isStar ? [...(slot.chosenSkills ?? [])] : [];
-        const chosenStatIncreases = withStats && !slot.isStar ? [...(slot.chosenStatIncreases ?? [])] : [];
-        const signature = `${slot.positionId}|${chosenSkills.join(",")}|${chosenStatIncreases.join(",")}`;
+        const chosenStatIncreases = withStats && !slot.isStar
+          ? (slot.chosenStatIncreases ?? []).filter((stat) => !allowedStats || allowedStats.includes(stat))
+          : [];
+        const chosenStats = {};
+        if (withCustomStats && !slot.isStar) {
+          // Server contract: integers 0-20 on MA/ST/AG/PA/AV only.
+          for (const stat of STATS) {
+            const value = num(slot.chosenStats?.[stat]);
+            if (value !== null && Number.isInteger(value) && value >= 0 && value <= 20) chosenStats[stat] = value;
+          }
+        }
+        const statsKey = STATS.filter((stat) => stat in chosenStats).map((stat) => `${stat}${chosenStats[stat]}`).join(",");
+        const signature = `${slot.positionId}|${chosenSkills.join(",")}|${chosenStatIncreases.join(",")}|${statsKey}`;
         if (last && last.signature === signature) {
           last.pick.count += 1;
           continue;
@@ -168,6 +189,7 @@
         const pick = { positionId: slot.positionId, count: 1 };
         if (chosenSkills.length) pick.chosenSkills = chosenSkills;
         if (chosenStatIncreases.length) pick.chosenStatIncreases = chosenStatIncreases;
+        if (statsKey) pick.chosenStats = chosenStats;
         picks.push(pick);
         last = { signature, pick };
       }
@@ -186,6 +208,7 @@
             isStar: position.isStar === true,
             chosenSkills: Array.isArray(pick.chosenSkills) ? [...pick.chosenSkills] : [],
             chosenStatIncreases: Array.isArray(pick.chosenStatIncreases) ? [...pick.chosenStatIncreases] : [],
+            ...(pick.chosenStats && typeof pick.chosenStats === "object" ? { chosenStats: { ...pick.chosenStats } } : {}),
           });
         }
       }
@@ -199,9 +222,16 @@
     };
     /** Apply chosen +1 characteristic increases to a position's printed profile.
      *  MA/ST/AV go up by one (AV 10+ → 11+); AG/PA targets improve by one (4+ → 3+, floor 1+). */
-    function improvedStats(position, increases) {
+    function improvedStats(position, increases, overrides) {
       const out = {};
       for (const stat of STATS) out[stat] = { value: position?.[stat] ?? "—", improved: false };
+      // Custom-mode chosenStats: absolute raw values (AG/PA/AV are roll targets, e.g. 3 = "3+").
+      for (const stat of STATS) {
+        const n = num(overrides?.[stat]);
+        if (n === null) continue;
+        const value = stat === "MA" || stat === "ST" ? n : n > 0 ? `${n}+` : "-";
+        if (String(value) !== String(out[stat].value)) out[stat] = { value, improved: true };
+      }
       for (const raw of increases ?? []) {
         const stat = String(raw).toUpperCase();
         const cell = out[stat];
@@ -242,16 +272,39 @@
         const stats = stat.allowed.map((s) => String(s).toUpperCase()).filter((s) => STATS.includes(s));
         stat = stats.length ? { ...stat, stats } : null;
       }
+      if (stat) {
+        const cost = stat.costGold;
+        const costGold = num(cost) ?? (cost && typeof cost === "object"
+          ? Object.fromEntries(STATS.filter((k) => num(cost[k]) !== null).map((k) => [k, num(cost[k])]))
+          : null);
+        stat = stat.allowed === false ? null : {
+          allowed: stat.allowed,
+          ...(Array.isArray(stat.stats) ? { stats: stat.stats.map((k) => String(k).toUpperCase()).filter((k) => STATS.includes(k)) } : {}),
+          costGold,
+          maxPerPlayer: num(stat.maxPerPlayer),
+          ...(stat.exclusiveWithSkills === false ? { exclusiveWithSkills: false } : {}),
+        };
+      }
+      const stacked = src.stackedPlayer && typeof src.stackedPlayer === "object" ? src.stackedPlayer : null;
       return {
-        tier: src.tier ?? raw.tier ?? null,
-        maxSecondary: src.maxSecondary ?? null,
-        eliteMaxTotal: src.eliteMaxTotal ?? null,
-        eliteMaxSameSkill: src.eliteMaxSameSkill ?? null,
-        maxStackedPlayers: src.maxStackedPlayers ?? null,
-        stackedPlayer: src.stackedPlayer && typeof src.stackedPlayer === "object" ? src.stackedPlayer : null,
-        statIncreases: stat && stat.allowed !== false ? stat : null,
-        starPacks: Array.isArray(src.starPacks) ? src.starPacks.filter((pack) => pack && typeof pack === "object") : [],
-        maxStars: src.maxStars ?? null,
+        tier: num(src.tier ?? raw.tier),
+        maxSecondary: num(src.maxSecondary),
+        eliteMaxTotal: num(src.eliteMaxTotal),
+        eliteMaxSameSkill: num(src.eliteMaxSameSkill),
+        maxStackedPlayers: num(src.maxStackedPlayers),
+        stackedPlayer: stacked ? { maxSkills: num(stacked.maxSkills), maxSecondary: num(stacked.maxSecondary), maxElite: num(stacked.maxElite) } : null,
+        statIncreases: stat,
+        starPacks: Array.isArray(src.starPacks)
+          ? src.starPacks.filter((pack) => pack && typeof pack === "object").map((pack) => ({
+            id: str(pack.id),
+            label: str(pack.label ?? pack.id ?? "Pack"),
+            fee: num(pack.fee),
+            feeMode: pack.feeMode === "each" ? "each" : "once",
+            max: num(pack.max),
+            stars: Array.isArray(pack.stars) ? pack.stars.map(str) : [],
+          }))
+          : [],
+        maxStars: num(src.maxStars),
       };
     }
     const countLabel = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -310,7 +363,7 @@
         const summaryGold = (tierSummary ?? []).find((t) => t.tier === tier)?.gold;
         const rowGold = row.gold ?? row.goldCap ?? row.budget ?? row.rules?.gold ?? summaryGold ?? null;
         const rowRules = normalizeTierRules(row);
-        entry.rosters.push({ name: row.name, gold: isNum(rowGold) ? rowGold : null, starPacks: rowRules?.starPacks ?? [] });
+        entry.rosters.push({ name: str(row.name), gold: num(rowGold), starPacks: rowRules?.starPacks ?? [] });
         entry.rules = entry.rules ?? normalizeTierRules(row);
         byTier.set(tier, entry);
       }
@@ -326,19 +379,19 @@
         : "<tr><th scope=\"col\">Tier</th><th scope=\"col\">Rosters (gold cap)</th></tr>";
       const body = table.map((row) => {
         const rosters = row.rosters.map((r) => `${esc(r.name)}${r.gold != null ? ` <small>(${gold(r.gold)})</small>` : ""}`).join(", ");
-        if (!detailed) return `<tr><th scope="row">${row.tier}</th><td>${rosters}</td></tr>`;
+        if (!detailed) return `<tr><th scope="row">${esc(row.tier)}</th><td>${rosters}</td></tr>`;
         const r = row.rules ?? {};
         const elite = [r.eliteMaxTotal != null ? `${r.eliteMaxTotal} total` : "", r.eliteMaxSameSkill != null ? `${r.eliteMaxSameSkill} same` : ""].filter(Boolean).join(" · ") || "—";
         // Star packs can differ per roster inside a tier (e.g. an underdog roster unlocking every pack):
         // show the tier's common set, then name the rosters that differ.
-        const packKey = (packs) => packs.map((p) => starPackLabel(p)).join("<br>");
+        const packKey = (packs) => packs.map((p) => starPackLabel(p)).join("\u0000");
         const tally = new Map();
         for (const roster of row.rosters) tally.set(packKey(roster.starPacks), (tally.get(packKey(roster.starPacks)) ?? 0) + 1);
         const common = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
         const exceptions = row.rosters.filter((roster) => packKey(roster.starPacks) !== common)
           .map((roster) => `<div class="tier-pack-exception"><b>${esc(roster.name)}:</b> ${roster.starPacks.length ? roster.starPacks.map((p) => esc(starPackLabel(p))).join(" · ") : "none"}</div>`).join("");
-        const packsCell = (common ? common.split("<br>").map(esc).join("<br>") : "—") + exceptions;
-        return `<tr><th scope="row">${row.tier}</th><td>${rosters}</td><td>${r.maxSecondary ?? "—"}</td><td>${esc(elite)}</td><td>${r.maxStackedPlayers ?? "—"}</td><td>${esc(stackLabel(r.stackedPlayer))}</td><td>${esc(statIncreaseLabel(r.statIncreases))}</td><td>${packsCell}</td></tr>`;
+        const packsCell = (common ? common.split("\u0000").map(esc).join("<br>") : "—") + exceptions;
+        return `<tr><th scope="row">${esc(row.tier)}</th><td>${rosters}</td><td>${esc(r.maxSecondary ?? "—")}</td><td>${esc(elite)}</td><td>${esc(r.maxStackedPlayers ?? "—")}</td><td>${esc(stackLabel(r.stackedPlayer))}</td><td>${esc(statIncreaseLabel(r.statIncreases))}</td><td>${packsCell}</td></tr>`;
       }).join("");
       return `<thead>${head}</thead><tbody>${body}</tbody>`;
     }
@@ -372,7 +425,7 @@
       const stars = [];
       for (const player of input.players ?? []) {
         const position = player.position ?? {};
-        const stats = improvedStats(position, player.chosenStatIncreases);
+        const stats = improvedStats(position, player.chosenStatIncreases, player.chosenStats);
         const added = (player.chosenSkills ?? []).map((skill) => ({ name: skill, access: player.accessOf ? player.accessOf(skill) : "primary" }));
         const row = {
           position: position.name ?? "Unknown position",
@@ -544,7 +597,7 @@ ${rosterSheetHtml(model)}
     const sheetFileName = (model) => `${(model.teamName || model.raceName || "team").replace(/[^A-Za-z0-9 _-]+/g, "").trim().replace(/\s+/g, "_") || "team"}_roster.html`;
 
     return {
-      esc, gold, norm, STATS,
+      esc, gold, norm, num, STATS,
       normalizeLeagueOptions, leagueFieldPresentation, reconcileLeagueSelection, explicitLeagueSpecialRule, starEligibleForLeague,
       buildStarChoices, positionGroupCapped, buildPicks, slotsFromPicks,
       improvedStats, statIncreaseCost, normalizeTierRules, tierLimitLines, tierTable, tierTableHtml, starPacksFor, starPackLabel,
@@ -714,7 +767,9 @@ ${rosterSheetHtml(model)}
   }
   function slotStatGold(slot) {
     const rules = statRules();
-    return (slot.chosenStatIncreases ?? []).reduce((sum, stat) => sum + (Core.statIncreaseCost(rules, stat) ?? 0), 0);
+    const allowed = allowedStatList();
+    return (slot.chosenStatIncreases ?? []).filter((stat) => allowed.includes(stat))
+      .reduce((sum, stat) => sum + (Core.statIncreaseCost(rules, stat) ?? 0), 0);
   }
   function staffCost() {
     return STAFF_ROWS.reduce((sum, row) => sum + Math.max(0, staff[row.key] - row.free) * row.cost(), 0);
@@ -722,6 +777,10 @@ ${rosterSheetHtml(model)}
   const playerSlots = () => slots.filter((slot) => !positionById(slot.positionId)?.isStar);
   const starSlots = () => slots.filter((slot) => positionById(slot.positionId)?.isStar);
   const rawPlayerCost = () => playerSlots().reduce((sum, slot) => sum + (positionById(slot.positionId)?.cost ?? 0), 0);
+  /** Star picks on the roster: a paired package (Grak & Crumbleberry…) counts once. */
+  function starPickCount() {
+    return allStarChoices().filter((choice) => choice.members.some((m) => positionCount(m.positionId) > 0)).length;
+  }
   const rawStarCost = () => starSlots().reduce((sum, slot) => sum + (positionById(slot.positionId)?.cost ?? 0), 0);
   const inducementPicks = () => Object.entries(inducementCounts).filter(([, count]) => count > 0).map(([key, count]) => ({ key, count }));
   const inducementGold = () => inducementPicks().reduce((sum, pick) => sum + pick.count * (inducementCatalog.find((item) => item.key === pick.key)?.price ?? 0), 0);
@@ -898,8 +957,8 @@ ${rosterSheetHtml(model)}
     const parts = String(name ?? "").trim().split(/\s+/).filter(Boolean);
     return parts.slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "?";
   }
-  function statStrip(position, className, increases) {
-    const stats = Core.improvedStats(position, increases);
+  function statStrip(position, className, increases, overrides) {
+    const stats = Core.improvedStats(position, increases, overrides);
     return `<div class="${className}">${Core.STATS.map((stat) =>
       `<span${stats[stat].improved ? ' class="improved"' : ""}><b>${esc(stats[stat].value)}</b><small>${stat}</small></span>`
     ).join("")}</div>`;
@@ -1071,7 +1130,7 @@ ${rosterSheetHtml(model)}
         const access = skillAccess(slot.positionId, skill);
         return `<span class="chosen-chip ${skillClass(skill)} access-${access}">${esc(skill)}<button type="button" data-remove-skill="${index}" data-skill="${esc(skill)}" aria-label="Remove ${esc(skill)}">×</button></span>`;
       }).join("") : "";
-      const liveStats = statRules() ? slot.chosenStatIncreases ?? [] : [];
+      const liveStats = (slot.chosenStatIncreases ?? []).filter((stat) => allowedStatList().includes(stat));
       const statChips = liveStats.length && maxStatsPerPlayer() <= 1
         ? slot.chosenStatIncreases.map((stat) => `<span class="chosen-chip stat-chip">+${esc(stat)}</span>`).join("")
         : "";
@@ -1085,7 +1144,7 @@ ${rosterSheetHtml(model)}
           <span class="sprite-frame roster-sprite" aria-hidden="true">${esc(initials(position?.name))}</span>
           <span class="player-copy"><strong>${esc(position?.name ?? "Unknown position")}</strong><small>${star ? "Star player" : "Roster player"}</small></span>
         </div>
-        ${statStrip(position, "row-stats", liveStats)}
+        ${statStrip(position, "row-stats", liveStats, mode === "custom" ? slot.chosenStats : null)}
         <div class="row-skills">${printedSkillChips(position)}${added}${statChips}${select}</div>
         <span class="cost">${gold(position?.cost)}</span>
         <div class="row-actions">
@@ -1218,7 +1277,7 @@ ${rosterSheetHtml(model)}
     }
     const choices = displayedStarChoices();
     const cap = starCap();
-    const starCount = starSlots().length;
+    const starCount = starPickCount();
     $("star-cap").textContent = cap != null ? `${starCount} / ${cap}` : "";
     const named = Boolean($("team-name").value.trim());
     const packs = mode === "tournament" ? tierRules()?.starPacks ?? [] : [];
@@ -1392,6 +1451,77 @@ ${rosterSheetHtml(model)}
     syncBuildButton();
   }
 
+  // ════════════════ ingestion sanitizing ════════════════
+  // Strings are escaped at render time; numbers are coerced here so no server/package value that is
+  // rendered raw as a "number" can carry markup into an innerHTML sink.
+  const n0 = (value, fallback = null) => Core.num(value) ?? fallback;
+  function sanitizeRoster(roster) {
+    return {
+      ...roster,
+      rosterId: String(roster.rosterId ?? ""),
+      raceName: String(roster.raceName ?? ""),
+      reRollCost: n0(roster.reRollCost, 0),
+      maxReRolls: n0(roster.maxReRolls, 8),
+      positions: (Array.isArray(roster.positions) ? roster.positions : []).map((position) => ({
+        ...position,
+        positionId: String(position.positionId ?? ""),
+        name: String(position.name ?? ""),
+        cost: n0(position.cost, 0),
+        max: n0(position.max, 0),
+      })),
+      positionGroups: Array.isArray(roster.positionGroups)
+        ? roster.positionGroups.map((group) => ({ ...group, max: n0(group.max, 0) }))
+        : undefined,
+    };
+  }
+  function sanitizePack(pack) {
+    return { ...pack, label: String(pack?.label ?? ""), gold: n0(pack?.gold), skillPointBudget: n0(pack?.skillPointBudget, 0), maxPerPlayer: n0(pack?.maxPerPlayer) };
+  }
+  function sanitizePackageRules(rules) {
+    const race = rules.race && typeof rules.race === "object" ? rules.race : null;
+    return {
+      ...rules,
+      name: String(rules.name ?? ""),
+      budget: n0(rules.budget),
+      tierSummary: rules.tierSummary.map((tier) => ({
+        ...tier,
+        tier: n0(tier.tier),
+        label: String(tier.label ?? ""),
+        rosters: Array.isArray(tier.rosters) ? tier.rosters.map(String) : [],
+        gold: n0(tier.gold),
+        skillPointBudget: n0(tier.skillPointBudget),
+        packs: Array.isArray(tier.packs) ? tier.packs.map(sanitizePack) : [],
+      })),
+      race: race ? {
+        ...race,
+        roster: String(race.roster ?? ""),
+        gold: n0(race.gold),
+        skillPointBudget: n0(race.skillPointBudget, 0),
+        maxPerPlayer: n0(race.maxPerPlayer),
+        packs: Array.isArray(race.packs) ? race.packs.map(sanitizePack) : [],
+        bannedStars: Array.isArray(race.bannedStars) ? race.bannedStars.map(String) : [],
+        stars: race.stars && typeof race.stars === "object" ? {
+          ...race.stars,
+          allowed: race.stars.allowed !== false,
+          maxCount: n0(race.stars.maxCount),
+          paidInSkillPoints: race.stars.paidInSkillPoints === true,
+          spCosts: Array.isArray(race.stars.spCosts)
+            ? race.stars.spCosts.map((star) => ({ name: String(star.name ?? ""), sp: n0(star.sp, 0) }))
+            : undefined,
+        } : undefined,
+      } : undefined,
+    };
+  }
+  function sanitizeSummary(summary) {
+    if (!summary || typeof summary !== "object") return null;
+    const out = {};
+    for (const [key, value] of Object.entries(summary)) {
+      const n = Core.num(value);
+      if (n !== null) out[key] = n;
+    }
+    return out;
+  }
+
   // ════════════════ data loading ════════════════
   async function loadPackageRules() {
     const sequence = ++packageRulesSequence;
@@ -1409,7 +1539,7 @@ ${rosterSheetHtml(model)}
     ]);
     if (sequence !== packageRulesSequence) return;
     packageRules = rulesResult.status === "fulfilled" && rulesResult.value?.rules && Array.isArray(rulesResult.value.rules.tierSummary)
-      ? rulesResult.value.rules : null;
+      ? sanitizePackageRules(rulesResult.value.rules) : null;
     tierRows = tiersResult.status === "fulfilled" && Array.isArray(tiersResult.value?.races) ? tiersResult.value.races : [];
     if (rulesResult.status === "rejected") setStatus(`Couldn't load the ruleset: ${rulesResult.reason.message}`, true);
     renderAll();
@@ -1426,7 +1556,14 @@ ${rosterSheetHtml(model)}
     try {
       const data = await api(`/api/fork/team-builder/inducements${name ? `?packageName=${encodeURIComponent(name)}` : ""}`);
       if (sequence !== inducementSequence) return;
-      inducementCatalog = Array.isArray(data.inducements) ? data.inducements : [];
+      inducementCatalog = (Array.isArray(data.inducements) ? data.inducements : []).map((item) => ({
+        ...item,
+        key: String(item.key ?? ""),
+        label: String(item.label ?? item.key ?? ""),
+        price: Core.num(item.price) ?? 0,
+        max: Core.num(item.max),
+        allowed: item.allowed === true,
+      }));
       const next = {};
       for (const item of inducementCatalog) {
         const count = item.allowed ? Math.max(0, Math.floor(inducementCounts[item.key] ?? 0)) : 0;
@@ -1449,11 +1586,24 @@ ${rosterSheetHtml(model)}
   }
 
   // ════════════════ preview / build ════════════════
-  function requestBody() {
+  /** Characteristics the current tier lets a player raise (empty when the ruleset offers none). */
+  function allowedStatList() {
+    const rules = statRules();
+    if (!rules) return [];
+    return Array.isArray(rules.stats) && rules.stats.length ? rules.stats : Core.STATS;
+  }
+  /** `forSave`: a tournament draft keeps its stat increases while the tier rules are still unknown
+   *  (not yet loaded / failed), so a save never silently drops them. Preview/build only ever send
+   *  increases the ruleset allows — the server rejects anything else. */
+  function requestBody({ forSave = false } = {}) {
     const edit = canEditSkills();
+    const rulesUnknown = mode === "tournament" && !tierRules();
+    const keepAll = forSave && rulesUnknown;
     const picks = Core.buildPicks(slots.map((slot) => ({ ...slot, isStar: positionById(slot.positionId)?.isStar === true })), {
       skills: edit,
-      stats: edit && Boolean(statRules()),
+      stats: mode === "tournament" && (keepAll || Boolean(statRules())),
+      allowedStats: keepAll ? null : allowedStatList(),
+      customStats: mode === "custom",
     });
     const specialRule = selectedSpecialRule();
     const inducements = inducementPicks();
@@ -1504,7 +1654,7 @@ ${rosterSheetHtml(model)}
         valid: result.valid === true,
         errors: Array.isArray(result.errors) ? result.errors : [],
         warnings: Array.isArray(result.warnings) ? result.warnings : [],
-        summary: result.summary && typeof result.summary === "object" ? result.summary : null,
+        summary: sanitizeSummary(result.summary),
         package: result.package && typeof result.package === "object" ? result.package : null,
       };
       previewPending = false;
@@ -1599,7 +1749,7 @@ ${rosterSheetHtml(model)}
     const choice = displayedStarChoices().find((c) => c.key === key);
     if (!choice || !canAddStarChoice(choice)) return;
     const cap = starCap();
-    if (cap != null && starSlots().length >= cap) return;
+    if (cap != null && starPickCount() >= cap) return;
     for (const member of choice.members) {
       if (positionCount(member.positionId) === 0) slots.push({ positionId: member.positionId, chosenSkills: [], chosenStatIncreases: [] });
     }
@@ -1859,7 +2009,7 @@ ${rosterSheetHtml(model)}
       name = name.trim();
       if (!name) return;
     }
-    const body = requestBody();
+    const body = requestBody({ forSave: true });
     try {
       const data = asNew || !currentSave
         ? await postJson("/api/fork/team-builder/saves", { name, body })
@@ -1981,22 +2131,33 @@ ${rosterSheetHtml(model)}
       if (player.agility && target(position.AG) && Number(player.agility) < target(position.AG)) increases.push("AG");
       if (player.passing && target(position.PA) && Number(player.passing) < target(position.PA)) increases.push("PA");
       if (player.armour && target(position.AV) && Number(player.armour) > target(position.AV)) increases.push("AV");
+      const absolute = {};
+      const raw = { MA: player.movement, ST: player.strength, AG: player.agility, PA: player.passing, AV: player.armour };
+      for (const stat of increases) if (Core.num(raw[stat]) !== null) absolute[stat] = Core.num(raw[stat]);
+      // Stats that got WORSE than printed (custom teams can do that) also count as custom stats.
+      if (Number(player.movement) < Number(position.MA)) absolute.MA = Number(player.movement);
+      if (Number(player.strength) < Number(position.ST)) absolute.ST = Number(player.strength);
+      if (player.agility && target(position.AG) && Number(player.agility) > target(position.AG)) absolute.AG = Number(player.agility);
+      if (player.passing && target(position.PA) && Number(player.passing) > target(position.PA)) absolute.PA = Number(player.passing);
+      if (player.armour && target(position.AV) && Number(player.armour) < target(position.AV)) absolute.AV = Number(player.armour);
       restored.push({
         positionId: position.positionId,
         isStar: position.isStar === true,
         chosenSkills: (player.skills ?? []).filter((skill) => !printed.has(skill)),
         chosenStatIncreases: increases,
+        chosenStats: absolute,
       });
     }
     const leagues = Core.normalizeLeagueOptions(roster.leagueOptions);
     const stored = [...new Set([...(detail.leagues ?? []), ...(detail.specialRules ?? [])].filter((l) => leagues.includes(l)))];
     const packageOk = detail.rulesetPackName && packages.some((p) => p.name === detail.rulesetPackName);
-    const anySkills = restored.some((s) => s.chosenSkills.length || s.chosenStatIncreases.length);
+    const anySkills = restored.some((s) => s.chosenSkills.length || s.chosenStatIncreases.length || Object.keys(s.chosenStats).length);
     const body = {
       teamId: detail.id ?? teamId,
       rosterId: roster.rosterId,
       teamName: detail.name ?? "",
-      picks: Core.buildPicks(restored, { skills: true, stats: true }),
+      // Tournament teams carry +1 increases; custom teams carry their absolute characteristic values.
+      picks: Core.buildPicks(restored, { skills: true, stats: Boolean(packageOk), customStats: !packageOk }),
       reRolls: detail.rerolls ?? 0,
       apothecary: detail.apothecary === true,
       assistantCoaches: detail.assistantCoaches ?? 0,
@@ -2029,7 +2190,8 @@ ${rosterSheetHtml(model)}
       players: slots.map((slot) => ({
         position: positionById(slot.positionId),
         chosenSkills: canEditSkills() ? slot.chosenSkills : [],
-        chosenStatIncreases: statRules() ? slot.chosenStatIncreases : [],
+        chosenStatIncreases: statRules() ? (slot.chosenStatIncreases ?? []).filter((stat) => allowedStatList().includes(stat)) : [],
+        chosenStats: mode === "custom" ? slot.chosenStats : null,
         accessOf: (skill) => (skillAccess(slot.positionId, skill) === "secondary" ? "secondary" : "primary"),
       })),
       staff,
@@ -2089,7 +2251,7 @@ ${rosterSheetHtml(model)}
         api("/api/fork/users").catch(() => ({ users: [] })),
         api("/api/packages").catch(() => []),
       ]);
-      rosters = rosterRows ?? [];
+      rosters = (Array.isArray(rosterRows) ? rosterRows : []).map(sanitizeRoster);
       const list = Array.isArray(packageRows) ? packageRows : Array.isArray(packageRows?.packages) ? packageRows.packages : [];
       packages = list.filter((row) => typeof row?.name === "string");
       $("package").innerHTML = packages.length
@@ -2224,7 +2386,7 @@ ${rosterSheetHtml(model)}
   $("logout-button").addEventListener("click", logout);
   $("save-button").addEventListener("click", () => saveTeam(false));
   $("save-as-button").addEventListener("click", () => saveTeam(true));
-  $("saves-toggle").addEventListener("click", () => { savesOpen = !savesOpen; renderSaves(); });
+  $("saves-toggle").addEventListener("click", () => { savesOpen = !savesOpen; renderSaves(); if (savesOpen) loadSaves(); });
   $("saves-list").addEventListener("click", (event) => {
     const load = event.target.closest("[data-save-load]");
     if (load) return loadSave(load.dataset.saveLoad);

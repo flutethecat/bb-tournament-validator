@@ -92,9 +92,9 @@ describe("team builder page — ruleset knobs", () => {
 
   it("groups /tiers rows into a tournament rules-sheet table", () => {
     const table = core.tierTable([
-      { name: "Dwarf", tier: 5, gold: 1_455_000, ...rules },
+      { ...rules, name: "Dwarf", tier: 5, gold: 1_455_000 },
       { name: "Amazon", tier: 2, gold: 1_200_000 },
-      { name: "Halfling", tier: 5, gold: 1_455_000, ...rules },
+      { ...rules, name: "Halfling", tier: 5, gold: 1_455_000 },
     ]);
     expect(table.map((row: { tier: number }) => row.tier)).toEqual([2, 5]);
     expect(table[1].rosters.map((r: { name: string }) => r.name)).toEqual(["Dwarf", "Halfling"]);
@@ -283,5 +283,59 @@ describe("team builder page — source contract", () => {
     expect(js).toContain("saveId: currentSave.id");
     expect(js).toContain("chosenStatIncreases");
     expect(js).toContain("rosteredInducements");
+  });
+});
+
+describe("team builder page — review fixes", () => {
+  it("never renders package/tier values as raw markup (stored XSS)", () => {
+    const evil = "<img src=x onerror=alert(1)>";
+    const table = core.tierTable([{
+      name: evil, tier: 1, gold: evil,
+      rules: {
+        maxSecondary: evil, maxStackedPlayers: evil, eliteMaxTotal: evil, eliteMaxSameSkill: 2,
+        stackedPlayer: { maxSkills: evil, maxSecondary: 1, maxElite: evil },
+        statIncreases: { allowed: ["AV", evil], costGold: { AV: evil, PA: 20_000 }, maxPerPlayer: evil },
+        starPacks: [{ id: evil, label: evil, fee: evil, feeMode: evil, max: evil, stars: [evil] }],
+        maxStars: evil,
+      },
+    }]);
+    const markup: string = core.tierTableHtml(table);
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain("&lt;img");
+    // tierLimitLines returns plain text (only star-pack labels are free strings); the ruleset panel
+    // escapes every line before it reaches innerHTML.
+    const lines: string[] = core.tierLimitLines(table[0].rules);
+    expect(lines.filter((line) => !line.startsWith("Star packs")).join("\n")).not.toContain("<img");
+    expect(js).toContain('lines.push(`<div class="ruleset-line ruleset-limit">${esc(line)}</div>`)');
+    expect(table[0].rules.maxSecondary).toBeNull();
+    expect(table[0].rules.statIncreases.stats).toEqual(["AV"]);
+  });
+
+  it("only sends stat increases the tier allows, and custom chosenStats only when asked", () => {
+    const slots = [{ positionId: "L", chosenSkills: [], chosenStatIncreases: ["MA", "AV"], chosenStats: { MA: 6, AG: "3" } }];
+    expect(core.buildPicks(slots, { skills: true, stats: true, allowedStats: ["AV", "PA"] }))
+      .toEqual([{ positionId: "L", count: 1, chosenStatIncreases: ["AV"] }]);
+    expect(core.buildPicks(slots, { skills: true, stats: false, customStats: true }))
+      .toEqual([{ positionId: "L", count: 1, chosenStats: { MA: 6, AG: 3 } }]);
+  });
+
+  it("round-trips custom chosenStats through saved picks and shows them on the profile", () => {
+    const positions = new Map([["L", { positionId: "L" }]]);
+    const picks = [{ positionId: "L", count: 2, chosenStats: { MA: 5, AV: 11 } }];
+    const slots = core.slotsFromPicks(picks, (id: string) => positions.get(id));
+    expect(core.buildPicks(slots, { skills: true, customStats: true })).toEqual(picks);
+    const stats = core.improvedStats(lineman, [], { MA: 5, AV: 11, AG: 4 });
+    expect(stats.MA).toEqual({ value: 5, improved: true });
+    expect(stats.AV).toEqual({ value: "11+", improved: true });
+    expect(stats.AG).toEqual({ value: "4+", improved: false });
+  });
+
+  it("counts a star pair as one star pick and sanitizes ingested numbers", () => {
+    expect(js).toContain("function starPickCount()");
+    expect(js).toMatch(/if \(cap != null && starPickCount\(\) >= cap\) return;/);
+    expect(js).toContain("summary: sanitizeSummary(result.summary)");
+    expect(js).toContain("sanitizePackageRules(rulesResult.value.rules)");
+    expect(js).toContain(".map(sanitizeRoster)");
+    expect(js).toContain("requestBody({ forSave: true })");
   });
 });
