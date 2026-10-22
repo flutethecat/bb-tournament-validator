@@ -412,3 +412,53 @@ describe("team builder page — re-review fixes", () => {
     expect(core.deriveStatChanges(thrower, { movement: 6 })).toEqual({ increases: [], absolute: {} });
   });
 });
+
+describe("team builder page — Super FUMBBL art", () => {
+  const pub = new URL("../public/", import.meta.url);
+  const sprites = JSON.parse(readFileSync(new URL("sprites/manifest.json", pub), "utf8"));
+  const crests = JSON.parse(readFileSync(new URL("crests/manifest.json", pub), "utf8"));
+
+  it("resolves portraits with the client's rules (aliases, ruleset tags, stars)", () => {
+    expect(core.resolveSprite(sprites, "Amazon", "Jaguar Warrior Blocker")).toBe("sprites/amazon/jaguarwarriorblocker.png");
+    expect(core.resolveSprite(sprites, "Amazon", "Piranha Warrior")).toBe("sprites/amazon/piranhawarrior.png");
+    expect(core.resolveSprite(sprites, "Orc", "Big Un Blocker")).toBe("sprites/orc/blackorcblocker.png");
+    expect(core.resolveSprite(sprites, "Human", "Human Lineman")).toBe("sprites/human/lineman.png");
+    expect(core.resolveSprite(sprites, "BB2025 Lizardmen", "Saurus Blocker")).toBe("sprites/lizardmen/saurusblocker.png");
+    expect(core.resolveSprite(sprites, "Dwarf", "Grim Ironjaw")).toBe("sprites/stars/grimironjaw.png");
+    expect(core.resolveSprite(sprites, "Dwarf", "Nobody")).toBeNull();
+    expect(core.resolveSprite(null, "Dwarf", "Dwarf Blitzer")).toBeNull();
+    expect(core.rosterRaceKey("Slann 2025")).toBe("slann");
+  });
+
+  it("covers every BB2025 roster position and crest", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = JSON.parse(readFileSync(new URL("../../../packages/bb-validator/src/dataset/bb2025/rosters.json", import.meta.url), "utf8"));
+    for (const roster of data.rosters ?? data) {
+      expect(core.resolveCrest(crests, roster.name), roster.name).not.toBeNull();
+      for (const position of roster.positions) expect(core.resolveSprite(sprites, roster.name, position.name), `${roster.name} ${position.name}`).not.toBeNull();
+    }
+  });
+
+  it("tags each card with its role keyword, never the race", () => {
+    const amazon = [
+      { name: "Eagle Warrior", keywords: ["Human", "Lineman"] },
+      { name: "Python Warrior", keywords: ["Human", "Thrower"] },
+      { name: "Piranha Warrior", keywords: ["Blitzer", "Human"] },
+      { name: "Jaguar Warrior Blocker", keywords: ["Blocker", "Human"] },
+    ];
+    expect(amazon.map((p) => core.roleKeywords(p, amazon).join(" · "))).toEqual(["Lineman", "Thrower", "Blitzer", "Blocker"]);
+    expect(core.roleKeywords({ keywords: ["big guy", "dwarf", "special"] }, [])).toEqual(["Big Guy", "Special"]);
+    // No role keyword: fall back to dropping the roster-wide race tag.
+    const odd = [{ keywords: ["Elf", "Wardancer"] }, { keywords: ["Elf", "Spear"] }];
+    expect(core.roleKeywords(odd[0], odd)).toEqual(["Wardancer"]);
+    expect(core.roleKeywords({}, [])).toEqual([]);
+  });
+
+  it("uses portraits/crests/icons on the builder but never on the roster sheet", () => {
+    expect(js).toContain("${portraitHtml(current.raceName, position.name)}");
+    expect(js).toContain('${crestHtml(roster.raceName, "tt-race-crest")}');
+    expect(js).toContain("iconManifest?.icons?.[item.key]");
+    const sheetCode = js.slice(js.indexOf("function rosterSheetHtml"), js.indexOf("const SHEET_CSS"));
+    expect(sheetCode).not.toMatch(/sprite|crest|icons\//);
+  });
+});

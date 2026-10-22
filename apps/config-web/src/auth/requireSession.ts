@@ -1,6 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import { coachLevel, isAdmin, isOrganizer } from "./access.js";
 import { sessionFromRequest } from "./session.js";
+import { isPublicArtPath } from "../publicArt.js";
 
 export interface SessionIdentity {
   coach: string;
@@ -64,6 +65,7 @@ function isPublicRequest(method: string, pathname: string): boolean {
       pathname === "/team-builder.css" ||
       pathname === "/team-builder.js" ||
       pathname === "/tournament-team-builder.html" ||
+      isPublicArtPath(pathname) ||
       pathname === "/tournament-rules.html" ||
       pathname === "/tournament-rules.css" ||
       pathname === "/tournament-rules.js" ||

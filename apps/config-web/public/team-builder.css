@@ -581,6 +581,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
   border-radius: 4px;
 }
 .library-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+.save-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .save-row.current { border-color: var(--ui-gold); }
 .save-copy { display: flex; min-width: 0; flex-direction: column; }
 .save-copy strong { overflow: hidden; color: var(--ui-text); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
@@ -773,6 +774,33 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .tt-locked-bar span { flex: 1; min-width: 200px; }
 .tt-locked-bar .session-button { min-height: 32px; padding: 6px 10px; }
 
+/* ── Super FUMBBL portraits + crests (public/sprites, public/crests; see their README.md) ── */
+.sprite-frame { position: relative; }
+.sprite-image {
+  position: absolute;
+  inset: 2px;
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.sprite-frame:has(.sprite-image) .sprite-fallback,
+.sprite-frame:has(.crest-image) .sprite-fallback { visibility: hidden; }
+.crest-frame .crest-image { position: absolute; inset: 3px; width: calc(100% - 6px); height: calc(100% - 6px); object-fit: contain; }
+.crest-image { display: block; object-fit: contain; }
+.position-meta { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-end; align-self: stretch; justify-content: space-between; gap: 2px; text-align: right; }
+.position-role { color: var(--ui-muted); font-size: 11px; letter-spacing: .06em; font-variant: small-caps; white-space: nowrap; }
+.save-crest { display: grid; place-items: center; width: 34px; height: 34px; }
+.save-crest .crest-image { width: 34px; height: 34px; }
+.tt-race { position: relative; padding-left: 58px; }
+.tt-race-crest { position: absolute; top: 50%; left: 10px; width: 40px; height: 40px; transform: translateY(-50%); }
+.tt-summary-crest { display: inline-block; width: 26px; height: 26px; margin-right: 8px; vertical-align: middle; }
+.race-crest { display: inline-flex; }
+.stepper-row.inducement-row { grid-template-columns: 36px minmax(0, 1fr) 32px 20px 32px; }
+.inducement-icon { display: grid; place-items: center; width: 36px; height: 36px; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 4px; }
+.inducement-icon .crest-image { width: 32px; height: 32px; image-rendering: auto; }
+.race-crest .crest-image { width: 30px; height: 30px; }
+
 @media (max-width: 1100px) {
   .console-shell { padding-right: 145px; }
   .environment-stamp { display: none; }
@@ -807,7 +835,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
   .tt-steps button { min-height: 48px; }
   .tt-card-grid { grid-template-columns: 1fr; }
   .skill-key { margin-left: 0; }
-  .save-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .save-row { grid-template-columns: auto minmax(0, 1fr) auto; }
   .save-buttons { grid-column: 1 / -1; }
   .library-row { grid-template-columns: minmax(0, 1fr) auto; }
   .library-row .sprite-frame { display: none; }

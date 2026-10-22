@@ -636,8 +636,55 @@ ${rosterSheetHtml(model)}
       return { increases, absolute };
     }
 
+    // ── Portraits + crests (ports of the desktop client's bundledWalk.ts / teamCrests.ts) ──
+    const normalizeKey = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    /** bundledWalk.ts rosterRaceKey: strip a leading/trailing ruleset tag ("BB2025 Lizardmen", "Slann 2025"). */
+    function rosterRaceKey(race) {
+      const key = normalizeKey(race);
+      return key.replace(/^(?:bb\d{4}|bb\d|crp|lrb\d|ffb|20\d{2})+/, "").replace(/(?:bb\d{4}|bb\d|crp|lrb\d|20\d{2})+$/, "") || key;
+    }
+    /** bundledWalk.ts resolveBundledWalkRole over the generated sprites/manifest.json → the portrait path. */
+    function resolveSprite(manifest, race, positionName) {
+      if (!manifest?.races || !positionName) return null;
+      const races = manifest.races;
+      const starRace = manifest.starRace || "stars";
+      const raceKey = races[normalizeKey(race)] ? normalizeKey(race) : rosterRaceKey(race);
+      const name = normalizeKey(positionName);
+      const roles = races[raceKey];
+      if (roles) {
+        const alias = manifest.roleAliases?.[raceKey]?.[name];
+        const role = alias && roles[alias] ? alias : roles[name] ? name : undefined;
+        if (role) return String(roles[role]);
+      }
+      if (raceKey !== starRace && races[starRace]?.[name]) return String(races[starRace][name]);
+      return null;
+    }
+    /** teamCrests.ts crestKey: race key, letters only, present in the crest manifest. */
+    function resolveCrest(manifest, race) {
+      const key = rosterRaceKey(race).replace(/[^a-z]/g, "");
+      return key && manifest?.crests?.[key] ? String(manifest.crests[key]) : null;
+    }
+    /**
+     * A position's ROLE tag for the Add Players card. Rule: the BB2025 position keywords that name a role
+     * (Big Guy, Blitzer, Blocker, Catcher, Lineman, Runner, Special, Thrower) are kept; every other keyword
+     * is a race/species tag (Human, Elf, Dwarf, Undead…). If a position carries none of the role keywords,
+     * fall back to its keywords minus any shared by every non-star position of the roster (the race tag).
+     */
+    const ROLE_KEYWORDS = ["Big Guy", "Blitzer", "Blocker", "Catcher", "Lineman", "Runner", "Special", "Thrower"];
+    function roleKeywords(position, rosterPositions) {
+      const label = (k) => String(k).trim().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+      const own = Array.isArray(position?.keywords) ? position.keywords.map(label) : [];
+      const roles = ROLE_KEYWORDS.filter((role) => own.some((k) => k.toLowerCase() === role.toLowerCase()));
+      if (roles.length || !own.length) return roles;
+      const peers = (rosterPositions ?? []).filter((p) => !p.isStar && Array.isArray(p.keywords));
+      const shared = peers.length > 1
+        ? own.filter((k) => peers.every((p) => p.keywords.some((pk) => label(pk).toLowerCase() === k.toLowerCase())))
+        : [];
+      return own.filter((k) => !shared.includes(k));
+    }
+
     return {
-      esc, gold, norm, num, STATS, deriveStatChanges,
+      esc, gold, norm, num, STATS, deriveStatChanges, rosterRaceKey, resolveSprite, resolveCrest, roleKeywords, ROLE_KEYWORDS,
       normalizeLeagueOptions, leagueFieldPresentation, reconcileLeagueSelection, explicitLeagueSpecialRule, starEligibleForLeague,
       buildStarChoices, positionGroupCapped, buildPicks, slotsFromPicks,
       improvedStats, statIncreaseCost, normalizeTierRules, tierLimitLines, tierTable, tierTableHtml, starPacksFor, starPackLabel,
@@ -725,6 +772,9 @@ ${rosterSheetHtml(model)}
   let savesOpen = false;
   let currentSave = null; // { id, name }
   let library = [];
+  let spriteManifest = null; // /sprites/manifest.json (Super FUMBBL walk-sheet idle portraits)
+  let crestManifest = null; // /crests/manifest.json (Super FUMBBL team crests)
+  let iconManifest = null; // /icons/inducements/manifest.json (Super FUMBBL inducement icons)
 
   $("fork-admin-link").href = `http://${location.hostname || "127.0.0.1"}:22227/panel.html`;
 
@@ -964,6 +1014,30 @@ ${rosterSheetHtml(model)}
   }
 
   // ════════════════ rendering ════════════════
+  /** Portrait badge: the Super FUMBBL idle sprite when one resolves, initials underneath as the fallback. */
+  function portraitHtml(raceName, positionName, cls = "", fallbackName = positionName) {
+    const path = Core.resolveSprite(spriteManifest, raceName, positionName);
+    return `<span class="sprite-frame${cls ? ` ${cls}` : ""}" aria-hidden="true"><span class="sprite-fallback">${esc(initials(fallbackName))}</span>${path ? `<img class="sprite-image" src="/${esc(path)}" alt="" loading="lazy" decoding="async">` : ""}</span>`;
+  }
+  /** Team crest for a race (null-safe: no crest → nothing, the caller keeps its text). */
+  function crestHtml(raceName, cls = "") {
+    const path = Core.resolveCrest(crestManifest, raceName);
+    return path ? `<img class="crest-image${cls ? ` ${cls}` : ""}" src="/${esc(path)}" alt="" aria-hidden="true" loading="lazy" decoding="async">` : "";
+  }
+  async function loadArtManifests() {
+    const [sprites, crests, icons] = await Promise.allSettled([api("/sprites/manifest.json"), api("/crests/manifest.json"), api("/icons/inducements/manifest.json")]);
+    iconManifest = icons.status === "fulfilled" && icons.value?.icons ? icons.value : null;
+    spriteManifest = sprites.status === "fulfilled" && sprites.value?.races ? sprites.value : null;
+    crestManifest = crests.status === "fulfilled" && crests.value?.crests ? crests.value : null;
+    renderAll();
+    renderSetup();
+    if (mode === "library") loadLibrary();
+  }
+  // A missing sprite/crest file just drops the <img>; the initials / text stay.
+  document.addEventListener("error", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLImageElement && target.matches(".sprite-image, .crest-image")) target.remove();
+  }, true);
   function initials(name) {
     const parts = String(name ?? "").trim().split(/\s+/).filter(Boolean);
     return parts.slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "?";
@@ -992,6 +1066,8 @@ ${rosterSheetHtml(model)}
     $("builder-heading-text").textContent = mode === "tournament"
       ? "Tournament Slot Builder"
       : mode === "custom" ? "Custom Team — Slot Builder" : "Create Team — Slot Builder";
+    const raceCrest = $("race-crest");
+    if (raceCrest) raceCrest.innerHTML = current && !TOURNAMENT_PAGE ? crestHtml(current.raceName) : "";
     $("editing-badge").hidden = !editingTeamId;
     $("editing-badge").textContent = editingTeamId ? "Editing fork team" : "";
   }
@@ -1093,9 +1169,9 @@ ${rosterSheetHtml(model)}
           data-add-position="${esc(position.positionId)}" ${exhausted ? "disabled" : ""} ${title ? `title="${esc(title)}"` : ""}
           aria-label="Add ${esc(position.name)}">
           <div class="position-head">
-            <span class="sprite-frame" aria-hidden="true">${esc(initials(position.name))}</span>
+            ${portraitHtml(current.raceName, position.name)}
             <span class="position-name"><strong>${esc(position.name)}</strong><small>${Math.max(0, position.max - count)} of ${position.max} left</small></span>
-            <span class="cost">${gold(position.cost)}</span>
+            <span class="position-meta"><small class="position-role">${esc(Core.roleKeywords(position, current.positions).join(" · ")) || "&nbsp;"}</small><span class="cost">${gold(position.cost)}</span></span>
           </div>
           ${statStrip(position, "stat-strip")}
           <div class="printed-skills">${printedSkillChips(position) || '<span class="status-copy">No printed skills</span>'}</div>
@@ -1152,7 +1228,7 @@ ${rosterSheetHtml(model)}
       return `<div class="roster-row roster-grid${skillPickerIndex === index ? " picking" : ""}">
         <span class="slot-number">${index + 1}</span>
         <div class="player-cell">
-          <span class="sprite-frame roster-sprite" aria-hidden="true">${esc(initials(position?.name))}</span>
+          ${portraitHtml(current?.raceName, position?.name, "roster-sprite")}
           <span class="player-copy"><strong>${esc(position?.name ?? "Unknown position")}</strong><small>${star ? "Star player" : "Roster player"}</small></span>
         </div>
         ${statStrip(position, "row-stats", liveStats, mode === "custom" ? slot.chosenStats : null)}
@@ -1306,7 +1382,7 @@ ${rosterSheetHtml(model)}
         const canAdd = canAddStarChoice(choice);
         const capReached = cap != null && starCount >= cap && present === 0;
         return `<div class="star-row">
-          <span class="star-sprites${choice.paired ? " paired" : ""}" aria-hidden="true">${choice.members.map((m) => `<span class="sprite-frame">${esc(initials(m.name))}</span>`).join("")}</span>
+          <span class="star-sprites${choice.paired ? " paired" : ""}" aria-hidden="true">${choice.members.map((m) => portraitHtml(current?.raceName, m.name)).join("")}</span>
           <span class="star-copy"><strong>${esc(choice.label)}</strong><small>${sp != null ? `${sp} SP` : gold(choice.cost)} · ${status}</small>${packLine}</span>
           <span class="star-actions">
             <button type="button" data-star-remove="${esc(choice.key)}" ${present ? "" : "disabled"} aria-label="Remove ${esc(choice.label)}">−</button>
@@ -1352,7 +1428,9 @@ ${rosterSheetHtml(model)}
     $("inducement-list").innerHTML = items.map((item) => {
       const count = inducementCounts[item.key] ?? 0;
       const atMax = item.max !== null && item.max !== undefined && count >= item.max;
-      return `<div class="stepper-row${item.allowed ? "" : " unavailable"}">
+      const icon = iconManifest?.icons?.[item.key];
+      return `<div class="stepper-row inducement-row${item.allowed ? "" : " unavailable"}">
+        <span class="inducement-icon" aria-hidden="true">${icon ? `<img class="crest-image" src="/${esc(icon)}" alt="" loading="lazy" decoding="async">` : ""}</span>
         <span class="stepper-label">${esc(item.label)}<small>${gold(item.price)}${item.max != null ? ` · max ${item.max}` : ""}</small></span>
         <button type="button" data-inducement="${esc(item.key)}" data-delta="-1" ${!item.allowed || count === 0 ? "disabled" : ""} aria-label="Remove ${esc(item.label)}">−</button>
         <b>${count}</b>
@@ -2019,6 +2097,7 @@ ${rosterSheetHtml(model)}
       const built = Boolean(save.teamId);
       const updated = save.updatedAt ? new Date(save.updatedAt) : null;
       return `<div class="save-row${currentSave?.id === save.id ? " current" : ""}">
+        <span class="save-crest" aria-hidden="true">${crestHtml(save.raceName ?? save.rosterId ?? "")}</span>
         <span class="save-copy"><strong>${esc(save.name)}</strong><small>${esc(save.raceName ?? save.rosterId ?? "")}${save.packageName ? ` · ${esc(save.packageName)}` : ""}${updated && !Number.isNaN(updated.getTime()) ? ` · ${esc(updated.toLocaleDateString())}` : ""}</small></span>
         <span class="save-badge ${built ? "built" : "draft"}">${built ? "Built" : "Draft"}</span>
         <span class="save-buttons">
@@ -2145,7 +2224,7 @@ ${rosterSheetHtml(model)}
       $("library-status").textContent = `Couldn't load your teams (${error.message}).`;
     }
     $("library-list").innerHTML = library.map((team) => `<div class="library-row">
-      <span class="sprite-frame" aria-hidden="true">${esc(initials(team.teamName))}</span>
+      <span class="sprite-frame crest-frame" aria-hidden="true"><span class="sprite-fallback">${esc(initials(team.teamName))}</span>${crestHtml(team.race)}</span>
       <span class="save-copy"><strong>${esc(team.teamName)}</strong><small>${esc(team.race)} · ${gold((team.teamValue ?? 0) * 1000)}${team.rulesetPackName ? ` · ${esc(team.rulesetPackName)}` : ""}${team.forkLoadable === false ? " · not fork-loadable" : ""}</small></span>
       <button type="button" class="session-button secondary" data-library-edit="${esc(team.teamId)}">Edit Team</button>
     </div>`).join("");
@@ -2354,14 +2433,14 @@ ${rosterSheetHtml(model)}
       $("tt-races").innerHTML = groups.length ? groups.map((group) => `<section class="tt-race-group" aria-label="${esc(group.tier === "—" ? "Eligible rosters" : `Tier ${group.tier}`)}">
           <div class="section-title">${group.tier === "—" ? "<span>E</span>ligible <span>R</span>osters" : `<span>T</span>ier ${esc(group.tier)}`}</div>
           <div class="tt-card-grid">${group.races.map(({ roster, gold: cap }) => `<button type="button" class="tt-card tt-race${current?.rosterId === roster.rosterId ? " selected" : ""}" data-tt-race="${esc(roster.rosterId)}">
-            <strong>${esc(roster.raceName)}</strong><small>${cap != null ? `TV cap ${gold(cap)}` : "Package budget"}</small>
+            ${crestHtml(roster.raceName, "tt-race-crest")}<strong>${esc(roster.raceName)}</strong><small>${cap != null ? `TV cap ${gold(cap)}` : "Package budget"}</small>
           </button>`).join("")}</div>
         </section>`).join("") : '<p class="status-copy">No installed roster is eligible for this ruleset.</p>';
     }
     // Step 3 — the locked builder's summary bar.
     if (current && name) {
       const cap = clientBudget();
-      $("tt-locked-summary").innerHTML = `<b>${esc(name)}</b> · ${esc(current.raceName)}${tierLabel ? ` · ${esc(tierLabel)}` : ""} · TV cap ${gold(cap)}`;
+      $("tt-locked-summary").innerHTML = `${crestHtml(current.raceName, "tt-summary-crest")}<b>${esc(name)}</b> · ${esc(current.raceName)}${tierLabel ? ` · ${esc(tierLabel)}` : ""} · TV cap ${gold(cap)}`;
     }
   }
   function confirmDiscard() {
@@ -2449,6 +2528,7 @@ ${rosterSheetHtml(model)}
         setStatus("No BB2025 roster data is available.");
       }
       ensureSkillCatalog().then(() => { renderPositions(); renderRoster(); });
+      loadArtManifests();
       const params = new URLSearchParams(location.search);
       const preset = params.get("preset") ?? params.get("package");
       const requestedMode = params.get("mode");

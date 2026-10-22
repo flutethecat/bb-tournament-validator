@@ -95,6 +95,7 @@ import {
   type AdminTeamSearchMode,
 } from "./data";
 import { builderTierRows, packageResponseInfo, packageRulesInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
+import { isPublicArtPath } from "./publicArt.js";
 import { PRESETS } from "./presets";
 import { handleAuthPortal } from "./auth/portal.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
@@ -582,6 +583,7 @@ const MIME: Record<string, string> = {
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
+  ".png": "image/png",
 };
 
 const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
@@ -655,6 +657,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
         pathname === "/team-builder.css" ||
         pathname === "/team-builder.js" ||
         pathname === "/tournament-team-builder.html" ||
+        isPublicArtPath(pathname) ||
         pathname.startsWith("/assets/"))
     )
       return true;
