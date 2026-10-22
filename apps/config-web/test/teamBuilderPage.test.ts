@@ -339,3 +339,36 @@ describe("team builder page — review fixes", () => {
     expect(js).toContain("requestBody({ forSave: true })");
   });
 });
+
+describe("tournament team builder page", () => {
+  const ttHtml = readFileSync(new URL("tournament-team-builder.html", publicDir), "utf8");
+  const panel = readFileSync(new URL("control-panel.html", publicDir), "utf8").replace(/\r\n/g, "\n");
+
+  it("is its own pane that reuses the shared builder script and styles, locked to tournament mode", () => {
+    expect(ttHtml).toContain('<body data-builder="tournament">');
+    expect(ttHtml).toContain('<script src="/team-builder.js" defer></script>');
+    expect(ttHtml).toContain('<link rel="stylesheet" href="/team-builder.css" />');
+    expect(ttHtml).not.toContain('class="mode-grid"');
+    expect(ttHtml).not.toContain('id="library-panel"');
+    for (const id of ["tt-steps", "tt-step-package", "tt-packages", "tt-tier-table", "tt-step-race", "tt-races", "tt-locked-bar", "builder-panel", "print-sheet", "saves-panel", "discord-login"]) {
+      expect(ttHtml).toContain(`id="${id}"`);
+    }
+    expect(js).toContain('const TOURNAMENT_PAGE = document.body?.dataset.builder === "tournament";');
+    expect(js).toContain("function eligibleRaceGroups()");
+  });
+
+  it("is listed on the control panel with the shared hub-card markup", () => {
+    expect(panel).toContain(`<a class="hub-card" href="./tournament-team-builder.html">
+          <span class="hub-card-name">Tournament Team Builder</span>
+          <span class="hub-card-description">Pick a tournament ruleset, choose a tiered race, and build a legal roster with its roster sheet.</span>
+          <span class="hub-card-destination">tournament-team-builder.html</span>
+        </a>`);
+  });
+
+  it("is served without the admin gate like the plain builder", () => {
+    const server = readFileSync(new URL("../src/server.ts", import.meta.url), "utf8");
+    const sidecar = readFileSync(new URL("../src/auth/requireSession.ts", import.meta.url), "utf8");
+    expect(server).toContain('pathname === "/tournament-team-builder.html"');
+    expect(sidecar).toContain('pathname === "/tournament-team-builder.html"');
+  });
+});

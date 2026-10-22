@@ -227,6 +227,7 @@ describe("guarded routes under the sidecar", () => {
       "/team-builder.html",
       "/team-builder.css",
       "/team-builder.js",
+      "/tournament-team-builder.html",
       "/theme.css",
       "/theme.js",
     ]) {

@@ -654,6 +654,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
         pathname === "/team-builder.html" ||
         pathname === "/team-builder.css" ||
         pathname === "/team-builder.js" ||
+        pathname === "/tournament-team-builder.html" ||
         pathname.startsWith("/assets/"))
     )
       return true;

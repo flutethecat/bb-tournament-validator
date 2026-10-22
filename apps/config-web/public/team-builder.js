@@ -641,7 +641,12 @@ ${rosterSheetHtml(model)}
   const freshStaff = () => ({ reRolls: 0, assistantCoaches: 0, cheerleaders: 0, dedicatedFans: 1, apothecary: 0 });
 
   // ── state ──
-  let mode = "create";
+  // tournament-team-builder.html sets body[data-builder="tournament"]: the shared builder is locked to
+  // tournament mode behind its own setup flow (1 ruleset → 2 tiered race → 3 build).
+  const TOURNAMENT_PAGE = document.body?.dataset.builder === "tournament";
+  let mode = TOURNAMENT_PAGE ? "tournament" : "create";
+  let setupStep = 1;
+  let packageDoc = null; // GET /api/packages/<name> `pkg` (description, eligibleRosters)
   let rosters = [];
   let packages = [];
   let current = null;
@@ -974,9 +979,9 @@ ${rosterSheetHtml(model)}
       button.setAttribute("aria-pressed", String(active));
     });
     const library = mode === "library";
-    $("library-panel").hidden = !library;
-    $("builder-panel").hidden = library;
-    $("package-field").hidden = mode !== "tournament";
+    if ($("library-panel")) $("library-panel").hidden = !library;
+    $("builder-panel").hidden = library || (TOURNAMENT_PAGE && setupStep !== 3);
+    $("package-field").hidden = mode !== "tournament" || TOURNAMENT_PAGE;
     $("custom-badge").hidden = mode !== "custom";
     $("builder-heading-text").textContent = mode === "tournament"
       ? "Tournament Slot Builder"
@@ -1538,11 +1543,14 @@ ${rosterSheetHtml(model)}
       api(`/api/fork/team-builder/tiers?packageName=${encodeURIComponent(name)}`),
     ]);
     if (sequence !== packageRulesSequence) return;
+    packageDoc = rulesResult.status === "fulfilled" && rulesResult.value?.pkg && typeof rulesResult.value.pkg === "object"
+      ? rulesResult.value.pkg : null;
     packageRules = rulesResult.status === "fulfilled" && rulesResult.value?.rules && Array.isArray(rulesResult.value.rules.tierSummary)
       ? sanitizePackageRules(rulesResult.value.rules) : null;
     tierRows = tiersResult.status === "fulfilled" && Array.isArray(tiersResult.value?.races) ? tiersResult.value.races : [];
     if (rulesResult.status === "rejected") setStatus(`Couldn't load the ruleset: ${rulesResult.reason.message}`, true);
     renderAll();
+    renderSetup();
   }
   async function loadInducements() {
     const sequence = ++inducementSequence;
@@ -1937,7 +1945,9 @@ ${rosterSheetHtml(model)}
     // Fetch legal skills for every skilled position so primary/secondary colouring is exact.
     const skilled = [...new Set(slots.filter((s) => s.chosenSkills.length).map((s) => s.positionId))];
     await Promise.allSettled(skilled.map((id) => ensureLegalSkills(id)));
+    if (TOURNAMENT_PAGE) setupStep = 3;
     renderAll();
+    renderSetup();
     schedulePreview();
   }
 
@@ -2028,6 +2038,10 @@ ${rosterSheetHtml(model)}
       const data = await api(`/api/fork/team-builder/saves/${encodeURIComponent(id)}`);
       const save = data.save;
       if (!save?.body) throw new Error("Saved team has no builder state.");
+      if (TOURNAMENT_PAGE && !save.body.packageName) {
+        $("saves-status").textContent = `“${save.name ?? ""}” isn't a tournament team — open it in the Team Builder.`;
+        return;
+      }
       currentSave = { id: save.id ?? id, name: save.name ?? "" };
       $("saves-status").textContent = `Loaded “${currentSave.name}”.`;
       // A save that was already built edits its fork team instead of minting a second one.
@@ -2242,6 +2256,145 @@ ${rosterSheetHtml(model)}
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  // ════════════════ tournament page setup flow ════════════════
+  /** Races the selected package admits, with their tier and team-value cap, grouped by tier. */
+  function eligibleRaceGroups() {
+    const listed = Array.isArray(packageDoc?.eligibleRosters) ? packageDoc.eligibleRosters.map(String) : [];
+    const all = !listed.length || listed.includes("*");
+    const admitted = (name) => all || listed.some((entry) => norm(entry) === norm(name));
+    const groups = new Map();
+    const seen = new Set();
+    for (const row of tierRows) {
+      const roster = rosterForRace(String(row.name ?? ""));
+      if (!roster || !admitted(row.name) || seen.has(roster.rosterId)) continue;
+      seen.add(roster.rosterId);
+      const tier = Core.num(row.tier);
+      const summaryGold = packageRules?.tierSummary?.find((t) => t.tier === tier)?.gold;
+      const capGold = Core.num(row.gold ?? row.goldCap ?? row.budget) ?? Core.num(summaryGold) ?? Core.num(packageRules?.budget);
+      const key = tier ?? "—";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push({ roster, gold: capGold });
+    }
+    // A package without tier rows still lists every admitted roster under one heading.
+    if (!tierRows.length) {
+      const flat = rosters.filter((roster) => admitted(roster.raceName)).map((roster) => ({ roster, gold: Core.num(packageRules?.budget) }));
+      if (flat.length) groups.set("—", flat);
+    }
+    return [...groups.entries()]
+      .sort((a, b) => (Number(a[0]) || 99) - (Number(b[0]) || 99))
+      .map(([tier, races]) => ({ tier, races: races.sort((x, y) => x.roster.raceName.localeCompare(y.roster.raceName)) }));
+  }
+  function renderSetup() {
+    if (!TOURNAMENT_PAGE) return;
+    const name = $("package").value;
+    const tierLabel = raceRules()?.tierLabel ?? (raceRules()?.tierNumber != null ? `Tier ${raceRules().tierNumber}` : "");
+    document.querySelectorAll("[data-tt-step]").forEach((button) => {
+      const step = Number(button.dataset.ttStep);
+      button.disabled = step === 2 ? !name : step === 3 ? !current : false;
+      button.classList.toggle("active", step === setupStep);
+      if (step === setupStep) button.setAttribute("aria-current", "step");
+      else button.removeAttribute("aria-current");
+    });
+    $("tt-step-1-label").textContent = name || "Choose a tournament";
+    $("tt-step-2-label").textContent = current ? `${current.raceName}${tierLabel ? ` · ${tierLabel}` : ""}` : "Pick a tiered race";
+    $("tt-step-package").hidden = setupStep !== 1;
+    $("tt-step-race").hidden = setupStep !== 2;
+    $("builder-panel").hidden = setupStep !== 3;
+    // Step 1 — rulesets + the chosen one's description, data note and tier table.
+    $("tt-packages").innerHTML = packages.length ? packages.map((row) => `<button type="button" role="listitem" class="tt-card${row.name === name ? " selected" : ""}" data-tt-package="${esc(row.name)}" aria-pressed="${row.name === name}">
+        <strong>${esc(row.name)}</strong>${row.description ? `<small>${esc(String(row.description).slice(0, 180))}${String(row.description).length > 180 ? "…" : ""}</small>` : ""}
+      </button>`).join("") : '<p class="status-copy">No tournament packages are saved yet.</p>';
+    $("tt-package-detail").hidden = !name;
+    if (name) {
+      $("tt-package-name").textContent = name;
+      $("tt-package-description").textContent = String(packageDoc?.description ?? packages.find((row) => row.name === name)?.description ?? "");
+      const note = packageRules?.dataNote ?? packageDoc?.dataNote ?? "";
+      $("tt-package-note").textContent = String(note);
+      $("tt-package-note").hidden = !note;
+      const table = Core.tierTable(tierRows, packageRules?.tierSummary);
+      $("tt-tier-table").innerHTML = Core.tierTableHtml(table);
+      $("tt-tier-table").hidden = !table.length;
+      $("tt-tier-empty").hidden = Boolean(table.length);
+    }
+    // Step 2 — eligible races grouped by tier, each with its team-value cap.
+    if (setupStep === 2) {
+      const groups = eligibleRaceGroups();
+      $("tt-race-title").textContent = `Step 2 — Pick a race for ${name}`;
+      $("tt-races").innerHTML = groups.length ? groups.map((group) => `<section class="tt-race-group" aria-label="${esc(group.tier === "—" ? "Eligible rosters" : `Tier ${group.tier}`)}">
+          <div class="section-title">${group.tier === "—" ? "<span>E</span>ligible <span>R</span>osters" : `<span>T</span>ier ${esc(group.tier)}`}</div>
+          <div class="tt-card-grid">${group.races.map(({ roster, gold: cap }) => `<button type="button" class="tt-card tt-race${current?.rosterId === roster.rosterId ? " selected" : ""}" data-tt-race="${esc(roster.rosterId)}">
+            <strong>${esc(roster.raceName)}</strong><small>${cap != null ? `TV cap ${gold(cap)}` : "Package budget"}</small>
+          </button>`).join("")}</div>
+        </section>`).join("") : '<p class="status-copy">No installed roster is eligible for this ruleset.</p>';
+    }
+    // Step 3 — the locked builder's summary bar.
+    if (current && name) {
+      const cap = clientBudget();
+      $("tt-locked-summary").innerHTML = `<b>${esc(name)}</b> · ${esc(current.raceName)}${tierLabel ? ` · ${esc(tierLabel)}` : ""} · TV cap ${gold(cap)}`;
+    }
+  }
+  function confirmDiscard() {
+    return !slots.length || window.confirm("Discard the current roster and start over?");
+  }
+  async function choosePackage(name) {
+    if (name !== $("package").value && current && !confirmDiscard()) return;
+    if (name !== $("package").value) {
+      current = null;
+      slots = [];
+      staff = freshStaff();
+      preview = null;
+      selectedSkillPack = null;
+      currentSave = null;
+      editingTeamId = null;
+      $("race").value = "";
+    }
+    $("package").value = name;
+    setupStep = 1;
+    renderSetup();
+    await Promise.all([loadPackageRules(), loadInducements()]);
+  }
+  function chooseRace(rosterId) {
+    if (current?.rosterId === rosterId) {
+      setupStep = 3;
+      renderAll();
+      renderSetup();
+      return;
+    }
+    if (current && !confirmDiscard()) return;
+    $("race").value = rosterId;
+    currentSave = null;
+    editingTeamId = null;
+    setupStep = 3;
+    selectRoster(rosterId);
+    renderSetup();
+  }
+  function goToStep(step) {
+    if (step === 2 && !$("package").value) return;
+    if (step === 3 && !current) return;
+    setupStep = step;
+    renderAll();
+    renderSetup();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  if (TOURNAMENT_PAGE) {
+    $("tt-steps").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-tt-step]");
+      if (button && !button.disabled) goToStep(Number(button.dataset.ttStep));
+    });
+    $("tt-packages").addEventListener("click", (event) => {
+      const card = event.target.closest("[data-tt-package]");
+      if (card) choosePackage(card.dataset.ttPackage);
+    });
+    $("tt-to-races").addEventListener("click", () => goToStep(2));
+    $("tt-back-package").addEventListener("click", () => goToStep(1));
+    $("tt-races").addEventListener("click", (event) => {
+      const card = event.target.closest("[data-tt-race]");
+      if (card) chooseRace(card.dataset.ttRace);
+    });
+    $("tt-change-package").addEventListener("click", () => goToStep(1));
+    $("tt-change-race").addEventListener("click", () => goToStep(2));
+  }
+
   // ════════════════ boot + events ════════════════
   async function boot() {
     renderAll();
@@ -2268,7 +2421,18 @@ ${rosterSheetHtml(model)}
       const params = new URLSearchParams(location.search);
       const preset = params.get("preset") ?? params.get("package");
       const requestedMode = params.get("mode");
-      if (preset && packages.some((row) => row.name === preset)) {
+      if (TOURNAMENT_PAGE) {
+        // Deep links: ?package=<name>[&race=<rosterId>] skip straight to the matching step.
+        $("package").value = "";
+        renderAll();
+        renderSetup();
+        if (preset && packages.some((row) => row.name === preset)) {
+          await choosePackage(preset);
+          const race = params.get("race");
+          if (race && rosters.some((roster) => roster.rosterId === race)) chooseRace(race);
+          else if (params.has("race") || params.get("step") === "2") goToStep(2);
+        }
+      } else if (preset && packages.some((row) => row.name === preset)) {
         $("package").value = preset;
         await selectMode("tournament");
       } else if (["create", "custom", "tournament", "library"].includes(requestedMode)) {
@@ -2300,7 +2464,7 @@ ${rosterSheetHtml(model)}
     $("current-coach-label").textContent = $("coach").value.trim() || "Choose an existing fork account below";
     schedulePreview();
   });
-  document.querySelector(".mode-grid").addEventListener("click", (event) => {
+  document.querySelector(".mode-grid")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-mode]");
     if (button && button.dataset.mode !== mode) selectMode(button.dataset.mode);
   });
@@ -2395,7 +2559,7 @@ ${rosterSheetHtml(model)}
     const del = event.target.closest("[data-save-delete]");
     if (del) deleteSave(del.dataset.saveDelete);
   });
-  $("library-list").addEventListener("click", (event) => {
+  $("library-list")?.addEventListener("click", (event) => {
     const edit = event.target.closest("[data-library-edit]");
     if (edit) editLibraryTeam(edit.dataset.libraryEdit);
   });

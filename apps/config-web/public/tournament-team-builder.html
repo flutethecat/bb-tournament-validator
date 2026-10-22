@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<!--
+  Tournament Team Builder — its own pane and setup flow (ruleset → tiered race → build), sharing
+  team-builder.js / team-builder.css with the plain Team Builder; body[data-builder="tournament"]
+  locks the shared builder to tournament mode. Portable Team Builder shell notes: The interaction language mirrors the desktop
+  client's TeamBuilderView (dev branch) while keeping this page dependency-free:
+  no Vue, Vite, or Tauri runtime is required. The existing config-web JSON
+  endpoints remain the only integration boundary — the server preview is the
+  authority on legality; the page only offers UX hints.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Super FUMBBL — Tournament Team Builder</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/team-builder.css" />
+  <script src="/theme.js" defer></script>
+  <script src="/team-builder.js" defer></script>
+</head>
+<body data-builder="tournament">
+  <header class="console-shell">
+    <a class="brand-lockup" href="/control-panel.html" aria-label="Super FUMBBL control panel">
+      <strong>Super FUMBBL</strong>
+      <small>Fantasy Football</small>
+    </a>
+    <span class="environment-stamp">Test environment</span>
+    <nav class="console-tabs" aria-label="Config web sections">
+      <a href="/tournaments.html">Tournaments</a>
+      <a href="/users.html">Users</a>
+      <a href="/team-builder.html">Team</a>
+      <a class="active" href="/tournament-team-builder.html" aria-current="page">Tournament</a>
+      <a id="fork-admin-link" href="#" target="_blank" rel="noopener">Fork Admin ↗</a>
+    </nav>
+  </header>
+
+  <main class="team-builder-view" aria-labelledby="team-builder-title">
+    <header class="view-header">
+      <div>
+        <h1 id="team-builder-title"><span>T</span>ournament <span>T</span>eam <span>B</span>uilder</h1>
+        <p>Coach: <strong id="current-coach-label">Choose an existing fork account below</strong>.</p>
+      </div>
+      <div class="skill-key" aria-label="Skill category key">
+        <span class="key-label"><b>S</b>kill <b>K</b>ey</span>
+        <span class="skill-general">General</span>
+        <span class="skill-agility">Agility</span>
+        <span class="skill-strength">Strength</span>
+        <span class="skill-passing">Passing</span>
+        <span class="skill-mutation">Mutations</span>
+        <span class="skill-trait">Traits</span>
+      </div>
+    </header>
+
+    <aside class="test-environment-notice" role="note" aria-label="Test environment notice">
+      <strong>Test environment</strong>
+      <span>Teams created here are installed on the Super FUMBBL fork and do not alter official FUMBBL teams.</span>
+    </aside>
+
+    <section id="session-panel" class="session-panel" aria-labelledby="session-title">
+      <div class="session-intro">
+        <span class="session-kicker">Fork account</span>
+        <strong id="session-title">Sign in to create your team</strong>
+        <small>Your coach identity is attached to the team and reused for the final server-side authorization check.</small>
+      </div>
+      <form id="login-form" class="session-form">
+        <label>
+          <span>Coach name</span>
+          <input id="login-user" autocomplete="username" placeholder="Fork coach name" />
+        </label>
+        <label>
+          <span>Password</span>
+          <input id="login-password" type="password" autocomplete="current-password" placeholder="Fork password" />
+        </label>
+        <button id="login-button" class="session-button" type="submit">Log In</button>
+        <a id="discord-login" class="session-button secondary discord-button" href="/api/auth/discord/start?next=/team-builder.html" hidden>Sign in with Discord</a>
+      </form>
+      <div id="signed-in-session" class="signed-in-session" hidden>
+        <span class="session-dot" aria-hidden="true"></span>
+        <span>Signed in as <strong id="signed-in-coach"></strong></span>
+        <button id="logout-button" class="session-button secondary" type="button">Log Out</button>
+      </div>
+      <div id="login-message" class="session-message" role="status" aria-live="polite"></div>
+    </section>
+
+    <nav class="tt-steps" id="tt-steps" aria-label="Tournament team setup">
+      <button type="button" data-tt-step="1" aria-current="step"><b>1</b><span>Ruleset</span><small id="tt-step-1-label">Choose a tournament</small></button>
+      <button type="button" data-tt-step="2" disabled><b>2</b><span>Race</span><small id="tt-step-2-label">Pick a tiered race</small></button>
+      <button type="button" data-tt-step="3" disabled><b>3</b><span>Build</span><small id="tt-step-3-label">Roster, rules &amp; sheet</small></button>
+    </nav>
+
+    <section id="saves-panel" class="saves-panel" aria-labelledby="saves-title">
+      <div class="saves-head">
+        <div class="section-title" id="saves-title"><span>M</span>y <span>T</span>eams <small id="current-save-label"></small></div>
+        <div class="saves-actions" id="saves-actions" hidden>
+          <button id="save-button" class="session-button" type="button">Save</button>
+          <button id="save-as-button" class="session-button secondary" type="button">Save as…</button>
+          <button id="saves-toggle" class="session-button secondary" type="button" aria-expanded="false" aria-controls="saves-list">Show list</button>
+        </div>
+      </div>
+      <p id="saves-signin" class="status-copy">Sign in (fork account or Discord) to save drafts and recall them later.</p>
+      <p id="saves-status" class="status-copy" role="status" aria-live="polite"></p>
+      <div id="saves-list" class="saves-list" hidden></div>
+    </section>
+
+    <section id="tt-step-package" class="builder-panel tt-step" aria-labelledby="tt-package-title">
+      <div class="builder-heading" id="tt-package-title">Step 1 — Choose a tournament ruleset</div>
+      <div id="tt-packages" class="tt-card-grid" role="list"><p class="status-copy">Loading tournament rulesets…</p></div>
+      <section id="tt-package-detail" class="tt-package-detail" hidden aria-live="polite">
+        <div class="tt-package-head">
+          <h2 id="tt-package-name"></h2>
+          <button id="tt-to-races" class="create-button tt-next" type="button">Choose a race →</button>
+        </div>
+        <p id="tt-package-description" class="tt-package-description"></p>
+        <p id="tt-package-note" class="ruleset-caveat" hidden></p>
+        <div class="tier-table-wrap"><table id="tt-tier-table" class="tier-table"></table></div>
+        <p id="tt-tier-empty" class="status-copy" hidden>This ruleset has no tiers — every eligible roster shares the same budget.</p>
+      </section>
+    </section>
+
+    <section id="tt-step-race" class="builder-panel tt-step" hidden aria-labelledby="tt-race-title">
+      <div class="builder-heading tt-race-heading">
+        <span id="tt-race-title">Step 2 — Pick a race</span>
+        <button id="tt-back-package" class="session-button secondary" type="button">← Change ruleset</button>
+      </div>
+      <div id="tt-races" class="tt-race-groups"></div>
+    </section>
+
+
+    <section id="builder-panel" class="builder-panel">
+      <div class="tt-locked-bar" id="tt-locked-bar">
+        <span id="tt-locked-summary"></span>
+        <button id="tt-change-package" class="session-button secondary" type="button">Change ruleset</button>
+        <button id="tt-change-race" class="session-button secondary" type="button">Change race</button>
+      </div>
+      <div class="builder-heading">
+        <span id="builder-heading-text">Tournament Slot Builder</span>
+        <span id="custom-badge" class="custom-badge" hidden>Custom — validation off</span>
+        <span id="editing-badge" class="custom-badge editing" hidden></span>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          <span>Team Name</span>
+          <input id="team-name" type="text" maxlength="60" placeholder="Name your team" autocomplete="off" />
+        </label>
+        <label id="package-field" hidden>
+          <span>Ruleset</span>
+          <select id="package"><option value="">Loading rulesets…</option></select>
+        </label>
+        <label id="race-field" hidden>
+          <span>Roster</span>
+          <select id="race"><option value="">Loading rosters…</option></select>
+        </label>
+        <label id="league-field" hidden>
+          <span>League</span>
+          <select id="league"></select>
+          <small id="league-rule" class="league-rule-display"></small>
+        </label>
+        <label>
+          <span>Coach</span>
+          <input id="coach" list="coach-list" placeholder="Choose a fork coach" autocomplete="off" />
+          <datalist id="coach-list"></datalist>
+        </label>
+      </div>
+
+      <p id="league-notice" class="status-copy" role="status" hidden></p>
+      <p id="edit-hint" class="status-copy edit-ruleset-hint" hidden></p>
+
+      <section id="ruleset-panel" class="ruleset-note" hidden aria-live="polite"></section>
+      <section id="tier-table-wrap" class="tier-table-wrap" hidden>
+        <table id="tier-table" class="tier-table"></table>
+      </section>
+
+      <div id="builder-status" class="status-copy" role="status" aria-live="polite"></div>
+
+      <div class="builder-layout">
+        <div class="builder-main">
+          <section class="add-players-panel" aria-labelledby="add-players-title">
+            <div class="section-title" id="add-players-title"><span>A</span>dd <span>P</span>layers</div>
+            <div id="name-gate-toast" class="name-gate-toast" role="status" hidden>You must name your team.</div>
+            <div id="positions" class="position-grid">
+              <p class="status-copy">Choose a roster to see its positions.</p>
+            </div>
+          </section>
+
+          <section class="roster-section" aria-labelledby="roster-slots-title">
+            <div class="section-title" id="roster-slots-title">
+              <span>R</span>oster <span>S</span>lots <small id="player-count">0 / 16</small>
+            </div>
+            <div class="roster-scroll">
+              <div class="roster-header roster-grid" aria-hidden="true">
+                <span>#</span><span>Player</span><span>Stats</span><span>Skills &amp; Traits</span><span>Cost</span><span></span>
+              </div>
+              <div id="roster-slots" class="roster-slots">
+                <div class="roster-empty">Add a player from a position card above.</div>
+              </div>
+            </div>
+          </section>
+
+          <section id="skill-picker" class="skill-picker-panel" hidden aria-labelledby="skill-picker-heading">
+            <div class="skill-picker-head">
+              <span id="skill-picker-heading" class="skill-picker-heading">Add Skill</span>
+              <button type="button" class="picker-close" id="skill-picker-close" aria-label="Close skill picker">×</button>
+            </div>
+            <div id="skill-picker-body" class="skill-picker-body"></div>
+          </section>
+
+          <section id="star-section" class="star-section" hidden aria-labelledby="star-title">
+            <div class="section-title" id="star-title"><span>S</span>tar <span>P</span>layers <small id="star-cap"></small></div>
+            <div id="star-list" class="star-card"></div>
+          </section>
+
+          <section id="star-sp-section" class="star-sp-section" hidden>
+            <button id="star-sp-toggle" class="star-sp-toggle" type="button" aria-expanded="false">▸ Star Player SP costs</button>
+            <div id="star-sp-body" hidden></div>
+          </section>
+
+          <section id="inducement-section" class="inducement-section" hidden aria-labelledby="inducement-title">
+            <div class="section-title" id="inducement-title"><span>I</span>nducements</div>
+            <div id="inducement-list" class="star-card"></div>
+            <p id="inducement-status" class="status-copy"></p>
+          </section>
+        </div>
+
+        <aside class="right-rail">
+          <section class="value-card" id="value-card">
+            <div class="section-title"><span>T</span>eam <span>V</span>alue<span id="refresh-dot" class="refresh-dot" hidden></span></div>
+            <div id="value-lines"></div>
+          </section>
+
+          <section id="validity-card" class="live-card validity-card" hidden aria-live="polite">
+            <div id="validity-headline" class="validity-headline"></div>
+            <div id="findings"></div>
+          </section>
+
+          <form class="live-card submit-card" id="build-form">
+            <button class="create-button" id="build-btn" type="submit" disabled>Create Team</button>
+            <div class="export-actions">
+              <button id="print-sheet" class="session-button secondary" type="button" disabled>Export roster sheet</button>
+              <button id="download-sheet" class="session-button secondary" type="button" disabled>Download HTML</button>
+            </div>
+          </form>
+
+          <section id="build-result" class="result-banner" hidden role="status" aria-live="polite"></section>
+
+          <section class="rail-section staff-section" aria-labelledby="staff-title">
+            <div class="section-title" id="staff-title"><span>S</span>ideline <span>S</span>taff</div>
+            <div id="staff-controls"></div>
+          </section>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <!-- Print-only roster sheet (window.print). Filled on export from the live builder state. -->
+  <section id="roster-sheet" class="roster-sheet-host" aria-label="Printable roster sheet"></section>
+</body>
+</html>
