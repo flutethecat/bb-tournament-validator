@@ -372,3 +372,43 @@ describe("tournament team builder page", () => {
     expect(sidecar).toContain('pathname === "/tournament-team-builder.html"');
   });
 });
+
+describe("team builder page — re-review fixes", () => {
+  const evil = "<img src=x onerror=alert(1)>";
+
+  it("copies server objects field-by-field (no spreads into render paths) and escapes value-card text", () => {
+    const ui = js.slice(js.indexOf("// UI"));
+    for (const spread of ["...race", "...rules", "...roster", "...position", "...item", "...pack", "...tier", "...group", "...race.stars"]) {
+      expect(ui).not.toContain(`${spread},`);
+    }
+    expect(js).toContain("skillCosts: sanitizeSkillCosts(race.skillCosts)");
+    expect(js).toContain("<strong>${valueClass ? `<span class=\"${valueClass}\">${esc(value)}</span>` : esc(value)}</strong>");
+    expect(js).toContain("package: sanitizePackageEcho(result.package)");
+    // A hostile skillCosts value can no longer reach markup: the SP model only ever sees numbers.
+    expect(core.playerSkillSp(["Block"], () => false, { primary: core.num(evil) ?? 1, secondary: 2, eliteSurcharge: 0, stackSurcharge: 0, eliteSkills: [] })).toBe(1);
+  });
+
+  it("restores saved picks without carrying unexpected values", () => {
+    const slots = core.slotsFromPicks([{ positionId: "L", count: 1, chosenStatIncreases: ["av", evil], chosenStats: { MA: evil, AV: 11, x: 1 } }], () => ({ positionId: "L" }));
+    expect(slots[0].chosenStatIncreases).toEqual(["AV"]);
+    expect(slots[0].chosenStats).toEqual({ AV: 11 });
+  });
+
+  it("derives library stat changes including 0 and '-' printed stats", () => {
+    const deathroller = { MA: 5, ST: 7, AG: "5+", PA: "-", AV: "11+" };
+    // PA 3 on a position printed "-" (custom), everything else unchanged.
+    expect(core.deriveStatChanges(deathroller, { movement: 5, strength: 7, agility: 5, passing: 3, armour: 11 }))
+      .toEqual({ increases: [], absolute: { PA: 3 } });
+    // A thrower stripped to no PA: stored 0 / null both mean none.
+    const thrower = { MA: 6, ST: 3, AG: "3+", PA: "2+", AV: "9+" };
+    expect(core.deriveStatChanges(thrower, { movement: 6, strength: 3, agility: 3, passing: 0, armour: 9 }).absolute).toEqual({ PA: 0 });
+    expect(core.deriveStatChanges(thrower, { movement: 6, strength: 3, agility: 3, passing: null, armour: 9 }).absolute).toEqual({ PA: 0 });
+    // Tournament-style +1 steps are still recognised as increases.
+    expect(core.deriveStatChanges(thrower, { movement: 7, strength: 3, agility: 3, passing: 1, armour: 10 }))
+      .toEqual({ increases: ["MA", "PA", "AV"], absolute: { MA: 7, PA: 1, AV: 10 } });
+    // MA 0 is a real value, not "none".
+    expect(core.deriveStatChanges(thrower, { movement: 0, strength: 3, agility: 3, passing: 2, armour: 9 }).absolute).toEqual({ MA: 0 });
+    // Characteristics the detail didn't report are left alone.
+    expect(core.deriveStatChanges(thrower, { movement: 6 })).toEqual({ increases: [], absolute: {} });
+  });
+});

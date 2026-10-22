@@ -206,9 +206,13 @@
           slots.push({
             positionId: position.positionId,
             isStar: position.isStar === true,
-            chosenSkills: Array.isArray(pick.chosenSkills) ? [...pick.chosenSkills] : [],
-            chosenStatIncreases: Array.isArray(pick.chosenStatIncreases) ? [...pick.chosenStatIncreases] : [],
-            ...(pick.chosenStats && typeof pick.chosenStats === "object" ? { chosenStats: { ...pick.chosenStats } } : {}),
+            chosenSkills: Array.isArray(pick.chosenSkills) ? pick.chosenSkills.map(String) : [],
+            chosenStatIncreases: Array.isArray(pick.chosenStatIncreases)
+              ? pick.chosenStatIncreases.map((stat) => String(stat).toUpperCase()).filter((stat) => STATS.includes(stat))
+              : [],
+            ...(pick.chosenStats && typeof pick.chosenStats === "object"
+              ? { chosenStats: Object.fromEntries(STATS.filter((stat) => num(pick.chosenStats[stat]) !== null).map((stat) => [stat, num(pick.chosenStats[stat])])) }
+              : {}),
           });
         }
       }
@@ -596,8 +600,44 @@ ${rosterSheetHtml(model)}
     }
     const sheetFileName = (model) => `${(model.teamName || model.raceName || "team").replace(/[^A-Za-z0-9 _-]+/g, "").trim().replace(/\s+/g, "_") || "team"}_roster.html`;
 
+    /**
+     * Compare a stored player's characteristics with the printed position. Returns the +1 tournament
+     * increases (MA/ST/AV up one, AG/PA one step better) and, for custom rebuilds, the absolute raw
+     * value of EVERY changed stat. Explicit about "no value": a printed "-" PA/AG and a stored 0/null
+     * passing/agility both mean "none" (raw 0), so a Deathroller given PA 3 or a thrower stripped to
+     * no PA still round-trip.
+     */
+    function deriveStatChanges(position, player) {
+      const printedRaw = (stat) => {
+        const value = position?.[stat];
+        if (stat === "MA" || stat === "ST") return num(value);
+        const match = String(value ?? "").match(/(\d+)/);
+        return match ? Number(match[1]) : 0; // "-" / missing → none
+      };
+      const storedRaw = (stat, value) => {
+        const n = num(value);
+        if (stat === "MA" || stat === "ST") return n;
+        return n === null || n <= 0 ? 0 : n; // 0 / null → none
+      };
+      const stored = { MA: player.movement, ST: player.strength, AG: player.agility, PA: player.passing, AV: player.armour };
+      const increases = [];
+      const absolute = {};
+      for (const stat of STATS) {
+        if (stored[stat] === undefined) continue; // the detail didn't report this characteristic
+        const before = printedRaw(stat);
+        const after = storedRaw(stat, stored[stat]);
+        if (before === null || after === null || before === after) continue;
+        absolute[stat] = after;
+        const oneStep = stat === "AG" || stat === "PA"
+          ? before > 0 && after > 0 && after === before - 1
+          : after === before + 1;
+        if (oneStep) increases.push(stat);
+      }
+      return { increases, absolute };
+    }
+
     return {
-      esc, gold, norm, num, STATS,
+      esc, gold, norm, num, STATS, deriveStatChanges,
       normalizeLeagueOptions, leagueFieldPresentation, reconcileLeagueSelection, explicitLeagueSpecialRule, starEligibleForLeague,
       buildStarChoices, positionGroupCapped, buildPicks, slotsFromPicks,
       improvedStats, statIncreaseCost, normalizeTierRules, tierLimitLines, tierTable, tierTableHtml, starPacksFor, starPackLabel,
@@ -1373,7 +1413,8 @@ ${rosterSheetHtml(model)}
   function renderValueCard() {
     const s = preview?.summary ?? null;
     const lines = [];
-    const line = (label, value, cls = "") => lines.push(`<div class="value-line${cls ? ` ${cls}` : ""}"><span>${esc(label)}</span><strong>${value}</strong></div>`);
+    // `value` is plain text (escaped here); `valueClass` is one of the fixed tokens below.
+    const line = (label, value, cls = "", valueClass = "") => lines.push(`<div class="value-line${cls ? ` ${cls}` : ""}"><span>${esc(label)}</span><strong>${valueClass ? `<span class="${valueClass}">${esc(value)}</span>` : esc(value)}</strong></div>`);
     const pick = (server, client) => (typeof server === "number" && Number.isFinite(server) ? server : client);
     line("Players", `${slots.length} · ${gold(rawPlayerCost())}`);
     if (mode !== "create" && starSlots().length) line("Star players", gold(pick(s?.starsCost, rawStarCost())));
@@ -1388,14 +1429,14 @@ ${rosterSheetHtml(model)}
       const spBudget = selectedPackSummary()?.skillPointBudget ?? (s?.skillPointBudget || raceRules()?.skillPointBudget || 0);
       if (spBudget) {
         const used = s?.skillPointsUsed ?? slots.reduce((sum, sl) => sum + Core.playerSkillSp(sl.chosenSkills, (k) => skillAccess(sl.positionId, k) === "secondary", raceRules()?.skillCosts ?? Core.DEFAULT_SKILL_COSTS), 0);
-        line("Skill points", `<span class="${used > spBudget ? "over-budget" : ""}">${used} / ${spBudget}</span>`);
+        line("Skill points", `${Core.num(used) ?? "—"} / ${Core.num(spBudget) ?? "—"}`, "", used > spBudget ? "over-budget" : "");
       }
     }
     const estimate = rawPlayerCost() + rawStarCost() + staffCost() + inducementGold() + addedSkillGold() + statGold();
     const used = s ? s.goldUsed : estimate;
     const budget = mode === "tournament" ? clientBudget() : (s?.goldBudget ?? clientBudget());
     const label = s ? (mode === "custom" ? "Authoritative preview" : "Total") : previewPending ? "Calculating team value…" : $("team-name").value.trim() ? "Estimate" : "Please name your team";
-    line(label, `<span class="${used > budget ? "over-budget" : "within-budget"}">${gold(used)} / ${gold(budget)}</span>`, "total");
+    line(label, `${gold(used)} / ${gold(budget)}`, "total", used > budget ? "over-budget" : "within-budget");
     $("value-lines").innerHTML = lines.join("");
     $("refresh-dot").hidden = !previewPending;
   }
@@ -1460,61 +1501,103 @@ ${rosterSheetHtml(model)}
   // Strings are escaped at render time; numbers are coerced here so no server/package value that is
   // rendered raw as a "number" can carry markup into an innerHTML sink.
   const n0 = (value, fallback = null) => Core.num(value) ?? fallback;
+  // Field-by-field copies only: never spread a server object, so an unexpected or string-typed
+  // field can't ride into a render path. Strings stay strings (escaped at render), numbers are coerced.
+  const sv = (value) => (value === null || value === undefined ? "" : String(value));
+  const strList = (value) => (Array.isArray(value) ? value.map(sv) : []);
+  const cell = (value) => (Core.num(value) ?? sv(value));
   function sanitizeRoster(roster) {
     return {
-      ...roster,
-      rosterId: String(roster.rosterId ?? ""),
-      raceName: String(roster.raceName ?? ""),
-      reRollCost: n0(roster.reRollCost, 0),
-      maxReRolls: n0(roster.maxReRolls, 8),
-      positions: (Array.isArray(roster.positions) ? roster.positions : []).map((position) => ({
-        ...position,
-        positionId: String(position.positionId ?? ""),
-        name: String(position.name ?? ""),
-        cost: n0(position.cost, 0),
-        max: n0(position.max, 0),
+      rosterId: sv(roster?.rosterId),
+      raceName: sv(roster?.raceName),
+      reRollCost: n0(roster?.reRollCost, 0),
+      maxReRolls: n0(roster?.maxReRolls, 8),
+      apothecaryAllowed: roster?.apothecaryAllowed !== false,
+      leagueOptions: strList(roster?.leagueOptions),
+      ...(Array.isArray(roster?.specialRules) ? { specialRules: strList(roster.specialRules) } : {}),
+      ...(Array.isArray(roster?.alwaysOnRules) ? { alwaysOnRules: strList(roster.alwaysOnRules) } : {}),
+      positions: (Array.isArray(roster?.positions) ? roster.positions : []).map((position) => ({
+        positionId: sv(position?.positionId),
+        name: sv(position?.name),
+        type: sv(position?.type),
+        cost: n0(position?.cost, 0),
+        max: n0(position?.max, 0),
+        MA: cell(position?.MA),
+        ST: cell(position?.ST),
+        AG: sv(position?.AG),
+        PA: sv(position?.PA),
+        AV: sv(position?.AV),
+        skills: strList(position?.skills),
+        ...(Array.isArray(position?.skillsDisplay) ? { skillsDisplay: strList(position.skillsDisplay) } : {}),
+        ...(Array.isArray(position?.keywords) ? { keywords: strList(position.keywords) } : {}),
+        isStar: position?.isStar === true,
+        playsFor: strList(position?.playsFor),
+        ...(position?.teamWithPositionId ? { teamWithPositionId: sv(position.teamWithPositionId) } : {}),
       })),
-      positionGroups: Array.isArray(roster.positionGroups)
-        ? roster.positionGroups.map((group) => ({ ...group, max: n0(group.max, 0) }))
+      positionGroups: Array.isArray(roster?.positionGroups)
+        ? roster.positionGroups.map((group) => ({ positions: strList(group?.positions), max: n0(group?.max, 0), label: sv(group?.label) }))
         : undefined,
     };
   }
   function sanitizePack(pack) {
-    return { ...pack, label: String(pack?.label ?? ""), gold: n0(pack?.gold), skillPointBudget: n0(pack?.skillPointBudget, 0), maxPerPlayer: n0(pack?.maxPerPlayer) };
+    return { label: sv(pack?.label), gold: n0(pack?.gold), skillPointBudget: n0(pack?.skillPointBudget, 0), maxPerPlayer: n0(pack?.maxPerPlayer) };
+  }
+  function sanitizeSkillCosts(costs) {
+    if (!costs || typeof costs !== "object") return undefined;
+    return {
+      primary: n0(costs.primary, Core.DEFAULT_SKILL_COSTS.primary),
+      secondary: n0(costs.secondary, Core.DEFAULT_SKILL_COSTS.secondary),
+      eliteSurcharge: n0(costs.eliteSurcharge, 0),
+      stackSurcharge: n0(costs.stackSurcharge, 0),
+      eliteSkills: strList(costs.eliteSkills),
+    };
   }
   function sanitizePackageRules(rules) {
     const race = rules.race && typeof rules.race === "object" ? rules.race : null;
+    const stars = race?.stars && typeof race.stars === "object" ? race.stars : null;
     return {
-      ...rules,
-      name: String(rules.name ?? ""),
+      name: sv(rules.name),
+      ...(rules.dataNote ? { dataNote: sv(rules.dataNote) } : {}),
       budget: n0(rules.budget),
       tierSummary: rules.tierSummary.map((tier) => ({
-        ...tier,
-        tier: n0(tier.tier),
-        label: String(tier.label ?? ""),
-        rosters: Array.isArray(tier.rosters) ? tier.rosters.map(String) : [],
-        gold: n0(tier.gold),
-        skillPointBudget: n0(tier.skillPointBudget),
-        packs: Array.isArray(tier.packs) ? tier.packs.map(sanitizePack) : [],
+        tier: n0(tier?.tier),
+        label: sv(tier?.label),
+        rosters: strList(tier?.rosters),
+        gold: n0(tier?.gold),
+        skillPointBudget: n0(tier?.skillPointBudget),
+        packs: Array.isArray(tier?.packs) ? tier.packs.map(sanitizePack) : [],
       })),
       race: race ? {
-        ...race,
-        roster: String(race.roster ?? ""),
+        roster: sv(race.roster),
+        source: sv(race.source),
+        tierNumber: n0(race.tierNumber),
+        ...(race.tierLabel ? { tierLabel: sv(race.tierLabel) } : {}),
         gold: n0(race.gold),
         skillPointBudget: n0(race.skillPointBudget, 0),
+        skillCosts: sanitizeSkillCosts(race.skillCosts),
         maxPerPlayer: n0(race.maxPerPlayer),
         packs: Array.isArray(race.packs) ? race.packs.map(sanitizePack) : [],
-        bannedStars: Array.isArray(race.bannedStars) ? race.bannedStars.map(String) : [],
-        stars: race.stars && typeof race.stars === "object" ? {
-          ...race.stars,
-          allowed: race.stars.allowed !== false,
-          maxCount: n0(race.stars.maxCount),
-          paidInSkillPoints: race.stars.paidInSkillPoints === true,
-          spCosts: Array.isArray(race.stars.spCosts)
-            ? race.stars.spCosts.map((star) => ({ name: String(star.name ?? ""), sp: n0(star.sp, 0) }))
+        bannedStars: strList(race.bannedStars),
+        stars: stars ? {
+          allowed: stars.allowed !== false,
+          maxCount: n0(stars.maxCount),
+          paidInSkillPoints: stars.paidInSkillPoints === true,
+          spCosts: Array.isArray(stars.spCosts)
+            ? stars.spCosts.map((star) => ({ name: sv(star?.name), sp: n0(star?.sp, 0) }))
             : undefined,
         } : undefined,
       } : undefined,
+    };
+  }
+  /** The preview's `package` echo: name/description/budget plus the raw rules block, which is only
+   *  ever read through Core.normalizeTierRules (itself field-by-field). */
+  function sanitizePackageEcho(echo) {
+    if (!echo || typeof echo !== "object") return null;
+    return {
+      name: sv(echo.name),
+      ...(echo.description ? { description: sv(echo.description) } : {}),
+      budget: n0(echo.budget),
+      ...(echo.rules && typeof echo.rules === "object" ? { rules: echo.rules } : {}),
     };
   }
   function sanitizeSummary(summary) {
@@ -1565,7 +1648,6 @@ ${rosterSheetHtml(model)}
       const data = await api(`/api/fork/team-builder/inducements${name ? `?packageName=${encodeURIComponent(name)}` : ""}`);
       if (sequence !== inducementSequence) return;
       inducementCatalog = (Array.isArray(data.inducements) ? data.inducements : []).map((item) => ({
-        ...item,
         key: String(item.key ?? ""),
         label: String(item.label ?? item.key ?? ""),
         price: Core.num(item.price) ?? 0,
@@ -1663,7 +1745,7 @@ ${rosterSheetHtml(model)}
         errors: Array.isArray(result.errors) ? result.errors : [],
         warnings: Array.isArray(result.warnings) ? result.warnings : [],
         summary: sanitizeSummary(result.summary),
-        package: result.package && typeof result.package === "object" ? result.package : null,
+        package: sanitizePackageEcho(result.package),
       };
       previewPending = false;
       // The rules echo can change the controls (stat-increase selects, star packs) — re-render fully when it appears.
@@ -2138,22 +2220,7 @@ ${rosterSheetHtml(model)}
       const position = byId(player.positionId);
       if (!position) continue;
       const printed = new Set(position.skills ?? []);
-      const increases = [];
-      if (Number(player.movement) > Number(position.MA)) increases.push("MA");
-      if (Number(player.strength) > Number(position.ST)) increases.push("ST");
-      const target = (v) => Number(String(v ?? "").replace(/\D/g, "")) || null;
-      if (player.agility && target(position.AG) && Number(player.agility) < target(position.AG)) increases.push("AG");
-      if (player.passing && target(position.PA) && Number(player.passing) < target(position.PA)) increases.push("PA");
-      if (player.armour && target(position.AV) && Number(player.armour) > target(position.AV)) increases.push("AV");
-      const absolute = {};
-      const raw = { MA: player.movement, ST: player.strength, AG: player.agility, PA: player.passing, AV: player.armour };
-      for (const stat of increases) if (Core.num(raw[stat]) !== null) absolute[stat] = Core.num(raw[stat]);
-      // Stats that got WORSE than printed (custom teams can do that) also count as custom stats.
-      if (Number(player.movement) < Number(position.MA)) absolute.MA = Number(player.movement);
-      if (Number(player.strength) < Number(position.ST)) absolute.ST = Number(player.strength);
-      if (player.agility && target(position.AG) && Number(player.agility) > target(position.AG)) absolute.AG = Number(player.agility);
-      if (player.passing && target(position.PA) && Number(player.passing) > target(position.PA)) absolute.PA = Number(player.passing);
-      if (player.armour && target(position.AV) && Number(player.armour) < target(position.AV)) absolute.AV = Number(player.armour);
+      const { increases, absolute } = Core.deriveStatChanges(position, player);
       restored.push({
         positionId: position.positionId,
         isStar: position.isStar === true,
