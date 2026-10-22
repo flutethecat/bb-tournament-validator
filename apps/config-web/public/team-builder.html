@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <!--
-  Portable Team Builder shell. The interaction language mirrors the Vite
-  TeamBuilderView while keeping this page dependency-free: no Vue, Vite, or
-  Tauri runtime is required. The existing config-web JSON endpoints remain the
-  only integration boundary.
+  Portable Team Builder shell. The interaction language mirrors the desktop
+  client's TeamBuilderView (dev branch) while keeping this page dependency-free:
+  no Vue, Vite, or Tauri runtime is required. The existing config-web JSON
+  endpoints remain the only integration boundary — the server preview is the
+  authority on legality; the page only offers UX hints.
 -->
 <html lang="en">
 <head>
@@ -36,10 +37,14 @@
         <h1 id="team-builder-title"><span>T</span>eam <span>M</span>anagement</h1>
         <p>Coach: <strong id="current-coach-label">Choose an existing fork account below</strong>.</p>
       </div>
-      <div class="build-key" aria-label="Builder limits">
-        <span><b>BB</b>2025</span>
-        <span>1,000k budget</span>
-        <span>11–16 players</span>
+      <div class="skill-key" aria-label="Skill category key">
+        <span class="key-label"><b>S</b>kill <b>K</b>ey</span>
+        <span class="skill-general">General</span>
+        <span class="skill-agility">Agility</span>
+        <span class="skill-strength">Strength</span>
+        <span class="skill-passing">Passing</span>
+        <span class="skill-mutation">Mutations</span>
+        <span class="skill-trait">Traits</span>
       </div>
     </header>
 
@@ -64,7 +69,7 @@
           <input id="login-password" type="password" autocomplete="current-password" placeholder="Fork password" />
         </label>
         <button id="login-button" class="session-button" type="submit">Log In</button>
-        <a id="discord-login" class="session-button secondary" href="/api/auth/discord/start?next=/team-builder.html" hidden>Discord</a>
+        <a id="discord-login" class="session-button secondary discord-button" href="/api/auth/discord/start?next=/team-builder.html" hidden>Sign in with Discord</a>
       </form>
       <div id="signed-in-session" class="signed-in-session" hidden>
         <span class="session-dot" aria-hidden="true"></span>
@@ -74,21 +79,57 @@
       <div id="login-message" class="session-message" role="status" aria-live="polite"></div>
     </section>
 
-    <section class="builder-panel">
-      <div class="builder-heading">Create Team — Slot Builder</div>
+    <nav class="mode-grid" aria-label="Team management mode">
+      <button type="button" data-mode="create" class="active" aria-pressed="true"><strong>Create Team</strong></button>
+      <button type="button" data-mode="custom" aria-pressed="false"><strong>Create Custom Team</strong></button>
+      <button type="button" data-mode="tournament" aria-pressed="false"><strong>Create Tournament Team</strong></button>
+      <button type="button" data-mode="library" aria-pressed="false"><strong>Your Fork Teams</strong></button>
+    </nav>
+
+    <section id="saves-panel" class="saves-panel" aria-labelledby="saves-title">
+      <div class="saves-head">
+        <div class="section-title" id="saves-title"><span>M</span>y <span>T</span>eams <small id="current-save-label"></small></div>
+        <div class="saves-actions" id="saves-actions" hidden>
+          <button id="save-button" class="session-button" type="button">Save</button>
+          <button id="save-as-button" class="session-button secondary" type="button">Save as…</button>
+          <button id="saves-toggle" class="session-button secondary" type="button" aria-expanded="false" aria-controls="saves-list">Show list</button>
+        </div>
+      </div>
+      <p id="saves-signin" class="status-copy">Sign in (fork account or Discord) to save drafts and recall them later.</p>
+      <p id="saves-status" class="status-copy" role="status" aria-live="polite"></p>
+      <div id="saves-list" class="saves-list" hidden></div>
+    </section>
+
+    <section id="library-panel" class="builder-panel library-panel" hidden aria-labelledby="library-title">
+      <div class="builder-heading" id="library-title">Your Fork Teams</div>
+      <p id="library-status" class="status-copy" role="status" aria-live="polite"></p>
+      <div id="library-list" class="library-list"></div>
+    </section>
+
+    <section id="builder-panel" class="builder-panel">
+      <div class="builder-heading">
+        <span id="builder-heading-text">Create Team — Slot Builder</span>
+        <span id="custom-badge" class="custom-badge" hidden>Custom — validation off</span>
+        <span id="editing-badge" class="custom-badge editing" hidden></span>
+      </div>
 
       <div class="form-grid">
-        <label>
-          <span>Ruleset Preset</span>
-          <select id="package"><option value="">Standard 1,000k</option></select>
-        </label>
         <label>
           <span>Team Name</span>
           <input id="team-name" type="text" maxlength="60" placeholder="Name your team" autocomplete="off" />
         </label>
+        <label id="package-field" hidden>
+          <span>Ruleset</span>
+          <select id="package"><option value="">Loading rulesets…</option></select>
+        </label>
         <label>
           <span>Roster</span>
           <select id="race"><option value="">Loading rosters…</option></select>
+        </label>
+        <label id="league-field" hidden>
+          <span>League</span>
+          <select id="league"></select>
+          <small id="league-rule" class="league-rule-display"></small>
         </label>
         <label>
           <span>Coach</span>
@@ -97,10 +138,13 @@
         </label>
       </div>
 
-      <aside id="package-note" class="package-note" role="note" hidden>
-        <strong id="package-note-title"></strong>
-        <span id="package-note-copy"></span>
-      </aside>
+      <p id="league-notice" class="status-copy" role="status" hidden></p>
+      <p id="edit-hint" class="status-copy edit-ruleset-hint" hidden></p>
+
+      <section id="ruleset-panel" class="ruleset-note" hidden aria-live="polite"></section>
+      <section id="tier-table-wrap" class="tier-table-wrap" hidden>
+        <table id="tier-table" class="tier-table"></table>
+      </section>
 
       <div id="builder-status" class="status-copy" role="status" aria-live="polite"></div>
 
@@ -108,7 +152,7 @@
         <div class="builder-main">
           <section class="add-players-panel" aria-labelledby="add-players-title">
             <div class="section-title" id="add-players-title"><span>A</span>dd <span>P</span>layers</div>
-            <div id="name-gate-toast" class="name-gate-toast" role="status" hidden>Name your team before adding players.</div>
+            <div id="name-gate-toast" class="name-gate-toast" role="status" hidden>You must name your team.</div>
             <div id="positions" class="position-grid">
               <p class="status-copy">Choose a roster to see its positions.</p>
             </div>
@@ -127,16 +171,36 @@
               </div>
             </div>
           </section>
+
+          <section id="skill-picker" class="skill-picker-panel" hidden aria-labelledby="skill-picker-heading">
+            <div class="skill-picker-head">
+              <span id="skill-picker-heading" class="skill-picker-heading">Add Skill</span>
+              <button type="button" class="picker-close" id="skill-picker-close" aria-label="Close skill picker">×</button>
+            </div>
+            <div id="skill-picker-body" class="skill-picker-body"></div>
+          </section>
+
+          <section id="star-section" class="star-section" hidden aria-labelledby="star-title">
+            <div class="section-title" id="star-title"><span>S</span>tar <span>P</span>layers <small id="star-cap"></small></div>
+            <div id="star-list" class="star-card"></div>
+          </section>
+
+          <section id="star-sp-section" class="star-sp-section" hidden>
+            <button id="star-sp-toggle" class="star-sp-toggle" type="button" aria-expanded="false">▸ Star Player SP costs</button>
+            <div id="star-sp-body" hidden></div>
+          </section>
+
+          <section id="inducement-section" class="inducement-section" hidden aria-labelledby="inducement-title">
+            <div class="section-title" id="inducement-title"><span>I</span>nducements</div>
+            <div id="inducement-list" class="star-card"></div>
+            <p id="inducement-status" class="status-copy"></p>
+          </section>
         </div>
 
         <aside class="right-rail">
           <section class="value-card" id="value-card">
             <div class="section-title"><span>T</span>eam <span>V</span>alue<span id="refresh-dot" class="refresh-dot" hidden></span></div>
-            <div class="value-line"><span>Players</span><strong id="m-players">0</strong></div>
-            <div class="value-line"><span>Staff</span><strong id="m-staff">0k</strong></div>
-            <div class="value-line"><span>Skills</span><strong>0k</strong></div>
-            <div class="value-line total"><span>Total</span><strong id="m-gold">0k</strong></div>
-            <div class="budget-line"><span>Available team budget</span><strong id="m-budget">1,000k</strong></div>
+            <div id="value-lines"></div>
           </section>
 
           <section id="validity-card" class="live-card validity-card" hidden aria-live="polite">
@@ -146,6 +210,10 @@
 
           <form class="live-card submit-card" id="build-form">
             <button class="create-button" id="build-btn" type="submit" disabled>Create Team</button>
+            <div class="export-actions">
+              <button id="print-sheet" class="session-button secondary" type="button" disabled>Export roster sheet</button>
+              <button id="download-sheet" class="session-button secondary" type="button" disabled>Download HTML</button>
+            </div>
           </form>
 
           <section id="build-result" class="result-banner" hidden role="status" aria-live="polite"></section>
@@ -158,5 +226,8 @@
       </div>
     </section>
   </main>
+
+  <!-- Print-only roster sheet (window.print). Filled on export from the live builder state. -->
+  <section id="roster-sheet" class="roster-sheet-host" aria-label="Printable roster sheet"></section>
 </body>
 </html>

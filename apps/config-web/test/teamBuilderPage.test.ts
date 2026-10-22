@@ -1,0 +1,263 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+
+// The browser builder is dependency-free JS: its pure core attaches to globalThis.TeamBuilderCore and
+// the UI half only boots when a document with the builder's markup exists — so a bare vm context
+// exercises the core without a DOM.
+const publicDir = new URL("../public/", import.meta.url);
+const js = readFileSync(new URL("team-builder.js", publicDir), "utf8");
+const html = readFileSync(new URL("team-builder.html", publicDir), "utf8");
+const css = readFileSync(new URL("team-builder.css", publicDir), "utf8");
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function loadCore(): any {
+  const context: Record<string, unknown> = { console };
+  runInNewContext(js, context);
+  return context.TeamBuilderCore;
+}
+const core = loadCore();
+
+const blitzer = { positionId: "65748", name: "Dwarf Blitzer", cost: 100_000, MA: 5, ST: 3, AG: "4+", PA: "4+", AV: "10+", skills: ["Diving Tackle", "Block", "Tackle", "Thick Skull"], keywords: ["blitzer", "dwarf"] };
+const slayer = { positionId: "65749", name: "Troll Slayer", cost: 95_000, MA: 5, ST: 3, AG: "4+", PA: "5+", AV: "9+", skills: ["Block", "Dauntless", "Frenzy*", "Hatred (Troll)*", "Thick Skull"], keywords: ["dwarf", "special"] };
+const runner = { positionId: "65747", name: "Dwarf Runner", cost: 80_000, MA: 6, ST: 3, AG: "3+", PA: "4+", AV: "9+", skills: ["Sprint", "Sure Hands", "Thick Skull"], keywords: ["dwarf", "runner"] };
+const lineman = { positionId: "65746", name: "Dwarf Blocker Lineman", cost: 70_000, MA: 4, ST: 3, AG: "4+", PA: "5+", AV: "10+", skills: ["Block", "Defensive", "Thick Skull"], keywords: ["dwarf", "lineman"] };
+const deathroller = { positionId: "65750", name: "Deathroller", cost: 170_000, MA: 5, ST: 7, AG: "5+", PA: "-", AV: "11+", skills: ["Dirty Player"] };
+
+describe("team builder page — wire picks", () => {
+  it("merges consecutive identical players and keeps per-player skills / stat increases as their own picks, in roster order", () => {
+    const slots = [
+      { positionId: "B", chosenSkills: ["Guard"], chosenStatIncreases: [] },
+      { positionId: "B", chosenSkills: ["Mighty Blow"], chosenStatIncreases: [] },
+      { positionId: "L", chosenSkills: [], chosenStatIncreases: ["AV"] },
+      { positionId: "L", chosenSkills: ["Guard"], chosenStatIncreases: [] },
+      { positionId: "L", chosenSkills: ["Guard"], chosenStatIncreases: [] },
+      { positionId: "L", chosenSkills: [], chosenStatIncreases: [] },
+      { positionId: "L", chosenSkills: [], chosenStatIncreases: [] },
+    ];
+    expect(core.buildPicks(slots, { skills: true, stats: true })).toEqual([
+      { positionId: "B", count: 1, chosenSkills: ["Guard"] },
+      { positionId: "B", count: 1, chosenSkills: ["Mighty Blow"] },
+      { positionId: "L", count: 1, chosenStatIncreases: ["AV"] },
+      { positionId: "L", count: 2, chosenSkills: ["Guard"] },
+      { positionId: "L", count: 2 },
+    ]);
+  });
+
+  it("drops skills in Create mode and stat increases when the ruleset doesn't offer them", () => {
+    const slots = [
+      { positionId: "B", chosenSkills: ["Guard"], chosenStatIncreases: ["AV"] },
+      { positionId: "B", chosenSkills: [], chosenStatIncreases: [] },
+    ];
+    expect(core.buildPicks(slots, { skills: false })).toEqual([{ positionId: "B", count: 2 }]);
+    expect(core.buildPicks(slots, { skills: true, stats: false })).toEqual([
+      { positionId: "B", count: 1, chosenSkills: ["Guard"] },
+      { positionId: "B", count: 1 },
+    ]);
+  });
+
+  it("restores slots from saved picks (inverse of buildPicks)", () => {
+    const positions = new Map([["B", { positionId: "B" }], ["L", { positionId: "L" }]]);
+    const picks = [{ positionId: "B", count: 1, chosenSkills: ["Guard"] }, { positionId: "L", count: 2, chosenStatIncreases: ["AV"] }, { positionId: "gone", count: 1 }];
+    const slots = core.slotsFromPicks(picks, (id: string) => positions.get(id));
+    expect(slots).toHaveLength(3);
+    expect(core.buildPicks(slots, { skills: true, stats: true })).toEqual(picks.slice(0, 2));
+  });
+});
+
+describe("team builder page — ruleset knobs", () => {
+  const rules = {
+    tier: 5, maxSecondary: 2, eliteMaxTotal: 4, eliteMaxSameSkill: 2, maxStackedPlayers: 1,
+    stackedPlayer: { maxSkills: 2, maxSecondary: 1, maxElite: 1 },
+    statIncreases: { allowed: true, costGold: 20_000 },
+    starPacks: [{ id: "legends", label: "Legends", fee: 50_000, feeMode: "once", max: 1, stars: ["Grim Ironjaw"] }],
+    maxStars: 1,
+  };
+
+  it("normalizes the preview echo and degrades to null when absent", () => {
+    expect(core.normalizeTierRules({ name: "Small Gods", rules })?.statIncreases?.costGold).toBe(20_000);
+    expect(core.normalizeTierRules({ name: "Old server", budget: 1_000_000 })).toBeNull();
+    expect(core.normalizeTierRules({ ...rules, statIncreases: { allowed: false, costGold: 1 } })?.statIncreases).toBeNull();
+    expect(core.normalizeTierRules(null)).toBeNull();
+  });
+
+  it("lists the tier limits for the ruleset panel", () => {
+    const lines = core.tierLimitLines(core.normalizeTierRules(rules));
+    expect(lines).toContain("Secondary skills: max 2");
+    expect(lines).toContain("Elite skills: max 4 total, max 2 of the same skill");
+    expect(lines.join("\n")).toMatch(/Stacked players: max 1 \(≤2 skills · ≤1 secondary · ≤1 elite\)/);
+    expect(lines.join("\n")).toMatch(/Characteristics: \+1 stat \(20k\)/);
+    expect(lines.join("\n")).toMatch(/Star packs: Legends \+50k once \(max 1\)/);
+  });
+
+  it("groups /tiers rows into a tournament rules-sheet table", () => {
+    const table = core.tierTable([
+      { name: "Dwarf", tier: 5, gold: 1_455_000, ...rules },
+      { name: "Amazon", tier: 2, gold: 1_200_000 },
+      { name: "Halfling", tier: 5, gold: 1_455_000, ...rules },
+    ]);
+    expect(table.map((row: { tier: number }) => row.tier)).toEqual([2, 5]);
+    expect(table[1].rosters.map((r: { name: string }) => r.name)).toEqual(["Dwarf", "Halfling"]);
+    const markup = core.tierTableHtml(table);
+    expect(markup).toContain("Star packs");
+    expect(markup).toContain("Dwarf <small>(1,455k)</small>");
+    expect(markup).toContain("≤2 skills · ≤1 secondary · ≤1 elite");
+    // A server that predates the knobs still gets a tier/roster table.
+    expect(core.tierTableHtml(core.tierTable([{ name: "Dwarf", tier: 5 }], [{ tier: 5, gold: 1_100_000 }]))).not.toContain("Star packs");
+  });
+
+  it("finds a star's pack by normalized name and prices stat increases", () => {
+    expect(core.starPacksFor("grim ironjaw", rules.starPacks)).toHaveLength(1);
+    expect(core.starPacksFor("Morg 'n' Thorg", rules.starPacks)).toHaveLength(0);
+    expect(core.statIncreaseCost(rules.statIncreases, "AV")).toBe(20_000);
+    expect(core.statIncreaseCost({ costGold: { AV: 10_000, MA: 30_000 } }, "MA")).toBe(30_000);
+  });
+
+  it("applies stat increases to the printed profile", () => {
+    const stats = core.improvedStats(lineman, ["AV", "AG"]);
+    expect(stats.AV).toEqual({ value: "11+", improved: true });
+    expect(stats.AG).toEqual({ value: "3+", improved: true });
+    expect(stats.MA).toEqual({ value: 4, improved: false });
+    expect(core.improvedStats(lineman, ["MA"]).MA.value).toBe(5);
+  });
+});
+
+describe("team builder page — star pairs", () => {
+  it("collapses linked and known star pairs into one choice", () => {
+    const choices = core.buildStarChoices([
+      { positionId: "1", name: "Grak", cost: 250_000, isStar: true, teamWithPositionId: "2" },
+      { positionId: "2", name: "Crumbleberry", cost: 0, isStar: true, teamWithPositionId: "1" },
+      { positionId: "3", name: "Grim Ironjaw", cost: 190_000, isStar: true },
+      { positionId: "4", name: "Dribl", cost: 80_000, isStar: true },
+      { positionId: "5", name: "Drull", cost: 80_000, isStar: true },
+      { positionId: "6", name: "Valen Swift", cost: 100_000, isStar: true },
+      lineman,
+    ]);
+    const labels = choices.map((c: { label: string }) => c.label);
+    expect(labels).toContain("Grak & Crumbleberry");
+    expect(labels).toContain("Dribl & Drull");
+    expect(labels).toContain("Grim Ironjaw");
+    // An incomplete known pair is never offered as a singleton.
+    expect(labels).not.toContain("Valen Swift");
+  });
+});
+
+describe("team builder page — roster sheet", () => {
+  // The owner's reference sheet (Small Gods, Dwarf T5).
+  const access = (secondary: string[] = []) => (skill: string) => (secondary.includes(skill) ? "secondary" : "primary");
+  const players = [
+    { position: blitzer, chosenSkills: ["Guard"], accessOf: access() },
+    { position: blitzer, chosenSkills: ["Mighty Blow"], accessOf: access() },
+    { position: slayer, chosenSkills: ["Guard"], accessOf: access() },
+    { position: lineman, chosenSkills: ["Dirty Player"], accessOf: access() },
+    { position: runner, chosenSkills: ["Block"], accessOf: access() },
+    { position: lineman, chosenSkills: ["Guard"], accessOf: access(["Guard"]) },
+    { position: lineman, chosenSkills: ["Guard"], accessOf: access(["Guard"]) },
+    ...Array.from({ length: 5 }, () => ({ position: lineman, chosenSkills: [] })),
+  ];
+  const input = {
+    raceName: "Dwarf",
+    coach: "flutethecat",
+    teamName: "Amorical Dwarves w/ Bribe",
+    players,
+    staff: { reRolls: 2, apothecary: 1, assistantCoaches: 0, cheerleaders: 0, dedicatedFans: 1 },
+    apothecaryAllowed: true,
+    inducements: [{ label: "Bribes", count: 1 }, { label: "Team Mascot", count: 1 }, { label: "Weather Mage", count: 0 }],
+    specialRules: ["Brawlin' Brutes", "Bribery and Corruption", "Worlds Edge Superleague", "Worlds Edge Superleague"],
+    summary: { goldUsed: 1_420_000, goldBudget: 1_455_000, skillsCost: 240_000, inducementsCost: 75_000, primarySkillCount: 5, secondarySkillCount: 2, statIncreasesCost: 0, starFeesCost: 0 },
+    costs: { players: 935_000, stars: 0, sideline: 170_000, skills: 0, inducements: 0 },
+    budget: 1_455_000,
+  };
+  const model = core.rosterSheetModel(input);
+  const markup: string = core.rosterSheetHtml(model);
+
+  it("builds the reference sheet's boxes", () => {
+    expect(model.rows).toHaveLength(12);
+    expect(model.rows.map((r: { number: number }) => r.number)).toEqual(Array.from({ length: 12 }, (_, i) => i + 1));
+    expect(model.sideline).toEqual([
+      ["Apothecary", "Yes"], ["Assistant coaches", "0"], ["Cheerleaders", "0"], ["Dedicated fans", "1"], ["Rerolls", "2"],
+    ]);
+    expect(model.inducements.map((i: { label: string }) => i.label)).toEqual(["Bribes", "Team Mascot"]);
+    expect(model.specialRules).toEqual(["Brawlin' Brutes", "Bribery and Corruption", "Worlds Edge Superleague"]);
+    expect(model.summary).toEqual([
+      ["Players cost", "935k"], ["Skills cost", "240k"], ["Inducement cost", "75k"], ["Sideline cost", "170k"],
+      ["Primary skills", "5"], ["Secondary skills", "2"], ["Total", "1,420k / 1,455k"],
+    ]);
+  });
+
+  it("renders printed skills plain then added skills coloured by access, asterisks kept", () => {
+    expect(markup).toContain("COACH NAME");
+    expect(markup).toContain("TEAM NAME");
+    expect(markup).toContain("Amorical Dwarves w/ Bribe");
+    expect(markup).toContain('<span class="sk-printed">Frenzy*</span>, <span class="sk-printed">Hatred (Troll)*</span>');
+    expect(markup).toContain('<span class="sk-printed">Thick Skull</span>, <span class="sk-primary">Guard</span>');
+    expect(markup).toContain('<span class="sk-secondary">Guard</span>');
+    expect(markup.match(/sk-primary/g)).toHaveLength(5);
+    expect(markup.match(/sk-secondary/g)).toHaveLength(2);
+    expect(markup).toContain('<td class="cost">100k</td>');
+    expect(markup).toMatch(/<td class="stat">4\+<\/td><td class="stat">4\+<\/td><td class="stat">10\+<\/td>/);
+    expect(core.SHEET_CSS).toMatch(/\.sk-primary\{color:#1a73c8;font-style:italic;\}/);
+    expect(core.SHEET_CSS).toMatch(/\.sk-secondary\{color:#5a9e2f;font-style:italic;\}/);
+  });
+
+  it("writes the keyword line from roster keywords, once per position", () => {
+    expect(markup).toContain("Keywords: <b>Dwarf Blitzer:</b> Blitzer, Dwarf | <b>Troll Slayer:</b> Dwarf, Special | <b>Dwarf Blocker Lineman:</b> Dwarf, Lineman | <b>Dwarf Runner:</b> Dwarf, Runner");
+    const noKeywords = core.rosterSheetHtml(core.rosterSheetModel({ ...input, players: [{ position: deathroller, chosenSkills: [] }] }));
+    expect(noKeywords).not.toContain("Keywords:");
+    expect(noKeywords).toMatch(/<td class="stat">-<\/td>/);
+  });
+
+  it("shows stat increases in the stat cell and the skill list, plus the optional cost rows", () => {
+    const withStats = core.rosterSheetModel({
+      ...input,
+      players: [{ position: lineman, chosenSkills: [], chosenStatIncreases: ["AV"] }, { position: { ...slayer, name: "Grim Ironjaw", isStar: true }, chosenSkills: [] }],
+      summary: { ...input.summary, statIncreasesCost: 20_000, starFeesCost: 50_000, starsCost: 190_000 },
+    });
+    const sheet = core.rosterSheetHtml(withStats);
+    expect(sheet).toContain('<td class="stat improved">11+</td>');
+    expect(sheet).toContain('<span class="sk-stat">+AV</span>');
+    expect(withStats.summary).toContainEqual(["Stat increases", "20k"]);
+    expect(withStats.summary).toContainEqual(["Star fees", "50k"]);
+    expect(withStats.summary).toContainEqual(["Star players cost", "190k"]);
+    expect(withStats.rows[1].isStar).toBe(true);
+    expect(withStats.rows[1].number).toBe(2);
+  });
+
+  it("produces a standalone landscape A4 document and a safe file name", () => {
+    const doc: string = core.standaloneSheetDocument(model);
+    expect(doc.startsWith("<!DOCTYPE html>")).toBe(true);
+    expect(doc).toContain("@page{size:A4 landscape");
+    expect(doc).toContain('"Noto Serif"');
+    expect(core.sheetFileName(model)).toBe("Amorical_Dwarves_w_Bribe_roster.html");
+    expect(core.esc("<script>")).toBe("&lt;script&gt;");
+  });
+});
+
+describe("team builder page — source contract", () => {
+  it("never writes re-roll (copy rule)", () => {
+    for (const source of [js, html, css]) expect(source).not.toMatch(/re-roll/i);
+    expect(js).toContain('label: "Rerolls"');
+  });
+
+  it("offers export, saves, Discord sign-in and all four modes", () => {
+    for (const id of ["print-sheet", "download-sheet", "saves-panel", "save-button", "save-as-button", "discord-login", "tier-table", "skill-picker", "star-section", "inducement-section", "league"]) {
+      expect(html).toContain(`id="${id}"`);
+    }
+    for (const mode of ["create", "custom", "tournament", "library"]) expect(html).toContain(`data-mode="${mode}"`);
+    expect(html).toContain("Sign in with Discord");
+  });
+
+  it("prints only the roster sheet, landscape", () => {
+    expect(css).toMatch(/@media print \{[\s\S]*size: A4 landscape[\s\S]*body > \*:not\(\.roster-sheet-host\) \{ display: none !important; \}/);
+    expect(css).toMatch(/\.roster-sheet-host \{ display: none; \}/);
+  });
+
+  it("codes against the saves + build contract", () => {
+    expect(js).toContain('"/api/fork/team-builder/saves"');
+    expect(js).toMatch(/saves\/\$\{encodeURIComponent\(currentSave\.id\)\}`, \{ name, body \}, "PUT"/);
+    expect(js).toContain('{ method: "DELETE" }');
+    expect(js).toContain("saveId: currentSave.id");
+    expect(js).toContain("chosenStatIncreases");
+    expect(js).toContain("rosteredInducements");
+  });
+});

@@ -382,9 +382,9 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .roster-scroll { overflow-x: auto; }
 .roster-grid {
   display: grid;
-  grid-template-columns: 40px minmax(155px, 1.3fr) minmax(180px, 230px) minmax(150px, 1fr) 74px 50px;
+  grid-template-columns: 34px minmax(140px, 1.1fr) minmax(180px, 230px) minmax(170px, 1.4fr) 64px 92px;
   gap: 8px;
-  min-width: 720px;
+  min-width: 760px;
 }
 .roster-header {
   padding: 9px 12px;
@@ -419,7 +419,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
   cursor: pointer;
 }
 .remove-player:hover { color: var(--ui-danger); border-color: var(--ui-danger); }
-.roster-empty { min-width: 720px; padding: 24px 12px; color: var(--ui-muted); text-align: center; background: var(--ui-surface); border-bottom: 1px solid var(--ui-border); }
+.roster-empty { min-width: 760px; padding: 24px 12px; color: var(--ui-muted); text-align: center; background: var(--ui-surface); border-bottom: 1px solid var(--ui-border); }
 
 .right-rail { position: sticky; top: 90px; display: flex; flex-direction: column; gap: 12px; }
 .value-card {
@@ -520,6 +520,186 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .stepper-cost { grid-column: 1 / -1; color: var(--ui-muted); font-size: 11px; text-align: right; }
 .stepper-row.unavailable { opacity: .42; }
 
+/* ── Skill key (header legend) ── */
+.skill-key { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; padding-top: 9px; font-size: 12px; letter-spacing: .06em; }
+.skill-key > span { padding: 3px 8px; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 4px; }
+.skill-key .key-label { color: var(--ui-muted); background: none; border: 0; }
+.skill-key .key-label b { color: var(--ui-heading); font-weight: 500; }
+
+/* ── Mode cards ── */
+.mode-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0 0 14px; }
+.mode-grid button {
+  min-height: 54px;
+  padding: 10px 12px;
+  color: var(--ui-muted);
+  background: var(--ui-surface-2);
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  font-size: clamp(13px, 1vw, 17px);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.mode-grid button strong { font-weight: 500; }
+.mode-grid button:hover { color: var(--ui-text); background: var(--ui-hover); }
+.mode-grid button.active { color: var(--ui-text); background: var(--ui-primary); border-color: var(--ui-heading); box-shadow: inset 0 3px 0 var(--ui-heading); }
+
+.builder-heading { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.custom-badge { padding: 3px 9px; color: var(--ui-gold); border: 1px solid var(--ui-gold); border-radius: 4px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.custom-badge.editing { color: var(--ui-info); border-color: var(--ui-info); }
+.league-rule-display { color: var(--ui-gold); font-size: 11px; }
+
+/* ── Saves + library ── */
+.saves-panel {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: var(--ui-surface-2);
+  border: 1px solid var(--ui-border);
+  border-left: 4px solid var(--ui-gold);
+  border-radius: 5px;
+}
+.saves-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.saves-head .section-title { margin: 0; }
+.saves-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.saves-panel .status-copy a { color: var(--ui-eggshell); }
+.saves-list, .library-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.save-row, .library-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: 4px;
+}
+.library-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+.save-row.current { border-color: var(--ui-gold); }
+.save-copy { display: flex; min-width: 0; flex-direction: column; }
+.save-copy strong { overflow: hidden; color: var(--ui-text); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.save-copy small { color: var(--ui-muted); font-size: 11px; }
+.save-badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.save-badge.built { color: var(--ui-success); border: 1px solid var(--ui-success); }
+.save-badge.draft { color: var(--ui-muted); border: 1px solid var(--ui-border); }
+.save-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+.save-buttons .session-button { min-height: 32px; padding: 6px 10px; }
+.session-button.danger:hover { color: var(--ui-danger); border-color: var(--ui-danger); }
+.discord-button { color: #fff; background: #5865f2; border-color: #7983f5; }
+
+/* ── Ruleset panel + tier table ── */
+.ruleset-note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  color: var(--ui-text);
+  background: color-mix(in srgb, var(--ui-gold) 7%, var(--ui-surface));
+  border: 1px solid color-mix(in srgb, var(--ui-gold) 55%, var(--ui-border));
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.ruleset-line strong { color: var(--ui-gold); font-weight: 500; }
+.ruleset-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.ruleset-limit::before { content: "▪ "; color: var(--ui-gold); }
+.ruleset-rosters,
+.ruleset-caveat { color: var(--ui-muted); }
+.ruleset-caveat { font-size: 12px; }
+.tier-table-toggle { margin-left: auto; padding: 4px 10px; color: var(--ui-eggshell); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 4px; font-size: 12px; cursor: pointer; }
+.pack-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.pack-choice-btn { display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; color: var(--ui-text); text-align: left; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 5px; cursor: pointer; }
+.pack-choice-btn small { color: var(--ui-muted); font-size: 11px; }
+.pack-grid.has-selection .pack-choice-btn:not(.selected) { opacity: .45; }
+.pack-choice-btn.selected { background: var(--ui-primary); border-color: var(--ui-heading); }
+.tier-table-wrap { overflow-x: auto; }
+.tier-table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 12px; }
+.tier-table th,
+.tier-table td { padding: 6px 8px; text-align: left; vertical-align: top; border: 1px solid var(--ui-border); }
+.tier-table thead th { color: var(--ui-skill-strength); background: color-mix(in srgb, var(--ui-primary) 34%, var(--ui-surface)); letter-spacing: .06em; }
+.tier-table tbody th { color: var(--ui-gold); font-weight: 500; text-align: center; }
+.tier-table small { color: var(--ui-muted); }
+
+/* ── Roster rows: chips, stat picks, actions ── */
+.row-stats > span.improved { border-color: var(--ui-info); }
+.row-stats > span.improved b { color: var(--ui-info); }
+.chosen-chip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 4px 1px 6px; font-style: italic; border-style: dashed; }
+.chosen-chip.access-secondary { border-color: var(--ui-success); }
+.chosen-chip button { padding: 0 3px; color: var(--ui-muted); background: none; border: 0; cursor: pointer; }
+.chosen-chip button:hover { color: var(--ui-danger); }
+.stat-chip { color: var(--ui-info); background: var(--ui-surface-2); border: 1px dashed var(--ui-info); border-radius: 5px; font-weight: 600; }
+.stat-pick { display: inline-flex; align-items: center; gap: 4px; color: var(--ui-muted); font-size: 11px; }
+.stat-pick select { width: auto; min-width: 74px; padding: 2px 4px; font-size: 12px; }
+.row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.skill-add-btn { display: flex; flex-direction: column; align-items: center; padding: 3px 7px; color: var(--ui-text); background: var(--ui-primary); border: 1px solid var(--ui-heading); border-radius: 4px; font-size: 10px; line-height: 1.1; text-transform: uppercase; cursor: pointer; }
+.skill-add-btn.open { background: var(--ui-heading); }
+.skill-add-btn:disabled { opacity: .4; cursor: not-allowed; }
+.fire-cell { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.fire-label { color: var(--ui-danger); font-size: 8px; letter-spacing: .12em; }
+.roster-row.picking { box-shadow: inset 3px 0 0 var(--ui-heading); }
+
+/* ── Skill picker ── */
+.skill-picker-panel { background: var(--ui-surface); border: 1px solid var(--ui-heading); border-radius: 6px; }
+.skill-picker-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--ui-border); }
+.skill-picker-heading { color: var(--ui-heading); font-size: 13px; letter-spacing: .1em; text-transform: uppercase; }
+.picker-close { padding: 2px 9px; color: var(--ui-muted); background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 10px; cursor: pointer; }
+.skill-picker-body { display: flex; flex-direction: column; gap: 10px; max-height: 420px; padding: 10px 12px; overflow-y: auto; }
+.skill-picker-status { color: var(--ui-muted); font-size: 12px; }
+.skill-blade-bar { display: flex; flex-direction: column; gap: 4px; }
+.skill-blade-tab { color: var(--ui-muted); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+.skill-blade-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.skill-blade { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 12px 12px 3px 3px; font-size: 12px; cursor: pointer; }
+.skill-blade small { color: var(--ui-muted); font-size: 10px; }
+.skill-blade[data-active="true"] { background: color-mix(in srgb, currentColor 18%, var(--ui-surface)); border-color: currentColor; }
+.skill-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.skill-chip-cell { position: relative; display: flex; }
+.skill-chip { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px; font-size: 12px; text-align: left; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 4px; cursor: pointer; }
+.skill-chip:hover:not(:disabled) { border-color: currentColor; }
+.skill-chip:disabled { cursor: default; }
+.skill-chip.innate,
+.skill-chip.added { opacity: .5; }
+.skill-chip-main { display: inline-flex; align-items: center; gap: 4px; }
+.skill-chip-meta small { color: var(--ui-muted); font-size: 10px; }
+.elite-mark { color: var(--ui-gold); font-size: 10px; }
+.skill-owned-check { color: var(--ui-success); }
+.skill-chip-remove { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; padding: 0; color: var(--ui-text); background: var(--ui-danger); border: 0; border-radius: 50%; font-size: 12px; line-height: 18px; cursor: pointer; }
+
+/* ── Stars + inducements ── */
+.star-card { display: flex; flex-direction: column; gap: 6px; }
+.star-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 10px; background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 4px; }
+.star-sprites { display: flex; }
+.star-sprites .sprite-frame { width: 36px; height: 36px; font-size: 11px; }
+.star-sprites.paired .sprite-frame + .sprite-frame { margin-left: -10px; }
+.star-copy { display: flex; min-width: 0; flex-direction: column; }
+.star-copy strong { color: var(--ui-text); font-weight: 500; }
+.star-copy small { color: var(--ui-muted); font-size: 11px; }
+.star-copy .star-pack { color: var(--ui-gold); }
+.star-actions { display: flex; gap: 6px; }
+.star-actions button { width: 32px; height: 30px; color: var(--ui-text); background: var(--ui-surface-2); border: 2px outset color-mix(in srgb, var(--ui-text) 28%, var(--ui-surface-2)); border-radius: 3px; cursor: pointer; }
+.star-actions .star-add { background: var(--ui-primary); }
+.star-actions button:disabled { opacity: .35; cursor: default; }
+.star-sp-toggle { padding: 4px 0; color: var(--ui-eggshell); background: none; border: 0; cursor: pointer; }
+.star-sp-table { border-collapse: collapse; font-size: 12px; }
+.star-sp-table th,
+.star-sp-table td { padding: 3px 10px; text-align: left; border-bottom: 1px solid var(--ui-border); }
+.inducement-section .stepper-row { min-height: 44px; }
+
+.export-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.export-actions .session-button { min-height: 34px; padding: 6px 8px; white-space: normal; }
+.export-actions .session-button:disabled { cursor: not-allowed; }
+.validity-card.custom .validity-headline { color: var(--ui-gold); }
+.validity-card.refreshing { opacity: .8; }
+.result-banner span { display: block; }
+
+/* ── Roster sheet: hidden on screen, the only thing printed (sheet styles: SHEET_CSS in team-builder.js) ── */
+.roster-sheet-host { display: none; }
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  html,
+  body { background: #fff !important; }
+  body > *:not(.roster-sheet-host) { display: none !important; }
+  .roster-sheet-host { display: block !important; }
+}
+
 @media (max-width: 1100px) {
   .console-shell { padding-right: 145px; }
   .environment-stamp { display: none; }
@@ -549,6 +729,12 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
   .value-card,
   .staff-section { grid-column: auto; }
   .builder-panel { padding: 14px; }
+  .mode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .skill-key { margin-left: 0; }
+  .save-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .save-buttons { grid-column: 1 / -1; }
+  .library-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .library-row .sprite-frame { display: none; }
   .position-grid { grid-template-columns: 1fr; }
   .session-form { grid-template-columns: 1fr; }
   .session-form .session-button { width: 100%; }
