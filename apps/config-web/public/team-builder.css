@@ -319,8 +319,9 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .sprite-frame {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
+  /* Owner: sprite portraits 1.5x (48 -> 72 px; rows/stars 36 -> 54 px); pixelated + contain keeps pixels uniform. */
+  width: 72px;
+  height: 72px;
   flex: 0 0 auto;
   overflow: hidden;
   color: var(--ui-muted);
@@ -389,9 +390,9 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .roster-scroll { overflow-x: auto; }
 .roster-grid {
   display: grid;
-  grid-template-columns: 34px minmax(140px, 1.1fr) minmax(180px, 230px) minmax(170px, 1.4fr) 64px 92px;
+  grid-template-columns: 34px minmax(160px, 1.2fr) minmax(180px, 230px) minmax(170px, 1.4fr) 64px 92px;
   gap: 8px;
-  min-width: 760px;
+  min-width: 780px;
 }
 .roster-header {
   padding: 9px 12px;
@@ -412,7 +413,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .roster-row:nth-child(even) { background: var(--ui-surface-2); }
 .slot-number { color: var(--ui-muted); font-size: 14px; }
 .player-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.roster-sprite { width: 36px; height: 36px; font-size: 11px; }
+.roster-sprite { width: 54px; height: 54px; font-size: 12px; }
 .player-copy { display: flex; min-width: 0; flex-direction: column; }
 .player-copy strong { overflow: hidden; color: var(--ui-text); font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .player-copy small { color: var(--ui-muted); font-size: 10px; }
@@ -426,7 +427,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
   cursor: pointer;
 }
 .remove-player:hover { color: var(--ui-danger); border-color: var(--ui-danger); }
-.roster-empty { min-width: 760px; padding: 24px 12px; color: var(--ui-muted); text-align: center; background: var(--ui-surface); border-bottom: 1px solid var(--ui-border); }
+.roster-empty { min-width: 780px; padding: 24px 12px; color: var(--ui-muted); text-align: center; background: var(--ui-surface); border-bottom: 1px solid var(--ui-border); }
 
 .right-rail { position: sticky; top: 90px; display: flex; flex-direction: column; gap: 12px; }
 .value-card {
@@ -684,8 +685,8 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .star-card { display: flex; flex-direction: column; gap: 6px; }
 .star-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 10px; background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 4px; }
 .star-sprites { display: flex; }
-.star-sprites .sprite-frame { width: 36px; height: 36px; font-size: 11px; }
-.star-sprites.paired .sprite-frame + .sprite-frame { margin-left: -10px; }
+.star-sprites .sprite-frame { width: 54px; height: 54px; font-size: 12px; }
+.star-sprites.paired .sprite-frame + .sprite-frame { margin-left: -14px; }
 .star-copy { display: flex; min-width: 0; flex-direction: column; }
 .star-copy strong { color: var(--ui-text); font-weight: 500; }
 .star-copy small { color: var(--ui-muted); font-size: 11px; }
@@ -786,14 +787,19 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 }
 .sprite-frame:has(.sprite-image) .sprite-fallback,
 .sprite-frame:has(.crest-image) .sprite-fallback { visibility: hidden; }
+.sprite-frame.crest-frame { width: 48px; height: 48px; }
 .crest-frame .crest-image { position: absolute; inset: 3px; width: calc(100% - 6px); height: calc(100% - 6px); object-fit: contain; }
 .crest-image { display: block; object-fit: contain; }
 .position-meta { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-end; align-self: stretch; justify-content: space-between; gap: 2px; text-align: right; }
 .position-role { color: var(--ui-muted); font-size: 11px; letter-spacing: .06em; font-variant: small-caps; white-space: nowrap; }
 .save-crest { display: grid; place-items: center; width: 34px; height: 34px; }
 .save-crest .crest-image { width: 34px; height: 34px; }
-.tt-race { position: relative; padding-left: 58px; }
-.tt-race-crest { position: absolute; top: 50%; left: 10px; width: 40px; height: 40px; transform: translateY(-50%); }
+/* Step 2 race cards: crest left, name + cap centred beside it; grid rows stretch so a wrapping name
+   never misaligns its neighbours. */
+.tt-card-grid { align-items: stretch; }
+.tt-race { flex-direction: row; align-items: center; gap: 12px; height: 100%; }
+.tt-race-crest { flex: 0 0 40px; width: 40px; height: 40px; }
+.tt-race-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; justify-content: center; gap: 3px; }
 .tt-summary-crest { display: inline-block; width: 26px; height: 26px; margin-right: 8px; vertical-align: middle; }
 .race-crest { display: inline-flex; }
 .stepper-row.inducement-row { grid-template-columns: 36px minmax(0, 1fr) 32px 20px 32px; }

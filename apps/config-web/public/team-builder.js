@@ -2433,7 +2433,7 @@ ${rosterSheetHtml(model)}
       $("tt-races").innerHTML = groups.length ? groups.map((group) => `<section class="tt-race-group" aria-label="${esc(group.tier === "—" ? "Eligible rosters" : `Tier ${group.tier}`)}">
           <div class="section-title">${group.tier === "—" ? "<span>E</span>ligible <span>R</span>osters" : `<span>T</span>ier ${esc(group.tier)}`}</div>
           <div class="tt-card-grid">${group.races.map(({ roster, gold: cap }) => `<button type="button" class="tt-card tt-race${current?.rosterId === roster.rosterId ? " selected" : ""}" data-tt-race="${esc(roster.rosterId)}">
-            ${crestHtml(roster.raceName, "tt-race-crest")}<strong>${esc(roster.raceName)}</strong><small>${cap != null ? `TV cap ${gold(cap)}` : "Package budget"}</small>
+            ${crestHtml(roster.raceName, "tt-race-crest")}<span class="tt-race-copy"><strong>${esc(roster.raceName)}</strong><small>${cap != null ? `TV cap ${gold(cap)}` : "Package budget"}</small></span>
           </button>`).join("")}</div>
         </section>`).join("") : '<p class="status-copy">No installed roster is eligible for this ruleset.</p>';
     }
