@@ -62,18 +62,9 @@
         <strong id="session-title">Sign in to create your team</strong>
         <small>Your coach identity is attached to the team and reused for the final server-side authorization check.</small>
       </div>
-      <form id="login-form" class="session-form">
-        <label>
-          <span>Coach name</span>
-          <input id="login-user" autocomplete="username" placeholder="Fork coach name" />
-        </label>
-        <label>
-          <span>Password</span>
-          <input id="login-password" type="password" autocomplete="current-password" placeholder="Fork password" />
-        </label>
-        <button id="login-button" class="session-button" type="submit">Log In</button>
-        <a id="discord-login" class="session-button secondary discord-button" href="/api/auth/discord/start?next=/team-builder.html" hidden>Sign in with Discord</a>
-      </form>
+      <div id="login-form" class="session-form">
+        <a id="discord-login" class="session-button discord-button" href="/api/auth/discord/start?next=/tournament-team-builder.html">Sign in with Discord</a>
+      </div>
       <div id="signed-in-session" class="signed-in-session" hidden>
         <span class="session-dot" aria-hidden="true"></span>
         <span>Signed in as <strong id="signed-in-coach"></strong></span>
@@ -97,7 +88,7 @@
           <button id="saves-toggle" class="session-button secondary" type="button" aria-expanded="false" aria-controls="saves-list">Show list</button>
         </div>
       </div>
-      <p id="saves-signin" class="status-copy">Sign in (fork account or Discord) to save drafts and recall them later.</p>
+      <p id="saves-signin" class="status-copy">Sign in with Discord to save drafts and recall them later.</p>
       <p id="saves-status" class="status-copy" role="status" aria-live="polite"></p>
       <div id="saves-list" class="saves-list" hidden></div>
     </section>

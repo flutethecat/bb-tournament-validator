@@ -909,11 +909,13 @@ ${rosterSheetHtml(model)}
     $("signed-in-session").hidden = !signedIn;
     $("signed-in-coach").textContent = authCoach;
     $("session-title").textContent = signedIn ? "Fork account connected" : "Sign in to create your team";
-    $("login-button").disabled = authBusy;
-    $("login-button").textContent = authBusy ? "Signing In…" : "Log In";
     $("logout-button").disabled = authBusy;
-    $("discord-login").hidden = signedIn || !discordSsoEnabled;
-    $("login-message").textContent = loginFeedback;
+    $("discord-login").href = `/api/auth/discord/start?next=${encodeURIComponent(location.pathname)}`;
+    $("discord-login").classList.toggle("disabled", !discordSsoEnabled);
+    $("discord-login").setAttribute("aria-disabled", String(!discordSsoEnabled));
+    $("login-message").textContent = !signedIn && !discordSsoEnabled && !loginFeedback
+      ? "Discord sign-in is not available on this server right now."
+      : loginFeedback;
     $("login-message").className = `session-message${loginFeedbackError ? " error" : ""}`;
     renderSaves();
     syncBuildButton();
@@ -939,42 +941,6 @@ ${rosterSheetHtml(model)}
     }
     renderSession();
     if (authCoach) loadSaves();
-  }
-  async function login(event) {
-    event.preventDefault();
-    const username = $("login-user").value.trim();
-    const password = $("login-password").value;
-    if (!username || !password) {
-      loginFeedback = "Enter your fork coach name and password.";
-      loginFeedbackError = true;
-      renderSession();
-      return;
-    }
-    authBusy = true;
-    loginFeedback = "";
-    loginFeedbackError = false;
-    renderSession();
-    try {
-      const result = await postJson("/api/fork/login", { username, password });
-      authToken = result.token ?? null;
-      const session = await api("/api/auth/session");
-      discordSsoEnabled = session.discordSsoEnabled === true;
-      setSessionCoach(session.coach ?? result.coach ?? username);
-      authOrganizer = session.organizer === true;
-      $("login-user").value = "";
-      loginFeedback = "";
-    } catch (error) {
-      authToken = null;
-      setSessionCoach("");
-      loginFeedback = error.message;
-      loginFeedbackError = true;
-    } finally {
-      $("login-password").value = "";
-      authBusy = false;
-      renderSession();
-      if (authCoach) loadSaves();
-      schedulePreview();
-    }
   }
   async function logout() {
     authBusy = true;
@@ -1764,10 +1730,10 @@ ${rosterSheetHtml(model)}
   async function buildTeam(event) {
     event.preventDefault();
     if (!authCoach) {
-      loginFeedback = "Sign in with the fork account that will own this team.";
+      loginFeedback = "Sign in with Discord to create this team.";
       loginFeedbackError = true;
       renderSession();
-      $("login-user").focus();
+      $("discord-login").focus();
       return;
     }
     buildBusy = true;
@@ -2037,9 +2003,7 @@ ${rosterSheetHtml(model)}
   function renderSaves() {
     const signedIn = Boolean(authCoach);
     $("saves-signin").hidden = signedIn;
-    $("saves-signin").innerHTML = discordSsoEnabled
-      ? 'Sign in (fork account or <a href="/api/auth/discord/start?next=/team-builder.html">Discord</a>) to save drafts and recall them later.'
-      : "Sign in with your fork account to save drafts and recall them later.";
+    $("saves-signin").textContent = "Sign in with Discord to save drafts and recall them later.";
     $("saves-actions").hidden = !signedIn || !savesAvailable;
     $("saves-list").hidden = !signedIn || !savesOpen || !savesAvailable;
     $("saves-toggle").textContent = savesOpen ? "Hide list" : `Show list${saves.length ? ` (${saves.length})` : ""}`;
@@ -2192,7 +2156,7 @@ ${rosterSheetHtml(model)}
   }
   async function editLibraryTeam(teamId) {
     if (!authCoach) {
-      $("library-status").textContent = "Sign in with the fork account that owns this team to edit it.";
+      $("library-status").textContent = "Sign in with Discord as the coach who owns this team to edit it.";
       return;
     }
     $("library-status").textContent = "Loading team…";
@@ -2613,7 +2577,6 @@ ${rosterSheetHtml(model)}
   $("build-form").addEventListener("submit", buildTeam);
   $("print-sheet").addEventListener("click", printSheet);
   $("download-sheet").addEventListener("click", downloadSheet);
-  $("login-form").addEventListener("submit", login);
   $("logout-button").addEventListener("click", logout);
   $("save-button").addEventListener("click", () => saveTeam(false));
   $("save-as-button").addEventListener("click", () => saveTeam(true));
