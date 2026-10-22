@@ -315,7 +315,9 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 }
 .position-card.exhausted { opacity: .5; cursor: default; }
 .position-card.name-required { opacity: .72; }
-.position-head { display: flex; align-items: center; gap: 9px; }
+/* The name block never shrinks below its own text (longest word / the "x of y left" line); when the role
+   tag + cost can't fit beside it, that column wraps onto its own line under the name, right-aligned. */
+.position-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 9px; }
 .sprite-frame {
   display: grid;
   place-items: center;
@@ -330,9 +332,9 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
   border-radius: 4px;
   font-size: 14px;
 }
-.position-name { display: flex; flex: 1; min-width: 0; flex-direction: column; }
+.position-name { display: flex; flex: 1 1 0; min-width: min-content; flex-direction: column; }
 .position-name strong { color: var(--ui-text); font-size: clamp(14px, 1vw, 17px); font-weight: 500; line-height: 1.2; }
-.position-name small { color: var(--ui-muted); font-size: 11px; }
+.position-name small { color: var(--ui-muted); font-size: 11px; white-space: nowrap; }
 .cost { color: var(--ui-eggshell); font-size: clamp(14px, 1vw, 17px); white-space: nowrap; }
 
 .stat-strip,
@@ -790,8 +792,8 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .sprite-frame.crest-frame { width: 48px; height: 48px; }
 .crest-frame .crest-image { position: absolute; inset: 3px; width: calc(100% - 6px); height: calc(100% - 6px); object-fit: contain; }
 .crest-image { display: block; object-fit: contain; }
-.position-meta { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-end; align-self: stretch; justify-content: space-between; gap: 2px; text-align: right; }
-.position-role { max-width: 7.5em; color: var(--ui-muted); font-size: 14.3px; line-height: 1.05; letter-spacing: .06em; font-variant: small-caps; text-align: right; }
+.position-meta { display: flex; flex: none; flex-direction: column; align-items: flex-end; align-self: stretch; justify-content: space-between; gap: 2px; margin-left: auto; text-align: right; }
+.position-role { color: var(--ui-muted); font-size: 14.3px; line-height: 1.05; white-space: nowrap; letter-spacing: .06em; font-variant: small-caps; text-align: right; }
 .save-crest { display: grid; place-items: center; width: 34px; height: 34px; }
 .save-crest .crest-image { width: 34px; height: 34px; }
 /* Step 2 race cards: crest left, name + cap centred beside it; grid rows stretch so a wrapping name
