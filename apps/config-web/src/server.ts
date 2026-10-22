@@ -19,6 +19,7 @@ import {
   findPosition,
   findRoster,
   loadPackage,
+  parseForkRoster,
   renderArtPrompt,
   renderPackageHtml,
   rosterOptions,
@@ -215,6 +216,17 @@ import {
   validateDesktopClaimProof,
   validateDesktopClaimStart,
 } from "./auth/desktopClaim.js";
+import {
+  TEAM_BUILDER_SAVES_BODY_CAP,
+  createSave,
+  deleteSave,
+  readSaves,
+  recordBuild,
+  summarizeSave,
+  teamBuilderSavesPath,
+  updateSave,
+  type SaveDeps,
+} from "./teamBuilderSaves.js";
 import { TournamentStore } from "./tournaments/store.js";
 import { tournamentApi } from "./tournaments/api.js";
 
@@ -278,6 +290,9 @@ const PUBLIC_PATHS = new Set([
   "/api/fork/team-builder/tiers",
   "/api/fork/team-builder/preview",
   "/api/fork/team-builder/build",
+  // Saved builder sheets (owner 10-22): session-gated in-handler (401 without a session); the
+  // dynamic /saves/<id> paths bypass the legacy Basic gate in authorized() the same way.
+  "/api/fork/team-builder/saves",
   // #210 "your games in progress" (in-client lobby panel): reachable without the ADMIN password;
   // does its own admin-OR-coach-password auth in-handler (SR-197 TP-1 — list scoped to the
   // AUTHENTICATED coach, never an arbitrary ?coach= param).
@@ -325,6 +340,8 @@ const COACH_REGISTRY_JSON = resolve(
 );
 // Fork team libraries (one JSON file per coach). Defaults under config-web's data-store.
 const LIBRARY_DIR = resolve(process.env.FORK_LIBRARY_DIR || join(HERE, "../data-store/library"));
+// Team Builder saved sheets (one JSON file per coach), beside the library by default.
+const BUILDER_SAVES_DIR = resolve(process.env.FORK_BUILDER_SAVES_DIR || join(dirname(LIBRARY_DIR), "builder-saves"));
 // Bug reports land here (one folder per report) for later ingestion by the owner.
 const BUG_REPORTS_DIR = resolve(process.env.BUG_REPORTS_DIR || join(HERE, "../bug-reports"));
 // Tracks the last successful fork (game server) reload — see @bb/fork-ops's forkReload.
@@ -489,7 +506,24 @@ interface TeamBuilderBody {
   rosteredInducements?: Array<{ key: string; count: number }>;
   /** Client-wire alias: the shipped TeamBuilderView sends the same list as `inducements`. */
   inducements?: Array<{ key: string; count: number }>;
+  /** Build only: the coach's saved sheet (/api/fork/team-builder/saves) to link to the built team. */
+  saveId?: string;
 }
+
+/** rosterId → race display name, for saved-sheet listings ("" when unknown / fork not configured). */
+function builderRaceNameFor(rosterId: string): string {
+  const cfg = forkConfigFromEnv();
+  if (!cfg) return "";
+  const xml = loadBaseForkRosters(cfg.teamsDir).get(rosterId) ?? loadSecretLeagueForkRosters(cfg.teamsDir).get(rosterId);
+  if (!xml) return "";
+  try {
+    return parseForkRoster(xml).raceName;
+  } catch {
+    return "";
+  }
+}
+
+const builderSaveDeps = (): SaveDeps => ({ dir: BUILDER_SAVES_DIR, raceNameFor: builderRaceNameFor });
 
 /** Resolve a Secret League builder request to a composed team + roster-intrinsic legality (#52 A).
  *  Legality is enforced by the composer (off-dataset ⇒ dataset `validate()` can't run) — the caller
@@ -582,6 +616,8 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   // Dynamic coach-scoped route: bypass legacy Basic auth, then enforce the proven session in-handler.
   if (tournamentInstructionsGameId(pathname)) return true;
   if (tournamentResultGameId(pathname)) return true;
+  // Team Builder saves: coach-session-gated in-handler (401 JSON), never Basic-gated.
+  if (teamBuilderSavesPath(pathname) !== undefined) return true;
   if (pathname.startsWith("/api/packages/")) return true;
   if (
     (req.method === "GET" || req.method === "HEAD") &&
@@ -755,6 +791,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/fork/library/retire" ||
     pathname === "/api/fork/reload" ||
     pathname === "/api/fork/team-builder/build" ||
+    teamBuilderSavesPath(pathname) !== undefined ||
     pathname === "/api/bug-reports" ||
     pathname === "/api/admin/identities" ||
     pathname === "/api/admin/identities/naf" ||
@@ -2173,6 +2210,61 @@ async function handleApi(
     });
   }
 
+  // --- Team Builder saved sheets (owner 10-22) ---
+  // Coach-scoped to the PROVEN session coach (auth.coach) — never a body/query coach. 401 without a
+  // session; another coach's save id is simply "not found" (each coach has their own file).
+  {
+    const saveId = teamBuilderSavesPath(path);
+    if (saveId !== undefined) {
+      if (!auth) return sendJson(res, 401, { error: "Sign in to save and recall teams." });
+      const deps = builderSaveDeps();
+      const readSaveBody = async (): Promise<{ value: unknown } | undefined> => {
+        try {
+          return { value: await readJsonCapped(req, TEAM_BUILDER_SAVES_BODY_CAP) };
+        } catch (e) {
+          if (e instanceof BodyTooLargeError) sendJson(res, 413, { error: e.message });
+          else sendJson(res, 400, { error: "Invalid JSON request body." });
+          return undefined;
+        }
+      };
+      try {
+        if (saveId === "") {
+          if (method === "GET") {
+            const saves = readSaves(deps.dir, auth.coach)
+              .map(summarizeSave)
+              .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+            return sendJson(res, 200, { saves });
+          }
+          if (method === "POST") {
+            const parsed = await readSaveBody();
+            if (!parsed) return;
+            const result = createSave(deps, auth.coach, parsed.value);
+            return result.ok ? sendJson(res, 201, { save: result.save }) : sendJson(res, result.status, { error: result.error });
+          }
+          return sendJson(res, 405, { error: "Use GET or POST." });
+        }
+        if (method === "GET") {
+          const save = readSaves(deps.dir, auth.coach).find((s) => s.id === saveId);
+          return save ? sendJson(res, 200, { save }) : sendJson(res, 404, { error: "Saved team not found." });
+        }
+        if (method === "PUT") {
+          const parsed = await readSaveBody();
+          if (!parsed) return;
+          const result = updateSave(deps, auth.coach, saveId, parsed.value);
+          return result.ok ? sendJson(res, 200, { save: result.save }) : sendJson(res, result.status, { error: result.error });
+        }
+        if (method === "DELETE") {
+          if (!deleteSave(deps.dir, auth.coach, saveId)) return sendJson(res, 404, { error: "Saved team not found." });
+          res.writeHead(204).end();
+          return;
+        }
+        return sendJson(res, 405, { error: "Use GET, PUT or DELETE." });
+      } catch (e) {
+        return sendJson(res, 409, { error: (e as Error).message });
+      }
+    }
+  }
+
   // Preview: compose + validate, no write. Returns legality findings + the recomputed summary.
   if (path === "/api/fork/team-builder/preview" && method === "POST") {
     // V2: open (non-mutating) — the caller previews their own picks; reveals nothing sensitive.
@@ -2411,7 +2503,10 @@ async function handleApi(
             builtLibraryTeam(composed.roster, composed.teamId, composed.roster.summary!.total, ingestedAt, reload.reloaded),
           );
           commitTeamXmlTransaction(transaction, reload.reloaded);
-          return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: composed.roster.summary, intrinsic: true });
+          const savedAs = auth
+            ? recordBuild(builderSaveDeps(), auth.coach, { teamId: composed.teamId, teamName: composed.roster.teamName, body, summary: composed.roster.summary, saveId: body.saveId })
+            : undefined;
+          return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: composed.roster.summary, intrinsic: true, ...(savedAs ? { saveId: savedAs } : {}) });
         } catch (error) {
           restoreTeamXmlTransaction(transaction);
           try {
@@ -2477,7 +2572,11 @@ async function handleApi(
           ),
         );
         commitTeamXmlTransaction(transaction, reload.reloaded);
-        return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: result.recomputedSummary, ...(packageInfo ? { package: packageInfo } : {}) });
+        // Going forward every session-built team keeps its builder body (saved sheet), linked by teamId.
+        const savedAs = auth
+          ? recordBuild(builderSaveDeps(), auth.coach, { teamId: composed.teamId, teamName: composed.roster.teamName, body, summary: result.recomputedSummary, saveId: body.saveId })
+          : undefined;
+        return sendJson(res, 200, { ok: true, teamId: composed.teamId, path: file, reload, summary: result.recomputedSummary, ...(packageInfo ? { package: packageInfo } : {}), ...(savedAs ? { saveId: savedAs } : {}) });
       } catch (error) {
         restoreTeamXmlTransaction(transaction);
         try {
@@ -2703,7 +2802,7 @@ export const server = createServer((req, res) => {
       if (cors.kind === "allowed") {
         res.setHeader("access-control-allow-origin", cors.origin);
         res.setHeader("vary", "origin");
-        res.setHeader("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS");
+        res.setHeader("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
         res.setHeader("access-control-allow-headers", "content-type,authorization,x-cw-auth,x-super-fumbbl-coach");
         res.setHeader("access-control-expose-headers", "retry-after");
       } else if (cors.kind === "denied" && url.pathname.startsWith("/api/")) {
@@ -2791,6 +2890,7 @@ export const server = createServer((req, res) => {
         const accountSession = auth !== undefined && (
           url.pathname === "/api/account" ||
           url.pathname === "/api/admin/identities/naf" ||
+          teamBuilderSavesPath(url.pathname) !== undefined ||
           tournamentInstructionsGameId(url.pathname) !== undefined ||
           tournamentResultGameId(url.pathname) !== undefined
         );
