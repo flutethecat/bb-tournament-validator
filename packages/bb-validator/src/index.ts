@@ -47,6 +47,11 @@ export type {
   MatrixColumn,
   MatrixRow,
   MatrixCell,
+  StatKey,
+  StatIncreaseRule,
+  StackedPlayerCaps,
+  StarPack,
+  ExtraSkillKnobs,
 } from "./package/types";
 export { DEFAULT_SKILL_ALLOTMENT } from "./package/types";
 export { resolveTier, hasTiers } from "./package/tiers";
@@ -59,7 +64,9 @@ export {
   fitsSkillCounts,
   parseGold,
 } from "./package/resolveConfig";
-export type { ResolvedTeamConfig } from "./package/resolveConfig";
+export type { ResolvedTeamConfig, ResolvedStatIncreases } from "./package/resolveConfig";
+export { statIncreasesOf, statIncreaseGold, statIncreasesGold, starPackPicks } from "./cost/extras";
+export type { StarPick } from "./cost/extras";
 export { loadPackage, mergePackages, parseSkillCostCsv, applyCsvOverrides } from "./package/resolve";
 export type { CsvSkillCostRow, DeepPartial } from "./package/resolve";
 export { costSP, isElite } from "./cost/costSP";

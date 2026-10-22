@@ -6,6 +6,35 @@
   "type": "object",
   "required": ["name", "skillAllotment"],
   "additionalProperties": false,
+  "definitions": {
+    "statIncreases": {
+      "type": ["object", "null"],
+      "description": "Characteristic increases, detected by diffing printed stats vs the dataset position (MA/ST/AV +1; AG/PA one step better). Tiers/team rules MERGE over the flat value; absent everywhere = not checked.",
+      "additionalProperties": false,
+      "properties": {
+        "allowed": { "type": "array", "items": { "type": "string", "enum": ["MA", "ST", "AG", "PA", "AV"] }, "description": "Characteristics that may be increased; [] = none." },
+        "costGold": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "MA": { "type": "number" }, "ST": { "type": "number" }, "AG": { "type": "number" }, "PA": { "type": "number" }, "AV": { "type": "number" } },
+          "description": "Gold per increase (counted in recomputedSummary.statIncreasesCost)."
+        },
+        "maxPerPlayer": { "type": ["number", "null"], "default": 1 },
+        "exclusiveWithSkills": { "type": "boolean", "default": false, "description": "A player with a stat increase may not take added skills." }
+      }
+    },
+    "stackedPlayer": {
+      "type": ["object", "null"],
+      "description": "Caps on each stacked player (more than one added skill); merged field-by-field over the less specific level.",
+      "additionalProperties": false,
+      "properties": {
+        "maxSkills": { "type": ["number", "null"] },
+        "maxSecondary": { "type": ["number", "null"], "description": "0 = stacked players take primary skills only." },
+        "maxElite": { "type": ["number", "null"] }
+      }
+    },
+    "starPacksAllowed": { "type": ["array", "null"], "items": { "type": "string" }, "description": "Star-pack ids open to the team; absent/null = every pack." }
+  },
   "properties": {
     "$schema": { "type": "string" },
     "name": { "type": "string" },
@@ -32,9 +61,18 @@
           "label": { "type": "string" },
           "rosters": { "type": "array", "items": { "type": "string" } },
           "gold": { "type": ["number", "null"], "description": "Per-tier gold cap; null = fall back to goldBudget." },
+          "rosterGold": { "type": "object", "additionalProperties": { "type": "number" }, "description": "Per-roster gold caps within this tier (race -> gold); overrides gold for that race." },
           "skillPointBudget": { "type": ["number", "null"], "description": "Per-tier SP budget; null = fall back to skillAllotment.skillPointBudget." },
           "secondarySwapRatio": { "type": "number", "minimum": 1, "multipleOf": 1, "description": "Primary slots spent per secondary swap (default 2)." },
           "secondarySwapMax": { "type": ["number", "null"], "minimum": 0, "multipleOf": 1, "description": "Maximum secondary swaps; null means unlimited." },
+          "maxPrimary": { "type": ["number", "null"] },
+          "maxSecondary": { "type": ["number", "null"] },
+          "maxStackedPlayers": { "type": ["number", "null"], "description": "Max players with more than one added skill." },
+          "eliteMaxTotal": { "type": ["number", "null"], "description": "Team cap on ELITE added skills." },
+          "eliteMaxSameSkill": { "type": ["number", "null"], "description": "Cap on copies of any ONE elite added skill." },
+          "stackedPlayer": { "$ref": "#/definitions/stackedPlayer" },
+          "statIncreases": { "$ref": "#/definitions/statIncreases" },
+          "starPacksAllowed": { "$ref": "#/definitions/starPacksAllowed" },
           "starPlayersAllowed": { "type": "boolean" },
           "bannedStars": { "type": "array", "items": { "type": "string" } }
         }
@@ -66,6 +104,14 @@
         },
         "maxPerPlayer": { "type": ["number", "null"], "default": 2, "description": "Max ADDED skills on a single player." },
         "maxSameSkillTeamwide": { "type": ["number", "null"], "default": null, "description": "Max copies of one added skill across the whole team." },
+        "primaryCostGold": { "type": "number", "default": 20000 },
+        "secondaryCostGold": { "type": "number", "default": 40000 },
+        "eliteSurchargeGold": { "type": "number", "default": 10000 },
+        "skillCostGold": { "type": "object", "additionalProperties": { "type": "number" } },
+        "maxStackedPlayers": { "type": ["number", "null"], "description": "Max players with more than one added skill." },
+        "eliteMaxTotal": { "type": ["number", "null"], "description": "Flat team cap on ELITE added skills (tiers/team rules override)." },
+        "eliteMaxSameSkill": { "type": ["number", "null"], "description": "Flat cap on copies of any ONE elite added skill." },
+        "stackedPlayer": { "$ref": "#/definitions/stackedPlayer" },
         "maxPrimary": { "type": ["number", "null"], "description": "COUNT mode: max primary-access added skills (instead of the SP budget)." },
         "maxSecondary": { "type": ["number", "null"], "description": "COUNT mode: max secondary-access added skills." },
         "secondarySwap": { "type": "boolean", "description": "Allow trading two primary slots for one secondary." },
@@ -90,6 +136,12 @@
           "secondarySwap": { "type": "boolean" },
           "secondarySwapRatio": { "type": "number", "minimum": 1, "multipleOf": 1, "description": "Primary slots spent per secondary swap (default 2)." },
           "secondarySwapMax": { "type": ["number", "null"], "minimum": 0, "multipleOf": 1, "description": "Maximum secondary swaps; null means unlimited." },
+          "maxStackedPlayers": { "type": ["number", "null"] },
+          "eliteMaxTotal": { "type": ["number", "null"] },
+          "eliteMaxSameSkill": { "type": ["number", "null"] },
+          "stackedPlayer": { "$ref": "#/definitions/stackedPlayer" },
+          "statIncreases": { "$ref": "#/definitions/statIncreases" },
+          "starPacksAllowed": { "$ref": "#/definitions/starPacksAllowed" },
           "starPlayersAllowed": { "type": "boolean" },
           "bannedStars": { "type": "array", "items": { "type": "string" } }
         }
@@ -110,7 +162,28 @@
 
     "bannedStars": { "type": "array", "items": { "type": "string" }, "description": "Star names banned globally; tiers/matrix/team rules inherit these." },
 
+    "statIncreases": { "$ref": "#/definitions/statIncreases" },
+    "starPacks": {
+      "type": "array",
+      "description": "Star-player packs: every hired star must be in a pack open to the team (starPacksAllowed); per-pack max; the fee is on top of the star price and counts as gold (statIncreasesCost/starFeesCost); starPlayers.maxCount then counts PICKS (a dataset pair = one pick).",
+      "items": {
+        "type": "object",
+        "required": ["id", "fee", "stars"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "fee": { "type": "number", "description": "Gold fee on top of the star's own price." },
+          "feeMode": { "type": "string", "enum": ["once", "each"], "default": "each", "description": "once = one fee for any number of picks from the pack; each = per pick." },
+          "max": { "type": ["number", "null"], "description": "Max picks from this pack." },
+          "stars": { "type": "array", "items": { "type": "string" }, "description": "Canonical dataset star names (both halves of a pair may be listed)." }
+        }
+      }
+    },
+    "starPacksAllowed": { "$ref": "#/definitions/starPacksAllowed" },
+
     "goldBudget": { "type": ["number", "null"], "default": null, "description": "Optional parallel gold cap (team value incl. skills). Null = SP-only tournament." },
+    "goldCapIncludesAddedSkills": { "type": "boolean", "default": false, "description": "When true the gold cap is a hard total: added-skill, stat-increase and star-pack-fee gold count inside it." },
 
     "starPlayers": {
       "type": "object",

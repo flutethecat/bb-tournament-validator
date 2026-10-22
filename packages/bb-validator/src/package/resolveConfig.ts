@@ -7,7 +7,7 @@
  */
 
 import { normName } from "../dataset/lookup";
-import type { MatrixCell, SkillPackage, TournamentPackage } from "./types";
+import type { ExtraSkillKnobs, MatrixCell, SkillPackage, StatIncreaseRule, StatKey, TournamentPackage } from "./types";
 import { resolveTier } from "./tiers";
 
 export interface ResolvedTeamConfig {
@@ -25,10 +25,60 @@ export interface ResolvedTeamConfig {
   skillPackages?: SkillPackage[];
   starPlayersAllowed: boolean;
   bannedStars: string[];
+  /** Team cap on elite added skills (null = no cap). */
+  eliteMaxTotal: number | null;
+  /** Cap on copies of any one elite added skill (null = no cap). */
+  eliteMaxSameSkill: number | null;
+  /** Caps on each stacked player (>1 added skill); null fields = no cap. */
+  stackedPlayer: { maxSkills: number | null; maxSecondary: number | null; maxElite: number | null };
+  /** Characteristic-increase rules; undefined = not configured anywhere (not checked). */
+  statIncreases?: ResolvedStatIncreases;
+  /** Star-pack ids open to this team; null = every pack (only meaningful with pkg.starPacks). */
+  starPacksAllowed: string[] | null;
   /** Which source set the skill/gold limits — for messaging. */
   source: "flat" | "tier" | "matrix" | "team";
   /** Tier number, when a tier applies. */
   tierNumber?: number;
+}
+
+export interface ResolvedStatIncreases {
+  allowed: StatKey[];
+  costGold: Partial<Record<StatKey, number>>;
+  maxPerPlayer: number | null;
+  exclusiveWithSkills: boolean;
+}
+
+const mergeStat = (
+  base: ResolvedStatIncreases | undefined,
+  over: StatIncreaseRule | null | undefined,
+): ResolvedStatIncreases | undefined => {
+  if (over === undefined) return base;
+  if (over === null) return { allowed: [], costGold: { ...(base?.costGold ?? {}) }, maxPerPlayer: base?.maxPerPlayer ?? 1, exclusiveWithSkills: base?.exclusiveWithSkills ?? false };
+  return {
+    allowed: [...(over.allowed ?? base?.allowed ?? [])],
+    costGold: { ...(base?.costGold ?? {}), ...(over.costGold ?? {}) },
+    maxPerPlayer: over.maxPerPlayer !== undefined ? over.maxPerPlayer : (base?.maxPerPlayer ?? 1),
+    exclusiveWithSkills: over.exclusiveWithSkills ?? base?.exclusiveWithSkills ?? false,
+  };
+};
+
+/** Apply one level's generic extra knobs (tier / team rule) over the resolved config. */
+function applyExtraKnobs(cfg: ResolvedTeamConfig, k: ExtraSkillKnobs): void {
+  if (k.eliteMaxTotal !== undefined) cfg.eliteMaxTotal = k.eliteMaxTotal;
+  if (k.eliteMaxSameSkill !== undefined) cfg.eliteMaxSameSkill = k.eliteMaxSameSkill;
+  if (k.stackedPlayer !== undefined) {
+    const sp = k.stackedPlayer;
+    if (sp === null) cfg.stackedPlayer = { maxSkills: null, maxSecondary: null, maxElite: null };
+    else
+      cfg.stackedPlayer = {
+        maxSkills: sp.maxSkills !== undefined ? sp.maxSkills : cfg.stackedPlayer.maxSkills,
+        maxSecondary: sp.maxSecondary !== undefined ? sp.maxSecondary : cfg.stackedPlayer.maxSecondary,
+        maxElite: sp.maxElite !== undefined ? sp.maxElite : cfg.stackedPlayer.maxElite,
+      };
+  }
+  const stat = mergeStat(cfg.statIncreases, k.statIncreases);
+  if (stat) cfg.statIncreases = stat;
+  if (k.starPacksAllowed !== undefined) cfg.starPacksAllowed = k.starPacksAllowed ? [...k.starPacksAllowed] : null;
 }
 
 /** Human label of where a team's rules came from, e.g. " (Tier 1)". */
@@ -87,8 +137,18 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     maxStackedPlayers: sa.maxStackedPlayers ?? null,
     starPlayersAllowed: pkg.starPlayers.allowed,
     bannedStars: [...(pkg.bannedStars ?? [])],
+    eliteMaxTotal: sa.eliteMaxTotal ?? null,
+    eliteMaxSameSkill: sa.eliteMaxSameSkill ?? null,
+    stackedPlayer: {
+      maxSkills: sa.stackedPlayer?.maxSkills ?? null,
+      maxSecondary: sa.stackedPlayer?.maxSecondary ?? null,
+      maxElite: sa.stackedPlayer?.maxElite ?? null,
+    },
+    starPacksAllowed: pkg.starPacksAllowed ? [...pkg.starPacksAllowed] : null,
     source: "flat",
   };
+  const flatStat = mergeStat(undefined, pkg.statIncreases);
+  if (flatStat) cfg.statIncreases = flatStat;
   // GLOBAL packages apply everywhere as the base; a tier's own packages override below.
   if (pkg.skillPackages?.length) cfg.skillPackages = pkg.skillPackages;
   const addBans = (names?: string[]) => {
@@ -98,6 +158,8 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
   const tier = resolveTier(pkg, race);
   if (tier) {
     if (tier.gold != null) cfg.gold = tier.gold;
+    const rg = tier.rosterGold && Object.entries(tier.rosterGold).find(([r]) => normName(r) === normName(race));
+    if (rg) cfg.gold = rg[1];
     if (tier.skillPointBudget != null) cfg.skillPointBudget = tier.skillPointBudget;
     if (tier.maxPrimary != null) cfg.maxPrimary = tier.maxPrimary;
     if (tier.maxSecondary != null) cfg.maxSecondary = tier.maxSecondary;
@@ -107,6 +169,7 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     if (tier.maxStackedPlayers !== undefined) cfg.maxStackedPlayers = tier.maxStackedPlayers;
     if (tier.skillPackages?.length) cfg.skillPackages = tier.skillPackages;
     cfg.starPlayersAllowed = tier.starPlayersAllowed;
+    applyExtraKnobs(cfg, tier);
     addBans(tier.bannedStars);
     cfg.source = "tier";
     cfg.tierNumber = tier.tier;
@@ -137,6 +200,7 @@ export function resolveTeamConfig(pkg: TournamentPackage, race: string): Resolve
     if (tr.secondarySwapMax !== undefined) cfg.secondarySwapMax = tr.secondarySwapMax;
     if (tr.maxStackedPlayers !== undefined) cfg.maxStackedPlayers = tr.maxStackedPlayers;
     if (tr.starPlayersAllowed !== undefined) cfg.starPlayersAllowed = tr.starPlayersAllowed;
+    applyExtraKnobs(cfg, tr);
     addBans(tr.bannedStars);
     cfg.source = "team";
   }

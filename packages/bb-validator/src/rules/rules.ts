@@ -3,7 +3,8 @@
  * All pure functions over the precomputed RuleContext.
  */
 
-import { costSP } from "../cost/costSP";
+import { costSP, isElite } from "../cost/costSP";
+import { starPackPicks, statIncreasesGold, statIncreasesOf } from "../cost/extras";
 import { skillsGold } from "../cost/costGold";
 import type { Dataset } from "../dataset/types";
 import { findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
@@ -117,7 +118,7 @@ export const goldBudget: Rule = {
     const { starGold } = starCosts(players, pkg, data, cfg.tierNumber);
     const spPaidStarGold = pkg.starPlayers.paidInSkillPoints ? starGold : 0;
     const gold = (pkg.goldCapIncludesAddedSkills
-      ? recomputeGold(roster) - (roster.summary?.skillsCost ?? 0) + skillsGold(roster, data, pkg)
+      ? recomputeGold(roster) - (roster.summary?.skillsCost ?? 0) + skillsGold(roster, data, pkg) + extrasGold(players, pkg, data, cfg)
       : recomputeGold(roster)) - spPaidStarGold;
     const where = sourceLabel(cfg);
     return gold > cfg.gold
@@ -384,6 +385,225 @@ export const skillPackages: Rule = {
   },
 };
 
+/** Legal added skills of a resolved player, with their access. */
+const legalAdded = (rp: ResolvedPlayer): { skill: string; access: "primary" | "secondary" }[] =>
+  rp.addedSkills.flatMap((skill, i) => {
+    const a = rp.access[i];
+    return a === "primary" || a === "secondary" ? [{ skill, access: a }] : [];
+  });
+
+/**
+ * 6c. Elite caps — team total of elite added skills (`eliteMaxTotal`) and copies of any ONE
+ * elite skill (`eliteMaxSameSkill`). Flat / per tier / per team rule; null = no cap.
+ */
+export const eliteSkillCaps: Rule = {
+  id: "elite-skills",
+  needsDatasetRoster: true,
+  check: ({ players, pkg, roster }) => {
+    const cfg = resolveTeamConfig(pkg, roster.rosterName);
+    if (cfg.eliteMaxTotal == null && cfg.eliteMaxSameSkill == null) return [];
+    const where = sourceLabel(cfg);
+    const bySkill = new Map<string, { name: string; n: number }>();
+    let total = 0;
+    for (const rp of players)
+      for (const { skill } of legalAdded(rp)) {
+        if (!isElite(skill, pkg.skillAllotment)) continue;
+        total++;
+        const k = normName(skill);
+        const e = bySkill.get(k) ?? { name: skill, n: 0 };
+        e.n++;
+        bySkill.set(k, e);
+      }
+    const findings: Finding[] = [];
+    if (cfg.eliteMaxTotal != null && total > cfg.eliteMaxTotal)
+      findings.push(
+        err("elite-skills", `Team took ${total} elite skills; the limit is ${cfg.eliteMaxTotal}${where}.`, {
+          expected: `<= ${cfg.eliteMaxTotal} elite skills`,
+          actual: total,
+          suggestion: `Swap ${total - cfg.eliteMaxTotal} elite skill(s) (${pkg.skillAllotment.eliteSkills.join(", ")}) for non-elite ones.`,
+        }),
+      );
+    if (cfg.eliteMaxSameSkill != null)
+      for (const { name, n } of bySkill.values())
+        if (n > cfg.eliteMaxSameSkill)
+          findings.push(
+            err("elite-skills", `${n}× ${name} across the team; at most ${cfg.eliteMaxSameSkill} of any one elite skill${where}.`, {
+              expected: `<= ${cfg.eliteMaxSameSkill}× ${name}`,
+              actual: n,
+              suggestion: `Drop ${n - cfg.eliteMaxSameSkill}× ${name}.`,
+            }),
+          );
+    return findings;
+  },
+};
+
+/**
+ * 6d. Stacked-player caps — a player with MORE than one added skill may carry at most
+ * `stackedPlayer.maxSkills` added skills, `maxSecondary` of them secondary, `maxElite` elite.
+ */
+export const stackedPlayerCaps: Rule = {
+  id: "stacked-player",
+  needsDatasetRoster: true,
+  check: ({ players, pkg, roster }) => {
+    const cfg = resolveTeamConfig(pkg, roster.rosterName);
+    const { maxSkills, maxSecondary, maxElite } = cfg.stackedPlayer;
+    if (maxSkills == null && maxSecondary == null && maxElite == null) return [];
+    const where = sourceLabel(cfg);
+    const findings: Finding[] = [];
+    for (const rp of players) {
+      if (!rp.position || rp.addedSkills.length <= 1) continue;
+      const label = `#${rp.player.number} ${rp.position.name}`;
+      const legal = legalAdded(rp);
+      const sec = legal.filter((l) => l.access === "secondary");
+      const elite = legal.filter((l) => isElite(l.skill, pkg.skillAllotment));
+      if (maxSkills != null && rp.addedSkills.length > maxSkills)
+        findings.push(
+          err("stacked-player", `${label} has ${rp.addedSkills.length} added skills; a stacked player may have at most ${maxSkills}${where}.`, {
+            playerRef: rp.player.number,
+            expected: `<= ${maxSkills}`,
+            actual: rp.addedSkills.length,
+            suggestion: `Drop ${rp.addedSkills.length - maxSkills} skill(s) from ${label}.`,
+          }),
+        );
+      if (maxSecondary != null && sec.length > maxSecondary)
+        findings.push(
+          err(
+            "stacked-player",
+            maxSecondary === 0
+              ? `${label} is stacked with a secondary skill (${sec.map((l) => l.skill).join(", ")}); stacked players may only take primary skills${where}.`
+              : `${label} is stacked with ${sec.length} secondary skills; at most ${maxSecondary} on a stacked player${where}.`,
+            {
+              playerRef: rp.player.number,
+              expected: `<= ${maxSecondary} secondary`,
+              actual: sec.length,
+              suggestion: `Replace ${sec.length - maxSecondary} secondary skill(s) on ${label} with primary ones, or un-stack the player.`,
+            },
+          ),
+        );
+      if (maxElite != null && elite.length > maxElite)
+        findings.push(
+          err("stacked-player", `${label} is stacked with ${elite.length} elite skills; at most ${maxElite} on a stacked player${where}.`, {
+            playerRef: rp.player.number,
+            expected: `<= ${maxElite} elite`,
+            actual: elite.length,
+            suggestion: `Replace ${elite.length - maxElite} elite skill(s) on ${label}.`,
+          }),
+        );
+    }
+    return findings;
+  },
+};
+
+/**
+ * 6e. Characteristic increases — detected by diffing printed stats vs the dataset position.
+ * Only enforced when `statIncreases` is configured at some level.
+ */
+export const statIncreasesRule: Rule = {
+  id: "stat-increases",
+  needsDatasetRoster: true,
+  check: ({ players, pkg, roster, data }) => {
+    const cfg = resolveTeamConfig(pkg, roster.rosterName);
+    const si = cfg.statIncreases;
+    if (!si) return [];
+    const where = sourceLabel(cfg);
+    const findings: Finding[] = [];
+    for (const rp of players) {
+      if (!rp.position || isStarName(data, rp.player.positionName)) continue;
+      const incs = statIncreasesOf(rp.player, rp.position);
+      if (incs.length === 0) continue;
+      const label = `#${rp.player.number} ${rp.position.name}`;
+      const shown = incs.map((k) => `+${k}`).join(", ");
+      if (si.allowed.length === 0) {
+        findings.push(
+          err("stat-increases", `${label} has a characteristic increase (${shown}); stat increases are not allowed${where}.`, {
+            playerRef: rp.player.number,
+            suggestion: `Remove the increase from ${label}.`,
+          }),
+        );
+        continue;
+      }
+      const allowedText = si.allowed.map((k) => `+${k}`);
+      const bad = [...new Set(incs.filter((k) => !si.allowed.includes(k)))];
+      if (bad.length)
+        findings.push(
+          err("stat-increases", `${label}: ${bad.map((k) => `+${k}`).join(", ")} is not allowed${where} (allowed: ${allowedText.join(", ")}).`, {
+            playerRef: rp.player.number,
+            expected: allowedText.join(" / "),
+            actual: shown,
+            suggestion: `Use ${allowedText.join(" or ")} instead.`,
+          }),
+        );
+      if (si.maxPerPlayer != null && incs.length > si.maxPerPlayer)
+        findings.push(
+          err("stat-increases", `${label} has ${incs.length} characteristic increases (${shown}); the limit is ${si.maxPerPlayer} per player${where}.`, {
+            playerRef: rp.player.number,
+            expected: `<= ${si.maxPerPlayer}`,
+            actual: incs.length,
+            suggestion: `Keep at most ${si.maxPerPlayer} increase(s) on ${label}.`,
+          }),
+        );
+      if (si.exclusiveWithSkills && rp.addedSkills.length > 0)
+        findings.push(
+          err("stat-increases", `${label} has a characteristic increase (${shown}) and added skills (${rp.addedSkills.join(", ")}); a player with a stat increase may not take skills${where}.`, {
+            playerRef: rp.player.number,
+            suggestion: `Remove either the stat increase or the added skill(s) from ${label}.`,
+          }),
+        );
+    }
+    return findings;
+  },
+};
+
+/**
+ * 8b. Star packs — every hired star must sit in a pack open to the team; per-pack pick caps.
+ * Only enforced when the package defines `starPacks`. Fees are priced in starPackPicks.
+ */
+export const starPacksRule: Rule = {
+  id: "star-packs",
+  check: ({ players, pkg, roster, data }) => {
+    if (!pkg.starPacks?.length) return [];
+    const { picks } = starPackPicks(players, pkg, data);
+    if (!picks.length) return [];
+    const cfg = resolveTeamConfig(pkg, roster.rosterName);
+    if (!cfg.starPlayersAllowed) return []; // star-players already rejects every star
+    const where = sourceLabel(cfg);
+    const open = pkg.starPacks.filter((p) => cfg.starPacksAllowed == null || cfg.starPacksAllowed.includes(p.id));
+    const openText = open.map((p) => p.label ?? p.id).join(", ") || "none";
+    const findings: Finding[] = [];
+    for (const pick of picks) {
+      const who = pick.names.join(" & ");
+      if (!pick.pack)
+        findings.push(
+          err("star-packs", `${who} is not in any star pack for "${pkg.name}".`, {
+            playerRef: pick.playerRefs[0],
+            suggestion: `Remove ${who}.`,
+          }),
+        );
+      else if (!open.includes(pick.pack))
+        findings.push(
+          err("star-packs", `${who} is in the ${pick.pack.label ?? pick.pack.id} pack, which is not open to this team${where} (open: ${openText}).`, {
+            playerRef: pick.playerRefs[0],
+            expected: openText,
+            actual: pick.pack.label ?? pick.pack.id,
+            suggestion: `Remove ${who}, or pick a star from: ${openText}.`,
+          }),
+        );
+    }
+    for (const pack of pkg.starPacks) {
+      const n = picks.filter((p) => p.pack === pack).length;
+      if (pack.max != null && n > pack.max)
+        findings.push(
+          err("star-packs", `${n} picks from the ${pack.label ?? pack.id} pack; the limit is ${pack.max}.`, {
+            expected: `<= ${pack.max}`,
+            actual: n,
+            suggestion: `Remove ${n - pack.max} ${pack.label ?? pack.id} star(s).`,
+          }),
+        );
+    }
+    return findings;
+  },
+};
+
 /** 7. Cost reconciliation — recompute gold independently; mismatches are warnings. */
 export const costReconciliation: Rule = {
   id: "cost-reconciliation",
@@ -424,13 +644,19 @@ export const starPlayers: Rule = {
           suggestion: "Remove the Star Player(s).",
         }),
       );
-    } else if (pkg.starPlayers.maxCount != null && stars.length > pkg.starPlayers.maxCount) {
-      findings.push(
-        err("star-players", `${stars.length} Star Players; the limit is ${pkg.starPlayers.maxCount}.`, {
-          expected: `<= ${pkg.starPlayers.maxCount}`,
-          actual: stars.length,
-        }),
-      );
+    } else if (pkg.starPlayers.maxCount != null) {
+      // With star packs a dataset pair (Grak & Crumbleberry) is ONE pick; otherwise count players.
+      const n = pkg.starPacks?.length ? starPackPicks(players, pkg, data).picks.length : stars.length;
+      if (n > pkg.starPlayers.maxCount)
+        findings.push(
+          err("star-players", `${n} Star Players; the limit is ${pkg.starPlayers.maxCount}.`, {
+            expected: `<= ${pkg.starPlayers.maxCount}`,
+            actual: n,
+            ...(pkg.starPacks?.length
+              ? { suggestion: `Remove ${n - pkg.starPlayers.maxCount} Star Player pick(s) (a pair counts as one).` }
+              : {}),
+          }),
+        );
     }
 
     const banned = new Set(resolved.bannedStars.map(normName));
@@ -608,6 +834,16 @@ export function starCosts(
   return { starGold, starSP };
 }
 
+/** Gold the generic extra knobs add on top of added skills: stat increases + star-pack fees. */
+export function extrasGold(
+  players: readonly ResolvedPlayer[],
+  pkg: TournamentPackage,
+  data: Dataset,
+  cfg: ReturnType<typeof resolveTeamConfig>,
+): number {
+  return statIncreasesGold(players, cfg.statIncreases) + (pkg.starPacks?.length ? starPackPicks(players, pkg, data).feesGold : 0);
+}
+
 /** Recompute team gold from line items. */
 export function recomputeGold(roster: {
   players: { cost: number }[];
@@ -657,8 +893,12 @@ export const ALL_RULES: Rule[] = [
   skillAccessRule,
   skillPoints,
   skillPackages,
+  eliteSkillCaps,
+  stackedPlayerCaps,
+  statIncreasesRule,
   costReconciliation,
   starPlayers,
+  starPacksRule,
   inducements,
   sideline,
   specialRules,

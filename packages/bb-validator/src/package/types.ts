@@ -23,14 +23,80 @@ export interface SkillPackage {
   starPlayersAllowed?: boolean;
 }
 
+/** A characteristic a player may improve (BB2025 advancement). */
+export type StatKey = "MA" | "ST" | "AG" | "PA" | "AV";
+
+/**
+ * Characteristic-increase rules (generic). A player's increases are detected by diffing its
+ * printed stats against the dataset position (MA/ST/AV up = +1 each; AG/PA one step better,
+ * e.g. 4+ → 3+). Set flat (package `statIncreases`), per tier, or per team rule; a more specific
+ * level MERGES over the less specific one (so a tier may set only `allowed`).
+ * Absent at every level ⇒ not checked (legacy behaviour).
+ */
+export interface StatIncreaseRule {
+  /** Which characteristics may be increased. [] = none. */
+  allowed?: StatKey[];
+  /** Gold per increase, by characteristic (counted in recomputedSummary.statIncreasesCost). */
+  costGold?: Partial<Record<StatKey, number>>;
+  /** Max increases on one player (default 1). */
+  maxPerPlayer?: number | null;
+  /** When true, a player with a stat increase may not also carry an added skill. */
+  exclusiveWithSkills?: boolean;
+}
+
+/** Per-player caps that apply to a STACKED player (one carrying more than one added skill). */
+export interface StackedPlayerCaps {
+  /** Max added skills on a stacked player. */
+  maxSkills?: number | null;
+  /** Max SECONDARY-access added skills on a stacked player (0 = all primary). */
+  maxSecondary?: number | null;
+  /** Max ELITE added skills on a stacked player. */
+  maxElite?: number | null;
+}
+
+/**
+ * A star-player pack (generic): a named group of stars, an optional hiring fee on top of each
+ * star's own price, and a cap on picks from the pack. A star paired in the dataset
+ * (`pairedWith`, e.g. Grak & Crumbleberry) counts as ONE pick together with its partner.
+ */
+export interface StarPack {
+  id: string;
+  label?: string;
+  /** Gold fee (on top of the star price). */
+  fee: number;
+  /** "once" = one fee however many picks from this pack; "each" = fee per pick. Default "each". */
+  feeMode?: "once" | "each";
+  /** Max picks from this pack; null = no pack cap. */
+  max?: number | null;
+  /** Canonical star names (both halves of a pair may be listed). */
+  stars: string[];
+}
+
+/** Generic per-level knobs shared by the flat package / tiers / team rules. */
+export interface ExtraSkillKnobs {
+  /** Team cap on ELITE added skills. null = no cap. */
+  eliteMaxTotal?: number | null;
+  /** Team cap on copies of any ONE elite added skill (e.g. ≤4 Guard). null = no cap. */
+  eliteMaxSameSkill?: number | null;
+  /** Caps on each stacked player (merged field-by-field over the less specific level). */
+  stackedPlayer?: StackedPlayerCaps | null;
+  /** Characteristic increases (merged over the less specific level). */
+  statIncreases?: StatIncreaseRule | null;
+  /** Star-pack ids open to the team (package `starPacks`). Absent = every pack. */
+  starPacksAllowed?: string[] | null;
+}
+
 /** One tier's roster membership + per-tier overrides (gold, star access, banned stars). */
-export interface TierDef {
+export interface TierDef extends ExtraSkillKnobs {
   tier: number;
   label?: string;
   /** Race names assigned to this tier. */
   rosters: string[];
   /** Per-tier gold/team-value cap; null = fall back to the package goldBudget. */
   gold: number | null;
+  /** Per-roster gold caps WITHIN this tier (race → gold), overriding `gold` for that race
+   *  (e.g. Small Gods: Orc 1225k vs High Elf 1260k, both Tier 1). Team rules still win. */
+  rosterGold?: Record<string, number>;
   /** Per-tier Skill-Point budget; null/undefined = fall back to skillAllotment.skillPointBudget. */
   skillPointBudget?: number | null;
   /** Choose-one-of gold+SP packages for this tier (Spike!-style); legal if the roster fits any. */
@@ -80,6 +146,12 @@ export interface SkillAllotment {
   skillCostGold?: Record<string, number>; // default {}
   maxPerPlayer: number | null; // default 2
   maxSameSkillTeamwide: number | null; // default null
+  /** Flat team cap on ELITE added skills (tiers/team rules override). null/absent = no cap. */
+  eliteMaxTotal?: number | null;
+  /** Flat cap on copies of any ONE elite added skill. null/absent = no cap. */
+  eliteMaxSameSkill?: number | null;
+  /** Flat caps on each stacked player (>1 added skill). */
+  stackedPlayer?: StackedPlayerCaps | null;
   /**
    * Skill stacking (flat default): max players allowed to carry MORE THAN ONE
    * added skill. null = no cap. Tiers / matrix rows / team rules override it.
@@ -102,7 +174,7 @@ export interface SkillAllotment {
 }
 
 /** Per-team override (line-item rules). Any unset field falls back up the chain. */
-export interface TeamRule {
+export interface TeamRule extends ExtraSkillKnobs {
   team: string;
   gold?: number | null;
   skillPointBudget?: number | null;
@@ -179,6 +251,17 @@ export interface TournamentPackage {
   matrix?: Matrix;
   /** Star names banned globally; tiers/matrix/team rules inherit (union) these. */
   bannedStars?: string[];
+  /** Flat characteristic-increase rules (tiers / team rules merge over this). */
+  statIncreases?: StatIncreaseRule | null;
+  /**
+   * Star-player packs. When set, every hired star must belong to a pack open to the team
+   * (`starPacksAllowed` flat / per tier / per team rule; absent = all packs), per-pack `max`
+   * applies, pack fees count as star gold, and `starPlayers.maxCount` counts PICKS (a dataset
+   * pair is one pick).
+   */
+  starPacks?: StarPack[];
+  /** Flat default star-pack access (ids). Absent = every pack. */
+  starPacksAllowed?: string[] | null;
   skillAllotment: SkillAllotment;
   /** Optional parallel gold cap; null = SP-only tournament. */
   goldBudget: number | null;

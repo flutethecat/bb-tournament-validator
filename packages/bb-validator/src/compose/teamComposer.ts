@@ -82,6 +82,14 @@ export interface TeamPick {
    * two players of the same position DIFFERENT skills, emit two `count:1` picks. Ignored by the SL path.
    */
   chosenSkills?: string[];
+  /**
+   * Tournament builder: characteristic increases for EACH of the `count` players in this pick
+   * (MA/ST/AV +1; AG/PA one step better, e.g. 4+ → 3+). Legality (which stats, how many, whether
+   * a skill may also be taken) is the validator's job (package `statIncreases`); the composer only
+   * applies them, rejecting unknown keys, Star picks and BB2025 characteristic limits. Written to
+   * the team XML the same way custom-mode chosenStats are. Repeats = multiple steps.
+   */
+  chosenStatIncreases?: Array<"MA" | "PA" | "AV" | "AG" | "ST">;
 }
 
 export interface ComposeInput {
@@ -618,6 +626,49 @@ function resolveChosenSkills(
   return accepted;
 }
 
+const STAT_KEYS = new Set(["MA", "ST", "AG", "PA", "AV"]);
+const targetNum = (t: string): number | undefined => {
+  const m = /^(\d+)\+$/.exec(t.trim());
+  return m ? Number(m[1]) : undefined;
+};
+
+/**
+ * Fold a pick's characteristic increases onto its (custom-mode or dataset) stats. Returns the
+ * numeric overrides to write (undefined when nothing changes). BB2025 limits: MA ≤ 9, ST ≤ 8,
+ * AG/PA ≥ 1+, AV ≤ 11+; a "-" PA/AG cannot be improved. Throws a client-safe message.
+ */
+function applyStatIncreases(
+  dsPos: NonNullable<ReturnType<typeof findPosition>>,
+  base: TeamPick["chosenStats"],
+  increases: TeamPick["chosenStatIncreases"],
+): TeamPick["chosenStats"] {
+  if (!increases || increases.length === 0) return base;
+  const out = { ...(base ?? {}) };
+  for (const raw of increases) {
+    const key = String(raw).trim().toUpperCase();
+    if (!STAT_KEYS.has(key)) throw new Error(`Unknown characteristic increase "${raw}" — use MA, ST, AG, PA or AV.`);
+    if (key === "MA") {
+      out.MA = (out.MA ?? dsPos.MA) + 1;
+      if (out.MA > 9) throw new Error(`${dsPos.name} cannot raise MA above 9.`);
+    } else if (key === "ST") {
+      out.ST = (out.ST ?? dsPos.ST) + 1;
+      if (out.ST > 8) throw new Error(`${dsPos.name} cannot raise ST above 8.`);
+    } else if (key === "AV") {
+      const cur = out.AV ?? targetNum(dsPos.AV);
+      if (cur == null) throw new Error(`${dsPos.name} has no AV characteristic to improve.`);
+      out.AV = cur + 1;
+      if (out.AV > 11) throw new Error(`${dsPos.name} cannot raise AV above 11+.`);
+    } else {
+      const k = key as "AG" | "PA";
+      const cur = out[k] ?? targetNum(dsPos[k]);
+      if (cur == null) throw new Error(`${dsPos.name} has no ${k} characteristic to improve.`);
+      out[k] = cur - 1;
+      if (out[k]! < 1) throw new Error(`${dsPos.name} cannot improve ${k} beyond 1+.`);
+    }
+  }
+  return out;
+}
+
 export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()): ComposeResult {
   const fork = parseForkRoster(input.forkRosterXml);
   const dsRoster = findRoster(data, fork.raceName);
@@ -654,6 +705,8 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
         throw new Error(`Star player ${forkPos.name} is not eligible under ${specialRule}.`);
       if (pick.chosenSkills && pick.chosenSkills.length > 0)
         throw new Error(`Star player ${forkPos.name} cannot take chosen skills.`);
+      if (pick.chosenStatIncreases && pick.chosenStatIncreases.length > 0)
+        throw new Error(`Star player ${forkPos.name} cannot take characteristic increases.`);
       const count = Math.max(0, pick.count | 0);
       const previousCount = perPosition.get(forkPos.name) ?? 0;
       const cap = forkPos.quantity ?? 1;
@@ -690,7 +743,11 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
       ? (pick.chosenSkills ?? []).map((s) => s.trim()).filter(Boolean)
       : resolveChosenSkills(data, dsPos, pick.chosenSkills);
     const chosenSkillXml = chosenSkills.map((s) => `<skill>${xmlEscape(s)}</skill>`).join("");
-    const chosenStats = input.custom === true ? pick.chosenStats : undefined;
+    const chosenStats = applyStatIncreases(
+      dsPos,
+      input.custom === true ? pick.chosenStats : undefined,
+      pick.chosenStatIncreases,
+    );
     const chosenStatXml = chosenStats
       ? [
           chosenStats.MA !== undefined ? `<movement>${chosenStats.MA}</movement>` : "",

@@ -34,6 +34,10 @@ export interface RecomputedSummary {
   skillsCost: number;
   /** Gold value of rostered Star Players, whether paid in gold or Skill Points. */
   starsCost: number;
+  /** Gold for characteristic increases (package `statIncreases.costGold`); 0 when unused. */
+  statIncreasesCost: number;
+  /** Gold for star-pack hiring fees (package `starPacks`); 0 when unused. */
+  starFeesCost: number;
 }
 
 export interface ValidationResult {
