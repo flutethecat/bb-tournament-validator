@@ -1,4 +1,4 @@
-import { resolveTeamConfig, type TournamentPackage } from "@bb/validator";
+import { resolveTeamConfig, type StatKey, type TournamentPackage } from "@bb/validator";
 import type { PackageFiles } from "./data.js";
 
 /** What preview/build validate against, plus (when a tournament package was
@@ -37,11 +37,128 @@ export function resolveBuilderPackage(
 export function packageResponseInfo(
   resolved: ResolvedBuilderPackage,
   raceName: string,
-): { name: string; description?: string; budget: number | null } | undefined {
+): { name: string; description?: string; budget: number | null; rules: BuilderRaceRules } | undefined {
   if (!resolved.selected) return undefined;
   const cfg = resolveTeamConfig(resolved.pkg, raceName);
-  return { name: resolved.selected.name, description: resolved.selected.description, budget: cfg.gold };
+  return {
+    name: resolved.selected.name,
+    description: resolved.selected.description,
+    budget: cfg.gold,
+    rules: builderRaceRules(resolved.pkg, raceName),
+  };
 }
+
+/** One star pack as the builder sees it (only packs OPEN to the race are listed). */
+export interface BuilderStarPack {
+  id: string;
+  label: string;
+  fee: number;
+  feeMode: "once" | "each";
+  max: number | null;
+  stars: string[];
+}
+
+/**
+ * The per-race rule block echoed to builder clients (`package.rules` on preview/build, and on
+ * each /api/fork/team-builder/tiers race row). WIRE CONTRACT — field names are fixed. Every field
+ * is derived from resolveTeamConfig (the same resolver validate() uses); null = not applicable.
+ */
+export interface BuilderRaceRules {
+  tier: number | null;
+  maxSecondary: number | null;
+  eliteMaxTotal: number | null;
+  eliteMaxSameSkill: number | null;
+  maxStackedPlayers: number | null;
+  stackedPlayer: { maxSkills: number | null; maxSecondary: number | null; maxElite: number | null };
+  /** null when no characteristic increase is open to the race. */
+  statIncreases: { allowed: StatKey[]; costGold: Partial<Record<StatKey, number>> } | null;
+  /** Only the packs open to the race ([] when stars are not allowed or no packs are configured). */
+  starPacks: BuilderStarPack[];
+  /** Overall star cap (counts picks when packs are configured); 0 when stars are not allowed. */
+  maxStars: number | null;
+}
+
+export function builderRaceRules(pkg: TournamentPackage, race: string): BuilderRaceRules {
+  const cfg = resolveTeamConfig(pkg, race);
+  const si = cfg.statIncreases;
+  const starPacks: BuilderStarPack[] = cfg.starPlayersAllowed
+    ? (pkg.starPacks ?? [])
+        .filter((p) => cfg.starPacksAllowed == null || cfg.starPacksAllowed.includes(p.id))
+        .map((p) => ({
+          id: p.id,
+          label: p.label ?? p.id,
+          fee: p.fee,
+          feeMode: p.feeMode ?? "each",
+          max: p.max ?? null,
+          stars: [...p.stars],
+        }))
+    : [];
+  return {
+    tier: cfg.tierNumber ?? null,
+    maxSecondary: cfg.maxSecondary,
+    eliteMaxTotal: cfg.eliteMaxTotal,
+    eliteMaxSameSkill: cfg.eliteMaxSameSkill,
+    maxStackedPlayers: cfg.maxStackedPlayers,
+    stackedPlayer: { ...cfg.stackedPlayer },
+    statIncreases: si && si.allowed.length ? { allowed: [...si.allowed], costGold: { ...si.costGold } } : null,
+    starPacks,
+    maxStars: cfg.starPlayersAllowed ? pkg.starPlayers.maxCount : 0,
+  };
+}
+
+const fmtK = (n: number): string => `${Math.round(n / 1000)}k`;
+
+/** One tier row for the builder's PDF-style tier table (GET /api/fork/team-builder/tiers `tiers`). */
+export interface BuilderTierRow extends Omit<BuilderRaceRules, "tier"> {
+  tier: number;
+  label: string;
+  rosters: Array<{ name: string; gold: number | null }>;
+  /** Human summaries for the table cells. */
+  secondaryText: string;
+  eliteText: string;
+  stacksText: string;
+  stackTypeText: string;
+  characteristicsText: string;
+  starPacksText: string;
+}
+
+/** Tier table rows: the TIER-level rules (per-team exceptions show on the race rows instead). */
+export function builderTierRows(pkg: TournamentPackage): BuilderTierRow[] {
+  const tierOnly: TournamentPackage = { ...pkg, teamRules: [] };
+  return (pkg.tiers ?? []).map((t) => {
+    const rules = builderRaceRules(tierOnly, t.rosters[0] ?? "");
+    const rosterGold = (name: string): number | null => {
+      const hit = t.rosterGold && Object.entries(t.rosterGold).find(([r]) => r.toLowerCase() === name.toLowerCase());
+      return hit ? hit[1] : (t.gold ?? pkg.goldBudget);
+    };
+    const sp = rules.stackedPlayer;
+    const stackParts = [
+      sp.maxSkills != null ? `up to ${sp.maxSkills} skills` : "",
+      sp.maxSecondary === 0 ? "primary only" : sp.maxSecondary != null ? `max ${sp.maxSecondary} secondary` : "",
+      sp.maxElite != null ? `max ${sp.maxElite} elite` : "",
+    ].filter(Boolean);
+    const elite = [
+      rules.eliteMaxTotal != null ? `max ${rules.eliteMaxTotal} total` : "",
+      rules.eliteMaxSameSkill != null ? `max ${rules.eliteMaxSameSkill} of any one` : "",
+    ].filter(Boolean);
+    const si = rules.statIncreases;
+    return {
+      ...rules,
+      tier: t.tier,
+      label: t.label ?? `Tier ${t.tier}`,
+      rosters: t.rosters.map((name) => ({ name, gold: rosterGold(name) })),
+      secondaryText: rules.maxSecondary != null ? String(rules.maxSecondary) : "unlimited",
+      eliteText: elite.length ? elite.join(", ") : "unlimited",
+      stacksText: rules.maxStackedPlayers != null ? String(rules.maxStackedPlayers) : "unlimited",
+      stackTypeText: stackParts.length ? stackParts.join(", ") : "any",
+      characteristicsText: si
+        ? si.allowed.map((k) => `+${k}${si.costGold[k] != null ? ` (${fmtK(si.costGold[k]!)})` : ""}`).join(" / ")
+        : "none",
+      starPacksText: rules.starPacks.length ? rules.starPacks.map((p) => p.label).join(", ") : "none",
+    };
+  });
+}
+
 
 /** One choose-one gold+SP pack, normalized for display. */
 export interface PackSummary {

@@ -1,3 +1,5 @@
+const STAT_INCREASE_KEYS = new Set(["MA", "ST", "AG", "PA", "AV"]);
+
 /** Validate only the externally typed fields before composition applies defaults. */
 export function teamBuilderWireError(body: unknown): string | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -14,6 +16,20 @@ export function teamBuilderWireError(body: unknown): string | null {
   const teamId = (body as Record<string, unknown>).teamId;
   if (teamId !== undefined && (typeof teamId !== "string" || !teamId.trim())) {
     return "teamId must be a non-empty string when supplied.";
+  }
+  // Tournament path: per-pick characteristic increases (legality is the validator's job).
+  const picks = (body as Record<string, unknown>).picks;
+  if (Array.isArray(picks)) {
+    for (const pick of picks) {
+      if (!pick || typeof pick !== "object" || Array.isArray(pick)) continue; // composer reports bad picks
+      const incs = (pick as Record<string, unknown>).chosenStatIncreases;
+      if (incs === undefined) continue;
+      if (!Array.isArray(incs)) return "chosenStatIncreases must be an array when supplied.";
+      if (incs.length > 5) return "chosenStatIncreases may list at most 5 entries.";
+      for (const k of incs)
+        if (typeof k !== "string" || !STAT_INCREASE_KEYS.has(k))
+          return "each chosenStatIncreases entry must be one of MA, ST, AG, PA, AV.";
+    }
   }
   // The shipped client TeamBuilderView sends this list as `inducements`; accept both names.
   const raw = body as Record<string, unknown>;

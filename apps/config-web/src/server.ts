@@ -93,7 +93,7 @@ import {
   teamList,
   type AdminTeamSearchMode,
 } from "./data";
-import { packageResponseInfo, packageRulesInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
+import { builderTierRows, packageResponseInfo, packageRulesInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
 import { PRESETS } from "./presets";
 import { handleAuthPortal } from "./auth/portal.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
@@ -2164,7 +2164,13 @@ async function handleApi(
     const packageName = query.get("packageName")?.trim() || undefined;
     const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName);
     if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
-    return sendJson(res, 200, { races: teamBuilderTierCatalog(resolvedPkg.pkg, bb2025) });
+    // With a selected package each assigned race row also carries `gold` + `rules`, and `tiers`
+    // lists the PDF-style tier table rows. No packageName => the original `{ races }` shape.
+    if (!resolvedPkg.selected) return sendJson(res, 200, { races: teamBuilderTierCatalog(resolvedPkg.pkg, bb2025) });
+    return sendJson(res, 200, {
+      races: teamBuilderTierCatalog(resolvedPkg.pkg, bb2025, true),
+      tiers: builderTierRows(resolvedPkg.pkg),
+    });
   }
 
   // Preview: compose + validate, no write. Returns legality findings + the recomputed summary.

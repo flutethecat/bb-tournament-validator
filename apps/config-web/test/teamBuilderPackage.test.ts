@@ -69,7 +69,23 @@ describe("packageResponseInfo", () => {
       eligibleRosters: ["*"],
     });
     const info = packageResponseInfo({ pkg, selected: { name: pkg.name, description: pkg.description } }, "Amazon");
-    expect(info).toEqual({ name: "Lustrian Cup", description: "Season 3 tournament rules.", budget: 1_150_000 });
+    expect(info).toEqual({
+      name: "Lustrian Cup",
+      description: "Season 3 tournament rules.",
+      budget: 1_150_000,
+      // Generic per-race rule block (Small Gods knobs); all inert for a package that sets none.
+      rules: {
+        tier: null,
+        maxSecondary: null,
+        eliteMaxTotal: null,
+        eliteMaxSameSkill: null,
+        maxStackedPlayers: null,
+        stackedPlayer: { maxSkills: null, maxSecondary: null, maxElite: null },
+        statIncreases: null,
+        starPacks: [],
+        maxStars: null,
+      },
+    });
   });
 
   it("resolves the PER-ROSTER budget through tiers — same package, different race, different budget", () => {
