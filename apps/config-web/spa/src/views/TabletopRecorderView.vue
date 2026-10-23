@@ -5,10 +5,8 @@ import { computed, inject, onBeforeUnmount, onMounted, reactive, ref } from "vue
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
-import { rememberMatch } from "../tabletop/list";
-import { browserStorage } from "../tabletop/queue";
-import { createRecorder, describeEvent, RECORDER_KEY, viewOf, type SummaryView } from "../tabletop/recorder";
-import type { Side } from "../tabletop/tally";
+import { createRecorder, describeEvent, RECORDER_KEY, recentEvents, type SummaryView } from "../tabletop/recorder";
+import type { Side } from "../tabletop/recorder";
 
 const props = defineProps<{ id: string }>();
 
@@ -20,7 +18,8 @@ const { state } = rec;
 
 const sides: Side[] = ["home", "away"];
 const match = computed(() => state.match);
-const view = computed(() => viewOf(state.events));
+const tally = computed(() => state.tally);
+const line = (s: Side, id: string) => tally.value.players[s].find((l) => l.id === id);
 const me = computed(() => session.coach());
 const organiser = computed(() => session.state.info?.organizer === true);
 const recording = computed(() => match.value?.state === "recording");
@@ -28,8 +27,9 @@ const heading = (s: Side): string => {
   const m = match.value;
   return m ? `${s === "home" ? "Home" : "Away"}: ${m[s].teamName} (${m[s].coach})` : "";
 };
-const teamSpp = (s: Side): number => Object.values(view.value.tally.lines[s]).reduce((n, l) => n + l.spp, 0);
-const playerSpp = (s: Side, id: string): number => view.value.tally.lines[s][id]?.spp ?? 0;
+const teamSpp = (s: Side): number => tally.value.players[s].reduce((n, l) => n + l.sppEarned, 0);
+const playerSpp = (s: Side, id: string): number => line(s, id)?.sppEarned ?? 0;
+const hasMvp = (s: Side): boolean => tally.value.players[s].some((l) => l.mvp > 0);
 
 /** Why a player cannot act (the server refuses these too). */
 function unavailable(s: Side, id: string): string {
@@ -37,11 +37,14 @@ function unavailable(s: Side, id: string): string {
   if (!p) return "";
   if (p.dead) return "dead";
   if (p.mng) return "MNG";
-  if (view.value.tally.dead[s].includes(id)) return "killed";
-  if (view.value.tally.lines[s][id]?.sentOff) return "sent off";
+  if (line(s, id)?.injury?.result === "DEAD") return "killed";
+  if (line(s, id)?.sentOff) return "sent off";
   return "";
 }
-const injuryOf = (s: Side, id: string): string => view.value.tally.lines[s][id]?.injury ?? "";
+const injuryOf = (s: Side, id: string): string => {
+  const i = line(s, id)?.injury;
+  return i ? `${i.result}${i.stat ? ` ${i.stat}` : ""}` : "";
+};
 
 const tap = (type: string, s: Side, player: string): void => void rec.record({ type, team: s, player });
 
@@ -55,7 +58,7 @@ const victims = computed(() =>
 );
 function unavailableVictim(s: Side, id: string): boolean {
   const p = state.teams[s]?.players.find((x) => x.id === id);
-  return !p || p.dead || p.mng || view.value.tally.dead[s].includes(id) || view.value.tally.injured[s].includes(id);
+  return !p || p.dead || p.mng || line(s, id)?.injury !== undefined;
 }
 function openSheet(s: Side, player: string): void {
   Object.assign(sheet, { open: true, side: s, player, victim: "", result: "BH", stat: "MA", cause: "block", apothecary: false });
@@ -70,8 +73,9 @@ async function saveSheet(): Promise<void> {
   await rec.record({ type: "casualty", team: sheet.side, player: sheet.player, payload });
 }
 
-const fanDone = (s: Side): boolean => view.value.tally.fanDelta[s] !== undefined;
-const recent = computed(() => view.value.recent);
+const live = computed(() => new Set(state.effectiveIds));
+const fanDone = (s: Side): boolean => state.events.some((e) => e.type === "fanChange" && e.team === s && live.value.has(e.id));
+const recent = computed(() => recentEvents(state.events, state.effectiveIds));
 
 const confirmedAt = (coach: string): string => match.value?.confirmations[coach] ?? "";
 const iConfirmed = computed(() => (me.value ? confirmedAt(me.value) !== "" : false));
@@ -84,7 +88,6 @@ const summaries = (): Array<[Side, SummaryView]> =>
   match.value?.preview ? sides.map((s) => [s, match.value!.preview![s]] as [Side, SummaryView]) : [];
 
 onMounted(() => {
-  if (me.value) rememberMatch(browserStorage(), me.value, props.id);
   rec.start();
 });
 onBeforeUnmount(() => rec.stop());
@@ -102,7 +105,7 @@ onBeforeUnmount(() => rec.stop());
       <RouterLink to="/tabletop">Tabletop</RouterLink>
       <h2>{{ match.home.teamName }} vs {{ match.away.teamName }}</h2>
       <p class="tt-score" aria-label="Score">
-        <span>{{ view.tally.score.home }}</span> : <span>{{ view.tally.score.away }}</span>
+        <span>{{ tally.score.home }}</span> : <span>{{ tally.score.away }}</span>
       </p>
       <p class="muted">
         {{ match.state === "recording" ? "Recording" : match.state === "submitted" ? "Submitted, waiting for confirmation" : match.state === "confirmed" ? "Confirmed" : match.state }}
@@ -136,7 +139,7 @@ onBeforeUnmount(() => rec.stop());
                 <button class="lobby-btn tt-tap" type="button" :disabled="unavailable(s, p.id) !== ''" @click="tap('completion', s, p.id)">+Comp</button>
                 <button class="lobby-btn tt-tap" type="button" :disabled="unavailable(s, p.id) !== ''" @click="tap('interception', s, p.id)">+Int</button>
                 <button class="lobby-btn tt-tap" type="button" :disabled="unavailable(s, p.id) !== ''" @click="tap('deflection', s, p.id)">+Defl</button>
-                <button class="lobby-btn tt-tap" type="button" :disabled="unavailable(s, p.id) !== '' || view.tally.hasMvp[s]" @click="tap('mvp', s, p.id)">MVP</button>
+                <button class="lobby-btn tt-tap" type="button" :disabled="unavailable(s, p.id) !== '' || hasMvp(s)" @click="tap('mvp', s, p.id)">MVP</button>
                 <button class="lobby-btn tt-tap" type="button" :disabled="unavailable(s, p.id) !== ''" @click="tap('sendOff', s, p.id)">Send off</button>
               </div>
             </li>

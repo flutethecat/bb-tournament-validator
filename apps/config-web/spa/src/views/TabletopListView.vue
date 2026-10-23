@@ -6,7 +6,7 @@ import { API_KEY } from "../app";
 import TeamSelect from "../components/TeamSelect.vue";
 import { LIBRARY_KEY } from "../lobby/library";
 import { SESSION_KEY } from "../session";
-import { createTabletopList, TABLETOP_LIST_KEY } from "../tabletop/list";
+import { createTabletopList, TABLETOP_LIST_KEY, type SaveOption } from "../tabletop/list";
 import type { PostMatchOption } from "../tabletop/recorder";
 
 const session = inject(SESSION_KEY)!;
@@ -24,6 +24,27 @@ const theirSaveId = ref("");
 const postMatch = ref<PostMatchOption>("full");
 const err = ref("");
 const creating = ref(false);
+const saves = ref<SaveOption[]>([]);
+const looking = ref(false);
+const lookedUp = ref(false);
+
+async function onLookup(): Promise<void> {
+  err.value = "";
+  saves.value = [];
+  theirSaveId.value = "";
+  lookedUp.value = false;
+  if (!opponent.value.trim()) return void (err.value = "Enter your opponent's coach name first.");
+  looking.value = true;
+  try {
+    saves.value = await list.lookupSaves(opponent.value);
+    lookedUp.value = true;
+    if (saves.value.length === 1) theirSaveId.value = saves.value[0]!.id;
+  } catch (e) {
+    err.value = (e as Error).message;
+  } finally {
+    looking.value = false;
+  }
+}
 
 const POST_MATCH_LABELS: Record<PostMatchOption, string> = {
   none: "None (record the score only)",
@@ -35,7 +56,7 @@ async function onCreate(): Promise<void> {
   err.value = "";
   if (!mySaveId.value) return void (err.value = "Pick your team first.");
   if (!opponent.value.trim()) return void (err.value = "Enter your opponent's coach name.");
-  if (!theirSaveId.value.trim()) return void (err.value = "Enter your opponent's team save id.");
+  if (!theirSaveId.value.trim()) return void (err.value = "Find and pick your opponent's team.");
   creating.value = true;
   try {
     const id = await list.create({ mySaveId: mySaveId.value, opponent: opponent.value, theirSaveId: theirSaveId.value, postMatch: postMatch.value });
@@ -63,9 +84,13 @@ onMounted(() => {
       <label for="tt-mine">Your team</label>
       <TeamSelect id="tt-mine" v-model="mySaveId" :teams="teams" />
       <label for="tt-opp">Opponent coach</label>
-      <input id="tt-opp" v-model="opponent" type="text" maxlength="40" autocomplete="off" placeholder="Coach name" />
-      <label for="tt-theirs">Their team save id</label>
-      <input id="tt-theirs" v-model="theirSaveId" type="text" maxlength="64" autocomplete="off" placeholder="Their team save id" />
+      <input id="tt-opp" v-model="opponent" type="text" @input="lookedUp = false" maxlength="40" autocomplete="off" placeholder="Coach name" />
+      <label for="tt-theirs">Their team</label>
+      <button class="lobby-btn tt-tap" type="button" :disabled="looking" @click="onLookup">Find their teams</button>
+      <select id="tt-theirs" v-model="theirSaveId" aria-label="Their team">
+        <option value="">{{ lookedUp ? (saves.length ? "Pick their team" : "No saved teams found") : "Find their teams first" }}</option>
+        <option v-for="sv in saves" :key="sv.id" :value="sv.id">{{ sv.name }}</option>
+      </select>
       <label for="tt-post">After the match</label>
       <select id="tt-post" v-model="postMatch">
         <option v-for="(label, key) in POST_MATCH_LABELS" :key="key" :value="key">{{ label }}</option>

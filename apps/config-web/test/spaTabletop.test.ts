@@ -4,7 +4,6 @@ import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import { backoffMs, BATCH_SIZE, createEventQueue, memoryStorage, type WireEvent } from "../spa/src/tabletop/queue";
-import { tally } from "../spa/src/tabletop/tally";
 
 // Tabletop recorder in the SPA: the pure event queue (de-dup / batching / backoff / refusals) and the server-rendered
 // routes, loaded through the SPA's own Vite config like spaShell.test.ts (no port is opened, no jsdom).
@@ -118,22 +117,6 @@ describe("event queue", () => {
   });
 });
 
-describe("tally (server events only)", () => {
-  it("counts score and SPP, and an undone event drops out with its undo", () => {
-    const t = tally([
-      { id: "e1", type: "touchdown", team: "home", player: "p1", payload: {} },
-      { id: "e2", type: "touchdown", team: "home", player: "p1", payload: {} },
-      { id: "e3", type: "undo", team: "home", payload: { target: "e2" } },
-      { id: "e4", type: "completion", team: "away", player: "q1", payload: {} },
-      { id: "e5", type: "casualty", team: "away", player: "q1", payload: { victim: "p2", result: "DEAD", cause: "block" } },
-    ]);
-    expect(t.score).toEqual({ home: 1, away: 0 });
-    expect(t.lines.home.p1!.spp).toBe(3);
-    expect(t.lines.away.q1!.spp).toBe(1 + 2);
-    expect(t.dead.home).toEqual(["p2"]);
-  });
-});
-
 describe("tabletop routes (server-rendered)", () => {
   let vite: ViteDevServer;
   let mods: Record<string, any>;
@@ -190,6 +173,14 @@ describe("tabletop routes (server-rendered)", () => {
     { id: "e3", type: "undo", team: "home", payload: { target: "e2" } },
     { id: "e4", type: "completion", team: "away", player: "a1", payload: {} },
   ];
+  const line = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
+    id, name, touchdowns: 0, casualtiesCaused: 0, completions: 0, interceptions: 0, deflections: 0, mvp: 0, sentOff: false, sppEarned: 0, ...extra,
+  });
+  const serverTally = {
+    score: { home: 1, away: 0 }, fanDelta: { home: 0, away: 0 },
+    casualtiesSuffered: { home: { bh: 0, si: 0, rip: 0 }, away: { bh: 0, si: 0, rip: 0 } },
+    players: { home: [line("h1", "Grob", { touchdowns: 1, sppEarned: 3 })], away: [line("a1", "Lirael", { completions: 1, sppEarned: 1 })] },
+  };
   const summary = (side: string, extra: Record<string, unknown> = {}) => ({
     postMatch: "full", applied: true, team: side, score: { for: side === "home" ? 1 : 0, against: side === "home" ? 0 : 1 },
     outcome: side === "home" ? "won" : "lost", deaths: [], winnings: 70000, treasuryBefore: 50000, treasuryAfter: 120000, fansBefore: 3, fansAfter: 4,
@@ -225,23 +216,20 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain(">Tabletop</a>");
   });
 
-  it("new-match form: my team, opponent, their save, post-match options; and my matches from the server", async () => {
-    const { html } = await render("/tabletop", { "/api/auth/session": session() }, async (spa, f) => {
+  it("new-match form: my team, opponent lookup, their save picker, post-match options; my matches from the server", async () => {
+    const { html } = await render("/tabletop", { "/api/auth/session": session() }, async (spa) => {
       spa.library.teams.value = [{ teamId: "t1", teamName: "Alice Orcs", race: "Orc", teamValue: 1000000 }];
-      const storage = mods.queue.memoryStorage();
-      mods.list.rememberMatch(storage, "Alice", "tm_abc123");
       const ctrl = mods.list.createTabletopList({
-        api: fetcher({ "/api/tabletop/matches/tm_abc123": { match: baseMatch("submitted"), events: [], effectiveEventIds: [], teams } }),
-        coach: () => "Alice", onSignedOut: () => undefined, storage,
+        api: fetcher({ "/api/tabletop/matches": { matches: [baseMatch("submitted")] } }), coach: () => "Alice", onSignedOut: () => undefined,
       });
       await ctrl.refresh();
       spa.app.provide(mods.list.TABLETOP_LIST_KEY, ctrl);
-      void f;
     });
     expect(html).toContain("New match");
     expect(html).toContain("Alice Orcs (Orc");
     expect(html).toContain('placeholder="Coach name"');
-    expect(html).toContain('placeholder="Their team save id"');
+    expect(html).toContain("Find their teams");
+    expect(html).toContain("Find their teams first");
     expect(html).toContain("SPP only");
     expect(html).toContain("Full post-match");
     expect(html).toContain("None (record the score only)");
@@ -250,21 +238,26 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).not.toContain("re-roll");
   });
 
-  it("creating a match posts home = me, away = opponent, and remembers the id", async () => {
-    const posts: unknown[] = [];
-    const storage = mods.queue.memoryStorage();
+  it("lookup and create: saves come from the server, home = me, away = the opponent", async () => {
+    const calls: unknown[] = [];
     const ctrl = mods.list.createTabletopList({
-      api: (async (path: string, init: { method?: string; body?: unknown }) => { posts.push([path, init.method, init.body]); return { match: baseMatch("recording") }; }) as Fetcher,
-      coach: () => "Alice", onSignedOut: () => undefined, storage,
+      api: (async (path: string, init: { method?: string; body?: unknown } = {}) => {
+        calls.push([path, init.method ?? "GET", init.body]);
+        if (path.startsWith("/api/tabletop/saves")) return { coach: "Bob", saves: [{ id: "t2", name: "Bob Elves" }] };
+        return { match: baseMatch("recording") };
+      }) as Fetcher,
+      coach: () => "Alice", onSignedOut: () => undefined,
     });
-    const id = await ctrl.create({ mySaveId: "t1", opponent: " Bob ", theirSaveId: "t2", postMatch: "spp-only" });
-    expect(id).toBe("tm_abc123");
-    expect(posts).toEqual([["/api/tabletop/matches", "POST", { home: { coach: "Alice", teamSaveId: "t1" }, away: { coach: "Bob", teamSaveId: "t2" }, postMatch: "spp-only" }]]);
-    expect(mods.list.rememberedMatchIds(storage, "Alice")).toEqual(["tm_abc123"]);
+    expect(await ctrl.lookupSaves(" Bob ")).toEqual([{ id: "t2", name: "Bob Elves" }]);
+    expect(await ctrl.create({ mySaveId: "t1", opponent: " Bob ", theirSaveId: "t2", postMatch: "spp-only" })).toBe("tm_abc123");
+    expect(calls).toEqual([
+      ["/api/tabletop/saves?coach=Bob", "GET", undefined],
+      ["/api/tabletop/matches", "POST", { home: { coach: "Alice", teamSaveId: "t1" }, away: { coach: "Bob", teamSaveId: "t2" }, postMatch: "spp-only" }],
+    ]);
   });
 
   it("recorder (recording): both teams, per-player controls, fan change, undo list, score and SPP from the server's events", async () => {
-    const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams });
+    const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally });
     for (const label of ["Grob", "Snaga", "Lirael", "Faen", "+TD", "+CAS", "+Comp", "+Int", "+Defl", "MVP", "Send off", "Fan change", "Submit match", "Undo", "Last events"])
       expect(html, label).toContain(label);
     expect(html).toContain("Home: Alice Orcs (Alice)");
@@ -282,7 +275,7 @@ describe("tabletop routes (server-rendered)", () => {
       { id: "event-q001", type: "touchdown", team: "away", player: "a1", payload: {}, ts: "2026-10-23T10:00:00.000Z" },
       { id: "event-q002", type: "completion", team: "away", player: "a2", payload: {}, ts: "2026-10-23T10:00:01.000Z" },
     ] as WireEvent[];
-    const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: [], teams }, session(), queued);
+    const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: [], teams, tally: serverTally }, session(), queued);
     expect(html).toContain("2 events waiting");
     expect(html).toContain("<span>1</span> : <span>0</span>"); // the score still follows the server only
   });
@@ -321,11 +314,11 @@ describe("tabletop routes (server-rendered)", () => {
 
   it("recorder: posts events with a client uuid through the queue and refreshes from the server", async () => {
     const posted: Array<{ events: Array<{ id: string; type: string; team: string; player: string }> }> = [];
-    let served = { match: baseMatch("recording"), events: [] as unknown[], effectiveEventIds: [] as string[], teams };
+    let served = { match: baseMatch("recording"), events: [] as unknown[], effectiveEventIds: [] as string[], teams, tally: serverTally };
     const api = (async (path: string, init: { method?: string; body?: any } = {}) => {
       if (init.method === "POST") {
         posted.push(init.body);
-        served = { ...served, events: init.body.events.map((e: any) => ({ ...e })) };
+        served = { ...served, events: init.body.events.map((e: any) => ({ ...e })), effectiveEventIds: init.body.events.map((e: any) => e.id) };
         return { accepted: init.body.events.map((e: any) => e.id), duplicates: [], total: 1 };
       }
       return served;
@@ -337,6 +330,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(posted[0]!.events[0]!.id).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
     expect(rec.state.pending).toBe(0);
     expect(rec.state.events).toHaveLength(1);
+    expect(rec.state.tally.score.home).toBe(1); // straight from the server answer
     await rec.undo(rec.state.events[0]);
     expect(posted[1]!.events[0]).toMatchObject({ type: "undo", team: "home", payload: { target: posted[0]!.events[0]!.id } });
     rec.stop();

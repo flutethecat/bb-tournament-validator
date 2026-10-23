@@ -6,8 +6,8 @@ import { reactive, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import type { Fetcher } from "../session";
 import { browserStorage, createEventQueue, newEventId, type QueueStorage, type RejectedEvent, type SendResult, type WireEvent } from "./queue";
-import { tally, effective, type ServerEvent, type Side, type Tally } from "./tally";
 
+export type Side = "home" | "away";
 export type PostMatchOption = "none" | "spp-only" | "full";
 export type MatchState = "recording" | "submitted" | "confirmed" | "published";
 
@@ -41,13 +41,28 @@ export interface MatchView {
 export interface RosterPlayerView { id: string; name: string; number?: number; spp: number; mng: boolean; dead: boolean }
 export interface TeamView { name: string; players: RosterPlayerView[] }
 
-export interface RecordedEvent extends ServerEvent { ts?: string; by?: string }
+export interface RecordedEvent {
+  id: string; type: string; team: Side; player?: string; payload: Record<string, unknown>; ts?: string; by?: string;
+}
+
+/** The server's own count of the effective events (GET match and the events POST both return it). */
+export interface ServerTally {
+  score: Record<Side, number>;
+  fanDelta: Record<Side, number>;
+  casualtiesSuffered: Record<Side, { bh: number; si: number; rip: number }>;
+  players: Record<Side, PlayerLineView[]>;
+}
+const EMPTY_TALLY: ServerTally = {
+  score: { home: 0, away: 0 }, fanDelta: { home: 0, away: 0 },
+  casualtiesSuffered: { home: { bh: 0, si: 0, rip: 0 }, away: { bh: 0, si: 0, rip: 0 } }, players: { home: [], away: [] },
+};
 
 export interface MatchResponse {
   match: MatchView;
   events: RecordedEvent[];
   effectiveEventIds: string[];
   teams: Record<Side, TeamView | undefined>;
+  tally?: ServerTally;
 }
 
 export interface RecorderState {
@@ -55,6 +70,8 @@ export interface RecorderState {
   error: string;
   match: MatchView | null;
   events: RecordedEvent[];
+  effectiveIds: string[];
+  tally: ServerTally;
   teams: Record<Side, TeamView | undefined>;
   /** Events accepted by this browser's queue but not yet by the server. */
   pending: number;
@@ -81,7 +98,7 @@ const POLL_MS = 5000;
 
 export function createRecorder(matchId: string, deps: RecorderDeps) {
   const state = reactive<RecorderState>({
-    loaded: false, error: "", match: null, events: [], teams: { home: undefined, away: undefined },
+    loaded: false, error: "", match: null, events: [], effectiveIds: [], tally: EMPTY_TALLY, teams: { home: undefined, away: undefined },
     pending: 0, queueError: "", retryAt: 0, rejected: [], busy: false, actionError: "",
   });
   const base = `/api/tabletop/matches/${encodeURIComponent(matchId)}`;
@@ -124,6 +141,8 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     state.error = "";
     state.match = res.match;
     state.events = res.events ?? [];
+    state.effectiveIds = res.effectiveEventIds ?? [];
+    state.tally = res.tally ?? EMPTY_TALLY;
     state.teams = res.teams ?? { home: undefined, away: undefined };
     state.loaded = true;
   }
@@ -192,14 +211,10 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
 export type Recorder = ReturnType<typeof createRecorder>;
 export const RECORDER_KEY: InjectionKey<(id: string) => Recorder> = Symbol("tabletop-recorder");
 
-/** What the screen shows, derived from the server's events and rosters. */
-export interface RecorderView {
-  tally: Tally;
-  recent: RecordedEvent[];
-}
-
-export function viewOf(events: readonly RecordedEvent[]): RecorderView {
-  return { tally: tally(events), recent: effective(events).slice(-UNDO_WINDOW).reverse() };
+/** The last UNDO_WINDOW events still in force (the server names them in effectiveEventIds), newest first. */
+export function recentEvents(events: readonly RecordedEvent[], effectiveIds: readonly string[]): RecordedEvent[] {
+  const live = new Set(effectiveIds);
+  return events.filter((e) => live.has(e.id)).slice(-UNDO_WINDOW).reverse();
 }
 
 const PLAYER_LABEL = (t: TeamView | undefined, id: string | undefined): string => {
