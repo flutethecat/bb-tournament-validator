@@ -154,7 +154,7 @@ export async function tabletopApi(
       .map((t) => ({ ref: t.ref, name: t.name, race: t.race, tv: t.tv }));
     return { status: 200, body: { coach, saves, teams } };
   }
-  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|turn\/start|turn\/end))?$/.exec(path);
+  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|turn\/start|turn\/end|turn\/set))?$/.exec(path);
   if (!m) return err(404, "Not found.");
   const id = m[1]!;
   const action = m[2];
@@ -197,6 +197,7 @@ export async function tabletopApi(
     }
     const fresh = (await repo.getMatch(id))!;
     if (action === "events") return postEvents(fresh, me, organiser, body, deps, now);
+    if (action === "turn/set") return turnSet(fresh, me, organiser, body, deps, now);
     if (action === "turn/start" || action === "turn/end") return turnAction(fresh, me, organiser, action, body, deps, now);
     if (action === "pregame/advance") return pregameAdvance(fresh, me, organiser, body, deps, now);
     if (action === "submit") return submit(fresh, deps, now);
@@ -1095,6 +1096,35 @@ async function turnAction(
       }]);
   }
   const updated: MatchRecord = { ...match, clock: next, updatedAt: at };
+  await deps.repo.updateMatch(updated);
+  const view = clockView(updated, events, deps, now());
+  deps.publishClock?.(match.id, { ...view, phase: "playing" });
+  return { status: 200, body: { clock: view, match: updated } };
+}
+
+/**
+ * POST .../turn/set {half, turn, activeTeam}: change the clock by hand during play. Either participant while the match is
+ * recording, an organiser always. Resets turnStartedAt, records a server-written `turnSet` event, and publishes the clock.
+ */
+async function turnSet(match: MatchRecord, me: string, organiser: boolean, body: unknown, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
+  if (!organiser && match.state !== "recording") return err(403, "Once the match is submitted only an organiser can change the clock.");
+  if ((match.phase ?? "playing") !== "playing") return err(409, `Finish the pre-game first (the match is at ${match.phase}).`);
+  const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  if (b.half !== 1 && b.half !== 2 && b.half !== "OT") return err(400, 'half must be 1, 2 or "OT".');
+  if (b.half === "OT" && match.allowOvertime !== true) return err(400, "This match does not allow overtime.");
+  if (!Number.isInteger(b.turn) || (b.turn as number) < 0 || (b.turn as number) > 8) return err(400, "turn must be a whole number from 0 to 8.");
+  if (b.activeTeam !== "home" && b.activeTeam !== "away") return err(400, 'activeTeam must be "home" or "away".');
+  const events = await deps.repo.readEvents(match.id);
+  const from = currentClock(match, events);
+  const at = now().toISOString();
+  const to: ClockState = { half: b.half, turn: b.turn as number, activeTeam: b.activeTeam, turnStartedAt: at };
+  const brief = (c: ClockState) => ({ half: c.half, turn: c.turn, activeTeam: c.activeTeam });
+  await deps.repo.appendEvents(match.id, [{
+    id: `turn-set-${now().getTime()}-${randomBytes(3).toString("hex")}`, matchId: match.id, type: "turnSet", team: to.activeTeam!,
+    half: to.half, ...(to.turn >= 1 ? { turn: to.turn } : {}),
+    payload: { from: brief(from), to: brief(to), by: me }, ts: at, by: me,
+  }]);
+  const updated: MatchRecord = { ...match, clock: to, updatedAt: at };
   await deps.repo.updateMatch(updated);
   const view = clockView(updated, events, deps, now());
   deps.publishClock?.(match.id, { ...view, phase: "playing" });

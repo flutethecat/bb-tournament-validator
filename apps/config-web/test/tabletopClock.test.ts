@@ -215,6 +215,50 @@ describe("turn-timer agreement", () => {
   });
 });
 
+describe("manual clock change (turn/set)", () => {
+  const set = (id: string, who: string, body: unknown) => as(who, "POST", `/api/tabletop/matches/${id}/turn/set`, body);
+
+  it("either participant sets the clock while recording: turnStartedAt resets, a turnSet event records it, the clock is published", async () => {
+    const id = await toPlaying();
+    await turn(id, "Alice", "start");
+    now = new Date(NOW.getTime() + 9000);
+    clockPublishes = [];
+    const r = await set(id, "Bob", { half: 2, turn: 4, activeTeam: "away" }); // the coach who is NOT active may also set it
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ clock: { half: 2, turn: 4, activeTeam: "away", turnStartedAt: now.toISOString() } });
+    expect(clockPublishes.at(-1)).toMatchObject({ id, payload: { half: 2, turn: 4, activeTeam: "away", phase: "playing" } });
+    const events = ((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ type: string; by: string; payload: any }> }).events;
+    const set1 = events.filter((e) => e.type === "turnSet");
+    expect(set1).toHaveLength(1);
+    expect(set1[0]).toMatchObject({ by: "Bob", payload: { from: { half: 1, turn: 1, activeTeam: "home" }, to: { half: 2, turn: 4, activeTeam: "away" }, by: "Bob" } });
+    expect(await clockOf(id)).toMatchObject({ half: 2, turn: 4, activeTeam: "away" });
+    // turn counting carries on from the new position
+    expect((await turn(id, "Bob", "end")).body).toMatchObject({ clock: { half: 2, turn: 4, activeTeam: "home" } });
+  });
+
+  it("rejects invalid values with 400 (OT only when the match allows it)", async () => {
+    const id = await toPlaying();
+    const bad = [
+      { half: 3, turn: 1, activeTeam: "home" }, { half: "OT", turn: 1, activeTeam: "home" }, { half: 1, turn: 9, activeTeam: "home" },
+      { half: 1, turn: -1, activeTeam: "home" }, { half: 1, turn: 1.5, activeTeam: "home" }, { half: 1, turn: 1, activeTeam: "mid" }, { half: 1, turn: 1 }, {},
+    ];
+    for (const body of bad) expect((await set(id, "Alice", body)).status).toBe(400);
+    expect((await set(id, "Alice", { half: 1, turn: 0, activeTeam: "away" })).status).toBe(200);
+    await free(id);
+    const ot = await toPlaying({ allowOvertime: true });
+    expect((await set(ot, "Alice", { half: "OT", turn: 2, activeTeam: "home" })).body).toMatchObject({ clock: { half: "OT", turn: 2 } });
+  });
+
+  it("strangers are refused; after submit participants get 403 and an organiser still can; not before the pre-game ends", async () => {
+    const id = await toPlaying();
+    expect((await set(id, "Mallory", { half: 1, turn: 1, activeTeam: "home" })).status).toBe(403);
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);
+    expect((await set(id, "Alice", { half: 1, turn: 1, activeTeam: "home" })).status).toBe(403);
+    expect((await set(id, "Bob", { half: 1, turn: 1, activeTeam: "home" })).status).toBe(403);
+    expect((await set(id, "Org", { half: 1, turn: 5, activeTeam: "away" })).status).toBe(200);
+  });
+});
+
 describe("tournament turn-timer settings", () => {
   it("default optional + 240 s, organiser-editable through the tournament settings route, validated", async () => {
     const store = new TournamentStore(join(dir, "tournaments"));

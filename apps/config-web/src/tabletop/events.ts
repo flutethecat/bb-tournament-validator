@@ -20,7 +20,7 @@ export const EVENT_TYPES = [
 ] as const;
 /** Server-written events (pre-game steps, the timer agreement, turn ends), written ONLY by the server's routes (rolls are server-side). Pre-game `weather` is
  *  the same type as the mid-game one, marked `payload.pregame: true`. */
-export const PREGAME_EVENT_TYPES = ["fans", "journeyman", "inducement", "prayer", "coinFlip", "timerAgree", "turnEnd"] as const;
+export const PREGAME_EVENT_TYPES = ["fans", "journeyman", "inducement", "prayer", "coinFlip", "timerAgree", "turnEnd", "turnSet"] as const;
 export type TabletopEventType = (typeof EVENT_TYPES)[number] | (typeof PREGAME_EVENT_TYPES)[number];
 
 export const WEATHER_RESULTS = ["Sweltering Heat", "Very Sunny", "Perfect Conditions", "Pouring Rain", "Blizzard"] as const;
