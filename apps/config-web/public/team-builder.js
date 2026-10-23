@@ -966,6 +966,7 @@ ${rosterSheetHtml(model)}
     // The coach is ALWAYS the Discord-signed-in fork account (owner 10-23: no coach field).
     $("current-coach-label").textContent = authCoach || "sign in with Discord";
     syncBuildButton();
+    renderValidity(); // the sign-in notice follows every auth change (login, logout, 401 expiry)
   }
   function renderSession() {
     const signedIn = Boolean(authCoach);
@@ -1551,18 +1552,37 @@ ${rosterSheetHtml(model)}
     }
     return String(finding);
   }
+  // Owner 10-23: the validity box sits at the top of the right rail and is always visible while
+  // building: builder checklist notices (sign-in, team name, players) plus every validator finding.
+  function builderNotices() {
+    const notices = [];
+    if (!authCoach) notices.push(discordSsoEnabled
+      ? "You must sign in with Discord to save or create the team."
+      : "You must sign in to save or create the team (Discord sign-in is unavailable right now).");
+    if (!current) notices.push("Choose a roster to start.");
+    else {
+      if (!$("team-name").value.trim()) notices.push("Name your team.");
+      if (!slots.length) notices.push("Add players from the position cards.");
+    }
+    return notices;
+  }
   function renderValidity() {
     const card = $("validity-card");
-    if (!current || !slots.length || !$("team-name").value.trim()) {
+    if (mode === "library") {
       card.hidden = true;
       return;
     }
-    const errors = preview?.errors ?? [];
-    const warnings = preview?.warnings ?? [];
     card.hidden = false;
+    const notices = builderNotices();
+    const checkable = current && slots.length && $("team-name").value.trim();
+    const errors = checkable ? preview?.errors ?? [] : [];
+    const warnings = checkable ? preview?.warnings ?? [] : [];
     let cls = "checking";
     let headline = "Checking team…";
-    if (mode === "custom") {
+    if (!checkable) {
+      cls = "pending";
+      headline = "Not ready yet";
+    } else if (mode === "custom") {
       cls = "custom";
       headline = "Custom team — validation off";
     } else if (preview?.failed) {
@@ -1580,6 +1600,7 @@ ${rosterSheetHtml(model)}
     $("findings").innerHTML = [
       ...errors.map((f) => `<div class="finding">${esc(findingText(f))}</div>`),
       ...warnings.map((f) => `<div class="finding warn">${esc(findingText(f))}</div>`),
+      ...notices.map((text) => `<div class="finding notice">${esc(text)}</div>`),
     ].join("");
   }
 

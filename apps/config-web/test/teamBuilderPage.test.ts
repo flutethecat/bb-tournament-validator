@@ -307,6 +307,17 @@ describe("team builder page — source contract", () => {
     expect(css).toContain(".inducement-icon .crest-image { width: 48px; height: 48px;");
   });
 
+  it("puts the validity box at the top of the right rail with builder notices (owner 10-23)", () => {
+    for (const page of [html, readFileSync(new URL("tournament-team-builder.html", publicDir), "utf8")]) {
+      const rail = page.indexOf('<aside class="right-rail">');
+      expect(page.indexOf('id="validity-card"')).toBeGreaterThan(rail);
+      expect(page.indexOf('id="validity-card"')).toBeLessThan(page.indexOf('id="value-card"'));
+    }
+    expect(js).toContain("You must sign in with Discord to save or create the team.");
+    expect(js).toContain('...notices.map((text) => `<div class="finding notice">${esc(text)}</div>`)');
+    expect(css).toContain(".finding.notice {");
+  });
+
   it("draws a Super FUMBBL icon left of every sideline staff row", () => {
     expect(js).toContain('api("/icons/ui/manifest.json")');
     const want: Record<string, [string, string]> = {

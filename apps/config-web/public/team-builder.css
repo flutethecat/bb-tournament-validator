@@ -506,6 +506,9 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
   font: 14px/1.4 var(--font-body);
 }
 .finding.warn { color: var(--ui-gold); background: color-mix(in srgb, var(--ui-gold) 10%, var(--ui-surface)); border-left-color: var(--ui-gold); }
+.finding.notice { color: var(--ui-text); background: color-mix(in srgb, var(--ui-primary) 10%, var(--ui-surface)); border-left-color: var(--ui-primary); }
+.validity-card.pending { border-color: color-mix(in srgb, var(--ui-danger) 70%, var(--ui-border)); }
+.validity-card.pending .validity-headline { color: var(--ui-muted); }
 
 .submit-card { padding: 8px; }
 .create-button {
