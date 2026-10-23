@@ -46,7 +46,7 @@
    shipped for it), title lines = the Nuffle display face. ONE @font-face for every config-web page. */
 @font-face {
   font-family: "Nuffle";
-  src: url("/assets/Nuffle.otf") format("opentype");
+  src: url("./assets/Nuffle.otf") format("opentype");
   font-display: swap;
 }
 :root {

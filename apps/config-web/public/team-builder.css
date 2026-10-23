@@ -7,6 +7,7 @@
   --ui-skill-passing: #ffffff;
   --ui-skill-mutation: #6fcf6f;
   --ui-skill-trait: #b08b5a;
+  --ui-table-head-ink: var(--ui-skill-strength);
 }
 
 /* FUMBBL (light) preset: the builder's eggshell/gold text tokens are tuned for the dark preset —
@@ -21,6 +22,8 @@
   --ui-skill-passing: #262626;
   --ui-skill-mutation: #2f6e2f;
   --ui-skill-trait: #6e4f28;
+  /* Table/roster headers sit on a mixed primary+surface band (~#99a086): the strength ink only reaches 2.7:1 there. */
+  --ui-table-head-ink: #4a0808;
 }
 
 * { box-sizing: border-box; }
@@ -416,7 +419,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 }
 .roster-header {
   padding: 9px 12px;
-  color: var(--ui-skill-strength);
+  color: var(--ui-table-head-ink);
   background: color-mix(in srgb, var(--ui-primary) 34%, var(--ui-surface));
   border-bottom: 2px solid var(--ui-primary);
   border-radius: 4px 4px 0 0;
@@ -651,7 +654,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .tier-table { width: 100%; min-width: 680px; border-collapse: collapse; font-size: 14px; }
 .tier-table th,
 .tier-table td { padding: 6px 8px; text-align: left; vertical-align: top; border: 1px solid var(--ui-border); }
-.tier-table thead th { color: var(--ui-skill-strength); background: color-mix(in srgb, var(--ui-primary) 34%, var(--ui-surface)); letter-spacing: .06em; }
+.tier-table thead th { color: var(--ui-table-head-ink); background: color-mix(in srgb, var(--ui-primary) 34%, var(--ui-surface)); letter-spacing: .06em; }
 .tier-table tbody th { color: var(--ui-gold); font-weight: 500; text-align: center; }
 .tier-table small { color: var(--ui-muted); }
 .tier-pack-exception { margin-top: 4px; color: var(--ui-muted); }
