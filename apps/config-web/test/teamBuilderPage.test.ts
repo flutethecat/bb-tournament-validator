@@ -285,6 +285,27 @@ describe("team builder page — source contract", () => {
     expect(js).toContain("rosteredInducements");
   });
 
+  it("draws a Super FUMBBL icon left of every sideline staff row", () => {
+    expect(js).toContain('api("/icons/ui/manifest.json")');
+    const want: Record<string, [string, string]> = {
+      reRolls: ["ui", "re_roll"],
+      assistantCoaches: ["inducements", "part_time_assistant_coaches"],
+      cheerleaders: ["inducements", "temp_agency_cheerleaders"],
+      dedicatedFans: ["ui", "dedicated_fans"],
+      apothecary: ["ui", "apothecary"],
+    };
+    const pub = new URL("../public/", import.meta.url);
+    for (const [key, [set, name]] of Object.entries(want)) {
+      expect(js).toContain(`${key}: ["${set}", "${name}"]`);
+      const manifest = JSON.parse(readFileSync(new URL(`icons/${set}/manifest.json`, pub), "utf8"));
+      const path = manifest.icons[name];
+      expect(path, `${set}/${name} in manifest`).toBeTypeOf("string");
+      expect(readFileSync(new URL(path, pub)).length).toBeGreaterThan(0);
+    }
+    expect(js).toContain('class="stepper-row staff-row');
+    expect(css).toContain(".stepper-row.staff-row { grid-template-columns: 36px minmax(0, 1fr) 32px 20px 32px; }");
+  });
+
   it("prices inducements with the team's Bribery and Corruption terms", () => {
     expect(js).toContain("function inducementTerms(item)");
     expect(js).toMatch(/reducedSpecialRule && item\.reducedPrice != null && teamHasRule\(item\.reducedSpecialRule\)/);

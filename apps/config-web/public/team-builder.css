@@ -826,6 +826,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .tt-summary-crest { display: inline-block; width: 26px; height: 26px; margin-right: 8px; vertical-align: middle; }
 .race-crest { display: inline-flex; }
 .stepper-row.inducement-row { grid-template-columns: 36px minmax(0, 1fr) 32px 20px 32px; }
+.stepper-row.staff-row { grid-template-columns: 36px minmax(0, 1fr) 32px 20px 32px; }
 .inducement-icon { display: grid; place-items: center; width: 36px; height: 36px; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 4px; }
 .inducement-icon .crest-image { width: 32px; height: 32px; image-rendering: auto; }
 .race-crest .crest-image { width: 30px; height: 30px; }

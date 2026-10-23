@@ -788,6 +788,7 @@ ${rosterSheetHtml(model)}
   let spriteManifest = null; // /sprites/manifest.json (Super FUMBBL walk-sheet idle portraits)
   let crestManifest = null; // /crests/manifest.json (Super FUMBBL team crests)
   let iconManifest = null; // /icons/inducements/manifest.json (Super FUMBBL inducement icons)
+  let uiIconManifest = null; // /icons/ui/manifest.json (Super FUMBBL UI glyphs: reroll, apothecary, fans)
   let skillIconManifest = null; // /icons/skills/manifest.json ("Illustrated - Default" skill icons)
 
   $("fork-admin-link").href = `http://${location.hostname || "127.0.0.1"}:22227/panel.html`;
@@ -1042,7 +1043,8 @@ ${rosterSheetHtml(model)}
     return path ? `<img class="crest-image${cls ? ` ${cls}` : ""}" src="/${esc(path)}" alt="" aria-hidden="true" loading="lazy" decoding="async">` : "";
   }
   async function loadArtManifests() {
-    const [sprites, crests, icons, skillIcons] = await Promise.allSettled([api("/sprites/manifest.json"), api("/crests/manifest.json"), api("/icons/inducements/manifest.json"), api("/icons/skills/manifest.json")]);
+    const [sprites, crests, icons, skillIcons, uiIcons] = await Promise.allSettled([api("/sprites/manifest.json"), api("/crests/manifest.json"), api("/icons/inducements/manifest.json"), api("/icons/skills/manifest.json"), api("/icons/ui/manifest.json")]);
+    uiIconManifest = uiIcons.status === "fulfilled" && uiIcons.value?.icons ? uiIcons.value : null;
     skillIconManifest = skillIcons.status === "fulfilled" && skillIcons.value?.icons ? skillIcons.value : null;
     iconManifest = icons.status === "fulfilled" && icons.value?.icons ? icons.value : null;
     spriteManifest = sprites.status === "fulfilled" && sprites.value?.races ? sprites.value : null;
@@ -1469,12 +1471,29 @@ ${rosterSheetHtml(model)}
     }).join("");
   }
 
+  // Sideline staff icon: the UI glyph set first, else the matching inducement art (the Part-time
+  // Assistant Coaches whistle / Temp Agency Cheerleaders pom-poms double as the staff icons).
+  const STAFF_ICONS = {
+    reRolls: ["ui", "re_roll"],
+    assistantCoaches: ["inducements", "part_time_assistant_coaches"],
+    cheerleaders: ["inducements", "temp_agency_cheerleaders"],
+    dedicatedFans: ["ui", "dedicated_fans"],
+    apothecary: ["ui", "apothecary"],
+  };
+  function staffIconPath(key) {
+    const [set, name] = STAFF_ICONS[key] ?? [];
+    const manifest = set === "ui" ? uiIconManifest : set === "inducements" ? iconManifest : null;
+    const path = manifest?.icons?.[name];
+    return typeof path === "string" ? path : null;
+  }
   function renderStaff() {
     $("staff-controls").innerHTML = STAFF_ROWS.map((row) => {
       const max = row.max();
       const unavailable = row.key === "apothecary" && current && !current.apothecaryAllowed;
       const value = staff[row.key];
-      return `<div class="stepper-row${unavailable ? " unavailable" : ""}">
+      const icon = staffIconPath(row.key);
+      return `<div class="stepper-row staff-row${unavailable ? " unavailable" : ""}">
+        <span class="inducement-icon" aria-hidden="true">${icon ? `<img class="crest-image" src="/${esc(icon)}" alt="" loading="lazy" decoding="async">` : ""}</span>
         <span class="stepper-label">${esc(row.label)}<small>${row.min}–${max}</small></span>
         <button type="button" data-staff-key="${row.key}" data-staff-delta="-1" ${unavailable || value <= row.min ? "disabled" : ""} aria-label="Remove ${esc(row.label)}">−</button>
         <b>${value}</b>
