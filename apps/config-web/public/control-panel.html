@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="./theme.css">
   <link rel="stylesheet" href="./tournament-rules.css">
   <script src="./theme.js" defer></script>
+  <script src="./control-panel.js" defer></script>
   <style>
     body { background: var(--ui-secondary); color: var(--ui-text); }
     .page-shell { background: var(--ui-secondary); }
@@ -35,6 +36,25 @@
     .hub-card-description { flex: 1; color: var(--ui-muted); font-size: 12px; line-height: 1.55; }
     .hub-card-destination { color: var(--ui-text-dim); font: 10px ui-monospace, Consolas, monospace; letter-spacing: .04em; }
     .hub-card.external .hub-card-destination::after { content: " ↗"; }
+    .suite { margin-top: 22px; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-surface); padding: 18px 20px; box-shadow: 0 5px 16px rgba(0,0,0,.38); }
+    .suite[hidden] { display: none; }
+    .suite h2 { margin: 0 0 4px; color: var(--ui-heading); font-size: 15px; font-weight: normal; letter-spacing: .08em; }
+    .suite h3 { margin: 14px 0 6px; color: var(--ui-heading); font-size: 13px; font-weight: normal; letter-spacing: .06em; }
+    .suite p { margin: 0; color: var(--ui-muted); font-size: 12px; line-height: 1.55; }
+    .suite-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; margin-top: 10px; }
+    .suite-side { display: grid; gap: 6px; }
+    .suite label { color: var(--ui-text-dim); font-size: 11px; letter-spacing: .04em; }
+    .suite input, .suite select { width: 100%; box-sizing: border-box; border: 1px solid var(--ui-border); border-radius: 5px; background: var(--ui-secondary); color: var(--ui-text); padding: 7px 8px; font: inherit; font-size: 12px; }
+    .suite-options { display: flex; flex-wrap: wrap; gap: 12px 18px; margin-top: 12px; align-items: end; }
+    .suite-options > div { min-width: 140px; }
+    .suite-options input[type="checkbox"] { width: auto; }
+    .suite-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; align-items: center; }
+    .suite button { border: 1px solid var(--ui-primary); border-radius: 5px; background: var(--ui-surface); color: var(--ui-text); padding: 8px 14px; font: inherit; font-size: 12px; cursor: pointer; }
+    .suite button:hover { background: var(--ui-hover); }
+    .suite button.danger { border-color: var(--ui-border); color: var(--ui-muted); }
+    #tt-status { min-height: 1.4em; font-size: 12px; color: var(--ui-muted); }
+    #tt-status.bad { color: #e08a8a; }
+    @media (max-width: 560px) { .suite-grid { grid-template-columns: 1fr; } }
     @media (max-width: 850px) { .hub-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     @media (max-width: 560px) {
       .brand-header { padding-right: 125px; }
@@ -101,6 +121,41 @@
           <span class="hub-card-destination">admin.html › Game Controls</span>
         </a>
       </nav>
+
+      <section class="suite" id="testing-suite" hidden aria-labelledby="testing-suite-title">
+        <h2 id="testing-suite-title">Testing suite</h2>
+        <p>Admin tools for trying features without going through the whole flow. Visible to organisers and admins only.</p>
+        <h3>Tabletop test match</h3>
+        <p>Loads a recorder match from two chosen teams. Test matches never count in standings, Elo or results.</p>
+        <datalist id="tt-coaches"></datalist>
+        <div class="suite-grid">
+          <div class="suite-side">
+            <label for="tt-home-coach">Home coach</label>
+            <input id="tt-home-coach" list="tt-coaches" autocomplete="off" spellcheck="false">
+            <label for="tt-home-team">Home team</label>
+            <select id="tt-home-team"></select>
+          </div>
+          <div class="suite-side">
+            <label for="tt-away-coach">Away coach</label>
+            <input id="tt-away-coach" list="tt-coaches" autocomplete="off" spellcheck="false">
+            <label for="tt-away-team">Away team</label>
+            <select id="tt-away-team"></select>
+          </div>
+        </div>
+        <div class="suite-options">
+          <div><label for="tt-pregame">Pre-game</label>
+            <select id="tt-pregame"><option value="skip">Skip (start playing)</option><option value="full">Full sequence</option></select></div>
+          <div><label for="tt-postmatch">Post-match</label>
+            <select id="tt-postmatch"><option value="none">None</option><option value="spp-only">SPP and injuries</option><option value="full">Full</option></select></div>
+          <div><label for="tt-timer"><input type="checkbox" id="tt-timer"> Turn timer on</label>
+            <input id="tt-seconds" type="number" min="30" max="3600" step="10" value="240" aria-label="Seconds per turn"></div>
+        </div>
+        <div class="suite-actions">
+          <button type="button" id="tt-create">Create &amp; open</button>
+          <button type="button" id="tt-purge" class="danger">Purge test matches</button>
+          <span id="tt-status" role="status" aria-live="polite"></span>
+        </div>
+      </section>
     </main>
 
     <footer class="footer"><span>Super FUMBBL control panel</span><span class="footer-spacer"></span><span>config-web :4310</span></footer>

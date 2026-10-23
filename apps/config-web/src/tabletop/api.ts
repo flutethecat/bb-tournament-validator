@@ -247,7 +247,7 @@ async function listMatches(me: string, organiser: boolean, deps: TabletopApiDeps
     status: 200,
     body: {
       matches: mine.map((m) => ({
-        id: m.id, state: m.state, phase: m.phase ?? "playing", pendingOrganiser: m.state === "confirmed", ...(m.fixtureRef ? { fixtureRef: m.fixtureRef } : {}), postMatch: m.postMatch,
+        id: m.id, state: m.state, phase: m.phase ?? "playing", pendingOrganiser: m.state === "confirmed", ...(m.test ? { test: true } : {}), ...(m.fixtureRef ? { fixtureRef: m.fixtureRef } : {}), postMatch: m.postMatch,
         home: { coach: m.home.coach, teamName: m.home.teamName }, away: { coach: m.away.coach, teamName: m.away.teamName },
         createdAt: m.createdAt, updatedAt: m.updatedAt,
       })),
@@ -278,7 +278,12 @@ async function listFixtures(me: string, all: boolean, deps: TabletopApiDeps): Pr
   return { status: 200, body: { fixtures } };
 }
 
-async function createMatch(me: string, organiser: boolean, body: unknown, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
+/** Options only the admin Testing Suite uses (same validation and store as a normal create). */
+export interface CreateMatchOptions { test?: boolean; timers?: MatchTimers }
+
+export async function createMatch(
+  me: string, organiser: boolean, body: unknown, deps: TabletopApiDeps, now: () => Date, options: CreateMatchOptions = {},
+): Promise<TabletopResult> {
   const b = (body && typeof body === "object" ? { ...(body as Record<string, any>) } : {}) as Record<string, any>;
   // A body with only a fixtureRef is filled from the fixture (coaches, and the teams when they can be resolved);
   // anything the caller sends explicitly wins.
@@ -297,6 +302,7 @@ async function createMatch(me: string, organiser: boolean, body: unknown, deps: 
     const ref = parseTeamRef(v?.team ?? v?.teamSaveId);
     return v && typeof v.coach === "string" && v.coach.trim() && ref ? { coach: v.coach.trim(), teamSaveId: ref.ref, kind: ref.kind } : undefined;
   };
+  if (options.test && b.fixtureRef) return err(400, "A test match cannot be linked to a fixture.");
   const home = side(b.home);
   const away = side(b.away);
   if (!home || !away) return err(400, b.fixtureRef ? "Choose both teams: a fixture team could not be found automatically (send home.team / away.team as library:<id> or save:<id>)." : "home and away each need {coach, team}, team being library:<id> or save:<id>.");
@@ -335,7 +341,9 @@ async function createMatch(me: string, organiser: boolean, body: unknown, deps: 
     home: { ...home, teamName: headRevision(chainHome).teamFile.name },
     away: { ...away, teamName: headRevision(chainAway).teamFile.name },
     phase: (b.pregame === "skip" ? "playing" : "pregame:fans") as MatchPhase,
-    ...(b.pregame === "skip" ? { clock: initialClock([]), timers: { mode: "off", seconds: DEFAULT_TURN_TIMER_POLICY.seconds, enforced: "off" } as MatchTimers } : {}),
+    ...(b.pregame === "skip" ? { clock: initialClock([]), timers: options.timers ?? ({ mode: "off", seconds: DEFAULT_TURN_TIMER_POLICY.seconds, enforced: "off" } as MatchTimers) } : {}),
+    ...(b.pregame !== "skip" && options.timers ? { timers: options.timers } : {}), // preset: the pre-game skips the timers question
+    ...(options.test ? { test: true as const } : {}),
     ...(b.allowOvertime === true ? { allowOvertime: true } : {}),
     ...(league ? { league } : {}),
     ...(fixtureSwap ? { fixtureSwap } : {}),
@@ -514,6 +522,7 @@ async function buildConfirmJournal(
     ...(match.fixtureRef ? { fixtureRef: match.fixtureRef } : {}),
     ...(match.league ? { league: match.league } : {}),
     published: false,
+    ...(match.test ? { test: true } : {}),
     home: { teamId: match.home.teamSaveId, teamName: match.home.teamName, coach: match.home.coach },
     away: { teamId: match.away.teamSaveId, teamName: match.away.teamName, coach: match.away.coach },
     teams: [teamResult("home", p.home.summary), teamResult("away", p.away.summary)],
@@ -895,6 +904,7 @@ async function pregameAdvance(
   let timers: MatchTimers | undefined;
   /** After the coin: the competition may forbid (off) or require (required) turn timers; otherwise the coaches are asked. */
   const afterCoin = (): Phase => {
+    if (match.test && match.timers) { timers = match.timers; return "playing"; } // a test match preset its timers
     if (policy.enforced === "optional") return "pregame:timers";
     timers = { mode: policy.enforced === "required" ? "on" : "off", seconds: policy.seconds, enforced: policy.enforced };
     return "playing";

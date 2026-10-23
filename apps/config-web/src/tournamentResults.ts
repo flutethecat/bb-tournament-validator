@@ -31,6 +31,8 @@ export interface StoredTournamentResult extends GamestateResult {
   fixtureRef?: string;
   /** Tabletop only: the league id the match counts in (defaults to the fixture tournament's package name). */
   league?: string;
+  /** Tabletop only: a row from the admin Testing Suite. It never counts anywhere, published or not. */
+  test?: boolean;
   /** Tabletop only: true once an organiser published it. An unpublished tabletop row never counts anywhere. */
   published?: boolean;
 }
@@ -111,9 +113,9 @@ export class TournamentResultStore {
     return Object.hasOwn(results, gameId) ? results[gameId] : undefined;
   }
 
-  /** Rows that COUNT (standings, Elo, records): fork rows, and tabletop rows only once published. */
+  /** Rows that COUNT (standings, Elo, records): fork rows, and tabletop rows only once published (never test rows). */
   list(): StoredTournamentResult[] {
-    return this.listAll().filter((row) => row.source !== "tabletop" || row.published === true);
+    return this.listAll().filter((row) => row.test !== true && (row.source !== "tabletop" || row.published === true));
   }
 
   /** Every stored row, including tabletop rows still pending organiser publication. */

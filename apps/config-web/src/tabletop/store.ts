@@ -36,6 +36,8 @@ export interface MatchRecord {
   clock?: ClockState;
   /** Turn-timer decision (set when the agreement step resolves, or at once when the competition decides). */
   timers?: MatchTimers;
+  /** Created by the admin Testing Suite: excluded from standings, Elo and results, and removable in bulk. */
+  test?: true;
   /** Overtime after half 2 (default false). */
   allowOvertime?: boolean;
   home: MatchSide;
@@ -124,6 +126,8 @@ export interface TabletopRepository {
   createMatch(match: MatchRecord): Promise<void>;
   getMatch(id: string): Promise<MatchRecord | undefined>;
   listMatches(): Promise<MatchRecord[]>;
+  /** Remove a match with its events and any journal (the Testing Suite purge). Team chains are left alone. */
+  deleteMatch(id: string): Promise<void>;
   updateMatch(match: MatchRecord): Promise<void>;
   /** An unfinished (recording/submitted) match already using this team save, other than `exceptId`. */
   findOpenMatchForSave(coach: string, saveId: string, exceptId?: string): Promise<MatchRecord | undefined>;
@@ -189,6 +193,10 @@ export class FileTabletopRepository implements TabletopRepository {
     try { file = this.matchFile(id); } catch { return undefined; }
     if (!existsSync(file)) return undefined;
     try { return JSON.parse(readFileSync(file, "utf8")) as MatchRecord; } catch { return undefined; }
+  }
+
+  async deleteMatch(id: string): Promise<void> {
+    for (const file of [this.matchFile(id), this.eventsFile(id), this.journalFile(id)]) if (existsSync(file)) unlinkSync(file);
   }
 
   async listMatches(): Promise<MatchRecord[]> {

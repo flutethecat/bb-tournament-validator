@@ -168,3 +168,19 @@ only on the host under the gitignored `apps/config-web/public/sounds/ui/` with a
 copy the client's `turnClockMinute.wav` and `turnClockCountdown.wav` byte-for-byte, saved under the lower-case names `turn-clock-minute.wav` / `turn-clock-countdown.wav` (the public matcher accepts lower-case names only), from the client checkout
 (`apps/tauri/src/assets/sounds/`, `git show origin/order-66:<path> > <dest>`) and write the manifest. Without the manifest
 the recorder falls back to generated tones on the same cadence. Credit: the recorder's Settings sheet.
+
+## Admin Testing Suite
+
+The control panel (`/control-panel.html`) shows a "Testing suite" card to organisers and admins (the card stays hidden for
+everyone else; every `/api/admin/testing/*` route answers 403 to a non-organiser session). First tool: **Tabletop test
+match**, which loads a recorder match from two chosen teams (library or builder saves) without the normal flow.
+
+- `GET /api/admin/testing/tools`: the suite's tools.
+- `GET /api/admin/testing/tabletop-defaults`: the default pair, or `{defaults: null}`. Configure it with
+  `TABLETOP_TEST_HOME="coach|library:<id>"` and `TABLETOP_TEST_AWAY="coach|save:<id>"` (either ref kind). Nothing is hard-coded.
+- `GET /api/admin/testing/teams?coach=`: a coach's library teams and saves (the pickers).
+- `POST /api/admin/testing/tabletop-match` `{home, away, pregame: "skip"|"full", postMatch, turnTimer?: {mode: "on", seconds}}`
+  returns `{matchId, url: "/app/tabletop/<id>"}`. Same validation and store as the normal create route; the match is flagged
+  `test: true`, and its results row is flagged too, so standings, Elo and counted results never include it, even if published.
+- `DELETE /api/admin/testing/tabletop-matches`: purge every test match (events, journals, test result rows). Team revisions a
+  test match wrote stay; use `postMatch: "none"` to avoid them.

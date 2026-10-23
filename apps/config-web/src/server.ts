@@ -260,6 +260,7 @@ import { RateLimiter } from "./translate/guards.js";
 import { clientIp } from "./translate/route.js";
 import { clockView, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
+import { isAdminTestingPath, testingApi } from "./tabletop/testing.js";
 import { teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
 import { tournamentApi } from "./tournaments/api.js";
 
@@ -595,6 +596,29 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
 // Startup recovery: replay unfinished commit journals when a tabletop store already exists.
 if (existsSync(TABLETOP_DIR)) void tabletopDeps().catch((e) => console.error(`[tabletop] recovery failed: ${(e as Error).message}`));
 
+/** Admin Testing Suite gate: an organiser/admin session, or the legacy admin password. 403 for any other signed-in session. */
+function testingGate(req: IncomingMessage, res: ServerResponse, auth?: SessionIdentity): boolean {
+  if (auth?.organizer || auth?.admin) return true;
+  if (!AUTH_SIDECAR && isAdminAuthed(req)) return true;
+  if (auth) { sendJson(res, 403, { error: "Organizer access required." }); return false; }
+  sendJson(res, 401, { error: "Authentication required." });
+  return false;
+}
+
+async function handleTestingRequest(req: IncomingMessage, res: ServerResponse, path: string, query: URLSearchParams, auth?: SessionIdentity): Promise<void> {
+  if (!testingGate(req, res, auth)) return;
+  const method = req.method ?? "GET";
+  let body: unknown;
+  if (method === "POST") {
+    const read = await readLobbyBody(req, readJsonBody, 32 * 1024);
+    if ("error" in read) return sendJson(res, read.status, { error: read.error });
+    body = read.body;
+  }
+  const result = await testingApi(method, path, query, body, { me: auth?.coach ?? "admin" }, await tabletopDeps());
+  if (!result) return sendJson(res, 404, { error: "Not found." });
+  return sendJson(res, result.status, result.body);
+}
+
 /** Tabletop recorder HTTP: Discord session only (checked in tabletopApi), bounded body. */
 // Public standings read: per-IP rate limit (the same limiter the public translate relay uses).
 const standingsLimiter = new RateLimiter({ maxRequests: 60, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 5_000 });
@@ -908,7 +932,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   // Team Builder saves: coach-session-gated in-handler (401 JSON), never Basic-gated.
   if (teamBuilderSavesPath(pathname) !== undefined) return true;
   // Web Lobby: session-gated in-handler (401 JSON); its built page is public static.
-  if (isLobbyApiPath(pathname) || isTabletopApiPath(pathname)) return true;
+  if (isLobbyApiPath(pathname) || isTabletopApiPath(pathname) || isAdminTestingPath(pathname)) return true; // the testing suite gates itself (403 for a non-organiser session)
   if ((req.method === "GET" || req.method === "HEAD") && (pathname === "/lobby" || pathname.startsWith("/lobby/"))) return true;
   // League & Tournament Manager SPA (Vite build output): public static like the Lobby; its API calls gate themselves.
   if ((req.method === "GET" || req.method === "HEAD") && isSpaPath(pathname)) return true;
@@ -933,6 +957,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
       (pathname === "/" ||
         pathname === "/index.html" ||
         pathname === "/control-panel.html" ||
+        pathname === "/control-panel.js" ||
         pathname === "/theme.css" ||
         pathname === "/theme.js" ||
         pathname === "/tournament-rules.html" ||
@@ -1155,6 +1180,7 @@ async function handleApi(
   // Web Lobby: authenticates and reads its body BEFORE taking the game-start lock (handleLobbyRequest).
   if (isLobbyApiPath(path)) return handleLobbyRequest(req, res, path, query);
   if (isTabletopApiPath(path)) return handleTabletopRequest(req, res, path, query);
+  if (isAdminTestingPath(path)) return handleTestingRequest(req, res, path, query, auth);
   const method = req.method ?? "GET";
   const cacheGateCfg = forkConfigFromEnv();
   const gameStartDelivery = [
@@ -3188,6 +3214,7 @@ export const server = createServer((req, res) => {
         (url.pathname === "/" ||
           url.pathname === "/index.html" ||
           url.pathname === "/control-panel.html" ||
+          url.pathname === "/control-panel.js" ||
           url.pathname === "/theme.css" ||
           url.pathname === "/theme.js" ||
           url.pathname === "/tournament-rules.css" ||
@@ -3247,6 +3274,7 @@ export const server = createServer((req, res) => {
           teamBuilderSavesPath(url.pathname) !== undefined ||
           isLobbyApiPath(url.pathname) ||
           isTabletopApiPath(url.pathname) ||
+          isAdminTestingPath(url.pathname) ||
           tournamentInstructionsGameId(url.pathname) !== undefined ||
           tournamentResultGameId(url.pathname) !== undefined
         );
