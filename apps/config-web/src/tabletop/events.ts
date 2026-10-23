@@ -13,10 +13,19 @@
  * `payload.victim` is a player id on `payload.victimTeam` (default: the other side).
  */
 
+/** Events a coach may post (the TourPlay grid). `sentOff` is accepted as an alias of `sendOff`. */
 export const EVENT_TYPES = [
-  "touchdown", "casualty", "completion", "interception", "deflection", "mvp", "sendOff", "fanChange", "undo",
+  "touchdown", "casualty", "injury", "completion", "catch", "throwTeamMate", "interception", "deflection", "foul",
+  "sendOff", "stalling", "secretObjective", "mvp", "weather", "concede", "endOfMatch", "fanChange", "undo",
 ] as const;
-export type TabletopEventType = (typeof EVENT_TYPES)[number];
+/** Pre-game events, written ONLY by the server's pregame routes (rolls are server-side). Pre-game `weather` is
+ *  the same type as the mid-game one, marked `payload.pregame: true`. */
+export const PREGAME_EVENT_TYPES = ["fans", "journeyman", "inducement", "prayer", "coinFlip"] as const;
+export type TabletopEventType = (typeof EVENT_TYPES)[number] | (typeof PREGAME_EVENT_TYPES)[number];
+
+export const WEATHER_RESULTS = ["Sweltering Heat", "Very Sunny", "Perfect Conditions", "Pouring Rain", "Blizzard"] as const;
+export const INJURY_RESULTS = ["stunned", "KO"] as const;
+export type Half = 1 | 2 | "OT";
 export type Side = "home" | "away";
 export const otherSide = (s: Side): Side => (s === "home" ? "away" : "home");
 
@@ -34,8 +43,9 @@ export interface TabletopEvent {
   team: Side;
   player?: string;
   turn?: number;
-  half?: 1 | 2 | 3;
-  /** casualty: {victim, victimTeam?, result, apothecaryUsed, stat?, cause?}; fanChange: {delta: -1|0|1};
+  half?: Half;
+  /** casualty: {victim, victimTeam?, result, apothecaryUsed, stat?, cause?}; injury: {result: stunned|KO};
+   *  throwTeamMate: {completed?, target?}; secretObjective: {text}; weather (mid-game): {result}; fanChange: {delta: -1|0|1};
    *  undo: {target: eventId}; others: {}. */
   payload: Record<string, unknown>;
   ts: string;
@@ -52,7 +62,9 @@ export const MAX_EVENTS_PER_MATCH = 2000;
 export const MAX_EVENTS_PER_BATCH = 100;
 const ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const PLAYER_RE = /^[\w.:-]{1,64}$/;
-const ACTING_TYPES: ReadonlySet<TabletopEventType> = new Set(["touchdown", "completion", "interception", "deflection", "mvp", "sendOff"]);
+const ACTING_TYPES: ReadonlySet<TabletopEventType> = new Set([
+  "touchdown", "completion", "catch", "interception", "deflection", "foul", "stalling", "mvp", "sendOff", "throwTeamMate", "injury",
+]);
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
@@ -68,13 +80,16 @@ export type ParseResult = { ok: true; event: TabletopEvent } | { ok: false; erro
 /** Shape-check one raw wire event and stamp the server-owned fields (matchId, by). No roster logic. */
 export function parseEvent(raw: unknown, matchId: string, by: string, nowIso: string): ParseResult {
   if (!isObj(raw)) return { ok: false, error: "event must be an object." };
-  const { id, type, team, player, turn, half, payload, ts } = raw;
+  const { id, team, player, turn, half, payload, ts } = raw;
+  const type = raw.type === "sentOff" ? "sendOff" : raw.type;
   if (typeof id !== "string" || !ID_RE.test(id)) return { ok: false, error: "event.id must be 8-64 chars of [A-Za-z0-9_-] (a client uuid)." };
   if (typeof type !== "string" || !(EVENT_TYPES as readonly string[]).includes(type)) return { ok: false, error: `event ${id}: unknown type.` };
-  if (type !== "undo" && team !== "home" && team !== "away") return { ok: false, error: `event ${id}: team must be "home" or "away".` };
+  const teamless = type === "undo" || type === "weather" || type === "endOfMatch";
+  if (team !== undefined && team !== "home" && team !== "away") return { ok: false, error: `event ${id}: team must be "home" or "away".` };
+  if (!teamless && team === undefined) return { ok: false, error: `event ${id}: team must be "home" or "away".` };
   if (player !== undefined && (typeof player !== "string" || !PLAYER_RE.test(player))) return { ok: false, error: `event ${id}: player must be a player id.` };
-  if (turn !== undefined && (!Number.isInteger(turn) || (turn as number) < 0 || (turn as number) > 99)) return { ok: false, error: `event ${id}: turn must be a small integer.` };
-  if (half !== undefined && ![1, 2, 3].includes(half as number)) return { ok: false, error: `event ${id}: half must be 1, 2 or 3.` };
+  if (turn !== undefined && (!Number.isInteger(turn) || (turn as number) < 1 || (turn as number) > 8)) return { ok: false, error: `event ${id}: turn must be 1-8.` };
+  if (half !== undefined && half !== 1 && half !== 2 && half !== 3 && half !== "OT") return { ok: false, error: `event ${id}: half must be 1, 2 or OT.` };
   if (payload !== undefined && !isObj(payload)) return { ok: false, error: `event ${id}: payload must be an object.` };
   if (ts !== undefined && (typeof ts !== "string" || Number.isNaN(Date.parse(ts)))) return { ok: false, error: `event ${id}: ts must be an ISO timestamp.` };
   const p: Record<string, unknown> = { ...(isObj(payload) ? payload : {}) };
@@ -85,10 +100,10 @@ export function parseEvent(raw: unknown, matchId: string, by: string, nowIso: st
       id,
       matchId,
       type: type as TabletopEventType,
-      team: (type === "undo" ? "home" : team) as Side, // an undo's team is rewritten to its target's
+      team: (team ?? "home") as Side, // an undo's team is rewritten to its target's; weather / endOfMatch are match-wide
       ...(player !== undefined ? { player: player as string } : {}),
       ...(turn !== undefined ? { turn: turn as number } : {}),
-      ...(half !== undefined ? { half: half as 1 | 2 | 3 } : {}),
+      ...(half !== undefined ? { half: (half === 3 ? "OT" : half) as Half } : {}), // legacy 3 = overtime
       payload: p,
       ts: typeof ts === "string" ? new Date(ts).toISOString() : nowIso,
       by,
@@ -109,11 +124,14 @@ export function validateEvent(event: TabletopEvent, stored: readonly TabletopEve
     const t = stored.find((e) => e.id === target);
     if (!t) return fail("undo target not found in this match.");
     if (t.type === "undo") return fail("an undo cannot be undone; record the event again instead.");
+    if ((PREGAME_EVENT_TYPES as readonly string[]).includes(t.type) || t.payload.pregame === true) return fail("pre-game events cannot be undone.");
     if (stored.some((e) => e.type === "undo" && e.payload.target === target)) return fail("target already undone.");
     return { event: { ...event, team: t.team } };
   }
 
+  if ((PREGAME_EVENT_TYPES as readonly string[]).includes(event.type)) return fail("pre-game events are recorded by the pre-game routes.");
   const live = effectiveEvents(stored);
+  if (live.some((e) => e.type === "concede") && event.type !== "endOfMatch") return fail("the match was conceded; only endOfMatch can follow.");
   const find = (side: Side, id: string) => rosters[side].players.find((p) => p.id === id);
   const unavailable = (side: Side, id: string): string | undefined => {
     const p = find(side, id);
@@ -128,10 +146,40 @@ export function validateEvent(event: TabletopEvent, stored: readonly TabletopEve
     return undefined;
   };
 
+  if (event.type === "weather") {
+    const r = event.payload.result;
+    if (event.payload.roll !== undefined || event.payload.pregame !== undefined) return fail("rolls and pre-game markers are server-only.");
+    if (typeof r !== "string" || !(WEATHER_RESULTS as readonly string[]).includes(r)) return fail(`weather payload.result must be one of ${WEATHER_RESULTS.join(", ")}.`);
+    return { event };
+  }
+  if (event.type === "endOfMatch") return { event };
+  if (event.type === "concede") {
+    if (live.some((e) => e.type === "concede")) return fail("the match was already conceded.");
+    return { event };
+  }
+  if (event.type === "secretObjective") {
+    const text = event.payload.text;
+    if (typeof text !== "string" || !text.trim() || text.length > 200) return fail("secretObjective needs payload.text (1-200 characters).");
+    if (event.player) {
+      const bad = unavailable(event.team, event.player);
+      if (bad) return fail(bad);
+    }
+    return { event: { ...event, payload: { ...event.payload, text: text.trim() } } };
+  }
+
   if (ACTING_TYPES.has(event.type)) {
     if (!event.player) return fail(`${event.type} needs a player.`);
     const bad = unavailable(event.team, event.player);
     if (bad) return fail(bad);
+    if (event.type === "injury" && !(INJURY_RESULTS as readonly string[]).includes(event.payload.result as string))
+      return fail(`injury payload.result must be one of ${INJURY_RESULTS.join(", ")}.`);
+    if (event.type === "throwTeamMate") {
+      if (event.payload.completed !== undefined && typeof event.payload.completed !== "boolean") return fail("payload.completed must be a boolean.");
+      if (event.payload.target !== undefined) {
+        const target = event.payload.target;
+        if (typeof target !== "string" || !find(event.team, target)) return fail("throwTeamMate payload.target must be a player on the same team.");
+      }
+    }
     if (event.type === "mvp" && live.some((e) => e.type === "mvp" && e.team === event.team)) return fail("this team already has an MVP.");
     return { event };
   }

@@ -9,15 +9,19 @@
  * Auth: Discord session only (401 anonymous, 403 non-Discord session / banned / non-participant).
  */
 
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { nafTimestamp } from "../tournaments/nafExport.js";
 import { BANNED_ACCOUNT_MESSAGE } from "../auth/access.js";
 import type { StoredTournamentResult } from "../tournamentResults.js";
 import {
   MAX_EVENTS_PER_BATCH, MAX_EVENTS_PER_MATCH, effectiveEvents, parseEvent, validateEvent, type Side, type TabletopEvent,
 } from "./events.js";
+import {
+  PRAYERS_TO_NUFFLE, journeymenNeeded, makeJourneymen, overlayRosters, planInducements, pregameSummary, teamValueWithJourneymen, weatherFor,
+  type MatchPhase,
+} from "./pregame.js";
 import { leagueStandings, type LeaguePoints } from "./standings.js";
-import { applyPostMatch, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopTeamFile } from "./postMatch.js";
+import { applyPostMatch, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile } from "./postMatch.js";
 import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
 import { duplicatePlayerId, parseTeamRef } from "./teamFile.js";
 
@@ -56,6 +60,8 @@ export interface TabletopApiDeps {
     list(): StoredTournamentResult[];
   };
   fixtures?: FixtureGateway;
+  /** Die roller for the server-side pre-game rolls: 1..sides. Default is crypto-random; tests inject. */
+  rollDie?: (sides: number) => number;
   /** Fork-game metadata lookup for league standings (package name of a fork tournament game). */
   forkMetadata?: Parameters<typeof leagueStandings>[2];
   /** A league's points scheme when the tournaments store has one; default 3/1/0. */
@@ -130,7 +136,7 @@ export async function tabletopApi(
       .map((t) => ({ ref: t.ref, name: t.name, race: t.race, tv: t.tv }));
     return { status: 200, body: { coach, saves, teams } };
   }
-  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict))?$/.exec(path);
+  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance))?$/.exec(path);
   if (!m) return err(404, "Not found.");
   const id = m[1]!;
   const action = m[2];
@@ -143,8 +149,14 @@ export async function tabletopApi(
   if (!action) {
     if (method !== "GET") return err(405, "Method not allowed.");
     const events = await repo.readEvents(id);
-    const teams = await currentTeams(repo, match);
-    return { status: 200, body: { match, events, effectiveEventIds: effectiveEvents(events).map((e) => e.id), teams, tally: tallyView(events, teams) } };
+    const teams = overlayRosters(await currentTeams(repo, match), events);
+    return {
+      status: 200,
+      body: {
+        match, phase: match.phase ?? "playing", pregame: pregameSummary(events), events,
+        effectiveEventIds: effectiveEvents(events).map((e) => e.id), teams, tally: tallyView(events, teams),
+      },
+    };
   }
   if (method !== "POST") return err(405, "Method not allowed.");
 
@@ -165,6 +177,7 @@ export async function tabletopApi(
     }
     const fresh = (await repo.getMatch(id))!;
     if (action === "events") return postEvents(fresh, me, body, deps, now);
+    if (action === "pregame/advance") return pregameAdvance(fresh, me, organiser, body, deps, now);
     if (action === "submit") return submit(fresh, deps, now);
     if (action === "confirm") return confirm(fresh, me, organiser, deps, now);
     if (!organiser) return err(403, "Organizer access required.");
@@ -192,6 +205,9 @@ function tallyView(events: readonly TabletopEvent[], teams: Record<Side, Tableto
   return {
     score: t.score,
     fanDelta: t.fanDelta,
+    treasurySpent: t.treasurySpent,
+    conceded: t.conceded,
+    clock: t.clock,
     casualtiesSuffered: t.casualtiesSuffered,
     players: { home: [...t.lines.home.values()], away: [...t.lines.away.values()] },
   };
@@ -205,7 +221,7 @@ async function listMatches(me: string, organiser: boolean, deps: TabletopApiDeps
     status: 200,
     body: {
       matches: mine.map((m) => ({
-        id: m.id, state: m.state, pendingOrganiser: m.state === "confirmed", ...(m.fixtureRef ? { fixtureRef: m.fixtureRef } : {}), postMatch: m.postMatch,
+        id: m.id, state: m.state, phase: m.phase ?? "playing", pendingOrganiser: m.state === "confirmed", ...(m.fixtureRef ? { fixtureRef: m.fixtureRef } : {}), postMatch: m.postMatch,
         home: { coach: m.home.coach, teamName: m.home.teamName }, away: { coach: m.away.coach, teamName: m.away.teamName },
         createdAt: m.createdAt, updatedAt: m.updatedAt,
       })),
@@ -264,6 +280,7 @@ async function createMatch(me: string, organiser: boolean, body: unknown, deps: 
     ...(b.fixtureRef ? { fixtureRef: b.fixtureRef } : {}),
     home: { ...home, teamName: headRevision(chainHome).teamFile.name },
     away: { ...away, teamName: headRevision(chainAway).teamFile.name },
+    phase: (b.pregame === "skip" ? "playing" : "pregame:fans") as MatchPhase,
     ...(league ? { league } : {}),
     ...(fixtureSwap ? { fixtureSwap } : {}),
     postMatch: postMatch as PostMatchOption,
@@ -279,11 +296,12 @@ async function createMatch(me: string, organiser: boolean, body: unknown, deps: 
 
 async function postEvents(match: MatchRecord, me: string, body: unknown, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
   if (match.state !== "recording") return err(409, `This match is ${match.state}; events can only be added while recording.`);
+  if ((match.phase ?? "playing") !== "playing") return err(409, `Finish the pre-game first (the match is at ${match.phase}).`);
   const raw = (body as { events?: unknown } | undefined)?.events;
   if (!Array.isArray(raw) || raw.length === 0) return err(400, "events must be a non-empty array.");
   if (raw.length > MAX_EVENTS_PER_BATCH) return err(400, `At most ${MAX_EVENTS_PER_BATCH} events per request.`);
   const stored = await deps.repo.readEvents(match.id);
-  const teams = await currentTeams(deps.repo, match);
+  const teams = overlayRosters(await currentTeams(deps.repo, match), stored);
   if (!teams.home || !teams.away) return err(409, "Team files are missing.");
   const rosters = { home: teams.home, away: teams.away };
   const known = new Set(stored.map((e) => e.id));
@@ -303,7 +321,14 @@ async function postEvents(match: MatchRecord, me: string, body: unknown, deps: T
   }
   if (stored.length + accepted.length > MAX_EVENTS_PER_MATCH) return err(409, "This match has too many events.");
   await deps.repo.appendEvents(match.id, accepted);
-  return { status: 200, body: { accepted: accepted.map((e) => e.id), duplicates, total: stored.length + accepted.length, tally: tallyView(running, teams) } };
+  const result = { accepted: accepted.map((e) => e.id), duplicates, total: stored.length + accepted.length, tally: tallyView(running, teams) };
+  // endOfMatch is the submit: the match moves to submitted in the same request.
+  if (accepted.some((e) => e.type === "endOfMatch")) {
+    const submitted = await submit(match, deps, now);
+    if (submitted.status !== 200) return submitted;
+    return { status: 200, body: { ...result, submitted: true, match: (submitted.body as { match: MatchRecord }).match } };
+  }
+  return { status: 200, body: result };
 }
 
 /** Preview both teams' post-match from the CURRENT head revisions; 409 if a head moved since creation. */
@@ -321,6 +346,7 @@ async function computePreview(match: MatchRecord, events: TabletopEvent[], deps:
 
 async function submit(match: MatchRecord, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
   if (match.state !== "recording") return err(409, `This match is already ${match.state}.`);
+  if ((match.phase ?? "playing") !== "playing") return err(409, `Finish the pre-game first (the match is at ${match.phase}).`);
   const p = await computePreview(match, await deps.repo.readEvents(match.id), deps);
   if (!p.ok) return p.error;
   const next: MatchRecord = {
@@ -386,10 +412,10 @@ async function buildConfirmJournal(
     score: tally.score[side],
     winnings: summary.winnings,
     penaltyScore: -1,
-    conceded: false,
+    conceded: tally.conceded[side],
     casualtiesSuffered: tally.casualtiesSuffered[side],
     players: [...tally.lines[side].values()].map((l) => ({
-      playerId: l.id, name: l.name, touchdowns: l.touchdowns, casualtiesCaused: l.casualtiesCaused, blocks: 0, fouls: 0,
+      playerId: l.id, name: l.name, touchdowns: l.touchdowns, casualtiesCaused: l.casualtiesCaused, blocks: 0, fouls: l.fouls,
       completions: l.completions, interceptions: l.interceptions, deflections: l.deflections, mvp: l.mvp,
     })),
   });
@@ -735,4 +761,154 @@ async function reopen(match: MatchRecord, note: string | undefined, deps: Tablet
   const next: MatchRecord = { ...rest, state: "recording", confirmations: {}, updatedAt: now().toISOString(), ...(note ? { note } : {}) };
   await deps.repo.updateMatch(next);
   return { status: 200, body: { match: next } };
+}
+
+// ---- Lane R1: pre-game --------------------------------------------------------------------------------------
+
+type Phase = MatchPhase;
+
+/**
+ * POST .../pregame/advance. Runs (or accepts) the CURRENT phase and moves on. All rolls are made here, on the
+ * server, and recorded as events; only the coin result can be entered by hand. Body per phase:
+ *   fans, weather, journeymen, prayers: none (optional {phase} guards against a double advance)
+ *   inducements: {team: "home"|"away", picks: [{id, qty}], skip?: true}
+ *   coin: auto = {mode: "auto", call: "heads"|"tails", caller: "home"|"away"}; the server flips and replies with the
+ *         result and winner, and the phase stays pregame:coin until the winner posts {choice: "kick"|"receive"};
+ *         hand = {mode: "hand", call, caller, result, winner, choice} in one request
+ * Events carry deterministic ids, so a retry after a partial failure re-uses what was already recorded.
+ */
+async function pregameAdvance(
+  match: MatchRecord, me: string, organiser: boolean, body: unknown, deps: TabletopApiDeps, now: () => Date,
+): Promise<TabletopResult> {
+  if (match.state !== "recording") return err(409, `This match is ${match.state}.`);
+  const phase: Phase = match.phase ?? "playing";
+  if (phase === "playing") return err(409, "The pre-game is finished.");
+  const b = (body && typeof body === "object" ? body : {}) as Record<string, any>;
+  if (b.phase !== undefined && b.phase !== phase) return err(409, `The match is at ${phase}, not ${String(b.phase)}.`);
+  const stored = await deps.repo.readEvents(match.id);
+  const baseTeams = await currentTeams(deps.repo, match);
+  if (!baseTeams.home || !baseTeams.away) return err(409, "Team files are missing.");
+  const at = now().toISOString();
+  const die = deps.rollDie ?? ((sides: number) => randomInt(1, sides + 1));
+  const sides = ["home", "away"] as const;
+  const out: TabletopEvent[] = [];
+  const have = (id: string) => stored.some((e) => e.id === id);
+  const mk = (id: string, type: TabletopEvent["type"], team: Side, payload: Record<string, unknown>): void => {
+    if (!have(id)) out.push({ id, matchId: match.id, type, team, payload, ts: at, by: me });
+  };
+  const all = () => [...stored, ...out];
+  const teams = () => overlayRosters({ home: baseTeams.home, away: baseTeams.away }, all()) as Record<Side, TabletopTeamFile>;
+  const prayersBought = (side: Side): number => {
+    const e = all().find((x) => x.type === "inducement" && x.team === side);
+    const picks = (e?.payload.picks as Array<{ id: string; qty: number }> | undefined) ?? [];
+    return picks.find((p) => p.id === "prayers_to_nuffle")?.qty ?? 0;
+  };
+  let next: Phase = phase;
+
+  if (phase === "pregame:fans") {
+    for (const side of sides) {
+      const roll = die(3);
+      mk(`pg-fans-${side}`, "fans", side, { roll, dedicatedFans: baseTeams[side]!.dedicatedFans, total: roll + baseTeams[side]!.dedicatedFans });
+    }
+    next = "pregame:weather";
+  } else if (phase === "pregame:weather") {
+    const a = die(6);
+    const c2 = die(6);
+    mk("pg-weather-0", "weather", "home", { pregame: true, roll: a + c2, dice: [a, c2], result: weatherFor(a + c2) });
+    next = "pregame:journeymen";
+  } else if (phase === "pregame:journeymen") {
+    for (const side of sides) {
+      if (all().some((e) => e.type === "journeyman" && e.team === side)) continue;
+      const need = journeymenNeeded(baseTeams[side]!);
+      if (need === 0) continue;
+      const made = makeJourneymen(baseTeams[side]!, need);
+      if ("error" in made) return err(422, `${match[side].coach}: ${made.error}`);
+      made.players.forEach((player, i) => mk(`pg-journeyman-${side}-${i + 1}`, "journeyman", side, { player, cost: made.cost / need }));
+    }
+    next = "pregame:inducements";
+  } else if (phase === "pregame:inducements") {
+    if (b.team !== "home" && b.team !== "away") return err(400, 'team must be "home" or "away".');
+    const side: Side = b.team;
+    if (!organiser && match[side].coach !== me) return err(403, "Each coach submits their own inducements.");
+    if (all().some((e) => e.type === "inducement" && e.team === side)) return err(409, `${match[side].coach} has already submitted inducements.`);
+    const picks = b.skip === true ? [] : b.picks;
+    if (!Array.isArray(picks)) return err(400, "picks must be an array (or send skip: true).");
+    const jm = (s: Side) => all().filter((e) => e.type === "journeyman" && e.team === s).map((e) => e.payload.player as TabletopPlayer);
+    const tvHome = teamValueWithJourneymen(baseTeams.home!, jm("home"));
+    const tvAway = teamValueWithJourneymen(baseTeams.away!, jm("away"));
+    if (tvHome === undefined || tvAway === undefined) return err(422, "A team value is unknown, so petty cash cannot be worked out.");
+    const role = tvHome === tvAway ? "equal" : (tvHome > tvAway) === (side === "home") ? "favourite" : "underdog";
+    const other: Side = side === "home" ? "away" : "home";
+    const otherEvent = all().find((e) => e.type === "inducement" && e.team === other);
+    if (role === "underdog" && !otherEvent) return err(409, `The higher-value team (${other}) goes first: its treasury spending feeds the petty cash.`);
+    const plan = planInducements({
+      file: baseTeams[side]!, picks, role, tvDifference: Math.abs(tvHome - tvAway),
+      favouriteSpent: role === "underdog" ? Number((otherEvent!.payload as { treasury?: number }).treasury ?? 0) : 0,
+    });
+    if ("error" in plan) return err(400, plan.error);
+    mk(`pg-inducement-${side}`, "inducement", side, { picks: plan.picks, total: plan.total, treasury: plan.treasury, pettyCash: plan.pettyCash, skipped: plan.picks.length === 0 });
+    const both = sides.every((s) => all().some((e) => e.type === "inducement" && e.team === s));
+    if (both) next = prayersBought("home") + prayersBought("away") > 0 ? "pregame:prayers" : "pregame:coin";
+  } else if (phase === "pregame:prayers") {
+    for (const side of sides) {
+      const n = prayersBought(side);
+      const used = new Set<number>();
+      for (let i = 1; i <= n; i += 1) {
+        let roll = die(16);
+        while (used.has(roll) && used.size < 16) roll = die(16); // duplicates are re-rolled
+        used.add(roll);
+        mk(`pg-prayer-${side}-${i}`, "prayer", side, { roll, name: PRAYERS_TO_NUFFLE[roll - 1] });
+      }
+    }
+    next = "pregame:coin";
+  } else if (phase === "pregame:coin") {
+    const flip = all().find((e) => e.id === "pg-coinflip");
+    const choiceGiven = b.choice !== undefined;
+    if (choiceGiven && b.choice !== "kick" && b.choice !== "receive") return err(400, 'choice must be "kick" or "receive".');
+    if (!flip) {
+      const mode = b.mode;
+      if (mode !== "auto" && mode !== "hand") return err(400, 'mode must be "auto" or "hand".');
+      if (b.call !== "heads" && b.call !== "tails") return err(400, 'call must be "heads" or "tails".');
+      if (b.caller !== "home" && b.caller !== "away") return err(400, 'caller must be "home" or "away".');
+      const caller: Side = b.caller;
+      const callerWins = (result: string) => result === b.call;
+      if (mode === "auto") {
+        if (choiceGiven) return err(400, "Make the call first; the winner chooses after the flip.");
+        // The SERVER flips (crypto-random in production); the page animates to this result.
+        const result = die(2) === 1 ? "heads" : "tails";
+        const winner: Side = callerWins(result) ? caller : caller === "home" ? "away" : "home";
+        mk("pg-coinflip", "coinFlip", winner, { mode, call: b.call, caller, result, winner });
+        // stays at pregame:coin until the winner's choice is posted as a second advance
+      } else {
+        if (b.result !== "heads" && b.result !== "tails") return err(400, 'hand mode needs result: "heads" or "tails".');
+        if (b.winner !== "home" && b.winner !== "away") return err(400, 'hand mode needs winner: "home" or "away".');
+        if (!choiceGiven) return err(400, 'hand mode needs choice: "kick" or "receive".');
+        const expected: Side = callerWins(b.result) ? caller : caller === "home" ? "away" : "home";
+        if (b.winner !== expected) return err(400, `With that call and result the winner is ${expected}.`);
+        mk("pg-coinflip", "coinFlip", b.winner, { mode, call: b.call, caller, result: b.result, winner: b.winner, choice: b.choice });
+        next = "playing";
+      }
+    } else if (flip.payload.mode === "auto" && !all().some((e) => e.id === "pg-coinchoice")) {
+      if (!choiceGiven) return err(400, 'The winner must choose: choice "kick" or "receive".');
+      const winner = flip.team;
+      if (!organiser && match[winner].coach !== me) return err(403, `${match[winner].coach} won the toss and makes the choice.`);
+      mk("pg-coinchoice", "coinFlip", winner, { stage: "choice", winner, choice: b.choice });
+      next = "playing";
+    } else {
+      return err(409, "The coin has already been flipped.");
+    }
+  }
+
+  await deps.repo.appendEvents(match.id, out);
+  const updated: MatchRecord = next === phase ? match : { ...match, phase: next, updatedAt: at };
+  if (next !== phase) await deps.repo.updateMatch(updated);
+  const events = [...stored, ...out];
+  return {
+    status: 200,
+    body: {
+      match: updated, phase: next, recorded: out.map((e) => e.id), pregame: pregameSummary(events),
+      teams: overlayRosters({ home: baseTeams.home, away: baseTeams.away }, events),
+      ...(phase === "pregame:inducements" && next === phase ? { waitingFor: sides.filter((s) => !events.some((e) => e.type === "inducement" && e.team === s)) } : {}),
+    },
+  };
 }

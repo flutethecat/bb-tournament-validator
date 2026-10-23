@@ -93,7 +93,7 @@ describe("baseline from a fork library team", () => {
 describe("tabletop create with library refs", () => {
   it("creates from a library ref, stores revisions under library:<id>, and plays on the real roster", async () => {
     const created = await as("Tarkin", "POST", "/api/tabletop/matches", {
-      home: { coach: "Tarkin", team: "library:1272390" }, away: { coach: "Bob", team: "save:sv_bob" }, postMatch: "spp-only",
+      pregame: "skip", home: { coach: "Tarkin", team: "library:1272390" }, away: { coach: "Bob", team: "save:sv_bob" }, postMatch: "spp-only",
     });
     expect(created.status).toBe(201);
     const match = (created.body as { match: { id: string; home: { teamSaveId: string; teamName: string }; away: { teamSaveId: string } } }).match;
@@ -119,13 +119,13 @@ describe("tabletop create with library refs", () => {
 
   it("still accepts the old teamSaveId field and a bare id", async () => {
     const r = await as("Bob", "POST", "/api/tabletop/matches", {
-      home: { coach: "Bob", teamSaveId: "sv_bob" }, away: { coach: "Tarkin", team: "library:1272390" },
+      pregame: "skip", home: { coach: "Bob", teamSaveId: "sv_bob" }, away: { coach: "Tarkin", team: "library:1272390" },
     });
     expect(r.status).toBe(201);
   });
 
   it("names the kind when a team is missing, and never resolves another coach's library team", async () => {
-    const mk = (home: object, away: object) => as("Org", "POST", "/api/tabletop/matches", { home, away });
+    const mk = (home: object, away: object) => as("Org", "POST", "/api/tabletop/matches", { pregame: "skip", home, away });
     const missingLib = await mk({ coach: "Tarkin", team: "library:999" }, { coach: "Bob", team: "sv_bob" });
     expect(missingLib.status).toBe(404);
     expect(missingLib.body).toEqual({ error: "Tarkin has no library team library:999." });

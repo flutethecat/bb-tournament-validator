@@ -82,7 +82,7 @@ const saveOf = (c: string) => `sv_${c.slice(0, 1).toLowerCase()}`;
 /** A submitted match between two coaches (home scores a touchdown). */
 async function submitted(home: string, away: string, fixtureRef?: string): Promise<string> {
   const created = await as("Org", "POST", "/api/tabletop/matches", {
-    home: { coach: home, teamSaveId: saveOf(home) }, away: { coach: away, teamSaveId: saveOf(away) }, postMatch: "spp-only", fixtureRef,
+    pregame: "skip", home: { coach: home, teamSaveId: saveOf(home) }, away: { coach: away, teamSaveId: saveOf(away) }, postMatch: "spp-only", fixtureRef,
   });
   expect(created.status).toBe(201);
   const id = (created.body as { match: { id: string } }).match.id;

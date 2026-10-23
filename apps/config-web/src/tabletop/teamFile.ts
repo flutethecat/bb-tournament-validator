@@ -1,4 +1,5 @@
 import type { TeamBuilderSave } from "../teamBuilderSaves.js";
+import { bb2025 } from "@bb/validator/dataset";
 import type { TeamDetail } from "../teamDetail.js";
 import type { TabletopPlayer, TabletopTeamFile } from "./postMatch.js";
 
@@ -23,6 +24,17 @@ export function teamFileFromSave(save: TeamBuilderSave): TabletopTeamFile {
       players.push({ id: `${positionId}-${i}`, name: `${positionId} ${i}`, number: number++, positionId, spp: 0, skills: [...skills], mng: false, niggles: 0, statLoss: {}, dead: false });
     }
   }
+  const roster = Object.values(bb2025.rosters).find((r) => r.id.toLowerCase() === String(save.rosterId).toLowerCase());
+  const previewTv = (save.lastPreview as Record<string, unknown> | undefined)?.teamValue;
+  const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+  // Team value: the builder preview's figure (thousands of gold) when kept with the sheet, else roster arithmetic
+  // (players + rerolls + apothecary + staff + extra fans); undefined when the roster is unknown.
+  const teamValue = typeof previewTv === "number" && previewTv > 0 ? previewTv * 1000
+    : roster
+      ? picks.reduce((n, pk) => n + (roster.positions.find((p) => p.id === pk.positionId)?.cost ?? 0) * num(pk.count), 0)
+        + num(body.reRolls) * roster.reRollCost + (body.apothecary ? 50_000 : 0)
+        + (num(body.assistantCoaches) + num(body.cheerleaders)) * 10_000 + Math.max(0, num(body.dedicatedFans) - 1) * 10_000
+      : undefined;
   const fans = typeof body.dedicatedFans === "number" && body.dedicatedFans >= 1 ? Math.min(6, Math.floor(body.dedicatedFans)) : 1;
   return {
     schema: 1,
@@ -30,6 +42,7 @@ export function teamFileFromSave(save: TeamBuilderSave): TabletopTeamFile {
     rosterId: save.rosterId,
     treasury: typeof body.treasury === "number" && body.treasury >= 0 ? body.treasury : 0,
     dedicatedFans: fans,
+    ...(teamValue !== undefined ? { teamValue } : {}),
     players,
   };
 }
@@ -85,6 +98,8 @@ export function teamFileFromLibraryDetail(team: TeamDetail): TabletopTeamFile {
     apothecary: team.apothecary,
     assistantCoaches: team.assistantCoaches,
     cheerleaders: team.cheerleaders,
+    teamValue: team.teamValue * 1000,
+    ...(team.specialRules?.length ? { specialRules: [...team.specialRules] } : {}),
     players,
   };
 }

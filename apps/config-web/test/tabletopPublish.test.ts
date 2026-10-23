@@ -64,7 +64,7 @@ const saveOf = (coach: string) => (coach === "Alice" ? "sv_a" : "sv_b");
 async function confirmedMatch(homeCoach: string, fixtureRef?: string, league?: string): Promise<string> {
   const awayCoach = homeCoach === "Alice" ? "Bob" : "Alice";
   const created = await as("Org", "POST", "/api/tabletop/matches", {
-    home: { coach: homeCoach, teamSaveId: saveOf(homeCoach) }, away: { coach: awayCoach, teamSaveId: saveOf(awayCoach) },
+    pregame: "skip", home: { coach: homeCoach, teamSaveId: saveOf(homeCoach) }, away: { coach: awayCoach, teamSaveId: saveOf(awayCoach) },
     postMatch: "spp-only", fixtureRef, league,
   });
   expect(created.status).toBe(201);
@@ -122,7 +122,7 @@ describe("tabletop T3: publish gating", () => {
 
   it("publish before confirm is a 409", async () => {
     const created = await as("Org", "POST", "/api/tabletop/matches", {
-      home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" },
+      pregame: "skip", home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" },
     });
     const id = (created.body as { match: { id: string } }).match.id;
     expect((await as("Org", "POST", `/api/tabletop/matches/${id}/publish`)).status).toBe(409);
@@ -132,12 +132,12 @@ describe("tabletop T3: publish gating", () => {
 describe("tabletop T3: fixture link", () => {
   it("validates the fixture at creation: exists, unresolved, coaches match (409 otherwise)", async () => {
     const mk = (fixtureRef: string, a = "Alice", b = "Bob") => as("Org", "POST", "/api/tabletop/matches", {
-      home: { coach: a, teamSaveId: saveOf(a) }, away: { coach: b, teamSaveId: saveOf(b) }, fixtureRef,
+      pregame: "skip", home: { coach: a, teamSaveId: saveOf(a) }, away: { coach: b, teamSaveId: saveOf(b) }, fixtureRef,
     });
     expect((await mk("nope:round:1:match:1")).status).toBe(409);
     files["Carol/sv_c"] = mkTeam("Carol XI", "c");
     const wrong = await as("Org", "POST", "/api/tabletop/matches", {
-      home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Carol", teamSaveId: "sv_c" }, fixtureRef: fixtureId,
+      pregame: "skip", home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Carol", teamSaveId: "sv_c" }, fixtureRef: fixtureId,
     });
     expect(wrong.status).toBe(409);
     expect((await mk(fixtureId, fixtureHome, fixtureAway)).status).toBe(201);

@@ -66,7 +66,7 @@ const call = (method: string, path: string, who?: string, body?: unknown, csrf =
     ...(method === "POST" ? { body: JSON.stringify(body ?? {}) } : {}),
   });
 const create = (who: string) => call("POST", "/api/tabletop/matches", who, {
-  home: { coach: "TtAlice", teamSaveId: saveIds.TtAlice }, away: { coach: "TtBob", teamSaveId: saveIds.TtBob }, postMatch: "full",
+  pregame: "skip", home: { coach: "TtAlice", teamSaveId: saveIds.TtAlice }, away: { coach: "TtBob", teamSaveId: saveIds.TtBob }, postMatch: "full",
 });
 
 describe("tabletop routes (sidecar off)", () => {

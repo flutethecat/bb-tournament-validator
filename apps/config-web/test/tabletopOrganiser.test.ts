@@ -64,7 +64,7 @@ async function fixtureMatch(i: number, submit = true, comma = false): Promise<st
   const homeCoach = f.home.coach.ffbCoachId;
   const awayCoach = f.away!.coach.ffbCoachId;
   const created = await as("Org", "POST", "/api/tabletop/matches", {
-    home: { coach: homeCoach, teamSaveId: saveOf(homeCoach) }, away: { coach: awayCoach, teamSaveId: saveOf(awayCoach) },
+    pregame: "skip", home: { coach: homeCoach, teamSaveId: saveOf(homeCoach) }, away: { coach: awayCoach, teamSaveId: saveOf(awayCoach) },
     postMatch: "spp-only", fixtureRef: fixtures[i],
   });
   expect(created.status).toBe(201);

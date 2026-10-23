@@ -44,7 +44,7 @@ const E = (type: string, team: string, player?: string, payload: Record<string, 
 };
 async function newMatch(postMatch = "full", fixtureRef?: string): Promise<string> {
   const r = await as("Alice", "POST", "/api/tabletop/matches", {
-    home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" }, postMatch, fixtureRef,
+    pregame: "skip", home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" }, postMatch, fixtureRef,
   });
   expect(r.status).toBe(201);
   return (r.body as { match: { id: string } }).match.id;
@@ -74,18 +74,18 @@ describe("tabletop API: auth", () => {
     for (const [m, p] of [["GET", ""], ["POST", "/events"], ["POST", "/submit"], ["POST", "/confirm"]] as const)
       expect((await as("Mallory", m, `/api/tabletop/matches/${id}${p}`, { events: [E("touchdown", "home", "a1")] })).status).toBe(403);
     expect((await as("Mallory", "POST", "/api/tabletop/matches", {
-      home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" },
+      pregame: "skip", home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" },
     })).status).toBe(403);
     expect((await as("Org", "GET", `/api/tabletop/matches/${id}`)).status).toBe(200);
     expect((await as("Mallory", "POST", `/api/tabletop/matches/${id}/undo-revision`)).status).toBe(403);
     expect((await as("Alice", "POST", `/api/tabletop/matches/${id}/undo-revision`)).status).toBe(403);
   });
   it("create validates sides, own saves and one open match per team", async () => {
-    expect((await as("Alice", "POST", "/api/tabletop/matches", { home: { coach: "Alice", teamSaveId: "sv_a" } })).status).toBe(400);
-    expect((await as("Alice", "POST", "/api/tabletop/matches", { home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Alice", teamSaveId: "sv_a" } })).status).toBe(400);
-    expect((await as("Alice", "POST", "/api/tabletop/matches", { home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_nope" } })).status).toBe(404);
+    expect((await as("Alice", "POST", "/api/tabletop/matches", { pregame: "skip", home: { coach: "Alice", teamSaveId: "sv_a" } })).status).toBe(400);
+    expect((await as("Alice", "POST", "/api/tabletop/matches", { pregame: "skip", home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Alice", teamSaveId: "sv_a" } })).status).toBe(400);
+    expect((await as("Alice", "POST", "/api/tabletop/matches", { pregame: "skip", home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_nope" } })).status).toBe(404);
     await newMatch();
-    expect((await as("Alice", "POST", "/api/tabletop/matches", { home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" } })).status).toBe(409);
+    expect((await as("Alice", "POST", "/api/tabletop/matches", { pregame: "skip", home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" } })).status).toBe(409);
   });
 });
 
@@ -217,7 +217,7 @@ describe("tabletop: baseline team file ids", () => {
     const bad = mkTeam("Dup", "a");
     bad.players[1]!.id = bad.players[0]!.id;
     files["Alice/sv_a"] = bad;
-    const r = await as("Alice", "POST", "/api/tabletop/matches", { home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" } });
+    const r = await as("Alice", "POST", "/api/tabletop/matches", { pregame: "skip", home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" } });
     expect(r.status).toBe(422);
     expect(await repo.getChain("Alice", "sv_a")).toBeUndefined();
   });
@@ -314,7 +314,7 @@ describe("tabletop: list, saves, tally", () => {
     const secondId = ((await later)!.body as { match: { id: string } }).match.id;
     const mine = (await as("Alice", "GET", "/api/tabletop/matches")).body as { matches: Array<Record<string, any>> };
     expect(mine.matches.map((m) => m.id)).toEqual([first]);
-    expect(Object.keys(mine.matches[0]!).sort()).toEqual(["away", "createdAt", "home", "id", "pendingOrganiser", "postMatch", "state", "updatedAt"]);
+    expect(Object.keys(mine.matches[0]!).sort()).toEqual(["away", "createdAt", "home", "id", "pendingOrganiser", "phase", "postMatch", "state", "updatedAt"]);
     expect(mine.matches[0]!.home).toEqual({ coach: "Alice", teamName: "Alice XI" });
     const all = (await as("Org", "GET", "/api/tabletop/matches")).body as { matches: Array<{ id: string }> };
     expect(all.matches.map((m) => m.id)).toEqual([secondId, first]); // newest first

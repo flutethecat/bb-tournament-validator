@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 import type { StoredTournamentResult } from "../tournamentResults.js";
 import type { TabletopEvent } from "./events.js";
+import type { MatchPhase } from "./pregame.js";
 import type { PostMatchOption, PostMatchSummary, TabletopTeamFile } from "./postMatch.js";
 
 export type MatchState = "recording" | "submitted" | "confirmed" | "published";
@@ -28,6 +29,8 @@ export interface MatchRecord {
   id: string;
   state: MatchState;
   fixtureRef?: string;
+  /** Where the match is: pre-game phases, then "playing". Absent on matches from before pre-game existed = playing. */
+  phase?: MatchPhase;
   home: MatchSide;
   away: MatchSide;
   postMatch: PostMatchOption;

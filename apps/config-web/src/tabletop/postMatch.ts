@@ -29,7 +29,7 @@ export type PostMatchOption = "none" | "spp-only" | "full";
 export type Ruleset = "bb2025";
 
 export const WINNINGS_PER_TOUCHDOWN = 10_000;
-export const SPP_VALUES = { touchdown: 3, casualty: 2, completion: 1, interception: 1, deflection: 1, mvp: 4 } as const;
+export const SPP_VALUES = { touchdown: 3, casualty: 2, completion: 1, throwTeamMate: 1, interception: 1, deflection: 1, mvp: 4 } as const;
 export const FANS_MIN = 1;
 export const FANS_MAX = 6;
 
@@ -47,6 +47,8 @@ export interface TabletopPlayer {
   dead: boolean;
   /** Library teams: the stored lasting-injury names, preserved verbatim. */
   injuries?: string[];
+  /** Added for one match by the pre-game journeymen step; never part of a stored team revision. */
+  journeyman?: boolean;
 }
 
 export interface TabletopTeamFile {
@@ -61,6 +63,9 @@ export interface TabletopTeamFile {
   apothecary?: boolean;
   assistantCoaches?: number;
   cheerleaders?: number;
+  /** Current team value in gold, when known (inducement petty cash needs it). */
+  teamValue?: number;
+  specialRules?: string[];
   players: TabletopPlayer[];
   /** Id of the match that produced this revision (absent on the baseline). */
   lastMatchId?: string;
@@ -79,6 +84,9 @@ export interface PlayerLine {
   touchdowns: number;
   casualtiesCaused: number;
   completions: number;
+  throwTeamMateCompletions: number;
+  catches: number;
+  fouls: number;
   interceptions: number;
   deflections: number;
   mvp: number;
@@ -110,11 +118,16 @@ export interface MatchTally {
   /** Per side, per player id (only players with at least one recorded line). */
   lines: Record<Side, Map<string, PlayerLine>>;
   fanDelta: Record<Side, number>;
+  /** Gold each side paid from its treasury for inducements (server-validated pre-game events). */
+  treasurySpent: Record<Side, number>;
+  conceded: Record<Side, boolean>;
+  /** The latest half/turn any effective event carried (for the scoreboard). */
+  clock: { half?: string | number; turn?: number };
   casualtiesSuffered: Record<Side, { bh: number; si: number; rip: number }>;
 }
 
 const emptyLine = (id: string, name: string): PlayerLine => ({
-  id, name, touchdowns: 0, casualtiesCaused: 0, completions: 0, interceptions: 0, deflections: 0, mvp: 0, sentOff: false, sppEarned: 0,
+  id, name, touchdowns: 0, casualtiesCaused: 0, completions: 0, throwTeamMateCompletions: 0, catches: 0, fouls: 0, interceptions: 0, deflections: 0, mvp: 0, sentOff: false, sppEarned: 0,
 });
 
 /** Count the effective events. The single tally used by the post-match function AND the results row. */
@@ -123,6 +136,9 @@ export function tallyMatch(events: readonly TabletopEvent[], names: Record<Side,
     score: { home: 0, away: 0 },
     lines: { home: new Map(), away: new Map() },
     fanDelta: { home: 0, away: 0 },
+    treasurySpent: { home: 0, away: 0 },
+    conceded: { home: false, away: false },
+    clock: {},
     casualtiesSuffered: { home: { bh: 0, si: 0, rip: 0 }, away: { bh: 0, si: 0, rip: 0 } },
   };
   const line = (side: Side, id: string): PlayerLine => {
@@ -132,7 +148,14 @@ export function tallyMatch(events: readonly TabletopEvent[], names: Record<Side,
   };
   for (const e of effectiveEvents(events)) {
     const side = e.team;
+    if (e.half !== undefined) t.clock.half = e.half;
+    if (e.turn !== undefined) t.clock.turn = e.turn;
     switch (e.type) {
+      case "catch": line(side, e.player!).catches += 1; break;
+      case "foul": line(side, e.player!).fouls += 1; break;
+      case "throwTeamMate": if (e.payload.completed === true) line(side, e.player!).throwTeamMateCompletions += 1; break;
+      case "concede": t.conceded[side] = true; break;
+      case "inducement": t.treasurySpent[side] += typeof e.payload.treasury === "number" ? e.payload.treasury : 0; break;
       case "touchdown": t.score[side] += 1; line(side, e.player!).touchdowns += 1; break;
       case "completion": line(side, e.player!).completions += 1; break;
       case "interception": line(side, e.player!).interceptions += 1; break;
@@ -160,6 +183,7 @@ export function tallyMatch(events: readonly TabletopEvent[], names: Record<Side,
     for (const l of t.lines[side].values())
       l.sppEarned =
         l.touchdowns * SPP_VALUES.touchdown + l.casualtiesCaused * SPP_VALUES.casualty + l.completions * SPP_VALUES.completion +
+        l.throwTeamMateCompletions * SPP_VALUES.throwTeamMate +
         l.interceptions * SPP_VALUES.interception + l.deflections * SPP_VALUES.deflection + l.mvp * SPP_VALUES.mvp;
   return t;
 }
@@ -180,6 +204,7 @@ export function applyPostMatch(
   const lines = [...tally.lines[side].values()];
   const full = options.postMatch === "full";
   const winnings = full ? forScore * WINNINGS_PER_TOUCHDOWN : 0;
+  const spent = full ? Math.min(tally.treasurySpent[side], teamFile.treasury + winnings) : 0;
   const fansBefore = teamFile.dedicatedFans;
   const fansAfter = full ? Math.min(FANS_MAX, Math.max(FANS_MIN, fansBefore + tally.fanDelta[side])) : fansBefore;
 
@@ -194,7 +219,7 @@ export function applyPostMatch(
     deaths: lines.filter((l) => l.injury?.result === "DEAD").map((l) => l.id),
     winnings,
     treasuryBefore: teamFile.treasury,
-    treasuryAfter: teamFile.treasury + winnings,
+    treasuryAfter: teamFile.treasury + winnings - spent,
     fansBefore,
     fansAfter,
     casualtiesSuffered: tally.casualtiesSuffered[side],
