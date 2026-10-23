@@ -738,6 +738,7 @@ ${rosterSheetHtml(model)}
   const ELITE_GOLD = 10_000;
   const DEFAULT_ELITE = new Set(["Block", "Dodge", "Guard", "Mighty Blow"]);
 
+  const PREVIEW_COACH = "Guest"; // preview-only stand-in while signed out
   const freshStaff = () => ({ reRolls: 0, assistantCoaches: 0, cheerleaders: 0, dedicatedFans: 1, apothecary: 0 });
 
   // ── state ──
@@ -962,12 +963,8 @@ ${rosterSheetHtml(model)}
   }
   function setSessionCoach(coach) {
     authCoach = String(coach ?? "").trim();
-    const coachInput = $("coach");
-    if (authCoach) coachInput.value = authCoach;
-    coachInput.readOnly = Boolean(authCoach);
-    if (authCoach) coachInput.setAttribute("aria-readonly", "true");
-    else coachInput.removeAttribute("aria-readonly");
-    $("current-coach-label").textContent = authCoach || coachInput.value.trim() || "Choose an existing fork account below";
+    // The coach is ALWAYS the Discord-signed-in fork account (owner 10-23: no coach field).
+    $("current-coach-label").textContent = authCoach || "sign in with Discord";
     syncBuildButton();
   }
   function renderSession() {
@@ -1798,7 +1795,9 @@ ${rosterSheetHtml(model)}
     return {
       ...(editingTeamId ? { teamId: editingTeamId } : {}),
       rosterId: current?.rosterId,
-      coach: authCoach || $("coach").value.trim(),
+      // Signed out: previews still run under a placeholder coach (preview is non-mutating);
+      // build is gated on sign-in and the server always uses the session coach.
+      coach: authCoach || PREVIEW_COACH,
       teamName: $("team-name").value.trim(),
       picks,
       reRolls: staff.reRolls,
@@ -1817,7 +1816,7 @@ ${rosterSheetHtml(model)}
     clearTimeout(previewTimer);
     previewSequence++;
     if (preview && preview.rosterId !== current?.rosterId) preview = null;
-    if (!current || !slots.length || !$("team-name").value.trim() || !(authCoach || $("coach").value.trim()) || mode === "library") {
+    if (!current || !slots.length || !$("team-name").value.trim() || mode === "library") {
       previewPending = false;
       renderValueCard();
       renderValidity();
@@ -2407,9 +2406,9 @@ ${rosterSheetHtml(model)}
 
   // ── Fork library ("Your Fork Teams") with whole-roster edit ──
   async function loadLibrary() {
-    const coach = authCoach || $("coach").value.trim();
+    const coach = authCoach;
     if (!coach) {
-      $("library-status").textContent = "Sign in (or enter your coach name) to see your fork teams.";
+      $("library-status").textContent = "Sign in with Discord to see your fork teams.";
       $("library-list").innerHTML = "";
       return;
     }
@@ -2507,7 +2506,7 @@ ${rosterSheetHtml(model)}
     ];
     return Core.rosterSheetModel({
       raceName: current?.raceName ?? "",
-      coach: authCoach || $("coach").value.trim(),
+      coach: authCoach,
       teamName: $("team-name").value.trim(),
       rulesetName: mode === "tournament" ? [$("package").value, raceRules()?.tierLabel].filter(Boolean).join(" — ") : "",
       players: slots.map((slot) => ({
@@ -2709,9 +2708,8 @@ ${rosterSheetHtml(model)}
   async function boot() {
     renderAll();
     try {
-      const [{ rosters: rosterRows }, { users }, packageRows] = await Promise.all([
+      const [{ rosters: rosterRows }, packageRows] = await Promise.all([
         api("/api/fork/rosters"),
-        api("/api/fork/users").catch(() => ({ users: [] })),
         api("/api/packages").catch(() => []),
       ]);
       rosters = (Array.isArray(rosterRows) ? rosterRows : []).map(sanitizeRoster);
@@ -2722,7 +2720,6 @@ ${rosterSheetHtml(model)}
         : '<option value="">No tournament packages are saved yet</option>';
       $("race").innerHTML = '<option value="">Choose a roster</option>'
         + rosters.map((roster) => `<option value="${esc(roster.rosterId)}">${esc(roster.raceName)}</option>`).join("");
-      $("coach-list").innerHTML = (users ?? []).map((user) => `<option value="${esc(user.fumbblName)}"></option>`).join("");
       if (!rosters.length) {
         $("race").innerHTML = '<option value="">No base rosters installed on the fork</option>';
         setStatus("No BB2025 roster data is available.");
@@ -2770,10 +2767,6 @@ ${rosterSheetHtml(model)}
     $("name-gate-toast").hidden = true;
     renderPositions();
     renderStars();
-    schedulePreview();
-  });
-  $("coach").addEventListener("input", () => {
-    $("current-coach-label").textContent = $("coach").value.trim() || "Choose an existing fork account below";
     schedulePreview();
   });
   document.querySelector(".mode-grid")?.addEventListener("click", (event) => {
