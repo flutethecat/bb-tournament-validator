@@ -10,7 +10,7 @@ export interface NewMatchForm { myTeam: string; opponent: string; theirTeam: str
 
 export type MatchSummary = Pick<MatchView, "id" | "state" | "postMatch" | "home" | "away"> & { createdAt?: string };
 /** One pickable team: ref is "library:<teamId>" or "save:<saveId>". */
-export interface TeamOption { ref: string; name: string; race?: string; tv?: number }
+export interface TeamOption { ref: string; name: string; race?: string; tv?: number | null }
 export const teamKind = (ref: string): string => (ref.startsWith("library:") ? "Library" : "Builder save");
 
 export interface FixtureSide { coach: string; teamRef?: string; teamName?: string }

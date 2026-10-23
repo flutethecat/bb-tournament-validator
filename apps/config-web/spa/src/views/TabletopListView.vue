@@ -16,7 +16,7 @@ const list = inject(TABLETOP_LIST_KEY, null)
   ?? createTabletopList({ api: fetcher, coach: () => session.coach(), onSignedOut: () => void session.load(true) });
 const { state } = list;
 const teamLabel = (t: TeamOption): string =>
-  `${t.name}${t.race || t.tv !== undefined ? ` (${[t.race, t.tv !== undefined ? `TV ${fmtK(t.tv)}` : ""].filter(Boolean).join(", ")})` : ""} · ${teamKind(t.ref)}`;
+  `${t.name}${t.race || t.tv != null ? ` (${[t.race, t.tv != null ? `TV ${fmtK(t.tv)}` : ""].filter(Boolean).join(", ")})` : ""} · ${teamKind(t.ref)}`;
 
 const myTeams = computed(() => state.myTeams);
 const myTeamsErr = computed(() => state.myTeamsError);

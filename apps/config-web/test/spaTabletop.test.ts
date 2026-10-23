@@ -246,6 +246,7 @@ describe("tabletop routes (server-rendered)", () => {
           "/api/tabletop/saves?coach=Alice": { coach: "Alice", teams: [
             { ref: "library:1263233", name: "Alice Orcs", race: "Orc", tv: 1000000 },
             { ref: "save:sv_9", name: "Alice Draft", race: "Orc", tv: 950000 },
+            { ref: "save:sv_10", name: "Alice Scratch", race: "", tv: null }, // a builder save the server cannot value: tv is null
           ] },
         }),
         coach: () => "Alice", onSignedOut: () => undefined,
@@ -257,6 +258,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("New match");
     expect(html).toContain("Alice Orcs (Orc, TV 1,000k) · Library");
     expect(html).toContain("Alice Draft (Orc, TV 950k) · Builder save");
+    expect(html).toContain("Alice Scratch · Builder save"); // a null tv must not crash the page
     expect(html).toContain('value="library:1263233"');
         expect(html).toContain("Type 2 or more letters");
     expect(html).toContain("Pick an opponent first");
