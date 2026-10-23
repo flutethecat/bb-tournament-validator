@@ -21,7 +21,7 @@ import {
   type MatchPhase,
 } from "./pregame.js";
 import { leagueStandings, type LeaguePoints } from "./standings.js";
-import { applyPostMatch, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile } from "./postMatch.js";
+import { applyPostMatch, sppForEvent, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile } from "./postMatch.js";
 import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
 import { duplicatePlayerId, parseTeamRef } from "./teamFile.js";
 
@@ -160,10 +160,12 @@ export async function tabletopApi(
     if (method !== "GET") return err(405, "Method not allowed.");
     const events = await repo.readEvents(id);
     const teams = overlayRosters(await currentTeams(repo, match), events);
+    const effective = new Set(effectiveEvents(events).map((e) => e.id));
     return {
       status: 200,
       body: {
-        match, phase: match.phase ?? "playing", pregame: pregameSummary(events), events,
+        match, phase: match.phase ?? "playing", pregame: pregameSummary(events),
+        events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e) : 0 })),
         effectiveEventIds: effectiveEvents(events).map((e) => e.id), teams, tally: tallyView(events, teams),
       },
     };
@@ -220,6 +222,8 @@ function tallyView(events: readonly TabletopEvent[], teams: Record<Side, Tableto
     clock: t.clock,
     casualtiesSuffered: t.casualtiesSuffered,
     players: { home: [...t.lines.home.values()], away: [...t.lines.away.values()] },
+    // SPP each EFFECTIVE event earns (server-derived: clients never keep an SPP table of their own)
+    events: effectiveEvents(events).map((e) => ({ id: e.id, team: e.team, ...(e.player ? { player: e.player } : {}), sppEarned: sppForEvent(e) })),
   };
 }
 
@@ -837,7 +841,7 @@ async function pregameAdvance(
   const all = () => [...stored, ...out];
   const teams = () => overlayRosters({ home: baseTeams.home, away: baseTeams.away }, all()) as Record<Side, TabletopTeamFile>;
   const prayersBought = (side: Side): number => {
-    const e = all().find((x) => x.type === "inducement" && x.team === side);
+    const e = all().filter((x) => x.type === "inducement" && x.team === side).at(-1);
     const picks = (e?.payload.picks as Array<{ id: string; qty: number }> | undefined) ?? [];
     return picks.find((p) => p.id === "prayers_to_nuffle")?.qty ?? 0;
   };
@@ -867,8 +871,9 @@ async function pregameAdvance(
   } else if (phase === "pregame:inducements") {
     if (b.team !== "home" && b.team !== "away") return err(400, 'team must be "home" or "away".');
     const side: Side = b.team;
-    if (!organiser && match[side].coach !== me) return err(403, "Each coach submits their own inducements.");
-    if (all().some((e) => e.type === "inducement" && e.team === side)) return err(409, `${match[side].coach} has already submitted inducements.`);
+    // Either participant (or an organiser) may submit for BOTH teams (one phone at the table); strangers never reach here.
+    // A new submission for a team REPLACES its earlier one while the phase is still open.
+    const earlier = all().filter((e) => e.type === "inducement" && e.team === side).length;
     const picks = b.skip === true ? [] : b.picks;
     if (!Array.isArray(picks)) return err(400, "picks must be an array (or send skip: true).");
     const jm = (s: Side) => all().filter((e) => e.type === "journeyman" && e.team === s).map((e) => e.payload.player as TabletopPlayer);
@@ -877,14 +882,17 @@ async function pregameAdvance(
     if (tvHome === undefined || tvAway === undefined) return err(422, "A team value is unknown, so petty cash cannot be worked out.");
     const role = tvHome === tvAway ? "equal" : (tvHome > tvAway) === (side === "home") ? "favourite" : "underdog";
     const other: Side = side === "home" ? "away" : "home";
-    const otherEvent = all().find((e) => e.type === "inducement" && e.team === other);
+    const otherEvent = all().filter((e) => e.type === "inducement" && e.team === other).at(-1);
     if (role === "underdog" && !otherEvent) return err(409, `The higher-value team (${other}) goes first: its treasury spending feeds the petty cash.`);
     const plan = planInducements({
       file: baseTeams[side]!, picks, role, tvDifference: Math.abs(tvHome - tvAway),
       favouriteSpent: role === "underdog" ? Number((otherEvent!.payload as { treasury?: number }).treasury ?? 0) : 0,
     });
     if ("error" in plan) return err(400, plan.error);
-    mk(`pg-inducement-${side}`, "inducement", side, { picks: plan.picks, total: plan.total, treasury: plan.treasury, pettyCash: plan.pettyCash, skipped: plan.picks.length === 0 });
+    mk(earlier === 0 ? `pg-inducement-${side}` : `pg-inducement-${side}-${earlier + 1}`, "inducement", side, {
+      picks: plan.picks, total: plan.total, treasury: plan.treasury, pettyCash: plan.pettyCash, skipped: plan.picks.length === 0,
+      submittedBy: me, ...(earlier > 0 ? { replaces: earlier } : {}),
+    });
     const both = sides.every((s) => all().some((e) => e.type === "inducement" && e.team === s));
     if (both) next = prayersBought("home") + prayersBought("away") > 0 ? "pregame:prayers" : "pregame:coin";
   } else if (phase === "pregame:prayers") {

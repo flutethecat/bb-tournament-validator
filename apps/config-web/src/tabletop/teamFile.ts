@@ -1,6 +1,7 @@
 import type { TeamBuilderSave } from "../teamBuilderSaves.js";
 import { bb2025 } from "@bb/validator/dataset";
 import type { TeamDetail } from "../teamDetail.js";
+import { rosterFor } from "./pregame.js";
 import type { TabletopPlayer, TabletopTeamFile } from "./postMatch.js";
 
 /**
@@ -13,15 +14,18 @@ export function teamFileFromSave(save: TeamBuilderSave): TabletopTeamFile {
   const picks = Array.isArray(body.picks) ? (body.picks as Array<Record<string, unknown>>) : [];
   const players: TabletopPlayer[] = [];
   let number = 1;
+  const rosterOf = Object.values(bb2025.rosters).find((r) => r.id.toLowerCase() === String(save.rosterId).toLowerCase());
   const perPosition = new Map<string, number>(); // ids are unique across the WHOLE roster, even for repeated picks
   for (const pick of picks) {
     const positionId = typeof pick.positionId === "string" ? pick.positionId : "player";
     const count = Number.isInteger(pick.count) && (pick.count as number) > 0 ? Math.min(pick.count as number, 16) : 0;
     const skills = Array.isArray(pick.chosenSkills) ? (pick.chosenSkills as unknown[]).filter((s): s is string => typeof s === "string") : [];
+    const dsPos = rosterOf?.positions.find((p) => p.id === positionId);
+    const stats = dsPos ? { ...positionStats(dsPos), ...applyIncreases(dsPos, pick) } : {};
     for (let k = 0; k < count && players.length < 16; k += 1) {
       const i = (perPosition.get(positionId) ?? 0) + 1;
       perPosition.set(positionId, i);
-      players.push({ id: `${positionId}-${i}`, name: `${positionId} ${i}`, number: number++, positionId, spp: 0, skills: [...skills], mng: false, niggles: 0, statLoss: {}, dead: false });
+      players.push({ ...stats, id: `${positionId}-${i}`, name: dsPos ? `${dsPos.name} ${i}` : `${positionId} ${i}`, number: number++, positionId, spp: 0, skills: [...skills], mng: false, niggles: 0, statLoss: {}, dead: false });
     }
   }
   const roster = Object.values(bb2025.rosters).find((r) => r.id.toLowerCase() === String(save.rosterId).toLowerCase());
@@ -45,6 +49,40 @@ export function teamFileFromSave(save: TeamBuilderSave): TabletopTeamFile {
     ...(teamValue !== undefined ? { teamValue } : {}),
     players,
   };
+}
+
+const target = (v: unknown): number | null => {
+  const n = typeof v === "number" ? v : Number(String(v ?? "").replace("+", ""));
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+type DatasetPos = NonNullable<ReturnType<typeof rosterFor>>["positions"][number];
+type StatKey = "MA" | "ST" | "AG" | "PA" | "AV";
+export const positionStats = (pos: DatasetPos) => ({
+  positionName: pos.name, ma: pos.MA as number, st: pos.ST as number, ag: target(pos.AG) ?? 0, pa: target(pos.PA), av: target(pos.AV) ?? 0,
+});
+
+/** The pick's recorded characteristic changes on top of the position: chosenStats overrides, then chosenStatIncreases (AG/PA improve downwards). */
+function applyIncreases(pos: DatasetPos, pick: Record<string, unknown>): Partial<{ ma: number; st: number; ag: number; pa: number | null; av: number }> {
+  const base = positionStats(pos);
+  const out = { ma: base.ma, st: base.st, ag: base.ag, pa: base.pa, av: base.av };
+  const given = pick.chosenStats && typeof pick.chosenStats === "object" ? (pick.chosenStats as Record<string, unknown>) : {};
+  const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  if (num(given.MA) !== undefined) out.ma = given.MA as number;
+  if (num(given.ST) !== undefined) out.st = given.ST as number;
+  if (num(given.AG) !== undefined) out.ag = given.AG as number;
+  if (num(given.PA) !== undefined) out.pa = given.PA as number;
+  if (num(given.AV) !== undefined) out.av = given.AV as number;
+  const incs = Array.isArray(pick.chosenStatIncreases) ? (pick.chosenStatIncreases as unknown[]) : [];
+  for (const raw of incs) {
+    const k = String(raw).trim().toUpperCase() as StatKey;
+    if (k === "MA") out.ma += 1;
+    else if (k === "ST") out.st += 1;
+    else if (k === "AV") out.av += 1;
+    else if (k === "AG") out.ag = Math.max(1, out.ag - 1);
+    else if (k === "PA" && out.pa !== null) out.pa = Math.max(1, out.pa - 1);
+  }
+  return out;
 }
 
 /** Persisting a baseline needs every player id unique (events name players by id). */
@@ -75,7 +113,18 @@ const NIGGLING = /niggl|smashed knee/i;
 
 /** Baseline (revision 0) team file from a fork library team (the parsed stored team XML, see teamDetail.ts). */
 export function teamFileFromLibraryDetail(team: TeamDetail): TabletopTeamFile {
-  const players: TabletopPlayer[] = team.players.map((p) => ({
+  const dsRoster = rosterFor({ race: team.race } as TabletopTeamFile);
+  const players: TabletopPlayer[] = team.players.map((p) => {
+    const ds = dsRoster?.positions.find((x) => x.name === p.position) ?? undefined;
+    const dsStats = ds ? positionStats(ds) : undefined;
+    return {
+    // current characteristics from the stored team file (advancements and injuries already applied); the roster fills gaps
+    ...(p.position ?? dsStats?.positionName ? { positionName: (p.position ?? dsStats?.positionName)! } : {}),
+    ...((p.movement ?? dsStats?.ma) !== undefined ? { ma: (p.movement ?? dsStats?.ma)! } : {}),
+    ...((p.strength ?? dsStats?.st) !== undefined ? { st: (p.strength ?? dsStats?.st)! } : {}),
+    ...((p.agility ?? dsStats?.ag) !== undefined ? { ag: (p.agility ?? dsStats?.ag)! } : {}),
+    ...(p.passing !== null || dsStats ? { pa: p.passing ?? dsStats?.pa ?? null } : {}),
+    ...((p.armour ?? dsStats?.av) !== undefined ? { av: (p.armour ?? dsStats?.av)! } : {}),
     id: p.id,
     name: p.name,
     number: p.number,
@@ -87,7 +136,8 @@ export function teamFileFromLibraryDetail(team: TeamDetail): TabletopTeamFile {
     statLoss: {},
     dead: /dead|rip/i.test(p.status ?? ""),
     ...(p.injuries.length ? { injuries: [...p.injuries] } : {}),
-  }));
+    };
+  });
   return {
     schema: 1,
     name: team.name,

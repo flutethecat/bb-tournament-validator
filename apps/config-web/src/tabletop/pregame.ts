@@ -79,6 +79,8 @@ export function makeJourneymen(file: TabletopTeamFile, count: number): { players
     players.push({
       id: `jm-${i}`, name: `Journeyman ${position.name} ${i}`, number: n, positionId: position.id, spp: 0,
       skills: [...(position.skills ?? []), "Loner (4+)"], mng: false, niggles: 0, statLoss: {}, dead: false, journeyman: true,
+      positionName: position.name, ma: position.MA as number, st: position.ST as number,
+      ag: Number(String(position.AG).replace("+", "")) || 0, pa: Number(String(position.PA).replace("+", "")) || null, av: Number(String(position.AV).replace("+", "")) || 0,
     });
   }
   return { players, cost: position.cost * count };
@@ -191,7 +193,7 @@ export function pregameSummary(events: readonly TabletopEvent[]) {
     fans: fans.home || fans.away ? fans : undefined,
     weather,
     journeymen: side((s) => of("journeyman", s).map((e) => (e.payload.player as TabletopPlayer | undefined)?.id).filter(Boolean)),
-    inducements: side((s) => of("inducement", s)[0]?.payload),
+    inducements: side((s) => of("inducement", s).at(-1)?.payload), // the latest submission per team replaces earlier ones
     prayers: side((s) => of("prayer", s).map((e) => e.payload)),
     // {mode, call, caller, result, winner, choice?}: choice arrives with a second advance after a server flip
     coin: flip ? { ...flip.payload, winner: flip.team, ...(choice ? { choice: choice.payload.choice } : {}) } : undefined,

@@ -88,14 +88,19 @@ describe("pre-game sequence", () => {
 
     // inducements. Away (TV 1,200k) is the higher team; home = 1,000k + 2 x 50k = 1,100k, so petty cash = 100k + away's treasury spend.
     expect((await advance(id, "Alice", { team: "home", picks: [] })).status).toBe(409); // the higher team goes first
-    expect((await advance(id, "Alice", { team: "away", skip: true })).status).toBe(403); // not Alice's team
+    expect((await advance(id, "Mallory", { team: "away", skip: true })).status).toBe(403); // strangers never submit
     expect((await advance(id, "Bob", { team: "away", picks: [{ id: "nonsense", qty: 1 }] })).status).toBe(400);
     expect((await advance(id, "Bob", { team: "away", picks: [{ id: "bribes", qty: 7 }] })).status).toBe(400); // over the reduced max of 6
     expect((await advance(id, "Bob", { team: "away", picks: [{ id: "bribes", qty: 3 }] })).status).toBe(400); // 3 x 50k > treasury 100k
     r = await advance(id, "Bob", { team: "away", picks: [{ id: "bribes", qty: 2 }] }); // reduced price (Bribery and Corruption): 2 x 50k
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ phase: "pregame:inducements", waitingFor: ["home"], pregame: { inducements: { away: { total: 100_000, treasury: 100_000 } } } });
-    expect((await advance(id, "Bob", { team: "away", skip: true })).status).toBe(409); // already submitted
+    // a second submission for the same team REPLACES the first while the phase is open (participants may submit for either team)
+    r = await advance(id, "Alice", { team: "away", picks: [{ id: "bribes", qty: 1 }, { id: "team_mascot", qty: 1 }] });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ phase: "pregame:inducements", pregame: { inducements: { away: { total: 75_000, treasury: 75_000, submittedBy: "Alice", replaces: 1 } } } });
+    r = await advance(id, "Bob", { team: "away", picks: [{ id: "bribes", qty: 2 }] });
+    expect(r.body).toMatchObject({ pregame: { inducements: { away: { total: 100_000, submittedBy: "Bob" } } } });
     // underdog: petty cash = 100k + 100k = 200k; prayers cost 10k each (rulebook price, shared dataset)
     expect((await advance(id, "Alice", { team: "home", picks: [{ id: "prayers_to_nuffle", qty: 4 }] })).status).toBe(400); // max 3
     expect((await advance(id, "Alice", { team: "home", picks: [{ id: "extra_team_training", qty: 3 }] })).status).toBe(400); // 300k: petty 200k + 100k top-up > treasury top-up of 100k? ok at limit
@@ -119,7 +124,7 @@ describe("pre-game sequence", () => {
     const play = await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("touchdown", "home", "jm-1")] });
     expect(play.status).toBe(200);
     const events = (await get(id)).events as TabletopEvent[];
-    expect(events.map((e) => e.type)).toEqual(["fans", "fans", "weather", "journeyman", "journeyman", "inducement", "inducement", "prayer", "prayer", "coinFlip", "touchdown"]);
+    expect(events.map((e) => e.type)).toEqual(["fans", "fans", "weather", "journeyman", "journeyman", "inducement", "inducement", "inducement", "inducement", "prayer", "prayer", "coinFlip", "touchdown"]);
     const pre = events.find((e) => e.type === "fans")!;
     expect((await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("undo", "home", undefined, { target: pre.id })] })).status).toBe(400);
     // pre-game types cannot be posted by a coach
@@ -321,5 +326,67 @@ describe("endOfMatch and the server tally over the API", () => {
     });
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ submitted: true, match: { state: "submitted" }, tally: { score: { home: 1, away: 0 }, clock: { half: 2, turn: 4 } } });
+  });
+});
+
+describe("one phone, stats and per-event SPP", () => {
+  it("the tally counts only the latest inducement submission per team", async () => {
+    const id = await newMatch();
+    rolls = [1, 1, 3, 3];
+    for (let i = 0; i < 3; i += 1) await advance(id, "Alice");
+    await advance(id, "Org", { team: "away", picks: [{ id: "bribes", qty: 2 }] });
+    await advance(id, "Bob", { team: "away", picks: [{ id: "team_mascot", qty: 1 }] }); // replaces
+    const g = await get(id);
+    expect(g.tally.treasurySpent).toEqual({ home: 0, away: 25_000 });
+    expect(g.pregame.inducements.away).toMatchObject({ total: 25_000, submittedBy: "Bob" });
+  });
+
+  it("team files carry position names and characteristics (library: current stats; builder: base plus recorded increases; journeymen too)", async () => {
+    const id = await newMatch();
+    const g = await get(id);
+    void g;
+    const { teamFileFromSave, positionStats } = await import("../src/tabletop/teamFile.js");
+    const { bb2025 } = await import("@bb/validator/dataset");
+    const human = bb2025.rosters.Human!;
+    const lineman = human.positions.find((p) => p.id === "human.human_lineman")!;
+    const base = positionStats(lineman);
+    expect(base).toMatchObject({ positionName: "Human Lineman", ma: lineman.MA, st: lineman.ST });
+    const file = teamFileFromSave({
+      name: "T", rosterId: "human", body: { picks: [{ positionId: "human.human_lineman", count: 2, chosenStatIncreases: ["MA", "AG", "AV"] }, { positionId: "human.human_lineman", count: 1 }] },
+    } as never);
+    expect(file.players[0]).toMatchObject({ positionName: "Human Lineman", ma: base.ma + 1, st: base.st, ag: base.ag - 1, av: base.av + 1 });
+    expect(file.players[2]).toMatchObject({ positionName: "Human Lineman", ma: base.ma, ag: base.ag, av: base.av });
+    // journeymen come with the position's stats, and the match GET exposes them under teams
+    for (let i = 0; i < 3; i += 1) await advance(id, "Alice");
+    const after = await get(id);
+    const jm = after.teams.home.players.find((p: TabletopPlayer) => p.journeyman);
+    expect(jm).toMatchObject({ positionName: "Human Lineman", ma: base.ma, st: base.st, ag: base.ag, av: base.av });
+  });
+
+  it("SPP per effective event comes from the server (feed and tally); undone and non-SPP events earn nothing", async () => {
+    const r0 = await as("Alice", "POST", "/api/tabletop/matches", { pregame: "skip", home: { coach: "Alice", team: "sv_a" }, away: { coach: "Bob", team: "sv_b" } });
+    const id = (r0.body as { match: { id: string } }).match.id;
+    const td = E("touchdown", "home", "a1");
+    const cas = E("casualty", "home", "a2", { victim: "b1", result: "BH" });
+    const foulCas = E("casualty", "home", "a3", { victim: "b2", result: "BH", cause: "foul" });
+    const catchEv = E("catch", "home", "a4");
+    const ttm = E("throwTeamMate", "home", "a5", { completed: true });
+    const mvp = E("mvp", "away", "b3");
+    const undone = E("completion", "home", "a6");
+    const posted = await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [td, cas, foulCas, catchEv, ttm, mvp, undone] });
+    expect(posted.status).toBe(200);
+    const undo = E("undo", "home", undefined, { target: undone.id });
+    const afterUndo = (await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [undo] })).body as { tally: { events: Array<{ id: string; sppEarned: number }> } };
+    const spp = Object.fromEntries(afterUndo.tally.events.map((e) => [e.id, e.sppEarned]));
+    expect(spp).toEqual({ [td.id]: 3, [cas.id]: 2, [foulCas.id]: 0, [catchEv.id]: 0, [ttm.id]: 1, [mvp.id]: 4 }); // the undone completion is gone
+    const g = await get(id);
+    const feed = Object.fromEntries((g.events as Array<{ id: string; sppEarned: number }>).map((e) => [e.id, e.sppEarned]));
+    expect(feed[td.id]).toBe(3);
+    expect(feed[undone.id]).toBe(0);
+    expect(feed[undo.id]).toBe(0);
+    // per-event SPP adds up to the per-player totals
+    const sum = (arr: Array<{ sppEarned: number }>) => arr.reduce((n, e) => n + e.sppEarned, 0);
+    const players = [...g.tally.players.home, ...g.tally.players.away] as Array<{ sppEarned: number }>;
+    expect(sum(g.tally.events)).toBe(sum(players));
   });
 });

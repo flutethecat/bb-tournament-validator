@@ -49,6 +49,13 @@ export interface TabletopPlayer {
   injuries?: string[];
   /** Added for one match by the pre-game journeymen step; never part of a stored team revision. */
   journeyman?: boolean;
+  /** Position name and CURRENT characteristics (ag / pa / av are target numbers: 3 means 3+; pa null = no passing). */
+  positionName?: string;
+  ma?: number;
+  st?: number;
+  ag?: number;
+  pa?: number | null;
+  av?: number;
 }
 
 export interface TabletopTeamFile {
@@ -76,6 +83,20 @@ export interface PostMatchOptions {
   postMatch: PostMatchOption;
   ruleset: Ruleset;
   matchId?: string;
+}
+
+/** SPP one effective event earns its player (the single table; tallies and the per-event feed both use it). */
+export function sppForEvent(e: TabletopEvent): number {
+  switch (e.type) {
+    case "touchdown": return SPP_VALUES.touchdown;
+    case "completion": return SPP_VALUES.completion;
+    case "interception": return SPP_VALUES.interception;
+    case "deflection": return SPP_VALUES.deflection;
+    case "mvp": return SPP_VALUES.mvp;
+    case "throwTeamMate": return e.payload.completed === true ? SPP_VALUES.throwTeamMate : 0;
+    case "casualty": return e.player && e.payload.cause === "block" ? SPP_VALUES.casualty : 0;
+    default: return 0;
+  }
 }
 
 export interface PlayerLine {
@@ -146,6 +167,7 @@ export function tallyMatch(events: readonly TabletopEvent[], names: Record<Side,
     if (!l) { l = emptyLine(id, names[side].get(id) ?? id); t.lines[side].set(id, l); }
     return l;
   };
+  const treasuryBySide: Record<Side, number> = { home: 0, away: 0 };
   for (const e of effectiveEvents(events)) {
     const side = e.team;
     if (e.half !== undefined) t.clock.half = e.half;
@@ -155,7 +177,7 @@ export function tallyMatch(events: readonly TabletopEvent[], names: Record<Side,
       case "foul": line(side, e.player!).fouls += 1; break;
       case "throwTeamMate": if (e.payload.completed === true) line(side, e.player!).throwTeamMateCompletions += 1; break;
       case "concede": t.conceded[side] = true; break;
-      case "inducement": t.treasurySpent[side] += typeof e.payload.treasury === "number" ? e.payload.treasury : 0; break;
+      case "inducement": treasuryBySide[side] = typeof e.payload.treasury === "number" ? e.payload.treasury : 0; break; // the latest submission replaces earlier ones
       case "touchdown": t.score[side] += 1; line(side, e.player!).touchdowns += 1; break;
       case "completion": line(side, e.player!).completions += 1; break;
       case "interception": line(side, e.player!).interceptions += 1; break;
@@ -179,6 +201,7 @@ export function tallyMatch(events: readonly TabletopEvent[], names: Record<Side,
       }
     }
   }
+  t.treasurySpent = treasuryBySide;
   for (const side of ["home", "away"] as const)
     for (const l of t.lines[side].values())
       l.sppEarned =
