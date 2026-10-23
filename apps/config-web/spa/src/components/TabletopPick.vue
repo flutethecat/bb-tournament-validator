@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Pick sheet for TD / CAS / Other: choose the team, then the player (or just the team), then any extra the event needs.
 import { computed, ref } from "vue";
-import { INJURY_RESULTS_UI, WEATHER_RESULTS_UI, type OtherEvent } from "../tabletop/feed";
+import { INJURY_RESULTS_UI, pickSpec, WEATHER_RESULTS_UI, type OtherEvent } from "../tabletop/feed";
 import type { MatchView, Side, TeamView } from "../tabletop/recorder";
 
 const props = defineProps<{
@@ -9,6 +9,8 @@ const props = defineProps<{
   match: MatchView;
   teams: Record<Side, TeamView | undefined>;
   unavailable: (s: Side, id: string) => string;
+  /** The session coach side: the list opens on it (the home team for an organiser). */
+  localSide?: Side;
 }>();
 const emit = defineEmits<{
   (e: "pick", spec: { type: string; team: Side; player?: string; payload?: Record<string, unknown> }): void;
@@ -16,7 +18,7 @@ const emit = defineEmits<{
 }>();
 
 const sides: Side[] = ["home", "away"];
-const side = ref<Side>("home");
+const side = ref<Side>(props.localSide ?? "home");
 const needsPlayer = computed(() => ["player", "player+result", "casualty"].includes(props.kind.needs));
 const chosen = ref("");
 const result = ref("stunned");
@@ -26,7 +28,7 @@ const players = computed(() => props.teams[side.value]?.players ?? []);
 
 function pickPlayer(id: string): void {
   if (props.kind.needs === "player+result") { chosen.value = id; return; }
-  emit("pick", { type: props.kind.type, team: side.value, player: id });
+  emit("pick", pickSpec(props.kind, side.value, id));
 }
 function saveInjury(): void {
   emit("pick", { type: "injury", team: side.value, player: chosen.value, payload: { result: result.value } });
@@ -55,6 +57,7 @@ function saveText(): void {
     <ul v-if="needsPlayer && !chosen" class="tt-pick-list">
       <li v-for="p in players" :key="p.id">
         <button type="button" class="lobby-btn tt-tap tt-pick-row" :disabled="unavailable(side, p.id) !== ''" @click="pickPlayer(p.id)">
+          <span class="tt-pick-glyph" aria-hidden="true">{{ (p.positionName ?? p.position ?? p.positionId ?? "?").slice(0, 1).toUpperCase() }}</span>
           <b>{{ p.number !== undefined ? `#${p.number}` : "" }}</b> {{ p.name }}
           <small>{{ p.positionName ?? p.position ?? p.positionId ?? "" }}<template v-if="unavailable(side, p.id)"> ({{ unavailable(side, p.id) }})</template></small>
         </button>

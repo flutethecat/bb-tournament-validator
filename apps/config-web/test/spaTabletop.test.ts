@@ -125,7 +125,7 @@ describe("tabletop routes (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC] = await Promise.all([
+    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
@@ -141,8 +141,9 @@ describe("tabletop routes (server-rendered)", () => {
       vite.ssrLoadModule("/src/components/TabletopPregame.vue"),
       vite.ssrLoadModule("/src/components/TabletopFeed.vue"),
       vite.ssrLoadModule("/src/components/TabletopScoreboard.vue"),
+      vite.ssrLoadModule("/src/components/TabletopPick.vue"),
     ]);
-    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC };
+    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -289,9 +290,9 @@ describe("tabletop routes (server-rendered)", () => {
     expect(i('class="tt-board"')).toBeGreaterThan(-1);
     expect(i('class="tt-feed"')).toBeGreaterThan(i('class="tt-board"'));
     expect(i('class="tt-actions-bar"')).toBeGreaterThan(i('class="tt-feed"'));
-    expect(html).toContain(">TD</button>");
-    expect(html).toContain(">Other</button>");
-    expect(html).toContain(">CAS</button>");
+    expect(html).toContain("<span>TD</span>");
+    expect(html).toContain("<span>Other</span>");
+    expect(html).toContain("<span>CAS</span>");
     // scoreboard: both coach corners and the centre
     expect(html).toContain("Alice Orcs");
     expect(html).toContain("Bob Elves");
@@ -304,7 +305,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("(&#9733;3)".replace("&#9733;", "\u2605"));
     expect(html).toContain("Lirael #7</span> completes a pass.");
     expect(html).toContain('aria-label="Undo Touchdown"');
-    expect(html.match(/scores a touchdown/g)).toHaveLength(1);
+    expect(html.match(/data-type="touchdown"/g)).toHaveLength(1); // the undone TD has no row
     expect(html).not.toContain("waiting");
     expect(html).not.toContain("Undo revision");
     expect(html).not.toContain("Submit match"); // submitting is part of End of match
@@ -316,16 +317,24 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toMatch(/\.tt-rec \{[^}]*position: fixed; inset: 0/);
     expect(css).toMatch(/grid-template-rows: minmax\(150px, 20dvh\) minmax\(0, 1fr\) auto/);
     expect(css).toMatch(/\.tt-feed \{[^}]*overflow-y: auto; -webkit-overflow-scrolling: touch/);
-    expect(css).toMatch(/\.tt-actions-bar \{[^}]*height: 33dvh/);
+    expect(css).toMatch(/\.tt-big \{[^}]*aspect-ratio: 1 \/ 1/); // squares, not a third of the screen
+    expect(css).not.toMatch(/\.tt-actions-bar \{[^}]*dvh/);
     expect(css).toMatch(/\.tt-big \{[^}]*min-height: 64px/);
-    expect(css).toMatch(/\.tt-actions-bar \{[^}]*grid-template-columns: 1fr 1fr 1fr/);
+    expect(css).toMatch(/\.tt-actions-bar \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+    expect(css).toMatch(/\.tt-other \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); gap: 12px/);
+    expect(css).toMatch(/\.tt-modal-box \{[^}]*width: calc\(100% - 16px\)/);
+    expect(css).toMatch(/\.tt-ev\[data-row-side="home"\] \{[^}]*margin-right/); // home rows start left
+    expect(css).toMatch(/\.tt-ev\[data-row-side="away"\] \{[^}]*margin-left/); // away rows start right
   });
 
-  it("Other popup lists all 15 events with the client glyphs", async () => {
+  it("Other popup lists 12 events (3 columns x 4 rows) with the client glyphs; TD, CAS and MVP have their own steps", async () => {
     const html = await mount(mods.otherC, {});
-    const labels = ["Touchdown", "Casualty", "Injury", "Completion", "Catch", "Throw Team-mate", "Interception", "Foul", "Sent-off", "Stalling", "Secret Objectives", "MVP", "Weather", "Concede match", "End of match"];
-    expect(mods.feedMod.OTHER_EVENTS).toHaveLength(15);
+    const labels = ["Injury", "Completion", "Catch", "Throw Team-mate", "Interception", "Foul", "Sent-off", "Stalling", "Secret Objectives", "Weather", "Concede match", "End of match"];
+    expect(mods.feedMod.OTHER_EVENTS).toHaveLength(12);
+    expect(12 / 3).toBe(4); // four rows of three
     for (const l of labels) expect(html, l).toContain(`<span>${l}</span>`);
+    for (const l of ["Touchdown", "Casualty", "MVP"]) expect(html, l).not.toContain(`<span>${l}</span>`);
+    expect(html.match(/class="tt-other-btn"/g)).toHaveLength(12);
     expect(html).toContain("/icons/ui/action-pass.png");
     expect(html).toContain("/icons/ui/action-foul.png");
     expect(html).toContain("/icons/ui/status-stalling.png");
@@ -586,6 +595,33 @@ describe("tabletop routes (server-rendered)", () => {
       spa.app.provide(mods.organiser.ORGANISER_KEY, ctrl);
     });
   }
+
+  it("edit mode is behind a flag (off): no pencil, no edit bar, no trash; undo stays on the last-events control", async () => {
+    expect(mods.feedMod.EDIT_MODE_ENABLED).toBe(false);
+    const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally });
+    expect(html).not.toContain("tt-pencil");
+    expect(html).not.toContain("You are in edit mode.");
+    expect(html).not.toContain("tt-trash");
+    expect(html).toContain('aria-label="Last events"');
+    expect(html).toContain('aria-label="Undo Touchdown"');
+  });
+
+  it("pick list opens on the local coach side and offers the other team as a toggle; picks post the player id", async () => {
+    const open = (localSide: string) => mount(mods.pickC, {
+      kind: mods.feedMod.TD_EVENT, match: baseMatch("recording"), teams, unavailable: () => "", localSide,
+    });
+    const away = await open("away");
+    expect(away).toMatch(/data-active="true"[^>]*><span class="tt-roster-tab-name">Bob Elves/);
+    expect(away).toContain("Lirael");
+    expect(away).not.toContain("Grob");
+    expect(away).toContain("Alice Orcs"); // the other team is one tap away
+    const home = await open("home");
+    expect(home).toMatch(/data-active="true"[^>]*><span class="tt-roster-tab-name">Alice Orcs/);
+    expect(home).toContain("Grob");
+    // the pick posts the player id
+    expect(mods.feedMod.pickSpec(mods.feedMod.TD_EVENT, "away", "a1")).toEqual({ type: "touchdown", team: "away", player: "a1" });
+    expect(away).toContain("tt-pick-row");
+  });
 
   it("organiser console: hidden unless the session is an organiser", async () => {
     const no = await renderOrganiser(session());

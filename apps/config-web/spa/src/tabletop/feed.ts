@@ -44,10 +44,18 @@ export const EVENT_GLYPHS: Record<string, Glyph> = {
 export type Needs = "player" | "player+result" | "team" | "team+text" | "weather" | "none" | "casualty";
 export interface OtherEvent { type: string; label: string; needs: Needs }
 
-/** The 15 entries of the Other popup, in TourPlay's order. */
+/** Pick sheets behind the TD and CAS buttons, and the MVP pick of the end-of-match step (not Other tiles). */
+/** The event a player pick posts (the player id is what gets the credit). */
+export const pickSpec = (kind: { type: string }, team: Side, player: string): { type: string; team: Side; player: string } => ({ type: kind.type, team, player });
+
+export const TD_EVENT: OtherEvent = { type: "touchdown", label: "Touchdown", needs: "player" };
+export const CAS_EVENT: OtherEvent = { type: "casualty", label: "Casualty", needs: "casualty" };
+
+/** Edit mode (the pencil and the per-row trash) is built but switched off: set VITE_TT_EDIT_MODE=1 to show it. */
+export const EDIT_MODE_ENABLED: boolean = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_TT_EDIT_MODE === "1";
+
+/** The 12 entries of the Other popup, in TourPlay's order (Touchdown and Casualty have their own buttons; MVP is an end-of-match pick). */
 export const OTHER_EVENTS: readonly OtherEvent[] = [
-  { type: "touchdown", label: "Touchdown", needs: "player" },
-  { type: "casualty", label: "Casualty", needs: "casualty" },
   { type: "injury", label: "Injury", needs: "player+result" },
   { type: "completion", label: "Completion", needs: "player" },
   { type: "catch", label: "Catch", needs: "player" },
@@ -57,7 +65,6 @@ export const OTHER_EVENTS: readonly OtherEvent[] = [
   { type: "sentOff", label: "Sent-off", needs: "player" },
   { type: "stalling", label: "Stalling", needs: "player" },
   { type: "secretObjective", label: "Secret Objectives", needs: "team+text" },
-  { type: "mvp", label: "MVP", needs: "player" },
   { type: "weather", label: "Weather", needs: "weather" },
   { type: "concede", label: "Concede match", needs: "team" },
   { type: "endOfMatch", label: "End of match", needs: "none" },

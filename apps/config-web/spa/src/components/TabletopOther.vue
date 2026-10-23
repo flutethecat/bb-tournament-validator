@@ -8,7 +8,7 @@ const emit = defineEmits<{ (e: "pick", ev: OtherEvent): void; (e: "close"): void
 
 <template>
   <div class="tt-modal" role="dialog" aria-label="Other events" @click.self="emit('close')">
-    <div class="tt-modal-box">
+    <div class="tt-modal-box tt-other-box">
       <ul class="tt-other">
         <li v-for="o in OTHER_EVENTS" :key="o.type">
           <button class="tt-other-btn" type="button" :data-type="o.type" @click="emit('pick', o)">
