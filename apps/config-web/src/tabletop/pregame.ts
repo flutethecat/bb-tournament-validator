@@ -79,7 +79,7 @@ export function makeJourneymen(file: TabletopTeamFile, count: number): { players
     n += 1;
     players.push({
       id: `jm-${i}`, name: `Journeyman ${position.name} ${i}`, number: n, positionId: position.id, spp: 0,
-      skills: [...(position.skills ?? []), "Loner (4+)"], mng: false, niggles: 0, statLoss: {}, dead: false, journeyman: true,
+      skills: [...(position.skills ?? []), "Loner (4+)"], mng: false, niggles: 0, statLoss: {}, dead: false, journeyman: true, kind: "journeyman",
       positionName: position.name, ma: position.MA as number, st: position.ST as number,
       ag: Number(String(position.AG).replace("+", "")) || 0, pa: Number(String(position.PA).replace("+", "")) || null, av: Number(String(position.AV).replace("+", "")) || 0,
     });

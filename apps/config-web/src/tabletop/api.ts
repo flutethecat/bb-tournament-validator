@@ -24,8 +24,9 @@ import {
   DEFAULT_TURN_TIMER_POLICY, endTurn, firstHalfReceiver, initialClock, startTurn,
   type ClockState, type MatchTimers, type TurnTimerPolicy,
 } from "./clock.js";
+import { decorateRoster } from "./eligibility.js";
 import { leagueStandings, type LeaguePoints } from "./standings.js";
-import { applyPostMatch, sppForEvent, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile } from "./postMatch.js";
+import { applyPostMatch, sppCredits, sppForEvent, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile } from "./postMatch.js";
 import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
 import { duplicatePlayerId, parseTeamRef } from "./teamFile.js";
 
@@ -175,8 +176,11 @@ export async function tabletopApi(
       status: 200,
       body: {
         match, phase: match.phase ?? "playing", clock: clockView(match, events, deps, now()), pregame: pregameSummary(events),
-        events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e) : 0 })),
-        effectiveEventIds: effectiveEvents(events).map((e) => e.id), teams, tally: tallyView(events, teams),
+        events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e, kindLookup(teams)) : 0 })),
+        effectiveEventIds: effectiveEvents(events).map((e) => e.id),
+        // per player: kind, available / unavailableReason, eligible{...} (server-derived, so the page filters without rules of its own)
+        teams: { home: decorateRoster("home", teams.home, events), away: decorateRoster("away", teams.away, events) },
+        tally: tallyView(events, teams),
       },
     };
   }
@@ -223,9 +227,24 @@ async function ensureChain(deps: TabletopApiDeps, coach: string, saveId: string,
 }
 
 /** The server's own count of the effective events (score, per-player SPP, casualties): clients never compute rules. */
+/** Player kind lookup over team files (stars and mercenaries earn no SPP; journeymen do). */
+const kindLookup = (teams: Record<Side, TabletopTeamFile | undefined>) =>
+  (side: Side, id: string): string | undefined => teams[side]?.players.find((p) => p.id === id)?.kind ?? (teams[side]?.players.find((p) => p.id === id)?.journeyman ? "journeyman" : undefined);
+
+/** Log copy for a Throw Team-mate event: who threw whom, how, and whether the thrown player landed. */
+function throwText(e: TabletopEvent, teams: Record<Side, TabletopTeamFile | undefined>): string {
+  const nameOf = (id: unknown) => (typeof id === "string" ? teams[e.team]?.players.find((p) => p.id === id)?.name ?? id : undefined);
+  const how = e.payload.superb === true ? "superb pass" : "subpar throw";
+  const end = e.payload.landed === true ? "lands safely" : "does not land";
+  const thrower = nameOf(e.payload.thrower);
+  const thrown = nameOf(e.payload.thrown);
+  return `${thrower && thrown ? `${thrower} throws ${thrown}` : thrower ? `${thrower} throws a team-mate` : thrown ? `${thrown} is thrown` : "Throw Team-mate"} - ${how}, ${end}`;
+}
+
 function tallyView(events: readonly TabletopEvent[], teams: Record<Side, TabletopTeamFile | undefined>) {
   const names = (t: TabletopTeamFile | undefined) => new Map((t?.players ?? []).map((p) => [p.id, p.name] as const));
-  const t = tallyMatch(events, { home: names(teams.home), away: names(teams.away) });
+  const kindOf = kindLookup(teams);
+  const t = tallyMatch(events, { home: names(teams.home), away: names(teams.away) }, kindOf);
   return {
     score: t.score,
     fanDelta: t.fanDelta,
@@ -235,7 +254,12 @@ function tallyView(events: readonly TabletopEvent[], teams: Record<Side, Tableto
     casualtiesSuffered: t.casualtiesSuffered,
     players: { home: [...t.lines.home.values()], away: [...t.lines.away.values()] },
     // SPP each EFFECTIVE event earns (server-derived: clients never keep an SPP table of their own)
-    events: effectiveEvents(events).map((e) => ({ id: e.id, team: e.team, ...(e.player ? { player: e.player } : {}), sppEarned: sppForEvent(e) })),
+    // `credits` names who got what: a Throw Team-mate can credit both the thrower and the thrown player
+    events: effectiveEvents(events).map((e) => ({
+      id: e.id, team: e.team, ...(e.player ? { player: e.player } : {}), sppEarned: sppForEvent(e, kindOf),
+      credits: sppCredits(e, kindOf).map(({ player, spp }) => ({ player, spp })),
+      ...(e.type === "throwTeamMate" ? { text: throwText(e, teams) } : {}),
+    })),
   };
 }
 
@@ -398,7 +422,7 @@ async function postEvents(match: MatchRecord, me: string, organiser: boolean, bo
       };
     }
     const v = validateEvent(parsed.event, running, rosters);
-    if ("error" in v) return err(400, v.error);
+    if ("error" in v) return err(v.status ?? 400, v.error);
     known.add(v.event.id);
     running.push(v.event);
     accepted.push(v.event);
@@ -501,7 +525,8 @@ async function buildConfirmJournal(
 
   // Results row into the same store the standings / Elo read, flagged tabletop. Built from the same tally.
   const names = (c: TeamChain) => new Map(headRevision(c).teamFile.players.map((pl) => [pl.id, pl.name] as const));
-  const tally = tallyMatch(events, { home: names(p.chainHome), away: names(p.chainAway) });
+  const tally = tallyMatch(events, { home: names(p.chainHome), away: names(p.chainAway) },
+    kindLookup({ home: headRevision(p.chainHome).teamFile, away: headRevision(p.chainAway).teamFile }));
   const teamResult = (side: Side, summary: PostMatchSummary) => ({
     teamId: match[side].teamSaveId,
     score: tally.score[side],

@@ -29,7 +29,16 @@ export type PostMatchOption = "none" | "spp-only" | "full";
 export type Ruleset = "bb2025";
 
 export const WINNINGS_PER_TOUCHDOWN = 10_000;
-export const SPP_VALUES = { touchdown: 3, casualty: 2, completion: 1, throwTeamMate: 1, interception: 1, deflection: 1, mvp: 4 } as const;
+export const SPP_VALUES = { touchdown: 3, casualty: 2, completion: 1, throwTeamMate: 1, landing: 1, interception: 1, deflection: 1, mvp: 4 } as const;
+
+/**
+ * Who earns SPP (bloodbowlbase.ru league_play, #earning-star-player-points, paraphrased): regular players earn it, Journeymen earn it
+ * (and keep it if hired later), Star Players earn none. Mercenary Players are not mentioned on that page; the owner ruled they earn none
+ * either. An excluded player can still be CREDITED with a touchdown or casualty (the score and the log record it); it just earns 0 SPP.
+ */
+export type PlayerKind = "rostered" | "star" | "mercenary" | "journeyman";
+export const SPP_EXCLUDED_KINDS: ReadonlySet<string> = new Set(["star", "mercenary"]);
+export type KindOf = (side: Side, id: string) => string | undefined;
 export const FANS_MIN = 1;
 export const FANS_MAX = 6;
 
@@ -49,6 +58,8 @@ export interface TabletopPlayer {
   injuries?: string[];
   /** Added for one match by the pre-game journeymen step; never part of a stored team revision. */
   journeyman?: boolean;
+  /** rostered (default), star, mercenary or journeyman; stars and mercenaries earn no SPP. */
+  kind?: PlayerKind;
   /** Position name and CURRENT characteristics (ag / pa / av are target numbers: 3 means 3+; pa null = no passing). */
   positionName?: string;
   ma?: number;
@@ -85,19 +96,37 @@ export interface PostMatchOptions {
   matchId?: string;
 }
 
-/** SPP one effective event earns its player (the single table; tallies and the per-event feed both use it). */
-export function sppForEvent(e: TabletopEvent): number {
+export interface SppCredit { team: Side; player: string; spp: number }
+
+/**
+ * Who an effective event credits with SPP, and how much (the single table; tallies and the per-event feed both use it).
+ * Throw Team-mate (bloodbowlbase.ru league_play, #throw-team-mate; skills_and_traits #throw-team-mate-active, #right-stuff-passive;
+ * the_game_of_blood_bowl #throw-team-mate-actions, #superb-throw, #landing): a Superb Throw whose thrown player lands on their feet
+ * is 1 SPP to the thrower; a thrown player who lands safely, whatever the throw type, earns 1 SPP. Nothing else is granted.
+ */
+export function sppCredits(e: TabletopEvent, kindOf?: KindOf): SppCredit[] {
+  const raw: SppCredit[] = [];
+  const give = (player: string | undefined, spp: number) => { if (player) raw.push({ team: e.team, player, spp }); };
   switch (e.type) {
-    case "touchdown": return SPP_VALUES.touchdown;
-    case "completion": return SPP_VALUES.completion;
-    case "interception": return SPP_VALUES.interception;
-    case "deflection": return SPP_VALUES.deflection;
-    case "mvp": return SPP_VALUES.mvp;
-    case "throwTeamMate": return e.payload.completed === true ? SPP_VALUES.throwTeamMate : 0;
-    case "casualty": return e.player && e.payload.cause === "block" ? SPP_VALUES.casualty : 0;
-    default: return 0;
+    case "touchdown": give(e.player, SPP_VALUES.touchdown); break;
+    case "completion": give(e.player, SPP_VALUES.completion); break;
+    case "interception": give(e.player, SPP_VALUES.interception); break;
+    case "deflection": give(e.player, SPP_VALUES.deflection); break;
+    case "mvp": give(e.player, SPP_VALUES.mvp); break;
+    case "casualty": if (e.payload.cause === "block") give(e.player, SPP_VALUES.casualty); break;
+    case "throwTeamMate":
+      if (e.payload.landed === true) {
+        if (e.payload.superb === true) give(e.payload.thrower as string | undefined, SPP_VALUES.throwTeamMate);
+        give(e.payload.thrown as string | undefined, SPP_VALUES.landing);
+      }
+      break;
+    default: break;
   }
+  return raw.map((cr) => (kindOf && SPP_EXCLUDED_KINDS.has(kindOf(cr.team, cr.player) ?? "") ? { ...cr, spp: 0 } : cr));
 }
+
+/** SPP one effective event earns in total. */
+export const sppForEvent = (e: TabletopEvent, kindOf?: KindOf): number => sppCredits(e, kindOf).reduce((n, cr) => n + cr.spp, 0);
 
 export interface PlayerLine {
   id: string;
@@ -106,6 +135,8 @@ export interface PlayerLine {
   casualtiesCaused: number;
   completions: number;
   throwTeamMateCompletions: number;
+  /** Times this player, thrown by a team-mate, landed safely. */
+  landings: number;
   catches: number;
   fouls: number;
   interceptions: number;
@@ -148,11 +179,15 @@ export interface MatchTally {
 }
 
 const emptyLine = (id: string, name: string): PlayerLine => ({
-  id, name, touchdowns: 0, casualtiesCaused: 0, completions: 0, throwTeamMateCompletions: 0, catches: 0, fouls: 0, interceptions: 0, deflections: 0, mvp: 0, sentOff: false, sppEarned: 0,
+  id, name, touchdowns: 0, casualtiesCaused: 0, completions: 0, throwTeamMateCompletions: 0, landings: 0, catches: 0, fouls: 0, interceptions: 0, deflections: 0, mvp: 0, sentOff: false, sppEarned: 0,
 });
 
 /** Count the effective events. The single tally used by the post-match function AND the results row. */
-export function tallyMatch(events: readonly TabletopEvent[], names: Record<Side, ReadonlyMap<string, string>> = { home: new Map(), away: new Map() }): MatchTally {
+export function tallyMatch(
+  events: readonly TabletopEvent[],
+  names: Record<Side, ReadonlyMap<string, string>> = { home: new Map(), away: new Map() },
+  kindOf?: KindOf,
+): MatchTally {
   const t: MatchTally = {
     score: { home: 0, away: 0 },
     lines: { home: new Map(), away: new Map() },
@@ -175,7 +210,12 @@ export function tallyMatch(events: readonly TabletopEvent[], names: Record<Side,
     switch (e.type) {
       case "catch": line(side, e.player!).catches += 1; break;
       case "foul": line(side, e.player!).fouls += 1; break;
-      case "throwTeamMate": if (e.payload.completed === true) line(side, e.player!).throwTeamMateCompletions += 1; break;
+      case "throwTeamMate":
+        if (e.payload.landed === true) {
+          if (e.payload.superb === true && typeof e.payload.thrower === "string") line(side, e.payload.thrower).throwTeamMateCompletions += 1;
+          if (typeof e.payload.thrown === "string") line(side, e.payload.thrown).landings += 1;
+        }
+        break;
       case "concede": t.conceded[side] = true; break;
       case "inducement": treasuryBySide[side] = typeof e.payload.treasury === "number" ? e.payload.treasury : 0; break; // the latest submission replaces earlier ones
       case "touchdown": t.score[side] += 1; line(side, e.player!).touchdowns += 1; break;
@@ -206,8 +246,11 @@ export function tallyMatch(events: readonly TabletopEvent[], names: Record<Side,
     for (const l of t.lines[side].values())
       l.sppEarned =
         l.touchdowns * SPP_VALUES.touchdown + l.casualtiesCaused * SPP_VALUES.casualty + l.completions * SPP_VALUES.completion +
-        l.throwTeamMateCompletions * SPP_VALUES.throwTeamMate +
+        l.throwTeamMateCompletions * SPP_VALUES.throwTeamMate + l.landings * SPP_VALUES.landing +
         l.interceptions * SPP_VALUES.interception + l.deflections * SPP_VALUES.deflection + l.mvp * SPP_VALUES.mvp;
+  if (kindOf)
+    for (const side of ["home", "away"] as const)
+      for (const l of t.lines[side].values()) if (SPP_EXCLUDED_KINDS.has(kindOf(side, l.id) ?? "")) l.sppEarned = 0;
   return t;
 }
 
@@ -220,7 +263,9 @@ export function applyPostMatch(
   if (!["none", "spp-only", "full"].includes(options.postMatch)) throw new Error(`Unsupported postMatch option: ${String(options.postMatch)}`);
   const side = options.team;
   const names = new Map(teamFile.players.map((p) => [p.id, p.name] as const));
-  const tally = tallyMatch(events, { home: side === "home" ? names : new Map(), away: side === "away" ? names : new Map() });
+  const kinds = new Map(teamFile.players.map((p) => [p.id, p.kind] as const));
+  const tally = tallyMatch(events, { home: side === "home" ? names : new Map(), away: side === "away" ? names : new Map() },
+    (sd, id) => (sd === side ? kinds.get(id) : undefined));
   // Opponent lines are not needed here; only this side's lines and the opposing score.
   const forScore = tally.score[side];
   const againstScore = tally.score[otherSide(side)];

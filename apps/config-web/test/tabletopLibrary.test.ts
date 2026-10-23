@@ -104,7 +104,7 @@ describe("tabletop create with library refs", () => {
 
     // the MNG library player cannot play; the other can score
     const bad = await as("Tarkin", "POST", `/api/tabletop/matches/${match.id}/events`, { events: [{ id: "evt-lib-0001", type: "touchdown", team: "home", player: "17854689" }] });
-    expect(bad.status).toBe(400);
+    expect(bad.status).toBe(422);
     const ok = await as("Tarkin", "POST", `/api/tabletop/matches/${match.id}/events`, { events: [{ id: "evt-lib-0002", type: "touchdown", team: "home", player: "17854690" }] });
     expect(ok.status).toBe(200);
     await as("Tarkin", "POST", `/api/tabletop/matches/${match.id}/submit`);

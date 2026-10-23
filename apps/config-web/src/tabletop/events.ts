@@ -45,7 +45,7 @@ export interface TabletopEvent {
   turn?: number;
   half?: Half;
   /** casualty: {victim, victimTeam?, result, apothecaryUsed, stat?, cause?}; injury: {result: stunned|KO};
-   *  throwTeamMate: {completed?, target?}; secretObjective: {text}; weather (mid-game): {result}; fanChange: {delta: -1|0|1};
+   *  throwTeamMate: {superb, landed, thrower? (required iff superb), thrown? (required iff landed)}; secretObjective: {text}; weather (mid-game): {result}; fanChange: {delta: -1|0|1};
    *  undo: {target: eventId}; others: {}. */
   payload: Record<string, unknown>;
   ts: string;
@@ -54,7 +54,7 @@ export interface TabletopEvent {
 
 /** What validation needs to know about a roster (the team file satisfies this structurally). */
 export interface RosterView {
-  players: ReadonlyArray<{ id: string; mng?: boolean; dead?: boolean }>;
+  players: ReadonlyArray<{ id: string; mng?: boolean; dead?: boolean; skills?: readonly string[]; kind?: string }>;
 }
 export type RosterPair = Record<Side, RosterView>;
 
@@ -63,7 +63,7 @@ export const MAX_EVENTS_PER_BATCH = 100;
 const ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 const PLAYER_RE = /^[\w.:-]{1,64}$/;
 const ACTING_TYPES: ReadonlySet<TabletopEventType> = new Set([
-  "touchdown", "completion", "catch", "interception", "deflection", "foul", "stalling", "mvp", "sendOff", "throwTeamMate", "injury",
+  "touchdown", "completion", "catch", "interception", "deflection", "foul", "stalling", "mvp", "sendOff", "injury",
 ]);
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -116,8 +116,10 @@ export function parseEvent(raw: unknown, matchId: string, by: string, nowIso: st
  * Returns `{error}` or the normalised event to store (an undo takes its target's team; a casualty gets
  * its defaults filled in).
  */
-export function validateEvent(event: TabletopEvent, stored: readonly TabletopEvent[], rosters: RosterPair): { error: string } | { event: TabletopEvent } {
+/** `status` 422 marks an eligibility refusal (not on the roster, unavailable, missing the skill); a malformed event is a plain 400. */
+export function validateEvent(event: TabletopEvent, stored: readonly TabletopEvent[], rosters: RosterPair): { error: string; status?: number } | { event: TabletopEvent } {
   const fail = (error: string) => ({ error: `event ${event.id}: ${error}` });
+  const ineligible = (error: string) => ({ error: `event ${event.id}: ${error}`, status: 422 });
   if (event.type === "undo") {
     const target = event.payload.target;
     if (typeof target !== "string") return fail("undo needs payload.target (an event id).");
@@ -162,24 +164,42 @@ export function validateEvent(event: TabletopEvent, stored: readonly TabletopEve
     if (typeof text !== "string" || !text.trim() || text.length > 200) return fail("secretObjective needs payload.text (1-200 characters).");
     if (event.player) {
       const bad = unavailable(event.team, event.player);
-      if (bad) return fail(bad);
+      if (bad) return ineligible(bad);
     }
     return { event: { ...event, payload: { ...event.payload, text: text.trim() } } };
+  }
+
+  if (event.type === "throwTeamMate") {
+    const p = event.payload;
+    if (typeof p.superb !== "boolean" || typeof p.landed !== "boolean") return fail("throwTeamMate needs payload.superb and payload.landed (booleans).");
+    if (p.superb && typeof p.thrower !== "string") return fail("a superb throw needs payload.thrower.");
+    if (!p.superb && p.thrower !== undefined) return fail("payload.thrower is only for a superb throw.");
+    if (p.landed && typeof p.thrown !== "string") return fail("a throw that landed needs payload.thrown.");
+    if (!p.landed && p.thrown !== undefined) return fail("payload.thrown is only for a throw that landed.");
+    if (event.player !== undefined && event.player !== p.thrower && event.player !== p.thrown) return fail("player must be the thrower or the thrown player.");
+    const hasSkill = (id: string, want: string) =>
+      (find(event.team, id)?.skills ?? []).some((sk) => sk.toLowerCase().replace(/[^a-z]/g, "") === want);
+    if (typeof p.thrower === "string") {
+      const bad = unavailable(event.team, p.thrower);
+      if (bad) return ineligible(bad);
+      if (!hasSkill(p.thrower, "throwteammate")) return ineligible(`player ${p.thrower} does not have Throw Team-mate.`);
+    }
+    if (typeof p.thrown === "string") {
+      const bad = unavailable(event.team, p.thrown);
+      if (bad) return ineligible(bad);
+      if (!hasSkill(p.thrown, "rightstuff")) return ineligible(`player ${p.thrown} does not have Right Stuff.`);
+      if (p.thrown === p.thrower) return fail("a player cannot throw themselves.");
+    }
+    const credited = (p.thrower ?? p.thrown) as string | undefined;
+    return { event: { ...event, ...(credited ? { player: credited } : {}) } };
   }
 
   if (ACTING_TYPES.has(event.type)) {
     if (!event.player) return fail(`${event.type} needs a player.`);
     const bad = unavailable(event.team, event.player);
-    if (bad) return fail(bad);
+    if (bad) return ineligible(bad);
     if (event.type === "injury" && !(INJURY_RESULTS as readonly string[]).includes(event.payload.result as string))
       return fail(`injury payload.result must be one of ${INJURY_RESULTS.join(", ")}.`);
-    if (event.type === "throwTeamMate") {
-      if (event.payload.completed !== undefined && typeof event.payload.completed !== "boolean") return fail("payload.completed must be a boolean.");
-      if (event.payload.target !== undefined) {
-        const target = event.payload.target;
-        if (typeof target !== "string" || !find(event.team, target)) return fail("throwTeamMate payload.target must be a player on the same team.");
-      }
-    }
     if (event.type === "mvp" && live.some((e) => e.type === "mvp" && e.team === event.team)) return fail("this team already has an MVP.");
     return { event };
   }
@@ -203,10 +223,10 @@ export function validateEvent(event: TabletopEvent, stored: readonly TabletopEve
   if (p.cause !== undefined && !(CASUALTY_CAUSES as readonly string[]).includes(p.cause as string)) return fail("payload.cause must be block, foul or other.");
   if (event.player) {
     const bad = unavailable(event.team, event.player);
-    if (bad) return fail(bad);
+    if (bad) return ineligible(bad);
   }
   const vbad = unavailable(victimTeam, p.victim);
-  if (vbad) return fail(vbad);
+  if (vbad) return ineligible(vbad);
   if (live.some((e) => e.type === "casualty" && e.payload.victim === p.victim && (e.payload.victimTeam ?? otherSide(e.team)) === victimTeam))
     return fail(`player ${p.victim} already suffered a casualty in this match.`);
   return {

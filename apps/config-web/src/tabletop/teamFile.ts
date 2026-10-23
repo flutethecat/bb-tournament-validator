@@ -1,8 +1,9 @@
 import type { TeamBuilderSave } from "../teamBuilderSaves.js";
+import { isStarName } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import type { TeamDetail } from "../teamDetail.js";
 import { rosterFor } from "./pregame.js";
-import type { TabletopPlayer, TabletopTeamFile } from "./postMatch.js";
+import type { PlayerKind, TabletopPlayer, TabletopTeamFile } from "./postMatch.js";
 
 /**
  * Baseline (revision 0) team file from a coach's Team Builder save. The save stores picks as
@@ -22,10 +23,14 @@ export function teamFileFromSave(save: TeamBuilderSave): TabletopTeamFile {
     const skills = Array.isArray(pick.chosenSkills) ? (pick.chosenSkills as unknown[]).filter((s): s is string => typeof s === "string") : [];
     const dsPos = rosterOf?.positions.find((p) => p.id === positionId);
     const stats = dsPos ? { ...positionStats(dsPos), ...applyIncreases(dsPos, pick) } : {};
+    // position skills first (a team file's skills include the position's own), then the chosen ones; deduplicated
+    const allSkills = [...new Set([...(dsPos?.skills ?? []), ...skills])];
+    // Star Players are listed separately in the builder: recognised here by name only (the dataset's star names) or an explicit flag
+    const kind: PlayerKind = pick.isStar === true || isStarName(bb2025, positionId) ? "star" : "rostered";
     for (let k = 0; k < count && players.length < 16; k += 1) {
       const i = (perPosition.get(positionId) ?? 0) + 1;
       perPosition.set(positionId, i);
-      players.push({ ...stats, id: `${positionId}-${i}`, name: dsPos ? `${dsPos.name} ${i}` : `${positionId} ${i}`, number: number++, positionId, spp: 0, skills: [...skills], mng: false, niggles: 0, statLoss: {}, dead: false });
+      players.push({ ...stats, id: `${positionId}-${i}`, name: dsPos ? `${dsPos.name} ${i}` : `${positionId} ${i}`, number: number++, positionId, kind, spp: 0, skills: allSkills, mng: false, niggles: 0, statLoss: {}, dead: false });
     }
   }
   const roster = Object.values(bb2025.rosters).find((r) => r.id.toLowerCase() === String(save.rosterId).toLowerCase());
@@ -117,7 +122,10 @@ export function teamFileFromLibraryDetail(team: TeamDetail): TabletopTeamFile {
   const players: TabletopPlayer[] = team.players.map((p) => {
     const ds = dsRoster?.positions.find((x) => x.name === p.position) ?? undefined;
     const dsStats = ds ? positionStats(ds) : undefined;
+    // Star Players are marked by the stored team's position name; the position's own skills are part of the player's skills
+    const kind: PlayerKind = p.journeyman ? "journeyman" : p.position && isStarName(bb2025, p.position) ? "star" : "rostered";
     return {
+    kind,
     // current characteristics from the stored team file (advancements and injuries already applied); the roster fills gaps
     ...(p.position ?? dsStats?.positionName ? { positionName: (p.position ?? dsStats?.positionName)! } : {}),
     ...((p.movement ?? dsStats?.ma) !== undefined ? { ma: (p.movement ?? dsStats?.ma)! } : {}),
@@ -130,7 +138,7 @@ export function teamFileFromLibraryDetail(team: TeamDetail): TabletopTeamFile {
     number: p.number,
     ...(p.positionId ? { positionId: p.positionId } : {}),
     spp: p.spp,
-    skills: [...p.skills],
+    skills: [...new Set([...(ds?.skills ?? []), ...p.skills])],
     mng: p.mng,
     niggles: p.injuries.filter((i) => NIGGLING.test(i)).length,
     statLoss: {},

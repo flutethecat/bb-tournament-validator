@@ -273,17 +273,11 @@ describe("TourPlay event set", () => {
       expect(err([ev(t, "home", undefined)])).toMatch(/needs a player/);
     }
   });
-  it("throwTeamMate: completion gives 1 SPP; a failed throw and the record-only events give none", () => {
-    expect(err([ev("throwTeamMate", "home", "h1", { completed: "yes" })])).toMatch(/boolean/);
-    expect(err([ev("throwTeamMate", "home", "h1", { target: "a1" })])).toMatch(/same team/);
-    const events = [
-      ev("throwTeamMate", "home", "h1", { completed: true, target: "h2" }), ev("throwTeamMate", "home", "h1", { completed: false }),
-      ev("catch", "home", "h2"), ev("foul", "home", "h3"), ev("stalling", "home", "h3"), ev("injury", "away", "a1", { result: "KO" }),
-      ev("secretObjective", "home", undefined, { text: "Score twice" }),
-    ];
+  it("catch, foul, stalling, injury and secretObjective are record-only: they credit no SPP", () => {
+    const events = [ev("catch", "home", "h2"), ev("foul", "home", "h3"), ev("stalling", "home", "h3"), ev("injury", "away", "a1", { result: "KO" }), ev("secretObjective", "home", undefined, { text: "Score twice" })];
     const stored = (run(events) as { stored: TabletopEvent[] }).stored;
     const res = applyPostMatch(team("Human", 3, "h", 0), stored, { team: "home", postMatch: "spp-only", ruleset: "bb2025" });
-    expect(res.teamFile.players.map((p) => p.spp)).toEqual([1, 0, 0]);
+    expect(res.teamFile.players.map((p) => p.spp)).toEqual([0, 0, 0]);
     const tally = tallyMatch(stored);
     expect(tally.lines.home.get("h2")!.catches).toBe(1);
     expect(tally.lines.home.get("h3")!.fouls).toBe(1);
@@ -376,13 +370,15 @@ describe("one phone, stats and per-event SPP", () => {
   });
 
   it("SPP per effective event comes from the server (feed and tally); undone and non-SPP events earn nothing", async () => {
+    files["Alice/sv_a"]!.players[4]!.skills = ["Throw Team-mate"];
+    files["Alice/sv_a"]!.players[6]!.skills = ["Right Stuff"];
     const r0 = await as("Alice", "POST", "/api/tabletop/matches", { pregame: "skip", home: { coach: "Alice", team: "sv_a" }, away: { coach: "Bob", team: "sv_b" } });
     const id = (r0.body as { match: { id: string } }).match.id;
     const td = E("touchdown", "home", "a1");
     const cas = E("casualty", "home", "a2", { victim: "b1", result: "BH" });
     const foulCas = E("casualty", "home", "a3", { victim: "b2", result: "BH", cause: "foul" });
     const catchEv = E("catch", "home", "a4");
-    const ttm = E("throwTeamMate", "home", "a5", { completed: true });
+    const ttm = E("throwTeamMate", "home", undefined, { superb: true, thrower: "a5", landed: true, thrown: "a7" });
     const mvp = E("mvp", "away", "b3");
     const undone = E("completion", "home", "a6");
     const posted = await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [td, cas, foulCas, catchEv, ttm, mvp, undone] });
@@ -390,7 +386,7 @@ describe("one phone, stats and per-event SPP", () => {
     const undo = E("undo", "home", undefined, { target: undone.id });
     const afterUndo = (await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [undo] })).body as { tally: { events: Array<{ id: string; sppEarned: number }> } };
     const spp = Object.fromEntries(afterUndo.tally.events.map((e) => [e.id, e.sppEarned]));
-    expect(spp).toEqual({ [td.id]: 3, [cas.id]: 2, [foulCas.id]: 0, [catchEv.id]: 0, [ttm.id]: 1, [mvp.id]: 4 }); // the undone completion is gone
+    expect(spp).toEqual({ [td.id]: 3, [cas.id]: 2, [foulCas.id]: 0, [catchEv.id]: 0, [ttm.id]: 2, [mvp.id]: 4 }); // ttm: thrower 1 + thrown 1 // the undone completion is gone
     const g = await get(id);
     const feed = Object.fromEntries((g.events as Array<{ id: string; sppEarned: number }>).map((e) => [e.id, e.sppEarned]));
     expect(feed[td.id]).toBe(3);

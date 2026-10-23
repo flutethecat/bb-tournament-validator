@@ -98,7 +98,7 @@ describe("tabletop API: events", () => {
     const again = await as("Bob", "POST", `/api/tabletop/matches/${id}/events`, { events: [td, E("completion", "away", "b1")] });
     expect(again.body).toMatchObject({ duplicates: [td.id], total: 2 });
     const bad = await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("touchdown", "home", "a2"), E("touchdown", "home", "ghost")] });
-    expect(bad.status).toBe(400);
+    expect(bad.status).toBe(422); // ghost is not on the roster: an eligibility refusal
     const got = (await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ id: string; by: string }> };
     expect(got.events).toHaveLength(2); // the valid first event of the bad batch was NOT stored
     expect(got.events.map((e) => e.by)).toEqual(["Alice", "Bob"]);
