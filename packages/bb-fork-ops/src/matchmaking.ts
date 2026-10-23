@@ -56,6 +56,25 @@ export type ForkGameScheduler = (teamHomeId: string, teamAwayId: string) => Prom
  *  match. Takes the md5 DIGEST, not the clear text — see Challenge.passwordMd5. */
 export type ChallengeVerifier = (coach: string, passwordMd5: string) => Promise<boolean>;
 
+/** A pending challenge as read by a VIEW (the web Lobby): never carries the digest. */
+export interface PendingChallengeView {
+  coach: string;
+  teamId: string;
+  opponent: string;
+  createdAt: number;
+}
+
+/** Fired once per pairing, after scheduling resolved (gameId undefined on the gameName fallback).
+ *  Read-only notification for views (the web Lobby); the deliveries are unchanged. */
+export interface PairingEvent {
+  gameName: string;
+  gameId?: string;
+  home: { coach: string; teamId: string };
+  away: { coach: string; teamId: string };
+  at: number;
+}
+export type PairingListener = (pairing: PairingEvent) => void;
+
 /**
  * How home/away is assigned when a pair is scheduled (which team the fork gets as
  * `teamHomeId`). Home/away drives the pregame coin toss and pitch/dugout side, so a
@@ -83,6 +102,7 @@ export class Matchmaker {
   private readonly random: () => number;
   private readonly scheduleGame?: ForkGameScheduler;
   private readonly verifyChallenger?: ChallengeVerifier;
+  private readonly pairingListeners: PairingListener[] = [];
   private homeAwayMode: HomeAwayMode;
 
   constructor(opts?: {
@@ -93,6 +113,7 @@ export class Matchmaker {
     scheduleGame?: ForkGameScheduler;
     verifyChallenger?: ChallengeVerifier;
     homeAwayMode?: HomeAwayMode;
+    onPaired?: PairingListener;
   }) {
     this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
     this.now = opts?.now ?? Date.now;
@@ -100,6 +121,28 @@ export class Matchmaker {
     this.scheduleGame = opts?.scheduleGame;
     this.verifyChallenger = opts?.verifyChallenger;
     this.homeAwayMode = opts?.homeAwayMode ?? DEFAULT_HOME_AWAY_MODE;
+    if (opts?.onPaired) this.pairingListeners.push(opts.onPaired);
+  }
+
+  /** Register a read-only pairing listener (the web Lobby view). A listener fault never breaks pairing. */
+  onPaired(listener: PairingListener): void {
+    this.pairingListeners.push(listener);
+  }
+
+  /** The coach's own pending challenge, digest stripped; undefined when none (or expired). */
+  pendingOf(coach: string): PendingChallengeView | undefined {
+    this.sweep();
+    const c = this.pending.get(this.key(coach));
+    return c ? { coach: c.coach, teamId: c.teamId, opponent: c.opponent, createdAt: c.createdAt } : undefined;
+  }
+
+  /** Pending challenges that NAME this coach as the opponent (an inbox), digest stripped, oldest first. */
+  pendingFor(coach: string): PendingChallengeView[] {
+    this.sweep();
+    const k = this.key(coach);
+    return [...this.pending.values()]
+      .filter((c) => this.key(c.opponent) === k)
+      .map((c) => ({ coach: c.coach, teamId: c.teamId, opponent: c.opponent, createdAt: c.createdAt }));
   }
 
   /** Current home/away assignment policy (see HomeAwayMode). */
@@ -208,6 +251,16 @@ export class Matchmaker {
     });
     this.pending.delete(this.key(a.coach));
     this.pending.delete(this.key(b.coach));
+    const event: PairingEvent = {
+      gameName,
+      gameId,
+      home: { coach: home.coach, teamId: home.teamId },
+      away: { coach: away.coach, teamId: away.teamId },
+      at,
+    };
+    for (const listener of this.pairingListeners) {
+      try { listener(event); } catch { /* a view fault never breaks pairing */ }
+    }
   }
 
   /**

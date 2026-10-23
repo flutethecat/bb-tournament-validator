@@ -36,6 +36,9 @@ importers:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
+      vite:
+        specifier: ^7.3.6
+        version: 7.3.6(@types/node@24.13.2)(tsx@4.23.0)
 
   apps/discord-bot:
     dependencies:

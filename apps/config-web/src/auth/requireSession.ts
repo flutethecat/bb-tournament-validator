@@ -74,6 +74,8 @@ function isPublicRequest(method: string, pathname: string): boolean {
       pathname === "/admin.html" ||
       pathname === "/admin.css" ||
       pathname === "/admin.js" ||
+      pathname === "/lobby" ||
+      pathname.startsWith("/lobby/") ||
       pathname.startsWith("/assets/") ||
       pathname.startsWith("/api/packages/"))
   )

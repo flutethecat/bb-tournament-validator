@@ -8,6 +8,7 @@
 import type { Server, IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { SuperService } from "./service.js";
+import type { LobbySocketBridge } from "../lobby.js";
 import {
   verifyCoachChallenge,
   forkGameSeat,
@@ -21,6 +22,8 @@ export interface AttachSuperOptions {
   dbCfg: ForkDbConfig;
   forkCfg: ForkAdminConfig;
   log?: (line: string) => void;
+  /** Web Lobby rooms over this same socket (lobby-chat / lobby-presence). */
+  lobby?: LobbySocketBridge;
 }
 
 /**
@@ -34,6 +37,7 @@ export function attachSuper(server: Server, opts: AttachSuperOptions): SuperServ
   try {
     const service = new SuperService({
       log,
+      lobby: opts.lobby,
       // SM-5/RC-2: challenge-response over the coach's stored md5 — secret never leaves the fork store.
       verifyAuth: (coach, nonce, ts, response) =>
         verifyCoachChallenge(opts.dbCfg, coach, nonce, ts, response),

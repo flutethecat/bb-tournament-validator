@@ -60,3 +60,39 @@ export function getFeature(key: string): FeatureEntry | undefined {
 }
 
 export { PITCH_W };
+
+// ── Lobby features (web Lobby, start-game spec Part 1b) ──────────────────────────────────────────────────
+// Separate from the game REGISTRY on purpose: lobby rooms are keyed by lobbyId, never by a game, and carry no
+// game state or coordinates. `lobby-chat` is the only feature a lobby member may PUBLISH; `lobby-presence` is
+// server-originated only (the service broadcasts the store's presence snapshot). Remove a key here to kill it.
+export interface LobbyFeatureEntry {
+  readonly key: string;
+  readonly publishable: boolean;
+  readonly validate: (payload: unknown) => Record<string, unknown> | null;
+}
+
+const LOBBY_CHAT_MAX = 500;
+
+const LOBBY_REGISTRY: Record<string, LobbyFeatureEntry> = {
+  "lobby-chat": {
+    key: "lobby-chat",
+    publishable: true,
+    validate: (p) => {
+      if (typeof p !== "object" || p === null) return null;
+      const text = (p as { text?: unknown }).text;
+      if (typeof text !== "string") return null;
+      const trimmed = text.trim();
+      if (!trimmed || [...trimmed].length > LOBBY_CHAT_MAX) return null;
+      return { text: trimmed };
+    },
+  },
+  "lobby-presence": { key: "lobby-presence", publishable: false, validate: () => null },
+};
+
+export function lobbyFeatures(): string[] {
+  return Object.keys(LOBBY_REGISTRY);
+}
+
+export function getLobbyFeature(key: string): LobbyFeatureEntry | undefined {
+  return LOBBY_REGISTRY[key];
+}

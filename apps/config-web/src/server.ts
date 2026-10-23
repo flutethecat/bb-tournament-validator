@@ -127,6 +127,8 @@ import {
 } from "./auth/identitiesStore.js";
 import { legacyPasswordAuthCounts, noteLegacyPasswordAuth } from "./auth/deprecation.js";
 import { attachSuper } from "./super/index.js";
+import { isLobbyApiPath, lobbyApi, lobbyRosterFromDetail, lobbySocketBridge, LobbyStore } from "./lobby.js";
+import { CoachRatingCache } from "./coachRating.js";
 import { createSiteBackend } from "./site-backend/index.js";
 import { replayDeferredGameResults } from "./site-backend/banking.js";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
@@ -406,6 +408,26 @@ const matchmaker = new Matchmaker({
   homeAwayMode: initialSettings.homeAwayMode,
 });
 
+// Web Lobby (start-game spec Part 1b): a VIEW over the matchmaker record above (create = challenge, join = the
+// counter-challenge). In memory, 24 h, swept. Challenges ride the coach's STORED fork credential digest.
+const lobbyStore = new LobbyStore({
+  matchmaker,
+  digestFor: async (coach) => (challengeDbCfg ? forkCoachPasswordDigest(challengeDbCfg, coach) : undefined),
+  isBanned,
+  resolveTeam: (coach, teamId) => {
+    const team = readLibrary(LIBRARY_DIR, coach).find((t) => t.teamId === teamId && !t.retired);
+    if (!team) return { error: `Team ${teamId} isn't in ${coach}'s library.`, status: 400 };
+    if (!isLoadedOnFork(FORK_STATE_DIR, team.ingestedAt)) {
+      return { error: `"${team.teamName}" isn't loaded on the fork yet. Try again after the next reload.`, status: 409 };
+    }
+    return { teamId: team.teamId, teamName: team.teamName, race: team.race, teamValue: team.teamValue };
+  },
+});
+matchmaker.onPaired((pairing) => lobbyStore.notePairing(pairing));
+setInterval(() => lobbyStore.sweep(), 5 * 60 * 1000).unref();
+const coachRatings = new CoachRatingCache();
+let lobbyChatLive = false;
+
 // --- Team Builder (V1) ---
 // Baseline ruleset for standalone builds (owner-ruled): open-league, 1000k gold, no SP, no
 // stars. Enforces CORE roster legality only (position caps, team size, gold, big-guy caps) —
@@ -620,6 +642,9 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   if (tournamentResultGameId(pathname)) return true;
   // Team Builder saves: coach-session-gated in-handler (401 JSON), never Basic-gated.
   if (teamBuilderSavesPath(pathname) !== undefined) return true;
+  // Web Lobby: session-gated in-handler (401 JSON); its built page is public static.
+  if (isLobbyApiPath(pathname)) return true;
+  if ((req.method === "GET" || req.method === "HEAD") && (pathname === "/lobby" || pathname.startsWith("/lobby/"))) return true;
   if (pathname.startsWith("/api/packages/")) return true;
   if (
     (req.method === "GET" || req.method === "HEAD") &&
@@ -747,7 +772,9 @@ const readBody = (req: IncomingMessage, maxBytes = DEFAULT_JSON_BODY_CAP): Promi
   readJsonBody(req, maxBytes);
 
 async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> {
-  const rel = urlPath === "/" || urlPath === "/index.html" ? "/control-panel.html" : urlPath;
+  const rel = urlPath === "/" || urlPath === "/index.html" ? "/control-panel.html"
+    : urlPath === "/lobby" || urlPath === "/lobby/" ? "/lobby/index.html" // Vite build output (pnpm build:lobby)
+    : urlPath;
   // prevent path traversal
   const full = normalize(join(PUBLIC_DIR, rel));
   if (!full.startsWith(PUBLIC_DIR)) {
@@ -796,6 +823,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/fork/reload" ||
     pathname === "/api/fork/team-builder/build" ||
     teamBuilderSavesPath(pathname) !== undefined ||
+    isLobbyApiPath(pathname) ||
     pathname === "/api/bug-reports" ||
     pathname === "/api/admin/identities" ||
     pathname === "/api/admin/identities/naf" ||
@@ -854,7 +882,7 @@ async function handleApi(
     "/api/fork/schedule",
     "/api/fork/tournament-match",
     "/api/fork/jnlp",
-  ].includes(path);
+  ].includes(path) || (method === "POST" && /^\/api\/lobby(?:\/[^/]+\/(?:join|launch))?$/.test(path));
   const gameStartGenerationLock = gameStartDelivery && cacheGateCfg
     ? acquireTeamNameWriteLock(cacheGateCfg.teamsDir)
     : undefined;
@@ -872,6 +900,36 @@ async function handleApi(
   ].includes(path);
   if (requiresCoherentTeamCache && cacheGateCfg && forkCacheReloadRequired(cacheGateCfg.teamsDir)) {
     return sendJson(res, 503, { error: "The fork team cache requires recovery reload; team mutations and game starts are temporarily disabled." });
+  }
+
+  if (isLobbyApiPath(path)) {
+    const body = method === "POST" ? await readBody(req) : undefined;
+    const result = await lobbyApi(method, path, query, auth, body, {
+      store: lobbyStore,
+      roster: (coach, teamId) => {
+        const detail = teamDetailEndpoint({ coach, organizer: false }, teamId, {
+          libraryDir: LIBRARY_DIR,
+          teamsDir: forkConfigFromEnv()?.teamsDir,
+        });
+        return detail.status === 200 ? lobbyRosterFromDetail(detail.body.team) : undefined;
+      },
+      coachCard: (coach) => {
+        let avatar: string | null = null;
+        let discordUserId = "";
+        try {
+          const record = ownIdentityRecord(coach);
+          discordUserId = record.identities.discordUserId ?? "";
+          avatar = record.profile.avatar || discordAvatarUrl(discordUserId, record.identities.discordAvatarHash) || null;
+        } catch { /* unknown coach: no card extras */ }
+        const registry = readCoachRegistry(COACH_REGISTRY_JSON);
+        const linked = (discordUserId && registry.find((e) => e.discordUserId === discordUserId && e.fumbblName))
+          || registry.find((e) => e.fumbblName?.trim().toLowerCase() === coach.trim().toLowerCase());
+        return { avatar, fumbblName: (linked && linked.fumbblName?.trim()) || null };
+      },
+      rating: (name) => coachRatings.get(name),
+      chatLive: () => lobbyChatLive,
+    });
+    if (result) return sendJson(res, result.status, result.body);
   }
 
   if (path === "/api/auth/session" && (method === "GET" || method === "HEAD")) {
@@ -1527,7 +1585,9 @@ async function handleApi(
       }
       if (!jnlpDigest) return sendJson(res, 404, { error: "Fork coach account not found." });
     }
-    const jnlp = buildForkJnlp({ coach, teamId, gameName, passwordMd5: jnlpDigest });
+    const jnlpGameId = query.get("gameId")?.trim();
+    if (jnlpGameId && !/^\d{1,12}$/.test(jnlpGameId)) return sendJson(res, 400, { error: "gameId must be numeric." });
+    const jnlp = buildForkJnlp({ coach, teamId, gameName, passwordMd5: jnlpDigest, gameId: jnlpGameId || undefined });
     res.writeHead(200, {
       "content-type": "application/x-java-jnlp-file; charset=utf-8",
       "content-disposition": `attachment; filename="${jnlpFilename(gameName, coach)}"`,
@@ -2899,6 +2959,7 @@ export const server = createServer((req, res) => {
           url.pathname === "/api/account" ||
           url.pathname === "/api/admin/identities/naf" ||
           teamBuilderSavesPath(url.pathname) !== undefined ||
+          isLobbyApiPath(url.pathname) ||
           tournamentInstructionsGameId(url.pathname) !== undefined ||
           tournamentResultGameId(url.pathname) !== undefined
         );
@@ -2966,7 +3027,11 @@ server.listen(PORT, LISTEN_HOST, () => {
 // a no-op unless SUPER_ENABLED=1, and construction failure disables Super without touching the HTTP
 // server (SM-3). config-web serving is unaffected in every case.
 if (challengeDbCfg && forkAdminCfg) {
-  attachSuper(server, { dbCfg: challengeDbCfg, forkCfg: forkAdminCfg });
+  lobbyChatLive = attachSuper(server, {
+    dbCfg: challengeDbCfg,
+    forkCfg: forkAdminCfg,
+    lobby: lobbySocketBridge(lobbyStore, (req) => sessionFromRequest(req as IncomingMessage)?.coach),
+  }) !== null;
 } else if (process.env.SUPER_ENABLED === "1") {
   console.log("[super] SUPER_ENABLED set but fork DB/admin config missing — Super stays OFF.");
 }

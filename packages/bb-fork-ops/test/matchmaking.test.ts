@@ -295,3 +295,25 @@ describe("Matchmaker", () => {
     });
   });
 });
+
+describe("Matchmaker views (web Lobby)", () => {
+  it("pendingOf / pendingFor expose challenges without the digest", async () => {
+    const mm = new Matchmaker();
+    await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore", passwordMd5: "a".repeat(32) });
+    expect(mm.pendingOf("kalimar")).toEqual({ coach: "Kalimar", teamId: "111", opponent: "BattleLore", createdAt: expect.any(Number) });
+    expect(mm.pendingFor("battlelore")).toEqual([{ coach: "Kalimar", teamId: "111", opponent: "BattleLore", createdAt: expect.any(Number) }]);
+    expect(JSON.stringify(mm.pendingFor("BattleLore"))).not.toContain("aaaa");
+    expect(mm.pendingFor("Kalimar")).toEqual([]);
+  });
+
+  it("onPaired fires once with the scheduled gameId and home/away teams; a throwing listener never breaks pairing", async () => {
+    const events: unknown[] = [];
+    const mm = new Matchmaker({ scheduleGame: async () => ({ gameId: "77" }), onPaired: () => { throw new Error("boom"); } });
+    mm.onPaired((e) => events.push(e));
+    await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore" });
+    await mm.challenge({ coach: "BattleLore", teamId: "222", opponent: "Kalimar" });
+    expect(events).toEqual([{ gameName: expect.stringMatching(/^chal_/), gameId: "77", home: { coach: "BattleLore", teamId: "222" }, away: { coach: "Kalimar", teamId: "111" }, at: expect.any(Number) }]);
+    expect(mm.matchstatus("Kalimar")).toMatchObject({ status: "matched", gameId: "77" });
+    expect(mm.pendingOf("Kalimar")).toBeUndefined();
+  });
+});

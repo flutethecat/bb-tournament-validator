@@ -15,3 +15,6 @@ apps/config-web/bug-reports/
 *.log
 *.out
 __pycache__/
+
+# Lobby page Vite build output (pnpm --filter config-web build:lobby); built on the host, never committed.
+apps/config-web/public/lobby/

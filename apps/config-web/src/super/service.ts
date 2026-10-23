@@ -8,7 +8,8 @@
 // fork-store/gamestate reads live at the edge (server.ts) and this core stays pure + testable.
 
 import { handshake, type WsConnection } from "./ws.js";
-import { getFeature, serviceCapabilities, PITCH_W } from "./registry.js";
+import { getFeature, getLobbyFeature, lobbyFeatures, serviceCapabilities, PITCH_W } from "./registry.js";
+import type { LobbySocketBridge } from "../lobby.js";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { randomBytes } from "node:crypto";
@@ -55,6 +56,10 @@ export interface SuperOptions {
   /** max publishes/sec per connection per feature; excess is coalesced keep-latest (SM-2). */
   maxPublishHz?: number;
   log?: (line: string) => void;
+  /** Web Lobby rooms (lobby-chat / lobby-presence). Absent => a lobby hello is refused. */
+  lobby?: LobbySocketBridge;
+  /** min ms between two lobby-chat publishes on one connection (default 400). */
+  lobbyChatIntervalMs?: number;
 }
 
 interface Participant {
@@ -79,11 +84,16 @@ export class SuperService {
   private readonly log: (line: string) => void;
   private readonly handshakeTimeoutMs: number;
   private readonly minPublishIntervalMs: number;
+  /** lobbyId -> the open sockets of its two coaches (a coach may have several tabs). */
+  private readonly lobbyRooms = new Map<string, Set<WsConnection>>();
+  private readonly lobbyChatIntervalMs: number;
 
   constructor(private readonly opts: SuperOptions) {
     this.log = opts.log ?? ((l) => console.log(`[super] ${l}`));
     this.handshakeTimeoutMs = opts.handshakeTimeoutMs ?? 10_000;
     this.minPublishIntervalMs = 1000 / (opts.maxPublishHz ?? 10);
+    this.lobbyChatIntervalMs = opts.lobbyChatIntervalMs ?? 400;
+    opts.lobby?.subscribe((lobbyId) => this.broadcastLobbyPresence(lobbyId));
   }
 
   /** Attach to an http.Server 'upgrade' event, scoped to a path. Returns the handler for detach. */
@@ -92,11 +102,21 @@ export class SuperService {
     try {
       const conn = handshake(req, socket);
       if (!conn) return;
+      // Lobby identity = the HTTP session on the upgrade request (cookie / Bearer), captured once here.
+      if (this.opts.lobby) {
+        try { conn.data.sessionCoach = this.opts.lobby.coachFromRequest(req); } catch { /* no session */ }
+      }
       this.beginHandshake(conn);
     } catch (e) {
       this.log(`upgrade error (contained): ${(e as Error).message}`);
       try { socket.destroy(); } catch { /* ignore */ }
     }
+  }
+
+  /** Test seam: run the handshake on an already-upgraded connection. */
+  acceptConnection(conn: WsConnection, sessionCoach?: string): void {
+    if (sessionCoach !== undefined) conn.data.sessionCoach = sessionCoach;
+    this.beginHandshake(conn);
   }
 
   private beginHandshake(conn: WsConnection): void {
@@ -119,7 +139,9 @@ export class SuperService {
     try {
       const msg = JSON.parse(text) as Record<string, unknown>;
       const type = msg.type;
-      if (type === "hello") await this.handleHello(conn, msg);
+      if (type === "hello" && typeof msg.lobbyId === "string") this.handleLobbyHello(conn, msg);
+      else if (type === "hello") await this.handleHello(conn, msg);
+      else if (type === "publish" && conn.data.kind === "lobby") this.handleLobbyPublish(conn, msg);
       else if (type === "publish") this.handlePublish(conn, msg);
       else if (type === "bye") conn.close();
       // unknown types are ignored (forward-compat; never error)
@@ -242,7 +264,104 @@ export class SuperService {
     return { ...p, x: mirrorX(p.x, seat) };
   }
 
+  // -- Web Lobby rooms --------------------------------------------------------------------------------------
+  // Auth: the coach is the HTTP session bound to the upgrade request (Discord SSO cookie, or a Bearer header),
+  // never a name the frame claims. A hello naming a different coach, or a coach who is not one of the lobby's
+  // two, is closed. Publishes are server-stamped with that coach (spoof-proof) and re-checked for membership.
+
+  private handleLobbyHello(conn: WsConnection, msg: Record<string, unknown>): void {
+    if (conn.data.authed) return;
+    const lobby = this.opts.lobby;
+    const lobbyId = String(msg.lobbyId);
+    const coach = typeof conn.data.sessionCoach === "string" ? conn.data.sessionCoach : "";
+    const claimed = typeof msg.coach === "string" ? msg.coach.trim().toLowerCase() : "";
+    if (!lobby || !coach || (claimed && claimed !== coach.toLowerCase()) || !lobby.isMember(lobbyId, coach)) {
+      this.log(`lobby reject coach=${coach || "-"} lobby=${lobbyId}`);
+      this.safeSend(conn, { type: "lobbyRefused", v: 1, lobbyId });
+      conn.close();
+      return;
+    }
+    conn.data.authed = true;
+    conn.data.kind = "lobby";
+    conn.data.coach = coach;
+    conn.data.lobbyId = lobbyId;
+    const room = this.lobbyRooms.get(lobbyId) ?? new Set<WsConnection>();
+    room.add(conn);
+    this.lobbyRooms.set(lobbyId, room);
+    this.safeSend(conn, {
+      type: "lobbyWelcome",
+      v: 1,
+      lobbyId,
+      coach,
+      features: lobbyFeatures(),
+      history: lobby.history(lobbyId),
+    });
+    lobby.socketOpened(lobbyId, coach); // store emits -> broadcastLobbyPresence
+  }
+
+  private handleLobbyPublish(conn: WsConnection, msg: Record<string, unknown>): void {
+    const lobby = this.opts.lobby;
+    if (!lobby || !conn.data.authed) return;
+    const lobbyId = String(conn.data.lobbyId);
+    const coach = String(conn.data.coach);
+    const feature = getLobbyFeature(typeof msg.feature === "string" ? msg.feature : "");
+    if (!feature || !feature.publishable) return;
+    const now = Date.now();
+    const last = typeof conn.data.lastLobbyChat === "number" ? conn.data.lastLobbyChat : 0;
+    if (now - last < this.lobbyChatIntervalMs) return;
+    conn.data.lastLobbyChat = now;
+    const clean = feature.validate(msg.payload);
+    if (!clean) return;
+    const stored = lobby.appendChat(lobbyId, coach, clean.text); // null => not a member any more / expired
+    if (!stored) return;
+    this.fanOutLobby(lobbyId, {
+      type: "event",
+      v: 1,
+      lobbyId,
+      coach: stored.coach,
+      feature: feature.key,
+      payload: { id: stored.id, text: stored.text },
+      ts: stored.ts,
+    });
+  }
+
+  private broadcastLobbyPresence(lobbyId: string): void {
+    const room = this.lobbyRooms.get(lobbyId);
+    if (!room || room.size === 0) return;
+    const presence = this.opts.lobby?.presence(lobbyId) ?? null;
+    this.fanOutLobby(lobbyId, {
+      type: "event",
+      v: 1,
+      lobbyId,
+      coach: "",
+      feature: "lobby-presence",
+      payload: presence ? { presence } : { expired: true },
+      ts: Date.now(),
+    });
+    if (!presence) for (const c of [...room]) c.close(); // lobby gone: drop its sockets
+  }
+
+  private fanOutLobby(lobbyId: string, frame: unknown): void {
+    const room = this.lobbyRooms.get(lobbyId);
+    if (!room) return;
+    const text = JSON.stringify(frame);
+    for (const c of room) {
+      try { c.send(text); } catch { /* ignore */ }
+    }
+  }
+
+  private removeLobbyConn(conn: WsConnection): void {
+    const lobbyId = conn.data.lobbyId as string | undefined;
+    const coach = conn.data.coach as string | undefined;
+    if (!lobbyId || !coach) return;
+    const room = this.lobbyRooms.get(lobbyId);
+    if (!room || !room.delete(conn)) return;
+    if (room.size === 0) this.lobbyRooms.delete(lobbyId);
+    this.opts.lobby?.socketClosed(lobbyId, coach);
+  }
+
   private removeConn(conn: WsConnection): void {
+    if (conn.data.kind === "lobby") { this.removeLobbyConn(conn); return; }
     const gameId = conn.data.gameId as string | undefined;
     const coach = conn.data.coach as string | undefined;
     if (!gameId || !coach) return;
@@ -261,9 +380,10 @@ export class SuperService {
   }
 
   /** Ops visibility (SM-3): coarse health for a log line / future /api/super/health. */
-  health(): { games: number; connections: number } {
+  health(): { games: number; connections: number; lobbies: number } {
     let connections = 0;
     for (const r of this.rooms.values()) connections += r.members.size;
-    return { games: this.rooms.size, connections };
+    for (const r of this.lobbyRooms.values()) connections += r.size;
+    return { games: this.rooms.size, connections, lobbies: this.lobbyRooms.size };
   }
 }
