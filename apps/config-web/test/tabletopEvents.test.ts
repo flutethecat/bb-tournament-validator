@@ -103,7 +103,7 @@ describe("applyPostMatch (BB2025)", () => {
       ev("casualty", "home", "h1", { victim: "a1", result: "BH" }),
     ], "spp-only");
     expect(sppOf(r, "h1")).toBe(3 + 2);
-    expect(sppOf(r, "h2")).toBe(1 + 1);
+    expect(sppOf(r, "h2")).toBe(1 + 2); // completion 1 + interception 2 (rules site)
     expect(sppOf(r, "h3")).toBe(1 + 4);
   });
   it("only block casualties give SPP; fouls and other causes do not", () => {

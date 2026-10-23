@@ -318,7 +318,7 @@ describe("TourPlay event set", () => {
       ev("casualty", "home", "h1", { victim: "a1", result: "BH" }),
     ]) as { stored: TabletopEvent[] }).stored;
     const res = applyPostMatch(team("Human", 3, "h", 0), stored, { team: "home", postMatch: "spp-only", ruleset: "bb2025" });
-    expect(res.teamFile.players.map((p) => p.spp)).toEqual([5, 2, 5]);
+    expect(res.teamFile.players.map((p) => p.spp)).toEqual([5, 3, 5]); // interception is 2 SPP, deflection 1
     expect(effectiveEvents(stored)).toHaveLength(6);
   });
 });

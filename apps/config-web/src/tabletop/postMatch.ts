@@ -15,7 +15,7 @@
  *     - `ruleset`: only "bb2025" exists. Anything else throws.
  *     - Input is never mutated; the result team file is a new object.
  *   BB2025 values used (exported as constants so a ruleset change is one edit): TD 3, CAS 2 (block-caused
- *   only, not fouls or other causes), completion 1, interception 1, deflection 1, MVP 4; winnings 10,000 gp
+ *   only, not fouls or other causes), completion 1, interception 2 (rules site), deflection 1, MVP 4; winnings 10,000 gp
  *   per touchdown scored (owner ruling: no win/draw bonus); dedicated fans change comes from the coach's
  *   recorded `fanChange` event, clamped to 1..6.
  *   A player who started the match already MNG sat it out: the flag is cleared; a new MNG may then be set.
@@ -29,7 +29,7 @@ export type PostMatchOption = "none" | "spp-only" | "full";
 export type Ruleset = "bb2025";
 
 export const WINNINGS_PER_TOUCHDOWN = 10_000;
-export const SPP_VALUES = { touchdown: 3, casualty: 2, completion: 1, throwTeamMate: 1, landing: 1, interception: 1, deflection: 1, mvp: 4 } as const;
+export const SPP_VALUES = { touchdown: 3, casualty: 2, completion: 1, throwTeamMate: 1, landing: 1, interception: 2, deflection: 1, mvp: 4 } as const;
 
 /**
  * Who earns SPP (bloodbowlbase.ru league_play, #earning-star-player-points, paraphrased): regular players earn it, Journeymen earn it
