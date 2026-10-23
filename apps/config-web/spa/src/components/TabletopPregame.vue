@@ -81,8 +81,8 @@ const sendHand = (): void => emit("advance", { mode: "hand", call: handCall.valu
       <h3>Inducements</h3>
       <div v-for="s in sides" :key="s" class="tt-pre-team">
         <h4>{{ match[s].teamName }}</h4>
-        <p v-if="done(s)" class="muted">Done.</p>
-        <template v-else>
+        <p v-if="done(s)" class="muted" role="status">Submitted. You can change it and submit again.</p>
+        <template v-if="true">
           <p v-if="!options(s).length" class="muted">No inducements offered.</p>
           <div v-for="o in options(s)" :key="o.id" class="tt-pre-opt">
             <span>{{ o.name }}<small v-if="o.cost"> {{ Math.round(o.cost / 1000) }}k</small></span>
@@ -93,7 +93,7 @@ const sendHand = (): void => emit("advance", { mode: "hand", call: handCall.valu
             </span>
           </div>
           <div class="tt-actions-row">
-            <button class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="send(s, false)">Confirm {{ match[s].teamName }}</button>
+            <button class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="send(s, false)">{{ done(s) ? "Resubmit" : "Submit" }} {{ match[s].teamName }}</button>
             <button class="lobby-btn tt-tap" type="button" :disabled="busy" @click="send(s, true)">Skip</button>
           </div>
         </template>

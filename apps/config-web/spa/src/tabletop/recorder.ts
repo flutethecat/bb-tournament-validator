@@ -44,8 +44,9 @@ export interface MatchView {
 
 export interface RosterPlayerView {
   id: string; name: string; number?: number; spp: number; mng: boolean; dead: boolean;
-  positionId?: string; position?: string; skills?: string[]; injuries?: string[]; niggles?: number;
-  ma?: number; st?: number; ag?: number; pa?: number; av?: number;
+  positionId?: string; position?: string; positionName?: string; skills?: string[]; injuries?: string[]; niggles?: number;
+  /** MA and ST are values; AG, PA and AV are target numbers (rendered "3+"); pa null = no passing. */
+  ma?: number | null; st?: number | null; ag?: number | null; pa?: number | null; av?: number | null;
 }
 export interface TeamView {
   name: string; players: RosterPlayerView[];
@@ -53,7 +54,7 @@ export interface TeamView {
 }
 
 export interface RecordedEvent {
-  id: string; type: string; team: Side; player?: string; payload: Record<string, unknown>; ts?: string; by?: string;
+  id: string; type: string; team: Side; player?: string; payload: Record<string, unknown>; ts?: string; by?: string; sppEarned?: number;
 }
 
 /** The server's own count of the effective events (GET match and the events POST both return it). */
@@ -62,6 +63,8 @@ export interface ServerTally {
   fanDelta: Record<Side, number>;
   half?: number;
   turn?: number;
+  /** SPP each effective event earned (server-derived). */
+  events?: Array<{ id: string; sppEarned: number }>;
   casualtiesSuffered: Record<Side, { bh: number; si: number; rip: number }>;
   players: Record<Side, PlayerLineView[]>;
 }

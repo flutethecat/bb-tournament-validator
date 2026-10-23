@@ -71,9 +71,6 @@ const LABELS: Record<string, string> = {
 };
 export const eventLabel = (type: string): string => LABELS[type] ?? type;
 
-/** SPP value shown as stars on a feed row (BB2025 values; the server's tally decides the real SPP). */
-export const EVENT_STARS: Record<string, number> = { touchdown: 3, casualty: 2, completion: 1, interception: 1, deflection: 1, mvp: 4 };
-
 /** Rows with no undo button (pre-game results the server rolled). */
 export const PREGAME_TYPES: ReadonlySet<string> = new Set(["fans", "weather", "journeymen", "journeyman", "inducement", "prayer", "coinFlip"]);
 /** Rows drawn across the whole feed rather than on a team side. */
@@ -168,7 +165,7 @@ export interface FeedRow {
 }
 
 /** Newest first; only events still in force (the server names them in effectiveEventIds). */
-export function feedRows(events: readonly RecordedEvent[], effectiveIds: readonly string[], teams: Record<Side, TeamView | undefined>): FeedRow[] {
+export function feedRows(events: readonly RecordedEvent[], effectiveIds: readonly string[], teams: Record<Side, TeamView | undefined>, spp: Readonly<Record<string, number>> = {}): FeedRow[] {
   const live = new Set(effectiveIds);
   const rows: FeedRow[] = [];
   for (const e of events) {
@@ -183,14 +180,14 @@ export function feedRows(events: readonly RecordedEvent[], effectiveIds: readonl
       id: e.id,
       type: e.type,
       label: eventLabel(e.type),
-      stars: EVENT_STARS[e.type] ?? 0,
+      stars: spp[e.id] ?? e.sppEarned ?? 0, // the server's SPP for this event (0 = no stars)
       sub,
       side: CENTRE_TYPES.has(e.type) ? "centre" : e.team,
       team: e.team,
       lead,
       rest,
       chip: e.player ? (pl ? `${pl.number !== undefined ? `#${pl.number} ` : ""}${pl.name}` : e.player) : "",
-      position: pl?.position ?? pl?.positionId ?? "",
+      position: pl?.positionName ?? pl?.position ?? pl?.positionId ?? "",
       when: half || turn ? `${half ? (half === "OT" || half >= 3 ? "OT" : `H${half}`) : ""}${half && turn ? " " : ""}${turn ? `T${turn}` : ""}` : "",
       undoable: !PREGAME_TYPES.has(e.type),
       glyph: EVENT_GLYPHS[e.type],

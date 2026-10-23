@@ -56,7 +56,7 @@ function saveText(): void {
       <li v-for="p in players" :key="p.id">
         <button type="button" class="lobby-btn tt-tap tt-pick-row" :disabled="unavailable(side, p.id) !== ''" @click="pickPlayer(p.id)">
           <b>{{ p.number !== undefined ? `#${p.number}` : "" }}</b> {{ p.name }}
-          <small>{{ p.position ?? p.positionId ?? "" }}<template v-if="unavailable(side, p.id)"> ({{ unavailable(side, p.id) }})</template></small>
+          <small>{{ p.positionName ?? p.position ?? p.positionId ?? "" }}<template v-if="unavailable(side, p.id)"> ({{ unavailable(side, p.id) }})</template></small>
         </button>
       </li>
     </ul>

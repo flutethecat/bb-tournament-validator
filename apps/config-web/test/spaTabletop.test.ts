@@ -189,6 +189,7 @@ describe("tabletop routes (server-rendered)", () => {
   const serverTally = {
     score: { home: 1, away: 0 }, fanDelta: { home: 0, away: 0 },
     casualtiesSuffered: { home: { bh: 0, si: 0, rip: 0 }, away: { bh: 0, si: 0, rip: 0 } },
+    events: [{ id: "e1", sppEarned: 3 }, { id: "e4", sppEarned: 1 }],
     players: { home: [line("h1", "Grob", { touchdowns: 1, sppEarned: 3 })], away: [line("a1", "Lirael", { completions: 1, sppEarned: 1 })] },
   };
   const summary = (side: string, extra: Record<string, unknown> = {}) => ({
@@ -360,13 +361,13 @@ describe("tabletop routes (server-rendered)", () => {
   it("Rosters popout renders both teams from the server's team files", async () => {
     const rich = {
       home: { name: "Alice Orcs", treasury: 120000, players: [
-        { id: "h1", name: "Grob", number: 1, position: "Blitzer", spp: 6, mng: false, dead: false, ma: 6, st: 3, ag: 3, pa: 4, av: 10, skills: ["Block", "Dodge"] },
+        { id: "h1", name: "Grob", number: 1, spp: 6, mng: false, dead: false, positionName: "Blitzer", ma: 6, st: 3, ag: 3, pa: null, av: 9, skills: ["Block", "Dodge"] },
         { id: "h2", name: "Snaga", number: 2, positionId: "lineman", spp: 0, mng: true, dead: false },
       ] },
       away: { name: "Bob Elves", players: [{ id: "a1", name: "Lirael", number: 7, positionId: "catcher", spp: 3, mng: false, dead: false, niggles: 1 }] },
     };
     const html = await mount(mods.rostersC, { match: baseMatch("recording"), teams: rich, tally: serverTally });
-    for (const t of ["Rosters", "Alice Orcs", "Bob Elves", "1/2", "1/1", "Grob", "Blitzer", "Block", "Dodge", "MNG", "Treasury 120k", "<small>MA</small>6", "<small>AV</small>10", "9 SPP", "(+3)"])
+    for (const t of ["Rosters", "Alice Orcs", "Bob Elves", "1/2", "1/1", "Grob", "Blitzer", "Block", "Dodge", "MNG", "Treasury 120k", "<small>MA</small>6", "<small>ST</small>3", "<small>AG</small>3+", "<small>PA</small>-", "<small>AV</small>9+", "9 SPP", "(+3)"])
       expect(html, t).toContain(t);
     expect(html).toContain("lineman"); // a team file without a position name falls back to the position id
     expect(html).toContain("<small>MA</small>-"); // stats the team file lacks show a dash
@@ -419,9 +420,13 @@ describe("tabletop routes (server-rendered)", () => {
     }));
     expect(html).toContain("Bribes");
     expect(html).toContain("100k");
-    expect(html).toContain("Confirm Alice Orcs");
+    expect(html).toContain("Submit Alice Orcs");
+    expect(html).toContain("Submit Bob Elves"); // one phone submits both teams
     expect(html).toContain("No inducements offered.");
     expect(html.match(/>Skip</g)).toHaveLength(2);
+    const again = await mount(mods.pregameC, pregameProps("pregame:inducements", { inducements: { home: { picks: [] } }, inducementOptions: { home: [{ id: "bribes", name: "Bribes", max: 3 }], away: [] } }));
+    expect(again).toContain("Resubmit Alice Orcs"); // a resubmission replaces
+    expect(again).toContain("Submit Bob Elves");
   });
 
   it("coin flipper: opens on Heads / Tails, no coin yet; hand entry is a small link at the bottom", async () => {

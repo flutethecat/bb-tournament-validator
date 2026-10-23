@@ -30,7 +30,7 @@ const me = computed(() => session.coach());
 const organiser = computed(() => session.state.info?.organizer === true);
 const inPregame = computed(() => pregameStep(state.phase) !== "");
 const recording = computed(() => match.value?.state === "recording" && !inPregame.value);
-const rows = computed(() => feedRows(state.events, state.effectiveIds, state.teams));
+const rows = computed(() => feedRows(state.events, state.effectiveIds, state.teams, Object.fromEntries((state.tally.events ?? []).map((e) => [e.id, e.sppEarned]))));
 const heading = (s: Side): string => (match.value ? `${s === "home" ? "Home" : "Away"}: ${match.value[s].teamName} (${match.value[s].coach})` : "");
 
 // Theme: dark (site tokens) or the light SNES grey; remembered per viewer when storage allows.

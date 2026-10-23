@@ -27,7 +27,12 @@ function badge(p: RosterPlayerView): string {
   if (p.niggles) return "NI";
   return "";
 }
-const stat = (p: RosterPlayerView, k: (typeof STATS)[number]): string => (p[k] === undefined ? "-" : String(p[k]));
+/** MA and ST are plain values; AG, PA and AV are target numbers ("3+"); null / missing = "-". */
+const stat = (p: RosterPlayerView, k: (typeof STATS)[number]): string => {
+  const v = p[k];
+  if (v === undefined || v === null) return "-";
+  return k === "ma" || k === "st" ? String(v) : `${v}+`;
+};
 const spp = (p: RosterPlayerView): number => p.spp + (line(p)?.sppEarned ?? 0);
 const gained = (p: RosterPlayerView): number => line(p)?.sppEarned ?? 0;
 </script>
@@ -53,7 +58,7 @@ const gained = (p: RosterPlayerView): number => line(p)?.sppEarned ?? 0;
           <span class="tt-lvl" :data-injury="badge(p) || null">{{ badge(p) }}</span>
           <span class="tt-roster-nr">{{ p.number !== undefined ? `#${p.number}` : "" }}</span>
           <span class="tt-roster-name">{{ p.name }}</span>
-          <span class="tt-roster-pos">{{ p.position ?? p.positionId ?? "" }}</span>
+          <span class="tt-roster-pos">{{ p.positionName ?? p.position ?? p.positionId ?? "" }}</span>
           <span class="tt-roster-stats">
             <span v-for="k in STATS" :key="k"><small>{{ k.toUpperCase() }}</small>{{ stat(p, k) }}</span>
           </span>
