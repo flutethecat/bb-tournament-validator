@@ -124,7 +124,7 @@ describe("tabletop routes (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, rec, list, queue, organiser, standings] = await Promise.all([
+    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
@@ -133,8 +133,9 @@ describe("tabletop routes (server-rendered)", () => {
       vite.ssrLoadModule("/src/tabletop/queue.ts"),
       vite.ssrLoadModule("/src/tabletop/organiser.ts"),
       vite.ssrLoadModule("/src/tabletop/standings.ts"),
+      vite.ssrLoadModule("/src/tabletop/coachSearch.ts"),
     ]);
-    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings };
+    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -229,9 +230,8 @@ describe("tabletop routes (server-rendered)", () => {
     });
     expect(html).toContain("New match");
     expect(html).toContain("Alice Orcs (Orc");
-    expect(html).toContain('placeholder="Coach name"');
-    expect(html).toContain("Find their teams");
-    expect(html).toContain("Find their teams first");
+        expect(html).toContain("Type 2 or more letters");
+    expect(html).toContain("Pick an opponent first");
     expect(html).toContain("SPP only");
     expect(html).toContain("Full post-match");
     expect(html).toContain("None (record the score only)");
@@ -395,5 +395,69 @@ describe("tabletop routes (server-rendered)", () => {
     });
     for (const t of ["Standings", "Alice", "TD +/-", "CAS +/-", "+3", "-2", "<strong>7</strong>"]) expect(html, t).toContain(t);
     expect(html).not.toContain("Sign in with Discord to use this page."); // public read, no gate
+  });
+
+  it("coach type-ahead: waits 250 ms after 2+ characters, one query with q, limit=10 and coach=<me>", async () => {
+    const timers: Array<{ fn: () => void; ms: number; live: boolean }> = [];
+    const paths: string[] = [];
+    const s = mods.coachSearch.createCoachSearch({
+      api: (async (path: string) => { paths.push(path); return { coaches: ["Bobby", "bobcat"] }; }) as Fetcher,
+      coach: () => "Alice Q",
+      setTimer: (fn: () => void, ms: number) => { const t = { fn, ms, live: true }; timers.push(t); return t; },
+      clearTimer: (h: { live: boolean }) => { h.live = false; },
+    });
+    s.input("b");
+    expect(timers).toHaveLength(0); // under 2 characters: nothing scheduled
+    s.input("bo");
+    s.input("bob");
+    expect(timers.filter((t) => t.live).map((t) => t.ms)).toEqual([250]); // the first debounce was cancelled
+    expect(paths).toEqual([]);
+    timers.find((t) => t.live)!.fn();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(paths).toEqual(["/api/fork/coaches?q=bob&limit=10&coach=Alice%20Q"]);
+    expect(s.state.matches).toEqual(["Bobby", "bobcat"]);
+  });
+
+  it("coach type-ahead: empty answer, server error text, and a stale answer is dropped", async () => {
+    let reply: () => unknown = () => ({ coaches: [] });
+    const timers: Array<() => void> = [];
+    const s = mods.coachSearch.createCoachSearch({
+      api: (async () => { const r = reply(); if (r instanceof Error) throw r; return r; }) as Fetcher,
+      coach: () => "Alice", setTimer: (fn: () => void) => { timers.push(fn); return timers.length; }, clearTimer: () => undefined,
+    });
+    s.input("zz");
+    timers.pop()!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.state.searched).toBe(true);
+    expect(s.state.matches).toEqual([]);
+    reply = () => new ApiError(503, "Fork DB not configured on this host (set FORK_DB_HOST).");
+    s.input("zzz");
+    timers.pop()!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.state.error).toContain("Fork DB not configured");
+    let release: (v: unknown) => void = () => undefined;
+    reply = () => new Promise((r) => { release = r; }) as never;
+    s.input("abc");
+    const run = timers.pop()!;
+    reply = () => ({ coaches: ["Old"] });
+    run();
+    s.input("abcd"); // text moved on before the first answer lands
+    release({ coaches: ["Stale"] });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.state.matches).not.toContain("Stale");
+  });
+
+  it("new-match form renders matches as tap rows, 'No coaches match', and the server error", async () => {
+    const withState = (patch: Record<string, unknown>) => render("/tabletop", { "/api/auth/session": session() }, (spa) => {
+      const s = mods.coachSearch.createCoachSearch({ api: fetcher({}), coach: () => "Alice" });
+      Object.assign(s.state, patch);
+      spa.app.provide(mods.coachSearch.COACH_SEARCH_KEY, s);
+    });
+    const rows = await withState({ query: "bo", matches: ["Bobby", "Bobcat"] });
+    expect(rows.html).toContain(">Bobby</button>");
+    expect(rows.html).toContain(">Bobcat</button>");
+    expect(rows.html).toContain('class="lobby-btn tt-tap tt-match"');
+    expect((await withState({ query: "zz", searched: true })).html).toContain("No coaches match");
+    expect((await withState({ query: "zz", error: "Fork DB not configured on this host (set FORK_DB_HOST)." })).html).toContain("Fork DB not configured");
   });
 });

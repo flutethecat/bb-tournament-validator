@@ -6,6 +6,7 @@ import { API_KEY } from "../app";
 import TeamSelect from "../components/TeamSelect.vue";
 import { LIBRARY_KEY } from "../lobby/library";
 import { SESSION_KEY } from "../session";
+import { COACH_SEARCH_KEY, createCoachSearch } from "../tabletop/coachSearch";
 import { createTabletopList, TABLETOP_LIST_KEY, type SaveOption } from "../tabletop/list";
 import type { PostMatchOption } from "../tabletop/recorder";
 
@@ -28,23 +29,39 @@ const saves = ref<SaveOption[]>([]);
 const looking = ref(false);
 const lookedUp = ref(false);
 
-async function onLookup(): Promise<void> {
-  err.value = "";
+const search = inject(COACH_SEARCH_KEY, null) ?? createCoachSearch({ api: fetcher, coach: () => session.coach() });
+const sState = search.state;
+const lookupErr = ref("");
+
+function onType(text: string): void {
+  opponent.value = "";
   saves.value = [];
   theirSaveId.value = "";
   lookedUp.value = false;
-  if (!opponent.value.trim()) return void (err.value = "Enter your opponent's coach name first.");
+  lookupErr.value = "";
+  search.input(text);
+}
+
+async function pickCoach(name: string): Promise<void> {
+  opponent.value = name;
+  search.pick(name);
+  saves.value = [];
+  theirSaveId.value = "";
+  lookedUp.value = false;
+  lookupErr.value = "";
   looking.value = true;
   try {
-    saves.value = await list.lookupSaves(opponent.value);
+    saves.value = await list.lookupSaves(name);
     lookedUp.value = true;
     if (saves.value.length === 1) theirSaveId.value = saves.value[0]!.id;
   } catch (e) {
-    err.value = (e as Error).message;
+    lookupErr.value = (e as Error).message;
   } finally {
     looking.value = false;
   }
 }
+
+const pickFirst = (): void => { const first = sState.matches[0]; if (first) void pickCoach(first); };
 
 const POST_MATCH_LABELS: Record<PostMatchOption, string> = {
   none: "None (record the score only)",
@@ -55,7 +72,7 @@ const POST_MATCH_LABELS: Record<PostMatchOption, string> = {
 async function onCreate(): Promise<void> {
   err.value = "";
   if (!mySaveId.value) return void (err.value = "Pick your team first.");
-  if (!opponent.value.trim()) return void (err.value = "Enter your opponent's coach name.");
+  if (!opponent.value.trim()) return void (err.value = "Pick your opponent from the matches.");
   if (!theirSaveId.value.trim()) return void (err.value = "Find and pick your opponent's team.");
   creating.value = true;
   try {
@@ -84,11 +101,30 @@ onMounted(() => {
       <label for="tt-mine">Your team</label>
       <TeamSelect id="tt-mine" v-model="mySaveId" :teams="teams" />
       <label for="tt-opp">Opponent coach</label>
-      <input id="tt-opp" v-model="opponent" type="text" @input="lookedUp = false" maxlength="40" autocomplete="off" placeholder="Coach name" />
-      <label for="tt-theirs">Their team</label>
-      <button class="lobby-btn tt-tap" type="button" :disabled="looking" @click="onLookup">Find their teams</button>
-      <select id="tt-theirs" v-model="theirSaveId" aria-label="Their team">
-        <option value="">{{ lookedUp ? (saves.length ? "Pick their team" : "No saved teams found") : "Find their teams first" }}</option>
+      <input
+        id="tt-opp"
+        :value="sState.query"
+        type="text"
+        maxlength="40"
+        autocomplete="off"
+        placeholder="Type 2 or more letters"
+        role="combobox"
+        aria-expanded="false"
+        aria-controls="tt-opp-list"
+        @input="onType(($event.target as HTMLInputElement).value)"
+        @keydown.enter.prevent="pickFirst"
+      />
+      <ul v-if="sState.matches.length" id="tt-opp-list" class="tt-matches" role="listbox" aria-label="Matching coaches">
+        <li v-for="c in sState.matches" :key="c" role="option">
+          <button class="lobby-btn tt-tap tt-match" type="button" @click="pickCoach(c)">{{ c }}</button>
+        </li>
+      </ul>
+      <p v-else-if="sState.searched" class="muted" role="status">No coaches match</p>
+      <p v-if="sState.error" class="lobby-error" role="alert">{{ sState.error }}</p>
+      <p v-if="opponent" class="muted" role="status">Opponent: <strong>{{ opponent }}</strong></p>
+      <p v-if="lookupErr" class="lobby-error" role="alert">{{ lookupErr }}</p>
+      <select id="tt-theirs" v-model="theirSaveId" aria-label="Their team" :disabled="looking">
+        <option value="">{{ lookedUp ? (saves.length ? "Pick their team" : "No saved teams found") : "Pick an opponent first" }}</option>
         <option v-for="sv in saves" :key="sv.id" :value="sv.id">{{ sv.name }}</option>
       </select>
       <label for="tt-post">After the match</label>
