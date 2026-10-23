@@ -6,8 +6,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError, type LobbyView, type PendingChallenge } from "../spa/src/shared/api";
 import { createSessionStore, discordLoginUrl, appPath, type Fetcher } from "../spa/src/session";
-import { canClose, canJoin, createLobbyRoom, startLabel, statusLine, type SocketLike } from "../spa/src/lobby/room";
-import { createLobbyStart } from "../spa/src/lobby/start";
+import { controlFor, createLobbyRoom, startLabel, statusLine, type SocketLike } from "../spa/src/lobby/room";
+import { createLobbyStart, lobbyStatusLabel } from "../spa/src/lobby/start";
+import { CHAT_KEEP } from "../spa/src/shared/format";
 
 // SPA shell (apps/config-web/spa): session store, router gate, the lobby controllers, and server-rendered routes.
 // The .vue routes are loaded through the SPA's own Vite config (ssrLoadModule, middleware mode: no port opened),
@@ -45,6 +46,9 @@ const readyLobby = (): LobbyView => ({
   expiresAt: Date.now() + 30 * 60000,
   startedAt: null,
   status: "ready",
+  opponentAccepted: true,
+  canAccept: false,
+  canRenew: false,
   creator: seat("Alice", "creator", { team: { teamId: "t1", teamName: "Alice Orcs", race: "Orc" }, side: "home" }),
   opponent: seat("Bob", "opponent", { team: { teamId: "t2", teamName: "Bob Elves", race: "Wood Elf" }, state: "client", side: "away" }),
   game: { gameName: "g", gameId: "77" },
@@ -69,7 +73,7 @@ const roomRoutes = (lobby: LobbyView): Routes => ({
 
 describe("session store", () => {
   it("reads /api/auth/session once; concurrent callers share the request", async () => {
-    const f = mockFetcher({ "/api/auth/session": { authenticated: true, coach: "Alice", discordSsoEnabled: true } });
+    const f = mockFetcher({ "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord", discordSsoEnabled: true } });
     const s = createSessionStore(f);
     expect(s.state.status).toBe("idle");
     expect(s.signedIn()).toBe(false);
@@ -79,6 +83,17 @@ describe("session store", () => {
     expect(s.state.status).toBe("ready");
     expect(s.signedIn()).toBe(true);
     expect(s.coach()).toBe("Alice");
+  });
+
+  it("a password session is not signed in here (Discord only) and is never labelled Discord", async () => {
+    const s = createSessionStore(mockFetcher({ "/api/auth/session": { authenticated: true, coach: "PwCoach", authMethod: "password" } }));
+    await s.load();
+    expect(s.signedIn()).toBe(false);
+    expect(s.coach()).toBe("");
+    expect(s.otherSession()).toBe(true);
+    const old = createSessionStore(mockFetcher({ "/api/auth/session": { authenticated: true, coach: "NoMethod" } }));
+    await old.load();
+    expect(old.signedIn()).toBe(false);
   });
 
   it("signed out, SSO off, and errors are states, never throws", async () => {
@@ -99,7 +114,7 @@ describe("session store", () => {
   // the failure path, which must surface and leave the session as the server says it is.
   it("signOut surfaces a rejected logout and re-reads the session (still signed in)", async () => {
     const f = mockFetcher({
-      "/api/auth/session": { authenticated: true, coach: "Alice" },
+      "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" },
       "POST /api/auth/logout": new ApiError(401, "Authentication required."),
     });
     const s = createSessionStore(f);
@@ -116,23 +131,33 @@ describe("session store", () => {
 });
 
 describe("lobby controllers", () => {
-  it("status copy, join/close rules and the Start label follow the server view", () => {
+  it("status copy and Accept / Confirm / Close come from the server's pairing state", () => {
     const v = readyLobby();
     expect(statusLine(v)).toBe("Game set up (game 77). Ready to start.");
-    expect(canJoin(v)).toBe(false);
-    expect(canClose(v)).toBe(false);
+    expect(controlFor(v)).toBe("");
     expect(startLabel(v)).toBe("Start game");
     expect(startLabel({ ...v, me: "opponent" })).toBe("Start game again");
-    const waiting: LobbyView = { ...v, status: "waiting", opponent: { ...v.opponent, team: null }, canLaunch: false, game: null };
+    const waiting: LobbyView = { ...v, status: "waiting", opponentAccepted: false, opponent: { ...v.opponent, team: null }, canLaunch: false, game: null };
     expect(statusLine(waiting)).toBe("Waiting for Bob to accept.");
-    expect(canClose(waiting)).toBe(true);
-    expect(canJoin({ ...waiting, me: "opponent" })).toBe(true);
+    expect(controlFor(waiting)).toBe("close");
+    // the opponent's Accept shows only when the server says canAccept
+    expect(controlFor({ ...waiting, me: "opponent" })).toBe("");
+    expect(controlFor({ ...waiting, me: "opponent", canAccept: true })).toBe("accept");
     expect(statusLine({ ...waiting, me: "opponent" })).toBe("Alice challenged you. Pick a team to accept.");
+    // needs-renewal: the creator confirms (canRenew); the opponent waits for the creator
+    const renewal: LobbyView = { ...waiting, status: "needs-renewal", opponentAccepted: true, canRenew: true };
+    expect(controlFor(renewal)).toBe("renew");
+    expect(statusLine(renewal)).toBe("Bob accepted. Your challenge needs confirming before the game is set up.");
+    expect(statusLine({ ...renewal, me: "opponent", canRenew: false })).toBe("You accepted. Waiting for Alice to confirm.");
+    expect(lobbyStatusLabel({ ...renewal, me: "opponent" })).toBe("Waiting for Alice to confirm");
+    expect(lobbyStatusLabel(renewal)).toBe("Confirm your challenge");
+    expect(lobbyStatusLabel({ ...waiting, opponentAccepted: true })).toBe("Accepted");
+    expect(lobbyStatusLabel(v)).toBe("Game ready");
   });
 
   it("poll loads view, rosters, coach card and chat history; launch hands the URL to the browser", async () => {
     const lobby = readyLobby();
-    const f = mockFetcher({ ...roomRoutes(lobby), "POST /api/lobby/lobbyAB12/launch": { jnlpUrl: "/api/fork/jnlp?x=1", scheme: null } });
+    const f = mockFetcher({ ...roomRoutes(lobby), "POST /api/lobby/lobbyAB12/launch": { jnlpUrl: "/api/lobby/lobbyAB12/jnlp", scheme: null } });
     const download = vi.fn();
     const room = createLobbyRoom("lobbyAB12", { api: f, me: () => "Alice", onSignedOut: vi.fn(), download });
     await room.poll();
@@ -140,11 +165,12 @@ describe("lobby controllers", () => {
     expect(room.state.view?.id).toBe("lobbyAB12");
     expect(room.state.rosters.creator.roster?.name).toBe("Alice Orcs");
     expect(room.state.rosters.opponent).toMatchObject({ status: "ok", roster: null });
-    expect(room.state.card).toMatchObject({ coach: "Bob", avatar: "https://cdn.discordapp.test/a.png", fumbbl: { name: "BobF", title: "Star", parts: ["Record 3/1/2", "CR 150.2"] } });
+    expect(room.state.card).toMatchObject({ coach: "Bob", status: "ok", avatar: "https://cdn.discordapp.test/a.png", fumbbl: { name: "BobF", title: "Star", parts: ["Record 3/1/2", "CR 150.2"] } });
     expect(room.state.chat.map((m) => m.id)).toEqual([1]);
     expect(room.state.chatState).toBe("Live chat is off on this server.");
     await room.launch();
-    expect(download).toHaveBeenCalledWith("/api/fork/jnlp?x=1");
+    // the only download is the session-scoped JNLP route the server names
+    expect(download).toHaveBeenCalledWith("/api/lobby/lobbyAB12/jnlp");
     // the roster is fetched once per team, not on every poll
     await room.poll();
     await flush();
@@ -188,6 +214,116 @@ describe("lobby controllers", () => {
     expect(f.calls.filter((c) => c.path === "/api/lobby/lobbyAB12").length).toBe(pollsBefore + 1);
     room.stop();
     expect(ws.close).toHaveBeenCalled();
+  });
+
+  it("rating: a temporary failure says so and retries with backoff; no link only when the server says so", async () => {
+    let clock = 1_000_000;
+    let ratingUp = false;
+    const lobby = readyLobby();
+    const f = mockFetcher({
+      ...roomRoutes(lobby),
+      "/api/coach-rating?name=BobF": () => (ratingUp ? { rating: { name: "BobF", cr: 140 } } : new ApiError(503, "busy")),
+    });
+    const room = createLobbyRoom("lobbyAB12", { api: f, me: () => "Alice", onSignedOut: vi.fn(), now: () => clock });
+    const ratingCalls = () => f.calls.filter((c) => c.path.startsWith("/api/coach-rating")).length;
+    await room.poll(); await flush();
+    expect(room.state.card).toMatchObject({ status: "unavailable", linkedName: "BobF", fumbbl: null });
+    expect(ratingCalls()).toBe(1);
+    clock += 10_000; // inside the 15 s backoff: no retry
+    await room.poll(); await flush();
+    expect(ratingCalls()).toBe(1);
+    clock += 6_000; // past it: retried, still down, backoff doubles to 30 s
+    await room.poll(); await flush();
+    expect(ratingCalls()).toBe(2);
+    clock += 20_000;
+    await room.poll(); await flush();
+    expect(ratingCalls()).toBe(2);
+    ratingUp = true;
+    clock += 11_000;
+    await room.poll(); await flush();
+    expect(ratingCalls()).toBe(3);
+    expect(room.state.card).toMatchObject({ status: "ok", fumbbl: { name: "BobF", parts: ["CR 140"] } });
+    clock += 3_600_000; // loaded: never re-read
+    await room.poll(); await flush();
+    expect(ratingCalls()).toBe(3);
+
+    const unlinked = createLobbyRoom("lobbyAB12", {
+      api: mockFetcher({ ...roomRoutes(lobby), "/api/lobby/lobbyAB12/coach?role=opponent": { avatar: null, fumbblName: null } }),
+      me: () => "Alice", onSignedOut: vi.fn(),
+    });
+    await unlinked.poll(); await flush();
+    expect(unlinked.state.card).toMatchObject({ status: "unlinked" });
+
+    const cardDown = createLobbyRoom("lobbyAB12", {
+      api: mockFetcher({ ...roomRoutes(lobby), "/api/lobby/lobbyAB12/coach?role=opponent": new ApiError(500, "oops") }),
+      me: () => "Alice", onSignedOut: vi.fn(),
+    });
+    await cardDown.poll(); await flush();
+    expect(cardDown.state.card).toMatchObject({ status: "unavailable", linkedName: null });
+  });
+
+  it("accept and confirm post join / renew with the picked team", async () => {
+    const lobby = { ...readyLobby(), status: "needs-renewal" as const, canRenew: true };
+    const f = mockFetcher({
+      ...roomRoutes(lobby),
+      "POST /api/lobby/lobbyAB12/renew": { lobby: { ...lobby, status: "ready", canRenew: false } },
+      "POST /api/lobby/lobbyAB12/join": { lobby },
+    });
+    const room = createLobbyRoom("lobbyAB12", { api: f, me: () => "Alice", onSignedOut: vi.fn() });
+    await room.renew("t1");
+    expect(f.calls.at(-1)?.path).not.toBeUndefined();
+    expect(f.calls.find((c) => c.path === "/api/lobby/lobbyAB12/renew")).toMatchObject({ method: "POST", body: { teamId: "t1" } });
+    expect(room.state.view?.status).toBe("ready");
+    await room.join("t9");
+    expect(f.calls.find((c) => c.path === "/api/lobby/lobbyAB12/join")).toMatchObject({ method: "POST", body: { teamId: "t9" } });
+  });
+
+  it("chat keeps the last 200 lines; a refused socket says why and does not reconnect", async () => {
+    const lobby = readyLobby();
+    const sockets: Array<SocketLike> = [];
+    const timeouts = vi.fn();
+    const room = createLobbyRoom("lobbyAB12", {
+      api: mockFetcher(roomRoutes(lobby)), me: () => "Alice", onSignedOut: vi.fn(),
+      openSocket: () => {
+        const s: SocketLike = { readyState: 1, onopen: null, onmessage: null, onclose: null, send() {}, close() {} };
+        sockets.push(s);
+        return s;
+      },
+      socketUrl: () => "ws://host.test/super",
+      setInterval: () => 1, clearInterval: () => undefined, setTimeout: timeouts,
+    });
+    room.start();
+    await flush();
+    const ws = sockets[0]!;
+    const history = Array.from({ length: 250 }, (_, i) => ({ id: 1000 + i, coach: "Bob", text: `m${i}`, ts: i }));
+    ws.onmessage?.({ data: JSON.stringify({ type: "lobbyWelcome", history }) });
+    expect(room.state.chat).toHaveLength(CHAT_KEEP);
+    expect(room.state.chat[0]!.id).toBe(1050);
+    expect(room.state.chat.at(-1)!.id).toBe(1249);
+    ws.onmessage?.({ data: JSON.stringify({ type: "event", feature: "lobby-chat", coach: "Bob", ts: 9, payload: { id: 2000, text: "new" } }) });
+    expect(room.state.chat).toHaveLength(CHAT_KEEP);
+    expect(room.state.chat[0]!.id).toBe(1051);
+    // an ordinary drop reconnects; a refusal does not
+    ws.onclose?.({});
+    expect(room.state.chatState).toBe("Chat reconnecting…");
+    expect(timeouts).toHaveBeenCalledTimes(1);
+    const refusedRoom = createLobbyRoom("lobbyAB12", {
+      api: mockFetcher(roomRoutes(lobby)), me: () => "Alice", onSignedOut: vi.fn(),
+      openSocket: () => {
+        const s: SocketLike = { readyState: 1, onopen: null, onmessage: null, onclose: null, send() {}, close() {} };
+        sockets.push(s);
+        return s;
+      },
+      socketUrl: () => "ws://host.test/super",
+      setInterval: () => 1, clearInterval: () => undefined, setTimeout: timeouts,
+    });
+    refusedRoom.start();
+    await flush();
+    const ws2 = sockets.at(-1)!;
+    ws2.onmessage?.({ data: JSON.stringify({ type: "lobbyRefused", v: 1, lobbyId: "lobbyAB12", reason: "too-many" }) });
+    ws2.onclose?.({});
+    expect(refusedRoom.state.chatState).toBe("Chat is open in too many tabs.");
+    expect(timeouts).toHaveBeenCalledTimes(1);
   });
 
   it("410 shows the gone message and stops; 401 hands back to the session", async () => {
@@ -290,6 +426,15 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     }
   });
 
+  it("router gate: a password session gets the Login with Discord action, never the Discord label", async () => {
+    for (const path of ["/lobby", "/lobby/abcDEF12", "/account"]) {
+      const { html } = await render(path, { "/api/auth/session": { authenticated: true, coach: "PwCoach", authMethod: "password", discordSsoEnabled: true } });
+      expect(html, path).toContain("This page needs a Discord sign-in.");
+      expect(html, path).toContain("Login with Discord");
+      expect(html, path).not.toContain("PwCoach");
+    }
+  });
+
   it("router gate: SSO off, session read failure, public link-out pages and unknown paths", async () => {
     const off = await render("/lobby", { "/api/auth/session": { authenticated: false, discordSsoEnabled: false } });
     expect(off.html).toContain("Discord sign-in is not set up on this server.");
@@ -302,16 +447,16 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     expect(tb.html).toContain('href="/team-builder.html"');
     const ttb = await render("/tournament-team-builder", { "/api/auth/session": { authenticated: false } });
     expect(ttb.html).toContain('href="/tournament-team-builder.html"');
-    const nf = await render("/nowhere", { "/api/auth/session": { authenticated: true, coach: "Alice" } });
+    const nf = await render("/nowhere", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } });
     expect(nf.html).toContain("Page not found");
-    const badId = await render("/lobby/<x>", { "/api/auth/session": { authenticated: true, coach: "Alice" } });
+    const badId = await render("/lobby/<x>", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } });
     expect(badId.spa.router.currentRoute.value.name).toBe("not-found");
-    const home = await render("/", { "/api/auth/session": { authenticated: true, coach: "Alice" } });
+    const home = await render("/", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } });
     expect(home.spa.router.currentRoute.value.name).toBe("lobby");
   });
 
   it("nav shows every section; signed in shows the coach, not the login button", async () => {
-    const { html } = await render("/tournaments", { "/api/auth/session": { authenticated: true, coach: "Alice" } });
+    const { html } = await render("/tournaments", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } });
     for (const label of ["Lobby", "Tournaments", "Team Builder", "Tournament Team Builder", "Account"]) expect(html).toContain(`>${label}</a>`);
     expect(html).toContain("Alice");
     expect(html).not.toContain("Login with Discord");
@@ -319,7 +464,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
 
   it("lobby route renders the server's lobby: title, status, presence, card, chat, rosters, Start game", async () => {
     const lobby = readyLobby();
-    const { html } = await render("/lobby/lobbyAB12", { "/api/auth/session": { authenticated: true, coach: "Alice" } }, async (spa, f) => {
+    const { html } = await render("/lobby/lobbyAB12", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } }, async (spa, f) => {
       const room = mods.createLobbyRoom("lobbyAB12", { api: mockFetcher(roomRoutes(lobby)), me: () => "Alice", onSignedOut: vi.fn() });
       await room.poll();
       await flush();
@@ -343,8 +488,41 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     expect(html).not.toContain("Close lobby");
   });
 
+  it("lobby route: the creator's Confirm (canRenew) with Close, and rating unavailable copy", async () => {
+    const lobby: LobbyView = { ...readyLobby(), status: "needs-renewal", canRenew: true, canLaunch: false, game: null };
+    const { html } = await render("/lobby/lobbyAB12", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } }, async (spa) => {
+      const room = mods.createLobbyRoom("lobbyAB12", {
+        api: mockFetcher({ ...roomRoutes(lobby), "/api/coach-rating?name=BobF": new mods.ApiError(503, "busy") }),
+        me: () => "Alice", onSignedOut: vi.fn(),
+      });
+      await room.poll();
+      await flush();
+      spa.app.provide(mods.LOBBY_ROOM_KEY, () => room);
+    });
+    expect(html).toContain("Bob accepted. Your challenge needs confirming before the game is set up.");
+    expect(html).toMatch(/>\s*Confirm challenge\s*</);
+    expect(html).toContain("Close lobby");
+    expect(html).not.toContain("Accept with this team");
+    expect(html).toContain("FUMBBL: BobF");
+    expect(html).toContain("Rating unavailable right now.");
+    expect(html).not.toContain("No FUMBBL rating linked.");
+    expect(html).toMatch(/<button class="lobby-btn primary big" type="button" disabled>/);
+  });
+
+  it("lobby route: the opponent's Accept shows only with canAccept", async () => {
+    const base: LobbyView = { ...readyLobby(), me: "opponent", status: "waiting", opponentAccepted: false, canLaunch: false, game: null, opponent: { ...readyLobby().opponent, team: null } };
+    const renderWith = async (v: LobbyView) => (await render("/lobby/lobbyAB12", { "/api/auth/session": { authenticated: true, coach: "Bob", authMethod: "discord" } }, async (spa) => {
+      const room = mods.createLobbyRoom("lobbyAB12", { api: mockFetcher({ ...roomRoutes(v), "/api/lobby/lobbyAB12/coach?role=creator": { avatar: null, fumbblName: null } }), me: () => "Bob", onSignedOut: vi.fn() });
+      await room.poll();
+      await flush();
+      spa.app.provide(mods.LOBBY_ROOM_KEY, () => room);
+    })).html;
+    expect(await renderWith({ ...base, canAccept: true })).toMatch(/>\s*Accept with this team\s*</);
+    expect(await renderWith(base)).not.toContain("Accept with this team");
+  });
+
   it("lobby route: gone lobby shows the server message and a way back", async () => {
-    const { html } = await render("/lobby/lobbyAB12", { "/api/auth/session": { authenticated: true, coach: "Alice" } }, async (spa) => {
+    const { html } = await render("/lobby/lobbyAB12", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } }, async (spa) => {
       const room = mods.createLobbyRoom("lobbyAB12", { api: mockFetcher({ "/api/lobby/lobbyAB12": new mods.ApiError(410, "This lobby has expired.") }), me: () => "Alice", onSignedOut: vi.fn() });
       await room.poll();
       spa.app.provide(mods.LOBBY_ROOM_KEY, () => room);
@@ -356,7 +534,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
   it("start route: prototype-key coach names (toString, __proto__, constructor) keep Accept usable", async () => {
     const names = ["toString", "__proto__", "constructor", "hasOwnProperty"];
     const challenges: PendingChallenge[] = names.map((coach) => ({ coach, teamId: "t2", opponent: "Alice", createdAt: 0 }));
-    const { html } = await render("/lobby", { "/api/auth/session": { authenticated: true, coach: "Alice" } }, async (spa) => {
+    const { html } = await render("/lobby", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } }, async (spa) => {
       const start = mods.createLobbyStart({ api: mockFetcher({ "GET /api/lobby": { lobbies: [], challenges } }), onSignedOut: vi.fn() });
       await start.refresh();
       spa.app.provide(mods.LOBBY_START_KEY, start);
@@ -371,7 +549,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
 
   it("start route renders challenges and lobbies from the API", async () => {
     const challenge: PendingChallenge = { coach: "Bob", teamId: "t2", opponent: "Alice", createdAt: 0, lobbyId: "lobbyAB12" };
-    const { html } = await render("/lobby", { "/api/auth/session": { authenticated: true, coach: "Alice" } }, async (spa) => {
+    const { html } = await render("/lobby", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } }, async (spa) => {
       const start = mods.createLobbyStart({ api: mockFetcher({ "GET /api/lobby": { lobbies: [readyLobby()], challenges: [challenge] } }), onSignedOut: vi.fn() });
       await start.refresh();
       spa.app.provide(mods.LOBBY_START_KEY, start);
@@ -386,7 +564,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
 
   it("account route shows the Discord identity and the linked FUMBBL name the server returned", async () => {
     const { html } = await render("/account", {
-      "/api/auth/session": { authenticated: true, coach: "Alice" },
+      "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" },
       "/api/account": { ffbCoachId: "Alice", identities: { discordUsername: "alice_dc", email: "a@example.test" }, fumbblName: "AliceF" },
     });
     expect(html).toContain("<h2>Account</h2>");
@@ -394,7 +572,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     expect(html).toContain("AliceF");
     expect(html).not.toContain("a@example.test");
     expect(html).toContain("Sign out");
-    const unlinked = await render("/account", { "/api/auth/session": { authenticated: true, coach: "Alice" }, "/api/account": { ffbCoachId: "Alice", fumbblName: null } });
+    const unlinked = await render("/account", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" }, "/api/account": { ffbCoachId: "Alice", fumbblName: null } });
     expect(unlinked.html).toContain("No FUMBBL name linked.");
   });
 });

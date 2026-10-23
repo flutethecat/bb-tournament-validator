@@ -54,7 +54,7 @@ watch(
       <p class="lobby-error" role="alert">{{ session.state.error }}</p>
       <button class="lobby-btn" type="button" @click="session.load(true)">Try again</button>
     </section>
-    <SignInPrompt v-else-if="gate === 'signin'" :href="loginHref" :sso-enabled="session.ssoEnabled()" />
+    <SignInPrompt v-else-if="gate === 'signin'" :href="loginHref" :sso-enabled="session.ssoEnabled()" :other-session="session.otherSession()" />
     <RouterView v-else :key="route.path" />
   </main>
 </template>

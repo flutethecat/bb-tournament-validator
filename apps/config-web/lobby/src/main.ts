@@ -4,7 +4,7 @@
 
 import "./style.css";
 import { api, ApiError, type ChatMessage, type LibraryTeam, type LobbyView, type PendingChallenge, type Roster, type SeatView, type SessionInfo } from "../../spa/src/shared/api";
-import { CHAT_KEEP, expiryLine, fmtK, lobbyIdFromHash, lobbyStatusLine, presenceLine, ratingParts, renderEmoji, type RatingLike } from "../../spa/src/shared/format";
+import { CHAT_KEEP, chatRefusedLine, expiryLine, fmtK, lobbyControl, lobbyIdFromHash, lobbyRowStatus, lobbyStatusLine, presenceLine, ratingParts, renderEmoji, type RatingLike } from "../../spa/src/shared/format";
 
 const RETURN_KEY = "lobby-return-hash";
 
@@ -146,9 +146,7 @@ function renderStart(): () => void {
 
   const lobbyRow = (l: LobbyView): HTMLElement => {
     const other = l.me === "creator" ? l.opponent : l.creator;
-    const status = l.status === "ready" ? "Game ready"
-      : l.status === "waiting" ? (l.opponentAccepted ? "Accepted" : "Waiting")
-      : l.me === "creator" ? "Confirm your challenge" : `Waiting for ${l.creator.coach} to confirm`;
+    const status = lobbyRowStatus(l);
     return h("div", { class: "lobby-row" }, h("a", { href: `#${l.id}` }, `vs ${other.coach}`), h("span", { class: "muted" }, status));
   };
 
@@ -326,8 +324,7 @@ function renderLobby(id: string): () => void {
   // Controls follow the server's pairing state (canAccept / canRenew), never local guesses.
   let joinMode = "";
   const renderJoin = (v: LobbyView): void => {
-    const mode = v.canCheckAgain ? "uncertain" : v.canAccept ? "accept" : v.canRenew ? "renew"
-      : v.me === "creator" && v.status !== "ready" && !v.settingUp ? "close" : "";
+    const mode = lobbyControl(v);
     if (mode === joinMode) return; // keep the coach's pick and any error across polls
     joinMode = mode;
     joinBox.replaceChildren();
@@ -446,9 +443,7 @@ function renderLobby(id: string): () => void {
       chatInput.disabled = true;
       if (stopped) return;
       if (refused) {
-        chatState.textContent = refused === "session" ? "Chat needs a Discord sign-in. Reload the page."
-          : refused === "too-many" ? "Chat is open in too many tabs."
-          : "Live chat is off for this page.";
+        chatState.textContent = chatRefusedLine(refused);
         return;
       }
       socketTries++;

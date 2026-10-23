@@ -31,8 +31,16 @@ are loaded by `spa/index.html`; the shell styles with their `--ui-*` tokens, so 
 | `/app/account` | the session's Discord identity + linked FUMBBL name (`GET /api/account`), Sign out |
 
 Identity is the Discord session only: `spa/src/session.ts` reads `GET /api/auth/session` (the same endpoint the
-vanilla page reads). Signed out, a route marked `requiresAuth` renders the sign-in prompt in place of the page;
-"Login with Discord" goes to `/api/auth/discord/start?next=/app/<route>`, so the coach lands back where they were.
+vanilla page reads) and counts a session only when it says `authMethod: "discord"`. Signed out, or signed in with a
+password session, a route marked `requiresAuth` renders the sign-in prompt in place of the page (a password session
+is never labelled as Discord); "Login with Discord" goes to `/api/auth/discord/start?next=/app/<route>`, so the
+coach lands back where they were.
+
+The SPA Lobby behaves as the vanilla page: Accept / Confirm challenge / Close follow the server's `canAccept` /
+`canRenew` (`lobbyControl` in `spa/src/shared/format.ts`); Start game posts `/launch` and downloads the
+session-scoped `GET /api/lobby/:id/jnlp` it names; a temporary rating failure shows "Rating unavailable right now"
+and retries on later polls with backoff (15 s doubling to 5 min); chat keeps the last 200 lines; a socket refusal
+(`lobbyRefused`) is explained and not retried, other drops reconnect up to 5 times.
 
 Layout (`spa/src`): `app.ts` builds app + router + session + library; `router.ts` holds the routes, the nav and
 the auth gate; `views/` one component per route; `components/` shared pieces; `lobby/` the Lobby controllers (no

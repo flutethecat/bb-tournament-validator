@@ -142,3 +142,30 @@ export function lobbyStatusLine(v: StatusLike): string {
     ? `You accepted. Waiting for ${other} to confirm.`
     : `Waiting for ${other} to confirm. You can accept now.`;
 }
+
+/** Short status for a lobby row on the Start Game list. */
+export function lobbyRowStatus(l: Pick<StatusLike, "me" | "status" | "opponentAccepted" | "creator">): string {
+  if (l.status === "ready") return "Game ready";
+  if (l.status === "waiting") return l.opponentAccepted ? "Accepted" : "Waiting";
+  return l.me === "creator" ? "Confirm your challenge" : `Waiting for ${l.creator.coach} to confirm`;
+}
+
+/**
+ * Which lobby control the server's pairing state allows, never a local guess: uncertain (canCheckAgain: Check again /
+ * Start over for either coach), accept (canAccept), renew (canRenew), close (the creator's unpaired lobby, not while
+ * the fork is being asked). Accept / Confirm / Close are hidden while setting up or uncertain.
+ */
+export type LobbyControl = "uncertain" | "accept" | "renew" | "close" | "";
+export function lobbyControl(v: {
+  me: "creator" | "opponent"; status: string; canAccept: boolean; canRenew: boolean; settingUp?: boolean; canCheckAgain?: boolean;
+}): LobbyControl {
+  return v.canCheckAgain ? "uncertain" : v.canAccept ? "accept" : v.canRenew ? "renew"
+    : v.me === "creator" && v.status !== "ready" && !v.settingUp ? "close" : "";
+}
+
+/** Chat refusal reasons from the Super socket (lobbyRefused) as copy; no reconnect follows a refusal. */
+export function chatRefusedLine(reason: string): string {
+  return reason === "session" ? "Chat needs a Discord sign-in. Reload the page."
+    : reason === "too-many" ? "Chat is open in too many tabs."
+    : "Live chat is off for this page.";
+}

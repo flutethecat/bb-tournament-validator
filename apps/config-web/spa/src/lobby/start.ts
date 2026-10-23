@@ -3,6 +3,7 @@
 
 import { reactive, type InjectionKey } from "vue";
 import { ApiError, type LobbyView, type PendingChallenge } from "../shared/api";
+import { lobbyRowStatus } from "../shared/format";
 import type { Fetcher } from "../session";
 
 export interface LobbyStartState {
@@ -77,9 +78,8 @@ export function createLobbyStart(deps: LobbyStartDeps) {
 
 export type LobbyStart = ReturnType<typeof createLobbyStart>;
 
-export function lobbyStatusLabel(l: LobbyView): string {
-  return l.status === "ready" ? "Game ready" : l.status === "waiting" ? "Waiting" : "Challenge lapsed";
-}
+/** Row status on the Start Game list (shared with the vanilla page). */
+export const lobbyStatusLabel = (l: LobbyView): string => lobbyRowStatus(l);
 
 /** Optional pre-built controller (tests render the page against one); the view builds its own otherwise. */
 export const LOBBY_START_KEY: InjectionKey<LobbyStart> = Symbol("lobby-start");

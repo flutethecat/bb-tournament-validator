@@ -81,7 +81,7 @@ afterAll(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const cookieFor = (coach: string) => `${SESSION_COOKIE_NAME}=${createSession(coach).token}`;
+const cookieFor = (coach: string) => `${SESSION_COOKIE_NAME}=${createSession(coach, Date.now(), "discord").token}`;
 
 describe("SPA path helpers", () => {
   it("mount + history fallback", () => {

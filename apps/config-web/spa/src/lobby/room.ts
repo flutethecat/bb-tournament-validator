@@ -5,7 +5,7 @@
 
 import { reactive, type InjectionKey } from "vue";
 import { ApiError, type ChatMessage, type LobbyView, type Roster, type SeatView } from "../shared/api";
-import { expiryLine, ratingParts, type RatingLike } from "../shared/format";
+import { CHAT_KEEP, chatRefusedLine, expiryLine, lobbyControl, lobbyStatusLine, ratingParts, type RatingLike } from "../shared/format";
 import type { Fetcher } from "../session";
 
 export type Role = "creator" | "opponent";
@@ -20,9 +20,15 @@ export interface RosterSlot {
 export interface CoachCard {
   coach: string;
   avatar: string | null;
-  /** Linked FUMBBL account as the rating endpoint returned it; null = no rating linked. */
+  /**
+   * loading = first read in flight; unlinked = the server says no FUMBBL name is linked; ok = rating shown;
+   * unavailable = a temporary failure (rate limit, network): "Rating unavailable right now", retried with backoff.
+   */
+  status: "loading" | "unlinked" | "ok" | "unavailable";
+  /** The linked FUMBBL name the coach endpoint returned (shown even when the rating read failed). */
+  linkedName: string | null;
+  /** The rating as the rating endpoint returned it (status ok). */
   fumbbl: { name: string; title?: string; parts: string[] } | null;
-  loading: boolean;
 }
 
 export interface LobbyRoomState {
@@ -67,26 +73,11 @@ export interface LobbyRoomDeps {
 
 const OPEN = 1;
 
-export function statusLine(v: LobbyView): string {
-  const other = v.me === "creator" ? v.opponent : v.creator;
-  if (v.status === "ready") {
-    return `Game set up${v.game?.gameId ? ` (game ${v.game.gameId})` : ""}. ${v.canLaunch ? "Ready to start." : "Waiting for both coaches."}`;
-  }
-  if (v.status === "waiting") {
-    return v.me === "creator" ? `Waiting for ${other.coach} to accept.` : `${other.coach} challenged you. Pick a team to accept.`;
-  }
-  return v.me === "creator" ? `Your challenge lapsed. It renews when ${other.coach} accepts.` : "Pick a team to accept.";
-}
+/** One line of lobby status, from the server's pairing state only (shared with the vanilla page). */
+export const statusLine = (v: LobbyView): string => lobbyStatusLine(v);
 
-/** The opponent seat may accept with a team (not yet joined, game not ready). */
-export function canJoin(v: LobbyView): boolean {
-  return v.me === "opponent" && v.status !== "ready" && !v.opponent.team;
-}
-
-/** The creator may withdraw an unpaired lobby. */
-export function canClose(v: LobbyView): boolean {
-  return v.me === "creator" && v.status !== "ready";
-}
+/** The lobby control the server allows: accept (canAccept), renew = creator's confirm (canRenew), close. */
+export const controlFor = (v: LobbyView) => lobbyControl(v);
 
 export function startLabel(v: LobbyView): string {
   const mine = v.me === "creator" ? v.creator : v.opponent;
@@ -134,14 +125,23 @@ export function createLobbyRoom(id: string, deps: LobbyRoomDeps) {
   let timer: number | undefined;
   let socket: SocketLike | undefined;
   let socketTries = 0;
+  let refused = "";
   const seenChat = new Set<number>();
   const rosterKey: Record<Role, string> = { creator: "", opponent: "" };
-  let cardFor = "";
 
   const addChat = (m: ChatMessage): void => {
     if (seenChat.has(m.id)) return;
     seenChat.add(m.id);
     state.chat.push(m);
+    // Keep the page bounded like the server's history: drop the oldest lines and their ids.
+    while (state.chat.length > CHAT_KEEP) {
+      const oldest = state.chat.shift();
+      if (oldest) seenChat.delete(oldest.id);
+    }
+    if (seenChat.size > CHAT_KEEP * 2) {
+      const live = new Set(state.chat.map((c) => c.id));
+      for (const seen of [...seenChat]) if (!live.has(seen)) seenChat.delete(seen);
+    }
   };
 
   const stopAll = (): void => {
@@ -176,30 +176,56 @@ export function createLobbyRoom(id: string, deps: LobbyRoomDeps) {
     }
   };
 
+  // The card loads once per coach; a temporary failure (rate limit, network) says so and retries on a later poll
+  // with backoff (15 s doubling to 5 min). "No FUMBBL rating linked" only when the server says no name is linked.
+  let cardLoaded = "";
+  let cardRetryAt = 0;
+  let cardBackoffMs = 0;
+  let cardBusy = false;
   const loadCard = async (seat: SeatView, role: Role): Promise<void> => {
-    if (cardFor === seat.coach) return;
-    cardFor = seat.coach;
-    state.card = { coach: seat.coach, avatar: null, fumbbl: null, loading: true };
-    const current = () => (state.card?.coach === seat.coach ? state.card : undefined);
+    if (cardBusy || (cardLoaded === seat.coach && (cardRetryAt === 0 || now() < cardRetryAt))) return;
+    cardBusy = true;
+    if (!state.card || state.card.coach !== seat.coach) {
+      state.card = { coach: seat.coach, avatar: null, status: "loading", linkedName: null, fumbbl: null };
+    }
+    const done = (card: CoachCard): void => {
+      cardLoaded = seat.coach;
+      cardRetryAt = 0;
+      cardBackoffMs = 0;
+      state.card = card;
+    };
+    const temporary = (card: CoachCard): void => {
+      cardLoaded = seat.coach;
+      cardBackoffMs = cardBackoffMs ? Math.min(cardBackoffMs * 2, 5 * 60_000) : 15_000;
+      cardRetryAt = now() + cardBackoffMs;
+      state.card = { ...card, status: "unavailable" };
+    };
+    const base: CoachCard = { coach: seat.coach, avatar: null, status: "loading", linkedName: null, fumbbl: null };
     try {
-      const info = await deps.api<{ avatar: string | null; fumbblName: string | null }>(`/api/lobby/${id}/coach?role=${role}`);
-      const card = current();
-      if (!card) return;
-      card.avatar = info.avatar || null;
-      if (!info.fumbblName) return;
-      const res = await deps.api<{ rating: RatingLike & { name: string } }>(`/api/coach-rating?name=${encodeURIComponent(info.fumbblName)}`);
-      const after = current();
-      if (!after) return;
-      after.fumbbl = {
-        name: res.rating.name || info.fumbblName,
-        ...(res.rating.title ? { title: res.rating.title } : {}),
-        parts: ratingParts(res.rating),
-      };
-    } catch {
-      /* shown as "No FUMBBL rating linked." */
+      let info: { avatar: string | null; fumbblName: string | null };
+      try {
+        info = await deps.api<{ avatar: string | null; fumbblName: string | null }>(`/api/lobby/${id}/coach?role=${role}`);
+      } catch {
+        return temporary(base);
+      }
+      const card: CoachCard = { ...base, avatar: info.avatar || null, linkedName: info.fumbblName || null };
+      if (!info.fumbblName) return done({ ...card, status: "unlinked" });
+      try {
+        const res = await deps.api<{ rating: RatingLike & { name: string } }>(`/api/coach-rating?name=${encodeURIComponent(info.fumbblName)}`);
+        done({
+          ...card,
+          status: "ok",
+          fumbbl: {
+            name: res.rating.name || info.fumbblName,
+            ...(res.rating.title ? { title: res.rating.title } : {}),
+            parts: ratingParts(res.rating),
+          },
+        });
+      } catch {
+        temporary(card);
+      }
     } finally {
-      const card = current();
-      if (card) card.loading = false;
+      cardBusy = false;
     }
   };
 
@@ -231,8 +257,15 @@ export function createLobbyRoom(id: string, deps: LobbyRoomDeps) {
     }
   };
 
+  /** Opponent's accept (canAccept). */
   const join = async (teamId: string): Promise<void> => {
     const res = await deps.api<{ lobby: LobbyView }>(`/api/lobby/${id}/join`, { method: "POST", body: { teamId } });
+    apply(res.lobby);
+  };
+
+  /** Creator's confirm of a challenge that needs renewing (canRenew). */
+  const renew = async (teamId: string): Promise<void> => {
+    const res = await deps.api<{ lobby: LobbyView }>(`/api/lobby/${id}/renew`, { method: "POST", body: { teamId } });
     apply(res.lobby);
   };
 
@@ -240,6 +273,8 @@ export function createLobbyRoom(id: string, deps: LobbyRoomDeps) {
     await deps.api(`/api/lobby/${id}/close`, { method: "POST" });
   };
 
+  // Start game, as the vanilla page does it: POST /launch records the seat's launch and answers the session-scoped
+  // download, GET /api/lobby/:id/jnlp (the only JNLP route); the browser downloads it.
   const launch = async (): Promise<void> => {
     state.launchError = "";
     state.launching = true;
@@ -285,12 +320,18 @@ export function createLobbyRoom(id: string, deps: LobbyRoomDeps) {
         addChat({ id: p.id, text: p.text, coach: String(msg.coach), ts: Number(msg.ts) });
       } else if (msg.type === "event" && msg.feature === "lobby-presence") {
         void poll();
+      } else if (msg.type === "lobbyRefused") {
+        refused = String(msg.reason ?? "");
       }
     };
     ws.onclose = () => {
       socket = undefined;
       state.chatLive = false;
       if (stopped) return;
+      if (refused) {
+        state.chatState = chatRefusedLine(refused);
+        return;
+      }
       socketTries++;
       if (socketTries > 5) {
         state.chatState = "Live chat is off on this server.";
@@ -306,6 +347,7 @@ export function createLobbyRoom(id: string, deps: LobbyRoomDeps) {
     state,
     poll,
     join,
+    renew,
     close,
     launch,
     sendChat,

@@ -6,7 +6,7 @@ import { API_KEY } from "../app";
 import RosterTable from "../components/RosterTable.vue";
 import TeamSelect from "../components/TeamSelect.vue";
 import { LIBRARY_KEY } from "../lobby/library";
-import { canClose, canJoin, createLobbyRoom, LOBBY_ROOM_KEY, startLabel, statusLine, type Role } from "../lobby/room";
+import { controlFor, createLobbyRoom, LOBBY_ROOM_KEY, startLabel, statusLine, type Role } from "../lobby/room";
 import { SESSION_KEY } from "../session";
 import { presenceLine, renderEmoji } from "../shared/format";
 
@@ -34,6 +34,8 @@ const chatLog = ref<HTMLOListElement | null>(null);
 const view = computed(() => state.view);
 const title = computed(() => (view.value ? `${view.value.creator.coach} vs ${view.value.opponent.coach}` : "Lobby"));
 const status = computed(() => state.statusError || (view.value ? statusLine(view.value) : ""));
+// Accept / Confirm / Close follow the server's pairing state (canAccept / canRenew), never local guesses.
+const control = computed(() => (view.value ? controlFor(view.value) : ""));
 const roles: Role[] = ["creator", "opponent"];
 const rosterHeading = (role: Role): string => {
   const v = view.value;
@@ -42,12 +44,19 @@ const rosterHeading = (role: Role): string => {
 };
 const chatTime = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+// A new control starts fresh (the confirm preselects the creator's team); the pick and any error survive polls.
+watch(control, (mode) => {
+  joinErr.value = "";
+  joinTeam.value = mode === "renew" && view.value?.creator.team ? view.value.creator.team.teamId : "";
+});
+
 async function onJoin(): Promise<void> {
   joinErr.value = "";
   if (!joinTeam.value) return void (joinErr.value = "Pick a team first.");
   joining.value = true;
   try {
-    await room.join(joinTeam.value);
+    if (control.value === "renew") await room.renew(joinTeam.value);
+    else await room.join(joinTeam.value);
   } catch (err) {
     joinErr.value = (err as Error).message;
   } finally {
@@ -99,15 +108,18 @@ onBeforeUnmount(() => room.stop());
       <ul v-if="view" class="presence">
         <li v-for="s in [view.creator, view.opponent]" :key="s.role" :class="`presence-${s.state}`">{{ presenceLine(s.coach, s.state) }}</li>
       </ul>
-      <div v-if="view && canJoin(view)">
+      <div v-if="control === 'accept' || control === 'renew'">
         <div class="lobby-form inline">
           <label for="join-team">Your team</label>
           <TeamSelect id="join-team" v-model="joinTeam" :teams="teams" />
-          <button class="lobby-btn primary" type="button" :disabled="joining" @click="onJoin">Accept with this team</button>
+          <button class="lobby-btn primary" type="button" :disabled="joining" @click="onJoin">
+            {{ control === "accept" ? "Accept with this team" : "Confirm challenge" }}
+          </button>
+          <button v-if="control === 'renew'" class="lobby-btn" type="button" @click="onClose">Close lobby</button>
         </div>
         <p v-if="joinErr" class="lobby-error" role="alert">{{ joinErr }}</p>
       </div>
-      <div v-else-if="view && canClose(view)">
+      <div v-else-if="control === 'close'">
         <button class="lobby-btn" type="button" @click="onClose">Close lobby</button>
       </div>
       <div class="launch">
@@ -126,14 +138,18 @@ onBeforeUnmount(() => room.stop());
           <img v-if="state.card.avatar" class="lobby-avatar" :src="state.card.avatar" alt="" />
           <div class="coach-body">
             <strong>{{ state.card.coach }}</strong>
-            <template v-if="state.card.fumbbl">
+            <template v-if="state.card.status === 'ok' && state.card.fumbbl">
               <p>
                 FUMBBL: {{ state.card.fumbbl.name }}
                 <span v-if="state.card.fumbbl.title" class="title-badge">{{ state.card.fumbbl.title }}</span>
               </p>
               <p class="muted">{{ state.card.fumbbl.parts.length ? state.card.fumbbl.parts.join(" · ") : "No FUMBBL record found." }}</p>
             </template>
-            <p v-else-if="!state.card.loading" class="muted">No FUMBBL rating linked.</p>
+            <template v-else-if="state.card.status === 'unavailable'">
+              <p v-if="state.card.linkedName">FUMBBL: {{ state.card.linkedName }}</p>
+              <p class="muted">Rating unavailable right now.</p>
+            </template>
+            <p v-else-if="state.card.status === 'unlinked'" class="muted">No FUMBBL rating linked.</p>
           </div>
         </div>
       </div>

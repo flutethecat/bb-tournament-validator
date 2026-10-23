@@ -8,9 +8,9 @@ const model = defineModel<string>({ default: "" });
 
 // Like a plain <select>: the first team is picked until the coach picks another (kept across library reloads).
 watch(
-  () => props.teams,
-  (teams) => {
-    if (!teams.some((t) => t.teamId === model.value)) model.value = teams[0]?.teamId ?? "";
+  [() => props.teams, model],
+  ([teams, value]) => {
+    if (!teams.some((t) => t.teamId === value)) model.value = teams[0]?.teamId ?? "";
   },
   { immediate: true },
 );

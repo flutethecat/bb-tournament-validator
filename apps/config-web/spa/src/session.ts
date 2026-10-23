@@ -1,5 +1,6 @@
 // Discord session store for the SPA. The Discord session (cw_session cookie) is the only identity: this reads the
 // same endpoint the vanilla Lobby page reads (GET /api/auth/session) and never holds anything but what it returns.
+// A session counts only when the server says authMethod "discord", as the vanilla page requires.
 
 import { reactive, type InjectionKey } from "vue";
 import { api, type SessionInfo } from "./shared/api";
@@ -14,9 +15,12 @@ export interface SessionState {
 
 export interface SessionStore {
   readonly state: SessionState;
-  /** Signed-in coach name, or "" when signed out / not loaded yet. */
+  /** Signed-in coach name (Discord sessions only), or "" when signed out / not loaded yet. */
   coach(): string;
+  /** A Discord session. A password session is NOT signed in here: it gets the Login with Discord action. */
   signedIn(): boolean;
+  /** Authenticated, but not with Discord (a password session). */
+  otherSession(): boolean;
   ssoEnabled(): boolean;
   /** Loads once; concurrent callers share the request. `force` re-reads (after a 401 or sign-out). */
   load(force?: boolean): Promise<void>;
@@ -49,10 +53,12 @@ export function createSessionStore(fetcher: Fetcher = api): SessionStore {
     return inflight;
   };
 
+  const discord = (): boolean => Boolean(state.info?.authenticated && state.info.coach && state.info.authMethod === "discord");
   return {
     state,
-    coach: () => (state.info?.authenticated && state.info.coach) || "",
-    signedIn: () => Boolean(state.info?.authenticated && state.info.coach),
+    coach: () => (discord() && state.info?.coach) || "",
+    signedIn: discord,
+    otherSession: () => Boolean(state.info?.authenticated) && !discord(),
     ssoEnabled: () => state.info?.discordSsoEnabled !== false,
     load,
     async signOut() {
