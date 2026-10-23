@@ -517,6 +517,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     },
     isBanned,
     isOrganizer: (coach) => coachLevel(coach) !== "player" || isOrganizer(coach),
+    listSaves: (coach) => readSaves(BUILDER_SAVES_DIR, coach).map((s) => ({ id: s.id, name: s.name })),
   };
   if (first) await recoverTabletop(deps);
   return deps;
@@ -525,7 +526,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
 if (existsSync(TABLETOP_DIR)) void tabletopDeps().catch((e) => console.error(`[tabletop] recovery failed: ${(e as Error).message}`));
 
 /** Tabletop recorder HTTP: Discord session only (checked in tabletopApi), bounded body. */
-async function handleTabletopRequest(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+async function handleTabletopRequest(req: IncomingMessage, res: ServerResponse, path: string, query: URLSearchParams): Promise<void> {
   const method = req.method ?? "GET";
   const auth = lobbyAuthFor(req);
   let body: unknown;
@@ -534,7 +535,7 @@ async function handleTabletopRequest(req: IncomingMessage, res: ServerResponse, 
     if ("error" in read) return sendJson(res, read.status, { error: read.error });
     body = read.body;
   }
-  const result = await tabletopApi(method, path, auth, body, await tabletopDeps());
+  const result = await tabletopApi(method, path, auth, body, await tabletopDeps(), query);
   if (!result) return sendJson(res, 404, { error: "Not found." });
   return sendJson(res, result.status, result.body);
 }
@@ -1065,7 +1066,7 @@ async function handleApi(
 ): Promise<void> {
   // Web Lobby: authenticates and reads its body BEFORE taking the game-start lock (handleLobbyRequest).
   if (isLobbyApiPath(path)) return handleLobbyRequest(req, res, path, query);
-  if (isTabletopApiPath(path)) return handleTabletopRequest(req, res, path);
+  if (isTabletopApiPath(path)) return handleTabletopRequest(req, res, path, query);
   const method = req.method ?? "GET";
   const cacheGateCfg = forkConfigFromEnv();
   const gameStartDelivery = [

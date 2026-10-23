@@ -86,6 +86,7 @@ export interface TabletopRepository {
   listJournalMatchIds(): Promise<string[]>;
   createMatch(match: MatchRecord): Promise<void>;
   getMatch(id: string): Promise<MatchRecord | undefined>;
+  listMatches(): Promise<MatchRecord[]>;
   updateMatch(match: MatchRecord): Promise<void>;
   /** An unfinished (recording/submitted) match already using this team save, other than `exceptId`. */
   findOpenMatchForSave(coach: string, saveId: string, exceptId?: string): Promise<MatchRecord | undefined>;
@@ -143,6 +144,16 @@ export class FileTabletopRepository implements TabletopRepository {
     try { file = this.matchFile(id); } catch { return undefined; }
     if (!existsSync(file)) return undefined;
     try { return JSON.parse(readFileSync(file, "utf8")) as MatchRecord; } catch { return undefined; }
+  }
+
+  async listMatches(): Promise<MatchRecord[]> {
+    const out: MatchRecord[] = [];
+    for (const name of readdirSync(join(this.dir, "matches"))) {
+      if (!name.endsWith(".json")) continue;
+      const m = await this.getMatch(name.slice(0, -5));
+      if (m) out.push(m);
+    }
+    return out;
   }
 
   async updateMatch(match: MatchRecord): Promise<void> {

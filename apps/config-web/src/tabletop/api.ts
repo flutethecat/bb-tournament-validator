@@ -29,6 +29,8 @@ export interface TabletopApiDeps {
   loadTeamFile: (coach: string, teamSaveId: string) => TabletopTeamFile | undefined;
   isBanned: (coach: string) => boolean;
   isOrganizer: (coach: string) => boolean;
+  /** A coach's saved teams (id + name only, never roster bodies). */
+  listSaves?: (coach: string) => Array<{ id: string; name: string }>;
   now?: () => Date;
 }
 
@@ -54,6 +56,7 @@ export async function tabletopApi(
   auth: TabletopAuth | undefined,
   body: unknown,
   deps: TabletopApiDeps,
+  query: URLSearchParams = new URLSearchParams(),
 ): Promise<TabletopResult | undefined> {
   if (!isTabletopApiPath(path)) return undefined;
   if (!auth?.coach) return err(401, "Sign in with Discord first.");
@@ -65,8 +68,16 @@ export async function tabletopApi(
   const { repo } = deps;
 
   if (path === "/api/tabletop/matches") {
+    if (method === "GET") return listMatches(me, organiser, deps);
     if (method !== "POST") return err(405, "Method not allowed.");
     return createMatch(me, organiser, body, deps, now);
+  }
+  if (path === "/api/tabletop/saves") {
+    if (method !== "GET") return err(405, "Method not allowed.");
+    const coach = query.get("coach")?.trim() ?? "";
+    if (!coach || coach.length > 60) return err(400, "coach is required.");
+    const saves = (deps.listSaves?.(coach) ?? []).map((s) => ({ id: s.id, name: s.name }));
+    return { status: 200, body: { coach, saves } };
   }
   const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|undo-revision))?$/.exec(path);
   if (!m) return err(404, "Not found.");
@@ -82,7 +93,7 @@ export async function tabletopApi(
     if (method !== "GET") return err(405, "Method not allowed.");
     const events = await repo.readEvents(id);
     const teams = await currentTeams(repo, match);
-    return { status: 200, body: { match, events, effectiveEventIds: effectiveEvents(events).map((e) => e.id), teams } };
+    return { status: 200, body: { match, events, effectiveEventIds: effectiveEvents(events).map((e) => e.id), teams, tally: tallyView(events, teams) } };
   }
   if (method !== "POST") return err(405, "Method not allowed.");
 
@@ -113,6 +124,34 @@ async function ensureChain(deps: TabletopApiDeps, coach: string, saveId: string,
   const chain: TeamChain = { saveId, coach, head: 0, revisions: [{ saveId, revision: 0, parent: null, teamFile: base, createdAt: at }] };
   await deps.repo.putChain(chain);
   return chain;
+}
+
+/** The server's own count of the effective events (score, per-player SPP, casualties): clients never compute rules. */
+function tallyView(events: readonly TabletopEvent[], teams: Record<Side, TabletopTeamFile | undefined>) {
+  const names = (t: TabletopTeamFile | undefined) => new Map((t?.players ?? []).map((p) => [p.id, p.name] as const));
+  const t = tallyMatch(events, { home: names(teams.home), away: names(teams.away) });
+  return {
+    score: t.score,
+    fanDelta: t.fanDelta,
+    casualtiesSuffered: t.casualtiesSuffered,
+    players: { home: [...t.lines.home.values()], away: [...t.lines.away.values()] },
+  };
+}
+
+async function listMatches(me: string, organiser: boolean, deps: TabletopApiDeps): Promise<TabletopResult> {
+  const all = await deps.repo.listMatches();
+  const mine = all.filter((m) => organiser || m.home.coach === me || m.away.coach === me);
+  mine.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.updatedAt.localeCompare(a.updatedAt));
+  return {
+    status: 200,
+    body: {
+      matches: mine.map((m) => ({
+        id: m.id, state: m.state, ...(m.fixtureRef ? { fixtureRef: m.fixtureRef } : {}), postMatch: m.postMatch,
+        home: { coach: m.home.coach, teamName: m.home.teamName }, away: { coach: m.away.coach, teamName: m.away.teamName },
+        createdAt: m.createdAt, updatedAt: m.updatedAt,
+      })),
+    },
+  };
 }
 
 async function currentTeams(repo: TabletopRepository, match: MatchRecord): Promise<Record<Side, TabletopTeamFile | undefined>> {
@@ -189,7 +228,7 @@ async function postEvents(match: MatchRecord, me: string, body: unknown, deps: T
   }
   if (stored.length + accepted.length > MAX_EVENTS_PER_MATCH) return err(409, "This match has too many events.");
   await deps.repo.appendEvents(match.id, accepted);
-  return { status: 200, body: { accepted: accepted.map((e) => e.id), duplicates, total: stored.length + accepted.length } };
+  return { status: 200, body: { accepted: accepted.map((e) => e.id), duplicates, total: stored.length + accepted.length, tally: tallyView(running, teams) } };
 }
 
 /** Preview both teams' post-match from the CURRENT head revisions; 409 if a head moved since creation. */

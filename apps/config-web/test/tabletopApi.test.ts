@@ -29,10 +29,13 @@ const deps = (): TabletopApiDeps => ({
   loadTeamFile: (coach, saveId) => files[`${coach}/${saveId}`],
   isBanned: (c) => banned.has(c),
   isOrganizer: (c) => organisers.has(c),
+  listSaves: (c) => (c === "Alice" ? [{ id: "sv_a", name: "Alice XI" }] : []),
   now: () => new Date("2026-02-01T10:00:00.000Z"),
 });
-const as = (coach: string, method: string, path: string, body?: unknown, authMethod = "discord"): Promise<TabletopResult> =>
-  tabletopApi(method, path, { coach, method: authMethod }, body, deps()) as Promise<TabletopResult>;
+const as = (coach: string, method: string, path: string, body?: unknown, authMethod = "discord"): Promise<TabletopResult> => {
+  const [p, q] = path.split("?");
+  return tabletopApi(method, p!, { coach, method: authMethod }, body, deps(), new URLSearchParams(q ?? "")) as Promise<TabletopResult>;
+};
 
 let eid = 0;
 const E = (type: string, team: string, player?: string, payload: Record<string, unknown> = {}) => {
@@ -296,5 +299,49 @@ describe("tabletop: commit journal", () => {
     expect((await repo.getMatch(id))!.state).toBe("submitted");
     expect(results.list()).toHaveLength(0);
     expect((await repo.getChain("Alice", "sv_a"))!.head).toBe(0);
+  });
+});
+
+describe("tabletop: list, saves, tally", () => {
+  it("lists the caller's matches newest first (minimal fields); an organiser sees all", async () => {
+    files["Carol/sv_c"] = mkTeam("Carol XI", "c");
+    files["Dave/sv_d"] = mkTeam("Dave XI", "d");
+    const first = await newMatch();
+    let tick = 0;
+    const later = tabletopApi("POST", "/api/tabletop/matches", { coach: "Carol", method: "discord" }, {
+      home: { coach: "Carol", teamSaveId: "sv_c" }, away: { coach: "Dave", teamSaveId: "sv_d" },
+    }, { ...deps(), now: () => new Date(Date.UTC(2026, 2, 1, 0, 0, ++tick)) });
+    const secondId = ((await later)!.body as { match: { id: string } }).match.id;
+    const mine = (await as("Alice", "GET", "/api/tabletop/matches")).body as { matches: Array<Record<string, any>> };
+    expect(mine.matches.map((m) => m.id)).toEqual([first]);
+    expect(Object.keys(mine.matches[0]!).sort()).toEqual(["away", "createdAt", "home", "id", "postMatch", "state", "updatedAt"]);
+    expect(mine.matches[0]!.home).toEqual({ coach: "Alice", teamName: "Alice XI" });
+    const all = (await as("Org", "GET", "/api/tabletop/matches")).body as { matches: Array<{ id: string }> };
+    expect(all.matches.map((m) => m.id)).toEqual([secondId, first]); // newest first
+    expect(((await as("Mallory", "GET", "/api/tabletop/matches")).body as { matches: unknown[] }).matches).toEqual([]);
+    expect((await tabletopApi("GET", "/api/tabletop/matches", undefined, undefined, deps()))!.status).toBe(401);
+  });
+
+  it("saves lookup: ids and names only, session-gated", async () => {
+    const r = await as("Bob", "GET", "/api/tabletop/saves?coach=Alice");
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ coach: "Alice", saves: [{ id: "sv_a", name: "Alice XI" }] });
+    expect((await as("Bob", "GET", "/api/tabletop/saves")).status).toBe(400);
+    expect((await as("Bob", "GET", "/api/tabletop/saves?coach=Alice", undefined, "password")).status).toBe(403);
+    expect((await tabletopApi("GET", "/api/tabletop/saves", undefined, undefined, deps(), new URLSearchParams("coach=Alice")))!.status).toBe(401);
+  });
+
+  it("match GET and events POST carry the server tally", async () => {
+    const id = await newMatch();
+    const posted = (await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, {
+      events: [E("touchdown", "home", "a1"), E("mvp", "home", "a2"), E("casualty", "home", "a1", { victim: "b1", result: "DEAD" })],
+    })).body as { tally: any };
+    expect(posted.tally.score).toEqual({ home: 1, away: 0 });
+    expect(posted.tally.casualtiesSuffered.away).toEqual({ bh: 0, si: 0, rip: 1 });
+    const a1 = posted.tally.players.home.find((p: any) => p.id === "a1");
+    expect(a1).toMatchObject({ touchdowns: 1, casualtiesCaused: 1, sppEarned: 5 });
+    expect(posted.tally.players.home.find((p: any) => p.id === "a2").sppEarned).toBe(4);
+    const got = (await as("Bob", "GET", `/api/tabletop/matches/${id}`)).body as { tally: any };
+    expect(got.tally).toEqual(posted.tally);
   });
 });
