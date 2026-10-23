@@ -1,5 +1,6 @@
 :root {
   --ui-gold: #e8a33d;
+  --ui-position: #ffd23d; /* owner 10-23: position names in yellow */
   --ui-eggshell: #e7ddc7;
   --ui-skill-general: #6ea8ff;
   --ui-skill-agility: #ffd23d;
@@ -13,6 +14,7 @@
 /* FUMBBL (light) preset: the builder's eggshell/gold text tokens are tuned for the dark preset —
    darken them so labels, secondary buttons and ruleset highlights stay readable on parchment. */
 :root[data-theme="fumbbl"] {
+  --ui-position: #7a5c00; /* readable yellow-brown on parchment */
   --ui-eggshell: #3d3424;
   --ui-gold: #8a5a00;
   /* Skill-category inks for parchment (the dark-preset pastels vanish at the larger body size). */
@@ -354,7 +356,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
   font-size: 14px;
 }
 .position-name { display: flex; flex: 1 1 0; min-width: min-content; flex-direction: column; }
-.position-name strong { color: var(--ui-text); font-size: clamp(16px, 1.15vw, 19px); font-weight: 500; line-height: 1.2; }
+.position-name strong { color: var(--ui-position); font-size: clamp(16px, 1.15vw, 19px); font-weight: 500; line-height: 1.2; }
 .position-name small { color: var(--ui-muted); font-size: 14px; white-space: nowrap; }
 .cost { color: var(--ui-eggshell); font-size: clamp(16px, 1.15vw, 19px); white-space: nowrap; }
 
@@ -438,7 +440,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .player-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .roster-sprite { width: 72px; height: 72px; font-size: 12px; } /* owner 10-23: bigger in rows */
 .player-copy { display: flex; min-width: 0; flex-direction: column; }
-.player-copy strong { overflow: hidden; color: var(--ui-text); font-size: 16px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.player-copy strong { overflow: hidden; color: var(--ui-position); font-size: 16px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .player-copy small { color: var(--ui-muted); font-size: 14px; }
 .remove-player {
   justify-self: end;
@@ -859,8 +861,8 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 /* Skill icons (Illustrated - Default) left of skill names */
 .skill,
 .chosen-chip { display: inline-flex; align-items: center; }
-.skill-icon { width: 17px; height: 17px; margin-right: 4px; flex: 0 0 auto; image-rendering: auto; }
-.skill-chip-main .skill-icon { width: 18px; height: 18px; margin-right: 0; }
+.skill-icon { width: 26px; height: 26px; margin-right: 5px; flex: 0 0 auto; image-rendering: auto; }
+.skill-chip-main .skill-icon { width: 28px; height: 28px; margin-right: 0; }
 @media (max-width: 600px) {
   .builder-modal,
   .stat-modal { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; }
