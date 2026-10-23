@@ -13,7 +13,10 @@ export type MatchSummary = Pick<MatchView, "id" | "state" | "postMatch" | "home"
 export interface TeamOption { ref: string; name: string; race?: string; tv?: number }
 export const teamKind = (ref: string): string => (ref.startsWith("library:") ? "Library" : "Builder save");
 
-export interface TabletopListState { loaded: boolean; matches: MatchSummary[]; error: string; myTeams: TeamOption[]; myTeamsError: string }
+export interface FixtureSide { coach: string; teamRef?: string; teamName?: string }
+export interface Fixture { fixtureRef: string; tournament: { id: string; name: string }; round: number; home: FixtureSide; away: FixtureSide }
+
+export interface TabletopListState { loaded: boolean; matches: MatchSummary[]; error: string; myTeams: TeamOption[]; myTeamsError: string; fixtures: Fixture[]; fixturesLoaded: boolean; fixturesError: string }
 
 export interface TabletopListDeps {
   api: Fetcher;
@@ -22,7 +25,7 @@ export interface TabletopListDeps {
 }
 
 export function createTabletopList(deps: TabletopListDeps) {
-  const state = reactive<TabletopListState>({ loaded: false, matches: [], error: "", myTeams: [], myTeamsError: "" });
+  const state = reactive<TabletopListState>({ loaded: false, matches: [], error: "", myTeams: [], myTeamsError: "", fixtures: [], fixturesLoaded: false, fixturesError: "" });
 
   async function refresh(): Promise<void> {
     try {
@@ -42,6 +45,25 @@ export function createTabletopList(deps: TabletopListDeps) {
       `/api/tabletop/saves?coach=${encodeURIComponent(coach.trim())}`,
     );
     return res.teams ?? (res.saves ?? []).map((sv) => ({ ref: `save:${sv.id}`, name: sv.name }));
+  }
+
+  /** Fixtures scheduled for me (GET /api/tabletop/fixtures); the response is a list. */
+  async function loadFixtures(): Promise<void> {
+    try {
+      const res = await deps.api<Fixture[] | { fixtures?: Fixture[] }>("/api/tabletop/fixtures");
+      state.fixtures = Array.isArray(res) ? res : res.fixtures ?? [];
+      state.fixturesError = "";
+      state.fixturesLoaded = true;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return void deps.onSignedOut();
+      state.fixturesError = (err as Error).message;
+    }
+  }
+
+  /** A fixture creates its match from the fixtureRef alone (the server fills home and away). */
+  async function createFromFixture(fixtureRef: string, postMatch: PostMatchOption): Promise<string> {
+    const res = await deps.api<{ match: MatchView }>("/api/tabletop/matches", { method: "POST", body: { fixtureRef, postMatch } });
+    return res.match.id;
   }
 
   /** "Your team": the session coach's own teams, from the same route as the opponent's. */
@@ -67,7 +89,7 @@ export function createTabletopList(deps: TabletopListDeps) {
     return res.match.id;
   }
 
-  return { state, refresh, create, lookupSaves, loadMyTeams };
+  return { state, refresh, create, lookupSaves, loadMyTeams, loadFixtures, createFromFixture };
 }
 
 export type TabletopList = ReturnType<typeof createTabletopList>;

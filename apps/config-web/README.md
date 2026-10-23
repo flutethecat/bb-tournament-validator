@@ -27,6 +27,8 @@ are loaded by `spa/index.html`; the shell styles with their `--ui-*` tokens, so 
 | `/app/lobby/:id` | a Lobby (presence, chat, rosters, coach card, Start game). Needs a Discord session |
 | `/app/tabletop` | Tabletop: New match (my team, opponent coach + their team save id, post-match none / spp-only / full) and my matches (ids this browser remembers; no list endpoint yet). Needs a Discord session |
 | `/app/tabletop/:id` | the phone-first match recorder (events through an offline queue, submit, per-coach confirm; organiser Undo revision when `/api/auth/session` says `organizer`). Needs a Discord session |
+| `/app/tabletop/organiser` | organiser console (round matches, bulk Confirm & publish / Reopen, CSV export); organiser sessions only |
+| `/app/standings?league=` | league standings table from `/api/standings` (public) |
 | `/app/tournaments` | placeholder linking to `/tournaments.html` |
 | `/app/team-builder` | placeholder linking to `/team-builder.html` |
 | `/app/tournament-team-builder` | placeholder linking to `/tournament-team-builder.html` |

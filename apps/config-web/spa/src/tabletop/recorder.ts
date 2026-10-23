@@ -4,6 +4,7 @@
 
 import { reactive, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
+import type { ArtManifests } from "./art";
 import type { Fetcher } from "../session";
 import { browserStorage, createEventQueue, newEventId, type QueueStorage, type RejectedEvent, type SendResult, type WireEvent } from "./queue";
 
@@ -36,10 +37,20 @@ export interface MatchView {
   confirmations: Record<string, string>;
   preview?: { home: SummaryView; away: SummaryView };
   resultGameId?: string;
+  /** "pregame:<step>" while the pre-game wizard runs (fans, weather, journeymen, inducements, prayers, coin). */
+  phase?: string;
+  pregame?: Record<string, unknown>;
 }
 
-export interface RosterPlayerView { id: string; name: string; number?: number; spp: number; mng: boolean; dead: boolean }
-export interface TeamView { name: string; players: RosterPlayerView[] }
+export interface RosterPlayerView {
+  id: string; name: string; number?: number; spp: number; mng: boolean; dead: boolean;
+  positionId?: string; position?: string; skills?: string[]; injuries?: string[]; niggles?: number;
+  ma?: number; st?: number; ag?: number; pa?: number; av?: number;
+}
+export interface TeamView {
+  name: string; players: RosterPlayerView[];
+  rosterId?: string; race?: string; treasury?: number; dedicatedFans?: number; rerolls?: number; apothecary?: boolean;
+}
 
 export interface RecordedEvent {
   id: string; type: string; team: Side; player?: string; payload: Record<string, unknown>; ts?: string; by?: string;
@@ -49,6 +60,8 @@ export interface RecordedEvent {
 export interface ServerTally {
   score: Record<Side, number>;
   fanDelta: Record<Side, number>;
+  half?: number;
+  turn?: number;
   casualtiesSuffered: Record<Side, { bh: number; si: number; rip: number }>;
   players: Record<Side, PlayerLineView[]>;
 }
@@ -63,6 +76,8 @@ export interface MatchResponse {
   effectiveEventIds: string[];
   teams: Record<Side, TeamView | undefined>;
   tally?: ServerTally;
+  phase?: string;
+  pregame?: Record<string, unknown>;
 }
 
 export interface RecorderState {
@@ -71,6 +86,12 @@ export interface RecorderState {
   match: MatchView | null;
   events: RecordedEvent[];
   effectiveIds: string[];
+  phase: string;
+  pregame: Record<string, unknown>;
+  /** inducement key -> icon path (public/icons/inducements/manifest.json), read once. */
+  inducementIcons: Record<string, string>;
+  /** Sprite and crest manifests of the builder-art pack, read once. */
+  art: ArtManifests;
   tally: ServerTally;
   teams: Record<Side, TeamView | undefined>;
   /** Events accepted by this browser's queue but not yet by the server. */
@@ -98,7 +119,7 @@ const POLL_MS = 5000;
 
 export function createRecorder(matchId: string, deps: RecorderDeps) {
   const state = reactive<RecorderState>({
-    loaded: false, error: "", match: null, events: [], effectiveIds: [], tally: EMPTY_TALLY, teams: { home: undefined, away: undefined },
+    loaded: false, error: "", match: null, events: [], effectiveIds: [], phase: "", pregame: {}, inducementIcons: {}, art: {}, tally: EMPTY_TALLY, teams: { home: undefined, away: undefined },
     pending: 0, queueError: "", retryAt: 0, rejected: [], busy: false, actionError: "",
   });
   const base = `/api/tabletop/matches/${encodeURIComponent(matchId)}`;
@@ -143,6 +164,8 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     state.events = res.events ?? [];
     state.effectiveIds = res.effectiveEventIds ?? [];
     state.tally = res.tally ?? EMPTY_TALLY;
+    state.phase = res.phase ?? res.match.phase ?? "";
+    state.pregame = res.pregame ?? res.match.pregame ?? {};
     state.teams = res.teams ?? { home: undefined, away: undefined };
     state.loaded = true;
   }
@@ -153,10 +176,10 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
   }
 
   /** Queue one event (client uuid) and push it straight away; the screen follows the server's answer. */
-  async function record(spec: { type: string; team: Side; player?: string; payload?: Record<string, unknown> }): Promise<WireEvent> {
+  async function record(spec: { type: string; team: Side; player?: string; payload?: Record<string, unknown>; half?: number; turn?: number }): Promise<WireEvent> {
     const e: WireEvent = {
       id: newEventId(), type: spec.type, team: spec.team, ...(spec.player ? { player: spec.player } : {}),
-      payload: spec.payload ?? {}, ts: new Date(deps.now?.() ?? Date.now()).toISOString(),
+      payload: spec.payload ?? {}, ...(spec.half ? { half: spec.half >= 3 ? ("OT" as const) : spec.half } : {}), ...(spec.turn ? { turn: spec.turn } : {}), ts: new Date(deps.now?.() ?? Date.now()).toISOString(),
     };
     queue.enqueue(e);
     await sync();
@@ -166,14 +189,14 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
   /** Reverse a server-accepted event with an `undo` event (the team is the target's). */
   const undo = (target: RecordedEvent) => record({ type: "undo", team: target.team, payload: { target: target.id } });
 
-  async function act(path: string): Promise<void> {
+  async function act(path: string, body: Record<string, unknown> = {}): Promise<void> {
     state.busy = true;
     state.actionError = "";
     try {
       // Anything still waiting goes first, so a submit never races the last taps.
       if (path === "submit") await queue.flush();
       if (path === "submit" && queue.pendingCount()) throw new Error(`${queue.pendingCount()} event(s) are still waiting to send. Try again when you're online.`);
-      const res = await deps.api<{ match: MatchView }>(`${base}/${path}`, { method: "POST", body: {} });
+      const res = await deps.api<{ match: MatchView }>(`${base}/${path}`, { method: "POST", body });
       state.match = res.match;
       await refresh();
     } catch (err) {
@@ -191,6 +214,18 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     undo,
     sync,
     submit: () => act("submit"),
+    /** Pre-game wizard step: the server rolls / records and moves the phase on. */
+    advance: (body: Record<string, unknown> = {}) => act("pregame/advance", body),
+    /** Inducement icons and crests (builder-art manifests); a missing one only drops that art. */
+    async loadArt(): Promise<void> {
+      const get = async <T>(path: string): Promise<T | undefined> => { try { return await deps.api<T>(path); } catch { return undefined; } };
+      const [ind, crests] = await Promise.all([
+        get<{ icons?: Record<string, string> }>("/icons/inducements/manifest.json"),
+        get<ArtManifests["crests"]>("/crests/manifest.json"),
+      ]);
+      state.inducementIcons = ind?.icons ?? {};
+      state.art = { crests };
+    },
     confirm: () => act("confirm"),
     undoRevision: () => act("undo-revision"),
     dismissRejected: (id: string) => queue.dismissRejected(id),

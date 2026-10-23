@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createSSRApp } from "vue";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
@@ -124,7 +125,7 @@ describe("tabletop routes (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch] = await Promise.all([
+    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
@@ -134,8 +135,14 @@ describe("tabletop routes (server-rendered)", () => {
       vite.ssrLoadModule("/src/tabletop/organiser.ts"),
       vite.ssrLoadModule("/src/tabletop/standings.ts"),
       vite.ssrLoadModule("/src/tabletop/coachSearch.ts"),
+      vite.ssrLoadModule("/src/tabletop/feed.ts"),
+      vite.ssrLoadModule("/src/components/TabletopOther.vue"),
+      vite.ssrLoadModule("/src/components/TabletopRosters.vue"),
+      vite.ssrLoadModule("/src/components/TabletopPregame.vue"),
+      vite.ssrLoadModule("/src/components/TabletopFeed.vue"),
+      vite.ssrLoadModule("/src/components/TabletopScoreboard.vue"),
     ]);
-    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch };
+    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -267,18 +274,227 @@ describe("tabletop routes (server-rendered)", () => {
     ]);
   });
 
-  it("recorder (recording): both teams, per-player controls, fan change, undo list, score and SPP from the server's events", async () => {
+  /** Renders one component on its own (SSR) with props, from the same module graph as the app. */
+  const mount = async (comp: { default: unknown }, props: Record<string, unknown>, provide?: (app: any) => void): Promise<string> => {
+    const app = createSSRApp(comp.default as object, props);
+    provide?.(app);
+    return (await mods.renderer.renderToString(app)) as string;
+  };
+
+  it("recorder (recording): scoreboard, scrolling feed and TD / Other / CAS regions, rows from the server's events", async () => {
     const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally });
-    for (const label of ["Grob", "Snaga", "Lirael", "Faen", "+TD", "+CAS", "+Comp", "+Int", "+Defl", "MVP", "Send off", "Fan change", "Submit match", "Undo", "Last events"])
-      expect(html, label).toContain(label);
-    expect(html).toContain("Home: Alice Orcs (Alice)");
-    expect(html).toContain("Away: Bob Elves (Bob)");
+    // layout regions, in order: scoreboard, feed, action bar
+    const i = (t: string): number => html.indexOf(t);
+    expect(i('class="tt-board"')).toBeGreaterThan(-1);
+    expect(i('class="tt-feed"')).toBeGreaterThan(i('class="tt-board"'));
+    expect(i('class="tt-actions-bar"')).toBeGreaterThan(i('class="tt-feed"'));
+    expect(html).toContain(">TD</button>");
+    expect(html).toContain(">Other</button>");
+    expect(html).toContain(">CAS</button>");
+    // scoreboard: both coach corners and the centre
+    expect(html).toContain("Alice Orcs");
+    expect(html).toContain("Bob Elves");
     expect(html).toContain("<span>1</span> : <span>0</span>");
-    expect(html).toContain("+3 SPP"); // Grob: one effective touchdown (the second was undone)
-    expect(html).toContain("+1 SPP"); // Lirael: one completion
-    expect(html).toContain("(MNG)"); // Snaga cannot act
+    expect(html).toContain("H1 T1");
+    expect(html).toContain("Rosters");
+    expect(html).toContain('href="/app/tabletop"'); // the back button
+    // feed rows: the client log sentence, SPP stars, undo trash; the undone TD is gone
+    expect(html).toContain("Grob #1</span> scores a touchdown.");
+    expect(html).toContain("(&#9733;3)".replace("&#9733;", "\u2605"));
+    expect(html).toContain("Lirael #7</span> completes a pass.");
+    expect(html).toContain('aria-label="Undo Touchdown"');
+    expect(html.match(/scores a touchdown/g)).toHaveLength(1);
     expect(html).not.toContain("waiting");
     expect(html).not.toContain("Undo revision");
+    expect(html).not.toContain("Submit match"); // submitting is part of End of match
+  });
+
+  it("layout: scoreboard and the three buttons stay fixed, only the feed scrolls (css structure)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.tt-rec \{[^}]*position: fixed; inset: 0/);
+    expect(css).toMatch(/grid-template-rows: minmax\(150px, 20dvh\) minmax\(0, 1fr\) auto/);
+    expect(css).toMatch(/\.tt-feed \{[^}]*overflow-y: auto; -webkit-overflow-scrolling: touch/);
+    expect(css).toMatch(/\.tt-actions-bar \{[^}]*height: 33dvh/);
+    expect(css).toMatch(/\.tt-big \{[^}]*min-height: 64px/);
+    expect(css).toMatch(/\.tt-actions-bar \{[^}]*grid-template-columns: 1fr 1fr 1fr/);
+  });
+
+  it("Other popup lists all 15 events with the client glyphs", async () => {
+    const html = await mount(mods.otherC, {});
+    const labels = ["Touchdown", "Casualty", "Injury", "Completion", "Catch", "Throw Team-mate", "Interception", "Foul", "Sent-off", "Stalling", "Secret Objectives", "MVP", "Weather", "Concede match", "End of match"];
+    expect(mods.feedMod.OTHER_EVENTS).toHaveLength(15);
+    for (const l of labels) expect(html, l).toContain(`<span>${l}</span>`);
+    expect(html).toContain("/icons/ui/action-pass.png");
+    expect(html).toContain("/icons/ui/action-foul.png");
+    expect(html).toContain("/icons/ui/status-stalling.png");
+    expect(html).toContain("/icons/ui/status-catch.png");
+  });
+
+  it("feed rows: team tints, inducement and pre-game rows (neutral rows for match-level lines), no undo on pre-game rolls", async () => {
+    const evs = [
+      { id: "p1", type: "fans", team: "home", payload: { home: 5, away: 2 } },
+      { id: "p2", type: "weather", team: "home", payload: { name: "Nice" } },
+      { id: "p3", type: "inducement", team: "away", payload: { id: "bribes", name: "Bribes", qty: 2 } },
+      { id: "p4", type: "coinFlip", team: "home", payload: { mode: "auto", result: "tails" } },
+      { id: "p5", type: "inducement", team: "home", payload: { picks: [{ id: "bribes", qty: 2 }], total: 100000, skipped: false } },
+      { id: "p6", type: "inducement", team: "away", payload: { picks: [], total: 0, skipped: true } },
+      { id: "e1", type: "touchdown", team: "home", player: "h1", payload: {}, half: 1, turn: 3 },
+    ];
+    const rows = mods.feedMod.feedRows(evs, evs.map((e) => e.id), teams);
+    const html = await mount(mods.feedC, { rows, canUndo: true });
+    expect(html).toContain('data-type="inducement"');
+    expect(html).toContain("Bob Elves</span> buys 2 x Bribes.");
+    expect(html).toMatch(/data-row-side="neutral" data-type="coinFlip"/);
+    expect(html).toMatch(/data-row-side="neutral" data-type="weather"/);
+    expect(html).toMatch(/data-row-side="away" data-type="inducement"/);
+    expect(html).toMatch(/data-row-side="home" data-type="touchdown"/);
+    expect(html).toContain("buys 2 x bribes.");
+    expect(html).toContain("buys no inducements.");
+    expect(html).toContain("H1 T3");
+    expect(html).toContain('aria-label="Undo Touchdown"');
+    expect(html).not.toContain('aria-label="Undo Fans"');
+    expect(html).not.toContain('aria-label="Undo Inducement"');
+  });
+
+  it("Rosters popout renders both teams from the server's team files", async () => {
+    const rich = {
+      home: { name: "Alice Orcs", treasury: 120000, players: [
+        { id: "h1", name: "Grob", number: 1, position: "Blitzer", spp: 6, mng: false, dead: false, ma: 6, st: 3, ag: 3, pa: 4, av: 10, skills: ["Block", "Dodge"] },
+        { id: "h2", name: "Snaga", number: 2, positionId: "lineman", spp: 0, mng: true, dead: false },
+      ] },
+      away: { name: "Bob Elves", players: [{ id: "a1", name: "Lirael", number: 7, positionId: "catcher", spp: 3, mng: false, dead: false, niggles: 1 }] },
+    };
+    const html = await mount(mods.rostersC, { match: baseMatch("recording"), teams: rich, tally: serverTally });
+    for (const t of ["Rosters", "Alice Orcs", "Bob Elves", "1/2", "1/1", "Grob", "Blitzer", "Block", "Dodge", "MNG", "Treasury 120k", "<small>MA</small>6", "<small>AV</small>10", "9 SPP", "(+3)"])
+      expect(html, t).toContain(t);
+    expect(html).toContain("lineman"); // a team file without a position name falls back to the position id
+    expect(html).toContain("<small>MA</small>-"); // stats the team file lacks show a dash
+  });
+
+  it("scoreboard: crest, inducement icons with qty badge, weather in the centre, no coin result", async () => {
+    const evs = [{ id: "i1", type: "inducement", team: "home", payload: { id: "bribes", name: "Bribes", qty: 2 } }];
+    const html = await mount(mods.boardC, {
+      match: baseMatch("recording"), teams: { home: { ...teams.home, rosterId: "orc", dedicatedFans: 5 }, away: teams.away }, tally: serverTally,
+      events: evs, pregame: { weather: "Nice", coin: { result: "heads", winner: "home" } }, half: 2, turn: 5,
+      inducementIcons: { bribes: "icons/inducements/bribe.png" }, art: { crests: { crests: { orc: "crests/orc.png" } } },
+    }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
+    expect(html).toContain('src="/crests/orc.png"');
+    expect(html).toContain("/icons/inducements/bribe.png");
+    expect(html).toContain("/icons/ui/dedicated_fans.png");
+    expect(html).toContain('<b class="tt-qty">2</b>');
+    expect(html).toContain("Nice");
+    expect(html).toContain("H2 T5");
+    expect(html).not.toMatch(/heads|tails/i);
+  });
+
+  it("theme toggle: dark by default, remembered SNES grey from storage", async () => {
+    const dark = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: [], teams, tally: serverTally });
+    expect(dark.html).toContain('data-tt-theme="dark"');
+    expect(dark.html).toContain(">SNES grey</button>");
+    (globalThis as any).localStorage = { store: { "tabletop-theme": "snes" }, getItem(k: string) { return this.store[k] ?? null; }, setItem(k: string, v: string) { this.store[k] = v; }, removeItem() {} };
+    try {
+      const snes = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: [], teams, tally: serverTally });
+      expect(snes.html).toContain('data-tt-theme="snes"');
+      expect(snes.html).toContain(">Dark</button>");
+    } finally { delete (globalThis as any).localStorage; }
+  });
+
+  const pregameProps = (phase: string, pregame: Record<string, unknown> = {}) => ({ match: baseMatch("recording"), teams, phase, pregame, busy: false, error: "" });
+
+  it("pre-game wizard: a server-rolled step shows its result and one roll button per phase", async () => {
+    for (const [phase, label] of [["fans", "Roll fans"], ["weather", "Roll weather"], ["journeymen", "Roll journeymen"], ["prayers", "Roll prayers to nuffle"]]) {
+      const html = await mount(mods.pregameC, pregameProps(`pregame:${phase}`, { fans: "Home 5, Away 2" }));
+      expect(html, phase).toContain(label);
+      expect(html, phase).toContain("The server rolls this and records the result.");
+      expect(html, phase).toContain('data-state="now"');
+    }
+    const later = await mount(mods.pregameC, pregameProps("pregame:weather", { fans: "Home 5, Away 2" }));
+    expect(later).toContain("Home 5, Away 2"); // the earlier result, from the server
+  });
+
+  it("pre-game wizard: inducements per team with Skip, from the server's options", async () => {
+    const html = await mount(mods.pregameC, pregameProps("pregame:inducements", {
+      inducementOptions: { home: [{ id: "bribes", name: "Bribes", cost: 100000, max: 3 }], away: [] },
+    }));
+    expect(html).toContain("Bribes");
+    expect(html).toContain("100k");
+    expect(html).toContain("Confirm Alice Orcs");
+    expect(html).toContain("No inducements offered.");
+    expect(html.match(/>Skip</g)).toHaveLength(2);
+  });
+
+  it("coin flipper: opens on Heads / Tails, no coin yet; hand entry is a small link at the bottom", async () => {
+    const html = await mount(mods.pregameC, pregameProps("pregame:coin"));
+    expect(html).toContain("Bob calls the toss");
+    expect(html).toContain("Heads ");
+    expect(html).toContain("Tails ");
+    expect(html).not.toContain('class="tt-coin"');
+    expect(html).toContain("Rolled a real coin? Enter the result");
+    expect(html.indexOf("Rolled a real coin?")).toBeGreaterThan(html.indexOf("Tails"));
+    expect(html).not.toContain("Record hand-rolled result"); // not a peer button
+  });
+
+  it("coin flipper: the animation lands on the server's face, then the winner picks Kick / Receive", async () => {
+    for (const result of ["heads", "tails"]) {
+      const html = await mount(mods.pregameC, pregameProps("pregame:coin", { coin: { result, call: "heads", winner: "away" } }));
+      expect(html).toContain(`data-result="${result}"`);
+      expect(html).toContain(`${result.toUpperCase()} - Bob Elves wins the toss`);
+      expect(html).toContain("Bob Elves kicks");
+      expect(html).toContain("Bob Elves receives");
+      expect(html).not.toContain("calls the toss");
+    }
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css).toContain(".tt-coin[data-result=\"tails\"] { animation-name: tt-coin-flip-tails; }");
+    expect(css).toContain("rotateX(1800deg)"); // 5 turns = heads up
+    expect(css).toContain("rotateX(1980deg)"); // 5.5 turns = tails up
+  });
+
+  it("coin flipper posts the call, then the choice with the server's winner", async () => {
+    const posts: unknown[] = [];
+    let coin: Record<string, unknown> | undefined;
+    const api = (async (path: string, init: { method?: string; body?: any } = {}) => {
+      if (init.method === "POST") {
+        posts.push([path, init.body]);
+        if (init.body.call && !init.body.choice) coin = { result: "tails", call: init.body.call, winner: "home" };
+        return { match: baseMatch("recording") };
+      }
+      return { match: baseMatch("recording"), events: [], effectiveEventIds: [], teams, tally: serverTally, phase: "pregame:coin", pregame: coin ? { coin } : {} };
+    }) as Fetcher;
+    const rec = mods.rec.createRecorder("tm_abc123", { api, onSignedOut: () => undefined, storage: mods.queue.memoryStorage() });
+    await rec.refresh();
+    await rec.advance({ mode: "auto", call: "heads" });
+    expect(rec.state.pregame.coin).toEqual({ result: "tails", call: "heads", winner: "home" });
+    await rec.advance({ mode: "auto", call: "heads", winner: "home", choice: "kick" });
+    expect(posts).toEqual([
+      ["/api/tabletop/matches/tm_abc123/pregame/advance", { mode: "auto", call: "heads" }],
+      ["/api/tabletop/matches/tm_abc123/pregame/advance", { mode: "auto", call: "heads", winner: "home", choice: "kick" }],
+    ]);
+    rec.stop();
+  });
+
+  it("fixtures: Your fixtures lists the server's fixtures, empty state, and a fixture creates a match from the ref alone", async () => {
+    const fx = { fixtureRef: "fx1", tournament: { id: "t1", name: "Autumn Cup" }, round: 2, home: { coach: "Alice", teamName: "Alice Orcs" }, away: { coach: "Bob" } };
+    const withFixtures = async (rows: unknown[]) => render("/tabletop", { "/api/auth/session": session() }, async (spa) => {
+      const ctrl = mods.list.createTabletopList({ api: fetcher({ "/api/tabletop/fixtures": rows }), coach: () => "Alice", onSignedOut: () => undefined });
+      await ctrl.loadFixtures();
+      spa.app.provide(mods.list.TABLETOP_LIST_KEY, ctrl);
+    });
+    const some = await withFixtures([fx]);
+    expect(some.html).toContain("Your fixtures");
+    expect(some.html).toContain("Autumn Cup");
+    expect(some.html).toContain("round 2");
+    expect(some.html).toContain("Alice Orcs (Alice) vs Bob (Bob)");
+    expect(some.html.indexOf("Your fixtures")).toBeLessThan(some.html.indexOf("Casual match"));
+    expect((await withFixtures([])).html).toContain("No fixtures scheduled for you.");
+    const posts: unknown[] = [];
+    const ctrl = mods.list.createTabletopList({
+      api: (async (path: string, init: { method?: string; body?: unknown } = {}) => { posts.push([path, init.body]); return { match: baseMatch("recording") }; }) as Fetcher,
+      coach: () => "Alice", onSignedOut: () => undefined,
+    });
+    expect(await ctrl.createFromFixture("fx1", "full")).toBe("tm_abc123");
+    expect(posts).toEqual([["/api/tabletop/matches", { fixtureRef: "fx1", postMatch: "full" }]]);
   });
 
   it("recorder: the 'n events waiting' chip shows queued events that the server has not accepted", async () => {

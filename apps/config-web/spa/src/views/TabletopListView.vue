@@ -86,17 +86,47 @@ async function onCreate(): Promise<void> {
   }
 }
 
+const fixtureErr = ref("");
+async function onFixture(fixtureRef: string): Promise<void> {
+  fixtureErr.value = "";
+  creating.value = true;
+  try {
+    const id = await list.createFromFixture(fixtureRef, postMatch.value);
+    await router.push({ name: "tabletop-match", params: { id } });
+  } catch (e) {
+    fixtureErr.value = (e as Error).message;
+  } finally {
+    creating.value = false;
+  }
+}
+
 const stateLabel = (s: string): string => (s === "recording" ? "Recording" : s === "submitted" ? "Waiting for confirmation" : s === "confirmed" ? "Confirmed" : s);
 
 onMounted(() => {
   void list.loadMyTeams().then(() => { if (!myTeam.value && state.myTeams.length) myTeam.value = state.myTeams[0]!.ref; });
   void list.refresh();
+  void list.loadFixtures();
 });
 </script>
 
 <template>
   <section class="lobby-card">
-    <h2>New match</h2>
+    <h2>Your fixtures</h2>
+    <p v-if="state.fixturesError" class="lobby-error" role="alert">{{ state.fixturesError }}</p>
+    <p v-else-if="state.fixturesLoaded && !state.fixtures.length" class="muted">No fixtures scheduled for you.</p>
+    <ul v-else class="tt-fixtures">
+      <li v-for="f in state.fixtures" :key="f.fixtureRef">
+        <button class="lobby-btn tt-tap tt-fixture" type="button" :disabled="creating" @click="onFixture(f.fixtureRef)">
+          <b>{{ f.tournament.name }}</b> round {{ f.round }}<br />
+          {{ f.home.teamName ?? f.home.coach }} ({{ f.home.coach }}) vs {{ f.away.teamName ?? f.away.coach }} ({{ f.away.coach }})
+        </button>
+      </li>
+    </ul>
+    <p v-if="fixtureErr" class="lobby-error" role="alert">{{ fixtureErr }}</p>
+  </section>
+
+  <section class="lobby-card">
+    <h2>Casual match</h2>
     <p class="muted">Record a tabletop game. You are home; your opponent is away.</p>
     <form class="lobby-form tt-form" @submit.prevent="onCreate">
       <label for="tt-mine">Your team</label>

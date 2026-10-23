@@ -11,6 +11,8 @@ export interface WireEvent {
   team: "home" | "away";
   player?: string;
   payload: Record<string, unknown>;
+  half?: number | "OT";
+  turn?: number;
   ts: string;
 }
 
