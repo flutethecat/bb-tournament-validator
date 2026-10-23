@@ -16,10 +16,22 @@ export interface Session {
 const TOKEN_BYTES = 32;
 const TOKEN_HEX_LENGTH = TOKEN_BYTES * 2;
 const sessions = new Map<string, Session>();
+const endedListeners: Array<(token: string) => void> = [];
+
+/** Notified with the token whenever a session ends (deleted or pruned as expired). Faults are contained. */
+export function onSessionEnded(listener: (token: string) => void): void {
+  endedListeners.push(listener);
+}
+
+function ended(token: string): void {
+  for (const l of endedListeners) {
+    try { l(token); } catch { /* a listener fault never breaks the session store */ }
+  }
+}
 
 function pruneExpired(now: number): void {
   for (const [token, session] of sessions) {
-    if (session.expiry <= now) sessions.delete(token);
+    if (session.expiry <= now) { sessions.delete(token); ended(token); }
   }
 }
 
@@ -63,7 +75,9 @@ export function getSession(token: string | undefined, now = Date.now()): Session
 export function deleteSession(token: string | undefined): boolean {
   if (!token) return false;
   const storedToken = findStoredToken(token);
-  return storedToken ? sessions.delete(storedToken) : false;
+  if (!storedToken || !sessions.delete(storedToken)) return false;
+  ended(storedToken);
+  return true;
 }
 
 export function parseCookies(header: string | undefined): Map<string, string> {

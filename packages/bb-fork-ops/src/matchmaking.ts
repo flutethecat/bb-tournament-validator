@@ -23,7 +23,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { buildForkJnlp, coachSecretDigest } from "./index.js";
+import { buildSeatJnlp, coachSecretDigest } from "./index.js";
 import { safe } from "./util.js";
 
 interface Challenge {
@@ -54,7 +54,27 @@ interface MatchDelivery {
 
 export type MatchStatus =
   | { status: "waiting" }
-  | { status: "matched"; gameName: string; gameId?: string; opponent: string; jnlp: string };
+  /** `jnlp` is present ONLY for an authorized poll of a seat with its own digest; otherwise status only. */
+  | { status: "matched"; gameName: string; gameId?: string; opponent: string; jnlp?: string };
+
+/** Who is polling: `authorized` = the caller's session owns the coach; `passwordMd5` = a digest the caller sent. */
+export interface MatchStatusAuth {
+  authorized: boolean;
+  passwordMd5?: string;
+}
+
+/** Default bound on one scheduling call; the pairing reservation never outlives it. */
+export const DEFAULT_SCHEDULE_TIMEOUT_MS = 30_000;
+/** How long a late (post-timeout) scheduled game is kept for the next pairing of the same two teams. */
+const LATE_GAME_TTL_MS = 30 * 60 * 1000;
+
+interface ScheduleCall {
+  promise: Promise<{ gameId: string; homeTeamId: string; awayTeamId: string } | undefined>;
+  /** Some pairing used this call's result (a late completion must not be recorded again). */
+  consumed: boolean;
+  /** A pairing gave up waiting on this call; only then is a later result kept as a "late game". */
+  timedOut: boolean;
+}
 
 /** Injected so pure matchmaking logic stays testable without real fork/HTTP access. */
 export type ForkGameScheduler = (teamHomeId: string, teamAwayId: string) => Promise<{ gameId: string } | undefined>;
@@ -126,6 +146,11 @@ export class Matchmaker {
   /** Coach keys whose pairing is in flight (between reservation and delivery). A challenge by or for a
    *  reserved coach is refused, so overlapping accepts can never pair (or schedule) twice. */
   private readonly reserved = new Set<string>();
+  private readonly scheduleTimeoutMs: number;
+  /** In-flight scheduling calls keyed by the (sorted) team pair: a retry awaits the same call, never a 2nd one. */
+  private readonly inflight = new Map<string, ScheduleCall>();
+  /** Games a timed-out call created after its deadline, reused by the next pairing of those teams. */
+  private readonly lateGames = new Map<string, { gameId: string; homeTeamId: string; awayTeamId: string; at: number }>();
   private homeAwayMode: HomeAwayMode;
 
   constructor(opts?: {
@@ -138,6 +163,8 @@ export class Matchmaker {
     homeAwayMode?: HomeAwayMode;
     onPaired?: PairingListener;
     validateSide?: PairSideValidator;
+    /** Bound on one scheduling call (default 30 s). On timeout the pairing fails and the reservation ends. */
+    scheduleTimeoutMs?: number;
   }) {
     this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
     this.now = opts?.now ?? Date.now;
@@ -147,6 +174,7 @@ export class Matchmaker {
     this.homeAwayMode = opts?.homeAwayMode ?? DEFAULT_HOME_AWAY_MODE;
     if (opts?.onPaired) this.pairingListeners.push(opts.onPaired);
     this.validateSide = opts?.validateSide;
+    this.scheduleTimeoutMs = opts?.scheduleTimeoutMs ?? DEFAULT_SCHEDULE_TIMEOUT_MS;
   }
 
   /** Register a read-only pairing listener (the web Lobby view). A listener fault never breaks pairing. */
@@ -258,11 +286,21 @@ export class Matchmaker {
     for (const k of [this.key(mine.coach), this.key(mine.opponent)]) {
       if (this.reserved.has(k)) throw new Error("A game is already being set up for this coach. Try again in a moment.");
     }
+    const previous = this.pending.get(this.key(mine.coach));
     this.pending.set(this.key(mine.coach), mine);
     // Reciprocal? The opponent must already be waiting AND naming me.
     const theirs = this.pending.get(this.key(mine.opponent));
-    if (theirs && this.key(theirs.opponent) === this.key(mine.coach)) return this.pair(mine, theirs);
-    return undefined;
+    if (!theirs || this.key(theirs.opponent) !== this.key(mine.coach)) return undefined;
+    try {
+      return await this.pair(mine, theirs);
+    } catch (e) {
+      // A failed attempt is rolled back as a whole: THIS challenge id is gone (pair() never restores it) and
+      // the coach's previous challenge, if any and still live, comes back. Nothing is left pending unseen.
+      if (previous && previous.id !== mine.id && previous.createdAt >= this.now() - this.ttlMs && !this.pending.has(this.key(mine.coach))) {
+        this.pending.set(this.key(mine.coach), previous);
+      }
+      throw e;
+    }
   }
 
   private async pair(a: Challenge, b: Challenge): Promise<PairingEvent> {
@@ -287,8 +325,9 @@ export class Matchmaker {
       for (const [side, other] of [[a, b], [b, a]] as const) {
         const error = await this.validateSide({ coach: side.coach, teamId: side.teamId });
         if (error) {
-          // The invalid side's consent is void; the other side keeps waiting (unless it expired meanwhile).
-          if (other.createdAt >= this.now() - this.ttlMs) this.pending.set(this.key(other.coach), other);
+          // The invalid side's consent is void. The ATTEMPT (`a`) is always rolled back; the waiting side (`b`)
+          // keeps waiting only when it is the valid one (and has not expired meanwhile).
+          if (other === b && b.createdAt >= this.now() - this.ttlMs) this.pending.set(this.key(b.coach), b);
           throw new Error(error);
         }
       }
@@ -303,15 +342,24 @@ export class Matchmaker {
     const at = this.now();
 
     // Decide which of the two is HOME for the scheduled game (see HomeAwayMode).
-    const [home, away] = this.assignHomeAway(first, second);
+    let [home, away] = this.assignHomeAway(first, second);
 
     let gameId: string | undefined;
     if (this.scheduleGame) {
-      try {
-        gameId = (await this.scheduleGame(home.teamId, away.teamId))?.gameId;
-      } catch {
-        gameId = undefined; // fall back to the gameName-only scheme below, not a hard failure
+      const outcome = await this.scheduleOnce(home.teamId, away.teamId);
+      if (outcome.kind === "timeout") {
+        // The fork did not answer in time: no game is assumed. Roll back the attempt (enter() restores the
+        // attempting coach's previous challenge), keep the waiting side waiting, and end the reservation. A late
+        // answer is recorded for the next pairing of these teams, so a retry cannot schedule a second game.
+        if (b.createdAt >= this.now() - this.ttlMs) this.pending.set(this.key(b.coach), b);
+        throw new Error("The game server did not answer in time. Try again in a moment.");
       }
+      if (outcome.kind === "scheduled") {
+        gameId = outcome.gameId;
+        // A reused (late) game keeps the home/away it was created with.
+        if (outcome.homeTeamId === away.teamId) [home, away] = [away, home];
+      }
+      // outcome "failed": fall back to the gameName-only scheme below, not a hard failure (unchanged)
     }
 
     this.matched.set(this.key(a.coach), {
@@ -331,6 +379,57 @@ export class Matchmaker {
       try { listener(event); } catch { /* a view fault never breaks pairing */ }
     }
     return event;
+  }
+
+  /**
+   * One scheduling call per team pair, bounded by `scheduleTimeoutMs`. A pairing of the same teams while a call
+   * is in flight awaits that call; a late result after a timeout is kept and reused, never scheduled twice.
+   */
+  private async scheduleOnce(
+    homeTeamId: string,
+    awayTeamId: string,
+  ): Promise<{ kind: "scheduled"; gameId: string; homeTeamId: string } | { kind: "failed" } | { kind: "timeout" }> {
+    const pairKey = [homeTeamId, awayTeamId].sort().join("|");
+    for (const [k, g] of this.lateGames) if (g.at < this.now() - LATE_GAME_TTL_MS) this.lateGames.delete(k);
+    const late = this.lateGames.get(pairKey);
+    if (late) {
+      this.lateGames.delete(pairKey);
+      return { kind: "scheduled", gameId: late.gameId, homeTeamId: late.homeTeamId };
+    }
+    let call = this.inflight.get(pairKey);
+    if (!call) {
+      const scheduler = this.scheduleGame!;
+      const created: ScheduleCall = {
+        consumed: false,
+        timedOut: false,
+        promise: Promise.resolve()
+          .then(() => scheduler(homeTeamId, awayTeamId))
+          .then((r) => (r?.gameId ? { gameId: r.gameId, homeTeamId, awayTeamId } : undefined)),
+      };
+      call = created;
+      this.inflight.set(pairKey, created);
+      created.promise.then(
+        (r) => {
+          if (this.inflight.get(pairKey) === created) this.inflight.delete(pairKey);
+          if (r && created.timedOut && !created.consumed) this.lateGames.set(pairKey, { ...r, at: this.now() });
+        },
+        () => { if (this.inflight.get(pairKey) === created) this.inflight.delete(pairKey); },
+      );
+    }
+    const active = call;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), this.scheduleTimeoutMs); });
+    try {
+      const r = await Promise.race([active.promise, timeout]);
+      if (r === "timeout") { active.timedOut = true; return { kind: "timeout" }; }
+      active.consumed = true;
+      return r ? { kind: "scheduled", gameId: r.gameId, homeTeamId: r.homeTeamId } : { kind: "failed" };
+    } catch {
+      active.consumed = true;
+      return { kind: "failed" };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -354,28 +453,26 @@ export class Matchmaker {
   }
 
   /**
-   * Poll for a match. An AUTHORIZED poll (the HTTP route passes `authorized` only when the caller's
-   * session owns `coach`, or the caller sends the same digest that coach supplied) consumes the
-   * delivery and gets the JNLP with that coach's own digest. Any other poll gets a credential-free JNLP
-   * and does not consume it (an anonymous caller can neither read a secret nor steal the delivery).
-   * The default (no options) is the in-process caller and counts as authorized.
+   * Poll for a match. Only an AUTHORIZED poll (`authorized`: the caller's session owns `coach`; or the
+   * caller sent the same digest that coach supplied) gets a JNLP, built from that coach's OWN digest, and
+   * consumes the delivery. Every other poll gets status only (paired, game name / id) and never consumes.
+   * A seat with no digest of its own (web Lobby) never gets a JNLP here. Authorization is always explicit.
    */
-  matchstatus(coach: string, opts: { authorized?: boolean; passwordMd5?: string } = { authorized: true }): MatchStatus {
+  matchstatus(coach: string, auth: MatchStatusAuth): MatchStatus {
     this.sweep();
     const k = this.key(coach);
     const m = this.matched.get(k);
     if (!m) return { status: "waiting" };
-    const proof = opts.passwordMd5?.trim().toLowerCase();
-    const authorized = opts.authorized === true || (!!proof && !!m.passwordMd5 && proof === m.passwordMd5.toLowerCase());
-    if (authorized) this.matched.delete(k);
-    const jnlp = buildForkJnlp({
-      coach: m.coach,
-      teamId: m.teamId,
-      gameName: m.gameName,
-      gameId: m.gameId,
-      passwordMd5: authorized ? m.passwordMd5 : undefined,
-    });
-    return { status: "matched", gameName: m.gameName, gameId: m.gameId, opponent: m.opponent, jnlp };
+    const status = { status: "matched" as const, gameName: m.gameName, gameId: m.gameId, opponent: m.opponent };
+    // A seat without a digest of its own (a web Lobby seat) is never delivered here: its JNLP is session-scoped
+    // (GET /api/lobby/:id/jnlp). No placeholder password, ever.
+    if (!m.passwordMd5) return status;
+    const proof = auth.passwordMd5?.trim().toLowerCase();
+    const authorized = auth.authorized === true || (!!proof && proof === m.passwordMd5.toLowerCase());
+    if (!authorized) return status; // status only, and the delivery stays for its owner
+    this.matched.delete(k);
+    const jnlp = buildSeatJnlp({ coach: m.coach, teamId: m.teamId, gameName: m.gameName, gameId: m.gameId, passwordMd5: m.passwordMd5 });
+    return { ...status, jnlp };
   }
 
   /** Drop a coach's pending challenge. */

@@ -54,9 +54,9 @@ describe("LobbyStore: a view over the matchmaker", () => {
     expect(scheduled).toHaveLength(1);
     const v = store.view(store.get(lobby.id)!, "Bob");
     expect(v).toMatchObject({ status: "ready", canAccept: false, game: { gameId: "4242" }, opponent: { team: { teamId: "t2" } } });
-    const delivery = matchmaker.matchstatus("Alice") as { jnlp: string; gameId?: string };
-    expect(delivery.gameId).toBe("4242"); // the lobby's game IS the delivery's game
-    expect(delivery.jnlp).not.toContain("passwordMd5");
+    const delivery = matchmaker.matchstatus("Alice", { authorized: true });
+    expect(delivery).toMatchObject({ status: "matched", gameId: "4242" }); // the lobby's game IS the delivery's game
+    expect(delivery).not.toHaveProperty("jnlp"); // a lobby seat's JNLP is session-scoped, never via matchstatus
     await store.join(lobby.id, "Bob", "t2"); // idempotent
     expect(scheduled).toHaveLength(1);
   });
@@ -135,6 +135,19 @@ describe("LobbyStore: a view over the matchmaker", () => {
     expect(store.view(lobby, "Bob")).toMatchObject({ status: "needs-renewal", canAccept: true, opponent: { team: null } });
   });
 
+  it("Alice's team invalid -> Bob's accept 409 is rolled back -> Alice renews -> no game until Bob accepts again", async () => {
+    const { store, retired, scheduled, matchmaker } = setup();
+    const lobby = await store.create("Alice", "t1", "Bob");
+    retired.add("t1");
+    await expect(store.join(lobby.id, "Bob", "t2")).rejects.toMatchObject({ status: 409 });
+    expect(matchmaker.pendingOf("Bob")).toBeUndefined(); // lobby and matchmaker agree: no hidden consent
+    await store.renew(lobby.id, "Alice", "t1b");
+    expect(scheduled).toEqual([]);
+    expect(store.view(lobby, "Bob")).toMatchObject({ status: "waiting", canAccept: true });
+    await store.join(lobby.id, "Bob", "t2");
+    expect(scheduled).toHaveLength(1);
+  });
+
   it("overlapping joins schedule once and the lobby shows the delivered game", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
@@ -146,7 +159,7 @@ describe("LobbyStore: a view over the matchmaker", () => {
     const results = await Promise.allSettled([a, b]);
     expect(results.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
     expect(scheduled).toHaveLength(1);
-    const delivered = matchmaker.matchstatus("Bob") as { gameId?: string };
+    const delivered = matchmaker.matchstatus("Bob", { authorized: true }) as { gameId?: string };
     expect(store.view(lobby, "Bob").game?.gameId).toBe(delivered.gameId);
     expect(store.view(lobby, "Bob").opponent.team?.teamId).toBe("t2");
   });
@@ -327,7 +340,7 @@ describe("lobbyApi", () => {
     expect(b!.body).toBe('<jnlp coach="Bob" team="t2" game="4242"/>');
     expect(await call(d, "GET", `/api/lobby/${id}/jnlp`, discord("Carol"))).toMatchObject({ status: 403 });
     expect(await call(d, "GET", `/api/lobby/${id}/jnlp`, { coach: "Alice", method: "password" })).toMatchObject({ status: 403 });
-    expect(calls.locked).toBe(4); // create, the refused launch, join, launch (the coach-mismatch 403 never locks)
+    expect(calls.locked).toBe(8); // writes: create, refused launch, join, launch; JNLP downloads: pre-pair, Alice, Bob, Carol (gate first, then membership)
   });
 
   it("renew and the needs-renewal view through the API", async () => {
@@ -398,5 +411,16 @@ describe("helpers", () => {
     expect(lobbyOriginAllowed("http://127.0.0.1:4310", "127.0.0.1:4310", [])).toBe(true);
     expect(lobbyOriginAllowed("http://sibling.localhost:4310", "127.0.0.1:4310", [])).toBe(false);
     expect(lobbyOriginAllowed("null", "127.0.0.1:4310", [])).toBe(false);
+    // The deployment pair: Discord redirect on http :4310, browsers on https. The https origin needs listing.
+    const redirectOnly = lobbyAllowedOriginsFromEnv({ DISCORD_OAUTH_REDIRECT_URI: "http://superfumbbltest.duckdns.org:4310/api/auth/discord/callback" });
+    expect(lobbyOriginAllowed("https://superfumbbltest.duckdns.org", "superfumbbltest.duckdns.org", redirectOnly)).toBe(false);
+    expect(lobbyOriginAllowed("http://superfumbbltest.duckdns.org:4310", "superfumbbltest.duckdns.org:4310", redirectOnly)).toBe(true);
+    const both = lobbyAllowedOriginsFromEnv({
+      DISCORD_OAUTH_REDIRECT_URI: "http://superfumbbltest.duckdns.org:4310/api/auth/discord/callback",
+      SUPER_WS_ALLOWED_ORIGINS: "https://superfumbbltest.duckdns.org",
+    });
+    expect(lobbyOriginAllowed("https://superfumbbltest.duckdns.org", "superfumbbltest.duckdns.org", both)).toBe(true);
+    expect(lobbyOriginAllowed("http://superfumbbltest.duckdns.org:4310", "superfumbbltest.duckdns.org:4310", both)).toBe(true);
+    expect(lobbyOriginAllowed("https://evil.duckdns.org", "superfumbbltest.duckdns.org", both)).toBe(false);
   });
 });

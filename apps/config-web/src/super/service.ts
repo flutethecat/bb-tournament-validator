@@ -102,6 +102,8 @@ export class SuperService {
     this.lobbyChatIntervalMs = opts.lobbyChatIntervalMs ?? 400;
     this.lobbyMaxSocketsPerCoach = Math.max(1, opts.lobbyMaxSocketsPerCoach ?? 3);
     opts.lobby?.subscribe((lobbyId) => this.broadcastLobbyPresence(lobbyId));
+    // Logout / expiry closes that session's lobby sockets at once (the timer below is only the idle backstop).
+    opts.lobby?.onSessionEnded?.((token) => this.closeLobbySession(token));
     const checkMs = opts.lobbySessionCheckMs ?? 15_000;
     if (opts.lobby && checkMs > 0) {
       const timer = setInterval(() => this.revalidateLobbySockets(), checkMs);
@@ -336,6 +338,16 @@ export class SuperService {
     return !!coach && coach.toLowerCase() === String(conn.data.coach).toLowerCase();
   }
 
+  private closeLobbySession(token: string): void {
+    try {
+      for (const room of [...this.lobbyRooms.values()]) {
+        for (const c of [...room]) if (c.data.sessionToken === token) c.close();
+      }
+    } catch (e) {
+      this.log(`lobby session close error (contained): ${(e as Error).message}`);
+    }
+  }
+
   private revalidateLobbySockets(): void {
     try {
       for (const room of [...this.lobbyRooms.values()]) {
@@ -393,7 +405,9 @@ export class SuperService {
     const room = this.lobbyRooms.get(lobbyId);
     if (!room) return;
     const text = JSON.stringify(frame);
-    for (const c of room) {
+    for (const c of [...room]) {
+      // Recipients are re-checked too: a socket whose session ended receives nothing more.
+      if (!this.lobbySessionValid(c)) { c.close(); continue; }
       try { c.send(text); } catch { /* ignore */ }
     }
   }

@@ -274,3 +274,28 @@ describe("challengeResponseHex (Super coach challenge-response, SM-5/RC-2)", () 
     expect(r1).not.toBe(r2);
   });
 });
+
+describe("admin fetch timeout covers the body", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  it("a fork that sends headers and stalls its body times out (scheduleForkGame cannot hang a pairing)", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", async (_url: string, init: { signal: AbortSignal }) => ({
+      ok: true,
+      status: 200,
+      text: () => new Promise<string>((_, reject) => {
+        init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+      }),
+    }));
+    const { adminChallenge, scheduleForkGame } = await import("@bb/fork-ops");
+    const cfg = { baseUrl: "http://fork.invalid", passwordMd5Hex: "0".repeat(32) };
+    const challenge = adminChallenge(cfg);
+    const assertion = expect(challenge).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await assertion;
+    const scheduled = scheduleForkGame(cfg, "1", "2");
+    const assertion2 = expect(scheduled).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await assertion2;
+  });
+});

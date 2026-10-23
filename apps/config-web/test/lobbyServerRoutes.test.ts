@@ -99,6 +99,10 @@ describe("lobby routes (sidecar off)", () => {
     expect((await fetch(`${origin}/api/lobby`, { headers: { cookie: pw } })).status).toBe(403);
     expect((await post("/api/lobby", pw, { teamId: "9101", opponent: "LobbyBob" })).status).toBe(403);
     expect((await fetch(`${origin}/lobby/`)).status).not.toBe(401);
+    const pwSession = (await (await fetch(`${origin}/api/auth/session`, { headers: { cookie: pw } })).json()) as { authMethod?: string };
+    expect(pwSession.authMethod).toBe("password");
+    const dSession = (await (await fetch(`${origin}/api/auth/session`, { headers: { cookie: discordCookie("LobbyAlice") } })).json()) as { authMethod?: string };
+    expect(dSession.authMethod).toBe("discord");
   });
 
   it("lock ordering: an anonymous or slow body never holds the game-start lock", async () => {
@@ -126,22 +130,20 @@ describe("lobby routes (sidecar off)", () => {
     const joined = await post(`/api/lobby/${lobby.id}/join`, bob, { teamId: "9102" });
     expect(((await joined.json()) as { lobby: { status: string } }).lobby.status).toBe("ready");
 
-    // P0: the public match poll must not hand out a JNLP credential (and must not consume the delivery).
-    for (const coach of ["LobbyAlice", "LobbyBob"]) {
-      const anon = (await (await fetch(`${origin}/api/fork/matchstatus?coach=${coach}`)).json()) as { status: string; jnlp?: string };
-      expect(anon.status).toBe("matched");
-      expect(anon.jnlp).not.toMatch(/passwordMd5/);
+    // P0 / #13: a lobby seat is never delivered through the public match poll (status only, no JNLP), not even
+    // to its owning session; and polls never consume it.
+    for (const [coach, cookie] of [["LobbyAlice", undefined], ["LobbyBob", bob]] as const) {
+      const res = (await (await fetch(`${origin}/api/fork/matchstatus?coach=${coach}`, cookie ? { headers: { cookie } } : {})).json()) as Record<string, unknown>;
+      expect(res).toMatchObject({ status: "matched", gameName: expect.stringMatching(/^chal_/) });
+      expect(res).not.toHaveProperty("jnlp");
     }
 
     const launch = (await (await post(`/api/lobby/${lobby.id}/launch`, bob, {})).json()) as { jnlpUrl: string; scheme: null };
     expect(launch).toMatchObject({ jnlpUrl: `/api/lobby/${lobby.id}/jnlp`, scheme: null });
+    // This host has no fork account store: no stored credential, so no JNLP at all (never a placeholder password).
     const jnlpRes = await fetch(`${origin}${launch.jnlpUrl}`, { headers: { cookie: bob } });
-    expect(jnlpRes.status).toBe(200);
-    expect(jnlpRes.headers.get("content-type")).toMatch(/x-java-jnlp-file/);
-    const jnlp = await jnlpRes.text();
-    expect(jnlp).toContain("<argument>-coach</argument><argument>LobbyBob</argument>");
-    expect(jnlp).toContain("<argument>-teamId</argument><argument>9102</argument>");
-    expect(jnlp).not.toMatch(/passwordMd5/); // this host has no fork DB, so there is no stored credential to add
+    expect(jnlpRes.status).toBe(503);
+    expect(await jnlpRes.text()).not.toContain("12345");
     expect((await fetch(`${origin}${launch.jnlpUrl}`)).status).toBe(401);
     expect((await fetch(`${origin}${launch.jnlpUrl}`, { headers: { cookie: discordCookie("LobbyCarol") } })).status).toBe(403);
   });
@@ -151,13 +153,16 @@ describe("lobby routes (sidecar off)", () => {
     // The Dave/Eve pair challenges from the client flow (digest in the query, no fork DB verification on this host).
     await fetch(`${origin}/api/fork/challenge?coach=LobbyDave&teamId=9104&opponent=LobbyEve&passwordMd5=${digest}`);
     await fetch(`${origin}/api/fork/challenge?coach=LobbyEve&teamId=9105&opponent=LobbyDave&passwordMd5=${"e".repeat(32)}`);
-    const anon = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`)).json()) as { status: string; jnlp: string };
-    expect(anon.status).toBe("matched");
-    expect(anon.jnlp).not.toContain(digest);
-    const wrong = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave&passwordMd5=${"e".repeat(32)}`)).json()) as { jnlp: string };
-    expect(wrong.jnlp).not.toContain(digest);
+    const anon = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`)).json()) as Record<string, unknown>;
+    expect(anon).toMatchObject({ status: "matched" });
+    expect(anon).not.toHaveProperty("jnlp"); // status only
+    const wrong = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave&passwordMd5=${"e".repeat(32)}`)).json()) as Record<string, unknown>;
+    expect(wrong).not.toHaveProperty("jnlp");
+    const other = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`, { headers: { cookie: discordCookie("LobbyEve") } })).json()) as Record<string, unknown>;
+    expect(other).not.toHaveProperty("jnlp"); // another coach's session is not the owner
     const own = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`, { headers: { cookie: discordCookie("LobbyDave") } })).json()) as { jnlp: string };
-    expect(own.jnlp).toContain(digest);
+    expect(own.jnlp).toContain(`<argument>-passwordMd5</argument><argument>${digest}</argument>`);
+    expect(own.jnlp).not.toContain("12345");
     expect(await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`)).json()).toEqual({ status: "waiting" });
   });
 });

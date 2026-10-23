@@ -34,6 +34,9 @@ export class WsConnection {
   constructor(private readonly socket: Duplex) {
     socket.on("data", (chunk: Buffer) => this.ingest(chunk));
     socket.on("close", () => this.fireClose());
+    // The upgraded socket comes from an allowHalfOpen http server: a peer that goes away sends FIN and the socket
+    // would otherwise sit half-open forever. Treat the peer's end as the end of the connection.
+    socket.on("end", () => this.fireClose());
     socket.on("error", () => this.fireClose()); // errors are terminal, never propagate
   }
 

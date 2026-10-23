@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import { Matchmaker } from "@bb/fork-ops";
 import { SuperService } from "../src/super/service";
 import { LobbyStore, lobbyOriginAllowed, lobbySocketBridge } from "../src/lobby";
-import { createSession, deleteSession, getSession, sessionTokenFromRequest, SESSION_COOKIE_NAME } from "../src/auth/session";
+import { createSession, deleteSession, getSession, onSessionEnded, sessionTokenFromRequest, SESSION_COOKIE_NAME } from "../src/auth/session";
 
 // Real upgrade path: an http.Server on port 0 with the Super service's `upgrade` handler, a raw RFC 6455 client,
 // and the real session store (Discord vs password provenance, logout = deleteSession).
@@ -22,9 +22,12 @@ interface Client {
   end(): void;
 }
 
+const allClients: Array<{ sock: Socket }> = [];
+
 function wsClient(port: number, headers: Record<string, string>): Promise<Client> {
   return new Promise((resolve, reject) => {
     const sock: Socket = connect(port, "127.0.0.1");
+    allClients.push({ sock });
     const frames: Array<Record<string, unknown>> = [];
     let buf = Buffer.alloc(0);
     let upgraded = false;
@@ -99,6 +102,8 @@ let store: LobbyStore;
 let service: SuperService;
 let lobbyId = "";
 let carolLobbyId = "";
+/** Tokens revoked WITHOUT a session-store event (models expiry noticed only on access). */
+const silentlyRevoked = new Set<string>();
 
 beforeAll(async () => {
   const matchmaker = new Matchmaker();
@@ -114,7 +119,7 @@ beforeAll(async () => {
     log: () => {},
     lobbyChatIntervalMs: 200,
     lobbyMaxSocketsPerCoach: 2,
-    lobbySessionCheckMs: 50,
+    lobbySessionCheckMs: 60_000, // the idle backstop; these tests prove the immediate paths
     lobby: lobbySocketBridge(store, {
       sessionFromRequest: (req) => {
         const token = sessionTokenFromRequest(req as IncomingMessage);
@@ -122,10 +127,12 @@ beforeAll(async () => {
         return token && s?.method === "discord" ? { coach: s.coach, token } : undefined;
       },
       sessionCoach: (token) => {
+        if (silentlyRevoked.has(token)) return undefined;
         const s = getSession(token);
         return s?.method === "discord" ? s.coach : undefined;
       },
       originAllowed: (origin, host) => lobbyOriginAllowed(origin, host, [ORIGIN]),
+      onSessionEnded,
     }),
   });
   server = createServer((_req, res) => res.writeHead(404).end());
@@ -137,6 +144,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  for (const c of allClients) c.sock.destroy();
   await new Promise<void>((r) => server.close(() => r()));
 });
 
@@ -207,14 +215,31 @@ describe("lobby socket over a real upgrade", () => {
     expect(store.history(lobbyId).some((m) => m.text === "after logout")).toBe(false);
   });
 
-  it("an idle socket is closed by the periodic session check", async () => {
+  it("logout closes an idle socket at once (session-store hook), with no publish from it", async () => {
     const s = cookie("Alice");
     const alice = await wsClient(port, { Origin: ORIGIN, Cookie: s.header });
     hello(alice);
     await alice.waitFor((f) => f.type === "lobbyWelcome");
     deleteSession(s.token);
-    await alice.closed; // lobbySessionCheckMs = 50
+    await alice.closed;
     expect(alice.isClosed()).toBe(true);
+  });
+
+  it("passive delivery after revocation: a revoked recipient gets nothing more and is closed", async () => {
+    const a = cookie("Alice");
+    const alice = await wsClient(port, { Origin: ORIGIN, Cookie: a.header });
+    const bob = await wsClient(port, { Origin: ORIGIN, Cookie: cookie("Bob").header });
+    hello(alice);
+    hello(bob);
+    await alice.waitFor((f) => f.type === "lobbyWelcome");
+    await bob.waitFor((f) => f.type === "lobbyWelcome");
+    silentlyRevoked.add(a.token); // no event: only the outbound re-check can stop delivery
+    const before = alice.frames.length;
+    bob.send({ type: "publish", feature: "lobby-chat", payload: { text: "for Alice's eyes?" } });
+    await alice.closed;
+    expect(alice.frames.slice(before).some((f) => f.feature === "lobby-chat")).toBe(false);
+    await bob.waitFor((f) => f.feature === "lobby-chat" && (f.payload as { text: string }).text === "for Alice's eyes?");
+    bob.end();
   });
 
   it("presence is pushed, and an expired lobby closes its sockets", async () => {

@@ -2,16 +2,20 @@ import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { Matchmaker } from "@bb/fork-ops";
 
+const OWNER = { authorized: true } as const;
+/** Client challenges carry the coach's own digest; only such seats get a JNLP from matchstatus. */
+const PW = "f".repeat(32);
+
 /** The fork stores md5(pw) hex, and matchmaking now works in that digest throughout. */
 const md5 = (v: string): string => createHash("md5").update(v, "utf8").digest("hex");
 
 describe("Matchmaker", () => {
   it("returns waiting for a lone challenge", async () => {
     const mm = new Matchmaker();
-    await expect(mm.challenge({ coach: "Kalimar", teamId: "1", opponent: "BattleLore" })).resolves.toEqual({
+    await expect(mm.challenge({ coach: "Kalimar", teamId: "1", opponent: "BattleLore", passwordMd5: PW })).resolves.toEqual({
       status: "waiting",
     });
-    expect(mm.matchstatus("Kalimar")).toEqual({ status: "waiting" });
+    expect(mm.matchstatus("Kalimar", OWNER)).toEqual({ status: "waiting" });
   });
 
   it("pairs reciprocal challenges and delivers a matched result to BOTH sides", async () => {
@@ -19,8 +23,8 @@ describe("Matchmaker", () => {
     await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore", password: "pwK" });
     await mm.challenge({ coach: "BattleLore", teamId: "222", opponent: "Kalimar", password: "pwB" });
 
-    const a = mm.matchstatus("Kalimar");
-    const b = mm.matchstatus("BattleLore");
+    const a = mm.matchstatus("Kalimar", OWNER);
+    const b = mm.matchstatus("BattleLore", OWNER);
     expect(a.status).toBe("matched");
     expect(b.status).toBe("matched");
     if (a.status !== "matched" || b.status !== "matched") throw new Error("unreachable");
@@ -49,31 +53,31 @@ describe("Matchmaker", () => {
 
   it("consumes a matched result — a second poll goes back to waiting", async () => {
     const mm = new Matchmaker();
-    await mm.challenge({ coach: "A", teamId: "1", opponent: "B" });
-    await mm.challenge({ coach: "B", teamId: "2", opponent: "A" });
-    expect(mm.matchstatus("A").status).toBe("matched");
-    expect(mm.matchstatus("A")).toEqual({ status: "waiting" });
+    await mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: PW });
+    await mm.challenge({ coach: "B", teamId: "2", opponent: "A", passwordMd5: PW });
+    expect(mm.matchstatus("A", OWNER).status).toBe("matched");
+    expect(mm.matchstatus("A", OWNER)).toEqual({ status: "waiting" });
   });
 
   it("matches case-insensitively on coach names", async () => {
     const mm = new Matchmaker();
-    await mm.challenge({ coach: "Kalimar", teamId: "1", opponent: "battlelore" });
-    await mm.challenge({ coach: "BattleLore", teamId: "2", opponent: "KALIMAR" });
-    expect(mm.matchstatus("kalimar").status).toBe("matched");
-    expect(mm.matchstatus("BATTLELORE").status).toBe("matched");
+    await mm.challenge({ coach: "Kalimar", teamId: "1", opponent: "battlelore", passwordMd5: PW });
+    await mm.challenge({ coach: "BattleLore", teamId: "2", opponent: "KALIMAR", passwordMd5: PW });
+    expect(mm.matchstatus("kalimar", OWNER).status).toBe("matched");
+    expect(mm.matchstatus("BATTLELORE", OWNER).status).toBe("matched");
   });
 
   it("does NOT match when the opponent names someone else", async () => {
     const mm = new Matchmaker();
-    await mm.challenge({ coach: "A", teamId: "1", opponent: "B" });
-    await mm.challenge({ coach: "B", teamId: "2", opponent: "C" });
-    expect(mm.matchstatus("A")).toEqual({ status: "waiting" });
-    expect(mm.matchstatus("B")).toEqual({ status: "waiting" });
+    await mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: PW });
+    await mm.challenge({ coach: "B", teamId: "2", opponent: "C", passwordMd5: PW });
+    expect(mm.matchstatus("A", OWNER)).toEqual({ status: "waiting" });
+    expect(mm.matchstatus("B", OWNER)).toEqual({ status: "waiting" });
   });
 
   it("rejects a self-challenge and missing fields", async () => {
     const mm = new Matchmaker();
-    await expect(mm.challenge({ coach: "A", teamId: "1", opponent: "a" })).rejects.toThrow(/yourself/i);
+    await expect(mm.challenge({ coach: "A", teamId: "1", opponent: "a", passwordMd5: PW })).rejects.toThrow(/yourself/i);
     await expect(mm.challenge({ coach: "", teamId: "1", opponent: "B" })).rejects.toThrow(/coach/i);
     await expect(mm.challenge({ coach: "A", teamId: "", opponent: "B" })).rejects.toThrow(/teamId/i);
     await expect(mm.challenge({ coach: "A", teamId: "1", opponent: "" })).rejects.toThrow(/opponent/i);
@@ -81,20 +85,20 @@ describe("Matchmaker", () => {
 
   it("cancels a pending challenge so a later reciprocal won't match", async () => {
     const mm = new Matchmaker();
-    await mm.challenge({ coach: "A", teamId: "1", opponent: "B" });
+    await mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: PW });
     mm.cancel("A");
-    await mm.challenge({ coach: "B", teamId: "2", opponent: "A" });
-    expect(mm.matchstatus("B")).toEqual({ status: "waiting" });
+    await mm.challenge({ coach: "B", teamId: "2", opponent: "A", passwordMd5: PW });
+    expect(mm.matchstatus("B", OWNER)).toEqual({ status: "waiting" });
   });
 
   it("expires stale challenges past the TTL (injected clock)", async () => {
     let t = 1000;
     const mm = new Matchmaker({ ttlMs: 5000, now: () => t });
-    await mm.challenge({ coach: "A", teamId: "1", opponent: "B" });
+    await mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: PW });
     t += 6000; // A's challenge is now stale
-    await mm.challenge({ coach: "B", teamId: "2", opponent: "A" });
-    expect(mm.matchstatus("A")).toEqual({ status: "waiting" });
-    expect(mm.matchstatus("B")).toEqual({ status: "waiting" });
+    await mm.challenge({ coach: "B", teamId: "2", opponent: "A", passwordMd5: PW });
+    expect(mm.matchstatus("A", OWNER)).toEqual({ status: "waiting" });
+    expect(mm.matchstatus("B", OWNER)).toEqual({ status: "waiting" });
   });
 
   describe("with a scheduleGame function (server-scheduled real gameId)", () => {
@@ -106,11 +110,11 @@ describe("Matchmaker", () => {
           return { gameId: "42" };
         },
       });
-      await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore" });
-      await mm.challenge({ coach: "BattleLore", teamId: "222", opponent: "Kalimar" });
+      await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore", passwordMd5: PW });
+      await mm.challenge({ coach: "BattleLore", teamId: "222", opponent: "Kalimar", passwordMd5: PW });
 
-      const a = mm.matchstatus("Kalimar");
-      const b = mm.matchstatus("BattleLore");
+      const a = mm.matchstatus("Kalimar", OWNER);
+      const b = mm.matchstatus("BattleLore", OWNER);
       if (a.status !== "matched" || b.status !== "matched") throw new Error("unreachable");
       // Surfaced as a first-class field (wire-proves the client's -gameId consumer), not only in the JNLP.
       expect(a.gameId).toBe("42");
@@ -131,11 +135,11 @@ describe("Matchmaker", () => {
           throw new Error("fork admin unreachable");
         },
       });
-      await mm.challenge({ coach: "A", teamId: "1", opponent: "B" });
-      await mm.challenge({ coach: "B", teamId: "2", opponent: "A" });
+      await mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: PW });
+      await mm.challenge({ coach: "B", teamId: "2", opponent: "A", passwordMd5: PW });
 
-      const a = mm.matchstatus("A");
-      const b = mm.matchstatus("B");
+      const a = mm.matchstatus("A", OWNER);
+      const b = mm.matchstatus("B", OWNER);
       if (a.status !== "matched" || b.status !== "matched") throw new Error("unreachable");
       expect(a.jnlp).not.toContain("-gameId");
       expect(b.jnlp).not.toContain("-gameId");
@@ -144,9 +148,9 @@ describe("Matchmaker", () => {
 
     it("falls back when scheduleGame resolves with no gameId", async () => {
       const mm = new Matchmaker({ scheduleGame: async () => undefined });
-      await mm.challenge({ coach: "A", teamId: "1", opponent: "B" });
-      await mm.challenge({ coach: "B", teamId: "2", opponent: "A" });
-      const a = mm.matchstatus("A");
+      await mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: PW });
+      await mm.challenge({ coach: "B", teamId: "2", opponent: "A", passwordMd5: PW });
+      const a = mm.matchstatus("A", OWNER);
       if (a.status !== "matched") throw new Error("unreachable");
       expect(a.jnlp).not.toContain("-gameId");
     });
@@ -185,7 +189,7 @@ describe("Matchmaker", () => {
       expect(seen).toEqual([md5("pw"), md5("pw")]);
 
       // …and both sides still paired, each JNLP carrying the digest.
-      const a = mm.matchstatus("A");
+      const a = mm.matchstatus("A", OWNER);
       expect(a.status).toBe("matched");
       if (a.status === "matched") {
         expect(a.jnlp).toContain(`<argument>-passwordMd5</argument><argument>${md5("pw")}</argument>`);
@@ -210,15 +214,15 @@ describe("Matchmaker", () => {
       await expect(
         mm.challenge({ coach: "B", teamId: "2", opponent: "A", password: "guessed-wrong" }),
       ).rejects.toThrow(/invalid coach name or password/i);
-      expect(mm.matchstatus("A")).toEqual({ status: "waiting" }); // never paired
+      expect(mm.matchstatus("A", OWNER)).toEqual({ status: "waiting" }); // never paired
     });
 
     it("pairs normally once both sides verify", async () => {
       const mm = new Matchmaker({ verifyChallenger: async () => true });
       await mm.challenge({ coach: "A", teamId: "1", opponent: "B", password: "pwA" });
       await mm.challenge({ coach: "B", teamId: "2", opponent: "A", password: "pwB" });
-      expect(mm.matchstatus("A").status).toBe("matched");
-      expect(mm.matchstatus("B").status).toBe("matched");
+      expect(mm.matchstatus("A", OWNER).status).toBe("matched");
+      expect(mm.matchstatus("B", OWNER).status).toBe("matched");
     });
   });
 
@@ -232,8 +236,8 @@ describe("Matchmaker", () => {
         },
       });
       expect(mm.getHomeAwayMode()).toBe("alternating");
-      await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore" });
-      await mm.challenge({ coach: "BattleLore", teamId: "222", opponent: "Kalimar" });
+      await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore", passwordMd5: PW });
+      await mm.challenge({ coach: "BattleLore", teamId: "222", opponent: "Kalimar", passwordMd5: PW });
       // BattleLore < Kalimar alphabetically → BattleLore(222) is home on the first meeting.
       expect(calls[0]).toEqual(["222", "111"]);
     });
@@ -247,10 +251,10 @@ describe("Matchmaker", () => {
         },
       });
       for (let i = 0; i < 4; i++) {
-        await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore" });
-        await mm.challenge({ coach: "BattleLore", teamId: "222", opponent: "Kalimar" });
-        mm.matchstatus("Kalimar");
-        mm.matchstatus("BattleLore");
+        await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore", passwordMd5: PW });
+        await mm.challenge({ coach: "BattleLore", teamId: "222", opponent: "Kalimar", passwordMd5: PW });
+        mm.matchstatus("Kalimar", OWNER);
+        mm.matchstatus("BattleLore", OWNER);
       }
       // Meetings 0,2 → sorted (222 home); meetings 1,3 → swapped (111 home).
       expect(calls).toEqual([
@@ -274,10 +278,10 @@ describe("Matchmaker", () => {
         },
       });
       for (let n = 0; n < 2; n++) {
-        await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore" });
-        await mm.challenge({ coach: "BattleLore", teamId: "222", opponent: "Kalimar" });
-        mm.matchstatus("Kalimar");
-        mm.matchstatus("BattleLore");
+        await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore", passwordMd5: PW });
+        await mm.challenge({ coach: "BattleLore", teamId: "222", opponent: "Kalimar", passwordMd5: PW });
+        mm.matchstatus("Kalimar", OWNER);
+        mm.matchstatus("BattleLore", OWNER);
       }
       expect(calls).toEqual([
         ["222", "111"], // 0.9 → no swap → sorted, BattleLore(222) home
@@ -315,7 +319,7 @@ describe("Matchmaker views + lobby entry (web Lobby)", () => {
     const events: unknown[] = [];
     const mm = new Matchmaker({ scheduleGame: async () => ({ gameId: "77" }), onPaired: () => { throw new Error("boom"); } });
     mm.onPaired((e) => events.push(e));
-    await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore" });
+    await mm.challenge({ coach: "Kalimar", teamId: "111", opponent: "BattleLore", passwordMd5: PW });
     const kId = mm.pendingOf("Kalimar")!.id;
     const res = await mm.challengeVerified({ coach: "BattleLore", teamId: "222", opponent: "Kalimar" });
     expect(res.status).toBe("paired");
@@ -328,28 +332,32 @@ describe("Matchmaker views + lobby entry (web Lobby)", () => {
     expect(res.pairing).toEqual(events[0]);
   });
 
-  it("challengeVerified skips the verifier and never puts a digest in any delivery", async () => {
+  it("a lobby seat (no digest of its own) never gets a JNLP from matchstatus, even when authorized", async () => {
     const mm = new Matchmaker({ verifyChallenger: async () => false });
     await expect(mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: D })).rejects.toThrow(/invalid/i);
     await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
     await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
-    const a = mm.matchstatus("A");
-    expect(a.status).toBe("matched");
-    expect((a as { jnlp: string }).jnlp).not.toContain("passwordMd5");
+    const a = mm.matchstatus("A", { authorized: true });
+    expect(a).toEqual({ status: "matched", gameName: expect.stringMatching(/^chal_/), gameId: undefined, opponent: "B" });
+    expect(a).not.toHaveProperty("jnlp");
+    expect(mm.matchstatus("A", { authorized: true }).status).toBe("matched"); // never consumed here
   });
 
-  it("an unauthorized poll gets a credential-free JNLP and does not consume; the owner's poll gets its own digest", async () => {
+  it("matchstatus: JNLP only to the owner (session or same digest), built from that digest by the real builder; others get status only", async () => {
     const mm = new Matchmaker();
     await mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: D });
     await mm.challenge({ coach: "B", teamId: "2", opponent: "A", passwordMd5: "b".repeat(32) });
-    const anon = mm.matchstatus("A", { authorized: false }) as { jnlp: string };
-    expect(anon.jnlp).not.toContain("passwordMd5");
-    expect(anon.jnlp).not.toContain(D);
-    const wrong = mm.matchstatus("A", { authorized: false, passwordMd5: "b".repeat(32) }) as { jnlp: string };
-    expect(wrong.jnlp).not.toContain(D);
+    const anon = mm.matchstatus("A", { authorized: false });
+    expect(anon).not.toHaveProperty("jnlp");
+    expect(anon.status).toBe("matched");
+    expect(mm.matchstatus("A", { authorized: false, passwordMd5: "b".repeat(32) })).not.toHaveProperty("jnlp");
     const owner = mm.matchstatus("A", { authorized: false, passwordMd5: D.toUpperCase() }) as { jnlp: string };
-    expect(owner.jnlp).toContain(D);
+    expect(owner.jnlp).toContain(`<argument>-passwordMd5</argument><argument>${D}</argument>`);
+    expect(owner.jnlp).not.toContain("12345");
+    expect(owner.jnlp).not.toContain("<argument>-password</argument>");
     expect(mm.matchstatus("A", { authorized: false })).toEqual({ status: "waiting" }); // consumed by the owner
+    const bOwn = mm.matchstatus("B", { authorized: true }) as { jnlp: string };
+    expect(bOwn.jnlp).toContain(`<argument>${"b".repeat(32)}</argument>`);
   });
 
   it("overlapping accepts pair (and schedule) exactly once", async () => {
@@ -361,13 +369,13 @@ describe("Matchmaker views + lobby entry (web Lobby)", () => {
     const first = mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
     const second = mm.challengeVerified({ coach: "B", teamId: "3", opponent: "A" });
     await expect(second).rejects.toThrow(/already being set up/);
-    await expect(mm.challenge({ coach: "A", teamId: "1", opponent: "B" })).rejects.toThrow(/already being set up/);
+    await expect(mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: PW })).rejects.toThrow(/already being set up/);
     release();
     await expect(first).resolves.toMatchObject({ status: "paired" });
     expect(scheduled).toEqual(["1-2"]);
   });
 
-  it("validateSide re-checks both teams before scheduling; the invalid side is dropped, the other keeps waiting", async () => {
+  it("validateSide: the invalid WAITING side voids its consent and the attempt is rolled back (nothing pending unseen)", async () => {
     const scheduled: string[] = [];
     let bad = "";
     const mm = new Matchmaker({
@@ -377,8 +385,53 @@ describe("Matchmaker views + lobby entry (web Lobby)", () => {
     await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
     bad = "A";
     await expect(mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).rejects.toThrow(/A can't play/);
-    expect(scheduled).toEqual([]);
     expect(mm.pendingOf("A")).toBeUndefined();
-    expect(mm.pendingOf("B")).toMatchObject({ teamId: "2" });
+    expect(mm.pendingOf("B")).toBeUndefined(); // Bob's failed attempt is rolled back
+    bad = "";
+    await mm.challengeVerified({ coach: "A", teamId: "1b", opponent: "B" }); // Alice renews
+    expect(scheduled).toEqual([]); // no game until Bob accepts again
+    await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
+    expect(scheduled).toHaveLength(1);
+  });
+
+  it("an invalid ATTEMPTING side is rolled back and its previous challenge restored; the waiting side keeps waiting", async () => {
+    const mm = new Matchmaker({ validateSide: (s) => (s.teamId === "bad" ? "Team bad is retired." : undefined) });
+    await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
+    await mm.challenge({ coach: "B", teamId: "2", opponent: "C", passwordMd5: D }); // Bob's earlier, unrelated challenge
+    const earlier = mm.pendingOf("B")!.id;
+    await expect(mm.challengeVerified({ coach: "B", teamId: "bad", opponent: "A" })).rejects.toThrow(/retired/);
+    expect(mm.pendingOf("B")).toMatchObject({ id: earlier, opponent: "C" });
+    expect(mm.pendingOf("A")).toMatchObject({ teamId: "1", opponent: "B" });
+  });
+
+  it("the host's client Create Game path rolls back the same way (challenge())", async () => {
+    let bad = false;
+    const mm = new Matchmaker({ validateSide: (s) => (bad && s.coach === "A" ? "A can't play right now." : undefined) });
+    await mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: D });
+    bad = true;
+    await expect(mm.challenge({ coach: "B", teamId: "2", opponent: "A", passwordMd5: D })).rejects.toThrow(/A can't play/);
+    expect(mm.pendingOf("B")).toBeUndefined();
+  });
+
+  it("a stalled scheduler ends the reservation at the deadline; a late game is reused, never scheduled twice", async () => {
+    let finish!: (r: { gameId: string }) => void;
+    const calls: string[] = [];
+    const mm = new Matchmaker({
+      scheduleTimeoutMs: 20,
+      scheduleGame: (h, a) => { calls.push(`${h}-${a}`); return new Promise((r) => { finish = r; }); },
+    });
+    await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
+    await expect(mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).rejects.toThrow(/did not answer in time/);
+    // reservation released: A is still waiting, B's attempt rolled back, B can try again
+    expect(mm.pendingOf("A")).toBeDefined();
+    expect(mm.pendingOf("B")).toBeUndefined();
+    // retry while the first call is still in flight: awaits the SAME call (times out again, no second call)
+    await expect(mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).rejects.toThrow(/did not answer/);
+    expect(calls).toHaveLength(1);
+    finish({ gameId: "late-7" }); // the fork finally created the game
+    await new Promise((r) => setTimeout(r, 0));
+    const res = await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
+    expect(res.pairing?.gameId).toBe("late-7"); // recorded, not scheduled again
+    expect(calls).toHaveLength(1);
   });
 });

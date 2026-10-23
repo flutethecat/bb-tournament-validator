@@ -39,6 +39,8 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
 export interface SessionInfo {
   authenticated: boolean;
   coach?: string;
+  /** "discord" | "password": the lobby accepts Discord sessions only. */
+  authMethod?: string;
   discordSsoEnabled?: boolean;
 }
 

@@ -53,12 +53,12 @@ async function loadTeams(): Promise<void> {
 
 // ── sign-in ──
 
-function renderSignIn(ssoEnabled: boolean): void {
-  who.textContent = "Not signed in";
+function renderSignIn(ssoEnabled: boolean, otherSession = false): void {
+  who.textContent = otherSession ? "Not signed in with Discord" : "Not signed in";
   app.replaceChildren(
     h("section", { class: "lobby-card" },
       h("h2", {}, "Sign in"),
-      h("p", {}, "Sign in with Discord to start a game."),
+      h("p", {}, otherSession ? "Start Game needs a Discord sign-in." : "Sign in with Discord to start a game."),
       ssoEnabled
         ? h("a", { class: "lobby-btn primary", href: "/api/auth/discord/start?next=%2Flobby%2F", onclick: () => {
             try { sessionStorage.setItem(RETURN_KEY, location.hash); } catch { /* storage off */ }
@@ -283,26 +283,48 @@ function renderLobby(id: string): () => void {
     }
   };
 
+  // The card loads once per coach; a temporary failure (rate limit, network) says so and retries on a later poll
+  // with backoff. "No FUMBBL rating linked" only when the server says no name is linked.
+  let cardRetryAt = 0;
+  let cardBackoffMs = 0;
+  let cardBusy = false;
   const loadCard = async (seat: SeatView, role: "creator" | "opponent"): Promise<void> => {
-    if (cardLoaded === seat.coach) return;
-    cardLoaded = seat.coach;
+    if (cardBusy || (cardLoaded === seat.coach && Date.now() < cardRetryAt) || (cardLoaded === seat.coach && cardRetryAt === 0)) return;
+    cardBusy = true;
     const body = h("div", { class: "coach-body" }, h("strong", {}, seat.coach));
-    card.replaceChildren(body);
+    const done = (): void => { cardLoaded = seat.coach; cardRetryAt = 0; cardBackoffMs = 0; };
+    const temporary = (): void => {
+      cardLoaded = seat.coach;
+      cardBackoffMs = cardBackoffMs ? Math.min(cardBackoffMs * 2, 5 * 60_000) : 15_000;
+      cardRetryAt = Date.now() + cardBackoffMs;
+      body.append(h("p", { class: "muted" }, "Rating unavailable right now."));
+    };
     try {
       const info = await api<{ avatar: string | null; fumbblName: string | null }>(`/api/lobby/${id}/coach?role=${role}`);
+      card.replaceChildren(body);
       if (info.avatar) card.prepend(h("img", { class: "lobby-avatar", src: info.avatar, alt: "" }));
       if (!info.fumbblName) {
         body.append(h("p", { class: "muted" }, "No FUMBBL rating linked."));
+        done();
         return;
       }
-      const res = await api<{ rating: RatingLike & { name: string } }>(`/api/coach-rating?name=${encodeURIComponent(info.fumbblName)}`);
-      const parts = ratingParts(res.rating);
-      body.append(
-        h("p", {}, `FUMBBL: ${res.rating.name || info.fumbblName}`, res.rating.title ? h("span", { class: "title-badge" }, res.rating.title) : null),
-        h("p", { class: "muted" }, parts.length ? parts.join(" · ") : "No FUMBBL record found."),
-      );
+      try {
+        const res = await api<{ rating: RatingLike & { name: string } }>(`/api/coach-rating?name=${encodeURIComponent(info.fumbblName)}`);
+        const parts = ratingParts(res.rating);
+        body.append(
+          h("p", {}, `FUMBBL: ${res.rating.name || info.fumbblName}`, res.rating.title ? h("span", { class: "title-badge" }, res.rating.title) : null),
+          h("p", { class: "muted" }, parts.length ? parts.join(" · ") : "No FUMBBL record found."),
+        );
+        done();
+      } catch {
+        body.append(h("p", {}, `FUMBBL: ${info.fumbblName}`));
+        temporary();
+      }
     } catch {
-      body.append(h("p", { class: "muted" }, "No FUMBBL rating linked."));
+      card.replaceChildren(body);
+      temporary();
+    } finally {
+      cardBusy = false;
     }
   };
 
@@ -451,7 +473,10 @@ async function boot(): Promise<void> {
     app.replaceChildren(errorBox((err as Error).message));
     return;
   }
-  if (!session.authenticated || !session.coach) return renderSignIn(session.discordSsoEnabled !== false);
+  // Discord only: a password session is never shown as Discord; it gets the Discord sign-in action instead.
+  if (!session.authenticated || !session.coach || session.authMethod !== "discord") {
+    return renderSignIn(session.discordSsoEnabled !== false, session.authenticated === true);
+  }
   me = session.coach;
   try {
     const back = sessionStorage.getItem(RETURN_KEY);

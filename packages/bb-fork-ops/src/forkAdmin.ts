@@ -34,12 +34,22 @@ import { createHash } from "node:crypto";
 
 const ADMIN_FETCH_TIMEOUT_MS = 5_000;
 
-/** `fetch` with a hard timeout — aborts and throws rather than hanging on a stuck fork request. */
-async function fetchWithTimeout(url: string, timeoutMs = ADMIN_FETCH_TIMEOUT_MS): Promise<Response> {
+/** A fully-read admin response: the body is consumed INSIDE the timeout (a fork that sends headers and then
+ *  stalls its body is a timeout too, never an unbounded await). */
+interface AdminResponse {
+  ok: boolean;
+  status: number;
+  text(): Promise<string>;
+}
+
+/** `fetch` with a hard timeout covering headers AND body — aborts and throws rather than hanging. */
+async function fetchWithTimeout(url: string, timeoutMs = ADMIN_FETCH_TIMEOUT_MS): Promise<AdminResponse> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { signal: controller.signal });
+    const body = await res.text();
+    return { ok: res.ok, status: res.status, text: async () => body };
   } catch (e) {
     if ((e as Error).name === "AbortError") throw new Error(`fork admin request timed out after ${timeoutMs}ms: ${url}`);
     throw e;

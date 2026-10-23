@@ -47,6 +47,7 @@ import {
   atomicWriteTextFile,
   beginTeamXmlTransaction,
   buildForkJnlp,
+  buildSeatJnlp,
   coachExists,
   createForkAccount,
   createForkAccountDigest,
@@ -107,6 +108,7 @@ import {
   createSession,
   deleteSession,
   getSession,
+  onSessionEnded,
   parseCookies,
   requestUsesTls,
   sessionFromRequest,
@@ -129,7 +131,7 @@ import { legacyPasswordAuthCounts, noteLegacyPasswordAuth } from "./auth/depreca
 import { attachSuper } from "./super/index.js";
 import {
   isLobbyApiPath,
-  isLobbyGameStartWrite,
+  isLobbyGameStartOperation,
   LobbyError,
   lobbyAllowedOriginsFromEnv,
   lobbyApi,
@@ -494,13 +496,16 @@ async function handleLobbyRequest(req: IncomingMessage, res: ServerResponse, pat
     rating: (name, requester) => coachRatings.get(name, requester),
     jnlp: async (seat) => {
       // The seat coach's stored credential (owned by the session coach: seatOf checked membership + seat).
-      const passwordMd5 = challengeDbCfg ? await forkCoachPasswordDigest(challengeDbCfg, seat.coach) : undefined;
-      return buildForkJnlp({ ...seat, passwordMd5 });
+      // No placeholder password: without a stored credential there is no JNLP.
+      if (!challengeDbCfg) throw new LobbyError(503, "This server has no fork account store (set FORK_DB_HOST).");
+      const passwordMd5 = await forkCoachPasswordDigest(challengeDbCfg, seat.coach);
+      if (!passwordMd5) throw new LobbyError(404, "Your fork account was not found.");
+      return buildSeatJnlp({ ...seat, passwordMd5 });
     },
     chatLive: () => lobbyChatLive,
     withGameStartLock: async (fn) => {
       const cfg = forkConfigFromEnv();
-      if (!cfg || !isLobbyGameStartWrite(method, path)) return fn();
+      if (!cfg || !isLobbyGameStartOperation(method, path)) return fn();
       if (forkCacheReloadRequired(cfg.teamsDir)) {
         throw new LobbyError(503, "The fork team cache requires recovery reload; game starts are temporarily disabled.");
       }
@@ -1004,7 +1009,8 @@ async function handleApi(
       coach: auth.coach,
       organizer: auth.organizer,
       admin: auth.admin,
-      ...(session ? { expiresAt: new Date(session.expiry).toISOString() } : {}),
+      // Session provenance ("discord" | "password"): Discord-only surfaces (the web Lobby) check it at boot.
+      ...(session ? { authMethod: session.method, expiresAt: new Date(session.expiry).toISOString() } : {}),
     });
   }
 
@@ -3106,6 +3112,7 @@ if (challengeDbCfg && forkAdminCfg) {
         return session?.method === "discord" ? session.coach : undefined;
       },
       originAllowed: (origin, host) => lobbyOriginAllowed(origin, host, lobbyAllowedOrigins),
+      onSessionEnded: (listener) => onSessionEnded(listener),
     }),
   }) !== null;
 } else if (process.env.SUPER_ENABLED === "1") {

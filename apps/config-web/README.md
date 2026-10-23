@@ -32,11 +32,15 @@ the session check and a bounded 16 KB / 10 s body read):
 | `POST /api/lobby/:id/join {teamId}` | counter-challenge |
 | `POST /api/lobby/:id/renew {teamId?}` | creator confirms again after a lapse / cancel |
 | `POST /api/lobby/:id/launch` | `{jnlpUrl: "/api/lobby/:id/jnlp", scheme: null}`; marks me "in the client" |
-| `GET /api/lobby/:id/jnlp` | my seat's JNLP (stored credential added server-side; session-scoped) |
+| `GET /api/lobby/:id/jnlp` | my seat's JNLP with my stored credential (session-scoped, same cache gate + game-start lock as the writes; 503 on a host without the fork account store, never a placeholder password) |
 | `POST /api/lobby/:id/close` | creator withdraws an unpaired lobby |
 | `GET /api/lobby/:id/roster?role=creator\|opponent` | roster fields only |
 | `GET /api/lobby/:id/coach?role=…` | avatar + linked FUMBBL name |
 | `GET /api/coach-rating?name=` | FUMBBL rating (3 requests, cached 10 min, per-coach / global / concurrency limits) |
+
+`/api/fork/matchstatus` returns a JNLP only to an authorized poll (the coach's own session, or the digest that
+coach supplied with a client challenge), built from that digest; any other poll gets status only and never
+consumes the delivery. Lobby seats are never delivered there. `/api/auth/session` reports `authMethod`.
 
 Chat and presence ride the Super WebSocket (`/super`, needs `SUPER_ENABLED=1` plus the fork DB/admin config):
 `{type:"hello", lobbyId}` authenticates with the upgrade request's Discord session, checks the browser Origin,
@@ -49,4 +53,4 @@ Environment:
 | Variable | Default | Use |
 |---|---|---|
 | `FUMBBL_BASE_URL` | `https://fumbbl.com` | origin for the coach-rating requests |
-| `SUPER_WS_ALLOWED_ORIGINS` | (none) | comma list of browser origins allowed on lobby sockets; the origin of `DISCORD_OAUTH_REDIRECT_URI` is always allowed; with neither set, same host only |
+| `SUPER_WS_ALLOWED_ORIGINS` | (none) | comma list of browser origins allowed on lobby sockets; the origin of `DISCORD_OAUTH_REDIRECT_URI` is always allowed; with neither set, same host only. **REQUIRED** on any host whose public browser origin differs from the Discord redirect origin (e.g. page at `https://<host>`, redirect URI `http://<host>:4310`): list every origin coaches open the page from, or lobby chat is refused |

@@ -89,6 +89,26 @@ describe("CoachRatingCache (the client's three fumbbl.com requests)", () => {
     expect(peak).toBeLessThanOrEqual(2); // two parallel requests inside ONE lookup (page + search), never two lookups
   });
 
+  it("fair queue: one coach cannot take every slot, and waiting coaches are served round-robin", async () => {
+    const order: string[] = [];
+    const releases: Array<() => void> = [];
+    const gated: RatingFetch = async (url) => {
+      if (url.includes("/api/coach/search/")) order.push(decodeURIComponent(url.split("/").pop()!));
+      await new Promise<void>((r) => releases.push(r));
+      return { ok: false, status: 404, text: async () => "" };
+    };
+    const cache = new CoachRatingCache({ fetchFn: gated, maxConcurrent: 1, maxQueue: 16, maxQueuedPerRequester: 2, perRequesterLimit: 99 });
+    const all = [cache.get("a0", "flood"), cache.get("a1", "flood"), cache.get("a2", "flood")]; // a0 runs, a1+a2 queue
+    expect(() => cache.get("a3", "flood")).toThrow(RatingLimitError); // the flooder's queue share is full
+    all.push(cache.get("b0", "bob")); // another coach still gets a slot
+    all.push(cache.get("c0", "carol"));
+    const drain = async () => { while (releases.length) { releases.shift()!(); await new Promise((r) => setTimeout(r, 0)); } };
+    for (let i = 0; i < 12 && order.length < 5; i++) await drain();
+    await drain();
+    await Promise.all(all);
+    expect(order).toEqual(["a0", "a1", "b0", "c0", "a2"]);
+  });
+
   it("the deadline covers the body read", async () => {
     const hang: RatingFetch = async (_url, signal) => ({
       ok: true,

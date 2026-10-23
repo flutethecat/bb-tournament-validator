@@ -631,7 +631,8 @@ export interface LobbyApiDeps {
   /** The JNLP for a seat, carrying the seat coach's stored credential when the host has one. */
   jnlp: (seat: { coach: string; teamId: string; gameName: string; gameId?: string }) => Promise<string>;
   chatLive: () => boolean;
-  /** Runs a game-start operation under the host's game-start lock (after auth + body parsing). */
+  /** Runs a game-start operation (writes and the JNLP download) under the host's cache gate + game-start lock,
+   *  after auth and body parsing. */
   withGameStartLock?: <T>(fn: () => Promise<T>) => Promise<T>;
 }
 
@@ -649,8 +650,9 @@ export function isLobbyApiPath(path: string): boolean {
   return path === "/api/lobby" || path.startsWith("/api/lobby/") || path === "/api/coach-rating";
 }
 
-/** Is a lobby request a write that should wait on the game-start lock? */
-export function isLobbyGameStartWrite(method: string, path: string): boolean {
+/** Is a lobby request a game-start operation (cache gate + game-start lock)? The writes, and the JNLP download. */
+export function isLobbyGameStartOperation(method: string, path: string): boolean {
+  if (method === "GET") return /^\/api\/lobby\/[^/]+\/jnlp$/.test(path);
   return method === "POST" && /^\/api\/lobby(?:\/[^/]+\/(?:join|renew|launch))?$/.test(path);
 }
 
@@ -734,8 +736,10 @@ export async function lobbyApi(
     }
     if (action === "jnlp") {
       const bad = want("GET"); if (bad) return bad;
-      const seat = store.seatOf(id, me);
-      const jnlp = await deps.jnlp({ coach: seat.coach, teamId: seat.teamId, gameName: seat.gameName, gameId: seat.gameId });
+      const { seat, jnlp } = await locked(async () => {
+        const s = store.seatOf(id, me);
+        return { seat: s, jnlp: await deps.jnlp({ coach: s.coach, teamId: s.teamId, gameName: s.gameName, gameId: s.gameId }) };
+      });
       return {
         status: 200,
         body: jnlp,
@@ -784,6 +788,8 @@ export interface LobbySocketBridge {
   sessionCoach(token: string): string | undefined;
   /** Browser Origin check for the upgrade (absent Origin = not a browser = allowed). */
   originAllowed(origin: string | undefined, host: string | undefined): boolean;
+  /** Called with a session token the moment that session is deleted (logout) or found expired. */
+  onSessionEnded?(listener: (token: string) => void): void;
   isMember(lobbyId: string, coach: string): boolean;
   history(lobbyId: string): LobbyChatMessage[];
   presence(lobbyId: string): LobbyPresenceEntry[] | null;
@@ -795,7 +801,7 @@ export interface LobbySocketBridge {
 
 export function lobbySocketBridge(
   store: LobbyStore,
-  auth: Pick<LobbySocketBridge, "sessionFromRequest" | "sessionCoach" | "originAllowed">,
+  auth: Pick<LobbySocketBridge, "sessionFromRequest" | "sessionCoach" | "originAllowed" | "onSessionEnded">,
 ): LobbySocketBridge {
   return {
     ...auth,

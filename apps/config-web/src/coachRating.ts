@@ -233,9 +233,11 @@ export interface CoachRatingOptions {
   /** Uncached lookups for the whole server per window (default 200). */
   globalLimit?: number;
   windowMs?: number;
-  /** Lookups running at once (default 4); more wait in a bounded queue (default 16), beyond that 429. */
+  /** Lookups running at once (default 4); more wait in a bounded queue (default 16), beyond that 429. The queue is
+   *  fair: at most `maxQueuedPerRequester` (default 4) waiting per coach, served round-robin across coaches. */
   maxConcurrent?: number;
   maxQueue?: number;
+  maxQueuedPerRequester?: number;
   /** Deadline for one lookup's three requests, body reads included (default 8 s). */
   deadlineMs?: number;
 }
@@ -254,8 +256,11 @@ export class CoachRatingCache {
   private readonly maxQueue: number;
   private readonly deadlineMs: number;
   private readonly recent: Array<{ at: number; requester: string }> = [];
+  private readonly maxQueuedPerRequester: number;
   private active = 0;
-  private readonly queue: Array<() => void> = [];
+  private queued = 0;
+  /** requester -> waiting lookups; Map order is the round-robin order (a served requester moves to the back). */
+  private readonly queues = new Map<string, Array<() => void>>();
 
   constructor(opts: CoachRatingOptions = {}) {
     this.fetchFn = opts.fetchFn ?? defaultRatingFetch;
@@ -267,6 +272,7 @@ export class CoachRatingCache {
     this.windowMs = opts.windowMs ?? 10 * 60 * 1000;
     this.maxConcurrent = Math.max(1, opts.maxConcurrent ?? 4);
     this.maxQueue = Math.max(0, opts.maxQueue ?? 16);
+    this.maxQueuedPerRequester = Math.max(1, opts.maxQueuedPerRequester ?? 4);
     this.deadlineMs = opts.deadlineMs ?? 8_000;
   }
 
@@ -283,7 +289,10 @@ export class CoachRatingCache {
     const who = requester.trim().toLowerCase();
     if (this.recent.length >= this.globalLimit) throw new RatingLimitError();
     if (this.recent.filter((r) => r.requester === who).length >= this.perRequesterLimit) throw new RatingLimitError();
-    if (this.active >= this.maxConcurrent && this.queue.length >= this.maxQueue) throw new RatingLimitError();
+    if (this.active >= this.maxConcurrent) {
+      if (this.queued >= this.maxQueue) throw new RatingLimitError();
+      if ((this.queues.get(who)?.length ?? 0) >= this.maxQueuedPerRequester) throw new RatingLimitError();
+    }
     this.recent.push({ at: this.now(), requester: who });
 
     this.cache.delete(key);
@@ -292,7 +301,7 @@ export class CoachRatingCache {
       if (oldest === undefined) break;
       this.cache.delete(oldest);
     }
-    const value = this.run(() => this.loadWithDeadline(trimmed));
+    const value = this.run(who, () => this.loadWithDeadline(trimmed));
     this.cache.set(key, { at: this.now(), value });
     return value;
   }
@@ -307,14 +316,32 @@ export class CoachRatingCache {
     }
   }
 
-  private async run<T>(task: () => Promise<T>): Promise<T> {
-    if (this.active >= this.maxConcurrent) await new Promise<void>((resolve) => this.queue.push(resolve));
-    this.active++;
+  private async run<T>(requester: string, task: () => Promise<T>): Promise<T> {
+    if (this.active >= this.maxConcurrent) {
+      await new Promise<void>((resolve) => {
+        const q = this.queues.get(requester) ?? [];
+        q.push(resolve);
+        this.queues.set(requester, q);
+        this.queued++;
+      });
+    } else {
+      this.active++;
+    }
     try {
       return await task();
     } finally {
-      this.active--;
-      this.queue.shift()?.();
+      this.releaseSlot();
     }
+  }
+
+  /** Hand the freed slot to the next requester in round-robin order (the slot count stays with it). */
+  private releaseSlot(): void {
+    for (const [requester, q] of this.queues) {
+      const next = q.shift();
+      this.queues.delete(requester);
+      if (q.length) this.queues.set(requester, q); // back of the round-robin order
+      if (next) { this.queued--; next(); return; }
+    }
+    this.active--;
   }
 }

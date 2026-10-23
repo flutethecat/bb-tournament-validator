@@ -83,6 +83,16 @@ export function buildForkJnlp(opts: {
 `;
 }
 
+/**
+ * A matched seat's JNLP: the coach's own md5 digest is REQUIRED. Unlike `buildForkJnlp` there is no `12345`
+ * placeholder path: a seat without a real credential gets no JNLP at all (the caller answers status only).
+ */
+export function buildSeatJnlp(opts: { coach: string; teamId: string; gameName: string; passwordMd5: string; gameId?: string | number }): string {
+  const digest = opts.passwordMd5?.trim().toLowerCase();
+  if (!isMd5Hex(digest)) throw new Error("A seat JNLP needs the coach's own credential digest.");
+  return buildForkJnlp({ ...opts, passwordMd5: digest });
+}
+
 /** A safe download filename for a coach's game JNLP. */
 export const jnlpFilename = (gameName: string, coach: string): string =>
   `fork_${safe(gameName)}_${safe(coach)}.jnlp`;
