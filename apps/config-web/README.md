@@ -164,7 +164,7 @@ The tabletop recorder plays the Super FUMBBL client's turn-timer sounds (Retro S
 minute sound once at 1:00, then once on each remaining second 10..1 (the minute sound as the warning tone on 10..6, the
 countdown sound on 5..1). The licence allows use but forbids redistribution, so the files are **never committed**: they live
 only on the host under the gitignored `apps/config-web/public/sounds/ui/` with a `manifest.json`
-(`{"files": {"minute": "/sounds/ui/turnClockMinute.wav", "countdown": "/sounds/ui/turnClockCountdown.wav"}}`). Deploy step:
-copy `turnClockMinute.wav` and `turnClockCountdown.wav` byte-for-byte from the client checkout
+(`{"files": {"minute": "/sounds/ui/turn-clock-minute.wav", "countdown": "/sounds/ui/turn-clock-countdown.wav"}}`). Deploy step:
+copy the client's `turnClockMinute.wav` and `turnClockCountdown.wav` byte-for-byte, saved under the lower-case names `turn-clock-minute.wav` / `turn-clock-countdown.wav` (the public matcher accepts lower-case names only), from the client checkout
 (`apps/tauri/src/assets/sounds/`, `git show origin/order-66:<path> > <dest>`) and write the manifest. Without the manifest
 the recorder falls back to generated tones on the same cadence. Credit: the recorder's Settings sheet.

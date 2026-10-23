@@ -36,6 +36,7 @@ export interface MatchView {
   postMatch: PostMatchOption;
   createdBy: string;
   confirmations: Record<string, string>;
+  updatedAt?: string;
   preview?: { home: SummaryView; away: SummaryView };
   resultGameId?: string;
   /** "pregame:<step>" while the pre-game wizard runs (fans, weather, journeymen, inducements, prayers, coin). */

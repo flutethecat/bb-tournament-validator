@@ -1002,14 +1002,14 @@ describe("tabletop routes (server-rendered)", () => {
     const played: string[] = [];
     const withFiles = createCuePlayer({
       enabled: () => true, tone: () => { throw new Error("a tone must not play when the manifest lists the file"); },
-      files: () => ({ minute: "/sounds/ui/turnClockMinute.wav", countdown: "/sounds/ui/turnClockCountdown.wav" }),
+      files: () => ({ minute: "/sounds/ui/turn-clock-minute.wav", countdown: "/sounds/ui/turn-clock-countdown.wav" }),
       makeAudio: (src) => ({ play: () => { played.push(src); } }),
     });
     withFiles.unlock();
     expect(withFiles.play("minute")).toBe("file"); // one preloaded Audio per file
     expect(withFiles.play("warning", 9)).toBe("file"); // the warning tone reuses the minute sound
     expect(withFiles.play("countdown", 4)).toBe("file");
-    expect(played).toEqual(["/sounds/ui/turnClockMinute.wav", "/sounds/ui/turnClockMinute.wav", "/sounds/ui/turnClockCountdown.wav"]);
+    expect(played).toEqual(["/sounds/ui/turn-clock-minute.wav", "/sounds/ui/turn-clock-minute.wav", "/sounds/ui/turn-clock-countdown.wav"]);
   });
 
   it("pre-game timers step: Yes / No (the session coach answers for their team); required or off competitions just say so", async () => {
@@ -1157,5 +1157,20 @@ describe("tabletop routes (server-rendered)", () => {
     expect(`${rows[0].lead}${rows[0].rest}`).toBe("Alice set the clock to 2Ht4 · Bob Elves");
     expect(rows[0].side).toBe("centre");
     expect(rows[0].undoable).toBe(false);
+  });
+
+  it("match state is a green feed line (nothing while recording); the Recording status bar is gone", async () => {
+    const body = (state: string, extra: Record<string, unknown> = {}) => ({ match: baseMatch(state, { updatedAt: "2026-10-23T20:41:00.000Z", ...extra }), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally });
+    const rec = await renderMatch(body("recording"));
+    expect(rec.html).not.toContain("tt-match-row");
+    expect(rec.html).not.toContain("tt-state");
+    expect(rec.html).not.toContain("Recording ·");
+    const sub = await renderMatch(body("submitted", { preview: { home: summary("home"), away: summary("away") } }));
+    expect(sub.html).toMatch(/class="tt-match-row" data-state="submitted" role="status">Match completed · \d/);
+    const conf = await renderMatch(body("confirmed", { preview: { home: summary("home"), away: summary("away") } }));
+    expect(conf.html).toMatch(/data-state="confirmed" role="status">Match confirmed</);
+    const pub = await renderMatch(body("published", { preview: { home: summary("home"), away: summary("away") } }));
+    expect(pub.html).toMatch(/data-state="published" role="status">Match published</);
+    expect(sub.html.indexOf("tt-match-row")).toBeLessThan(sub.html.indexOf("tt-events")); // at the top of the feed
   });
 });

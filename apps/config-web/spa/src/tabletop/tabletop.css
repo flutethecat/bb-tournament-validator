@@ -225,3 +225,5 @@
 @keyframes tt-pulse { 0%, 100% { filter: none; } 50% { filter: brightness(1.5); } }
 @media (prefers-reduced-motion: reduce) { .tt-endturn[data-zero="true"] { animation: none; } }
 .tt-credit { margin: 10px 0 0; font-size: 11px; }
+.tt-match-row { margin: 4px; padding: 12px; text-align: center; font-weight: 700; color: #d8f5e1; background: #1e5a34; border: 1px solid #2f8a50; border-radius: 6px; }
+.tt-rec[data-tt-theme="snes"] .tt-match-row { color: #0f3a1f; background: #b9e3c6; border-color: #2f8a50; }

@@ -151,6 +151,15 @@ async function saveTurn(body: { half: number | string; turn: number; activeTeam:
 }
 const undoById = (id: string): void => { const e = state.events.find((x) => x.id === id); if (e) void rec.undo(e); };
 
+/** The match state as a feed line (nothing while recording): green, full width, like TourPlay's "Match reported". */
+const matchRow = computed(() => {
+  const m = match.value;
+  if (!m) return "";
+  if (m.state === "submitted") return `Match completed${m.updatedAt ? ` · ${new Date(m.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`;
+  if (m.state === "confirmed") return "Match confirmed";
+  if (m.state === "published") return "Match published";
+  return "";
+});
 const confirmedAt = (coach: string): string => match.value?.confirmations[coach] ?? "";
 const iConfirmed = computed(() => (me.value ? confirmedAt(me.value) !== "" : false));
 const isParticipant = computed(() => match.value !== null && (match.value.home.coach === me.value || match.value.away.coach === me.value));
@@ -191,10 +200,10 @@ onBeforeUnmount(() => {
 
     <div class="tt-mid">
     <main class="tt-feed">
-      <div class="tt-strip">
-        <p v-if="state.pending" class="tt-chip" role="status">{{ state.pending }} event{{ state.pending === 1 ? "" : "s" }} waiting<template v-if="state.queueError"> · {{ state.queueError }}<template v-if="retryIn"> (retry in {{ retryIn }} s)</template></template></p>
-        <span class="tt-state muted">{{ match.state === "recording" ? "Recording" : match.state === "submitted" ? "Submitted, waiting for confirmation" : match.state === "confirmed" ? "Confirmed" : match.state }} · {{ match.postMatch }}</span>
+      <div v-if="state.pending" class="tt-strip">
+        <p class="tt-chip" role="status">{{ state.pending }} event{{ state.pending === 1 ? "" : "s" }} waiting<template v-if="state.queueError"> · {{ state.queueError }}<template v-if="retryIn"> (retry in {{ retryIn }} s)</template></template></p>
       </div>
+      <p v-if="matchRow" class="tt-match-row" :data-state="match.state" role="status">{{ matchRow }}</p>
       <p v-for="r in state.rejected" :key="r.event.id" class="lobby-error" role="alert">
         Not saved: {{ r.error }}
         <button class="lobby-btn small tt-tap" type="button" @click="rec.dismissRejected(r.event.id)">Dismiss</button>
