@@ -3,8 +3,8 @@
 // Everything shown is server-derived; user text is only ever set with textContent.
 
 import "./style.css";
-import { api, ApiError, type ChatMessage, type LibraryTeam, type LobbyView, type PendingChallenge, type Roster, type SeatView, type SessionInfo } from "./api";
-import { CHAT_KEEP, expiryLine, lobbyIdFromHash, lobbyStatusLine, presenceLine, ratingParts, renderEmoji, type RatingLike } from "./format";
+import { api, ApiError, type ChatMessage, type LibraryTeam, type LobbyView, type PendingChallenge, type Roster, type SeatView, type SessionInfo } from "../../spa/src/shared/api";
+import { CHAT_KEEP, expiryLine, fmtK, lobbyIdFromHash, lobbyStatusLine, presenceLine, ratingParts, renderEmoji, type RatingLike } from "../../spa/src/shared/format";
 
 const RETURN_KEY = "lobby-return-hash";
 
@@ -25,11 +25,6 @@ const who = document.getElementById("who")!;
 let me = "";
 let teams: LibraryTeam[] = [];
 let stopCurrent: (() => void) | undefined;
-
-function fmtK(n: number): string {
-  const k = n >= 10000 ? Math.round(n / 1000) : n;
-  return `${k.toLocaleString("en")}k`;
-}
 
 function errorBox(msg: string): HTMLElement {
   return h("p", { class: "lobby-error", role: "alert" }, msg);

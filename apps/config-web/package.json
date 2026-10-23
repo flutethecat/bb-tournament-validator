@@ -7,7 +7,9 @@
   "scripts": {
     "start": "tsx src/server.ts",
     "build": "tsc -p tsconfig.json --noEmit",
-    "build:lobby": "vite build --config lobby/vite.config.ts"
+    "build:lobby": "vite build --config lobby/vite.config.ts",
+    "build:spa": "vite build --config spa/vite.config.ts",
+    "typecheck:spa": "vue-tsc -p spa/tsconfig.json --noEmit"
   },
   "dependencies": {
     "@bb/fork-ops": "workspace:*",
@@ -15,9 +17,13 @@
     "dotenv": "^16.4.7"
   },
   "devDependencies": {
+    "@types/node": "^24.13.2",
+    "@vitejs/plugin-vue": "^6.0.10",
     "tsx": "^4.19.2",
     "typescript": "^5.8.3",
-    "@types/node": "^24.13.2",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0",
+    "vue-tsc": "^3.3.13"
   }
 }

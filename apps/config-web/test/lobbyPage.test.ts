@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expiryLine, formatWar, lobbyIdFromHash, lobbyStatusLine, presenceLine, ratingParts, renderEmoji } from "../lobby/src/format";
+import { expiryLine, formatWar, lobbyIdFromHash, lobbyStatusLine, presenceLine, ratingParts, renderEmoji } from "../spa/src/shared/format";
 
 describe("lobby page helpers", () => {
   it("presence lines", () => {

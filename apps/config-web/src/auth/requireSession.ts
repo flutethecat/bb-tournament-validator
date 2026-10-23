@@ -2,6 +2,7 @@ import type { IncomingMessage } from "node:http";
 import { coachLevel, isAdmin, isOrganizer } from "./access.js";
 import { sessionFromRequest } from "./session.js";
 import { isPublicArtPath } from "../publicArt.js";
+import { isSpaPath } from "../spaRoutes.js";
 
 export interface SessionIdentity {
   coach: string;
@@ -76,6 +77,7 @@ function isPublicRequest(method: string, pathname: string): boolean {
       pathname === "/admin.js" ||
       pathname === "/lobby" ||
       pathname.startsWith("/lobby/") ||
+      isSpaPath(pathname) ||
       pathname.startsWith("/assets/") ||
       pathname.startsWith("/api/packages/"))
   )

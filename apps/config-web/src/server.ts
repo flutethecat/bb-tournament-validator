@@ -101,6 +101,7 @@ import { isPublicArtPath } from "./publicArt.js";
 import { PRESETS } from "./presets";
 import { handleAuthPortal } from "./auth/portal.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
+import { isSpaPath, spaFallback } from "./spaRoutes.js";
 import { coachLogin, sendCoachLogin } from "./auth/coachLogin.js";
 import {
   bearerTokenFromRequest,
@@ -523,10 +524,7 @@ async function handleLobbyRequest(req: IncomingMessage, res: ServerResponse, pat
         discordUserId = record.identities.discordUserId ?? "";
         avatar = record.profile.avatar || discordAvatarUrl(discordUserId, record.identities.discordAvatarHash) || null;
       } catch { /* unknown coach: no card extras */ }
-      const registry = readCoachRegistry(COACH_REGISTRY_JSON);
-      const linked = (discordUserId && registry.find((e) => e.discordUserId === discordUserId && e.fumbblName))
-        || registry.find((e) => e.fumbblName?.trim().toLowerCase() === coach.trim().toLowerCase());
-      return { avatar, fumbblName: (linked && linked.fumbblName?.trim()) || null };
+      return { avatar, fumbblName: linkedFumbblName(coach, discordUserId) };
     },
     rating: (name, requester) => coachRatings.get(name, requester),
     credential: async (coach) => {
@@ -781,6 +779,8 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   // Web Lobby: session-gated in-handler (401 JSON); its built page is public static.
   if (isLobbyApiPath(pathname)) return true;
   if ((req.method === "GET" || req.method === "HEAD") && (pathname === "/lobby" || pathname.startsWith("/lobby/"))) return true;
+  // League & Tournament Manager SPA (Vite build output): public static like the Lobby; its API calls gate themselves.
+  if ((req.method === "GET" || req.method === "HEAD") && isSpaPath(pathname)) return true;
   if (pathname.startsWith("/api/packages/")) return true;
   if (
     (req.method === "GET" || req.method === "HEAD") &&
@@ -904,12 +904,24 @@ function requireAdminLevel(req: IncomingMessage, res: ServerResponse, auth?: Ses
   return false;
 }
 
+/**
+ * The coach's linked FUMBBL name from the tournament coach registry: matched by Discord id first, then by the fork
+ * coach name. Shared by the Lobby coach card and GET /api/account. null when nothing is linked.
+ */
+function linkedFumbblName(coach: string, discordUserId: string): string | null {
+  const registry = readCoachRegistry(COACH_REGISTRY_JSON);
+  const linked = (discordUserId && registry.find((e) => e.discordUserId === discordUserId && e.fumbblName))
+    || registry.find((e) => e.fumbblName?.trim().toLowerCase() === coach.trim().toLowerCase());
+  return (linked && linked.fumbblName?.trim()) || null;
+}
+
 const readBody = (req: IncomingMessage, maxBytes = DEFAULT_JSON_BODY_CAP): Promise<unknown> =>
   readJsonBody(req, maxBytes);
 
 async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> {
   const rel = urlPath === "/" || urlPath === "/index.html" ? "/control-panel.html"
     : urlPath === "/lobby" || urlPath === "/lobby/" ? "/lobby/index.html" // Vite build output (pnpm build:lobby)
+    : spaFallback(urlPath) ? "/app/index.html" // SPA history fallback (pnpm build:spa)
     : urlPath;
   // prevent path traversal
   const full = normalize(join(PUBLIC_DIR, rel));
@@ -1366,6 +1378,7 @@ async function handleApi(
           record.identities.discordUserId ?? "",
           record.identities.discordAvatarHash,
         ),
+        fumbblName: linkedFumbblName(auth.coach, record.identities.discordUserId ?? ""),
       });
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });

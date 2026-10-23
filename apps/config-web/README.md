@@ -2,10 +2,59 @@
 
 Plain Node `http` server (`src/server.ts`, run with `tsx`) serving `public/` and the JSON API on :4310.
 
+## League & Tournament Manager SPA (`/app/`)
+
+The manager is becoming a single Vue 3 + vue-router + TypeScript SPA (owner ruling 2026-10-22), phased: the shell
+ships now and the hand-built pages migrate in as they are touched. Source: `spa/`. Build output goes to
+`public/app/` and is **not committed** (gitignored).
+
+```sh
+pnpm --filter config-web build:spa        # vite build --config spa/vite.config.ts -> public/app/
+pnpm --filter config-web typecheck:spa    # vue-tsc -p spa/tsconfig.json --noEmit
+```
+
+The server serves `/app` and `/app/*` as public static in both auth modes (like `/lobby/`): any path under `/app`
+without a file extension (and not under `/app/assets/`) is answered with `/app/index.html` (history fallback,
+`src/spaRoutes.ts`). Every API call the SPA makes gates itself. `/theme.css` and `/theme.js` stay unbundled and
+are loaded by `spa/index.html`; the shell styles with their `--ui-*` tokens, so the Black/Red (dark) and FUMBBL
+(light) presets apply as on every other page.
+
+| Route | Page |
+|---|---|
+| `/app/` | redirects to `/app/lobby` |
+| `/app/lobby` | Start Game (challenge a coach, challenges for you, your lobbies). Needs a Discord session |
+| `/app/lobby/:id` | a Lobby (presence, chat, rosters, coach card, Start game). Needs a Discord session |
+| `/app/tournaments` | placeholder linking to `/tournaments.html` |
+| `/app/team-builder` | placeholder linking to `/team-builder.html` |
+| `/app/tournament-team-builder` | placeholder linking to `/tournament-team-builder.html` |
+| `/app/account` | the session's Discord identity + linked FUMBBL name (`GET /api/account`), Sign out |
+
+Identity is the Discord session only: `spa/src/session.ts` reads `GET /api/auth/session` (the same endpoint the
+vanilla page reads). Signed out, a route marked `requiresAuth` renders the sign-in prompt in place of the page;
+"Login with Discord" goes to `/api/auth/discord/start?next=/app/<route>`, so the coach lands back where they were.
+
+Layout (`spa/src`): `app.ts` builds app + router + session + library; `router.ts` holds the routes, the nav and
+the auth gate; `views/` one component per route; `components/` shared pieces; `lobby/` the Lobby controllers (no
+DOM, unit-tested); `shared/` modules also used by the vanilla Lobby page (`api.ts`, `format.ts`, `lobby.css`).
+
+### How pages migrate
+
+1. Build the page as `spa/src/views/<Name>View.vue` (logic that talks to the API in a plain `.ts` controller next
+   to it, so it can be tested without a DOM, as `lobby/room.ts` is).
+2. Point its route in `spa/src/router.ts` at the new view instead of `LinkOutView` (add `meta.requiresAuth` if it
+   needs a session). Shared fetch/format helpers go in `spa/src/shared/`.
+3. Add route tests to `test/spaShell.test.ts` (server-rendered against a mocked API).
+4. When the SPA page fully covers the old one, a later lane redirects the old `.html` to `/app/...` and deletes it
+   (the vanilla `/lobby/` page is kept this round).
+
+GET `/api/account` carries `fumbblName` (the linked FUMBBL name from the tournament coach registry, matched by
+Discord id, then by coach name; `null` when none). The registry has no FUMBBL coach id, so none is returned.
+
 ## Start Game / Lobby page (`/lobby/`)
 
 Source: `lobby/` (vanilla TypeScript + Vite, styled with the site theme `/theme.css` + `/theme.js`, which stay
-unbundled). Build output goes to `public/lobby/` and is **not committed** (gitignored).
+unbundled). Its API client, display helpers and component CSS live in `spa/src/shared/` (shared with the SPA's
+`/app/lobby`, which ports this page). Build output goes to `public/lobby/` and is **not committed** (gitignored).
 
 ```sh
 pnpm --filter config-web build:lobby     # vite build --config lobby/vite.config.ts -> public/lobby/

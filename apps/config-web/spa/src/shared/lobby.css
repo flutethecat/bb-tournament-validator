@@ -1,0 +1,38 @@
+/* Lobby components, shared by the SPA (/app/lobby) and the vanilla page (/lobby/). Site theme tokens from /theme.css (--ui-*). */
+h1, h2, h3 { color: var(--ui-heading, #ff3b3b); margin: 0 0 8px; }
+.lobby-card { background: var(--ui-surface, #0d0d0d); border: 1px solid var(--ui-border, #3d0002); border-radius: 6px; padding: 16px; min-width: 0; }
+.lobby-grid { display: grid; gap: 16px; grid-template-columns: 1fr 2fr; }
+.lobby-grid.rosters { grid-template-columns: 1fr 1fr; }
+@media (max-width: 800px) { .lobby-grid, .lobby-grid.rosters { grid-template-columns: 1fr; } }
+.muted { color: var(--ui-muted, #848689); }
+.lobby-error { color: var(--ui-danger, #ff4d4d); margin: 8px 0 0; }
+.lobby-form { display: grid; gap: 6px; max-width: 420px; }
+.lobby-form.inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: none; margin-top: 8px; }
+input, select { background: var(--ui-surface-2, #242424); color: var(--ui-text, #e6e9ef); border: 1px solid var(--ui-border, #3d0002); border-radius: 4px; padding: 6px 8px; font: inherit; max-width: 100%; }
+.lobby-btn { display: inline-block; background: var(--ui-surface-2, #242424); color: var(--ui-text, #e6e9ef); border: 1px solid var(--ui-border, #3d0002); border-radius: 4px; padding: 7px 14px; font: inherit; cursor: pointer; text-decoration: none; }
+.lobby-btn.primary { background: var(--ui-primary, #790004); color: var(--ui-text-on-primary, #fff); }
+.lobby-btn.big { font-size: 1.1rem; padding: 10px 24px; }
+.lobby-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.lobby-btn:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--ui-focus, #ff3b3b); outline-offset: 2px; }
+a { color: var(--ui-accent, #a55456); }
+.lobby-list { display: grid; gap: 8px; }
+.lobby-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.presence { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 4px; }
+.presence li::before { content: "●"; margin-right: 6px; color: var(--ui-muted, #848689); }
+.presence li.presence-here::before { color: var(--ui-success, #3fb463); }
+.presence li.presence-client::before { color: var(--ui-info, #4a86c8); }
+.launch { margin-top: 12px; }
+.coach-card { display: flex; gap: 12px; align-items: flex-start; }
+.lobby-avatar { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; }
+.lobby-avatar.small { width: 24px; height: 24px; }
+.title-badge { margin-left: 8px; padding: 1px 8px; border-radius: 10px; background: var(--ui-primary, #790004); color: var(--ui-text-on-primary, #fff); font-size: 0.85em; }
+.chat-log { list-style: none; padding: 0; margin: 0 0 8px; max-height: 280px; overflow-y: auto; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.chat-log li.mine strong { color: var(--ui-accent, #a55456); }
+.chat-time { color: var(--ui-text-dim, #5f6163); font-size: 0.85em; }
+.chat-form { display: flex; gap: 8px; }
+.chat-form input { flex: 1; min-width: 0; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--ui-border, #3d0002); vertical-align: top; }
+th { color: var(--ui-muted, #848689); font-weight: 600; white-space: nowrap; }
+.roster-head { margin: 0 0 4px; }

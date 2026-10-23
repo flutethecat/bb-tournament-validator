@@ -1,4 +1,4 @@
-// Same-origin JSON calls. Identity rides the Discord session cookie (cw_session); every write carries the
+// Shared by the SPA (/app) and the vanilla Lobby page (/lobby/). Same-origin JSON calls. Identity rides the Discord session cookie (cw_session); every write carries the
 // X-CW-Auth CSRF header the server requires for cookie-authenticated writes.
 
 export class ApiError extends Error {
@@ -42,6 +42,18 @@ export interface SessionInfo {
   /** "discord" | "password": the lobby accepts Discord sessions only. */
   authMethod?: string;
   discordSsoEnabled?: boolean;
+  organizer?: boolean;
+  admin?: boolean;
+  expiresAt?: string;
+}
+
+/** The fields of GET /api/account the SPA reads (the server sends more; nothing else is rendered). */
+export interface AccountInfo {
+  ffbCoachId: string;
+  profile?: { displayName?: string; avatar?: string };
+  identities?: { discordUsername?: string; discordUserId?: string };
+  discordAvatarUrl?: string | null;
+  fumbblName?: string | null;
 }
 
 export interface LibraryTeam {

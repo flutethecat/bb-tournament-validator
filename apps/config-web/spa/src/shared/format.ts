@@ -1,4 +1,5 @@
-// Pure display helpers for the Lobby page (no DOM) — unit-tested from apps/config-web/test/lobbyPage.test.ts.
+// Pure display helpers shared by the SPA (/app) and the vanilla Lobby page (/lobby/). No DOM; unit-tested from
+// apps/config-web/test/lobbyPage.test.ts.
 
 export type PresenceState = "here" | "left" | "client" | "not-here-yet";
 
@@ -84,10 +85,23 @@ function replaceCodes(part: string): string {
   });
 }
 
+/** Shape of a lobby id (the server mints them); shared by the vanilla page's hash and the SPA's route param. */
+export const LOBBY_ID_PATTERN = "[A-Za-z0-9_-]{6,32}";
+
+export function isLobbyId(id: string): boolean {
+  return new RegExp(`^${LOBBY_ID_PATTERN}$`).test(id);
+}
+
 /** Lobby id from a location hash ("#abc123" -> "abc123"); undefined for the Start page. */
 export function lobbyIdFromHash(hash: string): string | undefined {
   const id = hash.replace(/^#\/?/, "").trim();
-  return /^[A-Za-z0-9_-]{6,32}$/.test(id) ? id : undefined;
+  return isLobbyId(id) ? id : undefined;
+}
+
+/** Team value / gold in thousands: 1150000 -> "1,150k" (values under 10000 are already in k). */
+export function fmtK(n: number): string {
+  const k = n >= 10000 ? Math.round(n / 1000) : n;
+  return `${k.toLocaleString("en")}k`;
 }
 
 /** Lines of chat the page keeps (the server keeps the same number). */
