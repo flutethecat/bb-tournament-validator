@@ -4,10 +4,12 @@ import { RouterLink, RouterView, useRoute } from "vue-router";
 import { API_KEY } from "./app";
 import SignInPrompt from "./components/SignInPrompt.vue";
 import { appPath, discordLoginUrl, SESSION_KEY } from "./session";
+import { THEME_KEY, themeLabel } from "./theme";
 import { gateFor, NAV } from "./router";
 import type { AccountInfo } from "./shared/api";
 
 const session = inject(SESSION_KEY)!;
+const theme = inject(THEME_KEY)!;
 const fetcher = inject(API_KEY)!;
 const route = useRoute();
 
@@ -38,6 +40,7 @@ watch(
       <RouterLink v-for="item in NAV" :key="item.to" :to="item.to" class="shell-link">{{ item.label }}</RouterLink>
     </nav>
     <div class="shell-who" aria-live="polite">
+      <button class="lobby-btn small shell-theme" type="button" :aria-label="`Theme: ${themeLabel(theme.state.mode)}. Tap to change.`" @click="theme.cycle()">Theme: {{ themeLabel(theme.state.mode) }}</button>
       <RouterLink v-if="session.signedIn()" to="/account" class="shell-me">
         <img v-if="avatar" class="lobby-avatar small" :src="avatar" alt="" />
         <span>{{ session.coach() }}</span>

@@ -35,3 +35,7 @@ body { margin: 0; background: var(--ui-secondary, #000); color: var(--ui-text, #
   .account-facts { grid-template-columns: 1fr; }
   .account-facts dd { margin-bottom: 6px; }
 }
+
+/* the SPA has its own System / Light / Dark control; the vanilla pages' injected theme button is hidden here */
+#theme-toggle-btn { display: none; }
+.shell-theme { min-height: 36px; }

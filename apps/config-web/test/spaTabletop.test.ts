@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSSRApp } from "vue";
+import { createTheme, THEME_COLORS, THEME_STORAGE_KEY } from "../spa/src/theme";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
@@ -158,9 +159,9 @@ describe("tabletop routes (server-rendered)", () => {
       return typeof hit === "function" ? (hit as () => unknown)() : hit;
     }) as Fetcher;
 
-  async function render(path: string, routes: Record<string, unknown>, setup?: (spa: any, f: Fetcher) => Promise<void> | void) {
+  async function render(path: string, routes: Record<string, unknown>, setup?: (spa: any, f: Fetcher) => Promise<void> | void, theme?: unknown) {
     const f = fetcher(routes);
-    const spa = mods.app.createSpa({ history: mods.vueRouter.createMemoryHistory("/app/"), ssr: true, fetcher: f });
+    const spa = mods.app.createSpa({ history: mods.vueRouter.createMemoryHistory("/app/"), ssr: true, fetcher: f, ...(theme ? { theme } : {}) });
     await setup?.(spa, f);
     await spa.router.push(path);
     await spa.router.isReady();
@@ -201,7 +202,7 @@ describe("tabletop routes (server-rendered)", () => {
   });
 
   /** Renders /tabletop/:id with a recorder already loaded from `body` (SSR never runs onMounted). */
-  async function renderMatch(body: Record<string, unknown>, sess = session(), pendingEvents: WireEvent[] = []) {
+  async function renderMatch(body: Record<string, unknown>, sess = session(), pendingEvents: WireEvent[] = [], theme?: unknown) {
     const routes = { "/api/auth/session": sess, "/api/tabletop/matches/tm_abc123": body };
     return render("/tabletop/tm_abc123", routes, async (spa, f) => {
       const storage = mods.queue.memoryStorage();
@@ -209,7 +210,7 @@ describe("tabletop routes (server-rendered)", () => {
       const recorder = mods.rec.createRecorder("tm_abc123", { api: f, onSignedOut: () => undefined, storage });
       await recorder.refresh();
       spa.app.provide(mods.rec.RECORDER_KEY, () => recorder);
-    });
+    }, theme);
   }
 
   it("signed out: /tabletop and /tabletop/:id show the sign-in prompt, never the recorder", async () => {
@@ -398,16 +399,88 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).not.toMatch(/heads|tails/i);
   });
 
-  it("theme toggle: dark by default, remembered SNES grey from storage", async () => {
-    const dark = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: [], teams, tally: serverTally });
+  /** A matchMedia stand-in whose system setting can be flipped (fires the change event). */
+  const fakeMedia = (dark: boolean) => {
+    const listeners: Array<(e: { matches: boolean }) => void> = [];
+    const mql = { matches: dark, addEventListener: (_t: "change", fn: (e: { matches: boolean }) => void) => { listeners.push(fn); } };
+    return { matchMedia: () => mql, flip: (v: boolean) => { mql.matches = v; listeners.forEach((fn) => fn({ matches: v })); } };
+  };
+  const fakeDoc = () => {
+    const attrs: Record<string, string> = {};
+    const metas: Record<string, string> = {};
+    const meta = { setAttribute: (k: string, v: string) => { if (k === "content") metas.themeColor = v; } };
+    return {
+      attrs, metas,
+      doc: { documentElement: { setAttribute: (k: string, v: string) => { attrs[k] = v; } }, head: { appendChild: () => undefined },
+        querySelector: () => meta, createElement: () => meta },
+    };
+  };
+  const memStore = (init: Record<string, string> = {}) => { const m = { ...init }; return { m, getItem: (k: string) => m[k] ?? null, setItem: (k: string, v: string) => { m[k] = v; } }; };
+
+  it("theme: the default follows the device setting (dark -> Black/Red, light -> FUMBBL) and the browser chrome colour", () => {
+    const dark = fakeDoc();
+    const t1 = createTheme({ matchMedia: fakeMedia(true).matchMedia, storage: memStore(), doc: dark.doc });
+    expect(t1.state.mode).toBe("system");
+    expect(t1.state.resolved).toBe("dark");
+    expect(dark.attrs["data-theme"]).toBe("brand-red");
+    expect(dark.metas.themeColor).toBe(THEME_COLORS.dark);
+    const light = fakeDoc();
+    const t2 = createTheme({ matchMedia: fakeMedia(false).matchMedia, storage: memStore(), doc: light.doc });
+    expect(t2.state.resolved).toBe("light");
+    expect(light.attrs["data-theme"]).toBe("fumbbl");
+    expect(light.metas.themeColor).toBe(THEME_COLORS.light);
+  });
+
+  it("theme: a system change event flips the theme live while on System", () => {
+    const media = fakeMedia(true);
+    const d = fakeDoc();
+    const t = createTheme({ matchMedia: media.matchMedia, storage: memStore(), doc: d.doc });
+    expect(t.state.resolved).toBe("dark");
+    media.flip(false);
+    expect(t.state.resolved).toBe("light");
+    expect(d.attrs["data-theme"]).toBe("fumbbl");
+    media.flip(true);
+    expect(t.state.resolved).toBe("dark");
+  });
+
+  it("theme: an explicit choice wins over the system and is remembered; System follows again", () => {
+    const media = fakeMedia(true);
+    const store = memStore();
+    const t = createTheme({ matchMedia: media.matchMedia, storage: store, doc: fakeDoc().doc });
+    t.setMode("light");
+    expect(store.m[THEME_STORAGE_KEY]).toBe("light");
+    media.flip(true);
+    expect(t.state.resolved).toBe("light"); // the system says dark, the stored choice wins
+    // a new session reads the stored choice over a dark system
+    const again = createTheme({ matchMedia: fakeMedia(true).matchMedia, storage: store, doc: fakeDoc().doc });
+    expect(again.state.mode).toBe("light");
+    expect(again.state.resolved).toBe("light");
+    // cycling: light -> dark -> system -> light, and System follows the device again
+    again.cycle();
+    expect(again.state.mode).toBe("dark");
+    again.cycle();
+    expect(again.state.mode).toBe("system");
+    expect(again.state.resolved).toBe("dark");
+    // storage that throws still works (in memory)
+    const broken = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+    const b = createTheme({ matchMedia: fakeMedia(false).matchMedia, storage: broken, doc: fakeDoc().doc });
+    b.setMode("dark");
+    expect(b.state.resolved).toBe("dark");
+  });
+
+  it("theme: the recorder follows the device (light = SNES grey, dark = SNES dark) and shows the three-state control", async () => {
+    const body = { match: baseMatch("recording"), events, effectiveEventIds: [], teams, tally: serverTally };
+    const dark = await renderMatch(body, session(), [], createTheme({ matchMedia: fakeMedia(true).matchMedia, storage: memStore(), doc: fakeDoc().doc }));
     expect(dark.html).toContain('data-tt-theme="dark"');
-    expect(dark.html).toContain(">SNES grey</button>");
-    (globalThis as any).localStorage = { store: { "tabletop-theme": "snes" }, getItem(k: string) { return this.store[k] ?? null; }, setItem(k: string, v: string) { this.store[k] = v; }, removeItem() {} };
-    try {
-      const snes = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: [], teams, tally: serverTally });
-      expect(snes.html).toContain('data-tt-theme="snes"');
-      expect(snes.html).toContain(">Dark</button>");
-    } finally { delete (globalThis as any).localStorage; }
+    expect(dark.html).toContain("Theme: System");
+    const light = await renderMatch(body, session(), [], createTheme({ matchMedia: fakeMedia(false).matchMedia, storage: memStore(), doc: fakeDoc().doc }));
+    expect(light.html).toContain('data-tt-theme="snes"');
+    const forced = await renderMatch(body, session(), [], createTheme({ matchMedia: fakeMedia(false).matchMedia, storage: memStore({ [THEME_STORAGE_KEY]: "dark" }), doc: fakeDoc().doc }));
+    expect(forced.html).toContain('data-tt-theme="dark"');
+    expect(forced.html).toContain("Theme: Dark");
+    // the whole SPA: the shell header carries the same control on every page (standings is public)
+    const standings = await render("/standings", { "/api/auth/session": { authenticated: false } }, undefined, createTheme({ matchMedia: fakeMedia(false).matchMedia, storage: memStore(), doc: fakeDoc().doc }));
+    expect(standings.html).toContain("Theme: System");
   });
 
   const pregameProps = (phase: string, pregame: Record<string, unknown> = {}) => ({ match: baseMatch("recording"), teams, phase, pregame, busy: false, error: "" });

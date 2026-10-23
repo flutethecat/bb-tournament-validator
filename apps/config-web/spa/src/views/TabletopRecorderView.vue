@@ -12,6 +12,7 @@ import TabletopPregame from "../components/TabletopPregame.vue";
 import TabletopRosters from "../components/TabletopRosters.vue";
 import TabletopScoreboard from "../components/TabletopScoreboard.vue";
 import { SESSION_KEY } from "../session";
+import { THEME_KEY, themeLabel } from "../theme";
 import TabletopGlyph from "../components/TabletopGlyph.vue";
 import { CAS_EVENT, CASUALTY_RESULTS_UI, EDIT_MODE_ENABLED, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, type OtherEvent } from "../tabletop/feed";
 import { browserStorage } from "../tabletop/queue";
@@ -20,6 +21,7 @@ import { createRecorder, RECORDER_KEY, type Side, type SummaryView } from "../ta
 const props = defineProps<{ id: string }>();
 
 const session = inject(SESSION_KEY)!;
+const themeCtl = inject(THEME_KEY)!;
 const fetcher = inject(API_KEY)!;
 const factory = inject(RECORDER_KEY, null);
 const rec = factory ? factory(props.id) : createRecorder(props.id, { api: fetcher, onSignedOut: () => void session.load(true) });
@@ -34,14 +36,8 @@ const recording = computed(() => match.value?.state === "recording" && !inPregam
 const rows = computed(() => feedRows(state.events, state.effectiveIds, state.teams, Object.fromEntries((state.tally.events ?? []).map((e) => [e.id, e.sppEarned]))));
 const heading = (s: Side): string => (match.value ? `${s === "home" ? "Home" : "Away"}: ${match.value[s].teamName} (${match.value[s].coach})` : "");
 
-// Theme: dark (site tokens) or the light SNES grey; remembered per viewer when storage allows.
-const THEME_KEY = "tabletop-theme";
-const theme = ref<"dark" | "snes">("dark");
-try { if (browserStorage().getItem(THEME_KEY) === "snes") theme.value = "snes"; } catch { /* default */ }
-function toggleTheme(): void {
-  theme.value = theme.value === "dark" ? "snes" : "dark";
-  try { browserStorage().setItem(THEME_KEY, theme.value); } catch { /* not remembered */ }
-}
+// Theme: follows the device (System), or the explicit Light / Dark choice; light draws the SNES grey look.
+const theme = computed<"dark" | "snes">(() => (themeCtl.state.resolved === "dark" ? "dark" : "snes"));
 
 // Half / turn stepper: starts from the server tally and stamps every new event.
 const half = ref(1);
@@ -159,7 +155,7 @@ void stamp;
         <p v-if="state.pending" class="tt-chip" role="status">{{ state.pending }} event{{ state.pending === 1 ? "" : "s" }} waiting<template v-if="state.queueError"> · {{ state.queueError }}<template v-if="retryIn"> (retry in {{ retryIn }} s)</template></template></p>
         <button v-if="EDIT_MODE_ENABLED" class="tt-theme tt-pencil" type="button" :aria-pressed="editMode" aria-label="Edit mode" @click="editMode = !editMode">&#9998;</button>
         <span class="tt-state muted">{{ match.state === "recording" ? "Recording" : match.state === "submitted" ? "Submitted, waiting for confirmation" : match.state === "confirmed" ? "Confirmed" : match.state }} · {{ match.postMatch }}</span>
-        <button class="tt-theme" type="button" :aria-pressed="theme === 'snes'" @click="toggleTheme">{{ theme === "snes" ? "Dark" : "SNES grey" }}</button>
+        <button class="tt-theme" type="button" :aria-label="`Theme: ${themeLabel(themeCtl.state.mode)}. Tap to change.`" @click="themeCtl.cycle()">Theme: {{ themeLabel(themeCtl.state.mode) }}</button>
       </div>
       <p v-for="r in state.rejected" :key="r.event.id" class="lobby-error" role="alert">
         Not saved: {{ r.error }}
