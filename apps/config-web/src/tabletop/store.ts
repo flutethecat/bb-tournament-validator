@@ -9,9 +9,10 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
+import type { StoredTournamentResult } from "../tournamentResults.js";
 import type { TabletopEvent } from "./events.js";
 import type { PostMatchOption, PostMatchSummary, TabletopTeamFile } from "./postMatch.js";
 
@@ -61,7 +62,28 @@ export interface TeamChain {
   revisions: TeamRevision[];
 }
 
+/**
+ * Write-ahead journal for a multi-record commit (confirm / undo-revision). It holds the COMPLETE intended end
+ * state, so replaying it is idempotent: write journal, apply every record, clear journal. An unfinished journal
+ * is replayed to completion on startup and before any confirm/undo on its match.
+ */
+export interface CommitJournal {
+  matchId: string;
+  opId: string;
+  kind: "confirm" | "undo";
+  homeChain: TeamChain;
+  awayChain: TeamChain;
+  /** Results store change: upsert this row, or remove this game id. */
+  result: { put: StoredTournamentResult } | { remove: string } | null;
+  /** The match record to write last. */
+  match: MatchRecord;
+}
+
 export interface TabletopRepository {
+  putJournal(journal: CommitJournal): Promise<void>;
+  getJournal(matchId: string): Promise<CommitJournal | undefined>;
+  clearJournal(matchId: string): Promise<void>;
+  listJournalMatchIds(): Promise<string[]>;
   createMatch(match: MatchRecord): Promise<void>;
   getMatch(id: string): Promise<MatchRecord | undefined>;
   updateMatch(match: MatchRecord): Promise<void>;
@@ -83,12 +105,33 @@ const chainKey = (coach: string, saveId: string): string =>
 
 export class FileTabletopRepository implements TabletopRepository {
   constructor(private readonly dir: string) {
-    for (const sub of ["matches", "events", "teams"]) mkdirSync(join(dir, sub), { recursive: true });
+    for (const sub of ["matches", "events", "teams", "journals"]) mkdirSync(join(dir, sub), { recursive: true });
   }
 
   private matchFile = (id: string) => join(this.dir, "matches", `${safeId(id)}.json`);
   private eventsFile = (id: string) => join(this.dir, "events", `${safeId(id)}.ndjson`);
+  private journalFile = (id: string) => join(this.dir, "journals", `${safeId(id)}.json`);
   private chainFile = (coach: string, saveId: string) => join(this.dir, "teams", `${chainKey(coach, saveId)}.json`);
+
+  async putJournal(journal: CommitJournal): Promise<void> {
+    atomicWriteTextFile(this.journalFile(journal.matchId), `${JSON.stringify(journal)}
+`);
+  }
+
+  async getJournal(matchId: string): Promise<CommitJournal | undefined> {
+    const file = this.journalFile(matchId);
+    if (!existsSync(file)) return undefined;
+    try { return JSON.parse(readFileSync(file, "utf8")) as CommitJournal; } catch { return undefined; }
+  }
+
+  async clearJournal(matchId: string): Promise<void> {
+    const file = this.journalFile(matchId);
+    if (existsSync(file)) unlinkSync(file);
+  }
+
+  async listJournalMatchIds(): Promise<string[]> {
+    return readdirSync(join(this.dir, "journals")).filter((n) => n.endsWith(".json")).map((n) => n.slice(0, -5));
+  }
 
   async createMatch(match: MatchRecord): Promise<void> {
     if (existsSync(this.matchFile(match.id))) throw new Error("match exists");

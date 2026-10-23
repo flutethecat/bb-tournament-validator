@@ -253,7 +253,7 @@ import {
   type SaveDeps,
 } from "./teamBuilderSaves.js";
 import { TournamentStore } from "./tournaments/store.js";
-import { isTabletopApiPath, tabletopApi } from "./tabletop/api.js";
+import { isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
 import { teamFileFromSave } from "./tabletop/teamFile.js";
 import { tournamentApi } from "./tournaments/api.js";
@@ -505,6 +505,25 @@ function lobbyAuthFor(req: IncomingMessage): { coach: string; method: string } |
 const TABLETOP_DIR = resolve(process.env.TABLETOP_DIR || join(dirname(LIBRARY_DIR), "tabletop"));
 let tabletopRepo: FileTabletopRepository | undefined;
 
+async function tabletopDeps(): Promise<TabletopApiDeps> {
+  const first = !tabletopRepo;
+  tabletopRepo ??= new FileTabletopRepository(TABLETOP_DIR);
+  const deps: TabletopApiDeps = {
+    repo: tabletopRepo,
+    results: tournamentResults,
+    loadTeamFile: (coach, saveId) => {
+      const save = readSaves(BUILDER_SAVES_DIR, coach).find((s) => s.id === saveId);
+      return save ? teamFileFromSave(save) : undefined;
+    },
+    isBanned,
+    isOrganizer: (coach) => coachLevel(coach) !== "player" || isOrganizer(coach),
+  };
+  if (first) await recoverTabletop(deps);
+  return deps;
+}
+// Startup recovery: replay unfinished commit journals when a tabletop store already exists.
+if (existsSync(TABLETOP_DIR)) void tabletopDeps().catch((e) => console.error(`[tabletop] recovery failed: ${(e as Error).message}`));
+
 /** Tabletop recorder HTTP: Discord session only (checked in tabletopApi), bounded body. */
 async function handleTabletopRequest(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
   const method = req.method ?? "GET";
@@ -515,17 +534,7 @@ async function handleTabletopRequest(req: IncomingMessage, res: ServerResponse, 
     if ("error" in read) return sendJson(res, read.status, { error: read.error });
     body = read.body;
   }
-  tabletopRepo ??= new FileTabletopRepository(TABLETOP_DIR);
-  const result = await tabletopApi(method, path, auth, body, {
-    repo: tabletopRepo,
-    results: tournamentResults,
-    loadTeamFile: (coach, saveId) => {
-      const save = readSaves(BUILDER_SAVES_DIR, coach).find((s) => s.id === saveId);
-      return save ? teamFileFromSave(save) : undefined;
-    },
-    isBanned,
-    isOrganizer: (coach) => coachLevel(coach) !== "player" || isOrganizer(coach),
-  });
+  const result = await tabletopApi(method, path, auth, body, await tabletopDeps());
   if (!result) return sendJson(res, 404, { error: "Not found." });
   return sendJson(res, result.status, result.body);
 }

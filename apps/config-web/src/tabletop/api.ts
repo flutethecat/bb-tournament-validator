@@ -16,7 +16,8 @@ import {
   MAX_EVENTS_PER_BATCH, MAX_EVENTS_PER_MATCH, effectiveEvents, parseEvent, validateEvent, type Side, type TabletopEvent,
 } from "./events.js";
 import { applyPostMatch, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopTeamFile } from "./postMatch.js";
-import { headRevision, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
+import { headRevision, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
+import { duplicatePlayerId } from "./teamFile.js";
 
 export interface TabletopAuth { coach: string; method: string }
 export interface TabletopResult { status: number; body: unknown }
@@ -86,6 +87,13 @@ export async function tabletopApi(
   if (method !== "POST") return err(405, "Method not allowed.");
 
   return serial(id, async () => {
+    try {
+      const replayed = await recoverMatch(id, deps);
+      if (replayed && (action === "confirm" || action === "undo-revision") && replayed.kind === (action === "confirm" ? "confirm" : "undo"))
+        return { status: 200, body: { match: replayed.match, recovered: true } };
+    } catch {
+      return err(500, "An earlier commit on this match is still being completed; try again.");
+    }
     const fresh = (await repo.getMatch(id))!;
     if (action === "events") return postEvents(fresh, me, body, deps, now);
     if (action === "submit") return submit(fresh, deps, now);
@@ -95,11 +103,13 @@ export async function tabletopApi(
   });
 }
 
-async function ensureChain(deps: TabletopApiDeps, coach: string, saveId: string, at: string): Promise<TeamChain | undefined> {
+async function ensureChain(deps: TabletopApiDeps, coach: string, saveId: string, at: string): Promise<TeamChain | { error: string } | undefined> {
   const existing = await deps.repo.getChain(coach, saveId);
   if (existing) return existing;
   const base = deps.loadTeamFile(coach, saveId);
   if (!base) return undefined;
+  const dup = duplicatePlayerId(base);
+  if (dup) return { error: `${coach}'s team ${saveId} has a duplicate player id (${dup}).` };
   const chain: TeamChain = { saveId, coach, head: 0, revisions: [{ saveId, revision: 0, parent: null, teamFile: base, createdAt: at }] };
   await deps.repo.putChain(chain);
   return chain;
@@ -130,6 +140,8 @@ async function createMatch(me: string, organiser: boolean, body: unknown, deps: 
   const at = now().toISOString();
   const chainHome = await ensureChain(deps, home.coach, home.teamSaveId, at);
   const chainAway = await ensureChain(deps, away.coach, away.teamSaveId, at);
+  if (chainHome && "error" in chainHome) return err(422, chainHome.error);
+  if (chainAway && "error" in chainAway) return err(422, chainAway.error);
   if (!chainHome) return err(404, `${home.coach} has no saved team ${home.teamSaveId}.`);
   if (!chainAway) return err(404, `${away.coach} has no saved team ${away.teamSaveId}.`);
   for (const s of [home, away])
@@ -217,21 +229,27 @@ async function confirm(match: MatchRecord, me: string, organiser: boolean, deps:
     await deps.repo.updateMatch(next);
     return { status: 200, body: { match: next } };
   }
+  // Bans are rechecked immediately before finalisation: both participants and the confirming caller.
+  for (const coach of new Set([match.home.coach, match.away.coach, me]))
+    if (deps.isBanned(coach)) return err(403, coach === me ? BANNED_ACCOUNT_MESSAGE : `${coach} is banned; the match cannot be finalised.`);
   const events = await deps.repo.readEvents(match.id);
   const p = await computePreview(match, events, deps);
   if (!p.ok) return p.error;
 
   let wroteRevisions: MatchRecord["wroteRevisions"];
+  let homeChain = p.chainHome;
+  let awayChain = p.chainAway;
   if (match.postMatch !== "none") {
-    const add = async (chain: TeamChain, file: TabletopTeamFile): Promise<number> => {
+    const add = (chain: TeamChain, file: TabletopTeamFile): TeamChain => {
       const revision = chain.revisions.length;
-      await deps.repo.putChain({
+      return {
         ...chain, head: revision,
         revisions: [...chain.revisions, { saveId: chain.saveId, revision, parent: chain.head, teamFile: file, matchId: match.id, createdAt: at }],
-      });
-      return revision;
+      };
     };
-    wroteRevisions = { home: await add(p.chainHome, p.home.teamFile), away: await add(p.chainAway, p.away.teamFile) };
+    homeChain = add(p.chainHome, p.home.teamFile);
+    awayChain = add(p.chainAway, p.away.teamFile);
+    wroteRevisions = { home: homeChain.head, away: awayChain.head };
   }
 
   // Results row into the same store the standings / Elo read, flagged tabletop. Built from the same tally.
@@ -250,7 +268,7 @@ async function confirm(match: MatchRecord, me: string, organiser: boolean, deps:
     })),
   });
   const gameId = resultGameId(match.id);
-  deps.results.put({
+  const row: StoredTournamentResult = {
     gameId,
     pulledAt: at,
     source: "tabletop",
@@ -258,14 +276,12 @@ async function confirm(match: MatchRecord, me: string, organiser: boolean, deps:
     home: { teamId: match.home.teamSaveId, teamName: match.home.teamName, coach: match.home.coach },
     away: { teamId: match.away.teamSaveId, teamName: match.away.teamName, coach: match.away.coach },
     teams: [teamResult("home", p.home.summary), teamResult("away", p.away.summary)],
-  });
-
+  };
   const next: MatchRecord = {
     ...match, state: "confirmed", confirmations, updatedAt: at, preview: { home: p.home.summary, away: p.away.summary },
     ...(wroteRevisions ? { wroteRevisions } : {}), resultGameId: gameId,
   };
-  await deps.repo.updateMatch(next);
-  return { status: 200, body: { match: next } };
+  return commit({ matchId: match.id, opId: opId(), kind: "confirm", homeChain, awayChain, result: { put: row }, match: next }, deps);
 }
 
 async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
@@ -276,15 +292,54 @@ async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () =
   const w = match.wroteRevisions;
   if (w && (chainHome.head !== w.home || chainAway.head !== w.away))
     return err(409, "A team has newer revisions than this match; revert those first.");
-  if (w) {
-    for (const [chain, rev] of [[chainHome, w.home], [chainAway, w.away]] as const) {
-      const parent = chain.revisions.find((r) => r.revision === rev)!.parent!;
-      await deps.repo.putChain({ ...chain, head: parent });
-    }
-  }
-  if (match.resultGameId) deps.results.remove(match.resultGameId);
+  const back = (chain: TeamChain, rev: number): TeamChain => ({ ...chain, head: chain.revisions.find((r) => r.revision === rev)!.parent! });
   const { wroteRevisions: _w, resultGameId: _r, preview: _p, ...rest } = match;
   const next: MatchRecord = { ...rest, state: "recording", confirmations: {}, updatedAt: now().toISOString() };
-  await deps.repo.updateMatch(next);
-  return { status: 200, body: { match: next } };
+  return commit({
+    matchId: match.id, opId: opId(), kind: "undo",
+    homeChain: w ? back(chainHome, w.home) : chainHome,
+    awayChain: w ? back(chainAway, w.away) : chainAway,
+    result: match.resultGameId ? { remove: match.resultGameId } : null,
+    match: next,
+  }, deps);
+}
+
+const opId = (): string => randomBytes(8).toString("hex");
+
+/** Apply every record of a journal (all idempotent full-state writes), then clear it. */
+async function applyJournal(j: CommitJournal, deps: TabletopApiDeps): Promise<void> {
+  await deps.repo.putChain(j.homeChain);
+  await deps.repo.putChain(j.awayChain);
+  if (j.result && "put" in j.result) deps.results.put(j.result.put);
+  else if (j.result) deps.results.remove(j.result.remove);
+  await deps.repo.updateMatch(j.match);
+  await deps.repo.clearJournal(j.matchId);
+}
+
+/** Journal first, then apply. A failure part-way leaves the journal for replay; a retry completes it (never a 409). */
+async function commit(j: CommitJournal, deps: TabletopApiDeps): Promise<TabletopResult> {
+  try {
+    await deps.repo.putJournal(j);
+    await applyJournal(j, deps);
+  } catch {
+    return err(500, "The commit was recorded but not fully applied; it will be completed when you retry.");
+  }
+  return { status: 200, body: { match: j.match } };
+}
+
+/** Replay an unfinished journal for one match to completion (undefined when none). */
+export async function recoverMatch(matchId: string, deps: TabletopApiDeps): Promise<CommitJournal | undefined> {
+  const j = await deps.repo.getJournal(matchId);
+  if (!j) return undefined;
+  await applyJournal(j, deps);
+  return j;
+}
+
+/** Startup recovery: replay every unfinished journal. Returns the match ids completed. */
+export async function recoverTabletop(deps: TabletopApiDeps): Promise<string[]> {
+  const done: string[] = [];
+  for (const id of await deps.repo.listJournalMatchIds()) {
+    try { if (await recoverMatch(id, deps)) done.push(id); } catch { /* left for the next attempt */ }
+  }
+  return done;
 }

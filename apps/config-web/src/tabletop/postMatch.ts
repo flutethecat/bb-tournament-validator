@@ -10,12 +10,14 @@
  *     - `postMatch`: "none"      -> returns the team file UNCHANGED (summary still describes the match);
  *                    "spp-only"  -> SPP + injuries (MNG, niggling, stat loss, death);
  *                    "full"      -> spp-only plus winnings -> treasury and the dedicated-fans change.
+ *     The dedicated-fans dice are ROLLED AT THE TABLE and ENTERED by the coach as a `fanChange` {delta} event;
+ *     this function never rolls anything.
  *     - `ruleset`: only "bb2025" exists. Anything else throws.
  *     - Input is never mutated; the result team file is a new object.
  *   BB2025 values used (exported as constants so a ruleset change is one edit): TD 3, CAS 2 (block-caused
  *   only, not fouls or other causes), completion 1, interception 1, deflection 1, MVP 4; winnings 10,000 gp
- *   per touchdown scored (no win/draw bonus in v1); dedicated fans change comes from the coach's recorded
- *   `fanChange` event (the dice are rolled at the table), clamped to 1..6.
+ *   per touchdown scored (owner ruling: no win/draw bonus); dedicated fans change comes from the coach's
+ *   recorded `fanChange` event, clamped to 1..6.
  *   A player who started the match already MNG sat it out: the flag is cleared; a new MNG may then be set.
  *   Hiring, journeymen and advancement picks are OUT of scope. `casualty.apothecaryUsed` is recorded in the
  *   summary only: `result` is the FINAL result after any apothecary reroll.
@@ -26,8 +28,8 @@ import { effectiveEvents, otherSide, type Side, type StatName, type TabletopEven
 export type PostMatchOption = "none" | "spp-only" | "full";
 export type Ruleset = "bb2025";
 
-export const SPP_VALUES = { touchdown: 3, casualty: 2, completion: 1, interception: 1, deflection: 1, mvp: 4 } as const;
 export const WINNINGS_PER_TOUCHDOWN = 10_000;
+export const SPP_VALUES = { touchdown: 3, casualty: 2, completion: 1, interception: 1, deflection: 1, mvp: 4 } as const;
 export const FANS_MIN = 1;
 export const FANS_MAX = 6;
 

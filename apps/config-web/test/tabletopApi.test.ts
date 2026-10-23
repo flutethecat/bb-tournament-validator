@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { computeElo } from "../src/coachElo.js";
-import { tabletopApi, type TabletopApiDeps, type TabletopResult } from "../src/tabletop/api.js";
+import { recoverTabletop, tabletopApi, type TabletopApiDeps, type TabletopResult } from "../src/tabletop/api.js";
+import { duplicatePlayerId, teamFileFromSave } from "../src/tabletop/teamFile.js";
+import type { TeamBuilderSave } from "../src/teamBuilderSaves.js";
 import { FileTabletopRepository, headRevision } from "../src/tabletop/store.js";
 import type { TabletopTeamFile } from "../src/tabletop/postMatch.js";
 import { TournamentResultStore, aggregateStandings } from "../src/tournamentResults.js";
@@ -14,6 +16,8 @@ let results: TournamentResultStore;
 const organisers = new Set<string>(["Org"]);
 const banned = new Set<string>();
 const files: Record<string, TabletopTeamFile> = {};
+let failRepo: FileTabletopRepository | undefined;
+let failResults: TournamentResultStore | undefined;
 
 const mkTeam = (name: string, prefix: string): TabletopTeamFile => ({
   schema: 1, name, treasury: 50_000, dedicatedFans: 2,
@@ -21,7 +25,7 @@ const mkTeam = (name: string, prefix: string): TabletopTeamFile => ({
 });
 
 const deps = (): TabletopApiDeps => ({
-  repo, results,
+  repo: failRepo ?? repo, results: failResults ?? results,
   loadTeamFile: (coach, saveId) => files[`${coach}/${saveId}`],
   isBanned: (c) => banned.has(c),
   isOrganizer: (c) => organisers.has(c),
@@ -48,6 +52,8 @@ beforeEach(() => {
   repo = new FileTabletopRepository(join(dir, "tt"));
   results = new TournamentResultStore(join(dir, "results"));
   banned.clear();
+  failRepo = undefined;
+  failResults = undefined;
   files["Alice/sv_a"] = mkTeam("Alice XI", "a");
   files["Bob/sv_b"] = mkTeam("Bob XI", "b");
 });
@@ -194,5 +200,101 @@ describe("tabletop API: submit / confirm / undo-revision", () => {
   it("undo-revision refuses while the match is not confirmed", async () => {
     const id = await playedMatch();
     expect((await as("Org", "POST", `/api/tabletop/matches/${id}/undo-revision`)).status).toBe(409);
+  });
+});
+
+describe("tabletop: baseline team file ids", () => {
+  const save = (picks: unknown[]) => ({ name: "T", rosterId: "orc", body: { picks } }) as unknown as TeamBuilderSave;
+  it("two picks of one position get unique ids across the roster", () => {
+    const file = teamFileFromSave(save([{ positionId: "B", count: 2 }, { positionId: "L", count: 1 }, { positionId: "B", count: 2, chosenSkills: ["Block"] }]));
+    expect(file.players.map((p) => p.id)).toEqual(["B-1", "B-2", "L-1", "B-3", "B-4"]);
+    expect(duplicatePlayerId(file)).toBeUndefined();
+  });
+  it("a baseline with a duplicate id is refused before it is persisted", async () => {
+    const bad = mkTeam("Dup", "a");
+    bad.players[1]!.id = bad.players[0]!.id;
+    files["Alice/sv_a"] = bad;
+    const r = await as("Alice", "POST", "/api/tabletop/matches", { home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" } });
+    expect(r.status).toBe(422);
+    expect(await repo.getChain("Alice", "sv_a")).toBeUndefined();
+  });
+});
+
+describe("tabletop: commit journal", () => {
+  async function submitted(): Promise<string> {
+    const id = await newMatch();
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("touchdown", "home", "a1"), E("casualty", "home", "a2", { victim: "b1", result: "MNG" })] });
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);
+    return id;
+  }
+  const flakyRepo = (failOnce: (coach: string) => boolean): FileTabletopRepository => {
+    const flaky = Object.create(repo) as FileTabletopRepository;
+    let armed = true;
+    flaky.putChain = async (chain) => {
+      if (armed && failOnce(chain.coach)) { armed = false; throw new Error("disk full"); }
+      return repo.putChain(chain);
+    };
+    return flaky;
+  };
+
+  it("a failed away write leaves a journal; retry completes the commit (200, not 409)", async () => {
+    const id = await submitted();
+    failRepo = flakyRepo((coach) => coach === "Bob");
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/confirm`)).status).toBe(500);
+    expect((await repo.getChain("Alice", "sv_a"))!.head).toBe(1); // home landed
+    expect((await repo.getChain("Bob", "sv_b"))!.head).toBe(0); // away did not
+    expect((await repo.getMatch(id))!.state).toBe("submitted");
+    expect(await repo.getJournal(id)).toBeDefined();
+    const retry = await as("Org", "POST", `/api/tabletop/matches/${id}/confirm`);
+    expect(retry.status).toBe(200);
+    expect((await repo.getChain("Bob", "sv_b"))!.head).toBe(1);
+    expect((await repo.getMatch(id))!.state).toBe("confirmed");
+    expect(results.list()).toHaveLength(1);
+    expect(await repo.getJournal(id)).toBeUndefined();
+    expect((await repo.getChain("Alice", "sv_a"))!.revisions).toHaveLength(2); // not applied twice
+  });
+
+  it("a failed results write is completed by replay", async () => {
+    const id = await submitted();
+    failResults = Object.create(results) as TournamentResultStore;
+    let armed = true;
+    failResults.put = (row) => { if (armed) { armed = false; throw new Error("results down"); } return results.put(row); };
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/confirm`)).status).toBe(500);
+    expect(results.list()).toHaveLength(0);
+    expect((await repo.getMatch(id))!.state).toBe("submitted");
+    expect((await as("Alice", "POST", `/api/tabletop/matches/${id}/confirm`)).status).toBe(200);
+    expect(results.list()).toHaveLength(1);
+    expect((await repo.getMatch(id))!.state).toBe("confirmed");
+  });
+
+  it("startup recovery replays an unfinished journal", async () => {
+    const id = await submitted();
+    failRepo = flakyRepo((coach) => coach === "Bob");
+    await as("Org", "POST", `/api/tabletop/matches/${id}/confirm`);
+    expect(await recoverTabletop(deps())).toEqual([id]);
+    expect((await repo.getMatch(id))!.state).toBe("confirmed");
+    expect((await repo.getChain("Bob", "sv_b"))!.head).toBe(1);
+    expect(await recoverTabletop(deps())).toEqual([]);
+  });
+
+  it("a failed undo also completes on retry", async () => {
+    const id = await submitted();
+    await as("Org", "POST", `/api/tabletop/matches/${id}/confirm`);
+    failRepo = flakyRepo((coach) => coach === "Bob");
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/undo-revision`)).status).toBe(500);
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/undo-revision`)).status).toBe(200);
+    expect((await repo.getChain("Bob", "sv_b"))!.head).toBe(0);
+    expect((await repo.getMatch(id))!.state).toBe("recording");
+    expect(results.list()).toHaveLength(0);
+  });
+
+  it("a participant banned after submit blocks the final confirm (403); the match stays submitted", async () => {
+    const id = await submitted();
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/confirm`);
+    banned.add("Bob");
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/confirm`)).status).toBe(403);
+    expect((await repo.getMatch(id))!.state).toBe("submitted");
+    expect(results.list()).toHaveLength(0);
+    expect((await repo.getChain("Alice", "sv_a"))!.head).toBe(0);
   });
 });
