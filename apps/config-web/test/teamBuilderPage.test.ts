@@ -294,6 +294,10 @@ describe("team builder page — source contract", () => {
     expect(html.indexOf('id="selected-inducement-section"')).toBeGreaterThan(html.indexOf('id="roster-slots"'));
     expect(js).toContain("const selected = items.filter((item) => (inducementCounts[item.key] ?? 0) > 0);");
     expect(js).toContain('for (const listId of ["inducement-list", "selected-inducement-list"])');
+    // Adding/removing never moves the page or the catalogue's scroll.
+    expect(js).toContain("next?.focus({ preventScroll: true });");
+    expect(js).toContain('window.scrollTo({ top: pageY, behavior: "instant" });');
+    expect(js).toContain('$("inducement-list").scrollTop = catalogTop;');
     expect(css).toMatch(/\.scroll-list \{ max-height: 420px; overflow-y: auto;/);
   });
 

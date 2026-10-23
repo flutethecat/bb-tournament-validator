@@ -2887,11 +2887,16 @@ ${rosterSheetHtml(model)}
       if (!button) return;
       const key = button.dataset.inducement;
       const delta = Number(button.dataset.delta);
+      // Re-rendering moves the row between the two lists and resizes "Selected Inducements": hold the
+      // page and the catalogue's own scroll where they were (owner 10-23: removing one jumped the page).
+      const pageY = window.scrollY;
+      const catalogTop = $("inducement-list").scrollTop;
       stepInducement(key, delta);
-      // The row may have moved between the two lists: keep focus on the same control.
+      $("inducement-list").scrollTop = catalogTop;
       const row = document.querySelector(`[data-inducement-row="${CSS.escape(key)}"]`);
       const next = row?.querySelector(`[data-delta="${delta}"]:not(:disabled)`) ?? row?.querySelector("button:not(:disabled)");
-      next?.focus();
+      next?.focus({ preventScroll: true });
+      window.scrollTo({ top: pageY, behavior: "instant" });
     });
   }
   $("staff-controls").addEventListener("click", (event) => {
