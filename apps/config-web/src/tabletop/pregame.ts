@@ -11,7 +11,8 @@
  * when neither team bought one.
  *
  * Phases a match walks through: pregame:fans -> pregame:weather -> pregame:journeymen -> pregame:inducements ->
- * pregame:prayers (only when bought) -> pregame:coin -> playing.
+ * pregame:prayers (only when bought) -> pregame:coin -> pregame:timers (turn-timer agreement; skipped when the
+ * competition forbids or requires timers) -> playing.
  *
  * Simplifications, stated: team value is the stored current team value (library) or the builder's preview /
  * roster arithmetic (saves), plus journeymen; players missing the next game are not subtracted.
@@ -23,7 +24,7 @@ import { WEATHER_RESULTS, type Side, type TabletopEvent } from "./events.js";
 import type { TabletopPlayer, TabletopTeamFile } from "./postMatch.js";
 
 export const PREGAME_PHASES = [
-  "pregame:fans", "pregame:weather", "pregame:journeymen", "pregame:inducements", "pregame:prayers", "pregame:coin",
+  "pregame:fans", "pregame:weather", "pregame:journeymen", "pregame:inducements", "pregame:prayers", "pregame:coin", "pregame:timers",
 ] as const;
 export type PregamePhase = (typeof PREGAME_PHASES)[number];
 export type MatchPhase = PregamePhase | "playing";

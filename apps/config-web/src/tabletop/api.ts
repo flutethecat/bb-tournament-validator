@@ -20,6 +20,10 @@ import {
   PRAYERS_TO_NUFFLE, journeymenNeeded, makeJourneymen, overlayRosters, planInducements, pregameSummary, teamValueWithJourneymen, weatherFor,
   type MatchPhase,
 } from "./pregame.js";
+import {
+  DEFAULT_TURN_TIMER_POLICY, endTurn, firstHalfReceiver, initialClock, startTurn,
+  type ClockState, type MatchTimers, type TurnTimerPolicy,
+} from "./clock.js";
 import { leagueStandings, type LeaguePoints } from "./standings.js";
 import { applyPostMatch, sppForEvent, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile } from "./postMatch.js";
 import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
@@ -41,6 +45,8 @@ export interface FixtureView {
   tournament?: { id: string; name: string };
   round?: number;
   resultReportedAt?: string;
+  /** The tournament's turn-timer policy (absent = the default: optional, 240 s). */
+  turnTimer?: TurnTimerPolicy;
   /** The op id stamped on the recorded result (tabletop publications only). */
   resultOpId?: string;
 }
@@ -68,6 +74,8 @@ export interface TabletopApiDeps {
   resolveFixtureTeam?: (coach: string, teamId: string) => { ref: string; name: string } | undefined;
   /** Die roller for the server-side pre-game rolls: 1..sides. Default is crypto-random; tests inject. */
   rollDie?: (sides: number) => number;
+  /** Called with the new clock payload whenever a match's clock or phase changes (the Super socket feed). */
+  publishClock?: (matchId: string, payload: unknown) => void;
   /** Fork-game metadata lookup for league standings (package name of a fork tournament game). */
   forkMetadata?: Parameters<typeof leagueStandings>[2];
   /** A league's points scheme when the tournaments store has one; default 3/1/0. */
@@ -146,7 +154,7 @@ export async function tabletopApi(
       .map((t) => ({ ref: t.ref, name: t.name, race: t.race, tv: t.tv }));
     return { status: 200, body: { coach, saves, teams } };
   }
-  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance))?$/.exec(path);
+  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|turn\/start|turn\/end))?$/.exec(path);
   if (!m) return err(404, "Not found.");
   const id = m[1]!;
   const action = m[2];
@@ -164,7 +172,7 @@ export async function tabletopApi(
     return {
       status: 200,
       body: {
-        match, phase: match.phase ?? "playing", pregame: pregameSummary(events),
+        match, phase: match.phase ?? "playing", clock: clockView(match, events, deps, now()), pregame: pregameSummary(events),
         events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e) : 0 })),
         effectiveEventIds: effectiveEvents(events).map((e) => e.id), teams, tally: tallyView(events, teams),
       },
@@ -188,7 +196,8 @@ export async function tabletopApi(
       return recoveryFailure(e);
     }
     const fresh = (await repo.getMatch(id))!;
-    if (action === "events") return postEvents(fresh, me, body, deps, now);
+    if (action === "events") return postEvents(fresh, me, organiser, body, deps, now);
+    if (action === "turn/start" || action === "turn/end") return turnAction(fresh, me, organiser, action, body, deps, now);
     if (action === "pregame/advance") return pregameAdvance(fresh, me, organiser, body, deps, now);
     if (action === "submit") return submit(fresh, deps, now);
     if (action === "confirm") return confirm(fresh, me, organiser, deps, now);
@@ -323,6 +332,8 @@ async function createMatch(me: string, organiser: boolean, body: unknown, deps: 
     home: { ...home, teamName: headRevision(chainHome).teamFile.name },
     away: { ...away, teamName: headRevision(chainAway).teamFile.name },
     phase: (b.pregame === "skip" ? "playing" : "pregame:fans") as MatchPhase,
+    ...(b.pregame === "skip" ? { clock: initialClock([]), timers: { mode: "off", seconds: DEFAULT_TURN_TIMER_POLICY.seconds, enforced: "off" } as MatchTimers } : {}),
+    ...(b.allowOvertime === true ? { allowOvertime: true } : {}),
     ...(league ? { league } : {}),
     ...(fixtureSwap ? { fixtureSwap } : {}),
     postMatch: postMatch as PostMatchOption,
@@ -336,8 +347,11 @@ async function createMatch(me: string, organiser: boolean, body: unknown, deps: 
   return { status: 201, body: { match } };
 }
 
-async function postEvents(match: MatchRecord, me: string, body: unknown, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
-  if (match.state !== "recording") return err(409, `This match is ${match.state}; events can only be added while recording.`);
+async function postEvents(match: MatchRecord, me: string, organiser: boolean, body: unknown, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
+  // Recording: anyone in the match records; participants may undo their own side's events. Once submitted, only an
+  // organiser may undo events (the preview is recomputed); confirmed / published matches need a revert first.
+  const reopenForUndo = match.state === "submitted";
+  if (match.state !== "recording" && !reopenForUndo) return err(409, `This match is ${match.state}; events can only be added while recording.`);
   if ((match.phase ?? "playing") !== "playing") return err(409, `Finish the pre-game first (the match is at ${match.phase}).`);
   const raw = (body as { events?: unknown } | undefined)?.events;
   if (!Array.isArray(raw) || raw.length === 0) return err(400, "events must be a non-empty array.");
@@ -348,6 +362,8 @@ async function postEvents(match: MatchRecord, me: string, body: unknown, deps: T
   const rosters = { home: teams.home, away: teams.away };
   const known = new Set(stored.map((e) => e.id));
   const running = [...stored];
+  const clock = currentClock(match, stored);
+  const mySides = (["home", "away"] as const).filter((sd) => match[sd].coach === me);
   const accepted: TabletopEvent[] = [];
   const duplicates: string[] = [];
   const at = now().toISOString();
@@ -355,6 +371,21 @@ async function postEvents(match: MatchRecord, me: string, body: unknown, deps: T
     const parsed = parseEvent(r, match.id, me, at);
     if (!parsed.ok) return err(400, parsed.error);
     if (known.has(parsed.event.id)) { duplicates.push(parsed.event.id); continue; }
+    if (reopenForUndo && parsed.event.type !== "undo") return err(409, `This match is ${match.state}; only an organiser can undo events now.`);
+    if (parsed.event.type === "undo") {
+      if (reopenForUndo && !organiser) return err(403, "Once the match is submitted only an organiser can undo events.");
+      if (!organiser) {
+        const target = running.find((e) => e.id === parsed.event.payload.target);
+        if (target && !mySides.includes(target.team)) return err(403, "You can only undo your own side's events; an organiser can undo any.");
+      }
+    } else if (parsed.event.half === undefined || (parsed.event.turn === undefined && clock.turn >= 1)) {
+      // the server stamps the match clock on events the client left unmarked
+      parsed.event = {
+        ...parsed.event,
+        ...(parsed.event.half === undefined ? { half: clock.half } : {}),
+        ...(parsed.event.turn === undefined && clock.turn >= 1 ? { turn: clock.turn } : {}),
+      };
+    }
     const v = validateEvent(parsed.event, running, rosters);
     if ("error" in v) return err(400, v.error);
     known.add(v.event.id);
@@ -363,7 +394,18 @@ async function postEvents(match: MatchRecord, me: string, body: unknown, deps: T
   }
   if (stored.length + accepted.length > MAX_EVENTS_PER_MATCH) return err(409, "This match has too many events.");
   await deps.repo.appendEvents(match.id, accepted);
-  const result = { accepted: accepted.map((e) => e.id), duplicates, total: stored.length + accepted.length, tally: tallyView(running, teams) };
+  const result = {
+    accepted: accepted.map((e) => e.id), duplicates, total: stored.length + accepted.length, tally: tallyView(running, teams),
+    clock: clockView(match, running, deps, now()),
+  };
+  if (reopenForUndo && accepted.length) {
+    // an organiser's undo after submit: the preview both coaches saw is stale, so recompute it and clear confirmations
+    const p = await computePreview(match, running, deps);
+    if (!p.ok) return p.error;
+    const next: MatchRecord = { ...match, confirmations: {}, preview: { home: p.home.summary, away: p.away.summary }, updatedAt: now().toISOString() };
+    await deps.repo.updateMatch(next);
+    return { status: 200, body: { ...result, match: next } };
+  }
   // endOfMatch is the submit: the match moves to submitted in the same request.
   if (accepted.some((e) => e.type === "endOfMatch")) {
     const submitted = await submit(match, deps, now);
@@ -846,6 +888,14 @@ async function pregameAdvance(
     return picks.find((p) => p.id === "prayers_to_nuffle")?.qty ?? 0;
   };
   let next: Phase = phase;
+  const policy = timerPolicyFor(match, deps);
+  let timers: MatchTimers | undefined;
+  /** After the coin: the competition may forbid (off) or require (required) turn timers; otherwise the coaches are asked. */
+  const afterCoin = (): Phase => {
+    if (policy.enforced === "optional") return "pregame:timers";
+    timers = { mode: policy.enforced === "required" ? "on" : "off", seconds: policy.seconds, enforced: policy.enforced };
+    return "playing";
+  };
 
   if (phase === "pregame:fans") {
     for (const side of sides) {
@@ -932,29 +982,121 @@ async function pregameAdvance(
         const expected: Side = callerWins(b.result) ? caller : caller === "home" ? "away" : "home";
         if (b.winner !== expected) return err(400, `With that call and result the winner is ${expected}.`);
         mk("pg-coinflip", "coinFlip", b.winner, { mode, call: b.call, caller, result: b.result, winner: b.winner, choice: b.choice });
-        next = "playing";
+        next = afterCoin();
       }
     } else if (flip.payload.mode === "auto" && !all().some((e) => e.id === "pg-coinchoice")) {
       if (!choiceGiven) return err(400, 'The winner must choose: choice "kick" or "receive".');
       const winner = flip.team;
       if (!organiser && match[winner].coach !== me) return err(403, `${match[winner].coach} won the toss and makes the choice.`);
       mk("pg-coinchoice", "coinFlip", winner, { stage: "choice", winner, choice: b.choice });
-      next = "playing";
+      next = afterCoin();
     } else {
       return err(409, "The coin has already been flipped.");
+    }
+  } else if (phase === "pregame:timers") {
+    // Turn timers engage only if BOTH coaches agree (an organiser may answer for both). A new answer replaces that team's
+    // earlier one until both have answered.
+    if (typeof b.agree !== "boolean") return err(400, "agree must be true or false.");
+    const answering = organiser ? sides : sides.filter((sd) => match[sd].coach === me);
+    if (!answering.length) return err(403, "Only the two coaches (or an organiser) answer the turn-timer question.");
+    for (const sd of answering) {
+      const n = all().filter((e) => e.type === "timerAgree" && e.team === sd).length;
+      mk(n === 0 ? `pg-timer-${sd}` : `pg-timer-${sd}-${n + 1}`, "timerAgree", sd, { agree: b.agree, answeredBy: me });
+    }
+    const answered = (sd: Side) => all().filter((e) => e.type === "timerAgree" && e.team === sd).at(-1);
+    if (sides.every((sd) => answered(sd))) {
+      const on = sides.every((sd) => answered(sd)!.payload.agree === true);
+      timers = { mode: on ? "on" : "off", seconds: policy.seconds, enforced: policy.enforced };
+      next = "playing";
     }
   }
 
   await deps.repo.appendEvents(match.id, out);
-  const updated: MatchRecord = next === phase ? match : { ...match, phase: next, updatedAt: at };
-  if (next !== phase) await deps.repo.updateMatch(updated);
   const events = [...stored, ...out];
+  const updated: MatchRecord = next === phase ? match : {
+    ...match, phase: next, updatedAt: at,
+    ...(timers ? { timers } : {}),
+    ...(next === "playing" ? { clock: initialClock(events) } : {}), // the receiving team (from the coin) is active at 1Ht0
+  };
+  if (next !== phase) await deps.repo.updateMatch(updated);
+  const clock = clockView(updated, events, deps, now());
+  if (next !== phase) deps.publishClock?.(match.id, { ...clock, phase: next });
   return {
     status: 200,
     body: {
-      match: updated, phase: next, recorded: out.map((e) => e.id), pregame: pregameSummary(events),
+      match: updated, phase: next, clock, recorded: out.map((e) => e.id), pregame: pregameSummary(events),
       teams: overlayRosters({ home: baseTeams.home, away: baseTeams.away }, events),
+      ...(phase === "pregame:timers" && next === phase ? { waitingFor: sides.filter((sd) => !events.some((e) => e.type === "timerAgree" && e.team === sd)) } : {}),
       ...(phase === "pregame:inducements" && next === phase ? { waitingFor: sides.filter((s) => !events.some((e) => e.type === "inducement" && e.team === s)) } : {}),
     },
   };
+}
+
+// ---- Lane R3: match clock and turns ------------------------------------------------------------------------
+
+/** The competition's turn-timer policy for this match: its tournament's setting for a fixture match, else the default. */
+function timerPolicyFor(match: MatchRecord, deps: TabletopApiDeps): TurnTimerPolicy {
+  const f = match.fixtureRef ? deps.fixtures?.get(match.fixtureRef) : undefined;
+  return f?.turnTimer ?? DEFAULT_TURN_TIMER_POLICY;
+}
+
+const currentClock = (match: MatchRecord, events: readonly TabletopEvent[]): ClockState => match.clock ?? initialClock(events);
+
+/** The clock payload both phones read (GET, events POST, turn routes, the Super socket): server time included. */
+export function clockView(match: MatchRecord, events: readonly TabletopEvent[], deps: TabletopApiDeps, now: Date) {
+  const playing = (match.phase ?? "playing") === "playing";
+  const c: ClockState = playing ? currentClock(match, events) : { half: 1, turn: 0, activeTeam: null, turnStartedAt: null };
+  const policy = timerPolicyFor(match, deps);
+  const answered = (sd: Side) => events.filter((e) => e.type === "timerAgree" && e.team === sd).at(-1)?.payload.agree === true;
+  const on = match.timers?.mode === "on";
+  return {
+    half: c.half,
+    turn: c.turn,
+    activeTeam: c.activeTeam,
+    turnStartedAt: c.turnStartedAt,
+    turnTimer: {
+      mode: match.timers?.mode ?? "off",
+      seconds: match.timers?.seconds ?? policy.seconds,
+      // "required" engages without asking, so both count as agreed
+      agreed: policy.enforced === "required" && on ? { home: true, away: true } : { home: answered("home"), away: answered("away") },
+      enforced: match.timers?.enforced ?? policy.enforced,
+    },
+    allowOvertime: match.allowOvertime === true,
+    serverNow: now.toISOString(),
+  };
+}
+
+/** POST .../turn/start (1Ht0 -> 1Ht1, 2Ht0 -> 2Ht1) and .../turn/end. Auth: the ACTIVE team's coach, or an organiser. */
+async function turnAction(
+  match: MatchRecord, me: string, organiser: boolean, action: "turn/start" | "turn/end", body: unknown, deps: TabletopApiDeps, now: () => Date,
+): Promise<TabletopResult> {
+  if (match.state !== "recording") return err(409, `This match is ${match.state}.`);
+  if ((match.phase ?? "playing") !== "playing") return err(409, `Finish the pre-game first (the match is at ${match.phase}).`);
+  const events = await deps.repo.readEvents(match.id);
+  const clock = currentClock(match, events);
+  const stale = (message: string): TabletopResult => ({ status: 409, body: { error: message, clock: clockView(match, events, deps, now()) } });
+  if (!organiser && (clock.activeTeam === null || match[clock.activeTeam].coach !== me))
+    return err(403, clock.activeTeam ? `It is ${match[clock.activeTeam].coach}'s turn.` : "The match has no turns left.");
+  const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  // A stale press (the turn already moved on, e.g. a double tap or a second phone) changes nothing and answers 409 with the clock.
+  if (b.expectedHalf !== undefined && b.expectedHalf !== clock.half) return stale("The clock has moved on.");
+  if (b.expectedTurn !== undefined && b.expectedTurn !== clock.turn) return stale("The clock has moved on.");
+  if (b.expectedTeam !== undefined && b.expectedTeam !== clock.activeTeam) return stale("The clock has moved on.");
+  const at = now().toISOString();
+  const first = firstHalfReceiver(events);
+  const next = action === "turn/start" ? startTurn(clock, at) : endTurn(clock, first, match.allowOvertime === true, at);
+  if ("error" in next) return stale(next.error);
+  if (action === "turn/end") {
+    const id = `turn-end-${clock.half}-${clock.turn}-${clock.activeTeam}`;
+    if (!events.some((e) => e.id === id))
+      await deps.repo.appendEvents(match.id, [{
+        id, matchId: match.id, type: "turnEnd", team: clock.activeTeam!, half: clock.half, turn: clock.turn,
+        payload: { half: clock.half, turn: clock.turn, team: clock.activeTeam }, ts: at, by: me,
+      }]);
+  }
+  const updated: MatchRecord = { ...match, clock: next, updatedAt: at };
+  await deps.repo.updateMatch(updated);
+  const view = clockView(updated, events, deps, now());
+  deps.publishClock?.(match.id, { ...view, phase: "playing" });
+  return { status: 200, body: { clock: view, match: updated } };
 }

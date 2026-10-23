@@ -48,6 +48,14 @@ export type AuthVerifier = (
  *  `/gamestate/get` poll. Returns null when the coach is NOT a participant (reject) — never guess. */
 export type SeatResolver = (gameId: string, coach: string) => Promise<Seat | null>;
 
+/** Tabletop match clock rooms (feature `tabletop-clock`): the coaches of a match plus organisers, one room per match. */
+export interface TabletopSocketBridge {
+  /** Is this coach a participant in the match, or an organiser? */
+  isMember(matchId: string, coach: string): Promise<boolean> | boolean;
+  /** The clock payload to send on join (same shape as every later `tabletop-clock` event), or null when the match is gone. */
+  clock(matchId: string): Promise<unknown | null> | unknown | null;
+}
+
 export interface SuperOptions {
   verifyAuth: AuthVerifier;
   resolveSeat: SeatResolver;
@@ -58,6 +66,8 @@ export interface SuperOptions {
   log?: (line: string) => void;
   /** Web Lobby rooms (lobby-chat / lobby-presence). Absent => a lobby hello is refused. */
   lobby?: LobbySocketBridge;
+  /** Tabletop match clock rooms. Needs `lobby` too (its Discord session handling). Absent => a tabletop hello is refused. */
+  tabletop?: TabletopSocketBridge;
   /** min ms between two lobby-chat publishes by one coach in one lobby, across all their sockets (default 400). */
   lobbyChatIntervalMs?: number;
   /** max open sockets per coach per lobby (default 3); one more is refused. */
@@ -90,6 +100,8 @@ export class SuperService {
   private readonly minPublishIntervalMs: number;
   /** lobbyId -> the open sockets of its two coaches (a coach may have several tabs). */
   private readonly lobbyRooms = new Map<string, Set<WsConnection>>();
+  /** matchId -> the open sockets of its participants and organisers. */
+  private readonly tabletopRooms = new Map<string, Set<WsConnection>>();
   private readonly lobbyChatIntervalMs: number;
   private readonly lobbyMaxSocketsPerCoach: number;
   /** `${lobbyId}|${coach}` -> last accepted chat publish (per coach, not per socket). */
@@ -161,7 +173,8 @@ export class SuperService {
     try {
       const msg = JSON.parse(text) as Record<string, unknown>;
       const type = msg.type;
-      if (type === "hello" && typeof msg.lobbyId === "string") this.handleLobbyHello(conn, msg);
+      if (type === "hello" && typeof msg.tabletopId === "string") await this.handleTabletopHello(conn, msg);
+      else if (type === "hello" && typeof msg.lobbyId === "string") this.handleLobbyHello(conn, msg);
       else if (type === "hello") await this.handleHello(conn, msg);
       else if (type === "publish" && conn.data.kind === "lobby") this.handleLobbyPublish(conn, msg);
       else if (type === "publish") this.handlePublish(conn, msg);
@@ -331,6 +344,49 @@ export class SuperService {
     lobby.socketOpened(lobbyId, coach); // store emits -> broadcastLobbyPresence
   }
 
+  // -- Tabletop clock rooms ---------------------------------------------------------------------------------
+  private async handleTabletopHello(conn: WsConnection, msg: Record<string, unknown>): Promise<void> {
+    if (conn.data.authed) return;
+    const bridge = this.opts.tabletop;
+    const lobby = this.opts.lobby;
+    const matchId = String(msg.tabletopId);
+    const token = typeof conn.data.sessionToken === "string" ? conn.data.sessionToken : "";
+    const coach = (lobby && token && lobby.sessionCoach(token)) || "";
+    const room = this.tabletopRooms.get(matchId);
+    const mine = room ? [...room].filter((x) => String(x.data.coach).toLowerCase() === coach.toLowerCase()).length : 0;
+    let reason = !bridge || !lobby ? "off" : conn.data.originOk !== true ? "origin" : !coach ? "session" : mine >= this.lobbyMaxSocketsPerCoach ? "too-many" : "";
+    if (!reason && bridge) {
+      try { if (!(await bridge.isMember(matchId, coach))) reason = "member"; } catch { reason = "member"; }
+    }
+    if (reason || !bridge) {
+      this.log(`tabletop reject (${reason}) coach=${coach || "-"} match=${matchId}`);
+      this.safeSend(conn, { type: "tabletopRefused", v: 1, matchId, reason });
+      conn.close();
+      return;
+    }
+    conn.data.authed = true;
+    conn.data.kind = "tabletop";
+    conn.data.coach = coach;
+    conn.data.tabletopId = matchId;
+    const joined = room ?? new Set<WsConnection>();
+    joined.add(conn);
+    this.tabletopRooms.set(matchId, joined);
+    let clock: unknown = null;
+    try { clock = await bridge.clock(matchId); } catch { /* the first clock event will carry it */ }
+    this.safeSend(conn, { type: "tabletopWelcome", v: 1, matchId, coach, features: ["tabletop-clock"], clock });
+  }
+
+  /** Push the match clock to every open socket of that match (participants + organisers); sockets whose session ended get nothing. */
+  publishTabletopClock(matchId: string, payload: unknown): void {
+    const room = this.tabletopRooms.get(matchId);
+    if (!room) return;
+    const text = JSON.stringify({ type: "event", v: 1, matchId, coach: "", feature: "tabletop-clock", payload, ts: Date.now() });
+    for (const c of [...room]) {
+      if (!this.lobbySessionValid(c)) { c.close(); continue; }
+      try { c.send(text); } catch { /* ignore */ }
+    }
+  }
+
   /** A lobby socket lives only as long as its Discord session (logout / expiry closes it). */
   private lobbySessionValid(conn: WsConnection): boolean {
     const token = typeof conn.data.sessionToken === "string" ? conn.data.sessionToken : "";
@@ -343,6 +399,9 @@ export class SuperService {
       for (const room of [...this.lobbyRooms.values()]) {
         for (const c of [...room]) if (c.data.sessionToken === token) c.close();
       }
+      for (const room of [...this.tabletopRooms.values()]) {
+        for (const c of [...room]) if (c.data.sessionToken === token) c.close();
+      }
     } catch (e) {
       this.log(`lobby session close error (contained): ${(e as Error).message}`);
     }
@@ -351,6 +410,9 @@ export class SuperService {
   private revalidateLobbySockets(): void {
     try {
       for (const room of [...this.lobbyRooms.values()]) {
+        for (const c of [...room]) if (!this.lobbySessionValid(c)) c.close();
+      }
+      for (const room of [...this.tabletopRooms.values()]) {
         for (const c of [...room]) if (!this.lobbySessionValid(c)) c.close();
       }
     } catch (e) {
@@ -427,6 +489,12 @@ export class SuperService {
 
   private removeConn(conn: WsConnection): void {
     if (conn.data.kind === "lobby") { this.removeLobbyConn(conn); return; }
+    if (conn.data.kind === "tabletop") {
+      const id = conn.data.tabletopId as string | undefined;
+      const room = id ? this.tabletopRooms.get(id) : undefined;
+      if (id && room) { room.delete(conn); if (room.size === 0) this.tabletopRooms.delete(id); }
+      return;
+    }
     const gameId = conn.data.gameId as string | undefined;
     const coach = conn.data.coach as string | undefined;
     if (!gameId || !coach) return;

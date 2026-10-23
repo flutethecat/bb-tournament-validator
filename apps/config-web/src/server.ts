@@ -255,9 +255,10 @@ import {
   type SaveDeps,
 } from "./teamBuilderSaves.js";
 import { TournamentStore } from "./tournaments/store.js";
+import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./tournaments/types.js";
 import { RateLimiter } from "./translate/guards.js";
 import { clientIp } from "./translate/route.js";
-import { isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
+import { clockView, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
 import { teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
 import { tournamentApi } from "./tournaments/api.js";
@@ -476,6 +477,7 @@ const coachRatings = new CoachRatingCache({
 });
 const lobbyAllowedOrigins = lobbyAllowedOriginsFromEnv();
 let lobbyChatLive = false;
+let superService: ReturnType<typeof attachSuper> = null;
 
 /** PUBLIC_BASE_URL, validated once at startup (http/https origin, no userinfo / path); unset or invalid = none. */
 const PUBLIC_BASE_ORIGIN = ((): string | undefined => {
@@ -529,6 +531,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     },
     isBanned,
     isOrganizer: (coach) => coachLevel(coach) !== "player" || isOrganizer(coach),
+    publishClock: (matchId, payload) => superService?.publishTabletopClock(matchId, payload),
     listSaves: (coach) => readSaves(BUILDER_SAVES_DIR, coach).map((s) => ({ id: s.id, name: s.name })),
     listTeams: (coach) => [
       ...readLibrary(LIBRARY_DIR, coach).map((t) => ({ ref: `library:${t.teamId}`, name: t.teamName, race: t.race, tv: typeof t.teamValue === "number" ? t.teamValue : null })),
@@ -550,7 +553,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
           revision: m.revision,
           home: { coach: m.home.coach.ffbCoachId, teamId: m.home.teamId },
           away: { coach: m.away?.coach.ffbCoachId ?? "", ...(m.away?.teamId ? { teamId: m.away.teamId } : {}) },
-          ...(t ? { tournament: { id: t.id, name: t.name } } : {}),
+          ...(t ? { tournament: { id: t.id, name: t.name }, turnTimer: t.turnTimer ?? DEFAULT_TOURNAMENT_TURN_TIMER } : {}),
           round: m.roundNumber,
           ...(m.result ? { resultReportedAt: m.result.reportedAt } : {}),
           ...(m.result?.opId ? { resultOpId: m.result.opId } : {}),
@@ -568,6 +571,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
           home: { coach: m.home.coach.ffbCoachId, teamId: m.home.teamId },
           away: { coach: m.away.coach.ffbCoachId, teamId: m.away.teamId },
           tournament: { id: t.id, name: t.name },
+          turnTimer: t.turnTimer ?? DEFAULT_TOURNAMENT_TURN_TIMER,
           round: m.roundNumber,
           ...(m.result ? { resultReportedAt: m.result.reportedAt } : {}),
           ...(m.result?.opId ? { resultOpId: m.result.opId } : {}),
@@ -3303,9 +3307,21 @@ server.listen(PORT, LISTEN_HOST, () => {
 // a no-op unless SUPER_ENABLED=1, and construction failure disables Super without touching the HTTP
 // server (SM-3). config-web serving is unaffected in every case.
 if (challengeDbCfg && forkAdminCfg) {
-  lobbyChatLive = attachSuper(server, {
+  superService = attachSuper(server, {
     dbCfg: challengeDbCfg,
     forkCfg: forkAdminCfg,
+    tabletop: {
+      isMember: async (matchId, coach) => {
+        const deps = await tabletopDeps();
+        const m = await deps.repo.getMatch(matchId);
+        return !!m && (m.home.coach === coach || m.away.coach === coach || deps.isOrganizer(coach));
+      },
+      clock: async (matchId) => {
+        const deps = await tabletopDeps();
+        const m = await deps.repo.getMatch(matchId);
+        return m ? { ...clockView(m, await deps.repo.readEvents(matchId), deps, new Date()), phase: m.phase ?? "playing" } : null;
+      },
+    },
     lobby: lobbySocketBridge(lobbyStore, {
       sessionFromRequest: (req) => {
         const token = sessionTokenFromRequest(req as IncomingMessage);
@@ -3319,7 +3335,8 @@ if (challengeDbCfg && forkAdminCfg) {
       originAllowed: (origin, host) => lobbyOriginAllowed(origin, host, lobbyAllowedOrigins),
       onSessionEnded: (listener) => onSessionEnded(listener),
     }),
-  }) !== null;
+  });
+  lobbyChatLive = superService !== null;
 } else if (process.env.SUPER_ENABLED === "1") {
   console.log("[super] SUPER_ENABLED set but fork DB/admin config missing — Super stays OFF.");
 }

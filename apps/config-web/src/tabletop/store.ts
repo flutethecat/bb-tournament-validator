@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 import type { StoredTournamentResult } from "../tournamentResults.js";
 import type { TabletopEvent } from "./events.js";
+import type { ClockState, MatchTimers } from "./clock.js";
 import type { MatchPhase } from "./pregame.js";
 import type { PostMatchOption, PostMatchSummary, TabletopTeamFile } from "./postMatch.js";
 
@@ -31,6 +32,12 @@ export interface MatchRecord {
   fixtureRef?: string;
   /** Where the match is: pre-game phases, then "playing". Absent on matches from before pre-game existed = playing. */
   phase?: MatchPhase;
+  /** Half / turn / whose turn; set when the match reaches "playing". */
+  clock?: ClockState;
+  /** Turn-timer decision (set when the agreement step resolves, or at once when the competition decides). */
+  timers?: MatchTimers;
+  /** Overtime after half 2 (default false). */
+  allowOvertime?: boolean;
   home: MatchSide;
   away: MatchSide;
   postMatch: PostMatchOption;

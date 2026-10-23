@@ -117,14 +117,17 @@ describe("pre-game sequence", () => {
     expect((await advance(id, "Alice", { ...hand, winner: "away" })).status).toBe(400); // choice needed
     expect((await advance(id, "Alice", { ...hand, winner: "home", choice: "kick" })).status).toBe(400); // tails against a heads call: away won
     r = await advance(id, "Alice", { ...hand, winner: "away", choice: "kick" });
-    expect(r.body).toMatchObject({ phase: "playing", pregame: { coin: { mode: "hand", call: "heads", caller: "home", result: "tails", winner: "away", choice: "kick" } } });
+    expect(r.body).toMatchObject({ phase: "pregame:timers", pregame: { coin: { mode: "hand", call: "heads", caller: "home", result: "tails", winner: "away", choice: "kick" } } });
+    // turn-timer agreement: both coaches answer (here: no)
+    expect((await advance(id, "Alice", { agree: false })).body).toMatchObject({ phase: "pregame:timers", waitingFor: ["away"] });
+    expect((await advance(id, "Bob", { agree: false })).body).toMatchObject({ phase: "playing" });
     expect((await advance(id, "Alice")).status).toBe(409); // pre-game finished
 
     // play: a journeyman can score; pre-game events are never undoable
     const play = await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("touchdown", "home", "jm-1")] });
     expect(play.status).toBe(200);
     const events = (await get(id)).events as TabletopEvent[];
-    expect(events.map((e) => e.type)).toEqual(["fans", "fans", "weather", "journeyman", "journeyman", "inducement", "inducement", "inducement", "inducement", "prayer", "prayer", "coinFlip", "touchdown"]);
+    expect(events.map((e) => e.type)).toEqual(["fans", "fans", "weather", "journeyman", "journeyman", "inducement", "inducement", "inducement", "inducement", "prayer", "prayer", "coinFlip", "timerAgree", "timerAgree", "touchdown"]);
     const pre = events.find((e) => e.type === "fans")!;
     expect((await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("undo", "home", undefined, { target: pre.id })] })).status).toBe(400);
     // pre-game types cannot be posted by a coach
@@ -148,7 +151,8 @@ describe("pre-game sequence", () => {
     expect((await advance(id, "Alice", { choice: "kick" })).status).toBe(403); // only the winner (Bob) chooses
     expect((await advance(id, "Bob", { choice: "sideways" })).status).toBe(400);
     const done = await advance(id, "Bob", { choice: "receive" });
-    expect(done.body).toMatchObject({ phase: "playing", pregame: { coin: { mode: "auto", result: "heads", winner: "away", choice: "receive" } } });
+    expect(done.body).toMatchObject({ phase: "pregame:timers", pregame: { coin: { mode: "auto", result: "heads", winner: "away", choice: "receive" } } });
+    expect((await advance(id, "Org", { agree: true })).body).toMatchObject({ phase: "playing" }); // an organiser answers for both
     expect((await advance(id, "Bob", { choice: "kick" })).status).toBe(409); // pre-game finished
   });
 
@@ -325,7 +329,7 @@ describe("endOfMatch and the server tally over the API", () => {
       events: [{ ...E("touchdown", "home", "a1"), half: 2, turn: 4 }, E("endOfMatch", undefined)],
     });
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ submitted: true, match: { state: "submitted" }, tally: { score: { home: 1, away: 0 }, clock: { half: 2, turn: 4 } } });
+    expect(r.body).toMatchObject({ submitted: true, match: { state: "submitted" }, tally: { score: { home: 1, away: 0 } }, clock: { half: 1, turn: 0 } });
   });
 });
 

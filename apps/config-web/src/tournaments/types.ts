@@ -28,6 +28,10 @@ export interface TournamentPoints {
   bye: number;
 }
 
+/** Tabletop turn-timer policy of a competition: off (forbidden), optional (both coaches must agree), required (always on). */
+export interface TournamentTurnTimer { enforced: "off" | "optional" | "required"; seconds: number }
+export const DEFAULT_TOURNAMENT_TURN_TIMER: TournamentTurnTimer = { enforced: "optional", seconds: 240 };
+
 export interface TournamentRecord {
   id: string;
   name: string;
@@ -43,6 +47,8 @@ export interface TournamentRecord {
   tiebreakers: TournamentTiebreaker[];
   points: TournamentPoints;
   startsAt?: string;
+  /** Absent = the default (optional, 240 s). Organiser-editable through the tournament settings route. */
+  turnTimer?: TournamentTurnTimer;
   /** Absent only on legacy records, which remain admin-only until ownership is assigned. */
   organizerCoachId?: string;
   createdAt: string;

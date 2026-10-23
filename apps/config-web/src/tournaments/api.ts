@@ -1,6 +1,7 @@
 import { generateTournamentPairings } from "./pairing.js";
 import { NafExportError, renderNafTournamentXml } from "./nafExport.js";
 import { TournamentStore, TournamentStoreError } from "./store.js";
+import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./types.js";
 import type {
   ScheduledMatchRecord,
   TournamentEntrantRecord,
@@ -163,6 +164,7 @@ function clientTournament(
     : undefined;
   return {
     ...record,
+    turnTimer: tournament.turnTimer ?? DEFAULT_TOURNAMENT_TURN_TIMER,
     ...(startsAt === undefined ? {} : { startsAt }),
     ...(tournament.packageName.trim() ? { rulesetPackName: tournament.packageName } : {}),
     entrantCount: entrants.filter((entrant) => entrant.droppedAt === undefined).length,
@@ -380,7 +382,7 @@ export async function tournamentApi(
       if (!existing) return { status: 404, body: { error: "Tournament not found." } };
       requireTournamentManager(existing, identity);
       const input = jsonObject(body);
-      const patch: Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "roundCount" | "organizerCoachId">> & {
+      const patch: Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "roundCount" | "organizerCoachId" | "turnTimer">> & {
         primaryTiebreaker?: TournamentPrimaryTiebreaker;
       } = {};
       if (input.organizerCoachId !== undefined) {
@@ -412,6 +414,14 @@ export async function tournamentApi(
       if (input.primaryTiebreaker !== undefined)
         patch.primaryTiebreaker = primaryTiebreaker(input.primaryTiebreaker);
       if (input.roundCount !== undefined) patch.roundCount = requestedRoundCount(input.roundCount);
+      if (input.turnTimer !== undefined) {
+        const t = jsonObject(input.turnTimer);
+        const current = existing.turnTimer ?? DEFAULT_TOURNAMENT_TURN_TIMER;
+        const enforced = t.enforced === undefined ? current.enforced : t.enforced;
+        if (enforced !== "off" && enforced !== "optional" && enforced !== "required")
+          return { status: 400, body: { error: "turnTimer.enforced must be off, optional or required." } };
+        patch.turnTimer = { enforced, seconds: t.seconds === undefined ? current.seconds : integer(t.seconds, "turnTimer.seconds") };
+      }
       const tournament = deps.store.updateTournament(tournamentId, patch, now);
       return {
         status: 200,

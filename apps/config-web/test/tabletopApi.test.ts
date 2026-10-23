@@ -191,7 +191,7 @@ describe("tabletop API: submit / confirm / undo-revision", () => {
     // fix a mistake by an undo event, then confirm again
     const evs = ((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ id: string; type: string }> }).events;
     const tdB = evs.filter((e) => e.type === "touchdown")[2]!;
-    await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("undo", "away", undefined, { target: tdB.id })] });
+    await as("Bob", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("undo", "away", undefined, { target: tdB.id })] });
     await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);
     await as("Org", "POST", `/api/tabletop/matches/${id}/confirm`);
     const chain2 = (await repo.getChain("Alice", "sv_a"))!;

@@ -7,7 +7,7 @@
 
 import type { Server, IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
-import { SuperService } from "./service.js";
+import { SuperService, type TabletopSocketBridge } from "./service.js";
 import type { LobbySocketBridge } from "../lobby.js";
 import {
   verifyCoachChallenge,
@@ -24,6 +24,10 @@ export interface AttachSuperOptions {
   log?: (line: string) => void;
   /** Web Lobby rooms over this same socket (lobby-chat / lobby-presence). */
   lobby?: LobbySocketBridge;
+  /** Tabletop match clock rooms over this same socket (tabletop-clock). */
+  tabletop?: TabletopSocketBridge;
+  /** Receives the service handle once constructed (so the HTTP side can publish into it). */
+  onService?: (service: SuperService) => void;
 }
 
 /**
@@ -38,6 +42,7 @@ export function attachSuper(server: Server, opts: AttachSuperOptions): SuperServ
     const service = new SuperService({
       log,
       lobby: opts.lobby,
+      tabletop: opts.tabletop,
       // SM-5/RC-2: challenge-response over the coach's stored md5 — secret never leaves the fork store.
       verifyAuth: (coach, nonce, ts, response) =>
         verifyCoachChallenge(opts.dbCfg, coach, nonce, ts, response),

@@ -22,7 +22,7 @@ const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[
 const tiebreakerLadder = (primary: TournamentPrimaryTiebreaker): TournamentRecord["tiebreakers"] =>
   [primary, "touchdownDifferential", "casualtyDifferential"];
 
-type TournamentUpdate = Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "roundCount" | "organizerCoachId">> & {
+type TournamentUpdate = Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "roundCount" | "organizerCoachId" | "turnTimer">> & {
   primaryTiebreaker?: TournamentPrimaryTiebreaker;
 };
 
@@ -227,6 +227,14 @@ export class TournamentStore {
         throw new TournamentStoreError(400, "startsAt must be an ISO-8601 timestamp.");
       if (patch.organizerCoachId !== undefined && (!patch.organizerCoachId.trim() || patch.organizerCoachId.trim().length > 40))
         throw new TournamentStoreError(400, "organizerCoachId must be a non-empty coach id of at most 40 characters.");
+      if (patch.turnTimer !== undefined) {
+        const t = patch.turnTimer;
+        if (!["off", "optional", "required"].includes(t.enforced))
+          throw new TournamentStoreError(400, "turnTimer.enforced must be off, optional or required.");
+        if (!Number.isInteger(t.seconds) || t.seconds < 30 || t.seconds > 3600)
+          throw new TournamentStoreError(400, "turnTimer.seconds must be a whole number from 30 to 3600.");
+      }
+      if (patch.turnTimer !== undefined) tournament.turnTimer = { enforced: patch.turnTimer.enforced, seconds: patch.turnTimer.seconds };
       if (patch.maxPlayers !== undefined) tournament.maxPlayers = patch.maxPlayers;
       if (patch.format !== undefined) tournament.format = patch.format;
       if (patch.packageName !== undefined) tournament.packageName = patch.packageName;
