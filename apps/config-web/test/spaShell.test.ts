@@ -153,6 +153,14 @@ describe("lobby controllers", () => {
     expect(lobbyStatusLabel(renewal)).toBe("Confirm your challenge");
     expect(lobbyStatusLabel({ ...waiting, opponentAccepted: true })).toBe("Accepted");
     expect(lobbyStatusLabel(v)).toBe("Game ready");
+    // the fork is being asked: no Close; uncertain: Check again / Start over for either coach, nothing else
+    expect(controlFor({ ...waiting, opponentAccepted: true, settingUp: true })).toBe("");
+    const uncertain: LobbyView = { ...waiting, opponentAccepted: true, uncertain: true, canCheckAgain: true, canStartOver: true };
+    expect(controlFor(uncertain)).toBe("uncertain");
+    expect(controlFor({ ...uncertain, me: "opponent", canAccept: true })).toBe("uncertain");
+    expect(controlFor({ ...uncertain, status: "needs-renewal", canRenew: true })).toBe("uncertain");
+    expect(statusLine(uncertain)).toBe("Game setup did not confirm. A game may already exist: check Your games, then press Check again. Start over withdraws both challenges.");
+    expect(statusLine({ ...v, duplicateGames: ["g2"] })).toBe("Game set up (game 77). Ready to start. An extra game was created; an organiser can remove it.");
   });
 
   it("poll loads view, rosters, coach card and chat history; launch hands the URL to the browser", async () => {
@@ -324,6 +332,31 @@ describe("lobby controllers", () => {
     ws2.onclose?.({});
     expect(refusedRoom.state.chatState).toBe("Chat is open in too many tabs.");
     expect(timeouts).toHaveBeenCalledTimes(1);
+  });
+
+  it("uncertain setup: Check again posts /check, Start over posts /start-over, each applies the server's lobby", async () => {
+    const uncertain: LobbyView = { ...readyLobby(), status: "waiting", opponentAccepted: true, uncertain: true, canCheckAgain: true, canStartOver: true, canLaunch: false, game: null };
+    const f = mockFetcher({
+      ...roomRoutes(uncertain),
+      "POST /api/lobby/lobbyAB12/check": { lobby: { ...readyLobby(), duplicateGames: ["g2"] } },
+      "POST /api/lobby/lobbyAB12/start-over": { lobby: { ...uncertain, uncertain: false, canCheckAgain: false, canStartOver: false, opponentAccepted: false, status: "needs-renewal", canRenew: true } },
+    });
+    const room = createLobbyRoom("lobbyAB12", { api: f, me: () => "Alice", onSignedOut: vi.fn() });
+    await room.poll();
+    expect(controlFor(room.state.view!)).toBe("uncertain");
+    await room.checkAgain();
+    expect(f.calls.find((c) => c.path === "/api/lobby/lobbyAB12/check")).toMatchObject({ method: "POST", body: undefined });
+    expect(room.state.view?.status).toBe("ready");
+    expect(statusLine(room.state.view!)).toContain("An extra game was created; an organiser can remove it.");
+    await room.startOver();
+    expect(f.calls.find((c) => c.path === "/api/lobby/lobbyAB12/start-over")).toMatchObject({ method: "POST" });
+    expect(controlFor(room.state.view!)).toBe("renew");
+    const failing = createLobbyRoom("lobbyAB12", {
+      api: mockFetcher({ ...roomRoutes(uncertain), "POST /api/lobby/lobbyAB12/check": new ApiError(409, "Still checking.") }),
+      me: () => "Alice", onSignedOut: vi.fn(),
+    });
+    await failing.poll();
+    await expect(failing.checkAgain()).rejects.toThrow("Still checking.");
   });
 
   it("410 shows the gone message and stops; 401 hands back to the session", async () => {
@@ -537,6 +570,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     expect(creatorHtml).toContain("Setting up the game on the server…");
     expect(creatorHtml).not.toContain("Accept with this team");
     expect(creatorHtml).not.toContain("Confirm challenge");
+    expect(creatorHtml).not.toContain("Close lobby");
     expect(creatorHtml).toMatch(/<button class="lobby-btn primary big" type="button" disabled>/);
     const opponentHtml = await renderAs({ ...pending, me: "opponent" }, "Bob");
     expect(opponentHtml).toContain("Setting up the game on the server…");
@@ -584,6 +618,39 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     expect(html).toContain("Bob is in the client");
     expect(html).toContain('class="presence-client"');
     expect(html).toMatch(/<button class="lobby-btn primary big" type="button">\s*Start game\s*<\/button>/);
+  });
+
+  it("lobby route: uncertain setup shows the copy and Check again / Start over for either coach, nothing else", async () => {
+    const uncertain: LobbyView = { ...readyLobby(), status: "waiting", opponentAccepted: true, uncertain: true, canCheckAgain: true, canStartOver: true, canAccept: false, canLaunch: false, game: null };
+    for (const [me, coach] of [["creator", "Alice"], ["opponent", "Bob"]] as const) {
+      const v: LobbyView = { ...uncertain, me };
+      const { html } = await render("/lobby/lobbyAB12", { "/api/auth/session": { authenticated: true, coach, authMethod: "discord" } }, async (spa) => {
+        const room = mods.createLobbyRoom("lobbyAB12", {
+          api: mockFetcher({ ...roomRoutes(v), "/api/lobby/lobbyAB12/coach?role=creator": { avatar: null, fumbblName: null } }),
+          me: () => coach, onSignedOut: vi.fn(),
+        });
+        await room.poll();
+        await flush();
+        spa.app.provide(mods.LOBBY_ROOM_KEY, () => room);
+      });
+      expect(html, me).toContain("Game setup did not confirm. A game may already exist: check Your games, then press Check again. Start over withdraws both challenges.");
+      expect(html, me).toContain(">Check again</button>");
+      expect(html, me).toContain(">Start over</button>");
+      expect(html, me).not.toContain("Accept with this team");
+      expect(html, me).not.toContain("Confirm challenge");
+      expect(html, me).not.toContain("Close lobby");
+    }
+  });
+
+  it("lobby route: a ready game with duplicates carries the organiser note", async () => {
+    const v: LobbyView = { ...readyLobby(), duplicateGames: ["g-extra"] };
+    const { html } = await render("/lobby/lobbyAB12", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } }, async (spa) => {
+      const room = mods.createLobbyRoom("lobbyAB12", { api: mockFetcher(roomRoutes(v)), me: () => "Alice", onSignedOut: vi.fn() });
+      await room.poll();
+      await flush();
+      spa.app.provide(mods.LOBBY_ROOM_KEY, () => room);
+    });
+    expect(html).toContain("An extra game was created; an organiser can remove it.");
   });
 
   it("lobby route: gone lobby shows the server message and a way back", async () => {

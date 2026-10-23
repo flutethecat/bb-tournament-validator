@@ -269,6 +269,18 @@ export function createLobbyRoom(id: string, deps: LobbyRoomDeps) {
     apply(res.lobby);
   };
 
+  /** Uncertain setup (canCheckAgain): ask the fork again whether the game exists. */
+  const checkAgain = async (): Promise<void> => {
+    const res = await deps.api<{ lobby: LobbyView }>(`/api/lobby/${id}/check`, { method: "POST" });
+    apply(res.lobby);
+  };
+
+  /** Uncertain setup (canStartOver): withdraw both challenges. */
+  const startOver = async (): Promise<void> => {
+    const res = await deps.api<{ lobby: LobbyView }>(`/api/lobby/${id}/start-over`, { method: "POST" });
+    apply(res.lobby);
+  };
+
   const close = async (): Promise<void> => {
     await deps.api(`/api/lobby/${id}/close`, { method: "POST" });
   };
@@ -348,6 +360,8 @@ export function createLobbyRoom(id: string, deps: LobbyRoomDeps) {
     poll,
     join,
     renew,
+    checkAgain,
+    startOver,
     close,
     launch,
     sendChat,

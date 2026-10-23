@@ -64,6 +64,19 @@ async function onJoin(): Promise<void> {
   }
 }
 
+// Uncertain setup: Check again / Start over for either coach; the error shows under them, cleared on each press.
+const uncertainErr = ref("");
+watch(control, () => { uncertainErr.value = ""; });
+async function onUncertain(action: "check" | "start-over"): Promise<void> {
+  uncertainErr.value = "";
+  try {
+    if (action === "check") await room.checkAgain();
+    else await room.startOver();
+  } catch (err) {
+    uncertainErr.value = (err as Error).message;
+  }
+}
+
 async function onClose(): Promise<void> {
   closeErr.value = "";
   try {
@@ -108,7 +121,14 @@ onBeforeUnmount(() => room.stop());
       <ul v-if="view" class="presence">
         <li v-for="s in [view.creator, view.opponent]" :key="s.role" :class="`presence-${s.state}`">{{ presenceLine(s.coach, s.state) }}</li>
       </ul>
-      <div v-if="control === 'accept' || control === 'renew'">
+      <div v-if="control === 'uncertain'">
+        <div class="lobby-form inline">
+          <button class="lobby-btn primary" type="button" @click="onUncertain('check')">Check again</button>
+          <button class="lobby-btn" type="button" @click="onUncertain('start-over')">Start over</button>
+        </div>
+        <p v-if="uncertainErr" class="lobby-error" role="alert">{{ uncertainErr }}</p>
+      </div>
+      <div v-else-if="control === 'accept' || control === 'renew'">
         <div class="lobby-form inline">
           <label for="join-team">Your team</label>
           <TeamSelect id="join-team" v-model="joinTeam" :teams="teams" />

@@ -42,7 +42,11 @@ session-scoped `GET /api/lobby/:id/jnlp` it names; a temporary rating failure sh
 and retries on later polls with backoff (15 s doubling to 5 min); chat keeps the last 200 lines; a socket refusal
 (`lobbyRefused`) is explained and not retried, other drops reconnect up to 5 times. A pending pairing
 (`settingUp`: the game server's answer was lost and the server is retrying) shows "Setting up the game" from the
-shared status line while the 4 s poll continues; a client-side seat in a mixed pairing shows "in the client".
+shared status line while the 4 s poll continues (no Close while the fork is being asked); a client-side seat in a
+mixed pairing shows "in the client". An uncertain setup (`canCheckAgain`) shows "Game setup did not confirm"
+(pointing at Your games) with Check again (`POST /api/lobby/:id/check`) and Start over
+(`POST /api/lobby/:id/start-over`) for either coach, and no Accept / Confirm / Close; a ready game with
+`duplicateGames` adds "An extra game was created; an organiser can remove it."
 
 Layout (`spa/src`): `app.ts` builds app + router + session + library; `router.ts` holds the routes, the nav and
 the auth gate; `views/` one component per route; `components/` shared pieces; `lobby/` the Lobby controllers (no
