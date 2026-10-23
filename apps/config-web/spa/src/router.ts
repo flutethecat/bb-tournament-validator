@@ -9,7 +9,9 @@ import LinkOutView from "./views/LinkOutView.vue";
 import LobbyRoomView from "./views/LobbyRoomView.vue";
 import LobbyStartView from "./views/LobbyStartView.vue";
 import NotFoundView from "./views/NotFoundView.vue";
+import StandingsView from "./views/StandingsView.vue";
 import TabletopListView from "./views/TabletopListView.vue";
+import TabletopOrganiserView from "./views/TabletopOrganiserView.vue";
 import TabletopRecorderView from "./views/TabletopRecorderView.vue";
 
 declare module "vue-router" {
@@ -48,6 +50,8 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: "Lobby" },
   },
   { path: "/tabletop", name: "tabletop", component: TabletopListView, meta: { requiresAuth: true, title: "Tabletop" } },
+  { path: "/tabletop/organiser", name: "tabletop-organiser", component: TabletopOrganiserView, meta: { requiresAuth: true, title: "Organiser" } },
+  { path: "/standings", name: "standings", component: StandingsView, meta: { title: "Standings" } },
   {
     path: "/tabletop/:id([\\w-]{1,64})",
     name: "tabletop-match",

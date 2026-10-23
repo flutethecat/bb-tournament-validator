@@ -124,15 +124,17 @@ describe("tabletop routes (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, rec, list, queue] = await Promise.all([
+    const [app, vueRouter, renderer, rec, list, queue, organiser, standings] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
       vite.ssrLoadModule("/src/tabletop/recorder.ts"),
       vite.ssrLoadModule("/src/tabletop/list.ts"),
       vite.ssrLoadModule("/src/tabletop/queue.ts"),
+      vite.ssrLoadModule("/src/tabletop/organiser.ts"),
+      vite.ssrLoadModule("/src/tabletop/standings.ts"),
     ]);
-    mods = { app, vueRouter, renderer, rec, list, queue };
+    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -334,5 +336,64 @@ describe("tabletop routes (server-rendered)", () => {
     await rec.undo(rec.state.events[0]);
     expect(posted[1]!.events[0]).toMatchObject({ type: "undo", team: "home", payload: { target: posted[0]!.events[0]!.id } });
     rec.stop();
+  });
+
+  const orgMatch = (id: string, extra: Record<string, unknown> = {}) => ({
+    id, state: "confirmed", pendingOrganiser: true, home: { coach: "Alice", teamName: "Alice Orcs" }, away: { coach: "Bob", teamName: "Bob Elves" },
+    score: { home: 2, away: 1 }, confirmations: { Alice: "2026-10-23T10:06:00.000Z" }, ...extra,
+  });
+
+  async function renderOrganiser(sess: Record<string, unknown>) {
+    return render("/tabletop/organiser", { "/api/auth/session": sess }, async (spa, f) => {
+      const ctrl = mods.organiser.createOrganiser({ api: f, onSignedOut: () => undefined });
+      ctrl.state.tournaments = [{ id: "tour1", name: "Autumn Cup", currentRound: 3 }];
+      ctrl.state.tournament = "tour1";
+      ctrl.state.round = 2;
+      ctrl.state.loaded = true;
+      ctrl.state.matches = [orgMatch("tm_a1"), orgMatch("tm_a2", { pendingOrganiser: false, state: "published" })];
+      ctrl.state.selected = ["tm_a1"];
+      ctrl.state.results = { tm_a2: { id: "tm_a2", ok: false, error: "Already published." } };
+      spa.app.provide(mods.organiser.ORGANISER_KEY, ctrl);
+    });
+  }
+
+  it("organiser console: hidden unless the session is an organiser", async () => {
+    const no = await renderOrganiser(session());
+    expect(no.html).toContain("Organiser access only.");
+    expect(no.html).not.toContain("Confirm &amp; publish selected");
+    const yes = await renderOrganiser(session({ organizer: true }));
+    for (const t of ["Autumn Cup", "Round 3", "Alice Orcs vs Bob Elves", "2-1", "Pending", "Confirm &amp; publish selected", "Reopen selected", "Note (optional)", "Already published.", "Export CSV"])
+      expect(yes.html, t).toContain(t);
+    expect(yes.html).toContain('href="/api/tabletop/organiser/export?tournament=tour1&amp;round=2"');
+    expect(yes.html).toContain("Alice: ");
+  });
+
+  it("organiser controller: bulk posts ids, action and note, shows per-id results, then reloads the round", async () => {
+    const posts: unknown[] = [];
+    const api = (async (path: string, init: { method?: string; body?: unknown } = {}) => {
+      if (init.method === "POST") { posts.push([path, init.body]); return { results: [{ id: "tm_a1", ok: true }, { id: "tm_a2", ok: false, error: "Not submitted." }] }; }
+      return { matches: [orgMatch("tm_a1", { state: "published", pendingOrganiser: false })] };
+    }) as Fetcher;
+    const c = mods.organiser.createOrganiser({ api, onSignedOut: () => undefined });
+    await c.choose("tour1", 2);
+    c.toggle("tm_a1"); c.toggle("tm_a2");
+    c.state.note = " fixed typo ";
+    await c.bulk("confirm-publish");
+    expect(posts).toEqual([["/api/tabletop/organiser/bulk", { ids: ["tm_a1", "tm_a2"], action: "confirm-publish", note: "fixed typo" }]]);
+    expect(c.state.results.tm_a2.error).toBe("Not submitted.");
+    expect(c.state.matches[0].state).toBe("published");
+    expect(c.state.selected).toEqual(["tm_a1"]);
+  });
+
+  it("standings route: server rows with W/D/L, TD and CAS differences, points", async () => {
+    const row = { coach: "Alice", played: 3, won: 2, drawn: 1, lost: 0, tdFor: 6, tdAgainst: 3, tdDiff: 3, casFor: 2, casAgainst: 4, casDiff: -2, points: 7 };
+    const { html } = await render("/standings?league=Autumn", { "/api/auth/session": { authenticated: false } }, async (spa, f) => {
+      const st = mods.standings.createStandings({ api: fetcher({ "/api/standings?league=Autumn": { league: "Autumn", rows: [row] } }) });
+      await st.load("Autumn");
+      spa.app.provide(mods.standings.STANDINGS_KEY, st);
+      void f;
+    });
+    for (const t of ["Standings", "Alice", "TD +/-", "CAS +/-", "+3", "-2", "<strong>7</strong>"]) expect(html, t).toContain(t);
+    expect(html).not.toContain("Sign in with Discord to use this page."); // public read, no gate
   });
 });

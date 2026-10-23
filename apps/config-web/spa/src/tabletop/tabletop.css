@@ -17,3 +17,5 @@
 .tt-sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 85vh; overflow-y: auto; display: grid; gap: 6px; padding: 16px; background: var(--ui-surface, #0d0d0d); border-top: 2px solid var(--ui-primary, #790004); box-shadow: 0 -8px 24px rgba(0, 0, 0, .5); z-index: 20; }
 .tt-check { display: flex; align-items: center; gap: 8px; min-height: 44px; }
 .tt-check input { width: 22px; height: 22px; min-height: 0; }
+.tt-table td, .tt-table th { padding: 8px 6px; }
+.tt-check-box { width: 24px; height: 24px; min-height: 0; }

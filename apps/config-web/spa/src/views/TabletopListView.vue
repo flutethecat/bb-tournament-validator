@@ -102,6 +102,7 @@ onMounted(() => {
 
   <section class="lobby-card">
     <h2>My matches</h2>
+    <RouterLink v-if="session.state.info?.organizer === true" class="tt-tap-link" to="/tabletop/organiser">Organiser console</RouterLink>
     <div class="lobby-list">
       <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
       <template v-else-if="state.loaded">
