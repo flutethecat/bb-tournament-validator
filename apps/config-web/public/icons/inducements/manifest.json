@@ -3,8 +3,10 @@
  "icons": {
   "biased_referee": "icons/inducements/biased_ref.png",
   "bloodweiser_kegs": "icons/inducements/bloodweiser_keg.png",
+  "bretonnian_damsel": "icons/inducements/bretonnian_damsel.png",
   "bretonnian_pastries": "icons/inducements/bretonnian_pastries.png",
   "bribes": "icons/inducements/bribe.png",
+  "canopic_jar": "icons/inducements/canopic_jar.png",
   "extra_team_training": "icons/inducements/extra_team_training.png",
   "halfling_master_chef": "icons/inducements/master_chef.png",
   "hireling_sports_wizard": "icons/inducements/wizard.png",
@@ -24,9 +26,9 @@
   "star_players"
  ],
  "source": {
-  "commit": "b17363c2e89254fab9f7990754e28ea132434409",
+  "commit": "6da02492511df6096096f45ffe97f61701f2c0e8",
   "map": "apps/tauri/src/game/logic/coachPanelChips.ts",
   "path": "apps/tauri/src/assets/resources",
-  "ref": "codex/inducement-icons"
+  "ref": "codex/inducement-icons-2"
  }
 }

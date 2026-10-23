@@ -11,8 +11,8 @@
   "status-stalling": "icons/ui/status-stalling.png"
  },
  "source": {
-  "commit": "b17363c2e89254fab9f7990754e28ea132434409",
+  "commit": "6da02492511df6096096f45ffe97f61701f2c0e8",
   "path": "apps/tauri/src/assets/resources",
-  "ref": "codex/inducement-icons"
+  "ref": "codex/inducement-icons-2"
  }
 }
