@@ -67,6 +67,14 @@ export interface DatasetInducement {
   reducedCost?: number | null;
   /** Special rule that unlocks `reducedMax`/`reducedCost`. */
   reducedSpecialRule?: string;
+  /** Roster (team) that unlocks `reducedMax`/`reducedCost` instead of a rule, e.g. the Halfling Master Chef for Halfling teams. */
+  reducedRoster?: string;
+  /** Only teams with this special rule may buy it (e.g. Mortuary Assistant: Masters of Undeath). */
+  requiresSpecialRule?: string;
+  /** Only teams that can hire an Apothecary may buy it. */
+  requiresApothecary?: boolean;
+  /** Former names, kept so stored team files and saves still resolve. */
+  aliases?: string[];
 }
 
 export interface DatasetTeam {

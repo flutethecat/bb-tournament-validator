@@ -153,7 +153,7 @@ describe("composeTeam", () => {
     expect(tournament.xml).not.toContain("<card>");
     expect(tournament.xml).not.toContain("<prayer>");
     expect(tournament.roster.inducements).toEqual([
-      { id: "bloodweiser_kegs", name: "Bloodweiser Kegs", count: 2, cost: 50_000 },
+      { id: "bloodweiser_kegs", name: "Blitzer's Best Kegs", count: 2, cost: 50_000 },
       { id: "prayers_to_nuffle", name: "Prayers to Nuffle", count: 1, cost: 10_000 },
     ]);
   });

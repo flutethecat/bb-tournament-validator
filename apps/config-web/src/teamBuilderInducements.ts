@@ -10,6 +10,11 @@ export interface TeamBuilderInducementCatalogRow {
   reducedPrice?: number;
   reducedMax?: number | null;
   reducedSpecialRule?: string;
+  /** Price/max reduction for one roster's teams rather than a rule (Halfling Master Chef: Halfling teams). */
+  reducedRoster?: string;
+  /** Only teams with this special rule may buy it. */
+  requiresSpecialRule?: string;
+  requiresApothecary?: boolean;
 }
 
 /** Public builder catalog: only fixed-price inducements the fork can roster in team XML. */
@@ -28,6 +33,13 @@ export function teamBuilderInducementCatalog(
         max: pkg.inducements.caps[key] ?? inducement.max ?? null,
         allowed: allAllowed || pkg.inducements.allowed.includes(key),
       };
+      if (inducement.requiresSpecialRule) row.requiresSpecialRule = inducement.requiresSpecialRule;
+      if (inducement.requiresApothecary) row.requiresApothecary = true;
+      if (inducement.reducedRoster) {
+        row.reducedRoster = inducement.reducedRoster;
+        row.reducedPrice = inducementWireGold(data, key, [], inducement.reducedRoster);
+        row.reducedMax = pkg.inducements.caps[key] ?? inducement.reducedMax ?? inducement.max ?? null;
+      }
       const rule = inducement.reducedSpecialRule;
       if (rule) {
         row.reducedSpecialRule = rule;

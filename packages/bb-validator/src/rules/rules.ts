@@ -6,6 +6,7 @@
 import { costSP, isElite } from "../cost/costSP";
 import { MAX_STAT_STEPS, starPackPicks, statIncreasesGold, statIncreasesOf, statIncreasesOverLimit } from "../cost/extras";
 import { skillsGold } from "../cost/costGold";
+import { inducementIdForName, inducementReducedFor } from "../dataset/inducements";
 import type { Dataset } from "../dataset/types";
 import { findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
@@ -739,7 +740,7 @@ export const inducements: Rule = {
     const findings: Finding[] = [];
     const teamRules = new Set(roster.specialRules.map(normName));
     for (const ind of roster.inducements) {
-      const id = ind.id ?? normName(ind.name).replace(/ /g, "_");
+      const id = ind.id ?? inducementIdForName(data, ind.name) ?? normName(ind.name).replace(/ /g, "_");
       const meta = data.inducements[id];
       const allowed =
         pkg.inducements.allowed.includes("*") || pkg.inducements.allowed.includes(id);
@@ -750,7 +751,13 @@ export const inducements: Rule = {
           }),
         );
       // Reduced cap applies only when the team has the unlocking special rule.
-      const hasReduced = meta?.reducedSpecialRule != null && teamRules.has(normName(meta.reducedSpecialRule));
+      const hasReduced = inducementReducedFor(meta, roster.specialRules, roster.rosterName);
+      if (meta?.requiresSpecialRule && !teamRules.has(normName(meta.requiresSpecialRule)))
+        findings.push(
+          err("inducements", `${meta.name} is only available to teams with the ${meta.requiresSpecialRule} special rule.`, {
+            suggestion: "Remove it.",
+          }),
+        );
       const datasetCap = hasReduced ? meta?.reducedMax ?? meta?.max : meta?.max;
       const cap = pkg.inducements.caps[id] ?? datasetCap ?? null;
       if (cap != null && (ind.count ?? 1) > cap)

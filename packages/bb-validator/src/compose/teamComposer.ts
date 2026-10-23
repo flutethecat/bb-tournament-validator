@@ -150,6 +150,7 @@ function resolveRosteredInducements(
   picks: readonly { key: string; count: number }[] | undefined,
   data: Dataset,
   specialRules: readonly string[] = [],
+  rosterName?: string,
 ): Array<{ key: string; count: number; name: string; cost: number; wireName: string }> {
   const seen = new Set<string>();
   return (picks ?? []).map((pick) => {
@@ -162,7 +163,7 @@ function resolveRosteredInducements(
     const catalog = data.inducements[key];
     if (!catalog) throw new Error(`Cannot resolve rostered inducement catalog key "${key}".`);
     if (!catalog.wireName) throw new Error(`Cannot resolve fork wire name for rostered inducement "${key}".`);
-    const cost = inducementWireGold(data, key, specialRules);
+    const cost = inducementWireGold(data, key, specialRules, rosterName);
     return { key, count: pick.count, name: catalog.name, cost, wireName: catalog.wireName };
   });
 }
@@ -733,6 +734,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     input.rosteredInducements,
     data,
     runtimeSpecialRules(dsRoster.name, dsRoster.specialRules, specialRule),
+    dsRoster.name,
   );
   const byId = new Map(fork.positions.map((p) => [p.positionId, p]));
 

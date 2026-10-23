@@ -200,6 +200,23 @@ describe("pre-game rules, pure", () => {
     });
     expect(custom).toMatchObject({ total: 15_000 });
   });
+  it("dataset-driven offers: Halfling Master Chef is cheaper for Halfling teams only; restrictions and the renamed catalogue apply", () => {
+    const chef = (race: string, rules: string[] = []) =>
+      planInducements({ file: { ...team(race, 11, "a", 1_000_000, 500_000), specialRules: rules }, picks: [{ id: "halfling_master_chef", qty: 1 }], role: "favourite", tvDifference: 0, favouriteSpent: 0 });
+    expect(chef("Halfling")).toMatchObject({ total: 100_000 });
+    expect(chef("Gnome", ["Halfling Thimble Cup"])).toMatchObject({ total: 300_000 });
+    expect(chef("Human")).toMatchObject({ total: 300_000 });
+    const file = team("Human", 11, "a", 1_000_000, 500_000);
+    for (const id of ["igor", "special_play_cards"])
+      expect(planInducements({ file, picks: [{ id, qty: 1 }], role: "favourite", tvDifference: 0, favouriteSpent: 0 })).toMatchObject({ error: expect.stringContaining("Unknown inducement") });
+    expect(planInducements({ file, picks: [{ id: "bloodweiser_kegs", qty: 2 }], role: "favourite", tvDifference: 0, favouriteSpent: 0 }))
+      .toMatchObject({ total: 100_000, picks: [{ name: "Blitzer's Best Kegs" }] });
+    const needs = (id: string, rules: string[]) => planInducements({ file: { ...file, specialRules: rules }, picks: [{ id, qty: 1 }], role: "favourite", tvDifference: 0, favouriteSpent: 0 });
+    expect(needs("mortuary_assistant", [])).toMatchObject({ error: expect.stringContaining("not available") });
+    expect(needs("mortuary_assistant", ["Masters of Undeath"])).toMatchObject({ total: 100_000 });
+    expect(needs("plague_doctor", ["Favoured of Nurgle"])).toMatchObject({ total: 100_000 });
+    expect(needs("riotous_rookies", ["Low Cost Linemen"])).toMatchObject({ total: 150_000 });
+  });
   it("inducement treasury spending comes off the treasury in a full post-match", () => {
     const f = team("Human", 11, "a", 1_000_000, 100_000);
     const ev: TabletopEvent = { id: "pg-inducement-home", matchId: "m", type: "inducement", team: "home", payload: { total: 100_000, treasury: 40_000 }, ts: "t", by: "x" };

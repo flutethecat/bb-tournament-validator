@@ -1431,7 +1431,12 @@ ${rosterSheetHtml(model)}
     const rules = [...(Array.isArray(current.specialRules) ? current.specialRules : []), selectedSpecialRule()];
     return rules.some((r) => ruleKey(r) === want);
   }
+  function teamIsRoster(name) {
+    return Boolean(name && current && ruleKey(current.raceName) === ruleKey(name));
+  }
   function inducementTerms(item) {
+    if (item?.reducedRoster && item.reducedPrice != null && teamIsRoster(item.reducedRoster))
+      return { price: item.reducedPrice, max: item.reducedMax ?? item.max, reduced: true };
     if (item?.reducedSpecialRule && item.reducedPrice != null && teamHasRule(item.reducedSpecialRule))
       return { price: item.reducedPrice, max: item.reducedMax ?? item.max, reduced: true };
     return { price: item?.price ?? 0, max: item?.max ?? null, reduced: false };
@@ -1456,7 +1461,7 @@ ${rosterSheetHtml(model)}
       const icon = iconManifest?.icons?.[item.key];
       return `<div class="stepper-row inducement-row${item.allowed ? "" : " unavailable"}">
         <span class="inducement-icon" aria-hidden="true">${icon ? `<img class="crest-image" src="/${esc(icon)}" alt="" loading="lazy" decoding="async">` : ""}</span>
-        <span class="stepper-label">${esc(item.label)}<small>${gold(terms.price)}${terms.max != null ? ` · max ${terms.max}` : ""}${terms.reduced ? ` · ${esc(item.reducedSpecialRule)}` : ""}</small></span>
+        <span class="stepper-label">${esc(item.label)}<small>${gold(terms.price)}${terms.max != null ? ` · max ${terms.max}` : ""}${terms.reduced ? ` · ${esc(item.reducedRoster ? `${item.reducedRoster} teams` : item.reducedSpecialRule)}` : ""}</small></span>
         <button type="button" data-inducement="${esc(item.key)}" data-delta="-1" ${!item.allowed || count === 0 ? "disabled" : ""} aria-label="Remove ${esc(item.label)}">−</button>
         <b>${count}</b>
         <button type="button" class="step-add" data-inducement="${esc(item.key)}" data-delta="1" ${!item.allowed || atMax ? "disabled" : ""} aria-label="Add ${esc(item.label)}">+</button>
@@ -1725,6 +1730,7 @@ ${rosterSheetHtml(model)}
         reducedPrice: Core.num(item.reducedPrice),
         reducedMax: Core.num(item.reducedMax),
         reducedSpecialRule: typeof item.reducedSpecialRule === "string" ? item.reducedSpecialRule : null,
+        reducedRoster: typeof item.reducedRoster === "string" ? item.reducedRoster : null,
       }));
       const next = {};
       for (const item of inducementCatalog) {

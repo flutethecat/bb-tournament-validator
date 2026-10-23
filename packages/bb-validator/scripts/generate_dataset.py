@@ -258,7 +258,6 @@ INDUCEMENT_MAP = [
     ("wandering_apothecaries", "Wandering Apothecaries", "inducementAposCost", "inducementAposMax", {"requiresApothecary": True}),
     ("mortuary_assistant", "Mortuary Assistant", "inducementMortuaryAssistantsCost", "inducementMortuaryAssistantsMax", {}),
     ("plague_doctor", "Plague Doctor", "inducementPlagueDoctorsCost", "inducementPlagueDoctorsMax", {}),
-    ("igor", "Igor", "inducementIgorsCost", "inducementIgorsMax", {}),
     ("riotous_rookies", "Riotous Rookies", "inducementRiotousRookiesCost", "inducementRiotousRookiesMax", {}),
     ("halfling_master_chef", "Halfling Master Chef", "inducementChefsCost", "inducementChefsMax",
      {"reducedCost": "inducementChefsReducedCost", "reducedMax": "inducementChefsReducedMax", "reducedSpecialRule": "Halfling Thimble Cup"}),
@@ -271,7 +270,6 @@ INDUCEMENT_MAP = [
     ("prayers_to_nuffle", "Prayers to Nuffle", "inducementPrayersCost", "inducementPrayersMax", {}),
     ("mercenaries", "Mercenaries", "inducementMercenariesExtraCost", "inducementMercenariesMax",
      {"skillCost": "inducementMercenariesSkillCost", "note": "+extra cost over the player's base cost; +skill cost per added skill."}),
-    ("special_play_cards", "Special Play Cards", "cardsSpecialPlayCost", None, {"note": "Cost per card; deck sizes vary."}),
     ("star_players", "Star Players", None, "inducementStarsMax", {"note": "Hired at each star's own cost; eligibility by special rule / keyword."}),
     ("infamous_coaching_staff", "Infamous Coaching Staff", None, "inducementStaffMax", {"note": "Named staff, individual costs."}),
 ]
@@ -303,6 +301,23 @@ INDUCEMENT_WIRE_NAMES = {
 # inducements page: Prayers to Nuffle are 10,000 gp each; the ruleset option says 30,000).
 INDUCEMENT_COST_OVERRIDES = {"prayers_to_nuffle": 10_000}
 
+# The bloodbowlbase.ru BB2025 inducements page is the COMPLETE list (owner ruling 10-23): Igor and Special Play Cards
+# do not exist in BB2025 (dropped from INDUCEMENT_MAP above); names follow the page, the former names stay as aliases
+# so stored team files still resolve; restrictions and the Halfling Master Chef discount follow the page.
+INDUCEMENT_NAMES = {
+    "bloodweiser_kegs": ("Blitzer's Best Kegs", ["Bloodweiser Kegs"]),
+    "wandering_apothecaries": ("Wandering Apothecary", ["Wandering Apothecaries"]),
+    "hireling_sports_wizard": ("Wizard (Sports-Wizard)", ["Hireling Sports-Wizard"]),
+    "mercenaries": ("Mercenary Players", ["Mercenaries"]),
+}
+INDUCEMENT_REQUIRES_RULE = {
+    "mortuary_assistant": "Masters of Undeath",
+    "plague_doctor": "Favoured of Nurgle",
+    "riotous_rookies": "Low Cost Linemen",
+}
+# "100,000 for Halfling teams": keyed to the Halfling roster, not to the Halfling Thimble Cup rule (Gnomes share that rule).
+INDUCEMENT_REDUCED_ROSTER = {"halfling_master_chef": "Halfling"}
+
 
 def build_inducements():
     """Authoritative BB2025 inducement costs/caps from FUMBBL ruleset clientOptions."""
@@ -314,12 +329,19 @@ def build_inducements():
                  "max": co.get(max_f) if max_f else None}
         if iid in INDUCEMENT_COST_OVERRIDES:
             entry["cost"] = INDUCEMENT_COST_OVERRIDES[iid]
+        if iid in INDUCEMENT_NAMES:
+            entry["name"], entry["aliases"] = INDUCEMENT_NAMES[iid][0], list(INDUCEMENT_NAMES[iid][1])
         if iid in INDUCEMENT_WIRE_NAMES:
             entry["wireName"] = INDUCEMENT_WIRE_NAMES[iid]
         if "reducedCost" in extra:
             entry["reducedCost"] = co.get(extra["reducedCost"])
             entry["reducedMax"] = co.get(extra["reducedMax"])
             entry["reducedSpecialRule"] = extra["reducedSpecialRule"]
+        if iid in INDUCEMENT_REDUCED_ROSTER:
+            entry.pop("reducedSpecialRule", None)
+            entry["reducedRoster"] = INDUCEMENT_REDUCED_ROSTER[iid]
+        if iid in INDUCEMENT_REQUIRES_RULE:
+            entry["requiresSpecialRule"] = INDUCEMENT_REQUIRES_RULE[iid]
         if extra.get("requiresApothecary"):
             entry["requiresApothecary"] = True
         if "skillCost" in extra:

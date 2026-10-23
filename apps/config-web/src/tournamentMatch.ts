@@ -43,7 +43,7 @@ export function buildInstructions(
     seen.add(key);
     if (!Number.isSafeInteger(pick.count) || pick.count <= 0)
       throw new Error(`Team ${team.teamId} has an invalid count for inducement ${key}.`);
-    const unitGold = inducementWireGold(bb2025, key, specialRules);
+    const unitGold = inducementWireGold(bb2025, key, specialRules, team.race);
     return { key, count: pick.count, unitGold };
   });
 

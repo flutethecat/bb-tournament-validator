@@ -36,6 +36,10 @@ function buildDataset(): Dataset {
       reducedMax: (ind.reducedMax as number | null | undefined) ?? undefined,
       reducedCost: (ind.reducedCost as number | null | undefined) ?? undefined,
       reducedSpecialRule: (ind.reducedSpecialRule as string | undefined) ?? undefined,
+      reducedRoster: (ind.reducedRoster as string | undefined) ?? undefined,
+      requiresSpecialRule: (ind.requiresSpecialRule as string | undefined) ?? undefined,
+      requiresApothecary: (ind.requiresApothecary as boolean | undefined) ?? undefined,
+      aliases: (ind.aliases as string[] | undefined) ?? undefined,
     };
   }
 

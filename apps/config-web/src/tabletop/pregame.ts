@@ -17,6 +17,7 @@
  * roster arithmetic (saves), plus journeymen; players missing the next game are not subtracted.
  */
 
+import { inducementReducedFor } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { WEATHER_RESULTS, type Side, type TabletopEvent } from "./events.js";
 import type { TabletopPlayer, TabletopTeamFile } from "./postMatch.js";
@@ -91,13 +92,6 @@ function specialRulesOf(file: TabletopTeamFile): string[] {
   return [...(file.specialRules ?? []), ...(rosterFor(file)?.specialRules ?? [])].map((r) => r.toLowerCase());
 }
 
-/** Roster restrictions the dataset does not encode (names per the inducements page). */
-const REQUIRES_RULE: Record<string, string> = {
-  mortuary_assistant: "masters of undeath",
-  plague_doctor: "favoured of nurgle",
-  riotous_rookies: "low cost linemen",
-};
-
 export type InducementOffer = { name: string; price: number; max: number | null } | { error: string };
 /** THE price source for the inducement phase: every price and cap is read through one of these. Today it is the shared
  *  dataset (below); a per-league / per-event source can replace it by passing its own to planInducements. */
@@ -108,10 +102,11 @@ export const inducementOffer: InducementOffers = (file, id) => {
   if (!row) return { error: `Unknown inducement "${id}".` };
   if (!row.wireName || typeof row.cost !== "number") return { error: `${row.name} has a variable price and cannot be recorded here.` };
   const rules = specialRulesOf(file);
-  const need = REQUIRES_RULE[id];
-  if (need && !rules.includes(need)) return { error: `${row.name} is not available to this team.` };
-  if (id === "wandering_apothecaries" && rosterFor(file)?.apothecaryAllowed === false) return { error: `${row.name} is not available to this team.` };
-  const reduced = row.reducedSpecialRule && rules.includes(row.reducedSpecialRule.toLowerCase());
+  const roster = rosterFor(file);
+  // Restrictions and the reduced-price condition come from the shared dataset (bloodbowlbase.ru BB2025 inducements page).
+  if (row.requiresSpecialRule && !rules.includes(row.requiresSpecialRule.toLowerCase())) return { error: `${row.name} is not available to this team.` };
+  if (row.requiresApothecary && roster?.apothecaryAllowed === false) return { error: `${row.name} is not available to this team.` };
+  const reduced = inducementReducedFor(row, rules, roster?.name ?? file.race);
   return {
     name: row.name,
     price: reduced && typeof row.reducedCost === "number" ? row.reducedCost : row.cost,
