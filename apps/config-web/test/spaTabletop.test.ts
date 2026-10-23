@@ -129,7 +129,7 @@ describe("tabletop routes (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC] = await Promise.all([
+    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
@@ -150,8 +150,10 @@ describe("tabletop routes (server-rendered)", () => {
       vite.ssrLoadModule("/src/tabletop/settings.ts"),
       vite.ssrLoadModule("/src/shared/api.ts"),
       vite.ssrLoadModule("/src/components/TabletopTurnSet.vue"),
+      vite.ssrLoadModule("/src/tabletop/ttm.ts"),
+      vite.ssrLoadModule("/src/components/TabletopTtm.vue"),
     ]);
-    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC };
+    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -733,21 +735,95 @@ describe("tabletop routes (server-rendered)", () => {
     expect(feed).not.toContain("H1 T3");
   });
 
-  it("pick list opens on the local coach side and offers the other team as a toggle; picks post the player id", async () => {
-    const open = (localSide: string) => mount(mods.pickC, {
-      kind: mods.feedMod.TD_EVENT, match: baseMatch("recording"), teams, unavailable: () => "", localSide,
-    });
-    const away = await open("away");
-    expect(away).toMatch(/data-active="true"[^>]*><span class="tt-roster-tab-name">Bob Elves/);
-    expect(away).toContain("Lirael");
-    expect(away).not.toContain("Grob");
-    expect(away).toContain("Alice Orcs"); // the other team is one tap away
-    const home = await open("home");
-    expect(home).toMatch(/data-active="true"[^>]*><span class="tt-roster-tab-name">Alice Orcs/);
-    expect(home).toContain("Grob");
+  /** A roster where the server says who is available and what each player is eligible for. */
+  const elig = (id: string, name: string, number: number, extra: Record<string, unknown> = {}, eligible: Record<string, boolean> = {}) => ({
+    id, name, number, spp: 0, mng: false, dead: false, available: true, eligible, ...extra,
+  });
+  const ttmTeams = {
+    home: { name: "Alice Orcs", players: [
+      elig("h1", "Grob", 1, { positionName: "Blitzer", skills: ["Block"] }, { throwTeamMate: true, rightStuff: false, foul: true }),
+      elig("h2", "Snaga", 2, { positionName: "Lineman" }, { throwTeamMate: false, rightStuff: true }),
+      elig("h3", "Fleet", 3, { positionName: "Goblin", skills: ["Right Stuff", "Dodge"] }, { throwTeamMate: false, rightStuff: true }),
+      elig("h4", "Hurt", 4, { available: false, unavailableReason: "MNG" }, { throwTeamMate: true, rightStuff: true }),
+      elig("h5", "Nofoul", 5, {}, { foul: false }),
+      { id: "h6", name: "NoFlag", number: 6, spp: 0, mng: false, dead: false }, // no `available` from the server: omitted
+    ] },
+    away: { name: "Bob Elves", players: [
+      elig("a1", "Lirael", 7, { positionName: "Catcher" }, { throwTeamMate: true, rightStuff: true, foul: true }),
+      elig("a2", "Faen", 8, { available: false }, { throwTeamMate: true }),
+      elig("a3", "Wisp", 9, {}, { throwTeamMate: false, rightStuff: true, foul: false }),
+    ] },
+  };
+  const names = (html: string) => [...html.matchAll(/<\/b> (\w+)/g)].map((m) => m[1]);
+
+  it("player lists: own roster only, available players only, filtered by the server's eligible flag; unavailable are omitted, not greyed", async () => {
+    const open = (kind: string, visibleSides: string[]) => mount(mods.pickC, { kind: mods.feedMod.OTHER_EVENTS.find((o: any) => o.type === kind) ?? mods.feedMod.TD_EVENT, match: baseMatch("recording"), teams: ttmTeams, visibleSides });
+    const foulHome = await open("foul", ["home"]);
+    expect(names(foulHome)).toEqual(["Grob", "Snaga", "Fleet"]); // Nofoul (flag false), Hurt (unavailable), NoFlag (no `available`) are gone
+    expect(foulHome).not.toContain("Lirael"); // never the other roster
+    expect(foulHome).not.toContain("disabled"); // omitted, not greyed
+    expect(foulHome).not.toContain("tt-pick-head"); // one roster: no team header
+    const td = await mount(mods.pickC, { kind: mods.feedMod.TD_EVENT, match: baseMatch("recording"), teams: ttmTeams, visibleSides: ["away"] });
+    expect(names(td)).toEqual(["Lirael", "Wisp"]); // Faen is unavailable
+    // an organiser in edit mode sees both rosters, still availability-filtered, with a team header
+    const both = await open("foul", ["home", "away"]);
+    expect(both).toContain('class="tt-pick-head">Alice Orcs');
+    expect(both).toContain('class="tt-pick-head">Bob Elves');
+    expect(names(both)).toEqual(["Grob", "Snaga", "Fleet", "Lirael"]);
+    expect(mods.feedMod.visibleSidesFor("home", false, true)).toEqual(["home"]); // edit mode alone does not widen it
+    expect(mods.feedMod.visibleSidesFor("away", true, false)).toEqual(["away"]); // nor does being an organiser
+    expect(mods.feedMod.visibleSidesFor("home", true, true)).toEqual(["home", "away"]);
     // the pick posts the player id
     expect(mods.feedMod.pickSpec(mods.feedMod.TD_EVENT, "away", "a1")).toEqual({ type: "touchdown", team: "away", player: "a1" });
-    expect(away).toContain("tt-pick-row");
+  });
+
+  it("Throw Team-mate: superb -> thrower (auto when one) -> landed -> who; posts ONE throwTeamMate event (both branches)", () => {
+    const posted: any[] = [];
+    const flow = (sides: string[], teams: unknown = ttmTeams) => mods.ttm.createTtmFlow({ teams: () => teams, visibleSides: () => sides, onPost: (x: unknown) => posted.push(x) });
+    // not superb, did not land: finish with no names
+    let f = flow(["home"]);
+    expect(f.st.step).toBe("superb");
+    f.answerSuperb(false);
+    expect(f.st.step).toBe("landed");
+    f.answerLanded(false);
+    expect(posted).toEqual([{ type: "throwTeamMate", team: "home", payload: { superb: false, landed: false } }]);
+    posted.length = 0;
+    // superb with ONE eligible thrower (Grob): the list is skipped and he is selected; landed -> Right Stuff players only
+    f = flow(["home"]);
+    f.answerSuperb(true);
+    expect(f.st.step).toBe("landed"); // auto-selected, no thrower list
+    expect(f.st.thrower).toBe("h1");
+    f.answerLanded(true);
+    expect(f.st.step).toBe("thrown");
+    expect(f.thrownGroups.value[0]!.players.map((p: any) => p.id)).toEqual(["h2", "h3"]); // Right Stuff + available; not the thrower, not Hurt
+    f.finish(true, { side: "home", id: "h3" });
+    expect(posted).toEqual([{ type: "throwTeamMate", team: "home", player: "h1", payload: { superb: true, landed: true, thrower: "h1", thrown: "h3" } }]);
+    posted.length = 0;
+    // two eligible throwers (an organiser in edit mode sees both rosters): the list is shown, the choice sets the team
+    f = flow(["home", "away"]);
+    f.answerSuperb(true);
+    expect(f.st.step).toBe("thrower");
+    expect(f.throwers.value.map((g: any) => g.side)).toEqual(["home", "away"]);
+    f.choose("away", "a1");
+    expect(f.st.step).toBe("landed");
+    f.answerLanded(true);
+    expect(f.thrownGroups.value.map((g: any) => g.side)).toEqual(["away"]); // the thrown player comes from the thrower's roster
+    expect(f.thrownGroups.value[0]!.players.map((p: any) => p.id)).toEqual(["a3"]);
+    f.finish(false);
+    expect(posted).toEqual([{ type: "throwTeamMate", team: "away", player: "a1", payload: { superb: true, landed: false, thrower: "a1" } }]);
+    // no eligible thrower at all: the list says so and continues
+    const none = flow(["away"], { home: ttmTeams.home, away: { name: "Bob Elves", players: [elig("a9", "Plain", 9, {}, { throwTeamMate: false })] } });
+    none.answerSuperb(true);
+    expect(none.st.step).toBe("thrower");
+    expect(none.throwers.value).toEqual([]);
+  });
+
+  it("Throw Team-mate sheets render the steps: superb question, thrower list, landed question, thrown rows with skills and SPP this match", async () => {
+    const props = { match: baseMatch("recording"), teams: ttmTeams, tally: { ...serverTally, players: { home: [line("h3", "Fleet", { sppEarned: 2 })], away: [] } }, visibleSides: ["home"] };
+    const html = await mount(mods.ttmC, props);
+    expect(html).toContain("Was the pass superb?");
+    expect(html.match(/>Yes</g)).toHaveLength(1);
+    expect(html).toContain('aria-label="Throw Team-mate"');
   });
 
   it("organiser console: hidden unless the session is an organiser", async () => {

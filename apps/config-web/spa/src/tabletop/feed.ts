@@ -2,7 +2,7 @@
 // grid, and the feed rows. Everything shown about an event comes from the event the server returned.
 
 import { turnLabel } from "./clock";
-import type { RecordedEvent, Side, TeamView } from "./recorder";
+import type { RecordedEvent, RosterPlayerView, Side, TeamView } from "./recorder";
 
 export interface Glyph { src?: string; text?: string }
 
@@ -46,6 +46,26 @@ export const EVENT_GLYPHS: Record<string, Glyph> = {
   timerAgree: { text: "⏱️" },
   turnTimers: { text: "⏱️" },
 };
+
+/** Event type -> the server's `eligible` flag for it. */
+export const ELIGIBILITY_KEY: Record<string, string> = {
+  touchdown: "touchdown", completion: "pass", catch: "catch", interception: "intercept", deflection: "deflect", foul: "foul",
+  casualty: "casualty", injury: "injury", sentOff: "sentOff", sendOff: "sentOff", stalling: "stalling", mvp: "mvp", throwTeamMate: "throwTeamMate",
+};
+/** Skill-gated actions: the server must say true. Every other action is open to an available player unless the flag is false. */
+const STRICT: ReadonlySet<string> = new Set(["throwTeamMate", "rightStuff"]);
+
+/** Players of one roster that may take this action: available this game and flagged eligible by the server. */
+export function eligiblePlayers(teams: Record<Side, TeamView | undefined>, side: Side, action: string): RosterPlayerView[] {
+  return (teams[side]?.players ?? []).filter((p) => {
+    if (p.available !== true) return false; // unavailable players are omitted, not greyed
+    const flag = p.eligible?.[action];
+    return STRICT.has(action) ? flag === true : flag !== false;
+  });
+}
+
+/** The rosters a viewer may act for: their own side; both only for an organiser in edit mode. */
+export const visibleSidesFor = (local: Side, organiser: boolean, editMode: boolean): Side[] => (organiser && editMode ? ["home", "away"] : [local]);
 
 export type Needs = "player" | "player+result" | "team" | "team+text" | "weather" | "none" | "casualty";
 export interface OtherEvent { type: string; label: string; needs: Needs }

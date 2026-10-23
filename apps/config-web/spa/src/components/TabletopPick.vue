@@ -1,16 +1,16 @@
 <script setup lang="ts">
-// Pick sheet for TD / CAS / Other: choose the team, then the player (or just the team), then any extra the event needs.
+// Pick sheet for TD / CAS / Other: the player list shows only players the server says are available and eligible for
+// this action, from the acting roster only (both rosters, with a team header, for an organiser in edit mode).
 import { computed, ref } from "vue";
-import { INJURY_RESULTS_UI, pickSpec, WEATHER_RESULTS_UI, type OtherEvent } from "../tabletop/feed";
+import { eligiblePlayers, ELIGIBILITY_KEY, INJURY_RESULTS_UI, pickSpec, WEATHER_RESULTS_UI, type OtherEvent } from "../tabletop/feed";
 import type { MatchView, Side, TeamView } from "../tabletop/recorder";
 
 const props = defineProps<{
   kind: OtherEvent;
   match: MatchView;
   teams: Record<Side, TeamView | undefined>;
-  unavailable: (s: Side, id: string) => string;
-  /** The session coach side: the list opens on it (the home team for an organiser). */
-  localSide?: Side;
+  /** The rosters this viewer may act for: their own side, both for an organiser in edit mode. */
+  visibleSides: Side[];
 }>();
 const emit = defineEmits<{
   (e: "pick", spec: { type: string; team: Side; player?: string; payload?: Record<string, unknown> }): void;
@@ -18,17 +18,21 @@ const emit = defineEmits<{
 }>();
 
 const sides: Side[] = ["home", "away"];
-const side = ref<Side>(props.localSide ?? "home");
+const side = ref<Side>(props.visibleSides[0] ?? "home");
 const needsPlayer = computed(() => ["player", "player+result", "casualty"].includes(props.kind.needs));
 const chosen = ref("");
 const result = ref("stunned");
 const weather = ref<string>(WEATHER_RESULTS_UI[2]);
 const text = ref("");
-const players = computed(() => props.teams[side.value]?.players ?? []);
+const action = computed(() => ELIGIBILITY_KEY[props.kind.type] ?? props.kind.type);
+const groups = computed(() => props.visibleSides.map((s) => ({ side: s, players: eligiblePlayers(props.teams, s, action.value) })));
+/** Team tabs: a player list shows one team header per visible roster; team-only events still choose either team. */
+const teamChoice = computed(() => !needsPlayer.value && props.kind.needs !== "weather");
 
-function pickPlayer(id: string): void {
+function pickPlayer(s: Side, id: string): void {
+  side.value = s;
   if (props.kind.needs === "player+result") { chosen.value = id; return; }
-  emit("pick", pickSpec(props.kind, side.value, id));
+  emit("pick", pickSpec(props.kind, s, id));
 }
 function saveInjury(): void {
   emit("pick", { type: "injury", team: side.value, player: chosen.value, payload: { result: result.value } });
@@ -49,20 +53,26 @@ function saveText(): void {
 <template>
   <div class="tt-sheet" role="dialog" :aria-label="kind.label">
     <h3>{{ kind.label }}<template v-if="needsPlayer"> - who?</template></h3>
-    <div v-if="kind.needs !== 'weather'" class="tt-roster-tabs" role="group" aria-label="Team">
+    <div v-if="teamChoice" class="tt-roster-tabs" role="group" aria-label="Team">
       <button v-for="s in sides" :key="s" type="button" class="tt-roster-tab" :data-active="side === s" @click="pickTeam(s)">
         <span class="tt-roster-tab-name">{{ match[s].teamName }}</span><small>{{ match[s].coach }}</small>
       </button>
     </div>
-    <ul v-if="needsPlayer && !chosen" class="tt-pick-list">
-      <li v-for="p in players" :key="p.id">
-        <button type="button" class="lobby-btn tt-tap tt-pick-row" :disabled="unavailable(side, p.id) !== ''" @click="pickPlayer(p.id)">
-          <span class="tt-pick-glyph" aria-hidden="true">{{ (p.positionName ?? p.position ?? p.positionId ?? "?").slice(0, 1).toUpperCase() }}</span>
-          <b>{{ p.number !== undefined ? `#${p.number}` : "" }}</b> {{ p.name }}
-          <small>{{ p.positionName ?? p.position ?? p.positionId ?? "" }}<template v-if="unavailable(side, p.id)"> ({{ unavailable(side, p.id) }})</template></small>
-        </button>
-      </li>
-    </ul>
+    <template v-if="needsPlayer && !chosen">
+      <div v-for="g in groups" :key="g.side" class="tt-pick-group">
+        <p v-if="visibleSides.length > 1" class="tt-pick-head">{{ match[g.side].teamName }}</p>
+        <p v-if="!g.players.length" class="muted">No available player.</p>
+        <ul class="tt-pick-list">
+          <li v-for="p in g.players" :key="p.id">
+            <button type="button" class="lobby-btn tt-tap tt-pick-row" @click="pickPlayer(g.side, p.id)">
+              <span class="tt-pick-glyph" aria-hidden="true">{{ (p.positionName ?? p.position ?? p.positionId ?? "?").slice(0, 1).toUpperCase() }}</span>
+              <b>{{ p.number !== undefined ? `#${p.number}` : "" }}</b> {{ p.name }}
+              <small>{{ p.positionName ?? p.position ?? p.positionId ?? "" }}</small>
+            </button>
+          </li>
+        </ul>
+      </div>
+    </template>
     <template v-if="kind.needs === 'player+result' && chosen">
       <label for="inj-result">Result</label>
       <select id="inj-result" v-model="result"><option v-for="r in INJURY_RESULTS_UI" :key="r" :value="r">{{ r }}</option></select>

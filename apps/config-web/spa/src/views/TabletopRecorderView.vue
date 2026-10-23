@@ -8,6 +8,7 @@ import { API_KEY } from "../app";
 import TabletopFeed from "../components/TabletopFeed.vue";
 import TabletopOther from "../components/TabletopOther.vue";
 import TabletopPick from "../components/TabletopPick.vue";
+import TabletopTtm from "../components/TabletopTtm.vue";
 import TabletopPregame from "../components/TabletopPregame.vue";
 import TabletopRosters from "../components/TabletopRosters.vue";
 import TabletopScoreboard from "../components/TabletopScoreboard.vue";
@@ -19,7 +20,7 @@ import { THEME_KEY } from "../theme";
 import { createCueTracker, timerOn, timerRemaining } from "../tabletop/clock";
 import { createCuePlayer } from "../tabletop/sounds";
 import TabletopGlyph from "../components/TabletopGlyph.vue";
-import { CAS_EVENT, CASUALTY_RESULTS_UI, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, type OtherEvent } from "../tabletop/feed";
+import { CAS_EVENT, CASUALTY_RESULTS_UI, ELIGIBILITY_KEY, eligiblePlayers, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, visibleSidesFor, type OtherEvent } from "../tabletop/feed";
 import { browserStorage } from "../tabletop/queue";
 import { createRecorder, RECORDER_KEY, type Side, type SummaryView } from "../tabletop/recorder";
 
@@ -71,17 +72,6 @@ watch(remaining, (r) => {
 }, { immediate: true });
 const unlock = (): void => cues.unlock();
 
-function unavailable(s: Side, id: string): string {
-  const p = state.teams[s]?.players.find((x) => x.id === id);
-  if (!p) return "";
-  const line = state.tally.players[s].find((l) => l.id === id);
-  if (p.dead) return "dead";
-  if (p.mng) return "MNG";
-  if (line?.injury?.result === "DEAD") return "killed";
-  if (line?.sentOff) return "sent off";
-  return "";
-}
-
 // Pick sheet (TD, CAS and the Other entries that need a team or player)
 const other = ref(false);
 const rosters = ref(false);
@@ -100,7 +90,10 @@ const localSide = computed<Side>(() => (match.value?.away.coach === me.value && 
 // End-of-match MVP pick: one per team (a team that already has one is skipped).
 const mvpPick = reactive<Record<Side, string>>({ home: "", away: "" });
 const hasMvp = (s: Side): boolean => state.tally.players[s].some((l) => l.mvp > 0);
-const mvpChoices = (s: Side) => (state.teams[s]?.players ?? []).filter((p) => unavailable(s, p.id) === "");
+const mvpChoices = (s: Side) => eligiblePlayers(state.teams, s, ELIGIBILITY_KEY.mvp!);
+/** The rosters this viewer may pick from: their own, both for an organiser in edit mode. */
+const visibleSides = computed<Side[]>(() => visibleSidesFor(localSide.value, organiser.value, editMode.value));
+const ttmOpen = ref(false);
 
 function onOther(o: OtherEvent): void {
   other.value = false;
@@ -108,18 +101,19 @@ function onOther(o: OtherEvent): void {
     if (o.type === "endOfMatch") endSheet.value = true;
     return;
   }
+  if (o.type === "throwTeamMate") { ttmOpen.value = true; return; }
   openPick(o);
 }
 
 // Casualty sheet (after the inflicting player is picked)
 const sheet = reactive({ open: false, side: "home" as Side, player: "", victim: "", result: "BH" as string, stat: "MA", cause: "block", apothecary: false });
 const otherSide = (s: Side): Side => (s === "home" ? "away" : "home");
-const victims = computed(() => (state.teams[otherSide(sheet.side)]?.players ?? []).filter((p) => !victimBlocked(otherSide(sheet.side), p.id)));
-function victimBlocked(s: Side, id: string): boolean {
-  const p = state.teams[s]?.players.find((x) => x.id === id);
-  return !p || p.dead || p.mng || state.tally.players[s].find((l) => l.id === id)?.injury !== undefined;
-}
+const victims = computed(() => (state.teams[otherSide(sheet.side)]?.players ?? []).filter((p) => p.available === true && p.eligible?.victim !== false && state.tally.players[otherSide(sheet.side)].find((l) => l.id === p.id)?.injury === undefined));
 const sheetErr = ref("");
+function onTtm(spec: { type: string; team: Side; player?: string; payload?: Record<string, unknown> }): void {
+  ttmOpen.value = false;
+  void rec.record(spec);
+}
 function onPicked(spec: { type: string; team: Side; player?: string; payload?: Record<string, unknown> }): void {
   pick.value = null;
   if (spec.type === "casualty") {
@@ -264,7 +258,8 @@ onBeforeUnmount(() => {
     <TabletopTurnSet v-if="turnSetOpen" :match="match" :clock="state.clock" :busy="state.busy" :error="state.actionError" @close="turnSetOpen = false" @save="saveTurn" />
     <TabletopOther v-if="other" @pick="onOther" @close="other = false" />
     <TabletopRosters v-if="rosters" :match="match" :teams="state.teams" :tally="state.tally" @close="rosters = false" />
-    <TabletopPick v-if="pick" :kind="pick" :match="match" :teams="state.teams" :unavailable="unavailable" :local-side="localSide" @pick="onPicked" @close="pick = null" />
+    <TabletopPick v-if="pick" :kind="pick" :match="match" :teams="state.teams" :visible-sides="visibleSides" @pick="onPicked" @close="pick = null" />
+    <TabletopTtm v-if="ttmOpen" :match="match" :teams="state.teams" :tally="state.tally" :visible-sides="visibleSides" @post="onTtm" @close="ttmOpen = false" />
 
     <div v-if="sheet.open" class="tt-sheet" role="dialog" aria-label="Casualty">
       <h3>Casualty by {{ state.teams[sheet.side]?.players.find((p) => p.id === sheet.player)?.name ?? sheet.player }}</h3>

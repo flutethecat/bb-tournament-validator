@@ -46,6 +46,8 @@ export interface MatchView {
 
 export interface RosterPlayerView {
   id: string; name: string; number?: number; spp: number; mng: boolean; dead: boolean;
+  /** The server's availability and per-action eligibility (throwTeamMate, rightStuff, pass, catch, intercept, foul ...). */
+  available?: boolean; unavailableReason?: string; eligible?: Record<string, boolean>;
   positionId?: string; position?: string; positionName?: string; skills?: string[]; injuries?: string[]; niggles?: number;
   /** MA and ST are values; AG, PA and AV are target numbers (rendered "3+"); pa null = no passing. */
   ma?: number | null; st?: number | null; ag?: number | null; pa?: number | null; av?: number | null;
