@@ -31,7 +31,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { ReconcilingScheduler, ScheduleOutcome } from "./matchmaking.js";
+import type { Matchup, ReconcilingScheduler, ScheduleOutcome } from "./matchmaking.js";
 
 const ADMIN_FETCH_TIMEOUT_MS = 5_000;
 
@@ -133,17 +133,26 @@ export async function scheduleForkGame(
   } catch (e) {
     throw new ScheduleOutcomeUnknownError(`fork admin/schedule: outcome unknown (${(e as Error).message})`);
   }
+  // Classification AFTER the request went out (owner ruling, Astra round 4): only a parsed success is a game
+  // and only the servlet's own readable `<error>` is a refusal. An HTTP error status without one (a proxy's
+  // 504), a truncated or malformed body: the fork may still have created the game, so the outcome is UNKNOWN.
   const xml = await res.text();
   const error = xmlTag(xml, "error");
-  if (error) throw new Error(`fork admin/schedule: ${error}`);
+  if (error) throw new ScheduleRejectedError(`fork admin/schedule: ${error}`);
   const gameId = xmlTag(xml, "gameId");
-  if (!res.ok || xmlTag(xml, "status") !== "ok" || !gameId) {
-    throw new Error(`fork admin/schedule failed (HTTP ${res.status}): ${xml.slice(0, 300)}`);
-  }
-  return { gameId };
+  if (res.ok && xmlTag(xml, "status") === "ok" && gameId) return { gameId };
+  throw new ScheduleOutcomeUnknownError(`fork admin/schedule: unrecognised answer (HTTP ${res.status}): ${xml.slice(0, 200)}`);
 }
 
-/** The schedule request went out but its answer was lost: a game may or may not exist. */
+/** The fork refused the schedule with its own readable `<error>`: definitely no game. */
+export class ScheduleRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ScheduleRejectedError";
+  }
+}
+
+/** The schedule request went out but no definite answer came back: a game may or may not exist. */
 export class ScheduleOutcomeUnknownError extends Error {
   constructor(message: string) {
     super(message);
@@ -151,65 +160,52 @@ export class ScheduleOutcomeUnknownError extends Error {
   }
 }
 
-interface ScheduleToken {
-  homeTeamId: string;
-  awayTeamId: string;
-  /** Live games for exactly this home/away pair BEFORE the request: never mistaken for ours. */
-  before: string[];
-  at: number;
+/** One live game as seen from one coach's list (`listCoachGames` rows carry these fields). */
+export interface LiveCoachGame {
+  gameId: number | string;
+  myTeamId: string;
+  opponentCoach: string;
 }
 
-const isScheduleToken = (t: unknown): t is ScheduleToken =>
-  !!t && typeof t === "object" && Array.isArray((t as ScheduleToken).before) && typeof (t as ScheduleToken).homeTeamId === "string";
-
 /**
- * The matchmaker's scheduler for the real fork. A definite answer (the servlet's `<error>`, a bad status, or a
- * failure before the schedule request went out) is `rejected`; a lost answer is `unknown`, carrying a token. The
- * stable identity of the operation is (home team, away team, the live games for that pair before the request):
- * `reconcile` looks the pair up in the fork's live game list and accepts only a NEW, still-live game with exactly
- * those teams in that orientation. No new game yet: still unknown within `graceMs`, then definitely none.
+ * The matchmaker's scheduler for the real fork. Before the schedule request goes out (the admin challenge
+ * fails): rejected. After: scheduled only on a parsed success, rejected only on the servlet's `<error>`,
+ * unknown otherwise. `findMatchup` reads BOTH coaches' live games and accepts only games whose two seats are
+ * exactly (coach A, team A) and (coach B, team B), whoever created them; lowest id first. If the lists cannot
+ * be read it returns undefined (the pairing stays uncertain); it never infers "no game".
  */
 export function forkScheduler(
   cfg: ForkAdminConfig,
-  opts: { overtime?: () => boolean; graceMs?: number; now?: () => number } = {},
+  opts: { overtime?: () => boolean; liveGamesOf?: (coach: string) => Promise<LiveCoachGame[]> } = {},
 ): ReconcilingScheduler {
-  const now = opts.now ?? Date.now;
-  const graceMs = opts.graceMs ?? 60_000;
-  const pairGames = (games: AdminGameEntry[], home: string, away: string) =>
-    games.filter((g) => g.homeTeamId === home && g.awayTeamId === away);
   return {
     async schedule(homeTeamId, awayTeamId): Promise<ScheduleOutcome> {
-      let before: string[];
-      try {
-        before = pairGames(await adminListLive(cfg), homeTeamId, awayTeamId).map((g) => g.gameId);
-      } catch (e) {
-        return { kind: "rejected", error: `fork admin unreachable: ${(e as Error).message}` }; // nothing was sent
-      }
       try {
         const { gameId } = await scheduleForkGame(cfg, homeTeamId, awayTeamId, { overtime: opts.overtime?.() });
         return { kind: "scheduled", gameId, homeTeamId, awayTeamId };
       } catch (e) {
-        if (e instanceof ScheduleOutcomeUnknownError) {
-          const token: ScheduleToken = { homeTeamId, awayTeamId, before, at: now() };
-          return { kind: "unknown", token };
-        }
+        if (e instanceof ScheduleOutcomeUnknownError) return { kind: "unknown", error: e.message };
+        // ScheduleRejectedError, or a failure before the request went out (the admin challenge)
         return { kind: "rejected", error: (e as Error).message };
       }
     },
-    async reconcile(token): Promise<ScheduleOutcome> {
-      if (!isScheduleToken(token)) return { kind: "unknown" };
-      let live: AdminGameEntry[];
+    async findMatchup(m: Matchup): Promise<string[] | undefined> {
+      if (!opts.liveGamesOf) return undefined;
+      let homeGames: LiveCoachGame[];
+      let awayGames: LiveCoachGame[];
       try {
-        live = await adminListLive(cfg);
+        [homeGames, awayGames] = await Promise.all([opts.liveGamesOf(m.home.coach), opts.liveGamesOf(m.away.coach)]);
       } catch {
-        return { kind: "unknown" };
+        return undefined;
       }
-      const fresh = pairGames(live, token.homeTeamId, token.awayTeamId)
-        .filter((g) => !token.before.includes(g.gameId))
-        .sort((x, y) => Number(x.gameId) - Number(y.gameId));
-      const found = fresh[0];
-      if (found) return { kind: "scheduled", gameId: found.gameId, homeTeamId: token.homeTeamId, awayTeamId: token.awayTeamId };
-      return now() - token.at < graceMs ? { kind: "unknown" } : { kind: "rejected", error: "no game was created" };
+      const lc = (v: string) => v.trim().toLowerCase();
+      const fromHome = new Set(homeGames
+        .filter((g) => g.myTeamId === m.home.teamId && lc(g.opponentCoach) === lc(m.away.coach))
+        .map((g) => String(g.gameId)));
+      return awayGames
+        .filter((g) => g.myTeamId === m.away.teamId && lc(g.opponentCoach) === lc(m.home.coach) && fromHome.has(String(g.gameId)))
+        .map((g) => String(g.gameId))
+        .sort((x, y) => Number(x) - Number(y));
     },
   };
 }

@@ -6,20 +6,28 @@
  * waiting. State is process-local with a short TTL — fine for v1 on a single config-web
  * instance; a DB or pub/sub would be needed only if this is ever load-balanced.
  *
- * Join target: if a `scheduleGame` function is supplied (see `scheduleForkGame` in
+ * Join target: if a scheduler is supplied (see `forkScheduler` / `scheduleForkGame` in
  * forkAdmin.ts), pairing calls the fork's own admin API to create a REAL game server-side
  * and get an authoritative gameId — both JNLPs carry `-gameId`, which the fork's join
- * handler always prefers over gameName. If scheduling isn't configured, or the call
- * fails for any reason, this falls back to the original scheme: a shared, deterministic
- * gameName that both sides join by (first join creates the game, second starts it) —
- * proven, so a scheduling failure never blocks a challenge from pairing.
+ * handler always prefers over gameName. If scheduling isn't configured, or the fork
+ * DEFINITELY refused, this falls back to the original scheme: a shared, deterministic
+ * gameName that both sides join by (first join creates the game, second starts it).
+ *
+ * Uncertain outcomes (owner ruling, Astra round 4): when the schedule request went out
+ * and no definite answer came back, a game MAY exist. The pairing becomes UNCERTAIN: both
+ * consents stay held by that operation (the coaches are reserved), nothing is scheduled
+ * again automatically, no timers run. It resolves only when (a) a "check again" finds the
+ * exact matchup live on the fork (the same two coaches with the same two teams; the
+ * lowest game id wins and any others are reported as duplicates), or (b) a human starts
+ * over / cancels, which withdraws both consents. Absence and elapsed time never count as
+ * "no game".
  *
  * Auth: if a `verifyChallenger` function is supplied, a challenge must carry the coach's
  * own password and verify against the fork DB before it counts toward mutuality. Without
  * this, "mutual consent" is spoofable — anyone could issue both sides of a challenge
  * under someone else's name and make config-web fire admin `schedule` on their behalf
  * (Yularen's #admin-gate-security amendment §4b). Optional/backward-compatible, same
- * injection shape as `scheduleGame`, for the same testability reason.
+ * injection shape as the scheduler, for the same testability reason.
  */
 
 import { randomBytes } from "node:crypto";
@@ -63,45 +71,31 @@ export interface MatchStatusAuth {
   passwordMd5?: string;
 }
 
-/** Default bound on one scheduling call; the pairing reservation never outlives it. */
+/** Bound on one scheduler call; past it the outcome is "unknown" (the pairing becomes uncertain). */
 export const DEFAULT_SCHEDULE_TIMEOUT_MS = 30_000;
-/** How long an unresolved scheduling operation is kept for reconciliation. */
-const OPERATION_TTL_MS = 30 * 60 * 1000;
-/** Background re-attempts of a pairing whose scheduling outcome is unknown (both sides stay waiting meanwhile). */
-const DEFAULT_PENDING_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 20_000, 40_000];
 
 /**
  * The outcome of asking the fork to schedule a game.
- *  - scheduled: the fork created `gameId` (home/away as given).
- *  - rejected: DEFINITELY no game (the fork said no, or the request never went out). Named-game fallback is safe.
- *  - unknown: the request went out but the answer was lost (timeout / abort). A game MAY exist: never fall back to a
- *    named game; reconcile with the opaque token before delivering or scheduling again.
+ *  - scheduled: the fork answered with `gameId`.
+ *  - rejected: DEFINITELY no game (a readable servlet `<error>`, or a failure before the request went out).
+ *  - unknown: anything else after the request went out. A game MAY exist; never schedule again automatically.
  */
 export type ScheduleOutcome =
   | { kind: "scheduled"; gameId: string; homeTeamId: string; awayTeamId: string }
   | { kind: "rejected"; error?: string }
-  | { kind: "unknown"; token?: unknown };
+  | { kind: "unknown"; error?: string };
 
-/** A scheduler that can reconcile an unknown outcome (the fork admin implementation lives in forkAdmin.ts). */
-export interface ReconcilingScheduler {
-  schedule(homeTeamId: string, awayTeamId: string): Promise<ScheduleOutcome>;
-  /** Re-examine an `unknown` outcome: scheduled (the game exists and is still open with these teams), rejected
-   *  (definitely no game), or still unknown. */
-  reconcile(token: unknown): Promise<ScheduleOutcome>;
+/** The exact matchup being looked for: these two coaches with these two teams (either orientation). */
+export interface Matchup {
+  home: { coach: string; teamId: string };
+  away: { coach: string; teamId: string };
 }
 
-/** One scheduling operation awaiting reconciliation, bound to its participants and teams. */
-interface SchedulingOperation {
-  coachKeys: [string, string];
-  homeCoach: string;
-  awayCoach: string;
-  homeTeamId: string;
-  awayTeamId: string;
-  /** The challenge ids that started it (audit; a retry re-uses the same consents when they are unchanged). */
-  challengeIds: [string, string];
-  /** Settles to the scheduler's own outcome; may still be running after the matchmaker's deadline. */
-  call: { settled?: ScheduleOutcome; promise: Promise<ScheduleOutcome> };
-  at: number;
+export interface ReconcilingScheduler {
+  schedule(homeTeamId: string, awayTeamId: string): Promise<ScheduleOutcome>;
+  /** Live game ids whose two seats are exactly the matchup's coaches with its teams, lowest first.
+   *  `undefined` = the check could not be made (stays uncertain). An empty list is NOT proof of "no game". */
+  findMatchup?(matchup: Matchup): Promise<string[] | undefined>;
 }
 
 /** Injected so pure matchmaking logic stays testable without real fork/HTTP access. */
@@ -120,14 +114,15 @@ export interface PendingChallengeView {
   createdAt: number;
 }
 
-/** Fired once per pairing, after scheduling resolved (gameId undefined on the gameName fallback).
- *  Read-only notification for views (the web Lobby); the deliveries are unchanged. */
+/** Fired once per pairing (gameId undefined on the gameName fallback). Read-only notification for views. */
 export interface PairingEvent {
   gameName: string;
   gameId?: string;
   home: { coach: string; teamId: string; challengeId: string };
   away: { coach: string; teamId: string; challengeId: string };
   at: number;
+  /** Further live games found for the same exact matchup (an extra game was created; an organiser can remove it). */
+  duplicates?: string[];
 }
 export type PairingListener = (pairing: PairingEvent) => void;
 
@@ -135,18 +130,38 @@ export type PairingListener = (pairing: PairingEvent) => void;
  *  banned). Return an error message to refuse; that side's challenge is dropped, the other stays pending. */
 export type PairSideValidator = (side: { coach: string; teamId: string }) => Promise<string | undefined> | string | undefined;
 
-/** Result of `challengeVerified`: the new challenge's id, and the pairing when it paired at once. */
+/** Result of `challengeVerified` / `checkAgain`. */
 export interface VerifiedChallengeResult {
-  /** pending = both consents stand but the game's scheduling outcome is not known yet (retried in background). */
-  status: "waiting" | "paired" | "pending";
+  /** uncertain = both consents are held by a scheduling operation whose outcome is not known. */
+  status: "waiting" | "paired" | "uncertain";
   challengeId: string;
   pairing?: PairingEvent;
 }
 
-type PairOutcome = { kind: "paired"; event: PairingEvent } | { kind: "pending" };
-
 /** Fired when a seat's JNLP is handed to its authorized owner through `matchstatus` (the client took the seat). */
 export type DeliveryListener = (delivery: { coach: string; gameName: string; gameId?: string }) => void;
+
+/** What a view may know about the operation between two coaches. */
+export type OperationState = "none" | "inflight" | "uncertain";
+
+type PairOutcome =
+  | { kind: "paired"; event: PairingEvent }
+  | { kind: "uncertain" }
+  | { kind: "abandoned" };
+
+/** A scheduling operation whose outcome is unknown; it holds both consents until it resolves or is abandoned. */
+interface UncertainOperation {
+  key: string;
+  a: Challenge;
+  b: Challenge;
+  genA: number;
+  genB: number;
+  home: Challenge;
+  away: Challenge;
+  gameName: string;
+  since: number;
+  checking: boolean;
+}
 
 /**
  * How home/away is assigned when a pair is scheduled (which team the fork gets as
@@ -173,23 +188,20 @@ export class Matchmaker {
   private readonly ttlMs: number;
   private readonly now: () => number;
   private readonly random: () => number;
-  private readonly scheduleGame?: ForkGameScheduler;
+  private readonly scheduler?: ReconcilingScheduler;
   private readonly verifyChallenger?: ChallengeVerifier;
   private readonly pairingListeners: PairingListener[] = [];
-  private readonly validateSide?: PairSideValidator;
-  /** Coach keys whose pairing is in flight (between reservation and delivery). A challenge by or for a
-   *  reserved coach is refused, so overlapping accepts can never pair (or schedule) twice. */
-  private readonly reserved = new Set<string>();
-  private readonly scheduleTimeoutMs: number;
-  private readonly scheduler?: ReconcilingScheduler;
-  private readonly pendingRetryDelaysMs: number[];
-  /** Unresolved scheduling operations keyed by the sorted coach pair (claimed and deleted atomically, under the
-   *  pairing reservation, by the one pairing that uses the result). */
-  private readonly operations = new Map<string, SchedulingOperation>();
-  /** Per-coach consent generation: bumped on every challenge, cancel and pairing. A rollback restores an older
-   *  challenge only when the coach's generation is still the one captured at the attempt. */
-  private readonly generation = new Map<string, number>();
   private readonly deliveryListeners: DeliveryListener[] = [];
+  private readonly validateSide?: PairSideValidator;
+  private readonly scheduleTimeoutMs: number;
+  /** Coach key -> the challenge an in-flight pairing holds (between reservation and outcome). */
+  private readonly inflight = new Map<string, Challenge>();
+  /** Sorted coach-pair key -> the uncertain operation holding both consents. */
+  private readonly uncertain = new Map<string, UncertainOperation>();
+  /** Per-coach consent generation: bumped on every challenge, cancel, expiry, start over and pairing. Anything
+   *  that awaited (verification, validation, scheduling, a check) acts only if the generation it captured is
+   *  still current. */
+  private readonly generation = new Map<string, number>();
   private homeAwayMode: HomeAwayMode;
 
   constructor(opts?: {
@@ -197,53 +209,25 @@ export class Matchmaker {
     now?: () => number;
     /** Injectable RNG (0..1) so "random" mode is deterministic under test. */
     random?: () => number;
+    /** Plain scheduler: a gameId is scheduled, an empty result or a throw is a definite rejection. */
     scheduleGame?: ForkGameScheduler;
+    /** Preferred: classifies definite rejection vs unknown and can look the matchup up on the fork. */
+    scheduler?: ReconcilingScheduler;
     verifyChallenger?: ChallengeVerifier;
     homeAwayMode?: HomeAwayMode;
     onPaired?: PairingListener;
     validateSide?: PairSideValidator;
-    /** Bound on one scheduling call (default 30 s); past it the outcome is "unknown" and the reservation ends. */
     scheduleTimeoutMs?: number;
-    /** Preferred over `scheduleGame`: distinguishes a definite rejection from an unknown outcome and reconciles. */
-    scheduler?: ReconcilingScheduler;
-    /** Background retry delays for a pending (unknown-outcome) pairing; [] disables. */
-    pendingRetryDelaysMs?: number[];
   }) {
     this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
     this.now = opts?.now ?? Date.now;
     this.random = opts?.random ?? Math.random;
-    this.scheduleGame = opts?.scheduleGame;
+    this.scheduler = opts?.scheduler ?? (opts?.scheduleGame ? plainScheduler(opts.scheduleGame) : undefined);
     this.verifyChallenger = opts?.verifyChallenger;
     this.homeAwayMode = opts?.homeAwayMode ?? DEFAULT_HOME_AWAY_MODE;
     if (opts?.onPaired) this.pairingListeners.push(opts.onPaired);
     this.validateSide = opts?.validateSide;
     this.scheduleTimeoutMs = opts?.scheduleTimeoutMs ?? DEFAULT_SCHEDULE_TIMEOUT_MS;
-    this.scheduler = opts?.scheduler ?? (opts?.scheduleGame ? legacyScheduler(opts.scheduleGame) : undefined);
-    this.pendingRetryDelaysMs = opts?.pendingRetryDelaysMs ?? DEFAULT_PENDING_RETRY_DELAYS_MS;
-  }
-
-  /** Register a delivery listener (the web Lobby marks a client-taken seat "in the client"). */
-  onDelivered(listener: DeliveryListener): void {
-    this.deliveryListeners.push(listener);
-  }
-
-  private gen(k: string): number {
-    return this.generation.get(k) ?? 0;
-  }
-
-  private bump(k: string): number {
-    const next = this.gen(k) + 1;
-    this.generation.set(k, next);
-    return next;
-  }
-
-  /** Is an unresolved scheduling operation open for these two coaches (the Lobby shows "setting up")? */
-  schedulingPending(coachA: string, coachB: string): boolean {
-    return this.operations.has(this.pairKey(coachA, coachB));
-  }
-
-  private pairKey(a: string, b: string): string {
-    return [this.key(a), this.key(b)].sort().join("|");
   }
 
   /** Register a read-only pairing listener (the web Lobby view). A listener fault never breaks pairing. */
@@ -251,20 +235,40 @@ export class Matchmaker {
     this.pairingListeners.push(listener);
   }
 
+  /** Register a delivery listener (the web Lobby marks a client-taken seat "in the client"). */
+  onDelivered(listener: DeliveryListener): void {
+    this.deliveryListeners.push(listener);
+  }
+
   /** The coach's own pending challenge, digest stripped; undefined when none (or expired). */
   pendingOf(coach: string): PendingChallengeView | undefined {
     this.sweep();
     const c = this.pending.get(this.key(coach));
-    return c ? { id: c.id, coach: c.coach, teamId: c.teamId, opponent: c.opponent, createdAt: c.createdAt } : undefined;
+    return c ? view(c) : undefined;
   }
 
   /** Pending challenges that NAME this coach as the opponent (an inbox), digest stripped, oldest first. */
   pendingFor(coach: string): PendingChallengeView[] {
     this.sweep();
     const k = this.key(coach);
-    return [...this.pending.values()]
-      .filter((c) => this.key(c.opponent) === k)
-      .map((c) => ({ id: c.id, coach: c.coach, teamId: c.teamId, opponent: c.opponent, createdAt: c.createdAt }));
+    return [...this.pending.values()].filter((c) => this.key(c.opponent) === k).map(view);
+  }
+
+  /** The operation between two coaches: none, in flight (scheduling right now), or uncertain. */
+  operationState(coachA: string, coachB: string): OperationState {
+    this.sweep();
+    if (this.uncertain.has(this.pairKey(coachA, coachB))) return "uncertain";
+    const a = this.inflight.get(this.key(coachA));
+    return a && this.key(a.opponent) === this.key(coachB) ? "inflight" : "none";
+  }
+
+  /** Does the matchmaker still hold this exact consent (pending, in flight, or in an uncertain operation)? */
+  holdsChallenge(coach: string, challengeId: string): boolean {
+    this.sweep();
+    const k = this.key(coach);
+    if (this.pending.get(k)?.id === challengeId || this.inflight.get(k)?.id === challengeId) return true;
+    for (const op of this.uncertain.values()) if (op.a.id === challengeId || op.b.id === challengeId) return true;
+    return false;
   }
 
   /** Current home/away assignment policy (see HomeAwayMode). */
@@ -283,19 +287,38 @@ export class Matchmaker {
     return coach.trim().toLowerCase();
   }
 
+  private pairKey(a: string, b: string): string {
+    return [this.key(a), this.key(b)].sort().join("|");
+  }
+
+  private gen(k: string): number {
+    return this.generation.get(k) ?? 0;
+  }
+
+  private bump(k: string): number {
+    const next = this.gen(k) + 1;
+    this.generation.set(k, next);
+    return next;
+  }
+
+  private isReserved(k: string): boolean {
+    if (this.inflight.has(k)) return true;
+    for (const op of this.uncertain.values()) if (this.key(op.a.coach) === k || this.key(op.b.coach) === k) return true;
+    return false;
+  }
+
   private sweep(): void {
     const cutoff = this.now() - this.ttlMs;
-    for (const [k, c] of this.pending) if (c.createdAt < cutoff) this.pending.delete(k);
+    for (const [k, c] of this.pending) {
+      if (c.createdAt < cutoff) { this.pending.delete(k); this.bump(k); } // an expired consent is a changed consent
+    }
     for (const [k, m] of this.matched) if (m.createdAt < cutoff) this.matched.delete(k);
   }
 
   /**
    * Enter (or refresh) a pending challenge. Always resolves `{status:"waiting"}` — an
    * instant reciprocal match is delivered via the next `matchstatus` poll for BOTH
-   * sides, keeping one code path (the client's flow is always challenge → poll). Async
-   * because pairing may call out to the fork's admin API to schedule a real game; the
-   * caller awaits so the response only comes back once pairing has fully resolved
-   * (including the gameName-fallback path on a scheduling failure) — no partial state.
+   * sides, keeping one code path (the client's flow is always challenge → poll).
    */
   async challenge(opts: {
     coach: string;
@@ -318,14 +341,17 @@ export class Matchmaker {
     // (verification, the pending map, the delivered JNLP) ever sees a clear-text password.
     const { digest } = coachSecretDigest(opts);
 
+    // Admission generation: a cancel, another challenge or a pairing while verification is pending voids this one.
+    const admission = this.gen(this.key(coach));
     if (this.verifyChallenger) {
       if (!digest) throw new Error("A password is required to challenge.");
       const ok = await this.verifyChallenger(coach, digest);
       if (!ok) throw new Error("Invalid coach name or password.");
     }
+    if (this.gen(this.key(coach)) !== admission) throw new Error("Your challenge changed while it was being checked. Try again.");
 
     await this.enter({ id: this.newId(), coach, teamId: opts.teamId.trim(), opponent, passwordMd5: digest, createdAt: this.now() });
-    return { status: "waiting" }; // paired or pending, the client keeps polling matchstatus
+    return { status: "waiting" }; // paired or uncertain, the client keeps polling matchstatus
   }
 
   /**
@@ -343,9 +369,13 @@ export class Matchmaker {
     if (this.key(coach) === this.key(opponent)) throw new Error("You can't challenge yourself.");
     const mine: Challenge = { id: this.newId(), coach, teamId: opts.teamId.trim(), opponent, createdAt: this.now() };
     const outcome = await this.enter(mine);
-    if (outcome?.kind === "paired") return { status: "paired", challengeId: mine.id, pairing: outcome.event };
-    if (outcome?.kind === "pending") return { status: "pending", challengeId: mine.id };
-    return { status: "waiting", challengeId: mine.id };
+    return this.result(outcome, mine.id);
+  }
+
+  private result(outcome: PairOutcome | undefined, challengeId: string): VerifiedChallengeResult {
+    if (outcome?.kind === "paired") return { status: "paired", challengeId, pairing: outcome.event };
+    if (outcome?.kind === "uncertain") return { status: "uncertain", challengeId };
+    return { status: "waiting", challengeId };
   }
 
   private newId(): string {
@@ -355,21 +385,24 @@ export class Matchmaker {
   /** Store a challenge and pair it if reciprocal. Synchronous up to the pairing reservation. */
   private async enter(mine: Challenge): Promise<PairOutcome | undefined> {
     const k = this.key(mine.coach);
-    for (const r of [k, this.key(mine.opponent)]) {
-      if (this.reserved.has(r)) throw new Error("A game is already being set up for this coach. Try again in a moment.");
+    const ko = this.key(mine.opponent);
+    // Re-entry by a coach of an UNCERTAIN pairing with the same opponent is a "check again", never a new schedule.
+    const op = this.uncertain.get(this.pairKey(mine.coach, mine.opponent));
+    if (op) return this.checkOperation(op);
+    for (const r of [k, ko]) {
+      if (this.isReserved(r)) throw new Error("A game is already being set up for this coach. Try again in a moment.");
     }
     const previous = this.pending.get(k);
     const myGen = this.bump(k);
     this.pending.set(k, mine);
     // Reciprocal? The opponent must already be waiting AND naming me.
-    const theirs = this.pending.get(this.key(mine.opponent));
+    const theirs = this.pending.get(ko);
     if (!theirs || this.key(theirs.opponent) !== k) return undefined;
     try {
       return await this.pair(mine, theirs, myGen);
     } catch (e) {
-      // A failed attempt is rolled back as a whole: THIS challenge id is gone (pair() never restores it) and the
-      // coach's previous challenge comes back only if it is still live AND nothing (cancel, another challenge, a
-      // pairing) has happened to this coach since the attempt began.
+      // A failed attempt is rolled back as a whole: THIS challenge id is gone and the coach's previous challenge
+      // comes back only if still live AND nothing happened to this coach since the attempt began.
       if (previous && previous.id !== mine.id && previous.createdAt >= this.now() - this.ttlMs
         && this.gen(k) === myGen && !this.pending.has(k)) {
         this.pending.set(k, previous);
@@ -386,55 +419,33 @@ export class Matchmaker {
     const genB = this.gen(kb);
     this.pending.delete(ka);
     this.pending.delete(kb);
-    this.reserved.add(ka);
-    this.reserved.add(kb);
-    const restore = (c: Challenge, k: string, g: number): void => {
-      if (this.gen(k) === g && !this.pending.has(k) && c.createdAt >= this.now() - this.ttlMs) this.pending.set(k, c);
-    };
+    this.inflight.set(ka, a);
+    this.inflight.set(kb, b);
     try {
-      const outcome = await this.pairReserved(a, b, (who) => (who === "b" ? restore(b, kb, genB) : restore(a, ka, genA)));
-      if (outcome.kind === "pending") {
-        // Unknown scheduling outcome: both consents stand; retry (and reconcile) in the background.
-        restore(a, ka, genA);
-        restore(b, kb, genB);
-        this.retryPendingLater(a.coach, b.coach, 0);
-      } else {
-        this.bump(ka);
-        this.bump(kb);
-      }
-      return outcome;
+      return await this.pairReserved(a, b, genA, genB);
     } finally {
-      this.reserved.delete(ka);
-      this.reserved.delete(kb);
+      this.inflight.delete(ka);
+      this.inflight.delete(kb);
     }
   }
 
-  private retryPendingLater(coachA: string, coachB: string, attempt: number): void {
-    const delay = this.pendingRetryDelaysMs[attempt];
-    if (delay === undefined) return;
-    const timer = setTimeout(() => {
-      const a = this.pending.get(this.key(coachA));
-      const b = this.pending.get(this.key(coachB));
-      if (!a || !b || this.key(a.opponent) !== this.key(coachB) || this.key(b.opponent) !== this.key(coachA)) return;
-      if (this.reserved.has(this.key(coachA)) || this.reserved.has(this.key(coachB))) return;
-      this.pair(a, b, this.gen(this.key(coachA)))
-        .then((o) => { if (o.kind === "pending") this.retryPendingLater(coachA, coachB, attempt + 1); })
-        .catch(() => { /* a refusal already rolled the attempt back */ });
-    }, delay);
-    (timer as { unref?: () => void }).unref?.();
-  }
-
-  private async pairReserved(a: Challenge, b: Challenge, restoreSide: (who: "a" | "b") => void): Promise<PairOutcome> {
+  private async pairReserved(a: Challenge, b: Challenge, genA: number, genB: number): Promise<PairOutcome> {
+    const ka = this.key(a.coach);
+    const kb = this.key(b.coach);
+    const current = () => this.gen(ka) === genA && this.gen(kb) === genB;
     if (this.validateSide) {
       for (const [side, other] of [[a, b], [b, a]] as const) {
         const error = await this.validateSide({ coach: side.coach, teamId: side.teamId });
         if (error) {
           // The invalid side's consent is void. The ATTEMPT (`a`) is always rolled back; the waiting side (`b`)
-          // keeps waiting only when it is the valid one (and nothing happened to it meanwhile).
-          if (other === b) restoreSide("b");
+          // keeps waiting only when it is the valid one and nothing happened to it meanwhile.
+          if (other === b && this.gen(kb) === genB && !this.pending.has(kb) && b.createdAt >= this.now() - this.ttlMs) {
+            this.pending.set(kb, b);
+          }
           throw new Error(error);
         }
       }
+      if (!current()) return { kind: "abandoned" }; // cancelled while validating
     }
     // Stable, order-independent ordering — used for the gameName (so it's predictable/
     // reproducible regardless of who challenged first) AND as the base ordering the
@@ -443,42 +454,31 @@ export class Matchmaker {
     const first = sorted[0]!;
     const second = sorted[1]!;
     const gameName = `chal_${safe(first.coach)}_${safe(second.coach)}_${this.now()}`;
-    const at = this.now();
+    // Decide which of the two is HOME for the scheduled game (see HomeAwayMode).
+    const [home, away] = this.assignHomeAway(first, second);
 
     let gameId: string | undefined;
-    let home: Challenge;
-    let away: Challenge;
-    const opKey = this.pairKey(a.coach, b.coach);
-    for (const [k, op] of this.operations) if (op.at < this.now() - OPERATION_TTL_MS) this.operations.delete(k);
-    const open = this.operations.get(opKey);
-    const sameTeams = (op: SchedulingOperation) =>
-      [op.homeTeamId, op.awayTeamId].sort().join("|") === [a.teamId, b.teamId].sort().join("|");
-    if (open && !sameTeams(open)) this.operations.delete(opKey); // other teams now: that operation is not ours to reuse
-
-    const op = this.operations.get(opKey);
-    if (op) {
-      // Reconcile the earlier operation BEFORE anything else: its game may exist.
-      const outcome = await this.resolveOperation(op);
-      if (outcome.kind === "unknown") return { kind: "pending" };
-      this.operations.delete(opKey); // claimed (we hold the reservation for both coaches): no second claimant
-      [home, away] = this.key(a.coach) === this.key(op.homeCoach) ? [a, b] : [b, a];
+    if (this.scheduler) {
+      const outcome: ScheduleOutcome = (await this.bounded(
+        Promise.resolve().then(() => this.scheduler!.schedule(home.teamId, away.teamId)).catch((): ScheduleOutcome => ({ kind: "unknown" })),
+      )) ?? { kind: "unknown", error: "no answer in time" };
+      // A consent withdrawn while the fork was asked (cancel, close, expiry) is honoured: no pairing, no restore.
+      if (!current()) return { kind: "abandoned" };
+      if (outcome.kind === "unknown") {
+        const key = this.pairKey(a.coach, b.coach);
+        this.uncertain.set(key, { key, a, b, genA, genB, home, away, gameName, since: this.now(), checking: false });
+        return { kind: "uncertain" };
+      }
       if (outcome.kind === "scheduled") gameId = outcome.gameId;
-      else if (this.scheduler) {
-        const fresh = await this.scheduleFresh(opKey, home, away);
-        if (fresh === "pending") return { kind: "pending" };
-        gameId = fresh;
-      }
-    } else {
-      // Decide which of the two is HOME for the scheduled game (see HomeAwayMode).
-      [home, away] = this.assignHomeAway(first, second);
-      if (this.scheduler) {
-        const fresh = await this.scheduleFresh(opKey, home, away);
-        if (fresh === "pending") return { kind: "pending" };
-        gameId = fresh;
-      }
-      // undefined gameId after a DEFINITE rejection: the gameName-only scheme below (unchanged, safe).
+      // "rejected": definitely no game, the gameName-only scheme below (unchanged, safe)
     }
+    return { kind: "paired", event: this.deliver(a, b, home, away, gameName, gameId) };
+  }
 
+  private deliver(a: Challenge, b: Challenge, home: Challenge, away: Challenge, gameName: string, gameId?: string, duplicates?: string[]): PairingEvent {
+    const at = this.now();
+    this.bump(this.key(a.coach));
+    this.bump(this.key(b.coach));
     this.matched.set(this.key(a.coach), {
       gameName, gameId, opponent: b.coach, coach: a.coach, teamId: a.teamId, passwordMd5: a.passwordMd5, createdAt: at,
     });
@@ -491,56 +491,70 @@ export class Matchmaker {
       home: { coach: home.coach, teamId: home.teamId, challengeId: home.id },
       away: { coach: away.coach, teamId: away.teamId, challengeId: away.id },
       at,
+      ...(duplicates && duplicates.length ? { duplicates } : {}),
     };
     for (const listener of this.pairingListeners) {
       try { listener(event); } catch { /* a view fault never breaks pairing */ }
     }
-    return { kind: "paired", event };
+    return event;
   }
 
-  /** Ask the scheduler, bounded by `scheduleTimeoutMs`. gameId | undefined (definite rejection) | "pending". */
-  private async scheduleFresh(opKey: string, home: Challenge, away: Challenge): Promise<string | undefined | "pending"> {
-    const scheduler = this.scheduler!;
-    const call: SchedulingOperation["call"] = {
-      promise: Promise.resolve()
-        .then(() => scheduler.schedule(home.teamId, away.teamId))
-        // A scheduler that throws gives no outcome at all: treat it as unknown (never as a safe rejection).
-        .catch((): ScheduleOutcome => ({ kind: "unknown" })),
-    };
-    call.promise.then((o) => { call.settled = o; });
-    const outcome = await this.boundedWait(call.promise);
-    if (outcome?.kind === "scheduled") return outcome.gameId;
-    if (outcome?.kind === "rejected") return undefined;
-    // unknown, or our own deadline passed with the call still running: record the operation for reconciliation
-    this.operations.set(opKey, {
-      coachKeys: [this.key(home.coach), this.key(away.coach)],
-      homeCoach: home.coach,
-      awayCoach: away.coach,
-      homeTeamId: home.teamId,
-      awayTeamId: away.teamId,
-      challengeIds: [home.id, away.id],
-      call,
-      at: this.now(),
-    });
-    return "pending";
+  /**
+   * "Check again" for an uncertain pairing between two coaches: looks the exact matchup up on the fork. Paired
+   * when it is live there; still uncertain otherwise (absence proves nothing). Never schedules.
+   */
+  async checkAgain(coachA: string, coachB: string): Promise<VerifiedChallengeResult | undefined> {
+    const op = this.uncertain.get(this.pairKey(coachA, coachB));
+    if (!op) return undefined;
+    const mine = this.key(op.a.coach) === this.key(coachA) ? op.a : op.b;
+    return this.result(await this.checkOperation(op), mine.id);
   }
 
-  /** The current outcome of an open operation (its call's own result first, then the scheduler's reconcile). */
-  private async resolveOperation(op: SchedulingOperation): Promise<ScheduleOutcome> {
-    const settled = op.call.settled ?? (await this.boundedWait(op.call.promise, 0));
-    if (!settled) return { kind: "unknown" };
-    if (settled.kind !== "unknown") return settled;
+  private async checkOperation(op: UncertainOperation): Promise<PairOutcome> {
+    if (op.checking) return { kind: "uncertain" }; // one check at a time
+    const valid = () => this.uncertain.get(op.key) === op
+      && this.gen(this.key(op.a.coach)) === op.genA && this.gen(this.key(op.b.coach)) === op.genB;
+    if (!valid()) return { kind: "abandoned" };
+    if (!this.scheduler?.findMatchup) return { kind: "uncertain" };
+    op.checking = true;
+    let ids: string[] | undefined;
     try {
-      const reconciled = await this.boundedWait(this.scheduler!.reconcile(settled.token));
-      return reconciled ?? { kind: "unknown" };
-    } catch {
-      return { kind: "unknown" };
+      ids = await this.bounded(this.scheduler.findMatchup({
+        home: { coach: op.home.coach, teamId: op.home.teamId },
+        away: { coach: op.away.coach, teamId: op.away.teamId },
+      }).catch(() => undefined));
+    } finally {
+      op.checking = false;
     }
+    if (!valid()) return { kind: "abandoned" }; // started over / cancelled during the check
+    if (!ids || ids.length === 0) return { kind: "uncertain" };
+    const sortedIds = [...ids].sort((x, y) => Number(x) - Number(y));
+    this.uncertain.delete(op.key); // claimed: the one and only consumer
+    return { kind: "paired", event: this.deliver(op.a, op.b, op.home, op.away, op.gameName, sortedIds[0], sortedIds.slice(1)) };
   }
 
-  private async boundedWait<T>(promise: Promise<T>, ms = this.scheduleTimeoutMs): Promise<T | undefined> {
+  /** "Start over" from an uncertain pairing: withdraws BOTH consents (a game may already exist on the fork). */
+  startOver(coach: string): boolean {
+    const k = this.key(coach);
+    for (const op of this.uncertain.values()) {
+      if (this.key(op.a.coach) === k || this.key(op.b.coach) === k) {
+        this.uncertain.delete(op.key);
+        this.bump(this.key(op.a.coach));
+        this.bump(this.key(op.b.coach));
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Withdraw exactly this consent wherever it is held (pending, in flight, or in an uncertain operation). */
+  withdraw(coach: string, challengeId: string): void {
+    if (this.holdsChallenge(coach, challengeId)) this.cancel(coach);
+  }
+
+  private async bounded<T>(promise: Promise<T>): Promise<T | undefined> {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), ms); });
+    const timeout = new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), this.scheduleTimeoutMs); });
     try {
       return await Promise.race([promise, timeout]);
     } finally {
@@ -594,19 +608,21 @@ export class Matchmaker {
     return { ...status, jnlp };
   }
 
-  /** Drop a coach's pending challenge (and fence any rollback that would restore an older one). */
+  /** Drop a coach's challenge wherever it is, fence every in-flight step on it, and start over an uncertain
+   *  pairing it belongs to (both consents withdrawn). */
   cancel(coach: string): void {
-    this.pending.delete(this.key(coach));
-    this.bump(this.key(coach));
+    const k = this.key(coach);
+    this.pending.delete(k);
+    this.bump(k);
+    this.startOver(coach);
   }
 }
 
-/**
- * Wrap a plain `scheduleGame` function: resolve with a gameId = scheduled; resolve empty or throw = rejected
- * (legacy semantics: the function reports definite failures by throwing). The matchmaker's own deadline turns a
- * call that never settles into "unknown"; reconcile then reads that same call's eventual result, nothing else.
- */
-function legacyScheduler(fn: ForkGameScheduler): ReconcilingScheduler {
+const view = (c: Challenge): PendingChallengeView => ({ id: c.id, coach: c.coach, teamId: c.teamId, opponent: c.opponent, createdAt: c.createdAt });
+
+/** A plain `scheduleGame` function: a gameId is scheduled; an empty result or a throw is a definite rejection
+ *  (its contract); a call that never settles becomes unknown through the matchmaker's own deadline. */
+function plainScheduler(fn: ForkGameScheduler): ReconcilingScheduler {
   return {
     async schedule(homeTeamId, awayTeamId) {
       try {
@@ -615,9 +631,6 @@ function legacyScheduler(fn: ForkGameScheduler): ReconcilingScheduler {
       } catch (e) {
         return { kind: "rejected", error: (e as Error).message };
       }
-    },
-    async reconcile() {
-      return { kind: "unknown" };
     },
   };
 }

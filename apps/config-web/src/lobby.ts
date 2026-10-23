@@ -33,8 +33,16 @@ export interface LobbyMatchmaker {
   pendingOf(coach: string): PendingChallengeView | undefined;
   pendingFor(coach: string): PendingChallengeView[];
   cancel(coach: string): void;
-  /** An unresolved scheduling operation is open for these two coaches (outcome unknown, retried in background). */
-  schedulingPending?(coachA: string, coachB: string): boolean;
+  /** none | inflight (the fork is being asked right now) | uncertain (the answer was lost; a game may exist). */
+  operationState?(coachA: string, coachB: string): "none" | "inflight" | "uncertain";
+  /** Is this exact consent still held (pending, in flight, or by an uncertain operation)? */
+  holdsChallenge?(coach: string, challengeId: string): boolean;
+  /** Withdraw exactly this consent wherever it is held (bumps the coach's consent generation). */
+  withdraw?(coach: string, challengeId: string): void;
+  /** Look an uncertain pairing's exact matchup up on the fork (never schedules). */
+  checkAgain?(coachA: string, coachB: string): Promise<VerifiedChallengeResult | undefined>;
+  /** Withdraw both consents of an uncertain pairing so the coaches can challenge afresh. */
+  startOver?(coach: string): boolean;
 }
 
 export interface LobbyTeam {
@@ -376,12 +384,37 @@ export class LobbyStore {
     const { lobby, role } = this.requireMember(id, coach);
     if (role !== "creator") throw new LobbyError(403, "Only the coach who opened the lobby can close it.");
     if (lobby.pairing) throw new LobbyError(409, "The game is already set up.");
-    if (this.opts.matchmaker.pendingOf(lobby.creator.coach)?.id === lobby.creatorChallengeId) {
-      this.opts.matchmaker.cancel(lobby.creator.coach);
-    }
+    // Withdraw the creator's consent wherever the matchmaker holds it (pending, in flight or uncertain).
+    const mm = this.opts.matchmaker;
+    if (mm.withdraw) mm.withdraw(lobby.creator.coach, lobby.creatorChallengeId);
+    else if (mm.pendingOf(lobby.creator.coach)?.id === lobby.creatorChallengeId) mm.cancel(lobby.creator.coach);
     this.lobbies.delete(id);
     this.tombstone(id, "closed");
     this.emit(id);
+  }
+
+  // ── uncertain game setup ──
+
+  /** "Check again": look the exact matchup up on the fork. Pairs if the game is there; otherwise unchanged. */
+  async checkAgain(id: string, coach: string): Promise<LobbyRecord> {
+    const { lobby } = this.requireMember(id, coach);
+    if (lobby.pairing) return lobby;
+    const res = await this.opts.matchmaker.checkAgain?.(lobby.creator.coach, lobby.opponent.coach);
+    if (res?.pairing) this.attach(lobby, res.pairing);
+    this.emit(lobby.id);
+    return lobby;
+  }
+
+  /** "Start over": withdraw both consents of an uncertain pairing. The coaches then accept / confirm afresh. */
+  startOver(id: string, coach: string): LobbyRecord {
+    const { lobby } = this.requireMember(id, coach);
+    if (lobby.pairing) throw new LobbyError(409, "The game is already set up.");
+    if (this.opts.matchmaker.operationState?.(lobby.creator.coach, lobby.opponent.coach) !== "uncertain") {
+      throw new LobbyError(409, "There is nothing to start over.");
+    }
+    this.opts.matchmaker.startOver?.(coach);
+    this.emit(lobby.id);
+    return lobby;
   }
 
   // ── launch ──
@@ -494,9 +527,11 @@ export class LobbyStore {
     const role = this.roleOf(lobby, coach) ?? "opponent";
     const paired = lobby.pairing !== undefined;
     const mm = this.opts.matchmaker;
-    const creatorLive = !paired && mm.pendingOf(lobby.creator.coach)?.id === lobby.creatorChallengeId;
-    const opponentAccepted = !paired && lobby.opponentChallengeId !== undefined
-      && mm.pendingOf(lobby.opponent.coach)?.id === lobby.opponentChallengeId;
+    const op = paired ? "none" : mm.operationState?.(lobby.creator.coach, lobby.opponent.coach) ?? "none";
+    const holds = (coach: string, challengeId: string | undefined) => challengeId !== undefined
+      && (mm.holdsChallenge ? mm.holdsChallenge(coach, challengeId) : mm.pendingOf(coach)?.id === challengeId);
+    const creatorLive = !paired && holds(lobby.creator.coach, lobby.creatorChallengeId);
+    const opponentAccepted = !paired && holds(lobby.opponent.coach, lobby.opponentChallengeId);
     const seatView = (seat: Seat, r: LobbyRole, team: LobbyTeam | null): LobbySeatView => ({
       coach: seat.coach,
       role: r,
@@ -508,7 +543,8 @@ export class LobbyStore {
     const opponent = seatView(lobby.opponent, "opponent", paired || opponentAccepted ? lobby.opponentTeam ?? null : null);
     const bothPresent = [creator, opponent].every((s) => s.state === "here" || s.state === "client");
     const status: LobbyView["status"] = paired ? "ready" : creatorLive ? "waiting" : "needs-renewal";
-    const settingUp = !paired && (mm.schedulingPending?.(lobby.creator.coach, lobby.opponent.coach) ?? false);
+    const settingUp = op === "inflight";
+    const uncertain = op === "uncertain";
     return {
       id: lobby.id,
       me: role,
@@ -518,8 +554,13 @@ export class LobbyStore {
       status,
       opponentAccepted,
       settingUp,
-      canAccept: role === "opponent" && !paired && !opponentAccepted,
-      canRenew: role === "creator" && status === "needs-renewal",
+      uncertain,
+      duplicateGames: lobby.pairing?.duplicates ?? [],
+      // Controls derive from the operation as well as the pending map: none while the fork is asked or uncertain.
+      canAccept: role === "opponent" && !paired && !opponentAccepted && op === "none",
+      canRenew: role === "creator" && status === "needs-renewal" && op === "none",
+      canCheckAgain: uncertain,
+      canStartOver: uncertain,
       creator,
       opponent,
       game: lobby.pairing ? { gameName: lobby.pairing.gameName, gameId: lobby.pairing.gameId ?? null } : null,
@@ -548,8 +589,14 @@ export interface LobbyView {
    *  the creator must confirm again; ready = paired (the game is set up on the fork). */
   status: "waiting" | "ready" | "needs-renewal";
   opponentAccepted: boolean;
-  /** Both accepted, but the game server's answer was lost: the server is reconciling and retrying. */
+  /** The game server is being asked right now. */
   settingUp: boolean;
+  /** The game server's answer was lost: a game may exist. Only "Check again" or "Start over" apply. */
+  uncertain: boolean;
+  /** Extra live games found for the same matchup (an organiser can remove them). */
+  duplicateGames: string[];
+  canCheckAgain: boolean;
+  canStartOver: boolean;
   canAccept: boolean;
   canRenew: boolean;
   creator: LobbySeatView;
@@ -681,7 +728,7 @@ export function isLobbyApiPath(path: string): boolean {
 /** Is a lobby request a game-start operation (cache gate + game-start lock)? The writes, and the JNLP download. */
 export function isLobbyGameStartOperation(method: string, path: string): boolean {
   if (method === "GET") return /^\/api\/lobby\/[^/]+\/jnlp$/.test(path);
-  return method === "POST" && /^\/api\/lobby(?:\/[^/]+\/(?:join|renew|launch))?$/.test(path);
+  return method === "POST" && /^\/api\/lobby(?:\/[^/]+\/(?:join|renew|launch|check))?$/.test(path);
 }
 
 function field(body: unknown, name: string): string {
@@ -736,7 +783,7 @@ export async function lobbyApi(
       return { status: 405, body: { error: "Method not allowed." } };
     }
 
-    const m = path.match(/^\/api\/lobby\/([^/]+)(?:\/(join|renew|launch|jnlp|roster|close|coach))?$/);
+    const m = path.match(/^\/api\/lobby\/([^/]+)(?:\/(join|renew|launch|jnlp|roster|close|coach|check|start-over))?$/);
     if (!m) return { status: 404, body: { error: "Not found." } };
     const id = m[1]!;
     const action = m[2];
@@ -785,6 +832,16 @@ export async function lobbyApi(
           "cache-control": "no-store",
         },
       };
+    }
+    if (action === "check") {
+      const bad = want("POST"); if (bad) return bad;
+      const lobby = await locked(() => store.checkAgain(id, me));
+      return { status: 200, body: { lobby: store.view(lobby, me) } };
+    }
+    if (action === "start-over") {
+      const bad = want("POST"); if (bad) return bad;
+      const lobby = store.startOver(id, me);
+      return { status: 200, body: { lobby: store.view(lobby, me) } };
     }
     if (action === "close") {
       const bad = want("POST"); if (bad) return bad;

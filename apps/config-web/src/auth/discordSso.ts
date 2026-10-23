@@ -41,6 +41,11 @@ export interface PendingDiscordSso extends DiscordIdentity {
   desktopFlowId?: string;
 }
 
+/** Signups whose fork insert did not confirm (process-local). The Discord link is already written, so the next
+ *  Discord sign-in takes the returning path, which checks / finishes the fork row for exactly these coaches. */
+const unconfirmedSignups = new Set<string>();
+const normalizedCoachKey = (coach: string): string => coach.trim().toLowerCase();
+
 export interface DiscordSsoForkAccountDeps {
   coachExists: (coach: string) => Promise<boolean>;
   verifyCoachDigest: (coach: string, passwordMd5: string) => Promise<boolean>;
@@ -52,6 +57,8 @@ export interface DiscordSsoCompletionDeps {
   identityForCoach: (coach: string) => CoachIdentityRecord | undefined;
   isCoachBanned: (coach: string) => boolean;
   upsertIdentity: (record: CoachIdentityRecord) => void;
+  /** Remove an identity row (rolls back a provisional link when the new name turned out to be taken). */
+  removeIdentity?: (coach: string) => void;
   createSessionToken: (coach: string, now: number) => string;
 }
 
@@ -460,9 +467,46 @@ export async function completeDiscordCoachAssociation(
   if (deps.isCoachBanned(ffbCoachId))
     return { status: 403, body: { error: BANNED_ACCOUNT_MESSAGE } };
 
+  const identities = {
+    ...(previous?.identities ?? {}),
+    discordUserId: pending.discordId,
+    discordUsername: pending.discordUsername,
+  };
+  if (pending.discordAvatarHash) identities.discordAvatarHash = pending.discordAvatarHash;
+  else delete identities.discordAvatarHash;
+  if (pending.email) identities.email = pending.email;
+  else delete identities.email;
+  const newProfile = {
+    displayName: pending.discordUsername,
+    avatar: discordAvatarUrl(pending.discordId, pending.discordAvatarHash) ?? "",
+  };
+  const identityRecord: CoachIdentityRecord = {
+    ffbCoachId,
+    level: previous?.level ?? "player",
+    banned: previous?.banned ?? false,
+    silenced: previous?.silenced ?? false,
+    note: previous?.note ?? "",
+    profile: { ...(previous?.profile ?? newProfile) },
+    ...(previous?.scheduling ? { scheduling: previous.scheduling } : {}),
+    identities,
+    updatedAt: new Date(now).toISOString(),
+    updatedBy: "discord-sso",
+  };
+
   let sessionToken: string;
   if (existingFfbCoachId) {
-    // Returning Discord identity: no fork credential lookup or password-row write.
+    // Returning Discord identity: no fork credential lookup or password-row write, EXCEPT to finish a signup
+    // whose insert never confirmed (the link was written first): if the row is missing it is created now with a
+    // fresh generated credential, so the coach never needs a password they were never given.
+    if (deps.fork && unconfirmedSignups.has(normalizedCoachKey(ffbCoachId))) {
+      if (await deps.fork.coachExists(ffbCoachId)) {
+        unconfirmedSignups.delete(normalizedCoachKey(ffbCoachId));
+      } else {
+      const digest = coachSecretDigest({ password: randomBytes(32).toString("hex") }).digest;
+      if (!digest) throw new Error("Could not generate a fork credential.");
+        if (await deps.fork.createForkAccountDigestIfAvailable(ffbCoachId, digest)) unconfirmedSignups.delete(normalizedCoachKey(ffbCoachId));
+      }
+    }
     sessionToken = deps.createSessionToken(ffbCoachId, now);
   } else {
     if (!deps.fork) {
@@ -524,42 +568,33 @@ export async function completeDiscordCoachAssociation(
           body: { error: "That fork coach account does not exist. Create it before signing in." },
         };
       }
-      // New-name path: preserve the existing generated-password + atomic insert behavior.
+      // New-name path: generated password + atomic insert. The Discord link is written FIRST, so an insert whose
+      // acknowledgement is lost (timeout, cleanup stall) is recoverable on the next sign-in through the
+      // returning-identity path above, never a "that coach exists, enter its password" dead end.
       const digest = coachSecretDigest({ password: randomBytes(32).toString("hex") }).digest;
       if (!digest) throw new Error("Could not generate a fork credential.");
-      if (!(await deps.fork.createForkAccountDigestIfAvailable(ffbCoachId, digest))) {
+      deps.upsertIdentity(identityRecord);
+      let created: boolean;
+      try {
+        created = await deps.fork.createForkAccountDigestIfAvailable(ffbCoachId, digest);
+      } catch {
+        unconfirmedSignups.add(normalizedCoachKey(ffbCoachId));
+        return {
+          status: 503,
+          body: { error: "Your account could not be confirmed yet. Sign in with Discord again to finish." },
+        };
+      }
+      if (!created) {
+        // Taken by someone else between the check and the insert: undo the provisional link.
+        if (previous) deps.upsertIdentity(previous);
+        else deps.removeIdentity?.(ffbCoachId);
         return { status: 409, body: { error: "That fork coach name already exists." } };
       }
       sessionToken = deps.createSessionToken(ffbCoachId, now);
     }
   }
 
-  const identities = {
-    ...(previous?.identities ?? {}),
-    discordUserId: pending.discordId,
-    discordUsername: pending.discordUsername,
-  };
-  if (pending.discordAvatarHash) identities.discordAvatarHash = pending.discordAvatarHash;
-  else delete identities.discordAvatarHash;
-  if (pending.email) identities.email = pending.email;
-  else delete identities.email;
-
-  const newProfile = {
-    displayName: pending.discordUsername,
-    avatar: discordAvatarUrl(pending.discordId, pending.discordAvatarHash) ?? "",
-  };
-  deps.upsertIdentity({
-    ffbCoachId,
-    level: previous?.level ?? "player",
-    banned: previous?.banned ?? false,
-    silenced: previous?.silenced ?? false,
-    note: previous?.note ?? "",
-    profile: { ...(previous?.profile ?? newProfile) },
-    ...(previous?.scheduling ? { scheduling: previous.scheduling } : {}),
-    identities,
-    updatedAt: new Date(now).toISOString(),
-    updatedBy: "discord-sso",
-  });
+  deps.upsertIdentity(identityRecord);
 
   return {
     status: 200,

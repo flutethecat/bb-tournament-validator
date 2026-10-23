@@ -121,6 +121,7 @@ import {
   organizerUpdateIdentity,
   ownIdentityRecord,
   readIdentities,
+  removeIdentity,
   updateOwnAccount,
   upsertIdentity,
   type CoachIdentities,
@@ -410,9 +411,14 @@ const initialSettings = loadMatchmakingSettings();
 let overtimeEnabled = initialSettings.overtime;
 
 const matchmaker = new Matchmaker({
-  // Reconciling scheduler: a lost answer from the fork is "unknown" (no named-game fallback); the next attempt
-  // looks the game up on the fork before scheduling again.
-  scheduler: forkAdminCfg ? forkScheduler(forkAdminCfg, { overtime: () => overtimeEnabled }) : undefined,
+  // A lost answer from the fork leaves the pairing UNCERTAIN (no named-game fallback, no automatic retry);
+  // "Check again" looks for the exact matchup in both coaches' live games.
+  scheduler: forkAdminCfg
+    ? forkScheduler(forkAdminCfg, {
+        overtime: () => overtimeEnabled,
+        liveGamesOf: challengeDbCfg ? (coach) => listCoachGames(challengeDbCfg, coach, "active") : undefined,
+      })
+    : undefined,
   // Digest form: matchmaking reduces either credential carrier to md5(pw) at admission,
   // so the clear text never reaches this check (owner security ruling 08-17).
   verifyChallenger: challengeDbCfg
@@ -1256,6 +1262,7 @@ async function handleApi(
           identityForCoach: (coach) => readIdentities().coaches[normalizeFfbCoachId(coach)],
           isCoachBanned: isBanned,
           upsertIdentity: (record) => { upsertIdentity(record); },
+          removeIdentity: (coach) => { removeIdentity(coach); },
           createSessionToken: (coach, now) => createSession(coach, now, "discord").token,
         },
         Date.now(),

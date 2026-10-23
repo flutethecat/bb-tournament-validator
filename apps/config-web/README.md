@@ -38,11 +38,14 @@ the session check and a bounded 16 KB / 10 s body read):
 | `GET /api/lobby/:id/coach?role=…` | avatar + linked FUMBBL name |
 | `GET /api/coach-rating?name=` | FUMBBL rating (3 requests, cached 10 min, per-coach / global / concurrency limits) |
 
-Scheduling on the fork distinguishes a definite rejection (named-game fallback, as before) from a lost answer
-(timeout after the request went out): then no named game is made, both consents stay waiting ("setting up" on
-the page), and the next attempt (background retries, or any re-entry) first looks the game up on the fork by
-its team pair before scheduling again. A client seat that takes its JNLP through an authorized match poll shows
-as "in the client" in the lobby, so a mixed client/browser pairing can start.
+Scheduling on the fork: after the request is sent, only a parsed success is a game and only the fork's own
+readable `<error>` is a refusal (named-game fallback, as before). Anything else (proxy error, truncated body,
+timeout, network fault) leaves the pairing UNCERTAIN: both challenges stay held, nothing is scheduled again
+automatically and no timers run. The lobby shows "Game setup did not confirm" with **Check again**
+(`POST /api/lobby/:id/check`, under the game-start lock: looks for a live game whose two seats are exactly these
+coaches with these teams, in both coaches' live-game lists; extra matches are reported as duplicates) and
+**Start over** (`POST /api/lobby/:id/start-over`: withdraws both challenges; a game may already exist, see Your
+games). A client seat that takes its JNLP through an authorized match poll shows as "in the client".
 
 `/api/fork/matchstatus` returns a JNLP only to an authorized poll (the coach's own session, or the digest that
 coach supplied with a client challenge), built from that digest; any other poll gets status only and never

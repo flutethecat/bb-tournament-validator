@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Matchmaker } from "@bb/fork-ops";
+import { Matchmaker, type ScheduleOutcome } from "@bb/fork-ops";
 import { LobbyStore, lobbyApi, lobbyRosterFromDetail, cleanChatText, lobbyOriginAllowed, lobbyAllowedOriginsFromEnv, type LobbyApiDeps, type LobbyRoster } from "../src/lobby";
 
 const TEAMS: Record<string, Record<string, { teamName: string; race: string }>> = {
@@ -396,27 +396,98 @@ describe("lobbyApi", () => {
   });
 });
 
-describe("round 3: pending scheduling, client delivery, credential before the lock", () => {
-  it("an unknown scheduling outcome shows 'setting up' with both consents standing, then pairs on retry", async () => {
-    let finish!: (r: { gameId: string }) => void;
+describe("uncertain setup, client delivery, credential before the lock", () => {
+  function uncertainLobby(live: { ids: string[] | undefined }) {
     const matchmaker = new Matchmaker({
-      scheduleTimeoutMs: 10,
-      pendingRetryDelaysMs: [],
-      scheduleGame: () => new Promise((r) => { finish = r; }),
+      scheduler: {
+        schedule: async (): Promise<ScheduleOutcome> => ({ kind: "unknown", error: "504" }),
+        findMatchup: async () => live.ids,
+      },
     });
-    const store = new LobbyStore({
-      matchmaker,
-      isBanned: () => false,
-      resolveTeam: (_c, teamId) => ({ teamId, teamName: teamId, race: "Orc" }),
-    });
+    const store = new LobbyStore({ matchmaker, isBanned: () => false, resolveTeam: (_c, teamId) => ({ teamId, teamName: teamId, race: "Orc" }) });
+    matchmaker.onPaired((p) => store.notePairing(p));
+    return { matchmaker, store };
+  }
+
+  it("uncertain setup: only Check again / Start over; Check again pairs when the matchup is live (with a duplicates note)", async () => {
+    const live: { ids: string[] | undefined } = { ids: [] };
+    const { store } = uncertainLobby(live);
+    const lobby = await store.create("Alice", "t1", "Bob");
+    await store.join(lobby.id, "Bob", "t2"); // the fork's answer was lost: not an error
+    for (const who of ["Alice", "Bob"]) {
+      expect(store.view(lobby, who)).toMatchObject({
+        status: "waiting", uncertain: true, settingUp: false, canCheckAgain: true, canStartOver: true,
+        canAccept: false, canRenew: false, opponentAccepted: true, game: null,
+      });
+    }
+    await store.checkAgain(lobby.id, "Bob");
+    expect(store.view(lobby, "Bob").uncertain).toBe(true); // nothing live: still uncertain, never "no game"
+    live.ids = ["44", "45"];
+    await store.checkAgain(lobby.id, "Alice");
+    expect(store.view(lobby, "Alice")).toMatchObject({ status: "ready", uncertain: false, game: { gameId: "44" }, duplicateGames: ["45"] });
+  });
+
+  it("uncertain setup: Start over withdraws both challenges; the coaches confirm / accept afresh", async () => {
+    const { store, matchmaker } = uncertainLobby({ ids: [] });
+    const lobby = await store.create("Alice", "t1", "Bob");
+    await store.join(lobby.id, "Bob", "t2");
+    store.startOver(lobby.id, "Alice");
+    expect(matchmaker.operationState("Alice", "Bob")).toBe("none");
+    expect(store.view(lobby, "Alice")).toMatchObject({ status: "needs-renewal", uncertain: false, canRenew: true });
+    expect(store.view(lobby, "Bob")).toMatchObject({ canAccept: true, opponentAccepted: false });
+    expect(() => store.startOver(lobby.id, "Alice")).toThrow(/nothing to start over/);
+  });
+
+  it("closing the lobby while uncertain withdraws the consents held by the operation", async () => {
+    const { store, matchmaker } = uncertainLobby({ ids: ["9"] });
+    const lobby = await store.create("Alice", "t1", "Bob");
+    await store.join(lobby.id, "Bob", "t2");
+    store.close(lobby.id, "Alice");
+    expect(matchmaker.operationState("Alice", "Bob")).toBe("none");
+    expect(await matchmaker.checkAgain("Alice", "Bob")).toBeUndefined(); // a later check cannot pair them
+  });
+
+  it("closing the lobby while the fork is being asked withdraws consent: no pairing afterwards", async () => {
+    let answer!: (r: { gameId: string }) => void;
+    const matchmaker = new Matchmaker({ scheduleGame: () => new Promise((r) => { answer = r; }) });
+    const store = new LobbyStore({ matchmaker, isBanned: () => false, resolveTeam: (_c, teamId) => ({ teamId, teamName: teamId, race: "Orc" }) });
     matchmaker.onPaired((p) => store.notePairing(p));
     const lobby = await store.create("Alice", "t1", "Bob");
-    await store.join(lobby.id, "Bob", "t2"); // pending: not an error, Bob's consent is recorded
-    expect(store.view(lobby, "Bob")).toMatchObject({ status: "waiting", settingUp: true, opponentAccepted: true, canAccept: false, game: null });
-    finish({ gameId: "g-late" });
+    const joining = store.join(lobby.id, "Bob", "t2");
     await new Promise((r) => setTimeout(r, 0));
-    await store.renew(lobby.id, "Alice"); // any re-entry reconciles first
-    expect(store.view(lobby, "Alice")).toMatchObject({ status: "ready", settingUp: false, game: { gameId: "g-late" } });
+    expect(store.view(lobby, "Bob")).toMatchObject({ settingUp: true, canAccept: false });
+    expect(store.view(lobby, "Alice")).toMatchObject({ settingUp: true, canRenew: false });
+    store.close(lobby.id, "Alice");
+    answer({ gameId: "77" });
+    await joining;
+    expect(matchmaker.matchstatus("Bob", { authorized: true })).toEqual({ status: "waiting" });
+  });
+
+  it("Check again and Start over through the API: members only, Check again runs under the game-start lock", async () => {
+    const live: { ids: string[] | undefined } = { ids: [] };
+    const { store } = uncertainLobby(live);
+    let locked = 0;
+    const d: LobbyApiDeps = {
+      store,
+      roster: () => undefined,
+      coachCard: () => ({ avatar: null, fumbblName: null }),
+      rating: async () => ({}),
+      credential: async () => "a".repeat(32),
+      chatLive: () => false,
+      withGameStartLock: async (fn) => { locked++; return fn(); },
+    };
+    const call = (method: string, path: string, coach: string) => lobbyApi(method, path, new URLSearchParams(), { coach, method: "discord" }, {}, d);
+    await lobbyApi("POST", "/api/lobby", new URLSearchParams(), { coach: "Alice", method: "discord" }, { teamId: "t1", opponent: "Bob" }, d);
+    const id = store.listFor("Alice")[0]!.id;
+    await lobbyApi("POST", `/api/lobby/${id}/join`, new URLSearchParams(), { coach: "Bob", method: "discord" }, { teamId: "t2" }, d);
+    expect(await call("POST", `/api/lobby/${id}/check`, "Carol")).toMatchObject({ status: 403 });
+    const before = locked;
+    const still = await call("POST", `/api/lobby/${id}/check`, "Bob");
+    expect(still).toMatchObject({ status: 200, body: { lobby: { uncertain: true } } });
+    expect(locked).toBe(before + 1);
+    live.ids = ["61"];
+    expect(await call("POST", `/api/lobby/${id}/check`, "Alice")).toMatchObject({ status: 200, body: { lobby: { status: "ready", game: { gameId: "61" } } } });
+    expect(await call("POST", `/api/lobby/${id}/start-over`, "Alice")).toMatchObject({ status: 409 });
   });
 
   it("a client seat's authorized JNLP delivery marks that coach 'in the client', so the browser seat can start", async () => {

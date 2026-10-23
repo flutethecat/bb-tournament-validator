@@ -98,6 +98,8 @@ export interface StatusLike {
   status: "waiting" | "ready" | "needs-renewal";
   opponentAccepted: boolean;
   settingUp?: boolean;
+  uncertain?: boolean;
+  duplicateGames?: string[];
   canLaunch: boolean;
   creator: { coach: string };
   opponent: { coach: string };
@@ -108,9 +110,11 @@ export interface StatusLike {
 export function lobbyStatusLine(v: StatusLike): string {
   const other = v.me === "creator" ? v.opponent.coach : v.creator.coach;
   if (v.status === "ready") {
-    return `Game set up${v.game?.gameId ? ` (game ${v.game.gameId})` : ""}. ${v.canLaunch ? "Ready to start." : "Waiting for both coaches."}`;
+    const extra = v.duplicateGames?.length ? " An extra game was created; an organiser can remove it." : "";
+    return `Game set up${v.game?.gameId ? ` (game ${v.game.gameId})` : ""}. ${v.canLaunch ? "Ready to start." : "Waiting for both coaches."}${extra}`;
   }
-  if (v.settingUp) return "Setting up the game on the server. This can take a moment; it retries on its own.";
+  if (v.uncertain) return "Game setup did not confirm. A game may already exist: check Your games, then press Check again. Start over withdraws both challenges.";
+  if (v.settingUp) return "Setting up the game on the server…";
   if (v.status === "waiting") {
     if (v.me === "creator") return `Waiting for ${other} to accept.`;
     return v.opponentAccepted ? "You accepted. Setting up the game…" : `${other} challenged you. Pick a team to accept.`;

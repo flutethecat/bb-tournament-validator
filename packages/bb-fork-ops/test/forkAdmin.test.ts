@@ -300,65 +300,78 @@ describe("admin fetch timeout covers the body", () => {
   });
 });
 
-describe("forkScheduler (definite vs unknown, reconcile by the pair's live games)", () => {
-  afterEach(() => { vi.unstubAllGlobals(); });
+describe("forkScheduler: classification after the request went out, and the exact-matchup check", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+  const cfg = { baseUrl: "http://fork.invalid", passwordMd5Hex: "0".repeat(32) };
 
-  function stubFork(state: { live: Array<{ id: string; home: string; away: string }>; schedule: "lost" | "error" | "ok" }) {
-    vi.stubGlobal("fetch", async (url: string) => {
-      const body = (text: string) => ({ ok: true, status: 200, text: async () => text });
-      if (url.includes("/admin/challenge")) return body("<challenge>00ff</challenge>");
-      if (url.includes("/admin/list")) {
-        if (!url.includes("status=scheduled")) return body("<list></list>");
-        return body(`<list>${state.live.map((g) => `<game id="${g.id}" status="scheduled" half="0" turn="0"><team home="true" id="${g.home}" name="h" coach="a"/><team home="false" id="${g.away}" name="w" coach="b"/></game>`).join("")}</list>`);
+  function stubSchedule(answer: () => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>, challenge = true) {
+    vi.stubGlobal("fetch", async (url: string, init?: { signal?: AbortSignal }) => {
+      if (url.includes("/admin/challenge")) {
+        if (!challenge) throw new TypeError("connect ECONNREFUSED");
+        return { ok: true, status: 200, text: async () => "<challenge>00ff</challenge>" };
       }
       if (url.includes("/admin/schedule")) {
-        if (state.schedule === "lost") throw new TypeError("fetch failed: socket hang up");
-        if (state.schedule === "error") return body("<error>Invalid parameter teamHomeId</error>");
-        state.live.push({ id: "501", home: "1", away: "2" });
-        return body("<schedule><status>ok</status><gameId>501</gameId></schedule>");
+        void init;
+        return answer();
       }
       throw new Error(`unexpected ${url}`);
     });
   }
+  const resp = (status: number, body: string) => async () => ({ ok: status >= 200 && status < 300, status, text: async () => body });
 
-  it("a lost answer is unknown; reconcile finds only the NEW live game for exactly that home/away pair", async () => {
+  it.each([
+    ["parsed success", resp(200, "<schedule><status>ok</status><gameId>501</gameId></schedule>"), "scheduled"],
+    ["the servlet's readable <error> (any status)", resp(500, "<error>Invalid parameter teamHomeId</error>"), "rejected"],
+    ["a proxy 504 with no servlet error", resp(504, "<html>Gateway Timeout</html>"), "unknown"],
+    ["a 200 body truncated before </gameId>", resp(200, "<schedule><status>ok</status><gameId>50"), "unknown"],
+    ["a 200 with gameId but no ok status", resp(200, "<schedule><gameId>501</gameId></schedule>"), "unknown"],
+    ["a network fault after sending", async () => { throw new TypeError("fetch failed: socket hang up"); }, "unknown"],
+  ] as const)("%s -> %s", async (_name, answer, kind) => {
     const { forkScheduler } = await import("@bb/fork-ops");
-    const state = { live: [{ id: "400", home: "1", away: "2" }], schedule: "lost" as const };
-    stubFork(state);
-    let t = 1_000;
-    const sched = forkScheduler({ baseUrl: "http://fork.invalid", passwordMd5Hex: "0".repeat(32) }, { now: () => t, graceMs: 60_000 });
-    const out = await sched.schedule("1", "2");
-    expect(out.kind).toBe("unknown");
-    const token = (out as { token: unknown }).token;
-    expect(await sched.reconcile(token)).toEqual({ kind: "unknown" }); // only the older game 400 exists
-    state.live.push({ id: "402", home: "2", away: "1" }); // other orientation: not ours
-    expect(await sched.reconcile(token)).toEqual({ kind: "unknown" });
-    state.live.push({ id: "401", home: "1", away: "2" });
-    expect(await sched.reconcile(token)).toEqual({ kind: "scheduled", gameId: "401", homeTeamId: "1", awayTeamId: "2" });
-    state.live = state.live.filter((g) => g.id !== "401"); // closed on the fork before reuse
-    t += 61_000;
-    expect(await sched.reconcile(token)).toMatchObject({ kind: "rejected" }); // past the grace: definitely none
+    stubSchedule(answer as () => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>);
+    expect((await forkScheduler(cfg).schedule("1", "2")).kind).toBe(kind);
   });
 
-  it("the servlet's <error> is a definite rejection; success is scheduled", async () => {
+  it("a timeout after sending is unknown", async () => {
     const { forkScheduler } = await import("@bb/fork-ops");
-    const cfg = { baseUrl: "http://fork.invalid", passwordMd5Hex: "0".repeat(32) };
-    stubFork({ live: [], schedule: "error" });
-    expect(await forkScheduler(cfg).schedule("1", "2")).toMatchObject({ kind: "rejected", error: expect.stringMatching(/Invalid parameter/) });
-    stubFork({ live: [], schedule: "ok" });
-    expect(await forkScheduler(cfg).schedule("1", "2")).toEqual({ kind: "scheduled", gameId: "501", homeTeamId: "1", awayTeamId: "2" });
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", async (url: string, init: { signal: AbortSignal }) => {
+      if (url.includes("/admin/challenge")) return { ok: true, status: 200, text: async () => "<challenge>00ff</challenge>" };
+      return new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }))));
+    });
+    const out = forkScheduler(cfg).schedule("1", "2");
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect((await out).kind).toBe("unknown");
   });
 
-  it("with the matchmaker: a lost answer never becomes a named-game pairing; the retry claims the fork's game", async () => {
-    const { forkScheduler, Matchmaker } = await import("@bb/fork-ops");
-    const state = { live: [] as Array<{ id: string; home: string; away: string }>, schedule: "lost" as const };
-    stubFork(state);
-    const mm = new Matchmaker({ scheduler: forkScheduler({ baseUrl: "http://fork.invalid", passwordMd5Hex: "0".repeat(32) }), pendingRetryDelaysMs: [] });
-    await mm.challengeVerified({ coach: "Alpha", teamId: "1", opponent: "Bravo" });
-    expect((await mm.challengeVerified({ coach: "Bravo", teamId: "2", opponent: "Alpha" })).status).toBe("pending");
-    expect(mm.matchstatus("Alpha", { authorized: true })).toEqual({ status: "waiting" });
-    state.live.push({ id: "777", home: "1", away: "2" }); // the fork did create it
-    const r = await mm.challengeVerified({ coach: "Bravo", teamId: "2", opponent: "Alpha" });
-    expect(r.pairing).toMatchObject({ gameId: "777", home: { teamId: "1" }, away: { teamId: "2" } });
+  it("a failure BEFORE the request went out (the admin challenge) is a definite rejection", async () => {
+    const { forkScheduler } = await import("@bb/fork-ops");
+    stubSchedule(resp(200, ""), false);
+    expect((await forkScheduler(cfg).schedule("1", "2")).kind).toBe("rejected");
+  });
+
+  it("findMatchup: only games in BOTH coaches' live lists with exactly those coaches and teams, lowest first", async () => {
+    const { forkScheduler } = await import("@bb/fork-ops");
+    const lists: Record<string, Array<{ gameId: number; myTeamId: string; opponentCoach: string }>> = {
+      alice: [
+        { gameId: 905, myTeamId: "1", opponentCoach: "Bob" },
+        { gameId: 903, myTeamId: "1", opponentCoach: "bob" },
+        { gameId: 910, myTeamId: "9", opponentCoach: "Bob" }, // Alice with another team
+        { gameId: 920, myTeamId: "1", opponentCoach: "Carol" }, // another opponent
+      ],
+      bob: [
+        { gameId: 903, myTeamId: "2", opponentCoach: "Alice" },
+        { gameId: 905, myTeamId: "2", opponentCoach: "alice" },
+        { gameId: 910, myTeamId: "2", opponentCoach: "Alice" },
+        { gameId: 930, myTeamId: "2", opponentCoach: "Alice" }, // only in Bob's list
+      ],
+    };
+    const sched = forkScheduler(cfg, { liveGamesOf: async (coach) => lists[coach.toLowerCase()] ?? [] });
+    const m = { home: { coach: "Alice", teamId: "1" }, away: { coach: "Bob", teamId: "2" } };
+    expect(await sched.findMatchup!(m)).toEqual(["903", "905"]);
+    expect(await sched.findMatchup!({ home: m.away, away: m.home })).toEqual(["903", "905"]); // either orientation
+    const failing = forkScheduler(cfg, { liveGamesOf: async () => { throw new Error("db down"); } });
+    expect(await failing.findMatchup!(m)).toBeUndefined(); // could not check: stays uncertain
+    expect(await forkScheduler(cfg).findMatchup!(m)).toBeUndefined(); // no account store configured
   });
 });

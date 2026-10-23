@@ -299,6 +299,16 @@ export function upsertIdentity(record: CoachIdentityRecord): IdentityStore {
   return store;
 }
 
+/** Remove one identity row (no-op when absent). */
+export function removeIdentity(ffbCoachId: string): void {
+  const key = normalizeFfbCoachId(ffbCoachId);
+  const current = readIdentities();
+  if (!current.coaches[key]) return;
+  const coaches = { ...current.coaches };
+  delete coaches[key];
+  writeIdentityStore({ version: 1, coaches });
+}
+
 function writeIdentityStore(store: IdentityStore): void {
   const payload = `${JSON.stringify(store, null, 2)}\n`;
   if (Buffer.byteLength(payload, "utf8") > MAX_IDENTITIES_FILE_BYTES)

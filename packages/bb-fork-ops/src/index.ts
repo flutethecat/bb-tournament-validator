@@ -6,6 +6,7 @@
 
 import { createHash } from "node:crypto";
 import mysql from "mysql2/promise";
+import { connect as netConnect, type Socket } from "node:net";
 import { xmlEscape, safe } from "./util.js";
 import { adminResponse } from "./forkAdmin.js";
 
@@ -214,8 +215,15 @@ export async function withDeadline<T>(work: Promise<T>, ms: number, onTimeout: (
 
 async function withConn<T>(cfg: ForkDbConfig, fn: (conn: mysql.Connection) => Promise<T>): Promise<T> {
   const ms = Number(process.env.FORK_DB_TIMEOUT_MS) > 0 ? Number(process.env.FORK_DB_TIMEOUT_MS) : FORK_DB_TIMEOUT_MS;
+  // We create the TCP transport ourselves (mysql2's `stream` option) so it is destroyable from the first byte,
+  // including while the handshake is still pending; mysql2's own destroy() only half-closes.
+  let socket: Socket | undefined;
   let conn: mysql.Connection | undefined;
   let timedOut = false;
+  const destroyTransport = (): void => {
+    try { socket?.destroy(); } catch { /* ignore */ }
+    try { conn?.destroy?.(); } catch { /* ignore */ }
+  };
   const work = (async () => {
     conn = await mysql.createConnection({
       host: cfg.dbHost,
@@ -224,16 +232,22 @@ async function withConn<T>(cfg: ForkDbConfig, fn: (conn: mysql.Connection) => Pr
       password: cfg.dbPassword,
       database: cfg.dbName,
       connectTimeout: ms,
-    });
-    if (timedOut) { conn.destroy?.(); throw new Error("fork DB operation timed out"); }
-    try {
-      return await fn(conn);
-    } finally {
-      if (!timedOut) await Promise.resolve().then(() => conn!.end()).catch(() => conn?.destroy?.());
-    }
+      stream: () => {
+        socket = netConnect({ host: cfg.dbHost, port: cfg.dbPort });
+        socket.on("error", () => { /* surfaced by mysql2 / the deadline */ });
+        return socket;
+      },
+    } as mysql.ConnectionOptions);
+    if (timedOut) { destroyTransport(); throw new Error("fork DB operation timed out"); }
+    return { value: await fn(conn) };
   })();
   work.catch(() => { /* surfaced through the race; never an unhandled rejection after a timeout */ });
-  return withDeadline(work, ms, () => { timedOut = true; conn?.destroy?.(); }, "fork DB operation");
+  // The deadline covers connect + handshake + query. An acknowledged result is kept even if cleanup stalls.
+  const { value } = await withDeadline(work, ms, () => { timedOut = true; destroyTransport(); }, "fork DB operation");
+  const cleanupMs = Math.min(2_000, ms);
+  await withDeadline(Promise.resolve().then(() => conn!.end()), cleanupMs, destroyTransport, "fork DB cleanup")
+    .catch(() => destroyTransport());
+  return value;
 }
 
 /**

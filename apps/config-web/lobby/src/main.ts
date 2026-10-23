@@ -331,7 +331,8 @@ function renderLobby(id: string): () => void {
   // Controls follow the server's pairing state (canAccept / canRenew), never local guesses.
   let joinMode = "";
   const renderJoin = (v: LobbyView): void => {
-    const mode = v.canAccept ? "accept" : v.canRenew ? "renew" : v.me === "creator" && v.status !== "ready" ? "close" : "";
+    const mode = v.canCheckAgain ? "uncertain" : v.canAccept ? "accept" : v.canRenew ? "renew"
+      : v.me === "creator" && v.status !== "ready" && !v.settingUp ? "close" : "";
     if (mode === joinMode) return; // keep the coach's pick and any error across polls
     joinMode = mode;
     joinBox.replaceChildren();
@@ -341,6 +342,18 @@ function renderLobby(id: string): () => void {
       catch (err) { launchErr.replaceChildren(errorBox((err as Error).message)); }
     } }, "Close lobby");
     if (mode === "close") { joinBox.replaceChildren(closeBtn); return; }
+    if (mode === "uncertain") {
+      const err = h("div");
+      const act = (path: string) => async () => {
+        err.replaceChildren();
+        try { apply((await api<{ lobby: LobbyView }>(`/api/lobby/${id}/${path}`, { method: "POST" })).lobby); }
+        catch (e) { err.replaceChildren(errorBox((e as Error).message)); }
+      };
+      joinBox.replaceChildren(h("div", { class: "lobby-form inline" },
+        h("button", { class: "lobby-btn primary", type: "button", onclick: act("check") }, "Check again"),
+        h("button", { class: "lobby-btn", type: "button", onclick: act("start-over") }, "Start over")), err);
+      return;
+    }
     const sel = teamSelect("join-team");
     if (mode === "renew" && v.creator.team) sel.value = v.creator.team.teamId;
     const err = h("div");

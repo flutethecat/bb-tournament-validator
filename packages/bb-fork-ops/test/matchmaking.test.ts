@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { Matchmaker, type ScheduleOutcome } from "@bb/fork-ops";
+import { Matchmaker, type Matchup, type ScheduleOutcome } from "@bb/fork-ops";
 
 const OWNER = { authorized: true } as const;
 /** Client challenges carry the coach's own digest; only such seats get a JNLP from matchstatus. */
@@ -413,113 +413,110 @@ describe("Matchmaker views + lobby entry (web Lobby)", () => {
     expect(mm.pendingOf("B")).toBeUndefined();
   });
 
-  it("a stalled scheduler ends the reservation at the deadline: pending (both wait), the late game is claimed once", async () => {
-    let finish!: (r: { gameId: string }) => void;
-    const calls: string[] = [];
+  function uncertainSetup(findMatchup?: (m: Matchup) => Promise<string[] | undefined>) {
+    const scheduled: string[] = [];
     const mm = new Matchmaker({
-      scheduleTimeoutMs: 20,
-      pendingRetryDelaysMs: [],
-      scheduleGame: (h, a) => {
-        calls.push(`${h}-${a}`);
-        return calls.length === 1 ? new Promise((r) => { finish = r; }) : Promise.resolve({ gameId: `fresh-${calls.length}` });
+      scheduler: {
+        schedule: async (h, a): Promise<ScheduleOutcome> => { scheduled.push(`${h}-${a}`); return scheduled.length === 1 ? { kind: "unknown", error: "504" } : { kind: "scheduled", gameId: `fresh-${scheduled.length}`, homeTeamId: h, awayTeamId: a }; },
+        ...(findMatchup ? { findMatchup } : {}),
       },
     });
+    return { mm, scheduled };
+  }
+
+  it("an unknown outcome makes the pairing uncertain: consents held, coaches reserved, no named game, no second schedule", async () => {
+    const { mm, scheduled } = uncertainSetup();
     await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
-    expect(await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).toMatchObject({ status: "pending" });
-    expect(mm.pendingOf("A")).toBeDefined(); // both consents stand
-    expect(mm.pendingOf("B")).toBeDefined();
-    expect(mm.schedulingPending("a", "b")).toBe(true);
-    expect(mm.matchstatus("A", { authorized: true })).toEqual({ status: "waiting" }); // no named-game delivery
-    // a retry while the first call is still running reconciles first: still unknown, no second call
-    expect(await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).toMatchObject({ status: "pending" });
-    expect(calls).toHaveLength(1);
-    finish({ gameId: "late-7" });
-    await new Promise((r) => setTimeout(r, 0));
-    const res = await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
-    expect(res).toMatchObject({ status: "paired", pairing: { gameId: "late-7" } });
-    expect(calls).toHaveLength(1);
-    expect(mm.schedulingPending("A", "B")).toBe(false);
-    // claimed once: the next meeting of the same teams schedules its own game
-    await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
-    const next = await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
-    expect(next.pairing?.gameId).toBe("fresh-2");
+    expect(await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).toMatchObject({ status: "uncertain" });
+    expect(mm.operationState("a", "b")).toBe("uncertain");
+    expect(mm.matchstatus("A", { authorized: true })).toEqual({ status: "waiting" });
+    await expect(mm.challengeVerified({ coach: "A", teamId: "1", opponent: "C" })).rejects.toThrow(/already being set up/);
+    // re-entry by either coach of the same pairing is a check, never a schedule (no findMatchup: stays uncertain)
+    expect(await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).toMatchObject({ status: "uncertain" });
+    expect(await mm.checkAgain("A", "B")).toMatchObject({ status: "uncertain" });
+    expect(scheduled).toHaveLength(1);
   });
 
-  it("unknown outcome: no named-game fallback; reconcile decides (scheduled -> that game, rejected -> schedule fresh)", async () => {
-    const outcomes: ScheduleOutcome[] = [{ kind: "unknown", token: "op-1" }, { kind: "scheduled", gameId: "fresh", homeTeamId: "1", awayTeamId: "2" }];
-    const reconciles: ScheduleOutcome[] = [{ kind: "unknown" }, { kind: "scheduled", gameId: "found-5", homeTeamId: "2", awayTeamId: "1" }];
-    const tokens: unknown[] = [];
-    const mm = new Matchmaker({
-      pendingRetryDelaysMs: [],
-      scheduler: {
-        schedule: async () => outcomes.shift()!,
-        reconcile: async (t) => { tokens.push(t); return reconciles.shift()!; },
-      },
-    });
+  it("Check again pairs only when the exact matchup is live; absence keeps it uncertain; extra games are reported", async () => {
+    let live: string[] | undefined = [];
+    const asked: Matchup[] = [];
+    const { mm, scheduled } = uncertainSetup(async (m) => { asked.push(m); return live; });
     await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
-    expect((await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).status).toBe("pending");
-    expect((await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).status).toBe("pending"); // reconcile: unknown
-    const paired = await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
-    expect(paired.pairing).toMatchObject({ gameId: "found-5" });
-    expect(tokens).toEqual(["op-1", "op-1"]);
-    expect(outcomes).toHaveLength(1); // never scheduled again while the first operation was unresolved
+    await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
+    expect(await mm.checkAgain("A", "B")).toMatchObject({ status: "uncertain" }); // nothing live: NOT "no game"
+    live = undefined;
+    expect(await mm.checkAgain("A", "B")).toMatchObject({ status: "uncertain" }); // could not check
+    live = ["905", "903"];
+    const r = await mm.checkAgain("B", "A");
+    expect(r).toMatchObject({ status: "paired", pairing: { gameId: "903", duplicates: ["905"] } });
+    expect(asked.at(-1)).toEqual({ home: expect.objectContaining({ teamId: expect.any(String) }), away: expect.objectContaining({ teamId: expect.any(String) }) });
+    expect(new Set([asked.at(-1)!.home.coach, asked.at(-1)!.away.coach])).toEqual(new Set(["A", "B"]));
+    expect(scheduled).toHaveLength(1);
+    expect(mm.operationState("A", "B")).toBe("none");
+    expect(mm.matchstatus("A", { authorized: true })).toMatchObject({ status: "matched", gameId: "903" });
+  });
 
-    let n = 0;
-    const mm2 = new Matchmaker({
-      pendingRetryDelaysMs: [],
-      scheduler: {
-        schedule: async (): Promise<ScheduleOutcome> => (n++ === 0 ? { kind: "unknown", token: "x" } : { kind: "scheduled", gameId: "g2", homeTeamId: "1", awayTeamId: "2" }),
-        reconcile: async (): Promise<ScheduleOutcome> => ({ kind: "rejected" }),
-      },
-    });
-    await mm2.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
-    await mm2.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
-    expect((await mm2.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).pairing?.gameId).toBe("g2");
+  it("Start over withdraws both consents; only then may the coaches challenge (and schedule) afresh", async () => {
+    const { mm, scheduled } = uncertainSetup();
+    await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
+    await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
+    expect(mm.startOver("b")).toBe(true);
+    expect(mm.operationState("A", "B")).toBe("none");
+    expect(mm.pendingOf("A")).toBeUndefined();
+    expect(mm.pendingOf("B")).toBeUndefined();
+    await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
+    expect((await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).pairing?.gameId).toBe("fresh-2");
+    expect(scheduled).toHaveLength(2);
   });
 
   it("a definite rejection keeps the named-game fallback (unchanged)", async () => {
-    const mm = new Matchmaker({ scheduler: { schedule: async () => ({ kind: "rejected", error: "no" }), reconcile: async () => ({ kind: "unknown" }) } });
+    const mm = new Matchmaker({ scheduler: { schedule: async () => ({ kind: "rejected", error: "no" }) } });
     await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
     const r = await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
     expect(r).toMatchObject({ status: "paired", pairing: { gameId: undefined, gameName: expect.stringMatching(/^chal_/) } });
   });
 
-  it("an open operation is bound to its coaches and teams: other coaches (or other teams) never reuse it", async () => {
-    let n = 0;
-    const mm = new Matchmaker({
-      pendingRetryDelaysMs: [],
-      scheduler: {
-        schedule: async (h, a): Promise<ScheduleOutcome> => (n++ === 0 ? { kind: "unknown", token: "ab" } : { kind: "scheduled", gameId: `g${n}`, homeTeamId: h, awayTeamId: a }),
-        reconcile: async (): Promise<ScheduleOutcome> => ({ kind: "scheduled", gameId: "ab-game", homeTeamId: "1", awayTeamId: "2" }),
-      },
-    });
+  it("a plain scheduler that never answers becomes uncertain at the deadline (no timers left behind)", async () => {
+    const mm = new Matchmaker({ scheduleTimeoutMs: 15, scheduleGame: () => new Promise(() => {}) });
     await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
-    await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" }); // pending, operation bound to A/B
-    mm.cancel("A");
-    mm.cancel("B");
-    await mm.challengeVerified({ coach: "C", teamId: "1", opponent: "D" });
-    const cd = await mm.challengeVerified({ coach: "D", teamId: "2", opponent: "C" });
-    expect(cd.pairing?.gameId).not.toBe("ab-game");
-    await mm.challengeVerified({ coach: "A", teamId: "1b", opponent: "B" }); // A/B with other teams: operation dropped
-    const ab = await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
-    expect(ab.pairing?.gameId).not.toBe("ab-game");
+    expect((await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).status).toBe("uncertain");
   });
 
-  it("a pending pairing is retried in the background and pairs on its own", async () => {
-    let finish!: (r: { gameId: string }) => void;
-    const paired: string[] = [];
-    const mm = new Matchmaker({
-      scheduleTimeoutMs: 10,
-      pendingRetryDelaysMs: [15],
-      scheduleGame: () => new Promise((r) => { finish = r; }),
-      onPaired: (e) => paired.push(e.gameId ?? ""),
-    });
+  it("close / cancel during the in-flight schedule withdraws consent: no pairing, nothing restored", async () => {
+    let answer!: (r: { gameId: string }) => void;
+    const mm = new Matchmaker({ scheduleGame: () => new Promise((r) => { answer = r; }) });
     await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
-    expect((await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).status).toBe("pending");
-    finish({ gameId: "bg-1" });
-    await new Promise((r) => setTimeout(r, 60));
-    expect(paired).toEqual(["bg-1"]);
-    expect(mm.matchstatus("A", { authorized: true }).status).toBe("matched");
+    const aId = mm.pendingOf("A")!.id;
+    const attempt = mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mm.operationState("A", "B")).toBe("inflight");
+    expect(mm.holdsChallenge("A", aId)).toBe(true); // the lobby's close can still find the consent
+    mm.withdraw("A", aId); // the lobby was closed
+    answer({ gameId: "77" });
+    expect((await attempt).status).toBe("waiting");
+    expect(mm.matchstatus("A", { authorized: true })).toEqual({ status: "waiting" });
+    expect(mm.pendingOf("A")).toBeUndefined();
+    expect(mm.pendingOf("B")).toBeUndefined();
+  });
+
+  it("close / cancel while uncertain drops the operation and its consents", async () => {
+    const { mm } = uncertainSetup(async () => ["1"]);
+    await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
+    const r = await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
+    mm.withdraw("B", r.challengeId);
+    expect(mm.operationState("A", "B")).toBe("none");
+    expect(await mm.checkAgain("A", "B")).toBeUndefined();
+  });
+
+  it("client admission generation: a cancel while the password is verified refuses the challenge", async () => {
+    let release!: (ok: boolean) => void;
+    const mm = new Matchmaker({ verifyChallenger: () => new Promise((r) => { release = r; }) });
+    await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
+    const attempt = mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: D });
+    mm.cancel("A");
+    release(true);
+    await expect(attempt).rejects.toThrow(/changed while it was being checked/);
+    expect(mm.matchstatus("B", { authorized: true })).toEqual({ status: "waiting" });
   });
 
   it("rollback never resurrects a challenge cancelled while the attempt was in flight (consent generation)", async () => {
@@ -531,10 +528,10 @@ describe("Matchmaker views + lobby entry (web Lobby)", () => {
     await mm.challenge({ coach: "B", teamId: "2", opponent: "C", passwordMd5: D }); // B's earlier challenge to C
     await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
     const attempt = mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
-    mm.cancel("B"); // B cancels while the attempt is validating
+    mm.cancel("B");
     releaseValidation();
     await expect(attempt).rejects.toThrow(/A is banned/);
-    expect(mm.pendingOf("B")).toBeUndefined(); // the cancelled challenge to C is NOT restored
+    expect(mm.pendingOf("B")).toBeUndefined();
   });
 
   it("onDelivered fires only for an authorized JNLP delivery", async () => {
