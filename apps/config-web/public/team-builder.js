@@ -1447,25 +1447,37 @@ ${rosterSheetHtml(model)}
     }
   }
 
-  function renderInducements() {
-    const visible = mode === "tournament" || mode === "custom";
-    $("inducement-section").hidden = !visible || !current;
-    if (!visible) return;
-    clampInducementCounts(); // race/league change can drop a B&C team's reduced max (Bribes 6 → 3)
-    const items = mode === "tournament" ? inducementCatalog.filter((item) => item.allowed) : inducementCatalog;
-    $("inducement-list").innerHTML = items.map((item) => {
-      const count = inducementCounts[item.key] ?? 0;
-      const terms = inducementTerms(item);
-      const atMax = terms.max !== null && terms.max !== undefined && count >= terms.max;
-      const icon = iconManifest?.icons?.[item.key];
-      return `<div class="stepper-row inducement-row${item.allowed ? "" : " unavailable"}">
+  function inducementRowHtml(item) {
+    const count = inducementCounts[item.key] ?? 0;
+    const terms = inducementTerms(item);
+    const atMax = terms.max !== null && terms.max !== undefined && count >= terms.max;
+    const icon = iconManifest?.icons?.[item.key];
+    const note = `${gold(terms.price)}${terms.max != null ? ` · max ${terms.max}` : ""}${terms.reduced ? ` · ${esc(item.reducedRoster ? `${item.reducedRoster} teams` : item.reducedSpecialRule)}` : ""}`;
+    return `<div class="stepper-row inducement-row${item.allowed ? "" : " unavailable"}" data-inducement-row="${esc(item.key)}">
         <span class="inducement-icon" aria-hidden="true">${icon ? `<img class="crest-image" src="/${esc(icon)}" alt="" loading="lazy" decoding="async">` : ""}</span>
-        <span class="stepper-label">${esc(item.label)}<small>${gold(terms.price)}${terms.max != null ? ` · max ${terms.max}` : ""}${terms.reduced ? ` · ${esc(item.reducedRoster ? `${item.reducedRoster} teams` : item.reducedSpecialRule)}` : ""}</small></span>
+        <span class="stepper-label">${esc(item.label)}<small>${note}</small></span>
         <button type="button" data-inducement="${esc(item.key)}" data-delta="-1" ${!item.allowed || count === 0 ? "disabled" : ""} aria-label="Remove ${esc(item.label)}">−</button>
         <b>${count}</b>
         <button type="button" class="step-add" data-inducement="${esc(item.key)}" data-delta="1" ${!item.allowed || atMax ? "disabled" : ""} aria-label="Add ${esc(item.label)}">+</button>
+        ${count > 0 ? `<small class="stepper-cost">× ${gold(terms.price)} = ${gold(count * terms.price)}</small>` : ""}
       </div>`;
-    }).join("");
+  }
+  // Owner 10-23: picked inducements pop out of the (scrollable) catalogue into "Selected Inducements"
+  // under the roster; dropping one back to 0 returns it to the catalogue.
+  function renderInducements() {
+    const visible = mode === "tournament" || mode === "custom";
+    $("inducement-section").hidden = !visible || !current;
+    if (!visible) { $("selected-inducement-section").hidden = true; return; }
+    clampInducementCounts(); // race/league change can drop a B&C team's reduced max (Bribes 6 → 3)
+    const items = mode === "tournament" ? inducementCatalog.filter((item) => item.allowed) : inducementCatalog;
+    const selected = items.filter((item) => (inducementCounts[item.key] ?? 0) > 0);
+    const available = items.filter((item) => (inducementCounts[item.key] ?? 0) === 0);
+    $("inducement-list").innerHTML = available.length
+      ? available.map(inducementRowHtml).join("")
+      : (items.length ? '<p class="status-copy">Every inducement is selected.</p>' : "");
+    $("selected-inducement-section").hidden = !current || !selected.length;
+    $("selected-inducement-list").innerHTML = selected.map(inducementRowHtml).join("");
+    $("selected-inducement-total").textContent = selected.length ? gold(inducementGold()) : "";
   }
 
   // Sideline staff icon: the UI glyph set first, else the matching inducement art (the Part-time
@@ -2869,10 +2881,19 @@ ${rosterSheetHtml(model)}
     if (remove) removeStarChoice(remove.dataset.starRemove);
   });
   $("star-sp-toggle").addEventListener("click", () => { starSpOpen = !starSpOpen; renderStars(); });
-  $("inducement-list").addEventListener("click", (event) => {
-    const button = event.target.closest("[data-inducement]");
-    if (button) stepInducement(button.dataset.inducement, Number(button.dataset.delta));
-  });
+  for (const listId of ["inducement-list", "selected-inducement-list"]) {
+    $(listId).addEventListener("click", (event) => {
+      const button = event.target.closest("[data-inducement]");
+      if (!button) return;
+      const key = button.dataset.inducement;
+      const delta = Number(button.dataset.delta);
+      stepInducement(key, delta);
+      // The row may have moved between the two lists: keep focus on the same control.
+      const row = document.querySelector(`[data-inducement-row="${CSS.escape(key)}"]`);
+      const next = row?.querySelector(`[data-delta="${delta}"]:not(:disabled)`) ?? row?.querySelector("button:not(:disabled)");
+      next?.focus();
+    });
+  }
   $("staff-controls").addEventListener("click", (event) => {
     const button = event.target.closest("[data-staff-key]");
     if (button) stepStaff(button.dataset.staffKey, Number(button.dataset.staffDelta));

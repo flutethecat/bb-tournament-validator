@@ -436,7 +436,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .roster-row:nth-child(even) { background: var(--ui-surface-2); }
 .slot-number { color: var(--ui-muted); font-size: 15px; }
 .player-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.roster-sprite { width: 54px; height: 54px; font-size: 12px; }
+.roster-sprite { width: 72px; height: 72px; font-size: 12px; } /* owner 10-23: bigger in rows */
 .player-copy { display: flex; min-width: 0; flex-direction: column; }
 .player-copy strong { overflow: hidden; color: var(--ui-text); font-size: 16px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .player-copy small { color: var(--ui-muted); font-size: 14px; }
@@ -708,8 +708,8 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .star-card { display: flex; flex-direction: column; gap: 6px; }
 .star-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 10px; background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 4px; }
 .star-sprites { display: flex; }
-.star-sprites .sprite-frame { width: 54px; height: 54px; font-size: 12px; }
-.star-sprites.paired .sprite-frame + .sprite-frame { margin-left: -14px; }
+.star-sprites .sprite-frame { width: 72px; height: 72px; font-size: 12px; }
+.star-sprites.paired .sprite-frame + .sprite-frame { margin-left: -18px; }
 .star-copy { display: flex; min-width: 0; flex-direction: column; }
 .star-copy strong { color: var(--ui-text); font-weight: 500; }
 .star-copy small { color: var(--ui-muted); font-size: 14px; }
@@ -722,7 +722,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .star-sp-table { border-collapse: collapse; font-size: 14px; }
 .star-sp-table th,
 .star-sp-table td { padding: 3px 10px; text-align: left; border-bottom: 1px solid var(--ui-border); }
-.inducement-section .stepper-row { min-height: 44px; }
+.inducement-section .stepper-row { min-height: 70px; }
 
 .export-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .export-actions .session-button { min-height: 34px; padding: 6px 8px; white-space: normal; }
@@ -825,10 +825,10 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .tt-race-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; justify-content: center; gap: 3px; }
 .tt-summary-crest { display: inline-block; width: 26px; height: 26px; margin-right: 8px; vertical-align: middle; }
 .race-crest { display: inline-flex; }
-.stepper-row.inducement-row { grid-template-columns: 36px minmax(0, 1fr) 32px 20px 32px; }
-.stepper-row.staff-row { grid-template-columns: 36px minmax(0, 1fr) 32px 20px 32px; }
-.inducement-icon { display: grid; place-items: center; width: 36px; height: 36px; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 4px; }
-.inducement-icon .crest-image { width: 32px; height: 32px; image-rendering: auto; }
+.stepper-row.inducement-row { grid-template-columns: 52px minmax(0, 1fr) 32px 20px 32px; }
+.stepper-row.staff-row { grid-template-columns: 52px minmax(0, 1fr) 32px 20px 32px; }
+.inducement-icon { display: grid; place-items: center; width: 52px; height: 52px; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 4px; }
+.inducement-icon .crest-image { width: 48px; height: 48px; image-rendering: auto; }
 .race-crest .crest-image { width: 30px; height: 30px; }
 
 /* ── Add skill / Add stat modal dialogs ── */
@@ -912,3 +912,10 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
   .refresh-dot { animation: none; }
 }
+
+/* Owner 10-23: star players + inducements scroll inside their own box; picked inducements pop out into
+   "Selected Inducements" under the roster. */
+.scroll-list { max-height: 420px; overflow-y: auto; padding-right: 4px; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.scroll-list > * { flex-shrink: 0; } /* rows keep their full height inside the capped box */
+.selected-inducement-section .section-title small { color: var(--ui-gold); }
+@media (max-width: 600px) { .scroll-list { max-height: 60vh; } }

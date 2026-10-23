@@ -285,6 +285,24 @@ describe("team builder page — source contract", () => {
     expect(js).toContain("rosteredInducements");
   });
 
+  it("scrolls star players + inducements and pops picked inducements into Selected Inducements", () => {
+    expect(html).toContain('id="star-list" class="star-card scroll-list"');
+    expect(html).toContain('id="inducement-list" class="star-card scroll-list"');
+    expect(html).toContain('id="selected-inducement-section"');
+    // Selected section sits right under the roster, before the star players.
+    expect(html.indexOf('id="selected-inducement-section"')).toBeLessThan(html.indexOf('id="star-section"'));
+    expect(html.indexOf('id="selected-inducement-section"')).toBeGreaterThan(html.indexOf('id="roster-slots"'));
+    expect(js).toContain("const selected = items.filter((item) => (inducementCounts[item.key] ?? 0) > 0);");
+    expect(js).toContain('for (const listId of ["inducement-list", "selected-inducement-list"])');
+    expect(css).toMatch(/\.scroll-list \{ max-height: 420px; overflow-y: auto;/);
+  });
+
+  it("draws portraits and icons larger in rows, stars, inducements and staff", () => {
+    expect(css).toContain(".roster-sprite { width: 72px; height: 72px;");
+    expect(css).toContain(".star-sprites .sprite-frame { width: 72px; height: 72px;");
+    expect(css).toContain(".inducement-icon .crest-image { width: 48px; height: 48px;");
+  });
+
   it("draws a Super FUMBBL icon left of every sideline staff row", () => {
     expect(js).toContain('api("/icons/ui/manifest.json")');
     const want: Record<string, [string, string]> = {
@@ -303,7 +321,7 @@ describe("team builder page — source contract", () => {
       expect(readFileSync(new URL(path, pub)).length).toBeGreaterThan(0);
     }
     expect(js).toContain('class="stepper-row staff-row');
-    expect(css).toContain(".stepper-row.staff-row { grid-template-columns: 36px minmax(0, 1fr) 32px 20px 32px; }");
+    expect(css).toContain(".stepper-row.staff-row { grid-template-columns: 52px minmax(0, 1fr) 32px 20px 32px; }");
   });
 
   it("prices inducements with the team's Bribery and Corruption terms", () => {
