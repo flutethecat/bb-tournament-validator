@@ -97,6 +97,7 @@ export interface StatusLike {
   me: "creator" | "opponent";
   status: "waiting" | "ready" | "needs-renewal";
   opponentAccepted: boolean;
+  settingUp?: boolean;
   canLaunch: boolean;
   creator: { coach: string };
   opponent: { coach: string };
@@ -109,6 +110,7 @@ export function lobbyStatusLine(v: StatusLike): string {
   if (v.status === "ready") {
     return `Game set up${v.game?.gameId ? ` (game ${v.game.gameId})` : ""}. ${v.canLaunch ? "Ready to start." : "Waiting for both coaches."}`;
   }
+  if (v.settingUp) return "Setting up the game on the server. This can take a moment; it retries on its own.";
   if (v.status === "waiting") {
     if (v.me === "creator") return `Waiting for ${other} to accept.`;
     return v.opponentAccepted ? "You accepted. Setting up the game…" : `${other} challenged you. Pick a team to accept.`;

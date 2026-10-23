@@ -193,19 +193,47 @@ export function forkConfigFromEnv(): ForkConfig | undefined {
   return { ...(forkDbConfigFromEnv() ?? DB_DEFAULTS), teamsDir };
 }
 
-async function withConn<T>(cfg: ForkDbConfig, fn: (conn: mysql.Connection) => Promise<T>): Promise<T> {
-  const conn = await mysql.createConnection({
-    host: cfg.dbHost,
-    port: cfg.dbPort,
-    user: cfg.dbUser,
-    password: cfg.dbPassword,
-    database: cfg.dbName,
+/** Deadline for one fork-DB operation (connect + query + close). A stalled server never holds a caller (or a lock
+ *  the caller holds) indefinitely: on timeout the connection is DESTROYED, not politely ended. */
+export const FORK_DB_TIMEOUT_MS = 10_000;
+
+export async function withDeadline<T>(work: Promise<T>, ms: number, onTimeout: () => void, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      try { onTimeout(); } catch { /* best effort */ }
+      reject(new Error(`${what} timed out after ${ms}ms`));
+    }, ms);
   });
   try {
-    return await fn(conn);
+    return await Promise.race([work, deadline]);
   } finally {
-    await conn.end();
+    clearTimeout(timer);
   }
+}
+
+async function withConn<T>(cfg: ForkDbConfig, fn: (conn: mysql.Connection) => Promise<T>): Promise<T> {
+  const ms = Number(process.env.FORK_DB_TIMEOUT_MS) > 0 ? Number(process.env.FORK_DB_TIMEOUT_MS) : FORK_DB_TIMEOUT_MS;
+  let conn: mysql.Connection | undefined;
+  let timedOut = false;
+  const work = (async () => {
+    conn = await mysql.createConnection({
+      host: cfg.dbHost,
+      port: cfg.dbPort,
+      user: cfg.dbUser,
+      password: cfg.dbPassword,
+      database: cfg.dbName,
+      connectTimeout: ms,
+    });
+    if (timedOut) { conn.destroy?.(); throw new Error("fork DB operation timed out"); }
+    try {
+      return await fn(conn);
+    } finally {
+      if (!timedOut) await Promise.resolve().then(() => conn!.end()).catch(() => conn?.destroy?.());
+    }
+  })();
+  work.catch(() => { /* surfaced through the race; never an unhandled rejection after a timeout */ });
+  return withDeadline(work, ms, () => { timedOut = true; conn?.destroy?.(); }, "fork DB operation");
 }
 
 /**

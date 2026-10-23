@@ -51,6 +51,10 @@ beforeAll(async () => {
   lib("LobbyCarol", "9103");
   lib("LobbyDave", "9104");
   lib("LobbyEve", "9105");
+  lib("MixA", "9301");
+  lib("MixB", "9302");
+  lib("MixC", "9303");
+  lib("MixD", "9304");
   writeFileSync(join(root, "state", "fork-reload-state.json"), JSON.stringify({ lastReloadAt: "2026-02-01T00:00:00.000Z" }), "utf8");
   ({ server } = await import("../src/server.js"));
   if (!server.listening) await once(server, "listening");
@@ -165,4 +169,26 @@ describe("lobby routes (sidecar off)", () => {
     expect(own.jnlp).not.toContain("12345");
     expect(await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`)).json()).toEqual({ status: "waiting" });
   });
+
+  for (const order of ["client first", "lobby first"] as const) {
+    it(`mixed pairing (${order}): the client seat's JNLP delivery marks it in the client; the browser seat can start`, async () => {
+      const [browser, client, bTeam, cTeam] = order === "client first" ? ["MixA", "MixB", "9301", "9302"] : ["MixC", "MixD", "9303", "9304"];
+      const digest = "9".repeat(32);
+      const clientChallenge = () => fetch(`${origin}/api/fork/challenge?coach=${client}&teamId=${cTeam}&opponent=${browser}&passwordMd5=${digest}`);
+      const bc = discordCookie(browser);
+      if (order === "client first") expect((await clientChallenge()).status).toBe(200);
+      const created = await post("/api/lobby", bc, { teamId: bTeam, opponent: client });
+      expect(created.status).toBe(201);
+      const { lobby } = (await created.json()) as { lobby: { id: string } };
+      if (order === "lobby first") expect((await clientChallenge()).status).toBe(200);
+      const view = async () => ((await (await fetch(`${origin}/api/lobby/${lobby.id}`, { headers: { cookie: bc } })).json()) as { lobby: { status: string; canLaunch: boolean; opponent: { state: string } } }).lobby;
+      expect(await view()).toMatchObject({ status: "ready", canLaunch: false, opponent: { state: "not-here-yet" } });
+      // the client polls with its own digest (an authorized poll), takes its seat
+      const polled = (await (await fetch(`${origin}/api/fork/matchstatus?coach=${client}&passwordMd5=${digest}`)).json()) as { jnlp?: string };
+      expect(polled.jnlp).toContain(`<argument>-passwordMd5</argument><argument>${digest}</argument>`);
+      expect(await view()).toMatchObject({ canLaunch: true, opponent: { state: "client" } });
+      const launch = await post(`/api/lobby/${lobby.id}/launch`, bc, {});
+      expect(launch.status).toBe(200);
+    });
+  }
 });

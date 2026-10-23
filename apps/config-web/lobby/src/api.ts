@@ -72,6 +72,7 @@ export interface LobbyView {
   startedAt: number | null;
   status: "waiting" | "ready" | "needs-renewal";
   opponentAccepted: boolean;
+  settingUp?: boolean;
   canAccept: boolean;
   canRenew: boolean;
   creator: SeatView;

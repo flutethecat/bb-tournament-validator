@@ -303,7 +303,7 @@ describe("lobbyApi", () => {
       roster: (coach, teamId) => (coach === "Bob" && teamId === "t2" ? roster : undefined),
       coachCard: (coach) => ({ avatar: coach === "Bob" ? "https://cdn.discordapp.com/avatars/1/x.png" : null, fumbblName: coach === "Bob" ? "BobOnFumbbl" : null }),
       rating: async (name, requester) => { calls.rating.push(`${requester}:${name}`); return { name, cr: 150.2 }; },
-      jnlp: async (seat) => { calls.jnlp.push(seat); return `<jnlp coach="${seat.coach}" team="${seat.teamId}" game="${seat.gameId ?? ""}"/>`; },
+      credential: async (coach) => { calls.jnlp.push(coach); return coach === "Alice" ? "a".repeat(32) : "b".repeat(32); },
       chatLive: () => true,
       withGameStartLock: async (fn) => { calls.locked++; return fn(); },
     };
@@ -336,11 +336,19 @@ describe("lobbyApi", () => {
     expect(launched!.body).toEqual({ jnlpUrl: `/api/lobby/${id}/jnlp`, scheme: null, side: expect.stringMatching(/^(home|away)$/), gameName: expect.stringMatching(/^chal_/), gameId: "4242" });
     const a = await call(d, "GET", `/api/lobby/${id}/jnlp`, discord("Alice"));
     const b = await call(d, "GET", `/api/lobby/${id}/jnlp`, discord("Bob"));
-    expect(a).toMatchObject({ status: 200, contentType: expect.stringContaining("jnlp"), body: '<jnlp coach="Alice" team="t1" game="4242"/>' });
-    expect(b!.body).toBe('<jnlp coach="Bob" team="t2" game="4242"/>');
+    expect(a).toMatchObject({ status: 200, contentType: expect.stringContaining("jnlp") });
+    const aj = String(a!.body);
+    const bj = String(b!.body);
+    expect(aj).toContain("<argument>-coach</argument><argument>Alice</argument>");
+    expect(aj).toContain("<argument>-teamId</argument><argument>t1</argument>");
+    expect(aj).toContain("<argument>-gameId</argument><argument>4242</argument>");
+    expect(aj).toContain(`<argument>-passwordMd5</argument><argument>${"a".repeat(32)}</argument>`);
+    expect(bj).toContain(`<argument>-passwordMd5</argument><argument>${"b".repeat(32)}</argument>`);
+    expect(bj).not.toContain("a".repeat(32));
+    expect(calls.jnlp).toEqual(["Alice", "Bob"]); // credentials fetched only for members' own seats (pre-pair / Carol: none)
     expect(await call(d, "GET", `/api/lobby/${id}/jnlp`, discord("Carol"))).toMatchObject({ status: 403 });
     expect(await call(d, "GET", `/api/lobby/${id}/jnlp`, { coach: "Alice", method: "password" })).toMatchObject({ status: 403 });
-    expect(calls.locked).toBe(8); // writes: create, refused launch, join, launch; JNLP downloads: pre-pair, Alice, Bob, Carol (gate first, then membership)
+    expect(calls.locked).toBe(6); // writes: create, refused launch, join, launch; downloads: Alice, Bob (membership + seat first, so pre-pair / Carol never reach the gate)
   });
 
   it("renew and the needs-renewal view through the API", async () => {
@@ -385,6 +393,72 @@ describe("lobbyApi", () => {
     const id = ((await call(d, "POST", "/api/lobby", discord("Alice"), { teamId: "t1", opponent: "Bob" }))!.body as { lobby: { id: string } }).lobby.id;
     advance(25 * 60 * 60 * 1000);
     expect(await call(d, "GET", `/api/lobby/${id}`, discord("Alice"))).toMatchObject({ status: 410, body: { error: "This lobby has expired." } });
+  });
+});
+
+describe("round 3: pending scheduling, client delivery, credential before the lock", () => {
+  it("an unknown scheduling outcome shows 'setting up' with both consents standing, then pairs on retry", async () => {
+    let finish!: (r: { gameId: string }) => void;
+    const matchmaker = new Matchmaker({
+      scheduleTimeoutMs: 10,
+      pendingRetryDelaysMs: [],
+      scheduleGame: () => new Promise((r) => { finish = r; }),
+    });
+    const store = new LobbyStore({
+      matchmaker,
+      isBanned: () => false,
+      resolveTeam: (_c, teamId) => ({ teamId, teamName: teamId, race: "Orc" }),
+    });
+    matchmaker.onPaired((p) => store.notePairing(p));
+    const lobby = await store.create("Alice", "t1", "Bob");
+    await store.join(lobby.id, "Bob", "t2"); // pending: not an error, Bob's consent is recorded
+    expect(store.view(lobby, "Bob")).toMatchObject({ status: "waiting", settingUp: true, opponentAccepted: true, canAccept: false, game: null });
+    finish({ gameId: "g-late" });
+    await new Promise((r) => setTimeout(r, 0));
+    await store.renew(lobby.id, "Alice"); // any re-entry reconciles first
+    expect(store.view(lobby, "Alice")).toMatchObject({ status: "ready", settingUp: false, game: { gameId: "g-late" } });
+  });
+
+  it("a client seat's authorized JNLP delivery marks that coach 'in the client', so the browser seat can start", async () => {
+    const matchmaker = new Matchmaker();
+    const store = new LobbyStore({ matchmaker, isBanned: () => false, resolveTeam: (_c, teamId) => ({ teamId, teamName: teamId, race: "Orc" }) });
+    matchmaker.onPaired((p) => store.notePairing(p));
+    matchmaker.onDelivered((d) => store.noteDelivered(d));
+    const lobby = await store.create("Alice", "t1", "Bob");
+    await matchmaker.challenge({ coach: "Bob", teamId: "t2", opponent: "Alice", passwordMd5: "c".repeat(32) }); // from the client
+    expect(store.view(lobby, "Alice")).toMatchObject({ status: "ready", canLaunch: false });
+    matchmaker.matchstatus("Bob", { authorized: false }); // anonymous: no delivery, no presence
+    expect(store.view(lobby, "Alice").opponent.state).toBe("not-here-yet");
+    matchmaker.matchstatus("Bob", { authorized: true });
+    expect(store.view(lobby, "Alice")).toMatchObject({ opponent: { state: "client" }, canLaunch: true });
+  });
+
+  it("the credential is fetched before the lock: a stalled credential never holds it", async () => {
+    const matchmaker = new Matchmaker();
+    const store = new LobbyStore({ matchmaker, isBanned: () => false, resolveTeam: (_c, teamId) => ({ teamId, teamName: teamId, race: "Orc" }) });
+    matchmaker.onPaired((p) => store.notePairing(p));
+    const lobby = await store.create("Alice", "t1", "Bob");
+    await store.join(lobby.id, "Bob", "t2");
+    let locked = 0;
+    let release!: (d: string) => void;
+    const d: LobbyApiDeps = {
+      store,
+      roster: () => undefined,
+      coachCard: () => ({ avatar: null, fumbblName: null }),
+      rating: async () => ({}),
+      credential: () => new Promise((r) => { release = r; }),
+      chatLive: () => false,
+      withGameStartLock: async (fn) => { locked++; return fn(); },
+      authStillValid: () => valid,
+    };
+    let valid = true;
+    const pending = lobbyApi("GET", `/api/lobby/${lobby.id}/jnlp`, new URLSearchParams(), { coach: "Alice", method: "discord" }, undefined, d);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(locked).toBe(0); // still waiting on the credential, lock untouched
+    valid = false; // the session ended meanwhile: re-checked under the lock
+    release("a".repeat(32));
+    expect(await pending).toMatchObject({ status: 401 });
+    expect(locked).toBe(1);
   });
 });
 

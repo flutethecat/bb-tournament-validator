@@ -31,6 +31,7 @@
  */
 
 import { createHash } from "node:crypto";
+import type { ReconcilingScheduler, ScheduleOutcome } from "./matchmaking.js";
 
 const ADMIN_FETCH_TIMEOUT_MS = 5_000;
 
@@ -124,8 +125,14 @@ export async function scheduleForkGame(
   const url = `${cfg.baseUrl}/admin/schedule?response=${encodeURIComponent(response)}&teamHomeId=${encodeURIComponent(teamHomeId)}&teamAwayId=${encodeURIComponent(teamAwayId)}${overtimeParam}`;
   // Longer budget than the default: this is the call known to hang server-side (see file
   // header) rather than error quickly, so give a real scheduling attempt a fair chance
-  // before treating it as failed.
-  const res = await fetchWithTimeout(url, 10_000);
+  // before treating it as failed. Once this request has gone out, a timeout / abort / network fault means the
+  // fork MAY have created the game: that is an UNKNOWN outcome, never a plain failure.
+  let res: AdminResponse;
+  try {
+    res = await fetchWithTimeout(url, 10_000);
+  } catch (e) {
+    throw new ScheduleOutcomeUnknownError(`fork admin/schedule: outcome unknown (${(e as Error).message})`);
+  }
   const xml = await res.text();
   const error = xmlTag(xml, "error");
   if (error) throw new Error(`fork admin/schedule: ${error}`);
@@ -134,6 +141,77 @@ export async function scheduleForkGame(
     throw new Error(`fork admin/schedule failed (HTTP ${res.status}): ${xml.slice(0, 300)}`);
   }
   return { gameId };
+}
+
+/** The schedule request went out but its answer was lost: a game may or may not exist. */
+export class ScheduleOutcomeUnknownError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ScheduleOutcomeUnknownError";
+  }
+}
+
+interface ScheduleToken {
+  homeTeamId: string;
+  awayTeamId: string;
+  /** Live games for exactly this home/away pair BEFORE the request: never mistaken for ours. */
+  before: string[];
+  at: number;
+}
+
+const isScheduleToken = (t: unknown): t is ScheduleToken =>
+  !!t && typeof t === "object" && Array.isArray((t as ScheduleToken).before) && typeof (t as ScheduleToken).homeTeamId === "string";
+
+/**
+ * The matchmaker's scheduler for the real fork. A definite answer (the servlet's `<error>`, a bad status, or a
+ * failure before the schedule request went out) is `rejected`; a lost answer is `unknown`, carrying a token. The
+ * stable identity of the operation is (home team, away team, the live games for that pair before the request):
+ * `reconcile` looks the pair up in the fork's live game list and accepts only a NEW, still-live game with exactly
+ * those teams in that orientation. No new game yet: still unknown within `graceMs`, then definitely none.
+ */
+export function forkScheduler(
+  cfg: ForkAdminConfig,
+  opts: { overtime?: () => boolean; graceMs?: number; now?: () => number } = {},
+): ReconcilingScheduler {
+  const now = opts.now ?? Date.now;
+  const graceMs = opts.graceMs ?? 60_000;
+  const pairGames = (games: AdminGameEntry[], home: string, away: string) =>
+    games.filter((g) => g.homeTeamId === home && g.awayTeamId === away);
+  return {
+    async schedule(homeTeamId, awayTeamId): Promise<ScheduleOutcome> {
+      let before: string[];
+      try {
+        before = pairGames(await adminListLive(cfg), homeTeamId, awayTeamId).map((g) => g.gameId);
+      } catch (e) {
+        return { kind: "rejected", error: `fork admin unreachable: ${(e as Error).message}` }; // nothing was sent
+      }
+      try {
+        const { gameId } = await scheduleForkGame(cfg, homeTeamId, awayTeamId, { overtime: opts.overtime?.() });
+        return { kind: "scheduled", gameId, homeTeamId, awayTeamId };
+      } catch (e) {
+        if (e instanceof ScheduleOutcomeUnknownError) {
+          const token: ScheduleToken = { homeTeamId, awayTeamId, before, at: now() };
+          return { kind: "unknown", token };
+        }
+        return { kind: "rejected", error: (e as Error).message };
+      }
+    },
+    async reconcile(token): Promise<ScheduleOutcome> {
+      if (!isScheduleToken(token)) return { kind: "unknown" };
+      let live: AdminGameEntry[];
+      try {
+        live = await adminListLive(cfg);
+      } catch {
+        return { kind: "unknown" };
+      }
+      const fresh = pairGames(live, token.homeTeamId, token.awayTeamId)
+        .filter((g) => !token.before.includes(g.gameId))
+        .sort((x, y) => Number(x.gameId) - Number(y.gameId));
+      const found = fresh[0];
+      if (found) return { kind: "scheduled", gameId: found.gameId, homeTeamId: token.homeTeamId, awayTeamId: token.awayTeamId };
+      return now() - token.at < graceMs ? { kind: "unknown" } : { kind: "rejected", error: "no game was created" };
+    },
+  };
 }
 
 /**

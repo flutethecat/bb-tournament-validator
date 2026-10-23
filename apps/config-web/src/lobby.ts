@@ -13,7 +13,7 @@
 // The seat's JNLP is served only by the session-scoped `GET /api/lobby/:id/jnlp`.
 
 import { randomBytes } from "node:crypto";
-import type { PairingEvent, PendingChallengeView, VerifiedChallengeResult } from "@bb/fork-ops";
+import { buildSeatJnlp, type PairingEvent, type PendingChallengeView, type VerifiedChallengeResult } from "@bb/fork-ops";
 
 export const LOBBY_TTL_MS = 24 * 60 * 60 * 1000;
 export const LOBBY_POST_START_TTL_MS = 60 * 60 * 1000;
@@ -33,6 +33,8 @@ export interface LobbyMatchmaker {
   pendingOf(coach: string): PendingChallengeView | undefined;
   pendingFor(coach: string): PendingChallengeView[];
   cancel(coach: string): void;
+  /** An unresolved scheduling operation is open for these two coaches (outcome unknown, retried in background). */
+  schedulingPending?(coachA: string, coachB: string): boolean;
 }
 
 export interface LobbyTeam {
@@ -317,6 +319,25 @@ export class LobbyStore {
     return lobby;
   }
 
+  /** Matchmaker `onDelivered` hook: a seat's JNLP went to its owner through the client's match poll, so that
+   *  coach is "in the client" (mixed pairing: the browser seat can then start). */
+  noteDelivered(delivery: { coach: string; gameName: string }): void {
+    this.sweep();
+    for (const lobby of this.lobbies.values()) {
+      if (lobby.pairing?.gameName !== delivery.gameName) continue;
+      const role = this.roleOf(lobby, delivery.coach);
+      if (!role) continue;
+      const now = this.now();
+      (role === "creator" ? lobby.creator : lobby.opponent).launchedAt = now;
+      if (lobby.startedAt === undefined) {
+        lobby.startedAt = now;
+        lobby.expiresAt = Math.min(lobby.expiresAt, now + this.postStartTtlMs);
+      }
+      this.emit(lobby.id);
+      return;
+    }
+  }
+
   /** Matchmaker `onPaired` hook: attach a pairing to the live lobby whose challenge ids it consumed. */
   notePairing(pairing: PairingEvent): void {
     this.sweep();
@@ -487,6 +508,7 @@ export class LobbyStore {
     const opponent = seatView(lobby.opponent, "opponent", paired || opponentAccepted ? lobby.opponentTeam ?? null : null);
     const bothPresent = [creator, opponent].every((s) => s.state === "here" || s.state === "client");
     const status: LobbyView["status"] = paired ? "ready" : creatorLive ? "waiting" : "needs-renewal";
+    const settingUp = !paired && (mm.schedulingPending?.(lobby.creator.coach, lobby.opponent.coach) ?? false);
     return {
       id: lobby.id,
       me: role,
@@ -495,6 +517,7 @@ export class LobbyStore {
       startedAt: lobby.startedAt ?? null,
       status,
       opponentAccepted,
+      settingUp,
       canAccept: role === "opponent" && !paired && !opponentAccepted,
       canRenew: role === "creator" && status === "needs-renewal",
       creator,
@@ -525,6 +548,8 @@ export interface LobbyView {
    *  the creator must confirm again; ready = paired (the game is set up on the fork). */
   status: "waiting" | "ready" | "needs-renewal";
   opponentAccepted: boolean;
+  /** Both accepted, but the game server's answer was lost: the server is reconciling and retrying. */
+  settingUp: boolean;
   canAccept: boolean;
   canRenew: boolean;
   creator: LobbySeatView;
@@ -628,8 +653,11 @@ export interface LobbyApiDeps {
   coachCard: (coach: string) => LobbyCoachCard;
   /** Rating for a FUMBBL name, charged to `requester`; may throw an error carrying `status` (429). */
   rating: (name: string, requester: string) => Promise<unknown>;
-  /** The JNLP for a seat, carrying the seat coach's stored credential when the host has one. */
-  jnlp: (seat: { coach: string; teamId: string; gameName: string; gameId?: string }) => Promise<string>;
+  /** The seat coach's stored credential digest (bounded; throws an error with `status` when unavailable). Fetched
+   *  BEFORE the game-start lock; the JNLP is then built under the lock after the seat is re-checked. */
+  credential: (coach: string) => Promise<string>;
+  /** Is the request's session still valid (re-checked under the lock, after the credential fetch)? */
+  authStillValid?: () => boolean;
   chatLive: () => boolean;
   /** Runs a game-start operation (writes and the JNLP download) under the host's cache gate + game-start lock,
    *  after auth and body parsing. */
@@ -736,9 +764,17 @@ export async function lobbyApi(
     }
     if (action === "jnlp") {
       const bad = want("GET"); if (bad) return bad;
+      // Membership + seat first (cheap, no global state), then the credential OUTSIDE the lock (bounded DB call),
+      // then under the lock: session, seat and cache state re-checked and the artifact built synchronously.
+      const first = store.seatOf(id, me);
+      const passwordMd5 = await deps.credential(first.coach);
       const { seat, jnlp } = await locked(async () => {
+        if (deps.authStillValid && !deps.authStillValid()) throw new LobbyError(401, "Sign in with Discord first.");
         const s = store.seatOf(id, me);
-        return { seat: s, jnlp: await deps.jnlp({ coach: s.coach, teamId: s.teamId, gameName: s.gameName, gameId: s.gameId }) };
+        if (s.coach !== first.coach || s.teamId !== first.teamId || s.gameName !== first.gameName || s.gameId !== first.gameId) {
+          throw new LobbyError(409, "Your seat changed. Try again.");
+        }
+        return { seat: s, jnlp: buildSeatJnlp({ coach: s.coach, teamId: s.teamId, gameName: s.gameName, gameId: s.gameId, passwordMd5 }) };
       });
       return {
         status: 200,

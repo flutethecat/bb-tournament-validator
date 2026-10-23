@@ -299,3 +299,66 @@ describe("admin fetch timeout covers the body", () => {
     await assertion2;
   });
 });
+
+describe("forkScheduler (definite vs unknown, reconcile by the pair's live games)", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  function stubFork(state: { live: Array<{ id: string; home: string; away: string }>; schedule: "lost" | "error" | "ok" }) {
+    vi.stubGlobal("fetch", async (url: string) => {
+      const body = (text: string) => ({ ok: true, status: 200, text: async () => text });
+      if (url.includes("/admin/challenge")) return body("<challenge>00ff</challenge>");
+      if (url.includes("/admin/list")) {
+        if (!url.includes("status=scheduled")) return body("<list></list>");
+        return body(`<list>${state.live.map((g) => `<game id="${g.id}" status="scheduled" half="0" turn="0"><team home="true" id="${g.home}" name="h" coach="a"/><team home="false" id="${g.away}" name="w" coach="b"/></game>`).join("")}</list>`);
+      }
+      if (url.includes("/admin/schedule")) {
+        if (state.schedule === "lost") throw new TypeError("fetch failed: socket hang up");
+        if (state.schedule === "error") return body("<error>Invalid parameter teamHomeId</error>");
+        state.live.push({ id: "501", home: "1", away: "2" });
+        return body("<schedule><status>ok</status><gameId>501</gameId></schedule>");
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+  }
+
+  it("a lost answer is unknown; reconcile finds only the NEW live game for exactly that home/away pair", async () => {
+    const { forkScheduler } = await import("@bb/fork-ops");
+    const state = { live: [{ id: "400", home: "1", away: "2" }], schedule: "lost" as const };
+    stubFork(state);
+    let t = 1_000;
+    const sched = forkScheduler({ baseUrl: "http://fork.invalid", passwordMd5Hex: "0".repeat(32) }, { now: () => t, graceMs: 60_000 });
+    const out = await sched.schedule("1", "2");
+    expect(out.kind).toBe("unknown");
+    const token = (out as { token: unknown }).token;
+    expect(await sched.reconcile(token)).toEqual({ kind: "unknown" }); // only the older game 400 exists
+    state.live.push({ id: "402", home: "2", away: "1" }); // other orientation: not ours
+    expect(await sched.reconcile(token)).toEqual({ kind: "unknown" });
+    state.live.push({ id: "401", home: "1", away: "2" });
+    expect(await sched.reconcile(token)).toEqual({ kind: "scheduled", gameId: "401", homeTeamId: "1", awayTeamId: "2" });
+    state.live = state.live.filter((g) => g.id !== "401"); // closed on the fork before reuse
+    t += 61_000;
+    expect(await sched.reconcile(token)).toMatchObject({ kind: "rejected" }); // past the grace: definitely none
+  });
+
+  it("the servlet's <error> is a definite rejection; success is scheduled", async () => {
+    const { forkScheduler } = await import("@bb/fork-ops");
+    const cfg = { baseUrl: "http://fork.invalid", passwordMd5Hex: "0".repeat(32) };
+    stubFork({ live: [], schedule: "error" });
+    expect(await forkScheduler(cfg).schedule("1", "2")).toMatchObject({ kind: "rejected", error: expect.stringMatching(/Invalid parameter/) });
+    stubFork({ live: [], schedule: "ok" });
+    expect(await forkScheduler(cfg).schedule("1", "2")).toEqual({ kind: "scheduled", gameId: "501", homeTeamId: "1", awayTeamId: "2" });
+  });
+
+  it("with the matchmaker: a lost answer never becomes a named-game pairing; the retry claims the fork's game", async () => {
+    const { forkScheduler, Matchmaker } = await import("@bb/fork-ops");
+    const state = { live: [] as Array<{ id: string; home: string; away: string }>, schedule: "lost" as const };
+    stubFork(state);
+    const mm = new Matchmaker({ scheduler: forkScheduler({ baseUrl: "http://fork.invalid", passwordMd5Hex: "0".repeat(32) }), pendingRetryDelaysMs: [] });
+    await mm.challengeVerified({ coach: "Alpha", teamId: "1", opponent: "Bravo" });
+    expect((await mm.challengeVerified({ coach: "Bravo", teamId: "2", opponent: "Alpha" })).status).toBe("pending");
+    expect(mm.matchstatus("Alpha", { authorized: true })).toEqual({ status: "waiting" });
+    state.live.push({ id: "777", home: "1", away: "2" }); // the fork did create it
+    const r = await mm.challengeVerified({ coach: "Bravo", teamId: "2", opponent: "Alpha" });
+    expect(r.pairing).toMatchObject({ gameId: "777", home: { teamId: "1" }, away: { teamId: "2" } });
+  });
+});

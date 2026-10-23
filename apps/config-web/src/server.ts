@@ -47,7 +47,6 @@ import {
   atomicWriteTextFile,
   beginTeamXmlTransaction,
   buildForkJnlp,
-  buildSeatJnlp,
   coachExists,
   createForkAccount,
   createForkAccountDigest,
@@ -79,6 +78,7 @@ import {
   reloadFork,
   retireLibraryTeam,
   scheduleForkGame,
+  forkScheduler,
   upsertLibraryTeam,
   updateTeamXmlTransactionLibraryTeam,
   verifyCoachPassword,
@@ -410,9 +410,9 @@ const initialSettings = loadMatchmakingSettings();
 let overtimeEnabled = initialSettings.overtime;
 
 const matchmaker = new Matchmaker({
-  scheduleGame: forkAdminCfg
-    ? (teamHomeId, teamAwayId) => scheduleForkGame(forkAdminCfg, teamHomeId, teamAwayId, { overtime: overtimeEnabled })
-    : undefined,
+  // Reconciling scheduler: a lost answer from the fork is "unknown" (no named-game fallback); the next attempt
+  // looks the game up on the fork before scheduling again.
+  scheduler: forkAdminCfg ? forkScheduler(forkAdminCfg, { overtime: () => overtimeEnabled }) : undefined,
   // Digest form: matchmaking reduces either credential carrier to md5(pw) at admission,
   // so the clear text never reaches this check (owner security ruling 08-17).
   verifyChallenger: challengeDbCfg
@@ -446,6 +446,7 @@ const lobbyStore = new LobbyStore({
   },
 });
 matchmaker.onPaired((pairing) => lobbyStore.notePairing(pairing));
+matchmaker.onDelivered((delivery) => lobbyStore.noteDelivered(delivery));
 setInterval(() => lobbyStore.sweep(), 5 * 60 * 1000).unref();
 const coachRatings = new CoachRatingCache({
   baseUrl: (() => {
@@ -494,14 +495,20 @@ async function handleLobbyRequest(req: IncomingMessage, res: ServerResponse, pat
       return { avatar, fumbblName: (linked && linked.fumbblName?.trim()) || null };
     },
     rating: (name, requester) => coachRatings.get(name, requester),
-    jnlp: async (seat) => {
-      // The seat coach's stored credential (owned by the session coach: seatOf checked membership + seat).
-      // No placeholder password: without a stored credential there is no JNLP.
+    credential: async (coach) => {
+      // The seat coach's stored credential (seatOf already checked membership + seat). Bounded DB call, run
+      // before the lock. No placeholder password: without a stored credential there is no JNLP.
       if (!challengeDbCfg) throw new LobbyError(503, "This server has no fork account store (set FORK_DB_HOST).");
-      const passwordMd5 = await forkCoachPasswordDigest(challengeDbCfg, seat.coach);
+      let passwordMd5: string | undefined;
+      try {
+        passwordMd5 = await forkCoachPasswordDigest(challengeDbCfg, coach);
+      } catch {
+        throw new LobbyError(503, "The fork account store did not answer. Try again.");
+      }
       if (!passwordMd5) throw new LobbyError(404, "Your fork account was not found.");
-      return buildSeatJnlp({ ...seat, passwordMd5 });
+      return passwordMd5;
     },
+    authStillValid: () => lobbyAuthFor(req)?.method === "discord",
     chatLive: () => lobbyChatLive,
     withGameStartLock: async (fn) => {
       const cfg = forkConfigFromEnv();
