@@ -22,10 +22,14 @@ export const LOBBY_CHAT_CAP = 200;
 export const LOBBY_CHAT_MAX_LEN = 500;
 
 export class LobbyError extends Error {
-  constructor(readonly status: number, message: string) {
+  /** When set, the API answers with this lobby's current state alongside the error. */
+  constructor(readonly status: number, message: string, readonly lobbyId?: string) {
     super(message);
   }
 }
+
+/** Minimum gap between two "Check again" lookups of one lobby. */
+export const LOBBY_CHECK_COOLDOWN_MS = 5_000;
 
 /** The slice of Matchmaker the lobby reads and drives. */
 export interface LobbyMatchmaker {
@@ -162,7 +166,9 @@ export class LobbyStore {
     const now = this.now();
     let dropped = 0;
     for (const [id, lobby] of this.lobbies) {
-      if (now >= lobby.expiresAt) {
+      // A lobby whose game setup is uncertain stays until Check again / Start over resolves it.
+      const held = !lobby.pairing && this.opts.matchmaker.operationState?.(lobby.creator.coach, lobby.opponent.coach) === "uncertain";
+      if (now >= lobby.expiresAt && !held) {
         this.lobbies.delete(id);
         this.tombstone(id, "expired");
         dropped++;
@@ -245,11 +251,12 @@ export class LobbyStore {
     if (this.opts.isBanned(other)) throw new LobbyError(403, `${other} can't play right now.`);
   }
 
-  private async enter(coach: string, teamId: string, opponent: string): Promise<VerifiedChallengeResult> {
+  private async enter(coach: string, teamId: string, opponent: string, lobbyId?: string): Promise<VerifiedChallengeResult> {
     try {
       return await this.opts.matchmaker.challengeVerified({ coach, teamId, opponent });
     } catch (e) {
-      throw new LobbyError(409, (e as Error).message);
+      // Held by an in-flight / uncertain operation (or another refusal): 409 with the lobby's state.
+      throw new LobbyError(409, (e as Error).message, lobbyId);
     }
   }
 
@@ -300,7 +307,7 @@ export class LobbyStore {
     this.banGate(coach, lobby.creator.coach);
     if (lobby.pairing) return lobby;
     const team = this.team(coach, teamId);
-    const res = await this.enter(coach.trim(), team.teamId, lobby.creator.coach);
+    const res = await this.enter(coach.trim(), team.teamId, lobby.creator.coach, lobby.id);
     // Success only from here on: the seat reflects an accepted counter-challenge.
     lobby.opponent.coach = coach.trim();
     lobby.opponent.lastSeen = this.now();
@@ -319,7 +326,7 @@ export class LobbyStore {
     if (lobby.pairing) return lobby; // renewal already paired: stop
     this.banGate(coach, lobby.opponent.coach);
     const team = this.team(coach, teamId?.trim() || lobby.creatorTeam.teamId);
-    const res = await this.enter(lobby.creator.coach, team.teamId, lobby.opponent.coach);
+    const res = await this.enter(lobby.creator.coach, team.teamId, lobby.opponent.coach, lobby.id);
     lobby.creatorChallengeId = res.challengeId;
     lobby.creatorTeam = team;
     if (res.pairing) this.attach(lobby, res.pairing);
@@ -395,10 +402,23 @@ export class LobbyStore {
 
   // ── uncertain game setup ──
 
+  private readonly lastCheck = new Map<string, number>();
+
+  /** Refuse a check within the cooldown (before the game-start lock is taken). */
+  assertCheckAllowed(id: string, coach: string): void {
+    const { lobby } = this.requireMember(id, coach);
+    const last = this.lastCheck.get(lobby.id);
+    if (last !== undefined && this.now() - last < LOBBY_CHECK_COOLDOWN_MS) {
+      throw new LobbyError(409, "Checked a moment ago. Try again in a few seconds.", lobby.id);
+    }
+  }
+
   /** "Check again": look the exact matchup up on the fork. Pairs if the game is there; otherwise unchanged. */
   async checkAgain(id: string, coach: string): Promise<LobbyRecord> {
+    this.assertCheckAllowed(id, coach);
     const { lobby } = this.requireMember(id, coach);
     if (lobby.pairing) return lobby;
+    this.lastCheck.set(lobby.id, this.now());
     const res = await this.opts.matchmaker.checkAgain?.(lobby.creator.coach, lobby.opponent.coach);
     if (res?.pairing) this.attach(lobby, res.pairing);
     this.emit(lobby.id);
@@ -835,6 +855,7 @@ export async function lobbyApi(
     }
     if (action === "check") {
       const bad = want("POST"); if (bad) return bad;
+      store.assertCheckAllowed(id, me); // cooldown before the shared lock
       const lobby = await locked(() => store.checkAgain(id, me));
       return { status: 200, body: { lobby: store.view(lobby, me) } };
     }
@@ -860,7 +881,10 @@ export async function lobbyApi(
     const roster = deps.roster(seat.coach, team.teamId);
     return { status: 200, body: { shared: roster !== undefined, roster: roster ?? null } };
   } catch (e) {
-    if (e instanceof LobbyError) return { status: e.status, body: { error: e.message } };
+    if (e instanceof LobbyError) {
+      const lobby = e.lobbyId ? store.get(e.lobbyId) : undefined;
+      return { status: e.status, body: lobby ? { error: e.message, lobby: store.view(lobby, me) } : { error: e.message } };
+    }
     const status = (e as { status?: unknown }).status;
     if (typeof status === "number" && status >= 400 && status < 600) return { status, body: { error: (e as Error).message } };
     throw e;

@@ -47,6 +47,15 @@ coaches with these teams, in both coaches' live-game lists; extra matches are re
 **Start over** (`POST /api/lobby/:id/start-over`: withdraws both challenges; a game may already exist, see Your
 games). A client seat that takes its JNLP through an authorized match poll shows as "in the client".
 
+While a pairing is in flight or uncertain, accept / confirm requests for its coaches answer 409 with the lobby
+state; Check again has a 5 s per-lobby cooldown; a lobby with an uncertain setup is not swept at 24 h.
+`GET /api/fork/cancel` needs the coach's own session (any provenance, as for matchstatus) or the digest the
+challenge was entered with.
+
+Discord signup keeps one durable provisional record (in the identities store: Discord id, coach name, generated
+credential digest, operation id) written before the fork insert; the next Discord sign-in resumes from it and
+accepts the account only if the fork row carries exactly that digest.
+
 `/api/fork/matchstatus` returns a JNLP only to an authorized poll (the coach's own session, or the digest that
 coach supplied with a client challenge), built from that digest; any other poll gets status only and never
 consumes the delivery. Lobby seats are never delivered there. `/api/auth/session` reports `authMethod`.

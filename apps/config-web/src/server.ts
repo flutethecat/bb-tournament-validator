@@ -121,7 +121,9 @@ import {
   organizerUpdateIdentity,
   ownIdentityRecord,
   readIdentities,
-  removeIdentity,
+  readProvisionalSignup,
+  putProvisionalSignup,
+  removeProvisionalSignup,
   updateOwnAccount,
   upsertIdentity,
   type CoachIdentities,
@@ -1258,11 +1260,16 @@ async function handleApi(
             verifyCoachDigest: (coach, passwordMd5) => verifyCoachDigest(dbCfg, coach, passwordMd5),
             createForkAccountDigestIfAvailable: (coach, passwordMd5) =>
               createForkAccountDigestIfAvailable(dbCfg, coach, passwordMd5),
+            storedDigest: (coach) => forkCoachPasswordDigest(dbCfg, coach),
           } : undefined,
           identityForCoach: (coach) => readIdentities().coaches[normalizeFfbCoachId(coach)],
           isCoachBanned: isBanned,
           upsertIdentity: (record) => { upsertIdentity(record); },
-          removeIdentity: (coach) => { removeIdentity(coach); },
+          provisional: {
+            get: (discordUserId) => readProvisionalSignup(discordUserId),
+            put: (record) => { putProvisionalSignup(record); },
+            remove: (discordUserId, operationId) => removeProvisionalSignup(discordUserId, operationId),
+          },
           createSessionToken: (coach, now) => createSession(coach, now, "discord").token,
         },
         Date.now(),
@@ -2007,6 +2014,11 @@ async function handleApi(
   if (path === "/api/fork/cancel" && method === "GET") {
     const coach = query.get("coach")?.trim();
     if (!coach) return sendJson(res, 400, { error: "coach is required." });
+    // Same rule as matchstatus: the coach's own session, or the digest that coach entered the challenge with.
+    if (!matchmaker.mayCancel(coach, {
+      authorized: sessionOwnsCoach(auth?.coach, coach),
+      passwordMd5: query.get("passwordMd5")?.trim() || undefined,
+    })) return sendJson(res, 401, { error: "Sign in as that coach to cancel its challenge." });
     matchmaker.cancel(coach);
     return sendJson(res, 200, { ok: true });
   }

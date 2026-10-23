@@ -91,11 +91,26 @@ export interface Matchup {
   away: { coach: string; teamId: string };
 }
 
+/** One live game found for a matchup, with the home seat as the fork lists it. */
+export interface MatchupGame {
+  gameId: string;
+  homeCoach: string;
+}
+
+/** A coach is held by an in-flight or uncertain operation: only Check again / Start over apply. */
+export class ConsentHeldError extends Error {
+  constructor(message = "A game is being set up for this coach. Use Check again or Start over.") {
+    super(message);
+    this.name = "ConsentHeldError";
+  }
+}
+
 export interface ReconcilingScheduler {
   schedule(homeTeamId: string, awayTeamId: string): Promise<ScheduleOutcome>;
-  /** Live game ids whose two seats are exactly the matchup's coaches with its teams, lowest first.
-   *  `undefined` = the check could not be made (stays uncertain). An empty list is NOT proof of "no game". */
-  findMatchup?(matchup: Matchup): Promise<string[] | undefined>;
+  /** Live games whose two seats are exactly the matchup's coaches with its teams, lowest id first, each with the
+   *  coach the fork lists as HOME. `undefined` = the check could not be made (stays uncertain). An empty list is
+   *  NOT proof of "no game". */
+  findMatchup?(matchup: Matchup): Promise<MatchupGame[] | undefined>;
 }
 
 /** Injected so pure matchmaking logic stays testable without real fork/HTTP access. */
@@ -386,12 +401,12 @@ export class Matchmaker {
   private async enter(mine: Challenge): Promise<PairOutcome | undefined> {
     const k = this.key(mine.coach);
     const ko = this.key(mine.opponent);
-    // Re-entry by a coach of an UNCERTAIN pairing with the same opponent is a "check again", never a new schedule.
-    const op = this.uncertain.get(this.pairKey(mine.coach, mine.opponent));
-    if (op) return this.checkOperation(op);
-    for (const r of [k, ko]) {
-      if (this.isReserved(r)) throw new Error("A game is already being set up for this coach. Try again in a moment.");
-    }
+    // A coach held by an in-flight or uncertain operation cannot enter a new challenge (the held consent id never
+    // changes); only Check again / Start over apply to it.
+    for (const r of [k, ko]) if (this.isReserved(r)) throw new ConsentHeldError();
+    // Expiry is checked again right before the reservation: a consent that expired while this request was being
+    // authenticated is gone for good (held consents of an uncertain operation are not subject to it).
+    this.sweep();
     const previous = this.pending.get(k);
     const myGen = this.bump(k);
     this.pending.set(k, mine);
@@ -516,21 +531,25 @@ export class Matchmaker {
       && this.gen(this.key(op.a.coach)) === op.genA && this.gen(this.key(op.b.coach)) === op.genB;
     if (!valid()) return { kind: "abandoned" };
     if (!this.scheduler?.findMatchup) return { kind: "uncertain" };
+    // The check stays occupied until the lookup itself settles (not just until our deadline), so repeated checks
+    // never stack reads on the account store.
     op.checking = true;
-    let ids: string[] | undefined;
-    try {
-      ids = await this.bounded(this.scheduler.findMatchup({
+    const lookup = Promise.resolve()
+      .then(() => this.scheduler!.findMatchup!({
         home: { coach: op.home.coach, teamId: op.home.teamId },
         away: { coach: op.away.coach, teamId: op.away.teamId },
-      }).catch(() => undefined));
-    } finally {
-      op.checking = false;
-    }
+      }))
+      .catch(() => undefined);
+    void lookup.finally(() => { op.checking = false; });
+    const games = await this.bounded(lookup);
     if (!valid()) return { kind: "abandoned" }; // started over / cancelled during the check
-    if (!ids || ids.length === 0) return { kind: "uncertain" };
-    const sortedIds = [...ids].sort((x, y) => Number(x) - Number(y));
+    if (!games || games.length === 0) return { kind: "uncertain" };
+    const sorted = [...games].sort((x, y) => Number(x.gameId) - Number(y.gameId));
+    const found = sorted[0]!;
     this.uncertain.delete(op.key); // claimed: the one and only consumer
-    return { kind: "paired", event: this.deliver(op.a, op.b, op.home, op.away, op.gameName, sortedIds[0], sortedIds.slice(1)) };
+    // The fork's own listing decides home/away (an existing game may have the sides the other way round).
+    const [home, away] = this.key(found.homeCoach) === this.key(op.away.coach) ? [op.away, op.home] : [op.home, op.away];
+    return { kind: "paired", event: this.deliver(op.a, op.b, home, away, op.gameName, found.gameId, sorted.slice(1).map((g) => g.gameId)) };
   }
 
   /** "Start over" from an uncertain pairing: withdraws BOTH consents (a game may already exist on the fork). */
@@ -608,8 +627,22 @@ export class Matchmaker {
     return { ...status, jnlp };
   }
 
+  /**
+   * May this caller cancel `coach`'s challenge? Same rule as `matchstatus`: the coach's own session
+   * (`authorized`), or the digest that coach supplied with the challenge being cancelled.
+   */
+  mayCancel(coach: string, auth: MatchStatusAuth): boolean {
+    if (auth.authorized === true) return true;
+    const proof = auth.passwordMd5?.trim().toLowerCase();
+    if (!proof) return false;
+    const k = this.key(coach);
+    const held = [this.pending.get(k), this.inflight.get(k),
+      ...[...this.uncertain.values()].flatMap((op) => [op.a, op.b]).filter((c) => this.key(c.coach) === k)];
+    return held.some((c) => !!c?.passwordMd5 && c.passwordMd5.toLowerCase() === proof);
+  }
+
   /** Drop a coach's challenge wherever it is, fence every in-flight step on it, and start over an uncertain
-   *  pairing it belongs to (both consents withdrawn). */
+   *  pairing it belongs to (both consents withdrawn). Callers check `mayCancel` first. */
   cancel(coach: string): void {
     const k = this.key(coach);
     this.pending.delete(k);

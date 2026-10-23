@@ -191,4 +191,17 @@ describe("lobby routes (sidecar off)", () => {
       expect(launch.status).toBe(200);
     });
   }
+
+  it("GET /api/fork/cancel needs the coach's own session or the digest the challenge was entered with", async () => {
+    const digest = "7".repeat(32);
+    await fetch(`${origin}/api/fork/challenge?coach=LobbyEve&teamId=9105&opponent=MixA&passwordMd5=${digest}`);
+    const anon = await fetch(`${origin}/api/fork/cancel?coach=LobbyEve`);
+    expect(anon.status).toBe(401);
+    expect((await fetch(`${origin}/api/fork/cancel?coach=LobbyEve`, { headers: { cookie: discordCookie("LobbyDave") } })).status).toBe(401);
+    expect((await fetch(`${origin}/api/fork/cancel?coach=LobbyEve&passwordMd5=${"8".repeat(32)}`)).status).toBe(401);
+    expect((await fetch(`${origin}/api/fork/cancel?coach=LobbyEve&passwordMd5=${digest}`)).status).toBe(200);
+    await fetch(`${origin}/api/fork/challenge?coach=LobbyEve&teamId=9105&opponent=MixA&passwordMd5=${digest}`);
+    expect((await fetch(`${origin}/api/fork/cancel?coach=LobbyEve`, { headers: { cookie: discordCookie("LobbyEve") } })).status).toBe(200);
+  });
 });
+

@@ -352,7 +352,7 @@ describe("forkScheduler: classification after the request went out, and the exac
 
   it("findMatchup: only games in BOTH coaches' live lists with exactly those coaches and teams, lowest first", async () => {
     const { forkScheduler } = await import("@bb/fork-ops");
-    const lists: Record<string, Array<{ gameId: number; myTeamId: string; opponentCoach: string }>> = {
+    const lists: Record<string, Array<{ gameId: number; myTeamId: string; opponentCoach: string; seat?: "home" | "away" }>> = {
       alice: [
         { gameId: 905, myTeamId: "1", opponentCoach: "Bob" },
         { gameId: 903, myTeamId: "1", opponentCoach: "bob" },
@@ -368,10 +368,28 @@ describe("forkScheduler: classification after the request went out, and the exac
     };
     const sched = forkScheduler(cfg, { liveGamesOf: async (coach) => lists[coach.toLowerCase()] ?? [] });
     const m = { home: { coach: "Alice", teamId: "1" }, away: { coach: "Bob", teamId: "2" } };
-    expect(await sched.findMatchup!(m)).toEqual(["903", "905"]);
-    expect(await sched.findMatchup!({ home: m.away, away: m.home })).toEqual(["903", "905"]); // either orientation
+    expect((await sched.findMatchup!(m))!.map((g) => g.gameId)).toEqual(["903", "905"]);
+    expect((await sched.findMatchup!({ home: m.away, away: m.home }))!.map((g) => g.gameId)).toEqual(["903", "905"]); // either orientation
+    // the fork's seats decide home: Alice listed as away in game 903 -> Bob is home
+    lists.alice![1] = { ...lists.alice![1]!, seat: "away" } as never;
+    expect((await sched.findMatchup!(m))![0]).toEqual({ gameId: "903", homeCoach: "Bob" });
     const failing = forkScheduler(cfg, { liveGamesOf: async () => { throw new Error("db down"); } });
     expect(await failing.findMatchup!(m)).toBeUndefined(); // could not check: stays uncertain
     expect(await forkScheduler(cfg).findMatchup!(m)).toBeUndefined(); // no account store configured
+  });
+
+  it("findMatchup waits for BOTH reads to settle even when one fails at once", async () => {
+    const { forkScheduler } = await import("@bb/fork-ops");
+    let slowDone = false;
+    const sched = forkScheduler(cfg, {
+      liveGamesOf: async (coach) => {
+        if (coach === "Alice") throw new Error("db down");
+        await new Promise((r) => setTimeout(r, 30));
+        slowDone = true;
+        return [];
+      },
+    });
+    expect(await sched.findMatchup!({ home: { coach: "Alice", teamId: "1" }, away: { coach: "Bob", teamId: "2" } })).toBeUndefined();
+    expect(slowDone).toBe(true);
   });
 });

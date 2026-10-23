@@ -224,6 +224,12 @@ async function withConn<T>(cfg: ForkDbConfig, fn: (conn: mysql.Connection) => Pr
     try { socket?.destroy(); } catch { /* ignore */ }
     try { conn?.destroy?.(); } catch { /* ignore */ }
   };
+  const cleanupMs = Math.min(2_000, ms);
+  const cleanup = async (): Promise<void> => {
+    if (!conn) { destroyTransport(); return; }
+    await withDeadline(Promise.resolve().then(() => conn!.end()), cleanupMs, destroyTransport, "fork DB cleanup")
+      .catch(() => destroyTransport());
+  };
   const work = (async () => {
     conn = await mysql.createConnection({
       host: cfg.dbHost,
@@ -239,15 +245,16 @@ async function withConn<T>(cfg: ForkDbConfig, fn: (conn: mysql.Connection) => Pr
       },
     } as mysql.ConnectionOptions);
     if (timedOut) { destroyTransport(); throw new Error("fork DB operation timed out"); }
-    return { value: await fn(conn) };
+    return fn(conn);
   })();
   work.catch(() => { /* surfaced through the race; never an unhandled rejection after a timeout */ });
-  // The deadline covers connect + handshake + query. An acknowledged result is kept even if cleanup stalls.
-  const { value } = await withDeadline(work, ms, () => { timedOut = true; destroyTransport(); }, "fork DB operation");
-  const cleanupMs = Math.min(2_000, ms);
-  await withDeadline(Promise.resolve().then(() => conn!.end()), cleanupMs, destroyTransport, "fork DB cleanup")
-    .catch(() => destroyTransport());
-  return value;
+  // The deadline covers connect + handshake + query. Cleanup runs on success AND failure, bounded on its own;
+  // the original result (or error) is what the caller gets, whatever cleanup does.
+  try {
+    return await withDeadline(work, ms, () => { timedOut = true; destroyTransport(); }, "fork DB operation");
+  } finally {
+    if (!timedOut) await cleanup();
+  }
 }
 
 /**

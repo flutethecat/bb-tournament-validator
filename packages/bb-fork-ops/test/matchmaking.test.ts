@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { Matchmaker, type Matchup, type ScheduleOutcome } from "@bb/fork-ops";
+import { Matchmaker, type Matchup, type MatchupGame, type ScheduleOutcome } from "@bb/fork-ops";
 
 const OWNER = { authorized: true } as const;
 /** Client challenges carry the coach's own digest; only such seats get a JNLP from matchstatus. */
@@ -368,8 +368,8 @@ describe("Matchmaker views + lobby entry (web Lobby)", () => {
     await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
     const first = mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
     const second = mm.challengeVerified({ coach: "B", teamId: "3", opponent: "A" });
-    await expect(second).rejects.toThrow(/already being set up/);
-    await expect(mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: PW })).rejects.toThrow(/already being set up/);
+    await expect(second).rejects.toThrow(/being set up/);
+    await expect(mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: PW })).rejects.toThrow(/being set up/);
     release();
     await expect(first).resolves.toMatchObject({ status: "paired" });
     expect(scheduled).toEqual(["1-2"]);
@@ -413,7 +413,7 @@ describe("Matchmaker views + lobby entry (web Lobby)", () => {
     expect(mm.pendingOf("B")).toBeUndefined();
   });
 
-  function uncertainSetup(findMatchup?: (m: Matchup) => Promise<string[] | undefined>) {
+  function uncertainSetup(findMatchup?: (m: Matchup) => Promise<MatchupGame[] | undefined>) {
     const scheduled: string[] = [];
     const mm = new Matchmaker({
       scheduler: {
@@ -430,15 +430,16 @@ describe("Matchmaker views + lobby entry (web Lobby)", () => {
     expect(await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).toMatchObject({ status: "uncertain" });
     expect(mm.operationState("a", "b")).toBe("uncertain");
     expect(mm.matchstatus("A", { authorized: true })).toEqual({ status: "waiting" });
-    await expect(mm.challengeVerified({ coach: "A", teamId: "1", opponent: "C" })).rejects.toThrow(/already being set up/);
-    // re-entry by either coach of the same pairing is a check, never a schedule (no findMatchup: stays uncertain)
-    expect(await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).toMatchObject({ status: "uncertain" });
+    await expect(mm.challengeVerified({ coach: "A", teamId: "1", opponent: "C" })).rejects.toThrow(/being set up/);
+    // re-entry by either coach of the same pairing is refused (only Check again / Start over apply), no schedule
+    await expect(mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" })).rejects.toThrow(/Check again or Start over/);
+    await expect(mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: D })).rejects.toThrow(/Check again or Start over/);
     expect(await mm.checkAgain("A", "B")).toMatchObject({ status: "uncertain" });
     expect(scheduled).toHaveLength(1);
   });
 
   it("Check again pairs only when the exact matchup is live; absence keeps it uncertain; extra games are reported", async () => {
-    let live: string[] | undefined = [];
+    let live: MatchupGame[] | undefined = [];
     const asked: Matchup[] = [];
     const { mm, scheduled } = uncertainSetup(async (m) => { asked.push(m); return live; });
     await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
@@ -446,9 +447,9 @@ describe("Matchmaker views + lobby entry (web Lobby)", () => {
     expect(await mm.checkAgain("A", "B")).toMatchObject({ status: "uncertain" }); // nothing live: NOT "no game"
     live = undefined;
     expect(await mm.checkAgain("A", "B")).toMatchObject({ status: "uncertain" }); // could not check
-    live = ["905", "903"];
+    live = [{ gameId: "905", homeCoach: "A" }, { gameId: "903", homeCoach: "B" }]; // the fork lists B as home
     const r = await mm.checkAgain("B", "A");
-    expect(r).toMatchObject({ status: "paired", pairing: { gameId: "903", duplicates: ["905"] } });
+    expect(r).toMatchObject({ status: "paired", pairing: { gameId: "903", duplicates: ["905"], home: { coach: "B", teamId: "2" }, away: { coach: "A", teamId: "1" } } });
     expect(asked.at(-1)).toEqual({ home: expect.objectContaining({ teamId: expect.any(String) }), away: expect.objectContaining({ teamId: expect.any(String) }) });
     expect(new Set([asked.at(-1)!.home.coach, asked.at(-1)!.away.coach])).toEqual(new Set(["A", "B"]));
     expect(scheduled).toHaveLength(1);
@@ -500,7 +501,7 @@ describe("Matchmaker views + lobby entry (web Lobby)", () => {
   });
 
   it("close / cancel while uncertain drops the operation and its consents", async () => {
-    const { mm } = uncertainSetup(async () => ["1"]);
+    const { mm } = uncertainSetup(async () => [{ gameId: "1", homeCoach: "A" }]);
     await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
     const r = await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
     mm.withdraw("B", r.challengeId);
@@ -544,5 +545,51 @@ describe("Matchmaker views + lobby entry (web Lobby)", () => {
     expect(seen).toEqual([]);
     mm.matchstatus("A", { authorized: true });
     expect(seen).toEqual(["A:chal_"]);
+  });
+
+  it("a consent that expires while the client is authenticated is gone for good (swept before reservation)", async () => {
+    let t = 0;
+    let release!: (ok: boolean) => void;
+    const mm = new Matchmaker({ now: () => t, ttlMs: 100, verifyChallenger: () => new Promise((r) => { release = r; }) });
+    await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" }); // created at 0, expires after 100
+    t = 99;
+    const attempt = mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: D });
+    t = 101; // B's consent expires during A's verification; no other request sweeps
+    release(true);
+    await attempt;
+    expect(mm.matchstatus("A", { authorized: true })).toEqual({ status: "waiting" });
+    expect(mm.pendingOf("B")).toBeUndefined();
+  });
+
+  it("cancel authorization: the coach's own session or the same digest only", async () => {
+    const mm = new Matchmaker();
+    await mm.challenge({ coach: "A", teamId: "1", opponent: "B", passwordMd5: D });
+    expect(mm.mayCancel("A", { authorized: false })).toBe(false);
+    expect(mm.mayCancel("A", { authorized: false, passwordMd5: "e".repeat(32) })).toBe(false);
+    expect(mm.mayCancel("A", { authorized: false, passwordMd5: D })).toBe(true);
+    expect(mm.mayCancel("A", { authorized: true })).toBe(true);
+    await mm.challengeVerified({ coach: "C", teamId: "3", opponent: "D" }); // lobby consent: no digest at all
+    expect(mm.mayCancel("C", { authorized: false, passwordMd5: D })).toBe(false);
+  });
+
+  it("a check stays occupied until its lookup settles (no stacked reads)", async () => {
+    let calls = 0;
+    let finish!: (v: MatchupGame[]) => void;
+    const mm = new Matchmaker({
+      scheduleTimeoutMs: 10,
+      scheduler: {
+        schedule: async (): Promise<ScheduleOutcome> => ({ kind: "unknown" }),
+        findMatchup: () => { calls++; return new Promise((r) => { finish = r; }); },
+      },
+    });
+    await mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" });
+    await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" });
+    expect((await mm.checkAgain("A", "B"))?.status).toBe("uncertain"); // our deadline passed, lookup still running
+    expect((await mm.checkAgain("A", "B"))?.status).toBe("uncertain");
+    expect(calls).toBe(1);
+    finish([]);
+    await new Promise((r) => setTimeout(r, 0));
+    await mm.checkAgain("A", "B");
+    expect(calls).toBe(2);
   });
 });

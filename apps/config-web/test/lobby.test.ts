@@ -397,14 +397,15 @@ describe("lobbyApi", () => {
 });
 
 describe("uncertain setup, client delivery, credential before the lock", () => {
+  let clock = 1_000_000;
   function uncertainLobby(live: { ids: string[] | undefined }) {
     const matchmaker = new Matchmaker({
       scheduler: {
         schedule: async (): Promise<ScheduleOutcome> => ({ kind: "unknown", error: "504" }),
-        findMatchup: async () => live.ids,
+        findMatchup: async (m) => live.ids?.map((gameId) => ({ gameId, homeCoach: m.home.coach })),
       },
     });
-    const store = new LobbyStore({ matchmaker, isBanned: () => false, resolveTeam: (_c, teamId) => ({ teamId, teamName: teamId, race: "Orc" }) });
+    const store = new LobbyStore({ matchmaker, now: () => clock, isBanned: () => false, resolveTeam: (_c, teamId) => ({ teamId, teamName: teamId, race: "Orc" }) });
     matchmaker.onPaired((p) => store.notePairing(p));
     return { matchmaker, store };
   }
@@ -422,6 +423,8 @@ describe("uncertain setup, client delivery, credential before the lock", () => {
     }
     await store.checkAgain(lobby.id, "Bob");
     expect(store.view(lobby, "Bob").uncertain).toBe(true); // nothing live: still uncertain, never "no game"
+    await expect(store.checkAgain(lobby.id, "Alice")).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/moment ago/) });
+    clock += 5_000;
     live.ids = ["44", "45"];
     await store.checkAgain(lobby.id, "Alice");
     expect(store.view(lobby, "Alice")).toMatchObject({ status: "ready", uncertain: false, game: { gameId: "44" }, duplicateGames: ["45"] });
@@ -485,9 +488,39 @@ describe("uncertain setup, client delivery, credential before the lock", () => {
     const still = await call("POST", `/api/lobby/${id}/check`, "Bob");
     expect(still).toMatchObject({ status: 200, body: { lobby: { uncertain: true } } });
     expect(locked).toBe(before + 1);
+    clock += 5_000;
     live.ids = ["61"];
     expect(await call("POST", `/api/lobby/${id}/check`, "Alice")).toMatchObject({ status: 200, body: { lobby: { status: "ready", game: { gameId: "61" } } } });
     expect(await call("POST", `/api/lobby/${id}/start-over`, "Alice")).toMatchObject({ status: 409 });
+  });
+
+  it("while uncertain, accept / confirm are refused with 409 + the lobby state, and the held consent id never changes", async () => {
+    const { store, matchmaker } = uncertainLobby({ ids: [] });
+    const lobby = await store.create("Alice", "t1", "Bob");
+    await store.join(lobby.id, "Bob", "t2");
+    const before = lobby.creatorChallengeId;
+    await expect(store.renew(lobby.id, "Alice")).rejects.toMatchObject({ status: 409, lobbyId: lobby.id });
+    expect(lobby.creatorChallengeId).toBe(before);
+    expect(matchmaker.holdsChallenge("Alice", before)).toBe(true);
+    const d: LobbyApiDeps = {
+      store, roster: () => undefined, coachCard: () => ({ avatar: null, fumbblName: null }), rating: async () => ({}),
+      credential: async () => "a".repeat(32), chatLive: () => false,
+    };
+    const res = await lobbyApi("POST", `/api/lobby/${lobby.id}/renew`, new URLSearchParams(), { coach: "Alice", method: "discord" }, {}, d);
+    expect(res).toMatchObject({ status: 409, body: { error: expect.stringMatching(/Check again or Start over/), lobby: { uncertain: true, canCheckAgain: true } } });
+    store.close(lobby.id, "Alice"); // Close still finds and withdraws the held consent
+    expect(matchmaker.operationState("Alice", "Bob")).toBe("none");
+  });
+
+  it("the 24 h sweep keeps a lobby whose setup is uncertain", async () => {
+    const { store } = uncertainLobby({ ids: [] });
+    const lobby = await store.create("Alice", "t1", "Bob");
+    await store.join(lobby.id, "Bob", "t2");
+    clock += 25 * 60 * 60 * 1000;
+    expect(store.sweep()).toBe(0);
+    expect(store.get(lobby.id)).toBeDefined();
+    store.startOver(lobby.id, "Bob");
+    expect(store.sweep()).toBe(1);
   });
 
   it("a client seat's authorized JNLP delivery marks that coach 'in the client', so the browser seat can start", async () => {

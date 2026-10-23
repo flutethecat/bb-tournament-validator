@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { coachSecretDigest } from "@bb/fork-ops";
 import { BANNED_ACCOUNT_MESSAGE } from "./access.js";
 import { coachLogin } from "./coachLogin.js";
-import type { CoachIdentityRecord } from "./identitiesStore.js";
+import type { CoachIdentityRecord, ProvisionalSignup } from "./identitiesStore.js";
 
 export const DISCORD_OAUTH_STATE_COOKIE = "discord_oauth_state";
 export const DISCORD_PENDING_COOKIE = "discord_sso_pending";
@@ -41,15 +41,35 @@ export interface PendingDiscordSso extends DiscordIdentity {
   desktopFlowId?: string;
 }
 
-/** Signups whose fork insert did not confirm (process-local). The Discord link is already written, so the next
- *  Discord sign-in takes the returning path, which checks / finishes the fork row for exactly these coaches. */
-const unconfirmedSignups = new Set<string>();
-const normalizedCoachKey = (coach: string): string => coach.trim().toLowerCase();
-
 export interface DiscordSsoForkAccountDeps {
   coachExists: (coach: string) => Promise<boolean>;
   verifyCoachDigest: (coach: string, passwordMd5: string) => Promise<boolean>;
   createForkAccountDigestIfAvailable: (coach: string, passwordMd5: string) => Promise<boolean>;
+  /** The fork row's stored credential digest (ownership proof for a provisional signup). */
+  storedDigest?: (coach: string) => Promise<string | undefined>;
+}
+
+/** Durable provisional-signup records (identities store), keyed by Discord user id. */
+export interface DiscordSsoProvisionalDeps {
+  get: (discordUserId: string) => ProvisionalSignup | undefined;
+  put: (record: ProvisionalSignup) => void;
+  /** Removes only when the record is still this operation's. */
+  remove: (discordUserId: string, operationId: string) => boolean;
+}
+
+/** In-process serialisation of completions per Discord id + normalised coach name (the durable record is the
+ *  dedupe across processes). */
+const completionChains = new Map<string, Promise<unknown>>();
+async function serialised<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const previous = completionChains.get(key) ?? Promise.resolve();
+  const run = previous.then(fn, fn);
+  const tail = run.catch(() => undefined);
+  completionChains.set(key, tail);
+  try {
+    return await run;
+  } finally {
+    if (completionChains.get(key) === tail) completionChains.delete(key);
+  }
 }
 
 export interface DiscordSsoCompletionDeps {
@@ -57,8 +77,8 @@ export interface DiscordSsoCompletionDeps {
   identityForCoach: (coach: string) => CoachIdentityRecord | undefined;
   isCoachBanned: (coach: string) => boolean;
   upsertIdentity: (record: CoachIdentityRecord) => void;
-  /** Remove an identity row (rolls back a provisional link when the new name turned out to be taken). */
-  removeIdentity?: (coach: string) => void;
+  /** Durable provisional signups; without it the new-name path cannot resume an unconfirmed insert. */
+  provisional?: DiscordSsoProvisionalDeps;
   createSessionToken: (coach: string, now: number) => string;
 }
 
@@ -432,6 +452,21 @@ export async function completeDiscordCoachAssociation(
   now = Date.now(),
   options: { requiredFfbCoachId?: string; allowCreate?: boolean } = {},
 ): Promise<DiscordSsoCompletionResult> {
+  const named = (options.requiredFfbCoachId || existingFfbCoachId
+    || (typeof rawBody.ffbCoachId === "string" ? rawBody.ffbCoachId : "")).trim().toLowerCase();
+  return serialised(`${pending.discordId}|${named}`, () =>
+    completeDiscordCoachAssociationNow(req, pending, rawBody, existingFfbCoachId, deps, now, options));
+}
+
+async function completeDiscordCoachAssociationNow(
+  req: IncomingMessage,
+  pending: PendingDiscordSso,
+  rawBody: Record<string, unknown>,
+  existingFfbCoachId: string | undefined,
+  deps: DiscordSsoCompletionDeps,
+  now: number,
+  options: { requiredFfbCoachId?: string; allowCreate?: boolean },
+): Promise<DiscordSsoCompletionResult> {
   const submittedFfbCoachId = typeof rawBody.ffbCoachId === "string" ? rawBody.ffbCoachId.trim() : "";
   const requiredFfbCoachId = options.requiredFfbCoachId?.trim() ?? "";
   if (
@@ -494,19 +529,9 @@ export async function completeDiscordCoachAssociation(
   };
 
   let sessionToken: string;
-  if (existingFfbCoachId) {
-    // Returning Discord identity: no fork credential lookup or password-row write, EXCEPT to finish a signup
-    // whose insert never confirmed (the link was written first): if the row is missing it is created now with a
-    // fresh generated credential, so the coach never needs a password they were never given.
-    if (deps.fork && unconfirmedSignups.has(normalizedCoachKey(ffbCoachId))) {
-      if (await deps.fork.coachExists(ffbCoachId)) {
-        unconfirmedSignups.delete(normalizedCoachKey(ffbCoachId));
-      } else {
-      const digest = coachSecretDigest({ password: randomBytes(32).toString("hex") }).digest;
-      if (!digest) throw new Error("Could not generate a fork credential.");
-        if (await deps.fork.createForkAccountDigestIfAvailable(ffbCoachId, digest)) unconfirmedSignups.delete(normalizedCoachKey(ffbCoachId));
-      }
-    }
+  // A confirmed link for THIS Discord id (also when a serialised sibling request just confirmed it).
+  if (existingFfbCoachId || linkedDiscordId === pending.discordId) {
+    // Returning Discord identity (a CONFIRMED link): no fork credential lookup or password-row write.
     sessionToken = deps.createSessionToken(ffbCoachId, now);
   } else {
     if (!deps.fork) {
@@ -515,8 +540,64 @@ export async function completeDiscordCoachAssociation(
         body: { error: "Fork DB not configured on this host (set FORK_DB_HOST)." },
       };
     }
+    const fork = deps.fork;
 
-    if (await deps.fork.coachExists(ffbCoachId)) {
+    // A provisional signup for this Discord user resumes here (never through the returning-user path).
+    const provisional = deps.provisional?.get(pending.discordId);
+    if (provisional && provisional.coachName.toLowerCase() !== ffbCoachId.toLowerCase()) {
+      deps.provisional!.remove(pending.discordId, provisional.operationId); // the coach chose another name
+    }
+    const resuming = provisional && provisional.coachName.toLowerCase() === ffbCoachId.toLowerCase() ? provisional : undefined;
+
+    /** Ownership of a fork row for a provisional signup: it exists AND carries exactly the generated digest. */
+    const owns = async (rec: ProvisionalSignup): Promise<boolean> => {
+      if (!fork.storedDigest) return false;
+      const stored = await fork.storedDigest(rec.coachName);
+      return !!stored && stored.toLowerCase() === rec.generatedDigest;
+    };
+    const insertProvisional = async (rec: ProvisionalSignup): Promise<"confirmed" | "taken" | "unknown"> => {
+      let created: boolean;
+      try {
+        created = await fork.createForkAccountDigestIfAvailable(rec.coachName, rec.generatedDigest);
+      } catch {
+        return "unknown"; // the record stays: the next sign-in resumes from it
+      }
+      if (created) return "confirmed";
+      try {
+        return (await owns(rec)) ? "confirmed" : "taken";
+      } catch {
+        return "unknown";
+      }
+    };
+    const settle = (rec: ProvisionalSignup, outcome: "confirmed" | "taken" | "unknown"): DiscordSsoCompletionResult | undefined => {
+      if (outcome === "unknown") {
+        return { status: 503, body: { error: "Your account could not be confirmed yet. Sign in with Discord again to finish." } };
+      }
+      if (outcome === "taken") {
+        deps.provisional?.remove(rec.discordUserId, rec.operationId);
+        return { status: 409, body: { error: "That fork coach name was taken. Pick another name." } };
+      }
+      return undefined;
+    };
+
+    if (resuming) {
+      let outcome: "confirmed" | "taken" | "unknown";
+      try {
+        outcome = (await fork.coachExists(resuming.coachName))
+          ? ((await owns(resuming)) ? "confirmed" : "taken")
+          : await insertProvisional(resuming);
+      } catch {
+        outcome = "unknown";
+      }
+      const stop = settle(resuming, outcome);
+      if (stop) return stop;
+      sessionToken = deps.createSessionToken(ffbCoachId, now);
+      deps.upsertIdentity(identityRecord);
+      deps.provisional?.remove(resuming.discordUserId, resuming.operationId);
+      return { status: 200, body: { ok: true, coach: ffbCoachId, next: pending.next }, sessionToken };
+    }
+
+    if (await fork.coachExists(ffbCoachId)) {
       const hasCredential = Object.prototype.hasOwnProperty.call(rawBody, "passwordMd5")
         || Object.prototype.hasOwnProperty.call(rawBody, "password");
       if (!hasCredential) {
@@ -568,28 +649,27 @@ export async function completeDiscordCoachAssociation(
           body: { error: "That fork coach account does not exist. Create it before signing in." },
         };
       }
-      // New-name path: generated password + atomic insert. The Discord link is written FIRST, so an insert whose
-      // acknowledgement is lost (timeout, cleanup stall) is recoverable on the next sign-in through the
-      // returning-identity path above, never a "that coach exists, enter its password" dead end.
+      // New-name path: a generated credential and an atomic insert. A durable provisional record (Discord id,
+      // name, generated digest, operation id) is written FIRST, so an unconfirmed insert or a restart resumes from
+      // it above. The Discord link itself is written only once the account is confirmed ours.
       const digest = coachSecretDigest({ password: randomBytes(32).toString("hex") }).digest;
       if (!digest) throw new Error("Could not generate a fork credential.");
-      deps.upsertIdentity(identityRecord);
-      let created: boolean;
-      try {
-        created = await deps.fork.createForkAccountDigestIfAvailable(ffbCoachId, digest);
-      } catch {
-        unconfirmedSignups.add(normalizedCoachKey(ffbCoachId));
-        return {
-          status: 503,
-          body: { error: "Your account could not be confirmed yet. Sign in with Discord again to finish." },
-        };
+      const rec: ProvisionalSignup = {
+        discordUserId: pending.discordId,
+        coachName: ffbCoachId,
+        generatedDigest: digest.toLowerCase(),
+        operationId: randomBytes(9).toString("base64url"),
+        state: "provisional",
+        createdAt: new Date(now).toISOString(),
+      };
+      deps.provisional?.put(rec);
+      const outcome = await insertProvisional(rec);
+      if (!deps.provisional && outcome === "unknown") {
+        return { status: 503, body: { error: "Your account could not be confirmed yet. Try again." } };
       }
-      if (!created) {
-        // Taken by someone else between the check and the insert: undo the provisional link.
-        if (previous) deps.upsertIdentity(previous);
-        else deps.removeIdentity?.(ffbCoachId);
-        return { status: 409, body: { error: "That fork coach name already exists." } };
-      }
+      const stop = settle(rec, outcome);
+      if (stop) return outcome === "taken" ? { status: 409, body: { error: "That fork coach name already exists." } } : stop;
+      deps.provisional?.remove(rec.discordUserId, rec.operationId);
       sessionToken = deps.createSessionToken(ffbCoachId, now);
     }
   }

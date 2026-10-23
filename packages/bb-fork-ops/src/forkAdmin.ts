@@ -31,7 +31,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { Matchup, ReconcilingScheduler, ScheduleOutcome } from "./matchmaking.js";
+import type { Matchup, MatchupGame, ReconcilingScheduler, ScheduleOutcome } from "./matchmaking.js";
 
 const ADMIN_FETCH_TIMEOUT_MS = 5_000;
 
@@ -165,6 +165,8 @@ export interface LiveCoachGame {
   gameId: number | string;
   myTeamId: string;
   opponentCoach: string;
+  /** This coach's seat as the fork lists it. */
+  seat?: "home" | "away";
 }
 
 /**
@@ -189,23 +191,27 @@ export function forkScheduler(
         return { kind: "rejected", error: (e as Error).message };
       }
     },
-    async findMatchup(m: Matchup): Promise<string[] | undefined> {
+    async findMatchup(m: Matchup): Promise<MatchupGame[] | undefined> {
       if (!opts.liveGamesOf) return undefined;
-      let homeGames: LiveCoachGame[];
-      let awayGames: LiveCoachGame[];
-      try {
-        [homeGames, awayGames] = await Promise.all([opts.liveGamesOf(m.home.coach), opts.liveGamesOf(m.away.coach)]);
-      } catch {
-        return undefined;
-      }
+      // Both reads always run to completion (allSettled): a failed read never leaves its sibling running unseen.
+      const [h, a] = await Promise.allSettled([opts.liveGamesOf(m.home.coach), opts.liveGamesOf(m.away.coach)]);
+      if (h.status !== "fulfilled" || a.status !== "fulfilled") return undefined;
       const lc = (v: string) => v.trim().toLowerCase();
-      const fromHome = new Set(homeGames
+      const fromFirst = new Map(h.value
         .filter((g) => g.myTeamId === m.home.teamId && lc(g.opponentCoach) === lc(m.away.coach))
-        .map((g) => String(g.gameId)));
-      return awayGames
-        .filter((g) => g.myTeamId === m.away.teamId && lc(g.opponentCoach) === lc(m.home.coach) && fromHome.has(String(g.gameId)))
-        .map((g) => String(g.gameId))
-        .sort((x, y) => Number(x) - Number(y));
+        .map((g) => [String(g.gameId), g] as const));
+      return a.value
+        .filter((g) => g.myTeamId === m.away.teamId && lc(g.opponentCoach) === lc(m.home.coach) && fromFirst.has(String(g.gameId)))
+        .map((g) => {
+          const first = fromFirst.get(String(g.gameId))!;
+          // The fork's seats: the first coach's listed seat decides who is home (the matchup's orientation is only
+          // the one we asked for).
+          const homeCoach = first.seat
+            ? (first.seat === "home" ? m.home.coach : m.away.coach)
+            : (g.seat === "home" ? m.away.coach : m.home.coach);
+          return { gameId: String(g.gameId), homeCoach };
+        })
+        .sort((x, y) => Number(x.gameId) - Number(y.gameId));
     },
   };
 }

@@ -43,6 +43,71 @@ export interface CoachIdentityRecord {
 export interface IdentityStore {
   version: 1;
   coaches: Record<string, CoachIdentityRecord>;
+  /** Discord signups whose fork account is not confirmed yet, keyed by Discord user id. Written BEFORE the fork
+   *  insert so an unknown outcome or a restart resumes from it (never a returning-user shortcut). Carried
+   *  through every write that does not set it explicitly. */
+  provisionalSignups?: Record<string, ProvisionalSignup>;
+}
+
+export interface ProvisionalSignup {
+  discordUserId: string;
+  coachName: string;
+  /** The generated fork credential digest: ownership proof (the fork row must carry exactly this digest). */
+  generatedDigest: string;
+  operationId: string;
+  state: "provisional";
+  createdAt: string;
+}
+
+function normalizedProvisional(value: unknown): ProvisionalSignup | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const v = value as Record<string, unknown>;
+  const str = (x: unknown, max: number) => (typeof x === "string" && x.length > 0 && x.length <= max ? x : undefined);
+  const discordUserId = str(v.discordUserId, MAX_IDENTITY_VALUE_LENGTH);
+  const coachName = str(v.coachName, MAX_FFB_COACH_ID_LENGTH);
+  const generatedDigest = typeof v.generatedDigest === "string" && /^[a-f0-9]{32}$/i.test(v.generatedDigest) ? v.generatedDigest.toLowerCase() : undefined;
+  const operationId = str(v.operationId, 64);
+  const createdAt = str(v.createdAt, 64) ?? "";
+  if (!discordUserId || !coachName || !generatedDigest || !operationId || v.state !== "provisional") return undefined;
+  return { discordUserId, coachName, generatedDigest, operationId, state: "provisional", createdAt };
+}
+
+function readProvisionalSection(): Record<string, ProvisionalSignup> {
+  try {
+    const parsed = JSON.parse(readFileSync(identitiesFile(), "utf8")) as { provisionalSignups?: unknown };
+    const raw = parsed?.provisionalSignups;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const out: Record<string, ProvisionalSignup> = {};
+    for (const value of Object.values(raw)) {
+      const rec = normalizedProvisional(value);
+      if (rec) out[rec.discordUserId] = rec;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** The provisional signup of a Discord user, if any. */
+export function readProvisionalSignup(discordUserId: string): ProvisionalSignup | undefined {
+  return readProvisionalSection()[discordUserId];
+}
+
+/** Persist (replace) a provisional signup durably, before the fork insert. */
+export function putProvisionalSignup(record: ProvisionalSignup): void {
+  const rec = normalizedProvisional(record);
+  if (!rec) throw new Error("Invalid provisional signup record.");
+  const current = readIdentities();
+  writeIdentityStore({ ...current, provisionalSignups: { ...readProvisionalSection(), [rec.discordUserId]: rec } });
+}
+
+/** Remove a provisional signup ONLY if it is still the same operation (never a newer attempt's record). */
+export function removeProvisionalSignup(discordUserId: string, operationId: string): boolean {
+  const section = readProvisionalSection();
+  if (section[discordUserId]?.operationId !== operationId) return false;
+  delete section[discordUserId];
+  writeIdentityStore({ ...readIdentities(), provisionalSignups: section });
+  return true;
 }
 
 export const MAX_FFB_COACH_ID_LENGTH = 40;
@@ -299,18 +364,13 @@ export function upsertIdentity(record: CoachIdentityRecord): IdentityStore {
   return store;
 }
 
-/** Remove one identity row (no-op when absent). */
-export function removeIdentity(ffbCoachId: string): void {
-  const key = normalizeFfbCoachId(ffbCoachId);
-  const current = readIdentities();
-  if (!current.coaches[key]) return;
-  const coaches = { ...current.coaches };
-  delete coaches[key];
-  writeIdentityStore({ version: 1, coaches });
-}
-
 function writeIdentityStore(store: IdentityStore): void {
-  const payload = `${JSON.stringify(store, null, 2)}\n`;
+  // Writers that only know about coaches must not drop the provisional-signup section.
+  const provisionalSignups = store.provisionalSignups ?? readProvisionalSection();
+  const full: IdentityStore = Object.keys(provisionalSignups).length
+    ? { version: 1, coaches: store.coaches, provisionalSignups }
+    : { version: 1, coaches: store.coaches };
+  const payload = `${JSON.stringify(full, null, 2)}\n`;
   if (Buffer.byteLength(payload, "utf8") > MAX_IDENTITIES_FILE_BYTES)
     throw new Error(`identities store must be at most ${MAX_IDENTITIES_FILE_BYTES} bytes.`);
 

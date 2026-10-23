@@ -19,6 +19,7 @@ import {
   validatedNextPath,
 } from "../src/auth/discordSso.js";
 import type { CoachIdentityRecord } from "../src/auth/identitiesStore.js";
+import { putProvisionalSignup, readProvisionalSignup, removeProvisionalSignup } from "../src/auth/identitiesStore.js";
 import { attemptsByCoach, attemptsByIp } from "../src/auth/loginAttempts.js";
 import { requireSession } from "../src/auth/requireSession.js";
 
@@ -577,85 +578,125 @@ describe("authenticated JNLP credential binding", () => {
   });
 });
 
-describe("Discord signup survives a lost insert acknowledgement", () => {
-  const pendingSignup = { discordId: "discord-777", discordUsername: "Newbie", next: "/" };
+describe("Discord signup: one durable provisional record, ownership by the generated digest", () => {
   const req = { headers: {}, socket: { remoteAddress: "10.0.0.7" }, method: "POST" } as unknown as IncomingMessage;
+  const signup = (discordId: string) => ({ discordId, discordUsername: "Newbie", next: "/" });
 
-  it("links Discord BEFORE the insert; a failed insert is finished on the next sign-in, never a password prompt", async () => {
+  /** A fake fork (name -> stored digest) plus the REAL durable provisional store on a temp identities file. */
+  function rig(opts: { insert?: (coach: string, digest: string) => Promise<boolean> } = {}) {
+    const rows = new Map<string, string>();
     const identities = new Map<string, CoachIdentityRecord>();
-    const accounts = new Set<string>();
-    const order: string[] = [];
-    let insertFails = true;
+    const inserts: string[] = [];
     const deps = {
       fork: {
-        coachExists: async (coach: string) => accounts.has(coach.toLowerCase()),
+        coachExists: async (coach: string) => rows.has(coach.toLowerCase()),
         verifyCoachDigest: async () => false,
-        createForkAccountDigestIfAvailable: async (coach: string) => {
-          order.push("insert");
-          if (insertFails) { accounts.add(coach.toLowerCase()); throw new Error("fork DB cleanup timed out"); } // committed, unacknowledged
-          if (accounts.has(coach.toLowerCase())) return false;
-          accounts.add(coach.toLowerCase());
+        createForkAccountDigestIfAvailable: opts.insert ?? (async (coach: string, digest: string) => {
+          inserts.push(coach);
+          if (rows.has(coach.toLowerCase())) return false;
+          rows.set(coach.toLowerCase(), digest);
           return true;
-        },
+        }),
+        storedDigest: async (coach: string) => rows.get(coach.toLowerCase()),
       },
       identityForCoach: (coach: string) => identities.get(coach.toLowerCase()),
       isCoachBanned: () => false,
-      upsertIdentity: (record: CoachIdentityRecord) => { order.push("link"); identities.set(record.ffbCoachId.toLowerCase(), record); },
-      removeIdentity: (coach: string) => { identities.delete(coach.toLowerCase()); },
+      upsertIdentity: (record: CoachIdentityRecord) => { identities.set(record.ffbCoachId.toLowerCase(), record); },
+      provisional: {
+        get: (id: string) => readProvisionalSignup(id),
+        put: (r: Parameters<typeof putProvisionalSignup>[0]) => putProvisionalSignup(r),
+        remove: (id: string, op: string) => removeProvisionalSignup(id, op),
+      },
       createSessionToken: () => "tok",
     };
-    const first = await completeDiscordCoachAssociation(req, pendingSignup, { ffbCoachId: "Newbie" }, undefined, deps);
+    return { rows, identities, inserts, deps };
+  }
+
+  let dir = "";
+  const previousFile = process.env.IDENTITIES_FILE;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "prov-"));
+    process.env.IDENTITIES_FILE = join(dir, "identities.json");
+  });
+  afterEach(() => {
+    if (previousFile === undefined) delete process.env.IDENTITIES_FILE; else process.env.IDENTITIES_FILE = previousFile;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("an insert that committed but did not confirm is resumed by the digest (survives a restart: the record is on disk)", async () => {
+    const r = rig();
+    let commitThenFail = true;
+    r.deps.fork.createForkAccountDigestIfAvailable = async (coach: string, digest: string) => {
+      r.inserts.push(coach);
+      if (r.rows.has(coach.toLowerCase())) return false;
+      r.rows.set(coach.toLowerCase(), digest);
+      if (commitThenFail) throw new Error("fork DB cleanup timed out");
+      return true;
+    };
+    const first = await completeDiscordCoachAssociation(req, signup("d-1"), { ffbCoachId: "Newbie" }, undefined, r.deps);
     expect(first.status).toBe(503);
-    expect(order.slice(0, 2)).toEqual(["link", "insert"]);
-    expect(identities.get("newbie")?.identities.discordUserId).toBe("discord-777");
-
-    // next Discord sign-in: the link exists, so this is the returning path (no password asked)
-    insertFails = false;
-    const second = await completeDiscordCoachAssociation(req, pendingSignup, {}, "Newbie", deps);
+    expect(r.identities.size).toBe(0); // no link before the account is confirmed ours
+    const stored = JSON.parse(readFileSync(join(dir, "identities.json"), "utf8")) as { provisionalSignups: Record<string, { generatedDigest: string; state: string }> };
+    expect(stored.provisionalSignups["d-1"]).toMatchObject({ state: "provisional", generatedDigest: r.rows.get("newbie") });
+    commitThenFail = false;
+    // "restart": nothing in memory matters, the next completion reads the durable record
+    const second = await completeDiscordCoachAssociation(req, signup("d-1"), { ffbCoachId: "Newbie" }, undefined, r.deps);
     expect(second).toMatchObject({ status: 200, sessionToken: "tok" });
-    expect(order.filter((o) => o === "insert")).toHaveLength(1); // the row existed (committed): not inserted again
+    expect(r.identities.get("newbie")?.identities.discordUserId).toBe("d-1");
+    expect(readProvisionalSignup("d-1")).toBeUndefined();
+    expect(r.inserts).toHaveLength(1); // ownership proven by the digest; not inserted again
   });
 
-  it("a lost insert that really did NOT land is created on the next sign-in", async () => {
-    const identities = new Map<string, CoachIdentityRecord>();
-    const accounts = new Set<string>();
+  it("an insert that did not land is retried with the SAME generated digest", async () => {
+    const r = rig();
     let fail = true;
-    const deps = {
-      fork: {
-        coachExists: async (coach: string) => accounts.has(coach.toLowerCase()),
-        verifyCoachDigest: async () => false,
-        createForkAccountDigestIfAvailable: async (coach: string) => {
-          if (fail) throw new Error("fork DB operation timed out");
-          accounts.add(coach.toLowerCase());
-          return true;
-        },
-      },
-      identityForCoach: (coach: string) => identities.get(coach.toLowerCase()),
-      isCoachBanned: () => false,
-      upsertIdentity: (record: CoachIdentityRecord) => { identities.set(record.ffbCoachId.toLowerCase(), record); },
-      createSessionToken: () => "tok",
+    const real = r.deps.fork.createForkAccountDigestIfAvailable;
+    r.deps.fork.createForkAccountDigestIfAvailable = async (coach: string, digest: string) => {
+      if (fail) throw new Error("fork DB operation timed out");
+      return real(coach, digest);
     };
-    expect((await completeDiscordCoachAssociation(req, { ...pendingSignup, discordId: "d-8" }, { ffbCoachId: "Ghost" }, undefined, deps)).status).toBe(503);
+    expect((await completeDiscordCoachAssociation(req, signup("d-2"), { ffbCoachId: "Ghost" }, undefined, r.deps)).status).toBe(503);
+    const digest = readProvisionalSignup("d-2")!.generatedDigest;
     fail = false;
-    expect((await completeDiscordCoachAssociation(req, { ...pendingSignup, discordId: "d-8" }, {}, "Ghost", deps)).status).toBe(200);
-    expect(accounts.has("ghost")).toBe(true);
+    expect((await completeDiscordCoachAssociation(req, signup("d-2"), { ffbCoachId: "Ghost" }, undefined, r.deps)).status).toBe(200);
+    expect(r.rows.get("ghost")).toBe(digest);
   });
 
-  it("a name taken in a race rolls the provisional link back", async () => {
-    const identities = new Map<string, CoachIdentityRecord>();
-    const deps = {
-      fork: {
-        coachExists: async () => false,
-        verifyCoachDigest: async () => false,
-        createForkAccountDigestIfAvailable: async () => false,
-      },
-      identityForCoach: (coach: string) => identities.get(coach.toLowerCase()),
-      isCoachBanned: () => false,
-      upsertIdentity: (record: CoachIdentityRecord) => { identities.set(record.ffbCoachId.toLowerCase(), record); },
-      removeIdentity: (coach: string) => { identities.delete(coach.toLowerCase()); },
-      createSessionToken: () => "tok",
-    };
-    expect((await completeDiscordCoachAssociation(req, { ...pendingSignup, discordId: "d-9" }, { ffbCoachId: "Taken" }, undefined, deps)).status).toBe(409);
-    expect(identities.has("taken")).toBe(false);
+  it("a name taken by someone else meanwhile: record discarded, 409, never a session or a link for that account", async () => {
+    const r = rig();
+    r.deps.fork.createForkAccountDigestIfAvailable = async () => { throw new Error("timed out"); }; // nothing created
+    expect((await completeDiscordCoachAssociation(req, signup("d-3"), { ffbCoachId: "Taken" }, undefined, r.deps)).status).toBe(503);
+    r.rows.set("taken", "f".repeat(32)); // another registration creates the name
+    const retry = await completeDiscordCoachAssociation(req, signup("d-3"), { ffbCoachId: "Taken" }, undefined, r.deps);
+    expect(retry.status).toBe(409);
+    expect(retry.sessionToken).toBeUndefined();
+    expect(retry.body).not.toHaveProperty("canLink"); // never a password prompt for a Discord coach
+    expect(r.identities.size).toBe(0);
+    expect(readProvisionalSignup("d-3")).toBeUndefined();
+  });
+
+  it("concurrent completions for the same Discord id + name are serialised: one insert, both 200, link kept", async () => {
+    const r = rig();
+    const results = await Promise.all([
+      completeDiscordCoachAssociation(req, signup("d-4"), { ffbCoachId: "Twin" }, undefined, r.deps),
+      completeDiscordCoachAssociation(req, signup("d-4"), { ffbCoachId: "twin" }, undefined, r.deps),
+    ]);
+    expect(results.map((x) => x.status)).toEqual([200, 200]);
+    expect(r.inserts).toEqual(["Twin"]);
+    expect(r.identities.get("twin")?.identities.discordUserId).toBe("d-4");
+  });
+
+  it("rollback removes only the record of the same operation", () => {
+    putProvisionalSignup({ discordUserId: "d-5", coachName: "X", generatedDigest: "a".repeat(32), operationId: "op-new", state: "provisional", createdAt: "" });
+    expect(removeProvisionalSignup("d-5", "op-old")).toBe(false);
+    expect(readProvisionalSignup("d-5")?.operationId).toBe("op-new");
+    expect(removeProvisionalSignup("d-5", "op-new")).toBe(true);
+  });
+
+  it("coach writes keep the provisional section", async () => {
+    putProvisionalSignup({ discordUserId: "d-6", coachName: "Y", generatedDigest: "b".repeat(32), operationId: "op", state: "provisional", createdAt: "" });
+    const { upsertIdentity } = await import("../src/auth/identitiesStore.js");
+    upsertIdentity({ ffbCoachId: "Other", level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, updatedAt: "", updatedBy: "" });
+    expect(readProvisionalSignup("d-6")?.coachName).toBe("Y");
   });
 });
