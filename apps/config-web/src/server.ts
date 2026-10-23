@@ -518,6 +518,28 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     isBanned,
     isOrganizer: (coach) => coachLevel(coach) !== "player" || isOrganizer(coach),
     listSaves: (coach) => readSaves(BUILDER_SAVES_DIR, coach).map((s) => ({ id: s.id, name: s.name })),
+    fixtures: {
+      get: (id) => {
+        const m = tournamentStore.match(id);
+        if (!m) return undefined;
+        const t = tournamentStore.tournament(m.tournamentId);
+        return {
+          id: m.id,
+          ...(t?.packageName ? { packageName: t.packageName } : {}),
+          open: Boolean(m.away) && t?.status === "active" && !["completed", "cancelled", "dismissed"].includes(m.status),
+          status: m.status,
+          revision: m.revision,
+          home: { coach: m.home.coach.ffbCoachId },
+          away: { coach: m.away?.coach.ffbCoachId ?? "" },
+          ...(m.result ? { resultReportedAt: m.result.reportedAt } : {}),
+        };
+      },
+      record: (id, input, at) => { tournamentStore.recordResult(id, input, at); },
+      retract: (id, input, at) => { tournamentStore.retractResult(id, { expectedRevision: input.expectedRevision, status: input.status as never }, at); },
+    },
+    forkMetadata: (gameId) => tournamentMatches.get(gameId),
+    pointsFor: (league) =>
+      tournamentStore.tournaments(["draft", "active", "completed", "cancelled"]).find((t) => t.packageName.toLowerCase() === league.toLowerCase())?.points,
   };
   if (first) await recoverTabletop(deps);
   return deps;

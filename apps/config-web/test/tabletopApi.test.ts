@@ -125,7 +125,7 @@ describe("tabletop API: submit / confirm / undo-revision", () => {
   }
 
   it("submit previews both teams; confirm needs both coaches; then revisions + a tabletop results row are written", async () => {
-    const id = await playedMatch("full", "round-2/table-4");
+    const id = await playedMatch("full");
     const sub = (await as("Bob", "POST", `/api/tabletop/matches/${id}/submit`)).body as { match: { state: string; preview: { home: { winnings: number }; away: { deaths: string[] } } } };
     expect(sub.match.state).toBe("submitted");
     expect(sub.match.preview.home.winnings).toBe(20_000);
@@ -133,7 +133,7 @@ describe("tabletop API: submit / confirm / undo-revision", () => {
 
     const c1 = (await as("Alice", "POST", `/api/tabletop/matches/${id}/confirm`)).body as { match: { state: string } };
     expect(c1.match.state).toBe("submitted");
-    expect(results.list()).toHaveLength(0);
+    expect(results.listAll()).toHaveLength(0);
     const c2 = (await as("Bob", "POST", `/api/tabletop/matches/${id}/confirm`)).body as { match: { state: string; resultGameId: string; wroteRevisions: object } };
     expect(c2.match).toMatchObject({ state: "confirmed", wroteRevisions: { home: 1, away: 1 } });
 
@@ -145,9 +145,9 @@ describe("tabletop API: submit / confirm / undo-revision", () => {
     expect(chain.revisions[0]!.teamFile.treasury).toBe(50_000);
     expect((await repo.getChain("Bob", "sv_b"))!.revisions[1]!.teamFile.players.find((p) => p.id === "b2")!.dead).toBe(true);
 
-    const rows = results.list();
+    const rows = results.listAll();
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ gameId: `tabletop-${id}`, source: "tabletop", fixtureRef: "round-2/table-4", home: { coach: "Alice" }, away: { coach: "Bob" } });
+    expect(rows[0]).toMatchObject({ gameId: `tabletop-${id}`, source: "tabletop", home: { coach: "Alice" }, away: { coach: "Bob" } });
     expect(rows[0]!.teams.map((t) => t.score)).toEqual([2, 1]);
     // the same pipeline reads it: standings and Elo
     const standings = aggregateStandings(rows, () => undefined);
@@ -160,7 +160,7 @@ describe("tabletop API: submit / confirm / undo-revision", () => {
     await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);
     const r = (await as("Org", "POST", `/api/tabletop/matches/${id}/confirm`)).body as { match: { state: string } };
     expect(r.match.state).toBe("confirmed");
-    expect(results.list()).toHaveLength(1);
+    expect(results.listAll()).toHaveLength(1);
   });
 
   it("postMatch none writes the results row but no team revisions", async () => {
@@ -168,7 +168,7 @@ describe("tabletop API: submit / confirm / undo-revision", () => {
     await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);
     await as("Org", "POST", `/api/tabletop/matches/${id}/confirm`);
     expect((await repo.getChain("Alice", "sv_a"))!.head).toBe(0);
-    expect(results.list()).toHaveLength(1);
+    expect(results.listAll()).toHaveLength(1);
   });
 
   it("confirm before submit is a 409", async () => {
@@ -187,7 +187,7 @@ describe("tabletop API: submit / confirm / undo-revision", () => {
     expect(chain.revisions).toHaveLength(2); // history kept
     expect(headRevision(chain).teamFile.treasury).toBe(50_000);
     expect((await repo.getChain("Bob", "sv_b"))!.head).toBe(0);
-    expect(results.list()).toHaveLength(0);
+    expect(results.listAll()).toHaveLength(0);
     // fix a mistake by an undo event, then confirm again
     const evs = ((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ id: string; type: string }> }).events;
     const tdB = evs.filter((e) => e.type === "touchdown")[2]!;
@@ -197,7 +197,7 @@ describe("tabletop API: submit / confirm / undo-revision", () => {
     const chain2 = (await repo.getChain("Alice", "sv_a"))!;
     expect(chain2.revisions.map((r) => [r.revision, r.parent])).toEqual([[0, null], [1, 0], [2, 0]]);
     expect(chain2.head).toBe(2);
-    expect(results.list()[0]!.teams.map((t) => t.score)).toEqual([2, 0]);
+    expect(results.listAll()[0]!.teams.map((t) => t.score)).toEqual([2, 0]);
   });
 
   it("undo-revision refuses while the match is not confirmed", async () => {
@@ -252,7 +252,7 @@ describe("tabletop: commit journal", () => {
     expect(retry.status).toBe(200);
     expect((await repo.getChain("Bob", "sv_b"))!.head).toBe(1);
     expect((await repo.getMatch(id))!.state).toBe("confirmed");
-    expect(results.list()).toHaveLength(1);
+    expect(results.listAll()).toHaveLength(1);
     expect(await repo.getJournal(id)).toBeUndefined();
     expect((await repo.getChain("Alice", "sv_a"))!.revisions).toHaveLength(2); // not applied twice
   });
@@ -263,10 +263,10 @@ describe("tabletop: commit journal", () => {
     let armed = true;
     failResults.put = (row) => { if (armed) { armed = false; throw new Error("results down"); } return results.put(row); };
     expect((await as("Org", "POST", `/api/tabletop/matches/${id}/confirm`)).status).toBe(500);
-    expect(results.list()).toHaveLength(0);
+    expect(results.listAll()).toHaveLength(0);
     expect((await repo.getMatch(id))!.state).toBe("submitted");
     expect((await as("Alice", "POST", `/api/tabletop/matches/${id}/confirm`)).status).toBe(200);
-    expect(results.list()).toHaveLength(1);
+    expect(results.listAll()).toHaveLength(1);
     expect((await repo.getMatch(id))!.state).toBe("confirmed");
   });
 
@@ -288,7 +288,7 @@ describe("tabletop: commit journal", () => {
     expect((await as("Org", "POST", `/api/tabletop/matches/${id}/undo-revision`)).status).toBe(200);
     expect((await repo.getChain("Bob", "sv_b"))!.head).toBe(0);
     expect((await repo.getMatch(id))!.state).toBe("recording");
-    expect(results.list()).toHaveLength(0);
+    expect(results.listAll()).toHaveLength(0);
   });
 
   it("a participant banned after submit blocks the final confirm (403); the match stays submitted", async () => {
@@ -297,7 +297,7 @@ describe("tabletop: commit journal", () => {
     banned.add("Bob");
     expect((await as("Org", "POST", `/api/tabletop/matches/${id}/confirm`)).status).toBe(403);
     expect((await repo.getMatch(id))!.state).toBe("submitted");
-    expect(results.list()).toHaveLength(0);
+    expect(results.listAll()).toHaveLength(0);
     expect((await repo.getChain("Alice", "sv_a"))!.head).toBe(0);
   });
 });
@@ -314,7 +314,7 @@ describe("tabletop: list, saves, tally", () => {
     const secondId = ((await later)!.body as { match: { id: string } }).match.id;
     const mine = (await as("Alice", "GET", "/api/tabletop/matches")).body as { matches: Array<Record<string, any>> };
     expect(mine.matches.map((m) => m.id)).toEqual([first]);
-    expect(Object.keys(mine.matches[0]!).sort()).toEqual(["away", "createdAt", "home", "id", "postMatch", "state", "updatedAt"]);
+    expect(Object.keys(mine.matches[0]!).sort()).toEqual(["away", "createdAt", "home", "id", "pendingOrganiser", "postMatch", "state", "updatedAt"]);
     expect(mine.matches[0]!.home).toEqual({ coach: "Alice", teamName: "Alice XI" });
     const all = (await as("Org", "GET", "/api/tabletop/matches")).body as { matches: Array<{ id: string }> };
     expect(all.matches.map((m) => m.id)).toEqual([secondId, first]); // newest first

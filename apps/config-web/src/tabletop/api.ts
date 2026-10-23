@@ -15,6 +15,7 @@ import type { StoredTournamentResult } from "../tournamentResults.js";
 import {
   MAX_EVENTS_PER_BATCH, MAX_EVENTS_PER_MATCH, effectiveEvents, parseEvent, validateEvent, type Side, type TabletopEvent,
 } from "./events.js";
+import { leagueStandings, type LeaguePoints } from "./standings.js";
 import { applyPostMatch, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopTeamFile } from "./postMatch.js";
 import { headRevision, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
 import { duplicatePlayerId } from "./teamFile.js";
@@ -22,9 +23,40 @@ import { duplicatePlayerId } from "./teamFile.js";
 export interface TabletopAuth { coach: string; method: string }
 export interface TabletopResult { status: number; body: unknown }
 
+/** A tournament fixture (scheduled match) as the recorder needs to see it. */
+export interface FixtureView {
+  id: string;
+  packageName?: string;
+  /** Has two sides, is not completed/cancelled/dismissed, and its tournament is active. */
+  open: boolean;
+  status: string;
+  revision: number;
+  home: { coach: string };
+  away: { coach: string };
+  resultReportedAt?: string;
+}
+
+/** The tournaments store seen through the single existing result path (TournamentStore.recordResult). */
+export interface FixtureGateway {
+  get(id: string): FixtureView | undefined;
+  record(id: string, input: { expectedRevision: number; homeScore: number; awayScore: number; homeCasualties: number; awayCasualties: number }, at: Date): void;
+  retract(id: string, input: { expectedRevision: number; status: string }, at: Date): void;
+}
+
 export interface TabletopApiDeps {
   repo: TabletopRepository;
-  results: { put(row: StoredTournamentResult): unknown; remove(gameId: string): boolean };
+  results: {
+    put(row: StoredTournamentResult): unknown;
+    remove(gameId: string): boolean;
+    get(gameId: string): StoredTournamentResult | undefined;
+    /** Counting rows only (fork + published tabletop). */
+    list(): StoredTournamentResult[];
+  };
+  fixtures?: FixtureGateway;
+  /** Fork-game metadata lookup for league standings (package name of a fork tournament game). */
+  forkMetadata?: Parameters<typeof leagueStandings>[2];
+  /** A league's points scheme when the tournaments store has one; default 3/1/0. */
+  pointsFor?: (league: string) => LeaguePoints | undefined;
   /** The coach's own saved team as a team file (baseline revision), or undefined if they have no such save. */
   loadTeamFile: (coach: string, teamSaveId: string) => TabletopTeamFile | undefined;
   isBanned: (coach: string) => boolean;
@@ -34,7 +66,7 @@ export interface TabletopApiDeps {
   now?: () => Date;
 }
 
-export const isTabletopApiPath = (path: string): boolean => path === "/api/tabletop" || path.startsWith("/api/tabletop/");
+export const isTabletopApiPath = (path: string): boolean => path === "/api/tabletop" || path.startsWith("/api/tabletop/") || path === "/api/standings";
 
 const POST_MATCH: readonly string[] = ["none", "spp-only", "full"];
 const err = (status: number, error: string): TabletopResult => ({ status, body: { error } });
@@ -72,6 +104,13 @@ export async function tabletopApi(
     if (method !== "POST") return err(405, "Method not allowed.");
     return createMatch(me, organiser, body, deps, now);
   }
+  if (path === "/api/standings") {
+    if (method !== "GET") return err(405, "Method not allowed.");
+    const league = query.get("league")?.trim() ?? "";
+    if (!league || league.length > 60) return err(400, "league is required.");
+    const rows = leagueStandings(deps.results.list(), league, deps.forkMetadata ?? (() => undefined), deps.pointsFor?.(league));
+    return { status: 200, body: { league, rows } };
+  }
   if (path === "/api/tabletop/saves") {
     if (method !== "GET") return err(405, "Method not allowed.");
     const coach = query.get("coach")?.trim() ?? "";
@@ -79,7 +118,7 @@ export async function tabletopApi(
     const saves = (deps.listSaves?.(coach) ?? []).map((s) => ({ id: s.id, name: s.name }));
     return { status: 200, body: { coach, saves } };
   }
-  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|undo-revision))?$/.exec(path);
+  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision))?$/.exec(path);
   if (!m) return err(404, "Not found.");
   const id = m[1]!;
   const action = m[2];
@@ -100,7 +139,7 @@ export async function tabletopApi(
   return serial(id, async () => {
     try {
       const replayed = await recoverMatch(id, deps);
-      if (replayed && (action === "confirm" || action === "undo-revision") && replayed.kind === (action === "confirm" ? "confirm" : "undo"))
+      if (replayed && (action === "confirm" || action === "publish" || action === "undo-revision") && replayed.kind === (action === "confirm" ? "confirm" : action === "publish" ? "publish" : "undo"))
         return { status: 200, body: { match: replayed.match, recovered: true } };
     } catch {
       return err(500, "An earlier commit on this match is still being completed; try again.");
@@ -110,6 +149,7 @@ export async function tabletopApi(
     if (action === "submit") return submit(fresh, deps, now);
     if (action === "confirm") return confirm(fresh, me, organiser, deps, now);
     if (!organiser) return err(403, "Organizer access required.");
+    if (action === "publish") return publish(fresh, me, deps, now);
     return undoRevision(fresh, deps, now);
   });
 }
@@ -146,7 +186,7 @@ async function listMatches(me: string, organiser: boolean, deps: TabletopApiDeps
     status: 200,
     body: {
       matches: mine.map((m) => ({
-        id: m.id, state: m.state, ...(m.fixtureRef ? { fixtureRef: m.fixtureRef } : {}), postMatch: m.postMatch,
+        id: m.id, state: m.state, pendingOrganiser: m.state === "confirmed", ...(m.fixtureRef ? { fixtureRef: m.fixtureRef } : {}), postMatch: m.postMatch,
         home: { coach: m.home.coach, teamName: m.home.teamName }, away: { coach: m.away.coach, teamName: m.away.teamName },
         createdAt: m.createdAt, updatedAt: m.updatedAt,
       })),
@@ -176,6 +216,19 @@ async function createMatch(me: string, organiser: boolean, body: unknown, deps: 
   if (b.fixtureRef !== undefined && (typeof b.fixtureRef !== "string" || b.fixtureRef.length > 120)) return err(400, "fixtureRef must be a short string.");
   if (home.coach !== me && away.coach !== me && !organiser) return err(403, "You can only record a match you play in (or as an organiser).");
   if (deps.isBanned(home.coach) || deps.isBanned(away.coach)) return err(403, "A banned account cannot play a recorded match.");
+  if (b.league !== undefined && (typeof b.league !== "string" || b.league.length > 60)) return err(400, "league must be a short string.");
+  let league: string | undefined = typeof b.league === "string" && b.league.trim() ? b.league.trim() : undefined;
+  let fixtureSwap = false;
+  if (b.fixtureRef) {
+    const fixture = deps.fixtures?.get(b.fixtureRef);
+    if (!fixture) return err(409, "That fixture does not exist.");
+    if (!fixture.open) return err(409, "That fixture is already resolved or closed.");
+    const k = (s: string) => s.trim().toLowerCase();
+    const straight = k(fixture.home.coach) === k(home.coach) && k(fixture.away.coach) === k(away.coach);
+    fixtureSwap = k(fixture.home.coach) === k(away.coach) && k(fixture.away.coach) === k(home.coach);
+    if (!straight && !fixtureSwap) return err(409, "The fixture's coaches do not match this match's home and away coaches.");
+    league ??= fixture.packageName;
+  }
   const at = now().toISOString();
   const chainHome = await ensureChain(deps, home.coach, home.teamSaveId, at);
   const chainAway = await ensureChain(deps, away.coach, away.teamSaveId, at);
@@ -191,6 +244,8 @@ async function createMatch(me: string, organiser: boolean, body: unknown, deps: 
     ...(b.fixtureRef ? { fixtureRef: b.fixtureRef } : {}),
     home: { ...home, teamName: headRevision(chainHome).teamFile.name },
     away: { ...away, teamName: headRevision(chainAway).teamFile.name },
+    ...(league ? { league } : {}),
+    ...(fixtureSwap ? { fixtureSwap } : {}),
     postMatch: postMatch as PostMatchOption,
     createdBy: me,
     createdAt: at,
@@ -312,6 +367,8 @@ async function confirm(match: MatchRecord, me: string, organiser: boolean, deps:
     pulledAt: at,
     source: "tabletop",
     ...(match.fixtureRef ? { fixtureRef: match.fixtureRef } : {}),
+    ...(match.league ? { league: match.league } : {}),
+    published: false,
     home: { teamId: match.home.teamSaveId, teamName: match.home.teamName, coach: match.home.coach },
     away: { teamId: match.away.teamSaveId, teamName: match.away.teamName, coach: match.away.coach },
     teams: [teamResult("home", p.home.summary), teamResult("away", p.away.summary)],
@@ -324,22 +381,57 @@ async function confirm(match: MatchRecord, me: string, organiser: boolean, deps:
 }
 
 async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
-  if (match.state !== "confirmed") return err(409, "Only a confirmed match can be reverted.");
+  if (match.state !== "confirmed" && match.state !== "published") return err(409, "Only a confirmed or published match can be reverted.");
   const chainHome = await deps.repo.getChain(match.home.coach, match.home.teamSaveId);
   const chainAway = await deps.repo.getChain(match.away.coach, match.away.teamSaveId);
   if (!chainHome || !chainAway) return err(409, "Team files are missing.");
   const w = match.wroteRevisions;
   if (w && (chainHome.head !== w.home || chainAway.head !== w.away))
     return err(409, "A team has newer revisions than this match; revert those first.");
+  const link = match.state === "published" ? match.fixtureLink : undefined;
+  if (link) {
+    const f = deps.fixtures?.get(link.id);
+    if (!f || f.resultReportedAt !== link.reportedAt || f.revision !== link.expectedRevision + 1)
+      return err(409, "The fixture changed since this result was published; resolve it in the tournament first.");
+  }
   const back = (chain: TeamChain, rev: number): TeamChain => ({ ...chain, head: chain.revisions.find((r) => r.revision === rev)!.parent! });
-  const { wroteRevisions: _w, resultGameId: _r, preview: _p, ...rest } = match;
+  const { wroteRevisions: _w, resultGameId: _r, preview: _p, fixtureLink: _fl, publishedAt: _pa, publishedBy: _pb, ...rest } = match;
   const next: MatchRecord = { ...rest, state: "recording", confirmations: {}, updatedAt: now().toISOString() };
   return commit({
     matchId: match.id, opId: opId(), kind: "undo",
     homeChain: w ? back(chainHome, w.home) : chainHome,
     awayChain: w ? back(chainAway, w.away) : chainAway,
     result: match.resultGameId ? { remove: match.resultGameId } : null,
+    ...(link ? { fixture: { op: "retract" as const, id: link.id, expectedRevision: link.expectedRevision + 1, status: link.priorStatus, at: next.updatedAt } } : {}),
     match: next,
+  }, deps);
+}
+
+async function publish(match: MatchRecord, me: string, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
+  if (match.state !== "confirmed") return err(409, `This match is ${match.state}; only a confirmed match can be published.`);
+  const at = now().toISOString();
+  const chainHome = await deps.repo.getChain(match.home.coach, match.home.teamSaveId);
+  const chainAway = await deps.repo.getChain(match.away.coach, match.away.teamSaveId);
+  const stored = match.resultGameId ? deps.results.get(match.resultGameId) : undefined;
+  if (!chainHome || !chainAway || !stored || !match.preview) return err(409, "The match's confirmed result is missing.");
+  let fixture: CommitJournal["fixture"];
+  let fixtureLink: MatchRecord["fixtureLink"];
+  if (match.fixtureRef) {
+    const f = deps.fixtures?.get(match.fixtureRef);
+    if (!f || !f.open) return err(409, "The fixture is no longer open; resolve it in the tournament first.");
+    const cas = (s: PostMatchSummary) => s.players.reduce((n, p) => n + p.casualtiesCaused, 0);
+    const swapped = match.fixtureSwap === true;
+    const [h, a] = swapped ? [match.preview.away, match.preview.home] : [match.preview.home, match.preview.away];
+    fixture = {
+      op: "record", id: match.fixtureRef, expectedRevision: f.revision, at,
+      homeScore: h.score.for, awayScore: a.score.for, homeCasualties: cas(h), awayCasualties: cas(a),
+    };
+    fixtureLink = { id: match.fixtureRef, priorStatus: f.status, expectedRevision: f.revision, reportedAt: at, swapped };
+  }
+  const next: MatchRecord = { ...match, state: "published", publishedAt: at, publishedBy: me, updatedAt: at, ...(fixtureLink ? { fixtureLink } : {}) };
+  return commit({
+    matchId: match.id, opId: opId(), kind: "publish", homeChain: chainHome, awayChain: chainAway,
+    result: { put: { ...stored, published: true } }, ...(fixture ? { fixture } : {}), match: next,
   }, deps);
 }
 
@@ -349,6 +441,18 @@ const opId = (): string => randomBytes(8).toString("hex");
 async function applyJournal(j: CommitJournal, deps: TabletopApiDeps): Promise<void> {
   await deps.repo.putChain(j.homeChain);
   await deps.repo.putChain(j.awayChain);
+  if (j.fixture) {
+    const gateway = deps.fixtures;
+    if (!gateway) throw new Error("no fixture gateway");
+    const f = gateway.get(j.fixture.id);
+    if (j.fixture.op === "record") {
+      const { op: _op, id, at, ...input } = j.fixture;
+      if (f && f.revision === input.expectedRevision) gateway.record(id, input, new Date(at));
+      else if (!(f && f.revision > input.expectedRevision && f.resultReportedAt)) throw new Error("fixture changed during commit");
+    } else if (f?.resultReportedAt) {
+      gateway.retract(j.fixture.id, { expectedRevision: j.fixture.expectedRevision, status: j.fixture.status }, new Date(j.fixture.at));
+    }
+  }
   if (j.result && "put" in j.result) deps.results.put(j.result.put);
   else if (j.result) deps.results.remove(j.result.remove);
   await deps.repo.updateMatch(j.match);

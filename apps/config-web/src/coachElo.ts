@@ -45,7 +45,14 @@ function historyFingerprint(results: readonly StoredTournamentResult[]): string 
  * Classic Elo over all retained games. Stored results have no finished timestamp, so numeric
  * gameId is the deterministic play-order proxy; pulledAt is pull-order, not play-order.
  */
-export function computeElo(results: StoredTournamentResult[]): Map<string, CoachEloRating> {
+export function computeElo(
+  results: StoredTournamentResult[],
+  options: { includeTabletop?: boolean } = {},
+): Map<string, CoachEloRating> {
+  // Published tabletop rows (source "tabletop") count by default. OWNER DECISION PENDING: casual table games may
+  // not belong in the competitive rating; set ELO_EXCLUDE_TABLETOP=1 (or pass includeTabletop:false) to drop them.
+  const includeTabletop = options.includeTabletop ?? process.env.ELO_EXCLUDE_TABLETOP !== "1";
+  if (!includeTabletop) return computeElo(results.filter((r) => r.source !== "tabletop"), { includeTabletop: true });
   const key = `${results.length}\0${results.at(-1)?.gameId ?? ""}`;
   const fingerprint = historyFingerprint(results);
   const cached = memo.get(results);

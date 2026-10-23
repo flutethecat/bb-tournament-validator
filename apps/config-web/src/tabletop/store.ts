@@ -40,6 +40,14 @@ export interface MatchRecord {
   baseRevision: { home: number; away: number };
   /** Set on submit: the post-match preview both coaches confirm. */
   preview?: { home: PostMatchSummary; away: PostMatchSummary };
+  /** Optional league id the result counts in (defaults to the fixture tournament's package name). */
+  league?: string;
+  /** True when the fixture lists the two coaches in the opposite home/away order to this match. */
+  fixtureSwap?: boolean;
+  /** Set on publish when a fixture result was written: what to restore on undo. */
+  fixtureLink?: { id: string; priorStatus: string; expectedRevision: number; reportedAt: string; swapped: boolean };
+  publishedAt?: string;
+  publishedBy?: string;
   /** Set on confirm: revisions this match wrote (absent when postMatch is "none"), and its results-store key. */
   wroteRevisions?: { home: number; away: number };
   resultGameId?: string;
@@ -70,11 +78,15 @@ export interface TeamChain {
 export interface CommitJournal {
   matchId: string;
   opId: string;
-  kind: "confirm" | "undo";
+  kind: "confirm" | "undo" | "publish";
   homeChain: TeamChain;
   awayChain: TeamChain;
   /** Results store change: upsert this row, or remove this game id. */
   result: { put: StoredTournamentResult } | { remove: string } | null;
+  /** Tournaments-store fixture change (idempotent on replay): record a result, or retract it. */
+  fixture?:
+    | { op: "record"; id: string; expectedRevision: number; homeScore: number; awayScore: number; homeCasualties: number; awayCasualties: number; at: string }
+    | { op: "retract"; id: string; expectedRevision: number; status: string; at: string };
   /** The match record to write last. */
   match: MatchRecord;
 }

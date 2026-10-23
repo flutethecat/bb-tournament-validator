@@ -591,6 +591,34 @@ export class TournamentStore {
     });
   }
 
+  /** Undo a recorded result (tabletop publication retracted): the match returns to `status`, its round/tournament reopen. */
+  retractResult(
+    matchId: string,
+    input: { expectedRevision: number; status: ScheduledMatchRecord["status"] },
+    now = new Date(),
+  ): ScheduledMatchRecord {
+    return this.mutate((data) => {
+      const match = data.scheduledMatches[matchId];
+      if (!match) throw new TournamentStoreError(404, "Scheduled match not found.");
+      if (!match.result || match.revision !== input.expectedRevision)
+        throw new TournamentStoreError(409, "The fixture result changed since it was recorded.");
+      const timestamp = now.toISOString();
+      const { result: _result, ...rest } = match;
+      const updated: ScheduledMatchRecord = { ...rest, status: input.status, revision: match.revision + 1, updatedAt: timestamp };
+      data.scheduledMatches[matchId] = updated;
+      const round = data.rounds[match.roundId];
+      if (round?.status === "completed") {
+        const { completedAt: _completedAt, ...openRound } = round;
+        data.rounds[round.id] = { ...openRound, status: "active" };
+        const tournament = data.tournaments[match.tournamentId];
+        if (tournament?.status === "completed" && round.number >= tournament.roundCount)
+          data.tournaments[tournament.id] = { ...tournament, status: "active", updatedAt: timestamp };
+      }
+      delete data.standings[match.tournamentId];
+      return updated;
+    });
+  }
+
   recordResult(
     matchId: string,
     input: { expectedRevision: number; homeScore: number; awayScore: number; homeCasualties?: number; awayCasualties?: number },

@@ -29,6 +29,10 @@ export interface StoredTournamentResult extends GamestateResult {
   source?: "fork" | "tabletop";
   /** Tabletop only: the league/tournament fixture the match was played for, when one was named. */
   fixtureRef?: string;
+  /** Tabletop only: the league id the match counts in (defaults to the fixture tournament's package name). */
+  league?: string;
+  /** Tabletop only: true once an organiser published it. An unpublished tabletop row never counts anywhere. */
+  published?: boolean;
 }
 
 interface TournamentResultStoreFile {
@@ -107,7 +111,13 @@ export class TournamentResultStore {
     return Object.hasOwn(results, gameId) ? results[gameId] : undefined;
   }
 
+  /** Rows that COUNT (standings, Elo, records): fork rows, and tabletop rows only once published. */
   list(): StoredTournamentResult[] {
+    return this.listAll().filter((row) => row.source !== "tabletop" || row.published === true);
+  }
+
+  /** Every stored row, including tabletop rows still pending organiser publication. */
+  listAll(): StoredTournamentResult[] {
     return Object.values(this.readStore().results);
   }
 
