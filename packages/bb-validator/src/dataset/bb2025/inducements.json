@@ -120,7 +120,7 @@
    "id": "prayers_to_nuffle",
    "name": "Prayers to Nuffle",
    "wireName": "prayers",
-   "cost": 30000,
+   "cost": 10000,
    "max": 3
   },
   {

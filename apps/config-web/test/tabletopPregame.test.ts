@@ -96,11 +96,11 @@ describe("pre-game sequence", () => {
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ phase: "pregame:inducements", waitingFor: ["home"], pregame: { inducements: { away: { total: 100_000, treasury: 100_000 } } } });
     expect((await advance(id, "Bob", { team: "away", skip: true })).status).toBe(409); // already submitted
-    // underdog: petty cash = 100k + 100k = 200k; prayers cost 30k each in the dataset
+    // underdog: petty cash = 100k + 100k = 200k; prayers cost 10k each (rulebook price, shared dataset)
     expect((await advance(id, "Alice", { team: "home", picks: [{ id: "prayers_to_nuffle", qty: 4 }] })).status).toBe(400); // max 3
     expect((await advance(id, "Alice", { team: "home", picks: [{ id: "extra_team_training", qty: 3 }] })).status).toBe(400); // 300k: petty 200k + 100k top-up > treasury top-up of 100k? ok at limit
     r = await advance(id, "Alice", { team: "home", picks: [{ id: "prayers_to_nuffle", qty: 2 }, { id: "team_mascot", qty: 1 }] });
-    expect(r.body).toMatchObject({ phase: "pregame:prayers", pregame: { inducements: { home: { total: 85_000, treasury: 0, pettyCash: 200_000 } } } });
+    expect(r.body).toMatchObject({ phase: "pregame:prayers", pregame: { inducements: { home: { total: 45_000, treasury: 0, pettyCash: 200_000 } } } });
 
     // prayers: one D16 per bought prayer, duplicates re-rolled
     rolls = [16, 16, 4];
@@ -189,6 +189,16 @@ describe("pre-game rules, pure", () => {
     expect(planInducements({ ...base, picks: [{ id: "star_players", qty: 1 }], role: "favourite", favouriteSpent: 0 })).toMatchObject({ error: expect.any(String) });
     expect(planInducements({ ...base, picks: [{ id: "mortuary_assistant", qty: 1 }], role: "favourite", favouriteSpent: 0 })).toMatchObject({ error: expect.stringContaining("not available") });
     expect(planInducements({ ...base, picks: [{ id: "team_mascot", qty: 1 }, { id: "team_mascot", qty: 1 }], role: "favourite", favouriteSpent: 0 })).toMatchObject({ error: expect.stringContaining("twice") });
+  });
+  it("prices come through one swappable source: the dataset today (prayers 10,000), any other source tomorrow", () => {
+    const file = team("Human", 11, "a", 1_000_000, 100_000);
+    const plan = planInducements({ file, picks: [{ id: "prayers_to_nuffle", qty: 3 }], role: "favourite", tvDifference: 0, favouriteSpent: 0 });
+    expect(plan).toMatchObject({ total: 30_000, picks: [{ cost: 30_000, qty: 3 }] });
+    const custom = planInducements({
+      file, picks: [{ id: "prayers_to_nuffle", qty: 3 }], role: "favourite", tvDifference: 0, favouriteSpent: 0,
+      offers: () => ({ name: "Prayers to Nuffle", price: 5_000, max: 3 }),
+    });
+    expect(custom).toMatchObject({ total: 15_000 });
   });
   it("inducement treasury spending comes off the treasury in a full post-match", () => {
     const f = team("Human", 11, "a", 1_000_000, 100_000);

@@ -98,7 +98,12 @@ const REQUIRES_RULE: Record<string, string> = {
   riotous_rookies: "low cost linemen",
 };
 
-export function inducementOffer(file: TabletopTeamFile, id: string): { name: string; price: number; max: number | null } | { error: string } {
+export type InducementOffer = { name: string; price: number; max: number | null } | { error: string };
+/** THE price source for the inducement phase: every price and cap is read through one of these. Today it is the shared
+ *  dataset (below); a per-league / per-event source can replace it by passing its own to planInducements. */
+export type InducementOffers = (file: TabletopTeamFile, id: string) => InducementOffer;
+
+export const inducementOffer: InducementOffers = (file, id) => {
   const row = bb2025.inducements[id];
   if (!row) return { error: `Unknown inducement "${id}".` };
   if (!row.wireName || typeof row.cost !== "number") return { error: `${row.name} has a variable price and cannot be recorded here.` };
@@ -112,7 +117,7 @@ export function inducementOffer(file: TabletopTeamFile, id: string): { name: str
     price: reduced && typeof row.reducedCost === "number" ? row.reducedCost : row.cost,
     max: (reduced ? (row.reducedMax ?? row.max) : row.max) ?? null,
   };
-}
+};
 
 export interface InducementPlan {
   picks: Array<{ id: string; name: string; qty: number; cost: number }>;
@@ -133,14 +138,17 @@ export function planInducements(input: {
   role: "favourite" | "underdog" | "equal";
   tvDifference: number;
   favouriteSpent: number;
+  /** Price source; defaults to the shared dataset. */
+  offers?: InducementOffers;
 }): InducementPlan | { error: string } {
+  const offersFor = input.offers ?? inducementOffer;
   const lines: InducementPlan["picks"] = [];
   const seen = new Set<string>();
   for (const pick of input.picks) {
     if (!pick || typeof pick.id !== "string" || !Number.isInteger(pick.qty) || pick.qty < 1) return { error: "Each pick needs an id and a whole quantity of at least 1." };
     if (seen.has(pick.id)) return { error: `${pick.id} is listed twice.` };
     seen.add(pick.id);
-    const offer = inducementOffer(input.file, pick.id);
+    const offer = offersFor(input.file, pick.id);
     if ("error" in offer) return offer;
     if (offer.max !== null && pick.qty > offer.max) return { error: `${offer.name}: at most ${offer.max}.` };
     lines.push({ id: pick.id, name: offer.name, qty: pick.qty, cost: offer.price * pick.qty });

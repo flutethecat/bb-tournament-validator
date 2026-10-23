@@ -299,6 +299,11 @@ INDUCEMENT_WIRE_NAMES = {
 }
 
 
+# Rulebook prices that win over the FUMBBL ruleset clientOptions (owner ruling 10-23, bloodbowlbase.ru BB2025
+# inducements page: Prayers to Nuffle are 10,000 gp each; the ruleset option says 30,000).
+INDUCEMENT_COST_OVERRIDES = {"prayers_to_nuffle": 10_000}
+
+
 def build_inducements():
     """Authoritative BB2025 inducement costs/caps from FUMBBL ruleset clientOptions."""
     co = get(f"ruleset/get/{RULESET}")["options"]["clientOptions"]
@@ -307,6 +312,8 @@ def build_inducements():
         entry = {"id": iid, "name": name,
                  "cost": co.get(cost_f) if cost_f else None,
                  "max": co.get(max_f) if max_f else None}
+        if iid in INDUCEMENT_COST_OVERRIDES:
+            entry["cost"] = INDUCEMENT_COST_OVERRIDES[iid]
         if iid in INDUCEMENT_WIRE_NAMES:
             entry["wireName"] = INDUCEMENT_WIRE_NAMES[iid]
         if "reducedCost" in extra:
