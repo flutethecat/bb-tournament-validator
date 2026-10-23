@@ -8,10 +8,10 @@
 // Cached per lower-cased name for 10 minutes (never per game), bounded, fail-soft: never throws.
 // Server-derived: every number is one FUMBBL sent, or win % / WAR computed from the record it sent.
 
-export const FUMBBL_SITE = "https://fumbbl.com";
+export const DEFAULT_FUMBBL_SITE = "https://fumbbl.com";
 export const COACH_RATING_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 500;
-const REQUEST_TIMEOUT_MS = 6_000;
+const MAX_BODY_BYTES = 512 * 1024;
 
 export interface FumbblCoachRecord { w: number; d: number; l: number }
 
@@ -26,7 +26,7 @@ export interface CoachRating {
   war?: number;
 }
 
-export type RatingFetch = (url: string) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+export type RatingFetch = (url: string, signal: AbortSignal) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
 function asObject(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
@@ -137,11 +137,11 @@ export function parseCoachOverall(html: unknown): Omit<CoachRating, "name" | "id
   return out;
 }
 
-async function getBody(fetchFn: RatingFetch, url: string, json: boolean): Promise<unknown> {
+async function getBody(fetchFn: RatingFetch, url: string, json: boolean, signal: AbortSignal): Promise<unknown> {
   try {
-    const response = await fetchFn(url);
+    const response = await fetchFn(url, signal);
     if (!response.ok) return undefined;
-    const text = await response.text();
+    const text = await response.text(); // the deadline's signal covers the body read too
     if (!json) return text;
     try { return JSON.parse(text); } catch { return text; }
   } catch {
@@ -149,17 +149,17 @@ async function getBody(fetchFn: RatingFetch, url: string, json: boolean): Promis
   }
 }
 
-async function loadRating(name: string, fetchFn: RatingFetch): Promise<CoachRating> {
+async function loadRating(name: string, fetchFn: RatingFetch, base: string, signal: AbortSignal): Promise<CoachRating> {
   const rating: CoachRating = { name };
   try {
     const encoded = encodeURIComponent(name);
-    const pageRequest = getBody(fetchFn, `${FUMBBL_SITE}/~${encoded}`, false);
-    const match = pickSearchMatch(await getBody(fetchFn, `${FUMBBL_SITE}/api/coach/search/${encoded}`, true), name);
+    const pageRequest = getBody(fetchFn, `${base}/~${encoded}`, false, signal);
+    const match = pickSearchMatch(await getBody(fetchFn, `${base}/api/coach/search/${encoded}`, true, signal), name);
     let apiTitle: string | undefined;
     if (match) {
       rating.id = match.id;
       rating.name = match.name;
-      const got = parseCoachGet(await getBody(fetchFn, `${FUMBBL_SITE}/api/coach/get/${match.id}`, true));
+      const got = parseCoachGet(await getBody(fetchFn, `${base}/api/coach/get/${match.id}`, true, signal));
       if (got.name && (got.id === undefined || got.id === match.id)) rating.name = got.name;
       apiTitle = got.title;
     }
@@ -177,40 +177,144 @@ async function loadRating(name: string, fetchFn: RatingFetch): Promise<CoachRati
   return rating;
 }
 
-/** Default fetch with a timeout. */
-export const defaultRatingFetch: RatingFetch = async (url) => {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    return await fetch(url, { signal: ctrl.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+/** Default fetch: honours the deadline signal through the whole body read and caps the body size. */
+export const defaultRatingFetch: RatingFetch = async (url, signal) => {
+  const response = await fetch(url, { signal, redirect: "follow" });
+  return {
+    ok: response.ok,
+    status: response.status,
+    async text() {
+      const reader = response.body?.getReader();
+      if (!reader) return "";
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > MAX_BODY_BYTES) {
+          await reader.cancel().catch(() => {});
+          throw new Error("FUMBBL response too large.");
+        }
+        chunks.push(value);
+      }
+      return Buffer.concat(chunks).toString("utf8");
+    },
+  };
 };
 
-/** 10-minute, bounded, per-name cache over the three requests. */
+/** Base URL for the three requests: `FUMBBL_BASE_URL` (http(s) origin, no path), default https://fumbbl.com. */
+export function fumbblBaseUrlFromEnv(env: Record<string, string | undefined> = process.env): string {
+  const raw = env.FUMBBL_BASE_URL?.trim();
+  if (!raw) return DEFAULT_FUMBBL_SITE;
+  let url: URL;
+  try { url = new URL(raw); } catch { throw new Error(`FUMBBL_BASE_URL is not a URL: ${raw}`); }
+  if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("FUMBBL_BASE_URL must be http(s).");
+  if ((url.pathname !== "/" && url.pathname !== "") || url.search || url.hash || url.username || url.password) {
+    throw new Error("FUMBBL_BASE_URL must be an origin (no path, query or credentials).");
+  }
+  return url.origin;
+}
+
+export class RatingLimitError extends Error {
+  readonly status = 429;
+  constructor(message = "Too many rating lookups. Try again in a few minutes.") {
+    super(message);
+  }
+}
+
+export interface CoachRatingOptions {
+  fetchFn?: RatingFetch;
+  now?: () => number;
+  ttlMs?: number;
+  baseUrl?: string;
+  /** Uncached lookups per requester per window (default 20). */
+  perRequesterLimit?: number;
+  /** Uncached lookups for the whole server per window (default 200). */
+  globalLimit?: number;
+  windowMs?: number;
+  /** Lookups running at once (default 4); more wait in a bounded queue (default 16), beyond that 429. */
+  maxConcurrent?: number;
+  maxQueue?: number;
+  /** Deadline for one lookup's three requests, body reads included (default 8 s). */
+  deadlineMs?: number;
+}
+
+/** 10-minute, bounded, per-name cache over the three requests, with outbound limits. */
 export class CoachRatingCache {
   private readonly cache = new Map<string, { at: number; value: Promise<CoachRating> }>();
-  constructor(
-    private readonly fetchFn: RatingFetch = defaultRatingFetch,
-    private readonly now: () => number = Date.now,
-    private readonly ttlMs = COACH_RATING_TTL_MS,
-  ) {}
+  private readonly fetchFn: RatingFetch;
+  private readonly now: () => number;
+  private readonly ttlMs: number;
+  private readonly baseUrl: string;
+  private readonly perRequesterLimit: number;
+  private readonly globalLimit: number;
+  private readonly windowMs: number;
+  private readonly maxConcurrent: number;
+  private readonly maxQueue: number;
+  private readonly deadlineMs: number;
+  private readonly recent: Array<{ at: number; requester: string }> = [];
+  private active = 0;
+  private readonly queue: Array<() => void> = [];
 
-  get(name: string): Promise<CoachRating> {
+  constructor(opts: CoachRatingOptions = {}) {
+    this.fetchFn = opts.fetchFn ?? defaultRatingFetch;
+    this.now = opts.now ?? Date.now;
+    this.ttlMs = opts.ttlMs ?? COACH_RATING_TTL_MS;
+    this.baseUrl = (opts.baseUrl ?? DEFAULT_FUMBBL_SITE).replace(/\/+$/, "");
+    this.perRequesterLimit = opts.perRequesterLimit ?? 20;
+    this.globalLimit = opts.globalLimit ?? 200;
+    this.windowMs = opts.windowMs ?? 10 * 60 * 1000;
+    this.maxConcurrent = Math.max(1, opts.maxConcurrent ?? 4);
+    this.maxQueue = Math.max(0, opts.maxQueue ?? 16);
+    this.deadlineMs = opts.deadlineMs ?? 8_000;
+  }
+
+  /** Cached rating, or a new lookup charged to `requester`. Throws RatingLimitError past a limit. */
+  get(name: string, requester = ""): Promise<CoachRating> {
     const trimmed = name.trim();
     if (!trimmed) return Promise.resolve({ name: "" });
     const key = trimmed.toLowerCase();
     const hit = this.cache.get(key);
     if (hit && this.now() - hit.at < this.ttlMs) return hit.value;
+
+    const cutoff = this.now() - this.windowMs;
+    while (this.recent[0] && this.recent[0].at < cutoff) this.recent.shift();
+    const who = requester.trim().toLowerCase();
+    if (this.recent.length >= this.globalLimit) throw new RatingLimitError();
+    if (this.recent.filter((r) => r.requester === who).length >= this.perRequesterLimit) throw new RatingLimitError();
+    if (this.active >= this.maxConcurrent && this.queue.length >= this.maxQueue) throw new RatingLimitError();
+    this.recent.push({ at: this.now(), requester: who });
+
     this.cache.delete(key);
     while (this.cache.size >= MAX_CACHE) {
       const oldest = this.cache.keys().next().value;
       if (oldest === undefined) break;
       this.cache.delete(oldest);
     }
-    const value = loadRating(trimmed, this.fetchFn);
+    const value = this.run(() => this.loadWithDeadline(trimmed));
     this.cache.set(key, { at: this.now(), value });
     return value;
+  }
+
+  private async loadWithDeadline(name: string): Promise<CoachRating> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), this.deadlineMs);
+    try {
+      return await loadRating(name, this.fetchFn, this.baseUrl, ctrl.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async run<T>(task: () => Promise<T>): Promise<T> {
+    if (this.active >= this.maxConcurrent) await new Promise<void>((resolve) => this.queue.push(resolve));
+    this.active++;
+    try {
+      return await task();
+    } finally {
+      this.active--;
+      this.queue.shift()?.();
+    }
   }
 }

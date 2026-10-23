@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expiryLine, formatWar, lobbyIdFromHash, presenceLine, ratingParts, renderEmoji } from "../lobby/src/format";
+import { expiryLine, formatWar, lobbyIdFromHash, lobbyStatusLine, presenceLine, ratingParts, renderEmoji } from "../lobby/src/format";
 
 describe("lobby page helpers", () => {
   it("presence lines", () => {
@@ -23,6 +23,15 @@ describe("lobby page helpers", () => {
     expect(renderEmoji("a:joy:b :nope: 12:30")).toBe("a:joy:b :nope: 12:30");
     expect(renderEmoji("see https://x.test/:joy: ok :fire:")).toBe("see https://x.test/:joy: ok 🔥");
   });
+  it("status line follows the server's pairing state", () => {
+    const base = { creator: { coach: "Alice" }, opponent: { coach: "Bob" }, game: null, canLaunch: false, opponentAccepted: false };
+    expect(lobbyStatusLine({ ...base, me: "creator", status: "waiting" })).toBe("Waiting for Bob to accept.");
+    expect(lobbyStatusLine({ ...base, me: "opponent", status: "waiting" })).toBe("Alice challenged you. Pick a team to accept.");
+    expect(lobbyStatusLine({ ...base, me: "opponent", status: "needs-renewal", opponentAccepted: true })).toBe("You accepted. Waiting for Alice to confirm.");
+    expect(lobbyStatusLine({ ...base, me: "creator", status: "needs-renewal" })).toMatch(/Confirm it/);
+    expect(lobbyStatusLine({ ...base, me: "creator", status: "ready", canLaunch: true, game: { gameId: "7" } })).toBe("Game set up (game 7). Ready to start.");
+  });
+
   it("hash routing and expiry copy", () => {
     expect(lobbyIdFromHash("#abcDEF12_-")).toBe("abcDEF12_-");
     expect(lobbyIdFromHash("")).toBeUndefined();

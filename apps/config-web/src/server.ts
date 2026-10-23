@@ -127,8 +127,19 @@ import {
 } from "./auth/identitiesStore.js";
 import { legacyPasswordAuthCounts, noteLegacyPasswordAuth } from "./auth/deprecation.js";
 import { attachSuper } from "./super/index.js";
-import { isLobbyApiPath, lobbyApi, lobbyRosterFromDetail, lobbySocketBridge, LobbyStore } from "./lobby.js";
-import { CoachRatingCache } from "./coachRating.js";
+import {
+  isLobbyApiPath,
+  isLobbyGameStartWrite,
+  LobbyError,
+  lobbyAllowedOriginsFromEnv,
+  lobbyApi,
+  lobbyOriginAllowed,
+  lobbyRosterFromDetail,
+  lobbySocketBridge,
+  LobbyStore,
+  readLobbyBody,
+} from "./lobby.js";
+import { CoachRatingCache, fumbblBaseUrlFromEnv } from "./coachRating.js";
 import { createSiteBackend } from "./site-backend/index.js";
 import { replayDeferredGameResults } from "./site-backend/banking.js";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
@@ -406,13 +417,22 @@ const matchmaker = new Matchmaker({
     ? (coach, passwordMd5) => verifyCoachDigest(challengeDbCfg, coach, passwordMd5)
     : undefined,
   homeAwayMode: initialSettings.homeAwayMode,
+  // Re-checked for BOTH sides at pairing, before scheduling: a ban or a retired/unloaded team voids that
+  // side's consent (the client's Create Game and the web Lobby alike).
+  validateSide: ({ coach, teamId }) => {
+    if (isBanned(coach)) return `${coach} can't play right now.`;
+    const team = readLibrary(LIBRARY_DIR, coach).find((t) => t.teamId === teamId && !t.retired);
+    if (!team) return `Team ${teamId} is no longer in ${coach}'s library.`;
+    if (!isLoadedOnFork(FORK_STATE_DIR, team.ingestedAt)) return `"${team.teamName}" isn't loaded on the fork yet.`;
+    return undefined;
+  },
 });
 
-// Web Lobby (start-game spec Part 1b): a VIEW over the matchmaker record above (create = challenge, join = the
-// counter-challenge). In memory, 24 h, swept. Challenges ride the coach's STORED fork credential digest.
+// Web Lobby (start-game spec Part 1b): a VIEW over the matchmaker above (create = challenge, join = the
+// counter-challenge, renew = the creator confirming again). Lobby challenges are session-proven and carry NO
+// digest; the seat's JNLP (with the stored credential) comes only from the session-scoped /api/lobby/:id/jnlp.
 const lobbyStore = new LobbyStore({
   matchmaker,
-  digestFor: async (coach) => (challengeDbCfg ? forkCoachPasswordDigest(challengeDbCfg, coach) : undefined),
   isBanned,
   resolveTeam: (coach, teamId) => {
     const team = readLibrary(LIBRARY_DIR, coach).find((t) => t.teamId === teamId && !t.retired);
@@ -425,8 +445,78 @@ const lobbyStore = new LobbyStore({
 });
 matchmaker.onPaired((pairing) => lobbyStore.notePairing(pairing));
 setInterval(() => lobbyStore.sweep(), 5 * 60 * 1000).unref();
-const coachRatings = new CoachRatingCache();
+const coachRatings = new CoachRatingCache({
+  baseUrl: (() => {
+    try { return fumbblBaseUrlFromEnv(); } catch (e) { console.error(`[lobby] ${(e as Error).message}; using the default.`); return undefined; }
+  })(),
+});
+const lobbyAllowedOrigins = lobbyAllowedOriginsFromEnv();
 let lobbyChatLive = false;
+
+/** The Discord-authenticated session on a request (the lobby accepts no other provenance). */
+function lobbyAuthFor(req: IncomingMessage): { coach: string; method: string } | undefined {
+  const session = sessionFromRequest(req);
+  return session ? { coach: session.coach, method: session.method } : undefined;
+}
+
+/** Lobby HTTP: session check, then a bounded body, and only then the game-start lock (around the operation). */
+async function handleLobbyRequest(req: IncomingMessage, res: ServerResponse, path: string, query: URLSearchParams): Promise<void> {
+  const method = req.method ?? "GET";
+  const auth = lobbyAuthFor(req);
+  let body: unknown;
+  if (method === "POST" && auth?.method === "discord") {
+    const read = await readLobbyBody(req, readJsonBody);
+    if ("error" in read) return sendJson(res, read.status, { error: read.error });
+    body = read.body;
+  }
+  const result = await lobbyApi(method, path, query, auth, body, {
+    store: lobbyStore,
+    roster: (coach, teamId) => {
+      const detail = teamDetailEndpoint({ coach, organizer: false }, teamId, {
+        libraryDir: LIBRARY_DIR,
+        teamsDir: forkConfigFromEnv()?.teamsDir,
+      });
+      return detail.status === 200 ? lobbyRosterFromDetail(detail.body.team) : undefined;
+    },
+    coachCard: (coach) => {
+      let avatar: string | null = null;
+      let discordUserId = "";
+      try {
+        const record = ownIdentityRecord(coach);
+        discordUserId = record.identities.discordUserId ?? "";
+        avatar = record.profile.avatar || discordAvatarUrl(discordUserId, record.identities.discordAvatarHash) || null;
+      } catch { /* unknown coach: no card extras */ }
+      const registry = readCoachRegistry(COACH_REGISTRY_JSON);
+      const linked = (discordUserId && registry.find((e) => e.discordUserId === discordUserId && e.fumbblName))
+        || registry.find((e) => e.fumbblName?.trim().toLowerCase() === coach.trim().toLowerCase());
+      return { avatar, fumbblName: (linked && linked.fumbblName?.trim()) || null };
+    },
+    rating: (name, requester) => coachRatings.get(name, requester),
+    jnlp: async (seat) => {
+      // The seat coach's stored credential (owned by the session coach: seatOf checked membership + seat).
+      const passwordMd5 = challengeDbCfg ? await forkCoachPasswordDigest(challengeDbCfg, seat.coach) : undefined;
+      return buildForkJnlp({ ...seat, passwordMd5 });
+    },
+    chatLive: () => lobbyChatLive,
+    withGameStartLock: async (fn) => {
+      const cfg = forkConfigFromEnv();
+      if (!cfg || !isLobbyGameStartWrite(method, path)) return fn();
+      if (forkCacheReloadRequired(cfg.teamsDir)) {
+        throw new LobbyError(503, "The fork team cache requires recovery reload; game starts are temporarily disabled.");
+      }
+      const lock = acquireTeamNameWriteLock(cfg.teamsDir);
+      if (!lock) throw new LobbyError(409, "A team/cache generation update is in progress; game start delivery is temporarily paused.");
+      try { return await fn(); } finally { lock.release(); }
+    },
+  });
+  if (!result) return sendJson(res, 404, { error: "Not found." });
+  if (result.contentType) {
+    res.writeHead(result.status, { "content-type": result.contentType, ...(result.headers ?? {}) });
+    res.end(String(result.body));
+    return;
+  }
+  return sendJson(res, result.status, result.body);
+}
 
 // --- Team Builder (V1) ---
 // Baseline ruleset for standalone builds (owner-ruled): open-league, 1000k gold, no SP, no
@@ -873,6 +963,8 @@ async function handleApi(
   query: URLSearchParams,
   auth?: SessionIdentity,
 ): Promise<void> {
+  // Web Lobby: authenticates and reads its body BEFORE taking the game-start lock (handleLobbyRequest).
+  if (isLobbyApiPath(path)) return handleLobbyRequest(req, res, path, query);
   const method = req.method ?? "GET";
   const cacheGateCfg = forkConfigFromEnv();
   const gameStartDelivery = [
@@ -882,7 +974,7 @@ async function handleApi(
     "/api/fork/schedule",
     "/api/fork/tournament-match",
     "/api/fork/jnlp",
-  ].includes(path) || (method === "POST" && /^\/api\/lobby(?:\/[^/]+\/(?:join|launch))?$/.test(path));
+  ].includes(path);
   const gameStartGenerationLock = gameStartDelivery && cacheGateCfg
     ? acquireTeamNameWriteLock(cacheGateCfg.teamsDir)
     : undefined;
@@ -900,36 +992,6 @@ async function handleApi(
   ].includes(path);
   if (requiresCoherentTeamCache && cacheGateCfg && forkCacheReloadRequired(cacheGateCfg.teamsDir)) {
     return sendJson(res, 503, { error: "The fork team cache requires recovery reload; team mutations and game starts are temporarily disabled." });
-  }
-
-  if (isLobbyApiPath(path)) {
-    const body = method === "POST" ? await readBody(req) : undefined;
-    const result = await lobbyApi(method, path, query, auth, body, {
-      store: lobbyStore,
-      roster: (coach, teamId) => {
-        const detail = teamDetailEndpoint({ coach, organizer: false }, teamId, {
-          libraryDir: LIBRARY_DIR,
-          teamsDir: forkConfigFromEnv()?.teamsDir,
-        });
-        return detail.status === 200 ? lobbyRosterFromDetail(detail.body.team) : undefined;
-      },
-      coachCard: (coach) => {
-        let avatar: string | null = null;
-        let discordUserId = "";
-        try {
-          const record = ownIdentityRecord(coach);
-          discordUserId = record.identities.discordUserId ?? "";
-          avatar = record.profile.avatar || discordAvatarUrl(discordUserId, record.identities.discordAvatarHash) || null;
-        } catch { /* unknown coach: no card extras */ }
-        const registry = readCoachRegistry(COACH_REGISTRY_JSON);
-        const linked = (discordUserId && registry.find((e) => e.discordUserId === discordUserId && e.fumbblName))
-          || registry.find((e) => e.fumbblName?.trim().toLowerCase() === coach.trim().toLowerCase());
-        return { avatar, fumbblName: (linked && linked.fumbblName?.trim()) || null };
-      },
-      rating: (name) => coachRatings.get(name),
-      chatLive: () => lobbyChatLive,
-    });
-    if (result) return sendJson(res, result.status, result.body);
   }
 
   if (path === "/api/auth/session" && (method === "GET" || method === "HEAD")) {
@@ -1181,7 +1243,7 @@ async function handleApi(
           identityForCoach: (coach) => readIdentities().coaches[normalizeFfbCoachId(coach)],
           isCoachBanned: isBanned,
           upsertIdentity: (record) => { upsertIdentity(record); },
-          createSessionToken: (coach, now) => createSession(coach, now).token,
+          createSessionToken: (coach, now) => createSession(coach, now, "discord").token,
         },
         Date.now(),
         pending.desktopFlowId
@@ -1585,9 +1647,7 @@ async function handleApi(
       }
       if (!jnlpDigest) return sendJson(res, 404, { error: "Fork coach account not found." });
     }
-    const jnlpGameId = query.get("gameId")?.trim();
-    if (jnlpGameId && !/^\d{1,12}$/.test(jnlpGameId)) return sendJson(res, 400, { error: "gameId must be numeric." });
-    const jnlp = buildForkJnlp({ coach, teamId, gameName, passwordMd5: jnlpDigest, gameId: jnlpGameId || undefined });
+    const jnlp = buildForkJnlp({ coach, teamId, gameName, passwordMd5: jnlpDigest });
     res.writeHead(200, {
       "content-type": "application/x-java-jnlp-file; charset=utf-8",
       "content-disposition": `attachment; filename="${jnlpFilename(gameName, coach)}"`,
@@ -1915,7 +1975,12 @@ async function handleApi(
   if (path === "/api/fork/matchstatus" && method === "GET") {
     const coach = query.get("coach")?.trim();
     if (!coach) return sendJson(res, 400, { error: "coach is required." });
-    return sendJson(res, 200, matchmaker.matchstatus(coach));
+    // Only the coach's own session (or the digest that coach supplied) gets a JNLP with a credential and
+    // consumes the delivery; any other caller sees a credential-free JNLP (the client then uses its own creds).
+    return sendJson(res, 200, matchmaker.matchstatus(coach, {
+      authorized: sessionOwnsCoach(auth?.coach, coach),
+      passwordMd5: query.get("passwordMd5")?.trim() || undefined,
+    }));
   }
 
   // Drop my pending challenge.
@@ -3030,7 +3095,18 @@ if (challengeDbCfg && forkAdminCfg) {
   lobbyChatLive = attachSuper(server, {
     dbCfg: challengeDbCfg,
     forkCfg: forkAdminCfg,
-    lobby: lobbySocketBridge(lobbyStore, (req) => sessionFromRequest(req as IncomingMessage)?.coach),
+    lobby: lobbySocketBridge(lobbyStore, {
+      sessionFromRequest: (req) => {
+        const token = sessionTokenFromRequest(req as IncomingMessage);
+        const session = getSession(token);
+        return token && session?.method === "discord" ? { coach: session.coach, token } : undefined;
+      },
+      sessionCoach: (token) => {
+        const session = getSession(token);
+        return session?.method === "discord" ? session.coach : undefined;
+      },
+      originAllowed: (origin, host) => lobbyOriginAllowed(origin, host, lobbyAllowedOrigins),
+    }),
   }) !== null;
 } else if (process.env.SUPER_ENABLED === "1") {
   console.log("[super] SUPER_ENABLED set but fork DB/admin config missing — Super stays OFF.");

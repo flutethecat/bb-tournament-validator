@@ -4,7 +4,7 @@
 
 import "./style.css";
 import { api, ApiError, type ChatMessage, type LibraryTeam, type LobbyView, type PendingChallenge, type Roster, type SeatView, type SessionInfo } from "./api";
-import { expiryLine, lobbyIdFromHash, presenceLine, ratingParts, renderEmoji, type RatingLike } from "./format";
+import { CHAT_KEEP, expiryLine, lobbyIdFromHash, lobbyStatusLine, presenceLine, ratingParts, renderEmoji, type RatingLike } from "./format";
 
 const RETURN_KEY = "lobby-return-hash";
 
@@ -151,7 +151,9 @@ function renderStart(): () => void {
 
   const lobbyRow = (l: LobbyView): HTMLElement => {
     const other = l.me === "creator" ? l.opponent : l.creator;
-    const status = l.status === "ready" ? "Game ready" : l.status === "waiting" ? "Waiting" : "Challenge lapsed";
+    const status = l.status === "ready" ? "Game ready"
+      : l.status === "waiting" ? (l.opponentAccepted ? "Accepted" : "Waiting")
+      : l.me === "creator" ? "Confirm your challenge" : `Waiting for ${l.creator.coach} to confirm`;
     return h("div", { class: "lobby-row" }, h("a", { href: `#${l.id}` }, `vs ${other.coach}`), h("span", { class: "muted" }, status));
   };
 
@@ -195,6 +197,7 @@ function renderLobby(id: string): () => void {
   let socket: WebSocket | undefined;
   let socketTries = 0;
   let chatLive = false;
+  let refused = "";
   const seenChat = new Set<number>();
   const rosterLoaded = { creator: "", opponent: "" };
   let cardLoaded = "";
@@ -236,8 +239,21 @@ function renderLobby(id: string): () => void {
     if (seenChat.has(m.id)) return;
     seenChat.add(m.id);
     const time = new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    chatLog.append(h("li", { class: m.coach.toLowerCase() === me.toLowerCase() ? "mine" : "" },
-      h("span", { class: "chat-time" }, time), " ", h("strong", {}, m.coach), " ", h("span", {}, renderEmoji(m.text))));
+    const li = h("li", { class: m.coach.toLowerCase() === me.toLowerCase() ? "mine" : "" },
+      h("span", { class: "chat-time" }, time), " ", h("strong", {}, m.coach), " ", h("span", {}, renderEmoji(m.text)));
+    li.dataset.id = String(m.id);
+    chatLog.append(li);
+    // Keep the page bounded like the server's history: drop the oldest lines and their ids.
+    while (chatLog.children.length > CHAT_KEEP) {
+      const oldest = chatLog.firstElementChild as HTMLElement | null;
+      if (!oldest) break;
+      seenChat.delete(Number(oldest.dataset.id));
+      oldest.remove();
+    }
+    if (seenChat.size > CHAT_KEEP * 2) {
+      const live = new Set([...chatLog.children].map((el) => Number((el as HTMLElement).dataset.id)));
+      for (const id of [...seenChat]) if (!live.has(id)) seenChat.delete(id);
+    }
     chatLog.scrollTop = chatLog.scrollHeight;
   };
 
@@ -290,32 +306,36 @@ function renderLobby(id: string): () => void {
     }
   };
 
+  // Controls follow the server's pairing state (canAccept / canRenew), never local guesses.
+  let joinMode = "";
   const renderJoin = (v: LobbyView): void => {
-    if (v.me !== "opponent" || v.status === "ready" || v.opponent.team) {
-      joinBox.replaceChildren();
-      if (v.me === "creator" && v.status !== "ready") {
-        joinBox.replaceChildren(h("button", { class: "lobby-btn", type: "button", onclick: async () => {
-          try { await api(`/api/lobby/${id}/close`, { method: "POST" }); location.hash = ""; }
-          catch (err) { launchErr.replaceChildren(errorBox((err as Error).message)); }
-        } }, "Close lobby"));
-      }
-      return;
-    }
-    if (joinBox.querySelector("select")) return; // keep the coach's pick across polls
+    const mode = v.canAccept ? "accept" : v.canRenew ? "renew" : v.me === "creator" && v.status !== "ready" ? "close" : "";
+    if (mode === joinMode) return; // keep the coach's pick and any error across polls
+    joinMode = mode;
+    joinBox.replaceChildren();
+    if (!mode) return;
+    const closeBtn = h("button", { class: "lobby-btn", type: "button", onclick: async () => {
+      try { await api(`/api/lobby/${id}/close`, { method: "POST" }); location.hash = ""; }
+      catch (err) { launchErr.replaceChildren(errorBox((err as Error).message)); }
+    } }, "Close lobby");
+    if (mode === "close") { joinBox.replaceChildren(closeBtn); return; }
     const sel = teamSelect("join-team");
+    if (mode === "renew" && v.creator.team) sel.value = v.creator.team.teamId;
     const err = h("div");
     const btn = h("button", { class: "lobby-btn primary", type: "button", onclick: async () => {
       if (!sel.value) return err.replaceChildren(errorBox("Pick a team first."));
       btn.disabled = true;
+      err.replaceChildren();
       try {
-        const res = await api<{ lobby: LobbyView }>(`/api/lobby/${id}/join`, { method: "POST", body: { teamId: sel.value } });
+        const res = await api<{ lobby: LobbyView }>(`/api/lobby/${id}/${mode === "accept" ? "join" : "renew"}`, { method: "POST", body: { teamId: sel.value } });
         apply(res.lobby);
       } catch (e) {
         err.replaceChildren(errorBox((e as Error).message));
+      } finally {
         btn.disabled = false;
       }
-    } }, "Accept with this team");
-    joinBox.replaceChildren(h("div", { class: "lobby-form inline" }, h("label", { for: "join-team" }, "Your team"), sel, btn), err);
+    } }, mode === "accept" ? "Accept with this team" : "Confirm challenge");
+    joinBox.replaceChildren(h("div", { class: "lobby-form inline" }, h("label", { for: "join-team" }, "Your team"), sel, btn, mode === "renew" ? closeBtn : null), err);
   };
 
   const apply = (v: LobbyView): void => {
@@ -324,11 +344,7 @@ function renderLobby(id: string): () => void {
     const other = v.me === "creator" ? v.opponent : v.creator;
     const otherRole = v.me === "creator" ? "opponent" : "creator";
     title.textContent = `${v.creator.coach} vs ${v.opponent.coach}`;
-    status.textContent = v.status === "ready"
-      ? `Game set up${v.game?.gameId ? ` (game ${v.game.gameId})` : ""}. ${v.canLaunch ? "Ready to start." : "Waiting for both coaches."}`
-      : v.status === "waiting"
-        ? v.me === "creator" ? `Waiting for ${other.coach} to accept.` : `${other.coach} challenged you. Pick a team to accept.`
-        : v.me === "creator" ? `Your challenge lapsed. It renews when ${other.coach} accepts.` : `Pick a team to accept.`;
+    status.textContent = lobbyStatusLine(v);
     expiry.textContent = expiryLine(v.expiresAt, Date.now());
     presence.replaceChildren(...[v.creator, v.opponent].map((s) => h("li", { class: `presence-${s.state}` }, presenceLine(s.coach, s.state))));
     startBtn.disabled = !v.canLaunch;
@@ -389,9 +405,9 @@ function renderLobby(id: string): () => void {
         const p = msg.payload as { id: number; text: string };
         addChat({ id: p.id, text: p.text, coach: String(msg.coach), ts: Number(msg.ts) });
       } else if (msg.type === "event" && msg.feature === "lobby-presence") {
-        const p = msg.payload as { expired?: boolean };
-        if (p.expired) void poll();
-        else void poll();
+        void poll();
+      } else if (msg.type === "lobbyRefused") {
+        refused = String(msg.reason ?? "");
       }
     };
     ws.onclose = () => {
@@ -399,6 +415,12 @@ function renderLobby(id: string): () => void {
       chatLive = false;
       chatInput.disabled = true;
       if (stopped) return;
+      if (refused) {
+        chatState.textContent = refused === "session" ? "Chat needs a Discord sign-in. Reload the page."
+          : refused === "too-many" ? "Chat is open in too many tabs."
+          : "Live chat is off for this page.";
+        return;
+      }
       socketTries++;
       if (socketTries > 5) { chatState.textContent = "Live chat is off on this server."; return; }
       chatState.textContent = "Chat reconnecting…";

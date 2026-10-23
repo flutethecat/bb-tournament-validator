@@ -14,6 +14,8 @@ import type { Duplex } from "node:stream";
 import type { IncomingMessage } from "node:http";
 
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+/** Bytes queued on a socket before a non-reading peer is dropped. */
+const MAX_OUTBOUND_BUFFER = 4 * 1024 * 1024;
 
 /** Compute the Sec-WebSocket-Accept response for the handshake. */
 export function acceptKey(secWebSocketKey: string): string {
@@ -94,6 +96,9 @@ export class WsConnection {
       header = Buffer.allocUnsafe(10);
       header[0] = 0x80 | opcode; header[1] = 127; header.writeBigUInt64BE(BigInt(len), 2);
     }
+    // Backpressure: a peer that stops reading is dropped instead of buffering without bound.
+    const pending = (this.socket as Duplex & { writableLength?: number }).writableLength ?? 0;
+    if (pending > MAX_OUTBOUND_BUFFER) { this.fireClose(); return; }
     try { this.socket.write(Buffer.concat([header, payload])); }
     catch { this.fireClose(); }
   }

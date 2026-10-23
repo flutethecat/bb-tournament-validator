@@ -22,10 +22,13 @@
  * injection shape as `scheduleGame`, for the same testability reason.
  */
 
+import { randomBytes } from "node:crypto";
 import { buildForkJnlp, coachSecretDigest } from "./index.js";
 import { safe } from "./util.js";
 
 interface Challenge {
+  /** Opaque identity of THIS consent: a re-entered challenge is a new id (the Lobby keys consent on it). */
+  id: string;
   coach: string;
   teamId: string;
   opponent: string;
@@ -41,7 +44,11 @@ interface MatchDelivery {
   /** The server-scheduled gameId, when scheduling succeeded (else undefined → gameName join). */
   gameId?: string;
   opponent: string;
-  jnlp: string;
+  coach: string;
+  teamId: string;
+  /** The digest THIS coach supplied with their own challenge (never one fetched for them). Only an
+   *  authorized poll (the coach's own session, or the same digest) receives a JNLP carrying it. */
+  passwordMd5?: string;
   createdAt: number;
 }
 
@@ -58,6 +65,7 @@ export type ChallengeVerifier = (coach: string, passwordMd5: string) => Promise<
 
 /** A pending challenge as read by a VIEW (the web Lobby): never carries the digest. */
 export interface PendingChallengeView {
+  id: string;
   coach: string;
   teamId: string;
   opponent: string;
@@ -69,11 +77,22 @@ export interface PendingChallengeView {
 export interface PairingEvent {
   gameName: string;
   gameId?: string;
-  home: { coach: string; teamId: string };
-  away: { coach: string; teamId: string };
+  home: { coach: string; teamId: string; challengeId: string };
+  away: { coach: string; teamId: string; challengeId: string };
   at: number;
 }
 export type PairingListener = (pairing: PairingEvent) => void;
+
+/** Re-checked for BOTH sides at pairing time, before scheduling (team still owned / loaded, coach not
+ *  banned). Return an error message to refuse; that side's challenge is dropped, the other stays pending. */
+export type PairSideValidator = (side: { coach: string; teamId: string }) => Promise<string | undefined> | string | undefined;
+
+/** Result of `challengeVerified`: the new challenge's id, and the pairing when it paired at once. */
+export interface VerifiedChallengeResult {
+  status: "waiting" | "paired";
+  challengeId: string;
+  pairing?: PairingEvent;
+}
 
 /**
  * How home/away is assigned when a pair is scheduled (which team the fork gets as
@@ -103,6 +122,10 @@ export class Matchmaker {
   private readonly scheduleGame?: ForkGameScheduler;
   private readonly verifyChallenger?: ChallengeVerifier;
   private readonly pairingListeners: PairingListener[] = [];
+  private readonly validateSide?: PairSideValidator;
+  /** Coach keys whose pairing is in flight (between reservation and delivery). A challenge by or for a
+   *  reserved coach is refused, so overlapping accepts can never pair (or schedule) twice. */
+  private readonly reserved = new Set<string>();
   private homeAwayMode: HomeAwayMode;
 
   constructor(opts?: {
@@ -114,6 +137,7 @@ export class Matchmaker {
     verifyChallenger?: ChallengeVerifier;
     homeAwayMode?: HomeAwayMode;
     onPaired?: PairingListener;
+    validateSide?: PairSideValidator;
   }) {
     this.ttlMs = opts?.ttlMs ?? DEFAULT_TTL_MS;
     this.now = opts?.now ?? Date.now;
@@ -122,6 +146,7 @@ export class Matchmaker {
     this.verifyChallenger = opts?.verifyChallenger;
     this.homeAwayMode = opts?.homeAwayMode ?? DEFAULT_HOME_AWAY_MODE;
     if (opts?.onPaired) this.pairingListeners.push(opts.onPaired);
+    this.validateSide = opts?.validateSide;
   }
 
   /** Register a read-only pairing listener (the web Lobby view). A listener fault never breaks pairing. */
@@ -133,7 +158,7 @@ export class Matchmaker {
   pendingOf(coach: string): PendingChallengeView | undefined {
     this.sweep();
     const c = this.pending.get(this.key(coach));
-    return c ? { coach: c.coach, teamId: c.teamId, opponent: c.opponent, createdAt: c.createdAt } : undefined;
+    return c ? { id: c.id, coach: c.coach, teamId: c.teamId, opponent: c.opponent, createdAt: c.createdAt } : undefined;
   }
 
   /** Pending challenges that NAME this coach as the opponent (an inbox), digest stripped, oldest first. */
@@ -142,7 +167,7 @@ export class Matchmaker {
     const k = this.key(coach);
     return [...this.pending.values()]
       .filter((c) => this.key(c.opponent) === k)
-      .map((c) => ({ coach: c.coach, teamId: c.teamId, opponent: c.opponent, createdAt: c.createdAt }));
+      .map((c) => ({ id: c.id, coach: c.coach, teamId: c.teamId, opponent: c.opponent, createdAt: c.createdAt }));
   }
 
   /** Current home/away assignment policy (see HomeAwayMode). */
@@ -202,18 +227,72 @@ export class Matchmaker {
       if (!ok) throw new Error("Invalid coach name or password.");
     }
 
-    const mine: Challenge = { coach, teamId: opts.teamId.trim(), opponent, passwordMd5: digest, createdAt: this.now() };
-    this.pending.set(this.key(coach), mine);
-
-    // Reciprocal? The opponent must already be waiting AND naming me.
-    const theirs = this.pending.get(this.key(opponent));
-    if (theirs && this.key(theirs.opponent) === this.key(coach)) {
-      await this.pair(mine, theirs);
-    }
+    await this.enter({ id: this.newId(), coach, teamId: opts.teamId.trim(), opponent, passwordMd5: digest, createdAt: this.now() });
     return { status: "waiting" };
   }
 
-  private async pair(a: Challenge, b: Challenge): Promise<void> {
+  /**
+   * A challenge whose coach the CALLER already proved (the web Lobby: a Discord-authenticated session).
+   * Skips `verifyChallenger` and carries NO digest, so nothing fetched on the coach's behalf can ever
+   * reach a delivery. Same pairing rules (and the same reservation) as `challenge`.
+   */
+  async challengeVerified(opts: { coach: string; teamId: string; opponent: string }): Promise<VerifiedChallengeResult> {
+    this.sweep();
+    const coach = opts.coach.trim();
+    const opponent = opts.opponent.trim();
+    if (!coach) throw new Error("coach is required.");
+    if (!opts.teamId?.trim()) throw new Error("teamId is required.");
+    if (!opponent) throw new Error("opponent is required.");
+    if (this.key(coach) === this.key(opponent)) throw new Error("You can't challenge yourself.");
+    const mine: Challenge = { id: this.newId(), coach, teamId: opts.teamId.trim(), opponent, createdAt: this.now() };
+    const pairing = await this.enter(mine);
+    return pairing ? { status: "paired", challengeId: mine.id, pairing } : { status: "waiting", challengeId: mine.id };
+  }
+
+  private newId(): string {
+    return randomBytes(9).toString("base64url");
+  }
+
+  /** Store a challenge and pair it if reciprocal. Synchronous up to the pairing reservation. */
+  private async enter(mine: Challenge): Promise<PairingEvent | undefined> {
+    for (const k of [this.key(mine.coach), this.key(mine.opponent)]) {
+      if (this.reserved.has(k)) throw new Error("A game is already being set up for this coach. Try again in a moment.");
+    }
+    this.pending.set(this.key(mine.coach), mine);
+    // Reciprocal? The opponent must already be waiting AND naming me.
+    const theirs = this.pending.get(this.key(mine.opponent));
+    if (theirs && this.key(theirs.opponent) === this.key(mine.coach)) return this.pair(mine, theirs);
+    return undefined;
+  }
+
+  private async pair(a: Challenge, b: Challenge): Promise<PairingEvent> {
+    // Reserve BEFORE any await: both challenges leave `pending` and both coaches are locked out of new
+    // challenges until this pairing resolves. This is the atomicity guarantee (no filesystem lock needed).
+    const ka = this.key(a.coach);
+    const kb = this.key(b.coach);
+    this.pending.delete(ka);
+    this.pending.delete(kb);
+    this.reserved.add(ka);
+    this.reserved.add(kb);
+    try {
+      return await this.pairReserved(a, b);
+    } finally {
+      this.reserved.delete(ka);
+      this.reserved.delete(kb);
+    }
+  }
+
+  private async pairReserved(a: Challenge, b: Challenge): Promise<PairingEvent> {
+    if (this.validateSide) {
+      for (const [side, other] of [[a, b], [b, a]] as const) {
+        const error = await this.validateSide({ coach: side.coach, teamId: side.teamId });
+        if (error) {
+          // The invalid side's consent is void; the other side keeps waiting (unless it expired meanwhile).
+          if (other.createdAt >= this.now() - this.ttlMs) this.pending.set(this.key(other.coach), other);
+          throw new Error(error);
+        }
+      }
+    }
     // Stable, order-independent ordering — used for the gameName (so it's predictable/
     // reproducible regardless of who challenged first) AND as the base ordering the
     // home/away policy is applied on top of.
@@ -236,31 +315,22 @@ export class Matchmaker {
     }
 
     this.matched.set(this.key(a.coach), {
-      gameName,
-      gameId,
-      opponent: b.coach,
-      jnlp: buildForkJnlp({ coach: a.coach, teamId: a.teamId, gameName, passwordMd5: a.passwordMd5, gameId }),
-      createdAt: at,
+      gameName, gameId, opponent: b.coach, coach: a.coach, teamId: a.teamId, passwordMd5: a.passwordMd5, createdAt: at,
     });
     this.matched.set(this.key(b.coach), {
-      gameName,
-      gameId,
-      opponent: a.coach,
-      jnlp: buildForkJnlp({ coach: b.coach, teamId: b.teamId, gameName, passwordMd5: b.passwordMd5, gameId }),
-      createdAt: at,
+      gameName, gameId, opponent: a.coach, coach: b.coach, teamId: b.teamId, passwordMd5: b.passwordMd5, createdAt: at,
     });
-    this.pending.delete(this.key(a.coach));
-    this.pending.delete(this.key(b.coach));
     const event: PairingEvent = {
       gameName,
       gameId,
-      home: { coach: home.coach, teamId: home.teamId },
-      away: { coach: away.coach, teamId: away.teamId },
+      home: { coach: home.coach, teamId: home.teamId, challengeId: home.id },
+      away: { coach: away.coach, teamId: away.teamId, challengeId: away.id },
       at,
     };
     for (const listener of this.pairingListeners) {
       try { listener(event); } catch { /* a view fault never breaks pairing */ }
     }
+    return event;
   }
 
   /**
@@ -284,18 +354,28 @@ export class Matchmaker {
   }
 
   /**
-   * Poll for a match. On a `matched` result the delivery is consumed (dropped) so a
-   * duplicate poll won't re-open a stale game; the client stops polling once matched.
+   * Poll for a match. An AUTHORIZED poll (the HTTP route passes `authorized` only when the caller's
+   * session owns `coach`, or the caller sends the same digest that coach supplied) consumes the
+   * delivery and gets the JNLP with that coach's own digest. Any other poll gets a credential-free JNLP
+   * and does not consume it (an anonymous caller can neither read a secret nor steal the delivery).
+   * The default (no options) is the in-process caller and counts as authorized.
    */
-  matchstatus(coach: string): MatchStatus {
+  matchstatus(coach: string, opts: { authorized?: boolean; passwordMd5?: string } = { authorized: true }): MatchStatus {
     this.sweep();
     const k = this.key(coach);
     const m = this.matched.get(k);
-    if (m) {
-      this.matched.delete(k);
-      return { status: "matched", gameName: m.gameName, gameId: m.gameId, opponent: m.opponent, jnlp: m.jnlp };
-    }
-    return { status: "waiting" };
+    if (!m) return { status: "waiting" };
+    const proof = opts.passwordMd5?.trim().toLowerCase();
+    const authorized = opts.authorized === true || (!!proof && !!m.passwordMd5 && proof === m.passwordMd5.toLowerCase());
+    if (authorized) this.matched.delete(k);
+    const jnlp = buildForkJnlp({
+      coach: m.coach,
+      teamId: m.teamId,
+      gameName: m.gameName,
+      gameId: m.gameId,
+      passwordMd5: authorized ? m.passwordMd5 : undefined,
+    });
+    return { status: "matched", gameName: m.gameName, gameId: m.gameId, opponent: m.opponent, jnlp };
   }
 
   /** Drop a coach's pending challenge. */

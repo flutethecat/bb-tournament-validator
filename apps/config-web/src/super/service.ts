@@ -58,8 +58,12 @@ export interface SuperOptions {
   log?: (line: string) => void;
   /** Web Lobby rooms (lobby-chat / lobby-presence). Absent => a lobby hello is refused. */
   lobby?: LobbySocketBridge;
-  /** min ms between two lobby-chat publishes on one connection (default 400). */
+  /** min ms between two lobby-chat publishes by one coach in one lobby, across all their sockets (default 400). */
   lobbyChatIntervalMs?: number;
+  /** max open sockets per coach per lobby (default 3); one more is refused. */
+  lobbyMaxSocketsPerCoach?: number;
+  /** how often lobby sockets re-check their session (default 15 s; 0 disables the timer). */
+  lobbySessionCheckMs?: number;
 }
 
 interface Participant {
@@ -87,13 +91,22 @@ export class SuperService {
   /** lobbyId -> the open sockets of its two coaches (a coach may have several tabs). */
   private readonly lobbyRooms = new Map<string, Set<WsConnection>>();
   private readonly lobbyChatIntervalMs: number;
+  private readonly lobbyMaxSocketsPerCoach: number;
+  /** `${lobbyId}|${coach}` -> last accepted chat publish (per coach, not per socket). */
+  private readonly lobbyLastChat = new Map<string, number>();
 
   constructor(private readonly opts: SuperOptions) {
     this.log = opts.log ?? ((l) => console.log(`[super] ${l}`));
     this.handshakeTimeoutMs = opts.handshakeTimeoutMs ?? 10_000;
     this.minPublishIntervalMs = 1000 / (opts.maxPublishHz ?? 10);
     this.lobbyChatIntervalMs = opts.lobbyChatIntervalMs ?? 400;
+    this.lobbyMaxSocketsPerCoach = Math.max(1, opts.lobbyMaxSocketsPerCoach ?? 3);
     opts.lobby?.subscribe((lobbyId) => this.broadcastLobbyPresence(lobbyId));
+    const checkMs = opts.lobbySessionCheckMs ?? 15_000;
+    if (opts.lobby && checkMs > 0) {
+      const timer = setInterval(() => this.revalidateLobbySockets(), checkMs);
+      (timer as { unref?: () => void }).unref?.();
+    }
   }
 
   /** Attach to an http.Server 'upgrade' event, scoped to a path. Returns the handler for detach. */
@@ -102,9 +115,15 @@ export class SuperService {
     try {
       const conn = handshake(req, socket);
       if (!conn) return;
-      // Lobby identity = the HTTP session on the upgrade request (cookie / Bearer), captured once here.
+      // Lobby identity = the Discord session on the upgrade request (cookie / Bearer), plus the browser
+      // Origin check; both captured here, the session re-checked for the socket's whole life.
       if (this.opts.lobby) {
-        try { conn.data.sessionCoach = this.opts.lobby.coachFromRequest(req); } catch { /* no session */ }
+        try {
+          const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+          conn.data.originOk = this.opts.lobby.originAllowed(origin, req.headers.host);
+          const session = this.opts.lobby.sessionFromRequest(req);
+          if (session) conn.data.sessionToken = session.token;
+        } catch { /* no session */ }
       }
       this.beginHandshake(conn);
     } catch (e) {
@@ -113,9 +132,10 @@ export class SuperService {
     }
   }
 
-  /** Test seam: run the handshake on an already-upgraded connection. */
-  acceptConnection(conn: WsConnection, sessionCoach?: string): void {
-    if (sessionCoach !== undefined) conn.data.sessionCoach = sessionCoach;
+  /** Test seam: run the handshake on an already-upgraded connection (session token + origin verdict given). */
+  acceptConnection(conn: WsConnection, session?: { token?: string; originOk?: boolean }): void {
+    if (session?.token !== undefined) conn.data.sessionToken = session.token;
+    conn.data.originOk = session?.originOk ?? true;
     this.beginHandshake(conn);
   }
 
@@ -273,11 +293,21 @@ export class SuperService {
     if (conn.data.authed) return;
     const lobby = this.opts.lobby;
     const lobbyId = String(msg.lobbyId);
-    const coach = typeof conn.data.sessionCoach === "string" ? conn.data.sessionCoach : "";
+    const token = typeof conn.data.sessionToken === "string" ? conn.data.sessionToken : "";
+    const coach = (lobby && token && lobby.sessionCoach(token)) || "";
     const claimed = typeof msg.coach === "string" ? msg.coach.trim().toLowerCase() : "";
-    if (!lobby || !coach || (claimed && claimed !== coach.toLowerCase()) || !lobby.isMember(lobbyId, coach)) {
-      this.log(`lobby reject coach=${coach || "-"} lobby=${lobbyId}`);
-      this.safeSend(conn, { type: "lobbyRefused", v: 1, lobbyId });
+    const room = this.lobbyRooms.get(lobbyId);
+    const mine = room ? [...room].filter((c) => String(c.data.coach).toLowerCase() === coach.toLowerCase()).length : 0;
+    const reason = !lobby ? "off"
+      : conn.data.originOk !== true ? "origin"
+      : !coach ? "session"
+      : claimed && claimed !== coach.toLowerCase() ? "session"
+      : !lobby.isMember(lobbyId, coach) ? "member"
+      : mine >= this.lobbyMaxSocketsPerCoach ? "too-many"
+      : "";
+    if (reason || !lobby) {
+      this.log(`lobby reject (${reason}) coach=${coach || "-"} lobby=${lobbyId}`);
+      this.safeSend(conn, { type: "lobbyRefused", v: 1, lobbyId, reason });
       conn.close();
       return;
     }
@@ -285,9 +315,9 @@ export class SuperService {
     conn.data.kind = "lobby";
     conn.data.coach = coach;
     conn.data.lobbyId = lobbyId;
-    const room = this.lobbyRooms.get(lobbyId) ?? new Set<WsConnection>();
-    room.add(conn);
-    this.lobbyRooms.set(lobbyId, room);
+    const joined = room ?? new Set<WsConnection>();
+    joined.add(conn);
+    this.lobbyRooms.set(lobbyId, joined);
     this.safeSend(conn, {
       type: "lobbyWelcome",
       v: 1,
@@ -299,17 +329,35 @@ export class SuperService {
     lobby.socketOpened(lobbyId, coach); // store emits -> broadcastLobbyPresence
   }
 
+  /** A lobby socket lives only as long as its Discord session (logout / expiry closes it). */
+  private lobbySessionValid(conn: WsConnection): boolean {
+    const token = typeof conn.data.sessionToken === "string" ? conn.data.sessionToken : "";
+    const coach = token ? this.opts.lobby?.sessionCoach(token) : undefined;
+    return !!coach && coach.toLowerCase() === String(conn.data.coach).toLowerCase();
+  }
+
+  private revalidateLobbySockets(): void {
+    try {
+      for (const room of [...this.lobbyRooms.values()]) {
+        for (const c of [...room]) if (!this.lobbySessionValid(c)) c.close();
+      }
+    } catch (e) {
+      this.log(`lobby session sweep error (contained): ${(e as Error).message}`);
+    }
+  }
+
   private handleLobbyPublish(conn: WsConnection, msg: Record<string, unknown>): void {
     const lobby = this.opts.lobby;
     if (!lobby || !conn.data.authed) return;
     const lobbyId = String(conn.data.lobbyId);
     const coach = String(conn.data.coach);
+    if (!this.lobbySessionValid(conn)) { conn.close(); return; }
     const feature = getLobbyFeature(typeof msg.feature === "string" ? msg.feature : "");
     if (!feature || !feature.publishable) return;
     const now = Date.now();
-    const last = typeof conn.data.lastLobbyChat === "number" ? conn.data.lastLobbyChat : 0;
-    if (now - last < this.lobbyChatIntervalMs) return;
-    conn.data.lastLobbyChat = now;
+    const rateKey = `${lobbyId}|${coach.toLowerCase()}`;
+    if (now - (this.lobbyLastChat.get(rateKey) ?? 0) < this.lobbyChatIntervalMs) return;
+    this.lobbyLastChat.set(rateKey, now);
     const clean = feature.validate(msg.payload);
     if (!clean) return;
     const stored = lobby.appendChat(lobbyId, coach, clean.text); // null => not a member any more / expired
@@ -356,6 +404,9 @@ export class SuperService {
     if (!lobbyId || !coach) return;
     const room = this.lobbyRooms.get(lobbyId);
     if (!room || !room.delete(conn)) return;
+    if (![...room].some((c) => String(c.data.coach).toLowerCase() === coach.toLowerCase())) {
+      this.lobbyLastChat.delete(`${lobbyId}|${coach.toLowerCase()}`);
+    }
     if (room.size === 0) this.lobbyRooms.delete(lobbyId);
     this.opts.lobby?.socketClosed(lobbyId, coach);
   }

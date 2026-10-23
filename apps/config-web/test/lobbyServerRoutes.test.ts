@@ -1,17 +1,18 @@
 import { once } from "node:events";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import type { AddressInfo } from "node:net";
+import { connect, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSession, SESSION_COOKIE_NAME } from "../src/auth/session.js";
 
-// Route wiring on the live host's mode (sidecar OFF, ADMIN_PASSWORD set, no fork DB / admin): the lobby API is
-// session-gated in-handler (JSON 401, never a Basic challenge), cookie writes need X-CW-Auth, the page is public
-// static, and the JNLP route carries the scheduled gameId through.
+// Route wiring in the live host's mode (sidecar OFF, ADMIN_PASSWORD set, no fork DB / admin, FORK_TEAMS_DIR set so
+// the game-start lock is live): Discord-only sessions, CSRF, lock ordering, the session-scoped JNLP, and the
+// public matchstatus route never handing out a credential to a caller that did not supply it.
 const root = mkdtempSync(join(tmpdir(), "lobby-routes-"));
 const previousEnv = new Map<string, string | undefined>();
 let origin = "";
+let port = 0;
 let server: (typeof import("../src/server.js"))["server"];
 
 const team = (coach: string, teamId: string, teamName: string) => ({
@@ -29,6 +30,7 @@ beforeAll(async () => {
     FORK_LIBRARY_DIR: join(root, "library"),
     FORK_BUILDER_SAVES_DIR: join(root, "saves"),
     FORK_STATE_DIR: join(root, "state"),
+    FORK_TEAMS_DIR: join(root, "teams"),
     PACKAGES_DIR: join(root, "packages"),
     TOURNAMENTS_DIR: join(root, "tournaments"),
     COACH_REGISTRY_JSON: join(root, "coaches.json"),
@@ -39,16 +41,21 @@ beforeAll(async () => {
     previousEnv.set(name, process.env[name]);
     process.env[name] = value;
   }
-  delete process.env.FORK_TEAMS_DIR;
-  for (const directory of ["library", "packages", "tournaments", "state"]) mkdirSync(join(root, directory), { recursive: true });
+  for (const directory of ["library", "packages", "tournaments", "state", "teams"]) mkdirSync(join(root, directory), { recursive: true });
   writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: {} }), "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
-  writeFileSync(join(root, "library", "lobbyalice.json"), JSON.stringify([team("LobbyAlice", "9101", "Alice Orcs")]), "utf8");
-  writeFileSync(join(root, "library", "lobbybob.json"), JSON.stringify([team("LobbyBob", "9102", "Bob Orcs")]), "utf8");
+  const lib = (coach: string, teamId: string) =>
+    writeFileSync(join(root, "library", `${coach.toLowerCase()}.json`), JSON.stringify([team(coach, teamId, `${coach} XI`)]), "utf8");
+  lib("LobbyAlice", "9101");
+  lib("LobbyBob", "9102");
+  lib("LobbyCarol", "9103");
+  lib("LobbyDave", "9104");
+  lib("LobbyEve", "9105");
   writeFileSync(join(root, "state", "fork-reload-state.json"), JSON.stringify({ lastReloadAt: "2026-02-01T00:00:00.000Z" }), "utf8");
   ({ server } = await import("../src/server.js"));
   if (!server.listening) await once(server, "listening");
-  origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  port = (server.address() as AddressInfo).port;
+  origin = `http://127.0.0.1:${port}`;
 });
 
 afterAll(async () => {
@@ -59,55 +66,98 @@ afterAll(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const cookieFor = (coach: string) => `${SESSION_COOKIE_NAME}=${createSession(coach).token}`;
-const post = (path: string, cookie: string, body: unknown, csrf = true) =>
+const discordCookie = (coach: string) => `${SESSION_COOKIE_NAME}=${createSession(coach, Date.now(), "discord").token}`;
+const post = (path: string, cookie: string | undefined, body: unknown, csrf = true) =>
   fetch(`${origin}${path}`, {
     method: "POST",
-    headers: { cookie, "content-type": "application/json", ...(csrf ? { "x-cw-auth": "1" } : {}) },
+    headers: { ...(cookie ? { cookie } : {}), "content-type": "application/json", ...(csrf ? { "x-cw-auth": "1" } : {}) },
     body: JSON.stringify(body),
   });
 
+/** Send headers + part of a body and keep the socket open; resolves with the first response bytes (or ""). */
+function slowPost(path: string, cookie: string | undefined, waitMs = 400): Promise<{ head: string; end: () => void }> {
+  return new Promise((resolve) => {
+    const sock = connect(port, "127.0.0.1");
+    let head = "";
+    sock.on("data", (c) => { head += c.toString(); });
+    sock.on("error", () => {});
+    sock.write(
+      `POST ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nX-CW-Auth: 1\r\n` +
+        (cookie ? `Cookie: ${cookie}\r\n` : "") + "Content-Length: 200\r\n\r\n{\"teamId\":",
+    );
+    setTimeout(() => resolve({ head, end: () => sock.destroy() }), waitMs);
+  });
+}
+
 describe("lobby routes (sidecar off)", () => {
-  it("API answers JSON 401 without a session; the page path is not Basic-gated", async () => {
+  it("JSON 401 without a session (no Basic challenge); 403 for a password session; the page path is not Basic-gated", async () => {
     const res = await fetch(`${origin}/api/lobby`);
     expect(res.status).toBe(401);
     expect(res.headers.get("www-authenticate")).toBeNull();
-    const rating = await fetch(`${origin}/api/coach-rating?name=x`);
-    expect(rating.status).toBe(401);
-    const page = await fetch(`${origin}/lobby/`);
-    expect(page.status).not.toBe(401);
+    expect((await fetch(`${origin}/api/coach-rating?name=x`)).status).toBe(401);
+    const pw = `${SESSION_COOKIE_NAME}=${createSession("LobbyAlice", Date.now(), "password").token}`;
+    expect((await fetch(`${origin}/api/lobby`, { headers: { cookie: pw } })).status).toBe(403);
+    expect((await post("/api/lobby", pw, { teamId: "9101", opponent: "LobbyBob" })).status).toBe(403);
+    expect((await fetch(`${origin}/lobby/`)).status).not.toBe(401);
   });
 
-  it("cookie writes need X-CW-Auth; create -> join -> launch -> the seat's JNLP carries -gameName/-teamId", async () => {
-    const alice = cookieFor("LobbyAlice");
-    const bob = cookieFor("LobbyBob");
+  it("lock ordering: an anonymous or slow body never holds the game-start lock", async () => {
+    const anon = await slowPost("/api/lobby", undefined, 300);
+    expect(anon.head).toMatch(/^HTTP\/1\.1 401/); // answered before the body arrived
+    const slowAuthed = await slowPost("/api/lobby", discordCookie("LobbyEve"), 100); // body still incomplete
+    const res = await post("/api/lobby", discordCookie("LobbyCarol"), { teamId: "9103", opponent: "LobbyDave" });
+    expect(res.status).toBe(201); // not 409: nobody holds the lock while a body is pending
+    anon.end();
+    slowAuthed.end();
+  });
+
+  it("CSRF on cookie writes; create -> join -> launch -> the session-scoped JNLP (no credential injected anywhere)", async () => {
+    const alice = discordCookie("LobbyAlice");
+    const bob = discordCookie("LobbyBob");
     expect((await post("/api/lobby", alice, { teamId: "9101", opponent: "LobbyBob" }, false)).status).toBe(403);
 
     const created = await post("/api/lobby", alice, { teamId: "9101", opponent: "LobbyBob" });
     expect(created.status).toBe(201);
     const { lobby } = (await created.json()) as { lobby: { id: string; status: string } };
     expect(lobby.status).toBe("waiting");
-
     const inbox = (await (await fetch(`${origin}/api/lobby`, { headers: { cookie: bob } })).json()) as { challenges: Array<{ coach: string; lobbyId?: string }> };
     expect(inbox.challenges).toEqual([expect.objectContaining({ coach: "LobbyAlice", lobbyId: lobby.id })]);
 
     const joined = await post(`/api/lobby/${lobby.id}/join`, bob, { teamId: "9102" });
-    expect(joined.status).toBe(200);
     expect(((await joined.json()) as { lobby: { status: string } }).lobby.status).toBe("ready");
 
-    const launched = await post(`/api/lobby/${lobby.id}/launch`, bob, {});
-    const launch = (await launched.json()) as { jnlpUrl: string; scheme: null };
-    expect(launch.scheme).toBeNull();
-    const url = new URL(launch.jnlpUrl, origin);
-    expect(url.searchParams.get("coach")).toBe("LobbyBob");
-    expect(url.searchParams.get("teamId")).toBe("9102");
-    // No fork admin on this host -> gameName fallback (no gameId). Route-level gameId passthrough below.
-    url.searchParams.set("passwordMd5", "b".repeat(32));
-    url.searchParams.set("gameId", "777");
-    const jnlp = await (await fetch(url, { headers: { cookie: bob } })).text();
-    expect(jnlp).toContain("<argument>-gameId</argument><argument>777</argument>");
+    // P0: the public match poll must not hand out a JNLP credential (and must not consume the delivery).
+    for (const coach of ["LobbyAlice", "LobbyBob"]) {
+      const anon = (await (await fetch(`${origin}/api/fork/matchstatus?coach=${coach}`)).json()) as { status: string; jnlp?: string };
+      expect(anon.status).toBe("matched");
+      expect(anon.jnlp).not.toMatch(/passwordMd5/);
+    }
+
+    const launch = (await (await post(`/api/lobby/${lobby.id}/launch`, bob, {})).json()) as { jnlpUrl: string; scheme: null };
+    expect(launch).toMatchObject({ jnlpUrl: `/api/lobby/${lobby.id}/jnlp`, scheme: null });
+    const jnlpRes = await fetch(`${origin}${launch.jnlpUrl}`, { headers: { cookie: bob } });
+    expect(jnlpRes.status).toBe(200);
+    expect(jnlpRes.headers.get("content-type")).toMatch(/x-java-jnlp-file/);
+    const jnlp = await jnlpRes.text();
+    expect(jnlp).toContain("<argument>-coach</argument><argument>LobbyBob</argument>");
     expect(jnlp).toContain("<argument>-teamId</argument><argument>9102</argument>");
-    url.searchParams.set("gameId", "x1");
-    expect((await fetch(url, { headers: { cookie: bob } })).status).toBe(400);
+    expect(jnlp).not.toMatch(/passwordMd5/); // this host has no fork DB, so there is no stored credential to add
+    expect((await fetch(`${origin}${launch.jnlpUrl}`)).status).toBe(401);
+    expect((await fetch(`${origin}${launch.jnlpUrl}`, { headers: { cookie: discordCookie("LobbyCarol") } })).status).toBe(403);
+  });
+
+  it("matchstatus: a client-supplied digest goes only to its owner (session or the same digest); anonymous polls never consume", async () => {
+    const digest = "d".repeat(32);
+    // The Dave/Eve pair challenges from the client flow (digest in the query, no fork DB verification on this host).
+    await fetch(`${origin}/api/fork/challenge?coach=LobbyDave&teamId=9104&opponent=LobbyEve&passwordMd5=${digest}`);
+    await fetch(`${origin}/api/fork/challenge?coach=LobbyEve&teamId=9105&opponent=LobbyDave&passwordMd5=${"e".repeat(32)}`);
+    const anon = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`)).json()) as { status: string; jnlp: string };
+    expect(anon.status).toBe("matched");
+    expect(anon.jnlp).not.toContain(digest);
+    const wrong = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave&passwordMd5=${"e".repeat(32)}`)).json()) as { jnlp: string };
+    expect(wrong.jnlp).not.toContain(digest);
+    const own = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`, { headers: { cookie: discordCookie("LobbyDave") } })).json()) as { jnlp: string };
+    expect(own.jnlp).toContain(digest);
+    expect(await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`)).json()).toEqual({ status: "waiting" });
   });
 });

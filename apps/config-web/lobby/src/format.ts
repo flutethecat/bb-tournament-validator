@@ -89,3 +89,36 @@ export function lobbyIdFromHash(hash: string): string | undefined {
   const id = hash.replace(/^#\/?/, "").trim();
   return /^[A-Za-z0-9_-]{6,32}$/.test(id) ? id : undefined;
 }
+
+/** Lines of chat the page keeps (the server keeps the same number). */
+export const CHAT_KEEP = 200;
+
+export interface StatusLike {
+  me: "creator" | "opponent";
+  status: "waiting" | "ready" | "needs-renewal";
+  opponentAccepted: boolean;
+  canLaunch: boolean;
+  creator: { coach: string };
+  opponent: { coach: string };
+  game: { gameId: string | null } | null;
+}
+
+/** One line of lobby status, from the server's pairing state only. */
+export function lobbyStatusLine(v: StatusLike): string {
+  const other = v.me === "creator" ? v.opponent.coach : v.creator.coach;
+  if (v.status === "ready") {
+    return `Game set up${v.game?.gameId ? ` (game ${v.game.gameId})` : ""}. ${v.canLaunch ? "Ready to start." : "Waiting for both coaches."}`;
+  }
+  if (v.status === "waiting") {
+    if (v.me === "creator") return `Waiting for ${other} to accept.`;
+    return v.opponentAccepted ? "You accepted. Setting up the game…" : `${other} challenged you. Pick a team to accept.`;
+  }
+  if (v.me === "creator") {
+    return v.opponentAccepted
+      ? `${other} accepted. Your challenge needs confirming before the game is set up.`
+      : "Your challenge is no longer open. Confirm it to keep the lobby going.";
+  }
+  return v.opponentAccepted
+    ? `You accepted. Waiting for ${other} to confirm.`
+    : `Waiting for ${other} to confirm. You can accept now.`;
+}

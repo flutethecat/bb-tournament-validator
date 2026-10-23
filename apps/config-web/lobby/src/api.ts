@@ -68,7 +68,10 @@ export interface LobbyView {
   createdAt: number;
   expiresAt: number;
   startedAt: number | null;
-  status: "waiting" | "ready" | "lapsed";
+  status: "waiting" | "ready" | "needs-renewal";
+  opponentAccepted: boolean;
+  canAccept: boolean;
+  canRenew: boolean;
   creator: SeatView;
   opponent: SeatView;
   game: { gameName: string; gameId: string | null } | null;

@@ -4,9 +4,13 @@ import type { IncomingMessage } from "node:http";
 export const SESSION_COOKIE_NAME = "cw_session";
 export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
+/** How the session was authenticated. Discord-only surfaces (the web Lobby) require "discord". */
+export type SessionMethod = "discord" | "password";
+
 export interface Session {
   coach: string;
   expiry: number;
+  method: SessionMethod;
 }
 
 const TOKEN_BYTES = 32;
@@ -34,10 +38,14 @@ function findStoredToken(candidate: string): string | undefined {
   return undefined;
 }
 
-export function createSession(coach: string, now = Date.now()): { token: string; session: Session } {
+export function createSession(
+  coach: string,
+  now = Date.now(),
+  method: SessionMethod = "password",
+): { token: string; session: Session } {
   pruneExpired(now);
   const token = randomBytes(TOKEN_BYTES).toString("hex");
-  const session = { coach: coach.trim(), expiry: now + SESSION_TTL_MS };
+  const session: Session = { coach: coach.trim(), expiry: now + SESSION_TTL_MS, method };
   sessions.set(token, session);
   return { token, session: { ...session } };
 }
