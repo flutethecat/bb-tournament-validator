@@ -1,0 +1,19 @@
+/* Tabletop recorder: phone-first (375 px), 44 px minimum tap targets, no horizontal page scroll. */
+.tt-tap, .tt-form input, .tt-form select, .tt-sheet select { min-height: 44px; min-width: 44px; }
+.tt-tap-link { display: inline-flex; align-items: center; min-height: 44px; }
+.tt-form { max-width: 420px; }
+.tt-head { display: grid; gap: 4px; }
+.tt-score { font-size: 2.2rem; margin: 0; font-variant-numeric: tabular-nums; }
+.tt-chip { display: inline-block; justify-self: start; margin: 0; padding: 6px 12px; border-radius: 16px; border: 1px solid var(--ui-border, #3d0002); background: var(--ui-surface-2, #242424); overflow-wrap: anywhere; }
+.tt-teams { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 800px) { .tt-teams { grid-template-columns: 1fr; } }
+.tt-players, .tt-undo { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.tt-player { padding-bottom: 8px; border-bottom: 1px solid var(--ui-border, #3d0002); overflow-wrap: anywhere; }
+.tt-player.out { opacity: 0.6; }
+.tt-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.tt-spp { color: var(--ui-accent, #a55456); font-weight: 600; }
+.tt-fans { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.tt-undo li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.tt-sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 85vh; overflow-y: auto; display: grid; gap: 6px; padding: 16px; background: var(--ui-surface, #0d0d0d); border-top: 2px solid var(--ui-primary, #790004); box-shadow: 0 -8px 24px rgba(0, 0, 0, .5); z-index: 20; }
+.tt-check { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.tt-check input { width: 22px; height: 22px; min-height: 0; }

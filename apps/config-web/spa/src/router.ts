@@ -9,6 +9,8 @@ import LinkOutView from "./views/LinkOutView.vue";
 import LobbyRoomView from "./views/LobbyRoomView.vue";
 import LobbyStartView from "./views/LobbyStartView.vue";
 import NotFoundView from "./views/NotFoundView.vue";
+import TabletopListView from "./views/TabletopListView.vue";
+import TabletopRecorderView from "./views/TabletopRecorderView.vue";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -28,6 +30,7 @@ export interface NavItem {
 
 export const NAV: NavItem[] = [
   { label: "Lobby", to: "/lobby" },
+  { label: "Tabletop", to: "/tabletop" },
   { label: "Tournaments", to: "/tournaments" },
   { label: "Team Builder", to: "/team-builder" },
   { label: "Tournament Team Builder", to: "/tournament-team-builder" },
@@ -43,6 +46,14 @@ export const routes: RouteRecordRaw[] = [
     component: LobbyRoomView,
     props: true,
     meta: { requiresAuth: true, title: "Lobby" },
+  },
+  { path: "/tabletop", name: "tabletop", component: TabletopListView, meta: { requiresAuth: true, title: "Tabletop" } },
+  {
+    path: "/tabletop/:id([\\w-]{1,64})",
+    name: "tabletop-match",
+    component: TabletopRecorderView,
+    props: true,
+    meta: { requiresAuth: true, title: "Tabletop match" },
   },
   {
     path: "/tournaments",
