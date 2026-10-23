@@ -45,6 +45,8 @@ export interface TabletopPlayer {
   niggles: number;
   statLoss: Partial<Record<StatName, number>>;
   dead: boolean;
+  /** Library teams: the stored lasting-injury names, preserved verbatim. */
+  injuries?: string[];
 }
 
 export interface TabletopTeamFile {
@@ -53,6 +55,12 @@ export interface TabletopTeamFile {
   rosterId?: string;
   treasury: number;
   dedicatedFans: number;
+  /** Carried through unchanged from a library team (post-match never edits them). */
+  race?: string;
+  rerolls?: number;
+  apothecary?: boolean;
+  assistantCoaches?: number;
+  cheerleaders?: number;
   players: TabletopPlayer[];
   /** Id of the match that produced this revision (absent on the baseline). */
   lastMatchId?: string;
@@ -196,7 +204,7 @@ export function applyPostMatch(
 
   const byId = new Map(lines.map((l) => [l.id, l] as const));
   const players = teamFile.players.map((p): TabletopPlayer => {
-    const next: TabletopPlayer = { ...p, skills: [...p.skills], statLoss: { ...p.statLoss } };
+    const next: TabletopPlayer = { ...p, skills: [...p.skills], statLoss: { ...p.statLoss }, ...(p.injuries ? { injuries: [...p.injuries] } : {}) };
     next.mng = false; // anyone MNG at the start sat this match out; serving it clears the flag
     const l = byId.get(p.id);
     if (!l) return next;

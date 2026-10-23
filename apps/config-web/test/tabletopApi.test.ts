@@ -325,7 +325,7 @@ describe("tabletop: list, saves, tally", () => {
   it("saves lookup: ids and names only, session-gated", async () => {
     const r = await as("Bob", "GET", "/api/tabletop/saves?coach=Alice");
     expect(r.status).toBe(200);
-    expect(r.body).toEqual({ coach: "Alice", saves: [{ id: "sv_a", name: "Alice XI" }] });
+    expect(r.body).toEqual({ coach: "Alice", saves: [{ id: "sv_a", name: "Alice XI" }], teams: [{ ref: "sv_a", name: "Alice XI", race: "", tv: null }] });
     expect((await as("Bob", "GET", "/api/tabletop/saves")).status).toBe(400);
     expect((await as("Bob", "GET", "/api/tabletop/saves?coach=Alice", undefined, "password")).status).toBe(403);
     expect((await tabletopApi("GET", "/api/tabletop/saves", undefined, undefined, deps(), new URLSearchParams("coach=Alice")))!.status).toBe(401);

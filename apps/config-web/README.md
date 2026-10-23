@@ -148,3 +148,10 @@ Environment:
 | `FUMBBL_BASE_URL` | `https://fumbbl.com` | origin for the coach-rating requests |
 | `PUBLIC_BASE_URL` | (none: relative links) | public http(s) origin (no credentials, no path; validated at startup, an invalid value is ignored) used for absolute lobby links in the held-consent 409; never derived from the request's Host header |
 | `SUPER_WS_ALLOWED_ORIGINS` | (none) | comma list of browser origins allowed on lobby sockets; the origin of `DISCORD_OAUTH_REDIRECT_URI` is always allowed; with neither set, same host only. **REQUIRED** on any host whose public browser origin differs from the Discord redirect origin (e.g. page at `https://<host>`, redirect URI `http://<host>:4310`): list every origin coaches open the page from, or lobby chat is refused |
+
+## Tabletop recorder: team files
+
+`POST /api/tabletop/matches` takes `home.team` / `away.team` as `library:<teamId>` (a fork library team, read from its
+stored team XML) or `save:<saveId>` (a Team Builder save; a bare id still means a save). Revisions for both kinds live
+in the tabletop store (`TABLETOP_DIR`), keyed by the ref; library teams are NOT written back to the fork's team XML in
+this lane. Write-back to the fork library is a later lane (upstream-parity and fork-restart constraints apply).

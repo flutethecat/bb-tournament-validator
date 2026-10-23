@@ -1,4 +1,5 @@
 import type { TeamBuilderSave } from "../teamBuilderSaves.js";
+import type { TeamDetail } from "../teamDetail.js";
 import type { TabletopPlayer, TabletopTeamFile } from "./postMatch.js";
 
 /**
@@ -41,4 +42,49 @@ export function duplicatePlayerId(file: TabletopTeamFile): string | undefined {
     seen.add(p.id);
   }
   return undefined;
+}
+
+/**
+ * A team reference on the wire: "library:<teamId>" (a fork library team: the real team file), "save:<saveId>" or a
+ * bare id (a Team Builder save; the bare form is kept for back-compat). `ref` is the canonical stored key: a save
+ * stays its bare id, a library team keeps its "library:" prefix.
+ */
+export function parseTeamRef(value: unknown): { ref: string; kind: "library" | "save"; id: string } | undefined {
+  if (typeof value !== "string") return undefined;
+  const m = /^(?:(library|save):)?([\w-]{1,64})$/.exec(value.trim());
+  if (!m) return undefined;
+  const kind = m[1] === "library" ? "library" : "save";
+  return { ref: kind === "library" ? `library:${m[2]}` : m[2]!, kind, id: m[2]! };
+}
+
+/** Lasting injuries that are niggling injuries (FFB names). Other lasting injuries stay listed verbatim in `injuries`. */
+const NIGGLING = /niggl|smashed knee/i;
+
+/** Baseline (revision 0) team file from a fork library team (the parsed stored team XML, see teamDetail.ts). */
+export function teamFileFromLibraryDetail(team: TeamDetail): TabletopTeamFile {
+  const players: TabletopPlayer[] = team.players.map((p) => ({
+    id: p.id,
+    name: p.name,
+    number: p.number,
+    ...(p.positionId ? { positionId: p.positionId } : {}),
+    spp: p.spp,
+    skills: [...p.skills],
+    mng: p.mng,
+    niggles: p.injuries.filter((i) => NIGGLING.test(i)).length,
+    statLoss: {},
+    dead: /dead|rip/i.test(p.status ?? ""),
+    ...(p.injuries.length ? { injuries: [...p.injuries] } : {}),
+  }));
+  return {
+    schema: 1,
+    name: team.name,
+    race: team.race,
+    treasury: team.treasury,
+    dedicatedFans: team.fanFactor,
+    rerolls: team.rerolls,
+    apothecary: team.apothecary,
+    assistantCoaches: team.assistantCoaches,
+    cheerleaders: team.cheerleaders,
+    players,
+  };
 }

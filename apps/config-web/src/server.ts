@@ -257,7 +257,7 @@ import { RateLimiter } from "./translate/guards.js";
 import { clientIp } from "./translate/route.js";
 import { isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
-import { teamFileFromSave } from "./tabletop/teamFile.js";
+import { teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
 import { tournamentApi } from "./tournaments/api.js";
 
 /**
@@ -513,13 +513,28 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
   const deps: TabletopApiDeps = {
     repo: tabletopRepo,
     results: tournamentResults,
-    loadTeamFile: (coach, saveId) => {
-      const save = readSaves(BUILDER_SAVES_DIR, coach).find((s) => s.id === saveId);
+    loadTeamFile: (coach, ref) => {
+      if (ref.startsWith("library:")) {
+        // The coach's own fork library team: the real team file (read-only here; no write-back to the fork).
+        const detail = teamDetailEndpoint({ coach, organizer: false }, ref.slice("library:".length), {
+          libraryDir: LIBRARY_DIR,
+          teamsDir: forkConfigFromEnv()?.teamsDir,
+        });
+        return detail.status === 200 ? teamFileFromLibraryDetail(detail.body.team) : undefined;
+      }
+      const save = readSaves(BUILDER_SAVES_DIR, coach).find((s) => s.id === ref);
       return save ? teamFileFromSave(save) : undefined;
     },
     isBanned,
     isOrganizer: (coach) => coachLevel(coach) !== "player" || isOrganizer(coach),
     listSaves: (coach) => readSaves(BUILDER_SAVES_DIR, coach).map((s) => ({ id: s.id, name: s.name })),
+    listTeams: (coach) => [
+      ...readLibrary(LIBRARY_DIR, coach).map((t) => ({ ref: `library:${t.teamId}`, name: t.teamName, race: t.race, tv: typeof t.teamValue === "number" ? t.teamValue : null })),
+      ...readSaves(BUILDER_SAVES_DIR, coach).map((x) => ({
+        ref: x.id, name: x.name, race: x.raceName,
+        tv: typeof x.lastPreview?.teamValue === "number" ? (x.lastPreview.teamValue as number) : null,
+      })),
+    ],
     fixtures: {
       get: (id) => {
         const m = tournamentStore.match(id);

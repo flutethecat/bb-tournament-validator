@@ -19,7 +19,7 @@ import {
 import { leagueStandings, type LeaguePoints } from "./standings.js";
 import { applyPostMatch, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopTeamFile } from "./postMatch.js";
 import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
-import { duplicatePlayerId } from "./teamFile.js";
+import { duplicatePlayerId, parseTeamRef } from "./teamFile.js";
 
 export interface TabletopAuth { coach: string; method: string }
 export interface TabletopResult { status: number; body: unknown; contentType?: string; headers?: Record<string, string> }
@@ -66,6 +66,8 @@ export interface TabletopApiDeps {
   isOrganizer: (coach: string) => boolean;
   /** A coach's saved teams (id + name only, never roster bodies). */
   listSaves?: (coach: string) => Array<{ id: string; name: string }>;
+  /** Every team the coach can play: fork library teams ("library:<id>") and builder saves (bare id). */
+  listTeams?: (coach: string) => Array<{ ref: string; name: string; race: string; tv: number | null }>;
   now?: () => Date;
 }
 
@@ -124,7 +126,9 @@ export async function tabletopApi(
     const coach = query.get("coach")?.trim() ?? "";
     if (!coach || coach.length > 60) return err(400, "coach is required.");
     const saves = (deps.listSaves?.(coach) ?? []).map((s) => ({ id: s.id, name: s.name }));
-    return { status: 200, body: { coach, saves } };
+    const teams = (deps.listTeams?.(coach) ?? saves.map((x) => ({ ref: x.id, name: x.name, race: "", tv: null })))
+      .map((t) => ({ ref: t.ref, name: t.name, race: t.race, tv: t.tv }));
+    return { status: 200, body: { coach, saves, teams } };
   }
   const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict))?$/.exec(path);
   if (!m) return err(404, "Not found.");
@@ -219,12 +223,13 @@ async function currentTeams(repo: TabletopRepository, match: MatchRecord): Promi
 
 async function createMatch(me: string, organiser: boolean, body: unknown, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, any>;
-  const side = (v: any): { coach: string; teamSaveId: string } | undefined =>
-    v && typeof v.coach === "string" && v.coach.trim() && typeof v.teamSaveId === "string" && /^[\w-]{1,64}$/.test(v.teamSaveId)
-      ? { coach: v.coach.trim(), teamSaveId: v.teamSaveId } : undefined;
+  const side = (v: any): { coach: string; teamSaveId: string; kind: "library" | "save" } | undefined => {
+    const ref = parseTeamRef(v?.team ?? v?.teamSaveId);
+    return v && typeof v.coach === "string" && v.coach.trim() && ref ? { coach: v.coach.trim(), teamSaveId: ref.ref, kind: ref.kind } : undefined;
+  };
   const home = side(b.home);
   const away = side(b.away);
-  if (!home || !away) return err(400, "home and away each need {coach, teamSaveId}.");
+  if (!home || !away) return err(400, "home and away each need {coach, team}, team being library:<id> or save:<id>.");
   if (home.coach === away.coach) return err(400, "A match needs two different coaches.");
   const postMatch = b.postMatch ?? "full";
   if (typeof postMatch !== "string" || !POST_MATCH.includes(postMatch)) return err(400, "postMatch must be none, spp-only or full.");
@@ -249,8 +254,8 @@ async function createMatch(me: string, organiser: boolean, body: unknown, deps: 
   const chainAway = await ensureChain(deps, away.coach, away.teamSaveId, at);
   if (chainHome && "error" in chainHome) return err(422, chainHome.error);
   if (chainAway && "error" in chainAway) return err(422, chainAway.error);
-  if (!chainHome) return err(404, `${home.coach} has no saved team ${home.teamSaveId}.`);
-  if (!chainAway) return err(404, `${away.coach} has no saved team ${away.teamSaveId}.`);
+  if (!chainHome) return err(404, `${home.coach} has no ${home.kind === "library" ? "library team" : "saved team"} ${home.teamSaveId}.`);
+  if (!chainAway) return err(404, `${away.coach} has no ${away.kind === "library" ? "library team" : "saved team"} ${away.teamSaveId}.`);
   for (const s of [home, away])
     if (await deps.repo.findOpenMatchForSave(s.coach, s.teamSaveId)) return err(409, `${s.coach}'s team is already in an unfinished recorded match.`);
   const match: MatchRecord = {
