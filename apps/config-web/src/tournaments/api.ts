@@ -1,3 +1,4 @@
+import { bb2025 } from "@bb/validator/dataset";
 import { generateTournamentPairings } from "./pairing.js";
 import { NafExportError, renderNafTournamentXml } from "./nafExport.js";
 import { TournamentStore, TournamentStoreError } from "./store.js";
@@ -165,6 +166,7 @@ function clientTournament(
   return {
     ...record,
     turnTimer: tournament.turnTimer ?? DEFAULT_TOURNAMENT_TURN_TIMER,
+    inducementOptIns: tournament.inducementOptIns ?? [],
     ...(startsAt === undefined ? {} : { startsAt }),
     ...(tournament.packageName.trim() ? { rulesetPackName: tournament.packageName } : {}),
     entrantCount: entrants.filter((entrant) => entrant.droppedAt === undefined).length,
@@ -382,7 +384,7 @@ export async function tournamentApi(
       if (!existing) return { status: 404, body: { error: "Tournament not found." } };
       requireTournamentManager(existing, identity);
       const input = jsonObject(body);
-      const patch: Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "roundCount" | "organizerCoachId" | "turnTimer">> & {
+      const patch: Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "roundCount" | "organizerCoachId" | "turnTimer" | "inducementOptIns">> & {
         primaryTiebreaker?: TournamentPrimaryTiebreaker;
       } = {};
       if (input.organizerCoachId !== undefined) {
@@ -421,6 +423,14 @@ export async function tournamentApi(
         if (enforced !== "off" && enforced !== "optional" && enforced !== "required")
           return { status: 400, body: { error: "turnTimer.enforced must be off, optional or required." } };
         patch.turnTimer = { enforced, seconds: t.seconds === undefined ? current.seconds : integer(t.seconds, "turnTimer.seconds") };
+      }
+      if (input.inducementOptIns !== undefined) {
+        if (!Array.isArray(input.inducementOptIns) || input.inducementOptIns.some((k) => typeof k !== "string"))
+          return { status: 400, body: { error: "inducementOptIns must be a list of inducement keys." } };
+        const known = Object.entries(bb2025.inducements).filter(([, r]) => r.optIn).flatMap(([id, r]) => [id, r.wireName ?? id]);
+        const bad = (input.inducementOptIns as string[]).find((k) => !known.includes(k.trim()));
+        if (bad !== undefined) return { status: 400, body: { error: `"${bad}" is not an opt-in inducement.` } };
+        patch.inducementOptIns = (input.inducementOptIns as string[]).map((k) => k.trim());
       }
       const tournament = deps.store.updateTournament(tournamentId, patch, now);
       return {

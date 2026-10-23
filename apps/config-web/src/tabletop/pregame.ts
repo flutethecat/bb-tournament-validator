@@ -18,7 +18,7 @@
  * roster arithmetic (saves), plus journeymen; players missing the next game are not subtracted.
  */
 
-import { inducementReducedFor } from "@bb/validator";
+import { inducementEnabled, inducementReducedFor } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { WEATHER_RESULTS, type Side, type TabletopEvent } from "./events.js";
 import type { TabletopPlayer, TabletopTeamFile } from "./postMatch.js";
@@ -100,9 +100,12 @@ export type InducementOffer = { name: string; price: number; max: number | null 
  *  dataset (below); a per-league / per-event source can replace it by passing its own to planInducements. */
 export type InducementOffers = (file: TabletopTeamFile, id: string) => InducementOffer;
 
-export const inducementOffer: InducementOffers = (file, id) => {
+/** The offers for one competition: commissioner opt-in inducements (`optIn` in the dataset) are refused unless the
+ *  competition's `inducementOptIns` names them. */
+export const inducementOffersFor = (optIns: readonly string[] = []): InducementOffers => (file, id) => {
   const row = bb2025.inducements[id];
   if (!row) return { error: `Unknown inducement "${id}".` };
+  if (!inducementEnabled(row, id, optIns)) return { error: `${row.name} is not enabled for this competition.` };
   if (!row.wireName || typeof row.cost !== "number") return { error: `${row.name} has a variable price and cannot be recorded here.` };
   const rules = specialRulesOf(file);
   const roster = rosterFor(file);
@@ -116,6 +119,9 @@ export const inducementOffer: InducementOffers = (file, id) => {
     max: (reduced ? (row.reducedMax ?? row.max) : row.max) ?? null,
   };
 };
+
+/** Default offers: no commissioner opt-ins enabled. */
+export const inducementOffer: InducementOffers = inducementOffersFor([]);
 
 export interface InducementPlan {
   picks: Array<{ id: string; name: string; qty: number; cost: number }>;

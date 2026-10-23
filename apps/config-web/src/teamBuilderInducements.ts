@@ -1,4 +1,4 @@
-import { inducementWireGold, type Dataset, type TournamentPackage } from "@bb/validator";
+import { inducementEnabled, inducementWireGold, type Dataset, type TournamentPackage } from "@bb/validator";
 
 export interface TeamBuilderInducementCatalogRow {
   key: string;
@@ -21,10 +21,13 @@ export interface TeamBuilderInducementCatalogRow {
 export function teamBuilderInducementCatalog(
   pkg: TournamentPackage,
   data: Dataset,
+  /** The competition's `inducementOptIns`: commissioner opt-in entries (e.g. canopicJar) appear only when named here. */
+  optIns: readonly string[] = [],
 ): TeamBuilderInducementCatalogRow[] {
   const allAllowed = pkg.inducements.allowed.includes("*");
   return Object.entries(data.inducements)
     .filter(([, inducement]) => typeof inducement.wireName === "string" && inducement.wireName.trim() !== "")
+    .filter(([key, inducement]) => inducementEnabled(inducement, key, optIns))
     .map(([key, inducement]) => {
       const row: TeamBuilderInducementCatalogRow = {
         key,

@@ -553,7 +553,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
           revision: m.revision,
           home: { coach: m.home.coach.ffbCoachId, teamId: m.home.teamId },
           away: { coach: m.away?.coach.ffbCoachId ?? "", ...(m.away?.teamId ? { teamId: m.away.teamId } : {}) },
-          ...(t ? { tournament: { id: t.id, name: t.name }, turnTimer: t.turnTimer ?? DEFAULT_TOURNAMENT_TURN_TIMER } : {}),
+          ...(t ? { tournament: { id: t.id, name: t.name }, turnTimer: t.turnTimer ?? DEFAULT_TOURNAMENT_TURN_TIMER, inducementOptIns: t.inducementOptIns ?? [] } : {}),
           round: m.roundNumber,
           ...(m.result ? { resultReportedAt: m.result.reportedAt } : {}),
           ...(m.result?.opId ? { resultOpId: m.result.opId } : {}),
@@ -572,6 +572,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
           away: { coach: m.away.coach.ffbCoachId, teamId: m.away.teamId },
           tournament: { id: t.id, name: t.name },
           turnTimer: t.turnTimer ?? DEFAULT_TOURNAMENT_TURN_TIMER,
+          inducementOptIns: t.inducementOptIns ?? [],
           round: m.roundNumber,
           ...(m.result ? { resultReportedAt: m.result.reportedAt } : {}),
           ...(m.result?.opId ? { resultOpId: m.result.opId } : {}),
@@ -2534,7 +2535,10 @@ async function handleApi(
     const packageName = query.get("packageName")?.trim() || undefined;
     const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName);
     if ("error" in resolvedPkg) return sendJson(res, 400, { error: resolvedPkg.error });
-    return sendJson(res, 200, { inducements: teamBuilderInducementCatalog(resolvedPkg.pkg, bb2025) });
+    // Commissioner opt-ins (e.g. canopicJar) are listed only for a named competition that enabled them.
+    const optInTournament = query.get("tournamentId")?.trim();
+    const optIns = optInTournament ? tournamentStore.tournament(optInTournament)?.inducementOptIns ?? [] : [];
+    return sendJson(res, 200, { inducements: teamBuilderInducementCatalog(resolvedPkg.pkg, bb2025, optIns) });
   }
 
   if (path === "/api/fork/team-builder/tiers" && method === "GET") {

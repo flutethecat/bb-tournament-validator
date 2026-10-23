@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { bb2025 } from "@bb/validator/dataset";
 import inducementsJson from "../src/dataset/bb2025/inducements.json";
-import { inducementIdForName, inducementReducedFor, inducementWireGold } from "../src/dataset/inducements";
+import { inducementEnabled, inducementIdForName, inducementReducedFor, inducementWireGold } from "../src/dataset/inducements";
 
 // The bloodbowlbase.ru BB2025 inducements page is the complete list (owner ruling 10-23).
 describe("BB2025 inducement catalogue matches the rulebook page", () => {
   it("has exactly the page's inducements: no Igor, no Special Play Cards", () => {
     expect(Object.keys(bb2025.inducements).sort()).toEqual([
-      "biased_referee", "bloodweiser_kegs", "bretonnian_pastries", "bribes", "extra_team_training", "halfling_master_chef", "hireling_sports_wizard",
+      "biased_referee", "bloodweiser_kegs", "bretonnian_damsel", "bretonnian_pastries", "bribes", "canopic_jar", "extra_team_training", "halfling_master_chef", "hireling_sports_wizard",
       "infamous_coaching_staff", "mercenaries", "mortuary_assistant", "part_time_assistant_coaches", "plague_doctor",
       "prayers_to_nuffle", "riotous_rookies", "star_players", "team_mascot", "temp_agency_cheerleaders", "wandering_apothecaries", "weather_mage",
     ]);
@@ -32,6 +32,31 @@ describe("BB2025 inducement catalogue matches the rulebook page", () => {
     const raw = (inducementsJson.inducements as Array<{ id: string; note?: string }>).find((i) => i.id === "bretonnian_pastries");
     expect(raw?.note).toContain("Spike! Journal 19");
     expect(inducementIdForName(bb2025, "bretonnian pastries")).toBe("bretonnian_pastries");
+  });
+
+  it("pins Bretonnian Damsel (Spike! Journal 19) and Canopic Jar (Spike! Journal 20), with source notes", () => {
+    const raw = (id: string) => (inducementsJson.inducements as Array<{ id: string; note?: string; optIn?: boolean }>).find((i) => i.id === id);
+    expect(bb2025.inducements.bretonnian_damsel).toMatchObject({ name: "Bretonnian Damsel", wireName: "bretonnianDamsel", cost: 150_000, max: 1, optIn: false });
+    expect(bb2025.inducements.canopic_jar).toMatchObject({ name: "Canopic Jar", wireName: "canopicJar", cost: 50_000, max: 1, optIn: true });
+    for (const id of ["bretonnian_damsel", "canopic_jar"]) expect(bb2025.inducements[id]!.requiresSpecialRule).toBeUndefined();
+    expect(raw("bretonnian_damsel")?.note).toContain("https://bloodbowlbase.ru/bb2025/spike_journal/issue_19/");
+    expect(raw("canopic_jar")?.note).toContain("https://bloodbowlbase.ru/bb2025/spike_journal/issue_20/");
+  });
+
+  it("optIn defaults to false for every other entry; only Canopic Jar is opt-in", () => {
+    const optIn = Object.entries(bb2025.inducements).filter(([, row]) => row.optIn).map(([id]) => id);
+    expect(optIn).toEqual(["canopic_jar"]);
+    for (const [, row] of Object.entries(bb2025.inducements)) expect(typeof row.optIn).toBe("boolean");
+  });
+
+  it("inducementEnabled: opt-in entries need the competition to name them (wireName or id)", () => {
+    const jar = bb2025.inducements.canopic_jar;
+    expect(inducementEnabled(jar, "canopic_jar")).toBe(false);
+    expect(inducementEnabled(jar, "canopic_jar", [])).toBe(false);
+    expect(inducementEnabled(jar, "canopic_jar", ["canopicJar"])).toBe(true);
+    expect(inducementEnabled(jar, "canopic_jar", ["canopic_jar"])).toBe(true);
+    expect(inducementEnabled(bb2025.inducements.bretonnian_damsel, "bretonnian_damsel", [])).toBe(true);
+    expect(inducementEnabled(undefined, "nope", ["nope"])).toBe(false);
   });
 
   it("prices and caps match the page", () => {

@@ -210,3 +210,20 @@ describe("organizer tournament live-edit", () => {
     });
   });
 });
+
+describe("inducementOptIns setting", () => {
+  it("defaults to [] and is organiser-editable through PATCH, validated against opt-in inducements", async () => {
+    const store = newStore();
+    const tournament = create(store);
+    const path = `/api/tournaments/${tournament.id}`;
+    expect(store.tournament(tournament.id)?.inducementOptIns).toBeUndefined();
+    const on = await call(store, "PATCH", path, organizer, { inducementOptIns: ["canopicJar"] });
+    expect(on).toMatchObject({ status: 200, body: { tournament: { inducementOptIns: ["canopicJar"] } } });
+    expect(store.tournament(tournament.id)?.inducementOptIns).toEqual(["canopicJar"]);
+    expect(await call(store, "PATCH", path, organizer, { inducementOptIns: ["bribes"] })).toMatchObject({ status: 400 });
+    expect(await call(store, "PATCH", path, organizer, { inducementOptIns: "canopicJar" })).toMatchObject({ status: 400 });
+    expect(await call(store, "PATCH", path, coach, { inducementOptIns: [] })).toMatchObject({ status: 403 });
+    const off = await call(store, "PATCH", path, organizer, { inducementOptIns: [] });
+    expect(off).toMatchObject({ status: 200, body: { tournament: { inducementOptIns: [] } } });
+  });
+});

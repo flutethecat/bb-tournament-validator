@@ -73,6 +73,9 @@ export interface DatasetInducement {
   requiresSpecialRule?: string;
   /** Only teams that can hire an Apothecary may buy it. */
   requiresApothecary?: boolean;
+  /** Commissioner opt-in: hidden from the Team Builder catalogue and the recorder's offers unless the competition's
+   *  `inducementOptIns` names it (wireName or id). Absent/false = on by default like the core list. */
+  optIn?: boolean;
   /** Former names, kept so stored team files and saves still resolve. */
   aliases?: string[];
 }

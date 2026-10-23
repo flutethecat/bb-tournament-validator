@@ -1,6 +1,18 @@
 import type { Dataset } from "./types";
 import { normName } from "./lookup";
 
+/** Commissioner opt-ins: an `optIn` inducement is offered only when the competition's `inducementOptIns` names its
+ *  wireName or id. Everything else is on by default. */
+export function inducementEnabled(
+  catalog: Dataset["inducements"][string] | undefined,
+  id: string,
+  optIns: readonly string[] = [],
+): boolean {
+  if (!catalog) return false;
+  if (!catalog.optIn) return true;
+  return optIns.includes(id) || (catalog.wireName !== undefined && optIns.includes(catalog.wireName));
+}
+
 /** Does a team get the inducement's reduced price / cap: it has the unlocking special rule, or it is the unlocking roster. */
 export function inducementReducedFor(
   catalog: Dataset["inducements"][string] | undefined,

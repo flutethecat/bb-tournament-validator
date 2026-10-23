@@ -17,7 +17,7 @@ import {
   MAX_EVENTS_PER_BATCH, MAX_EVENTS_PER_MATCH, effectiveEvents, parseEvent, validateEvent, type Side, type TabletopEvent,
 } from "./events.js";
 import {
-  PRAYERS_TO_NUFFLE, journeymenNeeded, makeJourneymen, overlayRosters, planInducements, pregameSummary, teamValueWithJourneymen, weatherFor,
+  PRAYERS_TO_NUFFLE, journeymenNeeded, makeJourneymen, overlayRosters, inducementOffersFor, planInducements, pregameSummary, teamValueWithJourneymen, weatherFor,
   type MatchPhase,
 } from "./pregame.js";
 import {
@@ -47,6 +47,8 @@ export interface FixtureView {
   resultReportedAt?: string;
   /** The tournament's turn-timer policy (absent = the default: optional, 240 s). */
   turnTimer?: TurnTimerPolicy;
+  /** The tournament's commissioner-enabled opt-in inducements (absent = none). */
+  inducementOptIns?: readonly string[];
   /** The op id stamped on the recorded result (tabletop publications only). */
   resultOpId?: string;
 }
@@ -936,6 +938,7 @@ async function pregameAdvance(
     const otherEvent = all().filter((e) => e.type === "inducement" && e.team === other).at(-1);
     if (role === "underdog" && !otherEvent) return err(409, `The higher-value team (${other}) goes first: its treasury spending feeds the petty cash.`);
     const plan = planInducements({
+      offers: inducementOffersFor(inducementOptInsFor(match, deps)),
       file: baseTeams[side]!, picks, role, tvDifference: Math.abs(tvHome - tvAway),
       favouriteSpent: role === "underdog" ? Number((otherEvent!.payload as { treasury?: number }).treasury ?? 0) : 0,
     });
@@ -1036,6 +1039,11 @@ async function pregameAdvance(
 // ---- Lane R3: match clock and turns ------------------------------------------------------------------------
 
 /** The competition's turn-timer policy for this match: its tournament's setting for a fixture match, else the default. */
+function inducementOptInsFor(match: MatchRecord, deps: TabletopApiDeps): readonly string[] {
+  const f = match.fixtureRef ? deps.fixtures?.get(match.fixtureRef) : undefined;
+  return f?.inducementOptIns ?? [];
+}
+
 function timerPolicyFor(match: MatchRecord, deps: TabletopApiDeps): TurnTimerPolicy {
   const f = match.fixtureRef ? deps.fixtures?.get(match.fixtureRef) : undefined;
   return f?.turnTimer ?? DEFAULT_TURN_TIMER_POLICY;

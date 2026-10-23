@@ -39,6 +39,7 @@ function buildDataset(): Dataset {
       reducedRoster: (ind.reducedRoster as string | undefined) ?? undefined,
       requiresSpecialRule: (ind.requiresSpecialRule as string | undefined) ?? undefined,
       requiresApothecary: (ind.requiresApothecary as boolean | undefined) ?? undefined,
+      optIn: (ind.optIn as boolean | undefined) ?? false,
       aliases: (ind.aliases as string[] | undefined) ?? undefined,
     };
   }

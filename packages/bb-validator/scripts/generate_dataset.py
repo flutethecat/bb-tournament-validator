@@ -269,6 +269,8 @@ INDUCEMENT_MAP = [
     ("team_mascot", "Team Mascot", "inducementMascotCost", "inducementMascotMax", {}),
     ("prayers_to_nuffle", "Prayers to Nuffle", "inducementPrayersCost", "inducementPrayersMax", {}),
     ("bretonnian_pastries", "Bretonnian Pastries", None, None, {"note": 'Spike! Journal 19 (https://bloodbowlbase.ru/bb2025/spike_journal/issue_19/): once per game when a player is Knocked-out, roll a D6: 2+ and the player goes to Reserves instead; a natural 1 and the player stays KO and the Pastries are lost. Not in the FUMBBL ruleset clientOptions, so cost/max are static overrides.'}),
+    ("bretonnian_damsel", "Bretonnian Damsel", None, None, {"note": 'Spike! Journal 19 (https://bloodbowlbase.ru/bb2025/spike_journal/issue_19/): once per game the Damsel casts Zap! or High Winds. Available to any team. Not in the FUMBBL ruleset clientOptions, so cost/max are static overrides.'}),
+    ("canopic_jar", "Canopic Jar", None, None, {"note": "Spike! Journal 20 (https://bloodbowlbase.ru/bb2025/spike_journal/issue_20/): once per game, at the start of their team turn, open it and roll a D6 on the Canopic Jar table. Available to any team. Commissioner opt-in: enabled only through a competition's inducementOptIns. Not in the FUMBBL ruleset clientOptions, so cost/max are static overrides.", "optIn": True}),
     ("mercenaries", "Mercenaries", "inducementMercenariesExtraCost", "inducementMercenariesMax",
      {"skillCost": "inducementMercenariesSkillCost", "note": "+extra cost over the player's base cost; +skill cost per added skill."}),
     ("star_players", "Star Players", None, "inducementStarsMax", {"note": "Hired at each star's own cost; eligibility by special rule / keyword."}),
@@ -294,6 +296,8 @@ INDUCEMENT_WIRE_NAMES = {
     "team_mascot": "teamMascot",
     "prayers_to_nuffle": "prayers",
     "bretonnian_pastries": "bretonnianPastries",
+    "bretonnian_damsel": "bretonnianDamsel",
+    "canopic_jar": "canopicJar",
     # The tournament-rules picker labels this generic validator id as Josef Bugman.
     "infamous_coaching_staff": "josefBugman",
 }
@@ -301,9 +305,10 @@ INDUCEMENT_WIRE_NAMES = {
 
 # Rulebook prices that win over the FUMBBL ruleset clientOptions (owner ruling 10-23, bloodbowlbase.ru BB2025
 # inducements page: Prayers to Nuffle are 10,000 gp each; the ruleset option says 30,000).
-INDUCEMENT_COST_OVERRIDES = {"prayers_to_nuffle": 10_000, "bretonnian_pastries": 15_000}
+INDUCEMENT_COST_OVERRIDES = {"prayers_to_nuffle": 10_000, "bretonnian_pastries": 15_000,
+                             "bretonnian_damsel": 150_000, "canopic_jar": 50_000}
 # Max has no clientOptions field for inducements missing from the ruleset (Spike! Journal 19: 0-1, any team).
-INDUCEMENT_MAX_OVERRIDES = {"bretonnian_pastries": 1}
+INDUCEMENT_MAX_OVERRIDES = {"bretonnian_pastries": 1, "bretonnian_damsel": 1, "canopic_jar": 1}
 
 # The bloodbowlbase.ru BB2025 inducements page is the COMPLETE list (owner ruling 10-23): Igor and Special Play Cards
 # do not exist in BB2025 (dropped from INDUCEMENT_MAP above); names follow the page, the former names stay as aliases
@@ -354,6 +359,8 @@ def build_inducements():
             entry["skillCost"] = co.get(extra["skillCost"])
         if "note" in extra:
             entry["note"] = extra["note"]
+        if extra.get("optIn"):
+            entry["optIn"] = True
         out.append(entry)
     return out
 

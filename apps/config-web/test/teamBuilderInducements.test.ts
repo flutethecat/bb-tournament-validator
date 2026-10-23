@@ -3,6 +3,24 @@ import { loadPackage } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { teamBuilderInducementCatalog } from "../src/teamBuilderInducements";
 
+describe("teamBuilderInducementCatalog: commissioner opt-ins", () => {
+  const { pkg } = loadPackage({ name: "Open Cup", eligibleRosters: ["*"], inducements: { allowed: ["*"], caps: {} } });
+
+  it("lists the default-enabled Bretonnian Damsel but hides the opt-in Canopic Jar", () => {
+    const keys = teamBuilderInducementCatalog(pkg, bb2025).map((row) => row.key);
+    expect(keys).toContain("bretonnian_damsel");
+    expect(keys).toContain("bretonnian_pastries");
+    expect(keys).not.toContain("canopic_jar");
+    expect(teamBuilderInducementCatalog(pkg, bb2025, []).map((row) => row.key)).not.toContain("canopic_jar");
+  });
+
+  it("includes Canopic Jar once the competition's inducementOptIns names it", () => {
+    const rows = teamBuilderInducementCatalog(pkg, bb2025, ["canopicJar"]);
+    expect(rows.find((row) => row.key === "canopic_jar")).toMatchObject({ label: "Canopic Jar", price: 50_000, max: 1, allowed: true });
+    expect(rows).toHaveLength(teamBuilderInducementCatalog(pkg, bb2025).length + 1);
+  });
+});
+
 describe("teamBuilderInducementCatalog", () => {
   it("returns every rosterable inducement with package caps and permissions", () => {
     const { pkg } = loadPackage({
@@ -12,7 +30,7 @@ describe("teamBuilderInducementCatalog", () => {
     });
 
     const catalog = teamBuilderInducementCatalog(pkg, bb2025);
-    expect(catalog).toHaveLength(17);
+    expect(catalog).toHaveLength(18);
     expect(catalog.find((row) => row.key === "bribes")).toEqual({
       key: "bribes",
       label: "Bribes",
@@ -32,7 +50,7 @@ describe("teamBuilderInducementCatalog", () => {
     expect(catalog.map((row) => row.key)).toEqual([...catalog.map((row) => row.key)].sort());
   });
 
-  it("marks all 17 rosterable inducements allowed for a wildcard package and uses dataset caps", () => {
+  it("marks all 18 rosterable inducements allowed for a wildcard package and uses dataset caps", () => {
     const { pkg } = loadPackage({
       name: "Open Cup",
       eligibleRosters: ["*"],
@@ -40,7 +58,7 @@ describe("teamBuilderInducementCatalog", () => {
     });
 
     const catalog = teamBuilderInducementCatalog(pkg, bb2025);
-    expect(catalog).toHaveLength(17);
+    expect(catalog).toHaveLength(18);
     expect(catalog.every((row) => row.allowed)).toBe(true);
     expect(catalog.find((row) => row.key === "infamous_coaching_staff")).toMatchObject({
       price: 100_000,

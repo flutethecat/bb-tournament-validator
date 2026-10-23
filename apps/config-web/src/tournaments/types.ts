@@ -49,6 +49,8 @@ export interface TournamentRecord {
   startsAt?: string;
   /** Absent = the default (optional, 240 s). Organiser-editable through the tournament settings route. */
   turnTimer?: TournamentTurnTimer;
+  /** Commissioner-enabled opt-in inducements (wireNames, e.g. "canopicJar"). Absent = [] (none). Organiser-editable through the tournament settings route. */
+  inducementOptIns?: string[];
   /** Absent only on legacy records, which remain admin-only until ownership is assigned. */
   organizerCoachId?: string;
   createdAt: string;

@@ -22,7 +22,7 @@ const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[
 const tiebreakerLadder = (primary: TournamentPrimaryTiebreaker): TournamentRecord["tiebreakers"] =>
   [primary, "touchdownDifferential", "casualtyDifferential"];
 
-type TournamentUpdate = Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "roundCount" | "organizerCoachId" | "turnTimer">> & {
+type TournamentUpdate = Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "roundCount" | "organizerCoachId" | "turnTimer" | "inducementOptIns">> & {
   primaryTiebreaker?: TournamentPrimaryTiebreaker;
 };
 
@@ -233,6 +233,12 @@ export class TournamentStore {
           throw new TournamentStoreError(400, "turnTimer.enforced must be off, optional or required.");
         if (!Number.isInteger(t.seconds) || t.seconds < 30 || t.seconds > 3600)
           throw new TournamentStoreError(400, "turnTimer.seconds must be a whole number from 30 to 3600.");
+      }
+      if (patch.inducementOptIns !== undefined) {
+        const list = patch.inducementOptIns;
+        if (!Array.isArray(list) || list.length > 20 || list.some((k) => typeof k !== "string" || !k.trim() || k.length > 40))
+          throw new TournamentStoreError(400, "inducementOptIns must be a list of at most 20 inducement keys.");
+        tournament.inducementOptIns = [...new Set(list.map((k) => k.trim()))];
       }
       if (patch.turnTimer !== undefined) tournament.turnTimer = { enforced: patch.turnTimer.enforced, seconds: patch.turnTimer.seconds };
       if (patch.maxPlayers !== undefined) tournament.maxPlayers = patch.maxPlayers;

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { tabletopApi, type TabletopApiDeps, type TabletopResult } from "../src/tabletop/api.js";
 import { effectiveEvents, parseEvent, validateEvent, type RosterPair, type TabletopEvent } from "../src/tabletop/events.js";
 import { applyPostMatch, tallyMatch, type TabletopPlayer, type TabletopTeamFile } from "../src/tabletop/postMatch.js";
-import { planInducements, weatherFor } from "../src/tabletop/pregame.js";
+import { inducementOffersFor, planInducements, weatherFor } from "../src/tabletop/pregame.js";
 import { FileTabletopRepository } from "../src/tabletop/store.js";
 import { TournamentResultStore } from "../src/tournamentResults.js";
 
@@ -181,6 +181,14 @@ describe("pre-game sequence", () => {
 describe("pre-game rules, pure", () => {
   it("weather table", () => {
     expect([2, 3, 4, 7, 10, 11, 12].map(weatherFor)).toEqual(["Sweltering Heat", "Very Sunny", "Perfect Conditions", "Perfect Conditions", "Perfect Conditions", "Pouring Rain", "Blizzard"]);
+  });
+  it("opt-in inducements (Canopic Jar) are refused unless the competition enables them; Damsel is on by default", () => {
+    const file = team("Human", 11, "a", 1_000_000, 80_000);
+    const base = { file, tvDifference: 500_000, role: "underdog" as const, favouriteSpent: 0 };
+    expect(planInducements({ ...base, picks: [{ id: "canopic_jar", qty: 1 }] })).toMatchObject({ error: expect.stringContaining("not enabled") });
+    expect(planInducements({ ...base, picks: [{ id: "canopic_jar", qty: 1 }], offers: inducementOffersFor([]) })).toMatchObject({ error: expect.stringContaining("not enabled") });
+    expect(planInducements({ ...base, picks: [{ id: "canopic_jar", qty: 1 }], offers: inducementOffersFor(["canopicJar"]) })).toMatchObject({ total: 50_000 });
+    expect(planInducements({ ...base, picks: [{ id: "bretonnian_damsel", qty: 1 }] })).toMatchObject({ total: 150_000 });
   });
   it("petty cash: favourite pays from treasury, underdog gets TV gap + favourite spend, top-up capped at 50k, equal TV buys nothing", () => {
     const file = team("Human", 11, "a", 1_000_000, 80_000);
