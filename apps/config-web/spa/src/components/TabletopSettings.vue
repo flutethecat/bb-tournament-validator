@@ -25,6 +25,7 @@ const MODES: ThemeMode[] = ["system", "light", "dark"];
       <label class="tt-check"><input type="checkbox" :checked="settings.state.haptic" @change="settings.set('haptic', ($event.target as HTMLInputElement).checked)" /> Vibrate on tap</label>
       <button v-if="canEdit" class="lobby-btn tt-tap tt-changeturn" type="button" @click="emit('changeTurn')">Change turn</button>
       <label v-if="canEdit" class="tt-check"><input type="checkbox" :checked="editMode" @change="emit('edit', ($event.target as HTMLInputElement).checked)" /> Edit mode</label>
+      <p class="tt-credit muted">Turn-timer sounds: Retro SFX by Andrea Baroni (Cyberleaf Studio).</p>
     </div>
   </div>
 </template>

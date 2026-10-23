@@ -21,3 +21,5 @@ __pycache__/
 apps/config-web/public/lobby/
 # SPA (League & Tournament Manager shell) Vite build output (pnpm --filter config-web build:spa); built on the host, never committed.
 apps/config-web/public/app/
+# Licensed turn-timer cues (Cyberleaf Retro SFX): host-only, NEVER committed (the licence forbids redistribution).
+apps/config-web/public/sounds/

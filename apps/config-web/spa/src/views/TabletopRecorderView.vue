@@ -16,7 +16,7 @@ import TabletopTurnSet from "../components/TabletopTurnSet.vue";
 import { canEditMatch, createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
 import { SESSION_KEY } from "../session";
 import { THEME_KEY } from "../theme";
-import { createCueTracker, formatTimer, timerOn, timerRemaining, turnLabel } from "../tabletop/clock";
+import { createCueTracker, timerOn, timerRemaining } from "../tabletop/clock";
 import { createCuePlayer } from "../tabletop/sounds";
 import TabletopGlyph from "../components/TabletopGlyph.vue";
 import { CAS_EVENT, CASUALTY_RESULTS_UI, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, type OtherEvent } from "../tabletop/feed";
@@ -55,13 +55,8 @@ const timerAnswers = computed(() => {
   for (const e of state.events) if (e.type === "timerAgree" && state.effectiveIds.includes(e.id)) out[e.team] = e.payload.agree === true;
   return out;
 });
-const timerIsOn = computed(() => timerOn(state.clock));
 /** Seconds left, from the server's turn start and the offset measured at the last sync (never a free-running count). */
 const remaining = computed(() => timerRemaining(state.clock, state.clockOffsetMs, now.value));
-const timerText = computed(() => (remaining.value === undefined ? "" : formatTimer(remaining.value)));
-const timerAlert = computed(() => remaining.value !== undefined && remaining.value <= 10);
-const counter = computed(() => turnLabel(state.clock?.half, state.clock?.turn));
-const activeName = computed(() => (state.clock?.activeTeam && match.value ? match.value[state.clock.activeTeam].teamName : ""));
 
 // Turn-timer cues (1:00, 0:10, 0:03), once per turn; the first tap unlocks browser audio.
 const cues = createCuePlayer({ enabled: () => viewer.state.sounds, files: () => cueFiles.value });
@@ -69,10 +64,10 @@ const cueFiles = ref<Record<string, string>>({});
 const tracker = createCueTracker();
 watch(remaining, (r) => {
   const c = state.clock;
-  const cue = tracker.reading(`${c?.half}-${c?.turn}-${c?.activeTeam}`, r);
-  if (!cue) return;
-  cues.play(cue);
-  if (cue === "ten") viewer.buzz();
+  const hit = tracker.reading(`${c?.half}-${c?.turn}-${c?.activeTeam}`, r);
+  if (!hit) return;
+  cues.play(hit.cue, hit.seconds);
+  if (hit.seconds === 10) viewer.buzz();
 }, { immediate: true });
 const unlock = (): void => cues.unlock();
 
@@ -190,16 +185,11 @@ onBeforeUnmount(() => {
   <div v-else class="tt-rec" :data-tt-theme="theme">
     <TabletopScoreboard
       :match="match" :teams="state.teams" :tally="state.tally" :events="state.events" :pregame="state.pregame"
-      :clock="state.clock" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy" :inducement-icons="state.inducementIcons" :art="state.art"
+      :clock="state.clock" :remaining="remaining" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy" :inducement-icons="state.inducementIcons" :art="state.art"
       @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @rosters="rosters = true" @settings="settingsOpen = true"
     />
 
-    <div class="tt-mid" :data-timer="timerIsOn ? 'on' : null">
-    <section v-if="timerIsOn" class="tt-timer" aria-label="Turn timer">
-      <p class="tt-timer-who">{{ activeName ? `${activeName} to play` : "Turn timer" }} · {{ counter }}</p>
-      <p class="tt-timer-clock" :data-alert="timerAlert ? 'true' : null" role="timer">{{ timerText || "-:--" }}</p>
-      <p class="tt-timer-sub muted">{{ formatTimer(state.clock?.turnTimer?.seconds ?? 0) }} per turn</p>
-    </section>
+    <div class="tt-mid">
     <main class="tt-feed">
       <div class="tt-strip">
         <p v-if="state.pending" class="tt-chip" role="status">{{ state.pending }} event{{ state.pending === 1 ? "" : "s" }} waiting<template v-if="state.queueError"> · {{ state.queueError }}<template v-if="retryIn"> (retry in {{ retryIn }} s)</template></template></p>

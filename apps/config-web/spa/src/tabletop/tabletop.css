@@ -214,12 +214,14 @@
 .tt-endturn small, .tt-towait small { font-size: 12px; }
 .tt-towait { opacity: 0.6; padding: 0 4px; }
 .tt-towait b { font-size: 12px; overflow-wrap: anywhere; }
-/* the middle region: the log, or Timer + log each half */
+/* the middle region is the log, full height */
 .tt-mid { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
-.tt-mid[data-timer="on"] { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
-.tt-timer { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 8px; background: var(--tt-panel); border-bottom: 2px solid var(--tt-line); }
-.tt-timer p { margin: 0; }
-.tt-timer-who { font-weight: 700; text-align: center; }
-.tt-timer-clock { font-family: var(--font-heading, sans-serif); font-size: 4.2rem; line-height: 1; font-variant-numeric: tabular-nums; }
-.tt-timer-clock[data-alert="true"] { color: #ff4d4d; }
-.tt-rec[data-tt-theme="snes"] .tt-timer-clock[data-alert="true"] { color: #b01414; }
+/* turn-timer mode: the End Turn button IS the timer - mm:ss large, "End turn" small, a background that drains with the time */
+.tt-endturn[data-timed="true"] { --tt-fill: 100%; background: linear-gradient(90deg, var(--tt-accent) var(--tt-fill), color-mix(in srgb, var(--tt-accent) 25%, var(--tt-btn)) var(--tt-fill)); }
+.tt-endturn[data-alert="true"] { background: linear-gradient(90deg, #d62b2b var(--tt-fill), color-mix(in srgb, #d62b2b 25%, var(--tt-btn)) var(--tt-fill)); }
+.tt-endturn[data-zero="true"] { animation: tt-pulse 0.8s ease-in-out infinite; }
+.tt-endturn-time { font-family: var(--font-heading, sans-serif); font-size: 2rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.tt-towait[data-alert="true"] .tt-endturn-time { color: #ff4d4d; }
+@keyframes tt-pulse { 0%, 100% { filter: none; } 50% { filter: brightness(1.5); } }
+@media (prefers-reduced-motion: reduce) { .tt-endturn[data-zero="true"] { animation: none; } }
+.tt-credit { margin: 10px 0 0; font-size: 11px; }

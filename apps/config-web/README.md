@@ -157,3 +157,14 @@ Environment:
 stored team XML) or `save:<saveId>` (a Team Builder save; a bare id still means a save). Revisions for both kinds live
 in the tabletop store (`TABLETOP_DIR`), keyed by the ref; library teams are NOT written back to the fork's team XML in
 this lane. Write-back to the fork library is a later lane (upstream-parity and fork-restart constraints apply).
+
+### Licensed turn-timer cues (host-only, never in git)
+
+The tabletop recorder plays the Super FUMBBL client's turn-timer sounds (Retro SFX by Andrea Baroni / Cyberleaf Studio): the
+minute sound once at 1:00, then once on each remaining second 10..1 (the minute sound as the warning tone on 10..6, the
+countdown sound on 5..1). The licence allows use but forbids redistribution, so the files are **never committed**: they live
+only on the host under the gitignored `apps/config-web/public/sounds/ui/` with a `manifest.json`
+(`{"files": {"minute": "/sounds/ui/turnClockMinute.wav", "countdown": "/sounds/ui/turnClockCountdown.wav"}}`). Deploy step:
+copy `turnClockMinute.wav` and `turnClockCountdown.wav` byte-for-byte from the client checkout
+(`apps/tauri/src/assets/sounds/`, `git show origin/order-66:<path> > <dest>`) and write the manifest. Without the manifest
+the recorder falls back to generated tones on the same cadence. Credit: the recorder's Settings sheet.

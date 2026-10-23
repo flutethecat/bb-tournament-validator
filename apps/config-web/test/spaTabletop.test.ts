@@ -2,8 +2,8 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSSRApp } from "vue";
 import { createTheme, THEME_COLORS, THEME_STORAGE_KEY } from "../spa/src/theme";
-import { centreMode, createCueTracker, formatTimer, serverOffset, timerRemaining, turnLabel } from "../spa/src/tabletop/clock";
-import { createCuePlayer } from "../spa/src/tabletop/sounds";
+import { centreMode, createCueTracker, CUE_SECONDS, formatTimer, serverOffset, timerRemaining, turnLabel } from "../spa/src/tabletop/clock";
+import { createCuePlayer, toneFor } from "../spa/src/tabletop/sounds";
 import { canEditMatch } from "../spa/src/tabletop/settings";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
@@ -714,6 +714,7 @@ describe("tabletop routes (server-rendered)", () => {
     const settings = mods.settingsMod.createViewerSettings(store);
     const html = await mount(mods.settingsC, { theme, settings, editMode: false, canEdit: false });
     for (const t of ["Settings", ">System<", ">Light<", ">Dark<", "Compact rows", "Show timestamps", "Sounds", "Vibrate on tap"]) expect(html, t).toContain(t);
+    expect(html).toContain("Andrea Baroni (Cyberleaf Studio)"); // credit for the timer sounds
     expect(html).toMatch(/aria-pressed="true">System</);
     expect(settings.state).toEqual({ compact: false, timestamps: true, haptic: false, sounds: true });
     settings.set("compact", true);
@@ -866,6 +867,8 @@ describe("tabletop routes (server-rendered)", () => {
     expect(centreMode(clockOf("away", 3), null, true, true)).toBe("end"); // organiser, for the active team
     expect(centreMode(clockOf("away", 3), null, false, false)).toBe("wait");
     expect(centreMode(clockOf("home", 0), "home", false, true)).toBe("kickoff");
+    expect(centreMode(clockOf("home", 0), "away", false, true)).toBe("wait"); // only the team about to play confirms the kick-off
+    expect(centreMode(clockOf("home", 0), null, true, true)).toBe("kickoff"); // an organiser may
     const body = (clock: unknown) => ({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock });
     const mine = await renderMatch(body(clockOf("home", 3)));
     expect(mine.html).toContain("End Turn");
@@ -926,50 +929,87 @@ describe("tabletop routes (server-rendered)", () => {
     rec.stop();
   });
 
-  it("timer mode halves the feed region and shows the Timer section with mm:ss and the alert colour hook", async () => {
-    const on = clockOf("home", 3, { turnTimer: { mode: "on", seconds: 120 } });
+  it("timer mode: the End Turn button IS the timer (mm:ss from the server offset, End turn beneath); no separate Timer panel", async () => {
+    const S0 = Date.now();
+    // the server says this turn started 100 s ago on a 120 s timer: 20 s left, whatever this phone's clock says
+    const on = clockOf("home", 3, { turnTimer: { mode: "on", seconds: 120 }, turnStartedAt: S0 - 100_000, serverNow: S0 });
     const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: on });
-    expect(html).toContain('class="tt-mid" data-timer="on"');
-    expect(html).toContain('class="tt-timer"');
-    expect(html).toMatch(/role="timer">\s*(1:5\d|2:00)</);
-    expect(html).toContain("2:00 per turn");
+    expect(html).toMatch(/class="tt-endturn"[^>]*data-timed="true"/);
+    expect(html).toMatch(/role="timer">0:(19|20)</); // inside the button
+    expect(html).toContain("<small>End turn</small>");
+    expect(html).toMatch(/--tt-fill:\s*1[56]\.\d+%/); // the background level follows the remaining time (about 16 %)
+    expect(html).not.toContain('data-alert="true"'); // 20 s left: not yet the alert colour
+    expect(html).not.toContain('class="tt-timer"'); // the Timer half-panel is gone
+    expect(html).not.toContain('data-timer="on"');
+    // under 10 s: the alert state; past zero: 0:00 pulses
+    const hot = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3, { turnTimer: { mode: "on", seconds: 120 }, turnStartedAt: S0 - 115_000, serverNow: S0 }) });
+    expect(hot.html).toMatch(/data-alert="true"/);
+    expect(hot.html).toMatch(/role="timer">0:0[45]</);
+    const late = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3, { turnTimer: { mode: "on", seconds: 120 }, turnStartedAt: S0 - 200_000, serverNow: S0 }) });
+    expect(late.html).toContain('data-zero="true"');
+    expect(late.html).toMatch(/role="timer">0:00</);
+    // the other coach sees the same countdown dimmed with "<Team> to play"
+    const other = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("away", 3, { turnTimer: { mode: "on", seconds: 120 }, turnStartedAt: S0 - 100_000, serverNow: S0 }) });
+    expect(other.html).toMatch(/class="tt-towait"[\s\S]*role="timer">0:(19|20)</);
+    expect(other.html).toContain("Bob Elves to play");
+    expect(other.html).not.toContain('class="tt-endturn"');
+    // timer off keeps the plain End Turn label
     const off = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) });
-    expect(off.html).not.toContain('class="tt-timer"');
+    expect(off.html).toContain("<b>End Turn</b>");
+    expect(off.html).not.toContain("role=\"timer\"");
     const { readFileSync } = await import("node:fs");
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
-    expect(css).toMatch(/\.tt-mid\[data-timer="on"\] \{ grid-template-rows: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
-    expect(css).toContain('.tt-timer-clock[data-alert="true"]');
+    expect(css).toContain('.tt-endturn[data-alert="true"]');
+    expect(css).toContain('.tt-endturn[data-zero="true"] { animation: tt-pulse');
+    expect(css).not.toContain(".tt-timer {");
   });
 
-  it("cue scheduling: 1:00, 0:10 and 0:03 once per turn; a late first reading is silent; Sounds off and locked audio stay quiet", () => {
-    const t = createCueTracker();
-    const heard: string[] = [];
-    const feed = (key: string, ...secs: number[]) => secs.forEach((s) => { const c = t.reading(key, s); if (c) heard.push(`${key}:${s}:${c}`); });
-    feed("1-1-home", 75, 70, 61, 60, 59, 40, 12, 11, 10, 9, 5, 4, 3, 2, 1, 0, -1);
-    expect(heard).toEqual(["1-1-home:60:minute", "1-1-home:10:ten", "1-1-home:3:three"]);
+  it("cue schedule matches the client: the minute sound at 1:00, then every second 10..1 (warning tone 10..6, countdown 5..1)", () => {
+    const tr = createCueTracker();
+    const heard: Array<[string, number, string]> = [];
+    const feed = (key: string, ...secs: number[]) => secs.forEach((s) => { const h = tr.reading(key, s); if (h) heard.push([key, s, h.cue]); });
+    const run = Array.from({ length: 81 }, (_, i) => 80 - i); // 80 s down to 0 s
+    feed("1-1-home", ...run);
+    expect(heard.map(([, s]) => s)).toEqual([60, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]); // = {60} u {10..1}
+    expect(heard.map(([, , c]) => c)).toEqual(["minute", "warning", "warning", "warning", "warning", "warning", "countdown", "countdown", "countdown", "countdown", "countdown"]);
+    expect(CUE_SECONDS).toEqual([60, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
     heard.length = 0;
-    feed("1-2-away", 8, 7, 3, 2); // first reading at 0:08: 1:00 and 0:10 already passed
-    expect(heard).toEqual(["1-2-away:3:three"]);
+    feed("1-2-away", 8, 7, 7, 6, 3, 2); // first reading at 0:08: 1:00, 0:10 and 0:09 already passed; a repeat second is silent
+    expect(heard.map(([, s]) => s)).toEqual([7, 6, 3, 2]);
     heard.length = 0;
-    feed("1-3-home", 65, 55, 9, 2); // a skipped tick still sounds the mark it crossed
-    expect(heard).toEqual(["1-3-home:55:minute", "1-3-home:9:ten", "1-3-home:2:three"]);
+    feed("1-3-home", 65, 55, 9, 8); // a skipped tick still sounds the second it lands on
+    expect(heard.map(([, s, c]) => `${s}:${c}`)).toEqual(["55:minute", "9:warning", "8:warning"]);
     heard.length = 0;
-    feed("1-3-home", 61); // same turn key: nothing is replayed
+    feed("1-3-home", 61, 61); // same turn key, a clock that did not fall: nothing replays
     expect(heard).toEqual([]);
-    const tones: unknown[] = [];
+  });
+
+  it("cue player: Sounds off and locked audio stay quiet; a listed file is preferred over a tone; tones follow the cadence", () => {
+    const tones: Array<[number, number]> = [];
     let sounds = false;
-    const p = createCuePlayer({ enabled: () => sounds, tone: (hz, ms, n) => tones.push([hz, ms, n]) });
+    const p = createCuePlayer({ enabled: () => sounds, tone: (hz, ms) => tones.push([hz, ms]) });
     expect(p.play("minute")).toBe("off"); // Sounds off
     sounds = true;
     expect(p.play("minute")).toBe("off"); // browser audio still locked: no gesture yet
     p.unlock();
-    expect(p.play("ten")).toBe("tone");
-    expect(tones).toHaveLength(1);
+    expect(p.play("minute")).toBe("tone");
+    expect(p.play("warning", 10)).toBe("tone");
+    expect(p.play("countdown", 5)).toBe("tone");
+    expect(tones[0]![1]).toBeGreaterThan(tones[1]![1]); // one long chime at 1:00, short beeps after
+    expect(toneFor("countdown", 3)[0]).toBeLessThan(toneFor("countdown", 2)[0]); // rising on the last three
+    expect(toneFor("countdown", 2)[0]).toBeLessThan(toneFor("countdown", 1)[0]);
+    expect(toneFor("countdown", 5)[0]).toBe(toneFor("warning", 9)[0]); // flat before the last three
     const played: string[] = [];
-    const withFiles = createCuePlayer({ enabled: () => true, files: () => ({ minute: "/sounds/ui/minute.wav" }), makeAudio: (src) => ({ play: () => { played.push(src); } }) });
+    const withFiles = createCuePlayer({
+      enabled: () => true, tone: () => { throw new Error("a tone must not play when the manifest lists the file"); },
+      files: () => ({ minute: "/sounds/ui/turnClockMinute.wav", countdown: "/sounds/ui/turnClockCountdown.wav" }),
+      makeAudio: (src) => ({ play: () => { played.push(src); } }),
+    });
     withFiles.unlock();
-    expect(withFiles.play("minute")).toBe("file"); // one preloaded Audio per cue
-    expect(played).toEqual(["/sounds/ui/minute.wav"]);
+    expect(withFiles.play("minute")).toBe("file"); // one preloaded Audio per file
+    expect(withFiles.play("warning", 9)).toBe("file"); // the warning tone reuses the minute sound
+    expect(withFiles.play("countdown", 4)).toBe("file");
+    expect(played).toEqual(["/sounds/ui/turnClockMinute.wav", "/sounds/ui/turnClockMinute.wav", "/sounds/ui/turnClockCountdown.wav"]);
   });
 
   it("pre-game timers step: Yes / No (the session coach answers for their team); required or off competitions just say so", async () => {

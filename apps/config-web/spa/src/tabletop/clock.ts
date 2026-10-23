@@ -62,40 +62,59 @@ export type CentreMode = "none" | "kickoff" | "end" | "wait";
  */
 export function centreMode(clock: ClockView | undefined, localSide: Side | null, organiser: boolean, canAct: boolean): CentreMode {
   if (!clock || clock.turn === undefined) return "none";
-  if (clock.turn === 0) return canAct ? "kickoff" : "wait";
+  // Turn 0: the team about to play (the receiver) confirms the kick-off; an organiser may for them.
+  if (clock.turn === 0) return canAct && (organiser || !clock.activeTeam || localSide === clock.activeTeam) ? "kickoff" : "wait";
   if (!clock.activeTeam) return "none";
   if (organiser || localSide === clock.activeTeam) return "end";
   return "wait";
 }
 
-// ---- timer cues: 1:00, 0:10 and 0:03, each once per turn -------------------------------------------------------
+// ---- timer cues: the Super FUMBBL client's cadence ----------------------------------------------------------------
+// The minute sound once at 1:00; then, once on each remaining second 10 .. 1, the warning tone (the minute sound) on
+// 10 .. 6 and the last-seconds countdown sound on 5 .. 1 (uiSoundCues.ts turnClockCue).
 
-export type TimerCue = "minute" | "ten" | "three";
-export const CUE_SECONDS: ReadonlyArray<[TimerCue, number]> = [["minute", 60], ["ten", 10], ["three", 3]];
+export type TimerCue = "minute" | "warning" | "countdown";
+export const CUE_MINUTE_S = 60;
+export const CUE_WARNING_FROM_S = 10;
+export const CUE_COUNTDOWN_FROM_S = 5;
+
+/** Every whole second at which a cue sounds: {60} and {10 .. 1}. */
+export const CUE_SECONDS: readonly number[] = [CUE_MINUTE_S, ...Array.from({ length: CUE_WARNING_FROM_S }, (_, i) => CUE_WARNING_FROM_S - i)];
+
+export interface CueReading { cue: TimerCue; seconds: number }
 
 /**
  * Each mark sounds once per turn (a new turn key starts over). The first reading of a turn only initialises: marks it
- * already passed are consumed silently (a reconnect at 0:08 does not replay 1:00). A tick that skips a mark still
- * sounds it once (the latest crossed mark).
+ * already passed are consumed silently (a reconnect at 0:08 does not replay 1:00 or 0:10 .. 0:09). A skipped tick still
+ * sounds the second it lands on, once.
  */
 export function createCueTracker() {
   let key = "";
   let prev: number | undefined;
-  const done = new Set<TimerCue>();
+  let minuteDone = false;
+  const done = new Set<number>();
   return {
-    reading(turnKey: string, remaining: number | undefined): TimerCue | null {
+    reading(turnKey: string, remaining: number | undefined): CueReading | null {
       if (remaining === undefined) { prev = undefined; return null; }
-      if (turnKey !== key) { key = turnKey; prev = undefined; done.clear(); }
+      if (turnKey !== key) { key = turnKey; prev = undefined; }
       if (prev === undefined) {
         prev = remaining;
-        for (const [cue, s] of CUE_SECONDS) if (remaining <= s) done.add(cue);
+        done.clear();
+        minuteDone = remaining <= CUE_MINUTE_S;
+        for (let sec = Math.max(1, Math.ceil(remaining)); sec <= CUE_WARNING_FROM_S; sec++) done.add(sec);
         return null;
       }
-      let out: TimerCue | null = null;
-      for (const [cue, s] of CUE_SECONDS) {
-        if (!done.has(cue) && prev > s && remaining <= s) { done.add(cue); out = cue; }
-      }
+      const before = prev;
       prev = remaining;
+      if (remaining >= before) return null; // a new reading that did not fall: silent
+      let out: CueReading | null = null;
+      if (remaining >= 1 && remaining <= CUE_WARNING_FROM_S && !done.has(remaining)) {
+        for (let sec = remaining; sec <= CUE_WARNING_FROM_S; sec++) done.add(sec);
+        out = { cue: remaining <= CUE_COUNTDOWN_FROM_S ? "countdown" : "warning", seconds: remaining };
+      } else if (!minuteDone && before > CUE_MINUTE_S && remaining <= CUE_MINUTE_S) {
+        out = { cue: "minute", seconds: remaining };
+      }
+      if (remaining <= CUE_MINUTE_S) minuteDone = true;
       return out;
     },
   };

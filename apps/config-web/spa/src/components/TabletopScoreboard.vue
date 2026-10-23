@@ -3,7 +3,7 @@
 // Crest, coach, team and the inducement row per corner; score and the half / turn stepper in the centre; weather and
 // coin on a compact line under it. Everything comes from the server's match, teams, tally and pre-game summary.
 import { computed } from "vue";
-import { centreMode, turnLabel, type ClockView } from "../tabletop/clock";
+import { centreMode, formatTimer, turnLabel, type ClockView } from "../tabletop/clock";
 import { RouterLink } from "vue-router";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { uiIcon, weatherParts } from "../tabletop/feed";
@@ -21,6 +21,8 @@ const props = defineProps<{
   organiser: boolean;
   canAct: boolean;
   busy?: boolean;
+  /** Whole seconds left in the turn (server-offset derived); undefined when turn timers are off. */
+  remaining?: number;
   inducementIcons: Record<string, string>;
   art: ArtManifests;
 }>();
@@ -57,6 +59,15 @@ const chips = (s: Side): Chip[] => {
 const label = computed(() => turnLabel(props.clock?.half, props.clock?.turn));
 const mode = computed(() => centreMode(props.clock, props.localSide, props.organiser, props.canAct));
 const activeName = computed(() => (props.clock?.activeTeam ? props.match[props.clock.activeTeam].teamName : ""));
+const timed = computed(() => props.remaining !== undefined && props.clock?.turnTimer?.mode === "on");
+const countdown = computed(() => (props.remaining === undefined ? "-:--" : formatTimer(props.remaining)));
+/** How much of the turn is left, as a percentage: the button background drains with it. */
+const fill = computed(() => {
+  const total = props.clock?.turnTimer?.seconds;
+  return props.remaining === undefined || !total ? 100 : Math.max(0, Math.min(100, (props.remaining / total) * 100));
+});
+const alert = computed(() => timed.value && (props.remaining as number) <= 10);
+const zero = computed(() => timed.value && (props.remaining as number) <= 0);
 const weather = computed(() => weatherParts(props.pregame, props.events));
 </script>
 
@@ -88,14 +99,20 @@ const weather = computed(() => weatherParts(props.pregame, props.events));
         <button class="tt-cog" type="button" aria-label="Settings" @click="emit('settings')">&#9881;</button>
       </div>
       <p class="tt-score" aria-label="Score"><span>{{ tally.score.home }}</span> : <span>{{ tally.score.away }}</span></p>
-      <button v-if="mode === 'end'" class="tt-endturn" type="button" :disabled="busy" @click="emit('endTurn')">
-        <b>End Turn</b><small>{{ label }} · {{ activeName }}</small>
+      <button
+        v-if="mode === 'end'" class="tt-endturn" type="button" :disabled="busy" :data-timed="timed ? 'true' : null"
+        :data-alert="alert ? 'true' : null" :data-zero="zero ? 'true' : null" :style="timed ? { '--tt-fill': `${fill}%` } : undefined"
+        :aria-label="timed ? `End turn. ${countdown} left. ${label}` : undefined" @click="emit('endTurn')"
+      >
+        <template v-if="timed"><b class="tt-endturn-time" role="timer">{{ countdown }}</b><small>End turn</small></template>
+        <template v-else><b>End Turn</b><small>{{ label }} · {{ activeName }}</small></template>
       </button>
       <button v-else-if="mode === 'kickoff'" class="tt-endturn" type="button" :disabled="busy" @click="emit('startTurn')">
         <b>Kick-off done</b><small>{{ label }}</small>
       </button>
-      <p v-else-if="mode === 'wait'" class="tt-towait" role="status">
-        <b>{{ activeName || "Waiting" }} to play</b><small>{{ label }}<template v-if="activeName"> · {{ activeName }}</template></small>
+      <p v-else-if="mode === 'wait'" class="tt-towait" role="status" :data-alert="alert ? 'true' : null">
+        <template v-if="timed"><b class="tt-endturn-time" role="timer">{{ countdown }}</b><small>{{ activeName }} to play</small></template>
+        <template v-else><b>{{ activeName || "Waiting" }} to play</b><small>{{ label }}<template v-if="activeName"> · {{ activeName }}</template></small></template>
       </p>
     </section>
   </header>
