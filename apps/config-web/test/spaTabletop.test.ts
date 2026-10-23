@@ -313,7 +313,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("End Turn"); // Alice plays home and home is the active team
     expect(html).not.toContain("tt-stepper"); // no manual half / turn stepper any more
     expect(html).toContain("Rosters");
-    expect(html).toContain('href="/app/tabletop"'); // the back button
+    expect(html).not.toContain("tt-back"); // no back button: the shell navigation leaves the page
     // feed rows: the client log sentence, SPP stars, undo trash; the undone TD is gone
     expect(html).toContain("Grob #1</span> scores a touchdown.");
     expect(html).toContain("(&#9733;3)".replace("&#9733;", "\u2605"));
@@ -410,7 +410,9 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain('aria-label="Nice"'); // the condition name is a tooltip / label only
     expect(html).not.toMatch(/>[^<]*Nice[^<]*</);
     expect(html).toContain("tt-weather");
-    expect(html.indexOf("tt-back")).toBeLessThan(html.indexOf("tt-weather")); // top row: Back, weather, cog
+    expect(html.indexOf("tt-rosters-btn")).toBeLessThan(html.indexOf("tt-weather")); // top row: Rosters, weather, cog
+    expect(html.match(/class="tt-rosters-btn"/g)).toHaveLength(1); // not repeated in the away corner
+    expect(html).not.toContain("tt-back");
     expect(html.indexOf("tt-weather")).toBeLessThan(html.indexOf("tt-cog"));
     expect(html).toContain("2Ht5");
     expect(html).not.toMatch(/heads|tails/i);

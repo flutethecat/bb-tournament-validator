@@ -4,7 +4,6 @@
 // coin on a compact line under it. Everything comes from the server's match, teams, tally and pre-game summary.
 import { computed } from "vue";
 import { centreMode, formatTimer, turnLabel, type ClockView } from "../tabletop/clock";
-import { RouterLink } from "vue-router";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { uiIcon, weatherParts } from "../tabletop/feed";
 import type { MatchView, RecordedEvent, ServerTally, Side, TeamView } from "../tabletop/recorder";
@@ -77,9 +76,6 @@ const weather = computed(() => weatherParts(props.pregame, props.events));
       <div class="tt-corner-top">
         <img v-if="crest(s)" class="tt-crest" :src="crest(s)" alt="" />
         <span v-else class="tt-crest tt-crest-ph" aria-hidden="true">&#128737;</span>
-        <button v-if="s === 'away'" class="tt-rosters-btn" type="button" @click="emit('rosters')">
-          <img class="tt-glyph" :src="uiIcon('football-helmet')" alt="" />Rosters
-        </button>
       </div>
       <span class="tt-coach">{{ match[s].coach }}</span>
       <span class="tt-team">{{ match[s].teamName }}</span>
@@ -94,7 +90,9 @@ const weather = computed(() => weatherParts(props.pregame, props.events));
     </section>
     <section class="tt-centre">
       <div class="tt-top-pair">
-        <RouterLink class="tt-back" to="/tabletop" aria-label="Back to Tabletop">&#8592;</RouterLink>
+        <button class="tt-rosters-btn" type="button" aria-label="Rosters" @click="emit('rosters')">
+          <img class="tt-glyph" :src="uiIcon('football-helmet')" alt="" /><span>Rosters</span>
+        </button>
         <span v-if="weather.icon" class="tt-weather" role="img" :aria-label="weather.name" :title="weather.name">{{ weather.icon }}</span>
         <button class="tt-cog" type="button" aria-label="Settings" @click="emit('settings')">&#9881;</button>
       </div>
