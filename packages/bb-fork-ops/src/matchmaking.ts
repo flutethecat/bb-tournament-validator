@@ -277,6 +277,20 @@ export class Matchmaker {
     return a && this.key(a.opponent) === this.key(coachB) ? "inflight" : "none";
   }
 
+  /** The challenge ids an in-flight or uncertain operation holds for this coach's pairing ([] when none). */
+  heldChallengeIds(coach: string): string[] {
+    const k = this.key(coach);
+    const mine = this.inflight.get(k);
+    if (mine) {
+      const theirs = this.inflight.get(this.key(mine.opponent));
+      return theirs ? [mine.id, theirs.id] : [mine.id];
+    }
+    for (const op of this.uncertain.values()) {
+      if (this.key(op.a.coach) === k || this.key(op.b.coach) === k) return [op.a.id, op.b.id];
+    }
+    return [];
+  }
+
   /** Does the matchmaker still hold this exact consent (pending, in flight, or in an uncertain operation)? */
   holdsChallenge(coach: string, challengeId: string): boolean {
     this.sweep();

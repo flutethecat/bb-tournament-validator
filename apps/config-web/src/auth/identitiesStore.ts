@@ -57,6 +57,9 @@ export interface ProvisionalSignup {
   operationId: string;
   state: "provisional";
   createdAt: string;
+  /** Last time a completion worked on this record (resume / insert / failed recovery); the 24 h purge counts from
+   *  here, so a recovery that just failed keeps its record usable. */
+  lastActiveAt?: string;
 }
 
 function normalizedProvisional(value: unknown): ProvisionalSignup | undefined {
@@ -68,8 +71,9 @@ function normalizedProvisional(value: unknown): ProvisionalSignup | undefined {
   const generatedDigest = typeof v.generatedDigest === "string" && /^[a-f0-9]{32}$/i.test(v.generatedDigest) ? v.generatedDigest.toLowerCase() : undefined;
   const operationId = str(v.operationId, 64);
   const createdAt = str(v.createdAt, 64) ?? "";
+  const lastActiveAt = str(v.lastActiveAt, 64);
   if (!discordUserId || !coachName || !generatedDigest || !operationId || v.state !== "provisional") return undefined;
-  return { discordUserId, coachName, generatedDigest, operationId, state: "provisional", createdAt };
+  return { discordUserId, coachName, generatedDigest, operationId, state: "provisional", createdAt, ...(lastActiveAt ? { lastActiveAt } : {}) };
 }
 
 /** Provisional signups older than this, with no operation in flight, are purged (the fork account the attempt may
@@ -79,7 +83,7 @@ export const PROVISIONAL_SIGNUP_TTL_MS = 24 * 60 * 60 * 1000;
 export const activeProvisionalOperations = new Set<string>();
 
 function isStaleProvisional(rec: ProvisionalSignup, now = Date.now()): boolean {
-  const created = Date.parse(rec.createdAt);
+  const created = Date.parse(rec.lastActiveAt ?? rec.createdAt);
   return !activeProvisionalOperations.has(rec.operationId) && (!Number.isFinite(created) || now - created > PROVISIONAL_SIGNUP_TTL_MS);
 }
 
@@ -131,6 +135,16 @@ export function putProvisionalSignup(record: ProvisionalSignup): void {
   if (!rec) throw new Error("Invalid provisional signup record.");
   const current = readIdentities();
   writeIdentityStore({ ...current, provisionalSignups: { ...readProvisionalSection(), [rec.discordUserId]: rec } });
+}
+
+/** Refresh a provisional record's activity time (same operation only). */
+export function touchProvisionalSignup(discordUserId: string, operationId: string, now = new Date()): boolean {
+  const section = readProvisionalSection();
+  const rec = section[discordUserId];
+  if (rec?.operationId !== operationId) return false;
+  section[discordUserId] = { ...rec, lastActiveAt: now.toISOString() };
+  writeIdentityStore({ ...readIdentities(), provisionalSignups: section });
+  return true;
 }
 
 /** Remove a provisional signup ONLY if it is still the same operation (never a newer attempt's record). */

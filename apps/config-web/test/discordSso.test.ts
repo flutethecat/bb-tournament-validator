@@ -19,7 +19,7 @@ import {
   validatedNextPath,
 } from "../src/auth/discordSso.js";
 import type { CoachIdentityRecord } from "../src/auth/identitiesStore.js";
-import { activeProvisionalOperations, confirmProvisionalSignup, putProvisionalSignup, readIdentities, readProvisionalSignup, removeProvisionalSignup, upsertIdentity } from "../src/auth/identitiesStore.js";
+import { activeProvisionalOperations, confirmProvisionalSignup, putProvisionalSignup, readIdentities, readProvisionalSignup, removeProvisionalSignup, touchProvisionalSignup, upsertIdentity } from "../src/auth/identitiesStore.js";
 import { attemptsByCoach, attemptsByIp } from "../src/auth/loginAttempts.js";
 import { requireSession } from "../src/auth/requireSession.js";
 
@@ -801,5 +801,63 @@ describe("Discord signup round 6: one-write confirm, independent locks, stale pu
     } finally {
       activeProvisionalOperations.delete("op-active");
     }
+  });
+});
+
+describe("Discord signup round 7: the whole completion is active; a failed recovery refreshes the record", () => {
+  const req = { headers: {}, socket: { remoteAddress: "10.0.0.9" }, method: "POST" } as unknown as IncomingMessage;
+  let dir = "";
+  const previousFile = process.env.IDENTITIES_FILE;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "prov7-"));
+    process.env.IDENTITIES_FILE = join(dir, "identities.json");
+  });
+  afterEach(() => {
+    if (previousFile === undefined) delete process.env.IDENTITIES_FILE; else process.env.IDENTITIES_FILE = previousFile;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("resume near the deadline, digest lookup paused across it, unrelated write, lookup fails: record kept, retry resumes", async () => {
+    const digest = "d".repeat(32);
+    const nearDeadline = new Date(Date.now() - 24 * 60 * 60 * 1000 + 40).toISOString(); // stale in 40 ms
+    putProvisionalSignup({ discordUserId: "f-1", coachName: "Edge", generatedDigest: digest, operationId: "op-edge", state: "provisional", createdAt: nearDeadline });
+    let release!: (v: string | undefined) => void;
+    let lookupFails = true;
+    const deps = {
+      fork: {
+        coachExists: async () => true, // the account was created by the earlier attempt
+        verifyCoachDigest: async () => false,
+        createForkAccountDigestIfAvailable: async () => false,
+        storedDigest: async () => {
+          if (!lookupFails) return digest;
+          return new Promise<string | undefined>((_, reject) => { release = () => reject(new Error("db down")); });
+        },
+      },
+      identityForCoach: (c: string) => readIdentities().coaches[c.trim().toLowerCase()],
+      isCoachBanned: () => false,
+      upsertIdentity: (r: CoachIdentityRecord) => { upsertIdentity(r); },
+      provisional: {
+        get: (id: string) => readProvisionalSignup(id),
+        put: (r: Parameters<typeof putProvisionalSignup>[0]) => putProvisionalSignup(r),
+        remove: (id: string, op: string) => removeProvisionalSignup(id, op),
+        confirm: (r: CoachIdentityRecord, id: string, op: string) => confirmProvisionalSignup(r, id, op),
+        touch: (id: string, op: string) => { touchProvisionalSignup(id, op); },
+        setActive: (op: string, active: boolean) => { if (active) activeProvisionalOperations.add(op); else activeProvisionalOperations.delete(op); },
+      },
+      createSessionToken: () => "tok",
+    };
+    const first = completeDiscordCoachAssociation(req, { discordId: "f-1", discordUsername: "Edge", next: "/" }, { ffbCoachId: "Edge" }, undefined, deps);
+    await new Promise((r) => setTimeout(r, 80)); // the deadline passes while the lookup is paused
+    upsertIdentity({ ffbCoachId: "Unrelated", level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, updatedAt: "", updatedBy: "" });
+    expect(readProvisionalSignup("f-1")).toBeDefined(); // active: not purged by the unrelated write
+    release(undefined);
+    expect((await first).status).toBe(503);
+    const kept = readProvisionalSignup("f-1");
+    expect(kept?.operationId).toBe("op-edge"); // the failed recovery refreshed its activity time
+    expect(Date.parse(kept!.lastActiveAt!)).toBeGreaterThan(Date.now() - 5_000);
+    lookupFails = false;
+    const retry = await completeDiscordCoachAssociation(req, { discordId: "f-1", discordUsername: "Edge", next: "/" }, { ffbCoachId: "Edge" }, undefined, deps);
+    expect(retry).toMatchObject({ status: 200, sessionToken: "tok" });
+    expect(readIdentities().coaches.edge?.identities.discordUserId).toBe("f-1");
   });
 });

@@ -55,6 +55,8 @@ export interface DiscordSsoProvisionalDeps {
   put: (record: ProvisionalSignup) => void;
   /** Removes only when the record is still this operation's. */
   remove: (discordUserId: string, operationId: string) => boolean;
+  /** Refresh the record's activity time (a failed active recovery stays usable for another 24 h). */
+  touch?: (discordUserId: string, operationId: string) => void;
   /** ONE durable write: store the confirmed identity link and remove the matching-operation record. */
   confirm?: (record: CoachIdentityRecord, discordUserId: string, operationId: string) => void;
   /** Mark an operation's fork insert in flight (never purged while active). */
@@ -579,13 +581,10 @@ async function completeDiscordCoachAssociationNow(
     };
     const insertProvisional = async (rec: ProvisionalSignup): Promise<"confirmed" | "taken" | "unknown"> => {
       let created: boolean;
-      deps.provisional?.setActive?.(rec.operationId, true);
       try {
         created = await fork.createForkAccountDigestIfAvailable(rec.coachName, rec.generatedDigest);
       } catch {
         return "unknown"; // the record stays: the next sign-in resumes from it
-      } finally {
-        deps.provisional?.setActive?.(rec.operationId, false);
       }
       if (created) return "confirmed";
       try {
@@ -602,6 +601,16 @@ async function completeDiscordCoachAssociationNow(
         deps.provisional?.remove(rec.discordUserId, rec.operationId);
       }
     };
+    /** The whole completion (resume reads, insert, ownership read, confirm) counts as active for the stale purge;
+     *  an unknown outcome refreshes the record's activity time so it stays usable. */
+    const whileActive = async <T>(rec: ProvisionalSignup, work: () => Promise<T>): Promise<T> => {
+      deps.provisional?.setActive?.(rec.operationId, true);
+      try {
+        return await work();
+      } finally {
+        deps.provisional?.setActive?.(rec.operationId, false);
+      }
+    };
     const settle = (rec: ProvisionalSignup, outcome: "confirmed" | "taken" | "unknown"): DiscordSsoCompletionResult | undefined => {
       if (outcome === "unknown") {
         return { status: 503, body: { error: "Your account could not be confirmed yet. Sign in with Discord again to finish." } };
@@ -614,19 +623,22 @@ async function completeDiscordCoachAssociationNow(
     };
 
     if (resuming) {
-      let outcome: "confirmed" | "taken" | "unknown";
-      try {
-        outcome = (await fork.coachExists(resuming.coachName))
-          ? ((await owns(resuming)) ? "confirmed" : "taken")
-          : await insertProvisional(resuming);
-      } catch {
-        outcome = "unknown";
-      }
-      const stop = settle(resuming, outcome);
-      if (stop) return stop;
-      confirmLink(resuming);
-      sessionToken = deps.createSessionToken(ffbCoachId, now);
-      return { status: 200, body: { ok: true, coach: ffbCoachId, next: pending.next }, sessionToken };
+      return whileActive(resuming, async () => {
+        let outcome: "confirmed" | "taken" | "unknown";
+        try {
+          outcome = (await fork.coachExists(resuming.coachName))
+            ? ((await owns(resuming)) ? "confirmed" : "taken")
+            : await insertProvisional(resuming);
+        } catch {
+          outcome = "unknown";
+        }
+        if (outcome === "unknown") deps.provisional?.touch?.(resuming.discordUserId, resuming.operationId);
+        const stop = settle(resuming, outcome);
+        if (stop) return stop;
+        confirmLink(resuming);
+        const token = deps.createSessionToken(ffbCoachId, now);
+        return { status: 200, body: { ok: true, coach: ffbCoachId, next: pending.next }, sessionToken: token };
+      });
     }
 
     if (await fork.coachExists(ffbCoachId)) {
@@ -695,15 +707,18 @@ async function completeDiscordCoachAssociationNow(
         createdAt: new Date(now).toISOString(),
       };
       deps.provisional?.put(rec);
-      const outcome = await insertProvisional(rec);
-      if (!deps.provisional && outcome === "unknown") {
-        return { status: 503, body: { error: "Your account could not be confirmed yet. Try again." } };
-      }
-      const stop = settle(rec, outcome);
-      if (stop) return outcome === "taken" ? { status: 409, body: { error: "That fork coach name already exists." } } : stop;
-      confirmLink(rec);
-      sessionToken = deps.createSessionToken(ffbCoachId, now);
-      return { status: 200, body: { ok: true, coach: ffbCoachId, next: pending.next }, sessionToken };
+      return whileActive(rec, async () => {
+        const outcome = await insertProvisional(rec);
+        if (!deps.provisional && outcome === "unknown") {
+          return { status: 503, body: { error: "Your account could not be confirmed yet. Try again." } };
+        }
+        if (outcome === "unknown") deps.provisional?.touch?.(rec.discordUserId, rec.operationId);
+        const stop = settle(rec, outcome);
+        if (stop) return outcome === "taken" ? { status: 409, body: { error: "That fork coach name already exists." } } : stop;
+        confirmLink(rec);
+        const token = deps.createSessionToken(ffbCoachId, now);
+        return { status: 200, body: { ok: true, coach: ffbCoachId, next: pending.next }, sessionToken: token };
+      });
     }
   }
 

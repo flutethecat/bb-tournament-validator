@@ -57,7 +57,7 @@ credential digest, operation id) written before the fork insert; the next Discor
 accepts the account only if the fork row carries exactly that digest. A provisional record older than 24 h with no insert
 in flight is purged on the next identities write or sign-in; any fork account that attempt may have created is
 left on the fork (an organiser can remove it). A client challenge for a coach held by an in-flight / uncertain
-pairing gets 409 with `lobbyId` and `lobbyUrl` (from `PUBLIC_BASE_URL`, else the request host).
+pairing gets 409 with `lobbyId` and `lobbyUrl` (absolute from `PUBLIC_BASE_URL`, else relative `/lobby/#<id>`).
 
 `/api/fork/matchstatus` returns a JNLP only to an authorized poll (the coach's own session, or the digest that
 coach supplied with a client challenge), built from that digest; any other poll gets status only and never
@@ -74,5 +74,5 @@ Environment:
 | Variable | Default | Use |
 |---|---|---|
 | `FUMBBL_BASE_URL` | `https://fumbbl.com` | origin for the coach-rating requests |
-| `PUBLIC_BASE_URL` | the request host | public origin used in lobby links returned to the client (held-consent 409) |
+| `PUBLIC_BASE_URL` | (none: relative links) | public http(s) origin (no credentials, no path; validated at startup, an invalid value is ignored) used for absolute lobby links in the held-consent 409; never derived from the request's Host header |
 | `SUPER_WS_ALLOWED_ORIGINS` | (none) | comma list of browser origins allowed on lobby sockets; the origin of `DISCORD_OAUTH_REDIRECT_URI` is always allowed; with neither set, same host only. **REQUIRED** on any host whose public browser origin differs from the Discord redirect origin (e.g. page at `https://<host>`, redirect URI `http://<host>:4310`): list every origin coaches open the page from, or lobby chat is refused |

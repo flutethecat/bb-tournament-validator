@@ -550,6 +550,18 @@ describe("uncertain setup, client delivery, credential before the lock", () => {
     expect(store.heldLobbyFor("alice")?.id).toBe(lobby.id);
   });
 
+  it("heldLobbyFor matches the held consent's exact challenge ids, not the newest lobby of the pair", async () => {
+    const { store } = uncertainLobby({ ids: [] });
+    const held = await store.create("Alice", "t1", "Bob");
+    // a superseded duplicate lobby for the same pair, NEWER, whose consent is not the held one
+    const lobbies = (store as unknown as { lobbies: Map<string, typeof held> }).lobbies;
+    lobbies.set("dupLobby01", { ...held, id: "dupLobby01", createdAt: held.createdAt + 1, creatorChallengeId: "not-held", chat: [], creator: { ...held.creator }, opponent: { ...held.opponent } });
+    await store.join(held.id, "Bob", "t2");
+    expect(store.heldLobbyFor("Alice")?.id).toBe(held.id);
+    expect(store.heldLobbyFor("Bob")?.id).toBe(held.id);
+    expect(store.heldLobbyFor("Carol")).toBeUndefined();
+  });
+
   it("a client seat's authorized JNLP delivery marks that coach 'in the client', so the browser seat can start", async () => {
     const matchmaker = new Matchmaker();
     const store = new LobbyStore({ matchmaker, isBanned: () => false, resolveTeam: (_c, teamId) => ({ teamId, teamName: teamId, race: "Orc" }) });

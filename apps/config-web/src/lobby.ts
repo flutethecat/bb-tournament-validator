@@ -47,6 +47,8 @@ export interface LobbyMatchmaker {
   checkAgain?(coachA: string, coachB: string): Promise<VerifiedChallengeResult | undefined>;
   /** Withdraw both consents of an uncertain pairing so the coaches can challenge afresh. */
   startOver?(coach: string): boolean;
+  /** The challenge ids an in-flight / uncertain operation holds for this coach's pairing. */
+  heldChallengeIds?(coach: string): string[];
 }
 
 export interface LobbyTeam {
@@ -390,13 +392,14 @@ export class LobbyStore {
     lobby.opponentTeam = teamFor(o.coach, o.teamId, lobby.opponentTeam);
   }
 
-  /** The newest unpaired lobby of a coach whose setup is in flight or uncertain (where to resolve a held consent). */
+  /** The lobby whose consents ARE the ones an in-flight / uncertain operation holds for this coach (matched by
+   *  exact challenge id, not by coach pair or time). Lobbies kept alive by an uncertain setup are still listed
+   *  here (they are not swept); expired / closed ones are gone and never matched. */
   heldLobbyFor(coach: string): LobbyRecord | undefined {
-    const mm = this.opts.matchmaker;
-    return [...this.lobbies.values()]
-      .filter((l) => !l.pairing && this.roleOf(l, coach) !== undefined
-        && (mm.operationState?.(l.creator.coach, l.opponent.coach) ?? "none") !== "none")
-      .sort((a, b) => b.createdAt - a.createdAt)[0];
+    const ids = new Set(this.opts.matchmaker.heldChallengeIds?.(coach) ?? []);
+    if (ids.size === 0) return undefined;
+    return [...this.lobbies.values()].find((l) => !l.pairing && this.roleOf(l, coach) !== undefined
+      && (ids.has(l.creatorChallengeId) || (l.opponentChallengeId !== undefined && ids.has(l.opponentChallengeId))));
   }
 
   /** Close an unpaired lobby (creator only): withdraws the creator's challenge if it is still this lobby's. */

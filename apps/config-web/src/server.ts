@@ -125,6 +125,7 @@ import {
   readProvisionalSignup,
   putProvisionalSignup,
   confirmProvisionalSignup,
+  touchProvisionalSignup,
   activeProvisionalOperations,
   removeProvisionalSignup,
   updateOwnAccount,
@@ -467,13 +468,25 @@ const coachRatings = new CoachRatingCache({
 const lobbyAllowedOrigins = lobbyAllowedOriginsFromEnv();
 let lobbyChatLive = false;
 
+/** PUBLIC_BASE_URL, validated once at startup (http/https origin, no userinfo / path); unset or invalid = none. */
+const PUBLIC_BASE_ORIGIN = ((): string | undefined => {
+  const raw = process.env.PUBLIC_BASE_URL?.trim();
+  if (!raw) return undefined;
+  try {
+    const u = new URL(raw);
+    if ((u.protocol === "https:" || u.protocol === "http:") && !u.username && !u.password && (u.pathname === "/" || u.pathname === "")
+      && !u.search && !u.hash) return u.origin;
+  } catch { /* fall through */ }
+  console.error("[lobby] PUBLIC_BASE_URL must be an http(s) origin without credentials or a path; ignoring it.");
+  return undefined;
+})();
+
 /** 409 body for a client challenge held by an in-flight / uncertain pairing: the lobby to resolve it in, if any.
- *  The public base comes from PUBLIC_BASE_URL, else the request's own host. */
-function heldConsentBody(req: IncomingMessage, coach: string): { error: string; lobbyId?: string; lobbyUrl?: string } {
+ *  An absolute URL only from the validated PUBLIC_BASE_URL; never from the request's Host header. */
+function heldConsentBody(coach: string): { error: string; lobbyId?: string; lobbyUrl?: string } {
   const lobby = lobbyStore.heldLobbyFor(coach);
   if (!lobby) return { error: "A game is being set up for this coach. Try again in a moment, or cancel the challenge." };
-  const base = (process.env.PUBLIC_BASE_URL?.trim() || `${requestUsesTls(req) ? "https" : "http"}://${req.headers.host ?? "localhost"}`).replace(/\/+$/, "");
-  const lobbyUrl = `${base}/lobby/#${lobby.id}`;
+  const lobbyUrl = `${PUBLIC_BASE_ORIGIN ?? ""}/lobby/#${lobby.id}`;
   return { error: `A game is being set up for this coach; open the lobby at ${lobbyUrl}`, lobbyId: lobby.id, lobbyUrl };
 }
 
@@ -1283,6 +1296,7 @@ async function handleApi(
             put: (record) => { putProvisionalSignup(record); },
             remove: (discordUserId, operationId) => removeProvisionalSignup(discordUserId, operationId),
             confirm: (record, discordUserId, operationId) => confirmProvisionalSignup(record, discordUserId, operationId),
+            touch: (discordUserId, operationId) => { touchProvisionalSignup(discordUserId, operationId); },
             setActive: (operationId, active) => {
               if (active) activeProvisionalOperations.add(operationId); else activeProvisionalOperations.delete(operationId);
             },
@@ -2014,7 +2028,7 @@ async function handleApi(
     } catch (e) {
       // Held by an in-flight / uncertain pairing: 409 with where to resolve it (the error text stays readable for
       // clients that only show `error`).
-      if (e instanceof ConsentHeldError) return sendJson(res, 409, heldConsentBody(req, coach));
+      if (e instanceof ConsentHeldError) return sendJson(res, 409, heldConsentBody(coach));
       return sendJson(res, 400, { error: (e as Error).message });
     }
   }
