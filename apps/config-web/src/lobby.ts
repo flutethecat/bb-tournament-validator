@@ -102,6 +102,8 @@ export interface LobbyRecord {
   opponentTeam?: LobbyTeam;
   pairing?: PairingEvent;
   startedAt?: number;
+  /** Last "Check again" (the cooldown lives and dies with the lobby). */
+  lastCheckAt?: number;
   chat: LobbyChatMessage[];
   nextChatId: number;
 }
@@ -355,7 +357,7 @@ export class LobbyStore {
 
   /** Matchmaker `onPaired` hook: attach a pairing to the live lobby whose challenge ids it consumed. */
   notePairing(pairing: PairingEvent): void {
-    this.sweep();
+    // No sweep before attaching: a lobby kept alive only by its uncertain setup must survive its own resolution.
     const ids = new Set([pairing.home.challengeId, pairing.away.challengeId]);
     for (const lobby of this.lobbies.values()) {
       if (lobby.pairing) continue;
@@ -370,6 +372,8 @@ export class LobbyStore {
   private attach(lobby: LobbyRecord, pairing: PairingEvent): void {
     if (lobby.pairing) return;
     lobby.pairing = pairing;
+    // A fresh lifetime from the pairing (resolution) time: the normal 24 h rule, then 1 h after the game starts.
+    lobby.expiresAt = Math.max(lobby.expiresAt, this.now() + this.ttlMs);
     const sideOf = (coach: string) => (same(pairing.home.coach, coach) ? pairing.home : pairing.away);
     const c = sideOf(lobby.creator.coach);
     const o = sideOf(lobby.opponent.coach);
@@ -384,6 +388,15 @@ export class LobbyStore {
     };
     lobby.creatorTeam = teamFor(c.coach, c.teamId, lobby.creatorTeam);
     lobby.opponentTeam = teamFor(o.coach, o.teamId, lobby.opponentTeam);
+  }
+
+  /** The newest unpaired lobby of a coach whose setup is in flight or uncertain (where to resolve a held consent). */
+  heldLobbyFor(coach: string): LobbyRecord | undefined {
+    const mm = this.opts.matchmaker;
+    return [...this.lobbies.values()]
+      .filter((l) => !l.pairing && this.roleOf(l, coach) !== undefined
+        && (mm.operationState?.(l.creator.coach, l.opponent.coach) ?? "none") !== "none")
+      .sort((a, b) => b.createdAt - a.createdAt)[0];
   }
 
   /** Close an unpaired lobby (creator only): withdraws the creator's challenge if it is still this lobby's. */
@@ -402,12 +415,10 @@ export class LobbyStore {
 
   // ── uncertain game setup ──
 
-  private readonly lastCheck = new Map<string, number>();
-
   /** Refuse a check within the cooldown (before the game-start lock is taken). */
   assertCheckAllowed(id: string, coach: string): void {
     const { lobby } = this.requireMember(id, coach);
-    const last = this.lastCheck.get(lobby.id);
+    const last = lobby.lastCheckAt;
     if (last !== undefined && this.now() - last < LOBBY_CHECK_COOLDOWN_MS) {
       throw new LobbyError(409, "Checked a moment ago. Try again in a few seconds.", lobby.id);
     }
@@ -418,7 +429,7 @@ export class LobbyStore {
     this.assertCheckAllowed(id, coach);
     const { lobby } = this.requireMember(id, coach);
     if (lobby.pairing) return lobby;
-    this.lastCheck.set(lobby.id, this.now());
+    lobby.lastCheckAt = this.now();
     const res = await this.opts.matchmaker.checkAgain?.(lobby.creator.coach, lobby.opponent.coach);
     if (res?.pairing) this.attach(lobby, res.pairing);
     this.emit(lobby.id);

@@ -72,6 +72,17 @@ function normalizedProvisional(value: unknown): ProvisionalSignup | undefined {
   return { discordUserId, coachName, generatedDigest, operationId, state: "provisional", createdAt };
 }
 
+/** Provisional signups older than this, with no operation in flight, are purged (the fork account the attempt may
+ *  have created is left on the fork). */
+export const PROVISIONAL_SIGNUP_TTL_MS = 24 * 60 * 60 * 1000;
+/** Operation ids whose fork insert is in flight in this process (never purged while listed). */
+export const activeProvisionalOperations = new Set<string>();
+
+function isStaleProvisional(rec: ProvisionalSignup, now = Date.now()): boolean {
+  const created = Date.parse(rec.createdAt);
+  return !activeProvisionalOperations.has(rec.operationId) && (!Number.isFinite(created) || now - created > PROVISIONAL_SIGNUP_TTL_MS);
+}
+
 function readProvisionalSection(): Record<string, ProvisionalSignup> {
   try {
     const parsed = JSON.parse(readFileSync(identitiesFile(), "utf8")) as { provisionalSignups?: unknown };
@@ -88,9 +99,30 @@ function readProvisionalSection(): Record<string, ProvisionalSignup> {
   }
 }
 
-/** The provisional signup of a Discord user, if any. */
+/** The provisional signup of a Discord user, if any. A stale one is purged here (a sign-in reads it). */
 export function readProvisionalSignup(discordUserId: string): ProvisionalSignup | undefined {
-  return readProvisionalSection()[discordUserId];
+  const rec = readProvisionalSection()[discordUserId];
+  if (rec && isStaleProvisional(rec)) {
+    writeIdentityStore(readIdentities()); // the write path purges stale records
+    return undefined;
+  }
+  return rec;
+}
+
+/**
+ * Confirm a provisional signup in ONE durable write: the identity link is stored and the matching provisional
+ * record (same operation id) removed together, so there is never a moment with neither.
+ */
+export function confirmProvisionalSignup(record: CoachIdentityRecord, discordUserId: string, operationId: string): void {
+  const normalized = normalizedRecord(record);
+  const current = readIdentities();
+  const section = readProvisionalSection();
+  if (section[discordUserId]?.operationId === operationId) delete section[discordUserId];
+  writeIdentityStore({
+    version: 1,
+    coaches: { ...current.coaches, [normalizeFfbCoachId(normalized.ffbCoachId)]: normalized },
+    provisionalSignups: section,
+  });
 }
 
 /** Persist (replace) a provisional signup durably, before the fork insert. */
@@ -366,7 +398,9 @@ export function upsertIdentity(record: CoachIdentityRecord): IdentityStore {
 
 function writeIdentityStore(store: IdentityStore): void {
   // Writers that only know about coaches must not drop the provisional-signup section.
-  const provisionalSignups = store.provisionalSignups ?? readProvisionalSection();
+  const provisionalSignups = Object.fromEntries(
+    Object.entries(store.provisionalSignups ?? readProvisionalSection()).filter(([, rec]) => !isStaleProvisional(rec)),
+  );
   const full: IdentityStore = Object.keys(provisionalSignups).length
     ? { version: 1, coaches: store.coaches, provisionalSignups }
     : { version: 1, coaches: store.coaches };

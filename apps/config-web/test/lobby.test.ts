@@ -523,6 +523,33 @@ describe("uncertain setup, client delivery, credential before the lock", () => {
     expect(store.sweep()).toBe(1);
   });
 
+  it("a lobby kept only by its uncertain setup survives being resolved, with a fresh lifetime from that moment", async () => {
+    const live: { ids: string[] | undefined } = { ids: [] };
+    const { store } = uncertainLobby(live);
+    const lobby = await store.create("Alice", "t1", "Bob");
+    await store.join(lobby.id, "Bob", "t2");
+    clock += 25 * 60 * 60 * 1000; // past the 24 h lifetime; kept because uncertain
+    expect(store.sweep()).toBe(0);
+    live.ids = ["9"];
+    await store.checkAgain(lobby.id, "Alice");
+    expect(store.get(lobby.id)).toBeDefined();
+    expect(store.goneReason(lobby.id)).toBeUndefined();
+    expect(store.view(store.get(lobby.id)!, "Alice")).toMatchObject({ status: "ready", game: { gameId: "9" } });
+    expect(lobby.expiresAt).toBeGreaterThanOrEqual(clock + 24 * 60 * 60 * 1000);
+    expect(lobby.lastCheckAt).toBe(clock); // the cooldown lives on the record
+    expect((store as unknown as { lastCheck?: unknown }).lastCheck).toBeUndefined();
+    store.launch(lobby.id, "Alice");
+    expect(lobby.expiresAt).toBe(clock + 60 * 60 * 1000); // then the normal 1 h after start
+  });
+
+  it("heldLobbyFor finds the lobby where a held consent can be resolved", async () => {
+    const { store } = uncertainLobby({ ids: [] });
+    const lobby = await store.create("Alice", "t1", "Bob");
+    expect(store.heldLobbyFor("Alice")).toBeUndefined(); // just waiting: nothing held
+    await store.join(lobby.id, "Bob", "t2");
+    expect(store.heldLobbyFor("alice")?.id).toBe(lobby.id);
+  });
+
   it("a client seat's authorized JNLP delivery marks that coach 'in the client', so the browser seat can start", async () => {
     const matchmaker = new Matchmaker();
     const store = new LobbyStore({ matchmaker, isBanned: () => false, resolveTeam: (_c, teamId) => ({ teamId, teamName: teamId, race: "Orc" }) });

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +19,7 @@ import {
   validatedNextPath,
 } from "../src/auth/discordSso.js";
 import type { CoachIdentityRecord } from "../src/auth/identitiesStore.js";
-import { putProvisionalSignup, readProvisionalSignup, removeProvisionalSignup } from "../src/auth/identitiesStore.js";
+import { activeProvisionalOperations, confirmProvisionalSignup, putProvisionalSignup, readIdentities, readProvisionalSignup, removeProvisionalSignup, upsertIdentity } from "../src/auth/identitiesStore.js";
 import { attemptsByCoach, attemptsByIp } from "../src/auth/loginAttempts.js";
 import { requireSession } from "../src/auth/requireSession.js";
 
@@ -687,16 +687,119 @@ describe("Discord signup: one durable provisional record, ownership by the gener
   });
 
   it("rollback removes only the record of the same operation", () => {
-    putProvisionalSignup({ discordUserId: "d-5", coachName: "X", generatedDigest: "a".repeat(32), operationId: "op-new", state: "provisional", createdAt: "" });
+    putProvisionalSignup({ discordUserId: "d-5", coachName: "X", generatedDigest: "a".repeat(32), operationId: "op-new", state: "provisional", createdAt: new Date().toISOString() });
     expect(removeProvisionalSignup("d-5", "op-old")).toBe(false);
     expect(readProvisionalSignup("d-5")?.operationId).toBe("op-new");
     expect(removeProvisionalSignup("d-5", "op-new")).toBe(true);
   });
 
   it("coach writes keep the provisional section", async () => {
-    putProvisionalSignup({ discordUserId: "d-6", coachName: "Y", generatedDigest: "b".repeat(32), operationId: "op", state: "provisional", createdAt: "" });
+    putProvisionalSignup({ discordUserId: "d-6", coachName: "Y", generatedDigest: "b".repeat(32), operationId: "op", state: "provisional", createdAt: new Date().toISOString() });
     const { upsertIdentity } = await import("../src/auth/identitiesStore.js");
     upsertIdentity({ ffbCoachId: "Other", level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, updatedAt: "", updatedBy: "" });
     expect(readProvisionalSignup("d-6")?.coachName).toBe("Y");
+  });
+});
+
+describe("Discord signup round 6: one-write confirm, independent locks, stale purge", () => {
+  const req = { headers: {}, socket: { remoteAddress: "10.0.0.8" }, method: "POST" } as unknown as IncomingMessage;
+  const signup = (discordId: string) => ({ discordId, discordUsername: "Newbie", next: "/" });
+  let dir = "";
+  const previousFile = process.env.IDENTITIES_FILE;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "prov6-"));
+    process.env.IDENTITIES_FILE = join(dir, "identities.json");
+  });
+  afterEach(() => {
+    if (previousFile === undefined) delete process.env.IDENTITIES_FILE; else process.env.IDENTITIES_FILE = previousFile;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function realDeps(opts: { insert?: (coach: string, digest: string) => Promise<boolean>; confirmFails?: () => boolean } = {}) {
+    const rows = new Map<string, string>();
+    const inserts: string[] = [];
+    const deps = {
+      fork: {
+        coachExists: async (c: string) => rows.has(c.toLowerCase()),
+        verifyCoachDigest: async () => false,
+        createForkAccountDigestIfAvailable: opts.insert ?? (async (c: string, d: string) => {
+          inserts.push(c);
+          if (rows.has(c.toLowerCase())) return false;
+          rows.set(c.toLowerCase(), d);
+          return true;
+        }),
+        storedDigest: async (c: string) => rows.get(c.toLowerCase()),
+      },
+      identityForCoach: (c: string) => readIdentities().coaches[c.trim().toLowerCase()],
+      isCoachBanned: () => false,
+      upsertIdentity: (r: CoachIdentityRecord) => { upsertIdentity(r); },
+      linkedCoachForDiscord: (id: string) => Object.values(readIdentities().coaches).find((r) => r.identities.discordUserId === id)?.ffbCoachId,
+      provisional: {
+        get: (id: string) => readProvisionalSignup(id),
+        put: (r: Parameters<typeof putProvisionalSignup>[0]) => putProvisionalSignup(r),
+        remove: (id: string, op: string) => removeProvisionalSignup(id, op),
+        confirm: (r: CoachIdentityRecord, id: string, op: string) => {
+          if (opts.confirmFails?.()) throw new Error("identities write failed");
+          confirmProvisionalSignup(r, id, op);
+        },
+        setActive: (op: string, active: boolean) => { if (active) activeProvisionalOperations.add(op); else activeProvisionalOperations.delete(op); },
+      },
+      createSessionToken: () => "tok",
+    };
+    return { rows, inserts, deps };
+  }
+
+  it("fresh success: the link and the record removal are ONE write before the session; a failed write keeps the record", async () => {
+    let fail = true;
+    const r = realDeps({ confirmFails: () => fail });
+    await expect(completeDiscordCoachAssociation(req, signup("e-1"), { ffbCoachId: "Fresh" }, undefined, r.deps)).rejects.toThrow(/identities write failed/);
+    expect(readProvisionalSignup("e-1")?.coachName).toBe("Fresh"); // recovery state survives the failed write
+    fail = false;
+    const retry = await completeDiscordCoachAssociation(req, signup("e-1"), { ffbCoachId: "Fresh" }, undefined, r.deps);
+    expect(retry.status).toBe(200);
+    expect(readIdentities().coaches.fresh?.identities.discordUserId).toBe("e-1");
+    expect(readProvisionalSignup("e-1")).toBeUndefined();
+    expect(r.inserts).toHaveLength(1);
+  });
+
+  it("one Discord id, two names at once: serialised by Discord id; never two links", async () => {
+    const r = realDeps();
+    const results = await Promise.all([
+      completeDiscordCoachAssociation(req, signup("e-2"), { ffbCoachId: "One" }, undefined, r.deps),
+      completeDiscordCoachAssociation(req, signup("e-2"), { ffbCoachId: "Two" }, undefined, r.deps),
+    ]);
+    expect(results.map((x) => x.status)).toEqual([200, 200]);
+    const links = Object.values(readIdentities().coaches).filter((c) => c.identities.discordUserId === "e-2");
+    expect(links.map((c) => c.ffbCoachId)).toEqual(["One"]); // the second request saw the confirmed link
+    expect(r.inserts).toEqual(["One"]);
+  });
+
+  it("a name change never discards an ACTIVE signup (unknown outcome): 409, the record stays", async () => {
+    const r = realDeps({ insert: async () => { throw new Error("timed out"); } });
+    expect((await completeDiscordCoachAssociation(req, signup("e-3"), { ffbCoachId: "Alpha" }, undefined, r.deps)).status).toBe(503);
+    const beta = await completeDiscordCoachAssociation(req, signup("e-3"), { ffbCoachId: "Beta" }, undefined, r.deps);
+    expect(beta).toMatchObject({ status: 409, body: { error: expect.stringMatching(/Finish or recover the pending signup for Alpha/) } });
+    expect(readProvisionalSignup("e-3")?.coachName).toBe("Alpha");
+  });
+
+  it("a stale provisional record (24 h, nothing in flight) is purged on sign-in and on writes; an active one is not", async () => {
+    const old = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    putProvisionalSignup({ discordUserId: "e-4", coachName: "Old", generatedDigest: "c".repeat(32), operationId: "op-old", state: "provisional", createdAt: new Date().toISOString() });
+    // age it on disk
+    const file = join(dir, "identities.json");
+    const json = JSON.parse(readFileSync(file, "utf8"));
+    json.provisionalSignups["e-4"].createdAt = old;
+    json.provisionalSignups["e-5"] = { ...json.provisionalSignups["e-4"], discordUserId: "e-5", operationId: "op-active" };
+    json.provisionalSignups["e-6"] = { ...json.provisionalSignups["e-4"], discordUserId: "e-6", operationId: "op-other" };
+    writeFileSync(file, JSON.stringify(json));
+    activeProvisionalOperations.add("op-active");
+    try {
+      expect(readProvisionalSignup("e-4")).toBeUndefined(); // sign-in read purges
+      upsertIdentity({ ffbCoachId: "Z", level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, updatedAt: "", updatedBy: "" });
+      const after = JSON.parse(readFileSync(file, "utf8")).provisionalSignups ?? {};
+      expect(Object.keys(after)).toEqual(["e-5"]); // the write purged e-6; the active e-5 stays
+    } finally {
+      activeProvisionalOperations.delete("op-active");
+    }
   });
 });

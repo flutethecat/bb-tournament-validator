@@ -462,6 +462,17 @@ export class Matchmaker {
       }
       if (!current()) return { kind: "abandoned" }; // cancelled while validating
     }
+    // Consent deadlines are re-checked right before the schedule request is sent: a consent that expired while
+    // it was being validated is gone (the expiry exemption only begins once an outcome is uncertain). The other,
+    // still-valid side keeps waiting.
+    const expired = (c: Challenge) => c.createdAt < this.now() - this.ttlMs;
+    if (expired(a) || expired(b)) {
+      for (const [c, k, g] of [[a, ka, genA], [b, kb, genB]] as const) {
+        if (expired(c)) this.bump(k);
+        else if (this.gen(k) === g && !this.pending.has(k)) this.pending.set(k, c);
+      }
+      return { kind: "abandoned" };
+    }
     // Stable, order-independent ordering — used for the gameName (so it's predictable/
     // reproducible regardless of who challenged first) AND as the base ordering the
     // home/away policy is applied on top of.

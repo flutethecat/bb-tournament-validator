@@ -55,6 +55,10 @@ export interface DiscordSsoProvisionalDeps {
   put: (record: ProvisionalSignup) => void;
   /** Removes only when the record is still this operation's. */
   remove: (discordUserId: string, operationId: string) => boolean;
+  /** ONE durable write: store the confirmed identity link and remove the matching-operation record. */
+  confirm?: (record: CoachIdentityRecord, discordUserId: string, operationId: string) => void;
+  /** Mark an operation's fork insert in flight (never purged while active). */
+  setActive?: (operationId: string, active: boolean) => void;
 }
 
 /** In-process serialisation of completions per Discord id + normalised coach name (the durable record is the
@@ -77,6 +81,8 @@ export interface DiscordSsoCompletionDeps {
   identityForCoach: (coach: string) => CoachIdentityRecord | undefined;
   isCoachBanned: (coach: string) => boolean;
   upsertIdentity: (record: CoachIdentityRecord) => void;
+  /** The fork coach a Discord id is linked to (re-read inside the completion lock). */
+  linkedCoachForDiscord?: (discordUserId: string) => string | undefined;
   /** Durable provisional signups; without it the new-name path cannot resume an unconfirmed insert. */
   provisional?: DiscordSsoProvisionalDeps;
   createSessionToken: (coach: string, now: number) => string;
@@ -454,8 +460,20 @@ export async function completeDiscordCoachAssociation(
 ): Promise<DiscordSsoCompletionResult> {
   const named = (options.requiredFfbCoachId || existingFfbCoachId
     || (typeof rawBody.ffbCoachId === "string" ? rawBody.ffbCoachId : "")).trim().toLowerCase();
-  return serialised(`${pending.discordId}|${named}`, () =>
-    completeDiscordCoachAssociationNow(req, pending, rawBody, existingFfbCoachId, deps, now, options));
+  // Serialised independently by Discord id AND by normalised coach name, always acquired in the same order.
+  const [first, second] = [`discord:${pending.discordId}`, `coach:${named}`].sort();
+  return serialised(first!, () => serialised(second!, () => {
+    // Re-read the Discord association inside the locks: a sibling may have just confirmed it.
+    const linked = existingFfbCoachId ?? deps.linkedCoachForDiscord?.(pending.discordId);
+    return completeDiscordCoachAssociationNow(req, pending, rawBody, linked, deps, now, options);
+  }));
+}
+
+/** Constant-time comparison of two hex digests (equal-length buffers only). */
+function sameDigest(a: string, b: string): boolean {
+  const x = Buffer.from(a.toLowerCase(), "utf8");
+  const y = Buffer.from(b.toLowerCase(), "utf8");
+  return x.length === y.length && timingSafeEqual(x, y);
 }
 
 async function completeDiscordCoachAssociationNow(
@@ -545,7 +563,11 @@ async function completeDiscordCoachAssociationNow(
     // A provisional signup for this Discord user resumes here (never through the returning-user path).
     const provisional = deps.provisional?.get(pending.discordId);
     if (provisional && provisional.coachName.toLowerCase() !== ffbCoachId.toLowerCase()) {
-      deps.provisional!.remove(pending.discordId, provisional.operationId); // the coach chose another name
+      // An ACTIVE signup (insert in flight, or its outcome unknown) is never discarded by choosing another name.
+      return {
+        status: 409,
+        body: { error: `Finish or recover the pending signup for ${provisional.coachName} first.`, pendingCoach: provisional.coachName },
+      };
     }
     const resuming = provisional && provisional.coachName.toLowerCase() === ffbCoachId.toLowerCase() ? provisional : undefined;
 
@@ -553,20 +575,31 @@ async function completeDiscordCoachAssociationNow(
     const owns = async (rec: ProvisionalSignup): Promise<boolean> => {
       if (!fork.storedDigest) return false;
       const stored = await fork.storedDigest(rec.coachName);
-      return !!stored && stored.toLowerCase() === rec.generatedDigest;
+      return !!stored && sameDigest(stored, rec.generatedDigest);
     };
     const insertProvisional = async (rec: ProvisionalSignup): Promise<"confirmed" | "taken" | "unknown"> => {
       let created: boolean;
+      deps.provisional?.setActive?.(rec.operationId, true);
       try {
         created = await fork.createForkAccountDigestIfAvailable(rec.coachName, rec.generatedDigest);
       } catch {
         return "unknown"; // the record stays: the next sign-in resumes from it
+      } finally {
+        deps.provisional?.setActive?.(rec.operationId, false);
       }
       if (created) return "confirmed";
       try {
         return (await owns(rec)) ? "confirmed" : "taken";
       } catch {
         return "unknown";
+      }
+    };
+    /** The confirmed link and the removal of its recovery record, in one durable write, BEFORE any session. */
+    const confirmLink = (rec: ProvisionalSignup): void => {
+      if (deps.provisional?.confirm) deps.provisional.confirm(identityRecord, rec.discordUserId, rec.operationId);
+      else {
+        deps.upsertIdentity(identityRecord);
+        deps.provisional?.remove(rec.discordUserId, rec.operationId);
       }
     };
     const settle = (rec: ProvisionalSignup, outcome: "confirmed" | "taken" | "unknown"): DiscordSsoCompletionResult | undefined => {
@@ -591,9 +624,8 @@ async function completeDiscordCoachAssociationNow(
       }
       const stop = settle(resuming, outcome);
       if (stop) return stop;
+      confirmLink(resuming);
       sessionToken = deps.createSessionToken(ffbCoachId, now);
-      deps.upsertIdentity(identityRecord);
-      deps.provisional?.remove(resuming.discordUserId, resuming.operationId);
       return { status: 200, body: { ok: true, coach: ffbCoachId, next: pending.next }, sessionToken };
     }
 
@@ -669,8 +701,9 @@ async function completeDiscordCoachAssociationNow(
       }
       const stop = settle(rec, outcome);
       if (stop) return outcome === "taken" ? { status: 409, body: { error: "That fork coach name already exists." } } : stop;
-      deps.provisional?.remove(rec.discordUserId, rec.operationId);
+      confirmLink(rec);
       sessionToken = deps.createSessionToken(ffbCoachId, now);
+      return { status: 200, body: { ok: true, coach: ffbCoachId, next: pending.next }, sessionToken };
     }
   }
 

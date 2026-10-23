@@ -79,6 +79,7 @@ import {
   retireLibraryTeam,
   scheduleForkGame,
   forkScheduler,
+  ConsentHeldError,
   upsertLibraryTeam,
   updateTeamXmlTransactionLibraryTeam,
   verifyCoachPassword,
@@ -123,6 +124,8 @@ import {
   readIdentities,
   readProvisionalSignup,
   putProvisionalSignup,
+  confirmProvisionalSignup,
+  activeProvisionalOperations,
   removeProvisionalSignup,
   updateOwnAccount,
   upsertIdentity,
@@ -463,6 +466,16 @@ const coachRatings = new CoachRatingCache({
 });
 const lobbyAllowedOrigins = lobbyAllowedOriginsFromEnv();
 let lobbyChatLive = false;
+
+/** 409 body for a client challenge held by an in-flight / uncertain pairing: the lobby to resolve it in, if any.
+ *  The public base comes from PUBLIC_BASE_URL, else the request's own host. */
+function heldConsentBody(req: IncomingMessage, coach: string): { error: string; lobbyId?: string; lobbyUrl?: string } {
+  const lobby = lobbyStore.heldLobbyFor(coach);
+  if (!lobby) return { error: "A game is being set up for this coach. Try again in a moment, or cancel the challenge." };
+  const base = (process.env.PUBLIC_BASE_URL?.trim() || `${requestUsesTls(req) ? "https" : "http"}://${req.headers.host ?? "localhost"}`).replace(/\/+$/, "");
+  const lobbyUrl = `${base}/lobby/#${lobby.id}`;
+  return { error: `A game is being set up for this coach; open the lobby at ${lobbyUrl}`, lobbyId: lobby.id, lobbyUrl };
+}
 
 /** The Discord-authenticated session on a request (the lobby accepts no other provenance). */
 function lobbyAuthFor(req: IncomingMessage): { coach: string; method: string } | undefined {
@@ -1269,7 +1282,12 @@ async function handleApi(
             get: (discordUserId) => readProvisionalSignup(discordUserId),
             put: (record) => { putProvisionalSignup(record); },
             remove: (discordUserId, operationId) => removeProvisionalSignup(discordUserId, operationId),
+            confirm: (record, discordUserId, operationId) => confirmProvisionalSignup(record, discordUserId, operationId),
+            setActive: (operationId, active) => {
+              if (active) activeProvisionalOperations.add(operationId); else activeProvisionalOperations.delete(operationId);
+            },
           },
+          linkedCoachForDiscord: (discordUserId) => ffbCoachIdForDiscordId(discordUserId),
           createSessionToken: (coach, now) => createSession(coach, now, "discord").token,
         },
         Date.now(),
@@ -1994,6 +2012,9 @@ async function handleApi(
     try {
       return sendJson(res, 200, await matchmaker.challenge({ coach, teamId, opponent, password, passwordMd5 }));
     } catch (e) {
+      // Held by an in-flight / uncertain pairing: 409 with where to resolve it (the error text stays readable for
+      // clients that only show `error`).
+      if (e instanceof ConsentHeldError) return sendJson(res, 409, heldConsentBody(req, coach));
       return sendJson(res, 400, { error: (e as Error).message });
     }
   }

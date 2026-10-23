@@ -592,4 +592,27 @@ describe("Matchmaker views + lobby entry (web Lobby)", () => {
     await mm.checkAgain("A", "B");
     expect(calls).toBe(2);
   });
+
+  it("a consent that expires during validation is gone before the schedule request is sent", async () => {
+    let t = 0;
+    let releaseValidation!: () => void;
+    const gate = new Promise<void>((r) => { releaseValidation = r; });
+    const scheduled: string[] = [];
+    const mm = new Matchmaker({
+      now: () => t,
+      ttlMs: 100,
+      validateSide: async () => { await gate; return undefined; },
+      scheduleGame: async (h, a) => { scheduled.push(`${h}-${a}`); return { gameId: "1" }; },
+    });
+    await mm.challengeVerified({ coach: "B", teamId: "2", opponent: "A" }); // B at 0, expires after 100
+    t = 99;
+    const attempt = mm.challengeVerified({ coach: "A", teamId: "1", opponent: "B" }); // reserved at 99
+    t = 101;
+    releaseValidation();
+    expect((await attempt).status).toBe("waiting");
+    expect(scheduled).toEqual([]);
+    expect(mm.pendingOf("B")).toBeUndefined();
+    expect(mm.pendingOf("A")).toMatchObject({ opponent: "B" }); // the valid side keeps waiting
+  });
 });
+
