@@ -19,6 +19,10 @@ describe("teamBuilderInducementCatalog", () => {
       price: 100_000,
       max: 2,
       allowed: true,
+      // Package cap still wins over the dataset's reduced max for B&C teams.
+      reducedPrice: 50_000,
+      reducedMax: 2,
+      reducedSpecialRule: "Bribery and Corruption",
     });
     expect(catalog.find((row) => row.key === "bloodweiser_kegs")).toMatchObject({
       price: 50_000,
@@ -43,5 +47,17 @@ describe("teamBuilderInducementCatalog", () => {
       max: 1,
     });
     expect(catalog.every((row) => Number.isSafeInteger(row.price))).toBe(true);
+  });
+
+  it("carries Bribery and Corruption terms: Bribes 50k (max 6), Biased Referee 80k", () => {
+    const { pkg } = loadPackage({ name: "Open Cup", eligibleRosters: ["*"], inducements: { allowed: ["*"], caps: {} } });
+    const catalog = teamBuilderInducementCatalog(pkg, bb2025);
+    expect(catalog.find((row) => row.key === "bribes")).toMatchObject({
+      price: 100_000, max: 3, reducedPrice: 50_000, reducedMax: 6, reducedSpecialRule: "Bribery and Corruption",
+    });
+    expect(catalog.find((row) => row.key === "biased_referee")).toMatchObject({
+      price: 120_000, reducedPrice: 80_000, reducedMax: 1, reducedSpecialRule: "Bribery and Corruption",
+    });
+    expect(catalog.find((row) => row.key === "team_mascot")).not.toHaveProperty("reducedPrice");
   });
 });

@@ -284,6 +284,15 @@ describe("team builder page — source contract", () => {
     expect(js).toContain("chosenStatIncreases");
     expect(js).toContain("rosteredInducements");
   });
+
+  it("prices inducements with the team's Bribery and Corruption terms", () => {
+    expect(js).toContain("function inducementTerms(item)");
+    expect(js).toMatch(/reducedSpecialRule && item\.reducedPrice != null && teamHasRule\(item\.reducedSpecialRule\)/);
+    // Shown price, stepper max and the client total all go through the same terms.
+    expect(js).toContain("inducementTerms(inducementCatalog.find((item) => item.key === pick.key)).price");
+    expect(js).toContain("const termsMax = inducementTerms(item).max;");
+    expect(js).toContain("clampInducementCounts();");
+  });
 });
 
 describe("team builder page — review fixes", () => {

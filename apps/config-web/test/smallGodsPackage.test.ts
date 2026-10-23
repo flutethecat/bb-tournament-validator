@@ -54,7 +54,7 @@ interface Line {
 function build(
   race: string,
   lines: Line[],
-  opts: { stars?: string[]; reRolls?: number; apothecary?: boolean; inducements?: Array<{ key: string; count: number }> } = {},
+  opts: { stars?: string[]; reRolls?: number; apothecary?: boolean; inducements?: Array<{ key: string; count: number }>; specialRule?: string } = {},
 ) {
   const stars = opts.stars ?? [];
   const picks: TeamPick[] = lines.map((l) => ({
@@ -73,6 +73,7 @@ function build(
       reRolls: opts.reRolls ?? 0,
       apothecary: opts.apothecary ?? false,
       rosteredInducements: opts.inducements,
+      ...(opts.specialRule ? { specialRule: opts.specialRule } : {}),
     },
     bb2025,
     42,
@@ -190,6 +191,27 @@ describe("Small Gods package", () => {
     );
   });
 
+  it("T1-T4 stacked players may carry no elite skill at all (owner 10-22)", () => {
+    const t3 = build("Lizardmen", [{ name: "Saurus Blocker", skills: ["Block", "Tackle"] }, { name: "Skink Lineman", count: 10 }]).result;
+    expect(ruleErrors(t3, "stacked-player")[0]!.message).toMatch(/stacked with 1 elite skills?; at most 0/);
+    // A single elite skill on an unstacked player stays legal.
+    const single = build("Lizardmen", [{ name: "Saurus Blocker", skills: ["Block"] }, { name: "Skink Lineman", count: 10 }]).result;
+    expect(ruleErrors(single, "stacked-player")).toEqual([]);
+    // T5 still allows elite on a stacked player.
+    const t5 = build("Dwarf", [{ name: "Dwarf Runner", skills: ["Block", "Tackle"] }, { name: "Dwarf Blocker Lineman", count: 10 }]).result;
+    expect(ruleErrors(t5, "stacked-player")).toEqual([]);
+  });
+
+  it("a chosen league keeps Bribery and Corruption (Goblin on Badlands Brawl: 5 Bribes at 50k)", () => {
+    const { composed, result } = build("Goblin", [{ name: "Goblin Lineman", count: 11 }], {
+      specialRule: "Badlands Brawl",
+      inducements: [{ key: "bribes", count: 5 }],
+    });
+    expect(composed.roster.specialRules).toEqual(expect.arrayContaining(["Bribery and Corruption", "Badlands Brawl"]));
+    expect(composed.roster.inducements[0]).toMatchObject({ id: "bribes", count: 5, cost: 50_000 });
+    expect(ruleErrors(result, "inducements")).toEqual([]);
+  });
+
   it("T5 stacked players carry at most 2 elite skills", () => {
     const { result } = build("Dwarf", [{ name: "Dwarf Runner", skills: ["Block", "Guard", "Dodge"] }, { name: "Dwarf Blocker Lineman", count: 10 }]);
     expect(ruleErrors(result, "stacked-player")[0]!.message).toMatch(/stacked with 3 elite skills; at most 2/);
@@ -291,10 +313,10 @@ describe("Small Gods package", () => {
   it("serves the PDF-style tier table rows and per-race rows", () => {
     const rows = builderTierRows(pkg);
     expect(rows.map((r) => [r.tier, r.secondaryText, r.eliteText, r.stacksText, r.stackTypeText, r.characteristicsText, r.starPacksText])).toEqual([
-      [1, "1", "max 3 total", "1", "up to 3 skills, primary only", "none", "none"],
-      [2, "2", "max 4 total", "1", "up to 3 skills, primary only", "none", "Free"],
-      [3, "3", "max 4 of any one", "2", "up to 3 skills, max 2 secondary", "none", "Free"],
-      [4, "4", "max 4 of any one", "3", "up to 3 skills, max 2 secondary", "+AV (10k) / +PA (20k)", "Free"],
+      [1, "1", "max 3 total", "1", "up to 3 skills, primary only, no elite", "none", "none"],
+      [2, "2", "max 4 total", "1", "up to 3 skills, primary only, no elite", "none", "Free"],
+      [3, "3", "max 4 of any one", "2", "up to 3 skills, max 2 secondary, no elite", "none", "Free"],
+      [4, "4", "max 4 of any one", "3", "up to 3 skills, max 2 secondary, no elite", "+AV (10k) / +PA (20k)", "Free"],
       [5, "8", "max 6 of any one", "4", "up to 3 skills, max 2 secondary, max 2 elite", "+AV (10k) / +PA (20k)", "Free"],
       [6, "10", "unlimited", "6", "up to 3 skills", "+AV (10k) / +PA (20k) / +MA (20k)", "Free, Star, Super Star, Mega Star"],
     ]);

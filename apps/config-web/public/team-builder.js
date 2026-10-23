@@ -317,8 +317,8 @@
       const parts = [];
       // Plain "max" wording: the page's display font has no "≤" glyph.
       if (isNum(stacked.maxSkills)) parts.push(`max ${countLabel(stacked.maxSkills, "skill")}`);
-      if (isNum(stacked.maxSecondary)) parts.push(`max ${stacked.maxSecondary} secondary`);
-      if (isNum(stacked.maxElite)) parts.push(`max ${stacked.maxElite} elite`);
+      if (isNum(stacked.maxSecondary)) parts.push(stacked.maxSecondary === 0 ? "primary only" : `max ${stacked.maxSecondary} secondary`);
+      if (isNum(stacked.maxElite)) parts.push(stacked.maxElite === 0 ? "no elite" : `max ${stacked.maxElite} elite`);
       return parts.join(" · ") || "—";
     }
     function statIncreaseLabel(stat) {
@@ -856,17 +856,20 @@ ${rosterSheetHtml(model)}
     const group = FALLBACK_CATEGORY.get(base);
     return group ? `skill skill-${group}` : "skill skill-trait";
   }
+  // The package's own Elite set wins (same as the server's isElite(skill, pkg.skillAllotment));
+  // the dataset flag / default set only apply when the package doesn't define one.
   const isElite = (skill) => {
+    const own = raceRules()?.skillCosts?.eliteSkills;
+    if (Array.isArray(own) && own.length) return own.includes(skill);
     const meta = skillMeta(skill);
     if (meta) return meta.elite === true;
-    const own = raceRules()?.skillCosts?.eliteSkills;
-    return own ? own.includes(skill) : DEFAULT_ELITE.has(skill);
+    return DEFAULT_ELITE.has(skill);
   };
   const legalKey = (positionId) => `${current?.rosterId}:${positionId}`;
   function skillAccess(positionId, skill) {
     const set = legalSkillsCache.get(legalKey(positionId));
-    if (set?.secondary?.some((entry) => entry.skill === skill)) return "secondary";
     if (set?.primary?.some((entry) => entry.skill === skill)) return "primary";
+    if (set?.secondary?.some((entry) => entry.skill === skill)) return "secondary";
     return mode === "custom" ? "custom" : "primary";
   }
   function slotSkillGold(slot) {
@@ -892,7 +895,7 @@ ${rosterSheetHtml(model)}
   }
   const rawStarCost = () => starSlots().reduce((sum, slot) => sum + (positionById(slot.positionId)?.cost ?? 0), 0);
   const inducementPicks = () => Object.entries(inducementCounts).filter(([, count]) => count > 0).map(([key, count]) => ({ key, count }));
-  const inducementGold = () => inducementPicks().reduce((sum, pick) => sum + pick.count * (inducementCatalog.find((item) => item.key === pick.key)?.price ?? 0), 0);
+  const inducementGold = () => inducementPicks().reduce((sum, pick) => sum + pick.count * inducementTerms(inducementCatalog.find((item) => item.key === pick.key)).price, 0);
   const addedSkillGold = () => slots.reduce((sum, slot) => sum + slotSkillGold(slot), 0);
   const statGold = () => slots.reduce((sum, slot) => sum + slotStatGold(slot), 0);
   function clientBudget() {
@@ -1418,18 +1421,42 @@ ${rosterSheetHtml(model)}
     return true;
   }
 
+  // Bribery and Corruption (and any other unlocking rule): the roster's always-on rules plus the
+  // chosen league/special rule decide whether the reduced price + max apply. Mirrors the server's
+  // inducementWireGold / inducements rule, so the shown price == what preview charges.
+  const ruleKey = (rule) => String(rule ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  function teamHasRule(rule) {
+    if (!rule || !current) return false;
+    const want = ruleKey(rule);
+    const rules = [...(Array.isArray(current.specialRules) ? current.specialRules : []), selectedSpecialRule()];
+    return rules.some((r) => ruleKey(r) === want);
+  }
+  function inducementTerms(item) {
+    if (item?.reducedSpecialRule && item.reducedPrice != null && teamHasRule(item.reducedSpecialRule))
+      return { price: item.reducedPrice, max: item.reducedMax ?? item.max, reduced: true };
+    return { price: item?.price ?? 0, max: item?.max ?? null, reduced: false };
+  }
+  function clampInducementCounts() {
+    for (const item of inducementCatalog) {
+      const { max } = inducementTerms(item);
+      if (max != null && (inducementCounts[item.key] ?? 0) > max) inducementCounts = { ...inducementCounts, [item.key]: Math.max(0, max) };
+    }
+  }
+
   function renderInducements() {
     const visible = mode === "tournament" || mode === "custom";
     $("inducement-section").hidden = !visible || !current;
     if (!visible) return;
+    clampInducementCounts(); // race/league change can drop a B&C team's reduced max (Bribes 6 → 3)
     const items = mode === "tournament" ? inducementCatalog.filter((item) => item.allowed) : inducementCatalog;
     $("inducement-list").innerHTML = items.map((item) => {
       const count = inducementCounts[item.key] ?? 0;
-      const atMax = item.max !== null && item.max !== undefined && count >= item.max;
+      const terms = inducementTerms(item);
+      const atMax = terms.max !== null && terms.max !== undefined && count >= terms.max;
       const icon = iconManifest?.icons?.[item.key];
       return `<div class="stepper-row inducement-row${item.allowed ? "" : " unavailable"}">
         <span class="inducement-icon" aria-hidden="true">${icon ? `<img class="crest-image" src="/${esc(icon)}" alt="" loading="lazy" decoding="async">` : ""}</span>
-        <span class="stepper-label">${esc(item.label)}<small>${gold(item.price)}${item.max != null ? ` · max ${item.max}` : ""}</small></span>
+        <span class="stepper-label">${esc(item.label)}<small>${gold(terms.price)}${terms.max != null ? ` · max ${terms.max}` : ""}${terms.reduced ? ` · ${esc(item.reducedSpecialRule)}` : ""}</small></span>
         <button type="button" data-inducement="${esc(item.key)}" data-delta="-1" ${!item.allowed || count === 0 ? "disabled" : ""} aria-label="Remove ${esc(item.label)}">−</button>
         <b>${count}</b>
         <button type="button" class="step-add" data-inducement="${esc(item.key)}" data-delta="1" ${!item.allowed || atMax ? "disabled" : ""} aria-label="Add ${esc(item.label)}">+</button>
@@ -1695,11 +1722,15 @@ ${rosterSheetHtml(model)}
         price: Core.num(item.price) ?? 0,
         max: Core.num(item.max),
         allowed: item.allowed === true,
+        reducedPrice: Core.num(item.reducedPrice),
+        reducedMax: Core.num(item.reducedMax),
+        reducedSpecialRule: typeof item.reducedSpecialRule === "string" ? item.reducedSpecialRule : null,
       }));
       const next = {};
       for (const item of inducementCatalog) {
         const count = item.allowed ? Math.max(0, Math.floor(inducementCounts[item.key] ?? 0)) : 0;
-        next[item.key] = item.max == null ? count : Math.min(count, Math.max(0, item.max));
+        const max = inducementTerms(item).max;
+        next[item.key] = max == null ? count : Math.min(count, Math.max(0, max));
       }
       inducementCounts = next;
       $("inducement-status").textContent = inducementCatalog.length ? "" : "No inducements are available for this package.";
@@ -1963,6 +1994,24 @@ ${rosterSheetHtml(model)}
       if (!set || ![...set.primary, ...set.secondary].some((entry) => entry.skill === skill)) return "Not a legal skill for this position.";
     }
     if (!moreSkillsAllowed(slot)) return "This player can't take another skill.";
+    const stackBlock = stackedTypeBlock(slot, skill);
+    if (stackBlock) return stackBlock;
+    return "";
+  }
+  /** Tier stack-type caps (Small Gods: T1-T4 no elite on a stacked player, T1-T2 no secondary). Mirrors the
+   *  server's `stacked-player` rule: once a player would hold 2+ added skills, ALL of them count. */
+  function stackedTypeBlock(slot, skill) {
+    if (mode === "custom") return "";
+    const caps = tierRules()?.stackedPlayer;
+    if (!caps) return "";
+    const after = [...slot.chosenSkills, skill];
+    if (after.length < 2) return "";
+    const elite = after.filter((s) => isElite(s)).length;
+    if (typeof caps.maxElite === "number" && elite > caps.maxElite)
+      return caps.maxElite === 0 ? "Elite skills can't be stacked in this tier (a player with 2+ skills may have no elite skill)." : `Max ${caps.maxElite} elite skills on a stacked player in this tier.`;
+    const secondary = after.filter((s) => skillAccess(slot.positionId, s) === "secondary").length;
+    if (typeof caps.maxSecondary === "number" && secondary > caps.maxSecondary)
+      return caps.maxSecondary === 0 ? "A stacked player may take primary skills only in this tier." : `Max ${caps.maxSecondary} secondary skills on a stacked player in this tier.`;
     return "";
   }
   /** Whether the player in the open picker may still take another added skill (keeps the modal open). */
@@ -2075,7 +2124,8 @@ ${rosterSheetHtml(model)}
   function stepInducement(key, delta) {
     const item = inducementCatalog.find((entry) => entry.key === key);
     if (!item?.allowed) return;
-    const max = item.max == null ? Number.MAX_SAFE_INTEGER : Math.max(0, item.max);
+    const termsMax = inducementTerms(item).max;
+    const max = termsMax == null ? Number.MAX_SAFE_INTEGER : Math.max(0, termsMax);
     inducementCounts = { ...inducementCounts, [key]: Math.max(0, Math.min(max, (inducementCounts[key] ?? 0) + delta)) };
     renderInducements();
     renderValueCard();
@@ -2143,6 +2193,7 @@ ${rosterSheetHtml(model)}
     $("league-notice").hidden = !removed;
     $("league-notice").textContent = removed ? `${removed} ineligible star player${removed === 1 ? "" : "s"} removed.` : "";
     renderLeague();
+    renderInducements(); // league can add/remove a reduced-price rule (prices, caps, clamped counts)
     changed();
   }
 

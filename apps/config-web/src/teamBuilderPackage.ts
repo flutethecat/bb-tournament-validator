@@ -135,7 +135,7 @@ export function builderTierRows(pkg: TournamentPackage): BuilderTierRow[] {
     const stackParts = [
       sp.maxSkills != null ? `up to ${sp.maxSkills} skills` : "",
       sp.maxSecondary === 0 ? "primary only" : sp.maxSecondary != null ? `max ${sp.maxSecondary} secondary` : "",
-      sp.maxElite != null ? `max ${sp.maxElite} elite` : "",
+      sp.maxElite === 0 ? "no elite" : sp.maxElite != null ? `max ${sp.maxElite} elite` : "",
     ].filter(Boolean);
     const elite = [
       rules.eliteMaxTotal != null ? `max ${rules.eliteMaxTotal} total` : "",

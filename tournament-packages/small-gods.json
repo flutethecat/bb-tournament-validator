@@ -209,7 +209,7 @@
       "stackedPlayer": {
         "maxSkills": 3,
         "maxSecondary": 0,
-        "maxElite": null
+        "maxElite": 0
       },
       "statIncreases": {
         "allowed": []
@@ -242,7 +242,7 @@
       "stackedPlayer": {
         "maxSkills": 3,
         "maxSecondary": 0,
-        "maxElite": null
+        "maxElite": 0
       },
       "statIncreases": {
         "allowed": []
@@ -283,7 +283,7 @@
       "stackedPlayer": {
         "maxSkills": 3,
         "maxSecondary": 2,
-        "maxElite": null
+        "maxElite": 0
       },
       "statIncreases": {
         "allowed": []
@@ -322,7 +322,7 @@
       "stackedPlayer": {
         "maxSkills": 3,
         "maxSecondary": 2,
-        "maxElite": null
+        "maxElite": 0
       },
       "statIncreases": {
         "allowed": [

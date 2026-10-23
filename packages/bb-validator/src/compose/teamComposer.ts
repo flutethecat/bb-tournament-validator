@@ -867,7 +867,9 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     leagues: [],
     specialRules: normName(dsRoster.name) === "snotling"
       ? runtimeSpecialRules(dsRoster.name, dsRoster.specialRules)
-      : (specialRule ? [specialRule] : [...dsRoster.specialRules]),
+      // A chosen league is ADDED to the roster's always-on mechanics (Bribery and Corruption etc.),
+      // never a replacement — otherwise a Goblin on Badlands Brawl loses B&C's reduced Bribe max.
+      : (specialRule ? selectedSpecialRules(dsRoster.name, dsRoster.specialRules, specialRule) : [...dsRoster.specialRules]),
     players,
     summary: {
       playersCost: playersGold,

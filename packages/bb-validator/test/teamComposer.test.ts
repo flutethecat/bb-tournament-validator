@@ -266,7 +266,8 @@ describe("composeTeam", () => {
     expect(intrinsicOnly.xml).not.toContain("<rule>Underworld Challenge</rule>");
 
     const affiliated = composeTeam({ ...underworld, specialRule: "Underworld Challenge" }, bb2025, 42);
-    expect(affiliated.roster.specialRules).toEqual(["Underworld Challenge"]);
+    // The chosen league is ADDED to the always-on mechanics (validator prices/caps Bribes from this list).
+    expect(affiliated.roster.specialRules).toEqual(["Bribery and Corruption", "Underworld Challenge"]);
     expect(affiliated.xml).toContain(
       "<specialRules><rule>Bribery and Corruption</rule><rule>Underworld Challenge</rule></specialRules>",
     );
@@ -314,7 +315,7 @@ describe("composeTeam", () => {
       42,
     );
 
-    expect(result.roster.specialRules).toEqual(["Favoured of Khorne"]);
+    expect(result.roster.specialRules).toEqual(["Chaos Clash", "Favoured of Khorne"]);
     expect(result.xml).toContain("<specialRules><rule>Favoured of Khorne</rule></specialRules>");
   });
 
