@@ -359,6 +359,34 @@ describe("lobby controllers", () => {
     await expect(failing.checkAgain()).rejects.toThrow("Still checking.");
   });
 
+  it("held consent: a 409 on accept / confirm surfaces the server's message only and the next poll applies the state (as the vanilla page)", async () => {
+    // ff392fe: join/renew while an operation holds the pairing answer 409 { error, lobby }. Like the vanilla page,
+    // the SPA shows the message under the control and leaves the view to the next state poll.
+    const before: LobbyView = { ...readyLobby(), me: "opponent", status: "waiting", opponentAccepted: false, canAccept: true, canLaunch: false, game: null, opponent: { ...readyLobby().opponent, team: null } };
+    const held: LobbyView = { ...before, opponentAccepted: true, settingUp: true, canAccept: false };
+    let current = before;
+    const f = mockFetcher({
+      ...roomRoutes(before),
+      "/api/lobby/lobbyAB12": () => ({ lobby: current, chatLive: false }),
+      "/api/lobby/lobbyAB12/coach?role=creator": { avatar: null, fumbblName: null },
+      "POST /api/lobby/lobbyAB12/join": () => { current = held; return new ApiError(409, "Game setup is in progress for this matchup."); },
+      "POST /api/lobby/lobbyAB12/renew": new ApiError(409, "Game setup is in progress for this matchup."),
+    });
+    const room = createLobbyRoom("lobbyAB12", { api: f, me: () => "Bob", onSignedOut: vi.fn() });
+    await room.poll();
+    expect(controlFor(room.state.view!)).toBe("accept");
+    await expect(room.join("t2")).rejects.toThrow("Game setup is in progress for this matchup.");
+    expect(room.state.gone).toBe("");
+    expect(room.state.statusError).toBe("");
+    expect(room.state.view?.canAccept).toBe(true); // unchanged until the poll
+    await room.poll();
+    expect(room.state.view?.settingUp).toBe(true);
+    expect(controlFor(room.state.view!)).toBe("");
+    expect(statusLine(room.state.view!)).toBe("Setting up the game on the server…");
+    await expect(room.renew("t1")).rejects.toThrow("Game setup is in progress for this matchup.");
+    expect(room.state.gone).toBe("");
+  });
+
   it("410 shows the gone message and stops; 401 hands back to the session", async () => {
     const gone = createLobbyRoom("lobbyAB12", { api: mockFetcher({ "/api/lobby/lobbyAB12": new ApiError(410, "This lobby has expired.") }), me: () => "A", onSignedOut: vi.fn() });
     await gone.poll();
