@@ -867,6 +867,9 @@ const MIME: Record<string, string> = {
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".wav": "audio/wav",
+  ".mp3": "audio/mpeg",
+  ".ogg": "audio/ogg",
 };
 
 const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
