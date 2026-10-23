@@ -621,7 +621,7 @@ export class TournamentStore {
 
   recordResult(
     matchId: string,
-    input: { expectedRevision: number; homeScore: number; awayScore: number; homeCasualties?: number; awayCasualties?: number },
+    input: { expectedRevision: number; homeScore: number; awayScore: number; homeCasualties?: number; awayCasualties?: number; opId?: string },
     now = new Date(),
   ): ScheduledMatchRecord {
     return this.mutate((data) => {
@@ -632,7 +632,7 @@ export class TournamentStore {
         throw new TournamentStoreError(409, "This scheduled match is closed.");
       if (!Number.isSafeInteger(input.expectedRevision) || match.revision !== input.expectedRevision)
         throw new TournamentStoreError(409, `Scheduled match revision changed; current revision is ${match.revision}.`);
-      for (const [field, value] of Object.entries(input).filter(([field]) => field !== "expectedRevision")) {
+      for (const [field, value] of Object.entries(input).filter(([field]) => field !== "expectedRevision" && field !== "opId")) {
         if (!Number.isSafeInteger(value) || (value as number) < 0)
           throw new TournamentStoreError(400, `${field} must be a non-negative integer.`);
       }
@@ -647,6 +647,7 @@ export class TournamentStore {
           ...(input.homeCasualties === undefined ? {} : { homeCasualties: input.homeCasualties }),
           ...(input.awayCasualties === undefined ? {} : { awayCasualties: input.awayCasualties }),
           reportedAt: timestamp,
+          ...(input.opId ? { opId: input.opId } : {}),
         },
         updatedAt: timestamp,
       };

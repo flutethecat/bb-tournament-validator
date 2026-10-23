@@ -33,6 +33,7 @@ const gateway = (): FixtureGateway => ({
       open: Boolean(m.away) && t?.status === "active" && !["completed", "cancelled", "dismissed"].includes(m.status),
       status: m.status, revision: m.revision, home: { coach: m.home.coach.ffbCoachId }, away: { coach: m.away?.coach.ffbCoachId ?? "" },
       ...(m.result ? { resultReportedAt: m.result.reportedAt } : {}),
+      ...(m.result?.opId ? { resultOpId: m.result.opId } : {}),
     };
   },
   record: (id, input, at) => { tstore.recordResult(id, input, at); },

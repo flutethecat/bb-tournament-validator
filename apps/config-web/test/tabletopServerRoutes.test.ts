@@ -94,3 +94,15 @@ describe("tabletop routes (sidecar off)", () => {
     expect(got.teams.home.players).toHaveLength(3);
   });
 });
+
+describe("public standings route", () => {
+  it("answers without a session, is rate limited per IP, and keeps tabletop writes gated", async () => {
+    const res = await call("GET", "/api/standings?league=Nope");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ league: "Nope", rows: [] });
+    expect((await call("POST", "/api/tabletop/matches", undefined, {})).status).toBe(401);
+    let limited = 0;
+    for (let i = 0; i < 70; i += 1) if ((await call("GET", "/api/standings?league=Nope")).status === 429) limited += 1;
+    expect(limited).toBeGreaterThan(0);
+  });
+});

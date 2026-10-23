@@ -83,6 +83,8 @@ export interface ScheduledMatchResult {
   homeCasualties?: number;
   awayCasualties?: number;
   reportedAt: string;
+  /** Tabletop publications stamp the commit op id here so a replay can recognise its own write. */
+  opId?: string;
 }
 
 export interface ChallengerLaunchMetadata {

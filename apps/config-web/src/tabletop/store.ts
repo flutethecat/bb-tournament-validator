@@ -45,7 +45,7 @@ export interface MatchRecord {
   /** True when the fixture lists the two coaches in the opposite home/away order to this match. */
   fixtureSwap?: boolean;
   /** Set on publish when a fixture result was written: what to restore on undo. */
-  fixtureLink?: { id: string; priorStatus: string; expectedRevision: number; reportedAt: string; swapped: boolean };
+  fixtureLink?: { id: string; priorStatus: string; expectedRevision: number; reportedAt: string; swapped: boolean; opId: string };
   /** Organiser note recorded when a match was reopened. */
   note?: string;
   publishedAt?: string;
@@ -77,18 +77,30 @@ export interface TeamChain {
  * state, so replaying it is idempotent: write journal, apply every record, clear journal. An unfinished journal
  * is replayed to completion on startup and before any confirm/undo on its match.
  */
+/** A chain write guarded by the version it was prepared against: applied only while the chain still matches `expect`. */
+export interface ChainChange {
+  expect: { head: number; revisions: number };
+  target: TeamChain;
+}
+
 export interface CommitJournal {
   matchId: string;
   opId: string;
   kind: "confirm" | "undo" | "publish";
-  homeChain: TeamChain;
-  awayChain: TeamChain;
+  /** Monotonic order of commits (assigned when the journal is first written); startup replays in this order. */
+  seq?: number;
+  /** "conflict": the world changed since the commit was prepared; it is never overwritten and needs an organiser. */
+  state?: "pending" | "conflict";
+  conflict?: string;
+  /** Team chain changes (absent for a publication, which never rewrites team files). */
+  homeChain?: ChainChange;
+  awayChain?: ChainChange;
   /** Results store change: upsert this row, or remove this game id. */
   result: { put: StoredTournamentResult } | { remove: string } | null;
   /** Tournaments-store fixture change (idempotent on replay): record a result, or retract it. */
   fixture?:
-    | { op: "record"; id: string; expectedRevision: number; homeScore: number; awayScore: number; homeCasualties: number; awayCasualties: number; at: string }
-    | { op: "retract"; id: string; expectedRevision: number; status: string; at: string };
+    | { op: "record"; id: string; opId: string; expectedRevision: number; homeScore: number; awayScore: number; homeCasualties: number; awayCasualties: number; at: string }
+    | { op: "retract"; id: string; opId: string; expectedRevision: number; status: string; at: string };
   /** The match record to write last. */
   match: MatchRecord;
 }
@@ -98,6 +110,7 @@ export interface TabletopRepository {
   getJournal(matchId: string): Promise<CommitJournal | undefined>;
   clearJournal(matchId: string): Promise<void>;
   listJournalMatchIds(): Promise<string[]>;
+  nextJournalSeq(): Promise<number>;
   createMatch(match: MatchRecord): Promise<void>;
   getMatch(id: string): Promise<MatchRecord | undefined>;
   listMatches(): Promise<MatchRecord[]>;
@@ -142,6 +155,14 @@ export class FileTabletopRepository implements TabletopRepository {
   async clearJournal(matchId: string): Promise<void> {
     const file = this.journalFile(matchId);
     if (existsSync(file)) unlinkSync(file);
+  }
+
+  async nextJournalSeq(): Promise<number> {
+    const file = join(this.dir, "journals", ".seq");
+    let n = 0;
+    try { n = Number(readFileSync(file, "utf8")) || 0; } catch { /* first journal */ }
+    atomicWriteTextFile(file, String(n + 1));
+    return n + 1;
   }
 
   async listJournalMatchIds(): Promise<string[]> {

@@ -253,6 +253,8 @@ import {
   type SaveDeps,
 } from "./teamBuilderSaves.js";
 import { TournamentStore } from "./tournaments/store.js";
+import { RateLimiter } from "./translate/guards.js";
+import { clientIp } from "./translate/route.js";
 import { isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
 import { teamFileFromSave } from "./tabletop/teamFile.js";
@@ -532,6 +534,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
           home: { coach: m.home.coach.ffbCoachId },
           away: { coach: m.away?.coach.ffbCoachId ?? "" },
           ...(m.result ? { resultReportedAt: m.result.reportedAt } : {}),
+          ...(m.result?.opId ? { resultOpId: m.result.opId } : {}),
         };
       },
       record: (id, input, at) => { tournamentStore.recordResult(id, input, at); },
@@ -548,8 +551,18 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
 if (existsSync(TABLETOP_DIR)) void tabletopDeps().catch((e) => console.error(`[tabletop] recovery failed: ${(e as Error).message}`));
 
 /** Tabletop recorder HTTP: Discord session only (checked in tabletopApi), bounded body. */
+// Public standings read: per-IP rate limit (the same limiter the public translate relay uses).
+const standingsLimiter = new RateLimiter({ maxRequests: 60, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 5_000 });
+
 async function handleTabletopRequest(req: IncomingMessage, res: ServerResponse, path: string, query: URLSearchParams): Promise<void> {
   const method = req.method ?? "GET";
+  if (path === "/api/standings") {
+    const wait = standingsLimiter.take([`ip:${clientIp(req)}`], 0);
+    if (wait > 0) {
+      res.setHeader("retry-after", String(wait));
+      return sendJson(res, 429, { error: "Too many requests." });
+    }
+  }
   const auth = lobbyAuthFor(req);
   let body: unknown;
   if (method === "POST" && auth?.method === "discord") {

@@ -18,7 +18,7 @@ import {
 } from "./events.js";
 import { leagueStandings, type LeaguePoints } from "./standings.js";
 import { applyPostMatch, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopTeamFile } from "./postMatch.js";
-import { headRevision, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
+import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
 import { duplicatePlayerId } from "./teamFile.js";
 
 export interface TabletopAuth { coach: string; method: string }
@@ -35,12 +35,14 @@ export interface FixtureView {
   home: { coach: string };
   away: { coach: string };
   resultReportedAt?: string;
+  /** The op id stamped on the recorded result (tabletop publications only). */
+  resultOpId?: string;
 }
 
 /** The tournaments store seen through the single existing result path (TournamentStore.recordResult). */
 export interface FixtureGateway {
   get(id: string): FixtureView | undefined;
-  record(id: string, input: { expectedRevision: number; homeScore: number; awayScore: number; homeCasualties: number; awayCasualties: number }, at: Date): void;
+  record(id: string, input: { opId?: string; expectedRevision: number; homeScore: number; awayScore: number; homeCasualties: number; awayCasualties: number }, at: Date): void;
   retract(id: string, input: { expectedRevision: number; status: string }, at: Date): void;
 }
 
@@ -92,6 +94,14 @@ export async function tabletopApi(
   query: URLSearchParams = new URLSearchParams(),
 ): Promise<TabletopResult | undefined> {
   if (!isTabletopApiPath(path)) return undefined;
+  // A public read (no session): the standings contain only published results. Every write stays gated below.
+  if (path === "/api/standings") {
+    if (method !== "GET" && method !== "HEAD") return err(405, "Method not allowed.");
+    const league = query.get("league")?.trim() ?? "";
+    if (!league || league.length > 60) return err(400, "league is required.");
+    const rows = leagueStandings(deps.results.list(), league, deps.forkMetadata ?? (() => undefined), deps.pointsFor?.(league));
+    return { status: 200, body: { league, rows } };
+  }
   if (!auth?.coach) return err(401, "Sign in with Discord first.");
   if (auth.method !== "discord") return err(403, "The match recorder needs a Discord sign-in.");
   const me = auth.coach;
@@ -109,13 +119,6 @@ export async function tabletopApi(
     if (!organiser) return err(403, "Organizer access required.");
     return organiserApi(method, path, query, body, me, deps, now);
   }
-  if (path === "/api/standings") {
-    if (method !== "GET") return err(405, "Method not allowed.");
-    const league = query.get("league")?.trim() ?? "";
-    if (!league || league.length > 60) return err(400, "league is required.");
-    const rows = leagueStandings(deps.results.list(), league, deps.forkMetadata ?? (() => undefined), deps.pointsFor?.(league));
-    return { status: 200, body: { league, rows } };
-  }
   if (path === "/api/tabletop/saves") {
     if (method !== "GET") return err(405, "Method not allowed.");
     const coach = query.get("coach")?.trim() ?? "";
@@ -123,7 +126,7 @@ export async function tabletopApi(
     const saves = (deps.listSaves?.(coach) ?? []).map((s) => ({ id: s.id, name: s.name }));
     return { status: 200, body: { coach, saves } };
   }
-  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision))?$/.exec(path);
+  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict))?$/.exec(path);
   if (!m) return err(404, "Not found.");
   const id = m[1]!;
   const action = m[2];
@@ -142,12 +145,19 @@ export async function tabletopApi(
   if (method !== "POST") return err(405, "Method not allowed.");
 
   return serial(id, async () => {
+    if (action === "resolve-conflict") {
+      if (!organiser) return err(403, "Organizer access required.");
+      const j = await repo.getJournal(id);
+      if (!j || j.state !== "conflict") return err(409, "This match has no conflicted commit.");
+      await repo.clearJournal(id);
+      return { status: 200, body: { match: await repo.getMatch(id), discarded: { kind: j.kind, conflict: j.conflict } } };
+    }
     try {
       const replayed = await recoverMatch(id, deps);
       if (replayed && (action === "confirm" || action === "publish" || action === "undo-revision") && replayed.kind === (action === "confirm" ? "confirm" : action === "publish" ? "publish" : "undo"))
         return { status: 200, body: { match: replayed.match, recovered: true } };
-    } catch {
-      return err(500, "An earlier commit on this match is still being completed; try again.");
+    } catch (e) {
+      return recoveryFailure(e);
     }
     const fresh = (await repo.getMatch(id))!;
     if (action === "events") return postEvents(fresh, me, body, deps, now);
@@ -342,6 +352,7 @@ async function buildConfirmJournal(
   // Bans are rechecked immediately before finalisation: both participants and the confirming caller.
   for (const coach of new Set([match.home.coach, match.away.coach, me]))
     if (deps.isBanned(coach)) return { ok: false, error: err(403, coach === me ? BANNED_ACCOUNT_MESSAGE : `${coach} is banned; the match cannot be finalised.`) };
+  if (await recoveryPending(match, deps)) return { ok: false, error: recoveryPendingError() };
   const events = await deps.repo.readEvents(match.id);
   const p = await computePreview(match, events, deps);
   if (!p.ok) return { ok: false, error: p.error };
@@ -393,11 +404,20 @@ async function buildConfirmJournal(
     ...match, state: "confirmed", confirmations, updatedAt: at, preview: { home: p.home.summary, away: p.away.summary },
     ...(wroteRevisions ? { wroteRevisions } : {}), resultGameId: gameId,
   };
-  return { ok: true, journal: { matchId: match.id, opId: opId(), kind: "confirm", homeChain, awayChain, result: { put: row }, match: next } };
+  const change = (before: TeamChain, target: TeamChain): ChainChange => ({ expect: { head: before.head, revisions: before.revisions.length }, target });
+  return {
+    ok: true,
+    journal: {
+      matchId: match.id, opId: opId(), kind: "confirm",
+      ...(match.postMatch !== "none" ? { homeChain: change(p.chainHome, homeChain), awayChain: change(p.chainAway, awayChain) } : {}),
+      result: { put: row }, match: next,
+    },
+  };
 }
 
 async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () => Date, note?: string): Promise<TabletopResult> {
   if (match.state !== "confirmed" && match.state !== "published") return err(409, "Only a confirmed or published match can be reverted.");
+  if (await recoveryPending(match, deps)) return recoveryPendingError();
   const chainHome = await deps.repo.getChain(match.home.coach, match.home.teamSaveId);
   const chainAway = await deps.repo.getChain(match.away.coach, match.away.teamSaveId);
   if (!chainHome || !chainAway) return err(409, "Team files are missing.");
@@ -407,7 +427,7 @@ async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () =
   const link = match.state === "published" ? match.fixtureLink : undefined;
   if (link) {
     const f = deps.fixtures?.get(link.id);
-    if (!f || f.resultReportedAt !== link.reportedAt || f.revision !== link.expectedRevision + 1)
+    if (!f || f.resultOpId !== link.opId || f.revision !== link.expectedRevision + 1)
       return err(409, "The fixture changed since this result was published; resolve it in the tournament first.");
   }
   const back = (chain: TeamChain, rev: number): TeamChain => ({ ...chain, head: chain.revisions.find((r) => r.revision === rev)!.parent! });
@@ -415,10 +435,12 @@ async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () =
   const next: MatchRecord = { ...rest, state: "recording", confirmations: {}, updatedAt: now().toISOString(), ...(note ? { note } : {}) };
   return commit({
     matchId: match.id, opId: opId(), kind: "undo",
-    homeChain: w ? back(chainHome, w.home) : chainHome,
-    awayChain: w ? back(chainAway, w.away) : chainAway,
+    ...(w ? {
+      homeChain: { expect: { head: chainHome.head, revisions: chainHome.revisions.length }, target: back(chainHome, w.home) },
+      awayChain: { expect: { head: chainAway.head, revisions: chainAway.revisions.length }, target: back(chainAway, w.away) },
+    } : {}),
     result: match.resultGameId ? { remove: match.resultGameId } : null,
-    ...(link ? { fixture: { op: "retract" as const, id: link.id, expectedRevision: link.expectedRevision + 1, status: link.priorStatus, at: next.updatedAt } } : {}),
+    ...(link ? { fixture: { op: "retract" as const, id: link.id, opId: link.opId, expectedRevision: link.expectedRevision + 1, status: link.priorStatus, at: next.updatedAt } } : {}),
     match: next,
   }, deps);
 }
@@ -426,22 +448,21 @@ async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () =
 async function publish(match: MatchRecord, me: string, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
   if (match.state !== "confirmed") return err(409, `This match is ${match.state}; only a confirmed match can be published.`);
   const at = now().toISOString();
-  const chainHome = await deps.repo.getChain(match.home.coach, match.home.teamSaveId);
-  const chainAway = await deps.repo.getChain(match.away.coach, match.away.teamSaveId);
   const stored = match.resultGameId ? deps.results.get(match.resultGameId) : undefined;
-  if (!chainHome || !chainAway || !stored || !match.preview) return err(409, "The match's confirmed result is missing.");
-  const fx = fixtureForPublish(match, at, deps);
+  if (!stored || !match.preview) return err(409, "The match's confirmed result is missing.");
+  const op = opId();
+  const fx = fixtureForPublish(match, at, deps, op);
   if ("error" in fx) return fx.error;
   const { fixture, fixtureLink } = fx;
   const next: MatchRecord = { ...match, state: "published", publishedAt: at, publishedBy: me, updatedAt: at, ...(fixtureLink ? { fixtureLink } : {}) };
   return commit({
-    matchId: match.id, opId: opId(), kind: "publish", homeChain: chainHome, awayChain: chainAway,
+    matchId: match.id, opId: op, kind: "publish", // a publication never rewrites team chains
     result: { put: { ...stored, published: true } }, ...(fixture ? { fixture } : {}), match: next,
   }, deps);
 }
 
 /** The fixture record op for publishing `match` (preview must exist), or a 409. */
-function fixtureForPublish(match: MatchRecord, at: string, deps: TabletopApiDeps):
+function fixtureForPublish(match: MatchRecord, at: string, deps: TabletopApiDeps, op: string):
   { error: TabletopResult } | { fixture?: CommitJournal["fixture"]; fixtureLink?: MatchRecord["fixtureLink"] } {
   const preview = match.preview!;
   let fixture: CommitJournal["fixture"];
@@ -453,30 +474,79 @@ function fixtureForPublish(match: MatchRecord, at: string, deps: TabletopApiDeps
     const swapped = match.fixtureSwap === true;
     const [h, a] = swapped ? [preview.away, preview.home] : [preview.home, preview.away];
     fixture = {
-      op: "record", id: match.fixtureRef, expectedRevision: f.revision, at,
+      op: "record", id: match.fixtureRef, opId: op, expectedRevision: f.revision, at,
       homeScore: h.score.for, awayScore: a.score.for, homeCasualties: cas(h), awayCasualties: cas(a),
     };
-    fixtureLink = { id: match.fixtureRef, priorStatus: f.status, expectedRevision: f.revision, reportedAt: at, swapped };
+    fixtureLink = { id: match.fixtureRef, priorStatus: f.status, expectedRevision: f.revision, reportedAt: at, swapped, opId: op };
   }
   return { fixture, fixtureLink };
 }
 
 const opId = (): string => randomBytes(8).toString("hex");
 
-/** Apply every record of a journal (all idempotent full-state writes), then clear it. */
-async function applyJournal(j: CommitJournal, deps: TabletopApiDeps): Promise<void> {
-  await deps.repo.putChain(j.homeChain);
-  await deps.repo.putChain(j.awayChain);
+/** The world changed since a commit was prepared: it must not be applied over the newer state. */
+export class JournalConflict extends Error {}
+
+const teamKey = (s: { coach: string; teamSaveId: string }): string => `${s.coach}\0${s.teamSaveId}`;
+
+/** Another match's unresolved journal on either of this match's teams blocks chain-touching commits. */
+async function recoveryPending(match: MatchRecord, deps: TabletopApiDeps): Promise<boolean> {
+  const mine = new Set([teamKey(match.home), teamKey(match.away)]);
+  for (const id of await deps.repo.listJournalMatchIds()) {
+    if (id === match.id) continue;
+    const j = await deps.repo.getJournal(id);
+    if (j && [j.match.home, j.match.away].some((side) => mine.has(teamKey(side)))) return true;
+  }
+  return false;
+}
+const recoveryPendingError = (): TabletopResult => err(409, "Recovery pending: an unfinished commit on another match uses one of these teams.");
+
+function recoveryFailure(e: unknown): TabletopResult {
+  if (e instanceof JournalConflict) return { status: 409, body: { error: `Recovery conflict: ${e.message}`, conflict: true } };
+  return err(500, "An earlier commit on this match is still being completed; try again.");
+}
+
+/** Decide, WITHOUT writing, what each part of a journal still needs; throws JournalConflict if anything moved. */
+async function preflight(j: CommitJournal, deps: TabletopApiDeps): Promise<{ home: boolean; away: boolean; fixture: boolean }> {
+  const chain = async (change?: ChainChange): Promise<boolean> => {
+    if (!change) return false;
+    const cur = await deps.repo.getChain(change.target.coach, change.target.saveId);
+    if (!cur) throw new JournalConflict(`${change.target.coach}'s team file is missing`);
+    if (JSON.stringify(cur) === JSON.stringify(change.target)) return false; // already applied
+    if (cur.head === change.expect.head && cur.revisions.length === change.expect.revisions) return true;
+    throw new JournalConflict(`${change.target.coach}'s team changed (now at revision ${cur.head}) since this commit was prepared`);
+  };
+  const home = await chain(j.homeChain);
+  const away = await chain(j.awayChain);
+  let fixture = false;
   if (j.fixture) {
-    const gateway = deps.fixtures;
-    if (!gateway) throw new Error("no fixture gateway");
-    const f = gateway.get(j.fixture.id);
+    if (!deps.fixtures) throw new Error("no fixture gateway");
+    const f = deps.fixtures.get(j.fixture.id);
+    if (!f) throw new JournalConflict("the fixture no longer exists");
     if (j.fixture.op === "record") {
-      const { op: _op, id, at, ...input } = j.fixture;
-      if (f && f.revision === input.expectedRevision) gateway.record(id, input, new Date(at));
-      else if (!(f && f.revision > input.expectedRevision && f.resultReportedAt)) throw new Error("fixture changed during commit");
-    } else if (f?.resultReportedAt) {
-      gateway.retract(j.fixture.id, { expectedRevision: j.fixture.expectedRevision, status: j.fixture.status }, new Date(j.fixture.at));
+      if (f.revision === j.fixture.expectedRevision && !f.resultReportedAt) fixture = true;
+      else if (f.resultOpId !== j.opId) throw new JournalConflict("the fixture was changed by someone else since this commit was prepared");
+    } else if (f.resultOpId === j.fixture.opId && f.revision === j.fixture.expectedRevision) {
+      fixture = true;
+    } else if (!(f.revision === j.fixture.expectedRevision + 1 && !f.resultReportedAt)) {
+      throw new JournalConflict("the fixture result was changed by someone else since it was published");
+    }
+  }
+  return { home, away, fixture };
+}
+
+/** Preflight everything, then apply what is still needed (every write is a full-state, idempotent one), then clear. */
+async function applyJournal(j: CommitJournal, deps: TabletopApiDeps): Promise<void> {
+  const need = await preflight(j, deps);
+  if (need.home) await deps.repo.putChain(j.homeChain!.target);
+  if (need.away) await deps.repo.putChain(j.awayChain!.target);
+  if (need.fixture && j.fixture) {
+    const fx = j.fixture;
+    if (fx.op === "record") {
+      const { op: _op, id, at, opId: stamp, ...input } = fx;
+      deps.fixtures!.record(id, { ...input, opId: stamp }, new Date(at));
+    } else {
+      deps.fixtures!.retract(fx.id, { expectedRevision: fx.expectedRevision, status: fx.status }, new Date(fx.at));
     }
   }
   if (j.result && "put" in j.result) deps.results.put(j.result.put);
@@ -485,30 +555,52 @@ async function applyJournal(j: CommitJournal, deps: TabletopApiDeps): Promise<vo
   await deps.repo.clearJournal(j.matchId);
 }
 
-/** Journal first, then apply. A failure part-way leaves the journal for replay; a retry completes it (never a 409). */
-async function commit(j: CommitJournal, deps: TabletopApiDeps): Promise<TabletopResult> {
+async function markConflict(j: CommitJournal, reason: string, deps: TabletopApiDeps): Promise<void> {
+  try { await deps.repo.putJournal({ ...j, state: "conflict", conflict: reason }); } catch { /* the journal stays pending */ }
+}
+
+/** Journal first (with its sequence), then apply. A failure part-way leaves the journal for replay; a retry completes it. */
+async function commit(journal: CommitJournal, deps: TabletopApiDeps): Promise<TabletopResult> {
+  let j = journal;
   try {
+    j = { ...journal, seq: journal.seq ?? (await deps.repo.nextJournalSeq()), state: "pending" };
     await deps.repo.putJournal(j);
     await applyJournal(j, deps);
-  } catch {
+  } catch (e) {
+    if (e instanceof JournalConflict) {
+      await markConflict(j, e.message, deps);
+      return recoveryFailure(e);
+    }
     return err(500, "The commit was recorded but not fully applied; it will be completed when you retry.");
   }
   return { status: 200, body: { match: j.match } };
 }
 
-/** Replay an unfinished journal for one match to completion (undefined when none). */
+/** Replay an unfinished journal for one match to completion (undefined when none). A conflict is surfaced, never overwritten. */
 export async function recoverMatch(matchId: string, deps: TabletopApiDeps): Promise<CommitJournal | undefined> {
   const j = await deps.repo.getJournal(matchId);
   if (!j) return undefined;
-  await applyJournal(j, deps);
+  if (j.state === "conflict") throw new JournalConflict(j.conflict ?? "an earlier commit conflicted");
+  try {
+    await applyJournal(j, deps);
+  } catch (e) {
+    if (e instanceof JournalConflict) await markConflict(j, e.message, deps);
+    throw e;
+  }
   return j;
 }
 
-/** Startup recovery: replay every unfinished journal. Returns the match ids completed. */
+/** Startup recovery: replay unfinished journals in their recorded sequence, skipping conflicts. Returns the match ids completed. */
 export async function recoverTabletop(deps: TabletopApiDeps): Promise<string[]> {
-  const done: string[] = [];
+  const journals: CommitJournal[] = [];
   for (const id of await deps.repo.listJournalMatchIds()) {
-    try { if (await recoverMatch(id, deps)) done.push(id); } catch { /* left for the next attempt */ }
+    const j = await deps.repo.getJournal(id);
+    if (j && j.state !== "conflict") journals.push(j);
+  }
+  journals.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+  const done: string[] = [];
+  for (const j of journals) {
+    try { if (await recoverMatch(j.matchId, deps)) done.push(j.matchId); } catch { /* conflict is marked; others retry later */ }
   }
   return done;
 }
@@ -591,8 +683,8 @@ async function organiserApi(
         try {
           const replayed = await recoverMatch(id, deps);
           if (replayed && replayed.match.state === (action === "reopen" ? "recording" : "published")) return { status: 200, body: { match: replayed.match } };
-        } catch {
-          return err(500, "An earlier commit on this match is still being completed; try again.");
+        } catch (e) {
+          return recoveryFailure(e);
         }
         const fresh = (await deps.repo.getMatch(id))!;
         return action === "reopen" ? reopen(fresh, note, deps, now) : confirmAndPublish(fresh, me, deps, now);
@@ -622,7 +714,7 @@ async function confirmAndPublish(match: MatchRecord, me: string, deps: TabletopA
   if (!built.ok) return built.error;
   const j = built.journal;
   const confirmed = j.match;
-  const fx = fixtureForPublish(confirmed, at, deps);
+  const fx = fixtureForPublish(confirmed, at, deps, j.opId);
   if ("error" in fx) return fx.error;
   const row = (j.result as { put: StoredTournamentResult }).put;
   const next: MatchRecord = { ...confirmed, state: "published", publishedAt: at, publishedBy: me, ...(fx.fixtureLink ? { fixtureLink: fx.fixtureLink } : {}) };

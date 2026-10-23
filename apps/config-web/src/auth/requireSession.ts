@@ -28,6 +28,7 @@ const PUBLIC_API_METHODS = new Map<string, ReadonlySet<string>>([
   ["/api/fork/name-available", new Set(["GET"])],
   ["/api/fork/login", new Set(["POST"])],
   ["/api/skills", new Set(["GET", "HEAD"])],
+  ["/api/standings", new Set(["GET", "HEAD"])], // published tabletop + fork standings: a public read
   ["/api/stars", new Set(["GET", "HEAD"])],
   ["/api/teams", new Set(["GET", "HEAD"])],
   ["/api/presets", new Set(["GET", "HEAD"])],
