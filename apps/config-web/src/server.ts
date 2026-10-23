@@ -548,14 +548,37 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
           open: Boolean(m.away) && t?.status === "active" && !["completed", "cancelled", "dismissed"].includes(m.status),
           status: m.status,
           revision: m.revision,
-          home: { coach: m.home.coach.ffbCoachId },
-          away: { coach: m.away?.coach.ffbCoachId ?? "" },
+          home: { coach: m.home.coach.ffbCoachId, teamId: m.home.teamId },
+          away: { coach: m.away?.coach.ffbCoachId ?? "", ...(m.away?.teamId ? { teamId: m.away.teamId } : {}) },
+          ...(t ? { tournament: { id: t.id, name: t.name } } : {}),
+          round: m.roundNumber,
           ...(m.result ? { resultReportedAt: m.result.reportedAt } : {}),
           ...(m.result?.opId ? { resultOpId: m.result.opId } : {}),
         };
       },
+      list: () => tournamentStore.matches().flatMap((m) => {
+        const t = tournamentStore.tournament(m.tournamentId);
+        if (!m.away || !t) return [];
+        return [{
+          id: m.id,
+          ...(t.packageName ? { packageName: t.packageName } : {}),
+          open: t.status === "active" && !["completed", "cancelled", "dismissed"].includes(m.status),
+          status: m.status,
+          revision: m.revision,
+          home: { coach: m.home.coach.ffbCoachId, teamId: m.home.teamId },
+          away: { coach: m.away.coach.ffbCoachId, teamId: m.away.teamId },
+          tournament: { id: t.id, name: t.name },
+          round: m.roundNumber,
+          ...(m.result ? { resultReportedAt: m.result.reportedAt } : {}),
+          ...(m.result?.opId ? { resultOpId: m.result.opId } : {}),
+        }];
+      }),
       record: (id, input, at) => { tournamentStore.recordResult(id, input, at); },
       retract: (id, input, at) => { tournamentStore.retractResult(id, { expectedRevision: input.expectedRevision, status: input.status as never }, at); },
+    },
+    resolveFixtureTeam: (coach, teamId) => {
+      const t = readLibrary(LIBRARY_DIR, coach).find((x) => x.teamId === teamId);
+      return t ? { ref: `library:${t.teamId}`, name: t.teamName } : undefined;
     },
     forkMetadata: (gameId) => tournamentMatches.get(gameId),
     pointsFor: (league) =>

@@ -36,8 +36,10 @@ export interface FixtureView {
   open: boolean;
   status: string;
   revision: number;
-  home: { coach: string };
-  away: { coach: string };
+  home: { coach: string; teamId?: string };
+  away: { coach: string; teamId?: string };
+  tournament?: { id: string; name: string };
+  round?: number;
   resultReportedAt?: string;
   /** The op id stamped on the recorded result (tabletop publications only). */
   resultOpId?: string;
@@ -46,6 +48,8 @@ export interface FixtureView {
 /** The tournaments store seen through the single existing result path (TournamentStore.recordResult). */
 export interface FixtureGateway {
   get(id: string): FixtureView | undefined;
+  /** Every scheduled match (open or not); the fixtures route filters. */
+  list?(): FixtureView[];
   record(id: string, input: { opId?: string; expectedRevision: number; homeScore: number; awayScore: number; homeCasualties: number; awayCasualties: number }, at: Date): void;
   retract(id: string, input: { expectedRevision: number; status: string }, at: Date): void;
 }
@@ -60,6 +64,8 @@ export interface TabletopApiDeps {
     list(): StoredTournamentResult[];
   };
   fixtures?: FixtureGateway;
+  /** A fixture's team id (the entrant's fork team) as a team the recorder can load for that coach, if it can. */
+  resolveFixtureTeam?: (coach: string, teamId: string) => { ref: string; name: string } | undefined;
   /** Die roller for the server-side pre-game rolls: 1..sides. Default is crypto-random; tests inject. */
   rollDie?: (sides: number) => number;
   /** Fork-game metadata lookup for league standings (package name of a fork tournament game). */
@@ -126,6 +132,10 @@ export async function tabletopApi(
   if (path.startsWith("/api/tabletop/organiser/")) {
     if (!organiser) return err(403, "Organizer access required.");
     return organiserApi(method, path, query, body, me, deps, now);
+  }
+  if (path === "/api/tabletop/fixtures") {
+    if (method !== "GET") return err(405, "Method not allowed.");
+    return listFixtures(me, organiser && query.get("all") === "1", deps);
   }
   if (path === "/api/tabletop/saves") {
     if (method !== "GET") return err(405, "Method not allowed.");
@@ -237,15 +247,43 @@ async function currentTeams(repo: TabletopRepository, match: MatchRecord): Promi
   return { home: await read(match.home), away: await read(match.away) };
 }
 
+const sameCoach = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** The caller's UNRESOLVED fixtures (either orientation); an organiser with ?all=1 sees every unresolved fixture. */
+async function listFixtures(me: string, all: boolean, deps: TabletopApiDeps): Promise<TabletopResult> {
+  const side = (s: { coach: string; teamId?: string }) => {
+    const team = s.teamId ? deps.resolveFixtureTeam?.(s.coach, s.teamId) : undefined;
+    return { coach: s.coach, ...(team ? { teamRef: team.ref, teamName: team.name } : {}) };
+  };
+  const fixtures = (deps.fixtures?.list?.() ?? [])
+    .filter((f) => f.open && (all || sameCoach(f.home.coach, me) || sameCoach(f.away.coach, me)))
+    .sort((a, b) => (a.tournament?.name ?? "").localeCompare(b.tournament?.name ?? "") || (a.round ?? 0) - (b.round ?? 0) || a.id.localeCompare(b.id, undefined, { numeric: true }))
+    .map((f) => ({ fixtureRef: f.id, tournament: f.tournament ?? null, round: f.round ?? null, home: side(f.home), away: side(f.away) }));
+  return { status: 200, body: { fixtures } };
+}
+
 async function createMatch(me: string, organiser: boolean, body: unknown, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
-  const b = (body && typeof body === "object" ? body : {}) as Record<string, any>;
+  const b = (body && typeof body === "object" ? { ...(body as Record<string, any>) } : {}) as Record<string, any>;
+  // A body with only a fixtureRef is filled from the fixture (coaches, and the teams when they can be resolved);
+  // anything the caller sends explicitly wins.
+  if (typeof b.fixtureRef === "string" && b.fixtureRef) {
+    const f = deps.fixtures?.get(b.fixtureRef);
+    if (f) {
+      const fill = (s: { coach: string; teamId?: string }) => {
+        const team = s.teamId ? deps.resolveFixtureTeam?.(s.coach, s.teamId) : undefined;
+        return { coach: s.coach, ...(team ? { team: team.ref } : {}) };
+      };
+      b.home = { ...fill(f.home), ...(b.home ?? {}) };
+      b.away = { ...fill(f.away), ...(b.away ?? {}) };
+    }
+  }
   const side = (v: any): { coach: string; teamSaveId: string; kind: "library" | "save" } | undefined => {
     const ref = parseTeamRef(v?.team ?? v?.teamSaveId);
     return v && typeof v.coach === "string" && v.coach.trim() && ref ? { coach: v.coach.trim(), teamSaveId: ref.ref, kind: ref.kind } : undefined;
   };
   const home = side(b.home);
   const away = side(b.away);
-  if (!home || !away) return err(400, "home and away each need {coach, team}, team being library:<id> or save:<id>.");
+  if (!home || !away) return err(400, b.fixtureRef ? "Choose both teams: a fixture team could not be found automatically (send home.team / away.team as library:<id> or save:<id>)." : "home and away each need {coach, team}, team being library:<id> or save:<id>.");
   if (home.coach === away.coach) return err(400, "A match needs two different coaches.");
   const postMatch = b.postMatch ?? "full";
   if (typeof postMatch !== "string" || !POST_MATCH.includes(postMatch)) return err(400, "postMatch must be none, spp-only or full.");
