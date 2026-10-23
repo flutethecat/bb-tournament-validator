@@ -2,21 +2,23 @@
    <html>: Black/Red dark default, FUMBBL light variant). Lobby component rules: shared/lobby.css. */
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; background: var(--ui-secondary, #000); color: var(--ui-text, #e6e9ef); font-family: system-ui, sans-serif; }
+/* Typography tokens + the Nuffle @font-face come from /theme.css (owner 2026-10-22): sans-serif body,
+   Nuffle title lines (h1-h3 in shared/lobby.css, the brand here). */
+body { margin: 0; background: var(--ui-secondary, #000); color: var(--ui-text, #e6e9ef); font-family: var(--font-body, sans-serif); font-size: var(--text-base, 17px); line-height: var(--text-line, 1.45); }
 .shell-header {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px;
   /* right gutter leaves room for theme.js's fixed theme toggle */
   padding: 10px 150px 10px 16px;
   background: var(--ui-surface, #0d0d0d); border-bottom: 2px solid var(--ui-primary, #790004);
 }
-.shell-header .brand { color: var(--ui-heading, #ff3b3b); text-decoration: none; font-weight: 700; font-size: 1.15rem; white-space: nowrap; }
+.shell-header .brand { color: var(--ui-heading, #ff3b3b); text-decoration: none; font-family: var(--font-heading, sans-serif); font-weight: 500; font-size: 1.35rem; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
 .shell-nav { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: thin; max-width: 100%; }
 .shell-link { color: var(--ui-text, #e6e9ef); text-decoration: none; padding: 6px 10px; border-radius: 4px; white-space: nowrap; }
 .shell-link:hover { background: var(--ui-hover, #250a0b); }
 .shell-link.router-link-active { background: var(--ui-primary, #790004); color: var(--ui-text-on-primary, #fff); }
 .shell-who { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .shell-me { display: flex; align-items: center; gap: 8px; color: var(--ui-muted, #848689); text-decoration: none; }
-.lobby-btn.small { padding: 5px 10px; font-size: 0.9rem; }
+.lobby-btn.small { padding: 5px 10px; font-size: 15px; }
 .shell-main { max-width: 1200px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
 .account-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 16px; }
 .account-facts dt { color: var(--ui-muted, #848689); }

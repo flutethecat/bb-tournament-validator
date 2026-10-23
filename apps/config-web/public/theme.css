@@ -42,6 +42,23 @@
   --ui-muted: #6e6a60;
   --ui-text-dim: #8f8a7d;
 }
+/* Typography (owner 2026-10-22): body copy = sans-serif system stack (Helvetica family; no font files
+   shipped for it), title lines = the Nuffle display face. ONE @font-face for every config-web page. */
+@font-face {
+  font-family: "Nuffle";
+  src: url("/assets/Nuffle.otf") format("opentype");
+  font-display: swap;
+}
+:root {
+  --font-body: "Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif;
+  --font-heading: "Nuffle", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --text-base: 17px;
+  --text-line: 1.45;
+}
+@media (max-width: 640px) {
+  :root { --text-base: 16px; }
+}
+
 /* Fixed semantics — identical in both presets (Fives canonical). */
 :root {
   --ui-danger: #ff4d4d;
@@ -65,7 +82,7 @@
   top: 10px;
   right: 12px;
   z-index: 50;
-  font: 11px/1 system-ui, Segoe UI, sans-serif;
+  font: 13px/1 var(--font-body);
   background: var(--ui-surface-2);
   color: var(--ui-text);
   border: 1px solid var(--ui-border);

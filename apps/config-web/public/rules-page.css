@@ -14,7 +14,10 @@ body {
   margin: 0;
   background: var(--ui-secondary);
   color: var(--ui-text);
-  font: 15px/1.5 system-ui, "Segoe UI", sans-serif;
+  /* Typography tokens + Nuffle @font-face: /theme.css (owner 2026-10-22). */
+  font-family: var(--font-body, "Helvetica Neue", Helvetica, Arial, sans-serif);
+  font-size: var(--text-base, 17px);
+  line-height: var(--text-line, 1.45);
 }
 
 a {
@@ -45,6 +48,14 @@ h2,
 h3,
 p {
   margin-top: 0;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-heading, "Helvetica Neue", Helvetica, Arial, sans-serif);
+  font-weight: 500;
+  letter-spacing: 0.04em;
 }
 
 h1 {
@@ -137,7 +148,7 @@ aside :last-child {
   flex: 1;
   gap: 4px;
   color: var(--ui-muted);
-  font-size: 0.84rem;
+  font-size: 0.9rem;
   font-weight: 700;
 }
 
@@ -170,7 +181,7 @@ button:hover {
 .copy-status {
   align-self: center;
   min-width: 7rem;
-  font-size: 0.86rem;
+  font-size: 0.9rem;
 }
 
 .race-panel {
@@ -194,7 +205,7 @@ dl > div {
 
 dt {
   color: var(--ui-muted);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -224,7 +235,7 @@ ol {
   background: var(--ui-surface-2);
   border: 1px solid var(--ui-border);
   border-radius: 999px;
-  font-size: 0.84rem;
+  font-size: 0.9rem;
 }
 
 .table-scroll {
@@ -235,7 +246,7 @@ ol {
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.88rem;
+  font-size: 0.95rem;
 }
 
 caption {
@@ -280,12 +291,12 @@ tbody th {
 .footnote,
 .eligibility-note {
   margin-top: 10px;
-  font-size: 0.86rem;
+  font-size: 0.9rem;
 }
 
 .rules-page > footer {
   color: var(--ui-muted);
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   text-align: center;
 }
 

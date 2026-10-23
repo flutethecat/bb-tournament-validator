@@ -1,5 +1,5 @@
 /* Lobby components, shared by the SPA (/app/lobby) and the vanilla page (/lobby/). Site theme tokens from /theme.css (--ui-*). */
-h1, h2, h3 { color: var(--ui-heading, #ff3b3b); margin: 0 0 8px; }
+h1, h2, h3 { color: var(--ui-heading, #ff3b3b); margin: 0 0 8px; font-family: var(--font-heading, sans-serif); font-weight: 500; letter-spacing: .04em; }
 .lobby-card { background: var(--ui-surface, #0d0d0d); border: 1px solid var(--ui-border, #3d0002); border-radius: 6px; padding: 16px; min-width: 0; }
 .lobby-grid { display: grid; gap: 16px; grid-template-columns: 1fr 2fr; }
 .lobby-grid.rosters { grid-template-columns: 1fr 1fr; }
@@ -25,14 +25,14 @@ a { color: var(--ui-accent, #a55456); }
 .coach-card { display: flex; gap: 12px; align-items: flex-start; }
 .lobby-avatar { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; }
 .lobby-avatar.small { width: 24px; height: 24px; }
-.title-badge { margin-left: 8px; padding: 1px 8px; border-radius: 10px; background: var(--ui-primary, #790004); color: var(--ui-text-on-primary, #fff); font-size: 0.85em; }
+.title-badge { margin-left: 8px; padding: 1px 8px; border-radius: 10px; background: var(--ui-primary, #790004); color: var(--ui-text-on-primary, #fff); font-size: 14px; }
 .chat-log { list-style: none; padding: 0; margin: 0 0 8px; max-height: 280px; overflow-y: auto; display: grid; gap: 4px; overflow-wrap: anywhere; }
 .chat-log li.mine strong { color: var(--ui-accent, #a55456); }
-.chat-time { color: var(--ui-text-dim, #5f6163); font-size: 0.85em; }
+.chat-time { color: var(--ui-text-dim, #5f6163); font-size: 14px; }
 .chat-form { display: flex; gap: 8px; }
 .chat-form input { flex: 1; min-width: 0; }
 .table-wrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
 th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--ui-border, #3d0002); vertical-align: top; }
 th { color: var(--ui-muted, #848689); font-weight: 600; white-space: nowrap; }
 .roster-head { margin: 0 0 4px; }

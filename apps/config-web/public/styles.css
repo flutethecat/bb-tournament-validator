@@ -16,7 +16,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.5 system-ui, "Segoe UI", Roboto, sans-serif;
+  font: 15px/1.5 var(--font-body, system-ui, "Segoe UI", Roboto, sans-serif);
 }
 
 .topbar {

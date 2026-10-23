@@ -1,7 +1,10 @@
 /* Vanilla Lobby page shell. The lobby component rules are shared with the SPA: spa/src/shared/lobby.css. */
 @import "../../spa/src/shared/lobby.css";
-body { margin: 0; background: var(--ui-secondary, #000); color: var(--ui-text, #e6e9ef); font-family: system-ui, sans-serif; }
-.lobby-shell { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 12px 16px; background: var(--ui-surface, #0d0d0d); border-bottom: 2px solid var(--ui-primary, #790004); }
-.lobby-shell .brand { color: var(--ui-heading, #ff3b3b); text-decoration: none; font-weight: 700; font-size: 1.15rem; }
+/* Typography tokens + the Nuffle @font-face come from /theme.css (owner 2026-10-22). */
+body { margin: 0; background: var(--ui-secondary, #000); color: var(--ui-text, #e6e9ef); font-family: var(--font-body, sans-serif); font-size: var(--text-base, 17px); line-height: var(--text-line, 1.45); }
+.lobby-shell { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 12px 150px 12px 16px; background: var(--ui-surface, #0d0d0d); border-bottom: 2px solid var(--ui-primary, #790004); }
+.lobby-shell .brand { color: var(--ui-heading, #ff3b3b); text-decoration: none; font-family: var(--font-heading, sans-serif); font-weight: 500; font-size: 1.35rem; letter-spacing: .04em; text-transform: uppercase; }
 .lobby-shell .who { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--ui-muted, #848689); }
 main#app { max-width: 1200px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+/* the right gutter leaves room for theme.js's fixed theme toggle; on a phone the brand keeps that gutter instead */
+@media (max-width: 640px) { .lobby-shell { padding: 10px 16px; } .lobby-shell .brand { padding-right: 140px; } .lobby-shell .who { margin-left: 0; } }
