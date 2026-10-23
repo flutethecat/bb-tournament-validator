@@ -4,29 +4,28 @@
   "biased_referee": "icons/inducements/biased_ref.png",
   "bloodweiser_kegs": "icons/inducements/bloodweiser_keg.png",
   "bribes": "icons/inducements/bribe.png",
+  "extra_team_training": "icons/inducements/extra_team_training.png",
   "halfling_master_chef": "icons/inducements/master_chef.png",
   "hireling_sports_wizard": "icons/inducements/wizard.png",
-  "igor": "icons/inducements/igor.png",
+  "infamous_coaching_staff": "icons/inducements/infamous_coaching_staff.png",
   "mortuary_assistant": "icons/inducements/mortuary_assistant.png",
+  "part_time_assistant_coaches": "icons/inducements/part_time_assistant_coaches.png",
   "plague_doctor": "icons/inducements/plague_doctor.png",
   "prayers_to_nuffle": "icons/inducements/prayer.png",
+  "riotous_rookies": "icons/inducements/riotous_rookies.png",
   "team_mascot": "icons/inducements/team_mascot.png",
+  "temp_agency_cheerleaders": "icons/inducements/temp_agency_cheerleaders.png",
   "wandering_apothecaries": "icons/inducements/wandering_apothecary.png",
   "weather_mage": "icons/inducements/weather_mage.png"
  },
  "noIcon": [
-  "extra_team_training",
-  "infamous_coaching_staff",
   "mercenaries",
-  "part_time_assistant_coaches",
-  "riotous_rookies",
-  "star_players",
-  "temp_agency_cheerleaders"
+  "star_players"
  ],
  "source": {
-  "commit": "facd5ca770ab45bf077c488da91e02219f0466f5",
+  "commit": "d4395a003abb1a4a90ef692a10e5220a4bfb476c",
   "map": "apps/tauri/src/game/logic/coachPanelChips.ts",
   "path": "apps/tauri/src/assets/resources",
-  "ref": "origin/order-66"
+  "ref": "codex/inducement-icons"
  }
 }
