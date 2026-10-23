@@ -197,20 +197,28 @@ export async function handleAuthPortal(
     return true;
   }
 
-  if (url.pathname === "/api/auth/logout" && method === "POST") {
-    if (req.headers["x-cw-auth"] !== "1") {
-      sendJson(res, 403, { error: "Missing required X-CW-Auth header." });
-      return true;
-    }
-    const token = sessionTokenFromRequest(req);
-    if (!sessionFromRequest(req) || !token) {
-      sendJson(res, 401, { error: "Authentication required." });
-      return true;
-    }
-    deleteSession(token);
-    sendJson(res, 200, { ok: true }, { "set-cookie": buildClearSessionCookie(requestUsesTls(req)) });
-    return true;
-  }
+  if (handleLogout(req, res, url.pathname)) return true;
 
   return false;
+}
+
+/**
+ * POST /api/auth/logout: ends the caller's own session (cookie or Bearer). Requires a live session and the
+ * X-CW-Auth CSRF header. Dispatched by the sidecar portal above and, in sidecar-off mode, directly by server.ts so
+ * the SPA's Sign out works on both hosts. Returns false when the request is not a logout.
+ */
+export function handleLogout(req: IncomingMessage, res: ServerResponse, pathname: string): boolean {
+  if (pathname !== "/api/auth/logout" || (req.method ?? "GET") !== "POST") return false;
+  if (req.headers["x-cw-auth"] !== "1") {
+    sendJson(res, 403, { error: "Missing required X-CW-Auth header." });
+    return true;
+  }
+  const token = sessionTokenFromRequest(req);
+  if (!sessionFromRequest(req) || !token) {
+    sendJson(res, 401, { error: "Authentication required." });
+    return true;
+  }
+  deleteSession(token);
+  sendJson(res, 200, { ok: true }, { "set-cookie": buildClearSessionCookie(requestUsesTls(req)) });
+  return true;
 }

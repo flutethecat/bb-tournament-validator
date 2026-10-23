@@ -13,6 +13,7 @@ const account = ref<AccountInfo | null>(null);
 const error = ref("");
 const loading = ref(true);
 const signingOut = ref(false);
+const signOutError = ref("");
 
 const avatar = computed(() => account.value?.profile?.avatar || account.value?.discordAvatarUrl || "");
 const discordName = computed(() => account.value?.identities?.discordUsername || "");
@@ -31,8 +32,13 @@ async function load(): Promise<void> {
 
 async function signOut(): Promise<void> {
   signingOut.value = true;
+  signOutError.value = "";
   try {
     await session.signOut();
+    // The server answered OK but the session is still live (should not happen): say so rather than look done.
+    if (session.signedIn()) signOutError.value = "Sign out did not complete. Try again.";
+  } catch (err) {
+    signOutError.value = `Sign out failed: ${(err as Error).message}`;
   } finally {
     signingOut.value = false;
   }
@@ -63,5 +69,6 @@ onServerPrefetch(load);
       </dl>
     </template>
     <button class="lobby-btn" type="button" :disabled="signingOut" @click="signOut">Sign out</button>
+    <p v-if="signOutError" class="lobby-error" role="alert">{{ signOutError }}</p>
   </section>
 </template>

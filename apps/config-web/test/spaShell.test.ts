@@ -95,18 +95,18 @@ describe("session store", () => {
     expect(down.signedIn()).toBe(false);
   });
 
-  it("force re-reads; signOut posts logout then re-reads", async () => {
-    let signedIn = true;
+  // The successful Sign out runs against the real server in both auth modes (spaServerRoutes*.test.ts); here only
+  // the failure path, which must surface and leave the session as the server says it is.
+  it("signOut surfaces a rejected logout and re-reads the session (still signed in)", async () => {
     const f = mockFetcher({
-      "/api/auth/session": () => (signedIn ? { authenticated: true, coach: "Alice" } : { authenticated: false }),
-      "POST /api/auth/logout": () => { signedIn = false; return { ok: true }; },
+      "/api/auth/session": { authenticated: true, coach: "Alice" },
+      "POST /api/auth/logout": new ApiError(401, "Authentication required."),
     });
     const s = createSessionStore(f);
     await s.load();
+    await expect(s.signOut()).rejects.toThrow("Authentication required.");
+    expect(f.calls.filter((c) => c.path === "/api/auth/session")).toHaveLength(2);
     expect(s.signedIn()).toBe(true);
-    await s.signOut();
-    expect(f.calls.some((c) => c.method === "POST" && c.path === "/api/auth/logout")).toBe(true);
-    expect(s.signedIn()).toBe(false);
   });
 
   it("login URL uses the existing Discord flow and returns to the /app path", () => {
@@ -351,6 +351,22 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     });
     expect(html).toContain("This lobby has expired.");
     expect(html).toContain("Back to Start Game");
+  });
+
+  it("start route: prototype-key coach names (toString, __proto__, constructor) keep Accept usable", async () => {
+    const names = ["toString", "__proto__", "constructor", "hasOwnProperty"];
+    const challenges: PendingChallenge[] = names.map((coach) => ({ coach, teamId: "t2", opponent: "Alice", createdAt: 0 }));
+    const { html } = await render("/lobby", { "/api/auth/session": { authenticated: true, coach: "Alice" } }, async (spa) => {
+      const start = mods.createLobbyStart({ api: mockFetcher({ "GET /api/lobby": { lobbies: [], challenges } }), onSignedOut: vi.fn() });
+      await start.refresh();
+      spa.app.provide(mods.LOBBY_START_KEY, start);
+    });
+    for (const coach of names) expect(html, coach).toContain(`<strong>${coach}</strong> challenged you`);
+    const accepts = html.match(/<button class="lobby-btn primary" type="button"[^>]*>Accept<\/button>/g) ?? [];
+    expect(accepts).toHaveLength(names.length);
+    for (const b of accepts) expect(b).not.toContain("disabled");
+    expect(html).not.toContain('role="alert"');
+    expect(html).not.toContain("function");
   });
 
   it("start route renders challenges and lobbies from the API", async () => {

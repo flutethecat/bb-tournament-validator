@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createSession, SESSION_COOKIE_NAME } from "../src/auth/session.js";
 
 // The SPA mount (/app) with the auth sidecar ON: public like /lobby/ (no /login redirect for a signed-out visitor;
 // the SPA shows its own sign-in prompt), while the API it calls still answers 401.
@@ -28,6 +29,7 @@ beforeAll(async () => {
     FORK_ADMIN_PASSWORD: "",
     FORK_DB_HOST: "",
     SUPER_ENABLED: "",
+    SPA_DIST_DIR: join(root, "spa-dist"),
   })) {
     previousEnv.set(name, process.env[name]);
     process.env[name] = value;
@@ -35,6 +37,9 @@ beforeAll(async () => {
   delete process.env.FORK_TEAMS_DIR;
   for (const directory of ["library", "packages", "tournaments", "state"]) mkdirSync(join(root, directory), { recursive: true });
   writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: {} }), "utf8");
+  // A deployed SPA shell (stand-in for build:spa output; the sidecar-off test serves a real build).
+  mkdirSync(join(root, "spa-dist"), { recursive: true });
+  writeFileSync(join(root, "spa-dist", "index.html"), '<!DOCTYPE html><html><body><div id="app"></div></body></html>', "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
   writeFileSync(join(root, "state", "fork-reload-state.json"), JSON.stringify({ lastReloadAt: "2026-02-01T00:00:00.000Z" }), "utf8");
   ({ server } = await import("../src/server.js"));
@@ -51,14 +56,24 @@ afterAll(async () => {
 });
 
 describe("SPA routes (sidecar on)", () => {
-  it("/app/lobby is public: no /login redirect, no 401", async () => {
+  it("/app/lobby is public: no /login redirect, no 401; the deployed shell answers 200", async () => {
     for (const path of ["/app", "/app/lobby", "/app/lobby/abcDEF12", "/app/account"]) {
       const res = await fetch(`${origin}${path}`, { redirect: "manual" });
-      expect(res.status, path).not.toBe(302);
-      expect(res.status, path).not.toBe(401);
-      expect([200, 404], path).toContain(res.status);
-      if (res.status === 200) expect(await res.text()).toContain('<div id="app">');
+      expect(res.status, path).toBe(200);
+      expect(await res.text(), path).toContain('<div id="app">');
     }
+  });
+
+  it("Sign out with the sidecar on: guards kept, the session ends", async () => {
+    const cookie = `${SESSION_COOKIE_NAME}=${createSession("SideCoach").token}`;
+    expect((await fetch(`${origin}/api/auth/logout`, { method: "POST", headers: { cookie } })).status).toBe(403);
+    expect((await fetch(`${origin}/api/auth/logout`, { method: "POST", headers: { "x-cw-auth": "1" } })).status).toBe(401);
+    const before = await fetch(`${origin}/api/auth/session`, { headers: { cookie } });
+    expect(((await before.json()) as { authenticated: boolean }).authenticated).toBe(true);
+    const ok = await fetch(`${origin}/api/auth/logout`, { method: "POST", headers: { cookie, "x-cw-auth": "1" } });
+    expect(ok.status).toBe(200);
+    const after = await fetch(`${origin}/api/auth/session`, { headers: { cookie } });
+    expect(((await after.json()) as { authenticated: boolean }).authenticated).toBe(false);
   });
 
   it("a non-SPA page still redirects to /login, and the API the SPA calls still answers 401", async () => {

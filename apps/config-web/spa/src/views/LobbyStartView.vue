@@ -23,9 +23,11 @@ const opponent = ref("");
 const challengeErr = ref("");
 const challenging = ref(false);
 
-const acceptTeam = reactive<Record<string, string>>({});
-const acceptErr = reactive<Record<string, string>>({});
-const accepting = reactive<Record<string, boolean>>({});
+// Per-challenge row state keyed by coach name. Maps, not plain objects: a coach named "toString" or "__proto__"
+// must not read an inherited value.
+const acceptTeam = reactive(new Map<string, string>());
+const acceptErr = reactive(new Map<string, string>());
+const accepting = reactive(new Map<string, boolean>());
 
 const openLobby = (id: string) => router.push({ name: "lobby-room", params: { id } });
 
@@ -44,15 +46,15 @@ async function onChallenge(): Promise<void> {
 }
 
 async function onAccept(c: PendingChallenge): Promise<void> {
-  acceptErr[c.coach] = "";
-  const teamId = acceptTeam[c.coach] ?? "";
-  if (!teamId) return void (acceptErr[c.coach] = "Pick a team first.");
-  accepting[c.coach] = true;
+  acceptErr.delete(c.coach);
+  const teamId = acceptTeam.get(c.coach) ?? "";
+  if (!teamId) return void acceptErr.set(c.coach, "Pick a team first.");
+  accepting.set(c.coach, true);
   try {
     await openLobby(await start.accept(c, teamId));
   } catch (err) {
-    acceptErr[c.coach] = (err as Error).message;
-    accepting[c.coach] = false;
+    acceptErr.set(c.coach, (err as Error).message);
+    accepting.set(c.coach, false);
   }
 }
 
@@ -96,10 +98,15 @@ onBeforeUnmount(() => start.stop());
         <p v-if="!state.challenges.length" class="muted">No challenges right now.</p>
         <div v-for="c in state.challenges" :key="c.coach" class="lobby-row">
           <span><strong>{{ c.coach }}</strong> challenged you</span>
-          <TeamSelect :id="`accept-${c.coach}`" v-model="acceptTeam[c.coach]" :teams="teams" />
-          <button class="lobby-btn primary" type="button" :disabled="accepting[c.coach]" @click="onAccept(c)">Accept</button>
+          <TeamSelect
+            :id="`accept-${c.coach}`"
+            :model-value="acceptTeam.get(c.coach) ?? ''"
+            :teams="teams"
+            @update:model-value="(v: string) => acceptTeam.set(c.coach, v)"
+          />
+          <button class="lobby-btn primary" type="button" :disabled="accepting.get(c.coach) === true" @click="onAccept(c)">Accept</button>
           <RouterLink v-if="c.lobbyId" :to="{ name: 'lobby-room', params: { id: c.lobbyId } }">Open lobby</RouterLink>
-          <p v-if="acceptErr[c.coach]" class="lobby-error" role="alert">{{ acceptErr[c.coach] }}</p>
+          <p v-if="acceptErr.get(c.coach)" class="lobby-error" role="alert">{{ acceptErr.get(c.coach) }}</p>
         </div>
       </template>
     </div>

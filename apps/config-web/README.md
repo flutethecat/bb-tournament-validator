@@ -15,7 +15,8 @@ pnpm --filter config-web typecheck:spa    # vue-tsc -p spa/tsconfig.json --noEmi
 
 The server serves `/app` and `/app/*` as public static in both auth modes (like `/lobby/`): any path under `/app`
 without a file extension (and not under `/app/assets/`) is answered with `/app/index.html` (history fallback,
-`src/spaRoutes.ts`). Every API call the SPA makes gates itself. `/theme.css` and `/theme.js` stay unbundled and
+`src/spaRoutes.ts`). Every API call the SPA makes gates itself. The build directory defaults to `public/app/`;
+`SPA_DIST_DIR` (env) points the server at another one. `/theme.css` and `/theme.js` stay unbundled and
 are loaded by `spa/index.html`; the shell styles with their `--ui-*` tokens, so the Black/Red (dark) and FUMBBL
 (light) presets apply as on every other page.
 
@@ -47,8 +48,14 @@ DOM, unit-tested); `shared/` modules also used by the vanilla Lobby page (`api.t
 4. When the SPA page fully covers the old one, a later lane redirects the old `.html` to `/app/...` and deletes it
    (the vanilla `/lobby/` page is kept this round).
 
-GET `/api/account` carries `fumbblName` (the linked FUMBBL name from the tournament coach registry, matched by
-Discord id, then by coach name; `null` when none). The registry has no FUMBBL coach id, so none is returned.
+GET `/api/account` carries `fumbblName`: the linked FUMBBL name from the tournament coach registry
+(`src/fumbblLink.ts`, also used by the Lobby coach card). An entry with the coach's Discord id wins; otherwise the
+registry `fumbblName` must equal the fork coach name exactly (case-sensitive), be unique, and not belong to a
+different Discord account. Anything else is `null`. The registry has no FUMBBL coach id, so none is returned.
+
+Sign out (Account page) posts `POST /api/auth/logout` (`X-CW-Auth: 1`, live session required). The sidecar portal
+handles it with the sidecar on; with it off, `server.ts` dispatches the same handler (`handleLogout` in
+`src/auth/portal.ts`).
 
 ## Start Game / Lobby page (`/lobby/`)
 

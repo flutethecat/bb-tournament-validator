@@ -99,9 +99,10 @@ import {
 import { builderTierRows, packageResponseInfo, packageRulesInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
 import { isPublicArtPath } from "./publicArt.js";
 import { PRESETS } from "./presets";
-import { handleAuthPortal } from "./auth/portal.js";
+import { handleAuthPortal, handleLogout } from "./auth/portal.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
-import { isSpaPath, spaFallback } from "./spaRoutes.js";
+import { isSpaPath, spaStaticPath } from "./spaRoutes.js";
+import { linkedFumbblNameIn } from "./fumbblLink.js";
 import { coachLogin, sendCoachLogin } from "./auth/coachLogin.js";
 import {
   bearerTokenFromRequest,
@@ -905,27 +906,26 @@ function requireAdminLevel(req: IncomingMessage, res: ServerResponse, auth?: Ses
 }
 
 /**
- * The coach's linked FUMBBL name from the tournament coach registry: matched by Discord id first, then by the fork
- * coach name. Shared by the Lobby coach card and GET /api/account. null when nothing is linked.
+ * The coach's linked FUMBBL name from the tournament coach registry. Shared by the Lobby coach card and
+ * GET /api/account. null when nothing is linked. Implementation: src/fumbblLink.ts.
  */
 function linkedFumbblName(coach: string, discordUserId: string): string | null {
-  const registry = readCoachRegistry(COACH_REGISTRY_JSON);
-  const linked = (discordUserId && registry.find((e) => e.discordUserId === discordUserId && e.fumbblName))
-    || registry.find((e) => e.fumbblName?.trim().toLowerCase() === coach.trim().toLowerCase());
-  return (linked && linked.fumbblName?.trim()) || null;
+  return linkedFumbblNameIn(readCoachRegistry(COACH_REGISTRY_JSON), coach, discordUserId);
 }
 
 const readBody = (req: IncomingMessage, maxBytes = DEFAULT_JSON_BODY_CAP): Promise<unknown> =>
   readJsonBody(req, maxBytes);
 
 async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> {
-  const rel = urlPath === "/" || urlPath === "/index.html" ? "/control-panel.html"
+  const spa = spaStaticPath(urlPath, PUBLIC_DIR); // SPA build output + history fallback (pnpm build:spa)
+  const root = spa?.root ?? PUBLIC_DIR;
+  const rel = spa ? spa.rel
+    : urlPath === "/" || urlPath === "/index.html" ? "/control-panel.html"
     : urlPath === "/lobby" || urlPath === "/lobby/" ? "/lobby/index.html" // Vite build output (pnpm build:lobby)
-    : spaFallback(urlPath) ? "/app/index.html" // SPA history fallback (pnpm build:spa)
     : urlPath;
   // prevent path traversal
-  const full = normalize(join(PUBLIC_DIR, rel));
-  if (!full.startsWith(PUBLIC_DIR)) {
+  const full = normalize(join(root, rel));
+  if (!full.startsWith(root)) {
     res.writeHead(403).end("forbidden");
     return;
   }
@@ -3099,6 +3099,8 @@ export const server = createServer((req, res) => {
         await serveStatic(res, url.pathname);
         return;
       } else {
+        // Sign out (SPA Account page): the portal owns logout under the sidecar; dispatch it here too.
+        if (handleLogout(req, res, url.pathname)) return;
         const auth = requestIdentity(req);
         const accountSession = auth !== undefined && (
           url.pathname === "/api/account" ||
