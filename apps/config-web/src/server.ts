@@ -559,6 +559,11 @@ async function handleTabletopRequest(req: IncomingMessage, res: ServerResponse, 
   }
   const result = await tabletopApi(method, path, auth, body, await tabletopDeps(), query);
   if (!result) return sendJson(res, 404, { error: "Not found." });
+  if (result.contentType) {
+    res.writeHead(result.status, { "content-type": result.contentType, ...(result.headers ?? {}) });
+    res.end(String(result.body));
+    return;
+  }
   return sendJson(res, result.status, result.body);
 }
 

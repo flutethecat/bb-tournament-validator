@@ -10,6 +10,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { nafTimestamp } from "../tournaments/nafExport.js";
 import { BANNED_ACCOUNT_MESSAGE } from "../auth/access.js";
 import type { StoredTournamentResult } from "../tournamentResults.js";
 import {
@@ -21,7 +22,7 @@ import { headRevision, type CommitJournal, type MatchRecord, type TabletopReposi
 import { duplicatePlayerId } from "./teamFile.js";
 
 export interface TabletopAuth { coach: string; method: string }
-export interface TabletopResult { status: number; body: unknown }
+export interface TabletopResult { status: number; body: unknown; contentType?: string; headers?: Record<string, string> }
 
 /** A tournament fixture (scheduled match) as the recorder needs to see it. */
 export interface FixtureView {
@@ -103,6 +104,10 @@ export async function tabletopApi(
     if (method === "GET") return listMatches(me, organiser, deps);
     if (method !== "POST") return err(405, "Method not allowed.");
     return createMatch(me, organiser, body, deps, now);
+  }
+  if (path.startsWith("/api/tabletop/organiser/")) {
+    if (!organiser) return err(403, "Organizer access required.");
+    return organiserApi(method, path, query, body, me, deps, now);
   }
   if (path === "/api/standings") {
     if (method !== "GET") return err(405, "Method not allowed.");
@@ -323,12 +328,23 @@ async function confirm(match: MatchRecord, me: string, organiser: boolean, deps:
     await deps.repo.updateMatch(next);
     return { status: 200, body: { match: next } };
   }
+  const built = await buildConfirmJournal(match, me, confirmations, deps, at);
+  if (!built.ok) return built.error;
+  return commit(built.journal, deps);
+}
+
+type Built = { ok: true; journal: CommitJournal } | { ok: false; error: TabletopResult };
+
+/** Everything a finalising confirm writes, as one journal (bans rechecked first). */
+async function buildConfirmJournal(
+  match: MatchRecord, me: string, confirmations: Record<string, string>, deps: TabletopApiDeps, at: string,
+): Promise<Built> {
   // Bans are rechecked immediately before finalisation: both participants and the confirming caller.
   for (const coach of new Set([match.home.coach, match.away.coach, me]))
-    if (deps.isBanned(coach)) return err(403, coach === me ? BANNED_ACCOUNT_MESSAGE : `${coach} is banned; the match cannot be finalised.`);
+    if (deps.isBanned(coach)) return { ok: false, error: err(403, coach === me ? BANNED_ACCOUNT_MESSAGE : `${coach} is banned; the match cannot be finalised.`) };
   const events = await deps.repo.readEvents(match.id);
   const p = await computePreview(match, events, deps);
-  if (!p.ok) return p.error;
+  if (!p.ok) return { ok: false, error: p.error };
 
   let wroteRevisions: MatchRecord["wroteRevisions"];
   let homeChain = p.chainHome;
@@ -377,10 +393,10 @@ async function confirm(match: MatchRecord, me: string, organiser: boolean, deps:
     ...match, state: "confirmed", confirmations, updatedAt: at, preview: { home: p.home.summary, away: p.away.summary },
     ...(wroteRevisions ? { wroteRevisions } : {}), resultGameId: gameId,
   };
-  return commit({ matchId: match.id, opId: opId(), kind: "confirm", homeChain, awayChain, result: { put: row }, match: next }, deps);
+  return { ok: true, journal: { matchId: match.id, opId: opId(), kind: "confirm", homeChain, awayChain, result: { put: row }, match: next } };
 }
 
-async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
+async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () => Date, note?: string): Promise<TabletopResult> {
   if (match.state !== "confirmed" && match.state !== "published") return err(409, "Only a confirmed or published match can be reverted.");
   const chainHome = await deps.repo.getChain(match.home.coach, match.home.teamSaveId);
   const chainAway = await deps.repo.getChain(match.away.coach, match.away.teamSaveId);
@@ -396,7 +412,7 @@ async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () =
   }
   const back = (chain: TeamChain, rev: number): TeamChain => ({ ...chain, head: chain.revisions.find((r) => r.revision === rev)!.parent! });
   const { wroteRevisions: _w, resultGameId: _r, preview: _p, fixtureLink: _fl, publishedAt: _pa, publishedBy: _pb, ...rest } = match;
-  const next: MatchRecord = { ...rest, state: "recording", confirmations: {}, updatedAt: now().toISOString() };
+  const next: MatchRecord = { ...rest, state: "recording", confirmations: {}, updatedAt: now().toISOString(), ...(note ? { note } : {}) };
   return commit({
     matchId: match.id, opId: opId(), kind: "undo",
     homeChain: w ? back(chainHome, w.home) : chainHome,
@@ -414,25 +430,35 @@ async function publish(match: MatchRecord, me: string, deps: TabletopApiDeps, no
   const chainAway = await deps.repo.getChain(match.away.coach, match.away.teamSaveId);
   const stored = match.resultGameId ? deps.results.get(match.resultGameId) : undefined;
   if (!chainHome || !chainAway || !stored || !match.preview) return err(409, "The match's confirmed result is missing.");
+  const fx = fixtureForPublish(match, at, deps);
+  if ("error" in fx) return fx.error;
+  const { fixture, fixtureLink } = fx;
+  const next: MatchRecord = { ...match, state: "published", publishedAt: at, publishedBy: me, updatedAt: at, ...(fixtureLink ? { fixtureLink } : {}) };
+  return commit({
+    matchId: match.id, opId: opId(), kind: "publish", homeChain: chainHome, awayChain: chainAway,
+    result: { put: { ...stored, published: true } }, ...(fixture ? { fixture } : {}), match: next,
+  }, deps);
+}
+
+/** The fixture record op for publishing `match` (preview must exist), or a 409. */
+function fixtureForPublish(match: MatchRecord, at: string, deps: TabletopApiDeps):
+  { error: TabletopResult } | { fixture?: CommitJournal["fixture"]; fixtureLink?: MatchRecord["fixtureLink"] } {
+  const preview = match.preview!;
   let fixture: CommitJournal["fixture"];
   let fixtureLink: MatchRecord["fixtureLink"];
   if (match.fixtureRef) {
     const f = deps.fixtures?.get(match.fixtureRef);
-    if (!f || !f.open) return err(409, "The fixture is no longer open; resolve it in the tournament first.");
+    if (!f || !f.open) return { error: err(409, "The fixture is no longer open; resolve it in the tournament first.") };
     const cas = (s: PostMatchSummary) => s.players.reduce((n, p) => n + p.casualtiesCaused, 0);
     const swapped = match.fixtureSwap === true;
-    const [h, a] = swapped ? [match.preview.away, match.preview.home] : [match.preview.home, match.preview.away];
+    const [h, a] = swapped ? [preview.away, preview.home] : [preview.home, preview.away];
     fixture = {
       op: "record", id: match.fixtureRef, expectedRevision: f.revision, at,
       homeScore: h.score.for, awayScore: a.score.for, homeCasualties: cas(h), awayCasualties: cas(a),
     };
     fixtureLink = { id: match.fixtureRef, priorStatus: f.status, expectedRevision: f.revision, reportedAt: at, swapped };
   }
-  const next: MatchRecord = { ...match, state: "published", publishedAt: at, publishedBy: me, updatedAt: at, ...(fixtureLink ? { fixtureLink } : {}) };
-  return commit({
-    matchId: match.id, opId: opId(), kind: "publish", homeChain: chainHome, awayChain: chainAway,
-    result: { put: { ...stored, published: true } }, ...(fixture ? { fixture } : {}), match: next,
-  }, deps);
+  return { fixture, fixtureLink };
 }
 
 const opId = (): string => randomBytes(8).toString("hex");
@@ -485,4 +511,131 @@ export async function recoverTabletop(deps: TabletopApiDeps): Promise<string[]> 
     try { if (await recoverMatch(id, deps)) done.push(id); } catch { /* left for the next attempt */ }
   }
   return done;
+}
+
+// ---- Lane T4: organiser tools -------------------------------------------------------------------
+
+const BULK_MAX = 100;
+
+/** Matches linked to a tournament (and optionally a round) through fixtureRef `<tournamentId>:round:<n>:match:<k>`. */
+async function matchesFor(query: URLSearchParams, deps: TabletopApiDeps): Promise<{ error: TabletopResult } | { matches: MatchRecord[] }> {
+  const tournament = query.get("tournament")?.trim() ?? "";
+  if (!tournament || tournament.length > 120) return { error: err(400, "tournament is required.") };
+  const roundRaw = query.get("round");
+  let prefix = `${tournament}:round:`;
+  if (roundRaw !== null && roundRaw !== "") {
+    if (!/^\d{1,3}$/.test(roundRaw)) return { error: err(400, "round must be a number.") };
+    prefix += `${Number(roundRaw)}:`;
+  }
+  const all = await deps.repo.listMatches();
+  const matches = all.filter((m) => m.fixtureRef?.startsWith(prefix));
+  matches.sort((a, b) => (a.fixtureRef ?? "").localeCompare(b.fixtureRef ?? "", undefined, { numeric: true }) || a.createdAt.localeCompare(b.createdAt));
+  return { matches };
+}
+
+const casOf = (s: PostMatchSummary): number => s.players.reduce((n, p) => n + p.casualtiesCaused, 0);
+
+async function organiserApi(
+  method: string, path: string, query: URLSearchParams, body: unknown, me: string, deps: TabletopApiDeps, now: () => Date,
+): Promise<TabletopResult> {
+  if (path === "/api/tabletop/organiser/matches") {
+    if (method !== "GET") return err(405, "Method not allowed.");
+    const found = await matchesFor(query, deps);
+    if ("error" in found) return found.error;
+    const rows = [];
+    for (const m of found.matches) {
+      const t = tallyMatch(await deps.repo.readEvents(m.id));
+      rows.push({
+        id: m.id, state: m.state, pendingOrganiser: m.state === "confirmed", fixtureRef: m.fixtureRef,
+        home: { coach: m.home.coach, teamName: m.home.teamName }, away: { coach: m.away.coach, teamName: m.away.teamName },
+        score: t.score, confirmations: m.confirmations, ...(m.note ? { note: m.note } : {}), updatedAt: m.updatedAt,
+      });
+    }
+    return { status: 200, body: { matches: rows } };
+  }
+
+  if (path === "/api/tabletop/organiser/export") {
+    if (method !== "GET") return err(405, "Method not allowed.");
+    const found = await matchesFor(query, deps);
+    if ("error" in found) return found.error;
+    const header = ["timeStamp", "homeCoach", "homeTeam", "awayCoach", "awayTeam", "homeTouchDowns", "awayTouchDowns", "homeBadlyHurt", "awayBadlyHurt", "fixture"];
+    const lines = [header.join(",")];
+    for (const m of found.matches) {
+      if (m.state !== "published" || !m.preview) continue;
+      lines.push([
+        nafTimestamp(m.publishedAt ?? m.updatedAt), m.home.coach, m.home.teamName, m.away.coach, m.away.teamName,
+        m.preview.home.score.for, m.preview.away.score.for, casOf(m.preview.home), casOf(m.preview.away), m.fixtureRef ?? "",
+      ].map(csvCell).join(","));
+    }
+    return {
+      status: 200, body: `${lines.join("\r\n")}\r\n`, contentType: "text/csv; charset=utf-8",
+      headers: { "content-disposition": 'attachment; filename="tabletop-results.csv"', "cache-control": "no-store" },
+    };
+  }
+
+  if (path === "/api/tabletop/organiser/bulk") {
+    if (method !== "POST") return err(405, "Method not allowed.");
+    const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+    const ids = b.ids;
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > BULK_MAX || !ids.every((i) => typeof i === "string" && /^[\w-]{1,64}$/.test(i)))
+      return err(400, `ids must be 1-${BULK_MAX} match ids.`);
+    if (b.action !== "confirm-publish" && b.action !== "reopen") return err(400, "action must be confirm-publish or reopen.");
+    if (b.note !== undefined && (typeof b.note !== "string" || b.note.length > 500)) return err(400, "note must be at most 500 characters.");
+    const note = typeof b.note === "string" && b.note.trim() ? b.note.trim() : undefined;
+    const action = b.action;
+    const results: Array<{ id: string; ok: boolean; status: number; error?: string; state?: string }> = [];
+    for (const id of new Set(ids as string[])) {
+      const r = await serial(id, async (): Promise<TabletopResult> => {
+        const match = await deps.repo.getMatch(id);
+        if (!match) return err(404, "Match not found.");
+        try {
+          const replayed = await recoverMatch(id, deps);
+          if (replayed && replayed.match.state === (action === "reopen" ? "recording" : "published")) return { status: 200, body: { match: replayed.match } };
+        } catch {
+          return err(500, "An earlier commit on this match is still being completed; try again.");
+        }
+        const fresh = (await deps.repo.getMatch(id))!;
+        return action === "reopen" ? reopen(fresh, note, deps, now) : confirmAndPublish(fresh, me, deps, now);
+      });
+      const out = r.body as { error?: string; match?: { state: string } };
+      results.push({ id, ok: r.status === 200, status: r.status, ...(out.error ? { error: out.error } : {}), ...(out.match ? { state: out.match.state } : {}) });
+    }
+    return { status: 200, body: { results } };
+  }
+  return err(404, "Not found.");
+}
+
+/** CSV cell: quoted when needed; a leading = + - @ is neutralised so a spreadsheet never runs a coach name as a formula. */
+function csvCell(value: string | number): string {
+  let v = String(value);
+  if (/^[=+\-@\t\r]/.test(v) && typeof value === "string") v = `'${v}`;
+  return /[",\r\n]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
+}
+
+/** Organiser confirmation for both seats and publication as ONE journalled commit. */
+async function confirmAndPublish(match: MatchRecord, me: string, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
+  if (match.state === "confirmed") return publish(match, me, deps, now);
+  if (match.state !== "submitted") return err(409, `This match is ${match.state}; only a submitted or confirmed match can be published.`);
+  const at = now().toISOString();
+  const confirmations = { [match.home.coach]: at, [match.away.coach]: at };
+  const built = await buildConfirmJournal(match, me, confirmations, deps, at);
+  if (!built.ok) return built.error;
+  const j = built.journal;
+  const confirmed = j.match;
+  const fx = fixtureForPublish(confirmed, at, deps);
+  if ("error" in fx) return fx.error;
+  const row = (j.result as { put: StoredTournamentResult }).put;
+  const next: MatchRecord = { ...confirmed, state: "published", publishedAt: at, publishedBy: me, ...(fx.fixtureLink ? { fixtureLink: fx.fixtureLink } : {}) };
+  return commit({ ...j, kind: "publish", result: { put: { ...row, published: true } }, ...(fx.fixture ? { fixture: fx.fixture } : {}), match: next }, deps);
+}
+
+/** submitted -> recording directly; confirmed -> recording through the revision undo; published needs undo-revision first. */
+async function reopen(match: MatchRecord, note: string | undefined, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
+  if (match.state === "published") return err(409, "A published match must be reverted with undo-revision first.");
+  if (match.state === "confirmed") return undoRevision(match, deps, now, note);
+  if (match.state !== "submitted") return err(409, `This match is ${match.state}; only a submitted or confirmed match can be reopened.`);
+  const { preview: _p, ...rest } = match;
+  const next: MatchRecord = { ...rest, state: "recording", confirmations: {}, updatedAt: now().toISOString(), ...(note ? { note } : {}) };
+  await deps.repo.updateMatch(next);
+  return { status: 200, body: { match: next } };
 }

@@ -46,6 +46,8 @@ export interface MatchRecord {
   fixtureSwap?: boolean;
   /** Set on publish when a fixture result was written: what to restore on undo. */
   fixtureLink?: { id: string; priorStatus: string; expectedRevision: number; reportedAt: string; swapped: boolean };
+  /** Organiser note recorded when a match was reopened. */
+  note?: string;
   publishedAt?: string;
   publishedBy?: string;
   /** Set on confirm: revisions this match wrote (absent when postMatch is "none"), and its results-store key. */

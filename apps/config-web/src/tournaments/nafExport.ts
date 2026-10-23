@@ -46,7 +46,8 @@ function rating(value: unknown): number {
   return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? Math.max(1, Math.round(raw / 1_000)) : 100;
 }
 
-function timestamp(value: string): string {
+/** NAF report time format ("2026-3-1 10:00"), shared with the tabletop CSV export. */
+export function nafTimestamp(value: string): string {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return value;
   return `${date.getUTCFullYear()}-${date.getUTCMonth() + 1}-${date.getUTCDate()} ${date.getUTCHours()}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
@@ -94,7 +95,7 @@ export function renderNafTournamentXml(input: NafExportInput): string {
   for (const match of completed) {
     const away = match.away!;
     const result = match.result!;
-    lines.push("\t<game>", `\t\t<timeStamp>${xml(timestamp(result.reportedAt))}</timeStamp>`);
+    lines.push("\t<game>", `\t\t<timeStamp>${xml(nafTimestamp(result.reportedAt))}</timeStamp>`);
     for (const [side, score, casualties] of [
       [match.home, result.homeScore, result.homeCasualties ?? 0],
       [away, result.awayScore, result.awayCasualties ?? 0],
