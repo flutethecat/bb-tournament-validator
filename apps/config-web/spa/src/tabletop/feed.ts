@@ -1,6 +1,7 @@
 // Pure helpers for the recorder screen: event glyphs (the client's art, served by the builder-art pipeline), the Other
 // grid, and the feed rows. Everything shown about an event comes from the event the server returned.
 
+import { turnLabel } from "./clock";
 import type { RecordedEvent, Side, TeamView } from "./recorder";
 
 export interface Glyph { src?: string; text?: string }
@@ -39,6 +40,11 @@ export const EVENT_GLYPHS: Record<string, Glyph> = {
   inducement: { text: "🛒" }, // client kind inducements
   prayer: { text: "🙏" }, // client kind prayer
   coinFlip: { text: "🪙" }, // client kind coin
+  turnEnd: { text: "⏳" }, // client kind turnEnd
+  turnSet: { text: "⏳" },
+  timers: { text: "⏱️" }, // client kind timeout
+  timerAgree: { text: "⏱️" },
+  turnTimers: { text: "⏱️" },
 };
 
 export type Needs = "player" | "player+result" | "team" | "team+text" | "weather" | "none" | "casualty";
@@ -71,14 +77,14 @@ const LABELS: Record<string, string> = {
   touchdown: "Touchdown", casualty: "Casualty", injury: "Injury", completion: "Completion", catch: "Catch", throwTeamMate: "Throw Team-mate",
   interception: "Interception", deflection: "Deflection", foul: "Foul", sentOff: "Sent-off", sendOff: "Sent-off", stalling: "Stalling",
   secretObjective: "Secret Objectives", mvp: "MVP", weather: "Weather", concede: "Concede match", endOfMatch: "End of match",
-  fans: "Fans", fanChange: "Fan change", journeymen: "Journeymen", journeyman: "Journeyman", inducement: "Inducement", prayer: "Prayer to Nuffle", coinFlip: "Coin flip",
+  fans: "Fans", fanChange: "Fan change", journeymen: "Journeymen", journeyman: "Journeyman", inducement: "Inducement", prayer: "Prayer to Nuffle", coinFlip: "Coin flip", turnEnd: "End of turn", turnSet: "Clock set", timers: "Turn timers", turnTimers: "Turn timers", timerAgree: "Turn timers",
 };
 export const eventLabel = (type: string): string => LABELS[type] ?? type;
 
-/** Rows with no undo button (pre-game results the server rolled). */
-export const PREGAME_TYPES: ReadonlySet<string> = new Set(["fans", "weather", "journeymen", "journeyman", "inducement", "prayer", "coinFlip"]);
+/** Rows with no undo button (pre-game results and turn ends the server wrote). */
+export const PREGAME_TYPES: ReadonlySet<string> = new Set(["fans", "weather", "journeymen", "journeyman", "inducement", "prayer", "coinFlip", "timers", "turnTimers", "timerAgree", "turnEnd", "turnSet"]);
 /** Rows drawn across the whole feed rather than on a team side. */
-const CENTRE_TYPES: ReadonlySet<string> = new Set(["weather", "endOfMatch", "coinFlip", "fans", "fanChange", "journeymen", "journeyman", "prayer", "winnings"]);
+const CENTRE_TYPES: ReadonlySet<string> = new Set(["weather", "endOfMatch", "coinFlip", "fans", "fanChange", "journeymen", "journeyman", "prayer", "winnings", "turnEnd", "turnSet", "timers", "turnTimers"]);
 
 const word = (v: unknown): string => {
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
@@ -119,8 +125,52 @@ export function eventSub(e: RecordedEvent, teams: Record<Side, TeamView | undefi
 }
 
 /** The client log line for an event, split so the player name can wear the team colour. */
-export function eventSentence(e: RecordedEvent, who: string, teamName: string, sub: string): { lead: string; rest: string } {
+/** Coach and team names of the match, for the personalised pre-game lines. */
+export interface NameCtx { coach: Record<Side, string>; team: Record<Side, string> }
+const other = (s: Side): Side => (s === "home" ? "away" : "home");
+const isSide = (v: unknown): v is Side => v === "home" || v === "away";
+const fmtMmSs = (n: number): string => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
+
+/** "<Caller> (<Team>) calls heads. The coin lands heads. <Winner> wins the toss." plus the choice when it rides along. */
+function coinSentences(p: Record<string, unknown>, c: NameCtx): string {
+  const winner = isSide(p.winner) ? p.winner : undefined;
+  const choiceOf = (): string => {
+    if (!winner || (p.choice !== "kick" && p.choice !== "receive")) return "";
+    return `${c.coach[winner]} chooses to ${p.choice}. ${c.team[other(winner)]} will ${p.choice === "kick" ? "receive" : "kick"}.`;
+  };
+  if (p.stage === "choice") return choiceOf();
+  const caller = isSide(p.caller) ? p.caller : undefined;
+  const call = typeof p.call === "string" ? p.call : "";
+  const result = typeof p.result === "string" ? p.result : "";
+  const head = caller ? `${c.coach[caller]} (${c.team[caller]}) calls ${call}.` : "";
+  const flip = p.mode === "hand" ? `They flipped a real coin: ${result}.` : `The coin lands ${result}.`;
+  const won = winner ? `${c.coach[winner]} wins the toss.` : "";
+  return [head, result ? flip : "", won, choiceOf()].filter(Boolean).join(" ");
+}
+
+export function eventSentence(e: RecordedEvent, who: string, teamName: string, sub: string, names?: NameCtx, extra?: { journeymen?: number }): { lead: string; rest: string } {
   const p = who;
+  const pl = e.payload ?? {};
+  if (names) {
+    switch (e.type) {
+      case "coinFlip": return { lead: "", rest: coinSentences(pl, names) };
+      case "fans": return { lead: names.team[e.team], rest: ` brings ${Number(pl.total ?? 0)} fans (rolled ${Number(pl.roll ?? 0)}).` };
+      case "journeyman": { const n = extra?.journeymen ?? 1; return { lead: names.team[e.team], rest: ` takes on ${n} journeym${n === 1 ? "an" : "en"}.` }; }
+      case "prayer": return { lead: names.team[e.team], rest: ` prays to Nuffle: ${sub}.` };
+      case "turnSet": {
+        // The server records {from, to: {half, turn, activeTeam}, by}; a flat payload is read the same way.
+        const to = (pl.to && typeof pl.to === "object" ? pl.to : pl) as { half?: number | string; turn?: number; activeTeam?: unknown };
+        const side = isSide(to.activeTeam) ? to.activeTeam : e.team;
+        return { lead: "", rest: `${(e as { by?: string }).by ?? "A coach"} set the clock to ${turnLabel(to.half, to.turn)} · ${names.team[side]}` };
+      }
+      case "timerAgree": return { lead: names.team[e.team], rest: pl.agree === true ? " agrees to turn timers." : " declines turn timers." };
+      case "timers": case "turnTimers": {
+        const agreed = pl.agreed as Record<string, unknown> | undefined;
+        const on = pl.mode === "on" || (agreed ? agreed.home === true && agreed.away === true : pl.agree === true);
+        return { lead: "", rest: on ? `Both coaches agree to turn timers (${fmtMmSs(Number(pl.seconds ?? 0))}).` : "Turn timers off." };
+      }
+    }
+  }
   switch (e.type) {
     case "touchdown": return { lead: p, rest: " scores a touchdown." };
     case "casualty": return { lead: p, rest: ` causes a casualty: ${sub}.` };
@@ -140,10 +190,11 @@ export function eventSentence(e: RecordedEvent, who: string, teamName: string, s
     case "endOfMatch": return { lead: "End of match", rest: "." };
     case "inducement": return { lead: teamName, rest: ` buys ${sub}.` };
     case "fans": return { lead: teamName, rest: ` fans: ${sub}.` };
-    case "prayer": return { lead: teamName, rest: ` prayer to Nuffle: ${sub}.` };
+    case "prayer": return { lead: teamName, rest: ` prays to Nuffle: ${sub}.` };
     case "journeyman": return { lead: teamName, rest: ` hires a journeyman: ${sub}.` };
     case "fanChange": return { lead: teamName, rest: ` fan change ${sub}.` };
     case "coinFlip": return { lead: "Coin flip", rest: sub ? `: ${sub}` : "." };
+    case "turnEnd": return { lead: `End of turn ${turnLabel((e as { half?: number | string }).half, (e as { turn?: number }).turn)}`, rest: ` · ${teamName}` };
     default: return { lead: eventLabel(e.type), rest: sub ? `: ${sub}` : "." };
   }
 }
@@ -169,15 +220,24 @@ export interface FeedRow {
 }
 
 /** Newest first; only events still in force (the server names them in effectiveEventIds). */
-export function feedRows(events: readonly RecordedEvent[], effectiveIds: readonly string[], teams: Record<Side, TeamView | undefined>, spp: Readonly<Record<string, number>> = {}): FeedRow[] {
+export function feedRows(
+  events: readonly RecordedEvent[], effectiveIds: readonly string[], teams: Record<Side, TeamView | undefined>,
+  spp: Readonly<Record<string, number>> = {}, match?: { home: { coach: string; teamName: string }; away: { coach: string; teamName: string } },
+): FeedRow[] {
   const live = new Set(effectiveIds);
   const rows: FeedRow[] = [];
+  const names: NameCtx | undefined = match ? { coach: { home: match.home.coach, away: match.away.coach }, team: { home: match.home.teamName, away: match.away.teamName } } : undefined;
+  // One row per team for journeymen ("<Team> takes on 2 journeymen"): the first event carries the count.
+  const journeymen: Record<string, number> = {};
+  for (const e of events) if (live.has(e.id) && e.type === "journeyman") journeymen[e.team] = (journeymen[e.team] ?? 0) + 1;
+  const jmShown = new Set<string>();
   for (const e of events) {
     if (!live.has(e.id) || e.type === "undo") continue;
+    if (e.type === "journeyman") { if (jmShown.has(e.team)) continue; jmShown.add(e.team); }
     const pl = e.player ? teams[e.team]?.players.find((x) => x.id === e.player) : undefined;
     const sub = eventSub(e, teams);
     const who = e.player ? (pl ? `${pl.name}${pl.number !== undefined ? ` #${pl.number}` : ""}` : e.player) : "";
-    const { lead, rest } = eventSentence(e, who, teams[e.team]?.name ?? (e.team === "home" ? "Home" : "Away"), sub);
+    const { lead, rest } = eventSentence(e, who, names?.team[e.team] ?? teams[e.team]?.name ?? (e.team === "home" ? "Home" : "Away"), sub, names, { journeymen: journeymen[e.team] });
     const half = (e as { half?: number | "OT" }).half;
     const turn = (e as { turn?: number }).turn;
     rows.push({
@@ -203,10 +263,10 @@ export function feedRows(events: readonly RecordedEvent[], effectiveIds: readonl
   return rows.reverse();
 }
 
-export const PREGAME_STEPS = ["fans", "weather", "journeymen", "inducements", "prayers", "coin"] as const;
+export const PREGAME_STEPS = ["fans", "weather", "journeymen", "inducements", "prayers", "coin", "timers"] as const;
 export type PregameStep = (typeof PREGAME_STEPS)[number];
 export const PREGAME_LABELS: Record<PregameStep, string> = {
-  fans: "Fans", weather: "Weather", journeymen: "Journeymen", inducements: "Inducements", prayers: "Prayers to Nuffle", coin: "Coin flip",
+  fans: "Fans", weather: "Weather", journeymen: "Journeymen", inducements: "Inducements", prayers: "Prayers to Nuffle", coin: "Coin flip", timers: "Turn timers",
 };
 export const pregameStep = (phase: string | undefined): PregameStep | "" => {
   const m = /^pregame:(\w+)$/.exec(phase ?? "");

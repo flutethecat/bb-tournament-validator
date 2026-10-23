@@ -57,9 +57,9 @@
 .tt-coach { font-size: 12px; line-height: 1.15; font-weight: 700; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tt-team { font-family: var(--font-heading, sans-serif); font-size: 13px; line-height: 1.05; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tt-race { font-size: 11px; color: var(--tt-muted); }
-.tt-chips { list-style: none; margin: 2px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; width: min(100%, 78px); max-height: 54px; overflow: hidden; }
+.tt-chips { list-style: none; margin: 2px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 3px; width: min(100%, 78px); flex: 1 1 0; min-height: 0; overflow: hidden; }
 .tt-corner.away .tt-chips { margin-left: auto; direction: rtl; }
-.tt-chips li { position: relative; width: 100%; aspect-ratio: 1; max-width: 24px; }
+.tt-chips li { position: relative; height: 100%; width: auto; aspect-ratio: 1 / 1; max-width: 24px; max-height: 24px; min-height: 0; min-width: 0; justify-self: start; }
 .tt-chip-img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 0.6px rgba(255, 255, 255, 0.9)) drop-shadow(0 0 0.9px rgba(0, 0, 0, 0.95)); }
 .tt-chip-txt { display: inline-flex; width: 100%; height: 100%; align-items: center; justify-content: center; font-size: 9px; border: 1px solid var(--tt-line); }
 .tt-qty { position: absolute; right: -3px; bottom: -3px; min-width: 12px; padding: 0 2px; background: #000b; color: #fff; font-size: 10px; line-height: 12px; text-align: center; border-radius: 6px; direction: ltr; }
@@ -198,3 +198,28 @@
 .tt-events[data-compact="true"] .tt-ev-icon { --tt-icon: 24px; }
 .tt-chips li { align-self: start; }
 .tt-chip-img { display: block; }
+
+.tt-corner { height: 100%; }
+.tt-chips li { align-self: start; }
+.tt-corner.away .tt-chips li { justify-self: end; }
+.tt-qty { font-size: 9px; min-width: 10px; line-height: 11px; right: 0; bottom: 0; }
+.tt-chip-img { width: 100%; height: 100%; }
+/* top row: Back, weather icon, cog */
+.tt-top-pair { align-items: center; gap: 4px; }
+.tt-weather { font-size: 32px; line-height: 1; min-width: 36px; text-align: center; }
+/* the centre panel under the score: End Turn fills it (or who is to play) */
+.tt-endturn, .tt-towait { flex: 1 1 0; min-height: 0; width: 100%; margin: 2px 0 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; box-sizing: border-box; }
+.tt-endturn { background: var(--tt-accent); color: #fff; border: 3px solid var(--tt-line); border-radius: var(--tt-radius); box-shadow: var(--tt-shadow); font: inherit; cursor: pointer; }
+.tt-endturn b { font-family: var(--font-heading, sans-serif); font-size: 1.15rem; }
+.tt-endturn small, .tt-towait small { font-size: 12px; }
+.tt-towait { opacity: 0.6; padding: 0 4px; }
+.tt-towait b { font-size: 12px; overflow-wrap: anywhere; }
+/* the middle region: the log, or Timer + log each half */
+.tt-mid { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
+.tt-mid[data-timer="on"] { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+.tt-timer { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 8px; background: var(--tt-panel); border-bottom: 2px solid var(--tt-line); }
+.tt-timer p { margin: 0; }
+.tt-timer-who { font-weight: 700; text-align: center; }
+.tt-timer-clock { font-family: var(--font-heading, sans-serif); font-size: 4.2rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.tt-timer-clock[data-alert="true"] { color: #ff4d4d; }
+.tt-rec[data-tt-theme="snes"] .tt-timer-clock[data-alert="true"] { color: #b01414; }

@@ -2,6 +2,9 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSSRApp } from "vue";
 import { createTheme, THEME_COLORS, THEME_STORAGE_KEY } from "../spa/src/theme";
+import { centreMode, createCueTracker, formatTimer, serverOffset, timerRemaining, turnLabel } from "../spa/src/tabletop/clock";
+import { createCuePlayer } from "../spa/src/tabletop/sounds";
+import { canEditMatch } from "../spa/src/tabletop/settings";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
@@ -126,7 +129,7 @@ describe("tabletop routes (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod] = await Promise.all([
+    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
@@ -145,8 +148,10 @@ describe("tabletop routes (server-rendered)", () => {
       vite.ssrLoadModule("/src/components/TabletopPick.vue"),
       vite.ssrLoadModule("/src/components/TabletopSettings.vue"),
       vite.ssrLoadModule("/src/tabletop/settings.ts"),
+      vite.ssrLoadModule("/src/shared/api.ts"),
+      vite.ssrLoadModule("/src/components/TabletopTurnSet.vue"),
     ]);
-    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod };
+    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -279,6 +284,10 @@ describe("tabletop routes (server-rendered)", () => {
     ]);
   });
 
+  const clockOf = (active: "home" | "away", turn: number, extra: Record<string, unknown> = {}) => ({
+    half: 1, turn, activeTeam: active, turnStartedAt: Date.now(), serverNow: Date.now(), turnTimer: { mode: "off" }, ...extra,
+  });
+
   /** Renders one component on its own (SSR) with props, from the same module graph as the app. */
   const mount = async (comp: { default: unknown }, props: Record<string, unknown>, provide?: (app: any) => void): Promise<string> => {
     const app = createSSRApp(comp.default as object, props);
@@ -287,7 +296,7 @@ describe("tabletop routes (server-rendered)", () => {
   };
 
   it("recorder (recording): scoreboard, scrolling feed and TD / Other / CAS regions, rows from the server's events", async () => {
-    const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally });
+    const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) });
     // layout regions, in order: scoreboard, feed, action bar
     const i = (t: string): number => html.indexOf(t);
     expect(i('class="tt-board"')).toBeGreaterThan(-1);
@@ -300,7 +309,9 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("Alice Orcs");
     expect(html).toContain("Bob Elves");
     expect(html).toContain("<span>1</span> : <span>0</span>");
-    expect(html).toContain("H1 T1");
+    expect(html).toContain("1Ht3");
+    expect(html).toContain("End Turn"); // Alice plays home and home is the active team
+    expect(html).not.toContain("tt-stepper"); // no manual half / turn stepper any more
     expect(html).toContain("Rosters");
     expect(html).toContain('href="/app/tabletop"'); // the back button
     // feed rows: the client log sentence, SPP stars, undo trash; the undone TD is gone
@@ -389,7 +400,7 @@ describe("tabletop routes (server-rendered)", () => {
     const evs = [{ id: "i1", type: "inducement", team: "home", payload: { id: "bribes", name: "Bribes", qty: 2 } }];
     const html = await mount(mods.boardC, {
       match: baseMatch("recording"), teams: { home: { ...teams.home, rosterId: "orc", dedicatedFans: 5 }, away: teams.away }, tally: serverTally,
-      events: evs, pregame: { weather: "Nice", coin: { result: "heads", winner: "home" } }, half: 2, turn: 5,
+      events: evs, pregame: { weather: "Nice", coin: { result: "heads", winner: "home" } }, clock: clockOf("away", 5, { half: 2 }), localSide: "home", organiser: false, canAct: true,
       inducementIcons: { bribes: "icons/inducements/bribe.png" }, art: { crests: { crests: { orc: "crests/orc.png" } } },
     }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
     expect(html).toContain('src="/crests/orc.png"');
@@ -399,7 +410,9 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain('aria-label="Nice"'); // the condition name is a tooltip / label only
     expect(html).not.toMatch(/>[^<]*Nice[^<]*</);
     expect(html).toContain("tt-weather");
-    expect(html).toContain("H2 T5");
+    expect(html.indexOf("tt-back")).toBeLessThan(html.indexOf("tt-weather")); // top row: Back, weather, cog
+    expect(html.indexOf("tt-weather")).toBeLessThan(html.indexOf("tt-cog"));
+    expect(html).toContain("2Ht5");
     expect(html).not.toMatch(/heads|tails/i);
   });
 
@@ -700,13 +713,13 @@ describe("tabletop routes (server-rendered)", () => {
     const store = mods.queue.memoryStorage();
     const settings = mods.settingsMod.createViewerSettings(store);
     const html = await mount(mods.settingsC, { theme, settings, editMode: false, canEdit: false });
-    for (const t of ["Settings", ">System<", ">Light<", ">Dark<", "Compact rows", "Show timestamps", "Vibrate on tap"]) expect(html, t).toContain(t);
+    for (const t of ["Settings", ">System<", ">Light<", ">Dark<", "Compact rows", "Show timestamps", "Sounds", "Vibrate on tap"]) expect(html, t).toContain(t);
     expect(html).toMatch(/aria-pressed="true">System</);
-    expect(settings.state).toEqual({ compact: false, timestamps: true, haptic: false });
+    expect(settings.state).toEqual({ compact: false, timestamps: true, haptic: false, sounds: true });
     settings.set("compact", true);
     settings.set("timestamps", false);
     const again = mods.settingsMod.createViewerSettings(store);
-    expect(again.state).toEqual({ compact: true, timestamps: false, haptic: false });
+    expect(again.state).toEqual({ compact: true, timestamps: false, haptic: false, sounds: true });
     const broken = mods.settingsMod.createViewerSettings({ getItem: () => { throw new Error("x"); }, setItem: () => { throw new Error("x"); }, removeItem: () => undefined });
     broken.set("haptic", true);
     expect(broken.state.haptic).toBe(true);
@@ -836,5 +849,273 @@ describe("tabletop routes (server-rendered)", () => {
     expect(rows.html).toContain('class="lobby-btn tt-tap tt-match"');
     expect((await withState({ query: "zz", searched: true })).html).toContain("No coaches match");
     expect((await withState({ query: "zz", error: "Fork DB not configured on this host (set FORK_DB_HOST)." })).html).toContain("Fork DB not configured");
+  });
+
+  // ---------------------------------------------------------------- R3: clock, End Turn, timers, cues, copy
+  it("counter format 1Ht0: half, Ht, turn; overtime reads OTt", () => {
+    expect(turnLabel(1, 0)).toBe("1Ht0");
+    expect(turnLabel(2, 8)).toBe("2Ht8");
+    expect(turnLabel("OT", 1)).toBe("OTt1");
+    expect(turnLabel(undefined, undefined)).toBe("1Ht0");
+  });
+
+  it("End Turn shows only for the active side (organisers for the active team); others see who is to play; turn 0 is Kick-off done", async () => {
+    expect(centreMode(undefined, "home", false, true)).toBe("none");
+    expect(centreMode(clockOf("home", 3), "home", false, true)).toBe("end");
+    expect(centreMode(clockOf("away", 3), "home", false, true)).toBe("wait");
+    expect(centreMode(clockOf("away", 3), null, true, true)).toBe("end"); // organiser, for the active team
+    expect(centreMode(clockOf("away", 3), null, false, false)).toBe("wait");
+    expect(centreMode(clockOf("home", 0), "home", false, true)).toBe("kickoff");
+    const body = (clock: unknown) => ({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock });
+    const mine = await renderMatch(body(clockOf("home", 3)));
+    expect(mine.html).toContain("End Turn");
+    const theirs = await renderMatch(body(clockOf("away", 3)));
+    expect(theirs.html).not.toContain("End Turn");
+    expect(theirs.html).toContain("Bob Elves to play");
+    expect(theirs.html).toContain("1Ht3");
+    const organiser = await renderMatch(body(clockOf("away", 3)), session({ coach: "Zed", organizer: true }));
+    expect(organiser.html).toContain("End Turn");
+    expect(organiser.html).toContain("Bob Elves");
+    const kick = await renderMatch(body(clockOf("home", 0)));
+    expect(kick.html).toContain("Kick-off done");
+    expect(kick.html).toContain("1Ht0");
+    expect(kick.html).not.toContain("End Turn");
+  });
+
+  it("End Turn and Kick-off done post turn/end (guarded by the seen half and turn) and turn/start", async () => {
+    const posts: unknown[] = [];
+    const api = (async (path: string, init: { method?: string; body?: unknown } = {}) => {
+      if (init.method === "POST") { posts.push([path, init.body]); return { match: baseMatch("recording") }; }
+      return { match: baseMatch("recording"), events: [], effectiveEventIds: [], teams, tally: serverTally, clock: clockOf("home", 3, { half: 2 }) };
+    }) as Fetcher;
+    const rec = mods.rec.createRecorder("tm_abc123", { api, onSignedOut: () => undefined, storage: mods.queue.memoryStorage() });
+    await rec.refresh();
+    await rec.endTurn();
+    await rec.startTurn();
+    expect(posts).toEqual([
+      ["/api/tabletop/matches/tm_abc123/turn/end", { expectedHalf: 2, expectedTurn: 3, expectedTeam: "home" }],
+      ["/api/tabletop/matches/tm_abc123/turn/start", { expectedHalf: 2, expectedTurn: 3, expectedTeam: "home" }],
+    ]);
+    rec.stop();
+  });
+
+  it("timer is derived from the server offset: serverNow - local now at the sync, never a free-running count", async () => {
+    const S0 = Date.UTC(2026, 9, 24, 12, 0, 0);
+    const local = Date.UTC(2026, 9, 24, 11, 59, 0); // this phone runs a minute behind the server
+    const clock = { half: 1, turn: 2, activeTeam: "home", turnStartedAt: S0 - 10_000, serverNow: S0, turnTimer: { mode: "on", seconds: 120 } };
+    const offset = serverOffset(clock, local);
+    expect(offset).toBe(60_000);
+    expect(timerRemaining(clock, offset, local)).toBe(110); // 10 s into the turn on the SERVER clock
+    expect(timerRemaining(clock, offset, local + 5_000)).toBe(105);
+    expect(timerRemaining(clock, offset, local + 200_000)).toBeLessThan(0);
+    expect(formatTimer(105)).toBe("1:45");
+    expect(formatTimer(-7)).toBe("0:00"); // negative shows 0:00
+    expect(timerRemaining({ ...clock, turnTimer: { mode: "off", seconds: 120 } }, offset, local)).toBeUndefined();
+    // every sync re-measures the offset (the recorder keeps the latest)
+    let nowMs = local;
+    const api = (async () => ({ match: baseMatch("recording"), events: [], effectiveEventIds: [], teams, tally: serverTally, clock })) as Fetcher;
+    const rec = mods.rec.createRecorder("tm_abc123", { api, onSignedOut: () => undefined, storage: mods.queue.memoryStorage(), now: () => nowMs });
+    await rec.refresh();
+    expect(rec.state.clockOffsetMs).toBe(60_000);
+    nowMs = local + 30_000;
+    await rec.refresh();
+    expect(rec.state.clockOffsetMs).toBe(30_000);
+    rec.onClockMessage({ feature: "tabletop-clock", payload: { ...clock, serverNow: S0 + 90_000, turn: 3 } });
+    expect(rec.state.clock.turn).toBe(3);
+    expect(rec.state.clockOffsetMs).toBe(S0 + 90_000 - nowMs);
+    rec.stop();
+  });
+
+  it("timer mode halves the feed region and shows the Timer section with mm:ss and the alert colour hook", async () => {
+    const on = clockOf("home", 3, { turnTimer: { mode: "on", seconds: 120 } });
+    const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: on });
+    expect(html).toContain('class="tt-mid" data-timer="on"');
+    expect(html).toContain('class="tt-timer"');
+    expect(html).toMatch(/role="timer">\s*(1:5\d|2:00)</);
+    expect(html).toContain("2:00 per turn");
+    const off = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) });
+    expect(off.html).not.toContain('class="tt-timer"');
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.tt-mid\[data-timer="on"\] \{ grid-template-rows: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
+    expect(css).toContain('.tt-timer-clock[data-alert="true"]');
+  });
+
+  it("cue scheduling: 1:00, 0:10 and 0:03 once per turn; a late first reading is silent; Sounds off and locked audio stay quiet", () => {
+    const t = createCueTracker();
+    const heard: string[] = [];
+    const feed = (key: string, ...secs: number[]) => secs.forEach((s) => { const c = t.reading(key, s); if (c) heard.push(`${key}:${s}:${c}`); });
+    feed("1-1-home", 75, 70, 61, 60, 59, 40, 12, 11, 10, 9, 5, 4, 3, 2, 1, 0, -1);
+    expect(heard).toEqual(["1-1-home:60:minute", "1-1-home:10:ten", "1-1-home:3:three"]);
+    heard.length = 0;
+    feed("1-2-away", 8, 7, 3, 2); // first reading at 0:08: 1:00 and 0:10 already passed
+    expect(heard).toEqual(["1-2-away:3:three"]);
+    heard.length = 0;
+    feed("1-3-home", 65, 55, 9, 2); // a skipped tick still sounds the mark it crossed
+    expect(heard).toEqual(["1-3-home:55:minute", "1-3-home:9:ten", "1-3-home:2:three"]);
+    heard.length = 0;
+    feed("1-3-home", 61); // same turn key: nothing is replayed
+    expect(heard).toEqual([]);
+    const tones: unknown[] = [];
+    let sounds = false;
+    const p = createCuePlayer({ enabled: () => sounds, tone: (hz, ms, n) => tones.push([hz, ms, n]) });
+    expect(p.play("minute")).toBe("off"); // Sounds off
+    sounds = true;
+    expect(p.play("minute")).toBe("off"); // browser audio still locked: no gesture yet
+    p.unlock();
+    expect(p.play("ten")).toBe("tone");
+    expect(tones).toHaveLength(1);
+    const played: string[] = [];
+    const withFiles = createCuePlayer({ enabled: () => true, files: () => ({ minute: "/sounds/ui/minute.wav" }), makeAudio: (src) => ({ play: () => { played.push(src); } }) });
+    withFiles.unlock();
+    expect(withFiles.play("minute")).toBe("file"); // one preloaded Audio per cue
+    expect(played).toEqual(["/sounds/ui/minute.wav"]);
+  });
+
+  it("pre-game timers step: Yes / No (the session coach answers for their team); required or off competitions just say so", async () => {
+    const ask = await mount(mods.pregameC, { ...pregameProps("pregame:timers"), clock: { turnTimer: { mode: "off", enforced: "optional" } }, timerAnswers: { home: true } });
+    expect(ask).toContain("Use turn timers?");
+    expect(ask.match(/>Yes</g)).toHaveLength(1);
+    expect(ask.match(/>No</g)).toHaveLength(1);
+    expect(ask).toContain("Alice Orcs</b> says yes");
+    expect(ask).toContain("Bob Elves</b> has not answered yet");
+    const required = await mount(mods.pregameC, { ...pregameProps("pregame:timers"), clock: { turnTimer: { mode: "on", enforced: "required", seconds: 120 } } });
+    expect(required).toContain("Turn timers are required for this competition.");
+    expect(required).not.toContain("Use turn timers?");
+    const off = await mount(mods.pregameC, { ...pregameProps("pregame:timers"), clock: { turnTimer: { mode: "off", enforced: "off" } } });
+    expect(off).toContain("Turn timers are off for this competition.");
+    expect(off).not.toContain(">Yes<");
+    expect(mods.feedMod.PREGAME_STEPS.at(-1)).toBe("timers"); // after the coin
+  });
+
+  it("edit mode: participants while recording, organisers always (the cog toggle follows)", () => {
+    expect(canEditMatch({ organiser: false, participant: true, ended: false })).toBe(true);
+    expect(canEditMatch({ organiser: false, participant: true, ended: true })).toBe(false); // after End of match
+    expect(canEditMatch({ organiser: true, participant: false, ended: true })).toBe(true);
+    expect(canEditMatch({ organiser: false, participant: false, ended: false })).toBe(false);
+  });
+
+  it("pre-game feed copy: coin (two rows or one merged), fans, weather, journeymen, inducements, prayers, timers, end of turn", async () => {
+    const match = baseMatch("recording") as any;
+    const mk = (id: string, type: string, team: string, payload: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) => ({ id, type, team, payload, ...extra });
+    const lines = (evs: any[]) => mods.feedMod.feedRows(evs, evs.map((e) => e.id), teams, {}, match).map((r: any) => `${r.lead}${r.rest}`);
+    // the server's two events: the flip, then the winner's choice
+    expect(lines([
+      mk("a", "coinFlip", "home", { mode: "auto", call: "heads", caller: "away", result: "heads", winner: "home" }),
+      mk("b", "coinFlip", "home", { stage: "choice", winner: "home", choice: "kick" }),
+    ])).toEqual([
+      "Bob (Bob Elves) calls heads. The coin lands heads. Alice wins the toss.",
+      "Alice chooses to kick. Bob Elves will receive.",
+    ].reverse()); // newest first
+    // hand mode, merged event
+    expect(lines([mk("c", "coinFlip", "away", { mode: "hand", call: "heads", caller: "away", result: "tails", winner: "home", choice: "receive" })])[0])
+      .toBe("Bob (Bob Elves) calls heads. They flipped a real coin: tails. Alice wins the toss. Alice chooses to receive. Bob Elves will kick.");
+    expect(lines([mk("d", "coinFlip", "home", { mode: "auto", call: "tails", caller: "away", result: "heads", winner: "home", choice: "kick" })])[0])
+      .toBe("Bob (Bob Elves) calls tails. The coin lands heads. Alice wins the toss. Alice chooses to kick. Bob Elves will receive.");
+    expect(lines([mk("e", "fans", "home", { roll: 3, dedicatedFans: 1, total: 4 })])[0]).toBe("Alice Orcs brings 4 fans (rolled 3).");
+    expect(lines([mk("f", "weather", "home", { pregame: true, roll: 12, dice: [6, 6], result: "Blizzard" })])[0]).toBe("Weather: Blizzard");
+    expect(lines([mk("g1", "journeyman", "away", { player: "x1" }), mk("g2", "journeyman", "away", { player: "x2" })])).toEqual(["Bob Elves takes on 2 journeymen."]);
+    expect(lines([mk("h", "inducement", "home", { picks: [{ id: "bribes", qty: 2 }, { id: "wizard", qty: 1 }] })])[0]).toBe("Alice Orcs buys 2 x bribes, 1 x wizard.");
+    expect(lines([mk("i", "inducement", "away", { picks: [], skipped: true })])[0]).toBe("Bob Elves buys no inducements.");
+    expect(lines([mk("j", "prayer", "home", { roll: 4, name: "Fan Interaction" })])[0]).toBe("Alice Orcs prays to Nuffle: Fan Interaction.");
+    expect(lines([mk("k", "timers", "home", { agreed: { home: true, away: true }, seconds: 120 })])[0]).toBe("Both coaches agree to turn timers (2:00).");
+    expect(lines([mk("l", "timers", "home", { agreed: { home: true, away: false }, seconds: 120 })])[0]).toBe("Turn timers off.");
+    expect(lines([mk("l2", "timerAgree", "home", { agree: true }), mk("l3", "timerAgree", "away", { agree: false })])).toEqual(["Bob Elves declines turn timers.", "Alice Orcs agrees to turn timers."]);
+    expect(lines([mk("m", "turnEnd", "away", {}, { half: 1, turn: 3 })])[0]).toBe("End of turn 1Ht3 · Bob Elves");
+    const rows = mods.feedMod.feedRows([mk("m", "turnEnd", "away", {}, { half: 1, turn: 3 })], ["m"], teams, {}, match);
+    expect(rows[0].side).toBe("centre"); // a neutral, full-width row
+    const html = await mount(mods.feedC, { rows, canUndo: true });
+    expect(html).toMatch(/data-row-side="neutral" data-type="turnEnd"/);
+    expect(html).not.toContain("tt-trash"); // not an undoable row... (turn ends are server events)
+  });
+
+  it("corner icon grid fits the band: rows share the height left under the names (css contract)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.tt-chips \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); grid-auto-rows: minmax\(0, 1fr\)[^}]*flex: 1 1 0; min-height: 0/);
+    expect(css).toMatch(/\.tt-chips li \{[^}]*height: 100%; width: auto; aspect-ratio: 1 \/ 1; max-width: 24px/);
+    expect(css).toMatch(/\.tt-qty \{[^}]*font-size: 9px/);
+  });
+
+  it("a stale End Turn (409) just re-renders from the server's clock, with no error left on screen", async () => {
+    let clock = clockOf("home", 3);
+    const api = (async (path: string, init: { method?: string } = {}) => {
+      if (init.method === "POST") { clock = clockOf("away", 3); throw new mods.sharedApi.ApiError(409, "The turn already moved on."); }
+      return { match: baseMatch("recording"), events: [], effectiveEventIds: [], teams, tally: serverTally, clock };
+    }) as Fetcher;
+    const rec = mods.rec.createRecorder("tm_abc123", { api, onSignedOut: () => undefined, storage: mods.queue.memoryStorage() });
+    await rec.refresh();
+    await rec.endTurn();
+    expect(rec.state.clock.activeTeam).toBe("away");
+    expect(rec.state.actionError).toBe("");
+    rec.stop();
+  });
+
+  it("the tabletop-clock socket: hello with the match id, the welcome clock and pushed events update the clock; a refusal stops it", async () => {
+    const sent: string[] = [];
+    let ws: any;
+    const api = (async () => ({ match: baseMatch("recording"), events: [], effectiveEventIds: [], teams, tally: serverTally, clock: clockOf("home", 1) })) as Fetcher;
+    const rec = mods.rec.createRecorder("tm_abc123", {
+      api, onSignedOut: () => undefined, storage: mods.queue.memoryStorage(), setInterval: () => 0, clearInterval: () => undefined, setTimer: () => 0,
+      openSocket: () => { ws = { send: (d: string) => sent.push(d), close: () => undefined, onopen: null, onmessage: null, onclose: null }; return ws; },
+    });
+    rec.start();
+    ws.onopen();
+    expect(JSON.parse(sent[0]!)).toEqual({ type: "hello", v: 1, tabletopId: "tm_abc123" });
+    ws.onmessage({ data: JSON.stringify({ type: "tabletopWelcome", v: 1, matchId: "tm_abc123", clock: clockOf("away", 4) }) });
+    expect(rec.state.clock.turn).toBe(4);
+    ws.onmessage({ data: JSON.stringify({ type: "event", v: 1, feature: "tabletop-clock", payload: clockOf("home", 5) }) });
+    expect(rec.state.clock.turn).toBe(5);
+    expect(rec.state.clock.activeTeam).toBe("home");
+    ws.onmessage({ data: JSON.stringify({ type: "tabletopRefused", reason: "member" }) });
+    rec.stop();
+  });
+
+  it("undo rules in the feed: a participant sees trash on their OWN side's rows only, an organiser on every row", async () => {
+    const rows = mods.feedMod.feedRows(events, ["e1", "e4"], teams);
+    const mine = await mount(mods.feedC, { rows, canUndo: true, undoSide: "home" });
+    expect(mine).toContain('aria-label="Undo Touchdown"'); // e1 is home
+    expect(mine.match(/class="tt-trash"/g)).toHaveLength(1); // the away completion has none
+    const organiser = await mount(mods.feedC, { rows, canUndo: true, undoSide: null });
+    expect(organiser.match(/class="tt-trash"/g)).toHaveLength(2);
+  });
+
+  it("Change turn: the cog offers it to those who may edit; the sheet is prefilled from the clock (OT only when allowed)", async () => {
+    const theme = createTheme({ matchMedia: fakeMedia(true).matchMedia, storage: memStore(), doc: fakeDoc().doc });
+    const settings = mods.settingsMod.createViewerSettings(mods.queue.memoryStorage());
+    expect(await mount(mods.settingsC, { theme, settings, editMode: false, canEdit: true })).toContain("Change turn");
+    expect(await mount(mods.settingsC, { theme, settings, editMode: false, canEdit: false })).not.toContain("Change turn");
+    const clock = { half: 2, turn: 4, activeTeam: "away", turnTimer: { mode: "off" }, allowOvertime: false };
+    const html = await mount(mods.turnSetC, { match: baseMatch("recording"), clock, busy: false, error: "" });
+    expect(html).toContain("Half 1");
+    expect(html).toContain("Half 2");
+    expect(html).not.toContain(">OT<"); // overtime is not allowed in this match
+    expect(html).toMatch(/aria-pressed="true">Half 2</); // prefilled from the clock
+    expect(html).toMatch(/aria-pressed="true">Bob Elves</); // the active team
+    expect(html).toContain('<option value="4" selected>4</option>');
+    const ot = await mount(mods.turnSetC, { match: baseMatch("recording"), clock: { ...clock, half: "OT", allowOvertime: true }, busy: false, error: "" });
+    expect(ot).toMatch(/aria-pressed="true">OT</);
+  });
+
+  it("Change turn posts {half, turn, activeTeam} to turn/set; a turnSet event is a neutral row", async () => {
+    const posts: unknown[] = [];
+    const api = (async (path: string, init: { method?: string; body?: unknown } = {}) => {
+      if (init.method === "POST") { posts.push([path, init.body]); return { match: baseMatch("recording") }; }
+      return { match: baseMatch("recording"), events: [], effectiveEventIds: [], teams, tally: serverTally, clock: clockOf("home", 1) };
+    }) as Fetcher;
+    const rec = mods.rec.createRecorder("tm_abc123", { api, onSignedOut: () => undefined, storage: mods.queue.memoryStorage() });
+    await rec.refresh();
+    await rec.setTurn({ half: "OT", turn: 2, activeTeam: "away" });
+    await rec.setTurn({ half: 2, turn: 4, activeTeam: "home" });
+    expect(posts).toEqual([
+      ["/api/tabletop/matches/tm_abc123/turn/set", { half: "OT", turn: 2, activeTeam: "away" }],
+      ["/api/tabletop/matches/tm_abc123/turn/set", { half: 2, turn: 4, activeTeam: "home" }],
+    ]);
+    rec.stop();
+    const ev = { id: "ts1", type: "turnSet", team: "away", by: "Alice", payload: { from: { half: 1, turn: 1, activeTeam: "home" }, to: { half: 2, turn: 4, activeTeam: "away" }, by: "Alice" } };
+    const rows = mods.feedMod.feedRows([ev], ["ts1"], teams, {}, baseMatch("recording"));
+    expect(`${rows[0].lead}${rows[0].rest}`).toBe("Alice set the clock to 2Ht4 · Bob Elves");
+    expect(rows[0].side).toBe("centre");
+    expect(rows[0].undoable).toBe(false);
   });
 });

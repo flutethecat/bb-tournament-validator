@@ -4,7 +4,7 @@
 import type { FeedRow } from "../tabletop/feed";
 import TabletopGlyph from "./TabletopGlyph.vue";
 
-withDefaults(defineProps<{ rows: FeedRow[]; canUndo: boolean; compact?: boolean; timestamps?: boolean }>(), { compact: false, timestamps: true });
+withDefaults(defineProps<{ rows: FeedRow[]; canUndo: boolean; compact?: boolean; timestamps?: boolean; undoSide?: "home" | "away" | null }>(), { compact: false, timestamps: true, undoSide: null });
 const emit = defineEmits<{ (e: "undo", id: string): void }>();
 </script>
 
@@ -17,7 +17,7 @@ const emit = defineEmits<{ (e: "undo", id: string): void }>();
         <span class="tt-ev-name" :data-team="r.team">{{ r.lead }}</span>{{ r.rest }}<span v-if="r.stars" class="tt-stars" :aria-label="`${r.stars} SPP`"> (&#9733;{{ r.stars }})</span>
         <small v-if="timestamps && (r.when || r.clock)" class="tt-time">{{ [r.when, r.clock].filter(Boolean).join(" · ") }}</small>
       </span>
-      <button v-if="canUndo && r.undoable" class="tt-trash" type="button" :aria-label="`Undo ${r.label}`" @click="emit('undo', r.id)">&#128465;</button>
+      <button v-if="canUndo && r.undoable && (!undoSide || r.team === undoSide)" class="tt-trash" type="button" :aria-label="`Undo ${r.label}`" @click="emit('undo', r.id)">&#128465;</button>
     </li>
   </ol>
 </template>

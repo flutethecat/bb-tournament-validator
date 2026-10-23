@@ -4,7 +4,7 @@ import type { ViewerSettingsStore } from "../tabletop/settings";
 import { themeLabel, type Theme, type ThemeMode } from "../theme";
 
 defineProps<{ theme: Theme; settings: ViewerSettingsStore; editMode: boolean; canEdit: boolean }>();
-const emit = defineEmits<{ (e: "close"): void; (e: "edit", on: boolean): void }>();
+const emit = defineEmits<{ (e: "close"): void; (e: "edit", on: boolean): void; (e: "changeTurn"): void }>();
 const MODES: ThemeMode[] = ["system", "light", "dark"];
 </script>
 
@@ -21,7 +21,9 @@ const MODES: ThemeMode[] = ["system", "light", "dark"];
       </div>
       <label class="tt-check"><input type="checkbox" :checked="settings.state.compact" @change="settings.set('compact', ($event.target as HTMLInputElement).checked)" /> Compact rows</label>
       <label class="tt-check"><input type="checkbox" :checked="settings.state.timestamps" @change="settings.set('timestamps', ($event.target as HTMLInputElement).checked)" /> Show timestamps</label>
+      <label class="tt-check"><input type="checkbox" :checked="settings.state.sounds" @change="settings.set('sounds', ($event.target as HTMLInputElement).checked)" /> Sounds</label>
       <label class="tt-check"><input type="checkbox" :checked="settings.state.haptic" @change="settings.set('haptic', ($event.target as HTMLInputElement).checked)" /> Vibrate on tap</label>
+      <button v-if="canEdit" class="lobby-btn tt-tap tt-changeturn" type="button" @click="emit('changeTurn')">Change turn</button>
       <label v-if="canEdit" class="tt-check"><input type="checkbox" :checked="editMode" @change="emit('edit', ($event.target as HTMLInputElement).checked)" /> Edit mode</label>
     </div>
   </div>

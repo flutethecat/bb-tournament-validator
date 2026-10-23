@@ -12,9 +12,12 @@ import TabletopPregame from "../components/TabletopPregame.vue";
 import TabletopRosters from "../components/TabletopRosters.vue";
 import TabletopScoreboard from "../components/TabletopScoreboard.vue";
 import TabletopSettings from "../components/TabletopSettings.vue";
-import { createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
+import TabletopTurnSet from "../components/TabletopTurnSet.vue";
+import { canEditMatch, createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
 import { SESSION_KEY } from "../session";
 import { THEME_KEY } from "../theme";
+import { createCueTracker, formatTimer, timerOn, timerRemaining, turnLabel } from "../tabletop/clock";
+import { createCuePlayer } from "../tabletop/sounds";
 import TabletopGlyph from "../components/TabletopGlyph.vue";
 import { CAS_EVENT, CASUALTY_RESULTS_UI, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, type OtherEvent } from "../tabletop/feed";
 import { browserStorage } from "../tabletop/queue";
@@ -26,6 +29,7 @@ const session = inject(SESSION_KEY)!;
 const themeCtl = inject(THEME_KEY)!;
 const viewer = inject(VIEWER_SETTINGS_INJECT, null) ?? createViewerSettings();
 const settingsOpen = ref(false);
+const turnSetOpen = ref(false);
 const fetcher = inject(API_KEY)!;
 const factory = inject(RECORDER_KEY, null);
 const rec = factory ? factory(props.id) : createRecorder(props.id, { api: fetcher, onSignedOut: () => void session.load(true) });
@@ -37,19 +41,40 @@ const me = computed(() => session.coach());
 const organiser = computed(() => session.state.info?.organizer === true);
 const inPregame = computed(() => pregameStep(state.phase) !== "");
 const recording = computed(() => match.value?.state === "recording" && !inPregame.value);
-const rows = computed(() => feedRows(state.events, state.effectiveIds, state.teams, Object.fromEntries((state.tally.events ?? []).map((e) => [e.id, e.sppEarned]))));
+const rows = computed(() => feedRows(state.events, state.effectiveIds, state.teams, Object.fromEntries((state.tally.events ?? []).map((e) => [e.id, e.sppEarned])), match.value ?? undefined));
 const heading = (s: Side): string => (match.value ? `${s === "home" ? "Home" : "Away"}: ${match.value[s].teamName} (${match.value[s].coach})` : "");
 
 // Theme: follows the device (System), or the explicit Light / Dark choice; light draws the SNES grey look.
 const theme = computed<"dark" | "snes">(() => (themeCtl.state.resolved === "dark" ? "dark" : "snes"));
 
-// Half / turn stepper: starts from the server tally and stamps every new event.
-const half = ref(1);
-const turn = ref(1);
-watch(() => [state.tally.half, state.tally.turn] as const, ([h, t]) => { if (h) half.value = h; if (t) turn.value = t; }, { immediate: true });
-const cycleHalf = (): void => { half.value = half.value >= 3 ? 1 : half.value + 1; };
-const stepTurn = (d: number): void => { turn.value = Math.max(1, Math.min(8, turn.value + d)); };
-const stamp = { half: () => half.value, turn: () => turn.value };
+// The server owns the clock: it stamps every event with its half and turn, so nothing is sent from here.
+const now = ref(Date.now());
+let tick: ReturnType<typeof setInterval> | undefined;
+const timerAnswers = computed(() => {
+  const out: Partial<Record<Side, boolean>> = {};
+  for (const e of state.events) if (e.type === "timerAgree" && state.effectiveIds.includes(e.id)) out[e.team] = e.payload.agree === true;
+  return out;
+});
+const timerIsOn = computed(() => timerOn(state.clock));
+/** Seconds left, from the server's turn start and the offset measured at the last sync (never a free-running count). */
+const remaining = computed(() => timerRemaining(state.clock, state.clockOffsetMs, now.value));
+const timerText = computed(() => (remaining.value === undefined ? "" : formatTimer(remaining.value)));
+const timerAlert = computed(() => remaining.value !== undefined && remaining.value <= 10);
+const counter = computed(() => turnLabel(state.clock?.half, state.clock?.turn));
+const activeName = computed(() => (state.clock?.activeTeam && match.value ? match.value[state.clock.activeTeam].teamName : ""));
+
+// Turn-timer cues (1:00, 0:10, 0:03), once per turn; the first tap unlocks browser audio.
+const cues = createCuePlayer({ enabled: () => viewer.state.sounds, files: () => cueFiles.value });
+const cueFiles = ref<Record<string, string>>({});
+const tracker = createCueTracker();
+watch(remaining, (r) => {
+  const c = state.clock;
+  const cue = tracker.reading(`${c?.half}-${c?.turn}-${c?.activeTeam}`, r);
+  if (!cue) return;
+  cues.play(cue);
+  if (cue === "ten") viewer.buzz();
+}, { immediate: true });
+const unlock = (): void => cues.unlock();
 
 function unavailable(s: Side, id: string): string {
   const p = state.teams[s]?.players.find((x) => x.id === id);
@@ -70,6 +95,12 @@ const endSheet = ref(false);
 const openPick = (o: OtherEvent): void => { pick.value = o; };
 const editMode = ref(false);
 /** The session coach side (a coach of neither team, i.e. an organiser, gets home). */
+/** The side the session coach plays; null for an organiser (or anyone) who plays in neither team. */
+const mySide = computed<Side | null>(() => (match.value?.home.coach === me.value ? "home" : match.value?.away.coach === me.value ? "away" : null));
+const canAct = computed(() => mySide.value !== null || organiser.value);
+const matchEnded = computed(() => match.value?.state !== "recording" || state.events.some((e) => e.type === "endOfMatch" && state.effectiveIds.includes(e.id)));
+/** Edit mode: participants while the match is still recording, organisers always. */
+const canEdit = computed(() => canEditMatch({ organiser: organiser.value, participant: mySide.value !== null, ended: matchEnded.value }));
 const localSide = computed<Side>(() => (match.value?.away.coach === me.value && match.value?.home.coach !== me.value ? "away" : "home"));
 // End-of-match MVP pick: one per team (a team that already has one is skipped).
 const mvpPick = reactive<Record<Side, string>>({ home: "", away: "" });
@@ -101,7 +132,7 @@ function onPicked(spec: { type: string; team: Side; player?: string; payload?: R
     sheetErr.value = "";
     return;
   }
-  void rec.record({ ...spec, half: half.value, turn: turn.value });
+  void rec.record(spec);
 }
 async function saveSheet(): Promise<void> {
   sheetErr.value = "";
@@ -109,15 +140,19 @@ async function saveSheet(): Promise<void> {
   const payload: Record<string, unknown> = { victim: sheet.victim, result: sheet.result, cause: sheet.cause, apothecaryUsed: sheet.apothecary };
   if (sheet.result === "stat loss") payload.stat = sheet.stat;
   sheet.open = false;
-  await rec.record({ type: "casualty", team: sheet.side, player: sheet.player, payload, half: half.value, turn: turn.value });
+  await rec.record({ type: "casualty", team: sheet.side, player: sheet.player, payload });
 }
 async function endAndSubmit(): Promise<void> {
   endSheet.value = false;
   for (const s of sides) {
-    if (mvpPick[s] && !hasMvp(s)) await rec.record({ type: "mvp", team: s, player: mvpPick[s], half: half.value, turn: turn.value });
+    if (mvpPick[s] && !hasMvp(s)) await rec.record({ type: "mvp", team: s, player: mvpPick[s] });
   }
-  await rec.record({ type: "endOfMatch", team: "home", half: half.value, turn: turn.value });
+  await rec.record({ type: "endOfMatch", team: "home" });
   await rec.submit();
+}
+async function saveTurn(body: { half: number | string; turn: number; activeTeam: Side }): Promise<void> {
+  await rec.setTurn(body);
+  if (!state.actionError) turnSetOpen.value = false;
 }
 const undoById = (id: string): void => { const e = state.events.find((x) => x.id === id); if (e) void rec.undo(e); };
 
@@ -132,11 +167,17 @@ const summaries = (): Array<[Side, SummaryView]> =>
   match.value?.preview ? sides.map((s) => [s, match.value!.preview![s]] as [Side, SummaryView]) : [];
 
 onMounted(() => {
+  tick = setInterval(() => { now.value = Date.now(); }, 250);
+  document.addEventListener("pointerdown", unlock, { once: true });
+  void fetcher<{ files?: Record<string, string> }>("/sounds/ui/manifest.json").then((m) => { cueFiles.value = m.files ?? {}; }).catch(() => undefined);
   rec.start();
   void rec.loadArt();
 });
-onBeforeUnmount(() => rec.stop());
-void stamp;
+onBeforeUnmount(() => {
+  if (tick) clearInterval(tick);
+  document.removeEventListener("pointerdown", unlock);
+  rec.stop();
+});
 </script>
 
 <template>
@@ -149,10 +190,16 @@ void stamp;
   <div v-else class="tt-rec" :data-tt-theme="theme">
     <TabletopScoreboard
       :match="match" :teams="state.teams" :tally="state.tally" :events="state.events" :pregame="state.pregame"
-      :half="half" :turn="turn" :inducement-icons="state.inducementIcons" :art="state.art"
-      @half="cycleHalf" @turn="stepTurn" @rosters="rosters = true" @settings="settingsOpen = true"
+      :clock="state.clock" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy" :inducement-icons="state.inducementIcons" :art="state.art"
+      @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @rosters="rosters = true" @settings="settingsOpen = true"
     />
 
+    <div class="tt-mid" :data-timer="timerIsOn ? 'on' : null">
+    <section v-if="timerIsOn" class="tt-timer" aria-label="Turn timer">
+      <p class="tt-timer-who">{{ activeName ? `${activeName} to play` : "Turn timer" }} · {{ counter }}</p>
+      <p class="tt-timer-clock" :data-alert="timerAlert ? 'true' : null" role="timer">{{ timerText || "-:--" }}</p>
+      <p class="tt-timer-sub muted">{{ formatTimer(state.clock?.turnTimer?.seconds ?? 0) }} per turn</p>
+    </section>
     <main class="tt-feed">
       <div class="tt-strip">
         <p v-if="state.pending" class="tt-chip" role="status">{{ state.pending }} event{{ state.pending === 1 ? "" : "s" }} waiting<template v-if="state.queueError"> · {{ state.queueError }}<template v-if="retryIn"> (retry in {{ retryIn }} s)</template></template></p>
@@ -166,7 +213,7 @@ void stamp;
 
       <TabletopPregame
         v-if="inPregame" :match="match" :teams="state.teams" :phase="state.phase" :pregame="state.pregame"
-        :busy="state.busy" :error="state.actionError" @advance="(b: Record<string, unknown>) => rec.advance(b)"
+        :busy="state.busy" :error="state.actionError" :clock="state.clock" :timer-answers="timerAnswers" @advance="(b: Record<string, unknown>) => rec.advance(b)"
       />
 
       <template v-if="match.state !== 'recording'">
@@ -203,9 +250,10 @@ void stamp;
         </section>
       </template>
 
-      <p v-if="organiser && editMode" class="tt-edit-bar" role="status">You are in edit mode.</p>
-      <TabletopFeed :rows="rows" :can-undo="organiser && editMode && recording" :compact="viewer.state.compact" :timestamps="viewer.state.timestamps" @undo="undoById" />
+      <p v-if="canEdit && editMode" class="tt-edit-bar" role="status">You are in edit mode.</p>
+      <TabletopFeed :rows="rows" :can-undo="canEdit && editMode && recording" :undo-side="organiser ? null : mySide" :compact="viewer.state.compact" :timestamps="viewer.state.timestamps" @undo="undoById" />
     </main>
+    </div>
 
     <nav v-if="recording" class="tt-actions-bar" aria-label="Record an event">
       <button class="tt-big tt-big-td" type="button" @click="viewer.buzz(); openPick(TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" :size="36" /><span>TD</span></button>
@@ -213,7 +261,8 @@ void stamp;
       <button class="tt-big tt-big-cas" type="button" @click="viewer.buzz(); openPick(CAS_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.casualty" :size="36" /><span>CAS</span></button>
     </nav>
 
-    <TabletopSettings v-if="settingsOpen" :theme="themeCtl" :settings="viewer" :edit-mode="editMode" :can-edit="organiser" @edit="(on: boolean) => (editMode = on)" @close="settingsOpen = false" />
+    <TabletopSettings v-if="settingsOpen" :theme="themeCtl" :settings="viewer" :edit-mode="editMode" :can-edit="canEdit" @edit="(on: boolean) => (editMode = on)" @change-turn="settingsOpen = false; turnSetOpen = true" @close="settingsOpen = false" />
+    <TabletopTurnSet v-if="turnSetOpen" :match="match" :clock="state.clock" :busy="state.busy" :error="state.actionError" @close="turnSetOpen = false" @save="saveTurn" />
     <TabletopOther v-if="other" @pick="onOther" @close="other = false" />
     <TabletopRosters v-if="rosters" :match="match" :teams="state.teams" :tally="state.tally" @close="rosters = false" />
     <TabletopPick v-if="pick" :kind="pick" :match="match" :teams="state.teams" :unavailable="unavailable" :local-side="localSide" @pick="onPicked" @close="pick = null" />

@@ -2,6 +2,7 @@
 // Pre-game wizard (match.phase "pregame:<step>"): fans, weather, journeymen, inducements, prayers, coin. The server
 // rolls and records; this shows the step, what the server already decided, and the one control the step needs.
 import { reactive, ref } from "vue";
+import type { ClockView } from "../tabletop/clock";
 import { PREGAME_LABELS, PREGAME_STEPS, pregameStep } from "../tabletop/feed";
 import type { MatchView, Side, TeamView } from "../tabletop/recorder";
 
@@ -12,6 +13,9 @@ const props = defineProps<{
   pregame: Record<string, unknown>;
   busy: boolean;
   error: string;
+  clock?: ClockView;
+  /** Each team's latest turn-timer answer (from the timerAgree events). */
+  timerAnswers?: Partial<Record<Side, boolean>>;
 }>();
 const emit = defineEmits<{ (e: "advance", body: Record<string, unknown>): void }>();
 
@@ -55,6 +59,12 @@ const winnerName = (): string => {
   const w = coin().winner;
   return w === "home" || w === "away" ? props.match[w].teamName : "The winner";
 };
+/** The competition may require or forbid timers ("required" / "off"); "optional" lets the coaches answer. */
+const timerRule = (): "required" | "off" | "" => {
+  const e = props.clock?.turnTimer?.enforced;
+  return e === "required" || e === true ? "required" : e === "off" ? "off" : "";
+};
+const answerText = (s: Side): string => (props.timerAnswers?.[s] === undefined ? "has not answered yet" : props.timerAnswers[s] ? "says yes" : "says no");
 const hand = ref(false);
 function choose(c: "kick" | "receive"): void {
   emit("advance", { mode: "auto", call: coin().call, caller: "away", winner: coin().winner, choice: c });
@@ -144,6 +154,23 @@ const sendHand = (): void => emit("advance", { mode: "hand", call: handCall.valu
         </div>
         <button class="lobby-btn tt-tap" type="button" :disabled="busy || !handReady()" @click="sendHand">Record the result</button>
       </div>
+    </div>
+
+    <div v-else-if="step() === 'timers'" class="tt-pre-card">
+      <h3>Turn timers</h3>
+      <p v-if="timerRule() === 'required'" class="muted">Turn timers are required for this competition.</p>
+      <p v-else-if="timerRule() === 'off'" class="muted">Turn timers are off for this competition.</p>
+      <template v-else>
+        <p class="tt-coin-call">Use turn timers?</p>
+        <div class="tt-actions-row">
+          <button class="lobby-btn tt-tap" type="button" :disabled="busy" @click="emit('advance', { agree: true })">Yes</button>
+          <button class="lobby-btn tt-tap" type="button" :disabled="busy" @click="emit('advance', { agree: false })">No</button>
+        </div>
+        <ul class="tt-pre-results">
+          <li v-for="s in sides" :key="s"><b>{{ match[s].teamName }}</b> {{ answerText(s) }}</li>
+        </ul>
+        <p class="muted">Timers start only if both coaches say yes.</p>
+      </template>
     </div>
 
     <div v-else-if="step()" class="tt-pre-card">

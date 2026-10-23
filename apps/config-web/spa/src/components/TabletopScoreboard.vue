@@ -3,6 +3,7 @@
 // Crest, coach, team and the inducement row per corner; score and the half / turn stepper in the centre; weather and
 // coin on a compact line under it. Everything comes from the server's match, teams, tally and pre-game summary.
 import { computed } from "vue";
+import { centreMode, turnLabel, type ClockView } from "../tabletop/clock";
 import { RouterLink } from "vue-router";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { uiIcon, weatherParts } from "../tabletop/feed";
@@ -14,12 +15,16 @@ const props = defineProps<{
   tally: ServerTally;
   events: RecordedEvent[];
   pregame: Record<string, unknown>;
-  half: number;
-  turn: number;
+  clock?: ClockView;
+  /** The session coach side (null: an organiser who plays in neither team). */
+  localSide: Side | null;
+  organiser: boolean;
+  canAct: boolean;
+  busy?: boolean;
   inducementIcons: Record<string, string>;
   art: ArtManifests;
 }>();
-const emit = defineEmits<{ (e: "half"): void; (e: "turn", delta: number): void; (e: "rosters"): void; (e: "settings"): void }>();
+const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters"): void; (e: "settings"): void }>();
 
 const sides: Side[] = ["home", "away"];
 const crest = (s: Side): string => resolveCrest(props.art, props.teams[s]?.rosterId ?? props.teams[s]?.race);
@@ -48,8 +53,10 @@ const chips = (s: Side): Chip[] => {
   }
   return out;
 };
-const halfLabel = computed(() => (props.half >= 3 ? "OT" : `H${props.half}`));
 // The coin result is NOT shown here (it is a feed line); weather rides the centre panel.
+const label = computed(() => turnLabel(props.clock?.half, props.clock?.turn));
+const mode = computed(() => centreMode(props.clock, props.localSide, props.organiser, props.canAct));
+const activeName = computed(() => (props.clock?.activeTeam ? props.match[props.clock.activeTeam].teamName : ""));
 const weather = computed(() => weatherParts(props.pregame, props.events));
 </script>
 
@@ -77,15 +84,19 @@ const weather = computed(() => weatherParts(props.pregame, props.events));
     <section class="tt-centre">
       <div class="tt-top-pair">
         <RouterLink class="tt-back" to="/tabletop" aria-label="Back to Tabletop">&#8592;</RouterLink>
+        <span v-if="weather.icon" class="tt-weather" role="img" :aria-label="weather.name" :title="weather.name">{{ weather.icon }}</span>
         <button class="tt-cog" type="button" aria-label="Settings" @click="emit('settings')">&#9881;</button>
       </div>
       <p class="tt-score" aria-label="Score"><span>{{ tally.score.home }}</span> : <span>{{ tally.score.away }}</span></p>
-      <div class="tt-stepper" role="group" aria-label="Half and turn">
-        <button type="button" class="tt-step" aria-label="Previous turn" @click="emit('turn', -1)">&#8249;</button>
-        <button type="button" class="tt-halfturn" :aria-label="`Half ${half}, turn ${turn}. Tap to change half`" @click="emit('half')">{{ halfLabel }} T{{ turn }}</button>
-        <button type="button" class="tt-step" aria-label="Next turn" @click="emit('turn', 1)">&#8250;</button>
-      </div>
-      <span v-if="weather.icon" class="tt-weather" role="img" :aria-label="weather.name" :title="weather.name">{{ weather.icon }}</span>
+      <button v-if="mode === 'end'" class="tt-endturn" type="button" :disabled="busy" @click="emit('endTurn')">
+        <b>End Turn</b><small>{{ label }} · {{ activeName }}</small>
+      </button>
+      <button v-else-if="mode === 'kickoff'" class="tt-endturn" type="button" :disabled="busy" @click="emit('startTurn')">
+        <b>Kick-off done</b><small>{{ label }}</small>
+      </button>
+      <p v-else-if="mode === 'wait'" class="tt-towait" role="status">
+        <b>{{ activeName || "Waiting" }} to play</b><small>{{ label }}<template v-if="activeName"> · {{ activeName }}</template></small>
+      </p>
     </section>
   </header>
 </template>

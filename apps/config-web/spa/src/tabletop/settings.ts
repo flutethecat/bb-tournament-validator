@@ -10,10 +10,12 @@ export interface ViewerSettings {
   timestamps: boolean;
   /** Short vibration on taps (phones that support it). */
   haptic: boolean;
+  /** Turn-timer cues (1:00, 0:10, 0:03). */
+  sounds: boolean;
 }
 
 export const VIEWER_SETTINGS_KEY = "tabletop-viewer-settings";
-const DEFAULTS: ViewerSettings = { compact: false, timestamps: true, haptic: false };
+const DEFAULTS: ViewerSettings = { compact: false, timestamps: true, haptic: false, sounds: true };
 
 export function createViewerSettings(storage: QueueStorage = browserStorage()) {
   const state = reactive<ViewerSettings>({ ...DEFAULTS });
@@ -34,6 +36,9 @@ export function createViewerSettings(storage: QueueStorage = browserStorage()) {
     },
   };
 }
+
+/** Edit mode: participants while the match is still recording, organisers always. */
+export const canEditMatch = (o: { organiser: boolean; participant: boolean; ended: boolean }): boolean => o.organiser || (o.participant && !o.ended);
 
 export type ViewerSettingsStore = ReturnType<typeof createViewerSettings>;
 export const VIEWER_SETTINGS_INJECT: InjectionKey<ViewerSettingsStore> = Symbol("tabletop-viewer-settings");

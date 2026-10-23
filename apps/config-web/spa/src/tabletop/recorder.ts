@@ -5,6 +5,7 @@
 import { reactive, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
 import type { ArtManifests } from "./art";
+import { serverOffset, type ClockView } from "./clock";
 import type { Fetcher } from "../session";
 import { browserStorage, createEventQueue, newEventId, type QueueStorage, type RejectedEvent, type SendResult, type WireEvent } from "./queue";
 
@@ -81,6 +82,7 @@ export interface MatchResponse {
   tally?: ServerTally;
   phase?: string;
   pregame?: Record<string, unknown>;
+  clock?: ClockView;
 }
 
 export interface RecorderState {
@@ -91,6 +93,9 @@ export interface RecorderState {
   effectiveIds: string[];
   phase: string;
   pregame: Record<string, unknown>;
+  /** The server's match clock (half, turn, active team, turn timer) and the server-minus-local time offset of its last sync. */
+  clock: ClockView | undefined;
+  clockOffsetMs: number;
   /** inducement key -> icon path (public/icons/inducements/manifest.json), read once. */
   inducementIcons: Record<string, string>;
   /** Sprite and crest manifests of the builder-art pack, read once. */
@@ -115,6 +120,16 @@ export interface RecorderDeps {
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (h: unknown) => void;
   now?: () => number;
+  /** Opens the Super socket (tests swap it; the default is a browser WebSocket). */
+  openSocket?: (url: string) => ClockSocket;
+}
+
+export interface ClockSocket {
+  send(data: string): void;
+  close(): void;
+  onopen: (() => void) | null;
+  onmessage: ((ev: { data: unknown }) => void) | null;
+  onclose: (() => void) | null;
 }
 
 export const UNDO_WINDOW = 6;
@@ -122,7 +137,7 @@ const POLL_MS = 5000;
 
 export function createRecorder(matchId: string, deps: RecorderDeps) {
   const state = reactive<RecorderState>({
-    loaded: false, error: "", match: null, events: [], effectiveIds: [], phase: "", pregame: {}, inducementIcons: {}, art: {}, tally: EMPTY_TALLY, teams: { home: undefined, away: undefined },
+    loaded: false, error: "", match: null, events: [], effectiveIds: [], phase: "", pregame: {}, clock: undefined, clockOffsetMs: 0, inducementIcons: {}, art: {}, tally: EMPTY_TALLY, teams: { home: undefined, away: undefined },
     pending: 0, queueError: "", retryAt: 0, rejected: [], busy: false, actionError: "",
   });
   const base = `/api/tabletop/matches/${encodeURIComponent(matchId)}`;
@@ -134,7 +149,11 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
   const queue = createEventQueue({
     matchId,
     storage: deps.storage ?? browserStorage(),
-    send: (events) => deps.api<SendResult>(`${base}/events`, { method: "POST", body: { events } }),
+    send: async (events) => {
+      const res = await deps.api<SendResult & { clock?: ClockView }>(`${base}/events`, { method: "POST", body: { events } });
+      if (res.clock) applyClock(res.clock);
+      return res;
+    },
     onChange: () => syncQueueState(),
     setTimer: deps.setTimer,
     clearTimer: deps.clearTimer,
@@ -153,6 +172,50 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     return (err as Error).message;
   };
 
+  /** A clock from the server (match GET, an events POST or the tabletop-clock push): keep it and re-measure the offset. */
+  function applyClock(clock: ClockView | undefined): void {
+    if (!clock) return;
+    state.clock = clock;
+    state.clockOffsetMs = serverOffset(clock, deps.now?.() ?? Date.now());
+  }
+
+  /** A socket frame: the welcome's clock, or a `tabletop-clock` event (same payload as `clock`). */
+  function onClockMessage(msg: unknown): void {
+    const m = msg as { type?: string; feature?: string; payload?: ClockView; clock?: ClockView | null } | undefined;
+    if (!m || typeof m !== "object") return;
+    if (m.type === "tabletopWelcome" && m.clock) applyClock(m.clock);
+    else if (m.feature === "tabletop-clock" && m.payload) applyClock(m.payload);
+  }
+
+  // Push channel: the Super socket's tabletop-clock room (participants + organisers). Polling stays as the fallback.
+  let socket: { close(): void } | undefined;
+  let socketTries = 0;
+  function connectSocket(): void {
+    const open = deps.openSocket ?? (typeof WebSocket === "undefined" ? undefined : (url: string) => new WebSocket(url) as unknown as ClockSocket);
+    if (!open || stopped) return;
+    let ws: ClockSocket;
+    try {
+      const proto = typeof location !== "undefined" && location.protocol === "https:" ? "wss:" : "ws:";
+      ws = open(`${proto}//${typeof location !== "undefined" ? location.host : "localhost"}/super`);
+    } catch { return; }
+    socket = ws;
+    ws.onopen = () => ws.send(JSON.stringify({ type: "hello", v: 1, tabletopId: matchId }));
+    ws.onmessage = (ev) => {
+      try {
+        const m = JSON.parse(String(ev.data)) as { type?: string };
+        if (m.type === "tabletopRefused") { socketTries = 99; return; }
+        socketTries = 0;
+        onClockMessage(m);
+      } catch { /* ignore a bad frame */ }
+    };
+    ws.onclose = () => {
+      socket = undefined;
+      if (stopped || socketTries > 5) return;
+      socketTries += 1;
+      (deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms)))(connectSocket, Math.min(15000, 1000 * 2 ** socketTries));
+    };
+  }
+
   async function refresh(): Promise<void> {
     let res: MatchResponse;
     try {
@@ -169,6 +232,7 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     state.tally = res.tally ?? EMPTY_TALLY;
     state.phase = res.phase ?? res.match.phase ?? "";
     state.pregame = res.pregame ?? res.match.pregame ?? {};
+    applyClock(res.clock);
     state.teams = res.teams ?? { home: undefined, away: undefined };
     state.loaded = true;
   }
@@ -204,6 +268,8 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
       await refresh();
     } catch (err) {
       state.actionError = fail(err);
+      // A stale turn press (409): the screen just re-renders from the server's current clock.
+      if (path.startsWith("turn/") && path !== "turn/set") { state.actionError = ""; await refresh(); }
     } finally {
       state.busy = false;
     }
@@ -219,6 +285,14 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     submit: () => act("submit"),
     /** Pre-game wizard step: the server rolls / records and moves the phase on. */
     advance: (body: Record<string, unknown> = {}) => act("pregame/advance", body),
+    /** End Turn, guarded by the half and turn the coach saw (the server refuses a stale press). */
+    endTurn: () => act("turn/end", { expectedHalf: state.clock?.half, expectedTurn: state.clock?.turn, expectedTeam: state.clock?.activeTeam }),
+    /** "Kick-off done" at turn 0: starts the first turn of the half. */
+    /** Change turn: set the clock by hand ({half, turn, activeTeam}). */
+    setTurn: (body: { half: number | string; turn: number; activeTeam: Side }) => act("turn/set", body),
+    startTurn: () => act("turn/start", { expectedHalf: state.clock?.half, expectedTurn: state.clock?.turn, expectedTeam: state.clock?.activeTeam }),
+    applyClock,
+    onClockMessage,
     /** Inducement icons and crests (builder-art manifests); a missing one only drops that art. */
     async loadArt(): Promise<void> {
       const get = async <T>(path: string): Promise<T | undefined> => { try { return await deps.api<T>(path); } catch { return undefined; } };
@@ -234,11 +308,13 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     dismissRejected: (id: string) => queue.dismissRejected(id),
     start() {
       stopped = false;
+      connectSocket();
       void sync();
       timer = setI(() => { if (!state.busy) void sync(); }, POLL_MS);
     },
     stop() {
       stopped = true;
+      try { socket?.close(); } catch { /* closed */ }
       if (timer !== undefined) clearI(timer);
       timer = undefined;
       queue.stop();
