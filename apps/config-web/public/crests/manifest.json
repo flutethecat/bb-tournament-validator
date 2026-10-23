@@ -34,7 +34,7 @@
   "woodelf": "crests/woodelf.png"
  },
  "source": {
-  "commit": "d4395a003abb1a4a90ef692a10e5220a4bfb476c",
+  "commit": "b17363c2e89254fab9f7990754e28ea132434409",
   "path": "apps/tauri/src/assets/crests",
   "ref": "codex/inducement-icons"
  }

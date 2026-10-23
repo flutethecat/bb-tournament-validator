@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { bb2025 } from "@bb/validator/dataset";
+import inducementsJson from "../src/dataset/bb2025/inducements.json";
 import { inducementIdForName, inducementReducedFor, inducementWireGold } from "../src/dataset/inducements";
 
 // The bloodbowlbase.ru BB2025 inducements page is the complete list (owner ruling 10-23).
 describe("BB2025 inducement catalogue matches the rulebook page", () => {
   it("has exactly the page's inducements: no Igor, no Special Play Cards", () => {
     expect(Object.keys(bb2025.inducements).sort()).toEqual([
-      "biased_referee", "bloodweiser_kegs", "bribes", "extra_team_training", "halfling_master_chef", "hireling_sports_wizard",
+      "biased_referee", "bloodweiser_kegs", "bretonnian_pastries", "bribes", "extra_team_training", "halfling_master_chef", "hireling_sports_wizard",
       "infamous_coaching_staff", "mercenaries", "mortuary_assistant", "part_time_assistant_coaches", "plague_doctor",
       "prayers_to_nuffle", "riotous_rookies", "star_players", "team_mascot", "temp_agency_cheerleaders", "wandering_apothecaries", "weather_mage",
     ]);
@@ -23,6 +24,14 @@ describe("BB2025 inducement catalogue matches the rulebook page", () => {
       expect(inducementIdForName(bb2025, name)).toBeDefined();
     expect(inducementIdForName(bb2025, "Bloodweiser Kegs")).toBe("bloodweiser_kegs");
     expect(inducementIdForName(bb2025, "Igor")).toBeUndefined();
+  });
+
+  it("pins Bretonnian Pastries (Spike! Journal 19): 0-1, 15,000 gp, any team", () => {
+    expect(bb2025.inducements.bretonnian_pastries).toMatchObject({ name: "Bretonnian Pastries", wireName: "bretonnianPastries", cost: 15_000, max: 1 });
+    expect(bb2025.inducements.bretonnian_pastries!.requiresSpecialRule).toBeUndefined();
+    const raw = (inducementsJson.inducements as Array<{ id: string; note?: string }>).find((i) => i.id === "bretonnian_pastries");
+    expect(raw?.note).toContain("Spike! Journal 19");
+    expect(inducementIdForName(bb2025, "bretonnian pastries")).toBe("bretonnian_pastries");
   });
 
   it("prices and caps match the page", () => {

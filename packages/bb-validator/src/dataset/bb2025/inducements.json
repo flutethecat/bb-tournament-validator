@@ -130,6 +130,14 @@
    "max": 3
   },
   {
+   "id": "bretonnian_pastries",
+   "name": "Bretonnian Pastries",
+   "wireName": "bretonnianPastries",
+   "cost": 15000,
+   "max": 1,
+   "note": "Spike! Journal 19 (https://bloodbowlbase.ru/bb2025/spike_journal/issue_19/): once per game when a player is Knocked-out, roll a D6: 2+ and the player goes to Reserves instead; a natural 1 and the player stays KO and the Pastries are lost. Not in the FUMBBL ruleset clientOptions, so cost/max are static overrides."
+  },
+  {
    "id": "mercenaries",
    "name": "Mercenary Players",
    "cost": 30000,
@@ -153,7 +161,7 @@
    "wireName": "josefBugman",
    "cost": 100000,
    "max": 1,
-   "note": "Josef Bugman. Cost/max = the fork server's option defaults (GameOptionFactory: INDUCEMENT_JOSEF_BUGMAN_COST 100000, _MAX 1) — the wire price the server charges."
+   "note": "Josef Bugman. Cost/max = the fork server's option defaults (GameOptionFactory: INDUCEMENT_JOSEF_BUGMAN_COST 100000, _MAX 1) \u2014 the wire price the server charges."
   }
  ]
 }

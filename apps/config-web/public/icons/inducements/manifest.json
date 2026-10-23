@@ -3,6 +3,7 @@
  "icons": {
   "biased_referee": "icons/inducements/biased_ref.png",
   "bloodweiser_kegs": "icons/inducements/bloodweiser_keg.png",
+  "bretonnian_pastries": "icons/inducements/bretonnian_pastries.png",
   "bribes": "icons/inducements/bribe.png",
   "extra_team_training": "icons/inducements/extra_team_training.png",
   "halfling_master_chef": "icons/inducements/master_chef.png",
@@ -23,7 +24,7 @@
   "star_players"
  ],
  "source": {
-  "commit": "d4395a003abb1a4a90ef692a10e5220a4bfb476c",
+  "commit": "b17363c2e89254fab9f7990754e28ea132434409",
   "map": "apps/tauri/src/game/logic/coachPanelChips.ts",
   "path": "apps/tauri/src/assets/resources",
   "ref": "codex/inducement-icons"

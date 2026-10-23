@@ -185,7 +185,7 @@
  },
  "source": {
   "aliases": "packages/ffb-pitch/src/skillIconAliases.json",
-  "commit": "d4395a003abb1a4a90ef692a10e5220a4bfb476c",
+  "commit": "b17363c2e89254fab9f7990754e28ea132434409",
   "path": "packages/ffb-pitch/assets/skill-badges-illustrated/128",
   "ref": "codex/inducement-icons"
  }

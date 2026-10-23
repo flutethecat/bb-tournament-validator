@@ -12,7 +12,7 @@ describe("teamBuilderInducementCatalog", () => {
     });
 
     const catalog = teamBuilderInducementCatalog(pkg, bb2025);
-    expect(catalog).toHaveLength(16);
+    expect(catalog).toHaveLength(17);
     expect(catalog.find((row) => row.key === "bribes")).toEqual({
       key: "bribes",
       label: "Bribes",
@@ -32,7 +32,7 @@ describe("teamBuilderInducementCatalog", () => {
     expect(catalog.map((row) => row.key)).toEqual([...catalog.map((row) => row.key)].sort());
   });
 
-  it("marks all 16 rosterable inducements allowed for a wildcard package and uses dataset caps", () => {
+  it("marks all 17 rosterable inducements allowed for a wildcard package and uses dataset caps", () => {
     const { pkg } = loadPackage({
       name: "Open Cup",
       eligibleRosters: ["*"],
@@ -40,7 +40,7 @@ describe("teamBuilderInducementCatalog", () => {
     });
 
     const catalog = teamBuilderInducementCatalog(pkg, bb2025);
-    expect(catalog).toHaveLength(16);
+    expect(catalog).toHaveLength(17);
     expect(catalog.every((row) => row.allowed)).toBe(true);
     expect(catalog.find((row) => row.key === "infamous_coaching_staff")).toMatchObject({
       price: 100_000,
