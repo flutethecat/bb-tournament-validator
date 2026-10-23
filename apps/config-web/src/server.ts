@@ -253,6 +253,9 @@ import {
   type SaveDeps,
 } from "./teamBuilderSaves.js";
 import { TournamentStore } from "./tournaments/store.js";
+import { isTabletopApiPath, tabletopApi } from "./tabletop/api.js";
+import { FileTabletopRepository } from "./tabletop/store.js";
+import { teamFileFromSave } from "./tabletop/teamFile.js";
 import { tournamentApi } from "./tournaments/api.js";
 
 /**
@@ -496,6 +499,35 @@ function heldConsentBody(coach: string): { error: string; lobbyId?: string; lobb
 function lobbyAuthFor(req: IncomingMessage): { coach: string; method: string } | undefined {
   const session = sessionFromRequest(req);
   return session ? { coach: session.coach, method: session.method } : undefined;
+}
+
+// Tabletop match recorder store (env TABLETOP_DIR), created lazily on first use, beside the builder saves by default.
+const TABLETOP_DIR = resolve(process.env.TABLETOP_DIR || join(dirname(LIBRARY_DIR), "tabletop"));
+let tabletopRepo: FileTabletopRepository | undefined;
+
+/** Tabletop recorder HTTP: Discord session only (checked in tabletopApi), bounded body. */
+async function handleTabletopRequest(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+  const method = req.method ?? "GET";
+  const auth = lobbyAuthFor(req);
+  let body: unknown;
+  if (method === "POST" && auth?.method === "discord") {
+    const read = await readLobbyBody(req, readJsonBody, 128 * 1024);
+    if ("error" in read) return sendJson(res, read.status, { error: read.error });
+    body = read.body;
+  }
+  tabletopRepo ??= new FileTabletopRepository(TABLETOP_DIR);
+  const result = await tabletopApi(method, path, auth, body, {
+    repo: tabletopRepo,
+    results: tournamentResults,
+    loadTeamFile: (coach, saveId) => {
+      const save = readSaves(BUILDER_SAVES_DIR, coach).find((s) => s.id === saveId);
+      return save ? teamFileFromSave(save) : undefined;
+    },
+    isBanned,
+    isOrganizer: (coach) => coachLevel(coach) !== "player" || isOrganizer(coach),
+  });
+  if (!result) return sendJson(res, 404, { error: "Not found." });
+  return sendJson(res, result.status, result.body);
 }
 
 /** Lobby HTTP: session check, then a bounded body, and only then the game-start lock (around the operation). */
@@ -778,7 +810,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   // Team Builder saves: coach-session-gated in-handler (401 JSON), never Basic-gated.
   if (teamBuilderSavesPath(pathname) !== undefined) return true;
   // Web Lobby: session-gated in-handler (401 JSON); its built page is public static.
-  if (isLobbyApiPath(pathname)) return true;
+  if (isLobbyApiPath(pathname) || isTabletopApiPath(pathname)) return true;
   if ((req.method === "GET" || req.method === "HEAD") && (pathname === "/lobby" || pathname.startsWith("/lobby/"))) return true;
   // League & Tournament Manager SPA (Vite build output): public static like the Lobby; its API calls gate themselves.
   if ((req.method === "GET" || req.method === "HEAD") && isSpaPath(pathname)) return true;
@@ -972,6 +1004,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/fork/team-builder/build" ||
     teamBuilderSavesPath(pathname) !== undefined ||
     isLobbyApiPath(pathname) ||
+    isTabletopApiPath(pathname) ||
     pathname === "/api/bug-reports" ||
     pathname === "/api/admin/identities" ||
     pathname === "/api/admin/identities/naf" ||
@@ -1023,6 +1056,7 @@ async function handleApi(
 ): Promise<void> {
   // Web Lobby: authenticates and reads its body BEFORE taking the game-start lock (handleLobbyRequest).
   if (isLobbyApiPath(path)) return handleLobbyRequest(req, res, path, query);
+  if (isTabletopApiPath(path)) return handleTabletopRequest(req, res, path);
   const method = req.method ?? "GET";
   const cacheGateCfg = forkConfigFromEnv();
   const gameStartDelivery = [
@@ -3107,6 +3141,7 @@ export const server = createServer((req, res) => {
           url.pathname === "/api/admin/identities/naf" ||
           teamBuilderSavesPath(url.pathname) !== undefined ||
           isLobbyApiPath(url.pathname) ||
+          isTabletopApiPath(url.pathname) ||
           tournamentInstructionsGameId(url.pathname) !== undefined ||
           tournamentResultGameId(url.pathname) !== undefined
         );

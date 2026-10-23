@@ -25,6 +25,10 @@ export interface StoredTournamentResult extends GamestateResult {
   pulledAt: string;
   home: ResultSide;
   away: ResultSide;
+  /** Absent = a fork game. "tabletop" rows come from the confirmed tabletop recorder (src/tabletop). */
+  source?: "fork" | "tabletop";
+  /** Tabletop only: the league/tournament fixture the match was played for, when one was named. */
+  fixtureRef?: string;
 }
 
 interface TournamentResultStoreFile {
@@ -105,6 +109,16 @@ export class TournamentResultStore {
 
   list(): StoredTournamentResult[] {
     return Object.values(this.readStore().results);
+  }
+
+  /** Remove one row (used only to retract a tabletop result when an organiser undoes a revision). */
+  remove(gameId: string): boolean {
+    const current = this.readStore();
+    if (!Object.hasOwn(current.results, gameId)) return false;
+    const { [gameId]: _gone, ...rest } = current.results;
+    atomicWriteTextFile(this.file, `${JSON.stringify({ version: 1, results: rest }, null, 2)}
+`);
+    return true;
   }
 
   put(result: StoredTournamentResult): StoredTournamentResult {
