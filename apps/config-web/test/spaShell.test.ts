@@ -521,6 +521,71 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     expect(await renderWith(base)).not.toContain("Accept with this team");
   });
 
+  it("lobby route: pending pairing (settingUp) shows Setting up, keeps polling, and controls follow canAccept / canRenew", async () => {
+    // Both consents in, the game server's answer lost: the server reconciles in the background.
+    const pending: LobbyView = { ...readyLobby(), status: "waiting", opponentAccepted: true, settingUp: true, canLaunch: false, game: null };
+    const renderAs = async (v: LobbyView, coach: string) => (await render("/lobby/lobbyAB12", { "/api/auth/session": { authenticated: true, coach, authMethod: "discord" } }, async (spa) => {
+      const room = mods.createLobbyRoom("lobbyAB12", {
+        api: mockFetcher({ ...roomRoutes(v), "/api/lobby/lobbyAB12/coach?role=creator": { avatar: null, fumbblName: null } }),
+        me: () => coach, onSignedOut: vi.fn(),
+      });
+      await room.poll();
+      await flush();
+      spa.app.provide(mods.LOBBY_ROOM_KEY, () => room);
+    })).html;
+    const creatorHtml = await renderAs(pending, "Alice");
+    expect(creatorHtml).toContain("Setting up the game on the server…");
+    expect(creatorHtml).not.toContain("Accept with this team");
+    expect(creatorHtml).not.toContain("Confirm challenge");
+    expect(creatorHtml).toMatch(/<button class="lobby-btn primary big" type="button" disabled>/);
+    const opponentHtml = await renderAs({ ...pending, me: "opponent" }, "Bob");
+    expect(opponentHtml).toContain("Setting up the game on the server…");
+    expect(opponentHtml).not.toContain("Accept with this team");
+    // a lapsed creator challenge while setting up still offers the creator's Confirm when the server says canRenew
+    const renewing = await renderAs({ ...pending, status: "needs-renewal", canRenew: true }, "Alice");
+    expect(renewing).toContain("Setting up the game on the server…");
+    expect(renewing).toMatch(/>\s*Confirm challenge\s*</);
+  });
+
+  it("controller: a pending pairing keeps polling until the server reports ready", async () => {
+    let v: LobbyView = { ...readyLobby(), status: "waiting", opponentAccepted: true, settingUp: true, canLaunch: false, game: null };
+    const f = mockFetcher({ ...roomRoutes(readyLobby()), "/api/lobby/lobbyAB12": () => ({ lobby: v, chatLive: false }) });
+    const ticks: Array<() => void> = [];
+    const room = createLobbyRoom("lobbyAB12", {
+      api: f, me: () => "Alice", onSignedOut: vi.fn(),
+      openSocket: () => { throw new Error("no socket"); },
+      setInterval: (fn) => { ticks.push(fn); return 1; }, clearInterval: () => undefined,
+    });
+    room.start();
+    await flush();
+    expect(statusLine(room.state.view!)).toContain("Setting up the game");
+    v = readyLobby();
+    ticks[0]!();
+    await flush();
+    expect(room.state.view?.status).toBe("ready");
+    expect(statusLine(room.state.view!)).toBe("Game set up (game 77). Ready to start.");
+    room.stop();
+  });
+
+  it("lobby route: mixed pairing, the client-side seat shows as in the client and the browser seat can start", async () => {
+    const mixed: LobbyView = {
+      ...readyLobby(),
+      creator: { ...readyLobby().creator, state: "here" },
+      opponent: { ...readyLobby().opponent, state: "client" },
+      canLaunch: true,
+    };
+    const { html } = await render("/lobby/lobbyAB12", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } }, async (spa) => {
+      const room = mods.createLobbyRoom("lobbyAB12", { api: mockFetcher(roomRoutes(mixed)), me: () => "Alice", onSignedOut: vi.fn() });
+      await room.poll();
+      await flush();
+      spa.app.provide(mods.LOBBY_ROOM_KEY, () => room);
+    });
+    expect(html).toContain("Alice is here");
+    expect(html).toContain("Bob is in the client");
+    expect(html).toContain('class="presence-client"');
+    expect(html).toMatch(/<button class="lobby-btn primary big" type="button">\s*Start game\s*<\/button>/);
+  });
+
   it("lobby route: gone lobby shows the server message and a way back", async () => {
     const { html } = await render("/lobby/lobbyAB12", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } }, async (spa) => {
       const room = mods.createLobbyRoom("lobbyAB12", { api: mockFetcher({ "/api/lobby/lobbyAB12": new mods.ApiError(410, "This lobby has expired.") }), me: () => "Alice", onSignedOut: vi.fn() });

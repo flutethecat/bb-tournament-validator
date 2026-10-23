@@ -40,7 +40,9 @@ The SPA Lobby behaves as the vanilla page: Accept / Confirm challenge / Close fo
 `canRenew` (`lobbyControl` in `spa/src/shared/format.ts`); Start game posts `/launch` and downloads the
 session-scoped `GET /api/lobby/:id/jnlp` it names; a temporary rating failure shows "Rating unavailable right now"
 and retries on later polls with backoff (15 s doubling to 5 min); chat keeps the last 200 lines; a socket refusal
-(`lobbyRefused`) is explained and not retried, other drops reconnect up to 5 times.
+(`lobbyRefused`) is explained and not retried, other drops reconnect up to 5 times. A pending pairing
+(`settingUp`: the game server's answer was lost and the server is retrying) shows "Setting up the game" from the
+shared status line while the 4 s poll continues; a client-side seat in a mixed pairing shows "in the client".
 
 Layout (`spa/src`): `app.ts` builds app + router + session + library; `router.ts` holds the routes, the nav and
 the auth gate; `views/` one component per route; `components/` shared pieces; `lobby/` the Lobby controllers (no
