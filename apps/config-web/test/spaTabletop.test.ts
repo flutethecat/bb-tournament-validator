@@ -126,7 +126,7 @@ describe("tabletop routes (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC] = await Promise.all([
+    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
@@ -143,8 +143,10 @@ describe("tabletop routes (server-rendered)", () => {
       vite.ssrLoadModule("/src/components/TabletopFeed.vue"),
       vite.ssrLoadModule("/src/components/TabletopScoreboard.vue"),
       vite.ssrLoadModule("/src/components/TabletopPick.vue"),
+      vite.ssrLoadModule("/src/components/TabletopSettings.vue"),
+      vite.ssrLoadModule("/src/tabletop/settings.ts"),
     ]);
-    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC };
+    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -305,7 +307,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("Grob #1</span> scores a touchdown.");
     expect(html).toContain("(&#9733;3)".replace("&#9733;", "\u2605"));
     expect(html).toContain("Lirael #7</span> completes a pass.");
-    expect(html).toContain('aria-label="Undo Touchdown"');
+    expect(html).not.toContain('aria-label="Undo'); // undo rides edit mode (organisers) only
     expect(html.match(/data-type="touchdown"/g)).toHaveLength(1); // the undone TD has no row
     expect(html).not.toContain("waiting");
     expect(html).not.toContain("Undo revision");
@@ -394,7 +396,9 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("/icons/inducements/bribe.png");
     expect(html).toContain("/icons/ui/dedicated_fans.png");
     expect(html).toContain('<b class="tt-qty">2</b>');
-    expect(html).toContain("Nice");
+    expect(html).toContain('aria-label="Nice"'); // the condition name is a tooltip / label only
+    expect(html).not.toMatch(/>[^<]*Nice[^<]*</);
+    expect(html).toContain("tt-weather");
     expect(html).toContain("H2 T5");
     expect(html).not.toMatch(/heads|tails/i);
   });
@@ -669,14 +673,48 @@ describe("tabletop routes (server-rendered)", () => {
     });
   }
 
-  it("edit mode is behind a flag (off): no pencil, no edit bar, no trash; undo stays on the last-events control", async () => {
-    expect(mods.feedMod.EDIT_MODE_ENABLED).toBe(false);
-    const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally });
-    expect(html).not.toContain("tt-pencil");
-    expect(html).not.toContain("You are in edit mode.");
-    expect(html).not.toContain("tt-trash");
-    expect(html).toContain('aria-label="Last events"');
-    expect(html).toContain('aria-label="Undo Touchdown"');
+  it("edit mode: no Undo buttons and no trash for a coach; the cog offers Edit mode to organisers only", async () => {
+    const body = { match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally };
+    for (const sess of [session(), session({ organizer: true })]) {
+      const { html } = await renderMatch(body, sess);
+      expect(html).not.toContain("tt-trash"); // trash cans only while edit mode is on (off on load)
+      expect(html).not.toContain("You are in edit mode.");
+      expect(html).not.toContain("Last events");
+      expect(html).not.toMatch(/>Undo</);
+      expect(html).not.toContain("tt-pencil");
+    }
+    const theme = createTheme({ matchMedia: fakeMedia(true).matchMedia, storage: memStore(), doc: fakeDoc().doc });
+    const settings = mods.settingsMod.createViewerSettings(mods.queue.memoryStorage());
+    const coach = await mount(mods.settingsC, { theme, settings, editMode: false, canEdit: false });
+    expect(coach).not.toContain("Edit mode");
+    const organiser = await mount(mods.settingsC, { theme, settings, editMode: false, canEdit: true });
+    expect(organiser).toContain("Edit mode");
+    // trash cans surface only when the feed is told edit mode is on
+    const rows = mods.feedMod.feedRows(events, ["e1", "e4"], teams);
+    expect(await mount(mods.feedC, { rows, canUndo: false })).not.toContain("tt-trash");
+    expect(await mount(mods.feedC, { rows, canUndo: true })).toContain('aria-label="Undo Touchdown"');
+  });
+
+  it("settings sheet: theme System / Light / Dark, compact rows, timestamps, haptic; options persist per viewer", async () => {
+    const theme = createTheme({ matchMedia: fakeMedia(true).matchMedia, storage: memStore(), doc: fakeDoc().doc });
+    const store = mods.queue.memoryStorage();
+    const settings = mods.settingsMod.createViewerSettings(store);
+    const html = await mount(mods.settingsC, { theme, settings, editMode: false, canEdit: false });
+    for (const t of ["Settings", ">System<", ">Light<", ">Dark<", "Compact rows", "Show timestamps", "Vibrate on tap"]) expect(html, t).toContain(t);
+    expect(html).toMatch(/aria-pressed="true">System</);
+    expect(settings.state).toEqual({ compact: false, timestamps: true, haptic: false });
+    settings.set("compact", true);
+    settings.set("timestamps", false);
+    const again = mods.settingsMod.createViewerSettings(store);
+    expect(again.state).toEqual({ compact: true, timestamps: false, haptic: false });
+    const broken = mods.settingsMod.createViewerSettings({ getItem: () => { throw new Error("x"); }, setItem: () => { throw new Error("x"); }, removeItem: () => undefined });
+    broken.set("haptic", true);
+    expect(broken.state.haptic).toBe(true);
+    // compact rows and hidden timestamps reach the feed
+    const rows = mods.feedMod.feedRows([{ id: "e1", type: "touchdown", team: "home", player: "h1", payload: {}, half: 1, turn: 3 }], ["e1"], teams);
+    const feed = await mount(mods.feedC, { rows, canUndo: false, compact: true, timestamps: false });
+    expect(feed).toContain('data-compact="true"');
+    expect(feed).not.toContain("H1 T3");
   });
 
   it("pick list opens on the local coach side and offers the other team as a toggle; picks post the player id", async () => {

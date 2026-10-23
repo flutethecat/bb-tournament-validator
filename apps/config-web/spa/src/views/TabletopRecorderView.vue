@@ -11,10 +11,12 @@ import TabletopPick from "../components/TabletopPick.vue";
 import TabletopPregame from "../components/TabletopPregame.vue";
 import TabletopRosters from "../components/TabletopRosters.vue";
 import TabletopScoreboard from "../components/TabletopScoreboard.vue";
+import TabletopSettings from "../components/TabletopSettings.vue";
+import { createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
 import { SESSION_KEY } from "../session";
-import { THEME_KEY, themeLabel } from "../theme";
+import { THEME_KEY } from "../theme";
 import TabletopGlyph from "../components/TabletopGlyph.vue";
-import { CAS_EVENT, CASUALTY_RESULTS_UI, EDIT_MODE_ENABLED, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, type OtherEvent } from "../tabletop/feed";
+import { CAS_EVENT, CASUALTY_RESULTS_UI, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, type OtherEvent } from "../tabletop/feed";
 import { browserStorage } from "../tabletop/queue";
 import { createRecorder, RECORDER_KEY, type Side, type SummaryView } from "../tabletop/recorder";
 
@@ -22,6 +24,8 @@ const props = defineProps<{ id: string }>();
 
 const session = inject(SESSION_KEY)!;
 const themeCtl = inject(THEME_KEY)!;
+const viewer = inject(VIEWER_SETTINGS_INJECT, null) ?? createViewerSettings();
+const settingsOpen = ref(false);
 const fetcher = inject(API_KEY)!;
 const factory = inject(RECORDER_KEY, null);
 const rec = factory ? factory(props.id) : createRecorder(props.id, { api: fetcher, onSignedOut: () => void session.load(true) });
@@ -67,7 +71,6 @@ const openPick = (o: OtherEvent): void => { pick.value = o; };
 const editMode = ref(false);
 /** The session coach side (a coach of neither team, i.e. an organiser, gets home). */
 const localSide = computed<Side>(() => (match.value?.away.coach === me.value && match.value?.home.coach !== me.value ? "away" : "home"));
-const lastEvents = computed(() => rows.value.filter((r) => r.undoable).slice(0, 3));
 // End-of-match MVP pick: one per team (a team that already has one is skipped).
 const mvpPick = reactive<Record<Side, string>>({ home: "", away: "" });
 const hasMvp = (s: Side): boolean => state.tally.players[s].some((l) => l.mvp > 0);
@@ -147,15 +150,13 @@ void stamp;
     <TabletopScoreboard
       :match="match" :teams="state.teams" :tally="state.tally" :events="state.events" :pregame="state.pregame"
       :half="half" :turn="turn" :inducement-icons="state.inducementIcons" :art="state.art"
-      @half="cycleHalf" @turn="stepTurn" @rosters="rosters = true"
+      @half="cycleHalf" @turn="stepTurn" @rosters="rosters = true" @settings="settingsOpen = true"
     />
 
     <main class="tt-feed">
       <div class="tt-strip">
         <p v-if="state.pending" class="tt-chip" role="status">{{ state.pending }} event{{ state.pending === 1 ? "" : "s" }} waiting<template v-if="state.queueError"> · {{ state.queueError }}<template v-if="retryIn"> (retry in {{ retryIn }} s)</template></template></p>
-        <button v-if="EDIT_MODE_ENABLED" class="tt-theme tt-pencil" type="button" :aria-pressed="editMode" aria-label="Edit mode" @click="editMode = !editMode">&#9998;</button>
         <span class="tt-state muted">{{ match.state === "recording" ? "Recording" : match.state === "submitted" ? "Submitted, waiting for confirmation" : match.state === "confirmed" ? "Confirmed" : match.state }} · {{ match.postMatch }}</span>
-        <button class="tt-theme" type="button" :aria-label="`Theme: ${themeLabel(themeCtl.state.mode)}. Tap to change.`" @click="themeCtl.cycle()">Theme: {{ themeLabel(themeCtl.state.mode) }}</button>
       </div>
       <p v-for="r in state.rejected" :key="r.event.id" class="lobby-error" role="alert">
         Not saved: {{ r.error }}
@@ -202,22 +203,17 @@ void stamp;
         </section>
       </template>
 
-      <p v-if="EDIT_MODE_ENABLED && editMode" class="tt-edit-bar" role="status">You are in edit mode.</p>
-      <ul v-if="recording && !EDIT_MODE_ENABLED && lastEvents.length" class="tt-last" aria-label="Last events">
-        <li v-for="r in lastEvents" :key="r.id">
-          <span>{{ r.lead }}{{ r.rest }}</span>
-          <button class="lobby-btn tt-tap" type="button" :aria-label="`Undo ${r.label}`" @click="undoById(r.id)">Undo</button>
-        </li>
-      </ul>
-      <TabletopFeed :rows="rows" :can-undo="EDIT_MODE_ENABLED && editMode && recording" @undo="undoById" />
+      <p v-if="organiser && editMode" class="tt-edit-bar" role="status">You are in edit mode.</p>
+      <TabletopFeed :rows="rows" :can-undo="organiser && editMode && recording" :compact="viewer.state.compact" :timestamps="viewer.state.timestamps" @undo="undoById" />
     </main>
 
     <nav v-if="recording" class="tt-actions-bar" aria-label="Record an event">
-      <button class="tt-big tt-big-td" type="button" @click="openPick(TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" :size="36" /><span>TD</span></button>
-      <button class="tt-big tt-big-other" type="button" @click="other = true"><TabletopGlyph :glyph="{ text: '\u22EF' }" :size="36" /><span>Other</span></button>
-      <button class="tt-big tt-big-cas" type="button" @click="openPick(CAS_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.casualty" :size="36" /><span>CAS</span></button>
+      <button class="tt-big tt-big-td" type="button" @click="viewer.buzz(); openPick(TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" :size="36" /><span>TD</span></button>
+      <button class="tt-big tt-big-other" type="button" @click="viewer.buzz(); other = true"><TabletopGlyph :glyph="{ text: '\u22EF' }" :size="36" /><span>Other</span></button>
+      <button class="tt-big tt-big-cas" type="button" @click="viewer.buzz(); openPick(CAS_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.casualty" :size="36" /><span>CAS</span></button>
     </nav>
 
+    <TabletopSettings v-if="settingsOpen" :theme="themeCtl" :settings="viewer" :edit-mode="editMode" :can-edit="organiser" @edit="(on: boolean) => (editMode = on)" @close="settingsOpen = false" />
     <TabletopOther v-if="other" @pick="onOther" @close="other = false" />
     <TabletopRosters v-if="rosters" :match="match" :teams="state.teams" :tally="state.tally" @close="rosters = false" />
     <TabletopPick v-if="pick" :kind="pick" :match="match" :teams="state.teams" :unavailable="unavailable" :local-side="localSide" @pick="onPicked" @close="pick = null" />

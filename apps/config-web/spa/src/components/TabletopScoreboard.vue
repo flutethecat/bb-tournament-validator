@@ -5,7 +5,7 @@
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
-import { uiIcon, weatherLine } from "../tabletop/feed";
+import { uiIcon, weatherParts } from "../tabletop/feed";
 import type { MatchView, RecordedEvent, ServerTally, Side, TeamView } from "../tabletop/recorder";
 
 const props = defineProps<{
@@ -19,7 +19,7 @@ const props = defineProps<{
   inducementIcons: Record<string, string>;
   art: ArtManifests;
 }>();
-const emit = defineEmits<{ (e: "half"): void; (e: "turn", delta: number): void; (e: "rosters"): void }>();
+const emit = defineEmits<{ (e: "half"): void; (e: "turn", delta: number): void; (e: "rosters"): void; (e: "settings"): void }>();
 
 const sides: Side[] = ["home", "away"];
 const crest = (s: Side): string => resolveCrest(props.art, props.teams[s]?.rosterId ?? props.teams[s]?.race);
@@ -50,14 +50,13 @@ const chips = (s: Side): Chip[] => {
 };
 const halfLabel = computed(() => (props.half >= 3 ? "OT" : `H${props.half}`));
 // The coin result is NOT shown here (it is a feed line); weather rides the centre panel.
-const info = computed(() => weatherLine(props.pregame, props.events));
+const weather = computed(() => weatherParts(props.pregame, props.events));
 </script>
 
 <template>
   <header class="tt-board" aria-label="Scoreboard">
     <section v-for="s in sides" :key="s" class="tt-corner" :class="s">
       <div class="tt-corner-top">
-        <RouterLink v-if="s === 'home'" class="tt-back" to="/tabletop" aria-label="Back to Tabletop">&#8592;</RouterLink>
         <img v-if="crest(s)" class="tt-crest" :src="crest(s)" alt="" />
         <span v-else class="tt-crest tt-crest-ph" aria-hidden="true">&#128737;</span>
         <button v-if="s === 'away'" class="tt-rosters-btn" type="button" @click="emit('rosters')">
@@ -76,13 +75,17 @@ const info = computed(() => weatherLine(props.pregame, props.events));
       </ul>
     </section>
     <section class="tt-centre">
+      <div class="tt-top-pair">
+        <RouterLink class="tt-back" to="/tabletop" aria-label="Back to Tabletop">&#8592;</RouterLink>
+        <button class="tt-cog" type="button" aria-label="Settings" @click="emit('settings')">&#9881;</button>
+      </div>
       <p class="tt-score" aria-label="Score"><span>{{ tally.score.home }}</span> : <span>{{ tally.score.away }}</span></p>
       <div class="tt-stepper" role="group" aria-label="Half and turn">
         <button type="button" class="tt-step" aria-label="Previous turn" @click="emit('turn', -1)">&#8249;</button>
         <button type="button" class="tt-halfturn" :aria-label="`Half ${half}, turn ${turn}. Tap to change half`" @click="emit('half')">{{ halfLabel }} T{{ turn }}</button>
         <button type="button" class="tt-step" aria-label="Next turn" @click="emit('turn', 1)">&#8250;</button>
       </div>
-      <p v-if="info" class="tt-info">{{ info }}</p>
+      <span v-if="weather.icon" class="tt-weather" role="img" :aria-label="weather.name" :title="weather.name">{{ weather.icon }}</span>
     </section>
   </header>
 </template>

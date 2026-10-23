@@ -51,9 +51,6 @@ export const pickSpec = (kind: { type: string }, team: Side, player: string): { 
 export const TD_EVENT: OtherEvent = { type: "touchdown", label: "Touchdown", needs: "player" };
 export const CAS_EVENT: OtherEvent = { type: "casualty", label: "Casualty", needs: "casualty" };
 
-/** Edit mode (the pencil and the per-row trash) is built but switched off: set VITE_TT_EDIT_MODE=1 to show it. */
-export const EDIT_MODE_ENABLED: boolean = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_TT_EDIT_MODE === "1";
-
 /** The 12 entries of the Other popup, in TourPlay's order (Touchdown and Casualty have their own buttons; MVP is an end-of-match pick). */
 export const OTHER_EVENTS: readonly OtherEvent[] = [
   { type: "injury", label: "Injury", needs: "player+result" },
@@ -225,6 +222,13 @@ export function weatherLine(pregame: Record<string, unknown>, events: readonly R
   const t = text.toLowerCase();
   const icon = /swelter/.test(t) ? "\u{1F525}" : /sunny/.test(t) ? "☀️" : /rain/.test(t) ? "\u{1F327}️" : /blizzard|snow/.test(t) ? "❄️" : "\u{1F324}️";
   return `${icon} ${text}`;
+}
+
+/** The weather glyph and its condition name (shown as a tooltip, never as text). */
+export function weatherParts(pregame: Record<string, unknown>, events: readonly RecordedEvent[]): { icon: string; name: string } {
+  const line = weatherLine(pregame, events);
+  const i = line.indexOf(" ");
+  return i < 0 ? { icon: "", name: "" } : { icon: line.slice(0, i), name: line.slice(i + 1) };
 }
 
 export function coinLine(pregame: Record<string, unknown>): string {

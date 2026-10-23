@@ -42,32 +42,36 @@
 .tt-glyph-text { display: inline-flex; align-items: center; justify-content: center; font-size: 1.2em; line-height: 1; font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif; }
 
 /* scoreboard: coach corners + centre panel, inside the top 20 % */
-.tt-board { display: grid; grid-template-columns: minmax(0, 1fr) 142px minmax(0, 1fr); min-height: 0; overflow: hidden; border-bottom: 2px solid var(--tt-line); background: var(--tt-panel); }
-.tt-corner { display: flex; flex-direction: column; min-width: 0; padding: 4px 6px; gap: 1px; overflow: hidden; }
+.tt-board { display: grid; grid-template-columns: minmax(0, 1fr) 134px minmax(0, 1fr); min-height: 0; overflow: hidden; border-bottom: 2px solid var(--tt-line); background: var(--tt-panel); }
+.tt-corner { display: flex; flex-direction: column; min-width: 0; padding: 4px; gap: 0; overflow: hidden; }
 .tt-corner.home { background: linear-gradient(90deg, var(--tt-home), transparent); }
 .tt-corner.away { background: linear-gradient(270deg, var(--tt-away), transparent); align-items: flex-end; text-align: right; }
-.tt-corner-top { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; min-height: 44px; }
+.tt-corner-top { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; min-height: 60px; }
 .tt-corner.away .tt-corner-top { flex-direction: row-reverse; }
 .tt-back, .tt-rosters-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 0 8px; background: var(--tt-btn); color: var(--tt-btn-ink); border: 2px solid var(--tt-line); border-radius: var(--tt-radius); box-shadow: var(--tt-shadow); font: inherit; font-size: 13px; text-decoration: none; cursor: pointer; }
 .tt-back { font-size: 20px; }
-.tt-rosters-btn { flex-direction: column; gap: 0; padding: 0 4px; min-width: 52px; font-size: 9px; line-height: 1.1; }
+.tt-rosters-btn { flex-direction: column; gap: 0; padding: 0 2px; min-width: 48px; font-size: 9px; line-height: 1.1; }
 .tt-rosters-btn .tt-glyph { width: 22px; height: 22px; }
-.tt-crest { width: 44px; height: 44px; object-fit: contain; flex: none; }
-.tt-crest-ph { display: inline-flex; align-items: center; justify-content: center; font-size: 28px; opacity: 0.7; }
-.tt-coach { font-size: 12px; font-weight: 700; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tt-team { font-family: var(--font-heading, sans-serif); font-size: 13px; line-height: 1.1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-crest { width: 60px; height: 60px; object-fit: contain; flex: none; }
+.tt-crest-ph { display: inline-flex; align-items: center; justify-content: center; font-size: 34px; opacity: 0.7; }
+.tt-coach { font-size: 12px; line-height: 1.15; font-weight: 700; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-team { font-family: var(--font-heading, sans-serif); font-size: 13px; line-height: 1.05; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tt-race { font-size: 11px; color: var(--tt-muted); }
-.tt-chips { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 3px; }
-.tt-corner.away .tt-chips { justify-content: flex-end; }
-.tt-chips li { position: relative; width: 20px; height: 20px; }
-.tt-chip-img { width: 20px; height: 20px; object-fit: contain; filter: drop-shadow(0 0 0.6px rgba(255, 255, 255, 0.9)) drop-shadow(0 0 0.9px rgba(0, 0, 0, 0.95)); }
-.tt-chip-txt { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; font-size: 9px; border: 1px solid var(--tt-line); }
-.tt-qty { position: absolute; right: -3px; bottom: -3px; min-width: 12px; padding: 0 2px; background: #000b; color: #fff; font-size: 9px; line-height: 12px; text-align: center; border-radius: 6px; }
-.tt-centre { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 0; padding: 2px; }
-.tt-score { margin: 0; font-family: var(--font-heading, sans-serif); font-size: 2.2rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.tt-chips { list-style: none; margin: 2px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; width: min(100%, 78px); max-height: 54px; overflow: hidden; }
+.tt-corner.away .tt-chips { margin-left: auto; direction: rtl; }
+.tt-chips li { position: relative; width: 100%; aspect-ratio: 1; max-width: 24px; }
+.tt-chip-img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 0.6px rgba(255, 255, 255, 0.9)) drop-shadow(0 0 0.9px rgba(0, 0, 0, 0.95)); }
+.tt-chip-txt { display: inline-flex; width: 100%; height: 100%; align-items: center; justify-content: center; font-size: 9px; border: 1px solid var(--tt-line); }
+.tt-qty { position: absolute; right: -3px; bottom: -3px; min-width: 12px; padding: 0 2px; background: #000b; color: #fff; font-size: 10px; line-height: 12px; text-align: center; border-radius: 6px; direction: ltr; }
+.tt-centre { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; min-width: 0; padding: 2px 0; }
+.tt-top-pair { display: flex; gap: 6px; }
+.tt-top-pair .tt-back, .tt-cog { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; min-width: 0; min-height: 0; padding: 0; background: var(--tt-btn); color: var(--tt-btn-ink); border: 2px solid var(--tt-line); border-radius: var(--tt-radius); box-shadow: var(--tt-shadow); font: inherit; font-size: 20px; text-decoration: none; cursor: pointer; }
+.tt-top-pair .tt-back::before, .tt-cog::before { content: ""; position: absolute; inset: -4px; } /* 48 px tap area around the 40 px button */
+.tt-weather { font-size: 36px; line-height: 1; }
+.tt-score { margin: 0; font-family: var(--font-heading, sans-serif); font-size: 1.8rem; line-height: 1; font-variant-numeric: tabular-nums; }
 .tt-stepper { display: flex; align-items: center; }
 .tt-step, .tt-halfturn { min-width: 44px; min-height: 44px; background: var(--tt-btn); color: var(--tt-btn-ink); border: 2px solid var(--tt-line); border-radius: var(--tt-radius); box-shadow: var(--tt-shadow); font: inherit; font-size: 20px; cursor: pointer; }
-.tt-halfturn { font-size: 14px; min-width: 54px; padding: 0 2px; }
+.tt-halfturn { font-size: 14px; min-width: 46px; padding: 0 2px; }
 .tt-info { margin: 0; font-size: 11px; color: var(--tt-muted); text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* feed: the only region that scrolls (momentum scrolling on iOS) */
@@ -183,3 +187,14 @@
 .tt-corner.away { grid-column: 3; grid-row: 1; }
 .tt-pick-glyph { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-right: 6px; border: 1px solid var(--tt-line); border-radius: 50%; font-size: 12px; flex: none; }
 .tt-pick-row { min-height: 48px; }
+
+/* settings sheet and compact rows */
+.tt-set-label { margin: 8px 0 4px; font-weight: 700; }
+.tt-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
+.tt-seg-btn { min-height: 44px; background: var(--tt-btn); color: var(--tt-btn-ink); border: 2px solid var(--tt-line); border-radius: var(--tt-radius); font: inherit; cursor: pointer; }
+.tt-seg-btn[aria-pressed="true"] { background: var(--tt-accent); color: #fff; border-color: var(--tt-accent); }
+.tt-events[data-compact="true"] { gap: 2px; }
+.tt-events[data-compact="true"] .tt-ev { min-height: 40px; padding-top: 2px; padding-bottom: 2px; }
+.tt-events[data-compact="true"] .tt-ev-icon { --tt-icon: 24px; }
+.tt-chips li { align-self: start; }
+.tt-chip-img { display: block; }
