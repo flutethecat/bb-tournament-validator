@@ -1,31 +1,32 @@
 <script setup lang="ts">
 // Tabletop (/app/tabletop): my recorded matches and the New match form.
-import { inject, onMounted, ref } from "vue";
+import { computed, inject, onMounted, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import { API_KEY } from "../app";
-import TeamSelect from "../components/TeamSelect.vue";
-import { LIBRARY_KEY } from "../lobby/library";
 import { SESSION_KEY } from "../session";
 import { COACH_SEARCH_KEY, createCoachSearch } from "../tabletop/coachSearch";
-import { createTabletopList, TABLETOP_LIST_KEY, type SaveOption } from "../tabletop/list";
+import { fmtK } from "../shared/format";
+import { createTabletopList, TABLETOP_LIST_KEY, teamKind, type TeamOption } from "../tabletop/list";
 import type { PostMatchOption } from "../tabletop/recorder";
 
 const session = inject(SESSION_KEY)!;
-const library = inject(LIBRARY_KEY)!;
 const fetcher = inject(API_KEY)!;
 const router = useRouter();
 const list = inject(TABLETOP_LIST_KEY, null)
   ?? createTabletopList({ api: fetcher, coach: () => session.coach(), onSignedOut: () => void session.load(true) });
 const { state } = list;
-const teams = library.teams;
+const teamLabel = (t: TeamOption): string =>
+  `${t.name}${t.race || t.tv !== undefined ? ` (${[t.race, t.tv !== undefined ? `TV ${fmtK(t.tv)}` : ""].filter(Boolean).join(", ")})` : ""} · ${teamKind(t.ref)}`;
 
-const mySaveId = ref("");
+const myTeams = computed(() => state.myTeams);
+const myTeamsErr = computed(() => state.myTeamsError);
+const myTeam = ref("");
 const opponent = ref("");
-const theirSaveId = ref("");
+const theirTeam = ref("");
 const postMatch = ref<PostMatchOption>("full");
 const err = ref("");
 const creating = ref(false);
-const saves = ref<SaveOption[]>([]);
+const saves = ref<TeamOption[]>([]);
 const looking = ref(false);
 const lookedUp = ref(false);
 
@@ -36,7 +37,7 @@ const lookupErr = ref("");
 function onType(text: string): void {
   opponent.value = "";
   saves.value = [];
-  theirSaveId.value = "";
+  theirTeam.value = "";
   lookedUp.value = false;
   lookupErr.value = "";
   search.input(text);
@@ -46,14 +47,14 @@ async function pickCoach(name: string): Promise<void> {
   opponent.value = name;
   search.pick(name);
   saves.value = [];
-  theirSaveId.value = "";
+  theirTeam.value = "";
   lookedUp.value = false;
   lookupErr.value = "";
   looking.value = true;
   try {
     saves.value = await list.lookupSaves(name);
     lookedUp.value = true;
-    if (saves.value.length === 1) theirSaveId.value = saves.value[0]!.id;
+    if (saves.value.length === 1) theirTeam.value = saves.value[0]!.ref;
   } catch (e) {
     lookupErr.value = (e as Error).message;
   } finally {
@@ -71,12 +72,12 @@ const POST_MATCH_LABELS: Record<PostMatchOption, string> = {
 
 async function onCreate(): Promise<void> {
   err.value = "";
-  if (!mySaveId.value) return void (err.value = "Pick your team first.");
+  if (!myTeam.value) return void (err.value = "Pick your team first.");
   if (!opponent.value.trim()) return void (err.value = "Pick your opponent from the matches.");
-  if (!theirSaveId.value.trim()) return void (err.value = "Find and pick your opponent's team.");
+  if (!theirTeam.value.trim()) return void (err.value = "Find and pick your opponent's team.");
   creating.value = true;
   try {
-    const id = await list.create({ mySaveId: mySaveId.value, opponent: opponent.value, theirSaveId: theirSaveId.value, postMatch: postMatch.value });
+    const id = await list.create({ myTeam: myTeam.value, opponent: opponent.value, theirTeam: theirTeam.value, postMatch: postMatch.value });
     await router.push({ name: "tabletop-match", params: { id } });
   } catch (e) {
     err.value = (e as Error).message;
@@ -88,7 +89,7 @@ async function onCreate(): Promise<void> {
 const stateLabel = (s: string): string => (s === "recording" ? "Recording" : s === "submitted" ? "Waiting for confirmation" : s === "confirmed" ? "Confirmed" : s);
 
 onMounted(() => {
-  void library.load(session.coach());
+  void list.loadMyTeams().then(() => { if (!myTeam.value && state.myTeams.length) myTeam.value = state.myTeams[0]!.ref; });
   void list.refresh();
 });
 </script>
@@ -99,7 +100,11 @@ onMounted(() => {
     <p class="muted">Record a tabletop game. You are home; your opponent is away.</p>
     <form class="lobby-form tt-form" @submit.prevent="onCreate">
       <label for="tt-mine">Your team</label>
-      <TeamSelect id="tt-mine" v-model="mySaveId" :teams="teams" />
+      <select id="tt-mine" v-model="myTeam" aria-label="Your team">
+        <option v-if="!myTeams.length" value="">No teams found</option>
+        <option v-for="t in myTeams" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
+      </select>
+      <p v-if="myTeamsErr" class="lobby-error" role="alert">{{ myTeamsErr }}</p>
       <label for="tt-opp">Opponent coach</label>
       <input
         id="tt-opp"
@@ -123,9 +128,9 @@ onMounted(() => {
       <p v-if="sState.error" class="lobby-error" role="alert">{{ sState.error }}</p>
       <p v-if="opponent" class="muted" role="status">Opponent: <strong>{{ opponent }}</strong></p>
       <p v-if="lookupErr" class="lobby-error" role="alert">{{ lookupErr }}</p>
-      <select id="tt-theirs" v-model="theirSaveId" aria-label="Their team" :disabled="looking">
+      <select id="tt-theirs" v-model="theirTeam" aria-label="Their team" :disabled="looking">
         <option value="">{{ lookedUp ? (saves.length ? "Pick their team" : "No saved teams found") : "Pick an opponent first" }}</option>
-        <option v-for="sv in saves" :key="sv.id" :value="sv.id">{{ sv.name }}</option>
+        <option v-for="t in saves" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
       </select>
       <label for="tt-post">After the match</label>
       <select id="tt-post" v-model="postMatch">

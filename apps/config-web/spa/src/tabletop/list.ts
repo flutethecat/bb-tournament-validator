@@ -6,12 +6,14 @@ import { ApiError } from "../shared/api";
 import type { Fetcher } from "../session";
 import type { MatchView, PostMatchOption } from "./recorder";
 
-export interface NewMatchForm { mySaveId: string; opponent: string; theirSaveId: string; postMatch: PostMatchOption }
+export interface NewMatchForm { myTeam: string; opponent: string; theirTeam: string; postMatch: PostMatchOption }
 
 export type MatchSummary = Pick<MatchView, "id" | "state" | "postMatch" | "home" | "away"> & { createdAt?: string };
-export interface SaveOption { id: string; name: string }
+/** One pickable team: ref is "library:<teamId>" or "save:<saveId>". */
+export interface TeamOption { ref: string; name: string; race?: string; tv?: number }
+export const teamKind = (ref: string): string => (ref.startsWith("library:") ? "Library" : "Builder save");
 
-export interface TabletopListState { loaded: boolean; matches: MatchSummary[]; error: string }
+export interface TabletopListState { loaded: boolean; matches: MatchSummary[]; error: string; myTeams: TeamOption[]; myTeamsError: string }
 
 export interface TabletopListDeps {
   api: Fetcher;
@@ -20,7 +22,7 @@ export interface TabletopListDeps {
 }
 
 export function createTabletopList(deps: TabletopListDeps) {
-  const state = reactive<TabletopListState>({ loaded: false, matches: [], error: "" });
+  const state = reactive<TabletopListState>({ loaded: false, matches: [], error: "", myTeams: [], myTeamsError: "" });
 
   async function refresh(): Promise<void> {
     try {
@@ -34,10 +36,22 @@ export function createTabletopList(deps: TabletopListDeps) {
     }
   }
 
-  /** The opponent's saved teams (id + name) for the coach name typed. */
-  async function lookupSaves(coach: string): Promise<SaveOption[]> {
-    const res = await deps.api<{ coach: string; saves: SaveOption[] }>(`/api/tabletop/saves?coach=${encodeURIComponent(coach.trim())}`);
-    return res.saves ?? [];
+  /** A coach's pickable teams (fork library + builder saves) from GET /api/tabletop/saves. */
+  async function lookupSaves(coach: string): Promise<TeamOption[]> {
+    const res = await deps.api<{ coach: string; teams?: TeamOption[]; saves?: Array<{ id: string; name: string }> }>(
+      `/api/tabletop/saves?coach=${encodeURIComponent(coach.trim())}`,
+    );
+    return res.teams ?? (res.saves ?? []).map((sv) => ({ ref: `save:${sv.id}`, name: sv.name }));
+  }
+
+  /** "Your team": the session coach's own teams, from the same route as the opponent's. */
+  async function loadMyTeams(): Promise<void> {
+    try {
+      state.myTeams = await lookupSaves(deps.coach());
+      state.myTeamsError = "";
+    } catch (err) {
+      state.myTeamsError = (err as Error).message;
+    }
   }
 
   /** Home = me, away = the opponent. Resolves to the new match id. */
@@ -45,15 +59,15 @@ export function createTabletopList(deps: TabletopListDeps) {
     const res = await deps.api<{ match: MatchView }>("/api/tabletop/matches", {
       method: "POST",
       body: {
-        home: { coach: deps.coach(), teamSaveId: form.mySaveId },
-        away: { coach: form.opponent.trim(), teamSaveId: form.theirSaveId },
+        home: { coach: deps.coach(), team: form.myTeam },
+        away: { coach: form.opponent.trim(), team: form.theirTeam },
         postMatch: form.postMatch,
       },
     });
     return res.match.id;
   }
 
-  return { state, refresh, create, lookupSaves };
+  return { state, refresh, create, lookupSaves, loadMyTeams };
 }
 
 export type TabletopList = ReturnType<typeof createTabletopList>;

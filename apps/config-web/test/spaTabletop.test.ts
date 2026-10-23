@@ -221,15 +221,24 @@ describe("tabletop routes (server-rendered)", () => {
 
   it("new-match form: my team, opponent lookup, their save picker, post-match options; my matches from the server", async () => {
     const { html } = await render("/tabletop", { "/api/auth/session": session() }, async (spa) => {
-      spa.library.teams.value = [{ teamId: "t1", teamName: "Alice Orcs", race: "Orc", teamValue: 1000000 }];
       const ctrl = mods.list.createTabletopList({
-        api: fetcher({ "/api/tabletop/matches": { matches: [baseMatch("submitted")] } }), coach: () => "Alice", onSignedOut: () => undefined,
+        api: fetcher({
+          "/api/tabletop/matches": { matches: [baseMatch("submitted")] },
+          "/api/tabletop/saves?coach=Alice": { coach: "Alice", teams: [
+            { ref: "library:1263233", name: "Alice Orcs", race: "Orc", tv: 1000000 },
+            { ref: "save:sv_9", name: "Alice Draft", race: "Orc", tv: 950000 },
+          ] },
+        }),
+        coach: () => "Alice", onSignedOut: () => undefined,
       });
       await ctrl.refresh();
+      await ctrl.loadMyTeams();
       spa.app.provide(mods.list.TABLETOP_LIST_KEY, ctrl);
     });
     expect(html).toContain("New match");
-    expect(html).toContain("Alice Orcs (Orc");
+    expect(html).toContain("Alice Orcs (Orc, TV 1,000k) · Library");
+    expect(html).toContain("Alice Draft (Orc, TV 950k) · Builder save");
+    expect(html).toContain('value="library:1263233"');
         expect(html).toContain("Type 2 or more letters");
     expect(html).toContain("Pick an opponent first");
     expect(html).toContain("SPP only");
@@ -245,16 +254,16 @@ describe("tabletop routes (server-rendered)", () => {
     const ctrl = mods.list.createTabletopList({
       api: (async (path: string, init: { method?: string; body?: unknown } = {}) => {
         calls.push([path, init.method ?? "GET", init.body]);
-        if (path.startsWith("/api/tabletop/saves")) return { coach: "Bob", saves: [{ id: "t2", name: "Bob Elves" }] };
+        if (path.startsWith("/api/tabletop/saves")) return { coach: "Bob", teams: [{ ref: "save:t2", name: "Bob Elves", race: "Wood Elf", tv: 1000000 }] };
         return { match: baseMatch("recording") };
       }) as Fetcher,
       coach: () => "Alice", onSignedOut: () => undefined,
     });
-    expect(await ctrl.lookupSaves(" Bob ")).toEqual([{ id: "t2", name: "Bob Elves" }]);
-    expect(await ctrl.create({ mySaveId: "t1", opponent: " Bob ", theirSaveId: "t2", postMatch: "spp-only" })).toBe("tm_abc123");
+    expect(await ctrl.lookupSaves(" Bob ")).toEqual([{ ref: "save:t2", name: "Bob Elves", race: "Wood Elf", tv: 1000000 }]);
+    expect(await ctrl.create({ myTeam: "library:1263233", opponent: " Bob ", theirTeam: "save:t2", postMatch: "spp-only" })).toBe("tm_abc123");
     expect(calls).toEqual([
       ["/api/tabletop/saves?coach=Bob", "GET", undefined],
-      ["/api/tabletop/matches", "POST", { home: { coach: "Alice", teamSaveId: "t1" }, away: { coach: "Bob", teamSaveId: "t2" }, postMatch: "spp-only" }],
+      ["/api/tabletop/matches", "POST", { home: { coach: "Alice", team: "library:1263233" }, away: { coach: "Bob", team: "save:t2" }, postMatch: "spp-only" }],
     ]);
   });
 
