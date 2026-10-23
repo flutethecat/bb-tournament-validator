@@ -108,6 +108,8 @@ import {
   bearerTokenFromRequest,
   buildClearSessionCookie,
   buildSessionCookie,
+  refreshSessionCookie,
+  sweepSessions,
   createSession,
   deleteSession,
   getSession,
@@ -3098,7 +3100,11 @@ const siteBackend = await createSiteBackend(LIBRARY_DIR, async () => {
   }
 });
 
+// Persisted sessions: prune expired ones every 10 minutes (memory and disk).
+setInterval(() => sweepSessions(), 10 * 60 * 1000).unref();
+
 export const server = createServer((req, res) => {
+  refreshSessionCookie(req, res); // slides the browser cookie with the server-side idle expiry (throttled)
   void (async () => {
     try {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);

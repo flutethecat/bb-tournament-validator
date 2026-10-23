@@ -21,7 +21,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { coachSecretDigest } from "@bb/fork-ops";
 import { BANNED_ACCOUNT_MESSAGE, isBanned } from "./access.js";
 import { noteLegacyPasswordAuth } from "./deprecation.js";
-import { createSession, SESSION_TTL_MS } from "./session.js";
+import { createSession, sessionIdleMs } from "./session.js";
 import {
   attemptState,
   attemptsByCoach,
@@ -133,7 +133,7 @@ export async function coachLogin(
       token,
       coach: session.coach,
       expiresAt: new Date(session.expiry).toISOString(),
-      expiresInMs: SESSION_TTL_MS,
+      expiresInMs: sessionIdleMs(),
     },
   };
 }

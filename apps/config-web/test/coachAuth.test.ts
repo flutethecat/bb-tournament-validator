@@ -6,6 +6,7 @@ import {
   SESSION_COOKIE_NAME,
   SESSION_TTL_MS,
   bearerTokenFromRequest,
+  createSession,
   deleteSession,
   getSession,
   sessionTokenFromRequest,
@@ -187,7 +188,7 @@ describe("session token lifecycle", () => {
     const { token, expiresAt } = issued(result.body);
     expect(Date.parse(expiresAt)).toBe(now + SESSION_TTL_MS);
     expect(getSession(token, now + SESSION_TTL_MS - 1)?.coach).toBe("Tarkin");
-    expect(getSession(token, now + SESSION_TTL_MS)).toBeUndefined();
+    expect(getSession(createSession("Tarkin", now).token, now + SESSION_TTL_MS)).toBeUndefined(); // idle expiry (reads slide, so use a fresh one)
   });
 
   it("rejects a forged/unknown token", () => {

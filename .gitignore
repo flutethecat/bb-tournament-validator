@@ -9,6 +9,7 @@ coverage/
 # Discord ids; bug reports hold user-submitted content. Seed shape lives in
 # apps/config-web/identities.example.json.
 apps/config-web/identities.json
+apps/config-web/sessions.json
 apps/config-web/bug-reports/
 
 # runtime logs + caches (never commit)
