@@ -1,0 +1,314 @@
+{
+  "$schema": "../schemas/tournament-package.schema.json",
+  "name": "WHBB Nut Cup 2026",
+  "ruleset": "bb2025-default",
+  "date": "2026-11-01",
+  "description": "WHBB Nut Cup, 1 November 2026, on BB_Nut's Discord: a slightly modified NAFC ruleset, 3 games, Swiss pairing. Every team picks ONE package for its tier: 1,150,000 gold plus the tier's skills, OR 1,100,000 gold plus one extra PRIMARY skill. Unspent gold is lost. Tiers (skills = total added skills; a secondary slot may always hold a primary): T1 Amazon, Orc, Old World Alliance - 4 skills, no secondary. T2 Dark Elf, Nurgle, Underworld Denizens, Wood Elf - 5 skills, no secondary. T3 Elven Union, Human, Lizardmen, Necromantic Horror, Norse, Skaven, Shambling Undead - 6 skills, up to 1 secondary. T4 Black Orc, Chaos Chosen, Chaos Dwarf, Chaos Renegade, Dwarf, Imperial Nobility, Khorne, Vampire - 7 skills, up to 1 secondary. T5 Goblin, Halfling - 8 skills, up to 2 secondary OR 1 Star Player (a team that hires a star gets no secondary slots). Skills are free of gold and all assigned before the event; ONE player may take two skills (at most one secondary, and only where the tier allows secondaries), every other player at most one; skills may be duplicated across players; no stat increases, no random skills. Inducements: Bribes 0-3, Blitzer's Best Kegs 0-2, Halfling Master Chef 0-1 (Halfling only), Mortuary Assistant 0-1, Plague Doctor 0-1, Riotous Rookies 0-1, Team Mascot 0-1, Weather Mage 0-1; Star Player 0-1 (Tier 5 only). Stars (Tier 5): max one, no extra skills; paired stars (Grak & Crumbleberry, Dribl & Drull, Lucien & Valen Swift) count as two and are not selectable; banned: Bomber Dribblesnot, Cindy Piewhistle, Hakflem Skuttlespike, Morg 'n' Thorg, Skitter Stab-Stab. Everything else NAFC / BB2025 default; minimum 11 players.",
+  "dataNote": "Transcribed from the organiser's Google Doc. Machine-enforced: tiers, the two packages per tier (Tier 5 also carries two Star packages with 0 secondary, which is how 'a star replaces the secondaries' is encoded), skill counts, one stacked player, inducement list/caps incl. Halfling-only Chef, star bans and the one-star cap. Hand-check: 'no random skills' (the builder only offers chosen skills, but a submitted sheet cannot show how a skill was picked); Bribes are capped at 3 even for Bribery and Corruption teams (the doc lists Bribes 0-3 for all tiers).",
+  "eligibleRosters": [
+    "Amazon",
+    "Orc",
+    "Old World Alliance",
+    "Dark Elf",
+    "Nurgle",
+    "Underworld Denizens",
+    "Wood Elf",
+    "Elven Union",
+    "Human",
+    "Lizardmen",
+    "Necromantic Horror",
+    "Norse",
+    "Skaven",
+    "Shambling Undead",
+    "Black Orc",
+    "Chaos Chosen",
+    "Chaos Dwarf",
+    "Chaos Renegade",
+    "Dwarf",
+    "Imperial Nobility",
+    "Khorne",
+    "Vampire",
+    "Goblin",
+    "Halfling"
+  ],
+  "skillAllotment": {
+    "skillPointBudget": 0,
+    "primaryCostSP": 1,
+    "secondaryMultiplier": 2,
+    "secondaryCostSP": null,
+    "eliteSurchargeSP": 0,
+    "eliteSkills": [
+      "Block",
+      "Guard",
+      "Mighty Blow",
+      "Dodge"
+    ],
+    "skillCostSP": {},
+    "maxPerPlayer": 2,
+    "maxSameSkillTeamwide": null,
+    "maxStackedPlayers": 1,
+    "stackedPlayer": {
+      "maxSkills": 2,
+      "maxSecondary": 1,
+      "maxElite": null
+    }
+  },
+  "tiers": [
+    {
+      "tier": 1,
+      "label": "Tier 1",
+      "rosters": [
+        "Amazon",
+        "Orc",
+        "Old World Alliance"
+      ],
+      "gold": 1150000,
+      "maxSecondary": 0,
+      "skillPackages": [
+        {
+          "label": "1,150k · 4 skills",
+          "gold": 1150000,
+          "skillPointBudget": 0,
+          "maxSkills": 4,
+          "maxSecondary": 0,
+          "maxPerPlayer": 2,
+          "starPlayersAllowed": false
+        },
+        {
+          "label": "1,100k · 5 skills",
+          "gold": 1100000,
+          "skillPointBudget": 0,
+          "maxSkills": 5,
+          "maxSecondary": 0,
+          "maxPerPlayer": 2,
+          "starPlayersAllowed": false
+        }
+      ],
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    },
+    {
+      "tier": 2,
+      "label": "Tier 2",
+      "rosters": [
+        "Dark Elf",
+        "Nurgle",
+        "Underworld Denizens",
+        "Wood Elf"
+      ],
+      "gold": 1150000,
+      "maxSecondary": 0,
+      "skillPackages": [
+        {
+          "label": "1,150k · 5 skills",
+          "gold": 1150000,
+          "skillPointBudget": 0,
+          "maxSkills": 5,
+          "maxSecondary": 0,
+          "maxPerPlayer": 2,
+          "starPlayersAllowed": false
+        },
+        {
+          "label": "1,100k · 6 skills",
+          "gold": 1100000,
+          "skillPointBudget": 0,
+          "maxSkills": 6,
+          "maxSecondary": 0,
+          "maxPerPlayer": 2,
+          "starPlayersAllowed": false
+        }
+      ],
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    },
+    {
+      "tier": 3,
+      "label": "Tier 3",
+      "rosters": [
+        "Elven Union",
+        "Human",
+        "Lizardmen",
+        "Necromantic Horror",
+        "Norse",
+        "Skaven",
+        "Shambling Undead"
+      ],
+      "gold": 1150000,
+      "maxSecondary": 1,
+      "skillPackages": [
+        {
+          "label": "1,150k · 6 skills",
+          "gold": 1150000,
+          "skillPointBudget": 0,
+          "maxSkills": 6,
+          "maxSecondary": 1,
+          "maxPerPlayer": 2,
+          "starPlayersAllowed": false
+        },
+        {
+          "label": "1,100k · 7 skills",
+          "gold": 1100000,
+          "skillPointBudget": 0,
+          "maxSkills": 7,
+          "maxSecondary": 1,
+          "maxPerPlayer": 2,
+          "starPlayersAllowed": false
+        }
+      ],
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    },
+    {
+      "tier": 4,
+      "label": "Tier 4",
+      "rosters": [
+        "Black Orc",
+        "Chaos Chosen",
+        "Chaos Dwarf",
+        "Chaos Renegade",
+        "Dwarf",
+        "Imperial Nobility",
+        "Khorne",
+        "Vampire"
+      ],
+      "gold": 1150000,
+      "maxSecondary": 1,
+      "skillPackages": [
+        {
+          "label": "1,150k · 7 skills",
+          "gold": 1150000,
+          "skillPointBudget": 0,
+          "maxSkills": 7,
+          "maxSecondary": 1,
+          "maxPerPlayer": 2,
+          "starPlayersAllowed": false
+        },
+        {
+          "label": "1,100k · 8 skills",
+          "gold": 1100000,
+          "skillPointBudget": 0,
+          "maxSkills": 8,
+          "maxSecondary": 1,
+          "maxPerPlayer": 2,
+          "starPlayersAllowed": false
+        }
+      ],
+      "starPlayersAllowed": false,
+      "bannedStars": []
+    },
+    {
+      "tier": 5,
+      "label": "Tier 5",
+      "rosters": [
+        "Goblin",
+        "Halfling"
+      ],
+      "gold": 1150000,
+      "maxSecondary": 2,
+      "skillPackages": [
+        {
+          "label": "1,150k · 8 skills",
+          "gold": 1150000,
+          "skillPointBudget": 0,
+          "maxSkills": 8,
+          "maxSecondary": 2,
+          "maxPerPlayer": 2,
+          "starPlayersAllowed": false
+        },
+        {
+          "label": "1,100k · 9 skills",
+          "gold": 1100000,
+          "skillPointBudget": 0,
+          "maxSkills": 9,
+          "maxSecondary": 2,
+          "maxPerPlayer": 2,
+          "starPlayersAllowed": false
+        },
+        {
+          "label": "1,150k · 8 skills + Star",
+          "gold": 1150000,
+          "skillPointBudget": 0,
+          "maxSkills": 8,
+          "maxSecondary": 0,
+          "maxPerPlayer": 2,
+          "starPlayersAllowed": true
+        },
+        {
+          "label": "1,100k · 9 skills + Star",
+          "gold": 1100000,
+          "skillPointBudget": 0,
+          "maxSkills": 9,
+          "maxSecondary": 0,
+          "maxPerPlayer": 2,
+          "starPlayersAllowed": true
+        }
+      ],
+      "starPlayersAllowed": true,
+      "bannedStars": [
+        "Bomber Dribblesnot",
+        "Cindy Piewhistle",
+        "Hakflem Skuttlespike",
+        "Morg 'n' Thorg",
+        "Skitter Stab-Stab",
+        "Grak",
+        "Crumbleberry",
+        "Dribl",
+        "Drull",
+        "Lucien Swift",
+        "Valen Swift"
+      ]
+    }
+  ],
+  "statIncreases": {
+    "allowed": []
+  },
+  "goldBudget": 1150000,
+  "goldCapIncludesAddedSkills": false,
+  "starPlayers": {
+    "allowed": true,
+    "maxCount": 1,
+    "maxCombinedCost": null
+  },
+  "inducements": {
+    "allowed": [
+      "bribes",
+      "bloodweiser_kegs",
+      "halfling_master_chef",
+      "mortuary_assistant",
+      "plague_doctor",
+      "riotous_rookies",
+      "team_mascot",
+      "weather_mage"
+    ],
+    "caps": {
+      "bribes": 3,
+      "bloodweiser_kegs": 2,
+      "halfling_master_chef": 1,
+      "mortuary_assistant": 1,
+      "plague_doctor": 1,
+      "riotous_rookies": 1,
+      "team_mascot": 1,
+      "weather_mage": 1
+    },
+    "rosterOnly": {
+      "halfling_master_chef": [
+        "Halfling"
+      ]
+    }
+  },
+  "sideline": {
+    "maxReRolls": 8,
+    "maxApothecary": 1,
+    "maxCheerleaders": null,
+    "maxAssistantCoaches": null,
+    "maxDedicatedFans": null
+  },
+  "special": {
+    "insignificantTraitConstraint": true,
+    "stalling": true,
+    "slannAllowed": false,
+    "statIncreasesAllowed": false,
+    "bannedSkills": [],
+    "minPlayers": 11
+  }
+}
