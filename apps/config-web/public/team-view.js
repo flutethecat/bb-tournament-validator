@@ -60,7 +60,7 @@
   function skillChip(skill, added) {
     const access = added && skill.access === "secondary" ? "secondary" : added ? "primary" : "";
     const label = added ? `${access === "secondary" ? "Secondary" : "Primary"} skill added: ${skill.name}` : skill.name;
-    return `<span class="skill ${categoryClass(skill.category)}${added ? " tv-added" : ""}${access === "secondary" ? " tv-secondary" : ""}" title="${esc(label)}">${esc(skill.name)}${access === "secondary" ? '<sup class="tv-access" aria-hidden="true">S</sup>' : ""}</span>`;
+    return `<span class="skill ${categoryClass(skill.category)}${added ? " tv-added" : ""}${access === "secondary" ? " tv-secondary" : ""}" title="${esc(label)}">${esc(skill.name)}</span>`;
   }
   function skillsHtml(player) {
     const printed = (player.printed ?? []).map((s) => skillChip(s, false));
