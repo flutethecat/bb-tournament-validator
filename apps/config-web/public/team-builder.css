@@ -795,6 +795,20 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .tt-card small { color: var(--ui-muted); font-size: 14px; line-height: 1.35; }
 .tt-card:hover { border-color: var(--ui-primary); background: color-mix(in srgb, var(--ui-primary) 18%, var(--ui-surface)); }
 .tt-card.selected { border-color: var(--ui-heading); background: color-mix(in srgb, var(--ui-primary) 34%, var(--ui-surface)); }
+/* Owner 10-27: step-1 ruleset cards = name-only, centred, button-styled. */
+.tt-ruleset-card {
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  padding: 14px 16px;
+  text-align: center;
+  background: color-mix(in srgb, var(--ui-primary) 12%, var(--ui-surface));
+  border: 2px outset color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border));
+  box-shadow: 0 2px 0 color-mix(in srgb, var(--ui-primary) 30%, transparent);
+}
+.tt-ruleset-card strong { font-size: clamp(16px, 1.15vw, 20px); font-weight: 600; letter-spacing: .03em; color: var(--ui-eggshell, var(--ui-text)); }
+.tt-ruleset-card:hover { background: color-mix(in srgb, var(--ui-primary) 26%, var(--ui-surface)); }
+.tt-ruleset-card.selected { background: color-mix(in srgb, var(--ui-primary) 42%, var(--ui-surface)); border-style: inset; }
 .tt-race small { color: var(--ui-gold); }
 .tt-package-detail { display: flex; flex-direction: column; gap: 10px; padding-top: 6px; border-top: 1px solid var(--ui-border); }
 .tt-package-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

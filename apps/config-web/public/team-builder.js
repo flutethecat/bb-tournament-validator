@@ -776,6 +776,8 @@ ${rosterSheetHtml(model)}
   let packageDoc = null; // GET /api/packages/<name> `pkg` (description, eligibleRosters)
   let rosters = [];
   let packages = [];
+  /** Sample packages shipped for tests/docs (e.g. "Lustrian Superleague (Example)") are not offered to coaches. */
+  const isExamplePackage = (packageName) => /\((example|sample)\)\s*$/i.test(String(packageName ?? ""));
   let current = null;
   let packageRules = null;
   let tierRows = [];
@@ -2697,8 +2699,11 @@ ${rosterSheetHtml(model)}
     $("tt-step-race").hidden = setupStep !== 2;
     $("builder-panel").hidden = setupStep !== 3;
     // Step 1 — rulesets + the chosen one's description, data note and tier table.
-    $("tt-packages").innerHTML = packages.length ? packages.map((row) => `<button type="button" role="listitem" class="tt-card${row.name === name ? " selected" : ""}" data-tt-package="${esc(row.name)}" aria-pressed="${row.name === name}">
-        <strong>${esc(row.name)}</strong>${row.description ? `<small>${esc(String(row.description).slice(0, 180))}${String(row.description).length > 180 ? "…" : ""}</small>` : ""}
+    // Owner 10-27: ruleset cards are name-only styled buttons (the description shows once a ruleset is chosen);
+    // example/sample packages are development fixtures and never offered here.
+    const offered = packages.filter((row) => !isExamplePackage(row.name));
+    $("tt-packages").innerHTML = offered.length ? offered.map((row) => `<button type="button" role="listitem" class="tt-card tt-ruleset-card${row.name === name ? " selected" : ""}" data-tt-package="${esc(row.name)}" aria-pressed="${row.name === name}">
+        <strong>${esc(row.name)}</strong>
       </button>`).join("") : '<p class="status-copy">No tournament packages are saved yet.</p>';
     $("tt-package-detail").hidden = !name;
     if (name) {
@@ -2802,7 +2807,7 @@ ${rosterSheetHtml(model)}
       ]);
       rosters = (Array.isArray(rosterRows) ? rosterRows : []).map(sanitizeRoster);
       const list = Array.isArray(packageRows) ? packageRows : Array.isArray(packageRows?.packages) ? packageRows.packages : [];
-      packages = list.filter((row) => typeof row?.name === "string");
+      packages = list.filter((row) => typeof row?.name === "string" && !isExamplePackage(row.name));
       $("package").innerHTML = packages.length
         ? packages.map((row) => `<option value="${esc(row.name)}">${esc(row.name)}</option>`).join("")
         : '<option value="">No tournament packages are saved yet</option>';
