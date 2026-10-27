@@ -108,7 +108,9 @@
   }
   function inducementsHtml(team) {
     const list = team.inducements ?? [];
-    if (!list.length) return "";
+    // Owner 10-27: the Inducements section is always present, reading "None" when the team bought none.
+    if (!list.length) return `<section class="tv-panel" aria-labelledby="tv-ind-title"><h2 id="tv-ind-title" class="section-title"><span>I</span>nducements</h2>
+      <p class="status-copy tv-none">None</p></section>`;
     return `<section class="tv-panel" aria-labelledby="tv-ind-title"><h2 id="tv-ind-title" class="section-title"><span>I</span>nducements</h2>
       <ul class="tv-inducements">${list.map((i) => { const src = artSrc(i.icon); return `<li>${src ? `<img class="crest-image tv-ind-icon" src="${esc(src)}" alt="" aria-hidden="true" loading="lazy">` : ""}<span>${esc(i.name)}</span>${isNum(i.count) && i.count > 1 ? `<b>×${esc(i.count)}</b>` : ""}</li>`; }).join("")}</ul></section>`;
   }
