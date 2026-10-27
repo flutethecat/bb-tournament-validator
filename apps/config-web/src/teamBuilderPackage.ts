@@ -633,11 +633,10 @@ function statIncreasesClause(teams: TeamEntry[]): string | null {
     const per = si.maxPerPlayer == null ? "no per-player cap" : si.maxPerPlayer === 1 ? "one increase per player" : `up to ${si.maxPerPlayer} increases per player`;
     return `${per}${si.exclusiveWithSkills ? ", instead of skills" : ""}`;
   };
-  // Who gets what: scope each clause by tier when the tiers are clean, else by team name.
-  const scopeOf = (members: TeamEntry[], value: (t: TeamEntry) => string): string => {
-    const by = variesBy(teams, (t) => (members.includes(t) ? `in:${value(t)}` : "out"));
+  // Who gets what: a tier label only when EVERY team of each named tier is in the clause; otherwise name the teams.
+  const scopeOf = (members: TeamEntry[]): string => {
     const tiers = uniq(members.map((t) => t.tier));
-    const wholeTiers = by !== "team" && tiers.every((tier) => tier != null);
+    const wholeTiers = tiers.every((tier) => tier != null && teams.filter((t) => t.tier === tier).every((t) => members.includes(t)));
     return wholeTiers ? tierPhrase(tiers as number[]) : members.map((t) => t.name).join(", ");
   };
   const sets = uniq(statTeams.map(setText));
@@ -645,10 +644,10 @@ function statIncreasesClause(teams: TeamEntry[]): string | null {
   const everyone = statTeams.length === teams.length;
   const setClauses = sets.length === 1 && everyone
     ? [sets[0]!]
-    : sets.map((set) => `${scopeOf(statTeams.filter((t) => setText(t) === set), setText)}: ${set}`);
+    : sets.map((set) => `${scopeOf(statTeams.filter((t) => setText(t) === set))}: ${set}`);
   const termClauses = terms.length === 1
     ? [terms[0]!]
-    : terms.map((term) => `${scopeOf(statTeams.filter((t) => termsText(t) === term), termsText)}: ${term}`);
+    : terms.map((term) => `${scopeOf(statTeams.filter((t) => termsText(t) === term))}: ${term}`);
   return `stat increases (${[...setClauses, ...termClauses].join("; ")})`;
 }
 

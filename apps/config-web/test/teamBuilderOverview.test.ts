@@ -106,6 +106,22 @@ describe("ruleset overview — summary lines", () => {
     );
   });
 
+  it("names the teams, not the tier, when a stat set or its terms differ inside a tier", () => {
+    const tier = (extra: Record<string, unknown> = {}) => ({
+      tier: 1, rosters: ["Human", "Orc", "Amazon"], gold: 1_000_000, starPlayersAllowed: false, bannedStars: [],
+      statIncreases: { allowed: ["AV"], costGold: { MA: 20_000, AV: 10_000 }, maxPerPlayer: 1 }, ...extra,
+    });
+    const pkg = (teamRules: unknown[]) => loadPackage({
+      name: "Tier Exception Cup", eligibleRosters: ["Human", "Orc", "Amazon"], goldBudget: null, tiers: [tier()], teamRules,
+    } as unknown as Partial<TournamentPackage>).pkg;
+    const sets = packageOverview(pkg([{ team: "Human", statIncreases: { allowed: ["MA", "AV"] } }]));
+    expect(line(sets, "skills")!.text).toBe("No added skills; stat increases (Human: +MA 20k or +AV 10k; Orc, Amazon: +AV 10k; one increase per player).");
+    const terms = packageOverview(pkg([{ team: "Orc", statIncreases: { maxPerPlayer: 2, exclusiveWithSkills: true } }]));
+    expect(line(terms, "skills")!.text).toBe("No added skills; stat increases (+AV 10k; Human, Amazon: one increase per player; Orc: up to 2 increases per player, instead of skills).");
+    // Whole tiers still get the tier label (Small Gods).
+    expect(line(packageOverview(shipped("small-gods")), "skills")!.text).toContain("stat increases (Tiers 4–5: +PA 20k or +AV 10k; Tier 6: +MA 20k, +PA 20k or +AV 10k;");
+  });
+
   it("cash × skills matrix", () => {
     const { pkg } = loadPackage({
       name: "Matrix Cup",
