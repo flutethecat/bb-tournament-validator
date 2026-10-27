@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,5 +61,16 @@ describe("preview gate — no auth mode configured", () => {
     const response = await post();
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "Organiser auth is not configured on this server." });
+  });
+});
+
+describe("save gate — no auth mode configured", () => {
+  it("POST /api/packages and ?replace refuse with the same 503 and write nothing", async () => {
+    for (const url of ["/api/packages", "/api/packages?replace=Gate"]) {
+      const response = await fetch(`${origin}${url}`, { method: "POST", headers: { "content-type": "application/json", "x-cw-auth": "1" }, body });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "Organiser auth is not configured on this server." });
+    }
+    expect(readdirSync(join(root, "packages"))).toEqual([]);
   });
 });

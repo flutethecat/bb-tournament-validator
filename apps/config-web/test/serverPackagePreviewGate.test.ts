@@ -67,3 +67,10 @@ describe("preview gate — password mode", () => {
     expect((await post({ authorization: `Basic ${Buffer.from("admin:admin-secret").toString("base64")}` })).status).toBe(200);
   });
 });
+
+describe("save gate — password mode", () => {
+  it("401 for an anonymous save", async () => {
+    const response = await fetch(`${origin}/api/packages`, { method: "POST", headers: { "content-type": "application/json", "x-cw-auth": "1" }, body });
+    expect(response.status).toBe(401);
+  });
+});

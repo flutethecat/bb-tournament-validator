@@ -1778,13 +1778,12 @@ async function handleApi(
     // Save AND preview are organiser actions. Under the sidecar isOrganizerWrite already required an
     // organiser session; with the sidecar off they need the organiser token (POST /api/auth/login) or
     // admin Basic auth.
-    if (path === "/api/packages" && method === "POST" && !AUTH_SIDECAR && ADMIN_PASSWORD && !isAdminAuthed(req) && !isTokenAuthed(req))
-      return sendJson(res, 401, { error: "Saving a package requires login (bearer token) or admin auth." });
-    // The preview gate never depends on configuration being present: with neither auth mode
-    // configured there is no organiser to recognise, so it refuses instead of opening up.
-    if (path === "/api/packages/preview" && method === "POST" && !AUTH_SIDECAR) {
+    // Neither gate depends on configuration being present: with neither auth mode configured there
+    // is no organiser to recognise, so save (incl. ?replace) and preview refuse instead of opening up.
+    if ((path === "/api/packages" || path === "/api/packages/preview") && method === "POST" && !AUTH_SIDECAR) {
       if (!ADMIN_PASSWORD) return sendJson(res, 503, { error: "Organiser auth is not configured on this server." });
-      if (!isAdminAuthed(req) && !isTokenAuthed(req)) return sendJson(res, 401, { error: "The package preview requires the organiser login." });
+      if (!isAdminAuthed(req) && !isTokenAuthed(req))
+        return sendJson(res, 401, { error: path === "/api/packages" ? "Saving a package requires login (bearer token) or admin auth." : "The package preview requires the organiser login." });
     }
     const body = method === "POST" ? await readBody(req) : undefined;
     const ifMatch = typeof req.headers["if-match"] === "string" ? req.headers["if-match"].replace(/^"|"$/g, "") : undefined;
