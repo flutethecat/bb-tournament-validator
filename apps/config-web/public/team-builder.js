@@ -2378,8 +2378,9 @@ ${rosterSheetHtml(model)}
   // ── Saves (signed-in coaches; server contract /api/fork/team-builder/saves) ──
   function renderSaves() {
     const signedIn = Boolean(authCoach);
-    $("saves-signin").hidden = signedIn;
-    $("saves-signin").textContent = "Sign in with Discord to save drafts and recall them later.";
+    // Tournament page (owner 10-27): no sign-in hint under My Teams; the plain page keeps it.
+    $("saves-signin").hidden = signedIn || TOURNAMENT_PAGE;
+    $("saves-signin").textContent = TOURNAMENT_PAGE ? "" : "Sign in with Discord to save drafts and recall them later.";
     $("saves-actions").hidden = !signedIn || !savesAvailable;
     $("saves-list").hidden = !signedIn || !savesOpen || !savesAvailable;
     $("saves-toggle").textContent = savesOpen ? "Hide list" : `Show list${saves.length ? ` (${saves.length})` : ""}`;
@@ -2387,6 +2388,11 @@ ${rosterSheetHtml(model)}
     $("current-save-label").textContent = currentSave ? `Editing “${currentSave.name}”` : "";
     $("save-button").disabled = !current;
     $("save-as-button").disabled = !current;
+    const railSave = $("save-team-rail"); // tournament page: Save Team under Export PDF
+    if (railSave) {
+      railSave.disabled = !current || !signedIn || !savesAvailable;
+      railSave.title = signedIn ? "" : "Sign in with Discord to save your team";
+    }
     if (!signedIn) {
       $("saves-status").textContent = "";
       return;
@@ -2707,8 +2713,8 @@ ${rosterSheetHtml(model)}
       if (step === setupStep) button.setAttribute("aria-current", "step");
       else button.removeAttribute("aria-current");
     });
-    $("tt-step-1-label").textContent = name || "Choose a tournament";
-    $("tt-step-2-label").textContent = current ? `${current.raceName}${tierLabel ? ` · ${tierLabel}` : ""}` : "Pick a tiered race";
+    $("tt-step-1-label").textContent = name || ""; // owner 10-27: no placeholder sub-labels on the steps
+    $("tt-step-2-label").textContent = current ? `${current.raceName}${tierLabel ? ` · ${tierLabel}` : ""}` : "";
     $("tt-step-package").hidden = setupStep !== 1;
     $("tt-step-race").hidden = setupStep !== 2;
     $("builder-panel").hidden = setupStep !== 3;
@@ -3006,6 +3012,7 @@ ${rosterSheetHtml(model)}
   document.addEventListener("click", (event) => { const menu = $("signed-in-session"); if (menu && "open" in menu && menu.open && !menu.contains(event.target)) menu.open = false; });
   document.addEventListener("keydown", (event) => { const menu = $("signed-in-session"); if (event.key === "Escape" && menu && "open" in menu && menu.open) menu.open = false; });
   $("save-button").addEventListener("click", () => saveTeam(false));
+  $("save-team-rail")?.addEventListener("click", () => saveTeam(false));
   $("save-as-button").addEventListener("click", () => saveTeam(true));
   $("saves-toggle").addEventListener("click", () => { savesOpen = !savesOpen; renderSaves(); if (savesOpen) loadSaves(); });
   $("saves-list").addEventListener("click", (event) => {
