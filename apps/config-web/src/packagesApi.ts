@@ -10,9 +10,11 @@ export interface PackagesApiResult {
 }
 
 /** Sanity caps for an organiser package (owner 10-27: at most 10 tiers). They bound the work the
- *  save dry run and the Summary preview do, which resolve every listed roster. */
+ *  save dry run and the Summary preview do (both resolve every listed roster, and packageOverview
+ *  walks the eligible rosters), and run before any derivation. */
 export const PACKAGE_LIMITS = {
   tiers: 10,
+  eligibleRosters: 64,
   rostersPerTier: 64,
   teamRules: 128,
   skillPackages: 32,
@@ -37,6 +39,17 @@ function limitProblems(doc: Record<string, unknown>): string[] {
     if (len(tier?.rosters) > PACKAGE_LIMITS.rostersPerTier) out.push(`Tier ${index + 1} lists more than ${PACKAGE_LIMITS.rostersPerTier} rosters.`);
     if (len(tier?.skillPackages) > PACKAGE_LIMITS.skillPackages) out.push(`Tier ${index + 1} has more than ${PACKAGE_LIMITS.skillPackages} skill packages.`);
   });
+  const eligible = Array.isArray(doc.eligibleRosters) ? (doc.eligibleRosters as unknown[]) : [];
+  if (eligible.length > PACKAGE_LIMITS.eligibleRosters) {
+    out.push(`A package may list at most ${PACKAGE_LIMITS.eligibleRosters} eligible rosters (this one lists ${eligible.length}).`);
+  } else {
+    // Every eligible roster must be a dataset team or one the package itself places in a tier, matrix
+    // cell or team rule (Small Gods' Night Goblin is tier-only) — never free text.
+    const known = new Set(bb2025.teams.map((team) => team.name.toLowerCase()));
+    for (const tier of tiers.slice(0, PACKAGE_LIMITS.tiers)) for (const name of Array.isArray(tier?.rosters) ? tier.rosters : []) known.add(String(name).toLowerCase());
+    const unknown = eligible.filter((name) => name !== "*" && !known.has(String(name).toLowerCase()));
+    if (unknown.length) out.push(`Unknown eligible roster(s): ${unknown.slice(0, 5).map(String).join(", ")}${unknown.length > 5 ? ", …" : ""}.`);
+  }
   if (len(doc.teamRules) > PACKAGE_LIMITS.teamRules) out.push(`A package may have at most ${PACKAGE_LIMITS.teamRules} team rules.`);
   if (len(doc.skillPackages) > PACKAGE_LIMITS.skillPackages) out.push(`A package may have at most ${PACKAGE_LIMITS.skillPackages} skill packages.`);
   if (len(doc.starPacks) > PACKAGE_LIMITS.starPacks) out.push(`A package may have at most ${PACKAGE_LIMITS.starPacks} star packs.`);

@@ -1407,6 +1407,9 @@ const OVERVIEW_CELLS = [["secondary", "Secondary"], ["elite", "Elite"], ["stacks
  * hands the Tournament Builder): highlight lines plus the per-team tier table. Rendered plainly here —
  * one row per team, columns that are empty for every team dropped.
  */
+/** Gold the way the coach page and the overview text write it: "1,225k". */
+const overviewGold = (gold) => `${Math.round(Number(gold) / 1000).toLocaleString("en-US")}k`;
+
 function renderOverview(overview) {
   if (!overview || !Array.isArray(overview.groups) || !overview.groups.length) return "";
   const lines = safeArray(overview.summary).map((line) => {
@@ -1422,7 +1425,7 @@ function renderOverview(overview) {
   const body = overview.groups.map((group) => safeArray(group.teams).map((team, index) => `<tr>
       ${index === 0 ? `<th scope="rowgroup" rowspan="${group.teams.length}">${escapeHtml(group.tier ?? group.label ?? "All teams")}</th>` : ""}
       <th scope="row">${escapeHtml(team.name)}</th>
-      ${showGold ? `<td>${team.gold == null ? "—" : `${escapeHtml(goldLabel(team.gold))}${team.goldMax != null ? `–${escapeHtml(goldLabel(team.goldMax))}` : ""}`}</td>` : ""}
+      ${showGold ? `<td>${team.gold == null ? "—" : `${escapeHtml(overviewGold(team.gold))}${team.goldMax != null ? `–${escapeHtml(overviewGold(team.goldMax))}` : ""}`}</td>` : ""}
       <td>${safeArray(team.allotment).map((line) => escapeHtml(line)).join("<br>") || "—"}</td>
       ${cols.map(([key]) => `<td>${cell(team[key])}</td>`).join("")}
     </tr>`).join("")).join("");

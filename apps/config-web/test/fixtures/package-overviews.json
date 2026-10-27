@@ -1,0 +1,2742 @@
+{
+  "bb2025-default": {
+    "summary": [
+      {
+        "key": "structure",
+        "label": "Structure",
+        "text": "Standard team creation: no team-value cap set; no added skills."
+      },
+      {
+        "key": "skills",
+        "label": "Skills",
+        "text": "No added skills."
+      },
+      {
+        "key": "stars",
+        "label": "Star players",
+        "text": "max 2."
+      },
+      {
+        "key": "inducements",
+        "label": "Inducements",
+        "text": "All inducements at book cost."
+      }
+    ],
+    "groups": [
+      {
+        "tier": null,
+        "label": "All teams",
+        "teams": [
+          {
+            "name": "Every eligible roster (31)",
+            "gold": null,
+            "goldMax": null,
+            "allotment": [
+              "no added skills"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          }
+        ]
+      }
+    ]
+  },
+  "small-gods": {
+    "summary": [
+      {
+        "key": "structure",
+        "label": "Structure",
+        "text": "Tiered: 6 tiers, gold caps 1,225k–1,500k (set per roster); added skills cost gold inside the team-value cap."
+      },
+      {
+        "key": "skills",
+        "label": "Skills",
+        "text": "Primary 20k, secondary 40k, counted inside the cap; secondaries limited per tier (table); stacking up to 3 skills on a player; stacked players and stack limits per tier (table); stat increases (Tiers 4–5: +PA 20k or +AV 10k; Tier 6: +MA 20k, +PA 20k or +AV 10k; one increase per player, instead of skills)."
+      },
+      {
+        "key": "elite",
+        "label": "Elite skill tax",
+        "text": "Block, Guard, Mighty Blow, Dodge +10k each; limits per tier (table)."
+      },
+      {
+        "key": "stars",
+        "label": "Star players",
+        "text": "Tiers 2–6 only; max 2 picks from packs: Free (no fee, max 2) · Star (+20k once, max 2) · Super Star (+40k each, max 1) · Mega Star (+80k each, max 1); packs open per tier, some rosters differ (table)."
+      },
+      {
+        "key": "inducements",
+        "label": "Inducements",
+        "text": "All inducements at book cost."
+      }
+    ],
+    "groups": [
+      {
+        "tier": 1,
+        "label": "Tier 1",
+        "teams": [
+          {
+            "name": "Orc",
+            "gold": 1225000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "1",
+            "elite": "≤3 total",
+            "stacks": "1",
+            "stackLimit": "3 skills · primary only · no elite",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Old World Alliance",
+            "gold": 1225000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "1",
+            "elite": "≤3 total",
+            "stacks": "1",
+            "stackLimit": "3 skills · primary only · no elite",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Underworld Denizens",
+            "gold": 1225000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "1",
+            "elite": "≤3 total",
+            "stacks": "1",
+            "stackLimit": "3 skills · primary only · no elite",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "High Elf",
+            "gold": 1260000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "1",
+            "elite": "≤3 total",
+            "stacks": "1",
+            "stackLimit": "3 skills · primary only · no elite",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Amazon",
+            "gold": 1265000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "1",
+            "elite": "≤3 total",
+            "stacks": "1",
+            "stackLimit": "3 skills · primary only · no elite",
+            "characteristics": null,
+            "stars": null
+          }
+        ]
+      },
+      {
+        "tier": 2,
+        "label": "Tier 2",
+        "teams": [
+          {
+            "name": "Dark Elf",
+            "gold": 1275000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "2",
+            "elite": "≤4 total",
+            "stacks": "1",
+            "stackLimit": "3 skills · primary only · no elite",
+            "characteristics": null,
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Wood Elf",
+            "gold": 1285000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "2",
+            "elite": "≤4 total",
+            "stacks": "1",
+            "stackLimit": "3 skills · primary only · no elite",
+            "characteristics": null,
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Skaven",
+            "gold": 1290000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "2",
+            "elite": "≤4 total",
+            "stacks": "1",
+            "stackLimit": "3 skills · primary only · no elite",
+            "characteristics": null,
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Human",
+            "gold": 1305000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "2",
+            "elite": "≤4 total",
+            "stacks": "1",
+            "stackLimit": "3 skills · primary only · no elite",
+            "characteristics": null,
+            "stars": "Free (max 2)"
+          }
+        ]
+      },
+      {
+        "tier": 3,
+        "label": "Tier 3",
+        "teams": [
+          {
+            "name": "Shambling Undead",
+            "gold": 1320000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "3",
+            "elite": "≤4 of one skill",
+            "stacks": "2",
+            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "characteristics": null,
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Lizardmen",
+            "gold": 1340000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "3",
+            "elite": "≤4 of one skill",
+            "stacks": "2",
+            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "characteristics": null,
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Nurgle",
+            "gold": 1340000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "3",
+            "elite": "≤4 of one skill",
+            "stacks": "2",
+            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "characteristics": null,
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Necromantic Horror",
+            "gold": 1350000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "3",
+            "elite": "≤4 of one skill",
+            "stacks": "2",
+            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "characteristics": null,
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Norse",
+            "gold": 1350000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "3",
+            "elite": "≤4 of one skill",
+            "stacks": "2",
+            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "characteristics": null,
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Slann",
+            "gold": 1360000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "3",
+            "elite": "≤4 of one skill",
+            "stacks": "2",
+            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "characteristics": null,
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Vampire",
+            "gold": 1365000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "3",
+            "elite": "≤4 of one skill",
+            "stacks": "2",
+            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "characteristics": null,
+            "stars": "Free (max 2)"
+          }
+        ]
+      },
+      {
+        "tier": 4,
+        "label": "Tier 4",
+        "teams": [
+          {
+            "name": "Imperial Nobility",
+            "gold": 1380000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "4",
+            "elite": "≤4 of one skill",
+            "stacks": "3",
+            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "characteristics": "+AV 10k · +PA 20k",
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Tomb Kings",
+            "gold": 1380000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "4",
+            "elite": "≤4 of one skill",
+            "stacks": "3",
+            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "characteristics": "+AV 10k · +PA 20k",
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Chaos Chosen",
+            "gold": 1395000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "4",
+            "elite": "≤4 of one skill",
+            "stacks": "3",
+            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "characteristics": "+AV 10k · +PA 20k",
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Elven Union",
+            "gold": 1395000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "4",
+            "elite": "≤4 of one skill",
+            "stacks": "3",
+            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "characteristics": "+AV 10k · +PA 20k",
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Chaos Dwarf",
+            "gold": 1410000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "4",
+            "elite": "≤4 of one skill",
+            "stacks": "3",
+            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "characteristics": "+AV 10k · +PA 20k",
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Snotling",
+            "gold": 1435000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "4",
+            "elite": "≤4 of one skill",
+            "stacks": "3",
+            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "characteristics": "+AV 10k · +PA 20k",
+            "stars": "Free (max 2) · Star (max 2) · Super Star (max 1) · Mega Star (max 1)"
+          }
+        ]
+      },
+      {
+        "tier": 5,
+        "label": "Tier 5",
+        "teams": [
+          {
+            "name": "Bretonnian",
+            "gold": 1440000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "8",
+            "elite": "≤6 of one skill",
+            "stacks": "4",
+            "stackLimit": "3 skills · ≤2 secondary · ≤2 elite",
+            "characteristics": "+AV 10k · +PA 20k",
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Khorne",
+            "gold": 1450000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "8",
+            "elite": "≤6 of one skill",
+            "stacks": "4",
+            "stackLimit": "3 skills · ≤2 secondary · ≤2 elite",
+            "characteristics": "+AV 10k · +PA 20k",
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Dwarf",
+            "gold": 1455000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "8",
+            "elite": "≤6 of one skill",
+            "stacks": "4",
+            "stackLimit": "3 skills · ≤2 secondary · ≤2 elite",
+            "characteristics": "+AV 10k · +PA 20k",
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Black Orc",
+            "gold": 1460000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "8",
+            "elite": "≤6 of one skill",
+            "stacks": "4",
+            "stackLimit": "3 skills · ≤2 secondary · ≤2 elite",
+            "characteristics": "+AV 10k · +PA 20k",
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Chaos Renegade",
+            "gold": 1470000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "8",
+            "elite": "≤6 of one skill",
+            "stacks": "4",
+            "stackLimit": "3 skills · ≤2 secondary · ≤2 elite",
+            "characteristics": "+AV 10k · +PA 20k",
+            "stars": "Free (max 2)"
+          },
+          {
+            "name": "Gnome",
+            "gold": 1470000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "8",
+            "elite": "≤6 of one skill",
+            "stacks": "4",
+            "stackLimit": "3 skills · ≤2 secondary · ≤2 elite",
+            "characteristics": "+AV 10k · +PA 20k",
+            "stars": "Free (max 2) · Star (max 2) · Super Star (max 1) · Mega Star (max 1)"
+          }
+        ]
+      },
+      {
+        "tier": 6,
+        "label": "Tier 6",
+        "teams": [
+          {
+            "name": "Goblin",
+            "gold": 1480000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "10",
+            "elite": null,
+            "stacks": "6",
+            "stackLimit": "3 skills",
+            "characteristics": "+AV 10k · +PA 20k · +MA 20k",
+            "stars": "Free (max 2) · Star (max 2) · Super Star (max 1) · Mega Star (max 1)"
+          },
+          {
+            "name": "Halfling",
+            "gold": 1480000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "10",
+            "elite": null,
+            "stacks": "6",
+            "stackLimit": "3 skills",
+            "characteristics": "+AV 10k · +PA 20k · +MA 20k",
+            "stars": "Free (max 2) · Star (max 2) · Super Star (max 1) · Mega Star (max 1)"
+          },
+          {
+            "name": "Night Goblin",
+            "gold": 1480000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "10",
+            "elite": null,
+            "stacks": "6",
+            "stackLimit": "3 skills",
+            "characteristics": "+AV 10k · +PA 20k · +MA 20k",
+            "stars": "Free (max 2) · Star (max 2) · Super Star (max 1) · Mega Star (max 1)"
+          },
+          {
+            "name": "Ogre",
+            "gold": 1500000,
+            "goldMax": null,
+            "allotment": [
+              "primary 20k · secondary 40k"
+            ],
+            "secondary": "10",
+            "elite": null,
+            "stacks": "6",
+            "stackLimit": "3 skills",
+            "characteristics": "+AV 10k · +PA 20k · +MA 20k",
+            "stars": "Free (max 2) · Star (max 2) · Super Star (max 1) · Mega Star (max 1)"
+          }
+        ]
+      }
+    ]
+  },
+  "whbb-nut-cup-2026": {
+    "summary": [
+      {
+        "key": "structure",
+        "label": "Structure",
+        "text": "Choose-one skill packages: 5 tiers, each offering 2–4 packages that trade the gold cap (1,100k–1,150k) against a skill count (4–9 skills)."
+      },
+      {
+        "key": "skills",
+        "label": "Skills",
+        "text": "Skill count set by the chosen package; secondaries limited per tier (table); one player may stack up to 2 skills; stack limits per tier (table)."
+      },
+      {
+        "key": "stars",
+        "label": "Star players",
+        "text": "Tier 5 only; max 1; only on a package that allows a Star.",
+        "details": {
+          "summary": "11 banned stars",
+          "items": [
+            "Bomber Dribblesnot (Tier 5)",
+            "Cindy Piewhistle (Tier 5)",
+            "Hakflem Skuttlespike (Tier 5)",
+            "Morg 'n' Thorg (Tier 5)",
+            "Skitter Stab-Stab (Tier 5)",
+            "Grak (Tier 5)",
+            "Crumbleberry (Tier 5)",
+            "Dribl (Tier 5)",
+            "Drull (Tier 5)",
+            "Lucien Swift (Tier 5)",
+            "Valen Swift (Tier 5)"
+          ]
+        }
+      },
+      {
+        "key": "inducements",
+        "label": "Inducements",
+        "text": "Bribes (max 3), Blitzer's Best Kegs (max 2), Halfling Master Chef (max 1, Halfling only), Mortuary Assistant (max 1), Plague Doctor (max 1), Riotous Rookies (max 1), Team Mascot (max 1), Weather Mage (max 1)."
+      }
+    ],
+    "groups": [
+      {
+        "tier": 1,
+        "label": "Tier 1",
+        "teams": [
+          {
+            "name": "Amazon",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 4 skills",
+              "1,100k · 5 skills"
+            ],
+            "secondary": "0",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · primary only",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Orc",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 4 skills",
+              "1,100k · 5 skills"
+            ],
+            "secondary": "0",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · primary only",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Old World Alliance",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 4 skills",
+              "1,100k · 5 skills"
+            ],
+            "secondary": "0",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · primary only",
+            "characteristics": null,
+            "stars": null
+          }
+        ]
+      },
+      {
+        "tier": 2,
+        "label": "Tier 2",
+        "teams": [
+          {
+            "name": "Dark Elf",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 5 skills",
+              "1,100k · 6 skills"
+            ],
+            "secondary": "0",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · primary only",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Nurgle",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 5 skills",
+              "1,100k · 6 skills"
+            ],
+            "secondary": "0",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · primary only",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Underworld Denizens",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 5 skills",
+              "1,100k · 6 skills"
+            ],
+            "secondary": "0",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · primary only",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Wood Elf",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 5 skills",
+              "1,100k · 6 skills"
+            ],
+            "secondary": "0",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · primary only",
+            "characteristics": null,
+            "stars": null
+          }
+        ]
+      },
+      {
+        "tier": 3,
+        "label": "Tier 3",
+        "teams": [
+          {
+            "name": "Elven Union",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 6 skills",
+              "1,100k · 7 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Human",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 6 skills",
+              "1,100k · 7 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Lizardmen",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 6 skills",
+              "1,100k · 7 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Necromantic Horror",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 6 skills",
+              "1,100k · 7 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Norse",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 6 skills",
+              "1,100k · 7 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Skaven",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 6 skills",
+              "1,100k · 7 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Shambling Undead",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 6 skills",
+              "1,100k · 7 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          }
+        ]
+      },
+      {
+        "tier": 4,
+        "label": "Tier 4",
+        "teams": [
+          {
+            "name": "Black Orc",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 7 skills",
+              "1,100k · 8 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Chaos Chosen",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 7 skills",
+              "1,100k · 8 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Chaos Dwarf",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 7 skills",
+              "1,100k · 8 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Chaos Renegade",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 7 skills",
+              "1,100k · 8 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Dwarf",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 7 skills",
+              "1,100k · 8 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Imperial Nobility",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 7 skills",
+              "1,100k · 8 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Khorne",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 7 skills",
+              "1,100k · 8 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Vampire",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 7 skills",
+              "1,100k · 8 skills"
+            ],
+            "secondary": "1",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": null
+          }
+        ]
+      },
+      {
+        "tier": 5,
+        "label": "Tier 5",
+        "teams": [
+          {
+            "name": "Goblin",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 8 skills",
+              "1,100k · 9 skills",
+              "1,150k · 8 skills · primary only · Star allowed",
+              "1,100k · 9 skills · primary only · Star allowed"
+            ],
+            "secondary": "2",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": "max 1"
+          },
+          {
+            "name": "Halfling",
+            "gold": 1100000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,150k · 8 skills",
+              "1,100k · 9 skills",
+              "1,150k · 8 skills · primary only · Star allowed",
+              "1,100k · 9 skills · primary only · Star allowed"
+            ],
+            "secondary": "2",
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills · ≤1 secondary",
+            "characteristics": null,
+            "stars": "max 1"
+          }
+        ]
+      }
+    ]
+  },
+  "naf-world-cup-2027": {
+    "summary": [
+      {
+        "key": "structure",
+        "label": "Structure",
+        "text": "Tiered: 6 tiers, gold caps 1,080k–1,200k; a skill-point budget per team (44–66 SP)."
+      },
+      {
+        "key": "skills",
+        "label": "Skills",
+        "text": "SP budget per team (44–66), primary 6 / secondary 10 SP (+2 SP for each extra skill on the same player); stacking up to 2 skills on a player; stacked players per team (table)."
+      },
+      {
+        "key": "elite",
+        "label": "Elite skill tax",
+        "text": "Block, Guard, Mighty Blow, Dodge +2 SP each."
+      },
+      {
+        "key": "stars",
+        "label": "Star players",
+        "text": "9 of 31 teams (table); no cap on the number.",
+        "details": {
+          "summary": "16 banned stars",
+          "items": [
+            "H'Thark the Unstoppable",
+            "Lord Borak the Despoiler",
+            "Morg 'n' Thorg",
+            "Deeproot Strongbranch",
+            "Hakflem Skuttlespike",
+            "Skitter Stab-Stab",
+            "Ripper Bolgrot",
+            "Cindy Piewhistle",
+            "Griff Oberwald",
+            "Ivar Eriksson",
+            "Jordell Freshbreeze",
+            "Maple Highgrove",
+            "Skrorg Snowpelt",
+            "Grak",
+            "Crumbleberry",
+            "Varag Ghoul-Chewer"
+          ]
+        }
+      },
+      {
+        "key": "inducements",
+        "label": "Inducements",
+        "text": "Team Mascot, Blitzer's Best Kegs (max 2), Bribes, Riotous Rookies, Halfling Master Chef."
+      }
+    ],
+    "groups": [
+      {
+        "tier": 1,
+        "label": "Tier 1",
+        "teams": [
+          {
+            "name": "Orc",
+            "gold": 1080000,
+            "goldMax": null,
+            "allotment": [
+              "44 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "High Elf",
+            "gold": 1080000,
+            "goldMax": null,
+            "allotment": [
+              "44 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Skaven",
+            "gold": 1080000,
+            "goldMax": null,
+            "allotment": [
+              "44 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Underworld Denizens",
+            "gold": 1080000,
+            "goldMax": null,
+            "allotment": [
+              "44 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Amazon",
+            "gold": 1080000,
+            "goldMax": null,
+            "allotment": [
+              "44 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Shambling Undead",
+            "gold": 1080000,
+            "goldMax": null,
+            "allotment": [
+              "52 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Snotling",
+            "gold": 1080000,
+            "goldMax": null,
+            "allotment": [
+              "60 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "allowed"
+          }
+        ]
+      },
+      {
+        "tier": 2,
+        "label": "Tier 2",
+        "teams": [
+          {
+            "name": "Dark Elf",
+            "gold": 1100000,
+            "goldMax": null,
+            "allotment": [
+              "44 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Old World Alliance",
+            "gold": 1100000,
+            "goldMax": null,
+            "allotment": [
+              "44 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Nurgle",
+            "gold": 1100000,
+            "goldMax": null,
+            "allotment": [
+              "52 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Human",
+            "gold": 1100000,
+            "goldMax": null,
+            "allotment": [
+              "58 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          }
+        ]
+      },
+      {
+        "tier": 3,
+        "label": "Tier 3",
+        "teams": [
+          {
+            "name": "Lizardmen",
+            "gold": 1140000,
+            "goldMax": null,
+            "allotment": [
+              "44 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Wood Elf",
+            "gold": 1140000,
+            "goldMax": null,
+            "allotment": [
+              "44 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Chaos Chosen",
+            "gold": 1140000,
+            "goldMax": null,
+            "allotment": [
+              "58 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "2",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Imperial Nobility",
+            "gold": 1140000,
+            "goldMax": null,
+            "allotment": [
+              "58 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Tomb Kings",
+            "gold": 1140000,
+            "goldMax": null,
+            "allotment": [
+              "58 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Chaos Renegade",
+            "gold": 1140000,
+            "goldMax": null,
+            "allotment": [
+              "66 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "allowed"
+          }
+        ]
+      },
+      {
+        "tier": 4,
+        "label": "Tier 4",
+        "teams": [
+          {
+            "name": "Necromantic Horror",
+            "gold": 1160000,
+            "goldMax": null,
+            "allotment": [
+              "52 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Bretonnian",
+            "gold": 1160000,
+            "goldMax": null,
+            "allotment": [
+              "58 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "allowed"
+          },
+          {
+            "name": "Black Orc",
+            "gold": 1160000,
+            "goldMax": null,
+            "allotment": [
+              "60 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "2",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "allowed"
+          },
+          {
+            "name": "Goblin",
+            "gold": 1160000,
+            "goldMax": null,
+            "allotment": [
+              "60 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "allowed"
+          }
+        ]
+      },
+      {
+        "tier": 5,
+        "label": "Tier 5",
+        "teams": [
+          {
+            "name": "Slann",
+            "gold": 1180000,
+            "goldMax": null,
+            "allotment": [
+              "52 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "1",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Chaos Dwarf",
+            "gold": 1180000,
+            "goldMax": null,
+            "allotment": [
+              "58 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "2",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Elven Union",
+            "gold": 1180000,
+            "goldMax": null,
+            "allotment": [
+              "60 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Halfling",
+            "gold": 1180000,
+            "goldMax": null,
+            "allotment": [
+              "60 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "allowed"
+          },
+          {
+            "name": "Ogre",
+            "gold": 1180000,
+            "goldMax": null,
+            "allotment": [
+              "66 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "2",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "allowed"
+          }
+        ]
+      },
+      {
+        "tier": 6,
+        "label": "Tier 6",
+        "teams": [
+          {
+            "name": "Vampire",
+            "gold": 1200000,
+            "goldMax": null,
+            "allotment": [
+              "44 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Khorne",
+            "gold": 1200000,
+            "goldMax": null,
+            "allotment": [
+              "58 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Norse",
+            "gold": 1200000,
+            "goldMax": null,
+            "allotment": [
+              "58 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "2",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "allowed"
+          },
+          {
+            "name": "Gnome",
+            "gold": 1200000,
+            "goldMax": null,
+            "allotment": [
+              "58 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "0",
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "allowed"
+          },
+          {
+            "name": "Dwarf",
+            "gold": 1200000,
+            "goldMax": null,
+            "allotment": [
+              "60 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "2",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          }
+        ]
+      }
+    ]
+  },
+  "eurobowl-2026": {
+    "summary": [
+      {
+        "key": "structure",
+        "label": "Structure",
+        "text": "Choose-one skill packages: 7 tiers, each offering 2–6 packages that trade the gold cap (1,070k–1,200k) against skill points (120–320 SP)."
+      },
+      {
+        "key": "skills",
+        "label": "Skills",
+        "text": "Primary 20 / secondary 40 SP, budget set by the chosen package; up to 3 players may stack 2 skills."
+      },
+      {
+        "key": "elite",
+        "label": "Elite skill tax",
+        "text": "Block, Guard, Mighty Blow, Dodge +10 SP each."
+      },
+      {
+        "key": "stars",
+        "label": "Star players",
+        "text": "Tiers 5–7 only; max 2; each also costs SP (price by tier).",
+        "details": {
+          "summary": "13 banned stars",
+          "items": [
+            "Bomber Dribblesnot",
+            "Cindy Piewhistle",
+            "Dribl",
+            "Drull",
+            "Estelle la Veneaux",
+            "Griff Oberwald",
+            "H'Thark the Unstoppable",
+            "Hakflem Skuttlespike",
+            "Ivan 'The Animal' Deathshroud",
+            "Jeremiah Kool",
+            "Jordell Freshbreeze",
+            "Morg 'n' Thorg",
+            "Roxanna Darknail"
+          ]
+        }
+      },
+      {
+        "key": "inducements",
+        "label": "Inducements",
+        "text": "Biased Referee, Blitzer's Best Kegs, Bribes, Halfling Master Chef, Mortuary Assistant, Plague Doctor, Riotous Rookies, Team Mascot, Wandering Apothecary, Weather Mage."
+      }
+    ],
+    "groups": [
+      {
+        "tier": 1,
+        "label": "Tier 1",
+        "teams": [
+          {
+            "name": "Old World Alliance",
+            "gold": 1070000,
+            "goldMax": 1080000,
+            "allotment": [
+              "1,070k · 130 SP",
+              "1,080k · 120 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Orc",
+            "gold": 1070000,
+            "goldMax": 1080000,
+            "allotment": [
+              "1,070k · 130 SP",
+              "1,080k · 120 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Wood Elf",
+            "gold": 1070000,
+            "goldMax": 1080000,
+            "allotment": [
+              "1,070k · 130 SP",
+              "1,080k · 120 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          }
+        ]
+      },
+      {
+        "tier": 2,
+        "label": "Tier 2",
+        "teams": [
+          {
+            "name": "Amazon",
+            "gold": 1070000,
+            "goldMax": 1090000,
+            "allotment": [
+              "1,070k · 160 SP",
+              "1,080k · 150 SP",
+              "1,090k · 140 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Skaven",
+            "gold": 1070000,
+            "goldMax": 1090000,
+            "allotment": [
+              "1,070k · 160 SP",
+              "1,080k · 150 SP",
+              "1,090k · 140 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Underworld Denizens",
+            "gold": 1070000,
+            "goldMax": 1090000,
+            "allotment": [
+              "1,070k · 160 SP",
+              "1,080k · 150 SP",
+              "1,090k · 140 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          }
+        ]
+      },
+      {
+        "tier": 3,
+        "label": "Tier 3",
+        "teams": [
+          {
+            "name": "Dark Elf",
+            "gold": 1080000,
+            "goldMax": 1110000,
+            "allotment": [
+              "1,080k · 190 SP",
+              "1,090k · 180 SP",
+              "1,100k · 170 SP",
+              "1,110k · 160 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "High Elf",
+            "gold": 1080000,
+            "goldMax": 1110000,
+            "allotment": [
+              "1,080k · 190 SP",
+              "1,090k · 180 SP",
+              "1,100k · 170 SP",
+              "1,110k · 160 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Human",
+            "gold": 1080000,
+            "goldMax": 1110000,
+            "allotment": [
+              "1,080k · 190 SP",
+              "1,090k · 180 SP",
+              "1,100k · 170 SP",
+              "1,110k · 160 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Lizardmen",
+            "gold": 1080000,
+            "goldMax": 1110000,
+            "allotment": [
+              "1,080k · 190 SP",
+              "1,090k · 180 SP",
+              "1,100k · 170 SP",
+              "1,110k · 160 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Shambling Undead",
+            "gold": 1080000,
+            "goldMax": 1110000,
+            "allotment": [
+              "1,080k · 190 SP",
+              "1,090k · 180 SP",
+              "1,100k · 170 SP",
+              "1,110k · 160 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Vampire",
+            "gold": 1080000,
+            "goldMax": 1110000,
+            "allotment": [
+              "1,080k · 190 SP",
+              "1,090k · 180 SP",
+              "1,100k · 170 SP",
+              "1,110k · 160 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          }
+        ]
+      },
+      {
+        "tier": 4,
+        "label": "Tier 4",
+        "teams": [
+          {
+            "name": "Necromantic Horror",
+            "gold": 1100000,
+            "goldMax": 1130000,
+            "allotment": [
+              "1,100k · 220 SP",
+              "1,110k · 210 SP",
+              "1,120k · 200 SP",
+              "1,130k · 190 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Norse",
+            "gold": 1100000,
+            "goldMax": 1130000,
+            "allotment": [
+              "1,100k · 220 SP",
+              "1,110k · 210 SP",
+              "1,120k · 200 SP",
+              "1,130k · 190 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Nurgle",
+            "gold": 1100000,
+            "goldMax": 1130000,
+            "allotment": [
+              "1,100k · 220 SP",
+              "1,110k · 210 SP",
+              "1,120k · 200 SP",
+              "1,130k · 190 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Slann",
+            "gold": 1100000,
+            "goldMax": 1130000,
+            "allotment": [
+              "1,100k · 220 SP",
+              "1,110k · 210 SP",
+              "1,120k · 200 SP",
+              "1,130k · 190 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          },
+          {
+            "name": "Tomb Kings",
+            "gold": 1100000,
+            "goldMax": 1130000,
+            "allotment": [
+              "1,100k · 220 SP",
+              "1,110k · 210 SP",
+              "1,120k · 200 SP",
+              "1,130k · 190 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          }
+        ]
+      },
+      {
+        "tier": 5,
+        "label": "Tier 5",
+        "teams": [
+          {
+            "name": "Chaos Chosen",
+            "gold": 1120000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,120k · 250 SP",
+              "1,130k · 240 SP",
+              "1,140k · 230 SP",
+              "1,150k · 220 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Chaos Dwarf",
+            "gold": 1120000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,120k · 250 SP",
+              "1,130k · 240 SP",
+              "1,140k · 230 SP",
+              "1,150k · 220 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Dwarf",
+            "gold": 1120000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,120k · 250 SP",
+              "1,130k · 240 SP",
+              "1,140k · 230 SP",
+              "1,150k · 220 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Elven Union",
+            "gold": 1120000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,120k · 250 SP",
+              "1,130k · 240 SP",
+              "1,140k · 230 SP",
+              "1,150k · 220 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Imperial Nobility",
+            "gold": 1120000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,120k · 250 SP",
+              "1,130k · 240 SP",
+              "1,140k · 230 SP",
+              "1,150k · 220 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Snotling",
+            "gold": 1120000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,120k · 250 SP",
+              "1,130k · 240 SP",
+              "1,140k · 230 SP",
+              "1,150k · 220 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          }
+        ]
+      },
+      {
+        "tier": 6,
+        "label": "Tier 6",
+        "teams": [
+          {
+            "name": "Black Orc",
+            "gold": 1140000,
+            "goldMax": 1180000,
+            "allotment": [
+              "1,140k · 280 SP",
+              "1,150k · 270 SP",
+              "1,160k · 260 SP",
+              "1,170k · 250 SP",
+              "1,180k · 240 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Bretonnian",
+            "gold": 1140000,
+            "goldMax": 1180000,
+            "allotment": [
+              "1,140k · 280 SP",
+              "1,150k · 270 SP",
+              "1,160k · 260 SP",
+              "1,170k · 250 SP",
+              "1,180k · 240 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Chaos Renegade",
+            "gold": 1140000,
+            "goldMax": 1180000,
+            "allotment": [
+              "1,140k · 280 SP",
+              "1,150k · 270 SP",
+              "1,160k · 260 SP",
+              "1,170k · 250 SP",
+              "1,180k · 240 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Gnome",
+            "gold": 1140000,
+            "goldMax": 1180000,
+            "allotment": [
+              "1,140k · 280 SP",
+              "1,150k · 270 SP",
+              "1,160k · 260 SP",
+              "1,170k · 250 SP",
+              "1,180k · 240 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Goblin",
+            "gold": 1140000,
+            "goldMax": 1180000,
+            "allotment": [
+              "1,140k · 280 SP",
+              "1,150k · 270 SP",
+              "1,160k · 260 SP",
+              "1,170k · 250 SP",
+              "1,180k · 240 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Halfling",
+            "gold": 1140000,
+            "goldMax": 1180000,
+            "allotment": [
+              "1,140k · 280 SP",
+              "1,150k · 270 SP",
+              "1,160k · 260 SP",
+              "1,170k · 250 SP",
+              "1,180k · 240 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Khorne",
+            "gold": 1140000,
+            "goldMax": 1180000,
+            "allotment": [
+              "1,140k · 280 SP",
+              "1,150k · 270 SP",
+              "1,160k · 260 SP",
+              "1,170k · 250 SP",
+              "1,180k · 240 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          }
+        ]
+      },
+      {
+        "tier": 7,
+        "label": "Tier 7",
+        "teams": [
+          {
+            "name": "Ogre",
+            "gold": 1150000,
+            "goldMax": 1200000,
+            "allotment": [
+              "1,150k · 320 SP",
+              "1,160k · 310 SP",
+              "1,170k · 300 SP",
+              "1,180k · 290 SP",
+              "1,190k · 280 SP",
+              "1,200k · 270 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "3",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          }
+        ]
+      }
+    ]
+  },
+  "spike-2026": {
+    "summary": [
+      {
+        "key": "structure",
+        "label": "Structure",
+        "text": "Choose-one skill packages: 6 tiers, each offering 3 packages that trade the gold cap (1,070k–1,170k) against skill points (5–12 SP)."
+      },
+      {
+        "key": "skills",
+        "label": "Skills",
+        "text": "Primary 1 / secondary 2 SP, budget set by the chosen package; one skill per player (2 on some packages)."
+      },
+      {
+        "key": "elite",
+        "label": "Elite skill tax",
+        "text": "Block, Guard, Mighty Blow, Dodge +0.5 SP each."
+      },
+      {
+        "key": "stars",
+        "label": "Star players",
+        "text": "max 2; paid in SP (price by tier) instead of gold."
+      },
+      {
+        "key": "inducements",
+        "label": "Inducements",
+        "text": "Temp Agency Cheerleaders, Part-time Assistant Coaches, Team Mascot, Weather Mage, Blitzer's Best Kegs, Bribes, Extra Team Training, Halfling Master Chef, Biased Referee."
+      }
+    ],
+    "groups": [
+      {
+        "tier": 1,
+        "label": "Tier 1",
+        "teams": [
+          {
+            "name": "Old World Alliance",
+            "gold": 1070000,
+            "goldMax": 1130000,
+            "allotment": [
+              "1,100k · 6 SP",
+              "1,070k · 7 SP",
+              "1,130k · 5 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          }
+        ]
+      },
+      {
+        "tier": 2,
+        "label": "Tier 2",
+        "teams": [
+          {
+            "name": "Dark Elf",
+            "gold": 1075000,
+            "goldMax": 1135000,
+            "allotment": [
+              "1,105k · 7 SP",
+              "1,075k · 8 SP",
+              "1,135k · 6 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "High Elf",
+            "gold": 1075000,
+            "goldMax": 1135000,
+            "allotment": [
+              "1,105k · 7 SP",
+              "1,075k · 8 SP",
+              "1,135k · 6 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Skaven",
+            "gold": 1075000,
+            "goldMax": 1135000,
+            "allotment": [
+              "1,105k · 7 SP",
+              "1,075k · 8 SP",
+              "1,135k · 6 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Orc",
+            "gold": 1075000,
+            "goldMax": 1135000,
+            "allotment": [
+              "1,105k · 7 SP",
+              "1,075k · 8 SP",
+              "1,135k · 6 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Shambling Undead",
+            "gold": 1075000,
+            "goldMax": 1135000,
+            "allotment": [
+              "1,105k · 7 SP",
+              "1,075k · 8 SP",
+              "1,135k · 6 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Underworld Denizens",
+            "gold": 1075000,
+            "goldMax": 1135000,
+            "allotment": [
+              "1,105k · 7 SP",
+              "1,075k · 8 SP",
+              "1,135k · 6 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Wood Elf",
+            "gold": 1075000,
+            "goldMax": 1135000,
+            "allotment": [
+              "1,105k · 7 SP",
+              "1,075k · 8 SP",
+              "1,135k · 6 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Lizardmen",
+            "gold": 1075000,
+            "goldMax": 1135000,
+            "allotment": [
+              "1,105k · 7 SP",
+              "1,075k · 8 SP",
+              "1,135k · 6 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Amazon",
+            "gold": 1075000,
+            "goldMax": 1135000,
+            "allotment": [
+              "1,105k · 7 SP",
+              "1,075k · 8 SP",
+              "1,135k · 6 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Necromantic Horror",
+            "gold": 1075000,
+            "goldMax": 1135000,
+            "allotment": [
+              "1,105k · 7 SP",
+              "1,075k · 8 SP",
+              "1,135k · 6 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          }
+        ]
+      },
+      {
+        "tier": 3,
+        "label": "Tier 3",
+        "teams": [
+          {
+            "name": "Dwarf",
+            "gold": 1080000,
+            "goldMax": 1140000,
+            "allotment": [
+              "1,110k · 8 SP",
+              "1,080k · 9 SP",
+              "1,140k · 7 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Human",
+            "gold": 1080000,
+            "goldMax": 1140000,
+            "allotment": [
+              "1,110k · 8 SP",
+              "1,080k · 9 SP",
+              "1,140k · 7 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Nurgle",
+            "gold": 1080000,
+            "goldMax": 1140000,
+            "allotment": [
+              "1,110k · 8 SP",
+              "1,080k · 9 SP",
+              "1,140k · 7 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Norse",
+            "gold": 1080000,
+            "goldMax": 1140000,
+            "allotment": [
+              "1,110k · 8 SP",
+              "1,080k · 9 SP",
+              "1,140k · 7 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          }
+        ]
+      },
+      {
+        "tier": 4,
+        "label": "Tier 4",
+        "teams": [
+          {
+            "name": "Elven Union",
+            "gold": 1090000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,120k · 9 SP",
+              "1,090k · 10 SP",
+              "1,150k · 8 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Imperial Nobility",
+            "gold": 1090000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,120k · 9 SP",
+              "1,090k · 10 SP",
+              "1,150k · 8 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Tomb Kings",
+            "gold": 1090000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,120k · 9 SP",
+              "1,090k · 10 SP",
+              "1,150k · 8 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Vampire",
+            "gold": 1090000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,120k · 9 SP",
+              "1,090k · 10 SP",
+              "1,150k · 8 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Chaos Chosen",
+            "gold": 1090000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,120k · 9 SP",
+              "1,090k · 10 SP",
+              "1,150k · 8 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Chaos Renegade",
+            "gold": 1090000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,120k · 9 SP",
+              "1,090k · 10 SP",
+              "1,150k · 8 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Chaos Dwarf",
+            "gold": 1090000,
+            "goldMax": 1150000,
+            "allotment": [
+              "1,120k · 9 SP",
+              "1,090k · 10 SP",
+              "1,150k · 8 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          }
+        ]
+      },
+      {
+        "tier": 5,
+        "label": "Tier 5",
+        "teams": [
+          {
+            "name": "Black Orc",
+            "gold": 1100000,
+            "goldMax": 1160000,
+            "allotment": [
+              "1,130k · 10 SP",
+              "1,100k · 11 SP",
+              "1,160k · 9 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Bretonnian",
+            "gold": 1100000,
+            "goldMax": 1160000,
+            "allotment": [
+              "1,130k · 10 SP",
+              "1,100k · 11 SP",
+              "1,160k · 9 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Snotling",
+            "gold": 1100000,
+            "goldMax": 1160000,
+            "allotment": [
+              "1,130k · 10 SP",
+              "1,100k · 11 SP",
+              "1,160k · 9 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Khorne",
+            "gold": 1100000,
+            "goldMax": 1160000,
+            "allotment": [
+              "1,130k · 10 SP",
+              "1,100k · 11 SP",
+              "1,160k · 9 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": null,
+            "stackLimit": null,
+            "characteristics": null,
+            "stars": "max 2"
+          }
+        ]
+      },
+      {
+        "tier": 6,
+        "label": "Tier 6",
+        "teams": [
+          {
+            "name": "Gnome",
+            "gold": 1110000,
+            "goldMax": 1170000,
+            "allotment": [
+              "1,140k · 11 SP · 1 skill per player",
+              "1,110k · 12 SP · 2 skills per player",
+              "1,170k · 10 SP · 1 skill per player"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "any",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Goblin",
+            "gold": 1110000,
+            "goldMax": 1170000,
+            "allotment": [
+              "1,140k · 11 SP · 1 skill per player",
+              "1,110k · 12 SP · 2 skills per player",
+              "1,170k · 10 SP · 1 skill per player"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "any",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Halfling",
+            "gold": 1110000,
+            "goldMax": 1170000,
+            "allotment": [
+              "1,140k · 11 SP · 1 skill per player",
+              "1,110k · 12 SP · 2 skills per player",
+              "1,170k · 10 SP · 1 skill per player"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "any",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          },
+          {
+            "name": "Ogre",
+            "gold": 1110000,
+            "goldMax": 1170000,
+            "allotment": [
+              "1,140k · 11 SP · 1 skill per player",
+              "1,110k · 12 SP · 2 skills per player",
+              "1,170k · 10 SP · 1 skill per player"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "any",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": "max 2"
+          }
+        ]
+      }
+    ]
+  },
+  "lustrian-superleague.example": {
+    "summary": [
+      {
+        "key": "structure",
+        "label": "Structure",
+        "text": "Standard team creation: no team-value cap set; a skill-point budget of 10 SP."
+      },
+      {
+        "key": "skills",
+        "label": "Skills",
+        "text": "SP budget 10 SP, primary 1 / secondary 2 SP; any player may stack 2 skills."
+      },
+      {
+        "key": "elite",
+        "label": "Elite skill tax",
+        "text": "Block, Guard, Mighty Blow, Dodge +0.5 SP each."
+      },
+      {
+        "key": "stars",
+        "label": "Star players",
+        "text": "No star players."
+      },
+      {
+        "key": "inducements",
+        "label": "Inducements",
+        "text": "No inducements."
+      },
+      {
+        "key": "sideline",
+        "label": "Sideline",
+        "text": "Max 6 assistant coaches, max 12 cheerleaders, max 6 dedicated fans."
+      }
+    ],
+    "groups": [
+      {
+        "tier": null,
+        "label": "All teams",
+        "teams": [
+          {
+            "name": "Every eligible roster (10)",
+            "gold": null,
+            "goldMax": null,
+            "allotment": [
+              "10 SP"
+            ],
+            "secondary": null,
+            "elite": null,
+            "stacks": "any",
+            "stackLimit": "2 skills",
+            "characteristics": null,
+            "stars": null
+          }
+        ]
+      }
+    ]
+  }
+}

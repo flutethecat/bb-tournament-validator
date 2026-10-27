@@ -636,7 +636,8 @@ function statIncreasesClause(teams: TeamEntry[]): string | null {
   // Who gets what: a tier label only when EVERY team of each named tier is in the clause; otherwise name the teams.
   const scopeOf = (members: TeamEntry[]): string => {
     const tiers = uniq(members.map((t) => t.tier));
-    const wholeTiers = tiers.every((tier) => tier != null && teams.filter((t) => t.tier === tier).every((t) => members.includes(t)));
+    const memberSet = new Set(members); // Set membership: no per-team scan of `members`
+    const wholeTiers = tiers.every((tier) => tier != null && teams.filter((t) => t.tier === tier).every((t) => memberSet.has(t)));
     return wholeTiers ? tierPhrase(tiers as number[]) : members.map((t) => t.name).join(", ");
   };
   const sets = uniq(statTeams.map(setText));
@@ -740,9 +741,10 @@ function eliteLine(pkg: TournamentPackage, teams: TeamEntry[]): string | null {
 function starsLine(pkg: TournamentPackage, teams: TeamEntry[]): Pick<OverviewLine, "text" | "details"> {
   const allowed = teams.filter((t) => starsValue(pkg, t.cfg) != null);
   if (!allowed.length) return { text: "No star players." };
+  const allowedSet = new Set(allowed); // Set membership: keeps this linear in the number of teams
   const parts: string[] = [];
   if (allowed.length < teams.length) {
-    const access = variesBy(teams, (t) => String(allowed.includes(t)));
+    const access = variesBy(teams, (t) => String(allowedSet.has(t)));
     const tiers = uniq(allowed.map((t) => t.tier));
     parts.push(access === "tier" ? `${tierPhrase(tiers as number[])} only` : `${allowed.length} of ${teams.length} teams (table)`);
   }
