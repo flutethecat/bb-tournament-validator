@@ -1006,11 +1006,7 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
     const method = req.method ?? "GET";
     if (
       (method === "GET" || method === "HEAD") &&
-      (pathname === "/" ||
-        pathname === "/index.html" ||
-        pathname === "/control-panel.html" ||
-        pathname === "/control-panel.js" ||
-        pathname === "/theme.css" ||
+      (pathname === "/theme.css" ||
         pathname === "/theme.js" ||
         pathname === "/tournament-rules.html" ||
         pathname === "/tournament-rules.css" ||
@@ -3318,13 +3314,14 @@ export const server = createServer((req, res) => {
       if ((req.method === "POST" || req.method === "GET") && nameGeneratePath(url.pathname)) {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
+      // Owner 10-27: the bare origin ("/") is the coach-facing Tournament Builder, never the admin hub.
+      if ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/" || url.pathname === "/index.html")) {
+        res.writeHead(302, { location: "/tournament-team-builder.html", "cache-control": "no-store" }).end();
+        return;
+      }
       if (
         (req.method === "GET" || req.method === "HEAD") &&
-        (url.pathname === "/" ||
-          url.pathname === "/index.html" ||
-          url.pathname === "/control-panel.html" ||
-          url.pathname === "/control-panel.js" ||
-          url.pathname === "/theme.css" ||
+        (url.pathname === "/theme.css" ||
           url.pathname === "/theme.js" ||
           url.pathname === "/tournament-rules.css" ||
           url.pathname === "/tournaments.html" ||
@@ -3357,6 +3354,12 @@ export const server = createServer((req, res) => {
 
         const method = req.method ?? "GET";
         const auth = decision.identity;
+        // Owner 10-27: the control-panel hub is admin/organiser only; a coach or anonymous visitor is sent to
+        // the Tournament Builder instead of seeing the workspace chooser.
+        if ((url.pathname === "/control-panel.html" || url.pathname === "/control-panel.js") && !(auth?.admin || auth?.organizer)) {
+          res.writeHead(302, { location: "/tournament-team-builder.html", "cache-control": "no-store" }).end();
+          return;
+        }
         if (isOrganizerWrite(method, url.pathname) && !auth?.organizer) {
           return sendJson(res, auth ? 403 : 401, {
             error: auth ? "Organizer access required." : "Authentication required.",

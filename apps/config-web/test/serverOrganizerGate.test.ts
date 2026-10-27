@@ -202,12 +202,24 @@ describe("admin team search HTTP gate", () => {
 });
 
 describe("control-panel landing", () => {
-  it("serves the hub at /, /index.html, and its direct URL while keeping the Tournament Creator direct", async () => {
-    for (const path of ["/", "/index.html", "/control-panel.html"]) {
-      const response = await fetch(`${origin}${path}`);
-      expect(response.status).toBe(200);
-      expect(await response.text()).toContain("Choose a workspace");
+  it("/ and /index.html redirect to the Tournament Builder; the hub needs an admin or organiser session", async () => {
+    for (const path of ["/", "/index.html"]) {
+      const response = await fetch(`${origin}${path}`, { redirect: "manual" });
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/tournament-team-builder.html");
     }
+    // anonymous and plain-coach visitors never see the workspace chooser
+    const anon = await fetch(`${origin}/control-panel.html`, { redirect: "manual" });
+    expect(anon.status).toBe(302); // the sidecar sends an anonymous visitor to sign in; the hub itself never renders
+    expect(anon.headers.get("location")).toMatch(/^\/(login\?next=|tournament-team-builder\.html)/);
+    const coach = createSession("PlainCoach");
+    const asCoach = await fetch(`${origin}/control-panel.html`, { redirect: "manual", headers: { authorization: `Bearer ${coach.token}` } });
+    expect(asCoach.status).toBe(302);
+    expect(asCoach.headers.get("location")).toBe("/tournament-team-builder.html");
+    const organizer = createSession("OrganizerCoach");
+    const asOrganizer = await fetch(`${origin}/control-panel.html`, { headers: { authorization: `Bearer ${organizer.token}` } });
+    expect(asOrganizer.status).toBe(200);
+    expect(await asOrganizer.text()).toContain("Choose a workspace");
     const rules = await fetch(`${origin}/tournament-rules.html`);
     expect(rules.status).toBe(200);
     expect(await rules.text()).toContain("Tournament Creator");

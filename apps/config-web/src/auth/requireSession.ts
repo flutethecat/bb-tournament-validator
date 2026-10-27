@@ -60,9 +60,7 @@ function isPublicRequest(method: string, pathname: string): boolean {
   if (pathname === "/login" && (method === "GET" || method === "HEAD")) return true;
   if (
     (method === "GET" || method === "HEAD") &&
-    (pathname === "/" ||
-      pathname === "/index.html" ||
-      pathname === "/theme.css" ||
+    (pathname === "/theme.css" ||
       pathname === "/theme.js" ||
       pathname === "/team-builder.html" ||
       pathname === "/team-builder.css" ||
