@@ -177,6 +177,81 @@ describe("my teams page — controller", () => {
   });
 });
 
+describe("my teams page — share links (owner 10-27)", () => {
+  const TOKEN = "0123456789abcdef0123456789abcdef";
+  it("marks shared rows and offers Share on every row, Unshare only on shared ones", () => {
+    const list = [{ ...fixture[0]!, shareToken: TOKEN }, fixture[1]!];
+    const markup = MyTeams.tableHtml(MyTeams.rows(list));
+    expect(markup).toContain('data-share-save="sv_old"');
+    expect(markup).toContain('data-share-save="sv_new"');
+    expect(markup).toContain('data-unshare-save="sv_old"');
+    expect(markup).not.toContain('data-unshare-save="sv_new"');
+    expect((markup.match(/class="my-teams-shared"/g) ?? []).length).toBe(1);
+    expect(markup).not.toContain(TOKEN); // the table never prints the token itself
+    expect(MyTeams.shareUrl("https://x.test/", TOKEN)).toBe(`https://x.test/t/${TOKEN}`);
+  });
+
+  it("Share POSTs, copies the /t/<token> link, says Link copied and shows the link with Copy", async () => {
+    let listed: Any[] = fixture;
+    const copied: string[] = [];
+    const routes: Record<string, (init: Any) => { status: number; body: unknown }> = {
+      ...signedIn,
+      "GET /api/fork/team-builder/saves": () => ({ status: 200, body: { saves: listed } }),
+      "POST /api/fork/team-builder/saves/sv_new/share": () => {
+        listed = fixture.map((s) => (s.id === "sv_new" ? { ...s, shareToken: TOKEN } : s));
+        return { status: 201, body: { shareToken: TOKEN, path: `/t/${TOKEN}` } };
+      },
+    };
+    const { page, byId, calls, navigations } = makePage(routes, {
+      clipboard: async (text: string) => { copied.push(text); },
+      location: { pathname: "/my-teams.html", hostname: "x.test", origin: "https://x.test" },
+    });
+    await page.start();
+    await page.onListClick({ target: clickTarget("data-share-save", "sv_new") });
+    expect(calls.some((c) => c.method === "POST" && c.path === "/api/fork/team-builder/saves/sv_new/share")).toBe(true);
+    expect(copied).toEqual([`https://x.test/t/${TOKEN}`]);
+    expect(byId.get("my-teams-status").textContent).toMatch(/^Link copied/);
+    const list = byId.get("my-teams-list").innerHTML;
+    expect(list).toContain(`value="https://x.test/t/${TOKEN}"`);
+    expect(list).toContain("data-copy-share");
+    expect(list).toContain('class="my-teams-shared"');
+    expect(navigations).toEqual([]);
+    await page.onListClick({ target: clickTarget("data-copy-share", "") });
+    expect(copied).toHaveLength(2);
+    expect(byId.get("my-teams-status").textContent).toBe("Link copied.");
+  });
+
+  it("without clipboard access the link is still shown to copy by hand", async () => {
+    const routes = { ...signedIn, ...savesRoute, "POST /api/fork/team-builder/saves/sv_old/share": () => ({ status: 200, body: { shareToken: TOKEN } }) };
+    const { page, byId } = makePage(routes, { clipboard: async () => { throw new Error("denied"); }, location: { pathname: "/my-teams.html", hostname: "x.test", origin: "https://x.test" } });
+    await page.start();
+    await page.onListClick({ target: clickTarget("data-share-save", "sv_old") });
+    expect(byId.get("my-teams-status").textContent).toMatch(/Share link ready/);
+    expect(byId.get("my-teams-list").innerHTML).toContain(`/t/${TOKEN}`);
+  });
+
+  it("Unshare asks first, DELETEs and hides the link", async () => {
+    let listed: Any[] = fixture.map((s) => (s.id === "sv_old" ? { ...s, shareToken: TOKEN } : s));
+    const routes: Record<string, (init: Any) => { status: number; body: unknown }> = {
+      ...signedIn,
+      "GET /api/fork/team-builder/saves": () => ({ status: 200, body: { saves: listed } }),
+      "DELETE /api/fork/team-builder/saves/sv_old/share": () => { listed = fixture; return { status: 204, body: {} }; },
+    };
+    let asked = "";
+    const declined = makePage(routes, { confirm: (m: string) => { asked = m; return false; } });
+    await declined.page.start();
+    await declined.page.onListClick({ target: clickTarget("data-unshare-save", "sv_old") });
+    expect(asked).toMatch(/Stop sharing “Old Orcs”/);
+    expect(declined.calls.some((c) => c.method === "DELETE")).toBe(false);
+    const { page, byId, calls } = makePage(routes, { confirm: () => true });
+    await page.start();
+    await page.onListClick({ target: clickTarget("data-unshare-save", "sv_old") });
+    expect(calls.some((c) => c.method === "DELETE" && c.path === "/api/fork/team-builder/saves/sv_old/share")).toBe(true);
+    expect(byId.get("my-teams-status").textContent).toBe("“Old Orcs” is no longer shared.");
+    expect(byId.get("my-teams-list").innerHTML).not.toContain('class="my-teams-shared"');
+  });
+});
+
 describe("my teams page — markup and serving", () => {
   it("reuses the builder shell, styles and header sign-in slot", () => {
     expect(html).toContain("<title>Super FUMBBL — My Teams</title>");

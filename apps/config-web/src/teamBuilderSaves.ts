@@ -12,7 +12,7 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { acquireFileWriteLock, atomicWriteTextFile } from "@bb/fork-ops";
 import { teamBuilderWireError } from "./teamBuilderWire.js";
@@ -30,6 +30,10 @@ export interface TeamBuilderSaveSummary {
   teamId: string | null;
   updatedAt: string;
   createdAt: string;
+  /** Public share link token (owner 10-27): 32 hex chars, present only while the save is shared.
+   *  Only ever returned to the OWNING coach (their own list / save); the public read never echoes it. */
+  shareToken?: string;
+  sharedAt?: string;
 }
 
 export interface TeamBuilderSave extends TeamBuilderSaveSummary {
@@ -84,6 +88,7 @@ export const summarizeSave = (s: TeamBuilderSave): TeamBuilderSaveSummary => ({
   teamId: s.teamId,
   updatedAt: s.updatedAt,
   createdAt: s.createdAt,
+  ...(s.shareToken ? { shareToken: s.shareToken, sharedAt: s.sharedAt } : {}),
 });
 
 /** TeamBuilderBody fields a BUILD may persist into a save (unknown fields are dropped). Audited
@@ -214,9 +219,100 @@ export function updateSave(deps: SaveDeps, coach: string, id: string, input: unk
 
 export function deleteSave(dir: string, coach: string, id: string): boolean {
   return withSaves(dir, coach, (saves) => {
-    const next = saves.filter((s) => s.id !== id);
-    return next.length === saves.length ? { out: false } : { saves: next, out: true };
+    const gone = saves.find((s) => s.id === id);
+    if (!gone) return { out: false };
+    if (gone.shareToken) dropShareIndex(dir, gone.shareToken);
+    return { saves: saves.filter((s) => s.id !== id), out: true };
   });
+}
+
+// --- Public share links (owner 10-27) ---
+// The SAVE is the source of truth: `shareToken` lives on the save inside the owner's file. A tiny index file
+// per token (<dir>/shares/<token>.json = { coach, id }) only says where to look; the public read re-checks that
+// the named save still carries the token, so a stale or forged index entry can never surface a save.
+
+export const SHARE_TOKEN_RE = /^[0-9a-f]{32}$/;
+const shareIndexFile = (dir: string, token: string): string => join(dir, "shares", `${token}.json`);
+function dropShareIndex(dir: string, token: string): void {
+  if (!SHARE_TOKEN_RE.test(token)) return;
+  try { unlinkSync(shareIndexFile(dir, token)); } catch { /* already gone */ }
+}
+
+export type ShareResult = { ok: true; token: string; sharedAt: string; created: boolean } | { ok: false; status: 404; error: string };
+
+/** Share the coach's save: returns its existing token (idempotent) or mints a new 128-bit one. */
+export function shareSave(dir: string, coach: string, id: string, now: () => Date = () => new Date()): ShareResult {
+  return withSaves(dir, coach, (saves) => {
+    const i = saves.findIndex((s) => s.id === id);
+    if (i < 0) return { out: { ok: false, status: 404, error: "Saved team not found." } as ShareResult };
+    const prev = saves[i]!;
+    if (prev.shareToken && SHARE_TOKEN_RE.test(prev.shareToken)) {
+      // Self-heal a missing index entry (e.g. a restored saves file) before answering.
+      if (!existsSync(shareIndexFile(dir, prev.shareToken)))
+        atomicWriteTextFile(shareIndexFile(dir, prev.shareToken), JSON.stringify({ coach, id }));
+      return { out: { ok: true, token: prev.shareToken, sharedAt: prev.sharedAt ?? prev.updatedAt, created: false } };
+    }
+    const token = randomBytes(16).toString("hex");
+    const sharedAt = now().toISOString();
+    atomicWriteTextFile(shareIndexFile(dir, token), JSON.stringify({ coach, id }));
+    const next = [...saves];
+    next[i] = { ...prev, shareToken: token, sharedAt };
+    return { saves: next, out: { ok: true, token, sharedAt, created: true } };
+  });
+}
+
+/** Revoke the coach's share link (old links 404 from then on). False when the save is not the coach's. */
+export function unshareSave(dir: string, coach: string, id: string): boolean {
+  return withSaves(dir, coach, (saves) => {
+    const i = saves.findIndex((s) => s.id === id);
+    if (i < 0) return { out: false };
+    const prev = saves[i]!;
+    if (!prev.shareToken) return { out: true };
+    dropShareIndex(dir, prev.shareToken);
+    const { shareToken: _t, sharedAt: _a, ...rest } = prev;
+    const next = [...saves];
+    next[i] = rest;
+    return { saves: next, out: true };
+  });
+}
+
+/** Public lookup: the shared save + its owner for a token, or undefined (unknown, revoked, malformed). */
+export function findSharedSave(dir: string, token: string): { coach: string; save: TeamBuilderSave } | undefined {
+  if (!SHARE_TOKEN_RE.test(token)) return undefined;
+  const file = shareIndexFile(dir, token);
+  if (!existsSync(file)) return undefined;
+  try {
+    const entry = JSON.parse(readFileSync(file, "utf8")) as { coach?: unknown; id?: unknown };
+    if (typeof entry.coach !== "string" || typeof entry.id !== "string") return undefined;
+    const save = readSaves(dir, entry.coach).find((s) => s.id === entry.id);
+    return save && save.shareToken === token ? { coach: entry.coach, save } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `/api/fork/team-builder/saves/<id>/share` → id. */
+export function teamBuilderSharePath(pathname: string): string | undefined {
+  const m = /^\/api\/fork\/team-builder\/saves\/([^/]+)\/share$/.exec(pathname);
+  if (!m) return undefined;
+  try {
+    const id = decodeURIComponent(m[1]!);
+    return /^[\w-]{1,64}$/.test(id) ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `/api/fork/team-builder/shared/<token>` → token (32 lower-case hex only). */
+export function teamBuilderSharedPath(pathname: string): string | undefined {
+  const m = /^\/api\/fork\/team-builder\/shared\/([0-9a-f]{32})$/.exec(pathname);
+  return m ? m[1] : undefined;
+}
+
+/** `/t/<token>` → token: the public team view page route (anything else under /t/ is not this route). */
+export function teamViewPagePath(pathname: string): string | undefined {
+  const m = /^\/t\/([0-9a-f]{32})$/.exec(pathname);
+  return m ? m[1] : undefined;
 }
 
 /**

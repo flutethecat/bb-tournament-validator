@@ -79,6 +79,36 @@ describe("team-builder saves with the auth sidecar off", () => {
     expect(csrf.status).toBe(403);
   });
 
+  it("share links: the public read and /t/<token> page need no Basic auth; sharing needs the coach session", async () => {
+    const s = createSession("ShareCoach");
+    const auth = { authorization: `Bearer ${s.token}` };
+    const created = await fetch(`${origin}/api/fork/team-builder/saves`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...auth },
+      body: JSON.stringify({ name: "Shared XI", body: { rosterId: "dwarf.bb2025", teamName: "Shared XI", picks: [] } }),
+    });
+    const id = ((await created.json()) as { save: { id: string } }).save.id;
+    const anonShare = await fetch(`${origin}/api/fork/team-builder/saves/${id}/share`, { method: "POST" });
+    expect(anonShare.status).toBe(401);
+    expect(anonShare.headers.get("www-authenticate")).toBeNull();
+    const shared = await fetch(`${origin}/api/fork/team-builder/saves/${id}/share`, { method: "POST", headers: auth });
+    expect(shared.status).toBe(201);
+    const { shareToken } = (await shared.json()) as { shareToken: string };
+    const read = await fetch(`${origin}/api/fork/team-builder/shared/${shareToken}`);
+    expect(read.status).toBe(200);
+    // No fork teams dir on this host: the sheet can't compose, so the view keeps its header and flags an issue.
+    expect(((await read.json()) as { team: { teamName: string; coach: string; players: unknown[]; validity: { valid: boolean } } }).team)
+      .toMatchObject({ teamName: "Shared XI", coach: "ShareCoach", players: [], validity: { valid: false } });
+    const page = await fetch(`${origin}/t/${shareToken}`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('data-page="team-view"');
+    const gone = await fetch(`${origin}/api/fork/team-builder/shared/${"0".repeat(32)}`);
+    expect(gone.status).toBe(404);
+    expect(gone.headers.get("www-authenticate")).toBeNull();
+    // Writes on the public read path stay behind the Basic gate.
+    expect((await fetch(`${origin}/api/fork/team-builder/shared/${shareToken}`, { method: "POST" })).status).not.toBe(200);
+  });
+
   it("answers a storage failure with a fixed message (no server paths)", async () => {
     // A directory squatting on the coach's save file makes the atomic rename fail.
     mkdirSync(join(root, "saves", `${coachSaveKey("Broken")}.json`), { recursive: true });

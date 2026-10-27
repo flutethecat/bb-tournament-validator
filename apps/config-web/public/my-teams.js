@@ -5,7 +5,9 @@
  *
  * Session: the same cookie session the builder uses: GET /api/auth/session, the Discord start link in the
  * header slot, POST /api/auth/logout from the account menu. Saves: GET /api/fork/team-builder/saves (summaries
- * carry name, raceName/rosterId, packageName, updatedAt), GET/PUT/DELETE /api/fork/team-builder/saves/:id.
+ * carry name, raceName/rosterId, packageName, updatedAt, and shareToken while shared), GET/PUT/DELETE
+ * /api/fork/team-builder/saves/:id. Share links (owner 10-27): POST/DELETE /api/fork/team-builder/saves/:id/share;
+ * the public page is /t/<token>.
  */
 (function (root) {
   "use strict";
@@ -26,17 +28,23 @@
         name: String(save.name ?? ""),
         race: String(save.raceName || save.rosterId || ""),
         ruleset: save.packageName ? String(save.packageName) : "",
+        shared: typeof save.shareToken === "string" && /^[0-9a-f]{32}$/.test(save.shareToken),
       }));
   }
+
+  /** The public link for a share token on this origin. */
+  const shareUrl = (origin, token) => `${String(origin || "").replace(/\/+$/, "")}/t/${token}`;
 
   /** The table: Name / Race / Ruleset; each row opens its save, Rename / Delete at the row end. */
   function tableHtml(list) {
     if (!list.length) return '<p class="status-copy my-teams-empty">No saved teams yet.</p>';
     const body = list.map((row) => `<tr class="my-teams-row" data-open-save="${esc(row.id)}" tabindex="0" title="Open “${esc(row.name)}” in the Tournament Team Builder">
-        <td class="my-teams-name">${esc(row.name)}</td>
+        <td class="my-teams-name">${esc(row.name)}${row.shared ? ' <span class="my-teams-shared" title="Anyone with the link can view this team"><span aria-hidden="true">🔗</span> Shared</span>' : ""}</td>
         <td>${esc(row.race)}</td>
         <td>${row.ruleset ? esc(row.ruleset) : '<span class="my-teams-none">—</span>'}</td>
         <td class="my-teams-tools">
+          <button type="button" class="session-button secondary" data-share-save="${esc(row.id)}" aria-label="Copy a share link for “${esc(row.name)}”">Share</button>
+          ${row.shared ? `<button type="button" class="session-button secondary" data-unshare-save="${esc(row.id)}" aria-label="Stop sharing “${esc(row.name)}”">Unshare</button>` : ""}
           <button type="button" class="session-button secondary" data-rename-save="${esc(row.id)}" aria-label="Rename “${esc(row.name)}”">Rename</button>
           <button type="button" class="session-button secondary danger" data-delete-save="${esc(row.id)}" aria-label="Delete “${esc(row.name)}”">Delete</button>
         </td>
@@ -49,14 +57,25 @@
 
   const openUrl = (id) => `/tournament-team-builder.html?save=${encodeURIComponent(id)}`;
 
+  /** The share-link strip under the table: the link in a read-only field + Copy. */
+  function shareFieldHtml(link) {
+    if (!link) return "";
+    return `<div class="my-teams-share" role="group" aria-label="Share link for “${esc(link.name)}”">
+      <label for="my-teams-share-url">Share link · ${esc(link.name)}</label>
+      <input id="my-teams-share-url" class="my-teams-share-url" type="text" readonly value="${esc(link.url)}">
+      <button type="button" class="session-button secondary" data-copy-share>Copy</button>
+    </div>`;
+  }
+
   /**
-   * deps: { document, fetch, navigate(url), prompt(message, value), confirm(message), location: { pathname, hostname } }
+   * deps: { document, fetch, navigate(url), prompt(message, value), confirm(message), clipboard?(text) -> Promise,
+   *         location: { pathname, hostname, origin } }
    * Returns { start, render, state, loadSaves, onListClick, onListKey }; start() restores the session and loads the saves.
    */
   function createMyTeamsPage(deps) {
     const doc = deps.document;
     const $ = (id) => doc.getElementById(id);
-    const state = { coach: "", admin: false, discord: false, saves: [], loaded: false, busy: false, message: "", error: false, loginMessage: "" };
+    const state = { coach: "", admin: false, discord: false, saves: [], loaded: false, busy: false, message: "", error: false, loginMessage: "", shareLink: null };
 
     async function api(path, options = {}) {
       const headers = { ...(options.headers ?? {}), "X-CW-Auth": "1" };
@@ -87,7 +106,7 @@
       status.className = `status-copy${state.error ? " error" : ""}`;
       const list = $("my-teams-list");
       list.hidden = !signedIn || !state.loaded;
-      list.innerHTML = signedIn && state.loaded ? tableHtml(rows(state.saves)) : "";
+      list.innerHTML = signedIn && state.loaded ? tableHtml(rows(state.saves)) + shareFieldHtml(state.shareLink) : "";
     }
 
     function signedOut(loginMessage = "") {
@@ -95,6 +114,7 @@
       state.admin = false;
       state.saves = [];
       state.loaded = false;
+      state.shareLink = null;
       state.loginMessage = loginMessage;
       setStatus("");
     }
@@ -168,7 +188,56 @@
       }
     }
 
+    async function copyText(text) {
+      try {
+        if (typeof deps.clipboard !== "function") return false;
+        await deps.clipboard(text);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    async function shareSave(id) {
+      const save = state.saves.find((s) => s.id === id);
+      if (!save) return;
+      try {
+        const data = await api(`/api/fork/team-builder/saves/${encodeURIComponent(id)}/share`, { method: "POST" });
+        const url = shareUrl(deps.location.origin, data.shareToken);
+        state.shareLink = { id, name: save.name, url };
+        const copied = await copyText(url);
+        setStatus(copied ? `Link copied: “${save.name}” can now be viewed by anyone with the link.` : `Share link ready for “${save.name}”; copy it below.`);
+        await loadSaves();
+      } catch (error) {
+        failed(error, "share the team");
+        render();
+      }
+    }
+    async function unshareSave(id) {
+      const save = state.saves.find((s) => s.id === id);
+      if (!save || !deps.confirm(`Stop sharing “${save.name}”? The old link will stop working.`)) return;
+      try {
+        await api(`/api/fork/team-builder/saves/${encodeURIComponent(id)}/share`, { method: "DELETE" });
+        if (state.shareLink?.id === id) state.shareLink = null;
+        setStatus(`“${save.name}” is no longer shared.`);
+        await loadSaves();
+      } catch (error) {
+        failed(error, "stop sharing the team");
+        render();
+      }
+    }
+    async function copyShareLink() {
+      if (!state.shareLink) return;
+      setStatus(await copyText(state.shareLink.url) ? "Link copied." : "Couldn't copy; select the link and copy it.", false);
+      render();
+    }
+
     function onListClick(event) {
+      const share = event.target.closest("[data-share-save]");
+      if (share) return shareSave(share.dataset.shareSave);
+      const unshare = event.target.closest("[data-unshare-save]");
+      if (unshare) return unshareSave(unshare.dataset.unshareSave);
+      if (event.target.closest("[data-copy-share]")) return copyShareLink();
+      if (event.target.closest(".my-teams-share")) return undefined;
       const rename = event.target.closest("[data-rename-save]");
       if (rename) return renameSave(rename.dataset.renameSave);
       const del = event.target.closest("[data-delete-save]");
@@ -178,7 +247,7 @@
     }
     function onListKey(event) {
       if (event.key !== "Enter" && event.key !== " ") return;
-      if (event.target.closest("button")) return;
+      if (event.target.closest("button") || event.target.closest(".my-teams-share")) return;
       const row = event.target.closest("[data-open-save]");
       if (!row) return;
       if (typeof event.preventDefault === "function") event.preventDefault();
@@ -205,7 +274,7 @@
     return { start, render, state, loadSaves, onListClick, onListKey };
   }
 
-  root.MyTeams = { rows, tableHtml, openUrl, createMyTeamsPage };
+  root.MyTeams = { rows, tableHtml, openUrl, shareUrl, shareFieldHtml, createMyTeamsPage };
 
   if (typeof document === "undefined" || !document.body || document.body.dataset.page !== "my-teams") return;
   createMyTeamsPage({
@@ -214,6 +283,7 @@
     navigate: (url) => { location.href = url; },
     prompt: (message, value) => window.prompt(message, value),
     confirm: (message) => window.confirm(message),
+    clipboard: (text) => navigator.clipboard.writeText(text),
     location,
   }).start();
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -899,6 +899,7 @@ ${rosterSheetHtml(model)}
   let savesAvailable = true;
   let savesOpen = false;
   let currentSave = null; // { id, name }
+  let shareLink = null; // { id, url }: the public /t/<token> link last made for a save (owner 10-27)
   let library = [];
   let spriteManifest = null; // /sprites/manifest.json (Super FUMBBL walk-sheet idle portraits)
   let crestManifest = null; // /crests/manifest.json (Super FUMBBL team crests)
@@ -2500,6 +2501,14 @@ ${rosterSheetHtml(model)}
       railSave.disabled = !current || !signedIn || !savesAvailable;
       railSave.title = signedIn ? "" : "Sign in with Discord to save your team";
     }
+    // Share link (owner 10-27): offered once the builder is editing a saved team.
+    const shareButton = $("share-team-rail");
+    if (shareButton) shareButton.hidden = !(signedIn && savesAvailable && currentSave);
+    const shareRow = $("share-link-row");
+    const showLink = Boolean(signedIn && currentSave && shareLink && shareLink.id === currentSave.id);
+    if (shareRow) shareRow.hidden = !showLink;
+    const shareUrlField = $("share-link-url");
+    if (shareUrlField) shareUrlField.value = showLink ? shareLink.url : "";
     if (!signedIn) {
       setSavesStatus("");
       return;
@@ -2578,6 +2587,30 @@ ${rosterSheetHtml(model)}
     } catch (error) {
       savesError(error, "save the team");
       renderSaves();
+    }
+  }
+  /** Share the save being edited: POST .../share (idempotent), copy the public /t/<token> link, show it with Copy. */
+  async function shareCurrentSave() {
+    if (!authCoach || !currentSave) return;
+    const save = currentSave;
+    try {
+      const data = await api(`/api/fork/team-builder/saves/${encodeURIComponent(save.id)}/share`, { method: "POST" });
+      if (!/^[0-9a-f]{32}$/.test(String(data.shareToken ?? ""))) throw new Error("No share link returned.");
+      shareLink = { id: save.id, url: `${location.origin}/t/${data.shareToken}` };
+      renderSaves();
+      setSavesStatus(await copyShareLink() ? `Link copied: anyone with it can view “${save.name}”.` : `Share link ready for “${save.name}”.`);
+    } catch (error) {
+      savesError(error, "share the team");
+      renderSaves();
+    }
+  }
+  async function copyShareLink() {
+    if (!shareLink) return false;
+    try {
+      await navigator.clipboard.writeText(shareLink.url);
+      return true;
+    } catch {
+      return false;
     }
   }
   /** Load a save into the builder; resolves true when it was applied. `silent` (the ?save= deep link) drops
@@ -3220,6 +3253,8 @@ ${rosterSheetHtml(model)}
   document.addEventListener("keydown", (event) => { const menu = $("signed-in-session"); if (event.key === "Escape" && menu && "open" in menu && menu.open) menu.open = false; });
   $("save-button")?.addEventListener("click", () => saveTeam(false));
   $("save-team-rail")?.addEventListener("click", () => saveTeam(false));
+  $("share-team-rail")?.addEventListener("click", () => shareCurrentSave());
+  $("share-link-copy")?.addEventListener("click", async () => setSavesStatus(await copyShareLink() ? "Link copied." : "Couldn't copy; select the link and copy it."));
   $("save-as-button")?.addEventListener("click", () => saveTeam(true));
   $("saves-toggle")?.addEventListener("click", () => { savesOpen = !savesOpen; renderSaves(); if (savesOpen) loadSaves(); });
   $("saves-list")?.addEventListener("click", (event) => {

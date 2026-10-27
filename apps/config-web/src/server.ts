@@ -96,7 +96,7 @@ import {
   teamList,
   type AdminTeamSearchMode,
 } from "./data";
-import { builderTierRows, packageResponseInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
+import { builderTierRows, packageRaceRules, packageResponseInfo, packageRulesInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
 import { packagesApi } from "./packagesApi.js";
 import { isPublicArtPath } from "./publicArt.js";
 import { PRESETS } from "./presets";
@@ -248,13 +248,21 @@ import {
   TEAM_BUILDER_SAVES_BODY_CAP,
   createSave,
   deleteSave,
+  findSharedSave,
   readSaves,
   recordBuild,
+  shareSave,
   summarizeSave,
   teamBuilderSavesPath,
+  teamBuilderSharedPath,
+  teamBuilderSharePath,
+  teamViewPagePath,
+  unshareSave,
   updateSave,
   type SaveDeps,
+  type TeamBuilderSave,
 } from "./teamBuilderSaves.js";
+import { sharedTeamView, type SharedViewInput } from "./teamShareView.js";
 import { TournamentStore } from "./tournaments/store.js";
 import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./tournaments/types.js";
 import { RateLimiter } from "./translate/guards.js";
@@ -623,6 +631,9 @@ async function handleTestingRequest(req: IncomingMessage, res: ServerResponse, p
 /** Tabletop recorder HTTP: Discord session only (checked in tabletopApi), bounded body. */
 // Public standings read: per-IP rate limit (the same limiter the public translate relay uses).
 const standingsLimiter = new RateLimiter({ maxRequests: 60, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 5_000 });
+// Team share links: creation per coach (owner 10-27); the public read per IP.
+const shareCreateLimiter = new RateLimiter({ maxRequests: 30, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 5_000 });
+const sharedReadLimiter = new RateLimiter({ maxRequests: 120, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 10_000 });
 
 async function handleTabletopRequest(req: IncomingMessage, res: ServerResponse, path: string, query: URLSearchParams): Promise<void> {
   const method = req.method ?? "GET";
@@ -835,6 +846,38 @@ function builderRaceNameFor(rosterId: string): string {
 
 const builderSaveDeps = (): SaveDeps => ({ dir: BUILDER_SAVES_DIR, raceNameFor: builderRaceNameFor });
 
+/** A shared save -> the public view model, composed + validated exactly like the builder preview route.
+ *  The owner's coach name stands in for body.coach (never the stored body's). A sheet that no longer composes
+ *  (retired roster / package) still renders its header with an issue instead of failing the link. */
+function sharedViewFor(coach: string, save: TeamBuilderSave, viewer: string | undefined) {
+  const stored = save.body as TeamBuilderBody;
+  const body: TeamBuilderBody = { ...stored, coach, teamName: String(stored.teamName || save.name) };
+  const input: SharedViewInput = { coach, save, publicDir: PUBLIC_DIR, viewer, custom: body.custom === true };
+  try {
+    const cfg = forkConfigFromEnv();
+    if (cfg && body.rosterId) {
+      if (isSlRosterId(body.rosterId)) {
+        const composed = composeIntrinsicFromBody(cfg.teamsDir, body);
+        input.roster = composed.roster;
+        input.intrinsic = { legal: composed.legal, issues: composed.issues.length };
+      } else {
+        const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
+        if (!("error" in resolvedPkg)) {
+          const composed = composeFromBody(cfg.teamsDir, body);
+          input.roster = composed.roster;
+          input.result = validate(composed.roster, resolvedPkg.pkg, bb2025);
+          const info = packageResponseInfo(resolvedPkg, composed.roster.rosterName);
+          if (info) input.ruleset = { name: info.name, budget: info.budget, tierLabel: packageRaceRules(resolvedPkg.pkg, composed.roster.rosterName).tierLabel ?? null };
+        }
+      }
+    }
+  } catch {
+    // Falls through: the view shows the sheet's header and "Has 1 issue".
+  }
+  if (!input.ruleset && save.packageName) input.ruleset = { name: save.packageName, budget: null, tierLabel: null };
+  return sharedTeamView(input);
+}
+
 /** Resolve a Secret League builder request to a composed team + roster-intrinsic legality (#52 A).
  *  Legality is enforced by the composer (off-dataset ⇒ dataset `validate()` can't run) — the caller
  *  checks `.legal`/`.issues`, never the dataset validator. */
@@ -931,7 +974,9 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   if (tournamentInstructionsGameId(pathname)) return true;
   if (tournamentResultGameId(pathname)) return true;
   // Team Builder saves: coach-session-gated in-handler (401 JSON), never Basic-gated.
-  if (teamBuilderSavesPath(pathname) !== undefined) return true;
+  if (teamBuilderSavesPath(pathname) !== undefined || teamBuilderSharePath(pathname) !== undefined) return true;
+  // Public team share link read + its page (owner 10-27): GET/HEAD only.
+  if ((req.method === "GET" || req.method === "HEAD") && (teamBuilderSharedPath(pathname) !== undefined || teamViewPagePath(pathname) !== undefined)) return true;
   // Web Lobby: session-gated in-handler (401 JSON); its built page is public static.
   if (isLobbyApiPath(pathname) || isTabletopApiPath(pathname) || isAdminTestingPath(pathname)) return true; // the testing suite gates itself (403 for a non-organiser session)
   if ((req.method === "GET" || req.method === "HEAD") && (pathname === "/lobby" || pathname.startsWith("/lobby/"))) return true;
@@ -980,6 +1025,9 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
         pathname === "/tournament-team-builder.html" ||
         pathname === "/my-teams.html" ||
         pathname === "/my-teams.js" ||
+        pathname === "/team-view.html" ||
+        pathname === "/team-view.js" ||
+        pathname === "/team-view.css" ||
         isPublicArtPath(pathname) ||
         pathname.startsWith("/assets/"))
     )
@@ -1083,6 +1131,7 @@ async function serveStatic(res: ServerResponse, urlPath: string): Promise<void> 
   const rel = spa ? spa.rel
     : urlPath === "/" || urlPath === "/index.html" ? "/control-panel.html"
     : urlPath === "/lobby" || urlPath === "/lobby/" ? "/lobby/index.html" // Vite build output (pnpm build:lobby)
+    : teamViewPagePath(urlPath) ? "/team-view.html" // public team share link (owner 10-27); the page reads the token from the path
     : urlPath;
   // prevent path traversal
   const full = normalize(join(root, rel));
@@ -1133,6 +1182,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/fork/reload" ||
     pathname === "/api/fork/team-builder/build" ||
     teamBuilderSavesPath(pathname) !== undefined ||
+    teamBuilderSharePath(pathname) !== undefined ||
     isLobbyApiPath(pathname) ||
     isTabletopApiPath(pathname) ||
     pathname === "/api/bug-reports" ||
@@ -2638,6 +2688,53 @@ async function handleApi(
     }
   }
 
+  // --- Team share links (owner 10-27) ---
+  // Create / revoke: the PROVEN session coach's own save only (another coach's id is "not found").
+  {
+    const shareId = teamBuilderSharePath(path);
+    if (shareId !== undefined) {
+      if (!auth) return sendJson(res, 401, { error: "Sign in to share your teams." });
+      const dir = builderSaveDeps().dir;
+      try {
+        if (method === "POST") {
+          const retry = shareCreateLimiter.take([`coach:${auth.coach}`], 0);
+          if (retry > 0) {
+            res.writeHead(429, { "content-type": "application/json; charset=utf-8", "retry-after": String(retry) });
+            res.end(JSON.stringify({ error: "Too many share links at once; try again shortly." }));
+            return;
+          }
+          const result = shareSave(dir, auth.coach, shareId);
+          if (!result.ok) return sendJson(res, 404, { error: result.error });
+          return sendJson(res, result.created ? 201 : 200, { shareToken: result.token, sharedAt: result.sharedAt, path: `/t/${result.token}` });
+        }
+        if (method === "DELETE") {
+          if (!unshareSave(dir, auth.coach, shareId)) return sendJson(res, 404, { error: "Saved team not found." });
+          res.writeHead(204).end();
+          return;
+        }
+        return sendJson(res, 405, { error: "Use POST or DELETE." });
+      } catch (e) {
+        const busy = /in progress/i.test((e as Error).message);
+        return busy
+          ? sendJson(res, 409, { error: "Another save is in progress; try again." })
+          : sendJson(res, 500, { error: "Could not update the share link right now." });
+      }
+    }
+    // Public read: a sanitised view model only (teamShareView.ts). Generic 404 for unknown / revoked tokens.
+    const shareToken = teamBuilderSharedPath(path);
+    if (shareToken !== undefined) {
+      const sendShared = (status: number, body: unknown) => {
+        res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        res.end(JSON.stringify(body));
+      };
+      if (method !== "GET" && method !== "HEAD") return sendShared(405, { error: "Use GET." });
+      if (sharedReadLimiter.take([`ip:${clientIp(req)}`], 0) > 0) return sendShared(429, { error: "Too many requests; try again shortly." });
+      const found = findSharedSave(builderSaveDeps().dir, shareToken);
+      if (!found) return sendShared(404, { error: "This team link is no longer available." });
+      return sendShared(200, { team: sharedViewFor(found.coach, found.save, auth?.coach) });
+    }
+  }
+
   // Preview: compose + validate, no write. Returns legality findings + the recomputed summary.
   if (path === "/api/fork/team-builder/preview" && method === "POST") {
     // V2: open (non-mutating) — the caller previews their own picks; reveals nothing sensitive.
@@ -3271,6 +3368,8 @@ export const server = createServer((req, res) => {
           url.pathname === "/api/account" ||
           url.pathname === "/api/admin/identities/naf" ||
           teamBuilderSavesPath(url.pathname) !== undefined ||
+          teamBuilderSharePath(url.pathname) !== undefined ||
+          teamBuilderSharedPath(url.pathname) !== undefined ||
           isLobbyApiPath(url.pathname) ||
           isTabletopApiPath(url.pathname) ||
           isAdminTestingPath(url.pathname) ||

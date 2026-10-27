@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<!--
+  Public team view (owner 10-27): a shared Tournament Builder save, read-only, at /t/<token> (also
+  /team-view.html?t=<token>). No sign-in needed. The data is GET /api/fork/team-builder/shared/<token>, a sanitised
+  view model built server-side (teamShareView.ts). Laid out like the desktop client's team library view: crest +
+  team banner, the roster as rows (sprite, number, position, stats, category-coloured skill chips, cost) and a
+  totals band. team-view.js renders it; team-builder.css + team-view.css style it.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Super FUMBBL — Team</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/team-builder.css" />
+  <link rel="stylesheet" href="/team-view.css" />
+  <script src="/theme.js" defer></script>
+  <script src="/team-view.js" defer></script>
+</head>
+<body data-page="team-view">
+  <header class="console-shell">
+    <a class="brand-lockup" href="/control-panel.html" aria-label="Super FUMBBL control panel">
+      <strong>Super FUMBBL</strong>
+      <small>Fantasy Football</small>
+    </a>
+    <span class="environment-stamp">Test environment</span>
+    <nav class="console-tabs" aria-label="Config web sections">
+      <a href="/tournaments.html" data-admin-only hidden>Tournaments</a>
+      <a href="/users.html" data-admin-only hidden>Users</a>
+      <a href="/team-builder.html" data-admin-only hidden>Team</a>
+      <a href="/tournament-team-builder.html">Tournament</a>
+      <a href="/my-teams.html" data-signed-in-only hidden>My Teams</a>
+    </nav>
+  </header>
+
+  <main class="team-builder-view team-view" aria-live="polite">
+    <div id="team-view-root">
+      <p class="status-copy">Loading team…</p>
+    </div>
+  </main>
+</body>
+</html>

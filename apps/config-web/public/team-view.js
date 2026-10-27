@@ -1,0 +1,241 @@
+/*
+ * Public team view (owner 10-27). Dependency-free like my-teams.js: a PURE core (token parsing + markup, exported
+ * as globalThis.TeamView so vitest can load it in a vm) and a small controller, createTeamViewPage(deps), that the
+ * page boots with the real document / fetch / location and the tests drive with stubs.
+ *
+ * Data: GET /api/fork/team-builder/shared/<token> → { team } (teamShareView.ts SharedTeamView). Session (optional):
+ * GET /api/auth/session only decides the nav links; the owner-only "Open in Tournament Builder" link comes from
+ * the server's `ownerSaveId`, which it includes only when the viewer's session coach owns the save.
+ */
+(function (root) {
+  "use strict";
+
+  const ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ESCAPES[c]);
+  const isNum = (value) => typeof value === "number" && Number.isFinite(value);
+  const gold = (value) => (isNum(value) ? `${Math.round(value / 1000).toLocaleString("en-US")}k` : "—");
+  const TOKEN_RE = /^[0-9a-f]{32}$/;
+  const STATS = ["MA", "ST", "AG", "PA", "AV"];
+
+  /** The share token from /t/<token> or /team-view.html?t=<token>; "" when absent or malformed. */
+  function tokenFrom(location) {
+    const path = /^\/t\/([0-9a-f]{32})$/.exec(String(location?.pathname ?? ""));
+    if (path) return path[1];
+    const query = new URLSearchParams(String(location?.search ?? "")).get("t") ?? "";
+    return TOKEN_RE.test(query) ? query : "";
+  }
+
+  /** Skill Key colour class for a dataset category (same mapping as team-builder.js categoryClass). */
+  function categoryClass(category) {
+    const k = String(category || "").toLowerCase();
+    if (k.startsWith("gen")) return "skill-general";
+    if (k.startsWith("agi")) return "skill-agility";
+    if (k.startsWith("str")) return "skill-strength";
+    if (k.startsWith("pass") || k.startsWith("dev")) return "skill-passing";
+    if (k.startsWith("mut")) return "skill-mutation";
+    return "skill-trait";
+  }
+
+  /** Art paths come from the server model; only relative paths inside the generated art folders are used. */
+  const artSrc = (path) => (typeof path === "string" && /^(?:sprites|crests|icons)\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.png$/.test(path) ? `/${path}` : "");
+  const initials = (name) => String(name ?? "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+  function spriteHtml(player) {
+    const src = artSrc(player.sprite);
+    return `<span class="sprite-frame tv-sprite" aria-hidden="true"><span class="sprite-fallback">${esc(initials(player.position))}</span>${src ? `<img class="sprite-image" src="${esc(src)}" alt="" loading="lazy" decoding="async">` : ""}</span>`;
+  }
+  function crestHtml(team) {
+    const src = artSrc(team.crest);
+    return `<span class="sprite-frame crest-frame tv-crest" aria-hidden="true"><span class="sprite-fallback">${esc(initials(team.teamName))}</span>${src ? `<img class="crest-image" src="${esc(src)}" alt="" decoding="async">` : ""}</span>`;
+  }
+
+  function formatDate(iso) {
+    const t = Date.parse(String(iso ?? ""));
+    if (Number.isNaN(t)) return "";
+    const d = new Date(t);
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  }
+  const rulesetText = (team) => (team.ruleset ? [team.ruleset.name, team.ruleset.tierLabel].filter(Boolean).join(" — ") : "");
+
+  function skillChip(skill, added) {
+    const access = added && skill.access === "secondary" ? "secondary" : added ? "primary" : "";
+    const label = added ? `${access === "secondary" ? "Secondary" : "Primary"} skill added: ${skill.name}` : skill.name;
+    return `<span class="skill ${categoryClass(skill.category)}${added ? " tv-added" : ""}${access === "secondary" ? " tv-secondary" : ""}" title="${esc(label)}">${esc(skill.name)}${access === "secondary" ? '<sup class="tv-access" aria-hidden="true">S</sup>' : ""}</span>`;
+  }
+  function skillsHtml(player) {
+    const printed = (player.printed ?? []).map((s) => skillChip(s, false));
+    const added = (player.added ?? []).map((s) => skillChip(s, true));
+    const stats = (player.statIncreases ?? []).map((s) => `<span class="skill tv-stat-up" title="Characteristic increase">+${esc(s)}</span>`);
+    const all = [...printed, ...added, ...stats];
+    return all.length ? all.join("") : '<span class="tv-none">—</span>';
+  }
+  function statCell(player, stat) {
+    const up = (player.statIncreases ?? []).includes(stat);
+    const value = player.stats?.[stat];
+    return { up, text: value === undefined || value === null || value === "" ? "—" : String(value) };
+  }
+
+  function tableHtml(players) {
+    const rows = players.map((p) => `<tr${p.isStar ? ' class="tv-star"' : ""}>
+        <td class="tv-col-sprite">${spriteHtml(p)}</td>
+        <td class="tv-num">${esc(p.number)}</td>
+        <td class="tv-pos">${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}</td>
+        ${STATS.map((stat) => { const c = statCell(p, stat); return `<td class="tv-stat${c.up ? " tv-up" : ""}"${c.up ? ` title="${stat} increased"` : ""}>${esc(c.text)}${c.up ? '<span class="tv-up-mark" aria-hidden="true">▲</span>' : ""}</td>`; }).join("")}
+        <td class="tv-skills"><div class="row-skills">${skillsHtml(p)}</div></td>
+        <td class="tv-cost">${gold(p.cost)}</td>
+      </tr>`).join("");
+    return `<table class="tv-table">
+      <thead><tr><th scope="col"><span class="visually-hidden">Sprite</span></th><th scope="col">#</th><th scope="col">Position</th>${STATS.map((s) => `<th scope="col" class="tv-stat">${s}</th>`).join("")}<th scope="col">Skills</th><th scope="col" class="tv-cost">Cost</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+  function cardsHtml(players) {
+    return `<ol class="tv-cards">${players.map((p) => `<li class="tv-card${p.isStar ? " tv-star" : ""}">
+        <div class="tv-card-head">${spriteHtml(p)}<span class="tv-num">#${esc(p.number)}</span><span class="tv-pos">${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}</span><span class="tv-cost">${gold(p.cost)}</span></div>
+        <dl class="tv-card-stats">${STATS.map((stat) => { const c = statCell(p, stat); return `<div class="${c.up ? "tv-up" : ""}"><dt>${stat}</dt><dd>${esc(c.text)}${c.up ? '<span class="tv-up-mark" aria-label="increased">▲</span>' : ""}</dd></div>`; }).join("")}</dl>
+        <div class="row-skills">${skillsHtml(p)}</div>
+      </li>`).join("")}</ol>`;
+  }
+
+  function sidelineHtml(team) {
+    const s = team.sideline ?? {};
+    const rows = [
+      ["Rerolls", s.reRolls ?? 0], ["Apothecary", s.apothecary ? "Yes" : "No"], ["Assistant coaches", s.assistantCoaches ?? 0],
+      ["Cheerleaders", s.cheerleaders ?? 0], ["Dedicated fans", s.dedicatedFans ?? 1],
+    ];
+    return `<section class="tv-panel" aria-labelledby="tv-sideline-title"><h2 id="tv-sideline-title" class="section-title"><span>S</span>ideline</h2>
+      <dl class="tv-pairs">${rows.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl></section>`;
+  }
+  function inducementsHtml(team) {
+    const list = team.inducements ?? [];
+    if (!list.length) return "";
+    return `<section class="tv-panel" aria-labelledby="tv-ind-title"><h2 id="tv-ind-title" class="section-title"><span>I</span>nducements</h2>
+      <ul class="tv-inducements">${list.map((i) => { const src = artSrc(i.icon); return `<li>${src ? `<img class="crest-image tv-ind-icon" src="${esc(src)}" alt="" aria-hidden="true" loading="lazy">` : ""}<span>${esc(i.name)}</span>${isNum(i.count) && i.count > 1 ? `<b>×${esc(i.count)}</b>` : ""}</li>`; }).join("")}</ul></section>`;
+  }
+  function rulesHtml(team) {
+    const list = team.specialRules ?? [];
+    if (!list.length) return "";
+    return `<section class="tv-panel" aria-labelledby="tv-rules-title"><h2 id="tv-rules-title" class="section-title"><span>S</span>pecial <span>R</span>ules</h2>
+      <ul class="tv-rules">${list.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></section>`;
+  }
+  function totalsHtml(team) {
+    const s = team.summary ?? {};
+    const cells = [
+      ["Players", String(s.players ?? (team.players ?? []).length)],
+      ["Players cost", gold(s.playersCost)],
+      ...(isNum(s.starsCost) && s.starsCost > 0 ? [["Stars", gold(s.starsCost)]] : []),
+      ["Skills", gold(s.skillsCost)],
+      ["Inducements", gold(s.inducementsCost)],
+      ["Sideline", gold(s.sidelineCost)],
+      ["Primary / Secondary", `${s.primarySkills ?? 0} / ${s.secondarySkills ?? 0}`],
+    ];
+    const total = isNum(s.total) ? (isNum(s.cap) ? `${gold(s.total)} <small>/ ${gold(s.cap)}</small>` : gold(s.total)) : "—";
+    const over = isNum(s.total) && isNum(s.cap) && s.total > s.cap;
+    return `<section class="tv-totals" aria-label="Team totals">
+      ${cells.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}
+      <div class="tv-total${over ? " tv-over" : ""}"><span>Total</span><b>${total}</b></div>
+    </section>`;
+  }
+  function badgeHtml(team) {
+    const v = team.validity ?? {};
+    const ruleset = team.ruleset?.name ?? "";
+    if (v.valid) return `<span class="tv-badge tv-valid">${ruleset ? `Valid for ${esc(ruleset)}` : "Valid team"}</span>`;
+    const n = isNum(v.issues) && v.issues > 0 ? v.issues : 1;
+    return `<span class="tv-badge tv-invalid">Has ${n} issue${n === 1 ? "" : "s"}</span>`;
+  }
+
+  /** The whole page body for a team model. */
+  function viewHtml(team) {
+    const players = Array.isArray(team.players) ? team.players : [];
+    const ruleset = rulesetText(team);
+    const date = formatDate(team.updatedAt);
+    const byline = [`Shared by <strong>${esc(team.coach)}</strong>`, ruleset ? esc(ruleset) : "", date ? `updated ${esc(date)}` : ""].filter(Boolean).join(" · ");
+    const owner = typeof team.ownerSaveId === "string" && /^[\w-]{1,64}$/.test(team.ownerSaveId)
+      ? `<a class="session-button tv-owner" href="/tournament-team-builder.html?save=${encodeURIComponent(team.ownerSaveId)}">Open in Tournament Builder</a>` : "";
+    return `<header class="tv-banner">
+        ${crestHtml(team)}
+        <div class="tv-title">
+          <h1>${esc(team.teamName)}</h1>
+          <p class="tv-race">${esc(team.raceName)}</p>
+          <p class="tv-byline">${byline}</p>
+        </div>
+        <div class="tv-banner-side">${badgeHtml(team)}${owner}</div>
+      </header>
+      ${totalsHtml(team)}
+      <section class="tv-roster" aria-label="Roster">
+        ${players.length ? tableHtml(players) + cardsHtml(players) : '<p class="status-copy">This team has no players on this server.</p>'}
+      </section>
+      <div class="tv-extras">${sidelineHtml(team)}${inducementsHtml(team)}${rulesHtml(team)}</div>
+      <p class="tv-key" aria-label="Skill key"><span class="skill skill-general">General</span><span class="skill skill-agility">Agility</span><span class="skill skill-strength">Strength</span><span class="skill skill-passing">Passing</span><span class="skill skill-mutation">Mutation</span><span class="skill skill-trait">Trait</span><span class="skill tv-added skill-general">Added</span><span class="skill tv-stat-up">+Stat</span></p>`;
+  }
+
+  function notFoundHtml() {
+    return `<section class="tv-gone"><h1><span>T</span>eam not found</h1><p>This team link is no longer available.</p>
+      <p><a class="session-button secondary" href="/tournament-team-builder.html">Build a team</a></p></section>`;
+  }
+
+  /**
+   * deps: { document, fetch, location: { pathname, search } }. Returns { start, state }.
+   */
+  function createTeamViewPage(deps) {
+    const doc = deps.document;
+    const state = { token: tokenFrom(deps.location), team: null, gone: false, error: "", coach: "", admin: false };
+
+    function render() {
+      const signedIn = Boolean(state.coach);
+      doc.querySelectorAll("[data-admin-only]").forEach((el) => { el.hidden = !(signedIn && state.admin); });
+      doc.querySelectorAll("[data-signed-in-only]").forEach((el) => { el.hidden = !signedIn; });
+      const host = doc.getElementById("team-view-root");
+      if (state.team) {
+        host.innerHTML = viewHtml(state.team);
+        doc.title = `${state.team.teamName} — Super FUMBBL`;
+      } else if (state.gone) {
+        host.innerHTML = notFoundHtml();
+        doc.title = "Team not found — Super FUMBBL";
+      } else if (state.error) {
+        host.innerHTML = `<p class="status-copy error">${esc(state.error)}</p>`;
+      }
+    }
+
+    async function loadTeam() {
+      if (!state.token) { state.gone = true; return; }
+      try {
+        const response = await deps.fetch(`/api/fork/team-builder/shared/${state.token}`, { credentials: "same-origin", cache: "no-store" });
+        if (response.status === 404) { state.gone = true; return; }
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.team) { state.error = `Couldn't load this team (${payload.error || `HTTP ${response.status}`}).`; return; }
+        state.team = payload.team;
+      } catch (error) {
+        state.error = `Couldn't load this team (${error && error.message ? error.message : "network error"}).`;
+      }
+    }
+    async function restoreSession() {
+      try {
+        const response = await deps.fetch("/api/auth/session", { credentials: "same-origin" });
+        const session = await response.json().catch(() => ({}));
+        if (session.authenticated === true) {
+          state.coach = String(session.coach ?? "").trim();
+          state.admin = session.admin === true || session.organizer === true;
+        }
+      } catch {
+        // Anonymous view.
+      }
+    }
+
+    async function start() {
+      await Promise.all([loadTeam(), restoreSession()]);
+      render();
+    }
+    return { start, render, state };
+  }
+
+  root.TeamView = { tokenFrom, categoryClass, viewHtml, notFoundHtml, formatDate, createTeamViewPage };
+
+  if (typeof document === "undefined" || !document.body || document.body.dataset.page !== "team-view") return;
+  // A missing sprite/crest/icon file just drops the <img>; the initials stay.
+  document.addEventListener("error", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLImageElement && target.matches(".sprite-image, .crest-image")) target.remove();
+  }, true);
+  createTeamViewPage({ document, fetch: (...args) => fetch(...args), location }).start();
+})(typeof globalThis !== "undefined" ? globalThis : this);

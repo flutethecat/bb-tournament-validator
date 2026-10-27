@@ -3,6 +3,7 @@ import { coachLevel, isAdmin, isOrganizer } from "./access.js";
 import { sessionFromRequest } from "./session.js";
 import { isPublicArtPath } from "../publicArt.js";
 import { isSpaPath } from "../spaRoutes.js";
+import { teamBuilderSharedPath, teamViewPagePath } from "../teamBuilderSaves.js";
 
 export interface SessionIdentity {
   coach: string;
@@ -72,6 +73,11 @@ function isPublicRequest(method: string, pathname: string): boolean {
       pathname === "/tournament-team-builder.html" ||
       pathname === "/my-teams.html" ||
       pathname === "/my-teams.js" ||
+      pathname === "/team-view.html" ||
+      pathname === "/team-view.js" ||
+      pathname === "/team-view.css" ||
+      teamViewPagePath(pathname) !== undefined ||
+      teamBuilderSharedPath(pathname) !== undefined ||
       isPublicArtPath(pathname) ||
       pathname === "/tournament-rules.html" ||
       pathname === "/tournament-rules.css" ||

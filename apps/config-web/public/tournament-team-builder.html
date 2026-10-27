@@ -220,6 +220,12 @@
             <div class="export-actions export-actions-stacked">
               <!-- Owner 10-27: Save Team sits right under Export PDF (saves land in My Teams). -->
               <button id="save-team-rail" class="session-button secondary fork-create-button" type="button" disabled>Save Team</button>
+              <!-- Owner 10-27: a public share link for the saved team (/t/<token>), shown once a save is being edited. -->
+              <button id="share-team-rail" class="session-button secondary fork-create-button" type="button" hidden>Share link</button>
+              <div id="share-link-row" class="share-link-row" hidden>
+                <input id="share-link-url" class="my-teams-share-url" type="text" readonly aria-label="Share link" />
+                <button id="share-link-copy" class="session-button secondary" type="button">Copy</button>
+              </div>
               <button class="session-button secondary fork-create-button" id="build-btn" type="submit" disabled>Create team on Fork</button>
             </div>
           </form>
