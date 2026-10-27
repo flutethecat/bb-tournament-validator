@@ -5,7 +5,7 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { loadPackage, type DeepPartial, type SkillMeta, type TournamentPackage } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
@@ -178,17 +178,48 @@ export interface PackageWriteIo {
   remove(path: string): void;
 }
 
-/** Write + fsync, so the bytes are on disk before the rename publishes them. */
-export const defaultPackageWriteIo: PackageWriteIo = {
-  writeFileDurable(path, text) {
-    const fd = openSync(path, "w");
-    try {
-      writeSync(fd, text, null, "utf8");
-      fsyncSync(fd);
-    } finally {
-      closeSync(fd);
+/** The fd-level calls a durable write makes — injectable so tests can simulate short writes. */
+export interface DurableFs {
+  openSync(path: string, flags: string): number;
+  writeSync(fd: number, buffer: Uint8Array, offset: number, length: number): number;
+  fsyncSync(fd: number): void;
+  fstatSync(fd: number): { size: number };
+  closeSync(fd: number): void;
+}
+
+const nodeDurableFs: DurableFs = {
+  openSync: (path, flags) => openSync(path, flags),
+  writeSync: (fd, buffer, offset, length) => writeSync(fd, buffer, offset, length),
+  fsyncSync: (fd) => fsyncSync(fd),
+  fstatSync: (fd) => fstatSync(fd),
+  closeSync: (fd) => closeSync(fd),
+};
+
+/**
+ * Write every byte (writeSync may write fewer than asked: loop until done, and treat a write
+ * of 0 as a failure), check the file's size equals the buffer before fsync, then fsync — so a
+ * short or lying write throws instead of being renamed over the package.
+ */
+export function writeFileDurable(path: string, text: string, fs: DurableFs = nodeDurableFs): void {
+  const buffer = Buffer.from(text, "utf8");
+  const fd = fs.openSync(path, "w");
+  try {
+    let offset = 0;
+    while (offset < buffer.length) {
+      const written = fs.writeSync(fd, buffer, offset, buffer.length - offset);
+      if (!Number.isInteger(written) || written <= 0) throw new Error(`Short write to ${path}: ${offset} of ${buffer.length} bytes.`);
+      offset += written;
     }
-  },
+    const size = fs.fstatSync(fd).size;
+    if (size !== buffer.length) throw new Error(`Incomplete write to ${path}: ${size} of ${buffer.length} bytes on disk.`);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+export const defaultPackageWriteIo: PackageWriteIo = {
+  writeFileDurable: (path, text) => writeFileDurable(path, text),
   rename: (from, to) => renameSync(from, to),
   remove: (path) => rmSync(path, { force: true }),
 };

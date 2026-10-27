@@ -1133,8 +1133,8 @@ function renderSkills() {
   const count = state.view.skillMode === "count";
   const pricing = count
     ? `<div class="knob-grid">
-        ${numField("Max primary", sa("maxPrimary"), allotment.maxPrimary, { blank: "zero" })}
-        ${numField("Max secondary", sa("maxSecondary"), allotment.maxSecondary, { blank: "zero" })}
+        ${overrideField("Max primary", sa("maxPrimary"), allotment.maxPrimary, { kind: "int", none: true, flat: true })}
+        ${overrideField("Max secondary", sa("maxSecondary"), allotment.maxSecondary, { kind: "int", none: true, flat: true })}
         ${overrideField("Swap ratio (primary per secondary)", sa("secondarySwapRatio"), allotment.secondarySwapRatio, { min: 1, flat: true, placeholder: "2" })}
         ${overrideField("Max swaps", sa("secondarySwapMax"), allotment.secondarySwapMax, { none: true, noneLabel: "unlimited", flat: true, placeholder: "unlimited" })}
       </div>
