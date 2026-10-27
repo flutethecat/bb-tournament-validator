@@ -800,6 +800,7 @@ ${rosterSheetHtml(model)}
   let authToken = null;
   let authCoach = "";
   let authOrganizer = false; // whole-roster editing (build with teamId) is organizer-only server-side
+  let authAdminNav = false; // owner 10-27: the Tournaments / Users / Team / Fork Admin nav links show only to admins/organizers
   let authBusy = false;
   let buildBusy = false;
   let discordSsoEnabled = false;
@@ -1000,6 +1001,7 @@ ${rosterSheetHtml(model)}
     renderValidity(); // the sign-in notice follows every auth change (login, logout, 401 expiry)
   }
   function renderSession() {
+    document.querySelectorAll("[data-admin-only]").forEach((el) => { el.hidden = !authAdminNav; });
     const signedIn = Boolean(authCoach);
     $("session-panel").classList.toggle("authenticated", signedIn);
     $("login-form").hidden = signedIn;
@@ -1020,6 +1022,7 @@ ${rosterSheetHtml(model)}
   function sessionExpired(message) {
     authToken = null;
     authOrganizer = false;
+    authAdminNav = false;
     setSessionCoach("");
     loginFeedback = message;
     loginFeedbackError = true;
@@ -1033,6 +1036,7 @@ ${rosterSheetHtml(model)}
       discordSsoEnabled = session.discordSsoEnabled === true;
       if (session.authenticated === true) setSessionCoach(session.coach);
       authOrganizer = session.authenticated === true && session.organizer === true;
+      authAdminNav = session.authenticated === true && (session.admin === true || session.organizer === true);
     } catch {
       // The builder remains browsable and exposes its own login form.
     }
@@ -1050,6 +1054,7 @@ ${rosterSheetHtml(model)}
     }
     authToken = null;
     authOrganizer = false;
+    authAdminNav = false;
     setSessionCoach("");
     authBusy = false;
     loginFeedback = "Signed out.";
