@@ -861,7 +861,8 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .tt-rules-table thead th { position: sticky; top: 0; color: var(--ui-table-head-ink); background: color-mix(in srgb, var(--ui-primary) 34%, var(--ui-surface)); font: 14px/1.2 var(--font-heading); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; border-bottom: 2px solid var(--ui-primary); }
 .tt-rules-table tbody.tt-rt-group { border-top: 2px solid var(--ui-primary); }
 .tt-rules-table tbody.tt-rt-group:nth-of-type(even) { background: color-mix(in srgb, var(--ui-surface-2) 40%, var(--ui-surface)); }
-.tt-rules-table tbody tr:nth-child(even) > :not(.tt-rt-span):not(.tt-rt-tier) { background: color-mix(in srgb, var(--ui-primary) 7%, transparent); }
+/* Owner 10-27: zebra rows need more contrast on Black/Red - a brighter red tint on even rows. */
+.tt-rules-table tbody tr:nth-child(even) > :not(.tt-rt-span):not(.tt-rt-tier) { background: color-mix(in srgb, var(--ui-heading) 16%, transparent); }
 .tt-rules-table .tt-rt-tier { width: 3.2em; color: var(--ui-gold); font: 30px/1 var(--font-heading); text-align: center; vertical-align: middle; border-right: 2px solid var(--ui-primary); }
 .tt-rules-table .tt-rt-tier .tt-rt-all { display: block; font-size: 15px; letter-spacing: .08em; text-transform: uppercase; }
 .tt-rules-table .tt-rt-tier-head { text-align: center; }
