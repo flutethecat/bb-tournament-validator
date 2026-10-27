@@ -1045,7 +1045,7 @@ body[data-builder="tournament"] .tt-steps {
   margin: 0;
   padding: 0 14px;
   position: relative;
-  z-index: 0; /* owner 10-27: inactive tabs sit BEHIND the step panel; only the active tab rises above it */
+  z-index: auto; /* owner 10-27: NO stacking context here, so each tab stacks against the panel on its own */
 }
 body[data-builder="tournament"] .tt-steps button {
   flex: 1 1 0;
@@ -1086,9 +1086,8 @@ body[data-builder="tournament"] .tt-steps button:disabled { opacity: .55; }
 /* The step panels become the notebook page: a heading-coloured top edge the active tab plugs into. */
 body[data-builder="tournament"] .tt-step,
 body[data-builder="tournament"] #builder-panel { position: relative; z-index: 1; border-top: 2px solid var(--ui-heading); border-top-left-radius: 0; border-top-right-radius: 0; }
-/* The active tab must out-stack the panel even though the panel is a later sibling: lift the whole tab row only for it. */
-body[data-builder="tournament"] .tt-steps:has(button.active) { z-index: 2; }
-body[data-builder="tournament"] .tt-steps:has(button.active) button:not(.active) { z-index: -1; }
+/* Stacking: inactive tabs z 0 < panel z 1 < active tab z 3, all in the same (page) stacking context. */
+body[data-builder="tournament"] .tt-steps button:not(.active) { z-index: 0; }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
    MOBILE + TABLET VIEW (owner 10-27: "Can we also configure this with a mobile view?").
