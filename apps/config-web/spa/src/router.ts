@@ -35,7 +35,7 @@ export const NAV: NavItem[] = [
   { label: "Tabletop", to: "/tabletop" },
   { label: "Tournaments", to: "/tournaments" },
   { label: "Team Builder", to: "/team-builder" },
-  { label: "Tournament Team Builder", to: "/tournament-team-builder" },
+  { label: "Tournament Builder", to: "/tournament-team-builder" },
   { label: "Account", to: "/account" },
 ];
 
@@ -77,8 +77,8 @@ export const routes: RouteRecordRaw[] = [
     path: "/tournament-team-builder",
     name: "tournament-team-builder",
     component: LinkOutView,
-    props: { title: "Tournament Team Builder", href: "/tournament-team-builder.html", blurb: "Build a team against a tournament's rules." },
-    meta: { title: "Tournament Team Builder" },
+    props: { title: "Tournament Builder", href: "/tournament-team-builder.html", blurb: "Build a team against a tournament's rules." },
+    meta: { title: "Tournament Builder" },
   },
   { path: "/account", name: "account", component: AccountView, meta: { requiresAuth: true, title: "Account" } },
   { path: "/:pathMatch(.*)*", name: "not-found", component: NotFoundView, meta: { title: "Not found" } },

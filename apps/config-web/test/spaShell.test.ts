@@ -518,7 +518,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
 
   it("nav shows every section; signed in shows the coach, not the login button", async () => {
     const { html } = await render("/tournaments", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } });
-    for (const label of ["Lobby", "Tournaments", "Team Builder", "Tournament Team Builder", "Account"]) expect(html).toContain(`>${label}</a>`);
+    for (const label of ["Lobby", "Tournaments", "Team Builder", "Tournament Builder", "Account"]) expect(html).toContain(`>${label}</a>`);
     expect(html).toContain("Alice");
     expect(html).not.toContain("Login with Discord");
   });
