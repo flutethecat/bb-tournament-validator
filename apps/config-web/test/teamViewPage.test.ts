@@ -56,7 +56,8 @@ describe("team view core", () => {
     expect(markup).toContain('<span class="tv-badge tv-valid">Valid for EuroBowl 2026</span>');
     expect(markup).toContain('<table class="tv-table">');
     expect(markup).toContain('<ol class="tv-cards">');
-    expect((markup.match(/<tr[ >]/g) ?? []).length).toBe(4); // header + 3 players
+    const roster = markup.slice(markup.indexOf('<table class="tv-table">'), markup.indexOf("</table>"));
+    expect((roster.match(/<tr[ >]/g) ?? []).length).toBe(4); // header + 3 players (the inducements table has its own rows)
     expect((markup.match(/<li class="tv-card/g) ?? []).length).toBe(3);
     expect(markup).toContain('src="/sprites/dwarf/dwarfblockerlineman.png"');
     expect(markup).not.toContain("evil.example");
@@ -76,14 +77,18 @@ describe("team view core", () => {
     expect(TeamView.categoryClass("Mutation")).toBe("skill-mutation");
   });
 
-  it("shows totals vs cap, sideline, inducements and special rules", () => {
+  it("shows totals vs cap, sideline staff, the inducements table and the inline special rules", () => {
     const markup = TeamView.viewHtml(fixture());
     expect(markup).toContain("<span>Total</span><b>1,150k <small>/ 1,150k</small></b>");
     expect(markup).toContain("<span>Primary / Secondary</span><b>1 / 1</b>");
     expect(markup).toContain("<span>Stars</span><b>200k</b>");
     expect(markup).toContain("<dt>Rerolls</dt><dd>2</dd>");
-    expect(markup).toContain("<span>Bribes</span><b>×2</b>");
-    expect(markup).toContain("<li>Old World Classic</li>");
+    expect(markup).toContain("<span>S</span>ideline <span>S</span>taff");
+    expect(markup).toContain('<span>Bribes</span></td><td class="num">2</td>');
+    expect(markup).toContain('<small class="tv-rules-inline" aria-label="Special rules">Old World Classic</small>');
+    // the inducements panel comes before Sideline Staff, and there is no Special Rules panel
+    expect(markup.indexOf('id="tv-ind-title"')).toBeLessThan(markup.indexOf('id="tv-sideline-title"'));
+    expect(markup).not.toContain('id="tv-rules-title"');
   });
 
   it("an invalid team gets an issue badge; the owner link appears only with ownerSaveId", () => {
@@ -210,7 +215,7 @@ describe("team view: hostile strings (Sol r1 P3)", () => {
     }
     expect(markup).toContain(`<h1>${escaped}</h1>`);
     expect(markup).toContain(`Shared by <strong>${escaped}</strong>`);
-    expect(markup).toContain(`<li>${escaped}</li>`); // special rule
+    expect(markup).toContain(`aria-label="Special rules">${escaped}</small>`); // special rule beside the team type
     expect(markup).toContain("Has 1 issue"); // a non-numeric issue count never reaches the markup
     expect(markup).toContain("+&lt;img"); // stat increase chip
   });
@@ -224,3 +229,10 @@ describe("team view: hostile strings (Sol r1 P3)", () => {
     expect(liveAttributes(rootEl.innerHTML).filter((a) => /^on/i.test(a))).toEqual([]);
   });
 });
+
+  it("a team without inducements still shows the Inducements table, reading None", () => {
+    const none = { ...fixture(), inducements: [] };
+    const markup = TeamView.viewHtml(none);
+    expect(markup).toContain('id="tv-ind-title"');
+    expect(markup).toContain('class="status-copy tv-none">None</td>');
+  });

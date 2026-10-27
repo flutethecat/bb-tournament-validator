@@ -103,22 +103,25 @@
       ["Rerolls", s.reRolls ?? 0], ["Apothecary", s.apothecary ? "Yes" : "No"], ["Assistant coaches", s.assistantCoaches ?? 0],
       ["Cheerleaders", s.cheerleaders ?? 0], ["Dedicated fans", s.dedicatedFans ?? 1],
     ];
-    return `<section class="tv-panel" aria-labelledby="tv-sideline-title"><h2 id="tv-sideline-title" class="section-title"><span>S</span>ideline</h2>
+    return `<section class="tv-panel" aria-labelledby="tv-sideline-title"><h2 id="tv-sideline-title" class="section-title"><span>S</span>ideline <span>S</span>taff</h2>
       <dl class="tv-pairs">${rows.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl></section>`;
   }
   function inducementsHtml(team) {
     const list = team.inducements ?? [];
-    // Owner 10-27: the Inducements section is always present, reading "None" when the team bought none.
-    if (!list.length) return `<section class="tv-panel" aria-labelledby="tv-ind-title"><h2 id="tv-ind-title" class="section-title"><span>I</span>nducements</h2>
-      <p class="status-copy tv-none">None</p></section>`;
+    const total = team.summary?.inducementsCost;
+    // Owner 10-27: always present, as a table (Inducement / Qty) with the total spend; "None" when the team bought none.
+    const body = list.length
+      ? list.map((i) => { const src = artSrc(i.icon); return `<tr><td>${src ? `<img class="crest-image tv-ind-icon" src="${esc(src)}" alt="" aria-hidden="true" loading="lazy">` : ""}<span>${esc(i.name)}</span></td><td class="num">${esc(isNum(i.count) ? i.count : 1)}</td></tr>`; }).join("")
+      : `<tr><td colspan="2" class="status-copy tv-none">None</td></tr>`;
+    const foot = isNum(total) ? `<tfoot><tr><th scope="row">Total</th><td class="num">${esc(gold(total))}</td></tr></tfoot>` : "";
     return `<section class="tv-panel" aria-labelledby="tv-ind-title"><h2 id="tv-ind-title" class="section-title"><span>I</span>nducements</h2>
-      <ul class="tv-inducements">${list.map((i) => { const src = artSrc(i.icon); return `<li>${src ? `<img class="crest-image tv-ind-icon" src="${esc(src)}" alt="" aria-hidden="true" loading="lazy">` : ""}<span>${esc(i.name)}</span>${isNum(i.count) && i.count > 1 ? `<b>×${esc(i.count)}</b>` : ""}</li>`; }).join("")}</ul></section>`;
+      <table class="tv-ind-table"><thead><tr><th scope="col">Inducement</th><th scope="col" class="num">Qty</th></tr></thead><tbody>${body}</tbody>${foot}</table></section>`;
   }
-  function rulesHtml(team) {
-    const list = team.specialRules ?? [];
-    if (!list.length) return "";
-    return `<section class="tv-panel" aria-labelledby="tv-rules-title"><h2 id="tv-rules-title" class="section-title"><span>S</span>pecial <span>R</span>ules</h2>
-      <ul class="tv-rules">${list.map((r) => `<li>${esc(r)}</li>`).join("")}</ul></section>`;
+  /** Owner 10-27: special rules are small text beside the team name, not a panel. */
+  function rulesInlineHtml(team) {
+    const list = (team.specialRules ?? []).map(String).filter(Boolean);
+    // Owner: beside the team TYPE, e.g. Dwarf — "Worlds Edge Superleague / Bribery & Corruption / Brawlin' Brutes".
+    return list.length ? ` <small class="tv-rules-inline" aria-label="Special rules">${list.map(esc).join(" / ")}</small>` : "";
   }
   function totalsHtml(team) {
     const s = team.summary ?? {};
@@ -158,7 +161,7 @@
         ${crestHtml(team)}
         <div class="tv-title">
           <h1>${esc(team.teamName)}</h1>
-          <p class="tv-race">${esc(team.raceName)}</p>
+          <p class="tv-race">${esc(team.raceName)}${rulesInlineHtml(team)}</p>
           <p class="tv-byline">${byline}</p>
         </div>
         <div class="tv-banner-side">${badgeHtml(team)}${owner}</div>
@@ -167,7 +170,7 @@
       <section class="tv-roster" aria-label="Roster">
         ${players.length ? tableHtml(players) + cardsHtml(players) : '<p class="status-copy">This team has no players on this server.</p>'}
       </section>
-      <div class="tv-extras">${sidelineHtml(team)}${inducementsHtml(team)}${rulesHtml(team)}</div>
+      <div class="tv-extras">${inducementsHtml(team)}${sidelineHtml(team)}</div>
       <p class="tv-key" aria-label="Skill key"><span class="skill skill-general">General</span><span class="skill skill-agility">Agility</span><span class="skill skill-strength">Strength</span><span class="skill skill-passing">Passing</span><span class="skill skill-mutation">Mutation</span><span class="skill skill-trait">Trait</span><span class="skill tv-added skill-general">Added</span><span class="skill tv-stat-up">+Stat</span></p>`;
   }
 

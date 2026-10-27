@@ -125,3 +125,12 @@
   .tv-totals .tv-total { grid-column: auto; }
   .tv-extras { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 }
+
+/* Owner 10-27: inducements table + inline special rules under the team name. */
+.tv-rules-inline { margin-left: 8px; color: var(--ui-muted); font-size: 12px; font-weight: 400; letter-spacing: .02em; }
+.tv-ind-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tv-ind-table th, .tv-ind-table td { padding: 5px 6px; border-bottom: 1px solid var(--ui-border); text-align: left; vertical-align: middle; }
+.tv-ind-table thead th { color: var(--ui-muted); font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: .08em; }
+.tv-ind-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.tv-ind-table tfoot th, .tv-ind-table tfoot td { border-bottom: 0; font-weight: 600; }
+.tv-ind-table .tv-ind-icon { width: 18px; height: 18px; margin-right: 6px; vertical-align: middle; }
