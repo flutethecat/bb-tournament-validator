@@ -42,11 +42,17 @@
       </div>
       <!-- Owner 10-27: the signed-in identity lives top right; the sign-in card below only shows while signed out. -->
       <div class="view-header-side">
-        <div id="signed-in-session" class="signed-in-session" hidden>
-          <span class="session-dot" aria-hidden="true"></span>
-          <span>Signed in as <strong id="signed-in-coach"></strong></span>
-          <button id="logout-button" class="session-button secondary" type="button">Log Out</button>
-        </div>
+        <!-- Owner 10-27: the coach name is a menu; Log out lives inside it. -->
+        <details id="signed-in-session" class="signed-in-session session-menu" hidden>
+          <summary class="session-menu-summary" aria-label="Account menu">
+            <span class="session-dot" aria-hidden="true"></span>
+            <span>Signed in as <strong id="signed-in-coach"></strong></span>
+            <span class="session-menu-caret" aria-hidden="true">&#9662;</span>
+          </summary>
+          <div class="session-menu-list" role="menu">
+            <button id="logout-button" class="session-menu-item" type="button" role="menuitem">Log out</button>
+          </div>
+        </details>
       <div class="skill-key" aria-label="Skill category key">
         <span class="key-label"><b>S</b>kill <b>K</b>ey</span>
         <span class="skill-general">General</span>

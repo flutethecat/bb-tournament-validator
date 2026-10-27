@@ -2998,7 +2998,10 @@ ${rosterSheetHtml(model)}
   $("build-form").addEventListener("submit", buildTeam);
   $("print-sheet").addEventListener("click", printSheet);
   $("download-sheet").addEventListener("click", downloadSheet);
-  $("logout-button").addEventListener("click", logout);
+  $("logout-button").addEventListener("click", () => { const menu = $("signed-in-session"); if (menu && "open" in menu) menu.open = false; logout(); });
+  // Account menu (tournament page): click outside or Escape closes it.
+  document.addEventListener("click", (event) => { const menu = $("signed-in-session"); if (menu && "open" in menu && menu.open && !menu.contains(event.target)) menu.open = false; });
+  document.addEventListener("keydown", (event) => { const menu = $("signed-in-session"); if (event.key === "Escape" && menu && "open" in menu && menu.open) menu.open = false; });
   $("save-button").addEventListener("click", () => saveTeam(false));
   $("save-as-button").addEventListener("click", () => saveTeam(true));
   $("saves-toggle").addEventListener("click", () => { savesOpen = !savesOpen; renderSaves(); if (savesOpen) loadSaves(); });
