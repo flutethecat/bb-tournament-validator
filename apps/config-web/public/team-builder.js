@@ -989,9 +989,13 @@ ${rosterSheetHtml(model)}
       const valid = mode === "custom" ? Boolean(preview) : preview?.valid === true;
       button.disabled = !authCoach || !valid || previewPending;
     }
-    const exportable = Boolean(current && slots.length);
+    // Owner 10-27: Export PDF only lights up for a VALID roster (custom mode: any previewed roster), never
+    // while a preview is pending or the validator has findings.
+    const sheetValid = mode === "custom" ? Boolean(preview) : preview?.valid === true;
+    const exportable = Boolean(current && slots.length) && sheetValid && !previewPending;
     $("print-sheet").disabled = !exportable;
-    $("download-sheet").disabled = !exportable;
+    const downloadSheet = $("download-sheet");
+    if (downloadSheet) downloadSheet.disabled = !exportable;
   }
   function setSessionCoach(coach) {
     authCoach = String(coach ?? "").trim();
