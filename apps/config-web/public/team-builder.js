@@ -2473,13 +2473,22 @@ ${rosterSheetHtml(model)}
       if (!name) return;
     }
     const body = requestBody({ forSave: true });
+    // The builder may move on while the write is in flight (another save loaded, another ruleset / race / mode
+    // chosen): the write still lands, but the builder must not re-attach to that save, or the next Save would
+    // overwrite it with the new roster.
+    const generation = restoreGeneration;
     try {
       const data = asNew || !currentSave
         ? await postJson("/api/fork/team-builder/saves", { name, body })
         : await postJson(`/api/fork/team-builder/saves/${encodeURIComponent(currentSave.id)}`, { name, body }, "PUT");
       const save = data.save ?? null;
-      if (save?.id) currentSave = { id: save.id, name: save.name ?? name };
-      setSavesStatus(`Saved “${currentSave?.name ?? name}”.`);
+      const savedName = save?.name ?? name;
+      if (generation !== restoreGeneration) {
+        setSavesStatus(`Saved “${savedName}” (earlier roster).`);
+      } else {
+        if (save?.id) currentSave = { id: save.id, name: savedName };
+        setSavesStatus(`Saved “${currentSave?.name ?? savedName}”.`);
+      }
       await loadSaves();
     } catch (error) {
       savesError(error, "save the team");

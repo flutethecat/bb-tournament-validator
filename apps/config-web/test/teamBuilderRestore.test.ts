@@ -48,7 +48,7 @@ function stubElement(id: string): Any {
 
 interface Held { path: string; release: () => void }
 
-function bootBuilder(opts: { search?: string; routes: Record<string, (init: Any) => { status: number; body: unknown }>; hold?: (path: string) => boolean }) {
+function bootBuilder(opts: { search?: string; routes: Record<string, (init: Any) => { status: number; body: unknown }>; hold?: (path: string, method: string) => boolean; prompt?: () => string | null }) {
   const elements = new Map<string, Any>();
   const el = (id: string) => { if (!elements.has(id)) elements.set(id, stubElement(id)); return elements.get(id); };
   el("team-builder-title");
@@ -63,25 +63,25 @@ function bootBuilder(opts: { search?: string; routes: Record<string, (init: Any)
     addEventListener: (type: string, fn: (event: Any) => unknown) => { (docListeners[type] ??= []).push(fn); },
     removeEventListener: () => undefined,
   };
-  const calls: Array<{ path: string; method: string }> = [];
+  const calls: Array<{ path: string; method: string; body?: string }> = [];
   const held: Held[] = [];
   const replaced: string[] = [];
   const respond = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
   const fetch = (path: string, init: Any = {}) => {
     const method = init.method ?? "GET";
-    calls.push({ path, method });
+    calls.push({ path, method, body: init.body });
     const key = `${method} ${path.split("?")[0]}`;
     const route = opts.routes[`${method} ${path}`] ?? opts.routes[key];
     const out = route ? route(init) : { status: 200, body: {} };
     const result = respond(out.status, out.body);
-    if (opts.hold?.(path)) return new Promise((resolve) => held.push({ path, release: () => resolve(result) }));
+    if (opts.hold?.(path, method)) return new Promise((resolve) => held.push({ path, release: () => resolve(result) }));
     return Promise.resolve(result);
   };
   const location = { pathname: "/tournament-team-builder.html", search: opts.search ?? "", hash: "", hostname: "localhost", href: "" };
   const context: Record<string, Any> = {
     console, document, fetch, location, URLSearchParams, setTimeout, clearTimeout, Promise, Date, JSON, Math, Map, Set,
     history: { state: null, replaceState: (_s: unknown, _t: string, url: string) => replaced.push(url) },
-    window: { prompt: () => null, confirm: () => true, print: () => undefined, open: () => null, addEventListener: () => undefined, matchMedia: () => ({ matches: false, addEventListener: () => undefined }) },
+    window: { prompt: opts.prompt ?? (() => null), confirm: () => true, print: () => undefined, open: () => null, addEventListener: () => undefined, matchMedia: () => ({ matches: false, addEventListener: () => undefined }) },
     localStorage: { getItem: () => null, setItem: () => undefined, removeItem: () => undefined },
     requestAnimationFrame: (fn: () => void) => setTimeout(fn, 0),
   };
@@ -177,5 +177,65 @@ describe("tournament builder — ?save= restore lifecycle (real loadSave / apply
     expect(page.el("saves-status").textContent).toBe("");
     expect(page.el("signed-in-session").hidden).toBe(false);
     expect(page.el("builder-panel").hidden).toBe(true);
+  });
+});
+
+describe("tournament builder — Save completion after the builder moved on", () => {
+  const loaded = { status: 200, body: { save: { id: "sv_1", name: "Green Tide", body: saveBody("Small Gods 2026") } } };
+  const click = (page: Any, id: string, target: Any = { closest: () => null }) => { for (const fn of page.el(id).listeners.click ?? []) fn({ target }); };
+  const pick = (attr: string, key: string, value: string) => ({ closest: (sel: string) => (sel === `[${attr}]` ? { dataset: { [key]: value } } : null) });
+
+  it("normal path: Save Team PUTs the loaded save and keeps editing it", async () => {
+    const page = bootBuilder({
+      search: "?save=sv_1",
+      routes: { ...baseRoutes(loaded), "PUT /api/fork/team-builder/saves/sv_1": () => ({ status: 200, body: { save: { id: "sv_1", name: "Green Tide" } } }) },
+    });
+    await flush();
+    click(page, "save-team-rail");
+    await flush();
+    const put = page.calls.find((c) => c.method === "PUT")!;
+    expect(put.path).toBe("/api/fork/team-builder/saves/sv_1");
+    expect(JSON.parse(put.body!).body.packageName).toBe("Small Gods 2026");
+    expect(page.el("saves-status").textContent).toBe("Saved “Green Tide”.");
+    expect(page.el("current-save-label").textContent).toBe("Editing “Green Tide”");
+  });
+
+  it("a delayed Save that completes after another ruleset + race were chosen does not re-attach the save", async () => {
+    let prompted = 0;
+    let posted = false;
+    const page = bootBuilder({
+      search: "?save=sv_1",
+      routes: {
+        ...baseRoutes(loaded),
+        "PUT /api/fork/team-builder/saves/sv_1": () => ({ status: 200, body: { save: { id: "sv_1", name: "Green Tide" } } }),
+        "POST /api/fork/team-builder/saves": () => { posted = true; return { status: 201, body: { save: { id: "sv_2", name: "Fresh Orcs" } } }; },
+        "GET /api/fork/team-builder/saves": () => ({ status: 200, body: { saves: [
+          ...(posted ? [{ id: "sv_2", name: "Fresh Orcs", rosterId: "orc", raceName: "Orc", packageName: "EuroBowl 2026" }] : []),
+          { id: "sv_1", name: "Green Tide", rosterId: "orc", raceName: "Orc", packageName: "Small Gods 2026" },
+        ] } }),
+      },
+      hold: (path, method) => method === "PUT" && path === "/api/fork/team-builder/saves/sv_1",
+      prompt: () => { prompted += 1; return "Fresh Orcs"; },
+    });
+    await flush();
+    click(page, "save-team-rail"); // Save A, response held
+    await flush();
+    expect(page.held.map((h) => h.path)).toEqual(["/api/fork/team-builder/saves/sv_1"]);
+    click(page, "tt-packages", pick("data-tt-package", "ttPackage", "EuroBowl 2026"));
+    await flush();
+    click(page, "tt-races", pick("data-tt-race", "ttRace", "orc"));
+    await flush();
+    page.held.splice(0).forEach((h) => h.release()); // the write for A lands now
+    await flush();
+    expect(page.el("saves-status").textContent).toBe("Saved “Green Tide” (earlier roster).");
+    expect(page.el("current-save-label").textContent).toBe("");
+    // The next Save is a NEW save (prompted for a name), never a second PUT over A.
+    click(page, "save-team-rail");
+    await flush();
+    expect(prompted).toBe(1);
+    expect(page.calls.filter((c) => c.method === "PUT")).toHaveLength(1);
+    const post = page.calls.find((c) => c.method === "POST" && c.path === "/api/fork/team-builder/saves")!;
+    expect(JSON.parse(post.body!).body.packageName).toBe("EuroBowl 2026");
+    expect(page.el("current-save-label").textContent).toBe("Editing “Fresh Orcs”");
   });
 });
