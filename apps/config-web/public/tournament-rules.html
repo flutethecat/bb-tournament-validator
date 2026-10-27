@@ -1,6 +1,7 @@
 <!doctype html>
 <!--
-  Tournament Rules Construction — the organiser's package editor (admin page). Shares the console header,
+  Tournament Creator — the organiser's tournament package editor (admin page; files keep the
+  tournament-rules.* names so URLs and the server allow-list stay put). Shares the console header,
   Nuffle headings, theme tokens and notebook-tab language of the Tournament Team Builder; the packages it
   saves (tournament-packages/*.json) are what that builder's ruleset table reads.
 -->
@@ -8,7 +9,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Super FUMBBL — Tournament Rules Construction</title>
+  <title>Super FUMBBL — Tournament Creator</title>
   <link rel="stylesheet" href="./theme.css">
   <link rel="stylesheet" href="./tournament-rules.css">
   <script src="./theme.js" defer></script>
@@ -25,15 +26,15 @@
       <a href="/tournaments.html" data-admin-only hidden>Tournaments</a>
       <a href="/users.html" data-admin-only hidden>Users</a>
       <a href="/team-builder.html" data-admin-only hidden>Team</a>
-      <a class="active" href="/tournament-rules.html" aria-current="page">Rules</a>
-      <a href="/tournament-team-builder.html">Tournament</a>
+      <a class="active" href="/tournament-rules.html" aria-current="page">Tournament Creator</a>
+      <a href="/tournament-team-builder.html">Tournament Builder</a>
       <a id="fork-admin-link" href="#" target="_blank" rel="noopener" data-admin-only hidden>Fork Admin ↗</a>
     </nav>
   </header>
 
   <main class="rules-view" aria-labelledby="rules-title">
     <header class="view-header">
-      <h1 id="rules-title" class="view-title"><span>T</span>ournament <span>R</span>ules <span>C</span>onstruction</h1>
+      <h1 id="rules-title" class="view-title"><span>T</span>ournament <span>C</span>reator</h1>
       <div id="toolbar" class="rules-session" aria-label="Organiser login"></div>
     </header>
 

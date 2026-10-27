@@ -43,7 +43,7 @@ Owner-specified entry pane, visible to ORGANIZERS as a button on the Tournaments
 (`tournaments.html` becomes a real page; it is currently a legacy redirect stub to admin.html):
 
 1. **Ruleset selection** — the tournament binds to a saved tournament-rules package
-   (the sets created in tournament-rules.html; source = the PackageFiles listing).
+   (the sets created in the Tournament Creator, tournament-rules.html; source = the PackageFiles listing).
    Gap closed by adding `packageName` to `TournamentRecord`.
 2. **# of Players** — an entrant cap (`maxPlayers`) enforced at registration.
 3. **Type of competition** — `format: "swiss" | "roundRobin" | "knockout"`; pairing.ts grows

@@ -396,7 +396,7 @@ textarea.control { min-height: 58px; resize: vertical; line-height: 1.4; }
 .busy { opacity: .7; pointer-events: none; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* ── Tournament Rules Construction: the Tournament Team Builder's console language ── */
+/* ── Tournament Creator (tournament-rules.html): the Tournament Team Builder's console language ── */
 .console-shell {
   position: sticky;
   top: 0;

@@ -9,7 +9,7 @@ function cssClasses(source: string): Set<string> {
   return new Set([...stripped.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((match) => match[1]!));
 }
 
-describe("Tournament Rules Construction — page shell", () => {
+describe("Tournament Creator — page shell", () => {
   it("uses the Tournament Team Builder console header, theme tokens and theme toggle", () => {
     expect(html).toContain('class="console-shell"');
     expect(html).toContain('class="brand-lockup"');
@@ -18,9 +18,12 @@ describe("Tournament Rules Construction — page shell", () => {
     expect(html).toContain('href="./theme.css"');
     expect(html).toContain('href="./tournament-rules.css"');
     expect(html).not.toContain("team-builder.css");
-    // The active tab is this page; the Tournament builder stays public; organiser links are gated.
-    expect(html).toMatch(/<a class="active" href="\/tournament-rules.html" aria-current="page">Rules<\/a>/);
-    expect(html).toMatch(/<a href="\/tournament-team-builder.html">Tournament<\/a>/);
+    // The active tab is this page; the coach-facing Tournament Builder stays public; organiser links are gated.
+    expect(html).toMatch(/<a class="active" href="\/tournament-rules.html" aria-current="page">Tournament Creator<\/a>/);
+    expect(html).toContain("<title>Super FUMBBL — Tournament Creator</title>");
+    expect(html).toContain("<span>T</span>ournament <span>C</span>reator</h1>");
+    expect(html).not.toMatch(/Rules Construction/);
+    expect(html).toMatch(/<a href="\/tournament-team-builder.html">Tournament Builder<\/a>/);
     for (const href of ["/tournaments.html", "/users.html", "/team-builder.html"]) {
       expect(html).toMatch(new RegExp(`<a href="${href}" data-admin-only hidden>`));
     }
@@ -38,7 +41,7 @@ describe("Tournament Rules Construction — page shell", () => {
   });
 });
 
-describe("Tournament Rules Construction — booted page", () => {
+describe("Tournament Creator — booted page", () => {
   it("reveals the organiser nav links only for an admin / organiser session", async () => {
     const admin = await bootRules({ authenticated: true, admin: true, coach: "Jay" });
     expect(admin.adminLinks.every((link) => link.hidden === false)).toBe(true);

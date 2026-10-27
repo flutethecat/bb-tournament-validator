@@ -20,7 +20,7 @@ current `requireAdminGate` unless explicitly retightened.
 
 ## Context / why
 The old "Bot Panel" (`tournaments.html`, `users.html`) uses the legacy `theme.css` look and is being
-retired. The new standard is the **Tournament Rules Construction** design (`tournament-rules.{html,css,js}`).
+retired. The new standard is the **Tournament Creator** design (`tournament-rules.{html,css,js}`).
 The owner wants fork admin tooling brought into that design language, plus new capabilities:
 
 1. **User controls** — Ban, Silence, and a per-account **Permission level** (Player / Organizer / Admin).
@@ -120,7 +120,7 @@ Refuse with a clear user-facing message: `"This account is banned from Super FUM
    be cheaply resolved to a coach, do NOT block (log it) — and say so in the spec/PR, don't fake coverage.
 4. **Silence** — store + surface only. Do NOT claim enforcement anywhere (no fork admin op for chat).
 
-## Frontend — new Admin Console (matches the tournament-rules design)
+## Frontend — new Admin Console (matches the Tournament Creator design)
 New page set served by config-web:
 - `public/admin.html` — same shell as `tournament-rules.html`: `.page-shell` > `.brand-header`
   (reuse `assets/`), a `.toolbar` (login + section switch), `.main-grid`, `.footer`. **Reuse

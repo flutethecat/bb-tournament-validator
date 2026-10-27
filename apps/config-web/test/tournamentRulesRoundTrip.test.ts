@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { type Any, bootRules, plain, publicDir, readPackage } from "./tournamentRulesHarness";
 
-// Round-trip law (owner 10-27): a tournament package loaded into Tournament Rules Construction and
+// Round-trip law (owner 10-27): a tournament package loaded into the Tournament Creator and
 // serialised back without edits is deep-equal to the file (key order ignored). Runs the REAL
 // tournament-rules.js normalizePackage/serializePackage; with no document the UI never boots.
 function loadCore(): Any {
@@ -29,7 +29,7 @@ function roundTrip(core: Any, raw: Record<string, unknown>): Record<string, unkn
 
 const PACKAGES = ["small-gods", "whbb-nut-cup-2026", "naf-world-cup-2027", "eurobowl-2026", "spike-2026"];
 
-describe("Tournament Rules Construction — round trip", () => {
+describe("Tournament Creator — round trip", () => {
   const core = loadCore();
 
   for (const name of PACKAGES) {
@@ -105,7 +105,7 @@ function getPath(root: Any, path: (string | number)[]): Any {
   return path.reduce((value: Any, key) => (value == null ? undefined : value[key]), root);
 }
 
-describe("Tournament Rules Construction — field controls", () => {
+describe("Tournament Creator — field controls", () => {
   const BASE = {
     name: "Controls",
     eligibleRosters: ["*"],

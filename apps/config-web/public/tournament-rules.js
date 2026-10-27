@@ -1,7 +1,7 @@
 "use strict";
 
 /*
-  Tournament Rules Construction — the organiser's package editor (admin page).
+  Tournament Creator — the organiser's tournament package editor (admin page; served as tournament-rules.html).
 
   Round-trip law (owner 10-27): loading a tournament package and serialising it back without edits must
   give JSON deep-equal to the input. normalizePackage() only FILLS absent keys (with the validator's

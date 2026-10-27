@@ -202,7 +202,7 @@ describe("admin team search HTTP gate", () => {
 });
 
 describe("control-panel landing", () => {
-  it("serves the hub at /, /index.html, and its direct URL while keeping the rules editor direct", async () => {
+  it("serves the hub at /, /index.html, and its direct URL while keeping the Tournament Creator direct", async () => {
     for (const path of ["/", "/index.html", "/control-panel.html"]) {
       const response = await fetch(`${origin}${path}`);
       expect(response.status).toBe(200);
@@ -210,7 +210,7 @@ describe("control-panel landing", () => {
     }
     const rules = await fetch(`${origin}/tournament-rules.html`);
     expect(rules.status).toBe(200);
-    expect(await rules.text()).toContain("Tournament Rules");
+    expect(await rules.text()).toContain("Tournament Creator");
   });
 });
 

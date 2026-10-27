@@ -5,8 +5,8 @@
 
 ## Why
 
-A tournament package today has two faces: the TO's editor (`public/tournament-rules.html`, "Tournament Rules
-Construction") and a bare export sheet (`POST /api/export` → `renderPackageHtml`). Neither is a page a coach
+A tournament package today has two faces: the TO's editor (`public/tournament-rules.html`, the "Tournament
+Creator") and a bare export sheet (`POST /api/export` → `renderPackageHtml`). Neither is a page a coach
 can be sent a link to. The NAF World Cup 2027 package showed the gap: a coach building a team needs the tier
 table, the skill prices, the star list and the hand-checked rules on one readable page, with the same
 authority as the validator (rendered FROM the package, never re-typed), and the TO needs a URL to paste into
