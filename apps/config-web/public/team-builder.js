@@ -414,7 +414,7 @@
     function normalizeOverview(raw) {
       if (!raw || typeof raw !== "object" || !Array.isArray(raw.summary) || !Array.isArray(raw.groups)) return null;
       const strList = (value) => (Array.isArray(value) ? value.map(str) : []);
-      return {
+      const out = {
         summary: raw.summary.filter((line) => line && typeof line === "object").map((line) => ({
           key: str(line.key),
           label: str(line.label),
@@ -433,6 +433,8 @@
           }),
         })).filter((group) => group.teams.length),
       };
+      // An overview with no usable group is treated as absent (the page then falls back to the legacy tier table).
+      return out.groups.length ? out : null;
     }
     /** The highlight lines: label (heading font) + value; `details` becomes a closed disclosure. */
     function overviewSummaryHtml(overview) {
@@ -451,19 +453,10 @@
     /** A cell value; its " · "-joined parts stack as unbroken lines. */
     const cellHtml = (value) => value == null ? "—" : String(value).split(" · ").map((part) => `<span class="tt-rt-line">${esc(part)}</span>`).join("");
     const allotmentHtml = (team) => team.allotment.length ? team.allotment.map((line) => `<span class="tt-rt-line">${esc(line)}</span>`).join("") : "—";
-    /** Most common value in a list (first seen wins a tie). */
-    function majority(values) {
-      const tally = new Map();
-      for (const value of values) tally.set(value, (tally.get(value) ?? 0) + 1);
-      let best = values[0];
-      for (const [value, count] of tally) if (count > tally.get(best)) best = value;
-      return best;
-    }
     /**
      * The tier table: Tier (rowspan) | one row per team (Team, Gold cap, Skill allotment) | tier-level columns.
      * A tier-level value that is the same for every team in the tier spans the tier; one that differs is shown on
-     * each team row. Star access spans the tier with the common value and names each differing roster under its
-     * team name. Columns empty (null) for every team are dropped.
+     * each team row (star access included — no majority span). Columns empty (null) for every team are dropped.
      */
     function overviewTableHtml(overview) {
       const groups = overview?.groups ?? [];
@@ -477,23 +470,17 @@
         const span = n > 1 ? ` rowspan="${n}"` : "";
         const uniform = (key) => group.teams.every((team) => team[key] === group.teams[0][key]);
         const allotmentUniform = group.teams.every((team) => allotmentKey(team) === allotmentKey(group.teams[0]));
-        const commonStars = cols.includes("stars") ? majority(group.teams.map((team) => team.stars)) : null;
         const rows = group.teams.map((team, index) => {
           const first = index === 0;
           const tierCell = first
             ? `<th scope="rowgroup"${span} class="tt-rt-tier">${group.tier != null ? esc(group.tier) : `<span class="tt-rt-all">${esc(group.label || "All teams")}</span>`}</th>`
             : "";
-          const starNote = cols.includes("stars") && team.stars !== commonStars
-            ? `<small class="tt-rt-note">Stars: ${esc(team.stars ?? "none")}</small>`
-            : "";
-          const cells = [`<th scope="row" class="tt-rt-team">${esc(team.name)}${starNote}</th>`];
+          const cells = [`<th scope="row" class="tt-rt-team">${esc(team.name)}</th>`];
           if (showGold) cells.push(`<td class="tt-rt-num tt-rt-gold">${esc(goldRange(team))}</td>`);
           if (!allotmentUniform) cells.push(`<td class="tt-rt-allot">${allotmentHtml(team)}</td>`);
           else if (first) cells.push(`<td class="tt-rt-allot tt-rt-span"${span}>${allotmentHtml(team)}</td>`);
           for (const key of cols) {
-            if (key === "stars") {
-              if (first) cells.push(`<td class="tt-rt-span"${span}>${cellHtml(commonStars)}</td>`);
-            } else if (!uniform(key)) cells.push(`<td>${cellHtml(team[key])}</td>`);
+            if (!uniform(key)) cells.push(`<td>${cellHtml(team[key])}</td>`);
             else if (first) cells.push(`<td class="tt-rt-span"${span}>${cellHtml(team[key])}</td>`);
           }
           return `<tr>${tierCell}${cells.join("")}</tr>`;

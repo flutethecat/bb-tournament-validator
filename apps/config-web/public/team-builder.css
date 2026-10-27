@@ -857,7 +857,6 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .tt-rules-table .tt-rt-tier .tt-rt-all { display: block; font-size: 15px; letter-spacing: .08em; text-transform: uppercase; }
 .tt-rules-table .tt-rt-tier-head { text-align: center; }
 .tt-rules-table .tt-rt-team { font-weight: 500; white-space: nowrap; }
-.tt-rules-table .tt-rt-note { display: block; color: var(--ui-muted); font-size: 13px; font-weight: 400; white-space: normal; }
 .tt-rules-table .tt-rt-num { text-align: right; }
 .tt-rules-table .tt-rt-gold { color: var(--ui-gold); font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tt-rules-table .tt-rt-line { display: block; white-space: nowrap; }

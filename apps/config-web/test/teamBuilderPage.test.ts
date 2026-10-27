@@ -687,7 +687,7 @@ describe("tournament team builder — ruleset summary + per-team tier table (own
     expect(markup).not.toContain("<details open");
   });
 
-  it("spans the tier number and tier-uniform cells, shows per-team values and allotments, and notes star exceptions", () => {
+  it("spans the tier number and tier-uniform cells, and puts any value that differs inside a tier (stars too) on each team row", () => {
     const markup: string = core.overviewTableHtml(overview);
     // Tier number spans its teams; one row per team.
     expect(markup).toContain('<th scope="rowgroup" rowspan="2" class="tt-rt-tier">1</th>');
@@ -702,9 +702,13 @@ describe("tournament team builder — ruleset summary + per-team tier table (own
     // Gold caps per team, ranges for choose-one packs.
     expect(markup).toContain('<td class="tt-rt-num tt-rt-gold">1,260k</td>');
     expect(markup).toContain('<td class="tt-rt-num tt-rt-gold">1,100k–1,150k</td>');
-    // Stars: the tier's common value spans; the differing roster is named under its team.
-    expect(markup).toContain('Snotling<small class="tt-rt-note">Stars: Free (max 2) · Mega Star (max 1)</small>');
-    expect(markup).toContain('<td class="tt-rt-span" rowspan="3"><span class="tt-rt-line">Free (max 2)</span></td>');
+    // Stars differ inside Tier 2 → a Stars cell on every team row, no majority span and no annotation.
+    expect(markup).toContain('<td><span class="tt-rt-line">Free (max 2)</span><span class="tt-rt-line">Mega Star (max 1)</span></td>');
+    expect(markup.match(/<td><span class="tt-rt-line">Free \(max 2\)<\/span><\/td>/g)).toHaveLength(2);
+    expect(markup).not.toContain('rowspan="3"><span class="tt-rt-line">Free (max 2)</span></td>');
+    expect(markup).not.toContain("tt-rt-note");
+    // Stars uniform inside Tier 1 (none) → one spanning cell.
+    expect(markup).toContain('<td class="tt-rt-span" rowspan="2">—</td>');
   });
 
   it("hides columns that are empty for every team", () => {
@@ -743,6 +747,10 @@ describe("tournament team builder — ruleset summary + per-team tier table (own
     expect(markup).not.toContain("<img");
     expect(markup).toContain("&lt;img");
     expect(core.normalizeOverview(null)).toBeNull();
+    // Malformed groups leave nothing usable → treated as absent, so the legacy tier table renders instead.
+    expect(core.normalizeOverview({ summary: [], groups: [{}] })).toBeNull();
+    expect(core.normalizeOverview({ summary: [{ key: "structure", label: "Structure", text: "x" }], groups: [{ tier: 1, teams: [] }] })).toBeNull();
+    expect(js).toContain("const markup = overview ? Core.overviewTableHtml(overview) : Core.tierTableHtml(Core.tierTable(tierRows, packageRules?.tierSummary));");
     expect(core.normalizeOverview({ summary: "x" })).toBeNull();
   });
 

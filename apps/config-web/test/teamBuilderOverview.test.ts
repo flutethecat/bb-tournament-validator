@@ -17,7 +17,11 @@ describe("ruleset overview — summary lines", () => {
     expect(o.summary.map((l) => l.key)).toEqual(["structure", "skills", "elite", "stars", "inducements"]);
     expect(line(o, "structure")!.text).toBe("Tiered: 6 tiers, gold caps 1,225k–1,500k (set per roster); added skills cost gold inside the team-value cap.");
     expect(line(o, "skills")!.text).toContain("Primary 20k, secondary 40k, counted inside the cap");
-    expect(line(o, "skills")!.text).toContain("stat increases in Tiers 4–6 (+MA 20k, +PA 20k, +AV 10k; one per player, instead of a skill)");
+    // One clause per distinct allowed set: Tiers 4–5 may not raise MA (the validator refuses it there).
+    expect(line(o, "skills")!.text).toContain(
+      "stat increases (Tiers 4–5: +PA 20k or +AV 10k; Tier 6: +MA 20k, +PA 20k or +AV 10k; one increase per player, instead of skills)",
+    );
+    expect(line(o, "skills")!.text).not.toContain("Tiers 4–6");
     expect(line(o, "elite")!.text).toBe("Block, Guard, Mighty Blow, Dodge +10k each; limits per tier (table).");
     expect(line(o, "stars")!.text).toMatch(/^Tiers 2–6 only; max 2 picks from packs: Free \(no fee, max 2\) · Star \(\+20k once, max 2\)/);
     expect(line(o, "stars")!.text).toContain("packs open per tier, some rosters differ (table)");
@@ -80,6 +84,26 @@ describe("ruleset overview — summary lines", () => {
     expect(line(flat, "inducements")!.text).toBe("No inducements.");
     expect(line(flat, "sideline")!.text).toBe("Max 6 rerolls, no apothecary.");
     expect(line(flat, "minPlayers")!.text).toBe("12 players.");
+  });
+
+  it("collapses a flat package to one row only when the RESOLVED rules match (stat-increase terms included)", () => {
+    const base = {
+      name: "Flat Stat Cup",
+      eligibleRosters: ["Human", "Orc"],
+      goldBudget: 1_000_000,
+      statIncreases: { allowed: ["AV"], costGold: { AV: 10_000 }, maxPerPlayer: 1 },
+    };
+    const same = packageOverview(loadPackage(base as unknown as Partial<TournamentPackage>).pkg);
+    expect(same.groups[0]!.teams.map((t) => t.name)).toEqual(["Every eligible roster (2)"]);
+    // Orc's team rule changes only the per-player cap / exclusivity — the formatted cells are identical.
+    const differs = packageOverview(loadPackage({
+      ...base,
+      teamRules: [{ team: "Orc", statIncreases: { maxPerPlayer: 2, exclusiveWithSkills: true } }],
+    } as unknown as Partial<TournamentPackage>).pkg);
+    expect(differs.groups[0]!.teams.map((t) => t.name)).toEqual(["Human", "Orc"]);
+    expect(line(differs, "skills")!.text).toBe(
+      "No added skills; stat increases (+AV 10k; Human: one increase per player; Orc: up to 2 increases per player, instead of skills).",
+    );
   });
 
   it("cash × skills matrix", () => {

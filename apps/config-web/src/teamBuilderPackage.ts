@@ -615,9 +615,50 @@ function structureLine(pkg: TournamentPackage, teams: TeamEntry[]): string {
   return `${flatGold.length ? "Flat budget" : "Standard team creation"}: ${gold}; ${clause}.`;
 }
 
+/** The stat-increase clause of the Skills line (null when no team may raise a characteristic). One clause per
+ *  distinct allowed set — never unioned, a tier may only raise its own characteristics — scoped to its tiers; the
+ *  per-player terms follow once when every team shares them, else per tier / team. */
+function statIncreasesClause(teams: TeamEntry[]): string | null {
+  const statTeams = teams.filter((t) => t.cfg.statIncreases?.allowed.length);
+  if (!statTeams.length) return null;
+  const order: StatKey[] = ["MA", "ST", "AG", "PA", "AV"];
+  const orList = (items: string[]): string =>
+    items.length > 1 ? `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}` : (items[0] ?? "");
+  const setText = (t: TeamEntry): string => {
+    const si = t.cfg.statIncreases!;
+    return orList(order.filter((k) => si.allowed.includes(k)).map((k) => `+${k}${si.costGold[k] != null ? ` ${fmtGold(si.costGold[k]!)}` : ""}`));
+  };
+  const termsText = (t: TeamEntry): string => {
+    const si = t.cfg.statIncreases!;
+    const per = si.maxPerPlayer == null ? "no per-player cap" : si.maxPerPlayer === 1 ? "one increase per player" : `up to ${si.maxPerPlayer} increases per player`;
+    return `${per}${si.exclusiveWithSkills ? ", instead of skills" : ""}`;
+  };
+  // Who gets what: scope each clause by tier when the tiers are clean, else by team name.
+  const scopeOf = (members: TeamEntry[], value: (t: TeamEntry) => string): string => {
+    const by = variesBy(teams, (t) => (members.includes(t) ? `in:${value(t)}` : "out"));
+    const tiers = uniq(members.map((t) => t.tier));
+    const wholeTiers = by !== "team" && tiers.every((tier) => tier != null);
+    return wholeTiers ? tierPhrase(tiers as number[]) : members.map((t) => t.name).join(", ");
+  };
+  const sets = uniq(statTeams.map(setText));
+  const terms = uniq(statTeams.map(termsText));
+  const everyone = statTeams.length === teams.length;
+  const setClauses = sets.length === 1 && everyone
+    ? [sets[0]!]
+    : sets.map((set) => `${scopeOf(statTeams.filter((t) => setText(t) === set), setText)}: ${set}`);
+  const termClauses = terms.length === 1
+    ? [terms[0]!]
+    : terms.map((term) => `${scopeOf(statTeams.filter((t) => termsText(t) === term), termsText)}: ${term}`);
+  return `stat increases (${[...setClauses, ...termClauses].join("; ")})`;
+}
+
 function skillsLine(pkg: TournamentPackage, teams: TeamEntry[]): string | null {
   const skillTeams = teams.filter((t) => canAddSkills(pkg, t.cfg));
-  if (!skillTeams.length) return null;
+  if (!skillTeams.length) {
+    // No added skills, but characteristic increases may still be on offer.
+    const stat = statIncreasesClause(teams);
+    return stat ? sentence(`no added skills; ${stat}`) : null;
+  }
   const parts: string[] = [];
   const packs = skillTeams.flatMap((t) => t.cfg.skillPackages ?? []);
   const sp = spCosts(pkg);
@@ -669,23 +710,8 @@ function skillsLine(pkg: TournamentPackage, teams: TeamEntry[]): string | null {
       parts.push(`stacking up to ${most} on a player; stacked players${limitBy === "none" ? "" : " and stack limits"} ${tableRef(by)}`);
     }
   }
-  // Characteristic increases.
-  const statTeams = teams.filter((t) => t.cfg.statIncreases?.allowed.length);
-  if (statTeams.length) {
-    const tiers = uniq(statTeams.map((t) => t.tier));
-    const access = variesBy(teams, (t) => String(Boolean(t.cfg.statIncreases?.allowed.length)));
-    const scope =
-      statTeams.length === teams.length ? "" : access === "tier" ? ` in ${tierPhrase(tiers as number[])}` : " for some teams (table)";
-    const keys = uniq(statTeams.flatMap((t) => t.cfg.statIncreases!.allowed));
-    const order: StatKey[] = ["MA", "ST", "AG", "PA", "AV"];
-    const si = statTeams[0]!.cfg.statIncreases!;
-    const list = order
-      .filter((k) => keys.includes(k))
-      .map((k) => `+${k}${si.costGold[k] != null ? ` ${fmtGold(si.costGold[k]!)}` : ""}`)
-      .join(", ");
-    const per = si.maxPerPlayer != null ? `${si.maxPerPlayer === 1 ? "one" : si.maxPerPlayer} per player` : "no per-player cap";
-    parts.push(`stat increases${scope} (${list}; ${per}${si.exclusiveWithSkills ? ", instead of a skill" : ""})`);
-  }
+  const stat = statIncreasesClause(teams);
+  if (stat) parts.push(stat);
   return sentence(parts.join("; "));
 }
 
@@ -796,7 +822,7 @@ export function packageOverview(pkg: TournamentPackage, data: Dataset = bb2025):
   if (pkg.special.minPlayers !== 11)
     summary.push({ key: "minPlayers", label: "Minimum players", text: `${pkg.special.minPlayers} players.` });
 
-  const rows = teams.map((t) => ({ tier: t.tier, row: teamRow(pkg, t) }));
+  const rows = teams.map((t) => ({ tier: t.tier, row: teamRow(pkg, t), cfg: t.cfg }));
   let groups: OverviewGroup[] = uniq(rows.map((r) => r.tier)).map((tier) => ({
     tier,
     label: tier == null ? "All teams" : `Tier ${tier}`,
@@ -805,8 +831,9 @@ export function packageOverview(pkg: TournamentPackage, data: Dataset = bb2025):
   // A non-tiered package whose teams all share one rule collapses to a single "every eligible roster" row.
   const only = groups.length === 1 ? groups[0]! : null;
   if (only && only.tier == null && only.teams.length > 1) {
-    const key = (row: OverviewTeamRow): string => JSON.stringify([row.gold, row.goldMax, row.allotment, row.secondary, row.elite, row.stacks, row.stackLimit, row.characteristics, row.stars]);
-    if (uniq(only.teams.map(key)).length === 1) {
+    // Compare the RESOLVED rules (incl. stat-increase terms, banned stars, packs) — not just the formatted cells.
+    const key = (cfg: ResolvedTeamConfig): string => JSON.stringify({ ...cfg, source: undefined, tierNumber: undefined });
+    if (uniq(rows.map((r) => key(r.cfg))).length === 1) {
       groups = [{ tier: null, label: only.label, teams: [{ ...only.teams[0]!, name: `Every eligible roster (${only.teams.length})` }] }];
     }
   }
