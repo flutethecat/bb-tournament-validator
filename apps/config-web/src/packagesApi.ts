@@ -1,7 +1,7 @@
 import { resolveTeamConfig, type DeepPartial, type TournamentPackage } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { PackageConflictError, type PackageFiles } from "./data.js";
-import { packagePreview, packageRaceRules, packageRulesInfo } from "./teamBuilderPackage.js";
+import { packageOverview, packagePreview, packageRaceRules, packageRulesInfo } from "./teamBuilderPackage.js";
 import { packageSchemaProblems } from "./packageSchema.js";
 
 export interface PackagesApiResult {
@@ -96,7 +96,7 @@ function checkDocument(packages: PackageFiles, body: unknown): Checked {
  * session / token) before delegating here:
  *   GET  /api/packages              list
  *   GET  /api/packages/<name>       { pkg (resolved), problems, rules, raw (the file as authored), revision, schemaProblems }
- *   POST /api/packages/preview      the coach-page derivations for an unsaved package (Summary tab)
+ *   POST /api/packages/preview      { overview (the coach page's packageOverview), preview, problems } for an unsaved package
  *   POST /api/packages              save the document AS SENT. `If-Match: <revision>` is required to
  *                                   replace an existing package; `?replace=<name>` targets one explicitly.
  * Returns undefined for any other path/method.
@@ -114,7 +114,9 @@ export function packagesApi(
   if (path === "/api/packages/preview" && method === "POST") {
     const checked = checkDocument(packages, body);
     if (!checked.ok) return checked.result;
-    const responseBody = { preview: packagePreview(checked.pkg), problems: checked.problems };
+    // `overview` is exactly what the coach-facing Tournament Builder renders for this package
+    // (packageOverview: highlights + per-team table); `preview` adds the resolution details.
+    const responseBody = { preview: packagePreview(checked.pkg), overview: packageOverview(checked.pkg), problems: checked.problems };
     const bytes = Buffer.byteLength(JSON.stringify(responseBody));
     if (bytes > PACKAGE_LIMITS.previewBytes) return { status: 413, body: { error: `The preview is too large (${bytes} bytes).` } };
     return { status: 200, body: responseBody };

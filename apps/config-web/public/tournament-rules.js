@@ -130,7 +130,7 @@ const state = {
   activeTier: 0,
   tab: "package",
   view: freshView("skillpoints", "pool"),
-  preview: { key: "", data: null, problems: [], error: "", loading: false },
+  preview: { key: "", data: null, overview: null, problems: [], error: "", loading: false },
   /** Paths (JSON) of fields normalizePackage() filled / the organiser has edited since load. */
   injected: new Set(),
   touched: new Set(),
@@ -1371,19 +1371,19 @@ function goldLabel(value) {
 function requestPreview() {
   const key = JSON.stringify(serializePackage());
   if (key === state.preview.key) return;
-  state.preview = { key, data: null, problems: [], error: "", loading: true };
+  state.preview = { key, data: null, overview: null, problems: [], error: "", loading: true };
   if (typeof fetch !== "function") return;
   // Organiser-only route (it resolves an unsaved package): send the organiser token when we have one.
   const headers = { "Content-Type": "application/json", "X-CW-Auth": "1" };
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
   requestJson("/api/packages/preview", { method: "POST", headers, body: key }).then((result) => {
     if (state.preview.key !== key) return;
-    state.preview = { key, data: result?.preview ?? null, problems: safeArray(result?.problems).map(String), error: "", loading: false };
+    state.preview = { key, data: result?.preview ?? null, overview: result?.overview ?? null, problems: safeArray(result?.problems).map(String), error: "", loading: false };
     render();
   }).catch((error) => {
     if (state.preview.key !== key) return;
     const message = error.status === 401 || error.status === 403 ? "Log in as the organiser to see the preview." : serverMessage(error);
-    state.preview = { key, data: null, problems: safeArray(error.data?.problems).map(String), error: message, loading: false };
+    state.preview = { key, data: null, overview: null, problems: safeArray(error.data?.problems).map(String), error: message, loading: false };
     render();
   });
 }
@@ -1398,6 +1398,39 @@ function packsLabel(packs) {
 function countsLabel(maxPrimary, maxSecondary, skillPointBudget) {
   if (maxPrimary != null || maxSecondary != null) return `${maxPrimary ?? "any"} primary + ${maxSecondary ?? "any"} secondary`;
   return `${skillPointBudget ?? 0} SP`;
+}
+
+const OVERVIEW_CELLS = [["secondary", "Secondary"], ["elite", "Elite"], ["stacks", "Stacks"], ["stackLimit", "Stack limit"], ["characteristics", "Characteristics"], ["stars", "Stars"]];
+
+/**
+ * The coach page's ruleset overview (server packageOverview, the same object GET /api/packages/<name>
+ * hands the Tournament Builder): highlight lines plus the per-team tier table. Rendered plainly here —
+ * one row per team, columns that are empty for every team dropped.
+ */
+function renderOverview(overview) {
+  if (!overview || !Array.isArray(overview.groups) || !overview.groups.length) return "";
+  const lines = safeArray(overview.summary).map((line) => {
+    const more = safeArray(line.details?.items).length
+      ? ` <details class="multi-inline"><summary>${escapeHtml(line.details.summary)}</summary><ul>${line.details.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></details>`
+      : "";
+    return `<div class="overview-row" data-summary="${escapeHtml(line.key)}"><dt>${escapeHtml(line.label)}</dt><dd>${escapeHtml(line.text)}${more}</dd></div>`;
+  }).join("");
+  const teams = overview.groups.flatMap((group) => safeArray(group.teams));
+  const showGold = teams.some((team) => team.gold != null);
+  const cols = OVERVIEW_CELLS.filter(([key]) => teams.some((team) => team[key] != null && team[key] !== ""));
+  const cell = (value) => value == null || value === "" ? "—" : String(value).split(" · ").map((part) => escapeHtml(part)).join("<br>");
+  const body = overview.groups.map((group) => safeArray(group.teams).map((team, index) => `<tr>
+      ${index === 0 ? `<th scope="rowgroup" rowspan="${group.teams.length}">${escapeHtml(group.tier ?? group.label ?? "All teams")}</th>` : ""}
+      <th scope="row">${escapeHtml(team.name)}</th>
+      ${showGold ? `<td>${team.gold == null ? "—" : `${escapeHtml(goldLabel(team.gold))}${team.goldMax != null ? `–${escapeHtml(goldLabel(team.goldMax))}` : ""}`}</td>` : ""}
+      <td>${safeArray(team.allotment).map((line) => escapeHtml(line)).join("<br>") || "—"}</td>
+      ${cols.map(([key]) => `<td>${cell(team[key])}</td>`).join("")}
+    </tr>`).join("")).join("");
+  return `<div class="subheading">What coaches will see (Tournament Builder)</div>
+    ${lines ? `<dl class="overview-summary">${lines}</dl>` : ""}
+    <div class="preview-wrap"><table class="preview-table overview-table">
+      <thead><tr><th>Tier</th><th>Team</th>${showGold ? "<th>Gold cap</th>" : ""}<th>Skill allotment</th>${cols.map(([, head]) => `<th>${head}</th>`).join("")}</tr></thead>
+      <tbody>${body}</tbody></table></div>`;
 }
 
 /** The Tournament Builder's ruleset table, rendered from the server's resolution of this package. */
@@ -1441,7 +1474,10 @@ function renderTierPreview() {
         <td>${escapeHtml(row.packs.length ? packsLabel(row.packs) : countsLabel(row.maxPrimary, row.maxSecondary, row.skillPointBudget))}</td>
         <td>${row.starsAllowed ? "yes" : "no"}</td></tr>`).join("")}</tbody></table></div>` : "";
   const problems = preview.problems.length ? `<div class="notice">${preview.problems.map((problem) => escapeHtml(problem)).join("<br>")}</div>` : "";
-  return problems + main + exceptions;
+  const overview = renderOverview(preview.overview);
+  if (!overview) return problems + main + exceptions;
+  return `${problems}${overview}
+    <details class="tier-overrides" data-preserve-open="preview-details"><summary>Resolution details (tier rows and per-team exceptions)</summary><div class="inset-list">${main}${exceptions}</div></details>`;
 }
 
 function summaryRows() {
