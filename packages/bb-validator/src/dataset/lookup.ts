@@ -30,7 +30,9 @@ export function decodeEntities(s: string): string {
     const k = e.toLowerCase();
     if (k[0] === "#") {
       const code = k[1] === "x" ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : m;
+      // Never throw: keep the entity text for out-of-range code points and lone surrogates.
+      if (!Number.isInteger(code) || code < 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return m;
+      return String.fromCodePoint(code);
     }
     return ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" } as Record<string, string>)[k] ?? m;
   });

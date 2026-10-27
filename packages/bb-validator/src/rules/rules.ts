@@ -8,7 +8,7 @@ import { MAX_STAT_STEPS, starPackPicks, statIncreasesGold, statIncreasesOf, stat
 import { skillsGold } from "../cost/costGold";
 import { inducementIdForName, inducementReducedFor } from "../dataset/inducements";
 import type { Dataset } from "../dataset/types";
-import { canonSkill, findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
+import { canonSkill, decodeEntities, findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
 import { isCountPack, type SkillPackage, type TournamentPackage } from "../package/types";
 import { eligibleTeamNames, fitsSkillCounts, isEligible, resolveTeamConfig, sourceLabel, usesCountMode } from "../package/resolveConfig";
@@ -795,7 +795,14 @@ export const starAddedSkills: Rule = {
         if (name && !base.has(key)) extra.set(key, name);
       };
       if (star?.skills) rp.player.skills.forEach(consider);
-      (rp.player.addedSkills ?? []).forEach(consider);
+      // A source's explicit addedSkills list is authoritative: every non-empty entry is a finding
+      // (known or unknown, trait or not) - the fail-safe applies to printed skills only.
+      for (const s of rp.player.addedSkills ?? []) {
+        const name = decodeEntities(s).trim();
+        if (!name) continue;
+        const key = canonSkill(name) || name;
+        if (!extra.has(key)) extra.set(key, selectable.get(key) ?? name);
+      }
       if (!extra.size) continue;
       const list = [...extra.values()];
       findings.push(

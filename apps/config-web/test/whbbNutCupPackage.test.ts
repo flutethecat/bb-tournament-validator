@@ -5,6 +5,7 @@ import {
   composeTeam,
   findRoster,
   findStar,
+  decodeEntities,
   loadPackage,
   renderPackageHtml,
   resolveTeamConfig,
@@ -394,5 +395,36 @@ describe("WHBB Nut Cup 2026 package", () => {
     // The buttons themselves are never rendered for a star (no mode check on `!star`).
     expect(js).toContain("const skillButton = edit && !star");
     expect(js).toContain("const statButton = edit && !star");
+  });
+
+  it("explicit addedSkills on a star are always a finding (known, unknown, trait), independent of printed matching", () => {
+    const { composed } = build("Goblin", [{ name: "Goblin Lineman", count: 11 }], { stars: ["Fungus the Loon"] });
+    const base = findStar(bb2025, "Fungus the Loon")!.skills!;
+    const fungus = (skills: string[], addedSkills: string[]) => ({
+      ...composed.roster,
+      players: composed.roster.players.map((p) => (p.positionName === "Fungus the Loon" ? { ...p, skills, addedSkills } : p)),
+    });
+    const msgs = (r: ReturnType<typeof fungus>) => ruleErrors(validate(r, pkg, bb2025), "star-skills").map((e) => e.message);
+    const chainsaw = validate(fungus([...base, "Chainsaw"], ["Chainsaw"]), pkg, bb2025);
+    expect(chainsaw.valid).toBe(false);
+    expect(ruleErrors(chainsaw, "star-skills").map((e) => e.message)).toEqual([
+      "Fungus the Loon has added skill (Chainsaw); Star Players take no added skills.",
+    ]);
+    expect(msgs(fungus([...base, "Moonwalk"], ["Moonwalk"]))).toEqual(["Fungus the Loon has added skill (Moonwalk); Star Players take no added skills."]);
+    expect(msgs(fungus(base, ["Loner"]))).toEqual(["Fungus the Loon has added skill (Loner); Star Players take no added skills."]);
+    // Blank entries are not additions.
+    expect(msgs(fungus(base, ["", "  "]))).toEqual([]);
+  });
+
+  it("decodeEntities never throws on out-of-range or surrogate code points", () => {
+    expect(decodeEntities("Guard &#1114112;")).toBe("Guard &#1114112;");
+    expect(decodeEntities("x &#xD800; y &#x110000;")).toBe("x &#xD800; y &#x110000;");
+    expect(decodeEntities("Ball &amp; Chain &#65;")).toBe("Ball & Chain A");
+    const { composed } = build("Goblin", [{ name: "Goblin Lineman", count: 11 }], { stars: ["Fungus the Loon"] });
+    const roster = {
+      ...composed.roster,
+      players: composed.roster.players.map((p) => (p.positionName === "Fungus the Loon" ? { ...p, skills: [...p.skills, "Guard &#1114112;"] } : p)),
+    };
+    expect(() => validate(roster, pkg, bb2025)).not.toThrow();
   });
 });
