@@ -217,9 +217,10 @@
           </section>
 
           <form class="live-card submit-card" id="build-form">
-            <button class="create-button" id="build-btn" type="submit" disabled>Create Team</button>
-            <div class="export-actions">
-              <button id="print-sheet" class="session-button secondary" type="button" disabled>Export roster sheet</button>
+            <!-- Owner 10-27: Export PDF is the main action on the tournament page; creating the team on the fork is the small button under it. -->
+            <button id="print-sheet" class="create-button" type="button" disabled>Export PDF</button>
+            <div class="export-actions export-actions-stacked">
+              <button class="session-button secondary fork-create-button" id="build-btn" type="submit" disabled>Create team on Fork</button>
               <button id="download-sheet" class="session-button secondary" type="button" disabled>Download HTML</button>
             </div>
           </form>

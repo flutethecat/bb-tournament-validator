@@ -976,12 +976,13 @@ ${rosterSheetHtml(model)}
   // ════════════════ session ════════════════
   function syncBuildButton() {
     const button = $("build-btn");
-    const label = editingTeamId ? "Save Team" : "Create Team";
+    // Owner 10-27: on the tournament page the fork button is the small secondary action under Export PDF.
+    const label = editingTeamId ? (TOURNAMENT_PAGE ? "Save team on Fork" : "Save Team") : (TOURNAMENT_PAGE ? "Create team on Fork" : "Create Team");
     if (buildBusy) {
       button.textContent = editingTeamId ? "Saving…" : "Creating…";
       button.disabled = true;
     } else {
-      button.textContent = authCoach ? label : "Sign In to Create";
+      button.textContent = authCoach ? label : (TOURNAMENT_PAGE ? "Sign in to create on Fork" : "Sign In to Create");
       const valid = mode === "custom" ? Boolean(preview) : preview?.valid === true;
       button.disabled = !authCoach || !valid || previewPending;
     }

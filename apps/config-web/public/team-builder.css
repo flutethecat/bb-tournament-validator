@@ -734,6 +734,9 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .export-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .export-actions .session-button { min-height: 34px; padding: 6px 8px; white-space: normal; }
 .export-actions .session-button:disabled { cursor: not-allowed; }
+/* Owner 10-27 (tournament page): Export PDF is the main button; Create team on Fork + Download HTML sit small under it. */
+.export-actions-stacked { margin-top: 6px; }
+.export-actions-stacked .fork-create-button { font-size: 13px; }
 .validity-card.custom .validity-headline { color: var(--ui-gold); }
 .validity-card.refreshing { opacity: .8; }
 .result-banner span { display: block; }
