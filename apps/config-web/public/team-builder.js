@@ -338,9 +338,10 @@
       const caps = [stacked.maxSecondary, teamSecondary].filter(isNum);
       const sec = caps.length ? Math.min(...caps) : null;
       const lines = [];
-      if (per == null) lines.push(sec === 0 ? "Any Primary Skills" : sec != null ? `Any Skills (max ${sec} Secondary)` : "Any Skills");
-      else if (sec === 0) lines.push(`${per} Primary Skill${per === 1 ? "" : "s"}`);
-      else if (sec == null || sec >= per) lines.push(`${per} Primary`, "OR", `${per} Secondary`);
+      // Owner 10-27: no stacked-secondary cap in the package = primary only.
+      if (per == null) lines.push(sec == null || sec === 0 ? "Any Primary Skills" : `Any Skills (max ${sec} Secondary)`);
+      else if (sec == null || sec === 0) lines.push(`${per} Primary Skill${per === 1 ? "" : "s"}`);
+      else if (sec >= per) lines.push(`${per} Primary`, "OR", `${per} Secondary`);
       else lines.push(`${per} Primary`, "OR", `${per - sec} Primary + ${sec} Secondary`);
       if (isNum(stacked.maxElite)) lines.push(stacked.maxElite === 0 ? "no elite" : `max ${stacked.maxElite} elite`);
       return lines;

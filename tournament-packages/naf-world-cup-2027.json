@@ -53,7 +53,8 @@
     "skillCostSP": {},
     "maxPerPlayer": 2,
     "maxSameSkillTeamwide": null,
-    "maxStackedPlayers": 0
+    "maxStackedPlayers": 0,
+    "stackedPlayer": { "maxSkills": 2, "maxSecondary": 2 }
   },
   "goldBudget": null,
   "goldCapIncludesAddedSkills": false,

@@ -41,7 +41,7 @@ describe("ruleset overview — summary lines", () => {
   it("choose-one SP packages (EuroBowl, Spike!): options per tier, gold-vs-SP range, star SP pricing", () => {
     const euro = packageOverview(shipped("eurobowl-2026"));
     expect(line(euro, "structure")!.text).toBe("Choose-one skill packages: 7 tiers, each offering 2–6 packages that trade the gold cap (1,070k–1,200k) against skill points (120–320 SP).");
-    expect(line(euro, "skills")!.text).toBe("Primary 20 / secondary 40 SP, budget set by the chosen package; up to 3 players may stack 2 skills.");
+    expect(line(euro, "skills")!.text).toBe("Primary 20 / secondary 40 SP, budget set by the chosen package; up to 3 players may stack 2 skills (≤2 secondary).");
     expect(line(euro, "stars")!.text).toBe("Tiers 5–7 only; max 2; each also costs SP (price by tier).");
     const spike = packageOverview(shipped("spike-2026"));
     expect(line(spike, "skills")!.text).toContain("one skill per player (2 on some packages)");
@@ -158,7 +158,7 @@ describe("ruleset overview — per-team table rows", () => {
     expect(stackSkillLines(2, 1, null)).toEqual(["2 Primary", "OR", "1 Primary + 1 Secondary"]);
     expect(stackSkillLines(3, 2, 0)).toEqual(["3 Primary", "OR", "1 Primary + 2 Secondary", "no elite"]);
     expect(stackSkillLines(3, 3, 2)).toEqual(["3 Primary", "OR", "3 Secondary", "≤2 elite"]);
-    expect(stackSkillLines(2, null, null)).toEqual(["2 Primary", "OR", "2 Secondary"]);
+    expect(stackSkillLines(2, null, null)).toEqual(["2 Primary Skills"]); // owner 10-27: no stacked-secondary cap = primary only
     const nut = packageOverview(shipped("whbb-nut-cup-2026"));
     const nutTier = (tier: number) => nut.groups.find((g) => g.tier === tier)!.teams[0]!.stackLimit;
     expect(nutTier(1)).toBe("2 Primary Skills");

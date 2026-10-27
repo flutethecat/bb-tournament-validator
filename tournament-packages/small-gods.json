@@ -401,7 +401,7 @@
       "eliteMaxSameSkill": null,
       "stackedPlayer": {
         "maxSkills": 3,
-        "maxSecondary": null,
+        "maxSecondary": 3,
         "maxElite": null
       },
       "statIncreases": {

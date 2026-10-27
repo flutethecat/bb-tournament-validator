@@ -1528,7 +1528,7 @@
       {
         "key": "skills",
         "label": "Skills",
-        "text": "Primary 20 / secondary 40 SP, budget set by the chosen package; up to 3 players may stack 2 skills."
+        "text": "Primary 20 / secondary 40 SP, budget set by the chosen package; up to 3 players may stack 2 skills (≤2 secondary)."
       },
       {
         "key": "elite",
@@ -2627,7 +2627,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "any",
-            "stackLimit": "2 Primary · OR · 2 Secondary",
+            "stackLimit": "2 Primary Skills",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -2643,7 +2643,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "any",
-            "stackLimit": "2 Primary · OR · 2 Secondary",
+            "stackLimit": "2 Primary Skills",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -2659,7 +2659,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "any",
-            "stackLimit": "2 Primary · OR · 2 Secondary",
+            "stackLimit": "2 Primary Skills",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -2675,7 +2675,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "any",
-            "stackLimit": "2 Primary · OR · 2 Secondary",
+            "stackLimit": "2 Primary Skills",
             "characteristics": null,
             "stars": "max 2"
           }
@@ -2731,7 +2731,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "any",
-            "stackLimit": "2 Primary · OR · 2 Secondary",
+            "stackLimit": "2 Primary Skills",
             "characteristics": null,
             "stars": null
           }

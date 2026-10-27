@@ -534,9 +534,11 @@ function starsValue(pkg: TournamentPackage, cfg: ResolvedTeamConfig): string | n
  */
 export function stackSkillLines(per: number | null, sec: number | null, elite: number | null): string[] {
   const lines: string[] = [];
-  if (per == null) lines.push(sec === 0 ? "Any Primary Skills" : sec != null ? `Any Skills (≤${fmtNum(sec)} Secondary)` : "Any Skills");
-  else if (sec === 0) lines.push(plural(per, "Primary Skill"));
-  else if (sec == null || sec >= per) lines.push(`${fmtNum(per)} Primary`, "OR", `${fmtNum(per)} Secondary`);
+  // Owner 10-27: a package that sets no stacked-secondary cap reads as PRIMARY ONLY (packages that allow stacked
+  // secondaries state the cap explicitly).
+  if (per == null) lines.push(sec == null || sec === 0 ? "Any Primary Skills" : `Any Skills (≤${fmtNum(sec)} Secondary)`);
+  else if (sec == null || sec === 0) lines.push(plural(per, "Primary Skill"));
+  else if (sec >= per) lines.push(`${fmtNum(per)} Primary`, "OR", `${fmtNum(per)} Secondary`);
   else lines.push(`${fmtNum(per)} Primary`, "OR", `${fmtNum(per - sec)} Primary + ${fmtNum(sec)} Secondary`);
   if (elite === 0) lines.push("no elite");
   else if (elite != null) lines.push(`≤${fmtNum(elite)} elite`);
