@@ -67,6 +67,8 @@ function isPublicRequest(method: string, pathname: string): boolean {
       pathname === "/team-builder.css" ||
       pathname === "/team-builder.js" ||
       pathname === "/tournament-team-builder.html" ||
+      pathname === "/my-teams.html" ||
+      pathname === "/my-teams.js" ||
       isPublicArtPath(pathname) ||
       pathname === "/tournament-rules.html" ||
       pathname === "/tournament-rules.css" ||

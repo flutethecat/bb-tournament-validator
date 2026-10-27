@@ -413,7 +413,7 @@ describe("tournament team builder page", () => {
     expect(ttHtml).toContain('<link rel="stylesheet" href="/team-builder.css" />');
     expect(ttHtml).not.toContain('class="mode-grid"');
     expect(ttHtml).not.toContain('id="library-panel"');
-    for (const id of ["tt-steps", "tt-step-package", "tt-packages", "tt-tier-table", "tt-step-race", "tt-races", "tt-locked-bar", "builder-panel", "print-sheet", "saves-panel", "discord-login"]) {
+    for (const id of ["tt-steps", "tt-step-package", "tt-packages", "tt-tier-table", "tt-step-race", "tt-races", "tt-locked-bar", "builder-panel", "print-sheet", "save-team-rail", "current-save-label", "discord-login"]) {
       expect(ttHtml).toContain(`id="${id}"`);
     }
     expect(js).toContain('const TOURNAMENT_PAGE = document.body?.dataset.builder === "tournament";');
@@ -433,6 +433,61 @@ describe("tournament team builder page", () => {
     const sidecar = readFileSync(new URL("../src/auth/requireSession.ts", import.meta.url), "utf8");
     expect(server).toContain('pathname === "/tournament-team-builder.html"');
     expect(sidecar).toContain('pathname === "/tournament-team-builder.html"');
+  });
+});
+
+describe("my teams nav + ?save= deep link (owner 10-27)", () => {
+  const ttHtml = readFileSync(new URL("tournament-team-builder.html", publicDir), "utf8");
+
+  it("drops the My Teams card from the tournament page but keeps it on the plain builder", () => {
+    expect(ttHtml).not.toContain('id="saves-panel"');
+    expect(ttHtml).not.toContain('id="saves-list"');
+    expect(ttHtml).toContain('id="current-save-label"');
+    expect(html).toContain('id="saves-panel"');
+    for (const id of ["save-button", "save-as-button", "saves-toggle", "saves-list"]) expect(html).toContain(`id="${id}"`);
+  });
+
+  it("shows a My Teams nav link to signed-in coaches only, on both builder pages", () => {
+    for (const page of [html, ttHtml]) expect(page).toContain('<a href="/my-teams.html" data-signed-in-only hidden>My Teams</a>');
+    expect(js).toContain('document.querySelectorAll("[data-signed-in-only]").forEach((el) => { el.hidden = !signedIn; });');
+  });
+
+  it("tolerates the missing saves elements (every saves-* lookup is optional)", () => {
+    expect(js).not.toMatch(/\$\("saves-[a-z-]+"\)\.(textContent|innerHTML|hidden|addEventListener|setAttribute)/);
+    expect(js).not.toMatch(/\$\("save(-as)?-button"\)\.(disabled|addEventListener)/);
+  });
+
+  it("loads the save named by ?save= after session restore + boot, silently, then cleans the URL", async () => {
+    expect(js).toMatch(/await restoreSession\(\);\s*await boot\(\);\s*await openSaveFromQuery\(\);/);
+    const src = js.replace(/\r\n/g, "\n");
+    const start = src.indexOf("  async function openSaveFromQuery() {");
+    const end = src.indexOf("\n  }\n", start) + 4;
+    const source = src.slice(start, end);
+    type Loaded = Array<[string, { silent: boolean }]>;
+    const run = async (opts: { tournament: boolean; coach: string; search: string }) => {
+      const loaded: Loaded = [];
+      const replaced: string[] = [];
+      const location = { pathname: "/tournament-team-builder.html", search: opts.search, hash: "" };
+      const history = { state: null, replaceState: (_s: unknown, _t: string, url: string) => replaced.push(url) };
+      const loadSave = async (id: string, o: { silent: boolean }) => { loaded.push([id, o]); return true; };
+      const fn = new Function("TOURNAMENT_PAGE", "authCoach", "location", "history", "loadSave", "URLSearchParams", `${source}\nreturn openSaveFromQuery();`);
+      const result = await fn(opts.tournament, opts.coach, location, history, loadSave, URLSearchParams);
+      return { loaded, replaced, result };
+    };
+    const hit = await run({ tournament: true, coach: "Jay", search: "?save=sv_abc&package=X" });
+    expect(hit.loaded).toEqual([["sv_abc", { silent: true }]]);
+    expect(hit.replaced).toEqual(["/tournament-team-builder.html?package=X"]);
+    expect(hit.result).toBe(true);
+    expect((await run({ tournament: true, coach: "", search: "?save=sv_abc" })).loaded).toEqual([]);
+    expect((await run({ tournament: false, coach: "Jay", search: "?save=sv_abc" })).loaded).toEqual([]);
+    expect((await run({ tournament: true, coach: "Jay", search: "" })).result).toBe(false);
+  });
+
+  it("silent loads swallow errors and non-tournament saves; applyBody lands on the build step", () => {
+    expect(js).toContain("async function loadSave(id, { silent = false } = {}) {");
+    expect(js).toContain("if (silent) return false;");
+    expect(js).toContain("if (!silent) setSavesStatus(");
+    expect(js).toContain("if (TOURNAMENT_PAGE) setupStep = 3;");
   });
 });
 

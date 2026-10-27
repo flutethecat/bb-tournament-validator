@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<!--
+  My Teams (owner 10-27): a signed-in coach's saved builder teams (GET /api/fork/team-builder/saves) as one
+  scrollable table: Name / Race / Ruleset, newest first. A row opens the Tournament Team Builder with that save
+  loaded (/tournament-team-builder.html?save=<id>); Rename / Delete sit at the row end. Shares the builder's
+  console-shell header, nav and header sign-in slot (team-builder.css); my-teams.js carries the minimal session code.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Super FUMBBL — My Teams</title>
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/team-builder.css" />
+  <script src="/theme.js" defer></script>
+  <script src="/my-teams.js" defer></script>
+</head>
+<body data-page="my-teams">
+  <header class="console-shell">
+    <a class="brand-lockup" href="/control-panel.html" aria-label="Super FUMBBL control panel">
+      <strong>Super FUMBBL</strong>
+      <small>Fantasy Football</small>
+    </a>
+    <span class="environment-stamp">Test environment</span>
+    <nav class="console-tabs" aria-label="Config web sections">
+      <a href="/tournaments.html" data-admin-only hidden>Tournaments</a>
+      <a href="/users.html" data-admin-only hidden>Users</a>
+      <a href="/team-builder.html" data-admin-only hidden>Team</a>
+      <a href="/tournament-team-builder.html">Tournament</a>
+      <a class="active" href="/my-teams.html" aria-current="page" data-signed-in-only hidden>My Teams</a>
+      <a id="fork-admin-link" href="#" target="_blank" rel="noopener" data-admin-only hidden>Fork Admin ↗</a>
+    </nav>
+  </header>
+
+  <main class="team-builder-view" aria-labelledby="my-teams-title">
+    <header class="view-header">
+      <div>
+        <h1 id="my-teams-title"><span>M</span>y <span>T</span>eams</h1>
+      </div>
+      <div class="view-header-side">
+        <div id="login-form" class="session-form header-login">
+          <a id="discord-login" class="session-button discord-button" href="/api/auth/discord/start?next=/my-teams.html">Sign in with Discord</a>
+        </div>
+        <div id="login-message" class="session-message" role="status" aria-live="polite"></div>
+        <details id="signed-in-session" class="signed-in-session session-menu" hidden>
+          <summary class="session-menu-summary" aria-label="Account menu">
+            <span class="session-dot" aria-hidden="true"></span>
+            <span>Signed in as <strong id="signed-in-coach"></strong></span>
+            <span class="session-menu-caret" aria-hidden="true">&#9662;</span>
+          </summary>
+          <div class="session-menu-list" role="menu">
+            <button id="logout-button" class="session-menu-item" type="button" role="menuitem">Log out</button>
+          </div>
+        </details>
+      </div>
+    </header>
+
+    <section class="my-teams-panel" aria-labelledby="my-teams-title">
+      <p id="my-teams-signin" class="status-copy">Sign in to see your teams.</p>
+      <p id="my-teams-status" class="status-copy" role="status" aria-live="polite"></p>
+      <div id="my-teams-list" class="my-teams-scroll" hidden></div>
+    </section>
+  </main>
+</body>
+</html>

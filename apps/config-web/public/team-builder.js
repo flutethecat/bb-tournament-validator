@@ -1008,6 +1008,8 @@ ${rosterSheetHtml(model)}
   function renderSession() {
     document.querySelectorAll("[data-admin-only]").forEach((el) => { el.hidden = !authAdminNav; });
     const signedIn = Boolean(authCoach);
+    // My Teams nav link (owner 10-27): any signed-in coach, not admin-only.
+    document.querySelectorAll("[data-signed-in-only]").forEach((el) => { el.hidden = !signedIn; });
     $("session-panel").classList.toggle("authenticated", signedIn);
     // Owner 10-27 (tournament page): once signed in the whole sign-in card goes; the identity sits top right.
     if (TOURNAMENT_PAGE) $("session-panel").hidden = true; // header carries the Discord button / account menu
@@ -2376,28 +2378,40 @@ ${rosterSheetHtml(model)}
   }
 
   // ── Saves (signed-in coaches; server contract /api/fork/team-builder/saves) ──
+  /** Saves status line; the tournament page has no My Teams card (owner 10-27: My Teams is its own page), so
+   *  every saves element is optional here. */
+  function setSavesStatus(text) {
+    const status = $("saves-status");
+    if (status) status.textContent = text;
+  }
   function renderSaves() {
     const signedIn = Boolean(authCoach);
-    // Tournament page (owner 10-27): no sign-in hint under My Teams; the plain page keeps it.
-    $("saves-signin").hidden = signedIn || TOURNAMENT_PAGE;
-    $("saves-signin").textContent = TOURNAMENT_PAGE ? "" : "Sign in with Discord to save drafts and recall them later.";
-    $("saves-actions").hidden = !signedIn || !savesAvailable;
-    $("saves-list").hidden = !signedIn || !savesOpen || !savesAvailable;
-    $("saves-toggle").textContent = savesOpen ? "Hide list" : `Show list${saves.length ? ` (${saves.length})` : ""}`;
-    $("saves-toggle").setAttribute("aria-expanded", String(savesOpen));
-    $("current-save-label").textContent = currentSave ? `Editing “${currentSave.name}”` : "";
-    $("save-button").disabled = !current;
-    $("save-as-button").disabled = !current;
+    const show = (id, visible) => { const el = $(id); if (el) el.hidden = !visible; };
+    const signin = $("saves-signin");
+    if (signin) signin.textContent = "Sign in with Discord to save drafts and recall them later.";
+    show("saves-signin", !signedIn);
+    show("saves-actions", signedIn && savesAvailable);
+    show("saves-list", signedIn && savesOpen && savesAvailable);
+    const toggle = $("saves-toggle");
+    if (toggle) {
+      toggle.textContent = savesOpen ? "Hide list" : `Show list${saves.length ? ` (${saves.length})` : ""}`;
+      toggle.setAttribute("aria-expanded", String(savesOpen));
+    }
+    const label = $("current-save-label");
+    if (label) label.textContent = currentSave ? `Editing “${currentSave.name}”` : "";
+    for (const id of ["save-button", "save-as-button"]) { const button = $(id); if (button) button.disabled = !current; }
     const railSave = $("save-team-rail"); // tournament page: Save Team under Export PDF
     if (railSave) {
       railSave.disabled = !current || !signedIn || !savesAvailable;
       railSave.title = signedIn ? "" : "Sign in with Discord to save your team";
     }
     if (!signedIn) {
-      $("saves-status").textContent = "";
+      setSavesStatus("");
       return;
     }
-    $("saves-list").innerHTML = saves.length ? saves.map((save) => {
+    const list = $("saves-list");
+    if (!list) return;
+    list.innerHTML = saves.length ? saves.map((save) => {
       const built = Boolean(save.teamId);
       const updated = save.updatedAt ? new Date(save.updatedAt) : null;
       return `<div class="save-row${currentSave?.id === save.id ? " current" : ""}">
@@ -2419,11 +2433,11 @@ ${rosterSheetHtml(model)}
     }
     if (error.status === 404 && action === "list") {
       savesAvailable = false;
-      $("saves-status").textContent = "Saved teams aren't available on this server yet.";
+      setSavesStatus("Saved teams aren't available on this server yet.");
       renderSaves();
       return;
     }
-    $("saves-status").textContent = `Couldn't ${action} (${error.message}).`;
+    setSavesStatus(`Couldn't ${action} (${error.message}).`);
   }
   async function loadSaves() {
     if (!authCoach) return;
@@ -2432,7 +2446,7 @@ ${rosterSheetHtml(model)}
       savesAvailable = true;
       saves = Array.isArray(data.saves) ? data.saves : [];
       if (currentSave && !saves.some((save) => save.id === currentSave.id)) currentSave = null;
-      if (/^Couldn't/.test($("saves-status").textContent)) $("saves-status").textContent = "";
+      if (/^Couldn't/.test($("saves-status")?.textContent ?? "")) setSavesStatus("");
     } catch (error) {
       savesError(error, "list");
     }
@@ -2455,31 +2469,53 @@ ${rosterSheetHtml(model)}
         : await postJson(`/api/fork/team-builder/saves/${encodeURIComponent(currentSave.id)}`, { name, body }, "PUT");
       const save = data.save ?? null;
       if (save?.id) currentSave = { id: save.id, name: save.name ?? name };
-      $("saves-status").textContent = `Saved “${currentSave?.name ?? name}”.`;
+      setSavesStatus(`Saved “${currentSave?.name ?? name}”.`);
       await loadSaves();
     } catch (error) {
       savesError(error, "save the team");
       renderSaves();
     }
   }
-  async function loadSave(id) {
+  /** Load a save into the builder; resolves true when it was applied. `silent` (the ?save= deep link) drops
+   *  every error — a stale link or another coach's save id just leaves the builder as it is. */
+  async function loadSave(id, { silent = false } = {}) {
     try {
       const data = await api(`/api/fork/team-builder/saves/${encodeURIComponent(id)}`);
       const save = data.save;
       if (!save?.body) throw new Error("Saved team has no builder state.");
       if (TOURNAMENT_PAGE && !save.body.packageName) {
-        $("saves-status").textContent = `“${save.name ?? ""}” isn't a tournament team — open it in the Team Builder.`;
-        return;
+        if (!silent) setSavesStatus(`“${save.name ?? ""}” isn't a tournament team — open it in the Team Builder.`);
+        return false;
       }
       currentSave = { id: save.id ?? id, name: save.name ?? "" };
-      $("saves-status").textContent = `Loaded “${currentSave.name}”.`;
+      setSavesStatus(`Loaded “${currentSave.name}”.`);
       // A save that was already built edits its fork team instead of minting a second one.
       await applyBody(authOrganizer && save.teamId && !save.body.teamId ? { ...save.body, teamId: save.teamId } : save.body);
       renderSaves();
+      return true;
     } catch (error) {
+      if (silent) return false;
       savesError(error, "load the team");
       renderSaves();
+      return false;
     }
+  }
+  /** Deep link from the My Teams page: /tournament-team-builder.html?save=<id> loads that save (after the
+   *  session restore and boot) and lands on the build step; the param is then dropped from the address bar. */
+  async function openSaveFromQuery() {
+    if (!TOURNAMENT_PAGE) return false;
+    const params = new URLSearchParams(location.search);
+    const id = params.get("save");
+    if (!id) return false;
+    params.delete("save");
+    try {
+      const query = params.toString();
+      history.replaceState(history.state, "", `${location.pathname}${query ? `?${query}` : ""}${location.hash}`);
+    } catch {
+      // Address-bar cleanup is cosmetic.
+    }
+    if (!authCoach) return false;
+    return loadSave(id, { silent: true });
   }
   async function renameSave(id) {
     const save = saves.find((s) => s.id === id);
@@ -2502,7 +2538,7 @@ ${rosterSheetHtml(model)}
     try {
       await api(`/api/fork/team-builder/saves/${encodeURIComponent(id)}`, { method: "DELETE" });
       if (currentSave?.id === id) currentSave = null;
-      $("saves-status").textContent = `Deleted “${save.name}”.`;
+      setSavesStatus(`Deleted “${save.name}”.`);
       await loadSaves();
     } catch (error) {
       savesError(error, "delete the team");
@@ -3011,11 +3047,11 @@ ${rosterSheetHtml(model)}
   // Account menu (tournament page): click outside or Escape closes it.
   document.addEventListener("click", (event) => { const menu = $("signed-in-session"); if (menu && "open" in menu && menu.open && !menu.contains(event.target)) menu.open = false; });
   document.addEventListener("keydown", (event) => { const menu = $("signed-in-session"); if (event.key === "Escape" && menu && "open" in menu && menu.open) menu.open = false; });
-  $("save-button").addEventListener("click", () => saveTeam(false));
+  $("save-button")?.addEventListener("click", () => saveTeam(false));
   $("save-team-rail")?.addEventListener("click", () => saveTeam(false));
-  $("save-as-button").addEventListener("click", () => saveTeam(true));
-  $("saves-toggle").addEventListener("click", () => { savesOpen = !savesOpen; renderSaves(); if (savesOpen) loadSaves(); });
-  $("saves-list").addEventListener("click", (event) => {
+  $("save-as-button")?.addEventListener("click", () => saveTeam(true));
+  $("saves-toggle")?.addEventListener("click", () => { savesOpen = !savesOpen; renderSaves(); if (savesOpen) loadSaves(); });
+  $("saves-list")?.addEventListener("click", (event) => {
     const load = event.target.closest("[data-save-load]");
     if (load) return loadSave(load.dataset.saveLoad);
     const rename = event.target.closest("[data-save-rename]");
@@ -3032,5 +3068,6 @@ ${rosterSheetHtml(model)}
     renderSession();
     await restoreSession();
     await boot();
+    await openSaveFromQuery();
   })();
 })();

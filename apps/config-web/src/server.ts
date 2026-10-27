@@ -974,6 +974,8 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
         pathname === "/team-builder.css" ||
         pathname === "/team-builder.js" ||
         pathname === "/tournament-team-builder.html" ||
+        pathname === "/my-teams.html" ||
+        pathname === "/my-teams.js" ||
         isPublicArtPath(pathname) ||
         pathname.startsWith("/assets/"))
     )
