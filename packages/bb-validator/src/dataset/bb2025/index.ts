@@ -12,7 +12,7 @@ import teamsJson from "./teams.json";
 import starsJson from "./stars.json";
 
 /** Bumped whenever rules data changes; surfaced in ValidationResult for skew checks. */
-export const DATASET_VERSION = "bb2025.5-inducements";
+export const DATASET_VERSION = "bb2025.6-star-skills";
 
 function buildDataset(): Dataset {
   const rosters: Record<string, DatasetRoster> = {};

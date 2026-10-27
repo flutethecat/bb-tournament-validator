@@ -367,18 +367,24 @@ const starsSection = (pkg: RulesPagePkg): string => {
   );
 };
 
-const effectiveInducements = (pkg: RulesPagePkg): { id: string; name: string; cost: number | null; cap: number | null; only?: string[] }[] => {
+const effectiveInducements = (pkg: RulesPagePkg): { id: string; name: string; cost: number | null; cap: number | null; only?: string[]; costNote?: string }[] => {
   const ids = pkg.inducements.allowed.includes("*")
     ? Object.keys(bb2025.inducements)
     : pkg.inducements.allowed;
   return uniqueNames(ids).map((id) => {
     const entry = bb2025.inducements[id];
+    const only = pkg.inducements.rosterOnly?.[id]?.length ? pkg.inducements.rosterOnly[id]! : undefined;
+    // Restricted to rosters that all buy at the reduced-roster price (Halfling Master Chef → Halfling):
+    // the only legal price is the reduced one.
+    const reducedOnly =
+      only && entry?.reducedRoster && entry.reducedCost != null && only.every((r) => normName(r) === normName(entry.reducedRoster!));
     return {
       id,
       name: entry?.name ?? id,
-      cost: entry?.cost ?? null,
-      cap: pkg.inducements.caps[id] ?? entry?.max ?? null,
-      ...(pkg.inducements.rosterOnly?.[id]?.length ? { only: pkg.inducements.rosterOnly[id] } : {}),
+      cost: reducedOnly ? entry!.reducedCost! : entry?.cost ?? null,
+      cap: pkg.inducements.caps[id] ?? (reducedOnly ? entry!.reducedMax ?? entry!.max : entry?.max) ?? null,
+      ...(only ? { only } : {}),
+      ...(reducedOnly ? { costNote: `${entry!.reducedRoster} price` } : {}),
     };
   }).sort((left, right) => byName(left.name, right.name));
 };
@@ -401,7 +407,7 @@ const sidelineList = (pkg: TournamentPackage): string => {
 const inducementsSection = (pkg: RulesPagePkg): string => {
   const values = effectiveInducements(pkg);
   const body = values.length
-    ? `<div class="table-scroll compact-table"><table><caption>Allowed inducements</caption><thead><tr><th scope="col">Inducement</th><th scope="col">Cost</th><th scope="col">Cap</th></tr></thead><tbody>${values.map((entry) => `<tr><th scope="row">${esc(entry.name)}${entry.only ? ` <small>(${esc(entry.only.join(" / "))} only)</small>` : ""}</th><td>${esc(entry.cost == null ? "Variable" : money(entry.cost))}</td><td>${esc(entry.cap == null ? "No cap" : entry.cap)}</td></tr>`).join("")}</tbody></table></div>`
+    ? `<div class="table-scroll compact-table"><table><caption>Allowed inducements</caption><thead><tr><th scope="col">Inducement</th><th scope="col">Cost</th><th scope="col">Cap</th></tr></thead><tbody>${values.map((entry) => `<tr><th scope="row">${esc(entry.name)}${entry.only ? ` <small>(${esc(entry.only.join(" / "))} only)</small>` : ""}</th><td>${esc(entry.cost == null ? "Variable" : money(entry.cost))}${entry.costNote ? ` <small>(${esc(entry.costNote)})</small>` : ""}</td><td>${esc(entry.cap == null ? "No cap" : entry.cap)}</td></tr>`).join("")}</tbody></table></div>`
     : "<p>No inducements are allowed.</p>";
   return section("Inducements", `${body}${inducementOverrides(pkg)}${sidelineList(pkg)}`);
 };

@@ -1,5 +1,5 @@
 {
- "_about": "BB2025 star players from FUMBBL roster 8513 (_Star Players). `playsFor` = special-rule keywords gating eligibility; `teams` = resolved eligible BB2025 team names (see build_stars/FAVOURED_MAP in scripts/generate_dataset.py).",
+ "_about": "BB2025 star players from FUMBBL roster 8513 (_Star Players). `playsFor` = special-rule keywords gating eligibility; `teams` = resolved eligible BB2025 team names (see build_stars/FAVOURED_MAP in scripts/generate_dataset.py). `skills` = the star's printed BB2025 skills, read from the fumbbl40k-server fork's local BB2025 roster XMLs (ffb-server/rosters, legacy/team files excluded) - anything printed beyond them is an added skill; absent = not known (Bryce 'the Slice' Cambuel, Frank 'n' Stein).",
  "stars": [
   {
    "name": "'Captain' Karina von Riesz",
@@ -12,6 +12,15 @@
     "Shambling Undead",
     "Tomb Kings",
     "Vampire"
+   ],
+   "skills": [
+    "Bloodlust",
+    "Dodge",
+    "Hypnotic Gaze",
+    "Jump Up",
+    "Loner",
+    "Regeneration",
+    "Tasty Morsel"
    ]
   },
   {
@@ -51,6 +60,19 @@
     "Underworld Denizens",
     "Vampire",
     "Wood Elf"
+   ],
+   "skills": [
+    "Blind Rage",
+    "Claws",
+    "Dauntless",
+    "Dodge",
+    "Frenzy",
+    "Jump Up",
+    "Loner",
+    "No Ball",
+    "Sidestep",
+    "Stunty",
+    "Titchy"
    ]
   },
   {
@@ -63,6 +85,14 @@
     "Amazon",
     "Lizardmen",
     "Slann"
+   ],
+   "skills": [
+    "Block",
+    "Grab",
+    "Loner",
+    "Savage Blow",
+    "Stand Firm",
+    "Unsteady"
    ]
   },
   {
@@ -80,6 +110,16 @@
     "Norse",
     "Ogre",
     "Old World Alliance"
+   ],
+   "skills": [
+    "Blast it!",
+    "Cannoneer",
+    "Hail Mary Pass",
+    "Loner",
+    "Pass",
+    "Secret Weapon",
+    "Sure Hands",
+    "Thick Skull"
    ]
   },
   {
@@ -93,6 +133,16 @@
     "Chaos Renegade",
     "Norse",
     "Nurgle"
+   ],
+   "skills": [
+    "Dirty Player",
+    "Disturbing Presence",
+    "Foul Appearance",
+    "Lone Fouler",
+    "Loner",
+    "Putrid Regurgitation",
+    "Regeneration",
+    "Unsteady"
    ]
   },
   {
@@ -105,6 +155,16 @@
     "Amazon",
     "Lizardmen",
     "Slann"
+   ],
+   "skills": [
+    "Dodge",
+    "Fend",
+    "Hypnotic Gaze",
+    "Loner",
+    "Look into My Eyes",
+    "Prehensile Tail",
+    "Safe Pair of Hands",
+    "Sidestep"
    ]
   },
   {
@@ -123,6 +183,16 @@
     "Skaven",
     "Snotling",
     "Underworld Denizens"
+   ],
+   "skills": [
+    "Accurate",
+    "Bombardier",
+    "Dodge",
+    "Kaboom!",
+    "Loner",
+    "Right Stuff",
+    "Secret Weapon",
+    "Stunty"
    ]
   },
   {
@@ -146,6 +216,15 @@
     "Imperial Nobility",
     "Norse",
     "Old World Alliance"
+   ],
+   "skills": [
+    "Accurate",
+    "All You Can Eat",
+    "Bombardier",
+    "Dodge",
+    "Loner",
+    "Secret Weapon",
+    "Stunty"
    ]
   },
   {
@@ -159,6 +238,14 @@
     "Shambling Undead",
     "Tomb Kings",
     "Vampire"
+   ],
+   "skills": [
+    "Block",
+    "Hypnotic Gaze",
+    "Loner",
+    "Regeneration",
+    "Sidestep",
+    "Star of the Show"
    ]
   },
   {
@@ -199,6 +286,15 @@
     "Underworld Denizens",
     "Vampire",
     "Wood Elf"
+   ],
+   "skills": [
+    "Dodge",
+    "I'll Carry You",
+    "Lethal Flight",
+    "Loner",
+    "Right Stuff",
+    "Stunty",
+    "Sure Hands"
    ]
   },
   {
@@ -211,6 +307,18 @@
     "Gnome",
     "Halfling",
     "Wood Elf"
+   ],
+   "skills": [
+    "Block",
+    "Bullseye",
+    "Loner",
+    "Mighty Blow",
+    "Reliable",
+    "Stand Firm",
+    "Strong Arm",
+    "Thick Skull",
+    "Throw Team-mate",
+    "Timmm-ber!"
    ]
   },
   {
@@ -225,7 +333,17 @@
     "Lizardmen",
     "Slann"
    ],
-   "pairPrimary": true
+   "pairPrimary": true,
+   "skills": [
+    "A Sneaky Pair",
+    "Dirty Player",
+    "Dodge",
+    "Loner",
+    "Quick Foul",
+    "Sidestep",
+    "Sneaky Git",
+    "Stunty"
+   ]
   },
   {
    "name": "Drull",
@@ -238,6 +356,14 @@
     "Amazon",
     "Lizardmen",
     "Slann"
+   ],
+   "skills": [
+    "A Sneaky Pair",
+    "Dodge",
+    "Loner",
+    "Sidestep",
+    "Stab",
+    "Stunty"
    ]
   },
   {
@@ -251,6 +377,15 @@
     "Elven Union",
     "High Elf",
     "Wood Elf"
+   ],
+   "skills": [
+    "Catch",
+    "Dodge",
+    "Hypnotic Gaze",
+    "Loner",
+    "Mesmerising Dance",
+    "Nerves of Steel",
+    "On the Ball"
    ]
   },
   {
@@ -263,6 +398,14 @@
     "Amazon",
     "Lizardmen",
     "Slann"
+   ],
+   "skills": [
+    "Baleful Hex",
+    "Disturbing Presence",
+    "Dodge",
+    "Guard",
+    "Loner",
+    "Sidestep"
    ]
   },
   {
@@ -287,6 +430,15 @@
     "Skaven",
     "Snotling",
     "Underworld Denizens"
+   ],
+   "skills": [
+    "Ball & Chain",
+    "Loner",
+    "Mighty Blow",
+    "No Ball",
+    "Secret Weapon",
+    "Stunty",
+    "Whirling Dervish"
    ]
   },
   {
@@ -300,6 +452,15 @@
     "Skaven",
     "Snotling",
     "Underworld Denizens"
+   ],
+   "skills": [
+    "Block",
+    "Claws",
+    "Frenzied Rush",
+    "Grab",
+    "Juggernaut",
+    "Loner",
+    "Stand Firm"
    ]
   },
   {
@@ -313,6 +474,15 @@
     "Elven Union",
     "High Elf",
     "Wood Elf"
+   ],
+   "skills": [
+    "Accurate",
+    "Dodge",
+    "Loner",
+    "Pass",
+    "Shot to Nothing",
+    "Sidestep",
+    "Sure Hands"
    ]
   },
   {
@@ -325,6 +495,16 @@
     "Amazon",
     "Lizardmen",
     "Slann"
+   ],
+   "skills": [
+    "Animal Savagery",
+    "Frenzy",
+    "Loner",
+    "Mighty Blow",
+    "Prehensile Tail",
+    "Primal Savagery",
+    "Stand Firm",
+    "Thick Skull"
    ]
   },
   {
@@ -366,7 +546,15 @@
     "Vampire",
     "Wood Elf"
    ],
-   "pairPrimary": true
+   "pairPrimary": true,
+   "skills": [
+    "Bone Head",
+    "I'll Carry You",
+    "Kick Team-mate",
+    "Loner",
+    "Mighty Blow",
+    "Thick Skull"
+   ]
   },
   {
    "name": "Grashnak Blackhoof",
@@ -381,6 +569,15 @@
     "Khorne",
     "Norse",
     "Nurgle"
+   ],
+   "skills": [
+    "Frenzy",
+    "Gored by the Bull",
+    "Horns",
+    "Loner",
+    "Mighty Blow",
+    "Thick Skull",
+    "Unchannelled Fury"
    ]
   },
   {
@@ -394,6 +591,18 @@
     "Shambling Undead",
     "Tomb Kings",
     "Vampire"
+   ],
+   "skills": [
+    "Disturbing Presence",
+    "Dodge",
+    "Foul Appearance",
+    "Incorporeal",
+    "Jump Up",
+    "Loner",
+    "No Ball",
+    "Regeneration",
+    "Shadowing",
+    "Sidestep"
    ]
   },
   {
@@ -408,6 +617,15 @@
     "Imperial Nobility",
     "Norse",
     "Old World Alliance"
+   ],
+   "skills": [
+    "Block",
+    "Consummate Professional",
+    "Dodge",
+    "Fend",
+    "Loner",
+    "Sprint",
+    "Sure Feet"
    ]
   },
   {
@@ -419,6 +637,16 @@
    "teams": [
     "Dwarf",
     "Ogre"
+   ],
+   "skills": [
+    "Block",
+    "Dauntless",
+    "Frenzy",
+    "Hatred",
+    "Loner",
+    "Multiple Block",
+    "Slayer",
+    "Thick Skull"
    ]
   },
   {
@@ -439,6 +667,17 @@
     "Norse",
     "Ogre",
     "Old World Alliance"
+   ],
+   "skills": [
+    "Block",
+    "Break Tackle",
+    "Dauntless",
+    "Loner",
+    "Mighty Blow",
+    "Stand Firm",
+    "Sure Feet",
+    "Thick Skull",
+    "Wisdom of the White Dwarf"
    ]
   },
   {
@@ -452,6 +691,15 @@
     "Chaos Renegade",
     "Norse",
     "Nurgle"
+   ],
+   "skills": [
+    "Foul Appearance",
+    "Loner",
+    "Monstrous Mouth",
+    "Nerves of Steel",
+    "On the Ball",
+    "Plague Ridden",
+    "Quick Bite"
    ]
   },
   {
@@ -470,6 +718,18 @@
     "Norse",
     "Ogre",
     "Orc"
+   ],
+   "skills": [
+    "Block",
+    "Break Tackle",
+    "Defensive",
+    "Juggernaut",
+    "Loner",
+    "Sprint",
+    "Sure Feet",
+    "Thick Skull",
+    "Unsteady",
+    "Unstoppable Momentum"
    ]
   },
   {
@@ -483,6 +743,14 @@
     "Skaven",
     "Snotling",
     "Underworld Denizens"
+   ],
+   "skills": [
+    "Dodge",
+    "Extra Arms",
+    "Loner",
+    "Prehensile Tail",
+    "Treacherous",
+    "Two Heads"
    ]
   },
   {
@@ -497,6 +765,15 @@
     "Imperial Nobility",
     "Norse",
     "Old World Alliance"
+   ],
+   "skills": [
+    "Chainsaw",
+    "Loner",
+    "No Ball",
+    "Old Pro",
+    "Pro",
+    "Secret Weapon",
+    "Stand Firm"
    ]
   },
   {
@@ -510,6 +787,17 @@
     "Shambling Undead",
     "Tomb Kings",
     "Vampire"
+   ],
+   "skills": [
+    "Block",
+    "Disturbing Presence",
+    "Dwarven Scourge",
+    "Hatred",
+    "Juggernaut",
+    "Loner",
+    "Regeneration",
+    "Strip Ball",
+    "Tackle"
    ]
   },
   {
@@ -524,6 +812,13 @@
     "Imperial Nobility",
     "Norse",
     "Old World Alliance"
+   ],
+   "skills": [
+    "Block",
+    "Guard",
+    "Loner",
+    "Raiding Party",
+    "Tackle"
    ]
   },
   {
@@ -537,6 +832,18 @@
     "Elven Union",
     "High Elf",
     "Wood Elf"
+   ],
+   "skills": [
+    "Block",
+    "Diving Catch",
+    "Dodge",
+    "Dump-off",
+    "Loner",
+    "Nerves of Steel",
+    "On the Ball",
+    "Pass",
+    "Sidestep",
+    "The Flashing Blade"
    ]
   },
   {
@@ -553,6 +860,16 @@
     "Halfling",
     "High Elf",
     "Wood Elf"
+   ],
+   "skills": [
+    "Block",
+    "Diving Catch",
+    "Dodge",
+    "Leap",
+    "Loner",
+    "Sidestep",
+    "Steady Footing",
+    "Swift as the Breeze"
    ]
   },
   {
@@ -571,6 +888,14 @@
     "Norse",
     "Old World Alliance",
     "Slann"
+   ],
+   "skills": [
+    "Block",
+    "Dauntless",
+    "Dodge",
+    "Indomitable",
+    "Jump Up",
+    "Loner"
    ]
   },
   {
@@ -584,6 +909,15 @@
     "Elven Union",
     "High Elf",
     "Wood Elf"
+   ],
+   "skills": [
+    "Black Ink",
+    "Disturbing Presence",
+    "Foul Appearance",
+    "Loner",
+    "On the Ball",
+    "Tackle",
+    "Tentacles"
    ]
   },
   {
@@ -597,6 +931,15 @@
     "Skaven",
     "Snotling",
     "Underworld Denizens"
+   ],
+   "skills": [
+    "Ball & Chain",
+    "I'll Be Back!",
+    "Loner",
+    "Mighty Blow",
+    "No Ball",
+    "Prehensile Tail",
+    "Secret Weapon"
    ]
   },
   {
@@ -612,6 +955,16 @@
     "Khorne",
     "Norse",
     "Nurgle"
+   ],
+   "skills": [
+    "Block",
+    "Dirty Player",
+    "Leader",
+    "Loner",
+    "Lord of Chaos",
+    "Mighty Blow",
+    "Put the Boot In",
+    "Sneaky Git"
    ]
   },
   {
@@ -627,7 +980,14 @@
     "High Elf",
     "Wood Elf"
    ],
-   "pairPrimary": true
+   "pairPrimary": true,
+   "skills": [
+    "Block",
+    "Loner",
+    "Mighty Blow",
+    "Tackle",
+    "Working in Tandem"
+   ]
   },
   {
    "name": "Maple Highgrove",
@@ -639,6 +999,16 @@
     "Gnome",
     "Halfling",
     "Wood Elf"
+   ],
+   "skills": [
+    "Brawler",
+    "Grab",
+    "Loner",
+    "Mighty Blow",
+    "Stand Firm",
+    "Tentacles",
+    "Thick Skull",
+    "Vicious Vines"
    ]
   },
   {
@@ -652,6 +1022,13 @@
     "Chaos Renegade",
     "Khorne",
     "Norse"
+   ],
+   "skills": [
+    "Chainsaw",
+    "Loner",
+    "Maximum Carnage",
+    "No Ball",
+    "Secret Weapon"
    ]
   },
   {
@@ -669,6 +1046,13 @@
     "Norse",
     "Ogre",
     "Old World Alliance"
+   ],
+   "skills": [
+    "Block",
+    "Crushing Blow",
+    "Loner",
+    "Mighty Blow",
+    "Unsteady"
    ]
   },
   {
@@ -705,6 +1089,16 @@
     "Snotling",
     "Underworld Denizens",
     "Wood Elf"
+   ],
+   "skills": [
+    "Block",
+    "Bullseye",
+    "Hatred",
+    "Loner",
+    "Mighty Blow",
+    "The Ballista",
+    "Thick Skull",
+    "Throw Team-mate"
    ]
   },
   {
@@ -723,6 +1117,17 @@
     "Skaven",
     "Snotling",
     "Underworld Denizens"
+   ],
+   "skills": [
+    "Block",
+    "Chainsaw",
+    "Dodge",
+    "Kick 'em while they're down!",
+    "Loner",
+    "No Ball",
+    "Saboteur",
+    "Secret Weapon",
+    "Stunty"
    ]
   },
   {
@@ -740,6 +1145,15 @@
     "Imperial Nobility",
     "Norse",
     "Old World Alliance"
+   ],
+   "skills": [
+    "Block",
+    "Dodge",
+    "Halfling Luck",
+    "Loner",
+    "Nerves of Steel",
+    "Right Stuff",
+    "Stunty"
    ]
   },
   {
@@ -754,6 +1168,14 @@
     "Goblin",
     "Ogre",
     "Orc"
+   ],
+   "skills": [
+    "Loner",
+    "Shadowing",
+    "Sidestep",
+    "Sneaky Git",
+    "Stab",
+    "Toxin Connoisseur"
    ]
   },
   {
@@ -772,6 +1194,15 @@
     "Skaven",
     "Snotling",
     "Underworld Denizens"
+   ],
+   "skills": [
+    "Bullseye",
+    "Grab",
+    "Loner",
+    "Mighty Blow",
+    "Regeneration",
+    "Thinking Man's Troll",
+    "Throw Team-mate"
    ]
   },
   {
@@ -784,6 +1215,17 @@
     "Gnome",
     "Halfling",
     "Wood Elf"
+   ],
+   "skills": [
+    "Catch",
+    "Catch of the Day",
+    "Diving Catch",
+    "Jump Up",
+    "Loner",
+    "On the Ball",
+    "Sidestep",
+    "Stunty",
+    "Wrestle"
    ]
   },
   {
@@ -796,6 +1238,16 @@
     "Gnome",
     "Halfling",
     "Wood Elf"
+   ],
+   "skills": [
+    "Bounding Leap",
+    "Dodge",
+    "Dump-off",
+    "Guard",
+    "Horns",
+    "Jump Up",
+    "Leap",
+    "Loner"
    ]
   },
   {
@@ -809,6 +1261,15 @@
     "Elven Union",
     "High Elf",
     "Wood Elf"
+   ],
+   "skills": [
+    "Dodge",
+    "Frenzy",
+    "Juggernaut",
+    "Jump Up",
+    "Leap",
+    "Loner",
+    "Slashing Nails"
    ]
   },
   {
@@ -820,6 +1281,15 @@
    "teams": [
     "Gnome",
     "Halfling"
+   ],
+   "skills": [
+    "Block",
+    "Horns",
+    "Juggernaut",
+    "Loner",
+    "Ram",
+    "Tackle",
+    "Thick Skull"
    ]
   },
   {
@@ -838,6 +1308,17 @@
     "Skaven",
     "Snotling",
     "Underworld Denizens"
+   ],
+   "skills": [
+    "Dirty Player",
+    "Dodge",
+    "Loner",
+    "Pogo",
+    "Right Stuff",
+    "Sprint",
+    "Stunty",
+    "Sure Feet",
+    "Yoink!"
    ]
   },
   {
@@ -851,6 +1332,16 @@
     "Chaos Renegade",
     "Khorne",
     "Norse"
+   ],
+   "skills": [
+    "Claws",
+    "Frenzy",
+    "Fury of the Blood God",
+    "Loner",
+    "Mighty Blow",
+    "Prehensile Tail",
+    "Thick Skull",
+    "Unchannelled Fury"
    ]
   },
   {
@@ -864,6 +1355,14 @@
     "Skaven",
     "Snotling",
     "Underworld Denizens"
+   ],
+   "skills": [
+    "Dodge",
+    "Loner",
+    "Master Assassin",
+    "Prehensile Tail",
+    "Shadowing",
+    "Stab"
    ]
   },
   {
@@ -881,6 +1380,15 @@
     "Norse",
     "Ogre",
     "Old World Alliance"
+   ],
+   "skills": [
+    "Block",
+    "Claws",
+    "Disturbing Presence",
+    "Juggernaut",
+    "Loner",
+    "Mighty Blow",
+    "Pump Up the Crowd"
    ]
   },
   {
@@ -897,6 +1405,16 @@
     "Shambling Undead",
     "Tomb Kings",
     "Vampire"
+   ],
+   "skills": [
+    "Accurate",
+    "Loner",
+    "Nerves of Steel",
+    "Pass",
+    "Regeneration",
+    "Strong Passing Game",
+    "Sure Hands",
+    "Thick Skull"
    ]
   },
   {
@@ -909,6 +1427,15 @@
     "Gnome",
     "Halfling",
     "Wood Elf"
+   ],
+   "skills": [
+    "Disturbing Presence",
+    "Fend",
+    "Furious Outburst",
+    "Loner",
+    "Sidestep",
+    "Stab",
+    "Stunty"
    ]
   },
   {
@@ -927,6 +1454,17 @@
     "Skaven",
     "Snotling",
     "Underworld Denizens"
+   ],
+   "skills": [
+    "Bombardier",
+    "Disturbing Presence",
+    "Dodge",
+    "Loner",
+    "Sidestep",
+    "Sneakiest of the Lot",
+    "Sneaky Git",
+    "Stab",
+    "Stunty"
    ]
   },
   {
@@ -944,6 +1482,13 @@
     "Norse",
     "Ogre",
     "Old World Alliance"
+   ],
+   "skills": [
+    "Beer Barrel Bash!",
+    "Block",
+    "Drunkard",
+    "Loner",
+    "Thick Skull"
    ]
   },
   {
@@ -958,6 +1503,15 @@
     "Elven Union",
     "High Elf",
     "Wood Elf"
+   ],
+   "skills": [
+    "Accurate",
+    "Loner",
+    "Nerves of Steel",
+    "Pass",
+    "Safe Pass",
+    "Sure Hands",
+    "Working in Tandem"
    ]
   },
   {
@@ -972,6 +1526,16 @@
     "Goblin",
     "Ogre",
     "Orc"
+   ],
+   "skills": [
+    "Block",
+    "Hatred",
+    "Jump Up",
+    "Krump and Smash",
+    "Loner",
+    "Mighty Blow",
+    "Thick Skull",
+    "Unsteady"
    ]
   },
   {
@@ -985,6 +1549,15 @@
     "Shambling Undead",
     "Tomb Kings",
     "Vampire"
+   ],
+   "skills": [
+    "Catch",
+    "Claws",
+    "Frenzy",
+    "Loner",
+    "Regeneration",
+    "Savage Mauling",
+    "Wrestle"
    ]
   },
   {
@@ -997,6 +1570,13 @@
     "Gnome",
     "Halfling",
     "Wood Elf"
+   ],
+   "skills": [
+    "Dauntless",
+    "Loner",
+    "Sidestep",
+    "Thick Skull",
+    "Woodland Fury"
    ]
   },
   {
@@ -1010,6 +1590,16 @@
     "Chaos Renegade",
     "Norse",
     "Nurgle"
+   ],
+   "skills": [
+    "Foul Appearance",
+    "Loner",
+    "Prehensile Tail",
+    "Tackle",
+    "Tentacles",
+    "Two Heads",
+    "Watch Out!",
+    "Wrestle"
    ]
   },
   {
@@ -1027,6 +1617,16 @@
     "Lizardmen",
     "Slann",
     "Wood Elf"
+   ],
+   "skills": [
+    "\"Excuse Me, Are You a Zoat?\"",
+    "Disturbing Presence",
+    "Juggernaut",
+    "Loner",
+    "Mighty Blow",
+    "Prehensile Tail",
+    "Regeneration",
+    "Sure Feet"
    ]
   },
   {
@@ -1040,6 +1640,15 @@
     "Chaos Dwarf",
     "Chaos Renegade",
     "Norse"
+   ],
+   "skills": [
+    "\"Blastin' Solves Everything\"",
+    "Cannoneer",
+    "Hail Mary Pass",
+    "Loner",
+    "Nerves of Steel",
+    "Secret Weapon",
+    "Thick Skull"
    ]
   }
  ]

@@ -98,6 +98,8 @@ export interface DatasetStar {
   cost: number | null;
   /** FUMBBL special-rule keywords gating eligibility, e.g. ["Badlands Brawl"] or ["(Any)"]. Provenance for `teams`. */
   playsFor?: string[];
+  /** The star's printed skills/traits (BB2025). Anything printed beyond these is an ADDED skill. Absent = unknown (not checked). */
+  skills?: string[];
 }
 
 export interface Dataset {

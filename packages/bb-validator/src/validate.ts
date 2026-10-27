@@ -88,9 +88,13 @@ export function validate(
   const starFeesCost = pkg.starPacks?.length ? starPackPicks(players, pkg, data).feesGold : 0;
   const spPaidStarGold = pkg.starPlayers.paidInSkillPoints ? starGold : 0;
   // HARD gold cap: report the same total the gold-budget rule checks (skills + extras inside).
-  const goldUsed = pkg.goldCapIncludesAddedSkills
-    ? recomputeGold(roster) - (roster.summary?.skillsCost ?? 0) + skillsCost + statIncreasesCost + starFeesCost - spPaidStarGold
-    : recomputeGold(roster) - spPaidStarGold;
+  // Choose-one packages pay for skills with the pack (SP / skill count), never gold: report the same
+  // build cost the skill-packages rule checks (sheet skill gold excluded).
+  const goldUsed = rc.skillPackages?.length
+    ? recomputeGold(roster) - (roster.summary?.skillsCost ?? 0) - spPaidStarGold
+    : pkg.goldCapIncludesAddedSkills
+      ? recomputeGold(roster) - (roster.summary?.skillsCost ?? 0) + skillsCost + statIncreasesCost + starFeesCost - spPaidStarGold
+      : recomputeGold(roster) - spPaidStarGold;
   // With choose-one packages, show the most generous SP as the headline budget.
   const spBudget = rc.skillPackages?.length
     ? Math.max(...rc.skillPackages.map((p) => p.skillPointBudget))

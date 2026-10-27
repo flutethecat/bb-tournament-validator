@@ -1564,7 +1564,10 @@ ${rosterSheetHtml(model)}
         line("Skill points", `${Core.num(used) ?? "—"} / ${Core.num(spBudget) ?? "—"}`, "", used > spBudget ? "over-budget" : "");
       }
     }
-    const estimate = rawPlayerCost() + rawStarCost() + staffCost() + inducementGold() + addedSkillGold() + statGold();
+    // Choose-one packs pay for skills with the pack (SP or a skill count), not gold — same as the server's
+    // skill-packages rule, so the estimate must not add skill gold (WHBB Nut Cup: skills are free).
+    const skillGoldInBudget = mode === "tournament" && raceRules()?.packs?.length ? 0 : addedSkillGold();
+    const estimate = rawPlayerCost() + rawStarCost() + staffCost() + inducementGold() + skillGoldInBudget + statGold();
     const used = s ? s.goldUsed : estimate;
     const budget = mode === "tournament" ? clientBudget() : (s?.goldBudget ?? clientBudget());
     const label = s ? (mode === "custom" ? "Authoritative preview" : "Total") : previewPending ? "Calculating team value…" : $("team-name").value.trim() ? "Estimate" : "Please name your team";

@@ -241,7 +241,15 @@ def build_stars(rosters):
 
 def write_stars(rosters):
     stars = build_stars(rosters)
-    json.dump({"_about": "BB2025 star players from FUMBBL roster 8513 (_Star Players). `playsFor` = special-rule keywords gating eligibility; `teams` = resolved eligible BB2025 team names (see build_stars/FAVOURED_MAP in scripts/generate_dataset.py).", "stars": stars},
+    # Keep each star's printed `skills` (sourced once from the fork's local BB2025 roster XMLs;
+    # the roster/get API is not used for them) so a regeneration does not drop them.
+    prev = os.path.join(OUT, "stars.json")
+    if os.path.exists(prev):
+        known = {s["name"]: s["skills"] for s in json.load(open(prev, encoding="utf-8"))["stars"] if "skills" in s}
+        for s in stars:
+            if s["name"] in known:
+                s["skills"] = known[s["name"]]
+    json.dump({"_about": "BB2025 star players from FUMBBL roster 8513 (_Star Players). `playsFor` = special-rule keywords gating eligibility; `teams` = resolved eligible BB2025 team names (see build_stars/FAVOURED_MAP in scripts/generate_dataset.py). `skills` = the star's printed BB2025 skills (preserved across regenerations; anything printed beyond them is an added skill).", "stars": stars},
               open(os.path.join(OUT, "stars.json"), "w", encoding="utf-8"), indent=1)
     print(f"Wrote {len(stars)} stars to {OUT}")
 

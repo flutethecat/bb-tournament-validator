@@ -6,6 +6,7 @@ import {
   findRoster,
   findStar,
   loadPackage,
+  renderPackageHtml,
   resolveTeamConfig,
   validate,
   type TeamPick,
@@ -14,6 +15,7 @@ import {
 } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import nutCupJson from "../../../tournament-packages/whbb-nut-cup-2026.json";
+import { renderRulesPage } from "../../../packages/bb-validator/src/render/rulesPage";
 import { packageRaceRules, packageRulesInfo } from "../src/teamBuilderPackage";
 import { teamBuilderInducementCatalog } from "../src/teamBuilderInducements";
 
@@ -274,5 +276,59 @@ describe("WHBB Nut Cup 2026 package", () => {
     expect(core.packTermsText(t3)).toBe("1,150k · 6 skills (≤1 secondary) · no stars");
     expect(core.packTermsText(t5star)).toBe("1,100k · 9 skills (primary only)");
     expect(core.packTermsText({ gold: 1070000, skillPointBudget: 160, maxPerPlayer: 2 })).toBe("1,070k · 160 SP");
+  });
+
+  it("refuses a submitted star carrying an added skill (stars take no added skills); house-rule knob lets it", () => {
+    const { composed } = build("Goblin", [{ name: "Goblin Lineman", count: 11 }], { stars: ["Fungus the Loon"] });
+    const base = findStar(bb2025, "Fungus the Loon")!.skills!;
+    expect(base).toContain("Ball & Chain");
+    const withStarSkills = (extra: string[]) => ({
+      ...composed.roster,
+      players: composed.roster.players.map((p) => (p.positionName === "Fungus the Loon" ? { ...p, skills: [...base, ...extra] } : p)),
+    });
+    const clean = validate(withStarSkills([]), pkg, bb2025);
+    expect(ruleErrors(clean, "star-skills")).toEqual([]);
+    const guard = validate(withStarSkills(["Guard"]), pkg, bb2025);
+    expect(ruleErrors(guard, "star-skills").map((e) => e.message)).toEqual([
+      "Fungus the Loon has added skill (Guard); Star Players take no added skills.",
+    ]);
+    expect(guard.valid).toBe(false);
+    const allowed = { ...pkg, starPlayers: { ...pkg.starPlayers, addedSkillsAllowed: true } };
+    expect(ruleErrors(validate(withStarSkills(["Guard"]), allowed, bb2025), "star-skills")).toEqual([]);
+  });
+
+  it("reports goldUsed without sheet skill gold under count packs (skills are free)", () => {
+    // 11 linemen + 8 rerolls + apothecary + bribe + keg = 1,150,000; six Wrestle passes printed at 20k each.
+    const { composed } = build(
+      "Human",
+      [{ name: "Human Lineman", count: 6, skills: ["Wrestle"] }, { name: "Human Lineman", count: 5 }],
+      { reRolls: 8, apothecary: true, inducements: [{ key: "bribes", count: 1 }, { key: "bloodweiser_kegs", count: 1 }] },
+    );
+    const s = composed.roster.summary!;
+    const submitted = { ...composed.roster, summary: { ...s, skillsCost: 120000, total: s.total - s.skillsCost + 120000 } };
+    const result = validate(submitted, pkg, bb2025);
+    expect(result.errors).toEqual([]);
+    expect(result.recomputedSummary.goldUsed).toBe(1150000);
+  });
+
+  it("export sheet renders the count packs, stacking and star access per tier", () => {
+    const html = renderPackageHtml(pkg);
+    expect(html).not.toContain("∞ primary");
+    expect(html).toContain("1,150,000 gp · 6 skills (≤1 secondary) · ≤2/player · no stars");
+    expect(html).toContain("1,100,000 gp · 7 skills (≤1 secondary) · ≤2/player · no stars");
+    expect(html).toContain("1,150,000 gp · 8 skills (primary only) · ≤2/player");
+    expect(html).toContain("1 (≤2 skills, ≤1 secondary)");
+    expect(html).toContain("halfling_master_chef (Halfling only)");
+  });
+
+  it("rules page prices the Halfling-only Chef at the Halfling price", () => {
+    const html = renderRulesPage(pkg);
+    const at = html.indexOf('<th scope="row">Halfling Master Chef');
+    expect(at).toBeGreaterThan(-1);
+    const row = html.slice(at, html.indexOf("</tr>", at));
+    expect(row).toContain("(Halfling only)");
+    expect(row).toContain("100,000 gp");
+    expect(row).toContain("(Halfling price)");
+    expect(row).not.toContain("300,000");
   });
 });

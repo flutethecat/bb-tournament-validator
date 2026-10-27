@@ -4,7 +4,7 @@
  * Print-friendly light theme; everything inline so the file stands alone.
  */
 
-import type { TournamentPackage } from "../package/types";
+import { isCountPack, type SkillPackage, type StackedPlayerCaps, type TournamentPackage } from "../package/types";
 
 const esc = (s: unknown): string =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -34,8 +34,28 @@ const swapDescription = (ratio = 2, max?: number | null): string =>
 const swapMarker = (ratio = 2, max?: number | null): string =>
   ratio === 2 && max == null ? "↔" : `↔ ${ratio}:1${max != null ? ` · max ${max}` : ""}`;
 
-/** Skill-stacking cap ("max players with >1 added skill"); "—" = no cap. */
-const stackText = (n: number | null | undefined): string => (n == null ? "—" : String(n));
+/** Skill-stacking cap ("max players with >1 added skill"); "—" = no cap. Per-stack caps appended when set. */
+const stackText = (n: number | null | undefined, caps?: StackedPlayerCaps | null): string => {
+  if (n == null) return "—";
+  const parts = [
+    caps?.maxSkills != null ? `≤${caps.maxSkills} skills` : "",
+    caps?.maxSecondary === 0 ? "primary only" : caps?.maxSecondary != null ? `≤${caps.maxSecondary} secondary` : "",
+    caps?.maxElite === 0 ? "no elite" : caps?.maxElite != null ? `≤${caps.maxElite} elite` : "",
+  ].filter(Boolean);
+  return n === 0 || !parts.length ? String(n) : `${n} (${parts.join(", ")})`;
+};
+
+/** One choose-one pack: "1,150,000 gp · 6 skills (≤1 secondary) · no stars" / "1,070,000 gp · 160 SP". */
+function packText(p: SkillPackage): string {
+  let skills: string;
+  if (isCountPack(p)) {
+    const total = p.maxSkills != null ? `${p.maxSkills} skill${p.maxSkills === 1 ? "" : "s"}` : "skills";
+    const sec = p.maxSecondary == null ? "" : p.maxSecondary === 0 ? " (primary only)" : ` (≤${p.maxSecondary} secondary)`;
+    skills = total + sec;
+  } else skills = `${p.skillPointBudget} SP`;
+  return `${p.label ? `${p.label}: ` : ""}${gp(p.gold)} · ${skills}${p.maxPerPlayer != null ? ` · ≤${p.maxPerPlayer}/player` : ""}${p.starPlayersAllowed === false ? " · no stars" : ""}`;
+}
+const packsHtml = (packs: readonly SkillPackage[]): string => `<span class="hint">Choose one:</span><br>${packs.map((p) => esc(packText(p))).join("<br>")}`;
 
 function skillCostLine(pkg: TournamentPackage): string {
   const sa = pkg.skillAllotment;
@@ -89,10 +109,17 @@ function tiersSection(pkg: TournamentPackage): string {
       const swap = t.secondarySwap ?? base.secondarySwap;
       const swapRatio = t.secondarySwapRatio ?? base.secondarySwapRatio;
       const swapMax = t.secondarySwapMax !== undefined ? t.secondarySwapMax : base.secondarySwapMax;
+      // Choose-one packs (tier's own, else global) own gold + skills + star access, as in resolveTeamConfig.
+      const packs = t.skillPackages?.length ? t.skillPackages : pkg.skillPackages?.length ? pkg.skillPackages : null;
+      const skillsCell = packs
+        ? `<td>${packsHtml(packs)}</td>`
+        : `<td title="${swap ? esc(swapDescription(swapRatio, swapMax)) : ""}">${esc(allotText(t.maxPrimary, t.maxSecondary, swap, swapRatio, swapMax, t.skillPointBudget))}</td>`;
+      const stars = packs ? t.starPlayersAllowed && packs.some((p) => p.starPlayersAllowed !== false) : t.starPlayersAllowed;
+      const stacked = t.stackedPlayer !== undefined ? t.stackedPlayer : base.stackedPlayer;
       return `<tr><th class="rowhead">Tier ${t.tier}${t.label ? ` — ${esc(t.label)}` : ""}</th>
-         <td>${gp(t.gold)}</td><td title="${swap ? esc(swapDescription(swapRatio, swapMax)) : ""}">${esc(allotText(t.maxPrimary, t.maxSecondary, swap, swapRatio, swapMax, t.skillPointBudget))}</td>
-         <td>${stackText(t.maxStackedPlayers)}</td>
-         <td>${yesNo(t.starPlayersAllowed)}</td><td>${t.bannedStars.map(esc).join(", ") || "—"}</td>
+         <td>${packs ? "per package" : gp(t.gold)}</td>${skillsCell}
+         <td>${esc(stackText(t.maxStackedPlayers !== undefined ? t.maxStackedPlayers : base.maxStackedPlayers, stacked))}</td>
+         <td>${yesNo(stars)}</td><td>${t.bannedStars.map(esc).join(", ") || "—"}</td>
          <td>${t.rosters.map(esc).join(", ")}</td></tr>`;
     })
     .join("");
@@ -135,6 +162,11 @@ function flatSkillSection(pkg: TournamentPackage): string {
           ? ` (↔ ${swapDescription(sa.secondarySwapRatio, sa.secondarySwapMax).toLowerCase()})`
           : "")
       : `${sa.skillPointBudget} Skill Points`;
+  if (pkg.skillPackages?.length)
+    return section(
+      "Skill Packages",
+      `<p>${packsHtml(pkg.skillPackages)}</p><p class="hint">${esc(skillCostLine(pkg))}${sa.maxStackedPlayers != null ? ` · max ${sa.maxStackedPlayers} players with >1 added skill` : ""}</p>`,
+    );
   return section(
     "Skill Allotment",
     `<p><strong>${esc(budget)}</strong></p><p class="hint">${esc(skillCostLine(pkg))}${sa.maxPerPlayer != null ? ` · max ${sa.maxPerPlayer} added skills per player` : ""}${sa.maxSameSkillTeamwide != null ? ` · max ${sa.maxSameSkillTeamwide} of a skill team-wide` : ""}${sa.maxStackedPlayers != null ? ` · max ${sa.maxStackedPlayers} players with >1 added skill` : ""}</p>`,

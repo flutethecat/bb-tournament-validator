@@ -770,6 +770,41 @@ export const starPlayers: Rule = {
 };
 
 /**
+ * 8c. Star added skills — BB2025 stars take no added skills. A star's printed skills are diffed
+ * against its dataset skill list (`DatasetStar.skills`); a source-supplied `addedSkills` list on a
+ * star also counts. Default on; `starPlayers.addedSkillsAllowed: true` is the house-rule escape.
+ * Stars with no dataset skill list are only caught via explicit `addedSkills`.
+ */
+export const starAddedSkills: Rule = {
+  id: "star-skills",
+  check: ({ players, pkg, data }) => {
+    if (pkg.starPlayers.addedSkillsAllowed === true) return [];
+    const findings: Finding[] = [];
+    for (const rp of players) {
+      if (!isStarName(data, rp.player.positionName)) continue;
+      const star = findStar(data, rp.player.positionName);
+      const extra = new Map<string, string>();
+      if (star?.skills) {
+        const base = new Set(star.skills.map(normName));
+        for (const s of rp.player.skills) if (!base.has(normName(s))) extra.set(normName(s), s);
+      }
+      for (const s of rp.player.addedSkills ?? []) extra.set(normName(s), s);
+      if (!extra.size) continue;
+      const list = [...extra.values()];
+      findings.push(
+        err("star-skills", `${rp.player.positionName} has added skill${list.length === 1 ? "" : "s"} (${list.join(", ")}); Star Players take no added skills.`, {
+          playerRef: rp.player.number,
+          expected: star?.skills ? star.skills.join(", ") : "no added skills",
+          actual: rp.player.skills.join(", "),
+          suggestion: `Remove ${list.join(", ")} from ${rp.player.positionName}.`,
+        }),
+      );
+    }
+    return findings;
+  },
+};
+
+/**
  * 9. Inducements — types allowed + caps. Dataset caps use the BB2025 rulebook
  * maxima; a reduced-cap special rule (e.g. Bribery and Corruption → 6 Bribes)
  * raises the cap when the team carries that rule.
@@ -979,6 +1014,7 @@ export const ALL_RULES: Rule[] = [
   statIncreasesRule,
   costReconciliation,
   starPlayers,
+  starAddedSkills,
   starPacksRule,
   inducements,
   sideline,
