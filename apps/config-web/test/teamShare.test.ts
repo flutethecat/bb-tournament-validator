@@ -335,6 +335,23 @@ describe("hardening (Sol r1)", () => {
     expect(((await preview.json()) as { error: string }).error).toMatch(/count must be an integer between 0 and 16/);
   });
 
+  it("non-string text fields: 422 at save time; a stored one reads as the generic 404, not a 500 (Sol r2)", async () => {
+    const fay = createSession("Fay");
+    const odd: Array<Record<string, unknown>> = [
+      { ...sheet("x"), teamName: { toString: null } },
+      { ...sheet("x"), specialRule: ["a"] },
+      { ...sheet("x"), coach: 5 },
+      { ...sheet("x"), picks: [{ positionId: { toString: null }, count: 1 }] },
+      { ...sheet("x"), inducements: [{ key: 7, count: 1 }] },
+    ];
+    for (const body of odd) expect((await call("POST", "/api/fork/team-builder/saves", fay.token, { name: "Odd", body })).status).toBe(422);
+    const token = "5".repeat(32);
+    seedShared("Fay", "sv_odd", token, { ...sheet("x"), teamName: { toString: null } });
+    const res = await call("GET", `/api/fork/team-builder/shared/${token}`, undefined, undefined, xff("198.51.100.3"));
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "This team link is no longer available." });
+  });
+
   it("a malformed stored body answers without any secret-bearing text", async () => {
     const cases: Array<[string, unknown]> = [["2".repeat(32), null], ["3".repeat(32), { rosterId: "nope.bb2025", teamName: "X", picks: [{ positionId: "1", count: 1 }] }], ["4".repeat(32), { picks: "x" }]];
     for (const [token, body] of cases) {

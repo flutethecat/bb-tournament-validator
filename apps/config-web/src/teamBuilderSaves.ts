@@ -121,10 +121,27 @@ export function buildBodyForSave(body: Record<string, unknown>): Record<string, 
   return out;
 }
 
+/** Text fields a stored sheet may carry must be plain strings (an object like {"toString": null} would pass the
+ *  length checks and later throw wherever the value is turned into text, e.g. the public share read). */
+const SAVE_STRING_FIELDS = ["rosterId", "teamName", "coach", "specialRule", "packageName", "skillPack", "teamId"] as const;
+function saveFieldTypeError(body: Record<string, unknown>): string | null {
+  for (const key of SAVE_STRING_FIELDS) if (body[key] !== undefined && typeof body[key] !== "string") return `${key} must be a string when supplied.`;
+  for (const key of ["picks", "rosteredInducements", "inducements"] as const) {
+    const list = body[key];
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return `each ${key} entry must be an object.`;
+      const named = key === "picks" ? (item as Record<string, unknown>).positionId : (item as Record<string, unknown>).key;
+      if (typeof named !== "string") return `each ${key} entry must name its ${key === "picks" ? "positionId" : "key"} as a string.`;
+    }
+  }
+  return null;
+}
+
 /** Strip credentials and validate a builder body for storage. Over-limit bodies (teamBuilderBoundsError)
  *  report `status: 422` so the save routes can tell them apart from malformed ones. */
 export function sanitizeSaveBody(body: unknown): { body: Record<string, unknown> } | { error: string; status?: 422 } {
-  const bounds = body && typeof body === "object" && !Array.isArray(body) ? teamBuilderBoundsError(body) : null;
+  const bounds = body && typeof body === "object" && !Array.isArray(body) ? teamBuilderBoundsError(body) ?? saveFieldTypeError(body as Record<string, unknown>) : null;
   if (bounds) return { error: bounds, status: 422 };
   const wire = teamBuilderWireError(body);
   if (wire) return { error: wire };

@@ -96,7 +96,7 @@ import {
   teamList,
   type AdminTeamSearchMode,
 } from "./data";
-import { builderTierRows, packageRaceRules, packageResponseInfo, packageRulesInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
+import { builderTierRows, packageRaceRules, packageResponseInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
 import { packagesApi } from "./packagesApi.js";
 import { isPublicArtPath } from "./publicArt.js";
 import { PRESETS } from "./presets";
@@ -2736,7 +2736,13 @@ async function handleApi(
       if (method !== "GET" && method !== "HEAD") return sendShared(405, { error: "Use GET." });
       if (sharedReadLimiter.take([`ip:${clientIp(req)}`], 0) > 0) return sendShared(429, { error: "Too many requests; try again shortly." });
       const found = findSharedSave(builderSaveDeps().dir, shareToken);
-      const team = found ? sharedViewFor(found.coach, found.save, auth?.coach) : undefined;
+      // Anything unexpected in a stored save (odd types, a throwing value) reads as the generic 404, never a 500.
+      let team: ReturnType<typeof sharedViewFor>;
+      try {
+        team = found ? sharedViewFor(found.coach, found.save, auth?.coach) : undefined;
+      } catch {
+        team = undefined;
+      }
       if (!team) return sendShared(404, { error: "This team link is no longer available." });
       return sendShared(200, { team });
     }
