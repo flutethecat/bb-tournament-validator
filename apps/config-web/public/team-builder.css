@@ -959,3 +959,6 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .session-menu-item { display: block; width: 100%; padding: 8px 10px; text-align: left; color: var(--ui-text); background: transparent; border: 0; border-radius: 4px; font: 14px/1.2 var(--font-body); cursor: pointer; }
 .session-menu-item:hover:not(:disabled) { background: color-mix(in srgb, var(--ui-primary) 22%, var(--ui-surface)); }
 .session-menu-item:disabled { opacity: .5; cursor: wait; }
+.view-header-side .header-login[hidden] { display: none; }
+.view-header-side .session-message:empty { display: none; }
+.view-header-side .session-message { font-size: 13px; }

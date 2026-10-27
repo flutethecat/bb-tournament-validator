@@ -38,10 +38,13 @@
     <header class="view-header">
       <div>
         <h1 id="team-builder-title"><span>T</span>ournament <span>T</span>eam <span>B</span>uilder</h1>
-        <p>Coach: <strong id="current-coach-label">sign in with Discord</strong>.</p>
       </div>
       <!-- Owner 10-27: the signed-in identity lives top right; the sign-in card below only shows while signed out. -->
       <div class="view-header-side">
+        <div id="login-form" class="session-form header-login">
+          <a id="discord-login" class="session-button discord-button" href="/api/auth/discord/start?next=/tournament-team-builder.html">Sign in with Discord</a>
+        </div>
+        <div id="login-message" class="session-message" role="status" aria-live="polite"></div>
         <!-- Owner 10-27: the coach name is a menu; Log out lives inside it. -->
         <details id="signed-in-session" class="signed-in-session session-menu" hidden>
           <summary class="session-menu-summary" aria-label="Account menu">
@@ -65,15 +68,8 @@
       </div>
     </header>
 
-    <section id="session-panel" class="session-panel" aria-labelledby="session-title">
-      <div class="session-intro">
-        <strong id="session-title">Sign in to create your team</strong>
-      </div>
-      <div id="login-form" class="session-form">
-        <a id="discord-login" class="session-button discord-button" href="/api/auth/discord/start?next=/tournament-team-builder.html">Sign in with Discord</a>
-      </div>
-      <div id="login-message" class="session-message" role="status" aria-live="polite"></div>
-    </section>
+    <!-- Owner 10-27: no sign-in card on this page; the Discord button / account menu live in the header. -->
+    <section id="session-panel" class="session-panel" hidden aria-hidden="true"><strong id="session-title" hidden></strong></section>
 
     <nav class="tt-steps" id="tt-steps" aria-label="Tournament team setup">
       <button type="button" data-tt-step="1" aria-current="step"><b>1</b><span>Ruleset</span><small id="tt-step-1-label">Choose a tournament</small></button>

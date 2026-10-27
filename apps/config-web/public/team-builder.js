@@ -1000,7 +1000,8 @@ ${rosterSheetHtml(model)}
   function setSessionCoach(coach) {
     authCoach = String(coach ?? "").trim();
     // The coach is ALWAYS the Discord-signed-in fork account (owner 10-23: no coach field).
-    $("current-coach-label").textContent = authCoach || "sign in with Discord";
+    const coachLabel = $("current-coach-label");
+    if (coachLabel) coachLabel.textContent = authCoach || "sign in with Discord";
     syncBuildButton();
     renderValidity(); // the sign-in notice follows every auth change (login, logout, 401 expiry)
   }
@@ -1009,7 +1010,7 @@ ${rosterSheetHtml(model)}
     const signedIn = Boolean(authCoach);
     $("session-panel").classList.toggle("authenticated", signedIn);
     // Owner 10-27 (tournament page): once signed in the whole sign-in card goes; the identity sits top right.
-    if (TOURNAMENT_PAGE) $("session-panel").hidden = signedIn;
+    if (TOURNAMENT_PAGE) $("session-panel").hidden = true; // header carries the Discord button / account menu
     $("login-form").hidden = signedIn;
     $("signed-in-session").hidden = !signedIn;
     $("signed-in-coach").textContent = authCoach;
