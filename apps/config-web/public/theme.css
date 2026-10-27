@@ -78,8 +78,9 @@
 
 /* Presets-only theme toggle (fixed, top-right) — config-web has no client settings store. */
 .theme-toggle {
+  /* Owner 10-27: bottom right of the page (was top right, beside the nav). */
   position: fixed;
-  top: 10px;
+  bottom: 12px;
   right: 12px;
   z-index: 50;
   font: 13px/1 var(--font-body);

@@ -1247,6 +1247,8 @@ ${rosterSheetHtml(model)}
 
   function renderRoster() {
     $("player-count").textContent = `${slots.length} / ${MAX_PLAYERS}`;
+    const skillKey = $("skill-key"); // tournament page: the key shows only once players are on the roster
+    if (skillKey) skillKey.hidden = !slots.length;
     if (!slots.length) {
       $("roster-slots").innerHTML = '<div class="roster-empty">Add a player from a position card above.</div>';
       return;

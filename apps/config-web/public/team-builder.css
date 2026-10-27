@@ -962,3 +962,10 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .view-header-side .header-login[hidden] { display: none; }
 .view-header-side .session-message:empty { display: none; }
 .view-header-side .session-message { font-size: 13px; }
+/* Owner 10-27: roster title row carries the compact skill key at its right. */
+.roster-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 7px; }
+.roster-title-row .section-title { margin-bottom: 0; }
+.skill-key-compact { margin-left: auto; padding-top: 0; gap: 4px; font-size: 11px; letter-spacing: .04em; }
+.skill-key-compact > span { padding: 2px 6px; }
+.skill-key-compact[hidden] { display: none; }
+.view-header-side { margin-left: auto; }

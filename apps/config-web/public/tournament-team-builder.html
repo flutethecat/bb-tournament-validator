@@ -56,15 +56,6 @@
             <button id="logout-button" class="session-menu-item" type="button" role="menuitem">Log out</button>
           </div>
         </details>
-      <div class="skill-key" aria-label="Skill category key">
-        <span class="key-label"><b>S</b>kill <b>K</b>ey</span>
-        <span class="skill-general">General</span>
-        <span class="skill-agility">Agility</span>
-        <span class="skill-strength">Strength</span>
-        <span class="skill-passing">Passing</span>
-        <span class="skill-mutation">Mutations</span>
-        <span class="skill-trait">Traits</span>
-      </div>
       </div>
     </header>
 
@@ -168,8 +159,20 @@
           </section>
 
           <section class="roster-section" aria-labelledby="roster-slots-title">
-            <div class="section-title" id="roster-slots-title">
-              <span>R</span>oster <span>S</span>lots <small id="player-count">0 / 16</small>
+            <div class="roster-title-row">
+              <div class="section-title" id="roster-slots-title">
+                <span>R</span>oster <span>S</span>lots <small id="player-count">0 / 16</small>
+              </div>
+              <!-- Owner 10-27: compact skill key, top right of the roster, only once players are added. -->
+              <div id="skill-key" class="skill-key skill-key-compact" aria-label="Skill category key" hidden>
+                <span class="key-label"><b>S</b>kill <b>K</b>ey</span>
+                <span class="skill-general">General</span>
+                <span class="skill-agility">Agility</span>
+                <span class="skill-strength">Strength</span>
+                <span class="skill-passing">Passing</span>
+                <span class="skill-mutation">Mutations</span>
+                <span class="skill-trait">Traits</span>
+              </div>
             </div>
             <div class="roster-scroll">
               <div class="roster-header roster-grid" aria-hidden="true">
