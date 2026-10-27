@@ -2977,8 +2977,11 @@ ${rosterSheetHtml(model)}
       if (step === setupStep) button.setAttribute("aria-current", "step");
       else button.removeAttribute("aria-current");
     });
-    $("tt-step-1-label").textContent = name || ""; // owner 10-27: no placeholder sub-labels on the steps
-    $("tt-step-2-label").textContent = current ? `${current.raceName}${tierLabel ? ` · ${tierLabel}` : ""}` : "";
+    // Owner 10-27: once chosen, the tab itself is titled with the tournament / race name (no sub-label).
+    const step1Title = $("tt-step-1-title"); if (step1Title) step1Title.textContent = name || "Ruleset";
+    const step2Title = $("tt-step-2-title"); if (step2Title) step2Title.textContent = current ? `${current.raceName}${tierLabel ? ` · ${tierLabel}` : ""}` : "Race";
+    $("tt-step-1-label").textContent = "";
+    $("tt-step-2-label").textContent = "";
     $("tt-step-package").hidden = setupStep !== 1;
     $("tt-step-race").hidden = setupStep !== 2;
     $("builder-panel").hidden = setupStep !== 3;

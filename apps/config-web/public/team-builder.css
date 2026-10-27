@@ -1087,7 +1087,9 @@ body[data-builder="tournament"] .tt-steps button:disabled { opacity: .55; }
 body[data-builder="tournament"] .tt-step,
 body[data-builder="tournament"] #builder-panel { position: relative; z-index: 1; border-top: 2px solid var(--ui-heading); border-top-left-radius: 0; border-top-right-radius: 0; }
 /* Stacking: inactive tabs z 0 < panel z 1 < active tab z 3, all in the same (page) stacking context. */
-body[data-builder="tournament"] .tt-steps button:not(.active) { z-index: 0; }
+body[data-builder="tournament"] .tt-steps button:not(.active) { z-index: 0; padding-bottom: 18px; } /* text sits clear of the panel edge that covers the tab's foot */
+body[data-builder="tournament"] .tt-steps button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+body[data-builder="tournament"] .tt-steps button small[hidden] { display: none; }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
    MOBILE + TABLET VIEW (owner 10-27: "Can we also configure this with a mobile view?").
