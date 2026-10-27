@@ -1,5 +1,16 @@
 "use strict";
 
+/*
+  Tournament Rules Construction — the organiser's package editor (admin page).
+
+  Round-trip law (owner 10-27): loading a tournament package and serialising it back without edits must
+  give JSON deep-equal to the input. normalizePackage() only FILLS absent keys (with the validator's
+  defaults, so the controls show what the validator will apply) and never rewrites present values;
+  serializePackage() drops every filled key the organiser left untouched (pruneInjected). Unknown and
+  future fields ride along verbatim. The pure core is exposed as globalThis.TournamentRulesCore for the
+  page tests; the UI only boots when the page markup (#editor) exists.
+*/
+
 const MEGA_STARS = [
   "Morg 'n' Thorg",
   "H'thark the Unstoppable",
@@ -8,45 +19,80 @@ const MEGA_STARS = [
   "Hakflem Skuttlespike",
 ];
 
+// Ids match packages/bb-validator/src/dataset/bb2025/inducements.json.
 const INDUCEMENTS = [
   { id: "biased_referee", label: "Biased Referee", max: 1, fixed: true },
   { id: "bloodweiser_kegs", label: "Blitzer's Best Kegs", max: 2, fixed: false },
   { id: "bribes", label: "Bribe", max: 3, fixed: false },
+  { id: "extra_team_training", label: "Extra Team Training", max: 8, fixed: false },
   { id: "halfling_master_chef", label: "Halfling Master Chef", max: 1, fixed: true },
   { id: "infamous_coaching_staff", label: "Infamous Coaching Staff: Josef Bugman", max: 1, fixed: true },
+  { id: "mercenaries", label: "Mercenary Players", max: 3, fixed: false },
+  { id: "mortuary_assistant", label: "Mortuary Assistant", max: 1, fixed: true },
   { id: "part_time_assistant_coaches", label: "Part-time Assistant Coach", max: 5, fixed: false },
+  { id: "plague_doctor", label: "Plague Doctor", max: 1, fixed: true },
   { id: "prayers_to_nuffle", label: "Prayers to Nuffle", max: 3, fixed: false },
+  { id: "riotous_rookies", label: "Riotous Rookies", max: 1, fixed: true },
   { id: "team_mascot", label: "Team Mascot", max: 1, fixed: true },
   { id: "temp_agency_cheerleaders", label: "Temp Agency Cheerleader", max: 5, fixed: false },
   { id: "wandering_apothecaries", label: "Wandering Apothecary", max: 2, fixed: false },
   { id: "weather_mage", label: "Weather Mage", max: 1, fixed: true },
   { id: "hireling_sports_wizard", label: "Sports Wizard", max: 1, fixed: true },
+  { id: "bretonnian_pastries", label: "Bretonnian Pastries", max: 1, fixed: true },
+  { id: "bretonnian_damsel", label: "Bretonnian Damsel", max: 1, fixed: true },
+  { id: "canopic_jar", label: "Canopic Jar", max: 1, fixed: true },
 ];
 
 const CATEGORY_COLORS = {
-  general: "#6ea8ff",
-  agility: "#ffd23d",
-  strength: "#ff6b6b",
-  passing: "#ffffff",
-  devious: "#ffffff",
-  mutations: "#6fcf6f",
-  mutation: "#6fcf6f",
-  traits: "#b08b5a",
-  trait: "#b08b5a",
+  general: "var(--ui-skill-general, #6ea8ff)",
+  agility: "var(--ui-skill-agility, #ffd23d)",
+  strength: "var(--ui-skill-strength, #ff6b6b)",
+  passing: "var(--ui-skill-passing, #ffffff)",
+  devious: "var(--ui-skill-passing, #ffffff)",
+  mutations: "var(--ui-skill-mutation, #6fcf6f)",
+  mutation: "var(--ui-skill-mutation, #6fcf6f)",
+  traits: "var(--ui-skill-trait, #b08b5a)",
+  trait: "var(--ui-skill-trait, #b08b5a)",
 };
 
+// Mirrors the validator's DEFAULT_SKILL_ALLOTMENT (packages/bb-validator/src/package/types.ts), so an
+// absent key shows the value the validator will actually apply.
 const DEFAULT_SKILL_ALLOTMENT = {
   skillPointBudget: 0,
   primaryCostSP: 1,
   secondaryMultiplier: 2,
   secondaryCostSP: null,
-  eliteSurchargeSP: 1,
+  eliteSurchargeSP: 0.5,
+  stackSurchargeSP: 0,
   eliteSkills: ["Block", "Guard", "Mighty Blow", "Dodge"],
   skillCostSP: {},
   maxPerPlayer: 2,
   maxSameSkillTeamwide: null,
   maxStackedPlayers: null,
 };
+
+// The validator's loadPackage() defaults for the other top-level blocks.
+const DEFAULT_STAR_PLAYERS = { allowed: true, maxCount: null, maxCombinedCost: null };
+const DEFAULT_INDUCEMENTS = { allowed: ["*"], caps: {} };
+const DEFAULT_SIDELINE = { maxReRolls: 8, maxApothecary: 1, maxCheerleaders: null, maxAssistantCoaches: null, maxDedicatedFans: null };
+const DEFAULT_SPECIAL = { insignificantTraitConstraint: true, stalling: true, slannAllowed: false, statIncreasesAllowed: false, bannedSkills: [], minPlayers: 11 };
+const DEFAULT_GOLD_COSTS = { primaryCostGold: 20000, secondaryCostGold: 40000, eliteSurchargeGold: 10000 };
+
+const STAT_KEYS = ["MA", "ST", "AG", "PA", "AV"];
+const OPTIONAL_STRINGS = ["description", "dataNote", "date", "extends"];
+const NESTED_PRUNE = new Set(["skillAllotment", "starPlayers", "inducements", "sideline", "special"]);
+// Containers the editor creates on demand; emptied ones are removed again.
+const LAZY_OBJECTS = new Set(["rosterGold", "stackedPlayer", "statIncreases", "costGold", "skillCostGold", "rosterOnly"]);
+
+const TABS = [
+  ["package", "Package"],
+  ["races", "Races & Tiers"],
+  ["skills", "Skills"],
+  ["stars", "Stars"],
+  ["inducements", "Inducements"],
+  ["special", "Special"],
+  ["summary", "Summary"],
+];
 
 const state = {
   authed: false,
@@ -55,6 +101,7 @@ const state = {
   loginUser: "",
   expiresAt: "",
   discordSsoEnabled: false,
+  adminNav: false,
   packageNames: [],
   selectedPackage: "",
   presets: [],
@@ -62,6 +109,8 @@ const state = {
   stars: [],
   teams: [],
   pkg: null,
+  original: null,
+  baseline: null,
   problems: [],
   saved: null,
   exported: false,
@@ -70,17 +119,26 @@ const state = {
   catalogNotices: [],
   overrideSkill: "",
   overrideCost: 2,
+  goldOverrideSkill: "",
+  goldOverrideCost: 30,
   bannedSkill: "",
+  ruleTeam: "",
   dragStar: "",
   dragTeam: "",
   activeTier: 0,
-  view: { system: "skillpoints", skillMode: "pool", swapRate: 2 },
+  tab: "package",
+  view: freshView("skillpoints", "pool"),
 };
 
-const toolbar = document.querySelector("#toolbar");
-const editor = document.querySelector("#editor");
-const rightRail = document.querySelector("#right-rail");
-const connectionState = document.querySelector("#connection-state");
+let toolbar = null;
+let shelf = null;
+let editor = null;
+let rightRail = null;
+let connectionState = null;
+
+function freshView(system, skillMode) {
+  return { system, skillMode, systemTouched: false, skillModeTouched: false, starCostsTouched: false };
+}
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -93,6 +151,22 @@ function escapeHtml(value) {
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function isObj(value) {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, index) => deepEqual(item, b[index]));
+  }
+  if (isObj(a) && isObj(b)) {
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every((key) => Object.prototype.hasOwnProperty.call(b, key) && deepEqual(a[key], b[key]));
+  }
+  return false;
 }
 
 function numberOr(value, fallback) {
@@ -108,7 +182,7 @@ function nullableNumber(value) {
 }
 
 function goldToK(value) {
-  return value == null ? "" : Number(value) / 1000;
+  return value == null || value === "" ? "" : Number(value) / 1000;
 }
 
 function kToGold(value) {
@@ -147,62 +221,59 @@ async function requestJson(path, options) {
   return data;
 }
 
+// ---------- package model ----------
+
+function fill(target, key, value) {
+  if (target[key] === undefined) target[key] = clone(value);
+}
+
+function objectAt(target, key) {
+  if (!isObj(target[key])) target[key] = {};
+  return target[key];
+}
+
+/** Editing model: a clone of the raw package with ABSENT keys filled (validator defaults). Present
+ *  values are never rewritten, so serializePackage() can hand the file back unchanged. */
 function normalizePackage(raw) {
-  const input = raw && typeof raw === "object" ? clone(raw) : {};
-  return {
-    ...input,
-    name: typeof input.name === "string" ? input.name : "",
-    ruleset: typeof input.ruleset === "string" ? input.ruleset : "bb2025-default",
-    description: typeof input.description === "string" ? input.description : "",
-    date: typeof input.date === "string" ? input.date : "",
-    extends: typeof input.extends === "string" ? input.extends : "",
-    eligibleRosters: safeArray(input.eligibleRosters).length ? safeArray(input.eligibleRosters) : ["*"],
-    goldBudget: input.goldBudget == null ? null : numberOr(input.goldBudget, null),
-    goldCapIncludesAddedSkills: input.goldCapIncludesAddedSkills === true,
-    skillAllotment: {
-      ...DEFAULT_SKILL_ALLOTMENT,
-      ...(input.skillAllotment ?? {}),
-      eliteSkills: safeArray(input.skillAllotment?.eliteSkills).length
-        ? safeArray(input.skillAllotment.eliteSkills)
-        : [...DEFAULT_SKILL_ALLOTMENT.eliteSkills],
-      skillCostSP: input.skillAllotment?.skillCostSP && typeof input.skillAllotment.skillCostSP === "object"
-        ? { ...input.skillAllotment.skillCostSP }
-        : {},
-    },
-    skillPackages: safeArray(input.skillPackages),
-    tiers: safeArray(input.tiers),
-    teamRules: safeArray(input.teamRules),
-    matrix: input.matrix && typeof input.matrix === "object" ? input.matrix : undefined,
-    bannedStars: safeArray(input.bannedStars),
-    starPlayers: {
-      allowed: input.starPlayers?.allowed !== false,
-      maxCount: input.starPlayers?.maxCount ?? 2,
-      maxCombinedCost: input.starPlayers?.maxCombinedCost ?? null,
-      ...(input.starPlayers ?? {}),
-    },
-    inducements: {
-      allowed: safeArray(input.inducements?.allowed).length ? safeArray(input.inducements.allowed) : [],
-      caps: input.inducements?.caps && typeof input.inducements.caps === "object" ? { ...input.inducements.caps } : {},
-    },
-    sideline: {
-      maxReRolls: null,
-      maxApothecary: null,
-      maxCheerleaders: null,
-      maxAssistantCoaches: null,
-      maxDedicatedFans: null,
-      ...(input.sideline ?? {}),
-    },
-    special: {
-      insignificantTraitConstraint: true,
-      stalling: true,
-      slannAllowed: false,
-      statIncreasesAllowed: false,
-      bannedSkills: [],
-      minPlayers: 11,
-      ...(input.special ?? {}),
-      bannedSkills: safeArray(input.special?.bannedSkills),
-    },
-  };
+  const pkg = isObj(raw) ? clone(raw) : {};
+  fill(pkg, "name", "");
+  fill(pkg, "ruleset", "bb2025-default");
+  OPTIONAL_STRINGS.forEach((key) => fill(pkg, key, ""));
+  fill(pkg, "eligibleRosters", ["*"]);
+  fill(pkg, "goldBudget", null);
+  fill(pkg, "goldCapIncludesAddedSkills", false);
+  const allotment = objectAt(pkg, "skillAllotment");
+  Object.entries(DEFAULT_SKILL_ALLOTMENT).forEach(([key, value]) => fill(allotment, key, value));
+  ["skillPackages", "tiers", "teamRules", "bannedStars"].forEach((key) => {
+    if (!Array.isArray(pkg[key])) pkg[key] = [];
+  });
+  const stars = objectAt(pkg, "starPlayers");
+  Object.entries(DEFAULT_STAR_PLAYERS).forEach(([key, value]) => fill(stars, key, value));
+  const inducements = objectAt(pkg, "inducements");
+  Object.entries(DEFAULT_INDUCEMENTS).forEach(([key, value]) => fill(inducements, key, value));
+  const sideline = objectAt(pkg, "sideline");
+  Object.entries(DEFAULT_SIDELINE).forEach(([key, value]) => fill(sideline, key, value));
+  const special = objectAt(pkg, "special");
+  Object.entries(DEFAULT_SPECIAL).forEach(([key, value]) => fill(special, key, value));
+  return pkg;
+}
+
+/** Drop keys the organiser never touched that normalizePackage() filled in. */
+function pruneInjected(output, original, baseline, nested = true) {
+  Object.keys(output).forEach((key) => {
+    const present = isObj(original) && Object.prototype.hasOwnProperty.call(original, key);
+    if (!present) {
+      if (nested && NESTED_PRUNE.has(key) && isObj(output[key]) && isObj(baseline?.[key])) {
+        pruneInjected(output[key], {}, baseline[key], false);
+        if (Object.keys(output[key]).length === 0) delete output[key];
+      } else if (output[key] === undefined || deepEqual(output[key], baseline?.[key])) delete output[key];
+      return;
+    }
+    if (nested && NESTED_PRUNE.has(key) && isObj(output[key]) && isObj(original[key])) {
+      pruneInjected(output[key], original[key], baseline?.[key], false);
+    }
+  });
+  return output;
 }
 
 function inferView(pkg) {
@@ -215,10 +286,12 @@ function inferView(pkg) {
       : pkg.skillPackages?.length
         ? "packages"
         : "skillpoints";
-  return { system, skillMode, swapRate: 2 };
+  return freshView(system, skillMode);
 }
 
 function loadPackageIntoEditor(pkg, problems) {
+  state.original = isObj(pkg) ? clone(pkg) : {};
+  state.baseline = normalizePackage(pkg);
   state.pkg = normalizePackage(pkg);
   state.view = inferView(state.pkg);
   state.activeTier = 0;
@@ -226,22 +299,27 @@ function loadPackageIntoEditor(pkg, problems) {
   state.saved = null;
   state.exported = false;
   state.overrideSkill = state.skills[0]?.name ?? "";
+  state.goldOverrideSkill = state.skills[0]?.name ?? "";
   state.bannedSkill = state.skills[0]?.name ?? "";
   render();
 }
 
-function fallbackPackage() {
-  return normalizePackage({
+function fallbackRaw() {
+  return {
     name: "",
     ruleset: "bb2025-default",
     eligibleRosters: ["*"],
-    skillAllotment: DEFAULT_SKILL_ALLOTMENT,
+    skillAllotment: { ...clone(DEFAULT_SKILL_ALLOTMENT) },
     goldBudget: null,
     starPlayers: { allowed: true, maxCount: 2, maxCombinedCost: null },
     inducements: { allowed: ["*"], caps: {} },
     sideline: {},
     special: { insignificantTraitConstraint: true, stalling: true, slannAllowed: false, statIncreasesAllowed: false, bannedSkills: [], minPlayers: 11 },
-  });
+  };
+}
+
+function fallbackPackage() {
+  return normalizePackage(fallbackRaw());
 }
 
 function markDirty() {
@@ -252,7 +330,7 @@ function markDirty() {
 
 function skillColor(name) {
   const skill = state.skills.find((row) => row.name === name);
-  return CATEGORY_COLORS[String(skill?.category ?? "").toLowerCase()] ?? "#cfd4cf";
+  return CATEGORY_COLORS[String(skill?.category ?? "").toLowerCase()] ?? "var(--text)";
 }
 
 function tierClass(tier) {
@@ -266,11 +344,15 @@ function assignedTierFor(raceName) {
 }
 
 function isAllRaces() {
-  return state.pkg.eligibleRosters.includes("*");
+  return safeArray(state.pkg.eligibleRosters).includes("*");
+}
+
+function inducementAllowedList() {
+  return safeArray(state.pkg.inducements.allowed);
 }
 
 function isInducementAllowed(id) {
-  const allowed = state.pkg.inducements.allowed;
+  const allowed = inducementAllowedList();
   return allowed.includes("*") || allowed.includes(id);
 }
 
@@ -326,44 +408,201 @@ function serializePackage() {
   const output = clone(state.pkg);
   output.name = String(output.name ?? "").trim();
   output.ruleset = output.ruleset || "bb2025-default";
-  output.eligibleRosters = safeArray(output.eligibleRosters);
-  output.skillAllotment = { ...DEFAULT_SKILL_ALLOTMENT, ...output.skillAllotment };
 
-  if (state.view.skillMode === "pool") {
-    delete output.skillAllotment.maxPrimary;
-    delete output.skillAllotment.maxSecondary;
-    delete output.skillAllotment.secondarySwap;
+  // Switching the pricing mode / tournament system drops the other mode's data — only when the
+  // organiser actually switched (a loaded package keeps every block it carried).
+  if (state.view.skillModeTouched && state.view.skillMode === "pool") {
+    ["maxPrimary", "maxSecondary", "secondarySwap", "secondarySwapRatio", "secondarySwapMax"].forEach((key) => delete output.skillAllotment[key]);
+  }
+  if (state.view.systemTouched) {
+    if (state.view.system === "skillpoints") {
+      delete output.skillPackages;
+      delete output.tiers;
+      delete output.matrix;
+    } else if (state.view.system === "tiers") {
+      delete output.skillPackages;
+      delete output.matrix;
+    } else if (state.view.system === "packages") {
+      delete output.tiers;
+      delete output.matrix;
+    } else if (state.view.system === "matrix") {
+      delete output.skillPackages;
+      delete output.tiers;
+    }
+  }
+  if (state.view.system === "matrix") output.matrix = clone(matrixForDisplay());
+
+  if (state.view.starCostsTouched) {
+    const tierCount = safeArray(output.tiers).length;
+    const spCostByTier = {};
+    Object.entries(output.starPlayers.spCostByTier ?? {}).forEach(([name, values]) => {
+      const costs = safeArray(values).slice(0, tierCount).map((value) => value == null ? null : numberOr(value, null));
+      while (costs.length < tierCount) costs.push(null);
+      if (costs.some((value) => value != null)) spCostByTier[name] = costs;
+    });
+    if (Object.keys(spCostByTier).length) output.starPlayers.spCostByTier = spCostByTier;
+    else delete output.starPlayers.spCostByTier;
   }
 
-  if (state.view.system === "skillpoints") {
-    delete output.skillPackages;
-    delete output.tiers;
-    delete output.matrix;
-  } else if (state.view.system === "tiers") {
-    delete output.skillPackages;
-    delete output.matrix;
-  } else if (state.view.system === "packages") {
-    delete output.tiers;
-    delete output.matrix;
-  } else if (state.view.system === "matrix") {
-    delete output.skillPackages;
-    delete output.tiers;
-    output.matrix = matrixForDisplay();
-  }
-
-  const tierCount = safeArray(output.tiers).length;
-  const spCostByTier = {};
-  Object.entries(output.starPlayers.spCostByTier ?? {}).forEach(([name, values]) => {
-    const costs = safeArray(values).slice(0, tierCount).map((value) => value == null ? null : numberOr(value, null));
-    while (costs.length < tierCount) costs.push(null);
-    if (costs.some((value) => value != null)) spCostByTier[name] = costs;
+  OPTIONAL_STRINGS.forEach((key) => {
+    if (output[key] === "" && state.original?.[key] !== "") delete output[key];
   });
-  if (Object.keys(spCostByTier).length) output.starPlayers.spCostByTier = spCostByTier;
-  else delete output.starPlayers.spCostByTier;
-  if (output.starPlayers.paidInSkillPoints !== true) delete output.starPlayers.paidInSkillPoints;
 
-  return output;
+  return pruneInjected(output, state.original ?? {}, state.baseline ?? {});
 }
+
+// ---------- generic bound controls ----------
+
+function readPath(attribute) {
+  try {
+    const path = JSON.parse(attribute);
+    return Array.isArray(path) && path.length ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+function getPath(root, path) {
+  return path.reduce((value, key) => (value == null ? undefined : value[key]), root);
+}
+
+/** Set (or, with value === undefined, delete) the value at path; creates containers on the way and
+ *  removes emptied on-demand containers (LAZY_OBJECTS) after a delete. */
+function setPath(root, path, value) {
+  let target = root;
+  const parents = [];
+  for (let index = 0; index < path.length - 1; index += 1) {
+    const key = path[index];
+    if (target[key] == null || typeof target[key] !== "object") {
+      if (value === undefined) return;
+      target[key] = typeof path[index + 1] === "number" ? [] : {};
+    }
+    parents.push([target, key]);
+    target = target[key];
+  }
+  const last = path[path.length - 1];
+  if (value !== undefined) {
+    target[last] = value;
+    return;
+  }
+  if (Array.isArray(target)) return;
+  delete target[last];
+  for (let index = parents.length - 1; index >= 0; index -= 1) {
+    const [parent, key] = parents[index];
+    if (LAZY_OBJECTS.has(key) && isObj(parent[key]) && Object.keys(parent[key]).length === 0) delete parent[key];
+    else break;
+  }
+}
+
+function blankValue(blank) {
+  if (blank === "null") return null;
+  if (blank === "zero") return 0;
+  if (blank === "empty") return "";
+  if (blank === "false") return false;
+  return undefined;
+}
+
+function boundValue(target) {
+  const kind = target.dataset.kind || "num";
+  const blank = target.dataset.blank || "delete";
+  if (kind === "bool") return target.checked ? true : blankValue(blank);
+  if (kind === "tri") return target.value === "true" ? true : target.value === "false" ? false : undefined;
+  if (kind === "str") return target.value === "" ? blankValue(blank) : target.value;
+  const number = kind === "gold" ? kToGold(target.value) : nullableNumber(target.value);
+  if (number == null) return blankValue(blank);
+  return kind === "int" ? Math.max(0, Math.round(number)) : number;
+}
+
+function applyBinding(target) {
+  const path = readPath(target.dataset.bind);
+  if (!path) return false;
+  if (path[0] === "matrix") state.pkg.matrix = matrixForDisplay();
+  setPath(state.pkg, path, boundValue(target));
+  return true;
+}
+
+function applyMulti(target) {
+  if (target.dataset.multiAll != null) {
+    const path = readPath(target.dataset.multiAll);
+    if (!path) return false;
+    setPath(state.pkg, path, target.checked ? undefined : []);
+    return true;
+  }
+  const path = readPath(target.dataset.multi);
+  if (!path) return false;
+  const value = target.dataset.value;
+  const list = [...safeArray(getPath(state.pkg, path))];
+  const has = list.includes(value);
+  if (target.checked && !has) list.push(value);
+  if (!target.checked && has) list.splice(list.indexOf(value), 1);
+  setPath(state.pkg, path, list);
+  return true;
+}
+
+function bindAttr(path) {
+  return `data-bind="${escapeHtml(JSON.stringify(path))}"`;
+}
+
+function numField(label, path, value, opts = {}) {
+  const kind = opts.kind ?? "num";
+  const display = kind === "gold" ? goldToK(value) : value ?? "";
+  const suffix = opts.suffix ?? (kind === "gold" ? "k" : "");
+  return `<label class="field${opts.wide ? " wide" : ""}"><span class="field-label">${escapeHtml(label)}</span>
+    <span class="field-input"><input class="control" ${bindAttr(path)} data-kind="${kind}" data-blank="${opts.blank ?? "delete"}" type="number" min="${opts.min ?? 0}"${opts.step ? ` step="${opts.step}"` : ""} value="${escapeHtml(display)}" placeholder="${escapeHtml(opts.placeholder ?? "")}" aria-label="${escapeHtml(opts.aria ?? label)}">${suffix ? `<span class="hint">${escapeHtml(suffix)}</span>` : ""}</span></label>`;
+}
+
+function textField(label, path, value, opts = {}) {
+  return `<label class="field${opts.wide ? " wide" : ""}"><span class="field-label">${escapeHtml(label)}</span><input class="control" ${bindAttr(path)} data-kind="str" data-blank="${opts.blank ?? "delete"}" value="${escapeHtml(value ?? "")}" placeholder="${escapeHtml(opts.placeholder ?? "")}" aria-label="${escapeHtml(opts.aria ?? label)}"></label>`;
+}
+
+function triField(label, path, value, labels = ["inherit", "yes", "no"]) {
+  const current = value === true ? "true" : value === false ? "false" : "";
+  return `<label class="field"><span class="field-label">${escapeHtml(label)}</span><select class="control" ${bindAttr(path)} data-kind="tri" aria-label="${escapeHtml(label)}">
+    <option value=""${current === "" ? " selected" : ""}>${escapeHtml(labels[0])}</option>
+    <option value="true"${current === "true" ? " selected" : ""}>${escapeHtml(labels[1])}</option>
+    <option value="false"${current === "false" ? " selected" : ""}>${escapeHtml(labels[2])}</option>
+  </select></label>`;
+}
+
+function checkField(label, path, value, blank = "delete") {
+  return `<label class="check-field"><input type="checkbox" ${bindAttr(path)} data-kind="bool" data-blank="${blank}"${value === true ? " checked" : ""}> <span>${escapeHtml(label)}</span></label>`;
+}
+
+/** A checkbox list in a <details>. `allLabel` adds an option meaning "key absent" (inherit / every). */
+function multiSelect({ key, path, label, items, selected, allLabel, emptyLabel = "none" }) {
+  const list = Array.isArray(selected) ? selected : null;
+  const known = new Set(items.map((item) => item.value));
+  const extra = safeArray(list).filter((value) => !known.has(value)).map((value) => ({ value, label: value }));
+  const all = allLabel && list == null;
+  const summary = all ? allLabel : list && list.length ? `${list.length} selected` : emptyLabel;
+  const pathAttr = escapeHtml(JSON.stringify(path));
+  const options = [...items, ...extra].map((item) => `<label class="multi-option"><input type="checkbox" data-multi="${pathAttr}" data-value="${escapeHtml(item.value)}"${list?.includes(item.value) ? " checked" : ""}${all ? " disabled" : ""}> <span>${escapeHtml(item.label)}</span></label>`).join("");
+  return `<details class="multi" data-preserve-open="${escapeHtml(key)}">
+    <summary><span class="field-label">${escapeHtml(label)}</span> <span class="multi-summary">${escapeHtml(summary)}</span></summary>
+    <div class="multi-list">
+      ${allLabel ? `<label class="multi-option multi-all"><input type="checkbox" data-multi-all="${pathAttr}"${all ? " checked" : ""}> <span>${escapeHtml(allLabel)}</span></label>` : ""}
+      ${options || '<span class="hint">Catalog unavailable.</span>'}
+    </div>
+  </details>`;
+}
+
+function rosterItems() {
+  return state.teams.map((team) => ({ value: team.name, label: team.name }));
+}
+
+function starItems() {
+  return state.stars.map((star) => ({ value: star.name, label: star.name }));
+}
+
+function skillItems() {
+  return state.skills.map((skill) => ({ value: skill.name, label: skill.name }));
+}
+
+function starPackItems() {
+  return safeArray(state.pkg.starPacks).map((pack, index) => ({ value: String(pack.id ?? ""), label: pack.label ? `${pack.label} (${pack.id})` : String(pack.id || `Pack ${index + 1}`) }));
+}
+
+// ---------- rendering ----------
 
 function options(items, current, getValue = (item) => item, getLabel = (item) => item) {
   return items.map((item) => {
@@ -373,7 +612,7 @@ function options(items, current, getValue = (item) => item, getLabel = (item) =>
 }
 
 function chip(label, action, active, extra = "") {
-  return `<button type="button" class="chip${active ? " active" : ""}${extra ? ` ${extra}` : ""}" data-action="${action}">${escapeHtml(label)}</button>`;
+  return `<button type="button" class="chip${active ? " active" : ""}${extra ? ` ${extra}` : ""}" data-action="${action}" aria-pressed="${active ? "true" : "false"}">${escapeHtml(label)}</button>`;
 }
 
 function title(words) {
@@ -381,48 +620,72 @@ function title(words) {
 }
 
 function renderToolbar() {
-  const packageOptions = state.packageNames.length
-    ? '<option value="">— open saved package —</option>' + options(state.packageNames, state.selectedPackage)
-    : '<option value="">— no saved packages —</option>';
-  const presetOptions = '<option value="">—</option>' + options(state.presets, "", (preset) => preset.id, (preset) => preset.label);
-  const login = state.authed || state.token
-    ? `<span class="login-status">● ${escapeHtml(state.account)} · token expires ${escapeHtml(state.expiresAt)}</span>
-       <button type="button" class="btn" data-action="logout">Log Out</button>`
+  if (!toolbar) return;
+  toolbar.innerHTML = state.authed || state.token
+    ? `<span class="login-status"><span class="session-dot" aria-hidden="true"></span> ${escapeHtml(state.account)}${state.expiresAt ? ` <small>· token expires ${escapeHtml(state.expiresAt)}</small>` : ""}</span>
+       <button type="button" class="session-button secondary" data-action="logout">Log out</button>`
     : `<label class="visually-hidden" for="login-user">Username</label>
-       <input id="login-user" class="control" style="width:130px" autocomplete="username" placeholder="Username" value="${escapeHtml(state.loginUser)}">
+       <input id="login-user" class="control" autocomplete="username" placeholder="Username" value="${escapeHtml(state.loginUser)}">
        <label class="visually-hidden" for="login-password">Password</label>
-       <input id="login-password" class="control" style="width:140px" type="password" autocomplete="current-password" placeholder="Password">
-       <button type="button" class="btn primary" data-action="login">Log In</button>
-       ${state.discordSsoEnabled ? '<button type="button" class="btn" data-action="discord-login">Discord</button>' : ""}`;
-
-  toolbar.innerHTML = `
-    <span class="toolbar-label">Package</span>
-    <select class="control" data-action="select-package" aria-label="Package">${packageOptions}</select>
-    <span class="toolbar-label">New from Preset</span>
-    <select class="control" data-action="select-preset" aria-label="New from Preset">${presetOptions}</select>
-    <span class="toolbar-spacer"></span>
-    ${login}`;
+       <input id="login-password" class="control" type="password" autocomplete="current-password" placeholder="Password">
+       <button type="button" class="session-button" data-action="login">Log in</button>
+       ${state.discordSsoEnabled ? '<button type="button" class="session-button discord-button" data-action="discord-login">Discord</button>' : ""}`;
 }
 
-function renderSummary() {
+function renderShelf() {
+  if (!shelf) return;
+  const cards = state.packageNames.map((name) => `<button type="button" class="package-card${name === state.selectedPackage ? " selected" : ""}" data-action="open-package" data-name="${escapeHtml(name)}" aria-pressed="${name === state.selectedPackage ? "true" : "false"}"><strong>${escapeHtml(name)}</strong></button>`).join("");
+  const presetOptions = '<option value="">—</option>' + options(state.presets, "", (preset) => preset.id, (preset) => preset.label);
+  shelf.innerHTML = `
+    <div class="shelf-head">
+      <div class="section-title">${title("Tournament Packages")}</div>
+      <div class="shelf-actions">
+        <label class="inline-controls"><span class="field-label">New from preset</span><select class="control" data-action="select-preset" aria-label="New from Preset">${presetOptions}</select></label>
+        <button type="button" class="session-button secondary" data-action="new-package">New blank package</button>
+      </div>
+    </div>
+    <div class="package-cards">${cards || '<span class="hint">No saved packages yet.</span>'}</div>`;
+}
+
+function renderPackageDetails() {
   const pkg = state.pkg;
   const extendsOptions = '<option value="">— none —</option>' + options(state.packageNames, pkg.extends);
   return `
     <section class="panel">
-      <div class="section-title">${title("Summary")}</div>
+      <div class="section-title">${title("Package Details")}</div>
       <div class="form-grid">
         <label class="field"><span class="field-label">Name *</span><input class="control" data-field="name" value="${escapeHtml(pkg.name)}"></label>
         <label class="field"><span class="field-label">Date</span><input class="control" data-field="date" type="date" value="${escapeHtml(pkg.date)}"></label>
-        <label class="field"><span class="field-label">Ruleset</span><input class="control" value="BB2025" readonly></label>
+        <label class="field"><span class="field-label">Ruleset</span><input class="control" value="${escapeHtml(pkg.ruleset === "bb2025-default" ? "BB2025" : pkg.ruleset)}" readonly></label>
         <label class="field"><span class="field-label">Extends (inherit from)</span><select class="control" data-field="extends">${extendsOptions}</select></label>
       </div>
       <label class="field"><span class="field-label">Description</span><textarea class="control" data-field="description">${escapeHtml(pkg.description)}</textarea></label>
+      <label class="field"><span class="field-label">Data note (small print shown with the rules)</span><textarea class="control" data-field="dataNote" rows="2">${escapeHtml(pkg.dataNote)}</textarea></label>
+    </section>`;
+}
+
+function renderGold() {
+  const includesSkills = state.pkg.goldCapIncludesAddedSkills === true;
+  const note = includesSkills
+    ? "The cap is a hard total: added-skill, stat-increase and star-pack-fee gold count inside it."
+    : "The cap checks ONLY creation gold — players + sideline staff + inducements.";
+  return `
+    <section class="panel">
+      <div class="section-head">
+        <div class="section-title">${title("Gold / Team-Value Cap")}</div>
+        <span class="field-label">Creation Gold Cap</span>
+        <input class="control compact" data-field="goldBudgetK" type="number" min="0" step="10" value="${escapeHtml(goldToK(state.pkg.goldBudget))}" aria-label="Creation gold cap in thousands">
+        <span class="hint">k gold (blank = none)</span>
+        ${chip("Creation Gold", "cap-creation", !includesSkills)}
+        ${chip("Skills as Part of the Gold Budget", "cap-includes", includesSkills)}
+      </div>
+      <div class="hint">${note}</div>
     </section>`;
 }
 
 function renderRaces() {
   const all = isAllRaces();
-  const selected = new Set(state.pkg.eligibleRosters);
+  const selected = new Set(safeArray(state.pkg.eligibleRosters));
   const chips = state.teams.map((team) => {
     const active = all || selected.has(team.name);
     const assignedTier = assignedTierFor(team.name);
@@ -431,7 +694,7 @@ function renderRaces() {
       ${escapeHtml(team.name)} <span class="tier-badge ${tierClass(displayedTier)}${assignedTier == null ? " tier-default" : ""}">T${escapeHtml(displayedTier ?? "?")}</span>
     </button>`;
   }).join("");
-  const count = all ? `all ${state.teams.length} races eligible` : `${state.pkg.eligibleRosters.length} of ${state.teams.length} selected`;
+  const count = all ? `all ${state.teams.length} races eligible` : `${safeArray(state.pkg.eligibleRosters).length} of ${state.teams.length} selected`;
   return `
     <section class="panel">
       <div class="section-head">
@@ -443,71 +706,69 @@ function renderRaces() {
     </section>`;
 }
 
-function renderGold() {
-  const includesSkills = state.pkg.goldCapIncludesAddedSkills === true;
-  const note = includesSkills
-    ? "The cap checks creation gold (players + sideline staff + inducements). Added-skill gold TV is added to this budget."
-    : "The cap checks ONLY creation gold — players + sideline staff + inducements.";
+function renderStatIncreases(path, rule, { key, inherit }) {
+  const si = isObj(rule) ? rule : {};
   return `
-    <section class="panel">
-      <div class="section-head">
-        <div class="section-title">${title("Gold / Team-Value Cap")}</div>
-        <span class="field-label">Creation Gold Cap</span>
-        <input class="control compact" data-field="goldBudgetK" type="number" min="0" step="10" value="${escapeHtml(goldToK(state.pkg.goldBudget))}">
-        <span class="hint">k gold</span>
-        ${chip("Creation Gold", "cap-creation", !includesSkills)}
-        ${chip("Skills as Part of the Gold Budget", "cap-includes", includesSkills)}
+    <div class="inset-list stat-rule">
+      <div class="subheading">Stat increases</div>
+      <div class="knob-grid">
+        ${multiSelect({ key: `${key}-allowed`, path: [...path, "allowed"], label: "Allowed stats", items: STAT_KEYS.map((stat) => ({ value: stat, label: stat })), selected: si.allowed, allLabel: inherit ? "Inherit" : "Not checked" })}
+        ${numField("Max per player", [...path, "maxPerPlayer"], si.maxPerPlayer, { kind: "int", placeholder: inherit ? "inherit" : "1" })}
+        ${STAT_KEYS.map((stat) => numField(`${stat} cost`, [...path, "costGold", stat], si.costGold?.[stat], { kind: "gold", placeholder: inherit ? "inherit" : "0" })).join("")}
       </div>
-      <div class="hint">${note}</div>
-    </section>`;
-}
-
-function renderOverrides() {
-  const costs = state.pkg.skillAllotment.skillCostSP;
-  const rows = Object.entries(costs).sort(([a], [b]) => a.localeCompare(b)).map(([skill, cost]) => `
-    <div class="inset-row">
-      <span class="grow" style="color:${skillColor(skill)}">${escapeHtml(skill)}</span>
-      <span style="color:#e7ddc7">${escapeHtml(cost)} SP</span>
-      <button type="button" class="remove" data-action="remove-override" data-name="${escapeHtml(skill)}" aria-label="Remove ${escapeHtml(skill)} override">✕</button>
-    </div>`).join("");
-  return `
-    <div class="inset-list">
-      <div class="subheading">Per-Skill SP Overrides</div>
-      ${rows}
-      <div class="inline-controls">
-        <select class="control" data-control="override-skill">${options(state.skills, state.overrideSkill, (skill) => skill.name, (skill) => skill.name)}</select>
-        <input class="control tiny" data-control="override-cost" type="number" min="0" value="${escapeHtml(state.overrideCost)}">
-        <span class="hint">SP</span>
-        <button type="button" class="btn primary" data-action="add-override">Add</button>
-      </div>
+      ${checkField("A player with a stat increase may not take added skills", [...path, "exclusiveWithSkills"], si.exclusiveWithSkills)}
     </div>`;
 }
 
-function renderSkillPoints() {
-  const allotment = state.pkg.skillAllotment;
-  if (state.view.skillMode === "count") {
-    return `
-      <div class="inline-controls">
-        <label class="field"><span class="field-label">Max Primary</span><input class="control tiny" data-field="maxPrimary" type="number" min="0" value="${escapeHtml(allotment.maxPrimary ?? 0)}"></label>
-        <label class="field"><span class="field-label">Max Secondary</span><input class="control tiny" data-field="maxSecondary" type="number" min="0" value="${escapeHtml(allotment.maxSecondary ?? 0)}"></label>
-        ${chip(`Secondary Swap — 1 secondary counts as ${state.view.swapRate} primary`, "toggle-secondary-swap", allotment.secondarySwap === true)}
-        <label class="field"><span class="field-label">Swap Rate</span><input class="control tiny" data-field="swapRate" type="number" min="1" value="${escapeHtml(state.view.swapRate)}"></label>
-      </div>`;
-  }
-
-  const fields = [
-    ["SP Budget / Team", "skillPointBudget", allotment.skillPointBudget],
-    ["Primary Cost (SP)", "primaryCostSP", allotment.primaryCostSP],
-    ["Secondary ×Mult", "secondaryMultiplier", allotment.secondaryMultiplier],
-    ["Elite Surcharge (SP)", "eliteSurchargeSP", allotment.eliteSurchargeSP],
-    ["Max Skills / Player", "maxPerPlayer", allotment.maxPerPlayer],
-    ["Team SP Cap (0=none)", "maxSameSkillTeamwide", allotment.maxSameSkillTeamwide ?? 0],
-  ];
+/** Override knobs shared by tiers and team rules (ExtraSkillKnobs + count / swap / stacking). */
+function renderKnobs(path, obj, { key, team = false }) {
+  const o = isObj(obj) ? obj : {};
+  const p = (...keys) => [...path, ...keys];
+  const packs = starPackItems();
   return `
-    <div class="form-grid three">
-      ${fields.map(([label, field, value]) => `<label class="field"><span class="field-label">${label}</span><input class="control" data-field="${field}" type="number" min="0" value="${escapeHtml(value ?? "")}"></label>`).join("")}
+    <div class="knob-grid">
+      ${team ? numField("Gold cap", p("gold"), o.gold, { kind: "gold", placeholder: "inherit" }) : ""}
+      ${team ? numField("SP budget", p("skillPointBudget"), o.skillPointBudget, { placeholder: "inherit" }) : ""}
+      ${numField("Max primary (count)", p("maxPrimary"), o.maxPrimary, { placeholder: "inherit" })}
+      ${numField("Max secondary (count)", p("maxSecondary"), o.maxSecondary, { placeholder: "inherit" })}
+      ${triField("Secondary swap", p("secondarySwap"), o.secondarySwap)}
+      ${numField("Swap ratio (primary per secondary)", p("secondarySwapRatio"), o.secondarySwapRatio, { min: 1, placeholder: "2" })}
+      ${numField("Max swaps", p("secondarySwapMax"), o.secondarySwapMax, { placeholder: "unlimited" })}
+      ${numField("Max stacked players", p("maxStackedPlayers"), o.maxStackedPlayers, { placeholder: "inherit" })}
+      ${numField("Elite skills cap", p("eliteMaxTotal"), o.eliteMaxTotal, { kind: "int", placeholder: "inherit" })}
+      ${numField("Same elite skill cap", p("eliteMaxSameSkill"), o.eliteMaxSameSkill, { kind: "int", placeholder: "inherit" })}
+      ${numField("Stacked player: max skills", p("stackedPlayer", "maxSkills"), o.stackedPlayer?.maxSkills, { kind: "int", placeholder: "inherit" })}
+      ${numField("Stacked player: max secondary", p("stackedPlayer", "maxSecondary"), o.stackedPlayer?.maxSecondary, { kind: "int", placeholder: "inherit" })}
+      ${numField("Stacked player: max elite", p("stackedPlayer", "maxElite"), o.stackedPlayer?.maxElite, { kind: "int", placeholder: "inherit" })}
+      ${team ? triField("Star players", p("starPlayersAllowed"), o.starPlayersAllowed) : ""}
     </div>
-    ${renderOverrides()}`;
+    ${renderStatIncreases(p("statIncreases"), o.statIncreases, { key: `${key}-stats`, inherit: true })}
+    <div class="knob-grid">
+      ${packs.length ? multiSelect({ key: `${key}-packs`, path: p("starPacksAllowed"), label: "Star packs open", items: packs, selected: o.starPacksAllowed, allLabel: "Inherit (every pack)" }) : ""}
+      ${multiSelect({ key: `${key}-banned`, path: p("bannedStars"), label: "Banned stars", items: starItems(), selected: o.bannedStars ?? (team ? undefined : []), allLabel: team ? "Inherit" : undefined })}
+    </div>`;
+}
+
+function renderTierPack(index, packIndex, skillPackage) {
+  const base = ["tiers", index, "skillPackages", packIndex];
+  return `
+    <div class="inset-row tier-pack-row">
+      <input class="control grow" data-action="tier-pack-label" data-tier="${index}" data-pack="${packIndex}" value="${escapeHtml(skillPackage.label ?? `Pack ${packIndex + 1}`)}" aria-label="Tier ${index + 1} pack label">
+      <input class="control compact" data-action="tier-pack-gold" data-tier="${index}" data-pack="${packIndex}" type="number" min="0" value="${escapeHtml(goldToK(skillPackage.gold))}" aria-label="Tier ${index + 1} pack gold in thousands"><span class="hint">k</span>
+      <input class="control tiny" data-action="tier-pack-sp" data-tier="${index}" data-pack="${packIndex}" type="number" min="0" value="${escapeHtml(skillPackage.skillPointBudget ?? 0)}" aria-label="Tier ${index + 1} pack SP"><span class="hint">SP</span>
+      <input class="control tiny" data-action="tier-pack-maxper" data-tier="${index}" data-pack="${packIndex}" type="number" min="0" value="${escapeHtml(skillPackage.maxPerPlayer ?? "")}" placeholder="default" aria-label="Tier ${index + 1} pack max skills per player">
+      <span class="hint">max/player</span>
+      <input class="control tiny" ${bindAttr([...base, "maxSkills"])} data-kind="int" type="number" min="0" value="${escapeHtml(skillPackage.maxSkills ?? "")}" placeholder="—" aria-label="Tier ${index + 1} pack total skills (count mode)">
+      <span class="hint">skills</span>
+      <input class="control tiny" ${bindAttr([...base, "maxSecondary"])} data-kind="int" type="number" min="0" value="${escapeHtml(skillPackage.maxSecondary ?? "")}" placeholder="—" aria-label="Tier ${index + 1} pack secondary skills (count mode)">
+      <span class="hint">sec</span>
+      <select class="control tiny" ${bindAttr([...base, "starPlayersAllowed"])} data-kind="tri" aria-label="Tier ${index + 1} pack star players">
+        <option value=""${skillPackage.starPlayersAllowed == null ? " selected" : ""}>★ default</option>
+        <option value="true"${skillPackage.starPlayersAllowed === true ? " selected" : ""}>★ yes</option>
+        <option value="false"${skillPackage.starPlayersAllowed === false ? " selected" : ""}>★ no</option>
+      </select>
+      <button type="button" class="remove" data-action="tier-pack-remove" data-tier="${index}" data-pack="${packIndex}" aria-label="Remove ${escapeHtml(skillPackage.label ?? `Pack ${packIndex + 1}`)}">✕</button>
+    </div>`;
 }
 
 function renderTiers() {
@@ -522,15 +783,11 @@ function renderTiers() {
         <span>${escapeHtml(name)}</span>
         <button type="button" class="remove" data-action="remove-tier-team" data-team="${escapeHtml(name)}" data-tier="${index}" aria-label="Remove ${escapeHtml(name)} from tier">&times;</button>
       </span>`).join("");
-    const packs = safeArray(tier.skillPackages).map((skillPackage, packIndex) => `
-      <div class="inset-row tier-pack-row">
-        <input class="control grow" data-action="tier-pack-label" data-tier="${index}" data-pack="${packIndex}" value="${escapeHtml(skillPackage.label ?? `Pack ${packIndex + 1}`)}" aria-label="Tier ${index + 1} pack label">
-        <input class="control compact" data-action="tier-pack-gold" data-tier="${index}" data-pack="${packIndex}" type="number" min="0" value="${escapeHtml(goldToK(skillPackage.gold))}" aria-label="Tier ${index + 1} pack gold in thousands"><span class="hint">k</span>
-        <input class="control tiny" data-action="tier-pack-sp" data-tier="${index}" data-pack="${packIndex}" type="number" min="0" value="${escapeHtml(skillPackage.skillPointBudget ?? 0)}" aria-label="Tier ${index + 1} pack SP"><span class="hint">SP</span>
-        <input class="control tiny" data-action="tier-pack-maxper" data-tier="${index}" data-pack="${packIndex}" type="number" min="0" value="${escapeHtml(skillPackage.maxPerPlayer ?? "")}" placeholder="default" aria-label="Tier ${index + 1} pack max skills per player">
-        <span class="hint">max/player</span>
-        <button type="button" class="remove" data-action="tier-pack-remove" data-tier="${index}" data-pack="${packIndex}" aria-label="Remove ${escapeHtml(skillPackage.label ?? `Pack ${packIndex + 1}`)}">✕</button>
-      </div>`).join("");
+    const packs = safeArray(tier.skillPackages).map((skillPackage, packIndex) => renderTierPack(index, packIndex, skillPackage)).join("");
+    const rosterGold = isObj(tier.rosterGold) ? tier.rosterGold : {};
+    const goldNames = [...new Set([...safeArray(tier.rosters), ...Object.keys(rosterGold)])];
+    const overrideCount = Object.keys(tier).filter((key) => !["tier", "label", "rosters", "gold", "skillPointBudget", "skillPackages", "starPlayersAllowed", "bannedStars"].includes(key)).length
+      + safeArray(tier.bannedStars).length;
     return `
       <div class="tier-block${index === activeTier ? " active" : ""}" data-tier-block="${index}" data-tier-drop="${index}">
         <div class="inset-row tier-main-row">
@@ -552,6 +809,14 @@ function renderTiers() {
             <button type="button" class="btn" data-action="tier-pack-generate" data-tier="${index}">Generate 3 Spike packs</button>
           </div>
         </div>
+        <details class="tier-overrides" data-preserve-open="tier-overrides-${index}">
+          <summary>Tier overrides${overrideCount ? ` <span class="multi-summary">${overrideCount} set</span>` : ""}</summary>
+          <div class="inset-list">
+            <div class="subheading">Per-roster gold caps (blank = tier gold)</div>
+            <div class="knob-grid">${goldNames.map((name) => numField(name, ["tiers", index, "rosterGold", name], rosterGold[name], { kind: "gold", placeholder: String(goldToK(tier.gold)), aria: `${name} gold cap in thousands` })).join("") || '<span class="hint">Assign teams to set per-roster gold.</span>'}</div>
+            ${renderKnobs(["tiers", index], tier, { key: `tier-${index}` })}
+          </div>
+        </details>
       </div>`;
   }).join("");
   const poolChips = unassigned.map((team) => {
@@ -586,12 +851,16 @@ function renderPackages() {
       <input class="control tiny" data-package-index="${index}" data-package-field="skillPointBudget" type="number" min="0" value="${escapeHtml(skillPackage.skillPointBudget ?? 0)}" aria-label="Package SP"><span class="hint">SP</span>
       <input class="control tiny" data-package-index="${index}" data-package-field="maxPerPlayer" type="number" min="0" value="${escapeHtml(skillPackage.maxPerPlayer ?? "")}" aria-label="Package max skills per player">
       <span class="hint">max/player</span>
+      <input class="control tiny" ${bindAttr(["skillPackages", index, "maxSkills"])} data-kind="int" type="number" min="0" value="${escapeHtml(skillPackage.maxSkills ?? "")}" placeholder="—" aria-label="Package total skills (count mode)">
+      <span class="hint">skills</span>
+      <input class="control tiny" ${bindAttr(["skillPackages", index, "maxSecondary"])} data-kind="int" type="number" min="0" value="${escapeHtml(skillPackage.maxSecondary ?? "")}" placeholder="—" aria-label="Package secondary skills (count mode)">
+      <span class="hint">sec</span>
       ${chip("Stars", `toggle-package-stars:${index}`, skillPackage.starPlayersAllowed !== false)}
       <button type="button" class="remove" data-action="remove-package" data-index="${index}" aria-label="Remove package">✕</button>
     </div>`).join("");
   return `
     <div class="inset-list">
-      <div class="hint">Spike!-style “choose one of” bundles — a team is legal if it fits any.</div>
+      <div class="hint">Spike!-style “choose one of” bundles — a team is legal if it fits any. Set skills / sec for a count-mode pack (its SP is then ignored).</div>
       ${rows || '<div class="hint">No packages defined.</div>'}
       <button type="button" class="btn" data-action="add-package" style="align-self:flex-start">+ Add Package</button>
     </div>`;
@@ -616,28 +885,52 @@ function renderMatrix() {
       const active = cells.has(`${rowIndex}-${colIndex}`);
       const existing = matrix.cells.find((cell) => cell.row === rowIndex && cell.col === colIndex);
       const teamCount = safeArray(existing?.teams).length;
-      grid += `<button type="button" class="matrix-cell${active ? " active" : ""}" data-action="toggle-matrix-cell" data-row="${rowIndex}" data-col="${colIndex}" title="${teamCount} assigned team(s)">${active ? "✓" : "—"}</button>`;
+      grid += `<button type="button" class="matrix-cell${active ? " active" : ""}" data-action="toggle-matrix-cell" data-row="${rowIndex}" data-col="${colIndex}" title="${teamCount} assigned team(s)">${active ? `✓${teamCount ? ` ${teamCount}` : ""}` : "—"}</button>`;
     });
   });
+  const rowDetails = matrix.rows.map((row, rowIndex) => `
+    <div class="inset-row matrix-row-detail">
+      <span class="subheading">Row ${rowIndex + 1}</span>
+      ${textField("Label", ["matrix", "rows", rowIndex, "label"], row.label, { placeholder: `${row.primary} pri / ${row.secondary} sec` })}
+      ${numField("Swap ratio", ["matrix", "rows", rowIndex, "secondarySwapRatio"], row.secondarySwapRatio, { min: 1, placeholder: "2" })}
+      ${numField("Max swaps", ["matrix", "rows", rowIndex, "secondarySwapMax"], row.secondarySwapMax, { placeholder: "unlimited" })}
+      ${numField("Max stacked players", ["matrix", "rows", rowIndex, "maxStackedPlayers"], row.maxStackedPlayers, { placeholder: "none" })}
+    </div>`).join("");
+  const cellDetails = matrix.cells.map((cell, cellIndex) => {
+    const row = matrix.rows[cell.row];
+    const column = matrix.columns[cell.col];
+    const label = `${row?.label || `${row?.primary ?? "?"} pri / ${row?.secondary ?? "?"} sec`} @ ${goldToK(column?.gold)}k`;
+    return `
+      <div class="inset-row matrix-cell-detail">
+        <span class="grow">${escapeHtml(label)}</span>
+        ${multiSelect({ key: `matrix-cell-${cell.row}-${cell.col}-teams`, path: ["matrix", "cells", cellIndex, "teams"], label: "Teams", items: rosterItems(), selected: safeArray(cell.teams) })}
+        ${triField("Star players", ["matrix", "cells", cellIndex, "starPlayersAllowed"], cell.starPlayersAllowed)}
+        ${multiSelect({ key: `matrix-cell-${cell.row}-${cell.col}-banned`, path: ["matrix", "cells", cellIndex, "bannedStars"], label: "Banned stars", items: starItems(), selected: cell.bannedStars, allLabel: "Inherit" })}
+      </div>`;
+  }).join("");
   return `
     <div class="inset-list">
-      <div class="hint">Cash × skills grid — click cells to allow / deny. Loaded team assignments are preserved in their cells.</div>
+      <div class="hint">Cash × skills grid — click cells to allow / deny. Each allowed cell lists the teams placed in it.</div>
       <div class="matrix-wrap" data-preserve-scroll="matrix"><div class="matrix-grid" style="grid-template-columns: 142px repeat(${matrix.columns.length}, 92px)">${grid}</div></div>
       <div class="inline-controls"><button type="button" class="btn" data-action="add-matrix-column">+ Add Column</button><button type="button" class="btn" data-action="add-matrix-row">+ Add Row</button></div>
+      <div class="subheading">Rows</div>
+      ${rowDetails}
+      <div class="subheading">Allowed cells</div>
+      ${cellDetails || '<div class="hint">No cells allowed yet.</div>'}
     </div>`;
 }
 
 function renderTournamentSystem() {
   const suppressed = state.pkg.goldCapIncludesAddedSkills === true;
   let content = "";
-  if (state.view.system === "skillpoints") content = renderSkillPoints();
+  if (state.view.system === "skillpoints") content = '<div class="hint">One flat skill allotment for every team — set the pool or counts on the Skills tab.</div>';
   if (state.view.system === "tiers") content = renderTiers();
   if (state.view.system === "packages") content = renderPackages();
   if (state.view.system === "matrix") content = renderMatrix();
   return `
     <section class="panel">
-      ${suppressed ? '<div class="notice">Skills are part of the Gold Budget, no configuration necessary.</div>' : ""}
-      <div class="system-body${suppressed ? " suppressed" : ""}">
+      ${suppressed ? '<div class="notice">Skills are part of the Gold Budget: added skills are paid in gold, so SP budgets are not needed. Tier / roster gold caps and the other limits below still apply.</div>' : ""}
+      <div class="system-body">
         <div class="section-head">
           <div class="section-title">${title("Tournament System")}</div>
           ${chip("Skill Points", "system-skillpoints", state.view.system === "skillpoints")}
@@ -645,8 +938,180 @@ function renderTournamentSystem() {
           ${chip("Packages", "system-packages", state.view.system === "packages")}
           ${chip("Matrix", "system-matrix", state.view.system === "matrix")}
         </div>
-        ${state.view.system === "skillpoints" ? `<div class="inline-controls"><span class="field-label">Pricing</span>${chip("SP Pool", "mode-pool", state.view.skillMode === "pool")}${chip("Count Mode", "mode-count", state.view.skillMode === "count")}</div>` : ""}
         ${content}
+      </div>
+    </section>`;
+}
+
+function renderTeamRules() {
+  const teamNames = state.teams.map((team) => team.name);
+  const rules = state.pkg.teamRules.map((rule, index) => {
+    const teamOptions = options([...new Set([rule.team, ...teamNames].filter(Boolean))], rule.team);
+    return `
+      <div class="team-rule">
+        <div class="inset-row tier-main-row">
+          <select class="control grow" ${bindAttr(["teamRules", index, "team"])} data-kind="str" data-blank="empty" aria-label="Team rule ${index + 1} team">${teamOptions}</select>
+          <button type="button" class="remove" data-action="remove-team-rule" data-index="${index}" aria-label="Remove ${escapeHtml(rule.team)} rule">✕</button>
+        </div>
+        ${renderKnobs(["teamRules", index], rule, { key: `team-rule-${index}`, team: true })}
+      </div>`;
+  }).join("");
+  return `
+    <section class="panel">
+      <div class="section-head">
+        <div class="section-title">${title("Team Rules")}</div>
+        <span class="section-note">— per-team overrides, highest precedence; blank = inherit</span>
+      </div>
+      ${rules || '<div class="hint">No team-specific rules.</div>'}
+      <div class="inline-controls">
+        <select class="control" data-control="rule-team" aria-label="Team for a new rule">${options(teamNames, state.ruleTeam)}</select>
+        <button type="button" class="btn primary" data-action="add-team-rule"${teamNames.length ? "" : " disabled"}>+ Add Team Rule</button>
+      </div>
+    </section>`;
+}
+
+function renderOverrides() {
+  const costs = state.pkg.skillAllotment.skillCostSP ?? {};
+  const rows = Object.entries(costs).sort(([a], [b]) => a.localeCompare(b)).map(([skill, cost]) => `
+    <div class="inset-row">
+      <span class="grow" style="color:${skillColor(skill)}">${escapeHtml(skill)}</span>
+      <span class="cream">${escapeHtml(cost)} SP</span>
+      <button type="button" class="remove" data-action="remove-override" data-name="${escapeHtml(skill)}" aria-label="Remove ${escapeHtml(skill)} override">✕</button>
+    </div>`).join("");
+  const goldCosts = state.pkg.skillAllotment.skillCostGold ?? {};
+  const goldRows = Object.entries(goldCosts).sort(([a], [b]) => a.localeCompare(b)).map(([skill, cost]) => `
+    <div class="inset-row">
+      <span class="grow" style="color:${skillColor(skill)}">${escapeHtml(skill)}</span>
+      <span class="cream">${escapeHtml(goldToK(cost))}k</span>
+      <button type="button" class="remove" data-action="remove-gold-override" data-name="${escapeHtml(skill)}" aria-label="Remove ${escapeHtml(skill)} gold override">✕</button>
+    </div>`).join("");
+  return `
+    <div class="form-grid">
+      <div class="inset-list">
+        <div class="subheading">Per-Skill SP Overrides</div>
+        ${rows}
+        <div class="inline-controls">
+          <select class="control" data-control="override-skill" aria-label="Skill for an SP override">${options(state.skills, state.overrideSkill, (skill) => skill.name, (skill) => skill.name)}</select>
+          <input class="control tiny" data-control="override-cost" type="number" min="0" value="${escapeHtml(state.overrideCost)}" aria-label="SP override cost">
+          <span class="hint">SP</span>
+          <button type="button" class="btn primary" data-action="add-override">Add</button>
+        </div>
+      </div>
+      <div class="inset-list">
+        <div class="subheading">Per-Skill Gold Overrides</div>
+        ${goldRows}
+        <div class="inline-controls">
+          <select class="control" data-control="gold-override-skill" aria-label="Skill for a gold override">${options(state.skills, state.goldOverrideSkill, (skill) => skill.name, (skill) => skill.name)}</select>
+          <input class="control compact" data-control="gold-override-cost" type="number" min="0" value="${escapeHtml(state.goldOverrideCost)}" aria-label="Gold override cost in thousands">
+          <span class="hint">k</span>
+          <button type="button" class="btn primary" data-action="add-gold-override">Add</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderSkills() {
+  const allotment = state.pkg.skillAllotment;
+  const sa = (key) => ["skillAllotment", key];
+  const count = state.view.skillMode === "count";
+  const pricing = count
+    ? `<div class="knob-grid">
+        ${numField("Max primary", sa("maxPrimary"), allotment.maxPrimary, { blank: "zero" })}
+        ${numField("Max secondary", sa("maxSecondary"), allotment.maxSecondary, { blank: "zero" })}
+        ${numField("Swap ratio (primary per secondary)", sa("secondarySwapRatio"), allotment.secondarySwapRatio, { min: 1, placeholder: "2" })}
+        ${numField("Max swaps", sa("secondarySwapMax"), allotment.secondarySwapMax, { placeholder: "unlimited" })}
+      </div>
+      <div class="inline-controls">${chip(`Secondary Swap — 1 secondary costs ${allotment.secondarySwapRatio ?? 2} primary`, "toggle-secondary-swap", allotment.secondarySwap === true)}</div>`
+    : `<div class="knob-grid">
+        ${numField("SP budget / team", sa("skillPointBudget"), allotment.skillPointBudget, { blank: "zero" })}
+        ${numField("Primary cost (SP)", sa("primaryCostSP"), allotment.primaryCostSP, { blank: "null", step: "0.5" })}
+        ${numField("Secondary ×mult", sa("secondaryMultiplier"), allotment.secondaryMultiplier, { blank: "null", step: "0.5" })}
+        ${numField("Secondary cost (SP, overrides ×mult)", sa("secondaryCostSP"), allotment.secondaryCostSP, { blank: "null", step: "0.5", placeholder: "×mult" })}
+        ${numField("Elite surcharge (SP)", sa("eliteSurchargeSP"), allotment.eliteSurchargeSP, { blank: "null", step: "0.5" })}
+        ${numField("Stack surcharge (SP per extra skill)", sa("stackSurchargeSP"), allotment.stackSurchargeSP, { blank: "zero", step: "0.5" })}
+      </div>`;
+  const eliteItems = skillItems();
+  return `
+    <section class="panel">
+      <div class="section-head">
+        <div class="section-title">${title("Skill Allotment")}</div>
+        <span class="field-label">Pricing</span>${chip("SP Pool", "mode-pool", !count)}${chip("Count Mode", "mode-count", count)}
+      </div>
+      <div class="hint">The flat allotment: tiers, matrix rows and team rules override it.</div>
+      ${pricing}
+      <div class="subheading">Gold cost of an added skill</div>
+      <div class="knob-grid">
+        ${numField("Primary", sa("primaryCostGold"), allotment.primaryCostGold, { kind: "gold", placeholder: String(goldToK(DEFAULT_GOLD_COSTS.primaryCostGold)) })}
+        ${numField("Secondary", sa("secondaryCostGold"), allotment.secondaryCostGold, { kind: "gold", placeholder: String(goldToK(DEFAULT_GOLD_COSTS.secondaryCostGold)) })}
+        ${numField("Elite surcharge", sa("eliteSurchargeGold"), allotment.eliteSurchargeGold, { kind: "gold", placeholder: String(goldToK(DEFAULT_GOLD_COSTS.eliteSurchargeGold)) })}
+      </div>
+      <div class="subheading">Caps</div>
+      <div class="knob-grid">
+        ${numField("Max skills / player", sa("maxPerPlayer"), allotment.maxPerPlayer, { blank: "null", placeholder: "none" })}
+        ${numField("Max copies of one skill / team", sa("maxSameSkillTeamwide"), allotment.maxSameSkillTeamwide, { blank: "null", placeholder: "none" })}
+        ${numField("Max stacked players", sa("maxStackedPlayers"), allotment.maxStackedPlayers, { blank: "null", placeholder: "none" })}
+        ${numField("Elite skills cap", sa("eliteMaxTotal"), allotment.eliteMaxTotal, { kind: "int", placeholder: "none" })}
+        ${numField("Same elite skill cap", sa("eliteMaxSameSkill"), allotment.eliteMaxSameSkill, { kind: "int", placeholder: "none" })}
+        ${numField("Stacked player: max skills", ["skillAllotment", "stackedPlayer", "maxSkills"], allotment.stackedPlayer?.maxSkills, { kind: "int", placeholder: "none" })}
+        ${numField("Stacked player: max secondary", ["skillAllotment", "stackedPlayer", "maxSecondary"], allotment.stackedPlayer?.maxSecondary, { kind: "int", placeholder: "none" })}
+        ${numField("Stacked player: max elite", ["skillAllotment", "stackedPlayer", "maxElite"], allotment.stackedPlayer?.maxElite, { kind: "int", placeholder: "none" })}
+      </div>
+      <div class="knob-grid">
+        ${multiSelect({ key: "elite-skills", path: ["skillAllotment", "eliteSkills"], label: "Elite skills", items: eliteItems, selected: safeArray(allotment.eliteSkills) })}
+      </div>
+      ${renderOverrides()}
+    </section>
+    <section class="panel">
+      <div class="section-title">${title("Stat Increases")}</div>
+      ${renderStatIncreases(["statIncreases"], state.pkg.statIncreases, { key: "flat-stats", inherit: false })}
+    </section>
+    ${renderBannedSkills()}`;
+}
+
+function renderBannedSkills() {
+  const banned = safeArray(state.pkg.special.bannedSkills).map((name) => `<button type="button" class="chip active" style="color:${skillColor(name)}" data-action="remove-banned-skill" data-name="${escapeHtml(name)}">${escapeHtml(name)} ✕</button>`).join("");
+  return `
+    <section class="panel">
+      <div class="section-title">${title("Banned Skills")}</div>
+      <div class="chip-list">${banned || '<span class="hint">None.</span>'}</div>
+      <div class="inline-controls">
+        <select class="control" data-control="banned-skill" aria-label="Skill to ban">${options(state.skills, state.bannedSkill, (skill) => skill.name, (skill) => skill.name)}</select>
+        <button type="button" class="btn primary" data-action="add-banned-skill">Ban</button>
+      </div>
+    </section>`;
+}
+
+function renderStarPacks() {
+  const packs = safeArray(state.pkg.starPacks);
+  const rows = packs.map((pack, index) => {
+    const base = ["starPacks", index];
+    return `
+      <div class="star-pack">
+        <div class="knob-grid">
+          ${textField("Id", [...base, "id"], pack.id, { blank: "empty" })}
+          ${textField("Label", [...base, "label"], pack.label)}
+          ${numField("Fee", [...base, "fee"], pack.fee, { kind: "gold", blank: "zero" })}
+          <label class="field"><span class="field-label">Fee mode</span><select class="control" ${bindAttr([...base, "feeMode"])} data-kind="str" aria-label="Pack ${index + 1} fee mode">
+            <option value=""${pack.feeMode == null ? " selected" : ""}>each (default)</option>
+            <option value="each"${pack.feeMode === "each" ? " selected" : ""}>each pick</option>
+            <option value="once"${pack.feeMode === "once" ? " selected" : ""}>once per team</option>
+          </select></label>
+          ${numField("Max picks", [...base, "max"], pack.max, { kind: "int", blank: "null", placeholder: "no cap" })}
+          ${multiSelect({ key: `star-pack-${index}-stars`, path: [...base, "stars"], label: "Stars", items: starItems(), selected: safeArray(pack.stars) })}
+          <button type="button" class="remove" data-action="remove-star-pack" data-index="${index}" aria-label="Remove star pack ${escapeHtml(pack.label ?? pack.id)}">✕</button>
+        </div>
+      </div>`;
+  }).join("");
+  return `
+    <section class="panel">
+      <div class="section-head">
+        <div class="section-title">${title("Star Packs")}</div>
+        <span class="section-note">— when set, every hired star must come from a pack open to the team</span>
+      </div>
+      ${rows || '<div class="hint">No star packs.</div>'}
+      <div class="inline-controls">
+        <button type="button" class="btn" data-action="add-star-pack">+ Add Star Pack</button>
+        ${packs.length ? multiSelect({ key: "flat-star-packs", path: ["starPacksAllowed"], label: "Packs open to every team", items: starPackItems(), selected: state.pkg.starPacksAllowed, allLabel: "Every pack" }) : ""}
       </div>
     </section>`;
 }
@@ -687,18 +1152,18 @@ function renderStars() {
         <div class="section-title">${title("Star Players")}</div>
         ${chip("Stars Allowed", "toggle-stars", state.pkg.starPlayers.allowed)}
         <span class="field-label">Max Count</span>
-        <input class="control tiny" data-field="starMaxCount" type="number" min="0" value="${escapeHtml(state.pkg.starPlayers.maxCount ?? "")}">
+        <input class="control tiny" data-field="starMaxCount" type="number" min="0" value="${escapeHtml(state.pkg.starPlayers.maxCount ?? "")}" placeholder="none" aria-label="Max star players">
         <span class="field-label">Max Combined Cost</span>
-        <input class="control compact" data-field="starMaxCostK" type="number" min="0" value="${escapeHtml(goldToK(state.pkg.starPlayers.maxCombinedCost))}">
+        <input class="control compact" data-field="starMaxCostK" type="number" min="0" value="${escapeHtml(goldToK(state.pkg.starPlayers.maxCombinedCost))}" aria-label="Max combined star cost in thousands">
         <span class="hint">k (blank = no cap)</span>
       </div>
       <div class="star-columns">
         <div class="star-column allowed" data-drop-zone="allowed">
-          <div class="star-column-title">Allowed Stars (${allowedRows.reduce((count, row) => count + row.names.length, 0)})</div>
+          <div class="star-column-title">Allowed Stars (${allowedRows.reduce((total, row) => total + row.names.length, 0)})</div>
           <div class="chip-list grow">${allowedChips || '<span class="hint">None</span>'}</div>
         </div>
         <div class="star-column banned" data-drop-zone="banned">
-          <div class="star-column-title">Banned Stars (${bannedRows.reduce((count, row) => count + row.names.length, 0)})</div>
+          <div class="star-column-title">Banned Stars (${bannedRows.reduce((total, row) => total + row.names.length, 0)})</div>
           <div class="chip-list grow">${bannedChips || '<span class="hint">None</span>'}</div>
         </div>
       </div>
@@ -707,31 +1172,46 @@ function renderStars() {
         <button type="button" class="btn primary" data-action="toggle-mega-stars">⚑ ${allMegaBanned ? "Unban" : "Ban"} Mega-Stars</button>
       </div>
       ${spGrid}
-    </section>`;
+    </section>
+    ${renderStarPacks()}`;
+}
+
+function humanizeId(id) {
+  return String(id).replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function renderInducements() {
-  const rows = INDUCEMENTS.map((item) => {
+  const known = new Set(INDUCEMENTS.map((item) => item.id));
+  const extraIds = [...new Set([
+    ...inducementAllowedList(),
+    ...Object.keys(state.pkg.inducements.caps ?? {}),
+    ...Object.keys(state.pkg.inducements.rosterOnly ?? {}),
+  ])].filter((id) => id !== "*" && !known.has(id));
+  const items = [...INDUCEMENTS, ...extraIds.map((id) => ({ id, label: humanizeId(id), max: state.pkg.inducements.caps?.[id] ?? 1, fixed: false }))];
+  const rows = items.map((item) => {
     const allowed = isInducementAllowed(item.id);
-    const max = state.pkg.inducements.caps[item.id] ?? item.max;
+    const max = state.pkg.inducements.caps?.[item.id] ?? item.max;
+    const rosterOnly = state.pkg.inducements.rosterOnly?.[item.id];
     return `
       <div class="inducement-row">
-        <button type="button" class="check-box${allowed ? " active" : ""}" data-action="toggle-inducement" data-id="${item.id}" aria-label="Toggle ${escapeHtml(item.label)}">✓</button>
+        <button type="button" class="check-box${allowed ? " active" : ""}" data-action="toggle-inducement" data-id="${escapeHtml(item.id)}" aria-pressed="${allowed ? "true" : "false"}" aria-label="Toggle ${escapeHtml(item.label)}">✓</button>
         <span class="grow${allowed ? "" : " disabled-label"}">${escapeHtml(item.label)}</span>
-        ${item.fixed ? "" : `<button type="button" class="btn step" data-action="step-inducement" data-id="${item.id}" data-delta="-1">−</button>`}
-        <span style="width:30px;text-align:center">0-${escapeHtml(item.fixed ? item.max : max)}</span>
-        ${item.fixed ? "" : `<button type="button" class="btn primary step" data-action="step-inducement" data-id="${item.id}" data-delta="1">+</button>`}
+        ${item.fixed ? "" : `<button type="button" class="btn step" data-action="step-inducement" data-id="${escapeHtml(item.id)}" data-delta="-1" aria-label="Lower ${escapeHtml(item.label)} cap">−</button>`}
+        <span class="inducement-cap">0-${escapeHtml(item.fixed ? item.max : max)}</span>
+        ${item.fixed ? "" : `<button type="button" class="btn primary step" data-action="step-inducement" data-id="${escapeHtml(item.id)}" data-delta="1" aria-label="Raise ${escapeHtml(item.label)} cap">+</button>`}
+        ${multiSelect({ key: `roster-only-${item.id}`, path: ["inducements", "rosterOnly", item.id], label: "Rosters", items: rosterItems(), selected: rosterOnly, allLabel: "Any roster" })}
       </div>`;
   }).join("");
   return `
     <section class="panel">
-      <div class="section-title">${title("Inducements")} <span class="section-note">— allowed + per-inducement caps</span></div>
+      <div class="section-title">${title("Inducements")} <span class="section-note">— allowed, per-inducement caps, roster restrictions</span></div>
       <div class="inducement-grid">${rows}</div>
     </section>`;
 }
 
 function renderSpecialRules() {
   const special = state.pkg.special;
+  const sideline = state.pkg.sideline;
   const toggles = [
     ["Insignificant-trait constraint", "toggle-insignificant", special.insignificantTraitConstraint],
     ["Stalling allowed", "toggle-stalling", special.stalling],
@@ -739,18 +1219,20 @@ function renderSpecialRules() {
     ["Stat increases allowed", "toggle-stat-increases", special.statIncreasesAllowed],
     ["Stars are the 11th player", "toggle-stars-eleventh", Number(special.minPlayers) <= 10],
   ];
-  const banned = special.bannedSkills.map((name) => `<button type="button" class="chip active" style="color:${skillColor(name)}" data-action="remove-banned-skill" data-name="${escapeHtml(name)}">${escapeHtml(name)} ✕</button>`).join("");
   return `
     <section class="panel">
       <div class="section-title">${title("Special Rules")}</div>
       <div class="chip-list">${toggles.map(([label, action, active]) => chip(label, action, active)).join("")}</div>
-      <div class="inset-list">
-        <div class="subheading">Banned Skills</div>
-        <div class="chip-list">${banned}</div>
-        <div class="inline-controls">
-          <select class="control" data-control="banned-skill">${options(state.skills, state.bannedSkill, (skill) => skill.name, (skill) => skill.name)}</select>
-          <button type="button" class="btn primary" data-action="add-banned-skill">Ban</button>
-        </div>
+      <div class="knob-grid">${numField("Minimum players", ["special", "minPlayers"], special.minPlayers, { kind: "int", blank: "null", placeholder: "11" })}</div>
+    </section>
+    <section class="panel">
+      <div class="section-title">${title("Sideline Staff")} <span class="section-note">— blank = no cap</span></div>
+      <div class="knob-grid">
+        ${numField("Max team rerolls", ["sideline", "maxReRolls"], sideline.maxReRolls, { kind: "int", blank: "null", placeholder: "none" })}
+        ${numField("Max apothecary", ["sideline", "maxApothecary"], sideline.maxApothecary, { kind: "int", blank: "null", placeholder: "none" })}
+        ${numField("Max cheerleaders", ["sideline", "maxCheerleaders"], sideline.maxCheerleaders, { kind: "int", blank: "null", placeholder: "none" })}
+        ${numField("Max assistant coaches", ["sideline", "maxAssistantCoaches"], sideline.maxAssistantCoaches, { kind: "int", blank: "null", placeholder: "none" })}
+        ${numField("Max dedicated fans", ["sideline", "maxDedicatedFans"], sideline.maxDedicatedFans, { kind: "int", blank: "null", placeholder: "none" })}
       </div>
     </section>`;
 }
@@ -765,12 +1247,83 @@ function skillSummary() {
   return `${allotment.skillPointBudget ?? 0} SP pool`;
 }
 
+function goldLabel(value) {
+  return value == null ? "—" : `${goldToK(value)}k`;
+}
+
+function skillsLabel(level, packs) {
+  if (safeArray(packs).length) {
+    return safeArray(packs).map((pack) => pack.maxSkills != null || pack.maxSecondary != null
+      ? `${goldLabel(pack.gold)} / ${pack.maxSkills ?? 0} skills${pack.maxSecondary ? ` (≤${pack.maxSecondary} sec)` : ""}`
+      : `${goldLabel(pack.gold)} / ${pack.skillPointBudget ?? 0} SP`).join(" · ");
+  }
+  if (level.maxPrimary != null || level.maxSecondary != null) return `${level.maxPrimary ?? 0} pri / ${level.maxSecondary ?? 0} sec`;
+  if (level.skillPointBudget != null) return `${level.skillPointBudget} SP`;
+  return "flat allotment";
+}
+
+/** What the Tournament Team Builder's ruleset table will show, straight from this package. */
+function renderTierPreview() {
+  const flat = state.pkg.skillAllotment;
+  let rows;
+  if (state.pkg.tiers.length) {
+    rows = state.pkg.tiers.map((tier, index) => {
+      const exceptions = Object.entries(isObj(tier.rosterGold) ? tier.rosterGold : {}).map(([name, gold]) => `${name} ${goldLabel(gold)}`).join(", ");
+      return `<tr><th>${escapeHtml(tier.label ?? `Tier ${tier.tier ?? index + 1}`)}</th>
+        <td>${escapeHtml(safeArray(tier.rosters).join(", ") || "—")}</td>
+        <td>${escapeHtml(goldLabel(tier.gold ?? state.pkg.goldBudget))}${exceptions ? `<br><small>${escapeHtml(exceptions)}</small>` : ""}</td>
+        <td>${escapeHtml(skillsLabel({ skillPointBudget: tier.skillPointBudget ?? flat.skillPointBudget, maxPrimary: tier.maxPrimary ?? flat.maxPrimary, maxSecondary: tier.maxSecondary ?? flat.maxSecondary }, tier.skillPackages ?? state.pkg.skillPackages))}</td>
+        <td>${tier.starPlayersAllowed === false ? "no" : "yes"}</td></tr>`;
+    }).join("");
+  } else {
+    rows = `<tr><th>All teams</th><td>${escapeHtml(isAllRaces() ? "every race" : safeArray(state.pkg.eligibleRosters).join(", "))}</td>
+      <td>${escapeHtml(goldLabel(state.pkg.goldBudget))}</td><td>${escapeHtml(skillsLabel(flat, state.pkg.skillPackages))}</td>
+      <td>${state.pkg.starPlayers.allowed ? "yes" : "no"}</td></tr>`;
+  }
+  return `<div class="preview-wrap"><table class="preview-table">
+    <thead><tr><th>Tier</th><th>Rosters</th><th>Gold</th><th>Skills</th><th>Stars</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+function summaryRows() {
+  const allRaces = isAllRaces();
+  const gold = state.pkg.goldBudget == null ? "none" : `${goldToK(state.pkg.goldBudget)}k${state.pkg.goldCapIncludesAddedSkills ? " (incl. skills)" : ""}`;
+  const stars = state.pkg.starPlayers.allowed
+    ? `max ${state.pkg.starPlayers.maxCount ?? "none"}${state.pkg.bannedStars.length ? ` · ${state.pkg.bannedStars.length} banned` : ""}`
+    : "not allowed";
+  return `
+    <div class="summary-row"><span>Races</span><span>${allRaces ? `all (${state.teams.length})` : safeArray(state.pkg.eligibleRosters).length}</span></div>
+    <div class="summary-row"><span>Gold cap</span><span>${escapeHtml(gold)}</span></div>
+    <div class="summary-row"><span>Skill model</span><span>${escapeHtml(skillSummary())}</span></div>
+    <div class="summary-row"><span>Team rules</span><span>${state.pkg.teamRules.length || "none"}</span></div>
+    <div class="summary-row"><span>Stars</span><span>${escapeHtml(stars)}</span></div>
+    <div class="summary-row"><span>Star packs</span><span>${safeArray(state.pkg.starPacks).length || "none"}</span></div>
+    <div class="summary-row"><span>Banned skills</span><span>${safeArray(state.pkg.special.bannedSkills).length || "none"}</span></div>`;
+}
+
+function renderSummaryTab() {
+  return `
+    <section class="panel">
+      <div class="section-title">${title("Ruleset Table Preview")}</div>
+      <div class="hint">The Tournament Team Builder's ruleset table reads these values from the saved package.</div>
+      ${renderTierPreview()}
+    </section>
+    <section class="panel">
+      <div class="section-title">${title("Package Summary")}</div>
+      <div class="summary-card">${summaryRows()}</div>
+    </section>
+    <section class="panel">
+      <div class="section-title">${title("Package JSON")}</div>
+      <pre class="json-preview">${escapeHtml(JSON.stringify(serializePackage(), null, 2))}</pre>
+    </section>`;
+}
+
 function renderRightRail() {
+  if (!rightRail) return;
   if (!state.pkg) {
     rightRail.innerHTML = '<div class="loading-banner">Loading the tournament package editor…</div>';
     return;
   }
-  const allRaces = isAllRaces();
   const problems = state.problems.map((problem) => `<div>• ${escapeHtml(problem)}</div>`).join("");
   const validation = state.problems.length
     ? `<div class="validation"><div class="validation-title">Validation — ${state.problems.length} Problem(s)</div>${problems}</div>`
@@ -784,64 +1337,81 @@ function renderRightRail() {
   const notices = state.catalogNotices.length
     ? `<div class="loading-banner">${state.catalogNotices.map((notice) => `<div>${escapeHtml(notice)}</div>`).join("")}</div>`
     : "";
-  const gold = state.pkg.goldBudget == null ? "none" : `${goldToK(state.pkg.goldBudget)}k${state.pkg.goldCapIncludesAddedSkills ? " (incl. skills)" : ""}`;
-  const stars = state.pkg.starPlayers.allowed
-    ? `max ${state.pkg.starPlayers.maxCount ?? "none"}${state.pkg.bannedStars.length ? ` · ${state.pkg.bannedStars.length} banned` : ""}`
-    : "not allowed";
   rightRail.innerHTML = `
-    <div class="skill-key">
-      <span class="skill-key-label">${title("Skill Key")}</span><span class="cat-general">General</span><span class="cat-agility">Agility</span><span class="cat-strength">Strength</span><span class="cat-devious">Devious</span><span class="cat-mutations">Mutations</span><span class="cat-traits">Traits</span>
-    </div>
-    <button type="button" class="btn primary big" data-action="save"${(state.authed || state.token) && !state.busy ? "" : " disabled"}>${state.busy ? "Working…" : "Save Package"}</button>
-    <button type="button" class="btn big" data-action="export"${state.busy ? " disabled" : ""}>Export Printable Rules Sheet</button>
+    <button type="button" class="create-button" data-action="save"${(state.authed || state.token) && !state.busy ? "" : " disabled"}>${state.busy ? "Working…" : "Save Package"}</button>
+    <button type="button" class="session-button secondary rail-button" data-action="export"${state.busy ? " disabled" : ""}>Export Printable Rules Sheet</button>
     ${validation}${saved}${exported}${notices}
     <div class="summary-card">
       <div class="rail-title">${title("Package Summary")}</div>
-      <div class="summary-row"><span>Races</span><span>${allRaces ? `all (${state.teams.length})` : state.pkg.eligibleRosters.length}</span></div>
-      <div class="summary-row"><span>Gold cap</span><span>${escapeHtml(gold)}</span></div>
-      <div class="summary-row"><span>Skill model</span><span>${escapeHtml(skillSummary())}</span></div>
-      <div class="summary-row"><span>Stars</span><span>${escapeHtml(stars)}</span></div>
-      <div class="summary-row"><span>Banned skills</span><span>${state.pkg.special.bannedSkills.length || "none"}</span></div>
+      ${summaryRows()}
+    </div>
+    <div class="skill-key">
+      <span class="skill-key-label">${title("Skill Key")}</span><span class="cat-general">General</span><span class="cat-agility">Agility</span><span class="cat-strength">Strength</span><span class="cat-devious">Devious</span><span class="cat-mutations">Mutations</span><span class="cat-traits">Traits</span>
     </div>
     <div class="boundary-note">Reads are open; saving needs the organizer token. The server is the source of truth — the problems panel renders its verdict verbatim.</div>`;
 }
 
+function renderTab(tab) {
+  if (tab === "package") return renderPackageDetails() + renderGold();
+  if (tab === "races") return renderRaces() + renderTournamentSystem() + renderTeamRules();
+  if (tab === "skills") return renderSkills();
+  if (tab === "stars") return renderStars();
+  if (tab === "inducements") return renderInducements();
+  if (tab === "special") return renderSpecialRules();
+  return renderSummaryTab();
+}
+
+function editorHtml() {
+  if (!state.pkg) return '<div class="loading-banner">Loading catalogs and a tournament package…</div>';
+  const active = TABS.some(([id]) => id === state.tab) ? state.tab : "package";
+  const tabs = TABS.map(([id, label], index) => `<button type="button" role="tab" id="rules-tab-${id}" class="${id === active ? "active" : ""}" data-action="tab:${id}" aria-selected="${id === active ? "true" : "false"}" aria-controls="rules-tab-panel"><b>${index + 1}</b><span>${escapeHtml(label)}</span></button>`).join("");
+  return `
+    <nav class="rules-tabs" role="tablist" aria-label="Package editor sections">${tabs}</nav>
+    <div class="rules-tab-panel" id="rules-tab-panel" role="tabpanel" aria-labelledby="rules-tab-${active}" data-tab="${active}">${renderTab(active)}</div>`;
+}
+
 function renderEditor() {
-  if (!state.pkg) {
-    editor.innerHTML = '<div class="loading-banner">Loading catalogs and a tournament package…</div>';
-    return;
-  }
-  editor.innerHTML = [
-    renderSummary(),
-    renderRaces(),
-    renderGold(),
-    renderTournamentSystem(),
-    renderStars(),
-    renderInducements(),
-    renderSpecialRules(),
-  ].join("");
+  if (!editor) return;
+  editor.innerHTML = editorHtml();
+}
+
+function syncAdminNav() {
+  if (typeof document === "undefined") return;
+  document.querySelectorAll("[data-admin-only]").forEach((element) => { element.hidden = !state.adminNav; });
 }
 
 function render() {
+  if (typeof document === "undefined") return;
   const scroll = [...document.querySelectorAll("[data-preserve-scroll]")].map((element) => [element.dataset.preserveScroll, element.scrollTop, element.scrollLeft]);
-  const active = document.activeElement?.matches('[data-action="star-tier-sp-cost"]')
+  const open = new Set([...document.querySelectorAll("[data-preserve-open]")].filter((element) => element.open).map((element) => element.dataset.preserveOpen));
+  const active = document.activeElement?.matches?.('[data-action="star-tier-sp-cost"]')
     ? [document.activeElement.dataset.star, document.activeElement.dataset.tier]
     : null;
   renderToolbar();
+  renderShelf();
   renderEditor();
   scroll.forEach(([key, top, left]) => {
     const element = [...document.querySelectorAll("[data-preserve-scroll]")].find((candidate) => candidate.dataset.preserveScroll === key);
     if (element) { element.scrollTop = top; element.scrollLeft = left; }
   });
-  if (active) [...editor.querySelectorAll('[data-action="star-tier-sp-cost"]')].find((input) => input.dataset.star === active[0] && input.dataset.tier === active[1])?.focus();
+  [...document.querySelectorAll("[data-preserve-open]")].forEach((element) => {
+    if (open.has(element.dataset.preserveOpen)) element.open = true;
+  });
+  if (active && editor) [...editor.querySelectorAll('[data-action="star-tier-sp-cost"]')].find((input) => input.dataset.star === active[0] && input.dataset.tier === active[1])?.focus();
   renderRightRail();
-  connectionState.textContent = state.connected ? "● connected" : "● connection issue";
-  connectionState.className = state.connected ? "connected" : "disconnected";
-  document.body.classList.toggle("busy", state.busy);
+  syncAdminNav();
+  if (connectionState) {
+    connectionState.textContent = state.connected ? "● connected" : "● connection issue";
+    connectionState.className = state.connected ? "connected" : "disconnected";
+  }
+  document.body?.classList?.toggle("busy", state.busy);
 }
+
+// ---------- editing actions ----------
 
 function setSystem(system) {
   state.view.system = system;
+  state.view.systemTouched = true;
   if (system === "tiers" && !Array.isArray(state.pkg.tiers)) state.pkg.tiers = [];
   if (system === "packages" && !Array.isArray(state.pkg.skillPackages)) state.pkg.skillPackages = [];
   if (system === "matrix") state.pkg.matrix = matrixForDisplay();
@@ -851,7 +1421,7 @@ function setSystem(system) {
 
 function toggleRace(name) {
   const allNames = state.teams.map((team) => team.name);
-  const current = isAllRaces() ? allNames : [...state.pkg.eligibleRosters];
+  const current = isAllRaces() ? allNames : [...safeArray(state.pkg.eligibleRosters)];
   state.pkg.eligibleRosters = current.includes(name) ? current.filter((race) => race !== name) : [...current, name];
 }
 
@@ -892,6 +1462,11 @@ function removeTeamFromTier(name, tierIndex) {
 function handleEditorAction(action, target) {
   if (!state.pkg) return;
 
+  if (action.startsWith("tab:")) {
+    state.tab = action.slice(4);
+    render();
+    return;
+  }
   if (action.startsWith("toggle-tier-stars:")) {
     const index = Number(action.split(":")[1]);
     const tier = state.pkg.tiers[index];
@@ -925,9 +1500,11 @@ function handleEditorAction(action, target) {
     case "system-matrix": setSystem("matrix"); return;
     case "mode-pool":
       state.view.skillMode = "pool";
+      state.view.skillModeTouched = true;
       break;
     case "mode-count":
       state.view.skillMode = "count";
+      state.view.skillModeTouched = true;
       state.pkg.skillAllotment.maxPrimary ??= 0;
       state.pkg.skillAllotment.maxSecondary ??= 0;
       break;
@@ -938,7 +1515,16 @@ function handleEditorAction(action, target) {
       delete state.pkg.skillAllotment.skillCostSP[target.dataset.name];
       break;
     case "add-override":
-      if (state.overrideSkill) state.pkg.skillAllotment.skillCostSP[state.overrideSkill] = numberOr(state.overrideCost, 2);
+      if (state.overrideSkill) {
+        state.pkg.skillAllotment.skillCostSP ??= {};
+        state.pkg.skillAllotment.skillCostSP[state.overrideSkill] = numberOr(state.overrideCost, 2);
+      }
+      break;
+    case "remove-gold-override":
+      setPath(state.pkg, ["skillAllotment", "skillCostGold", target.dataset.name], undefined);
+      break;
+    case "add-gold-override":
+      if (state.goldOverrideSkill) setPath(state.pkg, ["skillAllotment", "skillCostGold", state.goldOverrideSkill], kToGold(state.goldOverrideCost) ?? 0);
       break;
     case "remove-tier": {
       const removedIndex = Number(target.dataset.index);
@@ -950,6 +1536,7 @@ function handleEditorAction(action, target) {
         costs.splice(removedIndex, 1);
         state.pkg.starPlayers.spCostByTier[name] = costs.slice(0, state.pkg.tiers.length);
       });
+      state.view.starCostsTouched = true;
       break;
     }
     case "add-tier": {
@@ -967,6 +1554,7 @@ function handleEditorAction(action, target) {
       Object.keys(state.pkg.starPlayers.spCostByTier ?? {}).forEach((name) => {
         state.pkg.starPlayers.spCostByTier[name] = starTierCostsForDisplay(name);
       });
+      if (state.pkg.starPlayers.spCostByTier) state.view.starCostsTouched = true;
       if (state.pkg.tiers.length === 1) state.activeTier = 0;
       break;
     }
@@ -1015,6 +1603,27 @@ function handleEditorAction(action, target) {
         maxPerPlayer: state.pkg.skillAllotment.maxPerPlayer,
         starPlayersAllowed: state.pkg.starPlayers.allowed,
       });
+      break;
+    case "add-team-rule": {
+      const team = state.ruleTeam || state.teams[0]?.name;
+      if (!team) return;
+      state.pkg.teamRules.push({ team });
+      break;
+    }
+    case "remove-team-rule":
+      state.pkg.teamRules.splice(Number(target.dataset.index), 1);
+      break;
+    case "add-star-pack": {
+      state.pkg.starPacks = safeArray(state.pkg.starPacks);
+      const ids = new Set(state.pkg.starPacks.map((pack) => pack.id));
+      let number = state.pkg.starPacks.length + 1;
+      while (ids.has(`pack-${number}`)) number += 1;
+      state.pkg.starPacks.push({ id: `pack-${number}`, label: `Pack ${number}`, fee: 0, max: 1, stars: [] });
+      break;
+    }
+    case "remove-star-pack":
+      if (Array.isArray(state.pkg.starPacks)) state.pkg.starPacks.splice(Number(target.dataset.index), 1);
+      if (Array.isArray(state.pkg.starPacks) && state.pkg.starPacks.length === 0 && state.original?.starPacks === undefined) delete state.pkg.starPacks;
       break;
     case "toggle-matrix-cell": {
       state.pkg.matrix = matrixForDisplay();
@@ -1070,7 +1679,7 @@ function handleEditorAction(action, target) {
     case "toggle-inducement": {
       const id = target.dataset.id;
       const knownIds = INDUCEMENTS.map((item) => item.id);
-      let allowed = state.pkg.inducements.allowed;
+      let allowed = inducementAllowedList();
       if (allowed.includes("*")) allowed = knownIds.filter((known) => known !== id);
       else if (allowed.includes(id)) allowed = allowed.filter((known) => known !== id);
       else allowed = [...allowed, id];
@@ -1080,7 +1689,8 @@ function handleEditorAction(action, target) {
     case "step-inducement": {
       const id = target.dataset.id;
       const item = INDUCEMENTS.find((row) => row.id === id);
-      const current = state.pkg.inducements.caps[id] ?? item?.max ?? 0;
+      state.pkg.inducements.caps ??= {};
+      const current = state.pkg.inducements.caps[id] ?? item?.max ?? 1;
       state.pkg.inducements.caps[id] = Math.max(0, Math.min(9, current + Number(target.dataset.delta)));
       break;
     }
@@ -1090,9 +1700,10 @@ function handleEditorAction(action, target) {
     case "toggle-stat-increases": state.pkg.special.statIncreasesAllowed = !state.pkg.special.statIncreasesAllowed; break;
     case "toggle-stars-eleventh": state.pkg.special.minPlayers = Number(state.pkg.special.minPlayers) <= 10 ? 11 : 10; break;
     case "remove-banned-skill":
-      state.pkg.special.bannedSkills = state.pkg.special.bannedSkills.filter((name) => name !== target.dataset.name);
+      state.pkg.special.bannedSkills = safeArray(state.pkg.special.bannedSkills).filter((name) => name !== target.dataset.name);
       break;
     case "add-banned-skill":
+      state.pkg.special.bannedSkills = safeArray(state.pkg.special.bannedSkills);
       if (state.bannedSkill && !state.pkg.special.bannedSkills.includes(state.bannedSkill)) state.pkg.special.bannedSkills.push(state.bannedSkill);
       break;
     default:
@@ -1104,6 +1715,15 @@ function handleEditorAction(action, target) {
 
 function handleEditorChange(target) {
   if (!state.pkg) return;
+
+  if (target.dataset.bind != null) {
+    if (applyBinding(target)) { markDirty(); render(); }
+    return;
+  }
+  if (target.dataset.multi != null || target.dataset.multiAll != null) {
+    if (applyMulti(target)) { markDirty(); render(); }
+    return;
+  }
 
   switch (target.dataset.action) {
     case "tier-pack-label":
@@ -1131,6 +1751,7 @@ function handleEditorChange(target) {
       const costs = starTierCostsForDisplay(name);
       costs[tierIndex] = nullableNumber(target.value);
       pairedStarNames(name).forEach((starName) => { state.pkg.starPlayers.spCostByTier[starName] = [...costs]; });
+      state.view.starCostsTouched = true;
       markDirty(); render(); return;
     }
     case "stars-paid-sp":
@@ -1166,18 +1787,12 @@ function handleEditorChange(target) {
     }
   }
 
-  if (target.dataset.control === "override-skill") {
-    state.overrideSkill = target.value;
-    return;
-  }
-  if (target.dataset.control === "override-cost") {
-    state.overrideCost = numberOr(target.value, 2);
-    return;
-  }
-  if (target.dataset.control === "banned-skill") {
-    state.bannedSkill = target.value;
-    return;
-  }
+  if (target.dataset.control === "override-skill") { state.overrideSkill = target.value; return; }
+  if (target.dataset.control === "override-cost") { state.overrideCost = numberOr(target.value, 2); return; }
+  if (target.dataset.control === "gold-override-skill") { state.goldOverrideSkill = target.value; return; }
+  if (target.dataset.control === "gold-override-cost") { state.goldOverrideCost = numberOr(target.value, 30); return; }
+  if (target.dataset.control === "banned-skill") { state.bannedSkill = target.value; return; }
+  if (target.dataset.control === "rule-team") { state.ruleTeam = target.value; return; }
 
   if (target.dataset.tierIndex != null) {
     const tier = state.pkg.tiers[Number(target.dataset.tierIndex)];
@@ -1203,18 +1818,15 @@ function handleEditorChange(target) {
 
   const field = target.dataset.field;
   if (!field) return;
-  const allotmentFields = new Set(["skillPointBudget", "primaryCostSP", "secondaryMultiplier", "eliteSurchargeSP", "maxPerPlayer"]);
-  if (field === "name" || field === "date" || field === "description" || field === "extends") state.pkg[field] = target.value;
+  if (field === "name" || field === "date" || field === "description" || field === "extends" || field === "dataNote") state.pkg[field] = target.value;
   else if (field === "goldBudgetK") state.pkg.goldBudget = kToGold(target.value);
-  else if (allotmentFields.has(field)) state.pkg.skillAllotment[field] = nullableNumber(target.value);
-  else if (field === "maxSameSkillTeamwide") state.pkg.skillAllotment.maxSameSkillTeamwide = numberOr(target.value, 0) === 0 ? null : numberOr(target.value, null);
-  else if (field === "maxPrimary" || field === "maxSecondary") state.pkg.skillAllotment[field] = numberOr(target.value, 0);
-  else if (field === "swapRate") state.view.swapRate = Math.max(1, numberOr(target.value, 2));
   else if (field === "starMaxCount") state.pkg.starPlayers.maxCount = nullableNumber(target.value);
   else if (field === "starMaxCostK") state.pkg.starPlayers.maxCombinedCost = kToGold(target.value);
   markDirty();
   render();
 }
+
+// ---------- server I/O ----------
 
 async function login() {
   const username = document.querySelector("#login-user")?.value.trim() ?? "";
@@ -1240,6 +1852,7 @@ async function login() {
     state.account = username;
     state.loginUser = "";
     state.expiresAt = result.expiresAt;
+    state.adminNav = true; // the organizer password unlocks the organizer console links
     state.problems = [];
   } catch (error) {
     state.authed = false;
@@ -1259,6 +1872,7 @@ function logout() {
   state.token = null;
   state.account = "";
   state.expiresAt = "";
+  state.adminNav = false;
   state.saved = null;
   render();
 }
@@ -1284,6 +1898,12 @@ function loadPreset(id) {
   if (!preset) return;
   state.selectedPackage = "";
   loadPackageIntoEditor(preset.pkg, []);
+}
+
+function newBlankPackage() {
+  state.selectedPackage = "";
+  state.tab = "package";
+  loadPackageIntoEditor(fallbackRaw(), []);
 }
 
 async function savePackage() {
@@ -1365,102 +1985,120 @@ async function exportPackage() {
   }
 }
 
-toolbar.addEventListener("click", (event) => {
+function handleShellClick(event) {
   const target = event.target.closest("[data-action]");
   if (!target) return;
-  if (target.dataset.action === "login") login();
-  if (target.dataset.action === "discord-login") location.assign("/api/auth/discord/start?next=/tournament-rules.html");
-  if (target.dataset.action === "logout") logout();
-});
+  const action = target.dataset.action;
+  if (action === "login") login();
+  if (action === "discord-login") location.assign("/api/auth/discord/start?next=/tournament-rules.html");
+  if (action === "logout") logout();
+  if (action === "open-package") loadSavedPackage(target.dataset.name);
+  if (action === "new-package") newBlankPackage();
+}
 
-toolbar.addEventListener("change", (event) => {
+function handleShellChange(event) {
   const target = event.target;
-  if (target.dataset.action === "select-package") loadSavedPackage(target.value);
   if (target.dataset.action === "select-preset") loadPreset(target.value);
-});
+}
 
-toolbar.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !(state.authed || state.token)) login();
-});
+function boot() {
+  toolbar = document.querySelector("#toolbar");
+  shelf = document.querySelector("#package-shelf");
+  editor = document.querySelector("#editor");
+  rightRail = document.querySelector("#right-rail");
+  connectionState = document.querySelector("#connection-state");
+  const forkAdmin = document.querySelector("#fork-admin-link");
+  if (forkAdmin) forkAdmin.href = `http://${location.hostname || "127.0.0.1"}:22227/panel.html`;
 
-editor.addEventListener("click", (event) => {
-  const tierBlock = event.target.closest("[data-tier-block]");
-  if (tierBlock) {
-    state.activeTier = Number(tierBlock.dataset.tierBlock);
-    editor.querySelectorAll("[data-tier-block]").forEach((block) => block.classList.toggle("active", block === tierBlock));
-  }
-  const target = event.target.closest("[data-action]");
-  if (target) handleEditorAction(target.dataset.action, target);
-});
+  [toolbar, shelf].filter(Boolean).forEach((element) => {
+    element.addEventListener("click", handleShellClick);
+    element.addEventListener("change", handleShellChange);
+  });
+  toolbar?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !(state.authed || state.token)) login();
+  });
 
-editor.addEventListener("change", (event) => handleEditorChange(event.target));
+  editor.addEventListener("click", (event) => {
+    const tierBlock = event.target.closest("[data-tier-block]");
+    if (tierBlock) {
+      state.activeTier = Number(tierBlock.dataset.tierBlock);
+      editor.querySelectorAll("[data-tier-block]").forEach((block) => block.classList.toggle("active", block === tierBlock));
+    }
+    const target = event.target.closest("[data-action]");
+    if (target && target.tagName !== "INPUT" && target.tagName !== "SELECT") handleEditorAction(target.dataset.action, target);
+  });
 
-editor.addEventListener("dragstart", (event) => {
-  const team = event.target.closest("[data-team]")?.dataset.team;
-  if (team) {
-    state.dragTeam = team;
-    state.dragStar = "";
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("application/x-tier-team", team);
-    event.dataTransfer.setData("text/plain", team);
-    return;
-  }
-  const star = event.target.closest("[data-star]")?.dataset.star;
-  if (!star) return;
-  state.dragTeam = "";
-  state.dragStar = star;
-  event.dataTransfer.effectAllowed = "move";
-  event.dataTransfer.setData("text/plain", star);
-});
+  editor.addEventListener("change", (event) => handleEditorChange(event.target));
 
-editor.addEventListener("dragover", (event) => {
-  const zone = state.dragTeam
-    ? event.target.closest("[data-tier-drop]")
-    : state.dragStar
-      ? event.target.closest("[data-drop-zone]")
-      : null;
-  if (!zone) return;
-  event.preventDefault();
-  event.dataTransfer.dropEffect = "move";
-  zone.classList.add("drag-over");
-});
-
-editor.addEventListener("dragleave", (event) => {
-  const zone = event.target.closest("[data-tier-drop], [data-drop-zone]");
-  if (zone && !zone.contains(event.relatedTarget)) zone.classList.remove("drag-over");
-});
-
-editor.addEventListener("drop", (event) => {
-  const zone = state.dragTeam
-    ? event.target.closest("[data-tier-drop]")
-    : state.dragStar
-      ? event.target.closest("[data-drop-zone]")
-      : null;
-  if (!zone) return;
-  event.preventDefault();
-  zone.classList.remove("drag-over");
-  if (zone.dataset.tierDrop != null) {
-    const name = event.dataTransfer.getData("application/x-tier-team") || state.dragTeam;
+  editor.addEventListener("dragstart", (event) => {
+    const team = event.target.closest("[data-team]")?.dataset.team;
+    if (team) {
+      state.dragTeam = team;
+      state.dragStar = "";
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("application/x-tier-team", team);
+      event.dataTransfer.setData("text/plain", team);
+      return;
+    }
+    const star = event.target.closest("[data-star]")?.dataset.star;
+    if (!star) return;
     state.dragTeam = "";
-    if (name) assignTeamToTier(name, Number(zone.dataset.tierDrop));
-    return;
-  }
-  const name = event.dataTransfer.getData("text/plain") || state.dragStar;
-  state.dragStar = "";
-  if (name) moveStar(name, zone.dataset.dropZone);
-});
+    state.dragStar = star;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", star);
+  });
 
-editor.addEventListener("dragend", () => {
-  state.dragTeam = "";
-  state.dragStar = "";
-  editor.querySelectorAll(".drag-over").forEach((zone) => zone.classList.remove("drag-over"));
-});
+  editor.addEventListener("dragover", (event) => {
+    const zone = state.dragTeam
+      ? event.target.closest("[data-tier-drop]")
+      : state.dragStar
+        ? event.target.closest("[data-drop-zone]")
+        : null;
+    if (!zone) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    zone.classList.add("drag-over");
+  });
 
-rightRail.addEventListener("click", (event) => {
-  const action = event.target.closest("[data-action]")?.dataset.action;
-  if (action === "save") savePackage();
-  if (action === "export") exportPackage();
-});
+  editor.addEventListener("dragleave", (event) => {
+    const zone = event.target.closest("[data-tier-drop], [data-drop-zone]");
+    if (zone && !zone.contains(event.relatedTarget)) zone.classList.remove("drag-over");
+  });
+
+  editor.addEventListener("drop", (event) => {
+    const zone = state.dragTeam
+      ? event.target.closest("[data-tier-drop]")
+      : state.dragStar
+        ? event.target.closest("[data-drop-zone]")
+        : null;
+    if (!zone) return;
+    event.preventDefault();
+    zone.classList.remove("drag-over");
+    if (zone.dataset.tierDrop != null) {
+      const name = event.dataTransfer.getData("application/x-tier-team") || state.dragTeam;
+      state.dragTeam = "";
+      if (name) assignTeamToTier(name, Number(zone.dataset.tierDrop));
+      return;
+    }
+    const name = event.dataTransfer.getData("text/plain") || state.dragStar;
+    state.dragStar = "";
+    if (name) moveStar(name, zone.dataset.dropZone);
+  });
+
+  editor.addEventListener("dragend", () => {
+    state.dragTeam = "";
+    state.dragStar = "";
+    editor.querySelectorAll(".drag-over").forEach((zone) => zone.classList.remove("drag-over"));
+  });
+
+  rightRail.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-action]")?.dataset.action;
+    if (action === "save") savePackage();
+    if (action === "export") exportPackage();
+  });
+
+  return initialize();
+}
 
 async function initialize() {
   render();
@@ -1475,6 +2113,7 @@ async function initialize() {
       state.expiresAt = String(session.expiresAt ?? "");
       state.problems = [];
     }
+    state.adminNav = session?.authenticated === true && (session.admin === true || session.organizer === true);
     render();
   } catch {
     // Stay signed out when the session probe is unavailable.
@@ -1504,17 +2143,37 @@ async function initialize() {
   state.stars = safeArray(values.stars).filter((star) => star?.name).sort((a, b) => a.name.localeCompare(b.name));
   state.teams = safeArray(values.teams).filter((team) => team?.name).sort((a, b) => a.name.localeCompare(b.name));
   state.overrideSkill = state.skills[0]?.name ?? "";
+  state.goldOverrideSkill = state.skills[0]?.name ?? "";
   state.bannedSkill = state.skills[0]?.name ?? "";
+  state.ruleTeam = state.teams[0]?.name ?? "";
 
   if (state.packageNames.length) {
     await loadSavedPackage(state.packageNames[0]);
   } else if (state.presets.length) {
     loadPreset(state.presets[0].id);
   } else {
+    state.original = fallbackRaw();
+    state.baseline = fallbackPackage();
     state.pkg = fallbackPackage();
     state.view = inferView(state.pkg);
     render();
   }
 }
 
-initialize();
+globalThis.TournamentRulesCore = {
+  state,
+  INDUCEMENTS,
+  TABS,
+  normalizePackage,
+  serializePackage,
+  pruneInjected,
+  loadPackageIntoEditor,
+  handleEditorAction,
+  handleEditorChange,
+  editorHtml,
+  render,
+  setPath,
+  getPath,
+  boot,
+  ready: typeof document !== "undefined" && document.querySelector?.("#editor") ? boot() : Promise.resolve(),
+};

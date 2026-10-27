@@ -1,37 +1,55 @@
 <!doctype html>
+<!--
+  Tournament Rules Construction — the organiser's package editor (admin page). Shares the console header,
+  Nuffle headings, theme tokens and notebook-tab language of the Tournament Team Builder; the packages it
+  saves (tournament-packages/*.json) are what that builder's ruleset table reads.
+-->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tournament Rules Construction</title>
+  <title>Super FUMBBL — Tournament Rules Construction</title>
   <link rel="stylesheet" href="./theme.css">
   <link rel="stylesheet" href="./tournament-rules.css">
+  <script src="./theme.js" defer></script>
   <script src="./tournament-rules.js" defer></script>
 </head>
-<body>
-  <div class="page-shell">
-    <header class="brand-header">
-      <img class="brand-logo" src="./assets/super-fumbbl-logo.png" alt="Super FUMBBL">
-      <div class="brand-copy">
-        <div class="page-title"><span>T</span>ournament <span>R</span>ules <span>C</span>onstruction</div>
-        <div class="page-subtitle">config-web · organizer console · localhost:4310</div>
-      </div>
-      <a class="back-link" href="./tournaments.html">← Back to Panel</a>
+<body data-page="tournament-rules">
+  <header class="console-shell">
+    <a class="brand-lockup" href="/control-panel.html" aria-label="Super FUMBBL control panel">
+      <strong>Super FUMBBL</strong>
+      <small>Fantasy Football</small>
+    </a>
+    <span class="environment-stamp">Organiser console</span>
+    <nav class="console-tabs" aria-label="Config web sections">
+      <a href="/tournaments.html" data-admin-only hidden>Tournaments</a>
+      <a href="/users.html" data-admin-only hidden>Users</a>
+      <a href="/team-builder.html" data-admin-only hidden>Team</a>
+      <a class="active" href="/tournament-rules.html" aria-current="page">Rules</a>
+      <a href="/tournament-team-builder.html">Tournament</a>
+      <a id="fork-admin-link" href="#" target="_blank" rel="noopener" data-admin-only hidden>Fork Admin ↗</a>
+    </nav>
+  </header>
+
+  <main class="rules-view" aria-labelledby="rules-title">
+    <header class="view-header">
+      <h1 id="rules-title" class="view-title"><span>T</span>ournament <span>R</span>ules <span>C</span>onstruction</h1>
+      <div id="toolbar" class="rules-session" aria-label="Organiser login"></div>
     </header>
 
-    <div id="toolbar" class="toolbar" aria-label="Package and login controls"></div>
+    <section id="package-shelf" class="package-shelf panel" aria-label="Tournament packages"></section>
 
-    <main class="main-grid">
+    <div class="main-grid">
       <div id="editor" class="editor-column" aria-live="polite"></div>
       <aside id="right-rail" class="right-rail" aria-label="Package actions and summary"></aside>
-    </main>
+    </div>
+  </main>
 
-    <footer class="footer">
-      <span id="connection-state" class="connected">● connecting</span>
-      <span>config-web :4310</span>
-      <span class="footer-spacer"></span>
-      <span>rules engine BB2025</span>
-    </footer>
-  </div>
+  <footer class="footer">
+    <span id="connection-state" class="connected">● connecting</span>
+    <span>config-web :4310</span>
+    <span class="footer-spacer"></span>
+    <span>rules engine BB2025</span>
+  </footer>
 </body>
 </html>
