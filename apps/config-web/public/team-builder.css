@@ -1083,7 +1083,7 @@ body[data-builder="tournament"] #builder-panel { border-top: 2px solid var(--ui-
    ════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /* ── Tablet (761-1100): the theme toggle stays bottom right, so leave room under the last rail button. ── */
-@media (min-width: 761px) and (max-width: 1100px) {
+@media screen and (min-width: 761px) and (max-width: 1100px) {
   body { padding-bottom: 56px; }
   /* The 900 px header rule reserved 140 px for the old top-right toggle; it lives bottom right now. */
   .console-shell { padding-right: 14px; }
@@ -1092,7 +1092,7 @@ body[data-builder="tournament"] #builder-panel { border-top: 2px solid var(--ui-
 }
 
 /* ── Phone (<= 760) ── */
-@media (max-width: 760px) {
+@media screen and (max-width: 760px) {
   body { min-width: 0; }
 
   /* Header: brand lockup left, theme toggle top right (out of the way of the rail buttons), nav tabs wrap below. */
@@ -1200,8 +1200,8 @@ body[data-builder="tournament"] #builder-panel { border-top: 2px solid var(--ui-
   /* Roster: scrolls sideways inside .roster-scroll; # + player columns stay pinned on the left. */
   .roster-scroll { overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
   .roster-grid {
-    grid-template-columns: 24px 140px 200px minmax(300px, 1fr) 64px 92px;
-    min-width: 880px;
+    grid-template-columns: 24px 140px 200px minmax(300px, 1fr) 64px 164px;
+    min-width: 960px;
   }
   .roster-header { padding: 8px; }
   .roster-row { min-height: 56px; padding: 8px; }
@@ -1221,8 +1221,8 @@ body[data-builder="tournament"] #builder-panel { border-top: 2px solid var(--ui-
   .player-copy strong { font-size: 14px; line-height: 1.2; white-space: normal; overflow-wrap: anywhere; }
   .player-copy small { font-size: 12px; }
   .row-skills .skill-icon { width: 24px; height: 24px; margin-right: 3px; }
-  .remove-player { min-width: 36px; min-height: 36px; }
-  .skill-add-btn { min-height: 40px; }
+  .remove-player { min-width: 48px; min-height: 48px; }
+  .skill-add-btn { min-width: 48px; min-height: 48px; justify-content: center; }
 
   .roster-title-row { align-items: flex-start; }
   .skill-key-compact { flex-basis: 100%; margin-left: 0; }
@@ -1275,9 +1275,15 @@ body[data-builder="tournament"] #builder-panel { border-top: 2px solid var(--ui-
 }
 
 /* Small phones (<= 400): tighter padding so 375 px never scrolls sideways. */
-@media (max-width: 400px) {
+@media screen and (max-width: 400px) {
   .team-builder-view { padding: 10px 8px; }
   .builder-panel { padding: 12px 10px; }
   body[data-builder="tournament"] .tt-steps button { padding-inline: 6px; }
   body[data-builder="tournament"] .tt-steps button span { font-size: 13px; letter-spacing: .02em; }
+}
+
+/* Print: the screen-scoped tiers above never apply; reset anything a print engine could still inherit. */
+@media print {
+  body { min-width: 0; padding-bottom: 0; }
+  .theme-toggle { display: none !important; }
 }
