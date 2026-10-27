@@ -64,7 +64,9 @@ function forkXml(race: string, stars: string[] = []): string {
     (name, i) =>
       `<position id="s${i + 1}"><quantity>1</quantity><name>${name}</name><type>Star</type><gender>male</gender>` +
       `<cost>${findStar(bb2025, name)!.cost ?? 0}</cost><movement>5</movement><strength>3</strength><agility>3</agility>` +
-      `<passing>4</passing><armour>9</armour><skillList><skill>Loner</skill></skillList></position>`,
+      `<passing>4</passing><armour>9</armour><skillList>${(findStar(bb2025, name)!.skills ?? ["Loner"])
+        .map((s) => `<skill>${s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</skill>`)
+        .join("")}</skillList></position>`,
   );
   return (
     `<roster id="${race.toLowerCase().replace(/\W+/g, "")}.bb2025"><name>${r.name}</name><reRollCost>${r.reRollCost}</reRollCost>` +
@@ -330,5 +332,47 @@ describe("WHBB Nut Cup 2026 package", () => {
     expect(row).toContain("100,000 gp");
     expect(row).toContain("(Halfling price)");
     expect(row).not.toContain("300,000");
+  });
+
+  describe("star-skills is fail-safe", () => {
+    const goblinWith = (star: string, skills: string[]) => {
+      const { composed } = build("Goblin", [{ name: "Goblin Lineman", count: 11 }], { stars: [star] });
+      return { ...composed.roster, players: composed.roster.players.map((p) => (p.positionName === star ? { ...p, skills } : p)) };
+    };
+    const starErrors = (roster: Parameters<typeof validate>[0]) => ruleErrors(validate(roster, pkg, bb2025), "star-skills").map((e) => e.message);
+
+    it("decodes XML entities: a star composed from roster XML (Ball &amp; Chain) passes", () => {
+      const { composed, result } = build("Goblin", [{ name: "Goblin Lineman", count: 11 }], { stars: ["Fungus the Loon"] });
+      expect(composed.roster.players.find((p) => p.positionName === "Fungus the Loon")!.skills).toContain("Ball &amp; Chain");
+      expect(ruleErrors(result, "star-skills")).toEqual([]);
+      const kreek = build("Goblin", [{ name: "Goblin Lineman", count: 11 }], { stars: ["Kreek Rustgouger"] }).result;
+      expect(ruleErrors(kreek, "star-skills")).toEqual([]);
+    });
+
+    it("canonicalises spellings: Side Step / No Hands / Kick Team-Mate match the dataset", () => {
+      const akhorne = findStar(bb2025, "Akhorne the Squirrel")!.skills!;
+      const legacy = akhorne.map((s) => (s === "Sidestep" ? "Side Step" : s === "No Ball" ? "No Hands" : s));
+      expect(legacy).toContain("Side Step");
+      expect(starErrors(goblinWith("Akhorne the Squirrel", legacy))).toEqual([]);
+      expect(starErrors(goblinWith("Akhorne the Squirrel", [...legacy, "GUARD"]))).toEqual([
+        "Akhorne the Squirrel has added skill (Guard); Star Players take no added skills.",
+      ]);
+    });
+
+    it("ignores printed labels and trait/special-rule entries", () => {
+      const akhorne = findStar(bb2025, "Akhorne the Squirrel")!.skills!.map((s) => (s === "Blind Rage" ? "Special rule: Blind Rage" : s));
+      expect(starErrors(goblinWith("Akhorne the Squirrel", akhorne))).toEqual([]);
+      // Comma-split fragments and unknown names never count as added skills.
+      expect(starErrors(goblinWith("Fungus the Loon", [...findStar(bb2025, "Fungus the Loon")!.skills!, '"Excuse Me', 'Are You a Zoat?"', "Krump"]))).toEqual([]);
+    });
+
+    it("stars without a dataset skill list produce no finding from printed skills", () => {
+      for (const star of ["Bryce 'the Slice' Cambuel", "Frank 'n' Stein"]) {
+        expect(findStar(bb2025, star)!.skills).toBeUndefined();
+        const { composed } = build("Human", human(noSkills), { stars: [star] });
+        const roster = { ...composed.roster, players: composed.roster.players.map((p) => (p.positionName === star ? { ...p, skills: ["Block", "Loner", "Chainsaw"] } : p)) };
+        expect(ruleErrors(validate(roster, pkg, bb2025), "star-skills")).toEqual([]);
+      }
+    });
   });
 });

@@ -8,7 +8,7 @@ import { MAX_STAT_STEPS, starPackPicks, statIncreasesGold, statIncreasesOf, stat
 import { skillsGold } from "../cost/costGold";
 import { inducementIdForName, inducementReducedFor } from "../dataset/inducements";
 import type { Dataset } from "../dataset/types";
-import { findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
+import { canonSkill, findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
 import { isCountPack, type SkillPackage, type TournamentPackage } from "../package/types";
 import { eligibleTeamNames, fitsSkillCounts, isEligible, resolveTeamConfig, sourceLabel, usesCountMode } from "../package/resolveConfig";
@@ -779,16 +779,24 @@ export const starAddedSkills: Rule = {
   id: "star-skills",
   check: ({ players, pkg, data }) => {
     if (pkg.starPlayers.addedSkillsAllowed === true) return [];
+    // FAIL-SAFE: only a printed entry that canonicalises to a known, selectable (non-trait) dataset
+    // skill absent from the star's own list is an added skill. Anything unmatched (formatting, labels,
+    // traits/special rules, comma-split fragments) produces no finding rather than a false rejection.
+    const selectable = new Map<string, string>();
+    for (const [name, meta] of Object.entries(data.skills)) if (!meta.trait) selectable.set(canonSkill(name), name);
     const findings: Finding[] = [];
     for (const rp of players) {
       if (!isStarName(data, rp.player.positionName)) continue;
       const star = findStar(data, rp.player.positionName);
+      const base = new Set((star?.skills ?? []).map(canonSkill));
       const extra = new Map<string, string>();
-      if (star?.skills) {
-        const base = new Set(star.skills.map(normName));
-        for (const s of rp.player.skills) if (!base.has(normName(s))) extra.set(normName(s), s);
-      }
-      for (const s of rp.player.addedSkills ?? []) extra.set(normName(s), s);
+      const consider = (s: string) => {
+        const key = canonSkill(s);
+        const name = selectable.get(key);
+        if (name && !base.has(key)) extra.set(key, name);
+      };
+      if (star?.skills) rp.player.skills.forEach(consider);
+      (rp.player.addedSkills ?? []).forEach(consider);
       if (!extra.size) continue;
       const list = [...extra.values()];
       findings.push(

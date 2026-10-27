@@ -239,18 +239,39 @@ def build_stars(rosters):
     return stars
 
 
+STARS_ABOUT = "BB2025 star players from FUMBBL roster 8513 (_Star Players). `playsFor` = special-rule keywords gating eligibility; `teams` = resolved eligible BB2025 team names (see build_stars/FAVOURED_MAP in scripts/generate_dataset.py). `skills` = the star's printed BB2025 skills, read from the fumbbl40k-server fork's local BB2025 roster XMLs (ffb-server/rosters, legacy/team files excluded) - anything printed beyond them is an added skill; absent = not known (Bryce 'the Slice' Cambuel, Frank 'n' Stein)."  # verbatim, so a regeneration reproduces the committed stars.json
+
+
+def merge_preserved_star_fields(stars, prev_stars):
+    """Carry the fields build_stars cannot derive from roster/get across a regeneration:
+    `pairedWith` / `pairPrimary` (inseparable pairs, e.g. Grak & Crumbleberry - dropping them makes a
+    pair count as two star-pack picks) and `skills` (the star's printed BB2025 skills, read once from
+    the fumbbl40k-server fork's local BB2025 roster XMLs). Key order matches the committed file:
+    name, pairedWith, cost, playsFor, teams, pairPrimary, skills."""
+    prev = {s["name"]: s for s in prev_stars}
+    out = []
+    for s in stars:
+        old = prev.get(s["name"], {})
+        row = {"name": s["name"]}
+        if "pairedWith" in old:
+            row["pairedWith"] = old["pairedWith"]
+        row.update({k: s[k] for k in ("cost", "playsFor", "teams")})
+        for k in ("pairPrimary", "skills"):
+            if k in old:
+                row[k] = old[k]
+        out.append(row)
+    return out
+
+
+def stars_document(stars):
+    return {"_about": STARS_ABOUT, "stars": stars}
+
+
 def write_stars(rosters):
-    stars = build_stars(rosters)
-    # Keep each star's printed `skills` (sourced once from the fork's local BB2025 roster XMLs;
-    # the roster/get API is not used for them) so a regeneration does not drop them.
-    prev = os.path.join(OUT, "stars.json")
-    if os.path.exists(prev):
-        known = {s["name"]: s["skills"] for s in json.load(open(prev, encoding="utf-8"))["stars"] if "skills" in s}
-        for s in stars:
-            if s["name"] in known:
-                s["skills"] = known[s["name"]]
-    json.dump({"_about": "BB2025 star players from FUMBBL roster 8513 (_Star Players). `playsFor` = special-rule keywords gating eligibility; `teams` = resolved eligible BB2025 team names (see build_stars/FAVOURED_MAP in scripts/generate_dataset.py). `skills` = the star's printed BB2025 skills (preserved across regenerations; anything printed beyond them is an added skill).", "stars": stars},
-              open(os.path.join(OUT, "stars.json"), "w", encoding="utf-8"), indent=1)
+    path = os.path.join(OUT, "stars.json")
+    prev = json.load(open(path, encoding="utf-8"))["stars"] if os.path.exists(path) else []
+    stars = merge_preserved_star_fields(build_stars(rosters), prev)
+    json.dump(stars_document(stars), open(path, "w", encoding="utf-8"), indent=1)
     print(f"Wrote {len(stars)} stars to {OUT}")
 
 

@@ -24,6 +24,44 @@ export function normName(s: string): string {
     .trim();
 }
 
+/** Decode the XML/HTML entities a roster file may leave in a name ("Ball &amp; Chain"). */
+export function decodeEntities(s: string): string {
+  return s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (m, e: string) => {
+    const k = e.toLowerCase();
+    if (k[0] === "#") {
+      const code = k[1] === "x" ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : m;
+    }
+    return ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" } as Record<string, string>)[k] ?? m;
+  });
+}
+
+/**
+ * Spelling renames between sources (FUMBBL BB2020-era roster XML, bbtc.pl sheets) and the BB2025
+ * dataset, keyed by canonical form (see canonSkill). Spacing/case/hyphen/"&"-vs-"and" variants
+ * ("Side Step", "Kick Team-mate", "Ball and Chain") already collapse in canonSkill itself.
+ */
+const SKILL_ALIASES: Record<string, string> = {
+  nohands: "noball",
+  mesmerizingdance: "mesmerisingdance",
+  pogostick: "pogo",
+};
+
+/**
+ * Canonical skill key for comparing printed skills with dataset names: entities decoded, a printed
+ * label prefix ("Special rule: Blind Rage") dropped, parenthetical values dropped, "&" read as "and",
+ * every non-alphanumeric removed ("Side Step" == "Sidestep"), then known renames applied.
+ */
+export function canonSkill(s: string): string {
+  const t = decodeEntities(s)
+    .replace(/^\s*(special\s+rules?|traits?|skills?)\s*:\s*/i, "")
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "");
+  return SKILL_ALIASES[t] ?? t;
+}
+
 /** Non-substring race abbreviations seen on roster sheets (substring variants are handled below). */
 const RACE_ALIASES: Record<string, string> = {
   owa: "Old World Alliance",

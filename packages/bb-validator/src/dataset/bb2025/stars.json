@@ -55,6 +55,7 @@
     "Orc",
     "Shambling Undead",
     "Skaven",
+    "Slann",
     "Snotling",
     "Tomb Kings",
     "Underworld Denizens",
@@ -281,6 +282,7 @@
     "Orc",
     "Shambling Undead",
     "Skaven",
+    "Slann",
     "Snotling",
     "Tomb Kings",
     "Underworld Denizens",
@@ -540,6 +542,7 @@
     "Orc",
     "Shambling Undead",
     "Skaven",
+    "Slann",
     "Snotling",
     "Tomb Kings",
     "Underworld Denizens",
@@ -581,7 +584,7 @@
    ]
   },
   {
-   "name": "Gretchen Wächter",
+   "name": "Gretchen W\u00e4chter",
    "cost": 180000,
    "playsFor": [
     "Sylvanian Spotlight"
@@ -1086,6 +1089,7 @@
     "Old World Alliance",
     "Orc",
     "Skaven",
+    "Slann",
     "Snotling",
     "Underworld Denizens",
     "Wood Elf"

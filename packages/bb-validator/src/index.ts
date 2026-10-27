@@ -27,6 +27,8 @@ export {
   skillAccess,
   addedSkills,
   normName,
+  canonSkill,
+  decodeEntities,
   isStarName,
   starNameSet,
   findStar,
