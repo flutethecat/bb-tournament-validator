@@ -156,7 +156,7 @@ import {
 import { CoachRatingCache, fumbblBaseUrlFromEnv } from "./coachRating.js";
 import { createSiteBackend } from "./site-backend/index.js";
 import { replayDeferredGameResults } from "./site-backend/banking.js";
-import { teamBuilderWireError } from "./teamBuilderWire.js";
+import { teamBuilderBoundsError, teamBuilderWireError } from "./teamBuilderWire.js";
 import { builtLibraryTeam, registerBuiltTeam, resolveTeamBuilderBuildTarget, retargetComposedTeam } from "./teamBuilderBuild.js";
 import { teamBuilderInducementCatalog } from "./teamBuilderInducements.js";
 import { teamBuilderTierCatalog } from "./teamBuilderTiers.js";
@@ -850,6 +850,8 @@ const builderSaveDeps = (): SaveDeps => ({ dir: BUILDER_SAVES_DIR, raceNameFor: 
  *  The owner's coach name stands in for body.coach (never the stored body's). A sheet that no longer composes
  *  (retired roster / package) still renders its header with an issue instead of failing the link. */
 function sharedViewFor(coach: string, save: TeamBuilderSave, viewer: string | undefined) {
+  // A stored body over the composer limits (e.g. a hand-edited count) is never composed: the link reads as gone.
+  if (!save.body || typeof save.body !== "object" || teamBuilderBoundsError(save.body) || teamBuilderWireError(save.body)) return undefined;
   const stored = save.body as TeamBuilderBody;
   const body: TeamBuilderBody = { ...stored, coach, teamName: String(stored.teamName || save.name) };
   const input: SharedViewInput = { coach, save, publicDir: PUBLIC_DIR, viewer, custom: body.custom === true };
@@ -882,6 +884,8 @@ function sharedViewFor(coach: string, save: TeamBuilderSave, viewer: string | un
  *  Legality is enforced by the composer (off-dataset ⇒ dataset `validate()` can't run) — the caller
  *  checks `.legal`/`.issues`, never the dataset validator. */
 function composeIntrinsicFromBody(teamsDir: string, body: TeamBuilderBody): ComposeIntrinsicResult {
+  const bounds = teamBuilderBoundsError(body);
+  if (bounds) throw new Error(bounds);
   if (!body.rosterId) throw new Error("rosterId is required.");
   if (!body.coach?.trim()) throw new Error("coach is required.");
   if (!body.teamName?.trim()) throw new Error("teamName is required.");
@@ -904,6 +908,8 @@ function composeIntrinsicFromBody(teamsDir: string, body: TeamBuilderBody): Comp
 
 /** Resolve a builder request to a composed team (throws with a client-safe message on bad input). */
 function composeFromBody(teamsDir: string, body: TeamBuilderBody) {
+  const bounds = teamBuilderBoundsError(body);
+  if (bounds) throw new Error(bounds);
   if (!body.rosterId) throw new Error("rosterId is required.");
   if (!body.coach?.trim()) throw new Error("coach is required.");
   if (!body.teamName?.trim()) throw new Error("teamName is required.");
@@ -2730,8 +2736,9 @@ async function handleApi(
       if (method !== "GET" && method !== "HEAD") return sendShared(405, { error: "Use GET." });
       if (sharedReadLimiter.take([`ip:${clientIp(req)}`], 0) > 0) return sendShared(429, { error: "Too many requests; try again shortly." });
       const found = findSharedSave(builderSaveDeps().dir, shareToken);
-      if (!found) return sendShared(404, { error: "This team link is no longer available." });
-      return sendShared(200, { team: sharedViewFor(found.coach, found.save, auth?.coach) });
+      const team = found ? sharedViewFor(found.coach, found.save, auth?.coach) : undefined;
+      if (!team) return sendShared(404, { error: "This team link is no longer available." });
+      return sendShared(200, { team });
     }
   }
 

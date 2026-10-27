@@ -15,7 +15,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { acquireFileWriteLock, atomicWriteTextFile } from "@bb/fork-ops";
-import { teamBuilderWireError } from "./teamBuilderWire.js";
+import { teamBuilderBoundsError, teamBuilderWireError } from "./teamBuilderWire.js";
 
 export const TEAM_BUILDER_SAVES_BODY_CAP = 64 * 1024;
 export const TEAM_BUILDER_SAVES_PER_COACH = 100;
@@ -45,7 +45,7 @@ export interface TeamBuilderSave extends TeamBuilderSaveSummary {
 
 export type SaveResult =
   | { ok: true; status: 200 | 201; save: TeamBuilderSave }
-  | { ok: false; status: 400 | 404 | 409; error: string };
+  | { ok: false; status: 400 | 404 | 409 | 422; error: string };
 
 /** Injective, filesystem-safe key for an exact coach name. */
 export const coachSaveKey = (coach: string): string => createHash("sha256").update(coach, "utf8").digest("hex");
@@ -121,8 +121,11 @@ export function buildBodyForSave(body: Record<string, unknown>): Record<string, 
   return out;
 }
 
-/** Strip credentials and validate a builder body for storage. */
-export function sanitizeSaveBody(body: unknown): { body: Record<string, unknown> } | { error: string } {
+/** Strip credentials and validate a builder body for storage. Over-limit bodies (teamBuilderBoundsError)
+ *  report `status: 422` so the save routes can tell them apart from malformed ones. */
+export function sanitizeSaveBody(body: unknown): { body: Record<string, unknown> } | { error: string; status?: 422 } {
+  const bounds = body && typeof body === "object" && !Array.isArray(body) ? teamBuilderBoundsError(body) : null;
+  if (bounds) return { error: bounds, status: 422 };
   const wire = teamBuilderWireError(body);
   if (wire) return { error: wire };
   // Never persist credentials; `saveId` is a build-route directive, not part of the sheet.
@@ -160,7 +163,7 @@ export function createSave(deps: SaveDeps, coach: string, input: unknown): SaveR
   const n = parseName(name);
   if (typeof n !== "string") return { ok: false, status: 400, error: n.error };
   const b = sanitizeSaveBody(body);
-  if ("error" in b) return { ok: false, status: 400, error: b.error };
+  if ("error" in b) return { ok: false, status: b.status ?? 400, error: b.error };
   const parsed = parsePreview(lastPreview);
   if ("error" in parsed) return { ok: false, status: 400, error: parsed.error };
   const lp = parsed.value;
@@ -189,7 +192,7 @@ export function updateSave(deps: SaveDeps, coach: string, id: string, input: unk
   if (!input || typeof input !== "object" || Array.isArray(input)) return { ok: false, status: 400, error: "request body must be a JSON object." };
   const { name, body, lastPreview } = input as Record<string, unknown>;
   const b = sanitizeSaveBody(body);
-  if ("error" in b) return { ok: false, status: 400, error: b.error };
+  if ("error" in b) return { ok: false, status: b.status ?? 400, error: b.error };
   const parsed = parsePreview(lastPreview);
   if ("error" in parsed) return { ok: false, status: 400, error: parsed.error };
   const lp = parsed.value;
@@ -218,12 +221,13 @@ export function updateSave(deps: SaveDeps, coach: string, id: string, input: unk
 }
 
 export function deleteSave(dir: string, coach: string, id: string): boolean {
-  return withSaves(dir, coach, (saves) => {
-    const gone = saves.find((s) => s.id === id);
-    if (!gone) return { out: false };
-    if (gone.shareToken) dropShareIndex(dir, gone.shareToken);
-    return { saves: saves.filter((s) => s.id !== id), out: true };
+  // The index entry goes only AFTER the saves file is written: a failed write leaves the link fully intact.
+  const gone = withSaves(dir, coach, (saves) => {
+    const save = saves.find((s) => s.id === id);
+    return save ? { saves: saves.filter((s) => s.id !== id), out: save } : { out: undefined };
   });
+  if (gone?.shareToken) dropShareIndex(dir, gone.shareToken);
+  return gone !== undefined;
 }
 
 // --- Public share links (owner 10-27) ---
@@ -242,6 +246,19 @@ export type ShareResult = { ok: true; token: string; sharedAt: string; created: 
 
 /** Share the coach's save: returns its existing token (idempotent) or mints a new 128-bit one. */
 export function shareSave(dir: string, coach: string, id: string, now: () => Date = () => new Date()): ShareResult {
+  // Ordering: the new index entry is written first, then the save. If the save write fails the fresh index entry
+  // is removed again, so storage never holds an index without its save update (or a token without its index).
+  const token = randomBytes(16).toString("hex");
+  let wroteIndex = false;
+  try {
+    return shareSaveLocked(dir, coach, id, token, now, () => { wroteIndex = true; });
+  } catch (e) {
+    if (wroteIndex) dropShareIndex(dir, token);
+    throw e;
+  }
+}
+
+function shareSaveLocked(dir: string, coach: string, id: string, token: string, now: () => Date, indexWritten: () => void): ShareResult {
   return withSaves(dir, coach, (saves) => {
     const i = saves.findIndex((s) => s.id === id);
     if (i < 0) return { out: { ok: false, status: 404, error: "Saved team not found." } as ShareResult };
@@ -252,9 +269,9 @@ export function shareSave(dir: string, coach: string, id: string, now: () => Dat
         atomicWriteTextFile(shareIndexFile(dir, prev.shareToken), JSON.stringify({ coach, id }));
       return { out: { ok: true, token: prev.shareToken, sharedAt: prev.sharedAt ?? prev.updatedAt, created: false } };
     }
-    const token = randomBytes(16).toString("hex");
     const sharedAt = now().toISOString();
     atomicWriteTextFile(shareIndexFile(dir, token), JSON.stringify({ coach, id }));
+    indexWritten();
     const next = [...saves];
     next[i] = { ...prev, shareToken: token, sharedAt };
     return { saves: next, out: { ok: true, token, sharedAt, created: true } };
@@ -263,17 +280,20 @@ export function shareSave(dir: string, coach: string, id: string, now: () => Dat
 
 /** Revoke the coach's share link (old links 404 from then on). False when the save is not the coach's. */
 export function unshareSave(dir: string, coach: string, id: string): boolean {
-  return withSaves(dir, coach, (saves) => {
+  // The save drops its token first; the index entry goes only after that write succeeded (a stale index entry
+  // is harmless: findSharedSave re-checks the token on the save).
+  const result = withSaves(dir, coach, (saves): { saves?: TeamBuilderSave[]; out: { found: boolean; token?: string } } => {
     const i = saves.findIndex((s) => s.id === id);
-    if (i < 0) return { out: false };
+    if (i < 0) return { out: { found: false } };
     const prev = saves[i]!;
-    if (!prev.shareToken) return { out: true };
-    dropShareIndex(dir, prev.shareToken);
-    const { shareToken: _t, sharedAt: _a, ...rest } = prev;
+    if (!prev.shareToken) return { out: { found: true } };
+    const { shareToken: token, sharedAt: _a, ...rest } = prev;
     const next = [...saves];
     next[i] = rest;
-    return { saves: next, out: true };
+    return { saves: next, out: { found: true, token } };
   });
+  if (result.token) dropShareIndex(dir, result.token);
+  return result.found;
 }
 
 /** Public lookup: the shared save + its owner for a token, or undefined (unknown, revoked, malformed). */

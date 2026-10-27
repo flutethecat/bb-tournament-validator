@@ -294,3 +294,73 @@ describe("art lookup parity with the builder page", () => {
     for (const race of ["Dwarf", "Chaos Chosen", "Slann 2025", "Nope"]) expect(resolveCrest(crests, race)).toBe(Core.resolveCrest(crests, race));
   });
 });
+
+describe("hardening (Sol r1)", () => {
+  /** Write a save + its share index straight into the store, bypassing every save-route check. */
+  function seedShared(coach: string, id: string, token: string, body: unknown) {
+    const dir = join(root, "saves");
+    mkdirSync(join(dir, "shares"), { recursive: true });
+    const save = { id, name: "Seeded", packageName: null, rosterId: "dwarf.bb2025", raceName: "Dwarf", teamId: null,
+      createdAt: "2026-10-27T09:00:00.000Z", updatedAt: "2026-10-27T09:00:00.000Z", shareToken: token, sharedAt: "2026-10-27T09:00:00.000Z", body };
+    writeFileSync(join(dir, `${coachSaveKey(coach)}.json`), JSON.stringify({ coach, saves: [save] }));
+    writeFileSync(join(dir, "shares", `${token}.json`), JSON.stringify({ coach, id }));
+  }
+  const xff = (ip: string) => ({ "x-forwarded-for": ip });
+
+  it("a stored save with count 2147483647 is never composed: quick 404, no allocation", async () => {
+    const token = "1".repeat(32);
+    seedShared("Bomber", "sv_bomb", token, { ...sheet("Bomb"), picks: [{ positionId: "1", count: 2147483647 }] });
+    const before = process.memoryUsage().heapUsed;
+    const started = Date.now();
+    const res = await call("GET", `/api/fork/team-builder/shared/${token}`, undefined, undefined, xff("198.51.100.1"));
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "This team link is no longer available." });
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(process.memoryUsage().heapUsed - before).toBeLessThan(64 * 1024 * 1024);
+  });
+
+  it("rejects over-limit bodies at save time (422) and on preview, before composition", async () => {
+    const dave = createSession("Dave");
+    const bomb = { ...sheet("Bomb"), picks: [{ positionId: "1", count: 2147483647 }] };
+    const created = await call("POST", "/api/fork/team-builder/saves", dave.token, { name: "Bomb", body: bomb });
+    expect(created.status).toBe(422);
+    const tooMany = { ...sheet("Many"), picks: [{ positionId: "1", count: 12 }, { positionId: "2", count: 5 }] };
+    expect((await call("POST", "/api/fork/team-builder/saves", dave.token, { name: "Many", body: tooMany })).status).toBe(422);
+    const skills = { ...sheet("Skills"), picks: [{ positionId: "1", count: 1, chosenSkills: Array(9).fill("Block") }] };
+    expect((await call("POST", "/api/fork/team-builder/saves", dave.token, { name: "Skills", body: skills })).status).toBe(422);
+    const ok = (await (await call("POST", "/api/fork/team-builder/saves", dave.token, { name: "Ok", body: sheet("Ok") })).json()) as { save: { id: string } };
+    expect((await call("PUT", `/api/fork/team-builder/saves/${ok.save.id}`, dave.token, { body: bomb })).status).toBe(422);
+    const preview = await call("POST", "/api/fork/team-builder/preview", undefined, bomb);
+    expect(preview.status).toBe(400);
+    expect(((await preview.json()) as { error: string }).error).toMatch(/count must be an integer between 0 and 16/);
+  });
+
+  it("a malformed stored body answers without any secret-bearing text", async () => {
+    const cases: Array<[string, unknown]> = [["2".repeat(32), null], ["3".repeat(32), { rosterId: "nope.bb2025", teamName: "X", picks: [{ positionId: "1", count: 1 }] }], ["4".repeat(32), { picks: "x" }]];
+    for (const [token, body] of cases) {
+      seedShared("Mallory", `sv_m${token[0]}`, token, body);
+      const res = await call("GET", `/api/fork/team-builder/shared/${token}`, undefined, undefined, xff("198.51.100.2"));
+      expect([200, 404]).toContain(res.status);
+      const text = await res.text();
+      for (const secret of [root, root.replace(/\\/g, "/"), "team-share-", coachSaveKey("Mallory"), token, "sv_m", "nope.bb2025", "Error:", "C:\\", "C:/"])
+        expect(text).not.toContain(secret);
+      if (res.status === 200) expect(JSON.parse(text).team.validity).toMatchObject({ valid: false, issues: 1 });
+    }
+  });
+
+  it("public read rate limit: exhausts per IP, other IPs unaffected, a spoofed X-Forwarded-For can't change the key", async () => {
+    const shared = createSession("Erin");
+    const created = (await (await call("POST", "/api/fork/team-builder/saves", shared.token, { name: "E", body: sheet("E") })).json()) as { save: { id: string } };
+    const { shareToken } = (await (await call("POST", `/api/fork/team-builder/saves/${created.save.id}/share`, shared.token)).json()) as { shareToken: string };
+    const path = `/api/fork/team-builder/shared/${shareToken}`;
+    const statuses: number[] = [];
+    for (let i = 0; i < 121; i += 1) statuses.push((await call("GET", path, undefined, undefined, xff("203.0.113.7"))).status);
+    expect(statuses.slice(0, 120).every((s) => s === 200)).toBe(true);
+    expect(statuses[120]).toBe(429);
+    // The client prepends its own value; the proxy appends the real address, which is what keys the limiter.
+    expect((await call("GET", path, undefined, undefined, xff("10.9.9.9, 203.0.113.7"))).status).toBe(429);
+    expect((await call("GET", path, undefined, undefined, { "x-forwarded-for": ["1.1.1.1", "203.0.113.7"].join(",") })).status).toBe(429);
+    // Another client address is unaffected.
+    expect((await call("GET", path, undefined, undefined, xff("203.0.113.8"))).status).toBe(200);
+  });
+});

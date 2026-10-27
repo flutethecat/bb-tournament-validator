@@ -164,3 +164,63 @@ describe("team view controller", () => {
     expect(html).not.toContain("discord-login");
   });
 });
+
+/** Attribute NAMES of every real tag (quoted values skipped, so escaped text inside a title never counts). */
+function liveAttributes(markup: string): string[] {
+  const names: string[] = [];
+  for (const tag of markup.matchAll(/<([a-z][a-z0-9]*)((?:\s+[^\s=>]+(?:="[^"]*"|='[^']*'|=[^\s>]+)?)*)\s*\/?>/gi))
+    for (const attr of tag[2]!.matchAll(/\s+([^\s=>]+)(?:="[^"]*"|='[^']*'|=[^\s>]+)?/g)) names.push(attr[1]!.toLowerCase());
+  return names;
+}
+
+describe("team view: hostile strings (Sol r1 P3)", () => {
+  const EVIL = `<img src=x onerror=alert(1)>"'&`;
+  const hostile = () => {
+    const team: Any = fixture();
+    team.teamName = EVIL;
+    team.coach = EVIL;
+    team.raceName = EVIL;
+    team.ruleset = { name: EVIL, tierLabel: EVIL };
+    team.updatedAt = EVIL;
+    team.specialRules = [EVIL];
+    team.inducements = [{ name: EVIL, count: EVIL, icon: `icons/x.png" onerror="alert(1)` }];
+    team.crest = "javascript:alert(1)";
+    team.players[0] = { ...team.players[0], position: EVIL, number: EVIL, cost: EVIL, sprite: "/sprites/../../x.png",
+      stats: { MA: EVIL, ST: EVIL, AG: EVIL, PA: EVIL, AV: EVIL },
+      printed: [{ name: EVIL, category: EVIL }], added: [{ name: EVIL, category: EVIL, access: EVIL }], statIncreases: [EVIL] };
+    team.summary = { ...team.summary, players: EVIL, total: EVIL, cap: EVIL };
+    team.validity = { valid: false, issues: EVIL, custom: false };
+    return team;
+  };
+
+  it("escapes every server string in the table, the cards, skills, special rules, coach and stats", () => {
+    const markup = TeamView.viewHtml(hostile());
+    expect(markup).not.toContain("<img src=x");
+    expect(markup).not.toContain("javascript:");
+    expect(markup).not.toContain("/sprites/../");
+    expect(liveAttributes(markup)).toEqual(expect.arrayContaining(["class", "title"])); // the scan sees real attributes
+    expect(markup).not.toContain("<img "); // every hostile art path (javascript:, traversal, quote break-out) is dropped
+    expect(liveAttributes(markup).filter((a) => /^on/i.test(a))).toEqual([]); // no live event-handler attribute anywhere
+    const escaped = "&lt;img src=x onerror=alert(1)&gt;&quot;&#39;&amp;";
+    const table = markup.slice(markup.indexOf('<table class="tv-table">'), markup.indexOf("</table>"));
+    const cards = markup.slice(markup.indexOf('<ol class="tv-cards">'), markup.indexOf("</ol>"));
+    for (const part of [table, cards]) {
+      expect(part).toContain(escaped); // position / skills / stats
+      expect(part).toContain(`<span class="skill skill-trait" title="${escaped}">${escaped}</span>`);
+    }
+    expect(markup).toContain(`<h1>${escaped}</h1>`);
+    expect(markup).toContain(`Shared by <strong>${escaped}</strong>`);
+    expect(markup).toContain(`<li>${escaped}</li>`); // special rule
+    expect(markup).toContain("Has 1 issue"); // a non-numeric issue count never reaches the markup
+    expect(markup).toContain("+&lt;img"); // stat increase chip
+  });
+
+  it("document.title takes the team name as text, and the page renders it through the escaped core", async () => {
+    const { page, rootEl, doc } = stubPage({ "/api/auth/session": () => ({ status: 200, body: { authenticated: false } }),
+      [`/api/fork/team-builder/shared/${TOKEN}`]: () => ({ status: 200, body: { team: hostile() } }) });
+    await page.start();
+    expect(doc.title).toBe(`${EVIL} — Super FUMBBL`); // title is a text property, not markup
+    expect(rootEl.innerHTML).not.toContain("<img src=x");
+    expect(liveAttributes(rootEl.innerHTML).filter((a) => /^on/i.test(a))).toEqual([]);
+  });
+});
