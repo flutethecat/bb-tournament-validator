@@ -405,6 +405,103 @@
       }).join("");
       return `<thead>${head}</thead><tbody>${body}</tbody>`;
     }
+    // ── Ruleset overview (owner 10-27; server teamBuilderPackage.ts packageOverview) ──
+    // The server generates every line and cell from package values; the client only sanitizes, merges
+    // tier-uniform cells into rowspans, hides empty columns and escapes.
+    const OVERVIEW_CELLS = ["secondary", "elite", "stacks", "stackLimit", "characteristics", "stars"];
+    const cellStr = (value) => (value === null || value === undefined || value === "" ? null : String(value));
+    /** Field-by-field copy of `rules.overview` (null when absent/malformed). */
+    function normalizeOverview(raw) {
+      if (!raw || typeof raw !== "object" || !Array.isArray(raw.summary) || !Array.isArray(raw.groups)) return null;
+      const strList = (value) => (Array.isArray(value) ? value.map(str) : []);
+      return {
+        summary: raw.summary.filter((line) => line && typeof line === "object").map((line) => ({
+          key: str(line.key),
+          label: str(line.label),
+          text: str(line.text),
+          details: line.details && typeof line.details === "object"
+            ? { summary: str(line.details.summary), items: strList(line.details.items) }
+            : null,
+        })),
+        groups: raw.groups.filter((group) => group && typeof group === "object").map((group) => ({
+          tier: num(group.tier),
+          label: str(group.label),
+          teams: (Array.isArray(group.teams) ? group.teams : []).filter((team) => team && typeof team === "object").map((team) => {
+            const row = { name: str(team.name), gold: num(team.gold), goldMax: num(team.goldMax), allotment: strList(team.allotment) };
+            for (const key of OVERVIEW_CELLS) row[key] = cellStr(team[key]);
+            return row;
+          }),
+        })).filter((group) => group.teams.length),
+      };
+    }
+    /** The highlight lines: label (heading font) + value; `details` becomes a closed disclosure. */
+    function overviewSummaryHtml(overview) {
+      return (overview?.summary ?? []).map((line) => {
+        const more = line.details?.items?.length
+          ? ` <details class="tt-summary-more"><summary>${esc(line.details.summary)}</summary><ul>${line.details.items.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></details>`
+          : "";
+        return `<div class="tt-summary-row" data-summary="${esc(line.key)}"><dt>${esc(line.label)}</dt><dd>${esc(line.text)}${more}</dd></div>`;
+      }).join("");
+    }
+    const OVERVIEW_HEADS = {
+      secondary: "Secondary", elite: "Elite", stacks: "Stacks", stackLimit: "Stack limit", characteristics: "Characteristics", stars: "Stars",
+    };
+    const goldRange = (team) => team.gold == null ? "—" : `${gold(team.gold)}${team.goldMax != null ? `–${gold(team.goldMax)}` : ""}`;
+    const allotmentKey = (team) => team.allotment.join("\u0000");
+    /** A cell value; its " · "-joined parts stack as unbroken lines. */
+    const cellHtml = (value) => value == null ? "—" : String(value).split(" · ").map((part) => `<span class="tt-rt-line">${esc(part)}</span>`).join("");
+    const allotmentHtml = (team) => team.allotment.length ? team.allotment.map((line) => `<span class="tt-rt-line">${esc(line)}</span>`).join("") : "—";
+    /** Most common value in a list (first seen wins a tie). */
+    function majority(values) {
+      const tally = new Map();
+      for (const value of values) tally.set(value, (tally.get(value) ?? 0) + 1);
+      let best = values[0];
+      for (const [value, count] of tally) if (count > tally.get(best)) best = value;
+      return best;
+    }
+    /**
+     * The tier table: Tier (rowspan) | one row per team (Team, Gold cap, Skill allotment) | tier-level columns.
+     * A tier-level value that is the same for every team in the tier spans the tier; one that differs is shown on
+     * each team row. Star access spans the tier with the common value and names each differing roster under its
+     * team name. Columns empty (null) for every team are dropped.
+     */
+    function overviewTableHtml(overview) {
+      const groups = overview?.groups ?? [];
+      const teams = groups.flatMap((group) => group.teams);
+      if (!teams.length) return "";
+      const showGold = teams.some((team) => team.gold != null);
+      const cols = OVERVIEW_CELLS.filter((key) => teams.some((team) => team[key] != null));
+      const head = `<tr><th scope="col" class="tt-rt-tier-head">Tier</th><th scope="col">Team</th>${showGold ? '<th scope="col" class="tt-rt-num">Gold cap</th>' : ""}<th scope="col">Skill allotment</th>${cols.map((key) => `<th scope="col">${OVERVIEW_HEADS[key]}</th>`).join("")}</tr>`;
+      const body = groups.map((group) => {
+        const n = group.teams.length;
+        const span = n > 1 ? ` rowspan="${n}"` : "";
+        const uniform = (key) => group.teams.every((team) => team[key] === group.teams[0][key]);
+        const allotmentUniform = group.teams.every((team) => allotmentKey(team) === allotmentKey(group.teams[0]));
+        const commonStars = cols.includes("stars") ? majority(group.teams.map((team) => team.stars)) : null;
+        const rows = group.teams.map((team, index) => {
+          const first = index === 0;
+          const tierCell = first
+            ? `<th scope="rowgroup"${span} class="tt-rt-tier">${group.tier != null ? esc(group.tier) : `<span class="tt-rt-all">${esc(group.label || "All teams")}</span>`}</th>`
+            : "";
+          const starNote = cols.includes("stars") && team.stars !== commonStars
+            ? `<small class="tt-rt-note">Stars: ${esc(team.stars ?? "none")}</small>`
+            : "";
+          const cells = [`<th scope="row" class="tt-rt-team">${esc(team.name)}${starNote}</th>`];
+          if (showGold) cells.push(`<td class="tt-rt-num tt-rt-gold">${esc(goldRange(team))}</td>`);
+          if (!allotmentUniform) cells.push(`<td class="tt-rt-allot">${allotmentHtml(team)}</td>`);
+          else if (first) cells.push(`<td class="tt-rt-allot tt-rt-span"${span}>${allotmentHtml(team)}</td>`);
+          for (const key of cols) {
+            if (key === "stars") {
+              if (first) cells.push(`<td class="tt-rt-span"${span}>${cellHtml(commonStars)}</td>`);
+            } else if (!uniform(key)) cells.push(`<td>${cellHtml(team[key])}</td>`);
+            else if (first) cells.push(`<td class="tt-rt-span"${span}>${cellHtml(team[key])}</td>`);
+          }
+          return `<tr>${tierCell}${cells.join("")}</tr>`;
+        }).join("");
+        return `<tbody class="tt-rt-group">${rows}</tbody>`;
+      }).join("");
+      return `<thead>${head}</thead>${body}`;
+    }
     /** Star packs that contain a given star (by normalized name). */
     function starPacksFor(starName, starPacks) {
       const key = norm(starName);
@@ -727,6 +824,7 @@ ${rosterSheetHtml(model)}
       normalizeLeagueOptions, leagueFieldPresentation, reconcileLeagueSelection, explicitLeagueSpecialRule, starEligibleForLeague,
       buildStarChoices, positionGroupCapped, buildPicks, slotsFromPicks,
       improvedStats, statIncreaseCost, normalizeTierRules, tierLimitLines, tierTable, tierTableHtml, starPacksFor, starPackLabel,
+      normalizeOverview, overviewSummaryHtml, overviewTableHtml,
       stackLabel, statIncreaseLabel, DEFAULT_SKILL_COSTS, playerSkillSp,
       rosterSheetModel, rosterSheetHtml, standaloneSheetDocument, sheetFileName, SHEET_CSS,
     };
@@ -1748,6 +1846,7 @@ ${rosterSheetHtml(model)}
       name: sv(rules.name),
       ...(rules.dataNote ? { dataNote: sv(rules.dataNote) } : {}),
       budget: n0(rules.budget),
+      overview: Core.normalizeOverview(rules.overview),
       tierSummary: rules.tierSummary.map((tier) => ({
         tier: n0(tier?.tier),
         label: sv(tier?.label),
@@ -2784,7 +2883,7 @@ ${rosterSheetHtml(model)}
     $("tt-step-package").hidden = setupStep !== 1;
     $("tt-step-race").hidden = setupStep !== 2;
     $("builder-panel").hidden = setupStep !== 3;
-    // Step 1 — rulesets + the chosen one's description, data note and tier table.
+    // Step 1 — rulesets + the chosen one's generated summary and per-team tier table (organiser notes collapsed).
     // Owner 10-27: ruleset cards are name-only styled buttons (the description shows once a ruleset is chosen);
     // example/sample packages are development fixtures and never offered here.
     const offered = packages.filter((row) => !isExamplePackage(row.name));
@@ -2794,14 +2893,24 @@ ${rosterSheetHtml(model)}
     $("tt-package-detail").hidden = !name;
     if (name) {
       $("tt-package-name").textContent = name;
-      $("tt-package-description").textContent = String(packageDoc?.description ?? packages.find((row) => row.name === name)?.description ?? "");
-      const note = packageRules?.dataNote ?? packageDoc?.dataNote ?? "";
-      $("tt-package-note").textContent = String(note);
+      // Owner 10-27: highlights + the per-team table are generated from package values (server overview);
+      // the organiser's free text stays available under a closed "Organiser notes" disclosure.
+      const description = String(packageDoc?.description ?? packages.find((row) => row.name === name)?.description ?? "");
+      const note = String(packageRules?.dataNote ?? packageDoc?.dataNote ?? "");
+      $("tt-package-description").textContent = description;
+      $("tt-package-description").hidden = !description;
+      $("tt-package-note").textContent = note;
       $("tt-package-note").hidden = !note;
-      const table = Core.tierTable(tierRows, packageRules?.tierSummary);
-      $("tt-tier-table").innerHTML = Core.tierTableHtml(table);
-      $("tt-tier-table").hidden = !table.length;
-      $("tt-tier-empty").hidden = Boolean(table.length);
+      $("tt-organiser-notes").hidden = !description && !note;
+      const overview = packageRules?.overview ?? null;
+      $("tt-package-summary").innerHTML = Core.overviewSummaryHtml(overview);
+      $("tt-package-summary").hidden = !overview?.summary.length;
+      // An older server without `overview` still gets the original tier/roster table.
+      const markup = overview ? Core.overviewTableHtml(overview) : Core.tierTableHtml(Core.tierTable(tierRows, packageRules?.tierSummary));
+      $("tt-tier-table").className = overview ? "tt-rules-table" : "tier-table";
+      $("tt-tier-table").innerHTML = markup;
+      $("tt-tier-table").hidden = !markup;
+      $("tt-tier-empty").hidden = Boolean(markup);
     }
     // Step 2 — eligible races grouped by tier, each with its team-value cap.
     if (setupStep === 2) {

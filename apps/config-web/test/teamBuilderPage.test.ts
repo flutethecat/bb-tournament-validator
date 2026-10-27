@@ -657,3 +657,101 @@ describe("team builder page — modal cleanup", () => {
     expect(js).toContain('dialog.addEventListener("cancel", (event) => { // Esc');
   });
 });
+
+describe("tournament team builder — ruleset summary + per-team tier table (owner 10-27)", () => {
+  const ttHtml = readFileSync(new URL("tournament-team-builder.html", publicDir), "utf8");
+  const evil = "<img src=x onerror=alert(1)>";
+  const row = (name: string, extra: Record<string, unknown> = {}) => ({
+    name, gold: 1_150_000, goldMax: null, allotment: ["primary 20k · secondary 40k"],
+    secondary: "2", elite: null, stacks: "1", stackLimit: "3 skills · primary only", characteristics: null, stars: null, ...extra,
+  });
+  const overview = core.normalizeOverview({
+    summary: [
+      { key: "structure", label: "Structure", text: "Tiered: 2 tiers." },
+      { key: "stars", label: "Star players", text: "Tier 2 only.", details: { summary: "2 banned stars", items: ["Grak", "Crumbleberry"] } },
+    ],
+    groups: [
+      { tier: 1, label: "Tier 1", teams: [row("Orc", { gold: 1_225_000 }), row("High Elf", { gold: 1_260_000 })] },
+      { tier: 2, label: "Tier 2", teams: [
+        row("Goblin", { gold: 1_100_000, goldMax: 1_150_000, allotment: ["1,150k · 8 skills", "1,100k · 9 skills"], stacks: "0", stars: "Free (max 2)" }),
+        row("Snotling", { allotment: ["1,150k · 8 skills", "1,100k · 9 skills"], stacks: "2", stars: "Free (max 2) · Mega Star (max 1)" }),
+        row("Halfling", { allotment: ["1,150k · 8 skills", "1,100k · 9 skills"], stacks: "0", stars: "Free (max 2)" }),
+      ] },
+    ],
+  });
+
+  it("renders labelled highlight lines with banned names in a closed disclosure", () => {
+    const markup: string = core.overviewSummaryHtml(overview);
+    expect(markup).toContain('<div class="tt-summary-row" data-summary="structure"><dt>Structure</dt><dd>Tiered: 2 tiers.</dd></div>');
+    expect(markup).toContain('<details class="tt-summary-more"><summary>2 banned stars</summary><ul><li>Grak</li><li>Crumbleberry</li></ul></details>');
+    expect(markup).not.toContain("<details open");
+  });
+
+  it("spans the tier number and tier-uniform cells, shows per-team values and allotments, and notes star exceptions", () => {
+    const markup: string = core.overviewTableHtml(overview);
+    // Tier number spans its teams; one row per team.
+    expect(markup).toContain('<th scope="rowgroup" rowspan="2" class="tt-rt-tier">1</th>');
+    expect(markup).toContain('<th scope="rowgroup" rowspan="3" class="tt-rt-tier">2</th>');
+    expect(markup.match(/<th scope="row" class="tt-rt-team">/g)).toHaveLength(5);
+    // Uniform allotment / secondary span the tier; packs stack one per line.
+    expect(markup).toContain('<td class="tt-rt-allot tt-rt-span" rowspan="3"><span class="tt-rt-line">1,150k · 8 skills</span><span class="tt-rt-line">1,100k · 9 skills</span></td>');
+    expect(markup).toContain('<td class="tt-rt-span" rowspan="2"><span class="tt-rt-line">2</span></td>');
+    // Stacks differ inside Tier 2 → a cell on each team row.
+    expect(markup).toContain('<td><span class="tt-rt-line">0</span></td>');
+    expect(markup).toContain('<td><span class="tt-rt-line">2</span></td>');
+    // Gold caps per team, ranges for choose-one packs.
+    expect(markup).toContain('<td class="tt-rt-num tt-rt-gold">1,260k</td>');
+    expect(markup).toContain('<td class="tt-rt-num tt-rt-gold">1,100k–1,150k</td>');
+    // Stars: the tier's common value spans; the differing roster is named under its team.
+    expect(markup).toContain('Snotling<small class="tt-rt-note">Stars: Free (max 2) · Mega Star (max 1)</small>');
+    expect(markup).toContain('<td class="tt-rt-span" rowspan="3"><span class="tt-rt-line">Free (max 2)</span></td>');
+  });
+
+  it("hides columns that are empty for every team", () => {
+    const head: string = core.overviewTableHtml(overview).split("</thead>")[0];
+    expect(head).toContain(">Secondary<");
+    expect(head).toContain(">Stack limit<");
+    expect(head).toContain(">Stars<");
+    expect(head).not.toContain(">Elite<");
+    expect(head).not.toContain(">Characteristics<");
+    const bare = core.normalizeOverview({ summary: [], groups: [{ tier: null, label: "All teams", teams: [{ name: "Every eligible roster (31)", gold: null, allotment: ["no added skills"] }] }] });
+    const markup: string = core.overviewTableHtml(bare);
+    expect(markup).not.toContain("Gold cap");
+    expect(markup).not.toContain(">Stacks<");
+    expect(markup).toContain('<span class="tt-rt-all">All teams</span>');
+  });
+
+  it("renders the real server overview for a shipped package", async () => {
+    const { packageOverview } = await import("../src/teamBuilderPackage");
+    const { loadPackage } = await import("@bb/validator");
+    const nutCup = JSON.parse(readFileSync(new URL("../../../tournament-packages/whbb-nut-cup-2026.json", import.meta.url), "utf8"));
+    const markup: string = core.overviewTableHtml(core.normalizeOverview(packageOverview(loadPackage(nutCup).pkg)));
+    expect(markup).toContain('<th scope="rowgroup" rowspan="2" class="tt-rt-tier">5</th>');
+    expect(markup).toContain('<span class="tt-rt-line">1,150k · 8 skills · primary only · Star allowed</span>');
+    expect(markup).not.toContain(">Elite<");
+  });
+
+  it("sanitizes the overview field-by-field and escapes every value", () => {
+    const hostile = core.normalizeOverview({
+      summary: [{ key: evil, label: evil, text: evil, details: { summary: evil, items: [evil] } }],
+      groups: [{ tier: evil, label: evil, teams: [{ name: evil, gold: evil, goldMax: 2, allotment: [evil], secondary: evil, elite: evil, stacks: evil, stackLimit: evil, characteristics: evil, stars: evil, extra: evil }] }],
+    });
+    expect(hostile.groups[0].tier).toBeNull();
+    expect(hostile.groups[0].teams[0].gold).toBeNull();
+    expect(hostile.groups[0].teams[0]).not.toHaveProperty("extra");
+    const markup = core.overviewSummaryHtml(hostile) + core.overviewTableHtml(hostile);
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain("&lt;img");
+    expect(core.normalizeOverview(null)).toBeNull();
+    expect(core.normalizeOverview({ summary: "x" })).toBeNull();
+  });
+
+  it("keeps the organiser's text collapsed under Organiser notes and wires the generated overview", () => {
+    expect(ttHtml).toContain('<dl id="tt-package-summary" class="tt-summary"></dl>');
+    expect(ttHtml).toMatch(/<details id="tt-organiser-notes" class="tt-organiser-notes">\s*<summary>Organiser notes<\/summary>\s*<p id="tt-package-description"/);
+    expect(ttHtml).not.toContain('id="tt-organiser-notes" class="tt-organiser-notes" open');
+    expect(js).toContain("overview: Core.normalizeOverview(rules.overview)");
+    expect(js).toContain('$("tt-package-summary").innerHTML = Core.overviewSummaryHtml(overview);');
+    expect(css).toContain(".tt-rules-wrap { overflow-x: auto;");
+  });
+});

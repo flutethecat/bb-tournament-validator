@@ -80,10 +80,16 @@
           <h2 id="tt-package-name"></h2>
           <button id="tt-to-races" class="create-button tt-next" type="button">Choose a race →</button>
         </div>
-        <p id="tt-package-description" class="tt-package-description"></p>
-        <p id="tt-package-note" class="ruleset-caveat" hidden></p>
-        <div class="tier-table-wrap"><table id="tt-tier-table" class="tier-table"></table></div>
-        <p id="tt-tier-empty" class="status-copy" hidden>This ruleset has no tiers — every eligible roster shares the same budget.</p>
+        <!-- Owner 10-27: generated highlights (package values only) + the per-team tier table; the organiser's own
+             description and the data note sit collapsed under "Organiser notes". -->
+        <dl id="tt-package-summary" class="tt-summary"></dl>
+        <div class="tt-rules-wrap"><table id="tt-tier-table" class="tt-rules-table"></table></div>
+        <p id="tt-tier-empty" class="status-copy" hidden>This ruleset lists no eligible rosters.</p>
+        <details id="tt-organiser-notes" class="tt-organiser-notes">
+          <summary>Organiser notes</summary>
+          <p id="tt-package-description" class="tt-package-description"></p>
+          <p id="tt-package-note" class="ruleset-caveat" hidden></p>
+        </details>
       </section>
     </section>
 

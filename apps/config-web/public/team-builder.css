@@ -834,6 +834,42 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .tt-package-head h2 { margin: 0; color: var(--ui-gold); font-size: clamp(18px, 1.4vw, 24px); font-weight: 500; letter-spacing: .05em; }
 .tt-next { width: auto; padding-inline: 18px; }
 .tt-package-description { margin: 0; color: var(--ui-text); font: 16px/1.5 var(--font-body); white-space: pre-line; }
+/* Owner 10-27: step-1 ruleset summary (generated highlights) + per-team tier table, in the ruleset-card / notebook
+   language: dark surface, heading-font labels and tier numbers, primary-red rules, zebra rows, tabular gold caps. */
+.tt-summary { display: grid; gap: 0; margin: 0; background: var(--ui-surface); border: 1px solid var(--ui-border); border-left: 3px solid var(--ui-primary); border-radius: 5px; }
+.tt-summary-row { display: grid; grid-template-columns: minmax(120px, 11em) 1fr; gap: 12px; padding: 8px 12px; border-top: 1px solid color-mix(in srgb, var(--ui-primary) 35%, var(--ui-border)); }
+.tt-summary-row:first-child { border-top: 0; }
+.tt-summary-row:nth-child(even) { background: color-mix(in srgb, var(--ui-surface-2) 45%, var(--ui-surface)); }
+.tt-summary dt { color: var(--ui-gold); font: 15px/1.5 var(--font-heading); letter-spacing: .08em; text-transform: uppercase; }
+.tt-summary dd { margin: 0; color: var(--ui-text); font: 16px/1.5 var(--font-body); }
+.tt-summary-more { display: inline; }
+.tt-summary-more summary { display: inline; color: var(--ui-heading); cursor: pointer; text-decoration: underline dotted; }
+.tt-summary-more ul { margin: 6px 0 0; padding-left: 18px; columns: 2 14em; font-size: 15px; color: var(--ui-muted); }
+.tt-rules-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--ui-border); border-top: 2px solid var(--ui-primary); border-radius: 0 0 5px 5px; background: var(--ui-surface); }
+.tt-rules-table { width: 100%; min-width: 640px; border-collapse: collapse; font: 15px/1.4 var(--font-body); color: var(--ui-text); }
+.tt-rules-table th,
+.tt-rules-table td { padding: 6px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid color-mix(in srgb, var(--ui-border) 70%, transparent); }
+.tt-rules-table thead th { position: sticky; top: 0; color: var(--ui-table-head-ink); background: color-mix(in srgb, var(--ui-primary) 34%, var(--ui-surface)); font: 14px/1.2 var(--font-heading); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; border-bottom: 2px solid var(--ui-primary); }
+.tt-rules-table tbody.tt-rt-group { border-top: 2px solid var(--ui-primary); }
+.tt-rules-table tbody.tt-rt-group:nth-of-type(even) { background: color-mix(in srgb, var(--ui-surface-2) 40%, var(--ui-surface)); }
+.tt-rules-table tbody tr:nth-child(even) > :not(.tt-rt-span):not(.tt-rt-tier) { background: color-mix(in srgb, var(--ui-primary) 7%, transparent); }
+.tt-rules-table .tt-rt-tier { width: 3.2em; color: var(--ui-gold); font: 30px/1 var(--font-heading); text-align: center; vertical-align: middle; border-right: 2px solid var(--ui-primary); }
+.tt-rules-table .tt-rt-tier .tt-rt-all { display: block; font-size: 15px; letter-spacing: .08em; text-transform: uppercase; }
+.tt-rules-table .tt-rt-tier-head { text-align: center; }
+.tt-rules-table .tt-rt-team { font-weight: 500; white-space: nowrap; }
+.tt-rules-table .tt-rt-note { display: block; color: var(--ui-muted); font-size: 13px; font-weight: 400; white-space: normal; }
+.tt-rules-table .tt-rt-num { text-align: right; }
+.tt-rules-table .tt-rt-gold { color: var(--ui-gold); font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tt-rules-table .tt-rt-line { display: block; white-space: nowrap; }
+.tt-rules-table .tt-rt-span { vertical-align: middle; border-left: 1px solid color-mix(in srgb, var(--ui-border) 70%, transparent); }
+.tt-organiser-notes { color: var(--ui-muted); border: 1px solid var(--ui-border); border-radius: 5px; padding: 6px 12px; background: var(--ui-surface); }
+.tt-organiser-notes summary { color: var(--ui-text); font: 15px/1.6 var(--font-heading); letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+.tt-organiser-notes[open] summary { margin-bottom: 6px; }
+.tt-organiser-notes p { margin: 0 0 8px; }
+@media (max-width: 640px) {
+  .tt-summary-row { grid-template-columns: 1fr; gap: 2px; }
+  .tt-rules-table .tt-rt-tier { font-size: 24px; }
+}
 .tt-race-heading { justify-content: space-between; }
 .tt-race-groups { display: flex; flex-direction: column; gap: 14px; }
 .tt-locked-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-heading); border-radius: 5px; font-size: 16px; }

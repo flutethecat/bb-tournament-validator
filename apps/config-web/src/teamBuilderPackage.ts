@@ -1,4 +1,15 @@
-import { isCountPack, resolveTeamConfig, type StatKey, type TournamentPackage } from "@bb/validator";
+import {
+  eligibleTeamNames,
+  isCountPack,
+  resolveTeamConfig,
+  usesCountMode,
+  type Dataset,
+  type ResolvedTeamConfig,
+  type SkillPackage,
+  type StatKey,
+  type TournamentPackage,
+} from "@bb/validator";
+import { bb2025 } from "@bb/validator/dataset";
 import type { PackageFiles } from "./data.js";
 
 /** What preview/build validate against, plus (when a tournament package was
@@ -289,12 +300,14 @@ export function packageRaceRules(pkg: TournamentPackage, race: string): RaceRule
 export function packageRulesInfo(
   pkg: TournamentPackage,
   roster?: string | null,
+  data: Dataset = bb2025,
 ): {
   name: string;
   dataNote?: string;
   budget?: number | null;
   tierSummary: TierSummaryRow[];
   race?: RaceRulesInfo;
+  overview: RulesetOverview;
 } {
   const race = roster ? packageRaceRules(pkg, roster) : undefined;
   return {
@@ -302,5 +315,500 @@ export function packageRulesInfo(
     ...(pkg.dataNote ? { dataNote: pkg.dataNote } : {}),
     tierSummary: packageTierSummary(pkg),
     ...(race ? { budget: race.gold, race } : {}),
+    overview: packageOverview(pkg, data),
   };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Ruleset overview (owner 10-27): the Tournament Team Builder's step-1 highlights + per-team tier table.
+// Every line and cell below is GENERATED FROM PACKAGE VALUES through resolveTeamConfig (the resolver
+// validate() uses) — never parsed from the organiser's description, labels or dataNote.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** One labelled highlight line; `details` renders as a closed disclosure (e.g. the banned-star names). */
+export interface OverviewLine {
+  key: "structure" | "skills" | "elite" | "stars" | "inducements" | "sideline" | "minPlayers";
+  label: string;
+  text: string;
+  details?: { summary: string; items: string[] };
+}
+
+/** The tier-level table cells for one team; null = not applicable (a column hides when null for every team). */
+export interface OverviewCells {
+  secondary: string | null;
+  elite: string | null;
+  stacks: string | null;
+  stackLimit: string | null;
+  characteristics: string | null;
+  stars: string | null;
+}
+
+export interface OverviewTeamRow extends OverviewCells {
+  name: string;
+  /** Gold cap; with choose-one packages, the cheapest pack's gold and `goldMax` the dearest. */
+  gold: number | null;
+  goldMax: number | null;
+  /** The team's skill allotment, one line per choose-one package. */
+  allotment: string[];
+}
+
+export interface OverviewGroup {
+  /** Tier number; null for the single "All teams" group of a non-tiered package. */
+  tier: number | null;
+  label: string;
+  teams: OverviewTeamRow[];
+}
+
+export interface RulesetOverview {
+  summary: OverviewLine[];
+  groups: OverviewGroup[];
+}
+
+const fmtGold = (n: number): string => `${Math.round(n / 1000).toLocaleString("en-US")}k`;
+const fmtNum = (n: number): string => (Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100));
+const plural = (n: number, word: string): string => `${fmtNum(n)} ${word}${n === 1 ? "" : "s"}`;
+const range = (values: number[], fmt: (n: number) => string): string => {
+  if (!values.length) return "";
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  return lo === hi ? fmt(lo) : `${fmt(lo)}–${fmt(hi)}`;
+};
+const uniq = <T>(values: T[]): T[] => [...new Set(values)];
+const sameKey = (a: string, b: string): boolean =>
+  a.toLowerCase().replace(/[^a-z0-9]/g, "") === b.toLowerCase().replace(/[^a-z0-9]/g, "");
+const sentence = (text: string): string => `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
+
+/** "Tier 5" / "Tiers 4–6" / "Tiers 2, 4 and 6". */
+function tierPhrase(tiers: number[]): string {
+  const sorted = uniq(tiers).sort((a, b) => a - b);
+  if (sorted.length === 1) return `Tier ${sorted[0]}`;
+  const consecutive = sorted.every((t, i) => i === 0 || t === sorted[i - 1]! + 1);
+  if (consecutive) return `Tiers ${sorted[0]}–${sorted[sorted.length - 1]}`;
+  return `Tiers ${sorted.slice(0, -1).join(", ")} and ${sorted[sorted.length - 1]}`;
+}
+
+interface TeamEntry {
+  name: string;
+  tier: number | null;
+  cfg: ResolvedTeamConfig;
+}
+
+/** The package's teams in its own order: tier rosters, else matrix cells, else eligibleRosters ("*" = every dataset team). */
+function overviewTeams(pkg: TournamentPackage, data: Dataset): TeamEntry[] {
+  if (pkg.tiers?.length && !pkg.matrix?.cells.length) {
+    return pkg.tiers.flatMap((t) => t.rosters.map((name) => ({ name, tier: t.tier, cfg: resolveTeamConfig(pkg, name) })));
+  }
+  const names =
+    pkg.matrix?.cells.length || !pkg.eligibleRosters.includes("*")
+      ? eligibleTeamNames(pkg)
+      : data.teams.map((team) => team.name).sort((a, b) => a.localeCompare(b));
+  return uniq(names).map((name) => ({ name, tier: null, cfg: resolveTeamConfig(pkg, name) }));
+}
+
+/** Gold-priced skills: added skills are bought with gold inside the team-value cap. */
+const goldPriced = (pkg: TournamentPackage): boolean => pkg.goldCapIncludesAddedSkills === true;
+/** Same fallbacks as the validator's costGold (owner 08-04 flat defaults). */
+const goldCosts = (pkg: TournamentPackage) => ({
+  primary: pkg.skillAllotment.primaryCostGold ?? 20_000,
+  secondary: pkg.skillAllotment.secondaryCostGold ?? 40_000,
+  elite: pkg.skillAllotment.eliteSurchargeGold ?? 10_000,
+});
+const spCosts = (pkg: TournamentPackage) => ({
+  primary: pkg.skillAllotment.primaryCostSP,
+  secondary: pkg.skillAllotment.secondaryCostSP ?? pkg.skillAllotment.primaryCostSP * pkg.skillAllotment.secondaryMultiplier,
+  elite: pkg.skillAllotment.eliteSurchargeSP,
+  stack: pkg.skillAllotment.stackSurchargeSP ?? 0,
+});
+
+/** Can this team add any skill at all? */
+function canAddSkills(pkg: TournamentPackage, cfg: ResolvedTeamConfig): boolean {
+  if (cfg.skillPackages?.length)
+    return cfg.skillPackages.some((p) => (isCountPack(p) ? (p.maxSkills ?? 1) > 0 : p.skillPointBudget > 0));
+  if (goldPriced(pkg)) return true;
+  if (usesCountMode(cfg)) return (cfg.maxPrimary ?? 1) + (cfg.maxSecondary ?? 1) > 0;
+  return cfg.skillPointBudget > 0;
+}
+
+/** Most added skills one player may carry (the most generous choose-one pack's cap, else the allotment's). */
+function perPlayerMax(pkg: TournamentPackage, cfg: ResolvedTeamConfig): number | null {
+  const base = pkg.skillAllotment.maxPerPlayer;
+  const packs = cfg.skillPackages ?? [];
+  const caps = packs.length ? packs.map((p) => p.maxPerPlayer ?? base) : [base];
+  const stackCap = cfg.stackedPlayer.maxSkills;
+  if (caps.some((c) => c == null)) return stackCap;
+  const max = Math.max(...(caps as number[]));
+  return stackCap != null ? Math.min(max, stackCap) : max;
+}
+
+const canStack = (pkg: TournamentPackage, cfg: ResolvedTeamConfig): boolean => {
+  if (!canAddSkills(pkg, cfg)) return false;
+  const per = perPlayerMax(pkg, cfg);
+  return (per == null || per > 1) && cfg.maxStackedPlayers !== 0;
+};
+
+function packLine(pkg: TournamentPackage, cfg: ResolvedTeamConfig, p: SkillPackage, packs: SkillPackage[]): string {
+  const parts = [fmtGold(p.gold)];
+  if (isCountPack(p)) {
+    parts.push(p.maxSkills != null ? plural(p.maxSkills, "skill") : "any skills");
+    if (p.maxSecondary != null && p.maxSecondary !== cfg.maxSecondary)
+      parts.push(p.maxSecondary === 0 ? "primary only" : `≤${p.maxSecondary} secondary`);
+  } else {
+    parts.push(`${fmtNum(p.skillPointBudget)} SP`);
+  }
+  const per = p.maxPerPlayer ?? pkg.skillAllotment.maxPerPlayer;
+  const perValues = uniq(packs.map((q) => q.maxPerPlayer ?? pkg.skillAllotment.maxPerPlayer));
+  if (perValues.length > 1 && per != null) parts.push(`${plural(per, "skill")} per player`);
+  const starValues = uniq(packs.map((q) => q.starPlayersAllowed !== false));
+  if (starValues.length > 1 && p.starPlayersAllowed !== false) parts.push("Star allowed");
+  return parts.join(" · ");
+}
+
+/** The team's skill allotment: choose-one packs / gold prices / skill counts / SP budget. */
+function teamAllotment(pkg: TournamentPackage, cfg: ResolvedTeamConfig): string[] {
+  const packs = cfg.skillPackages ?? [];
+  if (packs.length) return packs.map((p) => packLine(pkg, cfg, p, packs));
+  if (!canAddSkills(pkg, cfg)) return ["no added skills"];
+  if (goldPriced(pkg)) {
+    const g = goldCosts(pkg);
+    return [`primary ${fmtGold(g.primary)} · secondary ${fmtGold(g.secondary)}`];
+  }
+  if (usesCountMode(cfg)) {
+    const swap = cfg.secondarySwap
+      ? ` · swap ${cfg.secondarySwapRatio} primary → 1 secondary${cfg.secondarySwapMax != null ? ` (max ${cfg.secondarySwapMax})` : ""}`
+      : "";
+    if (cfg.maxPrimary == null) return [`any primary · ≤${cfg.maxSecondary} secondary${swap}`];
+    if (cfg.maxSecondary == null) return [`${plural(cfg.maxPrimary, "primary skill")}${swap}`];
+    return [`${plural(cfg.maxPrimary + cfg.maxSecondary, "skill")} (${cfg.maxSecondary === 0 && !cfg.secondarySwap ? "primary only" : `≤${cfg.maxSecondary} secondary`})${swap}`];
+  }
+  return [`${fmtNum(cfg.skillPointBudget)} SP`];
+}
+
+/** A stacked player's limit as a value: "3 skills · ≤2 secondary · no elite". */
+function stackLimitValue(pkg: TournamentPackage, cfg: ResolvedTeamConfig): string {
+  const sp = cfg.stackedPlayer;
+  const per = perPlayerMax(pkg, cfg);
+  // A team that may take no secondary at all can't stack one either.
+  const sec = cfg.maxSecondary === 0 ? 0 : sp.maxSecondary;
+  return [
+    per != null ? plural(per, "skill") : "any skills",
+    sec === 0 ? "primary only" : sec != null ? `≤${sec} secondary` : "",
+    sp.maxElite === 0 ? "no elite" : sp.maxElite != null ? `≤${sp.maxElite} elite` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function eliteCaps(cfg: ResolvedTeamConfig): string | null {
+  const parts = [
+    cfg.eliteMaxTotal != null ? `≤${cfg.eliteMaxTotal} total` : "",
+    cfg.eliteMaxSameSkill != null ? `≤${cfg.eliteMaxSameSkill} of one skill` : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+function statValue(cfg: ResolvedTeamConfig): string | null {
+  const si = cfg.statIncreases;
+  if (!si?.allowed.length) return null;
+  return si.allowed.map((k) => `+${k}${si.costGold[k] != null ? ` ${fmtGold(si.costGold[k]!)}` : ""}`).join(" · ");
+}
+
+/** Star packs open to this team (pkg.starPacks filtered by the resolved starPacksAllowed). */
+const openPacks = (pkg: TournamentPackage, cfg: ResolvedTeamConfig) =>
+  (pkg.starPacks ?? []).filter((p) => cfg.starPacksAllowed == null || cfg.starPacksAllowed.includes(p.id));
+
+function starsValue(pkg: TournamentPackage, cfg: ResolvedTeamConfig): string | null {
+  if (!cfg.starPlayersAllowed) return null;
+  if (pkg.starPacks?.length) {
+    const packs = openPacks(pkg, cfg);
+    if (!packs.length) return null;
+    return packs.map((p) => `${p.label ?? p.id}${p.max != null ? ` (max ${p.max})` : ""}`).join(" · ");
+  }
+  return pkg.starPlayers.maxCount != null ? `max ${pkg.starPlayers.maxCount}` : "allowed";
+}
+
+function teamRow(pkg: TournamentPackage, entry: TeamEntry): OverviewTeamRow {
+  const { cfg } = entry;
+  const packs = cfg.skillPackages ?? [];
+  const golds = packs.length ? packs.map((p) => p.gold) : cfg.gold != null ? [cfg.gold] : [];
+  const skills = canAddSkills(pkg, cfg);
+  return {
+    name: entry.name,
+    gold: golds.length ? Math.min(...golds) : null,
+    goldMax: golds.length && Math.max(...golds) !== Math.min(...golds) ? Math.max(...golds) : null,
+    allotment: teamAllotment(pkg, cfg),
+    secondary: skills && cfg.maxSecondary != null ? String(cfg.maxSecondary) : null,
+    elite: skills ? eliteCaps(cfg) : null,
+    stacks: !skills || (perPlayerMax(pkg, cfg) ?? 2) <= 1 ? null : cfg.maxStackedPlayers != null ? String(cfg.maxStackedPlayers) : "any",
+    stackLimit: canStack(pkg, cfg) ? stackLimitValue(pkg, cfg) : null,
+    characteristics: statValue(cfg),
+    stars: starsValue(pkg, cfg),
+  };
+}
+
+type Variance = "none" | "tier" | "tier+" | "team";
+/** Does a value vary — not at all, only between tiers (uniform inside each tier), between tiers with a
+ *  few per-roster exceptions ("tier+": a minority of teams carry their own team rule), or between teams? */
+function variesBy(teams: TeamEntry[], value: (t: TeamEntry) => string): Variance {
+  if (uniq(teams.map(value)).length <= 1) return "none";
+  const tiers = uniq(teams.map((t) => t.tier));
+  if (tiers.includes(null)) return "team";
+  const uniformPerTier = (list: TeamEntry[]) =>
+    tiers.every((tier) => uniq(list.filter((t) => t.tier === tier).map(value)).length <= 1);
+  if (uniformPerTier(teams)) return "tier";
+  const ruled = teams.filter((t) => t.cfg.source === "team");
+  if (ruled.length && ruled.length * 2 < teams.length && uniformPerTier(teams.filter((t) => t.cfg.source !== "team"))) return "tier+";
+  return "team";
+}
+const tableRef = (by: Exclude<Variance, "none">): string =>
+  by === "tier+" ? "per tier, some rosters differ (table)" : `per ${by} (table)`;
+
+function structureLine(pkg: TournamentPackage, teams: TeamEntry[]): string {
+  const packTeams = teams.filter((t) => t.cfg.skillPackages?.length);
+  const allGold = teams.flatMap((t) =>
+    t.cfg.skillPackages?.length ? t.cfg.skillPackages.map((p) => p.gold) : t.cfg.gold != null ? [t.cfg.gold] : [],
+  );
+  const tierCount = pkg.matrix?.cells.length ? 0 : (pkg.tiers?.length ?? 0);
+  if (packTeams.length) {
+    const groups = tierCount
+      ? pkg.tiers!.map((t) => resolveTeamConfig(pkg, t.rosters[0] ?? "").skillPackages ?? [])
+      : [packTeams[0]!.cfg.skillPackages!];
+    const counts = groups.map((g) => g.length).filter((n) => n > 0);
+    const allPacks = packTeams.flatMap((t) => t.cfg.skillPackages!);
+    const against = allPacks.every(isCountPack)
+      ? `a skill count (${range(allPacks.map((p) => p.maxSkills ?? 0), fmtNum)} skills)`
+      : `skill points (${range(allPacks.map((p) => p.skillPointBudget), fmtNum)} SP)`;
+    const scope = tierCount
+      ? `${plural(tierCount, "tier")}, each offering ${range(counts, fmtNum)} packages`
+      : plural(counts[0] ?? 0, "package");
+    return `Choose-one skill packages: ${scope} that trade the gold cap (${range(allGold, fmtGold)}) against ${against}.`;
+  }
+  const skillTeams = teams.filter((t) => canAddSkills(pkg, t.cfg));
+  let clause: string;
+  if (!skillTeams.length) clause = "no added skills";
+  else if (goldPriced(pkg)) clause = "added skills cost gold inside the team-value cap";
+  else if (skillTeams.every((t) => usesCountMode(t.cfg))) {
+    const by = variesBy(skillTeams, (t) => teamAllotment(pkg, t.cfg)[0] ?? "");
+    clause = by === "none" ? `a skill-count allotment of ${teamAllotment(pkg, skillTeams[0]!.cfg)[0]}` : `a skill-count allotment ${tableRef(by)}`;
+  } else {
+    const by = variesBy(skillTeams, (t) => String(t.cfg.skillPointBudget));
+    const sp = range(skillTeams.map((t) => t.cfg.skillPointBudget), fmtNum);
+    clause = by === "none" ? `a skill-point budget of ${sp} SP` : `a skill-point budget ${by === "tier" ? "per tier" : "per team"} (${sp} SP)`;
+  }
+  if (pkg.matrix?.cells.length) {
+    const m = pkg.matrix;
+    return `Cash × skills matrix: ${plural(m.columns.length, "gold column")} (${range(m.columns.map((c) => c.gold), fmtGold)}) × ${plural(m.rows.length, "skill row")}; each team's cell sets its gold cap and skill counts.`;
+  }
+  if (tierCount) {
+    const perRoster =
+      pkg.tiers!.some((t) => t.rosterGold && uniq(Object.values(t.rosterGold)).length > 1) ||
+      variesBy(teams, (t) => String(t.cfg.gold)) === "team";
+    const gold = allGold.length ? `, gold caps ${range(allGold, fmtGold)}${perRoster ? " (set per roster)" : ""}` : "";
+    return `Tiered: ${plural(tierCount, "tier")}${gold}; ${clause}.`;
+  }
+  const flatGold = uniq(allGold);
+  const gold =
+    flatGold.length === 1
+      ? `every team gets ${fmtGold(flatGold[0]!)}`
+      : flatGold.length
+        ? `gold caps ${range(flatGold, fmtGold)}`
+        : "no team-value cap set";
+  return `${flatGold.length ? "Flat budget" : "Standard team creation"}: ${gold}; ${clause}.`;
+}
+
+function skillsLine(pkg: TournamentPackage, teams: TeamEntry[]): string | null {
+  const skillTeams = teams.filter((t) => canAddSkills(pkg, t.cfg));
+  if (!skillTeams.length) return null;
+  const parts: string[] = [];
+  const packs = skillTeams.flatMap((t) => t.cfg.skillPackages ?? []);
+  const sp = spCosts(pkg);
+  const spPrices =
+    `primary ${fmtNum(sp.primary)} / secondary ${fmtNum(sp.secondary)} SP` +
+    (sp.stack > 0 ? ` (+${fmtNum(sp.stack)} SP for each extra skill on the same player)` : "");
+  const countOnly = !packs.length && !goldPriced(pkg) && skillTeams.every((t) => usesCountMode(t.cfg));
+  if (packs.length) {
+    parts.push(packs.every(isCountPack) ? "skill count set by the chosen package" : `${spPrices}, budget set by the chosen package`);
+  } else if (goldPriced(pkg)) {
+    const g = goldCosts(pkg);
+    parts.push(`primary ${fmtGold(g.primary)}, secondary ${fmtGold(g.secondary)}, counted inside the cap`);
+  } else if (countOnly) {
+    const by = variesBy(skillTeams, (t) => teamAllotment(pkg, t.cfg)[0] ?? "");
+    parts.push(by === "none" ? teamAllotment(pkg, skillTeams[0]!.cfg)[0]! : `skill counts ${tableRef(by)}`);
+  } else {
+    const by = variesBy(skillTeams, (t) => String(t.cfg.skillPointBudget));
+    const budget = range(skillTeams.map((t) => t.cfg.skillPointBudget), fmtNum);
+    parts.push(`SP budget ${by === "none" ? `${budget} SP` : `${by === "tier" ? "per tier" : "per team"} (${budget})`}, ${spPrices}`);
+  }
+  // Secondary-count limits (count mode / count packs / gold-priced count caps).
+  const secTeams = skillTeams.filter((t) => t.cfg.maxSecondary != null);
+  if (secTeams.length && !countOnly) {
+    const by = variesBy(secTeams, (t) => String(t.cfg.maxSecondary));
+    const first = secTeams[0]!.cfg.maxSecondary;
+    parts.push(by === "none" ? (first === 0 ? "primary skills only" : `≤${first} secondary`) : `secondaries limited ${tableRef(by)}`);
+  }
+  // Stacking.
+  const packPer = uniq(packs.map((p) => p.maxPerPlayer ?? pkg.skillAllotment.maxPerPlayer));
+  const stackTeams = skillTeams.filter((t) => canStack(pkg, t.cfg));
+  if (!stackTeams.length) {
+    parts.push(skillTeams.every((t) => (perPlayerMax(pkg, t.cfg) ?? 2) <= 1) ? "one skill per player" : "no stacking");
+  } else if (packPer.length > 1 && packPer.every((v) => v != null)) {
+    const lo = Math.min(...(packPer as number[]));
+    const hi = Math.max(...(packPer as number[]));
+    parts.push(`${lo === 1 ? "one skill" : plural(lo, "skill")} per player (${hi} on some packages)`);
+  } else {
+    const by = variesBy(skillTeams, (t) => String(canStack(pkg, t.cfg) ? t.cfg.maxStackedPlayers : 0));
+    const limit = stackLimitValue(pkg, stackTeams[0]!.cfg);
+    const [skills, ...caps] = limit.split(" · ");
+    const limitBy = variesBy(stackTeams, (t) => stackLimitValue(pkg, t.cfg));
+    const skillsBy = variesBy(stackTeams, (t) => stackLimitValue(pkg, t.cfg).split(" · ")[0]!);
+    const most = skillsBy === "none" ? skills : `${Math.max(...stackTeams.map((t) => perPlayerMax(pkg, t.cfg) ?? 0))} skills`;
+    if (by === "none") {
+      const n = stackTeams[0]!.cfg.maxStackedPlayers;
+      const who = n == null ? "any player" : n === 1 ? "one player" : `up to ${n} players`;
+      parts.push(limitBy === "none" ? `${who} may stack ${skills}${caps.length ? ` (${caps.join(", ")})` : ""}` : `${who} may stack up to ${most}; stack limits ${tableRef(limitBy)}`);
+    } else {
+      parts.push(`stacking up to ${most} on a player; stacked players${limitBy === "none" ? "" : " and stack limits"} ${tableRef(by)}`);
+    }
+  }
+  // Characteristic increases.
+  const statTeams = teams.filter((t) => t.cfg.statIncreases?.allowed.length);
+  if (statTeams.length) {
+    const tiers = uniq(statTeams.map((t) => t.tier));
+    const access = variesBy(teams, (t) => String(Boolean(t.cfg.statIncreases?.allowed.length)));
+    const scope =
+      statTeams.length === teams.length ? "" : access === "tier" ? ` in ${tierPhrase(tiers as number[])}` : " for some teams (table)";
+    const keys = uniq(statTeams.flatMap((t) => t.cfg.statIncreases!.allowed));
+    const order: StatKey[] = ["MA", "ST", "AG", "PA", "AV"];
+    const si = statTeams[0]!.cfg.statIncreases!;
+    const list = order
+      .filter((k) => keys.includes(k))
+      .map((k) => `+${k}${si.costGold[k] != null ? ` ${fmtGold(si.costGold[k]!)}` : ""}`)
+      .join(", ");
+    const per = si.maxPerPlayer != null ? `${si.maxPerPlayer === 1 ? "one" : si.maxPerPlayer} per player` : "no per-player cap";
+    parts.push(`stat increases${scope} (${list}; ${per}${si.exclusiveWithSkills ? ", instead of a skill" : ""})`);
+  }
+  return sentence(parts.join("; "));
+}
+
+function eliteLine(pkg: TournamentPackage, teams: TeamEntry[]): string | null {
+  const skillTeams = teams.filter((t) => canAddSkills(pkg, t.cfg));
+  if (!skillTeams.length) return null;
+  const packs = skillTeams.flatMap((t) => t.cfg.skillPackages ?? []);
+  // A skill-COUNT allotment has no price to surcharge; only caps can apply there.
+  const countOnly = packs.length ? packs.every(isCountPack) : !goldPriced(pkg) && skillTeams.every((t) => usesCountMode(t.cfg));
+  const surcharge = goldPriced(pkg)
+    ? goldCosts(pkg).elite > 0
+      ? `+${fmtGold(goldCosts(pkg).elite)} each`
+      : ""
+    : !countOnly && spCosts(pkg).elite > 0
+      ? `+${fmtNum(spCosts(pkg).elite)} SP each`
+      : "";
+  const capTeams = skillTeams.filter((t) => eliteCaps(t.cfg) != null);
+  if (!surcharge && !capTeams.length) return null;
+  const parts = [`${pkg.skillAllotment.eliteSkills.join(", ")}${surcharge ? ` ${surcharge}` : ""}`];
+  if (capTeams.length) {
+    const by = variesBy(skillTeams, (t) => eliteCaps(t.cfg) ?? "");
+    parts.push(by === "none" ? `team limit ${eliteCaps(capTeams[0]!.cfg)}` : `limits ${tableRef(by)}`);
+  }
+  return `${parts.join("; ")}.`;
+}
+
+function starsLine(pkg: TournamentPackage, teams: TeamEntry[]): Pick<OverviewLine, "text" | "details"> {
+  const allowed = teams.filter((t) => starsValue(pkg, t.cfg) != null);
+  if (!allowed.length) return { text: "No star players." };
+  const parts: string[] = [];
+  if (allowed.length < teams.length) {
+    const access = variesBy(teams, (t) => String(allowed.includes(t)));
+    const tiers = uniq(allowed.map((t) => t.tier));
+    parts.push(access === "tier" ? `${tierPhrase(tiers as number[])} only` : `${allowed.length} of ${teams.length} teams (table)`);
+  }
+  const max = pkg.starPlayers.maxCount;
+  if (pkg.starPacks?.length) {
+    const used = pkg.starPacks.filter((p) => allowed.some((t) => openPacks(pkg, t.cfg).includes(p)));
+    const packText = used
+      .map((p) => `${p.label ?? p.id} (${p.fee > 0 ? `+${fmtGold(p.fee)} ${p.feeMode === "once" ? "once" : "each"}` : "no fee"}${p.max != null ? `, max ${p.max}` : ""})`)
+      .join(" · ");
+    parts.push(`${max != null ? `max ${max} picks` : "picks"} from packs: ${packText}`);
+    const packBy = variesBy(allowed, (t) => openPacks(pkg, t.cfg).map((p) => p.id).join(","));
+    if (packBy !== "none") parts.push(`packs open ${tableRef(packBy)}`);
+  } else {
+    parts.push(max != null ? `max ${max}` : "no cap on the number");
+  }
+  if (pkg.starPlayers.spCostByTier)
+    parts.push(pkg.starPlayers.paidInSkillPoints ? "paid in SP (price by tier) instead of gold" : "each also costs SP (price by tier)");
+  if (allowed.some((t) => (t.cfg.skillPackages ?? []).some((p) => p.starPlayersAllowed === false)))
+    parts.push("only on a package that allows a Star");
+  if (pkg.starPlayers.maxCombinedCost != null) parts.push(`combined cost ≤${fmtGold(pkg.starPlayers.maxCombinedCost)}`);
+  // Banned names: global bans, then tier/team-only bans (named with their tier/team) where stars may be hired.
+  const global = pkg.bannedStars ?? [];
+  const items = [...global];
+  for (const t of pkg.tiers ?? []) {
+    if (!allowed.some((a) => a.tier === t.tier)) continue;
+    for (const name of t.bannedStars) if (!global.some((g) => sameKey(g, name))) items.push(`${name} (Tier ${t.tier})`);
+  }
+  for (const r of pkg.teamRules ?? []) {
+    for (const name of r.bannedStars ?? []) if (!global.some((g) => sameKey(g, name))) items.push(`${name} (${r.team})`);
+  }
+  const text = `${parts.join("; ")}.`;
+  return items.length ? { text, details: { summary: plural(items.length, "banned star"), items } } : { text };
+}
+
+function inducementsLine(pkg: TournamentPackage, data: Dataset): string {
+  const ind = pkg.inducements;
+  const label = (id: string): string =>
+    data.inducements[id]?.name ?? id.replace(/_/g, " ").replace(/\b[a-z]/g, (c) => c.toUpperCase());
+  const terms = (id: string): string => {
+    const only = ind.rosterOnly?.[id];
+    const bits = [ind.caps[id] != null ? `max ${ind.caps[id]}` : "", only?.length ? `${only.join(", ")} only` : ""].filter(Boolean);
+    return bits.length ? ` (${bits.join(", ")})` : "";
+  };
+  if (ind.allowed.includes("*")) {
+    const limited = uniq([...Object.keys(ind.caps), ...Object.keys(ind.rosterOnly ?? {})]);
+    return `All inducements at book cost${limited.length ? `; ${limited.map((id) => `${label(id)}${terms(id)}`).join(", ")}` : ""}.`;
+  }
+  if (!ind.allowed.length) return "No inducements.";
+  return `${ind.allowed.map((id) => `${label(id)}${terms(id)}`).join(", ")}.`;
+}
+
+/** Sideline limits that differ from the package defaults (8 rerolls, 1 apothecary, the rest uncapped). */
+function sidelineLine(pkg: TournamentPackage): string | null {
+  const s = pkg.sideline;
+  const parts = [
+    s.maxReRolls != null && s.maxReRolls !== 8 ? `max ${plural(s.maxReRolls, "reroll")}` : "",
+    s.maxApothecary === 0 ? "no apothecary" : "",
+    s.maxAssistantCoaches != null ? `max ${s.maxAssistantCoaches} assistant coach${s.maxAssistantCoaches === 1 ? "" : "es"}` : "",
+    s.maxCheerleaders != null ? `max ${plural(s.maxCheerleaders, "cheerleader")}` : "",
+    s.maxDedicatedFans != null ? `max ${s.maxDedicatedFans} dedicated fans` : "",
+  ].filter(Boolean);
+  return parts.length ? sentence(parts.join(", ")) : null;
+}
+
+/** The step-1 ruleset overview: highlight lines + per-team tier table, all keyed to package values. */
+export function packageOverview(pkg: TournamentPackage, data: Dataset = bb2025): RulesetOverview {
+  const teams = overviewTeams(pkg, data);
+  const summary: OverviewLine[] = [{ key: "structure", label: "Structure", text: structureLine(pkg, teams) }];
+  summary.push({ key: "skills", label: "Skills", text: skillsLine(pkg, teams) ?? "No added skills." });
+  const elite = eliteLine(pkg, teams);
+  if (elite) summary.push({ key: "elite", label: "Elite skill tax", text: elite });
+  summary.push({ key: "stars", label: "Star players", ...starsLine(pkg, teams) });
+  summary.push({ key: "inducements", label: "Inducements", text: inducementsLine(pkg, data) });
+  const sideline = sidelineLine(pkg);
+  if (sideline) summary.push({ key: "sideline", label: "Sideline", text: sideline });
+  if (pkg.special.minPlayers !== 11)
+    summary.push({ key: "minPlayers", label: "Minimum players", text: `${pkg.special.minPlayers} players.` });
+
+  const rows = teams.map((t) => ({ tier: t.tier, row: teamRow(pkg, t) }));
+  let groups: OverviewGroup[] = uniq(rows.map((r) => r.tier)).map((tier) => ({
+    tier,
+    label: tier == null ? "All teams" : `Tier ${tier}`,
+    teams: rows.filter((r) => r.tier === tier).map((r) => r.row),
+  }));
+  // A non-tiered package whose teams all share one rule collapses to a single "every eligible roster" row.
+  const only = groups.length === 1 ? groups[0]! : null;
+  if (only && only.tier == null && only.teams.length > 1) {
+    const key = (row: OverviewTeamRow): string => JSON.stringify([row.gold, row.goldMax, row.allotment, row.secondary, row.elite, row.stacks, row.stackLimit, row.characteristics, row.stars]);
+    if (uniq(only.teams.map(key)).length === 1) {
+      groups = [{ tier: null, label: only.label, teams: [{ ...only.teams[0]!, name: `Every eligible roster (${only.teams.length})` }] }];
+    }
+  }
+  return { summary, groups };
 }
