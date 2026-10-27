@@ -943,3 +943,8 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .scroll-list > * { flex-shrink: 0; } /* rows keep their full height inside the capped box */
 .selected-inducement-section .section-title small { color: var(--ui-gold); }
 @media (max-width: 600px) { .scroll-list { max-height: 60vh; } }
+
+/* Owner 10-27: tournament page header right column = signed-in identity above the skill key. */
+.view-header-side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.view-header-side .signed-in-session { display: flex; align-items: center; gap: 10px; }
+.view-header-side .signed-in-session[hidden] { display: none; }

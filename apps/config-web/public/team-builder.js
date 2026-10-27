@@ -1008,6 +1008,8 @@ ${rosterSheetHtml(model)}
     document.querySelectorAll("[data-admin-only]").forEach((el) => { el.hidden = !authAdminNav; });
     const signedIn = Boolean(authCoach);
     $("session-panel").classList.toggle("authenticated", signedIn);
+    // Owner 10-27 (tournament page): once signed in the whole sign-in card goes; the identity sits top right.
+    if (TOURNAMENT_PAGE) $("session-panel").hidden = signedIn;
     $("login-form").hidden = signedIn;
     $("signed-in-session").hidden = !signedIn;
     $("signed-in-coach").textContent = authCoach;
