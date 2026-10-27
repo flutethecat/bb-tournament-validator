@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 
 /**
  * Structural check of a tournament-package document against schemas/tournament-package.schema.json
- * (a draft-07 subset: type / required / properties / additionalProperties / items / maxItems /
- * $ref / enum / minimum). Run before a save is written so a malformed document never lands on disk.
+ * (a draft-07 subset: type incl. integer / required / properties / patternProperties /
+ * additionalProperties / items / maxItems / $ref / enum / minimum / multipleOf). Run before a save is written so a malformed document never lands on disk.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Schema = Record<string, any>;
@@ -30,6 +30,8 @@ function check(root: Schema, node: Schema, value: unknown, path: string, out: st
   }
   if (node.enum && !node.enum.includes(value)) out.push(`${path}: ${String(value)} is not one of ${node.enum.join(", ")}`);
   if (typeof value === "number" && node.minimum != null && value < node.minimum) out.push(`${path}: below the minimum ${node.minimum}`);
+  if (typeof value === "number" && node.multipleOf != null && !Number.isInteger(Number((value / node.multipleOf).toFixed(9))))
+    out.push(`${path}: must be a multiple of ${node.multipleOf}`);
   if (Array.isArray(value)) {
     if (node.maxItems != null && value.length > node.maxItems) out.push(`${path}: at most ${node.maxItems} items (has ${value.length})`);
     if (node.items) value.forEach((item, index) => check(root, node.items, item, `${path}[${index}]`, out));

@@ -63,7 +63,7 @@ type Checked =
 
 /**
  * Validate a document before it is saved or previewed: size caps, schema shape, an `extends`
- * that resolves, and a dry run of the resolver for every roster (all 422). A thrown resolver error is
+ * that resolves, no resolver problems, and a dry run of the resolver for every roster (all 422). A thrown resolver error is
  * a 422 with the message — never a 500, never a file that later breaks GET.
  */
 function checkDocument(packages: PackageFiles, body: unknown): Checked {
@@ -78,6 +78,8 @@ function checkDocument(packages: PackageFiles, body: unknown): Checked {
   }
   try {
     const { pkg, problems } = packages.resolve(body);
+    // The resolver's own problems (e.g. a negative cap) are as fatal as a schema violation.
+    if (problems.length) return { ok: false, result: { status: 422, body: { error: problems[0], problems } } };
     for (const roster of rostersToCheck(pkg)) {
       resolveTeamConfig(pkg, roster);
       packageRaceRules(pkg, roster);
@@ -93,7 +95,7 @@ function checkDocument(packages: PackageFiles, body: unknown): Checked {
  * The tournament-package routes. server.ts gates the writes (save AND preview need the organiser
  * session / token) before delegating here:
  *   GET  /api/packages              list
- *   GET  /api/packages/<name>       { pkg (resolved), problems, rules, raw (the file as authored), revision }
+ *   GET  /api/packages/<name>       { pkg (resolved), problems, rules, raw (the file as authored), revision, schemaProblems }
  *   POST /api/packages/preview      the coach-page derivations for an unsaved package (Summary tab)
  *   POST /api/packages              save the document AS SENT. `If-Match: <revision>` is required to
  *                                   replace an existing package; `?replace=<name>` targets one explicitly.
@@ -145,11 +147,22 @@ export function packagesApi(
       // WITHOUT a preview round-trip. `raw` + `revision` (additive): the file as authored, for the editor.
       return {
         status: 200,
-        body: { pkg: found.pkg, problems: found.problems, rules: packageRulesInfo(found.pkg, query.get("roster")), raw: raw.raw, revision: raw.revision },
+        body: {
+          pkg: found.pkg,
+          problems: found.problems,
+          rules: packageRulesInfo(found.pkg, query.get("roster")),
+          raw: raw.raw,
+          revision: raw.revision,
+          // Preflight for the editor: what a save of this document as-is would trip over.
+          schemaProblems: packageSchemaProblems(raw.raw),
+        },
       };
     } catch (error) {
       // A file that no longer resolves still opens in the editor (to be fixed), never a 500.
-      return { status: 422, body: { error: `The package could not be resolved: ${(error as Error).message}`, raw: raw.raw, revision: raw.revision } };
+      return {
+        status: 422,
+        body: { error: `The package could not be resolved: ${(error as Error).message}`, raw: raw.raw, revision: raw.revision, schemaProblems: packageSchemaProblems(raw.raw) },
+      };
     }
   }
   return undefined;

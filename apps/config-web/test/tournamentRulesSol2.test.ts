@@ -188,9 +188,12 @@ describe("5 — an explicit value equal to a default is kept; defaults show as p
     page.core.loadPackageIntoEditor(plain(raw), []);
     page.core.state.tab = "stars";
     const html = page.core.editorHtml();
-    expect(html).toMatch(/data-field="starMaxCount" type="number" min="0" value="" placeholder="inherited from bb2025-default"/);
-    page.core.handleEditorChange({ dataset: { field: "starMaxCount" }, value: "3" });
-    page.core.handleEditorChange({ dataset: { field: "starMaxCount" }, value: "" });
+    // The filled default reads as "inherit" with the base named in the placeholder.
+    const maxCount = JSON.stringify(["starPlayers", "maxCount"]).replaceAll('"', "&quot;");
+    const modeSelect = html.slice(html.indexOf(`data-override-mode="${maxCount}"`), html.indexOf(`data-bind="${maxCount}"`));
+    expect(modeSelect).toContain('<option value="inherit" selected>inherit</option>');
+    expect(html).toContain(`data-bind="${maxCount}" data-kind="int" data-blank="delete" type="number" min="0" value="" placeholder="inherited from bb2025-default"`);
+    page.core.handleEditorChange({ dataset: { overrideMode: JSON.stringify(["starPlayers", "maxCount"]) }, value: "none" });
     const doc = plain(page.core.serializePackage());
     expect(doc.starPlayers).toEqual({ maxCount: null });
     expect(files.resolve(doc).pkg.starPlayers.maxCount).toBeNull();

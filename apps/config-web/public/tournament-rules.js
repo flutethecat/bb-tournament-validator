@@ -747,9 +747,7 @@ function renderGold() {
     <section class="panel">
       <div class="section-head">
         <div class="section-title">${title("Gold / Team-Value Cap")}</div>
-        <span class="field-label">Creation Gold Cap</span>
-        <input class="control compact" data-field="goldBudgetK" type="number" min="0" step="10" value="${isInherited(["goldBudget"]) ? "" : escapeHtml(goldToK(state.pkg.goldBudget))}" placeholder="${isInherited(["goldBudget"]) ? escapeHtml(inheritedHint("")) : ""}" aria-label="Creation gold cap in thousands">
-        <span class="hint">k gold (blank = none)</span>
+        ${overrideField("Creation gold cap", ["goldBudget"], state.pkg.goldBudget, { kind: "gold", none: true, noneLabel: "no cap", flat: true })}
         ${chip("Creation Gold", "cap-creation", !includesSkills)}
         ${chip("Skills as Part of the Gold Budget", "cap-includes", includesSkills)}
       </div>
@@ -787,14 +785,18 @@ function renderRaces() {
  */
 function overrideField(label, path, value, opts = {}) {
   const kind = opts.kind ?? "num";
-  const mode = value === undefined ? "inherit" : value === null ? "none" : "set";
+  // A value normalizePackage() filled in (and the organiser has not touched) reads as "inherit".
+  const inherited = value === undefined || isInherited(path);
+  const mode = inherited ? "inherit" : value === null ? "none" : "set";
   const display = mode !== "set" ? "" : kind === "gold" ? goldToK(value) : value;
-  const placeholder = mode === "none" ? (opts.noneLabel ?? "no limit") : (opts.placeholder ?? "inherit");
+  const filledHint = value === undefined ? null : inheritedHint(value === null ? "" : kind === "gold" ? `${goldToK(value)}k` : value);
+  const placeholder = mode === "none" ? (opts.noneLabel ?? "no limit") : mode === "inherit" && filledHint ? filledHint : (opts.placeholder ?? (opts.flat ? "default" : "inherit"));
+  const inheritLabel = opts.inheritLabel ?? (opts.flat ? (state.pkg?.extends ? "inherit" : "default") : "inherit");
   const pathAttr = escapeHtml(JSON.stringify(path));
   return `<label class="field override-field"><span class="field-label">${escapeHtml(label)}</span>
     <span class="field-input">
       <select class="control mode-select" data-override-mode="${pathAttr}" data-kind="${kind}" aria-label="${escapeHtml(label)} mode">
-        <option value="inherit"${mode === "inherit" ? " selected" : ""}>${escapeHtml(opts.inheritLabel ?? "inherit")}</option>
+        <option value="inherit"${mode === "inherit" ? " selected" : ""}>${escapeHtml(inheritLabel)}</option>
         <option value="set"${mode === "set" ? " selected" : ""}>value</option>
         ${opts.none ? `<option value="none"${mode === "none" ? " selected" : ""}>${escapeHtml(opts.noneLabel ?? "no limit")}</option>` : ""}
       </select>
@@ -1133,8 +1135,8 @@ function renderSkills() {
     ? `<div class="knob-grid">
         ${numField("Max primary", sa("maxPrimary"), allotment.maxPrimary, { blank: "zero" })}
         ${numField("Max secondary", sa("maxSecondary"), allotment.maxSecondary, { blank: "zero" })}
-        ${numField("Swap ratio (primary per secondary)", sa("secondarySwapRatio"), allotment.secondarySwapRatio, { min: 1, placeholder: "2" })}
-        ${numField("Max swaps", sa("secondarySwapMax"), allotment.secondarySwapMax, { placeholder: "unlimited" })}
+        ${overrideField("Swap ratio (primary per secondary)", sa("secondarySwapRatio"), allotment.secondarySwapRatio, { min: 1, flat: true, placeholder: "2" })}
+        ${overrideField("Max swaps", sa("secondarySwapMax"), allotment.secondarySwapMax, { none: true, noneLabel: "unlimited", flat: true, placeholder: "unlimited" })}
       </div>
       <div class="inline-controls">${chip(`Secondary Swap — 1 secondary costs ${allotment.secondarySwapRatio ?? 2} primary`, "toggle-secondary-swap", allotment.secondarySwap === true)}</div>`
     : `<div class="knob-grid">
@@ -1162,14 +1164,14 @@ function renderSkills() {
       </div>
       <div class="subheading">Caps</div>
       <div class="knob-grid">
-        ${numField("Max skills / player", sa("maxPerPlayer"), allotment.maxPerPlayer, { blank: "null", placeholder: "none" })}
-        ${numField("Max copies of one skill / team", sa("maxSameSkillTeamwide"), allotment.maxSameSkillTeamwide, { blank: "null", placeholder: "none" })}
-        ${numField("Max stacked players", sa("maxStackedPlayers"), allotment.maxStackedPlayers, { blank: "null", placeholder: "none" })}
-        ${numField("Elite skills cap", sa("eliteMaxTotal"), allotment.eliteMaxTotal, { kind: "int", placeholder: "none" })}
-        ${numField("Same elite skill cap", sa("eliteMaxSameSkill"), allotment.eliteMaxSameSkill, { kind: "int", placeholder: "none" })}
-        ${numField("Stacked player: max skills", ["skillAllotment", "stackedPlayer", "maxSkills"], allotment.stackedPlayer?.maxSkills, { kind: "int", placeholder: "none" })}
-        ${numField("Stacked player: max secondary", ["skillAllotment", "stackedPlayer", "maxSecondary"], allotment.stackedPlayer?.maxSecondary, { kind: "int", placeholder: "none" })}
-        ${numField("Stacked player: max elite", ["skillAllotment", "stackedPlayer", "maxElite"], allotment.stackedPlayer?.maxElite, { kind: "int", placeholder: "none" })}
+        ${overrideField("Max skills / player", sa("maxPerPlayer"), allotment.maxPerPlayer, { kind: "int", none: true, flat: true })}
+        ${overrideField("Max copies of one skill / team", sa("maxSameSkillTeamwide"), allotment.maxSameSkillTeamwide, { kind: "int", none: true, flat: true })}
+        ${overrideField("Max stacked players", sa("maxStackedPlayers"), allotment.maxStackedPlayers, { kind: "int", none: true, flat: true })}
+        ${overrideField("Elite skills cap", sa("eliteMaxTotal"), allotment.eliteMaxTotal, { kind: "int", none: true, flat: true })}
+        ${overrideField("Same elite skill cap", sa("eliteMaxSameSkill"), allotment.eliteMaxSameSkill, { kind: "int", none: true, flat: true })}
+        ${overrideField("Stacked player: max skills", ["skillAllotment", "stackedPlayer", "maxSkills"], allotment.stackedPlayer?.maxSkills, { kind: "int", none: true, flat: true })}
+        ${overrideField("Stacked player: max secondary", ["skillAllotment", "stackedPlayer", "maxSecondary"], allotment.stackedPlayer?.maxSecondary, { kind: "int", none: true, flat: true })}
+        ${overrideField("Stacked player: max elite", ["skillAllotment", "stackedPlayer", "maxElite"], allotment.stackedPlayer?.maxElite, { kind: "int", none: true, flat: true })}
       </div>
       <div class="knob-grid">
         ${multiSelect({ key: "elite-skills", path: ["skillAllotment", "eliteSkills"], label: "Elite skills", items: eliteItems, selected: safeArray(allotment.eliteSkills) })}
@@ -1266,11 +1268,8 @@ function renderStars() {
       <div class="section-head">
         <div class="section-title">${title("Star Players")}</div>
         ${chip("Stars Allowed", "toggle-stars", state.pkg.starPlayers.allowed)}
-        <span class="field-label">Max Count</span>
-        <input class="control tiny" data-field="starMaxCount" type="number" min="0" value="${isInherited(["starPlayers", "maxCount"]) ? "" : escapeHtml(state.pkg.starPlayers.maxCount ?? "")}" placeholder="${isInherited(["starPlayers", "maxCount"]) ? escapeHtml(inheritedHint(state.pkg.starPlayers.maxCount ?? "")) : "none"}" aria-label="Max star players">
-        <span class="field-label">Max Combined Cost</span>
-        <input class="control compact" data-field="starMaxCostK" type="number" min="0" value="${isInherited(["starPlayers", "maxCombinedCost"]) ? "" : escapeHtml(goldToK(state.pkg.starPlayers.maxCombinedCost))}" placeholder="${isInherited(["starPlayers", "maxCombinedCost"]) ? escapeHtml(inheritedHint("")) : ""}" aria-label="Max combined star cost in thousands">
-        <span class="hint">k (blank = no cap)</span>
+        ${overrideField("Max count", ["starPlayers", "maxCount"], state.pkg.starPlayers.maxCount, { kind: "int", none: true, flat: true })}
+        ${overrideField("Max combined cost", ["starPlayers", "maxCombinedCost"], state.pkg.starPlayers.maxCombinedCost, { kind: "gold", none: true, noneLabel: "no cap", flat: true })}
       </div>
       <div class="star-columns">
         <div class="star-column allowed" data-drop-zone="allowed">
@@ -1341,13 +1340,13 @@ function renderSpecialRules() {
       <div class="knob-grid">${numField("Minimum players", ["special", "minPlayers"], special.minPlayers, { kind: "int", placeholder: "11 (default)" })}</div>
     </section>
     <section class="panel">
-      <div class="section-title">${title("Sideline Staff")} <span class="section-note">— blank = no cap</span></div>
+      <div class="section-title">${title("Sideline Staff")}</div>
       <div class="knob-grid">
-        ${numField("Max team rerolls", ["sideline", "maxReRolls"], sideline.maxReRolls, { kind: "int", blank: "null", placeholder: "none" })}
-        ${numField("Max apothecary", ["sideline", "maxApothecary"], sideline.maxApothecary, { kind: "int", blank: "null", placeholder: "none" })}
-        ${numField("Max cheerleaders", ["sideline", "maxCheerleaders"], sideline.maxCheerleaders, { kind: "int", blank: "null", placeholder: "none" })}
-        ${numField("Max assistant coaches", ["sideline", "maxAssistantCoaches"], sideline.maxAssistantCoaches, { kind: "int", blank: "null", placeholder: "none" })}
-        ${numField("Max dedicated fans", ["sideline", "maxDedicatedFans"], sideline.maxDedicatedFans, { kind: "int", blank: "null", placeholder: "none" })}
+        ${overrideField("Max team rerolls", ["sideline", "maxReRolls"], sideline.maxReRolls, { kind: "int", none: true, noneLabel: "no cap", flat: true })}
+        ${overrideField("Max apothecary", ["sideline", "maxApothecary"], sideline.maxApothecary, { kind: "int", none: true, noneLabel: "no cap", flat: true })}
+        ${overrideField("Max cheerleaders", ["sideline", "maxCheerleaders"], sideline.maxCheerleaders, { kind: "int", none: true, noneLabel: "no cap", flat: true })}
+        ${overrideField("Max assistant coaches", ["sideline", "maxAssistantCoaches"], sideline.maxAssistantCoaches, { kind: "int", none: true, noneLabel: "no cap", flat: true })}
+        ${overrideField("Max dedicated fans", ["sideline", "maxDedicatedFans"], sideline.maxDedicatedFans, { kind: "int", none: true, noneLabel: "no cap", flat: true })}
       </div>
     </section>`;
 }
@@ -1883,9 +1882,24 @@ function handleEditorAction(action, target) {
   render();
 }
 
+const FIELD_PATHS = {
+  name: ["name"], date: ["date"], description: ["description"], extends: ["extends"], dataNote: ["dataNote"],
+  goldBudgetK: ["goldBudget"], starMaxCount: ["starPlayers", "maxCount"], starMaxCostK: ["starPlayers", "maxCombinedCost"],
+};
+
+/** Record that the organiser interacted with the field at `path` — even when the value they entered
+ *  equals the filled default, it is now theirs and must be saved (it may override an `extends` base). */
+function touchPath(path) {
+  if (!Array.isArray(path) || !path.length) return;
+  state.touched.add(pathKey([path[0]]));
+  if (path.length >= 2 && NESTED_PRUNE.has(path[0])) state.touched.add(pathKey([path[0], path[1]]));
+}
+
 function handleEditorChange(target) {
   if (!state.pkg) return;
   state.preEdit = clone(state.pkg);
+  touchPath(readPath(target.dataset.bind ?? "null") ?? readPath(target.dataset.overrideMode ?? "null") ?? readPath(target.dataset.multi ?? "null")
+    ?? readPath(target.dataset.multiAll ?? "null") ?? FIELD_PATHS[target.dataset.field]);
 
   if (target.dataset.overrideMode != null) {
     if (applyOverrideMode(target)) { markDirty(); render(); }
@@ -2064,6 +2078,7 @@ async function loadSavedPackage(name) {
     if (result.raw) {
       loadPackageIntoEditor(result.raw, result.problems);
       state.revision = typeof result.revision === "string" ? result.revision : null;
+      preflight(result.schemaProblems);
     } else {
       loadPackageIntoEditor(result.pkg, result.problems);
       state.readOnly = "This server does not send the package file as authored, so saving would rewrite it with every default filled in. The package is read-only until the server is updated.";
@@ -2073,11 +2088,25 @@ async function loadSavedPackage(name) {
       // A file that no longer resolves still opens, so the organiser can fix it.
       loadPackageIntoEditor(error.data.raw, [serverMessage(error)]);
       state.revision = typeof error.data.revision === "string" ? error.data.revision : null;
+      preflight(error.data.schemaProblems);
     } else state.problems = [serverMessage(error)];
   } finally {
     state.busy = false;
     render();
   }
+}
+
+/**
+ * Schema preflight on open (the server checks the raw file): fields this Creator does not know make
+ * the package read-only — the editor would carry them blindly and the save would be refused — and
+ * any other schema problem is listed up front instead of surfacing only at save.
+ */
+function preflight(schemaProblems) {
+  const problems = safeArray(schemaProblems).map(String);
+  const unknown = problems.map((problem) => problem.match(/^(.*): unknown property (.+)$/)).filter(Boolean).map((match) => `${match[1] === "$" ? "" : `${match[1].replace(/^\$\.?/, "")}.`}${match[2]}`);
+  if (unknown.length) state.readOnly = `This package uses fields this Creator does not know: ${unknown.join(", ")}. Update the Creator before editing.`;
+  const other = problems.filter((problem) => !/: unknown property /.test(problem));
+  if (other.length) state.problems = [...state.problems, ...other];
 }
 
 function loadPreset(id) {

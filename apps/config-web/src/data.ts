@@ -4,9 +4,9 @@
  * directory) and the bot's validated-rosters.csv (the coaches dashboard).
  */
 
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { loadPackage, type DeepPartial, type SkillMeta, type TournamentPackage } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { libraryCoaches, readLibrary, type LibraryTeam } from "@bb/fork-ops";
@@ -171,8 +171,33 @@ interface PackageEntry {
 
 const canonical = (name: unknown): string => String(name ?? "").trim().toLowerCase();
 
+/** The file operations a package write uses — injectable so tests can fail a write midway. */
+export interface PackageWriteIo {
+  writeFileDurable(path: string, text: string): void;
+  rename(from: string, to: string): void;
+  remove(path: string): void;
+}
+
+/** Write + fsync, so the bytes are on disk before the rename publishes them. */
+export const defaultPackageWriteIo: PackageWriteIo = {
+  writeFileDurable(path, text) {
+    const fd = openSync(path, "w");
+    try {
+      writeSync(fd, text, null, "utf8");
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  },
+  rename: (from, to) => renameSync(from, to),
+  remove: (path) => rmSync(path, { force: true }),
+};
+
 export class PackageFiles {
-  constructor(private readonly dir: string) {}
+  constructor(
+    private readonly dir: string,
+    private readonly io: PackageWriteIo = defaultPackageWriteIo,
+  ) {}
 
   private files(): PackageEntry[] {
     if (!existsSync(this.dir)) return [];
@@ -290,8 +315,26 @@ export class PackageFiles {
     const crlf = before.includes("\r\n");
     let text = JSON.stringify(input, null, 2) + (target && !before.endsWith("\n") ? "" : "\n");
     if (crlf) text = text.replace(/\n/g, "\r\n");
-    writeFileSync(path, text, "utf8");
+    this.writeAtomic(path, text);
     return { path, pkg, problems, revision: createHash("sha256").update(text).digest("hex") };
+  }
+
+  /** Write to a temp file in the SAME directory, fsync it, then rename it over the target (atomic on
+   *  one volume, Windows included for an existing target). Any failure leaves the old file intact and
+   *  removes the temp file. */
+  private writeAtomic(path: string, text: string): void {
+    const temp = join(dirname(path), `.${basename(path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
+    try {
+      this.io.writeFileDurable(temp, text);
+      this.io.rename(temp, path);
+    } catch (error) {
+      try {
+        this.io.remove(temp);
+      } catch {
+        /* best effort */
+      }
+      throw error;
+    }
   }
 }
 
