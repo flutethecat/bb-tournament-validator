@@ -203,6 +203,12 @@
         const position = positionById(pick?.positionId);
         if (!position) continue;
         for (let i = 0; i < count; i++) {
+          // Stars never take added skills or characteristic changes (owner ruling 10-27): a saved draft /
+          // Discord save carrying them restores clean, so the sheet can never disagree with validation.
+          if (position.isStar === true) {
+            slots.push({ positionId: position.positionId, isStar: true, chosenSkills: [], chosenStatIncreases: [] });
+            continue;
+          }
           slots.push({
             positionId: position.positionId,
             isStar: position.isStar === true,
@@ -429,14 +435,17 @@
       const stars = [];
       for (const player of input.players ?? []) {
         const position = player.position ?? {};
-        const stats = improvedStats(position, player.chosenStatIncreases, player.chosenStats);
-        const added = (player.chosenSkills ?? []).map((skill) => ({ name: skill, access: player.accessOf ? player.accessOf(skill) : "primary" }));
+        // Defensive: a star row never prints added skills or stat changes (they are never validated).
+        const star = position.isStar === true;
+        const chosenStatIncreases = star ? [] : player.chosenStatIncreases;
+        const stats = improvedStats(position, chosenStatIncreases, star ? null : player.chosenStats);
+        const added = (star ? [] : player.chosenSkills ?? []).map((skill) => ({ name: skill, access: player.accessOf ? player.accessOf(skill) : "primary" }));
         const row = {
           position: position.name ?? "Unknown position",
           stats,
           printed: [...(Array.isArray(position.skillsDisplay) && position.skillsDisplay.length ? position.skillsDisplay : position.skills ?? [])].sort((x, y) => x.localeCompare(y)),
           added,
-          statIncreases: (player.chosenStatIncreases ?? []).map((s) => String(s).toUpperCase()),
+          statIncreases: (chosenStatIncreases ?? []).map((s) => String(s).toUpperCase()),
           cost: position.cost ?? null,
           keywords: Array.isArray(position.keywords) ? position.keywords.map(titleCase) : null,
           isStar: position.isStar === true,
@@ -892,11 +901,13 @@ ${rosterSheetHtml(model)}
     return mode === "custom" ? "custom" : "primary";
   }
   function slotSkillGold(slot) {
+    if (positionById(slot.positionId)?.isStar) return 0; // stars never carry added skills
     return slot.chosenSkills.reduce((sum, skill) => sum
       + (skillAccess(slot.positionId, skill) === "secondary" ? SECONDARY_GOLD : PRIMARY_GOLD)
       + (isElite(skill) ? ELITE_GOLD : 0), 0);
   }
   function slotStatGold(slot) {
+    if (positionById(slot.positionId)?.isStar) return 0;
     const rules = statRules();
     const allowed = allowedStatList();
     return (slot.chosenStatIncreases ?? []).filter((stat) => allowed.includes(stat))
@@ -2534,12 +2545,13 @@ ${rosterSheetHtml(model)}
       if (!position) continue;
       const printed = new Set(position.skills ?? []);
       const { increases, absolute } = Core.deriveStatChanges(position, player);
+      const star = position.isStar === true; // stars restore without skill/stat changes (owner 10-27)
       restored.push({
         positionId: position.positionId,
-        isStar: position.isStar === true,
-        chosenSkills: (player.skills ?? []).filter((skill) => !printed.has(skill)),
-        chosenStatIncreases: increases,
-        chosenStats: absolute,
+        isStar: star,
+        chosenSkills: star ? [] : (player.skills ?? []).filter((skill) => !printed.has(skill)),
+        chosenStatIncreases: star ? [] : increases,
+        chosenStats: star ? {} : absolute,
       });
     }
     const leagues = Core.normalizeLeagueOptions(roster.leagueOptions);
@@ -2581,13 +2593,16 @@ ${rosterSheetHtml(model)}
       coach: authCoach,
       teamName: $("team-name").value.trim(),
       rulesetName: mode === "tournament" ? [$("package").value, raceRules()?.tierLabel].filter(Boolean).join(" — ") : "",
-      players: slots.map((slot) => ({
+      players: slots.map((slot) => {
+        const star = positionById(slot.positionId)?.isStar === true;
+        return {
         position: positionById(slot.positionId),
-        chosenSkills: canEditSkills() ? slot.chosenSkills : [],
-        chosenStatIncreases: statRules() ? (slot.chosenStatIncreases ?? []).filter((stat) => allowedStatList().includes(stat)) : [],
-        chosenStats: mode === "custom" ? slot.chosenStats : null,
+        chosenSkills: canEditSkills() && !star ? slot.chosenSkills : [],
+        chosenStatIncreases: statRules() && !star ? (slot.chosenStatIncreases ?? []).filter((stat) => allowedStatList().includes(stat)) : [],
+        chosenStats: mode === "custom" && !star ? slot.chosenStats : null,
         accessOf: (skill) => (skillAccess(slot.positionId, skill) === "secondary" ? "secondary" : "primary"),
-      })),
+        };
+      }),
       staff,
       apothecaryAllowed: current?.apothecaryAllowed !== false,
       inducements: inducementPicks().map((pick) => ({ label: inducementCatalog.find((i) => i.key === pick.key)?.label ?? pick.key, count: pick.count })),

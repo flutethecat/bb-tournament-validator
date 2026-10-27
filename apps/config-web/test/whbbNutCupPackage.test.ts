@@ -427,4 +427,36 @@ describe("WHBB Nut Cup 2026 package", () => {
     };
     expect(() => validate(roster, pkg, bb2025)).not.toThrow();
   });
+
+  it("a saved draft carrying star chosenSkills/stats restores clean and exports clean", () => {
+    const context: Record<string, unknown> = { console };
+    runInNewContext(readFileSync(new URL("../public/team-builder.js", import.meta.url), "utf8"), context);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const core = context.TeamBuilderCore as any;
+    const positions: Record<string, any> = {
+      "1": { positionId: "1", name: "Goblin Lineman", cost: 40000, MA: 6, ST: 2, AG: 3, PA: 4, AV: 8, skills: ["Dodge", "Right Stuff", "Stunty"], isStar: false },
+      s1: { positionId: "s1", name: "Fungus the Loon", cost: 80000, MA: 4, ST: 7, AG: 3, PA: 0, AV: 8, skills: findStar(bb2025, "Fungus the Loon")!.skills, isStar: true },
+    };
+    const byId = (id: string) => positions[id] ?? null;
+    const draft = [
+      { positionId: "1", count: 11 },
+      { positionId: "s1", count: 1, chosenSkills: ["Guard"], chosenStatIncreases: ["ST"], chosenStats: { ST: 8 } },
+    ];
+    const slots = core.slotsFromPicks(draft, byId);
+    const star = slots.find((sl: any) => sl.positionId === "s1");
+    expect(star).toEqual({ positionId: "s1", isStar: true, chosenSkills: [], chosenStatIncreases: [] });
+    // Every serializer agrees: no star pick modifications, no added skills on the sheet.
+    const picks = core.buildPicks(slots, { skills: true, stats: true, customStats: true });
+    expect(picks.find((p: any) => p.positionId === "s1")).toEqual({ positionId: "s1", count: 1 });
+    const sheetFrom = (players: any[]) => core.rosterSheetModel({ raceName: "Goblin", players, staff: {}, inducements: [], specialRules: [] });
+    const clean = sheetFrom(slots.map((sl: any) => ({ position: byId(sl.positionId), chosenSkills: sl.chosenSkills, chosenStatIncreases: sl.chosenStatIncreases })));
+    const fungusRow = clean.rows.find((r: any) => r.position === "Fungus the Loon");
+    expect(fungusRow.added).toEqual([]);
+    expect(fungusRow.statIncreases).toEqual([]);
+    // Defensive: even a dirty star player handed straight to the sheet prints no modifications.
+    const dirty = sheetFrom([{ position: byId("s1"), chosenSkills: ["Guard"], chosenStatIncreases: ["ST"], chosenStats: { ST: 8 } }]);
+    expect(dirty.rows[0].added).toEqual([]);
+    expect(dirty.rows[0].statIncreases).toEqual([]);
+    expect(JSON.stringify(dirty.rows[0].stats)).toBe(JSON.stringify(clean.rows.find((r: any) => r.position === "Fungus the Loon").stats));
+  });
 });
