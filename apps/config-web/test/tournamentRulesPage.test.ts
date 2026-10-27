@@ -123,7 +123,7 @@ describe("Tournament Creator — booted page", () => {
     expect(page.elements["#editor"]!.innerHTML).toContain("Resolving the package");
     await new Promise((resolve) => setTimeout(resolve, 10));
     const editor = page.elements["#editor"]!.innerHTML.replace(/\s+</g, "<");
-    expect(editor).toContain("<th>Tier 1</th><td>Orc 1225k, High Elf 1260k</td><td>1150k / 6 skills (≤1 sec)</td>");
+    expect(editor).toContain("<th>Tier 1</th><td>Orc 1225k, High Elf 1260k</td><td>1150k / 6 skills (up to 1 secondary)</td>");
     // With packs active the validator gives star access to the packs (this pack allows them).
     expect(editor).toContain("<td>max any</td></tr>");
   });

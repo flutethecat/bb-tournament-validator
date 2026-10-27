@@ -863,11 +863,21 @@ export interface PackagePreview {
   tiers: BuilderTierRow[];
   /** Gold / SP / packs per tier (the Slot Builder summary) — row-aligned with `tiers`. */
   tierSummary: TierSummaryRow[];
-  flat: (RaceRulesInfo & { rules: BuilderRaceRules }) | null;
+  /** Count / SP limits per tier (row-aligned with `tiers`), merged like resolveTeamConfig does
+   *  (`!= null` tier values over the flat allotment). */
+  tierLimits: SkillLimits[];
+  flat: (RaceRulesInfo & { rules: BuilderRaceRules; limits: SkillLimits }) | null;
   exceptions: PreviewException[];
 }
 
+export interface SkillLimits {
+  maxPrimary: number | null;
+  maxSecondary: number | null;
+  skillPointBudget: number | null;
+}
+
 export function packagePreview(pkg: TournamentPackage): PackagePreview {
+  const sa = pkg.skillAllotment;
   const tiers = builderTierRows(pkg);
   const hasMatrix = (pkg.matrix?.cells?.length ?? 0) > 0;
   const exceptionRace = (roster: string, source: "matrix" | "team", label: string): PreviewException => {
@@ -910,7 +920,18 @@ export function packagePreview(pkg: TournamentPackage): PackagePreview {
     system: tiers.length ? "tiers" : hasMatrix ? "matrix" : "flat",
     tiers,
     tierSummary: packageTierSummary(pkg),
-    flat: tiers.length || hasMatrix ? null : { ...packageRaceRules(pkg, ""), rules: builderRaceRules(pkg, "") },
+    tierLimits: (pkg.tiers ?? []).map((t) => ({
+      maxPrimary: t.maxPrimary ?? sa.maxPrimary ?? null,
+      maxSecondary: t.maxSecondary ?? sa.maxSecondary ?? null,
+      skillPointBudget: t.skillPointBudget ?? sa.skillPointBudget,
+    })),
+    flat: tiers.length || hasMatrix
+      ? null
+      : {
+          ...packageRaceRules(pkg, ""),
+          rules: builderRaceRules(pkg, ""),
+          limits: { maxPrimary: sa.maxPrimary ?? null, maxSecondary: sa.maxSecondary ?? null, skillPointBudget: sa.skillPointBudget },
+        },
     exceptions,
   };
 }

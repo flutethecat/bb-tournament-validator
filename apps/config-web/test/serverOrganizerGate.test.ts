@@ -275,3 +275,18 @@ describe("NAF identity HTTP gates", () => {
     });
   });
 });
+
+describe("POST /api/packages/preview organiser gate (Sol r2)", () => {
+  const body = JSON.stringify({ name: "Gate", skillAllotment: { skillPointBudget: 0 } });
+  it("is not public: 401 without a session, 403 for a plain coach, 200 for an organiser", async () => {
+    const anonymous = await fetch(`${origin}/api/packages/preview`, { method: "POST", headers: { "content-type": "application/json", "x-cw-auth": "1" }, body });
+    expect(anonymous.status).toBe(401);
+    const coach = createSession("PlainCoach");
+    const plain = await fetch(`${origin}/api/packages/preview`, { method: "POST", headers: { authorization: `Bearer ${coach.token}`, "content-type": "application/json" }, body });
+    expect(plain.status).toBe(403);
+    const organizer = createSession("OrganizerCoach");
+    const allowed = await fetch(`${origin}/api/packages/preview`, { method: "POST", headers: { authorization: `Bearer ${organizer.token}`, "content-type": "application/json" }, body });
+    expect(allowed.status).toBe(200);
+    expect((await allowed.json()).preview.system).toBe("flat");
+  });
+});

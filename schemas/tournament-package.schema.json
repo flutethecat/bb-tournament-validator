@@ -6,6 +6,7 @@
   "type": "object",
   "required": ["name", "skillAllotment"],
   "additionalProperties": false,
+  "patternProperties": { "^_": { "description": "Authoring notes (e.g. _notes); ignored by the validator." } },
   "definitions": {
     "statIncreases": {
       "type": ["object", "null"],
@@ -69,7 +70,8 @@
     },
     "tiers": {
       "type": "array",
-      "description": "Tier configuration. When present, a team's tier drives its gold cap, star access, and banned stars.",
+      "maxItems": 10,
+      "description": "Tier configuration (at most 10 tiers, owner 10-27). When present, a team's tier drives its gold cap, star access, and banned stars.",
       "items": {
         "type": "object",
         "required": ["tier", "rosters", "gold", "starPlayersAllowed", "bannedStars"],
@@ -212,7 +214,9 @@
       "properties": {
         "allowed": { "type": "boolean", "default": true },
         "maxCount": { "type": ["number", "null"], "default": null },
-        "maxCombinedCost": { "type": ["number", "null"], "default": null }
+        "maxCombinedCost": { "type": ["number", "null"], "default": null },
+        "spCostByTier": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": ["number", "null"] } }, "description": "Star name -> SP cost per tier (index = tier - 1); null = not available in that tier." },
+        "paidInSkillPoints": { "type": "boolean", "description": "Stars are paid in SP instead of gold." }
       }
     },
 

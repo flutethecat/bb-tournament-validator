@@ -53,11 +53,14 @@ const mergeStat = (
   over: StatIncreaseRule | null | undefined,
 ): ResolvedStatIncreases | undefined => {
   if (over === undefined) return base;
-  if (over === null) return { allowed: [], costGold: { ...(base?.costGold ?? {}) }, maxPerPlayer: base?.maxPerPlayer ?? 1, exclusiveWithSkills: base?.exclusiveWithSkills ?? false };
+  // An inherited maxPerPlayer keeps its value, null (= unlimited) included; 1 is only the default
+  // when no level set it at all.
+  const inheritedMax = base ? base.maxPerPlayer : 1;
+  if (over === null) return { allowed: [], costGold: { ...(base?.costGold ?? {}) }, maxPerPlayer: inheritedMax, exclusiveWithSkills: base?.exclusiveWithSkills ?? false };
   return {
     allowed: [...(over.allowed ?? base?.allowed ?? [])],
     costGold: { ...(base?.costGold ?? {}), ...(over.costGold ?? {}) },
-    maxPerPlayer: over.maxPerPlayer !== undefined ? over.maxPerPlayer : (base?.maxPerPlayer ?? 1),
+    maxPerPlayer: over.maxPerPlayer !== undefined ? over.maxPerPlayer : inheritedMax,
     exclusiveWithSkills: over.exclusiveWithSkills ?? base?.exclusiveWithSkills ?? false,
   };
 };

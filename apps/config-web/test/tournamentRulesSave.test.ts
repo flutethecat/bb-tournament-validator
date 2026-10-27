@@ -27,7 +27,7 @@ function apiRoute(files: PackageFiles): RouteHandler {
   return (path, init) => {
     const [pathname, search] = path.split("?");
     const body = init.body ? JSON.parse(init.body) : undefined;
-    return packagesApi(files, init.method ?? "GET", pathname!, new URLSearchParams(search ?? ""), body) ?? { status: 404, body: { error: "not found" } };
+    return packagesApi(files, init.method ?? "GET", pathname!, new URLSearchParams(search ?? ""), body, { ifMatch: init.headers?.["If-Match"] }) ?? { status: 404, body: { error: "not found" } };
   };
 }
 
@@ -58,7 +58,8 @@ describe("Tournament Creator — real load → save round trip", () => {
       const page = await editorOver(files);
       await page.core.loadSavedPackage(nameOf(dir, stem));
       await page.core.savePackage();
-      expect(page.core.state.saved ?? page.core.state.problems).toBeTruthy();
+      expect(page.core.state.problems).toEqual([]);
+      expect(page.core.state.saved).toBeTruthy();
       const after = readFileSync(join(dir, `${stem}.json`), "utf8");
       expect(JSON.parse(after)).toEqual(JSON.parse(before)); // deep-equal (law); key order is kept too
       expect(Object.keys(JSON.parse(after))).toEqual(Object.keys(JSON.parse(before)));
@@ -83,6 +84,7 @@ describe("Tournament Creator — real load → save round trip", () => {
     page.core.state.tab = "special";
     page.core.handleEditorChange({ dataset: { bind: JSON.stringify(["sideline", "maxReRolls"]), kind: "int", blank: "null" }, value: "6" });
     await page.core.savePackage();
+    expect(page.core.state.problems).toEqual([]);
     expect(JSON.parse(readFileSync(join(dir, "small-gods.json"), "utf8"))).toEqual({ ...before, sideline: { maxReRolls: 6 } });
     await page.core.savePackage();
     expect(JSON.parse(readFileSync(join(dir, "small-gods.json"), "utf8"))).toEqual({ ...before, sideline: { maxReRolls: 6 } });
@@ -218,7 +220,7 @@ describe("Tournament Creator — Sol r1 fixes", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     editorHtml = page.elements["#editor"]!.innerHTML;
     expect(editorHtml).not.toContain("<th>Tier 1</th>");
-    expect(editorHtml.replace(/\s+</g, "<")).toContain("<th>Halfling</th><td>6 pri / 0 sec @ 1150k</td><td>1150k</td><td>6 pri / 0 sec</td>");
+    expect(editorHtml.replace(/\s+</g, "<")).toContain("<th>Halfling</th><td>6 pri / 0 sec @ 1150k</td><td>1150k</td><td>6 primary + 0 secondary</td>");
   });
 
   it("packagePreview reports matrix and team-rule exceptions from resolveTeamConfig", () => {

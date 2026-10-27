@@ -1,21 +1,102 @@
-import type { DeepPartial, TournamentPackage } from "@bb/validator";
-import type { PackageFiles } from "./data.js";
-import { packagePreview, packageRulesInfo } from "./teamBuilderPackage.js";
+import { resolveTeamConfig, type DeepPartial, type TournamentPackage } from "@bb/validator";
+import { bb2025 } from "@bb/validator/dataset";
+import { PackageConflictError, type PackageFiles } from "./data.js";
+import { packagePreview, packageRaceRules, packageRulesInfo } from "./teamBuilderPackage.js";
+import { packageSchemaProblems } from "./packageSchema.js";
 
 export interface PackagesApiResult {
   status: number;
   body: unknown;
 }
 
+/** Sanity caps for an organiser package (owner 10-27: at most 10 tiers). They bound the work the
+ *  save dry run and the Summary preview do, which resolve every listed roster. */
+export const PACKAGE_LIMITS = {
+  tiers: 10,
+  rostersPerTier: 64,
+  teamRules: 128,
+  skillPackages: 32,
+  starPacks: 64,
+  matrixColumns: 16,
+  matrixRows: 16,
+  matrixCells: 256,
+  previewBytes: 1024 * 1024,
+} as const;
+
 const isPackageBody = (body: unknown): body is DeepPartial<TournamentPackage> =>
   body != null && typeof body === "object" && !Array.isArray(body);
 
+const len = (value: unknown): number => (Array.isArray(value) ? value.length : 0);
+
+/** Size caps (422), checked before the schema walk so an oversized document is refused cheaply. */
+function limitProblems(doc: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const tiers = Array.isArray(doc.tiers) ? (doc.tiers as Record<string, unknown>[]) : [];
+  if (tiers.length > PACKAGE_LIMITS.tiers) out.push(`A package may have at most ${PACKAGE_LIMITS.tiers} tiers (this one has ${tiers.length}).`);
+  tiers.slice(0, PACKAGE_LIMITS.tiers + 1).forEach((tier, index) => {
+    if (len(tier?.rosters) > PACKAGE_LIMITS.rostersPerTier) out.push(`Tier ${index + 1} lists more than ${PACKAGE_LIMITS.rostersPerTier} rosters.`);
+    if (len(tier?.skillPackages) > PACKAGE_LIMITS.skillPackages) out.push(`Tier ${index + 1} has more than ${PACKAGE_LIMITS.skillPackages} skill packages.`);
+  });
+  if (len(doc.teamRules) > PACKAGE_LIMITS.teamRules) out.push(`A package may have at most ${PACKAGE_LIMITS.teamRules} team rules.`);
+  if (len(doc.skillPackages) > PACKAGE_LIMITS.skillPackages) out.push(`A package may have at most ${PACKAGE_LIMITS.skillPackages} skill packages.`);
+  if (len(doc.starPacks) > PACKAGE_LIMITS.starPacks) out.push(`A package may have at most ${PACKAGE_LIMITS.starPacks} star packs.`);
+  const matrix = (doc.matrix ?? {}) as Record<string, unknown>;
+  if (len(matrix.columns) > PACKAGE_LIMITS.matrixColumns) out.push(`The matrix may have at most ${PACKAGE_LIMITS.matrixColumns} columns.`);
+  if (len(matrix.rows) > PACKAGE_LIMITS.matrixRows) out.push(`The matrix may have at most ${PACKAGE_LIMITS.matrixRows} rows.`);
+  if (len(matrix.cells) > PACKAGE_LIMITS.matrixCells) out.push(`The matrix may have at most ${PACKAGE_LIMITS.matrixCells} cells.`);
+  return out;
+}
+
+/** Every roster the package can resolve for: the dataset teams plus anything the package names. */
+function rostersToCheck(pkg: TournamentPackage): string[] {
+  const names = new Set<string>(bb2025.teams.map((team) => team.name));
+  for (const name of pkg.eligibleRosters ?? []) if (name !== "*") names.add(name);
+  for (const tier of pkg.tiers ?? []) for (const name of tier.rosters ?? []) names.add(name);
+  for (const rule of pkg.teamRules ?? []) names.add(rule.team);
+  for (const cell of pkg.matrix?.cells ?? []) for (const name of cell.teams ?? []) names.add(name);
+  return [...names];
+}
+
+type Checked =
+  | { ok: true; pkg: TournamentPackage; problems: string[] }
+  | { ok: false; result: PackagesApiResult };
+
 /**
- * The tournament-package routes (server.ts delegates here AFTER its own auth gate for writes):
+ * Validate a document before it is saved or previewed: size caps, schema shape, an `extends`
+ * that resolves, and a dry run of the resolver for every roster (all 422). A thrown resolver error is
+ * a 422 with the message — never a 500, never a file that later breaks GET.
+ */
+function checkDocument(packages: PackageFiles, body: unknown): Checked {
+  if (!isPackageBody(body)) return { ok: false, result: { status: 400, body: { error: "A package document is required." } } };
+  const limits = limitProblems(body as Record<string, unknown>);
+  if (limits.length) return { ok: false, result: { status: 422, body: { error: limits[0], problems: limits } } };
+  const shape = packageSchemaProblems(body);
+  if (shape.length) return { ok: false, result: { status: 422, body: { error: "The package does not match the tournament-package schema.", problems: shape } } };
+  if (typeof body.extends === "string" && body.extends && !packages.hasPackage(body.extends)) {
+    const problem = `extends "${body.extends}" does not name a saved package.`;
+    return { ok: false, result: { status: 422, body: { error: problem, problems: [problem] } } };
+  }
+  try {
+    const { pkg, problems } = packages.resolve(body);
+    for (const roster of rostersToCheck(pkg)) {
+      resolveTeamConfig(pkg, roster);
+      packageRaceRules(pkg, roster);
+    }
+    return { ok: true, pkg, problems };
+  } catch (error) {
+    const problem = `The package could not be resolved: ${(error as Error).message}`;
+    return { ok: false, result: { status: 422, body: { error: problem, problems: [problem] } } };
+  }
+}
+
+/**
+ * The tournament-package routes. server.ts gates the writes (save AND preview need the organiser
+ * session / token) before delegating here:
  *   GET  /api/packages              list
- *   GET  /api/packages/<name>       { pkg (resolved), problems, rules, raw (the file as authored) }
+ *   GET  /api/packages/<name>       { pkg (resolved), problems, rules, raw (the file as authored), revision }
  *   POST /api/packages/preview      the coach-page derivations for an unsaved package (Summary tab)
- *   POST /api/packages              save the document AS SENT; problems come from resolving it
+ *   POST /api/packages              save the document AS SENT. `If-Match: <revision>` is required to
+ *                                   replace an existing package; `?replace=<name>` targets one explicitly.
  * Returns undefined for any other path/method.
  */
 export function packagesApi(
@@ -24,34 +105,52 @@ export function packagesApi(
   path: string,
   query: URLSearchParams,
   body?: unknown,
+  headers: { ifMatch?: string } = {},
 ): PackagesApiResult | undefined {
   if (path === "/api/packages" && method === "GET") return { status: 200, body: packages.list() };
 
   if (path === "/api/packages/preview" && method === "POST") {
-    if (!isPackageBody(body)) return { status: 400, body: { error: "A package document is required." } };
-    const { pkg, problems } = packages.resolve(body);
-    return { status: 200, body: { preview: packagePreview(pkg), problems } };
+    const checked = checkDocument(packages, body);
+    if (!checked.ok) return checked.result;
+    const responseBody = { preview: packagePreview(checked.pkg), problems: checked.problems };
+    const bytes = Buffer.byteLength(JSON.stringify(responseBody));
+    if (bytes > PACKAGE_LIMITS.previewBytes) return { status: 413, body: { error: `The preview is too large (${bytes} bytes).` } };
+    return { status: 200, body: responseBody };
   }
 
   if (path === "/api/packages" && method === "POST") {
     if (!isPackageBody(body) || typeof body.name !== "string" || !body.name.trim())
       return { status: 400, body: { error: "A package name is required." } };
-    const { path: filePath, pkg, problems } = packages.save(body);
-    return { status: 200, body: { ok: true, savedAs: filePath, name: pkg.name, problems } };
+    const checked = checkDocument(packages, body);
+    if (!checked.ok) return checked.result;
+    try {
+      const replace = query.get("replace") ?? undefined;
+      const { path: filePath, pkg, problems, revision } = packages.save(body, { replace, ifMatch: headers.ifMatch });
+      return { status: 200, body: { ok: true, savedAs: filePath, name: pkg.name, problems, revision } };
+    } catch (error) {
+      if (error instanceof PackageConflictError) return { status: 409, body: { error: error.message, revision: error.revision } };
+      throw error;
+    }
   }
 
   const pkgMatch = path.match(/^\/api\/packages\/(.+)$/);
   if (pkgMatch && method === "GET") {
     const name = decodeURIComponent(pkgMatch[1]!);
-    const found = packages.get(name);
-    if (!found) return { status: 404, body: { error: "Package not found." } };
-    // `rules` (additive): the derived tier summary + (with ?roster=) that race's effective
-    // rules and budget — lets the Slot Builder show the ruleset and lock the build budget
-    // WITHOUT a preview round-trip. `raw` (additive): the file as authored, for the editor.
-    return {
-      status: 200,
-      body: { pkg: found.pkg, problems: found.problems, rules: packageRulesInfo(found.pkg, query.get("roster")), raw: packages.getRaw(name) },
-    };
+    const raw = packages.getRaw(name);
+    if (!raw) return { status: 404, body: { error: "Package not found." } };
+    try {
+      const found = packages.get(name)!;
+      // `rules` (additive): the derived tier summary + (with ?roster=) that race's effective
+      // rules and budget — lets the Slot Builder show the ruleset and lock the build budget
+      // WITHOUT a preview round-trip. `raw` + `revision` (additive): the file as authored, for the editor.
+      return {
+        status: 200,
+        body: { pkg: found.pkg, problems: found.problems, rules: packageRulesInfo(found.pkg, query.get("roster")), raw: raw.raw, revision: raw.revision },
+      };
+    } catch (error) {
+      // A file that no longer resolves still opens in the editor (to be fixed), never a 500.
+      return { status: 422, body: { error: `The package could not be resolved: ${(error as Error).message}`, raw: raw.raw, revision: raw.revision } };
+    }
   }
   return undefined;
 }

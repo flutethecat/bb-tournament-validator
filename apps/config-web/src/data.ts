@@ -4,6 +4,7 @@
  * directory) and the bot's validated-rosters.csv (the coaches dashboard).
  */
 
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { loadPackage, type DeepPartial, type SkillMeta, type TournamentPackage } from "@bb/validator";
@@ -152,19 +153,36 @@ export function skillCatalog(): { elite: SkillRow[]; general: SkillRow[] } {
 
 // ---------- packages ----------
 
+/** A save refused because it would clobber something: another package's file, or a newer
+ *  revision of the same package (optimistic concurrency via If-Match). */
+export class PackageConflictError extends Error {
+  constructor(message: string, readonly revision?: string) {
+    super(message);
+  }
+}
+
+interface PackageEntry {
+  raw: Partial<TournamentPackage>;
+  path: string;
+  /** sha256 of the file text: the optimistic-concurrency token GET hands out and POST checks. */
+  revision: string;
+  text: string;
+}
+
+const canonical = (name: unknown): string => String(name ?? "").trim().toLowerCase();
+
 export class PackageFiles {
   constructor(private readonly dir: string) {}
 
-  /** Raw (unresolved) package documents keyed by package name AND file stem, with their file path. */
-  private entries(): Map<string, { raw: Partial<TournamentPackage>; path: string }> {
-    const out = new Map<string, { raw: Partial<TournamentPackage>; path: string }>();
-    if (!existsSync(this.dir)) return out;
+  private files(): PackageEntry[] {
+    if (!existsSync(this.dir)) return [];
+    const out: PackageEntry[] = [];
     for (const file of readdirSync(this.dir).filter((f) => f.endsWith(".json"))) {
       const path = join(this.dir, file);
       try {
-        const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<TournamentPackage>;
-        out.set(raw.name ?? basename(file, ".json"), { raw, path });
-        out.set(basename(file, ".json"), { raw, path });
+        const text = readFileSync(path, "utf8");
+        const raw = JSON.parse(text) as Partial<TournamentPackage>;
+        out.push({ raw, path, text, revision: createHash("sha256").update(text).digest("hex") });
       } catch {
         /* skip unreadable */
       }
@@ -172,13 +190,27 @@ export class PackageFiles {
     return out;
   }
 
+  /** Raw (unresolved) package documents keyed by package name AND file stem. */
   private raws(): Map<string, Partial<TournamentPackage>> {
-    return new Map([...this.entries()].map(([key, entry]) => [key, entry.raw]));
+    const out = new Map<string, Partial<TournamentPackage>>();
+    for (const entry of this.files()) {
+      out.set(entry.raw.name ?? basename(entry.path, ".json"), entry.raw);
+      out.set(basename(entry.path, ".json"), entry.raw);
+    }
+    return out;
   }
 
-  private find(name: string): { raw: Partial<TournamentPackage>; path: string } | undefined {
-    const entries = this.entries();
-    return entries.get(name) ?? [...entries.entries()].find(([k]) => k.toLowerCase() === name.toLowerCase())?.[1];
+  /** Lookup for reads: package name or file stem, exact first, then case-insensitive. */
+  private find(name: string): PackageEntry | undefined {
+    const files = this.files();
+    const key = (entry: PackageEntry) => [entry.raw.name ?? basename(entry.path, ".json"), basename(entry.path, ".json")];
+    return files.find((entry) => key(entry).includes(name)) ?? files.find((entry) => key(entry).some((k) => k.toLowerCase() === name.toLowerCase()));
+  }
+
+  /** Lookup for writes: the package with exactly this canonical NAME (never a file-stem match). */
+  private byName(name: string): PackageEntry | undefined {
+    const want = canonical(name);
+    return this.files().find((entry) => canonical(entry.raw.name ?? basename(entry.path, ".json")) === want);
   }
 
   list(): { name: string; date?: string; description?: string }[] {
@@ -200,11 +232,16 @@ export class PackageFiles {
     return loadPackage(found.raw, { resolveExtends: (n) => raws.get(n) });
   }
 
-  /** The package document exactly as authored (no defaults / `extends` merged) — what the
-   *  organiser's editor loads, so a load → save round trip leaves the file unchanged. */
-  getRaw(name: string): Partial<TournamentPackage> | undefined {
+  /** The package document exactly as authored (no defaults / `extends` merged) plus its revision —
+   *  what the organiser's editor loads, so a load → save round trip leaves the file unchanged. */
+  getRaw(name: string): { raw: Partial<TournamentPackage>; revision: string } | undefined {
     const found = this.find(name);
-    return found ? (JSON.parse(JSON.stringify(found.raw)) as Partial<TournamentPackage>) : undefined;
+    return found ? { raw: JSON.parse(found.text) as Partial<TournamentPackage>, revision: found.revision } : undefined;
+  }
+
+  /** Whether a package with this `extends` name exists. */
+  hasPackage(name: string): boolean {
+    return this.raws().has(name);
   }
 
   /** Resolve a document (defaults ← `extends` base ← document) against the saved packages. */
@@ -214,23 +251,47 @@ export class PackageFiles {
   }
 
   /**
-   * Validate + write. The document is written AS SENT (the editor sends the raw package, so
-   * defaults and inherited `extends` fields never get baked into the file); it is resolved only
-   * to report problems. A package whose name matches an existing file overwrites that file,
-   * keeping its line endings; a new package gets `<name-stem>.json`. Returns the resolved package.
+   * Write a document AS SENT (the editor sends the raw package, so defaults and inherited `extends`
+   * fields never get baked into the file); it is resolved only to report problems. Callers validate
+   * first (packagesApi). Target rules:
+   *   - the request may REPLACE a file only when it explicitly targets that package: the document's
+   *     name is the package's canonical name, or `replace` names it; the write then needs `ifMatch`
+   *     equal to the file's current revision (else PackageConflictError carrying the current one);
+   *   - otherwise the document is new: `<name-stem>.json`, and a stem that collides with ANY existing
+   *     file (e.g. "small/gods" → small-gods.json) is a conflict, never an overwrite.
+   * The written file keeps the replaced file's line endings / trailing newline.
    */
-  save(input: DeepPartial<TournamentPackage>): { path: string; pkg: TournamentPackage; problems: string[] } {
+  save(
+    input: DeepPartial<TournamentPackage>,
+    opts: { replace?: string; ifMatch?: string } = {},
+  ): { path: string; pkg: TournamentPackage; problems: string[]; revision: string } {
     const { pkg, problems } = this.resolve(input);
     mkdirSync(this.dir, { recursive: true });
-    const existing = typeof input.name === "string" ? this.find(input.name) : undefined;
-    const stem = (pkg.name || "package").replace(/[^\w.-]+/g, "-").toLowerCase();
-    const path = existing?.path ?? join(this.dir, `${stem}.json`);
-    const before = existing ? readFileSync(existing.path, "utf8") : "";
+    const target = opts.replace ? this.byName(opts.replace) : typeof input.name === "string" ? this.byName(input.name) : undefined;
+    if (opts.replace && !target) throw new PackageConflictError(`No saved package named "${opts.replace}" to replace.`);
+    let path: string;
+    if (target) {
+      if (opts.ifMatch !== target.revision) {
+        throw new PackageConflictError(
+          `"${target.raw.name ?? basename(target.path)}" changed on the server since it was opened. Reload it, then reapply your edits.`,
+          target.revision,
+        );
+      }
+      path = target.path;
+    } else {
+      const stem = (pkg.name || "package").replace(/[^\w.-]+/g, "-").toLowerCase();
+      path = join(this.dir, `${stem}.json`);
+      if (existsSync(path)) {
+        const other = this.files().find((entry) => entry.path === path);
+        throw new PackageConflictError(`${stem}.json already holds the package "${other?.raw.name ?? stem}"; choose a different name.`);
+      }
+    }
+    const before = target?.text ?? "";
     const crlf = before.includes("\r\n");
-    let text = JSON.stringify(input, null, 2) + (existing && !before.endsWith("\n") ? "" : "\n");
+    let text = JSON.stringify(input, null, 2) + (target && !before.endsWith("\n") ? "" : "\n");
     if (crlf) text = text.replace(/\n/g, "\r\n");
     writeFileSync(path, text, "utf8");
-    return { path, pkg, problems };
+    return { path, pkg, problems, revision: createHash("sha256").update(text).digest("hex") };
   }
 }
 

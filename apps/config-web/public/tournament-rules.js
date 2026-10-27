@@ -79,6 +79,8 @@ const DEFAULT_SPECIAL = { insignificantTraitConstraint: true, stalling: true, sl
 const DEFAULT_GOLD_COSTS = { primaryCostGold: 20000, secondaryCostGold: 40000, eliteSurchargeGold: 10000 };
 
 const STAT_KEYS = ["MA", "ST", "AG", "PA", "AV"];
+/** Owner 10-27: a package has at most 10 tiers (schema maxItems; the server refuses an 11th). */
+const MAX_TIERS = 10;
 const OPTIONAL_STRINGS = ["description", "dataNote", "date", "extends"];
 const NESTED_PRUNE = new Set(["skillAllotment", "starPlayers", "inducements", "sideline", "special"]);
 // Containers the editor creates on demand; emptied ones are removed again.
@@ -129,6 +131,14 @@ const state = {
   tab: "package",
   view: freshView("skillpoints", "pool"),
   preview: { key: "", data: null, problems: [], error: "", loading: false },
+  /** Paths (JSON) of fields normalizePackage() filled / the organiser has edited since load. */
+  injected: new Set(),
+  touched: new Set(),
+  preEdit: null,
+  /** sha256 of the file as opened (If-Match on save); a 409 message; a read-only reason. */
+  revision: null,
+  conflict: "",
+  readOnly: "",
 };
 
 let toolbar = null;
@@ -217,6 +227,7 @@ async function requestJson(path, options) {
     const error = new Error(typeof data?.error === "string" ? data.error : `Request failed (${response.status}).`);
     error.status = response.status;
     error.serverError = typeof data?.error === "string" ? data.error : undefined;
+    error.data = data;
     throw error;
   }
   return data;
@@ -224,8 +235,12 @@ async function requestJson(path, options) {
 
 // ---------- package model ----------
 
-function fill(target, key, value) {
-  if (target[key] === undefined) target[key] = clone(value);
+const pathKey = (path) => JSON.stringify(path);
+
+function fill(target, key, value, filled, prefix = []) {
+  if (target[key] !== undefined) return;
+  target[key] = clone(value);
+  filled?.add(pathKey([...prefix, key]));
 }
 
 function objectAt(target, key) {
@@ -234,47 +249,83 @@ function objectAt(target, key) {
 }
 
 /** Editing model: a clone of the raw package with ABSENT keys filled (validator defaults). Present
- *  values are never rewritten, so serializePackage() can hand the file back unchanged. */
-function normalizePackage(raw) {
+ *  values are never rewritten, so serializePackage() can hand the file back unchanged. `filled`
+ *  collects the path of every filled key, so the controls can show those values as defaults
+ *  (placeholders) rather than as the organiser's own. */
+function normalizePackage(raw, filled) {
   const pkg = isObj(raw) ? clone(raw) : {};
-  fill(pkg, "name", "");
-  fill(pkg, "ruleset", "bb2025-default");
-  OPTIONAL_STRINGS.forEach((key) => fill(pkg, key, ""));
-  fill(pkg, "eligibleRosters", ["*"]);
-  fill(pkg, "goldBudget", null);
-  fill(pkg, "goldCapIncludesAddedSkills", false);
+  fill(pkg, "name", "", filled);
+  fill(pkg, "ruleset", "bb2025-default", filled);
+  OPTIONAL_STRINGS.forEach((key) => fill(pkg, key, "", filled));
+  fill(pkg, "eligibleRosters", ["*"], filled);
+  fill(pkg, "goldBudget", null, filled);
+  fill(pkg, "goldCapIncludesAddedSkills", false, filled);
   const allotment = objectAt(pkg, "skillAllotment");
-  Object.entries(DEFAULT_SKILL_ALLOTMENT).forEach(([key, value]) => fill(allotment, key, value));
+  Object.entries(DEFAULT_SKILL_ALLOTMENT).forEach(([key, value]) => fill(allotment, key, value, filled, ["skillAllotment"]));
   ["skillPackages", "tiers", "teamRules", "bannedStars"].forEach((key) => {
     if (!Array.isArray(pkg[key])) pkg[key] = [];
   });
   const stars = objectAt(pkg, "starPlayers");
-  Object.entries(DEFAULT_STAR_PLAYERS).forEach(([key, value]) => fill(stars, key, value));
+  Object.entries(DEFAULT_STAR_PLAYERS).forEach(([key, value]) => fill(stars, key, value, filled, ["starPlayers"]));
   const inducements = objectAt(pkg, "inducements");
-  Object.entries(DEFAULT_INDUCEMENTS).forEach(([key, value]) => fill(inducements, key, value));
+  Object.entries(DEFAULT_INDUCEMENTS).forEach(([key, value]) => fill(inducements, key, value, filled, ["inducements"]));
   const sideline = objectAt(pkg, "sideline");
-  Object.entries(DEFAULT_SIDELINE).forEach(([key, value]) => fill(sideline, key, value));
+  Object.entries(DEFAULT_SIDELINE).forEach(([key, value]) => fill(sideline, key, value, filled, ["sideline"]));
   const special = objectAt(pkg, "special");
-  Object.entries(DEFAULT_SPECIAL).forEach(([key, value]) => fill(special, key, value));
+  Object.entries(DEFAULT_SPECIAL).forEach(([key, value]) => fill(special, key, value, filled, ["special"]));
   return pkg;
 }
 
-/** Drop keys the organiser never touched that normalizePackage() filled in. */
-function pruneInjected(output, original, baseline, nested = true) {
+/**
+ * Drop keys the organiser never touched that normalizePackage() filled in. A key the organiser
+ * edited (state.touched) is always kept, even when its value equals the filled default: under
+ * `extends` an explicit default still overrides the base package's value.
+ */
+function pruneInjected(output, original, baseline, nested = true, prefix = []) {
   Object.keys(output).forEach((key) => {
+    const path = [...prefix, key];
+    // Only filled defaults need protecting: everything else is pruned by value as before.
+    if (state.touched?.has(pathKey(path)) && state.injected?.has(pathKey(path))) return;
     const present = isObj(original) && Object.prototype.hasOwnProperty.call(original, key);
     if (!present) {
       if (nested && NESTED_PRUNE.has(key) && isObj(output[key]) && isObj(baseline?.[key])) {
-        pruneInjected(output[key], {}, baseline[key], false);
+        pruneInjected(output[key], {}, baseline[key], false, path);
         if (Object.keys(output[key]).length === 0) delete output[key];
       } else if (output[key] === undefined || deepEqual(output[key], baseline?.[key])) delete output[key];
       return;
     }
     if (nested && NESTED_PRUNE.has(key) && isObj(output[key]) && isObj(original[key])) {
-      pruneInjected(output[key], original[key], baseline?.[key], false);
+      pruneInjected(output[key], original[key], baseline?.[key], false, path);
     }
   });
   return output;
+}
+
+/** Record which top-level / nested-block fields an edit changed (compared with state.preEdit). */
+function recordTouched() {
+  const before = state.preEdit;
+  state.preEdit = null;
+  if (!before || !state.pkg) return;
+  const keys = new Set([...Object.keys(before), ...Object.keys(state.pkg)]);
+  keys.forEach((key) => {
+    if (deepEqual(before[key], state.pkg[key])) return;
+    state.touched.add(pathKey([key]));
+    if (NESTED_PRUNE.has(key) && isObj(before[key]) && isObj(state.pkg[key])) {
+      new Set([...Object.keys(before[key]), ...Object.keys(state.pkg[key])]).forEach((sub) => {
+        if (!deepEqual(before[key][sub], state.pkg[key][sub])) state.touched.add(pathKey([key, sub]));
+      });
+    }
+  });
+}
+
+/** True while a field still holds the default normalizePackage() filled in (shown as a placeholder). */
+function isInherited(path) {
+  const key = pathKey(path);
+  return state.injected.has(key) && !state.touched.has(key);
+}
+
+function inheritedHint(display) {
+  return state.pkg?.extends ? `inherited from ${state.pkg.extends}` : `default ${display === "" || display == null ? "none" : display}`;
 }
 
 function inferView(pkg) {
@@ -290,12 +341,25 @@ function inferView(pkg) {
   return freshView(system, skillMode);
 }
 
+/** Make `doc` the document being edited: the "as authored" original, the filled editing model,
+ *  and fresh touched / filled bookkeeping. */
+function adoptDocument(doc) {
+  state.original = isObj(doc) ? clone(doc) : {};
+  state.baseline = normalizePackage(doc);
+  const filled = new Set();
+  state.pkg = normalizePackage(doc, filled);
+  state.injected = filled;
+  state.touched = new Set();
+  state.preEdit = null;
+}
+
 function loadPackageIntoEditor(pkg, problems) {
-  state.original = isObj(pkg) ? clone(pkg) : {};
-  state.baseline = normalizePackage(pkg);
-  state.pkg = normalizePackage(pkg);
+  adoptDocument(pkg);
   state.view = inferView(state.pkg);
   state.activeTier = 0;
+  state.revision = null;
+  state.readOnly = "";
+  state.conflict = "";
   state.problems = safeArray(problems).map(String);
   state.saved = null;
   state.exported = false;
@@ -324,6 +388,7 @@ function fallbackPackage() {
 }
 
 function markDirty() {
+  recordTouched();
   state.saved = null;
   state.exported = false;
   state.problems = [];
@@ -411,18 +476,27 @@ function serializePackage() {
   output.ruleset = output.ruleset || "bb2025-default";
 
   // Switching the pricing mode / tournament system drops the other mode's data — only when the
-  // organiser actually switched away from what the package loaded with. Switching back keeps the
-  // loaded document's own blocks and drops only what the excursion created.
+  // organiser actually switched away from what the package loaded with. Coming back restores the
+  // loaded document's own values (state.original is the deep snapshot taken at load), so a detour
+  // never turns explicit nulls into 0 or leaves detour-created content behind.
+  const original = state.original ?? {};
+  const restore = (target, source, key) => {
+    if (isObj(source) && Object.prototype.hasOwnProperty.call(source, key)) target[key] = clone(source[key]);
+    else delete target[key];
+  };
   if (state.view.skillModeTouched && state.view.skillMode === "pool") {
     ["maxPrimary", "maxSecondary", "secondarySwap", "secondarySwapRatio", "secondarySwapMax"].forEach((key) => {
-      if (state.view.initialSkillMode !== "pool" || state.original?.skillAllotment?.[key] === undefined) delete output.skillAllotment[key];
+      if (state.view.initialSkillMode === "pool") restore(output.skillAllotment, original.skillAllotment, key);
+      else delete output.skillAllotment[key];
     });
   }
   if (state.view.systemTouched) {
     const keep = { skillpoints: [], tiers: ["tiers"], packages: ["skillPackages"], matrix: ["matrix"] }[state.view.system] ?? [];
     const switched = state.view.system !== state.view.initialSystem;
     ["tiers", "skillPackages", "matrix"].forEach((key) => {
-      if (!keep.includes(key) && (switched || state.original?.[key] === undefined)) delete output[key];
+      if (keep.includes(key)) return;
+      if (switched) delete output[key];
+      else restore(output, original, key);
     });
   }
   if (state.view.system === "matrix") output.matrix = clone(matrixForDisplay());
@@ -540,7 +614,12 @@ function bindAttr(path) {
 
 function numField(label, path, value, opts = {}) {
   const kind = opts.kind ?? "num";
-  const display = kind === "gold" ? goldToK(value) : value ?? "";
+  let display = kind === "gold" ? goldToK(value) : value ?? "";
+  if (isInherited(path)) {
+    // A filled default is shown as a placeholder, so it reads differently from an explicit value.
+    opts = { ...opts, placeholder: inheritedHint(display) };
+    display = "";
+  }
   const suffix = opts.suffix ?? (kind === "gold" ? "k" : "");
   return `<label class="field${opts.wide ? " wide" : ""}"><span class="field-label">${escapeHtml(label)}</span>
     <span class="field-input"><input class="control" ${bindAttr(path)} data-kind="${kind}" data-blank="${opts.blank ?? "delete"}" type="number" min="${opts.min ?? 0}"${opts.step ? ` step="${opts.step}"` : ""} value="${escapeHtml(display)}" placeholder="${escapeHtml(opts.placeholder ?? "")}" aria-label="${escapeHtml(opts.aria ?? label)}">${suffix ? `<span class="hint">${escapeHtml(suffix)}</span>` : ""}</span></label>`;
@@ -669,7 +748,7 @@ function renderGold() {
       <div class="section-head">
         <div class="section-title">${title("Gold / Team-Value Cap")}</div>
         <span class="field-label">Creation Gold Cap</span>
-        <input class="control compact" data-field="goldBudgetK" type="number" min="0" step="10" value="${escapeHtml(goldToK(state.pkg.goldBudget))}" aria-label="Creation gold cap in thousands">
+        <input class="control compact" data-field="goldBudgetK" type="number" min="0" step="10" value="${isInherited(["goldBudget"]) ? "" : escapeHtml(goldToK(state.pkg.goldBudget))}" placeholder="${isInherited(["goldBudget"]) ? escapeHtml(inheritedHint("")) : ""}" aria-label="Creation gold cap in thousands">
         <span class="hint">k gold (blank = none)</span>
         ${chip("Creation Gold", "cap-creation", !includesSkills)}
         ${chip("Skills as Part of the Gold Budget", "cap-includes", includesSkills)}
@@ -867,7 +946,9 @@ function renderTiers() {
       <div class="tiers-layout">
         <div class="inset-list tiers-list">
           ${rows || '<div class="hint">No tiers defined.</div>'}
-          <button type="button" class="btn" data-action="add-tier" style="align-self:flex-start">+ Add Tier</button>
+          ${state.pkg.tiers.length < MAX_TIERS
+            ? '<button type="button" class="btn" data-action="add-tier" style="align-self:flex-start">+ Add Tier</button>'
+            : `<div class="hint">A package may have at most ${MAX_TIERS} tiers.</div>`}
         </div>
         <aside class="tier-team-pool" data-preserve-scroll="tier-team-pool">
           <div class="subheading">Unassigned teams (${unassigned.length})</div>
@@ -1186,9 +1267,9 @@ function renderStars() {
         <div class="section-title">${title("Star Players")}</div>
         ${chip("Stars Allowed", "toggle-stars", state.pkg.starPlayers.allowed)}
         <span class="field-label">Max Count</span>
-        <input class="control tiny" data-field="starMaxCount" type="number" min="0" value="${escapeHtml(state.pkg.starPlayers.maxCount ?? "")}" placeholder="none" aria-label="Max star players">
+        <input class="control tiny" data-field="starMaxCount" type="number" min="0" value="${isInherited(["starPlayers", "maxCount"]) ? "" : escapeHtml(state.pkg.starPlayers.maxCount ?? "")}" placeholder="${isInherited(["starPlayers", "maxCount"]) ? escapeHtml(inheritedHint(state.pkg.starPlayers.maxCount ?? "")) : "none"}" aria-label="Max star players">
         <span class="field-label">Max Combined Cost</span>
-        <input class="control compact" data-field="starMaxCostK" type="number" min="0" value="${escapeHtml(goldToK(state.pkg.starPlayers.maxCombinedCost))}" aria-label="Max combined star cost in thousands">
+        <input class="control compact" data-field="starMaxCostK" type="number" min="0" value="${isInherited(["starPlayers", "maxCombinedCost"]) ? "" : escapeHtml(goldToK(state.pkg.starPlayers.maxCombinedCost))}" placeholder="${isInherited(["starPlayers", "maxCombinedCost"]) ? escapeHtml(inheritedHint("")) : ""}" aria-label="Max combined star cost in thousands">
         <span class="hint">k (blank = no cap)</span>
       </div>
       <div class="star-columns">
@@ -1293,29 +1374,30 @@ function requestPreview() {
   if (key === state.preview.key) return;
   state.preview = { key, data: null, problems: [], error: "", loading: true };
   if (typeof fetch !== "function") return;
-  requestJson("/api/packages/preview", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-CW-Auth": "1" },
-    body: key,
-  }).then((result) => {
+  // Organiser-only route (it resolves an unsaved package): send the organiser token when we have one.
+  const headers = { "Content-Type": "application/json", "X-CW-Auth": "1" };
+  if (state.token) headers.Authorization = `Bearer ${state.token}`;
+  requestJson("/api/packages/preview", { method: "POST", headers, body: key }).then((result) => {
     if (state.preview.key !== key) return;
     state.preview = { key, data: result?.preview ?? null, problems: safeArray(result?.problems).map(String), error: "", loading: false };
     render();
   }).catch((error) => {
     if (state.preview.key !== key) return;
-    state.preview = { key, data: null, problems: [], error: serverMessage(error), loading: false };
+    const message = error.status === 401 || error.status === 403 ? "Log in as the organiser to see the preview." : serverMessage(error);
+    state.preview = { key, data: null, problems: safeArray(error.data?.problems).map(String), error: message, loading: false };
     render();
   });
 }
 
 function packsLabel(packs) {
   return safeArray(packs).map((pack) => pack.maxSkills != null || pack.maxSecondary != null
-    ? `${goldLabel(pack.gold)} / ${pack.maxSkills ?? 0} skills${pack.maxSecondary ? ` (≤${pack.maxSecondary} sec)` : ""}${pack.starPlayersAllowed === false ? ", no stars" : ""}`
+    ? `${goldLabel(pack.gold)} / ${pack.maxSkills ?? 0} skills${pack.maxSecondary ? ` (up to ${pack.maxSecondary} secondary)` : ""}${pack.starPlayersAllowed === false ? ", no stars" : ""}`
     : `${goldLabel(pack.gold)} / ${pack.skillPointBudget ?? 0} SP`).join(" · ");
 }
 
+/** Count mode reads "N primary + S secondary" (an unset side is "any"); otherwise the SP budget. */
 function countsLabel(maxPrimary, maxSecondary, skillPointBudget) {
-  if (maxPrimary != null || maxSecondary != null) return `${maxPrimary ?? "any"} pri / ${maxSecondary ?? "any"} sec`;
+  if (maxPrimary != null || maxSecondary != null) return `${maxPrimary ?? "any"} primary + ${maxSecondary ?? "any"} secondary`;
   return `${skillPointBudget ?? 0} SP`;
 }
 
@@ -1324,7 +1406,7 @@ function renderTierPreview() {
   requestPreview();
   const preview = state.preview;
   if (preview.loading) return '<div class="loading-banner">Resolving the package the way the Tournament Builder will…</div>';
-  if (preview.error) return `<div class="validation"><div class="validation-title">Preview unavailable</div><div>${escapeHtml(preview.error)}</div></div>`;
+  if (preview.error) return `<div class="validation"><div class="validation-title">Preview unavailable</div><div>${escapeHtml(preview.error)}</div>${preview.problems.filter((problem) => problem !== preview.error).map((problem) => `<div>• ${escapeHtml(problem)}</div>`).join("")}</div>`;
   const data = preview.data;
   if (!data) return '<div class="loading-banner">No preview yet.</div>';
   let main = "";
@@ -1332,7 +1414,8 @@ function renderTierPreview() {
     const rows = data.tiers.map((tier, index) => {
       const summary = data.tierSummary?.[index];
       const rosters = tier.rosters.map((roster) => `${roster.name} ${goldLabel(roster.gold)}`).join(", ");
-      const skills = summary?.packs?.length ? packsLabel(summary.packs) : countsLabel(null, tier.maxSecondary, summary?.skillPointBudget);
+      const limits = data.tierLimits?.[index] ?? {};
+      const skills = summary?.packs?.length ? packsLabel(summary.packs) : countsLabel(limits.maxPrimary, limits.maxSecondary, limits.skillPointBudget ?? summary?.skillPointBudget);
       return `<tr><th>${escapeHtml(tier.label)}</th><td>${escapeHtml(rosters || "—")}</td><td>${escapeHtml(skills)}</td>
         <td>${escapeHtml(tier.secondaryText)}</td><td>${escapeHtml(tier.eliteText)}</td><td>${escapeHtml(tier.stacksText)}</td>
         <td>${escapeHtml(tier.stackTypeText)}</td><td>${escapeHtml(tier.characteristicsText)}</td>
@@ -1346,7 +1429,7 @@ function renderTierPreview() {
     main = `<div class="preview-wrap"><table class="preview-table">
       <thead><tr><th>Teams</th><th>Gold</th><th>Skills</th><th>Secondary</th><th>Stars</th></tr></thead>
       <tbody><tr><th>${escapeHtml(isAllRaces() ? "Every eligible race" : safeArray(state.pkg.eligibleRosters).join(", "))}</th>
-        <td>${escapeHtml(goldLabel(flat.gold))}</td><td>${escapeHtml(flat.packs.length ? packsLabel(flat.packs) : countsLabel(null, null, flat.skillPointBudget))}</td>
+        <td>${escapeHtml(goldLabel(flat.gold))}</td><td>${escapeHtml(flat.packs.length ? packsLabel(flat.packs) : countsLabel(flat.limits?.maxPrimary, flat.limits?.maxSecondary, flat.skillPointBudget))}</td>
         <td>${escapeHtml(flat.rules.maxSecondary ?? "unlimited")}</td><td>${flat.stars.allowed ? `max ${escapeHtml(flat.stars.maxCount ?? "any")}` : "no"}</td></tr></tbody></table></div>`;
   } else {
     main = '<div class="hint">Matrix package: each team gets its gold and skills from its cell (below).</div>';
@@ -1415,7 +1498,9 @@ function renderRightRail() {
     ? `<div class="loading-banner">${state.catalogNotices.map((notice) => `<div>${escapeHtml(notice)}</div>`).join("")}</div>`
     : "";
   rightRail.innerHTML = `
-    <button type="button" class="create-button" data-action="save"${(state.authed || state.token) && !state.busy ? "" : " disabled"}>${state.busy ? "Working…" : "Save Package"}</button>
+    ${state.readOnly ? `<div class="notice">${escapeHtml(state.readOnly)}</div>` : ""}
+    ${state.conflict ? `<div class="validation"><div class="validation-title">Changed on the server</div><div>${escapeHtml(state.conflict)}</div><button type="button" class="session-button secondary rail-button" data-action="reload-package">Reload from the server</button></div>` : ""}
+    <button type="button" class="create-button" data-action="save"${(state.authed || state.token) && !state.busy && !state.readOnly ? "" : " disabled"}>${state.busy ? "Working…" : "Save Package"}</button>
     <button type="button" class="session-button secondary rail-button" data-action="export"${state.busy ? " disabled" : ""}>Export Printable Rules Sheet</button>
     ${validation}${saved}${exported}${notices}
     <div class="summary-card">
@@ -1541,6 +1626,7 @@ function removeTeamFromTier(name, tierIndex) {
 
 function handleEditorAction(action, target) {
   if (!state.pkg) return;
+  state.preEdit = clone(state.pkg);
 
   if (action.startsWith("tab:")) {
     state.tab = action.slice(4);
@@ -1587,8 +1673,9 @@ function handleEditorAction(action, target) {
       if (state.view.skillMode === "count") return;
       state.view.skillMode = "count";
       state.view.skillModeTouched = true;
-      state.pkg.skillAllotment.maxPrimary ??= 0;
-      state.pkg.skillAllotment.maxSecondary ??= 0;
+      // Only fill keys that are absent: an explicit null (no limit) stays null.
+      if (state.pkg.skillAllotment.maxPrimary === undefined) state.pkg.skillAllotment.maxPrimary = 0;
+      if (state.pkg.skillAllotment.maxSecondary === undefined) state.pkg.skillAllotment.maxSecondary = 0;
       break;
     case "toggle-secondary-swap":
       state.pkg.skillAllotment.secondarySwap = !state.pkg.skillAllotment.secondarySwap;
@@ -1622,6 +1709,7 @@ function handleEditorAction(action, target) {
       break;
     }
     case "add-tier": {
+      if (state.pkg.tiers.length >= MAX_TIERS) return;
       const tierNumber = state.pkg.tiers.length + 1;
       const assigned = new Set(state.pkg.tiers.flatMap((tier) => safeArray(tier.rosters)));
       state.pkg.tiers.push({
@@ -1797,6 +1885,7 @@ function handleEditorAction(action, target) {
 
 function handleEditorChange(target) {
   if (!state.pkg) return;
+  state.preEdit = clone(state.pkg);
 
   if (target.dataset.overrideMode != null) {
     if (applyOverrideMode(target)) { markDirty(); render(); }
@@ -1970,11 +2059,21 @@ async function loadSavedPackage(name) {
   render();
   try {
     const result = await requestJson(`/api/packages/${encodeURIComponent(name)}`);
-    // Edit the file AS AUTHORED (`raw`); `pkg` is the resolved view (defaults + extends merged),
-    // kept only as a fallback for an older server.
-    loadPackageIntoEditor(result.raw ?? result.pkg, result.problems);
+    // Edit the file AS AUTHORED (`raw`). A server that does not send it (older build) only has the
+    // resolved view, and saving that would bake defaults into the file: open it read-only instead.
+    if (result.raw) {
+      loadPackageIntoEditor(result.raw, result.problems);
+      state.revision = typeof result.revision === "string" ? result.revision : null;
+    } else {
+      loadPackageIntoEditor(result.pkg, result.problems);
+      state.readOnly = "This server does not send the package file as authored, so saving would rewrite it with every default filled in. The package is read-only until the server is updated.";
+    }
   } catch (error) {
-    state.problems = [serverMessage(error)];
+    if (error.data?.raw) {
+      // A file that no longer resolves still opens, so the organiser can fix it.
+      loadPackageIntoEditor(error.data.raw, [serverMessage(error)]);
+      state.revision = typeof error.data.revision === "string" ? error.data.revision : null;
+    } else state.problems = [serverMessage(error)];
   } finally {
     state.busy = false;
     render();
@@ -1995,7 +2094,7 @@ function newBlankPackage() {
 }
 
 async function savePackage() {
-  if (!(state.authed || state.token) || state.busy) return;
+  if (!(state.authed || state.token) || state.busy || state.readOnly) return;
   state.busy = true;
   state.saved = null;
   state.exported = false;
@@ -2004,16 +2103,19 @@ async function savePackage() {
     const headers = { "Content-Type": "application/json", "X-CW-Auth": "1" };
     if (state.token) headers.Authorization = `Bearer ${state.token}`;
     const sent = serializePackage();
+    // Optimistic concurrency: the revision we opened. The server refuses (409) when the file changed
+    // since, and never lets a new name overwrite another package's file.
+    if (state.revision) headers["If-Match"] = state.revision;
     const result = await requestJson("/api/packages", {
       method: "POST",
       headers,
       body: JSON.stringify(sent),
     });
     // The server wrote `sent` verbatim: it is the new "as authored" document later edits diff against.
-    state.original = clone(sent);
-    state.baseline = normalizePackage(sent);
-    state.pkg = normalizePackage(sent);
+    adoptDocument(sent);
     state.view = freshView(state.view.system, state.view.skillMode);
+    state.revision = typeof result.revision === "string" ? result.revision : null;
+    state.conflict = "";
     state.problems = safeArray(result.problems).map(String);
     const fallbackName = String(result.name ?? state.pkg.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + ".json";
     const savedFile = typeof result.savedAs === "string" ? result.savedAs.split(/[\\/]/).pop() : fallbackName;
@@ -2024,7 +2126,8 @@ async function savePackage() {
       state.packageNames.sort((a, b) => a.localeCompare(b));
     }
   } catch (error) {
-    state.problems = [serverMessage(error)];
+    state.problems = [serverMessage(error), ...safeArray(error.data?.problems).map(String).filter((problem) => problem !== serverMessage(error))];
+    if (error.status === 409) state.conflict = serverMessage(error);
     if (error.status === 401) {
       state.authed = false;
       state.token = null;
@@ -2189,6 +2292,7 @@ function boot() {
     const action = event.target.closest("[data-action]")?.dataset.action;
     if (action === "save") savePackage();
     if (action === "export") exportPackage();
+    if (action === "reload-package" && state.selectedPackage) loadSavedPackage(state.selectedPackage);
   });
 
   return initialize();
@@ -2246,9 +2350,7 @@ async function initialize() {
   } else if (state.presets.length) {
     loadPreset(state.presets[0].id);
   } else {
-    state.original = fallbackRaw();
-    state.baseline = fallbackPackage();
-    state.pkg = fallbackPackage();
+    adoptDocument(fallbackRaw());
     state.view = inferView(state.pkg);
     render();
   }
@@ -2271,5 +2373,6 @@ globalThis.TournamentRulesCore = {
   setPath,
   getPath,
   boot,
+  MAX_TIERS,
   ready: typeof document !== "undefined" && document.querySelector?.("#editor") ? boot() : Promise.resolve(),
 };
