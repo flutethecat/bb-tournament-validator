@@ -2980,8 +2980,9 @@ ${rosterSheetHtml(model)}
     // Owner 10-27: once chosen, the tab itself is titled with the tournament / race name (no sub-label).
     const step1Title = $("tt-step-1-title"); if (step1Title) step1Title.textContent = name || "Ruleset";
     const step2Title = $("tt-step-2-title"); if (step2Title) step2Title.textContent = current ? `${current.raceName}${tierLabel ? ` · ${tierLabel}` : ""}` : "Race";
-    $("tt-step-1-label").textContent = "";
-    $("tt-step-2-label").textContent = "";
+    // Owner 10-27: with a choice made, the step kind ("Ruleset" / "Race") drops to small text under the name.
+    const l1 = $("tt-step-1-label"); if (l1) { l1.textContent = name ? "Ruleset" : ""; l1.hidden = !name; }
+    const l2 = $("tt-step-2-label"); if (l2) { l2.textContent = current ? "Race" : ""; l2.hidden = !current; }
     $("tt-step-package").hidden = setupStep !== 1;
     $("tt-step-race").hidden = setupStep !== 2;
     $("builder-panel").hidden = setupStep !== 3;
