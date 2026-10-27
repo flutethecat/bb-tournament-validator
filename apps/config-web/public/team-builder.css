@@ -1075,3 +1075,209 @@ body[data-builder="tournament"] .tt-steps button:disabled { opacity: .55; }
 /* The step panels become the notebook page: a heading-coloured top edge the active tab plugs into. */
 body[data-builder="tournament"] .tt-step,
 body[data-builder="tournament"] #builder-panel { border-top: 2px solid var(--ui-heading); border-top-left-radius: 0; border-top-right-radius: 0; }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+   MOBILE + TABLET VIEW (owner 10-27: "Can we also configure this with a mobile view?").
+   Shared by tournament-team-builder.html and team-builder.html; desktop (> 1100 px) is untouched.
+   Tablet tier 761-1100 px, phone tier <= 760 px (375 / 390 / 412 portrait).
+   ════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Tablet (761-1100): the theme toggle stays bottom right, so leave room under the last rail button. ── */
+@media (min-width: 761px) and (max-width: 1100px) {
+  body { padding-bottom: 56px; }
+  /* The 900 px header rule reserved 140 px for the old top-right toggle; it lives bottom right now. */
+  .console-shell { padding-right: 14px; }
+  .export-actions .session-button,
+  .create-button { min-height: 44px; }
+}
+
+/* ── Phone (<= 760) ── */
+@media (max-width: 760px) {
+  body { min-width: 0; }
+
+  /* Header: brand lockup left, theme toggle top right (out of the way of the rail buttons), nav tabs wrap below. */
+  .console-shell {
+    position: relative;
+    flex-wrap: wrap;
+    align-items: center;
+    min-height: 0;
+    padding: 8px 12px 0;
+  }
+  .brand-lockup { min-width: 0; padding: 6px 10px 5px; }
+  .brand-lockup strong { font-size: 15px; }
+  .brand-lockup small { font-size: 10px; letter-spacing: .16em; }
+  .environment-stamp { display: none; }
+  .console-tabs {
+    order: 3;
+    flex: 1 0 100%;
+    flex-wrap: wrap;
+    width: 100%;
+    margin: 8px 0 0;
+    overflow: visible;
+  }
+  .console-tabs a {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 44px;
+    padding: 0 10px;
+    font-size: 14px;
+  }
+  .theme-toggle {
+    position: absolute;
+    top: 16px;
+    right: 12px;
+    bottom: auto;
+    min-height: 32px;
+    padding: 6px 9px;
+    font-size: 12px;
+    opacity: 1;
+  }
+
+  .team-builder-view { min-height: 0; padding: 12px; }
+
+  /* View header: title wraps left, the Discord button / account menu stays top right. */
+  .view-header { flex-wrap: nowrap; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+  .view-header > div:first-child { flex: 1 1 auto; min-width: 0; }
+  h1 { font-size: clamp(20px, 6.2vw, 27px); letter-spacing: .04em; overflow-wrap: anywhere; }
+  .view-header-side { flex: 0 1 auto; max-width: 52%; min-width: 0; }
+  .view-header-side .discord-button { min-height: 44px; padding: 8px 10px; font-size: 14px; line-height: 1.15; white-space: normal; text-align: center; }
+  .view-header-side .session-menu-summary { min-height: 44px; font-size: 13px; }
+  .view-header-side .session-menu-summary > span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
+  .view-header-side .session-menu-item { min-height: 44px; }
+  /* Plain Team Builder: the header skill key drops under the title instead of squeezing it. */
+  .view-header:has(> .skill-key) { flex-wrap: wrap; }
+  .view-header > .skill-key { flex-basis: 100%; margin-left: 0; }
+
+  .builder-panel { padding: 14px 12px; gap: 12px; }
+  .builder-heading { font-size: 17px; letter-spacing: .05em; }
+  .section-title { font-size: 15px; letter-spacing: .1em; }
+
+  /* My Teams card. */
+  .saves-actions { width: 100%; }
+  .saves-actions .session-button { flex: 1 1 0; min-height: 44px; }
+  .save-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .save-buttons { grid-column: 1 / -1; }
+  .save-buttons .session-button { flex: 1 1 auto; min-height: 44px; }
+
+  /* Steps: notebook tabs shrink to number + short label; the active tab still pops out. */
+  body[data-builder="tournament"] .tt-steps { gap: 4px; padding: 0 6px; }
+  body[data-builder="tournament"] .tt-steps button {
+    min-width: 0;
+    min-height: 48px;
+    column-gap: 6px;
+    justify-content: center;
+    padding: 6px 8px 8px;
+    border-radius: 10px 10px 0 0;
+  }
+  body[data-builder="tournament"] .tt-steps button.active { min-height: 56px; }
+  body[data-builder="tournament"] .tt-steps button b { width: 24px; height: 24px; font-size: 13px; }
+  body[data-builder="tournament"] .tt-steps button span { overflow: hidden; font-size: 14px; letter-spacing: .06em; text-overflow: ellipsis; white-space: nowrap; }
+  body[data-builder="tournament"] .tt-steps button small { display: none; }
+
+  /* Step 1 / 2 cards: one column, 48 px touch targets. */
+  .tt-card-grid { grid-template-columns: 1fr; }
+  .tt-card { min-height: 48px; }
+  .tt-ruleset-card { min-height: 56px; padding: 12px 14px; }
+  .tt-race-heading .session-button,
+  .tt-next { width: 100%; min-height: 48px; }
+  .tt-locked-bar span { flex-basis: 100%; min-width: 0; }
+  .tt-locked-bar .session-button { flex: 1 1 0; min-height: 44px; }
+
+  /* Plain Team Builder mode cards + forms. */
+  .mode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mode-grid button { min-height: 48px; font-size: 14px; }
+  .form-grid { grid-template-columns: 1fr; }
+  .session-panel { grid-template-columns: 1fr; }
+  .session-form { grid-template-columns: 1fr; }
+  .session-form .session-button { width: 100%; min-height: 48px; }
+
+  /* Step 3: one column - position cards, roster, then the rail below. */
+  .builder-layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .position-grid { grid-template-columns: minmax(0, 1fr); }
+  .position-card { min-height: 0; }
+  .name-gate-toast { max-width: calc(100vw - 32px); white-space: normal; text-align: center; }
+
+  /* Roster: scrolls sideways inside .roster-scroll; # + player columns stay pinned on the left. */
+  .roster-scroll { overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+  .roster-grid {
+    grid-template-columns: 24px 140px 200px minmax(300px, 1fr) 64px 92px;
+    min-width: 880px;
+  }
+  .roster-header { padding: 8px; }
+  .roster-row { min-height: 56px; padding: 8px; }
+  .roster-empty { min-width: 0; }
+  .roster-grid > :nth-child(1),
+  .roster-grid > :nth-child(2) { position: sticky; z-index: 1; background: inherit; }
+  .roster-grid > :nth-child(1) { left: 0; align-self: stretch; display: flex; align-items: center; }
+  .roster-grid > :nth-child(2) {
+    left: 24px;
+    align-self: stretch;
+    padding-left: 8px;
+    margin-left: -8px;
+    box-shadow: 6px 0 6px -6px rgb(0 0 0 / 55%);
+  }
+  .roster-header > :nth-child(2) { display: flex; align-items: center; }
+  .roster-sprite { width: 44px; height: 44px; }
+  .player-copy strong { font-size: 14px; line-height: 1.2; white-space: normal; overflow-wrap: anywhere; }
+  .player-copy small { font-size: 12px; }
+  .row-skills .skill-icon { width: 24px; height: 24px; margin-right: 3px; }
+  .remove-player { min-width: 36px; min-height: 36px; }
+  .skill-add-btn { min-height: 40px; }
+
+  .roster-title-row { align-items: flex-start; }
+  .skill-key-compact { flex-basis: 100%; margin-left: 0; }
+
+  /* Rail: value card, validity, then the buttons - full width, 48 px tall. */
+  .right-rail { position: static; display: flex; flex-direction: column; gap: 10px; }
+  .right-rail > .value-card { order: 1; }
+  .right-rail > .validity-card { order: 2; }
+  .right-rail > .submit-card { order: 3; }
+  .right-rail > .result-banner { order: 4; }
+  .right-rail > .staff-section { order: 5; }
+  .value-card { padding: 14px; }
+  .value-line { font-size: 17px; }
+  .submit-card { gap: 8px; }
+  .create-button { min-height: 48px; font-size: 18px; }
+  .export-actions { grid-template-columns: 1fr; gap: 8px; }
+  .export-actions .session-button { width: 100%; min-height: 48px; font-size: 15px; }
+  .export-actions-stacked .fork-create-button { font-size: 15px; }
+  .stepper-row { grid-template-columns: minmax(0, 1fr) 40px 22px 40px; }
+  .stepper-row.inducement-row,
+  .stepper-row.staff-row { grid-template-columns: 44px minmax(0, 1fr) 40px 22px 40px; }
+  .stepper-row button,
+  .star-actions button { width: 40px; height: 40px; }
+  .inducement-icon { width: 44px; height: 44px; }
+  .inducement-icon .crest-image { width: 40px; height: 40px; }
+  .star-row { grid-template-columns: auto minmax(0, 1fr); }
+  .star-actions { grid-column: 1 / -1; justify-content: flex-end; }
+  .star-sprites .sprite-frame { width: 52px; height: 52px; }
+
+  /* Add skill / Add stat dialogs: near full screen, head pinned, body scrolls. */
+  .builder-modal,
+  .stat-modal {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    height: auto;
+    max-height: 90dvh;
+    margin: auto;
+    border: 1px solid var(--ui-heading);
+    border-radius: 8px;
+  }
+  .builder-modal .skill-picker-head { position: sticky; top: 0; z-index: 2; background: var(--ui-surface); }
+  .builder-modal .skill-picker-body { min-height: 0; overscroll-behavior: contain; }
+  .picker-close { min-width: 44px; min-height: 44px; font-size: 20px; }
+  .skill-picker-grid { grid-template-columns: minmax(0, 1fr); }
+  .skill-chip { min-height: 48px; }
+  .skill-blade { min-height: 40px; }
+  .stat-option { min-height: 48px; }
+
+  .tier-table-wrap { max-width: 100%; -webkit-overflow-scrolling: touch; }
+}
+
+/* Small phones (<= 400): tighter padding so 375 px never scrolls sideways. */
+@media (max-width: 400px) {
+  .team-builder-view { padding: 10px 8px; }
+  .builder-panel { padding: 12px 10px; }
+  body[data-builder="tournament"] .tt-steps button { padding-inline: 6px; }
+  body[data-builder="tournament"] .tt-steps button span { font-size: 13px; letter-spacing: .02em; }
+}
