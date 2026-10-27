@@ -838,3 +838,79 @@ export function packageOverview(pkg: TournamentPackage, data: Dataset = bb2025):
   }
   return { summary, groups };
 }
+
+/** One race whose rules differ from its tier row (a team rule or a matrix cell). */
+export interface PreviewException {
+  roster: string;
+  source: "matrix" | "team";
+  label: string;
+  gold: number | null;
+  skillPointBudget: number;
+  maxPrimary: number | null;
+  maxSecondary: number | null;
+  packs: PackSummary[];
+  starsAllowed: boolean;
+  bannedStars: string[];
+  rules: BuilderRaceRules;
+}
+
+/** What the organiser's Summary tab shows: the SAME derivations the Tournament Builder (coach page)
+ *  reads — builderTierRows for the tier table, resolveTeamConfig for the flat allotment and for
+ *  every team-rule / matrix-cell exception — computed from the package exactly as it will be saved. */
+export interface PackagePreview {
+  name: string;
+  system: "tiers" | "matrix" | "flat";
+  tiers: BuilderTierRow[];
+  /** Gold / SP / packs per tier (the Slot Builder summary) — row-aligned with `tiers`. */
+  tierSummary: TierSummaryRow[];
+  flat: (RaceRulesInfo & { rules: BuilderRaceRules }) | null;
+  exceptions: PreviewException[];
+}
+
+export function packagePreview(pkg: TournamentPackage): PackagePreview {
+  const tiers = builderTierRows(pkg);
+  const hasMatrix = (pkg.matrix?.cells?.length ?? 0) > 0;
+  const exceptionRace = (roster: string, source: "matrix" | "team", label: string): PreviewException => {
+    const cfg = resolveTeamConfig(pkg, roster);
+    return {
+      roster,
+      source,
+      label,
+      gold: cfg.gold,
+      skillPointBudget: cfg.skillPointBudget,
+      maxPrimary: cfg.maxPrimary,
+      maxSecondary: cfg.maxSecondary,
+      packs: packSummaries(cfg.skillPackages),
+      starsAllowed: cfg.starPlayersAllowed,
+      bannedStars: [...cfg.bannedStars],
+      rules: builderRaceRules(pkg, roster),
+    };
+  };
+  const exceptions: PreviewException[] = [];
+  const seen = new Set<string>();
+  for (const cell of pkg.matrix?.cells ?? []) {
+    const row = pkg.matrix?.rows[cell.row];
+    const column = pkg.matrix?.columns[cell.col];
+    const label = `${row?.label ?? `${row?.primary ?? 0} pri / ${row?.secondary ?? 0} sec`} @ ${column ? fmtK(column.gold) : "?"}`;
+    for (const team of cell.teams) {
+      if (seen.has(team.toLowerCase())) continue;
+      seen.add(team.toLowerCase());
+      exceptions.push(exceptionRace(team, "matrix", label));
+    }
+  }
+  for (const rule of pkg.teamRules ?? []) {
+    const key = rule.team.toLowerCase();
+    const index = exceptions.findIndex((e) => e.roster.toLowerCase() === key);
+    const entry = exceptionRace(rule.team, "team", "team rule");
+    if (index >= 0) exceptions[index] = entry;
+    else exceptions.push(entry);
+  }
+  return {
+    name: pkg.name,
+    system: tiers.length ? "tiers" : hasMatrix ? "matrix" : "flat",
+    tiers,
+    tierSummary: packageTierSummary(pkg),
+    flat: tiers.length || hasMatrix ? null : { ...packageRaceRules(pkg, ""), rules: builderRaceRules(pkg, "") },
+    exceptions,
+  };
+}

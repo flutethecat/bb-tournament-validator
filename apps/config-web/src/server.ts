@@ -96,7 +96,8 @@ import {
   teamList,
   type AdminTeamSearchMode,
 } from "./data";
-import { builderTierRows, packageResponseInfo, packageRulesInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
+import { builderTierRows, packageResponseInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
+import { packagesApi } from "./packagesApi.js";
 import { isPublicArtPath } from "./publicArt.js";
 import { PRESETS } from "./presets";
 import { handleAuthPortal, handleLogout } from "./auth/portal.js";
@@ -301,6 +302,8 @@ const PUBLIC_PATHS = new Set([
   "/api/teams",
   "/api/presets",
   "/api/packages",
+  // Summary-tab preview of an unsaved package: read-only derivation, no write.
+  "/api/packages/preview",
   "/api/export",
   "/api/artprompt",
   "/api/fork/jnlp",
@@ -1772,29 +1775,12 @@ async function handleApi(
     return sendJson(res, 200, { token, expiresAt: new Date(expiry).toISOString() });
   }
 
-  if (path === "/api/packages" && method === "GET") return sendJson(res, 200, packages.list());
-
-  if (path === "/api/packages" && method === "POST") {
-    if (!AUTH_SIDECAR && ADMIN_PASSWORD && !isAdminAuthed(req) && !isTokenAuthed(req)) return sendJson(res, 401, { error: "Saving a package requires login (bearer token) or admin auth." });
-    const body = (await readBody(req)) as Partial<TournamentPackage>;
-    if (!body || typeof body.name !== "string" || !body.name.trim())
-      return sendJson(res, 400, { error: "A package name is required." });
-    const { path: filePath, pkg, problems } = packages.save(body);
-    return sendJson(res, 200, { ok: true, savedAs: filePath, name: pkg.name, problems });
-  }
-
-  const pkgMatch = path.match(/^\/api\/packages\/(.+)$/);
-  if (pkgMatch && method === "GET") {
-    const found = packages.get(decodeURIComponent(pkgMatch[1]!));
-    if (!found) return sendJson(res, 404, { error: "Package not found." });
-    // `rules` (additive): the derived tier summary + (with ?roster=) that race's effective
-    // rules and budget — lets the Slot Builder show the ruleset and lock the build budget
-    // WITHOUT a preview round-trip (a preview needs picks + coach + team name first).
-    return sendJson(res, 200, {
-      pkg: found.pkg,
-      problems: found.problems,
-      rules: packageRulesInfo(found.pkg, query.get("roster")),
-    });
+  if (path === "/api/packages" || path.startsWith("/api/packages/")) {
+    if (path === "/api/packages" && method === "POST" && !AUTH_SIDECAR && ADMIN_PASSWORD && !isAdminAuthed(req) && !isTokenAuthed(req))
+      return sendJson(res, 401, { error: "Saving a package requires login (bearer token) or admin auth." });
+    const body = method === "POST" ? await readBody(req) : undefined;
+    const result = packagesApi(packages, method, path, query, body);
+    if (result) return sendJson(res, result.status, result.body);
   }
 
   if (path === "/api/export" && method === "POST") {

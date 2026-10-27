@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { bootRules, readPublic, runPage } from "./tournamentRulesHarness";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PackageFiles } from "../src/data";
+import { packagesApi } from "../src/packagesApi";
+import { bootRules, readPublic, runPage, type RouteHandler } from "./tournamentRulesHarness";
 
 const html = readPublic("tournament-rules.html");
 const css = readPublic("tournament-rules.css");
@@ -105,19 +110,22 @@ describe("Tournament Creator — booted page", () => {
     }
   });
 
-  it("the Summary tab previews the ruleset table from organiser values (tier gold, per-roster gold, packs)", async () => {
-    const page = await bootRules({ authenticated: true, admin: true });
+  it("the Summary tab previews the ruleset table from the server resolution (tier gold, per-roster gold, packs)", async () => {
+    const files = new PackageFiles(mkdtempSync(join(tmpdir(), "bbtv-preview-")));
+    const route: RouteHandler = (path, init) => packagesApi(files, init.method ?? "GET", path, new URLSearchParams(), init.body ? JSON.parse(init.body) : undefined) ?? { status: 404, body: {} };
+    const page = await bootRules({ authenticated: true, admin: true }, { "/api/packages/preview": route });
     page.core.loadPackageIntoEditor({
       name: "Preview",
       skillAllotment: { skillPointBudget: 0 },
       tiers: [{ tier: 1, label: "Tier 1", rosters: ["Orc", "High Elf"], gold: 1225000, rosterGold: { "High Elf": 1260000 }, starPlayersAllowed: false, bannedStars: [], skillPackages: [{ gold: 1150000, skillPointBudget: 0, maxSkills: 6, maxSecondary: 1 }] }],
     }, []);
     page.core.handleEditorAction("tab:summary", { dataset: {} });
-    const editor = page.elements["#editor"]!.innerHTML;
-    expect(editor).toContain("<th>Tier 1</th>");
-    expect(editor).toContain("1225k<br><small>High Elf 1260k</small>");
-    expect(editor).toContain("1150k / 6 skills (≤1 sec)");
-    expect(editor).toMatch(/<td>no<\/td><\/tr>/);
+    expect(page.elements["#editor"]!.innerHTML).toContain("Resolving the package");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const editor = page.elements["#editor"]!.innerHTML.replace(/\s+</g, "<");
+    expect(editor).toContain("<th>Tier 1</th><td>Orc 1225k, High Elf 1260k</td><td>1150k / 6 skills (≤1 sec)</td>");
+    // With packs active the validator gives star access to the packs (this pack allows them).
+    expect(editor).toContain("<td>max any</td></tr>");
   });
 });
 

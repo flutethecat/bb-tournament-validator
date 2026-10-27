@@ -128,6 +128,7 @@ const state = {
   activeTier: 0,
   tab: "package",
   view: freshView("skillpoints", "pool"),
+  preview: { key: "", data: null, problems: [], error: "", loading: false },
 };
 
 let toolbar = null;
@@ -137,7 +138,7 @@ let rightRail = null;
 let connectionState = null;
 
 function freshView(system, skillMode) {
-  return { system, skillMode, systemTouched: false, skillModeTouched: false, starCostsTouched: false };
+  return { system, skillMode, initialSystem: system, initialSkillMode: skillMode, systemTouched: false, skillModeTouched: false, starCostsTouched: false };
 }
 
 function escapeHtml(value) {
@@ -410,25 +411,19 @@ function serializePackage() {
   output.ruleset = output.ruleset || "bb2025-default";
 
   // Switching the pricing mode / tournament system drops the other mode's data — only when the
-  // organiser actually switched (a loaded package keeps every block it carried).
+  // organiser actually switched away from what the package loaded with. Switching back keeps the
+  // loaded document's own blocks and drops only what the excursion created.
   if (state.view.skillModeTouched && state.view.skillMode === "pool") {
-    ["maxPrimary", "maxSecondary", "secondarySwap", "secondarySwapRatio", "secondarySwapMax"].forEach((key) => delete output.skillAllotment[key]);
+    ["maxPrimary", "maxSecondary", "secondarySwap", "secondarySwapRatio", "secondarySwapMax"].forEach((key) => {
+      if (state.view.initialSkillMode !== "pool" || state.original?.skillAllotment?.[key] === undefined) delete output.skillAllotment[key];
+    });
   }
   if (state.view.systemTouched) {
-    if (state.view.system === "skillpoints") {
-      delete output.skillPackages;
-      delete output.tiers;
-      delete output.matrix;
-    } else if (state.view.system === "tiers") {
-      delete output.skillPackages;
-      delete output.matrix;
-    } else if (state.view.system === "packages") {
-      delete output.tiers;
-      delete output.matrix;
-    } else if (state.view.system === "matrix") {
-      delete output.skillPackages;
-      delete output.tiers;
-    }
+    const keep = { skillpoints: [], tiers: ["tiers"], packages: ["skillPackages"], matrix: ["matrix"] }[state.view.system] ?? [];
+    const switched = state.view.system !== state.view.initialSystem;
+    ["tiers", "skillPackages", "matrix"].forEach((key) => {
+      if (!keep.includes(key) && (switched || state.original?.[key] === undefined)) delete output[key];
+    });
   }
   if (state.view.system === "matrix") output.matrix = clone(matrixForDisplay());
 
@@ -706,17 +701,54 @@ function renderRaces() {
     </section>`;
 }
 
+/**
+ * A three-state override: inherit (key absent) / an explicit value / an explicit null ("none").
+ * Only fields whose resolver treats null as "no limit" (an `!== undefined` merge in
+ * bb-validator resolveConfig) get the none state; for `!= null` merges null would just inherit.
+ */
+function overrideField(label, path, value, opts = {}) {
+  const kind = opts.kind ?? "num";
+  const mode = value === undefined ? "inherit" : value === null ? "none" : "set";
+  const display = mode !== "set" ? "" : kind === "gold" ? goldToK(value) : value;
+  const placeholder = mode === "none" ? (opts.noneLabel ?? "no limit") : (opts.placeholder ?? "inherit");
+  const pathAttr = escapeHtml(JSON.stringify(path));
+  return `<label class="field override-field"><span class="field-label">${escapeHtml(label)}</span>
+    <span class="field-input">
+      <select class="control mode-select" data-override-mode="${pathAttr}" data-kind="${kind}" aria-label="${escapeHtml(label)} mode">
+        <option value="inherit"${mode === "inherit" ? " selected" : ""}>${escapeHtml(opts.inheritLabel ?? "inherit")}</option>
+        <option value="set"${mode === "set" ? " selected" : ""}>value</option>
+        ${opts.none ? `<option value="none"${mode === "none" ? " selected" : ""}>${escapeHtml(opts.noneLabel ?? "no limit")}</option>` : ""}
+      </select>
+      <input class="control" ${bindAttr(path)} data-kind="${kind}" data-blank="delete" type="number" min="${opts.min ?? 0}" value="${escapeHtml(display)}" placeholder="${escapeHtml(placeholder)}" aria-label="${escapeHtml(label)}">${kind === "gold" ? '<span class="hint">k</span>' : ""}
+    </span></label>`;
+}
+
+function applyOverrideMode(target) {
+  const path = readPath(target.dataset.overrideMode);
+  if (!path) return false;
+  if (path[0] === "matrix") state.pkg.matrix = matrixForDisplay();
+  const current = getPath(state.pkg, path);
+  if (target.value === "inherit") setPath(state.pkg, path, undefined);
+  else if (target.value === "none") setPath(state.pkg, path, null);
+  else if (current == null) setPath(state.pkg, path, 0);
+  return true;
+}
+
 function renderStatIncreases(path, rule, { key, inherit }) {
   const si = isObj(rule) ? rule : {};
+  const costs = STAT_KEYS.map((stat) => inherit
+    ? overrideField(`${stat} cost`, [...path, "costGold", stat], si.costGold?.[stat], { kind: "gold" })
+    : numField(`${stat} cost`, [...path, "costGold", stat], si.costGold?.[stat], { kind: "gold", placeholder: "0" })).join("");
   return `
     <div class="inset-list stat-rule">
       <div class="subheading">Stat increases</div>
       <div class="knob-grid">
         ${multiSelect({ key: `${key}-allowed`, path: [...path, "allowed"], label: "Allowed stats", items: STAT_KEYS.map((stat) => ({ value: stat, label: stat })), selected: si.allowed, allLabel: inherit ? "Inherit" : "Not checked" })}
-        ${numField("Max per player", [...path, "maxPerPlayer"], si.maxPerPlayer, { kind: "int", placeholder: inherit ? "inherit" : "1" })}
-        ${STAT_KEYS.map((stat) => numField(`${stat} cost`, [...path, "costGold", stat], si.costGold?.[stat], { kind: "gold", placeholder: inherit ? "inherit" : "0" })).join("")}
+        ${overrideField("Max per player", [...path, "maxPerPlayer"], si.maxPerPlayer, { kind: "int", none: true, placeholder: inherit ? "inherit" : "1 (default)", inheritLabel: inherit ? "inherit" : "default" })}
+        ${costs}
+        ${inherit ? triField("No added skills with a stat increase", [...path, "exclusiveWithSkills"], si.exclusiveWithSkills) : ""}
       </div>
-      ${checkField("A player with a stat increase may not take added skills", [...path, "exclusiveWithSkills"], si.exclusiveWithSkills)}
+      ${inherit ? "" : checkField("A player with a stat increase may not take added skills", [...path, "exclusiveWithSkills"], si.exclusiveWithSkills)}
     </div>`;
 }
 
@@ -725,21 +757,23 @@ function renderKnobs(path, obj, { key, team = false }) {
   const o = isObj(obj) ? obj : {};
   const p = (...keys) => [...path, ...keys];
   const packs = starPackItems();
+  // Team rules merge gold / maxPrimary / maxSecondary with `!== undefined` (null = no limit);
+  // tiers merge them with `!= null` (null = inherit), so tiers get no "none" state there.
   return `
     <div class="knob-grid">
-      ${team ? numField("Gold cap", p("gold"), o.gold, { kind: "gold", placeholder: "inherit" }) : ""}
-      ${team ? numField("SP budget", p("skillPointBudget"), o.skillPointBudget, { placeholder: "inherit" }) : ""}
-      ${numField("Max primary (count)", p("maxPrimary"), o.maxPrimary, { placeholder: "inherit" })}
-      ${numField("Max secondary (count)", p("maxSecondary"), o.maxSecondary, { placeholder: "inherit" })}
+      ${team ? overrideField("Gold cap", p("gold"), o.gold, { kind: "gold", none: true, noneLabel: "no gold cap" }) : ""}
+      ${team ? overrideField("SP budget", p("skillPointBudget"), o.skillPointBudget) : ""}
+      ${overrideField("Max primary (count)", p("maxPrimary"), o.maxPrimary, { none: team })}
+      ${overrideField("Max secondary (count)", p("maxSecondary"), o.maxSecondary, { none: team })}
       ${triField("Secondary swap", p("secondarySwap"), o.secondarySwap)}
-      ${numField("Swap ratio (primary per secondary)", p("secondarySwapRatio"), o.secondarySwapRatio, { min: 1, placeholder: "2" })}
-      ${numField("Max swaps", p("secondarySwapMax"), o.secondarySwapMax, { placeholder: "unlimited" })}
-      ${numField("Max stacked players", p("maxStackedPlayers"), o.maxStackedPlayers, { placeholder: "inherit" })}
-      ${numField("Elite skills cap", p("eliteMaxTotal"), o.eliteMaxTotal, { kind: "int", placeholder: "inherit" })}
-      ${numField("Same elite skill cap", p("eliteMaxSameSkill"), o.eliteMaxSameSkill, { kind: "int", placeholder: "inherit" })}
-      ${numField("Stacked player: max skills", p("stackedPlayer", "maxSkills"), o.stackedPlayer?.maxSkills, { kind: "int", placeholder: "inherit" })}
-      ${numField("Stacked player: max secondary", p("stackedPlayer", "maxSecondary"), o.stackedPlayer?.maxSecondary, { kind: "int", placeholder: "inherit" })}
-      ${numField("Stacked player: max elite", p("stackedPlayer", "maxElite"), o.stackedPlayer?.maxElite, { kind: "int", placeholder: "inherit" })}
+      ${overrideField("Swap ratio (primary per secondary)", p("secondarySwapRatio"), o.secondarySwapRatio, { min: 1 })}
+      ${overrideField("Max swaps", p("secondarySwapMax"), o.secondarySwapMax, { none: true, noneLabel: "unlimited" })}
+      ${overrideField("Max stacked players", p("maxStackedPlayers"), o.maxStackedPlayers, { none: true })}
+      ${overrideField("Elite skills cap", p("eliteMaxTotal"), o.eliteMaxTotal, { kind: "int", none: true })}
+      ${overrideField("Same elite skill cap", p("eliteMaxSameSkill"), o.eliteMaxSameSkill, { kind: "int", none: true })}
+      ${overrideField("Stacked player: max skills", p("stackedPlayer", "maxSkills"), o.stackedPlayer?.maxSkills, { kind: "int", none: true })}
+      ${overrideField("Stacked player: max secondary", p("stackedPlayer", "maxSecondary"), o.stackedPlayer?.maxSecondary, { kind: "int", none: true })}
+      ${overrideField("Stacked player: max elite", p("stackedPlayer", "maxElite"), o.stackedPlayer?.maxElite, { kind: "int", none: true })}
       ${team ? triField("Star players", p("starPlayersAllowed"), o.starPlayersAllowed) : ""}
     </div>
     ${renderStatIncreases(p("statIncreases"), o.statIncreases, { key: `${key}-stats`, inherit: true })}
@@ -892,9 +926,9 @@ function renderMatrix() {
     <div class="inset-row matrix-row-detail">
       <span class="subheading">Row ${rowIndex + 1}</span>
       ${textField("Label", ["matrix", "rows", rowIndex, "label"], row.label, { placeholder: `${row.primary} pri / ${row.secondary} sec` })}
-      ${numField("Swap ratio", ["matrix", "rows", rowIndex, "secondarySwapRatio"], row.secondarySwapRatio, { min: 1, placeholder: "2" })}
-      ${numField("Max swaps", ["matrix", "rows", rowIndex, "secondarySwapMax"], row.secondarySwapMax, { placeholder: "unlimited" })}
-      ${numField("Max stacked players", ["matrix", "rows", rowIndex, "maxStackedPlayers"], row.maxStackedPlayers, { placeholder: "none" })}
+      ${overrideField("Swap ratio", ["matrix", "rows", rowIndex, "secondarySwapRatio"], row.secondarySwapRatio, { min: 1 })}
+      ${overrideField("Max swaps", ["matrix", "rows", rowIndex, "secondarySwapMax"], row.secondarySwapMax, { none: true, noneLabel: "unlimited" })}
+      ${overrideField("Max stacked players", ["matrix", "rows", rowIndex, "maxStackedPlayers"], row.maxStackedPlayers, { none: true })}
     </div>`).join("");
   const cellDetails = matrix.cells.map((cell, cellIndex) => {
     const row = matrix.rows[cell.row];
@@ -1196,9 +1230,9 @@ function renderInducements() {
       <div class="inducement-row">
         <button type="button" class="check-box${allowed ? " active" : ""}" data-action="toggle-inducement" data-id="${escapeHtml(item.id)}" aria-pressed="${allowed ? "true" : "false"}" aria-label="Toggle ${escapeHtml(item.label)}">✓</button>
         <span class="grow${allowed ? "" : " disabled-label"}">${escapeHtml(item.label)}</span>
-        ${item.fixed ? "" : `<button type="button" class="btn step" data-action="step-inducement" data-id="${escapeHtml(item.id)}" data-delta="-1" aria-label="Lower ${escapeHtml(item.label)} cap">−</button>`}
-        <span class="inducement-cap">0-${escapeHtml(item.fixed ? item.max : max)}</span>
-        ${item.fixed ? "" : `<button type="button" class="btn primary step" data-action="step-inducement" data-id="${escapeHtml(item.id)}" data-delta="1" aria-label="Raise ${escapeHtml(item.label)} cap">+</button>`}
+        <button type="button" class="btn step" data-action="step-inducement" data-id="${escapeHtml(item.id)}" data-delta="-1" aria-label="Lower ${escapeHtml(item.label)} cap">−</button>
+        <span class="inducement-cap" title="${state.pkg.inducements.caps?.[item.id] != null ? "package cap" : "dataset maximum"}">0-${escapeHtml(max)}</span>
+        <button type="button" class="btn primary step" data-action="step-inducement" data-id="${escapeHtml(item.id)}" data-delta="1" aria-label="Raise ${escapeHtml(item.label)} cap">+</button>
         ${multiSelect({ key: `roster-only-${item.id}`, path: ["inducements", "rosterOnly", item.id], label: "Rosters", items: rosterItems(), selected: rosterOnly, allLabel: "Any roster" })}
       </div>`;
   }).join("");
@@ -1223,7 +1257,7 @@ function renderSpecialRules() {
     <section class="panel">
       <div class="section-title">${title("Special Rules")}</div>
       <div class="chip-list">${toggles.map(([label, action, active]) => chip(label, action, active)).join("")}</div>
-      <div class="knob-grid">${numField("Minimum players", ["special", "minPlayers"], special.minPlayers, { kind: "int", blank: "null", placeholder: "11" })}</div>
+      <div class="knob-grid">${numField("Minimum players", ["special", "minPlayers"], special.minPlayers, { kind: "int", placeholder: "11 (default)" })}</div>
     </section>
     <section class="panel">
       <div class="section-title">${title("Sideline Staff")} <span class="section-note">— blank = no cap</span></div>
@@ -1251,38 +1285,81 @@ function goldLabel(value) {
   return value == null ? "—" : `${goldToK(value)}k`;
 }
 
-function skillsLabel(level, packs) {
-  if (safeArray(packs).length) {
-    return safeArray(packs).map((pack) => pack.maxSkills != null || pack.maxSecondary != null
-      ? `${goldLabel(pack.gold)} / ${pack.maxSkills ?? 0} skills${pack.maxSecondary ? ` (≤${pack.maxSecondary} sec)` : ""}`
-      : `${goldLabel(pack.gold)} / ${pack.skillPointBudget ?? 0} SP`).join(" · ");
-  }
-  if (level.maxPrimary != null || level.maxSecondary != null) return `${level.maxPrimary ?? 0} pri / ${level.maxSecondary ?? 0} sec`;
-  if (level.skillPointBudget != null) return `${level.skillPointBudget} SP`;
-  return "flat allotment";
+/** Ask the server to resolve the package AS IT WILL BE SAVED with the same derivations the
+ *  Tournament Builder (coach page) reads (POST /api/packages/preview → packagePreview). Keyed by
+ *  the serialised document, so re-renders never re-request an unchanged package. */
+function requestPreview() {
+  const key = JSON.stringify(serializePackage());
+  if (key === state.preview.key) return;
+  state.preview = { key, data: null, problems: [], error: "", loading: true };
+  if (typeof fetch !== "function") return;
+  requestJson("/api/packages/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CW-Auth": "1" },
+    body: key,
+  }).then((result) => {
+    if (state.preview.key !== key) return;
+    state.preview = { key, data: result?.preview ?? null, problems: safeArray(result?.problems).map(String), error: "", loading: false };
+    render();
+  }).catch((error) => {
+    if (state.preview.key !== key) return;
+    state.preview = { key, data: null, problems: [], error: serverMessage(error), loading: false };
+    render();
+  });
 }
 
-/** What the Tournament Team Builder's ruleset table will show, straight from this package. */
+function packsLabel(packs) {
+  return safeArray(packs).map((pack) => pack.maxSkills != null || pack.maxSecondary != null
+    ? `${goldLabel(pack.gold)} / ${pack.maxSkills ?? 0} skills${pack.maxSecondary ? ` (≤${pack.maxSecondary} sec)` : ""}${pack.starPlayersAllowed === false ? ", no stars" : ""}`
+    : `${goldLabel(pack.gold)} / ${pack.skillPointBudget ?? 0} SP`).join(" · ");
+}
+
+function countsLabel(maxPrimary, maxSecondary, skillPointBudget) {
+  if (maxPrimary != null || maxSecondary != null) return `${maxPrimary ?? "any"} pri / ${maxSecondary ?? "any"} sec`;
+  return `${skillPointBudget ?? 0} SP`;
+}
+
+/** The Tournament Builder's ruleset table, rendered from the server's resolution of this package. */
 function renderTierPreview() {
-  const flat = state.pkg.skillAllotment;
-  let rows;
-  if (state.pkg.tiers.length) {
-    rows = state.pkg.tiers.map((tier, index) => {
-      const exceptions = Object.entries(isObj(tier.rosterGold) ? tier.rosterGold : {}).map(([name, gold]) => `${name} ${goldLabel(gold)}`).join(", ");
-      return `<tr><th>${escapeHtml(tier.label ?? `Tier ${tier.tier ?? index + 1}`)}</th>
-        <td>${escapeHtml(safeArray(tier.rosters).join(", ") || "—")}</td>
-        <td>${escapeHtml(goldLabel(tier.gold ?? state.pkg.goldBudget))}${exceptions ? `<br><small>${escapeHtml(exceptions)}</small>` : ""}</td>
-        <td>${escapeHtml(skillsLabel({ skillPointBudget: tier.skillPointBudget ?? flat.skillPointBudget, maxPrimary: tier.maxPrimary ?? flat.maxPrimary, maxSecondary: tier.maxSecondary ?? flat.maxSecondary }, tier.skillPackages ?? state.pkg.skillPackages))}</td>
-        <td>${tier.starPlayersAllowed === false ? "no" : "yes"}</td></tr>`;
+  requestPreview();
+  const preview = state.preview;
+  if (preview.loading) return '<div class="loading-banner">Resolving the package the way the Tournament Builder will…</div>';
+  if (preview.error) return `<div class="validation"><div class="validation-title">Preview unavailable</div><div>${escapeHtml(preview.error)}</div></div>`;
+  const data = preview.data;
+  if (!data) return '<div class="loading-banner">No preview yet.</div>';
+  let main = "";
+  if (data.system === "tiers") {
+    const rows = data.tiers.map((tier, index) => {
+      const summary = data.tierSummary?.[index];
+      const rosters = tier.rosters.map((roster) => `${roster.name} ${goldLabel(roster.gold)}`).join(", ");
+      const skills = summary?.packs?.length ? packsLabel(summary.packs) : countsLabel(null, tier.maxSecondary, summary?.skillPointBudget);
+      return `<tr><th>${escapeHtml(tier.label)}</th><td>${escapeHtml(rosters || "—")}</td><td>${escapeHtml(skills)}</td>
+        <td>${escapeHtml(tier.secondaryText)}</td><td>${escapeHtml(tier.eliteText)}</td><td>${escapeHtml(tier.stacksText)}</td>
+        <td>${escapeHtml(tier.stackTypeText)}</td><td>${escapeHtml(tier.characteristicsText)}</td>
+        <td>${escapeHtml(tier.maxStars === 0 ? "no" : tier.starPacks.length ? tier.starPacksText : `max ${tier.maxStars ?? "any"}`)}</td></tr>`;
     }).join("");
+    main = `<div class="preview-wrap"><table class="preview-table">
+      <thead><tr><th>Tier</th><th>Rosters · gold</th><th>Skills</th><th>Secondary</th><th>Elite</th><th>Stacks</th><th>Stack type</th><th>Characteristics</th><th>Stars</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  } else if (data.system === "flat" && data.flat) {
+    const flat = data.flat;
+    main = `<div class="preview-wrap"><table class="preview-table">
+      <thead><tr><th>Teams</th><th>Gold</th><th>Skills</th><th>Secondary</th><th>Stars</th></tr></thead>
+      <tbody><tr><th>${escapeHtml(isAllRaces() ? "Every eligible race" : safeArray(state.pkg.eligibleRosters).join(", "))}</th>
+        <td>${escapeHtml(goldLabel(flat.gold))}</td><td>${escapeHtml(flat.packs.length ? packsLabel(flat.packs) : countsLabel(null, null, flat.skillPointBudget))}</td>
+        <td>${escapeHtml(flat.rules.maxSecondary ?? "unlimited")}</td><td>${flat.stars.allowed ? `max ${escapeHtml(flat.stars.maxCount ?? "any")}` : "no"}</td></tr></tbody></table></div>`;
   } else {
-    rows = `<tr><th>All teams</th><td>${escapeHtml(isAllRaces() ? "every race" : safeArray(state.pkg.eligibleRosters).join(", "))}</td>
-      <td>${escapeHtml(goldLabel(state.pkg.goldBudget))}</td><td>${escapeHtml(skillsLabel(flat, state.pkg.skillPackages))}</td>
-      <td>${state.pkg.starPlayers.allowed ? "yes" : "no"}</td></tr>`;
+    main = '<div class="hint">Matrix package: each team gets its gold and skills from its cell (below).</div>';
   }
-  return `<div class="preview-wrap"><table class="preview-table">
-    <thead><tr><th>Tier</th><th>Rosters</th><th>Gold</th><th>Skills</th><th>Stars</th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
+  const exceptions = data.exceptions.length ? `
+    <div class="subheading">Per-team rules (matrix cells and team rules)</div>
+    <div class="preview-wrap"><table class="preview-table">
+      <thead><tr><th>Team</th><th>From</th><th>Gold</th><th>Skills</th><th>Stars</th></tr></thead>
+      <tbody>${data.exceptions.map((row) => `<tr><th>${escapeHtml(row.roster)}</th><td>${escapeHtml(row.label)}</td><td>${escapeHtml(goldLabel(row.gold))}</td>
+        <td>${escapeHtml(row.packs.length ? packsLabel(row.packs) : countsLabel(row.maxPrimary, row.maxSecondary, row.skillPointBudget))}</td>
+        <td>${row.starsAllowed ? "yes" : "no"}</td></tr>`).join("")}</tbody></table></div>` : "";
+  const problems = preview.problems.length ? `<div class="notice">${preview.problems.map((problem) => escapeHtml(problem)).join("<br>")}</div>` : "";
+  return problems + main + exceptions;
 }
 
 function summaryRows() {
@@ -1305,7 +1382,7 @@ function renderSummaryTab() {
   return `
     <section class="panel">
       <div class="section-title">${title("Ruleset Table Preview")}</div>
-      <div class="hint">The Tournament Team Builder's ruleset table reads these values from the saved package.</div>
+      <div class="hint">Resolved by the server exactly as the Tournament Builder (coach page) will read this package once saved.</div>
       ${renderTierPreview()}
     </section>
     <section class="panel">
@@ -1410,6 +1487,9 @@ function render() {
 // ---------- editing actions ----------
 
 function setSystem(system) {
+  // Re-clicking the active system is not a switch: it must not mark the view touched (a touched
+  // system drops the other systems' data on save).
+  if (system === state.view.system) return;
   state.view.system = system;
   state.view.systemTouched = true;
   if (system === "tiers" && !Array.isArray(state.pkg.tiers)) state.pkg.tiers = [];
@@ -1499,10 +1579,12 @@ function handleEditorAction(action, target) {
     case "system-packages": setSystem("packages"); return;
     case "system-matrix": setSystem("matrix"); return;
     case "mode-pool":
+      if (state.view.skillMode === "pool") return;
       state.view.skillMode = "pool";
       state.view.skillModeTouched = true;
       break;
     case "mode-count":
+      if (state.view.skillMode === "count") return;
       state.view.skillMode = "count";
       state.view.skillModeTouched = true;
       state.pkg.skillAllotment.maxPrimary ??= 0;
@@ -1716,6 +1798,10 @@ function handleEditorAction(action, target) {
 function handleEditorChange(target) {
   if (!state.pkg) return;
 
+  if (target.dataset.overrideMode != null) {
+    if (applyOverrideMode(target)) { markDirty(); render(); }
+    return;
+  }
   if (target.dataset.bind != null) {
     if (applyBinding(target)) { markDirty(); render(); }
     return;
@@ -1884,7 +1970,9 @@ async function loadSavedPackage(name) {
   render();
   try {
     const result = await requestJson(`/api/packages/${encodeURIComponent(name)}`);
-    loadPackageIntoEditor(result.pkg, result.problems);
+    // Edit the file AS AUTHORED (`raw`); `pkg` is the resolved view (defaults + extends merged),
+    // kept only as a fallback for an older server.
+    loadPackageIntoEditor(result.raw ?? result.pkg, result.problems);
   } catch (error) {
     state.problems = [serverMessage(error)];
   } finally {
@@ -1915,11 +2003,17 @@ async function savePackage() {
   try {
     const headers = { "Content-Type": "application/json", "X-CW-Auth": "1" };
     if (state.token) headers.Authorization = `Bearer ${state.token}`;
+    const sent = serializePackage();
     const result = await requestJson("/api/packages", {
       method: "POST",
       headers,
-      body: JSON.stringify(serializePackage()),
+      body: JSON.stringify(sent),
     });
+    // The server wrote `sent` verbatim: it is the new "as authored" document later edits diff against.
+    state.original = clone(sent);
+    state.baseline = normalizePackage(sent);
+    state.pkg = normalizePackage(sent);
+    state.view = freshView(state.view.system, state.view.skillMode);
     state.problems = safeArray(result.problems).map(String);
     const fallbackName = String(result.name ?? state.pkg.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + ".json";
     const savedFile = typeof result.savedAs === "string" ? result.savedAs.split(/[\\/]/).pop() : fallbackName;
@@ -2170,6 +2264,8 @@ globalThis.TournamentRulesCore = {
   loadPackageIntoEditor,
   handleEditorAction,
   handleEditorChange,
+  loadSavedPackage,
+  savePackage,
   editorHtml,
   render,
   setPath,

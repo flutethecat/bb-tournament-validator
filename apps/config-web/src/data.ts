@@ -155,19 +155,30 @@ export function skillCatalog(): { elite: SkillRow[]; general: SkillRow[] } {
 export class PackageFiles {
   constructor(private readonly dir: string) {}
 
-  private raws(): Map<string, Partial<TournamentPackage>> {
-    const out = new Map<string, Partial<TournamentPackage>>();
+  /** Raw (unresolved) package documents keyed by package name AND file stem, with their file path. */
+  private entries(): Map<string, { raw: Partial<TournamentPackage>; path: string }> {
+    const out = new Map<string, { raw: Partial<TournamentPackage>; path: string }>();
     if (!existsSync(this.dir)) return out;
     for (const file of readdirSync(this.dir).filter((f) => f.endsWith(".json"))) {
+      const path = join(this.dir, file);
       try {
-        const raw = JSON.parse(readFileSync(join(this.dir, file), "utf8")) as Partial<TournamentPackage>;
-        out.set(raw.name ?? basename(file, ".json"), raw);
-        out.set(basename(file, ".json"), raw);
+        const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<TournamentPackage>;
+        out.set(raw.name ?? basename(file, ".json"), { raw, path });
+        out.set(basename(file, ".json"), { raw, path });
       } catch {
         /* skip unreadable */
       }
     }
     return out;
+  }
+
+  private raws(): Map<string, Partial<TournamentPackage>> {
+    return new Map([...this.entries()].map(([key, entry]) => [key, entry.raw]));
+  }
+
+  private find(name: string): { raw: Partial<TournamentPackage>; path: string } | undefined {
+    const entries = this.entries();
+    return entries.get(name) ?? [...entries.entries()].find(([k]) => k.toLowerCase() === name.toLowerCase())?.[1];
   }
 
   list(): { name: string; date?: string; description?: string }[] {
@@ -184,19 +195,41 @@ export class PackageFiles {
 
   get(name: string): { pkg: TournamentPackage; problems: string[] } | undefined {
     const raws = this.raws();
-    const raw =
-      raws.get(name) ?? [...raws.entries()].find(([k]) => k.toLowerCase() === name.toLowerCase())?.[1];
-    if (!raw) return undefined;
-    return loadPackage(raw, { resolveExtends: (n) => raws.get(n) });
+    const found = this.find(name);
+    if (!found) return undefined;
+    return loadPackage(found.raw, { resolveExtends: (n) => raws.get(n) });
   }
 
-  /** Validate + normalize + write. Returns the saved file path. */
+  /** The package document exactly as authored (no defaults / `extends` merged) — what the
+   *  organiser's editor loads, so a load → save round trip leaves the file unchanged. */
+  getRaw(name: string): Partial<TournamentPackage> | undefined {
+    const found = this.find(name);
+    return found ? (JSON.parse(JSON.stringify(found.raw)) as Partial<TournamentPackage>) : undefined;
+  }
+
+  /** Resolve a document (defaults ← `extends` base ← document) against the saved packages. */
+  resolve(input: DeepPartial<TournamentPackage>): { pkg: TournamentPackage; problems: string[] } {
+    const raws = this.raws();
+    return loadPackage(input, { resolveExtends: (n) => raws.get(n) });
+  }
+
+  /**
+   * Validate + write. The document is written AS SENT (the editor sends the raw package, so
+   * defaults and inherited `extends` fields never get baked into the file); it is resolved only
+   * to report problems. A package whose name matches an existing file overwrites that file,
+   * keeping its line endings; a new package gets `<name-stem>.json`. Returns the resolved package.
+   */
   save(input: DeepPartial<TournamentPackage>): { path: string; pkg: TournamentPackage; problems: string[] } {
-    const { pkg, problems } = loadPackage(input);
+    const { pkg, problems } = this.resolve(input);
     mkdirSync(this.dir, { recursive: true });
+    const existing = typeof input.name === "string" ? this.find(input.name) : undefined;
     const stem = (pkg.name || "package").replace(/[^\w.-]+/g, "-").toLowerCase();
-    const path = join(this.dir, `${stem}.json`);
-    writeFileSync(path, JSON.stringify(pkg, null, 2), "utf8");
+    const path = existing?.path ?? join(this.dir, `${stem}.json`);
+    const before = existing ? readFileSync(existing.path, "utf8") : "";
+    const crlf = before.includes("\r\n");
+    let text = JSON.stringify(input, null, 2) + (existing && !before.endsWith("\n") ? "" : "\n");
+    if (crlf) text = text.replace(/\n/g, "\r\n");
+    writeFileSync(path, text, "utf8");
     return { path, pkg, problems };
   }
 }

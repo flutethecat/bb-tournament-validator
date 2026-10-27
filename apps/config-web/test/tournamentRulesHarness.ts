@@ -75,6 +75,8 @@ export const CATALOG = {
   },
 };
 
+export type RouteHandler = (path: string, init: { method?: string; body?: string; headers?: Record<string, string> }) => { status: number; body: unknown };
+
 export interface Page {
   context: Record<string, Any>;
   elements: Record<string, StubElement>;
@@ -98,8 +100,13 @@ export function runPage(script: string, ids: string[], routes: Record<string, un
     addEventListener() {},
     createElement: () => stubElement("created"),
   };
-  const fetch = async (path: string) => {
+  const fetch = async (path: string, init?: { method?: string; body?: string; headers?: Record<string, string> }) => {
     fetched.push(path);
+    const route = routes[path] ?? (routes["*"] as unknown);
+    if (typeof route === "function") {
+      const result = (route as RouteHandler)(path, init ?? {});
+      return { ok: result.status < 400, status: result.status, json: async () => JSON.parse(JSON.stringify(result.body ?? null)), text: async () => "" };
+    }
     const known = Object.prototype.hasOwnProperty.call(routes, path);
     return {
       ok: known,
@@ -137,8 +144,11 @@ export function rulesRoutes(session: Record<string, unknown>): Record<string, un
 export const RULES_IDS = ["toolbar", "package-shelf", "editor", "right-rail", "connection-state", "fork-admin-link"];
 
 /** Boot tournament-rules.js with the catalogs loaded; resolves once initialize() settles. */
-export async function bootRules(session: Record<string, unknown> = { authenticated: false }): Promise<Page & { core: Any }> {
-  const page = runPage(readPublic("tournament-rules.js"), RULES_IDS, rulesRoutes(session), 4);
+export async function bootRules(
+  session: Record<string, unknown> = { authenticated: false },
+  extraRoutes: Record<string, unknown> = {},
+): Promise<Page & { core: Any }> {
+  const page = runPage(readPublic("tournament-rules.js"), RULES_IDS, { ...rulesRoutes(session), ...extraRoutes }, 4);
   const core = page.context.TournamentRulesCore;
   await core.ready;
   return { ...page, core };

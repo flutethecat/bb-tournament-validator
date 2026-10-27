@@ -220,7 +220,7 @@ describe("Tournament Creator — field controls", () => {
 
   it("checkboxes, the fee-mode select and the team select write the package", async () => {
     const page = await editor();
-    expect(page.set("races", ["tiers", 0, "statIncreases", "exclusiveWithSkills"], { checked: true }).tiers[0].statIncreases).toEqual({ exclusiveWithSkills: true });
+    expect(page.set("races", ["tiers", 0, "statIncreases", "exclusiveWithSkills"], { value: "true" }).tiers[0].statIncreases).toEqual({ exclusiveWithSkills: true });
     expect(page.set("skills", ["statIncreases", "exclusiveWithSkills"], { checked: true }).statIncreases).toEqual({ exclusiveWithSkills: true });
     expect(page.set("stars", ["starPacks", 0, "feeMode"], { value: "once" }).starPacks[0].feeMode).toBe("once");
     expect(page.set("races", ["teamRules", 0, "team"], { value: "Halfling" }).teamRules[0].team).toBe("Halfling");
