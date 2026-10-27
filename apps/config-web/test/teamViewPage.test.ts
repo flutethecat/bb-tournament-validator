@@ -73,7 +73,7 @@ describe("team view core", () => {
     expect(markup).toContain('class="skill skill-strength tv-added tv-secondary" title="Secondary skill added: Guard">Guard</span>');
     expect(markup).not.toContain('tv-access'); // owner 10-27: no superscript S - it read as "Guards"
     expect(markup).toContain('<span class="skill tv-stat-up" title="Characteristic increase">+MA</span>');
-    expect(markup).toContain('<td class="tv-stat tv-up" title="MA increased">7<span class="tv-up-mark" aria-hidden="true">▲</span></td>');
+    expect(markup).toContain('<td class="tv-stat tv-up" title="MA increased"><span class="tv-stat-box">7<span class="tv-up-mark" aria-hidden="true">▲</span></span></td>');
     expect(TeamView.categoryClass("Devious")).toBe("skill-passing");
     expect(TeamView.categoryClass("Mutation")).toBe("skill-mutation");
   });

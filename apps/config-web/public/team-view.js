@@ -80,7 +80,7 @@
         <td class="tv-col-sprite">${spriteHtml(p)}</td>
         <td class="tv-num">${esc(p.number)}</td>
         <td class="tv-pos">${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}</td>
-        ${STATS.map((stat) => { const c = statCell(p, stat); return `<td class="tv-stat${c.up ? " tv-up" : ""}"${c.up ? ` title="${stat} increased"` : ""}>${esc(c.text)}${c.up ? '<span class="tv-up-mark" aria-hidden="true">▲</span>' : ""}</td>`; }).join("")}
+        ${STATS.map((stat) => { const c = statCell(p, stat); return `<td class="tv-stat${c.up ? " tv-up" : ""}"${c.up ? ` title="${stat} increased"` : ""}><span class="tv-stat-box">${esc(c.text)}${c.up ? '<span class="tv-up-mark" aria-hidden="true">▲</span>' : ""}</span></td>`; }).join("")}
         <td class="tv-skills"><div class="row-skills">${skillsHtml(p)}</div></td>
         <td class="tv-cost">${gold(p.cost)}</td>
       </tr>`).join("");

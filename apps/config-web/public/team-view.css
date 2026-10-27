@@ -146,3 +146,29 @@
 .tv-banner .tv-check { font-size: 16px; font-weight: 700; }
 .tv-valid .tv-check { color: var(--ui-success); }
 .tv-invalid .tv-check { color: var(--ui-danger); }
+
+/* ── Owner 10-27: zebra rows, bezelled sections, larger header row, stats lifted onto bezelled boxes. ── */
+:root { --tv-bezel: inset 0 1px 0 rgb(255 255 255 / 8%), inset 0 -1px 0 rgb(0 0 0 / 45%), 0 2px 6px rgb(0 0 0 / 40%); }
+.tv-banner, .tv-panel, .tv-totals > div, .tv-cards > li { box-shadow: var(--tv-bezel); border-color: color-mix(in srgb, var(--ui-border) 70%, var(--ui-primary)); }
+.tv-panel { border-radius: 6px; }
+.tv-panel .section-title { font-size: clamp(16px, 1.15vw, 19px); }
+/* Stats as bezelled boxes (desktop table + phone cards). */
+.tv-card-stats > div { background: color-mix(in srgb, var(--ui-surface) 85%, var(--ui-primary)); box-shadow: var(--tv-bezel); border-radius: 5px; padding: 4px 0; }
+.tv-card-stats dd { font-size: 18px; font-weight: 600; }
+@media (min-width: 761px) {
+  .tv-table { border-radius: 6px; box-shadow: var(--tv-bezel); overflow: hidden; }
+  .tv-table th { padding: 11px 10px; font-size: 15px; letter-spacing: .1em; }
+  .tv-table th.tv-stat { font-size: 14px; }
+  .tv-table td { padding: 7px 8px; }
+  .tv-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--ui-surface) 55%, var(--ui-surface-2)); }
+  .tv-table tbody tr:nth-child(odd) td { background: var(--ui-surface-2); }
+  .tv-table tbody tr:hover td { background: var(--ui-hover); }
+  .tv-table .tv-stat { width: 52px; padding: 5px 4px; }
+  .tv-table .tv-stat .tv-stat-box, .tv-table td.tv-stat { font-size: 18px; font-weight: 600; }
+  .tv-table td.tv-stat { background-clip: padding-box; }
+  .tv-table td.tv-stat > .tv-stat-box { display: inline-block; min-width: 40px; padding: 4px 6px; background: color-mix(in srgb, var(--ui-surface) 85%, var(--ui-primary)); border: 1px solid color-mix(in srgb, var(--ui-border) 70%, var(--ui-primary)); border-radius: 5px; box-shadow: var(--tv-bezel); line-height: 1.1; }
+  .tv-table td.tv-up > .tv-stat-box { color: var(--ui-success); }
+}
+.tv-ind-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--ui-surface) 55%, var(--ui-surface-2)); }
+.tv-ind-table thead th { font-size: 13px; }
+.tv-pairs > div:nth-child(even) { background: color-mix(in srgb, var(--ui-surface) 55%, var(--ui-surface-2)); }
