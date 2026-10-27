@@ -327,6 +327,29 @@
       if (isNum(stacked.maxElite)) parts.push(stacked.maxElite === 0 ? "no elite" : `max ${stacked.maxElite} elite`);
       return parts.join(" · ") || "—";
     }
+    /**
+     * Legacy tier table Stack limit lines (owner 10-27; mirrors the server's stackSkillLines):
+     * "N Primary Skills" | "N Primary" / "OR" / "(N−S) Primary + S Secondary" | … / "N Secondary"; elite cap last.
+     * `teamSecondary` (the tier's maxSecondary) also caps a stack.
+     */
+    function stackLimitLines(stacked, teamSecondary) {
+      if (!stacked) return [];
+      const per = isNum(stacked.maxSkills) ? stacked.maxSkills : null;
+      const caps = [stacked.maxSecondary, teamSecondary].filter(isNum);
+      const sec = caps.length ? Math.min(...caps) : null;
+      const lines = [];
+      if (per == null) lines.push(sec === 0 ? "Any Primary Skills" : sec != null ? `Any Skills (max ${sec} Secondary)` : "Any Skills");
+      else if (sec === 0) lines.push(`${per} Primary Skill${per === 1 ? "" : "s"}`);
+      else if (sec == null || sec >= per) lines.push(`${per} Primary`, "OR", `${per} Secondary`);
+      else lines.push(`${per} Primary`, "OR", `${per - sec} Primary + ${sec} Secondary`);
+      if (isNum(stacked.maxElite)) lines.push(stacked.maxElite === 0 ? "no elite" : `max ${stacked.maxElite} elite`);
+      return lines;
+    }
+    /** Stack limit lines as markup: "OR" muted small caps, the elite cap a small last line. */
+    function stackLinesHtml(lines) {
+      if (!lines.length) return "—";
+      return lines.map((line) => `<span class="tt-rt-line${line === "OR" ? " tt-rt-or" : /elite$/.test(line) ? " tt-rt-minor" : ""}">${esc(line)}</span>`).join("");
+    }
     function statIncreaseLabel(stat) {
       if (!stat) return "—";
       const cost = stat.costGold;
@@ -381,14 +404,25 @@
         .sort((a, b) => a.tier - b.tier)
         .map((entry) => ({ ...entry, rosters: entry.rosters.sort((a, b) => String(a.name).localeCompare(String(b.name))) }));
     }
-    function tierTableHtml(table) {
+    /**
+     * A team-name cell. With `opts.pick(name)` (tournament step 2) a selectable team becomes a
+     * `.tt-team-pick` button carrying its roster id (+ the caller's crest markup); a team the picker
+     * rejects (roster missing from the fork / not eligible) stays plain text with a muted note.
+     */
+    function teamPickHtml(name, opts) {
+      if (typeof opts?.pick !== "function") return esc(name);
+      const hit = opts.pick(name);
+      if (!hit?.id) return `<span class="tt-team-off">${esc(name)} <small class="tt-team-na">(not available)</small></span>`;
+      return `<button type="button" class="tt-team-pick${hit.selected ? " selected" : ""}" data-tt-race="${esc(hit.id)}" aria-pressed="${hit.selected ? "true" : "false"}">${hit.crest ?? ""}<span>${esc(name)}</span></button>`;
+    }
+    function tierTableHtml(table, opts = {}) {
       if (!table.length) return "";
       const detailed = table.some((row) => row.rules);
       const head = detailed
         ? "<tr><th scope=\"col\">Tier</th><th scope=\"col\">Rosters (gold cap)</th><th scope=\"col\">Secondary</th><th scope=\"col\">Elite</th><th scope=\"col\">Stacks</th><th scope=\"col\">Stack types</th><th scope=\"col\">Characteristics</th><th scope=\"col\">Star packs</th></tr>"
         : "<tr><th scope=\"col\">Tier</th><th scope=\"col\">Rosters (gold cap)</th></tr>";
       const body = table.map((row) => {
-        const rosters = row.rosters.map((r) => `${esc(r.name)}${r.gold != null ? ` <small>(${gold(r.gold)})</small>` : ""}`).join(", ");
+        const rosters = row.rosters.map((r) => `${teamPickHtml(r.name, opts)}${r.gold != null ? ` <small>(${gold(r.gold)})</small>` : ""}`).join(", ");
         if (!detailed) return `<tr><th scope="row">${esc(row.tier)}</th><td>${rosters}</td></tr>`;
         const r = row.rules ?? {};
         const elite = [r.eliteMaxTotal != null ? `${r.eliteMaxTotal} total` : "", r.eliteMaxSameSkill != null ? `${r.eliteMaxSameSkill} same` : ""].filter(Boolean).join(" · ") || "—";
@@ -401,7 +435,7 @@
         const exceptions = row.rosters.filter((roster) => packKey(roster.starPacks) !== common)
           .map((roster) => `<div class="tier-pack-exception"><b>${esc(roster.name)}:</b> ${roster.starPacks.length ? roster.starPacks.map((p) => esc(starPackLabel(p))).join(" · ") : "none"}</div>`).join("");
         const packsCell = (common ? common.split("\u0000").map(esc).join("<br>") : "—") + exceptions;
-        return `<tr><th scope="row">${esc(row.tier)}</th><td>${rosters}</td><td>${esc(r.maxSecondary ?? "—")}</td><td>${esc(elite)}</td><td>${esc(r.maxStackedPlayers ?? "—")}</td><td>${esc(stackLabel(r.stackedPlayer))}</td><td>${esc(statIncreaseLabel(r.statIncreases))}</td><td>${packsCell}</td></tr>`;
+        return `<tr><th scope="row">${esc(row.tier)}</th><td>${rosters}</td><td>${esc(r.maxSecondary ?? "—")}</td><td>${esc(elite)}</td><td>${esc(r.maxStackedPlayers ?? "—")}</td><td>${stackLinesHtml(stackLimitLines(r.stackedPlayer, r.maxSecondary))}</td><td>${esc(statIncreaseLabel(r.statIncreases))}</td><td>${packsCell}</td></tr>`;
       }).join("");
       return `<thead>${head}</thead><tbody>${body}</tbody>`;
     }
@@ -452,42 +486,67 @@
     const allotmentKey = (team) => team.allotment.join("\u0000");
     /** A cell value; its " · "-joined parts stack as unbroken lines. */
     const cellHtml = (value) => value == null ? "—" : String(value).split(" · ").map((part) => `<span class="tt-rt-line">${esc(part)}</span>`).join("");
+    const stackCellHtml = (value) => value == null ? "—" : stackLinesHtml(String(value).split(" · "));
     const allotmentHtml = (team) => team.allotment.length ? team.allotment.map((line) => `<span class="tt-rt-line">${esc(line)}</span>`).join("") : "—";
     /**
      * The tier table: Tier (rowspan) | one row per team (Team, Gold cap, Skill allotment) | tier-level columns.
      * A tier-level value that is the same for every team in the tier spans the tier; one that differs is shown on
      * each team row (star access included — no majority span). Columns empty (null) for every team are dropped.
      */
-    function overviewTableHtml(overview) {
+    function overviewTableHtml(overview, opts = {}) {
       const groups = overview?.groups ?? [];
       const teams = groups.flatMap((group) => group.teams);
       if (!teams.length) return "";
       const showGold = teams.some((team) => team.gold != null);
       const cols = OVERVIEW_CELLS.filter((key) => teams.some((team) => team[key] != null));
-      const head = `<tr><th scope="col" class="tt-rt-tier-head">Tier</th><th scope="col">Team</th>${showGold ? '<th scope="col" class="tt-rt-num">Gold cap</th>' : ""}<th scope="col">Skill allotment</th>${cols.map((key) => `<th scope="col">${OVERVIEW_HEADS[key]}</th>`).join("")}</tr>`;
+      const head = `<tr><th scope="col" class="tt-rt-tier-head">Tier</th><th scope="col" class="tt-rt-team-head">Team</th>${showGold ? '<th scope="col" class="tt-rt-num">Gold cap</th>' : ""}<th scope="col">Skill allotment</th>${cols.map((key) => `<th scope="col">${OVERVIEW_HEADS[key]}</th>`).join("")}</tr>`;
       const body = groups.map((group) => {
         const n = group.teams.length;
         const span = n > 1 ? ` rowspan="${n}"` : "";
         const uniform = (key) => group.teams.every((team) => team[key] === group.teams[0][key]);
         const allotmentUniform = group.teams.every((team) => allotmentKey(team) === allotmentKey(group.teams[0]));
+        // Owner 10-27: a gold cap shared by every team in the tier is one merged cell, like the allotment.
+        const goldUniform = n > 1 && group.teams.every((team) => goldRange(team) === goldRange(group.teams[0]));
         const rows = group.teams.map((team, index) => {
           const first = index === 0;
           const tierCell = first
             ? `<th scope="rowgroup"${span} class="tt-rt-tier">${group.tier != null ? esc(group.tier) : `<span class="tt-rt-all">${esc(group.label || "All teams")}</span>`}</th>`
             : "";
-          const cells = [`<th scope="row" class="tt-rt-team">${esc(team.name)}</th>`];
-          if (showGold) cells.push(`<td class="tt-rt-num tt-rt-gold">${esc(goldRange(team))}</td>`);
+          const cells = [`<th scope="row" class="tt-rt-team">${teamPickHtml(team.name, opts)}</th>`];
+          if (showGold && !goldUniform) cells.push(`<td class="tt-rt-num tt-rt-gold">${esc(goldRange(team))}</td>`);
+          else if (showGold && first) cells.push(`<td class="tt-rt-num tt-rt-gold tt-rt-span"${span}>${esc(goldRange(team))}</td>`);
           if (!allotmentUniform) cells.push(`<td class="tt-rt-allot">${allotmentHtml(team)}</td>`);
           else if (first) cells.push(`<td class="tt-rt-allot tt-rt-span"${span}>${allotmentHtml(team)}</td>`);
           for (const key of cols) {
-            if (!uniform(key)) cells.push(`<td>${cellHtml(team[key])}</td>`);
-            else if (first) cells.push(`<td class="tt-rt-span"${span}>${cellHtml(team[key])}</td>`);
+            const value = key === "stackLimit" ? stackCellHtml(team[key]) : cellHtml(team[key]);
+            if (!uniform(key)) cells.push(`<td>${value}</td>`);
+            else if (first) cells.push(`<td class="tt-rt-span"${span}>${value}</td>`);
           }
           return `<tr>${tierCell}${cells.join("")}</tr>`;
         }).join("");
         return `<tbody class="tt-rt-group">${rows}</tbody>`;
       }).join("");
       return `<thead>${head}</thead>${body}`;
+    }
+    /**
+     * Step 2's table model. A non-tiered package whose teams share one rule arrives as a single
+     * "Every eligible roster (N)" row; that row (or, with no overview at all, nothing) becomes one
+     * "All teams" group listing each eligible roster by name, so every team is pickable.
+     * `names` = the eligible roster names; `isTeam(name)` = whether a row names a real roster.
+     */
+    function raceTableOverview(overview, names, isTeam = () => true) {
+      const blank = { gold: null, goldMax: null, allotment: [] };
+      for (const key of OVERVIEW_CELLS) blank[key] = null;
+      const groups = overview?.groups ?? [];
+      const only = groups.length === 1 && groups[0].tier == null && groups[0].teams.length === 1 ? groups[0] : null;
+      const collapsed = only && !isTeam(only.teams[0].name);
+      if (groups.length && !collapsed) return overview;
+      if (!names.length) return overview ?? null;
+      const template = collapsed ? only.teams[0] : blank;
+      return {
+        summary: overview?.summary ?? [],
+        groups: [{ tier: null, label: "All teams", teams: names.map((name) => ({ ...template, allotment: [...template.allotment], name })) }],
+      };
     }
     /** Star packs that contain a given star (by normalized name). */
     function starPacksFor(starName, starPacks) {
@@ -837,8 +896,8 @@ ${rosterSheetHtml(model)}
       normalizeLeagueOptions, leagueFieldPresentation, reconcileLeagueSelection, explicitLeagueSpecialRule, starEligibleForLeague,
       buildStarChoices, positionGroupCapped, buildPicks, slotsFromPicks,
       improvedStats, statIncreaseCost, normalizeTierRules, tierLimitLines, tierTable, tierTableHtml, starPacksFor, starPackLabel,
-      normalizeOverview, overviewSummaryHtml, overviewTableHtml,
-      stackLabel, statIncreaseLabel, DEFAULT_SKILL_COSTS, playerSkillSp,
+      normalizeOverview, overviewSummaryHtml, overviewTableHtml, raceTableOverview, teamPickHtml,
+      stackLabel, stackLimitLines, statIncreaseLabel, DEFAULT_SKILL_COSTS, playerSkillSp,
       rosterSheetModel, rosterSheetHtml, standaloneSheetDocument, sheetFileName, SHEET_CSS,
     };
   })();
@@ -2986,7 +3045,8 @@ ${rosterSheetHtml(model)}
     $("tt-step-package").hidden = setupStep !== 1;
     $("tt-step-race").hidden = setupStep !== 2;
     $("builder-panel").hidden = setupStep !== 3;
-    // Step 1 — rulesets + the chosen one's generated summary and per-team tier table (organiser notes collapsed).
+    // Step 1 — rulesets + the chosen one's generated summary (organiser notes collapsed); the per-team tier
+    // table is step 2 (owner 10-27).
     // Owner 10-27: ruleset cards are name-only styled buttons (the description shows once a ruleset is chosen);
     // example/sample packages are development fixtures and never offered here.
     const offered = packages.filter((row) => !isExamplePackage(row.name));
@@ -3008,29 +3068,45 @@ ${rosterSheetHtml(model)}
       const overview = packageRules?.overview ?? null;
       $("tt-package-summary").innerHTML = Core.overviewSummaryHtml(overview);
       $("tt-package-summary").hidden = !overview?.summary.length;
-      // An older server without `overview` still gets the original tier/roster table.
-      const markup = overview ? Core.overviewTableHtml(overview) : Core.tierTableHtml(Core.tierTable(tierRows, packageRules?.tierSummary));
-      $("tt-tier-table").className = overview ? "tt-rules-table" : "tier-table";
-      $("tt-tier-table").innerHTML = markup;
-      $("tt-tier-table").hidden = !markup;
-      $("tt-tier-empty").hidden = Boolean(markup);
     }
-    // Step 2 — eligible races grouped by tier, each with its team-value cap.
+    // Step 2 (owner 10-27) — the per-team tier table; every eligible team is a button that picks the race.
     if (setupStep === 2) {
-      const groups = eligibleRaceGroups();
       $("tt-race-title").textContent = `Step 2 — Pick a race for ${name}`;
-      $("tt-races").innerHTML = groups.length ? groups.map((group) => `<section class="tt-race-group" aria-label="${esc(group.tier === "—" ? "Eligible rosters" : `Tier ${group.tier}`)}">
-          <div class="section-title">${group.tier === "—" ? "<span>E</span>ligible <span>R</span>osters" : `<span>T</span>ier ${esc(group.tier)}`}</div>
-          <div class="tt-card-grid">${group.races.map(({ roster, gold: cap }) => `<button type="button" class="tt-card tt-race${current?.rosterId === roster.rosterId ? " selected" : ""}" data-tt-race="${esc(roster.rosterId)}">
-            ${crestHtml(roster.raceName, "tt-race-crest")}<span class="tt-race-copy"><strong>${esc(roster.raceName)}</strong><small>${cap != null ? `TV cap ${gold(cap)}` : "Package budget"}</small></span>
-          </button>`).join("")}</div>
-        </section>`).join("") : '<p class="status-copy">No installed roster is eligible for this ruleset.</p>';
+      const markup = raceTableMarkup();
+      $("tt-tier-table").className = markup.legacy ? "tier-table" : "tt-rules-table";
+      $("tt-tier-table").innerHTML = markup.html;
+      $("tt-tier-table").hidden = !markup.html;
+      $("tt-tier-empty").hidden = markup.selectable;
     }
     // Step 3 — the locked builder's summary bar.
     if (current && name) {
       const cap = clientBudget();
       $("tt-locked-summary").innerHTML = `${crestHtml(current.raceName, "tt-summary-crest")}<b>${esc(name)}</b> · ${esc(current.raceName)}${tierLabel ? ` · ${esc(tierLabel)}` : ""} · TV cap ${gold(cap)}`;
     }
+  }
+  /** Roster ids step 2 may pick (the package admits them and the fork has the roster). */
+  function eligibleRosterMap() {
+    return new Map(eligibleRaceGroups().flatMap((group) => group.races.map(({ roster }) => [roster.rosterId, roster])));
+  }
+  /**
+   * Step 2's table: the server overview (or, from an older server, the legacy tier table) with each team
+   * cell a pick button. A package without tiers lists every eligible roster under one "All teams" group.
+   */
+  function raceTableMarkup() {
+    const eligible = eligibleRosterMap();
+    const pick = (teamName) => {
+      const roster = rosterForRace(teamName);
+      if (!roster || !eligible.has(roster.rosterId)) return null;
+      return { id: roster.rosterId, crest: crestHtml(roster.raceName, "tt-team-crest"), selected: current?.rosterId === roster.rosterId };
+    };
+    const names = [...eligible.values()].map((roster) => roster.raceName).sort((a, b) => a.localeCompare(b));
+    const overview = packageRules?.overview ?? null;
+    const selectable = eligible.size > 0;
+    if (!overview && tierRows.length) {
+      return { legacy: true, selectable, html: Core.tierTableHtml(Core.tierTable(tierRows, packageRules?.tierSummary), { pick }) };
+    }
+    const model = Core.raceTableOverview(overview, names, (teamName) => Boolean(rosterForRace(teamName)));
+    return { legacy: false, selectable, html: model ? Core.overviewTableHtml(model, { pick }) : "" };
   }
   function confirmDiscard() {
     return !slots.length || window.confirm("Discard the current roster and start over?");
@@ -3090,8 +3166,9 @@ ${rosterSheetHtml(model)}
     $("tt-to-races").addEventListener("click", () => goToStep(2));
     $("tt-back-package").addEventListener("click", () => goToStep(1));
     $("tt-races").addEventListener("click", (event) => {
-      const card = event.target.closest("[data-tt-race]");
-      if (card) chooseRace(card.dataset.ttRace);
+      const button = event.target.closest("[data-tt-race]");
+      // Same eligibility gate the race cards had: only a roster this package admits (and the fork has).
+      if (button && eligibleRosterMap().has(button.dataset.ttRace)) chooseRace(button.dataset.ttRace);
     });
     $("tt-change-package").addEventListener("click", () => goToStep(1));
     $("tt-change-race").addEventListener("click", () => goToStep(2));

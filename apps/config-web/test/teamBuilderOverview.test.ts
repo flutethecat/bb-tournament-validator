@@ -152,12 +152,30 @@ describe("ruleset overview — summary lines", () => {
 });
 
 describe("ruleset overview — per-team table rows", () => {
+  it("words the Stack limit cell as skill counts, one item per line (owner 10-27)", async () => {
+    const { stackSkillLines } = await import("../src/teamBuilderPackage");
+    expect(stackSkillLines(2, 0, null)).toEqual(["2 Primary Skills"]);
+    expect(stackSkillLines(2, 1, null)).toEqual(["2 Primary", "OR", "1 Primary + 1 Secondary"]);
+    expect(stackSkillLines(3, 2, 0)).toEqual(["3 Primary", "OR", "1 Primary + 2 Secondary", "no elite"]);
+    expect(stackSkillLines(3, 3, 2)).toEqual(["3 Primary", "OR", "3 Secondary", "≤2 elite"]);
+    expect(stackSkillLines(2, null, null)).toEqual(["2 Primary", "OR", "2 Secondary"]);
+    const nut = packageOverview(shipped("whbb-nut-cup-2026"));
+    const nutTier = (tier: number) => nut.groups.find((g) => g.tier === tier)!.teams[0]!.stackLimit;
+    expect(nutTier(1)).toBe("2 Primary Skills");
+    expect(nutTier(3)).toBe("2 Primary · OR · 1 Primary + 1 Secondary");
+    const sg = packageOverview(shipped("small-gods"));
+    const sgTier = (tier: number) => sg.groups.find((g) => g.tier === tier)!.teams[0]!.stackLimit;
+    expect(sgTier(1)).toBe("3 Primary Skills · no elite");
+    expect(sgTier(3)).toBe("3 Primary · OR · 1 Primary + 2 Secondary · no elite");
+    expect(sgTier(6)).toBe("3 Primary · OR · 3 Secondary");
+  });
+
   it("keys gold caps, allotments and tier knobs per team", () => {
     const sg = packageOverview(shipped("small-gods"));
     expect(sg.groups.map((g) => g.tier)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(team(sg, "High Elf")).toMatchObject({
       gold: 1_260_000, goldMax: null, allotment: ["primary 20k · secondary 40k"], secondary: "1", elite: "≤3 total",
-      stacks: "1", stackLimit: "3 skills · primary only · no elite", characteristics: null, stars: null,
+      stacks: "1", stackLimit: "3 Primary Skills · no elite", characteristics: null, stars: null,
     });
     expect(team(sg, "Snotling").stars).toBe("Free (max 2) · Star (max 2) · Super Star (max 1) · Mega Star (max 1)");
     expect(team(sg, "Chaos Dwarf").stars).toBe("Free (max 2)");
@@ -169,11 +187,11 @@ describe("ruleset overview — per-team table rows", () => {
       "1,150k · 8 skills", "1,100k · 9 skills", "1,150k · 8 skills · primary only · Star allowed", "1,100k · 9 skills · primary only · Star allowed",
     ]);
     // A tier that allows no secondary can't stack one either.
-    expect(team(nut, "Orc").stackLimit).toBe("2 skills · primary only");
+    expect(team(nut, "Orc").stackLimit).toBe("2 Primary Skills");
 
     const naf = packageOverview(shipped("naf-world-cup-2027"));
     expect(team(naf, "Orc")).toMatchObject({ gold: 1_080_000, allotment: ["44 SP"], stacks: "0", stackLimit: null, stars: null });
-    expect(team(naf, "Shambling Undead")).toMatchObject({ allotment: ["52 SP"], stacks: "1", stackLimit: "2 skills" });
+    expect(team(naf, "Shambling Undead")).toMatchObject({ allotment: ["52 SP"], stacks: "1", stackLimit: "2 Primary · OR · 2 Secondary" });
     expect(team(naf, "Snotling").stars).toBe("allowed");
 
     const spike = packageOverview(shipped("spike-2026"));

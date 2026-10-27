@@ -101,7 +101,8 @@ describe("team builder page — ruleset knobs", () => {
     const markup = core.tierTableHtml(table);
     expect(markup).toContain("Star packs");
     expect(markup).toContain("Dwarf <small>(1,455k)</small>");
-    expect(markup).toContain("max 2 skills · max 1 secondary · max 1 elite");
+    // Owner 10-27: stack limit as skill-count lines (the tier's secondary cap of 2 doesn't tighten the stack's 1).
+    expect(markup).toContain('<span class="tt-rt-line">2 Primary</span><span class="tt-rt-line tt-rt-or">OR</span><span class="tt-rt-line">1 Primary + 1 Secondary</span><span class="tt-rt-line tt-rt-minor">max 1 elite</span>');
     // A server that predates the knobs still gets a tier/roster table.
     expect(core.tierTableHtml(core.tierTable([{ name: "Dwarf", tier: 5 }], [{ tier: 5, gold: 1_100_000 }]))).not.toContain("Star packs");
   });
@@ -610,7 +611,7 @@ describe("team builder page — Super FUMBBL art", () => {
 
   it("uses portraits/crests/icons on the builder but never on the roster sheet", () => {
     expect(js).toContain("${portraitHtml(current.raceName, position.name)}");
-    expect(js).toContain('${crestHtml(roster.raceName, "tt-race-crest")}');
+    expect(js).toContain('crest: crestHtml(roster.raceName, "tt-team-crest")');
     expect(js).toContain("iconManifest?.icons?.[item.key]");
     const sheetCode = js.slice(js.indexOf("function rosterSheetHtml"), js.indexOf("const SHEET_CSS"));
     expect(sheetCode).not.toMatch(/sprite|crest|icons\//);
@@ -786,8 +787,96 @@ describe("tournament team builder — ruleset summary + per-team tier table (own
     // Malformed groups leave nothing usable → treated as absent, so the legacy tier table renders instead.
     expect(core.normalizeOverview({ summary: [], groups: [{}] })).toBeNull();
     expect(core.normalizeOverview({ summary: [{ key: "structure", label: "Structure", text: "x" }], groups: [{ tier: 1, teams: [] }] })).toBeNull();
-    expect(js).toContain("const markup = overview ? Core.overviewTableHtml(overview) : Core.tierTableHtml(Core.tierTable(tierRows, packageRules?.tierSummary));");
+    expect(js).toContain("html: Core.tierTableHtml(Core.tierTable(tierRows, packageRules?.tierSummary), { pick })");
     expect(core.normalizeOverview({ summary: "x" })).toBeNull();
+  });
+
+  it("merges a tier-uniform gold cap into one spanning cell; per-team gold only where it differs", async () => {
+    const { packageOverview } = await import("../src/teamBuilderPackage");
+    const { loadPackage } = await import("@bb/validator");
+    const shipped = (file: string) => core.normalizeOverview(packageOverview(loadPackage(JSON.parse(readFileSync(new URL(`../../../tournament-packages/${file}.json`, import.meta.url), "utf8"))).pkg));
+    // Nut Cup: one cap + one allotment per tier → merged cells on multi-team tiers, no per-row gold there.
+    const nut = shipped("whbb-nut-cup-2026");
+    const nutHtml: string = core.overviewTableHtml(nut);
+    for (const group of nut.groups.filter((g: { teams: unknown[] }) => g.teams.length > 1)) {
+      const n = group.teams.length;
+      expect(nutHtml).toContain(`<td class="tt-rt-num tt-rt-gold tt-rt-span" rowspan="${n}">`);
+      expect(nutHtml).toContain(`<td class="tt-rt-allot tt-rt-span" rowspan="${n}">`);
+    }
+    expect(nutHtml).not.toContain('<td class="tt-rt-num tt-rt-gold">');
+    // Small Gods: rosterGold differs inside a tier → gold per team row, allotment still merged.
+    const sg = shipped("small-gods");
+    const sgHtml: string = core.overviewTableHtml(sg);
+    const mixed = sg.groups.find((g: { teams: Array<{ gold: number }> }) => g.teams.length > 1 && new Set(g.teams.map((t) => t.gold)).size > 1);
+    expect(mixed).toBeTruthy();
+    expect(sgHtml).toContain('<td class="tt-rt-num tt-rt-gold">');
+    expect(sgHtml).toContain(`<td class="tt-rt-allot tt-rt-span" rowspan="${mixed.teams.length}">`);
+    // The fixture above: Tier 1 caps differ (per row); a uniform two-team tier merges.
+    const uniform = core.normalizeOverview({ summary: [], groups: [{ tier: 1, teams: [row("Orc"), row("Human")] }] });
+    expect(core.overviewTableHtml(uniform)).toContain('<td class="tt-rt-num tt-rt-gold tt-rt-span" rowspan="2">1,150k</td>');
+  });
+
+  it("step 2 table: one pick button per eligible team, plain text + (not available) otherwise", () => {
+    const pick = (name: string) => (name === "Orc" ? { id: "orc", crest: '<img class="crest-image tt-team-crest" src="/c.png" alt="">', selected: false } : name === "Goblin" ? { id: "gob", crest: "", selected: true } : null);
+    const markup: string = core.overviewTableHtml(overview, { pick });
+    expect(markup.match(/class="tt-team-pick/g)).toHaveLength(2);
+    expect(markup).toContain('<button type="button" class="tt-team-pick" data-tt-race="orc" aria-pressed="false"><img class="crest-image tt-team-crest" src="/c.png" alt=""><span>Orc</span></button>');
+    expect(markup).toContain('<button type="button" class="tt-team-pick selected" data-tt-race="gob" aria-pressed="true"><span>Goblin</span></button>');
+    expect(markup).toContain('<span class="tt-team-off">High Elf <small class="tt-team-na">(not available)</small></span>');
+    expect(markup).not.toContain('data-tt-race="High');
+    // Without a picker (no step 2) the names stay plain.
+    expect(core.overviewTableHtml(overview)).not.toContain("tt-team-pick");
+    // Legacy tier table (older server, no overview) gets the same buttons.
+    const legacy: string = core.tierTableHtml(core.tierTable([{ name: "Orc", tier: 1, gold: 1_000_000 }, { name: "High Elf", tier: 1, gold: 1_000_000 }]), { pick });
+    expect(legacy).toContain('data-tt-race="orc"');
+    expect(legacy).toContain("High Elf <small class=\"tt-team-na\">(not available)</small>");
+  });
+
+  it("stacks the Stack limit cell one item per line with a muted OR and a small elite line", async () => {
+    const either = core.normalizeOverview({ summary: [], groups: [{ tier: 3, teams: [row("Orc", { stackLimit: "2 Primary · OR · 1 Primary + 1 Secondary · no elite" })] }] });
+    expect(core.overviewTableHtml(either)).toContain('<span class="tt-rt-line">2 Primary</span><span class="tt-rt-line tt-rt-or">OR</span><span class="tt-rt-line">1 Primary + 1 Secondary</span><span class="tt-rt-line tt-rt-minor">no elite</span>');
+    // Legacy tier table (no overview) words it the same way, the tier's secondary cap included.
+    expect(core.stackLimitLines({ maxSkills: 2, maxSecondary: 1, maxElite: null }, 1)).toEqual(["2 Primary", "OR", "1 Primary + 1 Secondary"]);
+    expect(core.stackLimitLines({ maxSkills: 2, maxSecondary: 1, maxElite: 0 }, 0)).toEqual(["2 Primary Skills", "no elite"]);
+    expect(core.stackLimitLines({ maxSkills: 3, maxSecondary: null, maxElite: 2 }, null)).toEqual(["3 Primary", "OR", "3 Secondary", "max 2 elite"]);
+    // The real Nut Cup overview carries the new wording into the page table.
+    const { packageOverview } = await import("../src/teamBuilderPackage");
+    const { loadPackage } = await import("@bb/validator");
+    const nut = JSON.parse(readFileSync(new URL("../../../tournament-packages/whbb-nut-cup-2026.json", import.meta.url), "utf8"));
+    const markup: string = core.overviewTableHtml(core.normalizeOverview(packageOverview(loadPackage(nut).pkg)));
+    expect(markup).toContain('<span class="tt-rt-line">2 Primary Skills</span>');
+    expect(markup).toContain('<span class="tt-rt-line">2 Primary</span><span class="tt-rt-line tt-rt-or">OR</span><span class="tt-rt-line">1 Primary + 1 Secondary</span>');
+  });
+
+  it("a package without tiers lists every eligible roster as one All teams group", () => {
+    const collapsed = core.normalizeOverview({ summary: [], groups: [{ tier: null, label: "All teams", teams: [{ name: "Every eligible roster (2)", gold: 1_000_000, allotment: ["no added skills"], secondary: "2" }] }] });
+    const isTeam = (name: string) => ["Orc", "Dwarf"].includes(name);
+    const model = core.raceTableOverview(collapsed, ["Dwarf", "Orc"], isTeam);
+    expect(model.groups).toHaveLength(1);
+    expect(model.groups[0].label).toBe("All teams");
+    expect(model.groups[0].teams.map((t: { name: string }) => t.name)).toEqual(["Dwarf", "Orc"]);
+    const markup: string = core.overviewTableHtml(model, { pick: (name: string) => ({ id: name.toLowerCase(), crest: "" }) });
+    expect(markup).toContain('<span class="tt-rt-all">All teams</span>');
+    expect(markup.match(/class="tt-team-pick"/g)).toHaveLength(2);
+    expect(markup).toContain('<td class="tt-rt-num tt-rt-gold tt-rt-span" rowspan="2">1,000k</td>');
+    // No overview at all and no tiers → the same shape with blank rule cells.
+    const bare = core.raceTableOverview(null, ["Orc"]);
+    expect(bare.groups[0]).toMatchObject({ tier: null, label: "All teams" });
+    expect(bare.groups[0].teams[0].name).toBe("Orc");
+    // A real tiered overview passes through untouched.
+    expect(core.raceTableOverview(overview, ["Orc"], isTeam)).toBe(overview);
+  });
+
+  it("moves the tier table off step 1 into step 2 and drops the race-card grid", () => {
+    const step1 = ttHtml.slice(ttHtml.indexOf('id="tt-step-package"'), ttHtml.indexOf('id="tt-step-race"'));
+    const step2 = ttHtml.slice(ttHtml.indexOf('id="tt-step-race"'), ttHtml.indexOf('id="builder-panel"'));
+    expect(step1).toContain('id="tt-package-summary"');
+    expect(step1).toContain('id="tt-to-races"');
+    expect(step1).not.toContain('id="tt-tier-table"');
+    expect(step2).toContain('<table id="tt-tier-table" class="tt-rules-table"></table>');
+    expect(js).not.toContain("tt-card tt-race");
+    expect(js).toMatch(/\$\("tt-races"\)\.addEventListener\("click"[\s\S]{0,300}eligibleRosterMap\(\)\.has\(button\.dataset\.ttRace\)\) chooseRace\(button\.dataset\.ttRace\)/);
+    expect(css).toMatch(/\.tt-rules-table \.tt-rt-team,\s+\.tt-rules-table \.tt-rt-team-head \{ position: sticky; left: 0;/);
   });
 
   it("keeps the organiser's text collapsed under Organiser notes and wires the generated overview", () => {

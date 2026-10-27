@@ -81,11 +81,9 @@
           <h2 id="tt-package-name"></h2>
           <button id="tt-to-races" class="create-button tt-next" type="button">Choose a race →</button>
         </div>
-        <!-- Owner 10-27: generated highlights (package values only) + the per-team tier table; the organiser's own
-             description and the data note sit collapsed under "Organiser notes". -->
+        <!-- Owner 10-27: generated highlights (package values only); the per-team tier table is step 2. The
+             organiser's own description and the data note sit collapsed under "Organiser notes". -->
         <dl id="tt-package-summary" class="tt-summary"></dl>
-        <div class="tt-rules-wrap"><table id="tt-tier-table" class="tt-rules-table"></table></div>
-        <p id="tt-tier-empty" class="status-copy" hidden>This ruleset lists no eligible rosters.</p>
         <details id="tt-organiser-notes" class="tt-organiser-notes">
           <summary>Organiser notes</summary>
           <p id="tt-package-description" class="tt-package-description"></p>
@@ -99,7 +97,11 @@
         <span id="tt-race-title">Step 2 — Pick a race</span>
         <button id="tt-back-package" class="session-button secondary" type="button">← Change ruleset</button>
       </div>
-      <div id="tt-races" class="tt-race-groups"></div>
+      <!-- Owner 10-27: the per-team tier table; each team name is a button that picks the race. -->
+      <div id="tt-races" class="tt-race-groups">
+        <div class="tt-rules-wrap"><table id="tt-tier-table" class="tt-rules-table"></table></div>
+        <p id="tt-tier-empty" class="status-copy" hidden>No installed roster is eligible for this ruleset.</p>
+      </div>
     </section>
 
 

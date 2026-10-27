@@ -88,7 +88,7 @@
             "secondary": "1",
             "elite": "≤3 total",
             "stacks": "1",
-            "stackLimit": "3 skills · primary only · no elite",
+            "stackLimit": "3 Primary Skills · no elite",
             "characteristics": null,
             "stars": null
           },
@@ -102,7 +102,7 @@
             "secondary": "1",
             "elite": "≤3 total",
             "stacks": "1",
-            "stackLimit": "3 skills · primary only · no elite",
+            "stackLimit": "3 Primary Skills · no elite",
             "characteristics": null,
             "stars": null
           },
@@ -116,7 +116,7 @@
             "secondary": "1",
             "elite": "≤3 total",
             "stacks": "1",
-            "stackLimit": "3 skills · primary only · no elite",
+            "stackLimit": "3 Primary Skills · no elite",
             "characteristics": null,
             "stars": null
           },
@@ -130,7 +130,7 @@
             "secondary": "1",
             "elite": "≤3 total",
             "stacks": "1",
-            "stackLimit": "3 skills · primary only · no elite",
+            "stackLimit": "3 Primary Skills · no elite",
             "characteristics": null,
             "stars": null
           },
@@ -144,7 +144,7 @@
             "secondary": "1",
             "elite": "≤3 total",
             "stacks": "1",
-            "stackLimit": "3 skills · primary only · no elite",
+            "stackLimit": "3 Primary Skills · no elite",
             "characteristics": null,
             "stars": null
           }
@@ -164,7 +164,7 @@
             "secondary": "2",
             "elite": "≤4 total",
             "stacks": "1",
-            "stackLimit": "3 skills · primary only · no elite",
+            "stackLimit": "3 Primary Skills · no elite",
             "characteristics": null,
             "stars": "Free (max 2)"
           },
@@ -178,7 +178,7 @@
             "secondary": "2",
             "elite": "≤4 total",
             "stacks": "1",
-            "stackLimit": "3 skills · primary only · no elite",
+            "stackLimit": "3 Primary Skills · no elite",
             "characteristics": null,
             "stars": "Free (max 2)"
           },
@@ -192,7 +192,7 @@
             "secondary": "2",
             "elite": "≤4 total",
             "stacks": "1",
-            "stackLimit": "3 skills · primary only · no elite",
+            "stackLimit": "3 Primary Skills · no elite",
             "characteristics": null,
             "stars": "Free (max 2)"
           },
@@ -206,7 +206,7 @@
             "secondary": "2",
             "elite": "≤4 total",
             "stacks": "1",
-            "stackLimit": "3 skills · primary only · no elite",
+            "stackLimit": "3 Primary Skills · no elite",
             "characteristics": null,
             "stars": "Free (max 2)"
           }
@@ -226,7 +226,7 @@
             "secondary": "3",
             "elite": "≤4 of one skill",
             "stacks": "2",
-            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · no elite",
             "characteristics": null,
             "stars": "Free (max 2)"
           },
@@ -240,7 +240,7 @@
             "secondary": "3",
             "elite": "≤4 of one skill",
             "stacks": "2",
-            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · no elite",
             "characteristics": null,
             "stars": "Free (max 2)"
           },
@@ -254,7 +254,7 @@
             "secondary": "3",
             "elite": "≤4 of one skill",
             "stacks": "2",
-            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · no elite",
             "characteristics": null,
             "stars": "Free (max 2)"
           },
@@ -268,7 +268,7 @@
             "secondary": "3",
             "elite": "≤4 of one skill",
             "stacks": "2",
-            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · no elite",
             "characteristics": null,
             "stars": "Free (max 2)"
           },
@@ -282,7 +282,7 @@
             "secondary": "3",
             "elite": "≤4 of one skill",
             "stacks": "2",
-            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · no elite",
             "characteristics": null,
             "stars": "Free (max 2)"
           },
@@ -296,7 +296,7 @@
             "secondary": "3",
             "elite": "≤4 of one skill",
             "stacks": "2",
-            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · no elite",
             "characteristics": null,
             "stars": "Free (max 2)"
           },
@@ -310,7 +310,7 @@
             "secondary": "3",
             "elite": "≤4 of one skill",
             "stacks": "2",
-            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · no elite",
             "characteristics": null,
             "stars": "Free (max 2)"
           }
@@ -330,7 +330,7 @@
             "secondary": "4",
             "elite": "≤4 of one skill",
             "stacks": "3",
-            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · no elite",
             "characteristics": "+AV 10k · +PA 20k",
             "stars": "Free (max 2)"
           },
@@ -344,7 +344,7 @@
             "secondary": "4",
             "elite": "≤4 of one skill",
             "stacks": "3",
-            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · no elite",
             "characteristics": "+AV 10k · +PA 20k",
             "stars": "Free (max 2)"
           },
@@ -358,7 +358,7 @@
             "secondary": "4",
             "elite": "≤4 of one skill",
             "stacks": "3",
-            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · no elite",
             "characteristics": "+AV 10k · +PA 20k",
             "stars": "Free (max 2)"
           },
@@ -372,7 +372,7 @@
             "secondary": "4",
             "elite": "≤4 of one skill",
             "stacks": "3",
-            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · no elite",
             "characteristics": "+AV 10k · +PA 20k",
             "stars": "Free (max 2)"
           },
@@ -386,7 +386,7 @@
             "secondary": "4",
             "elite": "≤4 of one skill",
             "stacks": "3",
-            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · no elite",
             "characteristics": "+AV 10k · +PA 20k",
             "stars": "Free (max 2)"
           },
@@ -400,7 +400,7 @@
             "secondary": "4",
             "elite": "≤4 of one skill",
             "stacks": "3",
-            "stackLimit": "3 skills · ≤2 secondary · no elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · no elite",
             "characteristics": "+AV 10k · +PA 20k",
             "stars": "Free (max 2) · Star (max 2) · Super Star (max 1) · Mega Star (max 1)"
           }
@@ -420,7 +420,7 @@
             "secondary": "8",
             "elite": "≤6 of one skill",
             "stacks": "4",
-            "stackLimit": "3 skills · ≤2 secondary · ≤2 elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · ≤2 elite",
             "characteristics": "+AV 10k · +PA 20k",
             "stars": "Free (max 2)"
           },
@@ -434,7 +434,7 @@
             "secondary": "8",
             "elite": "≤6 of one skill",
             "stacks": "4",
-            "stackLimit": "3 skills · ≤2 secondary · ≤2 elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · ≤2 elite",
             "characteristics": "+AV 10k · +PA 20k",
             "stars": "Free (max 2)"
           },
@@ -448,7 +448,7 @@
             "secondary": "8",
             "elite": "≤6 of one skill",
             "stacks": "4",
-            "stackLimit": "3 skills · ≤2 secondary · ≤2 elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · ≤2 elite",
             "characteristics": "+AV 10k · +PA 20k",
             "stars": "Free (max 2)"
           },
@@ -462,7 +462,7 @@
             "secondary": "8",
             "elite": "≤6 of one skill",
             "stacks": "4",
-            "stackLimit": "3 skills · ≤2 secondary · ≤2 elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · ≤2 elite",
             "characteristics": "+AV 10k · +PA 20k",
             "stars": "Free (max 2)"
           },
@@ -476,7 +476,7 @@
             "secondary": "8",
             "elite": "≤6 of one skill",
             "stacks": "4",
-            "stackLimit": "3 skills · ≤2 secondary · ≤2 elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · ≤2 elite",
             "characteristics": "+AV 10k · +PA 20k",
             "stars": "Free (max 2)"
           },
@@ -490,7 +490,7 @@
             "secondary": "8",
             "elite": "≤6 of one skill",
             "stacks": "4",
-            "stackLimit": "3 skills · ≤2 secondary · ≤2 elite",
+            "stackLimit": "3 Primary · OR · 1 Primary + 2 Secondary · ≤2 elite",
             "characteristics": "+AV 10k · +PA 20k",
             "stars": "Free (max 2) · Star (max 2) · Super Star (max 1) · Mega Star (max 1)"
           }
@@ -510,7 +510,7 @@
             "secondary": "10",
             "elite": null,
             "stacks": "6",
-            "stackLimit": "3 skills",
+            "stackLimit": "3 Primary · OR · 3 Secondary",
             "characteristics": "+AV 10k · +PA 20k · +MA 20k",
             "stars": "Free (max 2) · Star (max 2) · Super Star (max 1) · Mega Star (max 1)"
           },
@@ -524,7 +524,7 @@
             "secondary": "10",
             "elite": null,
             "stacks": "6",
-            "stackLimit": "3 skills",
+            "stackLimit": "3 Primary · OR · 3 Secondary",
             "characteristics": "+AV 10k · +PA 20k · +MA 20k",
             "stars": "Free (max 2) · Star (max 2) · Super Star (max 1) · Mega Star (max 1)"
           },
@@ -538,7 +538,7 @@
             "secondary": "10",
             "elite": null,
             "stacks": "6",
-            "stackLimit": "3 skills",
+            "stackLimit": "3 Primary · OR · 3 Secondary",
             "characteristics": "+AV 10k · +PA 20k · +MA 20k",
             "stars": "Free (max 2) · Star (max 2) · Super Star (max 1) · Mega Star (max 1)"
           },
@@ -552,7 +552,7 @@
             "secondary": "10",
             "elite": null,
             "stacks": "6",
-            "stackLimit": "3 skills",
+            "stackLimit": "3 Primary · OR · 3 Secondary",
             "characteristics": "+AV 10k · +PA 20k · +MA 20k",
             "stars": "Free (max 2) · Star (max 2) · Super Star (max 1) · Mega Star (max 1)"
           }
@@ -615,7 +615,7 @@
             "secondary": "0",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · primary only",
+            "stackLimit": "2 Primary Skills",
             "characteristics": null,
             "stars": null
           },
@@ -630,7 +630,7 @@
             "secondary": "0",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · primary only",
+            "stackLimit": "2 Primary Skills",
             "characteristics": null,
             "stars": null
           },
@@ -645,7 +645,7 @@
             "secondary": "0",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · primary only",
+            "stackLimit": "2 Primary Skills",
             "characteristics": null,
             "stars": null
           }
@@ -666,7 +666,7 @@
             "secondary": "0",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · primary only",
+            "stackLimit": "2 Primary Skills",
             "characteristics": null,
             "stars": null
           },
@@ -681,7 +681,7 @@
             "secondary": "0",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · primary only",
+            "stackLimit": "2 Primary Skills",
             "characteristics": null,
             "stars": null
           },
@@ -696,7 +696,7 @@
             "secondary": "0",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · primary only",
+            "stackLimit": "2 Primary Skills",
             "characteristics": null,
             "stars": null
           },
@@ -711,7 +711,7 @@
             "secondary": "0",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · primary only",
+            "stackLimit": "2 Primary Skills",
             "characteristics": null,
             "stars": null
           }
@@ -732,7 +732,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -747,7 +747,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -762,7 +762,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -777,7 +777,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -792,7 +792,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -807,7 +807,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -822,7 +822,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           }
@@ -843,7 +843,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -858,7 +858,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -873,7 +873,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -888,7 +888,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -903,7 +903,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -918,7 +918,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -933,7 +933,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -948,7 +948,7 @@
             "secondary": "1",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": null
           }
@@ -971,7 +971,7 @@
             "secondary": "2",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": "max 1"
           },
@@ -988,7 +988,7 @@
             "secondary": "2",
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills · ≤1 secondary",
+            "stackLimit": "2 Primary · OR · 1 Primary + 1 Secondary",
             "characteristics": null,
             "stars": "max 1"
           }
@@ -1130,7 +1130,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1206,7 +1206,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           }
@@ -1254,7 +1254,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "2",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1268,7 +1268,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1282,7 +1282,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1330,7 +1330,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "allowed"
           },
@@ -1344,7 +1344,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "2",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "allowed"
           },
@@ -1378,7 +1378,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "1",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1392,7 +1392,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "2",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1434,7 +1434,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "2",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "allowed"
           }
@@ -1482,7 +1482,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "2",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "allowed"
           },
@@ -1510,7 +1510,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "2",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           }
@@ -1580,7 +1580,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1595,7 +1595,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1610,7 +1610,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           }
@@ -1632,7 +1632,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1648,7 +1648,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1664,7 +1664,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           }
@@ -1687,7 +1687,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1704,7 +1704,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1721,7 +1721,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1738,7 +1738,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1755,7 +1755,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1772,7 +1772,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           }
@@ -1795,7 +1795,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1812,7 +1812,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1829,7 +1829,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1846,7 +1846,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           },
@@ -1863,7 +1863,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           }
@@ -1886,7 +1886,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -1903,7 +1903,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -1920,7 +1920,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -1937,7 +1937,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -1954,7 +1954,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -1971,7 +1971,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           }
@@ -1995,7 +1995,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -2013,7 +2013,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -2031,7 +2031,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -2049,7 +2049,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -2067,7 +2067,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -2085,7 +2085,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -2103,7 +2103,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           }
@@ -2128,7 +2128,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "3",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           }
@@ -2627,7 +2627,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "any",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -2643,7 +2643,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "any",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -2659,7 +2659,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "any",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           },
@@ -2675,7 +2675,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "any",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": "max 2"
           }
@@ -2731,7 +2731,7 @@
             "secondary": null,
             "elite": null,
             "stacks": "any",
-            "stackLimit": "2 skills",
+            "stackLimit": "2 Primary · OR · 2 Secondary",
             "characteristics": null,
             "stars": null
           }

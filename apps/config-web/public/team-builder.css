@@ -837,7 +837,6 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .tt-ruleset-card strong { font-size: clamp(16px, 1.15vw, 20px); font-weight: 600; letter-spacing: .03em; color: var(--ui-eggshell, var(--ui-text)); }
 .tt-ruleset-card:hover { background: color-mix(in srgb, var(--ui-primary) 26%, var(--ui-surface)); }
 .tt-ruleset-card.selected { background: color-mix(in srgb, var(--ui-primary) 42%, var(--ui-surface)); border-style: inset; }
-.tt-race small { color: var(--ui-gold); }
 .tt-package-detail { display: flex; flex-direction: column; gap: 10px; padding-top: 6px; border-top: 1px solid var(--ui-border); }
 .tt-package-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .tt-package-head h2 { margin: 0; color: var(--ui-gold); font-size: clamp(18px, 1.4vw, 24px); font-weight: 500; letter-spacing: .05em; }
@@ -870,7 +869,24 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .tt-rules-table .tt-rt-num { text-align: right; }
 .tt-rules-table .tt-rt-gold { color: var(--ui-gold); font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tt-rules-table .tt-rt-line { display: block; white-space: nowrap; }
+.tt-rules-table .tt-rt-or { color: var(--ui-muted); font-size: 13px; font-variant: small-caps; letter-spacing: .08em; }
+.tt-rules-table .tt-rt-minor,
+.tier-table .tt-rt-minor { color: var(--ui-muted); font-size: 13px; }
+.tier-table .tt-rt-line { display: block; white-space: nowrap; }
+.tier-table .tt-rt-or { color: var(--ui-muted); font-size: 13px; font-variant: small-caps; letter-spacing: .08em; }
 .tt-rules-table .tt-rt-span { vertical-align: middle; border-left: 1px solid color-mix(in srgb, var(--ui-border) 70%, transparent); }
+/* Owner 10-27: step 2 team cells are pick buttons (small crest + name) that read as table text until hovered. */
+.tt-rules-table .tt-team-pick { display: inline-flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; margin: -3px 0; padding: 3px 8px 3px 4px; color: var(--ui-text); font: inherit; font-weight: 500; text-align: left; white-space: nowrap; background: color-mix(in srgb, var(--ui-primary) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ui-primary) 45%, var(--ui-border)); border-radius: 4px; cursor: pointer; }
+.tt-rules-table .tt-team-pick:hover { background: color-mix(in srgb, var(--ui-primary) 30%, var(--ui-surface)); border-color: var(--ui-gold); }
+.tt-rules-table .tt-team-pick:focus-visible { outline: 2px solid var(--ui-gold); outline-offset: 1px; }
+.tt-rules-table .tt-team-pick.selected { background: color-mix(in srgb, var(--ui-primary) 42%, var(--ui-surface)); border-color: var(--ui-gold); }
+.tt-rules-table .tt-team-pick:active { border-style: inset; }
+.tt-team-crest { flex: 0 0 24px; width: 24px; height: 24px; }
+.tt-team-off { color: var(--ui-muted); font-weight: 400; }
+.tt-team-na { color: var(--ui-muted); font-size: 13px; font-style: italic; }
+.tier-table .tt-team-pick { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; margin: 2px 0; padding: 2px 8px 2px 4px; color: var(--ui-text); font: inherit; background: color-mix(in srgb, var(--ui-primary) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ui-primary) 45%, var(--ui-border)); border-radius: 4px; cursor: pointer; }
+.tier-table .tt-team-pick:hover,
+.tier-table .tt-team-pick:focus-visible { border-color: var(--ui-gold); outline: none; }
 .tt-organiser-notes { color: var(--ui-muted); border: 1px solid var(--ui-border); border-radius: 5px; padding: 6px 12px; background: var(--ui-surface); }
 .tt-organiser-notes summary { color: var(--ui-text); font: 15px/1.6 var(--font-heading); letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
 .tt-organiser-notes[open] summary { margin-bottom: 6px; }
@@ -905,12 +921,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .position-role { color: var(--ui-role); font-size: 15px; line-height: 1.05; white-space: nowrap; letter-spacing: .06em; font-variant: small-caps; text-align: right; }
 .save-crest { display: grid; place-items: center; width: 34px; height: 34px; }
 .save-crest .crest-image { width: 34px; height: 34px; }
-/* Step 2 race cards: crest left, name + cap centred beside it; grid rows stretch so a wrapping name
-   never misaligns its neighbours. */
 .tt-card-grid { align-items: stretch; }
-.tt-race { flex-direction: row; align-items: center; gap: 12px; height: 100%; }
-.tt-race-crest { flex: 0 0 40px; width: 40px; height: 40px; }
-.tt-race-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; justify-content: center; gap: 3px; }
 .tt-summary-crest { display: inline-block; width: 26px; height: 26px; margin-right: 8px; vertical-align: middle; }
 .race-crest { display: inline-flex; }
 .stepper-row.inducement-row { grid-template-columns: 52px minmax(0, 1fr) 32px 20px 32px; }
@@ -1199,6 +1210,21 @@ body[data-builder="tournament"] .tt-steps button small[hidden] { display: none; 
   .tt-next { width: 100%; min-height: 48px; }
   .tt-locked-bar span { flex-basis: 100%; min-width: 0; }
   .tt-locked-bar .session-button { flex: 1 1 0; min-height: 44px; }
+  /* Step 2 tier table: scrolls inside .tt-rules-wrap; the Team (pick button) column stays pinned left,
+     like the roster's player column. Touch rows are at least 44 px. */
+  .tt-rules-table .tt-rt-team,
+  .tt-rules-table .tt-rt-team-head { position: sticky; left: 0; z-index: 1; background: var(--ui-surface); box-shadow: 1px 0 0 var(--ui-border); }
+  .tt-rules-table thead .tt-rt-team-head { z-index: 2; background: color-mix(in srgb, var(--ui-primary) 34%, var(--ui-surface)); }
+  /* Opaque pinned cells (beats the translucent zebra rule) so scrolled columns never show through. */
+  .tt-rules-wrap .tt-rules-table tbody tr > th.tt-rt-team:not(.tt-rt-span) { background: var(--ui-surface); }
+  .tt-rules-wrap .tt-rules-table tbody tr:nth-child(even) > th.tt-rt-team:not(.tt-rt-span) { background: color-mix(in srgb, var(--ui-primary) 7%, var(--ui-surface)); }
+  /* Separate borders: in the collapsed model a sticky cell's borders stay put and scrolled text shows
+     through them; here each cell owns its rules (group divider moved onto each group's first row). */
+  .tt-rules-table { border-collapse: separate; border-spacing: 0; }
+  .tt-rules-table tbody.tt-rt-group > tr:first-child > * { border-top: 2px solid var(--ui-primary); }
+  .tt-rules-table tbody tr { height: 44px; }
+  .tt-rules-table .tt-team-pick { min-height: 44px; margin: 0; }
+  .tier-table .tt-team-pick { min-height: 44px; }
 
   /* Plain Team Builder mode cards + forms. */
   .mode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

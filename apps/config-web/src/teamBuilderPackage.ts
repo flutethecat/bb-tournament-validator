@@ -526,6 +526,27 @@ function starsValue(pkg: TournamentPackage, cfg: ResolvedTeamConfig): string | n
   return pkg.starPlayers.maxCount != null ? `max ${pkg.starPlayers.maxCount}` : "allowed";
 }
 
+/**
+ * The tier table's Stack limit cell (owner 10-27), " · "-joined lines (the page stacks one per line):
+ * no secondary → "N Primary Skills"; some secondary → "N Primary" / "OR" / "(N−S) Primary + S Secondary";
+ * secondary up to the full stack (or uncapped) → "N Primary" / "OR" / "N Secondary"; then the elite cap.
+ * The secondary cap is the tighter of the stack's and the team's (a team with no secondary can't stack one).
+ */
+export function stackSkillLines(per: number | null, sec: number | null, elite: number | null): string[] {
+  const lines: string[] = [];
+  if (per == null) lines.push(sec === 0 ? "Any Primary Skills" : sec != null ? `Any Skills (≤${fmtNum(sec)} Secondary)` : "Any Skills");
+  else if (sec === 0) lines.push(plural(per, "Primary Skill"));
+  else if (sec == null || sec >= per) lines.push(`${fmtNum(per)} Primary`, "OR", `${fmtNum(per)} Secondary`);
+  else lines.push(`${fmtNum(per)} Primary`, "OR", `${fmtNum(per - sec)} Primary + ${fmtNum(sec)} Secondary`);
+  if (elite === 0) lines.push("no elite");
+  else if (elite != null) lines.push(`≤${fmtNum(elite)} elite`);
+  return lines;
+}
+function stackLimitCell(pkg: TournamentPackage, cfg: ResolvedTeamConfig): string {
+  const caps = [cfg.stackedPlayer.maxSecondary, cfg.maxSecondary].filter((v): v is number => v != null);
+  return stackSkillLines(perPlayerMax(pkg, cfg), caps.length ? Math.min(...caps) : null, cfg.stackedPlayer.maxElite).join(" · ");
+}
+
 function teamRow(pkg: TournamentPackage, entry: TeamEntry): OverviewTeamRow {
   const { cfg } = entry;
   const packs = cfg.skillPackages ?? [];
@@ -539,7 +560,7 @@ function teamRow(pkg: TournamentPackage, entry: TeamEntry): OverviewTeamRow {
     secondary: skills && cfg.maxSecondary != null ? String(cfg.maxSecondary) : null,
     elite: skills ? eliteCaps(cfg) : null,
     stacks: !skills || (perPlayerMax(pkg, cfg) ?? 2) <= 1 ? null : cfg.maxStackedPlayers != null ? String(cfg.maxStackedPlayers) : "any",
-    stackLimit: canStack(pkg, cfg) ? stackLimitValue(pkg, cfg) : null,
+    stackLimit: canStack(pkg, cfg) ? stackLimitCell(pkg, cfg) : null,
     characteristics: statValue(cfg),
     stars: starsValue(pkg, cfg),
   };
