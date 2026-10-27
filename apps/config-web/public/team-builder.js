@@ -2324,8 +2324,15 @@ ${rosterSheetHtml(model)}
   }
 
   // ════════════════ restore (saves + library edit) ════════════════
-  /** Restore the whole builder from a TeamBuilderBody (saved draft). */
-  async function applyBody(body) {
+  /** Restores (loadSave / applyBody) are async; every new restore and every user setup choice (ruleset, race,
+   *  mode, roster) bumps this, and a restore that finds it changed after an await abandons itself so a slow
+   *  response can never overwrite a newer choice. */
+  let restoreGeneration = 0;
+  const supersedeRestore = () => ++restoreGeneration;
+  /** Restore the whole builder from a TeamBuilderBody (saved draft). Resolves false when a newer restore or a
+   *  user choice superseded it mid-way (the builder is then left to the newer action). */
+  async function applyBody(body, generation = supersedeRestore()) {
+    const stale = () => generation !== restoreGeneration;
     resetPickers();
     const nextMode = body.custom ? "custom" : body.packageName ? "tournament" : "create";
     mode = nextMode;
@@ -2345,7 +2352,7 @@ ${rosterSheetHtml(model)}
       setStatus(`The saved roster "${body.rosterId}" isn't available on this server.`, true);
       slots = [];
       renderAll();
-      return;
+      return true;
     }
     leagueSelection = Core.reconcileLeagueSelection(leagueOptions(),
       body.specialRule ? { selectedLeague: body.specialRule, explicit: true } : { selectedLeague: "", explicit: false });
@@ -2364,6 +2371,7 @@ ${rosterSheetHtml(model)}
     skillPickerIndex = null;
     renderAll();
     await Promise.all([loadPackageRules(), loadInducements(), ensureSkillCatalog()]);
+    if (stale()) return false;
     // Inducement load clamps counts to the catalog; re-apply the saved ones it allows.
     for (const pick of Array.isArray(induced) ? induced : []) {
       if (inducementCatalog.some((item) => item.key === pick.key && item.allowed)) inducementCounts[pick.key] = Number(pick.count) || 0;
@@ -2371,10 +2379,12 @@ ${rosterSheetHtml(model)}
     // Fetch legal skills for every skilled position so primary/secondary colouring is exact.
     const skilled = [...new Set(slots.filter((s) => s.chosenSkills.length).map((s) => s.positionId))];
     await Promise.allSettled(skilled.map((id) => ensureLegalSkills(id)));
+    if (stale()) return false;
     if (TOURNAMENT_PAGE) setupStep = 3;
     renderAll();
     renderSetup();
     schedulePreview();
+    return true;
   }
 
   // ── Saves (signed-in coaches; server contract /api/fork/team-builder/saves) ──
@@ -2479,22 +2489,33 @@ ${rosterSheetHtml(model)}
   /** Load a save into the builder; resolves true when it was applied. `silent` (the ?save= deep link) drops
    *  every error — a stale link or another coach's save id just leaves the builder as it is. */
   async function loadSave(id, { silent = false } = {}) {
+    const generation = supersedeRestore();
     try {
       const data = await api(`/api/fork/team-builder/saves/${encodeURIComponent(id)}`);
+      if (generation !== restoreGeneration) return false; // a newer load or setup choice won
       const save = data.save;
       if (!save?.body) throw new Error("Saved team has no builder state.");
       if (TOURNAMENT_PAGE && !save.body.packageName) {
         if (!silent) setSavesStatus(`“${save.name ?? ""}” isn't a tournament team — open it in the Team Builder.`);
         return false;
       }
+      // A save whose ruleset is gone is not loaded: restoring it with an empty ruleset and then saving would
+      // overwrite the save without its packageName.
+      if (save.body.packageName && !packages.some((p) => p.name === save.body.packageName)) {
+        setSavesStatus("This team's ruleset is no longer available.");
+        return false;
+      }
       currentSave = { id: save.id ?? id, name: save.name ?? "" };
-      setSavesStatus(`Loaded “${currentSave.name}”.`);
       // A save that was already built edits its fork team instead of minting a second one.
-      await applyBody(authOrganizer && save.teamId && !save.body.teamId ? { ...save.body, teamId: save.teamId } : save.body);
+      const applied = await applyBody(authOrganizer && save.teamId && !save.body.teamId ? { ...save.body, teamId: save.teamId } : save.body, generation);
+      if (!applied) return false;
+      setSavesStatus(`Loaded “${currentSave?.name ?? save.name ?? ""}”.`);
       renderSaves();
       return true;
     } catch (error) {
-      if (silent) return false;
+      // An expired session always signs the page out (sessionExpired via savesError), even for a silent load.
+      if (silent && error.status !== 401) return false;
+      if (generation !== restoreGeneration && error.status !== 401) return false;
       savesError(error, "load the team");
       renderSaves();
       return false;
@@ -2795,6 +2816,7 @@ ${rosterSheetHtml(model)}
   }
   async function choosePackage(name) {
     if (name !== $("package").value && current && !confirmDiscard()) return;
+    supersedeRestore();
     if (name !== $("package").value) {
       resetPickers();
       current = null;
@@ -2819,6 +2841,7 @@ ${rosterSheetHtml(model)}
       return;
     }
     if (current && !confirmDiscard()) return;
+    supersedeRestore();
     $("race").value = rosterId;
     currentSave = null;
     editingTeamId = null;
@@ -2903,8 +2926,9 @@ ${rosterSheetHtml(model)}
     }
   }
 
-  $("race").addEventListener("change", () => selectRoster($("race").value));
+  $("race").addEventListener("change", () => { supersedeRestore(); selectRoster($("race").value); });
   $("package").addEventListener("change", async () => {
+    supersedeRestore();
     resetPickers();
     selectedSkillPack = null;
     preview = null;
@@ -2920,7 +2944,7 @@ ${rosterSheetHtml(model)}
   });
   document.querySelector(".mode-grid")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-mode]");
-    if (button && button.dataset.mode !== mode) selectMode(button.dataset.mode);
+    if (button && button.dataset.mode !== mode) { supersedeRestore(); selectMode(button.dataset.mode); }
   });
   $("ruleset-panel").addEventListener("click", (event) => {
     const pack = event.target.closest("[data-skill-pack]");

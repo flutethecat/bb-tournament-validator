@@ -485,7 +485,7 @@ describe("my teams nav + ?save= deep link (owner 10-27)", () => {
 
   it("silent loads swallow errors and non-tournament saves; applyBody lands on the build step", () => {
     expect(js).toContain("async function loadSave(id, { silent = false } = {}) {");
-    expect(js).toContain("if (silent) return false;");
+    expect(js).toContain("if (silent && error.status !== 401) return false;"); // behaviour: teamBuilderRestore.test.ts
     expect(js).toContain("if (!silent) setSavesStatus(");
     expect(js).toContain("if (TOURNAMENT_PAGE) setupStep = 3;");
   });
@@ -614,7 +614,7 @@ describe("team builder page — modals and skill icons", () => {
 describe("team builder page — review round 3", () => {
   it("closes and resets both pickers whenever the roster under them is replaced", () => {
     expect(js).toContain("function resetPickers()");
-    for (const fn of ["function removeSlot(index) {", "function removeStarChoice(key) {", "function selectRoster(rosterId) {", "async function applyBody(body) {"]) {
+    for (const fn of ["function removeSlot(index) {", "function removeStarChoice(key) {", "function selectRoster(rosterId) {", "async function applyBody(body, generation = supersedeRestore()) {"]) {
       const body = js.slice(js.indexOf(fn), js.indexOf(fn) + 400);
       expect(body, fn).toContain("resetPickers();");
     }
