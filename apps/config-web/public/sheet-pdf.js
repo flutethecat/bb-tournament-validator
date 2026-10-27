@@ -7,6 +7,13 @@
  * pdfmake scripts (/vendor/pdfmake/, version + licences in /vendor/pdfmake/LICENSE) on first use.
  *
  * Fonts: only the Roboto bundled in pdfmake's vfs_fonts.js. No other font files.
+ *
+ * Timing: pdfmake lays the document out SYNCHRONOUSLY on the main thread. That is bounded by the
+ * roster cap (at most 16 players + stars: one page, at worst two; the worst case is measured in
+ * apps/config-web/test/sheetPdfClient.test.ts and must stay under 2 s). The export deadline in
+ * team-builder.js therefore bounds only the asynchronous phases (sheet preparation and script load);
+ * the page yields one macrotask before generating so an expired deadline fires first. A load that
+ * hangs past the deadline is abandoned (abandonPdfMakeLoad) so the next export retries cleanly.
  * Exposed as globalThis.SheetPdf (browser) and module.exports (tests).
  */
 (function () {
@@ -212,7 +219,8 @@
 
   // ── lazy loader for the vendored pdfmake (browser only) ──
   const PDFMAKE_SCRIPTS = ["/vendor/pdfmake/pdfmake.min.js", "/vendor/pdfmake/vfs_fonts.js"];
-  let loading = null;
+  let loading = null; // cached promise; kept only once it succeeded or while it is in flight
+  let pending = []; // <script> elements of the in-flight load
   function loadScript(src) {
     return new Promise((resolve, reject) => {
       const script = document.createElement("script");
@@ -223,22 +231,36 @@
         script.remove();
         reject(new Error(`Could not load ${src}`));
       };
+      pending.push(script);
       document.head.appendChild(script);
     });
   }
   /** Resolves with window.pdfMake once both vendored scripts ran; a failure clears the cache so a retry reloads. */
   function loadPdfMake() {
     if (loading) return loading;
-    loading = (async () => {
+    const attempt = (async () => {
       for (const src of PDFMAKE_SCRIPTS) await loadScript(src);
       if (!root.pdfMake || typeof root.pdfMake.createPdf !== "function") throw new Error("pdfmake did not initialise");
+      pending = [];
       return root.pdfMake;
     })();
-    loading.catch(() => { loading = null; });
-    return loading;
+    loading = attempt;
+    attempt.catch(() => { if (loading === attempt) loading = null; });
+    return attempt;
+  }
+  /**
+   * Abandon an in-flight load (the export deadline passed while a script hung): forget the cached
+   * promise and remove its dangling <script> elements, so the next export retries from scratch.
+   * A load that already succeeded stays cached.
+   */
+  function abandonPdfMakeLoad() {
+    if (!pending.length) return;
+    for (const script of pending) script.remove();
+    pending = [];
+    loading = null;
   }
 
-  const api = { buildSheetDocDefinition, sheetPdfFileName, loadPdfMake, PDFMAKE_SCRIPTS, PRODUCT };
+  const api = { buildSheetDocDefinition, sheetPdfFileName, loadPdfMake, abandonPdfMakeLoad, PDFMAKE_SCRIPTS, PRODUCT };
   root.SheetPdf = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

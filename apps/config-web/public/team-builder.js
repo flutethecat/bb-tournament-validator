@@ -2807,7 +2807,8 @@ ${rosterSheetHtml(model)}
   }
   // Export PDF (owner 10-27, option 1): the PDF is built IN THE BROWSER from the roster-sheet model
   // (sheet-pdf.js -> pdfmake, vendored, loaded lazily on the first export). ONE deadline bounds the
-  // whole export (sheet preparation, script load, PDF generation); any failure falls back to the
+  // asynchronous phases (sheet preparation, script load; generation itself is synchronous and bounded
+  // by the roster cap, see sheet-pdf.js); any failure falls back to the
   // browser print dialog with a short notice, and the button always resets.
   const SHEET_PDF_TIMEOUT_MS = 20000;
   function openPrintDialog(model) {
@@ -2841,7 +2842,13 @@ ${rosterSheetHtml(model)}
       model = await bounded(prepareSheet());
       const sheetPdf = window.SheetPdf;
       if (!sheetPdf) throw new Error("sheet-pdf.js is not loaded");
-      const pdfMake = await bounded(sheetPdf.loadPdfMake());
+      const pdfMake = await bounded(sheetPdf.loadPdfMake()).catch((error) => {
+        sheetPdf.abandonPdfMakeLoad?.(); // a hung load must not be reused by the next click
+        throw error;
+      });
+      // pdfmake generation is synchronous (bounded by the roster cap); yield one macrotask first so
+      // an already-expired deadline wins before the main thread is busy.
+      await bounded(new Promise((resolve) => setTimeout(resolve, 0)));
       const doc = sheetPdf.buildSheetDocDefinition(model, { gold: Core.gold, generatedOn: new Date() });
       const blob = await bounded(pdfMake.createPdf(doc).getBlob());
       clearTimeout(timer);

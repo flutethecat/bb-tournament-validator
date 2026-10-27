@@ -184,6 +184,20 @@ describe("rendered with the vendored pdfmake (real PDF, selectable text)", () =>
   });
 });
 
+describe("generation time (pdfmake lays out synchronously; bounded by the roster cap)", () => {
+  const ctx = loadContext(true);
+  const render = (model: unknown) =>
+    ctx.pdfMake.createPdf(ctx.SheetPdf.buildSheetDocDefinition(model, { gold: ctx.TeamBuilderCore.gold })).getBuffer();
+  it("worst case (16 players + 4 stars, long skill lists) stays under 2 s on this machine", async () => {
+    await render(dwarfModel({ linemen: 13, stars: 4, longSkills: true })); // warm-up (font parsing)
+    const started = performance.now();
+    await render(dwarfModel({ linemen: 13, stars: 4, longSkills: true }));
+    const ms = performance.now() - started;
+    console.log(`[sheet-pdf] worst-case generation ${ms.toFixed(0)} ms`);
+    expect(ms).toBeLessThan(2000);
+  });
+});
+
 describe("lazy loader", () => {
   function fakeDocument(behaviour: (src: string) => "load" | "error") {
     const inserted: string[] = [];
@@ -207,6 +221,35 @@ describe("lazy loader", () => {
     ctx.pdfMake = { createPdf: () => ({}) };
     await expect(ctx.SheetPdf.loadPdfMake()).resolves.toBe(ctx.pdfMake);
     expect(fake.inserted).toEqual(["/vendor/pdfmake/pdfmake.min.js", "/vendor/pdfmake/pdfmake.min.js", "/vendor/pdfmake/vfs_fonts.js"]);
+  });
+});
+
+describe("lazy loader: a hung load is abandoned, a good load stays cached", () => {
+  it("abandonPdfMakeLoad drops the in-flight promise and removes its dangling scripts; the retry starts from scratch", async () => {
+    const ctx = loadContext();
+    let mode: "hang" | "load" = "hang";
+    const inserted: string[] = [];
+    const removed: string[] = [];
+    ctx.document = {
+      head: { appendChild(script: any) { inserted.push(script.src); if (mode === "load") setTimeout(() => script.onload(), 0); } },
+      createElement: () => { const script: any = { remove() { removed.push(script.src); } }; return script; },
+    };
+    const hung = ctx.SheetPdf.loadPdfMake();
+    hung.catch(() => undefined);
+    expect(ctx.SheetPdf.loadPdfMake()).toBe(hung); // in flight: shared
+    ctx.SheetPdf.abandonPdfMakeLoad();
+    expect(removed).toEqual(["/vendor/pdfmake/pdfmake.min.js"]);
+    mode = "load";
+    ctx.pdfMake = { createPdf: () => ({}) };
+    const retry = ctx.SheetPdf.loadPdfMake();
+    expect(retry).not.toBe(hung);
+    await expect(retry).resolves.toBe(ctx.pdfMake);
+    expect(inserted).toEqual(["/vendor/pdfmake/pdfmake.min.js", "/vendor/pdfmake/pdfmake.min.js", "/vendor/pdfmake/vfs_fonts.js"]);
+    // Success stays cached: abandoning afterwards is a no-op and nothing is inserted again.
+    ctx.SheetPdf.abandonPdfMakeLoad();
+    expect(ctx.SheetPdf.loadPdfMake()).toBe(retry);
+    expect(inserted).toHaveLength(3);
+    expect(removed).toHaveLength(1);
   });
 });
 
@@ -255,6 +298,41 @@ describe("Export PDF button flow (team-builder.js printSheet, stubbed DOM)", () 
     expect(h.calls.saved).toEqual([]);
     expect(h.el("build-result").innerHTML).toContain("PDF service unavailable, opened the print dialog instead.");
     expect(h.el("build-result").hidden).toBe(false);
+    expect(h.el("print-sheet").textContent).toBe("Export PDF");
+  });
+
+  it("two exports against a HUNG script load: the first times out and abandons it, the second retries the load and succeeds", async () => {
+    const ctx = loadContext();
+    let mode: "hang" | "load" = "hang";
+    const inserted: string[] = [];
+    ctx.document = {
+      head: { appendChild(script: any) { inserted.push(script.src); if (mode === "load") setTimeout(() => script.onload(), 0); } },
+      createElement: () => ({ remove() {} }),
+    };
+    const first = harness(ctx.SheetPdf, { timeoutMs: 30 });
+    await first.printSheet();
+    expect(first.calls.printed).toBe(1); // fallback after the deadline
+    mode = "load";
+    ctx.pdfMake = { createPdf: () => ({ getBlob: async () => ({ size: 10 }) }) };
+    const second = harness(ctx.SheetPdf, { timeoutMs: 1000 });
+    await second.printSheet();
+    expect(second.calls.saved).toEqual(["T_roster.pdf"]);
+    expect(second.calls.printed).toBe(0);
+    expect(inserted).toEqual(["/vendor/pdfmake/pdfmake.min.js", "/vendor/pdfmake/pdfmake.min.js", "/vendor/pdfmake/vfs_fonts.js"]);
+  });
+
+  it("an expired deadline wins before the synchronous generation starts (macrotask yield)", async () => {
+    let generated = 0;
+    const busyPrepare = async () => {
+      const until = Date.now() + 60; // block the main thread past the 30 ms deadline
+      while (Date.now() < until) { /* busy */ }
+      return { teamName: "T" };
+    };
+    const pdf = { ...SheetPdf, loadPdfMake: async () => ({ createPdf: () => { generated++; return { getBlob: async () => ({ size: 10 }) }; } }) };
+    const h = harness(pdf, { prepare: busyPrepare, timeoutMs: 30 });
+    await h.printSheet();
+    expect(generated).toBe(0);
+    expect(h.calls.printed).toBe(1);
     expect(h.el("print-sheet").textContent).toBe("Export PDF");
   });
 
