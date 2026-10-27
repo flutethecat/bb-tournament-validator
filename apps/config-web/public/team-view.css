@@ -75,7 +75,9 @@
 .tv-tag { margin-left: 4px; padding: 0 5px; color: var(--ui-gold); border: 1px solid currentColor; border-radius: 3px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; vertical-align: 2px; }
 .tv-up dd, td.tv-up { color: var(--ui-success); }
 .tv-up-mark { margin-left: 2px; font-size: .62em; vertical-align: .35em; }
-.tv-added { font-style: italic; border-style: dashed; }
+/* Owner 10-27: an added skill is boxed, upright, with a small + badge in its top-right corner. */
+.tv-added { position: relative; font-style: normal; border: 1.5px solid currentColor; border-radius: 4px; padding-right: 12px; }
+.tv-added::after { content: "+"; position: absolute; top: -6px; right: -6px; width: 13px; height: 13px; display: grid; place-items: center; font: 700 10px/1 var(--font-body); color: var(--ui-text-on-primary, #fff); background: var(--ui-heading); border-radius: 50%; box-shadow: 0 0 0 1px var(--ui-surface-2); }
 .tv-access { margin-left: 2px; font-size: .7em; font-style: normal; opacity: .85; }
 .tv-stat-up { color: var(--ui-success); }
 .tv-none { color: var(--ui-muted); }
