@@ -1,0 +1,230 @@
+{
+  "_about": "Expected full -> short position names for every BB2025 roster: the desktop client rule (strip a leading \"<race name> \"), Core.shortPositionName + src/positionNames.ts. Display only; a change here is a coach-visible rename.",
+  "rosters": {
+    "Amazon": {
+      "Eagle Warrior": "Eagle Warrior",
+      "Python Warrior": "Python Warrior",
+      "Piranha Warrior": "Piranha Warrior",
+      "Jaguar Warrior Blocker": "Jaguar Warrior Blocker"
+    },
+    "Black Orc": {
+      "Goblin Bruiser": "Goblin Bruiser",
+      "Black Orc": "Black Orc",
+      "Trained Troll": "Trained Troll"
+    },
+    "Bretonnian": {
+      "Bretonnian Squire": "Squire",
+      "Bretonnian Knight Catcher": "Knight Catcher",
+      "Bretonnian Knight Thrower": "Knight Thrower",
+      "Grail Knight": "Grail Knight"
+    },
+    "Chaos Chosen": {
+      "Beastman Runner Lineman": "Beastman Runner Lineman",
+      "Chaos Chosen": "Chaos Chosen",
+      "Chaos Troll": "Chaos Troll",
+      "Ogre": "Ogre",
+      "Minotaur": "Minotaur"
+    },
+    "Chaos Dwarf": {
+      "Hobgoblin Lineman": "Hobgoblin Lineman",
+      "Chaos Dwarf Blocker": "Blocker",
+      "Bull Centaur Blitzer": "Bull Centaur Blitzer",
+      "Minotaur": "Minotaur",
+      "Sneaky Stabba": "Sneaky Stabba",
+      "Flamesmith": "Flamesmith"
+    },
+    "Chaos Renegade": {
+      "Renegade Human": "Renegade Human",
+      "Renegade Human Thrower": "Renegade Human Thrower",
+      "Renegade Goblin": "Renegade Goblin",
+      "Renegade Orc": "Renegade Orc",
+      "Renegade Skaven": "Renegade Skaven",
+      "Renegade Dark Elf": "Renegade Dark Elf",
+      "Troll": "Troll",
+      "Ogre": "Ogre",
+      "Minotaur": "Minotaur",
+      "Rat Ogre": "Rat Ogre"
+    },
+    "Dark Elf": {
+      "Dark Elf Lineman": "Lineman",
+      "Dark Elf Runner": "Runner",
+      "Dark Elf Blitzer": "Blitzer",
+      "Dark Elf Assassin": "Assassin",
+      "Witch Elf": "Witch Elf"
+    },
+    "Dwarf": {
+      "Dwarf Blocker Lineman": "Blocker Lineman",
+      "Dwarf Runner": "Runner",
+      "Dwarf Blitzer": "Blitzer",
+      "Troll Slayer": "Troll Slayer",
+      "Deathroller": "Deathroller"
+    },
+    "Elven Union": {
+      "Elf Lineman": "Elf Lineman",
+      "Elf Thrower": "Elf Thrower",
+      "Elf Catcher": "Elf Catcher",
+      "Elf Blitzer": "Elf Blitzer"
+    },
+    "Gnome": {
+      "Altern Forest Treeman": "Altern Forest Treeman",
+      "Gnome Beastmaster": "Beastmaster",
+      "Gnome Illusionist": "Illusionist",
+      "Woodland Fox": "Woodland Fox",
+      "Gnome Lineman": "Lineman"
+    },
+    "Goblin": {
+      "Goblin Lineman": "Lineman",
+      "Bomma": "Bomma",
+      "Looney": "Looney",
+      "Pogoer": "Pogoer",
+      "'Ooligan": "'Ooligan",
+      "Doom Diver": "Doom Diver",
+      "Trained Troll": "Trained Troll",
+      "Fanatic": "Fanatic"
+    },
+    "Halfling": {
+      "Halfling Hopeful": "Hopeful",
+      "Halfling Hefty": "Hefty",
+      "Halfling Catcher": "Catcher",
+      "Altern Forest Treeman": "Altern Forest Treeman"
+    },
+    "High Elf": {
+      "High Elf Lineman": "Lineman",
+      "Phoenix Warrior": "Phoenix Warrior",
+      "White Lion": "White Lion",
+      "Dragon Prince": "Dragon Prince"
+    },
+    "Human": {
+      "Human Lineman": "Lineman",
+      "Human Thrower": "Thrower",
+      "Human Catcher": "Catcher",
+      "Human Blitzer": "Blitzer",
+      "Halfling Hopeful": "Halfling Hopeful",
+      "Ogre": "Ogre"
+    },
+    "Imperial Nobility": {
+      "Imperial Retainer": "Imperial Retainer",
+      "Imperial Thrower": "Imperial Thrower",
+      "Noble Blitzer": "Noble Blitzer",
+      "Bodyguard": "Bodyguard",
+      "Ogre": "Ogre"
+    },
+    "Khorne": {
+      "Bloodborn Marauder": "Bloodborn Marauder",
+      "Khorngor": "Khorngor",
+      "Bloodseeker": "Bloodseeker",
+      "Bloodspawn": "Bloodspawn"
+    },
+    "Lizardmen": {
+      "Skink Lineman": "Skink Lineman",
+      "Chameleon Skink": "Chameleon Skink",
+      "Saurus Blocker": "Saurus Blocker",
+      "Kroxigor": "Kroxigor"
+    },
+    "Necromantic Horror": {
+      "Zombie Lineman": "Zombie Lineman",
+      "Ghoul Runner": "Ghoul Runner",
+      "Wraith": "Wraith",
+      "Werewolf": "Werewolf",
+      "Flesh Golem": "Flesh Golem"
+    },
+    "Norse": {
+      "Norse Raider": "Raider",
+      "Norse Berserker": "Berserker",
+      "Ulfwerener": "Ulfwerener",
+      "Yhetee": "Yhetee",
+      "Beer Boar": "Beer Boar",
+      "Valkyrie": "Valkyrie"
+    },
+    "Nurgle": {
+      "Rotter Lineman": "Rotter Lineman",
+      "Pestigor": "Pestigor",
+      "Bloater": "Bloater",
+      "Rotspawn": "Rotspawn"
+    },
+    "Ogre": {
+      "Gnoblar Lineman": "Gnoblar Lineman",
+      "Ogre Runt Punter": "Runt Punter",
+      "Ogre Blocker": "Blocker"
+    },
+    "Old World Alliance": {
+      "Human Lineman": "Human Lineman",
+      "Human Thrower": "Human Thrower",
+      "Human Catcher": "Human Catcher",
+      "Human Blitzer": "Human Blitzer",
+      "Dwarf Lineman": "Dwarf Lineman",
+      "Dwarf Runner": "Dwarf Runner",
+      "Dwarf Blitzer": "Dwarf Blitzer",
+      "Troll Slayer": "Troll Slayer",
+      "Halfling Hopeful": "Halfling Hopeful",
+      "Ogre": "Ogre",
+      "Altern Forest Treeman": "Altern Forest Treeman"
+    },
+    "Orc": {
+      "Orc Lineman": "Lineman",
+      "Orc Thrower": "Thrower",
+      "Orc Blitzer": "Blitzer",
+      "Big Un Blocker": "Big Un Blocker",
+      "Goblin Lineman": "Goblin Lineman",
+      "Troll": "Troll"
+    },
+    "Shambling Undead": {
+      "Skeleton Lineman": "Skeleton Lineman",
+      "Zombie Lineman": "Zombie Lineman",
+      "Ghoul Runner": "Ghoul Runner",
+      "Wight Blitzer": "Wight Blitzer",
+      "Mummy": "Mummy"
+    },
+    "Skaven": {
+      "Skaven Clanrat": "Clanrat",
+      "Skaven Thrower": "Thrower",
+      "Gutter Runner": "Gutter Runner",
+      "Blitzer": "Blitzer",
+      "Rat Ogre": "Rat Ogre"
+    },
+    "Slann": {
+      "Kroxigor": "Kroxigor",
+      "Blitzer": "Blitzer",
+      "Catcher": "Catcher",
+      "Lineman": "Lineman"
+    },
+    "Snotling": {
+      "Snotling Lineman": "Lineman",
+      "Fungus Flinga": "Fungus Flinga",
+      "Fun-hoppa": "Fun-hoppa",
+      "Stilty Runna": "Stilty Runna",
+      "Pump Wagon": "Pump Wagon",
+      "Trained Troll": "Trained Troll"
+    },
+    "Tomb Kings": {
+      "Skeleton Lineman": "Skeleton Lineman",
+      "Tomb Kings Thrower": "Thrower",
+      "Tomb Kings Blitzer": "Blitzer",
+      "Tomb Guardian": "Tomb Guardian"
+    },
+    "Underworld Denizens": {
+      "Goblin Lineman": "Goblin Lineman",
+      "Snotling Lineman": "Snotling Lineman",
+      "Skaven Clanrat": "Skaven Clanrat",
+      "Skaven Thrower": "Skaven Thrower",
+      "Gutter Runner": "Gutter Runner",
+      "Skaven Blitzer": "Skaven Blitzer",
+      "Troll": "Troll",
+      "Rat Ogre": "Rat Ogre"
+    },
+    "Vampire": {
+      "Thrall Lineman": "Thrall Lineman",
+      "Vampire Runner": "Runner",
+      "Vampire Thrower": "Thrower",
+      "Vampire Blitzer": "Blitzer",
+      "Vargheist": "Vargheist"
+    },
+    "Wood Elf": {
+      "Wood Elf Lineman": "Lineman",
+      "Wood Elf Thrower": "Thrower",
+      "Wood Elf Catcher": "Catcher",
+      "Wardancer": "Wardancer",
+      "Loren Forest Treeman": "Loren Forest Treeman"
+    }
+  }
+}

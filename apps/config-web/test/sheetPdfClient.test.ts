@@ -111,7 +111,8 @@ describe("buildSheetDocDefinition (pure)", () => {
     expect(table.dontBreakRows).toBe(true);
     expect(table.body[0].map(textOf)).toEqual(["#", "POSITION", "MA", "ST", "AG", "PA", "AV", "SKILLS", "COST"]);
     const first = table.body[1];
-    expect(textOf(first[1])).toBe("Dwarf Blitzer");
+    expect(textOf(first[1])).toBe("Blitzer"); // short position name; the full name stays on the keywords line
+    expect(table.body.slice(1).map((row: any[]) => textOf(row[1]))).toContain("Blocker Lineman");
     for (const i of [0, 2, 3, 4, 5, 6, 8]) expect(first[i].alignment).toBe("right");
     expect(textOf(first[8])).toBe("100k");
     const fill = doc.content[2].layout.fillColor;

@@ -219,8 +219,10 @@ describe("share routes", () => {
     expect(team.sideline).toEqual({ reRolls: 2, apothecary: true, assistantCoaches: 0, cheerleaders: 1, dedicatedFans: 1 });
     const tackler = team.players.find((p: any) => p.added.length);
     expect(tackler.added).toEqual([{ name: "Tackle", category: "General", access: "primary" }]);
-    const runner = team.players.find((p: any) => p.position === "Dwarf Runner");
+    const runner = team.players.find((p: any) => p.positionFull === "Dwarf Runner");
+    expect(runner.position).toBe("Runner"); // coach-facing short name; the full one rides along for the tooltip
     expect(runner.statIncreases).toEqual(["MA"]);
+    expect(team.players.find((p: any) => p.positionFull === "Dwarf Blocker Lineman").position).toBe("Blocker Lineman");
     expect(runner.stats.MA).toBe(7);
     expect(team.summary.players).toBe(11);
     expect(typeof team.summary.total).toBe("number");

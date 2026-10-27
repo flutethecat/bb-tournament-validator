@@ -23,11 +23,11 @@ const fixture = () => ({
   ruleset: { name: "EuroBowl 2026", tierLabel: "Tier 2" },
   updatedAt: "2026-10-27T09:00:00.000Z",
   players: [
-    { number: 1, position: "Dwarf Blocker Lineman", isStar: false, stats: { MA: 4, ST: 3, AG: "4+", PA: "5+", AV: "10+" },
+    { number: 1, position: "Blocker Lineman", positionFull: "Dwarf Blocker Lineman", isStar: false, stats: { MA: 4, ST: 3, AG: "4+", PA: "5+", AV: "10+" },
       printed: [{ name: "Block", category: "General" }, { name: "Thick Skull", category: "Strength" }],
       added: [{ name: "Tackle", category: "General", access: "primary" }, { name: "Guard", category: "Strength", access: "secondary" }],
       statIncreases: [], cost: 70000, sprite: "sprites/dwarf/dwarfblockerlineman.png" },
-    { number: 2, position: "Dwarf Runner", isStar: false, stats: { MA: 7, ST: 3, AG: "3+", PA: "4+", AV: "9+" },
+    { number: 2, position: "Runner", positionFull: "Dwarf Runner", isStar: false, stats: { MA: 7, ST: 3, AG: "3+", PA: "4+", AV: "9+" },
       printed: [{ name: "Sure Hands", category: "General" }], added: [], statIncreases: ["MA"], cost: 85000, sprite: "https://evil.example/x.png" },
     { number: 3, position: "Grim Ironjaw", isStar: true, stats: { MA: 5, ST: 4, AG: "3+", PA: "-", AV: "9+" },
       printed: [{ name: "Loner (4+)", category: "Trait" }], added: [], statIncreases: [], cost: 200000, sprite: null },
@@ -58,6 +58,10 @@ describe("team view core", () => {
     expect(markup).toContain('<ol class="tv-cards">');
     const roster = markup.slice(markup.indexOf('<table class="tv-table">'), markup.indexOf("</table>"));
     expect((roster.match(/<tr[ >]/g) ?? []).length).toBe(4); // header + 3 players (the inducements table has its own rows)
+    // Short position names, the full name as the tooltip (table + cards); a star keeps its name, no tooltip.
+    expect(roster).toContain('<td class="tv-pos" title="Dwarf Blocker Lineman">Blocker Lineman</td>');
+    expect(markup).toContain('<span class="tv-pos" title="Dwarf Runner">Runner</span>');
+    expect(roster).toContain('<td class="tv-pos">Grim Ironjaw <span class="tv-tag">Star</span></td>');
     expect((markup.match(/<li class="tv-card/g) ?? []).length).toBe(3);
     expect(markup).toContain('src="/sprites/dwarf/dwarfblockerlineman.png"');
     expect(markup).not.toContain("evil.example");

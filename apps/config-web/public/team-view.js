@@ -43,6 +43,8 @@
     const src = artSrc(player.sprite);
     return `<span class="sprite-frame tv-sprite" aria-hidden="true"><span class="sprite-fallback">${esc(initials(player.position))}</span>${src ? `<img class="sprite-image" src="${esc(src)}" alt="" loading="lazy" decoding="async">` : ""}</span>`;
   }
+  /** Short position name (server model `position`); the full name (`positionFull`) is the tooltip. */
+  const posTitle = (p) => (typeof p.positionFull === "string" && p.positionFull && p.positionFull !== p.position ? ` title="${esc(p.positionFull)}"` : "");
   function crestHtml(team) {
     const src = artSrc(team.crest);
     return `<span class="sprite-frame crest-frame tv-crest" aria-hidden="true"><span class="sprite-fallback">${esc(initials(team.teamName))}</span>${src ? `<img class="crest-image" src="${esc(src)}" alt="" decoding="async">` : ""}</span>`;
@@ -79,7 +81,7 @@
     const rows = players.map((p) => `<tr${p.isStar ? ' class="tv-star"' : ""}>
         <td class="tv-col-sprite">${spriteHtml(p)}</td>
         <td class="tv-num">${esc(p.number)}</td>
-        <td class="tv-pos">${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}</td>
+        <td class="tv-pos"${posTitle(p)}>${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}</td>
         ${STATS.map((stat) => { const c = statCell(p, stat); return `<td class="tv-stat${c.up ? " tv-up" : ""}"${c.up ? ` title="${stat} increased"` : ""}><span class="tv-stat-box">${esc(c.text)}${c.up ? '<span class="tv-up-mark" aria-hidden="true">▲</span>' : ""}</span></td>`; }).join("")}
         <td class="tv-skills"><div class="row-skills">${skillsHtml(p)}</div></td>
         <td class="tv-cost">${gold(p.cost)}</td>
@@ -91,7 +93,7 @@
   }
   function cardsHtml(players) {
     return `<ol class="tv-cards">${players.map((p) => `<li class="tv-card${p.isStar ? " tv-star" : ""}">
-        <div class="tv-card-head">${spriteHtml(p)}<span class="tv-num">#${esc(p.number)}</span><span class="tv-pos">${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}</span><span class="tv-cost">${gold(p.cost)}</span></div>
+        <div class="tv-card-head">${spriteHtml(p)}<span class="tv-num">#${esc(p.number)}</span><span class="tv-pos"${posTitle(p)}>${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}</span><span class="tv-cost">${gold(p.cost)}</span></div>
         <dl class="tv-card-stats">${STATS.map((stat) => { const c = statCell(p, stat); return `<div class="${c.up ? "tv-up" : ""}"><dt>${stat}</dt><dd>${esc(c.text)}${c.up ? '<span class="tv-up-mark" aria-label="increased">▲</span>' : ""}</dd></div>`; }).join("")}</dl>
         <div class="row-skills">${skillsHtml(p)}</div>
       </li>`).join("")}</ol>`;

@@ -513,10 +513,13 @@
      *     staff:{reRolls,apothecary,assistantCoaches,cheerleaders,dedicatedFans}, apothecaryAllowed,
      *     inducements:[{label,count}], specialRules:[], summary (preview summary or null),
      *     costs:{ players, stars, sideline, skills, inducements } (client fallbacks), budget }
+     * Row `position` is the coach-facing short name (shortPositionName); `positionFull` keeps the full name
+     * (tooltip + the keywords line).
      */
     function rosterSheetModel(input) {
       const regular = [];
       const stars = [];
+      const nameRoster = { name: input.raceName ?? "" };
       for (const player of input.players ?? []) {
         const position = player.position ?? {};
         // Defensive: a star row never prints added skills or stat changes (they are never validated).
@@ -525,7 +528,8 @@
         const stats = improvedStats(position, chosenStatIncreases, star ? null : player.chosenStats);
         const added = (star ? [] : player.chosenSkills ?? []).map((skill) => ({ name: skill, access: player.accessOf ? player.accessOf(skill) : "primary" }));
         const row = {
-          position: position.name ?? "Unknown position",
+          position: position.name ? shortPositionName(position, nameRoster) : "Unknown position",
+          positionFull: position.name ?? "Unknown position",
           stats,
           printed: [...(Array.isArray(position.skillsDisplay) && position.skillsDisplay.length ? position.skillsDisplay : position.skills ?? [])].sort((x, y) => x.localeCompare(y)),
           added,
@@ -568,9 +572,9 @@
       const keywordRows = [];
       const seenPositions = new Set();
       for (const row of rows) {
-        if (!row.keywords?.length || seenPositions.has(row.position)) continue;
-        seenPositions.add(row.position);
-        keywordRows.push({ position: row.position, keywords: row.keywords });
+        if (!row.keywords?.length || seenPositions.has(row.positionFull)) continue;
+        seenPositions.add(row.positionFull);
+        keywordRows.push({ position: row.positionFull, keywords: row.keywords });
       }
       return {
         raceName: input.raceName ?? "",
@@ -610,7 +614,7 @@
         : '<p class="rs-none">None</p>';
       const rows = model.rows.map((row) => `<tr${row.isStar ? ' class="rs-star"' : ""}>
         <td class="num">${row.number}</td>
-        <td class="pos">${esc(row.position)}${row.isStar ? ' <small>(Star)</small>' : ""}</td>
+        <td class="pos"${row.positionFull && row.positionFull !== row.position ? ` title="${esc(row.positionFull)}"` : ""}>${esc(row.position)}${row.isStar ? ' <small>(Star)</small>' : ""}</td>
         ${["MA", "ST", "AG", "PA", "AV"].map((stat) => sheetStatCell(row.stats[stat])).join("")}
         <td class="skills">${sheetSkills(row)}</td>
         <td class="cost">${esc(row.cost != null ? gold(row.cost) : "—")}</td>
@@ -776,6 +780,28 @@ ${rosterSheetHtml(model)}
       return own.filter((k) => !shared.includes(k));
     }
 
+    /** The Add Players card's role tag (roleKeywords joined), or "" when it would just repeat the displayed
+     *  name — a "Blitzer" card is not also tagged BLITZER. */
+    function cardRoleTag(position, rosterPositions, displayName) {
+      const tag = roleKeywords(position, rosterPositions).join(" · ");
+      return tag.trim().toLowerCase() === String(displayName ?? "").trim().toLowerCase() ? "" : tag;
+    }
+
+    /**
+     * Coach-facing SHORT position name — the desktop client's rule carried over VERBATIM (SpectateView.vue
+     * positionNameFor, owner 09-09; owner 10-27 "the same logic we use in-client"): if the position name starts
+     * with the team's race name followed by a space (case-insensitive), drop that prefix; if nothing is left,
+     * keep the raw name. Nothing else ("Dwarf Blocker Lineman" → "Blocker Lineman", "Halfling Hopeful" on Human
+     * unchanged). Display only — the wire, ids, XML and validator keep the full name; callers show it as a
+     * tooltip. `roster` is {name|raceName}. TypeScript twin: src/positionNames.ts (parity-tested).
+     */
+    function shortPositionName(position, roster) {
+      const rawPosition = String(position?.name ?? "");
+      const race = String(roster?.name ?? roster?.raceName ?? "").trim();
+      const startsWithRace = !!race && rawPosition.toLowerCase().startsWith(race.toLowerCase() + " ");
+      return startsWithRace ? rawPosition.slice(race.length + 1).trim() || rawPosition : rawPosition;
+    }
+
     /**
      * skillIcons.ts canonicalSkillIconKey: "+AV"-style characteristics → statupav; otherwise lower-case a-z0-9,
      * then the client's alias table. The builder first drops a display parameter ("Hatred (Troll)", "Loner (4+)")
@@ -807,7 +833,7 @@ ${rosterSheetHtml(model)}
     }
 
     return {
-      esc, gold, norm, num, STATS, packSkillText, packTermsText, deriveStatChanges, skillIconKey, rosterRaceKey, resolveSprite, resolveCrest, roleKeywords, ROLE_KEYWORDS,
+      esc, gold, norm, num, STATS, packSkillText, packTermsText, deriveStatChanges, skillIconKey, rosterRaceKey, resolveSprite, resolveCrest, roleKeywords, cardRoleTag, ROLE_KEYWORDS, shortPositionName,
       normalizeLeagueOptions, leagueFieldPresentation, reconcileLeagueSelection, explicitLeagueSpecialRule, starEligibleForLeague,
       buildStarChoices, positionGroupCapped, buildPicks, slotsFromPicks,
       improvedStats, statIncreaseCost, normalizeTierRules, tierLimitLines, tierTable, tierTableHtml, starPacksFor, starPackLabel,
@@ -1302,6 +1328,16 @@ ${rosterSheetHtml(model)}
     wrap.hidden = false;
   }
 
+  /** Coach-facing short position name (Core.shortPositionName); the full name stays the tooltip / aria label. */
+  function shortName(position) {
+    return position ? Core.shortPositionName(position, { name: current?.raceName ?? "" }) : "";
+  }
+  function positionLabelHtml(position, fallback) {
+    if (!position?.name) return esc(fallback);
+    const short = shortName(position);
+    return short === position.name ? esc(short) : `<span title="${esc(position.name)}">${esc(short)}</span>`;
+  }
+
   function renderPositions() {
     if (!current) {
       $("positions").innerHTML = '<p class="status-copy">Choose a roster to see its positions.</p>';
@@ -1323,8 +1359,8 @@ ${rosterSheetHtml(model)}
           aria-label="Add ${esc(position.name)}">
           <div class="position-head">
             ${portraitHtml(current.raceName, position.name)}
-            <span class="position-name"><strong>${esc(position.name)}</strong><small>${Math.max(0, position.max - count)} of ${position.max} left</small></span>
-            <span class="position-meta"><small class="position-role">${esc(Core.roleKeywords(position, current.positions).join(" · ")) || "&nbsp;"}</small><span class="cost">${gold(position.cost)}</span></span>
+            <span class="position-name"><strong>${positionLabelHtml(position)}</strong><small>${Math.max(0, position.max - count)} of ${position.max} left</small></span>
+            <span class="position-meta"><small class="position-role">${esc(Core.cardRoleTag(position, current.positions, shortName(position))) || "&nbsp;"}</small><span class="cost">${gold(position.cost)}</span></span>
           </div>
           ${statStrip(position, "stat-strip")}
           <div class="printed-skills">${printedSkillChips(position) || '<span class="status-copy">No printed skills</span>'}</div>
@@ -1367,7 +1403,7 @@ ${rosterSheetHtml(model)}
         <span class="slot-number">${index + 1}</span>
         <div class="player-cell">
           ${portraitHtml(current?.raceName, position?.name, "roster-sprite")}
-          <span class="player-copy"><strong>${esc(position?.name ?? "Unknown position")}</strong><small>${star ? "Star player" : "Roster player"}</small></span>
+          <span class="player-copy"><strong>${positionLabelHtml(position, "Unknown position")}</strong><small>${star ? "Star player" : "Roster player"}</small></span>
         </div>
         ${statStrip(position, "row-stats", liveStats, mode === "custom" ? slot.chosenStats : null)}
         <div class="row-skills">${printedSkillChips(position)}${added}${statChips}${select}</div>
@@ -1443,7 +1479,7 @@ ${rosterSheetHtml(model)}
       closeModal(panel);
       return;
     }
-    $("skill-picker-heading").textContent = `${mode === "custom" ? "All skills" : "Add skill"} — #${skillPickerIndex + 1} ${position.name}`;
+    $("skill-picker-heading").textContent = `${mode === "custom" ? "All skills" : "Add skill"} — #${skillPickerIndex + 1} ${shortName(position)}`;
     const body = $("skill-picker-body");
     const set = pickerSet(slot);
     if (!set) {

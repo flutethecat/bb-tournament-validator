@@ -23,6 +23,7 @@ import {
 } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import type { TeamBuilderSave } from "./teamBuilderSaves.js";
+import { shortPositionName } from "./positionNames.js";
 
 export interface SharedSkill {
   name: string;
@@ -34,7 +35,10 @@ export interface SharedSkill {
 
 export interface SharedPlayer {
   number: number;
+  /** Coach-facing short name (shortPositionName: the race prefix dropped, "Dwarf Runner" → "Runner"). Display only. */
   position: string;
+  /** The full position name (tooltip). */
+  positionFull: string;
   isStar: boolean;
   stats: { MA: number; ST: number; AG: string; PA: string; AV: string };
   printed: SharedSkill[];
@@ -180,7 +184,8 @@ export function sharedTeamView(input: SharedViewInput): SharedTeamView {
     const addedNames = ds ? addedSkills(ds, p.skills) : [];
     return {
       number: int(p.number),
-      position: String(p.positionName),
+      position: shortPositionName({ name: String(p.positionName) }, { name: raceName }),
+      positionFull: String(p.positionName),
       isStar: star,
       stats: { MA: int(p.MA), ST: int(p.ST), AG: String(p.AG), PA: String(p.PA), AV: String(p.AV) },
       printed: printedNames.map((name) => ({ name, category: skillCategory(name) })),

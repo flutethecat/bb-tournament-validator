@@ -200,6 +200,13 @@ describe("team builder page — roster sheet", () => {
     expect(core.SHEET_CSS).toMatch(/\.sk-secondary\{color:#5a9e2f;font-style:italic;\}/);
   });
 
+  it("prints short position names with the full name as the tooltip", () => {
+    expect(model.rows.map((r: { position: string }) => r.position).slice(0, 5)).toEqual(["Blitzer", "Blitzer", "Troll Slayer", "Blocker Lineman", "Runner"]);
+    expect(model.rows[3].positionFull).toBe("Dwarf Blocker Lineman");
+    expect(markup).toContain('<td class="pos" title="Dwarf Blocker Lineman">Blocker Lineman</td>');
+    expect(markup).toContain('<td class="pos">Troll Slayer</td>');
+  });
+
   it("writes the keyword line from roster keywords, once per position", () => {
     expect(markup).toContain("Keywords: <b>Dwarf Blitzer:</b> Blitzer, Dwarf | <b>Troll Slayer:</b> Dwarf, Special | <b>Dwarf Blocker Lineman:</b> Dwarf, Lineman | <b>Dwarf Runner:</b> Dwarf, Runner");
     const noKeywords = core.rosterSheetHtml(core.rosterSheetModel({ ...input, players: [{ position: deathroller, chosenSkills: [] }] }));
@@ -581,6 +588,19 @@ describe("team builder page — Super FUMBBL art", () => {
       { name: "Jaguar Warrior Blocker", keywords: ["Blocker", "Human"] },
     ];
     expect(amazon.map((p) => core.roleKeywords(p, amazon).join(" · "))).toEqual(["Lineman", "Thrower", "Blitzer", "Blocker"]);
+  });
+
+  it("drops the card role tag only when it repeats the displayed short name", () => {
+    const dwarf = { name: "Dwarf", positions: [lineman, blitzer, runner, slayer, { ...deathroller, keywords: ["Big Guy", "Dwarf", "Special"] }] };
+    const tag = (p: { name: string }) => core.cardRoleTag(p, dwarf.positions, core.shortPositionName(p, dwarf));
+    expect(tag(blitzer)).toBe(""); // "Blitzer" card, tag BLITZER → hidden
+    expect(tag(runner)).toBe("");
+    expect(tag(lineman)).toBe("Lineman"); // "Blocker Lineman" card keeps LINEMAN
+    expect(tag(slayer)).toBe("Special"); // "Troll Slayer" keeps its tag
+    expect(tag(dwarf.positions[4]!)).toBe("Big Guy · Special");
+    const orc = [{ name: "Orc Lineman", keywords: ["Lineman", "Orc"] }, { name: "Goblin Lineman", keywords: ["Goblin", "Lineman"] }];
+    expect(core.cardRoleTag(orc[0], orc, core.shortPositionName(orc[0], { name: "Orc" }))).toBe(""); // "Lineman"
+    expect(core.cardRoleTag(orc[1], orc, core.shortPositionName(orc[1], { name: "Orc" }))).toBe("Lineman"); // "Goblin Lineman"
     expect(core.roleKeywords({ keywords: ["big guy", "dwarf", "special"] }, [])).toEqual(["Big Guy", "Special"]);
     // No role keyword: fall back to dropping the roster-wide race tag.
     const odd = [{ keywords: ["Elf", "Wardancer"] }, { keywords: ["Elf", "Spear"] }];
