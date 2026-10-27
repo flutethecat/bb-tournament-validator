@@ -638,7 +638,7 @@
   ${keywords}
 </article>`;
     }
-    /** Sheet styles — used for the print view on the page AND the standalone download. */
+    /** Sheet styles — used for the print view on the page (the print fallback) and the standalone document. */
     const SHEET_CSS = `
 .roster-sheet{color:#000;background:#fff;font-family:"Noto Serif","Times New Roman",Times,serif;font-size:11pt;line-height:1.25;padding:0;}
 .roster-sheet *{box-sizing:border-box;}
@@ -683,7 +683,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
-<style>html,body{margin:0;background:#fff;}body{padding:12mm;}${SHEET_CSS}</style>
+<style>html,body{margin:0;background:#fff;}body{padding:12mm;}@media print{body{padding:0;}}${SHEET_CSS}</style>
 </head>
 <body>
 ${rosterSheetHtml(model)}
@@ -904,6 +904,7 @@ ${rosterSheetHtml(model)}
   let crestManifest = null; // /crests/manifest.json (Super FUMBBL team crests)
   let iconManifest = null; // /icons/inducements/manifest.json (Super FUMBBL inducement icons)
   let uiIconManifest = null; // /icons/ui/manifest.json (Super FUMBBL UI glyphs: reroll, apothecary, fans)
+  let pdfExportBusy = false; // Export PDF in flight (button shows "Exporting…")
   let skillIconManifest = null; // /icons/skills/manifest.json ("Illustrated - Default" skill icons)
 
   $("fork-admin-link").href = `http://${location.hostname || "127.0.0.1"}:22227/panel.html`;
@@ -1075,12 +1076,10 @@ ${rosterSheetHtml(model)}
       button.disabled = !authCoach || !valid || previewPending;
     }
     // Owner 10-27: Export PDF only lights up for a VALID roster (custom mode: any previewed roster), never
-    // while a preview is pending or the validator has findings.
+    // while a preview is pending or the validator has findings, nor while a PDF export is in flight.
     const sheetValid = mode === "custom" ? Boolean(preview) : preview?.valid === true;
     const exportable = Boolean(current && slots.length) && sheetValid && !previewPending;
-    $("print-sheet").disabled = !exportable;
-    const downloadSheet = $("download-sheet");
-    if (downloadSheet) downloadSheet.disabled = !exportable;
+    $("print-sheet").disabled = !exportable || pdfExportBusy;
   }
   function setSessionCoach(coach) {
     authCoach = String(coach ?? "").trim();
@@ -2806,24 +2805,61 @@ ${rosterSheetHtml(model)}
     await Promise.allSettled(skilled.map((id) => ensureLegalSkills(id)));
     return sheetModel();
   }
-  async function printSheet() {
-    if (!current || !slots.length) return;
+  // Export PDF (owner 10-27, option 1): the PDF is built IN THE BROWSER from the roster-sheet model
+  // (sheet-pdf.js -> pdfmake, vendored, loaded lazily on the first export). ONE deadline bounds the
+  // whole export (sheet preparation, script load, PDF generation); any failure falls back to the
+  // browser print dialog with a short notice, and the button always resets.
+  const SHEET_PDF_TIMEOUT_MS = 20000;
+  function openPrintDialog(model) {
     ensureSheetStyle();
-    $("roster-sheet").innerHTML = Core.rosterSheetHtml(await prepareSheet());
+    $("roster-sheet").innerHTML = Core.rosterSheetHtml(model);
     window.print();
   }
-  async function downloadSheet() {
-    if (!current || !slots.length) return;
-    const model = await prepareSheet();
-    const blob = new Blob([Core.standaloneSheetDocument(model)], { type: "text/html;charset=utf-8" });
+  function saveBlob(blob, fileName) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = Core.sheetFileName(model);
+    link.download = fileName;
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async function printSheet() {
+    if (!current || !slots.length || pdfExportBusy) return;
+    const button = $("print-sheet");
+    const label = button.textContent;
+    pdfExportBusy = true;
+    button.textContent = "Exporting…";
+    button.disabled = true;
+    let model = null;
+    let timer = null;
+    const expired = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Export timed out")), SHEET_PDF_TIMEOUT_MS); });
+    expired.catch(() => {});
+    const bounded = (work) => Promise.race([work, expired]);
+    try {
+      model = await bounded(prepareSheet());
+      const sheetPdf = window.SheetPdf;
+      if (!sheetPdf) throw new Error("sheet-pdf.js is not loaded");
+      const pdfMake = await bounded(sheetPdf.loadPdfMake());
+      const doc = sheetPdf.buildSheetDocDefinition(model, { gold: Core.gold, generatedOn: new Date() });
+      const blob = await bounded(pdfMake.createPdf(doc).getBlob());
+      clearTimeout(timer);
+      saveBlob(blob, sheetPdf.sheetPdfFileName(Core.sheetFileName(model)));
+    } catch {
+      $("build-result").className = "result-banner";
+      $("build-result").innerHTML = "<strong>Export PDF</strong><span>PDF service unavailable, opened the print dialog instead.</span>";
+      $("build-result").hidden = false;
+      pdfExportBusy = false;
+      button.textContent = label;
+      syncBuildButton();
+      openPrintDialog(model ?? sheetModel());
+    } finally {
+      clearTimeout(timer);
+      pdfExportBusy = false;
+      button.textContent = label;
+      syncBuildButton();
+    }
   }
 
   // ════════════════ tournament page setup flow ════════════════
@@ -3171,7 +3207,6 @@ ${rosterSheetHtml(model)}
   });
   $("build-form").addEventListener("submit", buildTeam);
   $("print-sheet").addEventListener("click", printSheet);
-  $("download-sheet").addEventListener("click", downloadSheet);
   $("logout-button").addEventListener("click", () => { const menu = $("signed-in-session"); if (menu && "open" in menu) menu.open = false; logout(); });
   // Account menu (tournament page): click outside or Escape closes it.
   document.addEventListener("click", (event) => { const menu = $("signed-in-session"); if (menu && "open" in menu && menu.open && !menu.contains(event.target)) menu.open = false; });

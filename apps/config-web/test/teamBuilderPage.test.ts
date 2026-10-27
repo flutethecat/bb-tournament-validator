@@ -264,11 +264,27 @@ describe("team builder page — source contract", () => {
   });
 
   it("offers export, saves, Discord sign-in and all four modes", () => {
-    for (const id of ["print-sheet", "download-sheet", "saves-panel", "save-button", "save-as-button", "discord-login", "tier-table", "skill-picker", "star-section", "inducement-section", "league"]) {
+    for (const id of ["print-sheet", "saves-panel", "save-button", "save-as-button", "discord-login", "tier-table", "skill-picker", "star-section", "inducement-section", "league"]) {
       expect(html).toContain(`id="${id}"`);
     }
     for (const mode of ["create", "custom", "tournament", "library"]) expect(html).toContain(`data-mode="${mode}"`);
     expect(html).toContain("Sign in with Discord");
+  });
+
+  it("exports a browser-built PDF, falls back to the print dialog, and has no Download HTML (owner 10-27)", () => {
+    const ttb = readFileSync(new URL("tournament-team-builder.html", publicDir), "utf8");
+    for (const page of [html, ttb]) {
+      expect(page).not.toContain('id="download-sheet"');
+      expect(page).not.toContain("Download HTML");
+      expect(page).toMatch(/id="print-sheet"[^>]*>Export PDF</);
+    }
+    expect(js).not.toContain("download-sheet");
+    expect(js).not.toContain("downloadSheet");
+    expect(js).not.toContain("/api/fork/team-builder/sheet.pdf"); // built in the browser (owner 10-27, option 1)
+    expect(js).toContain("sheetPdf.buildSheetDocDefinition(model");
+    expect(js).toContain('button.textContent = "Exporting…"');
+    expect(js).toContain("PDF service unavailable, opened the print dialog instead.");
+    expect(js).toMatch(/function openPrintDialog[\s\S]*window\.print\(\)/);
   });
 
   it("prints only the roster sheet, landscape", () => {

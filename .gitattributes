@@ -1,0 +1,2 @@
+# Vendored third-party files stay byte-identical to their upstream release (sha1 recorded in their LICENSE).
+apps/config-web/public/vendor/** -text
