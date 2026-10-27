@@ -33,7 +33,25 @@
         "maxElite": { "type": ["integer", "null"], "minimum": 0 }
       }
     },
-    "starPacksAllowed": { "type": ["array", "null"], "items": { "type": "string" }, "description": "Star-pack ids open to the team; absent/null = every pack." }
+    "starPacksAllowed": { "type": ["array", "null"], "items": { "type": "string" }, "description": "Star-pack ids open to the team; absent/null = every pack." },
+    "skillPackages": {
+      "type": "array",
+      "description": "Choose-one packages (gold + skill budget [+ star access]); a roster is legal if it fits ANY. Tier packages override the global set.",
+      "items": {
+        "type": "object",
+        "required": ["gold", "skillPointBudget"],
+        "additionalProperties": false,
+        "properties": {
+          "label": { "type": "string" },
+          "gold": { "type": "number", "minimum": 0 },
+          "skillPointBudget": { "type": "number", "minimum": 0, "description": "SP budget; ignored (author 0) for a count-mode pack." },
+          "maxPerPlayer": { "type": ["integer", "null"], "minimum": 0 },
+          "starPlayersAllowed": { "type": "boolean", "description": "Whether a roster on this pack may field Star Players (default true)." },
+          "maxSkills": { "type": ["integer", "null"], "minimum": 0, "description": "COUNT mode: total added skills under this pack (skillPointBudget then ignored)." },
+          "maxSecondary": { "type": ["integer", "null"], "minimum": 0, "description": "COUNT mode: how many of the added skills may be secondary; a secondary slot may hold a primary." }
+        }
+      }
+    }
   },
   "properties": {
     "$schema": { "type": "string" },
@@ -67,6 +85,8 @@
           "secondarySwapMax": { "type": ["number", "null"], "minimum": 0, "multipleOf": 1, "description": "Maximum secondary swaps; null means unlimited." },
           "maxPrimary": { "type": ["number", "null"] },
           "maxSecondary": { "type": ["number", "null"] },
+          "secondarySwap": { "type": "boolean" },
+          "skillPackages": { "$ref": "#/definitions/skillPackages" },
           "maxStackedPlayers": { "type": ["number", "null"], "description": "Max players with more than one added skill." },
           "eliteMaxTotal": { "type": ["integer", "null"], "minimum": 0, "description": "Team cap on ELITE added skills." },
           "eliteMaxSameSkill": { "type": ["integer", "null"], "minimum": 0, "description": "Cap on copies of any ONE elite added skill." },
@@ -160,6 +180,7 @@
       }
     },
 
+    "skillPackages": { "$ref": "#/definitions/skillPackages" },
     "bannedStars": { "type": "array", "items": { "type": "string" }, "description": "Star names banned globally; tiers/matrix/team rules inherit these." },
 
     "statIncreases": { "$ref": "#/definitions/statIncreases" },
@@ -200,7 +221,8 @@
       "additionalProperties": false,
       "properties": {
         "allowed": { "type": "array", "items": { "type": "string" }, "description": "Inducement ids allowed, or ['*'] for all, [] for none." },
-        "caps": { "type": "object", "additionalProperties": { "type": "number" }, "description": "Per-inducement max overrides." }
+        "caps": { "type": "object", "additionalProperties": { "type": "number" }, "description": "Per-inducement max overrides." },
+        "rosterOnly": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } }, "description": "Inducement id -> roster names that may buy it; every other roster is refused (e.g. Halfling Master Chef: Halfling only)." }
       }
     },
 

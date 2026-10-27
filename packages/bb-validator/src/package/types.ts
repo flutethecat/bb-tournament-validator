@@ -21,7 +21,20 @@ export interface SkillPackage {
   maxPerPlayer?: number | null;
   /** Whether a roster on THIS package may field Star Players. Absent/true = allowed. */
   starPlayersAllowed?: boolean;
+  /**
+   * COUNT-mode pack (e.g. WHBB Nut Cup "1,150k / 6 skills, up to 1 secondary"): total ADDED skills
+   * allowed under this pack. When `maxSkills` or `maxSecondary` is set the pack is count-mode and
+   * `skillPointBudget` is ignored (author it as 0). Same semantics as count-mode `maxPrimary` +
+   * `maxSecondary` (fitsSkillCounts): `maxSkills - maxSecondary` primary slots plus `maxSecondary`
+   * secondary slots, and a secondary slot may always hold a primary instead.
+   */
+  maxSkills?: number | null;
+  /** COUNT-mode pack: how many of the added skills may be secondary (0 = primary only). */
+  maxSecondary?: number | null;
 }
+
+/** Is this skill package COUNT-mode (skill counts) rather than an SP budget? */
+export const isCountPack = (p: SkillPackage): boolean => p.maxSkills != null || p.maxSecondary != null;
 
 /** A characteristic a player may improve (BB2025 advancement). */
 export type StatKey = "MA" | "ST" | "AG" | "PA" | "AV";
@@ -289,6 +302,11 @@ export interface TournamentPackage {
     /** Inducement ids, ["*"] for all, [] for none. */
     allowed: string[];
     caps: Record<string, number>;
+    /**
+     * Roster restriction (generic): inducement id → roster names that may buy it. An id listed
+     * here is refused for every other roster (WHBB Nut Cup: Halfling Master Chef, Halfling only).
+     */
+    rosterOnly?: Record<string, string[]>;
   };
   sideline: {
     maxReRolls: number | null;

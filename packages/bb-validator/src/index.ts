@@ -53,7 +53,7 @@ export type {
   StarPack,
   ExtraSkillKnobs,
 } from "./package/types";
-export { DEFAULT_SKILL_ALLOTMENT } from "./package/types";
+export { DEFAULT_SKILL_ALLOTMENT, isCountPack } from "./package/types";
 export { resolveTier, hasTiers } from "./package/tiers";
 export {
   resolveTeamConfig,

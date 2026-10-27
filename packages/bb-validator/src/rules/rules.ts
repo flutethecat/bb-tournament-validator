@@ -10,7 +10,7 @@ import { inducementIdForName, inducementReducedFor } from "../dataset/inducement
 import type { Dataset } from "../dataset/types";
 import { findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
-import type { TournamentPackage } from "../package/types";
+import { isCountPack, type SkillPackage, type TournamentPackage } from "../package/types";
 import { eligibleTeamNames, fitsSkillCounts, isEligible, resolveTeamConfig, sourceLabel, usesCountMode } from "../package/resolveConfig";
 import type { ResolvedPlayer, Rule } from "./types";
 import { err, warn } from "./types";
@@ -316,11 +316,15 @@ export const skillPackages: Rule = {
     const findings: Finding[] = [];
 
     let skillSP = 0;
+    let primaryCount = 0;
+    let secondaryCount = 0;
     for (const rp of players)
       rp.addedSkills.forEach((s, i) => {
         const a = rp.access[i];
-        if (a === undefined || a === "illegal") return; // only legal picks cost SP
+        if (a === undefined || a === "illegal") return; // only legal picks cost SP / count
         skillSP += costSP(s, a, pkg.skillAllotment);
+        if (a === "primary") primaryCount++;
+        else secondaryCount++;
       });
 
     // Stars: per-tier SP cost + availability; optionally exclude their gold.
@@ -354,29 +358,46 @@ export const skillPackages: Rule = {
       recomputeGold(roster) - skillsGold - (pkg.starPlayers.paidInSkillPoints ? starGold : 0);
     const maxOnAPlayer = players.reduce((m, rp) => Math.max(m, rp.addedSkills.length), 0);
 
+    // Count-mode packs (maxSkills / maxSecondary) limit added skills by COUNT instead of SP.
+    const fitsSkills = (p: SkillPackage): boolean => {
+      if (!isCountPack(p)) return spUsed <= p.skillPointBudget;
+      const { primarySlots, secondarySlots } = countPackSlots(p);
+      return fitsSkillCounts(primaryCount, secondaryCount, primarySlots, secondarySlots, false);
+    };
     const fits = packs.some(
       (p) =>
         goldUsed <= p.gold &&
-        spUsed <= p.skillPointBudget &&
+        fitsSkills(p) &&
         (p.maxPerPlayer == null || maxOnAPlayer <= p.maxPerPlayer) &&
         (!hasStars || p.starPlayersAllowed !== false),
     );
     if (!fits) {
+      const anyCount = packs.some(isCountPack);
+      const anySP = packs.some((p) => !isCountPack(p));
       const opts = packs
         .map(
           (p) =>
-            `${p.label ? `${p.label}: ` : ""}${p.skillPointBudget} SP @ ${fmtGold(p.gold)}` +
+            `${p.label ? `${p.label}: ` : ""}${isCountPack(p) ? countPackText(p) : `${p.skillPointBudget} SP`} @ ${fmtGold(p.gold)}` +
             (p.maxPerPlayer != null ? ` (≤${p.maxPerPlayer}/player)` : "") +
             (p.starPlayersAllowed === false ? " (no stars)" : ""),
         )
         .join("; ");
+      const used = [
+        anySP ? `${spUsed} SP` : "",
+        anyCount ? `${primaryCount + secondaryCount} skill${primaryCount + secondaryCount === 1 ? "" : "s"} (${secondaryCount} secondary)` : "",
+        fmtGold(goldUsed),
+      ].filter(Boolean).join(" + ");
+      const actual =
+        used +
+        (maxOnAPlayer > 1 ? `, ${maxOnAPlayer} skills on one player` : "") +
+        (hasStars && anyCount ? ", a Star Player" : "");
       findings.push(
         err(
           "skill-packages",
-          `Team uses ${spUsed} SP + ${fmtGold(goldUsed)}${sourceLabel(cfg)}; no skill package fits.`,
+          `Team uses ${used}${hasStars && anyCount ? " with a Star Player" : ""}${sourceLabel(cfg)}; no skill package fits.`,
           {
             expected: opts,
-            actual: `${spUsed} SP + ${fmtGold(goldUsed)}` + (maxOnAPlayer > 1 ? `, ${maxOnAPlayer} skills on one player` : ""),
+            actual,
             suggestion: `Fit a package: ${opts}.`,
           },
         ),
@@ -385,6 +406,25 @@ export const skillPackages: Rule = {
     return findings;
   },
 };
+
+/** Primary/secondary slots of a count-mode pack (a secondary slot may hold a primary). */
+export function countPackSlots(p: SkillPackage): { primarySlots: number | null; secondarySlots: number | null } {
+  const total = p.maxSkills ?? null;
+  const sec = p.maxSecondary ?? null;
+  if (total == null) return { primarySlots: null, secondarySlots: sec };
+  if (sec == null) return { primarySlots: 0, secondarySlots: total }; // any mix up to the total
+  const s = Math.min(sec, total);
+  return { primarySlots: total - s, secondarySlots: s };
+}
+
+/** "6 skills (≤1 secondary)" / "4 skills (primary only)" for a count-mode pack. */
+export function countPackText(p: SkillPackage): string {
+  const total = p.maxSkills;
+  const sec = p.maxSecondary;
+  const head = total != null ? `${total} skill${total === 1 ? "" : "s"}` : "skills";
+  const tail = sec == null ? "" : sec === 0 ? " (primary only)" : ` (≤${sec} secondary)`;
+  return head + tail;
+}
 
 /** Legal added skills of a resolved player, with their access. */
 const legalAdded = (rp: ResolvedPlayer): { skill: string; access: "primary" | "secondary" }[] =>
@@ -747,6 +787,16 @@ export const inducements: Rule = {
       if (!allowed)
         findings.push(
           err("inducements", `Inducement "${ind.name}" is not allowed in "${pkg.name}".`, {
+            suggestion: "Remove it.",
+          }),
+        );
+      // Roster restriction (package knob): only the listed rosters may buy this inducement.
+      const onlyFor = Object.entries(pkg.inducements.rosterOnly ?? {}).find(([k]) => k === id)?.[1];
+      if (onlyFor && !onlyFor.some((r) => normName(r) === normName(roster.rosterName)))
+        findings.push(
+          err("inducements", `${meta?.name ?? ind.name} is only available to ${onlyFor.join(" / ")} teams in "${pkg.name}".`, {
+            expected: onlyFor.join(", "),
+            actual: roster.rosterName,
             suggestion: "Remove it.",
           }),
         );

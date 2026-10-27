@@ -174,7 +174,7 @@ export function renderPackageHtml(pkg: TournamentPackage): string {
 
   // Inducements
   const ind =
-    pkg.inducements.allowed.includes("*") ? "All inducements allowed" : pkg.inducements.allowed.length ? pkg.inducements.allowed.map(esc).join(", ") : "None";
+    pkg.inducements.allowed.includes("*") ? "All inducements allowed" : pkg.inducements.allowed.length ? pkg.inducements.allowed.map((id) => esc(id) + (pkg.inducements.rosterOnly?.[id]?.length ? ` (${pkg.inducements.rosterOnly[id]!.map(esc).join(" / ")} only)` : "")).join(", ") : "None";
   parts.push(section("Inducements", `<p>${ind}</p>`));
 
   // Sideline

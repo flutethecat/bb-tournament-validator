@@ -696,8 +696,25 @@ ${rosterSheetHtml(model)}
       return (aliases && Object.prototype.hasOwnProperty.call(aliases, key) ? String(aliases[key]) : key);
     }
 
+    /** Skill terms of a choose-one pack: COUNT packs (WHBB Nut Cup) read "6 skills (≤1 secondary)",
+     *  SP packs "12 SP". Plain text — callers esc() it. */
+    function packSkillText(pack) {
+      if (!pack) return "";
+      if (isNum(pack.maxSkills) || isNum(pack.maxSecondary)) {
+        const total = isNum(pack.maxSkills) ? `${pack.maxSkills} skill${pack.maxSkills === 1 ? "" : "s"}` : "skills";
+        const sec = isNum(pack.maxSecondary) ? (pack.maxSecondary === 0 ? " (primary only)" : ` (≤${pack.maxSecondary} secondary)`) : "";
+        return total + sec;
+      }
+      return `${isNum(pack.skillPointBudget) ? pack.skillPointBudget : 0} SP`;
+    }
+    /** Full pack terms for a pack button / summary: "1,150k · 6 skills (≤1 secondary)". */
+    function packTermsText(pack) {
+      if (!pack) return "";
+      return `${gold(pack.gold)} · ${packSkillText(pack)}${pack.starPlayersAllowed === false ? " · no stars" : ""}`;
+    }
+
     return {
-      esc, gold, norm, num, STATS, deriveStatChanges, skillIconKey, rosterRaceKey, resolveSprite, resolveCrest, roleKeywords, ROLE_KEYWORDS,
+      esc, gold, norm, num, STATS, packSkillText, packTermsText, deriveStatChanges, skillIconKey, rosterRaceKey, resolveSprite, resolveCrest, roleKeywords, ROLE_KEYWORDS,
       normalizeLeagueOptions, leagueFieldPresentation, reconcileLeagueSelection, explicitLeagueSpecialRule, starEligibleForLeague,
       buildStarChoices, positionGroupCapped, buildPicks, slotsFromPicks,
       improvedStats, statIncreaseCost, normalizeTierRules, tierLimitLines, tierTable, tierTableHtml, starPacksFor, starPackLabel,
@@ -1126,12 +1143,12 @@ ${rosterSheetHtml(model)}
       const pack = selectedPackSummary();
       lines.push(`<div class="ruleset-line ruleset-head"><strong>${esc(race.roster)}</strong>${race.tierLabel ? ` — ${esc(race.tierLabel)}` : ""}`
         + ` · Budget ${gold(pack?.gold ?? race.gold)}`
-        + (!race.packs?.length ? (race.skillPointBudget ? ` · ${race.skillPointBudget} SP` : "") : pack ? ` · ${pack.skillPointBudget} SP (${esc(pack.label)})` : "")
+        + (!race.packs?.length ? (race.skillPointBudget ? ` · ${race.skillPointBudget} SP` : "") : pack ? ` · ${esc(Core.packSkillText(pack))} (${esc(pack.label)})` : "")
         + (race.maxPerPlayer != null ? ` · ${race.maxPerPlayer} skill${race.maxPerPlayer === 1 ? "" : "s"}/player` : "")
         + `${tierButton}</div>`);
       if (race.packs?.length) {
         lines.push(`<div class="ruleset-line pack-choice-line"><div class="pack-grid${selectedSkillPack ? " has-selection" : ""}">${race.packs.map((p) =>
-          `<button type="button" class="pack-choice-btn${selectedSkillPack === p.label ? " selected" : ""}" data-skill-pack="${esc(p.label)}" aria-pressed="${selectedSkillPack === p.label}"><strong>${esc(p.label)}</strong><small>${gold(p.gold)} / ${p.skillPointBudget} SP${p.maxPerPlayer != null ? ` · ${p.maxPerPlayer} skill${p.maxPerPlayer === 1 ? "" : "s"}/player` : ""}</small></button>`
+          `<button type="button" class="pack-choice-btn${selectedSkillPack === p.label ? " selected" : ""}" data-skill-pack="${esc(p.label)}" aria-pressed="${selectedSkillPack === p.label}"><strong>${esc(p.label)}</strong><small>${esc(Core.packTermsText(p))}${p.maxPerPlayer != null ? ` · ${p.maxPerPlayer} skill${p.maxPerPlayer === 1 ? "" : "s"}/player` : ""}</small></button>`
         ).join("")}</div>${selectedSkillPack ? "" : '<span class="ruleset-caveat">Pick your skill pack.</span>'}</div>`);
       }
       if (race.stars) {
@@ -1145,7 +1162,7 @@ ${rosterSheetHtml(model)}
       lines.push(`<div class="ruleset-line ruleset-head"><strong>${esc(packageRules.name)}</strong> — ${packageRules.tierSummary.length} tiers${tierButton}</div>`);
       for (const tier of packageRules.tierSummary) {
         lines.push(`<div class="ruleset-line"><strong>${esc(tier.label)}</strong>${tier.packs?.length
-          ? ` · Packs ${tier.packs.map((p) => `${gold(p.gold)}/${p.skillPointBudget}SP`).join(" / ")}`
+          ? ` · Packs ${tier.packs.map((p) => esc(Core.packTermsText(p))).join(" / ")}`
           : ` · ${gold(tier.gold)}${tier.skillPointBudget ? ` / ${tier.skillPointBudget} SP` : ""}`}<span class="ruleset-rosters"> — ${esc(tier.rosters.join(", "))}</span></div>`);
       }
       if (packageRules.dataNote) lines.push(`<div class="ruleset-caveat">${esc(packageRules.dataNote)}</div>`);
@@ -1441,8 +1458,13 @@ ${rosterSheetHtml(model)}
       return { price: item.reducedPrice, max: item.reducedMax ?? item.max, reduced: true };
     return { price: item?.price ?? 0, max: item?.max ?? null, reduced: false };
   }
+  /** Package `inducements.rosterOnly` (e.g. Halfling Master Chef: Halfling only) — mirrors the server rule. */
+  function inducementOpenToRoster(item) {
+    return !item?.rosterOnly?.length || item.rosterOnly.some((name) => teamIsRoster(name));
+  }
   function clampInducementCounts() {
     for (const item of inducementCatalog) {
+      if (!inducementOpenToRoster(item) && (inducementCounts[item.key] ?? 0) > 0) inducementCounts = { ...inducementCounts, [item.key]: 0 };
       const { max } = inducementTerms(item);
       if (max != null && (inducementCounts[item.key] ?? 0) > max) inducementCounts = { ...inducementCounts, [item.key]: Math.max(0, max) };
     }
@@ -1453,7 +1475,7 @@ ${rosterSheetHtml(model)}
     const terms = inducementTerms(item);
     const atMax = terms.max !== null && terms.max !== undefined && count >= terms.max;
     const icon = iconManifest?.icons?.[item.key];
-    const note = `${gold(terms.price)}${terms.max != null ? ` · max ${terms.max}` : ""}${terms.reduced ? ` · ${esc(item.reducedRoster ? `${item.reducedRoster} teams` : item.reducedSpecialRule)}` : ""}`;
+    const note = `${gold(terms.price)}${terms.max != null ? ` · max ${terms.max}` : ""}${terms.reduced ? ` · ${esc(item.reducedRoster ? `${item.reducedRoster} teams` : item.reducedSpecialRule)}` : ""}${item.rosterOnly?.length ? ` · ${esc(item.rosterOnly.join(" / "))} only` : ""}`;
     return `<div class="stepper-row inducement-row${item.allowed ? "" : " unavailable"}" data-inducement-row="${esc(item.key)}">
         <span class="inducement-icon" aria-hidden="true">${icon ? `<img class="crest-image" src="/${esc(icon)}" alt="" loading="lazy" decoding="async">` : ""}</span>
         <span class="stepper-label">${esc(item.label)}<small>${note}</small></span>
@@ -1470,7 +1492,7 @@ ${rosterSheetHtml(model)}
     $("inducement-section").hidden = !visible || !current;
     if (!visible) { $("selected-inducement-section").hidden = true; return; }
     clampInducementCounts(); // race/league change can drop a B&C team's reduced max (Bribes 6 → 3)
-    const items = mode === "tournament" ? inducementCatalog.filter((item) => item.allowed) : inducementCatalog;
+    const items = mode === "tournament" ? inducementCatalog.filter((item) => item.allowed && inducementOpenToRoster(item)) : inducementCatalog;
     const selected = items.filter((item) => (inducementCounts[item.key] ?? 0) > 0);
     const available = items.filter((item) => (inducementCounts[item.key] ?? 0) === 0);
     $("inducement-list").innerHTML = available.length
@@ -1529,6 +1551,13 @@ ${rosterSheetHtml(model)}
     if (mode !== "create") {
       line("Primary skills", String(pick(s?.primarySkillCount, slots.reduce((n, sl) => n + sl.chosenSkills.filter((k) => skillAccess(sl.positionId, k) !== "secondary").length, 0))));
       line("Secondary skills", String(pick(s?.secondarySkillCount, slots.reduce((n, sl) => n + sl.chosenSkills.filter((k) => skillAccess(sl.positionId, k) === "secondary").length, 0))));
+      const countPack = selectedPackSummary();
+      if (countPack && (countPack.maxSkills != null || countPack.maxSecondary != null)) {
+        const sec = pick(s?.secondarySkillCount, slots.reduce((n, sl) => n + sl.chosenSkills.filter((k) => skillAccess(sl.positionId, k) === "secondary").length, 0));
+        const total = pick(s?.primarySkillCount, slots.reduce((n, sl) => n + sl.chosenSkills.filter((k) => skillAccess(sl.positionId, k) !== "secondary").length, 0)) + sec;
+        const over = (countPack.maxSkills != null && total > countPack.maxSkills) || (countPack.maxSecondary != null && sec > countPack.maxSecondary);
+        line("Pack skills", `${total} / ${countPack.maxSkills ?? "∞"}${countPack.maxSecondary != null ? ` (${sec} / ${countPack.maxSecondary} secondary)` : ""}`, "", over ? "over-budget" : "");
+      }
       const spBudget = selectedPackSummary()?.skillPointBudget ?? (s?.skillPointBudget || raceRules()?.skillPointBudget || 0);
       if (spBudget) {
         const used = s?.skillPointsUsed ?? slots.reduce((sum, sl) => sum + Core.playerSkillSp(sl.chosenSkills, (k) => skillAccess(sl.positionId, k) === "secondary", raceRules()?.skillCosts ?? Core.DEFAULT_SKILL_COSTS), 0);
@@ -1663,7 +1692,11 @@ ${rosterSheetHtml(model)}
     };
   }
   function sanitizePack(pack) {
-    return { label: sv(pack?.label), gold: n0(pack?.gold), skillPointBudget: n0(pack?.skillPointBudget, 0), maxPerPlayer: n0(pack?.maxPerPlayer) };
+    return {
+      label: sv(pack?.label), gold: n0(pack?.gold), skillPointBudget: n0(pack?.skillPointBudget, 0), maxPerPlayer: n0(pack?.maxPerPlayer),
+      maxSkills: n0(pack?.maxSkills), maxSecondary: n0(pack?.maxSecondary),
+      ...(pack?.starPlayersAllowed === false ? { starPlayersAllowed: false } : {}),
+    };
   }
   function sanitizeSkillCosts(costs) {
     if (!costs || typeof costs !== "object") return undefined;
@@ -1780,6 +1813,7 @@ ${rosterSheetHtml(model)}
         reducedMax: Core.num(item.reducedMax),
         reducedSpecialRule: typeof item.reducedSpecialRule === "string" ? item.reducedSpecialRule : null,
         reducedRoster: typeof item.reducedRoster === "string" ? item.reducedRoster : null,
+        rosterOnly: Array.isArray(item.rosterOnly) ? item.rosterOnly.map(String) : null,
       }));
       const next = {};
       for (const item of inducementCatalog) {

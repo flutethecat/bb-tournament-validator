@@ -1,4 +1,4 @@
-import { resolveTeamConfig, type StatKey, type TournamentPackage } from "@bb/validator";
+import { isCountPack, resolveTeamConfig, type StatKey, type TournamentPackage } from "@bb/validator";
 import type { PackageFiles } from "./data.js";
 
 /** What preview/build validate against, plus (when a tournament package was
@@ -166,6 +166,11 @@ export interface PackSummary {
   gold: number;
   skillPointBudget: number;
   maxPerPlayer: number | null;
+  /** COUNT-mode packs only (omitted for SP packs): total added skills / how many may be secondary. */
+  maxSkills?: number | null;
+  maxSecondary?: number | null;
+  /** COUNT-mode packs only: present (false) when the pack forbids Star Players. */
+  starPlayersAllowed?: false;
 }
 
 /** One tier row of the derived ruleset summary (Slot Builder default view). */
@@ -184,6 +189,14 @@ const packSummaries = (packs: TournamentPackage["skillPackages"]): PackSummary[]
     gold: p.gold,
     skillPointBudget: p.skillPointBudget,
     maxPerPlayer: p.maxPerPlayer ?? null,
+    // Count-pack fields only, so SP-pack responses (EuroBowl, Spike!) stay byte-identical.
+    ...(isCountPack(p)
+      ? {
+          maxSkills: p.maxSkills ?? null,
+          maxSecondary: p.maxSecondary ?? null,
+          ...(p.starPlayersAllowed === false ? { starPlayersAllowed: false as const } : {}),
+        }
+      : {}),
   }));
 
 /** Derived tier summary — the compact tournament overview the Slot Builder shows by

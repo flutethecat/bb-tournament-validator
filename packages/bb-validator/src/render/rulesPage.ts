@@ -1,7 +1,7 @@
 import { bb2025 } from "../dataset/bb2025/index";
 import { normName } from "../dataset/lookup";
 import { eligibleTeamNames, resolveMatrixCell, resolveTeamConfig, usesCountMode } from "../package/resolveConfig";
-import type { SkillPackage, TournamentPackage } from "../package/types";
+import { isCountPack, type SkillPackage, type TournamentPackage } from "../package/types";
 
 /** Fields delivered by the companion skill-escalation/star-tax change. */
 type RulesPagePkg = Omit<TournamentPackage, "skillAllotment" | "starPlayers" | "inducements"> & {
@@ -265,8 +265,15 @@ const skillPackagesTables = (pkg: TournamentPackage): string => {
   return blocks.join("");
 };
 
+/** "6 skills (up to 1 secondary)" for a count-mode pack. */
+const countSkillText = (entry: SkillPackage): string => {
+  const total = entry.maxSkills != null ? `${entry.maxSkills} skill${entry.maxSkills === 1 ? "" : "s"}` : "Skills";
+  const sec = entry.maxSecondary == null ? "" : entry.maxSecondary === 0 ? " (primary only)" : ` (up to ${entry.maxSecondary} secondary)`;
+  return total + sec;
+};
+
 const skillPackageTable = (packages: readonly SkillPackage[], caption: string): string => {
-  const rows = packages.map((entry, index) => `<tr><th scope="row">${esc(entry.label ?? `Package ${index + 1}`)}</th><td>${esc(money(entry.gold))}</td><td>${esc(entry.skillPointBudget)}</td><td>${esc(entry.maxPerPlayer == null ? "No cap" : entry.maxPerPlayer)}</td><td>${esc(entry.starPlayersAllowed === false ? "No" : "Yes")}</td></tr>`).join("");
+  const rows = packages.map((entry, index) => `<tr><th scope="row">${esc(entry.label ?? `Package ${index + 1}`)}</th><td>${esc(money(entry.gold))}</td><td>${esc(isCountPack(entry) ? countSkillText(entry) : entry.skillPointBudget)}</td><td>${esc(entry.maxPerPlayer == null ? "No cap" : entry.maxPerPlayer)}</td><td>${esc(entry.starPlayersAllowed === false ? "No" : "Yes")}</td></tr>`).join("");
   return `<div class="table-scroll compact-table"><table><caption>${esc(caption)}</caption><thead><tr><th scope="col">Package</th><th scope="col">Gold</th><th scope="col">Skill budget</th><th scope="col">Skills per player</th><th scope="col">Stars</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 };
 
@@ -360,7 +367,7 @@ const starsSection = (pkg: RulesPagePkg): string => {
   );
 };
 
-const effectiveInducements = (pkg: RulesPagePkg): { id: string; name: string; cost: number | null; cap: number | null }[] => {
+const effectiveInducements = (pkg: RulesPagePkg): { id: string; name: string; cost: number | null; cap: number | null; only?: string[] }[] => {
   const ids = pkg.inducements.allowed.includes("*")
     ? Object.keys(bb2025.inducements)
     : pkg.inducements.allowed;
@@ -371,6 +378,7 @@ const effectiveInducements = (pkg: RulesPagePkg): { id: string; name: string; co
       name: entry?.name ?? id,
       cost: entry?.cost ?? null,
       cap: pkg.inducements.caps[id] ?? entry?.max ?? null,
+      ...(pkg.inducements.rosterOnly?.[id]?.length ? { only: pkg.inducements.rosterOnly[id] } : {}),
     };
   }).sort((left, right) => byName(left.name, right.name));
 };
@@ -393,7 +401,7 @@ const sidelineList = (pkg: TournamentPackage): string => {
 const inducementsSection = (pkg: RulesPagePkg): string => {
   const values = effectiveInducements(pkg);
   const body = values.length
-    ? `<div class="table-scroll compact-table"><table><caption>Allowed inducements</caption><thead><tr><th scope="col">Inducement</th><th scope="col">Cost</th><th scope="col">Cap</th></tr></thead><tbody>${values.map((entry) => `<tr><th scope="row">${esc(entry.name)}</th><td>${esc(entry.cost == null ? "Variable" : money(entry.cost))}</td><td>${esc(entry.cap == null ? "No cap" : entry.cap)}</td></tr>`).join("")}</tbody></table></div>`
+    ? `<div class="table-scroll compact-table"><table><caption>Allowed inducements</caption><thead><tr><th scope="col">Inducement</th><th scope="col">Cost</th><th scope="col">Cap</th></tr></thead><tbody>${values.map((entry) => `<tr><th scope="row">${esc(entry.name)}${entry.only ? ` <small>(${esc(entry.only.join(" / "))} only)</small>` : ""}</th><td>${esc(entry.cost == null ? "Variable" : money(entry.cost))}</td><td>${esc(entry.cap == null ? "No cap" : entry.cap)}</td></tr>`).join("")}</tbody></table></div>`
     : "<p>No inducements are allowed.</p>";
   return section("Inducements", `${body}${inducementOverrides(pkg)}${sidelineList(pkg)}`);
 };

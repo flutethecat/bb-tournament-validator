@@ -15,6 +15,8 @@ export interface TeamBuilderInducementCatalogRow {
   /** Only teams with this special rule may buy it. */
   requiresSpecialRule?: string;
   requiresApothecary?: boolean;
+  /** Package knob `inducements.rosterOnly`: only these rosters may buy it. */
+  rosterOnly?: string[];
 }
 
 /** Public builder catalog: only fixed-price inducements the fork can roster in team XML. */
@@ -38,6 +40,8 @@ export function teamBuilderInducementCatalog(
       };
       if (inducement.requiresSpecialRule) row.requiresSpecialRule = inducement.requiresSpecialRule;
       if (inducement.requiresApothecary) row.requiresApothecary = true;
+      const onlyFor = pkg.inducements.rosterOnly?.[key];
+      if (onlyFor?.length) row.rosterOnly = [...onlyFor];
       if (inducement.reducedRoster) {
         row.reducedRoster = inducement.reducedRoster;
         row.reducedPrice = inducementWireGold(data, key, [], inducement.reducedRoster);

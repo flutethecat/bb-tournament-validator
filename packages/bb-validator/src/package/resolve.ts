@@ -43,6 +43,17 @@ export function checkExtraKnobs(pkg: TournamentPackage): { pkg: TournamentPackag
       if (k.stackedPlayer && !isCap(k.stackedPlayer[f])) problems.push(`${where}.stackedPlayer.${f} must be a non-negative integer or null.`);
   };
   checkCaps("skillAllotment", pkg.skillAllotment);
+  // Count-mode skill packs: totals must be non-negative integers.
+  const checkPacks = (where: string, packs: TournamentPackage["skillPackages"]) =>
+    (packs ?? []).forEach((p, i) => {
+      for (const f of ["maxSkills", "maxSecondary"] as const)
+        if (!isCap(p[f])) problems.push(`${where}.skillPackages[${i}].${f} must be a non-negative integer or null.`);
+    });
+  checkPacks("package", pkg.skillPackages);
+  for (const t of pkg.tiers ?? []) checkPacks(`tiers[${t.tier}]`, t.skillPackages);
+  for (const [id, rosters] of Object.entries(pkg.inducements?.rosterOnly ?? {}))
+    if (!Array.isArray(rosters) || rosters.some((r) => typeof r !== "string"))
+      problems.push(`inducements.rosterOnly.${id} must be an array of roster names.`);
   const out: TournamentPackage = { ...pkg };
   if (pkg.statIncreases !== undefined) out.statIncreases = cleanStat("package", pkg.statIncreases);
   if (pkg.tiers)
