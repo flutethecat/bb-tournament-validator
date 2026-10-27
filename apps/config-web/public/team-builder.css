@@ -1045,7 +1045,7 @@ body[data-builder="tournament"] .tt-steps {
   margin: 0;
   padding: 0 14px;
   position: relative;
-  z-index: 2;
+  z-index: 0; /* owner 10-27: inactive tabs sit BEHIND the step panel; only the active tab rises above it */
 }
 body[data-builder="tournament"] .tt-steps button {
   flex: 1 1 0;
@@ -1060,13 +1060,14 @@ body[data-builder="tournament"] .tt-steps button {
   border-bottom: 0;
   border-radius: 12px 12px 0 0;
   box-shadow: inset 0 -6px 10px -8px rgb(0 0 0 / 70%);
-  transform: translateY(6px);
+  transform: translateY(10px); /* tucked under the panel's top edge */
+  z-index: 0;
   transition: transform .18s ease, background-color .18s ease, color .18s ease;
 }
 body[data-builder="tournament"] .tt-steps button b { width: 28px; height: 28px; font: 15px/1 var(--font-heading); }
 body[data-builder="tournament"] .tt-steps button span { font: 18px/1.1 var(--font-heading); letter-spacing: .1em; color: var(--ui-muted); }
 body[data-builder="tournament"] .tt-steps button small { color: var(--ui-muted); }
-body[data-builder="tournament"] .tt-steps button:not(:disabled):not(.active):hover { transform: translateY(3px); color: var(--ui-text); }
+body[data-builder="tournament"] .tt-steps button:not(:disabled):not(.active):hover { transform: translateY(6px); color: var(--ui-text); }
 body[data-builder="tournament"] .tt-steps button:not(:disabled):not(.active):hover span { color: var(--ui-text); }
 body[data-builder="tournament"] .tt-steps button.active {
   min-height: 60px;
@@ -1075,7 +1076,8 @@ body[data-builder="tournament"] .tt-steps button.active {
   border-color: var(--ui-heading);
   box-shadow: 0 -4px 14px rgb(0 0 0 / 45%), inset 0 3px 0 var(--ui-heading);
   transform: translateY(0);
-  z-index: 3;
+  position: relative;
+  z-index: 3; /* above the panel edge: the active tab fuses into the page */
 }
 body[data-builder="tournament"] .tt-steps button.active span { color: var(--ui-text-on-primary, #fff); }
 body[data-builder="tournament"] .tt-steps button.active small { color: color-mix(in srgb, var(--ui-text-on-primary, #fff) 85%, transparent); }
@@ -1083,7 +1085,10 @@ body[data-builder="tournament"] .tt-steps button.active b { color: var(--ui-text
 body[data-builder="tournament"] .tt-steps button:disabled { opacity: .55; }
 /* The step panels become the notebook page: a heading-coloured top edge the active tab plugs into. */
 body[data-builder="tournament"] .tt-step,
-body[data-builder="tournament"] #builder-panel { border-top: 2px solid var(--ui-heading); border-top-left-radius: 0; border-top-right-radius: 0; }
+body[data-builder="tournament"] #builder-panel { position: relative; z-index: 1; border-top: 2px solid var(--ui-heading); border-top-left-radius: 0; border-top-right-radius: 0; }
+/* The active tab must out-stack the panel even though the panel is a later sibling: lift the whole tab row only for it. */
+body[data-builder="tournament"] .tt-steps:has(button.active) { z-index: 2; }
+body[data-builder="tournament"] .tt-steps:has(button.active) button:not(.active) { z-index: -1; }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
    MOBILE + TABLET VIEW (owner 10-27: "Can we also configure this with a mobile view?").
