@@ -51,6 +51,9 @@ export function checkExtraKnobs(pkg: TournamentPackage): { pkg: TournamentPackag
     });
   checkPacks("package", pkg.skillPackages);
   for (const t of pkg.tiers ?? []) checkPacks(`tiers[${t.tier}]`, t.skillPackages);
+  // Owner ruling 10-27: stars never take added skills in any package - there is no switch for it.
+  if (pkg.starPlayers && "addedSkillsAllowed" in (pkg.starPlayers as object))
+    problems.push("starPlayers.addedSkillsAllowed is not supported: Star Players never take added skills (ignored).");
   for (const [id, rosters] of Object.entries(pkg.inducements?.rosterOnly ?? {}))
     if (!Array.isArray(rosters) || rosters.some((r) => typeof r !== "string"))
       problems.push(`inducements.rosterOnly.${id} must be an array of roster names.`);

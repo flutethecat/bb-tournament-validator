@@ -772,13 +772,12 @@ export const starPlayers: Rule = {
 /**
  * 8c. Star added skills — BB2025 stars take no added skills. A star's printed skills are diffed
  * against its dataset skill list (`DatasetStar.skills`); a source-supplied `addedSkills` list on a
- * star also counts. Default on; `starPlayers.addedSkillsAllowed: true` is the house-rule escape.
+ * star also counts. Unconditional (owner ruling 10-27): no package may let a star take added skills.
  * Stars with no dataset skill list are only caught via explicit `addedSkills`.
  */
 export const starAddedSkills: Rule = {
   id: "star-skills",
   check: ({ players, pkg, data }) => {
-    if (pkg.starPlayers.addedSkillsAllowed === true) return [];
     // FAIL-SAFE: only a printed entry that canonicalises to a known, selectable (non-trait) dataset
     // skill absent from the star's own list is an added skill. Anything unmatched (formatting, labels,
     // traits/special rules, comma-split fragments) produces no finding rather than a false rejection.

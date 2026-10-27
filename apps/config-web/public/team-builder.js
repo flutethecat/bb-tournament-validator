@@ -2129,7 +2129,8 @@ ${rosterSheetHtml(model)}
   }
   async function openSkillPicker(index) {
     const slot = slots[index];
-    if (!slot) return;
+    // Stars never take added skills, in any mode (owner ruling 10-27).
+    if (!slot || positionById(slot.positionId)?.isStar) return;
     skillPickerIndex = index;
     pickerCategory = null;
     renderRoster();
@@ -2187,7 +2188,8 @@ ${rosterSheetHtml(model)}
     }).join("")}</div>`;
   }
   function openStatPicker(index) {
-    if (!slots[index]) return;
+    // Stars never take stat increases or skills, in any mode (owner ruling 10-27).
+    if (!slots[index] || positionById(slots[index].positionId)?.isStar) return;
     statPickerIndex = index;
     renderStatPicker();
     openModal($("stat-picker"), `[data-stat-slot="${index}"]`, index);

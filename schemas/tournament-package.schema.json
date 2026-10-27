@@ -212,8 +212,7 @@
       "properties": {
         "allowed": { "type": "boolean", "default": true },
         "maxCount": { "type": ["number", "null"], "default": null },
-        "maxCombinedCost": { "type": ["number", "null"], "default": null },
-        "addedSkillsAllowed": { "type": "boolean", "default": false, "description": "Stars take no added skills (BB2025); true = a house rule letting them." }
+        "maxCombinedCost": { "type": ["number", "null"], "default": null }
       }
     },
 

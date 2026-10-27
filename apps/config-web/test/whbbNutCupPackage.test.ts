@@ -280,7 +280,7 @@ describe("WHBB Nut Cup 2026 package", () => {
     expect(core.packTermsText({ gold: 1070000, skillPointBudget: 160, maxPerPlayer: 2 })).toBe("1,070k · 160 SP");
   });
 
-  it("refuses a submitted star carrying an added skill (stars take no added skills); house-rule knob lets it", () => {
+  it("refuses a submitted star carrying an added skill in every package (no knob)", () => {
     const { composed } = build("Goblin", [{ name: "Goblin Lineman", count: 11 }], { stars: ["Fungus the Loon"] });
     const base = findStar(bb2025, "Fungus the Loon")!.skills!;
     expect(base).toContain("Ball & Chain");
@@ -295,8 +295,18 @@ describe("WHBB Nut Cup 2026 package", () => {
       "Fungus the Loon has added skill (Guard); Star Players take no added skills.",
     ]);
     expect(guard.valid).toBe(false);
-    const allowed = { ...pkg, starPlayers: { ...pkg.starPlayers, addedSkillsAllowed: true } };
-    expect(ruleErrors(validate(withStarSkills(["Guard"]), allowed, bb2025), "star-skills")).toEqual([]);
+    // Unconditional (owner 10-27): a package cannot switch it off - the schema rejects the old knob,
+    // loadPackage reports it, and the rule still fires.
+    const raw = { ...nutCupJson, starPlayers: { ...nutCupJson.starPlayers, addedSkillsAllowed: true } };
+    const out: string[] = [];
+    check(schema, raw, "$", out);
+    expect(out).toEqual(["$.starPlayers: unknown property addedSkillsAllowed"]);
+    const loaded = loadPackage(raw as unknown as Partial<TournamentPackage>);
+    expect(loaded.problems).toEqual(["starPlayers.addedSkillsAllowed is not supported: Star Players never take added skills (ignored)."]);
+    expect(ruleErrors(validate(withStarSkills(["Guard"]), loaded.pkg, bb2025), "star-skills")).toHaveLength(1);
+    // Default-on in the baseline package too.
+    const baseline = loadPackage(JSON.parse(readFileSync(new URL("../../../tournament-packages/bb2025-default.json", import.meta.url), "utf8"))).pkg;
+    expect(ruleErrors(validate(withStarSkills(["Guard"]), baseline, bb2025), "star-skills")).toHaveLength(1);
   });
 
   it("reports goldUsed without sheet skill gold under count packs (skills are free)", () => {
@@ -374,5 +384,15 @@ describe("WHBB Nut Cup 2026 package", () => {
         expect(ruleErrors(validate(roster, pkg, bb2025), "star-skills")).toEqual([]);
       }
     });
+  });
+
+  it("builder refuses to open the Add skill / Add stat modals on a star in every mode", () => {
+    const js = readFileSync(new URL("../public/team-builder.js", import.meta.url), "utf8");
+    const body = (fn: string) => js.slice(js.indexOf(fn), js.indexOf("\n  }\n", js.indexOf(fn)));
+    expect(body("async function openSkillPicker(index)")).toMatch(/if \(!slot \|\| positionById\(slot\.positionId\)\?\.isStar\) return;/);
+    expect(body("function openStatPicker(index)")).toMatch(/positionById\(slots\[index\]\.positionId\)\?\.isStar\) return;/);
+    // The buttons themselves are never rendered for a star (no mode check on `!star`).
+    expect(js).toContain("const skillButton = edit && !star");
+    expect(js).toContain("const statButton = edit && !star");
   });
 });

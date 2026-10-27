@@ -297,8 +297,6 @@ export interface TournamentPackage {
     spCostByTier?: Record<string, (number | null)[]>;
     /** When true, a star's gold cost is NOT counted against the gold budget (paid in SP instead). */
     paidInSkillPoints?: boolean;
-    /** Stars take no added skills under BB2025; set true only for a house rule that lets them (default false). */
-    addedSkillsAllowed?: boolean;
   };
   inducements: {
     /** Inducement ids, ["*"] for all, [] for none. */
