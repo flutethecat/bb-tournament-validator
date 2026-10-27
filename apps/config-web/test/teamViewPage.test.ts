@@ -53,7 +53,7 @@ describe("team view core", () => {
     expect(markup).not.toContain("Grudge <XI>");
     expect(markup).toContain('src="/crests/dwarf.png"');
     expect(markup).toContain("Shared by <strong>Alice</strong> · EuroBowl 2026 — Tier 2 · updated 27 Oct 2026");
-    expect(markup).toContain('<span class="tv-badge tv-valid">Valid for EuroBowl 2026</span>');
+    expect(markup).toContain('<span class="tv-badge tv-valid" title="Valid team"><span class="tv-check" aria-hidden="true">&#10003;</span><small>');
     expect(markup).toContain('<table class="tv-table">');
     expect(markup).toContain('<ol class="tv-cards">');
     const roster = markup.slice(markup.indexOf('<table class="tv-table">'), markup.indexOf("</table>"));
@@ -93,7 +93,11 @@ describe("team view core", () => {
 
   it("an invalid team gets an issue badge; the owner link appears only with ownerSaveId", () => {
     const invalid = { ...fixture(), validity: { valid: false, issues: 3, custom: false } };
-    expect(TeamView.viewHtml(invalid)).toContain('<span class="tv-badge tv-invalid">Has 3 issues</span>');
+    expect(TeamView.viewHtml(invalid)).toContain('<span class="tv-badge tv-invalid"><span class="tv-check" aria-hidden="true">&#10007;</span><small>Has 3 issues');
+    expect(TeamView.viewHtml(fixture())).toMatch(/<span class="tv-badge tv-valid"[^>]*><span class="tv-check" aria-hidden="true">&#10003;<\/span><small>[^<]+<\/small>/);
+    // the team name sits above the crest: h1 before the crest markup
+    const m = TeamView.viewHtml(fixture());
+    expect(m.indexOf("<h1>")).toBeLessThan(m.indexOf('tv-banner-main'));
     expect(TeamView.viewHtml(fixture())).not.toContain("Open in Tournament Builder");
     const owned = TeamView.viewHtml({ ...fixture(), ownerSaveId: "sv_abc" });
     expect(owned).toContain('<a class="session-button tv-owner" href="/tournament-team-builder.html?save=sv_abc">Open in Tournament Builder</a>');

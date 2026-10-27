@@ -134,3 +134,14 @@
 .tv-ind-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .tv-ind-table tfoot th, .tv-ind-table tfoot td { border-bottom: 0; font-weight: 600; }
 .tv-ind-table .tv-ind-icon { width: 18px; height: 18px; margin-right: 6px; vertical-align: middle; }
+
+/* Owner 10-27: team name above the crest; small check + ruleset top right (no stencil badge). */
+.tv-banner { flex-direction: column; align-items: stretch; gap: 8px; }
+.tv-banner-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.tv-banner-top h1 { margin: 0; flex: 1 1 220px; }
+.tv-banner-main { display: flex; align-items: center; gap: 12px 16px; }
+.tv-banner .tv-badge { padding: 0; background: none; border: 0; font: 13px/1.2 var(--font-body); text-transform: none; letter-spacing: 0; display: inline-flex; align-items: center; gap: 6px; }
+.tv-banner .tv-badge small { font-size: 13px; color: var(--ui-muted); }
+.tv-banner .tv-check { font-size: 16px; font-weight: 700; }
+.tv-valid .tv-check { color: var(--ui-success); }
+.tv-invalid .tv-check { color: var(--ui-danger); }

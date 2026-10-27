@@ -141,12 +141,13 @@
       <div class="tv-total${over ? " tv-over" : ""}"><span>Total</span><b>${total}</b></div>
     </section>`;
   }
+  /** Owner 10-27: no stencil badge - a small check (or cross) with the ruleset name in small text, top right. */
   function badgeHtml(team) {
     const v = team.validity ?? {};
     const ruleset = team.ruleset?.name ?? "";
-    if (v.valid) return `<span class="tv-badge tv-valid">${ruleset ? `Valid for ${esc(ruleset)}` : "Valid team"}</span>`;
+    if (v.valid) return `<span class="tv-badge tv-valid" title="Valid team"><span class="tv-check" aria-hidden="true">&#10003;</span><small>${ruleset ? esc(ruleset) : "Valid team"}</small></span>`;
     const n = isNum(v.issues) && v.issues > 0 ? v.issues : 1;
-    return `<span class="tv-badge tv-invalid">Has ${n} issue${n === 1 ? "" : "s"}</span>`;
+    return `<span class="tv-badge tv-invalid"><span class="tv-check" aria-hidden="true">&#10007;</span><small>Has ${n} issue${n === 1 ? "" : "s"}${ruleset ? ` for ${esc(ruleset)}` : ""}</small></span>`;
   }
 
   /** The whole page body for a team model. */
@@ -158,13 +159,17 @@
     const owner = typeof team.ownerSaveId === "string" && /^[\w-]{1,64}$/.test(team.ownerSaveId)
       ? `<a class="session-button tv-owner" href="/tournament-team-builder.html?save=${encodeURIComponent(team.ownerSaveId)}">Open in Tournament Builder</a>` : "";
     return `<header class="tv-banner">
-        ${crestHtml(team)}
-        <div class="tv-title">
+        <div class="tv-banner-top">
           <h1>${esc(team.teamName)}</h1>
-          <p class="tv-race">${esc(team.raceName)}${rulesInlineHtml(team)}</p>
-          <p class="tv-byline">${byline}</p>
+          <div class="tv-banner-side">${badgeHtml(team)}${owner}</div>
         </div>
-        <div class="tv-banner-side">${badgeHtml(team)}${owner}</div>
+        <div class="tv-banner-main">
+          ${crestHtml(team)}
+          <div class="tv-title">
+            <p class="tv-race">${esc(team.raceName)}${rulesInlineHtml(team)}</p>
+            <p class="tv-byline">${byline}</p>
+          </div>
+        </div>
       </header>
       ${totalsHtml(team)}
       <section class="tv-roster" aria-label="Roster">
