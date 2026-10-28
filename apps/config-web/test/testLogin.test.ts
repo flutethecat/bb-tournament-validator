@@ -162,3 +162,56 @@ describe("test sign-in loopback guard (unit)", () => {
     expect(status).toBe(403);
   });
 });
+
+describe("test sign-in hardening (unit)", () => {
+  const run = async (remoteAddress: string, extra: Record<string, string> = {}) => {
+    setEnv({ TEST_LOGIN_SECRET: SECRET, TEST_LOGIN_COACHES: "bob" });
+    const mod = await import("../src/auth/testLogin.js");
+    mod.testLoginAttemptsByIp.clear();
+    let status = 0;
+    const res = { writeHead: (s: number) => { status = s; }, end: () => undefined } as never;
+    const req = { method: "POST", socket: { remoteAddress }, headers: { "x-cw-auth": "1", "x-test-login": "wrong-secret-000000", ...extra } } as never;
+    await mod.handleTestLogin(req, res, "/api/auth/test-login");
+    mod.testLoginAttemptsByIp.clear();
+    return status;
+  };
+
+  it("accepts IPv4, IPv6 and v4-mapped loopback (reaches the secret check: 401)", async () => {
+    for (const a of ["127.0.0.1", "::1", "::ffff:127.0.0.1"]) expect(await run(a)).toBe(401);
+    expect(await run("10.0.0.5")).toBe(403);
+  });
+
+  it("refuses every proxy header variant even from loopback", async () => {
+    for (const h of ["x-forwarded-for", "forwarded", "x-real-ip", "x-forwarded-host", "x-forwarded-proto"])
+      expect(await run("127.0.0.1", { [h]: "x" })).toBe(403);
+  });
+
+  it("banned coach: 403 and the stored level is untouched; stored admin stays admin when organizer is listed", async () => {
+    const { upsertIdentity, readIdentities } = await import("../src/auth/identitiesStore.js");
+    const dir = mkdtempSync(join(tmpdir(), "tl-ban-"));
+    setEnv({ IDENTITIES_FILE: join(dir, "identities.json"), TEST_LOGIN_SECRET: SECRET, TEST_LOGIN_COACHES: "Banned:admin,Boss:organizer" });
+    const rec = (name: string, level: "player" | "admin", banned: boolean) => ({
+      ffbCoachId: name, level, banned, silenced: false, note: "", profile: {}, identities: {}, updatedAt: "t", updatedBy: "t",
+    });
+    upsertIdentity(rec("Banned", "player", true));
+    upsertIdentity(rec("Boss", "admin", false));
+    const { handleTestLogin } = await import("../src/auth/testLogin.js");
+    const call = async (coach: string) => {
+      let status = 0; let payload = "";
+      const res = { writeHead: (s: number) => { status = s; }, end: (p: string) => { payload = p; } } as never;
+      const req = {
+        method: "POST", socket: { remoteAddress: "127.0.0.1" }, headers: { "x-cw-auth": "1", "x-test-login": SECRET },
+        async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify({ coach })); },
+      } as never;
+      await handleTestLogin(req, res, "/api/auth/test-login");
+      return { status, body: payload ? JSON.parse(payload) : {} };
+    };
+    expect((await call("Banned")).status).toBe(403);
+    expect(readIdentities().coaches.banned!.level).toBe("player");
+    const boss = await call("Boss");
+    expect(boss.status).toBe(200);
+    expect(boss.body.level).toBe("admin");
+    expect(readIdentities().coaches.boss!.level).toBe("admin");
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

@@ -9,10 +9,13 @@
  */
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { coachLevel } from "./access.js";
-import { ownIdentityRecord, upsertIdentity, type CoachLevel } from "./identitiesStore.js";
+import { BANNED_ACCOUNT_MESSAGE, coachLevel } from "./access.js";
+import { normalizeFfbCoachId, ownIdentityRecord, readIdentities, upsertIdentity, type CoachLevel } from "./identitiesStore.js";
 import { attemptState, lockoutRemaining, recordFailure, type LoginAttempt } from "./loginAttempts.js";
 import { buildSessionCookie, createSession, requestUsesTls } from "./session.js";
+
+/** Any of these means the request came through a proxy: refuse, whatever the socket address says. */
+const PROXY_HEADERS = ["x-forwarded-for", "forwarded", "x-real-ip", "x-forwarded-host", "x-forwarded-proto"];
 
 export const TEST_LOGIN_PATH = "/api/auth/test-login";
 const MAX_FAILURES = 3;
@@ -74,7 +77,7 @@ export async function handleTestLogin(req: IncomingMessage, res: ServerResponse,
   const cfg = config();
   if (!cfg) return false;
 
-  if (!isLoopback(req) || req.headers["x-forwarded-for"] !== undefined) {
+  if (!isLoopback(req) || PROXY_HEADERS.some((h) => req.headers[h] !== undefined)) {
     sendJson(res, 403, { error: "Test sign-in is loopback-only." });
     return true;
   }
@@ -112,8 +115,14 @@ export async function handleTestLogin(req: IncomingMessage, res: ServerResponse,
   }
 
   // Raise (never lower) the stored level THROUGH the identities store, the same writer /api/admin/identities uses.
+  // Compare the RAW stored level (coachLevel() reports banned coaches as player); never touch a banned coach.
+  const stored = readIdentities().coaches[normalizeFfbCoachId(listed.name)];
+  if (stored?.banned === true) {
+    sendJson(res, 403, { error: BANNED_ACCOUNT_MESSAGE });
+    return true;
+  }
   let level = coachLevel(listed.name);
-  if (LEVEL_RANK[listed.level] > LEVEL_RANK[level]) {
+  if (LEVEL_RANK[listed.level] > LEVEL_RANK[stored?.level ?? "player"] && LEVEL_RANK[listed.level] > LEVEL_RANK[level]) {
     try {
       const record = ownIdentityRecord(listed.name);
       upsertIdentity({ ...record, level: listed.level, updatedAt: new Date().toISOString(), updatedBy: "test-login" });

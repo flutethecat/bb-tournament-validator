@@ -30,7 +30,7 @@ import { applyPostMatch, sppCredits, sppForEvent, tallyMatch, type PostMatchOpti
 import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
 import { duplicatePlayerId, parseTeamRef } from "./teamFile.js";
 
-export interface TabletopAuth { coach: string; method: string }
+export interface TabletopAuth { coach: string; method: string; /** A test sign-in session: matches it creates are flagged test. */ test?: boolean }
 export interface TabletopResult { status: number; body: unknown; contentType?: string; headers?: Record<string, string> }
 
 /** A tournament fixture (scheduled match) as the recorder needs to see it. */
@@ -138,7 +138,7 @@ export async function tabletopApi(
   if (path === "/api/tabletop/matches") {
     if (method === "GET") return listMatches(me, organiser, deps);
     if (method !== "POST") return err(405, "Method not allowed.");
-    return createMatch(me, organiser, body, deps, now);
+    return createMatch(me, organiser, body, deps, now, auth.test ? { test: true } : {});
   }
   if (path.startsWith("/api/tabletop/organiser/")) {
     if (!organiser) return err(403, "Organizer access required.");

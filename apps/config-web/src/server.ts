@@ -513,9 +513,9 @@ function heldConsentBody(coach: string): { error: string; lobbyId?: string; lobb
 }
 
 /** The Discord-authenticated session on a request (the lobby accepts no other provenance). */
-function lobbyAuthFor(req: IncomingMessage): { coach: string; method: string } | undefined {
+function lobbyAuthFor(req: IncomingMessage): { coach: string; method: string; test?: boolean } | undefined {
   const session = sessionFromRequest(req);
-  return session ? { coach: session.coach, method: session.method } : undefined;
+  return session ? { coach: session.coach, method: session.method, ...(session.test ? { test: true } : {}) } : undefined;
 }
 
 // Tabletop match recorder store (env TABLETOP_DIR), created lazily on first use, beside the builder saves by default.
@@ -1286,6 +1286,9 @@ async function handleApi(
   }
 
   if (path === "/api/tournaments" || path.startsWith("/api/tournaments/") || path === "/api/fork/tournaments" || path.startsWith("/api/fork/tournaments/") || path.startsWith("/api/scheduled-matches")) {
+    // A test sign-in session (src/auth/testLogin.ts) must never create real tournament or scheduled-match state.
+    if (WRITE_METHODS.has(method) && getSession(sessionTokenFromRequest(req))?.test)
+      return sendJson(res, 403, { error: "Test sign-in sessions cannot write tournament or scheduled-match data." });
     const body = WRITE_METHODS.has(method) && method !== "DELETE" ? await readBody(req) : undefined;
     let eloSnapshot: ReturnType<typeof computeElo> | undefined;
     const result = await tournamentApi(method, path, query, auth, body, {
