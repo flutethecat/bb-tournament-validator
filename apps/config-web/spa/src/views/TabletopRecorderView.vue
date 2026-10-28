@@ -14,15 +14,16 @@ import TabletopRosters from "../components/TabletopRosters.vue";
 import TabletopScoreboard from "../components/TabletopScoreboard.vue";
 import TabletopSettings from "../components/TabletopSettings.vue";
 import TabletopTurnSet from "../components/TabletopTurnSet.vue";
+import TabletopRail from "../components/TabletopRail.vue";
 import TabletopTimeline from "../components/TabletopTimeline.vue";
 import TabletopWeatherBar from "../components/TabletopWeatherBar.vue";
 import { canEditMatch, createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
 import { SESSION_KEY } from "../session";
 import { THEME_KEY } from "../theme";
-import { createCueTracker, timerOn, timerRemaining } from "../tabletop/clock";
+import { createCueTracker, timerOn, timerRemaining, turnLabel } from "../tabletop/clock";
 import { createCuePlayer } from "../tabletop/sounds";
 import TabletopGlyph from "../components/TabletopGlyph.vue";
-import { CAS_EVENT, CASUALTY_RESULTS_UI, ELIGIBILITY_KEY, eligiblePlayers, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, visibleSidesFor, type OtherEvent } from "../tabletop/feed";
+import { weatherParts, CAS_EVENT, CASUALTY_RESULTS_UI, ELIGIBILITY_KEY, eligiblePlayers, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, visibleSidesFor, type OtherEvent } from "../tabletop/feed";
 import { browserStorage } from "../tabletop/queue";
 import { createRecorder, RECORDER_KEY, type Side, type SummaryView } from "../tabletop/recorder";
 
@@ -145,6 +146,20 @@ async function saveTurn(body: { half: number | string; turn: number; activeTeam:
   await rec.setTurn(body);
   if (!state.actionError) turnSetOpen.value = false;
 }
+/** The newest event the undo rules let this viewer take back (the feed trash rules), for the desktop rail. */
+const lastUndoable = computed(() => rows.value.find((r) => r.undoable && (organiser.value || !mySide.value || r.team === mySide.value)));
+const canUndoLast = computed(() => canEdit.value && editMode.value && recording.value && lastUndoable.value !== undefined);
+const stripState = computed(() => {
+  const c = state.clock;
+  const m = match.value;
+  if (!m) return "";
+  if (m.state !== "recording") return matchRow.value;
+  if (!c || c.turn === undefined) return "";
+  const lab = turnLabel(c.half, c.turn);
+  if (c.turn === 0) return `Kick-off, ${lab}`;
+  return `${c.activeTeam ? m[c.activeTeam].teamName : "Turn"}, ${lab}`;
+});
+const weatherName = computed(() => weatherParts(state.pregame, state.events).name);
 const undoById = (id: string): void => { const e = state.events.find((x) => x.id === id); if (e) void rec.undo(e); };
 
 /** The match state as a feed line (nothing while recording): green, full width, like TourPlay's "Match reported". */
@@ -188,11 +203,27 @@ onBeforeUnmount(() => {
   </section>
   <p v-else-if="!match" class="muted">Loading...</p>
   <div v-else class="tt-rec" :data-tt-theme="theme">
+    <div class="tt-crumbs">
+      <span class="tt-crumb-brand">Super FUMBBL</span>
+      <RouterLink to="/tabletop">Tabletop</RouterLink><span aria-hidden="true">/</span>
+      <span class="tt-crumb-cur">{{ match.home.teamName }} vs {{ match.away.teamName }}</span>
+      <span class="tt-crumb-actions">
+        <button class="tt-crumb-btn" type="button" @click="rosters = true">Rosters</button>
+        <button class="tt-crumb-btn" type="button" aria-label="Open settings" @click="settingsOpen = true">&#9881;</button>
+      </span>
+    </div>
     <TabletopScoreboard
       :match="match" :teams="state.teams" :tally="state.tally" :events="state.events" :pregame="state.pregame"
       :clock="state.clock" :remaining="remaining" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy" :inducement-icons="state.inducementIcons" :art="state.art"
       @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @rosters="rosters = true" @settings="settingsOpen = true"
     />
+
+    <div class="tt-stripbar">
+      <span v-if="weatherName" class="tt-stripbar-w">{{ weatherName }}</span><span v-if="weatherName && stripState" aria-hidden="true">&middot;</span>
+      <span v-if="stripState" class="tt-stripbar-t">{{ stripState }}</span>
+      <TabletopTimeline :rows="rows" />
+      <span class="tt-stripbar-end">Final</span>
+    </div>
 
     <div class="tt-mid">
     <main class="tt-feed">
@@ -248,9 +279,17 @@ onBeforeUnmount(() => {
       </template>
 
       <p v-if="canEdit && editMode" class="tt-edit-bar" role="status">You are in edit mode.</p>
+      <h2 class="tt-label tt-log-h">Match log</h2>
       <TabletopFeed :rows="rows" :can-undo="canEdit && editMode && recording" :undo-side="organiser ? null : mySide" :compact="viewer.state.compact" :timestamps="viewer.state.timestamps" @undo="undoById" />
     </main>
     </div>
+
+    <TabletopRail
+      :match="match" :clock="state.clock" :remaining="remaining" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy"
+      :recording="recording" :can-change-turn="canEdit" :can-undo-last="canUndoLast"
+      @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @pick="(k) => { viewer.buzz(); openPick(k); }" @other="viewer.buzz(); other = true"
+      @change-turn="turnSetOpen = true" @undo-last="lastUndoable && undoById(lastUndoable.id)" @end-match="endSheet = true"
+    />
 
     <nav v-if="recording" class="tt-actions-bar" aria-label="Record an event">
       <button class="tt-big tt-big-td" type="button" @click="viewer.buzz(); openPick(TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" :size="36" /><span>TD</span></button>

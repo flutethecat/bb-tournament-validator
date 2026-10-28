@@ -457,6 +457,23 @@ describe("tabletop routes (server-rendered)", () => {
     expect(states(turnCells(clock(null, 8), "away"))).toBe("dddddddd");
   });
 
+  it("desktop rail: the rail container with TD, CAS and Other, the state strip, the crumb row and the Quick box render beside the log", async () => {
+    const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) });
+    expect(html).toContain('class="tt-rail"');
+    expect(html.match(/class="tt-rail-btn tt-rail-(td|cas|other)"/g)).toHaveLength(3);
+    expect(html).toContain('class="tt-rail-end"'); // Alice plays home and home is active
+    expect(html).toContain("tt-stripbar");
+    expect(html).toContain("tt-crumbs");
+    expect(html).toContain("Match log");
+    expect(html).toContain("End match");
+    expect(html).not.toContain("Undo last event"); // undo rides edit mode
+    expect(html.indexOf('class="tt-rail"')).toBeGreaterThan(html.indexOf('class="tt-mid"'));
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/@media \(min-width: 1024px\) \{[\s\S]*\.tt-rec > \.tt-actions-bar \{ display: none; \}/); // no bottom bar on desktop
+    expect(css).toMatch(/grid-template-columns: minmax\(0, 1fr\) 232px/);
+  });
+
   it("event feed (Modern Retro): home cards left, away cards right, both-team cards full width, a jump id per card, a turn mark", async () => {
     const evs = [
       { id: "p1", type: "coinFlip", team: "home", payload: { mode: "auto", result: "tails" } },
