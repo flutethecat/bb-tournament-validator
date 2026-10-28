@@ -239,3 +239,6 @@
 @media (min-width: 1600px) { .tv-staff-icon { width: 54px; height: 54px; } }
 /* Owner 10-28: the gold box must win over the generic chip border rule above (same specificity order issue). */
 .tv-table .skill.tv-added, .tv-cards .skill.tv-added, .tv-key .skill.tv-added { border-color: var(--ui-gold); }
+/* Owner 10-28: no gap above the panel titles. */
+.tv-extras .tv-panel { padding-top: 10px; }
+.tv-extras .tv-panel > .section-title { margin: 0 0 6px; line-height: 1.1; }

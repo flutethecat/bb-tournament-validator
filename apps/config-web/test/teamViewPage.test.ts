@@ -218,7 +218,8 @@ describe("team view: hostile strings (Sol r1 P3)", () => {
     // every hostile art path (javascript:, traversal, quote break-out) is dropped; the only <img> left are the page's own fixed staff icons
     const imgSrcs = [...markup.matchAll(/<img [^>]*src="([^"]*)"/g)].map((m) => m[1]);
     expect(imgSrcs.every((src) => /^\/icons\/(ui|inducements)\/[a-z_]+\.png$/.test(src))).toBe(true);
-    expect(imgSrcs.length).toBe(5);
+    expect(imgSrcs.length).toBeGreaterThan(0); // staff with a zero count are not listed (owner 10-28)
+    expect(imgSrcs.length).toBeLessThanOrEqual(5);
     expect(liveAttributes(markup).filter((a) => /^on/i.test(a))).toEqual([]); // no live event-handler attribute anywhere
     const escaped = "&lt;img src=x onerror=alert(1)&gt;&quot;&#39;&amp;";
     const tableStart = markup.indexOf('<table class="tv-table">');

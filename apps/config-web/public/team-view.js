@@ -107,8 +107,11 @@
       ["Assistant coaches", s.assistantCoaches ?? 0, "icons/inducements/part_time_assistant_coaches.png"],
       ["Cheerleaders", s.cheerleaders ?? 0, "icons/inducements/temp_agency_cheerleaders.png"], ["Dedicated fans", s.dedicatedFans ?? 1, "icons/ui/dedicated_fans.png"],
     ];
+    // Owner 10-28: staff the team has none of (0 / no apothecary) are not listed.
+    const shown = rows.filter(([, v]) => !(v === 0 || v === "0" || v === "No"));
+    const list = shown.length ? shown : [["No sideline staff", "", ""]];
     return `<section class="tv-panel" aria-labelledby="tv-sideline-title"><h2 id="tv-sideline-title" class="section-title"><span>S</span>ideline <span>S</span>taff</h2>
-      <dl class="tv-pairs">${rows.map(([k, v, icon]) => { const src = artSrc(icon); return `<div><dt class="tv-staff-cell">${src ? `<img class="crest-image tv-staff-icon" src="${esc(src)}" alt="" aria-hidden="true" loading="lazy">` : ""}<span>${esc(k)}</span></dt><dd>${esc(v)}</dd></div>`; }).join("")}</dl></section>`;
+      <dl class="tv-pairs">${list.map(([k, v, icon]) => { const src = artSrc(icon); return `<div><dt class="tv-staff-cell">${src ? `<img class="crest-image tv-staff-icon" src="${esc(src)}" alt="" aria-hidden="true" loading="lazy">` : ""}<span>${esc(k)}</span></dt><dd>${esc(v)}</dd></div>`; }).join("")}</dl></section>`;
   }
   function inducementsHtml(team) {
     const list = team.inducements ?? [];
