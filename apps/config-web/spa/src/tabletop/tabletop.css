@@ -202,11 +202,12 @@
 /* hero: team-colour gradient split; a team file colour (--tt-team) replaces the token tint on its own side */
 .tt-corner.home { grid-column: 1; grid-row: 2; background: linear-gradient(90deg, color-mix(in srgb, var(--tt-team, transparent) 60%, transparent), transparent); }
 .tt-corner.away { grid-column: 3; grid-row: 2; align-items: flex-end; text-align: right; background: linear-gradient(270deg, color-mix(in srgb, var(--tt-team, transparent) 60%, transparent), transparent); }
-.tt-centre { grid-column: 2; grid-row: 2; }
+.tt-centre { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; min-width: 0; padding: 2px 0; }
 .tt-turns { grid-column: 1 / -1; grid-row: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: start; gap: 4px; padding: 4px 8px 0; }
 .tt-track { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 1px; align-items: center; max-width: 280px; width: 100%; }
-.tt-track.home { justify-self: end; }
-.tt-track.away { justify-self: start; }
+.tt-track.home { grid-column: 1; grid-row: 1; justify-self: end; }
+.tt-half { grid-column: 2; grid-row: 1; }
+.tt-track.away { grid-column: 3; grid-row: 1; justify-self: start; }
 .tt-cell { padding: 3px 0; text-align: center; font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--tt-muted); background: color-mix(in srgb, var(--tt-panel) 70%, transparent); }
 .tt-cell[data-state="done"] { color: var(--tt-ink); background: var(--tt-panel); }
 .tt-cell[data-state="active"] { color: var(--tt-on-accent); background: var(--tt-accent); font-weight: 700; outline: 2px solid var(--ui-focus-halo, var(--tt-ink)); outline-offset: -1px; }

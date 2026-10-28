@@ -129,7 +129,7 @@ describe("tabletop routes (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC] = await Promise.all([
+    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
@@ -154,8 +154,9 @@ describe("tabletop routes (server-rendered)", () => {
       vite.ssrLoadModule("/src/components/TabletopTtm.vue"),
       vite.ssrLoadModule("/src/components/TabletopTimeline.vue"),
       vite.ssrLoadModule("/src/components/TabletopWeatherBar.vue"),
+      vite.ssrLoadModule("/src/tabletop/clock.ts"),
     ]);
-    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC };
+    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -431,12 +432,29 @@ describe("tabletop routes (server-rendered)", () => {
     }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
     expect(html.match(/class="tt-cell"/g)).toHaveLength(16); // 8 per team for the half in play
     expect(html.match(/data-state="active"/g)).toHaveLength(1); // the active team's current turn only
-    expect(html).toMatch(/data-state="active" aria-current="step">11</); // second half turn 3 reads 11
+    expect(html).toMatch(/data-state="active" aria-current="step">3</); // turns read 1-8 in every half
     expect(html).toContain("2nd half");
     expect(html).toContain("<span>1</span> : <span>0</span>");
     expect(html).toContain("<span>TD</span>");
     expect(html).toContain("<span>CAS</span>");
     expect(html).not.toContain("tt-clock"); // no turn timer in this clock
+  });
+
+  it("turn track: 1-8 per half; same-number turn is done for the team that already ended it; both 8th cells done at match end", () => {
+    const { turnCells, turnKey } = mods.clockMod;
+    const states = (cells: Array<{ state: string }>) => cells.map((c) => c.state[0]).join("");
+    const clock = (active: "home" | "away" | null, turn: number, half = 2) => ({ half, turn, activeTeam: active });
+    // second half, turn 3, away active: numbers stay 1-8
+    expect(turnCells(clock("away", 3), "away").map((c: { n: number }) => c.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    // kicker/receiver: home played turn 3 first (its turnEnd is recorded), away is active on turn 3
+    const ended = new Set([turnKey(2, 3, "home")]);
+    expect(states(turnCells(clock("away", 3), "home", ended))).toBe("dddttttt");
+    expect(states(turnCells(clock("away", 3), "away", ended))).toBe("ddattttt");
+    // no turnEnd yet for the other team: its same-number cell is still to come
+    expect(states(turnCells(clock("home", 3), "away"))).toBe("ddtttttt");
+    // match end: turn 8 and nobody active
+    expect(states(turnCells(clock(null, 8), "home"))).toBe("dddddddd");
+    expect(states(turnCells(clock(null, 8), "away"))).toBe("dddddddd");
   });
 
   it("event feed (Modern Retro): home cards left, away cards right, both-team cards full width, a jump id per card, a turn mark", async () => {

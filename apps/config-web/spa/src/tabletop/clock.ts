@@ -123,18 +123,23 @@ export function createCueTracker() {
 /** One cell of the turn track. */
 export interface TurnCell { n: number; state: "done" | "active" | "todo" }
 
+/** Key of one team's turn in one half, as used by the ended-turns set. */
+export const turnKey = (half: number | string | undefined, turn: number | undefined, team: Side): string => `${half ?? 1}:${turn ?? 0}:${team}`;
+
 /**
- * The turn track of one team for the half in play: eight cells numbered 1-8 (first half) or 9-16 (second half and
- * overtime), like TourPlay's track. A cell is done once its turn has passed and active on the team's own turn.
+ * The turn track of one team for the half in play: eight cells numbered 1-8 (the half label carries the half). A cell
+ * is active on the team's own current turn; done once that turn was played: every turn before the current one, the
+ * current number when the server already recorded this team's turn end for it (the team that went first), and both
+ * last cells when the match is over (turn in play, no active team). `ended` holds turnKey()s from the turnEnd events.
  */
-export function turnCells(clock: ClockView | undefined, side: Side): TurnCell[] {
-  const half = clock?.half;
-  const base = half === "OT" || (typeof half === "number" && half >= 2) ? 8 : 0;
+export function turnCells(clock: ClockView | undefined, side: Side, ended: ReadonlySet<string> = new Set()): TurnCell[] {
   const turn = clock?.turn ?? 0;
+  const over = turn > 0 && !clock?.activeTeam;
   return Array.from({ length: 8 }, (_, i) => {
     const t = i + 1;
-    const state: TurnCell["state"] = turn === t && clock?.activeTeam === side ? "active" : t < turn ? "done" : "todo";
-    return { n: base + t, state };
+    const state: TurnCell["state"] = turn === t && clock?.activeTeam === side ? "active"
+      : t < turn || ended.has(turnKey(clock?.half, t, side)) || (over && t <= turn) ? "done" : "todo";
+    return { n: t, state };
   });
 }
 

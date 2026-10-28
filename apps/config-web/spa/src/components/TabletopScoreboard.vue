@@ -3,7 +3,7 @@
 // Crest, coach, team and the inducement row per corner; score and the half / turn stepper in the centre; weather and
 // coin on a compact line under it. Everything comes from the server's match, teams, tally and pre-game summary.
 import { computed } from "vue";
-import { centreMode, formatTimer, halfLabel, turnCells, turnLabel, type ClockView } from "../tabletop/clock";
+import { centreMode, formatTimer, halfLabel, turnCells, turnKey, turnLabel, type ClockView } from "../tabletop/clock";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { uiIcon, weatherParts } from "../tabletop/feed";
 import type { MatchView, RecordedEvent, ServerTally, Side, TeamView } from "../tabletop/recorder";
@@ -68,7 +68,9 @@ const fill = computed(() => {
 const alert = computed(() => timed.value && (props.remaining as number) <= 10);
 const zero = computed(() => timed.value && (props.remaining as number) <= 0);
 const weather = computed(() => weatherParts(props.pregame, props.events));
-const cells = (s: Side) => turnCells(props.clock, s);
+/** Turns the server recorded as ended (turnEnd events carry the half, turn and team). */
+const endedTurns = computed(() => new Set(props.events.filter((e) => e.type === "turnEnd").map((e) => turnKey((e as { half?: number | string }).half, (e as { turn?: number }).turn, e.team))));
+const cells = (s: Side) => turnCells(props.clock, s, endedTurns.value);
 const half = computed(() => halfLabel(props.clock?.half));
 /** The team colour from the team file (a plain hex only), else the theme tokens colour the side. */
 const tint = (s: Side): Record<string, string> | undefined => {
