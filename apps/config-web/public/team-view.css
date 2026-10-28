@@ -232,3 +232,8 @@
 .tv-extras .tv-ind-table tbody td { padding-block: 6px; }
 .tv-extras .tv-ind-table tbody td.tv-ind-cell { font-size: 18px; gap: 12px; }
 @media (min-width: 1600px) { .tv-ind-table .tv-ind-icon { width: 60px; height: 60px; } }
+/* Owner 10-28: Sideline Staff lines carry icons like the inducements. */
+.tv-staff-cell { display: flex; align-items: center; gap: 12px; }
+.tv-staff-icon { width: 52px; height: 52px; object-fit: contain; }
+.tv-extras .tv-pairs > div { padding: 4px 6px; }
+@media (min-width: 1600px) { .tv-staff-icon { width: 60px; height: 60px; } }

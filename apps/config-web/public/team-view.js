@@ -101,12 +101,14 @@
 
   function sidelineHtml(team) {
     const s = team.sideline ?? {};
+    // Owner 10-28: each staff line carries a Super FUMBBL icon (served from /icons, same provenance as the builder art).
     const rows = [
-      ["Rerolls", s.reRolls ?? 0], ["Apothecary", s.apothecary ? "Yes" : "No"], ["Assistant coaches", s.assistantCoaches ?? 0],
-      ["Cheerleaders", s.cheerleaders ?? 0], ["Dedicated fans", s.dedicatedFans ?? 1],
+      ["Rerolls", s.reRolls ?? 0, "icons/ui/re_roll.png"], ["Apothecary", s.apothecary ? "Yes" : "No", "icons/ui/apothecary.png"],
+      ["Assistant coaches", s.assistantCoaches ?? 0, "icons/inducements/part_time_assistant_coaches.png"],
+      ["Cheerleaders", s.cheerleaders ?? 0, "icons/inducements/temp_agency_cheerleaders.png"], ["Dedicated fans", s.dedicatedFans ?? 1, "icons/ui/dedicated_fans.png"],
     ];
     return `<section class="tv-panel" aria-labelledby="tv-sideline-title"><h2 id="tv-sideline-title" class="section-title"><span>S</span>ideline <span>S</span>taff</h2>
-      <dl class="tv-pairs">${rows.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl></section>`;
+      <dl class="tv-pairs">${rows.map(([k, v, icon]) => { const src = artSrc(icon); return `<div><dt class="tv-staff-cell">${src ? `<img class="crest-image tv-staff-icon" src="${esc(src)}" alt="" aria-hidden="true" loading="lazy">` : ""}<span>${esc(k)}</span></dt><dd>${esc(v)}</dd></div>`; }).join("")}</dl></section>`;
   }
   function inducementsHtml(team) {
     const list = team.inducements ?? [];
