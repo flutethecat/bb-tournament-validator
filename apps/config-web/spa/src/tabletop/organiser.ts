@@ -52,8 +52,8 @@ export function createOrganiser(deps: { api: Fetcher; onSignedOut: () => void })
 
   async function loadTournaments(): Promise<void> {
     try {
-      const active = await deps.api<{ tournaments: TournamentOption[] }>("/api/tournaments");
-      const draft = await deps.api<{ tournaments: TournamentOption[] }>("/api/tournaments?status=draft");
+      const active = await deps.api<{ tournaments: TournamentOption[] }>("/api/fork/tournaments");
+      const draft = await deps.api<{ tournaments: TournamentOption[] }>("/api/fork/tournaments?status=draft");
       const seen = new Set<string>();
       state.tournaments = [...(active.tournaments ?? []), ...(draft.tournaments ?? [])].filter((t) => !seen.has(t.id) && seen.add(t.id));
       state.error = "";
