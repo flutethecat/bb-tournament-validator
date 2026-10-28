@@ -162,6 +162,45 @@ const stripState = computed(() => {
   return `${c.activeTeam ? m[c.activeTeam].teamName : "Turn"}, ${lab}`;
 });
 const weatherName = computed(() => weatherParts(state.pregame, state.events).name);
+// Tooltips: any element with data-tip pops one fixed bubble (above it; below it when data-tip-pos="bottom" or the element
+// sits near the top edge) after 120 ms on hover or keyboard focus; on touch a tap shows it for 1.5 s. It never takes pointer events.
+const tip = reactive({ show: false, text: "", x: 0, y: 0, below: false, arrow: 50 });
+let tipTimer: ReturnType<typeof setTimeout> | undefined;
+let tipHide: ReturnType<typeof setTimeout> | undefined;
+const tipTarget = (e: Event): HTMLElement | null => (e.target instanceof Element ? (e.target.closest("[data-tip]") as HTMLElement | null) : null);
+function tipShow(el: HTMLElement): void {
+  const text = el.dataset.tip ?? "";
+  if (!text) return;
+  const r = el.getBoundingClientRect();
+  const below = el.dataset.tipPos === "bottom" || r.top < 96;
+  const cx = r.left + r.width / 2;
+  const half = 134;
+  const x = Math.min(Math.max(cx, half + 6), Math.max(half + 6, window.innerWidth - half - 6));
+  Object.assign(tip, { show: true, text, x, y: below ? r.bottom + 8 : r.top - 8, below, arrow: Math.min(Math.max(((cx - x) / (half * 2)) * 100 + 50, 8), 92) });
+}
+function tipClear(): void {
+  clearTimeout(tipTimer);
+  tip.show = false;
+}
+function onTipOver(e: PointerEvent): void {
+  if (e.pointerType === "touch") return;
+  const el = tipTarget(e);
+  clearTimeout(tipTimer);
+  if (!el) { tip.show = false; return; }
+  tipTimer = setTimeout(() => tipShow(el), 120);
+}
+function onTipFocus(e: FocusEvent): void {
+  const el = tipTarget(e);
+  if (el && el.matches(":focus-visible")) { clearTimeout(tipTimer); tipTimer = setTimeout(() => tipShow(el), 120); }
+}
+function onTipTouch(e: PointerEvent): void {
+  if (e.pointerType !== "touch") return;
+  const el = tipTarget(e);
+  clearTimeout(tipHide);
+  if (!el) { tip.show = false; return; }
+  tipShow(el);
+  tipHide = setTimeout(() => { tip.show = false; }, 1500);
+}
 const undoById = (id: string): void => { const e = state.events.find((x) => x.id === id); if (e) void rec.undo(e); };
 
 /** The match state as a feed line (nothing while recording): green, full width, like TourPlay's "Match reported". */
@@ -191,6 +230,8 @@ onMounted(() => {
   void rec.loadArt();
 });
 onBeforeUnmount(() => {
+  clearTimeout(tipTimer);
+  clearTimeout(tipHide);
   if (tick) clearInterval(tick);
   document.removeEventListener("pointerdown", unlock);
   rec.stop();
@@ -204,14 +245,14 @@ onBeforeUnmount(() => {
     <RouterLink to="/tabletop">Back to Tabletop</RouterLink>
   </section>
   <p v-else-if="!match" class="muted">Loading...</p>
-  <div v-else class="tt-rec" :data-tt-theme="theme">
+  <div v-else class="tt-rec" :data-tt-theme="theme" @pointerover="onTipOver" @pointerout="tipClear" @pointerdown="onTipTouch" @focusin="onTipFocus" @focusout="tipClear">
     <div class="tt-crumbs">
       <span class="tt-crumb-brand">Super FUMBBL</span>
       <RouterLink to="/tabletop">Tabletop</RouterLink><span aria-hidden="true">/</span>
       <span class="tt-crumb-cur">{{ match.home.teamName }} vs {{ match.away.teamName }}</span>
       <span class="tt-crumb-actions">
-        <button class="tt-crumb-btn" type="button" @click="rosters = true">Rosters</button>
-        <button class="tt-crumb-btn" type="button" aria-label="Open settings" @click="settingsOpen = true">&#9881;</button>
+        <button class="tt-crumb-btn" type="button" data-tip="Both rosters, skills and SPP" data-tip-pos="bottom" @click="rosters = true">Rosters</button>
+        <button class="tt-crumb-btn" type="button" aria-label="Open settings" data-tip="Settings" data-tip-pos="bottom" @click="settingsOpen = true">&#9881;</button>
       </span>
     </div>
     <TabletopScoreboard
@@ -294,15 +335,17 @@ onBeforeUnmount(() => {
     />
 
     <nav v-if="recording" class="tt-actions-bar" aria-label="Record an event">
-      <button class="tt-big tt-big-td" type="button" @click="viewer.buzz(); openPick(TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" :size="36" /><span>TD</span></button>
-      <button class="tt-big tt-big-other" type="button" @click="viewer.buzz(); other = true"><TabletopGlyph :glyph="{ text: '\u22EF' }" :size="36" /><span>Other</span></button>
-      <button class="tt-big tt-big-cas" type="button" @click="viewer.buzz(); openPick(CAS_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.casualty" :size="36" /><span>CAS</span></button>
+      <button class="tt-big tt-big-td" type="button" data-tip="Record a touchdown" @click="viewer.buzz(); openPick(TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" :size="36" /><span>TD</span></button>
+      <button class="tt-big tt-big-other" type="button" data-tip="More events" @click="viewer.buzz(); other = true"><TabletopGlyph :glyph="{ text: '\u22EF' }" :size="36" /><span>Other</span></button>
+      <button class="tt-big tt-big-cas" type="button" data-tip="Record a casualty" @click="viewer.buzz(); openPick(CAS_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.casualty" :size="36" /><span>CAS</span></button>
     </nav>
+
+    <div v-if="tip.show" class="tt-tip" role="tooltip" :data-below="tip.below ? 'true' : null" :style="{ left: `${tip.x}px`, top: `${tip.y}px`, '--tt-tip-arrow': `${tip.arrow}%` }">{{ tip.text }}</div>
 
     <TabletopSettings v-if="settingsOpen" :theme="themeCtl" :settings="viewer" :edit-mode="editMode" :can-edit="canEdit" @edit="(on: boolean) => (editMode = on)" @change-turn="settingsOpen = false; turnSetOpen = true" @close="settingsOpen = false" />
     <TabletopTurnSet v-if="turnSetOpen" :match="match" :clock="state.clock" :busy="state.busy" :error="state.actionError" @close="turnSetOpen = false" @save="saveTurn" />
     <TabletopOther v-if="other" @pick="onOther" @close="other = false" />
-    <TabletopRosters v-if="rosters" :match="match" :teams="state.teams" :tally="state.tally" @close="rosters = false" />
+    <TabletopRosters v-if="rosters" :match="match" :teams="state.teams" :tally="state.tally" :art="state.art" @close="rosters = false" />
     <TabletopPick v-if="pick" :kind="pick" :match="match" :teams="state.teams" :visible-sides="pickSides" @pick="onPicked" @close="pick = null" />
     <TabletopTtm v-if="ttmOpen" :match="match" :teams="state.teams" :tally="state.tally" :visible-sides="visibleSides" @post="onTtm" @close="ttmOpen = false" />
 

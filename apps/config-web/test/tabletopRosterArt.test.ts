@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { bb2025 } from "@bb/validator/dataset";
@@ -42,5 +45,17 @@ describe("roster art for the recorder's Rosters pane", () => {
     expect(p.printed).toHaveLength(1);
     expect(p.added).toHaveLength(0);
     expect(p.printedStats).toBeUndefined();
+  });
+
+  it("a malformed manifest value never throws, and a sprite stored on the team file is never passed through", () => {
+    const orc = Object.values(bb2025.rosters).find((r) => r.name === "Orc")!;
+    const blitzer = orc.positions.find((p) => /blitzer/i.test(p.name))!;
+    const dir = mkdtempSync(join(tmpdir(), "rosterart-"));
+    mkdirSync(join(dir, "sprites"));
+    writeFileSync(join(dir, "sprites", "manifest.json"), JSON.stringify({ races: { orc: { blitzer: { not: "a string" } } } }));
+    const f: TabletopTeamFile = { ...file([]), rosterId: orc.id, players: [{ ...file([]).players[0]!, positionId: blitzer.id, skills: [...blitzer.skills], ...({ sprite: "../x.png" } as object) }] };
+    expect(() => withRosterArt(f, dir)).not.toThrow();
+    expect((withRosterArt(f, dir)!.players[0] as unknown as { sprite?: string }).sprite).toBeUndefined();
+    expect((withRosterArt(f)!.players[0] as unknown as { sprite?: string }).sprite).toBeUndefined(); // no art folder: stored value stripped too
   });
 });

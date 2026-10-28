@@ -397,10 +397,10 @@ describe("tabletop routes (server-rendered)", () => {
       away: { name: "Bob Elves", players: [{ id: "a1", name: "Lirael", number: 7, positionId: "catcher", spp: 3, mng: false, dead: false, niggles: 1 }] },
     };
     const html = await mount(mods.rostersC, { match: baseMatch("recording"), teams: rich, tally: serverTally });
-    for (const t of ["Rosters", "Alice Orcs", "Bob Elves", "1/2", "1/1", "Grob", "Blitzer", "Block", "Dodge", "MNG", "Treasury 120k", "<small>MA</small>6", "<small>ST</small>3", "<small>AG</small>3+", "<small>PA</small>-", "<small>AV</small>9+", "9 SPP", "(+3)"])
+    for (const t of ["Rosters", "Alice Orcs", "Bob Elves", "1/2", "1/1", "Grob", "Blitzer", "Block", "Dodge", "MNG", "Treasury 120k", "<b>6</b><small>MA</small>", "<b>3</b><small>ST</small>", "<b>3+</b><small>AG</small>", "<b>-</b><small>PA</small>", "<b>9+</b><small>AV</small>", "9 SPP", "(+3)"])
       expect(html, t).toContain(t);
     expect(html).toContain("lineman"); // a team file without a position name falls back to the position id
-    expect(html).toContain("<small>MA</small>-"); // stats the team file lacks show a dash
+    expect(html).toContain("<b>-</b><small>MA</small>"); // stats the team file lacks show a dash
   });
 
   it("scoreboard: crest, inducement icons with qty badge, weather in the centre, no coin result", async () => {
@@ -432,7 +432,7 @@ describe("tabletop routes (server-rendered)", () => {
     }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
     expect(html.match(/class="tt-cell"/g)).toHaveLength(16); // 8 per team for the half in play
     expect(html.match(/data-state="active"/g)).toHaveLength(1); // the active team's current turn only
-    expect(html).toMatch(/data-state="active" aria-current="step">3</); // turns read 1-8 in every half
+    expect(html).toMatch(/data-state="active"[^>]*aria-current="step">3</); // turns read 1-8 in every half
     expect(html).toContain("2nd half");
     expect(html).toContain("<span>1</span> : <span>0</span>");
     expect(html).toContain("<span>TD</span>");
@@ -467,6 +467,9 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("tt-stripbar");
     expect(html).toContain("tt-crumbs");
     expect(html).toContain("Match log");
+    expect(html).toContain('data-tip="Record a touchdown"');
+    expect(html.match(/class="tt-rail-btn[^>]*data-tip="/g)).toHaveLength(4); // every rail button carries a tip
+    expect(html).not.toMatch(/ title="/); // the recorder uses data-tip, never a native title
     expect(html).toContain("End match");
     expect(html).not.toContain("Undo last event"); // undo rides edit mode
     expect(html.indexOf('class="tt-rail"')).toBeGreaterThan(html.indexOf('class="tt-mid"'));
@@ -474,6 +477,10 @@ describe("tabletop routes (server-rendered)", () => {
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
     expect(css).toMatch(/@media \(min-width: 1024px\) \{[\s\S]*\.tt-rec > \.tt-actions-bar \{ display: none; \}/); // no bottom bar on desktop
     expect(css).toMatch(/grid-template-columns: 232px minmax\(0, 1fr\)/); // the rail sits left of the log
+    expect(css).toMatch(/\.tt-roster-list li\.roster-row \{/); // specificity above any plain li rule, so the grid row applies
+    expect(css).not.toMatch(/\.tt-roster-list li \{/);
+    expect(css).toMatch(/--tt-pad: max\(0px, calc\(\(100vw - 1400px\) \/ 2\)\)/); // the desktop page is centred in 1400 px
+    expect(css).toMatch(/--tt-hero-min: 168px;[\s\S]*--tt-hero-min: 200px;/); // one scale block, two steps
   });
 
   it("hero icon chips: rerolls always carry a count badge, apothecary and singles none, inducements badge from 2, unknown ones show a letter; titles carry name and count", async () => {
@@ -486,12 +493,13 @@ describe("tabletop routes (server-rendered)", () => {
       inducementIcons: { bribes: "icons/inducements/bribe.png" }, art: {},
     }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
     expect(html).toContain("/icons/ui/re_roll.png");
-    expect(html).toContain('title="Rerolls x3"');
+    expect(html).toContain('data-tip="Team rerolls: 3"');
+    expect(html).not.toContain(" title=");
     expect(html).toContain('<b class="tt-qty">3</b>');
-    expect(html).toContain('title="Apothecary"');
-    expect(html).toContain('title="Bribes x2"');
+    expect(html).toContain('data-tip="Apothecary"');
+    expect(html).toContain('data-tip="Bribes x2"');
     expect(html).toContain('<b class="tt-qty">2</b>');
-    expect(html).toContain('title="Mystery Item"');
+    expect(html).toContain('data-tip="Mystery Item x1"');
     expect(html).toContain('<span class="tt-chip-txt">M</span>');
     expect(html.match(/class="tt-qty"/g)).toHaveLength(2); // rerolls and bribes only
     expect(html).toMatch(/class="tt-coachline"><span class="tt-coach">/);
@@ -526,10 +534,13 @@ describe("tabletop routes (server-rendered)", () => {
       away: { name: "Bob Elves", players: [{ id: "a1", name: "Lirael", number: 7, spp: 0, mng: false, dead: false }] },
     };
     const html = await mount(mods.rostersC, { match: baseMatch("recording"), teams: rich, tally: serverTally });
-    expect(html.match(/class="tv-stat-box"/g)?.length ?? 0).toBeGreaterThanOrEqual(5);
-    expect(html).toMatch(/class="tv-stat-box" data-change="1"><small>MA<\/small>7<i class="tv-up tv-up-mark">▲<\/i>/); // MA 7 over the printed 6
-    expect(html).toMatch(/class="(?=[^"]*skill)[^"]*skill-general[^"]*">Block</); // a categorised chip
-    expect(html).toMatch(/class="(?=[^"]*tv-added)[^"]*skill-agility[^"]*"[^>]*>Dodge</); // the gold added-skill box
+    expect(html.match(/class="row-stats"/g)).toHaveLength(1);
+    expect(html).toMatch(/class="improved" data-tip="Movement Allowance \(printed 6\)"><b>7<\/b><small>MA<\/small>/); // MA 7 over the printed 6 (the builder's .improved)
+    expect(html).toContain('class="roster-row roster-grid');
+    expect(html).toContain('class="sprite-frame roster-sprite"');
+    expect(html).toMatch(/class="(?=[^"]*skill)[^"]*skill-general[^"]*"[^>]*>Block</); // a categorised chip
+    expect(html).toMatch(/class="(?=[^"]*chosen-chip)[^"]*skill-agility[^"]*"[^>]*>Dodge</); // the builder's added-skill chip
+    expect(html).toContain('data-tip="Dodge: Agility skill, added"');
     expect(html).toContain('class="tt-roster-name" data-seat="home">Grob<');
     expect(html).toContain('src="/sprites/orc/blitzer.png"');
     expect(html).toContain("RR 3");

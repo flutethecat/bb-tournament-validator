@@ -108,9 +108,6 @@
 .tt-roster-tab[data-active="true"] { border-color: var(--tt-accent); box-shadow: inset 0 -3px 0 var(--tt-accent); }
 .tt-roster-tab-name { font-family: var(--font-heading, sans-serif); font-size: 13px; }
 .tt-roster-count { position: absolute; right: 6px; bottom: 4px; font-size: 11px; color: var(--tt-muted); }
-.tt-roster-list { list-style: none; margin: 0; padding: 0; }
-.tt-roster-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 4px 0; border-top: 1px solid var(--tt-line); font-size: 13px; line-height: 1.25; }
-.tt-roster-list li[data-out="true"] { opacity: 0.55; }
 .tt-lvl { min-width: 34px; padding: 1px 4px; text-align: center; font-size: 10px; font-weight: 700; border: 1px solid transparent; }
 .tt-lvl[data-injury] { background: #a01818; color: #fff; border-color: #ffd45e; }
 .tt-roster-nr { color: var(--tt-muted); min-width: 28px; }
@@ -485,99 +482,161 @@
   .tt-corner .tt-coachline .tt-chip-img { width: 32px; height: 32px; }
 }
 
-/* ---- Rosters pane in the client's roster language (10-28). The tv-* rules are copied here, scoped to .tt-rosters, because
-   importing public/team-view.css + team-builder.css would pull page-level rules (* / body / h1-h3 / button resets) into the SPA. ---- */
+/* ---- Rosters pane in the Tournament Team Builder's language (10-28). The builder's own class names (roster-grid, roster-header,
+   roster-row, slot-number, player-cell, roster-sprite, sprite-frame, sprite-image, crest-frame, player-copy, row-stats, row-skills,
+   skill, skill-*, chosen-chip, cost, section-title, skill-key, roster-empty) are re-declared here, scoped to .tt-rosters, because
+   importing team-builder.css would pull its page-level rules (* / body / h1-h3 / button resets) into the SPA. ---- */
 .tt-rosters {
   --tv-bezel: inset 0 1px 0 rgb(255 255 255 / 8%), inset 0 -1px 0 rgb(0 0 0 / 45%), 0 2px 6px rgb(0 0 0 / 40%);
-  --ui-gold: #e8a33d; --ui-position: #ffd23d;
+  --ui-gold: #e8a33d; --ui-position: #ffd23d; --ui-eggshell: #e7ddc7; --ui-table-head-ink: var(--ui-skill-strength);
   --ui-skill-general: #6ea8ff; --ui-skill-agility: #ffd23d; --ui-skill-strength: #ff6b6b; --ui-skill-passing: #ffffff; --ui-skill-mutation: #6fcf6f; --ui-skill-trait: #b08b5a;
   --seat-home-text: #4a86fe; --seat-away-text: #fe6666; /* the client's seat inks (App.vue) */
   --tt-st-ko: #e0b040; --tt-st-bad: #e07a7a; --tt-st-down: #f05050; /* the client's status colours */
+  width: min(1100px, calc(100% - 16px)); padding: 12px 14px 14px; overflow-x: hidden;
 }
 :root[data-theme="fumbbl"] .tt-rosters {
-  --ui-gold: #8a5a00; --ui-position: #7a5c00;
+  --ui-gold: #8a5a00; --ui-position: #7a5c00; --ui-eggshell: #3d3424; --ui-table-head-ink: #4a0808;
   --ui-skill-general: #1d5fb8; --ui-skill-agility: #7a5c00; --ui-skill-strength: #a32626; --ui-skill-passing: #262626; --ui-skill-mutation: #2f6e2f; --ui-skill-trait: #6e4f28;
   --seat-home-text: #1d4fb8; --seat-away-text: #b01e1e; --tt-st-ko: #7a5c00; --tt-st-bad: #a32626; --tt-st-down: #a32626;
 }
-.tt-rosters { max-width: 100%; }
-.tt-rosters-head .tv-key { display: none; margin: 0; gap: 4px; font-size: 11px; flex-wrap: wrap; }
-.tt-rosters .skill { display: inline-flex; align-items: center; padding: 1px 6px; font-size: 12px; background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 78%, transparent); border: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 80%, var(--ui-text, #e6e9ef)); border-radius: 5px; }
+.tt-rosters-head { gap: 10px; flex-wrap: wrap; }
+.tt-rosters .section-title { margin: 0; color: var(--ui-heading, var(--tt-ink)); font-family: var(--font-heading, sans-serif); font-size: clamp(15px, 1.05vw, 18px); font-weight: 500; letter-spacing: .14em; text-transform: uppercase; }
+.tt-rosters .skill-key { display: none; margin: 0 0 0 auto; padding: 0; gap: 4px; flex-wrap: wrap; font-size: 11px; letter-spacing: .04em; }
+.tt-rosters .skill-key > span { padding: 2px 6px; }
+.tt-rosters .skill { display: inline-flex; align-items: center; padding: 1px 6px; background: var(--tt-panel); border: 1px solid var(--tt-line); border-radius: 5px; }
 .tt-rosters .skill-general { color: var(--ui-skill-general); }
 .tt-rosters .skill-agility { color: var(--ui-skill-agility); }
 .tt-rosters .skill-strength { color: var(--ui-skill-strength); }
 .tt-rosters .skill-passing { color: var(--ui-skill-passing); }
+.tt-rosters .skill-trait { color: var(--ui-skill-trait); }
 .tt-rosters .skill-mutation { color: var(--ui-skill-mutation); }
-.tt-rosters .skill-trait { color: color-mix(in srgb, var(--ui-skill-trait) 45%, var(--ui-text, #e6e9ef)); }
-.tt-rosters .row-skills { display: flex; flex-wrap: wrap; gap: 4px; font-size: 13px; line-height: 1.35; }
-/* an added skill: the client's gold box with a small + badge */
-.tt-rosters .tv-added { position: relative; border: 1.5px solid var(--ui-gold); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-gold) 35%, transparent); border-radius: 4px; padding-right: 14px; margin-right: 6px; }
-.tt-rosters .tv-added::after { content: "+"; position: absolute; top: -8px; right: -8px; width: 16px; height: 16px; display: grid; place-items: center; font: 800 13px/1 var(--font-body, sans-serif); color: var(--ui-text-on-primary, #ffffff); background: var(--ui-danger, #ff4d4d); border-radius: 50%; box-shadow: 0 0 0 1px var(--tt-panel); }
+.tt-rosters .chosen-chip { font-style: italic; border-style: dashed; }
+.tt-rosters .row-skills { display: flex; flex-wrap: wrap; gap: 4px; font-size: 14px; line-height: 1.35; }
 
-/* team switch tabs: the coach-panel look, seat-coloured when active */
-.tt-rosters .tt-roster-tab { align-items: flex-start; gap: 1px; min-height: 64px; padding: 6px 10px 18px; background: linear-gradient(180deg, color-mix(in srgb, var(--tt-panel) 92%, #fff), var(--tt-bg)); border: 2px solid var(--tt-line); border-radius: 5px; box-shadow: 0 4px 0 color-mix(in srgb, var(--tt-bg) 70%, #000), inset 0 1px 0 color-mix(in srgb, var(--tt-line) 60%, #fff); }
-.tt-rosters .tt-roster-tab[data-seat="home"] .tt-roster-tab-name { color: var(--seat-home-text); }
-.tt-rosters .tt-roster-tab[data-seat="away"] .tt-roster-tab-name { color: var(--seat-away-text); }
-.tt-rosters .tt-roster-tab[data-seat="home"][data-active="true"] { border-color: var(--seat-home-text); box-shadow: 0 4px 0 color-mix(in srgb, var(--tt-bg) 70%, #000), inset 0 -3px 0 var(--seat-home-text); }
-.tt-rosters .tt-roster-tab[data-seat="away"][data-active="true"] { border-color: var(--seat-away-text); box-shadow: 0 4px 0 color-mix(in srgb, var(--tt-bg) 70%, #000), inset 0 -3px 0 var(--seat-away-text); }
-.tt-rosters .tt-roster-tab-name { font-size: 15px; }
-.tt-rosters .tt-roster-coach { color: var(--tt-muted); }
-.tt-roster-chips { position: absolute; left: 8px; bottom: 3px; display: inline-flex; gap: 4px; }
-.tt-roster-chip { padding: 0 6px; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--tt-ink); background: var(--tt-btn); border: 1px solid var(--tt-line); border-radius: 3px; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--tt-line) 60%, #fff); }
+/* notebook team tabs: the active tab pops up and fuses with the page below it (builder .tt-steps) */
+.tt-rosters .tt-roster-tabs { display: flex; align-items: flex-end; gap: 6px; margin: 8px 0 0; padding: 0 10px; position: relative; }
+.tt-rosters .tt-roster-tab { flex: 1 1 0; position: relative; flex-direction: row; align-items: center; gap: 10px; min-height: 58px; margin-bottom: -2px; padding: 8px 14px 10px; color: var(--tt-muted); background: color-mix(in srgb, var(--tt-panel) 70%, var(--tt-bg)); border: 2px solid var(--tt-line); border-bottom: 0; border-radius: 12px 12px 0 0; box-shadow: inset 0 -6px 10px -8px rgb(0 0 0 / 70%); transform: translateY(8px); z-index: 0; transition: transform .18s ease, background-color .18s ease; text-align: left; }
+.tt-rosters .tt-roster-tab:hover:not([data-active="true"]) { transform: translateY(4px); }
+.tt-rosters .tt-roster-tab[data-active="true"] { min-height: 70px; color: var(--ui-text-on-primary, #ffffff); background: var(--ui-primary, var(--tt-accent)); border-color: var(--ui-heading, var(--tt-accent)); box-shadow: 0 -4px 14px rgb(0 0 0 / 45%), inset 0 3px 0 var(--ui-heading, var(--tt-accent)); transform: none; z-index: 3; }
+.tt-rosters .tt-roster-tab[data-seat="home"][data-active="true"] { border-left-color: var(--seat-home-text); }
+.tt-rosters .tt-roster-tab[data-seat="away"][data-active="true"] { border-right-color: var(--seat-away-text); }
+.tt-rosters .sprite-frame.crest-frame { width: 48px; height: 48px; }
+.tt-rosters .crest-frame .crest-image { position: absolute; inset: 3px; width: calc(100% - 6px); height: calc(100% - 6px); object-fit: contain; }
+.tt-roster-tab-main { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; gap: 1px; }
+.tt-rosters .tt-roster-tab-name { font: 17px/1.1 var(--font-heading, sans-serif); letter-spacing: .06em; color: inherit; }
+.tt-rosters .tt-roster-coach { color: inherit; opacity: .8; font-size: 13px; }
+.tt-roster-chips { display: inline-flex; gap: 4px; margin-top: 2px; }
+.tt-roster-chip { padding: 0 6px; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--tt-ink); background: var(--tt-btn); border: 1px solid var(--tt-line); border-radius: 3px; }
+.tt-rosters .tt-roster-count { position: absolute; right: 10px; top: 8px; font-size: 12px; color: inherit; opacity: .85; }
 
-/* player cards (phone): sprite, name block and SPP on the head line, then stats, skills, detail */
-.tt-roster-list { display: grid; gap: 8px; }
-.tt-roster-list > li { box-sizing: border-box; }
-.tt-rp { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; grid-template-areas: "sprite who spp" "stats stats stats" "skills skills skills" "inj inj inj"; gap: 6px 10px; align-items: center; padding: 8px; border: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 70%, var(--ui-primary, #790004)); border-radius: 5px; background: var(--tt-panel); box-shadow: var(--tv-bezel); cursor: pointer; font-size: 13px; }
-.tt-roster-list > .tt-rp:nth-child(even) { background: color-mix(in srgb, var(--tt-bg) 55%, var(--tt-panel)); }
-.tt-rp:hover { background: var(--ui-hover, var(--tt-btn)); }
-.tt-rp[data-active="true"] { background: color-mix(in srgb, var(--ui-accent, var(--tt-accent)) 20%, var(--tt-panel)); }
-.tt-rp[data-out="true"] .tv-stat-box { opacity: .55; }
-.tt-rp[data-out="true"] { opacity: .85; }
-.tt-rp[data-dead="true"] .tt-roster-name { text-decoration: line-through; }
-.tv-sprite { grid-area: sprite; position: relative; display: block; width: 56px; height: 56px; background: color-mix(in srgb, var(--tt-bg) 80%, var(--ui-primary, #790004)); border: 1px solid var(--tt-line); border-radius: 4px; overflow: hidden; }
-.tv-sprite .sprite-fallback { position: absolute; inset: 0; display: grid; place-items: center; color: var(--tt-muted); font-family: var(--font-heading, sans-serif); font-size: 16px; }
-.tv-sprite .sprite-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; image-rendering: auto; }
-.tt-rp-who { grid-area: who; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.tt-rp-top { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
-.tt-roster-nr { min-width: 0; color: var(--tt-ink); font-variant-numeric: tabular-nums; }
-.tt-roster-name { font-family: var(--font-heading, sans-serif); font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+/* the notebook page + the builder's roster grid */
+.tt-roster-page { position: relative; z-index: 1; border-top: 2px solid var(--ui-heading, var(--tt-accent)); background: var(--tt-bg); }
+.tt-roster-meta { margin: 0; padding: 6px 12px; }
+.tt-rosters .roster-grid { display: grid; gap: 8px; }
+.tt-rosters .roster-header { display: none; padding: 9px 12px; color: var(--ui-table-head-ink); background: color-mix(in srgb, var(--ui-primary, #790004) 34%, var(--tt-bg)); border-bottom: 2px solid var(--ui-primary, var(--tt-accent)); font-size: 14px; letter-spacing: .1em; text-transform: uppercase; }
+.tt-roster-list { list-style: none; margin: 0; padding: 0; display: block; }
+.tt-roster-list li.roster-row { box-sizing: border-box; display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; grid-template-areas: "sprite who spp" "stats stats stats" "skills skills skills" "inj inj inj"; gap: 6px 10px; align-items: center; min-height: 66px; padding: 12px; border-bottom: 1px solid var(--tt-line); cursor: pointer; font-size: 14px; }
+.tt-roster-list li.roster-row:nth-child(odd) { background: var(--tt-bg); }
+.tt-roster-list li.roster-row:nth-child(even) { background: var(--tt-panel); }
+.tt-roster-list li.roster-row:hover { background: var(--ui-hover, var(--tt-btn)); }
+.tt-roster-list li.roster-row[data-active="true"] { background: color-mix(in srgb, var(--ui-accent, var(--tt-accent)) 20%, var(--tt-panel)); }
+.tt-roster-list li.roster-row[data-out="true"] .row-stats > span { opacity: .55; }
+.tt-roster-list li.roster-row[data-dead="true"] .tt-roster-name { text-decoration: line-through; }
+.tt-roster-list li.roster-empty { display: block; padding: 24px 12px; text-align: center; }
+.tt-rosters .slot-number { display: none; color: var(--tt-muted); font-size: 15px; }
+.tt-rosters .player-cell { display: contents; }
+.tt-rosters .sprite-frame { position: relative; display: grid; place-items: center; width: 56px; height: 56px; flex: 0 0 auto; overflow: hidden; color: var(--tt-muted); background: var(--tt-panel); border: 1px solid var(--tt-line); border-radius: 4px; font-size: 14px; }
+.tt-rosters .roster-sprite { grid-area: sprite; width: 64px; height: 64px; font-size: 12px; }
+.tt-rosters .sprite-image { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); object-fit: contain; image-rendering: pixelated; }
+.tt-rosters .sprite-frame:has(.sprite-image) .sprite-fallback, .tt-rosters .sprite-frame:has(.crest-image) .sprite-fallback { visibility: hidden; }
+.tt-rosters .player-copy { grid-area: who; display: flex; min-width: 0; flex-direction: column; align-items: flex-start; }
+.tt-rosters .player-copy strong { overflow: hidden; font-family: var(--font-heading, sans-serif); font-size: 16px; font-weight: 500; text-overflow: ellipsis; max-width: 100%; }
 .tt-roster-name[data-seat="home"] { color: var(--seat-home-text); }
 .tt-roster-name[data-seat="away"] { color: var(--seat-away-text); }
-.tt-rp .tt-roster-pos { color: var(--ui-position); text-transform: uppercase; letter-spacing: .06em; font-size: 11px; }
-.tt-rp .tt-roster-stats { grid-area: stats; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; flex-basis: auto; }
-.tv-stat-box { display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 3px 0; font-size: 18px; font-weight: 600; line-height: 1.15; color: var(--tt-ink); background: color-mix(in srgb, var(--tt-bg) 85%, var(--ui-primary, #790004)); border: 1px solid color-mix(in srgb, var(--tt-line) 70%, var(--ui-primary, #790004)); border-radius: 5px; box-shadow: var(--tv-bezel); position: relative; font-variant-numeric: tabular-nums; }
-.tv-stat-box small { font-size: 10px; font-weight: 500; letter-spacing: .06em; color: var(--ui-skill-strength); }
-.tv-stat-box[data-change="1"] { color: var(--ui-success, #3fb463); }
-.tv-stat-box[data-change="-1"] { color: var(--tt-st-down); }
-.tv-up-mark { position: absolute; top: 1px; right: 3px; font-size: 8px; font-style: normal; }
-.tv-up-mark.tv-up { color: var(--ui-success, #3fb463); }
-.tv-up-mark.tv-down { color: var(--tt-st-down); }
-.tt-rp .tt-roster-skills { grid-area: skills; flex-basis: auto; }
-.tt-rp .tt-roster-spp { grid-area: spp; margin: 0; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ui-accent, var(--tt-accent)); font-size: 13px; }
-.tt-rp .tt-roster-spp[data-zero="true"] { color: var(--tt-muted); font-weight: 500; }
-.tt-rp .tt-gain { color: var(--ui-success, #3fb463); }
-.tt-rp .tt-roster-inj { grid-area: inj; color: var(--tt-st-bad); font-size: 12px; }
-.tt-rp .tt-roster-inj .muted { color: var(--tt-muted); }
-.tt-rp .tt-lvl { min-width: 0; padding: 1px 5px; border: 1px solid transparent; border-radius: 3px; }
-.tt-rp .tt-lvl:empty { display: none; }
-.tt-rp .tt-lvl[data-injury] { background: color-mix(in srgb, var(--tt-st-bad) 22%, transparent); color: var(--tt-st-bad); border-color: var(--tt-st-bad); }
-.tt-rp .tt-lvl[data-injury="KO"], .tt-rp .tt-lvl[data-injury="stunned"] { background: color-mix(in srgb, var(--tt-st-ko) 22%, transparent); color: var(--tt-st-ko); border-color: var(--tt-st-ko); }
-
-/* tablet / desktop: a table-like row grid; wider box on large monitors */
+.tt-rosters .player-copy small { color: var(--ui-position); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+.tt-rosters .row-stats { grid-area: stats; display: flex; gap: 4px; }
+.tt-rosters .row-stats > span { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 4px; background: var(--tt-panel); border: 1px solid var(--tt-line); border-radius: 3px; box-shadow: var(--tv-bezel); }
+.tt-rosters .row-stats b { color: var(--tt-ink); font-size: clamp(16px, 1.15vw, 19px); line-height: 1.2; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tt-rosters .row-stats small { color: var(--ui-skill-strength); font-size: 12px; line-height: 1.1; letter-spacing: .04em; }
+.tt-rosters .row-stats > span.improved { border-color: var(--ui-info, var(--tt-line)); }
+.tt-rosters .row-stats > span.improved b { color: var(--ui-info, var(--tt-ink)); }
+.tt-rosters .row-stats > span.worse { border-color: var(--tt-st-down); }
+.tt-rosters .row-stats > span.worse b { color: var(--tt-st-down); }
+.tt-rosters .row-skills { grid-area: skills; }
+.tt-rosters .cost { grid-area: spp; color: var(--ui-eggshell); font-size: clamp(14px, 1.05vw, 17px); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tt-rosters .tt-roster-spp[data-zero="true"] { color: var(--tt-muted); }
+.tt-rosters .tt-gain { color: var(--ui-success, #3fb463); }
+.tt-rosters .tt-roster-inj { grid-area: inj; color: var(--tt-st-bad); font-size: 12px; }
+.tt-rosters .tt-roster-inj .muted { color: var(--tt-muted); }
+.tt-rosters .tt-lvl { margin-top: 2px; padding: 1px 5px; min-width: 0; border: 1px solid transparent; border-radius: 3px; }
+.tt-rosters .tt-lvl:empty { display: none; }
+.tt-rosters .tt-lvl[data-injury] { background: color-mix(in srgb, var(--tt-st-bad) 22%, transparent); color: var(--tt-st-bad); border-color: var(--tt-st-bad); }
+.tt-rosters .tt-lvl[data-injury="KO"], .tt-rosters .tt-lvl[data-injury="stunned"] { background: color-mix(in srgb, var(--tt-st-ko) 22%, transparent); color: var(--tt-st-ko); border-color: var(--tt-st-ko); }
 @media (min-width: 760px) {
-  .tt-rosters { width: min(1100px, calc(100% - 32px)); margin-bottom: 16px; }
-  .tt-rosters-head .tv-key { display: flex; }
-  .tt-rosters-head { flex-wrap: wrap; }
-  .tt-roster-list { gap: 4px; }
-  .tt-rp { grid-template-columns: 64px minmax(150px, 1.1fr) minmax(210px, auto) minmax(120px, 2fr) auto; grid-template-areas: "sprite who stats skills spp" "inj inj inj inj inj"; }
-  .tt-rp .tt-roster-stats { grid-template-columns: repeat(5, 44px); }
-  .tv-sprite { width: 64px; height: 64px; }
+  .tt-rosters .skill-key { display: flex; }
+  .tt-rosters .roster-header { display: grid; }
+  .tt-rosters .roster-grid { grid-template-columns: 36px minmax(170px, 1.2fr) minmax(190px, 240px) minmax(180px, 1.4fr) 96px; }
+  .tt-roster-list li.roster-row { grid-template-areas: "slot who stats skills spp" "inj inj inj inj inj"; }
+  .tt-rosters .slot-number { display: block; grid-area: slot; }
+  .tt-rosters .player-cell { display: flex; grid-area: who; align-items: center; gap: 8px; min-width: 0; }
+  .tt-rosters .roster-sprite { width: 72px; height: 72px; }
+  .tt-rosters .roster-header > .tt-hd-spp { text-align: right; }
+}
+@media (min-width: 1024px) { .tt-rosters { width: min(1100px, calc(100% - 32px)); } }
+@media (min-width: 1600px) { .tt-rosters { width: min(1400px, 88vw); } }
+
+/* ---- the recorder's tooltip: data-tip on any element (one fixed bubble, positioned by the view, so scroll containers never clip it) ---- */
+.tt-tip { position: fixed; z-index: 200; max-width: 260px; padding: 5px 9px; color: var(--ui-text, #e6e9ef); background: var(--ui-surface-2, #242424); border: 1px solid var(--ui-border, #3d0002); border-radius: 2px; font-size: 12px; line-height: 1.35; text-align: center; overflow-wrap: anywhere; pointer-events: none; transform: translate(-50%, -100%); box-shadow: 0 4px 12px rgb(0 0 0 / 45%); animation: tt-tip-in .12s ease both; }
+.tt-tip[data-below="true"] { transform: translate(-50%, 0); }
+.tt-tip::after { content: ""; position: absolute; left: var(--tt-tip-arrow, 50%); top: 100%; width: 8px; height: 8px; margin: -5px 0 0 -4px; background: var(--ui-surface-2, #242424); border: solid var(--ui-border, #3d0002); border-width: 0 1px 1px 0; transform: rotate(45deg); }
+.tt-tip[data-below="true"]::after { top: 0; margin-top: -4px; border-width: 1px 0 0 1px; }
+@keyframes tt-tip-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tt-tip { animation: none; } }
+
+/* ---- desktop (1024 px and up): one scale block drives sizes (--tt-* steps per breakpoint), and the whole page is centred ---- */
+@media (min-width: 1024px) {
+  .tt-rec {
+    --tt-pad: max(0px, calc((100vw - 1400px) / 2));
+    --tt-hero-min: 168px; --tt-crest: 96px; --tt-team-fs: 28px; --tt-cell-h: 24px; --tt-cell-fs: 12px; --tt-track-w: 240px; --tt-score-fs: 56px; --tt-count-fs: 14px;
+    --tt-chip: 48px; --tt-chip-img: 40px; --tt-strip-h: 40px; --tt-strip-fs: 13px; --tt-marker: 16px;
+    --tt-rail-btn: 56px; --tt-rail-icon: 20px; --tt-rail-fs: 13px; --tt-end-h: 96px; --tt-end-fs: 24px;
+    --tt-card-min: 64px; --tt-card-fs: 15px; --tt-ev-icon: 32px; --tt-who-h: 36px; --tt-log-h-fs: 14px;
+    padding-inline: var(--tt-pad); grid-template-rows: auto auto var(--tt-strip-h) minmax(0, 1fr);
+  }
+  .tt-rec > .tt-board { margin-inline: calc(-1 * var(--tt-pad)); padding-inline: calc(var(--tt-pad) + 28px); min-height: var(--tt-hero-min); }
+  .tt-rec > .tt-crumbs { padding-inline: 0; }
+  .tt-rec .tt-crest { width: var(--tt-crest); height: var(--tt-crest); }
+  .tt-rec .tt-corner.home { grid-template-columns: var(--tt-crest) minmax(0, 1fr); }
+  .tt-rec .tt-corner.away { grid-template-columns: minmax(0, 1fr) var(--tt-crest); }
+  .tt-rec .tt-corner .tt-team { font-size: var(--tt-team-fs); }
+  .tt-rec .tt-corner .tt-team[data-long="true"] { font-size: calc(var(--tt-team-fs) * .8); }
+  .tt-rec .tt-track { max-width: var(--tt-track-w); }
+  .tt-rec .tt-cell { display: flex; align-items: center; justify-content: center; height: var(--tt-cell-h); padding: 0; font-size: var(--tt-cell-fs); }
+  .tt-rec .tt-half { font-size: calc(var(--tt-cell-fs) + 1px); }
+  .tt-rec .tt-score { font-size: var(--tt-score-fs); }
+  .tt-rec .tt-counters { font-size: var(--tt-count-fs); width: 170px; }
+  .tt-rec .tt-corner .tt-coachline .tt-chips li { width: var(--tt-chip); height: var(--tt-chip); }
+  .tt-rec .tt-corner .tt-coachline .tt-chip-img { width: var(--tt-chip-img); height: var(--tt-chip-img); }
+  .tt-rec .tt-corner .tt-coachline .tt-qty { top: -6px; right: -6px; }
+  .tt-rec > .tt-stripbar { height: var(--tt-strip-h); font-size: var(--tt-strip-fs); }
+  .tt-stripbar .tt-tl, .tt-stripbar .tt-tl-line { height: calc(var(--tt-strip-h) - 4px); }
+  .tt-stripbar .tt-tl-mark { width: var(--tt-marker); height: var(--tt-marker); }
+  .tt-stripbar .tt-tl-item { flex: 1 0 24px; min-width: 24px; }
+  .tt-rail-btn { height: var(--tt-rail-btn); font-size: var(--tt-rail-fs); }
+  .tt-rail-btn .tt-glyph { width: var(--tt-rail-icon); height: var(--tt-rail-icon); }
+  .tt-rail-btn .tt-glyph-text { font-size: var(--tt-rail-icon); width: auto; height: auto; }
+  .tt-rail-end, .tt-rail-wait { height: var(--tt-end-h); }
+  .tt-rail-time { font-size: var(--tt-end-fs); }
+  .tt-rec .tt-events { --tt-icon: var(--tt-ev-icon); }
+  .tt-rec .tt-ev { min-height: var(--tt-card-min); font-size: var(--tt-card-fs); }
+  .tt-rec .tt-ev-who .tt-ev-num { display: inline-flex; align-items: center; justify-content: center; min-height: var(--tt-who-h); }
+  .tt-rec .tt-ev-pname { font-size: calc(var(--tt-card-fs) - 2px); }
+  .tt-rec .tt-log-h { font-size: var(--tt-log-h-fs); }
+  .tt-sheet { left: 50%; right: auto; width: min(720px, 100%); transform: translateX(-50%); }
 }
 @media (min-width: 1600px) {
-  .tt-rosters { width: min(1500px, 88vw); }
-  .tt-rp { font-size: 15px; grid-template-columns: 96px minmax(200px, 1.1fr) minmax(250px, auto) minmax(160px, 2fr) auto; }
-  .tv-sprite { width: 88px; height: 88px; }
-  .tt-rp .tt-roster-stats { grid-template-columns: repeat(5, 52px); }
-  .tv-stat-box { font-size: 20px; }
-  .tt-roster-name { font-size: 17px; }
+  .tt-rec {
+    --tt-hero-min: 200px; --tt-crest: 112px; --tt-team-fs: 32px; --tt-cell-h: 28px; --tt-cell-fs: 13px; --tt-track-w: 280px; --tt-score-fs: 64px;
+    --tt-chip: 56px; --tt-chip-img: 46px; --tt-rail-btn: 64px; --tt-end-h: 112px;
+  }
 }

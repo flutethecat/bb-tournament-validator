@@ -16,7 +16,7 @@ const emit = defineEmits<{ (e: "undo", id: string): void }>();
       :data-row-side="r.side === 'centre' ? 'neutral' : r.side" :data-type="r.type"
     >
       <span v-if="timestamps && r.when" class="tt-ev-mark">{{ r.when }}</span>
-      <span class="tt-ev-icon" :title="r.label"><TabletopGlyph :glyph="r.glyph" /></span>
+      <span class="tt-ev-icon" :data-tip="r.label"><TabletopGlyph :glyph="r.glyph" /></span>
       <span class="tt-ev-text">
         <span class="tt-ev-name" :data-team="r.team">{{ r.lead }}</span>{{ r.rest }}<span v-if="r.stars" class="tt-stars" :aria-label="`${r.stars} SPP`"> (&#9733;{{ r.stars }})</span>
         <small v-if="timestamps && r.clock" class="tt-time">{{ r.clock }}</small>

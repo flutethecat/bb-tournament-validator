@@ -47,16 +47,16 @@ const zero = computed(() => timed.value && (props.remaining as number) <= 0);
       <span v-if="timed" class="tt-rail-time">{{ countdown }}</span><small v-else>{{ label }}</small>
     </p>
     <div v-if="recording" class="tt-rail-btns">
-      <button class="tt-rail-btn tt-rail-td" type="button" @click="emit('pick', TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" :size="22" /><span>TD</span></button>
-      <button class="tt-rail-btn tt-rail-cas" type="button" @click="emit('pick', CAS_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.casualty" :size="22" /><span>CAS</span></button>
-      <button class="tt-rail-btn tt-rail-injury" type="button" @click="emit('pick', INJURY_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.injury" :size="22" /><span>Injury</span></button>
-      <button class="tt-rail-btn tt-rail-other" type="button" @click="emit('other')"><TabletopGlyph :glyph="{ text: '⋯' }" :size="22" /><span>Other</span></button>
+      <button class="tt-rail-btn tt-rail-td" type="button" data-tip="Record a touchdown" @click="emit('pick', TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" /><span>TD</span></button>
+      <button class="tt-rail-btn tt-rail-cas" type="button" data-tip="Record a casualty caused by a player" @click="emit('pick', CAS_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.casualty" /><span>CAS</span></button>
+      <button class="tt-rail-btn tt-rail-injury" type="button" data-tip="Record an injury with no player to credit" @click="emit('pick', INJURY_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.injury" /><span>Injury</span></button>
+      <button class="tt-rail-btn tt-rail-other" type="button" data-tip="More events: pass, catch, foul, weather, end of match" @click="emit('other')"><TabletopGlyph :glyph="{ text: '⋯' }" /><span>Other</span></button>
     </div>
     <div class="tt-quick">
       <h3 class="tt-label">Quick</h3>
-      <button v-if="canChangeTurn" class="tt-quick-btn" type="button" @click="emit('changeTurn')">Change turn</button>
-      <button v-if="canUndoLast" class="tt-quick-btn" type="button" @click="emit('undoLast')">Undo last event</button>
-      <button v-if="recording" class="tt-quick-btn tt-quick-danger" type="button" @click="emit('endMatch')">End match</button>
+      <button v-if="canChangeTurn" class="tt-quick-btn" type="button" data-tip="Set the half, turn and active team" @click="emit('changeTurn')">Change turn</button>
+      <button v-if="canUndoLast" class="tt-quick-btn" type="button" data-tip="Take back the newest event you may undo" @click="emit('undoLast')">Undo last event</button>
+      <button v-if="recording" class="tt-quick-btn tt-quick-danger" type="button" data-tip="Record the end of the match and submit it" @click="emit('endMatch')">End match</button>
     </div>
   </aside>
 </template>

@@ -33,13 +33,13 @@ const race = (s: Side): string => props.teams[s]?.race ?? props.teams[s]?.roster
 
 interface Chip { key: string; src: string; label: string; qty: number; always?: boolean }
 /** The chip tooltip: the name, and the count when the badge shows it. */
-const chipTitle = (c: Chip): string => (c.qty > 1 || c.always ? `${c.label} x${c.qty}` : c.label);
+const chipTitle = (c: Chip): string => (c.key === "apo" ? c.label : c.key === "rr" || c.key === "fans" ? `${c.label}: ${c.qty}` : `${c.label} x${c.qty}`);
 /** Inducement rows from the server's `inducement` events, then team facts the team file carries. */
 const chips = (s: Side): Chip[] => {
   const out: Chip[] = [];
   const t = props.teams[s];
   if (t?.dedicatedFans) out.push({ key: "fans", src: uiIcon("dedicated_fans"), label: "Dedicated fans", qty: t.dedicatedFans });
-  if (t?.rerolls) out.push({ key: "rr", src: uiIcon("re_roll"), label: "Rerolls", qty: t.rerolls, always: true });
+  if (t?.rerolls) out.push({ key: "rr", src: uiIcon("re_roll"), label: "Team rerolls", qty: t.rerolls, always: true });
   if (t?.apothecary) out.push({ key: "apo", src: uiIcon("apothecary"), label: "Apothecary", qty: 1 });
   for (const e of props.events) {
     if (e.type !== "inducement" || e.team !== s) continue;
@@ -74,6 +74,8 @@ const weather = computed(() => weatherParts(props.pregame, props.events));
 const endedTurns = computed(() => new Set(props.events.filter((e) => e.type === "turnEnd").map((e) => turnKey((e as { half?: number | string }).half, (e as { turn?: number }).turn, e.team))));
 const cells = (s: Side) => turnCells(props.clock, s, endedTurns.value);
 const half = computed(() => halfLabel(props.clock?.half));
+/** "1st half, turn 3, Spike Rats" for a turn-track cell. */
+const cellTip = (s: Side, n: number): string => `${half.value}, turn ${n}, ${props.match[s].teamName}`;
 /** The team colour from the team file (a plain hex only), else the theme tokens colour the side. */
 const tint = (s: Side): Record<string, string> | undefined => {
   const c = props.teams[s]?.color;
@@ -86,7 +88,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
   <header class="tt-board" aria-label="Scoreboard">
     <div class="tt-turns" aria-label="Turn track">
       <ol v-for="s in sides" :key="s" class="tt-track" :class="s" :aria-label="`${match[s].teamName} turns`">
-        <li v-for="c in cells(s)" :key="c.n" class="tt-cell" :data-state="c.state" :aria-current="c.state === 'active' ? 'step' : undefined">{{ c.n }}</li>
+        <li v-for="c in cells(s)" :key="c.n" class="tt-cell" :data-state="c.state" :data-tip="cellTip(s, c.n)" data-tip-pos="bottom" :aria-current="c.state === 'active' ? 'step' : undefined">{{ c.n }}</li>
         <li v-if="timed && clock?.activeTeam === s" class="tt-clock" aria-hidden="true">&#9201; {{ countdown }}</li>
       </ol>
       <p class="tt-half">Turn<small>{{ half }}</small></p>
@@ -101,7 +103,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
       <div class="tt-coachline">
         <span class="tt-coach">{{ match[s].coach }}</span>
         <ul class="tt-chips">
-          <li v-for="c in chips(s)" :key="c.key" :title="chipTitle(c)">
+          <li v-for="c in chips(s)" :key="c.key" :data-tip="chipTitle(c)" data-tip-pos="bottom">
             <img v-if="c.src" class="tt-chip-img" :src="c.src" :alt="c.label" />
             <span v-else class="tt-chip-txt">{{ c.label.charAt(0).toUpperCase() }}</span>
             <b v-if="c.qty > 1 || c.always" class="tt-qty">{{ c.qty }}</b>
@@ -111,11 +113,11 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
     </section>
     <section class="tt-centre">
       <div class="tt-top-pair">
-        <button class="tt-rosters-btn" type="button" aria-label="Rosters" @click="emit('rosters')">
+        <button class="tt-rosters-btn" type="button" aria-label="Rosters" data-tip="Rosters" data-tip-pos="bottom" @click="emit('rosters')">
           <img class="tt-glyph" :src="uiIcon('football-helmet')" alt="" /><span>Rosters</span>
         </button>
-        <span v-if="weather.icon" class="tt-weather" role="img" :aria-label="weather.name" :title="weather.name">{{ weather.icon }}</span>
-        <button class="tt-cog" type="button" aria-label="Settings" @click="emit('settings')">&#9881;</button>
+        <span v-if="weather.icon" class="tt-weather" role="img" :aria-label="weather.name" :data-tip="weather.name" data-tip-pos="bottom">{{ weather.icon }}</span>
+        <button class="tt-cog" type="button" aria-label="Settings" data-tip="Settings" data-tip-pos="bottom" @click="emit('settings')">&#9881;</button>
       </div>
       <p class="tt-score" aria-label="Score"><span>{{ tally.score.home }}</span> : <span>{{ tally.score.away }}</span></p>
       <ul class="tt-counters" aria-label="Counters">

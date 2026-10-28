@@ -96,9 +96,9 @@ export function resolveSprite(manifest: SpriteManifest | null, race: string, pos
   if (roles) {
     const alias = manifest.roleAliases?.[raceKey]?.[name];
     const role = alias && roles[alias] ? alias : roles[name] ? name : undefined;
-    if (role) return String(roles[role]);
+    if (role) return typeof roles[role] === "string" ? roles[role]! : null;
   }
-  if (raceKey !== starRace && races[starRace]?.[name]) return String(races[starRace]![name]);
+  if (raceKey !== starRace && typeof races[starRace]?.[name] === "string") return races[starRace]![name]!;
   return null;
 }
 export function resolveCrest(manifest: CrestManifest | null, race: string): string | null {

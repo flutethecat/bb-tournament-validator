@@ -43,14 +43,18 @@ export function withRosterArt(file: TabletopTeamFile | undefined, publicDir?: st
         : undefined;
       const addedNames = ds ? addedSkills(ds, p.skills) : [];
       const printedNames = p.skills.filter((s) => !addedNames.includes(s));
-      const sprite = safeArt(raceName && posName ? resolveSprite(sprites, raceName, ds?.name ?? posName) : null);
+      let sprite: string | null = null;
+      try { sprite = safeArt(raceName && posName ? resolveSprite(sprites, raceName, ds?.name ?? posName) : null); } catch { sprite = null; } // a broken manifest never fails the match GET
       const art: RosterArt = {
         ...(sprite ? { sprite } : {}),
         printed: printedNames.map((name) => ({ name, category: skillCategory(name) })),
         added: addedNames.map((name) => ({ name, category: skillCategory(name) })),
         ...(ds ? { printedStats: printedStatsOf(ds) } : {}),
       };
-      return { ...p, ...art };
+      // `sprite` always comes from the lookup (undefined when none), never from a stored team file
+      const { sprite: _stored, ...rest } = p as typeof p & { sprite?: unknown };
+      void _stored;
+      return { ...rest, ...art, sprite: art.sprite } as typeof p;
     }),
   };
 }
