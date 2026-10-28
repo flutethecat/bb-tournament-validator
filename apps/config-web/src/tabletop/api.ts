@@ -25,6 +25,7 @@ import {
   type ClockState, type MatchTimers, type TurnTimerPolicy,
 } from "./clock.js";
 import { decorateRoster } from "./eligibility.js";
+import { withRosterArt } from "./rosterArt.js";
 import { leagueStandings, type LeaguePoints } from "./standings.js";
 import { applyPostMatch, sppCredits, sppForEvent, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile } from "./postMatch.js";
 import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
@@ -65,6 +66,8 @@ export interface FixtureGateway {
 
 export interface TabletopApiDeps {
   repo: TabletopRepository;
+  /** The public folder holding the generated art manifests (sprites), for the roster sprites the match GET adds. */
+  artDir?: string;
   results: {
     put(row: StoredTournamentResult): unknown;
     remove(gameId: string): boolean;
@@ -179,7 +182,7 @@ export async function tabletopApi(
         events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e, kindLookup(teams)) : 0 })),
         effectiveEventIds: effectiveEvents(events).map((e) => e.id),
         // per player: kind, available / unavailableReason, eligible{...} (server-derived, so the page filters without rules of its own)
-        teams: { home: decorateRoster("home", teams.home, events), away: decorateRoster("away", teams.away, events) },
+        teams: { home: withRosterArt(decorateRoster("home", teams.home, events), deps.artDir), away: withRosterArt(decorateRoster("away", teams.away, events), deps.artDir) },
         tally: tallyView(events, teams),
       },
     };

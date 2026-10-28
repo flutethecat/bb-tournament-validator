@@ -516,6 +516,27 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).not.toContain("--tt-warn");
   });
 
+  it("Rosters pane (client roster language): five stat boxes with a changed-stat mark, a categorised skill chip, a gold added-skill box, a seat-tinted name and the sprite", async () => {
+    const rich = {
+      home: { name: "Alice Orcs", rerolls: 3, apothecary: true, players: [
+        { id: "h1", name: "Grob", number: 1, spp: 6, mng: false, dead: false, positionName: "Blitzer", ma: 7, st: 3, ag: 3, pa: null, av: 9,
+          printedStats: { ma: 6, st: 3, ag: 3, pa: null, av: 9 }, sprite: "sprites/orc/blitzer.png",
+          printed: [{ name: "Block", category: "General" }], added: [{ name: "Dodge", category: "Agility" }], skills: ["Block", "Dodge"] },
+      ] },
+      away: { name: "Bob Elves", players: [{ id: "a1", name: "Lirael", number: 7, spp: 0, mng: false, dead: false }] },
+    };
+    const html = await mount(mods.rostersC, { match: baseMatch("recording"), teams: rich, tally: serverTally });
+    expect(html.match(/class="tv-stat-box"/g)?.length ?? 0).toBeGreaterThanOrEqual(5);
+    expect(html).toMatch(/class="tv-stat-box" data-change="1"><small>MA<\/small>7<i class="tv-up tv-up-mark">▲<\/i>/); // MA 7 over the printed 6
+    expect(html).toMatch(/class="(?=[^"]*skill)[^"]*skill-general[^"]*">Block</); // a categorised chip
+    expect(html).toMatch(/class="(?=[^"]*tv-added)[^"]*skill-agility[^"]*"[^>]*>Dodge</); // the gold added-skill box
+    expect(html).toContain('class="tt-roster-name" data-seat="home">Grob<');
+    expect(html).toContain('src="/sprites/orc/blitzer.png"');
+    expect(html).toContain("RR 3");
+    expect(html).toContain('aria-label="Skill key"');
+    expect(html.match(/aria-label="Skill key"/g)).toHaveLength(1); // the key once, in the header
+  });
+
   it("event feed (Modern Retro): home cards left, away cards right, both-team cards full width, a jump id per card, a turn mark", async () => {
     const evs = [
       { id: "p1", type: "coinFlip", team: "home", payload: { mode: "auto", result: "tails" } },

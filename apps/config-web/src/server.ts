@@ -527,6 +527,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
   tabletopRepo ??= new FileTabletopRepository(TABLETOP_DIR);
   const deps: TabletopApiDeps = {
     repo: tabletopRepo,
+    artDir: PUBLIC_DIR,
     results: tournamentResults,
     loadTeamFile: (coach, ref) => {
       if (ref.startsWith("library:")) {

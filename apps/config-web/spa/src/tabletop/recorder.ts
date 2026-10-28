@@ -51,10 +51,13 @@ export interface RosterPlayerView {
   positionId?: string; position?: string; positionName?: string; skills?: string[]; injuries?: string[]; niggles?: number;
   /** MA and ST are values; AG, PA and AV are target numbers (rendered "3+"); pa null = no passing. */
   ma?: number | null; st?: number | null; ag?: number | null; pa?: number | null; av?: number | null;
+  /** The server's display extras (rosterArt.ts): sprite path inside the art folder, skills split into printed / added with their category, the position's printed stats. */
+  sprite?: string; printed?: Array<{ name: string; category: string }>; added?: Array<{ name: string; category: string }>;
+  printedStats?: { ma: number; st: number; ag: number; pa: number | null; av: number };
 }
 export interface TeamView {
   name: string; players: RosterPlayerView[];
-  rosterId?: string; race?: string; /** Optional team colour (#rgb / #rrggbb) when the team file carries one. */ color?: string; treasury?: number; dedicatedFans?: number; rerolls?: number; apothecary?: boolean;
+  rosterId?: string; race?: string; /** Optional team colour (#rgb / #rrggbb) when the team file carries one. */ color?: string; treasury?: number; teamValue?: number; dedicatedFans?: number; rerolls?: number; apothecary?: boolean;
 }
 
 export interface RecordedEvent {

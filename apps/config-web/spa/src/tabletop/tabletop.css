@@ -484,3 +484,100 @@
   .tt-corner .tt-coachline .tt-chips li { width: 40px; height: 40px; }
   .tt-corner .tt-coachline .tt-chip-img { width: 32px; height: 32px; }
 }
+
+/* ---- Rosters pane in the client's roster language (10-28). The tv-* rules are copied here, scoped to .tt-rosters, because
+   importing public/team-view.css + team-builder.css would pull page-level rules (* / body / h1-h3 / button resets) into the SPA. ---- */
+.tt-rosters {
+  --tv-bezel: inset 0 1px 0 rgb(255 255 255 / 8%), inset 0 -1px 0 rgb(0 0 0 / 45%), 0 2px 6px rgb(0 0 0 / 40%);
+  --ui-gold: #e8a33d; --ui-position: #ffd23d;
+  --ui-skill-general: #6ea8ff; --ui-skill-agility: #ffd23d; --ui-skill-strength: #ff6b6b; --ui-skill-passing: #ffffff; --ui-skill-mutation: #6fcf6f; --ui-skill-trait: #b08b5a;
+  --seat-home-text: #4a86fe; --seat-away-text: #fe6666; /* the client's seat inks (App.vue) */
+  --tt-st-ko: #e0b040; --tt-st-bad: #e07a7a; --tt-st-down: #f05050; /* the client's status colours */
+}
+:root[data-theme="fumbbl"] .tt-rosters {
+  --ui-gold: #8a5a00; --ui-position: #7a5c00;
+  --ui-skill-general: #1d5fb8; --ui-skill-agility: #7a5c00; --ui-skill-strength: #a32626; --ui-skill-passing: #262626; --ui-skill-mutation: #2f6e2f; --ui-skill-trait: #6e4f28;
+  --seat-home-text: #1d4fb8; --seat-away-text: #b01e1e; --tt-st-ko: #7a5c00; --tt-st-bad: #a32626; --tt-st-down: #a32626;
+}
+.tt-rosters { max-width: 100%; }
+.tt-rosters-head .tv-key { display: none; margin: 0; gap: 4px; font-size: 11px; flex-wrap: wrap; }
+.tt-rosters .skill { display: inline-flex; align-items: center; padding: 1px 6px; font-size: 12px; background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 78%, transparent); border: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 80%, var(--ui-text, #e6e9ef)); border-radius: 5px; }
+.tt-rosters .skill-general { color: var(--ui-skill-general); }
+.tt-rosters .skill-agility { color: var(--ui-skill-agility); }
+.tt-rosters .skill-strength { color: var(--ui-skill-strength); }
+.tt-rosters .skill-passing { color: var(--ui-skill-passing); }
+.tt-rosters .skill-mutation { color: var(--ui-skill-mutation); }
+.tt-rosters .skill-trait { color: color-mix(in srgb, var(--ui-skill-trait) 45%, var(--ui-text, #e6e9ef)); }
+.tt-rosters .row-skills { display: flex; flex-wrap: wrap; gap: 4px; font-size: 13px; line-height: 1.35; }
+/* an added skill: the client's gold box with a small + badge */
+.tt-rosters .tv-added { position: relative; border: 1.5px solid var(--ui-gold); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-gold) 35%, transparent); border-radius: 4px; padding-right: 14px; margin-right: 6px; }
+.tt-rosters .tv-added::after { content: "+"; position: absolute; top: -8px; right: -8px; width: 16px; height: 16px; display: grid; place-items: center; font: 800 13px/1 var(--font-body, sans-serif); color: var(--ui-text-on-primary, #ffffff); background: var(--ui-danger, #ff4d4d); border-radius: 50%; box-shadow: 0 0 0 1px var(--tt-panel); }
+
+/* team switch tabs: the coach-panel look, seat-coloured when active */
+.tt-rosters .tt-roster-tab { align-items: flex-start; gap: 1px; min-height: 64px; padding: 6px 10px 18px; background: linear-gradient(180deg, color-mix(in srgb, var(--tt-panel) 92%, #fff), var(--tt-bg)); border: 2px solid var(--tt-line); border-radius: 5px; box-shadow: 0 4px 0 color-mix(in srgb, var(--tt-bg) 70%, #000), inset 0 1px 0 color-mix(in srgb, var(--tt-line) 60%, #fff); }
+.tt-rosters .tt-roster-tab[data-seat="home"] .tt-roster-tab-name { color: var(--seat-home-text); }
+.tt-rosters .tt-roster-tab[data-seat="away"] .tt-roster-tab-name { color: var(--seat-away-text); }
+.tt-rosters .tt-roster-tab[data-seat="home"][data-active="true"] { border-color: var(--seat-home-text); box-shadow: 0 4px 0 color-mix(in srgb, var(--tt-bg) 70%, #000), inset 0 -3px 0 var(--seat-home-text); }
+.tt-rosters .tt-roster-tab[data-seat="away"][data-active="true"] { border-color: var(--seat-away-text); box-shadow: 0 4px 0 color-mix(in srgb, var(--tt-bg) 70%, #000), inset 0 -3px 0 var(--seat-away-text); }
+.tt-rosters .tt-roster-tab-name { font-size: 15px; }
+.tt-rosters .tt-roster-coach { color: var(--tt-muted); }
+.tt-roster-chips { position: absolute; left: 8px; bottom: 3px; display: inline-flex; gap: 4px; }
+.tt-roster-chip { padding: 0 6px; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--tt-ink); background: var(--tt-btn); border: 1px solid var(--tt-line); border-radius: 3px; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--tt-line) 60%, #fff); }
+
+/* player cards (phone): sprite, name block and SPP on the head line, then stats, skills, detail */
+.tt-roster-list { display: grid; gap: 8px; }
+.tt-roster-list > li { box-sizing: border-box; }
+.tt-rp { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; grid-template-areas: "sprite who spp" "stats stats stats" "skills skills skills" "inj inj inj"; gap: 6px 10px; align-items: center; padding: 8px; border: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 70%, var(--ui-primary, #790004)); border-radius: 5px; background: var(--tt-panel); box-shadow: var(--tv-bezel); cursor: pointer; font-size: 13px; }
+.tt-roster-list > .tt-rp:nth-child(even) { background: color-mix(in srgb, var(--tt-bg) 55%, var(--tt-panel)); }
+.tt-rp:hover { background: var(--ui-hover, var(--tt-btn)); }
+.tt-rp[data-active="true"] { background: color-mix(in srgb, var(--ui-accent, var(--tt-accent)) 20%, var(--tt-panel)); }
+.tt-rp[data-out="true"] .tv-stat-box { opacity: .55; }
+.tt-rp[data-out="true"] { opacity: .85; }
+.tt-rp[data-dead="true"] .tt-roster-name { text-decoration: line-through; }
+.tv-sprite { grid-area: sprite; position: relative; display: block; width: 56px; height: 56px; background: color-mix(in srgb, var(--tt-bg) 80%, var(--ui-primary, #790004)); border: 1px solid var(--tt-line); border-radius: 4px; overflow: hidden; }
+.tv-sprite .sprite-fallback { position: absolute; inset: 0; display: grid; place-items: center; color: var(--tt-muted); font-family: var(--font-heading, sans-serif); font-size: 16px; }
+.tv-sprite .sprite-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; image-rendering: auto; }
+.tt-rp-who { grid-area: who; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.tt-rp-top { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+.tt-roster-nr { min-width: 0; color: var(--tt-ink); font-variant-numeric: tabular-nums; }
+.tt-roster-name { font-family: var(--font-heading, sans-serif); font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+.tt-roster-name[data-seat="home"] { color: var(--seat-home-text); }
+.tt-roster-name[data-seat="away"] { color: var(--seat-away-text); }
+.tt-rp .tt-roster-pos { color: var(--ui-position); text-transform: uppercase; letter-spacing: .06em; font-size: 11px; }
+.tt-rp .tt-roster-stats { grid-area: stats; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; flex-basis: auto; }
+.tv-stat-box { display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 3px 0; font-size: 18px; font-weight: 600; line-height: 1.15; color: var(--tt-ink); background: color-mix(in srgb, var(--tt-bg) 85%, var(--ui-primary, #790004)); border: 1px solid color-mix(in srgb, var(--tt-line) 70%, var(--ui-primary, #790004)); border-radius: 5px; box-shadow: var(--tv-bezel); position: relative; font-variant-numeric: tabular-nums; }
+.tv-stat-box small { font-size: 10px; font-weight: 500; letter-spacing: .06em; color: var(--ui-skill-strength); }
+.tv-stat-box[data-change="1"] { color: var(--ui-success, #3fb463); }
+.tv-stat-box[data-change="-1"] { color: var(--tt-st-down); }
+.tv-up-mark { position: absolute; top: 1px; right: 3px; font-size: 8px; font-style: normal; }
+.tv-up-mark.tv-up { color: var(--ui-success, #3fb463); }
+.tv-up-mark.tv-down { color: var(--tt-st-down); }
+.tt-rp .tt-roster-skills { grid-area: skills; flex-basis: auto; }
+.tt-rp .tt-roster-spp { grid-area: spp; margin: 0; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ui-accent, var(--tt-accent)); font-size: 13px; }
+.tt-rp .tt-roster-spp[data-zero="true"] { color: var(--tt-muted); font-weight: 500; }
+.tt-rp .tt-gain { color: var(--ui-success, #3fb463); }
+.tt-rp .tt-roster-inj { grid-area: inj; color: var(--tt-st-bad); font-size: 12px; }
+.tt-rp .tt-roster-inj .muted { color: var(--tt-muted); }
+.tt-rp .tt-lvl { min-width: 0; padding: 1px 5px; border: 1px solid transparent; border-radius: 3px; }
+.tt-rp .tt-lvl:empty { display: none; }
+.tt-rp .tt-lvl[data-injury] { background: color-mix(in srgb, var(--tt-st-bad) 22%, transparent); color: var(--tt-st-bad); border-color: var(--tt-st-bad); }
+.tt-rp .tt-lvl[data-injury="KO"], .tt-rp .tt-lvl[data-injury="stunned"] { background: color-mix(in srgb, var(--tt-st-ko) 22%, transparent); color: var(--tt-st-ko); border-color: var(--tt-st-ko); }
+
+/* tablet / desktop: a table-like row grid; wider box on large monitors */
+@media (min-width: 760px) {
+  .tt-rosters { width: min(1100px, calc(100% - 32px)); margin-bottom: 16px; }
+  .tt-rosters-head .tv-key { display: flex; }
+  .tt-rosters-head { flex-wrap: wrap; }
+  .tt-roster-list { gap: 4px; }
+  .tt-rp { grid-template-columns: 64px minmax(150px, 1.1fr) minmax(210px, auto) minmax(120px, 2fr) auto; grid-template-areas: "sprite who stats skills spp" "inj inj inj inj inj"; }
+  .tt-rp .tt-roster-stats { grid-template-columns: repeat(5, 44px); }
+  .tv-sprite { width: 64px; height: 64px; }
+}
+@media (min-width: 1600px) {
+  .tt-rosters { width: min(1500px, 88vw); }
+  .tt-rp { font-size: 15px; grid-template-columns: 96px minmax(200px, 1.1fr) minmax(250px, auto) minmax(160px, 2fr) auto; }
+  .tv-sprite { width: 88px; height: 88px; }
+  .tt-rp .tt-roster-stats { grid-template-columns: repeat(5, 52px); }
+  .tv-stat-box { font-size: 20px; }
+  .tt-roster-name { font-size: 17px; }
+}

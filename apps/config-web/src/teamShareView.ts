@@ -83,7 +83,7 @@ export function rosterRaceKey(race: string): string {
   const key = normalizeKey(race);
   return key.replace(/^(?:bb\d{4}|bb\d|crp|lrb\d|ffb|20\d{2})+/, "").replace(/(?:bb\d{4}|bb\d|crp|lrb\d|20\d{2})+$/, "") || key;
 }
-interface SpriteManifest { races?: Record<string, Record<string, string>>; starRace?: string; roleAliases?: Record<string, Record<string, string>> }
+export interface SpriteManifest { races?: Record<string, Record<string, string>>; starRace?: string; roleAliases?: Record<string, Record<string, string>> }
 interface CrestManifest { crests?: Record<string, string> }
 interface IconManifest { icons?: Record<string, string> }
 export function resolveSprite(manifest: SpriteManifest | null, race: string, positionName: string): string | null {
@@ -106,11 +106,11 @@ export function resolveCrest(manifest: CrestManifest | null, race: string): stri
   return key && manifest?.crests?.[key] ? String(manifest.crests[key]) : null;
 }
 /** Only ever hand out a relative path inside the generated art folders (never a URL or a traversal). */
-const safeArt = (path: string | null): string | null =>
+export const safeArt = (path: string | null): string | null =>
   path && /^(?:sprites|crests|icons)\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.png$/.test(path) ? path : null;
 
 const manifestCache = new Map<string, { mtimeMs: number; value: unknown }>();
-function readManifest<T>(publicDir: string, rel: string): T | null {
+export function readManifest<T>(publicDir: string, rel: string): T | null {
   const file = join(publicDir, rel);
   try {
     const { mtimeMs } = statSync(file);
@@ -126,7 +126,7 @@ function readManifest<T>(publicDir: string, rel: string): T | null {
 
 // ── Model ──
 const bareSkill = (skill: string): string => skill.replace(/\*+$/, "").replace(/\s*\([^)]*\)\s*$/, "").replace(/\*+$/, "").trim();
-function skillCategory(skill: string): string {
+export function skillCategory(skill: string): string {
   const meta = findSkill(bb2025, bareSkill(skill)) ?? findSkill(bb2025, skill);
   return meta?.category && !meta.trait ? String(meta.category) : "Trait";
 }
