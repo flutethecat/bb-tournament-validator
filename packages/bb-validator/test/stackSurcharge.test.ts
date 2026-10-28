@@ -46,6 +46,18 @@ describe("stackSurchargeSP (owner 09-09)", () => {
     expect(flat.recomputedSummary.skillPointsUsed).toBe(12);
   });
 
+  it("skill-packages mode: no surcharge is charged, so a legal 12-SP package stays valid at 12", () => {
+    const pkg = load({
+      name: "WC packs", eligibleRosters: ["Amazon"], goldBudget: null,
+      skillAllotment: { skillPointBudget: 12, primaryCostSP: 6, secondaryCostSP: 10, eliteSurchargeSP: 2, stackSurchargeSP: 2, maxPerPlayer: 2 },
+      tiers: [{ tier: 1, rosters: ["Amazon"], gold: 1_200_000, skillPointBudget: 12, starPlayersAllowed: true, bannedStars: [],
+        skillPackages: [{ gold: 1_200_000, skillPointBudget: 12, maxPerPlayer: 2 }] }],
+    });
+    const r = validate(withSkills({ 1: ["Wrestle", "Tackle"] }), pkg, bb2025);
+    expect(r.errors.filter((e) => e.ruleId === "skill-packages" || e.ruleId === "skill-points")).toHaveLength(0);
+    expect(r.recomputedSummary.skillPointsUsed).toBe(12);
+  });
+
   it("two single-skill players pay no surcharge (12), and a 2nd elite primary is 6 + 8 + 2", () => {
     expect(spError(validate(withSkills({ 1: ["Wrestle"], 2: ["Tackle"] }), wc(0), bb2025))?.message).toMatch(/spends 12 Skill Points;/);
     expect(spError(validate(withSkills({ 1: ["Wrestle", "Block"] }), wc(0), bb2025))?.message).toMatch(/spends 16 Skill Points \(14 in skills \+ 2 stacking surcharge\)/);
