@@ -225,15 +225,15 @@
 .tv-extras .tv-ind-table tbody td, .tv-extras .tv-ind-table tfoot td, .tv-extras .tv-ind-table tfoot th { vertical-align: middle; }
 .tv-extras .tv-pairs { align-content: stretch; }
 .tv-extras .tv-pairs > div { align-items: center; }
-.tv-ind-table .tv-ind-icon { width: 52px; height: 52px; }
+.tv-ind-table .tv-ind-icon { width: 46px; height: 46px; }
 .tv-extras .tv-ind-table tbody td { padding-block: 10px; }
 /* Owner 10-28: panels take their natural height (no stretched empty square); inducement icons 52 px. */
 .tv-extras { align-items: start; }
 .tv-extras .tv-ind-table tbody td { padding-block: 6px; }
 .tv-extras .tv-ind-table tbody td.tv-ind-cell { font-size: 18px; gap: 12px; }
-@media (min-width: 1600px) { .tv-ind-table .tv-ind-icon { width: 60px; height: 60px; } }
+@media (min-width: 1600px) { .tv-ind-table .tv-ind-icon { width: 54px; height: 54px; } }
 /* Owner 10-28: Sideline Staff lines carry icons like the inducements. */
 .tv-staff-cell { display: flex; align-items: center; gap: 12px; }
-.tv-staff-icon { width: 52px; height: 52px; object-fit: contain; }
+.tv-staff-icon { width: 46px; height: 46px; object-fit: contain; }
 .tv-extras .tv-pairs > div { padding: 4px 6px; }
-@media (min-width: 1600px) { .tv-staff-icon { width: 60px; height: 60px; } }
+@media (min-width: 1600px) { .tv-staff-icon { width: 54px; height: 54px; } }
