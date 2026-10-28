@@ -174,6 +174,6 @@ export interface TournamentDetailResponse {
   tournament: TournamentSummary;
   entrants: TournamentEntrant[];
   rounds: TournamentRound[];
-  standings?: { rows: TournamentStandingRow[] };
+  standings?: TournamentStandingRow[];
   scheduledMatches?: TournamentFixture[];
 }

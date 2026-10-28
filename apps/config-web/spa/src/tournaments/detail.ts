@@ -38,22 +38,38 @@ export interface TournamentDetailState {
   error: string;
 }
 
-export function createTournamentDetail(deps: { api: Fetcher }) {
+/** Only http(s) image URLs are rendered as crests; anything else (data:, javascript:, relative junk) is dropped. */
+export function safeCrestUrl(url: string | undefined | null): string {
+  return typeof url === "string" && /^https?:\/\//i.test(url.trim()) ? url.trim() : "";
+}
+
+export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () => void }) {
   const state = reactive<TournamentDetailState>({
     id: "", tournament: null, entrants: [], rounds: [], fixtures: [], standings: [], standingsStatus: "idle", standingsError: "",
     loaded: false, loading: false, notFound: false, error: "",
   });
 
-  async function load(id: string): Promise<void> {
+  // Request generations: a response is applied only if no newer request of its kind started (A -> B -> A safe).
+  let loadGen = 0;
+  let standingsGen = 0;
+  const signedOut = (err: unknown): boolean => {
+    if (err instanceof ApiError && err.status === 401 && deps.onSignedOut) { deps.onSignedOut(); return true; }
+    return false;
+  };
+
+  /** `silent` = a background refresh: a failure other than 404 keeps what is on screen. */
+  async function load(id: string, silent = false): Promise<void> {
     if (state.id !== id) {
       state.tournament = null; state.entrants = []; state.rounds = []; state.fixtures = [];
       state.standings = []; state.standingsStatus = "idle"; state.standingsError = "";
+      standingsGen++;
     }
     state.id = id;
+    const mine = ++loadGen;
     state.loading = true;
     try {
       const res = await deps.api<TournamentDetailResponse>(`/api/tournaments/${encodeURIComponent(id)}`);
-      if (state.id !== id) return;
+      if (mine !== loadGen) return;
       state.tournament = res.tournament;
       state.entrants = res.entrants ?? [];
       state.rounds = [...(res.rounds ?? [])].sort((a, b) => a.number - b.number);
@@ -61,31 +77,42 @@ export function createTournamentDetail(deps: { api: Fetcher }) {
       state.error = "";
       state.notFound = false;
     } catch (err) {
-      if (state.id !== id) return;
+      if (mine !== loadGen) return;
+      const notFound = err instanceof ApiError && err.status === 404;
+      if (silent && !notFound && state.tournament) return;
       state.tournament = null;
-      state.notFound = err instanceof ApiError && err.status === 404;
-      state.error = err instanceof Error ? err.message : "Can't load this tournament.";
+      state.notFound = notFound;
+      state.error = signedOut(err) ? "Signed out. Sign in and try again." : err instanceof Error ? err.message : "Can't load this tournament.";
     } finally {
-      if (state.id === id) { state.loading = false; state.loaded = true; }
+      if (mine === loadGen) { state.loading = false; state.loaded = true; }
     }
   }
 
-  async function loadStandings(): Promise<void> {
+  async function loadStandings(silent = false): Promise<void> {
     const id = state.id;
     if (!id) return;
-    state.standingsStatus = "loading";
+    const mine = ++standingsGen;
+    if (!silent) state.standingsStatus = "loading";
     try {
-      const res = await deps.api<{ standings?: { rows?: TournamentStandingRow[] } }>(`/api/tournaments/${encodeURIComponent(id)}/standings`);
-      if (state.id !== id) return;
-      state.standings = res.standings?.rows ?? [];
+      // GET /api/tournaments/:id/standings answers { tournamentId, standings: Row[] }.
+      const res = await deps.api<{ standings?: TournamentStandingRow[] }>(`/api/tournaments/${encodeURIComponent(id)}/standings`);
+      if (mine !== standingsGen) return;
+      state.standings = Array.isArray(res?.standings) ? res.standings : [];
       state.standingsError = "";
       state.standingsStatus = "ok";
     } catch (err) {
-      if (state.id !== id) return;
+      if (mine !== standingsGen) return;
+      if (silent && state.standingsStatus === "ok") return;
       state.standings = [];
-      state.standingsError = err instanceof Error ? err.message : "Can't load standings.";
+      state.standingsError = signedOut(err) ? "Signed out. Sign in and try again." : err instanceof Error ? err.message : "Can't load standings.";
       state.standingsStatus = "error";
     }
+  }
+
+  /** Background refresh: the tournament, and the standings if that tab has been opened. */
+  async function refresh(): Promise<void> {
+    if (!state.id) return;
+    await Promise.all([load(state.id, true), state.standingsStatus === "idle" ? Promise.resolve() : loadStandings(true)]);
   }
 
   /** Loads what a tab needs the first time it is shown. */
@@ -93,7 +120,7 @@ export function createTournamentDetail(deps: { api: Fetcher }) {
     if (tab === "standings" && state.tournament && state.standingsStatus === "idle") await loadStandings();
   }
 
-  return { state, load, loadStandings, ensureTab };
+  return { state, load, loadStandings, ensureTab, refresh };
 }
 
 export type TournamentDetail = ReturnType<typeof createTournamentDetail>;
@@ -107,7 +134,7 @@ export interface TeamLabel { entrantId: string; team: string; coach: string; rac
 export function teamLabels(entrants: TournamentEntrant[]): Map<string, TeamLabel> {
   const out = new Map<string, TeamLabel>();
   for (const e of entrants) {
-    out.set(e.id, { entrantId: e.id, team: e.teamName || e.teamId, coach: e.coachId ?? "", race: e.race ?? "", logoUrl: e.logoUrl ?? "" });
+    out.set(e.id, { entrantId: e.id, team: e.teamName || e.teamId, coach: e.coachId ?? "", race: e.race ?? "", logoUrl: safeCrestUrl(e.logoUrl) });
   }
   return out;
 }

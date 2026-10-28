@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Entrants tab: seed, team (crest when the server sent one), race, coach, status.
 import type { TournamentEntrant } from "../shared/api";
+import Crest from "./Crest.vue";
 import { entrantStatus } from "../tournaments/detail";
 
 defineProps<{ entrants: TournamentEntrant[] }>();
@@ -15,7 +16,7 @@ defineProps<{ entrants: TournamentEntrant[] }>();
         <tr v-for="e in entrants" :key="e.id" :class="{ 'tn-dropped': e.droppedAt }">
           <td data-label="Seed">{{ e.seed }}</td>
           <td data-label="Team" class="tn-team">
-            <img v-if="e.logoUrl" class="tn-crest" :src="e.logoUrl" alt="" loading="lazy" />
+            <Crest :url="e.logoUrl" />
             <span>{{ e.teamName || e.teamId }}</span>
           </td>
           <td data-label="Race">{{ e.race || "" }}</td>

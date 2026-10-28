@@ -41,14 +41,32 @@ export function listPath(tab: ListTab, q: string, page: number): string {
   return `/api/fork/tournaments${params.length ? `?${params.join("&")}` : ""}`;
 }
 
-export function createTournamentList(deps: { api: Fetcher }) {
+/** The query string for a list position (defaults omitted): ?tab=&q=&page=. */
+export function listQuery(tab: ListTab, q: string, page: number): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (tab !== "active") out.tab = tab;
+  if (q.trim()) out.q = q.trim();
+  if (page > 1) out.page = String(page);
+  return out;
+}
+
+/** Parses a route query into a list position; anything unrecognised falls back to the defaults. */
+export function parseListQuery(query: Record<string, unknown>): { tab: ListTab; q: string; page: number } {
+  const one = (v: unknown): string => (Array.isArray(v) ? String(v[0] ?? "") : typeof v === "string" ? v : "");
+  const page = Number(one(query.page));
+  const tab = one(query.tab);
+  return { tab: isListTab(tab) ? tab : "active", q: one(query.q).slice(0, 60), page: Number.isSafeInteger(page) && page >= 1 ? page : 1 };
+}
+
+export function createTournamentList(deps: { api: Fetcher; onSignedOut?: () => void }) {
   const state = reactive<TournamentListState>({
     tab: "active", q: "", page: 1, items: [], total: 0, pageSize: 20, hasMore: false, loading: false, loaded: false, error: "",
   });
   // A newer request supersedes an older one still in flight (tab flipped, typing).
   let seq = 0;
 
-  async function load(): Promise<void> {
+  /** `silent` = a background refresh: a failure keeps the rows on screen. */
+  async function load(silent = false): Promise<void> {
     const mine = ++seq;
     state.loading = true;
     try {
@@ -62,9 +80,12 @@ export function createTournamentList(deps: { api: Fetcher }) {
       state.loaded = true;
     } catch (err) {
       if (mine !== seq) return;
+      if (silent && state.loaded && !state.error) return;
       state.items = [];
       state.hasMore = false;
-      state.error = err instanceof ApiError || err instanceof Error ? err.message : "Can't load tournaments.";
+      state.error = err instanceof ApiError && err.status === 401 && deps.onSignedOut
+        ? (deps.onSignedOut(), "Signed out. Sign in and try again.")
+        : err instanceof Error ? err.message : "Can't load tournaments.";
       state.loaded = true;
     } finally {
       if (mine === seq) state.loading = false;
@@ -74,6 +95,13 @@ export function createTournamentList(deps: { api: Fetcher }) {
   return {
     state,
     load,
+    /** Sets tab / search / page from the URL; true when something changed (the caller then loads). */
+    restore(p: { tab: ListTab; q: string; page: number }): boolean {
+      const changed = state.tab !== p.tab || state.q !== p.q || state.page !== p.page;
+      state.tab = p.tab; state.q = p.q; state.page = p.page;
+      return changed;
+    },
+    refresh(): Promise<void> { return load(true); },
     setTab(tab: ListTab): Promise<void> { state.tab = tab; state.page = 1; return load(); },
     search(q: string): Promise<void> { state.q = q; state.page = 1; return load(); },
     next(): Promise<void> { if (!state.hasMore) return Promise.resolve(); state.page += 1; return load(); },

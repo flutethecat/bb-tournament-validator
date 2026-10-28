@@ -1,22 +1,41 @@
 <script setup lang="ts">
 // Tournaments (/app/tournaments): public, read-only list of every format with Active / Upcoming / Finished tabs,
 // search and paging. Cards link to the detail page.
-import { inject, onMounted, ref } from "vue";
-import { RouterLink } from "vue-router";
+import { inject, onMounted, onUnmounted, ref, watch } from "vue";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
+import { SESSION_KEY } from "../session";
 import {
-  createTournamentList, FORMAT_LABEL, LIST_TABS, STATUS_LABEL, TOURNAMENT_LIST_KEY, type ListTab,
+  createTournamentList, FORMAT_LABEL, listQuery, LIST_TABS, parseListQuery, STATUS_LABEL, TOURNAMENT_LIST_KEY, type ListTab,
 } from "../tournaments/list";
+import { startPolling } from "../tournaments/poll";
 import { roundProgress, startDate } from "../tournaments/detail";
 
 const fetcher = inject(API_KEY)!;
-const list = inject(TOURNAMENT_LIST_KEY, null) ?? createTournamentList({ api: fetcher });
+const session = inject(SESSION_KEY)!;
+const route = useRoute();
+const router = useRouter();
+const list = inject(TOURNAMENT_LIST_KEY, null) ?? createTournamentList({ api: fetcher, onSignedOut: () => void session.load(true) });
 const { state } = list;
-const q = ref(state.q);
 
-const pick = (tab: ListTab): void => void list.setTab(tab);
-const find = (): void => void list.search(q.value);
-onMounted(() => { if (!state.loaded) void list.load(); });
+// The URL (?tab=&q=&page=) is the source of truth: refresh and Back restore the same view.
+const changed = list.restore(parseListQuery(route.query));
+const q = ref(state.q);
+const go = (tab: ListTab, query: string, page: number): void => void router.push({ query: listQuery(tab, query, page) });
+const pick = (tab: ListTab): void => go(tab, state.q, 1);
+const find = (): void => go(state.tab, q.value, 1);
+const prev = (): void => go(state.tab, state.q, Math.max(1, state.page - 1));
+const next = (): void => go(state.tab, state.q, state.page + 1);
+
+watch(() => route.query, (query) => {
+  if (list.restore(parseListQuery(query))) { q.value = state.q; void list.load(); }
+});
+let stopPolling = (): void => undefined;
+onMounted(() => {
+  stopPolling = startPolling(() => list.refresh());
+  if (!state.loaded || changed) void list.load();
+});
+onUnmounted(() => stopPolling());
 </script>
 
 <template>
@@ -54,9 +73,9 @@ onMounted(() => { if (!state.loaded) void list.load(); });
     </ul>
 
     <div v-if="state.loaded && !state.error && (state.page > 1 || state.hasMore)" class="tn-pager">
-      <button class="lobby-btn tt-tap" type="button" :disabled="state.page <= 1 || state.loading" @click="list.prev()">Previous</button>
+      <button class="lobby-btn tt-tap" type="button" :disabled="state.page <= 1 || state.loading" @click="prev">Previous</button>
       <span class="muted">Page {{ state.page }} · {{ state.total }} total</span>
-      <button class="lobby-btn tt-tap" type="button" :disabled="!state.hasMore || state.loading" @click="list.next()">Next</button>
+      <button class="lobby-btn tt-tap" type="button" :disabled="!state.hasMore || state.loading" @click="next">Next</button>
     </div>
   </section>
 </template>

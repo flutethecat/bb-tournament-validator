@@ -1,10 +1,11 @@
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError, type TournamentDetailResponse, type TournamentStandingRow, type TournamentSummary } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
-import { createTournamentList, listPath } from "../spa/src/tournaments/list";
-import { createTournamentDetail, roundViews, standingViews, tiebreakLabel } from "../spa/src/tournaments/detail";
+import { createTournamentList, listPath, listQuery, parseListQuery } from "../spa/src/tournaments/list";
+import { createTournamentDetail, roundViews, safeCrestUrl, standingViews, tiebreakLabel } from "../spa/src/tournaments/detail";
+import { startPolling } from "../spa/src/tournaments/poll";
 import { createOrganiser } from "../spa/src/tabletop/organiser";
 
 // Phase 1 of the SPA Tournaments: read-only list + detail controllers, and the routes server-rendered through the
@@ -126,7 +127,7 @@ describe("tournament detail controller", () => {
   it("loads overview data in one read, rounds sorted, and standings only when the tab asks", async () => {
     const f = mockFetcher({
       "/api/tournaments/t1": detailBody(),
-      "/api/tournaments/t1/standings": { tournamentId: "t1", standings: { rows: [row(1, 1, "Alice", "tm1"), row(2, 2, "Bob", "tm2", { points: 1, wins: 0, draws: 1 })] } },
+      "/api/tournaments/t1/standings": { tournamentId: "t1", standings: [row(1, 1, "Alice", "tm1"), row(2, 2, "Bob", "tm2", { points: 1, wins: 0, draws: 1 })] },
     });
     const d = createTournamentDetail({ api: f });
     await d.load("t1");
@@ -140,6 +141,9 @@ describe("tournament detail controller", () => {
     await d.ensureTab("standings");
     expect(f.calls.map((c) => c.path)).toEqual(["/api/tournaments/t1", "/api/tournaments/t1/standings"]);
     expect(d.state.standingsStatus).toBe("ok");
+    // the real route answers { tournamentId, standings: Row[] }: the rows must come through
+    expect(d.state.standings).toHaveLength(2);
+    expect(d.state.standings.map((r) => r.rank)).toEqual([1, 2]);
     const views = standingViews(d.state);
     expect(views[0]).toMatchObject({ rank: 1, team: "Alice Orcs", coach: "Alice", race: "Orc", points: 4, played: 2, td: 5, cas: 3, tiebreak: "3.50" });
     expect(tiebreakLabel(d.state.tournament)).toBe("Buchholz");
@@ -181,6 +185,134 @@ describe("tournament detail controller", () => {
     expect(d.state.standingsError).toBe("Request failed (500).");
     expect(d.state.tournament?.id).toBe("t1");
     expect(d.state.error).toBe("");
+  });
+});
+
+describe("tournament controllers: hardening", () => {
+  it("a stale A -> B -> A standings response is dropped (latest request wins)", async () => {
+    const releases: Array<(v: unknown) => void> = [];
+    let n = 0;
+    const api = (async (path: string) => {
+      if (path.endsWith("/standings")) {
+        const mine = n++;
+        await new Promise((r) => releases.push(r));
+        return { standings: [row(1, 1, mine === 0 ? "Stale" : "Fresh", "tm1")] };
+      }
+      return detailBody();
+    }) as Fetcher;
+    const d = createTournamentDetail({ api });
+    await d.load("t1");
+    const first = d.loadStandings();
+    const second = d.loadStandings();
+    releases[1]!(null);
+    await second;
+    releases[0]!(null);
+    await first;
+    expect(d.state.standings.map((r) => r.coachId)).toEqual(["Fresh"]);
+    expect(d.state.standingsStatus).toBe("ok");
+  });
+
+  it("a stale detail load for another tournament cannot overwrite the current one", async () => {
+    const gates: Record<string, (v: unknown) => void> = {};
+    const api = (async (path: string) => {
+      await new Promise((r) => { gates[path] = r; });
+      return detailBody({ tournament: tournament({ id: path.endsWith("t2") ? "t2" : "t1", name: path.endsWith("t2") ? "Two" : "One" }) });
+    }) as Fetcher;
+    const d = createTournamentDetail({ api });
+    const a = d.load("t1");
+    const b = d.load("t2");
+    gates["/api/tournaments/t2"]!(null);
+    await b;
+    gates["/api/tournaments/t1"]!(null);
+    await a;
+    expect(d.state.tournament?.name).toBe("Two");
+  });
+
+  it("401 calls onSignedOut (list, detail, standings) instead of showing the generic error", async () => {
+    let out = 0;
+    const onSignedOut = () => { out++; };
+    const unauth = new ApiError(401, "Authentication required.");
+    const list = createTournamentList({ api: mockFetcher({ "/api/fork/tournaments": unauth }), onSignedOut });
+    await list.load();
+    const d = createTournamentDetail({ api: mockFetcher({ "/api/tournaments/t1": unauth }), onSignedOut });
+    await d.load("t1");
+    const s = createTournamentDetail({ api: mockFetcher({ "/api/tournaments/t1": detailBody(), "/api/tournaments/t1/standings": unauth }), onSignedOut });
+    await s.load("t1");
+    await s.ensureTab("standings");
+    expect(out).toBe(3);
+    for (const msg of [list.state.error, d.state.error, s.state.standingsError]) {
+      expect(msg).toBe("Signed out. Sign in and try again.");
+      expect(msg).not.toContain("Authentication required");
+    }
+    // without a hook the server's message shows
+    const bare = createTournamentList({ api: mockFetcher({ "/api/fork/tournaments": unauth }) });
+    await bare.load();
+    expect(bare.state.error).toBe("Authentication required.");
+  });
+
+  it("silent refresh keeps what is on screen on a transient failure, and picks up changes", async () => {
+    let fail = false;
+    let name = "Spring Swiss";
+    const api = (async () => {
+      if (fail) throw new ApiError(500, "Request failed (500).");
+      return detailBody({ tournament: tournament({ name }) });
+    }) as Fetcher;
+    const d = createTournamentDetail({ api });
+    await d.load("t1");
+    name = "Renamed";
+    await d.refresh();
+    expect(d.state.tournament?.name).toBe("Renamed");
+    fail = true;
+    await d.refresh();
+    expect(d.state.tournament?.name).toBe("Renamed");
+    expect(d.state.error).toBe("");
+    const list = createTournamentList({ api: (async () => { if (fail) throw new ApiError(500, "x"); return listPage([tournament()]); }) as Fetcher });
+    fail = false;
+    await list.load();
+    fail = true;
+    await list.refresh();
+    expect(list.state.items).toHaveLength(1);
+    expect(list.state.error).toBe("");
+  });
+
+  it("polling runs only while visible and stops when cleared", () => {
+    vi.useFakeTimers();
+    try {
+      let visible = true;
+      let ran = 0;
+      const stop = startPolling(() => { ran++; }, 30_000, () => visible);
+      vi.advanceTimersByTime(30_000);
+      expect(ran).toBe(1);
+      visible = false;
+      vi.advanceTimersByTime(60_000);
+      expect(ran).toBe(1);
+      visible = true;
+      vi.advanceTimersByTime(30_000);
+      expect(ran).toBe(2);
+      stop();
+      vi.advanceTimersByTime(120_000);
+      expect(ran).toBe(2);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("list position round-trips through the query string; junk falls back to defaults", () => {
+    expect(listQuery("active", "", 1)).toEqual({});
+    expect(listQuery("finished", " nut ", 3)).toEqual({ tab: "finished", q: "nut", page: "3" });
+    expect(parseListQuery({ tab: "finished", q: "nut", page: "3" })).toEqual({ tab: "finished", q: "nut", page: 3 });
+    expect(parseListQuery({ tab: "bogus", page: "-4", q: ["a", "b"] })).toEqual({ tab: "active", q: "a", page: 1 });
+    expect(parseListQuery({})).toEqual({ tab: "active", q: "", page: 1 });
+    const list = createTournamentList({ api: mockFetcher({}) });
+    expect(list.restore({ tab: "finished", q: "x", page: 2 })).toBe(true);
+    expect(list.restore({ tab: "finished", q: "x", page: 2 })).toBe(false);
+    expect(list.state.page).toBe(2);
+  });
+
+  it("crest URLs: only http(s) survive", () => {
+    expect(safeCrestUrl("https://crest.test/a.png")).toBe("https://crest.test/a.png");
+    expect(safeCrestUrl("http://crest.test/a.png")).toBe("http://crest.test/a.png");
+    for (const bad of ["javascript:alert(1)", "data:image/png;base64,AAAA", "//crest.test/a.png", "/local.png", "ftp://x/y.png", "", undefined, null]) {
+      expect(safeCrestUrl(bad as string | undefined), String(bad)).toBe("");
+    }
   });
 });
 
@@ -329,6 +461,32 @@ describe("tournament routes (server-rendered against a mocked API)", () => {
     expect(html).toContain("tm3");
   });
 
+  it("crests: http(s) render with no-referrer; other schemes never reach the page", async () => {
+    const body = detailBody();
+    body.entrants[1]!.logoUrl = "javascript:alert(1)";
+    body.entrants[2]!.logoUrl = "data:image/png;base64,AAAA";
+    const { html } = await render("/tournaments/t1?tab=entrants", { "/api/tournaments/t1": body }, loadedDetail("t1"));
+    expect(html).toContain('src="https://crest.test/a.png"');
+    expect(html).toContain('referrerpolicy="no-referrer"');
+    expect(html).not.toContain("javascript:");
+    expect(html).not.toContain("data:image");
+    expect(html.match(/class="tn-crest"/g)).toHaveLength(1);
+  });
+
+  it("list: the URL query (?tab=&q=&page=) sets the position the page shows", async () => {
+    const items = [tournament({ id: "t5", status: "completed", name: "Old Cup" })];
+    const { html } = await render("/tournaments?tab=finished&q=old&page=2", { "/api/fork/tournaments?status=completed&q=old&page=2": listPage(items, { page: 2, total: 21 }) }, async (inject, f) => {
+      const list = mods.createTournamentList({ api: f });
+      list.restore({ tab: "finished", q: "old", page: 2 });
+      await list.load();
+      inject(mods.TOURNAMENT_LIST_KEY, list);
+    });
+    expect(html).toContain("Old Cup");
+    expect(html).toContain('value="old"');
+    expect(html).toMatch(/class="on tn-tab">Finished</);
+    expect(html).toContain("Page 2");
+  });
+
   it("detail rounds tab: anonymous gets the empty state; fixtures render score with CAS and vs / bye", async () => {
     const anon = await render("/tournaments/t1?tab=rounds", { "/api/tournaments/t1": detailBody() }, loadedDetail("t1"));
     expect(anon.html).toContain("Round 1");
@@ -346,12 +504,12 @@ describe("tournament routes (server-rendered against a mocked API)", () => {
   it("detail standings tab: Pts MP W D L TD CAS and the tiebreak column; empty and error states", async () => {
     const ok = await render("/tournaments/t1?tab=standings", {
       "/api/tournaments/t1": detailBody(),
-      "/api/tournaments/t1/standings": { tournamentId: "t1", standings: { rows: [row(1, 1, "Alice", "tm1")] } },
+      "/api/tournaments/t1/standings": { tournamentId: "t1", standings: [row(1, 1, "Alice", "tm1")] },
     }, loadedDetail("t1", "standings"));
     for (const h of ["Pts", "MP", "W", "D", "L", "TD", "CAS", "Buchholz"]) expect(ok.html).toContain(`<th>${h}</th>`);
     expect(ok.html).toContain("Alice Orcs");
     expect(ok.html).toContain("3.50");
-    const empty = await render("/tournaments/t1?tab=standings", { "/api/tournaments/t1": detailBody(), "/api/tournaments/t1/standings": { standings: { rows: [] } } }, loadedDetail("t1", "standings"));
+    const empty = await render("/tournaments/t1?tab=standings", { "/api/tournaments/t1": detailBody(), "/api/tournaments/t1/standings": { standings: [] } }, loadedDetail("t1", "standings"));
     expect(empty.html).toContain("No standings yet.");
     const bad = await render("/tournaments/t1?tab=standings", { "/api/tournaments/t1": detailBody(), "/api/tournaments/t1/standings": new ApiError(500, "Request failed (500).") }, loadedDetail("t1", "standings"));
     expect(bad.html).toContain("Request failed (500).");

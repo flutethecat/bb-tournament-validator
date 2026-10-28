@@ -1,8 +1,10 @@
 <script setup lang="ts">
 // Tournament detail (/app/tournaments/:id, ?tab=): public, read-only. Overview / Entrants / Rounds / Standings.
-import { computed, inject, onMounted, watch } from "vue";
+import { computed, inject, onMounted, onUnmounted, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { API_KEY } from "../app";
+import { SESSION_KEY } from "../session";
+import { startPolling } from "../tournaments/poll";
 import TournamentEntrants from "../components/TournamentEntrants.vue";
 import TournamentOverview from "../components/TournamentOverview.vue";
 import TournamentRounds from "../components/TournamentRounds.vue";
@@ -13,15 +15,19 @@ import { FORMAT_LABEL, STATUS_LABEL } from "../tournaments/list";
 const props = defineProps<{ id: string }>();
 const fetcher = inject(API_KEY)!;
 const route = useRoute();
-const detail = inject(TOURNAMENT_DETAIL_KEY, null) ?? createTournamentDetail({ api: fetcher });
+const session = inject(SESSION_KEY)!;
+const detail = inject(TOURNAMENT_DETAIL_KEY, null) ?? createTournamentDetail({ api: fetcher, onSignedOut: () => void session.load(true) });
 const { state } = detail;
 const tab = computed<DetailTab>(() => (isDetailTab(route.query.tab) ? route.query.tab : "overview"));
 
 watch(tab, (t) => void detail.ensureTab(t));
+let stopPolling = (): void => undefined;
 onMounted(async () => {
+  stopPolling = startPolling(() => detail.refresh());
   if (!state.loaded || state.id !== props.id) await detail.load(props.id);
   await detail.ensureTab(tab.value);
 });
+onUnmounted(() => stopPolling());
 </script>
 
 <template>

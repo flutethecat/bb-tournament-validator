@@ -3,6 +3,7 @@
 // crest; "vs" for an unplayed fixture). Read-only. The server sends fixtures only to signed-in participants and
 // organisers, so an anonymous visitor sees the rounds with an empty state.
 import { computed } from "vue";
+import Crest from "./Crest.vue";
 import type { TournamentDetailState } from "../tournaments/detail";
 import { roundViews } from "../tournaments/detail";
 
@@ -20,7 +21,7 @@ const fixtureCount = computed(() => rounds.value.reduce((n, r) => n + r.fixtures
       <ul v-if="r.fixtures.length" class="tn-fixtures">
         <li v-for="f in r.fixtures" :key="f.id" class="tn-fixture" :data-played="f.played">
           <div class="tn-side tn-home">
-            <img v-if="f.home.logoUrl" class="tn-crest" :src="f.home.logoUrl" alt="" loading="lazy" />
+            <Crest :url="f.home.logoUrl" />
             <span class="tn-side-text"><strong>{{ f.home.team }}</strong><span class="muted">{{ f.home.coach }}</span></span>
           </div>
           <div class="tn-score">
@@ -34,7 +35,7 @@ const fixtureCount = computed(() => rounds.value.reduce((n, r) => n + r.fixtures
           <div class="tn-side tn-away">
             <template v-if="f.away">
               <span class="tn-side-text"><strong>{{ f.away.team }}</strong><span class="muted">{{ f.away.coach }}</span></span>
-              <img v-if="f.away.logoUrl" class="tn-crest" :src="f.away.logoUrl" alt="" loading="lazy" />
+              <Crest :url="f.away.logoUrl" />
             </template>
           </div>
         </li>
