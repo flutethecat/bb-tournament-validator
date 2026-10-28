@@ -214,3 +214,8 @@
 @media (min-width: 1600px) {
   .tv-ind-table, .tv-pairs { font-size: 19px; }
 }
+/* Owner 10-28: no muted grey on the zebra rows - numbers in the text colour, trait chips lifted toward it, chips on a darker pad. */
+.tv-table .tv-num, .tv-card-head .tv-num { color: var(--ui-text); }
+.tv-table .skill-trait, .tv-cards .skill-trait { color: color-mix(in srgb, var(--ui-skill-trait) 45%, var(--ui-text)); }
+.tv-table .skill, .tv-cards .skill { background: color-mix(in srgb, var(--ui-surface) 78%, transparent); border-color: color-mix(in srgb, var(--ui-border) 80%, var(--ui-text)); }
+.tv-table .tv-pos { color: color-mix(in srgb, var(--ui-position) 80%, var(--ui-text)); }
