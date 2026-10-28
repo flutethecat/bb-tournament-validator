@@ -23,7 +23,7 @@
  *   summary only: `result` is the FINAL result after any apothecary reroll.
  */
 
-import { effectiveEvents, otherSide, type Side, type StatName, type TabletopEvent } from "./events.js";
+import { effectiveEvents, LASTING_INJURY_RESULTS, otherSide, type Side, type StatName, type TabletopEvent } from "./events.js";
 
 export type PostMatchOption = "none" | "spp-only" | "full";
 export type Ruleset = "bb2025";
@@ -225,6 +225,19 @@ export function tallyMatch(
       case "mvp": line(side, e.player!).mvp += 1; break;
       case "sendOff": line(side, e.player!).sentOff = true; break;
       case "fanChange": t.fanDelta[side] += e.payload.delta as number; break;
+      case "injury": {
+        // A lasting injury with no one to credit: applied to the hurt player like a casualty result, no SPP to anyone.
+        const result = e.payload.result as string;
+        if (!(LASTING_INJURY_RESULTS as readonly string[]).includes(result) || !e.player) break;
+        const bucket = t.casualtiesSuffered[side];
+        if (result === "BH") bucket.bh += 1; else if (result === "DEAD") bucket.rip += 1; else bucket.si += 1;
+        line(side, e.player).injury = {
+          result,
+          ...(result === "stat loss" ? { stat: e.payload.stat as StatName } : {}),
+          apothecaryUsed: e.payload.apothecaryUsed === true,
+        };
+        break;
+      }
       case "casualty": {
         const victimSide = (e.payload.victimTeam as Side | undefined) ?? otherSide(side);
         const result = e.payload.result as string;

@@ -264,9 +264,10 @@ const run = (events: TabletopEvent[]) => {
 const err = (events: TabletopEvent[]) => (run(events) as { error?: string }).error;
 
 describe("TourPlay event set", () => {
-  it("injury (non-casualty), catch, foul, stalling: need an available player; injury needs stunned or KO", () => {
+  it("injury (non-casualty), catch, foul, stalling: need an available player; injury takes stunned, KO or a casualty result", () => {
     expect(err([ev("injury", "home", "h1", { result: "KO" }), ev("injury", "away", "a1", { result: "stunned" })])).toBeUndefined();
-    expect(err([ev("injury", "home", "h1", { result: "BH" })])).toMatch(/stunned, KO/);
+    expect(err([ev("injury", "home", "h1", { result: "BH" })])).toBeUndefined(); // a lasting result is now accepted (no causing player)
+    expect(err([ev("injury", "home", "h1", { result: "FLATTENED" })])).toMatch(/stunned, KO/);
     expect(err([ev("injury", "home", "a1", { result: "KO" })])).toMatch(/not on the home team/);
     for (const t of ["catch", "foul", "stalling"]) {
       expect(err([ev(t, "home", "h1")])).toBeUndefined();

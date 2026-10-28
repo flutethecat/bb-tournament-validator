@@ -96,6 +96,8 @@ const hasMvp = (s: Side): boolean => state.tally.players[s].some((l) => l.mvp > 
 const mvpChoices = (s: Side) => eligiblePlayers(state.teams, s, ELIGIBILITY_KEY.mvp!);
 /** The rosters this viewer may pick from: their own, both for an organiser in edit mode. */
 const visibleSides = computed<Side[]>(() => visibleSidesFor(localSide.value, organiser.value, editMode.value));
+/** An injury has no causing player, so the victim may come from either roster. */
+const pickSides = computed<Side[]>(() => (pick.value?.type === "injury" ? sides : visibleSides.value));
 const ttmOpen = ref(false);
 
 function onOther(o: OtherEvent): void {
@@ -301,7 +303,7 @@ onBeforeUnmount(() => {
     <TabletopTurnSet v-if="turnSetOpen" :match="match" :clock="state.clock" :busy="state.busy" :error="state.actionError" @close="turnSetOpen = false" @save="saveTurn" />
     <TabletopOther v-if="other" @pick="onOther" @close="other = false" />
     <TabletopRosters v-if="rosters" :match="match" :teams="state.teams" :tally="state.tally" @close="rosters = false" />
-    <TabletopPick v-if="pick" :kind="pick" :match="match" :teams="state.teams" :visible-sides="visibleSides" @pick="onPicked" @close="pick = null" />
+    <TabletopPick v-if="pick" :kind="pick" :match="match" :teams="state.teams" :visible-sides="pickSides" @pick="onPicked" @close="pick = null" />
     <TabletopTtm v-if="ttmOpen" :match="match" :teams="state.teams" :tally="state.tally" :visible-sides="visibleSides" @post="onTtm" @close="ttmOpen = false" />
 
     <div v-if="sheet.open" class="tt-sheet" role="dialog" aria-label="Casualty">

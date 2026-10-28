@@ -22,6 +22,9 @@ const side = ref<Side>(props.visibleSides[0] ?? "home");
 const needsPlayer = computed(() => ["player", "player+result", "casualty"].includes(props.kind.needs));
 const chosen = ref("");
 const result = ref("stunned");
+const stat = ref("MA");
+const apothecary = ref(false);
+const lasting = computed(() => !["stunned", "KO"].includes(result.value));
 const weather = ref<string>(WEATHER_RESULTS_UI[2]);
 const text = ref("");
 const action = computed(() => ELIGIBILITY_KEY[props.kind.type] ?? props.kind.type);
@@ -35,7 +38,10 @@ function pickPlayer(s: Side, id: string): void {
   emit("pick", pickSpec(props.kind, s, id));
 }
 function saveInjury(): void {
-  emit("pick", { type: "injury", team: side.value, player: chosen.value, payload: { result: result.value } });
+  const payload: Record<string, unknown> = { result: result.value };
+  if (lasting.value) payload.apothecaryUsed = apothecary.value;
+  if (result.value === "stat loss") payload.stat = stat.value;
+  emit("pick", { type: "injury", team: side.value, player: chosen.value, payload });
 }
 function pickTeam(s: Side): void {
   side.value = s;
@@ -76,6 +82,11 @@ function saveText(): void {
     <template v-if="kind.needs === 'player+result' && chosen">
       <label for="inj-result">Result</label>
       <select id="inj-result" v-model="result"><option v-for="r in INJURY_RESULTS_UI" :key="r" :value="r">{{ r }}</option></select>
+      <template v-if="result === 'stat loss'">
+        <label for="inj-stat">Stat lost</label>
+        <select id="inj-stat" v-model="stat"><option v-for="n in ['MA', 'ST', 'AG', 'PA', 'AV']" :key="n" :value="n">{{ n }}</option></select>
+      </template>
+      <label v-if="lasting" class="tt-check"><input v-model="apothecary" type="checkbox" /> Apothecary used</label>
       <button class="lobby-btn primary tt-tap" type="button" @click="saveInjury">Save injury</button>
     </template>
     <template v-if="kind.needs === 'weather'">

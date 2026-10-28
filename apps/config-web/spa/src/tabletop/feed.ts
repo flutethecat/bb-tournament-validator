@@ -74,12 +74,14 @@ export interface OtherEvent { type: string; label: string; needs: Needs }
 /** The event a player pick posts (the player id is what gets the credit). */
 export const pickSpec = (kind: { type: string }, team: Side, player: string): { type: string; team: Side; player: string } => ({ type: kind.type, team, player });
 
+/** The injury flow the rail Injury button and the Other grid share. */
+export const INJURY_EVENT: OtherEvent = { type: "injury", label: "Injury", needs: "player+result" };
 export const TD_EVENT: OtherEvent = { type: "touchdown", label: "Touchdown", needs: "player" };
 export const CAS_EVENT: OtherEvent = { type: "casualty", label: "Casualty", needs: "casualty" };
 
 /** The 12 entries of the Other popup, in TourPlay's order (Touchdown and Casualty have their own buttons; MVP is an end-of-match pick). */
 export const OTHER_EVENTS: readonly OtherEvent[] = [
-  { type: "injury", label: "Injury", needs: "player+result" },
+  INJURY_EVENT,
   { type: "completion", label: "Completion", needs: "player" },
   { type: "catch", label: "Catch", needs: "player" },
   { type: "throwTeamMate", label: "Throw Team-mate", needs: "player" },
@@ -194,7 +196,7 @@ export function eventSentence(e: RecordedEvent, who: string, teamName: string, s
   switch (e.type) {
     case "touchdown": return { lead: p, rest: " scores a touchdown." };
     case "casualty": return { lead: p, rest: ` causes a casualty: ${sub}.` };
-    case "injury": return { lead: p, rest: ` suffers an injury: ${sub}.` };
+    case "injury": return { lead: p, rest: ` is injured: ${sub}.` };
     case "completion": return { lead: p, rest: " completes a pass." };
     case "catch": return { lead: p, rest: " catches the ball." };
     case "throwTeamMate": return { lead: p, rest: " throws a team-mate." };
@@ -321,8 +323,8 @@ export function coinLine(pregame: Record<string, unknown>): string {
 }
 
 export const CASUALTY_RESULTS_UI = ["BH", "MNG", "NI", "stat loss", "DEAD"] as const;
-/** Injury results the server accepts (a casualty is its own event). */
-export const INJURY_RESULTS_UI = ["stunned", "KO"] as const;
+/** Injury results the server accepts: stunned / KO, and the casualty table results for a player hurt with no one to credit. */
+export const INJURY_RESULTS_UI = ["stunned", "KO", "BH", "MNG", "NI", "stat loss", "DEAD"] as const;
 /** Mid-game weather results the server accepts. */
 export const WEATHER_RESULTS_UI = ["Sweltering Heat", "Very Sunny", "Perfect Conditions", "Pouring Rain", "Blizzard"] as const;
 

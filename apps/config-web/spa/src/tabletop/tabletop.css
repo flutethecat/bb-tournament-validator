@@ -460,3 +460,28 @@
   .tt-corner .tt-team { white-space: normal; overflow: hidden; text-overflow: clip; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
   .tt-corner .tt-team[data-long="true"] { font-size: 1.1rem; }
 }
+
+/* desktop: the action rail sits on the left of the match log; the Injury button wears the warning tint */
+.tt-rec { --tt-warn: var(--ui-warn, color-mix(in srgb, var(--ui-danger, #ff4d4d) 45%, var(--ui-success, #3fb463))); }
+@media (min-width: 1024px) {
+  .tt-rec { grid-template-columns: 232px minmax(0, 1fr); }
+  .tt-rec > .tt-mid { grid-column: 2; grid-row: 4; }
+  .tt-rail { grid-column: 1; grid-row: 4; padding: 16px 0 24px 28px; }
+  .tt-feed { padding: 16px 28px 24px 0; }
+  .tt-rail-injury { background: color-mix(in srgb, var(--tt-warn) 55%, var(--tt-btn)); border-color: var(--tt-warn); }
+}
+
+/* bigger hero chips: 32 px on phones, 36 px from 760 px, 40 px from 1024 px; pixel art stays crisp */
+.tt-corner .tt-coachline .tt-chips { gap: 10px; padding-top: 6px; }
+.tt-corner .tt-coachline .tt-chips li { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; }
+.tt-corner .tt-coachline .tt-chip-img { width: 26px; height: 26px; image-rendering: pixelated; }
+.tt-corner .tt-coachline .tt-chip-txt { font-size: 14px; }
+.tt-corner .tt-coachline .tt-qty { top: -6px; right: -6px; min-width: 18px; height: 18px; line-height: 18px; font-size: 11px; border-radius: 9px; }
+@media (min-width: 760px) {
+  .tt-corner .tt-coachline .tt-chips li { width: 36px; height: 36px; }
+  .tt-corner .tt-coachline .tt-chip-img { width: 29px; height: 29px; }
+}
+@media (min-width: 1024px) {
+  .tt-corner .tt-coachline .tt-chips li { width: 40px; height: 40px; }
+  .tt-corner .tt-coachline .tt-chip-img { width: 32px; height: 32px; }
+}

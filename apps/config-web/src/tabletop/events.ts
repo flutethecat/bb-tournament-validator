@@ -25,6 +25,8 @@ export type TabletopEventType = (typeof EVENT_TYPES)[number] | (typeof PREGAME_E
 
 export const WEATHER_RESULTS = ["Sweltering Heat", "Very Sunny", "Perfect Conditions", "Pouring Rain", "Blizzard"] as const;
 export const INJURY_RESULTS = ["stunned", "KO"] as const;
+/** An `injury` event may also carry a lasting result (the casualty table's), for a player hurt with no one to credit. */
+export const LASTING_INJURY_RESULTS = ["BH", "MNG", "NI", "stat loss", "DEAD"] as const;
 export type Half = 1 | 2 | "OT";
 export type Side = "home" | "away";
 export const otherSide = (s: Side): Side => (s === "home" ? "away" : "home");
@@ -44,7 +46,7 @@ export interface TabletopEvent {
   player?: string;
   turn?: number;
   half?: Half;
-  /** casualty: {victim, victimTeam?, result, apothecaryUsed, stat?, cause?}; injury: {result: stunned|KO};
+  /** casualty: {victim, victimTeam?, result, apothecaryUsed, stat?, cause?}; injury (team = the hurt player's side, player = the victim, no SPP): {result: stunned|KO|BH|MNG|NI|stat loss|DEAD, stat? (stat loss), apothecaryUsed?};
    *  throwTeamMate: {superb, landed, thrower? (required iff superb), thrown? (required iff landed)}; secretObjective: {text}; weather (mid-game): {result}; fanChange: {delta: -1|0|1};
    *  undo: {target: eventId}; others: {}. */
   payload: Record<string, unknown>;
@@ -198,8 +200,19 @@ export function validateEvent(event: TabletopEvent, stored: readonly TabletopEve
     if (!event.player) return fail(`${event.type} needs a player.`);
     const bad = unavailable(event.team, event.player);
     if (bad) return ineligible(bad);
-    if (event.type === "injury" && !(INJURY_RESULTS as readonly string[]).includes(event.payload.result as string))
-      return fail(`injury payload.result must be one of ${INJURY_RESULTS.join(", ")}.`);
+    if (event.type === "injury") {
+      const p = event.payload;
+      const lasting = (LASTING_INJURY_RESULTS as readonly string[]).includes(p.result as string);
+      if (!lasting && !(INJURY_RESULTS as readonly string[]).includes(p.result as string))
+        return fail(`injury payload.result must be one of ${[...INJURY_RESULTS, ...LASTING_INJURY_RESULTS].join(", ")}.`);
+      if (!lasting) return { event };
+      if (p.apothecaryUsed !== undefined && typeof p.apothecaryUsed !== "boolean") return fail("payload.apothecaryUsed must be a boolean.");
+      if (p.result === "stat loss" && !(STATS as readonly string[]).includes(p.stat as string)) return fail(`stat loss needs payload.stat (${STATS.join(", ")}).`);
+      if (live.some((e) => (e.type === "casualty" ? e.payload.victim === event.player && (e.payload.victimTeam ?? otherSide(e.team)) === event.team
+        : e.type === "injury" && e.player === event.player && e.team === event.team && (LASTING_INJURY_RESULTS as readonly string[]).includes(e.payload.result as string))))
+        return fail(`player ${event.player} already suffered a casualty in this match.`);
+      return { event: { ...event, payload: { ...p, apothecaryUsed: p.apothecaryUsed === true, cause: "other" } } };
+    }
     if (event.type === "mvp" && live.some((e) => e.type === "mvp" && e.team === event.team)) return fail("this team already has an MVP.");
     return { event };
   }
@@ -227,7 +240,8 @@ export function validateEvent(event: TabletopEvent, stored: readonly TabletopEve
   }
   const vbad = unavailable(victimTeam, p.victim);
   if (vbad) return ineligible(vbad);
-  if (live.some((e) => e.type === "casualty" && e.payload.victim === p.victim && (e.payload.victimTeam ?? otherSide(e.team)) === victimTeam))
+  if (live.some((e) => (e.type === "casualty" && e.payload.victim === p.victim && (e.payload.victimTeam ?? otherSide(e.team)) === victimTeam)
+    || (e.type === "injury" && e.player === p.victim && e.team === victimTeam && (LASTING_INJURY_RESULTS as readonly string[]).includes(e.payload.result as string))))
     return fail(`player ${p.victim} already suffered a casualty in this match.`);
   return {
     event: {

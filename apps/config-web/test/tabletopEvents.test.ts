@@ -131,6 +131,28 @@ describe("applyPostMatch (BB2025)", () => {
     expect(dead.summary.deaths).toEqual(["a1"]);
     expect(dead.teamFile.players.find((p) => p.id === "a2")!.mng).toBe(true);
   });
+  it("injury with no causing player: lasting results validate (stat for stat loss, one per victim, either team), no SPP, applied to the victim team file", () => {
+    expect(rejects([ev("injury", "away", "a1", { result: "KO" })])).toBeUndefined(); // the old stunned / KO results still pass
+    expect(rejects([ev("injury", "away", "a1", { result: "FLATTENED" })])).toMatch(/result must be one of/);
+    expect(rejects([ev("injury", "away", "a1", { result: "stat loss" })])).toMatch(/needs payload.stat/);
+    expect(rejects([ev("injury", "away", "a1", { result: "stat loss", stat: "AV" })])).toBeUndefined();
+    expect(rejects([ev("injury", "home", "h1", { result: "BH" })])).toBeUndefined(); // victim from either team
+    expect(rejects([ev("injury", "away", "a1", { result: "BH" }), ev("injury", "away", "a1", { result: "MNG" })])).toMatch(/already suffered/);
+    expect(rejects([ev("casualty", "home", "h1", { victim: "a1", result: "BH" }), ev("injury", "away", "a1", { result: "MNG" })])).toMatch(/already suffered/);
+    expect(rejects([ev("injury", "away", "a1", { result: "MNG" }), ev("casualty", "home", "h1", { victim: "a1", result: "BH" })])).toMatch(/already suffered/);
+    const r = run([
+      ev("injury", "away", "a1", { result: "NI", apothecaryUsed: true }),
+      ev("injury", "away", "a2", { result: "stat loss", stat: "ST" }),
+      ev("injury", "away", "a3", { result: "KO" }),
+    ], "spp-only", "away", away());
+    const [a1, a2, a3] = ["a1", "a2", "a3"].map((id) => r.teamFile.players.find((p) => p.id === id)!);
+    expect(a1).toMatchObject({ mng: true, niggles: 1 });
+    expect(a2).toMatchObject({ mng: true, statLoss: { ST: 1 } });
+    expect(a3).toMatchObject({ mng: false, niggles: 0 }); // KO is not lasting
+    expect(r.summary.players.find((p) => p.id === "a1")!.injury).toMatchObject({ result: "NI", apothecaryUsed: true });
+    expect(r.summary.casualtiesSuffered).toEqual({ bh: 0, si: 2, rip: 0 });
+    expect(r.summary.players.every((p) => p.sppEarned === 0)).toBe(true); // no SPP to anyone
+  });
   it("a player who started MNG sat out: the flag clears", () => {
     const t = team("Home", { players: [player("h1", { mng: true }), player("h2")] });
     const r = run([ev("touchdown", "home", "h2")], "spp-only", "home", t);

@@ -4,7 +4,7 @@
 // phone bottom bar and the hero state button; the page shows only one of them for the viewport.
 import { computed } from "vue";
 import { centreMode, formatTimer, turnLabel, type ClockView } from "../tabletop/clock";
-import { CAS_EVENT, EVENT_GLYPHS, TD_EVENT, type OtherEvent } from "../tabletop/feed";
+import { CAS_EVENT, EVENT_GLYPHS, INJURY_EVENT, TD_EVENT, type OtherEvent } from "../tabletop/feed";
 import type { MatchView } from "../tabletop/recorder";
 import TabletopGlyph from "./TabletopGlyph.vue";
 
@@ -49,6 +49,7 @@ const zero = computed(() => timed.value && (props.remaining as number) <= 0);
     <div v-if="recording" class="tt-rail-btns">
       <button class="tt-rail-btn tt-rail-td" type="button" @click="emit('pick', TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" :size="22" /><span>TD</span></button>
       <button class="tt-rail-btn tt-rail-cas" type="button" @click="emit('pick', CAS_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.casualty" :size="22" /><span>CAS</span></button>
+      <button class="tt-rail-btn tt-rail-injury" type="button" @click="emit('pick', INJURY_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.injury" :size="22" /><span>Injury</span></button>
       <button class="tt-rail-btn tt-rail-other" type="button" @click="emit('other')"><TabletopGlyph :glyph="{ text: '⋯' }" :size="22" /><span>Other</span></button>
     </div>
     <div class="tt-quick">

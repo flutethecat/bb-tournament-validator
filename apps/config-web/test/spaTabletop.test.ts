@@ -460,7 +460,9 @@ describe("tabletop routes (server-rendered)", () => {
   it("desktop rail: the rail container with TD, CAS and Other, the state strip, the crumb row and the Quick box render beside the log", async () => {
     const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) });
     expect(html).toContain('class="tt-rail"');
-    expect(html.match(/class="tt-rail-btn tt-rail-(td|cas|other)"/g)).toHaveLength(3);
+    expect(html.match(/class="tt-rail-btn tt-rail-(td|cas|injury|other)"/g)).toHaveLength(4);
+    expect(html.indexOf("tt-rail-cas")).toBeLessThan(html.indexOf("tt-rail-injury")); // TD, CAS, Injury, Other
+    expect(html.indexOf("tt-rail-injury")).toBeLessThan(html.indexOf("tt-rail-other"));
     expect(html).toContain('class="tt-rail-end"'); // Alice plays home and home is active
     expect(html).toContain("tt-stripbar");
     expect(html).toContain("tt-crumbs");
@@ -471,7 +473,7 @@ describe("tabletop routes (server-rendered)", () => {
     const { readFileSync } = await import("node:fs");
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
     expect(css).toMatch(/@media \(min-width: 1024px\) \{[\s\S]*\.tt-rec > \.tt-actions-bar \{ display: none; \}/); // no bottom bar on desktop
-    expect(css).toMatch(/grid-template-columns: minmax\(0, 1fr\) 232px/);
+    expect(css).toMatch(/grid-template-columns: 232px minmax\(0, 1fr\)/); // the rail sits left of the log
   });
 
   it("hero icon chips: rerolls always carry a count badge, apothecary and singles none, inducements badge from 2, unknown ones show a letter; titles carry name and count", async () => {
