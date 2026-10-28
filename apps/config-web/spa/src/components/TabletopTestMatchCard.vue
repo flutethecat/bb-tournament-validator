@@ -5,9 +5,7 @@ import { computed, inject, onMounted, onServerPrefetch, ref } from "vue";
 import { useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
-
-interface Team { ref: string; name: string; race?: string; tv?: number | null }
-interface Side { coach: string; team: string }
+import { createTestMatchTeams, type TestSide as Side, type TestTeam as Team } from "../tabletop/testMatchTeams";
 
 const session = inject(SESSION_KEY)!;
 const fetcher = inject(API_KEY)!;
@@ -18,25 +16,13 @@ const neverCounts = ref("Test matches never count in standings, Elo or results."
 const coachNames = ref<string[]>([]);
 const home = ref<Side>({ coach: "", team: "" });
 const away = ref<Side>({ coach: "", team: "" });
-const homeTeams = ref<Team[]>([]);
-const awayTeams = ref<Team[]>([]);
+const teams = createTestMatchTeams(fetcher);
+const loaded = teams.state;
 const error = ref("");
 const notice = ref("");
 const busy = ref(false);
 
 const teamLabel = (t: Team): string => `${t.name}${t.race ? ` (${t.race})` : ""}`;
-
-async function loadTeams(side: Side, into: typeof homeTeams): Promise<void> {
-  into.value = [];
-  if (!side.coach.trim()) return;
-  try {
-    const r = await fetcher<{ teams: Team[] }>(`/api/admin/testing/teams?coach=${encodeURIComponent(side.coach.trim())}`);
-    into.value = r.teams ?? [];
-    if (!into.value.some((t) => t.ref === side.team)) side.team = into.value[0]?.ref ?? "";
-  } catch (e) {
-    error.value = (e as Error).message;
-  }
-}
 
 async function init(): Promise<void> {
   if (!visible.value) return;
@@ -62,7 +48,8 @@ async function init(): Promise<void> {
   coachNames.value = [...names];
   if (!home.value.coach && coachNames.value[0]) home.value.coach = coachNames.value[0];
   if (!away.value.coach && coachNames.value[1]) away.value.coach = coachNames.value[1];
-  await Promise.all([loadTeams(home.value, homeTeams), loadTeams(away.value, awayTeams)]);
+  await Promise.all([teams.load("home", home.value), teams.load("away", away.value)]);
+  if (loaded.error) error.value = loaded.error;
 }
 
 async function create(): Promise<void> {
@@ -105,16 +92,16 @@ onServerPrefetch(init);
     <form class="lobby-form tt-form" @submit.prevent="create">
       <datalist id="tm-coaches"><option v-for="c in coachNames" :key="c" :value="c" /></datalist>
       <label for="tm-hc">Home coach</label>
-      <input id="tm-hc" v-model="home.coach" list="tm-coaches" type="text" maxlength="40" autocomplete="off" @change="loadTeams(home, homeTeams)" />
+      <input id="tm-hc" v-model="home.coach" list="tm-coaches" type="text" maxlength="40" autocomplete="off" @change="teams.load('home', home)" />
       <select v-model="home.team" aria-label="Home team">
-        <option v-if="!homeTeams.length" value="">No teams found</option>
-        <option v-for="t in homeTeams" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
+        <option v-if="!loaded.home.length" value="">No teams found</option>
+        <option v-for="t in loaded.home" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
       </select>
       <label for="tm-ac">Away coach</label>
-      <input id="tm-ac" v-model="away.coach" list="tm-coaches" type="text" maxlength="40" autocomplete="off" @change="loadTeams(away, awayTeams)" />
+      <input id="tm-ac" v-model="away.coach" list="tm-coaches" type="text" maxlength="40" autocomplete="off" @change="teams.load('away', away)" />
       <select v-model="away.team" aria-label="Away team">
-        <option v-if="!awayTeams.length" value="">No teams found</option>
-        <option v-for="t in awayTeams" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
+        <option v-if="!loaded.away.length" value="">No teams found</option>
+        <option v-for="t in loaded.away" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
       </select>
       <button class="lobby-btn primary tt-tap" type="submit" :disabled="busy">Create test match</button>
     </form>

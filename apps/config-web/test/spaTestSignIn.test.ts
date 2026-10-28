@@ -1,8 +1,9 @@
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
-import type { Fetcher } from "../spa/src/session";
+import { createSessionStore, TEST_LOGIN_SECRET_KEY, type Fetcher } from "../spa/src/session";
+import { createTestMatchTeams } from "../spa/src/tabletop/testMatchTeams";
 
 // Test sign-in card (/app/account, and the signed-out prompt) and the tabletop Test match card, server-rendered
 // through the SPA's own Vite config like spaShell.test.ts.
@@ -91,5 +92,71 @@ describe("test sign-in + test match cards (server-rendered)", () => {
     const player = await render("/tabletop", tabletopRoutes(signedIn()));
     expect(player).not.toContain("Create test match");
     expect(player).not.toContain("Purge test matches");
+  });
+});
+
+describe("test match team lists", () => {
+  const routes: Record<string, unknown> = {
+    "/api/admin/testing/teams?coach=Alice": { teams: [{ ref: "library:77", name: "Alice Lib" }] },
+    "/api/admin/testing/teams?coach=Bob": { teams: [{ ref: "sv_b", name: "Bob A" }, { ref: "sv_c", name: "Bob B" }] },
+    "/api/admin/testing/teams?coach=Nobody": { teams: [] },
+  };
+  const f = (async (path: string) => { if (!(path in routes)) throw new ApiError(404, "no mock"); return routes[path]; }) as Fetcher;
+
+  it("changing a side's coach reloads that side's list and re-picks the first team; the other side is untouched", async () => {
+    const { state, load } = createTestMatchTeams(f);
+    const home = { coach: "Alice", team: "" };
+    const away = { coach: "Bob", team: "sv_c" };
+    await Promise.all([load("home", home), load("away", away)]);
+    expect(state.home.map((t) => t.ref)).toEqual(["library:77"]);
+    expect(home.team).toBe("library:77");
+    expect(state.away).toHaveLength(2);
+    expect(away.team).toBe("sv_c"); // still listed, so kept
+    home.coach = "Bob";
+    await load("home", home);
+    expect(state.home.map((t) => t.ref)).toEqual(["sv_b", "sv_c"]);
+    expect(home.team).toBe("sv_b");
+    expect(state.away).toHaveLength(2);
+    home.coach = "Nobody";
+    await load("home", home);
+    expect(state.home).toEqual([]);
+    expect(home.team).toBe("");
+  });
+
+  it("a slow older response never overwrites a newer coach's list", async () => {
+    let release: (v: unknown) => void = () => undefined;
+    const slow = new Promise((r) => { release = r; });
+    const fetcher = (async (path: string) => (path.endsWith("Alice") ? slow : routes[path])) as Fetcher;
+    const { state, load } = createTestMatchTeams(fetcher);
+    const side = { coach: "Alice", team: "" };
+    const first = load("home", side);
+    side.coach = "Bob";
+    await load("home", side);
+    release(routes["/api/admin/testing/teams?coach=Alice"]);
+    await first;
+    expect(state.home.map((t) => t.ref)).toEqual(["sv_b", "sv_c"]);
+  });
+});
+
+describe("test secret is forgotten on sign-out", () => {
+  const store = new Map<string, string>();
+  afterEach(() => { vi.unstubAllGlobals(); store.clear(); });
+
+  it("session.signOut() removes cw.testLoginSecret (also when the logout call fails)", async () => {
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    });
+    for (const failLogout of [false, true]) {
+      store.set(TEST_LOGIN_SECRET_KEY, "secret-0123456789abcdef");
+      const sess = createSessionStore((async (path: string) => {
+        if (path === "/api/auth/logout" && failLogout) throw new ApiError(500, "boom");
+        return path === "/api/auth/session" ? { authenticated: false } : { ok: true };
+      }) as Fetcher);
+      await sess.signOut().catch(() => undefined);
+      expect(store.has(TEST_LOGIN_SECRET_KEY)).toBe(false);
+    }
+    expect(TEST_LOGIN_SECRET_KEY).toBe("cw.testLoginSecret");
   });
 });

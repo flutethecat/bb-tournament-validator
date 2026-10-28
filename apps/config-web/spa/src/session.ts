@@ -5,6 +5,9 @@
 import { reactive, type InjectionKey } from "vue";
 import { api, type SessionInfo } from "./shared/api";
 
+/** localStorage key the Account page's test sign-in card remembers its secret under; cleared on sign-out. */
+export const TEST_LOGIN_SECRET_KEY = "cw.testLoginSecret";
+
 export type SessionStatus = "idle" | "loading" | "ready" | "error";
 
 export interface SessionState {
@@ -62,7 +65,11 @@ export function createSessionStore(fetcher: Fetcher = api): SessionStore {
     ssoEnabled: () => state.info?.discordSsoEnabled !== false,
     load,
     async signOut() {
-      try { await fetcher("/api/auth/logout", { method: "POST" }); } finally { await load(true); }
+      try { await fetcher("/api/auth/logout", { method: "POST" }); } finally {
+        // Every sign-out path goes through here: never leave the remembered test secret behind.
+        try { localStorage.removeItem(TEST_LOGIN_SECRET_KEY); } catch { /* no storage */ }
+        await load(true);
+      }
     },
   };
 }

@@ -3,10 +3,10 @@
 // switches it on with TEST_LOGIN_SECRET + TEST_LOGIN_COACHES, loopback only). Mints a real session without Discord.
 import { computed, inject, onMounted, onServerPrefetch, ref } from "vue";
 import { API_KEY } from "../app";
-import { SESSION_KEY } from "../session";
+import { SESSION_KEY, TEST_LOGIN_SECRET_KEY } from "../session";
 import type { TestLoginOptions } from "../shared/api";
 
-const SECRET_KEY = "cw.testLoginSecret";
+const SECRET_KEY = TEST_LOGIN_SECRET_KEY;
 const session = inject(SESSION_KEY)!;
 const fetcher = inject(API_KEY)!;
 
@@ -69,6 +69,7 @@ async function signOut(): Promise<void> {
   signOutError.value = "";
   try {
     await session.signOut();
+    secret.value = "";
     signedInAs.value = "";
   } catch (err) {
     signOutError.value = `Sign out failed: ${(err as Error).message}`;
