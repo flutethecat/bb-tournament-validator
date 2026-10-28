@@ -110,3 +110,70 @@ export interface Roster {
   teamId: string; name: string; race: string; teamValue: number; treasury: number; rerolls: number;
   apothecary: boolean; fanFactor: number; assistantCoaches: number; cheerleaders: number; players: RosterPlayer[];
 }
+
+/** Tournament fields the SPA reads from GET /api/fork/tournaments and GET /api/tournaments/:id (the server sends more). */
+export interface TournamentSummary {
+  id: string;
+  name: string;
+  status: "draft" | "active" | "completed" | "cancelled";
+  format: "swiss" | "roundRobin" | "knockout";
+  packageName: string;
+  rulesetPackName?: string;
+  maxPlayers: number;
+  roundCount: number;
+  currentRound: number;
+  tiebreakers?: string[];
+  startsAt?: string;
+  entrantCount?: number;
+}
+
+export interface TournamentListPage {
+  tournaments: TournamentSummary[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+}
+
+export interface TournamentEntrant {
+  id: string;
+  entrantId?: string;
+  seed: number;
+  coachId?: string;
+  teamId: string;
+  teamName?: string;
+  race?: string;
+  logoUrl?: string;
+  registeredAt?: string;
+  droppedAt?: string;
+}
+
+export interface TournamentRound { id: string; number: number; status: "pending" | "active" | "completed"; scheduledMatchIds: string[] }
+
+export interface TournamentFixtureSide { entrantId: string; teamId: string; coach: { ffbCoachId: string } }
+
+export interface TournamentFixture {
+  id: string;
+  roundNumber: number;
+  status: string;
+  home: TournamentFixtureSide;
+  /** Absent = bye. */
+  away?: TournamentFixtureSide;
+  result?: { homeScore: number; awayScore: number; homeCasualties?: number; awayCasualties?: number };
+}
+
+export interface TournamentStandingRow {
+  rank: number; entrantId: string; coachId: string; teamId: string;
+  played: number; wins: number; draws: number; losses: number; byes: number; points: number;
+  touchdownsFor: number; touchdownsAgainst: number; touchdownDifferential: number;
+  casualtiesFor: number; casualtiesAgainst: number; casualtyDifferential: number;
+  buchholz: number; sonnebornBerger: number; opponentWinPercentage: number; seed: number;
+}
+
+export interface TournamentDetailResponse {
+  tournament: TournamentSummary;
+  entrants: TournamentEntrant[];
+  rounds: TournamentRound[];
+  standings?: { rows: TournamentStandingRow[] };
+  scheduledMatches?: TournamentFixture[];
+}

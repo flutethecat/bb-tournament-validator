@@ -13,6 +13,8 @@ import StandingsView from "./views/StandingsView.vue";
 import TabletopListView from "./views/TabletopListView.vue";
 import TabletopOrganiserView from "./views/TabletopOrganiserView.vue";
 import TabletopRecorderView from "./views/TabletopRecorderView.vue";
+import TournamentDetailView from "./views/TournamentDetailView.vue";
+import TournamentListView from "./views/TournamentListView.vue";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -59,12 +61,14 @@ export const routes: RouteRecordRaw[] = [
     props: true,
     meta: { requiresAuth: true, title: "Tabletop match" },
   },
+  // Tournaments: public read (no sign-in gate); the old hand-built page stays at /tournaments.html.
+  { path: "/tournaments", name: "tournaments", component: TournamentListView, meta: { title: "Tournaments" } },
   {
-    path: "/tournaments",
-    name: "tournaments",
-    component: LinkOutView,
-    props: { title: "Tournaments", href: "/tournaments.html", blurb: "Browse tournaments, register, and follow standings." },
-    meta: { title: "Tournaments" },
+    path: "/tournaments/:id([\\w-]{1,64})",
+    name: "tournament-detail",
+    component: TournamentDetailView,
+    props: true,
+    meta: { title: "Tournament" },
   },
   {
     path: "/team-builder",

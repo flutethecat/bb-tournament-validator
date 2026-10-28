@@ -503,7 +503,8 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     expect(down.html).toContain("Can&#39;t check your sign-in");
     expect(down.html).toContain("Try again");
     const tournaments = await render("/tournaments", { "/api/auth/session": { authenticated: false } });
-    expect(tournaments.html).toContain('href="/tournaments.html"');
+    expect(tournaments.spa.router.currentRoute.value.name).toBe("tournaments");
+    expect(tournaments.html).not.toContain("Login with Discord to");
     const tb = await render("/team-builder", { "/api/auth/session": { authenticated: false } });
     expect(tb.html).toContain('href="/team-builder.html"');
     const ttb = await render("/tournament-team-builder", { "/api/auth/session": { authenticated: false } });

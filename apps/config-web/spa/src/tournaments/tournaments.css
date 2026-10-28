@@ -1,0 +1,86 @@
+/* Tournaments (read-only): "Modern Retro". Modern cards and spacing, the SPA's heading face, theme tokens only (--ui-*). */
+.tn-page { display: grid; gap: 16px; }
+.tn-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.tn-head h2, .tn-hero h2 { margin: 0; }
+.tn-search { display: flex; gap: 8px; }
+.tn-search input { min-height: 44px; min-width: 0; width: 240px; max-width: 100%; }
+.tn-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.tn-back { justify-self: start; text-decoration: none; }
+
+/* tabs: a scrollable pill row */
+.tn-tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+.tn-tab {
+  flex: 0 0 auto; min-height: 44px; display: inline-flex; align-items: center; padding: 0 18px; border-radius: 999px;
+  background: var(--ui-surface-2, #242424); color: var(--ui-text, #e6e9ef); border: 1px solid var(--ui-border, #3d0002);
+  font: inherit; text-decoration: none; cursor: pointer; white-space: nowrap;
+}
+.tn-tab:hover { background: var(--ui-hover, #250a0b); }
+.tn-tab.on { background: var(--ui-primary, #790004); color: var(--ui-text-on-primary, #fff); }
+.tn-tab:focus-visible { outline: 2px solid var(--ui-focus, #ff3b3b); outline-offset: 2px; }
+
+.tn-chip {
+  display: inline-block; padding: 1px 10px; border-radius: 999px; font-size: 14px; font-weight: 600;
+  background: var(--ui-surface-2, #242424); color: var(--ui-text, #e6e9ef); border: 1px solid var(--ui-border, #3d0002);
+}
+.tn-chip[data-status="active"] { border-color: var(--ui-success, #3fb463); color: var(--ui-success, #3fb463); }
+.tn-chip[data-status="draft"], .tn-chip[data-status="pending"] { border-color: var(--ui-info, #4a86c8); color: var(--ui-info, #4a86c8); }
+.tn-chip[data-status="cancelled"], .tn-chip[data-status="dropped"] { border-color: var(--ui-danger, #ff4d4d); color: var(--ui-danger, #ff4d4d); }
+
+/* list cards */
+.tn-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.tn-card {
+  display: grid; gap: 6px; height: 100%; padding: 14px 16px; border-radius: 10px; text-decoration: none; color: var(--ui-text, #e6e9ef);
+  background: var(--ui-surface-2, #242424); border: 1px solid var(--ui-border, #3d0002);
+}
+.tn-card:hover { border-color: var(--ui-accent, #a55456); background: var(--ui-hover, #250a0b); }
+.tn-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.tn-card-name { font-family: var(--font-heading, sans-serif); letter-spacing: .03em; color: var(--ui-heading, #ff3b3b); overflow-wrap: anywhere; }
+.tn-card-meta { font-size: 15px; }
+.tn-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* detail */
+.tn-hero { display: grid; gap: 6px; padding-bottom: 4px; border-bottom: 2px solid var(--ui-primary, #790004); }
+.tn-hero-meta { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tn-facts { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.tn-fact { display: grid; gap: 2px; padding: 12px 14px; border-radius: 10px; background: var(--ui-surface-2, #242424); border: 1px solid var(--ui-border, #3d0002); overflow-wrap: anywhere; }
+.tn-fact-k { color: var(--ui-muted, #848689); font-size: 14px; }
+
+/* tables */
+.tn-table td, .tn-table th { padding: 8px 6px; }
+.tn-team { display: flex; align-items: center; gap: 8px; border-bottom: 0; }
+.tn-team + td, td.tn-team { min-width: 0; }
+.tn-crest { width: 32px; height: 32px; object-fit: contain; flex: 0 0 auto; }
+.tn-side-text { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.tn-dropped { opacity: .6; }
+
+/* rounds: fixture rows */
+.tn-round { display: grid; gap: 8px; }
+.tn-round-h { margin: 0; display: flex; align-items: center; gap: 8px; }
+.tn-fixtures { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.tn-fixture {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; padding: 10px 14px;
+  border-radius: 10px; background: var(--ui-surface-2, #242424); border: 1px solid var(--ui-border, #3d0002);
+}
+.tn-side { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tn-away { justify-content: flex-end; text-align: right; }
+.tn-score { display: grid; justify-items: center; min-width: 64px; }
+.tn-score-main { font-size: 1.2rem; font-family: var(--font-heading, sans-serif); }
+.tn-score-sub { font-size: 13px; }
+
+@media (max-width: 760px) {
+  .tn-facts { grid-template-columns: 1fr; }
+  .tn-cards { grid-template-columns: 1fr; }
+  .tn-search { width: 100%; }
+  .tn-search input { flex: 1; width: auto; }
+  .tn-fixture { grid-template-columns: 1fr; gap: 6px; }
+  .tn-away { justify-content: flex-start; text-align: left; flex-direction: row-reverse; }
+  .tn-score { justify-items: start; }
+  /* entrants / standings: each row becomes a card of labelled values */
+  .tn-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .tn-table, .tn-table tbody { display: block; }
+  .tn-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 12px; padding: 10px 12px; margin-bottom: 8px; border-radius: 10px; background: var(--ui-surface-2, #242424); border: 1px solid var(--ui-border, #3d0002); }
+  .tn-table td { display: flex; justify-content: space-between; gap: 8px; border-bottom: 0; padding: 2px 0; }
+  .tn-table td::before { content: attr(data-label); color: var(--ui-muted, #848689); }
+  .tn-table td.tn-team { grid-column: 1 / -1; }
+  .tn-table td.tn-team::before { content: none; }
+}

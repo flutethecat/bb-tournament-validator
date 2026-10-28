@@ -4,6 +4,7 @@
 import "./shared/lobby.css";
 import "./style.css";
 import "./tabletop/tabletop.css";
+import "./tournaments/tournaments.css";
 import { createWebHistory } from "vue-router";
 import { createSpa } from "./app";
 import { APP_BASE } from "./router";
