@@ -99,7 +99,7 @@
 /* Owner 10-27: an added skill is boxed, upright, with a small + badge in its top-right corner. */
 /* Owner 10-28: added skills carry the client's gold box; the chip text keeps its category colour. */
 .tv-added { position: relative; font-style: normal; border: 1.5px solid var(--ui-gold); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-gold) 35%, transparent); border-radius: 4px; padding-right: 12px; }
-.tv-added::after { content: "+"; position: absolute; top: -6px; right: -6px; width: 13px; height: 13px; display: grid; place-items: center; font: 700 10px/1 var(--font-body); color: var(--ui-text-on-primary, #fff); background: var(--ui-gold); color: #1a1408; border-radius: 50%; box-shadow: 0 0 0 1px var(--ui-surface-2); }
+.tv-added::after { content: "+"; position: absolute; top: -6px; right: -6px; width: 13px; height: 13px; display: grid; place-items: center; font: 700 10px/1 var(--font-body); color: var(--ui-text-on-primary, #fff); background: var(--ui-heading); color: var(--ui-text-on-primary, #fff); border-radius: 50%; box-shadow: 0 0 0 1px var(--ui-surface-2); }
 .tv-stat-up { color: var(--ui-success); }
 .tv-none { color: var(--ui-muted); }
 .tv-star .tv-pos { color: var(--ui-gold); }
