@@ -99,7 +99,7 @@
 /* Owner 10-27: an added skill is boxed, upright, with a small + badge in its top-right corner. */
 /* Owner 10-28: added skills carry the client's gold box; the chip text keeps its category colour. */
 .tv-added { position: relative; font-style: normal; border: 1.5px solid var(--ui-gold); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-gold) 35%, transparent); border-radius: 4px; padding-right: 14px; margin-right: 6px; }
-.tv-added::after { content: "+"; position: absolute; top: -9px; right: -9px; width: 19px; height: 19px; display: grid; place-items: center; font: 800 15px/1 var(--font-body); color: var(--ui-text-on-primary, #fff); background: var(--ui-heading); color: var(--ui-text-on-primary, #fff); border-radius: 50%; box-shadow: 0 0 0 1px var(--ui-surface-2); }
+.tv-added::after { content: "+"; position: absolute; top: -8px; right: -8px; width: 16px; height: 16px; display: grid; place-items: center; font: 800 13px/1 var(--font-body); color: var(--ui-text-on-primary, #fff); background: var(--ui-heading); color: var(--ui-text-on-primary, #fff); border-radius: 50%; box-shadow: 0 0 0 1px var(--ui-surface-2); }
 .tv-stat-up { color: var(--ui-success); }
 .tv-none { color: var(--ui-muted); }
 .tv-star .tv-pos { color: var(--ui-gold); }
@@ -237,3 +237,5 @@
 .tv-staff-icon { width: 46px; height: 46px; object-fit: contain; }
 .tv-extras .tv-pairs > div { padding: 4px 6px; }
 @media (min-width: 1600px) { .tv-staff-icon { width: 54px; height: 54px; } }
+/* Owner 10-28: the gold box must win over the generic chip border rule above (same specificity order issue). */
+.tv-table .skill.tv-added, .tv-cards .skill.tv-added, .tv-key .skill.tv-added { border-color: var(--ui-gold); }
