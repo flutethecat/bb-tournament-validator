@@ -97,7 +97,8 @@ describe("team view core", () => {
   });
 
   it("an invalid team gets an issue badge; the owner link appears only with ownerSaveId", () => {
-    const invalid = { ...fixture(), validity: { valid: false, issues: 3, custom: false } };
+    const invalid = { ...fixture(), validity: { valid: false, issues: 3, custom: false, findings: ["Team spends 1,160k; the cap is 1,150k.", "Guard is not a primary skill for Dwarf Blitzer.", "<b>bad</b>"] } };
+    expect(TeamView.viewHtml(invalid)).toContain('<ul class="tv-issues" aria-label="Issues"><li>Team spends 1,160k; the cap is 1,150k.</li><li>Guard is not a primary skill for Dwarf Blitzer.</li><li>&lt;b&gt;bad&lt;/b&gt;</li></ul>');
     expect(TeamView.viewHtml(invalid)).toContain('<span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10007;</span>Has 3 issues</span>');
     expect(TeamView.viewHtml(fixture())).toMatch(/<span class="tv-badge tv-valid"[^>]*><small>[^<]+<\/small><span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10003;<\/span>Verified<\/span>/);
     // the team name sits above the crest: h1 before the crest markup

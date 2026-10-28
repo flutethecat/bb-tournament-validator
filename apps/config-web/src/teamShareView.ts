@@ -72,7 +72,7 @@ export interface SharedTeamView {
     primarySkills: number;
     secondarySkills: number;
   };
-  validity: { valid: boolean; issues: number; custom: boolean };
+  validity: { valid: boolean; issues: number; custom: boolean; findings: string[] };
   /** Present ONLY when the viewer's session coach owns the save (the "Open in Tournament Builder" link). */
   ownerSaveId?: string;
 }
@@ -207,6 +207,10 @@ export function sharedTeamView(input: SharedViewInput): SharedTeamView {
   const custom = input.custom === true;
   const issues = roster === undefined ? 1 : result ? (custom ? 0 : result.errors.length) : input.intrinsic?.issues ?? 0;
   const valid = roster !== undefined && (result ? custom || result.valid : input.intrinsic?.legal !== false);
+  // Owner 10-28: the public page lists the validator's own error messages under the cross (team facts only, no ids).
+  const findings = !valid && result && !custom
+    ? result.errors.map((e) => String((e as { message?: unknown }).message ?? "").trim()).filter(Boolean).slice(0, 20).map((m) => (m.length > 240 ? `${m.slice(0, 237)}...` : m))
+    : [];
   const sideline = roster?.sideline;
   const view: SharedTeamView = {
     teamName: String(roster?.teamName || body.teamName || save.name),
@@ -242,7 +246,7 @@ export function sharedTeamView(input: SharedViewInput): SharedTeamView {
       primarySkills: primary,
       secondarySkills: secondary,
     },
-    validity: { valid, issues, custom },
+    validity: { valid, issues, custom, findings },
   };
   if (input.viewer && input.viewer === input.coach) view.ownerSaveId = save.id;
   return view;

@@ -175,3 +175,6 @@
 .tv-ind-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--ui-surface) 55%, var(--ui-surface-2)); }
 .tv-ind-table thead th { font-size: 13px; }
 .tv-pairs > div:nth-child(even) { background: color-mix(in srgb, var(--ui-surface) 55%, var(--ui-surface-2)); }
+/* Owner 10-28: the validator's issues listed under the cross. */
+.tv-issues { margin: 4px 0 0; padding: 0 0 0 16px; max-width: 42ch; text-align: left; color: var(--ui-text); font-size: 13px; line-height: 1.35; }
+.tv-issues li { margin: 2px 0; }

@@ -150,7 +150,9 @@
     // Owner 10-28: ruleset name on its own line; the check (or cross) with "Verified" / the issue count beneath it.
     if (v.valid) return `<span class="tv-badge tv-valid" title="Valid team"><small>${ruleset ? esc(ruleset) : "Team"}</small><span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10003;</span>Verified</span></span>`;
     const n = isNum(v.issues) && v.issues > 0 ? v.issues : 1;
-    return `<span class="tv-badge tv-invalid"><small>${ruleset ? esc(ruleset) : "Team"}</small><span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10007;</span>Has ${n} issue${n === 1 ? "" : "s"}</span></span>`;
+    const findings = Array.isArray(v.findings) ? v.findings.map(String).filter(Boolean) : [];
+    const list = findings.length ? `<ul class="tv-issues" aria-label="Issues">${findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : "";
+    return `<span class="tv-badge tv-invalid"><small>${ruleset ? esc(ruleset) : "Team"}</small><span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10007;</span>Has ${n} issue${n === 1 ? "" : "s"}</span>${list}</span>`;
   }
 
   /** The whole page body for a team model. */
