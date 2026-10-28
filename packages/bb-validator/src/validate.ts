@@ -76,6 +76,13 @@ export function validate(
       if (access === "primary") primary++;
       else secondary++;
     });
+  // NAF stacking surcharge: same per-player calc as the skill-points rule, so the summary matches its message.
+  const stackSurchargeSP = pkg.skillAllotment.stackSurchargeSP ?? 0;
+  if (stackSurchargeSP > 0)
+    for (const rp of players) {
+      const legal = rp.addedSkills.filter((_, i) => rp.access[i] !== undefined && rp.access[i] !== "illegal").length;
+      sp += Math.max(0, legal - 1) * stackSurchargeSP;
+    }
   // Owner 2026-08-10 cost buckets: Staff (players + sideline) · Inducements · Skills (added-skill gold).
   const staffCost = staffGold(roster);
   const inducementsCost = inducementsGold(roster);

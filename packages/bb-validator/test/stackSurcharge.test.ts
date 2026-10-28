@@ -39,6 +39,13 @@ describe("stackSurchargeSP (owner 09-09)", () => {
     expect(spError(r)?.actual).toBe("14 (12 in skills + 2 stacking surcharge)");
   });
 
+  it("recomputedSummary.skillPointsUsed includes the stacking surcharge (the builder's Skill points panel reads it)", () => {
+    const stacked = validate(withSkills({ 1: ["Wrestle", "Tackle"] }), wc(0), bb2025);
+    expect(stacked.recomputedSummary.skillPointsUsed).toBe(14);
+    const flat = validate(withSkills({ 1: ["Wrestle"], 2: ["Tackle"] }), wc(0), bb2025);
+    expect(flat.recomputedSummary.skillPointsUsed).toBe(12);
+  });
+
   it("two single-skill players pay no surcharge (12), and a 2nd elite primary is 6 + 8 + 2", () => {
     expect(spError(validate(withSkills({ 1: ["Wrestle"], 2: ["Tackle"] }), wc(0), bb2025))?.message).toMatch(/spends 12 Skill Points;/);
     expect(spError(validate(withSkills({ 1: ["Wrestle", "Block"] }), wc(0), bb2025))?.message).toMatch(/spends 16 Skill Points \(14 in skills \+ 2 stacking surcharge\)/);
