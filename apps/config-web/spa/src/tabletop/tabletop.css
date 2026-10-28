@@ -237,7 +237,7 @@
 .tt-tl-line { position: relative; list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 2px; min-width: max-content; height: 72px; }
 .tt-tl-line::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 2px; background: var(--tt-line); }
 .tt-tl-end { position: relative; flex: none; width: 24px; text-align: center; font-size: 16px; background: var(--tt-bg); }
-.tt-tl-item { position: relative; flex: 0 0 30px; height: 100%; display: flex; justify-content: center; }
+.tt-tl-item { position: relative; flex: 1 0 30px; min-width: 30px; height: 100%; display: flex; justify-content: center; }
 .tt-tl-item[data-lane="home"] { align-items: flex-start; padding-top: 4px; }
 .tt-tl-item[data-lane="away"] { align-items: flex-end; padding-bottom: 4px; }
 .tt-tl-item[data-lane="both"] { align-items: center; }
@@ -287,23 +287,37 @@
 .tt-match-row { margin-top: 12px; margin-bottom: 0; padding: 12px; text-align: center; font-weight: 700; color: var(--tt-ink); background: color-mix(in srgb, var(--ui-success, #3fb463) 24%, var(--tt-panel)); border: 1px solid var(--ui-success, #3fb463); border-radius: var(--tt-radius); }
 .tt-match-row::before { content: "\2713  "; color: var(--ui-success, #3fb463); }
 
-/* phone: the hero collapses to a compact two-row scoreboard (turn track, then crests / names / score) */
+/* phone: the hero collapses to a compact two-row scoreboard (turn track, then crests / names / score), the state button a full-width row under it */
 @media (max-width: 719px) {
+  .tt-rec { grid-template-rows: auto minmax(0, 1fr) auto; }
+  .tt-board { grid-template-rows: auto auto auto; }
   .tt-turns { padding: 3px 16px 0; gap: 2px; }
   .tt-cell { padding: 2px 0; font-size: 9px; }
   .tt-half { padding: 1px 4px; font-size: 10px; }
   .tt-half small, .tt-clock { font-size: 9px; }
   .tt-crest { width: 40px; height: 40px; }
-  .tt-corner { padding: 2px 16px 2px 8px; }
-  .tt-corner.away { padding: 2px 8px 2px 16px; }
-  .tt-team { font-size: 12px; }
+  .tt-corner, .tt-corner.away { align-items: center; text-align: center; padding: 2px 8px; }
+  .tt-corner-top, .tt-corner.away .tt-corner-top { flex-direction: row; justify-content: center; }
+  .tt-team { font-size: 12px; text-align: center; white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; max-width: 100%; }
+  .tt-coach { text-align: center; }
   .tt-race, .tt-counters, .tt-chips, .tt-weather { display: none; }
-  .tt-score { font-size: 1.6rem; }
+  .tt-centre { display: contents; }
+  .tt-top-pair { grid-column: 2; grid-row: 2; align-self: start; justify-self: center; }
+  .tt-score { grid-column: 2; grid-row: 2; align-self: end; justify-self: center; font-size: 1.6rem; }
+  .tt-endturn, .tt-towait { grid-column: 1 / -1; grid-row: 3; width: auto; margin: 4px 16px 6px; min-height: 44px; flex: none; flex-direction: row; gap: 8px; white-space: nowrap; }
+  .tt-endturn b, .tt-endturn small, .tt-towait b, .tt-towait small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .tt-endturn-time { font-size: 1.4rem; }
+  /* cards: the player chip drops under the text */
+  .tt-ev { flex-wrap: wrap; }
+  .tt-ev-who { order: 3; flex: 1 0 100%; max-width: 100%; }
 }
 /* tablet / desktop: the hero takes the height it needs and the full layout shows */
 @media (min-width: 720px) {
   .tt-rec { grid-template-rows: auto minmax(0, 1fr) auto; }
-  .tt-board { grid-template-columns: minmax(0, 1fr) 200px minmax(0, 1fr); }
+  .tt-board { grid-template-columns: minmax(0, 1fr) minmax(260px, 260px) minmax(0, 1fr); }
+  .tt-centre { padding: 2px 8px; }
+  .tt-endturn, .tt-towait { background-color: var(--tt-panel); opacity: 1; }
+  .tt-endturn { background-color: var(--tt-accent); }
   .tt-crest { width: 96px; height: 96px; }
   .tt-team { font-size: 1.5rem; }
   .tt-coach { font-size: 14px; }
