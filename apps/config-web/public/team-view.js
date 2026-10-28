@@ -119,7 +119,7 @@
       : `<tr><td colspan="2" class="status-copy tv-none">None</td></tr>`;
     const foot = isNum(total) ? `<tfoot><tr><th scope="row">Total</th><td class="num">${esc(gold(total))}</td></tr></tfoot>` : "";
     return `<section class="tv-panel" aria-labelledby="tv-ind-title"><h2 id="tv-ind-title" class="section-title"><span>I</span>nducements</h2>
-      <table class="tv-ind-table"><thead><tr><th scope="col">Inducement</th><th scope="col" class="num">Qty</th></tr></thead><tbody>${body}</tbody>${foot}</table></section>`;
+      <table class="tv-ind-table"><tbody>${body}</tbody>${foot}</table></section>`;
   }
   /** Owner 10-27: special rules are small text beside the team name, not a panel. */
   function rulesInlineHtml(team) {
