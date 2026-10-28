@@ -14,8 +14,8 @@
   .tv-table { font-size: 16px; }
   .tv-table th { font-size: 16px; padding: 12px 12px; }
   .tv-table td { padding: 9px 12px; }
-  .tv-table .tv-col-sprite { width: 78px; }
-  .tv-table .tv-sprite { width: 68px; height: 68px; }
+  .tv-table .tv-col-sprite { width: 104px; }
+  .tv-table .tv-sprite { width: 96px; height: 96px; }
   .tv-table .tv-stat { width: 60px; }
   .tv-table td.tv-stat > .tv-stat-box { min-width: 46px; font-size: 20px; }
   .tv-table .skill { font-size: 14px; padding: 3px 8px; }
@@ -39,7 +39,7 @@
   border-left: 4px solid var(--ui-heading);
   border-radius: 5px;
 }
-.tv-banner .tv-crest { width: 64px; height: 64px; }
+.tv-banner .tv-crest { width: 76px; height: 76px; }
 .tv-title { flex: 1 1 220px; min-width: 0; }
 .tv-title h1 { font-family: var(--font-heading); overflow-wrap: anywhere; }
 .tv-race { margin: 2px 0 0; color: var(--ui-position); font-size: 16px; letter-spacing: .06em; text-transform: uppercase; }
@@ -83,7 +83,7 @@
 .tv-cards { display: grid; gap: 8px; margin: 0 0 14px; padding: 0; list-style: none; }
 .tv-card { padding: 10px; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 5px; }
 .tv-card-head { display: flex; align-items: center; gap: 10px; }
-.tv-card-head .tv-sprite { width: 54px; height: 54px; }
+.tv-card-head .tv-sprite { width: 64px; height: 64px; }
 .tv-card-head .tv-num { color: var(--ui-muted); font-size: 15px; }
 .tv-card-head .tv-pos { flex: 1; min-width: 0; color: var(--ui-position); font-weight: 500; }
 .tv-card-head .tv-cost { color: var(--ui-gold); white-space: nowrap; }
@@ -135,15 +135,15 @@
   .tv-table td { padding: 5px 8px; border-bottom: 1px solid var(--ui-border); vertical-align: middle; }
   .tv-table tbody tr:last-child td { border-bottom: 0; }
   .tv-table tbody tr:hover td { background: var(--ui-hover); }
-  .tv-table .tv-col-sprite { width: 62px; padding-block: 3px; }
-  .tv-table .tv-sprite { width: 54px; height: 54px; }
+  .tv-table .tv-col-sprite { width: 84px; padding-block: 3px; }
+  .tv-table .tv-sprite { width: 76px; height: 76px; }
   .tv-table .tv-num { width: 1%; color: var(--ui-muted); text-align: right; }
   .tv-table .tv-pos { color: var(--ui-position); font-weight: 500; white-space: nowrap; }
   .tv-table .tv-stat { width: 44px; text-align: center; font-size: 17px; }
   .tv-table th.tv-stat { font-size: 13px; }
   .tv-table .tv-cost { width: 1%; color: var(--ui-gold); text-align: right; white-space: nowrap; }
   .tv-table th.tv-cost { color: var(--ui-table-head-ink); }
-  .tv-banner .tv-crest { width: 84px; height: 84px; }
+  .tv-banner .tv-crest { width: 100px; height: 100px; }
   .tv-totals { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
   .tv-totals .tv-total { grid-column: auto; }
   .tv-extras { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
