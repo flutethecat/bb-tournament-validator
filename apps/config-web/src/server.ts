@@ -101,6 +101,7 @@ import { packagesApi } from "./packagesApi.js";
 import { isPublicArtPath } from "./publicArt.js";
 import { PRESETS } from "./presets";
 import { handleAuthPortal, handleLogout } from "./auth/portal.js";
+import { handleTestLogin } from "./auth/testLogin.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
 import { isSpaPath, spaStaticPath } from "./spaRoutes.js";
 import { linkedFumbblNameIn } from "./fumbblLink.js";
@@ -1280,7 +1281,7 @@ async function handleApi(
       organizer: auth.organizer,
       admin: auth.admin,
       // Session provenance ("discord" | "password"): Discord-only surfaces (the web Lobby) check it at boot.
-      ...(session ? { authMethod: session.method, expiresAt: new Date(session.expiry).toISOString() } : {}),
+      ...(session ? { authMethod: session.method, expiresAt: new Date(session.expiry).toISOString(), ...(session.test ? { test: true } : {}) } : {}),
     });
   }
 
@@ -3330,6 +3331,9 @@ export const server = createServer((req, res) => {
         await serveStatic(res, url.pathname);
         return;
       }
+      // Local-UAT test sign-in (inert unless TEST_LOGIN_SECRET + TEST_LOGIN_COACHES are set). The sidecar-on form is
+      // dispatched inside handleAuthPortal; this is the sidecar-off door, ahead of the legacy Basic gate.
+      if (!AUTH_SIDECAR && (await handleTestLogin(req, res, url.pathname))) return;
       if (AUTH_SIDECAR) {
         if (
           await handleAuthPortal(req, res, url, {

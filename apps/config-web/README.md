@@ -184,3 +184,20 @@ match**, which loads a recorder match from two chosen teams (library or builder 
   `test: true`, and its results row is flagged too, so standings, Elo and counted results never include it, even if published.
 - `DELETE /api/admin/testing/tabletop-matches`: purge every test match (events, journals, test result rows). Team revisions a
   test match wrote stay; use `postMatch: "none"` to avoid them.
+
+## Test sign-in (local UAT only)
+
+`POST /api/auth/test-login` mints a real session (method `discord`, marked `test: true` in `GET /api/auth/session`) without Discord, so the Lobby and Tabletop can be exercised locally. It does not exist (404) unless both env vars are set:
+
+```
+TEST_LOGIN_SECRET=<at least 16 random characters>
+TEST_LOGIN_COACHES=Alice:organizer,Bob,Carol:admin
+```
+
+`TEST_LOGIN_COACHES` is a comma list of `name[:level]` (`player` default, `organizer`, `admin`); only listed coaches may sign in. A declared level is raised through the identities store, never lowered.
+
+```
+curl -i -X POST http://127.0.0.1:PORT/api/auth/test-login -H "X-CW-Auth: 1" -H "X-Test-Login: $TEST_LOGIN_SECRET" -H "content-type: application/json" -d '{"coach":"Alice"}'
+```
+
+Loopback callers only (any `X-Forwarded-For` is refused), timing-safe secret check, 3 wrong secrets per 10 minutes per IP gives 429. Never set these variables on a public host.

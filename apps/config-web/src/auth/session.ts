@@ -27,6 +27,8 @@ export interface Session {
   coach: string;
   expiry: number;
   method: SessionMethod;
+  /** Minted by the local-UAT test sign-in (src/auth/testLogin.ts). Absent on every real session. */
+  test?: boolean;
 }
 
 interface Entry extends Session {
@@ -77,8 +79,8 @@ function sessionsFile(): string | undefined {
 function persist(): void {
   const file = sessionsFile();
   if (!file) return;
-  const out: Record<string, { coach: string; expiry: number; method: SessionMethod; created: number }> = {};
-  for (const [hash, e] of sessions) out[hash] = { coach: e.coach, expiry: e.expiry, method: e.method, created: e.created };
+  const out: Record<string, { coach: string; expiry: number; method: SessionMethod; created: number; test?: true }> = {};
+  for (const [hash, e] of sessions) out[hash] = { coach: e.coach, expiry: e.expiry, method: e.method, created: e.created, ...(e.test ? { test: true as const } : {}) };
   const payload = `${JSON.stringify({ version: 1, sessions: out })}\n`;
   const temp = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   try {
@@ -111,7 +113,7 @@ function ensureLoaded(now: number, clear = false): void {
     for (const [hash, e] of Object.entries(parsed.sessions ?? {})) {
       if (!/^[a-f0-9]{64}$/.test(hash) || typeof e?.coach !== "string" || typeof e.expiry !== "number" || typeof e.created !== "number") continue;
       if (e.method !== "discord" && e.method !== "password") continue;
-      const entry: Entry = { coach: e.coach, expiry: e.expiry, method: e.method, created: e.created, persistedAt: now };
+      const entry: Entry = { coach: e.coach, expiry: e.expiry, method: e.method, created: e.created, persistedAt: now, ...(e.test === true ? { test: true } : {}) };
       if (expired(entry, now)) { pruned = true; continue; }
       if (!sessions.has(hash)) sessions.set(hash, entry);
     }
@@ -144,6 +146,7 @@ export function createSession(
   coach: string,
   now = Date.now(),
   method: SessionMethod = "password",
+  options: { test?: boolean } = {},
 ): { token: string; session: Session } {
   pruneExpired(now);
   const token = randomBytes(TOKEN_BYTES).toString("hex");
@@ -155,11 +158,12 @@ export function createSession(
     created: now,
     persistedAt: now,
     cookieAt: now,
+    ...(options.test ? { test: true } : {}),
   };
   sessions.set(hash, entry);
   liveTokens.set(hash, token);
   persist();
-  return { token, session: { coach: entry.coach, expiry: entry.expiry, method } };
+  return { token, session: { coach: entry.coach, expiry: entry.expiry, method, ...(entry.test ? { test: true } : {}) } };
 }
 
 /** Resolve a token. A live session slides: the idle expiry moves out (capped by the absolute limit); written back at most every 10 min. */
@@ -175,7 +179,7 @@ export function getSession(token: string | undefined, now = Date.now()): Session
     entry.expiry = slid;
     if (now - entry.persistedAt >= SESSION_WRITE_BACK_MS) { entry.persistedAt = now; persist(); }
   }
-  return { coach: entry.coach, expiry: entry.expiry, method: entry.method };
+  return { coach: entry.coach, expiry: entry.expiry, method: entry.method, ...(entry.test ? { test: true } : {}) };
 }
 
 export function deleteSession(token: string | undefined): boolean {

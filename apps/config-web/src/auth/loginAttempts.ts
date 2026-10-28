@@ -21,9 +21,9 @@ export function normalizeCoach(coach: string): string {
   return coach.trim().toLowerCase();
 }
 
-export function attemptState(map: Map<string, LoginAttempt>, key: string, now: number): LoginAttempt {
+export function attemptState(map: Map<string, LoginAttempt>, key: string, now: number, windowMs = ATTEMPT_WINDOW_MS): LoginAttempt {
   const current = map.get(key);
-  if (!current || (current.lockedUntil <= now && now - current.windowStarted >= ATTEMPT_WINDOW_MS)) {
+  if (!current || (current.lockedUntil <= now && now - current.windowStarted >= windowMs)) {
     const fresh = { failures: 0, windowStarted: now, lockedUntil: 0 };
     map.set(key, fresh);
     return fresh;
@@ -35,7 +35,7 @@ export function lockoutRemaining(state: LoginAttempt, now: number): number {
   return Math.max(0, state.lockedUntil - now);
 }
 
-export function recordFailure(state: LoginAttempt, now: number): void {
+export function recordFailure(state: LoginAttempt, now: number, maxFailures = MAX_FAILURES, lockoutMs = LOCKOUT_MS): void {
   state.failures += 1;
-  if (state.failures >= MAX_FAILURES) state.lockedUntil = now + LOCKOUT_MS;
+  if (state.failures >= maxFailures) state.lockedUntil = now + lockoutMs;
 }

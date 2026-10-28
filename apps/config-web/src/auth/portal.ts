@@ -18,6 +18,7 @@ import {
   recordFailure,
 } from "./loginAttempts.js";
 import { validatedNextPath } from "./discordSso.js";
+import { handleTestLogin } from "./testLogin.js";
 
 export interface PortalOptions {
   verifyCoachPassword: (username: string, password: string) => Promise<boolean>;
@@ -118,6 +119,8 @@ export async function handleAuthPortal(
   options: PortalOptions,
 ): Promise<boolean> {
   const method = req.method ?? "GET";
+
+  if (await handleTestLogin(req, res, url.pathname)) return true;
 
   if (url.pathname === "/login" && (method === "GET" || method === "HEAD")) {
     const next = validatedNextPath(url.searchParams.get("next"));
