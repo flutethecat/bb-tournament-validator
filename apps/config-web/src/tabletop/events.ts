@@ -30,6 +30,12 @@ export const LASTING_INJURY_RESULTS = ["BH", "MNG", "NI", "stat loss", "DEAD"] a
 export type Half = 1 | 2 | "OT";
 export type Side = "home" | "away";
 export const otherSide = (s: Side): Side => (s === "home" ? "away" : "home");
+/** Did this event kill player `id` of `side`? A casualty DEAD on the victim, or an injury DEAD (team = the victim's side). */
+export function killsPlayer(e: Pick<TabletopEvent, "type" | "team" | "player" | "payload">, id: string, side: Side): boolean {
+  if (e.payload.result !== "DEAD") return false;
+  if (e.type === "casualty") return e.payload.victim === id && (e.payload.victimTeam ?? otherSide(e.team)) === side;
+  return e.type === "injury" && e.player === id && e.team === side;
+}
 
 export const CASUALTY_RESULTS = ["BH", "MNG", "NI", "stat loss", "DEAD"] as const;
 export type CasualtyResult = (typeof CASUALTY_RESULTS)[number];
@@ -143,8 +149,7 @@ export function validateEvent(event: TabletopEvent, stored: readonly TabletopEve
     if (p.dead) return `player ${id} is dead.`;
     if (p.mng) return `player ${id} is missing the next game and cannot take part.`;
     for (const e of live) {
-      if (e.type === "casualty" && e.payload.victim === id && (e.payload.victimTeam ?? otherSide(e.team)) === side && e.payload.result === "DEAD")
-        return `player ${id} was killed earlier in this match.`;
+      if (killsPlayer(e, id, side)) return `player ${id} was killed earlier in this match.`;
       if (e.type === "sendOff" && e.player === id && e.team === side) return `player ${id} was sent off earlier in this match.`;
     }
     return undefined;

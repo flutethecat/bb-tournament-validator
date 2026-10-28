@@ -295,6 +295,24 @@ describe("undo rules", () => {
     expect(events.filter((e) => e.type === "undo").map((e) => e.by)).toEqual(["Alice", "Org"]);
   });
 
+  it("a participant retracts a casualty or injury THEY recorded on either roster while recording; not another coach's, not after submit", async () => {
+    const { id } = await playing();
+    const post = (who: string, e: Record<string, unknown>) => as(who, "POST", `/api/tabletop/matches/${id}/events`, { events: [e] });
+    const mine = { id: "inj-by-alice-1", type: "injury", team: "away", player: "b1", payload: { result: "BH" } };
+    const cas = { id: "cas-by-alice-1", type: "casualty", team: "home", player: "a1", payload: { victim: "b2", result: "BH" } };
+    const bobs = { id: "inj-by-bob-001", type: "injury", team: "away", player: "b3", payload: { result: "BH" } };
+    expect((await post("Alice", mine)).status).toBe(200);
+    expect((await post("Alice", cas)).status).toBe(200);
+    expect((await post("Bob", bobs)).status).toBe(200);
+    expect((await undo(id, "Alice", mine.id)).status).toBe(200); // her own injury on the opponent's roster
+    expect((await undo(id, "Alice", cas.id)).status).toBe(200);
+    expect((await undo(id, "Alice", bobs.id)).status).toBe(403); // Bob's injury on Bob's roster
+    expect((await post("Alice", { id: "inj-by-alice-2", type: "injury", team: "away", player: "b1", payload: { result: "MNG" } })).status).toBe(200); // the undo freed the victim
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);
+    expect((await undo(id, "Alice", "inj-by-alice-2")).status).toBe(403); // after the match only an organiser
+    expect((await undo(id, "Org", "inj-by-alice-2")).status).toBe(200);
+  });
+
   it("once submitted, participants cannot undo (403); an organiser can, and the preview is recomputed", async () => {
     const { id, own } = await playing();
     await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);

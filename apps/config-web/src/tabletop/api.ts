@@ -411,7 +411,9 @@ async function postEvents(match: MatchRecord, me: string, organiser: boolean, bo
       if (reopenForUndo && !organiser) return err(403, "Once the match is submitted only an organiser can undo events.");
       if (!organiser) {
         const target = running.find((e) => e.id === parsed.event.payload.target);
-        if (target && !mySides.includes(target.team)) return err(403, "You can only undo your own side's events; an organiser can undo any.");
+        // a participant may also retract a casualty / injury THEY recorded, on either roster, while the match is recording
+        const mineToRetract = target !== undefined && (target.type === "casualty" || target.type === "injury") && target.by === me && match.state === "recording";
+        if (target && !mySides.includes(target.team) && !mineToRetract) return err(403, "You can only undo your own side's events; an organiser can undo any.");
       }
     } else if (parsed.event.half === undefined || (parsed.event.turn === undefined && clock.turn >= 1)) {
       // the server stamps the match clock on events the client left unmarked

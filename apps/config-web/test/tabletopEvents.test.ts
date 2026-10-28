@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { effectiveEvents, parseEvent, validateEvent, type RosterPair, type TabletopEvent } from "../src/tabletop/events.js";
+import { availabilityOf } from "../src/tabletop/eligibility.js";
 import { applyPostMatch, type TabletopPlayer, type TabletopTeamFile } from "../src/tabletop/postMatch.js";
 
 const player = (id: string, extra: Partial<TabletopPlayer> = {}): TabletopPlayer =>
@@ -152,6 +153,29 @@ describe("applyPostMatch (BB2025)", () => {
     expect(r.summary.players.find((p) => p.id === "a1")!.injury).toMatchObject({ result: "NI", apothecaryUsed: true });
     expect(r.summary.casualtiesSuffered).toEqual({ bh: 0, si: 2, rip: 0 });
     expect(r.summary.players.every((p) => p.sppEarned === 0)).toBe(true); // no SPP to anyone
+  });
+  it("an injury DEAD kills the player for the match like a casualty DEAD: no TD, MVP or other action until it is undone", () => {
+    const dead = ev("injury", "away", "a1", { result: "DEAD" });
+    expect(rejects([dead, ev("touchdown", "away", "a1")])).toMatch(/killed earlier/);
+    expect(rejects([dead, ev("mvp", "away", "a1")])).toMatch(/killed earlier/);
+    expect(rejects([ev("injury", "away", "a1", { result: "KO" }), ev("touchdown", "away", "a1")])).toBeUndefined(); // KO is not a kill
+    expect(rejects([dead, ev("undo", "away", undefined, { target: dead.id }), ev("touchdown", "away", "a1")])).toBeUndefined();
+    const cas = ev("casualty", "home", "h1", { victim: "a2", result: "DEAD" });
+    expect(rejects([cas, ev("touchdown", "away", "a2")])).toMatch(/killed earlier/);
+    const e = { ...dead };
+    const decorated = availabilityOf("away", { id: "a1", mng: false, dead: false }, [e]);
+    expect(decorated).toEqual({ available: false, unavailableReason: "Killed in this match" });
+    expect(availabilityOf("away", { id: "a1", mng: false, dead: false }, [e, ev("undo", "away", undefined, { target: e.id })]).available).toBe(true);
+    expect(availabilityOf("home", { id: "a1", mng: false, dead: false }, [e]).available).toBe(true); // other side's a1 id is a different player
+  });
+  it("mixed casualty / injury undo sequences re-open the one-lasting-result-per-victim rule", () => {
+    const cas = ev("casualty", "home", "h1", { victim: "a1", result: "BH" });
+    expect(rejects([cas, ev("undo", "home", undefined, { target: cas.id }), ev("injury", "away", "a1", { result: "MNG" })])).toBeUndefined();
+    const inj = ev("injury", "away", "a1", { result: "MNG" });
+    expect(rejects([inj, ev("undo", "away", undefined, { target: inj.id }), ev("casualty", "home", "h1", { victim: "a1", result: "BH" })])).toBeUndefined();
+    expect(rejects([inj, ev("casualty", "home", "h1", { victim: "a1", result: "BH" })])).toMatch(/already suffered/);
+    const inj2 = ev("injury", "away", "a1", { result: "NI" });
+    expect(rejects([inj, ev("undo", "away", undefined, { target: inj.id }), inj2, ev("injury", "away", "a1", { result: "BH" })])).toMatch(/already suffered/);
   });
   it("a player who started MNG sat out: the flag clears", () => {
     const t = team("Home", { players: [player("h1", { mng: true }), player("h2")] });

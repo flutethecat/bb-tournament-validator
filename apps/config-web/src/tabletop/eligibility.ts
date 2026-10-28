@@ -9,7 +9,7 @@
  * foul, MVP, ...) is open to any available player. `kind` star/mercenary players can be credited but earn no SPP.
  */
 
-import { effectiveEvents, otherSide, type Side, type TabletopEvent } from "./events.js";
+import { effectiveEvents, killsPlayer, type Side, type TabletopEvent } from "./events.js";
 import type { PlayerKind, TabletopPlayer, TabletopTeamFile } from "./postMatch.js";
 
 export const ELIGIBLE_ACTIONS = ["touchdown", "casualty", "completion", "pass", "catch", "intercept", "deflect", "foul", "throwTeamMate", "rightStuff", "mvp"] as const;
@@ -24,7 +24,7 @@ export function availabilityOf(
   if (player.dead) return { available: false, unavailableReason: "Dead" };
   if (player.mng) return { available: false, unavailableReason: "Missing this game (injured last match)" };
   for (const e of effectiveEvents(events)) {
-    if (e.type === "casualty" && e.payload.victim === player.id && (e.payload.victimTeam ?? otherSide(e.team)) === side && e.payload.result === "DEAD")
+    if (killsPlayer(e, player.id, side))
       return { available: false, unavailableReason: "Killed in this match" };
     if (e.type === "sendOff" && e.player === player.id && e.team === side) return { available: false, unavailableReason: "Sent off" };
   }
