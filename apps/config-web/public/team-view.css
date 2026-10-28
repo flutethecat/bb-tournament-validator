@@ -204,3 +204,13 @@
 .tv-extras { margin-bottom: 14px; }
 .tv-ind-cell { display: flex; align-items: center; gap: 8px; }
 .tv-ind-table .tv-ind-icon { width: 28px; height: 28px; margin: 0; object-fit: contain; }
+/* Owner 10-28: larger text in the Inducements and Sideline Staff panels. */
+.tv-ind-table { font-size: 17px; }
+.tv-ind-table th, .tv-ind-table td { padding: 8px 8px; }
+.tv-ind-table thead th { font-size: 13px; }
+.tv-pairs { font-size: 17px; }
+.tv-pairs > div { padding: 7px 6px; }
+.tv-pairs dt { color: var(--ui-text); }
+@media (min-width: 1600px) {
+  .tv-ind-table, .tv-pairs { font-size: 19px; }
+}
