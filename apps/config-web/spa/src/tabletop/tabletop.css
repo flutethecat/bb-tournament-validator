@@ -462,13 +462,12 @@
 }
 
 /* desktop: the action rail sits on the left of the match log; the Injury button wears the warning tint */
-.tt-rec { --tt-warn: var(--ui-warn, color-mix(in srgb, var(--ui-danger, #ff4d4d) 45%, var(--ui-success, #3fb463))); }
 @media (min-width: 1024px) {
   .tt-rec { grid-template-columns: 232px minmax(0, 1fr); }
   .tt-rec > .tt-mid { grid-column: 2; grid-row: 4; }
   .tt-rail { grid-column: 1; grid-row: 4; padding: 16px 0 24px 28px; }
   .tt-feed { padding: 16px 28px 24px 0; }
-  .tt-rail-injury { background: color-mix(in srgb, var(--tt-warn) 55%, var(--tt-btn)); border-color: var(--tt-warn); }
+  .tt-rail-injury { background: var(--ui-warn); color: var(--ui-warn-contrast); border-color: var(--ui-warn); }
 }
 
 /* bigger hero chips: 32 px on phones, 36 px from 760 px, 40 px from 1024 px; pixel art stays crisp */

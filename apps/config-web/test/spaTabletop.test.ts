@@ -497,6 +497,25 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toMatch(/class="tt-coachline"><span class="tt-coach">/);
   });
 
+  it("--ui-warn / --ui-warn-contrast exist for every preset and the Injury button text clears 4.5:1 on its face", async () => {
+    const { readFileSync } = await import("node:fs");
+    const theme = readFileSync(fileURLToPath(new URL("../public/theme.css", import.meta.url)), "utf8");
+    // the fixed-semantics block sits on :root, which every preset (Black/Red, FUMBBL) inherits; no preset block may override it away
+    const fixed = /:root \{[^}]*--ui-danger:[^}]*\}/.exec(theme)![0];
+    const warn = /--ui-warn:\s*(#[0-9a-f]{6})/i.exec(fixed)![1]!;
+    const ink = /--ui-warn-contrast:\s*(#[0-9a-f]{6})/i.exec(fixed)![1]!;
+    for (const preset of theme.match(/:root\[data-theme="[^"]+"\] \{[^}]*\}/g) ?? []) expect(preset).not.toMatch(/--ui-warn/);
+    const lum = (hex: string): number => {
+      const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
+    };
+    const [hi, lo] = [lum(warn), lum(ink)].sort((a, b) => b - a);
+    expect((hi! + 0.05) / (lo! + 0.05)).toBeGreaterThanOrEqual(4.5);
+    const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.tt-rail-injury \{[^}]*background: var\(--ui-warn\); color: var\(--ui-warn-contrast\)/);
+    expect(css).not.toContain("--tt-warn");
+  });
+
   it("event feed (Modern Retro): home cards left, away cards right, both-team cards full width, a jump id per card, a turn mark", async () => {
     const evs = [
       { id: "p1", type: "coinFlip", team: "home", payload: { mode: "auto", result: "tails" } },
