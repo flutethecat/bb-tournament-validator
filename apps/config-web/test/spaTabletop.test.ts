@@ -474,6 +474,27 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toMatch(/grid-template-columns: minmax\(0, 1fr\) 232px/);
   });
 
+  it("hero icon chips: rerolls always carry a count badge, apothecary and singles none, inducements badge from 2, unknown ones show a letter; titles carry name and count", async () => {
+    const evs = [
+      { id: "i1", type: "inducement", team: "home", payload: { picks: [{ id: "bribes", name: "Bribes", qty: 2 }, { id: "mystery", name: "Mystery Item", qty: 1 }] } },
+    ];
+    const html = await mount(mods.boardC, {
+      match: baseMatch("recording"), teams: { home: { ...teams.home, rerolls: 3, apothecary: true }, away: teams.away }, tally: serverTally,
+      events: evs, pregame: {}, clock: clockOf("home", 3), localSide: "home", organiser: false, canAct: true,
+      inducementIcons: { bribes: "icons/inducements/bribe.png" }, art: {},
+    }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
+    expect(html).toContain("/icons/ui/re_roll.png");
+    expect(html).toContain('title="Rerolls x3"');
+    expect(html).toContain('<b class="tt-qty">3</b>');
+    expect(html).toContain('title="Apothecary"');
+    expect(html).toContain('title="Bribes x2"');
+    expect(html).toContain('<b class="tt-qty">2</b>');
+    expect(html).toContain('title="Mystery Item"');
+    expect(html).toContain('<span class="tt-chip-txt">M</span>');
+    expect(html.match(/class="tt-qty"/g)).toHaveLength(2); // rerolls and bribes only
+    expect(html).toMatch(/class="tt-coachline"><span class="tt-coach">/);
+  });
+
   it("event feed (Modern Retro): home cards left, away cards right, both-team cards full width, a jump id per card, a turn mark", async () => {
     const evs = [
       { id: "p1", type: "coinFlip", team: "home", payload: { mode: "auto", result: "tails" } },

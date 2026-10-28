@@ -31,13 +31,15 @@ const sides: Side[] = ["home", "away"];
 const crest = (s: Side): string => resolveCrest(props.art, props.teams[s]?.rosterId ?? props.teams[s]?.race);
 const race = (s: Side): string => props.teams[s]?.race ?? props.teams[s]?.rosterId ?? "";
 
-interface Chip { key: string; src: string; label: string; qty: number }
+interface Chip { key: string; src: string; label: string; qty: number; always?: boolean }
+/** The chip tooltip: the name, and the count when the badge shows it. */
+const chipTitle = (c: Chip): string => (c.qty > 1 || c.always ? `${c.label} x${c.qty}` : c.label);
 /** Inducement rows from the server's `inducement` events, then team facts the team file carries. */
 const chips = (s: Side): Chip[] => {
   const out: Chip[] = [];
   const t = props.teams[s];
   if (t?.dedicatedFans) out.push({ key: "fans", src: uiIcon("dedicated_fans"), label: "Dedicated fans", qty: t.dedicatedFans });
-  if (t?.rerolls) out.push({ key: "rr", src: uiIcon("re_roll"), label: "Rerolls", qty: t.rerolls });
+  if (t?.rerolls) out.push({ key: "rr", src: uiIcon("re_roll"), label: "Rerolls", qty: t.rerolls, always: true });
   if (t?.apothecary) out.push({ key: "apo", src: uiIcon("apothecary"), label: "Apothecary", qty: 1 });
   for (const e of props.events) {
     if (e.type !== "inducement" || e.team !== s) continue;
@@ -94,16 +96,18 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
         <img v-if="crest(s)" class="tt-crest" :src="crest(s)" alt="" />
         <span v-else class="tt-crest tt-crest-ph" aria-hidden="true">&#128737;</span>
       </div>
-      <span class="tt-team">{{ match[s].teamName }}</span>
+      <span class="tt-team" :data-long="match[s].teamName.length > 16 ? 'true' : null">{{ match[s].teamName }}</span>
       <span v-if="race(s)" class="tt-race">{{ race(s) }}</span>
-      <span class="tt-coach">{{ match[s].coach }}</span>
-      <ul class="tt-chips">
-        <li v-for="c in chips(s)" :key="c.key" :title="c.label">
-          <img v-if="c.src" class="tt-chip-img" :src="c.src" :alt="c.label" />
-          <span v-else class="tt-chip-txt">{{ c.label.slice(0, 2) }}</span>
-          <b v-if="c.qty > 1" class="tt-qty">{{ c.qty }}</b>
-        </li>
-      </ul>
+      <div class="tt-coachline">
+        <span class="tt-coach">{{ match[s].coach }}</span>
+        <ul class="tt-chips">
+          <li v-for="c in chips(s)" :key="c.key" :title="chipTitle(c)">
+            <img v-if="c.src" class="tt-chip-img" :src="c.src" :alt="c.label" />
+            <span v-else class="tt-chip-txt">{{ c.label.charAt(0).toUpperCase() }}</span>
+            <b v-if="c.qty > 1 || c.always" class="tt-qty">{{ c.qty }}</b>
+          </li>
+        </ul>
+      </div>
     </section>
     <section class="tt-centre">
       <div class="tt-top-pair">

@@ -300,7 +300,7 @@
   .tt-corner-top, .tt-corner.away .tt-corner-top { flex-direction: row; justify-content: center; }
   .tt-team { font-size: 12px; text-align: center; white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; max-width: 100%; }
   .tt-coach { text-align: center; }
-  .tt-race, .tt-counters, .tt-chips, .tt-weather { display: none; }
+  .tt-race, .tt-counters, .tt-weather { display: none; }
   .tt-centre { display: contents; }
   .tt-top-pair { grid-column: 2; grid-row: 2; align-self: start; justify-self: center; }
   .tt-score { grid-column: 2; grid-row: 2; align-self: end; justify-self: center; font-size: 1.6rem; }
@@ -434,3 +434,29 @@
   .tt-quick-danger { color: var(--ui-danger, var(--tt-ink)); }
 }
 @media (prefers-reduced-motion: reduce) { .tt-rail-end[data-zero="true"] { animation: none; } }
+
+/* hero icon chips: rerolls, apothecary and inducements on the coach line, after the coach name (before it on the away side) */
+.tt-coachline { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; flex-wrap: wrap; }
+.tt-corner.away .tt-coachline { flex-direction: row-reverse; justify-content: flex-start; }
+.tt-corner .tt-coachline .tt-coach { grid-column: auto; grid-row: auto; }
+.tt-corner .tt-coachline .tt-chips, .tt-corner.home .tt-coachline .tt-chips, .tt-corner.away .tt-coachline .tt-chips {
+  display: flex; flex-wrap: wrap; gap: 6px; width: auto; flex: 0 1 auto; margin: 0; min-height: 0; overflow: visible; direction: ltr; grid-row: auto; grid-column: auto;
+}
+.tt-corner .tt-coachline .tt-chips li { width: 28px; height: 28px; max-width: none; max-height: none; aspect-ratio: auto; flex: none; align-self: auto; justify-self: auto; }
+.tt-corner .tt-coachline .tt-chip-txt { border-radius: 50%; background: var(--tt-panel); font-weight: 700; font-size: 12px; }
+.tt-corner .tt-coachline .tt-qty { top: -6px; right: -6px; bottom: auto; min-width: 16px; height: 16px; padding: 0 2px; line-height: 16px; font-size: 10px; font-weight: 700; border-radius: 8px; background: var(--ui-danger, #ff4d4d); color: var(--ui-text-on-primary, #ffffff); box-shadow: 0 0 0 1px var(--ui-text-on-primary, #ffffff); }
+@media (max-width: 719px) {
+  .tt-corner .tt-coachline { justify-content: center; }
+  .tt-corner .tt-coachline .tt-chips li { width: 24px; height: 24px; }
+}
+@media (min-width: 1024px) {
+  .tt-corner.home .tt-coachline, .tt-corner.away .tt-coachline { grid-row: 3; }
+  .tt-corner.home .tt-coachline { grid-column: 2; }
+  .tt-corner.away .tt-coachline { grid-column: 1; }
+}
+
+/* desktop hero names never cut off: two lines at most, one step smaller when the name is long */
+@media (min-width: 1024px) {
+  .tt-corner .tt-team { white-space: normal; overflow: hidden; text-overflow: clip; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
+  .tt-corner .tt-team[data-long="true"] { font-size: 1.1rem; }
+}
