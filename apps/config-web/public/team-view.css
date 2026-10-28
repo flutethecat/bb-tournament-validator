@@ -2,6 +2,27 @@
    session buttons) and theme.css presets; mobile-first: cards at phone width, a table from 760 px up. */
 
 .team-view { max-width: 1280px; padding-bottom: 72px; }
+/* Owner 10-28: use the room on wide monitors - a wider column and larger type/sprites from 1600 px up. */
+@media (min-width: 1600px) {
+  .team-view { max-width: min(1800px, 88vw); }
+  .tv-banner-top h1 { font-size: clamp(34px, 2.4vw, 48px); }
+  .tv-race { font-size: 18px; }
+  .tv-byline { font-size: 15px; }
+  .tv-totals b { font-size: 21px; }
+  .tv-totals .tv-total b { font-size: 25px; }
+  .tv-totals span { font-size: 13px; }
+  .tv-table { font-size: 16px; }
+  .tv-table th { font-size: 16px; padding: 12px 12px; }
+  .tv-table td { padding: 9px 12px; }
+  .tv-table .tv-col-sprite { width: 78px; }
+  .tv-table .tv-sprite { width: 68px; height: 68px; }
+  .tv-table .tv-stat { width: 60px; }
+  .tv-table td.tv-stat > .tv-stat-box { min-width: 46px; font-size: 20px; }
+  .tv-table .skill { font-size: 14px; padding: 3px 8px; }
+  .tv-panel { padding: 16px 18px; }
+  .tv-panel .section-title { font-size: 20px; }
+  .tv-ind-table, .tv-pairs { font-size: 15px; }
+}
 
 /* Banner: crest + team name, race, byline; validity badge + owner link on the right. */
 .tv-banner {
