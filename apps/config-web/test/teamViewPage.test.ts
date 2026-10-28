@@ -56,7 +56,8 @@ describe("team view core", () => {
     expect(markup).toContain('<span class="tv-badge tv-valid" title="Valid team"><small>EuroBowl 2026</small><span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10003;</span>Verified</span></span>');
     expect(markup).toContain('<table class="tv-table">');
     expect(markup).toContain('<ol class="tv-cards">');
-    const roster = markup.slice(markup.indexOf('<table class="tv-table">'), markup.indexOf("</table>"));
+    const rosterStart = markup.indexOf('<table class="tv-table">');
+    const roster = markup.slice(rosterStart, markup.indexOf("</table>", rosterStart)); // the inducements table now comes first
     expect((roster.match(/<tr[ >]/g) ?? []).length).toBe(4); // header + 3 players (the inducements table has its own rows)
     // Short position names, the full name as the tooltip (table + cards); a star keeps its name, no tooltip.
     expect(roster).toContain('<td class="tv-pos" title="Dwarf Blocker Lineman">Blocker Lineman</td>');
@@ -217,7 +218,8 @@ describe("team view: hostile strings (Sol r1 P3)", () => {
     expect(markup).not.toContain("<img "); // every hostile art path (javascript:, traversal, quote break-out) is dropped
     expect(liveAttributes(markup).filter((a) => /^on/i.test(a))).toEqual([]); // no live event-handler attribute anywhere
     const escaped = "&lt;img src=x onerror=alert(1)&gt;&quot;&#39;&amp;";
-    const table = markup.slice(markup.indexOf('<table class="tv-table">'), markup.indexOf("</table>"));
+    const tableStart = markup.indexOf('<table class="tv-table">');
+    const table = markup.slice(tableStart, markup.indexOf("</table>", tableStart));
     const cards = markup.slice(markup.indexOf('<ol class="tv-cards">'), markup.indexOf("</ol>"));
     for (const part of [table, cards]) {
       expect(part).toContain(escaped); // position / skills / stats
@@ -245,4 +247,10 @@ describe("team view: hostile strings (Sol r1 P3)", () => {
     const markup = TeamView.viewHtml(none);
     expect(markup).toContain('id="tv-ind-title"');
     expect(markup).toContain('class="status-copy tv-none">None</td>');
+  });
+
+  it("inducements and sideline staff render above the roster", () => {
+    const markup = TeamView.viewHtml(fixture());
+    expect(markup.indexOf('id="tv-ind-title"')).toBeLessThan(markup.indexOf('<table class="tv-table">'));
+    expect(markup.indexOf('id="tv-sideline-title"')).toBeLessThan(markup.indexOf('<table class="tv-table">'));
   });

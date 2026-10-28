@@ -113,7 +113,7 @@
     const total = team.summary?.inducementsCost;
     // Owner 10-27: always present, as a table (Inducement / Qty) with the total spend; "None" when the team bought none.
     const body = list.length
-      ? list.map((i) => { const src = artSrc(i.icon); return `<tr><td>${src ? `<img class="crest-image tv-ind-icon" src="${esc(src)}" alt="" aria-hidden="true" loading="lazy">` : ""}<span>${esc(i.name)}</span></td><td class="num">${esc(isNum(i.count) ? i.count : 1)}</td></tr>`; }).join("")
+      ? list.map((i) => { const src = artSrc(i.icon); return `<tr><td class="tv-ind-cell">${src ? `<img class="crest-image tv-ind-icon" src="${esc(src)}" alt="" aria-hidden="true" loading="lazy">` : ""}<span>${esc(i.name)}</span></td><td class="num">${esc(isNum(i.count) ? i.count : 1)}</td></tr>`; }).join("")
       : `<tr><td colspan="2" class="status-copy tv-none">None</td></tr>`;
     const foot = isNum(total) ? `<tfoot><tr><th scope="row">Total</th><td class="num">${esc(gold(total))}</td></tr></tfoot>` : "";
     return `<section class="tv-panel" aria-labelledby="tv-ind-title"><h2 id="tv-ind-title" class="section-title"><span>I</span>nducements</h2>
@@ -177,10 +177,10 @@
         </div>
       </header>
       ${totalsHtml(team)}
+      <div class="tv-extras">${inducementsHtml(team)}${sidelineHtml(team)}</div>
       <section class="tv-roster" aria-label="Roster">
         ${players.length ? tableHtml(players) + cardsHtml(players) : '<p class="status-copy">This team has no players on this server.</p>'}
       </section>
-      <div class="tv-extras">${inducementsHtml(team)}${sidelineHtml(team)}</div>
       <p class="tv-key" aria-label="Skill key"><span class="skill skill-general">General</span><span class="skill skill-agility">Agility</span><span class="skill skill-strength">Strength</span><span class="skill skill-passing">Passing</span><span class="skill skill-mutation">Mutation</span><span class="skill skill-trait">Trait</span><span class="skill tv-added skill-general">Added</span><span class="skill tv-stat-up">+Stat</span></p>`;
   }
 

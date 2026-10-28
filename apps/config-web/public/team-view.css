@@ -200,3 +200,7 @@
 /* Owner 10-28: the validator's issues listed under the cross. */
 .tv-issues { margin: 4px 0 0; padding: 0 0 0 16px; max-width: 42ch; text-align: left; color: var(--ui-text); font-size: 13px; line-height: 1.35; }
 .tv-issues li { margin: 2px 0; }
+/* Owner 10-28: inducements + sideline staff sit above the roster; the inducement icon sits inline with its name. */
+.tv-extras { margin-bottom: 14px; }
+.tv-ind-cell { display: flex; align-items: center; gap: 8px; }
+.tv-ind-table .tv-ind-icon { width: 28px; height: 28px; margin: 0; object-fit: contain; }
