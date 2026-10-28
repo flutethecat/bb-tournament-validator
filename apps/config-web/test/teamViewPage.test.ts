@@ -88,7 +88,7 @@ describe("team view core", () => {
     expect(markup).toContain("<span>Total</span><b>1,150k <small>/ 1,150k</small></b>");
     expect(markup).toContain("<span>Primary / Secondary</span><b>1 / 1</b>");
     expect(markup).toContain("<span>Stars</span><b>200k</b>");
-    expect(markup).toContain("<dt>Rerolls</dt><dd>2</dd>");
+    expect(markup).toContain('<dt class="tv-staff-cell"><img class="crest-image tv-staff-icon" src="/icons/ui/re_roll.png" alt="" aria-hidden="true" loading="lazy"><span>Rerolls</span></dt><dd>2</dd>');
     expect(markup).toContain("<span>S</span>ideline <span>S</span>taff");
     expect(markup).toContain('<span>Bribes</span></td><td class="num">2</td>');
     expect(markup).toContain('<small class="tv-rules-inline" aria-label="Special rules">Old World Classic</small>');
@@ -215,7 +215,10 @@ describe("team view: hostile strings (Sol r1 P3)", () => {
     expect(markup).not.toContain("javascript:");
     expect(markup).not.toContain("/sprites/../");
     expect(liveAttributes(markup)).toEqual(expect.arrayContaining(["class", "title"])); // the scan sees real attributes
-    expect(markup).not.toContain("<img "); // every hostile art path (javascript:, traversal, quote break-out) is dropped
+    // every hostile art path (javascript:, traversal, quote break-out) is dropped; the only <img> left are the page's own fixed staff icons
+    const imgSrcs = [...markup.matchAll(/<img [^>]*src="([^"]*)"/g)].map((m) => m[1]);
+    expect(imgSrcs.every((src) => /^\/icons\/(ui|inducements)\/[a-z_]+\.png$/.test(src))).toBe(true);
+    expect(imgSrcs.length).toBe(5);
     expect(liveAttributes(markup).filter((a) => /^on/i.test(a))).toEqual([]); // no live event-handler attribute anywhere
     const escaped = "&lt;img src=x onerror=alert(1)&gt;&quot;&#39;&amp;";
     const tableStart = markup.indexOf('<table class="tv-table">');
