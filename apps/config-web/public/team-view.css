@@ -219,3 +219,11 @@
 .tv-table .skill-trait, .tv-cards .skill-trait { color: color-mix(in srgb, var(--ui-skill-trait) 45%, var(--ui-text)); }
 .tv-table .skill, .tv-cards .skill { background: color-mix(in srgb, var(--ui-surface) 78%, transparent); border-color: color-mix(in srgb, var(--ui-border) 80%, var(--ui-text)); }
 .tv-table .tv-pos { color: color-mix(in srgb, var(--ui-position) 80%, var(--ui-text)); }
+/* Owner 10-28: the Inducements and Sideline Staff panels fill their height - rows spread to the panel's bottom. */
+.tv-extras .tv-panel { display: flex; flex-direction: column; }
+.tv-extras .tv-panel > .tv-ind-table, .tv-extras .tv-panel > .tv-pairs { flex: 1 1 auto; }
+.tv-extras .tv-ind-table tbody td, .tv-extras .tv-ind-table tfoot td, .tv-extras .tv-ind-table tfoot th { vertical-align: middle; }
+.tv-extras .tv-pairs { align-content: stretch; }
+.tv-extras .tv-pairs > div { align-items: center; }
+.tv-ind-table .tv-ind-icon { width: 36px; height: 36px; }
+.tv-extras .tv-ind-table tbody td { padding-block: 10px; }
