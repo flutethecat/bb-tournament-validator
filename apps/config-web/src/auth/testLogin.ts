@@ -18,6 +18,7 @@ import { buildSessionCookie, createSession, requestUsesTls } from "./session.js"
 const PROXY_HEADERS = ["x-forwarded-for", "forwarded", "x-real-ip", "x-forwarded-host", "x-forwarded-proto"];
 
 export const TEST_LOGIN_PATH = "/api/auth/test-login";
+export const TEST_LOGIN_OPTIONS_PATH = "/api/auth/test-login/options";
 const MAX_FAILURES = 3;
 const WINDOW_MS = 10 * 60 * 1000;
 const LEVEL_RANK: Record<CoachLevel, number> = { player: 0, organizer: 1, admin: 2 };
@@ -71,8 +72,26 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   return chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : undefined;
 }
 
+/**
+ * GET /api/auth/test-login/options: what the SPA probes to decide whether to show its test sign-in card.
+ * Same gate as the POST (env set, loopback socket, no proxy headers); otherwise {enabled:false} with 200, never 404.
+ * No secret is needed to read it: it lists only the names the operator put in TEST_LOGIN_COACHES.
+ */
+function handleOptions(req: IncomingMessage, res: ServerResponse): void {
+  const cfg = config();
+  if (!cfg || !isLoopback(req) || PROXY_HEADERS.some((h) => req.headers[h] !== undefined)) {
+    sendJson(res, 200, { enabled: false });
+    return;
+  }
+  sendJson(res, 200, { enabled: true, coaches: cfg.coaches.map((c) => ({ coach: c.name, level: c.level })) });
+}
+
 /** Returns true when the request was a test-login (handled), false to fall through. */
 export async function handleTestLogin(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
+  if (pathname === TEST_LOGIN_OPTIONS_PATH && (req.method ?? "GET") === "GET") {
+    handleOptions(req, res);
+    return true;
+  }
   if (pathname !== TEST_LOGIN_PATH || (req.method ?? "GET") !== "POST") return false;
   const cfg = config();
   if (!cfg) return false;

@@ -3,6 +3,7 @@ import { computed, inject, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
 import { API_KEY } from "./app";
 import SignInPrompt from "./components/SignInPrompt.vue";
+import TestSignInCard from "./components/TestSignInCard.vue";
 import { appPath, discordLoginUrl, SESSION_KEY } from "./session";
 import { THEME_KEY, themeLabel } from "./theme";
 import { gateFor, NAV } from "./router";
@@ -57,7 +58,10 @@ watch(
       <p class="lobby-error" role="alert">{{ session.state.error }}</p>
       <button class="lobby-btn" type="button" @click="session.load(true)">Try again</button>
     </section>
-    <SignInPrompt v-else-if="gate === 'signin'" :href="loginHref" :sso-enabled="session.ssoEnabled()" :other-session="session.otherSession()" />
+    <template v-else-if="gate === 'signin'">
+      <SignInPrompt :href="loginHref" :sso-enabled="session.ssoEnabled()" :other-session="session.otherSession()" />
+      <TestSignInCard />
+    </template>
     <RouterView v-else :key="route.path" />
   </main>
 </template>

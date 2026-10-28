@@ -44,6 +44,8 @@ export interface SessionInfo {
   discordSsoEnabled?: boolean;
   organizer?: boolean;
   admin?: boolean;
+  /** A test sign-in session (local UAT). */
+  test?: boolean;
   expiresAt?: string;
 }
 
@@ -177,3 +179,6 @@ export interface TournamentDetailResponse {
   standings?: TournamentStandingRow[];
   scheduledMatches?: TournamentFixture[];
 }
+
+/** GET /api/auth/test-login/options: the local-UAT test sign-in, when this server has it switched on. */
+export interface TestLoginOptions { enabled: boolean; coaches?: Array<{ coach: string; level: string }> }

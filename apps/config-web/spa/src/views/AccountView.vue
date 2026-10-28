@@ -4,6 +4,7 @@
 import { computed, inject, onMounted, onServerPrefetch, ref } from "vue";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
+import TestSignInCard from "../components/TestSignInCard.vue";
 import type { AccountInfo } from "../shared/api";
 
 const session = inject(SESSION_KEY)!;
@@ -71,4 +72,5 @@ onServerPrefetch(load);
     <button class="lobby-btn" type="button" :disabled="signingOut" @click="signOut">Sign out</button>
     <p v-if="signOutError" class="lobby-error" role="alert">{{ signOutError }}</p>
   </section>
+  <TestSignInCard />
 </template>

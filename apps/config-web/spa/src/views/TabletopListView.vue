@@ -5,6 +5,7 @@ import { RouterLink, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import { COACH_SEARCH_KEY, createCoachSearch } from "../tabletop/coachSearch";
+import TabletopTestMatchCard from "../components/TabletopTestMatchCard.vue";
 import { fmtK } from "../shared/format";
 import { createTabletopList, TABLETOP_LIST_KEY, teamKind, type TeamOption } from "../tabletop/list";
 import type { PostMatchOption } from "../tabletop/recorder";
@@ -170,6 +171,8 @@ onMounted(() => {
     </form>
     <p v-if="err" class="lobby-error" role="alert">{{ err }}</p>
   </section>
+
+  <TabletopTestMatchCard />
 
   <section class="lobby-card">
     <h2>My matches</h2>

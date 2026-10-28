@@ -99,6 +99,19 @@ for (const sidecar of [true, false]) {
       expect(without.status).not.toBe(200);
     });
 
+    it("GET /options lists the coaches without a secret; disabled/proxied answers {enabled:false} with 200", async () => {
+      const on = await fetch(`${b.origin}/api/auth/test-login/options`);
+      expect(on.status).toBe(200);
+      expect(await on.json()).toEqual({ enabled: true, coaches: [{ coach: "Alice", level: "organizer" }, { coach: "bob", level: "player" }, { coach: "Carol", level: "admin" }] });
+      const proxied = await fetch(`${b.origin}/api/auth/test-login/options`, { headers: { "x-forwarded-for": "203.0.113.9" } });
+      expect(proxied.status).toBe(200);
+      expect(await proxied.json()).toEqual({ enabled: false });
+      setEnv({ TEST_LOGIN_SECRET: undefined });
+      const off = await fetch(`${b.origin}/api/auth/test-login/options`);
+      expect(off.status).toBe(200);
+      expect(await off.json()).toEqual({ enabled: false });
+    });
+
     it("403 with X-Forwarded-For or missing headers", async () => {
       expect((await post(b.origin, "bob", { "x-forwarded-for": "203.0.113.9" })).status).toBe(403);
       const noCsrf = await fetch(`${b.origin}/api/auth/test-login`, {
@@ -213,5 +226,18 @@ describe("test sign-in hardening (unit)", () => {
     expect(boss.body.level).toBe("admin");
     expect(readIdentities().coaches.boss!.level).toBe("admin");
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("test sign-in options (non-loopback unit)", () => {
+  it("answers {enabled:false} with 200 for a non-loopback socket", async () => {
+    setEnv({ TEST_LOGIN_SECRET: SECRET, TEST_LOGIN_COACHES: "bob" });
+    const { handleTestLogin } = await import("../src/auth/testLogin.js");
+    let status = 0; let payload = "";
+    const res = { writeHead: (s: number) => { status = s; }, end: (p: string) => { payload = p; } } as never;
+    const req = { method: "GET", socket: { remoteAddress: "203.0.113.9" }, headers: {} } as never;
+    expect(await handleTestLogin(req, res, "/api/auth/test-login/options")).toBe(true);
+    expect(status).toBe(200);
+    expect(JSON.parse(payload)).toEqual({ enabled: false });
   });
 });
