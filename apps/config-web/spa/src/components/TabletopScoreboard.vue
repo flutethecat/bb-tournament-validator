@@ -3,7 +3,7 @@
 // Crest, coach, team and the inducement row per corner; score and the half / turn stepper in the centre; weather and
 // coin on a compact line under it. Everything comes from the server's match, teams, tally and pre-game summary.
 import { computed } from "vue";
-import { centreMode, formatTimer, turnLabel, type ClockView } from "../tabletop/clock";
+import { centreMode, formatTimer, halfLabel, turnCells, turnLabel, type ClockView } from "../tabletop/clock";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { uiIcon, weatherParts } from "../tabletop/feed";
 import type { MatchView, RecordedEvent, ServerTally, Side, TeamView } from "../tabletop/recorder";
@@ -68,18 +68,33 @@ const fill = computed(() => {
 const alert = computed(() => timed.value && (props.remaining as number) <= 10);
 const zero = computed(() => timed.value && (props.remaining as number) <= 0);
 const weather = computed(() => weatherParts(props.pregame, props.events));
+const cells = (s: Side) => turnCells(props.clock, s);
+const half = computed(() => halfLabel(props.clock?.half));
+/** The team colour from the team file (a plain hex only), else the theme tokens colour the side. */
+const tint = (s: Side): Record<string, string> | undefined => {
+  const c = props.teams[s]?.color;
+  return c && /^#[0-9a-f]{3,8}$/i.test(c) ? { "--tt-team": c } : undefined;
+};
+const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.casualtiesCaused, 0);
 </script>
 
 <template>
   <header class="tt-board" aria-label="Scoreboard">
-    <section v-for="s in sides" :key="s" class="tt-corner" :class="s">
+    <div class="tt-turns" aria-label="Turn track">
+      <ol v-for="s in sides" :key="s" class="tt-track" :class="s" :aria-label="`${match[s].teamName} turns`">
+        <li v-for="c in cells(s)" :key="c.n" class="tt-cell" :data-state="c.state" :aria-current="c.state === 'active' ? 'step' : undefined">{{ c.n }}</li>
+        <li v-if="timed && clock?.activeTeam === s" class="tt-clock" aria-hidden="true">&#9201; {{ countdown }}</li>
+      </ol>
+      <p class="tt-half">Turn<small>{{ half }}</small></p>
+    </div>
+    <section v-for="s in sides" :key="s" class="tt-corner" :class="s" :style="tint(s)">
       <div class="tt-corner-top">
         <img v-if="crest(s)" class="tt-crest" :src="crest(s)" alt="" />
         <span v-else class="tt-crest tt-crest-ph" aria-hidden="true">&#128737;</span>
       </div>
-      <span class="tt-coach">{{ match[s].coach }}</span>
       <span class="tt-team">{{ match[s].teamName }}</span>
       <span v-if="race(s)" class="tt-race">{{ race(s) }}</span>
+      <span class="tt-coach">{{ match[s].coach }}</span>
       <ul class="tt-chips">
         <li v-for="c in chips(s)" :key="c.key" :title="c.label">
           <img v-if="c.src" class="tt-chip-img" :src="c.src" :alt="c.label" />
@@ -97,6 +112,10 @@ const weather = computed(() => weatherParts(props.pregame, props.events));
         <button class="tt-cog" type="button" aria-label="Settings" @click="emit('settings')">&#9881;</button>
       </div>
       <p class="tt-score" aria-label="Score"><span>{{ tally.score.home }}</span> : <span>{{ tally.score.away }}</span></p>
+      <ul class="tt-counters" aria-label="Counters">
+        <li><b>{{ tally.score.home }}</b><span>TD</span><b>{{ tally.score.away }}</b></li>
+        <li><b>{{ cas("home") }}</b><span>CAS</span><b>{{ cas("away") }}</b></li>
+      </ul>
       <button
         v-if="mode === 'end'" class="tt-endturn" type="button" :disabled="busy" :data-timed="timed ? 'true' : null"
         :data-alert="alert ? 'true' : null" :data-zero="zero ? 'true' : null" :style="timed ? { '--tt-fill': `${fill}%` } : undefined"

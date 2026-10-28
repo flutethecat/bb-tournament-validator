@@ -119,3 +119,26 @@ export function createCueTracker() {
     },
   };
 }
+
+/** One cell of the turn track. */
+export interface TurnCell { n: number; state: "done" | "active" | "todo" }
+
+/**
+ * The turn track of one team for the half in play: eight cells numbered 1-8 (first half) or 9-16 (second half and
+ * overtime), like TourPlay's track. A cell is done once its turn has passed and active on the team's own turn.
+ */
+export function turnCells(clock: ClockView | undefined, side: Side): TurnCell[] {
+  const half = clock?.half;
+  const base = half === "OT" || (typeof half === "number" && half >= 2) ? 8 : 0;
+  const turn = clock?.turn ?? 0;
+  return Array.from({ length: 8 }, (_, i) => {
+    const t = i + 1;
+    const state: TurnCell["state"] = turn === t && clock?.activeTeam === side ? "active" : t < turn ? "done" : "todo";
+    return { n: base + t, state };
+  });
+}
+
+/** "1st half" / "2nd half" / "Overtime" for the centre of the turn track. */
+export function halfLabel(half: number | string | undefined): string {
+  return half === "OT" || (typeof half === "number" && half >= 3) ? "Overtime" : half === 2 || half === "2" ? "2nd half" : "1st half";
+}

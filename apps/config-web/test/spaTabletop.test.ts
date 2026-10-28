@@ -129,7 +129,7 @@ describe("tabletop routes (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC] = await Promise.all([
+    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
@@ -152,8 +152,10 @@ describe("tabletop routes (server-rendered)", () => {
       vite.ssrLoadModule("/src/components/TabletopTurnSet.vue"),
       vite.ssrLoadModule("/src/tabletop/ttm.ts"),
       vite.ssrLoadModule("/src/components/TabletopTtm.vue"),
+      vite.ssrLoadModule("/src/components/TabletopTimeline.vue"),
+      vite.ssrLoadModule("/src/components/TabletopWeatherBar.vue"),
     ]);
-    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC };
+    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -420,6 +422,44 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html.indexOf("tt-weather")).toBeLessThan(html.indexOf("tt-cog"));
     expect(html).toContain("2Ht5");
     expect(html).not.toMatch(/heads|tails/i);
+  });
+
+  it("hero (Modern Retro): a 16-cell turn track with the active turn marked, the score and the TD / CAS counters", async () => {
+    const html = await mount(mods.boardC, {
+      match: baseMatch("recording"), teams, tally: serverTally, events: [], pregame: {}, clock: clockOf("home", 3, { half: 2 }),
+      remaining: 95, localSide: "home", organiser: false, canAct: true, inducementIcons: {}, art: {},
+    }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
+    expect(html.match(/class="tt-cell"/g)).toHaveLength(16); // 8 per team for the half in play
+    expect(html.match(/data-state="active"/g)).toHaveLength(1); // the active team's current turn only
+    expect(html).toMatch(/data-state="active" aria-current="step">11</); // second half turn 3 reads 11
+    expect(html).toContain("2nd half");
+    expect(html).toContain("<span>1</span> : <span>0</span>");
+    expect(html).toContain("<span>TD</span>");
+    expect(html).toContain("<span>CAS</span>");
+    expect(html).not.toContain("tt-clock"); // no turn timer in this clock
+  });
+
+  it("event feed (Modern Retro): home cards left, away cards right, both-team cards full width, a jump id per card, a turn mark", async () => {
+    const evs = [
+      { id: "p1", type: "coinFlip", team: "home", payload: { mode: "auto", result: "tails" } },
+      { id: "e1", type: "touchdown", team: "home", player: "h1", payload: {}, half: 1, turn: 3 },
+      { id: "e2", type: "completion", team: "away", player: "a1", payload: {}, half: 1, turn: 4 },
+    ];
+    const rows = mods.feedMod.feedRows(evs, evs.map((e) => e.id), teams);
+    const html = await mount(mods.feedC, { rows, canUndo: false });
+    expect(html).toMatch(/class="tt-ev--home tt-ev" data-row-side="home" data-type="touchdown"/);
+    expect(html).toMatch(/class="tt-ev--away tt-ev" data-row-side="away" data-type="completion"/);
+    expect(html).toMatch(/class="tt-ev--neutral tt-ev" data-row-side="neutral" data-type="coinFlip"/);
+    expect(html).toContain('id="tt-ev-e1"');
+    expect(html).toContain('<span class="tt-ev-mark">H1 T3</span>');
+    expect(html).toContain('<b class="tt-ev-num">#1</b>'); // the acting player's number
+    expect(html).not.toContain("tt-ev-grip"); // the store has no reordering, so no gripper
+    const tl = await mount(mods.timelineC, { rows });
+    expect(tl.match(/class="tt-tl-item"/g)).toHaveLength(3);
+    expect(tl.indexOf('data-lane="both"')).toBeLessThan(tl.indexOf('data-lane="home"')); // play order: coin first
+    const bar = await mount(mods.weatherBarC, { pregame: { weather: "Nice", stadium: { name: "Orc Arena" } }, events: [] });
+    expect(bar).toContain("Nice");
+    expect(bar).toContain("Orc Arena");
   });
 
   /** A matchMedia stand-in whose system setting can be flipped (fires the change event). */

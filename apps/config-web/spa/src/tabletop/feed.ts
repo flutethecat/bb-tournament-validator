@@ -228,6 +228,9 @@ export interface FeedRow {
   side: Side | "centre";
   team: Side;
   chip: string;
+  /** The acting player's shirt number ("#7") and name, empty for team-level events. */
+  number: string;
+  player: string;
   lead: string;
   rest: string;
   position: string;
@@ -271,6 +274,8 @@ export function feedRows(
       lead,
       rest,
       chip: e.player ? (pl ? `${pl.number !== undefined ? `#${pl.number} ` : ""}${pl.name}` : e.player) : "",
+      number: pl?.number !== undefined ? `#${pl.number}` : "",
+      player: pl?.name ?? "",
       position: pl?.positionName ?? pl?.position ?? pl?.positionId ?? "",
       when: half || turn ? `${half ? (half === "OT" || half >= 3 ? "OT" : `H${half}`) : ""}${half && turn ? " " : ""}${turn ? `T${turn}` : ""}` : "",
       undoable: !PREGAME_TYPES.has(e.type),
@@ -320,3 +325,11 @@ export const CASUALTY_RESULTS_UI = ["BH", "MNG", "NI", "stat loss", "DEAD"] as c
 export const INJURY_RESULTS_UI = ["stunned", "KO"] as const;
 /** Mid-game weather results the server accepts. */
 export const WEATHER_RESULTS_UI = ["Sweltering Heat", "Very Sunny", "Perfect Conditions", "Pouring Rain", "Blizzard"] as const;
+
+/** One marker of the timeline strip: the event, the lane it rides (home above the line, away below, both-team on it) and its icon. */
+export interface TimelineMarker { id: string; label: string; lane: "home" | "away" | "both"; glyph: Glyph | undefined; mark: string }
+
+/** Markers in play order (kick-off first, end of match last) from the feed rows, which arrive newest first. */
+export function timelineMarkers(rows: readonly FeedRow[]): TimelineMarker[] {
+  return [...rows].reverse().map((r) => ({ id: r.id, label: r.label, lane: r.side === "centre" ? "both" : r.side, glyph: r.glyph, mark: r.when }));
+}

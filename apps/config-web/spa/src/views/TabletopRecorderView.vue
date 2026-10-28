@@ -14,6 +14,8 @@ import TabletopRosters from "../components/TabletopRosters.vue";
 import TabletopScoreboard from "../components/TabletopScoreboard.vue";
 import TabletopSettings from "../components/TabletopSettings.vue";
 import TabletopTurnSet from "../components/TabletopTurnSet.vue";
+import TabletopTimeline from "../components/TabletopTimeline.vue";
+import TabletopWeatherBar from "../components/TabletopWeatherBar.vue";
 import { canEditMatch, createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
 import { SESSION_KEY } from "../session";
 import { THEME_KEY } from "../theme";
@@ -194,6 +196,8 @@ onBeforeUnmount(() => {
 
     <div class="tt-mid">
     <main class="tt-feed">
+      <TabletopWeatherBar :pregame="state.pregame" :events="state.events" />
+      <TabletopTimeline :rows="rows" />
       <div v-if="state.pending" class="tt-strip">
         <p class="tt-chip" role="status">{{ state.pending }} event{{ state.pending === 1 ? "" : "s" }} waiting<template v-if="state.queueError"> · {{ state.queueError }}<template v-if="retryIn"> (retry in {{ retryIn }} s)</template></template></p>
       </div>
