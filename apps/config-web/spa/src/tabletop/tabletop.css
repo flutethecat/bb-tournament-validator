@@ -329,3 +329,11 @@
   .tt-ev[data-row-side="away"] { margin-left: 20%; }
 }
 @media (prefers-reduced-motion: no-preference) { .tt-tl { scroll-behavior: smooth; } }
+
+/* desktop: the TD / Other / CAS bar is a compact 64 px row (icon and label inline); the feed keeps the rest of the height */
+@media (min-width: 760px) {
+  .tt-actions-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; height: 64px; padding: 8px max(16px, calc((100% - 960px) / 2)); align-items: stretch; }
+  .tt-big { flex-direction: row; gap: 10px; aspect-ratio: auto; min-height: 0; height: 100%; font-size: 1.1rem; }
+  .tt-big .tt-glyph { width: 28px; height: 28px; }
+  .tt-big .tt-glyph-text { font-size: 28px; width: auto; height: auto; }
+}
