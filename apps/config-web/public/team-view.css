@@ -225,5 +225,10 @@
 .tv-extras .tv-ind-table tbody td, .tv-extras .tv-ind-table tfoot td, .tv-extras .tv-ind-table tfoot th { vertical-align: middle; }
 .tv-extras .tv-pairs { align-content: stretch; }
 .tv-extras .tv-pairs > div { align-items: center; }
-.tv-ind-table .tv-ind-icon { width: 36px; height: 36px; }
+.tv-ind-table .tv-ind-icon { width: 52px; height: 52px; }
 .tv-extras .tv-ind-table tbody td { padding-block: 10px; }
+/* Owner 10-28: panels take their natural height (no stretched empty square); inducement icons 52 px. */
+.tv-extras { align-items: start; }
+.tv-extras .tv-ind-table tbody td { padding-block: 6px; }
+.tv-extras .tv-ind-table tbody td.tv-ind-cell { font-size: 18px; gap: 12px; }
+@media (min-width: 1600px) { .tv-ind-table .tv-ind-icon { width: 60px; height: 60px; } }
