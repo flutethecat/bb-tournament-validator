@@ -179,10 +179,10 @@
         </div>
       </header>
       ${totalsHtml(team)}
-      <div class="tv-extras">${inducementsHtml(team)}${sidelineHtml(team)}</div>
       <section class="tv-roster" aria-label="Roster">
         ${players.length ? tableHtml(players) + cardsHtml(players) : '<p class="status-copy">This team has no players on this server.</p>'}
       </section>
+      <div class="tv-extras">${sidelineHtml(team)}${inducementsHtml(team)}</div>
       <p class="tv-key" aria-label="Skill key"><span class="skill skill-general">General</span><span class="skill skill-agility">Agility</span><span class="skill skill-strength">Strength</span><span class="skill skill-passing">Passing</span><span class="skill skill-mutation">Mutation</span><span class="skill skill-trait">Trait</span><span class="skill tv-added skill-general">Added</span><span class="skill tv-stat-up">+Stat</span></p>`;
   }
 

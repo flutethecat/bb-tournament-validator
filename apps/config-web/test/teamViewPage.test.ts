@@ -92,8 +92,8 @@ describe("team view core", () => {
     expect(markup).toContain("<span>S</span>ideline <span>S</span>taff");
     expect(markup).toContain('<span>Bribes</span></td><td class="num">2</td>');
     expect(markup).toContain('<small class="tv-rules-inline" aria-label="Special rules">Old World Classic</small>');
-    // the inducements panel comes before Sideline Staff, and there is no Special Rules panel
-    expect(markup.indexOf('id="tv-ind-title"')).toBeLessThan(markup.indexOf('id="tv-sideline-title"'));
+    // Sideline Staff comes before the inducements panel (owner 10-28), and there is no Special Rules panel
+    expect(markup.indexOf('id="tv-sideline-title"')).toBeLessThan(markup.indexOf('id="tv-ind-title"'));
     expect(markup).not.toContain('id="tv-rules-title"');
   });
 
@@ -252,8 +252,9 @@ describe("team view: hostile strings (Sol r1 P3)", () => {
     expect(markup).toContain('class="status-copy tv-none">None</td>');
   });
 
-  it("inducements and sideline staff render above the roster", () => {
+  it("sideline staff (left) and inducements (right) render below the roster", () => {
     const markup = TeamView.viewHtml(fixture());
-    expect(markup.indexOf('id="tv-ind-title"')).toBeLessThan(markup.indexOf('<table class="tv-table">'));
-    expect(markup.indexOf('id="tv-sideline-title"')).toBeLessThan(markup.indexOf('<table class="tv-table">'));
+    const rosterEnd = markup.indexOf("</section>", markup.indexOf('<table class="tv-table">'));
+    expect(markup.indexOf('id="tv-sideline-title"')).toBeGreaterThan(rosterEnd);
+    expect(markup.indexOf('id="tv-ind-title"')).toBeGreaterThan(markup.indexOf('id="tv-sideline-title"'));
   });
