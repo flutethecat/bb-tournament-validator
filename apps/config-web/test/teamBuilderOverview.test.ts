@@ -30,11 +30,11 @@ describe("ruleset overview — summary lines", () => {
 
   it("tiered + SP budget per team (NAF): SP prices, stack surcharge, per-team stacks and stars, banned list", () => {
     const o = packageOverview(shipped("naf-world-cup-2027"));
-    expect(line(o, "structure")!.text).toBe("Tiered: 6 tiers, gold caps 1,080k–1,200k; a skill-point budget per team (44–66 SP).");
-    expect(line(o, "skills")!.text).toMatch(/^SP budget per team \(44–66\), primary 6 \/ secondary 10 SP \(\+2 SP for each extra skill on the same player\)/);
+    expect(line(o, "structure")!.text).toBe("Tiered: 5 tiers, gold caps 1,100k–1,200k; a skill-point budget per team (44–72 SP).");
+    expect(line(o, "skills")!.text).toMatch(/^SP budget per team \(44–72\), primary 6 \/ secondary 10 SP \(\+2 SP for each extra skill on the same player\)/);
     expect(line(o, "elite")!.text).toBe("Block, Guard, Mighty Blow, Dodge +2 SP each.");
-    expect(line(o, "stars")!.text).toBe("9 of 31 teams (table); no cap on the number.");
-    expect(line(o, "stars")!.details!.summary).toBe("16 banned stars");
+    expect(line(o, "stars")!.text).toBe("16 of 31 teams (table); no cap on the number.");
+    expect(line(o, "stars")!.details!.summary).toBe("19 banned stars");
     expect(line(o, "inducements")!.text).toContain("Blitzer's Best Kegs (max 2)");
   });
 
@@ -190,8 +190,9 @@ describe("ruleset overview — per-team table rows", () => {
     expect(team(nut, "Orc").stackLimit).toBe("2 Primary Skills");
 
     const naf = packageOverview(shipped("naf-world-cup-2027"));
-    expect(team(naf, "Orc")).toMatchObject({ gold: 1_080_000, allotment: ["44 SP"], stacks: "0", stackLimit: null, stars: null });
-    expect(team(naf, "Shambling Undead")).toMatchObject({ allotment: ["52 SP"], stacks: "1", stackLimit: "2 Primary · OR · 2 Secondary" });
+    expect(team(naf, "Amazon")).toMatchObject({ gold: 1_100_000, allotment: ["44 SP"], stacks: "1", stackLimit: "2 Primary · OR · 2 Secondary", stars: null });
+    expect(team(naf, "Orc")).toMatchObject({ gold: 1_100_000, allotment: ["52 SP"], stacks: "1" });
+    expect(team(naf, "Nurgle")).toMatchObject({ allotment: ["60 SP"], stacks: "2", stars: "allowed" });
     expect(team(naf, "Snotling").stars).toBe("allowed");
 
     const spike = packageOverview(shipped("spike-2026"));
