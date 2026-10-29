@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "./app";
 import BellPopover from "./components/BellPopover.vue";
 import ShellNav from "./components/ShellNav.vue";
+import RecentGames from "./components/RecentGames.vue";
 import SignInPrompt from "./components/SignInPrompt.vue";
 import TestSignInCard from "./components/TestSignInCard.vue";
 import { appPath, discordLoginUrl, SESSION_KEY } from "./session";
@@ -172,6 +173,7 @@ async function signOut(): Promise<void> {
       <template v-else-if="gate === 'signin'">
         <SignInPrompt :href="loginHref" :sso-enabled="session.ssoEnabled()" :other-session="session.otherSession()" />
         <TestSignInCard />
+        <RecentGames class="rc-landing" />
       </template>
       <RouterView v-else :key="route.path" />
     </main>

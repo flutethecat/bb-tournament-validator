@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // Coach page (/app/home, spec §4.7): two columns at >= 1280 (fluid / 380 px), one column on a phone. Left:
-// Notifications (the shared store, NotificationsPanel), Deadlines (GET /api/me/deadlines, via the nav tree). The availability editor lives on the Account page (owner 10-30).
+// Notifications (the shared store, NotificationsPanel), Deadlines (GET /api/me/deadlines, via the nav tree), Recent games (GET /api/recent-results). The availability editor lives on the Account page (owner 10-30).
 // Right: Friends and Messages (empty until their lanes land), My teams strip, Account shortcut, What's new.
 import { computed, inject, onBeforeUnmount, onMounted, onServerPrefetch, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import NotificationsPanel from "../components/NotificationsPanel.vue";
+import RecentGames from "../components/RecentGames.vue";
 import { SESSION_KEY, writesAllowed } from "../session";
 import { NOTIFICATIONS_KEY } from "../home/notifications";
 import { COACH_TREE_KEY } from "../home/tree";
@@ -99,6 +100,7 @@ onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
           </ul>
         </section>
 
+        <RecentGames />
       </div>
 
       <div class="hm-col hm-col-side">
