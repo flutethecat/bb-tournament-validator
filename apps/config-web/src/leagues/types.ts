@@ -132,6 +132,93 @@ export interface LeagueFixture {
   forkEnabled?: boolean;
   /** Internal (never in a read model): who was told this fixture may be played on Super FUMBBL, and when last. */
   forkNotice?: { at: string; to: string[] };
+  /** Admin per-game setting: the fixture may be generated on Super FUMBBL although its season is finished or the fixture is marked not played. */
+  forkAllowLate?: boolean;
+  /** Admin per-game setting: Super FUMBBL play is cancelled for this fixture (no generate, no start). */
+  forkCancelled?: boolean;
+  /** Play on Super FUMBBL state (forkPlay.ts): the fork teams built for it, the scheduled game, the applied result. */
+  fork?: FixtureForkState;
+}
+
+// ---- Play on Super FUMBBL (spec-league-settings-2026-10-30 §3; forkPlay.ts) ----
+
+export type ForkSide = "home" | "away";
+
+/**
+ * teams_built = both fork teams exist, no game yet; scheduled = the fork game exists; in_progress = the fork lists it
+ * as running; finished = the result was applied to the fixture and the teams; launch_failed = scheduling failed
+ * (error says why; an organiser resets it); cancelled = an organiser cancelled Super FUMBBL play for the fixture.
+ */
+export type FixtureForkStatus = "teams_built" | "scheduled" | "in_progress" | "finished" | "launch_failed" | "cancelled";
+
+/** The fork copy of one side's league team, built from the league roster when the fixture was generated. */
+export interface FixtureForkTeam {
+  /** LeagueTeam.id. */
+  teamId: string;
+  /** The fork team id (one per league / season / team; rewritten from the league roster at each generate). */
+  forkTeamId: string;
+  /** The fork coach who owns the team (the side's coachId). */
+  coach: string;
+  builtAt: string;
+  /** Fork player id -> league playerId, as written to the team file (the result maps back through this). */
+  players: Array<{ forkPlayerId: string; playerId: string }>;
+}
+
+export interface FixtureForkLogEntry { at: string; by: string; text: string }
+
+/** One player's line from a Super FUMBBL result (server numbers only). */
+export interface ForkPlayerLine {
+  playerId?: string;
+  forkPlayerId: string;
+  name: string;
+  td: number;
+  cas: number;
+  completions: number;
+  interceptions: number;
+  mvp: number;
+  fouls: number;
+  /** SPP earned this game (full results only). */
+  spp?: number;
+  /** Serious injuries the server recorded (full results only), e.g. "Seriously Hurt (MNG)", "Dead (RIP)". */
+  injuries: string[];
+}
+
+export interface ForkSideResult {
+  score: number;
+  cas: number;
+  conceded: boolean;
+  winnings: number;
+  lines: ForkPlayerLine[];
+}
+
+export interface FixtureForkResult {
+  gameId: string;
+  /** "full" = the server's FumbblResult (SPP, injuries, fans); "basic" = score and player counters only. */
+  source: "full" | "basic";
+  appliedAt: string;
+  /** A penalty shootout decided the game (home-away shootout score). */
+  penalty?: { home: number; away: number };
+  home: ForkSideResult;
+  away: ForkSideResult;
+}
+
+export interface FixtureForkState {
+  status: FixtureForkStatus;
+  teams: Partial<Record<ForkSide, FixtureForkTeam>>;
+  gameId?: string;
+  gameName?: string;
+  generatedBy?: string;
+  generatedAt?: string;
+  scheduledAt?: string;
+  /** launch_failed: why (the fork's own refusal text, or "outcome unknown"). */
+  error?: string;
+  /** When each seated coach last took their launch file. */
+  launched?: Partial<Record<ForkSide, string>>;
+  /** Invitation notifications went out (once per fixture). */
+  invited?: boolean;
+  result?: FixtureForkResult;
+  /** Organiser-visible history: generate, schedule, failures, resets (with reasons), result. */
+  log: FixtureForkLogEntry[];
 }
 
 export interface StandingRow {
