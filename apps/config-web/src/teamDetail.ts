@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseTeamXmlMeta, readLibrary, type LibraryTeam } from "@bb/fork-ops";
+import { withoutCaptainGrants } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import type { SessionIdentity } from "./auth/requireSession.js";
 
@@ -144,7 +145,9 @@ export function storedTeamHasHistory(xml: string): boolean {
     const player = found[0]!;
     // Intrinsic skills live in roster XML. A player-level skill is an acquired/customized player
     // state that whole-roster recomposition cannot preserve safely, even when old XML has no audit.
-    if (/<skill\b/i.test(player)) return true;
+    // The Team Captain draft grants (the trait + its one free Pro) are set at creation, not history.
+    const playerSkills = [...player.matchAll(/<skill\b[^>]*>([^<]*)<\/skill>/gi)].map((m) => decodeXml(m[1]!).trim());
+    if (withoutCaptainGrants(playerSkills).length > 0) return true;
     const status = decodeXml(attr(player.match(/<player\b[^>]*>/i)?.[0] ?? "", "status") ?? "") || null;
     if (currentSpp(player) > 0 || /<injury\b/i.test(player) || playerMng(player, status)) return true;
     if (/<(?:playerStatistics|starPlayerPoints)\b[^>]*(?:earnedSpps|earned)="[1-9]\d*"/i.test(player)) return true;
