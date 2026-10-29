@@ -10,13 +10,19 @@
 
 .rc-card {
   --rc-home: #3a4150; --rc-away: #3a4150;
+  --rc-num-shadow: 2px 2px 0 rgb(0 0 0 / 80%), 0 0 10px rgb(0 0 0 / .45); /* same as the tabletop scoreboard's --tt-name-shadow */
   position: relative; display: grid; gap: 8px; min-width: 0; min-height: 44px; padding: 10px 12px 12px;
   color: var(--ui-text); text-decoration: none;
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--rc-home) 35%, transparent) 0%, transparent 48%, transparent 52%, color-mix(in srgb, var(--rc-away) 35%, transparent) 100%),
     linear-gradient(var(--sf-panel-top, #23272d), var(--sf-panel-bottom, #0a0c0f)), var(--ui-surface, #0d0d0d);
-  border: 2px solid var(--sf-panel-line, #353b44); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi, #626b77);
+  border: 2px solid var(--sf-panel-line, #353b44); border-radius: 2px;
+  box-shadow: 0 4px 0 var(--sf-panel-drop, #000), inset 0 1px 0 var(--sf-panel-hi, #626b77);
+  transition: transform .12s ease, box-shadow .12s ease;
 }
+/* Linked cards lift on hover and keyboard focus, the drop growing from 4 to 6 px. */
+a.rc-card:hover, a.rc-card:focus-visible { transform: translateY(-2px); box-shadow: 0 6px 0 var(--sf-panel-drop, #000), inset 0 1px 0 var(--sf-panel-hi, #626b77); }
+@media (prefers-reduced-motion: reduce) { .rc-card { transition: none; } a.rc-card:hover, a.rc-card:focus-visible { transform: none; } }
 a.rc-card:hover, a.rc-card:focus-visible { border-color: var(--ui-accent, var(--ui-heading)); }
 a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading)); outline-offset: 2px; }
 
@@ -51,7 +57,7 @@ a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading))
 /* A conceded game: a solid dark plate with a 2 px heading-red frame behind the score block. */
 .rc-score[data-conceded="true"] { padding: 6px 12px 5px; background: var(--ui-surface, #0d0d0d); border: 2px solid var(--ui-heading); border-radius: 6px; }
 .rc-plate-cap { font: 9px/1 var(--sf-band-font, sans-serif); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-heading); }
-.rc-num { display: grid; justify-items: center; font: 28px/1 var(--sf-band-font, sans-serif); color: var(--ui-text); font-variant-numeric: tabular-nums; }
+.rc-num { display: grid; justify-items: center; font: 28px/1 var(--sf-band-font, sans-serif); color: var(--ui-text); font-variant-numeric: tabular-nums; text-shadow: var(--rc-num-shadow); }
 .rc-cas { margin-top: 2px; font: 11px/1 var(--font-body, sans-serif); color: var(--ui-muted); }
 .rc-flag { margin: 0; font: 10px/1.2 var(--sf-band-font, sans-serif); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); text-align: center; }
 .rc-card[data-suspended="true"] .rc-flag { color: var(--ui-warning, var(--ui-muted)); }
@@ -89,4 +95,4 @@ a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading))
 }
 
 /* The Past Games grid scrolls inside the panel (band header fixed above), like the coach page What's new box. */
-.rc-scroll { max-height: 520px; overflow-y: auto; scrollbar-gutter: stable; padding-right: 2px; }
+.rc-scroll { max-height: 520px; overflow-y: auto; scrollbar-gutter: stable; padding: 2px 4px 8px 0; } /* room for the card lift and drop */

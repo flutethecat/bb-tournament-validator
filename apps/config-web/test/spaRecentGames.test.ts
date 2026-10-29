@@ -188,4 +188,13 @@ describe("recent games (SSR)", () => {
       expect(rule).not.toMatch(/overscroll-behavior/);
     }
   });
+
+  it("result cards are bevelled panels: frame, top highlight, 4 px drop, lift to a 6 px drop on linked cards, score text shadow", () => {
+    const css = readFileSync(new URL("../spa/src/shared/result-card.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.rc-card \{[^}]*border: 2px solid var\(--sf-panel-line[^}]*border-radius: 2px;[^}]*box-shadow: 0 4px 0 var\(--sf-panel-drop[^}]*inset 0 1px 0 var\(--sf-panel-hi/);
+    expect(css).toMatch(/a\.rc-card:hover, a\.rc-card:focus-visible \{ transform: translateY\(-2px\); box-shadow: 0 6px 0 var\(--sf-panel-drop/);
+    expect(css).toMatch(/\.rc-num \{[^}]*text-shadow: var\(--rc-num-shadow\)/);
+    expect(css).toContain("--rc-num-shadow: 2px 2px 0 rgb(0 0 0 / 80%), 0 0 10px rgb(0 0 0 / .45)");
+    expect(css).toMatch(/linear-gradient\(135deg/); // the team tint stays under the bezel
+  });
 });

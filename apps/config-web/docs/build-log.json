@@ -2,7 +2,7 @@
   {
     "date": "2026-10-30",
     "title": "Sidebar carets on the right; conceded games marked on result cards",
-    "body": "Sidebar: the collapse caret now sits at the right end of each category header. Leaderboards and Help are plain links with no sub-list, and Testing Tools is now just Testing. Games: Recent games is now Past Games, a scrollable box of larger cards (two across on a wide screen) showing as many games as the server returns. A conceded game now says \"Conceded by <coach>\" and puts a red-framed plate behind its score; the struck-through team name is gone. Team names such as <script>brains? no longer show as &lt;script&gt;: online-game results were stored with the fork's XML escaping and then escaped again by the page.",
+    "body": "Sidebar: the collapse caret now sits at the right end of each category header. Leaderboards and Help are plain links with no sub-list, and Testing Tools is now just Testing. Games: Recent games is now Past Games, a scrollable box of larger cards (two across on a wide screen) showing as many games as the server returns. A conceded game now says \"Conceded by <coach>\" and puts a red-framed plate behind its score; the struck-through team name is gone. Game cards are now bevelled panels that lift when you point at them. Team names such as <script>brains? no longer show as &lt;script&gt;: online-game results were stored with the fork's XML escaping and then escaped again by the page.",
     "links": [
       {
         "label": "Home",
