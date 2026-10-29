@@ -231,7 +231,27 @@ const positionForPlayer = (roster: string, player: string): string | undefined =
 const skillNames = (scope: string): string[] =>
   [...scope.matchAll(/<skill\b[^>]*>([^<]*)<\/skill>/gi)].map((match) => match[1]!.trim()).filter(Boolean);
 
+/** The player's stored value (gold) as the fork team file carries it (`storedValue` on the player element), if any. */
+function storedPlayerValue(player: string): number | undefined {
+  const open = player.match(/^<player\b[^>]*>/i)?.[0];
+  const raw = open?.match(/\bstoredValue="(\d+)"/i)?.[1];
+  const value = raw === undefined ? undefined : Number(raw);
+  return value !== undefined && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+/**
+ * A player's value for a death, a missed game or a team-value adjustment. The stored value is the primary path (the
+ * fork writes the league player's value into the team file); computed pricing is only the fallback when it is absent:
+ * base cost + Primary skill 20,000 / Secondary 40,000 / Elite = the player's access price for its category + 10,000
+ * (owner 10-30) / +X characteristics from CHARACTERISTIC_VALUE / traits free. Unknown skills still throw.
+ */
 function playerRuntimeValue(player: string, roster: string): number {
+  const stored = storedPlayerValue(player);
+  if (stored !== undefined) return stored;
+  return computedPlayerValue(player, roster);
+}
+
+export function computedPlayerValue(player: string, roster: string): number {
   const position = positionForPlayer(roster, player);
   if (!position) throw new Error("post-match TV cannot resolve a player's roster position");
   const base = Number(elementText(position, "cost"));
@@ -256,6 +276,9 @@ function playerRuntimeValue(player: string, roster: string): number {
   const doubleCategories = new Set(
     [...position.matchAll(/<double>([^<]*)<\/double>/gi)].map((match) => match[1]!.trim()),
   );
+  const primaryCategories = new Set(
+    [...position.matchAll(/<normal>([^<]*)<\/normal>/gi)].map((match) => match[1]!.trim()),
+  );
   let value = base;
   for (const name of skillNames(player)) {
     if (intrinsic.has(name.toLowerCase())) continue;
@@ -270,21 +293,11 @@ function playerRuntimeValue(player: string, roster: string): number {
     const entry = Object.entries(bb2025.skills).find(([skill]) => skill.toLowerCase() === name.toLowerCase());
     if (entry?.[1].trait) continue;
     if (!entry?.[1].category) throw new Error(`post-match TV cannot price unknown skill ${name}`);
-    if (entry[1].elite) throw new Error(`post-match TV cannot safely price Elite skill ${name}`);
-    if (doubleCategories.has(entry[1].category)) {
-      throw new Error(`post-match TV cannot safely price unaudited Secondary skill ${name}`);
-    }
-    value += 20_000;
+    const access = primaryCategories.has(entry[1].category) ? 20_000 : doubleCategories.has(entry[1].category) ? 40_000 : undefined;
+    if (access === undefined) throw new Error(`post-match TV cannot price skill ${name}: the position has no access to ${entry[1].category}`);
+    value += access + (entry[1].elite ? 10_000 : 0);
   }
   return value;
-}
-
-/**
- * Why a stored player could not be valued if a result changed it (a death, a missed game): the same pricing banking
- * uses, so a caller can refuse a team before a game rather than have its result quarantined after. undefined = fine.
- */
-export function bankingValueProblem(playerBlock: string, roster: string): string | undefined {
-  try { playerRuntimeValue(playerBlock, roster); return undefined; } catch (e) { return (e as Error).message; }
 }
 
 function adjustAggregateValues(xml: string, totalDeltaGold: number, currentDeltaGold: number): string {
