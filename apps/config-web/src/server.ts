@@ -532,7 +532,10 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
   const deps: TabletopApiDeps = {
     repo: tabletopRepo,
     artDir: PUBLIC_DIR,
-    defaultPackageName: "Blood Bowl 2025",
+    packageNameOf: (coach, ref) => {
+      if (ref.startsWith("library:")) return readLibrary(LIBRARY_DIR, coach).find((t) => t.teamId === ref.slice("library:".length))?.rulesetPackName ?? undefined;
+      return readSaves(BUILDER_SAVES_DIR, coach).find((x) => x.id === ref)?.packageName ?? undefined;
+    },
     teamAvatarUrl: (ref) => avatarUrlFor(TEAM_AVATARS_DIR, ref),
     results: tournamentResults,
     loadTeamFile: (coach, ref) => {

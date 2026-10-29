@@ -7,7 +7,7 @@ import { chipLayout } from "../tabletop/chipLayout";
 import { centreMode, formatTimer, halfLabel, possessive, turnCells, turnKey, turnLabel, turnLine, type ClockView } from "../tabletop/clock";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { uiIcon, weatherParts } from "../tabletop/feed";
-import type { MatchView, RecordedEvent, ServerTally, Side, TeamView } from "../tabletop/recorder";
+import type { CoachRatingView, MatchView, RecordedEvent, ServerTally, Side, TeamView } from "../tabletop/recorder";
 
 const props = defineProps<{
   match: MatchView;
@@ -25,7 +25,12 @@ const props = defineProps<{
   remaining?: number;
   inducementIcons: Record<string, string>;
   art: ArtManifests;
+  /** Each seat's coach rating (CR) and rank, as the server computed them; absent = no badge. */
+  coachRating?: Record<Side, CoachRatingView> | null;
 }>();
+const RANK_PIPS: Record<string, number> = { rookie: 1, experienced: 2, veteran: 3, emerging: 4, star: 5, super: 6, legend: 7 };
+const crOf = (s: Side): CoachRatingView | undefined => props.coachRating?.[s];
+const crTip = (s: Side): string => `Coach rating ${crOf(s)?.cr} \u00b7 ${crOf(s)?.rank}`;
 const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters", side?: Side): void; (e: "settings"): void; (e: "weather"): void }>();
 
 // Desktop chip tray: two rows at most; the layout follows the viewport width (1400 until mounted, so server renders are stable).
@@ -134,6 +139,13 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
             <img v-if="crest(s)" class="tt-crest" :src="crest(s)" alt="" />
             <span v-else class="tt-crest tt-crest-ph" aria-hidden="true">&#128737;</span>
           </span>
+          <span v-if="crOf(s)" class="tt-cr" :data-rank="crOf(s)?.rankKey" :data-tip="crTip(s)" data-tip-pos="bottom">
+            <b class="tt-cr-text">CR {{ crOf(s)?.cr }}</b>
+            <svg class="tt-rank" viewBox="0 0 14 16" width="14" height="16" aria-hidden="true" shape-rendering="crispEdges">
+              <path class="tt-rank-shield" d="M0 1h14v8l-2 2-2 2-3 3-3-3-2-2-2-2z" />
+              <rect v-for="n in RANK_PIPS[crOf(s)?.rankKey ?? ''] ?? 1" :key="n" class="tt-rank-pip" :x="1 + (n - 1) * 2" y="3" width="1" height="2" />
+            </svg>
+          </span>
         </div>
         <span v-if="race(s)" class="tt-crest-race">{{ race(s) }}</span>
       </div>
@@ -142,6 +154,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
       <span v-if="race(s)" class="tt-race tt-nameline">{{ race(s) }}</span>
       <div class="tt-coachline tt-nameline">
         <span class="tt-coach">{{ match[s].coach }}</span>
+        <small v-if="crOf(s)" class="tt-coach-cr">CR {{ crOf(s)?.cr }}</small>
         <ul class="tt-chips" :data-size="tray(s).size || null">
           <li v-for="c in tray(s).shown" :key="c.key" :data-tip="chipTitle(c)" data-tip-pos="bottom">
             <img v-if="c.src" class="tt-chip-img" :src="c.src" :alt="c.label" />

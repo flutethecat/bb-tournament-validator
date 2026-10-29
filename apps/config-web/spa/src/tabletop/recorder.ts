@@ -30,6 +30,9 @@ export interface SummaryView {
 /** The competition header the server composes for the bar above the hero. */
 export interface MatchContext { kind: "league" | "tournament" | "casual"; title: string; subtitle: string; round?: number; roundCount?: number; startedAt?: string; venue?: string }
 
+/** A seat's coach rating and rank, server-computed from the fork results. */
+export interface CoachRatingView { cr: number; rank: string; rankKey: string }
+
 export interface MatchView {
   id: string;
   state: MatchState;
@@ -93,6 +96,8 @@ const EMPTY_TALLY: ServerTally = {
 
 export interface MatchResponse {
   match: MatchView;
+  context?: MatchContext;
+  coachRating?: Record<Side, CoachRatingView>;
   events: RecordedEvent[];
   effectiveEventIds: string[];
   teams: Record<Side, TeamView | undefined>;
@@ -114,6 +119,8 @@ export interface RecorderState {
   pregame: Record<string, unknown>;
   /** The competition header (server-composed), null until the first load. */
   context: MatchContext | null;
+  /** Each seat's coach rating (CR) and rank, as the server computed them. */
+  coachRating: Record<Side, CoachRatingView> | null;
   /** The server's match clock (half, turn, active team, turn timer) and the server-minus-local time offset of its last sync. */
   clock: ClockView | undefined;
   clockOffsetMs: number;
@@ -159,7 +166,7 @@ const POLL_MS = 5000;
 
 export function createRecorder(matchId: string, deps: RecorderDeps) {
   const state = reactive<RecorderState>({
-    loaded: false, error: "", match: null, context: null, events: [], effectiveIds: [], phase: "", pregame: {}, clock: undefined, clockOffsetMs: 0, inducementIcons: {}, art: {}, tally: EMPTY_TALLY, sppValues: {}, teams: { home: undefined, away: undefined },
+    loaded: false, error: "", match: null, context: null, coachRating: null, events: [], effectiveIds: [], phase: "", pregame: {}, clock: undefined, clockOffsetMs: 0, inducementIcons: {}, art: {}, tally: EMPTY_TALLY, sppValues: {}, teams: { home: undefined, away: undefined },
     pending: 0, queueError: "", retryAt: 0, rejected: [], busy: false, actionError: "",
   });
   const base = `/api/tabletop/matches/${encodeURIComponent(matchId)}`;
@@ -250,6 +257,7 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     state.error = "";
     state.match = res.match;
     state.context = res.context ?? null;
+    state.coachRating = res.coachRating ?? null;
     state.events = res.events ?? [];
     state.effectiveIds = res.effectiveEventIds ?? [];
     state.tally = res.tally ?? EMPTY_TALLY;

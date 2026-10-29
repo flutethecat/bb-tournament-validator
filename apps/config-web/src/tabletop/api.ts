@@ -27,6 +27,8 @@ import {
 import { decorateRoster } from "./eligibility.js";
 import { withRosterArt } from "./rosterArt.js";
 import { leagueStandings, type LeaguePoints } from "./standings.js";
+import { computeElo } from "../coachElo.js";
+import { coachRatingFor, type CoachRatingView } from "../coachRank.js";
 import { applyPostMatch, sppCredits, sppForEvent, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile, SPP_VALUES } from "./postMatch.js";
 import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
 import { duplicatePlayerId, parseTeamRef } from "./teamFile.js";
@@ -78,7 +80,7 @@ export interface MatchContext {
   venue?: string;
 }
 
-export function matchContext(match: MatchRecord, deps: Pick<TabletopApiDeps, "fixtures" | "defaultPackageName">): MatchContext {
+export function matchContext(match: MatchRecord, deps: Pick<TabletopApiDeps, "fixtures" | "packageNameOf">): MatchContext {
   const fixture = match.fixtureRef ? deps.fixtures?.get(match.fixtureRef) : undefined;
   const common = { startedAt: match.createdAt, ...(match.venue ? { venue: match.venue } : {}) };
   const t = fixture?.tournament;
@@ -92,12 +94,21 @@ export function matchContext(match: MatchRecord, deps: Pick<TabletopApiDeps, "fi
     return { kind: "tournament", title: t.name, subtitle: fixture.seriesName || fixture.packageName || "", ...(round ? { round } : {}), ...(roundCount ? { roundCount } : {}), ...common };
   }
   if (match.league) return { kind: "league", title: match.league, subtitle: "League match", ...common };
-  return { kind: "casual", title: "Casual match", subtitle: deps.defaultPackageName ?? "", ...common };
+  // a casual match names the ruleset the teams were built under (home first; both when they differ), never a placeholder
+  const pk = [...new Set([deps.packageNameOf?.(match.home.coach, match.home.teamSaveId), deps.packageNameOf?.(match.away.coach, match.away.teamSaveId)].filter((x): x is string => Boolean(x)))];
+  return { kind: "casual", title: "Casual match", subtitle: pk.join(" / "), ...common };
+}
+
+/** Each seat's coach rating (CR) and rank, from our own fork results (Elo -> CR, see coachRank.ts). */
+export function coachRatings(match: MatchRecord, deps: Pick<TabletopApiDeps, "results">): Record<"home" | "away", CoachRatingView> {
+  const elo = computeElo(deps.results.list());
+  const of = (coach: string): CoachRatingView => coachRatingFor(elo.get(coach.trim().toLowerCase())?.rating);
+  return { home: of(match.home.coach), away: of(match.away.coach) };
 }
 
 export interface TabletopApiDeps {
-  /** The ruleset/package name shown under "Casual match". */
-  defaultPackageName?: string;
+  /** The ruleset/package name a team was built under (a library team's ruleset, a builder save's package), shown under "Casual match". */
+  packageNameOf?: (coach: string, teamRef: string) => string | undefined;
   repo: TabletopRepository;
   /** The public folder holding the generated art manifests (sprites), for the roster sprites the match GET adds. */
   artDir?: string;
@@ -219,7 +230,7 @@ export async function tabletopApi(
     return {
       status: 200,
       body: {
-        match, context: matchContext(match, deps), phase: match.phase ?? "playing", clock: clockView(match, events, deps, now()), pregame: pregameSummary(events),
+        match, context: matchContext(match, deps), coachRating: coachRatings(match, deps), phase: match.phase ?? "playing", clock: clockView(match, events, deps, now()), pregame: pregameSummary(events),
         // a retracted event stays in the log with who removed it and when (the undo event's record), so the feed can show it struck through
         events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e, kindLookup(teams)) : 0, ...removedMeta(events, e) })),
         effectiveEventIds: effectiveEvents(events).map((e) => e.id),

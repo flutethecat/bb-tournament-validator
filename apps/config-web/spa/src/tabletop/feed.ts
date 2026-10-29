@@ -330,6 +330,8 @@ export function feedRows(
       lead = who;
       rest = ` ${victimPhrase(String(pv.result ?? ""), pv.stat, pv.apothecaryUsed === true)}.`;
     } else ({ lead, rest } = eventSentence(e, who, teamName, sub, names, { journeymen: journeymen[e.team] }));
+    // the actor is named once, in the side chip (sprite / name / position): the sentence states only the action
+    if (who && lead === who && !CENTRE_TYPES.has(e.type)) { lead = ""; rest = rest.replace(/^\s+/, ""); }
     const half = (e as { half?: number | "OT" }).half;
     const turn = (e as { turn?: number }).turn;
     return {

@@ -314,15 +314,17 @@ describe("tabletop routes (server-rendered)", () => {
     const r = rowsOf([cas], ["c1"]);
     expect(r.map((x: any) => `${x.part}:${x.team}`)).toEqual(["main:home", "victim:away"]); // causer line on top, victim line beneath on the victim's side
     const html = await mount(mods.feedC, { rows: r, canUndo: true });
-    expect(html).toContain('data-team="home" data-pcard="home:h1">Grob</span> causes a casualty!');
+    expect(html).toMatch(/class="tt-ev-line"><!---->causes\ a\ casualty!/); // the sentence is the action only; the name lives in the chip
+    expect(html).not.toContain('class="tt-ev-name"');
     expect(html).toContain("(★2)"); // the stars ride the causer line
-    expect(html).toContain('data-team="away" data-pcard="away:a1">Lirael</span> is Badly Hurt (apothecary used).');
+    expect(html).toMatch(/class="tt-ev-line"><!---->is\ Badly\ Hurt\ \(apothecary\ used\)\./);
     expect(html.indexOf("causes a casualty!")).toBeLessThan(html.indexOf("is Badly Hurt"));
     expect(html.match(/class="tt-trash"/g)).toHaveLength(1); // one undo for the one event
     expect(html).toContain('<b class="tt-ev-pname-name" data-seat="away">Lirael</b><small>Catcher</small>'); // chip: name over position, no number
     // a participant (home) sees the opposing victim obscured: "#7 Catcher is Badly Hurt"
     const hidden = await mount(mods.feedC, { rows: rowsOf([cas], ["c1"], "away"), canUndo: false });
-    expect(hidden).toContain("#7 Catcher</span> is Badly Hurt");
+    expect(hidden).toContain('data-seat="away">#7</b><small>Catcher</small>');
+    expect(hidden).toMatch(/class="tt-ev-line"><!---->is\ Badly\ Hurt/);
     expect(hidden).not.toContain("Lirael");
     // retracted: both lines struck
     const undo = { id: "u1", type: "undo", team: "home", payload: { target: "c1" }, by: "Alice", ts: "2026-10-23T10:05:00.000Z" };
@@ -331,13 +333,13 @@ describe("tabletop routes (server-rendered)", () => {
     // injuries (no causer): the victim line only, with the other wordings
     const inj = (id: string, result: string, extra: Record<string, unknown> = {}) => ({ id, type: "injury", team: "away", player: "a2", payload: { result, ...extra } });
     const words = rowsOf([inj("i1", "MNG"), inj("i2", "NI"), inj("i3", "stat loss", { stat: "AV" }), inj("i4", "DEAD")], ["i1", "i2", "i3", "i4"]).map((x: any) => x.rest).reverse();
-    expect(words).toEqual([" is Miss Next Game.", " is Niggled.", " loses AV.", " is Dead."]);
+    expect(words).toEqual(["is Miss Next Game.", "is Niggled.", "loses AV.", "is Dead."]);
     expect(rowsOf([inj("i1", "BH")], ["i1"])).toHaveLength(1);
     // order guard: an injury recorded BEFORE the casualty on the same victim and turn pairs with it and renders beneath it, once
     const early = { id: "i0", type: "injury", team: "away", player: "a1", payload: { result: "MNG" }, half: 1, turn: 2 };
     const paired = rowsOf([early, cas], ["i0", "c1"]);
     expect(paired.map((x: any) => `${x.id}:${x.part}`)).toEqual(["c1:main", "i0:victim"]);
-    expect(paired[1].rest).toBe(" is Miss Next Game.");
+    expect(paired[1].rest).toBe("is Miss Next Game.");
     // a different turn is not paired: two separate entries
     expect(rowsOf([{ ...early, turn: 1 }, cas], ["i0", "c1"]).map((x: any) => x.id)).toEqual(["c1", "c1", "i0"]);
   });
@@ -401,6 +403,27 @@ describe("tabletop routes (server-rendered)", () => {
     expect(mods2.CARD_DELAY_MS).toBe(250);
   });
 
+  it("coach rating badge: CR text and pixel rank shield per seat, tip, phone text under the coach, nothing without a server rating", async () => {
+    const base = { match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) };
+    const html = (await renderMatch({ ...base, coachRating: { home: { cr: 152, rank: "Veteran", rankKey: "veteran" }, away: { cr: 176, rank: "Legend", rankKey: "legend" } } })).html;
+    expect(html.match(/class="tt-cr"/g)).toHaveLength(2);
+    expect(html).toContain('data-rank="veteran" data-tip="Coach rating 152 \u00b7 Veteran"');
+    expect(html).toContain('data-rank="legend" data-tip="Coach rating 176 \u00b7 Legend"');
+    expect(html).toContain('<b class="tt-cr-text">CR 152</b>');
+    expect(html.match(/class="tt-rank-pip"/g)).toHaveLength(3 + 7); // veteran = 3 pips, legend = 7
+    expect(html).toContain('class="tt-rank-shield"');
+    expect(html).not.toMatch(/<img[^>]*rank/i); // our own inline SVG, never an image
+    expect(html.match(/class="tt-coach-cr">CR /g)).toHaveLength(2); // phone: CR text under the coach name
+    expect((await renderMatch(base)).html).not.toContain('class="tt-cr"');
+    const css = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    for (const [k, t] of [["rookie", "--ui-muted"], ["experienced", "--ui-success"], ["veteran", "--ui-info"], ["star", "--ui-gold"], ["super", "--ui-scarlet"], ["legend", "--ui-text-on-primary"]]) {
+      expect(css).toMatch(new RegExp(`\\.tt-cr\\[data-rank="${k}"\\] \\{ --tt-rank-c: var\\(${t},`));
+    }
+    expect(css).toMatch(/\.tt-cr\[data-rank="emerging"\] \{ --tt-rank-c: color-mix\(/);
+    expect(css).toMatch(/\.tt-rec \.tt-corner\.home \.tt-cr \{ left: 0; \}/);
+    expect(css).toMatch(/\.tt-rec \.tt-corner\.away \.tt-cr \{ right: 0;/);
+  });
+
   it("context bar: renders the server's competition context for the three kinds, nothing when it sent none", async () => {
     const base = { match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) };
     const league = (await renderMatch({ ...base, context: { kind: "league", title: "Pacific League", subtitle: "Round 7/8", round: 7, roundCount: 8, startedAt: "2026-10-28T20:00:00.000Z", venue: "Table 3" } })).html;
@@ -444,7 +467,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("Rosters");
     expect(html).not.toContain("tt-back"); // no back button: the shell navigation leaves the page
     // feed rows: the client log sentence, SPP stars, undo trash; the undone TD is gone
-    expect(html).toContain('data-team="home" data-pcard="home:h1">Grob</span> scores a touchdown!'); // "<name> <action>" with the name in the sentence...
+    expect(html).toMatch(/class="tt-ev-line"><!---->scores\ a\ touchdown!/); // the sentence states only the action...
     expect(html).not.toContain("Grob #1</span>"); // ...and no number glued to it
     expect(html).toContain("(&#9733;3)".replace("&#9733;", "\u2605"));
     expect(html).toContain("completes a pass!");
@@ -1094,7 +1117,8 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain('<b class="tt-ev-pname-name" data-seat="home">Grob</b><small>'); // the chip: name in the seat tint over the position (no number)
     expect(html).not.toContain("<small>#1");
     expect(html).toContain('class="tt-ev-sprite"'); // with a sprite frame (initials when the roster has none)
-    expect(html).toContain('data-team="home" data-pcard="home:h1">Grob</span> scores a touchdown!'); // the sentence names the actor, seat-tinted
+    expect(html).toMatch(/class="tt-ev-line"><!---->scores\ a\ touchdown!/); // the actor is the chip's name, not the sentence's
+    expect(html).not.toContain('data-team="home" data-pcard="home:h1">Grob</span>');
     expect(html).not.toContain("tt-ev-grip"); // the store has no reordering, so no gripper
     const tl = await mount(mods.timelineC, { rows });
     expect(tl.match(/class="tt-tl-item"/g)).toHaveLength(3);

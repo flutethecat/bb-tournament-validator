@@ -13,8 +13,11 @@ const fixture = (extra: Partial<FixtureView> = {}): FixtureView => ({
 const gateway = (f: FixtureView): FixtureGateway => ({ get: (id) => (id === "f1" ? f : undefined), record: () => undefined, retract: () => undefined });
 
 describe("match context (the header bar above the hero)", () => {
-  it("casual: 'Casual match' over the package name, with the recorded start", () => {
-    expect(matchContext(match(), { defaultPackageName: "Blood Bowl 2025" })).toEqual({ kind: "casual", title: "Casual match", subtitle: "Blood Bowl 2025", startedAt: "2026-10-28T20:00:00.000Z" });
+  it("casual: 'Casual match' over the teams' real ruleset/package name, with the recorded start", () => {
+    const pk = { packageNameOf: (_c: string, ref: string) => (ref === "a" ? "NAF World Cup 2027" : undefined) };
+    expect(matchContext(match(), pk)).toEqual({ kind: "casual", title: "Casual match", subtitle: "NAF World Cup 2027", startedAt: "2026-10-28T20:00:00.000Z" });
+    expect(matchContext(match(), { packageNameOf: (_c, ref) => (ref === "a" ? "Pack A" : "Pack B") }).subtitle).toBe("Pack A / Pack B");
+    expect(matchContext(match(), {}).subtitle).toBe(""); // nothing known: no placeholder
   });
   it("tournament: the tournament name over its package, round and round count", () => {
     expect(matchContext(match({ fixtureRef: "f1", league: "NAF World Cup 2027" }), { fixtures: gateway(fixture()) }))

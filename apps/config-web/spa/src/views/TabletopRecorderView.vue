@@ -367,7 +367,7 @@ onBeforeUnmount(() => {
     </div>
     <TabletopScoreboard
       :match="match" :teams="state.teams" :tally="state.tally" :events="state.events" :pregame="state.pregame"
-      :clock="state.clock" :remaining="remaining" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy" :inducement-icons="state.inducementIcons" :initial-side="rostersSide" :art="state.art"
+      :clock="state.clock" :remaining="remaining" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy" :inducement-icons="state.inducementIcons" :coach-rating="state.coachRating" :initial-side="rostersSide" :art="state.art"
       @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @rosters="openRosters" @weather="openPick(WEATHER_EVENT)" @settings="settingsOpen = true"
     />
 
