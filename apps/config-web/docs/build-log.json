@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Notifications for coaches",
+    "body": "Your coach page now has a Notifications panel, and the bell in the top bar shows how many you have not read. You get a notification when an organiser marks you paid, verifies or freezes your roster, checks you in or moves you to standby; when the roster check finds problems with your team; when a round is drawn and you have a fixture; and when a result you played is confirmed. Organisers hear when a coach withdraws. Organisers can also send you a message from the Participants table (Message coach), and it shows up here. Tap a notification to open the tournament, or use Mark all read.",
+    "links": [
+      {
+        "label": "Coach page",
+        "href": "/app/home#notifications"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Drag to reorder players in the Team Builder and Tournament Builder",
     "body": "Every roster row now has a gripper on the left. Drag a row with the mouse or a finger to reorder your players, or focus the gripper and press Alt+Up / Alt+Down. Player numbers follow the new order, and the printed sheet and PDF keep it too.",
     "links": [
