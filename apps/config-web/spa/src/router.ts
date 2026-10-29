@@ -7,6 +7,7 @@ import type { SessionStore } from "./session";
 import AccountView from "./views/AccountView.vue";
 import AdminTournamentsView from "./views/AdminTournamentsView.vue";
 import HelpView from "./views/HelpView.vue";
+import GameSummaryView from "./views/GameSummaryView.vue";
 import HomeView from "./views/HomeView.vue";
 import LeaderboardsView from "./views/LeaderboardsView.vue";
 import LeagueDetailView from "./views/LeagueDetailView.vue";
@@ -63,6 +64,14 @@ export const routes: RouteRecordRaw[] = [
     component: TabletopRecorderView,
     props: true,
     meta: { requiresAuth: true, title: "Tabletop match" },
+  },
+  // Game page (owner 10-30): every Past Games card links here. Public; the server answers 404 for anything not public.
+  {
+    path: "/games/:source(tournament|tabletop|online)/:id([\\w.:%-]{1,160})",
+    name: "game",
+    component: GameSummaryView,
+    props: (route) => ({ source: String(route.params.source), id: String(route.params.id) }),
+    meta: { title: "Game" },
   },
   // Tournaments: public read (no sign-in gate); the old hand-built page stays at /tournaments.html.
   { path: "/tournaments", name: "tournaments", component: TournamentListView, meta: { title: "Tournaments" } },

@@ -32,8 +32,8 @@ function mockFetcher(routes: Routes): Fetcher & { calls: string[] } {
 const side = (name: string, race: string, coach: string, score: number | null, cas: number | null, crestUrl: string | null = null) => ({ name, race, coach, crestUrl, score, cas });
 const results = () => ({
   results: [
-    { id: "tournament:m1", source: "tournament", context: "Spike Beta Test · Round 3", playedAt: "2026-10-29T10:00:00.000Z", href: "/app/tournaments/t1", home: side("Carol's Crushers", "Orc", "Carol", 0, 1), away: side("Dan's Darlings", "Wood Elf", "Dan", 4, null), concede: null, suspended: false },
-    { id: "tabletop:x", source: "tabletop", context: "Tabletop · Friendly", playedAt: "2026-10-28T10:00:00.000Z", href: "/app/tabletop/x", home: side("<b>Bold</b> Boys", "Dwarf", "Eve<script>", 2, 0), away: side("Nameless", "", "Finn", 1, 0), concede: "away", suspended: false },
+    { id: "tournament:m1", source: "tournament", context: "Spike Beta Test · Round 3", playedAt: "2026-10-29T10:00:00.000Z", href: "/app/games/tournament/m1", home: side("Carol's Crushers", "Orc", "Carol", 0, 1), away: side("Dan's Darlings", "Wood Elf", "Dan", 4, null), concede: null, suspended: false },
+    { id: "tabletop:x", source: "tabletop", context: "Tabletop · Friendly", playedAt: "2026-10-28T10:00:00.000Z", href: "/app/games/tabletop/x", home: side("<b>Bold</b> Boys", "Dwarf", "Eve<script>", 2, 0), away: side("Nameless", "", "Finn", 1, 0), concede: "away", suspended: false },
   ],
 });
 const signedOut = (extra: Routes = {}): Routes => ({ "/api/auth/session": { authenticated: false, discordSsoEnabled: true }, ...extra });
@@ -92,7 +92,8 @@ describe("recent games (SSR)", () => {
     expect((strip(html).match(/class="rc-card"/g) ?? []).length).toBe(2);
     expect(strip(html)).toContain("Spike Beta Test · Round 3");
     // in-SPA links for /app paths; casualties shown only when known
-    expect(strip(html)).toMatch(/<a href="\/app\/tournaments\/t1" class="rc-card"/);
+    expect(strip(html)).toMatch(/<a href="\/app\/games\/tournament\/m1" class="rc-card"[^>]*aria-label=/);
+    expect(strip(html)).toMatch(/<a href="\/app\/games\/tabletop\/x" class="rc-card"/);
     expect(strip(html)).toContain('<small class="rc-cas">(1)</small>');
     expect((strip(html).match(/class="rc-cas"/g) ?? []).length).toBe(3); // 1, (null: none), 0, 0
     // race crest from the manifest when the team has no avatar; initials otherwise
