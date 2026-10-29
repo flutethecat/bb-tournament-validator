@@ -574,10 +574,12 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-rec \.tt-mid > \.tt-feed \{ border: 1px solid[^}]*border-radius: 6px; box-shadow: var\(--tt-bevel-inset\); \}/); // the log field: the inset half only
     expect(css1).toMatch(/\.tt-rec > \.tt-board::before \{\s*content: ""; grid-column: 2; grid-row: 1 \/ 4;[^}]*repeating-linear-gradient\(0deg, rgba\(255, 255, 255, \.03\) 0 2px, transparent 2px 4px\)[^}]*color-mix\(in srgb, #000 78%, var\(--ui-surface[^}]*box-shadow: var\(--tt-lift\)/); // the scoreboard panel
     expect(css1).toContain("--tt-led-glow: 0 0 8px rgb(215 20 31 / .7), 0 0 18px rgb(215 20 31 / .4)");
-    expect(css1).toMatch(/\.tt-rec \.tt-score::before \{ content: attr\(data-ghost\);[^}]*opacity: \.12;/); // the dimmed ghost segments
+    expect(css1).not.toContain("data-ghost"); // no ghost digits behind the score
+    expect(css1).toMatch(/\.tt-rec \.tt-counters b \{\s*display: flex; align-items: center; justify-content: center; width: 36px; height: 32px; padding: 0; border-radius: 4px;[^}]*color-mix\(in srgb, #000 60%, var\(--ui-surface[^}]*box-shadow: var\(--tt-bevel-inset\)/); // visible LED cells
+    expect(css1).toMatch(/\.tt-rec \.tt-counters \{ gap: 6px; width: 240px; \}/);
     expect(css1).toMatch(/--tt-score-w: 420px;/);
     expect(css1).toMatch(/--tt-score-w: 460px;/);
-    expect(html).toContain('data-ghost="8 : 8"'); // ghost digits under the live score
+    expect(html).not.toContain("data-ghost");
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);

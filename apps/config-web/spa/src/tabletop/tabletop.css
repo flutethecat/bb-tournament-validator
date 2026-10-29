@@ -973,7 +973,6 @@
   .tt-rec .tt-cell[data-state="active"] { background: var(--ui-scarlet, var(--tt-accent)); color: var(--ui-scarlet-contrast, #ffffff); border-color: var(--ui-scarlet, var(--tt-accent)); box-shadow: var(--tt-led-glow); outline: 0; }
   .tt-rec .tt-half { background: none; border: 0; box-shadow: none; font-family: var(--font-heading, sans-serif); letter-spacing: .06em; text-align: center; text-shadow: var(--tt-lettering-shadow); }
   .tt-rec .tt-score { position: relative; display: inline-block; justify-self: center; font-family: var(--font-heading, sans-serif); color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-led-glow); letter-spacing: .06em; }
-  .tt-rec .tt-score::before { content: attr(data-ghost); position: absolute; inset: 0; padding: inherit; text-align: center; opacity: .12; text-shadow: none; pointer-events: none; }
   .tt-rec .tt-counters { width: 220px; gap: 4px; }
   .tt-rec .tt-counters li { grid-template-columns: 52px 1fr 52px; gap: 8px; }
   .tt-rec .tt-counters b { display: block; padding: 2px 0; text-align: center; font-family: var(--font-heading, sans-serif); font-weight: 400; color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-led-glow); background: rgb(0 0 0 / .45); border: 1px solid rgb(255 255 255 / .06); border-radius: 3px; box-shadow: inset 0 1px 0 rgb(0 0 0 / .6); }
@@ -985,4 +984,15 @@
 @media (min-width: 1024px) {
   .tt-rec .tt-rail-btn, .tt-rec .tt-rail-end, .tt-rec .tt-quick { box-shadow: var(--tt-lift); }
   .tt-rec .tt-crest-frame, .tt-rec .tt-corner .tt-coachline .tt-chips { margin-bottom: 4px; }
+}
+
+/* TD / CAS counters: two visible bevelled LED cells (36 x 32, dark well face) with the label between them; the rows stack 6 px apart under the score */
+@media (min-width: 1024px) {
+  .tt-rec .tt-counters { gap: 6px; width: 240px; }
+  .tt-rec .tt-counters li { grid-template-columns: 36px 1fr 36px; gap: 10px; justify-content: center; }
+  .tt-rec .tt-counters b {
+    display: flex; align-items: center; justify-content: center; width: 36px; height: 32px; padding: 0; border-radius: 4px; font-size: 18px; line-height: 1;
+    background: color-mix(in srgb, #000 60%, var(--ui-surface, #0d0d0d)); border: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 45%, #000);
+    box-shadow: var(--tt-bevel-inset); color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-led-glow);
+  }
 }

@@ -148,7 +148,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
         <span v-if="weather.icon" class="tt-weather" role="img" :aria-label="weather.name" :data-tip="weather.name" data-tip-pos="bottom">{{ weather.icon }}</span>
         <button class="tt-cog" type="button" aria-label="Settings" data-tip="Settings" data-tip-pos="bottom" @click="emit('settings')">&#9881;</button>
       </div>
-      <p class="tt-score" aria-label="Score" :data-ghost="`${'8'.repeat(String(tally.score.home).length)} : ${'8'.repeat(String(tally.score.away).length)}`"><span>{{ tally.score.home }}</span> : <span>{{ tally.score.away }}</span></p>
+      <p class="tt-score" aria-label="Score"><span>{{ tally.score.home }}</span> : <span>{{ tally.score.away }}</span></p>
       <ul class="tt-counters" aria-label="Counters">
         <li><b>{{ tally.score.home }}</b><span>TD</span><b>{{ tally.score.away }}</b></li>
         <li><b>{{ cas("home") }}</b><span>CAS</span><b>{{ cas("away") }}</b></li>
