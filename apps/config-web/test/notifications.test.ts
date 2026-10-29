@@ -107,6 +107,16 @@ describe("notification store", () => {
     expect(store.list("../evil").notifications).toHaveLength(1);
   });
 
+  it("calls onRead with the ids that changed (and all for mark-all); nothing when nothing changed", () => {
+    const reads: Array<[string, unknown]> = [];
+    const store = new NotificationStore(tmp("nf-onread-"), { onRead: (k, c) => reads.push([k, c]) });
+    for (let i = 0; i < 3; i++) store.add("Alice", note());
+    store.markRead("Alice", { ids: ["n1", "n9"] });
+    store.markRead("Alice", { ids: ["n1"] });
+    store.markRead("Alice", { all: true });
+    expect(reads).toEqual([["alice", { unread: 2, readIds: ["n1"] }], ["alice", { unread: 0, readIds: ["n2", "n3"], all: true }]]);
+  });
+
   it("calls onAdded with the coach key, the row and the unread count; a push fault is swallowed", () => {
     const pushed: Array<[string, NotificationRecord, number]> = [];
     const store = new NotificationStore(tmp("nf-push-"), { onAdded: (k, r, u) => pushed.push([k, r, u]) });
@@ -185,6 +195,15 @@ describe("notification routes", () => {
     expect(alice).toHaveLength(2);
     expect(alice[0]).toMatchObject({ type: "organiser-message", from: "piett", body: "From the organiser", title: "Message from piett · Spike Open", link: `/app/tournaments/${t.id}?tab=overview` });
     expect(store.list("Bob").notifications[0]).toMatchObject({ from: "Root" });
+  });
+
+  it("Message coach refuses a withdrawn entrant (404)", () => {
+    const { tstore, t, store, call } = routeFixture();
+    const bob = tstore.entrants(t.id).find((e) => e.coach.ffbCoachId === "Bob")!;
+    tstore.dropEntrant(t.id, bob.id, "Bob", false, NOW);
+    expect(call("POST", `/api/tournaments/${t.id}/message`, who("Veers"), { coachKey: "Bob", body: "Still there?" }))
+      .toEqual({ status: 404, body: { error: "That coach is not entered in this tournament." } });
+    expect(store.list("Bob").notifications).toEqual([]);
   });
 
   it("Message coach is rate limited to 30 per minute per sender", () => {
@@ -280,6 +299,16 @@ describe("tournament hooks", () => {
     notify.sent.length = 0;
     await call("DELETE", `/api/tournaments/${id}/entrants/${encodeURIComponent(entrant("Cy").id)}`, coach("Piett"));
     expect(notify.sent).toEqual([{ coach: "Cy", input: expect.objectContaining({ type: "withdrawal", title: "Spike Open: you were withdrawn", from: "Piett" }) }]);
+  });
+
+  it("a repeated DELETE of an already-withdrawn entrant notifies nobody again", async () => {
+    const { notify, call, entrant, id } = hookFixture();
+    const path = `/api/tournaments/${id}/entrants/${encodeURIComponent(entrant("Bob").id)}`;
+    expect((await call("DELETE", path, coach("Bob")))!.status).toBe(200);
+    expect(notify.sent).toHaveLength(2);
+    for (let i = 0; i < 3; i++) await call("DELETE", path, coach("Bob"));
+    await call("DELETE", path, owner);
+    expect(notify.sent).toHaveLength(2);
   });
 
   it("a generated round notifies both coaches of every fixture (byes too) with the rounds tab link; a preview sends nothing", async () => {
@@ -435,6 +464,20 @@ describe("notify over the Super socket", () => {
     const b = await open("tokB");
     end("tokB");
     expect(b.closed).toBe(true);
+  });
+
+  it("marking read in one tab is broadcast to the coach's other tabs as { unread, readIds }", async () => {
+    const { svc, open } = service();
+    const a1 = await open("tokA");
+    const a2 = await open("tokA2");
+    const store = new NotificationStore(tmp("nf-readpush-"), { onRead: (k, change) => svc.publishNotify(k, change) });
+    store.add("Alice", note());
+    store.add("Alice", note());
+    store.markRead("Alice", { ids: ["n1"] });
+    for (const c of [a1, a2]) expect(c.sent.at(-1)).toMatchObject({ feature: "notify", payload: { unread: 1, readIds: ["n1"] } });
+    store.markRead("Alice", { all: true });
+    expect(a2.sent.at(-1)).toMatchObject({ payload: { unread: 0, readIds: ["n2"], all: true } });
+    a1.close(); a2.close();
   });
 
   it("the store's onAdded drives the push end to end", async () => {

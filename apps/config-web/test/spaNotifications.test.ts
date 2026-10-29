@@ -105,6 +105,44 @@ describe("notifications store", () => {
     expect(n.live.value).toBe(false);
   });
 
+  it("a push that lands while a load is in flight survives: the stale GET is discarded and fetched once more", async () => {
+    const h = socketHarness();
+    let release!: (v: unknown) => void;
+    let gets = 0;
+    const f = mockFetcher({
+      [LIST]: () => {
+        gets += 1;
+        if (gets === 1) return new Promise((r) => { release = r; });
+        return { notifications: [row({ id: "n9", title: "Pushed" }), row({ id: "n1" })], unread: 2 };
+      },
+    });
+    const n = useNotifications(f, h.opts);
+    n.subscribe();
+    const pending = n.load();
+    h.sockets[0]!.onmessage!({ data: JSON.stringify({ type: "event", feature: "notify", payload: { unread: 2, latest: row({ id: "n9", title: "Pushed" }) } }) });
+    release({ notifications: [row({ id: "n1" })], unread: 1 }); // older than the push
+    await pending;
+    expect(gets).toBe(2);
+    expect(n.rows.value.map((r) => r.id)).toEqual(["n9", "n1"]);
+    expect(n.unread.value).toBe(2);
+    n.unsubscribe();
+  });
+
+  it("a read broadcast from another tab marks those rows read (or all of them)", async () => {
+    const h = socketHarness();
+    const f = mockFetcher({ [LIST]: { notifications: [row({ id: "n3" }), row({ id: "n2" }), row({ id: "n1" })], unread: 3 } });
+    const n = useNotifications(f, h.opts);
+    await n.load();
+    n.subscribe();
+    h.sockets[0]!.onmessage!({ data: JSON.stringify({ type: "event", feature: "notify", payload: { unread: 2, readIds: ["n2"] } }) });
+    expect(n.rows.value.filter((r) => !r.readAt).map((r) => r.id)).toEqual(["n3", "n1"]);
+    expect(n.unread.value).toBe(2);
+    h.sockets[0]!.onmessage!({ data: JSON.stringify({ type: "event", feature: "notify", payload: { unread: 0, readIds: ["n3"], all: true } }) });
+    expect(n.rows.value.every((r) => r.readAt)).toBe(true);
+    expect(n.unread.value).toBe(0);
+    n.unsubscribe();
+  });
+
   it("falls back to a 60 s poll when the socket is refused or drops, and when there is no socket at all", async () => {
     const h = socketHarness();
     const f = mockFetcher({ [LIST]: { notifications: [], unread: 0 } });
