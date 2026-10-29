@@ -25,6 +25,9 @@ export interface NafGame {
   score: [number, number];
 }
 
+/** The NAF coach page, parsed by label. Every field is optional: a label that is not found is simply absent. */
+export interface NafProfile { glicko?: number; wins?: number; draws?: number; losses?: number; nafName?: string; fetchedAt: string }
+
 export interface NafCoachRecord {
   nafId: string;
   nafName: string;
@@ -32,6 +35,8 @@ export interface NafCoachRecord {
   fetchedAt: string;
   /** When a fetch was last ATTEMPTED (success or not): the 10-minute throttle runs on this, so a failing NAF is not retried on every match creation. */
   lastAttemptAt?: string;
+  /** The coach page (Global Glicko, record, displayed name); absent until a coach page fetch has parsed. Fetched after, and independently of, the game list. */
+  profile?: NafProfile;
   games: NafGame[];
 }
 
@@ -142,6 +147,29 @@ export function parseNafGameList(html: string, hint: { nafId?: string; nafName?:
   } catch { return []; }
 }
 
+/**
+ * The NAF coach page (member.thenaf.net ... type=coachpage), read by label text: the first row labelled "Global Glicko" gives the rating, the first
+ * "Record (W/T/L)" row the record, "NAF name" the displayed name. A label that is missing leaves its field out; nothing found at all gives undefined.
+ */
+export function parseNafCoachPage(html: string, fetchedAt = new Date().toISOString()): NafProfile | undefined {
+  try {
+    const profile: NafProfile = { fetchedAt };
+    const rows = [...html.matchAll(/<tr\b[\s\S]*?<\/tr\s*>/gi)].map((m) => [...m[0].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]\s*>/gi)].map((c) => cellText(c[1]!)));
+    const valueOf = (label: RegExp): string | undefined => rows.find((cells) => cells.length >= 2 && label.test(cells[0]!))?.slice(1).join(" ");
+    const text = cellText(html);
+    const afterLabel = (label: RegExp): string | undefined => { const at = text.search(label); return at < 0 ? undefined : text.slice(at).replace(label, ""); };
+    const glickoText = valueOf(/^global glicko\b/i) ?? afterLabel(/global glicko(?: rating)?/i);
+    const glicko = glickoText === undefined ? undefined : /-?\d+(?:\.\d+)?/.exec(glickoText)?.[0];
+    if (glicko !== undefined && Number.isFinite(Number(glicko)) && Number(glicko) > 0 && Number(glicko) < 10_000) profile.glicko = Number(glicko);
+    const recordText = valueOf(/^record\s*\(w\/[td]\/l\)/i) ?? afterLabel(/record\s*\(w\/[td]\/l\)/i);
+    const record = recordText === undefined ? undefined : /(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)/.exec(recordText);
+    if (record) { profile.wins = Number(record[1]); profile.draws = Number(record[2]); profile.losses = Number(record[3]); }
+    const name = valueOf(/^naf name$/i)?.trim();
+    if (name && name.length <= 100) profile.nafName = name;
+    return profile.glicko !== undefined || profile.wins !== undefined || profile.nafName !== undefined ? profile : undefined;
+  } catch { return undefined; }
+}
+
 // ---- cache validation + store -------------------------------------------------------------------------------------------------------------------
 
 const str = (v: unknown): v is string => typeof v === "string";
@@ -155,12 +183,25 @@ function validGame(value: unknown): NafGame | undefined {
   const ids = pairOf(g.coachIds) && isNafId(g.coachIds[0]) && isNafId(g.coachIds[1]) ? (g.coachIds as [string, string]) : undefined;
   return { date: g.date, tournament: g.tournament, variant: g.variant, coaches: g.coaches, ...(ids ? { coachIds: ids } : {}), races: g.races, score: score as [number, number] };
 }
+function validProfile(value: unknown): NafProfile | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const p = value as Record<string, unknown>;
+  if (!str(p.fetchedAt)) return undefined;
+  const num = (v: unknown, max: number): number | undefined => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v < max ? v : undefined);
+  const out: NafProfile = { fetchedAt: p.fetchedAt };
+  const glicko = num(p.glicko, 10_000); if (glicko !== undefined) out.glicko = glicko;
+  const wins = num(p.wins, 100_000); if (wins !== undefined) out.wins = wins;
+  const draws = num(p.draws, 100_000); if (draws !== undefined) out.draws = draws;
+  const losses = num(p.losses, 100_000); if (losses !== undefined) out.losses = losses;
+  if (str(p.nafName) && p.nafName.length <= 100) out.nafName = p.nafName;
+  return out;
+}
 function validRecord(key: string, value: unknown): NafCoachRecord | undefined {
   if (!value || typeof value !== "object") return undefined;
   const r = value as Record<string, unknown>;
   if (!isNafId(key) || r.nafId !== key || !str(r.nafName) || !str(r.fetchedAt) || !Array.isArray(r.games)) return undefined;
   const games = r.games.map(validGame).filter((g): g is NafGame => g !== undefined);
-  return { nafId: key, nafName: r.nafName, fetchedAt: r.fetchedAt, ...(str(r.lastAttemptAt) ? { lastAttemptAt: r.lastAttemptAt } : {}), games };
+  return { nafId: key, nafName: r.nafName, fetchedAt: r.fetchedAt, ...(str(r.lastAttemptAt) ? { lastAttemptAt: r.lastAttemptAt } : {}), ...(validProfile(r.profile) ? { profile: validProfile(r.profile)! } : {}), games };
 }
 
 interface NafStoreFile { version: 1; coaches: Record<string, unknown> }
@@ -204,8 +245,9 @@ export class NafRecordStore {
 
   /** Store a successful fetch (capped at 1000 games). With `keep`, records of nafIds not in it (a coach unlinked since) are dropped. */
   put(nafId: string, nafName: string, games: NafGame[], fetchedAt = new Date().toISOString(), keep?: ReadonlySet<string>): NafCoachRecord {
-    const record: NafCoachRecord = { nafId, nafName, fetchedAt, lastAttemptAt: fetchedAt, games: games.slice(0, NAF_MAX_GAMES_PER_COACH) };
     const current = this.read().coaches;
+    const previous = Object.hasOwn(current, nafId) ? validRecord(nafId, current[nafId]) : undefined;
+    const record: NafCoachRecord = { nafId, nafName, fetchedAt, lastAttemptAt: fetchedAt, ...(previous?.profile ? { profile: previous.profile } : {}), games: games.slice(0, NAF_MAX_GAMES_PER_COACH) };
     const kept = Object.fromEntries(Object.entries(current).filter(([id]) => !keep || keep.has(id)));
     this.write({ ...kept, [nafId]: record });
     return record;
@@ -215,7 +257,14 @@ export class NafRecordStore {
   markAttempt(nafId: string, nafName: string, at: string): void {
     const current = this.read().coaches;
     const previous = Object.hasOwn(current, nafId) ? validRecord(nafId, current[nafId]) : undefined;
-    this.write({ ...current, [nafId]: { nafId, nafName: previous?.nafName || nafName, fetchedAt: previous?.fetchedAt ?? "", lastAttemptAt: at, games: previous?.games ?? [] } });
+    this.write({ ...current, [nafId]: { nafId, nafName: previous?.nafName || nafName, fetchedAt: previous?.fetchedAt ?? "", lastAttemptAt: at, ...(previous?.profile ? { profile: previous.profile } : {}), games: previous?.games ?? [] } });
+  }
+
+  /** Store the parsed coach page on the coach record (created, without games, when the record is new). Games and the attempt stamp are kept. */
+  putProfile(nafId: string, nafName: string, profile: NafProfile): void {
+    const current = this.read().coaches;
+    const previous = Object.hasOwn(current, nafId) ? validRecord(nafId, current[nafId]) : undefined;
+    this.write({ ...current, [nafId]: { nafId, nafName: previous?.nafName || nafName, fetchedAt: previous?.fetchedAt ?? "", ...(previous?.lastAttemptAt ? { lastAttemptAt: previous.lastAttemptAt } : {}), profile, games: previous?.games ?? [] } });
   }
 }
 
@@ -232,6 +281,19 @@ export async function fetchNafGames(nafId: string, fetchImpl: typeof fetch = fet
     if (res.status !== 200) return [];
     return parseNafGameList(await res.text(), { nafId: nafId.trim(), ...(nafName ? { nafName } : {}) });
   } catch { return []; } finally { clearTimeout(timer); }
+}
+
+/** One coach page, parsed; undefined on any failure (non-200, timeout, network, no recognisable label), never throws. Same kill switch and timeout as the game list. */
+export async function fetchNafProfile(nafId: string, fetchImpl: typeof fetch = fetch, now: () => Date = () => new Date()): Promise<NafProfile | undefined> {
+  if (nafScrapeDisabled() || !isNafId(nafId.trim())) return undefined;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), NAF_TIMEOUT_MS);
+  try {
+    const url = `https://member.thenaf.net/index.php?module=NAF&type=coachpage&coach=${encodeURIComponent(nafId.trim())}`;
+    const res = await fetchImpl(url, { headers: { "User-Agent": NAF_USER_AGENT }, signal: controller.signal });
+    if (res.status !== 200) return undefined;
+    return parseNafCoachPage(await res.text(), now().toISOString());
+  } catch { return undefined; } finally { clearTimeout(timer); }
 }
 
 // ---- identities ---------------------------------------------------------------------------------------------------------------------------------
@@ -296,10 +358,11 @@ export async function refreshNafForCoaches(coaches: string[], deps: NafRefreshDe
       const pending = inFlight.get(nafId);
       if (pending) return pending;
       const job = (async () => {
+        let throttled = false;
         try {
           const cached = deps.store.get(nafId);
           const last = Date.parse(cached?.lastAttemptAt || cached?.fetchedAt || "");
-          if (Number.isFinite(last) && now().getTime() - last < NAF_REFRESH_MIN_AGE_MS) return;
+          if (Number.isFinite(last) && now().getTime() - last < NAF_REFRESH_MIN_AGE_MS) { throttled = true; return; }
           const games = await fetchNafGames(nafId, deps.fetchImpl, nafName || cached?.nafName);
           const at = now().toISOString();
           // an empty answer is a failure (or a coach with no games): keep what is cached rather than wiping it
@@ -307,6 +370,14 @@ export async function refreshNafForCoaches(coaches: string[], deps: NafRefreshDe
           else deps.store.put(nafId, nafName || cached?.nafName || "", games, at, linked);
         } catch (error) {
           warn(`[naf] refresh of ${nafId} failed: ${(error as Error).message}`);
+        }
+        if (throttled) return; // a recent attempt covers the coach page too
+        // the coach page comes after the game list and succeeds or fails on its own (the same attempt window covers it)
+        try {
+          const profile = await fetchNafProfile(nafId, deps.fetchImpl, now);
+          if (profile) deps.store.putProfile(nafId, nafName, profile);
+        } catch (error) {
+          warn(`[naf] coach page of ${nafId} failed: ${(error as Error).message}`);
         }
       })().finally(() => { inFlight.delete(nafId); });
       inFlight.set(nafId, job);
@@ -386,8 +457,35 @@ export function nafResultRows(store: NafRecordStore, identities: NafIdentities):
 }
 
 /** How many cached NAF games a linked coach has (0 when unlinked or never fetched). */
-export function nafSummaryFor(store: NafRecordStore, identities: NafIdentities, coach: string): { games: number; fetchedAt?: string } {
+export interface NafSummary { games: number; fetchedAt?: string; /** the NAF Global Glicko from the coach page, when it was fetched */ glicko?: number; /** W/D/L over the cached games, from this coach side */ record?: { w: number; d: number; l: number } }
+
+export function nafSummaryFor(store: NafRecordStore, identities: NafIdentities, coach: string): NafSummary {
   const link = nafLinkOf(identities, coach);
   const cached = link ? store.get(link.nafId) : undefined;
-  return cached ? { games: cached.games.length, ...(cached.fetchedAt ? { fetchedAt: cached.fetchedAt } : {}) } : { games: 0 };
+  if (!link || !cached) return { games: 0 };
+  // this coach side of each game: the head2head id, else the coach's NAF names, else the one name common to every game
+  const mine = new Set([link.nafName, cached.nafName, cached.profile?.nafName].map((n) => n?.trim().toLowerCase()).filter((n): n is string => Boolean(n)));
+  let common: Set<string> | undefined;
+  for (const g of cached.games) {
+    const names = new Set(g.coaches.map((c) => c.trim().toLowerCase()));
+    common = common ? new Set([...common].filter((n) => names.has(n))) : names;
+  }
+  if (common && common.size === 1) mine.add([...common][0]!);
+  const record = { w: 0, d: 0, l: 0 };
+  let counted = 0;
+  for (const g of cached.games) {
+    let side = g.coachIds ? g.coachIds.indexOf(link.nafId) : -1;
+    if (side < 0) { const names = g.coaches.map((c) => c.trim().toLowerCase()); side = mine.has(names[0]!) && !mine.has(names[1]!) ? 0 : mine.has(names[1]!) && !mine.has(names[0]!) ? 1 : -1; }
+    if (side < 0) continue;
+    const own = g.score[side]!;
+    const other = g.score[1 - side]!;
+    counted += 1;
+    if (own > other) record.w += 1; else if (own < other) record.l += 1; else record.d += 1;
+  }
+  return {
+    games: cached.games.length,
+    ...(cached.fetchedAt ? { fetchedAt: cached.fetchedAt } : {}),
+    ...(cached.profile?.glicko !== undefined ? { glicko: cached.profile.glicko } : {}),
+    ...(counted > 0 ? { record } : {}),
+  };
 }

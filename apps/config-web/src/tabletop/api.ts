@@ -29,6 +29,7 @@ import { withRosterArt } from "./rosterArt.js";
 import { leagueStandings, type LeaguePoints } from "./standings.js";
 import { computeGlicko, unratedGlicko } from "../coachGlicko.js";
 import { coachRatingFor, type CoachRatingView } from "../coachRank.js";
+import type { NafSummary } from "../nafRecords.js";
 import { applyPostMatch, sppCredits, sppForEvent, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile, SPP_VALUES } from "./postMatch.js";
 import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
 import { duplicatePlayerId, parseTeamRef } from "./teamFile.js";
@@ -100,7 +101,7 @@ export function matchContext(match: MatchRecord, deps: Pick<TabletopApiDeps, "fi
 }
 
 /** Each seat's coach rating (CR, Glicko-2 as FUMBBL runs it: coachGlicko.ts) and rank, from our own published results. */
-export function coachRatings(match: MatchRecord, deps: Pick<TabletopApiDeps, "results" | "now" | "naf">): Record<"home" | "away", CoachRatingView & { naf: { games: number; fetchedAt?: string } }> {
+export function coachRatings(match: MatchRecord, deps: Pick<TabletopApiDeps, "results" | "now" | "naf">): Record<"home" | "away", CoachRatingView & { naf: NafSummary }> {
   const revision = deps.results.revision?.();
   // NAF games (opted-in coaches, cached) are appended here for the rating only: they are never in deps.results
   let rows = deps.results.list();
@@ -112,7 +113,7 @@ export function coachRatings(match: MatchRecord, deps: Pick<TabletopApiDeps, "re
   const rated = computeGlicko(rows, { asOf: deps.now?.() ?? new Date(), ...(rev !== undefined ? { revision: rev } : {}) });
   const of = (coach: string) => {
     const e = rated.get(coach.trim().toLowerCase()) ?? unratedGlicko();
-    let naf: { games: number; fetchedAt?: string } = { games: 0 };
+    let naf: NafSummary = { games: 0 };
     try { naf = deps.naf?.summary?.(coach) ?? naf; } catch { /* fail open */ }
     return { ...coachRatingFor(e.cr, e.games), naf };
   };
@@ -142,7 +143,7 @@ export interface TabletopApiDeps {
     rows(): StoredTournamentResult[];
     revision(): string;
     refreshFor?(coaches: string[]): void | Promise<void>;
-    summary?(coach: string): { games: number; fetchedAt?: string };
+    summary?(coach: string): NafSummary;
   };
   /** A fixture's team id (the entrant's fork team) as a team the recorder can load for that coach, if it can. */
   resolveFixtureTeam?: (coach: string, teamId: string) => { ref: string; name: string } | undefined;

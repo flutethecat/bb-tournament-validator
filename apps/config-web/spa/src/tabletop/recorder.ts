@@ -31,7 +31,7 @@ export interface SummaryView {
 export interface MatchContext { kind: "league" | "tournament" | "casual"; title: string; subtitle: string; round?: number; roundCount?: number; startedAt?: string; venue?: string }
 
 /** A seat's coach rating and rank, server-computed from the fork results. */
-export interface CoachRatingView { cr: number; rank: string; rankKey: string; slug?: string; games: number; naf?: { games: number; fetchedAt?: string } }
+export interface CoachRatingView { cr: number; rank: string; rankKey: string; slug?: string; games: number; naf?: { games: number; fetchedAt?: string; glicko?: number; record?: { w: number; d: number; l: number } } }
 
 export interface MatchView {
   id: string;

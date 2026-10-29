@@ -4,11 +4,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeGlicko } from "../src/coachGlicko.js";
 import {
-  fetchNafGames, NafRecordStore, nafResultRows, parseNafGameList, refreshNafForCoaches, type NafGame, type NafIdentities,
+  fetchNafGames, fetchNafProfile, NafRecordStore, nafResultRows, nafSummaryFor, parseNafCoachPage, parseNafGameList, refreshNafForCoaches, type NafGame, type NafIdentities,
 } from "../src/nafRecords.js";
 import { deriveTeamResult, TournamentResultStore } from "../src/tournamentResults.js";
 
 const fixture = readFileSync(join(import.meta.dirname, "fixtures", "naf-gamelist-34116.html"), "utf8");
+const coachPage = readFileSync(join(import.meta.dirname, "fixtures", "naf-coachpage-34116.html"), "utf8");
 let dir = "";
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "naf-")); delete process.env.NAF_SCRAPE_DISABLED; });
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); delete process.env.NAF_SCRAPE_DISABLED; });
@@ -64,6 +65,82 @@ describe("parseNafGameList", () => {
   });
 });
 
+describe("parseNafCoachPage", () => {
+  it("reads the Global Glicko, the W/T/L record and the NAF name by label from the fixture", () => {
+    expect(parseNafCoachPage(coachPage, "2026-10-28T00:00:00.000Z")).toEqual({
+      glicko: 1498.5, wins: 29, draws: 16, losses: 17, nafName: "flutethecat", fetchedAt: "2026-10-28T00:00:00.000Z",
+    });
+  });
+  it("leaves out a field whose label is absent, and gives undefined when nothing is found", () => {
+    expect(parseNafCoachPage("<table><tr><td>Global Glicko</td><td>1501.25</td></tr></table>")).toMatchObject({ glicko: 1501.25 });
+    expect(parseNafCoachPage("<table><tr><td>Global Glicko</td><td>1501.25</td></tr></table>")).not.toHaveProperty("wins");
+    expect(parseNafCoachPage("<p>Record (W/T/L) 3/2/1</p>")).toMatchObject({ wins: 3, draws: 2, losses: 1 });
+    expect(parseNafCoachPage("<html><body>maintenance</body></html>")).toBeUndefined();
+    expect(parseNafCoachPage("<table><tr><td>Global Glicko</td><td>n/a</td></tr></table>")).toBeUndefined();
+  });
+  it("fetchNafProfile returns undefined on failure and honours the kill switch", async () => {
+    expect(await fetchNafProfile("34116", okFetch(coachPage))).toMatchObject({ glicko: 1498.5 });
+    expect(await fetchNafProfile("34116", (async () => new Response("x", { status: 500 })) as unknown as typeof fetch)).toBeUndefined();
+    expect(await fetchNafProfile("34116", (async () => { throw new Error("down"); }) as unknown as typeof fetch)).toBeUndefined();
+    process.env.NAF_SCRAPE_DISABLED = "1";
+    const f = vi.fn(okFetch(coachPage));
+    expect(await fetchNafProfile("34116", f as unknown as typeof fetch)).toBeUndefined();
+    expect(f).not.toHaveBeenCalled();
+  });
+});
+
+describe("coach page in the refresh and the summary", () => {
+  const routed = (games: () => Response, page: () => Response): typeof fetch => (async (url: string | URL | Request) => (String(url).includes("type=coachpage") ? page() : games())) as unknown as typeof fetch;
+  it("stores the profile after the game list; either one failing leaves the other", async () => {
+    const store = new NafRecordStore(dir);
+    const calls: string[] = [];
+    const f = ((url: string) => { calls.push(String(url).includes("coachpage") ? "page" : "list"); return routed(() => new Response(fixture), () => new Response(coachPage))(url); }) as unknown as typeof fetch;
+    await refreshNafForCoaches(["Jay"], { store, identities: () => ids({ Jay: { nafId: "34116", nafName: "flutethecat" } }), fetchImpl: f });
+    expect(calls).toEqual(["list", "page"]);
+    expect(store.get("34116")).toMatchObject({ profile: { glicko: 1498.5, wins: 29 } });
+    expect(store.get("34116")!.games).toHaveLength(20);
+    // page down: games still stored, no profile
+    const s2 = new NafRecordStore(join(dir, "b"));
+    await refreshNafForCoaches(["Jay"], { store: s2, identities: () => ids({ Jay: { nafId: "34116" } }), fetchImpl: routed(() => new Response(fixture), () => new Response("no", { status: 503 })) });
+    expect(s2.get("34116")!.games).toHaveLength(20);
+    expect(s2.get("34116")!.profile).toBeUndefined();
+    // list down: profile still stored, no games, attempt remembered
+    const s3 = new NafRecordStore(join(dir, "c"));
+    await refreshNafForCoaches(["Jay"], { store: s3, identities: () => ids({ Jay: { nafId: "34116" } }), fetchImpl: routed(() => new Response("no", { status: 503 }), () => new Response(coachPage)) });
+    expect(s3.get("34116")).toMatchObject({ games: [], profile: { glicko: 1498.5 } });
+    expect(s3.get("34116")!.lastAttemptAt).toBeTruthy();
+  });
+  it("a later game refresh keeps the stored profile", () => {
+    const store = new NafRecordStore(dir);
+    store.putProfile("2", "x", { glicko: 1400, fetchedAt: "t" });
+    store.put("2", "x", [game()]);
+    expect(store.get("2")!.profile).toMatchObject({ glicko: 1400 });
+    store.markAttempt("2", "x", "t2");
+    expect(store.get("2")!.profile).toMatchObject({ glicko: 1400 });
+  });
+  it("the summary has the page glicko and a record computed from the cached games", () => {
+    const store = new NafRecordStore(dir);
+    store.put("34116", "flutethecat", parseNafGameList(fixture));
+    const none = nafSummaryFor(store, ids({ Jay: { nafId: "34116" } }), "Jay");
+    expect(none.glicko).toBeUndefined();
+    expect(none.record!.w + none.record!.d + none.record!.l).toBe(20);
+    store.putProfile("34116", "flutethecat", { glicko: 1498.5, fetchedAt: "t" });
+    const s = nafSummaryFor(store, ids({ Jay: { nafId: "34116" } }), "Jay");
+    expect(s).toMatchObject({ games: 20, glicko: 1498.5 });
+    expect(s.record).toEqual(none.record);
+    expect(nafSummaryFor(store, ids({ Jay: {} }), "Jay")).toEqual({ games: 0 });
+  });
+  it("counts W/D/L from the coach side, by id or by name", () => {
+    const store = new NafRecordStore(dir);
+    store.put("2", "ali", [
+      game({ coaches: ["ali", "x"], score: [2, 0] }), // won on the left
+      game({ coaches: ["x", "ali"], score: [2, 0], date: "2026-01-02" }), // lost on the right
+      game({ coaches: ["ali", "y"], score: [1, 1], date: "2026-01-03" }), // drawn
+    ]);
+    expect(nafSummaryFor(store, ids({ Jay: { nafId: "2", nafName: "Ali" } }), "Jay").record).toEqual({ w: 1, d: 1, l: 1 });
+  });
+});
+
 describe("fetchNafGames", () => {
   it("returns [] on non-200, thrown fetch and unparseable pages, never throwing", async () => {
     expect(await fetchNafGames("34116", (async () => new Response("no", { status: 503 })) as unknown as typeof fetch)).toEqual([]);
@@ -93,14 +170,14 @@ describe("refreshNafForCoaches", () => {
     let t = Date.parse("2026-10-01T10:00:00Z");
     const deps = { store, identities: () => ids({ Jay: { nafId: "34116", nafName: "flutethecat" }, Bob: { nafName: "bob" } }), fetchImpl: f as unknown as typeof fetch, now: () => new Date(t) };
     await refreshNafForCoaches(["Jay", "Bob", "Nobody"], deps);
-    expect(f).toHaveBeenCalledTimes(1);
+    expect(f).toHaveBeenCalledTimes(2); // the game list and the coach page
     expect(store.get("34116")).toMatchObject({ nafName: "flutethecat", games: expect.any(Array) });
     t += 9 * 60_000;
     await refreshNafForCoaches(["Jay"], deps);
-    expect(f).toHaveBeenCalledTimes(1);
+    expect(f).toHaveBeenCalledTimes(2);
     t += 2 * 60_000;
     await refreshNafForCoaches(["Jay"], deps);
-    expect(f).toHaveBeenCalledTimes(2);
+    expect(f).toHaveBeenCalledTimes(4);
   });
   it("throttles on lastAttemptAt after a failed fetch, keeping the cached games", async () => {
     const store = new NafRecordStore(dir);
@@ -110,11 +187,11 @@ describe("refreshNafForCoaches", () => {
     const deps = { store, identities: () => ids({ Jay: { nafId: "1", nafName: "x" } }), fetchImpl: f, now: () => new Date(t) };
     await refreshNafForCoaches(["Jay"], deps);
     await refreshNafForCoaches(["Jay"], deps);
-    expect(f).toHaveBeenCalledTimes(1); // the failed attempt is remembered
+    expect(f).toHaveBeenCalledTimes(2); // the failed attempt is remembered
     expect(store.get("1")).toMatchObject({ fetchedAt: "2026-10-01T09:00:00.000Z", lastAttemptAt: "2026-10-01T10:00:00.000Z", games: [expect.anything()] });
     t += 11 * 60_000;
     await refreshNafForCoaches(["Jay"], deps);
-    expect(f).toHaveBeenCalledTimes(2);
+    expect(f).toHaveBeenCalledTimes(4);
   });
   it("a failing store write after a successful fetch does not throw", async () => {
     class Broken extends NafRecordStore { override put(): never { throw new Error("disk full"); } }
@@ -136,7 +213,7 @@ describe("refreshNafForCoaches", () => {
     const f = vi.fn(okFetch(fixture));
     const deps = { store, identities: () => ids({ Jay: { nafId: "1" } }), fetchImpl: f as unknown as typeof fetch };
     await Promise.all([refreshNafForCoaches(["Jay"], deps), refreshNafForCoaches(["Jay"], deps)]);
-    expect(f).toHaveBeenCalledTimes(1);
+    expect(f).toHaveBeenCalledTimes(2);
     const warn = vi.fn();
     await expect(refreshNafForCoaches(["Jay"], { ...deps, identities: () => { throw new Error("boom"); }, warn })).resolves.toBeUndefined();
     const failing = new NafRecordStore(join(dir, "none"));

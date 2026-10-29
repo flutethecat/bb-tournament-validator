@@ -403,6 +403,27 @@ describe("tabletop routes (server-rendered)", () => {
     expect(mods2.CARD_DELAY_MS).toBe(250);
   });
 
+  it("NAF line: a second muted line under the CR chip and under the phone CR text, hidden at 0 games, glicko part omitted when absent", async () => {
+    const base = { match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) };
+    const view = (naf: Record<string, unknown>, cr = 1523) => ({ cr, rank: "Emerging Star", rankKey: "emerging", games: 12, naf });
+    const html = (await renderMatch({ ...base, coachRating: { home: view({ games: 86, glicko: 1498.5 }), away: view({ games: 1 }) } })).html;
+    expect(html).toContain('<span class="tt-cr-naf">NAF 1499 \u00b7 86 GAMES</span>'); // glicko rounded
+    expect(html).toContain('<span class="tt-cr-naf">NAF 1 GAME</span>'); // no glicko: no rating part
+    expect(html.match(/class="tt-cr-naf"/g)).toHaveLength(2);
+    expect(html).toContain('<small class="tt-coach-naf">NAF 1499 \u00b7 86 GAMES</small>'); // phone line, under the CR text
+    // directly under the chip in the crest column, after it and before the name group
+    const col = html.slice(html.indexOf('class="tt-crestcol"'), html.indexOf('class="tt-namegroup"'));
+    expect(col.indexOf('class="tt-cr-naf"')).toBeGreaterThan(col.indexOf('class="tt-cr"'));
+    expect(html).toContain('data-tip="Coach rating 1523 \u00b7 Emerging Star (12 games) \u00b7 86 NAF games"'); // the chip tip is kept
+    const none = (await renderMatch({ ...base, coachRating: { home: view({ games: 0 }), away: { cr: 1760, rank: "Legend", rankKey: "legend", games: 1 } } })).html;
+    expect(none).not.toContain("tt-cr-naf");
+    expect(none).not.toContain("tt-coach-naf");
+    const css = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.tt-rec \.tt-crestcol \.tt-cr-naf \{[^}]*white-space: nowrap;[^}]*font-size: 10px;[^}]*text-transform: uppercase;[^}]*color: var\(--tt-muted\)/);
+    expect(css).toMatch(/\.tt-coach-naf \{[^}]*white-space: nowrap;/);
+    expect(css).not.toMatch(/\.tt-(?:cr-naf|coach-naf) \{[^}]*#[0-9a-f]{3,8}/i); // tokens only
+  });
+
   it("coach rating badge: CR text and pixel rank shield per seat, tip, phone text under the coach, nothing without a server rating", async () => {
     const base = { match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) };
     const html = (await renderMatch({ ...base, coachRating: { home: { cr: 1523, rank: "Emerging Star", rankKey: "emerging", games: 12 }, away: { cr: 1760, rank: "Legend", rankKey: "legend", games: 1 } } })).html;

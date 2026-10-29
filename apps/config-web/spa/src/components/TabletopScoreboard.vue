@@ -31,6 +31,12 @@ const props = defineProps<{
 const RANK_PIPS: Record<string, number> = { rookie: 1, experienced: 2, veteran: 3, emerging: 4, star: 5, super: 6, mega: 7, legend: 8 };
 const badgeOf = (s: Side): string => resolveCoachBadge(props.art, crOf(s)?.slug);
 const crOf = (s: Side): CoachRatingView | undefined => props.coachRating?.[s];
+/** The separate NAF line under the CR chip: "NAF 1498 \u00b7 86 GAMES" (no rating part without a NAF Glicko); nothing at 0 games. */
+const nafLine = (s: Side): string => {
+  const n = crOf(s)?.naf;
+  if (!n || !(n.games > 0)) return "";
+  return `NAF ${typeof n.glicko === "number" ? `${Math.round(n.glicko)} \u00b7 ` : ""}${n.games} GAME${n.games === 1 ? "" : "S"}`;
+};
 const crTip = (s: Side): string => `Coach rating ${crOf(s)?.cr} \u00b7 ${crOf(s)?.rank} (${crOf(s)?.games ?? 0} game${crOf(s)?.games === 1 ? "" : "s"})${crOf(s)?.naf?.games ? ` · ${crOf(s)?.naf?.games} NAF game${crOf(s)?.naf?.games === 1 ? "" : "s"}` : ""}`;
 const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters", side?: Side): void; (e: "settings"): void; (e: "weather"): void }>();
 
@@ -150,6 +156,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
             <rect v-for="n in RANK_PIPS[crOf(s)?.rankKey ?? ''] ?? 1" :key="n" class="tt-rank-pip" :x="1 + (n - 1) * 2" y="3" width="1" height="2" />
           </svg>
         </span>
+        <span v-if="nafLine(s)" class="tt-cr-naf">{{ nafLine(s) }}</span>
       </div>
       <div class="tt-namegroup">
       <span class="tt-team tt-nameline" :data-long="match[s].teamName.length > 16 ? 'true' : null" :data-fit="match[s].teamName.length > 20 ? 'lg' : match[s].teamName.length > 14 ? 'md' : null">{{ match[s].teamName }}</span>
@@ -157,6 +164,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
       <div class="tt-coachline tt-nameline">
         <span class="tt-coach">{{ match[s].coach }}</span>
         <small v-if="crOf(s)" class="tt-coach-cr">CR {{ crOf(s)?.cr }}</small>
+        <small v-if="nafLine(s)" class="tt-coach-naf">{{ nafLine(s) }}</small>
         <ul class="tt-chips" :data-size="tray(s).size || null">
           <li v-for="c in tray(s).shown" :key="c.key" :data-tip="chipTitle(c)" data-tip-pos="bottom">
             <img v-if="c.src" class="tt-chip-img" :src="c.src" :alt="c.label" />
