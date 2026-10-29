@@ -298,6 +298,14 @@ export function withConnections(record: CoachIdentityRecord, connections: CoachC
   return { ...base, connections: connections && Object.keys(connections).length ? connections : undefined };
 }
 
+/** A NAF number in one spelling: digits only, leading zeros stripped ("034116" -> "34116"); undefined when not a NAF id. */
+export function canonicalNafId(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const v = value.trim();
+  if (!isNafId(v)) return undefined;
+  return v.replace(/^0+(?=\d)/, "");
+}
+
 function normalizedRecord(value: unknown, allowLegacy = false): CoachIdentityRecord {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("identity record must be an object.");

@@ -286,4 +286,26 @@ describe("NAF verification survives unrelated rewrites; ids are canonical", () =
     await unlinkAs("LinkedCoach");
   });
 
+  it("a zero-padded number is the same NAF record: canonical when fetched, cached, stored and compared (034116 after 34116 is a 409)", async () => {
+    expect((await linkAs("NafCoach", { nafName: "flutethecat", nafId: "34116" })).status).toBe(200);
+    expect((await linkAs("LinkedCoach", { nafName: "flutethecat", nafId: "034116" })).status).toBe(409);
+    expect((await linkAs("LinkedCoach", { nafName: "flutethecat", nafId: "0034116" })).status).toBe(409);
+    expect(nafRequests.every((u) => u.endsWith("coach=34116"))).toBe(true);
+    // a zero-padded first link is stored canonically
+    await unlinkAs("NafCoach");
+    resetNafConnectionState();
+    expect((await linkAs("NafCoach", { nafName: "flutethecat", nafId: "034116" })).status).toBe(200);
+    expect(identities().coaches.nafcoach!.identities.nafId).toBe("34116");
+    expect(identities().coaches.nafcoach!.connections!.naf!.nafId).toBe("34116");
+    expect(parseNafLinkInput({ nafName: "x", nafId: "000" })).toEqual({ nafName: "x", nafId: "0" });
+  });
+
+  it("an old record verified with a zero-padded spelling still collides", async () => {
+    await unlinkAs("NafCoach");
+    const stored = identities().coaches.othercoach as unknown as CoachIdentityRecord;
+    upsertIdentity(withConnections({ ...stored, identities: { ...stored.identities, nafId: "034116", nafName: "flutethecat" } },
+      { naf: { verifiedAt: "2026-10-01T00:00:00.000Z", source: "coachpage", nafId: "034116", nafName: "flutethecat" } }));
+    expect((await linkAs("NafCoach", { nafName: "flutethecat", nafId: "34116" })).status).toBe(409);
+    upsertIdentity(withConnections(stored, undefined));
+  });
 });

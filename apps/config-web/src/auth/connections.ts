@@ -17,7 +17,7 @@
 import { fetchNafCoachIdentity, type NafCoachIdentity } from "../nafRecords.js";
 import { RateLimiter } from "../translate/guards.js";
 import {
-  isNafId, normalizeFfbCoachId, ownIdentityRecord, readIdentities, upsertIdentity, withConnections,
+  canonicalNafId, normalizeFfbCoachId, ownIdentityRecord, readIdentities, upsertIdentity, withConnections,
   type CoachIdentityRecord,
 } from "./identitiesStore.js";
 
@@ -113,7 +113,7 @@ export function resetNafConnectionState(): void {
 
 const cleanName = (v: string) => v.normalize("NFC").trim().replace(/\s+/g, " ");
 const sameName = (a: string, b: string) => cleanName(a).toLowerCase() === cleanName(b).toLowerCase();
-const sameNumber = (a: string, b: string) => a.replace(/^0+(?=\d)/, "") === b.replace(/^0+(?=\d)/, "");
+const sameNumber = (a: string, b: string) => canonicalNafId(a) !== undefined && canonicalNafId(a) === canonicalNafId(b);
 
 /** The verified pair, only while the identity still carries exactly that pair. */
 export function verifiedNaf(record: CoachIdentityRecord): { verifiedAt: string; nafId: string; nafName: string } | undefined {
@@ -127,11 +127,11 @@ export function parseNafLinkInput(body: unknown): { nafName: string; nafId: stri
   for (const key of Object.keys(b)) if (key !== "nafName" && key !== "nafId") throw new ConnectionError(400, `${key} is not accepted here.`);
   if (typeof b.nafName !== "string" || typeof b.nafId !== "string") throw new ConnectionError(400, "NAF name and NAF number are required.");
   const nafName = cleanName(b.nafName);
-  const nafId = b.nafId.trim();
+  const nafId = canonicalNafId(b.nafId);
   if (!nafName) throw new ConnectionError(400, "Enter your NAF name.");
   if (nafName.length > NAF_NAME_MAX) throw new ConnectionError(400, `NAF name must be at most ${NAF_NAME_MAX} characters.`);
   if (!NAF_NAME.test(nafName)) throw new ConnectionError(400, "NAF name can use letters, digits, spaces and . _ ' -");
-  if (!isNafId(nafId)) throw new ConnectionError(400, "NAF number must be 1 to 10 digits.");
+  if (!nafId) throw new ConnectionError(400, "NAF number must be 1 to 10 digits.");
   return { nafName, nafId };
 }
 
@@ -197,7 +197,8 @@ export const nafProvider: ConnectionProvider = {
     }
     const canonicalName = cleanName(page.nafName!);
     const self = normalizeFfbCoachId(coach);
-    const taken = Object.entries(readIdentities().coaches).some(([key, r]) => key !== self && verifiedNaf(r)?.nafId === nafId);
+    // Stored ids are canonicalised too, so a record written before canonicalisation ("034116") still collides.
+    const taken = Object.entries(readIdentities().coaches).some(([key, r]) => key !== self && canonicalNafId(verifiedNaf(r)?.nafId) === nafId);
     if (taken) throw new ConnectionError(409, "That NAF record is already checked on another Super FUMBBL account. If it is yours, ask an admin: they can clear the other account's NAF check, then you can link it here.");
     const previous = ownIdentityRecord(coach);
     const record = withConnections(
