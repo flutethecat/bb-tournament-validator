@@ -1022,3 +1022,12 @@
   /* the race under the crest: white, same lettering */
   .tt-rec .tt-crestcol .tt-crest-race { color: var(--ui-text, #e6e9ef); }
 }
+
+/* desktop: the MATCH LOG label is a 28 px footer row under the log field (bottom-right), and the field starts at the same y as the rail's End Turn button */
+@media (min-width: 1024px) {
+  .tt-rec .tt-mid { grid-template-rows: minmax(0, 1fr) 28px; }
+  .tt-rec .tt-mid > .tt-feed { grid-row: 1; }
+  .tt-rec .tt-mid > .tt-log-h { grid-row: 2; justify-content: flex-end; }
+  .tt-rec > .tt-mid { margin: 8px 20px 20px 0; }
+  .tt-rec > .tt-rail { padding-top: 8px; }
+}
