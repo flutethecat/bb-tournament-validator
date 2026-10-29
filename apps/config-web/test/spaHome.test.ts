@@ -47,9 +47,12 @@ const deadlinesBody = () => ({
 function signedInRoutes(): Routes {
   return {
     "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" },
-    "/api/fork/tournaments": { tournaments: [summary("t1", "Spring Cup", "active", { myEntrantId: "e1" }), summary("t9", "Not mine", "active")], hasMore: true },
-    "/api/fork/tournaments?page=2": { tournaments: [summary("t3", "Dropped Cup", "active", { myEntrantId: "e7", myDroppedAt: "2026-10-01T00:00:00Z" })], hasMore: false },
-    "/api/fork/tournaments?status=draft": { tournaments: [summary("t2", "Autumn Open", "draft", { myEntrantId: "e5" })], hasMore: false },
+    // ?coach=me is filtered on the server; the client still drops anything without a live entry of its own
+    "/api/fork/tournaments?coach=me&limit=12": {
+      tournaments: [summary("t1", "Spring Cup", "active", { myEntrantId: "e1" }), summary("t9", "Not mine", "active"), summary("t3", "Dropped Cup", "active", { myEntrantId: "e7", myDroppedAt: "2026-10-01T00:00:00Z" })],
+      hasMore: false,
+    },
+    "/api/fork/tournaments?status=draft&coach=me&limit=12": { tournaments: [summary("t2", "Autumn Open", "draft", { myEntrantId: "e5" })], hasMore: false },
     "/api/tournaments/t1": {
       tournament: summary("t1", "Spring Cup", "active"),
       entrants: [
@@ -175,7 +178,7 @@ describe("availability editor", () => {
 });
 
 describe("nav tree controller", () => {
-  it("lists the coach's live and upcoming entries (pages followed, dropped and others skipped) with team, validity and fixture", async () => {
+  it("lists the coach's live and upcoming entries (dropped and others skipped) with team, validity and fixture", async () => {
     const f = mockFetcher(signedInRoutes());
     const tree = createCoachTree({ api: f });
     await tree.load("Alice");
@@ -199,7 +202,7 @@ describe("nav tree controller", () => {
   it("keeps the coach's most recent finished entries (at most 5) with the Finished chip", async () => {
     const finished = Array.from({ length: 7 }, (_, i) => summary(`f${i}`, `Old Cup ${i}`, "completed", { myEntrantId: `x${i}`, endsAt: `2026-0${i + 1}-15T00:00:00Z` }));
     const tree = createCoachTree({
-      api: mockFetcher({ ...signedInRoutes(), "/api/fork/tournaments?status=completed": { tournaments: [...finished, summary("f9", "Theirs", "completed")], hasMore: false } }),
+      api: mockFetcher({ ...signedInRoutes(), "/api/fork/tournaments?status=completed&coach=me&limit=5": { tournaments: [...finished, summary("f9", "Theirs", "completed")], hasMore: false } }),
     });
     await tree.load("Alice");
     const done = tree.state.tournaments.filter((t) => t.status.label === "Finished");
@@ -257,6 +260,44 @@ describe("nav tree controller", () => {
     expect(trapTarget(list, "outside", false)).toBe("a");
     expect(trapTarget(list, null, true)).toBe("c");
     expect(trapTarget([], null, false)).toBeUndefined();
+  });
+
+  it("the recorder tells the shell when an events batch submits the match (endOfMatch), retries included, not on plain events", async () => {
+    const { createRecorder } = await import("../spa/src/tabletop/recorder");
+    const { memoryStorage } = await import("../spa/src/tabletop/queue");
+    const base = "/api/tabletop/matches/tm_1";
+    const matchView = { id: "tm_1", state: "recording", home: { coach: "Alice", teamName: "A" }, away: { coach: "Bob", teamName: "B" } };
+    let down = false;
+    const f = mockFetcher({
+      [base]: { match: matchView, events: [] },
+      [`POST ${base}/events`]: (body: unknown) => {
+        if (down) return new ApiError(0, "offline");
+        const events = (body as { events: Array<{ id: string; type: string }> }).events;
+        const ended = events.some((e) => e.type === "endOfMatch");
+        return { accepted: events.map((e) => e.id), duplicates: [], total: events.length, ...(ended ? { submitted: true, match: { ...matchView, state: "submitted" } } : {}) };
+      },
+      [`POST ${base}/submit`]: new ApiError(409, "This match is already submitted."),
+    });
+    let changed = 0;
+    const timers: Array<() => void> = [];
+    const rec = createRecorder("tm_1", {
+      api: f, onSignedOut: () => undefined, storage: memoryStorage(), onChanged: () => { changed++; },
+      setTimer: (fn) => { timers.push(fn); return timers.length; }, clearTimer: () => undefined, setInterval: () => 0, clearInterval: () => undefined,
+    });
+    await rec.record({ type: "touchdown", team: "home", player: "p1" });
+    expect(changed).toBe(0);
+    // End and submit: the endOfMatch batch submits on the server; the follow-up /submit 409s, the shell still heard about it
+    await rec.record({ type: "endOfMatch", team: "home" });
+    await rec.submit();
+    expect(changed).toBe(1);
+    // offline: the endOfMatch waits in the queue and the retry's success notifies
+    down = true;
+    await rec.record({ type: "endOfMatch", team: "home" });
+    expect(changed).toBe(1);
+    down = false;
+    timers.at(-1)!();
+    for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(changed).toBe(2);
   });
 
   it("a failing source leaves an empty tree, never an error", async () => {
