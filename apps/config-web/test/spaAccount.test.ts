@@ -1,12 +1,14 @@
+import { nextTick, ref } from "vue";
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import type { DeadlineView } from "../spa/src/home/deadlines";
 import {
-  agenda, availabilityByWeekday, calendarEvents, chipTone, dayKey, eventsByDay, loadProposals, monthGrid, monthLabel, monthOf, shiftMonth, timeOf,
+  agenda, availabilityByWeekday, calendarEvents, calendarZone, chipTone, dayKey, eventsByDay, loadProposals, monthGrid, monthLabel, monthOf, shiftMonth, timeOf,
   type ProposedTime,
 } from "../spa/src/account/calendar";
 import { createProfileEditor, profileProblems, type ProfileView } from "../spa/src/account/profile";
+import { createAccountEditors } from "../spa/src/account/editors";
 
 // Account page controllers: the calendar helpers (Monday-first month grid, chip tones, events on the coach's day) and the
 // Identity panel's editor (local checks, PATCH only the changed fields, linked FUMBBL name never sent).
@@ -163,5 +165,100 @@ describe("identity editor", () => {
     fail = false;
     await ed.load();
     expect(ed.state.loaded).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------- review fixes (Sol 6.1, 10-30)
+
+describe("account page review fixes", () => {
+  const view = (coach: string, extra: Partial<ProfileView> = {}): ProfileView => ({
+    coach, displayName: "", fumbblName: "", fumbblLinked: false, nafName: "", nafId: "", avatar: null, avatarSource: "none",
+    discord: { linked: true, username: `${coach.toLowerCase()}_dc` }, ...extra,
+  });
+  const deferred = <T>() => {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => { resolve = r; });
+    return { promise, resolve };
+  };
+
+  it("a coach switch recreates the editors; the previous coach's late answers never reach the new ones", async () => {
+    const coach = ref("Alice");
+    const pending: Array<{ path: string; method: string; d: ReturnType<typeof deferred<unknown>> }> = [];
+    const api = ((path: string, init: { method?: string } = {}) => {
+      const d = deferred<unknown>();
+      pending.push({ path, method: init.method ?? "GET", d });
+      return d.promise;
+    }) as Fetcher;
+    const eds = createAccountEditors({ api, currentCoach: () => coach.value, loadProposals: async () => [] });
+    const alice = eds.profile.value;
+    const aliceSchedule = eds.schedule.value;
+    const aliceLoad = alice.load();
+    coach.value = "Bob"; // Test sign-in as Bob while Alice's read is in flight
+    await nextTick();
+    expect(eds.coach.value).toBe("Bob");
+    expect(eds.profile.value).not.toBe(alice);
+    expect(eds.schedule.value).not.toBe(aliceSchedule);
+    expect(eds.profile.value.state.view).toBeNull();
+    // Alice's answer lands after the switch: dropped, even on her own (discarded) editor
+    pending[0]!.d.resolve(view("Alice", { fumbblName: "AliceF", fumbblLinked: true }));
+    await aliceLoad;
+    expect(alice.state.view).toBeNull();
+    expect(eds.profile.value.state.view).toBeNull();
+    // Bob's editor loads Bob
+    const bobLoad = eds.profile.value.load();
+    pending[1]!.d.resolve(view("Bob"));
+    await bobLoad;
+    expect(eds.profile.value.state.view?.coach).toBe("Bob");
+    expect(eds.profile.value.state.form.fumbblName).toBe("");
+    eds.stop();
+  });
+
+  it("an editor refuses to save once the session is another coach, and drops an answer for a different coach", async () => {
+    let session = "Alice";
+    const calls: string[] = [];
+    const api = (async (_p: string, init: { method?: string } = {}) => { calls.push(init.method ?? "GET"); return view(session === "Alice" ? "Alice" : "Bob"); }) as Fetcher;
+    const ed = createProfileEditor({ api, coach: "Alice", currentCoach: () => session });
+    await ed.load();
+    expect(ed.state.view?.coach).toBe("Alice");
+    ed.edit("displayName", "Ally");
+    session = "Bob";
+    expect(await ed.save()).toBe(false);
+    expect(calls).toEqual(["GET"]);
+    expect(ed.state.error).toMatch(/another coach/);
+    // a read answered for someone else is never shown
+    const other = createProfileEditor({ api: (async () => view("Bob")) as Fetcher, coach: "Alice", currentCoach: () => "Alice" });
+    await other.load();
+    expect(other.state.view).toBeNull();
+  });
+
+  it("an edit made while a save is in flight survives the response and stays dirty", async () => {
+    const patch = deferred<ProfileView>();
+    const api = ((_p: string, init: { method?: string; body?: unknown } = {}) =>
+      (init.method === "PATCH" ? patch.promise : Promise.resolve(view("Alice")))) as Fetcher;
+    const ed = createProfileEditor({ api, coach: "Alice", currentCoach: () => "Alice" });
+    await ed.load();
+    ed.edit("displayName", "Ally");
+    const saving = ed.save();
+    expect(ed.state.saving).toBe(true);
+    ed.edit("nafId", "4242"); // typed during the request
+    patch.resolve(view("Alice", { displayName: "Ally" }));
+    expect(await saving).toBe(true);
+    expect(ed.state.form.displayName).toBe("Ally");
+    expect(ed.state.form.nafId).toBe("4242");
+    expect(ed.dirty()).toBe(true);
+    expect(ed.changes()).toEqual({ nafId: "4242" });
+    expect(ed.state.notice).toMatch(/Newer changes are not saved yet/);
+  });
+
+  it("the loaded scheduling zone places events, not the tree's cached zone (cached only while loading)", () => {
+    const at = "2026-10-31T23:30:00Z";
+    const cachedNy = { treeZone: "America/New_York", browserZone: "UTC" };
+    const loaded = calendarZone({ scheduleLoaded: true, scheduleZone: "Asia/Tokyo", ...cachedNy });
+    expect(loaded).toBe("Asia/Tokyo");
+    expect(dayKey(at, loaded)).toBe("2026-11-01");
+    const loading = calendarZone({ scheduleLoaded: false, scheduleZone: "", ...cachedNy });
+    expect(loading).toBe("America/New_York");
+    expect(dayKey(at, loading)).toBe("2026-10-31");
+    expect(calendarZone({ scheduleLoaded: false, scheduleZone: "", treeZone: "", browserZone: "Europe/Paris" })).toBe("Europe/Paris");
   });
 });

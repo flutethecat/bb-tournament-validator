@@ -156,3 +156,10 @@ export function availabilityByWeekday(blocks: readonly AvailabilityBlock[]): Ava
 export async function loadProposals(): Promise<ProposedTime[]> {
   return [];
 }
+
+/** The zone the calendar keys days in. The freshly loaded scheduling timezone (saved, else detected) is the authority;
+ *  the nav tree's cached zone only stands in while scheduling is still loading (or failed), then the browser's. */
+export function calendarZone(src: { scheduleLoaded: boolean; scheduleZone: string; treeZone: string; browserZone: string }): string {
+  if (src.scheduleLoaded && src.scheduleZone) return src.scheduleZone;
+  return src.treeZone || src.scheduleZone || src.browserZone;
+}

@@ -17,7 +17,7 @@ onServerPrefetch(() => props.editor.load());
 <template>
   <div class="ac-identity">
     <p v-if="!state.loaded && !state.loadFailed" class="hm-empty">Loading…</p>
-    <form v-else-if="state.view" class="ac-form" novalidate @submit.prevent="editor.save()">
+    <form v-else-if="state.view" class="ac-form" novalidate :aria-busy="state.saving ? 'true' : undefined" @submit.prevent="editor.save()">
       <div class="ac-who">
         <img v-if="state.view.avatar" class="ac-avatar" :src="state.view.avatar" alt="" />
         <span v-else class="ac-avatar ac-avatar-blank" aria-hidden="true">{{ coach.slice(0, 1) }}</span>
@@ -28,6 +28,8 @@ onServerPrefetch(() => props.editor.load());
         </div>
       </div>
 
+      <!-- Inputs lock while a save is in flight (the controller also keeps any edit made meanwhile). -->
+      <fieldset class="ac-fieldset" :disabled="state.saving">
       <div class="ac-field">
         <label for="ac-display">Display name</label>
         <input
@@ -70,6 +72,7 @@ onServerPrefetch(() => props.editor.load());
         <span class="ac-readonly">{{ state.view.discord.username || (state.view.discord.linked ? "Linked" : "Not linked") }}</span>
         <small class="muted hm-small">You sign in with this Discord account. It can't be changed here.</small>
       </div>
+      </fieldset>
 
       <div class="hm-actions">
         <button class="lobby-btn primary small" type="submit" :disabled="state.saving">{{ state.saving ? "Saving…" : "Save profile" }}</button>

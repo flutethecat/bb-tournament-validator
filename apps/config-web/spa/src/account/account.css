@@ -2,7 +2,9 @@
    classes in home/home.css (hm-page, hm-grid, hm-panel, hm-band, hm-chip); tokens only. */
 
 /* ---- identity */
-.ac-form { display: grid; gap: 12px; }
+.ac-form, .ac-fieldset { display: grid; gap: 12px; }
+.ac-fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.ac-fieldset:disabled input { opacity: .7; cursor: progress; }
 .ac-who { display: flex; align-items: center; gap: 12px; }
 .ac-avatar { width: 56px; height: 56px; flex: none; border: 2px solid var(--sf-panel-line); border-radius: 2px; object-fit: cover; box-shadow: var(--sf-bevel); }
 .ac-avatar-blank { display: inline-flex; align-items: center; justify-content: center; font: 24px var(--sf-band-font); color: var(--ui-muted); background: var(--ui-surface-2); }

@@ -673,9 +673,11 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
       const weekday = i % 7;
       expect(cells[i]!.includes('data-avail="true"'), `cell ${i}`).toBe(weekday === 0 || weekday === 5);
     }
-    // the round deadline (in 5 h) sits on its New York day as a scarlet chip linking to the fixture
+    // the loaded scheduling zone (London) is the calendar's authority, not the nav tree's cached one (New York)
+    expect(cal).toContain("times in Europe/London");
+    // the round deadline (in 5 h) sits on its London day as a scarlet chip linking to the fixture
     const at = Date.now() + 5 * H;
-    const key = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
+    const key = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
     // (a Sunday-night month end can push it past the grid's last week: then there is no cell to check)
     const cell = cal.match(new RegExp(`data-day="${key}"[\\s\\S]*?</ul>`))?.[0] ?? "";
     if (cal.includes(`data-day="${key}"`)) expect(cell).toMatch(/<a href="\/app\/tournaments\/t1\?tab=rounds" class="hm-chip ac-chip hm-chip-urgent"/);

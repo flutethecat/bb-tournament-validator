@@ -3,7 +3,7 @@
 // 380 px at >= 1280). Main: Identity (GET/PATCH /api/me/profile), Schedule (the availability editor, GET/PUT
 // /api/me/scheduling; /account#schedule lands here), Calendar (deadlines and fixtures from the nav tree's
 // GET /api/me/deadlines, availability shading, proposed times once that lane lands). Side: Session, Teams, test sign-in.
-import { computed, inject, onMounted, onServerPrefetch, ref } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, onServerPrefetch, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
@@ -11,9 +11,8 @@ import TestSignInCard from "../components/TestSignInCard.vue";
 import HomeSchedule from "../components/HomeSchedule.vue";
 import AccountIdentity from "../components/AccountIdentity.vue";
 import AccountCalendar from "../components/AccountCalendar.vue";
-import { createProfileEditor } from "../account/profile";
-import { loadProposals, type ProposedTime } from "../account/calendar";
-import { createScheduleEditor } from "../home/schedule";
+import { calendarZone } from "../account/calendar";
+import { createAccountEditors } from "../account/editors";
 import { browserTimeZone } from "../home/deadlines";
 import { COACH_TREE_KEY } from "../home/tree";
 import { useNow } from "../home/shell";
@@ -23,14 +22,20 @@ const fetcher = inject(API_KEY)!;
 const tree = inject(COACH_TREE_KEY, null);
 const now = useNow();
 
-const profile = createProfileEditor({ api: fetcher });
-// One schedule editor for the Schedule panel and the calendar's availability shading (a saved week also refreshes the tree).
-const schedule = createScheduleEditor({ api: fetcher, onSaved: () => tree?.invalidate() });
-const proposals = ref<ProposedTime[]>([]);
+// Per-coach editors (src/account/editors.ts): a session switch recreates them, the keyed panels below remount and reload.
+const editors = createAccountEditors({
+  api: fetcher,
+  currentCoach: () => (session.signedIn() ? session.coach() : ""),
+  onScheduleSaved: () => tree?.invalidate(),
+});
+const { coach, profile, schedule, proposals } = editors;
+onBeforeUnmount(() => editors.stop());
 
-const zone = computed(() => tree?.state.timezone || schedule.state.timezone || browserTimeZone());
+const zone = computed(() => calendarZone({
+  scheduleLoaded: schedule.value.state.loaded, scheduleZone: schedule.value.state.timezone, treeZone: tree?.state.timezone ?? "", browserZone: browserTimeZone(),
+}));
 const deadlines = computed(() => tree?.state.deadlines ?? []);
-const discord = computed(() => profile.state.view?.discord);
+const discord = computed(() => profile.value.state.view?.discord);
 
 const signingOut = ref(false);
 const signOutError = ref("");
@@ -49,9 +54,9 @@ async function signOut(): Promise<void> {
   }
 }
 
-onMounted(() => { void loadProposals().then((p) => { proposals.value = p; }); });
+onMounted(() => { void editors.refreshProposals(); });
 // Server rendering: the week loads before the Schedule panel and the calendar both render from it.
-onServerPrefetch(() => (session.signedIn() ? schedule.load() : undefined));
+onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
 </script>
 
 <template>
@@ -59,18 +64,18 @@ onServerPrefetch(() => (session.signedIn() ? schedule.load() : undefined));
     <h1 class="hm-title">Account <span class="hm-led">{{ session.coach() }}</span></h1>
     <div class="hm-grid">
       <div class="hm-col hm-col-main">
-        <section v-if="session.signedIn()" id="identity" class="hm-panel" aria-labelledby="ac-identity-h">
+        <section v-if="session.signedIn()" id="identity" :key="`identity-${coach}`" class="hm-panel" aria-labelledby="ac-identity-h">
           <header class="hm-band"><h2 id="ac-identity-h">Identity</h2><span class="hm-cap">What coaches see</span></header>
           <AccountIdentity :editor="profile" :coach="session.coach()" />
         </section>
 
         <!-- Owner 10-30: the weekly availability editor moved here from the coach page. -->
-        <section v-if="session.signedIn()" id="schedule" class="hm-panel" aria-labelledby="hm-schedule-h">
+        <section v-if="session.signedIn()" id="schedule" :key="`schedule-${coach}`" class="hm-panel" aria-labelledby="hm-schedule-h">
           <header class="hm-band"><h2 id="hm-schedule-h">Schedule</h2><span class="hm-cap">My availability</span></header>
           <HomeSchedule :editor="schedule" />
         </section>
 
-        <section v-if="session.signedIn()" id="calendar" class="hm-panel" aria-labelledby="ac-calendar-h">
+        <section v-if="session.signedIn()" id="calendar" :key="`calendar-${coach}`" class="hm-panel" aria-labelledby="ac-calendar-h">
           <header class="hm-band"><h2 id="ac-calendar-h">Calendar</h2><RouterLink class="hm-cap" to="/home#deadlines">Deadlines</RouterLink></header>
           <AccountCalendar :deadlines="deadlines" :proposals="proposals" :blocks="schedule.state.blocks" :timezone="zone" :now="now" :loading="tree?.state.loading" />
         </section>

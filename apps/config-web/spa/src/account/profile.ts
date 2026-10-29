@@ -56,19 +56,32 @@ export interface ProfileState {
 const formOf = (v: ProfileView): ProfileForm => ({ displayName: v.displayName, fumbblName: v.fumbblName, nafName: v.nafName, nafId: v.nafId });
 const blank = (): ProfileForm => ({ displayName: "", fumbblName: "", nafName: "", nafId: "" });
 
-export function createProfileEditor(deps: { api: Fetcher }) {
+const sameCoach = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * One editor per signed-in coach. `coach` tags every request; `currentCoach` is the live session coach: a response that
+ * lands after the session switched (or that answers for a different coach) is dropped, and a save is refused once the
+ * session is no longer the editor's coach. The page recreates the editor on a coach switch.
+ */
+export function createProfileEditor(deps: { api: Fetcher; coach?: string; currentCoach?: () => string }) {
   const state = reactive<ProfileState>({ view: null, form: blank(), problems: blank(), loaded: false, loadFailed: false, saving: false, error: "", notice: "" });
+  const tag = deps.coach ?? "";
+  /** True when the session moved on from the coach this editor was made for. */
+  const stale = () => Boolean(tag && deps.currentCoach && !sameCoach(deps.currentCoach(), tag));
+  const foreign = (v: ProfileView | undefined) => Boolean(tag && v && typeof v.coach === "string" && !sameCoach(v.coach, tag));
 
   async function load(): Promise<void> {
     state.loadFailed = false;
     try {
       const v = await deps.api<ProfileView>("/api/me/profile");
+      if (stale() || foreign(v)) return;
       state.view = v;
       state.form = formOf(v);
       state.problems = blank();
       state.error = "";
       state.loaded = true;
     } catch (e) {
+      if (stale()) return;
       state.loaded = false;
       state.loadFailed = true;
       state.error = `Can't load your profile: ${e instanceof Error ? e.message : "try again."}`;
@@ -96,19 +109,25 @@ export function createProfileEditor(deps: { api: Fetcher }) {
     edit(field: ProfileField, value: string): void { state.form[field] = value; state.notice = ""; state.problems[field] = ""; },
     async save(): Promise<boolean> {
       if (!state.loaded || state.saving) return false;
+      if (stale()) { state.error = "You are signed in as another coach now. Reload the page."; state.notice = ""; return false; }
       state.problems = profileProblems(state.form);
       if (Object.values(state.problems).some(Boolean)) { state.error = "Fix the marked fields."; state.notice = ""; return false; }
       const patch = changes();
       if (!Object.keys(patch).length) { state.error = ""; state.notice = "Nothing to save."; return true; }
       state.saving = true;
+      // What the inputs held when the request left: a field edited while it is in flight keeps the newer text.
+      const submitted: ProfileForm = { ...state.form };
       try {
         const v = await deps.api<ProfileView>("/api/me/profile", { method: "PATCH", body: patch });
+        if (stale() || foreign(v)) return false;
         state.view = v;
-        state.form = formOf(v);
+        const saved = formOf(v);
+        for (const k of Object.keys(saved) as ProfileField[]) if (state.form[k] === submitted[k]) state.form[k] = saved[k];
         state.error = "";
-        state.notice = "Profile saved.";
+        state.notice = Object.keys(changes()).length ? "Profile saved. Newer changes are not saved yet." : "Profile saved.";
         return true;
       } catch (e) {
+        if (stale()) return false;
         state.error = e instanceof Error ? e.message : "Can't save your profile.";
         state.notice = "";
         return false;
