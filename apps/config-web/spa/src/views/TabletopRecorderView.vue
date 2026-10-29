@@ -13,6 +13,7 @@ import TabletopTtm from "../components/TabletopTtm.vue";
 import TabletopPregame from "../components/TabletopPregame.vue";
 import TabletopRosters from "../components/TabletopRosters.vue";
 import TabletopScoreboard from "../components/TabletopScoreboard.vue";
+import TabletopMatchSummary from "../components/TabletopMatchSummary.vue";
 import TabletopSettings from "../components/TabletopSettings.vue";
 import TabletopTurnSet from "../components/TabletopTurnSet.vue";
 import TabletopAdmin from "../components/TabletopAdmin.vue";
@@ -334,7 +335,6 @@ const iConfirmed = computed(() => (me.value ? confirmedAt(me.value) !== "" : fal
 const isParticipant = computed(() => match.value !== null && (match.value.home.coach === me.value || match.value.away.coach === me.value));
 const canConfirm = computed(() => match.value?.state === "submitted" && (organiser.value || (isParticipant.value && !iConfirmed.value)));
 const hhmm = (iso: string): string => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
-const money = (n: number): string => `${Math.round(n / 1000)}k`;
 const retryIn = computed(() => (state.retryAt ? Math.max(0, Math.round((state.retryAt - Date.now()) / 1000)) : 0));
 const summaries = (): Array<[Side, SummaryView]> =>
   match.value?.preview ? sides.map((s) => [s, match.value!.preview![s]] as [Side, SummaryView]) : [];
@@ -411,23 +411,7 @@ onBeforeUnmount(() => {
       />
 
       <template v-if="match.state !== 'recording'">
-        <section v-for="[s, sum] in summaries()" :key="s" class="tt-panel tt-summary">
-          <h3>{{ heading(s) }}</h3>
-          <p>
-            {{ sum.outcome === "won" ? "Won" : sum.outcome === "lost" ? "Lost" : "Drawn" }} {{ sum.score.for }}-{{ sum.score.against }}
-            <template v-if="sum.applied"> · winnings {{ money(sum.winnings) }} · treasury {{ money(sum.treasuryBefore) }} to {{ money(sum.treasuryAfter) }} · fans {{ sum.fansBefore }} to {{ sum.fansAfter }}</template>
-            <template v-else> · post-match not applied</template>
-          </p>
-          <p v-if="sum.deaths.length" class="lobby-error">Killed: {{ sum.deaths.join(", ") }}</p>
-          <ul class="tt-players">
-            <li v-for="l in sum.players" :key="l.id" class="tt-player">
-              <strong>{{ l.name }}</strong>
-              <span class="muted"> {{ l.touchdowns }} TD, {{ l.casualtiesCaused }} CAS, {{ l.completions }} comp, {{ l.interceptions }} int, {{ l.deflections }} defl<template v-if="l.mvp">, MVP</template><template v-if="l.sentOff">, sent off</template></span>
-              <span class="tt-spp"> +{{ l.sppEarned }} SPP</span>
-              <span v-if="l.injury" class="muted"> · {{ l.injury.result }}{{ l.injury.stat ? ` ${l.injury.stat}` : "" }}{{ l.injury.apothecaryUsed ? " (apothecary)" : "" }}</span>
-            </li>
-          </ul>
-        </section>
+        <TabletopMatchSummary v-for="[s, sum] in summaries()" :key="s" :heading="heading(s)" :summary="sum" />
 
         <section v-if="match.state === 'submitted' && mySide && !hasMvp(mySide)" class="tt-panel tt-late-mvp">
           <h3>Your MVP</h3>
