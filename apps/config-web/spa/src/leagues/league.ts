@@ -6,7 +6,7 @@ import { ApiError } from "../shared/api";
 import { resolveCrest } from "../tabletop/art";
 import type { Fetcher } from "../session";
 import type {
-  HonourTable, HonourValue, LeagueFixture, LeaguePhase, LeagueStats, LeagueSummary, LeagueTeam, SeasonRecord, SeasonSummary, StatsScope,
+  FormerPlayer, HonourTable, HonourValue, LeagueFixture, LeaguePhase, LeaguePlayer, LeagueStats, LeagueSummary, LeagueTeam, SeasonRecord, SeasonSummary, StatsScope,
 } from "./types";
 
 const errorText = (err: unknown, fallback: string): string => (err instanceof Error && err.message ? err.message : fallback);
@@ -305,6 +305,25 @@ export function teamByRef(season: SeasonRecord, ref: string): LeagueTeam | undef
 
 /** Totals the export could not split between players, recorded once on this team. */
 export const teamUnattributed = (season: SeasonRecord, team: LeagueTeam) => (season.unattributedStats ?? []).filter((u) => u.teamId === team.id);
+
+/** The roster or former player a ?player= value names: its playerId, else an id the player held in an earlier season. */
+export function playerByRef(season: SeasonRecord, ref: string): { team: LeagueTeam; player: LeaguePlayer | FormerPlayer } | undefined {
+  if (!ref) return undefined;
+  for (const exact of [true, false]) {
+    for (const team of season.teams) {
+      for (const player of [...team.players, ...team.formerPlayers]) {
+        if (exact ? player.playerId === ref : player.previousIds?.includes(ref)) return { team, player };
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Combined honour totals this player is one of the candidates for (the export could not split them). */
+export const sharedTotalsFor = (season: SeasonRecord, playerId: string) => (season.unattributedStats ?? []).filter((u) => (u.candidates ?? []).includes(playerId));
+
+/** Where a player's id opens: that season's Teams tab with the player highlighted. */
+export const playerQuery = (seasonId: string, playerId: string): Record<string, string> => ({ season: seasonId, tab: "teams", player: playerId });
 
 /** 885000 -> "885k", 1205000 -> "1,205k". */
 export function kValue(n: number | null | undefined): string {

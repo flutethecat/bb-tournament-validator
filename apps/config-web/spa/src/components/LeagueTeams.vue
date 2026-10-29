@@ -3,12 +3,17 @@
 // SPP and season stats) and the players who left the roster during the season.
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
-import { crestFor, initials, kValue, teamByRef, teamUnattributed } from "../leagues/league";
+import { crestFor, initials, kValue, playerByRef, sharedTotalsFor, teamByRef, teamUnattributed } from "../leagues/league";
 import type { LeaguePlayer, SeasonRecord } from "../leagues/types";
 
-const props = defineProps<{ season: SeasonRecord; team: string; leagueId: string; crests: Record<string, string> }>();
+const props = defineProps<{ season: SeasonRecord; team: string; player?: string; leagueId: string; crests: Record<string, string> }>();
 const route = useRoute();
-const picked = computed(() => (props.team ? teamByRef(props.season, props.team) : undefined));
+// ?player=<playerId> opens that player's team (an older season's id resolves through previousIds); ?team= wins when both are given.
+const found = computed(() => (props.player ? playerByRef(props.season, props.player) : undefined));
+const showing = computed(() => Boolean(props.team || found.value));
+const picked = computed(() => (props.team ? teamByRef(props.season, props.team) : found.value?.team));
+const focusId = computed(() => (found.value ? found.value.player.playerId : ""));
+const shared = (p: Pick<LeaguePlayer, "playerId">) => sharedTotalsFor(props.season, p.playerId);
 const unsplit = computed(() => (picked.value ? teamUnattributed(props.season, picked.value) : []));
 const link = (teamId?: string) => ({
   name: "league-detail",
@@ -23,7 +28,7 @@ const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
 
 <template>
   <div class="lg-stack">
-    <template v-if="team">
+    <template v-if="showing">
       <RouterLink class="tn-back" :to="link()">All teams</RouterLink>
       <section v-if="!picked" class="hm-panel" aria-labelledby="lg-team-none">
         <header class="hm-band"><h2 id="lg-team-none">Team</h2></header>
@@ -56,11 +61,12 @@ const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="p in picked.players" :key="`${p.number}-${p.name}`">
+                <tr v-for="p in picked.players" :key="p.playerId" :id="`player-${p.playerId}`" :data-player="p.playerId" :class="{ 'lg-row-picked': p.playerId === focusId }" :aria-current="p.playerId === focusId ? 'true' : undefined">
                   <td class="lg-num">{{ p.number ?? "" }}</td>
                   <th scope="row" class="lg-team-cell">
                     <span class="lg-team-name">{{ p.name }}</span>
                     <small>{{ p.position }}<template v-if="p.level"> · {{ p.level }}</template><template v-if="p.niggling"> · {{ p.niggling }} niggling</template><template v-if="p.missNextGame"> · misses next game</template></small>
+                    <small v-for="u in shared(p)" :key="`${u.name}|${u.position}`" class="lg-shared" data-shared-total>Shared total with {{ Math.max((u.candidates?.length ?? 2) - 1, 1) }} {{ (u.candidates?.length ?? 2) === 2 ? "other" : "others" }}: {{ u.stats.td }} TD, {{ u.stats.cas }} CAS, {{ u.stats.mvp }} MVP, {{ u.stats.spp }} SPP</small>
                   </th>
                   <td class="lg-num">{{ stat(p.ma) }}</td><td class="lg-num">{{ stat(p.st) }}</td><td class="lg-num">{{ plus(p.ag) }}</td><td class="lg-num">{{ plus(p.pa) }}</td><td class="lg-num">{{ plus(p.av) }}</td>
                   <td class="lg-skills">{{ p.skills.join(", ") }}</td>
@@ -78,7 +84,7 @@ const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
             <table class="lg-table">
               <thead><tr><th scope="col">Players</th><th scope="col" class="lg-num">TD</th><th scope="col" class="lg-num">CAS</th><th scope="col" class="lg-num">MVP</th><th scope="col" class="lg-num">SPP</th></tr></thead>
               <tbody>
-                <tr v-for="u in unsplit" :key="`${u.name}|${u.position}`">
+                <tr v-for="u in unsplit" :key="`${u.name}|${u.position}|${(u.candidates ?? []).join(',')}`">
                   <th scope="row" class="lg-team-cell"><span class="lg-team-name">{{ u.name }}</span><small>{{ u.position }} · {{ u.reason }}</small></th>
                   <td class="lg-num">{{ u.stats.td }}</td><td class="lg-num">{{ u.stats.cas }}</td><td class="lg-num">{{ u.stats.mvp }}</td><td class="lg-num lg-pts">{{ u.stats.spp }}</td>
                 </tr>
@@ -92,7 +98,7 @@ const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
             <table class="lg-table">
               <thead><tr><th scope="col">Player</th><th scope="col" class="lg-num">TD</th><th scope="col" class="lg-num">CAS</th><th scope="col" class="lg-num">MVP</th><th scope="col" class="lg-num">SPP</th></tr></thead>
               <tbody>
-                <tr v-for="p in picked.formerPlayers" :key="p.name">
+                <tr v-for="p in picked.formerPlayers" :key="p.playerId" :id="`player-${p.playerId}`" :data-player="p.playerId" :class="{ 'lg-row-picked': p.playerId === focusId }" :aria-current="p.playerId === focusId ? 'true' : undefined">
                   <th scope="row" class="lg-team-cell"><span class="lg-team-name">{{ p.name }}</span><small>{{ p.position }}</small></th>
                   <td class="lg-num">{{ p.stats.td }}</td><td class="lg-num">{{ p.stats.cas }}</td><td class="lg-num">{{ p.stats.mvp }}</td><td class="lg-num lg-pts">{{ p.stats.spp }}</td>
                 </tr>

@@ -4,7 +4,7 @@
 import { computed, inject, nextTick, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
-import { createLeagueStats, isStatsScope, LEAGUE_STATS_KEY, pct, phaseLabel, RULESET_TONE, seasonsLine, STATS_SCOPES } from "../leagues/league";
+import { createLeagueStats, isStatsScope, LEAGUE_STATS_KEY, pct, phaseLabel, playerQuery, RULESET_TONE, seasonsLine, STATS_SCOPES } from "../leagues/league";
 import type { LeaderStat, StatsScope } from "../leagues/types";
 import "../leagues/leagues.css";
 
@@ -91,9 +91,9 @@ onMounted(() => { if (state.id !== props.id || !state.byScope[scope.value]) void
               <h3 class="lg-board-h">{{ b.label }}</h3>
               <p v-if="!stats.leaders[b.id]?.length" class="hm-empty hm-small">None recorded.</p>
               <ol v-else class="lg-board-rows">
-                <li v-for="(p, i) in stats.leaders[b.id]" :key="`${p.team}-${p.name}`">
+                <li v-for="(p, i) in stats.leaders[b.id]" :key="p.playerId">
                   <span class="lg-board-rank">{{ i + 1 }}</span>
-                  <span class="lg-board-who"><strong>{{ p.name }}</strong><small>{{ p.team }} · {{ seasonsLine(p.seasons) }}</small></span>
+                  <span class="lg-board-who"><strong><RouterLink class="lg-player-link" :to="{ name: 'league-detail', params: { id }, query: playerQuery(p.seasonId, p.playerId) }">{{ p.name }}</RouterLink></strong><small>{{ p.team }} · {{ seasonsLine(p.seasons) }}</small></span>
                   <span class="lg-board-val">{{ p.value }}</span>
                 </li>
               </ol>

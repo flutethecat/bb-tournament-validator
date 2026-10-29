@@ -100,7 +100,10 @@ export interface PlayerSeasonStats {
   performance: number;
 }
 
-export interface LeaguePlayer {
+/** Every imported player carries a stable id; careerKey / previousIds link the same player across seasons. */
+export interface PlayerIdentity { playerId: string; careerKey?: string; previousIds?: string[] }
+
+export interface LeaguePlayer extends PlayerIdentity {
   number: number | null;
   name: string;
   position: string;
@@ -118,7 +121,7 @@ export interface LeaguePlayer {
   stats: PlayerSeasonStats;
 }
 
-export interface FormerPlayer {
+export interface FormerPlayer extends PlayerIdentity {
   name: string;
   position: string;
   level: string;
@@ -151,7 +154,7 @@ export interface HonourTable {
   category: string;
   stat: string;
   kind: "player" | "team" | "coach";
-  rows: Array<{ rank: number; name: string; team: string; coach: string; position?: string; level?: string; value: HonourValue }>;
+  rows: Array<{ rank: number; name: string; team: string; coach: string; position?: string; level?: string; playerId?: string; value: HonourValue }>;
 }
 
 export interface LeagueAward {
@@ -165,7 +168,7 @@ export interface LeagueAward {
   goldenStar: boolean;
 }
 
-export interface UnattributedStats { team: string; teamId?: string; name: string; position: string; stats: PlayerSeasonStats; reason: string }
+export interface UnattributedStats { team: string; teamId?: string; name: string; position: string; stats: PlayerSeasonStats; reason: string; /** playerIds the total could belong to (absent on files imported before ids existed). */ candidates?: string[] }
 
 export interface SeasonRecord {
   id: string;
@@ -191,7 +194,7 @@ export interface SeasonRecord {
 export type StatsScope = "bb2020" | "bb2025" | "all";
 export type LeaderStat = "td" | "cas" | "mvp" | "int" | "completions" | "fouls" | "spp";
 
-export interface PlayerLeader { name: string; position: string; team: string; race: string; coach: string; seasons: number[]; value: number }
+export interface PlayerLeader { playerId: string; seasonId: string; name: string; position: string; team: string; race: string; coach: string; seasons: number[]; value: number }
 export interface RecordLine { games: number; wins: number; draws: number; losses: number; points: number; tdFor: number; tdAgainst: number; casFor: number; casAgainst: number; winPct: number }
 export interface CoachRecord extends RecordLine { coach: string; coachId?: string; seasons: number[]; teams: number; titles: number }
 export interface TeamRecord extends RecordLine { team: string; race: string; coach: string; seasons: number[] }

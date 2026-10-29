@@ -7,7 +7,7 @@ import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import {
   canManageLeague, createLeagueDetail, createLeagueList, createLeagueStats, crestFor, fixtureContext, fixturesByPhase, honourBoards, honourValue,
-  fixtureOutcome, kValue, latestResults, pickSeason, resultCardProps, safeArtUrl, standingsTables, teamByRef,
+  fixtureOutcome, kValue, latestResults, pickSeason, playerByRef, sharedTotalsFor, resultCardProps, safeArtUrl, standingsTables, teamByRef,
 } from "../spa/src/leagues/league";
 import type { LeagueFixture, LeagueStats, LeagueSummary, SeasonRecord, SeasonSummary } from "../spa/src/leagues/types";
 
@@ -64,16 +64,16 @@ const season6 = (): SeasonRecord => ({
   participants: [],
   teams: [
     { id: "grudge-rollers", name: "Grudge Rollers", race: "Dwarf", coach: "flutethecat (Jay)", teamValue: 885000, treasury: 130000, rerolls: 1, fans: 3, assistantCoaches: 0, cheerleaders: 0, apothecary: false, tier: "2", raceLeague: "WorldsEdgeSuperleague",
-      players: [{ number: 4, name: "Dethirord Slenderstrength", position: "Troll Slayer", ma: 5, st: 3, ag: 4, pa: 5, av: 9, skills: ["Block", "Hatred (102)"], value: 95000, level: "Rookie", availableSpp: 6, niggling: 0, missNextGame: false, stats: { td: 2, cas: 1, mvp: 1, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 11, performance: 0 } }],
-      formerPlayers: [{ name: "Gone Guy", position: "Dwarf Lineman", level: "Rookie", stats: { td: 0, cas: 2, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 4, performance: 0 } }] },
+      players: [{ playerId: "p-deth00000001", number: 4, name: "Dethirord Slenderstrength", position: "Troll Slayer", ma: 5, st: 3, ag: 4, pa: 5, av: 9, skills: ["Block", "Hatred (102)"], value: 95000, level: "Rookie", availableSpp: 6, niggling: 0, missNextGame: false, stats: { td: 2, cas: 1, mvp: 1, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 11, performance: 0 } }, { playerId: "p-bob000000007", number: 7, name: "Bob", position: "Dwarf Lineman", ma: 4, st: 3, ag: 4, pa: null, av: 10, skills: [], value: 50000, level: "Rookie", availableSpp: 0, niggling: 0, missNextGame: false, stats: { td: 0, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 0, performance: 0 } }, { playerId: "p-bob000000008", number: 8, name: "Bob", position: "Dwarf Lineman", ma: 4, st: 3, ag: 4, pa: null, av: 10, skills: [], value: 50000, level: "Rookie", availableSpp: 0, niggling: 0, missNextGame: false, stats: { td: 0, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 0, performance: 0 } }],
+      formerPlayers: [{ playerId: "p-gone00000001", name: "Gone Guy", position: "Dwarf Lineman", level: "Rookie", stats: { td: 0, cas: 2, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 4, performance: 0 } }] },
     { id: "rot-girl-summer", name: "Rot Girl Summer", race: "Nurgle", coach: "Jeff / @Chap", teamValue: 1000000, treasury: 0, rerolls: 2, fans: 2, assistantCoaches: 1, cheerleaders: 1, apothecary: false, tier: "1", raceLeague: "", players: [], formerPlayers: [] },
   ],
   honours: [
-    { key: "season-mosttouchdowns", category: "season", stat: "mosttouchdowns", kind: "player", rows: [{ rank: 1, name: "Dethirord Slenderstrength", team: "Grudge Rollers", coach: "", value: 2 }] },
+    { key: "season-mosttouchdowns", category: "season", stat: "mosttouchdowns", kind: "player", rows: [{ rank: 1, name: "Dethirord Slenderstrength", team: "Grudge Rollers", coach: "", playerId: "p-deth00000001", value: 2 }] },
     { key: "season-bestrace", category: "season", stat: "bestrace", kind: "coach", rows: [{ rank: 1, name: "Kainis", team: "Caledor Crusaders", coach: "Kainis", value: { WinDrawRatio: 0.955, Wins: 10, Draws: 1, Defeats: 0, Points: 22 } }] },
   ],
   awards: [],
-  unattributedStats: [{ team: "Grudge Rollers", teamId: "grudge-rollers", name: "Bob", position: "Dwarf Lineman", stats: { td: 5, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 15, performance: 0 }, reason: "2 players called \"Bob\" (Dwarf Lineman): the export cannot split their totals" }],
+  unattributedStats: [{ team: "Grudge Rollers", teamId: "grudge-rollers", name: "Bob", position: "Dwarf Lineman", stats: { td: 5, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 15, performance: 0 }, reason: "2 players called \"Bob\" (Dwarf Lineman): the export cannot split their totals", candidates: ["p-bob000000007", "p-bob000000008"] }],
 });
 
 const stats = (scope: "bb2020" | "bb2025" | "all"): LeagueStats => ({
@@ -81,7 +81,7 @@ const stats = (scope: "bb2020" | "bb2025" | "all"): LeagueStats => ({
   seasons: scope === "bb2020" ? [{ id: "season-1", number: 1, name: "Season 1", ruleset: "BB2020", status: "completed" }] : [{ id: "season-6", number: 6, name: "Season 6", ruleset: "BB2025", status: "active" }],
   totals: { seasons: 1, games: 3, touchdowns: 8, casualties: 9, teams: 2, coaches: 2, players: 2 },
   leaders: {
-    td: [{ name: scope === "bb2020" ? "Old Timer" : "Dethirord Slenderstrength", position: "Troll Slayer", team: "Grudge Rollers", race: "Dwarf", coach: "flutethecat (Jay)", seasons: [6], value: 2 }],
+    td: [{ playerId: "p-deth00000001", seasonId: "season-6", name: scope === "bb2020" ? "Old Timer" : "Dethirord Slenderstrength", position: "Troll Slayer", team: "Grudge Rollers", race: "Dwarf", coach: "flutethecat (Jay)", seasons: [6], value: 2 }],
     cas: [], mvp: [], int: [], completions: [], fouls: [], spp: [],
   },
   coaches: [{ coach: "flutethecat (Jay)", seasons: [6], teams: 1, titles: 0, games: 3, wins: 2, draws: 1, losses: 0, points: 7, tdFor: 6, tdAgainst: 2, casFor: 4, casAgainst: 5, winPct: 0.833 }],
@@ -108,6 +108,17 @@ describe("league review regressions (SPA side)", () => {
     const level = { ...f, home: { ...f.home, score: 2 } }; // 2-2 but home conceded
     expect(fixtureOutcome(level)).toEqual({ home: "loss", away: "win" });
     expect(fixtureOutcome({ ...level, home: { ...level.home, conceded: false } })).toEqual({ home: "draw", away: "draw" });
+  });
+
+  it("player refs: by id, by an earlier season's id, never by name", () => {
+    const s = season6();
+    s.teams[0]!.players[0]!.previousIds = ["p-old000000001"];
+    expect(playerByRef(s, "p-bob000000007")).toMatchObject({ team: { id: "grudge-rollers" }, player: { number: 7 } });
+    expect(playerByRef(s, "p-old000000001")!.player.playerId).toBe("p-deth00000001");
+    expect(playerByRef(s, "Bob")).toBeUndefined();
+    expect(playerByRef(s, "Dethirord Slenderstrength")).toBeUndefined();
+    expect(sharedTotalsFor(s, "p-bob000000007")).toHaveLength(1);
+    expect(sharedTotalsFor(s, "p-deth00000001")).toHaveLength(0);
   });
 
   it("team pages pick a team by id; a bare name shared by two teams picks none", () => {
@@ -328,6 +339,19 @@ describe("league routes (server-rendered against a mocked API)", () => {
     // totals the export could not split are shown once on the team, never on a player
     expect(roster.html).toContain("Combined totals");
     expect(roster.html).toContain("the export cannot split their totals");
+    // ...and on each candidate's own row, muted, as a shared total (never as that player's own stat)
+    expect(roster.html.match(/data-shared-total/g)).toHaveLength(2);
+    expect(roster.html).toContain("Shared total with 1 other: 5 TD, 0 CAS, 0 MVP, 15 SPP");
+    expect(roster.html).toContain('data-player="p-bob000000007"');
+    expect(roster.html).toContain('data-player="p-bob000000008"');
+    expect(roster.html).not.toContain("lg-row-picked");
+    // ?player=<id> opens that player's team with the row marked; an id from an earlier season resolves through previousIds
+    const byPlayer = await render("/leagues/tabbl?tab=teams&player=p-bob000000008", loadedDetail());
+    expect(byPlayer.html).toContain("Grudge Rollers");
+    expect(byPlayer.html).toMatch(/<tr[^>]*data-player="p-bob000000008"[^>]*class="lg-row-picked"[^>]*aria-current="true"/);
+    expect(byPlayer.html).not.toMatch(/data-player="p-bob000000007"[^>]*lg-row-picked/);
+    const former = await render("/leagues/tabbl?tab=teams&player=p-gone00000001", loadedDetail());
+    expect(former.html).toMatch(/data-player="p-gone00000001"[^>]*class="lg-row-picked"/);
     const table = await render("/leagues/tabbl?tab=fixtures", async (inject, f) => {
       const d = mods.league.createLeagueDetail({ api: f });
       await d.load("tabbl");
@@ -341,6 +365,7 @@ describe("league routes (server-rendered against a mocked API)", () => {
     const hon = await render("/leagues/tabbl?tab=honours", loadedDetail());
     expect(hon.html).toContain("Awards are given at the end of the season.");
     expect(hon.html).toContain("Most touchdowns");
+    expect(hon.html).toContain('href="/app/leagues/tabbl?season=season-6&amp;tab=teams&amp;player=p-deth00000001"'); // a board row that is one player links by id
     expect(hon.html).toContain("10-1-0 · 22 pts");
   });
 
@@ -355,6 +380,7 @@ describe("league routes (server-rendered against a mocked API)", () => {
     for (const label of ["BB2020", "BB2025", "All time"]) expect(all.html).toContain(`>${label}</button>`);
     for (const panel of ["Champions", "Player leaders", "Coach records", "Team records", "Race win rates", "Biggest wins", "Most games"]) expect(all.html).toContain(panel);
     expect(all.html).toContain("Dethirord Slenderstrength");
+    expect(all.html).toContain('href="/app/leagues/tabbl?season=season-6&amp;tab=teams&amp;player=p-deth00000001"'); // leaders link by player id
     expect(all.html).toContain("83%");
     expect(all.html).toContain("Pre-season");
     const old = await render("/leagues/tabbl/stats?scope=bb2020", async (inject, f) => {

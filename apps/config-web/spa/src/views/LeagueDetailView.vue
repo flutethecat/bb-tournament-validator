@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// League page (/app/leagues/:id?season=&tab=&team=): public read. The league front (header bar, logo, name), the
+// League page (/app/leagues/:id?season=&tab=&team=&player=): public read. The league front (header bar, logo, name), the
 // Season field (every season, newest first, with its rules edition), then the season's tabs: Overview, Standings,
-// Fixtures, Teams (a team's roster via ?team=), Honours. Organisers and admins get the artwork controls on Overview.
+// Fixtures, Teams (a team's roster via ?team=, a player via ?player=<playerId>), Honours. Organisers and admins get the artwork controls on Overview.
 import { computed, inject, nextTick, onMounted, provide, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
@@ -31,6 +31,7 @@ const current = computed(() => pickSeason(state.seasons, route.query.season));
 const season = computed(() => (current.value ? state.season[current.value.id] : undefined));
 const tab = computed<LeagueTab>(() => (isLeagueTab(route.query.tab) ? route.query.tab : "overview"));
 const teamName = computed(() => (typeof route.query.team === "string" ? route.query.team : ""));
+const playerRef = computed(() => (typeof route.query.player === "string" ? route.query.player : ""));
 const banner = computed(() => safeArtUrl(state.league?.bannerUrl));
 const logo = computed(() => safeArtUrl(state.league?.logoUrl));
 const failed = ref({ banner: false, logo: false });
@@ -134,7 +135,7 @@ onMounted(async () => {
         </template>
         <LeagueStandings v-else-if="tab === 'standings'" :season="season" />
         <LeagueFixtures v-else-if="tab === 'fixtures'" :league="state.league" :season="season" :crests="state.crests" />
-        <LeagueTeams v-else-if="tab === 'teams'" :season="season" :team="teamName" :league-id="id" :crests="state.crests" />
+        <LeagueTeams v-else-if="tab === 'teams'" :season="season" :team="teamName" :player="playerRef" :league-id="id" :crests="state.crests" />
         <LeagueHonours v-else :season="season" />
       </template>
     </template>
