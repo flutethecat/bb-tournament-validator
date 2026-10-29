@@ -8,6 +8,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { assignRosterIds, formerPlayerId, type PlayerIdContext } from "./playerIds.js";
 import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, type CoachFacets } from "./identity.js";
 import {
   EMPTY_PLAYER_STATS,
@@ -334,6 +335,7 @@ export function parseRoster(text: string, mapCoach: CoachMapper): LeagueTeam | u
       const p: Record<string, string> = Object.fromEntries(pk.map((k, j) => [k, (row[j] ?? "").trim()]));
       if (!p.Name) continue;
       players.push({
+        playerId: "",
         number: numOrNull(p.Number),
         name: p.Name,
         position: p.Position ?? "",
@@ -376,15 +378,18 @@ type HonourPlayer = { team: string; name: string; position: string; level: strin
 
 /**
  * Folds the player honours into per-player season stats. An honour player is team name + player name + position
- * (the honours files carry the position). Its total lands on exactly one roster player or nowhere:
+ * (the honours files carry the position, and no id). Its total lands on exactly one roster player or nowhere:
  * - one roster player matches (name, and position when given): their stats;
  * - none: a former player of that team (left the roster during the season);
  * - several (two players share name and position), the same honour player listed twice in one board, or the team
  *   name belongs to two teams this season: the total is recorded ONCE in the returned list (on the team when it is
- *   known) with the reason, never copied onto several players.
+ *   known) with the reason and the playerIds it could belong to (`candidates`), never copied onto several players.
+ * Roster players need their playerId already (assignRosterIds); former players get theirs here. Rows of the player
+ * boards carry `playerId` when the honour player resolved to exactly one player.
  */
-export function attachPlayerStats(teams: LeagueTeam[], honours: HonourTable[]): UnattributedStats[] {
-  const honourKey = (team: string, name: string, position: string): string => `${nameKey(team)}\0${nameKey(name)}\0${nameKey(position)}`;
+export function attachPlayerStats(teams: LeagueTeam[], honours: HonourTable[], ids: PlayerIdContext = { leagueId: "", slug: "" }): UnattributedStats[] {
+  assignRosterIds(teams, ids);
+  const honourKey = (team: string, name: string, position: string): string => `${nameKey(team)} ${nameKey(name)} ${nameKey(position)}`;
   const totals = new Map<string, HonourPlayer>();
   for (const table of honours) {
     if (table.kind !== "player") continue;
@@ -405,33 +410,55 @@ export function attachPlayerStats(teams: LeagueTeam[], honours: HonourTable[]): 
     }
   }
   const unattributed: UnattributedStats[] = [];
-  for (const entry of totals.values()) {
+  const resolved = new Map<string, string>(); // honour key -> the one player it is
+  for (const [key, entry] of totals) {
     const sameName = teams.filter((t) => nameKey(t.name) === nameKey(entry.team));
+    const matches = (t: LeagueTeam): LeaguePlayer[] => t.players.filter((p) => nameKey(p.name) === nameKey(entry.name) && (!entry.position || nameKey(p.position) === nameKey(entry.position)));
     if (sameName.length > 1) {
-      unattributed.push({ team: entry.team, name: entry.name, position: entry.position, stats: entry.stats, reason: `${sameName.length} teams are called "${entry.team}" this season` });
+      unattributed.push({
+        team: entry.team, name: entry.name, position: entry.position, stats: entry.stats, reason: `${sameName.length} teams are called "${entry.team}" this season`,
+        candidates: sameName.flatMap((t) => matches(t).map((p) => p.playerId)),
+      });
       continue;
     }
     const team = sameName[0];
     if (!team) {
-      unattributed.push({ team: entry.team, name: entry.name, position: entry.position, stats: entry.stats, reason: "no roster for this team" });
+      unattributed.push({ team: entry.team, name: entry.name, position: entry.position, stats: entry.stats, reason: "no roster for this team", candidates: [] });
       continue;
     }
-    const byName = team.players.filter((p) => nameKey(p.name) === nameKey(entry.name));
-    const candidates = entry.position ? byName.filter((p) => nameKey(p.position) === nameKey(entry.position)) : byName;
+    const candidates = matches(team);
     if (entry.duplicate || candidates.length > 1) {
       const n = Math.max(candidates.length, 2);
       unattributed.push({
         team: team.name, teamId: team.id, name: entry.name, position: entry.position, stats: entry.stats,
         reason: `${n} players called "${entry.name}"${entry.position ? ` (${entry.position})` : ""}: the export cannot split their totals`,
+        candidates: candidates.map((p) => p.playerId),
       });
       continue;
     }
     if (candidates.length === 1) {
       const p = candidates[0]!;
       for (const k of Object.keys(p.stats) as Array<keyof PlayerSeasonStats>) p.stats[k] += entry.stats[k];
+      resolved.set(key, p.playerId);
       continue;
     }
-    team.formerPlayers.push({ name: entry.name, position: entry.position, level: entry.level, stats: entry.stats });
+    const playerId = formerPlayerId(team, ids, entry.name, entry.position);
+    team.formerPlayers.push({ playerId, name: entry.name, position: entry.position, level: entry.level, stats: entry.stats });
+    resolved.set(key, playerId);
+  }
+  for (const table of honours) {
+    if (table.kind !== "player") continue;
+    for (const row of table.rows) {
+      const key = honourKey(row.team, row.name, row.position ?? "");
+      let id = resolved.get(key);
+      if (!id && !totals.has(key)) { // a board that carries no stat total (most valuable ...): link only an unambiguous roster / former player
+        const named = teams.filter((t) => nameKey(t.name) === nameKey(row.team));
+        const fits = (p: { name: string; position: string }): boolean => nameKey(p.name) === nameKey(row.name) && (!row.position || nameKey(p.position) === nameKey(row.position));
+        const found = named.length === 1 ? [...named[0]!.players, ...named[0]!.formerPlayers].filter(fits) : [];
+        if (found.length === 1) id = found[0]!.playerId;
+      }
+      if (id) row.playerId = id;
+    }
   }
   for (const team of teams) team.formerPlayers.sort((a, b) => b.stats.spp - a.stats.spp || a.name.localeCompare(b.name));
   return unattributed;
@@ -592,7 +619,7 @@ export function buildSeason(input: BuildSeasonInput): BuildSeasonResult {
   for (const f of fixtures) for (const side of [f.home, f.away]) side.teamId = resolveTeam(side.team, side, side.race);
   for (const p of phases) for (const row of p.standings) row.teamId = resolveTeam(row.team, row, row.race);
 
-  const unattributedStats = attachPlayerStats(teams, honours);
+  const unattributedStats = attachPlayerStats(teams, honours, { leagueId: input.leagueId, slug: files.slug });
   const ambiguities = unattributedStats.map((u) => `${u.team}: ${u.name}${u.position ? ` (${u.position})` : ""}: ${u.reason}`);
 
   const times = fixtures.flatMap((f) => [f.startedAt, f.finishedAt]).filter((t): t is string => Boolean(t)).sort();

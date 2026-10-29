@@ -7,6 +7,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
+import { linkPlayerCareers, needsPlayerIds } from "./playerIds.js";
 import type { LeagueRecord, SeasonRecord } from "./types.js";
 
 export const LEAGUE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -107,7 +108,14 @@ export class LeagueStore {
     return league;
   }
 
+  /** Every season of the league, newest first. A season stored before player ids existed is given the ids (and career links) the importer would assign. */
   seasons(leagueId: string): SeasonRecord[] {
+    const list = this.rawSeasons(leagueId);
+    if (needsPlayerIds(list)) linkPlayerCareers(list);
+    return list;
+  }
+
+  private rawSeasons(leagueId: string): SeasonRecord[] {
     if (!LEAGUE_ID.test(leagueId)) return [];
     const dir = join(this.root, leagueId, "seasons");
     if (!existsSync(dir)) return [];
@@ -121,7 +129,8 @@ export class LeagueStore {
   season(leagueId: string, seasonId: string): SeasonRecord | undefined {
     if (!LEAGUE_ID.test(leagueId) || !SEASON_ID.test(seasonId)) return undefined;
     const s = this.readJson<SeasonRecord>(join(this.root, leagueId, "seasons", `${seasonId}.json`));
-    return s && s.id === seasonId && s.leagueId === leagueId ? s : undefined;
+    if (!s || s.id !== seasonId || s.leagueId !== leagueId) return undefined;
+    return needsPlayerIds([s]) ? this.seasons(leagueId).find((x) => x.id === seasonId) : s;
   }
 
   /** Writes a season; an existing season with the same sourceSlug (or id) is replaced. Returns the replaced id, if any. */
@@ -130,7 +139,7 @@ export class LeagueStore {
     if (!SEASON_ID.test(season.id)) throw new LeagueStoreError(400, "Bad season id.");
     const dir = join(this.leagueDir(season.leagueId), "seasons");
     mkdirSync(dir, { recursive: true });
-    const prior = this.seasons(season.leagueId).find((s) => s.sourceSlug === season.sourceSlug || s.id === season.id);
+    const prior = this.rawSeasons(season.leagueId).find((s) => s.sourceSlug === season.sourceSlug || s.id === season.id);
     this.write(join(dir, `${season.id}.json`), season);
     if (prior && prior.id !== season.id) this.removeSeason(season.leagueId, prior.id);
     return prior ? { replaced: prior.id } : {};

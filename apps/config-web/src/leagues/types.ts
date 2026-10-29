@@ -127,7 +127,17 @@ export const EMPTY_PLAYER_STATS: PlayerSeasonStats = {
   td: 0, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 0, performance: 0,
 };
 
-export interface LeaguePlayer {
+/** Identity every imported player carries (see playerIds.ts): the season id, and the link to the same player's other seasons. */
+export interface PlayerIdentity {
+  /** `p-<hash>`: stable across re-imports, unique within the league, opaque. */
+  playerId: string;
+  /** `c-<hash>`: the same player across seasons (same team lineage, shirt number, name, position). Set by the importer's career link. */
+  careerKey?: string;
+  /** This player's ids in earlier seasons, oldest first. */
+  previousIds?: string[];
+}
+
+export interface LeaguePlayer extends PlayerIdentity {
   number: number | null;
   name: string;
   position: string;
@@ -146,7 +156,7 @@ export interface LeaguePlayer {
 }
 
 /** A player who appears in the season honours but not on the final roster (dead, fired, retired). */
-export interface FormerPlayer {
+export interface FormerPlayer extends PlayerIdentity {
   name: string;
   position: string;
   level: string;
@@ -188,6 +198,8 @@ export interface HonourRow {
   coach: string;
   position?: string;
   level?: string;
+  /** Player boards: the roster / former player this row is, when the export pins it to exactly one. */
+  playerId?: string;
   value: HonourValue;
 }
 
@@ -223,6 +235,8 @@ export interface UnattributedStats {
   position: string;
   stats: PlayerSeasonStats;
   reason: string;
+  /** The playerIds of the roster players this total could belong to (empty when the team has no roster). */
+  candidates: string[];
 }
 
 export interface SeasonRecord {

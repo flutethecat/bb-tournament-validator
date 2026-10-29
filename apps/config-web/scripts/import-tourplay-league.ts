@@ -17,6 +17,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkLeagueArt, storeLeagueArt, type ArtKind } from "../src/leagues/api.js";
+import { assertUniquePlayerIds, linkPlayerCareers } from "../src/leagues/playerIds.js";
 import { LeagueStore } from "../src/leagues/store.js";
 import { buildSeason, fixturePlayed, readTourplayDir, type CoachMapper } from "../src/leagues/tourplay.js";
 import type { LeagueRuleset, SeasonRecord } from "../src/leagues/types.js";
@@ -56,7 +57,10 @@ export interface SeasonReport {
   honourTables: number;
   awards: number;
   mismatches: string[];
-  /** Honour totals the export could not pin to one player (recorded once, never copied). */
+  /** Players (roster + former) given a stable playerId, and how many of them continue a player from an earlier season. */
+  playerIds: number;
+  linkedToEarlierSeasons: number;
+  /** Honour totals the export could not pin to one player (recorded once, never copied; stored with their candidate playerIds). */
   ambiguities: string[];
   unmappedCoaches: string[];
   replaced?: string;
@@ -121,6 +125,11 @@ export async function importLeague(opts: ImportOptions): Promise<SeasonReport[]>
     r.season.status = champion || r.season !== newest ? "completed" : "active";
   }
 
+  // Player ids: roster / former players got theirs per season; now link each player to the same player's other seasons.
+  const allSeasons = results.map((r) => r.season);
+  linkPlayerCareers(allSeasons);
+  assertUniquePlayerIds(allSeasons);
+
   const reports: SeasonReport[] = [];
   for (const r of results) {
     const s: SeasonRecord = r.season;
@@ -133,6 +142,8 @@ export async function importLeague(opts: ImportOptions): Promise<SeasonReport[]>
       teams: s.teams.length,
       players: s.teams.reduce((n, t) => n + t.players.length, 0),
       formerPlayers: s.teams.reduce((n, t) => n + t.formerPlayers.length, 0),
+      playerIds: s.teams.reduce((n, t) => n + t.players.length + t.formerPlayers.length, 0),
+      linkedToEarlierSeasons: s.teams.reduce((n, t) => n + [...t.players, ...t.formerPlayers].filter((p) => p.previousIds?.length).length, 0),
       fixtures: s.fixtures.length,
       played: s.fixtures.filter(fixturePlayed).length,
       phases: s.phases.map((p) => `${p.category}/${p.name}${p.groups.filter(Boolean).length ? ` [${p.groups.filter(Boolean).join(", ")}]` : ""}`),
@@ -146,11 +157,11 @@ export async function importLeague(opts: ImportOptions): Promise<SeasonReport[]>
     };
     reports.push(report);
     log(`Season ${report.number} (${report.slug}) ${report.ruleset} ${report.status}${report.replaced ? ` [replaced ${report.replaced}]` : ""}`);
-    log(`  teams ${report.teams}, players ${report.players} (+${report.formerPlayers} former), fixtures ${report.fixtures} (${report.played} played), awards ${report.awards}`);
+    log(`  teams ${report.teams}, players ${report.players} (+${report.formerPlayers} former; ${report.playerIds} ids, ${report.linkedToEarlierSeasons} linked to earlier seasons), fixtures ${report.fixtures} (${report.played} played), awards ${report.awards}`);
     log(`  phases: ${report.phases.join("; ")}`);
     log(`  honours: ${report.honourTables} tables in ${report.honourCategories.join(", ")}`);
     log(`  standings mismatches: ${report.mismatches.length}${report.mismatches.length ? `\n    ${report.mismatches.join("\n    ")}` : ""}`);
-    log(`  unsplittable honour totals: ${report.ambiguities.length}${report.ambiguities.length ? `\n    ${report.ambiguities.join("\n    ")}` : ""}`);
+    log(`  shared honour totals (not splittable by the export; kept once with candidate playerIds): ${report.ambiguities.length}${report.ambiguities.length ? `\n    ${report.ambiguities.join("\n    ")}` : ""}`);
     log(`  unmapped coaches (${report.unmappedCoaches.length}): ${report.unmappedCoaches.join(", ")}`);
   }
 

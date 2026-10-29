@@ -107,7 +107,7 @@ describe("TourPlay CSV parsing", () => {
     expect(td).toMatchObject({ key: "season-mosttouchdowns", category: "season", stat: "mosttouchdowns", kind: "player" });
     attachPlayerStats([team], [td, spp, cup]);
     expect(team.players[1]!.stats).toMatchObject({ td: 4, spp: 9, cas: 0 });
-    expect(team.formerPlayers).toEqual([{ name: "Gone Guy", position: "Dwarf Lineman", level: "Rookie", stats: expect.objectContaining({ td: 1 }) }]);
+    expect(team.formerPlayers).toEqual([{ playerId: expect.stringMatching(/^p-[0-9a-f]{12}$/), name: "Gone Guy", position: "Dwarf Lineman", level: "Rookie", stats: expect.objectContaining({ td: 1 }) }]);
     const coach = parseHonours("season-bestrace-coach-honors.csv", crlf(["Category;Rank;Coach;NafUser;TeamRace;TeamName;Value", "Season;1;Kainis;Kainis;;Caledor;{ Wins = 4, Draws = 0 }"]))!;
     expect(coach.rows[0]).toMatchObject({ name: "Kainis", team: "Caledor", value: { Wins: 4, Draws: 0 } });
   });
