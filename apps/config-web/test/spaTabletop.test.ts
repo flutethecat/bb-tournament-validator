@@ -580,9 +580,10 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/--tt-score-w: 420px;/);
     expect(css1).toMatch(/--tt-score-w: 460px;/);
     expect(html).not.toContain("data-ghost");
-    // the turn track: played and future cells look identical (bright white digits on a dark cell); only the active cell glows scarlet
+    // the turn track: the same dark cell throughout; future digits bright white, played digits soft grey, only the active cell glows scarlet
     expect(css1).toMatch(/\.tt-rec \.tt-track\.home \.tt-cell:not\(\[data-state="active"\]\), \.tt-rec \.tt-track\.away \.tt-cell:not\(\[data-state="active"\]\) \{\s*background: color-mix\(in srgb, #000 70%[^}]*border: 1px solid transparent; color: var\(--ui-text, #e6e9ef\); opacity: 1;/);
     expect(css1).toMatch(/\.tt-rec \.tt-track \.tt-cell\[data-state="active"\] \{ background: var\(--ui-scarlet/);
+    expect(css1).toMatch(/\.tt-rec \.tt-track\.home \.tt-cell\[data-state="done"\], \.tt-rec \.tt-track\.away \.tt-cell\[data-state="done"\] \{ color: color-mix\(in srgb, var\(--ui-text, #e6e9ef\) 55%, transparent\); \}/); // played = soft grey, future = full white
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);

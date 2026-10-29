@@ -1003,3 +1003,5 @@
   background: color-mix(in srgb, #000 70%, var(--ui-surface, #0d0d0d)); border: 1px solid transparent; color: var(--ui-text, #e6e9ef); opacity: 1;
 }
 .tt-rec .tt-track .tt-cell[data-state="active"] { background: var(--ui-scarlet, var(--tt-accent)); color: var(--ui-scarlet-contrast, #ffffff); border: 1px solid var(--ui-scarlet, var(--tt-accent)); box-shadow: var(--tt-led-glow, 0 0 8px rgb(215 20 31 / .7), 0 0 18px rgb(215 20 31 / .4)); outline: 0; }
+/* played turns: soft grey digits (about 55% of the text colour); future turns stay bright white */
+.tt-rec .tt-track.home .tt-cell[data-state="done"], .tt-rec .tt-track.away .tt-cell[data-state="done"] { color: color-mix(in srgb, var(--ui-text, #e6e9ef) 55%, transparent); }
