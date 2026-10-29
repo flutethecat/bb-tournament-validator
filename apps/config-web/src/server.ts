@@ -15,7 +15,6 @@ import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deriveDeadlines, matchEndedAt, parseSchedulingInput, readBuildLog, schedulingView, toStoredScheduling } from "./coachHome.js";
 import { profileView, updateOwnProfile, type ProfileDeps } from "./accountProfile.js";
-import { RECENT_RESULTS_MAX, recentLimit, recentResults, type RecentInputs, type RecentResult, type TeamInfo } from "./recentResults.js";
 import { createTabletopGatherer, RECENT_RESULTS_MAX, recentLimit, recentResults, type RecentInputs, type RecentResult, type TeamInfo } from "./recentResults.js";
 import {
   composeTeam,
