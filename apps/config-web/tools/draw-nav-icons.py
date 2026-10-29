@@ -10,18 +10,7 @@ x4 with nearest-neighbour to a 64 x 64 RGBA master with a transparent background
 import argparse
 import os
 
-from PIL import Image
-
-PALETTE = {
-    "K": "#1b1512",  # outline
-    "w": "#f2e8cc",  # bone / parchment / snow
-    "T": "#cdd0d6", "s": "#8e939c", "S": "#555a64",  # stone light / mid / dark
-    "Y": "#ffe27a", "y": "#e8b02c", "1": "#9c6a14",  # gold light / mid / dark
-    "n": "#c88a4c", "b": "#8f5a2c", "B": "#5a3418",  # brown light / mid / dark
-    "G": "#8fd45a", "g": "#4fa83c", "h": "#2c6a2c",  # green light / mid / dark
-    "U": "#9cc8ff", "u": "#4a86e8", "V": "#23479a",  # blue light / mid / dark
-    "r": "#e04a3c", "R": "#a02424",  # red accent
-}
+from pixel_icons import write_all
 
 ICONS = {
     "home": [
@@ -224,39 +213,6 @@ ICONS = {
     ],
 }
 
-SCALE = 4
-
-
-def render(rows):
-    assert len(rows) == 16, len(rows)
-    im = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
-    for y, row in enumerate(rows):
-        assert len(row) == 16, (y, row, len(row))
-        for x, ch in enumerate(row):
-            if ch == ".":
-                continue
-            c = PALETTE[ch]
-            im.putpixel((x, y), (int(c[1:3], 16), int(c[3:5], 16), int(c[5:7], 16), 255))
-    return im.resize((16 * SCALE, 16 * SCALE), Image.NEAREST)
-
-
-def sheet(images, path):
-    """Each icon at 64 px, 30 px and 26 px (nearest, like image-rendering: pixelated) on the dark and light panels."""
-    names = list(images)
-    cell = 76
-    bgs = [(14, 17, 21, 255), (236, 232, 222, 255)]
-    w = cell * 3 * len(bgs)
-    h = cell * len(names)
-    out = Image.new("RGBA", (w, h), (0, 0, 0, 255))
-    for bi, bg in enumerate(bgs):
-        out.paste(Image.new("RGBA", (cell * 3, h), bg), (bi * cell * 3, 0))
-        for i, n in enumerate(names):
-            for j, size in enumerate((64, 30, 26)):
-                im = images[n].resize((size, size), Image.NEAREST)
-                x = bi * cell * 3 + j * cell + (cell - size) // 2
-                out.alpha_composite(im, (x, i * cell + (cell - size) // 2))
-    out.save(path)
-
 
 def main():
     ap = argparse.ArgumentParser()
@@ -264,11 +220,7 @@ def main():
     args = ap.parse_args()
     here = os.path.dirname(os.path.abspath(__file__))
     dest = os.path.join(here, "..", "public", "icons", "nav")
-    images = {name: render(rows) for name, rows in ICONS.items()}
-    for name, im in images.items():
-        im.save(os.path.join(dest, f"{name}.png"), optimize=True)
-    if args.sheet:
-        sheet(images, args.sheet)
+    write_all(ICONS, dest, args.sheet)
 
 
 if __name__ == "__main__":
