@@ -38,7 +38,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { bb2025 } from "@bb/validator/dataset";
-import { rosterXmlById } from "../teamAdvancement.js";
+import { CHARACTERISTIC_VALUE, rosterXmlById } from "../teamAdvancement.js";
 import { storedTeamFile } from "../teamDetail.js";
 import type { TeamBankTask } from "./banking.js";
 import type { ParsedGameResult, ParsedPlayerResult, ParsedTeamResult } from "./fumbblResult.js";
@@ -261,10 +261,10 @@ function playerRuntimeValue(player: string, roster: string): number {
     if (intrinsic.has(name.toLowerCase())) continue;
     const characteristic = name.toUpperCase().match(/^\+(MA|ST|AG|PA|AV)$/)?.[1] as "MA" | "ST" | "AG" | "PA" | "AV" | undefined;
     if (characteristic) {
-      if (characteristic === "MA") {
-        throw new Error("post-match TV cannot safely price +MA across the sanctioned API and fork runtime dialects");
-      }
-      value += ({ ST: 60_000, AG: 30_000, PA: 20_000, AV: 10_000 } as const)[characteristic];
+      // The site's BB2025 advancement value table (teamAdvancement.ts), the same figures the advancement flow adds
+      // when it writes these skills: one dialect for every +X skill config-web writes (Team Builder, advancement,
+      // league teams).
+      value += CHARACTERISTIC_VALUE[characteristic];
       continue;
     }
     const entry = Object.entries(bb2025.skills).find(([skill]) => skill.toLowerCase() === name.toLowerCase());
@@ -277,6 +277,14 @@ function playerRuntimeValue(player: string, roster: string): number {
     value += 20_000;
   }
   return value;
+}
+
+/**
+ * Why a stored player could not be valued if a result changed it (a death, a missed game): the same pricing banking
+ * uses, so a caller can refuse a team before a game rather than have its result quarantined after. undefined = fine.
+ */
+export function bankingValueProblem(playerBlock: string, roster: string): string | undefined {
+  try { playerRuntimeValue(playerBlock, roster); return undefined; } catch (e) { return (e as Error).message; }
 }
 
 function adjustAggregateValues(xml: string, totalDeltaGold: number, currentDeltaGold: number): string {
