@@ -64,7 +64,9 @@ export const routes: RouteRecordRaw[] = [
     name: "tabletop-match",
     component: TabletopRecorderView,
     props: true,
-    meta: { requiresAuth: true, title: "Tabletop match" },
+    // No sign-in gate (owner ruling 10-30): anyone may watch a match that is not a test match read-only; the server
+    // decides the role (home / away / organiser / spectator) and refuses every write from a spectator.
+    meta: { title: "Tabletop match" },
   },
   // Game page (owner 10-30): every Past Games card links here. Public; the server answers 404 for anything not public.
   {
