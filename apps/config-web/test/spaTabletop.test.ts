@@ -502,7 +502,10 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toMatch(/\.tt-rec \.tt-rail-btn:active[^{]*\{\s*box-shadow: var\(--tt-bevel-down\); transform: translateY\(2px\);/);
     expect(css).toMatch(/--tt-rail-fs: 16px;/);
     expect(css).toMatch(/--tt-rail-fs: 18px;/);
-    expect(css).toMatch(/@media \(min-width: 760px\) \{\s*\.tt-rec \.tt-feed \.tt-log-h \{ display: block; position: sticky; top: 0;[^}]*margin: 0 12px 6px auto;[^}]*color: var\(--ui-text, #e6e9ef\); text-shadow: var\(--tt-btn-text-shadow\);/); // MATCH LOG: white, sticky, top-right
+    expect(css).toMatch(/\.tt-rec \.tt-mid > \.tt-log-h \{ display: flex; align-items: center; justify-content: flex-end; height: 28px;[^}]*color: var\(--ui-text, #e6e9ef\); text-shadow: var\(--tt-btn-text-shadow\); background: none; \}/); // MATCH LOG: white, right-aligned on a 28 px row above the field
+    expect(css).toMatch(/\.tt-rec \.tt-mid \{ grid-template-rows: 28px minmax\(0, 1fr\); \}/);
+    expect(css).toMatch(/\.tt-rec > \.tt-stripbar \{ border-bottom: 1px solid var\(--tt-rule\); \}/); // a neutral divider, nothing red
+    expect(css).toMatch(/--tt-rule: color-mix\(in srgb, var\(--ui-text, #e6e9ef\) 16%, transparent\)/);
     expect(css).toMatch(/--tt-hero-min: 168px;[\s\S]*--tt-hero-min: 200px;/); // one scale block, two steps
   });
 

@@ -713,10 +713,20 @@
   .tt-rec .tt-corner .tt-team { font-size: 13px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 }
 
-/* MATCH LOG label: white, pinned to the top-right of the log field (sticky, so it stays while the cards scroll); hidden on phones */
+/* dividers on the desktop card are a neutral 1 px line: --ui-border is a deep red in the Black/Red preset, so the line is derived from the text colour instead */
+@media (min-width: 1024px) {
+  .tt-rec { --tt-rule: color-mix(in srgb, var(--ui-text, #e6e9ef) 16%, transparent); }
+  .tt-rec > .tt-stripbar { border-bottom: 1px solid var(--tt-rule); }
+  .tt-rec > .tt-board { border-bottom: 1px solid var(--tt-rule); }
+  .tt-stripbar .tt-tl-line::before { background: var(--tt-rule); }
+}
+
+/* MATCH LOG label: white on a 28 px header row above the log field (outside the scroll field), right-aligned; hidden on phones */
 @media (min-width: 760px) {
-  .tt-rec .tt-feed .tt-log-h { display: block; position: sticky; top: 0; z-index: 3; width: fit-content; margin: 0 12px 6px auto; padding: 2px 8px; color: var(--ui-text, #e6e9ef); text-shadow: var(--tt-btn-text-shadow); text-align: right; background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 75%, transparent); border-radius: 2px; }
+  .tt-rec .tt-mid { grid-template-rows: 28px minmax(0, 1fr); }
+  .tt-rec .tt-mid > .tt-log-h { display: flex; align-items: center; justify-content: flex-end; height: 28px; margin: 0; padding: 0 12px; color: var(--ui-text, #e6e9ef); text-shadow: var(--tt-btn-text-shadow); background: none; }
 }
 @media (min-width: 1024px) {
-  .tt-rec .tt-feed .tt-log-h { margin-right: 0; }
+  .tt-rec > .tt-mid { margin: 0 20px 20px 0; background: none; border-radius: 0; }
+  .tt-rec .tt-mid > .tt-feed { background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 60%, transparent); border-radius: 4px; }
 }

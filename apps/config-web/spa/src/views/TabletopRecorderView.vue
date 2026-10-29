@@ -276,6 +276,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="tt-mid">
+    <h2 class="tt-label tt-log-h">Match log</h2>
     <main class="tt-feed">
       <TabletopWeatherBar :pregame="state.pregame" :events="state.events" />
       <TabletopTimeline :rows="rows" />
@@ -329,7 +330,6 @@ onBeforeUnmount(() => {
       </template>
 
       <p v-if="canEdit && editMode" class="tt-edit-bar" role="status">You are in edit mode.</p>
-      <h2 class="tt-label tt-log-h">Match log</h2>
       <TabletopFeed :rows="rows" :can-undo="canEdit && editMode && recording" :undo-side="organiser ? null : mySide" :compact="viewer.state.compact" :timestamps="viewer.state.timestamps" @undo="undoById" />
     </main>
     </div>
