@@ -1188,13 +1188,11 @@
 /* the Injury tile in the Other grid (phones and tablets; hidden on desktop) matches the rail's Injury button: an amber face with white lettering; the dark lettering shadow keeps it legible */
 .tt-rec .tt-other-btn[data-type="injury"] { background: var(--ui-warn); color: var(--ui-text-on-primary, #ffffff); border-color: var(--ui-warn); text-shadow: var(--tt-lettering-shadow, 2px 2px 0 rgb(0 0 0 / 80%)); }
 
-/* the rail buttons share one inner grid: a 32 px icon column (the icon, a 24 px box, centred in it) and a fixed 120 px label column with the label left-aligned in it; the group is centred
-   in the button, so the buttons read centred while every icon and label line up (Other keeps an empty icon column) */
+/* the rail buttons centre their own content: the icon (a 24 px box) and the label as a pair sized to their own width, centred in the button; Other is its label alone */
 @media (min-width: 1024px) {
-  .tt-rec .tt-rail-btn, .tt-rec .tt-rail-btn.tt-rail-other { display: grid; grid-template-columns: 32px 120px; column-gap: 12px; align-items: center; justify-content: center; padding: 0 14px; text-align: left; }
-  .tt-rec .tt-rail-btn > .tt-glyph { grid-column: 1; justify-self: center; width: 24px; height: 24px; }
+  .tt-rec .tt-rail-btn, .tt-rec .tt-rail-btn.tt-rail-other { display: inline-flex; justify-content: center; align-items: center; gap: 10px; padding: 0 14px; text-align: center; }
+  .tt-rec .tt-rail-btn > .tt-glyph { width: 24px; height: 24px; }
   .tt-rec .tt-rail-btn > .tt-glyph-text { font-size: 24px; width: auto; height: auto; }
-  .tt-rec .tt-rail-btn > span:not(.tt-glyph) { grid-column: 2; text-align: left; }
 }
 
 /* the desktop strip: nothing scrolls vertically (the marker row fills the strip height, glyphs centred), only the timeline scrolls sideways; all text in it is white, the state text in the display font */
@@ -1239,3 +1237,14 @@
 }
 
 .tt-admin-hide, .tt-admin-show { min-height: 40px; }
+
+.tt-fans-pill { display: none; }
+/* desktop: brighter LED-green coach names (the phone keeps its coach colour), and the dedicated fans as a pill under the chip tray */
+@media (min-width: 1024px) {
+  .tt-rec .tt-crestcol .tt-crest-coach { color: var(--ui-coach-led, #4cff6a); text-shadow: var(--tt-name-shadow), 0 0 6px rgb(76 255 106 / .55); }
+  .tt-rec .tt-fans-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; font-family: var(--font-heading, sans-serif); font-size: 14px; letter-spacing: .06em; color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--tt-lettering-shadow); background: var(--tt-btn); border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; box-shadow: var(--tt-bevel); }
+  .tt-rec .tt-fans-pill b { font-weight: 400; }
+  .tt-rec .tt-fans-icon { width: 20px; height: 20px; object-fit: contain; image-rendering: pixelated; }
+  .tt-rec .tt-corner.home .tt-fans-pill { align-self: flex-start; }
+  .tt-rec .tt-corner.away .tt-fans-pill { align-self: flex-end; }
+}

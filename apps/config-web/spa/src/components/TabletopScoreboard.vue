@@ -92,7 +92,8 @@ const weatherCell = computed(() => (weather.value.icon ? weather.value : { icon:
 const endedTurns = computed(() => new Set(props.events.filter((e) => e.type === "turnEnd").map((e) => turnKey((e as { half?: number | string }).half, (e as { turn?: number }).turn, e.team))));
 /** The tray's chips: all of them below 1024 px; on desktop what fits in two rows plus the hidden ones for the "+K" chip. */
 const tray = (s: Side) => {
-  const all = chips(s);
+  // from 1024 px the dedicated fans have their own pill under the tray, so the fans chip is left out of the tray there
+  const all = chips(s).filter((c) => vw.value < 1024 || c.key !== "fans");
   if (vw.value < 1024) return { size: 0, shown: all, hidden: [] as Chip[] };
   const l = chipLayout(all.length, vw.value);
   return { size: l.size, shown: all.slice(0, l.visible), hidden: all.slice(l.visible) };
@@ -150,6 +151,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
           <li v-if="tray(s).hidden.length" class="tt-chip-more" role="button" tabindex="0" :data-tip="moreTip(tray(s).hidden)" data-tip-pos="bottom" @click="emit('rosters', s)" @keydown.enter.prevent="emit('rosters', s)">+{{ tray(s).hidden.length }}</li>
         </ul>
       </div>
+      <span v-if="teams[s]?.dedicatedFans" class="tt-fans-pill" :data-tip="`Dedicated fans: ${teams[s]?.dedicatedFans}`"><img class="tt-fans-icon" :src="uiIcon('dedicated_fans')" alt="" />FANS <b>{{ teams[s]?.dedicatedFans }}</b></span>
       </div>
     </section>
     <section class="tt-centre">

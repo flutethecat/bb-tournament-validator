@@ -62,6 +62,7 @@
 /* Fixed semantics — identical in both presets (Fives canonical). */
 :root {
   --ui-danger: #ff4d4d;
+  --ui-coach-led: #4cff6a;      /* bright LED green for the coach names in the desktop scoreboard */
   --ui-admin: #ffd23d;          /* bright yellow: events an organiser recorded or removed for a team they do not coach */
   --ui-scarlet: #d7141f;          /* saturated scarlet: the recorder End Turn button */
   --ui-scarlet-contrast: #ffffff; /* text on --ui-scarlet, 5.8:1 */

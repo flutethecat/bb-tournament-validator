@@ -653,9 +653,8 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-picker \.tt-roster-list li\.roster-row\.tt-rp-pick \{ grid-template-columns: 36px 56px minmax\(180px, 1fr\) 236px minmax\(0, 2fr\);/);
     expect(css1).toMatch(/\.tt-rosters \.slot-number, \.tt-rosters-embed \.tt-rp-pick \.slot-number \{\s*display: flex;[^}]*width: 36px; height: 36px;[^}]*font-size: 16px;[^}]*box-shadow: var\(--tv-bezel\)/); // the number tile
     expect(css1).toMatch(/\.tt-rosters \.row-stats, \.tt-picker \.tt-rp-pick \.row-stats \{ width: 236px; justify-self: start; \}/); // the stats start right after the name column
-    expect(css1).toMatch(/\.tt-rec \.tt-rail-btn, \.tt-rec \.tt-rail-btn\.tt-rail-other \{ display: grid; grid-template-columns: 32px 120px; column-gap: 12px; align-items: center; justify-content: center; padding: 0 14px; text-align: left; \}/); // one fixed-width inner group, centred in every rail button
-    expect(css1).toMatch(/\.tt-rec \.tt-rail-btn > span:not\(\.tt-glyph\) \{ grid-column: 2; text-align: left; \}/); // labels start at the same x (Other has no icon)
-    expect(css1).toMatch(/\.tt-rec \.tt-rail-btn > \.tt-glyph \{ grid-column: 1; justify-self: center; width: 24px; height: 24px; \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-rail-btn, \.tt-rec \.tt-rail-btn\.tt-rail-other \{ display: inline-flex; justify-content: center; align-items: center; gap: 10px; padding: 0 14px; text-align: center; \}/); // each rail button centres its own icon and label pair
+    expect(css1).toMatch(/\.tt-rec \.tt-rail-btn > \.tt-glyph \{ width: 24px; height: 24px; \}/);
     expect(css1).toMatch(/\.tt-rec > \.tt-stripbar \{ overflow-y: hidden; color: var\(--ui-text, #e6e9ef\); \}/); // no vertical scroll in the strip, white text
     expect(css1).toMatch(/\.tt-stripbar \.tt-tl \{ display: flex; align-items: center; overflow-y: hidden; overflow-x: auto;/);
     expect(css1).toMatch(/\.tt-rec \.tt-stripbar-end \{ color: var\(--ui-text, #e6e9ef\); \}/); // the FINAL label is white
@@ -675,6 +674,15 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.tt-ev--new \{ animation: tt-fade-in 120ms linear both; \}/);
     expect(css1).toMatch(/\.tt-ev \.tt-ev-line, \.tt-ev \.tt-ev-icon \{ transition: opacity 160ms ease; \}/); // a removed card fades to its struck state
     expect(html).not.toContain("tt-ev--new"); // nothing animates on first load
+    expect(css1).toMatch(/\.tt-rec \.tt-crestcol \.tt-crest-coach \{ color: var\(--ui-coach-led, #4cff6a\); text-shadow: var\(--tt-name-shadow\), 0 0 6px rgb\(76 255 106 \/ \.55\); \}/); // the coach line uses the LED green token
+    expect(css1).toMatch(/\.tt-rec \.tt-corner\.away \.tt-fans-pill \{ align-self: flex-end; \}/);
+    const fansHtml = await mount(mods.boardC, {
+      match: baseMatch("recording"), teams: { home: { ...teams.home, dedicatedFans: 5 }, away: teams.away }, tally: serverTally, events: [], pregame: {}, clock: clockOf("home", 3), localSide: "home", organiser: false, canAct: true, inducementIcons: {}, art: {},
+    }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
+    expect(fansHtml).toMatch(/<span class="tt-fans-pill"[^>]*><img class="tt-fans-icon"[^>]*>FANS <b>5<\/b><\/span>/); // the fans pill renders the count
+    expect(fansHtml).not.toContain('data-tip="Dedicated fans: 5" data-tip-pos'); // the tray no longer repeats it
+    const themeCoach = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../public/theme.css", import.meta.url)), "utf8");
+    expect(themeCoach).toContain("--ui-coach-led: #4cff6a;");
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
