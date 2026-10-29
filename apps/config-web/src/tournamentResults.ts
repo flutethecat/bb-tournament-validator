@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
   adminList,
@@ -30,7 +30,7 @@ export interface StoredTournamentResult extends GamestateResult {
   home: ResultSide;
   away: ResultSide;
   /** Absent = a fork game. "tabletop" rows come from the confirmed tabletop recorder (src/tabletop). */
-  source?: "fork" | "tabletop";
+  source?: "fork" | "tabletop" | "naf";
   /** Tabletop only: the league/tournament fixture the match was played for, when one was named. */
   fixtureRef?: string;
   /** Tabletop only: the league id the match counts in (defaults to the fixture tournament's package name). */

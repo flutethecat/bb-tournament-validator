@@ -100,10 +100,22 @@ export function matchContext(match: MatchRecord, deps: Pick<TabletopApiDeps, "fi
 }
 
 /** Each seat's coach rating (CR, Glicko-2 as FUMBBL runs it: coachGlicko.ts) and rank, from our own published results. */
-export function coachRatings(match: MatchRecord, deps: Pick<TabletopApiDeps, "results" | "now">): Record<"home" | "away", CoachRatingView> {
+export function coachRatings(match: MatchRecord, deps: Pick<TabletopApiDeps, "results" | "now" | "naf">): Record<"home" | "away", CoachRatingView & { naf: { games: number; fetchedAt?: string } }> {
   const revision = deps.results.revision?.();
-  const rated = computeGlicko(deps.results.list(), { asOf: deps.now?.() ?? new Date(), ...(revision !== undefined ? { revision } : {}) });
-  const of = (coach: string): CoachRatingView => { const e = rated.get(coach.trim().toLowerCase()) ?? unratedGlicko(); return coachRatingFor(e.cr, e.games); };
+  // NAF games (opted-in coaches, cached) are appended here for the rating only: they are never in deps.results
+  let rows = deps.results.list();
+  let rev = revision;
+  try {
+    const naf = deps.naf?.rows() ?? [];
+    if (naf.length) { rows = [...rows, ...naf]; if (rev !== undefined) rev = `${rev}:${deps.naf!.revision()}`; }
+  } catch { /* fail open: ratings without NAF */ }
+  const rated = computeGlicko(rows, { asOf: deps.now?.() ?? new Date(), ...(rev !== undefined ? { revision: rev } : {}) });
+  const of = (coach: string) => {
+    const e = rated.get(coach.trim().toLowerCase()) ?? unratedGlicko();
+    let naf: { games: number; fetchedAt?: string } = { games: 0 };
+    try { naf = deps.naf?.summary?.(coach) ?? naf; } catch { /* fail open */ }
+    return { ...coachRatingFor(e.cr, e.games), naf };
+  };
   return { home: of(match.home.coach), away: of(match.away.coach) };
 }
 
@@ -125,6 +137,13 @@ export interface TabletopApiDeps {
     list(): StoredTournamentResult[];
   };
   fixtures?: FixtureGateway;
+  /** NAF ranked games (src/nafRecords.ts). rows() are for computeGlicko only; refreshFor() is fire-and-forget on match creation (the one place NAF is scraped). */
+  naf?: {
+    rows(): StoredTournamentResult[];
+    revision(): string;
+    refreshFor?(coaches: string[]): void | Promise<void>;
+    summary?(coach: string): { games: number; fetchedAt?: string };
+  };
   /** A fixture's team id (the entrant's fork team) as a team the recorder can load for that coach, if it can. */
   resolveFixtureTeam?: (coach: string, teamId: string) => { ref: string; name: string } | undefined;
   /** Die roller for the server-side pre-game rolls: 1..sides. Default is crypto-random; tests inject. */
@@ -450,6 +469,9 @@ export async function createMatch(
     baseRevision: { home: chainHome.head, away: chainAway.head },
   };
   await deps.repo.createMatch(match);
+  // a fixture is starting: refresh the NAF cache of both coaches in the background (never awaited, never fails the request)
+  try { void Promise.resolve(deps.naf?.refreshFor?.([home.coach, away.coach])).catch((e) => console.warn(`[naf] refresh failed: ${(e as Error).message}`)); }
+  catch (e) { console.warn(`[naf] refresh failed: ${(e as Error).message}`); }
   return { status: 201, body: { match } };
 }
 

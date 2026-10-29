@@ -420,3 +420,46 @@ describe("tabletop: list, saves, tally", () => {
     expect(got.tally).toEqual(posted.tally);
   });
 });
+
+describe("tabletop API: NAF records", () => {
+  const nafDeps = (naf: NonNullable<TabletopApiDeps["naf"]>): TabletopApiDeps => ({ ...deps(), naf });
+  const create = (d: TabletopApiDeps) => tabletopApi("POST", "/api/tabletop/matches", { coach: "Alice", method: "discord" }, {
+    pregame: "skip", home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" },
+  }, d, new URLSearchParams()) as Promise<TabletopResult>;
+
+  it("creating a match fires the NAF refresh for both coaches without waiting for it, and survives it failing", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const seen: string[][] = [];
+    const r = await create(nafDeps({ rows: () => [], revision: () => "0", refreshFor: (coaches) => { seen.push(coaches); return gate; } }));
+    expect(r.status).toBe(201); // returned while the refresh is still pending
+    expect(seen).toEqual([["Alice", "Bob"]]);
+    release();
+  });
+
+  it("a throwing refresh never fails match creation", async () => {
+    const r = await create(nafDeps({ rows: () => [], revision: () => "0", refreshFor: () => { throw new Error("boom"); } }));
+    expect(r.status).toBe(201);
+  });
+
+  it("the match GET carries the NAF game count and the CR moves with cached NAF rows, while results.list() stays empty", async () => {
+    const id = await newMatch();
+    const rows = [1, 2, 3].map((n) => ({
+      gameId: `naf:t${n}`, pulledAt: "2026-01-20T00:00:00.000Z", playedAt: `2026-01-1${n}T12:00:00.000Z`, source: "naf" as const,
+      home: { teamId: "naf:alice", teamName: "Human", coach: "Alice" }, away: { teamId: `naf:opp${n}`, teamName: "Orc", coach: `naf:opp${n}` },
+      teams: [
+        { teamId: "naf:alice", score: 2, winnings: 0, penaltyScore: -1, conceded: false, casualtiesSuffered: { bh: 0, si: 0, rip: 0 }, players: [] },
+        { teamId: `naf:opp${n}`, score: 0, winnings: 0, penaltyScore: -1, conceded: false, casualtiesSuffered: { bh: 0, si: 0, rip: 0 }, players: [] },
+      ],
+    }));
+    const get = async (d: TabletopApiDeps) => (await tabletopApi("GET", `/api/tabletop/matches/${id}`, { coach: "Alice", method: "discord" }, undefined, d, new URLSearchParams()) as TabletopResult).body as {
+      coachRating: Record<"home" | "away", { cr: number; naf: { games: number } }>;
+    };
+    const without = await get(deps());
+    const withNaf = await get(nafDeps({ rows: () => rows, revision: () => "1", summary: (c) => ({ games: c === "Alice" ? 3 : 0 }) }));
+    expect(withNaf.coachRating.home.cr).toBeGreaterThan(without.coachRating.home.cr);
+    expect(withNaf.coachRating.home.naf.games).toBe(3);
+    expect(withNaf.coachRating.away.naf.games).toBe(0);
+    expect(results.list()).toEqual([]);
+  });
+});

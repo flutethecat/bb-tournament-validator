@@ -93,7 +93,7 @@ describe("match clock", () => {
     expect(body.context).toMatchObject({ kind: "casual", title: "Casual match" });
     expect(typeof body.context.startedAt).toBe("string");
     const cr = (await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { coachRating: Record<string, { cr: number; rank: string; rankKey: string; games: number }> };
-    expect(cr.coachRating.home).toEqual({ cr: 1250, rank: "Rookie", rankKey: "rookie", slug: "rookie", games: 0 }); // no results: r 1500 with the initial RD 150 (1500 - 5 * 50), no games = Rookie
+    expect(cr.coachRating.home).toEqual({ cr: 1250, rank: "Rookie", rankKey: "rookie", slug: "rookie", games: 0, naf: { games: 0 } }); // no results: r 1500 with the initial RD 150 (1500 - 5 * 50), no games = Rookie
     expect(cr.coachRating.away.cr).toBe(1250);
   });
   it("the RECEIVING team is active at 1Ht0/1Ht1; home starts when no coin phase ran", async () => {
