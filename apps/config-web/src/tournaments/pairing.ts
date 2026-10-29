@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   ScheduledMatchRecord,
   TournamentEntrantRecord,
+  TournamentPairingSystem,
   TournamentPoints,
   TournamentRecord,
   TournamentStandingRow,
@@ -343,6 +344,13 @@ export function generateKnockoutPairings(
   return pairings;
 }
 
+export interface PairingOptions {
+  /** Swiss only: the named pairing system. Absent = "eloSeeded" (the original min-cost matcher). */
+  system?: TournamentPairingSystem;
+  /** Swiss only: entrants who may be paired this round (e.g. not standby). Standings still count everyone. */
+  eligible?: (entrant: TournamentEntrantRecord) => boolean;
+}
+
 export function generateTournamentPairings(
   format: TournamentRecord["format"],
   roundNumber: number,
@@ -350,8 +358,141 @@ export function generateTournamentPairings(
   matches: readonly ScheduledMatchRecord[],
   points: TournamentPoints,
   tiebreakers: readonly TournamentTiebreaker[],
+  options: PairingOptions = {},
 ): SwissPairing[] {
   if (format === "roundRobin") return generateRoundRobinPairings(entrants, roundNumber);
   if (format === "knockout") return generateKnockoutPairings(entrants, matches, roundNumber, points, tiebreakers);
-  return generateSwissPairings(entrants, matches, points, tiebreakers);
+  const eligible = options.eligible;
+  if (options.system === "dutch" || options.system === "monrad") {
+    const pair = options.system === "dutch" ? pairSwissDutch : pairSwissMonrad;
+    const named = pair(entrants, matches, points, tiebreakers, eligible);
+    if (named) return named;
+    // No legal pairing without a rematch: the min-cost matcher (rematch = heavy cost) is the fallback.
+  }
+  if (!eligible) return generateSwissPairings(entrants, matches, points, tiebreakers);
+  const excluded = new Set(activeEntrants(entrants).filter((entrant) => !eligible(entrant)).map((entrant) => entrant.id));
+  if (excluded.size === 0) return generateSwissPairings(entrants, matches, points, tiebreakers);
+  return generateSwissPairings(
+    entrants.map((entrant) => excluded.has(entrant.id) ? { ...entrant, droppedAt: entrant.droppedAt ?? "standby" } : entrant),
+    matches,
+    points,
+    tiebreakers,
+  );
+}
+
+// ---- named Swiss systems ----
+
+interface RankedEntrant { entrantId: string; points: number }
+
+/** Pairing order for a round: round 1 by seed, later rounds by standings (points, tiebreak ladder, stable flip). */
+function rankedPool(
+  entrants: readonly TournamentEntrantRecord[],
+  matches: readonly ScheduledMatchRecord[],
+  points: TournamentPoints,
+  tiebreakers: readonly TournamentTiebreaker[],
+  eligible?: (entrant: TournamentEntrantRecord) => boolean,
+): { ranked: RankedEntrant[]; played: Set<string>; byes: Set<string> } {
+  const allowed = new Set(activeEntrants(entrants).filter((entrant) => !eligible || eligible(entrant)).map((entrant) => entrant.id));
+  const played = new Set<string>();
+  const byes = new Set<string>();
+  for (const match of completed(matches)) {
+    if (!match.away) byes.add(match.home.entrantId);
+  }
+  // Every pairing already drawn counts as met, played or not (cancelled fixtures excepted).
+  for (const match of matches) {
+    if (match.away && match.status !== "cancelled") played.add(playedKey(match.home.entrantId, match.away.entrantId));
+  }
+  const firstRound = completed(matches).length === 0;
+  const ranked = firstRound
+    ? activeEntrants(entrants).filter((entrant) => allowed.has(entrant.id))
+      .sort((left, right) => left.seed - right.seed || left.id.localeCompare(right.id))
+      .map((entrant) => ({ entrantId: entrant.id, points: 0 }))
+    : calculateStandings(entrants, matches, points, tiebreakers)
+      .filter((row) => allowed.has(row.entrantId))
+      .map((row) => ({ entrantId: row.entrantId, points: row.points }));
+  return { ranked, played, byes };
+}
+
+/** Odd field: the bye goes to the lowest-ranked entrant who has not had one (the lowest overall if all have). */
+function takeBye(ranked: RankedEntrant[], byes: ReadonlySet<string>): { bye?: string; pool: RankedEntrant[] } {
+  if (ranked.length % 2 === 0) return { pool: ranked };
+  const bye = [...ranked].reverse().find((row) => !byes.has(row.entrantId)) ?? ranked.at(-1)!;
+  return { bye: bye.entrantId, pool: ranked.filter((row) => row.entrantId !== bye.entrantId) };
+}
+
+const SEARCH_LIMIT = 200_000;
+
+/** Depth-first: the top unpaired entrant takes the first legal opponent in its preference order; backtracks on a dead end. */
+function backtrackPairs(
+  pool: RankedEntrant[],
+  played: ReadonlySet<string>,
+  preferences: (remaining: RankedEntrant[]) => RankedEntrant[],
+): SwissPairing[] | undefined {
+  let steps = 0;
+  const search = (remaining: RankedEntrant[]): SwissPairing[] | undefined => {
+    if (remaining.length === 0) return [];
+    if (++steps > SEARCH_LIMIT) return undefined;
+    const top = remaining[0]!;
+    for (const candidate of preferences(remaining)) {
+      if (played.has(playedKey(top.entrantId, candidate.entrantId))) continue;
+      const rest = search(remaining.filter((row) => row !== top && row !== candidate));
+      if (rest) return [{ homeEntrantId: top.entrantId, awayEntrantId: candidate.entrantId }, ...rest];
+      if (steps > SEARCH_LIMIT) return undefined;
+    }
+    return undefined;
+  };
+  return search(pool);
+}
+
+function withBye(pairs: SwissPairing[] | undefined, bye: string | undefined): SwissPairing[] | undefined {
+  if (!pairs) return undefined;
+  return bye ? [{ homeEntrantId: bye }, ...pairs] : pairs;
+}
+
+/**
+ * Monrad: rank order, 1 v 2, 3 v 4 ...; on a rematch the entrant skips to the next legal opponent down the list
+ * (backtracking when a later entrant is left without one). Round 1 pairs by seed. Undefined = no legal pairing.
+ */
+export function pairSwissMonrad(
+  entrants: readonly TournamentEntrantRecord[],
+  matches: readonly ScheduledMatchRecord[],
+  points: TournamentPoints,
+  tiebreakers: readonly TournamentTiebreaker[],
+  eligible?: (entrant: TournamentEntrantRecord) => boolean,
+): SwissPairing[] | undefined {
+  const { ranked, played, byes } = rankedPool(entrants, matches, points, tiebreakers, eligible);
+  const { bye, pool } = takeBye(ranked, byes);
+  return withBye(backtrackPairs(pool, played, (remaining) => remaining.slice(1)), bye);
+}
+
+/**
+ * Dutch (simplified FIDE Dutch): score groups top-down; within a group the top half meets the bottom half
+ * (S1[i] v S2[i]); an odd group floats its lowest entrant down to the next group; a rematch is avoided by trying the
+ * next opponent in the bottom half, then the rest of the group, then lower groups (floaters). Round 1 = top half v
+ * bottom half by seed. Undefined = no legal pairing without a rematch.
+ */
+export function pairSwissDutch(
+  entrants: readonly TournamentEntrantRecord[],
+  matches: readonly ScheduledMatchRecord[],
+  points: TournamentPoints,
+  tiebreakers: readonly TournamentTiebreaker[],
+  eligible?: (entrant: TournamentEntrantRecord) => boolean,
+): SwissPairing[] | undefined {
+  const { ranked, played, byes } = rankedPool(entrants, matches, points, tiebreakers, eligible);
+  const { bye, pool } = takeBye(ranked, byes);
+  const preferences = (remaining: RankedEntrant[]): RankedEntrant[] => {
+    const top = remaining[0]!;
+    // The top entrant's score group among the remaining field; a downfloater is a group of one and so looks below.
+    const group = remaining.filter((row) => row.points === top.points);
+    const below = remaining.filter((row) => row.points !== top.points);
+    const half = Math.floor(group.length / 2);
+    const s1 = group.slice(0, half);
+    const s2 = group.slice(half, half * 2);
+    const floater = group.slice(half * 2);
+    const ordered: RankedEntrant[] = [];
+    if (half > 0) ordered.push(...s2, ...s1.slice(1).reverse());
+    ordered.push(...floater, ...below);
+    return ordered.filter((row) => row !== top);
+  };
+  return withBye(backtrackPairs(pool, played, preferences), bye);
 }
