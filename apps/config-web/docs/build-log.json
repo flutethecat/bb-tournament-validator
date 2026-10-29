@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-10-30",
+    "title": "New sidebar: Home, Leagues, Tournaments, Leaderboards, Help, resources",
+    "body": "The left sidebar has a new layout. Home sits on top and still carries your unread badge. Below it come Leagues, Tournaments, Leaderboards and Help, each with its own pixel icon, and a Useful resources list linking Blood Bowl Base, Blood Bowl Dave, TABBL and FUMBBL in a new tab. Your own tournaments, teams and fixtures now sit under Tournaments. Every category folds open and shut with its arrow, and the sidebar remembers how you left it; Useful resources starts folded. On the narrow rail you see just the icons: click one to open the sidebar at that section. Leaderboards and Help are new pages: rankings arrive with league play. Account has moved to the menu under your name in the top bar.",
+    "links": [
+      {
+        "label": "Leaderboards",
+        "href": "/app/leaderboards"
+      },
+      {
+        "label": "Help",
+        "href": "/app/help"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Account page: identity, schedule and calendar",
     "body": "The Account page is rebuilt in the coach page style. Identity lets you set the display name other coaches see (it defaults to your coach name), your FUMBBL name and your NAF name and number; your avatar and the Discord account you sign in with are shown read-only. A FUMBBL name linked through tournament registration stays locked. Schedule is the weekly availability editor, unchanged. Calendar shows a month at a time, Monday first, with your registration and check-in deadlines, report-by deadlines and fixture deadlines as chips coloured like the Deadlines panel; each chip opens its tournament or match, and your usual availability is shaded on the matching days. On a phone the month becomes an agenda list. Proposed match times will appear here once that feature lands.",
     "links": [
