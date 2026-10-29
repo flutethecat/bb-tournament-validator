@@ -5,12 +5,14 @@ import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import { RACE_TONE_FALLBACK, raceTone } from "../spa/src/shared/raceTone";
+import { RECENT_RESULTS_MAX } from "../src/recentResults";
 
 // Recent games strip (owner 10-30): the signed-out landing page (under the sign-in card) and the coach page (after
 // Deadlines), plus the shared ResultCard markup. Rendered server-side through the SPA's own Vite config.
 
 const SPA_CONFIG = fileURLToPath(new URL("../spa/vite.config.ts", import.meta.url));
-const RECENT = "/api/recent-results?limit=12";
+// The strip asks for everything the API allows.
+const RECENT = `/api/recent-results?limit=${RECENT_RESULTS_MAX}`;
 
 type Routes = Record<string, unknown>;
 function mockFetcher(routes: Routes): Fetcher & { calls: string[] } {
@@ -85,7 +87,7 @@ describe("recent games (SSR)", () => {
     const { html, f } = await render("/", signedOut({ [RECENT]: results(), "/crests/manifest.json": { crests: { dwarf: "crests/dwarf.png" } } }));
     expect(html).toContain("Login with Discord");
     expect(html.indexOf("Login with Discord")).toBeLessThan(html.indexOf('id="recent-games"'));
-    expect(html).toMatch(/<h2 id="rc-recent-h">Recent games<\/h2><span class="hm-cap">\(2\)<\/span>/);
+    expect(html).toMatch(/<h2 id="rc-recent-h">Past Games<\/h2><span class="hm-cap">\(2\)<\/span>/);
     expect((strip(html).match(/class="rc-card"/g) ?? []).length).toBe(2);
     expect(strip(html)).toContain("Spike Beta Test · Round 3");
     // in-SPA links for /app paths; casualties shown only when known
@@ -94,7 +96,16 @@ describe("recent games (SSR)", () => {
     expect((strip(html).match(/class="rc-cas"/g) ?? []).length).toBe(3); // 1, (null: none), 0, 0
     // race crest from the manifest when the team has no avatar; initials otherwise
     expect(strip(html)).toContain('src="/crests/dwarf.png"');
-    expect(strip(html)).toContain("Conceded by Nameless");
+    // the concede line names the conceding side's COACH; the plate sits behind that score only; no strikethrough marker
+    expect(strip(html)).toContain("Conceded by Finn");
+    expect(strip(html)).not.toContain("Conceded by Nameless");
+    expect((strip(html).match(/class="rc-score" data-conceded="true"/g) ?? []).length).toBe(1);
+    expect((strip(html).match(/<span class="rc-plate-cap">Conceded<\/span>/g) ?? []).length).toBe(1);
+    expect(strip(html)).not.toContain('class="rc-team rc-away" data-conceded');
+    // Past Games: a scroll box of large cards, at most two columns
+    expect(strip(html)).toMatch(/<div class="rc-scroll"[^>]*><ul class="rc-grid rc-grid-lg"/);
+    expect(strip(html)).toContain('data-size="lg"');
+    expect(f.calls).toContain(`/api/recent-results?limit=${RECENT_RESULTS_MAX}`);
     expect(f.calls).toContain(RECENT);
   });
 
@@ -149,5 +160,22 @@ describe("recent games (SSR)", () => {
     expect(html).toContain('data-suspended="true"');
     expect(html).toContain('<p class="rc-flag">Suspended</p>');
     expect(html).toContain(`--rc-home:${RACE_TONE_FALLBACK}`);
+  });
+
+  it("ResultCard: names show literally and are escaped exactly once; the concede plate only appears on conceded cards", async () => {
+    const name = `<script>brains? & "Co" 'op' >`;
+    const html = await card({ context: "x", home: side(name, "Orc", "A&B", 1, 0), away: side("Plain", "Dwarf", "Zed", 0, 0), concede: "home" });
+    expect(html).toContain("&lt;script&gt;brains? &amp; &quot;Co&quot; &#39;op&#39; &gt;");
+    expect(html).not.toContain("&amp;lt;");
+    expect(html).not.toContain("&amp;amp;");
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("Conceded by A&amp;B");
+    expect(html).not.toContain("line-through");
+    const plain = await card({ context: "x", home: side("A", "", "a", 1, 0), away: side("B", "", "b", 0, 0) });
+    expect(plain).not.toContain("rc-plate-cap");
+    expect(plain).not.toContain("data-conceded");
+    expect(plain).not.toContain("rc-flag");
+    expect(plain).not.toContain("data-size");
+    expect(await card({ context: "x", home: side("A", "", "a", 1, 0), away: side("B", "", "b", 0, 0), size: "lg" })).toContain('data-size="lg"');
   });
 });

@@ -25,6 +25,8 @@ const props = defineProps<{
   tone?: { home?: string; away?: string };
   concede?: "home" | "away" | null;
   suspended?: boolean;
+  /** "lg" scales the card up (Past Games strip); the default is the compact size other views use. */
+  size?: "lg";
 }>();
 
 /** A CSS colour we are willing to put in a style attribute (hex, rgb()/hsl(), or a bare colour name). */
@@ -57,8 +59,10 @@ const when = computed(() => {
 });
 const label = computed(() =>
   `${props.home.name} ${scoreText(props.home.score)}, ${props.away.name} ${scoreText(props.away.score)}. ${props.context}`);
+/** The coach who conceded (the team name only when the game carries no coach). Text only: Vue escapes it once. */
+const conceder = computed(() => { const side = props.concede === "home" ? props.home : props.away; return side.coach || side.name; });
 const flag = computed(() =>
-  props.suspended ? "Suspended" : props.concede ? `Conceded by ${props.concede === "home" ? props.home.name : props.away.name}` : "");
+  props.suspended ? "Suspended" : props.concede ? `Conceded by ${conceder.value}` : "");
 const sides = computed(() => [
   { key: "home" as const, side: props.home },
   { key: "away" as const, side: props.away },
@@ -73,15 +77,20 @@ const sides = computed(() => [
     :style="style"
     :aria-label="linked ? label : undefined"
     :data-suspended="suspended ? 'true' : undefined"
+    :data-size="size"
+    :data-conceded="concede ? 'true' : undefined"
   >
     <p class="rc-context"><span class="rc-context-text">{{ context }}</span><time v-if="when" class="rc-when" :datetime="playedAt">{{ when }}</time></p>
     <div class="rc-body">
       <template v-for="(s, i) in sides" :key="s.key">
-        <div v-if="i === 1" class="rc-score">
-          <span class="rc-num">{{ scoreText(home.score) }}<small v-if="casText(home.cas)" class="rc-cas">{{ casText(home.cas) }}</small></span>
-          <span class="rc-num">{{ scoreText(away.score) }}<small v-if="casText(away.cas)" class="rc-cas">{{ casText(away.cas) }}</small></span>
+        <div v-if="i === 1" class="rc-score" :data-conceded="concede ? 'true' : undefined">
+          <span class="rc-nums">
+            <span class="rc-num">{{ scoreText(home.score) }}<small v-if="casText(home.cas)" class="rc-cas">{{ casText(home.cas) }}</small></span>
+            <span class="rc-num">{{ scoreText(away.score) }}<small v-if="casText(away.cas)" class="rc-cas">{{ casText(away.cas) }}</small></span>
+          </span>
+          <span v-if="concede" class="rc-plate-cap">Conceded</span>
         </div>
-        <div class="rc-team" :class="`rc-${s.key}`" :data-conceded="concede === s.key ? 'true' : undefined">
+        <div class="rc-team" :class="`rc-${s.key}`">
           <img v-if="crestSrc(s.side.crestUrl)" class="rc-crest" :src="crestSrc(s.side.crestUrl)" alt="" loading="lazy" referrerpolicy="no-referrer" />
           <span v-else class="rc-crest rc-initials" aria-hidden="true">{{ initials(s.side.name) }}</span>
           <span class="rc-who">

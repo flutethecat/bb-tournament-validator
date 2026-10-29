@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// "Recent games" panel (owner 10-30): the newest games played on the client, as result cards. Shown under the sign-in
+// "Past Games" panel (owner 10-30): the newest games played on the client, as result cards. Shown under the sign-in
 // card on the signed-out landing page and at the bottom of the coach page's main column.
 import { inject, onMounted, onServerPrefetch, ref } from "vue";
 import { API_KEY } from "../app";
@@ -21,16 +21,18 @@ onServerPrefetch(load);
 
 <template>
   <section id="recent-games" class="hm-panel rc-strip" aria-labelledby="rc-recent-h">
-    <header class="hm-band" data-tone="info"><h2 id="rc-recent-h">Recent games</h2><span class="hm-cap">({{ rows.length }})</span></header>
+    <header class="hm-band" data-tone="info"><h2 id="rc-recent-h">Past Games</h2><span class="hm-cap">({{ rows.length }})</span></header>
     <p v-if="!loaded" class="hm-empty">Loading…</p>
     <p v-else-if="!rows.length" class="hm-empty">No games recorded yet.</p>
-    <ul v-else class="rc-grid" aria-label="Recent games">
+    <div v-else class="rc-scroll" tabindex="0" role="region" aria-label="Past Games, scrollable">
+    <ul class="rc-grid rc-grid-lg" aria-label="Past Games">
       <li v-for="r in rows" :key="r.id">
         <ResultCard
           :context="r.context" :home="r.home" :away="r.away" :played-at="r.playedAt ?? undefined" :href="r.href ?? undefined"
-          :concede="r.concede" :suspended="r.suspended"
+          :concede="r.concede" :suspended="r.suspended" size="lg"
         />
       </li>
     </ul>
+    </div>
   </section>
 </template>

@@ -1,4 +1,4 @@
-// Recent games strip (owner 10-30): GET /api/recent-results, shown on the signed-out landing page and the coach page.
+// Past Games strip (owner 10-30): GET /api/recent-results, shown on the signed-out landing page and the coach page.
 // Any failure is an empty strip: the page is public and never shows an error for this.
 
 import type { Fetcher } from "../session";
@@ -25,7 +25,8 @@ export interface RecentResult {
   suspended: boolean;
 }
 
-export const RECENT_LIMIT = 12;
+/** The most the API returns (src/recentResults.ts RECENT_RESULTS_MAX; a test keeps the two equal): the Past Games strip asks for all of it. */
+export const RECENT_LIMIT = 50;
 export const RECENT_PATH = `/api/recent-results?limit=${RECENT_LIMIT}`;
 
 const isSide = (s: unknown): s is RecentSide => !!s && typeof s === "object" && typeof (s as RecentSide).name === "string";
