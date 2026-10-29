@@ -14,6 +14,7 @@ import type {
   TournamentRecord,
   VerifiedCoachIdentity,
 } from "./types.js";
+import { tournamentLink, type TournamentNotify } from "../notifications.js";
 
 export interface TournamentApiIdentity {
   coach: string;
@@ -39,6 +40,8 @@ export interface TournamentApiDeps {
   packageRevision?(packageName: string): string | undefined;
   /** v4: the shared Team Builder read-view model (teamShareView) of a submitted snapshot, or undefined. */
   submissionTeamView?(coach: string, submission: TournamentSubmission, packageName: string): unknown | undefined;
+  /** Coach notifications (src/notifications.ts). Fire-and-forget; absent = no notifications. */
+  notify?: TournamentNotify;
   now?: () => Date;
 }
 
@@ -377,6 +380,112 @@ function projectedOpponent(
   };
 }
 
+// ---- notification hooks: called after a mutation succeeded; a fault here never changes the response ----
+
+function quietly(fn: () => void): void {
+  try { fn(); } catch { /* notifications are best effort */ }
+}
+
+const FLAG_WORDS: Record<keyof TournamentEntrantFlags, [on: string, off: string]> = {
+  paid: ["Marked as paid", "Marked as not paid"],
+  rosterVerified: ["Roster verified", "Roster marked invalid"],
+  frozen: ["Roster frozen", "Roster unfrozen"],
+  checkedIn: ["Checked in", "Check-in cleared"],
+  active: ["Moved to active", "Moved to standby"],
+};
+
+function effectiveFlags(entrant: TournamentEntrantRecord | undefined): TournamentEntrantFlags {
+  return { ...DEFAULT_ENTRANT_FLAGS, ...(entrant?.flags ?? {}) };
+}
+
+function notifyFlagChanges(deps: TournamentApiDeps, tournament: TournamentRecord, before: TournamentEntrantRecord | undefined, after: TournamentEntrantRecord, actor: string): void {
+  if (!deps.notify) return;
+  quietly(() => {
+    const was = effectiveFlags(before);
+    const now = effectiveFlags(after);
+    const lines = (Object.keys(FLAG_WORDS) as Array<keyof TournamentEntrantFlags>)
+      .filter((key) => was[key] !== now[key])
+      .map((key) => FLAG_WORDS[key][now[key] ? 0 : 1]);
+    if (!lines.length) return;
+    deps.notify!.coach(after.coach.ffbCoachId, {
+      type: "entrant-flag",
+      title: `${tournament.name}: your entry was updated`,
+      body: lines.join(". ") + ".",
+      link: tournamentLink(tournament.id, "overview"),
+      from: actor,
+    });
+  });
+}
+
+/** Entrants still invalid with problems after a roster check: tell each coach the count. */
+function notifyRosterProblems(deps: TournamentApiDeps, tournament: TournamentRecord, entrants: readonly TournamentEntrantRecord[], actor: string): void {
+  if (!deps.notify) return;
+  quietly(() => {
+    for (const entrant of entrants) {
+      if (entrant.droppedAt !== undefined || entrant.flags?.rosterVerified) continue;
+      const count = entrant.submission?.validation.problems.length ?? 0;
+      if (count === 0) continue;
+      deps.notify!.coach(entrant.coach.ffbCoachId, {
+        type: "roster-problems",
+        title: `${tournament.name}: your roster has ${count} ${count === 1 ? "problem" : "problems"}`,
+        body: "The roster check found problems. Open the tournament to see them and resubmit, or ask an organiser.",
+        link: tournamentLink(tournament.id, "overview"),
+        from: actor,
+      });
+    }
+  });
+}
+
+function notifyWithdrawal(deps: TournamentApiDeps, tournament: TournamentRecord, entrant: TournamentEntrantRecord, actor: string, selfDrop: boolean): void {
+  if (!deps.notify) return;
+  quietly(() => {
+    if (selfDrop) {
+      deps.notify!.managers(tournament.id, {
+        type: "withdrawal",
+        title: `${tournament.name}: ${entrant.coach.ffbCoachId} withdrew`,
+        body: `${entrant.coach.ffbCoachId} withdrew from ${tournament.name}.`,
+        link: tournamentLink(tournament.id, "manage"),
+        from: actor,
+      }, actor);
+    } else {
+      deps.notify!.coach(entrant.coach.ffbCoachId, {
+        type: "withdrawal",
+        title: `${tournament.name}: you were withdrawn`,
+        body: `An organiser withdrew your entry from ${tournament.name}.`,
+        link: tournamentLink(tournament.id, "overview"),
+        from: actor,
+      });
+    }
+  });
+}
+
+function notifyFixtures(deps: TournamentApiDeps, tournament: TournamentRecord, matches: readonly ScheduledMatchRecord[], actor: string): void {
+  if (!deps.notify) return;
+  quietly(() => {
+    const link = tournamentLink(tournament.id, "rounds");
+    for (const match of matches) {
+      const title = `${tournament.name}: round ${match.roundNumber} fixture`;
+      if (!match.away) {
+        deps.notify!.coach(match.home.coach.ffbCoachId, { type: "fixture-created", title, body: `You have a bye in round ${match.roundNumber}.`, link, from: actor });
+        continue;
+      }
+      deps.notify!.coach(match.home.coach.ffbCoachId, { type: "fixture-created", title, body: `You play ${match.away.coach.ffbCoachId} in round ${match.roundNumber}.`, link, from: actor });
+      deps.notify!.coach(match.away.coach.ffbCoachId, { type: "fixture-created", title, body: `You play ${match.home.coach.ffbCoachId} in round ${match.roundNumber}.`, link, from: actor });
+    }
+  });
+}
+
+function notifyResult(deps: TournamentApiDeps, match: ScheduledMatchRecord, actor: string): void {
+  if (!deps.notify || !match.result || !match.away) return;
+  quietly(() => {
+    const name = deps.store.tournament(match.tournamentId)?.name ?? "Tournament";
+    const body = `${match.home.coach.ffbCoachId} ${match.result!.homeScore} - ${match.result!.awayScore} ${match.away!.coach.ffbCoachId} (round ${match.roundNumber}).`;
+    const input = { type: "result-confirmed" as const, title: `${name}: result confirmed`, body, link: tournamentLink(match.tournamentId, "rounds"), from: actor };
+    deps.notify!.coach(match.home.coach.ffbCoachId, input);
+    deps.notify!.coach(match.away!.coach.ffbCoachId, input);
+  });
+}
+
 export async function tournamentApi(
   method: string,
   path: string,
@@ -565,6 +674,7 @@ export async function tournamentApi(
       if (tournament.rostersLockedAt) return { status: 409, body: { error: "Rosters are already locked." } };
       const entrants = deps.store.lockRosters(tournament.id, rosterChecks(tournament, deps.store.entrants(tournament.id), deps, now), now);
       const updated = deps.store.tournament(tournament.id)!;
+      notifyRosterProblems(deps, updated, entrants, identity.coach);
       return {
         status: 200,
         body: {
@@ -594,6 +704,7 @@ export async function tournamentApi(
         ...(packageRevision ? { packageRevision } : {}),
       }, now);
       const validation = validationTable(result.entrants, deps);
+      if (checks) notifyRosterProblems(deps, result.tournament, result.entrants, identity.coach);
       if (!result.started) {
         return {
           status: 409,
@@ -620,10 +731,12 @@ export async function tournamentApi(
       if (input.paid !== undefined) flags.paid = input.paid;
       if (input.manualSeed !== undefined && input.manualSeed !== null && !Number.isSafeInteger(input.manualSeed))
         return { status: 400, body: { error: "manualSeed must be a whole number or null." } };
+      const before = deps.store.entrants(tournament.id).find((candidate) => candidate.id === entrantId);
       const updated = deps.store.updateEntrant(tournament.id, entrantId, {
         flags: flags as Partial<TournamentEntrantFlags>,
         ...(input.manualSeed === undefined ? {} : { manualSeed: input.manualSeed as number | null }),
       }, now);
+      notifyFlagChanges(deps, tournament, before, updated, identity.coach);
       return { status: 200, body: { entrant: clientEntrant(updated, deps, true) } };
     }
 
@@ -668,9 +781,11 @@ export async function tournamentApi(
       if (!entrant) return { status: 404, body: { error: "Tournament entrant not found." } };
       const selfDrop = coachKey(entrant.coach.ffbCoachId) === coachKey(identity.coach);
       if (!selfDrop) requireTournamentManager(tournament, identity);
+      const dropped = deps.store.dropEntrant(tournamentId, entrantId, identity.coach, !selfDrop, now);
+      notifyWithdrawal(deps, tournament, entrant, identity.coach, selfDrop);
       return {
         status: 200,
-        body: { entrant: deps.store.dropEntrant(tournamentId, entrantId, identity.coach, !selfDrop, now) },
+        body: { entrant: dropped },
       };
     }
 
@@ -970,7 +1085,12 @@ export async function tournamentApi(
           },
         };
       }
-      return { status: 200, body: { round: deps.store.generateNextRound(tournamentId, now, deps.coachRating, options) } };
+      const round = deps.store.generateNextRound(tournamentId, now, deps.coachRating, options);
+      quietly(() => {
+        const ids = new Set(round.scheduledMatchIds);
+        notifyFixtures(deps, tournament, deps.store.matches(tournamentId).filter((match) => ids.has(match.id)), identity.coach);
+      });
+      return { status: 200, body: { round } };
     }
 
     if (path === "/api/scheduled-matches" && method === "GET") {
@@ -1060,6 +1180,7 @@ export async function tournamentApi(
         ...(input.homeCasualties === undefined ? {} : { homeCasualties: integer(input.homeCasualties, "homeCasualties") }),
         ...(input.awayCasualties === undefined ? {} : { awayCasualties: integer(input.awayCasualties, "awayCasualties") }),
       }, now);
+      notifyResult(deps, match, identity.coach);
       return { status: 200, body: { match: clientMatch(deps.store, match, identity, now, deps.teamBuild) } };
     }
 

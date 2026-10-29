@@ -33,6 +33,7 @@ import type { NafSummary } from "../nafRecords.js";
 import { applyPostMatch, sppCredits, sppForEvent, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile, SPP_VALUES } from "./postMatch.js";
 import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
 import { duplicatePlayerId, parseTeamRef } from "./teamFile.js";
+import type { NotificationInput } from "../notifications.js";
 
 export interface TabletopAuth { coach: string; method: string; /** A test sign-in session: matches it creates are flagged test. */ test?: boolean }
 export interface TabletopResult { status: number; body: unknown; contentType?: string; headers?: Record<string, string> }
@@ -169,6 +170,27 @@ export interface TabletopApiDeps {
   now?: () => Date;
   /** Persisted coach titles (hysteresis memory + bounds); absent = in-memory plain percentile titles. */
   titles?: CoachTitleStore;
+  /** Coach notifications (src/notifications.ts): a result confirmed by both seats notifies both coaches. Fire-and-forget. */
+  notify?: (coach: string, input: NotificationInput) => void;
+}
+
+/** After a finalising confirm committed: both coaches hear the result is confirmed (never for Testing Suite matches). */
+function notifyConfirmed(match: MatchRecord, me: string, deps: TabletopApiDeps): void {
+  if (!deps.notify || match.test) return;
+  try {
+    const fixture = match.fixtureRef ? deps.fixtures?.get(match.fixtureRef) : undefined;
+    const t = fixture?.tournament;
+    const link = t ? `/app/tournaments/${encodeURIComponent(t.id)}?tab=rounds` : `/app/tabletop/${encodeURIComponent(match.id)}`;
+    const input: NotificationInput = {
+      type: "result-confirmed",
+      title: `${t ? `${t.name}: ` : ""}result confirmed`,
+      body: `${match.home.teamName} (${match.home.coach}) v ${match.away.teamName} (${match.away.coach}): the result is confirmed.`,
+      link,
+      from: me,
+    };
+    deps.notify(match.home.coach, input);
+    deps.notify(match.away.coach, input);
+  } catch { /* notifications are best effort */ }
 }
 
 /** Adds `avatarUrl` to a team view when the team has an uploaded avatar. */
@@ -607,7 +629,9 @@ async function confirm(match: MatchRecord, me: string, organiser: boolean, deps:
   // an organiser confirming for both coaches is recorded as such (who, when) on the match and the journal, not as two coach confirmations
   const built = await buildConfirmJournal(match, me, confirmations, deps, at, organiser);
   if (!built.ok) return built.error;
-  return commit(built.journal, deps);
+  const done = await commit(built.journal, deps);
+  if (done.status === 200) notifyConfirmed(match, me, deps);
+  return done;
 }
 
 type Built = { ok: true; journal: CommitJournal } | { ok: false; error: TabletopResult };
@@ -991,7 +1015,9 @@ async function confirmAndPublish(match: MatchRecord, me: string, deps: TabletopA
   if ("error" in fx) return fx.error;
   const row = (j.result as { put: StoredTournamentResult }).put;
   const next: MatchRecord = { ...confirmed, state: "published", publishedAt: at, publishedBy: me, ...(fx.fixtureLink ? { fixtureLink: fx.fixtureLink } : {}) };
-  return commit({ ...j, kind: "publish", result: { put: { ...row, published: true } }, ...(fx.fixture ? { fixture: fx.fixture } : {}), match: next }, deps);
+  const done = await commit({ ...j, kind: "publish", result: { put: { ...row, published: true } }, ...(fx.fixture ? { fixture: fx.fixture } : {}), match: next }, deps);
+  if (done.status === 200) notifyConfirmed(match, me, deps);
+  return done;
 }
 
 /** submitted -> recording directly; confirmed -> recording through the revision undo; published needs undo-revision first. */
