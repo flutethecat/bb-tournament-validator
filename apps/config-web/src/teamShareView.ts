@@ -11,6 +11,7 @@ import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
   addedSkills,
+  splitCaptainGrants,
   findPosition,
   findRoster,
   findSkill,
@@ -42,6 +43,10 @@ export interface SharedPlayer {
   isStar: boolean;
   stats: { MA: number; ST: number; AG: string; PA: string; AV: string };
   printed: SharedSkill[];
+  /** BB2025 Team Captain (https://bloodbowlbase.ru/bb2025/core_rules/the_teams/#team-captain). */
+  captain: boolean;
+  /** The captain's free grants: the "Team Captain" trait and its free Pro (never added skills, never charged). */
+  free: SharedSkill[];
   added: SharedSkill[];
   /** Characteristic increases on top of the position ("MA", "AV", …; AG/PA = one step better). */
   statIncreases: string[];
@@ -182,8 +187,16 @@ export function sharedTeamView(input: SharedViewInput): SharedTeamView {
   const players: SharedPlayer[] = (roster?.players ?? []).map((p) => {
     const star = isStarName(bb2025, p.positionName);
     const ds = dsRoster && !star ? findPosition(dsRoster, p.positionName) : undefined;
-    const printedNames = ds ? p.skills.filter((s) => !addedSkills(ds, [s]).length) : p.skills;
-    const addedNames = ds ? addedSkills(ds, p.skills) : [];
+    // Classify over the WHOLE skill list: the Team Captain grants (the trait + its one free Pro) are their own group.
+    const { grants, rest } = star ? { grants: [] as string[], rest: [...p.skills] } : splitCaptainGrants(p.skills);
+    const addedNames = ds ? addedSkills(ds, rest) : [];
+    const addedLeft = [...addedNames];
+    const printedNames = rest.filter((s) => {
+      const at = addedLeft.indexOf(s);
+      if (at < 0) return true;
+      addedLeft.splice(at, 1);
+      return false;
+    });
     return {
       number: int(p.number),
       position: shortPositionName({ name: String(p.positionName) }, { name: raceName }),
@@ -191,6 +204,8 @@ export function sharedTeamView(input: SharedViewInput): SharedTeamView {
       isStar: star,
       stats: { MA: int(p.MA), ST: int(p.ST), AG: String(p.AG), PA: String(p.PA), AV: String(p.AV) },
       printed: printedNames.map((name) => ({ name, category: skillCategory(name) })),
+      captain: grants.length > 0,
+      free: grants.map((name) => ({ name, category: skillCategory(name) })),
       added: addedNames.map((name) => ({
         name,
         category: skillCategory(name),

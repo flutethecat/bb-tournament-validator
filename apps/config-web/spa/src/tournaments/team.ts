@@ -63,11 +63,12 @@ export function playerRows(view: SharedTeamView | undefined): PlayerRow[] {
   return (view?.players ?? []).map((p, i) => ({
     key: `${i}`,
     number: p.number,
-    position: p.position,
+    position: p.captain ? `${p.position} (C)` : p.position,
     positionFull: p.positionFull,
     stats: [p.stats.MA, p.stats.ST, p.stats.AG, p.stats.PA, p.stats.AV].join(" / "),
     upgrades: p.statIncreases.map((s) => `+${s}`).join(", "),
-    skills: p.printed.map((s) => s.name).join(", "),
+    // The Team Captain's free grants sit with the printed skills: owned, never added or charged.
+    skills: [...p.printed, ...(p.free ?? [])].map((s) => s.name).join(", "),
     added: p.added.map((s) => (s.access === "secondary" ? `${s.name} (S)` : s.name)).join(", "),
   }));
 }

@@ -94,6 +94,8 @@
 .tv-card .row-skills { gap: 4px; }
 
 .tv-tag { margin-left: 4px; padding: 0 5px; color: var(--ui-gold); border: 1px solid currentColor; border-radius: 3px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; vertical-align: 2px; }
+.tv-captain { border-radius: 50%; padding: 0 4px; letter-spacing: 0; }
+.tv-free { font-style: normal; border-style: solid; }
 .tv-up dd, td.tv-up { color: var(--ui-success); }
 .tv-up-mark { margin-left: 2px; font-size: .62em; vertical-align: .35em; }
 /* Owner 10-27: an added skill is boxed, upright, with a small + badge in its top-right corner. */

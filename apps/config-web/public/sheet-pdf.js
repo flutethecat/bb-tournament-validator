@@ -29,6 +29,7 @@
   const ZEBRA_FILL = "#f4f4f4";
   const BLUE = "#1a5fb4"; // added primary skills, stat increases, improved stats
   const GREEN = "#3d7a1f"; // added secondary skills (same distinction as the on-screen sheet)
+  const TRAIT = "#6e4f28"; // Team Captain grants (same ink as the on-screen sheet's .sk-trait)
   const STATS = ["MA", "ST", "AG", "PA", "AV"];
 
   const fallbackGold = (value) =>
@@ -67,6 +68,8 @@
       parts.push(piece);
     };
     for (const skill of row.printed ?? []) push({ text: skill });
+    // Team Captain grants (the trait + its free Pro): trait ink, never italic like a paid added skill.
+    for (const skill of row.free ?? []) push({ text: skill, color: TRAIT });
     if (!row.isStar) {
       for (const skill of row.added ?? []) push({ text: skill.name, italics: true, color: skill.access === "secondary" ? GREEN : BLUE });
       for (const stat of row.statIncreases ?? []) push({ text: `+${stat}`, italics: true, bold: true, color: BLUE });
@@ -144,7 +147,8 @@
     for (const row of rows) {
       body.push([
         { text: String(row.number ?? ""), alignment: "right" },
-        row.isStar ? { text: [{ text: row.position }, { text: "  (Star)", color: MUTED, fontSize: 7.5 }] } : { text: row.position },
+        row.isStar ? { text: [{ text: row.position }, { text: "  (Star)", color: MUTED, fontSize: 7.5 }] }
+          : row.captain ? { text: [{ text: row.position }, { text: "  (C)", bold: true, fontSize: 7.5 }] } : { text: row.position },
         ...STATS.map((stat) => statCell(row.stats ? row.stats[stat] : null, row.isStar)),
         skillsCell(row),
         { text: row.cost != null ? gold(row.cost) : "—", alignment: "right", noWrap: true },

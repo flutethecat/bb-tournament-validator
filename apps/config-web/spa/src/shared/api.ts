@@ -259,6 +259,9 @@ export interface SharedTeamView {
     isStar: boolean;
     stats: { MA: number; ST: number; AG: string; PA: string; AV: string };
     printed: Array<{ name: string; category: string }>;
+    /** Team Captain: the nominated player's free grants ("Team Captain" + its free Pro). */
+    captain?: boolean;
+    free?: Array<{ name: string; category: string }>;
     added: Array<{ name: string; category: string; access?: "primary" | "secondary" }>;
     statIncreases: string[];
     cost: number | null;

@@ -59,6 +59,7 @@
   }
   const rulesetText = (team) => (team.ruleset ? [team.ruleset.name, team.ruleset.tierLabel].filter(Boolean).join(" — ") : "");
 
+  const CAPTAIN_TAG = ' <span class="tv-tag tv-captain" title="Team Captain" aria-label="Team Captain">C</span>';
   function skillChip(skill, added) {
     const access = added && skill.access === "secondary" ? "secondary" : added ? "primary" : "";
     const label = added ? `${access === "secondary" ? "Secondary" : "Primary"} skill added: ${skill.name}` : skill.name;
@@ -66,9 +67,11 @@
   }
   function skillsHtml(player) {
     const printed = (player.printed ?? []).map((s) => skillChip(s, false));
+    // Team Captain grants: the trait and its free Pro, marked as free (never an added, paid skill).
+    const free = (player.free ?? []).map((s) => `<span class="skill ${categoryClass(s.category)} tv-free" title="${esc(`Free with Team Captain: ${s.name}`)}">${esc(s.name)}</span>`);
     const added = (player.added ?? []).map((s) => skillChip(s, true));
     const stats = (player.statIncreases ?? []).map((s) => `<span class="skill tv-stat-up" title="Characteristic increase">+${esc(s)}</span>`);
-    const all = [...printed, ...added, ...stats];
+    const all = [...printed, ...free, ...added, ...stats];
     return all.length ? all.join("") : '<span class="tv-none">—</span>';
   }
   function statCell(player, stat) {
@@ -81,7 +84,7 @@
     const rows = players.map((p) => `<tr${p.isStar ? ' class="tv-star"' : ""}>
         <td class="tv-col-sprite">${spriteHtml(p)}</td>
         <td class="tv-num">${esc(p.number)}</td>
-        <td class="tv-pos"${posTitle(p)}>${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}</td>
+        <td class="tv-pos"${posTitle(p)}>${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}${p.captain ? CAPTAIN_TAG : ""}</td>
         ${STATS.map((stat) => { const c = statCell(p, stat); return `<td class="tv-stat${c.up ? " tv-up" : ""}"${c.up ? ` title="${stat} increased"` : ""}><span class="tv-stat-box">${esc(c.text)}${c.up ? '<span class="tv-up-mark" aria-hidden="true">▲</span>' : ""}</span></td>`; }).join("")}
         <td class="tv-skills"><div class="row-skills">${skillsHtml(p)}</div></td>
         <td class="tv-cost">${gold(p.cost)}</td>
@@ -93,7 +96,7 @@
   }
   function cardsHtml(players) {
     return `<ol class="tv-cards">${players.map((p) => `<li class="tv-card${p.isStar ? " tv-star" : ""}">
-        <div class="tv-card-head">${spriteHtml(p)}<span class="tv-num">#${esc(p.number)}</span><span class="tv-pos"${posTitle(p)}>${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}</span><span class="tv-cost">${gold(p.cost)}</span></div>
+        <div class="tv-card-head">${spriteHtml(p)}<span class="tv-num">#${esc(p.number)}</span><span class="tv-pos"${posTitle(p)}>${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}${p.captain ? CAPTAIN_TAG : ""}</span><span class="tv-cost">${gold(p.cost)}</span></div>
         <dl class="tv-card-stats">${STATS.map((stat) => { const c = statCell(p, stat); return `<div class="${c.up ? "tv-up" : ""}"><dt>${stat}</dt><dd>${esc(c.text)}${c.up ? '<span class="tv-up-mark" aria-label="increased">▲</span>' : ""}</dd></div>`; }).join("")}</dl>
         <div class="row-skills">${skillsHtml(p)}</div>
       </li>`).join("")}</ol>`;
