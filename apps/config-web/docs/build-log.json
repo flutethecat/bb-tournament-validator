@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Set schedule from the calendar",
+    "body": "The weekly availability editor is no longer a panel of its own on the Account page. The Calendar now has a Set schedule button beside Deadlines; it opens the editor in a dialog with your timezone, the seven day columns and Save availability. Saving reshades the calendar straight away. Close, Escape and a click outside close the dialog (a click outside is ignored while you have unsaved changes, and your edits are kept if you close and reopen). Links to /account#schedule open the dialog. On a phone the dialog fills the screen minus a small margin and scrolls inside.",
+    "links": [
+      {
+        "label": "Account",
+        "href": "/app/account"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "New sidebar: Home, Leagues, Tournaments, Leaderboards, Help, resources",
     "body": "The left sidebar has a new layout. Home sits on top and still carries your unread badge. Below it come Leagues, Tournaments, Leaderboards and Help, each with its own pixel icon, and a Useful resources list linking Blood Bowl Base, Blood Bowl Dave, TABBL and FUMBBL in a new tab. Your own tournaments, teams and fixtures now sit under Tournaments. Every category folds open and shut with its arrow, and the sidebar remembers how you left it; Useful resources starts folded. On the narrow rail you see just the icons: click one to open the sidebar at that section. Leaderboards and Help are new pages: rankings arrive with league play. Account has moved to the menu under your name in the top bar.",
     "links": [
