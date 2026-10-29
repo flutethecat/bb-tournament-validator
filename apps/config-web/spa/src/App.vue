@@ -2,6 +2,7 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "./app";
+import BellPopover from "./components/BellPopover.vue";
 import ShellNav from "./components/ShellNav.vue";
 import SignInPrompt from "./components/SignInPrompt.vue";
 import TestSignInCard from "./components/TestSignInCard.vue";
@@ -10,7 +11,7 @@ import { THEME_KEY, themeLabel } from "./theme";
 import { gateFor } from "./router";
 import { COACH_TREE_KEY } from "./home/tree";
 import { DRAWER_QUERY, FOCUSABLE, rememberRail, SHELL_UI_KEY, trapTarget, typingTarget } from "./home/shell";
-import { NOTIFICATIONS_KEY, unreadBadge } from "./home/notifications";
+import { NOTIFICATIONS_KEY } from "./home/notifications";
 import type { AccountInfo } from "./shared/api";
 
 const session = inject(SESSION_KEY)!;
@@ -26,10 +27,8 @@ const gate = computed(() => gateFor(route, session));
 const loginHref = computed(() => discordLoginUrl(appPath(route.fullPath)));
 const avatar = ref("");
 const menuOpen = ref(false);
-/** The shared notifications store (createSpa): the bell shows its unread count, capped "99+", hidden at 0. */
+/** The shared notifications store (createSpa): BellPopover shows its unread count. */
 const notifications = inject(NOTIFICATIONS_KEY)!;
-const unread = computed(() => notifications.unread.value);
-const badge = computed(() => unreadBadge(unread.value));
 // The bell holds one subscription while a coach is signed in (browser only; never during a server render).
 let bellSubscribed = false;
 function followSession(coach: string): void {
@@ -125,12 +124,7 @@ async function signOut(): Promise<void> {
     <div class="shell-who" aria-live="polite">
       <button class="lobby-btn small shell-theme" type="button" :aria-label="`Theme: ${themeLabel(theme.state.mode)}. Tap to change.`" @click="theme.cycle()">Theme: {{ themeLabel(theme.state.mode) }}</button>
       <template v-if="session.signedIn()">
-        <RouterLink v-slot="{ href, navigate }" to="/home#notifications" custom>
-        <a :href="href" class="sf-bell" :aria-label="`Notifications: ${unread}`" @click="navigate">
-          <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 1a1 1 0 0 1 1 1v.6A4.5 4.5 0 0 1 12.5 7v3l1.5 2v1H2v-1l1.5-2V7A4.5 4.5 0 0 1 7 2.6V2a1 1 0 0 1 1-1Zm-1.7 13h3.4a1.7 1.7 0 0 1-3.4 0Z" /></svg>
-          <span v-if="badge" class="sf-bell-count">{{ badge }}</span>
-        </a>
-        </RouterLink>
+        <BellPopover />
         <div class="sf-avatar-menu">
           <button class="shell-me" type="button" aria-haspopup="menu" :aria-expanded="menuOpen ? 'true' : 'false'" @click="menuOpen = !menuOpen">
             <img v-if="avatar" class="lobby-avatar small" :src="avatar" alt="" />
