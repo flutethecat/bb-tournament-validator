@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Tournaments list in the site's design",
+    "body": "The Tournaments page now looks like the rest of the site. The Active / Upcoming / Finished pills, which could stretch into tall capsules with a big empty gap above them, are replaced by a compact square switch next to the search box, right under the page title. It works with the keyboard too: arrow keys move between the three choices. Each tournament is a panel card with its banner (or the ruleset crest when there is none), a status chip, the dates (or Not set), ruleset, format, entrants and places left, and the round. The button at the bottom fits you: Manage for organisers, Your entry when you are registered, Register while places are open, otherwise Open. On a phone the cards stack in one column.",
+    "links": [
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Simpler sidebar: Home carries the unread badge",
     "body": "The Coach page section is gone from the left sidebar: it was one page with a long list of links to itself. Home, in the Pages list, now carries a small badge instead. It shows your unread notifications (and, once they arrive, unread messages and proposed match times), updates as they come in, and disappears when there is nothing waiting. On the narrow rail the Home letter keeps a little count in its corner. The bell's list and the sections on the Home page are unchanged.",
     "links": [
