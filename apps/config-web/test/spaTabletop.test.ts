@@ -572,6 +572,13 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toMatch(/class="tt-ev--away tt-ev" data-row-side="away" data-type="completion"/);
     expect(html).toMatch(/class="tt-ev--neutral tt-ev" data-row-side="neutral" data-type="coinFlip"/);
     expect(html).toContain('id="tt-ev-e1"');
+    // alignment classes: home left, away mirrored, game events centred (css contract)
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.tt-ev\[data-row-side="neutral"\] \{[^}]*flex-direction: column; align-items: center;[^}]*text-align: center;/);
+    expect(css).toMatch(/\.tt-ev\[data-row-side="neutral"\] \.tt-ev-mark \{[^}]*left: 50%;[^}]*translateX\(-50%\)/);
+    expect(css).toMatch(/\.tt-ev\[data-row-side="away"\] \{[^}]*flex-direction: row-reverse; text-align: right;/);
+    expect(css).toMatch(/\.tt-ev\[data-row-side="away"\] \.tt-ev-who \{[^}]*flex-direction: row-reverse; margin-right: auto;/);
     expect(html).toContain('<span class="tt-ev-mark">H1 T3</span>');
     expect(html).toContain('<b class="tt-ev-num">#1</b>'); // the acting player's number
     expect(html).not.toContain("tt-ev-grip"); // the store has no reordering, so no gripper

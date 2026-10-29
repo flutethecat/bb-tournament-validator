@@ -662,3 +662,14 @@
   .tt-rec > .tt-rail { overflow: visible; align-self: start; }
   .tt-rec > .tt-mid { min-height: 0; }
 }
+
+/* match log alignment (phone and desktop): game events centred with the icon above the text and a centred turn mark; away cards mirrored
+   (icon on the right edge, text, turn mark and time right-aligned, the player chip on the left); home cards unchanged */
+.tt-ev[data-row-side="neutral"] { flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding-top: 22px; text-align: center; }
+.tt-ev[data-row-side="neutral"] .tt-ev-text { flex: 0 1 auto; padding-top: 0; text-align: center; }
+.tt-ev[data-row-side="neutral"] .tt-time { text-align: center; }
+.tt-ev[data-row-side="neutral"] .tt-ev-mark { left: 50%; right: auto; top: 0; transform: translateX(-50%); border-radius: 0 0 var(--tt-radius) var(--tt-radius); }
+.tt-ev[data-row-side="away"] { flex-direction: row-reverse; text-align: right; }
+.tt-ev[data-row-side="away"] .tt-ev-text, .tt-ev[data-row-side="away"] .tt-time { text-align: right; }
+.tt-ev[data-row-side="away"] .tt-ev-mark { left: auto; right: -1px; }
+.tt-ev[data-row-side="away"] .tt-ev-who { flex-direction: row-reverse; margin-right: auto; }
