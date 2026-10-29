@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Match recorder: pre-game fans, weather, inducements and coin flip",
+    "body": "Every recorded match, test matches included, now walks the pre-game before Turn 1: the fans (D3 plus dedicated fans, with a short crowd cine), the weather (2D6 cine and a splash with what the weather does), journeymen, an inducement picker with prices, limits, petty cash and treasury, prayers to Nuffle, then the coin flip: the site draws which coach calls, everyone watches the coin land, and the winner picks Kick or Receive. Every roll can be made by the site (Roll for me) or typed in from the table (Enter result), and every step lands in the match log. Organisers can skip the pre-game (logged). Each milestone can also be posted to Discord for the BloodBowl bot when the recorder webhook is configured.",
+    "links": [
+      {
+        "label": "Tabletop",
+        "href": "/app/tabletop"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "League players get stable ids",
     "body": "Every player in an imported league now has their own id, so two players who share a name are never mixed up. The id stays the same every time the league is re-imported, and the same player is linked across seasons (same team, shirt number, name and position), so career totals follow the player, not the name. Statistics leaders, the Honours boards and the roster rows all work from these ids, and a name in the leaders or an honours board opens that player's team with their row marked. When the TourPlay export lists two players of one team under the same name and position it still cannot say which of them earned the totals, so that total is shown once on the team and, in muted text, as a shared total on both players' rows.",
     "links": [
