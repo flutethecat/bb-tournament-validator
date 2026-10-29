@@ -156,7 +156,7 @@ function playerXml(p: LeaguePlayer, pos: ForkRosterPosition, nr: number, id: str
   ];
   const spp = Math.max(0, Math.trunc(p.availableSpp || 0));
   // The league player's stored value (gold): result banking prices a death or missed game from it first.
-  const storedValue = typeof p.value === "number" && Number.isSafeInteger(p.value) && p.value > 0 ? ` storedValue="${p.value}"` : "";
+  const storedValue = typeof p.value === "number" && Number.isSafeInteger(p.value) && p.value > 0 ? ` storedValue="${p.value}"` : ' storedValue=""';
   return `\t<player nr="${nr}" id="${xmlEscape(id)}"${storedValue}><name>${xmlEscape(label)}</name>` +
     `<gender>${xmlEscape(pos.gender)}</gender><positionId>${xmlEscape(pos.positionId)}</positionId>` +
     `<playerStatistics currentSpps="${spp}"></playerStatistics>` +

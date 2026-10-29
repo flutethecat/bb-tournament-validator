@@ -39,6 +39,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { bb2025 } from "@bb/validator/dataset";
 import { CHARACTERISTIC_VALUE, rosterXmlById } from "../teamAdvancement.js";
+import { hasStoredPlayerValues, readStoredPlayerValue } from "../storedPlayerValue.js";
 import { storedTeamFile } from "../teamDetail.js";
 import type { TeamBankTask } from "./banking.js";
 import type { ParsedGameResult, ParsedPlayerResult, ParsedTeamResult } from "./fumbblResult.js";
@@ -231,27 +232,21 @@ const positionForPlayer = (roster: string, player: string): string | undefined =
 const skillNames = (scope: string): string[] =>
   [...scope.matchAll(/<skill\b[^>]*>([^<]*)<\/skill>/gi)].map((match) => match[1]!.trim()).filter(Boolean);
 
-/** The player's stored value (gold) as the fork team file carries it (`storedValue` on the player element), if any. */
-function storedPlayerValue(player: string): number | undefined {
-  const open = player.match(/^<player\b[^>]*>/i)?.[0];
-  const raw = open?.match(/\bstoredValue="(\d+)"/i)?.[1];
-  const value = raw === undefined ? undefined : Number(raw);
-  return value !== undefined && Number.isSafeInteger(value) && value > 0 ? value : undefined;
-}
-
 /**
  * A player's value for a death, a missed game or a team-value adjustment. The stored value is the primary path (the
  * fork writes the league player's value into the team file); computed pricing is only the fallback when it is absent:
  * base cost + Primary skill 20,000 / Secondary 40,000 / Elite = the player's access price for its category + 10,000
- * (owner 10-30) / +X characteristics from CHARACTERISTIC_VALUE / traits free. Unknown skills still throw.
+ * (owner 10-30) / +X characteristics from CHARACTERISTIC_VALUE / traits free. Unknown skills still throw. The
+ * Secondary/Elite pricing applies only to league teams (the file carries storedValue attributes): a tournament-builder
+ * team's aggregates exclude chosen-skill costs, so for it Secondary and Elite skills keep being rejected.
  */
-function playerRuntimeValue(player: string, roster: string): number {
-  const stored = storedPlayerValue(player);
+function playerRuntimeValue(player: string, roster: string, leagueTeam: boolean): number {
+  const stored = readStoredPlayerValue(player);
   if (stored !== undefined) return stored;
-  return computedPlayerValue(player, roster);
+  return computedPlayerValue(player, roster, leagueTeam);
 }
 
-export function computedPlayerValue(player: string, roster: string): number {
+export function computedPlayerValue(player: string, roster: string, leagueTeam = false): number {
   const position = positionForPlayer(roster, player);
   if (!position) throw new Error("post-match TV cannot resolve a player's roster position");
   const base = Number(elementText(position, "cost"));
@@ -293,6 +288,12 @@ export function computedPlayerValue(player: string, roster: string): number {
     const entry = Object.entries(bb2025.skills).find(([skill]) => skill.toLowerCase() === name.toLowerCase());
     if (entry?.[1].trait) continue;
     if (!entry?.[1].category) throw new Error(`post-match TV cannot price unknown skill ${name}`);
+    if (!leagueTeam) {
+      if (entry[1].elite) throw new Error(`post-match TV cannot safely price Elite skill ${name}`);
+      if (doubleCategories.has(entry[1].category)) throw new Error(`post-match TV cannot safely price unaudited Secondary skill ${name}`);
+      value += 20_000;
+      continue;
+    }
     const access = primaryCategories.has(entry[1].category) ? 20_000 : doubleCategories.has(entry[1].category) ? 40_000 : undefined;
     if (access === undefined) throw new Error(`post-match TV cannot price skill ${name}: the position has no access to ${entry[1].category}`);
     value += access + (entry[1].elite ? 10_000 : 0);
@@ -504,6 +505,7 @@ function makeApplyFn(team: ParsedTeamResult, roster: string | undefined): (xml: 
       applyDedicatedFans(recoverPriorInjuries(xml), team.dedicatedFansModifier),
       team,
     );
+    const leagueTeam = hasStoredPlayerValues(xml);
     let totalDelta = 0;
     let currentDelta = 0;
     for (const pr of team.players) {
@@ -535,7 +537,7 @@ function makeApplyFn(team: ParsedTeamResult, roster: string | undefined): (xml: 
         (tracksCurrentValue && beforeEligible !== afterEligible);
       if (needsValue) {
         if (!roster) throw new Error("post-match TV transition cannot be represented without the authoritative roster XML");
-        const value = playerRuntimeValue(before, roster);
+        const value = playerRuntimeValue(before, roster, leagueTeam);
         if (died) {
           totalDelta -= value;
           if (beforeEligible) currentDelta -= value;
