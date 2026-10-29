@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSSRApp } from "vue";
+import { raceTone } from "../spa/src/shared/raceTone";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
@@ -138,7 +139,7 @@ describe("league helpers", () => {
     const s = season6();
     const card = resultCardProps(league, s, s.fixtures[2]!, { dwarf: "crests/dwarf.png" });
     expect(card).toMatchObject({
-      context: "TABBL · Season 6 · Regular · Tahoma · Round 2", concede: "home", suspended: true, playedAt: "2026-07-01T03:00:00.000Z",
+      context: "TABBL · Season 6 · Regular · Tahoma · Round 2", concede: "home", suspended: false, playedAt: "2026-07-01T03:00:00.000Z",
       home: { name: "Rot Girl Summer", score: 1, cas: 0, crestUrl: null }, away: { name: "Grudge Rollers", score: 2, cas: 1, crestUrl: "/crests/dwarf.png" },
     });
     expect(fixtureContext({ name: "TABBL" }, { name: "Season 4" }, { ...s.fixtures[0]!, category: "Cup", phase: "Final" })).toBe("TABBL · Season 4 · Cup Final · Round 1");
@@ -291,7 +292,8 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(html).toContain("Latest results");
     expect(html.match(/class="rc-card"/g)).toHaveLength(3);
     expect(html).toContain("TABBL · Season 6 · Regular · Tahoma · Round 2");
-    expect(html).toContain("Rot Girl Summer conceded");
+    expect(html).toContain("Conceded by Jeff / @Chap"); // the live card names the conceding coach
+    expect(html).toContain('class="rc-plate-cap">Conceded<');
     expect(html).toContain('href="/app/leagues/tabbl?tab=fixtures"');
     expect(html).toContain("3 played of 4");
     expect(html).not.toContain("League artwork"); // anonymous
@@ -332,7 +334,8 @@ describe("league routes (server-rendered against a mocked API)", () => {
       await d.ensureSeason("season-6");
       inject(mods.league.LEAGUE_DETAIL_KEY, d);
     });
-    expect(table.html).toContain('data-outcome="loss"'); // the conceding home side of f3 in its card
+    // f3 (home conceded, also marked suspended): the card shows the concession with the coach, not "Suspended"
+    expect(table.html).toContain("Conceded by Jeff / @Chap");
     const nobody = await render("/leagues/tabbl?tab=teams&team=Nobody", loadedDetail());
     expect(nobody.html).toContain("No team called");
     const hon = await render("/leagues/tabbl?tab=honours", loadedDetail());
@@ -364,37 +367,26 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect((await render("/leagues/tabbl/stats")).html).toContain("Loading statistics...");
   });
 
-  it("ResultCard: race-derived gradient tones, casualties in brackets, initials badge, safe link only", async () => {
+  it("the league feeds the shared ResultCard: race tones, coach on each side, crest or initials, concession by coach", async () => {
     const renderCard = (props: Record<string, unknown>) => mods.renderToString(createSSRApp(mods.ResultCard as never, props));
-    const base = {
-      context: "TABBL · Season 6 · Regular · Round 3",
-      home: { name: "Sandy Bones", race: "Tomb Kings", coach: "Cubone208", crestUrl: null, score: 0, cas: 1 },
-      away: { name: "Froggy Boys", race: "Slann", coach: "FroggyBoys", crestUrl: "/crests/slann.png", score: 4, cas: 2 },
-      playedAt: "2026-08-23T21:32:03Z",
-    };
-    const html = await renderCard(base);
-    expect(html).toContain("--rc-home:#c9a45a");
-    expect(html).toContain("--rc-away:#2aa39b");
-    expect(html).toContain(">(1)<");
-    expect(html).toContain(">(2)<");
-    expect(html).toContain(">SB<");
-    expect(html).toContain('src="/crests/slann.png"');
-    expect(html).toContain("2026-08-23");
-    expect(html).toContain('data-outcome="win"');
-    expect(html).toMatch(/^<article/);
-    const linked = await renderCard({ ...base, href: "/app/leagues/tabbl?tab=fixtures", tone: { home: "#ff0000", away: "url(x)" } });
-    expect(linked).toMatch(/^<a[^>]*href="\/app\/leagues\/tabbl\?tab=fixtures"/);
-    expect(linked).toContain("--rc-home:#ff0000");
-    expect(linked).toContain("--rc-away:#2aa39b"); // unsafe tone ignored
-    // a concession decides the outcome, even against the recorded score
-    const conceded = await renderCard({ ...base, home: { ...base.home, score: 1 }, away: { ...base.away, score: 1 }, concede: "away" });
-    expect(conceded).toMatch(/class="rc-side rc-home" data-outcome="win"/);
-    expect(conceded).toMatch(/class="rc-side rc-away" data-outcome="loss"/);
-    expect(conceded).toContain("Froggy Boys conceded");
-    const bad = await renderCard({ ...base, href: "javascript:alert(1)" });
-    expect(bad).not.toContain("javascript:");
-    const unplayed = await renderCard({ ...base, home: { ...base.home, score: null, cas: null }, away: { ...base.away, score: null, cas: null }, playedAt: undefined });
-    expect(unplayed).toContain('data-played="false"');
-    expect(unplayed).not.toContain("(1)");
+    const s = season6();
+    const props = mods.league.resultCardProps(league, s, s.fixtures[2]!, { dwarf: "crests/dwarf.png" });
+    expect(props).toMatchObject({ concede: "home", suspended: false, home: { coach: "Jeff / @Chap", crestUrl: null }, away: { coach: "flutethecat (Jay)", crestUrl: "/crests/dwarf.png" } });
+    const html = await renderCard(props);
+    expect(html).toContain(`--rc-home:${raceTone("Nurgle")}`);
+    expect(html).toContain(`--rc-away:${raceTone("Dwarf")}`);
+    expect(html).toContain('src="/crests/dwarf.png"');
+    expect(html).toContain('class="rc-crest rc-initials" aria-hidden="true">RG<');
+    expect(html).toContain('<small class="rc-cas">(1)</small>');
+    expect(html).toContain("flutethecat (Jay)");
+    expect(html).toContain("Conceded by Jeff / @Chap");
+    expect(html).toContain('data-conceded="true"');
+    expect(html).toContain("TABBL · Season 6 · Regular · Tahoma · Round 2");
+    // an ordinary result: no concession, no flag
+    const plain = await renderCard(mods.league.resultCardProps(league, s, s.fixtures[1]!, {}));
+    expect(plain).not.toContain("Conceded");
+    expect(plain).not.toContain("rc-flag");
+    // a suspended game with no concession is not played: it never reaches a card (latestResults / fixturePlayed)
+    expect(mods.league.fixturePlayed({ ...s.fixtures[1]!, suspended: true, home: { ...s.fixtures[1]!.home, score: 0 }, away: { ...s.fixtures[1]!.away, score: 0 } })).toBe(false);
   });
 });

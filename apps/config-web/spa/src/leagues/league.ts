@@ -3,6 +3,7 @@
 
 import { reactive, type InjectionKey } from "vue";
 import { ApiError } from "../shared/api";
+import { resolveCrest } from "../tabletop/art";
 import type { Fetcher } from "../session";
 import type {
   HonourTable, HonourValue, LeagueFixture, LeaguePhase, LeagueStats, LeagueSummary, LeagueTeam, SeasonRecord, SeasonSummary, StatsScope,
@@ -359,15 +360,26 @@ export function honourValue(v: HonourValue): string {
 export const pct = (x: number): string => `${Math.round(x * 100)}%`;
 export const seasonsLine = (list: number[]): string => (list.length ? `S${list.join(", S")}` : "");
 
-/** The race crest path from the crest manifest (letters-only race key), or "". */
+/**
+ * The race crest path from the crest manifest, resolved as the Past Games strip does (home/recent.ts: tabletop/art
+ * resolveCrest over the manifest), with TourPlay's singular "Underworld Denizen" spelling mapped to the manifest key.
+ */
 export function crestFor(crests: Record<string, string>, race: string): string {
-  const key = race.toLowerCase().replace(/[^a-z]/g, "");
-  const alias: Record<string, string> = { underworlddenizen: "underworlddenizens" };
-  const p = crests[key] ?? crests[alias[key] ?? ""];
-  return p && /^crests\/[a-z]+\.png$/.test(p) ? `/${p}` : "";
+  const art = { crests: { crests } };
+  const found = resolveCrest(art, race) || (/^underworld\s*denizen$/i.test(race.trim()) ? resolveCrest(art, "Underworld Denizens") : "");
+  return /^\/crests\/[a-z]+\.png$/.test(found) ? found : "";
 }
 
-/** ResultCard props for a fixture (components/ResultCard.vue contract). */
+/** The side that conceded, by the shared outcome rule (the side that lost by conceding), or null. */
+export function concedeOf(f: LeagueFixture): "home" | "away" | null {
+  const o = fixtureOutcome(f);
+  if (!o) return null;
+  if (f.home.conceded && o.home === "loss" && o.away === "win") return "home";
+  if (f.away.conceded && o.away === "loss" && o.home === "win") return "away";
+  return null;
+}
+
+/** ResultCard props for a fixture (the shared components/ResultCard.vue contract; each side names its coach). */
 export function resultCardProps(league: Pick<LeagueSummary, "name">, season: Pick<SeasonRecord, "name">, f: LeagueFixture, crests: Record<string, string>) {
   const side = (s: LeagueFixture["home"]) => ({ name: s.team, race: s.race, coach: s.coach, crestUrl: crestFor(crests, s.race) || null, score: s.score, cas: s.cas });
   return {
@@ -375,7 +387,8 @@ export function resultCardProps(league: Pick<LeagueSummary, "name">, season: Pic
     home: side(f.home),
     away: side(f.away),
     ...(fixtureTime(f) ? { playedAt: fixtureTime(f) } : {}),
-    concede: f.home.conceded ? ("home" as const) : f.away.conceded ? ("away" as const) : null,
-    suspended: f.suspended,
+    concede: concedeOf(f),
+    // TourPlay marks a concession "suspended" as well; the card shows the concession (naming the coach) instead.
+    suspended: f.suspended && !concedeOf(f),
   };
 }
