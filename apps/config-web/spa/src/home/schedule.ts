@@ -12,12 +12,19 @@ export const MAX_BLOCKS = 21;
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export interface AvailabilityBlock { day: number; start: string; end: string }
+/** A block in the editor: a client-only `id` keeps each row's identity stable while its times change (the week grid
+ *  must NOT key rows by their times — editing a start used to re-sort the column and hand the focused inputs to the
+ *  neighbouring block). Never sent to the server. */
+export interface EditableBlock extends AvailabilityBlock { id: number }
+let nextBlockId = 1;
+const withId = (b: AvailabilityBlock): EditableBlock => ({ id: nextBlockId++, day: b.day, start: b.start, end: b.end });
+const stripId = (b: AvailabilityBlock): AvailabilityBlock => ({ day: b.day, start: b.start, end: b.end });
 
 export interface ScheduleState {
   timezone: string;
   /** True when the timezone shown is the browser's guess, not a saved one. */
   detected: boolean;
-  blocks: AvailabilityBlock[];
+  blocks: EditableBlock[];
   /** True only after a successful GET: Save stays off until then, so a failed read can never PUT an empty week. */
   loaded: boolean;
   /** The last GET failed (the panel offers Retry). */
@@ -46,11 +53,12 @@ export function blocksProblem(blocks: readonly AvailabilityBlock[]): string {
   return "";
 }
 
-/** Blocks per weekday column, each sorted by start. */
-export function byDay(blocks: readonly AvailabilityBlock[]): AvailabilityBlock[][] {
-  const cols: AvailabilityBlock[][] = DAY_LABELS.map(() => []);
+/** Blocks per weekday column, each sorted by start. Pass `sort: false` for the editor, which must keep insertion
+ *  order so a row stays where the coach is editing it (validation and display of saved weeks use the sorted form). */
+export function byDay<B extends AvailabilityBlock>(blocks: readonly B[], opts: { sort?: boolean } = {}): B[][] {
+  const cols: B[][] = DAY_LABELS.map(() => []);
   for (const b of blocks) cols[b.day]?.push(b);
-  for (const c of cols) c.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+  if (opts.sort !== false) for (const c of cols) c.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
   return cols;
 }
 
@@ -77,7 +85,7 @@ export function createScheduleEditor(deps: { api: Fetcher; detect?: () => string
       const saved = typeof res?.timezone === "string" ? res.timezone : "";
       state.timezone = saved || detect();
       state.detected = !saved;
-      state.blocks = Array.isArray(res?.availability) ? res.availability.map((b) => ({ day: b.day, start: b.start, end: b.end })) : [];
+      state.blocks = Array.isArray(res?.availability) ? res.availability.map(withId) : [];
       state.error = "";
       state.dirty = false;
       state.loaded = true;
@@ -98,13 +106,13 @@ export function createScheduleEditor(deps: { api: Fetcher; detect?: () => string
     addBlock(day: number, start = "18:00", end = "21:00"): boolean {
       if (!state.loaded) return false;
       if (state.blocks.length >= MAX_BLOCKS) { state.error = `At most ${MAX_BLOCKS} blocks.`; return false; }
-      state.blocks.push({ day, start, end });
+      state.blocks.push(withId({ day, start, end }));
       state.error = "";
       touch();
       return true;
     },
     updateBlock(block: AvailabilityBlock, patch: Partial<AvailabilityBlock>): void { Object.assign(block, patch); touch(); },
-    removeBlock(block: AvailabilityBlock): void {
+    removeBlock(block: EditableBlock): void {
       const i = state.blocks.indexOf(block);
       if (i >= 0) state.blocks.splice(i, 1);
       touch();
@@ -116,11 +124,11 @@ export function createScheduleEditor(deps: { api: Fetcher; detect?: () => string
       state.saving = true;
       try {
         const res = await deps.api<{ timezone?: string; availability?: AvailabilityBlock[] }>("/api/me/scheduling", {
-          method: "PUT", body: { timezone: state.timezone, availability: state.blocks },
+          method: "PUT", body: { timezone: state.timezone, availability: state.blocks.map(stripId) },
         });
         state.timezone = res?.timezone || state.timezone;
         state.detected = false;
-        state.blocks = Array.isArray(res?.availability) ? res.availability : state.blocks;
+        state.blocks = Array.isArray(res?.availability) ? res.availability.map(withId) : state.blocks;
         state.error = "";
         state.notice = "Availability saved.";
         state.dirty = false;

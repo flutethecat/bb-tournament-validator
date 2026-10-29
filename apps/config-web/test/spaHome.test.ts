@@ -118,6 +118,7 @@ describe("availability editor", () => {
     expect(blocksProblem([{ day: 0, start: "19:00", end: "21:00" }, { day: 0, start: "18:00", end: "19:00" }, { day: 1, start: "18:30", end: "20:00" }])).toBe("");
     expect(blocksProblem(Array.from({ length: MAX_BLOCKS + 1 }, (_, i) => ({ day: i % 7, start: "09:00", end: `1${i % 10}:00` })))).toMatch(/At most 21/);
     expect(byDay([{ day: 6, start: "12:00", end: "13:00" }, { day: 6, start: "09:00", end: "10:00" }])[6]!.map((b) => b.start)).toEqual(["09:00", "12:00"]);
+    expect(byDay([{ day: 6, start: "12:00", end: "13:00" }, { day: 6, start: "09:00", end: "10:00" }], { sort: false })[6]!.map((b) => b.start)).toEqual(["12:00", "09:00"]);
     expect(timeZoneOptions("Odd/Zone")[0]).toBe("Odd/Zone");
   });
 
@@ -467,8 +468,10 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(html).toContain('<div class="hm-grid">');
     const main = html.slice(html.indexOf('class="hm-col hm-col-main"'), html.indexOf('class="hm-col hm-col-side"'));
     const side = html.slice(html.indexOf('class="hm-col hm-col-side"'));
-    for (const id of ["notifications", "deadlines", "schedule"]) expect(main).toContain(`id="${id}"`);
-    for (const id of ["friends", "messages", "my-teams", "account", "whats-new"]) expect(side).toContain(`id="${id}"`);
+    for (const id of ["whats-new", "notifications", "deadlines", "schedule"]) expect(main).toContain(`id="${id}"`);
+    for (const id of ["friends", "messages", "my-teams", "account"]) expect(side).toContain(`id="${id}"`);
+    // owner 10-30: What's new sits above Notifications
+    expect(main.indexOf('id="whats-new"')).toBeLessThan(main.indexOf('id="notifications"'));
     expect(main.indexOf('id="notifications"')).toBeLessThan(main.indexOf('id="deadlines"'));
     expect(main.indexOf('id="deadlines"')).toBeLessThan(main.indexOf('id="schedule"'));
     expect(html).toMatch(/id="notifications"[\s\S]*?<span>Notifications<\/span>[\s\S]*?<p class="nf-empty">Nothing yet<\/p>/);
@@ -492,10 +495,10 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(html).toMatch(/class="hm-team"><img class="hm-team-crest" src="\/crests\/orc.png"/);
     expect(html).toContain("hm-team-blank");
     // what's new: latest 5 of 6, link to the full page
-    expect((side.match(/class="hm-log-title"/g) ?? []).length).toBe(5);
-    expect(side).toContain("Entry 1");
-    expect(side).not.toContain("Entry 6");
-    expect(side).toContain('href="/app/whats-new"');
+    expect((main.match(/class="hm-log-title"/g) ?? []).length).toBe(5);
+    expect(main).toContain("Entry 1");
+    expect(main).not.toContain("Entry 6");
+    expect(main).toContain('href="/app/whats-new"');
     expect(f.calls.some((c) => c.path === "/api/build-log")).toBe(true);
     expect(html).not.toMatch(/re-roll/i);
     expect(html).not.toMatch(/\bjava\b/i);

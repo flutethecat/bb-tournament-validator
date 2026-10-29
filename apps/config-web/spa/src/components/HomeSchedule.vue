@@ -10,7 +10,8 @@ const tree = inject(COACH_TREE_KEY, null);
 // A saved week can change what the nav and the deadlines show: mark the tree stale.
 const editor = createScheduleEditor({ api: inject(API_KEY)!, onSaved: () => tree?.invalidate() });
 const { state } = editor;
-const columns = computed(() => byDay(state.blocks));
+// Insertion order + id keys: a row keeps its inputs while its times change (sorting happens on validation and save).
+const columns = computed(() => byDay(state.blocks, { sort: false }));
 const zones = computed(() => timeZoneOptions(state.timezone));
 
 onMounted(() => { if (!state.loaded && !state.loadFailed) void editor.load(); });
@@ -33,7 +34,7 @@ defineExpose({ editor });
       <div v-for="(col, day) in columns" :key="day" class="hm-day" :data-day="day">
         <h4 class="hm-day-head">{{ DAY_LABELS[day] }}</h4>
         <ul class="hm-blocks">
-          <li v-for="(b, i) in col" :key="`${b.start}-${b.end}-${i}`" class="hm-block">
+          <li v-for="(b, i) in col" :key="b.id" class="hm-block">
             <input
               type="time" step="900" :value="b.start" :aria-label="`${DAY_LABELS[day]} block ${i + 1} start`"
               @change="editor.updateBlock(b, { start: ($event.target as HTMLInputElement).value })"
