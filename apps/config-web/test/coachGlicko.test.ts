@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  computeGlicko, displayedCr, expectedScore, FUMBBL_CR, glickoUpdate, GLICKO_SCALE, PERIOD_EPOCH_MS, rho, unratedGlicko, type GlickoParams,
+  computeGlicko, displayedCr, expectedScore, FUMBBL_CR, glickoG, glickoUpdate, GLICKO_SCALE, PERIOD_EPOCH_MS, rho, unratedGlicko, type GlickoParams,
 } from "../src/coachGlicko.js";
-import type { StoredTournamentResult } from "../src/tournamentResults.js";
+import { playedAtOf, type StoredTournamentResult } from "../src/tournamentResults.js";
 
 // Glickman, "Example of the Glicko-2 system": a 1500 / RD 200 / sigma 0.06 player, tau 0.5, no RD cap, beats a 1400/30 player, loses to 1550/100 and 1700/300.
 const PAPER: GlickoParams = { tau: 0.5, sigma: 0.06, rating: 1500, rd: 200, rdCap: Infinity, epsilon: 1e-6 };
@@ -17,11 +17,10 @@ describe("Glicko-2 core (Glickman's worked example)", () => {
     const out = glickoUpdate({ r: 1500, rd: 200, sigma: 0.06 }, paperGames, PAPER);
     expect(out.r).toBeCloseTo(1464.06, 1); // the paper rounds mu' to -0.2069 first: the exact figure is 1464.05
     expect(out.rd).toBeCloseTo(151.52, 2);
-    expect(out.sigma).toBeCloseTo(0.05999, 4); // 0.059996 unrounded: the paper prints 0.05999
+    expect(out.sigma).toBeCloseTo(0.059996, 6); // the paper prints 0.05999 (truncated); the solver's value is 0.059996, not the starting 0.06
   });
   it("matches the paper's intermediates: E = 0.639, 0.432, 0.303", () => {
-    const g = (rd: number) => 1 / Math.sqrt(1 + (3 * (rd / GLICKO_SCALE) ** 2) / Math.PI ** 2);
-    expect(g(30)).toBeCloseTo(0.9955, 4);
+    expect(glickoG(30 / GLICKO_SCALE)).toBeCloseTo(0.9955, 4);
     expect(expectedScore(0, -0.5756, 30 / GLICKO_SCALE)).toBeCloseTo(0.639, 3);
     expect(expectedScore(0, 0.2878, 100 / GLICKO_SCALE)).toBeCloseTo(0.432, 3);
     expect(expectedScore(0, 1.1513, 300 / GLICKO_SCALE)).toBeCloseTo(0.303, 3);
@@ -46,6 +45,19 @@ describe("FUMBBL's configuration", () => {
     const uncapped = glickoUpdate({ r: 1500, rd: 149, sigma: 0.15 }, [], { ...FUMBBL_CR, rdCap: Infinity });
     expect(uncapped.rd).toBeGreaterThan(150);
     expect(glickoUpdate({ r: 1500, rd: 149, sigma: 0.15 }, []).rd).toBeCloseTo(150, 10);
+  });
+});
+
+describe("an exact multi-game update in FUMBBL's configuration", () => {
+  it("one period of three games (a win, a draw played up 200k, a loss played down 100k) gives these figures", () => {
+    const out = glickoUpdate({ r: 1500, rd: 150, sigma: 0.15 }, [
+      { r: 1400, rd: 80, score: 1 },
+      { r: 1560, rd: 120, score: 0.5, deltaCtv: 200_000 },
+      { r: 1650, rd: 150, score: 0, deltaCtv: -100_000 },
+    ]);
+    expect(out.r).toBeCloseTo(1516.5355, 4);
+    expect(out.rd).toBeCloseTo(124.7151, 4);
+    expect(out.sigma).toBeCloseTo(0.149987, 6);
   });
 });
 
@@ -115,7 +127,10 @@ describe("computeGlicko over results", () => {
     expect([...a.entries()]).toEqual([...b.entries()]);
     expect(computeGlicko(fixture)).toEqual(a);
     expect([...a.keys()].sort()).toEqual(["alice", "bob", "cara"]);
-    for (const c of a.values()) { expect(c.rd).toBeLessThanOrEqual(150); expect(c.cr).toBe(displayedCr(c.r, c.rd)); }
+    expect([...a.entries()].map(([coach, c]) => [coach, c.cr, c.games])).toEqual([["alice", 1424, 3], ["bob", 1356, 4], ["cara", 1311, 3]]);
+    expect(a.get("alice")!.r).toBeCloseTo(1572.8835, 3);
+    expect(a.get("alice")!.rd).toBeCloseTo(129.7686, 3);
+    for (const c of a.values()) expect(c.rd).toBeLessThanOrEqual(150);
     expect(a.get("alice")!.games).toBe(3);
   });
   it("games of one 7-day period are rated against the opponents' values at the period's start", () => {
@@ -144,6 +159,36 @@ describe("computeGlicko over results", () => {
     expect(now.get("alice")!.rd).toBeLessThanOrEqual(150 + 1e-9);
     const noTv = computeGlicko(fixture.map((r) => ({ ...r, home: { ...r.home, teamValue: undefined }, away: { ...r.away, teamValue: undefined } })));
     expect(noTv.get("alice")!.r).not.toBeCloseTo(last.get("alice")!.r, 6); // game 4 carried team values (Alice played up as the 1.1M side would not, Bob did)
+  });
+  it("periods follow when the games were PLAYED, not when they were pulled: a batch import of a sequential 1W/1L history is not one period", () => {
+    const sameOpponent = (day2: number, played: boolean) => {
+      const rows = [game("1", 0, "X", "O", 1, 0), game("2", day2, "X", "O", 0, 1)];
+      // both rows were pulled in the same import: only playedAt tells them apart
+      return rows.map((r) => ({ ...r, pulledAt: "2026-10-01T00:00:00.000Z", ...(played ? { playedAt: r.pulledAt } : {}) }));
+    };
+    const sequential = computeGlicko(sameOpponent(8, true)); // two periods
+    expect(sequential.get("x")!.r).toBeCloseTo(1491.4424, 4);
+    expect(sequential.get("o")!.r).toBeCloseTo(1508.5576, 4);
+    const batched = computeGlicko(sameOpponent(1, true)); // one period: the same two games, rated together
+    expect(batched.get("x")!.r).toBeCloseTo(1500, 9);
+    expect(batched.get("x")!.rd).toBeCloseTo(131.3611, 4);
+    // a legacy row without playedAt falls back to pulledAt: the same pull time puts both games in one period
+    expect(computeGlicko(sameOpponent(8, false)).get("x")!.r).toBeCloseTo(1500, 9);
+  });
+  it("the fork's finished / started time becomes playedAt (the finished time first; an unreadable one is dropped)", () => {
+    expect(playedAtOf({ finished: "2026-03-01 10:15:00.0", started: "2026-03-01 09:00:00.0" })).toBe("2026-03-01T10:15:00.000Z");
+    expect(playedAtOf({ started: "2026-03-01T09:00:00Z" })).toBe("2026-03-01T09:00:00.000Z");
+    expect(playedAtOf({ finished: "never", started: "2026-03-01T09:00:00Z" })).toBe("2026-03-01T09:00:00.000Z");
+    expect(playedAtOf({ finished: "", started: undefined })).toBeUndefined();
+  });
+  it("with a results-store revision the state is cached per (revision, 7-day period): the rows are not replayed", () => {
+    const first = computeGlicko(fixture, { revision: "r1", asOf: new Date(PERIOD_EPOCH_MS + 30 * DAY + 1000) });
+    // a call in the same 7-day period (a different millisecond) with the same revision returns the cached state, whatever rows it is handed
+    const again = computeGlicko([], { revision: "r1", asOf: new Date(PERIOD_EPOCH_MS + 33 * DAY + 5000) });
+    expect(again).toBe(first);
+    // a new period, or a new revision, rates afresh
+    expect(computeGlicko(fixture, { revision: "r1", asOf: new Date(PERIOD_EPOCH_MS + 38 * DAY) })).not.toBe(first);
+    expect(computeGlicko(fixture, { revision: "r2", asOf: new Date(PERIOD_EPOCH_MS + 30 * DAY) })).not.toBe(first);
   });
   it("no results: nothing rated", () => {
     expect(computeGlicko([]).size).toBe(0);

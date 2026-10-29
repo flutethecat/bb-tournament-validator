@@ -2206,7 +2206,7 @@ async function handleApi(
       await refreshFinishedResults(forkAdminCfg, tournamentResults);
       const results = tournamentResults.list();
       const elo = computeElo(results);
-      const glicko = computeGlicko(results, { asOf: new Date() }); // FUMBBL-style coach rating (cr) and its deviation (rd)
+      const glicko = computeGlicko(results, { asOf: new Date(), revision: tournamentResults.revision() }); // FUMBBL-style coach rating (cr) and its deviation (rd)
       // Owner ruling 08-27: only tournament matches move the competitive rating — Global ELO
       // (all games) and Tournament ELO (games with tournament-match metadata) are separate.
       const tournamentOnly = computeElo(results.filter((game) => tournamentMatches.get(game.gameId) !== undefined));

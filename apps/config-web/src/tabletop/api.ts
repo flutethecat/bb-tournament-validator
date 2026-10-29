@@ -101,7 +101,8 @@ export function matchContext(match: MatchRecord, deps: Pick<TabletopApiDeps, "fi
 
 /** Each seat's coach rating (CR, Glicko-2 as FUMBBL runs it: coachGlicko.ts) and rank, from our own published results. */
 export function coachRatings(match: MatchRecord, deps: Pick<TabletopApiDeps, "results" | "now">): Record<"home" | "away", CoachRatingView> {
-  const rated = computeGlicko(deps.results.list(), { asOf: deps.now?.() ?? new Date() });
+  const revision = deps.results.revision?.();
+  const rated = computeGlicko(deps.results.list(), { asOf: deps.now?.() ?? new Date(), ...(revision !== undefined ? { revision } : {}) });
   const of = (coach: string): CoachRatingView => { const e = rated.get(coach.trim().toLowerCase()) ?? unratedGlicko(); return coachRatingFor(e.cr, e.games); };
   return { home: of(match.home.coach), away: of(match.away.coach) };
 }
@@ -115,6 +116,8 @@ export interface TabletopApiDeps {
   /** A team ref ("library:<id>" or a save id) -> its uploaded avatar URL, or undefined (clients fall back to the race crest). */
   teamAvatarUrl?: (ref: string) => string | undefined;
   results: {
+    /** Changes whenever the retained rows change (keys the coach rating cache). */
+    revision?(): string;
     put(row: StoredTournamentResult): unknown;
     remove(gameId: string): boolean;
     get(gameId: string): StoredTournamentResult | undefined;
@@ -631,6 +634,7 @@ async function buildConfirmJournal(
   const row: StoredTournamentResult = {
     gameId,
     pulledAt: at,
+    playedAt: events.findLast((e) => e.type === "endOfMatch" && typeof e.ts === "string" && !Number.isNaN(Date.parse(e.ts)))?.ts ?? at, // the end of the match, else the confirmation
     source: "tabletop",
     ...(match.fixtureRef ? { fixtureRef: match.fixtureRef } : {}),
     ...(match.league ? { league: match.league } : {}),

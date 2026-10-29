@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { computeGlicko } from "../src/coachGlicko.js";
 import { computeElo } from "../src/coachElo.js";
 import { recoverTabletop, tabletopApi, type TabletopApiDeps, type TabletopResult } from "../src/tabletop/api.js";
 import { duplicatePlayerId, teamFileFromSave } from "../src/tabletop/teamFile.js";
@@ -154,6 +155,28 @@ describe("tabletop API: submit / confirm / undo-revision", () => {
     const standings = aggregateStandings(rows, () => undefined);
     expect(standings.find((s) => s.coach === "Alice")).toMatchObject({ won: 1, tdFor: 2, tdAgainst: 1, casFor: 1 });
     expect(computeElo(rows).get("alice")!.rating).toBeGreaterThan(1500);
+  });
+
+  it("the published results row records each side's own team value (home with home, away with away) and when the match was played", async () => {
+    files["Alice/sv_a"] = { ...mkTeam("Alice XI", "a"), teamValue: 1_100_000 };
+    files["Bob/sv_b"] = { ...mkTeam("Bob XI", "b"), teamValue: 900_000 };
+    const id = await playedMatch("full");
+    await as("Bob", "POST", `/api/tabletop/matches/${id}/submit`);
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/confirm`);
+    await as("Bob", "POST", `/api/tabletop/matches/${id}/confirm`);
+    const row = results.listAll()[0]!;
+    expect(row.home).toMatchObject({ coach: "Alice", teamValue: 1_100_000 });
+    expect(row.away).toMatchObject({ coach: "Bob", teamValue: 900_000 });
+    expect(Number.isNaN(Date.parse(row.playedAt ?? ""))).toBe(false);
+    // the values are read the right way round: Alice (the 1.1M side) plays DOWN in value, so swapping the two changes her rating
+    const rated = computeGlicko(results.listAll());
+    expect(rated.get("alice")!.r).toBeGreaterThan(1500); // Alice won
+    expect(rated.get("bob")!.r).toBeLessThan(1500);
+    const flipped = computeGlicko(results.listAll().map((r) => ({ ...r, home: { ...r.home, teamValue: r.away.teamValue }, away: { ...r.away, teamValue: r.home.teamValue } })));
+    expect(flipped.get("alice")!.r).not.toBeCloseTo(rated.get("alice")!.r, 6); // swapping the values changes the result: the orientation is in use
+    const equal = computeGlicko(results.listAll().map((r) => ({ ...r, home: { ...r.home, teamValue: undefined }, away: { ...r.away, teamValue: undefined } })));
+    expect(rated.get("alice")!.r).toBeLessThan(equal.get("alice")!.r); // the higher-value side beat the lower-value side: a smaller gain than at equal values
+    expect(flipped.get("alice")!.r).toBeGreaterThan(equal.get("alice")!.r); // the same win against a higher-value side: a bigger one
   });
 
   it("append after submit, organiser undo, then both confirm: the preview, the revisions and the results row stay consistent, and each append clears confirmations", async () => {

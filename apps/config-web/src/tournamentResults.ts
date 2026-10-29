@@ -25,6 +25,8 @@ export interface ResultSide {
 export interface StoredTournamentResult extends GamestateResult {
   gameId: string;
   pulledAt: string;
+  /** When the game was PLAYED (a fork game's finished, else started, time; a tabletop match's end of match), ISO. Absent on legacy rows: readers fall back to pulledAt. */
+  playedAt?: string;
   home: ResultSide;
   away: ResultSide;
   /** Absent = a fork game. "tabletop" rows come from the confirmed tabletop recorder (src/tabletop). */
@@ -93,6 +95,7 @@ export function deriveTeamResult(team: GamestateTeamResult, opponent: GamestateT
 
 export class TournamentResultStore {
   private readonly file: string;
+  private writes = 0;
 
   constructor(dataDir: string) {
     this.file = join(dataDir, "tournament-results.json");
@@ -116,6 +119,13 @@ export class TournamentResultStore {
   }
 
   /** Rows that COUNT (standings, Elo, records): fork rows, and tabletop rows only once published (never test rows). */
+  /** Changes whenever the retained rows change (a write through this store, or the file changing under it): a cheap cache key for derived ratings. */
+  revision(): string {
+    let stamp = "none";
+    try { const s = statSync(this.file); stamp = `${s.mtimeMs}:${s.size}`; } catch { /* no file yet */ }
+    return `${this.writes}:${stamp}`;
+  }
+
   list(): StoredTournamentResult[] {
     return this.listAll().filter((row) => row.test !== true && (row.source !== "tabletop" || row.published === true));
   }
@@ -130,6 +140,7 @@ export class TournamentResultStore {
     const current = this.readStore();
     if (!Object.hasOwn(current.results, gameId)) return false;
     const { [gameId]: _gone, ...rest } = current.results;
+    this.writes += 1;
     atomicWriteTextFile(this.file, `${JSON.stringify({ version: 1, results: rest }, null, 2)}
 `);
     return true;
@@ -142,6 +153,7 @@ export class TournamentResultStore {
       version: 1,
       results: { ...current.results, [result.gameId]: result },
     };
+    this.writes += 1;
     atomicWriteTextFile(this.file, `${JSON.stringify(next, null, 2)}\n`);
     return result;
   }
@@ -164,6 +176,17 @@ const storedSide = (game: AdminGameEntry, side: "home" | "away"): ResultSide => 
   coach: side === "home" ? game.homeCoach : game.awayCoach,
 });
 
+/** The fork admin list's finished (else started) time as ISO, or undefined when it is absent or unreadable ("2026-03-01 10:15:00.0" and ISO both parse). */
+export function playedAtOf(game: Pick<AdminGameEntry, "started" | "finished">): string | undefined {
+  for (const raw of [game.finished, game.started]) {
+    const text = raw?.trim();
+    if (!text) continue;
+    const t = Date.parse(/^\d{4}-\d{2}-\d{2} /.test(text) ? `${text.replace(" ", "T")}Z` : text);
+    if (Number.isFinite(t)) return new Date(t).toISOString();
+  }
+  return undefined;
+}
+
 /** Pull and atomically retain a single discovered finished game. */
 export async function pullFinishedGameResult(
   cfg: ForkAdminConfig,
@@ -178,6 +201,7 @@ export async function pullFinishedGameResult(
   return store.put({
     gameId: game.gameId,
     pulledAt: new Date().toISOString(),
+    ...(playedAtOf(game) ? { playedAt: playedAtOf(game)! } : {}),
     home: storedSide(game, "home"),
     away: storedSide(game, "away"),
     teams: result.teams,

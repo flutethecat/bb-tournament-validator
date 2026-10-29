@@ -45,7 +45,8 @@ const CTV_SCALE = 200_000;
 export interface GlickoState { r: number; rd: number; sigma: number }
 export interface GlickoOpponent { r: number; rd: number; score: number; /** opponent team value minus own team value, in gold (absent = 0) */ deltaCtv?: number }
 
-const g = (phi: number): number => 1 / Math.sqrt(1 + (3 * phi * phi) / (Math.PI * Math.PI));
+/** Glicko-2's g(phi). */
+export const glickoG = (phi: number): number => 1 / Math.sqrt(1 + (3 * phi * phi) / (Math.PI * Math.PI));
 
 /** The team-value term rho (see the header): 0 when the team values are equal or unknown, negative when the opponent's team is worth more. */
 export function rho(gPhi: number, deltaCtv: number): number {
@@ -55,7 +56,7 @@ export function rho(gPhi: number, deltaCtv: number): number {
 
 /** The modified expected score E(mu, mu_j, phi_j, rho). */
 export function expectedScore(mu: number, muJ: number, phiJ: number, rhoTerm = 0): number {
-  return 1 / (1 + Math.exp(-g(phiJ) * (mu - muJ + rhoTerm)));
+  return 1 / (1 + Math.exp(-glickoG(phiJ) * (mu - muJ + rhoTerm)));
 }
 
 /** One Glicko-2 update (steps 2-8) of a coach over a period's games; no games = the step-6 inflation only (capped). */
@@ -70,7 +71,7 @@ export function glickoUpdate(state: GlickoState, games: readonly GlickoOpponent[
   const terms = games.map((game) => {
     const muJ = (game.r - 1500) / GLICKO_SCALE;
     const phiJ = game.rd / GLICKO_SCALE;
-    const gj = g(phiJ);
+    const gj = glickoG(phiJ);
     const e = expectedScore(mu, muJ, phiJ, rho(gj, game.deltaCtv ?? 0));
     return { gj, e, s: game.score };
   });
@@ -123,6 +124,8 @@ export interface GlickoOptions {
   asOf?: Date;
   periodDays?: number;
   epochMs?: number;
+  /** The results store's revision: with it the ratings are cached per (revision, 7-day period) and the rows are not re-read to build the key. */
+  revision?: string;
 }
 
 /** What a never-rated coach shows. */
@@ -131,8 +134,9 @@ export function unratedGlicko(params: GlickoParams = FUMBBL_CR): CoachGlicko {
 }
 
 const coachKey = (coach: string): string => coach.trim().toLowerCase();
+/** The game's period: when it was PLAYED; a legacy row without playedAt falls back to when it was pulled. */
 const periodOf = (result: StoredTournamentResult, periodMs: number, epochMs: number): number => {
-  const t = Date.parse(result.pulledAt);
+  const t = Date.parse(result.playedAt ?? result.pulledAt);
   return Number.isFinite(t) ? Math.floor((t - epochMs) / periodMs) : 0;
 };
 const gameOrder = (left: StoredTournamentResult, right: StoredTournamentResult): number => {
@@ -145,20 +149,28 @@ const gameOrder = (left: StoredTournamentResult, right: StoredTournamentResult):
 const memo = new Map<string, Map<string, CoachGlicko>>();
 
 /**
- * Glicko-2 CR over all retained games (the Elo's input), 7-day periods in order. Pure and deterministic: the same results (and `asOf`) give the same
- * ratings. Test and unpublished rows never reach `results` (the store lists counting rows only).
+ * Glicko-2 CR over all retained games (the Elo's input), 7-day periods in order (keyed on when each game was PLAYED). Pure and deterministic: the same
+ * results (and `asOf` period) give the same ratings. Test and unpublished rows never reach `results` (the store lists counting rows only).
  */
 export function computeGlicko(results: readonly StoredTournamentResult[], options: GlickoOptions = {}): Map<string, CoachGlicko> {
   const params = options.params ?? FUMBBL_CR;
   const periodMs = (options.periodDays ?? PERIOD_DAYS) * DAY_MS;
   const epochMs = options.epochMs ?? PERIOD_EPOCH_MS;
-  const hash = createHash("sha256").update(JSON.stringify([params, periodMs, epochMs, options.asOf?.getTime() ?? null]));
-  for (const result of results) {
-    hash.update(result.gameId).update("\0").update(result.pulledAt).update("\0").update(result.home.coach).update("\0").update(result.away.coach).update("\0")
-      .update(String(result.home.teamValue ?? "")).update("\0").update(String(result.away.teamValue ?? "")).update("\0");
-    for (const team of result.teams) hash.update(team.teamId).update(String(team.score)).update(String(team.penaltyScore)).update("\0");
+  // The cache key is the period the rating is asked for (not the millisecond) plus either the caller's results-store revision (cheap: no replay, no row hashing)
+  // or, without one, a hash of the rows themselves.
+  const asOfIndex = options.asOf ? Math.floor((options.asOf.getTime() - epochMs) / periodMs) : null;
+  const head = JSON.stringify([params, periodMs, epochMs, asOfIndex]);
+  let key: string;
+  if (options.revision !== undefined) key = `rev:${options.revision}:${head}`;
+  else {
+    const hash = createHash("sha256").update(head);
+    for (const result of results) {
+      hash.update(result.gameId).update("\0").update(result.playedAt ?? result.pulledAt).update("\0").update(result.home.coach).update("\0").update(result.away.coach).update("\0")
+        .update(String(result.home.teamValue ?? "")).update("\0").update(String(result.away.teamValue ?? "")).update("\0");
+      for (const team of result.teams) hash.update(team.teamId).update(String(team.score)).update(String(team.penaltyScore)).update("\0");
+    }
+    key = `rows:${hash.digest("hex")}`;
   }
-  const key = hash.digest("hex");
   const cached = memo.get(key);
   if (cached) return cached;
 
@@ -170,7 +182,7 @@ export function computeGlicko(results: readonly StoredTournamentResult[], option
     if (bucket) bucket.push(result); else byPeriod.set(p, [result]);
   }
   const lastGame = ordered.length ? Math.max(...byPeriod.keys()) : -Infinity;
-  const asOfPeriod = options.asOf ? Math.floor((options.asOf.getTime() - epochMs) / periodMs) : lastGame;
+  const asOfPeriod = asOfIndex ?? lastGame;
   const first = ordered.length ? Math.min(...byPeriod.keys()) : 0;
   const last = Math.max(lastGame, asOfPeriod);
 
