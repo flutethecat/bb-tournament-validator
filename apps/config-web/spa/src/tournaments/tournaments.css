@@ -162,3 +162,68 @@
   .tn-participants td.tn-flag { justify-content: space-between; }
   .tn-seed-input { width: 72px; }
 }
+
+/* ---- tournament page (lane 6): banner front block, facts strip, summary, news, page settings ---- */
+.tn-front {
+  position: relative; display: grid; align-items: end; min-height: 220px; overflow: hidden; isolation: isolate;
+  border: 2px solid var(--ui-border); border-radius: 4px; box-shadow: var(--tn-bevel);
+  background: linear-gradient(90deg, var(--tn-home), var(--ui-surface-2) 50%, var(--tn-away));
+}
+.tn-front-art { position: absolute; inset: 0; z-index: -1; display: flex; align-items: center; justify-content: flex-end; padding: 16px 24px; }
+.tn-front-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.tn-front-crest { width: 120px; height: auto; opacity: .9; }
+.tn-crest-shield { fill: var(--ui-primary); stroke: var(--ui-border); stroke-width: 2; }
+.tn-crest-band { fill: color-mix(in srgb, var(--ui-accent) 70%, transparent); }
+.tn-crest-text { fill: var(--ui-text-on-primary); font-family: var(--font-heading); font-size: 16px; letter-spacing: .04em; }
+.tn-front-body {
+  display: grid; gap: 8px; min-width: 0; padding: 48px 16px 14px;
+  background: linear-gradient(0deg, color-mix(in srgb, var(--ui-surface) 92%, transparent) 55%, transparent);
+}
+.tn-front[data-banner="crest"] .tn-front-body { padding-right: 152px; }
+.tn-front-name { margin: 0; font-family: var(--font-heading); color: var(--ui-heading); letter-spacing: .03em; overflow-wrap: anywhere; }
+.tn-front-chips { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.tn-chip-link { text-decoration: none; border-color: var(--ui-accent); color: var(--ui-text); }
+.tn-chip-link:hover { background: var(--ui-hover); }
+.tn-front-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.tn-front-actions .lobby-btn { min-height: 44px; display: inline-flex; align-items: center; text-decoration: none; }
+.tn-front-reg { overflow-wrap: anywhere; min-width: 0; }
+
+.tn-overview { display: grid; gap: 16px; min-width: 0; }
+.tn-fact-sub { font-size: 14px; color: var(--ui-muted); overflow-wrap: anywhere; }
+a.tn-fact-sub { color: var(--ui-text); text-decoration: underline; }
+.tn-md { display: grid; gap: 8px; overflow-wrap: anywhere; }
+.tn-md p, .tn-md ul, .tn-md ol { margin: 0; }
+.tn-md ul, .tn-md ol { padding-left: 22px; }
+.tn-notes { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--ui-border); }
+
+.tn-news-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.tn-news-item { display: grid; gap: 6px; padding: 10px 12px; border-radius: 4px; border: 1px solid var(--ui-border); background: var(--ui-surface); min-width: 0; }
+.tn-news-item[data-pinned="true"] { border-left: 4px solid var(--ui-accent); }
+.tn-news-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.tn-news-meta { margin: 0; font-size: 14px; }
+.tn-chip[data-pinned="true"] { border-color: var(--ui-accent); }
+.tn-news-form { display: grid; gap: 8px; min-width: 0; }
+.tn-check { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
+.tn-check input { width: 22px; height: 22px; }
+
+.tn-page-form { display: grid; gap: 14px; min-width: 0; }
+.tn-banner-edit { display: grid; gap: 6px; min-width: 0; }
+.tn-banner-preview { width: 100%; max-width: 640px; aspect-ratio: 4 / 1; object-fit: cover; border: 1px solid var(--ui-border); border-radius: 4px; }
+.tn-banner-edit input[type="file"] { min-width: 0; max-width: 100%; }
+.tn-hint { margin: 0; font-size: 14px; }
+.tn-field textarea, .tn-news-form textarea { width: 100%; min-height: 88px; resize: vertical; font: inherit; box-sizing: border-box; }
+.tn-news-form input[type="text"] { min-height: 44px; width: 100%; box-sizing: border-box; }
+.tn-field-wide { grid-column: 1 / -1; }
+
+@media (max-width: 760px) {
+  .tn-front { min-height: 180px; }
+  .tn-front-art { align-items: flex-start; padding: 10px 12px; }
+  .tn-front-crest { width: 72px; }
+  .tn-front[data-banner="crest"] .tn-front-body { padding-right: 16px; padding-top: 88px; }
+  .tn-front-body { padding: 40px 12px 12px; }
+  .tn-facts-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 420px) {
+  .tn-facts-strip { grid-template-columns: 1fr; }
+  .tn-front-actions .lobby-btn { flex: 1 1 auto; justify-content: center; }
+}

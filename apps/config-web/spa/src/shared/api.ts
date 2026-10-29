@@ -138,7 +138,21 @@ export interface TournamentSummary {
   remainingRounds?: number;
   myEntrantId?: string;
   myDroppedAt?: string;
+  /** Tournament page (lane 6): all optional. */
+  seriesId?: string;
+  bannerUrl?: string;
+  location?: TournamentLocation;
+  startTime?: string;
+  entryFee?: string;
+  summary?: string;
+  notes?: string;
+  news?: TournamentNewsPost[];
+  deadlines?: TournamentDeadlines;
 }
+
+export interface TournamentLocation { venue?: string; address?: string; mapUrl?: string }
+export interface TournamentDeadlines { registration?: string; checkIn?: string }
+export interface TournamentNewsPost { id: string; title: string; body: string; by: string; at: string; pinned: boolean; editedAt?: string }
 
 export type TournamentPairingSystem = "dutch" | "monrad" | "eloSeeded";
 export type TournamentSeedingMode = "elo" | "manual";

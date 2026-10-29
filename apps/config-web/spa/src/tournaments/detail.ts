@@ -14,8 +14,11 @@ import {
   type TournamentPairingSystem,
   type TournamentRoundPreview,
   type TournamentSeedingMode,
+  type TournamentDeadlines,
   type TournamentEntrant,
   type TournamentFixture,
+  type TournamentLocation,
+  type TournamentNewsPost,
   type TournamentRound,
   type TournamentStandingRow,
   type TournamentSummary,
@@ -53,6 +56,8 @@ export interface TournamentDetailState {
   /** The last write's server message (failure) and a short confirmation (success). */
   actionError: string;
   notice: string;
+  /** The name of the last write ("register", "page", "banner", "news:<id>"...): panels show only their own messages. */
+  lastAction: string;
   /** The signed-in coach's library teams and Team Builder saves for Register / Submit team. */
   teamOptions: { status: "idle" | "loading" | "ok"; library: LibraryTeam[]; saves: BuilderSaveSummary[] };
   /** Generate fixtures preview (organiser), or null. */
@@ -69,7 +74,27 @@ export interface TournamentSettingsPatch {
   pairingSystem?: TournamentPairingSystem;
   seedingMode?: TournamentSeedingMode;
   primaryTiebreaker?: "buchholz" | "sonnebornBerger";
+  /** Tournament page fields: null clears (location / deadlines replace as a whole). */
+  location?: TournamentLocation | null;
+  startTime?: string | null;
+  entryFee?: string | null;
+  summary?: string | null;
+  notes?: string | null;
+  deadlines?: TournamentDeadlines | null;
 }
+
+export interface NewsInput { title?: string; body?: string; pinned?: boolean }
+
+/** Raw image upload (PUT) with the same-origin session; answers the JSON body or throws an ApiError. */
+export type RawUploader = (path: string, body: Blob) => Promise<unknown>;
+const fetchUpload: RawUploader = async (path, body) => {
+  const res = await fetch(path, {
+    method: "PUT", credentials: "same-origin", headers: { "x-cw-auth": "1", "content-type": body.type || "application/octet-stream" }, body,
+  });
+  const data = (await res.json().catch(() => null)) as { error?: string } | null;
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? `Upload failed (${res.status}).`);
+  return data;
+};
 
 export interface EntrantPatch { flags?: Partial<TournamentEntrantFlags>; manualSeed?: number | null }
 
@@ -80,11 +105,11 @@ export function safeCrestUrl(url: string | undefined | null): string {
 
 /** `onChanged` runs after every successful write (register, withdraw, submit, organiser actions): the shell's nav trees and
  *  deadlines refetch through it. */
-export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () => void; onChanged?: () => void }) {
+export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () => void; onChanged?: () => void; upload?: RawUploader }) {
   const state = reactive<TournamentDetailState>({
     id: "", tournament: null, entrants: [], rounds: [], fixtures: [], standings: [], standingsStatus: "idle", standingsError: "",
     loaded: false, loading: false, notFound: false, error: "",
-    capabilities: { manage: false, assignRoles: false }, busy: "", actionError: "", notice: "",
+    capabilities: { manage: false, assignRoles: false }, busy: "", actionError: "", notice: "", lastAction: "",
     teamOptions: { status: "idle", library: [], saves: [] }, preview: null, startOutcome: "",
   });
 
@@ -170,6 +195,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
   async function run<T>(name: string, write: () => Promise<T>, notice = ""): Promise<T | undefined> {
     if (!state.id || state.busy) return undefined;
     state.busy = name;
+    state.lastAction = name;
     state.actionError = "";
     state.notice = "";
     try {
@@ -224,6 +250,19 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
   const patchEntrant = (entrantId: string, patch: EntrantPatch) =>
     run(`entrant:${entrantId}`, () => deps.api(`${base()}/entrants/${encodeURIComponent(entrantId)}`, { method: "PATCH", body: patch }));
 
+  // ---- tournament page (page fields, banner, news) ----
+  const savePage = (patch: TournamentSettingsPatch) =>
+    run("page", () => deps.api(base(), { method: "PATCH", body: patch }), "Tournament page saved.");
+  const uploadBanner = (image: Blob) =>
+    run("banner", () => (deps.upload ?? fetchUpload)(`${base()}/banner`, image), "Banner updated.");
+  const removeBanner = () => run("banner", () => deps.api(`${base()}/banner`, { method: "DELETE" }), "Banner removed.");
+  const postNews = (input: NewsInput) =>
+    run("news", () => deps.api(`${base()}/news`, { method: "POST", body: input }), "News posted.");
+  const editNews = (id: string, patch: NewsInput) =>
+    run(`news:${id}`, () => deps.api(`${base()}/news/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }), "News updated.");
+  const deleteNews = (id: string) =>
+    run(`news:${id}`, () => deps.api(`${base()}/news/${encodeURIComponent(id)}`, { method: "DELETE" }), "News deleted.");
+
   /** One click: lock + validate + start. A refusal (409) leaves the lock, so the table shows which rosters fail. */
   async function start(force = false): Promise<void> {
     state.startOutcome = "";
@@ -262,6 +301,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     register, withdraw, submit,
     saveSettings, setOwner, addOrganizer, removeOrganizer, lockRosters, unlockRosters, finish, patchEntrant,
     start, previewRound, generateRound,
+    savePage, uploadBanner, removeBanner, postNews, editNews, deleteNews,
   };
 }
 
@@ -455,3 +495,88 @@ export function submitChoices(options: TournamentDetailState["teamOptions"]): Su
     ...options.library.filter((t) => !linked.has(t.teamId)).map((t) => ({ ref: `library:${t.teamId}`, label: `${t.teamName} (${t.race})`, group: "Library teams" as const })),
   ];
 }
+
+// ---- tournament page helpers (pure) ----
+
+/** The Tournament Builder pre-filtered to a package (its ?package= deep link). */
+export const rulesetBuilderHref = (packageName: string): string => `/tournament-team-builder.html?package=${encodeURIComponent(packageName)}`;
+/** The Tournament Creator opened on a package (organiser page; ?package= picks it on load). */
+export const rulesetCreatorHref = (packageName: string): string => `/tournament-rules.html?package=${encodeURIComponent(packageName)}`;
+
+/** Two-letter initials for the ruleset crest fallback ("nut-cup" -> "NC"). */
+export function rulesetInitials(name: string): string {
+  const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  const letters = words.length > 1 ? words.slice(0, 2).map((w) => w[0]) : [...(words[0] ?? "").slice(0, 2)];
+  return letters.join("").toUpperCase() || "?";
+}
+
+/** "2026-11-01 16:00 UTC" for a deadline; "" when absent or unreadable. */
+export function dateTimeLabel(iso: string | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : `${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 16)} UTC`;
+}
+
+const FORMAT_NAME: Record<TournamentSummary["format"], string> = { swiss: "Swiss", roundRobin: "Round robin", knockout: "Knockout" };
+
+/** "Swiss · Dutch · 5 rounds" (the pairing system only for Swiss). */
+export function formatLine(t: Pick<TournamentSummary, "format" | "pairingSystem" | "roundCount">): string {
+  const parts = [FORMAT_NAME[t.format] ?? t.format];
+  if (t.format === "swiss") parts.push(PAIRING_LABEL[t.pairingSystem ?? "eloSeeded"]);
+  if (t.roundCount > 0) parts.push(`${t.roundCount} ${t.roundCount === 1 ? "round" : "rounds"}`);
+  return parts.join(" · ");
+}
+
+/** Places left, or null when the tournament is uncapped (maxPlayers 0). */
+export function placesLeft(t: Pick<TournamentSummary, "maxPlayers" | "entrantCount">): number | null {
+  return t.maxPlayers > 0 ? Math.max(0, t.maxPlayers - (t.entrantCount ?? 0)) : null;
+}
+
+export interface FactView { key: string; label: string; value: string; href?: string; sub?: string; subHref?: string }
+
+/** The facts strip: only the facts the server sent (absent fields are left out, never shown as blanks). */
+export function factsStrip(t: TournamentSummary): FactView[] {
+  const out: FactView[] = [];
+  const loc = t.location;
+  if (loc && (loc.venue || loc.address)) {
+    const mapUrl = loc.mapUrl && /^https?:\/\//i.test(loc.mapUrl) ? loc.mapUrl : undefined;
+    out.push({
+      key: "location", label: "Location", value: loc.venue || loc.address || "",
+      ...(loc.venue && loc.address ? { sub: loc.address } : {}),
+      ...(mapUrl ? { subHref: mapUrl } : {}),
+    });
+  }
+  const start = startDate(t.startsAt);
+  const end = startDate(t.endsAt);
+  out.push({ key: "dates", label: "Dates", value: start ? (end && end !== start ? `${start} to ${end}` : start) : "Not set" });
+  if (t.startTime) out.push({ key: "startTime", label: "Start time", value: t.startTime });
+  const ruleset = t.rulesetPackName || t.packageName;
+  if (ruleset) out.push({ key: "ruleset", label: "Ruleset", value: ruleset, href: rulesetBuilderHref(ruleset) });
+  out.push({ key: "format", label: "Format", value: formatLine(t) });
+  if (t.entryFee) out.push({ key: "entryFee", label: "Entry fee", value: t.entryFee });
+  const entrants = t.entrantCount ?? 0;
+  out.push({ key: "entrants", label: "Entrants", value: t.maxPlayers > 0 ? `${entrants} of ${t.maxPlayers}` : String(entrants) });
+  const left = placesLeft(t);
+  if (left !== null) out.push({ key: "places", label: "Places left", value: String(left) });
+  if (t.ownerCoachId) out.push({ key: "organisers", label: "Organisers", value: [t.ownerCoachId, ...(t.organizerCoachIds ?? [])].join(", ") });
+  const reg = dateTimeLabel(t.deadlines?.registration);
+  if (reg) out.push({ key: "registration", label: "Registration closes", value: reg });
+  const checkIn = dateTimeLabel(t.deadlines?.checkIn);
+  if (checkIn) out.push({ key: "checkIn", label: "Check-in by", value: checkIn });
+  out.push({ key: "round", label: "Round", value: roundProgress(t) });
+  out.push({ key: "roundsLeft", label: "Rounds left", value: String(remainingRounds(t)) });
+  return out;
+}
+
+/** News as the server ordered it (pinned first, newest first); re-sorted defensively. */
+export function newsList(t: Pick<TournamentSummary, "news"> | null): TournamentNewsPost[] {
+  return [...(t?.news ?? [])].sort((a, b) => Number(b.pinned) - Number(a.pinned) || Date.parse(b.at) - Date.parse(a.at));
+}
+
+/** Only same-origin API paths render as the banner image. */
+export function safeBannerUrl(url: string | undefined): string {
+  return typeof url === "string" && /^\/api\/tournaments\/[\w-]{1,64}\/banner(\?v=[a-f0-9]{1,64})?$/.test(url) ? url : "";
+}
+
+/** Write names whose messages show in their own panel (the page form, the News panel), not in My entry / Summary. */
+export const isPageAction = (name: string): boolean => name === "page" || name === "banner" || name === "news" || name.startsWith("news:");

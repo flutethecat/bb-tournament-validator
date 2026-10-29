@@ -7,7 +7,7 @@ import { RouterLink } from "vue-router";
 import TeamSelect from "./TeamSelect.vue";
 import { SESSION_KEY, writesAllowed } from "../session";
 import {
-  myEntrant, nextFixtureFor, registrationOpen, ROSTER_LABEL, rosterState, submitChoices, TOURNAMENT_DETAIL_KEY,
+  isPageAction, myEntrant, nextFixtureFor, registrationOpen, ROSTER_LABEL, rosterState, submitChoices, TOURNAMENT_DETAIL_KEY,
 } from "../tournaments/detail";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
@@ -105,8 +105,8 @@ async function doWithdraw() { await detail.withdraw(); }
         </div>
       </template>
       <p v-if="!canWrite" class="muted tn-readonly">Test sign-in sessions can look but cannot change tournament data.</p>
-      <p v-if="state.actionError" class="lobby-error" role="alert">{{ state.actionError }}</p>
-      <p v-else-if="state.notice" class="tn-notice" role="status">{{ state.notice }}</p>
+      <p v-if="state.actionError && !isPageAction(state.lastAction)" class="lobby-error" role="alert">{{ state.actionError }}</p>
+      <p v-else-if="state.notice && !isPageAction(state.lastAction)" class="tn-notice" role="status">{{ state.notice }}</p>
     </div>
   </section>
 </template>

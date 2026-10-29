@@ -1,13 +1,15 @@
 <script setup lang="ts">
 // Manage tab (owner, organisers, admins): Summary pane with the event's actions (Start Tournament until it has
 // started, then Edit Tournament; Generate round; Lock / Unlock rosters; Finish), the Start Tournament sub-modal,
-// the Edit Tournament pane (settings + roles) and the Participants table.
+// the Edit Tournament pane (settings + roles), the Tournament page pane (banner, location, dates, summary, notes)
+// and the Participants table.
 import { computed, inject, nextTick, ref } from "vue";
+import TournamentPageForm from "./TournamentPageForm.vue";
 import TournamentParticipants from "./TournamentParticipants.vue";
 import TournamentSettingsForm from "./TournamentSettingsForm.vue";
 import TournamentStartModal from "./TournamentStartModal.vue";
 import {
-  canGenerateRound, PAIRING_LABEL, roundProgress, SEEDING_LABEL, startDate, TOURNAMENT_DETAIL_KEY,
+  canGenerateRound, isPageAction, PAIRING_LABEL, roundProgress, SEEDING_LABEL, startDate, TOURNAMENT_DETAIL_KEY,
 } from "../tournaments/detail";
 import { FORMAT_LABEL, STATUS_LABEL } from "../tournaments/list";
 import { SESSION_KEY, writesAllowed } from "../session";
@@ -62,8 +64,8 @@ async function editTournament() {
           <button v-if="t.status === 'active'" class="lobby-btn" type="button" :disabled="busy" @click="detail.finish()">Finish tournament</button>
         </div>
         <p v-if="!canWrite" class="muted tn-readonly">Test sign-in sessions can look but cannot change tournament data.</p>
-        <p v-if="state.actionError && !open" class="lobby-error" role="alert">{{ state.actionError }}</p>
-        <p v-else-if="state.notice && !open" class="tn-notice" role="status">{{ state.notice }}</p>
+        <p v-if="state.actionError && !open && !isPageAction(state.lastAction)" class="lobby-error" role="alert">{{ state.actionError }}</p>
+        <p v-else-if="state.notice && !open && !isPageAction(state.lastAction)" class="tn-notice" role="status">{{ state.notice }}</p>
       </div>
     </section>
 
@@ -72,6 +74,11 @@ async function editTournament() {
     <section ref="editPane" class="tn-panel" aria-labelledby="tn-edit-h">
       <h3 id="tn-edit-h" class="tn-band">{{ started ? "Edit Tournament" : "Settings" }}</h3>
       <div class="tn-panel-body"><TournamentSettingsForm /></div>
+    </section>
+
+    <section class="tn-panel" aria-labelledby="tn-page-h">
+      <h3 id="tn-page-h" class="tn-band">Tournament page</h3>
+      <div class="tn-panel-body"><TournamentPageForm /></div>
     </section>
 
     <section class="tn-panel" aria-labelledby="tn-part-h">

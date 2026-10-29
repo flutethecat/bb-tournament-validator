@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// Tournament detail (/app/tournaments/:id, ?tab=): public read. Overview (with My entry for a signed-in coach) /
+// Tournament detail (/app/tournaments/:id, ?tab=): public read. The front block (banner, name, chips, registration,
+// Edit) on every tab, then Overview (facts strip, summary, news, My entry for a signed-in coach) /
 // Entrants / Rounds / Standings, and Manage for the tournament's owner, organisers and admins.
 import { computed, inject, onMounted, onUnmounted, provide, watch } from "vue";
 import { COACH_TREE_KEY } from "../home/tree";
@@ -8,13 +9,13 @@ import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import { startPolling } from "../tournaments/poll";
 import TournamentEntrants from "../components/TournamentEntrants.vue";
+import TournamentFront from "../components/TournamentFront.vue";
 import TournamentManage from "../components/TournamentManage.vue";
 import TournamentMyEntry from "../components/TournamentMyEntry.vue";
 import TournamentOverview from "../components/TournamentOverview.vue";
 import TournamentRounds from "../components/TournamentRounds.vue";
 import TournamentStandings from "../components/TournamentStandings.vue";
 import { createTournamentDetail, isDetailTab, tabsFor, TOURNAMENT_DETAIL_KEY, type DetailTab } from "../tournaments/detail";
-import { FORMAT_LABEL, STATUS_LABEL } from "../tournaments/list";
 
 const props = defineProps<{ id: string }>();
 const fetcher = inject(API_KEY)!;
@@ -46,13 +47,7 @@ onUnmounted(() => stopPolling());
     <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.loaded || !state.tournament" class="muted" role="status">Loading tournament...</p>
     <template v-else>
-      <header class="tn-hero">
-        <h2>{{ state.tournament.name }}</h2>
-        <p class="tn-hero-meta muted">
-          <span class="tn-chip" :data-status="state.tournament.status">{{ STATUS_LABEL[state.tournament.status] ?? state.tournament.status }}</span>
-          {{ FORMAT_LABEL[state.tournament.format] ?? state.tournament.format }}
-        </p>
-      </header>
+      <TournamentFront />
       <nav class="tn-tabs" aria-label="Tournament sections">
         <RouterLink
           v-for="t in tabs" :key="t.id" class="tn-tab" :class="{ on: tab === t.id }"
