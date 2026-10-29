@@ -22,5 +22,11 @@
     "title": "Tournaments: submissions, roster lock, pairing, roles",
     "body": "Coaches submit a team and see whether it is valid; the opponent's team can be viewed; organisers lock rosters and start the event in one click, pair rounds with Dutch or Monrad, and run it from the Manage tab. Admins get a tournaments page.",
     "links": [{ "label": "Tournaments", "href": "/app/tournaments" }]
+  },
+  {
+    "date": "2026-10-30",
+    "title": "Coach page and the new site navigation",
+    "body": "A left navigation bar with League, Tournament and Coach page trees: your tournaments with their status, your registered team and whether it is valid, and your next fixture. It folds to a narrow icon rail (press [) and becomes a drawer on phones. The new Coach page gathers your deadlines (green, amber under 72 hours, scarlet under 24 hours, grey when overdue, shown in your timezone), your weekly availability on a 7-day grid, your teams, and this What's new list. Notifications, friends and messages arrive in the next lanes.",
+    "links": [{ "label": "Coach page", "href": "/app/home" }, { "label": "What's new", "href": "/app/whats-new" }]
   }
 ]
