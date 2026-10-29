@@ -472,7 +472,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(states(turnCells(clock(null, 8), "away"))).toBe("dddddddd");
   });
 
-  it("desktop rail: the rail container with TD, CAS and Other, the state strip, the crumb row and the Quick box render beside the log", async () => {
+  it("desktop rail: the rail container with TD, CAS and Other, the state strip and the crumb row render beside the log, with no End match button", async () => {
     const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) });
     expect(html).toContain('class="tt-rail"');
     expect(html.match(/class="tt-rail-btn tt-rail-(td|cas|injury|other)"/g)).toHaveLength(4);
@@ -483,10 +483,14 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("tt-crumbs");
     expect(html).toContain("Match log");
     expect(html).toContain('data-tip="Record a touchdown"');
-    expect(html.match(/class="tt-rail-btn[^>]*data-tip="/g)).toHaveLength(4); // every rail button carries a tip
+    expect(html.match(/class="tt-rail-btn[^>]*data-tip="/g)).toHaveLength(4); // every rail button (TD, CAS, Injury, Other) carries a tip
     expect(html).not.toMatch(/ title="/); // the recorder uses data-tip, never a native title
-    expect(html).toContain("End match");
+    expect(html).not.toContain("End match"); // ending the match is reached only through the Other grid's End of match tile
+    expect(html).not.toContain("tt-rail-endmatch");
     expect(html).not.toContain("Undo last event"); // undo rides edit mode
+    expect(html).not.toContain("tt-quick"); // the Quick box is gone
+    expect(html).toMatch(/class="tt-rail-btn tt-rail-other"[^>]*><span>Other<\/span><\/button>/); // Other is label only, no glyph
+
     expect(html.indexOf('class="tt-rail"')).toBeGreaterThan(html.indexOf('class="tt-mid"'));
     const { readFileSync } = await import("node:fs");
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
@@ -570,7 +574,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-rec \.tt-mid > \.tt-feed \{ background: var\(--tt-grad-soft\); \}/);
     expect(css1).toContain("--tt-bevel-inset: inset 0 1px 0 rgb(255 255 255 / .16), inset 0 -2px 0 rgb(0 0 0 / .35), inset 2px 0 0 rgb(255 255 255 / .06), inset -2px 0 0 rgb(0 0 0 / .22);");
     expect(css1).toContain("--tt-lift: var(--tt-bevel-inset), 0 3px 0 rgb(0 0 0 / .35), 0 8px 20px rgb(0 0 0 / .45), 0 0 0 1px rgb(0 0 0 / .35), 0 2px 0 rgb(255 255 255 / .05);"); // the longer lift
-    expect(css1).toMatch(/\.tt-rec \.tt-rail-btn, \.tt-rec \.tt-rail-end, \.tt-rec \.tt-quick \{ box-shadow: var\(--tt-lift\); \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-rail-btn, \.tt-rec \.tt-rail-end \{ box-shadow: var\(--tt-lift\); \}/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame, [^{]*\{ margin-bottom: 4px; \}/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame, \.tt-rec \.tt-half,[^{]*\{\s*border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 60%, #000\); border-radius: 6px; box-shadow: var\(--tt-lift\);/);
     expect(css1).toMatch(/\.tt-rec \.tt-mid > \.tt-feed \{ border: 1px solid[^}]*border-radius: 6px; box-shadow: var\(--tt-bevel-inset\); \}/); // the log field: the inset half only
@@ -801,7 +805,10 @@ describe("tabletop routes (server-rendered)", () => {
     const org = await renderMatch(body, session({ coach: "Zed", organizer: true }));
     expect(org.html).toContain('class="tt-admin"');
     expect(org.html).toContain("Add event");
-    expect(org.html).toContain("Set half / overtime");
+    expect(org.html).not.toContain("Set half / overtime"); // Change turn covers it
+    expect(org.html).toContain("Change turn");
+    expect(org.html).not.toContain("End match"); // the admin panel has no End match button either: the Other grid's End of match tile is the only way
+    expect(org.html).toContain("Edit mode:");
     expect(org.html).toContain("End this turn (override)");
     const confirmed = await renderMatch({ ...body, match: { ...baseMatch("confirmed"), confirmedBy: { by: "Zed", at: "2026-10-23T10:00:00.000Z", admin: true } } }, session({ coach: "Zed", organizer: true }));
     expect(confirmed.html).toMatch(/class="tt-match-row tt-admin-line"[^>]*>Confirmed for both by Zed<b class="tt-ev-admintag">ADMIN<\/b>/); // an admin line in the log
@@ -815,6 +822,10 @@ describe("tabletop routes (server-rendered)", () => {
     const cssW = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
     expect(cssW).toMatch(/\.tt-rec \.tt-turns > \.tt-weather-cell \{ grid-column: 2; grid-row: 1;[^}]*font-size: 24px;/);
     expect(cssW).toMatch(/@media \(min-width: 1600px\) \{ \.tt-rec \.tt-turns > \.tt-weather-cell \{ font-size: 28px; \} \}/);
+    const cssA = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(cssA).toMatch(/\.tt-admin-row \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/); // TD and CAS side by side
+    expect(cssA).toMatch(/\.tt-admin-row > \.tt-admin-btn:nth-child\(n\+3\) \{ grid-column: 1 \/ -1; \}/); // Injury and Other on their own full-width rows
+    expect(cssA).toMatch(/\.tt-admin-row > \.tt-admin-btn \{ height: 40px; min-height: 40px; white-space: nowrap; \}/);
     const adminRows = mods.feedMod.feedRows([{ id: "e9", type: "touchdown", team: "away", player: "a1", payload: {}, half: 1, turn: 2, admin: true }], ["e9"], teams, {}, undefined);
     const feed = await mount(mods.feedC, { rows: adminRows, canUndo: false });
     expect(feed).toContain("tt-ev--admin");
@@ -1409,7 +1420,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(organiser.html).not.toContain('class="tt-endturn"');
     expect(organiser.html).not.toContain('class="tt-rail-end"');
     expect(organiser.html).toContain("Bob Elves to play"); // the disabled state
-    expect(organiser.html).toContain("End this turn (override)"); // the organiser's way in, in the Quick box
+    expect(organiser.html).toContain("End this turn (override)"); // the organiser's way in, in the admin panel
     expect(mine.html).toContain('class="tt-rail-end"'); // the active coach's enabled rail button
     expect(mine.html).toContain('<span class="tt-rail-turn">TURN 3</span>'); // the big turn mark, no team name in the sub-line
     expect(mine.html).not.toContain("1Ht3 ·");

@@ -178,8 +178,6 @@ async function saveTurn(body: { half: number | string; turn: number; activeTeam:
   if (!state.actionError) turnSetOpen.value = false;
 }
 /** The newest event the undo rules let this viewer take back (the feed trash rules), for the desktop rail. */
-const lastUndoable = computed(() => rows.value.find((r) => r.undoable && (organiser.value || !mySide.value || r.team === mySide.value)));
-const canUndoLast = computed(() => canEdit.value && editMode.value && recording.value && lastUndoable.value !== undefined);
 const stripState = computed(() => {
   const c = state.clock;
   const m = match.value;
@@ -378,20 +376,19 @@ onBeforeUnmount(() => {
 
     <TabletopRail
       :match="match" :clock="state.clock" :remaining="remaining" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy"
-      :recording="recording" :can-change-turn="canEdit && !organiser" :can-undo-last="canUndoLast"
+      :recording="recording"
       @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @pick="(k) => { viewer.buzz(); openPick(k); }" @other="viewer.buzz(); other = true"
-      @change-turn="turnSetOpen = true" @undo-last="lastUndoable && undoById(lastUndoable.id)" @end-match="endSheet = true"
     >
       <TabletopAdmin
         v-if="organiser" :recording="recording" :can-override="canOverrideEnd" :edit-mode="editMode" :busy="state.busy" :state="match.state" :can-confirm="canConfirm"
-        @add="(k) => openPick(k)" @other="other = true" @change-turn="turnSetOpen = true" @override-end="overrideEnd" @end-match="endSheet = true"
+        @add="(k) => openPick(k)" @other="other = true" @change-turn="turnSetOpen = true" @override-end="overrideEnd"
         @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)"
       />
     </TabletopRail>
 
     <nav v-if="recording" class="tt-actions-bar" aria-label="Record an event">
       <button class="tt-big tt-big-td" type="button" data-tip="Record a touchdown" @click="viewer.buzz(); openPick(TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" :size="36" /><span>TD</span></button>
-      <button class="tt-big tt-big-other" type="button" data-tip="More events" @click="viewer.buzz(); other = true"><TabletopGlyph :glyph="{ text: '\u22EF' }" :size="36" /><span>Other</span></button>
+      <button class="tt-big tt-big-other" type="button" data-tip="More events" @click="viewer.buzz(); other = true"><span>Other</span></button>
       <button class="tt-big tt-big-cas" type="button" data-tip="Record a casualty" @click="viewer.buzz(); openPick(CAS_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.casualty" :size="36" /><span>CAS</span></button>
     </nav>
 
@@ -412,7 +409,7 @@ onBeforeUnmount(() => {
         <TabletopAdmin
           :recording="recording" :can-override="canOverrideEnd" :edit-mode="editMode" :busy="state.busy" :state="match.state" :can-confirm="canConfirm"
           @add="(k) => { adminOpen = false; openPick(k); }" @other="adminOpen = false; other = true" @change-turn="adminOpen = false; turnSetOpen = true" @override-end="adminOpen = false; overrideEnd()"
-          @end-match="adminOpen = false; endSheet = true" @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)"
+          @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)"
         />
       </div>
     </div>

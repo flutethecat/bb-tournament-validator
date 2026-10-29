@@ -426,9 +426,6 @@
   .tt-rail-td { background: color-mix(in srgb, var(--tt-home) 70%, var(--tt-btn)); border-color: var(--ui-info, var(--tt-line)); }
   .tt-rail-cas { background: color-mix(in srgb, var(--tt-away) 70%, var(--tt-btn)); border-color: var(--ui-danger, var(--tt-line)); }
   .tt-rail-btn .tt-glyph { width: 22px; height: 22px; }
-  .tt-quick { margin-top: 4px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; background: var(--tt-panel); border: 1px solid var(--tt-line); border-radius: 2px; font-size: 12px; }
-  .tt-quick-btn { min-height: 28px; padding: 0; text-align: left; background: none; border: 0; color: var(--tt-ink); font: inherit; cursor: pointer; }
-  .tt-quick-danger { color: var(--ui-danger, var(--tt-ink)); }
 }
 @media (prefers-reduced-motion: reduce) { .tt-rail-end[data-zero="true"] { animation: none; } }
 
@@ -978,7 +975,7 @@
 
 /* a longer lift on the horizontal edges: the rail buttons and Quick box take the same stack, and the crest frame and chip tray get 4 px of room below for the shadow */
 @media (min-width: 1024px) {
-  .tt-rec .tt-rail-btn, .tt-rec .tt-rail-end, .tt-rec .tt-quick { box-shadow: var(--tt-lift); }
+  .tt-rec .tt-rail-btn, .tt-rec .tt-rail-end { box-shadow: var(--tt-lift); }
   .tt-rec .tt-crest-frame, .tt-rec .tt-corner .tt-coachline .tt-chips { margin-bottom: 4px; }
 }
 
@@ -1146,3 +1143,13 @@
   .tt-rec .tt-turns > button.tt-weather-cell { cursor: pointer; }
 }
 @media (min-width: 1600px) { .tt-rec .tt-turns > .tt-weather-cell { font-size: 28px; } }
+
+/* the rail has no Quick box and no End match button (the Other grid's End of match tile ends the match); its Other button is label-only */
+@media (min-width: 1024px) {
+  .tt-rec .tt-rail-btn.tt-rail-other { justify-content: center; }
+}
+
+/* Admin > Add event: TD and CAS side by side, Injury and Other each on a full-width row, all 40 px and never truncated */
+.tt-admin-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tt-admin-row > .tt-admin-btn { height: 40px; min-height: 40px; white-space: nowrap; }
+.tt-admin-row > .tt-admin-btn:nth-child(n+3) { grid-column: 1 / -1; }
