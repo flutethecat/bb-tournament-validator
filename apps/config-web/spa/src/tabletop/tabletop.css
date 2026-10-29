@@ -707,3 +707,8 @@
   .tt-rec .tt-rail-label { font-size: var(--tt-rail-fs); }
   .tt-rec .tt-rail-btn { gap: 10px; }
 }
+
+/* phone (below 760 px): a tighter name shadow (no glow) and one size step up so the 13 px names stay crisp, two lines kept */
+@media (max-width: 759px) {
+  .tt-rec .tt-corner .tt-team { font-size: 13px; text-shadow: 2px 2px 0 rgb(0 0 0 / .9), 0 0 4px rgb(0 0 0 / .6); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+}
