@@ -39,14 +39,15 @@ const zero = computed(() => timed.value && (props.remaining as number) <= 0);
     >
       <span class="tt-rail-label">End turn</span>
       <span v-if="timed" class="tt-rail-time">{{ countdown }}</span>
-      <small v-else>{{ label }} · {{ activeName }}</small>
+      <span class="tt-rail-turn">{{ label }}</span>
     </button>
     <button v-else-if="mode === 'kickoff'" class="tt-rail-end" type="button" :disabled="busy" @click="emit('startTurn')">
-      <span class="tt-rail-label">Kick-off done</span><small>{{ label }}</small>
+      <span class="tt-rail-label">Kick-off done</span><span class="tt-rail-turn">{{ label }}</span>
     </button>
     <p v-else-if="mode === 'wait'" class="tt-rail-wait" role="status">
       <span class="tt-rail-label">{{ activeName || "Waiting" }} to play</span>
-      <span v-if="timed" class="tt-rail-time">{{ countdown }}</span><small v-else>{{ label }}</small>
+      <span v-if="timed" class="tt-rail-time">{{ countdown }}</span>
+      <span class="tt-rail-turn">{{ label }}</span>
     </p>
     <div v-if="recording" class="tt-rail-btns">
       <button class="tt-rail-btn tt-rail-td" type="button" data-tip="Record a touchdown" @click="emit('pick', TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" /><span>TD</span></button>

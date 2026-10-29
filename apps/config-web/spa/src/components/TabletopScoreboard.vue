@@ -131,14 +131,14 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
         :aria-label="timed ? `End turn. ${countdown} left. ${label}` : undefined" @click="emit('endTurn')"
       >
         <template v-if="timed"><b class="tt-endturn-time" role="timer">{{ countdown }}</b><small>End turn</small></template>
-        <template v-else><b>End Turn</b><small>{{ label }} · {{ activeName }}</small></template>
+        <template v-else><b>End Turn</b><small class="tt-turnmark">{{ label }}</small></template>
       </button>
       <button v-else-if="mode === 'kickoff'" class="tt-endturn" type="button" :disabled="busy" @click="emit('startTurn')">
-        <b>Kick-off done</b><small>{{ label }}</small>
+        <b>Kick-off done</b><small class="tt-turnmark">{{ label }}</small>
       </button>
       <p v-else-if="mode === 'wait'" class="tt-towait" role="status" :data-alert="alert ? 'true' : null">
         <template v-if="timed"><b class="tt-endturn-time" role="timer">{{ countdown }}</b><small>{{ activeName }} to play</small></template>
-        <template v-else><b>{{ activeName || "Waiting" }} to play</b><small>{{ label }}<template v-if="activeName"> · {{ activeName }}</template></small></template>
+        <template v-else><b>{{ activeName || "Waiting" }} to play</b><small class="tt-turnmark">{{ label }}</small></template>
       </p>
     </section>
   </header>

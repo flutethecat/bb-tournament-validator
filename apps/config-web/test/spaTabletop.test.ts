@@ -500,6 +500,11 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toContain("--tt-bevel: inset 0 2px 0 rgb(255 255 255 / .22), inset 0 -3px 0 rgb(0 0 0 / .45), inset 2px 0 0 rgb(255 255 255 / .08), inset -2px 0 0 rgb(0 0 0 / .25), 0 3px 0 rgb(0 0 0 / .5)");
     expect(css).toMatch(/\.tt-rec \.tt-rail-btn, [^{]*\{\s*border: 1px solid rgb\(0 0 0 \/ \.6\); border-radius: 3px; box-shadow: var\(--tt-bevel\); text-shadow: var\(--tt-btn-text-shadow\);/);
     expect(css).toMatch(/\.tt-rec \.tt-rail-btn:active[^{]*\{\s*box-shadow: var\(--tt-bevel-down\); transform: translateY\(2px\);/);
+    expect(css).toContain("--tt-lettering-shadow: 2px 2px 0 rgb(0 0 0 / 80%), 0 0 10px rgb(0 0 0 / .45)"); // button lettering = the team-name shadow
+    expect(css).toMatch(/\.tt-rec \.tt-rail-btn, [^{]*\.tt-rec \.tt-big, [^{]*\{ text-shadow: var\(--tt-lettering-shadow\); letter-spacing: \.06em; \}/);
+    expect(css).toMatch(/\.tt-rec \.tt-rail-turn \{[^}]*font-size: var\(--tt-turnmark-fs\);[^}]*text-shadow: var\(--tt-lettering-shadow\)/);
+    expect(css).toMatch(/--tt-turnmark-fs: 20px;/);
+    expect(css).toMatch(/--tt-turnmark-fs: 22px;/);
     expect(css).toMatch(/--tt-rail-fs: 16px;/);
     expect(css).toMatch(/--tt-rail-fs: 18px;/);
     expect(css).toMatch(/\.tt-rec \.tt-mid > \.tt-log-h \{ display: flex; align-items: center; justify-content: flex-end; height: 28px;[^}]*color: var\(--ui-text, #e6e9ef\); text-shadow: var\(--tt-btn-text-shadow\); background: none; \}/); // MATCH LOG: white, right-aligned on a 28 px row above the field
@@ -1150,6 +1155,10 @@ describe("tabletop routes (server-rendered)", () => {
     expect(organiser.html).toContain("Bob Elves to play"); // the disabled state
     expect(organiser.html).toContain("End this turn (override)"); // the organiser's way in, in the Quick box
     expect(mine.html).toContain('class="tt-rail-end"'); // the active coach's enabled rail button
+    expect(mine.html).toContain('<span class="tt-rail-turn">1Ht3</span>'); // the big turn mark, no team name in the sub-line
+    expect(mine.html).not.toContain("1Ht3 ·");
+    expect(organiser.html).toContain('class="tt-rail-wait"'); // the disabled state keeps the team name in its label and the turn mark below
+    expect(organiser.html).toContain('<span class="tt-rail-turn">1Ht3</span>');
     expect(mine.html).not.toContain("End this turn (override)");
     expect(theirs.html).not.toContain("End this turn (override)"); // a coach never sees it
     const kick = await renderMatch(body(clockOf("home", 0)));

@@ -730,3 +730,19 @@
   .tt-rec > .tt-mid { margin: 0 20px 20px 0; background: none; border-radius: 0; }
   .tt-rec .tt-mid > .tt-feed { background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 60%, transparent); border-radius: 4px; }
 }
+
+/* the turn mark ("2Ht5") on End Turn / state buttons: big, display font, white with the legibility shadow; no team name in the sub-line */
+.tt-rec .tt-turnmark { font-family: var(--font-heading, sans-serif); font-size: 16px; letter-spacing: .06em; color: var(--ui-scarlet-contrast, #ffffff); text-shadow: var(--tt-lettering-shadow); }
+.tt-rec .tt-towait .tt-turnmark { color: var(--tt-ink); }
+@media (min-width: 1024px) {
+  .tt-rec { --tt-turnmark-fs: 20px; }
+  .tt-rec .tt-rail-end, .tt-rec .tt-rail-wait { padding: 8px; }
+  .tt-rec .tt-rail-label { margin-top: auto; }
+  .tt-rec .tt-rail-turn { margin-top: auto; font-family: var(--font-heading, sans-serif); font-size: var(--tt-turnmark-fs); line-height: 1; letter-spacing: .06em; opacity: 1; color: var(--ui-scarlet-contrast, #ffffff); text-shadow: var(--tt-lettering-shadow); }
+  .tt-rec .tt-rail-wait .tt-rail-turn { color: var(--tt-ink); }
+}
+@media (min-width: 1600px) { .tt-rec { --tt-turnmark-fs: 22px; } }
+
+/* button lettering (End Turn label, turn mark, TD / CAS / Injury / Other): the team-name shadow and .06em tracking, replacing the plain legibility shadow */
+.tt-rec { --tt-lettering-shadow: 2px 2px 0 rgb(0 0 0 / 80%), 0 0 10px rgb(0 0 0 / .45); }
+.tt-rec .tt-rail-btn, .tt-rec .tt-rail-end, .tt-rec .tt-big, .tt-rec .tt-endturn, .tt-rec .tt-rail-label, .tt-rec .tt-rail-time { text-shadow: var(--tt-lettering-shadow); letter-spacing: .06em; }
