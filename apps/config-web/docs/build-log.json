@@ -1,6 +1,25 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Leagues: TABBL with six seasons and all-time statistics",
+    "body": "Leagues now have their own pages. TABBL, the Tahoma Area Blood Bowl League, is on the site with all six seasons: every fixture and score, the standings for each phase and division, each team's end-of-season roster with skills, SPP and the season's touchdowns, casualties and MVPs, the honour boards and the awards. The league page shows the Season 6 header bar with the TABBL logo, a Season picker (newest first, each marked BB2020 or BB2025), and tabs for Overview, Standings, Fixtures, Teams and Honours. The latest results show as wide result cards in the two teams' colours. A Statistics page adds career leaders, coach and team records, race win rates, biggest wins and champions, with a BB2020 / BB2025 / All time switch on top. League organisers can upload a logo and a header bar.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      },
+      {
+        "label": "TABBL",
+        "href": "/app/leagues/tabbl"
+      },
+      {
+        "label": "TABBL statistics",
+        "href": "/app/leagues/tabbl/stats"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Mini calendar on the coach page",
     "body": "The Account box on the coach page is gone. In its place a Mini calendar shows the current month (Monday first, today outlined in green), a dot on every day with a deadline or fixture in that deadline's colour, previous and next month buttons, and an Upcoming list of your next five events from today onward, across months, each linking to its tournament or fixture. Full calendar opens the whole thing on the Account page. My teams now sits below it. Each team tile shows the competition it is registered in (or Not registered) and its current team value, and carries a red badge with the number of things still to do: advancement rolls waiting to be finished, players with an advancement they can afford, and roster problems flagged on a registration.",
     "links": [
