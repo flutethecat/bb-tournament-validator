@@ -945,7 +945,7 @@
 @media (min-width: 1024px) {
   .tt-rec {
     --tt-bevel-inset: inset 0 1px 0 rgb(255 255 255 / .18), inset 0 -2px 0 rgb(0 0 0 / .45), inset 1px 0 0 rgb(255 255 255 / .06), inset -1px 0 0 rgb(0 0 0 / .25);
-    --tt-lift: var(--tt-bevel-inset), 0 3px 0 rgb(0 0 0 / .45), 0 8px 18px rgb(0 0 0 / .40);
+    --tt-lift: var(--tt-bevel-inset), 0 6px 0 rgb(0 0 0 / .55), 0 14px 28px rgb(0 0 0 / .50), 0 2px 0 rgb(255 255 255 / .06);
   }
   .tt-rec .tt-crest-frame, .tt-rec .tt-half,
   .tt-rec .tt-corner .tt-coachline .tt-chips, .tt-rec .tt-corner.home .tt-coachline .tt-chips, .tt-rec .tt-corner.away .tt-coachline .tt-chips {
@@ -980,3 +980,9 @@
   .tt-rec .tt-counters span { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--tt-muted); }
 }
 @media (min-width: 1600px) { .tt-rec { --tt-score-w: 460px; } }
+
+/* a longer lift on the horizontal edges: the rail buttons and Quick box take the same stack, and the crest frame and chip tray get 4 px of room below for the shadow */
+@media (min-width: 1024px) {
+  .tt-rec .tt-rail-btn, .tt-rec .tt-rail-end, .tt-rec .tt-quick { box-shadow: var(--tt-lift); }
+  .tt-rec .tt-crest-frame, .tt-rec .tt-corner .tt-coachline .tt-chips { margin-bottom: 4px; }
+}
