@@ -6,6 +6,7 @@ import type { Fetcher } from "../spa/src/session";
 import { cardAction, cardDates, createTournamentList, entrantsLine, listPath, listQuery, parseListQuery } from "../spa/src/tournaments/list";
 import { createTournamentDetail, roundViews, safeCrestUrl, standingViews, tiebreakLabel } from "../spa/src/tournaments/detail";
 import { startPolling } from "../spa/src/tournaments/poll";
+import { hashId, scrollToHashAfter, type HashScrollDeps } from "../spa/src/tournaments/scroll";
 import { createOrganiser } from "../spa/src/tabletop/organiser";
 
 // Phase 1 of the SPA Tournaments: read-only list + detail controllers, and the routes server-rendered through the
@@ -87,6 +88,55 @@ describe("tournament list card helpers", () => {
     expect(cardAction({ ...open, organizerCoachIds: ["Alicia"] }, "Alice", true)).toBe("register");
     expect(cardAction({ ...open, ownerCoachId: "alice" }, "  ", true)).toBe("open");
     expect(cardAction({ ...open, ownerCoachId: "" }, "", true)).toBe("open");
+  });
+});
+
+describe("hash scroll after the detail load (list Register / Your entry -> #tn-entry-h)", () => {
+  const fakeDeps = (appearsAfter: number, top = 500, scrollY = 100) => {
+    const log: string[] = [];
+    let finds = 0;
+    const deps: HashScrollDeps = {
+      find: (id) => { log.push(`find:${id}`); finds += 1; return finds > appearsAfter ? { getBoundingClientRect: () => ({ top }) } : null; },
+      scrollTo: (y) => { log.push(`scroll:${y}`); },
+      scrollY: () => scrollY,
+      tick: async () => { log.push("tick"); },
+      wait: async (ms) => { log.push(`wait:${ms}`); },
+    };
+    return { deps, log };
+  };
+
+  it("waits for the detail controller's load, then scrolls the target clear of the top bar", async () => {
+    let release!: (v: unknown) => void;
+    const gate = new Promise((r) => { release = r; });
+    const f = mockFetcher({ "/api/tournaments/t1": async () => { await gate; return detailBody(); } });
+    const d = createTournamentDetail({ api: f });
+    const { deps, log } = fakeDeps(0);
+    const loading = d.load("t1");
+    const done = scrollToHashAfter(loading, "#tn-entry-h", deps);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(log).toEqual([]); // nothing attempted while the data is still in flight
+    expect(d.state.loaded).toBe(false);
+    release(undefined);
+    expect(await done).toBe(true);
+    expect(d.state.loaded).toBe(true);
+    expect(log).toEqual(["tick", "find:tn-entry-h", "scroll:528"]); // 500 + 100 - 72
+  });
+
+  it("retries while the section has not rendered, gives up quietly, and ignores no hash or a failed load", async () => {
+    const late = fakeDeps(2);
+    expect(await scrollToHashAfter(Promise.resolve(), "#tn-entry-h", late.deps)).toBe(true);
+    expect(late.log).toEqual(["tick", "find:tn-entry-h", "wait:100", "find:tn-entry-h", "wait:100", "find:tn-entry-h", "scroll:528"]);
+    const never = fakeDeps(99);
+    expect(await scrollToHashAfter(Promise.resolve(), "#nope", never.deps, { tries: 3 })).toBe(false);
+    expect(never.log.filter((l) => l.startsWith("find"))).toHaveLength(3);
+    expect(never.log.some((l) => l.startsWith("scroll"))).toBe(false);
+    const none = fakeDeps(0);
+    expect(await scrollToHashAfter(Promise.resolve(), "", none.deps)).toBe(false);
+    expect(none.log).toEqual([]);
+    const failed = fakeDeps(0);
+    expect(await scrollToHashAfter(Promise.reject(new Error("x")), "#tn-entry-h", failed.deps)).toBe(true);
+    expect(hashId("#a%20b")).toBe("a b");
+    expect(hashId("#%E0%A4%A")).toBe("");
   });
 });
 

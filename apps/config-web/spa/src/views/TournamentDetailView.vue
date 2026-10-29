@@ -2,12 +2,13 @@
 // Tournament detail (/app/tournaments/:id, ?tab=): public read. The front block (banner, name, chips, registration,
 // Edit) on every tab, then Overview (facts strip, summary, news, My entry for a signed-in coach) /
 // Entrants / Rounds / Standings, and Manage for the tournament's owner, organisers and admins.
-import { computed, inject, onMounted, onUnmounted, provide, watch } from "vue";
+import { computed, inject, nextTick, onMounted, onUnmounted, provide, watch } from "vue";
 import { COACH_TREE_KEY } from "../home/tree";
 import { RouterLink, useRoute } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import { startPolling } from "../tournaments/poll";
+import { browserHashScroll, scrollToHashAfter } from "../tournaments/scroll";
 import TournamentEntrants from "../components/TournamentEntrants.vue";
 import TournamentFront from "../components/TournamentFront.vue";
 import TournamentManage from "../components/TournamentManage.vue";
@@ -35,8 +36,15 @@ watch(tab, (t) => void detail.ensureTab(t));
 let stopPolling = (): void => undefined;
 onMounted(async () => {
   stopPolling = startPolling(() => detail.refresh());
-  if (!state.loaded || state.id !== props.id) await detail.load(props.id);
-  await detail.ensureTab(tab.value);
+  const ready = (async () => {
+    if (!state.loaded || state.id !== props.id) await detail.load(props.id);
+    await detail.ensureTab(tab.value);
+  })();
+  // A hash link (the list's Register / Your entry -> #tn-entry-h) targets a section that renders only after the load;
+  // the router's scroll ran before it existed, so scroll once the data is in.
+  const scroll = route.hash ? browserHashScroll(() => nextTick()) : null;
+  if (scroll) void scrollToHashAfter(ready, route.hash, scroll);
+  await ready;
 });
 onUnmounted(() => stopPolling());
 </script>
