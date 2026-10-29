@@ -21,10 +21,12 @@ const props = defineProps<{
   /** The higher-value team goes first: set to its name while it has not chosen. */
   waitingFor?: string;
   submitted: boolean;
+  /** The team's last submission: the cart starts from it, so a resubmission edits rather than retypes. */
+  initial?: Array<{ id: string; qty: number }>;
 }>();
 const emit = defineEmits<{ (e: "submit", side: Side, picks: Array<{ id: string; qty: number }>): void; (e: "skip", side: Side): void }>();
 
-const picks = reactive<Record<string, number>>({});
+const picks = reactive<Record<string, number>>(Object.fromEntries((props.initial ?? []).filter((x) => x && typeof x.id === "string" && x.qty > 0).map((x) => [x.id, x.qty])));
 const priceOf = (o: InducementOption): number => o.price ?? o.cost ?? 0;
 const k = (n: number): string => `${Math.round(n / 1000)}k`;
 const bump = (o: InducementOption, d: number): void => {
