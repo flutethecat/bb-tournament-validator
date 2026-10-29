@@ -131,6 +131,7 @@ import {
   organizerUpdateIdentity,
   ownIdentityRecord,
   readIdentities,
+  identitiesFile,
   readProvisionalSignup,
   putProvisionalSignup,
   confirmProvisionalSignup,
@@ -222,7 +223,7 @@ import {
 } from "./tournamentResults.js";
 import { computeElo } from "./coachElo.js";
 import { computeGlicko, unratedGlicko } from "./coachGlicko.js";
-import { NafRecordStore, nafResultRows, nafSummaryFor, refreshNafForCoaches } from "./nafRecords.js";
+import { NafRecordStore, nafResultRows, nafRevision, nafSummaryFor, refreshNafForCoaches } from "./nafRecords.js";
 import {
   DISCORD_OAUTH_STATE_COOKIE,
   DISCORD_PENDING_COOKIE,
@@ -544,7 +545,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     results: tournamentResults,
     naf: {
       rows: () => nafResultRows(nafRecords, readIdentities()),
-      revision: () => nafRecords.revision(),
+      revision: () => nafRevision(nafRecords, readIdentities, identitiesFile()),
       refreshFor: (coaches) => refreshNafForCoaches(coaches, { store: nafRecords, identities: readIdentities }),
       summary: (coach) => nafSummaryFor(nafRecords, readIdentities(), coach),
     },
@@ -2217,7 +2218,7 @@ async function handleApi(
       const elo = computeElo(results);
       let nafRows: StoredTournamentResult[] = [];
       try { nafRows = nafResultRows(nafRecords, readIdentities()); } catch { /* fail open: ratings without NAF */ }
-      const glicko = computeGlicko([...results, ...nafRows], { asOf: new Date(), revision: `${tournamentResults.revision()}:${nafRecords.revision()}` }); // FUMBBL-style coach rating (cr) and its deviation (rd)
+      const glicko = computeGlicko([...results, ...nafRows], { asOf: new Date(), revision: `${tournamentResults.revision()}:${nafRevision(nafRecords, readIdentities, identitiesFile())}` }); // FUMBBL-style coach rating (cr) and its deviation (rd)
       // Owner ruling 08-27: only tournament matches move the competitive rating — Global ELO
       // (all games) and Tournament ELO (games with tournament-match metadata) are separate.
       const tournamentOnly = computeElo(results.filter((game) => tournamentMatches.get(game.gameId) !== undefined));

@@ -187,7 +187,11 @@ export function normalizeFfbCoachId(ffbCoachId: string): string {
   return ffbCoachId.trim().toLowerCase();
 }
 
-function identitiesFile(): string {
+/** A NAF coach id: 1 to 10 digits. The one validator for identity writes, the NAF scrape and the cache (src/nafRecords.ts). */
+export const NAF_ID_PATTERN = /^\d{1,10}$/;
+export const isNafId = (value: unknown): value is string => typeof value === "string" && NAF_ID_PATTERN.test(value);
+
+export function identitiesFile(): string {
   return process.env.IDENTITIES_FILE ? resolve(process.env.IDENTITIES_FILE) : DEFAULT_IDENTITIES_FILE;
 }
 
@@ -354,6 +358,7 @@ export function updateOwnAccount(coach: string, body: unknown, now = new Date())
       const value = field === "secondaryEmail"
         ? boundedSecondaryEmail(item, `identities.${field}`)
         : boundedString(item, `identities.${field}`, MAX_IDENTITY_VALUE_LENGTH);
+      if (field === "nafId" && value !== "" && !isNafId(value)) throw new Error("identities.nafId must be 1 to 10 digits.");
       if (value === "") delete identities[field];
       else identities[field] = value;
     }
@@ -384,6 +389,7 @@ export function organizerUpdateIdentity(
       throw new Error(`${field} is not editable through the organizer NAF identity route.`);
     if (item === undefined) continue;
     const value = boundedString(item, field, MAX_IDENTITY_VALUE_LENGTH);
+    if (field === "nafId" && value !== "" && !isNafId(value)) throw new Error("nafId must be 1 to 10 digits.");
     if (value === "") delete identities[field];
     else identities[field] = value;
   }

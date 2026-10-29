@@ -256,6 +256,15 @@ describe("identities store", () => {
     expect(() => updateOwnAccount("Tarkin", {})).toThrow(/profile, scheduling, or identities is required/);
   });
 
+  it("refuses a NAF id that is not 1 to 10 digits, on both write paths", () => {
+    tempStore();
+    upsertIdentity({ ...record("TargetCoach") });
+    for (const bad of ["abc", "12 34", "12345678901", "1e5"]) {
+      expect(() => updateOwnAccount("Tarkin", { identities: { nafId: bad } })).toThrow(/nafId/);
+      expect(() => organizerUpdateIdentity("OrganizerCoach", "TargetCoach", { nafId: bad })).toThrow(/nafId/);
+    }
+  });
+
   it("updates and persists the caller's whitelisted self-service identities", () => {
     tempStore();
 

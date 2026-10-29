@@ -2,11 +2,15 @@
 // no API) when one of their tabletop matches is CREATED, cached in <FORK_STATE_DIR>/naf-games.json, and every other read uses that cache as it stands.
 // The cached games become result-shaped rows for computeGlicko ONLY (nafResultRows); they never enter TournamentResultStore, so standings, Elo and
 // records cannot see them. Everything here fails open: NAF down, slow or re-marked-up means no rows, never an error in match creation or ratings.
+//
+// SINGLE WRITER: the cache file is read-modify-written with no inter-process lock, so exactly one config-web process may refresh it (writes are atomic,
+// but two writers could lose each other's coach record; the next refresh restores it).
 
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
+import { isNafId } from "./auth/identitiesStore.js";
 import type { StoredTournamentResult } from "./tournamentResults.js";
 
 export interface NafGame {
@@ -15,53 +19,151 @@ export interface NafGame {
   tournament: string;
   variant: string;
   coaches: [string, string];
+  /** The NAF coach ids from the Coaches cell's head2head link, in the same order as `coaches`; absent when the page carried no such link. */
+  coachIds?: [string, string];
   races: [string, string];
   score: [number, number];
 }
 
-export interface NafCoachRecord { nafId: string; nafName: string; fetchedAt: string; games: NafGame[] }
+export interface NafCoachRecord {
+  nafId: string;
+  nafName: string;
+  /** When the games were last fetched successfully ("" = never). */
+  fetchedAt: string;
+  /** When a fetch was last ATTEMPTED (success or not): the 10-minute throttle runs on this, so a failing NAF is not retried on every match creation. */
+  lastAttemptAt?: string;
+  games: NafGame[];
+}
 
 const NAF_USER_AGENT = "SuperFUMBBL-config-web/1.0 (+https://github.com/flutethecat)";
 const NAF_TIMEOUT_MS = 10_000;
-/** Re-creating a match must not hammer NAF: a cache younger than this is used as it is. */
+/** Re-creating a match must not hammer NAF: an attempt younger than this is not repeated. */
 export const NAF_REFRESH_MIN_AGE_MS = 10 * 60_000;
+export const NAF_MAX_GAMES_PER_COACH = 1000;
 
-const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+// ---- HTML parsing -------------------------------------------------------------------------------------------------------------------------------
+
+const LATIN1 = "nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml".split(" ");
+const ENTITIES: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", ndash: "–", mdash: "—", hellip: "…", lsquo: "‘", rsquo: "’", ldquo: "“", rdquo: "”",
+  OElig: "Œ", oelig: "œ", Scaron: "Š", scaron: "š", Zcaron: "Ž", zcaron: "ž", euro: "€",
+  ...Object.fromEntries(LATIN1.map((name, i) => [name, String.fromCharCode(160 + i)])),
+};
 function decodeEntities(text: string): string {
-  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, body: string) => {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]*);/gi, (whole, body: string) => {
     if (body[0] === "#") {
       const code = body[1]!.toLowerCase() === "x" ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
-      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+      return Number.isInteger(code) && code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : whole;
     }
-    return ENTITIES[body.toLowerCase()] ?? whole;
-  });
+    return ENTITIES[body] ?? whole;
+  }).replace(/ /g, " ");
 }
 const cellText = (html: string): string => decodeEntities(html.replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
-const pair = (text: string): [string, string] | undefined => {
+
+const HEADERS = ["date", "tournament", "variant", "coaches", "races", "score", "result"] as const;
+const REQUIRED_HEADERS = ["date", "tournament", "coaches", "races", "score"] as const;
+type Column = (typeof HEADERS)[number];
+
+/** The column map of a Games header row (resolved by header text, so a reordered or extended table still parses), or undefined for any other row. */
+function headerColumns(cells: string[]): Partial<Record<Column, number>> | undefined {
+  const map: Partial<Record<Column, number>> = {};
+  cells.forEach((text, index) => { const key = text.toLowerCase(); if ((HEADERS as readonly string[]).includes(key) && map[key as Column] === undefined) map[key as Column] = index; });
+  return REQUIRED_HEADERS.every((key) => map[key] !== undefined) ? map : undefined;
+}
+
+interface RawRow { date: string; tournament: string; variant: string; joined: string; anchorTexts: string[]; ids?: [string, string]; races: [string, string]; score: [number, number] }
+
+const splitPair = (text: string): [string, string] | undefined => {
   const parts = text.split(/\s+-\s+/);
   return parts.length === 2 && parts[0] && parts[1] ? [parts[0].trim(), parts[1].trim()] : undefined;
 };
 
-/** The game rows of a NAF gamelist page; rows that do not parse (header, filters, footers, changed markup) are skipped. */
-export function parseNafGameList(html: string): NafGame[] {
-  const games: NafGame[] = [];
+/**
+ * The game rows of a NAF gamelist page. Only rows under a header row naming Date/Tournament/Coaches/Races/Score count (any other table, or a page that
+ * is not the list, yields []). `hint` is the coach whose page this is: it settles a Coaches cell whose names contain " - ".
+ */
+export function parseNafGameList(html: string, hint: { nafId?: string; nafName?: string } = {}): NafGame[] {
   try {
-    for (const row of html.match(/<tr\b[\s\S]*?<\/tr>/gi) ?? []) {
-      const cells = [...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => cellText(m[1]!));
-      if (cells.length < 6) continue;
-      const [date, tournament, variant, coachesText, racesText, scoreText] = cells as [string, string, string, string, string, string];
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-      const coaches = pair(coachesText);
-      const races = pair(racesText);
-      const scoreParts = /^(\d+)\s*-\s*(\d+)$/.exec(scoreText);
-      if (!coaches || !races || !scoreParts) continue;
-      games.push({ date, tournament, variant, coaches, races, score: [Number(scoreParts[1]), Number(scoreParts[2])] });
+    const raws: RawRow[] = [];
+    const columnsByDepth: Array<Partial<Record<Column, number>> | undefined> = [undefined];
+    for (const token of html.matchAll(/<table\b|<\/table\s*>|<tr\b[\s\S]*?<\/tr\s*>/gi)) {
+      const text = token[0];
+      if (/^<table\b/i.test(text)) { columnsByDepth.push(undefined); continue; }
+      if (/^<\/table/i.test(text)) { if (columnsByDepth.length > 1) columnsByDepth.pop(); continue; }
+      const rawCells = [...text.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]\s*>/gi)].map((m) => m[1]!);
+      const texts = rawCells.map(cellText);
+      const header = headerColumns(texts);
+      if (header) { columnsByDepth[columnsByDepth.length - 1] = header; continue; }
+      const columns = columnsByDepth[columnsByDepth.length - 1];
+      if (!columns) continue;
+      const at = (key: Column): string => (columns[key] === undefined ? "" : texts[columns[key]!] ?? "");
+      const date = at("date");
+      const races = splitPair(at("races"));
+      const scoreParts = /^(\d+)\s*-\s*(\d+)$/.exec(at("score"));
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !races || !scoreParts) continue;
+      const coachesRaw = rawCells[columns.coaches!] ?? "";
+      const href = decodeEntities(/href\s*=\s*["']([^"']*)["']/i.exec(coachesRaw)?.[1] ?? "");
+      const id1 = /[?&]coach1=(\d+)/.exec(href)?.[1];
+      const id2 = /[?&]coach2=(\d+)/.exec(href)?.[1];
+      raws.push({
+        date, tournament: at("tournament"), variant: at("variant"), joined: at("coaches"),
+        anchorTexts: [...coachesRaw.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a\s*>/gi)].map((m) => cellText(m[1]!)).filter(Boolean),
+        ...(isNafId(id1) && isNafId(id2) ? { ids: [id1, id2] as [string, string] } : {}),
+        races, score: [Number(scoreParts[1]), Number(scoreParts[2])],
+      });
     }
+    // 1. rows whose names split unambiguously (two anchors, or exactly one " - ")
+    const names = raws.map((raw) => (raw.anchorTexts.length === 2 ? ([raw.anchorTexts[0]!, raw.anchorTexts[1]!] as [string, string]) : splitPair(raw.joined)));
+    // 2. the page coach's own name (the hint, else the one name seen on the page coach's side of every unambiguous row), to settle the rest
+    const hintId = hint.nafId && isNafId(hint.nafId) ? hint.nafId : undefined;
+    let ownName = hint.nafName?.trim() || undefined;
+    if (!ownName && hintId) {
+      const seen = new Set<string>();
+      raws.forEach((raw, i) => { const side = raw.ids?.indexOf(hintId) ?? -1; const n = names[i]; if (n && side >= 0) seen.add(n[side]!); });
+      if (seen.size === 1) ownName = [...seen][0];
+    }
+    const out: NafGame[] = [];
+    raws.forEach((raw, i) => {
+      let pair = names[i];
+      if (!pair && raw.ids && hintId && ownName) {
+        const side = raw.ids.indexOf(hintId);
+        const joined = raw.joined;
+        const lower = joined.toLowerCase();
+        const own = ownName.toLowerCase();
+        if (side === 0 && lower.startsWith(`${own} - `)) pair = [joined.slice(0, own.length), joined.slice(own.length + 3).trim()];
+        else if (side === 1 && lower.endsWith(` - ${own}`)) pair = [joined.slice(0, joined.length - own.length - 3).trim(), joined.slice(joined.length - own.length)];
+      }
+      if (!pair || !pair[0] || !pair[1]) return;
+      out.push({
+        date: raw.date, tournament: raw.tournament, variant: raw.variant, coaches: pair, ...(raw.ids ? { coachIds: raw.ids } : {}), races: raw.races, score: raw.score,
+      });
+    });
+    return out;
   } catch { return []; }
-  return games;
 }
 
-interface NafStoreFile { version: 1; coaches: Record<string, NafCoachRecord> }
+// ---- cache validation + store -------------------------------------------------------------------------------------------------------------------
+
+const str = (v: unknown): v is string => typeof v === "string";
+function validGame(value: unknown): NafGame | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const g = value as Record<string, unknown>;
+  const pairOf = (v: unknown): v is [string, string] => Array.isArray(v) && v.length === 2 && str(v[0]) && str(v[1]);
+  const score = g.score;
+  if (!str(g.date) || !/^\d{4}-\d{2}-\d{2}$/.test(g.date) || !str(g.tournament) || !str(g.variant) || !pairOf(g.coaches) || !pairOf(g.races)) return undefined;
+  if (!Array.isArray(score) || score.length !== 2 || !score.every((n) => Number.isInteger(n) && n >= 0 && n < 1000)) return undefined;
+  const ids = pairOf(g.coachIds) && isNafId(g.coachIds[0]) && isNafId(g.coachIds[1]) ? (g.coachIds as [string, string]) : undefined;
+  return { date: g.date, tournament: g.tournament, variant: g.variant, coaches: g.coaches, ...(ids ? { coachIds: ids } : {}), races: g.races, score: score as [number, number] };
+}
+function validRecord(key: string, value: unknown): NafCoachRecord | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const r = value as Record<string, unknown>;
+  if (!isNafId(key) || r.nafId !== key || !str(r.nafName) || !str(r.fetchedAt) || !Array.isArray(r.games)) return undefined;
+  const games = r.games.map(validGame).filter((g): g is NafGame => g !== undefined);
+  return { nafId: key, nafName: r.nafName, fetchedAt: r.fetchedAt, ...(str(r.lastAttemptAt) ? { lastAttemptAt: r.lastAttemptAt } : {}), games };
+}
+
+interface NafStoreFile { version: 1; coaches: Record<string, unknown> }
 
 export class NafRecordStore {
   private readonly file: string;
@@ -78,12 +180,15 @@ export class NafRecordStore {
     } catch { return { version: 1, coaches: {} }; }
   }
 
+  /** A coach's cached record; an invalid record reads as absent (and its bad games are skipped), never as an error. */
   get(nafId: string): NafCoachRecord | undefined {
     const coaches = this.read().coaches;
-    return Object.hasOwn(coaches, nafId) ? coaches[nafId] : undefined;
+    return Object.hasOwn(coaches, nafId) ? validRecord(nafId, coaches[nafId]) : undefined;
   }
 
-  listAll(): NafCoachRecord[] { return Object.values(this.read().coaches); }
+  listAll(): NafCoachRecord[] {
+    return Object.entries(this.read().coaches).map(([key, value]) => validRecord(key, value)).filter((r): r is NafCoachRecord => r !== undefined);
+  }
 
   /** Changes whenever the cache changes (a write through this store, or the file changing under it): a cheap key for derived ratings. */
   revision(): string {
@@ -92,29 +197,44 @@ export class NafRecordStore {
     return `${this.writes}:${stamp}`;
   }
 
-  put(nafId: string, nafName: string, games: NafGame[], fetchedAt = new Date().toISOString()): NafCoachRecord {
-    const record: NafCoachRecord = { nafId, nafName, fetchedAt, games };
-    const current = this.read();
+  private write(coaches: Record<string, unknown>): void {
     this.writes += 1;
-    atomicWriteTextFile(this.file, `${JSON.stringify({ version: 1, coaches: { ...current.coaches, [nafId]: record } }, null, 2)}\n`);
+    atomicWriteTextFile(this.file, `${JSON.stringify({ version: 1, coaches }, null, 2)}\n`);
+  }
+
+  /** Store a successful fetch (capped at 1000 games). With `keep`, records of nafIds not in it (a coach unlinked since) are dropped. */
+  put(nafId: string, nafName: string, games: NafGame[], fetchedAt = new Date().toISOString(), keep?: ReadonlySet<string>): NafCoachRecord {
+    const record: NafCoachRecord = { nafId, nafName, fetchedAt, lastAttemptAt: fetchedAt, games: games.slice(0, NAF_MAX_GAMES_PER_COACH) };
+    const current = this.read().coaches;
+    const kept = Object.fromEntries(Object.entries(current).filter(([id]) => !keep || keep.has(id)));
+    this.write({ ...kept, [nafId]: record });
     return record;
+  }
+
+  /** Remember that a fetch was attempted (and failed or came back empty) without touching the cached games. */
+  markAttempt(nafId: string, nafName: string, at: string): void {
+    const current = this.read().coaches;
+    const previous = Object.hasOwn(current, nafId) ? validRecord(nafId, current[nafId]) : undefined;
+    this.write({ ...current, [nafId]: { nafId, nafName: previous?.nafName || nafName, fetchedAt: previous?.fetchedAt ?? "", lastAttemptAt: at, games: previous?.games ?? [] } });
   }
 }
 
 export const nafScrapeDisabled = (): boolean => process.env.NAF_SCRAPE_DISABLED === "1";
 
 /** One coach's NAF game list; [] on any failure (non-200, timeout, network, parse), never throws. NAF_SCRAPE_DISABLED=1 makes no request at all. */
-export async function fetchNafGames(nafId: string, fetchImpl: typeof fetch = fetch): Promise<NafGame[]> {
-  if (nafScrapeDisabled() || !/^\d{1,10}$/.test(nafId.trim())) return [];
+export async function fetchNafGames(nafId: string, fetchImpl: typeof fetch = fetch, nafName?: string): Promise<NafGame[]> {
+  if (nafScrapeDisabled() || !isNafId(nafId.trim())) return [];
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), NAF_TIMEOUT_MS);
   try {
     const url = `https://member.thenaf.net/index.php?module=NAF&type=gamelist&coach=${encodeURIComponent(nafId.trim())}&limit=1000`;
     const res = await fetchImpl(url, { headers: { "User-Agent": NAF_USER_AGENT }, signal: controller.signal });
     if (res.status !== 200) return [];
-    return parseNafGameList(await res.text());
+    return parseNafGameList(await res.text(), { nafId: nafId.trim(), ...(nafName ? { nafName } : {}) });
   } catch { return []; } finally { clearTimeout(timer); }
 }
+
+// ---- identities ---------------------------------------------------------------------------------------------------------------------------------
 
 /** The slice of the identity store this module reads. */
 export interface NafIdentities {
@@ -122,12 +242,31 @@ export interface NafIdentities {
 }
 
 const normalizedCoach = (coach: string): string => coach.trim().toLowerCase();
-/** The coach's opt-in link (an identity record carrying a nafId), or undefined. */
+/** The coach's opt-in link (an identity record carrying a valid nafId), or undefined. */
 export function nafLinkOf(identities: NafIdentities, coach: string): { nafId: string; nafName: string } | undefined {
   const record = identities.coaches[normalizedCoach(coach)];
   const nafId = record?.identities.nafId?.trim();
-  return record && nafId ? { nafId, nafName: record.identities.nafName?.trim() || "" } : undefined;
+  return record && isNafId(nafId) ? { nafId, nafName: record.identities.nafName?.trim() || "" } : undefined;
 }
+
+/**
+ * The key of everything the NAF rows depend on besides the cache: the identity links. readIdentities() has no revision of its own, so this is the identity
+ * file's mtime and size (or, with no file to stat, a hash of the {ffbCoachId, nafId, nafName} triples), plus the cache's own revision.
+ */
+export function nafRevision(store: NafRecordStore, identities: () => NafIdentities, identitiesFilePath?: string): string {
+  let links = "";
+  try { if (identitiesFilePath) { const s = statSync(identitiesFilePath); links = `f${s.mtimeMs}:${s.size}`; } } catch { /* fall through to the hash */ }
+  if (!links) {
+    try {
+      const hash = createHash("sha1");
+      for (const r of Object.values(identities().coaches)) hash.update(`${r.ffbCoachId}\0${r.identities.nafId ?? ""}\0${r.identities.nafName ?? ""}\n`);
+      links = `h${hash.digest("hex")}`;
+    } catch { links = "none"; }
+  }
+  return `${store.revision()}:${links}`;
+}
+
+// ---- refresh ------------------------------------------------------------------------------------------------------------------------------------
 
 export interface NafRefreshDeps {
   store: NafRecordStore;
@@ -139,13 +278,18 @@ export interface NafRefreshDeps {
 
 const inFlight = new Map<string, Promise<void>>();
 
-/** Fetch and cache the NAF games of every named coach that has a nafId. Per-nafId in-flight dedupe; a cache under 10 minutes old is left alone. Never throws. */
+/**
+ * Fetch and cache the NAF games of every named coach that has a nafId. Per-nafId in-flight dedupe; a coach attempted less than 10 minutes ago (fetched or
+ * not) is left alone; an empty or failed fetch keeps the cached games. Never throws.
+ */
 export async function refreshNafForCoaches(coaches: string[], deps: NafRefreshDeps): Promise<void> {
   try {
     if (nafScrapeDisabled()) return;
     const warn = deps.warn ?? ((m: string) => console.warn(m));
     const now = deps.now ?? (() => new Date());
     const identities = deps.identities();
+    const linked = new Set<string>();
+    for (const record of Object.values(identities.coaches)) { const id = record.identities.nafId?.trim(); if (isNafId(id)) linked.add(id); }
     const ids = new Map<string, string>();
     for (const coach of coaches) { const link = nafLinkOf(identities, coach); if (link) ids.set(link.nafId, link.nafName); }
     await Promise.all([...ids].map(([nafId, nafName]) => {
@@ -154,11 +298,13 @@ export async function refreshNafForCoaches(coaches: string[], deps: NafRefreshDe
       const job = (async () => {
         try {
           const cached = deps.store.get(nafId);
-          if (cached && now().getTime() - Date.parse(cached.fetchedAt) < NAF_REFRESH_MIN_AGE_MS) return;
-          const games = await fetchNafGames(nafId, deps.fetchImpl);
+          const last = Date.parse(cached?.lastAttemptAt || cached?.fetchedAt || "");
+          if (Number.isFinite(last) && now().getTime() - last < NAF_REFRESH_MIN_AGE_MS) return;
+          const games = await fetchNafGames(nafId, deps.fetchImpl, nafName || cached?.nafName);
+          const at = now().toISOString();
           // an empty answer is a failure (or a coach with no games): keep what is cached rather than wiping it
-          if (games.length === 0) return;
-          deps.store.put(nafId, nafName || cached?.nafName || "", games, now().toISOString());
+          if (games.length === 0) deps.store.markAttempt(nafId, nafName, at);
+          else deps.store.put(nafId, nafName || cached?.nafName || "", games, at, linked);
         } catch (error) {
           warn(`[naf] refresh of ${nafId} failed: ${(error as Error).message}`);
         }
@@ -168,6 +314,8 @@ export async function refreshNafForCoaches(coaches: string[], deps: NafRefreshDe
     }));
   } catch { /* fail open */ }
 }
+
+// ---- rating rows --------------------------------------------------------------------------------------------------------------------------------
 
 const gameKey = (game: NafGame): string => {
   const a = game.coaches[0].trim().toLowerCase();
@@ -179,25 +327,37 @@ const gameKey = (game: NafGame): string => {
 };
 
 /**
- * Every cached NAF game as a result row for computeGlicko (and nothing else). The same game cached from both linked coaches is one row. A NAF name that
- * belongs to a coach with a nafId here is keyed by that coach's ffbCoachId; any other name is keyed `naf:<lowercased name>` so the opponent is rated too.
- * No team values (deltaCtv 0). penaltyScore is -1 (no shoot-out): a 0 would override the score in deriveTeamResult.
+ * Every cached NAF game as a result row for computeGlicko (and nothing else). The same game cached from both linked coaches is one row. Each side is
+ * mapped to our coach by NAF id (the head2head link), else by a linked identity's NAF name, else keyed `naf:<lowercased name>` so the opponent is rated too.
+ * When a game has no link ids, the one name present in every game of that coach's cache is the page coach (unique candidate only). No team values
+ * (deltaCtv 0). penaltyScore is -1 (no shoot-out): a 0 would override the score in deriveTeamResult.
  */
 export function nafResultRows(store: NafRecordStore, identities: NafIdentities): StoredTournamentResult[] {
-  const byName = new Map<string, string>();
+  // pass 1: every mapping, before any row is emitted
   const byId = new Map<string, string>();
+  const byName = new Map<string, string>();
   for (const record of Object.values(identities.coaches)) {
     const nafId = record.identities.nafId?.trim();
-    if (!nafId) continue; // opt-in: without a nafId the NAF name does not map, the coach stays a plain naf: entry
+    if (!isNafId(nafId)) continue; // opt-in: without a valid nafId a coach is a plain naf: entry
     byId.set(nafId, record.ffbCoachId);
     const name = record.identities.nafName?.trim().toLowerCase();
     if (name) byName.set(name, record.ffbCoachId);
   }
+  const cache = store.listAll();
+  const pageName = new Map<string, string>(); // nafId -> the page coach's lowercased name, from games that carry no ids
+  for (const cached of cache) {
+    if (!byId.has(cached.nafId) || cached.games.length === 0) continue;
+    let common: Set<string> | undefined;
+    for (const g of cached.games) {
+      const names = new Set(g.coaches.map((c) => c.trim().toLowerCase()));
+      common = common ? new Set([...common].filter((n) => names.has(n))) : names;
+    }
+    if (common && common.size === 1) pageName.set(cached.nafId, [...common][0]!);
+  }
+  // pass 2: emit
   const rows = new Map<string, StoredTournamentResult>();
-  for (const cached of store.listAll()) {
-    const cachedName = cached.nafName.trim().toLowerCase();
-    const owner = byId.get(cached.nafId);
-    if (owner && cachedName && !byName.has(cachedName)) byName.set(cachedName, owner);
+  for (const cached of cache) {
+    if (!byId.has(cached.nafId)) continue; // unlinked since: its games no longer count
     for (const game of cached.games) {
       const names = [game.coaches[0].trim().toLowerCase(), game.coaches[1].trim().toLowerCase()] as [string, string];
       if (!names[0] || !names[1] || names[0] === names[1]) continue;
@@ -205,13 +365,19 @@ export function nafResultRows(store: NafRecordStore, identities: NafIdentities):
       if (rows.has(gameId)) continue;
       const at = Date.parse(`${game.date}T12:00:00Z`);
       if (!Number.isFinite(at)) continue;
-      const side = (i: 0 | 1) => ({ teamId: `naf:${names[i]}`, teamName: game.races[i], coach: byName.get(names[i]) ?? `naf:${names[i]}` });
+      const owner = (i: 0 | 1): string | undefined => {
+        const byLink = game.coachIds ? byId.get(game.coachIds[i]) : undefined;
+        if (byLink) return byLink;
+        if (!game.coachIds && names[i] === pageName.get(cached.nafId)) return byId.get(cached.nafId);
+        return byName.get(names[i]);
+      };
+      const side = (i: 0 | 1) => ({ teamId: `naf:${names[i]}`, teamName: game.races[i], coach: owner(i) ?? `naf:${names[i]}` });
       const team = (i: 0 | 1) => ({
         teamId: `naf:${names[i]}`, score: game.score[i], winnings: 0, penaltyScore: -1, conceded: false,
         casualtiesSuffered: { bh: 0, si: 0, rip: 0 }, players: [],
       });
       rows.set(gameId, {
-        gameId, pulledAt: cached.fetchedAt, playedAt: new Date(at).toISOString(), source: "naf",
+        gameId, pulledAt: cached.fetchedAt || new Date(at).toISOString(), playedAt: new Date(at).toISOString(), source: "naf",
         home: side(0), away: side(1), teams: [team(0), team(1)],
       });
     }
@@ -223,5 +389,5 @@ export function nafResultRows(store: NafRecordStore, identities: NafIdentities):
 export function nafSummaryFor(store: NafRecordStore, identities: NafIdentities, coach: string): { games: number; fetchedAt?: string } {
   const link = nafLinkOf(identities, coach);
   const cached = link ? store.get(link.nafId) : undefined;
-  return cached ? { games: cached.games.length, fetchedAt: cached.fetchedAt } : { games: 0 };
+  return cached ? { games: cached.games.length, ...(cached.fetchedAt ? { fetchedAt: cached.fetchedAt } : {}) } : { games: 0 };
 }

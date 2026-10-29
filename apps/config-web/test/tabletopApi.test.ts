@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { computeGlicko } from "../src/coachGlicko.js";
 import { computeElo } from "../src/coachElo.js";
-import { recoverTabletop, tabletopApi, type TabletopApiDeps, type TabletopResult } from "../src/tabletop/api.js";
+import { NafRecordStore, nafResultRows, nafRevision, type NafIdentities } from "../src/nafRecords.js";
+import { recoverTabletop, coachRatings, tabletopApi, type TabletopApiDeps, type TabletopResult } from "../src/tabletop/api.js";
 import { duplicatePlayerId, teamFileFromSave } from "../src/tabletop/teamFile.js";
 import type { TeamBuilderSave } from "../src/teamBuilderSaves.js";
 import { FileTabletopRepository, headRevision } from "../src/tabletop/store.js";
@@ -440,6 +441,22 @@ describe("tabletop API: NAF records", () => {
   it("a throwing refresh never fails match creation", async () => {
     const r = await create(nafDeps({ rows: () => [], revision: () => "0", refreshFor: () => { throw new Error("boom"); } }));
     expect(r.status).toBe(201);
+  });
+
+  it("a changed identity link invalidates the memoised rating (linking, then unlinking, a NAF id)", () => {
+    const nafStore = new NafRecordStore(join(dir, "naf"));
+    nafStore.put("7", "", [1, 2, 3].map((n) => ({
+      date: `2026-01-0${n}`, tournament: "Cup", variant: "BB2025", coaches: [`opp${n}`, "ali"] as [string, string], coachIds: [`10${n}`, "7"] as [string, string], races: ["Orc", "Human"] as [string, string], score: [0, 2] as [number, number],
+    })));
+    let identities: NafIdentities = { coaches: { alice: { ffbCoachId: "Alice", identities: { nafId: "7" } } } };
+    const d = (): TabletopApiDeps => ({ ...deps(), naf: { rows: () => nafResultRows(nafStore, identities), revision: () => nafRevision(nafStore, () => identities) } });
+    const m = { home: { coach: "Alice" }, away: { coach: "Bob" } } as never;
+    const linked = coachRatings(m, d()).home.cr;
+    identities = { coaches: { alice: { ffbCoachId: "Alice", identities: {} } } }; // unlinked: same results, same cache, same period
+    const unlinked = coachRatings(m, d()).home.cr;
+    identities = { coaches: { alice: { ffbCoachId: "Alice", identities: { nafId: "7" } } } };
+    expect(linked).toBeGreaterThan(unlinked);
+    expect(coachRatings(m, d()).home.cr).toBe(linked);
   });
 
   it("the match GET carries the NAF game count and the CR moves with cached NAF rows, while results.list() stays empty", async () => {
