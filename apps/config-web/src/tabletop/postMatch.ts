@@ -71,6 +71,8 @@ export interface TabletopPlayer {
 
 export interface TabletopTeamFile {
   schema: 1;
+  /** Added by the match GET when the team has an uploaded avatar (public read URL); never stored. */
+  avatarUrl?: string;
   name: string;
   rosterId?: string;
   treasury: number;

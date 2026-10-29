@@ -50,6 +50,8 @@ export interface SharedPlayer {
 }
 
 export interface SharedTeamView {
+  /** The team's uploaded avatar (public read URL), when one is stored; absent -> clients show the race crest. */
+  avatarUrl?: string;
   teamName: string;
   coach: string;
   raceName: string;

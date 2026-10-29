@@ -68,6 +68,8 @@ export interface TabletopApiDeps {
   repo: TabletopRepository;
   /** The public folder holding the generated art manifests (sprites), for the roster sprites the match GET adds. */
   artDir?: string;
+  /** A team ref ("library:<id>" or a save id) -> its uploaded avatar URL, or undefined (clients fall back to the race crest). */
+  teamAvatarUrl?: (ref: string) => string | undefined;
   results: {
     put(row: StoredTournamentResult): unknown;
     remove(gameId: string): boolean;
@@ -95,6 +97,12 @@ export interface TabletopApiDeps {
   /** Every team the coach can play: fork library teams ("library:<id>") and builder saves (bare id). */
   listTeams?: (coach: string) => Array<{ ref: string; name: string; race: string; tv: number | null }>;
   now?: () => Date;
+}
+
+/** Adds `avatarUrl` to a team view when the team has an uploaded avatar. */
+function withAvatar<T extends TabletopTeamFile | undefined>(file: T, ref: string, deps: TabletopApiDeps): T {
+  const url = file ? deps.teamAvatarUrl?.(ref) : undefined;
+  return file && url ? { ...file, avatarUrl: url } : file;
 }
 
 export const isTabletopApiPath = (path: string): boolean => path === "/api/tabletop" || path.startsWith("/api/tabletop/") || path === "/api/standings";
@@ -182,7 +190,10 @@ export async function tabletopApi(
         events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e, kindLookup(teams)) : 0 })),
         effectiveEventIds: effectiveEvents(events).map((e) => e.id),
         // per player: kind, available / unavailableReason, eligible{...} (server-derived, so the page filters without rules of its own)
-        teams: { home: withRosterArt(decorateRoster("home", teams.home, events), deps.artDir), away: withRosterArt(decorateRoster("away", teams.away, events), deps.artDir) },
+        teams: {
+          home: withAvatar(withRosterArt(decorateRoster("home", teams.home, events), deps.artDir), match.home.teamSaveId, deps),
+          away: withAvatar(withRosterArt(decorateRoster("away", teams.away, events), deps.artDir), match.away.teamSaveId, deps),
+        },
         tally: tallyView(events, teams),
       },
     };

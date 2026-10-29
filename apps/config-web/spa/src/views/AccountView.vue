@@ -2,6 +2,7 @@
 // Account (/app/account): the session's Discord identity and the linked FUMBBL name, as GET /api/account returns
 // them. Read-only this round; editing stays on the hand-built pages.
 import { computed, inject, onMounted, onServerPrefetch, ref } from "vue";
+import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import TestSignInCard from "../components/TestSignInCard.vue";
@@ -69,6 +70,7 @@ onServerPrefetch(load);
       <dd>{{ account.fumbblName || "No FUMBBL name linked." }}</dd>
       </dl>
     </template>
+    <p><RouterLink to="/my-teams">Team avatars</RouterLink></p>
     <button class="lobby-btn" type="button" :disabled="signingOut" @click="signOut">Sign out</button>
     <p v-if="signOutError" class="lobby-error" role="alert">{{ signOutError }}</p>
   </section>

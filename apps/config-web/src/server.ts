@@ -102,6 +102,9 @@ import { isPublicArtPath } from "./publicArt.js";
 import { PRESETS } from "./presets";
 import { handleAuthPortal, handleLogout } from "./auth/portal.js";
 import { handleTestLogin } from "./auth/testLogin.js";
+import {
+  avatarRateLimit, avatarUrlFor, AVATAR_CONTENT_TYPE, AVATAR_MAX_BYTES, checkAvatar, findAvatar, readRawCapped, removeAvatar, saveAvatar, teamAvatarPath,
+} from "./teamAvatars.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
 import { isSpaPath, spaStaticPath } from "./spaRoutes.js";
 import { linkedFumbblNameIn } from "./fumbblLink.js";
@@ -386,6 +389,7 @@ const COACH_REGISTRY_JSON = resolve(
 const LIBRARY_DIR = resolve(process.env.FORK_LIBRARY_DIR || join(HERE, "../data-store/library"));
 // Team Builder saved sheets (one JSON file per coach), beside the library by default.
 const BUILDER_SAVES_DIR = resolve(process.env.FORK_BUILDER_SAVES_DIR || join(dirname(LIBRARY_DIR), "builder-saves"));
+const TEAM_AVATARS_DIR = resolve(process.env.TEAM_AVATARS_DIR || join(dirname(LIBRARY_DIR), "team-avatars"));
 // Bug reports land here (one folder per report) for later ingestion by the owner.
 const BUG_REPORTS_DIR = resolve(process.env.BUG_REPORTS_DIR || join(HERE, "../bug-reports"));
 // Tracks the last successful fork (game server) reload — see @bb/fork-ops's forkReload.
@@ -528,6 +532,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
   const deps: TabletopApiDeps = {
     repo: tabletopRepo,
     artDir: PUBLIC_DIR,
+    teamAvatarUrl: (ref) => avatarUrlFor(TEAM_AVATARS_DIR, ref),
     results: tournamentResults,
     loadTeamFile: (coach, ref) => {
       if (ref.startsWith("library:")) {
@@ -879,7 +884,9 @@ function sharedViewFor(coach: string, save: TeamBuilderSave, viewer: string | un
     // Falls through: the view shows the sheet's header and "Has 1 issue".
   }
   if (!input.ruleset && save.packageName) input.ruleset = { name: save.packageName, budget: null, tierLabel: null };
-  return sharedTeamView(input);
+  const view = sharedTeamView(input);
+  const avatarUrl = avatarUrlFor(TEAM_AVATARS_DIR, `save:${save.id}`);
+  return avatarUrl ? { ...view, avatarUrl } : view;
 }
 
 /** Resolve a Secret League builder request to a composed team + roster-intrinsic legality (#52 A).
@@ -983,6 +990,8 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   if (tournamentResultGameId(pathname)) return true;
   // Team Builder saves: coach-session-gated in-handler (401 JSON), never Basic-gated.
   if (teamBuilderSavesPath(pathname) !== undefined || teamBuilderSharePath(pathname) !== undefined) return true;
+  // Team avatars: PUT/DELETE are session + ownership gated in-handler; the GET read is public.
+  if (teamAvatarPath(pathname) !== undefined) return true;
   // Public team share link read + its page (owner 10-27): GET/HEAD only.
   if ((req.method === "GET" || req.method === "HEAD") && (teamBuilderSharedPath(pathname) !== undefined || teamViewPagePath(pathname) !== undefined)) return true;
   // Web Lobby: session-gated in-handler (401 JSON); its built page is public static.
@@ -1185,6 +1194,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/fork/library/retire" ||
     pathname === "/api/fork/reload" ||
     pathname === "/api/fork/team-builder/build" ||
+    teamAvatarPath(pathname) !== undefined ||
     teamBuilderSavesPath(pathname) !== undefined ||
     teamBuilderSharePath(pathname) !== undefined ||
     isLobbyApiPath(pathname) ||
@@ -2695,6 +2705,56 @@ async function handleApi(
     }
   }
 
+  // --- Team avatars: PUT/DELETE by the owning coach, public GET (src/teamAvatars.ts) ---
+  {
+    const teamKey = teamAvatarPath(path);
+    if (teamKey !== undefined) {
+      if (method === "GET" || method === "HEAD") {
+        const found = findAvatar(TEAM_AVATARS_DIR, teamKey);
+        if (!found) return sendJson(res, 404, { error: "No avatar." });
+        try {
+          const bytes = readFileSync(found.path);
+          res.writeHead(200, {
+            "content-type": AVATAR_CONTENT_TYPE[found.ext],
+            "content-length": String(bytes.length),
+            "cache-control": "public, max-age=3600",
+            "x-content-type-options": "nosniff",
+          });
+          res.end(method === "HEAD" ? undefined : bytes);
+        } catch {
+          sendJson(res, 404, { error: "No avatar." });
+        }
+        return;
+      }
+      if (method !== "PUT" && method !== "DELETE") return sendJson(res, 405, { error: "Use GET, PUT or DELETE." });
+      if (!auth) return sendJson(res, 401, { error: "Sign in to change a team avatar." });
+      const ownsTeam = teamKey.startsWith("library:")
+        ? libraryOwnerForTeam(teamKey.slice("library:".length)) === auth.coach
+        : readSaves(BUILDER_SAVES_DIR, auth.coach).some((s) => `save:${s.id}` === teamKey);
+      if (!ownsTeam) return sendJson(res, 403, { error: "You can only change the avatar of your own team." });
+      const wait = avatarRateLimit(auth.coach);
+      if (wait > 0) {
+        res.setHeader("retry-after", String(wait));
+        return sendJson(res, 429, { error: "Too many avatar changes. Try again in a minute." });
+      }
+      try {
+        if (method === "DELETE") {
+          removeAvatar(TEAM_AVATARS_DIR, auth.coach, teamKey);
+          res.writeHead(204).end();
+          return;
+        }
+        const body = await readRawCapped(req, AVATAR_MAX_BYTES);
+        if (!body) return sendJson(res, 400, { error: `The image must be at most ${AVATAR_MAX_BYTES / 1024} KB.` });
+        const checked = checkAvatar(body);
+        if (!checked.ok) return sendJson(res, 400, { error: checked.error });
+        saveAvatar(TEAM_AVATARS_DIR, auth.coach, teamKey, body, checked.image.ext);
+        return sendJson(res, 200, { ok: true, avatarUrl: avatarUrlFor(TEAM_AVATARS_DIR, teamKey) });
+      } catch {
+        return sendJson(res, 500, { error: "Could not update the avatar right now." });
+      }
+    }
+  }
+
   // --- Team share links (owner 10-27) ---
   // Create / revoke: the PROVEN session coach's own save only (another coach's id is "not found").
   {
@@ -3312,6 +3372,10 @@ export const server = createServer((req, res) => {
       if (req.method === "POST" && url.pathname === "/api/team/checkName") {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
+      // Team avatar read is public (like the share-link read); PUT/DELETE fall through to the session gate.
+      if ((req.method === "GET" || req.method === "HEAD") && teamAvatarPath(url.pathname) !== undefined) {
+        return await handleApi(req, res, url.pathname, url.searchParams);
+      }
       if (req.method === "GET" && url.pathname === "/api/fork/records") {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
@@ -3392,6 +3456,7 @@ export const server = createServer((req, res) => {
           url.pathname === "/api/account" ||
           url.pathname === "/api/admin/identities/naf" ||
           teamBuilderSavesPath(url.pathname) !== undefined ||
+          teamAvatarPath(url.pathname) !== undefined ||
           teamBuilderSharePath(url.pathname) !== undefined ||
           teamBuilderSharedPath(url.pathname) !== undefined ||
           isLobbyApiPath(url.pathname) ||

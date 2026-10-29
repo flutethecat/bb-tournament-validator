@@ -5,6 +5,7 @@ import { createRouter, type RouteLocationNormalized, type RouteRecordRaw, type R
 import { LOBBY_ID_PATTERN } from "./shared/format";
 import type { SessionStore } from "./session";
 import AccountView from "./views/AccountView.vue";
+import MyTeamsView from "./views/MyTeamsView.vue";
 import LinkOutView from "./views/LinkOutView.vue";
 import LobbyRoomView from "./views/LobbyRoomView.vue";
 import LobbyStartView from "./views/LobbyStartView.vue";
@@ -84,6 +85,7 @@ export const routes: RouteRecordRaw[] = [
     props: { title: "Tournament Builder", href: "/tournament-team-builder.html", blurb: "Build a team against a tournament's rules." },
     meta: { title: "Tournament Builder" },
   },
+  { path: "/my-teams", name: "my-teams", component: MyTeamsView, meta: { requiresAuth: true, title: "My teams" } },
   { path: "/account", name: "account", component: AccountView, meta: { requiresAuth: true, title: "Account" } },
   { path: "/:pathMatch(.*)*", name: "not-found", component: NotFoundView, meta: { title: "Not found" } },
 ];
