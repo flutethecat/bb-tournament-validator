@@ -20,6 +20,7 @@ import { TournamentStoreError } from "../tournaments/store.js";
 import type { LeagueApiDeps, LeagueApiIdentity, LeagueApiResult } from "./api.js";
 import { discordEvents, postWebhook as defaultPoster, type DiscordPayload, type WebhookPoster } from "./discord.js";
 import { readJsonObject } from "./http.js";
+import { teamSeat } from "./identity.js";
 import { SettingsError } from "./settings.js";
 import { isLeagueOrganiser, type LeagueStore } from "./store.js";
 import { fixturePlayed } from "./tourplay.js";
@@ -307,7 +308,7 @@ function parseScore(v: unknown, field: string, nullable: boolean): number | null
 }
 
 const side = (t: LeagueTeam): FixtureSide => ({
-  team: t.name, teamId: t.id, coach: t.coach, ...(t.coachId ? { coachId: t.coachId } : {}), race: t.race, ...(t.nafUser ? { nafUser: t.nafUser } : {}),
+  team: t.name, teamId: t.id, coach: t.coach, race: t.race, ...teamSeat(t),
   score: null, cas: null, conceded: false,
 });
 

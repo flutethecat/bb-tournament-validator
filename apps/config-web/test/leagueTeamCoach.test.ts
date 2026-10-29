@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { leagueApi, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
 import { fixtureForkView } from "../src/leagues/forkPlay";
 import { buildCoachAliases } from "../src/leagues/identity";
-import { coachOwnsTeam, leagueAliases } from "../src/leagues/redraft";
+import { applyDraftTeam, coachOwnsTeam, leagueAliases } from "../src/leagues/redraft";
 import { leagueStats } from "../src/leagues/stats";
 import { LeagueStore } from "../src/leagues/store";
 import type { LeagueFixture, LeagueTeam, SeasonRecord } from "../src/leagues/types";
@@ -128,6 +128,27 @@ describe("assign coach account", () => {
     const r = await call("PATCH", path(), JAY, { revision: rev(), coachId: "ForkTester" });
     expect(r.status).toBe(409);
     expect((r.body as { error: string }).error).toContain("Super FUMBBL game");
+  });
+
+  it("[review P2] a fixture created (or a redraft roster applied) after an assignment keeps the account marked: no alias merge", async () => {
+    await call("PATCH", path(), JAY, { revision: rev(), coachId: "ForkTester" });
+    body = { home: "orcs", away: "elves", round: 3 };
+    const created = await leagueApi("POST", "/api/leagues/tabbl/seasons/season-6/fixtures", new URLSearchParams(), JAY, deps());
+    expect(created!.status).toBe(201);
+    const s6 = store.season("tabbl", "season-6")!;
+    const f = s6.fixtures.find((x) => x.round === 3)!;
+    expect(f.home).toMatchObject({ coachId: "ForkTester", coachAssigned: true, nafUser: "deenaf" });
+    expect(f.away).not.toHaveProperty("coachAssigned"); // Bob's own account
+    const aliases = leagueAliases(store.seasons("tabbl"));
+    expect(aliases.key({ coachId: "ForkTester" })).not.toBe(aliases.key({ coachId: "DeeAccount" }));
+    // a redraft roster put into a season lists its coach with the marker as well
+    const next = season(7, "active", []);
+    next.teams = [];
+    next.participants = [];
+    applyDraftTeam(next, s6.teams.find((t) => t.id === "orcs")!);
+    expect(next.participants[0]).toMatchObject({ coachId: "ForkTester", coachAssigned: true });
+    const withNext = leagueAliases([...store.seasons("tabbl"), next]);
+    expect(withNext.key({ coachId: "ForkTester" })).not.toBe(withNext.key({ coachId: "DeeAccount" }));
   });
 
   it("alias precedence: the assigned account keys alone; the imported name and NAF name stay with their coach", async () => {

@@ -17,7 +17,7 @@
 import { createHash, randomInt } from "node:crypto";
 import { findPosition, findRoster, type DatasetPosition, type DatasetRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
-import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, type CoachAliases } from "./identity.js";
+import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, teamSeat, type CoachAliases } from "./identity.js";
 import { playerIdFor, teamPlayedIn } from "./playerIds.js";
 import {
   EMPTY_PLAYER_STATS, type DraftList, type LeaguePlayer, type LeagueTeam, type RedraftBudget, type RedraftState, type RedraftTeamTask,
@@ -521,7 +521,7 @@ export function applyDraftTeam(season: SeasonRecord, team: LeagueTeam): void {
   if (i >= 0) season.teams[i] = structuredClone(team); else season.teams.push(structuredClone(team));
   const named = team.name.trim().toLowerCase();
   if (!season.participants.some((p) => p.team.trim().toLowerCase() === named)) {
-    season.participants.push({ coach: team.coach, ...(team.coachId ? { coachId: team.coachId } : {}), ...(team.nafUser ? { nafUser: team.nafUser } : {}), country: "", race: team.race, team: team.name, active: true });
+    season.participants.push({ coach: team.coach, ...teamSeat(team), country: "", race: team.race, team: team.name, active: true });
   }
 }
 

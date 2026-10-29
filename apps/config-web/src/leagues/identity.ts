@@ -24,6 +24,19 @@ export interface CoachFacets {
   coachAssigned?: unknown;
 }
 
+/**
+ * The coach facets a fixture side or participant row takes from its season team: the account, its NAF name, and the
+ * coachAssigned marker when an organiser assigned the account (so the derived row links nothing either). Every path that
+ * derives a side / row from a team uses this (fixtures editor, redraft, re-import carry-over).
+ */
+export function teamSeat(t: { coachId?: string; nafUser?: string; coachAssigned?: { cleared?: true } }): { coachId?: string; coachAssigned?: true; nafUser?: string } {
+  return {
+    ...(t.coachId ? { coachId: t.coachId } : {}),
+    ...(t.coachId && t.coachAssigned && !t.coachAssigned.cleared ? { coachAssigned: true as const } : {}),
+    ...(t.nafUser ? { nafUser: t.nafUser } : {}),
+  };
+}
+
 const norm = (v: string | undefined): string => (v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 
 export interface CoachAliases {
