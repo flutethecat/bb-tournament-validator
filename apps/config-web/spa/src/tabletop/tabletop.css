@@ -972,11 +972,6 @@
   .tt-rec .tt-track.away .tt-cell[data-state="done"] { background: color-mix(in srgb, #000 78%, var(--ui-surface, #0d0d0d)); border-color: var(--ui-danger, var(--tt-line)); color: var(--tt-ink); }
   .tt-rec .tt-cell[data-state="active"] { background: var(--ui-scarlet, var(--tt-accent)); color: var(--ui-scarlet-contrast, #ffffff); border-color: var(--ui-scarlet, var(--tt-accent)); box-shadow: var(--tt-led-glow); outline: 0; }
   .tt-rec .tt-half { background: none; border: 0; box-shadow: none; font-family: var(--font-heading, sans-serif); letter-spacing: .06em; text-align: center; text-shadow: var(--tt-lettering-shadow); }
-  .tt-rec .tt-score { position: relative; display: inline-block; justify-self: center; font-family: var(--font-heading, sans-serif); color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-led-glow); letter-spacing: .06em; }
-  .tt-rec .tt-counters { width: 220px; gap: 4px; }
-  .tt-rec .tt-counters li { grid-template-columns: 52px 1fr 52px; gap: 8px; }
-  .tt-rec .tt-counters b { display: block; padding: 2px 0; text-align: center; font-family: var(--font-heading, sans-serif); font-weight: 400; color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-led-glow); background: rgb(0 0 0 / .45); border: 1px solid rgb(255 255 255 / .06); border-radius: 3px; box-shadow: inset 0 1px 0 rgb(0 0 0 / .6); }
-  .tt-rec .tt-counters span { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--tt-muted); }
 }
 @media (min-width: 1600px) { .tt-rec { --tt-score-w: 460px; } }
 
@@ -984,17 +979,6 @@
 @media (min-width: 1024px) {
   .tt-rec .tt-rail-btn, .tt-rec .tt-rail-end, .tt-rec .tt-quick { box-shadow: var(--tt-lift); }
   .tt-rec .tt-crest-frame, .tt-rec .tt-corner .tt-coachline .tt-chips { margin-bottom: 4px; }
-}
-
-/* TD / CAS counters: two visible bevelled LED cells (36 x 32, dark well face) with the label between them; the rows stack 6 px apart under the score */
-@media (min-width: 1024px) {
-  .tt-rec .tt-counters { gap: 6px; width: 240px; }
-  .tt-rec .tt-counters li { grid-template-columns: 36px 1fr 36px; gap: 10px; justify-content: center; }
-  .tt-rec .tt-counters b {
-    display: flex; align-items: center; justify-content: center; width: 36px; height: 32px; padding: 0; border-radius: 4px; font-size: 18px; line-height: 1;
-    background: color-mix(in srgb, #000 60%, var(--ui-surface, #0d0d0d)); border: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 45%, #000);
-    box-shadow: var(--tt-bevel-inset); color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-led-glow);
-  }
 }
 
 /* turn track (all widths): played and future turns render the same plain dark cell with bright white digits; only the active cell keeps the glowing scarlet indicator
@@ -1011,16 +995,30 @@
   .tt-rec { --tt-half-w: 84px; --tt-rows: minmax(0, 1fr) var(--tt-half-w) minmax(0, 1fr); }
   .tt-rec .tt-turns { grid-template-columns: var(--tt-rows); column-gap: 4px; }
   .tt-rec .tt-half { width: var(--tt-half-w); justify-self: center; padding-inline: 0; }
-  .tt-rec .tt-score { display: grid; grid-template-columns: var(--tt-rows); column-gap: 4px; align-items: center; justify-items: center; width: 100%; box-sizing: border-box; padding: 0 12px; text-align: center; justify-self: stretch; }
-  .tt-rec .tt-counters { width: 100%; box-sizing: border-box; padding: 0 12px; gap: 6px; }
-  .tt-rec .tt-counters li { grid-template-columns: var(--tt-rows); column-gap: 4px; justify-items: center; align-items: center; }
-  .tt-rec .tt-counters b { width: 44px; height: 36px; font-size: 18px; }
-  .tt-rec .tt-counters span { font-family: var(--font-heading, sans-serif); font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text, #e6e9ef) 85%, transparent); }
 }
-@media (min-width: 1600px) { .tt-rec .tt-counters span { font-size: 14px; } }
 
-/* the score colon is its own element in the centre column: display font at 70% of the score size, scarlet glow, vertically centred on the digits */
 .tt-score-colon { margin: 0 .25em; }
+
+/* scoreboard variant C, "broadcast bug" (desktop): the score row is three columns - the home half in the home team gradient, a dark 72 px TURN cell, the away half in
+   the away gradient - with big white Nuffle digits and a hard 3 px shadow; a dark stats strip under it; the LED turn track stays as the panel's top row */
+.tt-score-turn, .tt-stats { display: none; }
 @media (min-width: 1024px) {
-  .tt-rec .tt-score-colon { display: block; margin: 0; align-self: center; justify-self: center; font-family: var(--font-heading, sans-serif); font-size: .7em; line-height: 1; color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-led-glow); }
+  .tt-rec > .tt-board { grid-template-rows: auto 1fr auto; }
+  .tt-rec .tt-counters { display: none; }
+  .tt-rec .tt-turns { border-radius: 6px 6px 0 0; background: rgb(0 0 0 / .25); }
+  .tt-rec .tt-score { display: grid; grid-template-columns: minmax(0, 1fr) 72px minmax(0, 1fr); align-items: stretch; justify-items: stretch; width: 100%; box-sizing: border-box; padding: 0; justify-self: stretch; align-self: stretch; min-height: 88px; font-family: var(--font-heading, sans-serif); color: var(--ui-text-on-primary, #ffffff); text-shadow: 3px 3px 0 #000; letter-spacing: .04em; line-height: 1; text-align: center; }
+  .tt-rec .tt-score > span:nth-child(1), .tt-rec .tt-score > span:nth-child(3) { display: grid; place-items: center; }
+  .tt-rec .tt-score > span:nth-child(1) { grid-column: 1; background: linear-gradient(90deg, color-mix(in srgb, var(--ui-info, #4a86c8) 70%, #000), color-mix(in srgb, var(--ui-info, #4a86c8) 35%, #000)); }
+  .tt-rec .tt-score > span:nth-child(3) { grid-column: 3; background: linear-gradient(270deg, color-mix(in srgb, var(--ui-danger, #ff4d4d) 70%, #000), color-mix(in srgb, var(--ui-danger, #ff4d4d) 35%, #000)); }
+  .tt-rec .tt-score-colon { display: none; }
+  .tt-rec .tt-score-turn { grid-column: 2; display: grid; place-content: center; gap: 2px; background: color-mix(in srgb, #000 78%, var(--ui-surface, #0d0d0d)); font-family: var(--font-heading, sans-serif); text-align: center; line-height: 1.1; }
+  .tt-rec .tt-score-turn small { font-size: 12px; letter-spacing: .06em; color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-name-shadow); }
+  .tt-rec .tt-score-turn b { font-size: 20px; font-weight: 400; color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--tt-name-shadow); }
+  .tt-rec .tt-stats { grid-column: 2; grid-row: 3; display: grid; grid-template-columns: minmax(0, 1fr) 72px minmax(0, 1fr); align-items: center; height: 36px; text-align: center; background: color-mix(in srgb, #000 70%, var(--ui-surface, #0d0d0d)); border-top: 1px solid var(--tt-rule); border-bottom: 1px solid var(--tt-rule); border-radius: 0 0 6px 6px; font-family: var(--font-heading, sans-serif); font-size: 13px; letter-spacing: .06em; color: var(--ui-text, #e6e9ef); text-shadow: var(--tt-name-shadow); }
+  .tt-rec .tt-stats b { font-weight: 400; }
+  .tt-rec .tt-stats-home b { color: var(--ui-info, #4a86c8); }
+  .tt-rec .tt-stats-away b { color: var(--ui-danger, #ff4d4d); }
+  .tt-rec .tt-stats-half { font-size: 9px; text-transform: uppercase; color: var(--tt-muted); }
+  /* the race under the crest: white, same lettering */
+  .tt-rec .tt-crestcol .tt-crest-race { color: var(--ui-text, #e6e9ef); }
 }

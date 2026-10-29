@@ -96,6 +96,8 @@ const tray = (s: Side) => {
 const moreTip = (hidden: Chip[]): string => `Also: ${hidden.map(chipTitle).join(", ")}`;
 const cells = (s: Side) => turnCells(props.clock, s, endedTurns.value);
 const half = computed(() => halfLabel(props.clock?.half));
+/** The match turn number 1-16 (overtime from 17) for the score row's TURN cell; a dash before the first turn of a half. */
+const turnNo = computed(() => { const l = line.value; return l.startsWith("TURN ") ? l.slice(5) : "–"; });
 /** "1st half, turn 3, Spike Rats" for a turn-track cell. */
 const cellTip = (s: Side, n: number): string => `${half.value}, turn ${n}, ${props.match[s].teamName}`;
 /** The team colour from the team file (a plain hex only), else the theme tokens colour the side. */
@@ -148,7 +150,12 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
         <span v-if="weather.icon" class="tt-weather" role="img" :aria-label="weather.name" :data-tip="weather.name" data-tip-pos="bottom">{{ weather.icon }}</span>
         <button class="tt-cog" type="button" aria-label="Settings" data-tip="Settings" data-tip-pos="bottom" @click="emit('settings')">&#9881;</button>
       </div>
-      <p class="tt-score" aria-label="Score"><span>{{ tally.score.home }}</span><span class="tt-score-colon">:</span><span>{{ tally.score.away }}</span></p>
+      <p class="tt-score" aria-label="Score"><span>{{ tally.score.home }}</span><span class="tt-score-colon">:</span><span>{{ tally.score.away }}</span><span class="tt-score-turn"><small>TURN</small><b>{{ turnNo }}</b></span></p>
+      <div class="tt-stats" aria-label="Match stats">
+        <span class="tt-stats-home">TD <b>{{ tally.score.home }}</b> &middot; CAS <b>{{ cas("home") }}</b></span>
+        <span class="tt-stats-half">{{ half }}</span>
+        <span class="tt-stats-away">TD <b>{{ tally.score.away }}</b> &middot; CAS <b>{{ cas("away") }}</b></span>
+      </div>
       <ul class="tt-counters" aria-label="Counters">
         <li><b>{{ tally.score.home }}</b><span>TD</span><b>{{ tally.score.away }}</b></li>
         <li><b>{{ cas("home") }}</b><span>CAS</span><b>{{ cas("away") }}</b></li>

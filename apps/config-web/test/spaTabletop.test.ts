@@ -576,13 +576,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toContain("radial-gradient(ellipse at center, transparent 55%, rgb(0 0 0 / .22) 100%)"); // half-strength vignette
     expect(css1).toContain("--tt-led-glow: 0 0 8px rgb(215 20 31 / .7), 0 0 18px rgb(215 20 31 / .4)");
     expect(css1).not.toContain("data-ghost"); // no ghost digits behind the score
-    expect(css1).toMatch(/\.tt-rec \.tt-counters b \{\s*display: flex; align-items: center; justify-content: center; width: 36px; height: 32px; padding: 0; border-radius: 4px;[^}]*color-mix\(in srgb, #000 60%, var\(--ui-surface[^}]*box-shadow: var\(--tt-bevel-inset\)/); // visible LED cells
     expect(css1).toMatch(/--tt-rows: minmax\(0, 1fr\) var\(--tt-half-w\) minmax\(0, 1fr\);/); // one three-column grid for the track, the score and the counters
-    expect(css1).toMatch(/\.tt-rec \.tt-score \{ display: grid; grid-template-columns: var\(--tt-rows\);/);
-    expect(css1).toMatch(/\.tt-rec \.tt-counters li \{ grid-template-columns: var\(--tt-rows\);/);
-    expect(css1).toMatch(/\.tt-rec \.tt-counters b \{ width: 44px; height: 36px; font-size: 18px; \}/);
-    expect(css1).toMatch(/\.tt-rec \.tt-counters span \{ font-family: var\(--font-heading, sans-serif\); font-size: 13px; letter-spacing: \.06em;[^}]*85%/);
-    expect(css1).toMatch(/@media \(min-width: 1600px\) \{ \.tt-rec \.tt-counters span \{ font-size: 14px; \} \}/);
     expect(css1).toMatch(/--tt-score-w: 420px;/);
     expect(css1).toMatch(/--tt-score-w: 460px;/);
     expect(html).not.toContain("data-ghost");
@@ -590,7 +584,17 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-rec \.tt-track\.home \.tt-cell:not\(\[data-state="active"\]\), \.tt-rec \.tt-track\.away \.tt-cell:not\(\[data-state="active"\]\) \{\s*background: color-mix\(in srgb, #000 70%[^}]*border: 1px solid transparent; color: var\(--ui-text, #e6e9ef\); opacity: 1;/);
     expect(css1).toMatch(/\.tt-rec \.tt-track \.tt-cell\[data-state="active"\] \{ background: var\(--ui-scarlet/);
     expect(css1).toMatch(/\.tt-rec \.tt-track\.home \.tt-cell\[data-state="done"\], \.tt-rec \.tt-track\.away \.tt-cell\[data-state="done"\] \{ color: color-mix\(in srgb, var\(--ui-text, #e6e9ef\) 55%, transparent\); \}/); // played = soft grey, future = full white
-    expect(css1).toMatch(/\.tt-rec \.tt-score-colon \{ display: block; margin: 0; align-self: center; justify-self: center; font-family: var\(--font-heading, sans-serif\); font-size: \.7em;[^}]*text-shadow: var\(--tt-led-glow\); \}/); // the colon: its own centred grid item
+    // scoreboard variant C: the broadcast bug (three columns, Nuffle digits with a hard shadow, no LED glow) and the stats strip
+    expect(css1).toMatch(/\.tt-rec \.tt-score \{ display: grid; grid-template-columns: minmax\(0, 1fr\) 72px minmax\(0, 1fr\);[^}]*font-family: var\(--font-heading, sans-serif\);[^}]*text-shadow: 3px 3px 0 #000;/);
+    expect(css1).toMatch(/\.tt-rec \.tt-score > span:nth-child\(1\) \{ grid-column: 1; background: linear-gradient\(90deg, color-mix\(in srgb, var\(--ui-info/);
+    expect(css1).toMatch(/\.tt-rec \.tt-score > span:nth-child\(3\) \{ grid-column: 3; background: linear-gradient\(270deg, color-mix\(in srgb, var\(--ui-danger/);
+    expect(css1).toMatch(/\.tt-rec \.tt-stats \{ grid-column: 2; grid-row: 3; display: grid; grid-template-columns: minmax\(0, 1fr\) 72px minmax\(0, 1fr\);[^}]*border-top: 1px solid var\(--tt-rule\); border-bottom: 1px solid var\(--tt-rule\);[^}]*font-family: var\(--font-heading, sans-serif\)/);
+    expect(css1).not.toMatch(/\.tt-rec \.tt-score \{[^}]*(?:glow|scarlet)/); // no LED red on the digits
+    expect(css1).not.toMatch(/\.tt-rec \.tt-counters b \{/); // the LED counter cells are gone
+    expect(css1).toMatch(/\.tt-rec \.tt-crestcol \.tt-crest-race \{ color: var\(--ui-text, #e6e9ef\); \}/); // the race line is white
+    expect(html).toContain('<span class="tt-score-turn"><small>TURN</small><b>3</b></span>'); // the dark centre cell
+    expect(html).toContain('<div class="tt-stats" aria-label="Match stats"><span class="tt-stats-home">TD <b>1</b>');
+    expect(html).toContain('<span class="tt-stats-half">1st half</span>');
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
