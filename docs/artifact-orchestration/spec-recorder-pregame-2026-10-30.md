@@ -16,9 +16,10 @@ also skip a running pre-game (`pregame/skip`, logged).
 Home and away are drawn at random when the match is created (`createMatch`, crypto-random, injectable as
 `deps.drawSeats`; tests pin it). This holds for casual, fixture-launched and test matches alike: the request only names
 the two teams. The fixture orientation check runs on the drawn seats, so `fixtureSwap` records which way round a
-fixture was played. The draw is logged (`pg-seats`). An organiser may swap the seats (`seats/swap`, logged) until the
-first pre-game record, because every pre-game record (fans, journeymen, inducements, the coin) names a seat; the swap
-also swaps the base revisions and flips `fixtureSwap`.
+fixture was played. The draw is logged (`pg-seats`). An organiser may swap the seats (`seats/swap`, logged) only while
+the match is at `pregame:fans` with no pre-game record yet, because every pre-game record (fans, journeymen,
+inducements, the coin) names a seat; a skipped pre-game or a running turn never swaps (review fix). The swap also swaps
+the base revisions and flips `fixtureSwap`.
 
 ## State machine (one authority: `match.phase`, advanced only by `pregameAdvance` in api.ts)
 ```
@@ -37,7 +38,7 @@ competition's fixed rule, else off).
 ## Who acts
 | step | who may act | dice |
 |---|---|---|
-| swap seats | organiser only, before the first pre-game record | none |
+| swap seats | organiser only, at pregame:fans before the first pre-game record | none |
 | fans, weather, journeymen, prayers | either coach or an organiser | "Roll for me" (site) or "Enter result" (coach) |
 | inducements | either coach for either team (one phone at the table) or an organiser; the higher-TV team first | none |
 | coin call | the away coach, or an organiser (auto or real coin) | none |
@@ -55,8 +56,25 @@ competition's fixed rule, else off).
   401 (anonymous) / 403 (non-Discord session); a banned account gets 403;
 - every write route (`events`, `submit`, `confirm`, `publish`, `undo-revision`, `resolve-conflict`,
   `pregame/advance`, `pregame/skip`, `seats/swap`, `turn/*`) answers a signed-in spectator 403 and an anonymous one 401.
-The SPA route `/app/tabletop/:id` has no sign-in gate; the page follows the role. Spectators read through the 5 s poll
-(the Super socket's tabletop room is participants and organisers only and refuses them).
+The SPA route `/app/tabletop/:id` has no sign-in gate, and with the auth sidecar on, requireSession lets the exact
+GET/HEAD `/api/tabletop/matches/:id` through (every other tabletop route stays session-gated); the page follows the
+role. Spectators read through the 5 s poll (the Super socket's tabletop room is participants and organisers only).
+
+Spectator view model (`spectatorView`, review fix): an allowlist, never the stored records. `match` = id, state, phase,
+home/away `{coach, teamName}`, postMatch, confirmations, createdAt/updatedAt, test, allowOvertime; `teams.<side>` =
+name, race, rosterId, color, avatarUrl and `players` (id, name, number, position, kind, sprite, mng, dead, available);
+`events` = id, type, team, half, turn, ts, by, admin, removed, the payload without `treasury` / `pettyCash`; `tally` =
+score, fanDelta, conceded, clock, casualtiesSuffered, per-player lines; `pregame` with inducement payloads stripped the
+same way and `budget` reduced to role / submitted / spent; context, coachRating, clock, sppValues; `playerLines`.
+Player names and player lines (roster players, an event's `player` / `victim` / `thrower` / `thrown` and `sppEarned`,
+the per-player tally, per-event SPP, journeymen ids) appear only when `GAME_PAGES_PUBLIC_PLAYER_LINES` allows (the game
+pages' policy; default on). Never: treasuries or treasury spend, team values beyond the pre-game TV, save ids, base
+revisions, journals, organiser notes, the post-match preview. Seats and organisers keep the full view.
+
+Load: the role-independent view is a cached snapshot per match, keyed by updatedAt / state / phase and the event log's
+revision (size + mtime), dropped by every serialised write, shared by concurrent loads, at most 200 matches; undo
+metadata is indexed once per snapshot. Match GETs are limited to 60 a minute per session coach, else per IP (429 with
+retry-after).
 
 ## Wire (POST /api/tabletop/matches/:id/pregame/advance; `phase` optional double-advance guard)
 - fans: `{}` or `{mode:"site"}`; `{mode:"hand", rolls:{home:1-3, away:1-3}}`
@@ -71,10 +89,10 @@ The SPA route `/app/tabletop/:id` has no sign-in gate; the page follows the role
   One request may carry several sub-steps (`{mode:"hand", call, result, choice}`) only if its sender may do each;
   otherwise 403 and nothing is recorded. `caller`/`winner` in a body must match the server's.
 POST `.../pregame/skip` `{}` organiser only.
-POST `.../seats/swap` `{}` organiser only; 409 once a pre-game record exists or the match is not recording. Answer:
+POST `.../seats/swap` `{}` organiser only; 409 unless the match is recording at `pregame:fans` with no pre-game record. Answer:
 `{match, recorded:["pg-seatswap-n"], pregame}`.
 
-GET view: `role` (above); `pregame` adds `step`, `seatsSwappable` (recording and no pre-game record yet),
+GET view: `role` (above); `pregame` adds `step`, `seatsSwappable` (recording at pregame:fans, no pre-game record yet),
 `coin.caller` throughout the coin phase (before the call it is the only coin field), and during inducements
 `inducementOptions: {home|away: [{id,name,price,max}]}` and `budget: {home|away: {role, pettyCash, treasury,
 topUpLimit, spent}}, tv: {home, away}`.
@@ -137,7 +155,8 @@ Result summary: posted once each time a match is confirmed for good (the second 
 confirm for both, or the organiser's confirm-and-publish), best effort (it never fails the confirmation). One embed:
 title `Result: <home team> <h> - <a> <away team>`, description `<home> (<coach>) v <away> (<coach>)` then the winner (or
 "A draw.") and any concession; one field per team (`<team> (<coach>)`): `Score`, `Touchdowns` (scorers, `xN`),
-`Casualties caused` (total, with BH / SI / dead), `MVP`, and `Conceded` when it did. Footer `tabletop:<id> | result`;
+`Casualties caused` (total, with BH / SI / dead: the side's own effective casualty events; a standalone injury has no
+causer and counts for nobody), `MVP`, and `Conceded` when it did. Footer `tabletop:<id> | result`;
 `url` = `<PUBLIC_BASE_URL>/app/games/tabletop/<id>` (the public game page; a test match has none, so it links its
 recorder). Data: `resultSummaryOf(events, rosters)` in api.ts, the same tally as the results row.
 
