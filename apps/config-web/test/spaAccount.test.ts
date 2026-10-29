@@ -8,6 +8,7 @@ import {
   type ProposedTime,
 } from "../spa/src/account/calendar";
 import { createProfileEditor, profileProblems, type ProfileView } from "../spa/src/account/profile";
+import { actionLabel, linkProblems, STATUS_LABEL, type ConnectionField, type ConnectionView } from "../spa/src/account/connections";
 import { createAccountEditors } from "../spa/src/account/editors";
 import { createScheduleDialog } from "../spa/src/account/scheduleDialog";
 import { dialogKey } from "../spa/src/teams/manage";
@@ -316,5 +317,150 @@ describe("Set schedule dialog controller", () => {
 
   it("starts open when asked to (the #schedule landing)", () => {
     expect(make(true).ctl.open.value).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------- Connections (10-30)
+
+describe("Connections controller", () => {
+  const fields = (nafName: string, nafId: string): ConnectionField[] => [
+    { name: "nafName", label: "NAF coach name", inputmode: "text", maxlength: 60, value: nafName },
+    { name: "nafId", label: "NAF number", inputmode: "numeric", maxlength: 10, value: nafId },
+  ];
+  const nafRow = (status: "verified" | "not_linked", nafName = "", nafId = ""): ConnectionView => ({
+    id: "naf", label: "NAF", kind: "lookup", icon: "/icons/ui/dedicated_fans.png", status, identity: nafName ? `${nafName} · #${nafId}` : "", note: "",
+    actions: status === "verified" ? ["reverify", "unlink"] : ["link"], linkVia: { mode: "form", endpoint: "/api/me/connections/naf", fields: fields(nafName, nafId) },
+    ...(status === "verified" ? { verifiedAt: "2026-10-30T09:00:00.000Z" } : {}),
+  });
+  const fumbblRow: ConnectionView = { id: "fumbbl", label: "FUMBBL", kind: "claim", icon: "", status: "not_linked", identity: "", note: "", actions: ["link"], linkVia: { mode: "field", field: "fumbblName" } };
+  const view = (naf: ConnectionView, extra: Partial<ProfileView> = {}): ProfileView => ({
+    coach: "Alice", displayName: "", fumbblName: "", fumbblLinked: false, nafName: "", nafId: "", avatar: null, avatarSource: "none",
+    discord: { linked: true, username: "alice_dc" }, connections: [naf, fumbblRow], ...extra,
+  });
+  function fetcher(get: ProfileView, write: (path: string, method: string, body: unknown) => unknown) {
+    const calls: Array<{ path: string; method: string; body: unknown }> = [];
+    const f = (async (path: string, init: { method?: string; body?: unknown } = {}) => {
+      const method = init.method ?? "GET";
+      calls.push({ path, method, body: init.body });
+      if (method === "GET") return get;
+      const out = write(path, method, init.body);
+      if (out instanceof Error) throw out;
+      return out;
+    }) as Fetcher;
+    return { f, calls };
+  }
+  const verifiedView = view(nafRow("verified", "flutethecat", "34116"), { nafName: "flutethecat", nafId: "34116" });
+
+  it("labels: Link NAF account / Re-verify / Unlink; a field row says Link, then Edit; status chips", () => {
+    expect(actionLabel(nafRow("not_linked"), "link")).toBe("Link NAF account");
+    expect(actionLabel(nafRow("verified"), "reverify")).toBe("Re-verify");
+    expect(actionLabel(nafRow("verified"), "unlink")).toBe("Unlink");
+    expect(actionLabel(fumbblRow, "link")).toBe("Link");
+    expect(actionLabel({ ...fumbblRow, identity: "grim" }, "link")).toBe("Edit");
+    expect(STATUS_LABEL).toEqual({ linked: "Linked", not_linked: "Not linked", verified: "Verified" });
+  });
+
+  it("Link opens the inline form prefilled; local checks refuse without a request", async () => {
+    const { f, calls } = fetcher(view(nafRow("not_linked")), () => new Error("unexpected"));
+    const ed = createProfileEditor({ api: f });
+    await ed.load();
+    const c = ed.connections;
+    c.link(nafRow("not_linked", "Pre", "12"));
+    expect(c.state.open).toBe("naf");
+    expect(c.state.values).toEqual({ nafName: "Pre", nafId: "12" });
+    c.set("nafName", "");
+    c.set("nafId", "12a");
+    expect(await c.submit(nafRow("not_linked"))).toBe(false);
+    expect(c.state.problems).toEqual({ nafName: "Enter your NAF coach name.", nafId: "1 to 10 digits." });
+    expect(calls.filter((x) => x.method !== "GET")).toHaveLength(0);
+    c.cancel();
+    expect(c.state.open).toBe("");
+    // a field row (FUMBBL) never opens a form
+    c.link(fumbblRow);
+    expect(c.state.open).toBe("");
+    expect(linkProblems(fields("", ""), { nafName: "Ok Name", nafId: "34116" })).toEqual({});
+  });
+
+  it("submit POSTs the trimmed values, adopts the verified view (NAF fields follow), closes the form and says so", async () => {
+    const { f, calls } = fetcher(view(nafRow("not_linked")), () => verifiedView);
+    const ed = createProfileEditor({ api: f });
+    await ed.load();
+    ed.edit("displayName", "Ally"); // an unrelated edit in progress survives
+    const c = ed.connections;
+    c.link(nafRow("not_linked"));
+    c.set("nafName", "  FluteTheCat ");
+    c.set("nafId", " 34116 ");
+    expect(await c.submit(nafRow("not_linked"))).toBe(true);
+    expect(calls.at(-1)).toEqual({ path: "/api/me/connections/naf", method: "POST", body: { nafName: "FluteTheCat", nafId: "34116" } });
+    expect(c.state.open).toBe("");
+    expect(c.state.notice).toBe("NAF record checked: it exists and matches.");
+    expect(ed.state.view?.connections?.[0]?.status).toBe("verified");
+    expect(ed.state.form).toMatchObject({ nafName: "flutethecat", nafId: "34116", displayName: "Ally" });
+    expect(ed.changes()).toEqual({ displayName: "Ally" });
+  });
+
+  it("a 422 shows the server's reason and keeps the form open with the typed values", async () => {
+    const { f } = fetcher(view(nafRow("not_linked")), () => new ApiError(422, "The NAF coach page for number 34116 shows a different NAF name."));
+    const ed = createProfileEditor({ api: f });
+    await ed.load();
+    const c = ed.connections;
+    c.link(nafRow("not_linked"));
+    c.set("nafName", "Someone");
+    c.set("nafId", "34116");
+    expect(await c.submit(nafRow("not_linked"))).toBe(false);
+    expect(c.state.error).toMatch(/different NAF name/);
+    expect(c.state.open).toBe("naf");
+    expect(c.state.values).toEqual({ nafName: "Someone", nafId: "34116" });
+    expect(c.state.busy).toBe("");
+  });
+
+  it("Re-verify POSTs the saved values; Unlink DELETEs and adopts the cleared view", async () => {
+    const cleared = view(nafRow("not_linked"));
+    const { f, calls } = fetcher(verifiedView, (_p, method) => (method === "DELETE" ? cleared : verifiedView));
+    const ed = createProfileEditor({ api: f });
+    await ed.load();
+    const c = ed.connections;
+    const row = verifiedView.connections![0]!;
+    expect(await c.reverify(row)).toBe(true);
+    expect(calls.at(-1)).toEqual({ path: "/api/me/connections/naf", method: "POST", body: { nafName: "flutethecat", nafId: "34116" } });
+    expect(c.state.notice).toBe("NAF record checked again: it still matches.");
+    expect(await c.unlink(row)).toBe(true);
+    expect(calls.at(-1)).toMatchObject({ path: "/api/me/connections/naf", method: "DELETE" });
+    expect(c.state.notice).toBe("NAF record unlinked.");
+    expect(ed.state.form).toMatchObject({ nafName: "", nafId: "" });
+  });
+
+  it("refuses once the session is another coach, and drops an answer that lands after the switch", async () => {
+    let current = "Alice";
+    let release: (v: ProfileView) => void = () => {};
+    const { f, calls } = fetcher(verifiedView, () => new Promise<ProfileView>((r) => { release = r; }));
+    const ed = createProfileEditor({ api: f, coach: "Alice", currentCoach: () => current });
+    await ed.load();
+    const row = verifiedView.connections![0]!;
+    const pending = ed.connections.unlink(row);
+    current = "Bob";
+    release(view(nafRow("not_linked")));
+    expect(await pending).toBe(false);
+    expect(ed.state.view?.nafId).toBe("34116");
+    expect(await ed.connections.reverify(row)).toBe(false);
+    expect(ed.connections.state.error).toMatch(/another coach/);
+    expect(calls.filter((x) => x.method !== "GET")).toHaveLength(1);
+  });
+
+  it("editing a Verified NAF name or number flags that saving clears the check; other edits do not", async () => {
+    const { f } = fetcher(verifiedView, () => verifiedView);
+    const ed = createProfileEditor({ api: f });
+    await ed.load();
+    ed.edit("displayName", "Ally");
+    expect(ed.nafEditClearsVerified()).toBe(false);
+    ed.edit("nafId", "9999");
+    expect(ed.nafEditClearsVerified()).toBe(true);
+    ed.edit("nafId", "34116");
+    ed.edit("nafName", "Other");
+    expect(ed.nafEditClearsVerified()).toBe(true);
+    const plain = createProfileEditor({ api: fetcher(view(nafRow("not_linked")), () => null).f });
+    await plain.load();
+    plain.edit("nafId", "1");
+    expect(plain.nafEditClearsVerified()).toBe(false);
   });
 });

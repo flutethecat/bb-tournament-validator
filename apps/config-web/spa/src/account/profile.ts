@@ -4,6 +4,7 @@
 
 import { reactive } from "vue";
 import type { Fetcher } from "../session";
+import { createConnectionsController, type ConnectionView } from "./connections";
 
 export interface ProfileView {
   coach: string;
@@ -15,6 +16,8 @@ export interface ProfileView {
   avatar: string | null;
   avatarSource: "profile" | "discord" | "none";
   discord: { linked: boolean; username: string };
+  /** The Connections table (Discord, NAF, FUMBBL); absent from an older server. */
+  connections?: ConnectionView[];
 }
 
 export type ProfileField = "displayName" | "fumbblName" | "nafName" | "nafId";
@@ -101,10 +104,28 @@ export function createProfileEditor(deps: { api: Fetcher; coach?: string; curren
     return out;
   }
 
+  /** A fresh view from a Connections action: the saved values move; a field the coach is editing keeps its text. */
+  function adopt(v: ProfileView): boolean {
+    if (stale() || foreign(v) || !state.view) return false;
+    const before = formOf(state.view);
+    const next = formOf(v);
+    for (const k of Object.keys(next) as ProfileField[]) if (state.form[k] === before[k]) state.form[k] = next[k];
+    state.view = v;
+    return true;
+  }
+
+  const connections = createConnectionsController<ProfileView>({ api: deps.api, adopt, stale });
+
   return {
     state,
     load,
     changes,
+    connections,
+    /** True when the NAF record is Verified and the form changes its name or number (saving clears the check). */
+    nafEditClearsVerified(): boolean {
+      const c = changes();
+      return Boolean(state.view?.connections?.some((r) => r.id === "naf" && r.status === "verified") && (c.nafName !== undefined || c.nafId !== undefined));
+    },
     dirty: () => Object.keys(changes()).length > 0,
     edit(field: ProfileField, value: string): void { state.form[field] = value; state.notice = ""; state.problems[field] = ""; },
     async save(): Promise<boolean> {

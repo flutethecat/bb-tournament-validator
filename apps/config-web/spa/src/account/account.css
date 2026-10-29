@@ -18,6 +18,22 @@
 .ac-field input:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
 .ac-readonly { min-height: 24px; }
 .ac-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 640px; }
+.ac-naf-warn { margin: 0; color: var(--ui-warn); }
+
+/* ---- connections (Identity panel) */
+.ac-conn { display: grid; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--sf-panel-line); }
+.ac-conn-h { margin: 0; }
+.ac-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.ac-conn-table { width: 100%; border-collapse: collapse; }
+.ac-conn-row > * { padding: 8px 8px 8px 0; vertical-align: top; text-align: left; border-bottom: 1px solid color-mix(in srgb, var(--sf-panel-line) 60%, transparent); }
+.ac-conn-name { font-weight: 600; white-space: nowrap; }
+.ac-conn-icon { width: 20px; height: 20px; vertical-align: -5px; margin-right: 4px; image-rendering: pixelated; }
+.ac-conn-id { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.ac-conn-actions { white-space: nowrap; text-align: right; }
+.ac-conn-actions .lobby-btn + .lobby-btn { margin-left: 6px; }
+.ac-conn-form-row > td { padding: 8px 0 12px; border-bottom: 1px solid color-mix(in srgb, var(--sf-panel-line) 60%, transparent); }
+.ac-conn-form { display: grid; gap: 8px; }
+.ac-conn-form p { margin: 0; }
 
 /* ---- session */
 .ac-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin-top: 0; }
@@ -52,6 +68,11 @@
 
 @media (max-width: 640px) {
   .ac-row { grid-template-columns: minmax(0, 1fr); }
+  .ac-conn-table, .ac-conn-table tbody, .ac-conn-row, .ac-conn-form-row, .ac-conn-form-row > td { display: block; }
+  .ac-conn-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--sf-panel-line) 60%, transparent); }
+  .ac-conn-row > * { padding: 0; border: 0; }
+  .ac-conn-id, .ac-conn-actions { grid-column: 1 / -1; }
+  .ac-conn-actions { text-align: left; white-space: normal; }
   .ac-grid, .ac-legend { display: none; }
   .ac-agenda { display: block; }
 }

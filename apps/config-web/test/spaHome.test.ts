@@ -19,6 +19,24 @@ const SPA_CONFIG = fileURLToPath(new URL("../spa/vite.config.ts", import.meta.ur
 const H = 3_600_000;
 
 type Routes = Record<string, unknown | ((body: unknown, method: string) => unknown)>;
+
+// The Connections table rows GET /api/me/profile carries (src/auth/connections.ts), in each state the page draws.
+const nafFields = (nafName: string, nafId: string) => [
+  { name: "nafName", label: "NAF coach name", inputmode: "text", maxlength: 60, value: nafName },
+  { name: "nafId", label: "NAF number", inputmode: "numeric", maxlength: 10, value: nafId },
+];
+const connDiscord = { id: "discord", label: "Discord", kind: "oauth", icon: "/icons/ui/action-pass.png", status: "linked", identity: "alice_dc", note: "You sign in with this Discord account. It can't be changed here.", actions: [] };
+const connNafVerified = {
+  id: "naf", label: "NAF", kind: "lookup", icon: "/icons/ui/dedicated_fans.png", status: "verified", identity: "Alice N · #1234", verifiedAt: "2026-10-30T09:00:00.000Z",
+  note: "Checked against the public NAF coach page: the record exists and matches. The NAF has no sign-in, so this does not prove the record is yours. Editing your NAF name or number clears the check.",
+  actions: ["reverify", "unlink"], linkVia: { mode: "form", endpoint: "/api/me/connections/naf", fields: nafFields("Alice N", "1234") },
+};
+const connNafEmpty = {
+  id: "naf", label: "NAF", kind: "lookup", icon: "/icons/ui/dedicated_fans.png", status: "not_linked", identity: "", note: "Link your NAF record: we check your name and number against the public NAF coach page.",
+  actions: ["link"], linkVia: { mode: "form", endpoint: "/api/me/connections/naf", fields: nafFields("", "") },
+};
+const connFumbblEmpty = { id: "fumbbl", label: "FUMBBL", kind: "claim", icon: "/icons/ui/football-helmet.png", status: "not_linked", identity: "", note: "Add your fumbbl.com account name in the FUMBBL name field above.", actions: ["link"], linkVia: { mode: "field", field: "fumbblName" } };
+const connFumbblLocked = { ...connFumbblEmpty, status: "linked", identity: "LinkedF", locked: true, note: "Locked by the bot registry (tournament registration); an organiser can change it.", actions: [] };
 function mockFetcher(routes: Routes): Fetcher & { calls: Array<{ path: string; method: string; body: unknown }> } {
   const calls: Array<{ path: string; method: string; body: unknown }> = [];
   const f = (async (path: string, init: { method?: string; body?: unknown } = {}) => {
@@ -79,7 +97,7 @@ function signedInRoutes(): Routes {
     "/api/account": { ffbCoachId: "Alice" },
     "/api/me/profile": {
       coach: "Alice", displayName: "Ally", fumbblName: "", fumbblLinked: false, nafName: "Alice N", nafId: "1234", avatar: "https://cdn.example.test/a.png",
-      avatarSource: "discord", discord: { linked: true, username: "alice_dc" },
+      avatarSource: "discord", discord: { linked: true, username: "alice_dc" }, connections: [connDiscord, connNafVerified, connFumbblEmpty],
     },
     "/api/tabletop/saves?coach=Alice": { coach: "Alice", saves: [], teams: [{ ref: "library:1", name: "Alice Orcs", race: "Orc" }, { ref: "save:2", name: "Nameless", race: "" }] },
     "/api/me/scheduling": { timezone: "Europe/London", availability: [{ day: 0, start: "19:00", end: "22:00" }, { day: 5, start: "10:00", end: "14:00" }] },
@@ -900,6 +918,66 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const cell = cal.match(new RegExp(`data-day="${key}"[\\s\\S]*?</ul>`))?.[0] ?? "";
     if (cal.includes(`data-day="${key}"`)) expect(cell).toMatch(/<a href="\/app\/tournaments\/t1\?tab=rounds" class="hm-chip ac-chip hm-chip-urgent"/);
     expect(cal).toContain('id="ac-agenda-h"');
+  });
+
+  it("account page: the Connections table replaces the Discord field: Discord read-only, NAF Verified with Re-verify / Unlink, FUMBBL via the name field", async () => {
+    const { html } = await render("/account", signedInRoutes());
+    const conn = html.slice(html.indexOf('class="ac-conn"'), html.indexOf("</section>", html.indexOf('class="ac-conn"')));
+    expect(conn).toMatch(/<h3 id="ac-conn-h"[^>]*>Connections<\/h3>/);
+    expect(html).not.toContain('<span class="ac-label">Discord</span>');
+    const rowOf = (id: string) => conn.match(new RegExp(`<tr class="ac-conn-row" data-conn="${id}">[\\s\\S]*?</tr>`))?.[0] ?? "";
+    expect(conn.match(/data-conn="(\w+)"/g)).toEqual(['data-conn="discord"', 'data-conn="naf"', 'data-conn="fumbbl"']);
+    const discord = rowOf("discord");
+    expect(discord).toContain('src="/icons/ui/action-pass.png"');
+    expect(discord).toMatch(/class="[^"]*hm-chip-ok[^"]*">Linked</);
+    expect(discord).toContain("alice_dc");
+    expect(discord).toContain("You sign in with this Discord account.");
+    expect(discord).not.toContain("<button");
+    const naf = rowOf("naf");
+    expect(naf).toMatch(/>Verified</);
+    expect(naf).toContain("Alice N · #1234");
+    expect(naf).toContain("Checked 2026-10-30");
+    expect(naf).toContain("does not prove the record is yours");
+    expect(naf.match(/<button[^>]*>([^<]+)<\/button>/g)?.map((b) => b.replace(/<[^>]+>/g, ""))).toEqual(["Re-verify", "Unlink"]);
+    const fumbbl = rowOf("fumbbl");
+    expect(fumbbl).toMatch(/>Not linked</);
+    expect(fumbbl).toMatch(/<button[^>]*>Link<\/button>/);
+    expect(conn).not.toContain("ac-conn-form");
+    // nothing edited yet: no "saving clears the check" warning
+    expect(html).not.toContain("clears the Verified check");
+  });
+
+  it("account page: NAF not linked offers Link NAF account; a registry-owned FUMBBL name is locked", async () => {
+    const routes = signedInRoutes();
+    routes["/api/me/profile"] = { ...(routes["/api/me/profile"] as object), nafName: "", nafId: "", fumbblName: "LinkedF", fumbblLinked: true, connections: [connDiscord, connNafEmpty, connFumbblLocked] };
+    const { html } = await render("/account", routes);
+    const conn = html.slice(html.indexOf('class="ac-conn"'));
+    const naf = conn.match(/data-conn="naf">[\s\S]*?<\/tr>/)?.[0] ?? "";
+    expect(naf).toMatch(/>Not linked</);
+    expect(naf).toMatch(/<button[^>]*aria-expanded="false"[^>]*>Link NAF account<\/button>/);
+    const fumbbl = conn.match(/data-conn="fumbbl">[\s\S]*?<\/tr>/)?.[0] ?? "";
+    expect(fumbbl).toMatch(/>Linked</);
+    expect(fumbbl).toContain("LinkedF");
+    expect(fumbbl).toContain("Locked by the bot registry");
+    expect(fumbbl).not.toContain("<button");
+  });
+
+  it("account identity: the NAF link form, open, with the no-sign-in copy, both fields, Check and link and Cancel", async () => {
+    const [profileMod, comp] = await Promise.all([vite.ssrLoadModule("/src/account/profile.ts"), vite.ssrLoadModule("/src/components/AccountIdentity.vue")]);
+    const view = { ...(signedInRoutes()["/api/me/profile"] as object), connections: [connDiscord, connNafEmpty, connFumbblEmpty] };
+    const ed = profileMod.createProfileEditor({ api: mockFetcher({ "/api/me/profile": view }) });
+    await ed.load();
+    ed.connections.link(connNafEmpty);
+    const html = await mods.renderToString(createSSRApp(comp.default as never, { editor: ed, coach: "Alice" }));
+    const form = html.slice(html.indexOf('class="ac-conn-form-row"'));
+    expect(form).toMatch(/<form class="ac-conn-form" novalidate aria-label="Link NAF account">/);
+    expect(form).toContain("The NAF has no sign-in, so this confirms the record exists and matches what you entered; it does not prove it is yours.");
+    expect(form).toMatch(/<label for="ac-conn-naf-nafName">NAF coach name<\/label>/);
+    expect(form).toMatch(/id="ac-conn-naf-nafId"[^>]*inputmode="numeric"/);
+    expect(form).toMatch(/<button class="lobby-btn primary small" type="submit"[^>]*>Check and link<\/button>/);
+    expect(form).toContain(">Cancel</button>");
+    expect(html).toMatch(/<button[^>]*disabled[^>]*aria-expanded="true"[^>]*>Link NAF account<\/button>/);
+
   });
 
   it("coach page: two-column panels, empty states, deadlines with chips in the coach's timezone, schedule grid, teams, what's new (latest 5)", async () => {

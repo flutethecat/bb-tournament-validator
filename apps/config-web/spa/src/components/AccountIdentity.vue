@@ -1,14 +1,27 @@
 <script setup lang="ts">
 // IDENTITY panel (Account page): display name, FUMBBL name, NAF name and number, saved with PATCH /api/me/profile.
-// Avatar and Discord are read-only. A FUMBBL name linked by tournament registration is locked.
+// Avatar is read-only. A FUMBBL name linked by tournament registration is locked. Below the form, the CONNECTIONS table
+// (Discord, NAF, FUMBBL) renders the server's rows (src/account/connections.ts); NAF links through an inline form that
+// the server checks against the public NAF coach page (the NAF has no sign-in, so this is not proof of ownership).
 import { onMounted, onServerPrefetch } from "vue";
 import { DISPLAY_NAME_MAX, FUMBBL_NAME_MAX, NAF_NAME_MAX, type ProfileEditor, type ProfileField } from "../account/profile";
+import { actionLabel, STATUS_LABEL, STATUS_TONE, type ConnectionAction, type ConnectionView } from "../account/connections";
 
 const props = defineProps<{ editor: ProfileEditor; coach: string }>();
 const { state } = props.editor;
+const conn = props.editor.connections;
 
 const val = (e: Event) => (e.target as HTMLInputElement).value;
 const edit = (field: ProfileField, e: Event) => props.editor.edit(field, val(e));
+
+/** Row action: Unlink / Re-verify go to the server; Link opens the inline form, or focuses the profile field it edits. */
+function act(row: ConnectionView, action: ConnectionAction): void {
+  if (action === "unlink") void conn.unlink(row);
+  else if (action === "reverify") void conn.reverify(row);
+  else if (row.linkVia?.mode === "field") document.getElementById("ac-fumbbl")?.focus();
+  else conn.link(row);
+}
+const formFields = (row: ConnectionView) => (row.linkVia?.mode === "form" ? row.linkVia.fields : []);
 
 onMounted(() => { if (!state.loaded && !state.loadFailed) void props.editor.load(); });
 onServerPrefetch(() => props.editor.load());
@@ -17,7 +30,8 @@ onServerPrefetch(() => props.editor.load());
 <template>
   <div class="ac-identity">
     <p v-if="!state.loaded && !state.loadFailed" class="hm-empty">Loading…</p>
-    <form v-else-if="state.view" class="ac-form" novalidate :aria-busy="state.saving ? 'true' : undefined" @submit.prevent="editor.save()">
+    <template v-else-if="state.view">
+    <form class="ac-form" novalidate :aria-busy="state.saving ? 'true' : undefined" @submit.prevent="editor.save()">
       <div class="ac-who">
         <img v-if="state.view.avatar" class="ac-avatar" :src="state.view.avatar" alt="" />
         <span v-else class="ac-avatar ac-avatar-blank" aria-hidden="true">{{ coach.slice(0, 1) }}</span>
@@ -67,11 +81,7 @@ onServerPrefetch(() => props.editor.load());
         </div>
       </div>
 
-      <div class="ac-field">
-        <span class="ac-label">Discord</span>
-        <span class="ac-readonly">{{ state.view.discord.username || (state.view.discord.linked ? "Linked" : "Not linked") }}</span>
-        <small class="muted hm-small">You sign in with this Discord account. It can't be changed here.</small>
-      </div>
+      <p v-if="editor.nafEditClearsVerified()" class="hm-small ac-naf-warn" role="status">Saving a new NAF name or number clears the Verified check on your NAF connection.</p>
       </fieldset>
 
       <div class="hm-actions">
@@ -81,6 +91,57 @@ onServerPrefetch(() => props.editor.load());
       </div>
       <p v-if="state.error" class="lobby-error hm-small" role="alert">{{ state.error }}</p>
     </form>
+
+    <section v-if="state.view.connections?.length" class="ac-conn" aria-labelledby="ac-conn-h">
+      <h3 id="ac-conn-h" class="ac-label ac-conn-h">Connections</h3>
+      <table class="ac-conn-table" aria-labelledby="ac-conn-h">
+        <thead class="ac-sr"><tr><th scope="col">Provider</th><th scope="col">Status</th><th scope="col">Account</th><th scope="col">Actions</th></tr></thead>
+        <tbody>
+          <template v-for="row in state.view.connections" :key="row.id">
+            <tr class="ac-conn-row" :data-conn="row.id">
+              <th scope="row" class="ac-conn-name"><img class="ac-conn-icon" :src="row.icon" alt="" width="20" height="20" /> {{ row.label }}</th>
+              <td class="ac-conn-status"><span class="hm-chip" :class="STATUS_TONE[row.status]">{{ STATUS_LABEL[row.status] }}</span></td>
+              <td class="ac-conn-id">
+                <span class="ac-conn-who">{{ row.identity || "None" }}</span>
+                <small v-if="row.verifiedAt" class="muted hm-small">Checked {{ row.verifiedAt.slice(0, 10) }}</small>
+                <small class="muted hm-small ac-conn-note">{{ row.note }}</small>
+              </td>
+              <td class="ac-conn-actions">
+                <button
+                  v-for="a in row.actions" :key="a" class="lobby-btn small" type="button" :disabled="Boolean(conn.state.busy) || conn.state.open === row.id"
+                  :aria-expanded="a === 'link' && row.linkVia?.mode === 'form' ? conn.state.open === row.id : undefined" @click="act(row, a)"
+                >{{ conn.state.busy === row.id && a !== "link" ? "Working…" : actionLabel(row, a) }}</button>
+              </td>
+            </tr>
+            <tr v-if="conn.state.open === row.id" class="ac-conn-form-row">
+              <td colspan="4">
+                <form class="ac-conn-form" novalidate :aria-busy="conn.state.busy === row.id ? 'true' : undefined" :aria-label="`Link ${row.label} account`" @submit.prevent="conn.submit(row)">
+                  <p class="muted hm-small">We check the name and number against the public {{ row.label }} coach page. The {{ row.label }} has no sign-in, so this confirms the record exists and matches what you entered; it does not prove it is yours.</p>
+                  <div class="ac-row">
+                    <div v-for="f in formFields(row)" :key="f.name" class="ac-field">
+                      <label :for="`ac-conn-${row.id}-${f.name}`">{{ f.label }}</label>
+                      <input
+                        :id="`ac-conn-${row.id}-${f.name}`" type="text" autocomplete="off" :inputmode="f.inputmode" :maxlength="f.maxlength" :value="conn.state.values[f.name] ?? ''"
+                        :aria-invalid="conn.state.problems[f.name] ? 'true' : undefined" :aria-describedby="conn.state.problems[f.name] ? `ac-conn-${row.id}-${f.name}-err` : undefined"
+                        :readonly="conn.state.busy === row.id" @input="conn.set(f.name, val($event))"
+                      />
+                      <small v-if="conn.state.problems[f.name]" :id="`ac-conn-${row.id}-${f.name}-err`" class="lobby-error hm-small">{{ conn.state.problems[f.name] }}</small>
+                    </div>
+                  </div>
+                  <div class="hm-actions">
+                    <button class="lobby-btn primary small" type="submit" :disabled="Boolean(conn.state.busy)">{{ conn.state.busy === row.id ? "Checking…" : "Check and link" }}</button>
+                    <button class="lobby-btn small" type="button" :disabled="Boolean(conn.state.busy)" @click="conn.cancel()">Cancel</button>
+                  </div>
+                </form>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <p v-if="conn.state.notice" class="hm-notice hm-small" role="status">{{ conn.state.notice }}</p>
+      <p v-if="conn.state.error" class="lobby-error hm-small" role="alert">{{ conn.state.error }}</p>
+    </section>
+    </template>
     <p v-else class="lobby-error hm-small" role="alert">
       {{ state.error }}
       <button class="lobby-btn small hm-retry" type="button" @click="editor.load()">Retry</button>
