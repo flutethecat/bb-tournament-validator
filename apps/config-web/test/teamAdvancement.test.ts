@@ -45,6 +45,17 @@ describe("team progression mutation", () => {
     expect(playerProgression(player, ROSTER)).toMatchObject({ advancements: 1, rank: "Veteran" });
   });
 
+  it("charges nothing for a Team Captain's draft grants: no value, no advancement, Pro still owned", () => {
+    const captain = `<player id="p"><positionId>h1</positionId><playerStatistics currentSpps="0" earnedSpps="0"></playerStatistics><skillList><skill>Team Captain</skill><skill>Pro</skill></skillList></player>`;
+    const progression = playerProgression(captain, ROSTER);
+    expect(progression).toMatchObject({ advancements: 0, rank: "Experienced", currentValue: 50000, earnedSpp: 0 });
+    expect(progression.costs?.chosenPrimary).toBe(6);
+    expect(progression.primarySkills).not.toContain("Pro");
+    // A real advancement on top still counts and is valued.
+    const advanced = captain.replace("<skill>Pro</skill>", "<skill>Pro</skill><skill>Block</skill>");
+    expect(playerProgression(advanced, ROSTER)).toMatchObject({ advancements: 1, currentValue: 80000 }); // Block: 20k primary + 10k elite
+  });
+
   it("does not fabricate lifetime earned SPP for unaudited imported progression", () => {
     const imported = `<player id="p"><positionId>h1</positionId><playerStatistics currentSpps="4"/>` +
       `<skillList><skill>Wrestle</skill></skillList></player>`;

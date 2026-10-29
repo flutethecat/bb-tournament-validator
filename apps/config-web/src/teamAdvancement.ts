@@ -19,7 +19,7 @@ import {
   type ReloadResult,
   type TeamXmlTransactionHandle,
 } from "@bb/fork-ops";
-import type { SkillCategory } from "@bb/validator";
+import { withoutCaptainGrants, type SkillCategory } from "@bb/validator";
 import type { SessionIdentity } from "./auth/requireSession.js";
 
 type AdvancementIdentity = Pick<SessionIdentity, "coach" | "organizer">;
@@ -155,6 +155,9 @@ const safePart = (value: string): string => value.replace(/[^\w.-]+/g, "_") || "
 const escapeRe = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const coachNamesEqual = (left: string, right: string): boolean => left.trim().toLowerCase() === right.trim().toLowerCase();
 const skillNames = (scope: string): string[] => [...scope.matchAll(/<skill\b[^>]*>([^<]*)<\/skill>/gi)].map((match) => decodeXml(match[1]!).trim()).filter(Boolean);
+/** A player's skills minus the Team Captain draft grants (the trait + its free Pro): owned, but never bought or
+ *  earned, so they carry no value and are no advancement (https://bloodbowlbase.ru/bb2025/core_rules/the_teams/#team-captain). */
+const acquiredSkillNames = (player: string): string[] => withoutCaptainGrants(skillNames(player));
 export const teamRevision = (xml: string): string => createHash("sha256").update(xml).digest("hex");
 
 function teamFile(teamsDir: string, teamId: string): { path: string; xml: string } | undefined {
@@ -235,7 +238,7 @@ function earnedSpp(player: string): number | null {
   const audits = [...player.matchAll(/<advancement\b([^>]*)\/?\s*>/gi)];
   const spent = audits.reduce((sum, match) => sum + (Number(attr(match[1]!, "cost")) || 0), 0);
   const reserved = Number(attr(player.match(/<pendingAdvancement\b([^>]*)>/i)?.[1] ?? "", "cost")) || 0;
-  const acquiredAdvancements = skillNames(player).filter((skill) => {
+  const acquiredAdvancements = acquiredSkillNames(player).filter((skill) => {
     if (/^\+(?:MA|ST|AG|PA|AV)$/i.test(skill)) return true;
     const meta = Object.entries(bb2025.skills).find(([name]) => name.toLowerCase() === skill.toLowerCase())?.[1];
     return Boolean(meta?.category && !meta.trait);
@@ -296,7 +299,7 @@ function statImprovements(player: string, position: string | undefined): Record<
 }
 
 function advancementCount(player: string, position: string | undefined): number {
-  const advancementSkills = skillNames(player).filter((skill) => {
+  const advancementSkills = acquiredSkillNames(player).filter((skill) => {
     if (/^\+(?:MA|ST|AG|PA|AV)$/i.test(skill)) return false;
     const meta = Object.entries(bb2025.skills).find(([name]) => name.toLowerCase() === skill.toLowerCase())?.[1];
     return Boolean(meta?.category && !meta.trait);
@@ -324,7 +327,7 @@ export function playerProgression(player: string, roster: string | undefined): P
   const row = ADVANCEMENT_ROWS[advancements];
   const ineligible = position ? /<type>\s*(?:star|mercenary)\s*<\/type>/i.test(position) : true;
   const characteristics = Object.fromEntries((['MA', 'ST', 'AG', 'PA', 'AV'] as Characteristic[]).map((stat) => [stat, effectiveStatValue(player, position, stat) ?? null])) as Record<Characteristic, number | null>;
-  const addedSkillValue = skillNames(player).reduce((sum, skill) => {
+  const addedSkillValue = acquiredSkillNames(player).reduce((sum, skill) => {
     const found = Object.entries(bb2025.skills).find(([name]) => name.toLowerCase() === skill.toLowerCase());
     if (!found?.[1].category || found[1].trait) return sum;
     const base = secondaryCategories.includes(found[1].category) ? 40_000 : 20_000;

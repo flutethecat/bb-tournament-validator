@@ -153,17 +153,32 @@ export function rosterHasTeamCaptain(specialRules: readonly string[] | undefined
  */
 export function addedSkills(position: DatasetPosition, printedSkills: string[]): string[] {
   const base = new Set(position.skills.map(normName));
-  const added = printedSkills.filter((s) => !base.has(normName(s)));
-  if (!added.some((s) => normName(s) === normName(TEAM_CAPTAIN))) return added;
+  return withoutCaptainGrants(printedSkills.filter((s) => !base.has(normName(s))));
+}
+
+/**
+ * Split a player's skill list into the Team Captain's free grants (the trait and ONE Pro, present only when the
+ * list carries the trait) and everything else, in order. Use the WHOLE list: a lone "Pro" is never a grant.
+ */
+export function splitCaptainGrants(skills: readonly string[]): { grants: string[]; rest: string[] } {
+  const captain = skills.some((s) => normName(s) === normName(TEAM_CAPTAIN));
+  if (!captain) return { grants: [], rest: [...skills] };
+  const grants: string[] = [];
+  const rest: string[] = [];
   let proFree = true;
-  return added.filter((s) => {
-    if (normName(s) === normName(TEAM_CAPTAIN)) return false;
-    if (proFree && normName(s) === normName(TEAM_CAPTAIN_FREE_SKILL)) {
+  for (const s of skills) {
+    if (normName(s) === normName(TEAM_CAPTAIN)) grants.push(s);
+    else if (proFree && normName(s) === normName(TEAM_CAPTAIN_FREE_SKILL)) {
       proFree = false;
-      return false;
-    }
-    return true;
-  });
+      grants.push(s);
+    } else rest.push(s);
+  }
+  return { grants, rest };
+}
+
+/** A skill list without the Team Captain's free grants (see {@link splitCaptainGrants}). */
+export function withoutCaptainGrants(skills: readonly string[]): string[] {
+  return splitCaptainGrants(skills).rest;
 }
 
 /** Normalized set of all known star-player names (generic, all teams). */

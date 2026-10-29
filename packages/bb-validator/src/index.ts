@@ -27,6 +27,8 @@ export {
   skillAccess,
   addedSkills,
   rosterHasTeamCaptain,
+  splitCaptainGrants,
+  withoutCaptainGrants,
   TEAM_CAPTAIN,
   TEAM_CAPTAIN_FREE_SKILL,
   normName,
