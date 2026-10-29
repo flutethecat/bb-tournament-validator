@@ -9,8 +9,13 @@
  * characteristic losses; a death or a defection retires the player to former players), treasury = treasury - the part
  * of it spent on inducements + winnings, dedicated fans + the server's modifier. Seasons played is never touched.
  *
- * A "basic" result (the fork's finished-game listing without the FumbblResult body) carries no SPP, injuries or fan
- * change: those parts are left as they are and the fixture records source "basic".
+ * A "basic" result (the fork's finished-game listing without the FumbblResult body) carries no SPP, injuries, fan
+ * change or inducement spend: SPP balances (also of a conceding team), injuries, fans and the TREASURY are left as
+ * they are (winnings without the spend would overstate it), and the fixture records source "basic" with
+ * financialPending for an organiser to settle.
+ *
+ * Characteristic losses respect the fork's limits (ffb-common mechanics/mixed/StatsMechanic: MA 1-9, ST 1-8, AG and PA
+ * 1-6, AV 3-11; a lasting injury never takes a value past them) while the injury still causes the missed game.
  */
 import type { GamestateResult } from "@bb/fork-ops";
 import type { ParsedGameResult } from "../site-backend/fumbblResult.js";
@@ -111,16 +116,21 @@ export function fromBasicResult(gameId: string, result: GamestateResult, playedA
 const injuryKey = (name: string): string => name.replace(/[^a-z]/gi, "").toLowerCase();
 const isDead = (name: string): boolean => ["dead", "deadrip", "rip", "death"].includes(injuryKey(name));
 
+/** The fork's characteristic limits (StatsMechanic.limit, BB2020/BB2025). */
+export const STAT_LIMIT = { ma: [1, 9], st: [1, 8], ag: [1, 6], pa: [1, 6], av: [3, 11] } as const;
+
 /** What one server injury does to a league player (BB2025 SeriousInjury names). Every serious injury misses the next game. */
 function applyInjury(p: LeaguePlayer, name: string): void {
   const key = injuryKey(name);
   p.missNextGame = true;
+  const lower = (stat: "ma" | "st" | "av"): void => { const v = p[stat]; if (v !== null) p[stat] = Math.max(v - 1, STAT_LIMIT[stat][0]); };
+  const worse = (stat: "ag" | "pa"): void => { const v = p[stat]; if (v !== null) p[stat] = Math.min(v + 1, STAT_LIMIT[stat][1]); };
   if (key.startsWith("seriousinjury") || key.endsWith("ni")) p.niggling = (p.niggling || 0) + 1;
-  else if (key.includes("av") && key.startsWith("headinjury")) { if (p.av !== null) p.av -= 1; }
-  else if (key.startsWith("smashedknee")) { if (p.ma !== null) p.ma -= 1; }
-  else if (key.startsWith("brokenarm")) { if (p.pa !== null) p.pa += 1; }
-  else if (key.startsWith("dislocatedhip")) { if (p.ag !== null) p.ag += 1; }
-  else if (key.startsWith("dislocatedshoulder")) { if (p.st !== null) p.st -= 1; }
+  else if (key.startsWith("headinjury")) lower("av");
+  else if (key.startsWith("smashedknee")) lower("ma");
+  else if (key.startsWith("brokenarm")) worse("pa");
+  else if (key.startsWith("dislocatedhip")) worse("ag");
+  else if (key.startsWith("dislocatedshoulder")) lower("st");
 }
 
 function addHatred(p: LeaguePlayer, keywords: string[]): void {
@@ -184,8 +194,9 @@ export function mutateLeagueTeam(input: LeagueTeam, side: ForkGameTeamResult, ma
       for (const injury of injuries) applyInjury(p, injury);
     }
   }
-  // A conceding team's spendable SPP is cleared (banking: currentSpps 0 for the conceding side).
-  if (side.conceded) for (const p of team.players) p.availableSpp = 0;
+  // A conceding team's spendable SPP is cleared (banking: currentSpps 0 for the conceding side), from a full result only:
+  // a basic result cannot tell what the server did.
+  if (full && side.conceded) for (const p of team.players) p.availableSpp = 0;
   let lost = 0;
   for (const id of gone) {
     const i = team.players.findIndex((p) => p.playerId === id);
@@ -195,7 +206,7 @@ export function mutateLeagueTeam(input: LeagueTeam, side: ForkGameTeamResult, ma
     team.formerPlayers.push(retire(p!));
   }
   if (team.teamValue !== null && lost) team.teamValue = Math.max(0, team.teamValue - lost);
-  if (full || side.winnings) team.treasury = Math.max(0, (team.treasury ?? 0) - (side.treasurySpent ?? 0) + side.winnings);
+  if (full) team.treasury = Math.max(0, (team.treasury ?? 0) - (side.treasurySpent ?? 0) + side.winnings);
   if (full && side.dedicatedFansModifier) team.fans = (team.fans ?? 1) + side.dedicatedFansModifier;
   return { team, lines, retired: [...gone] };
 }
@@ -254,6 +265,7 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
   const applied: FixtureForkResult = {
     gameId: result.gameId, source: result.source, appliedAt: now.toISOString(),
     ...(h !== undefined && a !== undefined && h >= 0 && a >= 0 ? { penalty: { home: h, away: a } } : {}),
+    ...(result.source === "basic" ? { financialPending: true } : {}),
     home: out.home, away: out.away,
   };
   fork.result = applied;
