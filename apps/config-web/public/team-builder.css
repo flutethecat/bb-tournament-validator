@@ -728,7 +728,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
   display: inline-flex; flex: none; align-items: center; justify-content: center;
   width: 28px; height: 28px; margin-left: auto; padding: 0;
   color: var(--ui-muted); font-weight: 700; font-size: 14px; line-height: 1;
-  background: transparent; border: 1px dashed var(--ui-border); border-radius: 50%; cursor: pointer;
+  background: transparent; border: 1px dashed var(--ui-muted); border-radius: 50%; cursor: pointer;
 }
 .captain-toggle:hover { color: var(--ui-text); background: var(--ui-hover); }
 .captain-toggle:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
