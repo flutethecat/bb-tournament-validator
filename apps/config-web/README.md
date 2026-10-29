@@ -209,8 +209,9 @@ then tears everything down. The report is in `docs/artifact-orchestration/league
 
 ```
 cd apps/config-web
-pnpm exec tsx scripts/league-fork-test.ts                 # setup -> generate -> launch -> play -> wait (live 2-min sync) -> verify -> teardown
-pnpm exec tsx scripts/league-fork-test.ts --self-sync     # bank the result with the organiser "Check for result" call in process
+pnpm exec tsx scripts/league-fork-test.ts                 # setup -> generate -> launch -> play -> Check for result (in process) -> verify -> teardown
+pnpm exec tsx scripts/league-fork-test.ts --live-sync     # wait for the live server's 2-minute sync instead (its result notices reach the two test coaches' live inboxes; swept at teardown)
+pnpm exec tsx scripts/league-fork-test.ts --mark-test-games 1094,1095  # list earlier fork games as test games and store their results test:true
 pnpm exec tsx scripts/league-fork-test.ts --keep          # leave the test league for inspection
 pnpm exec tsx scripts/league-fork-test.ts --teardown-only # remove it
 ```
@@ -225,6 +226,15 @@ pnpm exec tsx scripts/league-fork-test.ts --teardown-only # remove it
 - Writes `checks.json`, `diff.json` (before/after for both league teams and the fixture), the fork team files, the raw and
   parsed fork result, and the logs to `--out` (default `.league-fork-test/<stamp>`, git-ignored). The exit code is non-zero
   on any failed check.
+- Every scheduled game id goes into `data-store/test-games.json` (src/testGames.ts) the moment it is scheduled, and its
+  finished result is stored `test: true`. The results store stamps `test` on every read and write for a listed id, so
+  `/api/fork/records` (refreshFinishedResults), Elo, Glicko, records and recent results never count a test game,
+  whoever imports it and whenever. The list is never pruned.
+- The rig's own notifications go to an isolated store under `<out>/isolated/`, never to the live inboxes. Check 2c
+  asserts that no live row was written.
+- Banking is asserted exactly against the parsed FumbblResult: per-player SPP (and the BB2025 table: TD 3, CAS 2, MVP 4),
+  the counters, injuries and MNG on the stored record, treasury = before − inducement spend + winnings, and fans =
+  before + dedicatedFansModifier. The per-player lines are in `assertions.txt`.
 - Teardown runs at the start and end of every run. It deletes the league folder, its `lg_*` fork team files (followed by
-  a fork refresh), the library rows, the notification rows linking to `/app/leagues/tabbl-test`, and any stored result
-  rows. Finished fork games stay in the fork DB.
+  a fork refresh), the library rows, and any live notification rows linking to `/app/leagues/tabbl-test`.
+  Finished fork games stay in the fork DB and stay listed as test games.

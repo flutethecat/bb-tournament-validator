@@ -157,10 +157,10 @@ position. No Java was touched.
 
 ## Side effects left behind
 
-- Fork games 1094 (withdrawn) and 1095–1098 (finished) remain in the fork DB between Flutethecat and Gondra87, the same
-  as any rig game.
-- No league, fork team file, library row, notification row or tournament-results row from the test remains. This was
-  checked after run 5.
+- Fork games 1094 (withdrawn) and 1095–1099 (finished) stay in the fork DB between Flutethecat and Gondra87. All six are
+  listed in the live `data-store/test-games.json`, and 1095–1099 are stored in `tournament-results.json` with
+  `test: true`, so they never count in ratings (see the follow-up below).
+- No league, fork team file, library row or notification row from the test remains. This was checked after run 6.
 
 ## Live server
 
@@ -174,3 +174,80 @@ lands and the server restarts (path-checked recipe).
 eurobowl2026Package, smallGodsPackage, tabletopTesting, teamBuilderPage). `leagueForkPlay.test.ts` passes 51 of 51,
 including the 4 new tests, 3 of which fail without the fix. `tsc -p apps/config-web` reports no errors in the touched
 files; all reported errors are pre-existing.
+
+
+## Follow-up: three P2 defects from the adversarial review (fixed)
+
+**1. Finished test games could enter real ratings after teardown.** The first version of the rig deleted the stored
+result rows at teardown. But the games stay on the fork's finished list, and `/api/fork/records` →
+`refreshFinishedResults` imports any finished game it has not retained, with no test marker, into Elo, Glicko and
+records.
+
+- **Live cleanup (done 2026-10-29 23:36 PDT):** `league-fork-test.ts --mark-test-games 1094,1095,1096,1097,1098` against
+  the live state dir. It listed all five in the new `data-store/test-games.json` and pulled 1095–1098 from the fork admin
+  API into `tournament-results.json` with `test: true`. 1094 was withdrawn before play, so it is not on the finished
+  list and there is nothing to import. Run 6 then added 1099 the same way. Verified with the **live server's own code**
+  (`bb-tournament-validator/apps/config-web/src/tournamentResults.ts`, 42a2132) reading the live file: `list()` holds
+  **none** of 1094–1099. 1095–1099 are retained, so `refreshFinishedResults` skips them. 27 rated rows remain. This
+  protection works on the running live server **without a restart**.
+- **`GET /api/fork/records` on the live server answers 502 for every caller.** This is unrelated to the test and was
+  there before it. Fork game **1072** is on the finished list, but `/gamestate/result` answers 404 for it, and the old
+  `refreshFinishedResults` throws on that one game. Diagnosed in process against a copy of the store. Because of this, the
+  HTTP check could not be run against the live server; the in-process check above stands in for it. Fixed on the branch:
+  an unreadable game is skipped (logged as `[records] finished game <id> skipped`) and retried on the next call. It goes
+  live after the branch lands and the server restarts.
+- **Code:** `src/testGames.ts` (a `test-games.json` store, add-only). `TournamentResultStore` stamps `test: true` for a
+  listed id on every read (so a row imported before the listing reads as test) and in `put()` (every importer:
+  `refreshFinishedResults`, the single pull, the tabletop recorder). The rig lists the game id immediately after
+  scheduling (check 1e), stores the finished result as `test: true` (check 5b), and keeps both through teardown.
+
+**2. Test notifications could evict real ones.** The rig's routes notified into the live inboxes (500-row cap per coach).
+The rig now uses an isolated `NotificationStore` under `<out>/isolated/` (check 1d counts there). Check 2c asserts that
+**0** rows were written to the live inboxes. The organiser "Check for result" call in process is now the default, so the
+live server's result notices are not triggered. `--live-sync` opts back into the live timer: its two result notices
+reach the test coaches' live inboxes and teardown sweeps them.
+
+**3. The banking checks could pass vacuously.** Each stored league team is now recomputed from the parsed FumbblResult,
+independently of `forkResult.ts`, and compared field by field:
+
+- per-player availableSpp and stats.spp (a conceding side's spendable SPP is cleared);
+- the server's earned SPP against the BB2025 table (TD 3, CAS 2, MVP 4) for every player without passing or
+  interception points;
+- td, cas, mvp, completions, int and fouls;
+- injuries applied to MA/ST/AG/PA/AV and niggling within the fork's limits, plus missNextGame, on the stored record;
+- treasury = before − treasurySpentOnInducements + winnings;
+- fans = before + dedicatedFansModifier.
+
+**Run 6** (game 1099, default teams, unattended, `--keep` off, total about 27 s) — **all checks PASS**:
+
+```
+PASS 1d notifications created (isolated store) - 3 row(s) ... in <out>isolated
+otifications
+PASS 1e game listed as a test game at once - 1099 in ...data-store	est-games.json
+PASS 3a fixture received the result - 2-0 source=full cas 1/0 conceded false/true
+PASS 3d home SPP exact for every player (BB2025: TD 3, CAS 2, MVP 4) - 12 players checked, 12 against the table
+PASS 3e home injuries + MNG on the stored team record - no injuries in the result
+PASS 3f home treasury = before - inducement spend + winnings - 245000 - 0 + 70000 = 315000; stored 315000
+PASS 3g home fan factor = before + dedicatedFansModifier - 7 + 1 = 8; stored 8
+PASS 3h home counters (td/cas/mvp/completions/int/fouls) exact - all players match
+PASS 3d away SPP exact for every player (BB2025: TD 3, CAS 2, MVP 4; conceded: spendable SPP cleared) - 13 players checked, 13 against the table
+PASS 3e away injuries + MNG on the stored team record - Duxl: Smashed Knee (-MA) -> stored ma 7->6, av 8->8, niggling 0->0, missNextGame false->true
+PASS 3f away treasury = before - inducement spend + winnings - 200000 - 0 + 0 = 200000; stored 200000
+PASS 3g away fan factor = before + dedicatedFansModifier - 4 + 0 = 4; stored 4
+PASS 3h away counters (td/cas/mvp/completions/int/fouls) exact - all players match
+  home: Iron G.: td 1 cas 0 mvp 1 earned 7 -> availableSpp 8->15 (exp 15), spp 5->12 (exp 12)
+  home: Brick Dudkus The Dour: td 0 cas 1 mvp 0 earned 2 -> availableSpp 3->5 (exp 5), spp 6->8 (exp 8)
+  home: Trilaic Silverore: td 1 cas 0 mvp 0 earned 3 -> availableSpp 2->5 (exp 5), spp 0->3 (exp 3)
+  home: Sid Luckmanheim: td 0 cas 0 mvp 1 earned 4 -> availableSpp 1->5 (exp 5), spp 27->31 (exp 31)
+  away: Duxl: ... (conceded) -> availableSpp 1->0 (exp 0), spp 1->1 (exp 1), Smashed Knee (-MA): mng true
+  away: (9 more conceding players) availableSpp -> 0 (exp 0), spp unchanged
+PASS 3i the scenario produced a touchdown, a casualty and an injury - score 2-0, injured: Duxl Smashed Knee (-MA)
+PASS 5b finished game stored test:true and left out of ratings
+PASS 4 Discord silent (no webhook on the test league)
+PASS 2c no row written to the live inboxes - 0 live row(s) link to /app/leagues/tabbl-test
+PASS real TABBL season untouched
+```
+
+Suite after the fixes: `pnpm exec vitest run apps/config-web` gives 10 failed / 2203 passed, exactly the baseline. New
+tests in `test/tournamentResults.test.ts` cover a listed game being stamped on put and on read and left out of
+`list()`, and the records refresh skipping an unreadable game.
