@@ -15,6 +15,7 @@ import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deriveDeadlines, matchEndedAt, parseSchedulingInput, readBuildLog, schedulingView, toStoredScheduling } from "./coachHome.js";
 import { profileView, updateOwnProfile, type ProfileDeps } from "./accountProfile.js";
+import { RECENT_RESULTS_MAX, recentLimit, recentResults, type RecentInputs, type RecentResult, type TeamInfo } from "./recentResults.js";
 import {
   composeTeam,
   composeTeamIntrinsic,
@@ -362,6 +363,8 @@ const PUBLIC_PATHS = new Set([
   "/api/fork/games",
   // Public, server-derived standings read; refreshes only missing retained finished results.
   "/api/fork/records",
+  // Recent games strip (landing page + coach page): public, read-only, retained results only.
+  "/api/recent-results",
   // Bug-report ingestion (owner feature 08-18): POST does its own coach auth in-handler
   // (session token OR coach creds — a report must be attributable); the GET listing/read
   // on the same path is organizer/admin-gated in-handler, fail closed (see bugReports.ts).
@@ -1325,6 +1328,54 @@ function libraryTeamForId(teamId: string): LibraryTeam | undefined {
   return undefined;
 }
 
+/** What the recent-games cards show for a team ref: name, race, and its uploaded avatar (the client falls back to the race crest). */
+function recentTeamInfo(ref: string, coach: string): TeamInfo | undefined {
+  try {
+    const libraryId = ref.startsWith("library:") ? ref.slice("library:".length) : ref;
+    const library = libraryTeamForId(libraryId);
+    if (library) return { name: library.teamName, race: library.race, crestUrl: avatarUrlFor(TEAM_AVATARS_DIR, `library:${library.teamId}`) ?? null };
+    if (ref.startsWith("library:") || !coach) return undefined;
+    const saveId = ref.startsWith("save:") ? ref.slice("save:".length) : ref;
+    const save = readSaves(BUILDER_SAVES_DIR, coach).find((s) => s.id === saveId);
+    return save ? { name: save.name, race: save.raceName, crestUrl: avatarUrlFor(TEAM_AVATARS_DIR, `save:${save.id}`) ?? null } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Every source gathered once a minute at most (the tabletop event logs are read here). A broken source is skipped. */
+let recentCache: { at: number; rows: RecentResult[] } | undefined;
+async function cachedRecentResults(): Promise<RecentResult[]> {
+  if (recentCache && Date.now() - recentCache.at < 60_000) return recentCache.rows;
+  const inputs: RecentInputs = { results: [], tournaments: [], tabletop: [], teamInfo: recentTeamInfo, forkMeta: (gameId) => tournamentMatches.get(gameId) };
+  try { inputs.results = tournamentResults.listAll(); } catch { /* no results store */ }
+  try {
+    inputs.tournaments = tournamentStore.tournaments(["active", "completed", "cancelled"]).map((t) => ({
+      id: t.id, name: t.name, matches: tournamentStore.matches(t.id), entrants: tournamentStore.entrants(t.id),
+    }));
+  } catch { /* no tournaments store */ }
+  try {
+    const { repo } = await tabletopDeps();
+    const listed = (await repo.listMatches()).filter((m) => !m.test && (m.state === "submitted" || m.state === "confirmed" || m.state === "published"));
+    const raceOf = async (coach: string, saveId: string): Promise<string | undefined> => {
+      try {
+        const chain = await repo.getChain(coach, saveId);
+        return chain?.revisions.find((r) => r.revision === chain.head)?.teamFile.race ?? undefined;
+      } catch { return undefined; }
+    };
+    const rows: RecentInputs["tabletop"][number][] = [];
+    for (const match of listed) {
+      try {
+        rows.push({ match, events: await repo.readEvents(match.id), race: { home: await raceOf(match.home.coach, match.home.teamSaveId), away: await raceOf(match.away.coach, match.away.teamSaveId) } });
+      } catch { /* unreadable match: skipped */ }
+    }
+    inputs.tabletop = rows;
+  } catch { /* recorder store unavailable */ }
+  const rows = recentResults(inputs, RECENT_RESULTS_MAX);
+  recentCache = { at: Date.now(), rows };
+  return rows;
+}
+
 function ffbCoachIdForDiscordId(discordId: string): string | undefined {
   return Object.values(readIdentities().coaches).find(
     (record) => record.identities?.discordUserId === discordId,
@@ -1795,6 +1846,16 @@ async function handleApi(
   if (path === "/api/build-log" && (method === "GET" || method === "HEAD")) {
     res.setHeader("cache-control", "public, max-age=60");
     return sendJson(res, 200, { entries: readBuildLog(BUILD_LOG_FILE) });
+  }
+
+  // Recent games (landing page + coach page): public, read-only, newest first, cached 60 s like the build log.
+  if (path === "/api/recent-results" && (method === "GET" || method === "HEAD")) {
+    res.setHeader("cache-control", "public, max-age=60");
+    try {
+      return sendJson(res, 200, { results: (await cachedRecentResults()).slice(0, recentLimit(query.get("limit"))) });
+    } catch {
+      return sendJson(res, 200, { results: [] });
+    }
   }
 
   // Coach home page (/app/home): derived deadlines + the availability editor. Session-gated, own data only.
@@ -3653,6 +3714,10 @@ export const server = createServer((req, res) => {
       }
       // Build log (WHAT'S NEW): public, read-only, in both deployment modes.
       if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/api/build-log") {
+        return await handleApi(req, res, url.pathname, url.searchParams);
+      }
+      // Recent games strip: public, read-only, in both deployment modes.
+      if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/api/recent-results") {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
       // name/generate is the same public read-only posture as checkName (contract §3A).

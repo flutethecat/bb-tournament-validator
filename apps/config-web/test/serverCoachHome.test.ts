@@ -67,6 +67,14 @@ describe("coach home HTTP routes", () => {
     expect((await fetch(`${origin}/api/build-log`, { method: "POST" })).status).not.toBe(200);
   });
 
+  it("GET /api/recent-results is public, cached 60 s, and answers an empty list when nothing was played", async () => {
+    const res = await fetch(`${origin}/api/recent-results?limit=5`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("public, max-age=60");
+    expect(await res.json()).toEqual({ results: [] });
+    expect((await fetch(`${origin}/api/recent-results`, { method: "POST" })).status).not.toBe(200);
+  });
+
   it("the me routes need a session", async () => {
     expect((await fetch(`${origin}/api/me/deadlines`)).status).toBe(401);
     expect((await fetch(`${origin}/api/me/scheduling`)).status).toBe(401);
