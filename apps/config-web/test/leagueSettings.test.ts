@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { forkFixtureNotices, leagueApi, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
+import { forkFixtureNotices, leagueApi, requestRevision, resetForkToggleLimit, seasonForViewer, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
 import { buildMilestonePost, buildTestPost, isDiscordWebhookUrl, maskWebhookUrl, type DiscordPayload } from "../src/leagues/discord";
 import { csvCell, leagueCsvFiles, unzipStored, zipFiles, crc32 } from "../src/leagues/exportZip";
 import { datasetRosters, normalisePostcode, parseAddress, SettingsError, teamBuildingTable } from "../src/leagues/settings";
@@ -98,6 +98,8 @@ describe("league settings routes", () => {
   const posts: Array<{ url: string; payload: DiscordPayload }> = [];
   const notes: Array<{ coach: string; title: string; body: string }> = [];
   let postOk = true;
+  let clock = "2026-10-30T12:00:00Z";
+  const RAW = Symbol("raw body");
   const IDENTITIES = [
     { coach: "Jay", level: "organizer" }, { coach: "Kainis", level: "player" }, { coach: "Ann", level: "player" }, { coach: "Bob", level: "player" },
     { coach: "Root", level: "admin" }, { coach: "Gone", level: "player", banned: true },
@@ -105,7 +107,7 @@ describe("league settings routes", () => {
   const deps = (): LeagueApiDeps => ({
     store,
     readBody: async () => (body === undefined ? Buffer.alloc(0) : Buffer.from(typeof body === "string" ? body : JSON.stringify(body))),
-    now: () => new Date("2026-10-30T12:00:00Z"),
+    now: () => new Date(clock),
     identities: () => IDENTITIES,
     notify: (coach, input) => { notes.push({ coach, title: input.title, body: input.body }); },
     postWebhook: async (url, payload) => { posts.push({ url, payload }); return { ok: postOk, status: postOk ? 204 : 404 }; },
@@ -113,8 +115,11 @@ describe("league settings routes", () => {
   const JAY = { coach: "Jay", admin: false };
   const ROOT = { coach: "Root", admin: true };
   const MALLORY = { coach: "Mallory", admin: false };
+  // A settings PATCH carries the current revision unless the test sends { [RAW]: body } to control it.
   const call = async (method: string, path: string, auth?: { coach: string; admin: boolean }, b?: unknown, q = ""): Promise<LeagueApiResult> => {
-    body = b;
+    const raw = b && typeof b === "object" && RAW in (b as object) ? (b as Record<symbol, unknown>)[RAW] : undefined;
+    body = raw !== undefined ? raw
+      : method === "PATCH" && path.endsWith("/settings") && b && typeof b === "object" && !("revision" in (b as object)) ? { revision: store.league("tabbl")?.revision ?? 0, ...(b as object) } : b;
     const r = await leagueApi(method, path, new URLSearchParams(q), auth, deps());
     if (!r) throw new Error(`no route for ${method} ${path}`);
     return r;
@@ -131,6 +136,8 @@ describe("league settings routes", () => {
     notes.length = 0;
     postOk = true;
     resetAvatarRateLimit();
+    resetForkToggleLimit();
+    clock = "2026-10-30T12:00:00Z";
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -274,7 +281,7 @@ describe("league settings routes", () => {
     expect(files["tabbl-fixtures.csv"]).toContain("5,Season 5,BB2025,f1,Season,Regular,,1,1,Orcs,Ann,Orc,2,1,no,Elves,Bob,Wood Elf,1,0,no,win");
     expect(files["tabbl-honours.csv"]).toContain(`"'=HYPERLINK(""x"")"`);
     expect(files["tabbl-awards.csv"]).toContain('"Won, ""easily"""');
-    expect(files["tabbl-teams.csv"].trim().split("\r\n")).toHaveLength(3); // header + one team in each season
+    expect(files["tabbl-teams.csv"]!.trim().split("\r\n")).toHaveLength(3); // header + one team in each season
     const one = await call("GET", "/api/leagues/tabbl/export.zip", ROOT, undefined, "season=season-6");
     expect(one.download!.filename).toBe("tabbl-results-season-6.zip");
     expect(unzipStored(one.download!.bytes)["tabbl-teams.csv"]!.trim().split("\r\n")).toHaveLength(2);
@@ -306,5 +313,115 @@ describe("league settings routes", () => {
     expect(list.map((n) => n.coach)).toEqual(["Bob", "Jay", "Kainis"]);
     // an unmapped side (no coachId) is not notified
     expect(forkFixtureNotices(store.league("tabbl")!, "season-6", fx("f9", { away: { ...fx("x").away, coachId: undefined } }), "Root", []).map((n) => n.coach)).toEqual(["Ann", "Jay", "Kainis"]);
+  });
+  // ---- review regressions (Sol 6.1, 10-30) ----
+
+  it("[P1] a slow PATCH from an organiser removed meanwhile is refused and cannot restore them", async () => {
+    await call("PATCH", "/api/leagues/tabbl/settings", JAY, { administration: { addOrganiser: "Bob" } });
+    expect(store.league("tabbl")!.organisers).toEqual(["Jay", "Bob"]);
+    let release!: (b: Buffer) => void;
+    const slowBody = new Promise<Buffer>((r) => { release = r; });
+    const rev = store.league("tabbl")!.revision!;
+    // Bob starts a request whose body arrives late...
+    const pending = leagueApi("PATCH", "/api/leagues/tabbl/settings", new URLSearchParams(), { coach: "Bob", admin: false }, { ...deps(), readBody: () => slowBody });
+    // ...meanwhile the owner removes Bob.
+    expect((await call("PATCH", "/api/leagues/tabbl/settings", JAY, { administration: { removeOrganiser: "Bob" } })).status).toBe(200);
+    release(Buffer.from(JSON.stringify({ revision: rev, administration: {} })));
+    const late = await pending;
+    expect(late!.status).toBe(403);
+    expect(store.league("tabbl")!.organisers).toEqual(["Jay"]);
+    // An empty administration section from a still-authorised organiser never rewrites membership.
+    const before = store.league("tabbl")!.organisers;
+    expect((await call("PATCH", "/api/leagues/tabbl/settings", JAY, { administration: {}, registrations: { hideTeamComposition: false } })).status).toBe(200);
+    expect(store.league("tabbl")!.organisers).toEqual(before);
+  });
+
+  it("[P1] a slow PATCH is judged against the league as it is when the body arrives (stale revision: 409)", async () => {
+    let release!: (b: Buffer) => void;
+    const slowBody = new Promise<Buffer>((r) => { release = r; });
+    const pending = leagueApi("PATCH", "/api/leagues/tabbl/settings", new URLSearchParams(), JAY, { ...deps(), readBody: () => slowBody });
+    expect((await call("PATCH", "/api/leagues/tabbl/settings", ROOT, { information: { fullName: "Changed by the admin" } })).status).toBe(200);
+    release(Buffer.from(JSON.stringify({ revision: 0, information: { fullName: "Stale" } })));
+    expect((await pending)!.status).toBe(409);
+    expect(store.league("tabbl")!.fullName).toBe("Changed by the admin");
+  });
+
+  it("[P2] every settings PATCH names a revision: 428 when missing, If-Match accepted, 409 when stale, 400 when malformed", async () => {
+    const none = await call("PATCH", "/api/leagues/tabbl/settings", JAY, { [RAW]: { information: { fullName: "No revision" } } });
+    expect(none.status).toBe(428);
+    expect(store.league("tabbl")!.fullName).toBe("Tahoma Area Blood Bowl League");
+    const viaHeader = await leagueApi("PATCH", "/api/leagues/tabbl/settings", new URLSearchParams(), JAY,
+      { ...deps(), readBody: async () => Buffer.from(JSON.stringify({ information: { fullName: "Via If-Match" } })), ifMatch: "\"0\"" });
+    expect(viaHeader!.status).toBe(200);
+    expect(store.league("tabbl")!.fullName).toBe("Via If-Match");
+    const staleHeader = await leagueApi("PATCH", "/api/leagues/tabbl/settings", new URLSearchParams(), JAY,
+      { ...deps(), readBody: async () => Buffer.from(JSON.stringify({ information: { fullName: "Stale" } })), ifMatch: "W/\"0\"" });
+    expect(staleHeader!.status).toBe(409);
+    expect((await call("PATCH", "/api/leagues/tabbl/settings", JAY, { [RAW]: { revision: "1", information: { fullName: "x" } } })).status).toBe(400);
+    expect(requestRevision({}, "*")).toBe("bad");
+    expect(requestRevision({}, undefined)).toBe("missing");
+    expect(requestRevision({ revision: 4 }, "\"9\"")).toBe(4);
+    expect((await call("GET", "/api/leagues/tabbl/settings", JAY)).headers?.etag).toBe("\"1\"");
+  });
+
+  it("[P2] hide team composition: anonymous and other coaches get counts only, the team's own coach sees it, organisers see all", async () => {
+    const s6 = store.season("tabbl", "season-6")!;
+    const stats = { td: 1, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 3, performance: 0 };
+    const player = { playerId: "p-1", number: 1, name: "Grok", position: "Blitzer", ma: 6, st: 3, ag: 3, pa: 4, av: 9, skills: ["Block"], value: 85000, level: "Rookie", availableSpp: 0, niggling: 0, missNextGame: false, stats };
+    s6.teams = [
+      { ...s6.teams[0]!, coachId: "Ann", players: [player], formerPlayers: [{ playerId: "p-2", name: "Gone", position: "Lineman", level: "Rookie", stats }] },
+      { ...s6.teams[0]!, id: "elves", name: "Elves", coach: "Bob", coachId: "Bob", players: [{ ...player, playerId: "p-3", name: "Leaf" }], formerPlayers: [] },
+    ];
+    s6.unattributedStats = [{ team: "Orcs", teamId: "orcs", name: "Grok", position: "Blitzer", stats, reason: "x", candidates: ["p-1"] }];
+    store.putSeason(s6);
+    const read = async (auth?: { coach: string; admin: boolean }) => ((await call("GET", "/api/leagues/tabbl/seasons/season-6", auth)).body as { season: SeasonRecord }).season;
+    expect((await read()).teams[0]!.players).toHaveLength(1); // off by default
+    await call("PATCH", "/api/leagues/tabbl/settings", JAY, { registrations: { hideTeamComposition: true } });
+    const anon = await read();
+    expect(anon.teams.map((t) => [t.name, t.players.length, t.formerPlayers.length, t.playerCount, t.rosterHidden, t.teamValue]))
+      .toEqual([["Orcs", 0, 0, 1, true, 1000000], ["Elves", 0, 0, 1, true, 1000000]]);
+    expect(anon.unattributedStats).toEqual([]);
+    expect(JSON.stringify(anon)).not.toContain("Leaf");
+    const ann = await read({ coach: "ann", admin: false });
+    expect(ann.teams.map((t) => [t.name, t.players.length, t.rosterHidden ?? false])).toEqual([["Orcs", 1, false], ["Elves", 0, true]]);
+    expect(ann.unattributedStats).toHaveLength(1);
+    expect((await read({ coach: "Mallory", admin: false })).teams.every((t) => t.rosterHidden)).toBe(true);
+    for (const who of [JAY, ROOT]) expect((await read(who)).teams.map((t) => t.players.length)).toEqual([1, 1]);
+  });
+
+  it("[P2] toggling a fixture on and off: one notice per recipient per fixture, quiet 24 h, 10 toggles per 10 minutes", async () => {
+    await call("PATCH", "/api/leagues/tabbl/settings", JAY, { connections: { playOnFork: true } });
+    const path = "/api/leagues/tabbl/seasons/season-6/fixtures/f2";
+    for (let i = 0; i < 5; i++) {
+      expect((await call("PATCH", path, JAY, { forkEnabled: true })).status).toBe(200);
+      expect((await call("PATCH", path, JAY, { forkEnabled: false })).status).toBe(200);
+    }
+    expect(notes.map((n) => n.coach)).toEqual(["Ann", "Bob", "Root"]); // ten toggles, one batch
+    const limited = await call("PATCH", path, JAY, { forkEnabled: true });
+    expect(limited.status).toBe(429);
+    expect(limited.headers?.["retry-after"]).toBeTruthy();
+    // the bookkeeping never reaches a read model
+    expect(JSON.stringify((await call("GET", "/api/leagues/tabbl/seasons/season-6")).body)).not.toContain("forkNotice");
+    // a new organiser added later: within 24 h of the last batch nobody is told; after it, only the new organiser
+    await call("PATCH", "/api/leagues/tabbl/settings", JAY, { administration: { addOrganiser: "Kainis" } });
+    notes.length = 0;
+    clock = "2026-10-30T12:30:00Z";
+    expect((await call("PATCH", path, JAY, { forkEnabled: true })).status).toBe(200);
+    expect(notes).toHaveLength(0);
+    await call("PATCH", path, JAY, { forkEnabled: false });
+    clock = "2026-10-31T13:00:00Z";
+    const on = await call("PATCH", path, JAY, { forkEnabled: true });
+    expect(JSON.stringify(on.body)).not.toContain("forkNotice");
+    expect(notes.map((n) => n.coach)).toEqual(["Kainis"]);
+  });
+
+  it("[P2] a played fixture never sends Super FUMBBL notices", async () => {
+    await call("PATCH", "/api/leagues/tabbl/settings", JAY, { connections: { playOnFork: true } });
+    const s6 = store.season("tabbl", "season-6")!;
+    s6.fixtures[0] = { ...s6.fixtures[0]!, home: { ...s6.fixtures[0]!.home, score: 1 }, away: { ...s6.fixtures[0]!.away, score: 0 } };
+    store.putSeason(s6);
+    expect((await call("PATCH", "/api/leagues/tabbl/seasons/season-6/fixtures/f2", JAY, { forkEnabled: true })).status).toBe(200);
+    expect(notes).toHaveLength(0);
+    expect(seasonForViewer(store.league("tabbl")!, store.season("tabbl", "season-6")!, undefined).fixtures.every((f) => !("forkNotice" in f))).toBe(true);
   });
 });

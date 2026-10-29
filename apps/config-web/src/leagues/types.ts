@@ -128,6 +128,8 @@ export interface LeagueFixture {
   finishedAt?: string;
   /** An admin allowed this fixture to be played on Super FUMBBL (needs league.playOnFork). */
   forkEnabled?: boolean;
+  /** Internal (never in a read model): who was told this fixture may be played on Super FUMBBL, and when last. */
+  forkNotice?: { at: string; to: string[] };
 }
 
 export interface StandingRow {
@@ -256,6 +258,10 @@ export interface LeagueTeam {
   raceLeague: string;
   players: LeaguePlayer[];
   formerPlayers: FormerPlayer[];
+  /** Read model only: the league hides team composition from this viewer (players emptied). */
+  rosterHidden?: boolean;
+  /** Read model only, with rosterHidden: how many players the roster has. */
+  playerCount?: number;
 }
 
 export type HonourKind = "player" | "team" | "coach";

@@ -98,7 +98,9 @@ describe("league routes over HTTP", () => {
       method: "PATCH", headers: { "content-type": "application/json", cookie: ownerCookie, ...headers }, body: JSON.stringify({ registrations: { allowRegistration: true } }),
     });
     expect((await patch({})).status).toBe(403);
-    const ok = await patch({ "x-cw-auth": "1" });
+    expect((await patch({ "x-cw-auth": "1" })).status).toBe(428); // no revision
+    expect(mine.headers.get("etag")).toBe('"0"');
+    const ok = await patch({ "x-cw-auth": "1", "if-match": mine.headers.get("etag")! }); // the revision via If-Match
     expect(ok.status).toBe(200);
     expect(((await ok.json()) as { settings: { registrations: { allowRegistration: boolean } } }).settings.registrations.allowRegistration).toBe(true);
     const zip = await fetch(`${origin}/api/leagues/tabbl/export.zip`, { headers: { cookie: ownerCookie } });

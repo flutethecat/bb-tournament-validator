@@ -35,7 +35,7 @@ import {
 import { leagueStats, isStatsScope, type LeagueStats, type StatsScope } from "./stats.js";
 import { fixturePlayed } from "./tourplay.js";
 import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, leagueOwner, LeagueStore, LeagueStoreError, SEASON_ID } from "./store.js";
-import { LEAGUE_RULESETS, type LeagueFixture, type LeagueRecord, type LeagueRuleset, type SeasonRecord, type SeasonStatus } from "./types.js";
+import { LEAGUE_RULESETS, type LeagueFixture, type LeagueRecord, type LeagueTeam, type LeagueRuleset, type SeasonRecord, type SeasonStatus } from "./types.js";
 
 export const LOGO_MAX_BYTES = 1024 * 1024;
 export const BANNER_MAX_BYTES = 2 * 1024 * 1024;
@@ -89,6 +89,8 @@ export interface LeagueApiDeps {
   notify?: (coach: string, input: NotificationInput) => void;
   /** Discord webhook poster (tests stub it; default POSTs with fetch). */
   postWebhook?: WebhookPoster;
+  /** The request's If-Match header (settings PATCH revision, as an alternative to body.revision). */
+  ifMatch?: string;
   /** Raw body reader (artwork PUT): undefined = larger than max (the caller closes the connection). */
   readBody?(max: number): Promise<Buffer | undefined>;
   declaredTooLarge?(max: number): boolean;
@@ -272,7 +274,7 @@ export async function leagueApi(
   if (first === "seasons" && second && extra.length === 0) {
     const season = store.season(league.id, second);
     if (!season) return { status: 404, body: { error: "Season not found." } };
-    return { status: 200, body: { league: leagueSummary(league, store.seasons(league.id)), season } };
+    return { status: 200, body: { league: leagueSummary(league, store.seasons(league.id)), season: seasonForViewer(league, season, auth) } };
   }
   if (first === "stats" && second === undefined) {
     const raw = query.get("scope") ?? "all";
@@ -408,16 +410,28 @@ async function settingsRoute(
   auth: LeagueApiIdentity | undefined,
   deps: LeagueApiDeps,
 ): Promise<LeagueApiResult> {
-  const refused = gate(league, auth);
-  if (refused) return refused;
-  const lg = league!;
+  const early = gate(league, auth);
+  if (early) return early;
   const who = auth!;
   const [first, second, third, fourth] = rest;
+  // Writes read their body FIRST, then re-load the league and re-check the gate: a request that was slow to send
+  // its body is judged against the league as it is now (e.g. its sender may have been removed as an organiser in
+  // between). Everything after this point up to the store writes is synchronous, so nothing can interleave.
+  let input: Record<string, unknown> = {};
+  if (method !== "GET" && method !== "HEAD") {
+    const body = await jsonBody(deps);
+    if (!body.ok) return body.result;
+    input = body.value;
+  }
+  const lg = deps.store.league(league!.id);
+  const refused = gate(lg, auth);
+  if (refused || !lg) return refused ?? { status: 404, body: { error: "League not found." } };
   try {
     if (first === "settings" && second === undefined) {
-      if (method === "GET" || method === "HEAD") return { status: 200, body: { settings: view(lg, who, deps, query.get("season") ?? undefined) } };
+      if (method === "GET" || method === "HEAD")
+        return { status: 200, headers: { etag: `"${lg.revision ?? 0}"` }, body: { settings: view(lg, who, deps, query.get("season") ?? undefined) } };
       if (method !== "PATCH") return { status: 405, body: { error: "Use GET or PATCH." } };
-      return await patchSettings(lg, who, deps);
+      return patchSettings(lg, who, input, deps);
     }
     if (first === "coaches" && second === undefined) {
       if (method !== "GET") return { status: 405, body: { error: "Use GET." } };
@@ -447,7 +461,7 @@ async function settingsRoute(
     if (first === "seasons") {
       if (second === undefined) {
         if (method !== "POST") return { status: 405, body: { error: "Use POST." } };
-        return await createSeason(lg, who, deps);
+        return await createSeason(lg, who, input, deps);
       }
       if (third === "finish") {
         if (method !== "POST") return { status: 405, body: { error: "Use POST." } };
@@ -455,7 +469,7 @@ async function settingsRoute(
       }
       if (third === "fixtures" && fourth) {
         if (method !== "PATCH") return { status: 405, body: { error: "Use PATCH." } };
-        return await patchFixture(lg, second, fourth, who, deps);
+        return patchFixture(lg, second, fourth, who, input, deps);
       }
     }
   } catch (e) {
@@ -470,12 +484,25 @@ function view(league: LeagueRecord, who: LeagueApiIdentity, deps: LeagueApiDeps,
   return settingsView(league, deps.store.secrets(league.id), deps.store.seasons(league.id), who, siteAdmins(deps), seasonId);
 }
 
-async function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, deps: LeagueApiDeps): Promise<LeagueApiResult> {
-  const body = await jsonBody(deps);
-  if (!body.ok) return body.result;
-  const input = body.value;
+/** The revision a settings PATCH names: body.revision, else the If-Match header ("3", W/"3" or 3). */
+export function requestRevision(input: Record<string, unknown>, ifMatch: string | undefined): number | "missing" | "bad" {
+  if (input.revision !== undefined) return typeof input.revision === "number" && Number.isSafeInteger(input.revision) && input.revision >= 0 ? input.revision : "bad";
+  const raw = ifMatch?.trim();
+  if (!raw) return "missing";
+  const m = /^(?:W\/)?"?(\d{1,15})"?$/.exec(raw);
+  return m ? Number(m[1]) : "bad";
+}
+
+/**
+ * Synchronous from validation to the last write (the caller re-loaded `league` after the body arrived), so the
+ * revision check, the permission checks and the writes all see one state.
+ */
+function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueApiDeps): LeagueApiResult {
   const current = league.revision ?? 0;
-  if (input.revision !== undefined && input.revision !== current)
+  const asked = requestRevision(input, deps.ifMatch);
+  if (asked === "missing") return { status: 428, body: { error: "Send the settings revision you loaded (revision or If-Match).", revision: current } };
+  if (asked === "bad") return { status: 400, body: { error: "revision must be a whole number.", field: "revision" } };
+  if (asked !== current)
     return { status: 409, body: { error: "These settings changed since you opened them. Reload to see the latest.", revision: current } };
   const now = deps.now?.() ?? new Date();
 
@@ -484,6 +511,8 @@ async function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, deps:
   const isOwner = Boolean(owner) && sameCoach(owner, who.coach);
   let organisers = [...league.organisers];
   let nextOwner: string | undefined;
+  // Membership is written only when the request carries an authorised add / remove / owner change.
+  let membershipChanged = false;
   if (input.administration !== undefined) {
     const a = input.administration;
     if (!a || typeof a !== "object" || Array.isArray(a)) throw new SettingsError(400, "administration must be an object.");
@@ -491,6 +520,7 @@ async function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, deps:
     if ((addOrganiser !== undefined || removeOrganiser !== undefined) && !who.admin && !isOwner)
       return { status: 403, body: { error: "Only the league owner or a site admin can change the organisers." } };
     if (wantOwner !== undefined && !who.admin) return { status: 403, body: { error: "Only a site admin can change the league owner." } };
+    membershipChanged = addOrganiser !== undefined || removeOrganiser !== undefined || wantOwner !== undefined;
     if (addOrganiser !== undefined) {
       if (typeof addOrganiser !== "string" || !addOrganiser.trim()) throw new SettingsError(400, "Enter a coach name.", "addOrganiser");
       const coach = lookupCoach(deps, addOrganiser);
@@ -534,7 +564,7 @@ async function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, deps:
     deps.store.setSecrets(league.id, secrets);
   }
   const updated = deps.store.updateLeague(league.id, (l) => {
-    if (input.administration !== undefined) {
+    if (membershipChanged) {
       l.organisers = organisers;
       if (nextOwner) l.owner = nextOwner;
       else if (!l.owner && owner) l.owner = owner;
@@ -562,10 +592,7 @@ async function postMilestone(league: LeagueRecord, deps: LeagueApiDeps, payload:
   try { await (deps.postWebhook ?? defaultPoster)(url, payload); } catch { /* best effort */ }
 }
 
-async function createSeason(league: LeagueRecord, who: LeagueApiIdentity, deps: LeagueApiDeps): Promise<LeagueApiResult> {
-  const body = await jsonBody(deps);
-  if (!body.ok) return body.result;
-  const input = body.value;
+async function createSeason(league: LeagueRecord, who: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueApiDeps): Promise<LeagueApiResult> {
   const seasons = deps.store.seasons(league.id);
   const open = seasons.find((s) => s.status === "active");
   if (open) return { status: 409, body: { error: `Finish ${open.name} before starting a new season.` } };
@@ -634,23 +661,82 @@ export function forkFixtureNotices(league: LeagueRecord, seasonId: string, f: Le
   return out;
 }
 
-async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: string, who: LeagueApiIdentity, deps: LeagueApiDeps): Promise<LeagueApiResult> {
-  const body = await jsonBody(deps);
-  if (!body.ok) return body.result;
-  if (typeof body.value.forkEnabled !== "boolean") throw new SettingsError(400, "forkEnabled must be true or false.", "forkEnabled");
-  const on = body.value.forkEnabled;
+export const FORK_TOGGLE_LIMIT = 10;
+export const FORK_TOGGLE_WINDOW_MS = 10 * 60_000;
+export const FORK_RENOTIFY_QUIET_MS = 24 * 60 * 60_000;
+const forkToggles = new Map<string, number[]>();
+/** Tests: forget the per-coach toggle counts. */
+export function resetForkToggleLimit(): void { forkToggles.clear(); }
+
+/** Seconds to wait when this coach used up FORK_TOGGLE_LIMIT fixture toggles in the window; 0 = go ahead (and count it). */
+function forkToggleWait(coach: string, now: number): number {
+  const key = coach.trim().toLowerCase();
+  const recent = (forkToggles.get(key) ?? []).filter((t) => now - t < FORK_TOGGLE_WINDOW_MS);
+  if (recent.length >= FORK_TOGGLE_LIMIT) {
+    forkToggles.set(key, recent);
+    return Math.max(1, Math.ceil((FORK_TOGGLE_WINDOW_MS - (now - recent[0]!)) / 1000));
+  }
+  recent.push(now);
+  forkToggles.set(key, recent);
+  return 0;
+}
+
+/**
+ * Turning a fixture on notifies each recipient once per fixture (fixture.forkNotice remembers who was told), never
+ * again within FORK_RENOTIFY_QUIET_MS of the last batch, and never for a played fixture; a coach may toggle at most
+ * FORK_TOGGLE_LIMIT times in FORK_TOGGLE_WINDOW_MS.
+ */
+function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: string, who: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueApiDeps): LeagueApiResult {
+  if (typeof input.forkEnabled !== "boolean") throw new SettingsError(400, "forkEnabled must be true or false.", "forkEnabled");
+  const on = input.forkEnabled;
   const season = deps.store.season(league.id, seasonId);
   if (!season) return { status: 404, body: { error: "Season not found." } };
   const fixture = season.fixtures.find((f) => f.id === fixtureId);
   if (!fixture) return { status: 404, body: { error: "Fixture not found." } };
   if (on && league.playOnFork !== true) return { status: 409, body: { error: "Turn on Play on Super FUMBBL in League settings first." } };
+  const now = deps.now?.() ?? new Date();
+  const wait = forkToggleWait(who.coach, now.getTime());
+  if (wait > 0) return { status: 429, headers: { "retry-after": String(wait) }, body: { error: "Too many Super FUMBBL changes. Try again in a few minutes." } };
   const was = fixture.forkEnabled === true;
   if (on) fixture.forkEnabled = true; else delete fixture.forkEnabled;
-  deps.store.putSeason(season);
-  if (on && !was && deps.notify) {
-    for (const n of forkFixtureNotices(league, season.id, fixture, who.coach, siteAdmins(deps))) {
-      try { deps.notify(n.coach, n.input); } catch { /* fire-and-forget */ }
-    }
+  let send: Array<{ coach: string; input: NotificationInput }> = [];
+  const last = fixture.forkNotice;
+  const quiet = last && now.getTime() - Date.parse(last.at) < FORK_RENOTIFY_QUIET_MS;
+  if (on && !was && deps.notify && !fixturePlayed(fixture) && !quiet) {
+    const told = new Set((last?.to ?? []).map((c) => c.trim().toLowerCase()));
+    send = forkFixtureNotices(league, season.id, fixture, who.coach, siteAdmins(deps)).filter((n) => !told.has(n.coach.toLowerCase()));
+    if (send.length) fixture.forkNotice = { at: now.toISOString(), to: [...(last?.to ?? []), ...send.map((n) => n.coach)] };
   }
-  return { status: 200, body: { ok: true, fixture } };
+  deps.store.putSeason(season);
+  for (const n of send) {
+    try { deps.notify!(n.coach, n.input); } catch { /* fire-and-forget */ }
+  }
+  const { forkNotice: _n, ...shown } = fixture;
+  return { status: 200, body: { ok: true, fixture: shown } };
+}
+
+// ---- season read model: hidden team composition --------------------------------------------------------------------
+
+/**
+ * The season as this viewer may see it. Always drops the internal fork-notice bookkeeping. When the league hides team
+ * composition, coaches other than the league's organisers / site admins see every other team without its players
+ * (player count and team value only, rosterHidden); a coach still sees their own team's roster.
+ */
+export function seasonForViewer(league: LeagueRecord, season: SeasonRecord, auth: LeagueApiIdentity | undefined): SeasonRecord {
+  const fixtures = season.fixtures.map((f) => {
+    if (!f.forkNotice) return f;
+    const { forkNotice: _n, ...rest } = f;
+    return rest;
+  });
+  const manager = Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach)));
+  if (manager || !registrationsOf(league).hideTeamComposition) return { ...season, fixtures };
+  const me = auth?.coach.trim().toLowerCase() ?? "";
+  const mine = (t: LeagueTeam): boolean => Boolean(me) && [t.coachId, t.coach].some((c) => c?.trim().toLowerCase() === me);
+  const hidden = new Set<string>();
+  const teams = season.teams.map((t) => {
+    if (mine(t)) return t;
+    hidden.add(t.id);
+    return { ...t, players: [], formerPlayers: [], playerCount: t.players.length, rosterHidden: true };
+  });
+  return { ...season, fixtures, teams, unattributedStats: (season.unattributedStats ?? []).filter((u) => !u.teamId || !hidden.has(u.teamId)) };
 }

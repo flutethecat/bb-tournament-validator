@@ -1539,6 +1539,7 @@ async function handleApi(
       // League settings: organiser lookup + the site admins list (read-only), Super FUMBBL fixture notifications.
       identities: () => Object.values(readIdentities().coaches).map((c) => ({ coach: c.ffbCoachId, level: c.level, banned: c.banned })),
       notify: (coach, input) => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } },
+      ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,
     });
     if (league) {
       for (const [name, value] of Object.entries(league.headers ?? {})) res.setHeader(name, value);
