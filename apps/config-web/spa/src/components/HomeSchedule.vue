@@ -3,14 +3,17 @@
 // 7-column week grid; Save writes PUT /api/me/scheduling. Propose / calendar / list come in a later lane.
 import { computed, inject, onMounted, onServerPrefetch } from "vue";
 import { API_KEY } from "../app";
+import { COACH_TREE_KEY } from "../home/tree";
 import { byDay, createScheduleEditor, DAY_LABELS, MAX_BLOCKS, timeZoneOptions } from "../home/schedule";
 
-const editor = createScheduleEditor({ api: inject(API_KEY)! });
+const tree = inject(COACH_TREE_KEY, null);
+// A saved week can change what the nav and the deadlines show: mark the tree stale.
+const editor = createScheduleEditor({ api: inject(API_KEY)!, onSaved: () => tree?.invalidate() });
 const { state } = editor;
 const columns = computed(() => byDay(state.blocks));
 const zones = computed(() => timeZoneOptions(state.timezone));
 
-onMounted(() => { if (!state.loaded) void editor.load(); });
+onMounted(() => { if (!state.loaded && !state.loadFailed) void editor.load(); });
 onServerPrefetch(() => editor.load());
 
 defineExpose({ editor });
@@ -42,7 +45,7 @@ defineExpose({ editor });
             <button class="hm-x" type="button" :aria-label="`Remove ${DAY_LABELS[day]} ${b.start} to ${b.end}`" @click="editor.removeBlock(b)">×</button>
           </li>
         </ul>
-        <button class="lobby-btn small hm-add" type="button" :disabled="state.blocks.length >= MAX_BLOCKS" :aria-label="`Add a block on ${DAY_LABELS[day]}`" @click="editor.addBlock(day)">+ Add</button>
+        <button class="lobby-btn small hm-add" type="button" :disabled="!state.loaded || state.blocks.length >= MAX_BLOCKS" :aria-label="`Add a block on ${DAY_LABELS[day]}`" @click="editor.addBlock(day)">+ Add</button>
       </div>
     </div>
     <div class="hm-actions">
@@ -50,6 +53,9 @@ defineExpose({ editor });
       <span v-if="state.notice" class="hm-notice" role="status">{{ state.notice }}</span>
       <span v-else-if="state.dirty" class="muted hm-small">Unsaved changes.</span>
     </div>
-    <p v-if="state.error" class="lobby-error hm-small">{{ state.error }}</p>
+    <p v-if="state.error" class="lobby-error hm-small">
+      {{ state.error }}
+      <button v-if="state.loadFailed" class="lobby-btn small hm-retry" type="button" @click="editor.load()">Retry</button>
+    </p>
   </div>
 </template>

@@ -18,25 +18,30 @@ export interface ScheduleState {
   /** True when the timezone shown is the browser's guess, not a saved one. */
   detected: boolean;
   blocks: AvailabilityBlock[];
+  /** True only after a successful GET: Save stays off until then, so a failed read can never PUT an empty week. */
   loaded: boolean;
+  /** The last GET failed (the panel offers Retry). */
+  loadFailed: boolean;
   saving: boolean;
   dirty: boolean;
   error: string;
   notice: string;
 }
 
-/** The first problem with a block list ("" = fine): day 0-6, HH:MM, start before end, no repeats, at most 21. */
+/** The first problem with a block list ("" = fine): day 0-6, HH:MM, start before end, no two blocks on a day intersecting
+ *  (touching is fine), at most 21. Mirrors the server's PUT /api/me/scheduling check. */
 export function blocksProblem(blocks: readonly AvailabilityBlock[]): string {
   if (blocks.length > MAX_BLOCKS) return `At most ${MAX_BLOCKS} blocks.`;
-  const seen = new Set<string>();
   for (const b of blocks) {
     const day = DAY_LABELS[b.day];
     if (!Number.isInteger(b.day) || !day) return "Pick a day for every block.";
     if (!HHMM.test(b.start) || !HHMM.test(b.end)) return `${day}: use 24-hour times (HH:MM).`;
     if (b.start >= b.end) return `${day} ${b.start}-${b.end}: the start must be before the end.`;
-    const key = `${b.day}|${b.start}|${b.end}`;
-    if (seen.has(key)) return `${day} ${b.start}-${b.end} is listed twice.`;
-    seen.add(key);
+  }
+  for (const [d, col] of byDay(blocks).entries()) {
+    for (let i = 1; i < col.length; i++) {
+      if (col[i]!.start < col[i - 1]!.end) return `${DAY_LABELS[d]} ${col[i]!.start}-${col[i]!.end} overlaps ${col[i - 1]!.start}-${col[i - 1]!.end}.`;
+    }
   }
   return "";
 }
@@ -45,7 +50,7 @@ export function blocksProblem(blocks: readonly AvailabilityBlock[]): string {
 export function byDay(blocks: readonly AvailabilityBlock[]): AvailabilityBlock[][] {
   const cols: AvailabilityBlock[][] = DAY_LABELS.map(() => []);
   for (const b of blocks) cols[b.day]?.push(b);
-  for (const c of cols) c.sort((a, b) => a.start.localeCompare(b.start));
+  for (const c of cols) c.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
   return cols;
 }
 
@@ -61,11 +66,12 @@ export function timeZoneOptions(current: string): string[] {
   return zones;
 }
 
-export function createScheduleEditor(deps: { api: Fetcher; detect?: () => string }) {
+export function createScheduleEditor(deps: { api: Fetcher; detect?: () => string; onSaved?: () => void }) {
   const detect = deps.detect ?? browserTimeZone;
-  const state = reactive<ScheduleState>({ timezone: "", detected: false, blocks: [], loaded: false, saving: false, dirty: false, error: "", notice: "" });
+  const state = reactive<ScheduleState>({ timezone: "", detected: false, blocks: [], loaded: false, loadFailed: false, saving: false, dirty: false, error: "", notice: "" });
 
   async function load(): Promise<void> {
+    state.loadFailed = false;
     try {
       const res = await deps.api<{ timezone?: string; availability?: AvailabilityBlock[] }>("/api/me/scheduling");
       const saved = typeof res?.timezone === "string" ? res.timezone : "";
@@ -73,13 +79,14 @@ export function createScheduleEditor(deps: { api: Fetcher; detect?: () => string
       state.detected = !saved;
       state.blocks = Array.isArray(res?.availability) ? res.availability.map((b) => ({ day: b.day, start: b.start, end: b.end })) : [];
       state.error = "";
+      state.dirty = false;
+      state.loaded = true;
     } catch (e) {
-      state.timezone = detect();
-      state.detected = true;
-      state.error = e instanceof Error ? e.message : "Can't load your availability.";
+      // Nothing to edit: keep Save off (never PUT an empty week over saved blocks) and offer Retry.
+      state.loaded = false;
+      state.loadFailed = true;
+      state.error = `Can't load your availability: ${e instanceof Error ? e.message : "try again."}`;
     }
-    state.dirty = false;
-    state.loaded = true;
   }
 
   const touch = () => { state.dirty = true; state.notice = ""; };
@@ -89,6 +96,7 @@ export function createScheduleEditor(deps: { api: Fetcher; detect?: () => string
     load,
     setTimezone(tz: string): void { state.timezone = tz; state.detected = false; touch(); },
     addBlock(day: number, start = "18:00", end = "21:00"): boolean {
+      if (!state.loaded) return false;
       if (state.blocks.length >= MAX_BLOCKS) { state.error = `At most ${MAX_BLOCKS} blocks.`; return false; }
       state.blocks.push({ day, start, end });
       state.error = "";
@@ -102,6 +110,7 @@ export function createScheduleEditor(deps: { api: Fetcher; detect?: () => string
       touch();
     },
     async save(): Promise<boolean> {
+      if (!state.loaded || state.saving) return false;
       const problem = blocksProblem(state.blocks) || (state.timezone && !validTimeZone(state.timezone) ? "Pick a timezone from the list." : "");
       if (problem) { state.error = problem; return false; }
       state.saving = true;
@@ -115,6 +124,7 @@ export function createScheduleEditor(deps: { api: Fetcher; detect?: () => string
         state.error = "";
         state.notice = "Availability saved.";
         state.dirty = false;
+        deps.onSaved?.();
         return true;
       } catch (e) {
         state.error = e instanceof ApiError || e instanceof Error ? e.message : "Can't save your availability.";
