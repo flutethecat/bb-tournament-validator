@@ -256,3 +256,38 @@ h3.hm-log-title { font-family: var(--font-body, sans-serif); font-weight: 700; }
   .hm-block { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; }
   .hm-add { width: auto; }
 }
+
+/* ---- Panel band icons (owner 10-30: "zelda style icons for each of the content boxes ... match the design layout of
+   the sidebar"). Original 22 px pixel sprites from /icons/panel/ (tools/draw-panel-icons.py, README there) before each
+   band title, keyed in CSS only by the heading id (or the panel's section id) so the panel components stay untouched.
+   The base rules carry no `content`: a heading without a per-panel rule generates no box, so no broken-image gaps. */
+.hm-band h2::before, #ac-conn-h::before {
+  display: inline-block; width: 22px; height: 22px; margin: -4px 8px -4px 0; vertical-align: middle;
+  background-repeat: no-repeat; background-position: center; background-size: contain; image-rendering: pixelated;
+}
+#ac-conn-h::before { width: 18px; height: 18px; margin-right: 6px; }
+/* Flex bands (notifications, tournament panels and dialogs) justify their children apart, so the icon sits outside the
+   flow: absolutely placed in the band's left padding, the title and any caption or close button keep their places. */
+#nf-h, .tn-band:is(#tn-summary-h, #tn-part-h, #tn-entry-h, #tn-news-h, #tn-about-h, #tn-team-h, #tn-live-h, #ac-sched-h, #nf-msg-h, #tm-ps-h) {
+  position: relative; padding-left: 42px;
+}
+#nf-h::before, .tn-band:is(#tn-summary-h, #tn-part-h, #tn-entry-h, #tn-news-h, #tn-about-h, #tn-team-h, #tn-live-h, #ac-sched-h, #nf-msg-h, #tm-ps-h)::before {
+  content: ""; position: absolute; left: 12px; top: 50%; width: 22px; height: 22px; margin-top: -11px;
+  background-repeat: no-repeat; background-position: center; background-size: contain; image-rendering: pixelated;
+}
+:is(#hm-new-h, #wn-h, #whats-new > .hm-band h2, #tn-news-h)::before { content: ""; background-image: url(/icons/panel/news.png); }
+#nf-h::before { background-image: url(/icons/panel/notifications.png); }
+:is(#hm-deadlines-h, #deadlines > .hm-band h2)::before { content: ""; background-image: url(/icons/panel/deadlines.png); }
+#rc-recent-h::before { content: ""; background-image: url(/icons/panel/games.png); }
+:is(#hm-friends-h, #friends > .hm-band h2, #mt-avatars-h, #tn-part-h)::before { content: ""; background-image: url(/icons/panel/friends.png); }
+:is(#hm-messages-h, #messages > .hm-band h2, #nf-msg-h)::before { content: ""; background-image: url(/icons/panel/messages.png); }
+:is(#hm-teams-h, #my-teams > .hm-band h2, #ac-teams-h, #mt-teams-h, #tn-entry-h)::before { content: ""; background-image: url(/icons/panel/teams.png); }
+:is(#hm-account-h, #account > .hm-band h2, #ac-session-h)::before { content: ""; background-image: url(/icons/panel/account.png); }
+:is(#ac-identity-h, #identity > .hm-band h2)::before { content: ""; background-image: url(/icons/panel/identity.png); }
+:is(#ac-calendar-h, #calendar > .hm-band h2, #mini-calendar .hm-band h2)::before { content: ""; background-image: url(/icons/panel/calendar.png); }
+:is(#schedule .hm-band h2, #ac-sched-h)::before { content: ""; background-image: url(/icons/panel/schedule.png); }
+#ac-conn-h::before { content: ""; background-image: url(/icons/panel/connections.png); }
+:is(#tl-none-h, #tn-about-h)::before { content: ""; background-image: url(/icons/panel/tournaments.png); }
+:is(#lb-h, #tn-summary-h)::before { content: ""; background-image: url(/icons/panel/stats.png); }
+:is(#mt-build-h, #tn-team-h, #tn-live-h, #tm-ps-h)::before { content: ""; background-image: url(/icons/panel/teams-roster.png); }
+#help-h::before { content: ""; background-image: url(/icons/nav/help.png); }
