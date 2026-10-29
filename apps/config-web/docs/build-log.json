@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Connections: link and verify your NAF record",
+    "body": "The Discord line on the Account page is now a Connections table: Discord, NAF and FUMBBL, each with a Linked / Not linked / Verified chip. Discord stays read-only: it is how you sign in. For the NAF, Link NAF account asks for your NAF coach name and number and checks them against your public NAF coach page; when both match the row turns Verified. The NAF has no sign-in or OAuth for other sites, so Verified means the record exists and matches what you entered, not proof that it is yours, and NAF sign-in is not possible. Re-verify checks again, Unlink removes the name and number, and editing either on your profile clears the check. Your FUMBBL name links through the FUMBBL name field, or shows as locked when tournament registration set it.",
+    "links": [
+      {
+        "label": "Account",
+        "href": "/app/account"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Recent games on the landing page",
     "body": "The page you see before signing in now shows the latest games played through the site, under the sign-in card, and the same strip closes the main column of your coach page. Each card shows both teams with their crests, races and coaches either side of the score, casualties in brackets under each number when they are known, and a tint of the two teams' colours. Tournament games say which tournament and round they belong to, tabletop games say Tabletop, and online games say Online. A tournament or tabletop card opens its page.",
     "links": [
