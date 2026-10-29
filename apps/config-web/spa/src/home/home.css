@@ -66,18 +66,18 @@
 /* ---- nav trees */
 .sf-nav { padding: 8px 0; }
 .sf-tree + .sf-tree { margin-top: 6px; }
-.sf-tree-head { display: flex; align-items: center; gap: 2px; padding: 4px 8px 4px 4px; border-bottom: 1px solid var(--sf-panel-line); }
-.sf-caret { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; color: var(--ui-muted); background: transparent; border: 0; cursor: pointer; font-size: 12px; }
-.sf-head-link { flex: 1 1 auto; min-width: 0; font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-heading); text-decoration: none; }
+.sf-tree-head { display: flex; align-items: center; gap: 4px; padding: 7px 8px 7px 4px; border-bottom: 1px solid var(--sf-panel-line); }
+.sf-caret { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; color: var(--ui-muted); background: transparent; border: 0; cursor: pointer; font-size: 13px; }
+.sf-head-link { flex: 1 1 auto; min-width: 0; font: 14px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-heading); text-decoration: none; }
 .sf-rows { list-style: none; margin: 2px 0 0; padding: 0; }
-.sf-row { display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 10px 4px calc(10px + (var(--sf-level, 1) - 1) * 14px); color: var(--ui-text); text-decoration: none; font-size: 14px; line-height: 1.25; border-left: 3px solid transparent; }
+.sf-row { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 5px 10px 5px calc(10px + (var(--sf-level, 1) - 1) * 14px); color: var(--ui-text); text-decoration: none; font-size: 16px; line-height: 1.25; border-left: 3px solid transparent; }
 .sf-row:hover { background: var(--ui-hover); }
 .sf-row[data-muted="true"] { color: var(--ui-muted); }
 .sf-row[data-active="true"] { color: var(--sf-seat-home); background: color-mix(in srgb, var(--sf-seat-home) 18%, transparent); border-left-color: var(--sf-seat-home); font-weight: 600; }
 .sf-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sf-sub { margin-left: 6px; color: var(--ui-muted); font-size: 12px; }
+.sf-sub { margin-left: 6px; color: var(--ui-muted); font-size: 13px; }
 .sf-crest, .sf-row .tn-crest { width: 20px; height: 20px; flex: none; object-fit: contain; image-rendering: pixelated; }
-.sf-note { padding: 4px 10px 4px 24px; color: var(--ui-muted); font-size: 13px; }
+.sf-note { padding: 4px 10px 4px 24px; color: var(--ui-muted); font-size: 14px; }
 .sf-count { flex: none; min-width: 20px; padding: 0 5px; font: 11px/18px var(--sf-band-font); text-align: center; color: var(--ui-text); background: var(--ui-surface-2); border-radius: 2px; box-shadow: var(--sf-bevel); }
 .sf-chip, .hm-chip { flex: none; padding: 1px 6px; font: 10px/16px var(--sf-band-font); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; color: var(--ui-text); background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); }
 .sf-chip[data-tone="ok"], .hm-chip-ok { border-color: var(--ui-success); background: color-mix(in srgb, var(--ui-success) 26%, var(--ui-surface-2)); }
@@ -118,7 +118,8 @@
 }
 
 /* ---- coach page */
-.hm-page { display: grid; gap: 12px; min-width: 0; }
+/* align-content: start keeps the title row from stretching when the page is shorter than the viewport (owner 10-30: the panels sat far below the title on tall screens). */
+.hm-page { display: grid; gap: 12px; min-width: 0; align-content: start; }
 .hm-title { margin: 0; font-family: var(--font-heading, sans-serif); font-weight: 500; font-size: 1.3rem; }
 .hm-led { color: var(--sf-led); }
 .hm-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
@@ -156,9 +157,9 @@ a.hm-cap:hover { color: var(--ui-text); }
 .hm-team-blank { display: inline-flex; align-items: center; justify-content: center; font: 22px var(--sf-band-font); color: var(--ui-muted); border: 2px solid var(--sf-panel-line); border-radius: 50%; }
 .hm-team-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
 .hm-team-race { color: var(--ui-muted); font-size: 12px; }
-/* Coach page strip (owner 10-30): four rows visible, the rest scroll. Fixed row height so a two-line race name
+/* Coach page strip (owner 10-30): three rows visible, the rest scroll. Fixed row height so a two-line race name
    ("Necromantic Horror") cannot stretch a row past the cap; the All-teams page (.hm-teams-lg) is not capped. */
-.hm-teams-strip { --hm-tile-h: 120px; grid-auto-rows: var(--hm-tile-h); max-height: calc(4 * var(--hm-tile-h) + 3 * 8px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 2px; }
+.hm-teams-strip { --hm-tile-h: 120px; grid-auto-rows: var(--hm-tile-h); max-height: calc(3 * var(--hm-tile-h) + 2 * 8px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 2px; }
 .hm-teams-strip .hm-team-race { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; line-height: 1.25; }
 /* Team tiles open the team management page (/app/teams/<ref>, owner 10-30). */
 a.hm-team { height: 100%; box-sizing: border-box; color: var(--ui-text); text-decoration: none; }
