@@ -240,9 +240,11 @@ describe("tabletop routes (server-rendered)", () => {
     expect(pw.html).toContain("This page needs a Discord sign-in.");
   });
 
-  it("nav has a Tabletop entry", async () => {
-    const { html } = await render("/tabletop", { "/api/auth/session": session() });
-    expect(html).toContain(">Tabletop</a>");
+  it("nav has a Tabletop entry under Testing Tools for site admins only (owner 10-30)", async () => {
+    const { html } = await render("/tabletop", { "/api/auth/session": session({ admin: true }) });
+    expect(html).toContain("class=\"sf-label\">Tabletop<");
+    const coach = await render("/tabletop", { "/api/auth/session": session() });
+    expect(coach.html).not.toContain("class=\"sf-label\">Tabletop<");
   });
 
   it("new-match form: my team, opponent lookup, their save picker, post-match options; my matches from the server", async () => {
