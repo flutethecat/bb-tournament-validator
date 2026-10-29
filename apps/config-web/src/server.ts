@@ -281,7 +281,7 @@ import { clientIp } from "./translate/route.js";
 import { clockView, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
 import { isAdminTestingPath, testingApi } from "./tabletop/testing.js";
-import { teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
+import { saveCaptainError, teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
 import { tournamentApi } from "./tournaments/api.js";
 import type { TournamentSubmission } from "./tournaments/types.js";
 import { checkTournamentSubmission, type SubmissionCheckDeps } from "./tournaments/submissionCheck.js";
@@ -576,7 +576,16 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
         return detail.status === 200 ? teamFileFromLibraryDetail(detail.body.team) : undefined;
       }
       const save = readSaves(BUILDER_SAVES_DIR, coach).find((s) => s.id === ref);
-      return save ? teamFileFromSave(save) : undefined;
+      if (!save) return undefined;
+      // A Team Captain nomination is checked against the fork roster before the baseline is admitted.
+      const cfg = forkConfigFromEnv();
+      const rosterXml = cfg ? loadBaseForkRosters(cfg.teamsDir).get(save.rosterId) : undefined;
+      const options = rosterXml ? rosterOptions(rosterXml, bb2025) : undefined;
+      const captainError = saveCaptainError(save, (positionId) => {
+        const position = options?.positions.find((p) => p.positionId === positionId);
+        return position ? { type: position.type, isStar: position.isStar === true } : undefined;
+      });
+      return captainError ? { error: captainError } : teamFileFromSave(save);
     },
     isBanned,
     isOrganizer: (coach) => coachLevel(coach) !== "player" || isOrganizer(coach),

@@ -160,7 +160,8 @@ export interface TabletopApiDeps {
   /** A league's points scheme when the tournaments store has one; default 3/1/0. */
   pointsFor?: (league: string) => LeaguePoints | undefined;
   /** The coach's own saved team as a team file (baseline revision), or undefined if they have no such save. */
-  loadTeamFile: (coach: string, teamSaveId: string) => TabletopTeamFile | undefined;
+  /** The baseline team file; `{ error }` (client-safe) when the stored team can't be admitted (e.g. an invalid Team Captain). */
+  loadTeamFile: (coach: string, teamSaveId: string) => TabletopTeamFile | { error: string } | undefined;
   isBanned: (coach: string) => boolean;
   isOrganizer: (coach: string) => boolean;
   /** A coach's saved teams (id + name only, never roster bodies). */
@@ -330,6 +331,7 @@ async function ensureChain(deps: TabletopApiDeps, coach: string, saveId: string,
   if (existing) return existing;
   const base = deps.loadTeamFile(coach, saveId);
   if (!base) return undefined;
+  if ("error" in base) return { error: `${coach}'s team ${saveId}: ${base.error}` };
   const dup = duplicatePlayerId(base);
   if (dup) return { error: `${coach}'s team ${saveId} has a duplicate player id (${dup}).` };
   const chain: TeamChain = { saveId, coach, head: 0, revisions: [{ saveId, revision: 0, parent: null, teamFile: base, createdAt: at }] };

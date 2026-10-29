@@ -1,9 +1,47 @@
 import type { TeamBuilderSave } from "../teamBuilderSaves.js";
-import { findPosition, isStarName } from "@bb/validator";
+import { findPosition, isStarName, rosterHasTeamCaptain } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import type { TeamDetail } from "../teamDetail.js";
 import { rosterFor } from "./pregame.js";
 import type { PlayerKind, TabletopPlayer, TabletopTeamFile } from "./postMatch.js";
+
+/** What the host knows about one of the save's positions (from the fork roster XML; the builder's ids are numeric). */
+export interface SavePositionInfo {
+  /** Dataset position type, e.g. "lineman" / "bigguy" (or the fork XML's "Big Guy"). */
+  type?: string;
+  isStar?: boolean;
+}
+
+/**
+ * BB2025 Team Captain (https://bloodbowlbase.ru/bb2025/core_rules/the_teams/#team-captain): a save's nomination is
+ * admitted only when the roster has the Team Captain rule and exactly one count-1 pick names a position that is
+ * neither a Big Guy nor a Star. `positionInfo` resolves the save's position ids (fork roster XML); a captain whose
+ * position can't be resolved is refused (fail closed). Returns a client-safe message, or undefined when valid.
+ */
+export function saveCaptainError(save: TeamBuilderSave, positionInfo?: (positionId: string) => SavePositionInfo | undefined): string | undefined {
+  const body = (save.body ?? {}) as Record<string, unknown>;
+  const picks = Array.isArray(body.picks) ? (body.picks as Array<Record<string, unknown>>) : [];
+  const nominated: Array<Record<string, unknown>> = [];
+  for (const pick of picks) {
+    if (!pick || typeof pick !== "object") continue;
+    if (pick.captain === undefined || pick.captain === false) continue;
+    if (pick.captain !== true) return "The team's Team Captain flag must be true or false.";
+    nominated.push(pick);
+  }
+  if (nominated.length === 0) return undefined;
+  if (nominated.length > 1) return "Only one player can be nominated as Team Captain.";
+  const pick = nominated[0]!;
+  if (pick.count !== 1) return "Only one player can be nominated as Team Captain.";
+  const roster = Object.values(bb2025.rosters).find((r) => r.id.toLowerCase() === String(save.rosterId).toLowerCase());
+  if (!roster || !rosterHasTeamCaptain(roster.specialRules)) return `${roster?.name ?? "This"} team cannot nominate a Team Captain.`;
+  const positionId = typeof pick.positionId === "string" ? pick.positionId : "";
+  const ds = roster.positions.find((p) => p.id === positionId);
+  const info: SavePositionInfo | undefined = ds ? { type: ds.type, isStar: false } : positionInfo?.(positionId);
+  if (pick.isStar === true || info?.isStar === true || isStarName(bb2025, positionId)) return "A Star Player cannot be Team Captain.";
+  if (!info) return "The Team Captain's position could not be checked.";
+  if (String(info.type ?? "").toLowerCase().replace(/[^a-z]/g, "") === "bigguy") return "A Big Guy cannot be Team Captain.";
+  return undefined;
+}
 
 /**
  * Baseline (revision 0) team file from a coach's Team Builder save. The save stores picks as
@@ -17,6 +55,7 @@ export function teamFileFromSave(save: TeamBuilderSave): TabletopTeamFile {
   let number = 1;
   const rosterOf = Object.values(bb2025.rosters).find((r) => r.id.toLowerCase() === String(save.rosterId).toLowerCase());
   const perPosition = new Map<string, number>(); // ids are unique across the WHOLE roster, even for repeated picks
+  let captainGiven = false;
   for (const pick of picks) {
     const positionId = typeof pick.positionId === "string" ? pick.positionId : "player";
     const count = Number.isInteger(pick.count) && (pick.count as number) > 0 ? Math.min(pick.count as number, 16) : 0;
@@ -26,13 +65,17 @@ export function teamFileFromSave(save: TeamBuilderSave): TabletopTeamFile {
     // Star Players are listed separately in the builder: recognised here by name only (the dataset's star names) or an explicit flag
     const kind: PlayerKind = pick.isStar === true || isStarName(bb2025, positionId) ? "star" : "rostered";
     // A nominated Team Captain carries the trait and its free Pro, as the composed team XML does.
-    const captainSkills = pick.captain === true && kind !== "star" ? ["Team Captain", "Pro"] : [];
+    // Hosts admit a save only after saveCaptainError(); even so, at most ONE player ever receives the grants.
+    const captainSkills = pick.captain === true && kind !== "star" && !captainGiven ? ["Team Captain", "Pro"] : [];
     // position skills first (a team file's skills include the position's own), then the chosen ones; deduplicated
-    const allSkills = [...new Set([...(dsPos?.skills ?? []), ...captainSkills, ...skills])];
+    const allSkills = [...new Set([...(dsPos?.skills ?? []), ...skills])];
     for (let k = 0; k < count && players.length < 16; k += 1) {
       const i = (perPosition.get(positionId) ?? 0) + 1;
       perPosition.set(positionId, i);
-      players.push({ ...stats, id: `${positionId}-${i}`, name: dsPos ? `${dsPos.name} ${i}` : `${positionId} ${i}`, number: number++, positionId, kind, spp: 0, skills: allSkills, mng: false, niggles: 0, statLoss: {}, dead: false });
+      const captain = k === 0 && captainSkills.length > 0;
+      if (captain) captainGiven = true;
+      const playerSkills = captain ? [...new Set([...(dsPos?.skills ?? []), ...captainSkills, ...skills])] : allSkills;
+      players.push({ ...stats, id: `${positionId}-${i}`, name: dsPos ? `${dsPos.name} ${i}` : `${positionId} ${i}`, number: number++, positionId, kind, spp: 0, skills: playerSkills, mng: false, niggles: 0, statLoss: {}, dead: false });
     }
   }
   const roster = Object.values(bb2025.rosters).find((r) => r.id.toLowerCase() === String(save.rosterId).toLowerCase());

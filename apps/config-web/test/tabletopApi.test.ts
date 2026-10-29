@@ -294,6 +294,13 @@ describe("tabletop: baseline team file ids", () => {
     expect(file.players[0]!.skills).toEqual(expect.arrayContaining(["Team Captain", "Pro"]));
     expect(file.players[1]!.skills).not.toContain("Team Captain");
   });
+  it("a baseline the host refuses (an invalid Team Captain) is a 422 and is never persisted", async () => {
+    files["Alice/sv_a"] = { error: "Only one player can be nominated as Team Captain." } as unknown as TabletopTeamFile;
+    const r = await as("Alice", "POST", "/api/tabletop/matches", { pregame: "skip", home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" } });
+    expect(r.status).toBe(422);
+    expect(JSON.stringify(r.body)).toContain("Only one player can be nominated as Team Captain.");
+    expect(await repo.getChain("Alice", "sv_a")).toBeUndefined();
+  });
   it("a baseline with a duplicate id is refused before it is persisted", async () => {
     const bad = mkTeam("Dup", "a");
     bad.players[1]!.id = bad.players[0]!.id;
