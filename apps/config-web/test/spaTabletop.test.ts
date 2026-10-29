@@ -721,6 +721,8 @@ describe("tabletop routes (server-rendered)", () => {
     expect(zeroPa).toContain("<b>-</b><small>PA</small>"); // a stored 0 reads "-", never "0+"
     expect(zeroPa).not.toContain("0+");
     expect(zeroPa).not.toContain('class="improved"'); // and is not marked as an improvement
+    const reduced = await mount(mods.rosterRowC, { player: { ...rich.away.players[0], ma: 5, printedStats: { ma: 6, st: 2, ag: 2, pa: 3, av: 8 } }, side: "away", variant: "pick" });
+    expect(reduced).toMatch(/class="worse"[^>]*><b>5<\/b><small>MA<\/small>/); // a positive reduced stat still shows 5, marked as a decrease
     const named = await mount(mods.rosterRowC, { player: rich.away.players[0], side: "away", variant: "pick" });
     expect(named).toContain("Lirael");
     const evs = [{ id: "i1", type: "inducement", team: "home", payload: { picks: [{ id: "bribes", name: "Bribes", qty: 2, cost: 200000 }], total: 200000 } }];

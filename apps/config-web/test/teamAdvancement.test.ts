@@ -31,6 +31,15 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 const auth = { coach: "Tarkin", organizer: false };
 
 describe("team progression mutation", () => {
+  it("lasting injuries never push a stat past its limit: six -MA injuries read MA 1, not 0 or -1; a reduced MA of 5 still reads 5", () => {
+    const six = `<player id="p"><positionId>h1</positionId><skillList></skillList><injuryList>${"<injury>Smashed Knee (-MA)</injury>".repeat(6)}</injuryList></player>`;
+    expect(playerProgression(six, ROSTER).characteristics.MA).toBe(1);
+    const one = `<player id="p"><positionId>h1</positionId><skillList></skillList><injuryList><injury>Smashed Knee (-MA)</injury></injuryList></player>`;
+    expect(playerProgression(one, ROSTER).characteristics.MA).toBe(5);
+    const agility = `<player id="p"><positionId>h1</positionId><skillList></skillList><injuryList>${"<injury>Dislocated Hip (-AG)</injury>".repeat(5)}</injuryList></player>`;
+    expect(playerProgression(agility, ROSTER).characteristics.AG).toBe(6); // AG / PA stop at 6+
+  });
+
   it("does not count a match-granted Trait as a player advancement", () => {
     const player = `<player id="p"><positionId>h1</positionId><skillList><skill value="orc">Hatred</skill><skill>Wrestle</skill></skillList></player>`;
     expect(playerProgression(player, ROSTER)).toMatchObject({ advancements: 1, rank: "Veteran" });

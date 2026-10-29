@@ -257,6 +257,11 @@ const INJURY_STAT: Record<string, Characteristic> = {
   dislocatedshoulderst: "ST",
 };
 
+/** The characteristic a lasting injury lowers ("Smashed Knee (-MA)" -> MA), if it is one of the five stat injuries. */
+export function injuryStatOf(name: string): Characteristic | undefined {
+  return INJURY_STAT[decodeXml(name).replace(/[^a-z]/gi, "").toLowerCase()];
+}
+
 function injuryStatCounts(player: string): Record<Characteristic, number> {
   const counts: Record<Characteristic, number> = { MA: 0, ST: 0, AG: 0, PA: 0, AV: 0 };
   for (const match of player.matchAll(/<injury\b[^>]*>([^<]*)<\/injury>/gi)) {
@@ -272,7 +277,9 @@ function effectiveStatValue(player: string, position: string | undefined, stat: 
   if (base === undefined) return undefined;
   const tokens = skillNames(player).filter((skill) => skill.toUpperCase() === `+${stat}`).length;
   const injuries = injuryStatCounts(player)[stat];
-  return stat === "AG" || stat === "PA" ? base - tokens + injuries : base + tokens - injuries;
+  const raw = stat === "AG" || stat === "PA" ? base - tokens + injuries : base + tokens - injuries;
+  // injuries never take a stat past its limit: MA / ST / AV stop at 1, AG / PA at 6+ (an unclamped 0 or -1 read as "no value" downstream)
+  return stat === "AG" || stat === "PA" ? Math.min(6, Math.max(1, raw)) : Math.max(1, raw);
 }
 
 function statImprovements(player: string, position: string | undefined): Record<Characteristic, number> {

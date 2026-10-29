@@ -16,7 +16,7 @@ import {
   type ReloadResult,
 } from "@bb/fork-ops";
 import { coachNamesEqual, storedTeamCoach, storedTeamFile } from "./teamDetail.js";
-import { playerProgression, type Characteristic } from "./teamAdvancement.js";
+import { injuryStatOf, playerProgression, type Characteristic } from "./teamAdvancement.js";
 import { skillCatalog } from "./data.js";
 
 export type TeamMutationOperation =
@@ -725,6 +725,12 @@ function applyAdminPlayerOperation(
         return fail(400, "recovering must be a boolean when provided.");
       }
       const recovering = body.recovering === true;
+      // a stat injury that would take the characteristic past its limit (MA / ST / AV below 1, AG / PA above 6+) is refused
+      const lowered = injuryStatOf(injury);
+      if (lowered && rosterXml) {
+        const now = playerProgression(target.block, rosterXml).characteristics[lowered];
+        if (now !== null && (lowered === "AG" || lowered === "PA" ? now >= 6 : now <= 1)) return fail(400, `${lowered} is already at its minimum; this injury cannot be added.`);
+      }
       const node = `<injury recovering="${recovering}">${encodeXml(injury)}</injury>`;
       const nextBlock = appendPlayerListItem(target.block, "injuryList", node);
       return { xml: teamXml.replace(target.block, nextBlock), extra: { playerId } };

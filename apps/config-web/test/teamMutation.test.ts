@@ -447,6 +447,17 @@ describe("admin-only native player corrections", () => {
     expect(absent).toMatchObject({ status: 400, body: { error: expect.stringMatching(/does not have acquired skill/i) } });
   });
 
+  it("refuses a stat injury that would take the stat below 1, and still takes one that leaves it positive", async () => {
+    const worn = ADMIN_PLAYER_TEAM.replace("<injuryList/>", `<injuryList>${"<injury>Smashed Knee (-MA)</injury>".repeat(5)}</injuryList>`); // MA 6 -> 1
+    const d = setup(worn, ADMIN_PLAYER_ROSTER);
+    const admin = { admin: true };
+    const refused = await teamMutationEndpoint(admin, "player/addInjury", { teamId: "42", playerId: "p1", injury: "Smashed Knee (-MA)" }, d.deps);
+    expect(refused).toMatchObject({ status: 400, body: { error: expect.stringMatching(/already at its minimum/i) } });
+    expect((await teamMutationEndpoint(admin, "player/addInjury", { teamId: "42", playerId: "p1", injury: "Head Injury (-AV)" }, d.deps)).status).toBe(200); // a different stat is fine
+    const fresh = setup(ADMIN_PLAYER_TEAM, ADMIN_PLAYER_ROSTER);
+    expect((await teamMutationEndpoint(admin, "player/addInjury", { teamId: "42", playerId: "p1", injury: "Smashed Knee (-MA)" }, fresh.deps)).status).toBe(200); // MA 6 -> 5
+  });
+
   it("round-trips injury text and recovering state, then rejects an absent removal", async () => {
     const d = setup(ADMIN_PLAYER_TEAM, ADMIN_PLAYER_ROSTER);
     const admin = { admin: true };
