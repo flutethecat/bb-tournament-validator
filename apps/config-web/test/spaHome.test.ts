@@ -10,6 +10,7 @@ import { browserTimeZone, CHIP_CLASS, chipFor, formatWhen, timeLeft } from "../s
 import { blocksProblem, byDay, createScheduleEditor, MAX_BLOCKS, timeZoneOptions } from "../spa/src/home/schedule";
 import { createCoachTree, MAX_FINISHED_TOURNAMENTS, openFixture, pickActive, TREE_REFRESH_MS, tournamentStatus, validityChip } from "../spa/src/home/tree";
 import { CLOCK_TICK_MS, createClock, logDate, routerPathOf, trapTarget, typingTarget } from "../spa/src/home/shell";
+import { NAV_OPEN_STORAGE_KEY, readNavOpen, rememberNavOpen } from "../spa/src/home/nav";
 
 // Shell nav trees + coach page (/app/home) + What's new (/app/whats-new). Controllers are tested directly; the views are
 // server-rendered through the SPA's own Vite config (as spaShell.test.ts does), so the HTML is what build:spa compiles.
@@ -384,17 +385,74 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
   }
   const navOf = (html: string) => html.slice(html.indexOf('<nav class="sf-nav"'), html.indexOf("</nav>", html.indexOf('<nav class="sf-nav"')));
   const rowFor = (html: string, href: string) => html.match(new RegExp(`<a href="${href.replace(/[?]/g, "\\?")}" class="sf-row"[^>]*>[\\s\\S]*?</a>`))?.[0] ?? "";
+  // Home is a top-level item (owner 10-30): its own anchor class, not a child row.
+  const homeLink = (html: string) => navOf(html).match(/<a href="\/app\/home" class="sf-top-link"[^>]*>[\s\S]*?<\/a>/)?.[0] ?? "";
+  const topLabels = (html: string) => [...navOf(html).matchAll(/class="sf-(?:top|head)-label">([^<]+)</g)].map((m) => m[1]);
 
-  it("wordmark home link, bell at 0, avatar menu, and the trees with Silkscreen headers and carets", async () => {
+  it("wordmark home link, bell at 0, avatar menu, and the sidebar: Home then the categories in order, each with its icon", async () => {
     const { html } = await render("/home", signedInRoutes());
     expect(html).toMatch(/<a [^>]*href="\/app\/home" class="[^"]*brand sf-wordmark"/);
     expect(html).toMatch(/class="sf-bell"[^>]*aria-label="Notifications: 0"/);
     expect(html).not.toContain('class="sf-bell-count"'); // the badge is hidden at 0
     expect(html).toContain('aria-haspopup="menu"');
-    for (const tree of ["League", "Tournament", "Pages"]) expect(html).toMatch(new RegExp(`class="sf-head-link"[^>]*>${tree}</a>`));
-    expect(navOf(html)).not.toContain("Coach page"); // owner 10-30: the Coach page tree is gone; Home carries the badge
-    expect((html.match(/class="sf-caret"/g) ?? []).length).toBe(3);
+    const nav = navOf(html);
+    expect(nav).toContain('<nav class="sf-nav" data-collapsed="false" aria-label="Site"');
+    // owner 10-30: Home, Leagues, Tournaments, Leaderboards, Help, Useful resources (Testing Tools only for admins)
+    expect(topLabels(html)).toEqual(["Home", "Leagues", "Tournaments", "Leaderboards", "Help", "Useful resources"]);
+    for (const icon of ["home", "leagues", "tournaments", "leaderboards", "help", "resources"]) {
+      expect(nav).toMatch(new RegExp(`<img class="sf-icon" src="/icons/nav/${icon}\.png" alt(="")? width="20" height="20">`));
+    }
+    expect(homeLink(html)).toBeTruthy();
+    expect(nav).toMatch(/<a href="\/app\/tournaments\?hint=leagues" class="sf-head-link"/);
+    expect(nav).toMatch(/<a href="\/app\/leaderboards" class="sf-head-link"/);
+    expect(nav).toMatch(/<a href="\/app\/help" class="sf-head-link"/);
+    expect(nav).not.toContain("Coach page");
+    // every category is collapsible: one caret each; Useful resources is a toggle button, not a link
+    expect((nav.match(/class="sf-caret"/g) ?? []).length).toBe(5);
+    expect(nav).toMatch(/<button class="sf-head-link sf-head-toggle" type="button" aria-expanded="false" aria-controls="sf-tree-resources"/);
+    // Account left the sidebar (top-bar menu); the old Pages rows are admin-only Testing Tools
+    expect(nav).not.toContain('href="/app/account"');
+    for (const gone of ["/app/lobby", "/app/tabletop", "/app/team-builder", "/app/tournament-team-builder"]) expect(nav).not.toContain(`href="${gone}"`);
+    expect(nav).not.toContain("Testing Tools");
     expect(html).not.toContain("Login with Discord");
+  });
+
+  it("useful resources: four outside sites, each in a new tab with noopener and a hidden note; collapsed by default", async () => {
+    const nav = navOf((await render("/home", signedInRoutes())).html);
+    const links = nav.match(/<a href="https:[^"]+"[^>]*>[\s\S]*?<\/a>/g) ?? [];
+    expect(links.map((l) => l.match(/href="([^"]+)"/)![1])).toEqual(["https://bloodbowlbase.ru", "https://bloodbowldave.com", "https://tabbl.org", "https://fumbbl.com"]);
+    for (const l of links) {
+      expect(l).toContain('target="_blank"');
+      expect(l).toMatch(/rel="noopener[^"]*"/);
+      expect(l).toContain('<span class="sf-sr"> (opens in a new tab)</span>');
+      expect(l).toMatch(/<img class="sf-icon" src="\/icons\/nav\/[a-z]+\.png"/);
+    }
+    expect(nav).toMatch(/<ul id="sf-tree-resources" class="sf-rows" style="display:none;?">/);
+    expect(nav).toMatch(/<ul id="sf-tree-tournaments" class="sf-rows" style="">/);
+  });
+
+  it("testing tools: site admins only, collapsed by default, with Lobby / Tabletop / Team Builder / Tournament Builder", async () => {
+    const admin = await render("/home", { ...signedInRoutes(), "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord", admin: true } });
+    expect(topLabels(admin.html).at(-1)).toBe("Testing Tools");
+    const nav = navOf(admin.html);
+    expect(nav).toContain('<img class="sf-icon" src="/icons/nav/tools.png"');
+    const tools = nav.slice(nav.indexOf('id="sf-tree-testing" class="sf-rows"'));
+    expect(tools).toMatch(/^id="sf-tree-testing" class="sf-rows" style="display:none;?"/);
+    const labels = [...tools.matchAll(/class="sf-label">([^<]+)</g)].map((m) => m[1]);
+    expect(labels).toEqual(["Lobby", "Tabletop", "Team Builder", "Tournament Builder"]);
+    expect(nav).not.toContain('href="/app/account"');
+  });
+
+  it("category open state: defaults, remembered per category, bad storage falls back", () => {
+    const store: Record<string, string> = {};
+    const storage = { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = v; } };
+    expect(readNavOpen(storage)).toEqual({ leagues: true, tournaments: true, leaderboards: true, help: true, resources: false, testing: false });
+    rememberNavOpen({ ...readNavOpen(storage), help: false, resources: true }, storage);
+    expect(readNavOpen(storage)).toMatchObject({ help: false, resources: true, leagues: true });
+    store[NAV_OPEN_STORAGE_KEY] = "{not json";
+    expect(readNavOpen(storage).resources).toBe(false);
+    expect(readNavOpen({ getItem: () => { throw new Error("blocked"); } }).help).toBe(true);
+    expect(() => rememberNavOpen(readNavOpen(storage), { setItem: () => { throw new Error("full"); } })).not.toThrow();
   });
 
   it("the bell is a button (aria-expanded false) and the popover stays closed until clicked", async () => {
@@ -514,12 +572,15 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(pinned.bell.nowMs()).toBe(Date.parse("2026-10-29T12:05:00Z"));
   });
 
-  it("every tree row is a real link; tournament rows carry status, team, validity and fixture; counts sit on the rows", async () => {
+  it("every tree row is a real link; the coach's tournaments nest under Tournaments with status, team, validity and fixture", async () => {
     const { html } = await render("/home", signedInRoutes());
     const nav = navOf(html);
     const rowTags = nav.match(/<[a-z]+ [^>]*class="sf-row"/g) ?? [];
     expect(rowTags.length).toBeGreaterThan(10);
-    for (const tag of rowTags) expect(tag.startsWith("<a href=\"/app/")).toBe(true);
+    for (const tag of rowTags) expect(tag.startsWith("<a href=\"/app/") || tag.startsWith("<a href=\"https://")).toBe(true);
+    // the coach's tournament rows sit inside the Tournaments category
+    const tournaments = nav.slice(nav.indexOf('data-tree="tournaments"'), nav.indexOf('data-tree="leaderboards"'));
+    for (const href of ["/app/tournaments/t1", "/app/tournaments/t1/team/e1", "/app/tournaments/t2"]) expect(tournaments).toContain(`href="${href}"`);
     expect(rowFor(nav, "/app/tournaments/t1")).toMatch(/Spring Cup[\s\S]*data-tone="ok">Live</);
     expect(rowFor(nav, "/app/tournaments/t1/team/e1")).toMatch(/src="\/crests\/orc.png"[\s\S]*Alice Orcs[\s\S]*Orc[\s\S]*>Valid</);
     expect(rowFor(nav, "/app/tournaments/t1/team/e1")).toContain('data-level="2"');
@@ -529,12 +590,11 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(nav).toContain(">2 problems<");
     expect(nav).not.toContain("Dropped Cup");
     expect(nav).not.toContain("Not mine");
-    expect(nav).toMatch(/>Tournament<\/a><span class="sf-count"[^>]*>2</);
+    expect(nav).toMatch(/>Tournaments<\/span><\/a><span class="sf-count"[^>]*>2</);
     for (const gone of ["#deadlines", "#friends", "#messages", "#schedule", "#notifications"]) expect(nav).not.toContain(`/app/home${gone}`);
-    expect(rowFor(nav, "/app/home")).not.toContain("sf-count"); // 0 unread: no badge on Home
-    expect(rowFor(nav, "/app/tournaments")).toBeTruthy();
-    // owner 10-30: no Browse rows; the tree headers open the lists. Leagues have no store yet, so a muted note.
-    expect(nav).toContain("No active leagues");
+    expect(homeLink(html)).not.toContain("sf-count"); // 0 unread: no badge on Home
+    // owner 10-30: no Browse rows; the headers open the lists. Leagues have no store yet: a muted note under Leagues.
+    expect(nav.slice(nav.indexOf('data-tree="leagues"'), nav.indexOf('data-tree="tournaments"'))).toContain("No active leagues");
     expect(nav).not.toContain("Browse tournaments");
     expect(nav).not.toContain("No active tournaments"); // this coach has tournaments
     // the indent is 14 px per level from the row's level
@@ -544,24 +604,32 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
 
   it("exactly one active row (seat blue, 3 px bar) follows the route", async () => {
     const at = async (path: string) => navOf((await render(path, signedInRoutes())).html);
-    const active = (nav: string) => (nav.match(/<a href="([^"]+)" class="sf-row"[^>]*data-active="true"[^>]*>/g) ?? []);
+    const active = (nav: string) => (nav.match(/<a href="([^"]+)" class="sf-(?:row|top-link|head-link)"[^>]*data-active="true"[^>]*>/g) ?? []);
     const home = await at("/home#deadlines");
     expect(active(home)).toHaveLength(1);
-    expect(active(home)[0]).toContain('href="/app/home"');
+    expect(active(home)[0]).toContain('href="/app/home" class="sf-top-link"');
     expect(active(home)[0]).toContain('aria-current="page"');
     const fixture = await at("/tournaments/t1?tab=rounds");
     expect(active(fixture)).toHaveLength(1);
     expect(active(fixture)[0]).toContain('href="/app/tournaments/t1?tab=rounds"');
-    // the tournaments list: the Pages row is the one highlighted (the "No active ..." notes never are)
+    // the tournaments list: the Tournaments header is the one highlighted (the "No active ..." notes never are)
     const list = await at("/tournaments");
     expect(active(list)).toHaveLength(1);
-    expect(list).toMatch(/data-active="true"[^>]*>[\s\S]{0,80}Tournaments/);
+    expect(active(list)[0]).toMatch(/href="\/app\/tournaments" class="sf-head-link" data-active="true" aria-current="page"/);
+    for (const [path, href] of [["/leaderboards", "/app/leaderboards"], ["/help", "/app/help"], ["/whats-new", "/app/whats-new"], ["/standings", "/app/standings"]] as const) {
+      const nav = await at(path);
+      expect(active(nav)).toHaveLength(1);
+      expect(active(nav)[0]).toContain(`href="${href}"`);
+    }
+    const leagues = await at("/tournaments?hint=leagues");
+    expect(active(leagues)).toHaveLength(1);
+    expect(active(leagues)[0]).toContain('href="/app/tournaments?hint=leagues"');
     const css = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");
     expect(css).toMatch(/\.sf-row\[data-active="true"\] \{[^}]*color: var\(--sf-seat-home\)[^}]*border-left-color: var\(--sf-seat-home\)/);
     expect(css).toMatch(/\.sf-row \{[^}]*border-left: 3px solid transparent/);
   });
 
-  it("collapsed rail: the bar narrows to 56 px, rows stay links, header glyphs show", async () => {
+  it("collapsed rail: the bar narrows to 56 px and shows only the top-level icons", async () => {
     const { html } = await render("/home", signedInRoutes(), (spa) => { spa.ui.collapsed = true; });
     expect(html).toContain('<nav class="sf-nav" data-collapsed="true"');
     expect(html).toContain('<div class="sf-body" data-rail="true"');
@@ -571,7 +639,9 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(css).toContain("--sf-rail-w: 56px;");
     expect(css).toContain("--sf-nav-w: 260px;");
     expect(css).toMatch(/\.sf-body\[data-rail="true"\] \{ grid-template-columns: var\(--sf-rail-w\)/);
-    expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-head-link::before[^{]*\{ content: attr\(data-glyph\)/);
+    expect(navOf(html)).not.toContain("data-glyph"); // icons replace the letter glyphs
+    expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-head-label,\s*\.sf-nav\[data-collapsed="true"\] \.sf-top-label,\s*\.sf-nav\[data-collapsed="true"\] \.sf-rows \{ display: none; \}/);
+    expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-icon \{ width: 24px; height: 24px; \}/);
   });
 
   it("phone drawer: inert and hidden while closed, a modal dialog while open; the desktop bar is never inert", async () => {
@@ -586,13 +656,13 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(desktop).not.toMatch(/\binert\b|aria-hidden|role=/);
   });
 
-  it("Home row badge: the unread count in the Pages tree, hidden at 0, capped at 99+", async () => {
+  it("Home badge: the unread count on the Home item, hidden at 0, capped at 99+", async () => {
     const { html } = await render("/home", signedInRoutes(), (spa) => {
       const shared = (spa.app._context.provides as Record<symbol, { unread: { value: number } }>)[mods.notif.NOTIFICATIONS_KEY];
       shared.unread.value = 3;
     });
-    expect(rowFor(navOf(html), "/app/home")).toMatch(/<!--\[-->Home<span class="sf-count" aria-label="3 unread">3<\/span><!--\]--><\/a>/);
-    expect(navOf(html)).not.toMatch(/Lobby<span class="sf-count"/);
+    expect(homeLink(html)).toMatch(/<span class="sf-top-label">Home<\/span><span class="sf-count" aria-label="3 unread">3<\/span><\/a>$/);
+    expect((navOf(html).match(/aria-label="\d+ unread"/g) ?? []).length).toBe(1);
     expect(mods.notif.homeBadgeCount({ unread: 2, messages: 1, proposals: 4 })).toBe(7);
     expect(mods.notif.homeBadgeCount({ unread: 0 })).toBe(0);
     expect(mods.notif.homeBadgeCount({ unread: -2, messages: 1.9 })).toBe(1);
@@ -603,16 +673,16 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
       (spa.app._context.provides as Record<symbol, { unread: { value: number } }>)[mods.notif.NOTIFICATIONS_KEY].unread.value = n;
     };
     const out = await render("/home", { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } }, setUnread(3));
-    expect(rowFor(navOf(out.html), "/app/home")).not.toContain("sf-count");
-    const open = (html: string) => (rowFor(navOf(html), "/app/home").match(/^<a [^>]*>/) ?? [""])[0];
+    expect(homeLink(out.html)).not.toContain("sf-count");
+    const open = (html: string) => (homeLink(html).match(/^<a [^>]*>/) ?? [""])[0];
     const zero = (await render("/home", signedInRoutes(), setUnread(0))).html;
     const three = (await render("/home", signedInRoutes(), setUnread(3))).html;
     // one anchor either way (same opening tag), the badge is only a child: no anchor swap, so focus stays on it
     expect(open(zero)).toBe(open(three));
-    expect((navOf(zero).match(/href="\/app\/home" class="sf-row"/g) ?? []).length).toBe(1);
-    expect((navOf(three).match(/href="\/app\/home" class="sf-row"/g) ?? []).length).toBe(1);
-    expect(rowFor(navOf(zero), "/app/home")).toMatch(/>Home<\/a>$/);
-    expect(rowFor(navOf(three), "/app/home")).toContain('aria-label="3 unread"');
+    expect((navOf(zero).match(/href="\/app\/home"/g) ?? []).length).toBe(1);
+    expect((navOf(three).match(/href="\/app\/home"/g) ?? []).length).toBe(1);
+    expect(homeLink(zero)).toMatch(/>Home<\/span><!--v-if--><\/a>$/);
+    expect(homeLink(three)).toContain('aria-label="3 unread"');
   });
 
   it("notifications store: the last unsubscribe clears rows and unread so the bell agrees after sign-out", async () => {

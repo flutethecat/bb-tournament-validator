@@ -86,12 +86,12 @@
 .sf-body[data-rail="true"] { grid-template-columns: var(--sf-rail-w) minmax(0, 1fr); }
 .sf-body .shell-main { max-width: 1600px; width: 100%; margin: 0; min-width: 0; }
 .sf-aside { position: sticky; top: var(--sf-top-h); align-self: start; display: flex; flex-direction: column; height: calc(100dvh - var(--sf-top-h)); overflow-y: auto; overflow-x: hidden; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border-right: 2px solid var(--sf-panel-line); }
-/* Rail collapser (owner 10-30): a small square in the top-right corner of the nav, beside the League header. */
+/* Rail collapser (owner 10-30): a small square in the top-right corner of the nav, beside the Home row. */
 .sf-rail-toggle { position: absolute; top: 10px; right: 8px; width: 28px; height: 28px; min-height: 0; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--ui-muted); background: transparent; border: 2px solid var(--sf-panel-line); border-radius: 2px; cursor: pointer; font: 14px/1 var(--sf-band-font); }
 .sf-rail-toggle:hover { color: var(--ui-text); border-color: var(--ui-heading); }
-.sf-tree:first-child .sf-tree-head { padding-right: 44px; }
+.sf-nav > .sf-top-link { margin-right: 44px; }
 .sf-nav[data-collapsed="true"] + .sf-rail-toggle { right: 50%; transform: translateX(50%); }
-.sf-nav[data-collapsed="true"] .sf-tree:first-child { margin-top: 36px; }
+.sf-nav[data-collapsed="true"] > .sf-top-link { margin-top: 36px; margin-right: 4px; }
 .sf-scrim { display: none; }
 
 /* ---- nav trees */
@@ -100,8 +100,17 @@
 .sf-tree-head { display: flex; align-items: center; gap: 4px; margin: 0 6px; padding: 6px 8px 6px 4px; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); }
 .sf-tree + .sf-tree { margin-top: 10px; }
 .sf-caret { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; color: var(--ui-muted); background: transparent; border: 0; cursor: pointer; font-size: 13px; }
-.sf-head-link { flex: 1 1 auto; min-width: 0; font: 14px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-heading); text-decoration: none; }
-.sf-head-link[aria-current="page"] { color: var(--sf-seat-home); }
+.sf-head-link { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0; font: 14px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; text-align: left; color: var(--ui-heading); background: transparent; border: 0; text-decoration: none; cursor: pointer; }
+.sf-head-link[data-active="true"] { color: var(--sf-seat-home); }
+.sf-head-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sf-head-link:focus-visible, .sf-top-link:focus-visible, .sf-caret:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+/* Top-level items: uppercase band font beside a 20 px pixel icon (owner 10-30). Home is a plain top row in the band box. */
+.sf-icon { width: 20px; height: 20px; flex: none; object-fit: contain; image-rendering: pixelated; }
+.sf-top-link { display: flex; align-items: center; gap: 8px; min-height: 40px; margin: 0 6px 10px; padding: 6px 8px 6px 10px; font: 14px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-heading); text-decoration: none; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); }
+.sf-top-link .sf-top-label { flex: 1 1 auto; min-width: 0; }
+.sf-top-link[data-active="true"], .sf-tree-head:has(.sf-head-link[data-active="true"]) { border-left-color: var(--sf-seat-home); }
+.sf-top-link[data-active="true"] { color: var(--sf-seat-home); background: linear-gradient(color-mix(in srgb, var(--sf-seat-home) 18%, transparent), color-mix(in srgb, var(--sf-seat-home) 18%, transparent)), var(--ui-surface); }
+.sf-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .sf-rows { list-style: none; margin: 2px 0 0; padding: 0; }
 .sf-row { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 5px 10px 5px calc(10px + (var(--sf-level, 1) - 1) * 14px); color: var(--ui-text); text-decoration: none; font-size: 16px; line-height: 1.25; border-left: 3px solid transparent; }
 .sf-row:hover { background: var(--ui-hover); }
@@ -119,21 +128,21 @@
 .sf-chip[data-tone="overdue"], .hm-chip-overdue, .sf-chip[data-tone="muted"] { color: var(--ui-muted); border-color: var(--ui-muted); background: var(--ui-surface-2); }
 .sf-chip[data-tone="info"] { border-color: var(--ui-info); background: color-mix(in srgb, var(--ui-info) 26%, var(--ui-surface-2)); }
 
-/* collapsed: a 56 px icon rail of header glyphs (desktop only; the drawer always shows the full trees) */
+/* collapsed: a 56 px rail of the top-level icons (desktop only; the drawer always shows the full trees). A category icon
+   expands the rail and opens that category (ShellNav fromRail). */
 @media (min-width: 1024px) {
   .sf-nav[data-collapsed="true"] .sf-caret,
   .sf-nav[data-collapsed="true"] .sf-count,
-  .sf-nav[data-collapsed="true"] .sf-note,
-  .sf-nav[data-collapsed="true"] .sf-tree:not([data-tree="pages"]) .sf-rows { display: none; }
-  .sf-nav[data-collapsed="true"] .sf-tree-head { justify-content: center; margin: 0 4px; padding: 6px 0; border-left-width: 2px; }
-  .sf-nav[data-collapsed="true"] .sf-head-link,
-  .sf-nav[data-collapsed="true"] [data-tree="pages"] .sf-row { font-size: 0; flex: none; justify-content: center; padding: 6px 0; }
-  .sf-nav[data-collapsed="true"] .sf-head-link::before,
-  .sf-nav[data-collapsed="true"] [data-tree="pages"] .sf-row::before { content: attr(data-glyph); font: 15px/1 var(--sf-band-font); }
-  .sf-nav[data-collapsed="true"] [data-tree="pages"] .sf-tree-head { display: none; }
-  /* the Home glyph keeps a small unread count in the rail */
-  .sf-nav[data-collapsed="true"] [data-tree="pages"] .sf-row { position: relative; }
-  .sf-nav[data-collapsed="true"] [data-tree="pages"] .sf-row .sf-count { display: block; position: absolute; top: 1px; right: 4px; min-width: 14px; padding: 0 3px; font: 9px/14px var(--sf-band-font); color: var(--ui-scarlet-contrast); background: var(--ui-scarlet); }
+  .sf-nav[data-collapsed="true"] .sf-head-label,
+  .sf-nav[data-collapsed="true"] .sf-top-label,
+  .sf-nav[data-collapsed="true"] .sf-rows { display: none; }
+  .sf-nav[data-collapsed="true"] .sf-tree-head,
+  .sf-nav[data-collapsed="true"] > .sf-top-link { justify-content: center; margin-left: 4px; margin-right: 4px; padding: 6px 0; border-left-width: 2px; }
+  .sf-nav[data-collapsed="true"] .sf-head-link { flex: none; justify-content: center; }
+  .sf-nav[data-collapsed="true"] .sf-icon { width: 24px; height: 24px; }
+  /* the Home icon keeps a small unread count in the rail */
+  .sf-nav[data-collapsed="true"] > .sf-top-link { position: relative; }
+  .sf-nav[data-collapsed="true"] > .sf-top-link .sf-count { display: block; position: absolute; top: 1px; right: 4px; min-width: 14px; padding: 0 3px; font: 9px/14px var(--sf-band-font); color: var(--ui-scarlet-contrast); background: var(--ui-scarlet); }
 }
 
 /* under 1024: the nav is a drawer */
@@ -174,6 +183,8 @@ a.hm-cap:hover { color: var(--ui-text); }
 .hm-empty { margin-top: 0; margin-bottom: 0; color: var(--ui-muted); }
 .hm-small { font-size: 13px; }
 .hm-links { margin: 0; }
+.hm-help { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.hm-help p { margin: 0; }
 .hm-deadlines, .hm-teams, .hm-log { list-style: none; padding: 0; margin-top: 0; margin-bottom: 0; }
 .hm-deadlines > li:nth-child(even) .hm-deadline { background: color-mix(in srgb, var(--ui-surface-2) 55%, transparent); }
 .hm-deadline { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 6px 8px; color: var(--ui-text); text-decoration: none; border-radius: 2px; }

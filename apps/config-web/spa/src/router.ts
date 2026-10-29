@@ -6,7 +6,9 @@ import { LOBBY_ID_PATTERN } from "./shared/format";
 import type { SessionStore } from "./session";
 import AccountView from "./views/AccountView.vue";
 import AdminTournamentsView from "./views/AdminTournamentsView.vue";
+import HelpView from "./views/HelpView.vue";
 import HomeView from "./views/HomeView.vue";
+import LeaderboardsView from "./views/LeaderboardsView.vue";
 import MyTeamsView from "./views/MyTeamsView.vue";
 import LinkOutView from "./views/LinkOutView.vue";
 import LobbyRoomView from "./views/LobbyRoomView.vue";
@@ -33,26 +35,13 @@ declare module "vue-router" {
 
 export const APP_BASE = "/app/";
 
-export interface NavItem {
-  label: string;
-  to: string;
-}
-
-export const NAV: NavItem[] = [
-  { label: "Home", to: "/home" },
-  { label: "Lobby", to: "/lobby" },
-  { label: "Tabletop", to: "/tabletop" },
-  { label: "Tournaments", to: "/tournaments" },
-  { label: "Team Builder", to: "/team-builder" },
-  { label: "Tournament Builder", to: "/tournament-team-builder" },
-  { label: "Account", to: "/account" },
-];
-
 export const routes: RouteRecordRaw[] = [
   // Owner 10-29 (e): the Tournament Builder stays the site root; the SPA root keeps redirecting to the Lobby until
   // the owner moves it. The coach page lives at /home.
   { path: "/", redirect: "/lobby" },
   { path: "/home", name: "home", component: HomeView, meta: { requiresAuth: true, title: "Coach page" } },
+  { path: "/leaderboards", name: "leaderboards", component: LeaderboardsView, meta: { title: "Leaderboards" } },
+  { path: "/help", name: "help", component: HelpView, meta: { title: "Help" } },
   { path: "/whats-new", name: "whats-new", component: WhatsNewView, meta: { title: "What's new" } },
   { path: "/lobby", name: "lobby", component: LobbyStartView, meta: { requiresAuth: true, title: "Start Game" } },
   {
