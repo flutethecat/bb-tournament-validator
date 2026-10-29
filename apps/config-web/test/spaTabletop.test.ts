@@ -422,10 +422,10 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain('aria-label="Nice"'); // the condition name is a tooltip / label only
     expect(html).not.toMatch(/>[^<]*Nice[^<]*</);
     expect(html).toContain("tt-weather");
-    expect(html.indexOf("tt-rosters-btn")).toBeLessThan(html.indexOf("tt-weather")); // top row: Rosters, weather, cog
+    expect(html.indexOf("tt-rosters-btn")).toBeLessThan(html.indexOf('class="tt-weather"')); // top row: Rosters, weather, cog
     expect(html.match(/class="tt-rosters-btn"/g)).toHaveLength(1); // not repeated in the away corner
     expect(html).not.toContain("tt-back");
-    expect(html.indexOf("tt-weather")).toBeLessThan(html.indexOf("tt-cog"));
+    expect(html.indexOf('class="tt-weather"')).toBeLessThan(html.indexOf("tt-cog"));
     expect(html).toContain("TURN 13"); // 2Ht5, shown as the match turn number
     expect(html).not.toMatch(/heads|tails/i);
   });
@@ -805,6 +805,15 @@ describe("tabletop routes (server-rendered)", () => {
     const confirmed = await renderMatch({ ...body, match: { ...baseMatch("confirmed"), confirmedBy: { by: "Zed", at: "2026-10-23T10:00:00.000Z", admin: true } } }, session({ coach: "Zed", organizer: true }));
     expect(confirmed.html).toMatch(/class="tt-match-row tt-admin-line"[^>]*>Confirmed for both by Zed<b class="tt-ev-admintag">ADMIN<\/b>/); // an admin line in the log
     expect((await renderMatch(body)).html).not.toContain("tt-admin-line"); // nothing when the coaches confirmed themselves
+    // the weather symbol in the turn track's centre cell: a plain symbol for a participant, a button for an organiser; the Nice icon when nothing is recorded
+    expect(coach.html).toMatch(/<span class="tt-weather-cell" role="img" aria-label="Weather: Nice" data-tip="Nice"/);
+    expect(coach.html).not.toContain('<button class="tt-weather-cell"');
+    expect(org.html).toMatch(/<button class="tt-weather-cell" type="button" aria-label="Weather: Nice"/);
+    const withWeather = await renderMatch({ ...body, pregame: { weather: "Pouring Rain" } }, session({ coach: "Zed", organizer: true }));
+    expect(withWeather.html).toMatch(/class="tt-weather-cell"[^>]*data-tip="Pouring Rain"[^>]*>\u{1F327}/u); // the recorded weather's icon and name
+    const cssW = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(cssW).toMatch(/\.tt-rec \.tt-turns > \.tt-weather-cell \{ grid-column: 2; grid-row: 1;[^}]*font-size: 24px;/);
+    expect(cssW).toMatch(/@media \(min-width: 1600px\) \{ \.tt-rec \.tt-turns > \.tt-weather-cell \{ font-size: 28px; \} \}/);
     const adminRows = mods.feedMod.feedRows([{ id: "e9", type: "touchdown", team: "away", player: "a1", payload: {}, half: 1, turn: 2, admin: true }], ["e9"], teams, {}, undefined);
     const feed = await mount(mods.feedC, { rows: adminRows, canUndo: false });
     expect(feed).toContain("tt-ev--admin");

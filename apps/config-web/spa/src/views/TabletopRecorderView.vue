@@ -26,7 +26,7 @@ import { THEME_KEY } from "../theme";
 import { createCueTracker, timerOn, timerRemaining, turnLabel } from "../tabletop/clock";
 import { createCuePlayer } from "../tabletop/sounds";
 import TabletopGlyph from "../components/TabletopGlyph.vue";
-import { weatherParts, playerLabel, CAS_EVENT, CASUALTY_RESULTS_UI, ELIGIBILITY_KEY, eligiblePlayers, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, visibleSidesFor, type OtherEvent } from "../tabletop/feed";
+import { weatherParts, playerLabel, OTHER_EVENTS, CAS_EVENT, CASUALTY_RESULTS_UI, ELIGIBILITY_KEY, eligiblePlayers, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, visibleSidesFor, type OtherEvent } from "../tabletop/feed";
 import { browserStorage } from "../tabletop/queue";
 import { createRecorder, RECORDER_KEY, type Side, type SummaryView } from "../tabletop/recorder";
 
@@ -102,6 +102,8 @@ const mvpPick = reactive<Record<Side, string>>({ home: "", away: "" });
 const hasMvp = (s: Side): boolean => state.tally.players[s].some((l) => l.mvp > 0);
 const mvpChoices = (s: Side) => eligiblePlayers(state.teams, s, ELIGIBILITY_KEY.mvp!);
 /** The rosters this viewer may pick from: their own, both for an organiser in edit mode. */
+/** The Other grid's Weather entry: the organiser's shortcut from the weather symbol on the turn track. */
+const WEATHER_EVENT = OTHER_EVENTS.find((e) => e.type === "weather")!;
 const visibleSides = computed<Side[]>(() => visibleSidesFor(localSide.value, organiser.value, editMode.value));
 /** A participant picks from their own roster only (TD, casualty causer, injury victim, MVP, the Other events); an organiser adjudicates both. */
 const pickSides = computed<Side[]>(() => (organiser.value ? sides : [mySide.value ?? localSide.value]));
@@ -297,7 +299,7 @@ onBeforeUnmount(() => {
     <TabletopScoreboard
       :match="match" :teams="state.teams" :tally="state.tally" :events="state.events" :pregame="state.pregame"
       :clock="state.clock" :remaining="remaining" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy" :inducement-icons="state.inducementIcons" :initial-side="rostersSide" :art="state.art"
-      @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @rosters="openRosters" @settings="settingsOpen = true"
+      @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @rosters="openRosters" @weather="openPick(WEATHER_EVENT)" @settings="settingsOpen = true"
     />
 
     <div class="tt-stripbar">

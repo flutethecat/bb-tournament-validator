@@ -26,7 +26,7 @@ const props = defineProps<{
   inducementIcons: Record<string, string>;
   art: ArtManifests;
 }>();
-const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters", side?: Side): void; (e: "settings"): void }>();
+const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters", side?: Side): void; (e: "settings"): void; (e: "weather"): void }>();
 
 // Desktop chip tray: two rows at most; the layout follows the viewport width (1400 until mounted, so server renders are stable).
 const vw = ref(1400);
@@ -84,6 +84,8 @@ const fill = computed(() => {
 const alert = computed(() => timed.value && (props.remaining as number) <= 10);
 const zero = computed(() => timed.value && (props.remaining as number) <= 0);
 const weather = computed(() => weatherParts(props.pregame, props.events));
+/** The weather symbol for the turn track's centre cell: the recorded weather, or the "Nice" icon before any is recorded. */
+const weatherCell = computed(() => (weather.value.icon ? weather.value : { icon: "\u{1F324}️", name: "Nice" }));
 /** Turns the server recorded as ended (turnEnd events carry the half, turn and team). */
 const endedTurns = computed(() => new Set(props.events.filter((e) => e.type === "turnEnd").map((e) => turnKey((e as { half?: number | string }).half, (e as { turn?: number }).turn, e.team))));
 /** The tray's chips: all of them below 1024 px; on desktop what fits in two rows plus the hidden ones for the "+K" chip. */
@@ -118,6 +120,8 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
         <li v-if="timed && clock?.activeTeam === s" class="tt-clock" aria-hidden="true">&#9201; {{ countdown }}</li>
       </ol>
       <p v-if="vw < 1024" class="tt-half">Turn<small>{{ half }}</small></p>
+      <button v-if="organiser" class="tt-weather-cell" type="button" :aria-label="`Weather: ${weatherCell.name}`" :data-tip="weatherCell.name" data-tip-pos="bottom" @click="emit('weather')">{{ weatherCell.icon }}</button>
+      <span v-else class="tt-weather-cell" role="img" :aria-label="`Weather: ${weatherCell.name}`" :data-tip="weatherCell.name" data-tip-pos="bottom">{{ weatherCell.icon }}</span>
     </div>
     <section v-for="s in sides" :key="s" class="tt-corner" :class="s" :style="tint(s)">
       <div class="tt-crestcol">

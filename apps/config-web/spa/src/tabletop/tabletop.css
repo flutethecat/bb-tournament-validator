@@ -1002,7 +1002,7 @@
 
 /* scoreboard variant C, "broadcast bug" (desktop): the score row is three columns - the home half in the home team gradient, a dark 72 px TURN cell, the away half in
    the away gradient - with big white Nuffle digits and a hard 3 px shadow; a dark stats strip under it; the LED turn track stays as the panel's top row */
-.tt-score-turn, .tt-stats { display: none; }
+.tt-score-turn, .tt-stats, .tt-weather-cell { display: none; }
 @media (min-width: 1024px) {
   .tt-rec > .tt-board { grid-template-rows: auto 1fr auto; }
   .tt-rec .tt-counters { display: none; }
@@ -1137,3 +1137,10 @@
 
 /* "Confirmed for both by <organiser>": an admin line in the log */
 .tt-admin-line { background: color-mix(in srgb, var(--ui-admin, #ffd23d) 22%, var(--ui-surface-2, #242424)); border: 1px solid var(--ui-admin, #ffd23d); border-radius: var(--tt-radius); }
+
+/* the weather symbol sits in the turn track's 84 px centre cell (organisers: a button that opens the weather chooser) */
+@media (min-width: 1024px) {
+  .tt-rec .tt-turns > .tt-weather-cell { grid-column: 2; grid-row: 1; display: inline-flex; align-items: center; justify-content: center; justify-self: center; width: var(--tt-half-w, 84px); min-height: 0; padding: 0; font-size: 24px; line-height: 1; background: none; border: 0; box-shadow: none; color: inherit; cursor: default; }
+  .tt-rec .tt-turns > button.tt-weather-cell { cursor: pointer; }
+}
+@media (min-width: 1600px) { .tt-rec .tt-turns > .tt-weather-cell { font-size: 28px; } }
