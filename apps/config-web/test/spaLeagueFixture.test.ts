@@ -227,5 +227,18 @@ describe("fixture summary page (server-rendered)", () => {
     expect(html).toContain("Home: Grudge Rollers");
     expect(html).toContain("Head Injury (-AV)");
     expect(html).not.toContain("Start Game on Super FUMBBL");
+    expect(html).not.toContain("data-financial-pending");
+  });
+
+  it("a basic result says the treasuries wait for an organiser (review P2-9)", async () => {
+    const played = fx({ home: { ...fx().home, score: 1, cas: 0 }, away: { ...fx().away, score: 0, cas: 0 }, fork: { status: "finished" } });
+    const done = forkView({
+      status: "finished", statusLabel: "Finished", gameId: "g42", teams: { home: { builtAt: "x" }, away: { builtAt: "x" } },
+      result: { gameId: "g42", source: "basic", appliedAt: "x", financialPending: true,
+        home: { score: 1, cas: 0, conceded: false, winnings: 50000, lines: [] }, away: { score: 0, cas: 0, conceded: false, winnings: 0, lines: [] } },
+    });
+    const html = await render(PAGE, summary(done, played));
+    expect(html).toContain("Score and player counters only");
+    expect(html).toContain("an organiser settles the winnings");
   });
 });

@@ -122,6 +122,7 @@ const checked = (e: Event): boolean => (e.target as HTMLInputElement).checked;
 
       <section v-if="fork?.result" class="lg-fork-result" aria-label="Player lines">
         <p v-if="fork.result.source === 'basic'" class="hm-small">Score and player counters only: SPP and injuries were not in this result.</p>
+        <p v-if="fork.result.financialPending" class="hm-small" data-financial-pending>Treasuries were not updated from this game: an organiser settles the winnings.</p>
         <p v-if="fork.result.penalty" class="hm-small">Penalty shootout {{ fork.result.penalty.home }} - {{ fork.result.penalty.away }}.</p>
         <div v-for="side in (['home', 'away'] as const)" :key="side" class="lg-scroll">
           <table v-if="lines(side).length" class="lg-table">

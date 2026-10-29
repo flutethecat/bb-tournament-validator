@@ -93,6 +93,8 @@ export interface FixtureForkResult {
   source: "full" | "basic";
   appliedAt: string;
   penalty?: { home: number; away: number };
+  /** Basic result: treasuries left alone for an organiser to settle. */
+  financialPending?: boolean;
   home: ForkSideResult;
   away: ForkSideResult;
 }
