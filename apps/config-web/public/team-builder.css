@@ -417,7 +417,7 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .roster-scroll { overflow-x: auto; }
 .roster-grid {
   display: grid;
-  grid-template-columns: 36px minmax(170px, 1.2fr) minmax(190px, 240px) minmax(180px, 1.4fr) 68px 96px;
+  grid-template-columns: 64px minmax(170px, 1.2fr) minmax(190px, 240px) minmax(180px, 1.4fr) 68px 96px;
   gap: 8px;
   min-width: 820px;
 }
@@ -438,7 +438,24 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 }
 .roster-row:nth-child(odd) { background: var(--ui-surface); }
 .roster-row:nth-child(even) { background: var(--ui-surface-2); }
-.slot-number { color: var(--ui-muted); font-size: 15px; }
+.slot-number { display: flex; align-items: center; gap: 4px; color: var(--ui-muted); font-size: 15px; }
+/* Gripper bar (Nuffle Toolkit layout cue): six CSS dots, the drag handle for a roster row. */
+.row-grip {
+  display: inline-flex; flex: none; align-items: center; justify-content: center;
+  width: 24px; height: 44px; padding: 0; border: 0; border-radius: 4px;
+  color: var(--ui-muted); background: transparent; cursor: grab; touch-action: none;
+}
+.row-grip:hover { color: var(--ui-text); background: var(--ui-hover); }
+.row-grip:active { cursor: grabbing; }
+.row-grip i {
+  display: block; width: 4px; height: 4px; border-radius: 50%;
+  background: currentColor;
+  box-shadow: 8px 0 0 currentColor, 0 7px 0 currentColor, 8px 7px 0 currentColor, 0 14px 0 currentColor, 8px 14px 0 currentColor;
+  transform: translate(-4px, -7px);
+}
+.roster-row.dragging { opacity: .55; }
+.roster-row.drop-before { box-shadow: inset 0 3px 0 var(--ui-focus); }
+.roster-row.drop-after { box-shadow: inset 0 -3px 0 var(--ui-focus); }
 .player-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .roster-sprite { width: 72px; height: 72px; font-size: 12px; } /* owner 10-23: bigger in rows */
 .player-copy { display: flex; min-width: 0; flex-direction: column; }
@@ -1243,7 +1260,7 @@ body[data-builder="tournament"] .tt-steps button small[hidden] { display: none; 
   /* Roster: scrolls sideways inside .roster-scroll; # + player columns stay pinned on the left. */
   .roster-scroll { overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
   .roster-grid {
-    grid-template-columns: 24px 140px 200px minmax(300px, 1fr) 64px 164px;
+    grid-template-columns: 56px 140px 200px minmax(300px, 1fr) 64px 164px;
     min-width: 960px;
   }
   .roster-header { padding: 8px; }
@@ -1253,7 +1270,7 @@ body[data-builder="tournament"] .tt-steps button small[hidden] { display: none; 
   .roster-grid > :nth-child(2) { position: sticky; z-index: 1; background: inherit; }
   .roster-grid > :nth-child(1) { left: 0; align-self: stretch; display: flex; align-items: center; }
   .roster-grid > :nth-child(2) {
-    left: 24px;
+    left: 56px;
     align-self: stretch;
     padding-left: 8px;
     margin-left: -8px;

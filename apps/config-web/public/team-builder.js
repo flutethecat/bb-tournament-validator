@@ -195,6 +195,19 @@
       }
       return picks;
     }
+    /** Presentation reorder: a NEW slots array with the slot at `from` moved to `to` (`to` clamped into range).
+     *  Pure: the same slot objects, so costs, validation and SPP are untouched; player numbers follow the index
+     *  and buildPicks keeps slot order, so the saved body restores it. Returns the input array when nothing moves. */
+    function moveSlot(list, from, to) {
+      const source = Array.isArray(list) ? list : [];
+      if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || from >= source.length) return source;
+      const target = Math.max(0, Math.min(source.length - 1, to));
+      if (target === from) return source;
+      const next = source.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(target, 0, moved);
+      return next;
+    }
     /** TeamPick[] → slots (inverse of buildPicks; used when restoring a saved body). */
     function slotsFromPicks(picks, positionById) {
       const slots = [];
@@ -579,6 +592,7 @@
     function rosterSheetModel(input) {
       const regular = [];
       const stars = [];
+      const ordered = [];
       const nameRoster = { name: input.raceName ?? "" };
       for (const player of input.players ?? []) {
         const position = player.position ?? {};
@@ -599,8 +613,10 @@
           isStar: position.isStar === true,
         };
         (row.isStar ? stars : regular).push(row);
+        ordered.push(row);
       }
-      const rows = [...regular, ...stars].map((row, index) => ({ ...row, number: index + 1 }));
+      // Rows keep the builder's roster order (drag-to-reorder), so sheet numbers match the on-screen numbers.
+      const rows = ordered.map((row, index) => ({ ...row, number: index + 1 }));
       const summary = input.summary ?? null;
       const costs = input.costs ?? {};
       const pick = (serverValue, clientValue) => (isNum(serverValue) ? serverValue : clientValue);
@@ -895,7 +911,7 @@ ${rosterSheetHtml(model)}
     return {
       esc, gold, norm, num, STATS, packSkillText, packTermsText, deriveStatChanges, skillIconKey, rosterRaceKey, resolveSprite, resolveCrest, roleKeywords, cardRoleTag, ROLE_KEYWORDS, shortPositionName,
       normalizeLeagueOptions, leagueFieldPresentation, reconcileLeagueSelection, explicitLeagueSpecialRule, starEligibleForLeague,
-      buildStarChoices, positionGroupCapped, buildPicks, slotsFromPicks,
+      buildStarChoices, positionGroupCapped, buildPicks, slotsFromPicks, moveSlot,
       improvedStats, statIncreaseCost, normalizeTierRules, tierLimitLines, tierTable, tierTableHtml, starPacksFor, starPackLabel,
       normalizeOverview, overviewSummaryHtml, overviewTableHtml, raceTableOverview, teamPickHtml,
       stackLabel, stackLimitLines, statIncreaseLabel, DEFAULT_SKILL_COSTS, playerSkillSp,
@@ -1460,7 +1476,7 @@ ${rosterSheetHtml(model)}
           : statFull ? `disabled title="Max ${maxStatsPerPlayer()} stat increase${maxStatsPerPlayer() === 1 ? "" : "s"} per player."` : ""}><span>Add</span><span>Stat</span></button>`
         : "";
       return `<div class="roster-row roster-grid${skillPickerIndex === index ? " picking" : ""}">
-        <span class="slot-number">${index + 1}</span>
+        <span class="slot-number"><button type="button" class="row-grip" draggable="true" data-grip="${index}" title="Drag to reorder" aria-label="Drag to reorder ${esc(position?.name ?? "player")}, player ${index + 1}. Alt plus Up or Down arrow moves it."><i aria-hidden="true"></i></button><span class="slot-index">${index + 1}</span></span>
         <div class="player-cell">
           ${portraitHtml(current?.raceName, position?.name, "roster-sprite")}
           <span class="player-copy"><strong>${positionLabelHtml(position, "Unknown position")}</strong><small>${star ? "Star player" : "Roster player"}</small></span>
@@ -2269,6 +2285,120 @@ ${rosterSheetHtml(model)}
     skillPickerIndex = null;
     statPickerIndex = null;
   }
+  // ── Roster reorder (gripper): drag (mouse), pointer drag (touch/pen), Alt+Arrow (keyboard) ──
+  let live = null;
+  function announce(text) {
+    if (!live) {
+      live = document.createElement("div");
+      live.className = "visually-hidden";
+      live.setAttribute("role", "status");
+      live.setAttribute("aria-live", "polite");
+      $("roster-slots").insertAdjacentElement("afterend", live);
+    }
+    live.textContent = "";
+    live.textContent = text;
+  }
+  const slotLabel = (slot) => positionById(slot?.positionId)?.name ?? "player";
+  /** Move one roster slot (presentation order only) and re-render; focus follows the moved row's gripper. */
+  function reorderSlot(from, to, { focus = false } = {}) {
+    const slot = slots[from];
+    const next = Core.moveSlot(slots, from, to);
+    if (!slot || next === slots) return false;
+    resetPickers();
+    slots = next;
+    const index = slots.indexOf(slot);
+    changed({ positions: false });
+    announce(`Moved ${slotLabel(slot)} to position ${index + 1}`);
+    if (focus) document.querySelector(`[data-grip="${index}"]`)?.focus();
+    return true;
+  }
+  function clearDropMarks() {
+    document.querySelectorAll("#roster-slots .drop-before, #roster-slots .drop-after, #roster-slots .dragging")
+      .forEach((row) => row.classList.remove("drop-before", "drop-after", "dragging"));
+  }
+  /** Row under a viewport point -> { row, index, after } (after = lower half of the row), or null. */
+  function dropTargetAt(x, y) {
+    const row = document.elementFromPoint(x, y)?.closest?.("#roster-slots .roster-row");
+    if (!row) return null;
+    const rows = [...document.querySelectorAll("#roster-slots .roster-row")];
+    const rect = row.getBoundingClientRect();
+    return { row, index: rows.indexOf(row), after: y > rect.top + rect.height / 2 };
+  }
+  function showDropMark(target, from) {
+    document.querySelectorAll("#roster-slots .drop-before, #roster-slots .drop-after")
+      .forEach((row) => row.classList.remove("drop-before", "drop-after"));
+    if (target && target.index !== from) target.row.classList.add(target.after ? "drop-after" : "drop-before");
+  }
+  /** Final index once the dragged row (at `from`) is removed and re-inserted at the marked gap. */
+  const dropIndex = (target, from) => {
+    let to = target.index + (target.after ? 1 : 0);
+    if (from < to) to -= 1;
+    return to;
+  };
+  let dragFrom = null;
+  let pointerDrag = null;
+  $("roster-slots").addEventListener("dragstart", (event) => {
+    const grip = event.target.closest?.("[data-grip]");
+    if (!grip) return;
+    dragFrom = Number(grip.dataset.grip);
+    const row = grip.closest(".roster-row");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(dragFrom));
+    if (row) event.dataTransfer.setDragImage(row, 20, 20);
+    row?.classList.add("dragging");
+  });
+  $("roster-slots").addEventListener("dragover", (event) => {
+    if (dragFrom == null) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    showDropMark(dropTargetAt(event.clientX, event.clientY), dragFrom);
+  });
+  $("roster-slots").addEventListener("drop", (event) => {
+    if (dragFrom == null) return;
+    event.preventDefault();
+    const target = dropTargetAt(event.clientX, event.clientY);
+    const from = dragFrom;
+    dragFrom = null;
+    clearDropMarks();
+    if (target) reorderSlot(from, dropIndex(target, from));
+  });
+  $("roster-slots").addEventListener("dragend", () => { dragFrom = null; clearDropMarks(); });
+  // Touch / pen: HTML5 drag-and-drop is unreliable there, so the gripper drives a pointer drag.
+  $("roster-slots").addEventListener("pointerdown", (event) => {
+    const grip = event.target.closest?.("[data-grip]");
+    if (!grip) return;
+    if (event.pointerType === "mouse") { grip.draggable = true; return; }
+    grip.draggable = false;
+    event.preventDefault();
+    try { grip.setPointerCapture(event.pointerId); } catch { /* capture is a nicety */ }
+    pointerDrag = { id: event.pointerId, from: Number(grip.dataset.grip), target: null };
+    grip.closest(".roster-row")?.classList.add("dragging");
+  });
+  $("roster-slots").addEventListener("pointermove", (event) => {
+    if (!pointerDrag || event.pointerId !== pointerDrag.id) return;
+    event.preventDefault();
+    pointerDrag.target = dropTargetAt(event.clientX, event.clientY);
+    showDropMark(pointerDrag.target, pointerDrag.from);
+  });
+  const endPointerDrag = (event, commit) => {
+    if (!pointerDrag || event.pointerId !== pointerDrag.id) return;
+    const { from, target } = pointerDrag;
+    pointerDrag = null;
+    clearDropMarks();
+    if (commit && target) reorderSlot(from, dropIndex(target, from));
+  };
+  $("roster-slots").addEventListener("pointerup", (event) => endPointerDrag(event, true));
+  $("roster-slots").addEventListener("pointercancel", (event) => endPointerDrag(event, false));
+  $("roster-slots").addEventListener("keydown", (event) => {
+    const grip = event.target.closest?.("[data-grip]");
+    if (!grip || !event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+    event.preventDefault();
+    const from = Number(grip.dataset.grip);
+    const to = from + (event.key === "ArrowUp" ? -1 : 1);
+    if (!reorderSlot(from, to, { focus: true })) {
+      announce(`${slotLabel(slots[from])} is already ${to < from ? "first" : "last"}, position ${from + 1}`);
+    }
+  });
   /** Focus the opener again; if it is gone or disabled (last allowed stat taken), the nearest enabled control in
    *  the same roster row (Add Skill / Add Stat / a chip ×), else the row itself. */
   function restoreModalFocus() {
