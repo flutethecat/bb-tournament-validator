@@ -119,7 +119,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
     </div>
     <section v-for="s in sides" :key="s" class="tt-corner" :class="s" :style="tint(s)">
       <div class="tt-crestcol">
-        <p class="tt-crest-coach">{{ match[s].coach }}</p>
+        <p class="tt-crest-coach" :data-long="match[s].coach.length > 12 ? 'true' : null">{{ match[s].coach }}</p>
         <div class="tt-corner-top">
           <span class="tt-crest-frame">
             <img v-if="crest(s)" class="tt-crest" :src="crest(s)" alt="" />

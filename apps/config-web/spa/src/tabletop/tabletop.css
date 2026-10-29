@@ -1048,3 +1048,9 @@
   .tt-rec .tt-score > span:nth-child(1), .tt-rec .tt-score > span:nth-child(3), .tt-rec .tt-score-turn { grid-row: 1; }
   .tt-rec .tt-turns > .tt-half { display: none; }
 }
+
+/* the coach line above the crest never wraps: it may be wider than the crest column (centred over the crest, both sides) and steps down to 14 px past 12 characters; only past about 18 characters does it ellipsise */
+@media (min-width: 1024px) {
+  .tt-rec .tt-crestcol .tt-crest-coach { white-space: nowrap; width: max-content; max-width: 18em; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; align-self: center; }
+  .tt-rec .tt-crestcol .tt-crest-coach[data-long="true"] { font-size: 14px; }
+}

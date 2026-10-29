@@ -611,6 +611,13 @@ describe("tabletop routes (server-rendered)", () => {
     const score = /<p class="tt-score"[^>]*>([\s\S]*?)<\/p>/.exec(html)![1]!;
     expect(score.match(/<span(?: class="tt-score-(?:colon|turn)")?>|<span class="tt-score-(?:colon|turn)">/g)).toHaveLength(4); // home, colon (hidden), away, TURN
     expect(html).not.toContain('class="tt-half"'); // no TURN / half label on the track (the server render is the desktop one)
+    expect(css1).toMatch(/\.tt-rec \.tt-crestcol \.tt-crest-coach \{ white-space: nowrap; width: max-content; max-width: 18em;[^}]*text-overflow: ellipsis;[^}]*align-self: center; \}/); // the coach line never wraps
+    expect(css1).toMatch(/\.tt-rec \.tt-crestcol \.tt-crest-coach\[data-long="true"\] \{ font-size: 14px; \}/);
+    const longCoach = await mount(mods.boardC, {
+      match: { ...baseMatch("recording"), home: { ...baseMatch("recording").home, coach: "Flutethecatwalker" } }, teams, tally: serverTally, events: [], pregame: {}, clock: clockOf("home", 3), localSide: "home", organiser: false, canAct: true, inducementIcons: {}, art: {},
+    }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
+    expect(longCoach).toContain('class="tt-crest-coach" data-long="true">Flutethecatwalker<'); // longer than 12 characters steps down
+    expect(html).toContain('<p class="tt-crest-coach">Alice</p>'); // short names keep the full size
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
