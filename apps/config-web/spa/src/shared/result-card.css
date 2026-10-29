@@ -1,0 +1,66 @@
+/* Result cards (components/ResultCard.vue) and the recent-games strip. Dark panel surface, the two teams' colours as a
+   diagonal tint, band font for names and scores, 2 px frame. Three columns on a wide screen, one on a phone. */
+
+/* At most three columns (each column is at least a third of the row), none narrower than 320 px, one on a phone. */
+.rc-grid {
+  list-style: none; margin: 0; padding: 0; display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, max(320px, calc((100% - 24px) / 3))), 1fr));
+}
+.rc-grid > li { min-width: 0; display: grid; }
+
+.rc-card {
+  --rc-home: #3a4150; --rc-away: #3a4150;
+  position: relative; display: grid; gap: 8px; min-width: 0; min-height: 44px; padding: 10px 12px 12px;
+  color: var(--ui-text); text-decoration: none;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--rc-home) 35%, transparent) 0%, transparent 48%, transparent 52%, color-mix(in srgb, var(--rc-away) 35%, transparent) 100%),
+    linear-gradient(var(--sf-panel-top, #23272d), var(--sf-panel-bottom, #0a0c0f)), var(--ui-surface, #0d0d0d);
+  border: 2px solid var(--sf-panel-line, #353b44); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi, #626b77);
+}
+a.rc-card:hover, a.rc-card:focus-visible { border-color: var(--ui-accent, var(--ui-heading)); }
+a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading)); outline-offset: 2px; }
+
+.rc-context { display: flex; justify-content: space-between; gap: 8px; margin: 0; font-size: 12px; color: var(--ui-muted); min-width: 0; }
+.rc-context-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-when { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.rc-body { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; }
+.rc-team { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rc-away { flex-direction: row-reverse; text-align: right; }
+.rc-crest { flex: none; width: 40px; height: 40px; object-fit: contain; image-rendering: pixelated; }
+.rc-initials {
+  display: inline-flex; align-items: center; justify-content: center; font: 14px var(--sf-band-font, sans-serif); color: var(--ui-text);
+  background: color-mix(in srgb, var(--ui-surface-2, #1a1d22) 80%, transparent); border: 2px solid var(--sf-panel-line, #353b44); border-radius: 50%;
+}
+.rc-who { display: grid; min-width: 0; gap: 1px; }
+/* Team names wrap to two lines before they clip (a long name on a phone stays readable). */
+.rc-name {
+  font: 13px/1.2 var(--sf-band-font, sans-serif); text-transform: uppercase; letter-spacing: .04em; color: var(--ui-heading);
+  overflow: hidden; overflow-wrap: break-word; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+}
+.rc-race { font-size: 11px; font-variant: small-caps; letter-spacing: .06em; color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-coach { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-away .rc-coach { justify-content: flex-end; flex-direction: row-reverse; }
+.rc-avatar {
+  flex: none; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
+  font: 8px var(--sf-band-font, sans-serif); color: var(--ui-text); background: var(--ui-surface-2, #1a1d22); border: 1px solid var(--sf-panel-line, #353b44); border-radius: 50%;
+}
+.rc-team[data-conceded="true"] .rc-name { text-decoration: line-through; text-decoration-thickness: 2px; }
+
+.rc-score { display: flex; gap: 14px; align-items: flex-start; }
+.rc-num { display: grid; justify-items: center; font: 28px/1 var(--sf-band-font, sans-serif); color: var(--ui-text); font-variant-numeric: tabular-nums; }
+.rc-cas { margin-top: 2px; font: 11px/1 var(--font-body, sans-serif); color: var(--ui-muted); }
+.rc-flag { margin: 0; font: 10px/1.2 var(--sf-band-font, sans-serif); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); text-align: center; }
+.rc-card[data-suspended="true"] .rc-flag { color: var(--ui-warning, var(--ui-muted)); }
+
+/* Phone: the crest sits above the name so the name gets the whole half-width. */
+@media (max-width: 640px) {
+  .rc-card { padding: 10px; }
+  .rc-team { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .rc-away { flex-direction: column; align-items: flex-end; }
+  .rc-num { font-size: 24px; }
+  .rc-score { gap: 10px; }
+}
+
+/* the strip on the landing page (signed out, under the sign-in card) and the coach page */
+.rc-landing { align-self: start; }
