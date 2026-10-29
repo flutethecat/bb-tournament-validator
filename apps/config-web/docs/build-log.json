@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Team management page",
+    "body": "Your team tiles on the coach page and on My teams now open a team management page laid out like the shared team view. For teams on the fork, each player shows SPP, rank and advancements, with Add Skill when they can afford a random or chosen Primary skill and Add Characteristic when they can afford the characteristic roll; random rolls are saved on the team until you pick. Tournament Builder sheets show read-only until the team plays on the fork. Share, Open in Tournament Builder and Back to My teams sit at the top. My teams now uses the coach page look, with avatars and build links in the side column.",
+    "links": [
+      {
+        "label": "My teams",
+        "href": "/app/my-teams"
+      },
+      {
+        "label": "Coach page",
+        "href": "/app/home"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Team Captain nomination in the team builders",
     "body": "Human, Orc and every other roster with the Team Captain special rule can now nominate a Team Captain in both the Team Builder and the Tournament Builder. Tap the round C beside a player to nominate them; picking another player moves the captaincy, and tapping it again clears it. Big Guys and Star Players cannot be captain, and the C never shows for rosters without the rule. The captain gains Pro for free: it adds nothing to skill cost or team value and never counts towards a tournament's skill limits. The nomination is optional, so the team summary shows \"not nominated\" as a hint rather than a problem. It is kept when you save, reload or share a team, prints on the roster sheet with a C marker and Pro, and the built team gives the game server both Team Captain and Pro. In a match, a team reroll used while the captain is on the pitch can come back free on a 6.",
     "links": [
