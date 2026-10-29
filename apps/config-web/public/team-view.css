@@ -8,8 +8,8 @@
   .tv-banner-top h1 { font-size: clamp(34px, 2.4vw, 48px); }
   .tv-race { font-size: 18px; }
   .tv-byline { font-size: 15px; }
-  .tv-totals b { font-size: 21px; }
-  .tv-totals .tv-total b { font-size: 25px; }
+  .tv-totals b { font-size: 22px; }
+  .tv-totals .tv-total b { font-size: 26px; }
   .tv-totals span { font-size: 13px; }
   .tv-table { font-size: 16px; }
   .tv-table th { font-size: 16px; padding: 12px 12px; }
@@ -30,14 +30,15 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 12px 16px;
-  margin-bottom: 14px;
   padding: 14px;
   background:
     linear-gradient(100deg, color-mix(in srgb, var(--ui-primary) 34%, transparent), transparent 62%),
+    linear-gradient(var(--sf-panel-top, rgb(255 255 255 / 8%)), var(--sf-panel-bottom, rgb(0 0 0 / 8%))),
     var(--ui-surface-2);
-  border: 1px solid var(--ui-border);
-  border-left: 4px solid var(--ui-heading);
-  border-radius: 5px;
+  border: 2px solid var(--sf-panel-line, var(--ui-border));
+  border-radius: 2px;
+  box-shadow: inset 0 1px 0 var(--sf-panel-hi, rgb(255 255 255 / 30%)), 0 4px 0 var(--sf-panel-drop, rgb(0 0 0 / 60%));
+  margin-bottom: 18px; /* room for the 4px drop plus the 6px gap */
 }
 .tv-banner .tv-crest { width: 76px; height: 76px; }
 .tv-title { flex: 1 1 220px; min-width: 0; }
@@ -59,68 +60,42 @@
 .tv-valid { color: var(--ui-success); }
 .tv-invalid { color: var(--ui-danger); }
 
-/* Totals band */
+/* Totals band: centred, bevelled, lifted cells with scoreboard numerals (owner 10-30) */
 .tv-totals {
+  --tv-score-font: var(--sf-band-font, var(--font-heading, sans-serif));
+  --tv-score-shadow: 2px 2px 0 rgb(0 0 0 / 80%), 0 0 10px rgb(0 0 0 / .45); /* same as --tt-name-shadow in tabletop.css */
+  --tv-cell-line: var(--sf-panel-line, var(--ui-border));
+  --tv-cell-hi: var(--sf-panel-hi, color-mix(in srgb, var(--ui-surface-2) 60%, #ffffff));
+  --tv-cell-drop: var(--sf-panel-drop, color-mix(in srgb, var(--ui-border) 70%, #000000));
+  --tv-cell-top: var(--sf-panel-top, color-mix(in srgb, var(--ui-surface-2) 92%, #ffffff));
+  --tv-cell-bottom: var(--sf-panel-bottom, var(--ui-surface-2));
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
+  gap: 6px;
   margin-bottom: 14px;
-  overflow: hidden;
-  background: var(--ui-border);
-  border: 1px solid var(--ui-border);
-  border-radius: 5px;
+  padding-bottom: 3px;
 }
-.tv-totals > div { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: var(--ui-surface-2); }
-.tv-totals span { color: var(--ui-table-head-ink); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
-.tv-totals b { color: var(--ui-text); font-size: 17px; font-weight: 500; }
+.tv-totals > div {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  min-height: 64px; padding: 8px 10px; text-align: center;
+  background: linear-gradient(var(--tv-cell-top), var(--tv-cell-bottom)), var(--ui-surface-2);
+  border: 2px solid var(--tv-cell-line); border-radius: 2px;
+  box-shadow: inset 0 1px 0 var(--tv-cell-hi), inset 0 -1px 0 rgb(0 0 0 / 40%), 0 3px 0 var(--tv-cell-drop);
+}
+.tv-totals span { color: var(--ui-table-head-ink); font-size: 12px; letter-spacing: .08em; text-align: center; text-transform: uppercase; }
+.tv-totals b {
+  color: var(--ui-text); font-family: var(--tv-score-font); font-size: 22px; font-weight: 500; letter-spacing: .04em;
+  line-height: 1.1; text-align: center; text-shadow: var(--tv-score-shadow);
+}
 .tv-totals b small { color: var(--ui-muted); font-size: 14px; }
-.tv-totals .tv-total { grid-column: 1 / -1; background: color-mix(in srgb, var(--ui-primary) 30%, var(--ui-surface-2)); }
-.tv-totals .tv-total b { color: var(--ui-gold); font-size: 20px; }
+.tv-totals .tv-total {
+  grid-column: 1 / -1;
+  background: linear-gradient(var(--tv-cell-top), var(--tv-cell-bottom)), color-mix(in srgb, var(--ui-primary) 30%, var(--ui-surface-2));
+  background-blend-mode: normal;
+  box-shadow: inset 0 1px 0 var(--tv-cell-hi), inset 0 -1px 0 rgb(0 0 0 / 40%), 0 4px 0 var(--tv-cell-drop);
+}
+.tv-totals .tv-total b { color: var(--ui-gold); font-size: 26px; }
 .tv-totals .tv-over b { color: var(--ui-danger); }
-
-/* Roster: cards (mobile) */
-.tv-table { display: none; }
-.tv-cards { display: grid; gap: 8px; margin: 0 0 14px; padding: 0; list-style: none; }
-.tv-card { padding: 10px; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 5px; }
-.tv-card-head { display: flex; align-items: center; gap: 10px; }
-.tv-card-head .tv-sprite { width: 64px; height: 64px; }
-.tv-card-head .tv-num { color: var(--ui-muted); font-size: 15px; }
-.tv-card-head .tv-pos { flex: 1; min-width: 0; color: var(--ui-position); font-weight: 500; }
-.tv-card-head .tv-cost { color: var(--ui-gold); white-space: nowrap; }
-.tv-card-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin: 8px 0; }
-.tv-card-stats > div { padding: 3px 0; text-align: center; background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 4px; }
-.tv-card-stats dt { color: var(--ui-skill-strength); font-size: 11px; letter-spacing: .06em; }
-.tv-card-stats dd { margin: 0; color: var(--ui-text); font-size: 16px; font-weight: 500; }
-.tv-card .row-skills { gap: 4px; }
-
-.tv-tag { margin-left: 4px; padding: 0 5px; color: var(--ui-gold); border: 1px solid currentColor; border-radius: 3px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; vertical-align: 2px; }
-.tv-captain { border-radius: 50%; padding: 0 4px; letter-spacing: 0; }
-.tv-free { font-style: normal; border-style: solid; }
-.tv-up dd, td.tv-up { color: var(--ui-success); }
-.tv-up-mark { margin-left: 2px; font-size: .62em; vertical-align: .35em; }
-/* Owner 10-27: an added skill is boxed, upright, with a small + badge in its top-right corner. */
-/* Owner 10-28: added skills carry the client's gold box; the chip text keeps its category colour. */
-.tv-added { position: relative; font-style: normal; border: 1.5px solid var(--ui-gold); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-gold) 35%, transparent); border-radius: 4px; padding-right: 14px; margin-right: 6px; }
-.tv-added::after { content: "+"; position: absolute; top: -8px; right: -8px; width: 16px; height: 16px; display: grid; place-items: center; font: 800 13px/1 var(--font-body); color: var(--ui-text-on-primary, #fff); background: var(--ui-heading); color: var(--ui-text-on-primary, #fff); border-radius: 50%; box-shadow: 0 0 0 1px var(--ui-surface-2); }
-.tv-stat-up { color: var(--ui-success); }
-.tv-none { color: var(--ui-muted); }
-.tv-star .tv-pos { color: var(--ui-gold); }
-
-/* Sideline / inducements / special rules */
-.tv-extras { display: grid; gap: 12px; margin-bottom: 14px; }
-.tv-panel { padding: 12px; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 5px; }
-.tv-pairs { display: grid; grid-template-columns: 1fr; gap: 4px; margin: 0; }
-.tv-pairs > div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--ui-border); }
-.tv-pairs > div:last-child { border-bottom: 0; }
-.tv-pairs dt { color: var(--ui-muted); }
-.tv-pairs dd { margin: 0; color: var(--ui-text); }
-.tv-inducements, .tv-rules { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.tv-inducements li { display: flex; align-items: center; gap: 8px; }
-.tv-inducements b { margin-left: auto; color: var(--ui-gold); font-weight: 500; }
-.tv-ind-icon { width: 32px; height: 32px; }
-.tv-rules li { color: var(--ui-text); }
-
-.tv-key { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; font-size: 13px; }
 
 .tv-gone { max-width: 560px; margin: 40px auto; text-align: center; }
 .tv-gone p { color: var(--ui-muted); }
@@ -133,7 +108,16 @@
 @media (min-width: 760px) {
   .tv-cards { display: none; }
   .tv-table { display: table; width: 100%; margin-bottom: 14px; border-collapse: collapse; background: var(--ui-surface-2); border: 1px solid var(--ui-border); }
-  .tv-table th { padding: 7px 8px; color: var(--ui-table-head-ink); font-size: 13px; font-weight: 500; letter-spacing: .08em; text-align: left; text-transform: uppercase; background: color-mix(in srgb, var(--ui-primary) 26%, var(--ui-surface-2)); border-bottom: 1px solid var(--ui-border); }
+  .tv-table { --tv-score-font: var(--sf-band-font, var(--font-heading, sans-serif)); --tv-score-shadow: 2px 2px 0 rgb(0 0 0 / 80%), 0 0 10px rgb(0 0 0 / .45); }
+  .tv-table th {
+    padding: 7px 8px; color: var(--ui-table-head-ink); font-family: var(--tv-score-font); font-size: 13px; font-weight: 500; letter-spacing: .08em; text-align: left; text-shadow: var(--tv-score-shadow); text-transform: uppercase; vertical-align: middle;
+    background: linear-gradient(var(--sf-panel-top, rgb(255 255 255 / 10%)), var(--sf-panel-bottom, rgb(0 0 0 / 10%))), color-mix(in srgb, var(--ui-primary) 26%, var(--ui-surface-2));
+    border: solid var(--sf-panel-line, var(--ui-border)); border-width: 2px 0;
+    box-shadow: inset 0 1px 0 var(--sf-panel-hi, rgb(255 255 255 / 30%)), 0 3px 0 var(--sf-panel-drop, rgb(0 0 0 / 60%));
+  }
+  .tv-table th:first-child { border-left-width: 2px; border-top-left-radius: 2px; border-bottom-left-radius: 2px; }
+  .tv-table th:last-child { border-right-width: 2px; border-top-right-radius: 2px; border-bottom-right-radius: 2px; }
+  .tv-table tbody tr:first-child td { border-top: 6px solid var(--ui-surface-2); }
   .tv-table td { padding: 5px 8px; border-bottom: 1px solid var(--ui-border); vertical-align: middle; }
   .tv-table tbody tr:last-child td { border-bottom: 0; }
   .tv-table tbody tr:hover td { background: var(--ui-hover); }
@@ -176,7 +160,7 @@
 
 /* ── Owner 10-27: zebra rows, bezelled sections, larger header row, stats lifted onto bezelled boxes. ── */
 :root { --tv-bezel: inset 0 1px 0 rgb(255 255 255 / 8%), inset 0 -1px 0 rgb(0 0 0 / 45%), 0 2px 6px rgb(0 0 0 / 40%); }
-.tv-banner, .tv-panel, .tv-totals > div, .tv-cards > li { box-shadow: var(--tv-bezel); border-color: color-mix(in srgb, var(--ui-border) 70%, var(--ui-primary)); }
+.tv-panel, .tv-cards > li { box-shadow: var(--tv-bezel); border-color: color-mix(in srgb, var(--ui-border) 70%, var(--ui-primary)); }
 .tv-panel { border-radius: 6px; }
 .tv-panel .section-title { font-size: clamp(16px, 1.15vw, 19px); }
 /* Stats as bezelled boxes (desktop table + phone cards). */
@@ -256,5 +240,6 @@
    (table) / card footer with Add Skill and Add Characteristic. The public share page renders none of these. */
 .tv-pname { display: block; color: var(--ui-text); font-family: var(--font-heading); font-size: 15px; letter-spacing: .03em; white-space: normal; }
 .tv-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--ui-border); }
-.tv-table td.tv-actions { min-width: 180px; }
+.tv-table td.tv-actions, .tv-table th.tv-actions { width: 1%; white-space: nowrap; }
+.tv-table td.tv-spp, .tv-table th.tv-spp { width: 1%; white-space: nowrap; }
 .tv-table td.tv-actions > * + * { margin-top: 4px; }

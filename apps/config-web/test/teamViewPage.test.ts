@@ -267,7 +267,7 @@ describe("team view core: management page options (owner 10-30)", () => {
     expect(plain).not.toContain("tv-pname");
     const team = { ...fixture(), verdict: "On the fork", ownerSaveId: "sv_1", players: fixture().players.map((p: Any, i: number) => ({ ...p, name: i === 0 ? "Big <Bob>" : "" })) };
     const markup = TeamView.viewHtml(team, { bylineLead: "Coach", hideOwnerLink: true, actions: (p: Any, i: number) => `<button data-adv="${i}">Add Skill ${p.number}</button>` });
-    expect(markup).toContain('<th scope="col" class="tv-actions">Advancement</th>');
+    expect(markup).toContain('<th scope="col" class="tv-actions"><span class="visually-hidden">Advancement</span></th>');
     expect(markup.match(/<td class="tv-actions"><button data-adv="0">Add Skill 1<\/button><\/td>/g)).toHaveLength(1);
     expect(markup.match(/<div class="tv-card-actions"><button data-adv="2">Add Skill 3<\/button><\/div>/g)).toHaveLength(1);
     expect(markup).toContain('<span class="tv-pname">Big &lt;Bob&gt;</span>');
@@ -298,5 +298,54 @@ describe("team view core: management page options (owner 10-30)", () => {
     expect(markup.match(/data-sheet-row="/g)).toHaveLength(n * 2);
     // stripping the hook's additions gives back the public markup exactly
     expect(markup.replace(/ data-sheet-row="\d+"/g, "").replace(/<button type="button" class="tv-open"[^>]*>/g, "").replace(/<\/button>/g, "")).toBe(plain);
+  });
+});
+
+describe("team sheet totals bar and advancement buttons CSS (owner 10-30)", () => {
+  const css = readFileSync(new URL("team-view.css", publicDir), "utf8");
+  const teams = readFileSync(new URL("../spa/src/teams/teams.css", import.meta.url), "utf8");
+  const rule = (src: string, sel: string) => { // every rule body for the selector, joined
+    let out = "";
+    for (let at = src.indexOf(`${sel} {`); at >= 0; at = src.indexOf(`${sel} {`, at + 1)) out += src.slice(src.indexOf("{", at), src.indexOf("}", at));
+    return out;
+  };
+  it("centres bevelled cells and sets the values in the band font with the shadow token", () => {
+    expect(rule(css, ".tv-totals > div")).toMatch(/text-align: center/);
+    expect(rule(css, ".tv-totals > div")).toMatch(/border: 2px solid/);
+    expect(rule(css, ".tv-totals > div")).toMatch(/min-height: 64px/);
+    expect(rule(css, ".tv-totals")).toMatch(/--tv-score-shadow:/);
+    expect(rule(css, ".tv-totals")).toMatch(/gap: 6px/);
+    const b = rule(css, ".tv-totals b");
+    expect(b).toMatch(/text-align: center/);
+    expect(b).toMatch(/text-shadow: var\(--tv-score-shadow\)/);
+    expect(b).toMatch(/font-family: var\(--tv-score-font\)/);
+    expect(b).toMatch(/font-size: 22px/);
+    expect(css).toMatch(/\.tv-totals \.tv-total b \{[^}]*font-size: 26px/);
+  });
+  it("bevels and lifts the roster header row with band-font labels", () => {
+    const th = rule(css, "  .tv-table th");
+    expect(th).toMatch(/vertical-align: middle/);
+    expect(th).toMatch(/text-shadow: var\(--tv-score-shadow\)/);
+    expect(th).toMatch(/font-family: var\(--tv-score-font\)/);
+    expect(th).toMatch(/linear-gradient/);
+    expect(th).toMatch(/0 3px 0/);
+    expect(css).toMatch(/\.tv-table tbody tr:first-child td \{ border-top: 6px solid/);
+  });
+  it("bevels and lifts the banner box", () => {
+    const b = rule(css, ".tv-banner");
+    expect(b).toMatch(/border: 2px solid var\(--sf-panel-line/);
+    expect(b).toMatch(/border-radius: 2px/);
+    expect(b).toMatch(/0 4px 0 var\(--sf-panel-drop/);
+    expect(b).toMatch(/linear-gradient\(var\(--sf-panel-top/);
+    expect(css).toMatch(/\.tv-banner-top h1 \{ text-shadow: 4px 5px 0/);
+  });
+  it("shrinks the advancement column and lifts the Add buttons", () => {
+    expect(css).not.toMatch(/min-width: 180px/);
+    expect(css).toMatch(/\.tv-table td\.tv-actions[^{]*\{[^}]*width: 1%/);
+    const act = rule(teams, ".tm-act");
+    expect(act).toMatch(/border-radius: 2px/);
+    expect(act).toMatch(/text-shadow: var\(--tm-btn-shadow\)/);
+    expect(teams).toMatch(/\.tm-act:hover[^{]*\{[^}]*translateY\(-1px\)/);
+    expect(teams).toMatch(/\.tm-act:active[^{]*\{[^}]*translateY\(1px\)/);
   });
 });

@@ -287,7 +287,7 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(html).toContain("</span>On the fork</span>");
     expect(html).toContain("Coach <strong>Alice</strong>");
     expect(html).toContain('<span class="tv-pname">Big &lt;Bob&gt;</span>');
-    expect(html).toContain('<th scope="col" class="tv-actions">Advancement</th>');
+    expect(html).toContain('<th scope="col" class="tv-actions"><span class="visually-hidden">Advancement</span></th>');
     // table + phone card each carry both buttons for every player; only player 1 can add a skill (owner 10-30: grey out the rest)
     expect(html.match(/data-adv="0" data-kind="skill" aria-label="Add a skill to/g)).toHaveLength(2);
     expect(html.match(/data-adv="0" data-kind="characteristic" disabled aria-disabled="true"/g)).toHaveLength(2);

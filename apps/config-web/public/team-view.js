@@ -102,7 +102,7 @@
         <td class="tv-actions">${actions(p, i)}</td>` : ""}
       </tr>`).join("");
     return `<table class="tv-table">
-      <thead><tr><th scope="col"><span class="visually-hidden">Sprite</span></th><th scope="col">#</th><th scope="col">Position</th>${STATS.map((s) => `<th scope="col" class="tv-stat">${s}</th>`).join("")}<th scope="col">Skills</th><th scope="col" class="tv-cost">Cost</th>${spp ? '<th scope="col" class="tv-spp">SPP</th>' : ""}${actions ? '<th scope="col" class="tv-actions">Advancement</th>' : ""}</tr></thead>
+      <thead><tr><th scope="col"><span class="visually-hidden">Sprite</span></th><th scope="col">#</th><th scope="col">Position</th>${STATS.map((s) => `<th scope="col" class="tv-stat">${s}</th>`).join("")}<th scope="col">Skills</th><th scope="col" class="tv-cost">Cost</th>${spp ? '<th scope="col" class="tv-spp">SPP</th>' : ""}${actions ? '<th scope="col" class="tv-actions"><span class="visually-hidden">Advancement</span></th>' : ""}</tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   }
