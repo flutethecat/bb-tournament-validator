@@ -16,6 +16,9 @@ import { randomBytes } from "node:crypto";
 
 export type Seat = "home" | "away";
 
+/** Max open notification sockets per coach (one per tab); one more is refused. */
+const NOTIFY_MAX_SOCKETS_PER_COACH = 6;
+
 // ── Pure, unit-testable core (extracted for the fast-follow teeth; the service methods delegate here) ──
 
 /** X-only perspective mirror between a seat's local frame and the server/global frame, per upstream
@@ -102,6 +105,8 @@ export class SuperService {
   private readonly lobbyRooms = new Map<string, Set<WsConnection>>();
   /** matchId -> the open sockets of its participants and organisers. */
   private readonly tabletopRooms = new Map<string, Set<WsConnection>>();
+  /** lower-cased coach -> that coach's open notification sockets (feature `notify`, server-originated only). */
+  private readonly notifyRooms = new Map<string, Set<WsConnection>>();
   private readonly lobbyChatIntervalMs: number;
   private readonly lobbyMaxSocketsPerCoach: number;
   /** `${lobbyId}|${coach}` -> last accepted chat publish (per coach, not per socket). */
@@ -173,7 +178,8 @@ export class SuperService {
     try {
       const msg = JSON.parse(text) as Record<string, unknown>;
       const type = msg.type;
-      if (type === "hello" && typeof msg.tabletopId === "string") await this.handleTabletopHello(conn, msg);
+      if (type === "hello" && msg.notify === true) this.handleNotifyHello(conn);
+      else if (type === "hello" && typeof msg.tabletopId === "string") await this.handleTabletopHello(conn, msg);
       else if (type === "hello" && typeof msg.lobbyId === "string") this.handleLobbyHello(conn, msg);
       else if (type === "hello") await this.handleHello(conn, msg);
       else if (type === "publish" && conn.data.kind === "lobby") this.handleLobbyPublish(conn, msg);
@@ -376,6 +382,51 @@ export class SuperService {
     this.safeSend(conn, { type: "tabletopWelcome", v: 1, matchId, coach, features: ["tabletop-clock"], clock });
   }
 
+  // -- Coach notification rooms (landing spec §4.1) ---------------------------------------------------------
+  // One room per signed-in coach (the Discord session on the upgrade request, never a claimed name). Nothing is
+  // publishable: the server pushes { unread, latest } when a notification lands; the SPA polls when this is down.
+  private handleNotifyHello(conn: WsConnection): void {
+    if (conn.data.authed) return;
+    const lobby = this.opts.lobby;
+    const token = typeof conn.data.sessionToken === "string" ? conn.data.sessionToken : "";
+    const coach = (lobby && token && lobby.sessionCoach(token)) || "";
+    const key = coach.toLowerCase();
+    const room = this.notifyRooms.get(key);
+    const reason = !lobby ? "off"
+      : conn.data.originOk !== true ? "origin"
+      : !coach ? "session"
+      : (room?.size ?? 0) >= NOTIFY_MAX_SOCKETS_PER_COACH ? "too-many"
+      : "";
+    if (reason) {
+      this.log(`notify reject (${reason}) coach=${coach || "-"}`);
+      this.safeSend(conn, { type: "notifyRefused", v: 1, reason });
+      conn.close();
+      return;
+    }
+    conn.data.authed = true;
+    conn.data.kind = "notify";
+    conn.data.coach = coach;
+    const joined = room ?? new Set<WsConnection>();
+    joined.add(conn);
+    this.notifyRooms.set(key, joined);
+    this.safeSend(conn, { type: "notifyWelcome", v: 1, coach, features: ["notify"] });
+  }
+
+  /** Push a notification summary to every open notification socket of one coach; sockets whose session ended get nothing. */
+  publishNotify(coach: string, payload: unknown): void {
+    try {
+      const room = this.notifyRooms.get(coach.trim().toLowerCase());
+      if (!room) return;
+      const text = JSON.stringify({ type: "event", v: 1, coach: "", feature: "notify", payload, ts: Date.now() });
+      for (const c of [...room]) {
+        if (!this.lobbySessionValid(c)) { c.close(); continue; }
+        try { c.send(text); } catch { /* ignore */ }
+      }
+    } catch (e) {
+      this.log(`notify publish error (contained): ${(e as Error).message}`);
+    }
+  }
+
   /** Push the match clock to every open socket of that match (participants + organisers); sockets whose session ended get nothing. */
   publishTabletopClock(matchId: string, payload: unknown): void {
     const room = this.tabletopRooms.get(matchId);
@@ -402,6 +453,9 @@ export class SuperService {
       for (const room of [...this.tabletopRooms.values()]) {
         for (const c of [...room]) if (c.data.sessionToken === token) c.close();
       }
+      for (const room of [...this.notifyRooms.values()]) {
+        for (const c of [...room]) if (c.data.sessionToken === token) c.close();
+      }
     } catch (e) {
       this.log(`lobby session close error (contained): ${(e as Error).message}`);
     }
@@ -413,6 +467,9 @@ export class SuperService {
         for (const c of [...room]) if (!this.lobbySessionValid(c)) c.close();
       }
       for (const room of [...this.tabletopRooms.values()]) {
+        for (const c of [...room]) if (!this.lobbySessionValid(c)) c.close();
+      }
+      for (const room of [...this.notifyRooms.values()]) {
         for (const c of [...room]) if (!this.lobbySessionValid(c)) c.close();
       }
     } catch (e) {
@@ -489,6 +546,12 @@ export class SuperService {
 
   private removeConn(conn: WsConnection): void {
     if (conn.data.kind === "lobby") { this.removeLobbyConn(conn); return; }
+    if (conn.data.kind === "notify") {
+      const key = String(conn.data.coach ?? "").toLowerCase();
+      const room = this.notifyRooms.get(key);
+      if (room) { room.delete(conn); if (room.size === 0) this.notifyRooms.delete(key); }
+      return;
+    }
     if (conn.data.kind === "tabletop") {
       const id = conn.data.tabletopId as string | undefined;
       const room = id ? this.tabletopRooms.get(id) : undefined;

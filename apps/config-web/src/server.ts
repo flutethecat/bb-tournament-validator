@@ -276,6 +276,7 @@ import { sharedTeamView, type SharedViewInput } from "./teamShareView.js";
 import { TournamentStore } from "./tournaments/store.js";
 import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./tournaments/types.js";
 import { RateLimiter } from "./translate/guards.js";
+import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier } from "./notifications.js";
 import { clientIp } from "./translate/route.js";
 import { clockView, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
@@ -505,6 +506,13 @@ const coachRatings = new CoachRatingCache({
 const lobbyAllowedOrigins = lobbyAllowedOriginsFromEnv();
 let lobbyChatLive = false;
 let superService: ReturnType<typeof attachSuper> = null;
+// Coach notifications (landing spec §4.1): <FORK_STATE_DIR>/notifications/<coach>.json; a new row is pushed over the Super socket.
+const notificationStore = new NotificationStore(FORK_STATE_DIR, {
+  onAdded: (coach, latest, unread) => superService?.publishNotify(coach, { unread, latest }),
+});
+const tournamentNotifier = createTournamentNotifier(notificationStore, tournamentStore);
+setActiveNotifier(tournamentNotifier);
+const messageLimiter = new SenderRateLimiter(30, 60_000);
 
 /** PUBLIC_BASE_URL, validated once at startup (http/https origin, no userinfo / path); unset or invalid = none. */
 const PUBLIC_BASE_ORIGIN = ((): string | undefined => {
@@ -572,6 +580,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     isBanned,
     isOrganizer: (coach) => coachLevel(coach) !== "player" || isOrganizer(coach),
     publishClock: (matchId, payload) => superService?.publishTabletopClock(matchId, payload),
+    notify: (coach, input) => tournamentNotifier.coach(coach, input),
     listSaves: (coach) => readSaves(BUILDER_SAVES_DIR, coach).map((s) => ({ id: s.id, name: s.name })),
     listTeams: (coach) => [
       ...readLibrary(LIBRARY_DIR, coach).map((t) => ({ ref: `library:${t.teamId}`, name: t.teamName, race: t.race, tv: typeof t.teamValue === "number" ? t.teamValue : null })),
@@ -1267,6 +1276,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/admin/identities/naf" ||
     pathname === "/api/account" ||
     pathname === "/api/me/scheduling" ||
+    pathname === "/api/me/notifications/read" ||
     isTeamMutationWritePath(pathname) ||
     pathname.startsWith("/api/tournaments/") ||
     pathname.startsWith("/api/fork/tournaments/") ||
@@ -1360,6 +1370,18 @@ async function handleApi(
     });
   }
 
+  if (isNotificationApiPath(path)) {
+    // Own notifications + the organiser "Message coach" route; a test sign-in session reads only (403 on writes).
+    const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
+    const body = method === "POST" ? await readBody(req) : undefined;
+    const result = notificationsApi(method, path, query, auth ? { ...auth, ...(testSession ? { test: true } : {}) } : undefined, body, {
+      store: notificationStore,
+      tournaments: tournamentStore,
+      limiter: messageLimiter,
+    });
+    if (result) return sendJson(res, result.status, result.body);
+  }
+
   if (path === "/api/tournaments" || path.startsWith("/api/tournaments/") || path === "/api/fork/tournaments" || path.startsWith("/api/fork/tournaments/") || path.startsWith("/api/scheduled-matches")) {
     // A test sign-in session (src/auth/testLogin.ts) must never create real tournament or scheduled-match state.
     if (WRITE_METHODS.has(method) && getSession(sessionTokenFromRequest(req))?.test)
@@ -1375,6 +1397,7 @@ async function handleApi(
       validateSubmission: (coach, ref, packageName, at) => checkTournamentSubmission(submissionCheckDeps(), coach, ref, packageName, at),
       packageRevision: (name) => { try { return packages.getRaw(name)?.revision; } catch { return undefined; } },
       submissionTeamView: (coach, submission, packageName) => tournamentSubmissionView(coach, submission, packageName),
+      notify: tournamentNotifier,
       registeredCoach: (coachId) => readIdentities().coaches[normalizeFfbCoachId(coachId)]?.ffbCoachId,
       coachRating: (coach) => {
         // Seeding uses TOURNAMENT ELO (owner 08-27: only tournament matches move the
