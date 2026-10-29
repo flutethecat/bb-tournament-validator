@@ -6,6 +6,7 @@ import "./style.css";
 import "./tabletop/tabletop.css";
 import "./tournaments/tournaments.css";
 import "./home/home.css";
+import "./account/account.css";
 import { createWebHistory } from "vue-router";
 import { createSpa } from "./app";
 import { APP_BASE } from "./router";

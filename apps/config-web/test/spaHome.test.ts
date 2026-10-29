@@ -76,6 +76,10 @@ function signedInRoutes(): Routes {
     "/api/me/deadlines": deadlinesBody(),
     "/crests/manifest.json": { crests: { orc: "crests/orc.png", dwarf: "crests/dwarf.png" } },
     "/api/account": { ffbCoachId: "Alice" },
+    "/api/me/profile": {
+      coach: "Alice", displayName: "Ally", fumbblName: "", fumbblLinked: false, nafName: "Alice N", nafId: "1234", avatar: "https://cdn.example.test/a.png",
+      avatarSource: "discord", discord: { linked: true, username: "alice_dc" },
+    },
     "/api/tabletop/saves?coach=Alice": { coach: "Alice", saves: [], teams: [{ ref: "library:1", name: "Alice Orcs", race: "Orc" }, { ref: "save:2", name: "Nameless", race: "" }] },
     "/api/me/scheduling": { timezone: "Europe/London", availability: [{ day: 0, start: "19:00", end: "22:00" }, { day: 5, start: "10:00", end: "14:00" }] },
     "/api/build-log": {
@@ -630,15 +634,52 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(navOf(html)).toContain('href="/app/tournaments"');
   });
 
-  it("account page: the schedule editor (saved zone selected, seven day columns, saved blocks) sits below the account card", async () => {
+  it("account page: the schedule editor (saved zone selected, seven day columns, saved blocks) sits below the identity panel", async () => {
     const { html } = await render("/account", signedInRoutes());
     expect(html).toContain('id="schedule"');
-    expect(html.indexOf("<h2>Account</h2>")).toBeLessThan(html.indexOf('id="schedule"'));
+    expect(html.indexOf('id="identity"')).toBeLessThan(html.indexOf('id="schedule"'));
     expect(html).toMatch(/<option value="Europe\/London" selected>/);
     expect((html.match(/class="hm-day-head"/g) ?? []).length).toBe(7);
     expect(html).toMatch(/data-day="0"[\s\S]*?value="19:00"[\s\S]*?value="22:00"/);
     expect(html).toMatch(/data-day="5"[\s\S]*?value="10:00"/);
     expect(html).toContain("2 / 21 blocks");
+  });
+
+  it("account page: title + LED name; Identity, Schedule, Calendar in the main column; Session and Teams beside", async () => {
+    const { html } = await render("/account", signedInRoutes());
+    expect(html).toMatch(/<h1 class="hm-title">Account <span class="hm-led">Alice<\/span><\/h1>/);
+    const main = html.slice(html.indexOf('class="hm-col hm-col-main"'), html.indexOf('class="hm-col hm-col-side"'));
+    const side = html.slice(html.indexOf('class="hm-col hm-col-side"'));
+    const order = ["identity", "schedule", "calendar"].map((id) => main.indexOf(`id="${id}"`));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    for (const id of ["session", "teams"]) expect(side).toContain(`id="${id}"`);
+    // identity: the saved fields, the avatar, Discord read-only
+    expect(main).toMatch(/id="ac-display"[^>]*value="Ally"/);
+    expect(main).toMatch(/id="ac-naf-name"[^>]*value="Alice N"/);
+    expect(main).toMatch(/id="ac-naf-id"[^>]*value="1234"/);
+    expect(main).toContain('src="https://cdn.example.test/a.png"');
+    expect(main).toContain("Avatar from your Discord account.");
+    expect(main).toContain("alice_dc");
+    expect(side).toContain("Sign out");
+    expect(side).toContain('href="/app/my-teams#avatars"');
+    // calendar: Monday-first header, a whole-weeks grid, today marked, availability shaded on Mondays and Saturdays
+    const cal = main.slice(main.indexOf('id="calendar"'));
+    expect(cal.match(/class="ac-wd"[^>]*>(\w+)</g)?.map((m) => m.replace(/.*>/, "").replace("<", ""))).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+    expect((cal.match(/role="gridcell"/g) ?? []).length % 7).toBe(0);
+    expect(cal).toContain('aria-current="date"');
+    const cells = cal.match(/<div class="ac-cell"[^>]*>/g) ?? [];
+    for (let i = 0; i < cells.length; i++) {
+      const weekday = i % 7;
+      expect(cells[i]!.includes('data-avail="true"'), `cell ${i}`).toBe(weekday === 0 || weekday === 5);
+    }
+    // the round deadline (in 5 h) sits on its New York day as a scarlet chip linking to the fixture
+    const at = Date.now() + 5 * H;
+    const key = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at));
+    // (a Sunday-night month end can push it past the grid's last week: then there is no cell to check)
+    const cell = cal.match(new RegExp(`data-day="${key}"[\\s\\S]*?</ul>`))?.[0] ?? "";
+    if (cal.includes(`data-day="${key}"`)) expect(cell).toMatch(/<a href="\/app\/tournaments\/t1\?tab=rounds" class="hm-chip ac-chip hm-chip-urgent"/);
+    expect(cal).toContain('id="ac-agenda-h"');
   });
 
   it("coach page: two-column panels, empty states, deadlines with chips in the coach's timezone, schedule grid, teams, what's new (latest 5)", async () => {

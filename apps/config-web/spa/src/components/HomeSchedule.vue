@@ -4,18 +4,22 @@
 import { computed, inject, onMounted, onServerPrefetch } from "vue";
 import { API_KEY } from "../app";
 import { COACH_TREE_KEY } from "../home/tree";
-import { byDay, createScheduleEditor, DAY_LABELS, MAX_BLOCKS, timeZoneOptions } from "../home/schedule";
+import { byDay, createScheduleEditor, DAY_LABELS, MAX_BLOCKS, timeZoneOptions, type ScheduleEditor } from "../home/schedule";
 
+// The Account page passes its own editor so the calendar shades the same week; standalone, the panel makes one.
+const props = defineProps<{ editor?: ScheduleEditor }>();
 const tree = inject(COACH_TREE_KEY, null);
+const api = inject(API_KEY)!;
 // A saved week can change what the nav and the deadlines show: mark the tree stale.
-const editor = createScheduleEditor({ api: inject(API_KEY)!, onSaved: () => tree?.invalidate() });
+const editor = props.editor ?? createScheduleEditor({ api, onSaved: () => tree?.invalidate() });
 const { state } = editor;
 // Insertion order + id keys: a row keeps its inputs while its times change (sorting happens on validation and save).
 const columns = computed(() => byDay(state.blocks, { sort: false }));
 const zones = computed(() => timeZoneOptions(state.timezone));
 
 onMounted(() => { if (!state.loaded && !state.loadFailed) void editor.load(); });
-onServerPrefetch(() => editor.load());
+// A passed-in editor is loaded by its owner's prefetch (so siblings rendering from it see the saved week).
+onServerPrefetch(() => (props.editor ? undefined : editor.load()));
 
 defineExpose({ editor });
 </script>

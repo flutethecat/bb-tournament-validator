@@ -1,0 +1,55 @@
+/* Account page (/app/account): Identity form, Session facts and the Calendar month grid. Builds on the coach page
+   classes in home/home.css (hm-page, hm-grid, hm-panel, hm-band, hm-chip); tokens only. */
+
+/* ---- identity */
+.ac-form { display: grid; gap: 12px; }
+.ac-who { display: flex; align-items: center; gap: 12px; }
+.ac-avatar { width: 56px; height: 56px; flex: none; border: 2px solid var(--sf-panel-line); border-radius: 2px; object-fit: cover; box-shadow: var(--sf-bevel); }
+.ac-avatar-blank { display: inline-flex; align-items: center; justify-content: center; font: 24px var(--sf-band-font); color: var(--ui-muted); background: var(--ui-surface-2); }
+.ac-who-text { display: grid; gap: 2px; min-width: 0; }
+.ac-shown { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-field { display: grid; gap: 4px; min-width: 0; }
+.ac-field label, .ac-label { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.ac-field input { min-height: 40px; padding: 4px 8px; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; font: inherit; max-width: 420px; }
+.ac-field input[readonly] { color: var(--ui-muted); border-style: dashed; }
+.ac-field input[aria-invalid="true"] { border-color: var(--ui-scarlet); }
+.ac-field input:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+.ac-readonly { min-height: 24px; }
+.ac-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 640px; }
+
+/* ---- session */
+.ac-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin-top: 0; }
+.ac-facts dt { color: var(--ui-muted); font-size: 14px; }
+.ac-facts dd { margin: 0; overflow-wrap: anywhere; }
+
+/* ---- calendar */
+.ac-cal { display: grid; gap: 8px; }
+.ac-cal-nav { display: flex; align-items: center; gap: 8px; }
+.ac-cal-nav .lobby-btn { min-width: 36px; }
+.ac-cal-month { margin: 0; min-width: 10ch; text-align: center; font: 13px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-heading); }
+.ac-cal-today { margin-left: auto; }
+.ac-grid { display: grid; gap: 2px; }
+.ac-grid-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.ac-wd { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; text-align: center; color: var(--ui-heading); padding: 2px 0; }
+.ac-cell { display: grid; align-content: start; gap: 3px; min-width: 0; min-height: 88px; padding: 4px; background: color-mix(in srgb, var(--ui-surface-2) 45%, transparent); border: 1px solid var(--sf-panel-line); border-radius: 2px; }
+.ac-cell[data-avail="true"] { background: color-mix(in srgb, var(--sf-seat-home) 10%, color-mix(in srgb, var(--ui-surface-2) 45%, transparent)); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--sf-seat-home) 45%, transparent); }
+.ac-cell[data-out="true"] { opacity: .45; }
+.ac-cell[data-today="true"] { border-color: var(--sf-led); box-shadow: inset 0 0 0 1px var(--sf-led); }
+.ac-date { font: 11px/1.2 var(--sf-band-font); color: var(--ui-muted); }
+.ac-cell[data-today="true"] .ac-date { color: var(--sf-led); }
+.ac-chips { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; min-width: 0; }
+.ac-chip { display: block; overflow: hidden; text-overflow: ellipsis; text-decoration: none; text-transform: none; letter-spacing: 0; font-size: 10px; }
+.ac-chip:hover, .ac-chip:focus-visible { filter: brightness(1.15); outline: none; }
+.ac-chip[data-source="proposal"] { border-style: dashed; }
+.ac-chip-time { font-variant-numeric: tabular-nums; }
+.ac-more { font-size: 11px; }
+.ac-legend { display: flex; align-items: center; gap: 6px; margin: 0; }
+.ac-swatch { display: inline-block; width: 14px; height: 14px; background: color-mix(in srgb, var(--sf-seat-home) 18%, var(--ui-surface-2)); border-left: 3px solid color-mix(in srgb, var(--sf-seat-home) 45%, transparent); border-radius: 2px; }
+.ac-agenda { display: none; }
+.ac-agenda-head { margin: 4px 0; font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-heading); }
+
+@media (max-width: 640px) {
+  .ac-row { grid-template-columns: minmax(0, 1fr); }
+  .ac-grid, .ac-legend { display: none; }
+  .ac-agenda { display: block; }
+}

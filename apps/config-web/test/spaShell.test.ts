@@ -723,18 +723,25 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     expect(html).toContain("No teams in your library yet");
   });
 
-  it("account route shows the Discord identity and the linked FUMBBL name the server returned", async () => {
+  it("account route shows the Discord identity and the FUMBBL name from the profile route, never the email", async () => {
+    const profile = (extra: Record<string, unknown>) => ({
+      coach: "Alice", displayName: "", fumbblName: "", fumbblLinked: false, nafName: "", nafId: "", avatar: null, avatarSource: "none",
+      discord: { linked: true, username: "alice_dc" }, ...extra,
+    });
     const { html } = await render("/account", {
       "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" },
       "/api/account": { ffbCoachId: "Alice", identities: { discordUsername: "alice_dc", email: "a@example.test" }, fumbblName: "AliceF" },
+      "/api/me/profile": profile({ fumbblName: "AliceF", fumbblLinked: true }),
     });
-    expect(html).toContain("<h2>Account</h2>");
+    expect(html).toMatch(/<h1 class="hm-title">Account <span class="hm-led">Alice<\/span><\/h1>/);
     expect(html).toContain("alice_dc");
-    expect(html).toContain("AliceF");
+    expect(html).toMatch(/id="ac-fumbbl"[^>]*value="AliceF"[^>]*readonly/);
+    expect(html).toContain("Linked through tournament registration");
     expect(html).not.toContain("a@example.test");
     expect(html).toContain("Sign out");
-    const unlinked = await render("/account", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" }, "/api/account": { ffbCoachId: "Alice", fumbblName: null } });
-    expect(unlinked.html).toContain("No FUMBBL name linked.");
+    const unlinked = await render("/account", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" }, "/api/me/profile": profile({}) });
+    expect(unlinked.html).toMatch(/id="ac-fumbbl"(?![^>]*readonly)[^>]*>/);
+    expect(unlinked.html).toContain("Your account name on fumbbl.com");
   });
 });
 
