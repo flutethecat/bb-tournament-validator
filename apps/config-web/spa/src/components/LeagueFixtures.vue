@@ -1,12 +1,17 @@
 <script setup lang="ts">
 // League page, Fixtures tab: phase by phase, round by round. Cards view (default): played games as result cards,
 // unplayed ones as a compact row; Table view: one row per fixture with score, casualties, date and marks.
-import { computed, ref } from "vue";
+// Play on Super FUMBBL (league setting): every fixture an admin allowed carries a "Super FUMBBL" chip; league admins
+// (organisers, site admins) get the "Allow Super FUMBBL for this fixture" switch on each unplayed fixture.
+import { computed, inject, ref } from "vue";
 import ResultCard from "./ResultCard.vue";
-import { day, fixtureOutcome, fixturePlayed, fixturesByPhase, fixtureTime, resultCardProps } from "../leagues/league";
+import { day, fixtureOutcome, fixturePlayed, fixturesByPhase, fixtureTime, LEAGUE_DETAIL_KEY, resultCardProps } from "../leagues/league";
 import type { LeagueFixture, LeagueSummary, SeasonRecord } from "../leagues/types";
 
-const props = defineProps<{ league: LeagueSummary; season: SeasonRecord; crests: Record<string, string> }>();
+const props = defineProps<{ league: LeagueSummary; season: SeasonRecord; crests: Record<string, string>; manage?: boolean }>();
+const detail = inject(LEAGUE_DETAIL_KEY, null);
+const forkSwitch = (f: LeagueFixture): boolean => Boolean(props.manage && props.league.playOnFork && detail && !fixturePlayed(f));
+const setFork = (f: LeagueFixture, e: Event): void => { void detail?.setFixtureFork(props.season.id, f.id, (e.target as HTMLInputElement).checked); };
 const view = ref<"cards" | "table">("cards");
 const phase = ref("all");
 const groups = computed(() => fixturesByPhase(props.season));
@@ -37,6 +42,7 @@ const cas = (f: LeagueFixture): string => (fixturePlayed(f) && f.home.cas !== nu
         <button type="button" role="radio" class="tl-seg-btn" :aria-checked="view === 'table' ? 'true' : 'false'" @click="view = 'table'">Table</button>
       </div>
     </div>
+    <p v-if="detail?.state.forkError" class="lobby-error" role="alert">{{ detail.state.forkError }}</p>
     <section v-if="!shown.length" class="hm-panel" aria-labelledby="lg-fx-none">
       <header class="hm-band"><h2 id="lg-fx-none">Fixtures</h2></header>
       <p class="hm-empty">No fixtures recorded for this season.</p>
@@ -52,6 +58,13 @@ const cas = (f: LeagueFixture): string => (fixturePlayed(f) && f.home.cas !== nu
               <span class="lg-fx-team">{{ f.home.team }}</span><span class="lg-fx-vs">vs</span><span class="lg-fx-team lg-fx-away">{{ f.away.team }}</span>
               <small class="lg-fx-meta">{{ [f.group, f.suspended ? "Not played" : "Scheduled", day(fixtureTime(f))].filter(Boolean).join(" · ") }}</small>
             </div>
+            <div v-if="f.forkEnabled || forkSwitch(f)" class="lg-fork-row">
+              <span v-if="f.forkEnabled" class="sf-chip" data-tone="ok" data-fork="on">Super FUMBBL</span>
+              <label v-if="forkSwitch(f)" class="lg-fork-switch">
+                <input type="checkbox" role="switch" :checked="f.forkEnabled === true" :aria-checked="f.forkEnabled ? 'true' : 'false'" :disabled="detail?.state.forkBusy === f.id" @change="setFork(f, $event)" />
+                <span>Allow Super FUMBBL for this fixture</span>
+              </label>
+            </div>
           </li>
         </ul>
         <div v-else class="lg-scroll">
@@ -64,7 +77,15 @@ const cas = (f: LeagueFixture): string => (fixturePlayed(f) && f.home.cas !== nu
                 <td class="lg-team-cell" :data-outcome="result(f, 'away')"><span class="lg-team-name">{{ f.away.team }}</span><small>{{ f.away.coach }}</small></td>
                 <td class="lg-num">{{ cas(f) }}</td>
                 <td class="lg-date">{{ day(fixtureTime(f)) }}</td>
-                <td><span v-for="m in marks(f)" :key="m" class="sf-chip" data-tone="muted">{{ m }}</span><span v-if="f.group" class="hm-small">{{ f.group }}</span></td>
+                <td>
+                  <span v-for="m in marks(f)" :key="m" class="sf-chip" data-tone="muted">{{ m }}</span>
+                  <span v-if="f.forkEnabled" class="sf-chip" data-tone="ok" data-fork="on">Super FUMBBL</span>
+                  <span v-if="f.group" class="hm-small">{{ f.group }}</span>
+                  <label v-if="forkSwitch(f)" class="lg-fork-switch">
+                    <input type="checkbox" role="switch" :checked="f.forkEnabled === true" :aria-checked="f.forkEnabled ? 'true' : 'false'" :disabled="detail?.state.forkBusy === f.id" @change="setFork(f, $event)" />
+                    <span>Allow Super FUMBBL</span>
+                  </label>
+                </td>
               </tr>
             </tbody>
           </table>

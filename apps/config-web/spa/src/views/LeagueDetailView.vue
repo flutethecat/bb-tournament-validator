@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // League page (/app/leagues/:id?season=&tab=&team=&player=): public read. The league front (header bar, logo, name), the
 // Season field (every season, newest first, with its rules edition), then the season's tabs: Overview, Standings,
-// Fixtures, Teams (a team's roster via ?team=, a player via ?player=<playerId>), Honours. Organisers and admins get the artwork controls on Overview.
+// Fixtures, Teams (a team's roster via ?team=, a player via ?player=<playerId>), Honours. Organisers and admins get the artwork controls on Overview,
+// the League settings cog at the right end of the header strip, and the per-fixture Super FUMBBL switch.
 import { computed, inject, nextTick, onMounted, provide, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
@@ -19,6 +20,8 @@ import {
 import "../leagues/leagues.css";
 
 const props = defineProps<{ id: string }>();
+/** Bound, not a literal src: a literal would be rewritten as a bundled asset (public/icons is served as-is). */
+const COG_ICON = "/icons/league/league-settings.png";
 const fetcher = inject(API_KEY)!;
 const session = inject(SESSION_KEY)!;
 const route = useRoute();
@@ -99,6 +102,9 @@ onMounted(async () => {
               <RouterLink class="tl-action lg-stats-link" :to="{ name: 'league-stats', params: { id } }">Statistics</RouterLink>
             </p>
           </div>
+          <RouterLink v-if="manage" class="lg-cog" :to="{ name: 'league-settings', params: { id } }" aria-label="League settings" title="League settings">
+            <img :src="COG_ICON" alt="" width="28" height="28" />
+          </RouterLink>
         </div>
       </header>
 
@@ -134,7 +140,7 @@ onMounted(async () => {
           <LeagueArtEdit v-if="manage" />
         </template>
         <LeagueStandings v-else-if="tab === 'standings'" :season="season" />
-        <LeagueFixtures v-else-if="tab === 'fixtures'" :league="state.league" :season="season" :crests="state.crests" />
+        <LeagueFixtures v-else-if="tab === 'fixtures'" :league="state.league" :season="season" :crests="state.crests" :manage="manage" />
         <LeagueTeams v-else-if="tab === 'teams'" :season="season" :team="teamName" :player="playerRef" :league-id="id" :crests="state.crests" />
         <LeagueHonours v-else :season="season" />
       </template>

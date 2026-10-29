@@ -62,6 +62,9 @@ export interface LeagueDetailState {
   artBusy: string;
   artError: string;
   artNotice: string;
+  /** Fixture whose Super FUMBBL switch is saving, and the last error. */
+  forkBusy: string;
+  forkError: string;
 }
 
 export type RawUploader = (path: string, body: Blob) => Promise<unknown>;
@@ -78,7 +81,7 @@ const fetchUpload: RawUploader = async (path, body) => {
 export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader }) {
   const state = reactive<LeagueDetailState>({
     id: "", league: null, seasons: [], loaded: false, error: "", season: {}, seasonLoading: "", seasonError: "", crests: {},
-    artBusy: "", artError: "", artNotice: "",
+    artBusy: "", artError: "", artNotice: "", forkBusy: "", forkError: "",
   });
   async function load(id: string): Promise<void> {
     state.id = id;
@@ -133,6 +136,21 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
     state, load, ensureSeason,
     uploadArt: (kind: "logo" | "banner", image: Blob) => art(kind, () => (deps.upload ?? fetchUpload)(`${base()}/${kind}`, image), `${label(kind)} updated.`),
     removeArt: (kind: "logo" | "banner") => art(kind, () => deps.api(`${base()}/${kind}`, { method: "DELETE" }), `${label(kind)} removed.`),
+    /** League admins: allow (or stop allowing) one fixture on Super FUMBBL; the server notifies the coaches and admins. */
+    async setFixtureFork(seasonId: string, fixtureId: string, on: boolean): Promise<void> {
+      state.forkBusy = fixtureId;
+      state.forkError = "";
+      try {
+        const res = await deps.api<{ fixture: LeagueFixture }>(`${base()}/seasons/${encodeURIComponent(seasonId)}/fixtures/${encodeURIComponent(fixtureId)}`, { method: "PATCH", body: { forkEnabled: on } });
+        const season = state.season[seasonId];
+        const i = season?.fixtures.findIndex((f) => f.id === fixtureId) ?? -1;
+        if (season && i >= 0) season.fixtures[i] = res.fixture;
+      } catch (err) {
+        state.forkError = errorText(err, "That did not save.");
+      } finally {
+        state.forkBusy = "";
+      }
+    },
   };
 }
 

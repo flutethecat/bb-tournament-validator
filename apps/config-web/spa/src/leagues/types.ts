@@ -23,6 +23,8 @@ export interface LeagueSummary {
   slug: string;
   description: string;
   organisers: string[];
+  /** Play on Super FUMBBL is on (absent on older servers = off). */
+  playOnFork?: boolean;
   createdAt: string;
   logoUrl?: string;
   bannerUrl?: string;
@@ -56,6 +58,8 @@ export interface LeagueFixture {
   suspended: boolean;
   startedAt?: string;
   finishedAt?: string;
+  /** An admin allowed this fixture on Super FUMBBL. */
+  forkEnabled?: boolean;
 }
 
 export interface StandingRow {
@@ -216,4 +220,49 @@ export interface LeagueStats {
   biggestWins: BigWin[];
   mostGames: CoachRecord[];
   champions: Array<{ seasonId: string; season: number; ruleset: LeagueRuleset; coach: string; team: string; race: string }>;
+}
+
+// ---- League settings (organisers; server: src/leagues/settings.ts LeagueSettingsView) ----
+
+export type LeagueCountry = "US" | "CA";
+export interface LeagueAddress { country: LeagueCountry; region: string; postcode: string; locality: string; street: string }
+
+export interface LeagueRegistrations {
+  allowedRosters: { official: boolean; nafApproved: boolean; unofficial: boolean };
+  allowRegistration: boolean;
+  hideTeamComposition: boolean;
+  maxRegistrations: number | null;
+  maxPerRace: number | null;
+}
+
+export type DiscordEventKey = "news" | "fixtureCreated" | "matchStarted" | "matchResult" | "milestones";
+export type DiscordEvents = Record<DiscordEventKey, boolean>;
+
+/** One roster row of a season's team building rules (the Tournament Team Builder reads these for a league team). */
+export interface TeamBuildingRosterRule {
+  roster: string;
+  /** GW tier 1-6. */
+  tier: number;
+  /** Initial treasury in thousands of gold. */
+  treasury: number;
+  /** Extra starting skills by access, 0-6 each; Elite = TeamBuildingRules.eliteSkills. */
+  startingSkills: { primary: number; secondary: number; elite: number };
+}
+export interface TeamBuildingRules { rosters: TeamBuildingRosterRule[]; eliteSkills: string[]; updatedAt?: string; updatedBy?: string }
+
+export interface LeagueSettingsView {
+  id: string;
+  revision: number;
+  information: { name: string; fullName: string; description: string; ruleset: LeagueRuleset; mode: "individual"; address: LeagueAddress | null };
+  permissions: { owner: string; organisers: string[]; admins: string[]; canEditOrganisers: boolean; canChangeOwner: boolean };
+  registrations: LeagueRegistrations;
+  connections: {
+    playOnFork: boolean;
+    discord: { configured: boolean; maskedUrl: string; events: DiscordEvents };
+    naf: { available: false; note: string };
+  };
+  teamBuilding: { seasonId: string; seasonName: string; ruleset: LeagueRuleset; rules: TeamBuildingRules } | null;
+  regions: Record<LeagueCountry, Array<{ code: string; name: string }>>;
+  rulesets: LeagueRuleset[];
+  eliteSkills: string[];
 }

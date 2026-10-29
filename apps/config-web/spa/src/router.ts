@@ -12,6 +12,7 @@ import HomeView from "./views/HomeView.vue";
 import LeaderboardsView from "./views/LeaderboardsView.vue";
 import LeagueDetailView from "./views/LeagueDetailView.vue";
 import LeagueListView from "./views/LeagueListView.vue";
+import LeagueSettingsView from "./views/LeagueSettingsView.vue";
 import LeagueStatsView from "./views/LeagueStatsView.vue";
 import MyTeamsView from "./views/MyTeamsView.vue";
 import LinkOutView from "./views/LinkOutView.vue";
@@ -94,6 +95,8 @@ export const routes: RouteRecordRaw[] = [
   { path: "/leagues", name: "leagues", component: LeagueListView, meta: { title: "Leagues" } },
   { path: "/leagues/:id([a-z0-9-]{1,64})", name: "league-detail", component: LeagueDetailView, props: true, meta: { title: "League" } },
   { path: "/leagues/:id([a-z0-9-]{1,64})/stats", name: "league-stats", component: LeagueStatsView, props: true, meta: { title: "League statistics" } },
+  // League settings (cog on the league page): organisers and site admins; others get the "not one of yours" note.
+  { path: "/leagues/:id([a-z0-9-]{1,64})/settings", name: "league-settings", component: LeagueSettingsView, props: true, meta: { requiresAuth: true, title: "League settings" } },
   { path: "/admin/tournaments", name: "admin-tournaments", component: AdminTournamentsView, meta: { requiresAuth: true, title: "Tournaments admin" } },
   {
     path: "/team-builder",
