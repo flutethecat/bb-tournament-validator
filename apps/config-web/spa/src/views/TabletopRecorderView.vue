@@ -149,6 +149,12 @@ async function endAndSubmit(): Promise<void> {
   await rec.record({ type: "endOfMatch", team: "home" });
   await rec.submit();
 }
+async function saveLateMvp(): Promise<void> {
+  const s = mySide.value;
+  if (!s || !mvpPick[s]) return;
+  await rec.record({ type: "mvp", team: s, player: mvpPick[s] });
+  mvpPick[s] = "";
+}
 async function saveTurn(body: { half: number | string; turn: number; activeTeam: Side }): Promise<void> {
   await rec.setTurn(body);
   if (!state.actionError) turnSetOpen.value = false;
@@ -317,6 +323,20 @@ onBeforeUnmount(() => {
               <span v-if="l.injury" class="muted"> · {{ l.injury.result }}{{ l.injury.stat ? ` ${l.injury.stat}` : "" }}{{ l.injury.apothecaryUsed ? " (apothecary)" : "" }}</span>
             </li>
           </ul>
+        </section>
+
+        <section v-if="match.state === 'submitted' && mySide && !hasMvp(mySide)" class="tt-panel tt-late-mvp">
+          <h3>Your MVP</h3>
+          <p class="muted">The match is submitted; you can still record your own team's MVP. Saving it clears the confirmations so both coaches confirm the final result.</p>
+          <div class="tt-rosters tt-rosters-embed">
+            <ul class="tt-roster-list">
+              <TabletopRosterRow
+                v-for="p in mvpChoices(mySide)" :key="p.id" variant="pick" :player="p" :side="mySide" :active="mvpPick[mySide] === p.id"
+                @select="mvpPick[mySide!] = mvpPick[mySide!] === p.id ? '' : p.id"
+              />
+            </ul>
+          </div>
+          <button class="lobby-btn primary tt-tap" type="button" :disabled="!mvpPick[mySide] || state.busy" @click="saveLateMvp">Save MVP</button>
         </section>
 
         <section class="tt-panel tt-confirm">

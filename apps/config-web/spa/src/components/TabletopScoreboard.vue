@@ -31,7 +31,7 @@ const sides: Side[] = ["home", "away"];
 /** The uploaded avatar (same-origin paths only) when the team has one, else the race crest. */
 const crest = (s: Side): string => {
   const a = props.teams[s]?.avatarUrl;
-  return typeof a === "string" && /^\/[\w./-]+$/.test(a) ? a : resolveCrest(props.art, props.teams[s]?.rosterId ?? props.teams[s]?.race);
+  return typeof a === "string" && /^\/(?!\/)[\w./-]+$/.test(a) ? a : resolveCrest(props.art, props.teams[s]?.rosterId ?? props.teams[s]?.race);
 };
 const race = (s: Side): string => props.teams[s]?.race ?? props.teams[s]?.rosterId ?? "";
 
@@ -100,15 +100,16 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
       <p class="tt-half">Turn<small>{{ half }}</small></p>
     </div>
     <section v-for="s in sides" :key="s" class="tt-corner" :class="s" :style="tint(s)">
+      <p class="tt-cornerline"><span class="tt-cornerline-coach">{{ match[s].coach }}</span><template v-if="race(s)"> &middot; <span class="tt-cornerline-race">{{ race(s) }}</span></template></p>
       <div class="tt-corner-top">
         <span class="tt-crest-frame">
           <img v-if="crest(s)" class="tt-crest" :src="crest(s)" alt="" />
           <span v-else class="tt-crest tt-crest-ph" aria-hidden="true">&#128737;</span>
         </span>
       </div>
-      <span class="tt-team" :data-long="match[s].teamName.length > 16 ? 'true' : null">{{ match[s].teamName }}</span>
-      <span v-if="race(s)" class="tt-race">{{ race(s) }}</span>
-      <div class="tt-coachline">
+      <span class="tt-team tt-nameline" :data-long="match[s].teamName.length > 16 ? 'true' : null">{{ match[s].teamName }}</span>
+      <span v-if="race(s)" class="tt-race tt-nameline">{{ race(s) }}</span>
+      <div class="tt-coachline tt-nameline">
         <span class="tt-coach">{{ match[s].coach }}</span>
         <ul class="tt-chips">
           <li v-for="c in chips(s)" :key="c.key" :data-tip="chipTitle(c)" data-tip-pos="bottom">

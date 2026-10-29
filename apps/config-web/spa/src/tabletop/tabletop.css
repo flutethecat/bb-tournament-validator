@@ -598,7 +598,7 @@
   .tt-rec {
     --tt-pad: max(0px, calc((100vw - 1400px) / 2));
     --tt-hero-min: 168px; --tt-crest: 96px; --tt-team-fs: 28px; --tt-cell-h: 24px; --tt-cell-fs: 12px; --tt-track-w: 240px; --tt-score-fs: 56px; --tt-count-fs: 14px;
-    --tt-chip: 48px; --tt-chip-img: 40px; --tt-strip-h: 48px; --tt-strip-fs: 14px; --tt-marker: 28px; --tt-marker-icon: 18px;
+    --tt-chip: 56px; --tt-chip-img: 46px; --tt-strip-h: 48px; --tt-strip-fs: 14px; --tt-marker: 28px; --tt-marker-icon: 18px;
     --tt-rail-btn: 56px; --tt-rail-icon: 20px; --tt-rail-fs: 16px; --tt-end-h: 96px; --tt-end-fs: 24px;
     --tt-card-min: 64px; --tt-card-fs: 15px; --tt-ev-icon: 32px; --tt-who-h: 36px; --tt-log-h-fs: 14px;
     padding-inline: var(--tt-pad); grid-template-rows: auto auto var(--tt-strip-h) minmax(0, 1fr);
@@ -637,7 +637,7 @@
 @media (min-width: 1600px) {
   .tt-rec {
     --tt-hero-min: 200px; --tt-crest: 112px; --tt-team-fs: 32px; --tt-cell-h: 28px; --tt-cell-fs: 13px; --tt-track-w: 280px; --tt-score-fs: 64px;
-    --tt-chip: 56px; --tt-chip-img: 46px; --tt-strip-h: 52px; --tt-marker: 32px; --tt-marker-icon: 20px; --tt-rail-btn: 64px; --tt-rail-fs: 18px; --tt-end-h: 112px;
+    --tt-chip: 64px; --tt-chip-img: 52px; --tt-strip-h: 52px; --tt-marker: 32px; --tt-marker-icon: 20px; --tt-rail-btn: 64px; --tt-rail-fs: 18px; --tt-end-h: 112px;
   }
 }
 
@@ -837,4 +837,54 @@
   .tt-stripbar .tt-tl-mark .tt-glyph-text { font-size: calc(var(--tt-marker-icon) * .8); width: auto; height: auto; }
   .tt-stripbar .tt-tl-mark::before { inset: -6px -3px; }
   .tt-stripbar .tt-tl-end { width: var(--tt-marker); font-size: calc(var(--tt-marker) * .7); background: none; }
+}
+
+/* the hero name, race and coach lines share one glyph edge: the display font's side bearing is compensated on the lines under the name
+   (--tt-name-bearing, tunable) and the name's trailing letter-spacing is pulled out on the away side, with no padding on the coach row */
+.tt-rec { --tt-name-bearing: calc(var(--tt-team-fs, 13px) * .09); }
+.tt-rec .tt-nameline { padding-left: 0; }
+.tt-rec .tt-corner.home .tt-race.tt-nameline, .tt-rec .tt-corner.home .tt-coachline.tt-nameline { margin-left: var(--tt-name-bearing); }
+.tt-rec .tt-corner.away .tt-team.tt-nameline, .tt-rec .tt-corner.away .tt-race.tt-nameline { margin-right: -.06em; }
+.tt-rec .tt-corner.away .tt-race.tt-nameline, .tt-rec .tt-corner.away .tt-coachline.tt-nameline { margin-right: var(--tt-name-bearing); }
+
+/* popup panels (Settings, Other, pickers, CAS / Injury forms, Rosters, End match / confirms) match the centred column on desktop: the column
+   width (1400 px max, the same --tt-pad centring) less the 20 px card inset, with the shared card bezel, radius and soft panel face */
+@media (min-width: 1024px) {
+  .tt-rec { --tt-col: min(1400px, 100vw); }
+  .tt-rec .tt-modal-box, .tt-rec .tt-sheet, .tt-rec .tt-rosters, .tt-rec .tt-other-box {
+    width: calc(var(--tt-col) - 40px); max-width: none; margin-inline: auto;
+    background: color-mix(in srgb, var(--ui-surface-2, #242424) 70%, var(--ui-surface, #0d0d0d)); border: 2px solid color-mix(in srgb, var(--ui-border, #3d0002) 70%, #000); border-radius: 6px;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / .14), inset 0 -1px 0 rgb(0 0 0 / .55), 0 6px 0 rgb(0 0 0 / .45), 0 12px 28px rgb(0 0 0 / .45);
+  }
+  .tt-rec .tt-modal-box { margin-bottom: 16px; }
+  .tt-rec .tt-sheet { left: 50%; right: auto; bottom: 16px; transform: translateX(-50%); }
+  /* the Settings sheet: display-font labels, theme buttons in a 3-column grid capped at 720 px */
+  .tt-rec .tt-settings .tt-seg { max-width: 720px; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .tt-rec .tt-settings .tt-seg-btn, .tt-rec .tt-settings .tt-changeturn, .tt-rec .tt-settings .tt-set-label { font-family: var(--font-heading, sans-serif); letter-spacing: .06em; }
+  .tt-rec .tt-settings .tt-seg-btn, .tt-rec .tt-settings .tt-changeturn { text-shadow: var(--tt-lettering-shadow); }
+  .tt-rec .tt-settings .tt-changeturn { max-width: 720px; }
+}
+
+.tt-cornerline { display: none; }
+/* desktop hero rework: coach and race as one small line in the card's top corner; the name beside the crest, vertically centred; the chips in an inset tray under the name */
+@media (min-width: 1024px) {
+  .tt-rec > .tt-board { position: relative; padding-top: 38px; }
+  .tt-rec .tt-cornerline { display: block; position: absolute; top: 10px; margin: 0; font-size: 13px; line-height: 1.2; white-space: nowrap; color: var(--tt-muted); }
+  .tt-rec .tt-corner.home .tt-cornerline { left: 10px; }
+  .tt-rec .tt-corner.away .tt-cornerline { right: 10px; text-align: right; }
+  .tt-cornerline-coach { font-weight: 600; color: var(--ui-success, var(--tt-ink)); }
+  .tt-cornerline-race { text-transform: uppercase; letter-spacing: .06em; }
+  .tt-rec .tt-corner .tt-race, .tt-rec .tt-corner .tt-coachline > .tt-coach { display: none; }
+  .tt-rec .tt-corner.home, .tt-rec .tt-corner.away { grid-template-rows: 1fr auto; row-gap: 8px; align-content: stretch; }
+  .tt-rec .tt-corner.home .tt-corner-top, .tt-rec .tt-corner.away .tt-corner-top { grid-row: 1 / span 2; align-self: center; }
+  .tt-rec .tt-corner .tt-team { grid-row: 1; align-self: center; }
+  .tt-rec .tt-corner .tt-coachline.tt-nameline { grid-row: 2; margin: 0; display: block; width: 100%; }
+  .tt-rec .tt-corner .tt-coachline .tt-chips, .tt-rec .tt-corner.home .tt-coachline .tt-chips, .tt-rec .tt-corner.away .tt-coachline .tt-chips {
+    box-sizing: border-box; display: flex; flex-wrap: wrap; gap: 8px; width: 100%; padding: 6px; margin: 0; align-items: center;
+    background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 60%, transparent); border: 1px solid var(--tt-rule); border-radius: 4px;
+    box-shadow: inset 0 1px 0 rgb(0 0 0 / .45), inset 0 -1px 0 rgb(255 255 255 / .06);
+  }
+  .tt-rec .tt-corner .tt-coachline .tt-chips:empty { display: none; }
+  .tt-rec .tt-corner.away .tt-coachline .tt-chips { justify-content: flex-end; }
+  .tt-rec .tt-corner .tt-coachline .tt-qty { min-width: 20px; height: 20px; line-height: 20px; border-radius: 10px; }
 }

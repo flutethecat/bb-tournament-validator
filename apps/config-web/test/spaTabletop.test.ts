@@ -551,7 +551,28 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain('data-tip="Mystery Item x1"');
     expect(html).toContain('<span class="tt-chip-txt">M</span>');
     expect(html.match(/class="tt-qty"/g)).toHaveLength(2); // rerolls and bribes only
-    expect(html).toMatch(/class="tt-coachline"><span class="tt-coach">/);
+    expect(html).toContain('<p class="tt-cornerline"><span class="tt-cornerline-coach">'); // coach and race as one corner line
+    expect(html.match(/class="tt-cornerline"/g)).toHaveLength(2);
+    const css1 = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css1).toMatch(/\.tt-rec \.tt-cornerline \{ display: block; position: absolute; top: 10px;/);
+    expect(css1).toMatch(/\.tt-rec \.tt-corner\.home \.tt-cornerline \{ left: 10px; \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-corner \.tt-coachline \.tt-chips, [^{]*\{\s*box-sizing: border-box; display: flex; flex-wrap: wrap;[^}]*border: 1px solid var\(--tt-rule\); border-radius: 4px;/); // the inset chip tray
+    expect(css1).toMatch(/--tt-chip: 56px; --tt-chip-img: 46px;/);
+    expect(css1).toMatch(/--tt-chip: 64px; --tt-chip-img: 52px;/);
+    // a protocol-relative avatar is refused (falls back to the race crest)
+    const evil = await mount(mods.boardC, {
+      match: baseMatch("recording"), teams: { home: { ...teams.home, avatarUrl: "//evil.example/x.png", rosterId: "orc" }, away: { ...teams.away, avatarUrl: "/uploads/a.png" } }, tally: serverTally,
+      events: [], pregame: {}, clock: clockOf("home", 3), localSide: "home", organiser: false, canAct: true, inducementIcons: {}, art: { crests: { crests: { orc: "crests/orc.png" } } },
+    }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
+    expect(evil).not.toContain("evil.example");
+    expect(evil).toContain('src="/crests/orc.png"');
+    expect(evil).toContain('src="/uploads/a.png"');
+    expect(html.match(/class="tt-team tt-nameline"/g)).toHaveLength(2); // name, race and coach lines share the alignment class
+    expect(html).toContain('class="tt-coachline tt-nameline"');
+    const css0 = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css0).toMatch(/\.tt-rec \.tt-corner\.home \.tt-race\.tt-nameline, \.tt-rec \.tt-corner\.home \.tt-coachline\.tt-nameline \{ margin-left: var\(--tt-name-bearing\); \}/);
+    expect(css0).toMatch(/\.tt-rec \.tt-corner\.away \.tt-team\.tt-nameline[^{]*\{ margin-right: -\.06em; \}/);
+    expect(html).toMatch(/class="tt-coachline tt-nameline"><span class="tt-coach">/);
   });
 
   it("--ui-warn / --ui-warn-contrast exist for every preset and the Injury button text clears 4.5:1 on its face", async () => {
@@ -629,6 +650,9 @@ describe("tabletop routes (server-rendered)", () => {
     expect(ros).toContain('<span class="tt-hd-stats">Stats</span>');
     const { readFileSync } = await import("node:fs");
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.tt-rec \{ --tt-col: min\(1400px, 100vw\); \}/); // popups share the centred column width
+    expect(css).toMatch(/\.tt-rec \.tt-modal-box, \.tt-rec \.tt-sheet, \.tt-rec \.tt-rosters, \.tt-rec \.tt-other-box \{\s*width: calc\(var\(--tt-col\) - 40px\); max-width: none; margin-inline: auto;/);
+    expect(css).toMatch(/\.tt-rec \.tt-settings \.tt-seg \{ max-width: 720px; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
     const other = await mount(mods.otherC, {});
     expect(other).toContain('class="tt-other-btn"');
     expect(other).toContain('class="tt-other-injury"'); // the Injury tile stays in the markup (phones, tablets)

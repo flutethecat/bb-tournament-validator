@@ -344,6 +344,50 @@ describe("undo rules", () => {
     expect((late.body as { match: { state: string } }).match.state).toBe("submitted");
   });
 
+  it("own-team rule for every player-crediting event: a participant gets 403 for the other team, 200 for their own; an organiser 200 for either; both-team events pass; a self-victim casualty is 403", async () => {
+    const { id } = await playing();
+    let n = 0;
+    const post = (who: string, type: string, team: string, player: string | undefined, payload: Record<string, unknown> = {}) => {
+      n += 1;
+      return as(who, "POST", `/api/tabletop/matches/${id}/events`, { events: [{ id: `own-rule-${String(n).padStart(4, "0")}`, type, team, ...(player ? { player } : {}), payload }] });
+    };
+    const specs: Array<[string, string | undefined, string | undefined, Record<string, unknown>]> = [
+      ["completion", "a1", "b1", {}], ["catch", "a1", "b1", {}], ["interception", "a2", "b2", {}], ["deflection", "a2", "b2", {}],
+      ["foul", "a3", "b3", {}], ["stalling", "a3", "b3", {}], ["secretObjective", undefined, undefined, { text: "Score twice" }],
+      ["fanChange", undefined, undefined, { delta: 1 }], ["touchdown", "a1", "b1", {}], ["mvp", "a2", "b2", {}], ["sendOff", "a3", "b3", {}],
+    ];
+    for (const [type, home, away, payload] of specs) {
+      expect((await post("Alice", type, "away", away, payload)).status, `${type}: other team`).toBe(403);
+      expect((await post("Alice", type, "home", home, payload)).status, `${type}: own team`).toBe(200);
+      expect((await post("Org", type, "away", away, payload)).status, `${type}: organiser`).toBe(200);
+    }
+    expect((await post("Alice", "throwTeamMate", "away", undefined, { superb: false, landed: false })).status).toBe(403); // thrower and thrown are named on the event's team
+    expect((await post("Alice", "weather", "home", undefined, { result: "Nice" })).status).not.toBe(403); // a both-team event is not blocked by the own-team rule
+    // a participant's casualty victim must be on the opposing team; an organiser may set either
+    expect((await post("Bob", "casualty", "away", "b1", { victim: "b2", victimTeam: "away", result: "BH" })).status).toBe(403);
+    expect((await post("Org", "casualty", "away", "b1", { victim: "b2", victimTeam: "away", result: "BH" })).status).toBe(200);
+    // concede is the conceding team's own
+    expect((await post("Bob", "concede", "home", undefined, {})).status).toBe(403);
+    expect((await post("Bob", "concede", "away", undefined, {})).status).toBe(200);
+  });
+
+  it("a coach adds their own MVP after submit (the match stays submitted, confirmations clear); not the opponent's, not after confirm", async () => {
+    const { id } = await playing();
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/confirm`);
+    const post = (who: string, e: Record<string, unknown>) => as(who, "POST", `/api/tabletop/matches/${id}/events`, { events: [e] });
+    expect((await post("Alice", { id: "mvp-away-by-alice", type: "mvp", team: "away", player: "b2", payload: {} })).status).toBe(409); // not the opponent's MVP: after submit only your own team's passes
+    const mine = await post("Bob", { id: "mvp-away-by-bob-01", type: "mvp", team: "away", player: "b2", payload: {} });
+    expect(mine.status).toBe(200);
+    const m = (mine.body as { match: { state: string; confirmations: Record<string, string> } }).match;
+    expect(m.state).toBe("submitted");
+    expect(m.confirmations).toEqual({}); // Alice's earlier confirmation is cleared by the appended event
+    expect((await post("Bob", { id: "td-away-by-bob-001", type: "touchdown", team: "away", player: "b1", payload: {} })).status).toBe(409); // only the MVP is allowed after submit
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/confirm`);
+    await as("Bob", "POST", `/api/tabletop/matches/${id}/confirm`);
+    expect((await post("Bob", { id: "mvp-away-by-bob-02", type: "mvp", team: "away", player: "b3", payload: {} })).status).toBe(409); // confirmed: closed
+  });
+
   it("once submitted, participants cannot undo (403); an organiser can, and the preview is recomputed", async () => {
     const { id, own } = await playing();
     await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);

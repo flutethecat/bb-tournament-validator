@@ -25,7 +25,7 @@ const size = (s: Side): number => props.teams[s]?.players.length ?? 0;
 const line = (id: string) => props.tally.players[side.value].find((l) => l.id === id);
 const crest = (s: Side): string => {
   const a = props.teams[s]?.avatarUrl;
-  if (typeof a === "string" && /^\/[\w./-]+$/.test(a)) return a;
+  if (typeof a === "string" && /^\/(?!\/)[\w./-]+$/.test(a)) return a;
   return props.art ? resolveCrest(props.art, props.teams[s]?.rosterId ?? props.teams[s]?.race) : "";
 };
 const crestInitials = (s: Side): string => (props.match[s].teamName.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("") || "?").toUpperCase();

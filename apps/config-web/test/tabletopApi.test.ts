@@ -156,6 +156,31 @@ describe("tabletop API: submit / confirm / undo-revision", () => {
     expect(computeElo(rows).get("alice")!.rating).toBeGreaterThan(1500);
   });
 
+  it("append after submit, organiser undo, then both confirm: the preview, the revisions and the results row stay consistent, and each append clears confirmations", async () => {
+    const id = await playedMatch("full");
+    await as("Bob", "POST", `/api/tabletop/matches/${id}/submit`);
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/confirm`);
+    const add = await as("Bob", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("mvp", "away", "b1")] });
+    expect(add.status).toBe(200);
+    const m1 = (add.body as { match: { confirmations: Record<string, string>; preview: { away: { players: Array<{ id: string; mvp: number; sppEarned: number }> } } } }).match;
+    expect(m1.confirmations).toEqual({}); // Alice must confirm again
+    expect(m1.preview.away.players.find((p) => p.id === "b1")).toMatchObject({ mvp: 1, sppEarned: 4 + 2 * 0 + 3 });
+    const events = ((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ id: string; type: string }> }).events;
+    const mvp = events.filter((e) => e.type === "mvp").at(-1)!;
+    const undone = await as("Org", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("undo", "away", undefined, { target: mvp.id })] });
+    expect(undone.status).toBe(200);
+    const m2 = (undone.body as { match: { confirmations: Record<string, string>; preview: { away: { players: Array<{ id: string; mvp: number }> } } } }).match;
+    expect(m2.confirmations).toEqual({});
+    expect(m2.preview.away.players.find((p) => p.id === "b1")?.mvp ?? 0).toBe(0);
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/confirm`);
+    const done = (await as("Bob", "POST", `/api/tabletop/matches/${id}/confirm`)).body as { match: { state: string } };
+    expect(done.match.state).toBe("confirmed");
+    const rows = results.listAll();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.teams.map((t) => t.score)).toEqual([2, 1]);
+    expect(headRevision((await repo.getChain("Bob", "sv_b"))!).teamFile.players.find((p) => p.id === "b1")!.spp).toBe(3); // only the touchdown: the undone MVP left nothing behind
+  });
+
   it("an organiser confirms for both coaches", async () => {
     const id = await playedMatch();
     await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);

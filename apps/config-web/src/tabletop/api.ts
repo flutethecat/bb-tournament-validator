@@ -385,8 +385,8 @@ export async function createMatch(
   return { status: 201, body: { match } };
 }
 
-/** Events a participant may record only for their own team. */
-const OWN_TEAM_EVENTS: ReadonlySet<string> = new Set(["touchdown", "casualty", "injury", "mvp"]);
+/** Events that belong to the match rather than a team: every other event credits or names a player of `team`, so a participant may record it for their own team only. */
+const BOTH_TEAM_EVENTS: ReadonlySet<string> = new Set(["weather", "endOfMatch"]);
 
 async function postEvents(match: MatchRecord, me: string, organiser: boolean, body: unknown, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
   // Recording: anyone in the match records; participants may undo their own side's events. Once submitted, only an
@@ -413,10 +413,15 @@ async function postEvents(match: MatchRecord, me: string, organiser: boolean, bo
     if (!parsed.ok) return err(400, parsed.error);
     if (known.has(parsed.event.id)) { duplicates.push(parsed.event.id); continue; }
     // after submit only an organiser edits the report (undo, and adding or correcting events for either side); the preview is recomputed below
-    if (reopenForUndo && parsed.event.type !== "undo" && !organiser) return err(409, `This match is ${match.state}; only an organiser can edit events now.`);
+    // (one exception: a coach may still add their OWN team's MVP after submit, until the match is confirmed)
+    if (reopenForUndo && parsed.event.type !== "undo" && !organiser && !(parsed.event.type === "mvp" && mySides.includes(parsed.event.team))) return err(409, `This match is ${match.state}; only an organiser can edit events now.`);
     // a participant records results for their OWN team only (touchdown, casualty causer, injury victim, MVP); organisers adjudicate both sides
-    if (!organiser && OWN_TEAM_EVENTS.has(parsed.event.type) && !mySides.includes(parsed.event.team))
-      return err(403, "You can only record results for your own team; an organiser can for either.");
+    if (!organiser && !BOTH_TEAM_EVENTS.has(parsed.event.type) && parsed.event.type !== "undo") {
+      if (!mySides.includes(parsed.event.team)) return err(403, "You can only record results for your own team; an organiser can for either.");
+      // a casualty's victim must be on the opposing team for a participant (an organiser may set either)
+      if (parsed.event.type === "casualty" && parsed.event.payload.victimTeam !== undefined && parsed.event.payload.victimTeam === parsed.event.team)
+        return err(403, "A casualty's victim must be on the opposing team.");
+    }
     if (parsed.event.type === "undo") {
       if (reopenForUndo && !organiser) return err(403, "Once the match is submitted only an organiser can undo events.");
       if (!organiser) {
