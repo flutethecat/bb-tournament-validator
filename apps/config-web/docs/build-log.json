@@ -1,6 +1,12 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Result banking uses stored player values; no pre-game guard",
+    "body": "A death, a missed game or a team-value adjustment now uses the player's stored value, which the fork team file carries from the league roster, and only prices skills when that value is absent. The fallback pricing is Primary skill 20,000, Secondary 40,000, Elite skill = the player's access price for its category + 10,000, with traits free and unknown skills still quarantining the result. The check that refused teams the banker could not price before a game is removed.",
+    "links": []
+  },
+  {
+    "date": "2026-10-30",
     "title": "Leagues: overlapping seasons, news, Discord events, tier shortcut",
     "body": "A new season can now start while another is still in progress: the newest season becomes the current one, and Finish season lets organisers pick which open season to close. The Redraft board picks which finished season to redraft from and which season receives the draft lists (by default the newest finished season into the newest season in progress). League news is here: organisers post news on the league Overview (pin, edit, delete; simple formatting), the season’s coaches are notified, and the post goes to the league Discord. Organisers also get a fixtures editor on the Fixtures tab: add a fixture (home, away, round, date, or a test fixture), change its date, enter or clear the result, and delete one that has no result. Every Discord toggle is now wired: league news, fixture created, match started and match result post through the league webhook when switched on, with a [Test] tag on test fixtures. On the Team building tab, each roster row has Apply to all rosters in this tier, which copies its starting treasury and Primary, Secondary and Elite starting skills to every roster of the same tier (it asks first before overwriting values already set); save to keep them.",
     "links": [
