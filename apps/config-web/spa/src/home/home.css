@@ -96,8 +96,9 @@
 
 /* ---- nav trees */
 .sf-nav { padding: 8px 0; }
-.sf-tree + .sf-tree { margin-top: 6px; }
-.sf-tree-head { display: flex; align-items: center; gap: 4px; padding: 7px 8px 7px 4px; border-bottom: 1px solid var(--sf-panel-line); }
+/* Tree headers wear the coach page band box (owner 10-30): panel surface, 2 px frame, 4 px heading-red left accent. */
+.sf-tree-head { display: flex; align-items: center; gap: 4px; margin: 0 6px; padding: 6px 8px 6px 4px; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); }
+.sf-tree + .sf-tree { margin-top: 10px; }
 .sf-caret { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; color: var(--ui-muted); background: transparent; border: 0; cursor: pointer; font-size: 13px; }
 .sf-head-link { flex: 1 1 auto; min-width: 0; font: 14px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-heading); text-decoration: none; }
 .sf-head-link[aria-current="page"] { color: var(--sf-seat-home); }
@@ -124,7 +125,7 @@
   .sf-nav[data-collapsed="true"] .sf-count,
   .sf-nav[data-collapsed="true"] .sf-note,
   .sf-nav[data-collapsed="true"] .sf-tree:not([data-tree="pages"]) .sf-rows { display: none; }
-  .sf-nav[data-collapsed="true"] .sf-tree-head { justify-content: center; padding: 6px 0; }
+  .sf-nav[data-collapsed="true"] .sf-tree-head { justify-content: center; margin: 0 4px; padding: 6px 0; border-left-width: 2px; }
   .sf-nav[data-collapsed="true"] .sf-head-link,
   .sf-nav[data-collapsed="true"] [data-tree="pages"] .sf-row { font-size: 0; flex: none; justify-content: center; padding: 6px 0; }
   .sf-nav[data-collapsed="true"] .sf-head-link::before,
