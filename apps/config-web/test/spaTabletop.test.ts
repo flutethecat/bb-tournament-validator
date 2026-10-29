@@ -481,6 +481,12 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).not.toMatch(/\.tt-roster-list li \{/);
     expect(css).toMatch(/--tt-pad: max\(0px, calc\(\(100vw - 1400px\) \/ 2\)\)/); // the desktop page is centred in 1400 px
     expect(css).toMatch(/\.tt-rec::before \{[^}]*grid-row: 3 \/ 5[^}]*box-shadow: 0 8px 24px/); // the soft panel behind strip, rail and log
+    // row order: crumbs, hero, strip, then the body (strip before body), with the body row never shorter than the rail
+    const crumbRow = css.lastIndexOf(".tt-rec > .tt-crumbs { grid-row: 1; }");
+    expect(crumbRow).toBeGreaterThan(-1);
+    expect(css.indexOf(".tt-rec > .tt-stripbar { grid-row: 3; }")).toBeGreaterThan(crumbRow);
+    expect(css).toContain(".tt-rec > .tt-mid { grid-column: 2; grid-row: 4; }");
+    expect(css).toMatch(/\.tt-rec \{ overflow-y: auto; grid-template-rows: auto auto var\(--tt-strip-h\) minmax\(auto, 1fr\); \}/);
     expect(css).toMatch(/--tt-hero-min: 168px;[\s\S]*--tt-hero-min: 200px;/); // one scale block, two steps
   });
 
