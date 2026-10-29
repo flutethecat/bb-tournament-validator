@@ -782,7 +782,8 @@ export async function tournamentApi(
       const selfDrop = coachKey(entrant.coach.ffbCoachId) === coachKey(identity.coach);
       if (!selfDrop) requireTournamentManager(tournament, identity);
       const dropped = deps.store.dropEntrant(tournamentId, entrantId, identity.coach, !selfDrop, now);
-      notifyWithdrawal(deps, tournament, entrant, identity.coach, selfDrop);
+      // Only the drop itself notifies: a repeated DELETE of an already-withdrawn entry sends nothing.
+      if (entrant.droppedAt === undefined && dropped.droppedAt !== undefined) notifyWithdrawal(deps, tournament, entrant, identity.coach, selfDrop);
       return {
         status: 200,
         body: { entrant: dropped },
