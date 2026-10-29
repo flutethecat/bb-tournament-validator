@@ -292,6 +292,8 @@ import { isAdminTestingPath, testingApi } from "./tabletop/testing.js";
 import { parseTeamRef, saveCaptainError, teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
 import { tournamentApi } from "./tournaments/api.js";
 import { tournamentBannerApi, tournamentBannerPath } from "./tournaments/page.js";
+import { leagueApi, leaguePath } from "./leagues/api.js";
+import { LeagueStore } from "./leagues/store.js";
 import type { TournamentSubmission } from "./tournaments/types.js";
 import { checkTournamentSubmission, type SubmissionCheckDeps } from "./tournaments/submissionCheck.js";
 
@@ -422,6 +424,8 @@ const tournamentResults = new TournamentResultStore(FORK_STATE_DIR);
 const coachTitles = new CoachTitleStore(join(FORK_STATE_DIR, "coach-titles.json"));
 const nafRecords = new NafRecordStore(FORK_STATE_DIR);
 const tournamentStore = new TournamentStore(TOURNAMENTS_DIR);
+// Leagues (TABBL and later): <FORK_STATE_DIR>/leagues/<id>/; public reads, organiser/admin artwork writes (src/leagues/api.ts).
+const leagueStore = new LeagueStore(FORK_STATE_DIR);
 
 const packages = new PackageFiles(PACKAGES_DIR);
 // Process-local matchmaking state (poll-based delivery, ~10min TTL) — see @bb/fork-ops.
@@ -1115,6 +1119,8 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
     pathname.startsWith("/api/tournaments/") ||
     pathname.startsWith("/api/fork/tournaments/")
   ) return true;
+  // Leagues: public reads; artwork writes are session + organiser/admin gated in-handler (src/leagues/api.ts).
+  if (leaguePath(pathname) !== undefined) return true;
   // Dynamic coach-scoped route: bypass legacy Basic auth, then enforce the proven session in-handler.
   if (tournamentInstructionsGameId(pathname)) return true;
   if (tournamentResultGameId(pathname)) return true;
@@ -1341,6 +1347,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname.startsWith("/api/tournaments/") ||
     pathname.startsWith("/api/fork/tournaments/") ||
     pathname.startsWith("/api/scheduled-matches/") ||
+    leaguePath(pathname) !== undefined ||
     /^\/api\/teams\/[^/]+\/advancement$/.test(pathname)
   );
 }
@@ -1483,6 +1490,40 @@ async function handleApi(
       limiter: messageLimiter,
     });
     if (result) return sendJson(res, result.status, result.body);
+  }
+
+  if (leaguePath(path) !== undefined) {
+    if (WRITE_METHODS.has(method) && getSession(sessionTokenFromRequest(req))?.test)
+      return sendJson(res, 403, { error: "Test sign-in sessions cannot change league data." });
+    const league = await leagueApi(method, path, query, auth, {
+      store: leagueStore,
+      readBody: (max) => readRawCapped(req, max),
+      declaredTooLarge: (max) => declaredTooLarge(req, max),
+    });
+    if (league) {
+      for (const [name, value] of Object.entries(league.headers ?? {})) res.setHeader(name, value);
+      if (league.close) {
+        res.once("finish", () => req.destroy());
+        res.setHeader("connection", "close");
+      }
+      if (league.file) {
+        try {
+          const bytes = await readFile(league.file.path);
+          res.writeHead(200, {
+            "content-type": league.file.contentType,
+            "content-length": String(bytes.length),
+            "cache-control": "public, max-age=3600",
+            "x-content-type-options": "nosniff",
+          });
+          res.end(method === "HEAD" ? undefined : bytes);
+        } catch {
+          sendJson(res, 404, { error: "No image." });
+        }
+        return;
+      }
+      if (league.status === 204) { res.writeHead(204).end(); return; }
+      return sendJson(res, league.status, league.body);
+    }
   }
 
   if (path === "/api/tournaments" || path.startsWith("/api/tournaments/") || path === "/api/fork/tournaments" || path.startsWith("/api/fork/tournaments/") || path.startsWith("/api/scheduled-matches")) {
@@ -3868,7 +3909,8 @@ export const server = createServer((req, res) => {
           isTabletopApiPath(url.pathname) ||
           isAdminTestingPath(url.pathname) ||
           tournamentInstructionsGameId(url.pathname) !== undefined ||
-          tournamentResultGameId(url.pathname) !== undefined
+          tournamentResultGameId(url.pathname) !== undefined ||
+          leaguePath(url.pathname) !== undefined
         );
         if (!authorized(req, url.pathname) && !accountSession) {
           res.writeHead(401, { "www-authenticate": 'Basic realm="BB Config"' }).end("auth required");
