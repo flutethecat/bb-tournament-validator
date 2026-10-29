@@ -147,6 +147,27 @@ describe("availability editor", () => {
     expect(ed.state).toMatchObject({ detected: false, dirty: false, notice: "Availability saved." });
   });
 
+  it("concurrent load() calls share one GET so a late response cannot erase an edit (Sol 10-30)", async () => {
+    let release: (v: unknown) => void = () => {};
+    let gets = 0;
+    const f = mockFetcher({
+      "GET /api/me/scheduling": () => { gets++; return new Promise((r) => { release = r; }); },
+    });
+    const ed = createScheduleEditor({ api: f, detect: () => "UTC" });
+    const a = ed.load();
+    const b = ed.load();
+    expect(gets).toBe(1);
+    release({ timezone: "Europe/London", availability: [] });
+    await Promise.all([a, b]);
+    expect(ed.state.loaded).toBe(true);
+    ed.addBlock(0, "18:00", "20:00");
+    expect(ed.state.blocks).toHaveLength(1);
+    expect(ed.state.dirty).toBe(true);
+    // a later explicit reload is a new request (the shared promise is released after settling)
+    void ed.load();
+    expect(gets).toBe(2);
+  });
+
   it("a failed read keeps Save off (never PUTs an empty week), shows the error, and Retry recovers", async () => {
     let fail = true;
     const f = mockFetcher({

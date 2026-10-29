@@ -78,7 +78,16 @@ export function createScheduleEditor(deps: { api: Fetcher; detect?: () => string
   const detect = deps.detect ?? browserTimeZone;
   const state = reactive<ScheduleState>({ timezone: "", detected: false, blocks: [], loaded: false, loadFailed: false, saving: false, dirty: false, error: "", notice: "" });
 
-  async function load(): Promise<void> {
+  // One request at a time: the Account page and the editor's own mount both call load(); a second GET resolving after
+  // the coach already edited would otherwise overwrite those edits and clear `dirty` (Sol 10-30).
+  let inflight: Promise<void> | null = null;
+  function load(): Promise<void> {
+    if (inflight) return inflight;
+    inflight = loadOnce().finally(() => { inflight = null; });
+    return inflight;
+  }
+
+  async function loadOnce(): Promise<void> {
     state.loadFailed = false;
     try {
       const res = await deps.api<{ timezone?: string; availability?: AvailabilityBlock[] }>("/api/me/scheduling");
