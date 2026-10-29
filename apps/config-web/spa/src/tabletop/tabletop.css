@@ -603,7 +603,7 @@
     --tt-card-min: 64px; --tt-card-fs: 15px; --tt-ev-icon: 32px; --tt-who-h: 36px; --tt-log-h-fs: 14px;
     padding-inline: var(--tt-pad); grid-template-rows: auto auto var(--tt-strip-h) minmax(0, 1fr);
   }
-  .tt-rec > .tt-board { margin-inline: calc(-1 * var(--tt-pad)); padding-inline: calc(var(--tt-pad) + 28px); min-height: var(--tt-hero-min); }
+  .tt-rec > .tt-board { min-height: var(--tt-hero-min); }
   .tt-rec > .tt-crumbs { padding-inline: 0; }
   .tt-rec .tt-crest { width: var(--tt-crest); height: var(--tt-crest); }
   .tt-rec .tt-corner.home { grid-template-columns: var(--tt-crest) minmax(0, 1fr); }
@@ -645,7 +645,6 @@
 @media (min-width: 1024px) {
   .tt-rec { padding-bottom: 24px; }
   .tt-rec::before { content: ""; grid-column: 1 / -1; grid-row: 3 / 5; pointer-events: none; background: color-mix(in srgb, var(--ui-surface-2, #242424) 70%, transparent); border: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 60%, transparent); border-radius: 4px; box-shadow: 0 8px 24px rgb(0 0 0 / .35); }
-  .tt-rec > .tt-board { padding-inline: calc(var(--tt-pad) + 20px); }
   .tt-rec > .tt-stripbar { padding-inline: 20px; background: none; }
   .tt-rec > .tt-rail { padding: 8px 0 20px 20px; }
   .tt-rec > .tt-mid { margin: 8px 20px 20px 0; border-radius: 4px; background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 60%, transparent); }
@@ -673,3 +672,9 @@
 .tt-ev[data-row-side="away"] .tt-ev-text, .tt-ev[data-row-side="away"] .tt-time { text-align: right; }
 .tt-ev[data-row-side="away"] .tt-ev-mark { left: auto; right: -1px; }
 .tt-ev[data-row-side="away"] .tt-ev-who { flex-direction: row-reverse; margin-right: auto; }
+
+/* desktop scoreboard card: the team-colour gradient is clipped to a bezelled card inside the column (no full-bleed colour), on a single soft near-black page */
+@media (min-width: 1024px) {
+  .tt-rec { background: linear-gradient(180deg, color-mix(in srgb, var(--ui-surface, #0d0d0d) 97%, #fff), var(--ui-surface, #0d0d0d) 320px); }
+  .tt-rec > .tt-board { margin: 16px 0; padding: 12px 20px 14px; overflow: hidden; border-radius: 6px; border: 2px solid color-mix(in srgb, var(--ui-border, #3d0002) 70%, #000); border-bottom-width: 2px; box-shadow: inset 0 1px 0 rgb(255 255 255 / .14), inset 0 -1px 0 rgb(0 0 0 / .55), 0 6px 0 rgb(0 0 0 / .45), 0 12px 28px rgb(0 0 0 / .45); }
+}

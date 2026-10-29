@@ -487,6 +487,11 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css.indexOf(".tt-rec > .tt-stripbar { grid-row: 3; }")).toBeGreaterThan(crumbRow);
     expect(css).toContain(".tt-rec > .tt-mid { grid-column: 2; grid-row: 4; }");
     expect(css).toMatch(/\.tt-rec \{ overflow-y: auto; grid-template-rows: auto auto var\(--tt-strip-h\) minmax\(auto, 1fr\); \}/);
+    // the hero is a contained, clipped, bezelled card at desktop; no full-bleed gradient is left
+    expect(css).toMatch(/\.tt-rec > \.tt-board \{ margin: 16px 0; padding: 12px 20px 14px; overflow: hidden; border-radius: 6px; border: 2px solid color-mix/);
+    expect(css).toMatch(/\.tt-rec > \.tt-board \{[^}]*0 6px 0 rgb\(0 0 0 \/ \.45\), 0 12px 28px/);
+    expect(css).not.toContain("margin-inline: calc(-1 * var(--tt-pad))");
+    expect(css).not.toMatch(/\.tt-board::(?:before|after)/);
     expect(css).toMatch(/--tt-hero-min: 168px;[\s\S]*--tt-hero-min: 200px;/); // one scale block, two steps
   });
 
