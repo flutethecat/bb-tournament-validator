@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError, type TournamentDetailResponse, type TournamentStandingRow, type TournamentSummary } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
-import { createTournamentList, listPath, listQuery, parseListQuery } from "../spa/src/tournaments/list";
+import { cardAction, cardDates, createTournamentList, entrantsLine, listPath, listQuery, parseListQuery } from "../spa/src/tournaments/list";
 import { createTournamentDetail, roundViews, safeCrestUrl, standingViews, tiebreakLabel } from "../spa/src/tournaments/detail";
 import { startPolling } from "../spa/src/tournaments/poll";
 import { createOrganiser } from "../spa/src/tabletop/organiser";
@@ -59,6 +59,30 @@ const fixture = (id: string, round: number, result?: { homeScore: number; awaySc
   home: { entrantId: "t1:entrant:1", teamId: "tm1", coach: { ffbCoachId: "Alice" } },
   ...(bye ? {} : { away: { entrantId: "t1:entrant:2", teamId: "tm2", coach: { ffbCoachId: "Bob" } } }),
   ...(result ? { result } : {}),
+});
+
+describe("tournament list card helpers", () => {
+  it("dates, entrants and the viewer's footer action", () => {
+    expect(cardDates({})).toBe("Not set");
+    expect(cardDates({ startsAt: "nonsense" })).toBe("Not set");
+    expect(cardDates({ startsAt: "2026-11-01T10:00:00Z", endsAt: "2026-11-01T20:00:00Z" })).toBe("2026-11-01");
+    expect(cardDates({ startsAt: "2026-11-01T10:00:00Z", endsAt: "2026-11-02T20:00:00Z" })).toBe("2026-11-01 to 2026-11-02");
+    expect(entrantsLine({ entrantCount: 2, maxPlayers: 8 })).toBe("2 of 8 · 6 places left");
+    expect(entrantsLine({ entrantCount: 7, maxPlayers: 8 })).toBe("7 of 8 · 1 place left");
+    expect(entrantsLine({ entrantCount: 8, maxPlayers: 8 })).toBe("8 of 8 · Full");
+    expect(entrantsLine({ maxPlayers: 0 })).toBe("0");
+    const open = tournament({ status: "draft", currentRound: 0 });
+    expect(cardAction(open, "", false)).toBe("open");
+    expect(cardAction(open, "Alice", false)).toBe("open");
+    expect(cardAction(open, "Alice", true)).toBe("register");
+    expect(cardAction({ ...open, rostersLockedAt: "x" }, "Alice", true)).toBe("open");
+    expect(cardAction({ ...open, status: "completed" }, "Alice", true)).toBe("open");
+    expect(cardAction({ ...open, myEntrantId: "e1" }, "Alice", true)).toBe("entry");
+    expect(cardAction({ ...open, myEntrantId: "e1", myDroppedAt: "x" }, "Alice", true)).toBe("open");
+    expect(cardAction({ ...open, ownerCoachId: "Alice", myEntrantId: "e1" }, "Alice", true)).toBe("manage");
+    expect(cardAction({ ...open, ownerCoachId: "alice" }, "Alice", true)).toBe("register");
+    expect(cardAction({ ...open, ownerCoachId: "" }, "", true)).toBe("open");
+  });
 });
 
 describe("tournament list controller", () => {
@@ -418,13 +442,84 @@ describe("tournament routes (server-rendered against a mocked API)", () => {
     expect(html).toContain("Knockout");
     expect(html).toContain('href="/app/tournaments/t1"');
     expect(html).toContain("Round 2 of 3");
-    expect(html).toContain("starts 2026-11-01");
+    expect(html).toContain("2026-11-01");
     expect(html).not.toMatch(/New tournament|Create tournament|Generate round|Finish tournament/);
+    // anonymous: every card's footer action is Open
+    expect(html.match(/data-action="open"/g)).toHaveLength(2);
+    expect(html).not.toMatch(/data-action="(register|manage|entry)"/);
+  });
+
+  it("list (redesign): title, segmented status control, panel cards with banner strip, chip, facts and footer action", async () => {
+    const items = [
+      tournament({ id: "t1", name: "Spring Swiss", bannerUrl: "/api/tournaments/t1/banner?v=abc", endsAt: "2026-11-03T18:00:00.000Z", rulesetPackName: "Nut Cup" }),
+      tournament({ id: "t2", name: "Autumn Open", status: "draft", format: "roundRobin", currentRound: 0, startsAt: undefined, entrantCount: 3, maxPlayers: 4, bannerUrl: "javascript:alert(1)" }),
+      tournament({ id: "t3", name: "Old Knockout", status: "completed", format: "knockout", maxPlayers: 0, entrantCount: 5, currentRound: 3, ownerCoachId: "Alice" }),
+    ];
+    const { html } = await render("/tournaments", { "/api/fork/tournaments": listPage(items) }, loadedList(items));
+    expect(html).toContain('<h1 class="hm-title">Tournaments</h1>');
+    // the stretched pill row is gone: no .tn-tabs / .tn-tab on the list page
+    expect(html).not.toContain("tn-tab");
+    expect(html).not.toContain("lobby-card");
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain('aria-label="Tournament status"');
+    expect(html.match(/role="radio"/g)).toHaveLength(3);
+    expect(html).toMatch(/aria-checked="true" tabindex="0"[^>]*>Active</);
+    expect(html).toMatch(/aria-checked="false" tabindex="-1"[^>]*>Upcoming</);
+    expect(html.match(/class="hm-panel tl-card"/g)).toHaveLength(3);
+    // banner only for the same-origin API path; everything else gets the gradient + ruleset crest
+    expect(html).toContain('src="/api/tournaments/t1/banner?v=abc"');
+    expect(html).not.toContain("javascript:");
+    expect(html.match(/data-banner="crest"/g)).toHaveLength(2);
+    // status chips in the shell tones
+    expect(html).toMatch(/data-tone="ok" data-status="active"[^>]*>Active</);
+    expect(html).toMatch(/data-tone="info" data-status="draft"[^>]*>Upcoming</);
+    expect(html).toMatch(/data-tone="muted" data-status="completed"[^>]*>Finished</);
+    // facts
+    expect(html).toContain("2026-11-01 to 2026-11-03");
+    expect(html).toContain("Not set");
+    expect(html).toContain("Nut Cup");
+    expect(html).toContain("Swiss · Elo-seeded · 3 rounds");
+    expect(html).toContain("2 of 8 · 6 places left");
+    expect(html).toContain("3 of 4 · 1 place left");
+    expect(html).toContain("<dd>5</dd>");
+    expect(html).toContain("Round 2 of 3");
+    expect(html).toContain("Not started (3 rounds)");
+    expect(html).toContain('href="/app/tournaments/t2"');
+  });
+
+  it("list (redesign): footer action follows the viewer's role from the list row", async () => {
+    const items = [
+      tournament({ id: "t1", name: "Mine To Run", ownerCoachId: "Alice" }),
+      tournament({ id: "t2", name: "Helping Out", organizerCoachIds: ["Alice"] }),
+      tournament({ id: "t3", name: "Entered", currentRound: 0, myEntrantId: "t3:entrant:1" }),
+      tournament({ id: "t4", name: "Open Door", status: "draft", currentRound: 0 }),
+      tournament({ id: "t5", name: "Full House", status: "draft", currentRound: 0, entrantCount: 8, maxPlayers: 8 }),
+      tournament({ id: "t6", name: "Underway", currentRound: 1 }),
+    ];
+    const signedIn = { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } };
+    const { html } = await render("/tournaments", { ...signedIn, "/api/fork/tournaments": listPage(items) }, loadedList(items));
+    expect(html).toMatch(/href="\/app\/tournaments\/t1\?tab=manage"[^>]*data-action="manage"|data-action="manage"[^>]*href="\/app\/tournaments\/t1\?tab=manage"/);
+    expect(html.match(/data-action="manage"/g)).toHaveLength(2);
+    expect(html).toContain('aria-label="Your entry: Entered"');
+    expect(html).toContain('href="/app/tournaments/t3#tn-entry-h"');
+    expect(html).toContain('aria-label="Register: Open Door"');
+    expect(html).toContain('aria-label="Open: Full House"');
+    expect(html).toContain('aria-label="Open: Underway"');
   });
 
   it("list: empty, error and loading states; paging controls only when there is more", async () => {
     const empty = await render("/tournaments", { "/api/fork/tournaments": listPage([]) }, loadedList([]));
-    expect(empty.html).toContain("No active tournaments.");
+    expect(empty.html).toMatch(/<p class="hm-empty">No active tournaments.<\/p>/);
+    expect(empty.html).toContain('<h2 id="tl-none-h">Active</h2>');
+    for (const [tab, status, word] of [["upcoming", "draft", "upcoming"], ["finished", "completed", "finished"]] as const) {
+      const r = await render(`/tournaments?tab=${tab}`, { [`/api/fork/tournaments?status=${status}`]: listPage([]) }, async (inject, f) => {
+        const list = mods.createTournamentList({ api: f });
+        list.restore({ tab, q: "", page: 1 });
+        await list.load();
+        inject(mods.TOURNAMENT_LIST_KEY, list);
+      });
+      expect(r.html).toContain(`No ${word} tournaments.`);
+    }
     const failed = await render("/tournaments", { "/api/fork/tournaments": new ApiError(500, "Request failed (500).") }, loadedList([]));
     expect(failed.html).toContain("Request failed (500).");
     expect(failed.html).toContain('role="alert"');
@@ -483,7 +578,7 @@ describe("tournament routes (server-rendered against a mocked API)", () => {
     });
     expect(html).toContain("Old Cup");
     expect(html).toContain('value="old"');
-    expect(html).toMatch(/class="on tn-tab">Finished</);
+    expect(html).toMatch(/aria-checked="true" tabindex="0"[^>]*>Finished</);
     expect(html).toContain("Page 2");
   });
 
