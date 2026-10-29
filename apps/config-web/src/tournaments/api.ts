@@ -458,6 +458,27 @@ export async function tournamentApi(
       if (portalListAlias || query.get("category") !== null) {
         filtered = filtered.filter((tournament) => tournament.format === "swiss");
       }
+      // ?coach=me: only the signed-in coach's (not withdrawn) entries, most recent first (end, start, starting date,
+      // last update), one page of up to `limit` (1-20, default 20). The coach page's nav trees read this.
+      if (query.get("coach") === "me") {
+        const me = coachKey(authenticated(auth).coach);
+        const recency = (t: TournamentRecord) => t.endsAt ?? t.startedAt ?? t.startsAt ?? t.updatedAt ?? "";
+        const requestedLimit = Number(query.get("limit"));
+        const limit = Number.isSafeInteger(requestedLimit) && requestedLimit >= 1 ? Math.min(requestedLimit, TOURNAMENT_PAGE_SIZE) : TOURNAMENT_PAGE_SIZE;
+        const mine = filtered
+          .filter((t) => deps.store.entrants(t.id).some((e) => !e.droppedAt && coachKey(e.coach.ffbCoachId) === me))
+          .sort((a, b) => recency(b).localeCompare(recency(a)) || a.id.localeCompare(b.id));
+        return {
+          status: 200,
+          body: {
+            tournaments: mine.slice(0, limit).map((tournament) => clientTournament(tournament, deps.store.entrants(tournament.id), auth)),
+            page: 1,
+            pageSize: limit,
+            total: mine.length,
+            hasMore: mine.length > limit,
+          },
+        };
+      }
       const requestedPage = Number(query.get("page"));
       const page = Number.isSafeInteger(requestedPage) && requestedPage >= 1 ? requestedPage : 1;
       const total = filtered.length;

@@ -1,5 +1,5 @@
-// Left nav trees (League / Tournament / Coach page) for the signed-in coach. Read from EXISTING endpoints only:
-// GET /api/fork/tournaments (active + upcoming, every format; `myEntrantId` marks the coach's entries),
+// Left nav trees (League / Tournament / Coach page) for the signed-in coach. Reads:
+// GET /api/fork/tournaments?coach=me (active, upcoming and the last finished, every format, most recent first),
 // GET /api/tournaments/:id (entrants + fixtures) and GET /api/tabletop/fixtures (the coach's unresolved fixtures),
 // plus the coach-page GET /api/me/deadlines for the Deadlines count. No DOM; rendered by ShellNav.vue.
 
@@ -48,7 +48,6 @@ export const MAX_TREE_TOURNAMENTS = 12;
 export const MAX_FINISHED_TOURNAMENTS = 5;
 /** A route change or window focus refetches the trees at most this often; invalidate() skips the wait. */
 export const TREE_REFRESH_MS = 60_000;
-const MAX_LIST_PAGES = 3;
 
 interface TabletopFixtureRow {
   fixtureRef: string;
@@ -138,15 +137,11 @@ export function createCoachTree(deps: { api: Fetcher; now?: () => number }) {
   /** invalidate() during a fetch: fetch again once it lands (its data may predate the change). */
   let again = false;
 
-  async function listAll(base: string): Promise<TournamentSummary[]> {
-    const out: TournamentSummary[] = [];
-    for (let page = 1; page <= MAX_LIST_PAGES; page++) {
-      const sep = base.includes("?") ? "&" : "?";
-      const res = await deps.api<TournamentListPage>(page > 1 ? `${base}${sep}page=${page}` : base);
-      out.push(...(Array.isArray(res?.tournaments) ? res.tournaments : []));
-      if (res?.hasMore !== true) break;
-    }
-    return out;
+  /** The coach's own entries in one status, most recent first, filtered and limited on the server (?coach=me), so a long
+   *  alphabetical list never pushes them off the first pages. */
+  async function mineIn(statusParam: string, limit: number): Promise<TournamentSummary[]> {
+    const res = await deps.api<TournamentListPage>(`/api/fork/tournaments?${statusParam}coach=me&limit=${limit}`);
+    return Array.isArray(res?.tournaments) ? res.tournaments : [];
   }
 
   async function load(coach: string, force = false): Promise<void> {
@@ -167,9 +162,9 @@ export function createCoachTree(deps: { api: Fetcher; now?: () => number }) {
     state.loading = true;
     const settle = async <T>(p: Promise<T>, fallback: T): Promise<T> => { try { return await p; } catch { return fallback; } };
     const [active, upcoming, finished, tabletop, deadlines, crests] = await Promise.all([
-      settle(listAll("/api/fork/tournaments"), [] as TournamentSummary[]),
-      settle(listAll("/api/fork/tournaments?status=draft"), [] as TournamentSummary[]),
-      settle(listAll("/api/fork/tournaments?status=completed"), [] as TournamentSummary[]),
+      settle(mineIn("", MAX_TREE_TOURNAMENTS), [] as TournamentSummary[]),
+      settle(mineIn("status=draft&", MAX_TREE_TOURNAMENTS), [] as TournamentSummary[]),
+      settle(mineIn("status=completed&", MAX_FINISHED_TOURNAMENTS), [] as TournamentSummary[]),
       settle(deps.api<{ fixtures?: TabletopFixtureRow[] }>("/api/tabletop/fixtures").then((r) => (Array.isArray(r?.fixtures) ? r.fixtures : [])), [] as TabletopFixtureRow[]),
       settle(deps.api<{ timezone?: string; deadlines?: DeadlineView[] }>("/api/me/deadlines"), {} as { timezone?: string; deadlines?: DeadlineView[] }),
       art ? Promise.resolve(art.crests) : settle(deps.api<ArtManifests["crests"]>("/crests/manifest.json"), undefined),
