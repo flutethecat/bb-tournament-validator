@@ -120,7 +120,12 @@ async function signOut(): Promise<void> {
 </script>
 
 <template>
-  <header class="shell-header sf-top">
+  <header class="shell-header sf-top" :data-rail="ui.collapsed ? 'true' : 'false'">
+    <!-- Rail collapser (owner 10-30): in the top bar at the right edge of the sidebar column; desktop only (phones use Menu). -->
+    <button
+      class="sf-rail-toggle" type="button" :data-rail="ui.collapsed ? 'true' : 'false'"
+      :aria-label="ui.collapsed ? 'Expand navigation ([)' : 'Collapse navigation ([)'" @click="toggleRail"
+    ><span aria-hidden="true">{{ ui.collapsed ? "»" : "«" }}</span></button>
     <button
       ref="menuBtn" class="sf-menu" type="button" :aria-expanded="ui.drawerOpen ? 'true' : 'false'" aria-controls="sf-aside"
       aria-label="Menu" @click="ui.drawerOpen = !ui.drawerOpen"
@@ -156,9 +161,6 @@ async function signOut(): Promise<void> {
       :tabindex="drawerModal ? -1 : undefined"
     >
       <ShellNav />
-      <button class="sf-rail-toggle" type="button" :aria-label="ui.collapsed ? 'Expand navigation ([)' : 'Collapse navigation ([)'" @click="toggleRail">
-        <span aria-hidden="true">{{ ui.collapsed ? "»" : "«" }}</span>
-      </button>
     </aside>
     <main class="shell-main">
       <p v-if="gate === 'loading'" class="muted">Loading…</p>

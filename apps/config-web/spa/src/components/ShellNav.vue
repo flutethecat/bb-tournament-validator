@@ -103,7 +103,7 @@ function onHeadToggle(id: NavCategoryId, e: MouseEvent): void {
       <a
         :href="href" class="sf-top-link" data-tree="home" :data-active="activeKey === 'home' ? 'true' : undefined" :title="ui.collapsed ? HOME_LINK.label : undefined"
         :aria-current="activeKey === 'home' ? 'page' : undefined" @click="navigate"
-      ><img class="sf-icon" :src="NAV_ICON('home')" alt="" width="20" height="20" /><span class="sf-top-label">{{ HOME_LINK.label }}</span><span
+      ><img class="sf-icon" :src="NAV_ICON('home')" alt="" width="26" height="26" /><span class="sf-top-label">{{ HOME_LINK.label }}</span><span
         v-if="homeBadge > 0" class="sf-count" :aria-label="`${homeBadge} unread`">{{ unreadBadge(homeBadge) }}</span></a>
     </RouterLink>
     <section v-for="c in categories" :key="c.id" class="sf-tree" :data-tree="c.id">
@@ -116,18 +116,18 @@ function onHeadToggle(id: NavCategoryId, e: MouseEvent): void {
           <a
             :href="href" class="sf-head-link" :data-active="activeKey === `c:${c.id}` ? 'true' : undefined" :title="ui.collapsed ? c.label : undefined"
             :aria-current="activeKey === `c:${c.id}` ? 'page' : undefined" @click="onHeadLink(c.id, $event, navigate)"
-          ><img class="sf-icon" :src="NAV_ICON(c.icon)" alt="" width="20" height="20" /><span class="sf-head-label">{{ c.label }}</span></a>
+          ><img class="sf-icon" :src="NAV_ICON(c.icon)" alt="" width="26" height="26" /><span class="sf-head-label">{{ c.label }}</span></a>
         </RouterLink>
         <button
           v-else class="sf-head-link sf-head-toggle" type="button" :aria-expanded="open[c.id] ? 'true' : 'false'" :title="ui.collapsed ? c.label : undefined"
           :aria-controls="`sf-tree-${c.id}`" @click="onHeadToggle(c.id, $event)"
-        ><img class="sf-icon" :src="NAV_ICON(c.icon)" alt="" width="20" height="20" /><span class="sf-head-label">{{ c.label }}</span></button>
+        ><img class="sf-icon" :src="NAV_ICON(c.icon)" alt="" width="26" height="26" /><span class="sf-head-label">{{ c.label }}</span></button>
         <span v-if="c.count" class="sf-count" :aria-label="`${c.count} entries`">{{ c.count }}</span>
       </div>
       <ul v-show="open[c.id]" :id="`sf-tree-${c.id}`" class="sf-rows">
         <li v-for="x in c.external ?? []" :key="x.href">
           <a :href="x.href" class="sf-row" style="--sf-level: 1" data-level="1" data-external="true" target="_blank" rel="noopener noreferrer"
-          ><img class="sf-icon" :src="NAV_ICON(x.icon)" alt="" width="20" height="20" /><span class="sf-label">{{ x.label }}<span class="sf-sr"> (opens in a new tab)</span></span></a>
+          ><img class="sf-icon" :src="NAV_ICON(x.icon)" alt="" width="26" height="26" /><span class="sf-label">{{ x.label }}<span class="sf-sr"> (opens in a new tab)</span></span></a>
         </li>
         <li v-for="r in c.rows" :key="r.key">
           <RouterLink v-slot="{ href, navigate }" :to="r.to" custom>

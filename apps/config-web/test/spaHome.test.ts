@@ -421,7 +421,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     // owner 10-30: Home, Leagues, Tournaments, Leaderboards, Help, Resources (Testing Tools only for admins)
     expect(topLabels(html)).toEqual(["Home", "Leagues", "Tournaments", "Leaderboards", "Help", "Resources"]);
     for (const icon of ["home", "leagues", "tournaments", "leaderboards", "help", "resources"]) {
-      expect(nav).toMatch(new RegExp(`<img class="sf-icon" src="/icons/nav/${icon}\.png" alt(="")? width="20" height="20">`));
+      expect(nav).toMatch(new RegExp(`<img class="sf-icon" src="/icons/nav/${icon}\.png" alt(="")? width="26" height="26">`));
     }
     expect(homeLink(html)).toBeTruthy();
     expect(nav).toMatch(/<a href="\/app\/tournaments\?hint=leagues" class="sf-head-link"/);
@@ -737,7 +737,24 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(css).toMatch(/\.sf-body\[data-rail="true"\] \{ grid-template-columns: var\(--sf-rail-w\)/);
     expect(navOf(html)).not.toContain("data-glyph"); // icons replace the letter glyphs
     expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-count,\s*\.sf-nav\[data-collapsed="true"\] \.sf-rows \{ display: none; \}/);
-    expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-icon \{ width: 24px; height: 24px; \}/);
+    expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-icon \{ width: 30px; height: 30px; \}/);
+    expect(css).toMatch(/\.sf-icon \{ width: 26px; height: 26px;[^}]*image-rendering: pixelated/);
+    expect(css).toMatch(/\.sf-rail-toggle\[data-rail="true"\] \{ left: calc\(var\(--sf-rail-w\) - 36px\); \}/);
+  });
+
+  it("rail collapser: lives in the top bar at the sidebar column's right edge, not in the aside; hidden in the drawer layout", async () => {
+    const open = (await render("/home", signedInRoutes())).html;
+    const header = open.slice(open.indexOf("<header"), open.indexOf("</header>"));
+    const aside = open.slice(open.indexOf("<aside"), open.indexOf("</aside>"));
+    expect(header).toMatch(/<button class="sf-rail-toggle" type="button" data-rail="false" aria-label="Collapse navigation \(\[\)"/);
+    expect(aside).not.toContain("sf-rail-toggle");
+    const rail = (await render("/home", signedInRoutes(), (spa) => { spa.ui.collapsed = true; })).html;
+    expect(rail).toMatch(/<header class="shell-header sf-top" data-rail="true">/);
+    expect(rail).toMatch(/<button class="sf-rail-toggle" type="button" data-rail="true" aria-label="Expand navigation \(\[\)"/);
+    const css = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.sf-rail-toggle \{ position: absolute; top: 50%; left: calc\(var\(--sf-nav-w\) - 36px\); transform: translateY\(-50%\); width: 28px; height: 28px;/);
+    expect(css).toMatch(/@media \(max-width: 1023\.98px\) \{[\s\S]*?\.sf-rail-toggle \{ display: none; \}/);
+    expect(css).not.toMatch(/\.sf-nav > \.sf-top-link \{ margin-right/); // Home no longer reserves room for it
   });
 
   it("phone drawer: inert and hidden while closed, a modal dialog while open; the desktop bar is never inert", async () => {
