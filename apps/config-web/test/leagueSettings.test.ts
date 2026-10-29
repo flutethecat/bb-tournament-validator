@@ -186,7 +186,7 @@ describe("league settings routes", () => {
     expect((await call("PATCH", "/api/leagues/tabbl/settings", JAY, { registrations: { allowedRosters: { official: false, nafApproved: false, unofficial: false } } })).status).toBe(400);
     expect((await call("PATCH", "/api/leagues/tabbl/settings", JAY, "not json")).status).toBe(400);
     // admin may patch too
-    expect((await call("PATCH", "/api/leagues/tabbl/settings", ROOT, { registrations: { hideTeamComposition: true } })).status).toBe(200);
+    expect((await call("PATCH", "/api/leagues/tabbl/settings", ROOT, { registrations: { allowRegistration: true } })).status).toBe(200);
   });
 
   it("administration: owner adds / removes organisers by identity name; only an admin changes the owner", async () => {
@@ -342,7 +342,7 @@ describe("league settings routes", () => {
     expect(store.league("tabbl")!.organisers).toEqual(["Jay"]);
     // An empty administration section from a still-authorised organiser never rewrites membership.
     const before = store.league("tabbl")!.organisers;
-    expect((await call("PATCH", "/api/leagues/tabbl/settings", JAY, { administration: {}, registrations: { hideTeamComposition: false } })).status).toBe(200);
+    expect((await call("PATCH", "/api/leagues/tabbl/settings", JAY, { administration: {}, registrations: { allowRegistration: false } })).status).toBe(200);
     expect(store.league("tabbl")!.organisers).toEqual(before);
   });
 
@@ -374,7 +374,7 @@ describe("league settings routes", () => {
     expect((await call("GET", "/api/leagues/tabbl/settings", JAY)).headers?.etag).toBe("\"1\"");
   });
 
-  it("[P2] hide team composition: anonymous and other coaches get counts only, the team's own coach sees it, organisers see all", async () => {
+  it("rosters are always visible: anonymous and other coaches see every roster; a stored legacy hide flag is ignored", async () => {
     const s6 = store.season("tabbl", "season-6")!;
     const stats = { td: 1, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 3, performance: 0 };
     const player = { playerId: "p-1", number: 1, name: "Grok", position: "Blitzer", ma: 6, st: 3, ag: 3, pa: 4, av: 9, skills: ["Block"], value: 85000, level: "Rookie", availableSpp: 0, niggling: 0, missNextGame: false, stats };
@@ -384,19 +384,22 @@ describe("league settings routes", () => {
     ];
     s6.unattributedStats = [{ team: "Orcs", teamId: "orcs", name: "Grok", position: "Blitzer", stats, reason: "x", candidates: ["p-1"] }];
     store.putSeason(s6);
+    // a league saved while the old setting existed
+    store.updateLeague("tabbl", (l) => { (l.registrations as unknown as Record<string, unknown>) = { ...(l.registrations ?? {}), hideTeamComposition: true }; });
     const read = async (auth?: { coach: string; admin: boolean }) => ((await call("GET", "/api/leagues/tabbl/seasons/season-6", auth)).body as { season: SeasonRecord }).season;
-    expect((await read()).teams[0]!.players).toHaveLength(1); // off by default
-    await call("PATCH", "/api/leagues/tabbl/settings", JAY, { registrations: { hideTeamComposition: true } });
-    const anon = await read();
-    expect(anon.teams.map((t) => [t.name, t.players.length, t.formerPlayers.length, t.playerCount, t.rosterHidden, t.teamValue]))
-      .toEqual([["Orcs", 0, 0, 1, true, 1000000], ["Elves", 0, 0, 1, true, 1000000]]);
-    expect(anon.unattributedStats).toEqual([]);
-    expect(JSON.stringify(anon)).not.toContain("Leaf");
-    const ann = await read({ coach: "ann", admin: false });
-    expect(ann.teams.map((t) => [t.name, t.players.length, t.rosterHidden ?? false])).toEqual([["Orcs", 1, false], ["Elves", 0, true]]);
-    expect(ann.unattributedStats).toHaveLength(1);
-    expect((await read({ coach: "Mallory", admin: false })).teams.every((t) => t.rosterHidden)).toBe(true);
-    for (const who of [JAY, ROOT]) expect((await read(who)).teams.map((t) => t.players.length)).toEqual([1, 1]);
+    for (const who of [undefined, { coach: "Mallory", admin: false }, { coach: "ann", admin: false }, JAY, ROOT]) {
+      const s = await read(who);
+      expect(s.teams.map((t) => [t.name, t.players.length, t.formerPlayers.length])).toEqual([["Orcs", 1, 1], ["Elves", 1, 0]]);
+      expect(s.teams.some((t) => "rosterHidden" in t || "playerCount" in t)).toBe(false);
+      expect(s.unattributedStats).toHaveLength(1);
+      expect(JSON.stringify(s)).toContain("Leaf");
+    }
+    // the settings read model no longer carries the flag; a client that still sends it changes nothing
+    const view = (await call("GET", "/api/leagues/tabbl/settings", JAY)).body as { settings: { registrations: Record<string, unknown> } };
+    expect(view.settings.registrations).not.toHaveProperty("hideTeamComposition");
+    expect((await call("PATCH", "/api/leagues/tabbl/settings", JAY, { registrations: { hideTeamComposition: true } })).status).toBe(200);
+    expect(store.league("tabbl")!.registrations).not.toHaveProperty("hideTeamComposition");
+    expect((await read()).teams[1]!.players).toHaveLength(1);
   });
 
   it("[P2] toggling a fixture on and off: one notice per recipient per fixture, quiet 24 h, 10 toggles per 10 minutes", async () => {

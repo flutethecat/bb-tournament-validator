@@ -490,9 +490,8 @@ export function buildDraftTeam(ctx: DraftContext, price: DraftPrice, input: Draf
   players.sort((a, b) => (a.number ?? 999) - (b.number ?? 999));
   const st = input.staff;
   const staffValue = st.rerolls * rerollCost(roster) + st.assistantCoaches * STAFF_COST.assistantCoach + st.cheerleaders * STAFF_COST.cheerleader + (st.apothecary ? STAFF_COST.apothecary : 0);
-  const { rosterHidden: _h, playerCount: _c, ...base } = team;
   return {
-    ...structuredClone(base),
+    ...structuredClone(team),
     teamValue: players.reduce((n, p) => n + (p.value ?? 0), 0) + staffValue,
     treasury: price.remaining,
     rerolls: st.rerolls,

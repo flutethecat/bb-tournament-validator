@@ -41,7 +41,7 @@ const view = (over: Partial<LeagueSettingsView> = {}): LeagueSettingsView => ({
   information: { name: "TABBL", fullName: "Tahoma Area Blood Bowl League", description: "Weekly league.", ruleset: "BB2025", mode: "individual",
     address: { country: "CA", region: "BC", postcode: "V6B 4Y8", locality: "Vancouver", street: "1 Main St" } },
   permissions: { owner: "Jay", organisers: ["Kainis"], admins: ["Root"], canEditOrganisers: true, canChangeOwner: false },
-  registrations: { allowedRosters: { official: true, nafApproved: true, unofficial: false }, allowRegistration: true, hideTeamComposition: false, maxRegistrations: 24, maxPerRace: null },
+  registrations: { allowedRosters: { official: true, nafApproved: true, unofficial: false }, allowRegistration: true, maxRegistrations: 24, maxPerRace: null },
   connections: {
     playOnFork: true,
     discord: { configured: true, maskedUrl: "https://discord.com/api/webhooks/…/•••", events: { news: true, fixtureCreated: true, matchStarted: false, matchResult: true, milestones: true } },
@@ -310,7 +310,8 @@ describe("league settings routes (server-rendered)", () => {
 
   it("Registrations: allowed rosters, toggles and limits; no bulk actions", async () => {
     const { html } = await render("/leagues/tabbl/settings?tab=registrations", loaded(), ORGANISER);
-    for (const t of ["Official", "NAF-approved", "Unofficial", "Allow registration", "Hide team composition", "Max registrations", "Max per race"]) expect(html).toContain(t);
+    for (const t of ["Official", "NAF-approved", "Unofficial", "Allow registration", "Max registrations", "Max per race"]) expect(html).toContain(t);
+    expect(html).not.toContain("Hide team composition");
     expect(html).toContain('value="24"');
     expect(html).not.toMatch(/Mark all paid|Check-in all/i);
   });
@@ -385,19 +386,21 @@ describe("league settings routes (server-rendered)", () => {
     const off = await render("/leagues/tabbl?tab=fixtures", detail, ORGANISER, { "/api/leagues/tabbl": { league: league({ playOnFork: false }), seasons: [s5, s6] } });
     expect(off.html).not.toContain("Allow Super FUMBBL");
   });
-  it("teams: a hidden roster shows the note and the player count, never a roster table", async () => {
-    const hidden = (): SeasonRecord => ({ ...season6(), teams: [{
+  it("teams: rosters always render (no hidden-roster note, no player-count-only tile)", async () => {
+    const stats = { td: 0, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 0, performance: 0 };
+    const shown = (): SeasonRecord => ({ ...season6(), teams: [{
       id: "grudge-rollers", name: "Grudge Rollers", race: "Dwarf", coach: "Jay", teamValue: 1000000, treasury: 0, rerolls: 2, fans: 2, assistantCoaches: 0, cheerleaders: 0,
-      apothecary: false, tier: "1", raceLeague: "", players: [], formerPlayers: [], rosterHidden: true, playerCount: 12,
+      apothecary: false, tier: "1", raceLeague: "", formerPlayers: [],
+      players: [{ playerId: "p-d1", number: 1, name: "Durin", position: "Dwarf Blocker", ma: 4, st: 3, ag: 4, pa: 5, av: 10, skills: ["Block"], value: 70000, level: "Rookie", availableSpp: 0, niggling: 0, missNextGame: false, stats }],
     }] });
-    const extra = { "/api/leagues/tabbl/seasons/season-6": () => ({ league: league(), season: hidden() }) };
+    const extra = { "/api/leagues/tabbl/seasons/season-6": () => ({ league: league(), season: shown() }) };
     const list = await render("/leagues/tabbl?tab=teams", detail, COACH, extra);
-    expect(list.html).toContain("Rosters are hidden until the organisers publish them.");
-    expect(list.html).toContain(" · 12 players"); // on the tile, after the team value
+    expect(list.html).not.toContain("Rosters are hidden");
+    expect(list.html).not.toContain("data-roster-hidden");
     const one = await render("/leagues/tabbl?tab=teams&team=grudge-rollers", detail, COACH, extra);
-    expect(one.html).toContain("Rosters are hidden until the organisers publish them. 12 players.");
-    expect(one.html).not.toContain("No roster recorded.");
-    expect(one.html).not.toContain("lg-players");
+    expect(one.html).not.toContain("Rosters are hidden");
+    expect(one.html).toContain("lg-players");
+    expect(one.html).toContain("Durin");
   });
 });
 

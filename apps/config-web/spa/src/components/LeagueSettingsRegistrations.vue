@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // League settings, Registrations: which rosters may register (official / NAF-approved / unofficial), whether
-// registration is open, hide team composition, max registrations and max per race (blank = no limit). No bulk actions
+// registration is open, max registrations and max per race (blank = no limit). No bulk actions
 // here (owner 10-30): mark paid / validated / check in live in a season's Participants tab.
 import { computed, inject, reactive, watch } from "vue";
 import { LEAGUE_SETTINGS_KEY } from "../leagues/settings";
@@ -13,7 +13,7 @@ const fromView = () => {
   const r = view.value.registrations;
   return {
     official: r.allowedRosters.official, nafApproved: r.allowedRosters.nafApproved, unofficial: r.allowedRosters.unofficial,
-    allowRegistration: r.allowRegistration, hideTeamComposition: r.hideTeamComposition,
+    allowRegistration: r.allowRegistration,
     maxRegistrations: r.maxRegistrations === null ? "" : String(r.maxRegistrations),
     maxPerRace: r.maxPerRace === null ? "" : String(r.maxPerRace),
   };
@@ -41,7 +41,7 @@ function save(): void {
   if (!valid.value) return;
   void settings.save("registrations", {
     allowedRosters: { official: form.official, nafApproved: form.nafApproved, unofficial: form.unofficial },
-    allowRegistration: form.allowRegistration, hideTeamComposition: form.hideTeamComposition,
+    allowRegistration: form.allowRegistration,
     maxRegistrations: maxReg.value, maxPerRace: maxRace.value,
   });
 }
@@ -62,7 +62,6 @@ function save(): void {
         <fieldset class="ls-toggles">
           <legend class="ls-k">Sign-up</legend>
           <label class="ls-check"><input v-model="form.allowRegistration" type="checkbox" role="switch" /> Allow registration</label>
-          <label class="ls-check"><input v-model="form.hideTeamComposition" type="checkbox" role="switch" /> Hide team composition</label>
         </fieldset>
         <label class="ls-field" :data-invalid="errors.maxRegistrations ? 'true' : undefined">
           <span>Max registrations</span>

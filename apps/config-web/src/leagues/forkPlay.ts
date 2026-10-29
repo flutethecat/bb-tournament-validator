@@ -31,7 +31,6 @@ import { applyForkResult, type ForkGameResult } from "./forkResult.js";
 import { buildLeagueForkTeam, forkTeamIdFor, ForkTeamBuildError, leagueTeamRevision, rulesetBlocker, type LeagueForkTeamFile } from "./forkTeam.js";
 import { fixturePlayed } from "./tourplay.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
-import { registrationsOf } from "./settings.js";
 import type { FixtureForkState, FixtureForkStatus, ForkSide, LeagueFixture, LeagueRecord, SeasonRecord } from "./types.js";
 
 /** Error a fork client throws with an HTTP status for the coach (503 no account store, 404 no fork account, ...). */
@@ -178,10 +177,7 @@ export function fixtureForkView(league: LeagueRecord, season: SeasonRecord, f: L
   const idle = status === "none" || status === "teams_built";
   const live = (status === "scheduled" || status === "in_progress") && Boolean(fork?.gameId);
   const involved = manager || Boolean(mySide);
-  const hidden = !manager && registrationsOf(league).hideTeamComposition;
-  const result = fork?.result && hidden
-    ? { ...fork.result, home: { ...fork.result.home, lines: mySide === "home" ? fork.result.home.lines : [] }, away: { ...fork.result.away, lines: mySide === "away" ? fork.result.away.lines : [] } }
-    : fork?.result;
+  const result = fork?.result;
   return {
     enabled: league.playOnFork === true && f.forkEnabled === true,
     status,

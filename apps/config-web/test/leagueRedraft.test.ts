@@ -390,7 +390,7 @@ describe("redraft routes", () => {
     const ok = await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/submit", ANN, { revision: 2, keep, hires: [], staff: { rerolls: 0, assistantCoaches: 0, cheerleaders: 0, apothecary: false } });
     expect(ok.status).toBe(200);
     expect(store.season("tabbl", "season-6")!.redraft!.teams.find((t) => t.teamId === "orcs")!.draft!.team.players).toHaveLength(12);
-    store.updateLeague("tabbl", (l) => { l.registrations = { allowedRosters: { official: true, nafApproved: true, unofficial: false }, allowRegistration: false, hideTeamComposition: true, maxRegistrations: null, maxPerRace: null }; });
+    store.updateLeague("tabbl", (l) => { l.registrations = { allowedRosters: { official: true, nafApproved: true, unofficial: false }, allowRegistration: false, maxRegistrations: null, maxPerRace: null }; });
     for (const who of [undefined, BOB, ANN]) {
       const r = await call("GET", "/api/leagues/tabbl/seasons/season-6", who);
       expect(r.status).toBe(200);

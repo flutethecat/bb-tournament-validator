@@ -740,26 +740,15 @@ async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: s
   return { status: 200, body: { ok: true, fixture: publicForkState(fixture) } };
 }
 
-// ---- season read model: hidden team composition --------------------------------------------------------------------
+// ---- season read model ---------------------------------------------------------------------------------------------
 
 /**
- * The season as this viewer may see it. Always drops the internal fork-notice bookkeeping. When the league hides team
- * composition, coaches other than the league's organisers / site admins see every other team without its players
- * (player count and team value only, rosterHidden); a coach still sees their own team's roster.
+ * The season as this viewer may see it: rosters are always visible (owner 10-30); the internal fork-notice bookkeeping
+ * and the redraft state never leave the server in a season read.
  */
-export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: LeagueApiIdentity | undefined): SeasonRecord {
+export function seasonForViewer(_league: LeagueRecord, full: SeasonRecord, _auth: LeagueApiIdentity | undefined): SeasonRecord {
   // Redraft state (budgets, R&R, draft rosters) is served only by the authorised redraft routes, never in a season read.
   const { redraft: _r, ...season } = full;
   const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork ? publicForkState(f) : f));
-  const manager = Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach)));
-  if (manager || !registrationsOf(league).hideTeamComposition) return { ...season, fixtures };
-  const me = auth?.coach.trim().toLowerCase() ?? "";
-  const mine = (t: LeagueTeam): boolean => Boolean(me) && [t.coachId, t.coach].some((c) => c?.trim().toLowerCase() === me);
-  const hidden = new Set<string>();
-  const teams = season.teams.map((t) => {
-    if (mine(t)) return t;
-    hidden.add(t.id);
-    return { ...t, players: [], formerPlayers: [], playerCount: t.players.length, rosterHidden: true };
-  });
-  return { ...season, fixtures, teams, unattributedStats: (season.unattributedStats ?? []).filter((u) => !u.teamId || !hidden.has(u.teamId)) };
+  return { ...season, fixtures };
 }

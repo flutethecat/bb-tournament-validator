@@ -4,7 +4,7 @@
  * Sections (PATCH /api/leagues/:id/settings, one or more per call, all validated before anything is written):
  *   administration  { addOrganiser?, removeOrganiser?, owner? }   owner / admin change organisers; only an admin the owner
  *   information     { name, fullName, description, ruleset, mode, address }
- *   registrations   { allowedRosters, allowRegistration, hideTeamComposition, maxRegistrations, maxPerRace }
+ *   registrations   { allowedRosters, allowRegistration, maxRegistrations, maxPerRace }
  *   teamBuilding    { seasonId, rosters: [{ roster, tier, treasury, startingSkills }] }   saved on the season's rules
  *   connections     { playOnFork?, discord?: { url?: string | null, events? } }
  *
@@ -106,16 +106,19 @@ export function parseAddress(raw: unknown): LeagueAddress | undefined {
 export const DEFAULT_REGISTRATIONS: LeagueRegistrations = {
   allowedRosters: { official: true, nafApproved: true, unofficial: false },
   allowRegistration: false,
-  hideTeamComposition: false,
   maxRegistrations: null,
   maxPerRace: null,
 };
 
-export const registrationsOf = (league: Pick<LeagueRecord, "registrations">): LeagueRegistrations => ({
-  ...DEFAULT_REGISTRATIONS,
-  ...(league.registrations ?? {}),
-  allowedRosters: { ...DEFAULT_REGISTRATIONS.allowedRosters, ...(league.registrations?.allowedRosters ?? {}) },
-});
+/** Rosters are always visible (owner 10-30): a stored hideTeamComposition from before the setting was removed is dropped. */
+export const registrationsOf = (league: Pick<LeagueRecord, "registrations">): LeagueRegistrations => {
+  const { hideTeamComposition: _legacy, ...stored } = (league.registrations ?? {}) as Partial<LeagueRegistrations> & { hideTeamComposition?: unknown };
+  return {
+    ...DEFAULT_REGISTRATIONS,
+    ...stored,
+    allowedRosters: { ...DEFAULT_REGISTRATIONS.allowedRosters, ...(stored.allowedRosters ?? {}) },
+  };
+};
 
 const limit = (v: unknown, field: string, max: number): number | null => (v === null || v === 0 ? null : int(v, field, 1, max));
 
@@ -129,7 +132,6 @@ export function parseRegistrations(raw: unknown, prior: LeagueRegistrations): Le
       throw new SettingsError(400, "Allow at least one kind of roster.", "allowedRosters");
   }
   if (r.allowRegistration !== undefined) next.allowRegistration = bool(r.allowRegistration, "allowRegistration");
-  if (r.hideTeamComposition !== undefined) next.hideTeamComposition = bool(r.hideTeamComposition, "hideTeamComposition");
   if (r.maxRegistrations !== undefined) next.maxRegistrations = limit(r.maxRegistrations, "Max registrations", 512);
   if (r.maxPerRace !== undefined) next.maxPerRace = limit(r.maxPerRace, "Max per race", 64);
   if (next.maxRegistrations !== null && next.maxPerRace !== null && next.maxPerRace > next.maxRegistrations)

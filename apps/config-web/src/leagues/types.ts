@@ -56,7 +56,6 @@ export interface LeagueAddress {
 export interface LeagueRegistrations {
   allowedRosters: { official: boolean; nafApproved: boolean; unofficial: boolean };
   allowRegistration: boolean;
-  hideTeamComposition: boolean;
   /** null = no limit. */
   maxRegistrations: number | null;
   /** null = no limit. */
@@ -367,10 +366,6 @@ export interface LeagueTeam {
   raceLeague: string;
   players: LeaguePlayer[];
   formerPlayers: FormerPlayer[];
-  /** Read model only: the league hides team composition from this viewer (players emptied). */
-  rosterHidden?: boolean;
-  /** Read model only, with rosterHidden: how many players the roster has. */
-  playerCount?: number;
 }
 
 export type HonourKind = "player" | "team" | "coach";

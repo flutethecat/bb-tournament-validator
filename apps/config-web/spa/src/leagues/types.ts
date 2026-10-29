@@ -222,9 +222,6 @@ export interface LeagueTeam {
   raceLeague: string;
   players: LeaguePlayer[];
   formerPlayers: FormerPlayer[];
-  /** The league hides team composition from this viewer: players emptied, playerCount kept. */
-  rosterHidden?: boolean;
-  playerCount?: number;
 }
 
 export type HonourValue = number | string | Record<string, number | string>;
@@ -307,7 +304,6 @@ export interface LeagueAddress { country: LeagueCountry; region: string; postcod
 export interface LeagueRegistrations {
   allowedRosters: { official: boolean; nafApproved: boolean; unofficial: boolean };
   allowRegistration: boolean;
-  hideTeamComposition: boolean;
   maxRegistrations: number | null;
   maxPerRace: number | null;
 }
