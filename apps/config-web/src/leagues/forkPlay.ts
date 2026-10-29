@@ -12,16 +12,22 @@
  *   POST .../fork/sync         organisers: look for the result now (the server also checks on a timer)
  *
  * The fork itself is reached only through `LeagueForkClient` (forkClient.ts on the server; a stub in tests), so no test
- * ever schedules a real game. Every fixture's fork work runs under one in-process lock, and every store write re-reads
- * the season first and replaces only this fixture's fork state, so a double click or a timer tick never doubles a team,
- * a game or a result.
+ * ever schedules a real game. Every fixture's fork work runs under one in-process lock, building and scheduling also
+ * under a lock per fork team (two fixtures of one team never interleave), and every store write re-reads the season
+ * first and replaces only this fixture's fork state, so a double click or a timer tick never doubles a team, a game or
+ * a result.
+ *
+ * Game references are never dropped on a guess: an unclear schedule answer is marked uncertain and Reset first looks
+ * for the game on the fork; Cancel withdraws only a game that has not started (the fork confirms), otherwise the game
+ * is kept and still synced; the first Start Game rebuilds a team whose league roster changed since it was built
+ * (withdrawing the unstarted game first), and once play has started that team's league roster is locked.
  */
 import type { NotificationInput } from "../notifications.js";
 import type { LeagueApiIdentity, LeagueApiResult } from "./api.js";
 import { buildFixturePost, discordEvents, postWebhook as defaultPoster, type WebhookPoster } from "./discord.js";
 import { readJsonObject, type BodyDeps } from "./http.js";
 import { applyForkResult, type ForkGameResult } from "./forkResult.js";
-import { buildLeagueForkTeam, ForkTeamBuildError, type LeagueForkTeamFile } from "./forkTeam.js";
+import { buildLeagueForkTeam, forkTeamIdFor, ForkTeamBuildError, leagueTeamRevision, rulesetBlocker, type LeagueForkTeamFile } from "./forkTeam.js";
 import { fixturePlayed } from "./tourplay.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import { registrationsOf } from "./settings.js";
@@ -33,18 +39,26 @@ export class ForkClientError extends Error {
 }
 
 export type ForkScheduleOutcome = { kind: "scheduled"; gameId: string } | { kind: "rejected" | "unknown"; error: string };
+export type ForkFindOutcome = { kind: "found"; gameId: string } | { kind: "none" } | { kind: "unknown"; error: string };
 export interface ForkGameState { status: "scheduled" | "active" | "finished"; playedAt?: string }
 
 /** Everything the league needs from the fork. */
 export interface LeagueForkClient {
   /** Fork roster files by roster id. */
   rosters(): ReadonlyMap<string, string>;
-  /** Write (or rewrite) these team files, list them in their coaches' libraries, and make the fork load them. Throws with a readable reason. */
-  installTeams(teams: Array<{ coach: string; file: LeagueForkTeamFile }>): Promise<void>;
-  schedule(homeForkTeamId: string, awayForkTeamId: string): Promise<ForkScheduleOutcome>;
-  /** A seat's launch file for this coach (their own credential). Throws ForkClientError. */
+  /**
+   * In ONE critical section (the fork's team write locks for both teams and the cache-generation lock): check neither
+   * team is in a live game, write `install` (rewrite the team files, list them in the coaches' libraries, reload), then
+   * schedule home vs away. Throws, with nothing installed, when the check or the install fails.
+   */
+  prepareGame(input: { install: Array<{ coach: string; file: LeagueForkTeamFile }>; home: string; away: string }): Promise<ForkScheduleOutcome>;
+  /** Is there a game between these two fork teams (live or finished)? "unknown" when the fork cannot confirm either way. */
+  findGame(home: string, away: string): Promise<ForkFindOutcome>;
+  /** Withdraws a game that has not started; true only when the fork confirms it. */
+  deleteGame(gameId: string): Promise<boolean>;
+  /** A seat's launch file for this coach (their own credential), under the game-start gate. Throws ForkClientError. */
   launchFile(input: { coach: string; teamId: string; gameName: string; gameId: string }): Promise<string>;
-  /** What the fork says about these games (absent = unknown). */
+  /** What the fork says about these games (absent = unknown). Throws when the fork's lists cannot be confirmed. */
   gameStates(gameIds: string[]): Promise<Map<string, ForkGameState>>;
   /** A finished game's result: full (the server's FumbblResult) when readable, else basic; undefined when not available yet. */
   result(gameId: string, playedAt?: string): Promise<ForkGameResult | undefined>;
@@ -92,6 +106,13 @@ function withFixtureLock<T>(key: string, task: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** Runs `task` holding the lock of every fork team id (taken in sorted order, so two callers never deadlock). */
+function withTeamLocks<T>(teamIds: string[], task: () => Promise<T>): Promise<T> {
+  const ids = [...new Set(teamIds)].sort();
+  const step = (i: number): Promise<T> => (i >= ids.length ? task() : withFixtureLock(`team:${ids[i]}`, () => step(i + 1)));
+  return step(0);
+}
+
 // ---- who ----
 
 function admins(deps: ForkRouteDeps): string[] {
@@ -106,6 +127,8 @@ export function seatOf(f: LeagueFixture, coach: string | undefined): ForkSide | 
 /** Why this fixture cannot be generated on Super FUMBBL right now ("" = it can). */
 export function generateBlocker(league: LeagueRecord, season: SeasonRecord, f: LeagueFixture): string {
   if (league.playOnFork !== true) return "Play on Super FUMBBL is off for this league.";
+  const edition = rulesetBlocker(season.ruleset);
+  if (edition) return edition;
   if (f.forkEnabled !== true) return "An organiser has not allowed this fixture on Super FUMBBL.";
   if (f.forkCancelled) return "Super FUMBBL play is cancelled for this fixture.";
   if (fixturePlayed(f)) return "This fixture already has a result.";
@@ -245,94 +268,121 @@ export function inviteNotices(league: LeagueRecord, seasonId: string, f: LeagueF
   return out;
 }
 
-async function generate(deps: ForkRouteDeps, client: LeagueForkClient, leagueId: string, seasonId: string, fixtureId: string, who: LeagueApiIdentity): Promise<LeagueApiResult> {
+/** A fixture whose Super FUMBBL game holds its teams: scheduled, running, or cancelled with a game still on the fork. */
+const holdsGame = (f: LeagueFixture): boolean => Boolean(f.fork?.gameId) && ["scheduled", "in_progress", "cancelled"].includes(f.fork!.status);
+
+/**
+ * Builds the given sides' fork teams from the league rosters as they are now and schedules the game, in the fork
+ * client's single critical section; records the outcome on the fixture. Runs under the fixture lock and both team locks.
+ */
+async function buildAndSchedule(deps: ForkRouteDeps, client: LeagueForkClient, leagueId: string, seasonId: string, fixtureId: string, who: string, rebuild: ForkSide[]): Promise<
+  { ok: true; season: SeasonRecord; fixture: LeagueFixture; scheduled: boolean; invite: boolean } | { ok: false; result: LeagueApiResult }> {
   const now = (): Date => deps.now?.() ?? new Date();
   const at = locate(deps.store, leagueId, seasonId, fixtureId);
-  if (isResult(at)) return at;
-  const { league, season, fixture } = at;
-  const mySide = seatOf(fixture, who.coach);
-  if (!mySide && !isManager(league, who)) return fail(403, "Only the coaches of this fixture and the league organisers can generate it on Super FUMBBL.");
-  const status = fixture.fork?.status;
-  if (status === "scheduled" || status === "in_progress") return res(200, { ok: true, fork: fixtureForkView(league, season, fixture, who) });
-  if (status === "finished") return fail(409, "This fixture's Super FUMBBL game is finished.");
-  if (status === "launch_failed") return fail(409, "The last attempt failed. An organiser can reset the game and try again.");
-  const blocker = generateBlocker(league, season, fixture);
-  if (blocker) return fail(409, blocker);
-
-  // Fork teams: built once per fixture from the league roster as it is now. A team that is in another Super FUMBBL game
-  // right now is not rewritten under it.
-  const need = SIDES.filter((s) => !fixture.fork?.teams[s]);
-  const files: Partial<Record<ForkSide, LeagueForkTeamFile>> = {};
-  for (const s of need) {
+  if (isResult(at)) return { ok: false, result: at };
+  const { season, fixture } = at;
+  for (const s of rebuild) {
     const side = fixture[s];
-    const busy = season.fixtures.find((o) => o.id !== fixture.id && (o.fork?.status === "scheduled" || o.fork?.status === "in_progress")
-      && SIDES.some((x) => o.fork?.teams[x]?.teamId === side.teamId));
-    if (busy) return fail(409, `${side.team} is in another Super FUMBBL game (${busy.home.team} vs ${busy.away.team}). Finish that one first.`);
+    const busy = season.fixtures.find((o) => o.id !== fixture.id && holdsGame(o) && SIDES.some((x) => o.fork?.teams[x]?.teamId === side.teamId));
+    if (busy) return { ok: false, result: fail(409, `${side.team} is in another Super FUMBBL game (${busy.home.team} vs ${busy.away.team}). Finish that one first.`) };
+  }
+  const files: Partial<Record<ForkSide, LeagueForkTeamFile>> = {};
+  for (const s of rebuild) {
+    const side = fixture[s];
     try {
-      files[s] = buildLeagueForkTeam({ leagueId, seasonId, team: season.teams.find((t) => t.id === side.teamId)!, coach: side.coachId!, rosters: client.rosters(), now: now() });
+      files[s] = buildLeagueForkTeam({ leagueId, seasonId, team: season.teams.find((t) => t.id === side.teamId)!, coach: side.coachId!, rosters: client.rosters(), ruleset: season.ruleset, now: now() });
     } catch (e) {
-      if (e instanceof ForkTeamBuildError) return fail(409, e.message);
+      if (e instanceof ForkTeamBuildError) return { ok: false, result: fail(409, e.message) };
       throw e;
     }
   }
-  if (need.length) {
-    try {
-      await client.installTeams(need.map((s) => ({ coach: fixture[s].coachId!, file: files[s]! })));
-    } catch (e) {
-      const reason = e instanceof Error && e.message ? e.message : "the fork did not load the teams";
-      saveFork(deps.store, leagueId, seasonId, fixtureId, (f) => {
-        f.fork ??= { status: "teams_built", teams: {}, log: [] };
-        log(f.fork, now(), who.coach, `Team build failed: ${reason}`);
-        if (!SIDES.every((x) => f.fork!.teams[x])) f.fork.error = `Team build failed: ${reason}`;
-      });
-      return fail(502, `The teams could not be built on Super FUMBBL: ${reason}`);
-    }
+  const forkId = (s: ForkSide): string => files[s]?.forkTeamId ?? fixture.fork?.teams[s]?.forkTeamId ?? forkTeamIdFor(leagueId, seasonId, fixture[s].teamId!);
+  let outcome: ForkScheduleOutcome;
+  try {
+    outcome = await client.prepareGame({ install: rebuild.map((s) => ({ coach: fixture[s].coachId!, file: files[s]! })), home: forkId("home"), away: forkId("away") });
+  } catch (e) {
+    const reason = e instanceof Error && e.message ? e.message : "the fork did not load the teams";
+    saveFork(deps.store, leagueId, seasonId, fixtureId, (f) => {
+      f.fork ??= { status: "teams_built", teams: {}, log: [] };
+      log(f.fork, now(), who, `Team build failed: ${reason}`);
+      if (!SIDES.every((x) => f.fork!.teams[x])) f.fork.error = `Team build failed: ${reason}`;
+    });
+    return { ok: false, result: fail(502, `The teams could not be prepared on Super FUMBBL: ${reason}`) };
   }
-  const built = saveFork(deps.store, leagueId, seasonId, fixtureId, (f) => {
-    const fork: FixtureForkState = f.fork ?? { status: "teams_built", teams: {}, log: [] };
-    for (const s of need) {
-      const file = files[s]!;
-      fork.teams[s] = { teamId: f[s].teamId!, forkTeamId: file.forkTeamId, coach: f[s].coachId!, builtAt: now().toISOString(), players: file.players };
-    }
-    if (need.length) log(fork, now(), who.coach, `Built ${need.map((s) => f[s].team).join(" and ")} on Super FUMBBL.`);
-    fork.status = "teams_built";
-    delete fork.error;
-    fork.generatedBy ??= who.coach;
-    fork.generatedAt ??= now().toISOString();
-    f.fork = fork;
-  });
-  const fx = built?.fixtures.find((f) => f.id === fixtureId);
-  if (!built || !fx?.fork) return fail(404, "Fixture not found.");
-
-  // The game: scheduled once (a second click finds the game id and stops above).
-  const outcome = await client.schedule(fx.fork.teams.home!.forkTeamId, fx.fork.teams.away!.forkTeamId);
   let invite = false;
   const saved = saveFork(deps.store, leagueId, seasonId, fixtureId, (f) => {
-    const fork = f.fork!;
+    const fork: FixtureForkState = f.fork ?? { status: "teams_built", teams: {}, log: [] };
+    for (const s of rebuild) {
+      const file = files[s]!;
+      fork.teams[s] = { teamId: f[s].teamId!, forkTeamId: file.forkTeamId, coach: f[s].coachId!, builtAt: now().toISOString(), players: file.players, revision: file.revision };
+    }
+    if (rebuild.length) log(fork, now(), who, `Built ${rebuild.map((s) => f[s].team).join(" and ")} on Super FUMBBL from the league roster.`);
+    fork.generatedBy ??= who;
+    fork.generatedAt ??= now().toISOString();
     if (outcome.kind === "scheduled") {
       fork.status = "scheduled";
       fork.gameId = outcome.gameId;
       fork.gameName = `league-${fixtureId}`.slice(0, 60);
       fork.scheduledAt = now().toISOString();
       delete fork.error;
-      log(fork, now(), who.coach, `Scheduled game ${outcome.gameId}.`);
+      delete fork.uncertain;
+      log(fork, now(), who, `Scheduled game ${outcome.gameId}.`);
       invite = !fork.invited;
       fork.invited = true;
       f.startedAt ??= now().toISOString();
     } else {
       fork.status = "launch_failed";
+      if (outcome.kind === "unknown") fork.uncertain = true; else delete fork.uncertain;
       fork.error = outcome.kind === "unknown" ? `The fork did not answer clearly; a game may exist (${outcome.error}).` : outcome.error;
-      log(fork, now(), who.coach, `Scheduling failed: ${fork.error}`);
+      log(fork, now(), who, `Scheduling failed: ${fork.error}`);
     }
+    f.fork = fork;
   });
   const final = saved?.fixtures.find((f) => f.id === fixtureId);
-  if (!saved || !final) return fail(404, "Fixture not found.");
-  if (invite) {
-    for (const n of inviteNotices(league, seasonId, final, who.coach, admins(deps))) send(deps, n.coach, n.input);
-    await discord(deps, league, "fixtureCreated", `${final.home.team} vs ${final.away.team} on Super FUMBBL`, `${who.coach} generated this ${saved.name} fixture on Super FUMBBL.`);
-  }
-  const view = fixtureForkView(league, saved, final, who);
-  return outcome.kind === "scheduled" ? res(200, { ok: true, fork: view }) : res(502, { error: final.fork!.error, fork: view });
+  if (!saved || !final) return { ok: false, result: fail(404, "Fixture not found.") };
+  return { ok: true, season: saved, fixture: final, scheduled: outcome.kind === "scheduled", invite };
+}
+
+/** Sides whose fork team is missing or was built from an older league roster. */
+function staleSides(season: SeasonRecord, f: LeagueFixture): ForkSide[] {
+  return SIDES.filter((s) => {
+    const built = f.fork?.teams[s];
+    if (!built) return true;
+    const team = season.teams.find((t) => t.id === f[s].teamId);
+    return Boolean(team && built.revision && built.revision !== leagueTeamRevision(team));
+  });
+}
+
+async function generate(deps: ForkRouteDeps, client: LeagueForkClient, leagueId: string, seasonId: string, fixtureId: string, who: LeagueApiIdentity): Promise<LeagueApiResult> {
+  const at = locate(deps.store, leagueId, seasonId, fixtureId);
+  if (isResult(at)) return at;
+  const { league, fixture } = at;
+  if (!seatOf(fixture, who.coach) && !isManager(league, who)) return fail(403, "Only the coaches of this fixture and the league organisers can generate it on Super FUMBBL.");
+  const precheck = (x: Located): LeagueApiResult | undefined => {
+    const status = x.fixture.fork?.status;
+    if (status === "scheduled" || status === "in_progress") return res(200, { ok: true, fork: fixtureForkView(x.league, x.season, x.fixture, who) });
+    if (status === "finished") return fail(409, "This fixture's Super FUMBBL game is finished.");
+    if (status === "launch_failed") return fail(409, "The last attempt failed. An organiser can reset the game and try again.");
+    const blocker = generateBlocker(x.league, x.season, x.fixture);
+    return blocker ? fail(409, blocker) : undefined;
+  };
+  const early = precheck(at);
+  if (early) return early;
+  const teamIds = SIDES.map((s) => forkTeamIdFor(leagueId, seasonId, fixture[s].teamId!));
+  return withTeamLocks(teamIds, async () => {
+    const again = locate(deps.store, leagueId, seasonId, fixtureId);
+    if (isResult(again)) return again;
+    const stop = precheck(again);
+    if (stop) return stop;
+    const done = await buildAndSchedule(deps, client, leagueId, seasonId, fixtureId, who.coach, staleSides(again.season, again.fixture));
+    if (!done.ok) return done.result;
+    if (done.invite) {
+      for (const n of inviteNotices(league, seasonId, done.fixture, who.coach, admins(deps))) send(deps, n.coach, n.input);
+      await discord(deps, league, "fixtureCreated", `${done.fixture.home.team} vs ${done.fixture.away.team} on Super FUMBBL`, `${who.coach} generated this ${done.season.name} fixture on Super FUMBBL.`);
+    }
+    const view = fixtureForkView(league, done.season, done.fixture, who);
+    return done.scheduled ? res(200, { ok: true, fork: view }) : res(502, { error: done.fixture.fork!.error, fork: view });
+  });
 }
 
 function seatedLive(at: Located, who: LeagueApiIdentity): { side: ForkSide; fork: FixtureForkState } | LeagueApiResult {
@@ -345,6 +395,49 @@ function seatedLive(at: Located, who: LeagueApiIdentity): { side: ForkSide; fork
   return { side, fork };
 }
 
+/** Play has started for this fixture: a coach took a launch file, or the fork runs the game. */
+const playStarted = (f: LeagueFixture): boolean => f.fork?.status === "in_progress" || Boolean(f.fork?.launched && Object.keys(f.fork.launched).length);
+
+/**
+ * Before the first launch: a team whose league roster changed since it was built is rebuilt, and the unstarted game is
+ * withdrawn (the fork confirms) and scheduled again with the fresh teams. After play starts nothing is rebuilt.
+ */
+async function launch(deps: ForkRouteDeps, client: LeagueForkClient, leagueId: string, seasonId: string, fixtureId: string, who: LeagueApiIdentity): Promise<LeagueApiResult> {
+  const at = locate(deps.store, leagueId, seasonId, fixtureId);
+  if (isResult(at)) return at;
+  const seat = seatedLive(at, who);
+  if ("status" in seat) return seat;
+  const stale = playStarted(at.fixture) || seat.fork.status !== "scheduled" ? [] : staleSides(at.season, at.fixture);
+  if (stale.length) {
+    const teamIds = SIDES.map((s) => seat.fork.teams[s]?.forkTeamId ?? forkTeamIdFor(leagueId, seasonId, at.fixture[s].teamId!));
+    const refreshed = await withTeamLocks(teamIds, async (): Promise<LeagueApiResult | undefined> => {
+      const old = seat.fork.gameId!;
+      if (!(await client.deleteGame(old))) {
+        return fail(409, "A league roster changed since this game was set up, and the old game could not be withdrawn on Super FUMBBL. Try again shortly.");
+      }
+      const t = deps.now?.() ?? new Date();
+      saveFork(deps.store, leagueId, seasonId, fixtureId, (f) => {
+        const fork = f.fork!;
+        delete fork.gameId; delete fork.gameName; delete fork.scheduledAt;
+        fork.status = "teams_built";
+        log(fork, t, who.coach, `Withdrew game ${old}: the league roster of ${stale.map((s) => f[s].team).join(" and ")} changed since it was built.`);
+      });
+      const done = await buildAndSchedule(deps, client, leagueId, seasonId, fixtureId, who.coach, stale);
+      if (!done.ok) return done.result;
+      if (!done.scheduled) return res(502, { error: done.fixture.fork!.error, fork: fixtureForkView(at.league, done.season, done.fixture, who) });
+      return undefined;
+    });
+    if (refreshed) return refreshed;
+  }
+  const t = deps.now?.() ?? new Date();
+  const saved = saveFork(deps.store, leagueId, seasonId, fixtureId, (f) => {
+    if (!f.fork) return;
+    f.fork.launched = { ...(f.fork.launched ?? {}), [seat.side]: t.toISOString() };
+  });
+  const gameId = saved?.fixtures.find((f) => f.id === fixtureId)?.fork?.gameId;
+  return res(200, { ok: true, jnlpUrl: `/api/leagues/${encodeURIComponent(leagueId)}/seasons/${encodeURIComponent(seasonId)}/fixtures/${encodeURIComponent(fixtureId)}/fork/jnlp`, side: seat.side, gameId, ...(stale.length ? { rebuilt: stale } : {}) });
+}
+
 async function reset(deps: ForkRouteDeps, leagueId: string, seasonId: string, fixtureId: string, who: LeagueApiIdentity, input: Record<string, unknown>): Promise<LeagueApiResult> {
   const at = locate(deps.store, leagueId, seasonId, fixtureId);
   if (isResult(at)) return at;
@@ -352,8 +445,31 @@ async function reset(deps: ForkRouteDeps, leagueId: string, seasonId: string, fi
   const reason = typeof input.reason === "string" ? input.reason.replace(/\s+/g, " ").trim() : "";
   if (!reason) return fail(400, "Give a reason for the reset.");
   if (reason.length > RESET_REASON_MAX) return fail(400, `Keep the reason under ${RESET_REASON_MAX} characters.`);
-  if (at.fixture.fork?.status !== "launch_failed") return fail(409, "Only a failed Super FUMBBL game can be reset.");
+  const fork0 = at.fixture.fork;
+  if (fork0?.status !== "launch_failed") return fail(409, "Only a failed Super FUMBBL game can be reset.");
   const now = deps.now?.() ?? new Date();
+  // An unclear schedule answer may have made a game: look for it before letting anyone schedule another.
+  if (fork0.uncertain) {
+    if (!deps.fork) return fail(503, "Super FUMBBL is not connected on this server, so the possible game cannot be checked.");
+    const home = fork0.teams.home?.forkTeamId;
+    const away = fork0.teams.away?.forkTeamId;
+    const found: ForkFindOutcome = home && away ? await deps.fork.findGame(home, away) : { kind: "none" };
+    if (found.kind === "unknown") return fail(503, "Super FUMBBL could not confirm whether the game exists. Try the reset again shortly.");
+    if (found.kind === "found") {
+      const saved = saveFork(deps.store, leagueId, seasonId, fixtureId, (f) => {
+        const fork = f.fork!;
+        fork.status = "scheduled";
+        fork.gameId = found.gameId;
+        fork.gameName ??= `league-${fixtureId}`.slice(0, 60);
+        fork.scheduledAt ??= now.toISOString();
+        delete fork.error;
+        delete fork.uncertain;
+        log(fork, now, who.coach, `Reset asked (${reason}); game ${found.gameId} was found on Super FUMBBL and kept.`);
+      });
+      const f = saved?.fixtures.find((x) => x.id === fixtureId);
+      return saved && f ? res(200, { ok: true, found: found.gameId, fork: fixtureForkView(at.league, saved, f, who) }) : fail(404, "Fixture not found.");
+    }
+  }
   const saved = saveFork(deps.store, leagueId, seasonId, fixtureId, (f) => {
     const fork = f.fork!;
     const old = fork.gameId;
@@ -362,6 +478,7 @@ async function reset(deps: ForkRouteDeps, leagueId: string, seasonId: string, fi
     delete fork.scheduledAt;
     delete fork.error;
     delete fork.launched;
+    delete fork.uncertain;
     fork.status = "teams_built";
     log(fork, now, who.coach, `Reset${old ? ` (game ${old} dropped)` : ""}: ${reason}`);
   });
@@ -369,29 +486,58 @@ async function reset(deps: ForkRouteDeps, leagueId: string, seasonId: string, fi
   return saved && f ? res(200, { ok: true, fork: fixtureForkView(at.league, saved, f, who) }) : fail(404, "Fixture not found.");
 }
 
-/** Admin per-game settings (from the fixture PATCH): late launch and cancel. Returns the log line, if any. */
-export function applyForkSettings(f: LeagueFixture, input: { forkAllowLate?: boolean; forkCancelled?: boolean }, by: string, now: Date): void {
-  if (input.forkAllowLate !== undefined) {
-    if (input.forkAllowLate) f.forkAllowLate = true; else delete f.forkAllowLate;
-    if (f.fork) log(f.fork, now, by, input.forkAllowLate ? "Allowed a late launch." : "Late launch no longer allowed.");
-  }
-  if (input.forkCancelled !== undefined) {
-    const was = f.forkCancelled === true;
-    if (input.forkCancelled) f.forkCancelled = true; else delete f.forkCancelled;
-    if (f.fork && was !== input.forkCancelled && f.fork.status !== "finished") {
-      if (input.forkCancelled) {
-        f.fork.status = "cancelled";
-        log(f.fork, now, by, `Cancelled Super FUMBBL play${f.fork.gameId ? ` (game ${f.fork.gameId})` : ""}.`);
-      } else {
-        delete f.fork.gameId;
-        delete f.fork.gameName;
-        delete f.fork.scheduledAt;
-        delete f.fork.launched;
-        f.fork.status = "teams_built";
-        log(f.fork, now, by, "Super FUMBBL play allowed again; generate the game again.");
-      }
+/** "Allow late launch" with the fixture's Allow switch (no fork call). */
+export function applyForkSettings(f: LeagueFixture, input: { forkAllowLate?: boolean }, by: string, now: Date): void {
+  if (input.forkAllowLate === undefined) return;
+  if (input.forkAllowLate) f.forkAllowLate = true; else delete f.forkAllowLate;
+  if (f.fork) log(f.fork, now, by, input.forkAllowLate ? "Allowed a late launch." : "Late launch no longer allowed.");
+}
+
+/**
+ * Admin per-game settings (fixture PATCH without forkEnabled): late launch and cancel, under the fixture lock.
+ * Cancel withdraws the fork game only when it has not started and the fork confirms; otherwise the game is kept, its
+ * reference stays and the result is still synced. Allowing play again returns to where the fixture was.
+ */
+export async function updateForkSettings(deps: ForkRouteDeps, leagueId: string, seasonId: string, fixtureId: string, who: LeagueApiIdentity, input: { forkAllowLate?: boolean; forkCancelled?: boolean }): Promise<LeagueApiResult> {
+  return withFixtureLock(`${leagueId}/${seasonId}/${fixtureId}`, async () => {
+    const at = locate(deps.store, leagueId, seasonId, fixtureId);
+    if (isResult(at)) return at;
+    const fork0 = at.fixture.fork;
+    if (fork0?.status === "finished" && input.forkCancelled === true) return fail(409, "This fixture's Super FUMBBL game is finished.");
+    const now = deps.now?.() ?? new Date();
+    let withdrew: string | undefined;
+    const cancelling = input.forkCancelled === true && at.fixture.forkCancelled !== true;
+    if (cancelling && fork0?.gameId && fork0.status === "scheduled" && !playStarted(at.fixture) && deps.fork) {
+      if (await deps.fork.deleteGame(fork0.gameId)) withdrew = fork0.gameId;
     }
-  }
+    const saved = saveFork(deps.store, leagueId, seasonId, fixtureId, (f) => {
+      applyForkSettings(f, input, who.coach, now);
+      if (input.forkCancelled === undefined) return;
+      const was = f.forkCancelled === true;
+      if (input.forkCancelled) f.forkCancelled = true; else delete f.forkCancelled;
+      const fork = f.fork;
+      if (!fork || was === input.forkCancelled || fork.status === "finished") return;
+      if (input.forkCancelled) {
+        fork.statusBeforeCancel = fork.status;
+        if (withdrew && fork.gameId === withdrew) {
+          delete fork.gameId; delete fork.gameName; delete fork.scheduledAt; delete fork.launched;
+          fork.statusBeforeCancel = "teams_built";
+          log(fork, now, who.coach, `Cancelled Super FUMBBL play; game ${withdrew} was withdrawn.`);
+        } else if (fork.gameId) {
+          log(fork, now, who.coach, `Cancelled Super FUMBBL play. Game ${fork.gameId} could not be withdrawn (it may have started); it stays watched and its result still counts.`);
+        } else {
+          log(fork, now, who.coach, "Cancelled Super FUMBBL play.");
+        }
+        fork.status = "cancelled";
+      } else if (fork.status === "cancelled") {
+        fork.status = fork.statusBeforeCancel ?? (fork.gameId ? "scheduled" : "teams_built");
+        delete fork.statusBeforeCancel;
+        log(fork, now, who.coach, "Super FUMBBL play allowed again.");
+      }
+    });
+    const f = saved?.fixtures.find((x) => x.id === fixtureId);
+    return f ? res(200, { ok: true, fixture: publicForkState(f) }) : fail(404, "Fixture not found.");
+  });
 }
 
 // ---- results ----
@@ -448,7 +594,8 @@ export async function syncLeagueForkResults(deps: SyncDeps, only?: { leagueId: s
       if (only && season.id !== only.seasonId) continue;
       for (const f of season.fixtures) {
         if (only && f.id !== only.fixtureId) continue;
-        if (f.fork?.gameId && (f.fork.status === "scheduled" || f.fork.status === "in_progress"))
+        // Cancelled fixtures keep syncing a game the fork still has (it may have been played).
+        if (f.fork?.gameId && (f.fork.status === "scheduled" || f.fork.status === "in_progress" || f.fork.status === "cancelled"))
           open.push({ leagueId: league.id, seasonId: season.id, fixtureId: f.id, gameId: f.fork.gameId, status: f.fork.status });
       }
     }
@@ -536,21 +683,12 @@ export async function leagueForkRoutes(
     if (isResult(now)) return now;
     return res(200, { ok: true, applied: out.applied, errors: out.errors, fork: fixtureForkView(now.league, now.season, now.fixture, auth) });
   }
+  if (action === "launch") return withFixtureLock(key, () => launch(deps, client, leagueId, seasonId, fixtureId, auth));
   const at = locate(deps.store, leagueId, seasonId, fixtureId);
   if (isResult(at)) return at;
   const seat = seatedLive(at, auth);
   if ("status" in seat) return seat;
   const { side, fork } = seat;
-  if (action === "launch") {
-    return withFixtureLock(key, async () => {
-      const t = deps.now?.() ?? new Date();
-      saveFork(deps.store, leagueId, seasonId, fixtureId, (f) => {
-        if (!f.fork) return;
-        f.fork.launched = { ...(f.fork.launched ?? {}), [side]: t.toISOString() };
-      });
-      return res(200, { ok: true, jnlpUrl: `/api/leagues/${encodeURIComponent(leagueId)}/seasons/${encodeURIComponent(seasonId)}/fixtures/${encodeURIComponent(fixtureId)}/fork/jnlp`, side, gameId: fork.gameId });
-    });
-  }
   // jnlp
   const team = fork.teams[side]!;
   try {

@@ -162,6 +162,8 @@ export interface FixtureForkTeam {
   builtAt: string;
   /** Fork player id -> league playerId, as written to the team file (the result maps back through this). */
   players: Array<{ forkPlayerId: string; playerId: string }>;
+  /** leagueTeamRevision of the league roster the file was built from (a change before the first launch rebuilds it). */
+  revision?: string;
 }
 
 export interface FixtureForkLogEntry { at: string; by: string; text: string }
@@ -198,6 +200,8 @@ export interface FixtureForkResult {
   appliedAt: string;
   /** A penalty shootout decided the game (home-away shootout score). */
   penalty?: { home: number; away: number };
+  /** A basic result: winnings and inducement spend are unknown, the treasuries were left alone for an organiser to settle. */
+  financialPending?: boolean;
   home: ForkSideResult;
   away: ForkSideResult;
 }
@@ -212,6 +216,10 @@ export interface FixtureForkState {
   scheduledAt?: string;
   /** launch_failed: why (the fork's own refusal text, or "outcome unknown"). */
   error?: string;
+  /** The last schedule call had no clear answer: a game may exist. Reset first looks for it on the fork. */
+  uncertain?: boolean;
+  /** cancelled: the status to return to when Super FUMBBL play is allowed again. */
+  statusBeforeCancel?: FixtureForkStatus;
   /** When each seated coach last took their launch file. */
   launched?: Partial<Record<ForkSide, string>>;
   /** Invitation notifications went out (once per fixture). */

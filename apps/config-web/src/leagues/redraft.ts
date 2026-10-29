@@ -23,6 +23,7 @@ import {
   EMPTY_PLAYER_STATS, type DraftList, type LeaguePlayer, type LeagueTeam, type RedraftBudget, type RedraftState, type RedraftTeamTask,
   type RestRoll, type SeasonRecord,
 } from "./types.js";
+import { forkPlayLock } from "./forkTeam.js";
 
 export const REDRAFT_BASE = 1_000_000;
 export const PER_GAME = 20_000;
@@ -559,6 +560,8 @@ export function coachOwnsTeam(team: { coach: string; coachId?: string; nafUser?:
  */
 export function targetConflict(target: SeasonRecord, team: Pick<LeagueTeam, "id" | "name">, draftTeam?: LeagueTeam): string {
   if (teamPlayedIn(target, team)) return `${target.name} already has results for ${team.name}.`;
+  const locked = forkPlayLock(target, team.id);
+  if (locked) return locked;
   const present = target.teams.find((t) => t.id === team.id);
   if (present && (!draftTeam || JSON.stringify(present) !== JSON.stringify(draftTeam))) return `${target.name} already has a different ${team.name} roster.`;
   return "";

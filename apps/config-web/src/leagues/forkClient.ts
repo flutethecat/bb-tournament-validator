@@ -1,16 +1,23 @@
 /**
  * The real fork behind Play on Super FUMBBL for leagues (forkPlay.ts LeagueForkClient). Server-only IO, built once in
- * server.ts from the same configuration the other fork routes use:
+ * server.ts from the same configuration the other fork routes use.
  *
  *   rosters       <teamsDir>/../rosters/*.xml (the files the Team Builder composes from)
- *   installTeams  the Team Builder's write path: team write locks + the cache-generation lock, a crash-recoverable team
- *                 transaction per file (with the coach's library row), one fork reload, commit; on a failed reload the
- *                 previous files are restored and reloaded. A team the fork lists in a live game is never rewritten.
- *   schedule      forkScheduler (/admin/schedule): scheduled, rejected (the fork's own refusal) or unknown
- *   launchFile    the seat JNLP (buildSeatJnlp) with the coach's own stored credential digest; never a placeholder
- *   gameStates    /admin/list over the live statuses, then the finished ones (sequential: one admin challenge at a time)
- *   result        /gamestate/result parsed as the server's FumbblResult (SPP, injuries, fans); when that body cannot be
- *                 read as one, the compact result (score and player counters) from the results store or the fork
+ *   prepareGame   ONE critical section per game: the cache-generation lock and both teams' write locks are taken
+ *                 first, then the live-game check (a list that cannot be confirmed = refuse), the team files (Team
+ *                 Builder write path: crash-recoverable transactions with the library rows, one fork reload, rollback
+ *                 on failure) and the schedule call all run before the locks are released. No other writer can
+ *                 replace either team, and no game start can slip in, between the check and the schedule.
+ *   findGame      reconciles an uncertain schedule: the fork's live and finished lists, both confirmed
+ *   deleteGame    removes a game that never started (confirmed by the fork's own ok status)
+ *   launchFile    the seat JNLP with the coach's own stored credential digest, under the generation gate
+ *   gameStates    live statuses, then the finished ones
+ *   result        /gamestate/result parsed as the server's FumbblResult; else the compact result
+ *
+ * Every admin exchange (challenge then command) goes through one queue: the admin servlet keeps a single last
+ * challenge, so two exchanges in flight invalidate each other and a refused one still answers HTTP 200 with
+ * <status>fail</status>. A list is trusted only with <status>ok</status> and a <list> element; anything else throws,
+ * and callers treat that as "unknown" (never as "no games").
  *
  * Secrets: the admin password digest and coach credential digests are used here only and never logged or returned in
  * an error message.
@@ -21,7 +28,8 @@ import {
   acknowledgeRestoredTeamXmlTransaction,
   acquireTeamNameWriteLock,
   acquireTeamWriteLock,
-  adminListLive,
+  adminDelete,
+  adminList,
   adminResponse,
   atomicWriteTextFile,
   beginTeamXmlTransaction,
@@ -31,10 +39,13 @@ import {
   forkCoachPasswordDigest,
   forkScheduler,
   gamestateResult,
+  LIVE_GAME_STATUSES,
   markForkCacheReloadRequired,
+  parseAdminGameList,
   reloadFork,
   restoreTeamXmlTransaction,
   upsertLibraryTeam,
+  type AdminGameEntry,
   type ForkAdminConfig,
   type ForkConfig,
   type ForkDbConfig,
@@ -42,8 +53,8 @@ import {
 } from "@bb/fork-ops";
 import { parseFumbblResult } from "../site-backend/fumbblResult.js";
 import { storedTeamFile } from "../teamDetail.js";
-import { discoverFinishedGames, playedAtOf, type TournamentResultStore } from "../tournamentResults.js";
-import { ForkClientError, type ForkGameState, type LeagueForkClient } from "./forkPlay.js";
+import { FINISHED_GAME_STATUSES, playedAtOf, type TournamentResultStore } from "../tournamentResults.js";
+import { ForkClientError, type ForkFindOutcome, type ForkGameState, type LeagueForkClient } from "./forkPlay.js";
 import { fromBasicResult, fromParsedResult } from "./forkResult.js";
 import type { LeagueForkTeamFile } from "./forkTeam.js";
 
@@ -59,6 +70,32 @@ export interface ForkClientConfig {
 }
 
 const RESULT_TIMEOUT_MS = 10_000;
+
+// ---- one admin exchange at a time ----
+
+let adminTail: Promise<unknown> = Promise.resolve();
+/** Runs an admin challenge/command exchange after every earlier one finished (failures do not block the queue). */
+export function serialAdmin<T>(task: () => Promise<T>): Promise<T> {
+  const run = adminTail.then(task, task);
+  adminTail = run.catch(() => undefined);
+  return run;
+}
+
+/** True only for an admin answer the servlet marked ok. */
+export const adminOk = (xml: string): boolean => /<status>\s*ok\s*<\/status>/i.test(xml);
+
+/** One confirmed admin list: throws unless the servlet said ok and sent a <list>. */
+export async function confirmedList(cfg: ForkAdminConfig, status: string, list = adminList): Promise<AdminGameEntry[]> {
+  const xml = await serialAdmin(() => list(cfg, status));
+  if (!adminOk(xml) || !/<list\b/i.test(xml)) throw new Error(`the fork's ${status} game list could not be confirmed`);
+  return parseAdminGameList(xml);
+}
+
+async function confirmedLists(cfg: ForkAdminConfig, statuses: readonly string[]): Promise<AdminGameEntry[]> {
+  const byId = new Map<string, AdminGameEntry>();
+  for (const status of statuses) for (const g of await confirmedList(cfg, status)) byId.set(g.gameId, g);
+  return [...byId.values()];
+}
 
 function libraryRow(coach: string, file: LeagueForkTeamFile, ingestedAt: string, forkLoadable: boolean): LibraryTeam {
   return {
@@ -113,45 +150,59 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
       return out;
     },
 
-    async installTeams(teams) {
+    async prepareGame({ install, home, away }) {
       const fork = cfg.forkConfig();
       if (!fork) throw new Error("the fork teams folder is not configured on this server");
+      if (!cfg.adminCfg) throw new Error("Super FUMBBL scheduling is not configured on this server");
+      const admin = cfg.adminCfg;
       const dir = fork.teamsDir;
       if (forkCacheReloadRequired(dir)) throw new Error("the fork team cache is waiting for a recovery reload; try again shortly");
-      const rewrites = teams.filter((t) => storedTeamFile(dir, t.file.forkTeamId));
-      if (rewrites.length) {
-        if (!cfg.adminCfg) throw new Error("live games cannot be checked on this server");
-        const live = await adminListLive(cfg.adminCfg);
-        const busy = rewrites.find((t) => live.some((g) => g.homeTeamId === t.file.forkTeamId || g.awayTeamId === t.file.forkTeamId));
-        if (busy) throw new Error(`${busy.file.library.teamName} is in a game on Super FUMBBL right now`);
-      }
       const generation = acquireTeamNameWriteLock(dir);
-      if (!generation) throw new Error("another team update is in progress; try again in a moment");
+      if (!generation) throw new Error("another team update or game start is in progress; try again in a moment");
       const locks: Array<{ release(): void }> = [];
       const transactions: Array<ReturnType<typeof beginTeamXmlTransaction>> = [];
+      let installed = false;
       try {
-        for (const t of [...teams].sort((a, b) => a.file.forkTeamId.localeCompare(b.file.forkTeamId))) {
-          const lock = acquireTeamWriteLock(dir, t.file.forkTeamId);
-          if (!lock) throw new Error(`another update is in progress for ${t.file.library.teamName}`);
+        for (const id of [home, away].sort()) {
+          const lock = acquireTeamWriteLock(dir, id);
+          if (!lock) throw new Error("another update is in progress for one of the teams; try again in a moment");
           locks.push(lock);
         }
-        const ingestedAt = new Date().toISOString();
-        for (const t of teams) {
-          const coachTag = t.coach.replace(/[^\w.-]+/g, "_") || "coach";
-          const path = storedTeamFile(dir, t.file.forkTeamId)?.path ?? join(dir, `team_${coachTag}_${t.file.forkTeamId}.xml`);
-          const tx = beginTeamXmlTransaction({
-            teamsDir: dir, teamId: t.file.forkTeamId, targetPath: path, teamXml: t.file.xml,
-            library: { baseDir: cfg.libraryDir, coach: t.coach, team: libraryRow(t.coach, t.file, ingestedAt, false) },
-          });
-          transactions.push(tx);
-          atomicWriteTextFile(path, t.file.xml);
+        // Under the locks: neither team may be in a live game (an unconfirmed list refuses, never reads as "none").
+        let live: AdminGameEntry[];
+        try { live = await confirmedLists(admin, LIVE_GAME_STATUSES); } catch (e) {
+          throw new Error(`live games could not be checked (${(e as Error).message}); nothing was changed`);
         }
-        const reload = await reloadFork(fork, cfg.stateDir);
-        if (!reload.reloaded) throw new Error(reload.reason ?? "the fork did not reload its teams");
-        for (const t of teams) upsertLibraryTeam(cfg.libraryDir, t.coach, libraryRow(t.coach, t.file, ingestedAt, true));
-        for (const tx of transactions) commitTeamXmlTransaction(tx, true);
+        const busy = [home, away].find((id) => live.some((g) => g.homeTeamId === id || g.awayTeamId === id));
+        if (busy) {
+          const name = install.find((t) => t.file.forkTeamId === busy)?.file.library.teamName ?? "One of the teams";
+          if (install.length) throw new Error(`${name} is in a game on Super FUMBBL right now`);
+          return { kind: "rejected", error: `${name} is already in a game on Super FUMBBL.` };
+        }
+        if (install.length) {
+          const ingestedAt = new Date().toISOString();
+          for (const t of install) {
+            const coachTag = t.coach.replace(/[^\w.-]+/g, "_") || "coach";
+            const path = storedTeamFile(dir, t.file.forkTeamId)?.path ?? join(dir, `team_${coachTag}_${t.file.forkTeamId}.xml`);
+            const tx = beginTeamXmlTransaction({
+              teamsDir: dir, teamId: t.file.forkTeamId, targetPath: path, teamXml: t.file.xml,
+              library: { baseDir: cfg.libraryDir, coach: t.coach, team: libraryRow(t.coach, t.file, ingestedAt, false) },
+            });
+            transactions.push(tx);
+            atomicWriteTextFile(path, t.file.xml);
+          }
+          const reload = await reloadFork(fork, cfg.stateDir);
+          if (!reload.reloaded) throw new Error(reload.reason ?? "the fork did not reload its teams");
+          for (const t of install) upsertLibraryTeam(cfg.libraryDir, t.coach, libraryRow(t.coach, t.file, ingestedAt, true));
+          for (const tx of transactions) commitTeamXmlTransaction(tx, true);
+          installed = true;
+        }
+        // Still under the same locks: schedule.
+        const outcome = await serialAdmin(() => forkScheduler(admin, { overtime: cfg.overtime }).schedule(home, away));
+        if (outcome.kind === "scheduled") return { kind: "scheduled", gameId: outcome.gameId };
+        return { kind: outcome.kind, error: outcome.error ?? (outcome.kind === "unknown" ? "no answer" : "refused") };
       } catch (error) {
-        if (transactions.length) {
+        if (transactions.length && !installed) {
           for (const tx of [...transactions].reverse()) restoreTeamXmlTransaction(tx);
           try {
             const restored = await reloadFork(fork, cfg.stateDir);
@@ -168,31 +219,52 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
       }
     },
 
-    async schedule(home, away) {
-      if (!cfg.adminCfg) return { kind: "rejected", error: "Super FUMBBL scheduling is not configured on this server." };
-      const outcome = await forkScheduler(cfg.adminCfg, { overtime: cfg.overtime }).schedule(home, away);
-      if (outcome.kind === "scheduled") return { kind: "scheduled", gameId: outcome.gameId };
-      return { kind: outcome.kind, error: outcome.error ?? (outcome.kind === "unknown" ? "no answer" : "refused") };
+    async findGame(home, away): Promise<ForkFindOutcome> {
+      if (!cfg.adminCfg) return { kind: "unknown", error: "Super FUMBBL is not configured on this server" };
+      try {
+        const all = await confirmedLists(cfg.adminCfg, [...LIVE_GAME_STATUSES, ...FINISHED_GAME_STATUSES]);
+        const hit = all.filter((g) => (g.homeTeamId === home && g.awayTeamId === away) || (g.homeTeamId === away && g.awayTeamId === home))
+          .sort((a, b) => Number(a.gameId) - Number(b.gameId));
+        return hit.length ? { kind: "found", gameId: hit[0]!.gameId } : { kind: "none" };
+      } catch (e) {
+        return { kind: "unknown", error: (e as Error).message };
+      }
+    },
+
+    async deleteGame(gameId) {
+      if (!cfg.adminCfg) return false;
+      const admin = cfg.adminCfg;
+      try {
+        const live = await confirmedLists(admin, ["scheduled"]);
+        if (!live.some((g) => g.gameId === gameId)) return false; // started (or unknown): never deleted from here
+        return adminOk(await serialAdmin(() => adminDelete(admin, gameId)));
+      } catch {
+        return false;
+      }
     },
 
     async launchFile({ coach, teamId, gameName, gameId }) {
       if (!cfg.dbCfg) throw new ForkClientError(503, "This server has no Super FUMBBL account store.");
-      const dir = cfg.forkConfig()?.teamsDir;
-      if (dir && forkCacheReloadRequired(dir)) throw new ForkClientError(503, "Super FUMBBL is reloading its teams. Try again shortly.");
       let digest: string | undefined;
       try { digest = await forkCoachPasswordDigest(cfg.dbCfg, coach); } catch { throw new ForkClientError(503, "The Super FUMBBL account store did not answer. Try again."); }
       if (!digest) throw new ForkClientError(404, "Your Super FUMBBL account was not found.");
-      return buildSeatJnlp({ coach, teamId, gameName, gameId, passwordMd5: digest });
+      // The same game-start gate the lobby's launch file passes: no launch while teams are being replaced or reloaded.
+      const dir = cfg.forkConfig()?.teamsDir;
+      if (!dir) return buildSeatJnlp({ coach, teamId, gameName, gameId, passwordMd5: digest });
+      if (forkCacheReloadRequired(dir)) throw new ForkClientError(503, "Super FUMBBL is reloading its teams. Try again shortly.");
+      const lock = acquireTeamNameWriteLock(dir);
+      if (!lock) throw new ForkClientError(409, "Super FUMBBL is updating teams right now. Try again in a moment.");
+      try { return buildSeatJnlp({ coach, teamId, gameName, gameId, passwordMd5: digest }); } finally { lock.release(); }
     },
 
     async gameStates(ids) {
       const out = new Map<string, ForkGameState>();
       if (!cfg.adminCfg || !ids.length) return out;
       const want = new Set(ids);
-      for (const g of await adminListLive(cfg.adminCfg)) {
+      for (const g of await confirmedLists(cfg.adminCfg, LIVE_GAME_STATUSES)) {
         if (want.has(g.gameId)) out.set(g.gameId, { status: g.status === "scheduled" ? "scheduled" : "active" });
       }
-      for (const g of await discoverFinishedGames(cfg.adminCfg)) {
+      for (const g of await confirmedLists(cfg.adminCfg, FINISHED_GAME_STATUSES)) {
         if (want.has(g.gameId)) out.set(g.gameId, { status: "finished", ...(playedAtOf(g) ? { playedAt: playedAtOf(g)! } : {}) });
       }
       return out;
@@ -200,14 +272,15 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
 
     async result(gameId, playedAt) {
       if (!cfg.adminCfg) return undefined;
+      const admin = cfg.adminCfg;
       try {
-        const xml = (await rawResultXml(cfg.adminCfg, gameId)).replace(/^\s*<\?xml[^>]*\?>\s*/, "");
+        const xml = (await serialAdmin(() => rawResultXml(admin, gameId))).replace(/^\s*<\?xml[^>]*\?>\s*/, "");
         const parsed = parseFumbblResult(xml);
         if (parsed.teams.length === 2 && parsed.gameId === gameId) return fromParsedResult(parsed, playedAt);
       } catch { /* not readable as the full result: fall back to the compact one */ }
       const stored = cfg.results?.get(gameId);
       if (stored && stored.teams.length === 2) return fromBasicResult(gameId, { teams: stored.teams }, playedAt ?? stored.playedAt);
-      return fromBasicResult(gameId, await gamestateResult(cfg.adminCfg, gameId), playedAt);
+      return fromBasicResult(gameId, await serialAdmin(() => gamestateResult(admin, gameId)), playedAt);
     },
   };
 }

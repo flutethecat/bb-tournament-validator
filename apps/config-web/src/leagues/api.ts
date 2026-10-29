@@ -37,7 +37,7 @@ import type { NotificationInput } from "../notifications.js";
 import { buildMilestonePost, buildTestPost, discordEvents, postWebhook as defaultPoster, type DiscordPayload, type WebhookPoster } from "./discord.js";
 import { leagueCsvFiles, zipFiles } from "./exportZip.js";
 import { readJsonObject, requestRevision } from "./http.js";
-import { applyForkSettings, leagueForkRoutes, publicForkState, type LeagueForkClient } from "./forkPlay.js";
+import { applyForkSettings, leagueForkRoutes, publicForkState, updateForkSettings, type LeagueForkClient } from "./forkPlay.js";
 import { applyPendingDrafts } from "./redraft.js";
 import { myRedraftTasks, redraftRoutes } from "./redraftApi.js";
 import {
@@ -484,7 +484,7 @@ async function settingsRoute(
       }
       if (third === "fixtures" && fourth) {
         if (method !== "PATCH") return { status: 405, body: { error: "Use PATCH." } };
-        return patchFixture(lg, second, fourth, who, input, deps);
+        return await patchFixture(lg, second, fourth, who, input, deps);
       }
     }
   } catch (e) {
@@ -697,12 +697,15 @@ function forkToggleWait(coach: string, now: number): number {
  * again within FORK_RENOTIFY_QUIET_MS of the last batch, and never for a played fixture; a coach may toggle at most
  * FORK_TOGGLE_LIMIT times in FORK_TOGGLE_WINDOW_MS.
  */
-function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: string, who: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueApiDeps): LeagueApiResult {
+async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: string, who: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueApiDeps): Promise<LeagueApiResult> {
   for (const key of ["forkEnabled", "forkAllowLate", "forkCancelled"] as const)
     if (input[key] !== undefined && typeof input[key] !== "boolean") throw new SettingsError(400, `${key} must be true or false.`, key);
   if (input.forkEnabled === undefined && input.forkAllowLate === undefined && input.forkCancelled === undefined)
     throw new SettingsError(400, "forkEnabled must be true or false.", "forkEnabled");
-  if (input.forkEnabled === undefined) return patchForkSettings(league, seasonId, fixtureId, who, input as { forkAllowLate?: boolean; forkCancelled?: boolean }, deps);
+  // Late launch / cancel ("Allow late launch", "Cancel Super FUMBBL play"; default both off) go through forkPlay, which
+  // may have to withdraw the fork game; Cancel is never combined with the Allow switch.
+  if (input.forkEnabled === undefined) return updateForkSettings(deps, league.id, seasonId, fixtureId, who, input as { forkAllowLate?: boolean; forkCancelled?: boolean });
+  if (input.forkCancelled !== undefined) throw new SettingsError(400, "Change forkCancelled on its own.", "forkCancelled");
   const on = input.forkEnabled as boolean;
   const season = deps.store.season(league.id, seasonId);
   if (!season) return { status: 404, body: { error: "Season not found." } };
@@ -722,23 +725,11 @@ function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: string,
     send = forkFixtureNotices(league, season.id, fixture, who.coach, siteAdmins(deps)).filter((n) => !told.has(n.coach.toLowerCase()));
     if (send.length) fixture.forkNotice = { at: now.toISOString(), to: [...(last?.to ?? []), ...send.map((n) => n.coach)] };
   }
-  applyForkSettings(fixture, input as { forkAllowLate?: boolean; forkCancelled?: boolean }, who.coach, now);
+  applyForkSettings(fixture, input as { forkAllowLate?: boolean }, who.coach, now);
   deps.store.putSeason(season);
   for (const n of send) {
     try { deps.notify!(n.coach, n.input); } catch { /* fire-and-forget */ }
   }
-  return { status: 200, body: { ok: true, fixture: publicForkState(fixture) } };
-}
-
-/** "Allow late launch" / "Cancel Super FUMBBL play" for one fixture (organisers; the default is both off). */
-function patchForkSettings(league: LeagueRecord, seasonId: string, fixtureId: string, who: LeagueApiIdentity, input: { forkAllowLate?: boolean; forkCancelled?: boolean }, deps: LeagueApiDeps): LeagueApiResult {
-  const season = deps.store.season(league.id, seasonId);
-  if (!season) return { status: 404, body: { error: "Season not found." } };
-  const fixture = season.fixtures.find((f) => f.id === fixtureId);
-  if (!fixture) return { status: 404, body: { error: "Fixture not found." } };
-  if (fixture.fork?.status === "finished" && input.forkCancelled === true) return { status: 409, body: { error: "This fixture's Super FUMBBL game is finished." } };
-  applyForkSettings(fixture, input, who.coach, deps.now?.() ?? new Date());
-  deps.store.putSeason(season);
   return { status: 200, body: { ok: true, fixture: publicForkState(fixture) } };
 }
 
