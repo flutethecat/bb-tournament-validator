@@ -1,9 +1,36 @@
 [
   {
+    "date": "2026-10-30",
+    "title": "Drag to reorder players in the Team Builder and Tournament Builder",
+    "body": "Every roster row now has a gripper on the left. Drag a row with the mouse or a finger to reorder your players, or focus the gripper and press Alt+Up / Alt+Down. Player numbers follow the new order, and the printed sheet and PDF keep it too.",
+    "links": [
+      {
+        "label": "Tournament Builder",
+        "href": "/tournament-team-builder.html"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
+    "title": "Easier-to-read recorder on the light theme and phones",
+    "body": "Coach names use a darker green on the light theme so they read against the pale hero. On phones the Admin row stays folded behind the Admin chip until you tap it, giving the feed its height back.",
+    "links": [
+      {
+        "label": "Tabletop",
+        "href": "/app/tabletop"
+      }
+    ]
+  },
+  {
     "date": "2026-10-29",
     "title": "NAF record line on the scoreboard",
     "body": "The match recorder's scoreboard shows each coach's NAF Glicko rating and W/T/L record, read from the coach's NAF page and refreshed when a fixture starts.",
-    "links": [{ "label": "Tabletop", "href": "/app/tabletop" }]
+    "links": [
+      {
+        "label": "Tabletop",
+        "href": "/app/tabletop"
+      }
+    ]
   },
   {
     "date": "2026-10-29",
@@ -15,18 +42,37 @@
     "date": "2026-10-29",
     "title": "Phone layout for the match recorder",
     "body": "The match recorder fits a 375 px phone: actions open in bottom sheets and every tap target is bigger.",
-    "links": [{ "label": "Tabletop", "href": "/app/tabletop" }]
+    "links": [
+      {
+        "label": "Tabletop",
+        "href": "/app/tabletop"
+      }
+    ]
   },
   {
     "date": "2026-10-29",
     "title": "Tournaments: submissions, roster lock, pairing, roles",
     "body": "Coaches submit a team and see whether it is valid; the opponent's team can be viewed; organisers lock rosters and start the event in one click, pair rounds with Dutch or Monrad, and run it from the Manage tab. Admins get a tournaments page.",
-    "links": [{ "label": "Tournaments", "href": "/app/tournaments" }]
+    "links": [
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
   },
   {
     "date": "2026-10-30",
     "title": "Coach page and the new site navigation",
     "body": "A left navigation bar with League, Tournament and Coach page trees: your tournaments with their status, your registered team and whether it is valid, and your next fixture. It folds to a narrow icon rail (press [) and becomes a drawer on phones. The new Coach page gathers your deadlines (green, amber under 72 hours, scarlet under 24 hours, grey when overdue, shown in your timezone), your weekly availability on a 7-day grid, your teams, and this What's new list. Notifications, friends and messages arrive in the next lanes.",
-    "links": [{ "label": "Coach page", "href": "/app/home" }, { "label": "What's new", "href": "/app/whats-new" }]
+    "links": [
+      {
+        "label": "Coach page",
+        "href": "/app/home"
+      },
+      {
+        "label": "What's new",
+        "href": "/app/whats-new"
+      }
+    ]
   }
 ]
