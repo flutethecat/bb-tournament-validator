@@ -3,8 +3,9 @@
 // and "Nothing yet" when empty. The home lane owns where it sits; this renders only what the store holds.
 import { computed, inject } from "vue";
 import { routerKey } from "vue-router";
-import { notificationAge, notificationIcon, type NotificationRow, type NotificationsStore } from "../home/notifications";
+import { type NotificationRow, type NotificationsStore } from "../home/notifications";
 import "../home/notifications.css";
+import NotificationRowItem from "./NotificationRowItem.vue";
 
 const props = withDefaults(defineProps<{
   notifications: NotificationsStore;
@@ -42,19 +43,7 @@ function open(row: NotificationRow, ev: MouseEvent) {
       <p v-if="notifications.error.value" class="nf-error" role="alert">{{ notifications.error.value }}</p>
       <p v-if="!rows.length" class="nf-empty">Nothing yet</p>
       <ul v-else class="nf-list">
-        <li v-for="row in rows" :key="row.id" class="nf-row" :data-type="row.type" :data-unread="row.readAt ? undefined : 'true'">
-          <a class="nf-link" :href="row.link" @click="open(row, $event)">
-            <img class="nf-icon" :src="notificationIcon(row.type)" alt="" width="28" height="28" />
-            <span class="nf-text">
-              <strong class="nf-title">{{ row.title }}</strong>
-              <span class="nf-msg">{{ row.body }}</span>
-            </span>
-            <span class="nf-meta">
-              <span v-if="!row.readAt" class="nf-dot" aria-label="Unread"></span>
-              <time class="nf-age" :datetime="row.at">{{ notificationAge(row.at, nowMs) }}</time>
-            </span>
-          </a>
-        </li>
+        <NotificationRowItem v-for="row in rows" :key="row.id" :row="row" :now="nowMs" @choose="open" />
       </ul>
     </div>
   </section>
