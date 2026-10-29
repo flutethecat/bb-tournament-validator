@@ -888,3 +888,84 @@ describe("tournament team builder — ruleset summary + per-team tier table (own
     expect(css).toContain(".tt-rules-wrap { overflow-x: auto;");
   });
 });
+
+describe("team builder page — Team Captain (BB2025)", () => {
+  const humanRules = ["Old World Classic", "Team Captain"];
+  const humanLineman = { positionId: "HL", name: "Human Lineman", type: "lineman", cost: 50_000, MA: 6, ST: 3, AG: "3+", PA: "4+", AV: "9+", skills: [] };
+  const ogre = { positionId: "OG", name: "Ogre", type: "bigguy", cost: 140_000, MA: 5, ST: 5, AG: "4+", PA: "5+", AV: "10+", skills: ["Bone Head"] };
+  const star = { positionId: "ST", name: "Morg 'n' Thorg", isStar: true, cost: 340_000, skills: [] };
+  const byId = (id: string) => [humanLineman, ogre, star].find((p) => p.positionId === id);
+
+  it("offers the nomination only on a roster with the rule, never to a Big Guy or a Star", () => {
+    expect(core.rosterHasCaptain(humanRules)).toBe(true);
+    expect(core.rosterHasCaptain(["Bribery and Corruption"])).toBe(false);
+    expect(core.canCaptain(humanLineman, humanRules)).toBe(true);
+    expect(core.canCaptain(humanLineman, ["Bribery and Corruption"])).toBe(false);
+    expect(core.canCaptain(ogre, humanRules)).toBe(false);
+    expect(core.canCaptain(star, humanRules)).toBe(false);
+  });
+
+  it("sends the captain as its own count:1 pick, never merged with identical players", () => {
+    const slots = [
+      { positionId: "HL", chosenSkills: [], chosenStatIncreases: [] },
+      { positionId: "HL", captain: true, chosenSkills: [], chosenStatIncreases: [] },
+      { positionId: "HL", chosenSkills: [], chosenStatIncreases: [] },
+    ];
+    expect(core.buildPicks(slots, { skills: false })).toEqual([
+      { positionId: "HL", count: 1 },
+      { positionId: "HL", count: 1, captain: true },
+      { positionId: "HL", count: 1 },
+    ]);
+    // Rosters without the rule never send it.
+    expect(core.buildPicks(slots, { skills: false, captain: false })).toEqual([{ positionId: "HL", count: 3 }]);
+    // Restore puts the nomination back on that one player.
+    const restored = core.slotsFromPicks(core.buildPicks(slots, { skills: false }), byId);
+    expect(restored.map((s: { captain?: boolean }) => s.captain === true)).toEqual([false, true, false]);
+  });
+
+  it("keeps one legal captain and drops a chosen Pro from it", () => {
+    const slots = [
+      { positionId: "OG", captain: true, chosenSkills: [], chosenStatIncreases: [] },
+      { positionId: "HL", captain: true, chosenSkills: ["Pro", "Block"], chosenStatIncreases: [] },
+      { positionId: "HL", captain: true, chosenSkills: [], chosenStatIncreases: [] },
+    ];
+    const out = core.reconcileCaptain(slots, byId, humanRules);
+    expect(out.map((s: { captain?: boolean }) => s.captain === true)).toEqual([false, true, false]);
+    expect(out[1].chosenSkills).toEqual(["Block"]);
+    expect(core.reconcileCaptain(slots, byId, []).some((s: { captain?: boolean }) => s.captain)).toBe(false);
+  });
+
+  it("prints the C marker, the free Team Captain + Pro traits and the summary line on the sheet", () => {
+    const model = core.rosterSheetModel({
+      raceName: "Human",
+      captainAvailable: true,
+      players: [
+        { position: humanLineman, chosenSkills: ["Block"], captain: true, accessOf: () => "primary" },
+        { position: humanLineman, chosenSkills: [] },
+      ],
+      staff: {},
+      costs: { skills: 20_000 },
+    });
+    expect(model.rows[0].free).toEqual(["Team Captain", "Pro"]);
+    expect(model.rows[0].added.map((s: { name: string }) => s.name)).toEqual(["Block"]);
+    expect(model.summary).toContainEqual(["Team Captain", "#1 Lineman"]);
+    expect(model.summary).toContainEqual(["Primary skills", "1"]);
+    const html = core.rosterSheetHtml(model);
+    expect(html).toContain('<span class="rs-captain" title="Team Captain" aria-label="Team Captain">C</span>');
+    expect(html).toContain('<span class="sk-trait">Team Captain</span>, <span class="sk-trait">Pro</span>, <span class="sk-primary">Block</span>');
+    expect(core.SHEET_CSS).toContain(".roster-sheet .sk-trait{");
+    const none = core.rosterSheetModel({ raceName: "Human", captainAvailable: true, players: [{ position: humanLineman, chosenSkills: [] }], staff: {}, costs: {} });
+    expect(none.summary).toContainEqual(["Team Captain", "Not nominated"]);
+    const off = core.rosterSheetModel({ raceName: "Snotling", players: [{ position: humanLineman, chosenSkills: [] }], staff: {}, costs: {} });
+    expect(off.summary.some(([k]: [string]) => k === "Team Captain")).toBe(false);
+  });
+
+  it("renders an accessible Captain toggle with a 44 px phone target and a hint when none is nominated", () => {
+    expect(js).toContain('class="captain-toggle');
+    expect(js).toContain('aria-pressed="${captainOn ? "true" : "false"}" title="Team Captain"');
+    expect(js).toContain('line("Team Captain", "not nominated", "captain-line", "captain-hint")');
+    expect(js).toContain('if (captain) return toggleCaptain(Number(captain.dataset.captainSlot));');
+    expect(css).toContain(".captain-toggle { width: 44px; height: 44px;");
+    expect(css).toContain(".value-line .captain-hint {");
+  });
+});

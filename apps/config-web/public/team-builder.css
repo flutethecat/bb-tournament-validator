@@ -723,6 +723,18 @@ a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .stat-pick { display: inline-flex; align-items: center; gap: 4px; color: var(--ui-muted); font-size: 14px; }
 .stat-pick select { width: auto; min-width: 74px; padding: 2px 4px; font-size: 14px; }
 .row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+/* Team Captain (BB2025): a round "C" toggle beside the player name; on = gold, like a captain's armband. */
+.captain-toggle {
+  display: inline-flex; flex: none; align-items: center; justify-content: center;
+  width: 28px; height: 28px; margin-left: auto; padding: 0;
+  color: var(--ui-muted); font-weight: 700; font-size: 14px; line-height: 1;
+  background: transparent; border: 1px dashed var(--ui-border); border-radius: 50%; cursor: pointer;
+}
+.captain-toggle:hover { color: var(--ui-text); background: var(--ui-hover); }
+.captain-toggle:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.captain-toggle.on { color: var(--ui-secondary); background: var(--ui-gold); border: 1px solid var(--ui-gold); }
+.chosen-chip.free-chip { padding-right: 6px; border-style: solid; }
+.value-line .captain-hint { color: var(--ui-muted); font-weight: 400; font-style: italic; }
 .skill-add-btn { display: flex; flex-direction: column; align-items: center; padding: 3px 7px; color: var(--ui-text); background: var(--ui-primary); border: 1px solid var(--ui-heading); border-radius: 4px; font-size: 12px; line-height: 1.1; text-transform: uppercase; cursor: pointer; }
 .skill-add-btn.open { background: var(--ui-heading); }
 .skill-add-btn:disabled { opacity: .4; cursor: not-allowed; }
@@ -1283,6 +1295,10 @@ body[data-builder="tournament"] .tt-steps button small[hidden] { display: none; 
   .row-skills .skill-icon { width: 24px; height: 24px; margin-right: 3px; }
   .remove-player { min-width: 48px; min-height: 48px; }
   .skill-add-btn { min-width: 48px; min-height: 48px; justify-content: center; }
+  /* 44 px touch target; in the narrow pinned player column it wraps under the sprite and name. */
+  .captain-toggle { width: 44px; height: 44px; margin-left: 0; font-size: 16px; }
+  .player-cell:has(.captain-toggle) { flex-wrap: wrap; row-gap: 4px; }
+  .player-cell:has(.captain-toggle) .player-copy { flex: 1 1 60px; }
 
   .roster-title-row { align-items: flex-start; }
   .skill-key-compact { flex-basis: 100%; margin-left: 0; }

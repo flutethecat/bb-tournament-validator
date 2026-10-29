@@ -155,6 +155,36 @@
       return null;
     }
 
+    // ── Team Captain (BB2025: https://bloodbowlbase.ru/bb2025/core_rules/the_teams/#team-captain) ──
+    // A roster with the Team Captain special rule may nominate one player (never a Big Guy or a Star); the
+    // captain gains Pro for free. The server composer is authoritative; these only shape what the page offers.
+    const TEAM_CAPTAIN = "Team Captain";
+    const CAPTAIN_FREE_SKILL = "Pro";
+    /** Does the roster's rule list (its always-on special rules) carry Team Captain? */
+    function rosterHasCaptain(rules) {
+      return (rules ?? []).some((rule) => norm(rule) === norm(TEAM_CAPTAIN));
+    }
+    /** May a player of `position` be nominated on a roster with these rules? */
+    function canCaptain(position, rules) {
+      if (!position || position.isStar === true || !rosterHasCaptain(rules)) return false;
+      return norm(position.type) !== "bigguy";
+    }
+    /** At most one captain, only on a position that may be one; the captain never also lists Pro as a chosen skill
+     *  (it already has it). Returns a new array; slots it changes are copied, the rest are the same objects. */
+    function reconcileCaptain(list, positionById, rules) {
+      let kept = false;
+      return (list ?? []).map((slot) => {
+        if (!slot?.captain) return slot;
+        const { captain: _captain, ...rest } = slot;
+        if (kept || !canCaptain(positionById(slot.positionId), rules)) return rest;
+        kept = true;
+        const chosenSkills = slot.chosenSkills ?? [];
+        return chosenSkills.includes(CAPTAIN_FREE_SKILL)
+          ? { ...slot, chosenSkills: chosenSkills.filter((skill) => skill !== CAPTAIN_FREE_SKILL) }
+          : slot;
+      });
+    }
+
     // ── Wire picks ──
     /** Slots → TeamPick[] in slot order. Consecutive identical players merge into one pick
      *  (count:n); any player with added skills / stat increases otherwise rides its own pick so
@@ -165,6 +195,7 @@
       const withStats = options.stats === true;
       const allowedStats = Array.isArray(options.allowedStats) ? options.allowedStats : null;
       const withCustomStats = options.customStats === true;
+      const withCaptain = options.captain !== false;
       const picks = [];
       let last = null;
       for (const slot of slots ?? []) {
@@ -181,8 +212,10 @@
           }
         }
         const statsKey = STATS.filter((stat) => stat in chosenStats).map((stat) => `${stat}${chosenStats[stat]}`).join(",");
-        const signature = `${slot.positionId}|${chosenSkills.join(",")}|${chosenStatIncreases.join(",")}|${statsKey}`;
-        if (last && last.signature === signature) {
+        // The Team Captain rides its own count:1 pick: never merged with identical players (or another captain).
+        const captain = withCaptain && slot.captain === true && !slot.isStar;
+        const signature = `${slot.positionId}|${chosenSkills.join(",")}|${chosenStatIncreases.join(",")}|${statsKey}|${captain ? "captain" : ""}`;
+        if (last && !captain && last.signature === signature) {
           last.pick.count += 1;
           continue;
         }
@@ -190,6 +223,7 @@
         if (chosenSkills.length) pick.chosenSkills = chosenSkills;
         if (chosenStatIncreases.length) pick.chosenStatIncreases = chosenStatIncreases;
         if (statsKey) pick.chosenStats = chosenStats;
+        if (captain) pick.captain = true;
         picks.push(pick);
         last = { signature, pick };
       }
@@ -225,6 +259,7 @@
           slots.push({
             positionId: position.positionId,
             isStar: position.isStar === true,
+            ...(pick.captain === true && i === 0 ? { captain: true } : {}),
             chosenSkills: Array.isArray(pick.chosenSkills) ? pick.chosenSkills.map(String) : [],
             chosenStatIncreases: Array.isArray(pick.chosenStatIncreases)
               ? pick.chosenStatIncreases.map((stat) => String(stat).toUpperCase()).filter((stat) => STATS.includes(stat))
@@ -601,12 +636,16 @@
         const chosenStatIncreases = star ? [] : player.chosenStatIncreases;
         const stats = improvedStats(position, chosenStatIncreases, star ? null : player.chosenStats);
         const added = (star ? [] : player.chosenSkills ?? []).map((skill) => ({ name: skill, access: player.accessOf ? player.accessOf(skill) : "primary" }));
+        const captain = !star && player.captain === true;
         const row = {
           position: position.name ? shortPositionName(position, nameRoster) : "Unknown position",
           positionFull: position.name ?? "Unknown position",
           stats,
           printed: [...(Array.isArray(position.skillsDisplay) && position.skillsDisplay.length ? position.skillsDisplay : position.skills ?? [])].sort((x, y) => x.localeCompare(y)),
           added,
+          // Team Captain grants: the trait and its free Pro (no cost, never an added skill).
+          captain,
+          free: captain ? [TEAM_CAPTAIN, CAPTAIN_FREE_SKILL] : [],
           statIncreases: (chosenStatIncreases ?? []).map((s) => String(s).toUpperCase()),
           cost: position.cost ?? null,
           keywords: Array.isArray(position.keywords) ? position.keywords.map(titleCase) : null,
@@ -633,6 +672,10 @@
         ["Primary skills", String(pick(summary?.primarySkillCount, primaryCount))],
         ["Secondary skills", String(pick(summary?.secondarySkillCount, secondaryCount))],
       ];
+      if (input.captainAvailable) {
+        const captainRow = rows.find((row) => row.captain);
+        summaryRows.push(["Team Captain", captainRow ? `#${captainRow.number} ${captainRow.position}` : "Not nominated"]);
+      }
       if (isNum(summary?.goldUsed)) {
         const budget = isNum(input.budget) ? input.budget : summary.goldBudget;
         summaryRows.push(["Total", isNum(budget) ? `${gold(summary.goldUsed)} / ${gold(budget)}` : gold(summary.goldUsed)]);
@@ -670,6 +713,7 @@
     }
     function sheetSkills(row) {
       const parts = row.printed.map((skill) => `<span class="sk-printed">${esc(skill)}</span>`);
+      for (const skill of row.free ?? []) parts.push(`<span class="sk-trait">${esc(skill)}</span>`);
       for (const skill of row.added) {
         const cls = skill.access === "secondary" ? "sk-secondary" : "sk-primary";
         parts.push(`<span class="${cls}">${esc(skill.name)}</span>`);
@@ -690,7 +734,7 @@
         : '<p class="rs-none">None</p>';
       const rows = model.rows.map((row) => `<tr${row.isStar ? ' class="rs-star"' : ""}>
         <td class="num">${row.number}</td>
-        <td class="pos"${row.positionFull && row.positionFull !== row.position ? ` title="${esc(row.positionFull)}"` : ""}>${esc(row.position)}${row.isStar ? ' <small>(Star)</small>' : ""}</td>
+        <td class="pos"${row.positionFull && row.positionFull !== row.position ? ` title="${esc(row.positionFull)}"` : ""}>${esc(row.position)}${row.isStar ? ' <small>(Star)</small>' : ""}${row.captain ? ' <span class="rs-captain" title="Team Captain" aria-label="Team Captain">C</span>' : ""}</td>
         ${["MA", "ST", "AG", "PA", "AV"].map((stat) => sheetStatCell(row.stats[stat])).join("")}
         <td class="skills">${sheetSkills(row)}</td>
         <td class="cost">${esc(row.cost != null ? gold(row.cost) : "—")}</td>
@@ -751,6 +795,8 @@
 .roster-sheet .sk-primary{color:#1a73c8;font-style:italic;}
 .roster-sheet .sk-secondary{color:#5a9e2f;font-style:italic;}
 .roster-sheet .sk-stat{color:#1a73c8;font-weight:700;font-style:italic;}
+.roster-sheet .sk-trait{color:#6e4f28;}
+.roster-sheet .rs-captain{display:inline-block;min-width:15px;height:15px;margin-left:4px;padding:0 2px;border:1px solid #000;border-radius:50%;font-size:8pt;font-weight:700;line-height:13px;text-align:center;}
 .rs-keywords{margin:8px 0 0;font-size:9pt;}
 @page{size:A4 landscape;margin:10mm;}
 @media print{.roster-sheet{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
@@ -912,6 +958,7 @@ ${rosterSheetHtml(model)}
       esc, gold, norm, num, STATS, packSkillText, packTermsText, deriveStatChanges, skillIconKey, rosterRaceKey, resolveSprite, resolveCrest, roleKeywords, cardRoleTag, ROLE_KEYWORDS, shortPositionName,
       normalizeLeagueOptions, leagueFieldPresentation, reconcileLeagueSelection, explicitLeagueSpecialRule, starEligibleForLeague,
       buildStarChoices, positionGroupCapped, buildPicks, slotsFromPicks, moveSlot,
+      TEAM_CAPTAIN, rosterHasCaptain, canCaptain, reconcileCaptain,
       improvedStats, statIncreaseCost, normalizeTierRules, tierLimitLines, tierTable, tierTableHtml, starPacksFor, starPackLabel,
       normalizeOverview, overviewSummaryHtml, overviewTableHtml, raceTableOverview, teamPickHtml,
       stackLabel, stackLimitLines, statIncreaseLabel, DEFAULT_SKILL_COSTS, playerSkillSp,
@@ -1033,6 +1080,14 @@ ${rosterSheetHtml(model)}
 
   // ── derived helpers ──
   const canEditSkills = () => mode === "custom" || mode === "tournament";
+  /** The current roster's always-on rules (Team Captain lives there when the roster has it). */
+  const captainRules = () => (current ? [
+    ...(Array.isArray(current.specialRules) ? current.specialRules : []),
+    ...(Array.isArray(current.alwaysOnRules) ? current.alwaysOnRules : []),
+  ] : []);
+  const captainAvailable = () => Core.rosterHasCaptain(captainRules());
+  const slotCanCaptain = (slot) => Boolean(slot) && Core.canCaptain(positionById(slot.positionId), captainRules());
+  const captainIndex = () => slots.findIndex((slot) => slot.captain === true && slotCanCaptain(slot));
   const positionById = (positionId) => current?.positions.find((position) => position.positionId === positionId) ?? null;
   const positionCount = (positionId) => slots.filter((slot) => slot.positionId === positionId).length;
   const positionCounts = () => {
@@ -1490,14 +1545,22 @@ ${rosterSheetHtml(model)}
           ? 'disabled title="A player with an added skill can\'t also take a stat increase."'
           : statFull ? `disabled title="Max ${maxStatsPerPlayer()} stat increase${maxStatsPerPlayer() === 1 ? "" : "s"} per player."` : ""}><span>Add</span><span>Stat</span></button>`
         : "";
-      return `<div class="roster-row roster-grid${skillPickerIndex === index ? " picking" : ""}">
+      const captainOn = slot.captain === true && slotCanCaptain(slot);
+      const captainButton = slotCanCaptain(slot)
+        ? `<button type="button" class="captain-toggle${captainOn ? " on" : ""}" data-captain-slot="${index}" aria-pressed="${captainOn ? "true" : "false"}" title="Team Captain" aria-label="Team Captain: ${esc(position?.name ?? "player")}, player ${index + 1}">C</button>`
+        : "";
+      const captainChips = captainOn
+        ? `<span class="chosen-chip free-chip skill skill-trait" title="Team Captain: gains Pro for free">${skillIconHtml("Team Captain")}Team Captain</span><span class="chosen-chip free-chip skill skill-trait" title="Free with Team Captain">${skillIconHtml("Pro")}Pro</span>`
+        : "";
+      return `<div class="roster-row roster-grid${skillPickerIndex === index ? " picking" : ""}${captainOn ? " is-captain" : ""}">
         <span class="slot-number"><button type="button" class="row-grip" draggable="true" data-grip="${index}" title="Drag to reorder" aria-label="Drag to reorder ${esc(position?.name ?? "player")}, player ${index + 1}. Alt plus Up or Down arrow moves it."><i aria-hidden="true"></i></button><span class="slot-index">${index + 1}</span></span>
         <div class="player-cell">
           ${portraitHtml(current?.raceName, position?.name, "roster-sprite")}
-          <span class="player-copy"><strong>${positionLabelHtml(position, "Unknown position")}</strong><small>${star ? "Star player" : "Roster player"}</small></span>
+          <span class="player-copy"><strong>${positionLabelHtml(position, "Unknown position")}</strong><small>${star ? "Star player" : captainOn ? "Team Captain" : "Roster player"}</small></span>
+          ${captainButton}
         </div>
         ${statStrip(position, "row-stats", liveStats, mode === "custom" ? slot.chosenStats : null)}
-        <div class="row-skills">${printedSkillChips(position)}${added}${statChips}${select}</div>
+        <div class="row-skills">${printedSkillChips(position)}${captainChips}${added}${statChips}${select}</div>
         <span class="cost">${gold(position?.cost)}</span>
         <div class="row-actions">
           ${skillButton}${statButton}
@@ -1790,6 +1853,13 @@ ${rosterSheetHtml(model)}
     line("Skills", gold(pick(s?.skillsCost, addedSkillGold())));
     if (statRules() || (s?.statIncreasesCost ?? 0) > 0) line("Stat increases", gold(pick(s?.statIncreasesCost, statGold())));
     if ((s?.starFeesCost ?? 0) > 0) line("Star fees", gold(s.starFeesCost));
+    // Team Captain is optional ("may"): an empty nomination is a hint, never an error.
+    if (captainAvailable()) {
+      const at = captainIndex();
+      const captainPosition = at >= 0 ? positionById(slots[at].positionId) : null;
+      if (captainPosition) line("Team Captain", `#${at + 1} ${shortName(captainPosition)}`, "captain-line");
+      else line("Team Captain", "not nominated", "captain-line", "captain-hint");
+    }
     if (mode !== "create") {
       line("Primary skills", String(pick(s?.primarySkillCount, slots.reduce((n, sl) => n + sl.chosenSkills.filter((k) => skillAccess(sl.positionId, k) !== "secondary").length, 0))));
       line("Secondary skills", String(pick(s?.secondarySkillCount, slots.reduce((n, sl) => n + sl.chosenSkills.filter((k) => skillAccess(sl.positionId, k) === "secondary").length, 0))));
@@ -2097,8 +2167,13 @@ ${rosterSheetHtml(model)}
     const edit = canEditSkills();
     const rulesUnknown = mode === "tournament" && !tierRules();
     const keepAll = forSave && rulesUnknown;
-    const picks = Core.buildPicks(slots.map((slot) => ({ ...slot, isStar: positionById(slot.positionId)?.isStar === true })), {
+    const picks = Core.buildPicks(slots.map((slot) => ({
+      ...slot,
+      isStar: positionById(slot.positionId)?.isStar === true,
+      captain: slot.captain === true && slotCanCaptain(slot),
+    })), {
       skills: edit,
+      captain: captainAvailable(),
       stats: mode === "tournament" && (keepAll || Boolean(statRules())),
       allowedStats: keepAll ? null : allowedStatList(),
       customStats: mode === "custom",
@@ -2216,6 +2291,7 @@ ${rosterSheetHtml(model)}
   }
   function changed({ positions = true } = {}) {
     $("build-result").hidden = true;
+    slots = Core.reconcileCaptain(slots, positionById, captainRules());
     if (positions) renderPositions();
     renderRoster();
     renderSkillPicker();
@@ -2440,6 +2516,7 @@ ${rosterSheetHtml(model)}
     const position = slot ? positionById(slot.positionId) : null;
     if (!slot || !position || position.isStar || !canEditSkills()) return "This player can't take added skills.";
     if (slot.chosenSkills.includes(skill)) return "Already added.";
+    if (skill === Core.TEAM_CAPTAIN || (skill === "Pro" && slot.captain === true && slotCanCaptain(slot))) return "Already gains Pro as Team Captain.";
     if ((position.skills ?? []).some((printed) => String(printed).replace(/\s*\(.*\)\s*$/, "").replace(/\*+$/, "") === skill)) return "Already printed.";
     if (statRules() && exclusiveStatAndSkill() && (slot.chosenStatIncreases ?? []).some((stat) => allowedStatList().includes(stat))) return "A player with a stat increase can't also have an added skill.";
     if (mode !== "custom") {
@@ -2553,6 +2630,19 @@ ${rosterSheetHtml(model)}
     renderStatPicker();
     openModal($("stat-picker"), `[data-stat-slot="${index}"]`, index);
   }
+  /** Nominate (or clear) the Team Captain: one per team, so choosing a player clears any other. */
+  function toggleCaptain(index) {
+    const slot = slots[index];
+    if (!slotCanCaptain(slot)) return;
+    const on = slot.captain !== true;
+    for (const other of slots) delete other.captain;
+    if (on) {
+      slot.captain = true;
+      // The captain gains Pro for free; a chosen Pro would be paid twice.
+      if (slot.chosenSkills.includes("Pro")) slot.chosenSkills = slot.chosenSkills.filter((s) => s !== "Pro");
+    }
+    changed({ positions: false });
+  }
   function removeSkill(index, skill) {
     const slot = slots[index];
     if (!slot) return;
@@ -2591,6 +2681,7 @@ ${rosterSheetHtml(model)}
     slots = slots
       .filter((slot) => mode !== "create" || !positionById(slot.positionId)?.isStar)
       .map((slot) => (canEditSkills() ? slot : { ...slot, chosenSkills: [], chosenStatIncreases: [] }));
+    slots = Core.reconcileCaptain(slots, positionById, captainRules());
     if (mode !== "custom" && current?.positionGroups) {
       const accepted = new Map();
       slots = slots.filter((slot) => {
@@ -2685,7 +2776,7 @@ ${rosterSheetHtml(model)}
     }
     leagueSelection = Core.reconcileLeagueSelection(leagueOptions(),
       body.specialRule ? { selectedLeague: body.specialRule, explicit: true } : { selectedLeague: "", explicit: false });
-    slots = Core.slotsFromPicks(body.picks, positionById);
+    slots = Core.reconcileCaptain(Core.slotsFromPicks(body.picks, positionById), positionById, captainRules());
     staff = {
       reRolls: Number(body.reRolls) || 0,
       assistantCoaches: Number(body.assistantCoaches) || 0,
@@ -2996,10 +3087,18 @@ ${rosterSheetHtml(model)}
       const printed = new Set(position.skills ?? []);
       const { increases, absolute } = Core.deriveStatChanges(position, player);
       const star = position.isStar === true; // stars restore without skill/stat changes (owner 10-27)
+      // A Team Captain's team XML lists the trait and its free Pro: restore the nomination, not two chosen skills.
+      const captain = !star && (player.skills ?? []).includes(Core.TEAM_CAPTAIN);
+      let freePro = captain;
       restored.push({
         positionId: position.positionId,
         isStar: star,
-        chosenSkills: star ? [] : (player.skills ?? []).filter((skill) => !printed.has(skill)),
+        ...(captain ? { captain: true } : {}),
+        chosenSkills: star ? [] : (player.skills ?? []).filter((skill) => {
+          if (printed.has(skill) || skill === Core.TEAM_CAPTAIN) return false;
+          if (freePro && skill === "Pro") { freePro = false; return false; }
+          return true;
+        }),
         chosenStatIncreases: star ? [] : increases,
         chosenStats: star ? {} : absolute,
       });
@@ -3050,6 +3149,7 @@ ${rosterSheetHtml(model)}
         chosenSkills: canEditSkills() && !star ? slot.chosenSkills : [],
         chosenStatIncreases: statRules() && !star ? (slot.chosenStatIncreases ?? []).filter((stat) => allowedStatList().includes(stat)) : [],
         chosenStats: mode === "custom" && !star ? slot.chosenStats : null,
+        captain: slot.captain === true && slotCanCaptain(slot),
         accessOf: (skill) => (skillAccess(slot.positionId, skill) === "secondary" ? "secondary" : "primary"),
         };
       }),
@@ -3057,6 +3157,7 @@ ${rosterSheetHtml(model)}
       apothecaryAllowed: current?.apothecaryAllowed !== false,
       inducements: inducementPicks().map((pick) => ({ label: inducementCatalog.find((i) => i.key === pick.key)?.label ?? pick.key, count: pick.count })),
       specialRules,
+      captainAvailable: captainAvailable(),
       summary: preview?.summary ?? null,
       costs: {
         players: rawPlayerCost(),
@@ -3417,6 +3518,8 @@ ${rosterSheetHtml(model)}
     if (event.target.closest(".name-required") && !$("team-name").value.trim()) showNameGate();
   });
   $("roster-slots").addEventListener("click", (event) => {
+    const captain = event.target.closest("[data-captain-slot]");
+    if (captain) return toggleCaptain(Number(captain.dataset.captainSlot));
     const remove = event.target.closest("[data-remove-slot]");
     if (remove) return removeSlot(Number(remove.dataset.removeSlot));
     const skill = event.target.closest("[data-remove-skill]");
