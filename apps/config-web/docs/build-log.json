@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Notifications from the bell",
+    "body": "Tap the bell in the top bar and your latest notifications pop out right under it: the eight most recent, newest first, each with its icon, title, a one-line preview, how long ago it came and a dot while it is unread. Choosing one marks it read and takes you to it. Mark all read and a link to all your notifications sit at the bottom, and when there is nothing yet it says Nothing to read! Escape, tapping elsewhere or changing page closes it, and it works with the keyboard and on phones.",
+    "links": [
+      {
+        "label": "Coach page notifications",
+        "href": "/app/home#notifications"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Team management page",
     "body": "Your team tiles on the coach page and on My teams now open a team management page laid out like the shared team view. For teams on the fork, each player shows SPP, rank and advancements, with Add Skill when they can afford a random or chosen Primary skill and Add Characteristic when they can afford the characteristic roll; random rolls are saved on the team until you pick. Tournament Builder sheets show read-only until the team plays on the fork. Share, Open in Tournament Builder and Back to My teams sit at the top. My teams now uses the coach page look, with avatars and build links in the side column.",
     "links": [

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createSSRApp } from "vue";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
@@ -353,15 +354,17 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     };
     createMemoryHistory: (base?: string) => unknown;
     renderToString: (app: unknown) => Promise<string>;
+    bell: unknown; notif: { useNotifications: (f: Fetcher) => { load(): Promise<void> }; NOTIFICATIONS_KEY: symbol }; sess: { SESSION_KEY: symbol };
   };
 
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer] = await Promise.all([
+    const [app, vueRouter, renderer, bell, notif, sess] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"), vite.ssrLoadModule("vue-router"), vite.ssrLoadModule("vue/server-renderer"),
+      vite.ssrLoadModule("/src/components/BellPopover.vue"), vite.ssrLoadModule("/src/home/notifications.ts"), vite.ssrLoadModule("/src/session.ts"),
     ]);
-    mods = { createSpa: app.createSpa, createMemoryHistory: vueRouter.createMemoryHistory, renderToString: renderer.renderToString };
+    mods = { createSpa: app.createSpa, createMemoryHistory: vueRouter.createMemoryHistory, renderToString: renderer.renderToString, bell: bell.default, notif: notif as never, sess: sess as never };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -385,6 +388,61 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     for (const tree of ["League", "Tournament", "Coach page"]) expect(html).toMatch(new RegExp(`class="sf-head-link"[^>]*>${tree}</a>`));
     expect((html.match(/class="sf-caret"/g) ?? []).length).toBe(4);
     expect(html).not.toContain("Login with Discord");
+  });
+
+  it("the bell is a button (aria-expanded false) and the popover stays closed until clicked", async () => {
+    const { html } = await render("/home", signedInRoutes());
+    expect(html).toMatch(/<button class="sf-bell" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Notifications: 0"/);
+    expect(html).not.toContain("sf-bell-pop");
+  });
+
+  async function renderBell(rows: unknown[], unread: number, routes: Routes = {}) {
+    const f = mockFetcher({ ...signedInRoutes(), "/api/me/notifications?limit=50": { notifications: rows, unread }, ...routes });
+    const spa = mods.createSpa({ history: mods.createMemoryHistory("/app/"), ssr: true, fetcher: f });
+    await spa.router.push("/home");
+    await spa.router.isReady();
+    await spa.session.load?.();
+    const store = mods.notif.useNotifications(f);
+    await store.load();
+    const app = createSSRApp(mods.bell as never, { initialOpen: true, now: Date.parse("2026-10-29T12:00:00Z") });
+    app.use(spa.router as never);
+    app.provide(mods.notif.NOTIFICATIONS_KEY, store);
+    app.provide(mods.sess.SESSION_KEY, spa.session);
+    return { html: await mods.renderToString(app), f };
+  }
+  const nrow = (n: number, extra: Record<string, unknown> = {}) => ({
+    id: `n${n}`, type: "organiser-message", title: `Title ${n}`, body: `Body ${n}`, link: "/app/home", at: new Date(Date.parse("2026-10-29T12:00:00Z") - n * 60_000).toISOString(), from: "Veers", ...extra,
+  });
+
+  it("bell popover: nothing to read when empty; caption, no Mark all read, All notifications link", async () => {
+    const { html } = await renderBell([], 0);
+    expect(html).toContain('role="dialog" aria-label="Notifications"');
+    expect(html).toContain("Nothing to read!");
+    expect(html).toContain("All read");
+    expect(html).not.toContain("Mark all read");
+    expect(html).not.toContain('class="nf-row"');
+    expect(html).toMatch(/href="\/app\/home#notifications"[^>]*>All notifications</);
+  });
+
+  it("bell popover: the 8 most recent of 10 rows, newest first, with the unread caption and Mark all read", async () => {
+    const rows = Array.from({ length: 10 }, (_, i) => nrow(i + 1));
+    const { html } = await renderBell(rows, 10);
+    const titles = html.match(/Title \d+/g) ?? [];
+    expect(titles).toEqual(Array.from({ length: 8 }, (_, i) => `Title ${i + 1}`));
+    expect(html).not.toContain("Title 9");
+    expect(html).toContain("10 unread");
+    expect(html).toContain("Mark all read");
+    expect(html).not.toContain("Nothing to read!");
+  });
+
+  it("bell popover: Mark all read posts to the store", async () => {
+    const { html } = await renderBell([nrow(1)], 1);
+    expect(html).toMatch(/<button type="button" class="nf-btn">Mark all read<\/button>/);
+    const f = mockFetcher({ "/api/me/notifications?limit=50": { notifications: [nrow(1)], unread: 1 }, "POST /api/me/notifications/read": { marked: 1, unread: 0 } });
+    const store = mods.notif.useNotifications(f) as unknown as { load(): Promise<void>; markAllRead(): Promise<void>; unread: { value: number } };
+    await store.load();
+    await store.markAllRead();
+    expect(f.calls.at(-1)).toMatchObject({ path: "/api/me/notifications/read", method: "POST", body: { all: true } });
   });
 
   it("every tree row is a real link; tournament rows carry status, team, validity and fixture; counts sit on the rows", async () => {
