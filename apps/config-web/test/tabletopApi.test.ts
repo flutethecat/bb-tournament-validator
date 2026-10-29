@@ -181,6 +181,32 @@ describe("tabletop API: submit / confirm / undo-revision", () => {
     expect(headRevision((await repo.getChain("Bob", "sv_b"))!).teamFile.players.find((p) => p.id === "b1")!.spp).toBe(3); // only the touchdown: the undone MVP left nothing behind
   });
 
+  it("an organiser confirming for both is recorded (confirmedBy on the match, by + admin on the journal), as are undo-revision and reopen; a coach's own confirm is not admin", async () => {
+    const seen: Array<{ kind: string; by?: string; admin?: boolean }> = [];
+    const put = repo.putJournal.bind(repo);
+    repo.putJournal = async (j) => { seen.push({ kind: j.kind, by: j.by, admin: j.admin }); return put(j); };
+    try {
+      const id = await playedMatch();
+      await as("Bob", "POST", `/api/tabletop/matches/${id}/submit`);
+      await as("Alice", "POST", `/api/tabletop/matches/${id}/confirm`);
+      const byCoach = (await as("Bob", "POST", `/api/tabletop/matches/${id}/confirm`)).body as { match: { state: string; confirmedBy?: unknown } };
+      expect(byCoach.match.state).toBe("confirmed");
+      expect(byCoach.match.confirmedBy).toBeUndefined(); // both coaches confirmed themselves
+      expect(seen.at(-1)).toMatchObject({ kind: "confirm", by: "Bob" });
+      expect(seen.at(-1)!.admin).toBeUndefined();
+      await as("Org", "POST", `/api/tabletop/matches/${id}/undo-revision`);
+      expect(seen.at(-1)).toMatchObject({ kind: "undo", by: "Org", admin: true });
+      const id2 = id; // the undo reopened the same match: submit and confirm it again, now by the organiser
+      await as("Bob", "POST", `/api/tabletop/matches/${id2}/submit`);
+      const forBoth = (await as("Org", "POST", `/api/tabletop/matches/${id2}/confirm`)).body as { match: { state: string; confirmedBy?: { by: string; admin: boolean } } };
+      expect(forBoth.match.state).toBe("confirmed");
+      expect(forBoth.match.confirmedBy).toMatchObject({ by: "Org", admin: true }); // GET exposes it for the log
+      expect(seen.at(-1)).toMatchObject({ kind: "confirm", by: "Org", admin: true });
+      const got = ((await as("Alice", "GET", `/api/tabletop/matches/${id2}`)).body as { match: { confirmedBy?: { by: string } } }).match;
+      expect(got.confirmedBy?.by).toBe("Org");
+    } finally { repo.putJournal = put; }
+  });
+
   it("an organiser confirms for both coaches", async () => {
     const id = await playedMatch();
     await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);

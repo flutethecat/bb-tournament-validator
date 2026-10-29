@@ -315,6 +315,7 @@ onBeforeUnmount(() => {
       <div v-if="state.pending" class="tt-strip">
         <p class="tt-chip" role="status">{{ state.pending }} event{{ state.pending === 1 ? "" : "s" }} waiting<template v-if="state.queueError"> · {{ state.queueError }}<template v-if="retryIn"> (retry in {{ retryIn }} s)</template></template></p>
       </div>
+      <p v-if="match.confirmedBy" class="tt-match-row tt-admin-line" role="status">Confirmed for both by {{ match.confirmedBy.by }}<b class="tt-ev-admintag">ADMIN</b></p>
       <p v-if="matchRow" class="tt-match-row" :data-state="match.state" role="status">{{ matchRow }}</p>
       <p v-for="r in state.rejected" :key="r.event.id" class="lobby-error" role="alert">
         Not saved: {{ r.error }}
@@ -368,8 +369,8 @@ onBeforeUnmount(() => {
         </section>
       </template>
 
-      <p v-if="canEdit && editMode" class="tt-edit-bar" role="status">You are in edit mode.</p>
-      <TabletopFeed :rows="rows" :show-removed="showRemoved" :can-undo="canEdit && editMode && (recording || organiser)" :undo-side="organiser ? null : mySide" :compact="viewer.state.compact" :timestamps="viewer.state.timestamps" @undo="undoById" />
+      <p v-if="canEdit && editMode" class="tt-edit-bar" role="status">You are in edit mode.<template v-if="match.state === 'confirmed' || match.state === 'published'"> Reopen the match first to undo events.</template></p>
+      <TabletopFeed :rows="rows" :show-removed="showRemoved" :can-undo="canEdit && editMode && (recording || (organiser && match.state === 'submitted'))" :undo-side="organiser ? null : mySide" :compact="viewer.state.compact" :timestamps="viewer.state.timestamps" @undo="undoById" />
     </main>
     </div>
 

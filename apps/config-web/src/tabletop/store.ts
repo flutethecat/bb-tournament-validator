@@ -48,6 +48,8 @@ export interface MatchRecord {
   updatedAt: string;
   /** coach -> ISO time of confirmation (an organiser's confirm-for-both records both coaches). */
   confirmations: Record<string, string>;
+  /** Set when an organiser confirmed for both coaches: who and when (the log shows it as an admin line). */
+  confirmedBy?: { by: string; at: string; admin: boolean };
   /** Head revision of each team when the match was created (a confirm needs the head unchanged). */
   baseRevision: { home: number; away: number };
   /** Set on submit: the post-match preview both coaches confirm. */
@@ -99,6 +101,9 @@ export interface CommitJournal {
   matchId: string;
   opId: string;
   kind: "confirm" | "undo" | "publish";
+  /** Who caused this commit, and whether an organiser did so on behalf of the coaches (confirm for both, reopen, undo-revision, publish). */
+  by?: string;
+  admin?: boolean;
   /** Monotonic order of commits (assigned when the journal is first written); startup replays in this order. */
   seq?: number;
   /** "conflict": the world changed since the commit was prepared; it is never overwritten and needs an organiser. */

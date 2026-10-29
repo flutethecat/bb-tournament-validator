@@ -35,11 +35,12 @@ const fixtures = (): FixtureGateway => ({
   record: () => undefined,
   retract: () => undefined,
 });
+const organisers = new Set<string>(["Org"]);
 const deps = (): TabletopApiDeps => ({
   repo, results, fixtures: fixtures(),
   loadTeamFile: (coach, ref) => files[`${coach}/${ref}`],
   isBanned: () => false,
-  isOrganizer: (c) => c === "Org",
+  isOrganizer: (c) => organisers.has(c),
   now: () => now,
   rollDie: () => 1,
   publishClock: (id, payload) => { clockPublishes.push({ id, payload }); },
@@ -408,6 +409,47 @@ describe("undo rules", () => {
     const replay = await new FileTabletopRepository(join(dir, "tt")).readEvents(id);
     expect(replay.find((e) => e.id === "td-away-by-org-0001")!.admin).toBe(true);
     expect(replay.find((e) => e.id === "td-own-by-alice-01")!.admin).toBeUndefined();
+  });
+
+  it("clock interventions are admin events: an organiser's override turn end and turn set carry admin:true, a coach's own never do", async () => {
+    const id = await toPlaying();
+    await turn(id, "Alice", "start"); // home plays 1Ht1
+    expect((await turn(id, "Alice", "end")).status).toBe(200); // the active coach ends it: no flag
+    expect((await turn(id, "Org", "end", { override: true })).status).toBe(200); // away is active; the organiser overrides
+    expect((await as("Alice", "POST", `/api/tabletop/matches/${id}/turn/set`, { half: 1, turn: 4, activeTeam: "home" })).status).toBe(200); // a participant sets the clock
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/turn/set`, { half: 1, turn: 5, activeTeam: "away" })).status).toBe(200);
+    const events = ((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ type: string; by: string; admin?: boolean }> }).events;
+    const ends = events.filter((e) => e.type === "turnEnd");
+    expect(ends.map((e) => [e.by, e.admin === true])).toEqual([["Alice", false], ["Org", true]]);
+    const sets = events.filter((e) => e.type === "turnSet");
+    expect(sets.map((e) => [e.by, e.admin === true])).toEqual([["Alice", false], ["Org", true]]);
+  });
+
+  it("organisers who also coach: their own team's events are not admin, the other team's are; a both-team event is admin only for an organiser outside the match; a forged admin flag is ignored", async () => {
+    const { id } = await playing();
+    organisers.add("Alice");
+    organisers.add("Bob");
+    try {
+      let n = 0;
+      const post = (who: string, e: Record<string, unknown>) => { n += 1; return as(who, "POST", `/api/tabletop/matches/${id}/events`, { events: [{ id: `adm-rule-${String(n).padStart(4, "0")}`, ...e }] }); };
+      const stamped = async () => ((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ id: string; admin?: boolean }> }).events;
+      expect((await post("Alice", { type: "touchdown", team: "home", player: "a1", payload: {} })).status).toBe(200); // own team: no flag
+      expect((await post("Alice", { type: "touchdown", team: "away", player: "b1", payload: {} })).status).toBe(200); // the other team: admin
+      expect((await post("Alice", { type: "weather", payload: { result: "Nice" } })).status).toBeLessThan(500); // a participant organiser: not admin
+      expect((await post("Bob", { type: "weather", payload: { result: "Blizzard" } })).status).toBe(200); // the away-coach organiser: not admin either
+      const ev = await stamped();
+      const flag = (i: number) => ev.find((e) => e.id === `adm-rule-${String(i).padStart(4, "0")}`);
+      expect(flag(1)!.admin).toBeUndefined();
+      expect(flag(2)!.admin).toBe(true);
+      expect(flag(3)?.admin).toBeUndefined();
+      expect(flag(4)?.admin).toBeUndefined();
+    } finally { organisers.delete("Alice"); organisers.delete("Bob"); }
+    // an organiser outside the match: weather is admin; a participant's forged admin flag (top level or in the payload) is ignored
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/events`, { events: [{ id: "adm-weather-org1", type: "weather", payload: { result: "Pouring Rain" } }] })).status).toBe(200);
+    expect((await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [{ id: "adm-forged-alice1", type: "completion", team: "home", player: "a2", admin: true, payload: { admin: true } }] })).status).toBe(200);
+    const after = ((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ id: string; admin?: boolean; payload: Record<string, unknown> }> }).events;
+    expect(after.find((e) => e.id === "adm-weather-org1")!.admin).toBe(true);
+    expect(after.find((e) => e.id === "adm-forged-alice1")!.admin).toBeUndefined();
   });
 
   it("once submitted, participants cannot undo (403); an organiser can, and the preview is recomputed", async () => {

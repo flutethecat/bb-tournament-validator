@@ -225,7 +225,7 @@ export async function tabletopApi(
     if (action === "confirm") return confirm(fresh, me, organiser, deps, now);
     if (!organiser) return err(403, "Organizer access required.");
     if (action === "publish") return publish(fresh, me, deps, now);
-    return undoRevision(fresh, deps, now);
+    return undoRevision(fresh, deps, now, undefined, me);
   });
 }
 
@@ -460,7 +460,8 @@ async function postEvents(match: MatchRecord, me: string, organiser: boolean, bo
     const v = validateEvent(parsed.event, running, rosters);
     if ("error" in v) return err(v.status ?? 400, v.error);
     // an organiser acting for a team they do not coach (an undo carries its target's team) is stamped admin: persisted, replayed, shown in the log
-    if (organiser && !mySides.includes(v.event.team)) v.event = { ...v.event, admin: true };
+    // (a both-team event - weather, end of match - defaults to team "home", so it counts as admin only when the organiser plays in neither team)
+    if (organiser && (BOTH_TEAM_EVENTS.has(v.event.type) ? mySides.length === 0 : !mySides.includes(v.event.team))) v.event = { ...v.event, admin: true };
     known.add(v.event.id);
     running.push(v.event);
     accepted.push(v.event);
@@ -526,7 +527,8 @@ async function confirm(match: MatchRecord, me: string, organiser: boolean, deps:
     await deps.repo.updateMatch(next);
     return { status: 200, body: { match: next } };
   }
-  const built = await buildConfirmJournal(match, me, confirmations, deps, at);
+  // an organiser confirming for both coaches is recorded as such (who, when) on the match and the journal, not as two coach confirmations
+  const built = await buildConfirmJournal(match, me, confirmations, deps, at, organiser);
   if (!built.ok) return built.error;
   return commit(built.journal, deps);
 }
@@ -535,7 +537,7 @@ type Built = { ok: true; journal: CommitJournal } | { ok: false; error: Tabletop
 
 /** Everything a finalising confirm writes, as one journal (bans rechecked first). */
 async function buildConfirmJournal(
-  match: MatchRecord, me: string, confirmations: Record<string, string>, deps: TabletopApiDeps, at: string,
+  match: MatchRecord, me: string, confirmations: Record<string, string>, deps: TabletopApiDeps, at: string, admin = false,
 ): Promise<Built> {
   // Bans are rechecked immediately before finalisation: both participants and the confirming caller.
   for (const coach of new Set([match.home.coach, match.away.coach, me]))
@@ -592,20 +594,21 @@ async function buildConfirmJournal(
   };
   const next: MatchRecord = {
     ...match, state: "confirmed", confirmations, updatedAt: at, preview: { home: p.home.summary, away: p.away.summary },
+    ...(admin ? { confirmedBy: { by: me, at, admin: true } } : {}),
     ...(wroteRevisions ? { wroteRevisions } : {}), resultGameId: gameId,
   };
   const change = (before: TeamChain, target: TeamChain): ChainChange => ({ expect: { head: before.head, revisions: before.revisions.length }, target });
   return {
     ok: true,
     journal: {
-      matchId: match.id, opId: opId(), kind: "confirm",
+      matchId: match.id, opId: opId(), kind: "confirm", by: me, ...(admin ? { admin: true } : {}),
       ...(match.postMatch !== "none" ? { homeChain: change(p.chainHome, homeChain), awayChain: change(p.chainAway, awayChain) } : {}),
       result: { put: row }, match: next,
     },
   };
 }
 
-async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () => Date, note?: string): Promise<TabletopResult> {
+async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () => Date, note?: string, actor?: string): Promise<TabletopResult> {
   if (match.state !== "confirmed" && match.state !== "published") return err(409, "Only a confirmed or published match can be reverted.");
   if (await recoveryPending(match, deps)) return recoveryPendingError();
   const chainHome = await deps.repo.getChain(match.home.coach, match.home.teamSaveId);
@@ -624,7 +627,7 @@ async function undoRevision(match: MatchRecord, deps: TabletopApiDeps, now: () =
   const { wroteRevisions: _w, resultGameId: _r, preview: _p, fixtureLink: _fl, publishedAt: _pa, publishedBy: _pb, ...rest } = match;
   const next: MatchRecord = { ...rest, state: "recording", confirmations: {}, updatedAt: now().toISOString(), ...(note ? { note } : {}) };
   return commit({
-    matchId: match.id, opId: opId(), kind: "undo",
+    matchId: match.id, opId: opId(), kind: "undo", ...(actor ? { by: actor, admin: true } : {}),
     ...(w ? {
       homeChain: { expect: { head: chainHome.head, revisions: chainHome.revisions.length }, target: back(chainHome, w.home) },
       awayChain: { expect: { head: chainAway.head, revisions: chainAway.revisions.length }, target: back(chainAway, w.away) },
@@ -877,7 +880,7 @@ async function organiserApi(
           return recoveryFailure(e);
         }
         const fresh = (await deps.repo.getMatch(id))!;
-        return action === "reopen" ? reopen(fresh, note, deps, now) : confirmAndPublish(fresh, me, deps, now);
+        return action === "reopen" ? reopen(fresh, note, deps, now, me) : confirmAndPublish(fresh, me, deps, now);
       });
       const out = r.body as { error?: string; match?: { state: string } };
       results.push({ id, ok: r.status === 200, status: r.status, ...(out.error ? { error: out.error } : {}), ...(out.match ? { state: out.match.state } : {}) });
@@ -900,7 +903,7 @@ async function confirmAndPublish(match: MatchRecord, me: string, deps: TabletopA
   if (match.state !== "submitted") return err(409, `This match is ${match.state}; only a submitted or confirmed match can be published.`);
   const at = now().toISOString();
   const confirmations = { [match.home.coach]: at, [match.away.coach]: at };
-  const built = await buildConfirmJournal(match, me, confirmations, deps, at);
+  const built = await buildConfirmJournal(match, me, confirmations, deps, at, true);
   if (!built.ok) return built.error;
   const j = built.journal;
   const confirmed = j.match;
@@ -912,9 +915,9 @@ async function confirmAndPublish(match: MatchRecord, me: string, deps: TabletopA
 }
 
 /** submitted -> recording directly; confirmed -> recording through the revision undo; published needs undo-revision first. */
-async function reopen(match: MatchRecord, note: string | undefined, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
+async function reopen(match: MatchRecord, note: string | undefined, deps: TabletopApiDeps, now: () => Date, actor?: string): Promise<TabletopResult> {
   if (match.state === "published") return err(409, "A published match must be reverted with undo-revision first.");
-  if (match.state === "confirmed") return undoRevision(match, deps, now, note);
+  if (match.state === "confirmed") return undoRevision(match, deps, now, note, actor);
   if (match.state !== "submitted") return err(409, `This match is ${match.state}; only a submitted or confirmed match can be reopened.`);
   const { preview: _p, ...rest } = match;
   const next: MatchRecord = { ...rest, state: "recording", confirmations: {}, updatedAt: now().toISOString(), ...(note ? { note } : {}) };
@@ -1175,7 +1178,7 @@ async function turnAction(
     if (!events.some((e) => e.id === id))
       await deps.repo.appendEvents(match.id, [{
         id, matchId: match.id, type: "turnEnd", team: clock.activeTeam!, half: clock.half, turn: clock.turn,
-        payload: { half: clock.half, turn: clock.turn, team: clock.activeTeam }, ts: at, by: me,
+        payload: { half: clock.half, turn: clock.turn, team: clock.activeTeam }, ts: at, by: me, ...(isActiveCoach ? {} : { admin: true }), // an organiser override is an admin event
       }]);
   }
   const updated: MatchRecord = { ...match, clock: next, updatedAt: at };
@@ -1206,6 +1209,7 @@ async function turnSet(match: MatchRecord, me: string, organiser: boolean, body:
     id: `turn-set-${now().getTime()}-${randomBytes(3).toString("hex")}`, matchId: match.id, type: "turnSet", team: to.activeTeam!,
     half: to.half, ...(to.turn >= 1 ? { turn: to.turn } : {}),
     payload: { from: brief(from), to: brief(to), by: me }, ts: at, by: me,
+    ...(organiser && match[to.activeTeam!].coach !== me ? { admin: true } : {}),
   }]);
   const updated: MatchRecord = { ...match, clock: to, updatedAt: at };
   await deps.repo.updateMatch(updated);

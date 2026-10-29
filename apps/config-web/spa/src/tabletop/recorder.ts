@@ -30,6 +30,8 @@ export interface SummaryView {
 export interface MatchView {
   id: string;
   state: MatchState;
+  /** Set when an organiser confirmed for both coaches. */
+  confirmedBy?: { by: string; at: string; admin: boolean };
   fixtureRef?: string;
   home: MatchSide;
   away: MatchSide;

@@ -1134,3 +1134,6 @@
 .tt-admin-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--ui-admin, #ffd23d) 30%, var(--tt-btn)); border-color: var(--ui-admin, #ffd23d); }
 .tt-admin-danger { color: var(--ui-danger, var(--tt-btn-ink)); }
 .tt-admin-wide { width: 100%; }
+
+/* "Confirmed for both by <organiser>": an admin line in the log */
+.tt-admin-line { background: color-mix(in srgb, var(--ui-admin, #ffd23d) 22%, var(--ui-surface-2, #242424)); border: 1px solid var(--ui-admin, #ffd23d); border-radius: var(--tt-radius); }

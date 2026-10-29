@@ -802,6 +802,9 @@ describe("tabletop routes (server-rendered)", () => {
     expect(org.html).toContain("Add event");
     expect(org.html).toContain("Set half / overtime");
     expect(org.html).toContain("End this turn (override)");
+    const confirmed = await renderMatch({ ...body, match: { ...baseMatch("confirmed"), confirmedBy: { by: "Zed", at: "2026-10-23T10:00:00.000Z", admin: true } } }, session({ coach: "Zed", organizer: true }));
+    expect(confirmed.html).toMatch(/class="tt-match-row tt-admin-line"[^>]*>Confirmed for both by Zed<b class="tt-ev-admintag">ADMIN<\/b>/); // an admin line in the log
+    expect((await renderMatch(body)).html).not.toContain("tt-admin-line"); // nothing when the coaches confirmed themselves
     const adminRows = mods.feedMod.feedRows([{ id: "e9", type: "touchdown", team: "away", player: "a1", payload: {}, half: 1, turn: 2, admin: true }], ["e9"], teams, {}, undefined);
     const feed = await mount(mods.feedC, { rows: adminRows, canUndo: false });
     expect(feed).toContain("tt-ev--admin");
