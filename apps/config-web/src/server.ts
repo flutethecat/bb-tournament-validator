@@ -2719,7 +2719,7 @@ async function handleApi(
   if (path === "/api/fork/records" && method === "GET") {
     if (!forkAdminCfg) return sendJson(res, 502, { error: "fork server unreachable" });
     try {
-      await refreshFinishedResults(forkAdminCfg, tournamentResults);
+      await refreshFinishedResults(forkAdminCfg, tournamentResults, { onSkip: (gameId, e) => console.warn(`[records] finished game ${gameId} skipped: ${e.message}`) });
       const results = tournamentResults.list();
       const elo = computeElo(results);
       let nafRows: StoredTournamentResult[] = [];

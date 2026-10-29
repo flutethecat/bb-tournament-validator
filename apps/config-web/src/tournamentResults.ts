@@ -12,6 +12,7 @@ import {
 } from "@bb/fork-ops";
 import type { TournamentMatchMetadata } from "./tournamentMatch.js";
 import { decodeXml } from "./forkGames.js";
+import { TestGameStore } from "./testGames.js";
 
 export const FINISHED_GAME_STATUSES = ["finished", "backuped"] as const;
 
@@ -38,7 +39,8 @@ export interface StoredTournamentResult extends GamestateResult {
   fixtureRef?: string;
   /** Tabletop only: the league id the match counts in (defaults to the fixture tournament's package name). */
   league?: string;
-  /** Tabletop only: a row from the admin Testing Suite. It never counts anywhere, published or not. */
+  /** A test row that never counts anywhere: a tabletop row from the admin Testing Suite (published or not), or a fork
+   *  game listed in test-games.json (testGames.ts; stamped on every read and write). */
   test?: boolean;
   /** Tabletop only: true once an organiser published it. An unpublished tabletop row never counts anywhere. */
   published?: boolean;
@@ -100,9 +102,20 @@ export function deriveTeamResult(team: GamestateTeamResult, opponent: GamestateT
 export class TournamentResultStore {
   private readonly file: string;
   private writes = 0;
+  private readonly testGames: TestGameStore;
 
   constructor(dataDir: string) {
     this.file = join(dataDir, "tournament-results.json");
+    this.testGames = new TestGameStore(dataDir);
+  }
+
+  /** Rows of listed test games read as test (also a row imported before its game was listed). */
+  private markTests(results: Record<string, StoredTournamentResult>): Record<string, StoredTournamentResult> {
+    const ids = this.testGames.ids();
+    if (!ids.size) return results;
+    const out: Record<string, StoredTournamentResult> = {};
+    for (const [id, row] of Object.entries(results)) out[id] = ids.has(id) && row.test !== true ? { ...row, test: true } : row;
+    return out;
   }
 
   private readStore(): TournamentResultStoreFile {
@@ -111,7 +124,8 @@ export class TournamentResultStore {
       const parsed = JSON.parse(readFileSync(this.file, "utf8")) as Partial<TournamentResultStoreFile>;
       if (parsed.version !== 1 || !parsed.results || typeof parsed.results !== "object" || Array.isArray(parsed.results))
         return emptyStore();
-      return this.migrateLegacyNames({ version: 1, results: parsed.results });
+      const migrated = this.migrateLegacyNames({ version: 1, results: parsed.results });
+      return { version: 1, results: this.markTests(migrated.results) };
     } catch {
       return emptyStore();
     }
@@ -173,8 +187,10 @@ export class TournamentResultStore {
     return true;
   }
 
-  put(result: StoredTournamentResult): StoredTournamentResult {
-    if (!result.gameId.trim()) throw new Error("gameId is required for tournament result metadata.");
+  put(input: StoredTournamentResult): StoredTournamentResult {
+    if (!input.gameId.trim()) throw new Error("gameId is required for tournament result metadata.");
+    // Every importer (refreshFinishedResults, the single pull, the tabletop recorder) gets the test marker here.
+    const result = this.testGames.has(input.gameId) && input.test !== true ? { ...input, test: true } : input;
     const current = this.readStore();
     const next: TournamentResultStoreFile = {
       version: 1,
@@ -237,14 +253,28 @@ export async function pullFinishedGameResult(
   });
 }
 
-/** Discover finished/backuped games and pull only results not already retained. */
+/**
+ * Discover finished/backuped games and pull only results not already retained. A game whose result cannot be read
+ * (the fork lists 1072 as finished but answers its result 404) is skipped and retried on the next call instead of
+ * failing every caller (/api/fork/records answered 502 for everyone while one such game existed).
+ */
 export async function refreshFinishedResults(
   cfg: ForkAdminConfig,
   store: TournamentResultStore,
+  opts: {
+    discover?: (cfg: ForkAdminConfig) => Promise<AdminGameEntry[]>;
+    pull?: (cfg: ForkAdminConfig, store: TournamentResultStore, game: AdminGameEntry) => Promise<unknown>;
+    onSkip?: (gameId: string, error: Error) => void;
+  } = {},
 ): Promise<AdminGameEntry[]> {
-  const games = await discoverFinishedGames(cfg);
+  const games = await (opts.discover ?? discoverFinishedGames)(cfg);
   for (const game of games) {
-    if (!store.get(game.gameId)) await pullFinishedGameResult(cfg, store, game);
+    if (store.get(game.gameId)) continue;
+    try {
+      await (opts.pull ?? pullFinishedGameResult)(cfg, store, game);
+    } catch (e) {
+      opts.onSkip?.(game.gameId, e as Error);
+    }
   }
   return games;
 }

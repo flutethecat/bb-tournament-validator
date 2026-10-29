@@ -187,3 +187,61 @@ describe("legacy escaped names", () => {
     expect(readFileSync(join(root, "tournament-results.json"), "utf8")).toBe(onDisk);
   });
 });
+
+describe("test games (test-games.json) never count", () => {
+  const row = (gameId: string): StoredTournamentResult => ({
+    gameId, pulledAt: "2026-10-29T00:00:00.000Z", namesDecoded: true,
+    home: { teamId: "lg_a", teamName: "A", coach: "Flutethecat" }, away: { teamId: "lg_b", teamName: "B", coach: "Gondra87" },
+    teams: [team("lg_a", 2, -1, 1), team("lg_b", 0, -1, 0)],
+  });
+
+  it("a listed game is stored test:true by any importer, and is left out of list()", async () => {
+    const root = mkdtempSync(join(tmpdir(), "test-games-"));
+    roots.push(root);
+    const { TestGameStore } = await import("../src/testGames.js");
+    expect(new TestGameStore(root).add(["1096", "1096", "../x"], "league-fork-test")).toEqual(["1096"]);
+    const store = new TournamentResultStore(root);
+    store.put(row("1096"));
+    store.put(row("2000"));
+    expect(store.get("1096")?.test).toBe(true);
+    expect(JSON.parse(readFileSync(join(root, "tournament-results.json"), "utf8")).results["1096"].test).toBe(true);
+    expect(store.list().map((r) => r.gameId)).toEqual(["2000"]);
+  });
+
+  it("a row imported before its game was listed reads as test afterwards", async () => {
+    const root = mkdtempSync(join(tmpdir(), "test-games-"));
+    roots.push(root);
+    const store = new TournamentResultStore(root);
+    store.put(row("1097"));
+    expect(store.list().map((r) => r.gameId)).toEqual(["1097"]);
+    const { TestGameStore } = await import("../src/testGames.js");
+    new TestGameStore(root).add(["1097"], "league-fork-test");
+    expect(store.get("1097")?.test).toBe(true);
+    expect(store.list()).toEqual([]);
+    expect(store.listAll()[0]?.test).toBe(true);
+  });
+});
+
+describe("refreshFinishedResults", () => {
+  it("skips a finished game whose result the fork cannot serve and still imports the rest", async () => {
+    const root = mkdtempSync(join(tmpdir(), "refresh-"));
+    roots.push(root);
+    const store = new TournamentResultStore(root);
+    const game = (id: string) => parseAdminGameList(`<admin><list><game id="${id}" status="finished" half="2" turn="8">
+      <team home="true" id="a${id}" name="A" coach="Coach A"/><team home="false" id="b${id}" name="B" coach="Coach B"/></game></list></admin>`)[0]!;
+    const skipped: string[] = [];
+    const { refreshFinishedResults } = await import("../src/tournamentResults.js");
+    const games = await refreshFinishedResults({ baseUrl: "http://x", passwordMd5Hex: "0".repeat(32) }, store, {
+      discover: async () => [game("1072"), game("1100")],
+      pull: async (_cfg, s, g) => {
+        if (g.gameId === "1072") throw new Error("fork gamestate/result failed (HTTP 404)");
+        return s.put({ gameId: g.gameId, pulledAt: "2026-10-29T00:00:00.000Z", home: storedSide(g, "home"), away: storedSide(g, "away"), teams: [team(`a${g.gameId}`, 1, -1, 0), team(`b${g.gameId}`, 0, -1, 0)] });
+      },
+      onSkip: (id) => skipped.push(id),
+    });
+    expect(games.map((g) => g.gameId)).toEqual(["1072", "1100"]);
+    expect(skipped).toEqual(["1072"]);
+    expect(store.get("1100")).toBeDefined();
+    expect(store.get("1072")).toBeUndefined();
+  });
+});
