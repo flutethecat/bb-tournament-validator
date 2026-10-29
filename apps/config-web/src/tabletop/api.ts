@@ -1057,9 +1057,11 @@ type Phase = MatchPhase;
  *   journeymen: {}
  *   inducements: {team: "home"|"away", picks: [{id, qty}], skip?: true}
  *   prayers:  {} | {mode: "site"} | {mode: "hand", rolls: {home: [1-16...], away: [...]}} (one per prayer bought, distinct)
- *   coin: the site draws the calling team when the phase opens (pg-coincaller). auto = {mode: "auto", call} from the
- *         caller (or an organiser): the server flips and the phase stays pregame:coin until the winner posts
- *         {choice: "kick"|"receive"}; hand = {mode: "hand", call, result, choice} in one request (any participant).
+ *   coin: the site draws the calling team when the phase opens (pg-coincaller). Then three sub-steps, each authorised
+ *         on its own: the call ({mode: "auto"|"hand", call}, the drawn caller or an organiser); the result (auto: the
+ *         server flips at once; hand: {mode: "hand", result} from either coach or an organiser, recorded as pg-coincall
+ *         then pg-coinflip); the choice ({choice: "kick"|"receive"}, the winner or an organiser). A request may carry
+ *         several sub-steps ({mode: "hand", call, result, choice}) only if its sender may do each of them.
  *         A `caller` / `winner` sent in the body must match the server's.
  * Events carry deterministic ids, so a retry after a partial failure re-uses what was already recorded.
  */
@@ -1189,43 +1191,65 @@ async function pregameAdvance(
     next = "pregame:coin";
     drawCaller();
   } else if (phase === "pregame:coin") {
-    // Determine the kicking team (#determine-kicking-team): one coach calls, the coin is flipped, the winner chooses.
+    // Determine the kicking team (#determine-kicking-team). Three sub-steps, each with its own actor:
+    //   1. the call: only the coach the site drew (or an organiser);
+    //   2. the result: the site flips (auto, straight after the call) or either coach / an organiser enters the real coin;
+    //   3. kick or receive: only the toss winner (or an organiser).
+    // One request may carry several sub-steps, but each is authorised on its own and nothing is recorded if any fails.
     const flip = all().find((e) => e.id === "pg-coinflip");
     const callerEvent = all().find((e) => e.id === "pg-coincaller");
+    const callEvent = all().find((e) => e.id === "pg-coincall");
     const choiceGiven = b.choice !== undefined;
     if (choiceGiven && b.choice !== "kick" && b.choice !== "receive") return err(400, 'choice must be "kick" or "receive".');
+    const mayChoose = (winner: Side): boolean => organiser || match[winner].coach === me;
     if (!flip && !callerEvent) {
       // A match that reached the coin phase before the draw existed: draw now and answer with the caller (nothing else
       // is accepted in this request, so the draw can never be retried for a better caller).
       drawCaller();
     } else if (!flip) {
-      const mode = b.mode;
-      if (mode !== "auto" && mode !== "hand") return err(400, 'mode must be "auto" or "hand".');
-      if (b.call !== "heads" && b.call !== "tails") return err(400, 'call must be "heads" or "tails".');
       const caller = callerEvent!.payload.caller as Side;
       if (b.caller !== undefined && b.caller !== caller) return err(400, `The site drew ${match[caller].coach} (${caller}) to call the toss.`);
       const other: Side = caller === "home" ? "away" : "home";
-      const callerWins = (result: string) => result === b.call;
+      const mode = callEvent ? "hand" : b.mode;
+      if (mode !== "auto" && mode !== "hand") return err(400, 'mode must be "auto" or "hand".');
+      if (callEvent && b.mode !== undefined && b.mode !== "hand") return err(409, "The call is recorded for a real coin: enter what the coin showed.");
+      const call = (callEvent?.payload.call ?? b.call) as string;
+      if (call !== "heads" && call !== "tails") return err(400, 'call must be "heads" or "tails".');
+      if (callEvent && b.call !== undefined && b.call !== call) return err(409, `${match[caller].coach} already called ${call}.`);
+      // 1. the call
+      if (!callEvent && !organiser && match[caller].coach !== me) return err(403, `${match[caller].coach} calls the toss.`);
       if (mode === "auto") {
         if (choiceGiven) return err(400, "Make the call first; the winner chooses after the flip.");
-        if (!organiser && match[caller].coach !== me) return err(403, `${match[caller].coach} calls the toss.`);
-        // The SERVER flips (crypto-random in production); the page animates to this result.
+        // 2. the SERVER flips (crypto-random in production); the page animates to this result.
         const result = die(2) === 1 ? "heads" : "tails";
-        const winner: Side = callerWins(result) ? caller : other;
-        mk("pg-coinflip", "coinFlip", winner, { mode, call: b.call, caller, result, winner, rolledBy: "site" });
+        const winner: Side = result === call ? caller : other;
+        mk("pg-coinflip", "coinFlip", winner, { mode, call, caller, result, winner, rolledBy: "site" });
         // stays at pregame:coin until the winner's choice is posted as a second advance
       } else {
-        if (b.result !== "heads" && b.result !== "tails") return err(400, 'hand mode needs result: "heads" or "tails".');
-        if (!choiceGiven) return err(400, 'hand mode needs choice: "kick" or "receive".');
-        const expected: Side = callerWins(b.result) ? caller : other;
-        if (b.winner !== undefined && b.winner !== expected) return err(400, `With that call and result the winner is ${expected}.`);
-        mk("pg-coinflip", "coinFlip", expected, { mode, call: b.call, caller, result: b.result, winner: expected, choice: b.choice, rolledBy: "coach", enteredBy: me });
-        next = afterCoin();
+        if (b.result === undefined) {
+          if (callEvent) return err(400, 'Enter what the coin showed: result "heads" or "tails".');
+          if (choiceGiven) return err(400, "Enter the coin's result before the winner chooses.");
+          mk("pg-coincall", "coinFlip", caller, { stage: "call", mode: "hand", caller, call, calledBy: me });
+        } else {
+          // 2. the real coin: either coach or an organiser enters it
+          if (b.result !== "heads" && b.result !== "tails") return err(400, 'hand mode needs result: "heads" or "tails".');
+          const winner: Side = b.result === call ? caller : other;
+          if (b.winner !== undefined && b.winner !== winner) return err(400, `With that call and result the winner is ${winner}.`);
+          // 3. the choice, only when this coach won (or is an organiser); checked before anything is recorded
+          if (choiceGiven && !mayChoose(winner)) return err(403, `${match[winner].coach} won the toss and makes the choice.`);
+          if (!callEvent) mk("pg-coincall", "coinFlip", caller, { stage: "call", mode: "hand", caller, call, calledBy: me });
+          mk("pg-coinflip", "coinFlip", winner, { mode: "hand", call, caller, result: b.result, winner, rolledBy: "coach", enteredBy: me });
+          if (choiceGiven) {
+            mk("pg-coinchoice", "coinFlip", winner, { stage: "choice", winner, choice: b.choice });
+            next = afterCoin();
+          }
+        }
       }
-    } else if (flip.payload.mode === "auto" && !all().some((e) => e.id === "pg-coinchoice")) {
+    } else if (!flip.payload.choice && !all().some((e) => e.id === "pg-coinchoice")) {
+      // 3. kick or receive
       if (!choiceGiven) return err(400, 'The winner must choose: choice "kick" or "receive".');
       const winner = flip.team;
-      if (!organiser && match[winner].coach !== me) return err(403, `${match[winner].coach} won the toss and makes the choice.`);
+      if (!mayChoose(winner)) return err(403, `${match[winner].coach} won the toss and makes the choice.`);
       mk("pg-coinchoice", "coinFlip", winner, { stage: "choice", winner, choice: b.choice });
       next = afterCoin();
     } else {

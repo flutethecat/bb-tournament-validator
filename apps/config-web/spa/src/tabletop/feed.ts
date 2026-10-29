@@ -181,6 +181,7 @@ function coinSentences(p: Record<string, unknown>, c: NameCtx): string {
     return `${c.coach[winner]} chooses to ${p.choice}. ${c.team[other(winner)]} will ${p.choice === "kick" ? "receive" : "kick"}.`;
   };
   if (p.stage === "choice") return choiceOf();
+  if (p.stage === "call") return isSide(p.caller) ? `${c.coach[p.caller]} (${c.team[p.caller]}) calls ${String(p.call ?? "")} for a real coin.` : "";
   if (p.stage === "caller") return isSide(p.caller) ? `The site draws ${c.coach[p.caller]} (${c.team[p.caller]}) to call the toss.` : "";
   const caller = isSide(p.caller) ? p.caller : undefined;
   const call = typeof p.call === "string" ? p.call : "";

@@ -112,11 +112,18 @@ describe("pre-game sequence", () => {
     r = await advance(id, "Alice");
     expect(r.body).toMatchObject({ phase: "pregame:coin", pregame: { prayers: { home: [{ roll: 16, name: "Intensive Training" }, { roll: 4, name: "Iron Man" }], away: [] } } });
 
-    // coin by hand
+    // coin by hand: call (the drawn caller, Alice), result (either coach), choice (the winner only)
     const hand = { mode: "hand", call: "heads", caller: "home", result: "tails" };
-    expect((await advance(id, "Alice", { ...hand, winner: "away" })).status).toBe(400); // choice needed
     expect((await advance(id, "Alice", { ...hand, winner: "home", choice: "kick" })).status).toBe(400); // tails against a heads call: away won
-    r = await advance(id, "Alice", { ...hand, winner: "away", choice: "kick" });
+    expect((await advance(id, "Alice", { ...hand, winner: "away", choice: "kick" })).status).toBe(403); // Alice cannot choose for the winner (Bob)
+    expect((await advance(id, "Bob", { mode: "hand", call: "heads" })).status).toBe(403); // only the drawn caller calls
+    r = await advance(id, "Alice", { mode: "hand", call: "heads" });
+    expect(r.body).toMatchObject({ phase: "pregame:coin", pregame: { step: "coin", coin: { caller: "home", call: "heads", mode: "hand" } } });
+    expect((await advance(id, "Bob", { mode: "hand", call: "tails", result: "tails" })).status).toBe(409); // the call is settled
+    r = await advance(id, "Bob", { mode: "hand", result: "tails" }); // either coach enters the real coin
+    expect(r.body).toMatchObject({ phase: "pregame:coin", pregame: { step: "kickreceive", coin: { result: "tails", winner: "away", rolledBy: "coach", enteredBy: "Bob" } } });
+    expect((await advance(id, "Alice", { choice: "kick" })).status).toBe(403);
+    r = await advance(id, "Bob", { choice: "kick" });
     expect(r.body).toMatchObject({ phase: "pregame:timers", pregame: { coin: { mode: "hand", call: "heads", caller: "home", result: "tails", winner: "away", choice: "kick" } } });
     // turn-timer agreement: both coaches answer (here: no)
     expect((await advance(id, "Alice", { agree: false })).body).toMatchObject({ phase: "pregame:timers", waitingFor: ["away"] });
@@ -127,7 +134,7 @@ describe("pre-game sequence", () => {
     const play = await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("touchdown", "home", "jm-1")] });
     expect(play.status).toBe(200);
     const events = (await get(id)).events as TabletopEvent[];
-    expect(events.map((e) => e.type)).toEqual(["fans", "fans", "weather", "journeyman", "journeyman", "inducement", "inducement", "inducement", "inducement", "prayer", "prayer", "coinFlip", "coinFlip", "timerAgree", "timerAgree", "touchdown"]);
+    expect(events.map((e) => e.type)).toEqual(["fans", "fans", "weather", "journeyman", "journeyman", "inducement", "inducement", "inducement", "inducement", "prayer", "prayer", "coinFlip", "coinFlip", "coinFlip", "coinFlip", "timerAgree", "timerAgree", "touchdown"]);
     // entering the coin phase, the site drew the calling coach (die 2 -> 1 = home)
     expect(events.find((e) => e.id === "pg-coincaller")).toMatchObject({ type: "coinFlip", team: "home", payload: { stage: "caller", caller: "home", rolledBy: "site" } });
     const pre = events.find((e) => e.type === "fans")!;

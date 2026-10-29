@@ -25,6 +25,8 @@ const props = defineProps<{
   mySide?: Side | null;
   organiser?: boolean;
   inducementIcons?: Record<string, string>;
+  /** A pre-game cine is on screen: dialogs that take input (Kick or receive?) wait until it has finished. */
+  cinePlaying?: boolean;
 }>();
 const emit = defineEmits<{ (e: "advance", body: Record<string, unknown>): void; (e: "skip"): void }>();
 
@@ -124,13 +126,12 @@ const caller = computed<Side | undefined>(() => (coin.value.caller === "home" ||
 const winner = computed<Side | undefined>(() => (coin.value.winner === "home" || coin.value.winner === "away" ? coin.value.winner : undefined));
 const canCall = computed(() => !!caller.value && (unknownViewer.value || props.mySide === caller.value || props.organiser === true));
 const canChoose = computed(() => !!winner.value && (unknownViewer.value || props.mySide === winner.value || props.organiser === true));
+/** The caller's choice of coin: the site flips ("auto") or the coaches flip a real one ("hand"). Each sub-step has its
+ *  own actor on the server: the caller calls, either coach enters what a real coin showed, the winner chooses. */
 const hand = ref(false);
-const handCall = ref<"heads" | "tails" | "">("");
-const handResult = ref<"heads" | "tails" | "">("");
-const handChoice = ref<"kick" | "receive" | "">("");
-const handWinner = computed<Side | "">(() => (caller.value && handCall.value && handResult.value ? (handCall.value === handResult.value ? caller.value : other(caller.value)) : ""));
-const handReady = computed(() => handWinner.value !== "" && handChoice.value !== "");
-const sendCoinHand = (): void => emit("advance", { mode: "hand", call: handCall.value, result: handResult.value, choice: handChoice.value });
+const call = (c: "heads" | "tails"): void => emit("advance", { mode: hand.value ? "hand" : "auto", call: c });
+/** A real-coin call is recorded and the result is still to be entered. */
+const awaitingResult = computed(() => coin.value.mode === "hand" && !!coin.value.call && !coin.value.result);
 const up = (s: unknown): string => String(s ?? "").toUpperCase();
 
 // ---- timers ----
@@ -229,44 +230,37 @@ const weatherObj = computed(() => obj(props.pregame.weather));
         <p class="muted">The site draws which coach calls the toss.</p>
         <button v-if="canAct" class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="emit('advance', {})">Draw the caller</button>
       </template>
+      <template v-else-if="awaitingResult">
+        <p class="tt-coin-call">{{ coach(caller) }} called <b>{{ up(coin.call) }}</b> for a real coin</p>
+        <template v-if="canAct">
+          <p class="muted">Flip it at the table. What did the coin show?</p>
+          <div class="tt-actions-row">
+            <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="emit('advance', { mode: 'hand', result: 'heads' })">Heads <span class="tt-coin-side heads">H</span></button>
+            <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="emit('advance', { mode: 'hand', result: 'tails' })">Tails <span class="tt-coin-side tails">T</span></button>
+          </div>
+        </template>
+      </template>
       <template v-else-if="canCall">
-        <p class="tt-coin-call">{{ coach(caller) }} calls the toss</p>
+        <p class="tt-coin-call">{{ coach(caller) }} calls the toss<template v-if="hand"> (real coin)</template></p>
         <div class="tt-actions-row">
-          <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="emit('advance', { mode: 'auto', call: 'heads' })">Heads <span class="tt-coin-side heads">H</span></button>
-          <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="emit('advance', { mode: 'auto', call: 'tails' })">Tails <span class="tt-coin-side tails">T</span></button>
+          <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="call('heads')">Heads <span class="tt-coin-side heads">H</span></button>
+          <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="call('tails')">Tails <span class="tt-coin-side tails">T</span></button>
         </div>
+        <p class="tt-hand-link"><a href="#" @click.prevent="hand = !hand">{{ hand ? "Let the site flip instead" : "Flipping a real coin? Call it here, then enter the result" }}</a></p>
       </template>
       <div v-else class="tt-coin-wait" role="status">
         <span class="tt-coin-spinner" aria-hidden="true" />
         <p class="tt-coin-call">{{ coach(caller) }} ({{ team(caller) }}) is calling the toss</p>
         <p class="muted">Waiting...</p>
       </div>
-      <template v-if="caller && canAct">
-        <p v-if="!hand" class="tt-hand-link"><a href="#" @click.prevent="hand = true">Flipped a real coin? Enter the result</a></p>
-        <div v-else class="tt-hand">
-          <p class="muted">{{ coach(caller) }} called:</p>
-          <div class="tt-actions-row">
-            <button v-for="f in ['heads', 'tails']" :key="`c-${f}`" class="lobby-btn tt-tap" type="button" :aria-pressed="handCall === f" @click="handCall = f as 'heads' | 'tails'">{{ f }}</button>
-          </div>
-          <p class="muted">The coin showed:</p>
-          <div class="tt-actions-row">
-            <button v-for="f in ['heads', 'tails']" :key="`r-${f}`" class="lobby-btn tt-tap" type="button" :aria-pressed="handResult === f" @click="handResult = f as 'heads' | 'tails'">{{ f }}</button>
-          </div>
-          <p v-if="handWinner" class="muted">{{ team(handWinner) }} wins the toss and chooses to:</p>
-          <div class="tt-actions-row">
-            <button class="lobby-btn tt-tap" type="button" :aria-pressed="handChoice === 'receive'" @click="handChoice = 'receive'">Receive</button>
-            <button class="lobby-btn tt-tap" type="button" :aria-pressed="handChoice === 'kick'" @click="handChoice = 'kick'">Kick</button>
-          </div>
-          <button class="lobby-btn tt-tap" type="button" :disabled="busy || !handReady" @click="sendCoinHand">Record the result</button>
-        </div>
-      </template>
     </div>
 
     <div v-else-if="step === 'kickreceive'" class="tt-pre-card tt-coin-card" data-step="kickreceive">
       <h3>Coin flip</h3>
       <p class="tt-coin-caption">{{ up(coin.result) }} - {{ winner ? `${team(winner)} wins the toss` : "" }}</p>
       <p class="muted">{{ caller ? `${coach(caller)} called ${up(coin.call)}.` : "" }}</p>
-      <div v-if="canChoose && winner" class="tt-modal tt-kr-modal" role="dialog" aria-label="Kick or receive?">
+      <!-- deferred while a cine plays, so a key or tap that skips the cine can never land on Receive / Kick underneath -->
+      <div v-if="canChoose && winner && !cinePlaying" class="tt-modal tt-kr-modal" role="dialog" aria-label="Kick or receive?">
         <div class="tt-kr-box">
           <div class="tt-kr-title">Kick or receive?</div>
           <p class="muted">{{ team(winner) }} won the toss.</p>
@@ -276,7 +270,7 @@ const weatherObj = computed(() => obj(props.pregame.weather));
           </div>
         </div>
       </div>
-      <div v-else-if="winner" class="tt-coin-wait" role="status">
+      <div v-else-if="winner && !(canChoose && cinePlaying)" class="tt-coin-wait" role="status">
         <span class="tt-coin-spinner" aria-hidden="true" />
         <p class="tt-coin-call">{{ coach(winner) }} won the toss and is choosing to kick or receive</p>
         <p class="muted">Waiting...</p>

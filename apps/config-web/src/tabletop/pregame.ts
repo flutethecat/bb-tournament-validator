@@ -200,6 +200,7 @@ export function pregameSummary(events: readonly TabletopEvent[]) {
   const flip = events.find((e) => e.id === "pg-coinflip");
   const choice = events.find((e) => e.id === "pg-coinchoice");
   const caller = events.find((e) => e.id === "pg-coincaller");
+  const call = events.find((e) => e.id === "pg-coincall"); // a real coin: the call is recorded before the result
   const skip = events.find((e) => e.type === "pregameSkip");
   return {
     fans: fans.home || fans.away ? fans : undefined,
@@ -209,7 +210,7 @@ export function pregameSummary(events: readonly TabletopEvent[]) {
     prayers: side((s) => of("prayer", s).map((e) => e.payload)),
     // {mode, call, caller, result, winner, choice?}: choice arrives with a second advance after a server flip
     // before the call: only {caller} (the coach the site drew to call the toss)
-    coin: flip ? { ...flip.payload, winner: flip.team, ...(choice ? { choice: choice.payload.choice } : {}) } : caller ? { caller: caller.payload.caller } : undefined,
+    coin: flip ? { ...flip.payload, winner: flip.team, ...(choice ? { choice: choice.payload.choice } : {}) } : caller ? { caller: caller.payload.caller, ...(call ? { call: call.payload.call, mode: "hand" } : {}) } : undefined,
     ...(skip ? { skipped: { by: skip.by, from: skip.payload.from } } : {}),
   };
 }

@@ -1445,8 +1445,8 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("Heads ");
     expect(html).toContain("Tails ");
     expect(html).not.toContain('class="tt-coin"');
-    expect(html).toContain("Flipped a real coin? Enter the result");
-    expect(html.indexOf("Flipped a real coin?")).toBeGreaterThan(html.indexOf("Tails"));
+    expect(html).toContain("Flipping a real coin? Call it here, then enter the result");
+    expect(html.indexOf("Flipping a real coin?")).toBeGreaterThan(html.indexOf("Tails"));
     const other = await mount(mods.pregameC, { ...pregameProps("pregame:coin", { coin: { caller: "away" } }), mySide: "home" });
     expect(other).toContain("Bob (Bob Elves) is calling the toss");
     expect(other).not.toContain("Heads <");

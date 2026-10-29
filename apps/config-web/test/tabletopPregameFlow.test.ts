@@ -129,12 +129,26 @@ describe("coin flip and kick/receive", () => {
     expect(events.filter((e) => e.type === "coinFlip").map((e) => e.id)).toEqual(["pg-coincaller", "pg-coinflip", "pg-coinchoice"]);
   });
 
-  it("an organiser may call and choose for the coaches; a hand flip derives the winner and any participant may enter it", async () => {
+  it("a real coin cannot be used to bypass the caller or the winner (regression: Sol 6.1 P2 #1)", async () => {
     const id = await newMatch();
-    await toCoin(id, 1); // home calls
-    expect((await advance(id, "Bob", { mode: "hand", call: "heads", result: "heads", choice: "receive", winner: "away" })).status).toBe(400); // home called right
-    const r = await advance(id, "Bob", { mode: "hand", call: "heads", result: "heads", choice: "receive" });
-    expect(r.body).toMatchObject({ phase: "pregame:timers", pregame: { coin: { mode: "hand", caller: "home", winner: "home", choice: "receive", rolledBy: "coach", enteredBy: "Bob" } } });
+    await toCoin(id, 1); // Alice (home) was drawn to call
+    expect((await advance(id, "Bob", { mode: "auto", call: "heads" })).status).toBe(403);
+    // Bob may not call, flip and choose for Alice in one hand-entered request; nothing is recorded
+    expect((await advance(id, "Bob", { mode: "hand", call: "heads", result: "heads", choice: "kick" })).status).toBe(403);
+    expect((await advance(id, "Bob", { mode: "hand", call: "heads", result: "heads" })).status).toBe(403);
+    expect(((await get(id)).events as TabletopEvent[]).filter((e) => e.type === "coinFlip").map((e) => e.id)).toEqual(["pg-coincaller"]);
+    // the caller who also wins may do all three at once; the choice is its own logged event
+    const r = await advance(id, "Alice", { mode: "hand", call: "heads", result: "heads", choice: "receive" });
+    expect(r.body).toMatchObject({ phase: "pregame:timers", pregame: { coin: { mode: "hand", caller: "home", winner: "home", choice: "receive", rolledBy: "coach", enteredBy: "Alice" } } });
+    expect(((await get(id)).events as TabletopEvent[]).filter((e) => e.type === "coinFlip").map((e) => e.id)).toEqual(["pg-coincaller", "pg-coincall", "pg-coinflip", "pg-coinchoice"]);
+  });
+
+  it("an organiser may call, enter and choose for the coaches", async () => {
+    const id = await newMatch();
+    await toCoin(id, 2); // Bob (away) calls
+    expect((await advance(id, "Org", { mode: "hand", call: "tails" })).status).toBe(200);
+    expect((await advance(id, "Alice", { mode: "hand", result: "heads" })).body).toMatchObject({ pregame: { step: "kickreceive", coin: { winner: "home" } } });
+    expect((await advance(id, "Org", { choice: "kick" })).body).toMatchObject({ phase: "pregame:timers", pregame: { coin: { choice: "kick" } } });
   });
 
   it("a match already at the coin phase without a draw gets one on its first request (nothing else accepted)", async () => {
