@@ -28,9 +28,9 @@ const props = defineProps<{
   /** Each seat's coach rating (CR) and rank, as the server computed them; absent = no badge. */
   coachRating?: Record<Side, CoachRatingView> | null;
 }>();
-const RANK_PIPS: Record<string, number> = { rookie: 1, experienced: 2, veteran: 3, emerging: 4, star: 5, super: 6, legend: 7 };
+const RANK_PIPS: Record<string, number> = { rookie: 1, experienced: 2, veteran: 3, emerging: 4, star: 5, super: 6, mega: 7, legend: 8 };
 const crOf = (s: Side): CoachRatingView | undefined => props.coachRating?.[s];
-const crTip = (s: Side): string => `Coach rating ${crOf(s)?.cr} \u00b7 ${crOf(s)?.rank}`;
+const crTip = (s: Side): string => `Coach rating ${crOf(s)?.cr} \u00b7 ${crOf(s)?.rank} (${crOf(s)?.games ?? 0} game${crOf(s)?.games === 1 ? "" : "s"})`;
 const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters", side?: Side): void; (e: "settings"): void; (e: "weather"): void }>();
 
 // Desktop chip tray: two rows at most; the layout follows the viewport width (1400 until mounted, so server renders are stable).
@@ -141,8 +141,8 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
           </span>
           <span v-if="crOf(s)" class="tt-cr" :data-rank="crOf(s)?.rankKey" :data-tip="crTip(s)" data-tip-pos="bottom">
             <b class="tt-cr-text">CR {{ crOf(s)?.cr }}</b>
-            <svg class="tt-rank" viewBox="0 0 14 16" width="14" height="16" aria-hidden="true" shape-rendering="crispEdges">
-              <path class="tt-rank-shield" d="M0 1h14v8l-2 2-2 2-3 3-3-3-2-2-2-2z" />
+            <svg class="tt-rank" viewBox="0 0 18 16" width="18" height="16" aria-hidden="true" shape-rendering="crispEdges">
+              <path class="tt-rank-shield" d="M0 1h18v8l-3 3-3 3-3 1-3-1-3-3-3-3z" />
               <rect v-for="n in RANK_PIPS[crOf(s)?.rankKey ?? ''] ?? 1" :key="n" class="tt-rank-pip" :x="1 + (n - 1) * 2" y="3" width="1" height="2" />
             </svg>
           </span>

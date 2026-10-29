@@ -1,25 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { coachRatingFor, CR_BASELINE, eloToCr, rankOf, RANKS } from "../src/coachRank.js";
+import { BANDS, coachRatingFor, eloToCr, ELO_BASELINE, rankOf, ROOKIE, ROOKIE_GAMES } from "../src/coachRank.js";
 
-describe("coach rank (fork Elo -> FUMBBL CR scale)", () => {
-  it("maps the 1500 Elo baseline to CR 150 and moves 1 CR per 10 Elo", () => {
-    expect(eloToCr(1500)).toBe(CR_BASELINE);
-    expect(eloToCr(1520)).toBe(152);
-    expect(eloToCr(1400)).toBe(140);
-    expect(eloToCr(1624)).toBe(162); // rounds to a whole number
+describe("coach rank (CR = fork Elo, FUMBBL titles)", () => {
+  it("CR is the Elo itself, whole-numbered, 1500 baseline", () => {
+    expect(eloToCr(1500)).toBe(ELO_BASELINE);
+    expect(eloToCr(1523.4)).toBe(1523);
+    expect(eloToCr(1523.6)).toBe(1524);
   });
-  it("assigns each rank at its threshold and the one below just under it", () => {
-    for (const [i, r] of RANKS.entries()) {
-      if (i === 0) { expect(rankOf(-1000).name).toBe(r.name); continue; }
-      expect(rankOf(r.min).name).toBe(r.name);
-      expect(rankOf(r.min - 1).name).toBe(RANKS[i - 1]!.name);
-    }
+  it("Rookie whenever fewer than 10 games, whatever the rating", () => {
+    expect(rankOf(1900, ROOKIE_GAMES - 1)).toBe(ROOKIE);
+    expect(rankOf(1200, 0).name).toBe("Rookie");
+    expect(rankOf(1900, ROOKIE_GAMES).name).toBe("Legend");
   });
-  it("lists the seven ranks in the owner's order", () => {
-    expect(RANKS.map((r) => r.name)).toEqual(["Rookie", "Experienced", "Veteran", "Emerging Star", "Star", "Super Star", "Legend"]);
+  it("the default bands: Experienced < 1450, Veteran 1450-1499, Emerging Star 1500-1549, Star 1550-1599, Super Star 1600-1674, Megastar 1675-1749, Legend >= 1750", () => {
+    const at = (cr: number): string => rankOf(cr, 50).name;
+    expect([at(1449), at(1450), at(1499), at(1500), at(1549), at(1550), at(1599), at(1600), at(1674), at(1675), at(1749), at(1750)]).toEqual([
+      "Experienced", "Veteran", "Veteran", "Emerging Star", "Emerging Star", "Star", "Star", "Super Star", "Super Star", "Megastar", "Megastar", "Legend",
+    ]);
+    expect(at(900)).toBe("Experienced");
   });
-  it("an unrated coach is the baseline Veteran-line CR; a rated one carries cr, rank and key", () => {
-    expect(coachRatingFor(undefined)).toMatchObject({ cr: 150, rank: "Veteran", rankKey: "veteran" });
-    expect(coachRatingFor(1520)).toEqual({ cr: 152, rank: "Veteran", rankKey: "veteran" });
+  it("eight titles in order, with one more pip per step", () => {
+    expect([ROOKIE, ...BANDS].map((r) => r.name)).toEqual(["Rookie", "Experienced", "Veteran", "Emerging Star", "Star", "Super Star", "Megastar", "Legend"]);
+    expect([ROOKIE, ...BANDS].map((r) => r.pips)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+  it("a new coach (1500, no games) is a Rookie; a rated one carries cr, rank, key and games", () => {
+    expect(coachRatingFor(undefined)).toEqual({ cr: 1500, rank: "Rookie", rankKey: "rookie", games: 0 });
+    expect(coachRatingFor(1523, 12)).toEqual({ cr: 1523, rank: "Emerging Star", rankKey: "emerging", games: 12 });
   });
 });

@@ -1393,6 +1393,7 @@
   .tt-cr[data-rank="emerging"] { --tt-rank-c: color-mix(in srgb, var(--ui-info, #4a86c8) 55%, var(--ui-danger, #ff4d4d)); }
   .tt-cr[data-rank="star"] { --tt-rank-c: var(--ui-gold, var(--ui-heading, #e8a33d)); }
   .tt-cr[data-rank="super"] { --tt-rank-c: var(--ui-scarlet, #d7141f); }
+  .tt-cr[data-rank="mega"] { --tt-rank-c: color-mix(in srgb, var(--ui-warn, #f0a020) 65%, var(--ui-scarlet, #d7141f)); } /* orange, between Super Star and Legend */
   .tt-cr[data-rank="legend"] { --tt-rank-c: var(--ui-text-on-primary, #ffffff); }
   .tt-cr[data-rank="legend"] .tt-rank { filter: drop-shadow(0 0 3px var(--ui-text-on-primary, #ffffff)); }
 }

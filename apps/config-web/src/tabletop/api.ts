@@ -102,7 +102,7 @@ export function matchContext(match: MatchRecord, deps: Pick<TabletopApiDeps, "fi
 /** Each seat's coach rating (CR) and rank, from our own fork results (Elo -> CR, see coachRank.ts). */
 export function coachRatings(match: MatchRecord, deps: Pick<TabletopApiDeps, "results">): Record<"home" | "away", CoachRatingView> {
   const elo = computeElo(deps.results.list());
-  const of = (coach: string): CoachRatingView => coachRatingFor(elo.get(coach.trim().toLowerCase())?.rating);
+  const of = (coach: string): CoachRatingView => { const e = elo.get(coach.trim().toLowerCase()); return coachRatingFor(e?.rating, e?.games ?? 0); };
   return { home: of(match.home.coach), away: of(match.away.coach) };
 }
 

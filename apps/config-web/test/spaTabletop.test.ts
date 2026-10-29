@@ -405,12 +405,12 @@ describe("tabletop routes (server-rendered)", () => {
 
   it("coach rating badge: CR text and pixel rank shield per seat, tip, phone text under the coach, nothing without a server rating", async () => {
     const base = { match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) };
-    const html = (await renderMatch({ ...base, coachRating: { home: { cr: 152, rank: "Veteran", rankKey: "veteran" }, away: { cr: 176, rank: "Legend", rankKey: "legend" } } })).html;
+    const html = (await renderMatch({ ...base, coachRating: { home: { cr: 1523, rank: "Emerging Star", rankKey: "emerging", games: 12 }, away: { cr: 1760, rank: "Legend", rankKey: "legend", games: 1 } } })).html;
     expect(html.match(/class="tt-cr"/g)).toHaveLength(2);
-    expect(html).toContain('data-rank="veteran" data-tip="Coach rating 152 \u00b7 Veteran"');
-    expect(html).toContain('data-rank="legend" data-tip="Coach rating 176 \u00b7 Legend"');
-    expect(html).toContain('<b class="tt-cr-text">CR 152</b>');
-    expect(html.match(/class="tt-rank-pip"/g)).toHaveLength(3 + 7); // veteran = 3 pips, legend = 7
+    expect(html).toContain('data-rank="emerging" data-tip="Coach rating 1523 \u00b7 Emerging Star (12 games)"');
+    expect(html).toContain('data-rank="legend" data-tip="Coach rating 1760 \u00b7 Legend (1 game)"');
+    expect(html).toContain('<b class="tt-cr-text">CR 1523</b>');
+    expect(html.match(/class="tt-rank-pip"/g)).toHaveLength(4 + 8); // emerging = 4 pips, legend = 8
     expect(html).toContain('class="tt-rank-shield"');
     expect(html).not.toMatch(/<img[^>]*rank/i); // our own inline SVG, never an image
     expect(html.match(/class="tt-coach-cr">CR /g)).toHaveLength(2); // phone: CR text under the coach name
@@ -419,6 +419,7 @@ describe("tabletop routes (server-rendered)", () => {
     for (const [k, t] of [["rookie", "--ui-muted"], ["experienced", "--ui-success"], ["veteran", "--ui-info"], ["star", "--ui-gold"], ["super", "--ui-scarlet"], ["legend", "--ui-text-on-primary"]]) {
       expect(css).toMatch(new RegExp(`\\.tt-cr\\[data-rank="${k}"\\] \\{ --tt-rank-c: var\\(${t},`));
     }
+    expect(css).toMatch(/\.tt-cr\[data-rank="mega"\] \{ --tt-rank-c: color-mix\(in srgb, var\(--ui-warn,[^;]*var\(--ui-scarlet,/); // Megastar: orange, between Super Star and Legend
     expect(css).toMatch(/\.tt-cr\[data-rank="emerging"\] \{ --tt-rank-c: color-mix\(/);
     expect(css).toMatch(/\.tt-rec \.tt-corner\.home \.tt-cr \{ left: 0; \}/);
     expect(css).toMatch(/\.tt-rec \.tt-corner\.away \.tt-cr \{ right: 0;/);
