@@ -65,7 +65,11 @@ export type FlowKind = "skill" | "characteristic";
 export type FlowStep = "choose" | "pick" | "done";
 
 export interface AdvanceFlow {
+  /** Distinct per opened modal: a response is applied only to the flow that sent its request. */
+  id: number;
   playerIndex: number;
+  /** The stored id of the player this flow advances (responses for another player are discarded). */
+  playerId: string;
   kind: FlowKind;
   step: FlowStep;
   busy: boolean;
@@ -73,6 +77,8 @@ export interface AdvanceFlow {
   pending: PendingAdvancement | null;
   /** The result line once applied. */
   result: string;
+  /** The server refused with a conflict (409): the loaded team is stale and closing reloads it. */
+  stale: boolean;
 }
 
 export interface TeamManageState {
@@ -161,76 +167,107 @@ export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void 
 
   const player = (i: number): ManagedPlayer | undefined => state.model?.team.players[i];
 
-  /** Open the modal for a player. A stored pending roll for them opens at the pick step. */
-  function open(playerIndex: number, kind: FlowKind): void {
-    const pending = player(playerIndex)?.progress?.pending ?? null;
+  let flowSeq = 0;
+
+  /** Open the modal for a player. A stored pending roll for them opens at the pick step. Ignored while a request of the
+   *  current modal is in flight (its response must land in the modal that sent it). */
+  function open(playerIndex: number, kind: FlowKind): boolean {
+    if (state.flow?.busy) return false;
+    const progress = player(playerIndex)?.progress;
+    if (!progress) return false;
+    const pending = progress.pending ?? null;
     const resumeKind: FlowKind = pending ? (pending.method === "characteristic" ? "characteristic" : "skill") : kind;
-    state.flow = { playerIndex, kind: resumeKind, step: pending ? "pick" : "choose", busy: false, error: "", pending, result: "" };
+    state.flow = { id: ++flowSeq, playerIndex, playerId: progress.id, kind: resumeKind, step: pending ? "pick" : "choose", busy: false, error: "", pending, result: "", stale: false };
+    return true;
   }
 
-  function close(): void {
-    const reload = state.flow?.step === "done" || Boolean(state.flow?.pending);
+  /** Close the modal (ignored while a request is in flight). Reloads the team after a change, a reserved roll, or a conflict. */
+  function close(): boolean {
+    const flow = state.flow;
+    if (flow?.busy) return false;
+    const reload = flow ? flow.step === "done" || Boolean(flow.pending) || flow.stale : false;
     state.flow = null;
     if (reload && state.ref) void load(state.ref);
+    return true;
   }
 
-  async function post(body: Record<string, unknown>): Promise<{ pending?: PendingAdvancement; ok?: true; spentSpp?: number; valueIncrease?: number } | undefined> {
-    const flow = state.flow;
+  type AdvanceResponse = { pending?: PendingAdvancement; ok?: true; spentSpp?: number; valueIncrease?: number };
+
+  /** POST one action for `flow`. The response is returned only while that same flow is still the open one. */
+  async function post(flow: AdvanceFlow, body: Record<string, unknown>): Promise<AdvanceResponse | undefined> {
     const teamId = state.model?.manage.teamId;
-    if (!flow || !teamId || flow.busy) return undefined;
+    if (state.flow !== flow || !teamId || flow.busy) return undefined;
     flow.busy = true;
     flow.error = "";
+    let res: AdvanceResponse | undefined;
     try {
-      return await deps.api(`/api/teams/${enc(teamId)}/advancement`, { method: "POST", body });
+      res = await deps.api<AdvanceResponse>(`/api/teams/${enc(teamId)}/advancement`, { method: "POST", body });
     } catch (err) {
       flow.error = err instanceof Error ? err.message : "The advancement could not be applied.";
-      if (statusOf(err) === 409) flow.error += " Close this window to reload the team.";
-      return undefined;
+      if (statusOf(err) === 409) {
+        flow.stale = true;
+        flow.error += " Close this window to reload the team.";
+      }
     } finally {
       flow.busy = false;
     }
+    if (state.flow !== flow) {
+      // The modal changed while the request ran: never show this result elsewhere; reload so a reservation shows up.
+      if (res && state.ref) void load(state.ref);
+      return undefined;
+    }
+    return res;
   }
 
-  const base = () => {
-    const p = player(state.flow?.playerIndex ?? -1)?.progress;
-    return p && state.model?.manage.revision ? { playerId: p.id, revision: state.model.manage.revision } : undefined;
+  /** The current flow plus the body fields for a first-step action, bound to the flow's own player. */
+  const begin = (): { flow: AdvanceFlow; playerId: string; revision: string } | undefined => {
+    const flow = state.flow;
+    const p = flow ? player(flow.playerIndex)?.progress : undefined;
+    const revision = state.model?.manage.revision;
+    if (!flow || !p || p.id !== flow.playerId || !revision) return undefined;
+    return { flow, playerId: flow.playerId, revision };
   };
 
-  function finish(text: string, res: { spentSpp?: number; valueIncrease?: number }): void {
-    if (!state.flow) return;
+  function finish(flow: AdvanceFlow, text: string, res: { spentSpp?: number; valueIncrease?: number }): void {
     const parts = [text];
     if (typeof res.spentSpp === "number") parts.push(`${res.spentSpp} SPP spent`);
     if (typeof res.valueIncrease === "number") parts.push(`team value +${k(res.valueIncrease)}`);
-    state.flow.step = "done";
-    state.flow.pending = null;
-    state.flow.result = `${parts[0]}. ${parts.slice(1).join(", ")}${parts.length > 1 ? "." : ""}`.trim();
+    flow.step = "done";
+    flow.pending = null;
+    flow.result = `${parts[0]}. ${parts.slice(1).join(", ")}${parts.length > 1 ? "." : ""}`.trim();
+  }
+
+  /** A roll reservation for this flow's player only. */
+  function takePending(flow: AdvanceFlow, res: AdvanceResponse | undefined): void {
+    if (!res?.pending || res.pending.playerId !== flow.playerId) return;
+    flow.pending = res.pending;
+    flow.step = "pick";
   }
 
   async function rollRandomPrimary(category: string): Promise<void> {
-    const b = base();
+    const b = begin();
     if (!b) return;
-    const res = await post({ action: "rollRandomPrimary", ...b, category });
-    if (res?.pending && state.flow) { state.flow.pending = res.pending; state.flow.step = "pick"; }
+    takePending(b.flow, await post(b.flow, { action: "rollRandomPrimary", playerId: b.playerId, revision: b.revision, category }));
   }
 
   async function rollCharacteristic(): Promise<void> {
-    const b = base();
+    const b = begin();
     if (!b) return;
-    const res = await post({ action: "rollCharacteristic", ...b });
-    if (res?.pending && state.flow) { state.flow.pending = res.pending; state.flow.step = "pick"; }
+    takePending(b.flow, await post(b.flow, { action: "rollCharacteristic", playerId: b.playerId, revision: b.revision }));
   }
 
   async function chooseSkill(skill: string): Promise<void> {
-    const b = base();
+    const b = begin();
     if (!b) return;
-    const res = await post({ action: "applySkill", ...b, method: "chosenPrimary", skill });
-    if (res?.ok) finish(`${skill} added`, res);
+    const res = await post(b.flow, { action: "applySkill", playerId: b.playerId, revision: b.revision, method: "chosenPrimary", skill });
+    if (res?.ok) finish(b.flow, `${skill} added`, res);
   }
 
   /** Keep one option of the pending roll: a skill (random Primary or a characteristic roll's fallback) or a stat. */
   async function commit(choice: { type: "skill"; skill: string } | { type: "characteristic"; characteristic: string }): Promise<void> {
-    const pending = state.flow?.pending;
-    if (!pending) return;
+    const flow = state.flow;
+    const pending = flow?.pending;
+    if (!flow || !pending || pending.playerId !== flow.playerId) return;
     const body = {
       action: "commitRoll",
       playerId: pending.playerId,
@@ -238,8 +275,8 @@ export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void 
       token: pending.token,
       choice: choice.type === "skill" && pending.method === "characteristic" ? { ...choice, access: "primary" } : choice,
     };
-    const res = await post(body);
-    if (res?.ok) finish(choice.type === "skill" ? `${choice.skill} added` : `+${choice.characteristic} added`, res);
+    const res = await post(flow, body);
+    if (res?.ok) finish(flow, choice.type === "skill" ? `${choice.skill} added` : `+${choice.characteristic} added`, res);
   }
 
   return { state, load, setShared, open, close, rollRandomPrimary, rollCharacteristic, chooseSkill, commit };

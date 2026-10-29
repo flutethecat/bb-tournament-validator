@@ -112,6 +112,62 @@ describe("team management controller", () => {
     expect(m.state.flow).toMatchObject({ step: "choose", error: "The team changed since it was loaded. Refresh and try again. Close this window to reload the team." });
   });
 
+  it("a 409 conflict marks the flow stale: close reloads the team, and the reopened modal sends the fresh revision", async () => {
+    let revision = REV;
+    const f = mockFetcher({
+      "/api/me/teams/library%3A77": () => ({ ...libraryModel(), manage: { ...libraryModel().manage, revision } }),
+      "POST /api/teams/77/advancement": (body: any) => (body.revision === REV ? new ApiError(409, "The team changed since it was loaded. Refresh and try again.") : { pending: { token: "t", playerId: "p1", revision: "c".repeat(64), method: "randomPrimary", cost: 6, choices: ["Tackle", "Block"], primaryFallbacks: [], secondaryFallbacks: [], expiresAt: "x" } }),
+    });
+    const m = createTeamManage({ api: f });
+    await m.load("library:77");
+    m.open(0, "skill");
+    await m.rollRandomPrimary("General");
+    expect(m.state.flow).toMatchObject({ stale: true, step: "choose" });
+    revision = REV2; // someone else changed the team
+    expect(m.close()).toBe(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.calls.filter((c) => c.path === "/api/me/teams/library%3A77")).toHaveLength(2);
+    expect(m.state.model?.manage.revision).toBe(REV2);
+    m.open(0, "skill");
+    await m.rollRandomPrimary("General");
+    expect(f.calls.at(-1)!.body).toMatchObject({ action: "rollRandomPrimary", revision: REV2 });
+    expect(m.state.flow).toMatchObject({ step: "pick", stale: false });
+  });
+
+  it("while a request is in flight, open() and close() are refused; a response only lands in the flow and player that sent it", async () => {
+    let release!: (v: unknown) => void;
+    const pendingA = { token: "tA", playerId: "p1", revision: REV2, method: "characteristic", cost: 20, roll: 7, choices: ["ST"], primaryFallbacks: [], secondaryFallbacks: [], expiresAt: "x" };
+    const f = mockFetcher({
+      "/api/me/teams/library%3A77": libraryModel(),
+      "POST /api/teams/77/advancement": () => new Promise((r) => { release = r; }),
+    });
+    const m = createTeamManage({ api: f });
+    await m.load("library:77");
+    m.open(0, "characteristic");
+    const first = m.state.flow!;
+    const rolling = m.rollCharacteristic();
+    expect(m.state.flow!.busy).toBe(true);
+    expect(m.open(1, "skill")).toBe(false); // player B's button while A's roll runs
+    expect(m.close()).toBe(false);
+    expect(m.state.flow).toBe(first);
+    release({ pending: pendingA });
+    await rolling;
+    expect(m.state.flow).toMatchObject({ playerId: "p1", playerIndex: 0, step: "pick", pending: { token: "tA" } });
+
+    // A reservation answered for a different player is never shown in this modal.
+    const g = mockFetcher({ "/api/me/teams/library%3A77": libraryModel(), "POST /api/teams/77/advancement": { pending: { ...pendingA, playerId: "p2" } } });
+    const n = createTeamManage({ api: g });
+    await n.load("library:77");
+    n.open(0, "characteristic");
+    await n.rollCharacteristic();
+    expect(n.state.flow).toMatchObject({ playerId: "p1", step: "choose", pending: null });
+    // A stored roll that belongs to someone else is never committed from this flow.
+    n.state.flow!.pending = { ...pendingA, playerId: "p2" } as never;
+    const before = g.calls.length;
+    await n.commit({ type: "characteristic", characteristic: "ST" });
+    expect(g.calls.length).toBe(before);
+  });
+
   it("share toggles the linked save's token", async () => {
     const f = mockFetcher({ "/api/me/teams/library%3A77": libraryModel(), "POST /api/fork/team-builder/saves/sv_a/share": { shareToken: "f".repeat(32) }, "DELETE /api/fork/team-builder/saves/sv_a/share": null });
     const m = createTeamManage({ api: f });
