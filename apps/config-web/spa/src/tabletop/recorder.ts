@@ -12,6 +12,8 @@ import { browserStorage, createEventQueue, newEventId, type QueueStorage, type R
 export type Side = "home" | "away";
 export type PostMatchOption = "none" | "spp-only" | "full";
 export type MatchState = "recording" | "submitted" | "confirmed" | "published";
+/** Who the server says is looking (GET match `role`): a seat, an organiser outside the match, or a read-only spectator. */
+export type ViewerRole = "home" | "away" | "organiser" | "spectator";
 
 export interface MatchSide { coach: string; teamSaveId: string; teamName: string }
 
@@ -96,6 +98,8 @@ const EMPTY_TALLY: ServerTally = {
 
 export interface MatchResponse {
   match: MatchView;
+  /** The viewer's role (owner ruling 10-30): "spectator" renders the recorder read-only. Absent from an older server. */
+  role?: ViewerRole;
   context?: MatchContext;
   coachRating?: Record<Side, CoachRatingView>;
   events: RecordedEvent[];
@@ -111,6 +115,8 @@ export interface MatchResponse {
 
 export interface RecorderState {
   loaded: boolean;
+  /** The server's role for this viewer; null until the first load (or from an older server). */
+  role: ViewerRole | null;
   error: string;
   match: MatchView | null;
   events: RecordedEvent[];
@@ -169,7 +175,7 @@ const POLL_MS = 5000;
 
 export function createRecorder(matchId: string, deps: RecorderDeps) {
   const state = reactive<RecorderState>({
-    loaded: false, error: "", match: null, context: null, coachRating: null, events: [], effectiveIds: [], phase: "", pregame: {}, clock: undefined, clockOffsetMs: 0, inducementIcons: {}, art: {}, tally: EMPTY_TALLY, sppValues: {}, teams: { home: undefined, away: undefined },
+    loaded: false, role: null, error: "", match: null, context: null, coachRating: null, events: [], effectiveIds: [], phase: "", pregame: {}, clock: undefined, clockOffsetMs: 0, inducementIcons: {}, art: {}, tally: EMPTY_TALLY, sppValues: {}, teams: { home: undefined, away: undefined },
     pending: 0, queueError: "", retryAt: 0, rejected: [], busy: false, actionError: "",
   });
   const base = `/api/tabletop/matches/${encodeURIComponent(matchId)}`;
@@ -228,7 +234,8 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     }
   }
 
-  // Push channel: the Super socket's tabletop-clock room (participants + organisers). Polling stays as the fallback.
+  // Push channel: the Super socket's tabletop-clock room (participants + organisers). Polling stays as the fallback, and
+  // is all a spectator gets (the room refuses them, which stops the retries).
   let socket: { close(): void } | undefined;
   let socketTries = 0;
   function connectSocket(): void {
@@ -268,6 +275,7 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     if (stopped) return;
     state.error = "";
     state.match = res.match;
+    state.role = res.role ?? null;
     state.context = res.context ?? null;
     state.coachRating = res.coachRating ?? null;
     state.events = res.events ?? [];
@@ -334,6 +342,8 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     advance: (body: Record<string, unknown> = {}) => act("pregame/advance", body),
     /** Organiser: skip the rest of the pre-game (the server logs it and starts the set-up). */
     skipPregame: () => act("pregame/skip"),
+    /** Organiser: swap home and away before the pre-game starts (the server logs it). */
+    swapSeats: () => act("seats/swap"),
     /** End Turn, guarded by the half and turn the coach saw (the server refuses a stale press). */
     endTurn: (override = false) => act("turn/end", { expectedHalf: state.clock?.half, expectedTurn: state.clock?.turn, expectedTeam: state.clock?.activeTeam, ...(override ? { override: true } : {}) }),
     /** "Kick-off done" at turn 0: starts the first turn of the half. */

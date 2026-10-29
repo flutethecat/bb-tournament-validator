@@ -40,6 +40,7 @@ export const EVENT_GLYPHS: Record<string, Glyph> = {
   inducement: { text: "🛒" }, // client kind inducements
   prayer: { text: "🙏" }, // client kind prayer
   coinFlip: { text: "🪙" }, // client kind coin
+  seats: { text: "🏟️" }, // the home/away draw and swaps
   pregameSkip: { text: "⏭️" },
   turnEnd: { text: "⏳" }, // client kind turnEnd
   turnSet: { text: "⏳" },
@@ -100,14 +101,14 @@ const LABELS: Record<string, string> = {
   touchdown: "Touchdown", casualty: "Casualty", injury: "Injury", completion: "Completion", catch: "Catch", throwTeamMate: "Throw Team-mate",
   interception: "Interception", deflection: "Deflection", foul: "Foul", sentOff: "Sent-off", sendOff: "Sent-off", stalling: "Stalling",
   secretObjective: "Secret Objectives", mvp: "MVP", weather: "Weather", concede: "Concede match", endOfMatch: "End of match",
-  fans: "Fans", fanChange: "Fan change", journeymen: "Journeymen", journeyman: "Journeyman", inducement: "Inducement", prayer: "Prayer to Nuffle", coinFlip: "Coin flip", pregameSkip: "Pre-game skipped", turnEnd: "End of turn", turnSet: "Clock set", timers: "Turn timers", turnTimers: "Turn timers", timerAgree: "Turn timers",
+  fans: "Fans", fanChange: "Fan change", journeymen: "Journeymen", journeyman: "Journeyman", inducement: "Inducement", prayer: "Prayer to Nuffle", coinFlip: "Coin flip", seats: "Home and away", pregameSkip: "Pre-game skipped", turnEnd: "End of turn", turnSet: "Clock set", timers: "Turn timers", turnTimers: "Turn timers", timerAgree: "Turn timers",
 };
 export const eventLabel = (type: string): string => LABELS[type] ?? type;
 
 /** Rows with no undo button (pre-game results and turn ends the server wrote). */
-export const PREGAME_TYPES: ReadonlySet<string> = new Set(["fans", "weather", "journeymen", "journeyman", "inducement", "prayer", "coinFlip", "pregameSkip", "timers", "turnTimers", "timerAgree", "turnEnd", "turnSet"]);
+export const PREGAME_TYPES: ReadonlySet<string> = new Set(["seats", "fans", "weather", "journeymen", "journeyman", "inducement", "prayer", "coinFlip", "pregameSkip", "timers", "turnTimers", "timerAgree", "turnEnd", "turnSet"]);
 /** Rows drawn across the whole feed rather than on a team side. */
-const CENTRE_TYPES: ReadonlySet<string> = new Set(["weather", "endOfMatch", "coinFlip", "pregameSkip", "fans", "fanChange", "journeymen", "journeyman", "prayer", "winnings", "turnEnd", "turnSet", "timers", "turnTimers"]);
+const CENTRE_TYPES: ReadonlySet<string> = new Set(["weather", "endOfMatch", "coinFlip", "seats", "pregameSkip", "fans", "fanChange", "journeymen", "journeyman", "prayer", "winnings", "turnEnd", "turnSet", "timers", "turnTimers"]);
 
 const word = (v: unknown): string => {
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
@@ -173,7 +174,20 @@ export function rollWord(p: Record<string, unknown>): string {
   return p.rolledBy === "coach" ? `rolled at the table${typeof p.enteredBy === "string" ? `, entered by ${p.enteredBy}` : ""}` : p.rolledBy === "site" ? "site roll" : "";
 }
 
-/** "<Caller> (<Team>) calls heads. The coin lands heads. <Winner> wins the toss." plus the choice when it rides along. */
+/** "Away team <Team> (<Coach>) calls the toss": the away coach calls (owner ruling 10-30); an old match's drawn home caller reads "Home team". */
+export const callerPhrase = (caller: Side, c: NameCtx): string => `${caller === "away" ? "Away" : "Home"} team ${c.team[caller]} (${c.coach[caller]}) calls the toss`;
+
+/** The seat draw at creation and an organiser's swap: the names travel in the payload, so the row reads right after a later swap. */
+function seatsSentence(p: Record<string, unknown>, by: string | undefined): string {
+  const seat = (v: unknown): string => {
+    const o = v && typeof v === "object" ? (v as { coach?: unknown; teamName?: unknown }) : {};
+    return `${String(o.teamName ?? "")} (${String(o.coach ?? "")})`;
+  };
+  const where = `${seat(p.home)} at home, ${seat(p.away)} away.`;
+  return p.stage === "swap" ? `${by ?? "An organiser"} swaps home and away: ${where}` : `The site draws home and away: ${where}`;
+}
+
+/** "Away team <Team> (<Coach>) calls the toss: heads. The coin lands heads. <Winner> wins the toss." plus the choice when it rides along. */
 function coinSentences(p: Record<string, unknown>, c: NameCtx): string {
   const winner = isSide(p.winner) ? p.winner : undefined;
   const choiceOf = (): string => {
@@ -181,12 +195,13 @@ function coinSentences(p: Record<string, unknown>, c: NameCtx): string {
     return `${c.coach[winner]} chooses to ${p.choice}. ${c.team[other(winner)]} will ${p.choice === "kick" ? "receive" : "kick"}.`;
   };
   if (p.stage === "choice") return choiceOf();
-  if (p.stage === "call") return isSide(p.caller) ? `${c.coach[p.caller]} (${c.team[p.caller]}) calls ${String(p.call ?? "")} for a real coin.` : "";
-  if (p.stage === "caller") return isSide(p.caller) ? `The site draws ${c.coach[p.caller]} (${c.team[p.caller]}) to call the toss.` : "";
+  if (p.stage === "call") return isSide(p.caller) ? `${callerPhrase(p.caller, c)}: ${String(p.call ?? "")}, for a real coin.` : "";
+  // an old match's caller draw (no longer recorded): the same sentence as today's derived caller
+  if (p.stage === "caller") return isSide(p.caller) ? `${callerPhrase(p.caller, c)}.` : "";
   const caller = isSide(p.caller) ? p.caller : undefined;
   const call = typeof p.call === "string" ? p.call : "";
   const result = typeof p.result === "string" ? p.result : "";
-  const head = caller ? `${c.coach[caller]} (${c.team[caller]}) calls ${call}.` : "";
+  const head = caller ? `${callerPhrase(caller, c)}: ${call}.` : "";
   const flip = p.mode === "hand" ? `They flipped a real coin: ${result}.` : `The coin lands ${result}.`;
   const won = winner ? `${c.coach[winner]} wins the toss.` : "";
   return [head, result ? flip : "", won, choiceOf()].filter(Boolean).join(" ");
@@ -212,6 +227,7 @@ export function eventSentence(e: RecordedEvent, who: string, teamName: string, s
   if (names) {
     switch (e.type) {
       case "coinFlip": return { lead: "", rest: coinSentences(pl, names) };
+      case "seats": return { lead: "", rest: seatsSentence(pl, (e as { by?: string }).by) };
       case "fans": {
         const how = rollWord(pl);
         return { lead: names.team[e.team], rest: ` brings ${Number(pl.total ?? 0)} fans (rolled ${Number(pl.roll ?? 0)}${how ? `, ${how}` : ""}).` };

@@ -2,6 +2,8 @@
 // Tabletop recorder (/app/tabletop/:id): phone-first. Scoreboard on top (about 20 %), the events feed in the middle
 // (the only region that scrolls), TD / Other / CAS across the bottom third. Shows only what the server returned;
 // taps go through the offline queue and the screen follows the server next answer.
+// A spectator (the server's `role: "spectator"`, owner ruling 10-30: a signed-in coach outside the match, or anyone for a
+// match that is not a test match) gets the same page read-only: scoreboard, pre-game and cines, the log; no controls.
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { COACH_TREE_KEY } from "../home/tree";
 import { RouterLink } from "vue-router";
@@ -58,7 +60,9 @@ const sides: Side[] = ["home", "away"];
 const opponentSide = computed<Side | null>(() => (organiser.value || mySide.value === null ? null : mySide.value === "home" ? "away" : "home"));
 const match = computed(() => state.match);
 const me = computed(() => session.coach());
-const organiser = computed(() => session.state.info?.organizer === true);
+/** Read-only: the server says this viewer only watches (every write would be refused with 403 anyway). */
+const readOnly = computed(() => state.role === "spectator");
+const organiser = computed(() => !readOnly.value && session.state.info?.organizer === true);
 const inPregame = computed(() => pregameStep(state.phase) !== "");
 const recording = computed(() => match.value?.state === "recording" && !inPregame.value);
 
@@ -117,7 +121,7 @@ const editMode = ref(false);
 /** The session coach side (a coach of neither team, i.e. an organiser, gets home). */
 /** The side the session coach plays; null for an organiser (or anyone) who plays in neither team. */
 const mySide = computed<Side | null>(() => (match.value?.home.coach === me.value ? "home" : match.value?.away.coach === me.value ? "away" : null));
-const canAct = computed(() => mySide.value !== null || organiser.value);
+const canAct = computed(() => !readOnly.value && (mySide.value !== null || organiser.value));
 const matchEnded = computed(() => match.value?.state !== "recording" || state.events.some((e) => e.type === "endOfMatch" && state.effectiveIds.includes(e.id)));
 /** Edit mode: participants while the match is still recording, organisers always. */
 const canEdit = computed(() => canEditMatch({ organiser: organiser.value, participant: mySide.value !== null, ended: matchEnded.value }));
@@ -390,6 +394,7 @@ onBeforeUnmount(() => {
       </span>
     </div>
     <TabletopContextBar v-if="state.context" :context="state.context" />
+    <p v-if="readOnly" class="tt-spectator" role="status">You are watching this match. It updates as the coaches record it.</p>
     </div>
     <TabletopScoreboard
       :match="match" :teams="state.teams" :tally="state.tally" :events="state.events" :pregame="state.pregame"
@@ -423,8 +428,8 @@ onBeforeUnmount(() => {
 
       <TabletopPregame
         v-if="inPregame" :match="match" :teams="state.teams" :phase="state.phase" :pregame="state.pregame"
-        :busy="state.busy" :error="state.actionError" :clock="state.clock" :timer-answers="timerAnswers" :my-side="mySide" :organiser="organiser" :inducement-icons="state.inducementIcons" :cine-playing="!!cine"
-        @advance="(b: Record<string, unknown>) => rec.advance(b)" @skip="rec.skipPregame()"
+        :busy="state.busy" :error="state.actionError" :clock="state.clock" :timer-answers="timerAnswers" :my-side="mySide" :organiser="organiser" :inducement-icons="state.inducementIcons" :cine-playing="!!cine" :read-only="readOnly"
+        @advance="(b: Record<string, unknown>) => rec.advance(b)" @skip="rec.skipPregame()" @swap="rec.swapSeats()"
       />
 
       <template v-if="match.state !== 'recording'">
@@ -459,7 +464,7 @@ onBeforeUnmount(() => {
 
     <TabletopRail
       :match="match" :clock="state.clock" :remaining="remaining" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy"
-      :recording="recording"
+      :recording="recording && !readOnly"
       @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @pick="(k) => { viewer.buzz(); openPick(k); }" @other="viewer.buzz(); other = true"
     >
       <button v-if="organiser && adminHidden" class="tt-admin-btn tt-admin-wide tt-admin-show" type="button" @click="setAdminHidden(false)">Show admin panel</button>
@@ -470,7 +475,7 @@ onBeforeUnmount(() => {
       />
     </TabletopRail>
 
-    <nav v-if="recording" class="tt-actions-bar" aria-label="Record an event">
+    <nav v-if="recording && !readOnly" class="tt-actions-bar" aria-label="Record an event">
       <button class="tt-big tt-big-td" type="button" data-tip="Record a touchdown" @click="viewer.buzz(); openPick(TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" /><span>TD</span></button>
       <button class="tt-big tt-big-cas" type="button" data-tip="Record a casualty" @click="viewer.buzz(); openPick(CAS_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.casualty" /><span>CAS</span></button>
       <button class="tt-big tt-big-injury" type="button" data-tip="Record an injury with no player to credit" @click="viewer.buzz(); openPick(INJURY_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.injury" /><span>Injury</span></button>

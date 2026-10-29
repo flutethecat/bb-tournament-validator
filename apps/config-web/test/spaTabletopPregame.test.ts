@@ -170,6 +170,40 @@ describe("recorder controller", () => {
     expect(r.state.phase).toBe("pregame:weather");
     r.stop();
   });
+
+  it("keeps the server's role; swapSeats posts seats/swap (owner ruling 10-30)", async () => {
+    const calls: string[] = [];
+    let role = "spectator";
+    const api = (async (path: string, init: { method?: string } = {}) => {
+      calls.push(`${init.method ?? "GET"} ${path}`);
+      return init.method === "POST" ? { match: view("pregame:fans").match } : { ...view("pregame:fans"), role };
+    }) as Fetcher;
+    const r = mods.rec.createRecorder("m1", { api, onSignedOut: () => undefined, storage: mods.queue.memoryStorage() });
+    expect(r.state.role).toBeNull();
+    await r.refresh();
+    expect(r.state.role).toBe("spectator");
+    role = "organiser";
+    await r.swapSeats();
+    expect(calls).toContain("POST /api/tabletop/matches/m1/seats/swap");
+    expect(r.state.role).toBe("organiser");
+    r.stop();
+  });
+});
+
+describe("seats: the organiser's swap button and the seat line", () => {
+  const fansProps = (pregame: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    ({ match: { id: "m", state: "recording", home: { ...names.home, teamSaveId: "a" }, away: { ...names.away, teamSaveId: "b" }, postMatch: "full", createdBy: "Alice", confirmations: {} }, teams: { home: undefined, away: undefined }, phase: "pregame:fans", pregame: { step: "fans", ...pregame }, busy: false, error: "", ...extra });
+  it("an organiser may swap home and away until the first roll; coaches and spectators never see the button", async () => {
+    const org = await mount(mods.pregameC, fansProps({ seatsSwappable: true }, { mySide: null, organiser: true }));
+    expect(org).toContain(">Swap home and away<");
+    expect(org).toContain("Home: Alice Orcs (Alice) · Away: Bob Elves (Bob)");
+    expect(await mount(mods.pregameC, fansProps({ seatsSwappable: false }, { mySide: null, organiser: true }))).not.toContain(">Swap home and away<");
+    expect(await mount(mods.pregameC, fansProps({ seatsSwappable: true }, { mySide: "home" }))).not.toContain(">Swap home and away<");
+    const watching = await mount(mods.pregameC, fansProps({ seatsSwappable: true }, { mySide: null, readOnly: true }));
+    expect(watching).not.toContain(">Swap home and away<");
+    expect(watching).not.toContain(">Roll for me<");
+    expect(watching).toContain("Waiting for the coaches.");
+  });
 });
 
 describe("match log lines", () => {
@@ -177,8 +211,16 @@ describe("match log lines", () => {
   const teams = { home: { name: "Alice Orcs", players: [] }, away: { name: "Bob Elves", players: [] } };
   const lines = (evs: any[]) => mods.feed.feedRows(evs, evs.map((e) => e.id), teams, {}, match).map((r: any) => `${r.lead}${r.rest}`);
 
-  it("the caller draw, coach-entered and site rolls, and the organiser skip are logged", () => {
-    expect(lines([caller])[0]).toBe("The site draws Bob (Bob Elves) to call the toss.");
+  it("the seat draw and swap, the away caller, coach-entered and site rolls, and the organiser skip are logged", () => {
+    // an old match's recorded caller draw now reads like today's derived caller
+    expect(lines([caller])[0]).toBe("Away team Bob Elves (Bob) calls the toss.");
+    const seats = ev("pg-seats", "seats", "home", { stage: "draw", swapped: true, rolledBy: "site", home: { coach: "Alice", teamName: "Alice Orcs" }, away: { coach: "Bob", teamName: "Bob Elves" } });
+    expect(lines([seats])[0]).toBe("The site draws home and away: Alice Orcs (Alice) at home, Bob Elves (Bob) away.");
+    const swap = { ...ev("pg-seatswap-1", "seats", "home", { stage: "swap", home: { coach: "Bob", teamName: "Bob Elves" }, away: { coach: "Alice", teamName: "Alice Orcs" } }), by: "Org" };
+    expect(lines([swap])[0]).toBe("Org swaps home and away: Bob Elves (Bob) at home, Alice Orcs (Alice) away.");
+    expect(mods.feed.feedRows([seats], ["pg-seats"], teams, {}, match)[0]).toMatchObject({ side: "centre", undoable: false });
+    const call = ev("pg-coincall", "coinFlip", "away", { stage: "call", mode: "hand", caller: "away", call: "heads" });
+    expect(lines([call])[0]).toBe("Away team Bob Elves (Bob) calls the toss: heads, for a real coin.");
     expect(lines([fans[1]])[0]).toBe("Bob Elves brings 3 fans (rolled 1, rolled at the table, entered by Bob).");
     expect(lines([fans[0]])[0]).toBe("Alice Orcs brings 5 fans (rolled 3, site roll).");
     expect(lines([weather])[0]).toBe("Weather: Pouring Rain (5 + 6, site roll)");
@@ -205,8 +247,10 @@ const pgProps = (pregame: Record<string, unknown>, extra: Record<string, unknown
 
 describe("P2 #1: a real coin goes call -> result -> choice, each by its own coach", () => {
   it("only the caller sees the call; after a real-coin call either coach enters what the coin showed", async () => {
+    // an old match with a drawn home caller still works; today the caller is always the away coach
     const notCaller = await mount(mods.pregameC, pgProps({ step: "coin", coin: { caller: "home" } }, { mySide: "away" }));
-    expect(notCaller).toContain("Alice (Alice Orcs) is calling the toss");
+    expect(notCaller).toContain("Home team Alice Orcs (Alice) calls the toss");
+    expect(notCaller).toContain("Waiting for Alice to call…");
     expect(notCaller).not.toContain("Flipping a real coin?"); // no hand entry that could call for Alice
     expect(notCaller).not.toContain("The coin showed");
     const caller = await mount(mods.pregameC, pgProps({ step: "coin", coin: { caller: "home" } }, { mySide: "home" }));

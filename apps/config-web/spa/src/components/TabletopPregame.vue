@@ -3,10 +3,12 @@
 // coin flip, kick/receive, turn timers. The dice are rolled at the table, so every roll offers "Roll for me" (the site
 // rolls) and "Enter result" (the coaches type what they rolled); both are recorded. The server validates each step and
 // who may act; this shows the step, what the server already decided, and the controls the step needs.
+// Owner rulings 10-30: home and away are drawn when the match is created (an organiser may swap them before the first
+// roll), the away coach calls the toss (no caller draw), and a spectator (`readOnly`) sees every step with no controls.
 // BB2025 pre-game sequence: https://bloodbowlbase.ru/bb2025/core_rules/the_game_of_blood_bowl/
 import { computed, reactive, ref } from "vue";
 import type { ClockView } from "../tabletop/clock";
-import { PREGAME_LABELS, PREGAME_STEPS, pregameStep, rollWord, type PregameViewStep } from "../tabletop/feed";
+import { PREGAME_LABELS, PREGAME_STEPS, callerPhrase, pregameStep, rollWord, type PregameViewStep } from "../tabletop/feed";
 import { WEATHER_EFFECTS } from "../tabletop/pregameCine";
 import type { MatchView, Side, TeamView } from "../tabletop/recorder";
 import TabletopInducementPicker, { type InducementBudget, type InducementOption } from "./TabletopInducementPicker.vue";
@@ -27,8 +29,10 @@ const props = defineProps<{
   inducementIcons?: Record<string, string>;
   /** A pre-game cine is on screen: dialogs that take input (Kick or receive?) wait until it has finished. */
   cinePlaying?: boolean;
+  /** A spectator (the server's role): every step shows, no control does. */
+  readOnly?: boolean;
 }>();
-const emit = defineEmits<{ (e: "advance", body: Record<string, unknown>): void; (e: "skip"): void }>();
+const emit = defineEmits<{ (e: "advance", body: Record<string, unknown>): void; (e: "skip"): void; (e: "swap"): void }>();
 
 const sides: Side[] = ["home", "away"];
 const other = (s: Side): Side => (s === "home" ? "away" : "home");
@@ -38,8 +42,11 @@ const stepperKey = computed(() => (step.value === "kickreceive" ? "coin" : step.
 const idx = computed(() => (PREGAME_STEPS as readonly string[]).indexOf(stepperKey.value));
 const participant = computed(() => props.mySide === "home" || props.mySide === "away");
 /** No seat given (an embedding that does not know the viewer): show every control; the server still checks the actor. */
-const unknownViewer = computed(() => props.mySide === undefined);
-const canAct = computed(() => unknownViewer.value || participant.value || props.organiser === true);
+const unknownViewer = computed(() => props.mySide === undefined && props.readOnly !== true);
+const canAct = computed(() => props.readOnly !== true && (unknownViewer.value || participant.value || props.organiser === true));
+/** Organiser tools (skip, swap seats): never for a spectator. */
+const organiserTools = computed(() => props.organiser === true && props.readOnly !== true);
+const names = computed(() => ({ coach: { home: coach("home"), away: coach("away") }, team: { home: team("home"), away: team("away") } }));
 const team = (s: Side): string => props.match[s].teamName;
 const coach = (s: Side): string => props.match[s].coach;
 
@@ -122,10 +129,11 @@ const waitingFor = (s: Side): string => (budget(s)?.role === "underdog" && !subm
 
 // ---- coin and kick/receive ----
 const coin = computed(() => (obj(props.pregame.coin) ?? obj(props.pregame.coinFlip) ?? {}) as { caller?: Side; call?: string; result?: string; winner?: Side; choice?: string; mode?: string; rolledBy?: string });
-const caller = computed<Side | undefined>(() => (coin.value.caller === "home" || coin.value.caller === "away" ? coin.value.caller : undefined));
+/** The away coach calls the toss (derived from the seats; an old match may name a drawn home caller). */
+const caller = computed<Side>(() => (coin.value.caller === "home" ? "home" : "away"));
 const winner = computed<Side | undefined>(() => (coin.value.winner === "home" || coin.value.winner === "away" ? coin.value.winner : undefined));
-const canCall = computed(() => !!caller.value && (unknownViewer.value || props.mySide === caller.value || props.organiser === true));
-const canChoose = computed(() => !!winner.value && (unknownViewer.value || props.mySide === winner.value || props.organiser === true));
+const canCall = computed(() => props.readOnly !== true && (unknownViewer.value || props.mySide === caller.value || props.organiser === true));
+const canChoose = computed(() => props.readOnly !== true && !!winner.value && (unknownViewer.value || props.mySide === winner.value || props.organiser === true));
 /** The caller's choice of coin: the site flips ("auto") or the coaches flip a real one ("hand"). Each sub-step has its
  *  own actor on the server: the caller calls, either coach enters what a real coin showed, the winner chooses. */
 const hand = ref(false);
@@ -141,6 +149,10 @@ const timerRule = (): "required" | "off" | "" => {
 };
 const answerText = (s: Side): string => (props.timerAnswers?.[s] === undefined ? "has not answered yet" : props.timerAnswers[s] ? "says yes" : "says no");
 
+function swapSeats(): void {
+  if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Swap home and away? ${team("away")} would play at home and ${team("home")} away (the away coach calls the toss). The swap is logged.`)) return;
+  emit("swap");
+}
 function skipAll(): void {
   if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm("Skip the rest of the pre-game? The match starts at the kick-off set-up and the skip is logged.")) return;
   emit("skip");
@@ -156,8 +168,10 @@ const weatherObj = computed(() => obj(props.pregame.weather));
   <section class="tt-pregame" aria-label="Pre-game">
     <div class="tt-pre-head">
       <h3 class="tt-pre-h">Pre-game</h3>
-      <button v-if="organiser" class="lobby-btn small tt-tap tt-pre-skip" type="button" :disabled="busy" @click="skipAll">Skip pre-game</button>
+      <button v-if="organiserTools && pregame.seatsSwappable === true" class="lobby-btn small tt-tap tt-pre-swap" type="button" :disabled="busy" @click="swapSeats">Swap home and away</button>
+      <button v-if="organiserTools" class="lobby-btn small tt-tap tt-pre-skip" type="button" :disabled="busy" @click="skipAll">Skip pre-game</button>
     </div>
+    <p class="tt-pre-seats muted">Home: {{ team("home") }} ({{ coach("home") }}) · Away: {{ team("away") }} ({{ coach("away") }})</p>
     <ol class="tt-steps">
       <li v-for="(k, i) in PREGAME_STEPS" :key="k" :data-state="i < idx ? 'done' : i === idx ? 'now' : 'next'">{{ PREGAME_LABELS[k] }}</li>
     </ol>
@@ -213,6 +227,7 @@ const weatherObj = computed(() => obj(props.pregame.weather));
         <span v-if="weatherObj">Weather: {{ String(weatherObj.result ?? "") }}. {{ WEATHER_EFFECTS[String(weatherObj.result ?? "")] ?? "" }}</span>
       </div>
       <button v-if="canAct" class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="emit('advance', {})">Take on journeymen</button>
+      <p v-else class="muted" role="status">Waiting for the coaches.</p>
     </div>
 
     <div v-else-if="step === 'inducements'" class="tt-pre-card tt-pre-ind" data-step="inducements">
@@ -226,11 +241,7 @@ const weatherObj = computed(() => obj(props.pregame.weather));
 
     <div v-else-if="step === 'coin'" class="tt-pre-card tt-coin-card" data-step="coin">
       <h3>Coin flip</h3>
-      <template v-if="!caller">
-        <p class="muted">The site draws which coach calls the toss.</p>
-        <button v-if="canAct" class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="emit('advance', {})">Draw the caller</button>
-      </template>
-      <template v-else-if="awaitingResult">
+      <template v-if="awaitingResult">
         <p class="tt-coin-call">{{ coach(caller) }} called <b>{{ up(coin.call) }}</b> for a real coin</p>
         <template v-if="canAct">
           <p class="muted">Flip it at the table. What did the coin show?</p>
@@ -241,7 +252,7 @@ const weatherObj = computed(() => obj(props.pregame.weather));
         </template>
       </template>
       <template v-else-if="canCall">
-        <p class="tt-coin-call">{{ coach(caller) }} calls the toss<template v-if="hand"> (real coin)</template></p>
+        <p class="tt-coin-call">{{ callerPhrase(caller, names) }}<template v-if="hand"> (real coin)</template></p>
         <div class="tt-actions-row">
           <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="call('heads')">Heads <span class="tt-coin-side heads">H</span></button>
           <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="call('tails')">Tails <span class="tt-coin-side tails">T</span></button>
@@ -250,15 +261,15 @@ const weatherObj = computed(() => obj(props.pregame.weather));
       </template>
       <div v-else class="tt-coin-wait" role="status">
         <span class="tt-coin-spinner" aria-hidden="true" />
-        <p class="tt-coin-call">{{ coach(caller) }} ({{ team(caller) }}) is calling the toss</p>
-        <p class="muted">Waiting...</p>
+        <p class="tt-coin-call">{{ callerPhrase(caller, names) }}</p>
+        <p class="muted">Waiting for {{ coach(caller) }} to call…</p>
       </div>
     </div>
 
     <div v-else-if="step === 'kickreceive'" class="tt-pre-card tt-coin-card" data-step="kickreceive">
       <h3>Coin flip</h3>
       <p class="tt-coin-caption">{{ up(coin.result) }} - {{ winner ? `${team(winner)} wins the toss` : "" }}</p>
-      <p class="muted">{{ caller ? `${coach(caller)} called ${up(coin.call)}.` : "" }}</p>
+      <p class="muted">{{ coin.call ? `${coach(caller)} called ${up(coin.call)}.` : "" }}</p>
       <!-- deferred while a cine plays, so a key or tap that skips the cine can never land on Receive / Kick underneath -->
       <div v-if="canChoose && winner && !cinePlaying" class="tt-modal tt-kr-modal" role="dialog" aria-label="Kick or receive?">
         <div class="tt-kr-box">
@@ -272,8 +283,8 @@ const weatherObj = computed(() => obj(props.pregame.weather));
       </div>
       <div v-else-if="winner && !(canChoose && cinePlaying)" class="tt-coin-wait" role="status">
         <span class="tt-coin-spinner" aria-hidden="true" />
-        <p class="tt-coin-call">{{ coach(winner) }} won the toss and is choosing to kick or receive</p>
-        <p class="muted">Waiting...</p>
+        <p class="tt-coin-call">{{ coach(winner) }} ({{ team(winner) }}) won the toss</p>
+        <p class="muted">Waiting for {{ coach(winner) }} to choose…</p>
       </div>
     </div>
 

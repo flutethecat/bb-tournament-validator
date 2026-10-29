@@ -229,13 +229,16 @@ describe("tabletop routes (server-rendered)", () => {
     }, theme);
   }
 
-  it("signed out: /tabletop and /tabletop/:id show the sign-in prompt, never the recorder", async () => {
-    for (const path of ["/tabletop", "/tabletop/tm_abc123"]) {
+  it("signed out: /tabletop shows the sign-in prompt; /tabletop/:id is open to watch (owner ruling 10-30)", async () => {
+    for (const path of ["/tabletop"]) {
       const { html } = await render(path, { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
       expect(html, path).toContain("Login with Discord");
       expect(html, path).toContain(`next=${encodeURIComponent(`/app${path}`)}`);
       expect(html, path).not.toContain("New match");
     }
+    // the match page has no sign-in gate: the server decides the role (spectator for an anonymous visitor)
+    const open = await render("/tabletop/tm_abc123", { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
+    expect(open.html).not.toContain("Sign in with Discord to use this page.");
     const pw = await render("/tabletop", { "/api/auth/session": { authenticated: true, coach: "Pw", authMethod: "password", discordSsoEnabled: true } });
     expect(pw.html).toContain("This page needs a Discord sign-in.");
   });
@@ -1232,6 +1235,34 @@ describe("tabletop routes (server-rendered)", () => {
     expect(closes(await mount(mods.ttmC, { match: baseMatch("recording"), teams: roster, tally: serverTally, visibleSides: ["home"] }))).toBe(1);
   });
 
+  it("spectator (role from the server): the recorder renders read-only, with no action buttons and the waiting copy", async () => {
+    const watching = session({ coach: "Mallory" });
+    const play = { match: baseMatch("recording"), role: "spectator", events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) };
+    const { html } = await renderMatch(play, watching);
+    expect(html).toContain("You are watching this match. It updates as the coaches record it.");
+    expect(html).toContain("Alice Orcs"); // the scoreboard
+    expect(html).toContain("Match log");
+    expect(html).not.toContain('class="tt-actions-bar"'); // no TD / CAS / Injury / Other
+    expect(html).not.toContain('class="tt-rail-btns"');
+    expect(html).not.toContain("End turn");
+    expect(html).not.toContain('class="tt-admin"');
+    // an organiser's session flag never turns a spectator view into an admin one
+    expect((await renderMatch(play, session({ coach: "Zed", organizer: true }))).html).not.toContain('class="tt-admin"');
+    // the same match for its coach still has the buttons
+    expect((await renderMatch({ ...play, role: "home" })).html).toContain('class="tt-actions-bar"');
+    // pre-game: the kick/receive dialog shows as waiting; no organiser tools, no rolls
+    const kr = { ...play, phase: "pregame:coin", clock: undefined, pregame: { step: "kickreceive", seatsSwappable: false, coin: { caller: "away", call: "tails", result: "heads", winner: "home", mode: "auto" } } };
+    const pre = (await renderMatch(kr, watching)).html;
+    expect(pre).toContain("Waiting for Alice to choose…");
+    expect(pre).not.toContain("Kick or receive?");
+    expect(pre).not.toContain(">Receive<");
+    expect(pre).not.toContain("Skip pre-game");
+    const fans = (await renderMatch({ ...kr, phase: "pregame:fans", pregame: { step: "fans", seatsSwappable: true } }, session({ coach: "Zed", organizer: true }))).html;
+    expect(fans).toContain("Waiting for the coaches.");
+    expect(fans).not.toContain(">Roll for me<");
+    expect(fans).not.toContain(">Swap home and away<");
+  });
+
   it("admin: the panel is absent for participants and present for organisers; admin events are yellow with an ADMIN tag; removed events stay unless a participant hides them, and organisers outside the match always see them", async () => {
     const body = { match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) };
     const coach = await renderMatch(body);
@@ -1439,16 +1470,17 @@ describe("tabletop routes (server-rendered)", () => {
     expect(again).toContain("Confirm Bob Elves");
   });
 
-  it("coin flipper: the drawn caller sees Heads / Tails, the other coach waits; hand entry is a small link at the bottom", async () => {
+  it("coin flipper: the away coach sees Heads / Tails, the other coach waits; hand entry is a small link at the bottom", async () => {
     const html = await mount(mods.pregameC, pregameProps("pregame:coin", { coin: { caller: "away" } }));
-    expect(html).toContain("Bob calls the toss");
+    expect(html).toContain("Away team Bob Elves (Bob) calls the toss");
     expect(html).toContain("Heads ");
     expect(html).toContain("Tails ");
     expect(html).not.toContain('class="tt-coin"');
     expect(html).toContain("Flipping a real coin? Call it here, then enter the result");
     expect(html.indexOf("Flipping a real coin?")).toBeGreaterThan(html.indexOf("Tails"));
     const other = await mount(mods.pregameC, { ...pregameProps("pregame:coin", { coin: { caller: "away" } }), mySide: "home" });
-    expect(other).toContain("Bob (Bob Elves) is calling the toss");
+    expect(other).toContain("Away team Bob Elves (Bob) calls the toss");
+    expect(other).toContain("Waiting for Bob to call…");
     expect(other).not.toContain("Heads <");
     const caller = await mount(mods.pregameC, { ...pregameProps("pregame:coin", { coin: { caller: "away" } }), mySide: "away" });
     expect(caller).toContain("Heads ");
@@ -1456,7 +1488,10 @@ describe("tabletop routes (server-rendered)", () => {
     expect(org).toContain("Heads "); // an organiser may call for the coaches
     expect(org).toContain("Skip pre-game");
     expect(other).not.toContain("Skip pre-game");
-    expect(await mount(mods.pregameC, pregameProps("pregame:coin"))).toContain("Draw the caller"); // an older match with no draw yet
+    // no caller draw any more (owner ruling 10-30): with no coin block yet the away coach is still the caller
+    const bare = await mount(mods.pregameC, { ...pregameProps("pregame:coin"), mySide: "home" });
+    expect(bare).toContain("Away team Bob Elves (Bob) calls the toss");
+    expect(bare).not.toContain("Draw the caller");
   });
 
   it("kick/receive: the winner gets the Kick or receive? dialog; everyone else waits", async () => {
@@ -1469,7 +1504,8 @@ describe("tabletop routes (server-rendered)", () => {
       expect(html).toContain(">Kick<");
       expect(html).not.toContain("calls the toss");
       const loser = await mount(mods.pregameC, { ...pregameProps("pregame:coin", kr), mySide: "home" });
-      expect(loser).toContain("Bob won the toss and is choosing to kick or receive");
+      expect(loser).toContain("Bob (Bob Elves) won the toss");
+      expect(loser).toContain("Waiting for Bob to choose…");
       expect(loser).not.toContain("Kick or receive?");
     }
     const { readFileSync } = await import("node:fs");
@@ -2062,14 +2098,14 @@ describe("tabletop routes (server-rendered)", () => {
       mk("a", "coinFlip", "home", { mode: "auto", call: "heads", caller: "away", result: "heads", winner: "home" }),
       mk("b", "coinFlip", "home", { stage: "choice", winner: "home", choice: "kick" }),
     ])).toEqual([
-      "Bob (Bob Elves) calls heads. The coin lands heads. Alice wins the toss.",
+      "Away team Bob Elves (Bob) calls the toss: heads. The coin lands heads. Alice wins the toss.",
       "Alice chooses to kick. Bob Elves will receive.",
     ].reverse()); // newest first
     // hand mode, merged event
     expect(lines([mk("c", "coinFlip", "away", { mode: "hand", call: "heads", caller: "away", result: "tails", winner: "home", choice: "receive" })])[0])
-      .toBe("Bob (Bob Elves) calls heads. They flipped a real coin: tails. Alice wins the toss. Alice chooses to receive. Bob Elves will kick.");
+      .toBe("Away team Bob Elves (Bob) calls the toss: heads. They flipped a real coin: tails. Alice wins the toss. Alice chooses to receive. Bob Elves will kick.");
     expect(lines([mk("d", "coinFlip", "home", { mode: "auto", call: "tails", caller: "away", result: "heads", winner: "home", choice: "kick" })])[0])
-      .toBe("Bob (Bob Elves) calls tails. The coin lands heads. Alice wins the toss. Alice chooses to kick. Bob Elves will receive.");
+      .toBe("Away team Bob Elves (Bob) calls the toss: tails. The coin lands heads. Alice wins the toss. Alice chooses to kick. Bob Elves will receive.");
     expect(lines([mk("e", "fans", "home", { roll: 3, dedicatedFans: 1, total: 4 })])[0]).toBe("Alice Orcs brings 4 fans (rolled 3).");
     expect(lines([mk("f", "weather", "home", { pregame: true, roll: 12, dice: [6, 6], result: "Blizzard" })])[0]).toBe("Weather: Blizzard");
     expect(lines([mk("g1", "journeyman", "away", { player: "x1" }), mk("g2", "journeyman", "away", { player: "x2" })])).toEqual(["Bob Elves takes on 2 journeymen."]);
