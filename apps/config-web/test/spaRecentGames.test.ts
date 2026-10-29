@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createSSRApp } from "vue";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -177,5 +178,14 @@ describe("recent games (SSR)", () => {
     expect(plain).not.toContain("rc-flag");
     expect(plain).not.toContain("data-size");
     expect(await card({ context: "x", home: side("A", "", "a", 1, 0), away: side("B", "", "b", 0, 0), size: "lg" })).toContain('data-size="lg"');
+  });
+
+  it("scroll boxes hand off to the page at their ends: no overscroll containment on Past Games, What's new or My teams", () => {
+    const cardCss = readFileSync(new URL("../spa/src/shared/result-card.css", import.meta.url), "utf8");
+    const homeCss = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");
+    expect(cardCss).toMatch(/\.rc-scroll \{[^}]*overflow-y: auto/);
+    for (const rule of [cardCss.match(/\.rc-scroll \{[^}]*\}/)![0], homeCss.match(/\.hm-log-strip \{[^}]*\}/)![0], homeCss.match(/\.hm-teams-strip \{[^}]*\}/)![0]]) {
+      expect(rule).not.toMatch(/overscroll-behavior/);
+    }
   });
 });

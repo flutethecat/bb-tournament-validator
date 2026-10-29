@@ -89,4 +89,4 @@ a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading))
 }
 
 /* The Past Games grid scrolls inside the panel (band header fixed above), like the coach page What's new box. */
-.rc-scroll { max-height: 520px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 2px; }
+.rc-scroll { max-height: 520px; overflow-y: auto; scrollbar-gutter: stable; padding-right: 2px; }
