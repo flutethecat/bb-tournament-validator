@@ -2,8 +2,11 @@
 // League page, Fixtures tab: phase by phase, round by round. Cards view (default): played games as result cards,
 // unplayed ones as a compact row; Table view: one row per fixture with score, casualties, date and marks.
 // Play on Super FUMBBL (league setting): every fixture an admin allowed carries a "Super FUMBBL" chip; league admins
-// (organisers, site admins) get the "Allow Super FUMBBL for this fixture" switch on each unplayed fixture.
+// (organisers, site admins) get the "Allow Super FUMBBL for this fixture" switch on each unplayed fixture. Every fixture
+// links to its summary (?fixture=<id>), where it is generated and started on Super FUMBBL.
 import { computed, inject, ref } from "vue";
+import { RouterLink } from "vue-router";
+import { fixtureQuery } from "../leagues/fixture";
 import ResultCard from "./ResultCard.vue";
 import { day, fixtureOutcome, fixturePlayed, fixturesByPhase, fixtureTime, LEAGUE_DETAIL_KEY, resultCardProps } from "../leagues/league";
 import type { LeagueFixture, LeagueSummary, SeasonRecord } from "../leagues/types";
@@ -13,6 +16,9 @@ const detail = inject(LEAGUE_DETAIL_KEY, null);
 const forkSwitch = (f: LeagueFixture): boolean => Boolean(props.manage && props.league.playOnFork && detail && !fixturePlayed(f));
 const setFork = (f: LeagueFixture, e: Event): void => { void detail?.setFixtureFork(props.season.id, f.id, (e.target as HTMLInputElement).checked); };
 const view = ref<"cards" | "table">("cards");
+const latest = computed(() => detail?.state.seasons[0]?.id);
+const summaryLink = (f: LeagueFixture) => ({ query: fixtureQuery(props.season.id === latest.value ? undefined : props.season.id, f.id) });
+const FORK_LABEL: Record<string, string> = { teams_built: "Teams built", scheduled: "Game scheduled", in_progress: "In progress", finished: "Played on Super FUMBBL", launch_failed: "Failed", cancelled: "Cancelled" };
 const phase = ref("all");
 const groups = computed(() => fixturesByPhase(props.season));
 const shown = computed(() => (phase.value === "all" ? groups.value : groups.value.filter((g) => g.phase.id === phase.value)));
@@ -58,8 +64,10 @@ const cas = (f: LeagueFixture): string => (fixturePlayed(f) && f.home.cas !== nu
               <span class="lg-fx-team">{{ f.home.team }}</span><span class="lg-fx-vs">vs</span><span class="lg-fx-team lg-fx-away">{{ f.away.team }}</span>
               <small class="lg-fx-meta">{{ [f.group, f.suspended ? "Not played" : "Scheduled", day(fixtureTime(f))].filter(Boolean).join(" · ") }}</small>
             </div>
-            <div v-if="f.forkEnabled || forkSwitch(f)" class="lg-fork-row">
+            <div class="lg-fork-row">
+              <RouterLink class="tl-action lg-fx-link" :to="summaryLink(f)" :aria-label="`Fixture summary: ${f.home.team} against ${f.away.team}`">Summary</RouterLink>
               <span v-if="f.forkEnabled" class="sf-chip" data-tone="ok" data-fork="on">Super FUMBBL</span>
+              <span v-if="f.fork" class="sf-chip" data-tone="info" :data-fork-status="f.fork.status">{{ FORK_LABEL[f.fork.status] ?? f.fork.status }}</span>
               <label v-if="forkSwitch(f)" class="lg-fork-switch">
                 <input type="checkbox" role="switch" :checked="f.forkEnabled === true" :aria-checked="f.forkEnabled ? 'true' : 'false'" :disabled="detail?.state.forkBusy === f.id" @change="setFork(f, $event)" />
                 <span>Allow Super FUMBBL for this fixture</span>
@@ -78,6 +86,7 @@ const cas = (f: LeagueFixture): string => (fixturePlayed(f) && f.home.cas !== nu
                 <td class="lg-num">{{ cas(f) }}</td>
                 <td class="lg-date">{{ day(fixtureTime(f)) }}</td>
                 <td>
+                  <RouterLink class="tl-action lg-fx-link" :to="summaryLink(f)" :aria-label="`Fixture summary: ${f.home.team} against ${f.away.team}`">Summary</RouterLink>
                   <span v-for="m in marks(f)" :key="m" class="sf-chip" data-tone="muted">{{ m }}</span>
                   <span v-if="f.forkEnabled" class="sf-chip" data-tone="ok" data-fork="on">Super FUMBBL</span>
                   <span v-if="f.group" class="hm-small">{{ f.group }}</span>

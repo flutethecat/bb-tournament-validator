@@ -60,6 +60,70 @@ export interface LeagueFixture {
   finishedAt?: string;
   /** An admin allowed this fixture on Super FUMBBL. */
   forkEnabled?: boolean;
+  /** Admin per-game settings: a late launch is allowed / Super FUMBBL play is cancelled. */
+  forkAllowLate?: boolean;
+  forkCancelled?: boolean;
+  /** Season reads carry the Super FUMBBL status only. */
+  fork?: { status: FixtureForkStatus };
+}
+
+// ---- Play on Super FUMBBL: fixture summary (server: src/leagues/forkPlay.ts) ----
+
+export type ForkSide = "home" | "away";
+export type FixtureForkStatus = "teams_built" | "scheduled" | "in_progress" | "finished" | "launch_failed" | "cancelled";
+
+export interface ForkPlayerLine {
+  playerId?: string;
+  forkPlayerId: string;
+  name: string;
+  td: number;
+  cas: number;
+  completions: number;
+  interceptions: number;
+  mvp: number;
+  fouls: number;
+  spp?: number;
+  injuries: string[];
+}
+
+export interface ForkSideResult { score: number; cas: number; conceded: boolean; winnings: number; lines: ForkPlayerLine[] }
+
+export interface FixtureForkResult {
+  gameId: string;
+  source: "full" | "basic";
+  appliedAt: string;
+  penalty?: { home: number; away: number };
+  home: ForkSideResult;
+  away: ForkSideResult;
+}
+
+export interface FixtureForkView {
+  enabled: boolean;
+  status: FixtureForkStatus | "none";
+  statusLabel: string;
+  allowLate: boolean;
+  cancelled: boolean;
+  teams: Partial<Record<ForkSide, { builtAt: string }>>;
+  gameId?: string;
+  scheduledAt?: string;
+  error?: string;
+  mySide?: ForkSide;
+  launched?: Partial<Record<ForkSide, string>>;
+  canGenerate: boolean;
+  blocker?: string;
+  canStart: boolean;
+  canReset: boolean;
+  canConfigure: boolean;
+  result?: FixtureForkResult;
+  log?: Array<{ at: string; by: string; text: string }>;
+}
+
+export interface FixtureSummary {
+  league: { id: string; name: string; playOnFork: boolean };
+  season: { id: string; name: string; status: "active" | "completed"; ruleset: LeagueRuleset };
+  fixture: LeagueFixture;
+  fork: FixtureForkView;
+  forkAvailable: boolean;
 }
 
 export interface StandingRow {

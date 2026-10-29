@@ -2,13 +2,15 @@
 // League page (/app/leagues/:id?season=&tab=&team=&player=): public read. The league front (header bar, logo, name), the
 // Season field (every season, newest first, with its rules edition), then the season's tabs: Overview, Standings,
 // Fixtures, Teams (a team's roster via ?team=, a player via ?player=<playerId>), Honours. Organisers and admins get the artwork controls on Overview,
-// the League settings cog at the right end of the header strip, and the per-fixture Super FUMBBL switch.
+// the League settings cog at the right end of the header strip, and the per-fixture Super FUMBBL switch. A fixture's
+// summary (?tab=fixtures&fixture=<id>) replaces the fixtures list: the match, its result, and Play on Super FUMBBL.
 import { computed, inject, nextTick, onMounted, provide, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY, writesAllowed } from "../session";
 import LeagueArtEdit from "../components/LeagueArtEdit.vue";
 import LeagueFixtures from "../components/LeagueFixtures.vue";
+import LeagueFixtureSummary from "../components/LeagueFixtureSummary.vue";
 import LeagueHonours from "../components/LeagueHonours.vue";
 import LeagueOverview from "../components/LeagueOverview.vue";
 import LeagueStandings from "../components/LeagueStandings.vue";
@@ -35,6 +37,7 @@ const season = computed(() => (current.value ? state.season[current.value.id] : 
 const tab = computed<LeagueTab>(() => (isLeagueTab(route.query.tab) ? route.query.tab : "overview"));
 const teamName = computed(() => (typeof route.query.team === "string" ? route.query.team : ""));
 const playerRef = computed(() => (typeof route.query.player === "string" ? route.query.player : ""));
+const fixtureRef = computed(() => (typeof route.query.fixture === "string" ? route.query.fixture : ""));
 const banner = computed(() => safeArtUrl(state.league?.bannerUrl));
 const logo = computed(() => safeArtUrl(state.league?.logoUrl));
 const failed = ref({ banner: false, logo: false });
@@ -140,6 +143,7 @@ onMounted(async () => {
           <LeagueArtEdit v-if="manage" />
         </template>
         <LeagueStandings v-else-if="tab === 'standings'" :season="season" />
+        <LeagueFixtureSummary v-else-if="tab === 'fixtures' && fixtureRef" :league-id="id" :season-id="season.id" :fixture-id="fixtureRef" :back="tabQuery('fixtures')" />
         <LeagueFixtures v-else-if="tab === 'fixtures'" :league="state.league" :season="season" :crests="state.crests" :manage="manage" />
         <LeagueTeams v-else-if="tab === 'teams'" :season="season" :team="teamName" :player="playerRef" :league-id="id" :crests="state.crests" />
         <LeagueHonours v-else :season="season" />
