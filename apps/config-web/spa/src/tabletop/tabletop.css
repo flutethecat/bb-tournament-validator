@@ -599,7 +599,7 @@
     --tt-pad: max(0px, calc((100vw - 1400px) / 2));
     --tt-hero-min: 168px; --tt-crest: 96px; --tt-team-fs: 28px; --tt-cell-h: 24px; --tt-cell-fs: 12px; --tt-track-w: 240px; --tt-score-fs: 56px; --tt-count-fs: 14px;
     --tt-chip: 48px; --tt-chip-img: 40px; --tt-strip-h: 40px; --tt-strip-fs: 13px; --tt-marker: 16px;
-    --tt-rail-btn: 56px; --tt-rail-icon: 20px; --tt-rail-fs: 13px; --tt-end-h: 96px; --tt-end-fs: 24px;
+    --tt-rail-btn: 56px; --tt-rail-icon: 20px; --tt-rail-fs: 16px; --tt-end-h: 96px; --tt-end-fs: 24px;
     --tt-card-min: 64px; --tt-card-fs: 15px; --tt-ev-icon: 32px; --tt-who-h: 36px; --tt-log-h-fs: 14px;
     padding-inline: var(--tt-pad); grid-template-rows: auto auto var(--tt-strip-h) minmax(0, 1fr);
   }
@@ -637,7 +637,7 @@
 @media (min-width: 1600px) {
   .tt-rec {
     --tt-hero-min: 200px; --tt-crest: 112px; --tt-team-fs: 32px; --tt-cell-h: 28px; --tt-cell-fs: 13px; --tt-track-w: 280px; --tt-score-fs: 64px;
-    --tt-chip: 56px; --tt-chip-img: 46px; --tt-rail-btn: 64px; --tt-end-h: 112px;
+    --tt-chip: 56px; --tt-chip-img: 46px; --tt-rail-btn: 64px; --tt-rail-fs: 18px; --tt-end-h: 112px;
   }
 }
 
@@ -678,4 +678,32 @@
   .tt-rec { background: linear-gradient(180deg, color-mix(in srgb, var(--ui-surface, #0d0d0d) 97%, #fff), var(--ui-surface, #0d0d0d) 320px); }
   .tt-rec > .tt-board { margin: 18px 2px 0; padding: 12px 20px 14px; overflow: hidden; border-radius: 4px 4px 0 0; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 70%, #000); box-shadow: none; }
   .tt-rec > .tt-stripbar { margin-inline: 2px; }
+}
+
+/* ---- readability pass (10-28): builder-style team names, centred bigger button text with a legibility shadow, and a CSS-only bevel ---- */
+.tt-rec {
+  --tt-name-shadow: 4px 5px 0 rgb(0 0 0 / 85%), 0 7px 18px rgb(0 0 0 / 75%), 0 12px 28px rgb(0 0 0 / 45%); /* the team view's team-name stack (team-view.css .tv-banner-top h1) */
+  --tt-btn-text-shadow: 0 1px 0 rgb(0 0 0 / .8), 0 0 6px rgb(0 0 0 / .5);
+  --tt-bevel: inset 0 2px 0 rgb(255 255 255 / .22), inset 0 -3px 0 rgb(0 0 0 / .45), inset 2px 0 0 rgb(255 255 255 / .08), inset -2px 0 0 rgb(0 0 0 / .25), 0 3px 0 rgb(0 0 0 / .5);
+  --tt-bevel-down: inset 0 3px 0 rgb(0 0 0 / .45), inset 0 -2px 0 rgb(255 255 255 / .18), inset 2px 0 0 rgb(0 0 0 / .25), inset -2px 0 0 rgb(255 255 255 / .08);
+}
+.tt-rec .tt-team { text-shadow: var(--tt-name-shadow); }
+:root[data-theme="fumbbl"] .tt-rec .tt-team { color: var(--ui-text-on-primary, #ffffff); }
+.tt-rec .tt-rail-btn, .tt-rec .tt-rail-end, .tt-rec .tt-big, .tt-rec .tt-endturn, .tt-rec .tt-rosters-btn, .tt-rec .tt-cog, .tt-rec .tt-crumb-btn,
+.tt-rec .lobby-btn, .tt-rec .tt-close, .tt-rec .tt-seg-btn {
+  border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; box-shadow: var(--tt-bevel); text-shadow: var(--tt-btn-text-shadow);
+  justify-content: center; text-align: center; transition: transform .06s ease;
+}
+.tt-rec .tt-rail-btn:active, .tt-rec .tt-rail-end:active, .tt-rec .tt-big:active, .tt-rec .tt-endturn:active, .tt-rec .tt-rosters-btn:active, .tt-rec .tt-cog:active,
+.tt-rec .tt-crumb-btn:active, .tt-rec .lobby-btn:active, .tt-rec .tt-close:active, .tt-rec .tt-seg-btn:active {
+  box-shadow: var(--tt-bevel-down); transform: translateY(2px);
+}
+/* a light face (FUMBBL theme) takes a light legibility shadow instead */
+:root[data-theme="fumbbl"] .tt-rec .tt-rosters-btn, :root[data-theme="fumbbl"] .tt-rec .tt-cog, :root[data-theme="fumbbl"] .tt-rec .tt-crumb-btn,
+:root[data-theme="fumbbl"] .tt-rec .lobby-btn:not(.primary), :root[data-theme="fumbbl"] .tt-rec .tt-close, :root[data-theme="fumbbl"] .tt-rec .tt-seg-btn:not([aria-pressed="true"]) {
+  text-shadow: 0 1px 0 rgb(255 255 255 / .6);
+}
+@media (min-width: 1024px) {
+  .tt-rec .tt-rail-label { font-size: var(--tt-rail-fs); }
+  .tt-rec .tt-rail-btn { gap: 10px; }
 }
