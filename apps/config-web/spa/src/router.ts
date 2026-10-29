@@ -6,6 +6,7 @@ import { LOBBY_ID_PATTERN } from "./shared/format";
 import type { SessionStore } from "./session";
 import AccountView from "./views/AccountView.vue";
 import AdminTournamentsView from "./views/AdminTournamentsView.vue";
+import HomeView from "./views/HomeView.vue";
 import MyTeamsView from "./views/MyTeamsView.vue";
 import LinkOutView from "./views/LinkOutView.vue";
 import LobbyRoomView from "./views/LobbyRoomView.vue";
@@ -18,6 +19,7 @@ import TabletopRecorderView from "./views/TabletopRecorderView.vue";
 import TournamentDetailView from "./views/TournamentDetailView.vue";
 import TournamentListView from "./views/TournamentListView.vue";
 import TournamentTeamView from "./views/TournamentTeamView.vue";
+import WhatsNewView from "./views/WhatsNewView.vue";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -36,6 +38,7 @@ export interface NavItem {
 }
 
 export const NAV: NavItem[] = [
+  { label: "Home", to: "/home" },
   { label: "Lobby", to: "/lobby" },
   { label: "Tabletop", to: "/tabletop" },
   { label: "Tournaments", to: "/tournaments" },
@@ -45,7 +48,11 @@ export const NAV: NavItem[] = [
 ];
 
 export const routes: RouteRecordRaw[] = [
+  // Owner 10-29 (e): the Tournament Builder stays the site root; the SPA root keeps redirecting to the Lobby until
+  // the owner moves it. The coach page lives at /home.
   { path: "/", redirect: "/lobby" },
+  { path: "/home", name: "home", component: HomeView, meta: { requiresAuth: true, title: "Coach page" } },
+  { path: "/whats-new", name: "whats-new", component: WhatsNewView, meta: { title: "What's new" } },
   { path: "/lobby", name: "lobby", component: LobbyStartView, meta: { requiresAuth: true, title: "Start Game" } },
   {
     path: `/lobby/:id(${LOBBY_ID_PATTERN})`,
@@ -113,7 +120,12 @@ export function gateFor(route: Pick<RouteLocationNormalized, "meta">, session: S
 }
 
 export function createAppRouter(history: RouterHistory, session: SessionStore) {
-  const router = createRouter({ history, routes });
+  const router = createRouter({
+    history,
+    routes,
+    // Coach-page rows link to panels by hash (/home#deadlines): scroll that panel into view, clear of the top bar.
+    scrollBehavior: (to, _from, saved) => (to.hash ? { el: to.hash, top: 72 } : saved ?? undefined),
+  });
   // Every navigation waits for the first session read, so a page never renders against an unknown identity. A
   // failed read does not block navigation: the shell shows the error with a retry.
   router.beforeEach(async () => {
