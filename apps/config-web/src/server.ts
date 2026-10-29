@@ -223,6 +223,7 @@ import {
 } from "./tournamentResults.js";
 import { computeElo } from "./coachElo.js";
 import { computeGlicko, unratedGlicko } from "./coachGlicko.js";
+import { CoachTitleStore } from "./coachRank.js";
 import { NafRecordStore, nafResultRows, nafRevision, nafSummaryFor, refreshNafForCoaches } from "./nafRecords.js";
 import {
   DISCORD_OAUTH_STATE_COOKIE,
@@ -401,6 +402,7 @@ const FORK_STATE_DIR = resolve(process.env.FORK_STATE_DIR || join(HERE, "../data
 const TOURNAMENTS_DIR = resolve(process.env.TOURNAMENTS_DIR || FORK_STATE_DIR);
 const tournamentMatches = new TournamentMatchStore(FORK_STATE_DIR);
 const tournamentResults = new TournamentResultStore(FORK_STATE_DIR);
+const coachTitles = new CoachTitleStore(join(FORK_STATE_DIR, "coach-titles.json"));
 const nafRecords = new NafRecordStore(FORK_STATE_DIR);
 const tournamentStore = new TournamentStore(TOURNAMENTS_DIR);
 
@@ -543,6 +545,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     },
     teamAvatarUrl: (ref) => avatarUrlFor(TEAM_AVATARS_DIR, ref),
     results: tournamentResults,
+    titles: coachTitles,
     naf: {
       rows: () => nafResultRows(nafRecords, readIdentities()),
       revision: () => nafRevision(nafRecords, readIdentities, identitiesFile()),
@@ -2218,9 +2221,11 @@ async function handleApi(
       const elo = computeElo(results);
       let nafRows: StoredTournamentResult[] = [];
       try { nafRows = nafResultRows(nafRecords, readIdentities()); } catch { /* fail open: ratings without NAF */ }
-      const glicko = computeGlicko([...results, ...nafRows], { asOf: new Date(), revision: `${tournamentResults.revision()}:${nafRevision(nafRecords, readIdentities, identitiesFile())}` }); // FUMBBL-style coach rating (cr) and its deviation (rd)
+      const asOf = new Date();
+      const glicko = computeGlicko([...results, ...nafRows], { asOf, revision: `${tournamentResults.revision()}:${nafRevision(nafRecords, readIdentities, identitiesFile())}` }); // FUMBBL-style coach rating (cr) and its deviation (rd)
       // Owner ruling 08-27: only tournament matches move the competitive rating — Global ELO
       // (all games) and Tournament ELO (games with tournament-match metadata) are separate.
+      const titled = coachTitles.session(glicko, asOf);
       const tournamentOnly = computeElo(results.filter((game) => tournamentMatches.get(game.gameId) !== undefined));
       const rows = aggregateStandings(
         results,
@@ -2236,10 +2241,11 @@ async function handleApi(
         return {
           ...row,
           elo: rating.rating, provisional: rating.provisional,
-          ...((g) => ({ cr: g.cr, rd: Math.round(g.rd * 10) / 10 }))(glicko.get(key) ?? unratedGlicko()),
+          ...((g, v) => ({ cr: g.cr, rd: Math.round(g.rd * 10) / 10, rankKey: v.rankKey, ...(v.pct !== undefined ? { pct: v.pct } : {}) }))(glicko.get(key) ?? unratedGlicko(), titled.view(key)),
           tournamentElo: tRating.rating, tournamentProvisional: tRating.provisional,
         };
       });
+      titled.flush();
       return sendJson(res, 200, rows);
     } catch {
       return sendJson(res, 502, { error: "fork server unreachable" });

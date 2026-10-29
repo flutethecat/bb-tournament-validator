@@ -37,7 +37,7 @@ const nafLine = (s: Side): string => {
   if (!n || !(n.games > 0)) return "";
   return `NAF ${typeof n.glicko === "number" ? `${Math.round(n.glicko)} \u00b7 ` : ""}${n.games} GAME${n.games === 1 ? "" : "S"}`;
 };
-const crTip = (s: Side): string => `Coach rating ${crOf(s)?.cr} \u00b7 ${crOf(s)?.rank} (${crOf(s)?.games ?? 0} game${crOf(s)?.games === 1 ? "" : "s"})${crOf(s)?.naf?.games ? ` · ${crOf(s)?.naf?.games} NAF game${crOf(s)?.naf?.games === 1 ? "" : "s"}` : ""}`;
+const crTip = (s: Side): string => `Coach rating ${crOf(s)?.cr} \u00b7 ${crOf(s)?.rank}${crOf(s)?.pct ? ` · top ${crOf(s)?.pct}%` : ""} (${crOf(s)?.games ?? 0} game${crOf(s)?.games === 1 ? "" : "s"})${crOf(s)?.naf?.games ? ` · ${crOf(s)?.naf?.games} NAF game${crOf(s)?.naf?.games === 1 ? "" : "s"}` : ""}`;
 const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters", side?: Side): void; (e: "settings"): void; (e: "weather"): void }>();
 
 // Desktop chip tray: two rows at most; the layout follows the viewport width (1400 until mounted, so server renders are stable).

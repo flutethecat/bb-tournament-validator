@@ -116,7 +116,7 @@ export function glickoUpdate(state: GlickoState, games: readonly GlickoOpponent[
 /** The displayed CR: r - 5 * max(RD - 100, 0), a whole number. */
 export const displayedCr = (r: number, rd: number): number => Math.round(r - 5 * Math.max(rd - 100, 0));
 
-export interface CoachGlicko { cr: number; r: number; rd: number; sigma: number; games: number }
+export interface CoachGlicko { cr: number; r: number; rd: number; sigma: number; games: number; /** epoch ms of the coach's latest game (absent = never played) */ lastPlayedMs?: number }
 
 export interface GlickoOptions {
   params?: GlickoParams;
@@ -187,6 +187,7 @@ export function computeGlicko(results: readonly StoredTournamentResult[], option
   const last = Math.max(lastGame, asOfPeriod);
 
   const states = new Map<string, GlickoState & { games: number }>();
+  const lastPlayed = new Map<string, number>();
   const fresh = (): GlickoState & { games: number } => ({ r: params.rating, rd: params.rd, sigma: params.sigma, games: 0 });
   for (let period = first; period <= last && ordered.length > 0; period += 1) {
     const games = byPeriod.get(period) ?? [];
@@ -199,6 +200,8 @@ export function computeGlicko(results: readonly StoredTournamentResult[], option
       if (!homeTeam || !awayTeam) throw new Error(`Game ${result.gameId} result does not match its stored participants.`);
       const home = coachKey(result.home.coach);
       const away = coachKey(result.away.coach);
+      const playedMs = Date.parse(result.playedAt ?? result.pulledAt);
+      if (Number.isFinite(playedMs)) for (const c of [home, away]) lastPlayed.set(c, Math.max(lastPlayed.get(c) ?? -Infinity, playedMs));
       const outcome = deriveTeamResult(homeTeam, awayTeam).outcome;
       const homeScore = outcome === "won" ? 1 : outcome === "drawn" ? 0.5 : 0;
       const known = typeof result.home.teamValue === "number" && typeof result.away.teamValue === "number";
@@ -217,7 +220,7 @@ export function computeGlicko(results: readonly StoredTournamentResult[], option
     }
   }
   const out = new Map<string, CoachGlicko>();
-  for (const [coach, s] of states) out.set(coach, { cr: displayedCr(s.r, s.rd), r: s.r, rd: s.rd, sigma: s.sigma, games: s.games });
+  for (const [coach, s] of states) out.set(coach, { cr: displayedCr(s.r, s.rd), r: s.r, rd: s.rd, sigma: s.sigma, games: s.games, ...(lastPlayed.has(coach) ? { lastPlayedMs: lastPlayed.get(coach)! } : {}) });
   memo.set(key, out);
   if (memo.size > 8) memo.delete(memo.keys().next().value!);
   return out;
