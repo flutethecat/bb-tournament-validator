@@ -43,6 +43,7 @@
         <td>${esc(row.race)}</td>
         <td>${row.ruleset ? esc(row.ruleset) : '<span class="my-teams-none">—</span>'}</td>
         <td class="my-teams-tools">
+          <a class="session-button secondary" href="${esc(manageUrl(row.id))}" data-manage-save aria-label="Manage “${esc(row.name)}”">Manage</a>
           <button type="button" class="session-button secondary" data-share-save="${esc(row.id)}" aria-label="Copy a share link for “${esc(row.name)}”">Share</button>
           ${row.shared ? `<button type="button" class="session-button secondary" data-unshare-save="${esc(row.id)}" aria-label="Stop sharing “${esc(row.name)}”">Unshare</button>` : ""}
           <button type="button" class="session-button secondary" data-rename-save="${esc(row.id)}" aria-label="Rename “${esc(row.name)}”">Rename</button>
@@ -55,6 +56,8 @@
     </table>`;
   }
 
+  /** The team management page (SPA, owner 10-30). */
+  const manageUrl = (id) => `/app/teams/${encodeURIComponent(id)}`;
   const openUrl = (id) => `/tournament-team-builder.html?save=${encodeURIComponent(id)}`;
 
   /** The share-link strip under the table: the link in a read-only field + Copy. */
@@ -232,6 +235,7 @@
     }
 
     function onListClick(event) {
+      if (event.target.closest("[data-manage-save]")) return undefined; // the link navigates itself
       const share = event.target.closest("[data-share-save]");
       if (share) return shareSave(share.dataset.shareSave);
       const unshare = event.target.closest("[data-unshare-save]");
@@ -247,7 +251,7 @@
     }
     function onListKey(event) {
       if (event.key !== "Enter" && event.key !== " ") return;
-      if (event.target.closest("button") || event.target.closest(".my-teams-share")) return;
+      if (event.target.closest("button") || event.target.closest("a") || event.target.closest(".my-teams-share")) return;
       const row = event.target.closest("[data-open-save]");
       if (!row) return;
       if (typeof event.preventDefault === "function") event.preventDefault();
@@ -274,7 +278,7 @@
     return { start, render, state, loadSaves, onListClick, onListKey };
   }
 
-  root.MyTeams = { rows, tableHtml, openUrl, shareUrl, shareFieldHtml, createMyTeamsPage };
+  root.MyTeams = { rows, tableHtml, openUrl, manageUrl, shareUrl, shareFieldHtml, createMyTeamsPage };
 
   if (typeof document === "undefined" || !document.body || document.body.dataset.page !== "my-teams") return;
   createMyTeamsPage({

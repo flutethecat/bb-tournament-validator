@@ -13,6 +13,7 @@ import { COACH_TREE_KEY } from "../home/tree";
 import { browserTimeZone, CHIP_CLASS, chipFor, formatWhen, timeLeft } from "../home/deadlines";
 import { loadBuildLog, logDate, useNow, type BuildLogEntry } from "../home/shell";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
+import { teamManagePath } from "../teams/manage";
 
 interface MyTeam { ref: string; name: string; race?: string }
 
@@ -121,11 +122,13 @@ onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
           <p v-if="teamsError" class="lobby-error hm-small">{{ teamsError }}</p>
           <p v-else-if="teamsLoaded && !teams.length" class="hm-empty">No teams yet. <a href="/team-builder.html">Build one</a>.</p>
           <ul v-else class="hm-teams">
-            <li v-for="t in teams" :key="t.ref" class="hm-team">
-              <img v-if="crestFor(t)" class="hm-team-crest" :src="crestFor(t)" alt="" loading="lazy" />
-              <span v-else class="hm-team-crest hm-team-blank" aria-hidden="true">{{ t.name.slice(0, 1) }}</span>
-              <span class="hm-team-name">{{ t.name }}</span>
-              <small v-if="t.race" class="hm-team-race">{{ t.race }}</small>
+            <li v-for="t in teams" :key="t.ref">
+              <RouterLink class="hm-team" :to="teamManagePath(t.ref)" :title="`Manage ${t.name}`">
+                <img v-if="crestFor(t)" class="hm-team-crest" :src="crestFor(t)" alt="" loading="lazy" />
+                <span v-else class="hm-team-crest hm-team-blank" aria-hidden="true">{{ t.name.slice(0, 1) }}</span>
+                <span class="hm-team-name">{{ t.name }}</span>
+                <small v-if="t.race" class="hm-team-race">{{ t.race }}</small>
+              </RouterLink>
             </li>
           </ul>
         </section>

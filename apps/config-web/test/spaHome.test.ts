@@ -492,7 +492,9 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(html).toMatch(/data-day="5"[\s\S]*?value="10:00"/);
     expect(html).toContain("2 / 21 blocks");
     // my teams strip: crest card, blank card for a race without a crest
-    expect(html).toMatch(/class="hm-team"><img class="hm-team-crest" src="\/crests\/orc.png"/);
+    // Owner 10-30: every team tile opens the team management page.
+    expect(html).toMatch(/<a href="\/app\/teams\/library%3A1" class="hm-team" title="Manage Alice Orcs"><img class="hm-team-crest" src="\/crests\/orc.png"/);
+    expect(html).toContain('<a href="/app/teams/save%3A2" class="hm-team" title="Manage Nameless">');
     expect(html).toContain("hm-team-blank");
     // what's new: latest 5 of 6, link to the full page
     expect((main.match(/class="hm-log-title"/g) ?? []).length).toBe(5);

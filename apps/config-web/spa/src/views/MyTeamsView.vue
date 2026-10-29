@@ -1,10 +1,14 @@
 <script setup lang="ts">
-// My teams (/app/my-teams): the coach's teams (fork library + builder saves), each with an Avatar control.
-import { inject, onMounted, onServerPrefetch, ref } from "vue";
+// My teams (/app/my-teams): the coach's teams (fork library + builder saves) in the coach page's design language
+// (owner 10-30: hm-title, hm-panel / hm-band, the hm-grid two columns). Main: the team tiles, each opening the team
+// management page (/app/teams/<ref>). Side: the Avatars panel (upload an avatar per team) and Build a team links.
+import { computed, inject, onMounted, onServerPrefetch, ref } from "vue";
+import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import TeamAvatarControl from "../components/TeamAvatarControl.vue";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
+import { teamManagePath } from "../teams/manage";
 
 interface MyTeam { ref: string; name: string; race?: string; avatarUrl?: string }
 
@@ -39,6 +43,7 @@ async function load(): Promise<void> {
 }
 
 const crestFor = (t: MyTeam): string => resolveCrest(art.value, t.race);
+const countLabel = computed(() => `${teams.value.length} team${teams.value.length === 1 ? "" : "s"}`);
 function changed(t: MyTeam, url: string | undefined): void { t.avatarUrl = url; }
 
 onMounted(() => void load());
@@ -55,16 +60,46 @@ onServerPrefetch(async () => {
 </script>
 
 <template>
-  <section class="lobby-card">
-    <h2>My teams</h2>
-    <p class="muted">Upload an avatar to show for a team. Without one, the Super FUMBBL race crest is used.</p>
-    <p v-if="error" class="lobby-error" role="alert">{{ error }}</p>
-    <p v-else-if="loaded && !teams.length" class="muted">No teams yet.</p>
-    <ul class="avatar-teams">
-      <li v-for="t in teams" :key="t.ref">
-        <h3>{{ t.name }}<span v-if="t.race" class="muted"> ({{ t.race }})</span></h3>
-        <TeamAvatarControl :team-ref="t.ref" :name="t.name" :crest="crestFor(t)" :avatar-url="t.avatarUrl" @changed="changed(t, $event)" />
-      </li>
-    </ul>
-  </section>
+  <div class="hm-page">
+    <h1 class="hm-title">My teams <span class="hm-led">{{ session.coach() }}</span></h1>
+    <div class="hm-grid">
+      <div class="hm-col hm-col-main">
+        <section id="teams" class="hm-panel" aria-labelledby="mt-teams-h">
+          <header class="hm-band"><h2 id="mt-teams-h">My teams</h2><span class="hm-cap">{{ countLabel }}</span></header>
+          <p v-if="error" class="lobby-error hm-small" role="alert">{{ error }}</p>
+          <p v-else-if="loaded && !teams.length" class="hm-empty">No teams yet. <a href="/team-builder.html">Build one</a>.</p>
+          <ul v-else class="hm-teams hm-teams-lg">
+            <li v-for="t in teams" :key="t.ref">
+              <RouterLink class="hm-team" :to="teamManagePath(t.ref)" :title="`Manage ${t.name}`">
+                <img v-if="t.avatarUrl" class="hm-team-crest hm-team-avatar" :src="t.avatarUrl" alt="" loading="lazy" />
+                <img v-else-if="crestFor(t)" class="hm-team-crest" :src="crestFor(t)" alt="" loading="lazy" />
+                <span v-else class="hm-team-crest hm-team-blank" aria-hidden="true">{{ t.name.slice(0, 1) }}</span>
+                <span class="hm-team-name">{{ t.name }}</span>
+                <small v-if="t.race" class="hm-team-race">{{ t.race }}</small>
+              </RouterLink>
+            </li>
+          </ul>
+        </section>
+      </div>
+
+      <div class="hm-col hm-col-side">
+        <section id="avatars" class="hm-panel" aria-labelledby="mt-avatars-h">
+          <header class="hm-band"><h2 id="mt-avatars-h">Avatars</h2></header>
+          <p class="muted hm-small">Upload an avatar to show for a team. Without one, the Super FUMBBL race crest is used.</p>
+          <p v-if="loaded && !teams.length" class="hm-empty">No teams yet.</p>
+          <ul class="hm-avatars">
+            <li v-for="t in teams" :key="t.ref">
+              <h3>{{ t.name }}<span v-if="t.race" class="muted"> ({{ t.race }})</span></h3>
+              <TeamAvatarControl :team-ref="t.ref" :name="t.name" :crest="crestFor(t)" :avatar-url="t.avatarUrl" @changed="changed(t, $event)" />
+            </li>
+          </ul>
+        </section>
+
+        <section id="build" class="hm-panel" aria-labelledby="mt-build-h">
+          <header class="hm-band"><h2 id="mt-build-h">Build a team</h2></header>
+          <p class="hm-links"><a href="/team-builder.html">Team Builder</a> · <a href="/tournament-team-builder.html">Tournament Builder</a></p>
+        </section>
+      </div>
+    </div>
+  </div>
 </template>

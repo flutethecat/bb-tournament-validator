@@ -156,6 +156,18 @@ a.hm-cap:hover { color: var(--ui-text); }
 .hm-team-blank { display: inline-flex; align-items: center; justify-content: center; font: 22px var(--sf-band-font); color: var(--ui-muted); border: 2px solid var(--sf-panel-line); border-radius: 50%; }
 .hm-team-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
 .hm-team-race { color: var(--ui-muted); font-size: 12px; }
+/* Team tiles open the team management page (/app/teams/<ref>, owner 10-30). */
+a.hm-team { height: 100%; box-sizing: border-box; color: var(--ui-text); text-decoration: none; }
+a.hm-team:hover, a.hm-team:focus-visible { background: var(--ui-hover); border-color: var(--ui-heading); }
+/* My teams page: larger tiles (avatar or crest, name, race). */
+.hm-teams-lg { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.hm-teams-lg .hm-team { min-height: 44px; padding: 12px 8px; gap: 6px; }
+.hm-teams-lg .hm-team-crest { width: 72px; height: 72px; }
+.hm-teams-lg .hm-team-avatar { border-radius: 2px; image-rendering: auto; object-fit: cover; }
+.hm-teams-lg .hm-team-name { font-size: 15px; white-space: normal; overflow-wrap: anywhere; }
+.hm-avatars { list-style: none; padding: 0; margin-top: 0; margin-bottom: 0; display: grid; gap: 12px; }
+.hm-avatars h3 { margin: 0 0 6px; font-size: 14px; }
+
 
 .hm-log { display: grid; gap: 10px; }
 .hm-log > li { padding-bottom: 10px; border-bottom: 1px solid var(--sf-panel-line); }
