@@ -87,4 +87,25 @@ describe("league routes over HTTP", () => {
     expect(read.headers.get("content-type")).toBe("image/png");
     expect((await fetch(`${origin}${logo}`, { method: "DELETE" })).status).toBe(401);
   });
+
+  it("settings: organiser-only read (no-store), PATCH needs X-CW-Auth, export.zip downloads as an attachment", async () => {
+    expect((await fetch(`${origin}/api/leagues/tabbl/settings`)).status).toBe(401);
+    expect((await fetch(`${origin}/api/leagues/tabbl/settings`, { headers: { cookie: otherCookie } })).status).toBe(403);
+    const mine = await fetch(`${origin}/api/leagues/tabbl/settings`, { headers: { cookie: ownerCookie } });
+    expect(mine.status).toBe(200);
+    expect(mine.headers.get("cache-control")).toBe("no-store");
+    const patch = (headers: Record<string, string>) => fetch(`${origin}/api/leagues/tabbl/settings`, {
+      method: "PATCH", headers: { "content-type": "application/json", cookie: ownerCookie, ...headers }, body: JSON.stringify({ registrations: { allowRegistration: true } }),
+    });
+    expect((await patch({})).status).toBe(403);
+    const ok = await patch({ "x-cw-auth": "1" });
+    expect(ok.status).toBe(200);
+    expect(((await ok.json()) as { settings: { registrations: { allowRegistration: boolean } } }).settings.registrations.allowRegistration).toBe(true);
+    const zip = await fetch(`${origin}/api/leagues/tabbl/export.zip`, { headers: { cookie: ownerCookie } });
+    expect(zip.status).toBe(200);
+    expect(zip.headers.get("content-type")).toBe("application/zip");
+    expect(zip.headers.get("content-disposition")).toBe('attachment; filename="tabbl-results.zip"');
+    expect(Buffer.from(await zip.arrayBuffer()).readUInt32LE(0)).toBe(0x04034b50);
+    expect((await fetch(`${origin}/api/leagues/tabbl/export.zip`)).status).toBe(401);
+  });
 });

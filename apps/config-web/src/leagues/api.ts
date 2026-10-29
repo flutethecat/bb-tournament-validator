@@ -9,6 +9,16 @@
  *   PUT    /api/leagues/:id/logo|banner          raw image body (PNG / JPEG / WebP; logo 1 MB, banner 2 MB)
  *   DELETE /api/leagues/:id/logo|banner
  *
+ * League settings (organisers of the league and site admins; anonymous 401, other coaches 403): see settingsRoutes.
+ *   GET    /api/leagues/:id/settings[?season=]                    settings read model (webhook URL masked)
+ *   PATCH  /api/leagues/:id/settings                              { revision, administration?, information?, registrations?, teamBuilding?, connections? }
+ *   GET    /api/leagues/:id/coaches?q=                            coach-name lookup against the identities (add organiser)
+ *   POST   /api/leagues/:id/seasons                               { name?, ruleset? } start the next season
+ *   POST   /api/leagues/:id/seasons/:seasonId/finish              status -> completed
+ *   PATCH  /api/leagues/:id/seasons/:seasonId/fixtures/:fixtureId { forkEnabled } allow Super FUMBBL for one fixture
+ *   POST   /api/leagues/:id/discord/test                          send a small test embed to the webhook
+ *   GET    /api/leagues/:id/export.zip[?season=]                  CSV zip (teams, fixtures, standings, participants, honours, awards)
+ *
  * Image guards reuse the team-avatar helpers (magic-byte sniff with header-parsed dimensions, the per-coach rate
  * limit) as the tournament banner does; files are stored under the league's own directory with a hashed name.
  */
@@ -16,10 +26,16 @@ import { createHash, randomBytes } from "node:crypto";
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
 import { AVATAR_CONTENT_TYPE, avatarRateLimit, sniffImage, type AvatarExt, type SniffedImage } from "../teamAvatars.js";
+import type { NotificationInput } from "../notifications.js";
+import { buildMilestonePost, buildTestPost, discordEvents, postWebhook as defaultPoster, type DiscordPayload, type WebhookPoster } from "./discord.js";
+import { leagueCsvFiles, zipFiles } from "./exportZip.js";
+import {
+  parseConnections, parseInformation, parseRegistrations, parseTeamBuilding, registrationsOf, settingsView, SettingsError, teamBuildingTable,
+} from "./settings.js";
 import { leagueStats, isStatsScope, type LeagueStats, type StatsScope } from "./stats.js";
 import { fixturePlayed } from "./tourplay.js";
-import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, LeagueStore } from "./store.js";
-import type { LeagueRecord, LeagueRuleset, SeasonRecord, SeasonStatus } from "./types.js";
+import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, leagueOwner, LeagueStore, LeagueStoreError, SEASON_ID } from "./store.js";
+import { LEAGUE_RULESETS, type LeagueFixture, type LeagueRecord, type LeagueRuleset, type SeasonRecord, type SeasonStatus } from "./types.js";
 
 export const LOGO_MAX_BYTES = 1024 * 1024;
 export const BANNER_MAX_BYTES = 2 * 1024 * 1024;
@@ -37,6 +53,8 @@ export interface LeagueSummary {
   slug: string;
   description: string;
   organisers: string[];
+  /** Play on Super FUMBBL is on for this league (fixtures show the per-fixture switch to admins). */
+  playOnFork: boolean;
   createdAt: string;
   logoUrl?: string;
   bannerUrl?: string;
@@ -60,8 +78,17 @@ export interface SeasonSummary {
 
 export interface LeagueApiIdentity { coach: string; admin: boolean }
 
+/** One identity row the coach lookup and the admin list read (identities.json, read-only here). */
+export interface LeagueIdentityRow { coach: string; level: string; banned?: boolean }
+
 export interface LeagueApiDeps {
   store: LeagueStore;
+  /** Fork identities (coach-name lookup for organisers; level "admin" rows are the site admins). */
+  identities?: () => LeagueIdentityRow[];
+  /** Stores one notification (fire-and-forget; src/notifications.ts NotificationStore.add). */
+  notify?: (coach: string, input: NotificationInput) => void;
+  /** Discord webhook poster (tests stub it; default POSTs with fetch). */
+  postWebhook?: WebhookPoster;
   /** Raw body reader (artwork PUT): undefined = larger than max (the caller closes the connection). */
   readBody?(max: number): Promise<Buffer | undefined>;
   declaredTooLarge?(max: number): boolean;
@@ -73,6 +100,8 @@ export interface LeagueApiResult {
   body?: unknown;
   headers?: Record<string, string>;
   file?: { path: string; contentType: string };
+  /** A generated attachment (export.zip). */
+  download?: { bytes: Buffer; contentType: string; filename: string };
   close?: boolean;
 }
 
@@ -104,12 +133,15 @@ export function seasonSummary(s: SeasonRecord): SeasonSummary {
 }
 
 export function leagueSummary(league: LeagueRecord, seasons: SeasonRecord[]): LeagueSummary {
-  const { logoPath: _l, bannerPath: _b, updatedAt: _u, ...rest } = league;
   const logo = artUrl(league, "logo");
   const banner = artUrl(league, "banner");
   const newest = [...seasons].sort((a, b) => b.number - a.number)[0];
+  // Picked, not spread: settings (address, registrations, Discord events, revision) stay in the organiser read model.
   return {
-    ...rest,
+    id: league.id, name: league.name, fullName: league.fullName, slug: league.slug, description: league.description,
+    organisers: [...new Set([...(league.owner ? [league.owner] : []), ...league.organisers])],
+    playOnFork: league.playOnFork === true,
+    createdAt: league.createdAt,
     ...(logo ? { logoUrl: logo } : {}),
     ...(banner ? { bannerUrl: banner } : {}),
     seasonCount: seasons.length,
@@ -229,6 +261,8 @@ export async function leagueApi(
     if (second !== undefined) return { status: 404, body: { error: "Not found." } };
     return artRoute(method, first, route.id, league, auth, deps);
   }
+  const managed = await settingsRoutes(method, route.rest, query, league, auth, deps);
+  if (managed) return managed;
   if (!read) return { status: 405, body: { error: "Use GET." } };
   if (!league) return { status: 404, body: { error: "League not found." } };
   if (first === undefined) {
@@ -292,4 +326,331 @@ async function artRoute(
   } catch {
     return { status: 500, body: { error: `Could not store the ${label} right now.` } };
   }
+}
+
+// ---- League settings ----------------------------------------------------------------------------------------------
+
+export const SETTINGS_MAX_BYTES = 256 * 1024;
+
+const SETTINGS_ROUTES = new Set(["settings", "coaches", "export.zip", "discord"]);
+
+function isSettingsRoute(method: string, rest: string[]): boolean {
+  const [first, second, third, fourth, ...more] = rest;
+  if (first && SETTINGS_ROUTES.has(first)) return true;
+  if (first !== "seasons" || more.length) return false;
+  if (second === undefined) return method !== "GET" && method !== "HEAD";
+  return (third === "finish" && fourth === undefined) || (third === "fixtures" && fourth !== undefined);
+}
+
+/** Anonymous 401, unknown league 404, neither organiser nor admin 403. */
+function gate(league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefined): LeagueApiResult | undefined {
+  if (!auth) return { status: 401, body: { error: "Sign in to manage this league." } };
+  if (!league) return { status: 404, body: { error: "League not found." } };
+  if (!auth.admin && !isLeagueOrganiser(league, auth.coach))
+    return { status: 403, body: { error: "This league is not one of yours: only its organisers and site admins can change its settings." } };
+  return undefined;
+}
+
+async function jsonBody(deps: LeagueApiDeps): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; result: LeagueApiResult }> {
+  const tooLarge: LeagueApiResult = { status: 413, close: true, body: { error: "Request too large." } };
+  if (deps.declaredTooLarge?.(SETTINGS_MAX_BYTES)) return { ok: false, result: tooLarge };
+  const raw = await deps.readBody?.(SETTINGS_MAX_BYTES);
+  if (raw === undefined) return { ok: false, result: tooLarge };
+  if (raw.length === 0) return { ok: true, value: {} };
+  try {
+    const v = JSON.parse(raw.toString("utf8")) as unknown;
+    if (!v || typeof v !== "object" || Array.isArray(v)) return { ok: false, result: { status: 400, body: { error: "Send a JSON object." } } };
+    return { ok: true, value: v as Record<string, unknown> };
+  } catch {
+    return { ok: false, result: { status: 400, body: { error: "Send valid JSON." } } };
+  }
+}
+
+const sameCoach = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+function siteAdmins(deps: LeagueApiDeps): string[] {
+  try { return (deps.identities?.() ?? []).filter((r) => r.level === "admin" && !r.banned).map((r) => r.coach); } catch { return []; }
+}
+
+/** The identity's own spelling of a coach name; without an identities source the trimmed name is taken as given. */
+function lookupCoach(deps: LeagueApiDeps, name: string): string | undefined {
+  const want = name.trim();
+  if (!want) return undefined;
+  if (!deps.identities) return want;
+  return deps.identities().find((r) => !r.banned && sameCoach(r.coach, want))?.coach;
+}
+
+function settingsError(e: unknown): LeagueApiResult | undefined {
+  if (e instanceof SettingsError) return { status: e.status, body: { error: e.message, ...(e.field ? { field: e.field } : {}) } };
+  if (e instanceof LeagueStoreError) return { status: e.status, body: { error: e.message } };
+  return undefined;
+}
+
+async function settingsRoutes(
+  method: string,
+  rest: string[],
+  query: URLSearchParams,
+  league: LeagueRecord | undefined,
+  auth: LeagueApiIdentity | undefined,
+  deps: LeagueApiDeps,
+): Promise<LeagueApiResult | undefined> {
+  if (!isSettingsRoute(method, rest)) return undefined;
+  const result = await settingsRoute(method, rest, query, league, auth, deps);
+  // Organiser data: never cached by the browser or a proxy.
+  return { ...result, headers: { "cache-control": "no-store", ...(result.headers ?? {}) } };
+}
+
+async function settingsRoute(
+  method: string,
+  rest: string[],
+  query: URLSearchParams,
+  league: LeagueRecord | undefined,
+  auth: LeagueApiIdentity | undefined,
+  deps: LeagueApiDeps,
+): Promise<LeagueApiResult> {
+  const refused = gate(league, auth);
+  if (refused) return refused;
+  const lg = league!;
+  const who = auth!;
+  const [first, second, third, fourth] = rest;
+  try {
+    if (first === "settings" && second === undefined) {
+      if (method === "GET" || method === "HEAD") return { status: 200, body: { settings: view(lg, who, deps, query.get("season") ?? undefined) } };
+      if (method !== "PATCH") return { status: 405, body: { error: "Use GET or PATCH." } };
+      return await patchSettings(lg, who, deps);
+    }
+    if (first === "coaches" && second === undefined) {
+      if (method !== "GET") return { status: 405, body: { error: "Use GET." } };
+      const q = (query.get("q") ?? "").trim().toLowerCase();
+      const rows = q.length < 2 ? [] : (deps.identities?.() ?? [])
+        .filter((r) => !r.banned && r.coach.toLowerCase().includes(q)).map((r) => r.coach).sort((a, b) => a.localeCompare(b)).slice(0, 10);
+      return { status: 200, body: { coaches: rows } };
+    }
+    if (first === "export.zip" && second === undefined) {
+      if (method !== "GET") return { status: 405, body: { error: "Use GET." } };
+      const only = query.get("season");
+      const seasons = deps.store.seasons(lg.id).filter((s) => !only || s.id === only);
+      if (only && !seasons.length) return { status: 404, body: { error: "Season not found." } };
+      const bytes = zipFiles(leagueCsvFiles(lg, seasons), deps.now?.() ?? new Date());
+      return { status: 200, download: { bytes, contentType: "application/zip", filename: `${lg.slug || lg.id}-results${only ? `-${only}` : ""}.zip` } };
+    }
+    if (first === "discord" && second === "test" && third === undefined) {
+      if (method !== "POST") return { status: 405, body: { error: "Use POST." } };
+      const url = deps.store.secrets(lg.id).discordWebhookUrl;
+      if (!url) return { status: 409, body: { error: "Set a Discord webhook URL first." } };
+      const wait = avatarRateLimit(`league-discord:${who.coach.trim().toLowerCase()}`);
+      if (wait > 0) return { status: 429, headers: { "retry-after": String(wait) }, body: { error: "Too many test posts. Try again in a minute." } };
+      const res = await (deps.postWebhook ?? defaultPoster)(url, buildTestPost(lg, who.coach));
+      if (res.ok) return { status: 200, body: { ok: true } };
+      return { status: 502, body: { error: res.status ? `Discord did not accept the test post (status ${res.status}).` : "Could not reach Discord." } };
+    }
+    if (first === "seasons") {
+      if (second === undefined) {
+        if (method !== "POST") return { status: 405, body: { error: "Use POST." } };
+        return await createSeason(lg, who, deps);
+      }
+      if (third === "finish") {
+        if (method !== "POST") return { status: 405, body: { error: "Use POST." } };
+        return finishSeason(lg, second, deps);
+      }
+      if (third === "fixtures" && fourth) {
+        if (method !== "PATCH") return { status: 405, body: { error: "Use PATCH." } };
+        return await patchFixture(lg, second, fourth, who, deps);
+      }
+    }
+  } catch (e) {
+    const known = settingsError(e);
+    if (known) return known;
+    return { status: 500, body: { error: "Could not save the league settings right now." } };
+  }
+  return { status: 404, body: { error: "Not found." } };
+}
+
+function view(league: LeagueRecord, who: LeagueApiIdentity, deps: LeagueApiDeps, seasonId?: string) {
+  return settingsView(league, deps.store.secrets(league.id), deps.store.seasons(league.id), who, siteAdmins(deps), seasonId);
+}
+
+async function patchSettings(league: LeagueRecord, who: LeagueApiIdentity, deps: LeagueApiDeps): Promise<LeagueApiResult> {
+  const body = await jsonBody(deps);
+  if (!body.ok) return body.result;
+  const input = body.value;
+  const current = league.revision ?? 0;
+  if (input.revision !== undefined && input.revision !== current)
+    return { status: 409, body: { error: "These settings changed since you opened them. Reload to see the latest.", revision: current } };
+  const now = deps.now?.() ?? new Date();
+
+  // Everything is validated before anything is written.
+  const owner = leagueOwner(league);
+  const isOwner = Boolean(owner) && sameCoach(owner, who.coach);
+  let organisers = [...league.organisers];
+  let nextOwner: string | undefined;
+  if (input.administration !== undefined) {
+    const a = input.administration;
+    if (!a || typeof a !== "object" || Array.isArray(a)) throw new SettingsError(400, "administration must be an object.");
+    const { addOrganiser, removeOrganiser, owner: wantOwner } = a as Record<string, unknown>;
+    if ((addOrganiser !== undefined || removeOrganiser !== undefined) && !who.admin && !isOwner)
+      return { status: 403, body: { error: "Only the league owner or a site admin can change the organisers." } };
+    if (wantOwner !== undefined && !who.admin) return { status: 403, body: { error: "Only a site admin can change the league owner." } };
+    if (addOrganiser !== undefined) {
+      if (typeof addOrganiser !== "string" || !addOrganiser.trim()) throw new SettingsError(400, "Enter a coach name.", "addOrganiser");
+      const coach = lookupCoach(deps, addOrganiser);
+      if (!coach) throw new SettingsError(400, `No coach called "${addOrganiser.trim().slice(0, 40)}".`, "addOrganiser");
+      if (sameCoach(coach, owner) || organisers.some((o) => sameCoach(o, coach))) throw new SettingsError(400, `${coach} is already an organiser.`, "addOrganiser");
+      organisers.push(coach);
+    }
+    if (removeOrganiser !== undefined) {
+      if (typeof removeOrganiser !== "string") throw new SettingsError(400, "Enter a coach name.", "removeOrganiser");
+      if (owner && sameCoach(removeOrganiser, owner)) throw new SettingsError(400, "The owner cannot be removed. Change the owner first.", "removeOrganiser");
+      if (!organisers.some((o) => sameCoach(o, removeOrganiser))) throw new SettingsError(400, `${removeOrganiser.trim().slice(0, 40)} is not an organiser.`, "removeOrganiser");
+      organisers = organisers.filter((o) => !sameCoach(o, removeOrganiser));
+    }
+    if (wantOwner !== undefined) {
+      if (typeof wantOwner !== "string" || !wantOwner.trim()) throw new SettingsError(400, "Enter a coach name.", "owner");
+      const found = lookupCoach(deps, wantOwner);
+      if (!found) throw new SettingsError(400, `No coach called "${wantOwner.trim().slice(0, 40)}".`, "owner");
+      nextOwner = found;
+      // The previous owner stays on as an organiser.
+      if (owner && !organisers.some((o) => sameCoach(o, owner))) organisers.unshift(owner);
+      organisers = organisers.filter((o) => !sameCoach(o, found));
+    }
+  }
+  const info = input.information !== undefined ? parseInformation(input.information) : undefined;
+  const registrations = input.registrations !== undefined ? parseRegistrations(input.registrations, registrationsOf(league)) : undefined;
+  const connections = input.connections !== undefined ? parseConnections(input.connections, discordEvents(league)) : undefined;
+  const team = input.teamBuilding !== undefined ? parseTeamBuilding(input.teamBuilding) : undefined;
+  const season = team ? deps.store.season(league.id, team.seasonId) : undefined;
+  if (team && !season) return { status: 404, body: { error: "Season not found.", field: "seasonId" } };
+
+  if (season && team) {
+    season.rules = {
+      ...(season.rules ?? {}),
+      teamBuilding: { rosters: team.rosters, eliteSkills: teamBuildingTable(season).eliteSkills, updatedAt: now.toISOString(), updatedBy: who.coach },
+    };
+    deps.store.putSeason(season);
+  }
+  if (connections?.discordUrl !== undefined) {
+    const secrets = deps.store.secrets(league.id);
+    if (connections.discordUrl === null) delete secrets.discordWebhookUrl; else secrets.discordWebhookUrl = connections.discordUrl;
+    deps.store.setSecrets(league.id, secrets);
+  }
+  const updated = deps.store.updateLeague(league.id, (l) => {
+    if (input.administration !== undefined) {
+      l.organisers = organisers;
+      if (nextOwner) l.owner = nextOwner;
+      else if (!l.owner && owner) l.owner = owner;
+    }
+    if (info) {
+      if (info.name !== undefined) l.name = info.name;
+      if (info.fullName !== undefined) l.fullName = info.fullName;
+      if (info.description !== undefined) l.description = info.description;
+      if (info.ruleset !== undefined) l.ruleset = info.ruleset;
+      if (info.mode !== undefined) l.mode = info.mode;
+      if (info.address !== undefined) { if (info.address === null) delete l.address; else l.address = info.address; }
+    }
+    if (registrations) l.registrations = registrations;
+    if (connections?.playOnFork !== undefined) l.playOnFork = connections.playOnFork;
+    if (connections?.discordEvents) l.discordEvents = connections.discordEvents;
+    l.revision = current + 1;
+  }, now);
+  return { status: 200, body: { ok: true, settings: view(updated, who, deps, team?.seasonId) } };
+}
+
+/** Discord post for a season milestone the league enabled. Best effort; the URL is never logged. */
+async function postMilestone(league: LeagueRecord, deps: LeagueApiDeps, payload: DiscordPayload): Promise<void> {
+  const url = deps.store.secrets(league.id).discordWebhookUrl;
+  if (!url || !discordEvents(league).milestones) return;
+  try { await (deps.postWebhook ?? defaultPoster)(url, payload); } catch { /* best effort */ }
+}
+
+async function createSeason(league: LeagueRecord, who: LeagueApiIdentity, deps: LeagueApiDeps): Promise<LeagueApiResult> {
+  const body = await jsonBody(deps);
+  if (!body.ok) return body.result;
+  const input = body.value;
+  const seasons = deps.store.seasons(league.id);
+  const open = seasons.find((s) => s.status === "active");
+  if (open) return { status: 409, body: { error: `Finish ${open.name} before starting a new season.` } };
+  const newest = seasons[0];
+  const number = (newest?.number ?? 0) + 1;
+  let name = `Season ${number}`;
+  if (input.name !== undefined && input.name !== "") {
+    if (typeof input.name !== "string" || !input.name.trim() || input.name.trim().length > 60) throw new SettingsError(400, "Season name must be 1 to 60 characters.", "name");
+    name = input.name.trim();
+  }
+  let ruleset: LeagueRuleset = league.ruleset ?? newest?.ruleset ?? "BB2025";
+  if (input.ruleset !== undefined) {
+    if (!LEAGUE_RULESETS.includes(input.ruleset as LeagueRuleset)) throw new SettingsError(400, "Ruleset must be BB2020 or BB2025.", "ruleset");
+    ruleset = input.ruleset as LeagueRuleset;
+  }
+  let id = `season-${number}`;
+  for (let i = 2; seasons.some((s) => s.id === id || s.sourceSlug === id); i++) id = `season-${number}-${i}`;
+  if (!SEASON_ID.test(id)) throw new SettingsError(400, "Bad season id.");
+  const at = (deps.now?.() ?? new Date()).toISOString();
+  const copied = newest?.rules?.teamBuilding;
+  const season: SeasonRecord = {
+    id, leagueId: league.id, number, name, sourceSlug: id, ruleset, status: "active", startedAt: at,
+    phases: [{ id: "season-regular", category: "Season", name: "Regular", groups: [""], standings: [] }],
+    fixtures: [], participants: [], teams: [], honours: [], awards: [], unattributedStats: [],
+    importedAt: at, source: "manual",
+    // Team building rules carry over from the previous season (the organiser edits them on the Team building tab).
+    ...(copied ? { rules: { teamBuilding: { ...structuredClone(copied), updatedAt: at, updatedBy: who.coach } } } : {}),
+  };
+  deps.store.putSeason(season);
+  await postMilestone(league, deps, buildMilestonePost(league, "season-started", name, ruleset));
+  return { status: 201, body: { ok: true, season: seasonSummary(season) } };
+}
+
+async function finishSeason(league: LeagueRecord, seasonId: string, deps: LeagueApiDeps): Promise<LeagueApiResult> {
+  const season = deps.store.season(league.id, seasonId);
+  if (!season) return { status: 404, body: { error: "Season not found." } };
+  if (season.status === "completed") return { status: 409, body: { error: `${season.name} is already finished.` } };
+  season.status = "completed";
+  season.endedAt = (deps.now?.() ?? new Date()).toISOString();
+  deps.store.putSeason(season);
+  await postMilestone(league, deps, buildMilestonePost(league, "season-finished", season.name));
+  return { status: 200, body: { ok: true, season: seasonSummary(season) } };
+}
+
+const fixtureLink = (leagueId: string, seasonId: string): string => `/app/leagues/${encodeURIComponent(leagueId)}?season=${encodeURIComponent(seasonId)}&tab=fixtures`;
+
+/**
+ * Who hears that a fixture may be played on Super FUMBBL: each seated coach mapped to a fork identity (the actor
+ * excluded, so when the actor plays in it only the opponent), then the league owner, organisers and site admins.
+ */
+export function forkFixtureNotices(league: LeagueRecord, seasonId: string, f: LeagueFixture, actor: string, admins: string[]): Array<{ coach: string; input: NotificationInput }> {
+  const link = fixtureLink(league.id, seasonId);
+  const match = `${f.home.team} vs ${f.away.team}`;
+  const out: Array<{ coach: string; input: NotificationInput }> = [];
+  const seen = new Set<string>([actor.trim().toLowerCase()]);
+  const add = (coach: string | undefined, input: NotificationInput): void => {
+    const key = coach?.trim().toLowerCase();
+    if (!coach || !key || seen.has(key)) return;
+    seen.add(key);
+    out.push({ coach: coach.trim(), input });
+  };
+  for (const side of [f.home, f.away])
+    add(side.coachId, { type: "league-broadcast", title: "Play on Super FUMBBL", body: `${actor} has invited you to play your match on Super FUMBBL (${league.name}: ${match}).`, link, from: actor });
+  const notice: NotificationInput = { type: "league-broadcast", title: "Super FUMBBL allowed for a fixture", body: `${actor} allowed ${match} (${league.name}) to be played on Super FUMBBL.`, link, from: actor };
+  for (const coach of [leagueOwner(league), ...league.organisers, ...admins]) add(coach, notice);
+  return out;
+}
+
+async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: string, who: LeagueApiIdentity, deps: LeagueApiDeps): Promise<LeagueApiResult> {
+  const body = await jsonBody(deps);
+  if (!body.ok) return body.result;
+  if (typeof body.value.forkEnabled !== "boolean") throw new SettingsError(400, "forkEnabled must be true or false.", "forkEnabled");
+  const on = body.value.forkEnabled;
+  const season = deps.store.season(league.id, seasonId);
+  if (!season) return { status: 404, body: { error: "Season not found." } };
+  const fixture = season.fixtures.find((f) => f.id === fixtureId);
+  if (!fixture) return { status: 404, body: { error: "Fixture not found." } };
+  if (on && league.playOnFork !== true) return { status: 409, body: { error: "Turn on Play on Super FUMBBL in League settings first." } };
+  const was = fixture.forkEnabled === true;
+  if (on) fixture.forkEnabled = true; else delete fixture.forkEnabled;
+  deps.store.putSeason(season);
+  if (on && !was && deps.notify) {
+    for (const n of forkFixtureNotices(league, season.id, fixture, who.coach, siteAdmins(deps))) {
+      try { deps.notify(n.coach, n.input); } catch { /* fire-and-forget */ }
+    }
+  }
+  return { status: 200, body: { ok: true, fixture } };
 }

@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync 
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 import { linkPlayerCareers, needsPlayerIds } from "./playerIds.js";
-import type { LeagueRecord, SeasonRecord } from "./types.js";
+import type { LeagueRecord, LeagueSecrets, SeasonRecord } from "./types.js";
 
 export const LEAGUE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const SEASON_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -108,6 +108,31 @@ export class LeagueStore {
     return league;
   }
 
+  /**
+   * Read-modify-write of league.json (settings). The mutator may throw a LeagueStoreError to refuse; nothing is written
+   * then. updatedAt is stamped; the caller manages `revision`.
+   */
+  updateLeague(id: string, mutate: (league: LeagueRecord) => void, now = new Date()): LeagueRecord {
+    const league = this.league(id);
+    if (!league) throw new LeagueStoreError(404, "League not found.");
+    mutate(league);
+    league.updatedAt = now.toISOString();
+    this.write(join(this.leagueDir(id), "league.json"), league);
+    return league;
+  }
+
+  /** The league's secrets (Discord webhook URL). Server-side only: never put this in a read model or a log line. */
+  secrets(id: string): LeagueSecrets {
+    if (!LEAGUE_ID.test(id)) return {};
+    const raw = this.readJson<LeagueSecrets>(join(this.root, id, "secrets.json"));
+    return raw && typeof raw === "object" ? raw : {};
+  }
+
+  setSecrets(id: string, secrets: LeagueSecrets): void {
+    if (!this.league(id)) throw new LeagueStoreError(404, "League not found.");
+    this.write(join(this.leagueDir(id), "secrets.json"), secrets);
+  }
+
   /** Every season of the league, newest first. A season stored before player ids existed is given the ids (and career links) the importer would assign. */
   seasons(leagueId: string): SeasonRecord[] {
     const list = this.rawSeasons(leagueId);
@@ -152,8 +177,13 @@ export class LeagueStore {
   }
 }
 
-/** Organiser (by trimmed, case-insensitive coach id) of this league; admins are checked by the caller. */
-export function isLeagueOrganiser(league: Pick<LeagueRecord, "organisers">, coach: string): boolean {
+/** Organiser or owner (by trimmed, case-insensitive coach id) of this league; admins are checked by the caller. */
+export function isLeagueOrganiser(league: Pick<LeagueRecord, "organisers" | "owner">, coach: string): boolean {
   const key = coach.trim().toLowerCase();
-  return Boolean(key) && league.organisers.some((id) => id.trim().toLowerCase() === key);
+  return Boolean(key) && [...league.organisers, ...(league.owner ? [league.owner] : [])].some((id) => id.trim().toLowerCase() === key);
+}
+
+/** The league owner: the recorded owner, else the first organiser ("" when there is none). */
+export function leagueOwner(league: Pick<LeagueRecord, "organisers" | "owner">): string {
+  return league.owner?.trim() || league.organisers[0]?.trim() || "";
 }

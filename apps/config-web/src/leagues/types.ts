@@ -20,10 +20,81 @@ export interface LeagueRecord {
   /** `league-art/<sha256>.<ext>` under the league's directory, or unset. */
   logoPath?: string;
   bannerPath?: string;
-  /** Coach ids (fork accounts) who may change the league artwork; admins always may. */
+  /** Coach ids (fork accounts) who may change the league artwork and settings; admins always may. */
   organisers: string[];
+  /** The league owner (a coach id); unset = the first organiser. Only the owner or an admin changes the organisers. */
+  owner?: string;
+  /** Default rules edition for a new season (Information tab). */
+  ruleset?: LeagueRuleset;
+  /** Play mode: individual coaches (the only mode today). */
+  mode?: "individual";
+  address?: LeagueAddress;
+  registrations?: LeagueRegistrations;
+  /** Discord webhook event toggles; the URL itself lives in secrets.json, never here. */
+  discordEvents?: DiscordEvents;
+  /** Play on Super FUMBBL (default off): fixtures an admin allows can then be generated on the fork (later lane). */
+  playOnFork?: boolean;
+  /** Settings revision: every settings write bumps it; a PATCH naming an older revision is refused (409). */
+  revision?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export type LeagueCountry = "US" | "CA";
+
+/** Where the league plays (US or Canada). region = state / province code; postcode = ZIP (5 or 5-4) or A1A 1A1. */
+export interface LeagueAddress {
+  country: LeagueCountry;
+  region: string;
+  postcode: string;
+  locality: string;
+  street: string;
+}
+
+export interface LeagueRegistrations {
+  allowedRosters: { official: boolean; nafApproved: boolean; unofficial: boolean };
+  allowRegistration: boolean;
+  hideTeamComposition: boolean;
+  /** null = no limit. */
+  maxRegistrations: number | null;
+  /** null = no limit. */
+  maxPerRace: number | null;
+}
+
+export const DISCORD_EVENT_KEYS = ["news", "fixtureCreated", "matchStarted", "matchResult", "milestones"] as const;
+export type DiscordEventKey = (typeof DISCORD_EVENT_KEYS)[number];
+export type DiscordEvents = Record<DiscordEventKey, boolean>;
+
+/** <leagueDir>/secrets.json: server-side only, masked in every read model, never logged. */
+export interface LeagueSecrets {
+  discordWebhookUrl?: string;
+}
+
+/**
+ * Team building rules of a season (League settings, Team building tab), read by the Tournament Team Builder when a
+ * team is built for this league. One row per roster of the season's ruleset (BB2025 dataset names).
+ */
+export interface TeamBuildingRosterRule {
+  /** Dataset roster name ("Black Orc"). */
+  roster: string;
+  /** GW tier 1-6 (dataset default unless the league changed it). */
+  tier: number;
+  /** Initial treasury in thousands of gold (1000 = 1,000,000). */
+  treasury: number;
+  /** Extra starting skills the organiser grants, by access: 0-6 each. Elite = eliteSkills. */
+  startingSkills: { primary: number; secondary: number; elite: number };
+}
+
+export interface TeamBuildingRules {
+  rosters: TeamBuildingRosterRule[];
+  /** The skills that count as Elite (Small Gods: Block, Guard, Mighty Blow, Dodge). */
+  eliteSkills: string[];
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface SeasonRules {
+  teamBuilding?: TeamBuildingRules;
 }
 
 /** One side of a fixture. coachId is set when the coach maps to a fork identity (NAF name match). */
@@ -55,6 +126,8 @@ export interface LeagueFixture {
   suspended: boolean;
   startedAt?: string;
   finishedAt?: string;
+  /** An admin allowed this fixture to be played on Super FUMBBL (needs league.playOnFork). */
+  forkEnabled?: boolean;
 }
 
 export interface StandingRow {
@@ -257,5 +330,7 @@ export interface SeasonRecord {
   awards: LeagueAward[];
   unattributedStats: UnattributedStats[];
   importedAt: string;
-  source: "tourplay-export";
+  /** "manual" = started from League settings (Start a new season). */
+  source: "tourplay-export" | "manual";
+  rules?: SeasonRules;
 }

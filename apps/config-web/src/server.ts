@@ -1536,12 +1536,26 @@ async function handleApi(
       store: leagueStore,
       readBody: (max) => readRawCapped(req, max),
       declaredTooLarge: (max) => declaredTooLarge(req, max),
+      // League settings: organiser lookup + the site admins list (read-only), Super FUMBBL fixture notifications.
+      identities: () => Object.values(readIdentities().coaches).map((c) => ({ coach: c.ffbCoachId, level: c.level, banned: c.banned })),
+      notify: (coach, input) => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } },
     });
     if (league) {
       for (const [name, value] of Object.entries(league.headers ?? {})) res.setHeader(name, value);
       if (league.close) {
         res.once("finish", () => req.destroy());
         res.setHeader("connection", "close");
+      }
+      if (league.download) {
+        res.writeHead(200, {
+          "content-type": league.download.contentType,
+          "content-length": String(league.download.bytes.length),
+          "content-disposition": `attachment; filename="${league.download.filename.replace(/[^\w.-]/g, "_")}"`,
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+        });
+        res.end(league.download.bytes);
+        return;
       }
       if (league.file) {
         try {
