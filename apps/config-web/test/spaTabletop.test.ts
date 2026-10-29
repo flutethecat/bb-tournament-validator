@@ -1465,13 +1465,15 @@ describe("tabletop routes (server-rendered)", () => {
     expect(mine.html).toContain("End Turn");
     const theirs = await renderMatch(body(clockOf("away", 3)));
     expect(theirs.html).not.toContain("End Turn");
-    expect(theirs.html).toContain("Bob Elves to play");
+    expect(theirs.html).toContain("Opponent&#39;s turn"); // a coach off turn: not the team name
+    expect(theirs.html).not.toContain("Bob Elves to play");
     expect(theirs.html).toContain("TURN 3");
     const organiser = await renderMatch(body(clockOf("away", 3)), session({ coach: "Zed", organizer: true }));
     expect(organiser.html).not.toContain("End Turn"); // an organiser never gets the enabled button on the opponent's turn
     expect(organiser.html).not.toContain('class="tt-endturn"');
     expect(organiser.html).not.toContain('class="tt-rail-end"');
-    expect(organiser.html).toContain("Bob Elves to play"); // the disabled state
+    expect(organiser.html).toContain("Bob Elves to play"); // an organiser outside the match keeps the team name
+    expect(organiser.html).not.toContain("Opponent&#39;s turn");
     expect(organiser.html).toContain("End this turn (override)"); // the organiser's way in, in the admin panel
     expect(mine.html).toContain('class="tt-rail-end"'); // the active coach's enabled rail button
     expect(mine.html).toContain('<span class="tt-rail-turn">TURN 3</span>'); // the big turn mark, no team name in the sub-line
@@ -1555,7 +1557,7 @@ describe("tabletop routes (server-rendered)", () => {
     // the other coach sees the same countdown dimmed with "<Team> to play"
     const other = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("away", 3, { turnTimer: { mode: "on", seconds: 120 }, turnStartedAt: S0 - 100_000, serverNow: S0 }) });
     expect(other.html).toMatch(/class="tt-towait"[\s\S]*role="timer">0:(19|20)</);
-    expect(other.html).toContain("Bob Elves to play");
+    expect(other.html).toContain("Opponent&#39;s turn");
     expect(other.html).not.toContain('class="tt-endturn"');
     // timer off keeps the plain End Turn label
     const off = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) });

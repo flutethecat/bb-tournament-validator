@@ -74,6 +74,8 @@ const line = computed(() => turnLine(props.clock?.half, props.clock?.turn));
 // Only the active team's coach gets the button; an organiser sees the disabled "to play" state (override lives in Quick).
 const mode = computed(() => centreMode(props.clock, props.localSide, false, props.canAct));
 const activeName = computed(() => (props.clock?.activeTeam ? props.match[props.clock.activeTeam].teamName : ""));
+/** Off turn: a coach in the match sees "Opponent's turn"; an organiser or onlooker outside it sees which team is to play. */
+const waitLabel = computed(() => (props.localSide !== null ? "Opponent's turn" : `${activeName.value || "Waiting"} to play`));
 const timed = computed(() => props.remaining !== undefined && props.clock?.turnTimer?.mode === "on");
 const countdown = computed(() => (props.remaining === undefined ? "-:--" : formatTimer(props.remaining)));
 /** How much of the turn is left, as a percentage: the button background drains with it. */
@@ -180,8 +182,8 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
         <b>Kick-off done</b><small class="tt-turnmark">{{ line }}</small>
       </button>
       <p v-else-if="mode === 'wait'" class="tt-towait" role="status" :data-alert="alert ? 'true' : null">
-        <template v-if="timed"><b class="tt-endturn-time" role="timer">{{ countdown }}</b><small>{{ activeName }} to play</small></template>
-        <template v-else><b>{{ activeName || "Waiting" }} to play</b><small class="tt-turnmark">{{ line }}</small></template>
+        <template v-if="timed"><b class="tt-endturn-time" role="timer">{{ countdown }}</b><small>{{ waitLabel }}</small></template>
+        <template v-else><b>{{ waitLabel }}</b><small class="tt-turnmark">{{ line }}</small></template>
       </p>
     </section>
   </header>

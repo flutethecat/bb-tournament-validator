@@ -19,6 +19,8 @@ const mode = computed(() => centreMode(props.clock, props.localSide, false, prop
 const label = computed(() => turnLabel(props.clock?.half, props.clock?.turn));
 const line = computed(() => turnLine(props.clock?.half, props.clock?.turn));
 const activeName = computed(() => (props.clock?.activeTeam ? props.match[props.clock.activeTeam].teamName : ""));
+/** Off turn: a coach in the match sees "Opponent's turn"; an organiser or onlooker outside it sees which team is to play. */
+const waitLabel = computed(() => (props.localSide !== null ? "Opponent's turn" : `${activeName.value || "Waiting"} to play`));
 const timed = computed(() => props.remaining !== undefined && props.clock?.turnTimer?.mode === "on");
 const countdown = computed(() => (props.remaining === undefined ? "-:--" : formatTimer(props.remaining)));
 const fill = computed(() => {
@@ -43,7 +45,7 @@ const zero = computed(() => timed.value && (props.remaining as number) <= 0);
       <span class="tt-rail-label">Kick-off done</span><span class="tt-rail-turn">{{ line }}</span>
     </button>
     <p v-else-if="mode === 'wait'" class="tt-rail-wait" role="status">
-      <span class="tt-rail-label">{{ activeName || "Waiting" }} to play</span>
+      <span class="tt-rail-label">{{ waitLabel }}</span>
       <span v-if="timed" class="tt-rail-time">{{ countdown }}</span>
       <span class="tt-rail-turn">{{ line }}</span>
     </p>
