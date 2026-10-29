@@ -86,7 +86,12 @@
 .sf-body[data-rail="true"] { grid-template-columns: var(--sf-rail-w) minmax(0, 1fr); }
 .sf-body .shell-main { max-width: 1600px; width: 100%; margin: 0; min-width: 0; }
 .sf-aside { position: sticky; top: var(--sf-top-h); align-self: start; display: flex; flex-direction: column; height: calc(100dvh - var(--sf-top-h)); overflow-y: auto; overflow-x: hidden; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border-right: 2px solid var(--sf-panel-line); }
-.sf-rail-toggle { margin: auto 8px 8px; min-height: 32px; color: var(--ui-muted); background: transparent; border: 2px solid var(--sf-panel-line); border-radius: 2px; cursor: pointer; font: 14px var(--sf-band-font); }
+/* Rail collapser (owner 10-30): a small square in the top-right corner of the nav, beside the League header. */
+.sf-rail-toggle { position: absolute; top: 10px; right: 8px; width: 28px; height: 28px; min-height: 0; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--ui-muted); background: transparent; border: 2px solid var(--sf-panel-line); border-radius: 2px; cursor: pointer; font: 14px/1 var(--sf-band-font); }
+.sf-rail-toggle:hover { color: var(--ui-text); border-color: var(--ui-heading); }
+.sf-tree:first-child .sf-tree-head { padding-right: 44px; }
+.sf-nav[data-collapsed="true"] + .sf-rail-toggle { right: 50%; transform: translateX(50%); }
+.sf-nav[data-collapsed="true"] .sf-tree:first-child { margin-top: 36px; }
 .sf-scrim { display: none; }
 
 /* ---- nav trees */
