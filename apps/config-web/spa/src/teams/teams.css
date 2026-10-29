@@ -1,0 +1,64 @@
+/* Team management page (/app/teams/:ref, owner 10-30). The sheet is the public share view's own markup (public/team-view.js)
+   styled by public/team-view.css (imported by the view; tv-* classes only). The Team Builder classes that markup also uses
+   (skill chips, sprite frames, section titles) are re-declared here, scoped to .tm-page, because importing team-builder.css
+   would pull its page-level resets into the SPA (as tabletop.css does for its rosters pane). */
+.tm-page {
+  --ui-gold: #e8a33d; --ui-position: #ffd23d; --ui-eggshell: #e7ddc7; --ui-table-head-ink: var(--ui-skill-strength);
+  --ui-skill-general: #6ea8ff; --ui-skill-agility: #ffd23d; --ui-skill-strength: #ff6b6b; --ui-skill-passing: #ffffff; --ui-skill-mutation: #6fcf6f; --ui-skill-trait: #b08b5a;
+  display: grid; gap: 12px; max-width: 1280px; min-width: 0;
+}
+:root[data-theme="fumbbl"] .tm-page {
+  --ui-gold: #8a5a00; --ui-position: #7a5c00; --ui-eggshell: #3d3424; --ui-table-head-ink: #4a0808;
+  --ui-skill-general: #1d5fb8; --ui-skill-agility: #7a5c00; --ui-skill-strength: #a32626; --ui-skill-passing: #262626; --ui-skill-mutation: #2f6e2f; --ui-skill-trait: #6e4f28;
+}
+.tm-page .skill { display: inline-flex; align-items: center; padding: 1px 6px; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 5px; }
+.tm-page .skill-general { color: var(--ui-skill-general); }
+.tm-page .skill-agility { color: var(--ui-skill-agility); }
+.tm-page .skill-strength { color: var(--ui-skill-strength); }
+.tm-page .skill-passing { color: var(--ui-skill-passing); }
+.tm-page .skill-mutation { color: var(--ui-skill-mutation); }
+.tm-page .skill-trait { color: var(--ui-skill-trait); }
+.tm-page .row-skills { display: flex; flex-wrap: wrap; gap: 4px; font-size: 14px; line-height: 1.35; }
+.tm-page .sprite-frame { position: relative; display: grid; place-items: center; width: 72px; height: 72px; flex: 0 0 auto; overflow: hidden; color: var(--ui-muted); background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 4px; font-size: 14px; }
+.tm-page .sprite-image { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); object-fit: contain; image-rendering: pixelated; }
+.tm-page .sprite-frame:has(.sprite-image) .sprite-fallback, .tm-page .sprite-frame:has(.crest-image) .sprite-fallback { visibility: hidden; }
+.tm-page .crest-frame .crest-image { position: absolute; inset: 3px; width: calc(100% - 6px); height: calc(100% - 6px); object-fit: contain; }
+.tm-page .crest-image { display: block; object-fit: contain; }
+.tm-page .section-title { margin: 0 0 7px; color: var(--ui-heading); font-family: var(--font-heading, sans-serif); font-size: clamp(15px, 1.05vw, 18px); font-weight: 500; letter-spacing: .14em; text-transform: uppercase; }
+.tm-page .section-title span { font-size: 1.2em; }
+.tm-page .tv-banner-top h1 { color: var(--ui-text); font-size: clamp(27px, 2.1vw, 36px); font-weight: 500; letter-spacing: .06em; }
+.tm-page .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.tm-page .status-copy { color: var(--ui-muted); }
+
+/* Header actions: Back / Share / Open in Tournament Builder; 44 px targets. */
+.tm-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tm-bar .lobby-btn, .tm-act, .tm-modal .lobby-btn, .tm-choice { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+.tm-bar .tm-back { margin-right: auto; }
+.tm-share { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tm-share input { flex: 1 1 240px; min-width: 0; min-height: 44px; padding: 6px 10px; color: var(--ui-text); background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 4px; font: inherit; }
+.tm-note { margin: 0; padding: 8px 12px; color: var(--ui-text); background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-left: 4px solid var(--ui-info, var(--ui-heading)); border-radius: 4px; }
+.tm-facts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; color: var(--ui-muted); }
+.tm-facts b { color: var(--ui-text); font-weight: 500; }
+
+/* Per-player advancement cell (table column / card footer). */
+.tm-prog { display: block; color: var(--ui-muted); font-size: 13px; line-height: 1.3; }
+.tm-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.tm-act { padding: 6px 12px; color: var(--ui-text-on-primary, #fff); background: var(--ui-primary, #790004); border: 1px solid var(--ui-heading); border-radius: 4px; font: inherit; font-size: 14px; cursor: pointer; }
+.tm-act:hover { filter: brightness(1.12); }
+.tm-act[data-kind="characteristic"] { background: color-mix(in srgb, var(--ui-success, #3c3) 40%, var(--ui-surface-2)); }
+.tm-act[data-kind="resume"] { background: var(--ui-heading); }
+.tm-act:focus-visible { outline: 2px solid var(--ui-focus, #ff3b3b); outline-offset: 2px; }
+
+/* Advancement modal (tn-modal frame from tournaments.css). */
+.tm-modal { width: min(560px, 100%); }
+.tm-modal .tn-panel-body > p { margin: 0; }
+.tm-options { display: grid; gap: 8px; }
+.tm-option { display: grid; gap: 6px; padding: 10px; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 4px; }
+.tm-option h4 { margin: 0; font-size: 15px; }
+.tm-option[data-off="true"] { opacity: .6; }
+.tm-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.tm-choice { padding: 6px 12px; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 4px; font: inherit; cursor: pointer; }
+.tm-choice:hover:not(:disabled) { border-color: var(--ui-heading); }
+.tm-choice:disabled { opacity: .45; cursor: not-allowed; }
+.tm-option select { min-height: 44px; max-width: 100%; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 4px; font: inherit; }
+.tm-result { color: var(--ui-success); font-weight: 600; }

@@ -16,6 +16,7 @@ import StandingsView from "./views/StandingsView.vue";
 import TabletopListView from "./views/TabletopListView.vue";
 import TabletopOrganiserView from "./views/TabletopOrganiserView.vue";
 import TabletopRecorderView from "./views/TabletopRecorderView.vue";
+import TeamManageView from "./views/TeamManageView.vue";
 import TournamentDetailView from "./views/TournamentDetailView.vue";
 import TournamentListView from "./views/TournamentListView.vue";
 import TournamentTeamView from "./views/TournamentTeamView.vue";
@@ -104,6 +105,16 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: "Tournament Builder" },
   },
   { path: "/my-teams", name: "my-teams", component: MyTeamsView, meta: { requiresAuth: true, title: "My teams" } },
+  // Team management (owner 10-30): the coach's own team (fork library team "library:<id>" or a Tournament Builder save id).
+  // The server answers only the owner; anyone else gets "Team not found." shown as a friendly note.
+  {
+    // The matcher sees the encoded path: tiles link "library%3A<id>" (teams/manage.ts teamManagePath), a typed URL may say "library:<id>".
+    path: "/teams/:ref([\\w:%-]{1,80})",
+    name: "team",
+    component: TeamManageView,
+    props: (route) => ({ teamRef: String(route.params.ref) }),
+    meta: { requiresAuth: true, title: "Team management" },
+  },
   { path: "/account", name: "account", component: AccountView, meta: { requiresAuth: true, title: "Account" } },
   { path: "/:pathMatch(.*)*", name: "not-found", component: NotFoundView, meta: { title: "Not found" } },
 ];
