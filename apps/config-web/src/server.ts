@@ -173,10 +173,13 @@ import { forkGamesEndpoint } from "./forkGames.js";
 import {
   coachNamesEqual,
   storedTeamCoach,
+  storedRosterXml,
   storedTeamFile,
+  storedTeamXml,
   teamDetailEndpoint,
   teamDetailIdFromPath,
 } from "./teamDetail.js";
+import { libraryManageView, meTeamPath, saveManageView } from "./teamManageView.js";
 import { advancementPath, teamAdvancementEndpoint } from "./teamAdvancement.js";
 import {
   isAdminPlayerTeamMutation,
@@ -281,7 +284,7 @@ import { clientIp } from "./translate/route.js";
 import { clockView, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
 import { isAdminTestingPath, testingApi } from "./tabletop/testing.js";
-import { saveCaptainError, teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
+import { parseTeamRef, saveCaptainError, teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
 import { tournamentApi } from "./tournaments/api.js";
 import type { TournamentSubmission } from "./tournaments/types.js";
 import { checkTournamentSubmission, type SubmissionCheckDeps } from "./tournaments/submissionCheck.js";
@@ -1943,6 +1946,50 @@ async function handleApi(
       duplicateNameError: duplicateTeamNameError,
     });
     return sendJson(res, result.status, result.body);
+  }
+
+  // Team management page (/app/teams/<ref>, owner 10-30): the coach's OWN team in the shared team view's shape, no
+  // share token needed. Fork library teams add per-player progression (teamManageView.ts); a Tournament Builder save
+  // is the composed sheet, read-only. Another coach's ref answers "Team not found." like the detail route.
+  const manageRef = meTeamPath(path);
+  if (manageRef !== undefined && (method === "GET" || method === "HEAD")) {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    const parsed = parseTeamRef(manageRef);
+    if (!parsed) return sendJson(res, 404, { error: "Team not found." });
+    const saves = readSaves(BUILDER_SAVES_DIR, auth.coach);
+    try {
+      if (parsed.kind === "library") {
+        const teamsDir = forkConfigFromEnv()?.teamsDir;
+        const detail = teamDetailEndpoint({ coach: auth.coach, organizer: false }, parsed.id, {
+          libraryDir: LIBRARY_DIR,
+          teamsDir,
+          tokenSecret: TEAM_ADVANCEMENT_TOKEN_SECRET,
+        });
+        if (detail.status !== 200) return sendJson(res, detail.status, detail.body);
+        const stored = readLibrary(LIBRARY_DIR, auth.coach).find((t) => t.teamId === parsed.id);
+        if (!stored || !teamsDir) return sendJson(res, 404, { error: "Team not found." });
+        const xml = storedTeamXml(teamsDir, parsed.id) ?? "";
+        const model = libraryManageView({
+          coach: auth.coach,
+          detail: detail.body.team,
+          stored,
+          rosterXml: storedRosterXml(teamsDir, parsed.id, xml),
+          publicDir: PUBLIC_DIR,
+          linkedSave: saves.find((s) => s.teamId === parsed.id),
+          advancementBlocked: forkAdminCfg ? undefined : "Advancement is unavailable on this server right now: the fork admin API is not configured.",
+          avatarUrl: avatarUrlFor(TEAM_AVATARS_DIR, `library:${parsed.id}`),
+        });
+        return sendJson(res, 200, model);
+      }
+      const save = saves.find((s) => s.id === parsed.id);
+      if (!save) return sendJson(res, 404, { error: "Team not found." });
+      const view = sharedViewFor(auth.coach, save, auth.coach);
+      if (!view) return sendJson(res, 422, { error: "This saved sheet can no longer be shown. Open it in the Tournament Builder to repair it." });
+      const linked = save.teamId && readLibrary(LIBRARY_DIR, auth.coach).some((t) => t.teamId === save.teamId && !t.retired) ? `library:${save.teamId}` : undefined;
+      return sendJson(res, 200, saveManageView(view, save, linked));
+    } catch {
+      return sendJson(res, 500, { error: "This team could not be read right now." });
+    }
   }
 
   const detailTeamId = teamDetailIdFromPath(path);

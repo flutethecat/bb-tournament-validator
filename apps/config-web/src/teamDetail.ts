@@ -157,7 +157,7 @@ export function storedTeamHasHistory(xml: string): boolean {
   return /<(?:playedGames|games)>\s*[1-9]\d*\s*<\//i.test(xml);
 }
 
-function storedRosterXml(teamsDir: string, teamId: string, teamXml: string): string | undefined {
+export function storedRosterXml(teamsDir: string, teamId: string, teamXml: string): string | undefined {
   const rostersDir = join(dirname(teamsDir), "rosters");
   const file = join(rostersDir, `roster_team_${safePart(teamId)}.xml`);
   if (existsSync(file)) {
