@@ -640,3 +640,14 @@
     --tt-chip: 56px; --tt-chip-img: 46px; --tt-rail-btn: 64px; --tt-end-h: 112px;
   }
 }
+
+/* desktop: a soft panel behind the strip, rail and log lifts the body off the page; the log field is inset a shade darker */
+@media (min-width: 1024px) {
+  .tt-rec { padding-bottom: 24px; }
+  .tt-rec::before { content: ""; grid-column: 1 / -1; grid-row: 3 / 5; pointer-events: none; background: color-mix(in srgb, var(--ui-surface-2, #242424) 70%, transparent); border: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 60%, transparent); border-radius: 4px; box-shadow: 0 8px 24px rgb(0 0 0 / .35); }
+  .tt-rec > .tt-board { padding-inline: calc(var(--tt-pad) + 20px); }
+  .tt-rec > .tt-stripbar { padding-inline: 20px; background: none; }
+  .tt-rec > .tt-rail { padding: 8px 0 20px 20px; }
+  .tt-rec > .tt-mid { margin: 8px 20px 20px 0; border-radius: 4px; background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 60%, transparent); }
+  .tt-rec .tt-feed { padding: 12px 12px 16px; }
+}

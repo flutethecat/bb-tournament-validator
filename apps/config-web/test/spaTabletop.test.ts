@@ -480,6 +480,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toMatch(/\.tt-roster-list li\.roster-row \{/); // specificity above any plain li rule, so the grid row applies
     expect(css).not.toMatch(/\.tt-roster-list li \{/);
     expect(css).toMatch(/--tt-pad: max\(0px, calc\(\(100vw - 1400px\) \/ 2\)\)/); // the desktop page is centred in 1400 px
+    expect(css).toMatch(/\.tt-rec::before \{[^}]*grid-row: 3 \/ 5[^}]*box-shadow: 0 8px 24px/); // the soft panel behind strip, rail and log
     expect(css).toMatch(/--tt-hero-min: 168px;[\s\S]*--tt-hero-min: 200px;/); // one scale block, two steps
   });
 
