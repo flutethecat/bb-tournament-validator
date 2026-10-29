@@ -114,3 +114,47 @@ export const TOURNAMENT_LIST_KEY: InjectionKey<TournamentList> = Symbol("tournam
 
 export const FORMAT_LABEL: Record<string, string> = { swiss: "Swiss", roundRobin: "Round robin", knockout: "Knockout" };
 export const STATUS_LABEL: Record<string, string> = { draft: "Upcoming", active: "Active", completed: "Finished", cancelled: "Cancelled" };
+
+// ---- list cards (pure display helpers) ----
+
+/** The status chip tone (the shell's sf-chip tones). */
+export const STATUS_TONE: Record<string, string> = { draft: "info", active: "ok", completed: "muted", cancelled: "urgent" };
+
+/** "2026-11-01", "2026-11-01 to 2026-11-03", or "Not set". */
+export function cardDates(t: Pick<TournamentSummary, "startsAt" | "endsAt">): string {
+  const day = (iso: string | undefined): string => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+  };
+  const start = day(t.startsAt);
+  const end = day(t.endsAt);
+  if (!start) return "Not set";
+  return end && end !== start ? `${start} to ${end}` : start;
+}
+
+/** "2 of 8 · 6 places left" (capped), "5" (uncapped), "8 of 8 · Full". */
+export function entrantsLine(t: Pick<TournamentSummary, "entrantCount" | "maxPlayers">): string {
+  const n = t.entrantCount ?? 0;
+  if (!(t.maxPlayers > 0)) return String(n);
+  const left = Math.max(0, t.maxPlayers - n);
+  return `${n} of ${t.maxPlayers} · ${left ? `${left} ${left === 1 ? "place" : "places"} left` : "Full"}`;
+}
+
+export type CardAction = "manage" | "entry" | "register" | "open";
+
+/**
+ * The card's footer action for this viewer, from what the list row carries: Manage for the owner and organisers,
+ * "Your entry" when the viewer is entered, Register while registration is open (draft or active, round 1 not yet
+ * started, rosters unlocked, a place left) for a signed-in coach who can write, otherwise Open.
+ */
+export function cardAction(t: TournamentSummary, coach: string, canWrite: boolean): CardAction {
+  if (coach && (t.ownerCoachId === coach || (t.organizerCoachIds ?? []).includes(coach))) return "manage";
+  if (t.myEntrantId && !t.myDroppedAt) return "entry";
+  const open = (t.status === "draft" || t.status === "active") && !(t.currentRound > 0) && !t.rostersLockedAt
+    && !(t.maxPlayers > 0 && (t.entrantCount ?? 0) >= t.maxPlayers);
+  if (open && coach && canWrite && !t.myEntrantId) return "register";
+  return "open";
+}
+
+export const CARD_ACTION_LABEL: Record<CardAction, string> = { manage: "Manage", entry: "Your entry", register: "Register", open: "Open" };

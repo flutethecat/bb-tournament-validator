@@ -227,3 +227,84 @@ a.tn-fact-sub { color: var(--ui-text); text-decoration: underline; }
   .tn-facts-strip { grid-template-columns: 1fr; }
   .tn-front-actions .lobby-btn { flex: 1 1 auto; justify-content: center; }
 }
+
+/* ---- tournaments list (owner 10-30): the coach page's language. hm-page title + toolbar + hm-panel cards.
+   The page is a .hm-page grid with align-content: start, so its rows never stretch to fill a tall shell (the old
+   .tn-page grid under a stretched .shell-main row spread its spare height across the rows, and the flex tab row
+   stretched its pills into tall capsules). */
+.tl-page {
+  align-content: start;
+  --tn-home: color-mix(in srgb, var(--ui-info) 38%, transparent); --tn-away: color-mix(in srgb, var(--ui-danger) 34%, transparent);
+}
+.tl-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; min-width: 0; }
+
+/* segmented status control: band-style square segments, active = the primary (heading red) fill */
+.tl-seg {
+  display: inline-flex; align-items: stretch; height: 40px; box-sizing: border-box; min-width: 0;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi);
+}
+.tl-seg-btn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; height: 100%; min-height: 0; margin: 0; padding: 0 16px;
+  font: 12px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-muted);
+  background: transparent; border: 0; border-radius: 0; cursor: pointer; white-space: nowrap;
+}
+.tl-seg-btn + .tl-seg-btn { border-left: 2px solid var(--sf-panel-line); }
+.tl-seg-btn:hover { color: var(--ui-text); background: var(--ui-hover); }
+.tl-seg-btn[aria-checked="true"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
+.tl-seg-btn:focus-visible { z-index: 1; outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+
+/* search: square 40 px field + button */
+.tl-search { display: flex; align-items: stretch; gap: 0; min-width: 0; }
+.tl-search input {
+  height: 40px; min-height: 0; box-sizing: border-box; width: 240px; min-width: 0; max-width: 100%; margin: 0; padding: 0 10px;
+  font: inherit; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-right: 0; border-radius: 2px 0 0 2px;
+}
+.tl-search-btn, .tl-page-btn, .tl-action {
+  display: inline-flex; align-items: center; justify-content: center; height: 40px; min-height: 0; box-sizing: border-box; margin: 0; padding: 0 14px;
+  font: 12px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; text-decoration: none; white-space: nowrap; cursor: pointer;
+  color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel);
+}
+.tl-search-btn { color: var(--ui-text-on-primary); background: var(--ui-primary); border-radius: 0 2px 2px 0; }
+.tl-search-btn:hover, .tl-page-btn:hover:not(:disabled), .tl-action:hover { border-color: var(--ui-heading); }
+.tl-page-btn:disabled { opacity: .45; cursor: not-allowed; }
+.tl-search-btn:focus-visible, .tl-page-btn:focus-visible, .tl-action:focus-visible, .tl-name a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+
+/* result cards */
+.tl-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); align-items: stretch; }
+.tl-cards > li { display: flex; min-width: 0; }
+.hm-panel.tl-card { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; padding-bottom: 12px; }
+.hm-panel.tl-card:hover, .hm-panel.tl-card:focus-within { border-color: var(--ui-heading); }
+.hm-panel.tl-card > .tl-strip { margin: 0 0 10px; }
+.tl-strip {
+  position: relative; isolation: isolate; display: flex; flex-direction: column; justify-content: flex-end; min-height: 104px; overflow: hidden;
+  border-bottom: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading);
+  background: linear-gradient(90deg, var(--tn-home), var(--ui-surface-2) 50%, var(--tn-away));
+}
+.tl-strip-img { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: cover; }
+.tl-strip-crest { position: absolute; z-index: -1; right: 12px; top: 50%; width: 56px; height: auto; transform: translateY(-50%); opacity: .85; }
+.tl-chip { position: absolute; top: 8px; left: 8px; }
+.tl-name {
+  margin: 0; padding: 28px 80px 8px 10px; font-family: var(--font-heading, sans-serif); font-weight: 500; font-size: 1.05rem; line-height: 1.25;
+  letter-spacing: .03em; overflow-wrap: anywhere;
+  background: linear-gradient(0deg, color-mix(in srgb, var(--ui-surface) 90%, transparent) 45%, transparent);
+}
+.tl-strip[data-banner="image"] .tl-name { padding-right: 10px; }
+.tl-name a { color: var(--ui-heading); text-decoration: none; }
+.tl-name a:hover { text-decoration: underline; }
+.tl-facts { display: grid; gap: 4px; margin-top: 0; margin-bottom: 12px; }
+.tl-facts > div { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.tl-facts dt { font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.tl-facts dd { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.tl-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--sf-panel-line); }
+.tl-action[data-action="register"], .tl-action[data-action="manage"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
+
+.tl-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+
+@media (max-width: 640px) {
+  .tl-toolbar { flex-direction: column; align-items: stretch; }
+  .tl-seg { width: 100%; }
+  .tl-seg-btn { flex: 1 1 0; padding: 0 8px; min-width: 0; }
+  .tl-search { width: 100%; }
+  .tl-search input { flex: 1 1 auto; width: auto; }
+}
