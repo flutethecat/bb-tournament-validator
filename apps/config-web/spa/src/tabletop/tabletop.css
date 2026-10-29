@@ -1188,10 +1188,10 @@
 /* the Injury tile in the Other grid (phones and tablets; hidden on desktop) matches the rail's Injury button: an amber face with white lettering; the dark lettering shadow keeps it legible */
 .tt-rec .tt-other-btn[data-type="injury"] { background: var(--ui-warn); color: var(--ui-text-on-primary, #ffffff); border-color: var(--ui-warn); text-shadow: var(--tt-lettering-shadow, 2px 2px 0 rgb(0 0 0 / 80%)); }
 
-/* the rail buttons share one inner grid: a 32 px icon column (the icon, a 24 px box, centred in it) and the label left-aligned in the second column, so every label starts at the same x
-   (Other keeps an empty icon column) */
+/* the rail buttons share one inner grid: a 32 px icon column (the icon, a 24 px box, centred in it) and a fixed 120 px label column with the label left-aligned in it; the group is centred
+   in the button, so the buttons read centred while every icon and label line up (Other keeps an empty icon column) */
 @media (min-width: 1024px) {
-  .tt-rec .tt-rail-btn, .tt-rec .tt-rail-btn.tt-rail-other { display: grid; grid-template-columns: 32px 1fr; column-gap: 12px; align-items: center; justify-content: start; padding: 0 14px; text-align: left; }
+  .tt-rec .tt-rail-btn, .tt-rec .tt-rail-btn.tt-rail-other { display: grid; grid-template-columns: 32px 120px; column-gap: 12px; align-items: center; justify-content: center; padding: 0 14px; text-align: left; }
   .tt-rec .tt-rail-btn > .tt-glyph { grid-column: 1; justify-self: center; width: 24px; height: 24px; }
   .tt-rec .tt-rail-btn > .tt-glyph-text { font-size: 24px; width: auto; height: auto; }
   .tt-rec .tt-rail-btn > span:not(.tt-glyph) { grid-column: 2; text-align: left; }

@@ -653,7 +653,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-picker \.tt-roster-list li\.roster-row\.tt-rp-pick \{ grid-template-columns: 36px 56px minmax\(180px, 1fr\) 236px minmax\(0, 2fr\);/);
     expect(css1).toMatch(/\.tt-rosters \.slot-number, \.tt-rosters-embed \.tt-rp-pick \.slot-number \{\s*display: flex;[^}]*width: 36px; height: 36px;[^}]*font-size: 16px;[^}]*box-shadow: var\(--tv-bezel\)/); // the number tile
     expect(css1).toMatch(/\.tt-rosters \.row-stats, \.tt-picker \.tt-rp-pick \.row-stats \{ width: 236px; justify-self: start; \}/); // the stats start right after the name column
-    expect(css1).toMatch(/\.tt-rec \.tt-rail-btn, \.tt-rec \.tt-rail-btn\.tt-rail-other \{ display: grid; grid-template-columns: 32px 1fr; column-gap: 12px; align-items: center; justify-content: start; padding: 0 14px; text-align: left; \}/); // one inner grid on every rail button
+    expect(css1).toMatch(/\.tt-rec \.tt-rail-btn, \.tt-rec \.tt-rail-btn\.tt-rail-other \{ display: grid; grid-template-columns: 32px 120px; column-gap: 12px; align-items: center; justify-content: center; padding: 0 14px; text-align: left; \}/); // one fixed-width inner group, centred in every rail button
     expect(css1).toMatch(/\.tt-rec \.tt-rail-btn > span:not\(\.tt-glyph\) \{ grid-column: 2; text-align: left; \}/); // labels start at the same x (Other has no icon)
     expect(css1).toMatch(/\.tt-rec \.tt-rail-btn > \.tt-glyph \{ grid-column: 1; justify-self: center; width: 24px; height: 24px; \}/);
     expect(css1).toMatch(/\.tt-rec > \.tt-stripbar \{ overflow-y: hidden; color: var\(--ui-text, #e6e9ef\); \}/); // no vertical scroll in the strip, white text
