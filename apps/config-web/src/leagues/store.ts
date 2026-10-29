@@ -164,7 +164,10 @@ export class LeagueStore {
     if (!SEASON_ID.test(season.id)) throw new LeagueStoreError(400, "Bad season id.");
     const dir = join(this.leagueDir(season.leagueId), "seasons");
     mkdirSync(dir, { recursive: true });
-    const prior = this.rawSeasons(season.leagueId).find((s) => s.sourceSlug === season.sourceSlug || s.id === season.id);
+    const all = this.rawSeasons(season.leagueId);
+    const prior = all.find((s) => s.sourceSlug === season.sourceSlug || s.id === season.id);
+    // Monotonic per season id (also when the caller wrote from a stale copy): read-model caches key on it.
+    season.revision = Math.max(all.find((s) => s.id === season.id)?.revision ?? 0, season.revision ?? 0) + 1;
     this.write(join(dir, `${season.id}.json`), season);
     if (prior && prior.id !== season.id) this.removeSeason(season.leagueId, prior.id);
     return prior ? { replaced: prior.id } : {};

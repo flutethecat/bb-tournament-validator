@@ -136,6 +136,8 @@ export interface LeagueFixture {
   date?: string;
   /** Test data: Discord posts about this fixture carry the "[Test]" prefix. */
   test?: boolean;
+  /** Discord announcement markers (independent of the capped season log): when "started" posted, which result posted. */
+  announced?: { started?: string; result?: string };
   /** Admin per-game setting: the fixture may be generated on Super FUMBBL although its season is finished or the fixture is marked not played. */
   forkAllowLate?: boolean;
   /** Admin per-game setting: Super FUMBBL play is cancelled for this fixture (no generate, no start). */
@@ -443,6 +445,8 @@ export interface SeasonRecord {
   awards: LeagueAward[];
   unattributedStats: UnattributedStats[];
   importedAt: string;
+  /** Bumped by the store on every write (results, fixtures, redraft application...): the stats cache keys on it. */
+  revision?: number;
   /** "manual" = started from League settings (Start a new season). */
   source: "tourplay-export" | "manual";
   rules?: SeasonRules;

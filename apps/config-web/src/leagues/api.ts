@@ -250,7 +250,7 @@ const statsCache = new Map<string, { key: string; stats: LeagueStats }>();
 
 function statsFor(store: LeagueStore, leagueId: string, scope: StatsScope): LeagueStats {
   const seasons = store.seasons(leagueId);
-  const key = seasons.map((s) => `${s.id}@${s.importedAt}`).join("|");
+  const key = seasons.map((s) => `${s.id}@${s.importedAt}#${s.revision ?? 0}`).join("|");
   const cacheKey = `${leagueId}\0${scope}`;
   const hit = statsCache.get(cacheKey);
   if (hit && hit.key === key) return hit.stats;

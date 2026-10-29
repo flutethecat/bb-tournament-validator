@@ -151,8 +151,10 @@ async function fixtureEvent(
   const at = (deps.now?.() ?? new Date()).toISOString();
   const by = payload.by?.trim() || "";
   if (kind === "started") {
-    if ((season.log ?? []).some((e) => e.kind === "match-started" && e.fixtureId === fixture.id)) return { ok: true, posted: false, reason: "Already announced." };
+    if (fixture.announced?.started || (season.log ?? []).some((e) => e.kind === "match-started" && e.fixtureId === fixture.id))
+      return { ok: true, posted: false, reason: "Already announced." };
     fixture.startedAt ??= at;
+    fixture.announced = { ...(fixture.announced ?? {}), started: at };
     addLog(season, { at, by, kind: "match-started", fixtureId: fixture.id, text: `${matchText(fixture)} started${payload.where ? ` on ${payload.where}` : ""}.` });
     deps.store.putSeason(season);
     const posted = await postLeagueEvent(deps.store, league, "matchStarted", buildMatchStartedPost(league, season, fixture, payload), deps.postWebhook);
@@ -160,8 +162,11 @@ async function fixtureEvent(
   }
   if (!fixturePlayed(fixture)) return { ok: false, posted: false, reason: "The fixture has no result yet." };
   const sig = resultSig(fixture);
-  if ((season.log ?? []).some((e) => e.kind === "match-result" && e.fixtureId === fixture.id && e.sig === sig)) return { ok: true, posted: false, reason: "Already announced." };
+  const marked = fixture.announced ? fixture.announced.result === sig
+    : (season.log ?? []).some((e) => e.kind === "match-result" && e.fixtureId === fixture.id && e.sig === sig);
+  if (marked) return { ok: true, posted: false, reason: "Already announced." };
   fixture.finishedAt ??= at;
+  fixture.announced = { ...(fixture.announced ?? {}), result: sig };
   addLog(season, { at, by, kind: "match-result", fixtureId: fixture.id, sig, text: `${fixture.home.team} ${fixture.home.score ?? 0} - ${fixture.away.score ?? 0} ${fixture.away.team}` });
   deps.store.putSeason(season);
   const posted = await postLeagueEvent(deps.store, league, "matchResult", buildMatchResultPost(league, season, fixture, payload), deps.postWebhook);
@@ -395,6 +400,8 @@ export async function editFixture(
     fixture.home.cas = fixture.away.cas = null;
     fixture.home.conceded = fixture.away.conceded = false;
     delete fixture.finishedAt;
+    // A corrected result entered after a clear is announced again.
+    if (fixture.announced) { delete fixture.announced.result; if (!fixture.announced.started) delete fixture.announced; }
   } else if (result) {
     const before = fixturePlayed(fixture) ? resultSig(fixture) : "";
     fixture.home.score = result.home;

@@ -195,6 +195,34 @@ describe("league event routes", () => {
     expect(posts).toHaveLength(0);
   });
 
+  it("[review P2] announcement markers live on the fixture: a pruned activity log never re-posts", async () => {
+    store.updateLeague("tabbl", (l) => { l.discordEvents = { news: true, fixtureCreated: true, matchStarted: true, matchResult: true, milestones: true }; });
+    const ev = { store, postWebhook: async (_u: string, p: DiscordPayload) => { posts.push(p); return { ok: true, status: 204 }; } };
+    const s = store.season("tabbl", "season-7")!;
+    s.fixtures[0]!.home.score = 3;
+    s.fixtures[0]!.away.score = 0;
+    store.putSeason(s);
+    expect((await recordLeagueFixtureEvent("tabbl", "f1", "started", {}, ev)).posted).toBe(true);
+    expect((await recordLeagueFixtureEvent("tabbl", "f1", "result", {}, ev)).posted).toBe(true);
+    const pruned = store.season("tabbl", "season-7")!;
+    pruned.log = Array.from({ length: 200 }, (_, i) => ({ at: "2026-11-01T00:00:00.000Z", by: "Jay", kind: "fixture-created" as const, fixtureId: `x${i}`, text: "filler" }));
+    store.putSeason(pruned);
+    expect(await recordLeagueFixtureEvent("tabbl", "f1", "started", {}, ev)).toMatchObject({ posted: false, reason: "Already announced." });
+    expect(await recordLeagueFixtureEvent("tabbl", "f1", "result", {}, ev)).toMatchObject({ posted: false, reason: "Already announced." });
+    expect(posts).toHaveLength(2);
+  });
+
+  it("[review P2] a result edit refreshes the league statistics (season revision in the stats cache key)", async () => {
+    const games = async () => ((await call("GET", "/api/leagues/tabbl/stats", undefined)).body as { totals: { games: number } }).totals.games;
+    expect(await games()).toBe(0);
+    expect((await call("PATCH", `${BASE}/fixtures/f1`, JAY, { result: { home: 1, away: 0 } })).status).toBe(200);
+    expect(await games()).toBe(1);
+    const r1 = store.season("tabbl", "season-7")!.revision!;
+    expect((await call("PATCH", `${BASE}/fixtures/f1`, JAY, { result: null })).status).toBe(200);
+    expect(store.season("tabbl", "season-7")!.revision!).toBeGreaterThan(r1);
+    expect(await games()).toBe(0);
+  });
+
   it("recordLeagueFixtureEvent: started once (toggle honoured), result from the stored fixture once per result", async () => {
     const ev = { store, postWebhook: async (_u: string, p: DiscordPayload) => { posts.push(p); return { ok: true, status: 204 }; }, now: () => new Date("2026-11-02T10:00:00.000Z") };
     expect(await recordLeagueFixtureEvent("tabbl", "f1", "started", {}, undefined)).toMatchObject({ ok: false });
