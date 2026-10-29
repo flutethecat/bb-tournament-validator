@@ -37,7 +37,8 @@
 
 /* ---- top bar */
 .shell-header.sf-top {
-  position: sticky; top: 0; z-index: 70; min-height: var(--sf-top-h); flex-wrap: nowrap; padding: 8px 16px; gap: 12px;
+  /* Below the match recorder (.tt-rec z 60) so its dialogs cover the header and the rail collapser (Sol 10-30). */
+  position: sticky; top: 0; z-index: 50; min-height: var(--sf-top-h); flex-wrap: nowrap; padding: 8px 16px; gap: 12px;
   background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
   border-bottom: 2px solid var(--sf-panel-line); box-shadow: 0 2px 0 var(--sf-panel-drop);
 }

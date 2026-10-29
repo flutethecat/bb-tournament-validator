@@ -698,6 +698,15 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(css).toContain("calc(10px + (var(--sf-level, 1) - 1) * 14px)");
   });
 
+  it("the shell header (and its rail collapser) stacks below the match recorder takeover", () => {
+    const home = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");
+    const tt = readFileSync(new URL("../spa/src/tabletop/tabletop.css", import.meta.url), "utf8");
+    const header = Number(/\.shell-header\.sf-top \{[^}]*?z-index: (\d+)/.exec(home)?.[1]);
+    const recorder = Number(/\.tt-rec \{[^}]*?z-index: (\d+)/.exec(tt)?.[1]);
+    expect(header).toBeGreaterThan(0);
+    expect(recorder).toBeGreaterThan(header);
+  });
+
   it("exactly one active row (seat blue, 3 px bar) follows the route", async () => {
     const at = async (path: string) => navOf((await render(path, signedInRoutes())).html);
     const active = (nav: string) => (nav.match(/<a href="([^"]+)" class="sf-(?:row|top-link|head-link)"[^>]*data-active="true"[^>]*>/g) ?? []);
