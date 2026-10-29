@@ -996,3 +996,10 @@
     box-shadow: var(--tt-bevel-inset); color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-led-glow);
   }
 }
+
+/* turn track (all widths): played and future turns render the same plain dark cell with bright white digits; only the active cell keeps the glowing scarlet indicator
+   (the done state stays in the model, it just looks like todo) */
+.tt-rec .tt-track.home .tt-cell:not([data-state="active"]), .tt-rec .tt-track.away .tt-cell:not([data-state="active"]) {
+  background: color-mix(in srgb, #000 70%, var(--ui-surface, #0d0d0d)); border: 1px solid transparent; color: var(--ui-text, #e6e9ef); opacity: 1;
+}
+.tt-rec .tt-track .tt-cell[data-state="active"] { background: var(--ui-scarlet, var(--tt-accent)); color: var(--ui-scarlet-contrast, #ffffff); border: 1px solid var(--ui-scarlet, var(--tt-accent)); box-shadow: var(--tt-led-glow, 0 0 8px rgb(215 20 31 / .7), 0 0 18px rgb(215 20 31 / .4)); outline: 0; }
