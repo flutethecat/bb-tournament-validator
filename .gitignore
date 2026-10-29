@@ -23,3 +23,6 @@ apps/config-web/public/lobby/
 apps/config-web/public/app/
 # Licensed turn-timer cues (Cyberleaf Retro SFX): host-only, NEVER committed (the licence forbids redistribution).
 apps/config-web/public/sounds/
+
+# league-fork-test rig output (scripts/league-fork-test.ts)
+apps/config-web/.league-fork-test/

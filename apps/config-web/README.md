@@ -201,3 +201,30 @@ curl -i -X POST http://127.0.0.1:PORT/api/auth/test-login -H "X-CW-Auth: 1" -H "
 ```
 
 Loopback callers only (any `X-Forwarded-For` is refused), timing-safe secret check, 3 wrong secrets per 10 minutes per IP gives 429. Never set these variables on a public host.
+
+## League fixture on the local fork: end-to-end rig
+
+`scripts/league-fork-test.ts` plays one league fixture on the local Super FUMBBL fork against the live config-web state dir,
+then tears everything down. The report is in `docs/artifact-orchestration/league-fork-test-2026-10-30.md`.
+
+```
+cd apps/config-web
+pnpm exec tsx scripts/league-fork-test.ts                 # setup -> generate -> launch -> play -> wait (live 2-min sync) -> verify -> teardown
+pnpm exec tsx scripts/league-fork-test.ts --self-sync     # bank the result with the organiser "Check for result" call in process
+pnpm exec tsx scripts/league-fork-test.ts --keep          # leave the test league for inspection
+pnpm exec tsx scripts/league-fork-test.ts --teardown-only # remove it
+```
+
+- Creates the throwaway league `tabbl-test` ("TABBL Test", no Discord webhook). It holds one season with copies of two TABBL
+  season-6 teams (`--home` / `--away` team ids), with Flutethecat and Gondra87 seated, and one fixture marked `test: true`.
+  Real TABBL data, `identities.json` and `organizers.json` are only read.
+- Uses the real fork client with the live `.env` (`--env`). No secret is printed or written; the JNLPs are saved redacted.
+- Both seats play headless on the scheduled game id. This is a scenario build of the client worktree's
+  `packages/ffb-protocol/scripts/drivePregame.ts` (`--client`, default `wt-declare`): one forced block casualty and one
+  touchdown via the fork's test talk commands, then the away side concedes.
+- Writes `checks.json`, `diff.json` (before/after for both league teams and the fixture), the fork team files, the raw and
+  parsed fork result, and the logs to `--out` (default `.league-fork-test/<stamp>`, git-ignored). The exit code is non-zero
+  on any failed check.
+- Teardown runs at the start and end of every run. It deletes the league folder, its `lg_*` fork team files (followed by
+  a fork refresh), the library rows, the notification rows linking to `/app/leagues/tabbl-test`, and any stored result
+  rows. Finished fork games stay in the fork DB.
