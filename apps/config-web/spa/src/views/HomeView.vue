@@ -1,11 +1,10 @@
 <script setup lang="ts">
 // Coach page (/app/home, spec §4.7): two columns at >= 1280 (fluid / 380 px), one column on a phone. Left:
-// Notifications (the shared store, NotificationsPanel), Deadlines (GET /api/me/deadlines, via the nav tree), Schedule (availability editor).
+// Notifications (the shared store, NotificationsPanel), Deadlines (GET /api/me/deadlines, via the nav tree). The availability editor lives on the Account page (owner 10-30).
 // Right: Friends and Messages (empty until their lanes land), My teams strip, Account shortcut, What's new.
 import { computed, inject, onBeforeUnmount, onMounted, onServerPrefetch, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
-import HomeSchedule from "../components/HomeSchedule.vue";
 import NotificationsPanel from "../components/NotificationsPanel.vue";
 import { SESSION_KEY, writesAllowed } from "../session";
 import { NOTIFICATIONS_KEY } from "../home/notifications";
@@ -100,10 +99,6 @@ onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
           </ul>
         </section>
 
-        <section id="schedule" class="hm-panel" aria-labelledby="hm-schedule-h">
-          <header class="hm-band"><h2 id="hm-schedule-h">Schedule</h2><span class="hm-cap">My availability</span></header>
-          <HomeSchedule />
-        </section>
       </div>
 
       <div class="hm-col hm-col-side">

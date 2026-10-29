@@ -6,6 +6,7 @@ import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import TestSignInCard from "../components/TestSignInCard.vue";
+import HomeSchedule from "../components/HomeSchedule.vue";
 import type { AccountInfo } from "../shared/api";
 
 const session = inject(SESSION_KEY)!;
@@ -73,6 +74,11 @@ onServerPrefetch(load);
     <p><RouterLink to="/my-teams">Team avatars</RouterLink></p>
     <button class="lobby-btn" type="button" :disabled="signingOut" @click="signOut">Sign out</button>
     <p v-if="signOutError" class="lobby-error" role="alert">{{ signOutError }}</p>
+  </section>
+  <!-- Owner 10-30: the weekly availability editor moved here from the coach page. -->
+  <section v-if="session.signedIn()" id="schedule" class="hm-panel" aria-labelledby="hm-schedule-h">
+    <header class="hm-band"><h2 id="hm-schedule-h">Schedule</h2><span class="hm-cap">My availability</span></header>
+    <HomeSchedule />
   </section>
   <TestSignInCard />
 </template>

@@ -630,17 +630,28 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(navOf(html)).toContain('href="/app/tournaments"');
   });
 
+  it("account page: the schedule editor (saved zone selected, seven day columns, saved blocks) sits below the account card", async () => {
+    const { html } = await render("/account", signedInRoutes());
+    expect(html).toContain('id="schedule"');
+    expect(html.indexOf("<h2>Account</h2>")).toBeLessThan(html.indexOf('id="schedule"'));
+    expect(html).toMatch(/<option value="Europe\/London" selected>/);
+    expect((html.match(/class="hm-day-head"/g) ?? []).length).toBe(7);
+    expect(html).toMatch(/data-day="0"[\s\S]*?value="19:00"[\s\S]*?value="22:00"/);
+    expect(html).toMatch(/data-day="5"[\s\S]*?value="10:00"/);
+    expect(html).toContain("2 / 21 blocks");
+  });
+
   it("coach page: two-column panels, empty states, deadlines with chips in the coach's timezone, schedule grid, teams, what's new (latest 5)", async () => {
     const { html, f } = await render("/home", signedInRoutes());
     expect(html).toContain('<div class="hm-grid">');
     const main = html.slice(html.indexOf('class="hm-col hm-col-main"'), html.indexOf('class="hm-col hm-col-side"'));
     const side = html.slice(html.indexOf('class="hm-col hm-col-side"'));
-    for (const id of ["whats-new", "notifications", "deadlines", "schedule"]) expect(main).toContain(`id="${id}"`);
+    for (const id of ["whats-new", "notifications", "deadlines"]) expect(main).toContain(`id="${id}"`);
+    expect(main).not.toContain('id="schedule"'); // owner 10-30: the availability editor lives on the Account page
     for (const id of ["friends", "messages", "my-teams", "account"]) expect(side).toContain(`id="${id}"`);
     // owner 10-30: What's new sits above Notifications
     expect(main.indexOf('id="whats-new"')).toBeLessThan(main.indexOf('id="notifications"'));
     expect(main.indexOf('id="notifications"')).toBeLessThan(main.indexOf('id="deadlines"'));
-    expect(main.indexOf('id="deadlines"')).toBeLessThan(main.indexOf('id="schedule"'));
     expect(html).toMatch(/id="notifications"[\s\S]*?<span>Notifications<\/span>[\s\S]*?<p class="nf-empty">Nothing yet<\/p>/);
     // deadlines: nearest first, chip class by horizon, the zone named in the band caption and used for the times
     expect(html).toContain('<span class="hm-cap">America/New_York</span>');
@@ -652,12 +663,6 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(rows[1]).toContain("hm-chip-ok");
     const firstAt = deadlinesBody().deadlines[0]!.at;
     expect(rows[0]).toContain(formatWhen(firstAt, "America/New_York").split(", ")[0]!);
-    // schedule: the saved zone selected, seven day columns, the saved blocks in their columns
-    expect(html).toMatch(/<option value="Europe\/London" selected>/);
-    expect((html.match(/class="hm-day-head"/g) ?? []).length).toBe(7);
-    expect(html).toMatch(/data-day="0"[\s\S]*?value="19:00"[\s\S]*?value="22:00"/);
-    expect(html).toMatch(/data-day="5"[\s\S]*?value="10:00"/);
-    expect(html).toContain("2 / 21 blocks");
     // my teams strip: crest card, blank card for a race without a crest
     // Owner 10-30: every team tile opens the team management page.
     expect(html).toMatch(/<a href="\/app\/teams\/library%3A1" class="hm-team" title="Manage Alice Orcs"><img class="hm-team-crest" src="\/crests\/orc.png"/);
