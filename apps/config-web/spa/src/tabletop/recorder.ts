@@ -151,7 +151,8 @@ export interface RecorderDeps {
   now?: () => number;
   /** Opens the Super socket (tests swap it; the default is a browser WebSocket). */
   openSocket?: (url: string) => ClockSocket;
-  /** Runs after a successful submit / confirm / publish / undo-revision (the shell's deadlines refetch through it). */
+  /** Runs after a successful submit / confirm / publish / undo-revision, and after an events batch that changed the match
+   *  (an endOfMatch submit, retries included): the shell's deadlines refetch through it. */
   onChanged?: () => void;
 }
 
@@ -181,8 +182,11 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     matchId,
     storage: deps.storage ?? browserStorage(),
     send: async (events) => {
-      const res = await deps.api<SendResult & { clock?: ClockView }>(`${base}/events`, { method: "POST", body: { events } });
+      const res = await deps.api<SendResult & { clock?: ClockView; submitted?: boolean; match?: MatchView }>(`${base}/events`, { method: "POST", body: { events } });
       if (res.clock) applyClock(res.clock);
+      // The server answers with a match only when the batch changed its state or confirmations (an endOfMatch submits it,
+      // an organiser's undo after submit clears confirmations). Every send, retries included, comes through here.
+      if (res.submitted === true || res.match) deps.onChanged?.();
       return res;
     },
     onChange: () => syncQueueState(),
