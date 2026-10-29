@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Game pages: open any result for its summary and match report",
+    "body": "Every card in Past Games now opens a page for that game. The result card sits at the top, followed by a summary: when it was played, the competition and round, casualties caused and suffered, any concession and the MVPs, plus each team’s scorers, casualty-makers and a player table when the game was played through the site (otherwise the page says per-player stats are recorded for games played through the site). Tabletop matches also show the match report: the key moments by half and turn, both teams’ finished-game summaries, and an Open match reporter button. Tournament fixtures link to the tournament’s Rounds tab.",
+    "links": [
+      {
+        "label": "Coach page",
+        "href": "/app/home#recent-games"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Team sheet header: avatar click to upload, cleaner title row",
     "body": "The team sheet header is re-laid out: the avatar box on the left spans both rows, the team name takes the full width of the first row, and the second row has the race and special rules on the left with the coach name on the right (hover it for the last-updated date). The Team and On the fork status block and the Coach label are gone, on the share page too. On your own team page the avatar is now a button: hover or focus it and an Upload plate appears; click it to open the Team avatar dialog. On phones the avatar shrinks to 72 px and the name, rules and coach stack beneath it.",
     "links": [
