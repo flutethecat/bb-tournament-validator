@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-10-30",
+    "title": "League settings: administration, information, registrations, team building, connections",
+    "body": "League organisers and site admins now have a cog at the right end of the league header strip that opens League settings, in five tabs. Administration lists who runs the league (the owner, the organisers, who the owner adds or removes by coach name, and the site admins), starts a new season (numbered automatically, with its ruleset, carrying over the team building rules) and finishes the open season; Start redraft shows where the redraft board will go. Information holds the name, full name, description, default ruleset and where the league plays, with addresses checked for the United States (state and ZIP code) and Canada (province and postal code). Registrations sets which rosters may sign up, whether sign-up is open, hiding team composition and the limits per league and per race. Team building is a table of every roster with its tier, starting treasury and the extra starting skills the league grants (primary, secondary, elite), saved per season for the Tournament Team Builder to use. External connections downloads the results as spreadsheets (teams, fixtures, standings, participants, honours, awards), connects a Discord channel (the webhook address is kept private and only ever shown masked; a test post checks it) and turns on Play on Super FUMBBL, after which league admins can allow single fixtures, and both coaches and the organisers are told. The league name on the league page is now white and the logo sits centred in its strip.",
+    "links": [
+      {
+        "label": "TABBL",
+        "href": "/app/leagues/tabbl"
+      },
+      {
+        "label": "TABBL settings",
+        "href": "/app/leagues/tabbl/settings"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Match recorder: pre-game fans, weather, inducements and coin flip",
     "body": "Every recorded match, test matches included, now walks the pre-game before Turn 1: the fans (D3 plus dedicated fans, with a short crowd cine), the weather (2D6 cine and a splash with what the weather does), journeymen, an inducement picker with prices, limits, petty cash and treasury, prayers to Nuffle, then the coin flip: the site draws which coach calls, everyone watches the coin land, and the winner picks Kick or Receive. Every roll can be made by the site (Roll for me) or typed in from the table (Enter result), and every step lands in the match log. Organisers can skip the pre-game (logged). Each milestone can also be posted to Discord for the BloodBowl bot when the recorder webhook is configured.",
     "links": [
