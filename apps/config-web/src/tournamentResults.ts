@@ -30,6 +30,8 @@ export interface StoredTournamentResult extends GamestateResult {
   playedAt?: string;
   home: ResultSide;
   away: ResultSide;
+  /** True on a fork row whose team and coach names were XML-decoded when stored. A fork row without it was stored raw (still XML-escaped) and is decoded once on load. */
+  namesDecoded?: true;
   /** Absent = a fork game. "tabletop" rows come from the confirmed tabletop recorder (src/tabletop). */
   source?: "fork" | "tabletop" | "naf";
   /** Tabletop only: the league/tournament fixture the match was played for, when one was named. */
@@ -109,10 +111,33 @@ export class TournamentResultStore {
       const parsed = JSON.parse(readFileSync(this.file, "utf8")) as Partial<TournamentResultStoreFile>;
       if (parsed.version !== 1 || !parsed.results || typeof parsed.results !== "object" || Array.isArray(parsed.results))
         return emptyStore();
-      return { version: 1, results: parsed.results };
+      return this.migrateLegacyNames({ version: 1, results: parsed.results });
     } catch {
       return emptyStore();
     }
+  }
+
+  /**
+   * One-time migration of fork rows stored before names were decoded: their team and coach names are still the admin
+   * list's XML-escaped text ("A&amp;B"), which split a coach's history in two. Each such row is decoded exactly once and
+   * marked, so decoded rows (and tabletop/NAF rows, which never came from XML) are never touched. Persisted best-effort.
+   */
+  private migrateLegacyNames(store: TournamentResultStoreFile): TournamentResultStoreFile {
+    let changed = false;
+    const results: Record<string, StoredTournamentResult> = {};
+    for (const [id, row] of Object.entries(store.results)) {
+      const fork = row.source === undefined || row.source === "fork";
+      if (!fork || row.namesDecoded || !row.home || !row.away) { results[id] = row; continue; }
+      const side = (x: ResultSide): ResultSide => ({ ...x, teamName: decodeXml(x.teamName ?? ""), coach: decodeXml(x.coach ?? "") });
+      results[id] = { ...row, home: side(row.home), away: side(row.away), namesDecoded: true };
+      changed = true;
+    }
+    const next: TournamentResultStoreFile = { version: 1, results };
+    if (changed) {
+      try { atomicWriteTextFile(this.file, `${JSON.stringify(next, null, 2)}
+`); } catch { /* retried on the next load; in-memory result is already correct */ }
+    }
+    return changed ? next : store;
   }
 
   get(gameId: string): StoredTournamentResult | undefined {
@@ -207,6 +232,7 @@ export async function pullFinishedGameResult(
     ...(playedAtOf(game) ? { playedAt: playedAtOf(game)! } : {}),
     home: storedSide(game, "home"),
     away: storedSide(game, "away"),
+    namesDecoded: true,
     teams: result.teams,
   });
 }

@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +13,7 @@ import {
   mayReadResult,
   type StoredTournamentResult,
 } from "../src/tournamentResults.js";
+import { computeElo } from "../src/coachElo.js";
 import type { TournamentMatchMetadata } from "../src/tournamentMatch.js";
 
 const roots: string[] = [];
@@ -88,7 +89,7 @@ describe("TournamentResultStore and standings", () => {
     store.put(tournamentResult);
     store.put(adHocResult);
     expect(readdirSync(root)).toEqual(["tournament-results.json"]);
-    expect(new TournamentResultStore(root).get("tournament")).toEqual(tournamentResult);
+    expect(new TournamentResultStore(root).get("tournament")).toEqual({ ...tournamentResult, namesDecoded: true }); // legacy row: migrated once on load
 
     const metadata: TournamentMatchMetadata = {
       gameId: "tournament",
@@ -157,5 +158,32 @@ describe("stored result sides", () => {
       <team home="true" id="a" name="&lt;script&gt;brains? &amp;amp; &quot;x&quot;" coach="A&amp;B"/>
       <team home="false" id="b" name="B" coach="C"/></game></list></admin>`);
     expect(storedSide(game!, "home")).toEqual({ teamId: "a", teamName: '<script>brains? &amp; "x"', coach: "A&B" });
+  });
+});
+
+describe("legacy escaped names", () => {
+  it("decodes legacy fork rows once on load, so a coach stored as A&amp;B and A&B is one Elo key and a decoded row is never decoded again", () => {
+    const root = mkdtempSync(join(tmpdir(), "bbtv-tournament-results-"));
+    roots.push(root);
+    const row = (gameId: string, coach: string, name: string, extra: Partial<StoredTournamentResult> = {}): StoredTournamentResult => ({
+      gameId, pulledAt: "2026-08-27T00:00:00.000Z",
+      home: { teamId: `h${gameId}`, teamName: name, coach },
+      away: { teamId: `a${gameId}`, teamName: "Other", coach: `Opp${gameId}` },
+      teams: [team(`h${gameId}`, 2, -1, 0), team(`a${gameId}`, 1, -1, 0)], ...extra,
+    });
+    const legacy = row("1", "A&amp;B", "&lt;script&gt;brains?");
+    const fresh = row("2", "A&B", "A literal &amp;lt; name", { namesDecoded: true }); // already decoded: must stay as is
+    const tabletop = row("3", "T&amp;T", "Tab &amp; Co", { source: "tabletop", published: true }); // never XML: untouched
+    writeFileSync(join(root, "tournament-results.json"), JSON.stringify({ version: 1, results: { 1: legacy, 2: fresh, 3: tabletop } }));
+    const store = new TournamentResultStore(root);
+    const rows = store.list();
+    expect(rows.find((r) => r.gameId === "1")!.home).toMatchObject({ coach: "A&B", teamName: "<script>brains?" });
+    expect(rows.find((r) => r.gameId === "2")!.home).toMatchObject({ coach: "A&B", teamName: "A literal &amp;lt; name" });
+    expect(rows.find((r) => r.gameId === "3")!.home).toMatchObject({ coach: "T&amp;T", teamName: "Tab &amp; Co" });
+    expect([...computeElo(rows, { includeTabletop: false }).keys()].filter((k) => k.includes("a&"))).toEqual(["a&b"]);
+    // persisted: a fresh store reads the same rows and a second load changes nothing
+    const onDisk = readFileSync(join(root, "tournament-results.json"), "utf8");
+    expect(new TournamentResultStore(root).list()).toEqual(rows);
+    expect(readFileSync(join(root, "tournament-results.json"), "utf8")).toBe(onDisk);
   });
 });
