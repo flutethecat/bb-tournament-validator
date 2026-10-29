@@ -125,6 +125,7 @@ describe("per-tournament organizer permissions", () => {
     const record = tournament(store);
     const snapshot = store.snapshot();
     delete snapshot.tournaments[record.id]!.organizerCoachId;
+    delete snapshot.tournaments[record.id]!.ownerCoachId;
     store.writeSnapshot(snapshot);
     const exportPath = `/api/tournaments/${record.id}/export`;
 
@@ -140,16 +141,18 @@ describe("per-tournament organizer permissions", () => {
       .toEqual({ status: 403, body: { error: "Only an admin may change organizerCoachId." } });
   });
 
-  it("migrates v2 atomically to v3 without inventing an owner for legacy rows", () => {
+  it("migrates v2 atomically to v4 without inventing an owner for legacy rows", () => {
     const store = newStore();
     const record = tournament(store);
     const snapshot = store.snapshot();
     delete snapshot.tournaments[record.id]!.organizerCoachId;
+    delete snapshot.tournaments[record.id]!.ownerCoachId;
     const migrated = migrateTournamentData({ ...snapshot, version: 2 });
-    expect(migrated.version).toBe(3);
+    expect(migrated.version).toBe(4);
     expect(migrated.tournaments[record.id]).not.toHaveProperty("organizerCoachId");
-    expect(store.writeSnapshot({ ...snapshot, version: 2 }).version).toBe(3);
-    expect(store.snapshot().version).toBe(3);
+    expect(migrated.tournaments[record.id]).not.toHaveProperty("ownerCoachId");
+    expect(store.writeSnapshot({ ...snapshot, version: 2 }).version).toBe(4);
+    expect(store.snapshot().version).toBe(4);
   });
 
   it("scopes manual registration and dropping another entrant while preserving self-drop", async () => {

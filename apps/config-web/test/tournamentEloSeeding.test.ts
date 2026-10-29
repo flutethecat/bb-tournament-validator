@@ -48,7 +48,8 @@ describe("Elo seed snapshot", () => {
     const firstRatings: Record<string, number> = { Alice: 1500, Bob: 1800, Carol: 1400, Dave: 1600 };
     const round = setup.store.generateNextRound(setup.tournamentId, now, (coach) => firstRatings[coach]);
     expect(seededCoaches(setup.store, setup.tournamentId)).toEqual(["Bob", "Dave", "Alice", "Carol"]);
-    expect(JSON.stringify(setup.store.snapshot())).not.toContain('"elo"');
+    // No rating value is persisted (seedingMode: "elo" names the mode only).
+    expect(JSON.stringify(setup.store.snapshot())).not.toMatch(/"elo"\s*:/);
     expect(setup.store.matches(setup.tournamentId).map((match) => [match.home.coach.ffbCoachId, match.away?.coach.ffbCoachId]))
       .toEqual([["Bob", "Alice"], ["Dave", "Carol"]]);
 

@@ -113,7 +113,7 @@ describe("tournament data migration and reads", () => {
 
   it("migrates array-shaped V1 data and adds presence leases", () => {
     const migrated = migrateTournamentData({ version: 1, tournaments: [tournament()], entrants: [], rounds: [], scheduledMatches: [] });
-    expect(migrated.version).toBe(3);
+    expect(migrated.version).toBe(4);
     expect(migrated.tournaments["spike-cup"]?.name).toBe("Spike Cup");
     expect(migrated.waitingPresence).toEqual({});
   });
@@ -126,10 +126,12 @@ describe("tournament data migration and reads", () => {
     expect(JSON.stringify(result?.body)).not.toContain("discord-alice");
   });
 
-  it("returns inert team build detail only to its coach or an organizer", async () => {
+  it("returns inert team build detail only to its coach, the current-round opponent or an organizer", async () => {
     const tournamentStore = store();
     expect((await call(tournamentStore, "GET", "/api/tournaments/spike-cup/entrants/alice/build"))?.status).toBe(401);
-    expect((await call(tournamentStore, "GET", "/api/tournaments/spike-cup/entrants/alice/build", player("Bob")))?.status).toBe(403);
+    expect((await call(tournamentStore, "GET", "/api/tournaments/spike-cup/entrants/alice/build", player("Outsider")))?.status).toBe(403);
+    // v4: Bob is Alice's scheduled opponent in the current round (round 1), so he may read her team.
+    expect((await call(tournamentStore, "GET", "/api/tournaments/spike-cup/entrants/alice/build", player("Bob")))?.status).toBe(200);
     const own = await call(tournamentStore, "GET", "/api/tournaments/spike-cup/entrants/alice/build", player("Alice"));
     expect(own).toMatchObject({ status: 200, body: { inert: true, capabilities: { editRoster: { available: false } } } });
   });
