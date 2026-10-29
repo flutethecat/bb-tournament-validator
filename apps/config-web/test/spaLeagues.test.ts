@@ -6,7 +6,7 @@ import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import {
-  canManageLeague, createLeagueDetail, createLeagueList, createLeagueStats, crestFor, fixtureContext, fixturesByPhase, honourBoards, honourValue,
+  canManageLeague, cardQuery, cardSeasonChips, tiedLine, createLeagueDetail, createLeagueList, createLeagueStats, crestFor, fixtureContext, fixturesByPhase, honourBoards, honourValue,
   fixtureOutcome, kValue, latestResults, pickSeason, playerByRef, sharedTotalsFor, resultCardProps, safeArtUrl, standingsTables, teamByRef,
 } from "../spa/src/leagues/league";
 import type { LeagueFixture, LeagueStats, LeagueSummary, SeasonRecord, SeasonSummary } from "../spa/src/leagues/types";
@@ -90,6 +90,16 @@ const stats = (scope: "bb2020" | "bb2025" | "all"): LeagueStats => ({
   biggestWins: [{ seasonId: "season-6", season: 6, phase: "PreSeason", round: 1, margin: 3, winner: { team: "Grudge Rollers", coach: "Jay", race: "Dwarf", score: 3 }, loser: { team: "Rot Girl Summer", coach: "Jeff", race: "Nurgle", score: 0 } }],
   mostGames: [{ coach: "flutethecat (Jay)", seasons: [6], teams: 1, titles: 0, games: 3, wins: 2, draws: 1, losses: 0, points: 7, tdFor: 6, tdAgainst: 2, casFor: 4, casAgainst: 5, winPct: 0.833 }],
   champions: scope === "bb2025" ? [] : [{ seasonId: "season-1", season: 1, ruleset: "BB2020", coach: "Ann", team: "Orcs", race: "Orc" }],
+  cards: scope === "bb2020" ? [] : [
+    { id: "top-scorer", title: "Top scorer", value: "12", unit: "TD", name: "Dethirord Slenderstrength", team: "Grudge Rollers", race: "Dwarf", coach: "flutethecat (Jay)", detail: "Troll Slayer",
+      seasons: [2, 3, 4, 5, 6], tied: ["Bob", "Ug", "Zed"], icon: "/icons/panel/games.png", link: { kind: "player", seasonId: "season-6", teamId: "grudge-rollers", playerId: "p-deth00000001" } },
+    { id: "best-team", title: "Best team", value: "7", unit: "Points", name: "Grudge Rollers", team: "Grudge Rollers", race: "Dwarf", coach: "flutethecat (Jay)", detail: "2-1-0 · 83% wins",
+      seasons: [6], tied: [], icon: "/icons/panel/teams.png", link: { kind: "team", seasonId: "season-6", teamId: "grudge-rollers" } },
+    { id: "biggest-win", title: "Biggest win", value: "3-0", unit: "+3", name: "Grudge Rollers", team: "Grudge Rollers", race: "Nurgle", coach: "Jay", detail: "beat Rot Girl Summer · Round 1",
+      seasons: [6], tied: ["Rot Girl Summer 3-0 Grudge Rollers"], icon: "/icons/panel/tournaments.png", link: { kind: "fixture", seasonId: "season-6", fixtureId: "f1" } },
+    { id: "dirtiest", title: "Dirtiest", value: "4", unit: "Fouls", name: "Bob", team: "Grudge Rollers", race: "Elf", coach: "Jay", detail: "", seasons: [], tied: [], icon: "",
+      link: { kind: "player", seasonId: "season-6", teamId: "grudge-rollers", playerId: "p-bob000000007" } },
+  ],
 });
 
 const API: Routes = {
@@ -193,12 +203,30 @@ describe("league helpers", () => {
     const missing = createLeagueDetail({ api: f });
     await missing.load("nope");
     expect(missing.state.error).toBe("League not found.");
+    const crestCalls = () => f.calls.filter((c) => c === "/crests/manifest.json").length;
+    const crestsBefore = crestCalls();
     const st = createLeagueStats({ api: f });
     await st.load("tabbl", "all");
     await st.load("tabbl", "bb2020");
     await st.load("tabbl", "all");
     expect(f.calls.filter((c) => c.includes("/stats?scope=all"))).toHaveLength(1);
     expect(st.state.byScope.bb2020!.leaders.td[0]!.name).toBe("Old Timer");
+    expect(st.state.crests.dwarf).toBe("crests/dwarf.png");
+    expect(crestCalls() - crestsBefore).toBe(1); // once per controller, whatever the scopes
+  });
+
+  it("spotlight card helpers: link query per kind, season chips, tied line", () => {
+    const base = { id: "top-scorer", title: "", value: "", unit: "", name: "", team: "", race: "", coach: "", detail: "", seasons: [], tied: [], icon: "" } as const;
+    expect(cardQuery({ ...base, link: { kind: "player", seasonId: "season-6", teamId: "orcs", playerId: "p1" } })).toEqual({ season: "season-6", tab: "teams", team: "orcs", player: "p1" });
+    expect(cardQuery({ ...base, link: { kind: "team", seasonId: "season-5", teamId: "Orcs" } })).toEqual({ season: "season-5", tab: "teams", team: "Orcs" });
+    expect(cardQuery({ ...base, link: { kind: "fixture", seasonId: "season-6", fixtureId: "f9" } })).toEqual({ season: "season-6", tab: "fixtures", fixture: "f9" });
+    expect(cardSeasonChips([6])).toEqual(["S6"]);
+    expect(cardSeasonChips([1, 2, 3, 4])).toEqual(["S1", "S2", "S3", "S4"]);
+    expect(cardSeasonChips([1, 2, 3, 4, 5, 6])).toEqual(["+3", "S4", "S5", "S6"]);
+    expect(tiedLine([])).toBe("");
+    expect(tiedLine(["A"])).toBe("Tied with A");
+    expect(tiedLine(["A", "B"])).toBe("Tied with A and B");
+    expect(tiedLine(["A", "B", "C", "D"])).toBe("Tied with A, B and 2 more");
   });
 });
 
@@ -383,6 +411,22 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(all.html).toContain('href="/app/leagues/tabbl?season=season-6&amp;tab=teams&amp;player=p-deth00000001"'); // leaders link by player id
     expect(all.html).toContain("83%");
     expect(all.html).toContain("Pre-season");
+    // spotlight cards on top of the scope, before the totals panel
+    expect(all.html).toContain('aria-label="All time spotlight"');
+    expect(all.html.indexOf("lg-spot-row")).toBeLessThan(all.html.indexOf('id="lg-tot-h"'));
+    expect(all.html.match(/class="lg-spot"/g)).toHaveLength(4);
+    expect(all.html).toMatch(/data-card="top-scorer"[\s\S]*?lg-spot-num">12<[\s\S]*?lg-spot-unit">TD</);
+    expect(all.html).toContain('href="/app/leagues/tabbl?season=season-6&amp;tab=teams&amp;team=grudge-rollers&amp;player=p-deth00000001"');
+    expect(all.html).toContain('href="/app/leagues/tabbl?season=season-6&amp;tab=teams&amp;team=grudge-rollers"');
+    expect(all.html).toContain('href="/app/leagues/tabbl?season=season-6&amp;tab=fixtures&amp;fixture=f1"');
+    expect(all.html).toContain('src="/icons/panel/games.png"');
+    expect(all.html).toContain('class="lg-spot-crest" src="/crests/dwarf.png"'); // race crest via the crest manifest
+    expect(all.html).toContain('class="lg-spot-crest lg-spot-blank"'); // a race without a crest: initials
+    expect(all.html).toContain("Grudge Rollers · Dwarf"); // a player card: team + race
+    expect(all.html).toContain("flutethecat (Jay) · Dwarf"); // a team card: coach + race
+    expect(all.html).toContain(">+2</span>"); // five seasons fold into +2 S4 S5 S6
+    expect(all.html).toContain("Tied with Bob, Ug and 1 more");
+    expect(all.html).toContain("Tied with Rot Girl Summer 3-0 Grudge Rollers");
     const old = await render("/leagues/tabbl/stats?scope=bb2020", async (inject, f) => {
       const s = mods.league.createLeagueStats({ api: f });
       await s.load("tabbl", "bb2020");
@@ -390,6 +434,7 @@ describe("league routes (server-rendered against a mocked API)", () => {
     });
     expect(old.html).toMatch(/aria-checked="true"[^>]*>BB2020</);
     expect(old.html).toContain("Old Timer");
+    expect(old.html).not.toContain("lg-spot-row"); // no cards in this scope: no row
     expect((await render("/leagues/tabbl/stats")).html).toContain("Loading statistics...");
   });
 

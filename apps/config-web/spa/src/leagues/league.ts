@@ -6,7 +6,8 @@ import { ApiError } from "../shared/api";
 import { resolveCrest } from "../tabletop/art";
 import type { Fetcher } from "../session";
 import type {
-  FormerPlayer, HonourTable, HonourValue, LeagueFixture, LeagueNewsPost, LeaguePhase, LeaguePlayer, LeagueStats, LeagueSummary, LeagueTeam, SeasonRecord, SeasonSummary, StatsScope,
+  FormerPlayer, HonourTable, HonourValue, LeagueFixture, LeagueNewsPost, LeaguePhase, LeaguePlayer, LeagueStats, LeagueSummary, LeagueTeam, SeasonRecord, SeasonSummary, StatsCard,
+  StatsScope,
 } from "./types";
 
 const errorText = (err: unknown, fallback: string): string => (err instanceof Error && err.message ? err.message : fallback);
@@ -288,13 +289,21 @@ export const STATS_SCOPES: ReadonlyArray<{ id: StatsScope; label: string }> = [
 export const isStatsScope = (v: unknown): v is StatsScope => v === "bb2020" || v === "bb2025" || v === "all";
 
 export function createLeagueStats(deps: { api: Fetcher }) {
-  const state = reactive({ id: "", scope: "all" as StatsScope, byScope: {} as Partial<Record<StatsScope, LeagueStats>>, league: null as LeagueSummary | null, loading: false, error: "" });
+  const state = reactive({
+    id: "", scope: "all" as StatsScope, byScope: {} as Partial<Record<StatsScope, LeagueStats>>, league: null as LeagueSummary | null, loading: false, error: "",
+    /** Race crest manifest (the spotlight cards' crests), loaded once, best effort. */
+    crests: {} as Record<string, string>, crestsLoaded: false,
+  });
   async function load(id: string, scope: StatsScope): Promise<void> {
     if (state.id !== id) { state.byScope = {}; state.league = null; }
     state.id = id;
     state.scope = scope;
     if (!state.league) {
       try { state.league = (await deps.api<{ league: LeagueSummary }>(`/api/leagues/${encodeURIComponent(id)}`)).league; } catch { /* the stats call reports */ }
+    }
+    if (!state.crestsLoaded) {
+      state.crestsLoaded = true;
+      try { state.crests = (await deps.api<{ crests?: Record<string, string> }>("/crests/manifest.json"))?.crests ?? {}; } catch { /* initials badges */ }
     }
     if (state.byScope[scope]) return;
     state.loading = true;
@@ -451,6 +460,29 @@ export const sharedTotalsFor = (season: SeasonRecord, playerId: string) => (seas
 
 /** Where a player's id opens: that season's Teams tab with the player highlighted. */
 export const playerQuery = (seasonId: string, playerId: string): Record<string, string> => ({ season: seasonId, tab: "teams", player: playerId });
+
+/** Where a spotlight card opens on the league page: the player (team + player), the team, or the fixture summary. */
+export function cardQuery(card: Pick<StatsCard, "link">): Record<string, string> {
+  const l = card.link;
+  if (l.kind === "player") return { season: l.seasonId, tab: "teams", team: l.teamId, player: l.playerId };
+  if (l.kind === "team") return { season: l.seasonId, tab: "teams", team: l.teamId };
+  return { season: l.seasonId, tab: "fixtures", fixture: l.fixtureId };
+}
+
+/** A card's season chips: at most `max` ("S6"), the rest folded into "+N". */
+export function cardSeasonChips(seasons: number[], max = 4): string[] {
+  if (seasons.length <= max) return seasons.map((n) => `S${n}`);
+  const shown = seasons.slice(-(max - 1)).map((n) => `S${n}`);
+  return [`+${seasons.length - shown.length}`, ...shown];
+}
+
+/** "Tied with Leaf" / "Tied with Leaf and Ug" / "Tied with Leaf, Ug and 3 more". */
+export function tiedLine(names: string[]): string {
+  if (!names.length) return "";
+  if (names.length === 1) return `Tied with ${names[0]}`;
+  if (names.length === 2) return `Tied with ${names[0]} and ${names[1]}`;
+  return `Tied with ${names[0]}, ${names[1]} and ${names.length - 2} more`;
+}
 
 /** 885000 -> "885k", 1205000 -> "1,205k". */
 export function kValue(n: number | null | undefined): string {

@@ -276,13 +276,13 @@ export interface SeasonRecord {
 export type StatsScope = "bb2020" | "bb2025" | "all";
 export type LeaderStat = "td" | "cas" | "mvp" | "int" | "completions" | "fouls" | "spp";
 
-export interface PlayerLeader { playerId: string; seasonId: string; name: string; position: string; team: string; race: string; coach: string; seasons: number[]; value: number }
+export interface PlayerLeader { playerId: string; seasonId: string; teamId?: string; name: string; position: string; team: string; race: string; coach: string; seasons: number[]; value: number }
 export interface RecordLine { games: number; wins: number; draws: number; losses: number; points: number; tdFor: number; tdAgainst: number; casFor: number; casAgainst: number; winPct: number }
 export interface CoachRecord extends RecordLine { coach: string; coachId?: string; seasons: number[]; teams: number; titles: number }
 export interface TeamRecord extends RecordLine { team: string; race: string; coach: string; seasons: number[] }
 export interface RaceRecord extends RecordLine { race: string; teams: number }
 export interface BigWin {
-  seasonId: string; season: number; phase: string; round: number; margin: number; playedAt?: string;
+  seasonId: string; fixtureId?: string; season: number; phase: string; round: number; margin: number; playedAt?: string;
   winner: { team: string; coach: string; race: string; score: number };
   loser: { team: string; coach: string; race: string; score: number };
 }
@@ -298,6 +298,31 @@ export interface LeagueStats {
   biggestWins: BigWin[];
   mostGames: CoachRecord[];
   champions: Array<{ seasonId: string; season: number; ruleset: LeagueRuleset; coach: string; team: string; race: string }>;
+  /** Spotlight cards in display order (absent from a server older than the cards). */
+  cards?: StatsCard[];
+}
+
+export type StatsCardId =
+  | "top-scorer" | "casualties" | "mvp" | "playmaker" | "interceptor" | "dirtiest" | "iron-man" | "best-coach" | "best-team" | "biggest-win";
+export type StatsCardLink =
+  | { kind: "player"; seasonId: string; teamId: string; playerId: string }
+  | { kind: "team"; seasonId: string; teamId: string }
+  | { kind: "fixture"; seasonId: string; fixtureId: string };
+/** One spotlight card (server: src/leagues/stats.ts StatsCard). */
+export interface StatsCard {
+  id: StatsCardId;
+  title: string;
+  value: string;
+  unit: string;
+  name: string;
+  team: string;
+  race: string;
+  coach: string;
+  detail: string;
+  seasons: number[];
+  tied: string[];
+  icon: string;
+  link: StatsCardLink;
 }
 
 // ---- League settings (organisers; server: src/leagues/settings.ts LeagueSettingsView) ----

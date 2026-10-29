@@ -1,9 +1,11 @@
 <script setup lang="ts">
-// League statistics (/app/leagues/:id/stats?scope=): the rules divider (BB2020 | BB2025 | All time) on top, then
-// totals, champions, player leaders, coach and team records, race win rates, biggest wins and most games.
+// League statistics (/app/leagues/:id/stats?scope=): the rules divider (BB2020 | BB2025 | All time) on top, then the
+// scope's spotlight cards (LeagueStatsCards), totals, champions, player leaders, coach and team records, race win
+// rates, biggest wins and most games.
 import { computed, inject, nextTick, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
+import LeagueStatsCards from "../components/LeagueStatsCards.vue";
 import { createLeagueStats, isStatsScope, LEAGUE_STATS_KEY, pct, phaseLabel, playerQuery, RULESET_TONE, seasonsLine, STATS_SCOPES } from "../leagues/league";
 import type { LeaderStat, StatsScope } from "../leagues/types";
 import "../leagues/leagues.css";
@@ -59,6 +61,7 @@ onMounted(() => { if (state.id !== props.id || !state.byScope[scope.value]) void
     <p v-if="state.error && !stats" class="lobby-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!stats" class="hm-empty" role="status">Loading statistics...</p>
     <template v-else>
+      <LeagueStatsCards :cards="stats.cards ?? []" :crests="state.crests" :league-id="id" :label="scopeLabel" />
       <section class="hm-panel" aria-labelledby="lg-tot-h">
         <header class="hm-band"><h2 id="lg-tot-h">{{ scopeLabel }}</h2><span class="hm-cap">{{ stats.seasons.map((s) => `S${s.number}`).join(" · ") || "No seasons" }}</span></header>
         <p v-if="!stats.seasons.length" class="hm-empty">No {{ scopeLabel }} seasons yet.</p>
