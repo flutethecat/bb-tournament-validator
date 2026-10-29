@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // Organiser Participants table: seed (manual seed input), team + coach, roster chip (not submitted / valid / invalid,
 // "by hand" when an organiser verified it), the five status flags as toggles, and the next fixture. Filter chips pick
-// out the rows that need attention. Rows collapse to cards on a phone.
+// out the rows that need attention. Rows collapse to cards on a phone. The row menu has "Message coach" (notifications lane).
 import { computed, inject, ref } from "vue";
 import type { TournamentEntrant, TournamentEntrantFlags } from "../shared/api";
 import Crest from "./Crest.vue";
+import MessageCoachModal from "./MessageCoachModal.vue";
 import { nextFixtureFor, ROSTER_LABEL, rosterState, TOURNAMENT_DETAIL_KEY } from "../tournaments/detail";
 import { SESSION_KEY, writesAllowed } from "../session";
 
@@ -49,6 +50,7 @@ const rows = computed(() => state.entrants.filter((e) => !e.droppedAt).filter(ke
 })));
 const dropped = computed(() => state.entrants.filter((e) => e.droppedAt).length);
 const busyRow = (_id: string): boolean => Boolean(state.busy);
+const messaging = ref<TournamentEntrant | null>(null);
 
 function toggle(e: TournamentEntrant, key: keyof TournamentEntrantFlags, value: boolean) {
   void detail.patchEntrant(e.id, { flags: { [key]: value } });
@@ -69,7 +71,7 @@ function seed(e: TournamentEntrant, raw: string) {
   <div v-else class="table-wrap tn-table-wrap">
     <table class="tn-table tn-participants">
       <thead>
-        <tr><th>Seed</th><th>Team</th><th>Roster</th><th v-for="f in FLAGS" :key="f.key">{{ f.label }}</th><th>Next fixture</th></tr>
+        <tr><th>Seed</th><th>Team</th><th>Roster</th><th v-for="f in FLAGS" :key="f.key">{{ f.label }}</th><th>Next fixture</th><th v-if="canWrite"><span class="tn-sr">Actions</span></th></tr>
       </thead>
       <tbody>
         <tr v-for="r in rows" :key="r.e.id">
@@ -103,9 +105,17 @@ function seed(e: TournamentEntrant, raw: string) {
             <template v-if="r.next">R{{ r.next.round }}: {{ r.next.opponentEntrantId ? `vs ${r.next.opponentTeam}` : "Bye" }}</template>
             <span v-else class="muted">None</span>
           </td>
+          <td v-if="canWrite" data-label="Actions" class="tn-row-menu">
+            <button v-if="r.e.coachId" type="button" class="lobby-btn small" :aria-label="`Message coach ${r.e.coachId}`" @click="messaging = r.e">Message coach</button>
+          </td>
         </tr>
       </tbody>
     </table>
   </div>
   <p v-if="dropped" class="muted">{{ dropped }} withdrawn {{ dropped === 1 ? "entry is" : "entries are" }} not listed.</p>
+  <MessageCoachModal
+    v-if="messaging?.coachId && state.tournament"
+    :tournament-id="state.tournament.id" :coach-key="messaging.coachId ?? ''" :team-name="messaging.submission?.teamName || messaging.teamName"
+    @close="messaging = null"
+  />
 </template>

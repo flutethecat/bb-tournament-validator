@@ -1,0 +1,47 @@
+/* NOTIFICATIONS panel (landing spec §4.1): recorder panel language, band in --ui-info, tokens only, both themes, 375 px safe. */
+.nf-panel {
+  min-width: 0; background: var(--ui-surface-2); border: 2px solid var(--ui-border); border-radius: 2px; overflow: hidden;
+  box-shadow: inset 1px 1px 0 color-mix(in srgb, var(--ui-text) 14%, transparent), inset -2px -2px 0 color-mix(in srgb, var(--ui-border) 80%, transparent);
+}
+.nf-band {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 6px 12px;
+  background: color-mix(in srgb, var(--ui-info) 78%, #000); color: var(--ui-text-on-primary); font-family: var(--font-heading); font-size: 1rem;
+  letter-spacing: .06em; text-transform: uppercase; border-bottom: 2px solid var(--ui-border);
+}
+.nf-caption { font-family: var(--font-body, inherit); font-size: 12px; letter-spacing: .04em; opacity: .9; white-space: nowrap; }
+.nf-body { display: grid; gap: 8px; padding: 10px 12px; min-width: 0; }
+.nf-tools { display: flex; justify-content: flex-end; }
+.nf-btn {
+  min-height: 44px; padding: 0 14px; background: var(--ui-surface); color: var(--ui-text); border: 2px solid var(--ui-border);
+  border-radius: 2px; font: inherit; cursor: pointer;
+}
+.nf-btn:hover { background: var(--ui-hover); }
+.nf-btn:focus-visible, .nf-link:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.nf-empty { margin: 0; padding: 12px 0; color: var(--ui-muted); text-align: center; }
+.nf-error { margin: 0; color: var(--ui-danger); }
+.nf-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.nf-row:nth-child(even) { background: color-mix(in srgb, var(--ui-surface) 45%, transparent); }
+.nf-row[data-unread="true"] { box-shadow: inset 3px 0 0 var(--ui-info); }
+.nf-link {
+  display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: start; gap: 10px; min-height: 44px; padding: 8px;
+  color: var(--ui-text); text-decoration: none;
+}
+.nf-link:hover { background: var(--ui-hover); }
+.nf-icon { width: 28px; height: 28px; object-fit: contain; }
+.nf-text { display: grid; gap: 2px; min-width: 0; }
+.nf-title { overflow-wrap: anywhere; }
+.nf-row:not([data-unread="true"]) .nf-title { font-weight: 500; }
+.nf-msg { color: var(--ui-muted); font-size: 14px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.nf-meta { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.nf-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ui-info); }
+.nf-age { color: var(--ui-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* Message coach modal (Participants row menu) */
+.nf-msg-form { display: grid; gap: 8px; }
+.nf-msg-form textarea {
+  width: 100%; min-height: 140px; resize: vertical; box-sizing: border-box; padding: 8px; font: inherit;
+  background: var(--ui-surface); color: var(--ui-text); border: 2px solid var(--ui-border); border-radius: 2px;
+}
+.nf-count { justify-self: end; color: var(--ui-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.nf-count[data-over="true"] { color: var(--ui-danger); }
+.nf-sent { margin: 0; color: var(--ui-success); }
