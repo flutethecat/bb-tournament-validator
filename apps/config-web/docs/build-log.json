@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "League fixtures can be played on Super FUMBBL",
+    "body": "When a league plays on Super FUMBBL and an organiser allows a fixture, its summary page (Summary on any fixture in the Fixtures tab) now has Generate fixture on Super FUMBBL. Either coach or an organiser can press it: both league teams are built on Super FUMBBL from their league rosters (players, skills, injuries, SPP, staff and treasury as the league has them), the game is scheduled, the opponent is told \"<Coach> has invited you to play your match on Super FUMBBL\", and the organisers hear about it too. Pressing it again re-uses the same teams and game. Each coach then gets Start Game on Super FUMBBL, which downloads their own launch file; nobody else can take it. The page shows where things stand: teams built, game scheduled, in progress, result recorded, or failed with the reason, and organisers can reset a failed game (with a reason that goes in the history), allow a late launch, or cancel Super FUMBBL play for that fixture. When the game ends the result comes back by itself: the score, casualties and player lines go on the fixture, and both league teams are updated from the game the same way Super FUMBBL updates its own teams (SPP, injuries, deaths, missed games, winnings into the treasury, dedicated fans). Both coaches get a notification and the result posts to the league's Discord channel when that is switched on.",
+    "links": [
+      {
+        "label": "League fixtures",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "League redraft: board for organisers, re-hire flow for coaches",
     "body": "Start redraft in League settings now opens the Redraft board. Organisers see every team of the finished season, plus an Inactive tab for teams from earlier seasons that sat it out, with games played, wins, draws and losses, treasury and the redraft budget: the starting treasury, plus the treasury left, 20k per league game, 20k per win and 10k per draw, capped at 1,300k unless the league turns the cap off. Tick the teams to redraft (or Check all), override a budget with a reason, and Confirm redraft: each coach is told, and the league Discord hears about it. Coaches open their redraft from the notification or from their team page. First comes Rest and Relaxation: each niggling injury rolls off on a 4+, or a 3+ with an Apothecary, rolled by the site or entered from the tabletop; missed games clear. Then the Team Draft List: re-hire players at their value plus a 20k agent fee for every season they have played (players not re-hired retire), keep or drop rerolls, assistant coaches, cheerleaders and the Apothecary, hire new players from the roster, and watch the remaining budget as you go. The submitted list becomes the team for the next season, straight away if it has started or as soon as it does, and the organisers can follow progress on the board and close the redraft when it is done.",
     "links": [
