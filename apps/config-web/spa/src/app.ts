@@ -9,6 +9,8 @@ import { createAppRouter } from "./router";
 import { createSessionStore, SESSION_KEY, type Fetcher, type SessionStore } from "./session";
 import { api } from "./shared/api";
 import { createTheme, THEME_KEY, type Theme } from "./theme";
+import { COACH_TREE_KEY, createCoachTree, type CoachTree } from "./home/tree";
+import { createShellUi, SHELL_UI_KEY, type ShellUi } from "./home/shell";
 
 /** The JSON fetcher views use (tests may swap it; the default is the shared same-origin api()). */
 export const API_KEY: InjectionKey<Fetcher> = Symbol("api");
@@ -27,6 +29,10 @@ export interface Spa {
   session: SessionStore;
   library: Library;
   theme: Theme;
+  /** Left nav trees for the signed-in coach. */
+  tree: CoachTree;
+  /** Nav rail / drawer state. */
+  ui: ShellUi;
 }
 
 export function createSpa(opts: SpaOptions): Spa {
@@ -39,7 +45,11 @@ export function createSpa(opts: SpaOptions): Spa {
   app.provide(THEME_KEY, theme);
   app.provide(SESSION_KEY, session);
   app.provide(LIBRARY_KEY, library);
+  const tree = createCoachTree({ api: fetcher });
+  const ui = createShellUi();
   app.provide(API_KEY, fetcher);
+  app.provide(COACH_TREE_KEY, tree);
+  app.provide(SHELL_UI_KEY, ui);
   app.use(router);
-  return { app, router, session, library, theme };
+  return { app, router, session, library, theme, tree, ui };
 }
