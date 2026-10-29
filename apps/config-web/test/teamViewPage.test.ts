@@ -277,6 +277,17 @@ describe("team view core: management page options (owner 10-30)", () => {
     expect(markup).not.toContain("Open in Tournament Builder");
   });
 
+  it("the public (no-options) output matches the golden rendering captured from 3c20228's team-view.js byte for byte", () => {
+    // test/fixtures/team-view-public.golden.html = viewHtml(fixture()) rendered by `git show 3c20228:apps/config-web/public/team-view.js`.
+    // Line endings follow the checkout (core.autocrlf rewrites both team-view.js's template literals and the golden), so both
+    // sides are compared as LF; every other byte must match.
+    const lf = (text: string) => text.replace(/\r\n/g, "\n");
+    const golden = readFileSync(new URL("./fixtures/team-view-public.golden.html", import.meta.url), "utf8");
+    expect(golden.length).toBeGreaterThan(1000);
+    expect(lf(TeamView.viewHtml(fixture()))).toBe(lf(golden));
+    expect(lf(TeamView.viewHtml(fixture(), {}))).toBe(lf(golden));
+  });
+
   it("the sheet hook makes each name/position a player sheet button; without it the public output has none", () => {
     const plain = TeamView.viewHtml(fixture());
     expect(plain).not.toContain("data-sheet");
