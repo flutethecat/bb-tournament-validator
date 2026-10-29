@@ -1,11 +1,15 @@
 import { bb2025 } from "@bb/validator/dataset";
 import { generateTournamentPairings } from "./pairing.js";
 import { NafExportError, renderNafTournamentXml } from "./nafExport.js";
-import { TournamentStore, TournamentStoreError } from "./store.js";
-import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./types.js";
+import { isTournamentManager, tournamentOwner, TournamentStore, TournamentStoreError, type TournamentUpdate } from "./store.js";
+import { DEFAULT_ENTRANT_FLAGS, DEFAULT_TOURNAMENT_TURN_TIMER, TOURNAMENT_PAIRING_SYSTEMS, TOURNAMENT_SEEDING_MODES } from "./types.js";
 import type {
   ScheduledMatchRecord,
+  TournamentEntrantFlags,
   TournamentEntrantRecord,
+  TournamentPairingSystem,
+  TournamentSeedingMode,
+  TournamentSubmission,
   TournamentPrimaryTiebreaker,
   TournamentRecord,
   VerifiedCoachIdentity,
@@ -27,6 +31,10 @@ export interface TournamentApiDeps {
   packageExists?(packageName: string): boolean;
   teamOwner?(teamId: string): string | undefined;
   coachRating?(coach: string): number | undefined;
+  /** v4: snapshot + validate a coach's Team Builder save (`save:<id>`) or library team (`library:<teamId>`) against a package. */
+  validateSubmission?(coach: string, ref: string, packageName: string, now: Date): TournamentSubmission | { error: string; status?: 400 | 404 | 409 };
+  /** v4: the stored spelling of a registered coach id (identities store), or undefined when nobody has that id. */
+  registeredCoach?(coachId: string): string | undefined;
   now?: () => Date;
 }
 
@@ -81,9 +89,10 @@ function authenticated(auth: TournamentApiIdentity | undefined): TournamentApiId
   return auth;
 }
 
+/** Manager = admin, the owner, or a listed organiser of this tournament. */
 function requireTournamentManager(tournament: TournamentRecord, auth: TournamentApiIdentity): void {
   if (auth.admin) return;
-  if (tournament.organizerCoachId && coachKey(auth.coach) === coachKey(tournament.organizerCoachId)) return;
+  if (isTournamentManager(tournament, auth.coach)) return;
   throw new TournamentStoreError(403, "You are not this tournament's organizer.");
 }
 
@@ -103,6 +112,105 @@ function stringField(value: unknown, field: string): string | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const candidate = (value as Record<string, unknown>)[field];
   return typeof candidate === "string" && candidate.trim() ? candidate : undefined;
+}
+
+const SUBMISSION_REF = /^(?:save:|library:)?[A-Za-z0-9_.:-]+$/;
+
+/** Owner-level actions (owner reassignment, organiser list): admin or the tournament owner. */
+function requireTournamentOwner(tournament: TournamentRecord, auth: TournamentApiIdentity): void {
+  if (auth.admin) return;
+  const owner = tournamentOwner(tournament);
+  if (owner && coachKey(auth.coach) === coachKey(owner)) return;
+  throw new TournamentStoreError(403, "Only the tournament owner or an admin can change its roles.");
+}
+
+function canManage(tournament: TournamentRecord, auth: TournamentApiIdentity | undefined): boolean {
+  return Boolean(auth && (auth.admin || isTournamentManager(tournament, auth.coach)));
+}
+
+/** A coach id that names a registered user (identities store), in its stored spelling. */
+function registeredCoach(deps: TournamentApiDeps, value: unknown): string {
+  if (typeof value !== "string" || !value.trim() || value.trim().length > 40)
+    throw new TournamentStoreError(400, "coachId must be a non-empty coach id of at most 40 characters.");
+  if (!deps.registeredCoach) throw new TournamentStoreError(400, "Coach accounts cannot be checked on this host.");
+  const coach = deps.registeredCoach(value.trim());
+  if (!coach) throw new TournamentStoreError(400, `"${value.trim()}" is not a registered coach.`);
+  return coach;
+}
+
+/** Fresh snapshot + validation for every undropped entrant (their submission, else their registered library team). */
+function rosterChecks(
+  tournament: TournamentRecord,
+  entrants: readonly TournamentEntrantRecord[],
+  deps: TournamentApiDeps,
+  now: Date,
+): Record<string, TournamentSubmission | { error: string }> {
+  const out: Record<string, TournamentSubmission | { error: string }> = {};
+  for (const entrant of entrants) {
+    if (entrant.droppedAt !== undefined) continue;
+    if (!deps.validateSubmission) {
+      out[entrant.id] = { error: "Team validation is unavailable on this host." };
+      continue;
+    }
+    const ref = entrant.submission?.saveId ?? `library:${entrant.teamId}`;
+    const check = deps.validateSubmission(entrant.coach.ffbCoachId, ref, tournament.packageName, now);
+    out[entrant.id] = "error" in check ? { error: check.error } : check;
+  }
+  return out;
+}
+
+/** The submission as the page shows it: validity for everyone, the problems list only for the coach and managers. */
+function submissionView(entrant: TournamentEntrantRecord, private_: boolean) {
+  const submission = entrant.submission;
+  if (!submission) return undefined;
+  return {
+    saveId: private_ ? submission.saveId : undefined,
+    submittedAt: submission.submittedAt,
+    ...(submission.teamName ? { teamName: submission.teamName } : {}),
+    ...(submission.race ? { race: submission.race } : {}),
+    valid: submission.validation.ok,
+    problemCount: submission.validation.problems.length,
+    checkedAt: submission.validation.checkedAt,
+    ...(private_ ? { problems: submission.validation.problems } : {}),
+  };
+}
+
+/** An entrant for the page; `private_` (the coach themselves or a manager) adds flags, manual seed and problems. */
+function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentApiDeps, "teamBuild">, private_: boolean) {
+  const { coach, submission: _submission, flags, rosterVerifiedOverride, manualSeed, ...rest } = entrant;
+  const team = deps.teamBuild(entrant.teamId);
+  const submission = submissionView(entrant, private_);
+  return {
+    ...rest,
+    entrantId: entrant.id,
+    coachId: coach.ffbCoachId,
+    coach: { coachId: coach.coachId, ffbCoachId: coach.ffbCoachId },
+    ...(stringField(team, "teamName") ? { teamName: stringField(team, "teamName") } : submission?.teamName ? { teamName: submission.teamName } : {}),
+    ...(stringField(team, "race") ? { race: stringField(team, "race") } : submission?.race ? { race: submission.race } : {}),
+    ...(stringField(team, "logoUrl") ? { logoUrl: stringField(team, "logoUrl") } : {}),
+    ...(submission ? { submission } : {}),
+    ...(private_ ? {
+      flags: { ...DEFAULT_ENTRANT_FLAGS, ...(flags ?? {}) },
+      ...(rosterVerifiedOverride === undefined ? {} : { rosterVerifiedOverride }),
+      ...(manualSeed === undefined ? {} : { manualSeed }),
+    } : {}),
+  };
+}
+
+/** Per-entrant validation rows for the Start Tournament table. */
+function validationTable(entrants: readonly TournamentEntrantRecord[], deps: Pick<TournamentApiDeps, "teamBuild">) {
+  return entrants.filter((entrant) => entrant.droppedAt === undefined).map((entrant) => {
+    const team = deps.teamBuild(entrant.teamId);
+    return {
+      entrantId: entrant.id,
+      coachId: entrant.coach.ffbCoachId,
+      teamName: stringField(team, "teamName") ?? entrant.submission?.teamName ?? entrant.teamId,
+      valid: Boolean(entrant.flags?.rosterVerified),
+      validatorOk: entrant.submission?.validation.ok ?? false,
+      ...(entrant.rosterVerifiedOverride === undefined ? {} : { override: entrant.rosterVerifiedOverride }),
+      problems: entrant.submission?.validation.problems ?? [],
+    };
+  });
 }
 
 function clientMatch(
@@ -159,7 +267,7 @@ function clientTournament(
   entrants: TournamentEntrantRecord[],
   auth?: TournamentApiIdentity,
 ) {
-  const { startsAt, ...record } = tournament;
+  const { startsAt, endsAt, ...record } = tournament;
   const ownEntrant = auth
     ? entrants.find((entrant) => coachKey(entrant.coach.ffbCoachId) === coachKey(auth.coach))
     : undefined;
@@ -168,6 +276,14 @@ function clientTournament(
     turnTimer: tournament.turnTimer ?? DEFAULT_TOURNAMENT_TURN_TIMER,
     inducementOptIns: tournament.inducementOptIns ?? [],
     ...(startsAt === undefined ? {} : { startsAt }),
+    ...(endsAt === undefined ? {} : { endsAt }),
+    ...(tournamentOwner(tournament) ? { ownerCoachId: tournamentOwner(tournament) } : {}),
+    organizerCoachIds: tournament.organizerCoachIds ?? [],
+    pairingSystem: tournament.pairingSystem ?? "eloSeeded",
+    seedingMode: tournament.seedingMode ?? "elo",
+    remainingRounds: tournament.status === "completed" || tournament.status === "cancelled"
+      ? 0
+      : Math.max(0, tournament.roundCount - tournament.currentRound),
     ...(tournament.packageName.trim() ? { rulesetPackName: tournament.packageName } : {}),
     entrantCount: entrants.filter((entrant) => entrant.droppedAt === undefined).length,
     ...(ownEntrant ? { myEntrantId: ownEntrant.id, myDroppedAt: ownEntrant.droppedAt } : {}),
@@ -208,6 +324,7 @@ function projectedOpponent(
     matches,
     tournament.points,
     tournament.tiebreakers,
+    { system: tournament.pairingSystem ?? "eloSeeded", eligible: (candidate) => candidate.flags?.active !== false },
   )
     .find((candidate) => candidate.homeEntrantId === entrant.id || candidate.awayEntrantId === entrant.id);
   if (!pair) return { status: 200, body: { tournamentId, entrantId: entrant.id, provisional: true, opponent: null } };
@@ -289,7 +406,11 @@ export async function tournamentApi(
               ? deps.store.tournaments(["draft"])
               : query.get("status") === "completed"
                 ? deps.store.tournaments(["completed"])
-                : deps.store.activeTournaments();
+                : query.get("status") === "cancelled"
+                  ? deps.store.tournaments(["cancelled"])
+                  : query.get("status") === "all"
+                    ? deps.store.tournaments(["draft", "active", "completed", "cancelled"])
+                    : deps.store.activeTournaments();
       const nameQuery = query.get("q")?.trim().toLowerCase();
       let filtered = nameQuery
         ? source.filter((tournament) => tournament.name.toLowerCase().includes(nameQuery))
@@ -319,6 +440,130 @@ export async function tournamentApi(
           hasMore: offset + TOURNAMENT_PAGE_SIZE < total,
         },
       };
+    }
+
+    // ---- v4 routes: submissions, roles, roster lock, start, participant edit ----
+
+    const submissionMatch = path.match(/^\/api\/tournaments\/([^/]+)\/submissions$/);
+    if (submissionMatch && method === "POST") {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(submissionMatch[1]!);
+      const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
+      if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
+      const input = jsonObject(body);
+      const saveId = typeof input.saveId === "string" ? input.saveId.trim() : "";
+      if (!saveId || saveId.length > 120 || !SUBMISSION_REF.test(saveId))
+        return { status: 400, body: { error: "saveId must name a Team Builder save (save:<id>) or a library team (library:<teamId>)." } };
+      const entrant = entrantByCoach(deps.store.entrants(tournament.id), identity.coach);
+      if (!entrant || entrant.droppedAt) return { status: 403, body: { error: "You are not entered in this tournament." } };
+      if (tournament.rostersLockedAt || entrant.flags?.frozen)
+        return { status: 409, body: { error: "Rosters are locked; ask an organiser to unlock them before resubmitting." } };
+      if (!deps.validateSubmission) return { status: 503, body: { error: "Team validation is unavailable on this host." } };
+      const check = deps.validateSubmission(entrant.coach.ffbCoachId, saveId, tournament.packageName, now);
+      if ("error" in check) return { status: check.status ?? 400, body: { error: check.error } };
+      const updated = deps.store.submitTeam(tournament.id, entrant.id, check, now);
+      return {
+        status: 201,
+        body: { entrant: clientEntrant(updated, deps, true), submission: submissionView(updated, true) },
+      };
+    }
+
+    const ownerMatch = path.match(/^\/api\/tournaments\/([^/]+)\/owner$/);
+    if (ownerMatch && method === "POST") {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(ownerMatch[1]!);
+      const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
+      if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
+      requireTournamentOwner(tournament, identity);
+      const input = jsonObject(body);
+      const coach = registeredCoach(deps, input.coachId);
+      const updated = deps.store.setOwner(tournament.id, coach, now);
+      return { status: 200, body: { tournament: clientTournament(updated, deps.store.entrants(updated.id), auth) } };
+    }
+
+    const organizerMatch = path.match(/^\/api\/tournaments\/([^/]+)\/organizers\/([^/]+)$/);
+    if (organizerMatch && (method === "POST" || method === "DELETE")) {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(organizerMatch[1]!);
+      const coachId = decoded(organizerMatch[2]!);
+      const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
+      if (!tournament || coachId === undefined) return { status: 404, body: { error: "Tournament not found." } };
+      requireTournamentOwner(tournament, identity);
+      const updated = method === "POST"
+        ? deps.store.addOrganizer(tournament.id, registeredCoach(deps, coachId), now)
+        : deps.store.removeOrganizer(tournament.id, coachId, now);
+      return { status: 200, body: { tournament: clientTournament(updated, deps.store.entrants(updated.id), auth) } };
+    }
+
+    const lockMatch = path.match(/^\/api\/tournaments\/([^/]+)\/(lock|unlock)-rosters$/);
+    if (lockMatch && method === "POST") {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(lockMatch[1]!);
+      const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
+      if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
+      requireTournamentManager(tournament, identity);
+      if (lockMatch[2] === "unlock") {
+        const updated = deps.store.unlockRosters(tournament.id, now);
+        return { status: 200, body: { tournament: clientTournament(updated, deps.store.entrants(updated.id), auth) } };
+      }
+      if (tournament.rostersLockedAt) return { status: 409, body: { error: "Rosters are already locked." } };
+      const entrants = deps.store.lockRosters(tournament.id, rosterChecks(tournament, deps.store.entrants(tournament.id), deps, now), now);
+      const updated = deps.store.tournament(tournament.id)!;
+      return {
+        status: 200,
+        body: {
+          tournament: clientTournament(updated, entrants, auth),
+          validation: validationTable(entrants, deps),
+        },
+      };
+    }
+
+    const startMatch = path.match(/^\/api\/tournaments\/([^/]+)\/start$/);
+    if (startMatch && method === "POST") {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(startMatch[1]!);
+      const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
+      if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
+      requireTournamentManager(tournament, identity);
+      const input = body === undefined || body === null ? {} : jsonObject(body);
+      if (input.force !== undefined && typeof input.force !== "boolean")
+        return { status: 400, body: { error: "force must be true or false." } };
+      const checks = tournament.rostersLockedAt
+        ? undefined
+        : rosterChecks(tournament, deps.store.entrants(tournament.id), deps, now);
+      const result = deps.store.startTournament(tournament.id, { force: input.force === true, ...(checks ? { checks } : {}) }, now);
+      const validation = validationTable(result.entrants, deps);
+      if (!result.started) {
+        return {
+          status: 409,
+          body: {
+            error: `${result.invalid.length} ${result.invalid.length === 1 ? "roster is" : "rosters are"} not valid. Fix them, verify them by hand, or start anyway.`,
+            problems: validation.filter((row) => !row.valid),
+            validation,
+          },
+        };
+      }
+      return { status: 200, body: { tournament: clientTournament(result.tournament, result.entrants, auth), validation } };
+    }
+
+    const entrantPatchMatch = path.match(/^\/api\/tournaments\/([^/]+)\/entrants\/([^/]+)$/);
+    if (entrantPatchMatch && method === "PATCH") {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(entrantPatchMatch[1]!);
+      const entrantId = decoded(entrantPatchMatch[2]!);
+      const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
+      if (!tournament || !entrantId) return { status: 404, body: { error: "Tournament not found." } };
+      requireTournamentManager(tournament, identity);
+      const input = jsonObject(body);
+      const flags: Record<string, unknown> = input.flags === undefined ? {} : { ...jsonObject(input.flags) };
+      if (input.paid !== undefined) flags.paid = input.paid;
+      if (input.manualSeed !== undefined && input.manualSeed !== null && !Number.isSafeInteger(input.manualSeed))
+        return { status: 400, body: { error: "manualSeed must be a whole number or null." } };
+      const updated = deps.store.updateEntrant(tournament.id, entrantId, {
+        flags: flags as Partial<TournamentEntrantFlags>,
+        ...(input.manualSeed === undefined ? {} : { manualSeed: input.manualSeed as number | null }),
+      }, now);
+      return { status: 200, body: { entrant: clientEntrant(updated, deps, true) } };
     }
 
     const entrantCollectionMatch = path.match(/^\/api\/tournaments\/([^/]+)\/entrants$/);
@@ -384,9 +629,7 @@ export async function tournamentApi(
       if (!existing) return { status: 404, body: { error: "Tournament not found." } };
       requireTournamentManager(existing, identity);
       const input = jsonObject(body);
-      const patch: Partial<Pick<TournamentRecord, "maxPlayers" | "format" | "packageName" | "startsAt" | "roundCount" | "organizerCoachId" | "turnTimer" | "inducementOptIns">> & {
-        primaryTiebreaker?: TournamentPrimaryTiebreaker;
-      } = {};
+      const patch: TournamentUpdate = {};
       if (input.organizerCoachId !== undefined) {
         if (!identity.admin)
           return { status: 403, body: { error: "Only an admin may change organizerCoachId." } };
@@ -412,6 +655,21 @@ export async function tournamentApi(
         if (typeof input.startsAt !== "string")
           return { status: 400, body: { error: "startsAt must be a string." } };
         patch.startsAt = input.startsAt;
+      }
+      if (input.endsAt !== undefined) {
+        if (typeof input.endsAt !== "string")
+          return { status: 400, body: { error: "endsAt must be a string." } };
+        patch.endsAt = input.endsAt;
+      }
+      if (input.pairingSystem !== undefined) {
+        if (!TOURNAMENT_PAIRING_SYSTEMS.includes(input.pairingSystem as TournamentPairingSystem))
+          return { status: 400, body: { error: "pairingSystem must be dutch, monrad or eloSeeded." } };
+        patch.pairingSystem = input.pairingSystem as TournamentPairingSystem;
+      }
+      if (input.seedingMode !== undefined) {
+        if (!TOURNAMENT_SEEDING_MODES.includes(input.seedingMode as TournamentSeedingMode))
+          return { status: 400, body: { error: "seedingMode must be elo or manual." } };
+        patch.seedingMode = input.seedingMode as TournamentSeedingMode;
       }
       if (input.primaryTiebreaker !== undefined)
         patch.primaryTiebreaker = primaryTiebreaker(input.primaryTiebreaker);
@@ -529,30 +787,31 @@ export async function tournamentApi(
       const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
       if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
       const entrants = deps.store.entrants(tournament.id);
+      const manager = canManage(tournament, auth);
+      // Fixtures: organisers and this tournament's managers see all; an entrant sees every fixture of the event
+      // (mine + all); another signed-in coach sees only fixtures they play in; anonymous visitors none.
+      const entered = auth ? entrants.some((entrant) => coachKey(entrant.coach.ffbCoachId) === coachKey(auth.coach)) : false;
       const scheduledMatches = auth
         ? deps.store.matches(tournament.id)
-          .filter((match) => auth.organizer || isParticipant(match, auth.coach))
+          .filter((match) => auth.organizer || manager || entered || isParticipant(match, auth.coach))
           .map((match) => clientMatch(deps.store, match, auth, now, deps.teamBuild))
         : [];
       return {
         status: 200,
         body: {
           tournament: clientTournament(tournament, entrants, auth),
-          entrants: entrants.map(({ coach, ...entrant }) => {
-            const team = deps.teamBuild(entrant.teamId);
-            return {
-              ...entrant,
-              entrantId: entrant.id,
-              coachId: coach.ffbCoachId,
-              coach: { coachId: coach.coachId, ffbCoachId: coach.ffbCoachId },
-              ...(stringField(team, "teamName") ? { teamName: stringField(team, "teamName") } : {}),
-              ...(stringField(team, "race") ? { race: stringField(team, "race") } : {}),
-              ...(stringField(team, "logoUrl") ? { logoUrl: stringField(team, "logoUrl") } : {}),
-            };
-          }),
+          entrants: entrants.map((entrant) => clientEntrant(
+            entrant,
+            deps,
+            manager || (auth !== undefined && coachKey(auth.coach) === coachKey(entrant.coach.ffbCoachId)),
+          )),
           rounds: deps.store.rounds(tournament.id),
           standings: deps.store.standings(tournament.id),
           scheduledMatches,
+          capabilities: {
+            manage: manager,
+            assignRoles: Boolean(auth && (auth.admin || (tournamentOwner(tournament) && coachKey(auth.coach) === coachKey(tournamentOwner(tournament)!)))),
+          },
         },
       };
     }
@@ -566,16 +825,34 @@ export async function tournamentApi(
         ? deps.store.entrants(tournamentId).find((candidate) => candidate.id === entrantId)
         : undefined;
       if (!entrant) return { status: 404, body: { error: "Tournament entrant not found." } };
-      const mayRead = identity.organizer || coachKey(identity.coach) === coachKey(entrant.coach.ffbCoachId);
-      if (!mayRead) return { status: 403, body: { error: "You may fetch only your own tournament build." } };
+      const buildTournament = deps.store.tournament(entrant.tournamentId);
+      const self = coachKey(identity.coach) === coachKey(entrant.coach.ffbCoachId);
+      const opponentNow = !self && buildTournament !== undefined && deps.store.matches(entrant.tournamentId).some((match) =>
+        match.roundNumber === buildTournament.currentRound && match.away !== undefined && match.status !== "cancelled" &&
+        ((match.home.entrantId === entrant.id && coachKey(match.away.coach.ffbCoachId) === coachKey(identity.coach)) ||
+          (match.away.entrantId === entrant.id && coachKey(match.home.coach.ffbCoachId) === coachKey(identity.coach))));
+      const mayRead = identity.organizer || self || opponentNow || (buildTournament !== undefined && canManage(buildTournament, identity));
+      if (!mayRead) return { status: 403, body: { error: "You may fetch only your own tournament build or your current opponent's." } };
       const team = deps.teamBuild(entrant.teamId);
-      if (!team) return { status: 404, body: { error: "Tournament team build not found." } };
+      const submission = entrant.submission;
+      if (!team && !submission?.snapshot) return { status: 404, body: { error: "Tournament team build not found." } };
       return {
         status: 200,
         body: {
           tournamentId,
           entrantId,
-          team,
+          coachId: entrant.coach.ffbCoachId,
+          ...(team ? { team } : {}),
+          ...(submission ? {
+            submission: {
+              submittedAt: submission.submittedAt,
+              ...(submission.teamName ? { teamName: submission.teamName } : {}),
+              ...(submission.race ? { race: submission.race } : {}),
+              snapshot: submission.snapshot,
+              valid: Boolean(entrant.flags?.rosterVerified),
+              problems: submission.validation.problems,
+            },
+          } : {}),
           inert: true,
           capabilities: {
             editRoster: { available: false, reason: "Tournament builds are read-only snapshots." },
@@ -601,7 +878,30 @@ export async function tournamentApi(
       const tournament = deps.store.tournament(tournamentId);
       if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
       requireTournamentManager(tournament, identity);
-      return { status: 200, body: { round: deps.store.generateNextRound(tournamentId, now, deps.coachRating) } };
+      const input = body === undefined || body === null ? {} : jsonObject(body);
+      if (input.pairingSystem !== undefined && !TOURNAMENT_PAIRING_SYSTEMS.includes(input.pairingSystem as TournamentPairingSystem))
+        return { status: 400, body: { error: "pairingSystem must be dutch, monrad or eloSeeded." } };
+      if (input.seedingMode !== undefined && !TOURNAMENT_SEEDING_MODES.includes(input.seedingMode as TournamentSeedingMode))
+        return { status: 400, body: { error: "seedingMode must be elo or manual." } };
+      const options = {
+        ...(input.pairingSystem === undefined ? {} : { pairingSystem: input.pairingSystem as TournamentPairingSystem }),
+        ...(input.seedingMode === undefined ? {} : { seedingMode: input.seedingMode as TournamentSeedingMode }),
+      };
+      if (input.preview === true) {
+        if (tournament.status !== "draft" && tournament.status !== "active")
+          return { status: 409, body: { error: "This tournament is closed." } };
+        const preview = deps.store.previewNextRound(tournamentId, options, deps.coachRating);
+        return {
+          status: 200,
+          body: {
+            preview: true,
+            ...preview,
+            pairingSystem: options.pairingSystem ?? tournament.pairingSystem ?? "eloSeeded",
+            seedingMode: options.seedingMode ?? tournament.seedingMode ?? "elo",
+          },
+        };
+      }
+      return { status: 200, body: { round: deps.store.generateNextRound(tournamentId, now, deps.coachRating, options) } };
     }
 
     if (path === "/api/scheduled-matches" && method === "GET") {

@@ -281,6 +281,7 @@ import { FileTabletopRepository } from "./tabletop/store.js";
 import { isAdminTestingPath, testingApi } from "./tabletop/testing.js";
 import { teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
 import { tournamentApi } from "./tournaments/api.js";
+import type { TournamentSubmission } from "./tournaments/types.js";
 
 /**
  * Endpoints reachable without ADMIN_PASSWORD even when it's set, AND always sent
@@ -907,6 +908,66 @@ function sharedViewFor(coach: string, save: TeamBuilderSave, viewer: string | un
   return avatarUrl ? { ...view, avatarUrl } : view;
 }
 
+/** Tournament submission (spec-spa-tournaments §6.3): snapshot a coach's Team Builder save (`save:<id>`, a bare id,
+ *  or `library:<teamId>` = the save linked to that library team) and validate it against the TOURNAMENT's package
+ *  with the same composer + validator as the builder preview. A library team with no sheet cannot be checked: it is
+ *  stored with a problem the organiser can override by hand. Identity is the entrant's coach, never a request field. */
+function tournamentSubmissionCheck(coach: string, ref: string, packageName: string, now: Date): TournamentSubmission | { error: string; status?: 400 | 404 | 409 } {
+  const checkedAt = now.toISOString();
+  let packageRevision: string | undefined;
+  try { packageRevision = packages.getRaw(packageName)?.revision; } catch { packageRevision = undefined; }
+  const validation = (ok: boolean, problems: string[]) => ({
+    ok, problems, checkedAt, packageName, ...(packageRevision ? { packageRevision } : {}),
+  });
+  const saves = readSaves(BUILDER_SAVES_DIR, coach);
+  let save: TeamBuilderSave | undefined;
+  if (ref.startsWith("library:")) {
+    const teamId = ref.slice("library:".length);
+    const owner = libraryOwnerForTeam(teamId, { activeOnly: true });
+    if (!owner || owner.trim().toLowerCase() !== coach.trim().toLowerCase()) return { error: "That team is not in your library.", status: 400 };
+    save = saves.filter((s) => s.teamId === teamId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    if (!save) {
+      const team = libraryTeamForId(teamId);
+      return {
+        saveId: ref, revision: teamId, submittedAt: checkedAt, teamId,
+        ...(team?.teamName ? { teamName: team.teamName } : {}),
+        ...(team?.race ? { race: team.race } : {}),
+        snapshot: team ? { teamId, teamName: team.teamName, race: team.race, teamValue: team.teamValue } : null,
+        validation: validation(false, ["This team has no Team Builder sheet, so it cannot be checked automatically. An organiser can verify it by hand."]),
+      };
+    }
+  } else {
+    const id = ref.startsWith("save:") ? ref.slice("save:".length) : ref;
+    save = saves.find((s) => s.id === id);
+    if (!save) return { error: "Team Builder save not found.", status: 404 };
+  }
+  const teamId = save.teamId && libraryOwnerForTeam(save.teamId)?.trim().toLowerCase() === coach.trim().toLowerCase() ? save.teamId : undefined;
+  const base = {
+    saveId: `save:${save.id}`, revision: save.updatedAt, submittedAt: checkedAt,
+    ...(teamId ? { teamId } : {}),
+    teamName: save.name, ...(save.raceName ? { race: save.raceName } : {}),
+    snapshot: { ...save.body, packageName: save.packageName },
+  };
+  try {
+    const cfg = forkConfigFromEnv();
+    if (!cfg) return { ...base, validation: validation(false, ["Team validation needs the fork teams directory on this host."]) };
+    const stored = save.body as TeamBuilderBody;
+    const body: TeamBuilderBody = { ...stored, coach, teamName: String(stored.teamName || save.name), packageName };
+    if (body.rosterId && isSlRosterId(body.rosterId)) {
+      const composed = composeIntrinsicFromBody(cfg.teamsDir, body);
+      return { ...base, validation: validation(composed.legal, composed.issues.map((i) => i.message)) };
+    }
+    const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, packageName);
+    if ("error" in resolvedPkg) return { ...base, validation: validation(false, [resolvedPkg.error]) };
+    const composed = composeFromBody(cfg.teamsDir, body);
+    const result = validate(composed.roster, resolvedPkg.pkg, bb2025);
+    const problems = result.errors.map((finding) => finding.message);
+    return { ...base, validation: validation(result.valid && problems.length === 0, problems) };
+  } catch (e) {
+    return { ...base, validation: validation(false, [(e as Error).message]) };
+  }
+}
+
 /** Resolve a Secret League builder request to a composed team + roster-intrinsic legality (#52 A).
  *  Legality is enforced by the composer (off-dataset ⇒ dataset `validate()` can't run) — the caller
  *  checks `.legal`/`.issues`, never the dataset validator. */
@@ -1326,6 +1387,8 @@ async function handleApi(
       identityRecord: (coachId) => ownIdentityRecord(coachId),
       packageExists: (packageName) => packages.get(packageName) !== undefined,
       teamOwner: (teamId) => libraryOwnerForTeam(teamId),
+      validateSubmission: (coach, ref, packageName, at) => tournamentSubmissionCheck(coach, ref, packageName, at),
+      registeredCoach: (coachId) => readIdentities().coaches[normalizeFfbCoachId(coachId)]?.ffbCoachId,
       coachRating: (coach) => {
         // Seeding uses TOURNAMENT ELO (owner 08-27: only tournament matches move the
         // competitive rating); all-provisional fields fall to the stable tie-flip fairly.
