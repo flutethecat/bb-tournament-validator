@@ -18,6 +18,8 @@ export interface ResultSide {
   teamId: string;
   teamName: string;
   coach: string;
+  /** Current team value in gold when the game was played (tabletop rows; fork rows carry none). The coach rating's team-value term reads it. */
+  teamValue?: number;
 }
 
 export interface StoredTournamentResult extends GamestateResult {

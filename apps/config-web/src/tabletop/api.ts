@@ -27,7 +27,7 @@ import {
 import { decorateRoster } from "./eligibility.js";
 import { withRosterArt } from "./rosterArt.js";
 import { leagueStandings, type LeaguePoints } from "./standings.js";
-import { computeElo } from "../coachElo.js";
+import { computeGlicko, unratedGlicko } from "../coachGlicko.js";
 import { coachRatingFor, type CoachRatingView } from "../coachRank.js";
 import { applyPostMatch, sppCredits, sppForEvent, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile, SPP_VALUES } from "./postMatch.js";
 import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
@@ -99,10 +99,10 @@ export function matchContext(match: MatchRecord, deps: Pick<TabletopApiDeps, "fi
   return { kind: "casual", title: "Casual match", subtitle: pk.join(" / "), ...common };
 }
 
-/** Each seat's coach rating (CR) and rank, from our own fork results (Elo -> CR, see coachRank.ts). */
-export function coachRatings(match: MatchRecord, deps: Pick<TabletopApiDeps, "results">): Record<"home" | "away", CoachRatingView> {
-  const elo = computeElo(deps.results.list());
-  const of = (coach: string): CoachRatingView => { const e = elo.get(coach.trim().toLowerCase()); return coachRatingFor(e?.rating, e?.games ?? 0); };
+/** Each seat's coach rating (CR, Glicko-2 as FUMBBL runs it: coachGlicko.ts) and rank, from our own published results. */
+export function coachRatings(match: MatchRecord, deps: Pick<TabletopApiDeps, "results" | "now">): Record<"home" | "away", CoachRatingView> {
+  const rated = computeGlicko(deps.results.list(), { asOf: deps.now?.() ?? new Date() });
+  const of = (coach: string): CoachRatingView => { const e = rated.get(coach.trim().toLowerCase()) ?? unratedGlicko(); return coachRatingFor(e.cr, e.games); };
   return { home: of(match.home.coach), away: of(match.away.coach) };
 }
 
@@ -626,6 +626,8 @@ async function buildConfirmJournal(
     })),
   });
   const gameId = resultGameId(match.id);
+  // the team value each side brought (its head team file before this match), for the coach rating's team-value term
+  const ctv = (chain: TeamChain): { teamValue?: number } => { const v = headRevision(chain).teamFile.teamValue; return typeof v === "number" && v > 0 ? { teamValue: v } : {}; };
   const row: StoredTournamentResult = {
     gameId,
     pulledAt: at,
@@ -634,8 +636,8 @@ async function buildConfirmJournal(
     ...(match.league ? { league: match.league } : {}),
     published: false,
     ...(match.test ? { test: true } : {}),
-    home: { teamId: match.home.teamSaveId, teamName: match.home.teamName, coach: match.home.coach },
-    away: { teamId: match.away.teamSaveId, teamName: match.away.teamName, coach: match.away.coach },
+    home: { teamId: match.home.teamSaveId, teamName: match.home.teamName, coach: match.home.coach, ...ctv(p.chainHome) },
+    away: { teamId: match.away.teamSaveId, teamName: match.away.teamName, coach: match.away.coach, ...ctv(p.chainAway) },
     teams: [teamResult("home", p.home.summary), teamResult("away", p.away.summary)],
   };
   const next: MatchRecord = {

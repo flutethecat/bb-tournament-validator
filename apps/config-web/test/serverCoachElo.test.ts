@@ -111,6 +111,12 @@ describe("Coach Elo HTTP surfaces", () => {
       elo: 1484,
       provisional: true,
     });
+    // the FUMBBL-style coach rating rides beside the Elo (never replacing it): cr and rd
+    const alice = rows.find((row) => String(row.coach).toLowerCase() === "alice")!;
+    expect(typeof alice.cr).toBe("number");
+    expect(alice.rd as number).toBeGreaterThan(0);
+    expect(alice.rd as number).toBeLessThanOrEqual(150);
+    expect(alice.cr as number).toBeGreaterThan((rows.find((row) => String(row.coach).toLowerCase() === "bob")!.cr as number)); // the winner out-rates the loser
   });
 
   it("emits account Elo and defaults a coach with no history without failing", async () => {

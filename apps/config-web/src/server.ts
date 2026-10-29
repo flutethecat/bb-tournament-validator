@@ -220,6 +220,7 @@ import {
   refreshFinishedResults,
 } from "./tournamentResults.js";
 import { computeElo } from "./coachElo.js";
+import { computeGlicko, unratedGlicko } from "./coachGlicko.js";
 import {
   DISCORD_OAUTH_STATE_COOKIE,
   DISCORD_PENDING_COOKIE,
@@ -2205,6 +2206,7 @@ async function handleApi(
       await refreshFinishedResults(forkAdminCfg, tournamentResults);
       const results = tournamentResults.list();
       const elo = computeElo(results);
+      const glicko = computeGlicko(results, { asOf: new Date() }); // FUMBBL-style coach rating (cr) and its deviation (rd)
       // Owner ruling 08-27: only tournament matches move the competitive rating — Global ELO
       // (all games) and Tournament ELO (games with tournament-match metadata) are separate.
       const tournamentOnly = computeElo(results.filter((game) => tournamentMatches.get(game.gameId) !== undefined));
@@ -2222,6 +2224,7 @@ async function handleApi(
         return {
           ...row,
           elo: rating.rating, provisional: rating.provisional,
+          ...((g) => ({ cr: g.cr, rd: Math.round(g.rd * 10) / 10 }))(glicko.get(key) ?? unratedGlicko()),
           tournamentElo: tRating.rating, tournamentProvisional: tRating.provisional,
         };
       });
