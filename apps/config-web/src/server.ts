@@ -103,7 +103,7 @@ import { PRESETS } from "./presets";
 import { handleAuthPortal, handleLogout } from "./auth/portal.js";
 import { handleTestLogin } from "./auth/testLogin.js";
 import {
-  avatarRateLimit, avatarUrlFor, AVATAR_CONTENT_TYPE, AVATAR_MAX_BYTES, checkAvatar, findAvatar, readRawCapped, removeAvatar, saveAvatar, teamAvatarPath,
+  avatarRateLimit, avatarStoreFor, avatarUrlFor, AVATAR_CONTENT_TYPE, AVATAR_MAX_BYTES, checkAvatar, declaredTooLarge, readRawCapped, teamAvatarPath,
 } from "./teamAvatars.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
 import { isSpaPath, spaStaticPath } from "./spaRoutes.js";
@@ -1211,10 +1211,10 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
   );
 }
 
-function libraryOwnerForTeam(teamId: string): string | undefined {
+function libraryOwnerForTeam(teamId: string, options: { activeOnly?: boolean } = {}): string | undefined {
   try {
     for (const libraryCoach of libraryCoaches(LIBRARY_DIR)) {
-      const team = readLibrary(LIBRARY_DIR, libraryCoach).find((entry) => entry?.teamId === teamId);
+      const team = readLibrary(LIBRARY_DIR, libraryCoach).find((entry) => entry?.teamId === teamId && !(options.activeOnly && entry.retired));
       if (team) return (typeof team.coach === "string" ? team.coach.trim() : "") || libraryCoach;
     }
   } catch {
@@ -2710,10 +2710,12 @@ async function handleApi(
     const teamKey = teamAvatarPath(path);
     if (teamKey !== undefined) {
       if (method === "GET" || method === "HEAD") {
-        const found = findAvatar(TEAM_AVATARS_DIR, teamKey);
+        const store = avatarStoreFor(TEAM_AVATARS_DIR);
+        await store.ready;
+        const found = store.find(teamKey); // index only: a miss costs no disk access
         if (!found) return sendJson(res, 404, { error: "No avatar." });
         try {
-          const bytes = readFileSync(found.path);
+          const bytes = await readFile(found.path);
           res.writeHead(200, {
             "content-type": AVATAR_CONTENT_TYPE[found.ext],
             "content-length": String(bytes.length),
@@ -2728,26 +2730,34 @@ async function handleApi(
       }
       if (method !== "PUT" && method !== "DELETE") return sendJson(res, 405, { error: "Use GET, PUT or DELETE." });
       if (!auth) return sendJson(res, 401, { error: "Sign in to change a team avatar." });
-      const ownsTeam = teamKey.startsWith("library:")
-        ? libraryOwnerForTeam(teamKey.slice("library:".length)) === auth.coach
-        : readSaves(BUILDER_SAVES_DIR, auth.coach).some((s) => `save:${s.id}` === teamKey);
-      if (!ownsTeam) return sendJson(res, 403, { error: "You can only change the avatar of your own team." });
+      // Rate limit first (PUT and DELETE share the bucket), so ownership probing is throttled too.
       const wait = avatarRateLimit(auth.coach);
       if (wait > 0) {
         res.setHeader("retry-after", String(wait));
         return sendJson(res, 429, { error: "Too many avatar changes. Try again in a minute." });
       }
+      const ownsTeam = teamKey.startsWith("library:")
+        ? libraryOwnerForTeam(teamKey.slice("library:".length), { activeOnly: true }) === auth.coach
+        : readSaves(BUILDER_SAVES_DIR, auth.coach).some((s) => `save:${s.id}` === teamKey);
+      if (!ownsTeam) return sendJson(res, 403, { error: "You can only change the avatar of your own team." });
       try {
         if (method === "DELETE") {
-          removeAvatar(TEAM_AVATARS_DIR, auth.coach, teamKey);
+          await avatarStoreFor(TEAM_AVATARS_DIR).remove(teamKey);
           res.writeHead(204).end();
           return;
         }
+        const tooLarge = (): void => {
+          // Stop reading; answer, then drop the connection instead of draining the rest of the upload.
+          res.once("finish", () => req.destroy());
+          res.setHeader("connection", "close");
+          sendJson(res, 413, { error: `The image must be at most ${AVATAR_MAX_BYTES / 1024} KB.` });
+        };
+        if (declaredTooLarge(req, AVATAR_MAX_BYTES)) return tooLarge();
         const body = await readRawCapped(req, AVATAR_MAX_BYTES);
-        if (!body) return sendJson(res, 400, { error: `The image must be at most ${AVATAR_MAX_BYTES / 1024} KB.` });
+        if (!body) return tooLarge();
         const checked = checkAvatar(body);
         if (!checked.ok) return sendJson(res, 400, { error: checked.error });
-        saveAvatar(TEAM_AVATARS_DIR, auth.coach, teamKey, body, checked.image.ext);
+        await avatarStoreFor(TEAM_AVATARS_DIR).save(auth.coach, teamKey, body, checked.image.ext);
         return sendJson(res, 200, { ok: true, avatarUrl: avatarUrlFor(TEAM_AVATARS_DIR, teamKey) });
       } catch {
         return sendJson(res, 500, { error: "Could not update the avatar right now." });
