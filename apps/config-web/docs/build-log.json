@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Sidebar carets on the right; conceded games marked on result cards",
+    "body": "Sidebar: the collapse caret now sits at the right end of each category header. Leaderboards and Help are plain links with no sub-list, and Testing Tools is now just Testing. Games: Recent games is now Past Games, a scrollable box of larger cards (two across on a wide screen) showing as many games as the server returns. A conceded game now says \"Conceded by <coach>\" and puts a red-framed plate behind its score; the struck-through team name is gone. Team names such as <script>brains? no longer show as &lt;script&gt;: online-game results were stored with the fork's XML escaping and then escaped again by the page.",
+    "links": [
+      {
+        "label": "Home",
+        "href": "/app/home"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Connections: link and verify your NAF record",
     "body": "The Discord line on the Account page is now a Connections table: Discord, NAF and FUMBBL, each with a Linked / Not linked / Verified chip. Discord stays read-only: it is how you sign in. For the NAF, Link NAF account asks for your NAF coach name and number and checks them against your public NAF coach page; when both match the row turns Verified. The NAF has no sign-in or OAuth for other sites, so Verified means the record exists and matches what you entered, not proof that it is yours, and NAF sign-in is not possible. Re-verify checks again, Unlink removes the name and number, and editing either on your profile clears the check. Your FUMBBL name links through the FUMBBL name field, or shows as locked when tournament registration set it.",
     "links": [
