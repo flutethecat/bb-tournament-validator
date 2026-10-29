@@ -4,7 +4,7 @@
 // Start redraft (opens the Redraft board, /app/leagues/:id/redraft).
 import { computed, inject, nextTick, ref } from "vue";
 import { useRouter } from "vue-router";
-import { LEAGUE_SETTINGS_KEY, nextSeasonDefaults, openSeason } from "../leagues/settings";
+import { LEAGUE_SETTINGS_KEY, nextSeasonDefaults, openSeason, openSeasons } from "../leagues/settings";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
 const { state } = settings;
@@ -12,6 +12,10 @@ const view = computed(() => state.view!);
 const perms = computed(() => view.value.permissions);
 const busy = computed(() => Boolean(state.busy));
 const open = computed(() => openSeason(state.seasons));
+// Seasons may overlap: Finish season acts on the picked in-progress season (default the newest).
+const openList = computed(() => openSeasons(state.seasons));
+const finishId = ref("");
+const finishing = computed(() => openList.value.find((s) => s.id === finishId.value) ?? open.value);
 
 const newOrganiser = ref("");
 const newOwner = ref("");
@@ -40,8 +44,8 @@ async function startSeason(): Promise<void> { if (await settings.startSeason({ .
 
 const confirmFinish = ref(false);
 async function finish(): Promise<void> {
-  if (!open.value) return;
-  if (await settings.finishSeason(open.value.id)) confirmFinish.value = false;
+  if (!finishing.value) return;
+  if (await settings.finishSeason(finishing.value.id)) { confirmFinish.value = false; finishId.value = ""; }
 }
 
 const router = useRouter();
@@ -86,19 +90,26 @@ const openRedraft = (): void => { void router.push({ name: "league-redraft", par
     </section>
 
     <section class="hm-panel" aria-labelledby="ls-season-h">
-      <header class="hm-band"><h2 id="ls-season-h">Seasons</h2><span class="hm-cap">{{ open ? `${open.name} in progress` : "No season in progress" }}</span></header>
+      <header class="hm-band"><h2 id="ls-season-h">Seasons</h2><span class="hm-cap">{{ openList.length > 1 ? `${openList.length} seasons in progress` : open ? `${open.name} in progress` : "No season in progress" }}</span></header>
       <div class="ls-actions">
-        <button class="lobby-btn primary" type="button" :disabled="busy || Boolean(open)" aria-haspopup="dialog" @click="showDialog">Start a new season</button>
-        <template v-if="open">
+        <button class="lobby-btn primary" type="button" :disabled="busy" aria-haspopup="dialog" @click="showDialog">Start a new season</button>
+        <template v-if="finishing">
+          <label v-if="openList.length > 1" class="lg-select">
+            <span>Season to finish</span>
+            <select v-model="finishId" :disabled="busy || confirmFinish">
+              <option value="">{{ open!.name }}</option>
+              <option v-for="s in openList.slice(1)" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+          </label>
           <button v-if="!confirmFinish" class="lobby-btn" type="button" :disabled="busy" @click="confirmFinish = true">Finish season</button>
           <template v-else>
-            <span>Finish {{ open.name }}? Its standings and honours are kept.</span>
+            <span>Finish {{ finishing.name }}? Its standings and honours are kept.</span>
             <button class="lobby-btn primary" type="button" :disabled="busy" @click="finish">Yes, finish it</button>
             <button class="lobby-btn" type="button" @click="confirmFinish = false">Cancel</button>
           </template>
         </template>
       </div>
-      <p v-if="open" class="hm-small hm-empty">Finish {{ open.name }} before starting the next season.</p>
+      <p v-if="open" class="hm-small hm-empty">Seasons may overlap: a new season starts while {{ open.name }} is still in progress and becomes the current season.</p>
       <p v-if="state.errors.finish" class="lobby-error" role="alert">{{ state.errors.finish }}</p>
       <p v-else-if="state.notices.finish" class="hm-notice" role="status">{{ state.notices.finish }}</p>
       <p v-if="state.notices.season && !dialog" class="hm-notice" role="status">{{ state.notices.season }}</p>

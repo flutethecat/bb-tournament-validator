@@ -46,11 +46,23 @@ export interface RedraftBoardState {
   overrides: Record<string, { budget: number | null; reason: string }>;
   capEnabled: boolean;
   cap: number;
+  /** Seasons may overlap: the finished season to redraft from and the season receiving the lists ("" = server default). */
+  sourcePick: string;
+  targetPick: string;
+}
+
+/** The board read with the organiser's season picks. */
+export function boardPath(leagueId: string, picks: { source?: string; target?: string } = {}): string {
+  const q = new URLSearchParams();
+  if (picks.source) q.set("source", picks.source);
+  if (picks.target) q.set("target", picks.target);
+  const qs = q.toString();
+  return `${redraftPath(leagueId)}${qs ? `?${qs}` : ""}`;
 }
 
 export function createRedraftBoard(deps: { api: Fetcher }) {
   const state = reactive<RedraftBoardState>({
-    id: "", view: null, loaded: false, denied: "", error: "", busy: "", message: "", notice: "", picked: {}, overrides: {}, capEnabled: true, cap: 1_300_000,
+    id: "", view: null, loaded: false, denied: "", error: "", busy: "", message: "", notice: "", picked: {}, overrides: {}, capEnabled: true, cap: 1_300_000, sourcePick: "", targetPick: "",
   });
 
   function take(view: RedraftBoardView): void {
@@ -65,7 +77,7 @@ export function createRedraftBoard(deps: { api: Fetcher }) {
     state.denied = "";
     state.error = "";
     try {
-      take((await deps.api<{ redraft: RedraftBoardView }>(redraftPath(id))).redraft);
+      take((await deps.api<{ redraft: RedraftBoardView }>(boardPath(id, { source: state.sourcePick, target: state.targetPick }))).redraft);
     } catch (err) {
       state.view = null;
       const s = statusOf(err);
@@ -103,8 +115,13 @@ export function createRedraftBoard(deps: { api: Fetcher }) {
     /** Check all (or none) of a tab's rows. */
     checkAll(rows: RedraftBoardRow[], on: boolean): void { for (const r of rows) state.picked[r.teamId] = on; },
     selectedCount: (): number => Object.values(state.picked).filter(Boolean).length,
+    /** Pick the season to redraft from (the target resets to its default) or the season receiving the lists; reloads. */
+    async pickSource(id: string): Promise<void> { state.sourcePick = id; state.targetPick = ""; state.overrides = {}; await load(state.id); },
+    async pickTarget(id: string): Promise<void> { state.targetPick = id; await load(state.id); },
     confirm: () => post("confirm", {
       action: "confirm", capEnabled: state.capEnabled, cap: state.cap,
+      ...(state.sourcePick && state.view?.source ? { sourceSeasonId: state.view.source.id } : {}),
+      ...(state.targetPick && state.view?.target ? { targetSeasonId: state.view.target.id } : {}),
       teams: [...(state.view?.active ?? []), ...(state.view?.inactive ?? [])].map((r) => {
         const o = state.overrides[r.teamId];
         return { teamId: r.teamId, selected: Boolean(state.picked[r.teamId]), ...(o && o.budget !== null && state.picked[r.teamId] ? { override: { budget: o.budget, reason: o.reason } } : {}) };

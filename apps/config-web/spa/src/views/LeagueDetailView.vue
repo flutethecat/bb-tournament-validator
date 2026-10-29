@@ -2,8 +2,9 @@
 // League page (/app/leagues/:id?season=&tab=&team=&player=): public read. The league front (header bar, logo, name), the
 // Season field (every season, newest first, with its rules edition), then the season's tabs: Overview, Standings,
 // Fixtures, Teams (a team's roster via ?team=, a player via ?player=<playerId>), Honours. Organisers and admins get the artwork controls on Overview,
-// the League settings cog at the right end of the header strip, and the per-fixture Super FUMBBL switch. A fixture's
-// summary (?tab=fixtures&fixture=<id>) replaces the fixtures list: the match, its result, and Play on Super FUMBBL.
+// the League settings cog at the right end of the header strip, the per-fixture Super FUMBBL switch, the League news
+// composer (Overview) and the fixtures editor (Fixtures). A fixture's summary (?tab=fixtures&fixture=<id>) replaces
+// the fixtures list: the match, its result, and Play on Super FUMBBL.
 import { computed, inject, nextTick, onMounted, provide, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
@@ -12,6 +13,7 @@ import LeagueArtEdit from "../components/LeagueArtEdit.vue";
 import LeagueFixtures from "../components/LeagueFixtures.vue";
 import LeagueFixtureSummary from "../components/LeagueFixtureSummary.vue";
 import LeagueHonours from "../components/LeagueHonours.vue";
+import LeagueNews from "../components/LeagueNews.vue";
 import LeagueOverview from "../components/LeagueOverview.vue";
 import LeagueStandings from "../components/LeagueStandings.vue";
 import LeagueTeams from "../components/LeagueTeams.vue";
@@ -139,6 +141,7 @@ onMounted(async () => {
       <p v-else-if="current && !season" class="hm-empty" role="status">Loading {{ current.name }}...</p>
       <template v-else-if="season">
         <template v-if="tab === 'overview'">
+          <LeagueNews :season="season" :manage="manage" />
           <LeagueOverview :league="state.league" :season="season" :summary="current!" :crests="state.crests" />
           <LeagueArtEdit v-if="manage" />
         </template>

@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
-import { budgetNote, createRedraftBoard, createRedraftTeam, draftTotals, initialPicks, seasonsTitle, stepOf, tasksForTeam } from "../spa/src/leagues/redraft";
+import { boardPath, budgetNote, createRedraftBoard, createRedraftTeam, draftTotals, initialPicks, seasonsTitle, stepOf, tasksForTeam } from "../spa/src/leagues/redraft";
 import type { CoachRedraftView, RedraftBoardRow, RedraftBoardView } from "../spa/src/leagues/types";
 
 // SPA league redraft: the board and coach controllers, the live draft sums, and the board / dialog server-rendered.
@@ -58,6 +58,32 @@ const coachView = (over: Partial<CoachRedraftView> = {}): CoachRedraftView => ({
 const rested = (): CoachRedraftView => coachView({ revision: 2, rest: { ...coachView().rest, done: true, rolls: [{ playerId: "p1", roll: 4, target: 3, recovered: true, source: "site" }] } });
 
 describe("redraft helpers and controllers", () => {
+  it("overlapping seasons: the board reads with the source / target picks and confirm sends them", async () => {
+    expect(boardPath("tabbl")).toBe("/api/leagues/tabbl/redraft");
+    expect(boardPath("tabbl", { source: "season-5", target: "season-7" })).toBe("/api/leagues/tabbl/redraft?source=season-5&target=season-7");
+    const picked = boardView({ source: { id: "season-5", name: "Season 5", number: 5, ruleset: "BB2020" }, target: { id: "season-7", name: "Season 7" },
+      sources: [{ id: "season-6", name: "Season 6" }, { id: "season-5", name: "Season 5" }], targets: [{ id: "season-8", name: "Season 8", status: "active" }, { id: "season-7", name: "Season 7", status: "active" }] });
+    const f = mockFetcher({
+      "/api/leagues/tabbl/redraft": { redraft: boardView() },
+      "/api/leagues/tabbl/redraft?source=season-5": { redraft: { ...picked, target: { id: "season-8", name: "Season 8" } } },
+      "/api/leagues/tabbl/redraft?source=season-5&target=season-7": { redraft: picked },
+      "POST /api/leagues/tabbl/redraft": { redraft: picked },
+    });
+    const b = createRedraftBoard({ api: f });
+    await b.load("tabbl");
+    await b.pickSource("season-5");
+    expect(b.state.view!.target!.id).toBe("season-8");
+    await b.pickTarget("season-7");
+    expect(f.calls.at(-1)!.path).toBe("/api/leagues/tabbl/redraft?source=season-5&target=season-7");
+    b.state.picked.orcs = true;
+    await b.confirm();
+    expect(f.calls.at(-1)!.body).toMatchObject({ action: "confirm", sourceSeasonId: "season-5", targetSeasonId: "season-7" });
+    // Without a target pick the server default is used (no targetSeasonId sent).
+    await b.pickSource("season-5");
+    await b.confirm();
+    expect((f.calls.at(-1)!.body as Record<string, unknown>).targetSeasonId).toBeUndefined();
+  });
+
   it("budget notes, hover text, step, team-name match", () => {
     expect(budgetNote(row("orcs", { budget: budget(1_420_000) }))).toBe("Capped from 1,420k");
     expect(budgetNote(row("orcs"))).toBe("");

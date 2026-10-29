@@ -2,11 +2,13 @@
 // League page, Fixtures tab: phase by phase, round by round. Cards view (default): played games as result cards,
 // unplayed ones as a compact row; Table view: one row per fixture with score, casualties, date and marks.
 // Play on Super FUMBBL (league setting): every fixture an admin allowed carries a "Super FUMBBL" chip; league admins
-// (organisers, site admins) get the "Allow Super FUMBBL for this fixture" switch on each unplayed fixture. Every fixture
-// links to its summary (?fixture=<id>), where it is generated and started on Super FUMBBL.
+// (organisers, site admins) get the "Allow Super FUMBBL for this fixture" switch on each unplayed fixture, and the
+// fixtures editor (add fixtures, dates, results) under the list. Every fixture links to its summary (?fixture=<id>),
+// where it is generated and started on Super FUMBBL.
 import { computed, inject, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { fixtureQuery } from "../leagues/fixture";
+import LeagueFixturesEditor from "./LeagueFixturesEditor.vue";
 import ResultCard from "./ResultCard.vue";
 import { day, fixtureOutcome, fixturePlayed, fixturesByPhase, fixtureTime, LEAGUE_DETAIL_KEY, resultCardProps } from "../leagues/league";
 import type { LeagueFixture, LeagueSummary, SeasonRecord } from "../leagues/types";
@@ -62,7 +64,7 @@ const cas = (f: LeagueFixture): string => (fixturePlayed(f) && f.home.cas !== nu
             <ResultCard v-if="fixturePlayed(f)" v-bind="card(f)" />
             <div v-else class="lg-fx-open" :aria-label="`${f.home.team} against ${f.away.team}, not played`">
               <span class="lg-fx-team">{{ f.home.team }}</span><span class="lg-fx-vs">vs</span><span class="lg-fx-team lg-fx-away">{{ f.away.team }}</span>
-              <small class="lg-fx-meta">{{ [f.group, f.suspended ? "Not played" : "Scheduled", day(fixtureTime(f))].filter(Boolean).join(" · ") }}</small>
+              <small class="lg-fx-meta">{{ [f.group, f.suspended ? "Not played" : "Scheduled", day(fixtureTime(f) || f.date)].filter(Boolean).join(" · ") }}</small>
             </div>
             <div class="lg-fork-row">
               <RouterLink class="tl-action lg-fx-link" :to="summaryLink(f)" :aria-label="`Fixture summary: ${f.home.team} against ${f.away.team}`">Summary</RouterLink>
@@ -84,7 +86,7 @@ const cas = (f: LeagueFixture): string => (fixturePlayed(f) && f.home.cas !== nu
                 <td class="lg-num lg-pts">{{ score(f) }}</td>
                 <td class="lg-team-cell" :data-outcome="result(f, 'away')"><span class="lg-team-name">{{ f.away.team }}</span><small>{{ f.away.coach }}</small></td>
                 <td class="lg-num">{{ cas(f) }}</td>
-                <td class="lg-date">{{ day(fixtureTime(f)) }}</td>
+                <td class="lg-date">{{ day(fixtureTime(f) || f.date) }}</td>
                 <td>
                   <RouterLink class="tl-action lg-fx-link" :to="summaryLink(f)" :aria-label="`Fixture summary: ${f.home.team} against ${f.away.team}`">Summary</RouterLink>
                   <span v-for="m in marks(f)" :key="m" class="sf-chip" data-tone="muted">{{ m }}</span>
@@ -101,5 +103,6 @@ const cas = (f: LeagueFixture): string => (fixturePlayed(f) && f.home.cas !== nu
         </div>
       </div>
     </section>
+    <LeagueFixturesEditor v-if="manage && detail" :season="season" />
   </div>
 </template>

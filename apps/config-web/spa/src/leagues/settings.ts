@@ -177,8 +177,45 @@ export function createLeagueSettings(deps: { api: Fetcher }) {
 export type LeagueSettings = ReturnType<typeof createLeagueSettings>;
 export const LEAGUE_SETTINGS_KEY: InjectionKey<LeagueSettings> = Symbol("league-settings");
 
-/** The season the season actions act on: the open one, else none. */
-export const openSeason = (seasons: SeasonSummary[]): SeasonSummary | undefined => seasons.find((s) => s.status === "active");
+/** The newest season in progress (seasons may overlap: owner 10-30), else none. */
+export const openSeason = (seasons: SeasonSummary[]): SeasonSummary | undefined => openSeasons(seasons)[0];
+
+/** Every season in progress, newest first (Finish season picks one of them). */
+export const openSeasons = (seasons: SeasonSummary[]): SeasonSummary[] => [...seasons].filter((s) => s.status === "active").sort((a, b) => b.number - a.number);
+
+export const DEFAULT_TREASURY_K = 1000;
+
+/** True when the row still has the defaults (1,000k treasury, no starting skills). */
+export const isDefaultRule = (r: TeamBuildingRosterRule): boolean =>
+  r.treasury === DEFAULT_TREASURY_K && r.startingSkills.primary === 0 && r.startingSkills.secondary === 0 && r.startingSkills.elite === 0;
+
+const sameRule = (a: TeamBuildingRosterRule, b: TeamBuildingRosterRule): boolean =>
+  a.treasury === b.treasury && a.startingSkills.primary === b.startingSkills.primary && a.startingSkills.secondary === b.startingSkills.secondary && a.startingSkills.elite === b.startingSkills.elite;
+
+/**
+ * "Apply to all rosters in this tier": the other rosters of the source row's tier that would change, and those of them
+ * holding non-default values (the page asks before overwriting those).
+ */
+export function tierFillPlan(rows: TeamBuildingRosterRule[], roster: string): { targets: string[]; overwrites: string[] } {
+  const src = rows.find((r) => r.roster === roster);
+  if (!src) return { targets: [], overwrites: [] };
+  const others = rows.filter((r) => r.roster !== roster && r.tier === src.tier && !sameRule(r, src));
+  return { targets: others.map((r) => r.roster), overwrites: others.filter((r) => !isDefaultRule(r)).map((r) => r.roster) };
+}
+
+/** Copies the source row's treasury and Primary / Secondary / Elite starting skills onto every roster of its tier (in place). */
+export function applyTierFill(rows: TeamBuildingRosterRule[], roster: string): number {
+  const src = rows.find((r) => r.roster === roster);
+  if (!src) return 0;
+  let n = 0;
+  for (const r of rows) {
+    if (r === src || r.tier !== src.tier || sameRule(r, src)) continue;
+    r.treasury = src.treasury;
+    r.startingSkills = { ...src.startingSkills };
+    n++;
+  }
+  return n;
+}
 
 /** Next season defaults for the Start a new season dialog. */
 export function nextSeasonDefaults(seasons: SeasonSummary[], leagueRuleset: string): { number: number; name: string; ruleset: string } {

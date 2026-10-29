@@ -60,6 +60,10 @@ export interface LeagueFixture {
   finishedAt?: string;
   /** An admin allowed this fixture on Super FUMBBL. */
   forkEnabled?: boolean;
+  /** Scheduled date (YYYY-MM-DD) from the organiser fixtures editor. */
+  date?: string;
+  /** Test data (Discord posts carry "[Test]"). */
+  test?: boolean;
   /** Admin per-game settings: a late launch is allowed / Super FUMBBL play is cancelled. */
   forkAllowLate?: boolean;
   forkCancelled?: boolean;
@@ -127,6 +131,9 @@ export interface FixtureSummary {
   fork: FixtureForkView;
   forkAvailable: boolean;
 }
+
+/** League news (Overview): pinned first, then newest first; bodies in markdown-lite. */
+export interface LeagueNewsPost { id: string; title: string; body: string; by: string; at: string; pinned: boolean; editedAt?: string }
 
 export interface StandingRow {
   group: string;
@@ -262,6 +269,7 @@ export interface SeasonRecord {
   /** Honour totals the export could not pin to one player (absent on files imported before it existed). */
   unattributedStats?: UnattributedStats[];
   importedAt: string;
+  news?: LeagueNewsPost[];
 }
 
 export type StatsScope = "bb2020" | "bb2025" | "all";
@@ -370,6 +378,9 @@ export interface RedraftBoardView {
   revision: number;
   source: { id: string; name: string; number: number; ruleset: string } | null;
   target: { id: string; name: string } | null;
+  /** Pickers: every finished season (redraft from), and the seasons after the source (draft lists go into). */
+  sources?: Array<{ id: string; name: string }>;
+  targets?: Array<{ id: string; name: string; status: string }>;
   state: { startedAt: string; byCoach: string; capEnabled: boolean; cap: number; revision: number; closedAt?: string; closedBy?: string; log: RedraftLogEntry[] } | null;
   capEnabled: boolean;
   cap: number;

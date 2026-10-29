@@ -6,7 +6,7 @@ import { ApiError } from "../shared/api";
 import { resolveCrest } from "../tabletop/art";
 import type { Fetcher } from "../session";
 import type {
-  FormerPlayer, HonourTable, HonourValue, LeagueFixture, LeaguePhase, LeaguePlayer, LeagueStats, LeagueSummary, LeagueTeam, SeasonRecord, SeasonSummary, StatsScope,
+  FormerPlayer, HonourTable, HonourValue, LeagueFixture, LeagueNewsPost, LeaguePhase, LeaguePlayer, LeagueStats, LeagueSummary, LeagueTeam, SeasonRecord, SeasonSummary, StatsScope,
 } from "./types";
 
 const errorText = (err: unknown, fallback: string): string => (err instanceof Error && err.message ? err.message : fallback);
@@ -65,6 +65,26 @@ export interface LeagueDetailState {
   /** Fixture whose Super FUMBBL switch is saving, and the last error. */
   forkBusy: string;
   forkError: string;
+  /** League news / fixtures editor write in flight ("news", "news:<id>", "fixture", "fixture:<id>") and its outcome. */
+  editBusy: string;
+  editError: string;
+  editNotice: string;
+}
+
+/** News as the panel lists it: pinned first, then newest first. */
+export function newsList(season: Pick<SeasonRecord, "news"> | undefined): LeagueNewsPost[] {
+  return [...(season?.news ?? [])].sort((a, b) => Number(b.pinned) - Number(a.pinned) || Date.parse(b.at) - Date.parse(a.at) || b.id.localeCompare(a.id));
+}
+
+export interface NewFixtureForm { home: string; away: string; round: number | null; phaseId: string; date: string; test: boolean }
+
+/** The first problem with an Add fixture form ("" = send it); the server checks the same rules. */
+export function newFixtureError(f: NewFixtureForm): string {
+  if (!f.home || !f.away) return "Pick both teams.";
+  if (f.home === f.away) return "A team cannot play itself.";
+  if (typeof f.round !== "number" || !Number.isInteger(f.round) || f.round < 1 || f.round > 99) return "Round: 1 to 99.";
+  if (f.date && !/^\d{4}-\d{2}-\d{2}$/.test(f.date)) return "Date must look like 2026-11-05.";
+  return "";
 }
 
 export type RawUploader = (path: string, body: Blob) => Promise<unknown>;
@@ -81,7 +101,7 @@ const fetchUpload: RawUploader = async (path, body) => {
 export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader }) {
   const state = reactive<LeagueDetailState>({
     id: "", league: null, seasons: [], loaded: false, error: "", season: {}, seasonLoading: "", seasonError: "", crests: {},
-    artBusy: "", artError: "", artNotice: "", forkBusy: "", forkError: "",
+    artBusy: "", artError: "", artNotice: "", forkBusy: "", forkError: "", editBusy: "", editError: "", editNotice: "",
   });
   async function load(id: string): Promise<void> {
     state.id = id;
@@ -132,8 +152,47 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
   }
   const base = (): string => `/api/leagues/${encodeURIComponent(state.id)}`;
   const label = (kind: "logo" | "banner"): string => (kind === "logo" ? "Logo" : "Header bar");
+  /** One organiser write (news / fixtures editor): busy key, error, notice; `apply` folds the answer into the season. */
+  async function edit<T>(key: string, task: () => Promise<T>, apply: (res: T) => void, notice: string): Promise<boolean> {
+    state.editBusy = key; state.editError = ""; state.editNotice = "";
+    try {
+      apply(await task());
+      state.editNotice = notice;
+      return true;
+    } catch (err) {
+      state.editError = errorText(err, "That did not save.");
+      return false;
+    } finally {
+      state.editBusy = "";
+    }
+  }
+  const seasonPath = (seasonId: string): string => `${base()}/seasons/${encodeURIComponent(seasonId)}`;
+  const putNews = (seasonId: string) => (res: { news?: LeagueNewsPost[] }): void => { const s = state.season[seasonId]; if (s) s.news = res.news ?? []; };
+  const putFixture = (seasonId: string) => (res: { fixture: LeagueFixture }): void => {
+    const s = state.season[seasonId];
+    if (!s) return;
+    const i = s.fixtures.findIndex((f) => f.id === res.fixture.id);
+    if (i >= 0) s.fixtures[i] = res.fixture; else s.fixtures.push(res.fixture);
+  };
   return {
     state, load, ensureSeason,
+    postNews: (seasonId: string, input: { title: string; body: string; pinned: boolean }) =>
+      edit("news", () => deps.api<{ news: LeagueNewsPost[] }>(`${seasonPath(seasonId)}/news`, { method: "POST", body: input }), putNews(seasonId), "News posted."),
+    editNews: (seasonId: string, id: string, patch: { title?: string; body?: string; pinned?: boolean }) =>
+      edit(`news:${id}`, () => deps.api<{ news: LeagueNewsPost[] }>(`${seasonPath(seasonId)}/news/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }), putNews(seasonId), "News updated."),
+    deleteNews: (seasonId: string, id: string) =>
+      edit(`news:${id}`, () => deps.api<{ news: LeagueNewsPost[] }>(`${seasonPath(seasonId)}/news/${encodeURIComponent(id)}`, { method: "DELETE" }), putNews(seasonId), "News deleted."),
+    createFixture: (seasonId: string, form: NewFixtureForm) =>
+      edit("fixture", () => deps.api<{ fixture: LeagueFixture }>(`${seasonPath(seasonId)}/fixtures`, {
+        method: "POST", body: { home: form.home, away: form.away, round: form.round, ...(form.phaseId ? { phaseId: form.phaseId } : {}), ...(form.date ? { date: form.date } : {}), ...(form.test ? { test: true } : {}) },
+      }), putFixture(seasonId), "Fixture added."),
+    editFixture: (seasonId: string, id: string, patch: { date?: string | null; round?: number; result?: { home: number; away: number; homeCas?: number | null; awayCas?: number | null } | null }) =>
+      edit(`fixture:${id}`, () => deps.api<{ fixture: LeagueFixture }>(`${seasonPath(seasonId)}/fixtures/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }), putFixture(seasonId), "Fixture saved."),
+    deleteFixture: (seasonId: string, id: string) =>
+      edit(`fixture:${id}`, () => deps.api(`${seasonPath(seasonId)}/fixtures/${encodeURIComponent(id)}`, { method: "DELETE" }), () => {
+        const s = state.season[seasonId];
+        if (s) s.fixtures = s.fixtures.filter((f) => f.id !== id);
+      }, "Fixture deleted."),
     uploadArt: (kind: "logo" | "banner", image: Blob) => art(kind, () => (deps.upload ?? fetchUpload)(`${base()}/${kind}`, image), `${label(kind)} updated.`),
     removeArt: (kind: "logo" | "banner") => art(kind, () => deps.api(`${base()}/${kind}`, { method: "DELETE" }), `${label(kind)} removed.`),
     /** League admins: allow (or stop allowing) one fixture on Super FUMBBL; the server notifies the coaches and admins. */

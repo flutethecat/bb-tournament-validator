@@ -298,3 +298,17 @@
   .lg-fixture-match { grid-template-columns: 1fr; text-align: center; }
   .lg-fixture-side, .lg-fixture-side.lg-fx-away { text-align: center; }
 }
+
+/* League news (Overview) and the fixtures editor (Fixtures, organisers). */
+.lg-news { margin-bottom: 16px; }
+.lg-news-body { display: grid; gap: 12px; padding: 12px 16px 16px; }
+.lg-news-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.lg-news-item { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--ui-border); border-radius: 6px; }
+.lg-news-item[data-pinned="true"] { border-color: var(--ui-primary); }
+.lg-news-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lg-news-title { margin: 0; font-size: 16px; color: var(--ui-text); }
+.lg-news-meta { margin: 0; color: var(--ui-muted); }
+.lg-fx-editor .ls-form, .lg-fx-editor > .lobby-error, .lg-fx-editor > .hm-notice { padding: 12px 16px; }
+.lg-fx-score-edit { white-space: nowrap; }
+.lg-fx-score-edit input { width: 56px; }
+.lg-fx-edit-table td { vertical-align: middle; }

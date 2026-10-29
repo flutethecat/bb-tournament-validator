@@ -61,6 +61,21 @@ const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US
           Budget = initial treasury + treasury left + 20k per league game played + 20k per win + 10k per draw.
           Re-hiring a player costs their value + a 20k agent fee per season played. {{ view.note }}
         </p>
+        <div v-if="!started && ((view.sources?.length ?? 0) > 1 || (view.targets?.length ?? 0) > 1)" class="lg-toolbar rd-picks">
+          <label class="lg-select">
+            <span>Redraft from</span>
+            <select :value="view.source.id" :disabled="busy" @change="board.pickSource(($event.target as HTMLSelectElement).value)">
+              <option v-for="s in view.sources ?? []" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+          </label>
+          <label class="lg-select">
+            <span>Draft lists go into</span>
+            <select :value="view.target?.id ?? ''" :disabled="busy || !(view.targets?.length)" @change="board.pickTarget(($event.target as HTMLSelectElement).value)">
+              <option v-if="!view.target" value="">The next season (not started)</option>
+              <option v-for="s in view.targets ?? []" :key="s.id" :value="s.id">{{ s.name }}{{ s.status === "active" ? " (in progress)" : " (finished)" }}</option>
+            </select>
+          </label>
+        </div>
         <div v-if="!started" class="ls-actions rd-cap">
           <label class="ls-check"><input v-model="state.capEnabled" type="checkbox" /> Cap budgets at</label>
           <label class="ls-field rd-cap-amount"><span class="tn-sr">Cap in thousands</span><input v-model.number="capK" type="number" min="0" max="5000" step="10" :disabled="!state.capEnabled" inputmode="numeric" aria-label="Budget cap in thousands" /></label>

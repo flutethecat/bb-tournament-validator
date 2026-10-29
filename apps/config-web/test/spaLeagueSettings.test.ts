@@ -4,10 +4,10 @@ import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import {
-  createLeagueSettings, isSettingsTab, isWebhookUrl, nextSeasonDefaults, openSeason, postcodeError, teamBuildingError,
+  applyTierFill, createLeagueSettings, isSettingsTab, isWebhookUrl, nextSeasonDefaults, openSeason, openSeasons, postcodeError, teamBuildingError, tierFillPlan,
 } from "../spa/src/leagues/settings";
-import { createLeagueDetail } from "../spa/src/leagues/league";
-import type { LeagueFixture, LeagueSettingsView, LeagueSummary, SeasonRecord, SeasonSummary } from "../spa/src/leagues/types";
+import { createLeagueDetail, newFixtureError, newsList } from "../spa/src/leagues/league";
+import type { LeagueFixture, LeagueSettingsView, LeagueSummary, SeasonRecord, SeasonSummary, TeamBuildingRosterRule } from "../spa/src/leagues/types";
 
 // SPA League settings: the controller and helpers, every tab server-rendered against a mocked Fetcher, the cog on the
 // league page by role, and the per-fixture Super FUMBBL switch.
@@ -78,6 +78,64 @@ const API: Routes = {
 };
 
 describe("league settings helpers and controller", () => {
+  it("overlapping seasons: every open season, newest first; the newest is the current one", () => {
+    const s7: SeasonSummary = { ...s6, id: "season-7", number: 7, name: "Season 7" };
+    expect(openSeasons([s5, s6, s7]).map((s) => s.id)).toEqual(["season-7", "season-6"]);
+    expect(openSeason([s6, s7, s5])!.id).toBe("season-7");
+  });
+
+  it("Apply to all rosters in this tier: fills treasury + P/S/E of the same tier only; flags non-default rows", () => {
+    const r = (roster: string, tier: number, treasury = 1000, p = 0, s = 0, e = 0): TeamBuildingRosterRule => ({ roster, tier, treasury, startingSkills: { primary: p, secondary: s, elite: e } });
+    const rows = [r("Amazon", 1, 1100, 1, 0, 1), r("Dwarf", 1), r("Lizardmen", 1, 1000, 0, 2, 0), r("Orc", 2), r("Wood Elf", 1, 1100, 1, 0, 1)];
+    expect(tierFillPlan(rows, "Amazon")).toEqual({ targets: ["Dwarf", "Lizardmen"], overwrites: ["Lizardmen"] });
+    expect(tierFillPlan(rows, "Nobody")).toEqual({ targets: [], overwrites: [] });
+    expect(applyTierFill(rows, "Amazon")).toBe(2);
+    expect(rows.find((x) => x.roster === "Dwarf")).toEqual(r("Dwarf", 1, 1100, 1, 0, 1));
+    expect(rows.find((x) => x.roster === "Lizardmen")).toEqual(r("Lizardmen", 1, 1100, 1, 0, 1));
+    expect(rows.find((x) => x.roster === "Orc")).toEqual(r("Orc", 2)); // another tier: untouched
+    rows[0]!.startingSkills.primary = 3;
+    expect(rows[1]!.startingSkills.primary).toBe(1); // copies, not shared objects
+    expect(applyTierFill(rows, "Orc")).toBe(0);
+  });
+
+  it("league detail: news and fixtures editor writes fold the answer into the season", async () => {
+    const post = { id: "n1", title: "Hi", body: "There", by: "Jay", at: "2026-11-01T00:00:00.000Z", pinned: false };
+    const made = fx("f9", false, { round: 2, date: "2026-11-05" });
+    const f = mockFetcher({
+      ...API,
+      "POST /api/leagues/tabbl/seasons/season-6/news": { post, news: [post] },
+      "PATCH /api/leagues/tabbl/seasons/season-6/news/n1": { post: { ...post, pinned: true }, news: [{ ...post, pinned: true }] },
+      "DELETE /api/leagues/tabbl/seasons/season-6/news/n1": { news: [] },
+      "POST /api/leagues/tabbl/seasons/season-6/fixtures": { ok: true, fixture: made },
+      "PATCH /api/leagues/tabbl/seasons/season-6/fixtures/f9": { ok: true, fixture: { ...made, home: { ...made.home, score: 1 }, away: { ...made.away, score: 0 } } },
+      "DELETE /api/leagues/tabbl/seasons/season-6/fixtures/f2": { ok: true },
+      "DELETE /api/leagues/tabbl/seasons/season-6/fixtures/f3": new ApiError(409, "This fixture has a result: clear the result before deleting it."),
+    });
+    const d = createLeagueDetail({ api: f });
+    await d.load("tabbl");
+    await d.ensureSeason("season-6");
+    expect(await d.postNews("season-6", { title: "Hi", body: "There", pinned: false })).toBe(true);
+    expect(d.state.season["season-6"]!.news).toEqual([post]);
+    await d.editNews("season-6", "n1", { pinned: true });
+    expect(d.state.season["season-6"]!.news![0]!.pinned).toBe(true);
+    await d.deleteNews("season-6", "n1");
+    expect(d.state.season["season-6"]!.news).toEqual([]);
+    expect(await d.createFixture("season-6", { home: "a", away: "b", round: 2, phaseId: "season-regular", date: "2026-11-05", test: true })).toBe(true);
+    expect(f.calls.at(-1)!.body).toEqual({ home: "a", away: "b", round: 2, phaseId: "season-regular", date: "2026-11-05", test: true });
+    expect(d.state.season["season-6"]!.fixtures.map((x) => x.id)).toEqual(["f1", "f2", "f3", "f9"]);
+    await d.editFixture("season-6", "f9", { result: { home: 1, away: 0 } });
+    expect(d.state.season["season-6"]!.fixtures.find((x) => x.id === "f9")!.home.score).toBe(1);
+    await d.deleteFixture("season-6", "f2");
+    expect(d.state.season["season-6"]!.fixtures.map((x) => x.id)).toEqual(["f1", "f3", "f9"]);
+    expect(await d.deleteFixture("season-6", "f3")).toBe(false);
+    expect(d.state.editError).toContain("clear the result");
+    expect(newFixtureError({ home: "a", away: "a", round: 1, phaseId: "", date: "", test: false })).toBe("A team cannot play itself.");
+    expect(newFixtureError({ home: "a", away: "b", round: 0, phaseId: "", date: "", test: false })).toBe("Round: 1 to 99.");
+    expect(newFixtureError({ home: "a", away: "b", round: 1, phaseId: "", date: "", test: false })).toBe("");
+    expect(newsList({ news: [post, { ...post, id: "n0", pinned: true, at: "2020-01-01T00:00:00.000Z" }] }).map((n) => n.id)).toEqual(["n0", "n1"]);
+  });
+
+
   it("postcodes, webhook URL shape, tabs, ranges, next season", () => {
     expect(postcodeError("US", "98101")).toBe("");
     expect(postcodeError("US", "98101-1234")).toBe("");
@@ -218,7 +276,8 @@ describe("league settings routes (server-rendered)", () => {
     expect(html).not.toContain("New owner"); // only admins change the owner
     expect(html).toContain("Season 6 in progress");
     expect(html).toContain(">Finish season</button>");
-    expect(html).toMatch(/<button[^>]*disabled[^>]*>Start a new season<\/button>/); // a season is open
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Start a new season<\/button>/); // seasons may overlap
+    expect(html).toContain("Seasons may overlap");
     expect(html).toContain(">Start redraft</button>");
   });
 
@@ -248,6 +307,37 @@ describe("league settings routes (server-rendered)", () => {
     expect(html).toContain('value="1100"');
     expect(html).toContain("Elite skills: Block, Guard, Mighty Blow, Dodge.");
     expect(html).toContain("Season 6 · BB2025");
+    expect(html).toContain(">Apply to all rosters in this tier</button>");
+    expect(html).toContain("Apply Black Orc&#39;s treasury and starting skills to all rosters in tier 2");
+  });
+
+  it("Administration with two seasons in progress: Finish season picks which one", async () => {
+    const s7: SeasonSummary = { ...s6, id: "season-7", number: 7, name: "Season 7" };
+    const { html } = await render("/leagues/tabbl/settings", loaded({ "/api/leagues/tabbl": { league: league(), seasons: [s5, s6, s7] } }), ORGANISER);
+    expect(html).toContain("2 seasons in progress");
+    expect(html).toContain("Season to finish");
+    expect(html).toMatch(/<option value="season-6">Season 6<\/option>/);
+  });
+
+  it("league page: League news on Overview (composer for organisers), fixtures editor on Fixtures", async () => {
+    const withNews = () => ({ league: league(), season: { ...season6(), news: [
+      { id: "n1", title: "Old news", body: "Plain.", by: "Jay", at: "2026-10-01T00:00:00.000Z", pinned: false },
+      { id: "n2", title: "Pinned rules", body: "Read **this**.", by: "Jay", at: "2026-09-01T00:00:00.000Z", pinned: true },
+    ], teams: [{ id: "grudge", name: "Grudge Rollers", race: "Dwarf", coach: "Jay", teamValue: null, treasury: null, rerolls: null, fans: null, assistantCoaches: null, cheerleaders: null, apothecary: false, tier: "", raceLeague: "", players: [], formerPlayers: [] }] } });
+    const extra = { "/api/leagues/tabbl/seasons/season-6": withNews };
+    const org = await render("/leagues/tabbl", detail, ORGANISER, extra);
+    expect(org.html).toContain("League news");
+    expect(org.html).toContain(">Post news</button>");
+    expect(org.html.indexOf("Pinned rules")).toBeLessThan(org.html.indexOf("Old news"));
+    expect(org.html).toContain('class="tn-md"'); // MarkdownLite body
+    const anon = await render("/leagues/tabbl", detail, ANON);
+    expect(anon.html).not.toContain("League news"); // no news, no composer
+    const fixtures = await render("/leagues/tabbl?tab=fixtures", detail, ORGANISER, extra);
+    expect(fixtures.html).toContain("Fixtures editor");
+    expect(fixtures.html).toContain(">Add fixture</button>");
+    expect(fixtures.html).toContain("Grudge Rollers (Jay)");
+    expect(fixtures.html).toContain(">Save result</button>");
+    expect((await render("/leagues/tabbl?tab=fixtures", detail, COACH)).html).not.toContain("Fixtures editor");
   });
 
   it("External connections: NAF disabled note, export link, masked webhook only, Super FUMBBL toggle", async () => {
