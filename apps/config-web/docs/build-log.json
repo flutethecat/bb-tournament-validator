@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Simpler sidebar: Home carries the unread badge",
+    "body": "The Coach page section is gone from the left sidebar: it was one page with a long list of links to itself. Home, in the Pages list, now carries a small badge instead. It shows your unread notifications (and, once they arrive, unread messages and proposed match times), updates as they come in, and disappears when there is nothing waiting. On the narrow rail the Home letter keeps a little count in its corner. The bell's list and the sections on the Home page are unchanged.",
+    "links": [
+      {
+        "label": "Home",
+        "href": "/app/home"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Tournament pages: banner, details and news",
     "body": "A tournament now has a front page of its own. Organisers can upload a banner (landscape, up to 1 MB), set the location, start time, entry fee, a summary and notes, registration and check-in deadlines, and post news; pinned posts stay on top. Text supports bold, italic, links and lists. Entrants get a notification when news is posted. The ruleset links open the Tournament Team Builder with the package preselected, and Edit ruleset opens the Tournament Creator.",
     "links": [
