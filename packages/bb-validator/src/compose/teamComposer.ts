@@ -21,7 +21,10 @@ import {
   findRoster,
   findStar,
   normName,
+  rosterHasTeamCaptain,
   skillAccess,
+  TEAM_CAPTAIN,
+  TEAM_CAPTAIN_FREE_SKILL,
   starEligibleForLeagueSelection,
 } from "../dataset/lookup";
 import type { Roster, RosterPlayer, Target } from "../model/roster";
@@ -104,6 +107,13 @@ export interface TeamPick {
    * the team XML the same way custom-mode chosenStats are. Repeats = multiple steps.
    */
   chosenStatIncreases?: Array<"MA" | "PA" | "AV" | "AG" | "ST">;
+  /**
+   * BB2025 Team Captain nomination (https://bloodbowlbase.ru/bb2025/core_rules/the_teams/#team-captain): only on a
+   * roster with the Team Captain special rule, never a Big Guy or a Star, `count` 1, at most one per team. The
+   * player gains the "Team Captain" trait and Pro for free (no gold, no package skill limits); both are written to
+   * the team XML because the FFB server reads the captain's Pro as a listed skill. Optional: omit for no captain.
+   */
+  captain?: boolean;
 }
 
 export interface ComposeInput {
@@ -523,10 +533,22 @@ export function composeTeamIntrinsic(input: ComposeIntrinsicInput, now = Date.no
   const perName = new Map<string, number>(); // display numbering per position name
   const perPosition = new Map<string, number>(); // positionId → total picked (for the cap check)
   let bigGuyCount = 0;
+  const captainEligible = rosterHasTeamCaptain(specialRules);
+  let captains = 0;
 
   for (const pick of input.picks) {
     const forkPos = byId.get(pick.positionId);
     if (!forkPos) throw new Error(`positionId "${pick.positionId}" is not in the ${fork.raceName} roster.`);
+    const captain = checkCaptainPick(pick, {
+      rosterName: fork.raceName,
+      eligible: captainEligible,
+      positionName: forkPos.name,
+      bigGuy: /big\s*guy/i.test(forkPos.type),
+      star: forkPos.isStar,
+      taken: captains,
+    }) > 0;
+    if (captain) captains++;
+    const captainSkills: string[] = captain ? [...CAPTAIN_SKILLS] : [];
     const count = Math.max(0, pick.count | 0);
     perPosition.set(pick.positionId, (perPosition.get(pick.positionId) ?? 0) + count);
     for (let i = 0; i < count; i++) {
@@ -542,7 +564,7 @@ export function composeTeamIntrinsic(input: ComposeIntrinsicInput, now = Date.no
         AG: plus(forkPos.AG),
         PA: plus(forkPos.PA),
         AV: avTarget(forkPos.AV),
-        skills: [...(forkPos.skills ?? [])],
+        skills: [...(forkPos.skills ?? []), ...captainSkills],
         keywords: [],
         cost: forkPos.cost ?? 0,
       });
@@ -550,7 +572,8 @@ export function composeTeamIntrinsic(input: ComposeIntrinsicInput, now = Date.no
       xmlPlayers.push(
         `\t<player nr="${nr}" id="${teamId}${nr}"><name>${xmlEscape(playerName)}</name>` +
           `<gender>${xmlEscape(forkPos.gender)}</gender><positionId>${xmlEscape(pick.positionId)}</positionId>` +
-          `<playerStatistics currentSpps="0" earnedSpps="0"></playerStatistics><skillList></skillList><injuryList/></player>`,
+          `<playerStatistics currentSpps="0" earnedSpps="0"></playerStatistics>` +
+          `<skillList>${captainSkills.map((s) => `<skill>${xmlEscape(s)}</skill>`).join("")}</skillList><injuryList/></player>`,
       );
     }
   }
@@ -669,6 +692,28 @@ function resolveChosenSkills(
   return accepted;
 }
 
+/**
+ * Team Captain checks for one pick (client-safe messages). `taken` is how many captains earlier picks named.
+ * Returns how many captains this pick adds (0 or 1). Server-authoritative: the builder only offers legal choices.
+ */
+function checkCaptainPick(
+  pick: TeamPick,
+  ctx: { rosterName: string; eligible: boolean; positionName: string; bigGuy: boolean; star: boolean; taken: number },
+): number {
+  if (pick.captain !== true) return 0;
+  const count = Math.max(0, pick.count | 0);
+  if (!ctx.eligible) throw new Error(`${ctx.rosterName} teams cannot nominate a Team Captain.`);
+  if (ctx.star) throw new Error(`Star player ${ctx.positionName} cannot be Team Captain.`);
+  if (ctx.bigGuy) throw new Error(`${ctx.positionName} is a Big Guy and cannot be Team Captain.`);
+  if (count > 1 || ctx.taken + count > 1) throw new Error("Only one player can be nominated as Team Captain.");
+  if ((pick.chosenSkills ?? []).some((s) => normName(s) === normName(TEAM_CAPTAIN_FREE_SKILL)))
+    throw new Error(`${ctx.positionName} already gains Pro as Team Captain; remove the chosen Pro.`);
+  return count;
+}
+
+/** The captain's free grants, in the order the team XML lists them. */
+const CAPTAIN_SKILLS = [TEAM_CAPTAIN, TEAM_CAPTAIN_FREE_SKILL] as const;
+
 const STAT_KEYS = new Set(["MA", "ST", "AG", "PA", "AV"]);
 const targetNum = (t: string): number | undefined => {
   const m = /^(\d+)\+$/.exec(t.trim());
@@ -737,6 +782,8 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     dsRoster.name,
   );
   const byId = new Map(fork.positions.map((p) => [p.positionId, p]));
+  const captainEligible = rosterHasTeamCaptain(dsRoster.specialRules);
+  let captains = 0;
 
   const teamId = mintTeamId(input.coach, fork.raceName, now);
   const players: RosterPlayer[] = [];
@@ -749,6 +796,9 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     const forkPos = byId.get(pick.positionId);
     if (!forkPos) throw new Error(`positionId "${pick.positionId}" is not in the ${fork.raceName} roster.`);
     if (forkPos.isStar) {
+      checkCaptainPick(pick, {
+        rosterName: dsRoster.name, eligible: captainEligible, positionName: forkPos.name, bigGuy: false, star: true, taken: captains,
+      });
       const star = findStar(data, forkPos.name);
       if (specialRule && star && !starEligibleForLeagueSelection(star, leagueOptions, specialRule))
         throw new Error(`Star player ${forkPos.name} is not eligible under ${specialRule}.`);
@@ -786,12 +836,23 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
     }
     const dsPos = findPosition(dsRoster, forkPos.name);
     if (!dsPos) throw new Error(`Position "${forkPos.name}" is not in the ${fork.raceName} dataset roster.`);
+    const captain = checkCaptainPick(pick, {
+      rosterName: dsRoster.name,
+      eligible: captainEligible,
+      positionName: dsPos.name,
+      bigGuy: dsPos.type === "bigguy",
+      star: false,
+      taken: captains,
+    }) > 0;
+    if (captain) captains++;
+    const captainSkills: string[] = captain ? [...CAPTAIN_SKILLS] : [];
     // Tournament builder: roster-legal chosen skills for this pick, applied to each of its `count` copies.
     // Custom UAT mode (owner 08-04): apply ANY chosen skill/trait as-is — no roster-legal check.
     const chosenSkills = input.custom
       ? (pick.chosenSkills ?? []).map((s) => s.trim()).filter(Boolean)
       : resolveChosenSkills(data, dsPos, pick.chosenSkills);
-    const chosenSkillXml = chosenSkills.map((s) => `<skill>${xmlEscape(s)}</skill>`).join("");
+    // The captain's trait + free Pro ride the player's skillList (upstream FFB SkillMechanic reads Pro there).
+    const chosenSkillXml = [...captainSkills, ...chosenSkills].map((s) => `<skill>${xmlEscape(s)}</skill>`).join("");
     const chosenStats = applyStatIncreases(
       dsPos,
       input.custom === true ? pick.chosenStats : undefined,
@@ -818,7 +879,7 @@ export function composeTeam(input: ComposeInput, data: Dataset, now = Date.now()
         AG: chosenStats?.AG !== undefined ? plus(chosenStats.AG) : dsPos.AG,
         PA: chosenStats?.PA !== undefined ? plus(chosenStats.PA) : dsPos.PA,
         AV: chosenStats?.AV !== undefined ? avTarget(chosenStats.AV) : dsPos.AV,
-        skills: [...dsPos.skills, ...chosenSkills],
+        skills: [...dsPos.skills, ...captainSkills, ...chosenSkills],
         keywords: [...dsPos.keywords],
         cost: dsPos.cost,
       });

@@ -134,10 +134,36 @@ export function skillAccess(data: Dataset, position: DatasetPosition, skill: str
   return "illegal";
 }
 
-/** Diff a player's printed skills against the position's base skills → added skills. */
+/** BB2025 Team Captain (https://bloodbowlbase.ru/bb2025/core_rules/the_teams/#team-captain): the roster special
+ *  rule, and the trait the nominated player carries (upstream FFB `TeamCaptain` skill). */
+export const TEAM_CAPTAIN = "Team Captain";
+/** The free skill a Team Captain gains. The FFB server expects it listed on the player next to the trait. */
+export const TEAM_CAPTAIN_FREE_SKILL = "Pro";
+
+/** Does this roster's special-rule list carry Team Captain (Human, Orc, …)? Dataset-driven, never a race list. */
+export function rosterHasTeamCaptain(specialRules: readonly string[] | undefined): boolean {
+  return (specialRules ?? []).some((rule) => normName(rule) === normName(TEAM_CAPTAIN));
+}
+
+/**
+ * Diff a player's printed skills against the position's base skills → added skills.
+ * A nominated Team Captain's grants (the "Team Captain" trait and ONE free "Pro") are not added skills: they cost
+ * nothing and never count towards a package's skill limits. Whether the nomination itself was legal is the
+ * team-captain rule's job.
+ */
 export function addedSkills(position: DatasetPosition, printedSkills: string[]): string[] {
   const base = new Set(position.skills.map(normName));
-  return printedSkills.filter((s) => !base.has(normName(s)));
+  const added = printedSkills.filter((s) => !base.has(normName(s)));
+  if (!added.some((s) => normName(s) === normName(TEAM_CAPTAIN))) return added;
+  let proFree = true;
+  return added.filter((s) => {
+    if (normName(s) === normName(TEAM_CAPTAIN)) return false;
+    if (proFree && normName(s) === normName(TEAM_CAPTAIN_FREE_SKILL)) {
+      proFree = false;
+      return false;
+    }
+    return true;
+  });
 }
 
 /** Normalized set of all known star-player names (generic, all teams). */

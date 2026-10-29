@@ -8,7 +8,7 @@ import { MAX_STAT_STEPS, starPackPicks, statIncreasesGold, statIncreasesOf, stat
 import { skillsGold } from "../cost/costGold";
 import { inducementIdForName, inducementReducedFor } from "../dataset/inducements";
 import type { Dataset } from "../dataset/types";
-import { canonSkill, decodeEntities, findRoster, findSkill, findStar, isStarName, normName, starEligibleForTeam } from "../dataset/lookup";
+import { canonSkill, decodeEntities, findRoster, findSkill, findStar, isStarName, normName, rosterHasTeamCaptain, starEligibleForTeam, TEAM_CAPTAIN, TEAM_CAPTAIN_FREE_SKILL } from "../dataset/lookup";
 import type { Finding } from "../model/findings";
 import { isCountPack, type SkillPackage, type TournamentPackage } from "../package/types";
 import { eligibleTeamNames, fitsSkillCounts, isEligible, resolveTeamConfig, sourceLabel, usesCountMode } from "../package/resolveConfig";
@@ -1013,6 +1013,43 @@ export const customTeamGate: Rule = {
       : [],
 };
 
+/**
+ * BB2025 Team Captain (https://bloodbowlbase.ru/bb2025/core_rules/the_teams/#team-captain): a roster with the
+ * Team Captain special rule may nominate ONE player, never a Big Guy or a Star, who gains Pro for free.
+ * addedSkills() treats the trait and one Pro as free grants, so this rule is what stops a forged nomination
+ * (wrong roster, Big Guy, Star, a second captain, a captain without its Pro) from riding free skills.
+ */
+export const teamCaptainRule: Rule = {
+  id: "team-captain",
+  check: ({ roster, players, datasetRoster, data }) => {
+    const isCaptain = (rp: ResolvedPlayer) => rp.player.skills.some((s) => normName(s) === normName(TEAM_CAPTAIN));
+    const captains = players.filter(isCaptain);
+    if (captains.length === 0) return [];
+    const findings: Finding[] = [];
+    const eligible = rosterHasTeamCaptain(datasetRoster?.specialRules ?? roster.specialRules);
+    if (!eligible)
+      findings.push(err("team-captain", `${roster.rosterName} teams cannot nominate a Team Captain.`, {
+        suggestion: "Remove the Team Captain nomination.",
+      }));
+    if (captains.length > 1)
+      findings.push(err("team-captain", `${captains.length} players are nominated as Team Captain; only one may be.`, {
+        expected: "1",
+        actual: String(captains.length),
+        suggestion: "Keep one Team Captain.",
+      }));
+    for (const rp of captains) {
+      const label = `#${rp.player.number} ${rp.player.positionName}`;
+      if (rp.position?.type === "bigguy")
+        findings.push(err("team-captain", `${label} is a Big Guy and cannot be Team Captain.`, { playerRef: rp.player.number }));
+      if (isStarName(data, rp.player.positionName))
+        findings.push(err("team-captain", `${label} is a Star Player and cannot be Team Captain.`, { playerRef: rp.player.number }));
+      if (!rp.player.skills.some((s) => normName(s) === normName(TEAM_CAPTAIN_FREE_SKILL)))
+        findings.push(err("team-captain", `${label} is Team Captain but is missing the free Pro skill.`, { playerRef: rp.player.number }));
+    }
+    return findings;
+  },
+};
+
 /** The M1 registry, in plan order. */
 export const ALL_RULES: Rule[] = [
   customTeamGate,
@@ -1033,4 +1070,5 @@ export const ALL_RULES: Rule[] = [
   inducements,
   sideline,
   specialRules,
+  teamCaptainRule,
 ];
