@@ -635,6 +635,16 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-rec \.tt-stats-half\[data-long="true"\] \{ font-size: 12px; \}/); // a longer label (overtime) shrinks
     expect(css1).toMatch(/\.tt-x \{[^}]*width: 40px; height: 40px;[^}]*box-shadow: var\(--tt-bevel\)/); // the close X on every popup
     expect(css1).toMatch(/\.tt-picker \.tt-roster-list li\.roster-row\.tt-rp-pick \{ grid-template-columns: 56px minmax\(140px, 1\.2fr\) 236px minmax\(120px, 1\.4fr\);/); // the picker's table-like rows
+    expect(css1).toContain("width: min(calc(var(--tt-col) - 40px), calc(100vw - 32px)); box-sizing: border-box; overflow-x: hidden;"); // popups never overflow the viewport
+    expect(css1).toContain("grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 0;"); // the picker's tab row shrinks
+    expect(css1).toMatch(/\.tt-rec \.tt-picker \* \{ min-width: 0; \}/);
+    expect(css1).toMatch(/\.tt-rosters \.roster-grid \{ grid-template-columns: 36px 56px minmax\(180px, 1fr\) 236px minmax\(0, 2fr\) 96px; column-gap: 12px; \}/); // number | sprite | name | stats | skills | SPP
+    expect(css1).toMatch(/\.tt-picker \.tt-roster-list li\.roster-row\.tt-rp-pick \{ grid-template-columns: 36px 56px minmax\(180px, 1fr\) 236px minmax\(0, 2fr\);/);
+    expect(css1).toMatch(/\.tt-rosters \.slot-number, \.tt-rosters-embed \.tt-rp-pick \.slot-number \{\s*display: flex;[^}]*width: 36px; height: 36px;[^}]*font-size: 16px;[^}]*box-shadow: var\(--tv-bezel\)/); // the number tile
+    expect(css1).toMatch(/\.tt-rosters \.row-stats, \.tt-picker \.tt-rp-pick \.row-stats \{ width: 236px; justify-self: start; \}/); // the stats start right after the name column
+    expect(css1).toMatch(/\.tt-rec \.tt-rail-btn, \.tt-rec \.tt-rail-btn\.tt-rail-other \{ display: grid; grid-template-columns: 32px 1fr; column-gap: 12px; align-items: center; justify-content: start; padding: 0 14px; text-align: left; \}/); // one inner grid on every rail button
+    expect(css1).toMatch(/\.tt-rec \.tt-rail-btn > span:not\(\.tt-glyph\) \{ grid-column: 2; text-align: left; \}/); // labels start at the same x (Other has no icon)
+    expect(css1).toMatch(/\.tt-rec \.tt-rail-btn > \.tt-glyph \{ grid-column: 1; justify-self: center; width: 24px; height: 24px; \}/);
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
@@ -672,7 +682,8 @@ describe("tabletop routes (server-rendered)", () => {
     const [hi, lo] = [lum(warn), lum(ink)].sort((a, b) => b - a);
     expect((hi! + 0.05) / (lo! + 0.05)).toBeGreaterThanOrEqual(4.5);
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
-    expect(css).toMatch(/\.tt-rail-injury \{[^}]*background: var\(--ui-warn\); color: var\(--ui-warn-contrast\)/);
+    expect(css).toMatch(/\.tt-rail-injury \{[^}]*background: var\(--ui-warn\); color: var\(--ui-text-on-primary, #ffffff\)/); // white lettering on the amber face, kept legible by the dark lettering shadow
+    expect(css).toMatch(/\.tt-rec \.tt-other-btn\[data-type="injury"\] \{ background: var\(--ui-warn\); color: var\(--ui-text-on-primary, #ffffff\);[^}]*text-shadow: var\(--tt-lettering-shadow/); // and the Other-grid tile
     expect(css).not.toContain("--tt-warn");
     const scarlet = /--ui-scarlet:\s*(#[0-9a-f]{6})/i.exec(fixed)![1]!;
     const scarletInk = /--ui-scarlet-contrast:\s*(#[0-9a-f]{6})/i.exec(fixed)![1]!;
@@ -720,7 +731,8 @@ describe("tabletop routes (server-rendered)", () => {
     expect(pick).toContain('class="row-stats"');
     expect(pick).toContain('class="skill skill-general"'.replace('class="skill skill-general"', 'skill-general'));
     const victim = await mount(mods.rosterRowC, { player: rich.away.players[0], side: "away", variant: "pick", obscured: true });
-    expect(victim).toContain("#7 · Catcher");
+    expect(victim).toContain(">Catcher</strong>"); // the position stands in for the name
+    expect(victim).toMatch(/class="slot-number tt-roster-nr"[^>]*>7<\/span>/); // the number is its own tile, left of the sprite
     expect(victim).not.toContain("Lirael"); // the name never reaches the markup
     const zeroPa = await mount(mods.rosterRowC, { player: { ...rich.away.players[0], pa: 0, printedStats: { ma: 8, st: 2, ag: 2, pa: 3, av: 8 } }, side: "away", variant: "pick" });
     expect(zeroPa).toContain("<b>-</b><small>PA</small>"); // a stored 0 reads "-", never "0+"
@@ -845,7 +857,8 @@ describe("tabletop routes (server-rendered)", () => {
     expect(struck).toContain("tt-ev--removed");
     const css = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
     expect(css).toMatch(/\.tt-ev--admin \{ background: color-mix\(in srgb, var\(--ui-admin, #ffd23d\) 22%, var\(--ui-surface-2/);
-    expect(css).toMatch(/\.tt-ev--removed \.tt-ev-text > \.tt-ev-name, \.tt-ev--removed \.tt-ev-text \{ text-decoration: line-through; \}/);
+    expect(css).toMatch(/\.tt-ev--removed \.tt-ev-line \{ text-decoration: line-through; opacity: \.55; \}/); // only the event line is struck
+    expect(css).toMatch(/\.tt-ev--removed \.tt-ev-removed \{ display: block; font-family: var\(--font-heading, sans-serif\); font-size: 11px; font-style: normal; text-decoration: none; opacity: 1;/); // the note is not
     const theme = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../public/theme.css", import.meta.url)), "utf8");
     expect(theme).toContain("--ui-admin: #ffd23d;");
   });
@@ -1214,7 +1227,7 @@ describe("tabletop routes (server-rendered)", () => {
       elig("a3", "Wisp", 9, {}, { throwTeamMate: false, rightStuff: true, foul: false }),
     ] },
   };
-  const names = (html: string) => [...html.matchAll(/class="tt-num-badge">#\d+<\/b>(\w+)<\/strong>/g)].map((m) => m[1]);
+  const names = (html: string) => [...html.matchAll(/class="tt-roster-name" data-seat="\w+">(?:<!---->)?(\w+)<\/strong>/g)].map((m) => m[1]);
 
   it("player lists: own roster only, available players only, filtered by the server's eligible flag; unavailable are omitted, not greyed", async () => {
     const open = (kind: string, visibleSides: string[]) => mount(mods.pickC, { kind: mods.feedMod.OTHER_EVENTS.find((o: any) => o.type === kind) ?? mods.feedMod.TD_EVENT, match: baseMatch("recording"), teams: ttmTeams, visibleSides });
@@ -1230,6 +1243,8 @@ describe("tabletop routes (server-rendered)", () => {
     expect(both).toMatch(/class="tt-roster-tab-name">Alice Orcs/); // an organiser picking from both teams gets team tabs, not headers
     expect(both).toMatch(/class="tt-roster-tab-name">Bob Elves/);
     expect(both).not.toContain("tt-pick-head");
+    expect(both.match(/class="tt-roster-tab tt-team-tab"/g)).toHaveLength(2); // the picker's tabs are the Rosters pane's shared tab component
+    expect(both).toContain("tt-crest-frame"); // crest frame, name, coach: the Rosters tab look
     expect(names(both)).toEqual(["Grob", "Snaga", "Fleet"]); // the first tab lists its own roster; the other is one tap away
     expect(mods.feedMod.visibleSidesFor("home", false, true)).toEqual(["home"]); // edit mode alone does not widen it
     expect(mods.feedMod.visibleSidesFor("away", true, false)).toEqual(["away"]); // nor does being an organiser

@@ -5,10 +5,11 @@
 import { computed } from "vue";
 import { createTtmFlow, type TtmSpec } from "../tabletop/ttm";
 import type { MatchView, ServerTally, Side, TeamView } from "../tabletop/recorder";
+import type { ArtManifests } from "../tabletop/art";
 import TabletopPlayerPicker from "./TabletopPlayerPicker.vue";
 import TabletopSheetHead from "./TabletopSheetHead.vue";
 
-const props = defineProps<{ match: MatchView; teams: Record<Side, TeamView | undefined>; tally: ServerTally; visibleSides: Side[] }>();
+const props = defineProps<{ match: MatchView; teams: Record<Side, TeamView | undefined>; tally: ServerTally; visibleSides: Side[]; art?: ArtManifests }>();
 const emit = defineEmits<{ (e: "post", spec: TtmSpec): void; (e: "close"): void }>();
 
 const { st, throwers, thrownGroups, finish, choose, answerSuperb, answerLanded } = createTtmFlow({
@@ -22,11 +23,11 @@ const filterOf = (groups: Groups) => (p: { id: string }, side: Side): boolean =>
 
 <template>
   <TabletopPlayerPicker
-    v-if="st.step === 'thrower' && throwers.length" title="Throw Team-mate - who threw?" :match="match" :teams="teams" :sides="sidesOf(throwers)" :filter="filterOf(throwers)"
+    v-if="st.step === 'thrower' && throwers.length" title="Throw Team-mate - who threw?" :match="match" :teams="teams" :sides="sidesOf(throwers)" :filter="filterOf(throwers)" :art="art"
     @pick="(side, id) => choose(side, id)" @cancel="emit('close')"
   />
   <TabletopPlayerPicker
-    v-else-if="st.step === 'thrown' && thrownGroups.length" title="Throw Team-mate - who landed?" :match="match" :teams="teams" :sides="sidesOf(thrownGroups)" :filter="filterOf(thrownGroups)"
+    v-else-if="st.step === 'thrown' && thrownGroups.length" title="Throw Team-mate - who landed?" :match="match" :teams="teams" :sides="sidesOf(thrownGroups)" :filter="filterOf(thrownGroups)" :art="art"
     @pick="(side, id) => finish(true, { side, id })" @cancel="emit('close')"
   />
   <div v-else class="tt-sheet tt-ttm" role="dialog" aria-label="Throw Team-mate">

@@ -5,6 +5,7 @@
 import { computed, ref } from "vue";
 import { eligiblePlayers, ELIGIBILITY_KEY, INJURY_RESULTS_UI, pickSpec, WEATHER_RESULTS_UI, type OtherEvent } from "../tabletop/feed";
 import type { MatchView, Side, TeamView } from "../tabletop/recorder";
+import type { ArtManifests } from "../tabletop/art";
 import TabletopPlayerPicker from "./TabletopPlayerPicker.vue";
 import TabletopSheetHead from "./TabletopSheetHead.vue";
 
@@ -14,6 +15,7 @@ const props = defineProps<{
   teams: Record<Side, TeamView | undefined>;
   /** The rosters this viewer may act for: their own side, both for an organiser in edit mode. */
   visibleSides: Side[];
+  art?: ArtManifests;
 }>();
 const emit = defineEmits<{
   (e: "pick", spec: { type: string; team: Side; player?: string; payload?: Record<string, unknown> }): void;
@@ -63,7 +65,7 @@ function saveText(): void {
 
 <template>
   <TabletopPlayerPicker
-    v-if="needsPlayer && !chosen" :title="`${kind.label} - who?`" :match="match" :teams="teams" :sides="visibleSides" :filter="filter"
+    v-if="needsPlayer && !chosen" :title="`${kind.label} - who?`" :match="match" :teams="teams" :sides="visibleSides" :filter="filter" :art="art"
     @pick="pickPlayer" @cancel="emit('close')"
   />
   <div v-else class="tt-sheet" role="dialog" :aria-label="kind.label">

@@ -461,7 +461,7 @@
   .tt-rec > .tt-mid { grid-column: 2; grid-row: 4; }
   .tt-rail { grid-column: 1; grid-row: 4; padding: 16px 0 24px 28px; }
   .tt-feed { padding: 16px 28px 24px 0; }
-  .tt-rail-injury { background: var(--ui-warn); color: var(--ui-warn-contrast); border-color: var(--ui-warn); }
+  .tt-rail-injury { background: var(--ui-warn); color: var(--ui-text-on-primary, #ffffff); border-color: var(--ui-warn); }
 }
 
 /* bigger hero chips: 32 px on phones, 36 px from 760 px, 40 px from 1024 px; pixel art stays crisp */
@@ -1117,11 +1117,12 @@
 .tt-tl-mark[data-admin="true"] { border-color: var(--ui-admin, #ffd23d) !important; }
 
 /* a retracted event stays in the log: struck through, dimmed, with who removed it and when; its timeline marker stays hollow and dim */
-.tt-ev--removed { opacity: .55; }
-.tt-ev--removed .tt-ev-text > .tt-ev-name, .tt-ev--removed .tt-ev-text { text-decoration: line-through; }
+/* only the event line (text and SPP mark) is struck and dimmed; the card face, the time and the "Removed by" note stay readable */
+.tt-ev--removed .tt-ev-line { text-decoration: line-through; opacity: .55; }
 .tt-ev--removed .tt-ev-icon { opacity: .6; filter: grayscale(.6); }
-.tt-ev--removed .tt-ev-removed, .tt-ev--removed .tt-time { display: block; text-decoration: none; font-size: 11px; color: var(--tt-muted); }
-.tt-ev--removed .tt-ev-removed { font-style: italic; }
+.tt-ev--removed .tt-ev-who, .tt-ev--removed .tt-ev-mark { opacity: .55; }
+.tt-ev--removed .tt-time { display: block; font-size: 11px; color: var(--tt-muted); }
+.tt-ev--removed .tt-ev-removed { display: block; font-family: var(--font-heading, sans-serif); font-size: 11px; font-style: normal; text-decoration: none; opacity: 1; color: color-mix(in srgb, var(--ui-text, #e6e9ef) 85%, transparent); }
 .tt-tl-mark[data-removed="true"] { background: transparent; opacity: .5; border-style: dashed; }
 
 /* the admin panel: Quick-box styling, bevelled buttons; it fills the lower-left of the desktop rail */
@@ -1153,3 +1154,47 @@
 .tt-admin-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .tt-admin-row > .tt-admin-btn { height: 40px; min-height: 40px; white-space: nowrap; }
 .tt-admin-row > .tt-admin-btn:nth-child(n+3) { grid-column: 1 / -1; }
+
+/* popups never overflow the viewport: the shared width is the column width less the inset, capped to the viewport less a 16 px gutter each side; everything inside may shrink */
+@media (min-width: 1024px) {
+  .tt-rec .tt-modal-box, .tt-rec .tt-sheet, .tt-rec .tt-rosters, .tt-rec .tt-other-box { width: min(calc(var(--tt-col) - 40px), calc(100vw - 32px)); box-sizing: border-box; overflow-x: hidden; }
+}
+.tt-rec .tt-sheet, .tt-rec .tt-modal-box { overflow-x: hidden; }
+.tt-rec .tt-picker * { min-width: 0; }
+.tt-rec .tt-picker .tt-picker-tabs .tt-roster-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 0; }
+.tt-rec .tt-picker .tt-roster-tab { min-width: 0; }
+.tt-rec .tt-roster-tab-main { min-width: 0; }
+.tt-rec .tt-roster-chips { flex-wrap: wrap; }
+@media (min-width: 760px) {
+  .tt-rosters .roster-grid { grid-template-columns: 36px minmax(0, 1.2fr) 236px minmax(0, 1.4fr) 96px; }
+  .tt-picker .tt-roster-list li.roster-row.tt-rp-pick { grid-template-columns: 56px minmax(0, 1.2fr) 236px minmax(0, 1.4fr); }
+}
+
+/* roster rows (Rosters pane and pickers): the shirt number is a bevelled tile to the LEFT of the sprite; the columns pull left - number 36 | sprite 56 | name block | stats 236 | skills - with no gap before the stats */
+.tt-rosters .slot-number, .tt-rosters-embed .tt-rp-pick .slot-number {
+  display: flex; align-items: center; justify-content: center; grid-area: num; align-self: center; width: 36px; height: 36px; padding: 0; border-radius: 3px;
+  font-family: var(--font-heading, sans-serif); font-size: 16px; line-height: 1; letter-spacing: .02em; color: var(--ui-text, #e6e9ef); text-shadow: var(--tt-lettering-shadow, 2px 2px 0 rgb(0 0 0 / 80%));
+  background: color-mix(in srgb, #000 60%, var(--ui-surface, #0d0d0d)); border: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 70%, #000); box-shadow: var(--tv-bezel);
+}
+.tt-rosters .player-cell { display: contents; }
+.tt-roster-list li.roster-row { grid-template-columns: 36px 56px minmax(0, 1fr) auto; grid-template-areas: "num sprite who spp" "stats stats stats stats" "skills skills skills skills" "inj inj inj inj"; column-gap: 10px; }
+.tt-roster-list li.roster-row.tt-rp-pick { grid-template-columns: 36px 44px minmax(0, 1fr); grid-template-areas: "num sprite who" "stats stats stats" "skills skills skills"; }
+@media (min-width: 760px) {
+  .tt-rosters .roster-grid { grid-template-columns: 36px 56px minmax(180px, 1fr) 236px minmax(0, 2fr) 96px; column-gap: 12px; }
+  .tt-roster-list li.roster-row { grid-template-columns: 36px 56px minmax(180px, 1fr) 236px minmax(0, 2fr) 96px; grid-template-areas: "num sprite who stats skills spp" "inj inj inj inj inj inj"; column-gap: 12px; }
+  .tt-picker .tt-roster-list li.roster-row.tt-rp-pick { grid-template-columns: 36px 56px minmax(180px, 1fr) 236px minmax(0, 2fr); grid-template-areas: "num sprite who stats skills"; column-gap: 12px; }
+  .tt-rosters .row-stats, .tt-picker .tt-rp-pick .row-stats { width: 236px; justify-self: start; }
+  .tt-rosters .roster-header > .tt-hd-stats { text-align: left; }
+}
+
+/* the Injury tile in the Other grid (phones and tablets; hidden on desktop) matches the rail's Injury button: an amber face with white lettering; the dark lettering shadow keeps it legible */
+.tt-rec .tt-other-btn[data-type="injury"] { background: var(--ui-warn); color: var(--ui-text-on-primary, #ffffff); border-color: var(--ui-warn); text-shadow: var(--tt-lettering-shadow, 2px 2px 0 rgb(0 0 0 / 80%)); }
+
+/* the rail buttons share one inner grid: a 32 px icon column (the icon, a 24 px box, centred in it) and the label left-aligned in the second column, so every label starts at the same x
+   (Other keeps an empty icon column) */
+@media (min-width: 1024px) {
+  .tt-rec .tt-rail-btn, .tt-rec .tt-rail-btn.tt-rail-other { display: grid; grid-template-columns: 32px 1fr; column-gap: 12px; align-items: center; justify-content: start; padding: 0 14px; text-align: left; }
+  .tt-rec .tt-rail-btn > .tt-glyph { grid-column: 1; justify-self: center; width: 24px; height: 24px; }
+  .tt-rec .tt-rail-btn > .tt-glyph-text { font-size: 24px; width: auto; height: auto; }
+  .tt-rec .tt-rail-btn > span:not(.tt-glyph) { grid-column: 2; text-align: left; }
+}

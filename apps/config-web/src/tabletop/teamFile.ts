@@ -1,5 +1,5 @@
 import type { TeamBuilderSave } from "../teamBuilderSaves.js";
-import { isStarName } from "@bb/validator";
+import { findPosition, isStarName } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import type { TeamDetail } from "../teamDetail.js";
 import { rosterFor } from "./pregame.js";
@@ -120,7 +120,8 @@ const NIGGLING = /niggl|smashed knee/i;
 export function teamFileFromLibraryDetail(team: TeamDetail): TabletopTeamFile {
   const dsRoster = rosterFor({ race: team.race } as TabletopTeamFile);
   const players: TabletopPlayer[] = team.players.map((p) => {
-    const ds = dsRoster?.positions.find((x) => x.name === p.position) ?? undefined;
+    // the stored position name rarely matches the dataset letter for letter ("Big 'Un Blocker", "Blitzer"): resolve it the way the shared team view does
+    const ds = dsRoster && p.position ? (dsRoster.positions.find((x) => x.name === p.position) ?? findPosition(dsRoster, p.position)) : undefined;
     const dsStats = ds ? positionStats(ds) : undefined;
     // A stored stat of 0 (or below) means "no value" in the team file (a position without a passing ability, or an unset field), never a real "0+":
     // the printed value fills in instead, so a missing PA reads as the position's own PA (or none) and is not shown as an improvement.

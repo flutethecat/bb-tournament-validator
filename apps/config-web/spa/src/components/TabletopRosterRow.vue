@@ -58,9 +58,9 @@ const printed = computed(() => p.value.printed ?? (p.value.added ? [] : (p.value
 const added = computed(() => p.value.added ?? []);
 const initials = computed(() => (position.value || p.value.name).split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?");
 const spriteSrc = computed(() => (typeof p.value.sprite === "string" && /^sprites\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.png$/.test(p.value.sprite) ? `/${p.value.sprite}` : ""));
-const num = computed(() => (p.value.number !== undefined ? `#${p.value.number}` : ""));
-/** The heading line: the player's name, or "#3 · Position" when obscured (the name never reaches the markup). */
-const heading = computed(() => (props.obscured ? [num.value, position.value || "Player"].filter(Boolean).join(" · ") : p.value.name));
+const num = computed(() => (p.value.number !== undefined ? String(p.value.number) : ""));
+/** The heading line: the player's name, or just the position when obscured (the name never reaches the markup; the number sits in its own tile). */
+const heading = computed(() => (props.obscured ? position.value || "Player" : p.value.name));
 const isPick = computed(() => props.variant === "pick");
 </script>
 
@@ -70,11 +70,11 @@ const isPick = computed(() => props.variant === "pick");
     :data-active="open || active ? 'true' : null" :role="isPick ? 'button' : undefined" :tabindex="isPick ? 0 : undefined"
     @click="emit('select')" @keydown.enter.prevent="emit('select')" @keydown.space.prevent="emit('select')"
   >
-    <span class="slot-number tt-roster-nr">{{ num }}</span>
+    <span class="slot-number tt-roster-nr" :data-tip="num ? `Shirt number ${num}` : null">{{ num }}</span>
     <div class="player-cell">
       <span class="sprite-frame roster-sprite" aria-hidden="true"><span class="sprite-fallback">{{ initials }}</span><img v-if="spriteSrc" class="sprite-image" :src="spriteSrc" alt="" loading="lazy" decoding="async" /></span>
       <span class="player-copy">
-        <strong class="tt-roster-name" :data-seat="side"><b v-if="isPick && !obscured && num" class="tt-num-badge">{{ num }}</b>{{ heading }}</strong>
+        <strong class="tt-roster-name" :data-seat="side">{{ heading }}</strong>
         <small v-if="!obscured" class="tt-roster-pos">{{ position }}</small>
         <span class="tt-lvl" :data-injury="badge || null" :data-tip="BADGE_NAMES[badge] ?? null">{{ badge }}</span>
       </span>

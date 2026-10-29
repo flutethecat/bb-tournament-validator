@@ -395,11 +395,11 @@ onBeforeUnmount(() => {
     <div v-if="tip.show" class="tt-tip" role="tooltip" :data-below="tip.below ? 'true' : null" :style="{ left: `${tip.x}px`, top: `${tip.y}px`, '--tt-tip-arrow': `${tip.arrow}%` }">{{ tip.text }}</div>
 
     <TabletopPlayerPicker
-      v-if="victimOpen && sheet.open" title="Casualty - victim?" caption="Opponent" :match="match" :teams="state.teams" :sides="[otherSide(sheet.side)]" :filter="victimFilter" :obscure-names="!organiser"
+      v-if="victimOpen && sheet.open" :art="state.art" title="Casualty - victim?" caption="Opponent" :match="match" :teams="state.teams" :sides="[otherSide(sheet.side)]" :filter="victimFilter" :obscure-names="!organiser"
       @pick="(_s, id) => { sheet.victim = id; victimOpen = false; }" @cancel="victimOpen = false"
     />
     <TabletopPlayerPicker
-      v-if="mvpFor" title="MVP - who?" :match="match" :teams="state.teams" :sides="[mvpFor]" :filter="mvpFilter(mvpFor)"
+      v-if="mvpFor" :art="state.art" title="MVP - who?" :match="match" :teams="state.teams" :sides="[mvpFor]" :filter="mvpFilter(mvpFor)"
       @pick="(s, id) => { mvpPick[s] = id; mvpFor = null; }" @cancel="mvpFor = null"
     />
 
@@ -418,8 +418,8 @@ onBeforeUnmount(() => {
     <TabletopTurnSet v-if="turnSetOpen" :match="match" :clock="state.clock" :busy="state.busy" :error="state.actionError" @close="turnSetOpen = false" @save="saveTurn" />
     <TabletopOther v-if="other" @pick="onOther" @close="other = false" />
     <TabletopRosters v-if="rosters" :match="match" :teams="state.teams" :tally="state.tally" :art="state.art" :events="state.events" :inducement-icons="state.inducementIcons" @close="rosters = false" />
-    <TabletopPick v-if="pick" :kind="pick" :match="match" :teams="state.teams" :visible-sides="pickSides" @pick="onPicked" @close="pick = null" />
-    <TabletopTtm v-if="ttmOpen" :match="match" :teams="state.teams" :tally="state.tally" :visible-sides="visibleSides" @post="onTtm" @close="ttmOpen = false" />
+    <TabletopPick v-if="pick" :art="state.art" :kind="pick" :match="match" :teams="state.teams" :visible-sides="pickSides" @pick="onPicked" @close="pick = null" />
+    <TabletopTtm v-if="ttmOpen" :art="state.art" :match="match" :teams="state.teams" :tally="state.tally" :visible-sides="visibleSides" @post="onTtm" @close="ttmOpen = false" />
 
     <div v-if="sheet.open" class="tt-sheet" role="dialog" aria-label="Casualty">
       <TabletopSheetHead :title="`Casualty by ${casualtyBy}`" @close="sheet.open = false" />

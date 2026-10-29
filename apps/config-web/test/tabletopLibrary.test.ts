@@ -109,6 +109,26 @@ describe("library team stats", () => {
   });
 });
 
+describe("library team printed stats by position name", () => {
+  it("resolves the stored position name loosely (\"Big 'Un Blocker\", \"Blitzer\") so a stored 0 PA falls back to the printed PA, and a PA-less position stays null", () => {
+    const d = detailFor("Tarkin", "1272390");
+    if (d.status !== 200) throw new Error(d.body.error);
+    const base = d.body.team.players[0]!;
+    const orc = Object.values(bb2025.rosters).find((r) => r.name === "Orc")!;
+    const printed = (needle: RegExp) => Number(String(orc.positions.find((p) => needle.test(p.name))!.PA).replace("+", ""));
+    const cases: Array<[string, RegExp]> = [["Orc Blitzer", /blitzer/i], ["Blitzer", /blitzer/i], ["Orc Lineman", /^orc lineman/i], ["Orc Thrower", /thrower/i], ["Big 'Un Blocker", /big/i], ["Troll", /troll/i]];
+    for (const [stored, needle] of cases) {
+      const team = { ...d.body.team, race: "Orc", players: [{ ...base, position: stored, positionId: "x", passing: 0 }] };
+      expect(teamFileFromLibraryDetail(team).players[0]!.pa, stored).toBe(printed(needle));
+    }
+    const noPa = bb2025Positions.find((p) => !/\d/.test(String(p.PA)));
+    if (noPa) {
+      const none = { ...d.body.team, race: noPa.race, players: [{ ...base, position: noPa.name, positionId: "x", passing: 0 }] };
+      expect(teamFileFromLibraryDetail(none).players[0]!.pa).toBeNull(); // genuinely PA-less: still "-"
+    }
+  });
+});
+
 describe("tabletop create with library refs", () => {
   it("creates from a library ref, stores revisions under library:<id>, and plays on the real roster", async () => {
     const created = await as("Tarkin", "POST", "/api/tabletop/matches", {

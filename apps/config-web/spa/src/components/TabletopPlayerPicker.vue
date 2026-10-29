@@ -7,6 +7,8 @@ import { computed, ref } from "vue";
 import type { MatchView, RosterPlayerView, Side, TeamView } from "../tabletop/recorder";
 import TabletopRosterRow from "./TabletopRosterRow.vue";
 import TabletopSheetHead from "./TabletopSheetHead.vue";
+import TabletopTeamTab from "./TabletopTeamTab.vue";
+import type { ArtManifests } from "../tabletop/art";
 
 const props = withDefaults(defineProps<{
   title: string;
@@ -21,6 +23,8 @@ const props = withDefaults(defineProps<{
   obscureNames?: boolean;
   /** Rows to show before a search box appears. */
   searchAbove?: number;
+  /** Crest manifest for the team tabs (initials when absent). */
+  art?: ArtManifests;
 }>(), { caption: "", filter: undefined, obscureNames: false, searchAbove: 12 });
 const emit = defineEmits<{ (e: "pick", side: Side, id: string): void; (e: "cancel"): void }>();
 
@@ -42,10 +46,10 @@ const shown = computed(() => {
   <div class="tt-sheet tt-picker" role="dialog" :aria-label="title">
     <TabletopSheetHead :title="title" @close="emit('cancel')" />
     <p v-if="caption" class="tt-pick-head tt-caption">{{ caption }}</p>
-    <div v-if="sides.length > 1" class="tt-roster-tabs" role="group" aria-label="Team">
-      <button v-for="s in sides" :key="s" type="button" class="tt-roster-tab" :data-seat="s" :data-active="side === s" @click="side = s">
-        <span class="tt-roster-tab-name">{{ match[s].teamName }}</span><small>{{ match[s].coach }}</small>
-      </button>
+    <div v-if="sides.length > 1" class="tt-rosters tt-rosters-embed tt-picker-tabs">
+      <div class="tt-roster-tabs" role="group" aria-label="Team">
+        <TabletopTeamTab v-for="s in sides" :key="s" :match="match" :teams="teams" :side="s" :active="side === s" :art="art" @select="side = s" />
+      </div>
     </div>
     <input v-if="searchable" v-model="query" class="tt-picker-search" type="search" placeholder="Search number, position or name" aria-label="Search players" autocomplete="off" />
     <p v-if="!players.length" class="muted">No available player.</p>
