@@ -217,7 +217,8 @@ describe("turn-timer agreement", () => {
     for (let i = 0; i < 3; i += 1) await advance(id, "Alice");
     await advance(id, "Alice", { team: "home", skip: true });
     await advance(id, "Alice", { team: "away", skip: true });
-    await advance(id, "Alice", { mode: "hand", call: "tails", caller: "away", result: "tails", winner: "away", choice: "kick" });
+    // the site drew home (rollDie 1) to call: heads called, tails shown, so away wins and kicks
+    await advance(id, "Alice", { mode: "hand", call: "heads", caller: "home", result: "tails", winner: "away", choice: "kick" });
     expect((await clockOf(id)).activeTeam).toBeNull(); // not playing yet
     expect((await advance(id, "Alice", {})).status).toBe(400);
     expect((await advance(id, "Mallory", { agree: true })).status).toBe(403);

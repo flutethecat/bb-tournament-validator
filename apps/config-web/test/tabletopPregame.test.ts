@@ -127,7 +127,9 @@ describe("pre-game sequence", () => {
     const play = await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("touchdown", "home", "jm-1")] });
     expect(play.status).toBe(200);
     const events = (await get(id)).events as TabletopEvent[];
-    expect(events.map((e) => e.type)).toEqual(["fans", "fans", "weather", "journeyman", "journeyman", "inducement", "inducement", "inducement", "inducement", "prayer", "prayer", "coinFlip", "timerAgree", "timerAgree", "touchdown"]);
+    expect(events.map((e) => e.type)).toEqual(["fans", "fans", "weather", "journeyman", "journeyman", "inducement", "inducement", "inducement", "inducement", "prayer", "prayer", "coinFlip", "coinFlip", "timerAgree", "timerAgree", "touchdown"]);
+    // entering the coin phase, the site drew the calling coach (die 2 -> 1 = home)
+    expect(events.find((e) => e.id === "pg-coincaller")).toMatchObject({ type: "coinFlip", team: "home", payload: { stage: "caller", caller: "home", rolledBy: "site" } });
     const pre = events.find((e) => e.type === "fans")!;
     expect((await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("undo", "home", undefined, { target: pre.id })] })).status).toBe(400);
     // pre-game types cannot be posted by a coach
@@ -140,13 +142,16 @@ describe("pre-game sequence", () => {
     await advance(id, "Alice"); // journeymen (home needs 2, no rolls used)
     await advance(id, "Bob", { team: "away", skip: true });
     const r = await advance(id, "Alice", { team: "home", skip: true });
-    expect(r.body).toMatchObject({ phase: "pregame:coin", pregame: { prayers: { home: [], away: [] } } });
+    // the site drew the caller on entering the coin phase (no rolls left -> 1 = home)
+    expect(r.body).toMatchObject({ phase: "pregame:coin", pregame: { step: "coin", prayers: { home: [], away: [] }, coin: { caller: "home" } } });
     // auto: the SERVER flips (roll 1 = heads). Home calls tails, gets heads: away wins the toss.
-    expect((await advance(id, "Alice", { mode: "auto", call: "heads" })).status).toBe(400); // caller missing
+    expect((await advance(id, "Bob", { mode: "auto", call: "heads" })).status).toBe(403); // only the drawn caller (Alice) calls
+    expect((await advance(id, "Alice", { mode: "auto", call: "heads", caller: "away" })).status).toBe(400); // the body cannot pick the caller
     rolls = [1];
     const flip = await advance(id, "Alice", { mode: "auto", call: "tails", caller: "home" });
     expect(flip.body).toMatchObject({ phase: "pregame:coin", pregame: { coin: { mode: "auto", call: "tails", caller: "home", result: "heads", winner: "away" } } });
     expect((flip.body as { pregame: { coin: { choice?: string } } }).pregame.coin.choice).toBeUndefined();
+    expect(flip.body).toMatchObject({ pregame: { step: "kickreceive", coin: { rolledBy: "site" } } });
     expect((await advance(id, "Alice", { mode: "auto", call: "tails", caller: "home" })).status).toBe(400); // the choice is what is needed now
     expect((await advance(id, "Alice", { choice: "kick" })).status).toBe(403); // only the winner (Bob) chooses
     expect((await advance(id, "Bob", { choice: "sideways" })).status).toBe(400);
@@ -159,7 +164,9 @@ describe("pre-game sequence", () => {
   it("a correct call makes the caller the winner (server result tails, call tails)", async () => {
     const id = await newMatch();
     rolls = [1, 1, 3, 3]; await advance(id, "Alice"); await advance(id, "Alice"); await advance(id, "Alice");
-    await advance(id, "Bob", { team: "away", skip: true }); await advance(id, "Alice", { team: "home", skip: true });
+    await advance(id, "Bob", { team: "away", skip: true });
+    rolls = [2]; // the caller draw: 2 = away
+    await advance(id, "Alice", { team: "home", skip: true });
     rolls = [2];
     const flip = await advance(id, "Bob", { mode: "auto", call: "tails", caller: "away" });
     expect(flip.body).toMatchObject({ pregame: { coin: { result: "tails", winner: "away" } } });

@@ -13,6 +13,9 @@
  * Phases a match walks through: pregame:fans -> pregame:weather -> pregame:journeymen -> pregame:inducements ->
  * pregame:prayers (only when bought) -> pregame:coin -> pregame:timers (turn-timer agreement; skipped when the
  * competition forbids or requires timers) -> playing.
+ * Sequence source: https://bloodbowlbase.ru/bb2025/core_rules/the_game_of_blood_bowl/ (pre-game sequence).
+ * Dice are rolled at the table: each roll is made by the site ("Roll for me", rolledBy "site") or typed in by a coach
+ * ("Enter result", rolledBy "coach"); both are recorded. Spec: docs/artifact-orchestration/spec-recorder-pregame-2026-10-30.md
  *
  * Simplifications, stated: team value is the stored current team value (library) or the builder's preview /
  * roster arithmetic (saves), plus journeymen; players missing the next game are not subtracted.
@@ -196,6 +199,8 @@ export function pregameSummary(events: readonly TabletopEvent[]) {
   const weather = events.find((e) => e.type === "weather" && e.payload.pregame === true)?.payload;
   const flip = events.find((e) => e.id === "pg-coinflip");
   const choice = events.find((e) => e.id === "pg-coinchoice");
+  const caller = events.find((e) => e.id === "pg-coincaller");
+  const skip = events.find((e) => e.type === "pregameSkip");
   return {
     fans: fans.home || fans.away ? fans : undefined,
     weather,
@@ -203,7 +208,75 @@ export function pregameSummary(events: readonly TabletopEvent[]) {
     inducements: side((s) => of("inducement", s).at(-1)?.payload), // the latest submission per team replaces earlier ones
     prayers: side((s) => of("prayer", s).map((e) => e.payload)),
     // {mode, call, caller, result, winner, choice?}: choice arrives with a second advance after a server flip
-    coin: flip ? { ...flip.payload, winner: flip.team, ...(choice ? { choice: choice.payload.choice } : {}) } : undefined,
+    // before the call: only {caller} (the coach the site drew to call the toss)
+    coin: flip ? { ...flip.payload, winner: flip.team, ...(choice ? { choice: choice.payload.choice } : {}) } : caller ? { caller: caller.payload.caller } : undefined,
+    ...(skip ? { skipped: { by: skip.by, from: skip.payload.from } } : {}),
+  };
+}
+
+/** The pre-game step the page shows. Derived from the phase plus the coin events (kick/receive is a sub-step of the
+ *  coin phase) and, once playing, the clock (turn 0 of half 1 = set-up). */
+export type PregameStepName = "fans" | "weather" | "journeymen" | "inducements" | "prayers" | "coin" | "kickreceive" | "timers" | "setup" | "done";
+export function pregameStepOf(phase: MatchPhase, events: readonly TabletopEvent[], clock?: { half: unknown; turn: number } | null): PregameStepName {
+  if (phase === "playing") return !clock || (clock.half === 1 && clock.turn === 0) ? "setup" : "done";
+  const step = phase.slice("pregame:".length);
+  if (step === "coin") {
+    const flip = events.find((e) => e.id === "pg-coinflip");
+    if (flip && !flip.payload.choice && !events.some((e) => e.id === "pg-coinchoice")) return "kickreceive";
+  }
+  return step as PregameStepName;
+}
+
+// ---- the inducement picker's menu ---------------------------------------------------------------------------
+
+export interface InducementBudget {
+  role: "favourite" | "underdog" | "equal";
+  /** Underdog only: the TV gap plus what the favourite spent from its treasury (0 until the favourite submits). */
+  pettyCash: number;
+  treasury: number;
+  /** Most the treasury may add: the favourite's whole treasury, the underdog's top-up (capped at 50,000), 0 when equal. */
+  topUpLimit: number;
+  /** What the latest submission for this team spent (0 when none yet). */
+  spent: number;
+  submitted: boolean;
+}
+export interface InducementMenu {
+  inducementOptions: Record<Side, Array<{ id: string; name: string; price: number; max: number | null }>>;
+  budget: Record<Side, InducementBudget>;
+  tv: Record<Side, number | null>;
+}
+
+/**
+ * Everything the picker needs, by the same rules planInducements validates with (league_play #inducements): the
+ * offers each team may buy (fixed-price ones only) and each team's budget.
+ */
+export function inducementMenu(input: {
+  teams: Record<Side, TabletopTeamFile>;
+  events: readonly TabletopEvent[];
+  offers: InducementOffers;
+}): InducementMenu {
+  const jm = (s: Side) => input.events.filter((e) => e.type === "journeyman" && e.team === s).map((e) => asPlayer(e.payload.player)).filter((p): p is TabletopPlayer => !!p);
+  const tv = { home: teamValueWithJourneymen(input.teams.home, jm("home")) ?? null, away: teamValueWithJourneymen(input.teams.away, jm("away")) ?? null };
+  const latest = (s: Side) => input.events.filter((e) => e.type === "inducement" && e.team === s).at(-1);
+  const options = (s: Side) => Object.keys(bb2025.inducements).flatMap((id) => {
+    const o = input.offers(input.teams[s], id);
+    return "error" in o ? [] : [{ id, name: o.name, price: o.price, max: o.max }];
+  });
+  const budget = (s: Side): InducementBudget => {
+    const other: Side = s === "home" ? "away" : "home";
+    const mine = tv[s], theirs = tv[other];
+    const treasury = input.teams[s].treasury;
+    const own = latest(s);
+    const spent = Number((own?.payload as { total?: number } | undefined)?.total ?? 0);
+    if (mine === null || theirs === null || mine === theirs) return { role: "equal", pettyCash: 0, treasury, topUpLimit: 0, spent, submitted: !!own };
+    if (mine > theirs) return { role: "favourite", pettyCash: 0, treasury, topUpLimit: treasury, spent, submitted: !!own };
+    const favSpent = Number((latest(other)?.payload as { treasury?: number } | undefined)?.treasury ?? 0);
+    return { role: "underdog", pettyCash: theirs - mine + favSpent, treasury, topUpLimit: Math.min(TREASURY_TOP_UP_CAP, treasury), spent, submitted: !!own };
+  };
+  return {
+    inducementOptions: { home: options("home"), away: options("away") },
+    budget: { home: budget("home"), away: budget("away") },
+    tv,
   };
 }
 

@@ -6,6 +6,8 @@
  *   POST /api/tabletop/matches/:id/submit         recording -> submitted, computes the preview
  *   POST /api/tabletop/matches/:id/confirm        each coach; organiser confirms for both; completes the match
  *   POST /api/tabletop/matches/:id/undo-revision  organiser: revert both teams one revision, reopen
+ *   POST /api/tabletop/matches/:id/pregame/advance run / record the current pre-game step (see pregameAdvance)
+ *   POST /api/tabletop/matches/:id/pregame/skip    organiser: skip the rest of the pre-game (logged)
  * Auth: Discord session only (401 anonymous, 403 non-Discord session / banned / non-participant).
  */
 
@@ -17,9 +19,10 @@ import {
   MAX_EVENTS_PER_BATCH, MAX_EVENTS_PER_MATCH, effectiveEvents, parseEvent, validateEvent, type Side, type TabletopEvent,
 } from "./events.js";
 import {
-  PRAYERS_TO_NUFFLE, journeymenNeeded, makeJourneymen, overlayRosters, inducementOffersFor, planInducements, pregameSummary, teamValueWithJourneymen, weatherFor,
+  PRAYERS_TO_NUFFLE, inducementMenu, journeymenNeeded, makeJourneymen, overlayRosters, inducementOffersFor, planInducements, pregameStepOf, pregameSummary, teamValueWithJourneymen, weatherFor,
   type MatchPhase,
 } from "./pregame.js";
+import type { AnnouncementKind, RecorderAnnouncement } from "./discord.js";
 import {
   DEFAULT_TURN_TIMER_POLICY, endTurn, firstHalfReceiver, initialClock, startTurn,
   type ClockState, type MatchTimers, type TurnTimerPolicy,
@@ -153,8 +156,10 @@ export interface TabletopApiDeps {
   resolveFixtureTeam?: (coach: string, teamId: string) => { ref: string; name: string } | undefined;
   /** Die roller for the server-side pre-game rolls: 1..sides. Default is crypto-random; tests inject. */
   rollDie?: (sides: number) => number;
-  /** Called with the new clock payload whenever a match's clock or phase changes (the Super socket feed). */
+  /** Called with the new clock payload whenever a match's clock or phase changes, and after every pre-game write (the Super socket feed). */
   publishClock?: (matchId: string, payload: unknown) => void;
+  /** Pre-game milestones for the optional Discord webhook (src/tabletop/discord.ts). Fire-and-forget; never blocks the match. */
+  announce?: (a: RecorderAnnouncement) => void;
   /** Fork-game metadata lookup for league standings (package name of a fork tournament game). */
   forkMetadata?: Parameters<typeof leagueStandings>[2];
   /** A league's points scheme when the tournaments store has one; default 3/1/0. */
@@ -265,7 +270,7 @@ export async function tabletopApi(
       .map((t) => (own ? { ref: t.ref, name: t.name, race: t.race, tv: t.tv, registered: t.registered ?? [], actions: t.actions ?? { count: 0, items: [] } } : { ref: t.ref, name: t.name, race: t.race, tv: t.tv }));
     return { status: 200, body: { coach, saves, teams } };
   }
-  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|turn\/start|turn\/end|turn\/set))?$/.exec(path);
+  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|pregame\/skip|turn\/start|turn\/end|turn\/set))?$/.exec(path);
   if (!m) return err(404, "Not found.");
   const id = m[1]!;
   const action = m[2];
@@ -283,7 +288,8 @@ export async function tabletopApi(
     return {
       status: 200,
       body: {
-        match, context: matchContext(match, deps), coachRating: coachRatings(match, deps), phase: match.phase ?? "playing", clock: clockView(match, events, deps, now()), pregame: pregameSummary(events),
+        match, context: matchContext(match, deps), coachRating: coachRatings(match, deps), phase: match.phase ?? "playing", clock: clockView(match, events, deps, now()),
+        pregame: await pregameView(match, events, deps),
         // a retracted event stays in the log with who removed it and when (the undo event's record), so the feed can show it struck through
         events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e, kindLookup(teams)) : 0, ...removedMeta(events, e) })),
         effectiveEventIds: effectiveEvents(events).map((e) => e.id),
@@ -320,6 +326,7 @@ export async function tabletopApi(
     if (action === "turn/set") return turnSet(fresh, me, organiser, body, deps, now);
     if (action === "turn/start" || action === "turn/end") return turnAction(fresh, me, organiser, action, body, deps, now);
     if (action === "pregame/advance") return pregameAdvance(fresh, me, organiser, body, deps, now);
+    if (action === "pregame/skip") return pregameSkip(fresh, me, organiser, deps, now);
     if (action === "submit") return submit(fresh, deps, now);
     if (action === "confirm") return confirm(fresh, me, organiser, deps, now);
     if (!organiser) return err(403, "Organizer access required.");
@@ -1040,13 +1047,20 @@ async function reopen(match: MatchRecord, note: string | undefined, deps: Tablet
 type Phase = MatchPhase;
 
 /**
- * POST .../pregame/advance. Runs (or accepts) the CURRENT phase and moves on. All rolls are made here, on the
- * server, and recorded as events; only the coin result can be entered by hand. Body per phase:
- *   fans, weather, journeymen, prayers: none (optional {phase} guards against a double advance)
+ * POST .../pregame/advance: THE pre-game transition function. Runs (or accepts) the CURRENT phase, validates the body
+ * and the actor for that phase, records events and moves on. Sequence: the BB2025 pre-game sequence,
+ * https://bloodbowlbase.ru/bb2025/core_rules/the_game_of_blood_bowl/ . Dice are rolled at the table, so every roll is
+ * either made here ("site", crypto-random) or typed in from the table ("hand"); payloads say which (rolledBy). Body per
+ * phase (an optional {phase} guards against a double advance):
+ *   fans:     {} | {mode: "site"} | {mode: "hand", rolls: {home: 1-3, away: 1-3}}
+ *   weather:  {} | {mode: "site"} | {mode: "hand", dice: [1-6, 1-6]}
+ *   journeymen: {}
  *   inducements: {team: "home"|"away", picks: [{id, qty}], skip?: true}
- *   coin: auto = {mode: "auto", call: "heads"|"tails", caller: "home"|"away"}; the server flips and replies with the
- *         result and winner, and the phase stays pregame:coin until the winner posts {choice: "kick"|"receive"};
- *         hand = {mode: "hand", call, caller, result, winner, choice} in one request
+ *   prayers:  {} | {mode: "site"} | {mode: "hand", rolls: {home: [1-16...], away: [...]}} (one per prayer bought, distinct)
+ *   coin: the site draws the calling team when the phase opens (pg-coincaller). auto = {mode: "auto", call} from the
+ *         caller (or an organiser): the server flips and the phase stays pregame:coin until the winner posts
+ *         {choice: "kick"|"receive"}; hand = {mode: "hand", call, result, choice} in one request (any participant).
+ *         A `caller` / `winner` sent in the body must match the server's.
  * Events carry deterministic ids, so a retry after a partial failure re-uses what was already recorded.
  */
 async function pregameAdvance(
@@ -1077,6 +1091,16 @@ async function pregameAdvance(
   };
   let next: Phase = phase;
   const policy = timerPolicyFor(match, deps);
+  /** Physical dice: "site" (roll here) unless the body says the coaches typed in what they rolled. */
+  const rollMode = b.mode === undefined || b.mode === "site" ? "site" : b.mode === "hand" ? "coach" : undefined;
+  const entered = (rolledBy: "site" | "coach") => (rolledBy === "coach" ? { rolledBy, enteredBy: me } : { rolledBy });
+  const isRoll = (v: unknown, max: number): v is number => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= max;
+  /** Entering the coin phase: the site draws which coach calls the toss (recorded, so a reload cannot redraw). */
+  const drawCaller = (): void => {
+    if (all().some((e) => e.id === "pg-coincaller")) return;
+    const caller: Side = die(2) === 1 ? "home" : "away";
+    mk("pg-coincaller", "coinFlip", caller, { stage: "caller", caller, rolledBy: "site" });
+  };
   let timers: MatchTimers | undefined;
   /** After the coin: the competition may forbid (off) or require (required) turn timers; otherwise the coaches are asked. */
   const afterCoin = (): Phase => {
@@ -1087,15 +1111,21 @@ async function pregameAdvance(
   };
 
   if (phase === "pregame:fans") {
+    // The fans (#the-fans): each team's Fan Factor = D3 + its Dedicated Fans.
+    if (!rollMode) return err(400, 'mode must be "site" or "hand".');
+    if (rollMode === "coach" && !sides.every((sd) => isRoll(b.rolls?.[sd], 3))) return err(400, "rolls.home and rolls.away must each be 1, 2 or 3 (the D3 each coach rolled).");
     for (const side of sides) {
-      const roll = die(3);
-      mk(`pg-fans-${side}`, "fans", side, { roll, dedicatedFans: baseTeams[side]!.dedicatedFans, total: roll + baseTeams[side]!.dedicatedFans });
+      const roll = rollMode === "coach" ? (b.rolls[side] as number) : die(3);
+      mk(`pg-fans-${side}`, "fans", side, { roll, dedicatedFans: baseTeams[side]!.dedicatedFans, total: roll + baseTeams[side]!.dedicatedFans, ...entered(rollMode) });
     }
     next = "pregame:weather";
   } else if (phase === "pregame:weather") {
-    const a = die(6);
-    const c2 = die(6);
-    mk("pg-weather-0", "weather", "home", { pregame: true, roll: a + c2, dice: [a, c2], result: weatherFor(a + c2) });
+    // The weather (#weather-table): 2D6 on the table.
+    if (!rollMode) return err(400, 'mode must be "site" or "hand".');
+    if (rollMode === "coach" && !(Array.isArray(b.dice) && b.dice.length === 2 && b.dice.every((d: unknown) => isRoll(d, 6)))) return err(400, "dice must be the two D6 results, each 1 to 6.");
+    const a = rollMode === "coach" ? (b.dice[0] as number) : die(6);
+    const c2 = rollMode === "coach" ? (b.dice[1] as number) : die(6);
+    mk("pg-weather-0", "weather", "home", { pregame: true, roll: a + c2, dice: [a, c2], result: weatherFor(a + c2), ...entered(rollMode) });
     next = "pregame:journeymen";
   } else if (phase === "pregame:journeymen") {
     for (const side of sides) {
@@ -1135,43 +1165,61 @@ async function pregameAdvance(
     });
     const both = sides.every((s) => all().some((e) => e.type === "inducement" && e.team === s));
     if (both) next = prayersBought("home") + prayersBought("away") > 0 ? "pregame:prayers" : "pregame:coin";
+    if (next === "pregame:coin") drawCaller();
   } else if (phase === "pregame:prayers") {
+    if (!rollMode) return err(400, 'mode must be "site" or "hand".');
+    if (rollMode === "coach") {
+      for (const side of sides) {
+        const n = prayersBought(side);
+        const r = b.rolls?.[side] ?? [];
+        if (!Array.isArray(r) || r.length !== n || !r.every((x: unknown) => isRoll(x, 16)) || new Set(r).size !== r.length)
+          return err(400, `rolls.${side} must list ${n} different D16 result${n === 1 ? "" : "s"} (1 to 16).`);
+      }
+    }
     for (const side of sides) {
       const n = prayersBought(side);
       const used = new Set<number>();
       for (let i = 1; i <= n; i += 1) {
-        let roll = die(16);
-        while (used.has(roll) && used.size < 16) roll = die(16); // duplicates are re-rolled
+        let roll = rollMode === "coach" ? (b.rolls[side][i - 1] as number) : die(16);
+        while (rollMode === "site" && used.has(roll) && used.size < 16) roll = die(16); // duplicates are rerolled
         used.add(roll);
-        mk(`pg-prayer-${side}-${i}`, "prayer", side, { roll, name: PRAYERS_TO_NUFFLE[roll - 1] });
+        mk(`pg-prayer-${side}-${i}`, "prayer", side, { roll, name: PRAYERS_TO_NUFFLE[roll - 1], ...entered(rollMode) });
       }
     }
     next = "pregame:coin";
+    drawCaller();
   } else if (phase === "pregame:coin") {
+    // Determine the kicking team (#determine-kicking-team): one coach calls, the coin is flipped, the winner chooses.
     const flip = all().find((e) => e.id === "pg-coinflip");
+    const callerEvent = all().find((e) => e.id === "pg-coincaller");
     const choiceGiven = b.choice !== undefined;
     if (choiceGiven && b.choice !== "kick" && b.choice !== "receive") return err(400, 'choice must be "kick" or "receive".');
-    if (!flip) {
+    if (!flip && !callerEvent) {
+      // A match that reached the coin phase before the draw existed: draw now and answer with the caller (nothing else
+      // is accepted in this request, so the draw can never be retried for a better caller).
+      drawCaller();
+    } else if (!flip) {
       const mode = b.mode;
       if (mode !== "auto" && mode !== "hand") return err(400, 'mode must be "auto" or "hand".');
       if (b.call !== "heads" && b.call !== "tails") return err(400, 'call must be "heads" or "tails".');
-      if (b.caller !== "home" && b.caller !== "away") return err(400, 'caller must be "home" or "away".');
-      const caller: Side = b.caller;
+      const caller = callerEvent!.payload.caller as Side;
+      if (b.caller !== undefined && b.caller !== caller) return err(400, `The site drew ${match[caller].coach} (${caller}) to call the toss.`);
+      const other: Side = caller === "home" ? "away" : "home";
       const callerWins = (result: string) => result === b.call;
       if (mode === "auto") {
         if (choiceGiven) return err(400, "Make the call first; the winner chooses after the flip.");
+        if (!organiser && match[caller].coach !== me) return err(403, `${match[caller].coach} calls the toss.`);
         // The SERVER flips (crypto-random in production); the page animates to this result.
         const result = die(2) === 1 ? "heads" : "tails";
-        const winner: Side = callerWins(result) ? caller : caller === "home" ? "away" : "home";
-        mk("pg-coinflip", "coinFlip", winner, { mode, call: b.call, caller, result, winner });
+        const winner: Side = callerWins(result) ? caller : other;
+        mk("pg-coinflip", "coinFlip", winner, { mode, call: b.call, caller, result, winner, rolledBy: "site" });
         // stays at pregame:coin until the winner's choice is posted as a second advance
       } else {
         if (b.result !== "heads" && b.result !== "tails") return err(400, 'hand mode needs result: "heads" or "tails".');
-        if (b.winner !== "home" && b.winner !== "away") return err(400, 'hand mode needs winner: "home" or "away".');
         if (!choiceGiven) return err(400, 'hand mode needs choice: "kick" or "receive".');
-        const expected: Side = callerWins(b.result) ? caller : caller === "home" ? "away" : "home";
-        if (b.winner !== expected) return err(400, `With that call and result the winner is ${expected}.`);
-        mk("pg-coinflip", "coinFlip", b.winner, { mode, call: b.call, caller, result: b.result, winner: b.winner, choice: b.choice });
+        const expected: Side = callerWins(b.result) ? caller : other;
+        if (b.winner !== undefined && b.winner !== expected) return err(400, `With that call and result the winner is ${expected}.`);
+        mk("pg-coinflip", "coinFlip", expected, { mode, call: b.call, caller, result: b.result, winner: expected, choice: b.choice, rolledBy: "coach", enteredBy: me });
         next = afterCoin();
       }
     } else if (flip.payload.mode === "auto" && !all().some((e) => e.id === "pg-coinchoice")) {
@@ -1210,16 +1258,71 @@ async function pregameAdvance(
   };
   if (next !== phase) await deps.repo.updateMatch(updated);
   const clock = clockView(updated, events, deps, now());
-  if (next !== phase) deps.publishClock?.(match.id, { ...clock, phase: next });
+  // every pre-game write is pushed, so the other phone (and onlookers) refresh at once, not at the next poll
+  if (next !== phase || out.length) deps.publishClock?.(match.id, { ...clock, phase: next });
+  const recordedIds = new Set(out.map((e) => e.id));
+  const milestones: AnnouncementKind[] = [];
+  if (recordedIds.has("pg-fans-home") || recordedIds.has("pg-fans-away")) milestones.push("fans");
+  if (recordedIds.has("pg-weather-0")) milestones.push("weather");
+  if (phase === "pregame:inducements" && next !== phase) milestones.push("inducements");
+  if (out.some((e) => e.type === "prayer")) milestones.push("prayers");
+  if (recordedIds.has("pg-coinchoice") || (recordedIds.has("pg-coinflip") && out.find((e) => e.id === "pg-coinflip")!.payload.choice)) milestones.push("coin");
+  announce(deps, milestones, updated, events);
   return {
     status: 200,
     body: {
-      match: updated, phase: next, clock, recorded: out.map((e) => e.id), pregame: pregameSummary(events),
+      match: updated, phase: next, clock, recorded: out.map((e) => e.id), pregame: pregameViewOf(updated, events, baseTeams, deps),
       teams: overlayRosters({ home: baseTeams.home, away: baseTeams.away }, events),
       ...(phase === "pregame:timers" && next === phase ? { waitingFor: sides.filter((sd) => !events.some((e) => e.type === "timerAgree" && e.team === sd)) } : {}),
       ...(phase === "pregame:inducements" && next === phase ? { waitingFor: sides.filter((s) => !events.some((e) => e.type === "inducement" && e.team === s)) } : {}),
     },
   };
+}
+
+/** Hands pre-game milestones to the optional Discord poster; a failure there never reaches the match. */
+function announce(deps: TabletopApiDeps, kinds: readonly AnnouncementKind[], match: MatchRecord, events: readonly TabletopEvent[]): void {
+  if (!deps.announce) return;
+  for (const kind of kinds) {
+    try { deps.announce({ kind, match, events }); } catch (e) { console.warn(`[recorder-webhook] announce failed: ${(e as Error).message}`); }
+  }
+}
+
+/** The `pregame` block of the match view: the summary, the step the page shows and, during inducements, the menu. */
+function pregameViewOf(match: MatchRecord, events: readonly TabletopEvent[], baseTeams: Record<Side, TabletopTeamFile | undefined>, deps: TabletopApiDeps): Record<string, unknown> {
+  const phase: Phase = match.phase ?? "playing";
+  const view: Record<string, unknown> = { ...pregameSummary(events), step: pregameStepOf(phase, events, match.clock ?? null) };
+  if (phase === "pregame:inducements" && baseTeams.home && baseTeams.away)
+    Object.assign(view, inducementMenu({ teams: { home: baseTeams.home, away: baseTeams.away }, events, offers: inducementOffersFor(inducementOptInsFor(match, deps)) }));
+  return view;
+}
+async function pregameView(match: MatchRecord, events: readonly TabletopEvent[], deps: TabletopApiDeps): Promise<Record<string, unknown>> {
+  const baseTeams = (match.phase ?? "playing") === "pregame:inducements" ? await currentTeams(deps.repo, match) : { home: undefined, away: undefined };
+  return pregameViewOf(match, events, baseTeams, deps);
+}
+
+/**
+ * POST .../pregame/skip: an organiser skips whatever is left of the pre-game (logged as `pregameSkip`). The match moves
+ * to playing at the set-up (1Ht0); turn timers take the test preset or the competition's fixed rule, else off.
+ */
+async function pregameSkip(match: MatchRecord, me: string, organiser: boolean, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
+  if (!organiser) return err(403, "Only an organiser can skip the pre-game.");
+  if (match.state !== "recording") return err(409, `This match is ${match.state}.`);
+  const phase: Phase = match.phase ?? "playing";
+  if (phase === "playing") return err(409, "The pre-game is finished.");
+  const at = now().toISOString();
+  const stored = await deps.repo.readEvents(match.id);
+  const skip: TabletopEvent = { id: "pg-skip", matchId: match.id, type: "pregameSkip", team: "home", payload: { from: phase }, ts: at, by: me };
+  const out = stored.some((e) => e.id === "pg-skip") ? [] : [skip];
+  await deps.repo.appendEvents(match.id, out);
+  const events = [...stored, ...out];
+  const policy = timerPolicyFor(match, deps);
+  const timers: MatchTimers = match.timers ?? { mode: policy.enforced === "required" ? "on" : "off", seconds: policy.seconds, enforced: policy.enforced };
+  const updated: MatchRecord = { ...match, phase: "playing", updatedAt: at, timers, clock: initialClock(events) };
+  await deps.repo.updateMatch(updated);
+  const clock = clockView(updated, events, deps, now());
+  deps.publishClock?.(match.id, { ...clock, phase: "playing" });
+  announce(deps, ["skip"], updated, events);
+  return { status: 200, body: { match: updated, phase: "playing", clock, recorded: out.map((e) => e.id), pregame: pregameViewOf(updated, events, { home: undefined, away: undefined }, deps) } };
 }
 
 // ---- Lane R3: match clock and turns ------------------------------------------------------------------------
