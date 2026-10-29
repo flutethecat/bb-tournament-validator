@@ -24,7 +24,8 @@
  */
 import type { NotificationInput } from "../notifications.js";
 import type { LeagueApiIdentity, LeagueApiResult } from "./api.js";
-import { buildFixturePost, discordEvents, postWebhook as defaultPoster, type WebhookPoster } from "./discord.js";
+import type { WebhookPoster } from "./discord.js";
+import { recordLeagueFixtureEvent } from "./events.js";
 import { readJsonObject, type BodyDeps } from "./http.js";
 import { applyForkResult, type ForkGameResult } from "./forkResult.js";
 import { buildLeagueForkTeam, forkTeamIdFor, ForkTeamBuildError, leagueTeamRevision, rulesetBlocker, type LeagueForkTeamFile } from "./forkTeam.js";
@@ -244,11 +245,15 @@ function send(deps: ForkRouteDeps, coach: string, input: NotificationInput): voi
   try { deps.notify?.(coach, input); } catch { /* fire-and-forget */ }
 }
 
-async function discord(deps: ForkRouteDeps, league: LeagueRecord, event: "fixtureCreated" | "matchResult", title: string, text: string): Promise<void> {
-  if (!discordEvents(league)[event]) return;
-  const url = deps.store.secrets(league.id).discordWebhookUrl;
-  if (!url) return;
-  try { await (deps.postWebhook ?? defaultPoster)(url, buildFixturePost(league, title, text)); } catch { /* best effort */ }
+/**
+ * Match started / result go through the league events hook (events.ts): one post per event whatever the path
+ * (fork, tabletop, hand entry), the per-event toggles honoured, deduplicated on the fixture.
+ */
+async function fixtureEvent(deps: { store: LeagueStore; postWebhook?: WebhookPoster; notify?: ForkRouteDeps["notify"]; now?: () => Date }, leagueId: string, seasonId: string, fixtureId: string, kind: "started" | "result"): Promise<void> {
+  try {
+    await recordLeagueFixtureEvent(leagueId, fixtureId, kind, { seasonId, by: "Super FUMBBL", where: "Super FUMBBL" },
+      { store: deps.store, postWebhook: deps.postWebhook, notify: deps.notify, now: deps.now });
+  } catch { /* best effort */ }
 }
 
 /** Invitation and organiser notices for a freshly scheduled game (each coach once). */
@@ -382,8 +387,8 @@ async function generate(deps: ForkRouteDeps, client: LeagueForkClient, leagueId:
     if (!done.ok) return done.result;
     if (done.invite) {
       for (const n of inviteNotices(league, seasonId, done.fixture, who.coach, admins(deps))) send(deps, n.coach, n.input);
-      await discord(deps, league, "fixtureCreated", `${done.fixture.home.team} vs ${done.fixture.away.team} on Super FUMBBL`, `${who.coach} generated this ${done.season.name} fixture on Super FUMBBL.`);
     }
+    if (done.scheduled) await fixtureEvent(deps, leagueId, seasonId, fixtureId, "started");
     const view = fixtureForkView(league, done.season, done.fixture, who);
     return done.scheduled ? res(200, { ok: true, fork: view }) : res(502, { error: done.fixture.fork!.error, fork: view });
   });
@@ -451,6 +456,8 @@ async function launch(deps: ForkRouteDeps, client: LeagueForkClient, leagueId: s
   const ready = await prepareLaunch(deps, client, leagueId, seasonId, fixtureId, who);
   if ("status" in ready) return ready;
   const gameId = recordLaunch(deps, leagueId, seasonId, fixtureId, ready.side)?.fork?.gameId;
+  // Announced once per fixture (generate usually got there first; a rescheduled game does not post again).
+  await fixtureEvent(deps, leagueId, seasonId, fixtureId, "started");
   return res(200, { ok: true, jnlpUrl: `/api/leagues/${encodeURIComponent(leagueId)}/seasons/${encodeURIComponent(seasonId)}/fixtures/${encodeURIComponent(fixtureId)}/fork/jnlp`, side: ready.side, gameId, ...(ready.stale.length ? { rebuilt: ready.stale } : {}) });
 }
 
@@ -615,8 +622,8 @@ export async function applyFixtureResult(deps: SyncDeps, leagueId: string, seaso
         const coach = f[s].coachId;
         if (coach) send(deps as ForkRouteDeps, coach, { type: "league-broadcast", title: "Super FUMBBL result recorded", body: `${line} (${league.name}). Your league team has been updated from the game.`, link });
       }
-      await discord(deps as ForkRouteDeps, league, "matchResult", line, `${saved.name}, played on Super FUMBBL.${outcome.retired.home.length + outcome.retired.away.length ? " Players were lost in this game." : ""}`);
     }
+    await fixtureEvent(deps, leagueId, seasonId, fixtureId, "result");
     return { applied: true };
   });
 }

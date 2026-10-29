@@ -336,6 +336,17 @@ describe("Super FUMBBL fixture routes", () => {
     expect(notes).toHaveLength(3);
   });
 
+  it("generate and launch announce \"Match started\" once through the league events hook (no duplicate fork embed)", async () => {
+    store.setSecrets("tabbl", { discordWebhookUrl: "https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz_ABCDEF-123" });
+    store.updateLeague("tabbl", (l) => { l.discordEvents = { news: true, fixtureCreated: true, matchStarted: true, matchResult: true, milestones: true }; });
+    expect((await call("POST", `${base}/fork/generate`, ANN, {})).status).toBe(200);
+    expect((await call("POST", `${base}/fork/generate`, BOB, {})).status).toBe(200);
+    expect((await call("POST", `${base}/fork/launch`, ANN, {})).status).toBe(200);
+    expect(posts.map((p) => p.embeds[0]!.title)).toEqual(["TABBL: kick-off"]);
+    expect(posts[0]!.embeds[0]!.description).toContain("has started on Super FUMBBL");
+    expect(fixture().announced?.started).toBeTruthy();
+  });
+
   it("a double click at the same moment builds and schedules once", async () => {
     const [a, b] = await Promise.all([call("POST", `${base}/fork/generate`, ANN, {}), call("POST", `${base}/fork/generate`, BOB, {})]);
     expect([a.status, b.status]).toEqual([200, 200]);
@@ -453,7 +464,8 @@ describe("Super FUMBBL fixture routes", () => {
     expect(home.players[0]!.availableSpp).toBe(21);
     expect(one.applied.length + ((two.body as { applied: string[] }).applied.length)).toBe(1);
     expect(notes.filter((n) => n.title === "Super FUMBBL result recorded").map((n) => n.coach).sort()).toEqual(["Ann", "Bob"]);
-    expect(posts.filter((p) => p.embeds[0]!.title.includes("2 - 1"))).toHaveLength(1);
+    // One "Match result" post, through the league events hook (events.ts).
+    expect(posts.filter((p) => p.embeds[0]!.title === "TABBL: result" && p.embeds[0]!.description.includes("2 - 1"))).toHaveLength(1);
     // again: nothing more
     await syncLeagueForkResults({ store, fork, notify: deps().notify });
     expect(store.season("tabbl", "season-7")!.teams.find((t) => t.id === "grudge")!.players[0]!.availableSpp).toBe(21);
