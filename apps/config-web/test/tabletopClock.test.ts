@@ -294,7 +294,8 @@ describe("undo rules", () => {
     const id = (r.body as { match: { id: string } }).match.id;
     const own = ev("touchdown", "home", "a1");
     const theirs = ev("touchdown", "away", "b1");
-    await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [own, theirs] });
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [own] });
+    await as("Bob", "POST", `/api/tabletop/matches/${id}/events`, { events: [theirs] });
     return { id, own: own.id, theirs: theirs.id };
   }
   const undo = (id: string, who: string, target: string) => as(who, "POST", `/api/tabletop/matches/${id}/events`, { events: [{ id: `undo-${target}`.slice(0, 40).padEnd(12, "x"), type: "undo", payload: { target } }] });
@@ -311,19 +312,36 @@ describe("undo rules", () => {
   it("a participant retracts a casualty or injury THEY recorded on either roster while recording; not another coach's, not after submit", async () => {
     const { id } = await playing();
     const post = (who: string, e: Record<string, unknown>) => as(who, "POST", `/api/tabletop/matches/${id}/events`, { events: [e] });
-    const mine = { id: "inj-by-alice-1", type: "injury", team: "away", player: "b1", payload: { result: "BH" } };
+    const mine = { id: "inj-by-alice-1", type: "injury", team: "home", player: "a3", payload: { result: "BH" } };
     const cas = { id: "cas-by-alice-1", type: "casualty", team: "home", player: "a1", payload: { victim: "b2", result: "BH" } };
     const bobs = { id: "inj-by-bob-001", type: "injury", team: "away", player: "b3", payload: { result: "BH" } };
     expect((await post("Alice", mine)).status).toBe(200);
     expect((await post("Alice", cas)).status).toBe(200);
+    expect((await post("Alice", { id: "inj-opp-alice-1", type: "injury", team: "away", player: "b1", payload: { result: "BH" } })).status).toBe(403); // a coach records injuries for their own team only
+    expect((await post("Org", { id: "inj-opp-org-0001", type: "injury", team: "away", player: "b1", payload: { result: "KO" } })).status).toBe(200); // an organiser may for either side
     expect((await post("Bob", bobs)).status).toBe(200);
     expect((await undo(id, "Alice", mine.id)).status).toBe(200); // her own injury on the opponent's roster
     expect((await undo(id, "Alice", cas.id)).status).toBe(200);
     expect((await undo(id, "Alice", bobs.id)).status).toBe(403); // Bob's injury on Bob's roster
-    expect((await post("Alice", { id: "inj-by-alice-2", type: "injury", team: "away", player: "b1", payload: { result: "MNG" } })).status).toBe(200); // the undo freed the victim
+    expect((await post("Alice", { id: "inj-by-alice-2", type: "injury", team: "home", player: "a3", payload: { result: "MNG" } })).status).toBe(200); // the undo freed the victim
     await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);
     expect((await undo(id, "Alice", "inj-by-alice-2")).status).toBe(403); // after the match only an organiser
     expect((await undo(id, "Org", "inj-by-alice-2")).status).toBe(200);
+  });
+
+  it("own-team rule: a participant records TD / casualty causer / injury / MVP for their own team only (403 otherwise); a victim on the opponent roster is fine; an organiser may add events for either side, even after submit", async () => {
+    const { id } = await playing();
+    const post = (who: string, e: Record<string, unknown>) => as(who, "POST", `/api/tabletop/matches/${id}/events`, { events: [e] });
+    expect((await post("Alice", { id: "td-away-by-alice", type: "touchdown", team: "away", player: "b2", payload: {} })).status).toBe(403);
+    expect((await post("Alice", { id: "mvp-away-by-alice", type: "mvp", team: "away", player: "b2", payload: {} })).status).toBe(403);
+    expect((await post("Alice", { id: "cas-away-by-alice", type: "casualty", team: "away", player: "b2", payload: { victim: "a1", result: "BH" } })).status).toBe(403);
+    expect((await post("Alice", { id: "cas-own-by-alice1", type: "casualty", team: "home", player: "a1", payload: { victim: "b2", result: "BH" } })).status).toBe(200); // the victim is on the opponent roster
+    expect((await post("Org", { id: "td-away-by-org-0001", type: "touchdown", team: "away", player: "b2", payload: {} })).status).toBe(200);
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);
+    expect((await post("Alice", { id: "td-home-late-alice", type: "touchdown", team: "home", player: "a2", payload: {} })).status).toBe(409); // a participant cannot edit after submit
+    const late = await post("Org", { id: "td-away-late-org-1", type: "touchdown", team: "away", player: "b3", payload: {} });
+    expect(late.status).toBe(200); // an organiser adding a TD for the away team after the match was submitted
+    expect((late.body as { match: { state: string } }).match.state).toBe("submitted");
   });
 
   it("once submitted, participants cannot undo (403); an organiser can, and the preview is recomputed", async () => {

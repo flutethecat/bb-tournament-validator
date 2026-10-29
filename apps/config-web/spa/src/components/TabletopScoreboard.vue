@@ -3,7 +3,7 @@
 // Crest, coach, team and the inducement row per corner; score and the half / turn stepper in the centre; weather and
 // coin on a compact line under it. Everything comes from the server's match, teams, tally and pre-game summary.
 import { computed } from "vue";
-import { centreMode, formatTimer, halfLabel, turnCells, turnKey, turnLabel, type ClockView } from "../tabletop/clock";
+import { centreMode, formatTimer, halfLabel, turnCells, turnKey, turnLabel, turnLine, type ClockView } from "../tabletop/clock";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { uiIcon, weatherParts } from "../tabletop/feed";
 import type { MatchView, RecordedEvent, ServerTally, Side, TeamView } from "../tabletop/recorder";
@@ -28,7 +28,11 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters"): void; (e: "settings"): void }>();
 
 const sides: Side[] = ["home", "away"];
-const crest = (s: Side): string => resolveCrest(props.art, props.teams[s]?.rosterId ?? props.teams[s]?.race);
+/** The uploaded avatar (same-origin paths only) when the team has one, else the race crest. */
+const crest = (s: Side): string => {
+  const a = props.teams[s]?.avatarUrl;
+  return typeof a === "string" && /^\/[\w./-]+$/.test(a) ? a : resolveCrest(props.art, props.teams[s]?.rosterId ?? props.teams[s]?.race);
+};
 const race = (s: Side): string => props.teams[s]?.race ?? props.teams[s]?.rosterId ?? "";
 
 interface Chip { key: string; src: string; label: string; qty: number; always?: boolean }
@@ -58,6 +62,7 @@ const chips = (s: Side): Chip[] => {
 };
 // The coin result is NOT shown here (it is a feed line); weather rides the centre panel.
 const label = computed(() => turnLabel(props.clock?.half, props.clock?.turn));
+const line = computed(() => turnLine(props.clock?.half, props.clock?.turn));
 // Only the active team's coach gets the button; an organiser sees the disabled "to play" state (override lives in Quick).
 const mode = computed(() => centreMode(props.clock, props.localSide, false, props.canAct));
 const activeName = computed(() => (props.clock?.activeTeam ? props.match[props.clock.activeTeam].teamName : ""));
@@ -96,8 +101,10 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
     </div>
     <section v-for="s in sides" :key="s" class="tt-corner" :class="s" :style="tint(s)">
       <div class="tt-corner-top">
-        <img v-if="crest(s)" class="tt-crest" :src="crest(s)" alt="" />
-        <span v-else class="tt-crest tt-crest-ph" aria-hidden="true">&#128737;</span>
+        <span class="tt-crest-frame">
+          <img v-if="crest(s)" class="tt-crest" :src="crest(s)" alt="" />
+          <span v-else class="tt-crest tt-crest-ph" aria-hidden="true">&#128737;</span>
+        </span>
       </div>
       <span class="tt-team" :data-long="match[s].teamName.length > 16 ? 'true' : null">{{ match[s].teamName }}</span>
       <span v-if="race(s)" class="tt-race">{{ race(s) }}</span>
@@ -131,14 +138,14 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
         :aria-label="timed ? `End turn. ${countdown} left. ${label}` : undefined" @click="emit('endTurn')"
       >
         <template v-if="timed"><b class="tt-endturn-time" role="timer">{{ countdown }}</b><small>End turn</small></template>
-        <template v-else><b>End Turn</b><small class="tt-turnmark">{{ label }}</small></template>
+        <template v-else><b>End Turn</b><small class="tt-turnmark">{{ line }}</small></template>
       </button>
       <button v-else-if="mode === 'kickoff'" class="tt-endturn" type="button" :disabled="busy" @click="emit('startTurn')">
-        <b>Kick-off done</b><small class="tt-turnmark">{{ label }}</small>
+        <b>Kick-off done</b><small class="tt-turnmark">{{ line }}</small>
       </button>
       <p v-else-if="mode === 'wait'" class="tt-towait" role="status" :data-alert="alert ? 'true' : null">
         <template v-if="timed"><b class="tt-endturn-time" role="timer">{{ countdown }}</b><small>{{ activeName }} to play</small></template>
-        <template v-else><b>{{ activeName || "Waiting" }} to play</b><small class="tt-turnmark">{{ label }}</small></template>
+        <template v-else><b>{{ activeName || "Waiting" }} to play</b><small class="tt-turnmark">{{ line }}</small></template>
       </p>
     </section>
   </header>

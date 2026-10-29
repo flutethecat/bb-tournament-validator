@@ -31,6 +31,14 @@ export function turnLabel(half: number | string | undefined, turn: number | unde
   return `${h}${h === "OT" ? "" : "H"}t${turn ?? 0}`;
 }
 
+/** The match turn number 1-16 (first half t -> t, second half t -> 8 + t; overtime goes on from 17), and "Kick-off" before the first turn of a half. */
+export function turnLine(half: number | string | undefined, turn: number | undefined): string {
+  const t = turn ?? 0;
+  if (t < 1) return "Kick-off";
+  const base = half === "OT" || (typeof half === "number" && half >= 3) ? 16 : half === 2 || half === "2" ? 8 : 0;
+  return `TURN ${base + t}`;
+}
+
 /** serverNow - local now at the moment of a sync (re-measured on every poll and push). */
 export function serverOffset(clock: ClockView | undefined, localNowMs: number): number {
   const s = ms(clock?.serverNow);

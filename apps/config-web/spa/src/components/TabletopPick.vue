@@ -4,6 +4,7 @@
 import { computed, ref } from "vue";
 import { eligiblePlayers, ELIGIBILITY_KEY, INJURY_RESULTS_UI, pickSpec, WEATHER_RESULTS_UI, type OtherEvent } from "../tabletop/feed";
 import type { MatchView, Side, TeamView } from "../tabletop/recorder";
+import TabletopRosterRow from "./TabletopRosterRow.vue";
 
 const props = defineProps<{
   kind: OtherEvent;
@@ -68,15 +69,11 @@ function saveText(): void {
       <div v-for="g in groups" :key="g.side" class="tt-pick-group">
         <p v-if="visibleSides.length > 1" class="tt-pick-head">{{ match[g.side].teamName }}</p>
         <p v-if="!g.players.length" class="muted">No available player.</p>
-        <ul class="tt-pick-list">
-          <li v-for="p in g.players" :key="p.id">
-            <button type="button" class="lobby-btn tt-tap tt-pick-row" @click="pickPlayer(g.side, p.id)">
-              <span class="tt-pick-glyph" aria-hidden="true">{{ (p.positionName ?? p.position ?? p.positionId ?? "?").slice(0, 1).toUpperCase() }}</span>
-              <b>{{ p.number !== undefined ? `#${p.number}` : "" }}</b> {{ p.name }}
-              <small>{{ p.positionName ?? p.position ?? p.positionId ?? "" }}</small>
-            </button>
-          </li>
-        </ul>
+        <div class="tt-rosters tt-rosters-embed">
+          <ul class="tt-roster-list">
+            <TabletopRosterRow v-for="p in g.players" :key="p.id" variant="pick" :player="p" :side="g.side" @select="pickPlayer(g.side, p.id)" />
+          </ul>
+        </div>
       </div>
     </template>
     <template v-if="kind.needs === 'player+result' && chosen">

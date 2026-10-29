@@ -382,7 +382,8 @@ describe("one phone, stats and per-event SPP", () => {
     const ttm = E("throwTeamMate", "home", undefined, { superb: true, thrower: "a5", landed: true, thrown: "a7" });
     const mvp = E("mvp", "away", "b3");
     const undone = E("completion", "home", "a6");
-    const posted = await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [td, cas, foulCas, catchEv, ttm, mvp, undone] });
+    const posted = await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [td, cas, foulCas, catchEv, ttm, undone] });
+    await as("Bob", "POST", `/api/tabletop/matches/${id}/events`, { events: [mvp] }); // the away coach records their own MVP
     expect(posted.status).toBe(200);
     const undo = E("undo", "home", undefined, { target: undone.id });
     const afterUndo = (await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [undo] })).body as { tally: { events: Array<{ id: string; sppEarned: number }> } };

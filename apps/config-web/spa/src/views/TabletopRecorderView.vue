@@ -15,6 +15,7 @@ import TabletopScoreboard from "../components/TabletopScoreboard.vue";
 import TabletopSettings from "../components/TabletopSettings.vue";
 import TabletopTurnSet from "../components/TabletopTurnSet.vue";
 import TabletopRail from "../components/TabletopRail.vue";
+import TabletopRosterRow from "../components/TabletopRosterRow.vue";
 import TabletopTimeline from "../components/TabletopTimeline.vue";
 import TabletopWeatherBar from "../components/TabletopWeatherBar.vue";
 import { canEditMatch, createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
@@ -40,12 +41,14 @@ const rec = factory ? factory(props.id) : createRecorder(props.id, { api: fetche
 const { state } = rec;
 
 const sides: Side[] = ["home", "away"];
+/** The side a participant must not see player names for (their opponent); organisers and onlookers see everything. */
+const opponentSide = computed<Side | null>(() => (organiser.value || mySide.value === null ? null : mySide.value === "home" ? "away" : "home"));
 const match = computed(() => state.match);
 const me = computed(() => session.coach());
 const organiser = computed(() => session.state.info?.organizer === true);
 const inPregame = computed(() => pregameStep(state.phase) !== "");
 const recording = computed(() => match.value?.state === "recording" && !inPregame.value);
-const rows = computed(() => feedRows(state.events, state.effectiveIds, state.teams, Object.fromEntries((state.tally.events ?? []).map((e) => [e.id, e.sppEarned])), match.value ?? undefined));
+const rows = computed(() => feedRows(state.events, state.effectiveIds, state.teams, Object.fromEntries((state.tally.events ?? []).map((e) => [e.id, e.sppEarned])), match.value ?? undefined, opponentSide.value));
 const heading = (s: Side): string => (match.value ? `${s === "home" ? "Home" : "Away"}: ${match.value[s].teamName} (${match.value[s].coach})` : "");
 
 // Theme: follows the device (System), or the explicit Light / Dark choice; light draws the SNES grey look.
@@ -96,8 +99,10 @@ const hasMvp = (s: Side): boolean => state.tally.players[s].some((l) => l.mvp > 
 const mvpChoices = (s: Side) => eligiblePlayers(state.teams, s, ELIGIBILITY_KEY.mvp!);
 /** The rosters this viewer may pick from: their own, both for an organiser in edit mode. */
 const visibleSides = computed<Side[]>(() => visibleSidesFor(localSide.value, organiser.value, editMode.value));
-/** An injury has no causing player, so the victim may come from either roster. */
-const pickSides = computed<Side[]>(() => (pick.value?.type === "injury" ? sides : visibleSides.value));
+/** A participant picks from their own roster only (TD, casualty causer, injury victim, MVP, the Other events); an organiser adjudicates both. */
+const pickSides = computed<Side[]>(() => (organiser.value ? sides : [mySide.value ?? localSide.value]));
+/** The rosters the MVP step lists: own team for a participant, both for an organiser. */
+const mvpSides = computed<Side[]>(() => pickSides.value);
 const ttmOpen = ref(false);
 
 function onOther(o: OtherEvent): void {
@@ -352,17 +357,21 @@ onBeforeUnmount(() => {
     <TabletopSettings v-if="settingsOpen" :theme="themeCtl" :settings="viewer" :edit-mode="editMode" :can-edit="canEdit" @edit="(on: boolean) => (editMode = on)" @change-turn="settingsOpen = false; turnSetOpen = true" @close="settingsOpen = false" />
     <TabletopTurnSet v-if="turnSetOpen" :match="match" :clock="state.clock" :busy="state.busy" :error="state.actionError" @close="turnSetOpen = false" @save="saveTurn" />
     <TabletopOther v-if="other" @pick="onOther" @close="other = false" />
-    <TabletopRosters v-if="rosters" :match="match" :teams="state.teams" :tally="state.tally" :art="state.art" @close="rosters = false" />
+    <TabletopRosters v-if="rosters" :match="match" :teams="state.teams" :tally="state.tally" :art="state.art" :events="state.events" :inducement-icons="state.inducementIcons" @close="rosters = false" />
     <TabletopPick v-if="pick" :kind="pick" :match="match" :teams="state.teams" :visible-sides="pickSides" @pick="onPicked" @close="pick = null" />
     <TabletopTtm v-if="ttmOpen" :match="match" :teams="state.teams" :tally="state.tally" :visible-sides="visibleSides" @post="onTtm" @close="ttmOpen = false" />
 
     <div v-if="sheet.open" class="tt-sheet" role="dialog" aria-label="Casualty">
       <h3>Casualty by {{ state.teams[sheet.side]?.players.find((p) => p.id === sheet.player)?.name ?? sheet.player }}</h3>
-      <label for="cas-victim">Victim</label>
-      <select id="cas-victim" v-model="sheet.victim">
-        <option value="">Pick the victim</option>
-        <option v-for="p in victims" :key="p.id" :value="p.id">{{ p.number !== undefined ? `#${p.number} ` : "" }}{{ p.name }}</option>
-      </select>
+      <p class="tt-pick-head tt-caption">Opponent</p>
+      <div class="tt-rosters tt-rosters-embed">
+        <ul class="tt-roster-list">
+          <TabletopRosterRow
+            v-for="p in victims" :key="p.id" variant="pick" :player="p" :side="otherSide(sheet.side)" :obscured="!organiser"
+            :active="sheet.victim === p.id" @select="sheet.victim = p.id"
+          />
+        </ul>
+      </div>
       <label for="cas-result">Result</label>
       <select id="cas-result" v-model="sheet.result"><option v-for="r in CASUALTY_RESULTS_UI" :key="r" :value="r">{{ r }}</option></select>
       <template v-if="sheet.result === 'stat loss'">
@@ -386,13 +395,18 @@ onBeforeUnmount(() => {
     <div v-if="endSheet" class="tt-sheet" role="dialog" aria-label="End of match">
       <h3>End of match</h3>
       <p class="muted">Records the end and submits the match for both coaches to confirm.</p>
-      <div v-for="s in sides" :key="s" class="tt-mvp">
-        <label :for="`mvp-${s}`">MVP: {{ match[s].teamName }}</label>
+      <div v-for="s in mvpSides" :key="s" class="tt-mvp">
+        <p class="tt-pick-head tt-caption">MVP<template v-if="mvpSides.length > 1">: {{ match[s].teamName }}</template></p>
         <p v-if="hasMvp(s)" class="muted">Already recorded.</p>
-        <select v-else :id="`mvp-${s}`" v-model="mvpPick[s]">
-          <option value="">No MVP</option>
-          <option v-for="p in mvpChoices(s)" :key="p.id" :value="p.id">{{ p.number !== undefined ? `#${p.number} ` : "" }}{{ p.name }}</option>
-        </select>
+        <div v-else class="tt-rosters tt-rosters-embed">
+          <ul class="tt-roster-list">
+            <TabletopRosterRow
+              v-for="p in mvpChoices(s)" :key="p.id" variant="pick" :player="p" :side="s" :active="mvpPick[s] === p.id"
+              @select="mvpPick[s] = mvpPick[s] === p.id ? '' : p.id"
+            />
+          </ul>
+          <p class="muted">Tap again for no MVP.</p>
+        </div>
       </div>
       <div class="tt-actions">
         <button class="lobby-btn primary tt-tap" type="button" :disabled="state.busy" @click="endAndSubmit">End and submit</button>

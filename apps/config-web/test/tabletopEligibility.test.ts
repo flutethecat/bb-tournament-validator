@@ -187,7 +187,8 @@ describe("over the API", () => {
 
   it("the match GET exposes kind, available, unavailableReason and eligible per player", async () => {
     const id = await playing();
-    await post(id, E("casualty", "away", "a3", { victim: "h3", result: "DEAD" }), E("sendOff", "home", "h6"));
+    await as("Bob", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("casualty", "away", "a3", { victim: "h3", result: "DEAD" })] }); // the away coach records their own casualty
+    await post(id, E("sendOff", "home", "h6"));
     const g = (await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { teams: { home: { players: any[] } } };
     const by = Object.fromEntries(g.teams.home.players.map((p) => [p.id, p]));
     expect(by.h1).toMatchObject({ kind: "rostered", available: true, eligible: { throwTeamMate: true, pass: true, catch: true } });

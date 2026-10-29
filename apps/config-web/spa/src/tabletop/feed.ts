@@ -118,13 +118,21 @@ const word = (v: unknown): string => {
 };
 
 /** One text line for the part of an event that is not the player ("BH on #3 Grob", "2 x Bribes"). */
-export function eventSub(e: RecordedEvent, teams: Record<Side, TeamView | undefined>): string {
+/** A player as the log names them: "Grob #1", or "#1 Blitzer" (number and position, never the name) for a side the viewer may not see by name. */
+export function playerLabel(pl: RosterPlayerView, hideName: boolean): string {
+  const pos = pl.positionName ?? pl.position ?? pl.positionId ?? "player";
+  if (hideName) return pl.number !== undefined ? `#${pl.number} ${pos}` : pos;
+  return `${pl.name}${pl.number !== undefined ? ` #${pl.number}` : ""}`;
+}
+
+export function eventSub(e: RecordedEvent, teams: Record<Side, TeamView | undefined>, obscureSide: Side | null = null): string {
   const p = e.payload ?? {};
   switch (e.type) {
     case "casualty": {
       const vs: Side = (p.victimTeam as Side | undefined) ?? (e.team === "home" ? "away" : "home");
       const v = teams[vs]?.players.find((x) => x.id === p.victim);
-      return `${word(p.result)}${p.stat ? ` ${word(p.stat)}` : ""} on ${v ? `${v.number !== undefined ? `#${v.number} ` : ""}${v.name}` : word(p.victim)}${p.apothecaryUsed === true ? " (apothecary)" : ""}`;
+      const vname = v ? (vs === obscureSide ? playerLabel(v, true) : `${v.number !== undefined ? `#${v.number} ` : ""}${v.name}`) : word(p.victim);
+      return `${word(p.result)}${p.stat ? ` ${word(p.stat)}` : ""} on ${vname}${p.apothecaryUsed === true ? " (apothecary)" : ""}`;
     }
     case "injury": return `${word(p.result)}${p.stat ? ` ${word(p.stat)}` : ""}`;
     case "inducement": {
@@ -248,6 +256,8 @@ export interface FeedRow {
 export function feedRows(
   events: readonly RecordedEvent[], effectiveIds: readonly string[], teams: Record<Side, TeamView | undefined>,
   spp: Readonly<Record<string, number>> = {}, match?: { home: { coach: string; teamName: string }; away: { coach: string; teamName: string } },
+  /** The side whose players are named by number and position only (a participant's opponent); null shows every name (organisers, spectators). */
+  obscureSide: Side | null = null,
 ): FeedRow[] {
   const live = new Set(effectiveIds);
   const rows: FeedRow[] = [];
@@ -260,8 +270,9 @@ export function feedRows(
     if (!live.has(e.id) || e.type === "undo") continue;
     if (e.type === "journeyman") { if (jmShown.has(e.team)) continue; jmShown.add(e.team); }
     const pl = e.player ? teams[e.team]?.players.find((x) => x.id === e.player) : undefined;
-    const sub = eventSub(e, teams);
-    const who = e.player ? (pl ? `${pl.name}${pl.number !== undefined ? ` #${pl.number}` : ""}` : e.player) : "";
+    const sub = eventSub(e, teams, obscureSide);
+    const hide = e.team === obscureSide;
+    const who = e.player ? (pl ? playerLabel(pl, hide) : e.player) : "";
     const { lead, rest } = eventSentence(e, who, names?.team[e.team] ?? teams[e.team]?.name ?? (e.team === "home" ? "Home" : "Away"), sub, names, { journeymen: journeymen[e.team] });
     const half = (e as { half?: number | "OT" }).half;
     const turn = (e as { turn?: number }).turn;
@@ -275,9 +286,9 @@ export function feedRows(
       team: e.team,
       lead,
       rest,
-      chip: e.player ? (pl ? `${pl.number !== undefined ? `#${pl.number} ` : ""}${pl.name}` : e.player) : "",
+      chip: e.player ? (pl ? (hide ? playerLabel(pl, true) : `${pl.number !== undefined ? `#${pl.number} ` : ""}${pl.name}`) : e.player) : "",
       number: pl?.number !== undefined ? `#${pl.number}` : "",
-      player: pl?.name ?? "",
+      player: hide ? "" : pl?.name ?? "",
       position: pl?.positionName ?? pl?.position ?? pl?.positionId ?? "",
       when: half || turn ? `${half ? (half === "OT" || half >= 3 ? "OT" : `H${half}`) : ""}${half && turn ? " " : ""}${turn ? `T${turn}` : ""}` : "",
       undoable: !PREGAME_TYPES.has(e.type),

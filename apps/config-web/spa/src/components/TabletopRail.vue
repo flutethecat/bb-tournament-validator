@@ -3,7 +3,7 @@
 // its label, then TD, CAS and Other, then a QUICK box (Change turn, Undo last event, End match). Same actions as the
 // phone bottom bar and the hero state button; the page shows only one of them for the viewport.
 import { computed } from "vue";
-import { centreMode, formatTimer, turnLabel, type ClockView } from "../tabletop/clock";
+import { centreMode, formatTimer, turnLabel, turnLine, type ClockView } from "../tabletop/clock";
 import { CAS_EVENT, EVENT_GLYPHS, INJURY_EVENT, TD_EVENT, type OtherEvent } from "../tabletop/feed";
 import type { MatchView } from "../tabletop/recorder";
 import TabletopGlyph from "./TabletopGlyph.vue";
@@ -20,6 +20,7 @@ const mode = computed(() => centreMode(props.clock, props.localSide, false, prop
 /** An organiser may end the active team's turn for them (override), only while a turn is running and it is not their own. */
 const canOverride = computed(() => props.organiser && props.recording && mode.value === "wait" && (props.clock?.turn ?? 0) >= 1 && !!props.clock?.activeTeam);
 const label = computed(() => turnLabel(props.clock?.half, props.clock?.turn));
+const line = computed(() => turnLine(props.clock?.half, props.clock?.turn));
 const activeName = computed(() => (props.clock?.activeTeam ? props.match[props.clock.activeTeam].teamName : ""));
 const timed = computed(() => props.remaining !== undefined && props.clock?.turnTimer?.mode === "on");
 const countdown = computed(() => (props.remaining === undefined ? "-:--" : formatTimer(props.remaining)));
@@ -39,15 +40,15 @@ const zero = computed(() => timed.value && (props.remaining as number) <= 0);
     >
       <span class="tt-rail-label">End turn</span>
       <span v-if="timed" class="tt-rail-time">{{ countdown }}</span>
-      <span class="tt-rail-turn">{{ label }}</span>
+      <span class="tt-rail-turn">{{ line }}</span>
     </button>
     <button v-else-if="mode === 'kickoff'" class="tt-rail-end" type="button" :disabled="busy" @click="emit('startTurn')">
-      <span class="tt-rail-label">Kick-off done</span><span class="tt-rail-turn">{{ label }}</span>
+      <span class="tt-rail-label">Kick-off done</span><span class="tt-rail-turn">{{ line }}</span>
     </button>
     <p v-else-if="mode === 'wait'" class="tt-rail-wait" role="status">
       <span class="tt-rail-label">{{ activeName || "Waiting" }} to play</span>
       <span v-if="timed" class="tt-rail-time">{{ countdown }}</span>
-      <span class="tt-rail-turn">{{ label }}</span>
+      <span class="tt-rail-turn">{{ line }}</span>
     </p>
     <div v-if="recording" class="tt-rail-btns">
       <button class="tt-rail-btn tt-rail-td" type="button" data-tip="Record a touchdown" @click="emit('pick', TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" /><span>TD</span></button>

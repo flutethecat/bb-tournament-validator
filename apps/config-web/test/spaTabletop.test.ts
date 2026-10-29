@@ -129,7 +129,7 @@ describe("tabletop routes (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod] = await Promise.all([
+    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
@@ -155,8 +155,9 @@ describe("tabletop routes (server-rendered)", () => {
       vite.ssrLoadModule("/src/components/TabletopTimeline.vue"),
       vite.ssrLoadModule("/src/components/TabletopWeatherBar.vue"),
       vite.ssrLoadModule("/src/tabletop/clock.ts"),
+      vite.ssrLoadModule("/src/components/TabletopRosterRow.vue"),
     ]);
-    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod };
+    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -324,7 +325,8 @@ describe("tabletop routes (server-rendered)", () => {
     // feed rows: the client log sentence, SPP stars, undo trash; the undone TD is gone
     expect(html).toContain("Grob #1</span> scores a touchdown.");
     expect(html).toContain("(&#9733;3)".replace("&#9733;", "\u2605"));
-    expect(html).toContain("Lirael #7</span> completes a pass.");
+    expect(html).toContain("#7 player</span> completes a pass."); // the opponent (Alice plays home) is named by number and position only
+    expect(html).not.toContain("Lirael");
     expect(html).not.toContain('aria-label="Undo'); // undo rides edit mode (organisers) only
     expect(html.match(/data-type="touchdown"/g)).toHaveLength(1); // the undone TD has no row
     expect(html).not.toContain("waiting");
@@ -421,7 +423,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html.match(/class="tt-rosters-btn"/g)).toHaveLength(1); // not repeated in the away corner
     expect(html).not.toContain("tt-back");
     expect(html.indexOf("tt-weather")).toBeLessThan(html.indexOf("tt-cog"));
-    expect(html).toContain("2Ht5");
+    expect(html).toContain("TURN 13"); // 2Ht5, shown as the match turn number
     expect(html).not.toMatch(/heads|tails/i);
   });
 
@@ -438,6 +440,16 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("<span>TD</span>");
     expect(html).toContain("<span>CAS</span>");
     expect(html).not.toContain("tt-clock"); // no turn timer in this clock
+  });
+
+  it("turnLine: the match turn number 1-16 (2Ht1 is Turn 9), overtime continues from 17, turn 0 reads Kick-off", () => {
+    const { turnLine } = mods.clockMod;
+    expect(turnLine(1, 3)).toBe("TURN 3");
+    expect(turnLine(1, 8)).toBe("TURN 8");
+    expect(turnLine(2, 1)).toBe("TURN 9");
+    expect(turnLine(2, 5)).toBe("TURN 13");
+    expect(turnLine("OT", 1)).toBe("TURN 17");
+    expect(turnLine(2, 0)).toBe("Kick-off");
   });
 
   it("turn track: 1-8 per half; same-number turn is done for the team that already ended it; both 8th cells done at match end", () => {
@@ -503,8 +515,10 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toContain("--tt-lettering-shadow: 2px 2px 0 rgb(0 0 0 / 80%), 0 0 10px rgb(0 0 0 / .45)"); // button lettering = the team-name shadow
     expect(css).toMatch(/\.tt-rec \.tt-rail-btn, [^{]*\.tt-rec \.tt-big, [^{]*\{ text-shadow: var\(--tt-lettering-shadow\); letter-spacing: \.06em; \}/);
     expect(css).toMatch(/\.tt-rec \.tt-rail-turn \{[^}]*font-size: var\(--tt-turnmark-fs\);[^}]*text-shadow: var\(--tt-lettering-shadow\)/);
-    expect(css).toMatch(/--tt-turnmark-fs: 20px;/);
-    expect(css).toMatch(/--tt-turnmark-fs: 22px;/);
+    expect(css).toMatch(/--tt-turnmark-fs: 13px;/); // the turn line is a subheader under the larger label
+    expect(css).toMatch(/--tt-rail-label-fs: 22px;/);
+    expect(css).toMatch(/--tt-rail-label-fs: 24px;/); // the End Turn label steps up, 24 px from 1600
+    expect(css).toMatch(/--tt-turnmark-fs: 14px;/);
     expect(css).toMatch(/--tt-rail-fs: 16px;/);
     expect(css).toMatch(/--tt-rail-fs: 18px;/);
     expect(css).toMatch(/\.tt-rec \.tt-mid > \.tt-log-h \{ display: flex; align-items: center; justify-content: flex-end; height: 28px;[^}]*color: var\(--ui-text, #e6e9ef\); text-shadow: var\(--tt-btn-text-shadow\); background: none; \}/); // MATCH LOG: white, right-aligned on a 28 px row above the field
@@ -575,13 +589,51 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain('class="roster-row roster-grid');
     expect(html).toContain('class="sprite-frame roster-sprite"');
     expect(html).toMatch(/class="(?=[^"]*skill)[^"]*skill-general[^"]*"[^>]*>Block</); // a categorised chip
-    expect(html).toMatch(/class="(?=[^"]*chosen-chip)[^"]*skill-agility[^"]*"[^>]*>Dodge</); // the builder's added-skill chip
+    expect(html).toMatch(/class="(?=[^"]*tv-added)[^"]*skill-agility[^"]*"[^>]*>Dodge</); // the gold added-skill box
     expect(html).toContain('data-tip="Dodge: Agility skill, added"');
-    expect(html).toContain('class="tt-roster-name" data-seat="home">Grob<');
+    expect(html).toMatch(/class="tt-roster-name" data-seat="home">(?:<!---->)?Grob</); // seat-tinted name
     expect(html).toContain('src="/sprites/orc/blitzer.png"');
-    expect(html).toContain("RR 3");
+    expect(html).toContain('data-tip="Team rerolls: 3"'); // the tab's icon chips with a count badge
+    expect(html).toContain('<b class="tt-qty">3</b>');
+    expect(html).toContain("tt-crest-frame"); // the lifted crest frame on the tab
     expect(html).toContain('aria-label="Skill key"');
     expect(html.match(/aria-label="Skill key"/g)).toHaveLength(1); // the key once, in the header
+  });
+
+  it("pickers use the Rosters row: roster-row classes, own-team rows only, an obscured victim row carries no name; Rosters adds the Inducements table and the stats column class", async () => {
+    const rich = {
+      home: { name: "Alice Orcs", players: [{ id: "h1", name: "Grob", number: 1, spp: 0, mng: false, dead: false, available: true, positionName: "Blitzer", ma: 6, st: 3, ag: 3, pa: null, av: 9, printed: [{ name: "Block", category: "General" }] }] },
+      away: { name: "Bob Elves", players: [{ id: "a1", name: "Lirael", number: 7, spp: 0, mng: false, dead: false, available: true, positionName: "Catcher", ma: 8, st: 2, ag: 2, pa: 3, av: 8 }] },
+    };
+    const pick = await mount(mods.pickC, { kind: mods.feedMod.TD_EVENT, match: baseMatch("recording"), teams: rich, visibleSides: ["home"] });
+    expect(pick).toContain('class="roster-row roster-grid tt-rp tt-rp-pick"');
+    expect(pick).toContain("Grob");
+    expect(pick).not.toContain("Lirael"); // a participant lists their own roster only
+    expect(pick).not.toContain("Alice Orcs"); // no team header for a single roster
+    expect(pick).toContain('class="row-stats"');
+    expect(pick).toContain('class="skill skill-general"'.replace('class="skill skill-general"', 'skill-general'));
+    const victim = await mount(mods.rosterRowC, { player: rich.away.players[0], side: "away", variant: "pick", obscured: true });
+    expect(victim).toContain("#7 · Catcher");
+    expect(victim).not.toContain("Lirael"); // the name never reaches the markup
+    const named = await mount(mods.rosterRowC, { player: rich.away.players[0], side: "away", variant: "pick" });
+    expect(named).toContain("Lirael");
+    const evs = [{ id: "i1", type: "inducement", team: "home", payload: { picks: [{ id: "bribes", name: "Bribes", qty: 2, cost: 200000 }], total: 200000 } }];
+    const ros = await mount(mods.rostersC, { match: baseMatch("recording"), teams: rich, tally: serverTally, events: evs, inducementIcons: { bribes: "icons/inducements/bribe.png" } });
+    expect(ros).toContain('aria-label="Inducements"');
+    expect(ros).toContain("/icons/inducements/bribe.png");
+    expect(ros).toContain("200k"); // the cost and the total
+    expect(ros).toContain('<span class="tt-hd-stats">Stats</span>');
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    const other = await mount(mods.otherC, {});
+    expect(other).toContain('class="tt-other-btn"');
+    expect(other).toContain('class="tt-other-injury"'); // the Injury tile stays in the markup (phones, tablets)
+    expect(css).toMatch(/@media \(min-width: 1024px\) \{[^@]*\.tt-rec \.tt-other-injury \{ display: none; \}/); // hidden on desktop: it is in the rail
+    expect(css).toMatch(/\.tt-rec \.tt-other \{ max-width: 960px; margin: 0 auto 12px; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); gap: 12px; \}/);
+    expect(css).toMatch(/\.tt-rec \.tt-other-btn \{ min-height: 112px;[^}]*box-shadow: var\(--tt-bevel\); text-shadow: var\(--tt-lettering-shadow\);/);
+    expect(css).toMatch(/\.tt-rosters \.row-stats \{ width: 236px; justify-self: center; \}/); // the fixed centred stats column
+    expect(css).toMatch(/\.tt-rosters \.tv-added \{[^}]*border: 1\.5px solid var\(--ui-gold\)/); // the gold added-skill box
+    expect(css).toMatch(/\.tt-crest-frame \{[^}]*padding: 8px; border-radius: 6px;[^}]*0 8px 18px rgb\(0 0 0 \/ \.45\)/);
   });
 
   it("event feed (Modern Retro): home cards left, away cards right, both-team cards full width, a jump id per card, a turn mark", async () => {
@@ -948,7 +1000,7 @@ describe("tabletop routes (server-rendered)", () => {
       elig("a3", "Wisp", 9, {}, { throwTeamMate: false, rightStuff: true, foul: false }),
     ] },
   };
-  const names = (html: string) => [...html.matchAll(/<\/b> (\w+)/g)].map((m) => m[1]);
+  const names = (html: string) => [...html.matchAll(/class="tt-num-badge">#\d+<\/b>(\w+)<\/strong>/g)].map((m) => m[1]);
 
   it("player lists: own roster only, available players only, filtered by the server's eligible flag; unavailable are omitted, not greyed", async () => {
     const open = (kind: string, visibleSides: string[]) => mount(mods.pickC, { kind: mods.feedMod.OTHER_EVENTS.find((o: any) => o.type === kind) ?? mods.feedMod.TD_EVENT, match: baseMatch("recording"), teams: ttmTeams, visibleSides });
@@ -1155,10 +1207,13 @@ describe("tabletop routes (server-rendered)", () => {
     expect(organiser.html).toContain("Bob Elves to play"); // the disabled state
     expect(organiser.html).toContain("End this turn (override)"); // the organiser's way in, in the Quick box
     expect(mine.html).toContain('class="tt-rail-end"'); // the active coach's enabled rail button
-    expect(mine.html).toContain('<span class="tt-rail-turn">1Ht3</span>'); // the big turn mark, no team name in the sub-line
+    expect(mine.html).toContain('<span class="tt-rail-turn">TURN 3</span>'); // the big turn mark, no team name in the sub-line
     expect(mine.html).not.toContain("1Ht3 ·");
     expect(organiser.html).toContain('class="tt-rail-wait"'); // the disabled state keeps the team name in its label and the turn mark below
-    expect(organiser.html).toContain('<span class="tt-rail-turn">1Ht3</span>');
+    expect(organiser.html).toContain('<span class="tt-rail-turn">TURN 3</span>');
+    const second = await renderMatch(body(clockOf("home", 5, { half: 2 })));
+    expect(second.html).toContain('<span class="tt-rail-turn">TURN 13</span>'); // 2Ht5 is match turn 13
+    expect(second.html).toContain('<small class="tt-turnmark">TURN 13</small>'); // and the phone hero button
     expect(mine.html).not.toContain("End this turn (override)");
     expect(theirs.html).not.toContain("End this turn (override)"); // a coach never sees it
     const kick = await renderMatch(body(clockOf("home", 0)));

@@ -57,7 +57,7 @@ export interface RosterPlayerView {
 }
 export interface TeamView {
   name: string; players: RosterPlayerView[];
-  rosterId?: string; race?: string; /** Optional team colour (#rgb / #rrggbb) when the team file carries one. */ color?: string; treasury?: number; teamValue?: number; dedicatedFans?: number; rerolls?: number; apothecary?: boolean;
+  rosterId?: string; race?: string; /** Optional team colour (#rgb / #rrggbb) when the team file carries one. */ color?: string; treasury?: number; teamValue?: number; /** Optional uploaded team avatar (a same-origin path); the race crest is used when absent. */ avatarUrl?: string; assistantCoaches?: number; cheerleaders?: number; dedicatedFans?: number; rerolls?: number; apothecary?: boolean;
 }
 
 export interface RecordedEvent {

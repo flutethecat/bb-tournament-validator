@@ -115,12 +115,13 @@ describe("tabletop API: submit / confirm / undo-revision", () => {
     const id = await newMatch(postMatch, fixtureRef);
     const r = await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, {
       events: [
-        E("touchdown", "home", "a1"), E("touchdown", "home", "a2"), E("touchdown", "away", "b1"),
+        E("touchdown", "home", "a1"), E("touchdown", "home", "a2"),
         E("casualty", "home", "a1", { victim: "b2", result: "DEAD" }),
         E("mvp", "home", "a3"),
       ],
     });
     expect(r.status).toBe(200);
+    expect((await as("Bob", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("touchdown", "away", "b1")] })).status).toBe(200); // each coach records their own team
     return id;
   }
 

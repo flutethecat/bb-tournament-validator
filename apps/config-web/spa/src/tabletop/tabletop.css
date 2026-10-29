@@ -606,8 +606,8 @@
   .tt-rec > .tt-board { min-height: var(--tt-hero-min); }
   .tt-rec > .tt-crumbs { padding-inline: 0; }
   .tt-rec .tt-crest { width: var(--tt-crest); height: var(--tt-crest); }
-  .tt-rec .tt-corner.home { grid-template-columns: var(--tt-crest) minmax(0, 1fr); }
-  .tt-rec .tt-corner.away { grid-template-columns: minmax(0, 1fr) var(--tt-crest); }
+  .tt-rec .tt-corner.home { grid-template-columns: calc(var(--tt-crest) + 18px) minmax(0, 1fr); }
+  .tt-rec .tt-corner.away { grid-template-columns: minmax(0, 1fr) calc(var(--tt-crest) + 18px); }
   .tt-rec .tt-corner .tt-team { font-size: var(--tt-team-fs); }
   .tt-rec .tt-corner .tt-team[data-long="true"] { font-size: calc(var(--tt-team-fs) * .8); }
   .tt-rec .tt-track { max-width: var(--tt-track-w); }
@@ -732,17 +732,93 @@
 }
 
 /* the turn mark ("2Ht5") on End Turn / state buttons: big, display font, white with the legibility shadow; no team name in the sub-line */
-.tt-rec .tt-turnmark { font-family: var(--font-heading, sans-serif); font-size: 16px; letter-spacing: .06em; color: var(--ui-scarlet-contrast, #ffffff); text-shadow: var(--tt-lettering-shadow); }
+.tt-rec .tt-turnmark { font-family: var(--font-heading, sans-serif); font-size: 12px; opacity: .85; letter-spacing: .06em; color: var(--ui-scarlet-contrast, #ffffff); text-shadow: var(--tt-lettering-shadow); }
 .tt-rec .tt-towait .tt-turnmark { color: var(--tt-ink); }
 @media (min-width: 1024px) {
-  .tt-rec { --tt-turnmark-fs: 20px; }
+  .tt-rec { --tt-turnmark-fs: 13px; }
   .tt-rec .tt-rail-end, .tt-rec .tt-rail-wait { padding: 8px; }
   .tt-rec .tt-rail-label { margin-top: auto; }
-  .tt-rec .tt-rail-turn { margin-top: auto; font-family: var(--font-heading, sans-serif); font-size: var(--tt-turnmark-fs); line-height: 1; letter-spacing: .06em; opacity: 1; color: var(--ui-scarlet-contrast, #ffffff); text-shadow: var(--tt-lettering-shadow); }
+  .tt-rec .tt-rail-turn { margin-top: auto; font-family: var(--font-heading, sans-serif); font-size: var(--tt-turnmark-fs); line-height: 1; letter-spacing: .06em; opacity: .85; color: var(--ui-scarlet-contrast, #ffffff); text-shadow: var(--tt-lettering-shadow); }
   .tt-rec .tt-rail-wait .tt-rail-turn { color: var(--tt-ink); }
 }
-@media (min-width: 1600px) { .tt-rec { --tt-turnmark-fs: 22px; } }
+@media (min-width: 1600px) { .tt-rec { --tt-turnmark-fs: 14px; } }
 
 /* button lettering (End Turn label, turn mark, TD / CAS / Injury / Other): the team-name shadow and .06em tracking, replacing the plain legibility shadow */
 .tt-rec { --tt-lettering-shadow: 2px 2px 0 rgb(0 0 0 / 80%), 0 0 10px rgb(0 0 0 / .45); }
 .tt-rec .tt-rail-btn, .tt-rec .tt-rail-end, .tt-rec .tt-big, .tt-rec .tt-endturn, .tt-rec .tt-rail-label, .tt-rec .tt-rail-time { text-shadow: var(--tt-lettering-shadow); letter-spacing: .06em; }
+
+/* ---- pickers in the Rosters row language, crest frames, gold added skills, centred stats column, tab icon chips, inducements ---- */
+/* crests lifted off the pane: a bezelled frame (hero and Rosters tabs) */
+.tt-crest-frame { display: inline-flex; flex: none; padding: 8px; border-radius: 6px; background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 70%, transparent); border: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 70%, #000); box-shadow: inset 0 1px 0 rgb(255 255 255 / .14), inset 0 -1px 0 rgb(0 0 0 / .55), 0 4px 0 rgb(0 0 0 / .45), 0 8px 18px rgb(0 0 0 / .45); }
+.tt-crest-frame .tt-crest, .tt-crest-frame .crest-image { display: block; image-rendering: pixelated; }
+.tt-rosters .sprite-frame.crest-frame.tt-crest-frame { width: 56px; height: 56px; padding: 0; }
+.tt-rosters .crest-frame.tt-crest-frame .crest-image { inset: 8px; width: calc(100% - 16px); height: calc(100% - 16px); }
+
+/* added skills: the gold box with a red + badge; printed skills keep their category colours */
+.tt-rosters .tv-added { position: relative; border: 1.5px solid var(--ui-gold); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-gold) 35%, transparent); border-radius: 4px; padding-right: 14px; margin-right: 6px; font-style: normal; }
+.tt-rosters .tv-added::after { content: "+"; position: absolute; top: -8px; right: -8px; width: 16px; height: 16px; display: grid; place-items: center; font: 800 13px/1 var(--font-body, sans-serif); color: var(--ui-text-on-primary, #ffffff); background: var(--ui-danger, #ff4d4d); border-radius: 50%; box-shadow: 0 0 0 1px var(--tt-panel); }
+
+/* stats: a fixed, centred column at the same x on every row */
+@media (min-width: 760px) {
+  .tt-rosters .roster-grid { grid-template-columns: 36px minmax(170px, 1.2fr) 236px minmax(180px, 1.4fr) 96px; }
+  .tt-rosters .row-stats { width: 236px; justify-self: center; }
+  .tt-rosters .roster-header > .tt-hd-stats { text-align: center; }
+}
+
+/* team tab icon chips (32 px, red count badges) */
+.tt-roster-chips { align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+.tt-rchip { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; }
+.tt-rchip-img { width: 26px; height: 26px; object-fit: contain; image-rendering: pixelated; }
+.tt-rchip .tt-qty { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 2px; line-height: 18px; font-size: 11px; font-weight: 700; text-align: center; border-radius: 9px; background: var(--ui-danger, #ff4d4d); color: var(--ui-text-on-primary, #ffffff); box-shadow: 0 0 0 1px var(--ui-text-on-primary, #ffffff); }
+
+/* inducements under the roster (no header row) */
+.tt-ind { padding: 12px; }
+.tt-ind-title { margin: 0 0 6px; }
+.tt-ind-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.tt-ind-table td, .tt-ind-table th { padding: 6px; border-bottom: 1px solid var(--tt-line); text-align: left; vertical-align: middle; }
+.tt-ind-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.tt-ind-table tfoot th, .tt-ind-table tfoot td { border-bottom: 0; font-weight: 600; }
+.tt-ind-table tbody tr:nth-child(even) td { background: var(--tt-panel); }
+.tt-ind-cell { display: flex; align-items: center; gap: 10px; }
+.tt-ind-icon { width: 36px; height: 36px; object-fit: contain; }
+
+/* pickers: the Rosters row, compact (one column, sprite 44 px on phones) */
+.tt-rosters.tt-rosters-embed { width: auto; max-width: none; margin: 0 0 8px; padding: 0; overflow: visible; background: none; }
+.tt-rosters-embed .tt-roster-list { border: 1px solid var(--tt-line); border-radius: 4px; overflow: hidden; }
+.tt-roster-list li.roster-row.tt-rp-pick { grid-template-columns: 44px minmax(0, 1fr); grid-template-areas: "sprite who" "stats stats" "skills skills"; gap: 6px 10px; min-height: 0; padding: 8px 10px; }
+.tt-rosters-embed .tt-rp-pick .slot-number, .tt-rosters-embed .tt-rp-pick .roster-header { display: none; }
+.tt-rosters-embed .tt-rp-pick .roster-sprite { width: 44px; height: 44px; }
+.tt-rosters-embed .tt-rp-pick .row-stats { width: auto; justify-self: stretch; max-width: 260px; }
+.tt-rosters-embed .tt-rp-pick .row-stats > span { min-height: 36px; padding: 2px; }
+.tt-rosters-embed .tt-rp-pick .row-stats b { font-size: 15px; }
+.tt-rosters-embed .tt-rp-pick .row-skills { flex-wrap: wrap; }
+.tt-num-badge { display: inline-block; margin-right: 6px; padding: 0 5px; font-size: 12px; font-weight: 500; background: var(--tt-bg); border: 1px solid var(--tt-line); border-radius: 3px; color: var(--tt-ink); }
+.tt-roster-list li.roster-row.tt-rp-pick:active { box-shadow: inset 0 3px 0 rgb(0 0 0 / .35); transform: translateY(1px); }
+.tt-roster-list li.roster-row.tt-rp-pick:focus-visible { outline: 2px solid var(--ui-focus, var(--tt-accent)); outline-offset: -2px; }
+@media (min-width: 760px) {
+  .tt-roster-list li.roster-row.tt-rp-pick { grid-template-columns: 56px minmax(0, 1fr); }
+  .tt-rosters-embed .tt-rp-pick .roster-sprite { width: 56px; height: 56px; }
+}
+.tt-caption { margin: 8px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--tt-muted); }
+
+/* Other grid: glyph size from CSS, and on desktop the rail's bevelled treatment, 112 px tiles, a 960 px centred 3-column grid, no Injury tile (it is in the rail) */
+.tt-other-btn .tt-glyph-text { font-size: 26px; width: auto; height: auto; }
+@media (min-width: 1024px) {
+  .tt-rec .tt-other-box { width: min(1000px, calc(100% - 32px)); margin-inline: auto; }
+  .tt-rec .tt-other { max-width: 960px; margin: 0 auto 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .tt-rec .tt-other-injury { display: none; }
+  .tt-rec .tt-other-btn { min-height: 112px; gap: 8px; border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; box-shadow: var(--tt-bevel); text-shadow: var(--tt-lettering-shadow); font-family: var(--font-heading, sans-serif); font-size: 14px; letter-spacing: .06em; justify-content: center; text-align: center; transition: transform .06s ease; }
+  .tt-rec .tt-other-btn:active { box-shadow: var(--tt-bevel-down); transform: translateY(2px); }
+  .tt-rec .tt-other-btn .tt-glyph { width: 32px; height: 32px; }
+  .tt-rec .tt-other-btn .tt-glyph-text { font-size: 32px; width: auto; height: auto; }
+  .tt-rec .tt-other-box .tt-close { display: block; height: 44px; margin: 0 auto 0 0; margin-left: auto; }
+}
+
+/* End Turn / state button: a larger label with the turn line ("TURN 13") centred directly under it, the group vertically centred */
+@media (min-width: 1024px) {
+  .tt-rec { --tt-rail-label-fs: 22px; }
+  .tt-rec .tt-rail-end, .tt-rec .tt-rail-wait { justify-content: center; gap: 6px; padding: 6px 8px; }
+  .tt-rec .tt-rail-label { margin-top: 0; font-size: var(--tt-rail-label-fs); line-height: 1.05; }
+  .tt-rec .tt-rail-turn { margin-top: 0; }
+}
+@media (min-width: 1600px) { .tt-rec { --tt-rail-label-fs: 24px; } }
