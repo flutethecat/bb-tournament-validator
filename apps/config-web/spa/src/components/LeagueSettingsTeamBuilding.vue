@@ -3,8 +3,11 @@
 // (dataset default, editable per league), initial treasury in k, and Starting skills the organiser grants by access:
 // Primary / Secondary / Elite (Elite = Block, Guard, Mighty Blow, Dodge as in Small Gods). Saved on the season's rules
 // (season.rules.teamBuilding); the Tournament Team Builder reads them when a team is built for this league.
+// Starting skills are conceptually per tier (owner 10-30): each row's "Apply to tier" copies its treasury and starting
+// skills onto every roster of the same tier (a client-side fill, saved with the form; asks before overwriting rows
+// that hold non-default values).
 import { computed, inject, ref, watch } from "vue";
-import { LEAGUE_SETTINGS_KEY, teamBuildingError } from "../leagues/settings";
+import { applyTierFill, LEAGUE_SETTINGS_KEY, teamBuildingError, tierFillPlan } from "../leagues/settings";
 import type { TeamBuildingRosterRule } from "../leagues/types";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
@@ -17,6 +20,22 @@ watch(() => JSON.stringify(tb.value), () => { rows.value = fromView(); });
 const dirty = computed(() => JSON.stringify(rows.value) !== JSON.stringify(fromView()));
 const problem = computed(() => teamBuildingError(rows.value));
 const TIERS = [1, 2, 3, 4, 5, 6];
+
+// Apply to all rosters in this tier.
+const fillNotice = ref("");
+const pendingFill = ref<{ roster: string; tier: number; overwrites: string[] } | null>(null);
+function doFill(roster: string): void {
+  const n = applyTierFill(rows.value, roster);
+  const tier = rows.value.find((r) => r.roster === roster)?.tier;
+  fillNotice.value = n ? `Copied ${roster}'s values to ${n} other tier ${tier} roster${n === 1 ? "" : "s"}. Save to keep them.` : `Every tier ${tier} roster already has these values.`;
+  pendingFill.value = null;
+}
+function askFill(roster: string): void {
+  const plan = tierFillPlan(rows.value, roster);
+  const tier = rows.value.find((r) => r.roster === roster)?.tier ?? 0;
+  if (plan.overwrites.length) pendingFill.value = { roster, tier, overwrites: plan.overwrites };
+  else doFill(roster);
+}
 
 const pickSeason = (e: Event): void => { void settings.loadSeasonRules((e.target as HTMLSelectElement).value); };
 function save(): void {
@@ -47,6 +66,7 @@ function save(): void {
               <th scope="col" rowspan="2">GW tier</th>
               <th scope="col" rowspan="2" class="lg-num">Initial treasury (k)</th>
               <th scope="colgroup" colspan="3">Starting skills</th>
+              <th scope="col" rowspan="2"><span class="tn-sr">Tier shortcut</span></th>
             </tr>
             <tr><th scope="col">Primary</th><th scope="col">Secondary</th><th scope="col">Elite</th></tr>
           </thead>
@@ -58,11 +78,16 @@ function save(): void {
               <td><input v-model.number="r.startingSkills.primary" type="number" min="0" max="6" inputmode="numeric" :aria-label="`${r.roster} primary starting skills`" /></td>
               <td><input v-model.number="r.startingSkills.secondary" type="number" min="0" max="6" inputmode="numeric" :aria-label="`${r.roster} secondary starting skills`" /></td>
               <td><input v-model.number="r.startingSkills.elite" type="number" min="0" max="6" inputmode="numeric" :aria-label="`${r.roster} elite starting skills`" /></td>
+              <td>
+                <button class="lobby-btn small" type="button" :disabled="Boolean(state.busy)" :title="`Copy ${r.roster}'s treasury and starting skills to every tier ${r.tier} roster`"
+                  :aria-label="`Apply ${r.roster}'s treasury and starting skills to all rosters in tier ${r.tier}`" @click="askFill(r.roster)">Apply to all rosters in this tier</button>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
       <p v-if="problem" class="ls-field-error" role="alert">{{ problem }}</p>
+      <p v-if="fillNotice" class="hm-notice" role="status">{{ fillNotice }}</p>
       <div class="ls-actions">
         <button class="lobby-btn primary" type="submit" :disabled="!dirty || Boolean(problem) || state.busy === 'teamBuilding'">Save team building</button>
         <button class="lobby-btn" type="button" :disabled="!dirty" @click="rows = fromView()">Reset</button>
@@ -70,5 +95,17 @@ function save(): void {
         <p v-else-if="state.notices.teamBuilding" class="hm-notice" role="status">{{ state.notices.teamBuilding }}</p>
       </div>
     </form>
+    <div v-if="pendingFill" class="tn-modal-backdrop" @click.self="pendingFill = null" @keydown.esc="pendingFill = null">
+      <div class="tn-modal tn-panel ls-modal" role="alertdialog" aria-modal="true" aria-labelledby="ls-fill-h" aria-describedby="ls-fill-d">
+        <h3 id="ls-fill-h" class="tn-band">Apply to tier {{ pendingFill.tier }}</h3>
+        <div class="tn-panel-body ls-form">
+          <p id="ls-fill-d">This overwrites values already set on {{ pendingFill.overwrites.join(", ") }} with {{ pendingFill.roster }}'s treasury and starting skills.</p>
+          <div class="tn-actions">
+            <button class="lobby-btn primary" type="button" @click="doFill(pendingFill.roster)">Overwrite them</button>
+            <button class="lobby-btn" type="button" @click="pendingFill = null">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
