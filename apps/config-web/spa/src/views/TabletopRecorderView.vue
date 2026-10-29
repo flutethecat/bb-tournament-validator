@@ -3,6 +3,7 @@
 // (the only region that scrolls), TD / Other / CAS across the bottom third. Shows only what the server returned;
 // taps go through the offline queue and the screen follows the server next answer.
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { COACH_TREE_KEY } from "../home/tree";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import TabletopFeed from "../components/TabletopFeed.vue";
@@ -45,7 +46,8 @@ const settingsOpen = ref(false);
 const turnSetOpen = ref(false);
 const fetcher = inject(API_KEY)!;
 const factory = inject(RECORDER_KEY, null);
-const rec = factory ? factory(props.id) : createRecorder(props.id, { api: fetcher, onSignedOut: () => void session.load(true) });
+const coachTree = inject(COACH_TREE_KEY, null);
+const rec = factory ? factory(props.id) : createRecorder(props.id, { api: fetcher, onSignedOut: () => void session.load(true), onChanged: () => void coachTree?.invalidate() });
 const { state } = rec;
 
 const sides: Side[] = ["home", "away"];

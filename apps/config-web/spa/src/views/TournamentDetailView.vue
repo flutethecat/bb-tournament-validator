@@ -2,6 +2,7 @@
 // Tournament detail (/app/tournaments/:id, ?tab=): public read. Overview (with My entry for a signed-in coach) /
 // Entrants / Rounds / Standings, and Manage for the tournament's owner, organisers and admins.
 import { computed, inject, onMounted, onUnmounted, provide, watch } from "vue";
+import { COACH_TREE_KEY } from "../home/tree";
 import { RouterLink, useRoute } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
@@ -19,7 +20,8 @@ const props = defineProps<{ id: string }>();
 const fetcher = inject(API_KEY)!;
 const route = useRoute();
 const session = inject(SESSION_KEY)!;
-const detail = inject(TOURNAMENT_DETAIL_KEY, null) ?? createTournamentDetail({ api: fetcher, onSignedOut: () => void session.load(true) });
+const coachTree = inject(COACH_TREE_KEY, null);
+const detail = inject(TOURNAMENT_DETAIL_KEY, null) ?? createTournamentDetail({ api: fetcher, onSignedOut: () => void session.load(true), onChanged: () => void coachTree?.invalidate() });
 provide(TOURNAMENT_DETAIL_KEY, detail);
 const { state } = detail;
 const tabs = computed(() => tabsFor(state.capabilities.manage));

@@ -7,6 +7,7 @@ import { reactive, type InjectionKey } from "vue";
 import type { Fetcher } from "../session";
 import type { TournamentDetailResponse, TournamentEntrant, TournamentFixture, TournamentListPage, TournamentSummary } from "../shared/api";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
+import { rosterState } from "../tournaments/detail";
 import { chipFor, type DeadlineChip, type DeadlineView } from "./deadlines";
 
 export type ChipTone = "ok" | "soon" | "urgent" | "overdue" | "info" | "muted";
@@ -41,8 +42,12 @@ export interface CoachTreeState {
   loaded: boolean;
 }
 
-/** Cap on how many entries are expanded (one detail read each). */
+/** Cap on how many live / upcoming entries are expanded (one detail read each). */
 export const MAX_TREE_TOURNAMENTS = 12;
+/** Finished entries kept in the tree: the most recent few. */
+export const MAX_FINISHED_TOURNAMENTS = 5;
+/** A route change or window focus refetches the trees at most this often; invalidate() skips the wait. */
+export const TREE_REFRESH_MS = 60_000;
 const MAX_LIST_PAGES = 3;
 
 interface TabletopFixtureRow {
@@ -56,20 +61,24 @@ interface TabletopFixtureRow {
 const same = (a: string | undefined, b: string) => (a ?? "").trim().toLowerCase() === b.trim().toLowerCase();
 const enc = encodeURIComponent;
 
-/** Status chip of a tournament row: Pending (registered, team not submitted / not valid yet) · Open · Live · Finished. */
+/** Status chip of a tournament row: Pending (registered, roster not valid yet) · Open · Live · Finished. "Valid" follows the
+ *  tournament page's rosterState(): an organiser's roster verification (or rejection) wins over the validator. */
 export function tournamentStatus(t: Pick<TournamentSummary, "status">, mine: TournamentEntrant | undefined): { label: string; tone: ChipTone } {
   if (t.status === "active") return { label: "Live", tone: "ok" };
   if (t.status === "completed") return { label: "Finished", tone: "muted" };
   if (t.status === "cancelled") return { label: "Cancelled", tone: "muted" };
-  return mine?.submission?.valid ? { label: "Open", tone: "info" } : { label: "Pending", tone: "soon" };
+  return mine && rosterState(mine) === "valid" ? { label: "Open", tone: "info" } : { label: "Pending", tone: "soon" };
 }
 
-/** Validity chip from the submission check. */
+/** Validity chip with the tournament page's rosterState() semantics; the problem count shows only when the validator's
+ *  verdict stands (no organiser decision). */
 export function validityChip(e: TournamentEntrant | undefined): { label: string; tone: ChipTone } {
-  const s = e?.submission;
-  if (!s) return { label: "No team", tone: "muted" };
-  if (s.valid) return { label: "Valid", tone: "ok" };
-  return { label: s.problemCount > 0 ? `${s.problemCount} problem${s.problemCount === 1 ? "" : "s"}` : "Invalid", tone: "urgent" };
+  const roster = e ? rosterState(e) : "none";
+  if (roster === "none") return { label: "No team", tone: "muted" };
+  if (roster === "valid") return { label: "Valid", tone: "ok" };
+  const n = e?.submission?.problemCount ?? 0;
+  const validatorVerdict = e?.rosterVerifiedOverride === undefined && e?.submission?.valid === false;
+  return { label: validatorVerdict && n > 0 ? `${n} problem${n === 1 ? "" : "s"}` : "Invalid", tone: "urgent" };
 }
 
 /** The coach's open fixture in a tournament: the latest unplayed one (highest round). */
@@ -119,11 +128,15 @@ export function treeTournament(
   return { id: t.id, name: t.name, status: tournamentStatus(t, mine), to, team, fixture };
 }
 
-export function createCoachTree(deps: { api: Fetcher }) {
+export function createCoachTree(deps: { api: Fetcher; now?: () => number }) {
+  const clock = deps.now ?? Date.now;
   const state = reactive<CoachTreeState>({ coach: "", tournaments: [], deadlines: [], timezone: "", loading: false, loaded: false });
   let gen = 0;
   let art: ArtManifests | undefined;
   let inflight: Promise<void> | undefined;
+  let loadedAt = 0;
+  /** invalidate() during a fetch: fetch again once it lands (its data may predate the change). */
+  let again = false;
 
   async function listAll(base: string): Promise<TournamentSummary[]> {
     const out: TournamentSummary[] = [];
@@ -153,18 +166,22 @@ export function createCoachTree(deps: { api: Fetcher }) {
     state.coach = coach;
     state.loading = true;
     const settle = async <T>(p: Promise<T>, fallback: T): Promise<T> => { try { return await p; } catch { return fallback; } };
-    const [active, upcoming, tabletop, deadlines, crests] = await Promise.all([
+    const [active, upcoming, finished, tabletop, deadlines, crests] = await Promise.all([
       settle(listAll("/api/fork/tournaments"), [] as TournamentSummary[]),
       settle(listAll("/api/fork/tournaments?status=draft"), [] as TournamentSummary[]),
+      settle(listAll("/api/fork/tournaments?status=completed"), [] as TournamentSummary[]),
       settle(deps.api<{ fixtures?: TabletopFixtureRow[] }>("/api/tabletop/fixtures").then((r) => (Array.isArray(r?.fixtures) ? r.fixtures : [])), [] as TabletopFixtureRow[]),
       settle(deps.api<{ timezone?: string; deadlines?: DeadlineView[] }>("/api/me/deadlines"), {} as { timezone?: string; deadlines?: DeadlineView[] }),
       art ? Promise.resolve(art.crests) : settle(deps.api<ArtManifests["crests"]>("/crests/manifest.json"), undefined),
     ]);
     art = { crests };
     const seen = new Set<string>();
-    const entered = [...active, ...upcoming]
-      .filter((t) => t && typeof t.id === "string" && t.myEntrantId && !t.myDroppedAt && !seen.has(t.id) && seen.add(t.id))
-      .slice(0, MAX_TREE_TOURNAMENTS);
+    const mineOnly = (t: TournamentSummary) => Boolean(t && typeof t.id === "string" && t.myEntrantId && !t.myDroppedAt && !seen.has(t.id) && seen.add(t.id));
+    const recent = (t: TournamentSummary) => t.endsAt ?? t.startedAt ?? t.startsAt ?? "";
+    const entered = [
+      ...[...active, ...upcoming].filter(mineOnly).slice(0, MAX_TREE_TOURNAMENTS),
+      ...finished.filter(mineOnly).sort((a, b) => recent(b).localeCompare(recent(a))).slice(0, MAX_FINISHED_TOURNAMENTS),
+    ];
     const details = await Promise.all(entered.map((t) => settle(deps.api<TournamentDetailResponse>(`/api/tournaments/${enc(t.id)}`), undefined)));
     if (mine !== gen) return;
     state.tournaments = entered.map((t, i) => treeTournament(t, details[i], coach, tabletop, art!));
@@ -172,11 +189,31 @@ export function createCoachTree(deps: { api: Fetcher }) {
     state.timezone = typeof deadlines.timezone === "string" ? deadlines.timezone : "";
     state.loading = false;
     state.loaded = true;
+    loadedAt = clock();
+    if (again) { again = false; inflight = fetchFor(coach); }
+  }
+
+  /** Bounded refresh (route change, window focus): refetches the signed-in coach's trees when the last read is older than
+   *  TREE_REFRESH_MS. */
+  function refresh(): Promise<void> {
+    if (!state.coach || state.loading || !state.loaded || clock() - loadedAt < TREE_REFRESH_MS) return inflight ?? Promise.resolve();
+    inflight = fetchFor(state.coach);
+    return inflight;
+  }
+
+  /** Something the trees show just changed (register / withdraw / submit / confirm, availability saved): refetch now. */
+  function invalidate(): Promise<void> {
+    if (!state.coach) return Promise.resolve();
+    if (state.loading) { again = true; return inflight ?? Promise.resolve(); }
+    inflight = fetchFor(state.coach);
+    return inflight;
   }
 
   return {
     state,
     load,
+    refresh,
+    invalidate,
     /** The nearest deadline's chip (recomputed against now), or undefined when there is none. */
     nearestChip(now = new Date()): DeadlineChip | undefined {
       const first = state.deadlines[0];

@@ -151,6 +151,8 @@ export interface RecorderDeps {
   now?: () => number;
   /** Opens the Super socket (tests swap it; the default is a browser WebSocket). */
   openSocket?: (url: string) => ClockSocket;
+  /** Runs after a successful submit / confirm / publish / undo-revision (the shell's deadlines refetch through it). */
+  onChanged?: () => void;
 }
 
 export interface ClockSocket {
@@ -297,6 +299,9 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
       if (path === "submit" && queue.pendingCount()) throw new Error(`${queue.pendingCount()} event(s) are still waiting to send. Try again when you're online.`);
       const res = await deps.api<{ match: MatchView }>(`${base}/${path}`, { method: "POST", body });
       state.match = res.match;
+      // a result step, or the turn end that runs the clock out (a report-by deadline starts)
+      const ranOut = path === "turn/end" && (res.match as { clock?: { activeTeam?: unknown } } | undefined)?.clock?.activeTeam === null;
+      if ((!path.startsWith("turn/") && !path.startsWith("pregame/")) || ranOut) deps.onChanged?.();
       await refresh();
     } catch (err) {
       state.actionError = fail(err);

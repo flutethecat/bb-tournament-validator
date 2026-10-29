@@ -78,7 +78,9 @@ export function safeCrestUrl(url: string | undefined | null): string {
   return typeof url === "string" && /^https?:\/\//i.test(url.trim()) ? url.trim() : "";
 }
 
-export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () => void }) {
+/** `onChanged` runs after every successful write (register, withdraw, submit, organiser actions): the shell's nav trees and
+ *  deadlines refetch through it. */
+export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () => void; onChanged?: () => void }) {
   const state = reactive<TournamentDetailState>({
     id: "", tournament: null, entrants: [], rounds: [], fixtures: [], standings: [], standingsStatus: "idle", standingsError: "",
     loaded: false, loading: false, notFound: false, error: "",
@@ -173,6 +175,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     try {
       const out = await write();
       state.notice = notice;
+      deps.onChanged?.();
       return out;
     } catch (err) {
       state.actionError = message(err, "That did not work.");
