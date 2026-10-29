@@ -317,7 +317,7 @@ describe("tabletop routes (server-rendered)", () => {
     // scoreboard: both coach corners and the centre
     expect(html).toContain("Alice Orcs");
     expect(html).toContain("Bob Elves");
-    expect(html).toContain("<span>1</span> : <span>0</span>");
+    expect(html).toContain('<span>1</span><span class="tt-score-colon">:</span><span>0</span>');
     expect(html).toContain("1Ht3");
     expect(html).toContain("End Turn"); // Alice plays home and home is the active team
     expect(html).not.toContain("tt-stepper"); // no manual half / turn stepper any more
@@ -437,7 +437,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html.match(/data-state="active"/g)).toHaveLength(1); // the active team's current turn only
     expect(html).toMatch(/data-state="active"[^>]*aria-current="step">3</); // turns read 1-8 in every half
     expect(html).toContain("2nd half");
-    expect(html).toContain("<span>1</span> : <span>0</span>");
+    expect(html).toContain('<span>1</span><span class="tt-score-colon">:</span><span>0</span>');
     expect(html).toContain("<span>TD</span>");
     expect(html).toContain("<span>CAS</span>");
     expect(html).not.toContain("tt-clock"); // no turn timer in this clock
@@ -590,6 +590,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-rec \.tt-track\.home \.tt-cell:not\(\[data-state="active"\]\), \.tt-rec \.tt-track\.away \.tt-cell:not\(\[data-state="active"\]\) \{\s*background: color-mix\(in srgb, #000 70%[^}]*border: 1px solid transparent; color: var\(--ui-text, #e6e9ef\); opacity: 1;/);
     expect(css1).toMatch(/\.tt-rec \.tt-track \.tt-cell\[data-state="active"\] \{ background: var\(--ui-scarlet/);
     expect(css1).toMatch(/\.tt-rec \.tt-track\.home \.tt-cell\[data-state="done"\], \.tt-rec \.tt-track\.away \.tt-cell\[data-state="done"\] \{ color: color-mix\(in srgb, var\(--ui-text, #e6e9ef\) 55%, transparent\); \}/); // played = soft grey, future = full white
+    expect(css1).toMatch(/\.tt-rec \.tt-score-colon \{ display: block; margin: 0; align-self: center; justify-self: center; font-family: var\(--font-heading, sans-serif\); font-size: \.7em;[^}]*text-shadow: var\(--tt-led-glow\); \}/); // the colon: its own centred grid item
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
@@ -951,7 +952,7 @@ describe("tabletop routes (server-rendered)", () => {
     ] as WireEvent[];
     const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: [], teams, tally: serverTally }, session(), queued);
     expect(html).toContain("2 events waiting");
-    expect(html).toContain("<span>1</span> : <span>0</span>"); // the score still follows the server only
+    expect(html).toContain('<span>1</span><span class="tt-score-colon">:</span><span>0</span>'); // the score still follows the server only
   });
 
   it("recorder (submitted): preview of both teams, per-coach confirmation state and a Confirm button for a coach", async () => {

@@ -1018,3 +1018,9 @@
   .tt-rec .tt-counters span { font-family: var(--font-heading, sans-serif); font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text, #e6e9ef) 85%, transparent); }
 }
 @media (min-width: 1600px) { .tt-rec .tt-counters span { font-size: 14px; } }
+
+/* the score colon is its own element in the centre column: display font at 70% of the score size, scarlet glow, vertically centred on the digits */
+.tt-score-colon { margin: 0 .25em; }
+@media (min-width: 1024px) {
+  .tt-rec .tt-score-colon { display: block; margin: 0; align-self: center; justify-self: center; font-family: var(--font-heading, sans-serif); font-size: .7em; line-height: 1; color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-led-glow); }
+}
