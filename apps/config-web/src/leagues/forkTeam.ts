@@ -39,15 +39,18 @@ export const rulesetBlocker = (ruleset: string): string =>
 
 /** The fork roster for a league race in the season's edition: same race name (case and spacing tolerant), roster id `<race>.<edition>`. */
 export function forkRosterFor(race: string, rosters: ReadonlyMap<string, string>, ruleset = "BB2025"): { rosterXml: string; roster: ForkRoster } | undefined {
-  const want = normName(race);
+  const want = raceKey(race);
   const suffix = `.${ruleset.toLowerCase()}`;
   for (const [, xml] of rosters) {
     let roster: ForkRoster;
     try { roster = parseForkRoster(xml); } catch { continue; }
-    if (normName(roster.raceName) === want && roster.rosterId.toLowerCase().endsWith(suffix)) return { rosterXml: xml, roster };
+    if (raceKey(roster.raceName) === want && roster.rosterId.toLowerCase().endsWith(suffix)) return { rosterXml: xml, roster };
   }
   return undefined;
 }
+
+/** A race name without an edition marker: the fork names some rosters "Slann 2025" (roster id slann.bb2025). */
+const raceKey = (name: string): string => normName(name).replace(/\s+(?:bb)?20\d\d$/, "");
 
 export type Characteristic = "MA" | "ST" | "AG" | "PA" | "AV";
 
@@ -99,15 +102,24 @@ export function positionFor(roster: ForkRoster, position: string): ForkRosterPos
   const want = normName(position);
   const exact = roster.positions.find((p) => normName(p.name) === want);
   if (exact) return exact;
-  const race = new Set(normName(roster.raceName).split(" "));
+  const race = new Set(raceKey(roster.raceName).split(" "));
   const bare = (s: string): string => normName(s).split(" ").filter((w) => !race.has(w)).join(" ");
   const w = bare(position);
-  return w ? roster.positions.find((p) => !p.isStar && bare(p.name) === w) : undefined;
+  if (!w) return undefined;
+  const regular = roster.positions.filter((p) => !p.isStar);
+  const same = regular.find((p) => bare(p.name) === w);
+  if (same) return same;
+  // The league's short name for a position the roster names longer ("Dwarf Lineman" ~ "Dwarf Blocker Lineman",
+  // "Jaguar Warrior" ~ "Jaguar Warrior Blocker"): every word of it in exactly one position's name, else no match.
+  const words = w.split(" ");
+  const wider = regular.filter((p) => { const have = new Set(bare(p.name).split(" ")); return words.every((x) => have.has(x)); });
+  return wider.length === 1 ? wider[0] : undefined;
 }
 
-const skillBase = (s: string): string => normName(s.replace(/\s*\([^)]*\)\s*$/, ""));
+// "&" and "and" spell the same skill ("Ball & Chain" ~ "Ball and Chain").
+const skillBase = (s: string): string => normName(s.replace(/\s*\([^)]*\)\s*$/, "").replace(/\s*&\s*/g, " and "));
 const isStatIncrease = (s: string): boolean => /^\+?\s*\d?\s*(ma|st|ag|pa|av)$/i.test(s.trim());
-const KNOWN_SKILLS = new Map(Object.keys(bb2025.skills).map((name) => [normName(name), name]));
+const KNOWN_SKILLS = new Map(Object.keys(bb2025.skills).map((name) => [skillBase(name), name]));
 
 /** `<skill>` for an acquired skill: the dataset spelling, a parameter as the value ("Hatred (Undead)" -> value="undead", "Loner (4+)" -> value="4"). */
 function skillXml(raw: string, player: string): string {

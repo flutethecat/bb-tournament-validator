@@ -901,3 +901,39 @@ describe("review regressions round 2: stat advances, banking +MA, the banking gu
     expect(() => buildLeagueForkTeam({ leagueId: "l", seasonId: "s", team, coach: "Ann", rosters: ROSTERS, ruleset: "BB2025" })).not.toThrow();
   });
 });
+
+describe("league-fork-test findings: TABBL rosters the fork names differently", () => {
+  const roster = (id: string, race: string, positions: string) =>
+    `<roster id="${id}"><name>${race}</name><reRollCost>50000</reRollCost><maxReRolls>8</maxReRolls><apothecary>true</apothecary>${positions}</roster>`;
+  const S = { ma: 6, st: 3, ag: 3, pa: 4, av: 9, cost: 50000 };
+  const SLANN = roster("slann.bb2025", "Slann 2025", pos("40", "Lineman", S) + pos("41", "Blitzer", { ...S, cost: 110000 }));
+  const DWARF = roster("dwarf.bb2025", "Dwarf", pos("50", "Dwarf Blocker Lineman", { ...S, ma: 4, av: 10 }) + pos("51", "Dwarf Blitzer", { ...S, ma: 5, av: 10, cost: 80000 }));
+  const AMAZON = roster("amazon.bb2025", "Amazon", pos("60", "Jaguar Warrior Blocker", { ...S, st: 4, cost: 110000 }) + pos("61", "Piranha Warrior", S));
+  const GOBLIN = roster("goblin.bb2025", "Goblin", pos("70", "Goblin Lineman", { ...S, st: 2, av: 8, cost: 40000 }) + pos("71", "Fanatic", { ...S, ma: 3, st: 7, av: 8, cost: 70000 }));
+  const rosters = new Map([["slann.bb2025", SLANN], ["dwarf.bb2025", DWARF], ["amazon.bb2025", AMAZON], ["goblin.bb2025", GOBLIN]]);
+  const team = (race: string, players: LeaguePlayer[]): LeagueTeam => ({ ...humans(), id: race.toLowerCase(), name: `${race} XI`, race, players });
+  const build = (t: LeagueTeam) => buildLeagueForkTeam({ leagueId: "l", seasonId: "s", team: t, coach: "Ann", rosters, ruleset: "BB2025" });
+
+  it("a fork roster named with its edition ('Slann 2025') is the league's Slann roster, positions without the race word", () => {
+    expect(forkRosterFor("Slann", rosters, "BB2025")!.roster.rosterId).toBe("slann.bb2025");
+    const file = build(team("Slann", [player("s1", 1, "Hop", "Slann Blitzer"), player("s2", 2, "Skip", "Slann Lineman")]));
+    expect(file.xml).toContain("<positionId>41</positionId>");
+    expect(file.xml).toContain("<positionId>40</positionId>");
+  });
+
+  it("a league short position name matches the one roster position holding all its words", () => {
+    const dwarves = build(team("Dwarf", [player("d1", 1, "Grim", "Dwarf Lineman", { ma: 4, av: 10 })]));
+    expect(dwarves.xml).toContain("<positionId>50</positionId>");
+    const amazons = build(team("Amazon", [player("a1", 1, "Cat", "Jaguar Warrior", { st: 4 })]));
+    expect(amazons.xml).toContain("<positionId>60</positionId>");
+  });
+
+  it("an ambiguous short name is still refused (never a guess)", () => {
+    expect(() => build(team("Amazon", [player("a1", 1, "Who", "Warrior")]))).toThrow(/has no "Warrior" position/);
+  });
+
+  it("'Ball & Chain' is the dataset's Ball and Chain", () => {
+    const file = build(team("Goblin", [player("g1", 1, "Spinny", "Fanatic", { ma: 3, st: 7, av: 8, skills: ["Ball & Chain"] })]));
+    expect(file.xml).toContain("<skill>Ball and Chain</skill>");
+  });
+});
