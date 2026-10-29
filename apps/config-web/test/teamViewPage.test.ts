@@ -276,4 +276,16 @@ describe("team view core: management page options (owner 10-30)", () => {
     expect(markup).toContain("</span>On the fork</span>");
     expect(markup).not.toContain("Open in Tournament Builder");
   });
+
+  it("the sheet hook makes each name/position a player sheet button; without it the public output has none", () => {
+    const plain = TeamView.viewHtml(fixture());
+    expect(plain).not.toContain("data-sheet");
+    expect(plain).not.toContain("tv-open");
+    const markup = TeamView.viewHtml(fixture(), { sheet: (p: Any) => `Open <${p.number}>` });
+    const n = fixture().players.length;
+    expect(markup.match(/<button type="button" class="tv-open" data-sheet="0" aria-label="Open &lt;1&gt;">/g)).toHaveLength(2);
+    expect(markup.match(/data-sheet-row="/g)).toHaveLength(n * 2);
+    // stripping the hook's additions gives back the public markup exactly
+    expect(markup.replace(/ data-sheet-row="\d+"/g, "").replace(/<button type="button" class="tv-open"[^>]*>/g, "").replace(/<\/button>/g, "")).toBe(plain);
+  });
 });
