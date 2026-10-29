@@ -436,7 +436,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(html).toContain('aria-haspopup="menu"');
     const nav = navOf(html);
     expect(nav).toContain('<nav class="sf-nav" data-collapsed="false" aria-label="Site"');
-    // owner 10-30: Home, Leagues, Tournaments, Leaderboards, Help, Resources (Testing Tools only for admins)
+    // owner 10-30: Home, Leagues, Tournaments, Leaderboards, Help, Resources (Testing only for admins)
     expect(topLabels(html)).toEqual(["Home", "Leagues", "Tournaments", "Leaderboards", "Help", "Resources"]);
     for (const icon of ["home", "leagues", "tournaments", "leaderboards", "help", "resources"]) {
       expect(nav).toMatch(new RegExp(`<img class="sf-icon" src="/icons/nav/${icon}\.png" alt(="")? width="26" height="26">`));
@@ -446,13 +446,21 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(nav).toMatch(/<a href="\/app\/leaderboards" class="sf-head-link"/);
     expect(nav).toMatch(/<a href="\/app\/help" class="sf-head-link"/);
     expect(nav).not.toContain("Coach page");
-    // every category is collapsible: one caret each; Resources is a toggle button, not a link
-    expect((nav.match(/class="sf-caret"/g) ?? []).length).toBe(5);
+    // only categories with children carry a caret (Leagues, Tournaments, Resources), at the right end of the header;
+    // Leaderboards and Help are plain header links. Resources is a toggle button, not a link
+    expect((nav.match(/class="sf-caret"/g) ?? []).length).toBe(3);
+    for (const id of ["leagues", "tournaments", "resources"]) expect(nav).toContain(`aria-controls="sf-tree-${id}"`);
+    for (const id of ["leaderboards", "help"]) { expect(nav).not.toContain(`sf-tree-${id}`); expect(nav).not.toContain(`Expand ${id[0]!.toUpperCase()}${id.slice(1)}`); }
+    expect(nav).not.toContain("Tabletop standings");
+    expect(nav).not.toContain('class="sf-label">What');
+    for (const head of nav.match(/<div class="sf-tree-head">[\s\S]*?<\/div>/g) ?? []) {
+      if (head.includes("sf-caret")) expect(head.indexOf("sf-caret")).toBeGreaterThan(head.indexOf("sf-head-label"));
+    }
     expect(nav).toMatch(/<button class="sf-head-link sf-head-toggle" type="button" aria-expanded="false" aria-controls="sf-tree-resources"/);
-    // Account left the sidebar (top-bar menu); the old Pages rows are admin-only Testing Tools
+    // Account left the sidebar (top-bar menu); the old Pages rows are admin-only Testing
     expect(nav).not.toContain('href="/app/account"');
     for (const gone of ["/app/lobby", "/app/tabletop", "/app/team-builder", "/app/tournament-team-builder"]) expect(nav).not.toContain(`href="${gone}"`);
-    expect(nav).not.toContain("Testing Tools");
+    expect(nav).not.toContain("Testing");
     expect(html).not.toContain("Login with Discord");
   });
 
@@ -472,7 +480,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
 
   it("testing tools: site admins only, collapsed by default, with Lobby / Tabletop / Team Builder / Tournament Builder", async () => {
     const admin = await render("/home", { ...signedInRoutes(), "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord", admin: true } });
-    expect(topLabels(admin.html).at(-1)).toBe("Testing Tools");
+    expect(topLabels(admin.html).at(-1)).toBe("Testing");
     const nav = navOf(admin.html);
     expect(nav).toContain('<img class="sf-icon" src="/icons/nav/tools.png"');
     const tools = nav.slice(nav.indexOf('id="sf-tree-testing" class="sf-rows"'));
@@ -533,13 +541,13 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(s.admin()).toBe(false); // a 401 drops admin
   });
 
-  it("Testing Tools: the rendered sidebar follows session.admin(), so a revalidated non-admin session hides it", async () => {
+  it("Testing: the rendered sidebar follows session.admin(), so a revalidated non-admin session hides it", async () => {
     let reply: unknown = { authenticated: true, coach: "Alice", authMethod: "discord", admin: true };
     const { html, spa } = await render("/home", { ...signedInRoutes(), "/api/auth/session": () => reply });
-    expect(navOf(html)).toContain("Testing Tools");
+    expect(navOf(html)).toContain("Testing");
     reply = { authenticated: true, coach: "Alice", authMethod: "discord", admin: false };
     await spa.session.load(true);
-    expect(navOf(await mods.renderToString(spa.app))).not.toContain("Testing Tools");
+    expect(navOf(await mods.renderToString(spa.app))).not.toContain("Testing");
   });
 
   it("collapsed rail: every icon keeps an accessible name (visually hidden label, title tooltip)", async () => {
@@ -739,7 +747,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const list = await at("/tournaments");
     expect(active(list)).toHaveLength(1);
     expect(active(list)[0]).toMatch(/href="\/app\/tournaments" class="sf-head-link" data-active="true" aria-current="page"/);
-    for (const [path, href] of [["/leaderboards", "/app/leaderboards"], ["/help", "/app/help"], ["/whats-new", "/app/whats-new"], ["/standings", "/app/standings"]] as const) {
+    for (const [path, href] of [["/leaderboards", "/app/leaderboards"], ["/help", "/app/help"]] as const) {
       const nav = await at(path);
       expect(active(nav)).toHaveLength(1);
       expect(active(nav)[0]).toContain(`href="${href}"`);

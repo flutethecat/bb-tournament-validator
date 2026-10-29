@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Left nav bar (owner 10-30): Home on top, then collapsible categories Leagues / Tournaments / Leaderboards / Help /
-// Resources, and Testing Tools for site admins only. Each top-level item is an uppercase band-font label with an
+// Resources, and Testing for site admins only. Each top-level item is an uppercase band-font label with an
 // original pixel icon (/icons/nav/). Children keep the 16 px row style, indented 14 px per level; the active item is seat
 // blue with a 3 px left bar. Collapsed (56 px rail) only the icons show; a category icon expands the rail and opens it.
 import { computed, inject, reactive } from "vue";
@@ -11,7 +11,7 @@ import { rememberRail, SHELL_UI_KEY } from "../home/shell";
 import { SESSION_KEY } from "../session";
 import { NOTIFICATIONS_KEY, homeBadgeCount, unreadBadge } from "../home/notifications";
 import {
-  HELP_ROWS, HOME_LINK, LEADERBOARD_ROWS, LEAGUES_TO, NAV_ICON, railIntercepts, readNavOpen, rememberNavOpen, RESOURCES, TESTING_TOOLS,
+  HOME_LINK, LEAGUES_TO, NAV_ICON, railIntercepts, readNavOpen, rememberNavOpen, RESOURCES, TESTING_TOOLS,
   type ExternalLink, type NavCategoryId,
 } from "../home/nav";
 
@@ -45,7 +45,7 @@ const tournamentRows = computed<Row[]>(() => {
 const leagueRows: Row[] = [{ key: "l:none", to: LEAGUES_TO, label: "No active leagues", level: 1, muted: true }];
 const linkRows = (prefix: string, links: { label: string; to: string }[]): Row[] => links.map((l) => ({ key: `${prefix}:${l.to}`, to: l.to, label: l.label, level: 1 }));
 
-// Testing Tools: site admins only, per the latest session read (session.admin() fails closed and the shell re-reads
+// Testing: site admins only, per the latest session read (session.admin() fails closed and the shell re-reads
 // the session on navigation and focus, so a revoked flag hides the category); everyone else never sees it.
 const isAdmin = computed(() => session.admin());
 
@@ -56,10 +56,10 @@ const homeBadge = computed(() => !session.signedIn() ? 0 : homeBadgeCount({ unre
 const categories = computed<Category[]>(() => [
   { id: "leagues", label: "Leagues", icon: "leagues", to: LEAGUES_TO, rows: leagueRows, count: 0 },
   { id: "tournaments", label: "Tournaments", icon: "tournaments", to: "/tournaments", rows: tournamentRows.value, count: tree.state.tournaments.length },
-  { id: "leaderboards", label: "Leaderboards", icon: "leaderboards", to: "/leaderboards", rows: linkRows("lb", LEADERBOARD_ROWS), count: 0 },
-  { id: "help", label: "Help", icon: "help", to: "/help", rows: linkRows("h", HELP_ROWS), count: 0 },
+  { id: "leaderboards", label: "Leaderboards", icon: "leaderboards", to: "/leaderboards", rows: [], count: 0 },
+  { id: "help", label: "Help", icon: "help", to: "/help", rows: [], count: 0 },
   { id: "resources", label: "Resources", icon: "resources", rows: [], external: RESOURCES, count: 0 },
-  ...(isAdmin.value ? [{ id: "testing" as const, label: "Testing Tools", icon: "tools", rows: linkRows("x", TESTING_TOOLS), count: 0 }] : []),
+  ...(isAdmin.value ? [{ id: "testing" as const, label: "Testing", icon: "tools", rows: linkRows("x", TESTING_TOOLS), count: 0 }] : []),
 ]);
 
 // One active item: the first in priority order whose target matches (coach tournament rows, Home and the category
@@ -76,6 +76,8 @@ const activeKey = computed(() => {
   return to === undefined ? "" : ordered.find((r) => r.to === to)?.key ?? "";
 });
 
+/** A category with no child rows (Leaderboards, Help) is a plain header link: no caret, no list. */
+const hasChildren = (c: Category): boolean => c.rows.length > 0 || (c.external?.length ?? 0) > 0;
 function toggle(id: NavCategoryId): void {
   open[id] = !open[id];
   rememberNavOpen({ ...open });
@@ -108,10 +110,6 @@ function onHeadToggle(id: NavCategoryId, e: MouseEvent): void {
     </RouterLink>
     <section v-for="c in categories" :key="c.id" class="sf-tree" :data-tree="c.id">
       <div class="sf-tree-head">
-        <button
-          class="sf-caret" type="button" :aria-expanded="open[c.id] ? 'true' : 'false'" :aria-controls="`sf-tree-${c.id}`"
-          :aria-label="`${open[c.id] ? 'Collapse' : 'Expand'} ${c.label}`" @click="toggle(c.id)"
-        ><span aria-hidden="true">{{ open[c.id] ? "▾" : "▸" }}</span></button>
         <RouterLink v-if="c.to" v-slot="{ href, navigate }" :to="c.to" custom>
           <a
             :href="href" class="sf-head-link" :data-active="activeKey === `c:${c.id}` ? 'true' : undefined" :title="ui.collapsed ? c.label : undefined"
@@ -123,8 +121,12 @@ function onHeadToggle(id: NavCategoryId, e: MouseEvent): void {
           :aria-controls="`sf-tree-${c.id}`" @click="onHeadToggle(c.id, $event)"
         ><img class="sf-icon" :src="NAV_ICON(c.icon)" alt="" width="26" height="26" /><span class="sf-head-label">{{ c.label }}</span></button>
         <span v-if="c.count" class="sf-count" :aria-label="`${c.count} entries`">{{ c.count }}</span>
+        <button
+          v-if="hasChildren(c)" class="sf-caret" type="button" :aria-expanded="open[c.id] ? 'true' : 'false'" :aria-controls="`sf-tree-${c.id}`"
+          :aria-label="`${open[c.id] ? 'Collapse' : 'Expand'} ${c.label}`" @click="toggle(c.id)"
+        ><span aria-hidden="true">{{ open[c.id] ? "▾" : "▸" }}</span></button>
       </div>
-      <ul v-show="open[c.id]" :id="`sf-tree-${c.id}`" class="sf-rows">
+      <ul v-if="hasChildren(c)" v-show="open[c.id]" :id="`sf-tree-${c.id}`" class="sf-rows">
         <li v-for="x in c.external ?? []" :key="x.href">
           <a :href="x.href" class="sf-row" style="--sf-level: 1" data-level="1" data-external="true" target="_blank" rel="noopener noreferrer"
           ><img class="sf-icon" :src="NAV_ICON(x.icon)" alt="" width="26" height="26" /><span class="sf-label">{{ x.label }}<span class="sf-sr"> (opens in a new tab)</span></span></a>

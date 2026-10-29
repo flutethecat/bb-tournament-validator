@@ -98,9 +98,9 @@
 /* ---- nav trees */
 .sf-nav { padding: 8px 0; }
 /* Tree headers wear the coach page band box (owner 10-30): panel surface, 2 px frame, 4 px heading-red left accent. */
-.sf-tree-head { display: flex; align-items: center; gap: 4px; margin: 0 6px; padding: 6px 8px 6px 4px; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); }
+.sf-tree-head { display: flex; align-items: center; gap: 4px; margin: 0 6px; padding: 6px 4px 6px 10px; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); }
 .sf-tree + .sf-tree { margin-top: 10px; }
-.sf-caret { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; color: var(--ui-muted); background: transparent; border: 0; cursor: pointer; font-size: 13px; }
+.sf-caret { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: -9px 0; padding: 0; color: var(--ui-muted); background: transparent; border: 0; cursor: pointer; font-size: 13px; }
 .sf-head-link { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0; font: 14px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; text-align: left; color: var(--ui-heading); background: transparent; border: 0; text-decoration: none; cursor: pointer; }
 .sf-head-link[data-active="true"] { color: var(--sf-seat-home); }
 .sf-head-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

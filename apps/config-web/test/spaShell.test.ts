@@ -519,10 +519,10 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
 
   it("nav shows every section; signed in shows the coach, not the login button", async () => {
     const { html } = await render("/tournaments", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } });
-    // owner 10-30: Home + categories; Account is in the top-bar avatar menu; the old Pages rows are admin-only Testing Tools
+    // owner 10-30: Home + categories; Account is in the top-bar avatar menu; the old Pages rows are admin-only Testing
     for (const label of ["Home", "Leagues", "Tournaments", "Leaderboards", "Help", "Resources"]) expect(html).toContain(`-label">${label}</span>`);
     expect(html).not.toContain('href="/app/account"');
-    expect(html).not.toContain(">Testing Tools<");
+    expect(html).not.toContain(">Testing<");
     const admin = await render("/tournaments", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord", admin: true } });
     for (const label of ["Lobby", "Tabletop", "Team Builder", "Tournament Builder"]) expect(admin.html).toContain(`class="sf-label">${label}<`);
     expect(html).toContain("Alice");

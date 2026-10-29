@@ -1,5 +1,5 @@
 // Sidebar model (owner 10-30): Home, then collapsible categories Leagues / Tournaments / Leaderboards / Help /
-// Resources, and Testing Tools for site admins only. Each top-level item has an original pixel icon in
+// Resources, and Testing for site admins only. Each top-level item has an original pixel icon in
 // /icons/nav/ (README there). Which categories are open is remembered per category in localStorage when the browser
 // allows it, never required.
 
@@ -15,9 +15,6 @@ export const HOME_LINK: NavLink = { label: "Home", to: "/home" };
 /** Leagues have no page of their own yet: the header opens the tournament list with a leagues hint. */
 export const LEAGUES_TO = "/tournaments?hint=leagues";
 
-export const HELP_ROWS: NavLink[] = [{ label: "What's new", to: "/whats-new" }];
-export const LEADERBOARD_ROWS: NavLink[] = [{ label: "Tabletop standings", to: "/standings" }];
-
 /** Resources: external sites, each opened in a new tab. */
 export const RESOURCES: ExternalLink[] = [
   { label: "Blood Bowl Base", href: "https://bloodbowlbase.ru", icon: "bloodbowlbase" },
@@ -26,7 +23,7 @@ export const RESOURCES: ExternalLink[] = [
   { label: "FUMBBL", href: "https://fumbbl.com", icon: "fumbbl" },
 ];
 
-/** Testing Tools (owner 10-30): the old Pages entries, for site admins only. Account lives in the top-bar menu. */
+/** Testing (owner 10-30): the old Pages entries, for site admins only. Account lives in the top-bar menu. */
 export const TESTING_TOOLS: NavLink[] = [
   { label: "Lobby", to: "/lobby" },
   { label: "Tabletop", to: "/tabletop" },
@@ -36,7 +33,7 @@ export const TESTING_TOOLS: NavLink[] = [
 
 export const NAV_OPEN_STORAGE_KEY = "sf.navOpen";
 
-/** Every category starts open except Resources and Testing Tools. */
+/** Every category starts open except Resources and Testing. */
 export const NAV_OPEN_DEFAULTS: Readonly<Record<NavCategoryId, boolean>> = {
   leagues: true, tournaments: true, leaderboards: true, help: true, resources: false, testing: false,
 };
