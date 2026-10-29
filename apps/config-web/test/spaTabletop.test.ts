@@ -318,7 +318,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("Alice Orcs");
     expect(html).toContain("Bob Elves");
     expect(html).toContain('<span>1</span><span class="tt-score-colon">:</span><span>0</span>');
-    expect(html).toContain("1Ht3");
+    expect(html).toContain("TURN 3"); // the End Turn button's turn line (the log and strip no longer show 1Ht3)
     expect(html).toContain("End Turn"); // Alice plays home and home is the active team
     expect(html).not.toContain("tt-stepper"); // no manual half / turn stepper any more
     expect(html).toContain("Rosters");
@@ -645,6 +645,16 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-rec \.tt-rail-btn, \.tt-rec \.tt-rail-btn\.tt-rail-other \{ display: grid; grid-template-columns: 32px 1fr; column-gap: 12px; align-items: center; justify-content: start; padding: 0 14px; text-align: left; \}/); // one inner grid on every rail button
     expect(css1).toMatch(/\.tt-rec \.tt-rail-btn > span:not\(\.tt-glyph\) \{ grid-column: 2; text-align: left; \}/); // labels start at the same x (Other has no icon)
     expect(css1).toMatch(/\.tt-rec \.tt-rail-btn > \.tt-glyph \{ grid-column: 1; justify-self: center; width: 24px; height: 24px; \}/);
+    expect(css1).toMatch(/\.tt-rec > \.tt-stripbar \{ overflow-y: hidden; color: var\(--ui-text, #e6e9ef\); \}/); // no vertical scroll in the strip, white text
+    expect(css1).toMatch(/\.tt-stripbar \.tt-tl \{ display: flex; align-items: center; overflow-y: hidden; overflow-x: auto;/);
+    expect(css1).toMatch(/\.tt-rec \.tt-stripbar-end \{ color: var\(--ui-text, #e6e9ef\); \}/); // the FINAL label is white
+    expect(css1).not.toContain("tt-stripbar-t"); // no state text in the strip
+    // the picker's row grid fits its sheet: the fixed tracks plus the gaps stay well inside the 1236 px content box measured at 1280 px (sheet padding included)
+    const gridRule = /\.tt-picker \.tt-roster-list li\.roster-row\.tt-rp-pick \{ grid-template-columns: ([^;]+);/.exec(css1)![1]!;
+    const px = [...gridRule.matchAll(/(\d+)px/g)].reduce((n, m) => n + Number(m[1]), 0);
+    const cols = gridRule.split(/\s+(?=\d|minmax)/).length;
+    expect(px + 12 * (cols - 1)).toBeLessThan(1236 - 24);
+    expect(css1).toMatch(/\.tt-rec \.tt-rosters-embed \{ width: 100%; max-width: 100%; box-sizing: border-box;/); // embedded lists take no popup width
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
@@ -751,7 +761,7 @@ describe("tabletop routes (server-rendered)", () => {
     const { readFileSync } = await import("node:fs");
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
     expect(css).toMatch(/\.tt-rec \{ --tt-col: min\(1400px, 100vw\); \}/); // popups share the centred column width
-    expect(css).toMatch(/\.tt-rec \.tt-modal-box, \.tt-rec \.tt-sheet, \.tt-rec \.tt-rosters, \.tt-rec \.tt-other-box \{\s*width: calc\(var\(--tt-col\) - 40px\); max-width: none; margin-inline: auto;/);
+    expect(css).toMatch(/\.tt-rec \.tt-modal-box, \.tt-rec \.tt-sheet, \.tt-rec \.tt-rosters:not\(\.tt-rosters-embed\), \.tt-rec \.tt-other-box \{\s*width: calc\(var\(--tt-col\) - 40px\); max-width: none; margin-inline: auto;/);
     expect(css).toMatch(/\.tt-rec \.tt-settings \.tt-seg \{ max-width: 720px; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
     expect(css).toMatch(/\.tt-rec \.tt-other-btn \.tt-glyph \{ width: 48px; height: 48px; \}/); // bigger Other icons
     expect(css).toMatch(/@media \(min-width: 1600px\) \{\s*\.tt-rec \.tt-other-btn \.tt-glyph \{ width: 56px; height: 56px; \}/);
@@ -1429,7 +1439,7 @@ describe("tabletop routes (server-rendered)", () => {
     const theirs = await renderMatch(body(clockOf("away", 3)));
     expect(theirs.html).not.toContain("End Turn");
     expect(theirs.html).toContain("Bob Elves to play");
-    expect(theirs.html).toContain("1Ht3");
+    expect(theirs.html).toContain("TURN 3");
     const organiser = await renderMatch(body(clockOf("away", 3)), session({ coach: "Zed", organizer: true }));
     expect(organiser.html).not.toContain("End Turn"); // an organiser never gets the enabled button on the opponent's turn
     expect(organiser.html).not.toContain('class="tt-endturn"');
@@ -1448,7 +1458,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(theirs.html).not.toContain("End this turn (override)"); // a coach never sees it
     const kick = await renderMatch(body(clockOf("home", 0)));
     expect(kick.html).toContain("Kick-off done");
-    expect(kick.html).toContain("1Ht0");
+    expect(kick.html).toContain("Kick-off"); // turn 0: no turn number yet
     expect(kick.html).not.toContain("End Turn");
   });
 

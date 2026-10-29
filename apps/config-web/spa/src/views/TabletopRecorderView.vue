@@ -23,10 +23,10 @@ import TabletopWeatherBar from "../components/TabletopWeatherBar.vue";
 import { canEditMatch, createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
 import { SESSION_KEY } from "../session";
 import { THEME_KEY } from "../theme";
-import { createCueTracker, timerOn, timerRemaining, turnLabel } from "../tabletop/clock";
+import { createCueTracker, timerOn, timerRemaining } from "../tabletop/clock";
 import { createCuePlayer } from "../tabletop/sounds";
 import TabletopGlyph from "../components/TabletopGlyph.vue";
-import { weatherParts, playerLabel, OTHER_EVENTS, CAS_EVENT, CASUALTY_RESULTS_UI, ELIGIBILITY_KEY, eligiblePlayers, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, visibleSidesFor, type OtherEvent } from "../tabletop/feed";
+import { playerLabel, OTHER_EVENTS, CAS_EVENT, CASUALTY_RESULTS_UI, ELIGIBILITY_KEY, eligiblePlayers, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, visibleSidesFor, type OtherEvent } from "../tabletop/feed";
 import { browserStorage } from "../tabletop/queue";
 import { createRecorder, RECORDER_KEY, type Side, type SummaryView } from "../tabletop/recorder";
 
@@ -178,17 +178,6 @@ async function saveTurn(body: { half: number | string; turn: number; activeTeam:
   if (!state.actionError) turnSetOpen.value = false;
 }
 /** The newest event the undo rules let this viewer take back (the feed trash rules), for the desktop rail. */
-const stripState = computed(() => {
-  const c = state.clock;
-  const m = match.value;
-  if (!m) return "";
-  if (m.state !== "recording") return matchRow.value;
-  if (!c || c.turn === undefined) return "";
-  const lab = turnLabel(c.half, c.turn);
-  if (c.turn === 0) return `Kick-off, ${lab}`;
-  return `${c.activeTeam ? m[c.activeTeam].teamName : "Turn"}, ${lab}`;
-});
-const weatherName = computed(() => weatherParts(state.pregame, state.events).name);
 // Tooltips: any element with data-tip pops one fixed bubble (above it; below it when data-tip-pos="bottom" or the element
 // sits near the top edge) after 120 ms on hover or keyboard focus; on touch a tap shows it for 1.5 s. It never takes pointer events.
 const tip = reactive({ show: false, text: "", x: 0, y: 0, below: false, arrow: 50 });
@@ -301,8 +290,6 @@ onBeforeUnmount(() => {
     />
 
     <div class="tt-stripbar">
-      <span v-if="weatherName" class="tt-stripbar-w">{{ weatherName }}</span><span v-if="weatherName && stripState" aria-hidden="true">&middot;</span>
-      <span v-if="stripState" class="tt-stripbar-t">{{ stripState }}</span>
       <TabletopTimeline :rows="shownRows" />
       <span class="tt-stripbar-end">Final</span>
     </div>

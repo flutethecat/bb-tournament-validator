@@ -376,8 +376,6 @@
 
   /* the strip under the hero: weather . state . timeline . FINAL */
   .tt-stripbar { display: flex; align-items: center; gap: 12px; height: 32px; padding: 0 28px; background: var(--tt-panel); border-bottom: 1px solid var(--tt-line); font-size: 12px; color: var(--tt-muted); }
-  .tt-stripbar-w { font-weight: 600; color: var(--tt-ink); white-space: nowrap; }
-  .tt-stripbar-t { white-space: nowrap; }
   .tt-stripbar-end { font-family: var(--font-heading, sans-serif); font-size: 10px; text-transform: uppercase; }
   .tt-stripbar .tt-tl { position: static; flex: 1 1 auto; min-width: 0; height: 24px; padding: 0 4px; background: none; border: 0; }
   .tt-stripbar .tt-tl-line { height: 24px; gap: 0; min-width: 100%; }
@@ -848,7 +846,7 @@
    width (1400 px max, the same --tt-pad centring) less the 20 px card inset, with the shared card bezel, radius and soft panel face */
 @media (min-width: 1024px) {
   .tt-rec { --tt-col: min(1400px, 100vw); }
-  .tt-rec .tt-modal-box, .tt-rec .tt-sheet, .tt-rec .tt-rosters, .tt-rec .tt-other-box {
+  .tt-rec .tt-modal-box, .tt-rec .tt-sheet, .tt-rec .tt-rosters:not(.tt-rosters-embed), .tt-rec .tt-other-box {
     width: calc(var(--tt-col) - 40px); max-width: none; margin-inline: auto;
     background: color-mix(in srgb, var(--ui-surface-2, #242424) 70%, var(--ui-surface, #0d0d0d)); border: 2px solid color-mix(in srgb, var(--ui-border, #3d0002) 70%, #000); border-radius: 6px;
     box-shadow: inset 0 1px 0 rgb(255 255 255 / .14), inset 0 -1px 0 rgb(0 0 0 / .55), 0 6px 0 rgb(0 0 0 / .45), 0 12px 28px rgb(0 0 0 / .45);
@@ -1157,7 +1155,7 @@
 
 /* popups never overflow the viewport: the shared width is the column width less the inset, capped to the viewport less a 16 px gutter each side; everything inside may shrink */
 @media (min-width: 1024px) {
-  .tt-rec .tt-modal-box, .tt-rec .tt-sheet, .tt-rec .tt-rosters, .tt-rec .tt-other-box { width: min(calc(var(--tt-col) - 40px), calc(100vw - 32px)); box-sizing: border-box; overflow-x: hidden; }
+  .tt-rec .tt-modal-box, .tt-rec .tt-sheet, .tt-rec .tt-rosters:not(.tt-rosters-embed), .tt-rec .tt-other-box { width: min(calc(var(--tt-col) - 40px), calc(100vw - 32px)); box-sizing: border-box; overflow-x: hidden; }
 }
 .tt-rec .tt-sheet, .tt-rec .tt-modal-box { overflow-x: hidden; }
 .tt-rec .tt-picker * { min-width: 0; }
@@ -1198,3 +1196,17 @@
   .tt-rec .tt-rail-btn > .tt-glyph-text { font-size: 24px; width: auto; height: auto; }
   .tt-rec .tt-rail-btn > span:not(.tt-glyph) { grid-column: 2; text-align: left; }
 }
+
+/* the desktop strip: nothing scrolls vertically (the marker row fills the strip height, glyphs centred), only the timeline scrolls sideways; all text in it is white, the state text in the display font */
+@media (min-width: 1024px) {
+  .tt-rec > .tt-stripbar { overflow-y: hidden; color: var(--ui-text, #e6e9ef); }
+  .tt-stripbar .tt-tl { display: flex; align-items: center; overflow-y: hidden; overflow-x: auto; scrollbar-width: thin; }
+  .tt-stripbar .tt-tl-line { height: 100%; align-items: center; margin: 0; }
+  .tt-stripbar .tt-tl-item { height: 100%; }
+  .tt-stripbar .tt-tl-end { display: flex; align-items: center; justify-content: center; height: 100%; margin: 0; }
+  .tt-rec .tt-stripbar-end { color: var(--ui-text, #e6e9ef); }
+}
+
+/* the roster lists inside a sheet (the picker's tabs and rows) fill the sheet's content box: they are not popups themselves, so they take no popup width, bezel or shadow */
+.tt-rec .tt-rosters-embed { width: 100%; max-width: 100%; box-sizing: border-box; margin-inline: 0; border: 0; box-shadow: none; background: none; }
+.tt-rec .tt-picker { overflow-x: hidden; }
