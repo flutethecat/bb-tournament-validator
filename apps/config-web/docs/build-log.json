@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Account page: identity, schedule and calendar",
+    "body": "The Account page is rebuilt in the coach page style. Identity lets you set the display name other coaches see (it defaults to your coach name), your FUMBBL name and your NAF name and number; your avatar and the Discord account you sign in with are shown read-only. A FUMBBL name linked through tournament registration stays locked. Schedule is the weekly availability editor, unchanged. Calendar shows a month at a time, Monday first, with your registration and check-in deadlines, report-by deadlines and fixture deadlines as chips coloured like the Deadlines panel; each chip opens its tournament or match, and your usual availability is shaded on the matching days. On a phone the month becomes an agenda list. Proposed match times will appear here once that feature lands.",
+    "links": [
+      {
+        "label": "Account",
+        "href": "/app/account"
+      },
+      {
+        "label": "Schedule",
+        "href": "/app/account#schedule"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Player sheet on the team management page",
     "body": "Click a player on your team management page (the name in the table, or the top of the card on phones) and their player sheet pops out: number, position and sprite, the five characteristics with increases marked, printed, added and free Team Captain skills, SPP against the next advancement with a progress bar and the rank name under it, and the career stats the team file records: touchdowns, casualties caused, completions, interceptions, MVPs, fouls and niggling injuries, plus injuries and value with its breakdown (position cost + added). Stats are recorded for games played through the site; anything not recorded shows a dash, and games played are not tracked yet. Add Skill and Add Stat work from the sheet just like the row buttons. Escape closes it and focus goes back to the player.",
     "links": [
