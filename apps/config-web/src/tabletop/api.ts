@@ -566,6 +566,8 @@ function seatsEvent(match: MatchRecord, id: string, payload: Record<string, unkn
 async function swapSeats(match: MatchRecord, me: string, organiser: boolean, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
   if (!organiser) return err(403, "Only an organiser can swap home and away.");
   if (match.state !== "recording") return err(409, `This match is ${match.state}.`);
+  // only at the very start: the first pre-game phase (a skipped pre-game, or a running turn, can never swap)
+  if ((match.phase ?? "playing") !== "pregame:fans") return err(409, "Home and away can only be swapped before the pre-game starts.");
   const stored = await deps.repo.readEvents(match.id);
   if (!seatsSwappable(stored)) return err(409, "The pre-game has started: home and away can only be swapped before the first pre-game roll.");
   const at = now().toISOString();
@@ -737,13 +739,20 @@ async function announceResult(match: MatchRecord, deps: TabletopApiDeps): Promis
 export function resultSummaryOf(events: readonly TabletopEvent[], teams: Record<Side, TabletopTeamFile | undefined>): ResultSummary {
   const names = (t: TabletopTeamFile | undefined) => new Map((t?.players ?? []).map((p) => [p.id, p.name] as const));
   const t = tallyMatch(events, { home: names(teams.home), away: names(teams.away) }, kindLookup(teams));
+  // casualties CAUSED: effective casualty events attributed to the causing side (e.team), bucketed like the result row
+  // (BH / SI = MNG, NI, stat loss / dead). A standalone injury has no causer and counts for nobody.
+  const caused: Record<Side, { bh: number; si: number; rip: number }> = { home: { bh: 0, si: 0, rip: 0 }, away: { bh: 0, si: 0, rip: 0 } };
+  for (const e of effectiveEvents(events)) {
+    if (e.type !== "casualty") continue;
+    const result = e.payload.result as string;
+    const b = caused[e.team];
+    if (result === "BH") b.bh += 1; else if (result === "DEAD") b.rip += 1; else b.si += 1;
+  }
   const side = (s: Side) => {
     const lines = [...t.lines[s].values()];
-    const other: Side = s === "home" ? "away" : "home";
     return {
       score: t.score[s],
-      // casualties this side caused = what the other side suffered (BH / SI / dead)
-      casualties: { ...t.casualtiesSuffered[other] },
+      casualties: caused[s],
       conceded: t.conceded[s],
       scorers: lines.filter((l) => l.touchdowns > 0).map((l) => ({ name: l.name, touchdowns: l.touchdowns })),
       mvps: lines.filter((l) => l.mvp > 0).map((l) => l.name),
@@ -1412,7 +1421,7 @@ function pregameViewOf(match: MatchRecord, events: readonly TabletopEvent[], bas
   const view: Record<string, unknown> = {
     ...pregameSummary(events, phase), step: pregameStepOf(phase, events, match.clock ?? null),
     // the organiser may still swap home and away (before the first pre-game record)
-    seatsSwappable: match.state === "recording" && seatsSwappable(events),
+    seatsSwappable: match.state === "recording" && phase === "pregame:fans" && seatsSwappable(events),
   };
   if (phase === "pregame:inducements" && baseTeams.home && baseTeams.away)
     Object.assign(view, inducementMenu({ teams: { home: baseTeams.home, away: baseTeams.away }, events, offers: inducementOffersFor(inducementOptInsFor(match, deps)) }));
