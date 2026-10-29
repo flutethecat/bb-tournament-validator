@@ -83,7 +83,8 @@ export async function testingApi(
     if (method !== "POST") return err(405, "Method not allowed.");
     const b = (body && typeof body === "object" ? body : {}) as Record<string, any>;
     if (b.fixtureRef !== undefined) return err(400, "A test match cannot be linked to a fixture.");
-    const pregame = b.pregame === undefined ? "skip" : b.pregame;
+    // Test matches walk the full pre-game like every other match unless the organiser explicitly asks to skip it.
+    const pregame = b.pregame === undefined ? "full" : b.pregame;
     if (pregame !== "skip" && pregame !== "full") return err(400, 'pregame must be "skip" or "full".');
     const postMatch = b.postMatch === undefined ? "none" : b.postMatch;
     if (postMatch !== "none" && postMatch !== "spp-only" && postMatch !== "full") return err(400, "postMatch must be none, spp-only or full.");

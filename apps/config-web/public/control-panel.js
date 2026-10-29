@@ -144,7 +144,7 @@
     if (start) {
       for (const side of sides) coachInput(side).value = start[side]?.coach ?? "";
       if (saved) {
-        $("tt-pregame").value = saved.pregame || "skip";
+        $("tt-pregame").value = saved.pregame || "full";
         $("tt-postmatch").value = saved.postMatch || "none";
         $("tt-timer").checked = Boolean(saved.timer);
         $("tt-seconds").value = String(saved.seconds || 240);
