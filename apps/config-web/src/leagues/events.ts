@@ -93,7 +93,7 @@ export async function postLeagueEvent(
 
 // ---- season log -----------------------------------------------------------------------------------------------------
 
-function addLog(season: SeasonRecord, entry: LeagueEventEntry): void {
+export function addLog(season: SeasonRecord, entry: LeagueEventEntry): void {
   season.log = [entry, ...(season.log ?? [])].slice(0, LOG_CAP);
 }
 

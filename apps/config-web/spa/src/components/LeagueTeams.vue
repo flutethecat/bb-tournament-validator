@@ -1,12 +1,14 @@
 <script setup lang="ts">
 // League page, Teams tab: a tile per team; ?team=<name> opens that team's end-of-season roster (players, skills,
-// SPP and season stats) and the players who left the roster during the season.
+// SPP and season stats) and the players who left the roster during the season. Organisers and admins (manage) get
+// Assign coach account in the roster header (LeagueTeamCoach).
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { crestFor, initials, kValue, playerByRef, sharedTotalsFor, teamByRef, teamUnattributed } from "../leagues/league";
 import type { LeaguePlayer, SeasonRecord } from "../leagues/types";
+import LeagueTeamCoach from "./LeagueTeamCoach.vue";
 
-const props = defineProps<{ season: SeasonRecord; team: string; player?: string; leagueId: string; crests: Record<string, string> }>();
+const props = defineProps<{ season: SeasonRecord; team: string; player?: string; leagueId: string; crests: Record<string, string>; manage?: boolean }>();
 const route = useRoute();
 // ?player=<playerId> opens that player's team (an older season's id resolves through previousIds); ?team= wins when both are given.
 const found = computed(() => (props.player ? playerByRef(props.season, props.player) : undefined));
@@ -36,7 +38,8 @@ const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
       </section>
       <template v-else>
         <section class="hm-panel lg-roster" :aria-label="`${picked.name} roster`">
-          <header class="hm-band"><h2>{{ picked.name }}</h2><span class="hm-cap">{{ picked.race }} · {{ picked.coach }}</span></header>
+          <header class="hm-band"><h2>{{ picked.name }}</h2><span class="hm-cap">{{ picked.race }} · {{ picked.coach }}<template v-if="picked.coachId && picked.coachAssigned"> · {{ picked.coachId }}</template></span></header>
+          <LeagueTeamCoach v-if="manage" :season="season" :team="picked" />
           <dl class="lg-team-facts">
             <div><dt>Team value</dt><dd>{{ kValue(picked.teamValue) }}</dd></div>
             <div><dt>Treasury</dt><dd>{{ kValue(picked.treasury) }}</dd></div>

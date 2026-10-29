@@ -65,7 +65,7 @@ export interface LeagueDetailState {
   /** Fixture whose Super FUMBBL switch is saving, and the last error. */
   forkBusy: string;
   forkError: string;
-  /** League news / fixtures editor write in flight ("news", "news:<id>", "fixture", "fixture:<id>") and its outcome. */
+  /** League news / fixtures editor / coach account write in flight ("news", "news:<id>", "fixture", "fixture:<id>", "coach:<teamId>") and its outcome. */
   editBusy: string;
   editError: string;
   editNotice: string;
@@ -223,6 +223,26 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
         const s = state.season[seasonId];
         if (s) s.fixtures = s.fixtures.filter((f) => f.id !== id);
       }, "Fixture deleted."),
+    /** Organisers: coach-name lookup against the identities (the Administration tab's lookup). */
+    async lookupCoaches(q: string): Promise<string[]> {
+      if (q.trim().length < 2) return [];
+      try { return (await deps.api<{ coaches: string[] }>(`${base()}/coaches?q=${encodeURIComponent(q.trim())}`)).coaches ?? []; } catch { return []; }
+    },
+    /**
+     * Organisers: seat a coach account on a league team (null clears it); allSeasons = every season of the team's lineage.
+     * The season is re-read afterwards (its unplayed fixtures changed too); other changed seasons reload when opened.
+     */
+    assignCoach: (seasonId: string, teamId: string, coachId: string | null, allSeasons: boolean) =>
+      edit(`coach:${teamId}`, async () => {
+        const res = await deps.api<{ seasons: string[] }>(`${seasonPath(seasonId)}/teams/${encodeURIComponent(teamId)}`, {
+          method: "PATCH", body: { revision: state.season[seasonId]?.revision ?? 0, coachId, ...(allSeasons ? { allSeasons: true } : {}) },
+        });
+        const fresh = await deps.api<{ season: SeasonRecord }>(seasonPath(seasonId));
+        return { changed: res.seasons ?? [], season: fresh.season };
+      }, ({ changed, season }) => {
+        state.season[seasonId] = season;
+        for (const id of changed) if (id !== seasonId) delete state.season[id];
+      }, coachId ? `Coach account set to ${coachId}.` : "Coach account cleared."),
     uploadArt: (kind: "logo" | "banner", image: Blob) => art(kind, () => (deps.upload ?? fetchUpload)(`${base()}/${kind}`, image), `${label(kind)} updated.`),
     removeArt: (kind: "logo" | "banner") => art(kind, () => deps.api(`${base()}/${kind}`, { method: "DELETE" }), `${label(kind)} removed.`),
     /** League admins: allow (or stop allowing) one fixture on Super FUMBBL; the server notifies the coaches and admins. */

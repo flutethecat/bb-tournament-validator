@@ -15,6 +15,7 @@
  *   GET    /api/leagues/:id/coaches?q=                            coach-name lookup against the identities (add organiser)
  *   POST   /api/leagues/:id/seasons                               { name?, ruleset? } start the next season
  *   POST   /api/leagues/:id/seasons/:seasonId/finish              status -> completed
+ *   PATCH  /api/leagues/:id/seasons/:seasonId/teams/:teamId       { revision, coachId, allSeasons? } assign a coach account (teamCoach.ts)
  *   PATCH  /api/leagues/:id/seasons/:seasonId/fixtures/:fixtureId { forkEnabled?, forkAllowLate?, forkCancelled? } Super FUMBBL per fixture
  *                                                                 { date?, round?, result? } fixtures editor (events.ts)
  * News and the fixtures editor (create / delete): see events.ts.
@@ -42,6 +43,7 @@ import { leagueCsvFiles, zipFiles } from "./exportZip.js";
 import { readJsonObject, requestRevision } from "./http.js";
 import { applyForkSettings, leagueForkRoutes, publicForkState, updateForkSettings, type LeagueForkClient } from "./forkPlay.js";
 import { applyPendingDrafts } from "./redraft.js";
+import { assignTeamCoach } from "./teamCoach.js";
 import { myRedraftTasks, redraftRoutes } from "./redraftApi.js";
 import {
   parseConnections, parseInformation, parseRegistrations, parseTeamBuilding, registrationsOf, settingsView, SettingsError, teamBuildingTable,
@@ -370,7 +372,8 @@ function isSettingsRoute(method: string, rest: string[]): boolean {
   if (first && SETTINGS_ROUTES.has(first)) return true;
   if (first !== "seasons" || more.length) return false;
   if (second === undefined) return method !== "GET" && method !== "HEAD";
-  return (third === "finish" && fourth === undefined) || (third === "fixtures" && fourth !== undefined);
+  return (third === "finish" && fourth === undefined) || (third === "fixtures" && fourth !== undefined)
+    || (third === "teams" && fourth !== undefined && method !== "GET" && method !== "HEAD");
 }
 
 /** Anonymous 401, unknown league 404, neither organiser nor admin 403. */
@@ -486,6 +489,10 @@ async function settingsRoute(
       if (third === "finish") {
         if (method !== "POST") return { status: 405, body: { error: "Use POST." } };
         return finishSeason(lg, second, deps);
+      }
+      if (third === "teams" && fourth) {
+        if (method !== "PATCH") return { status: 405, body: { error: "Use PATCH." } };
+        return assignTeamCoach(lg, second, fourth, who, input, deps, (name) => lookupCoach(deps, name));
       }
       if (third === "fixtures" && fourth) {
         if (method !== "PATCH") return { status: 405, body: { error: "Use PATCH." } };

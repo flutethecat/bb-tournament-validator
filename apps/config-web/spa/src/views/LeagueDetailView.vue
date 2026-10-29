@@ -148,7 +148,7 @@ onMounted(async () => {
         <LeagueStandings v-else-if="tab === 'standings'" :season="season" />
         <LeagueFixtureSummary v-else-if="tab === 'fixtures' && fixtureRef" :league-id="id" :season-id="season.id" :fixture-id="fixtureRef" :back="tabQuery('fixtures')" />
         <LeagueFixtures v-else-if="tab === 'fixtures'" :league="state.league" :season="season" :crests="state.crests" :manage="manage" />
-        <LeagueTeams v-else-if="tab === 'teams'" :season="season" :team="teamName" :player="playerRef" :league-id="id" :crests="state.crests" />
+        <LeagueTeams v-else-if="tab === 'teams'" :season="season" :team="teamName" :player="playerRef" :league-id="id" :crests="state.crests" :manage="manage" />
         <LeagueHonours v-else :season="season" />
       </template>
     </template>

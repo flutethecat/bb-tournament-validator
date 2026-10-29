@@ -105,6 +105,8 @@ export interface FixtureSide {
   teamId?: string;
   coach: string;
   coachId?: string;
+  /** coachId was set by an organiser (Assign coach account): authoritative, never linked to the display / NAF name. */
+  coachAssigned?: true;
   race: string;
   nafUser?: string;
   score: number | null;
@@ -278,6 +280,8 @@ export interface LeaguePhase {
 export interface LeagueParticipant {
   coach: string;
   coachId?: string;
+  /** See FixtureSide.coachAssigned. */
+  coachAssigned?: true;
   nafUser?: string;
   country: string;
   race: string;
@@ -353,6 +357,8 @@ export interface LeagueTeam {
   race: string;
   coach: string;
   coachId?: string;
+  /** An organiser assigned coachId (Assign coach account): who and when. The account is authoritative (identity.ts). */
+  coachAssigned?: { by: string; at: string };
   nafUser?: string;
   teamValue: number | null;
   treasury: number | null;
@@ -464,13 +470,15 @@ export interface LeagueNewsPost {
   editedAt?: string;
 }
 
-export type LeagueEventKind = "fixture-created" | "fixture-deleted" | "match-started" | "match-result";
+export type LeagueEventKind = "fixture-created" | "fixture-deleted" | "match-started" | "match-result" | "team-coach";
 
 export interface LeagueEventEntry {
   at: string;
   by: string;
   kind: LeagueEventKind;
   fixtureId?: string;
+  /** team-coach: the season team whose coach account changed. */
+  teamId?: string;
   text: string;
   /** match-result: the score the post announced ("2-1/3-0"); the same result is never announced twice. */
   sig?: string;

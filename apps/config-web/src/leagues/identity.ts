@@ -7,6 +7,10 @@
  * account / NAF identity it was seen with unless that would merge two different accounts or two different NAF
  * names (an ambiguous display name stays on its own). Every aggregation then keys by the canonical key.
  *
+ * An organiser-assigned account (coachAssigned: Assign coach account, e.g. a fork account seated on an imported team for
+ * a test game) is authoritative: the row keys by that account only and links nothing (its display name and NAF name
+ * still belong to whoever they were seen with elsewhere).
+ *
  * Fixture outcome: a concession decides the result before the score comparison (the conceding side loses, whatever
  * the recorded touchdowns, which are kept as recorded).
  */
@@ -16,6 +20,8 @@ export interface CoachFacets {
   coach?: string;
   nafUser?: string;
   coachId?: string;
+  /** Set by an organiser: the row's coachId is authoritative and the row never links facets (see above). */
+  coachAssigned?: unknown;
 }
 
 const norm = (v: string | undefined): string => (v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -47,12 +53,14 @@ export function buildCoachAliases(observations: Iterable<CoachFacets>): CoachAli
     const rank = (k: string): number => (k.startsWith("id:") ? 0 : k.startsWith("naf:") ? 1 : 2);
     if (rank(ra) < rank(rb) || (rank(ra) === rank(rb) && ra < rb)) parent.set(rb, ra); else parent.set(ra, rb);
   };
+  const assigned = (f: CoachFacets): boolean => Boolean(f.coachAssigned) && Boolean(norm(f.coachId));
   const strong = (f: CoachFacets): string[] => [
     ...(norm(f.coachId) ? [`id:${norm(f.coachId)}`] : []),
-    ...(norm(f.nafUser) ? [`naf:${norm(f.nafUser)}`] : []),
+    ...(norm(f.nafUser) && !assigned(f) ? [`naf:${norm(f.nafUser)}`] : []),
   ];
   const seen: CoachFacets[] = [];
   for (const f of observations) {
+    if (assigned(f)) { add(`id:${norm(f.coachId)}`); continue; }
     seen.push(f);
     const s = strong(f);
     for (const k of s) add(k);

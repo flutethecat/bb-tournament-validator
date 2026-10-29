@@ -158,17 +158,19 @@ export function leagueStats(allSeasons: SeasonRecord[], scope: StatsScope): Leag
       casualties += hc + ac;
       for (const [side, result, mine, theirs, cf, ca] of [[f.home, outcome.home, hs, as, hc, ac], [f.away, outcome.away, as, hs, ac, hc]] as const) {
         const ck = keyFor(side.coach, side.nafUser, side.coachId);
+        // An organiser-assigned account names the side (the imported display name belongs to someone else).
+        const shown = side.coachAssigned && side.coachId ? side.coachId : side.coach;
         let c = coaches.get(ck);
-        if (!c) { c = { ...blank(), coach: side.coach, seasons: [], teams: 0, titles: 0, teamKeys: new Set(), lastSeen: -1 }; coaches.set(ck, c); }
-        if (s.number >= c.lastSeen) { c.coach = side.coach; c.lastSeen = s.number; }
+        if (!c) { c = { ...blank(), coach: shown, seasons: [], teams: 0, titles: 0, teamKeys: new Set(), lastSeen: -1 }; coaches.set(ck, c); }
+        if (s.number >= c.lastSeen) { c.coach = shown; c.lastSeen = s.number; }
         if (side.coachId) c.coachId = side.coachId;
         add(c, result, mine, theirs, cf, ca);
         pushSeason(c.seasons, s.number);
         const tk = teamKeyOf(ck, side.team, side.race);
         c.teamKeys.add(tk);
         let t = teams.get(tk);
-        if (!t) { t = { ...blank(), team: side.team, race: side.race, coach: side.coach, seasons: [] }; teams.set(tk, t); }
-        t.coach = side.coach;
+        if (!t) { t = { ...blank(), team: side.team, race: side.race, coach: shown, seasons: [] }; teams.set(tk, t); }
+        t.coach = shown;
         add(t, result, mine, theirs, cf, ca);
         pushSeason(t.seasons, s.number);
         const rk = side.race || "Unknown";

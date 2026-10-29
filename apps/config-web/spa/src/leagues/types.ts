@@ -211,6 +211,8 @@ export interface LeagueTeam {
   race: string;
   coach: string;
   coachId?: string;
+  /** An organiser assigned the coach account (Teams tab, Assign coach account). */
+  coachAssigned?: { by: string; at: string };
   teamValue: number | null;
   treasury: number | null;
   rerolls: number | null;
@@ -266,6 +268,8 @@ export interface SeasonRecord {
   /** Honour totals the export could not pin to one player (absent on files imported before it existed). */
   unattributedStats?: UnattributedStats[];
   importedAt: string;
+  /** Bumped on every write; organiser season writes (Assign coach account) send the one they loaded. */
+  revision?: number;
   news?: LeagueNewsPost[];
 }
 

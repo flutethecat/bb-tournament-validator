@@ -402,6 +402,54 @@ describe("league settings routes (server-rendered)", () => {
     expect(one.html).toContain("lg-players");
     expect(one.html).toContain("Durin");
   });
+
+  it("teams: Assign coach account in the roster header for organisers only", async () => {
+    const withTeam = (): SeasonRecord => ({ ...season6(), teams: [{
+      id: "grudge-rollers", name: "Grudge Rollers", race: "Dwarf", coach: "Dee Display", coachId: "ForkTester", coachAssigned: { by: "Jay", at: "2026-10-30T18:00:00Z" },
+      teamValue: 1000000, treasury: 0, rerolls: 2, fans: 2, assistantCoaches: 0, cheerleaders: 0, apothecary: false, tier: "1", raceLeague: "", players: [], formerPlayers: [],
+    }] });
+    const extra = { "/api/leagues/tabbl/seasons/season-6": () => ({ league: league(), season: withTeam() }) };
+    const org = await render("/leagues/tabbl?tab=teams&team=grudge-rollers", detail, ORGANISER, extra);
+    expect(org.html).toContain("data-assign-coach");
+    expect(org.html).toContain("Assign coach account");
+    expect(org.html).toContain("All seasons of this team");
+    expect(org.html).toContain("(assigned by Jay)");
+    expect(org.html).toContain(">Clear</button>");
+    expect(org.html).toMatch(/Dee Display(<!--\[-->)? · ForkTester/); // header: imported coach + assigned account
+    const coach = await render("/leagues/tabbl?tab=teams&team=grudge-rollers", detail, COACH, extra);
+    expect(coach.html).not.toContain("data-assign-coach");
+    expect(coach.html).not.toContain("Assign coach account");
+    expect(coach.html).toMatch(/Dee Display(<!--\[-->)? · ForkTester/);
+    const anon = await render("/leagues/tabbl?tab=teams&team=grudge-rollers", detail, ANON, extra);
+    expect(anon.html).not.toContain("data-assign-coach");
+  });
+
+  it("league detail: assignCoach sends the season revision, re-reads the season, drops other changed seasons", async () => {
+    let served = { ...season6(), revision: 7 };
+    const f = mockFetcher({
+      "/api/leagues/tabbl": { league: league(), seasons: [s6, s5] },
+      "/crests/manifest.json": { crests: {} },
+      "/api/leagues/tabbl/seasons/season-6": () => ({ season: served }),
+      "/api/leagues/tabbl/seasons/season-5": { season: { ...season6(), id: "season-5" } },
+      "/api/leagues/tabbl/coaches?q=fork": { coaches: ["ForkTester"] },
+      "PATCH /api/leagues/tabbl/seasons/season-6/teams/grudge-rollers": () => {
+        served = { ...served, revision: 8, teams: served.teams.map((t) => ({ ...t, coachId: "ForkTester" })) };
+        return { ok: true, seasons: ["season-6", "season-5"], revision: 8 };
+      },
+    });
+    const d = createLeagueDetail({ api: f });
+    await d.load("tabbl");
+    await d.ensureSeason("season-6");
+    await d.ensureSeason("season-5");
+    expect(await d.lookupCoaches("f")).toEqual([]); // under two letters: no lookup
+    expect(await d.lookupCoaches("fork")).toEqual(["ForkTester"]);
+    expect(await d.assignCoach("season-6", "grudge-rollers", "ForkTester", true)).toBe(true);
+    expect(f.calls.find((c) => c.method === "PATCH")!.body).toEqual({ revision: 7, coachId: "ForkTester", allSeasons: true });
+    expect(d.state.season["season-6"]!.revision).toBe(8);
+    expect(d.state.season["season-6"]!.teams.every((t) => t.coachId === "ForkTester")).toBe(true);
+    expect(d.state.season["season-5"]).toBeUndefined(); // reloads when opened
+    expect(d.state.editNotice).toBe("Coach account set to ForkTester.");
+  });
 });
 
 describe("league settings review regressions (SPA side)", () => {

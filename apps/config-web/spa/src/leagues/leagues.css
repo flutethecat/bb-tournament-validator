@@ -312,3 +312,8 @@
 .lg-fx-score-edit { white-space: nowrap; }
 .lg-fx-score-edit input { width: 56px; }
 .lg-fx-edit-table td { vertical-align: middle; }
+
+/* Assign coach account (Teams tab roster header, organisers) */
+.lg-assign { display: grid; gap: 6px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--sf-panel-line); }
+.lg-assign .ls-inline { align-items: flex-end; }
+.lg-assign p { margin: 0; }
