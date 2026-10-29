@@ -62,3 +62,4 @@
 .tm-choice:disabled { opacity: .45; cursor: not-allowed; }
 .tm-option select { min-height: 44px; max-width: 100%; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 4px; font: inherit; }
 .tm-result { color: var(--ui-success); font-weight: 600; }
+.tm-content { display: grid; gap: 12px; min-width: 0; }

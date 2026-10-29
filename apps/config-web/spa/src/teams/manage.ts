@@ -4,7 +4,8 @@
 // skills -> keep one), chosen Primary (pick a skill), characteristic (D8 roll -> pick a stat or a Primary fallback).
 // A roll is reserved on the server (SPP debited, the options stored on the team); it is resumed, never rerolled. No DOM.
 
-import { reactive } from "vue";
+import { reactive, type InjectionKey } from "vue";
+import { trapTarget } from "../home/shell";
 import { ApiError, type SharedTeamView } from "../shared/api";
 import type { Fetcher } from "../session";
 
@@ -283,3 +284,20 @@ export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void 
 }
 
 export type TeamManage = ReturnType<typeof createTeamManage>;
+
+export const TEAM_MANAGE_KEY: InjectionKey<TeamManage> = Symbol("team-manage");
+
+/** Keyboard handling of the advancement dialog (aria-modal): Escape closes unless a request is in flight; Tab and
+ *  Shift+Tab wrap inside the dialog (trapTarget, as the shell drawer does). Pure so it is tested without a DOM. */
+export function dialogKey<T>(
+  e: { key: string; shiftKey: boolean },
+  focusables: readonly T[],
+  active: T | null,
+  busy: boolean,
+): { type: "close" } | { type: "focus"; target: T } | { type: "block" } | null {
+  if (e.key === "Escape") return busy ? { type: "block" } : { type: "close" };
+  if (e.key !== "Tab") return null;
+  if (!focusables.length) return { type: "block" };
+  const target = trapTarget(focusables, active, e.shiftKey);
+  return target === undefined ? null : { type: "focus", target };
+}

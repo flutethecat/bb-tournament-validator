@@ -3,7 +3,7 @@
 // sheet is public/team-view.js's own markup, styled by public/team-view.css), plus per player an "Add Skill" button when a
 // random or chosen Primary advancement is affordable and an "Add Characteristic" button when the characteristic roll is
 // (teamAdvancement.ts costs). Header: Back to My teams, Share / Unshare, Open in Tournament Builder.
-import { computed, inject, onMounted, onServerPrefetch, watch } from "vue";
+import { computed, inject, nextTick, onMounted, onServerPrefetch, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import "../../../public/team-view.js";
 import "../../../public/team-view.css";
@@ -11,7 +11,7 @@ import "../teams/teams.css";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import AdvanceModal from "../components/AdvanceModal.vue";
-import { builderHref, createTeamManage, nextCostHint, progressLine, shareUrl, teamManagePath, type ManagedPlayer } from "../teams/manage";
+import { builderHref, createTeamManage, nextCostHint, progressLine, shareUrl, TEAM_MANAGE_KEY, teamManagePath, type ManagedPlayer } from "../teams/manage";
 
 interface TeamViewCore { viewHtml: (team: unknown, opts?: Record<string, unknown>) => string }
 const TeamView = (globalThis as unknown as { TeamView?: TeamViewCore }).TeamView;
@@ -19,7 +19,7 @@ const TeamView = (globalThis as unknown as { TeamView?: TeamViewCore }).TeamView
 const props = defineProps<{ teamRef: string }>();
 const fetcher = inject(API_KEY)!;
 const session = inject(SESSION_KEY)!;
-const manage = createTeamManage({ api: fetcher, onSignedOut: () => void session.load(true) });
+const manage = inject(TEAM_MANAGE_KEY, null) ?? createTeamManage({ api: fetcher, onSignedOut: () => void session.load(true) });
 const { state } = manage;
 const model = computed(() => state.model);
 const info = computed(() => state.model?.manage);
@@ -49,11 +49,37 @@ const sheetHtml = computed(() => {
   return TeamView.viewHtml(m.team, { bylineLead: "Coach", hideOwnerLink: true, ...(hasProgress ? { actions: actionsHtml } : {}) });
 });
 
+// The opener of the advancement dialog gets focus back on close, and again once the reloaded sheet re-renders (the
+// sheet is v-html, so a reload replaces the button). Falls back to the Back link when the button is gone.
+const opener = ref<{ index: number; kind: string } | null>(null);
+const restorePending = ref(false);
+const backLink = ref<{ $el?: HTMLElement } | null>(null);
+function focusOpener(): void {
+  const o = opener.value;
+  if (!o || typeof document === "undefined") return;
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>(`.tm-sheet [data-adv="${o.index}"]`));
+  const visible = candidates.filter((el) => el.offsetParent !== null);
+  const target = visible.find((el) => el.dataset.kind === o.kind) ?? visible[0] ?? backLink.value?.$el;
+  target?.focus({ preventScroll: true });
+}
+watch(() => state.flow, async (flow, was) => {
+  if (flow || !was) return;
+  restorePending.value = true;
+  await nextTick();
+  focusOpener();
+});
+watch(sheetHtml, async () => {
+  if (!restorePending.value || state.flow) return;
+  restorePending.value = false;
+  await nextTick();
+  focusOpener();
+});
+
 function onSheetClick(e: MouseEvent): void {
   const btn = (e.target as HTMLElement | null)?.closest?.("[data-adv]") as HTMLElement | null;
   if (!btn) return;
   const i = Number(btn.dataset.adv);
-  manage.open(i, btn.dataset.kind === "characteristic" ? "characteristic" : "skill");
+  if (manage.open(i, btn.dataset.kind === "characteristic" ? "characteristic" : "skill")) opener.value = { index: i, kind: btn.dataset.kind ?? "skill" };
 }
 
 const origin = computed(() => (typeof window !== "undefined" ? window.location.origin : ""));
@@ -71,8 +97,10 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
 
 <template>
   <div class="tm-page">
+    <!-- While the advancement dialog is open the page behind it is inert (aria-modal; no Tab stops, no clicks). -->
+    <div class="tm-content" :inert="state.flow ? true : undefined" :aria-hidden="state.flow ? 'true' : undefined">
     <nav class="tm-bar" aria-label="Team actions">
-      <RouterLink class="lobby-btn tm-back" to="/my-teams">Back to My teams</RouterLink>
+      <RouterLink ref="backLink" class="lobby-btn tm-back" to="/my-teams">Back to My teams</RouterLink>
       <template v-if="info">
         <a v-if="info.saveId" class="lobby-btn" :href="builderHref(info.saveId)">Open in Tournament Builder</a>
         <RouterLink v-if="info.libraryRef" class="lobby-btn" :to="teamManagePath(info.libraryRef)">Manage the fork team</RouterLink>
@@ -99,6 +127,7 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
       </p>
       <div class="team-view tm-sheet" @click="onSheetClick" v-html="sheetHtml"></div>
     </template>
+    </div>
     <AdvanceModal v-if="state.flow && model" :manage="manage" />
   </div>
 </template>

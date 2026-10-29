@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
-import { createTeamManage, nextCostHint, progressLine, teamManagePath, type PlayerProgress, type TeamManageModel } from "../spa/src/teams/manage";
+import { createTeamManage, dialogKey, nextCostHint, progressLine, teamManagePath, type PlayerProgress, type TeamManageModel } from "../spa/src/teams/manage";
 
 // Team management page (/app/teams/:ref, owner 10-30) and the My teams page restyle. The controller is tested directly;
 // the views are server-rendered through the SPA's own Vite config (as spaHome.test.ts does).
@@ -168,6 +168,19 @@ describe("team management controller", () => {
     expect(g.calls.length).toBe(before);
   });
 
+  it("dialog keys: Escape closes (blocked while busy), Tab and Shift+Tab wrap inside the dialog, focus outside is pulled in", () => {
+    const [a, b, c] = ["a", "b", "c"];
+    const list = [a, b, c];
+    expect(dialogKey({ key: "Escape", shiftKey: false }, list, b, false)).toEqual({ type: "close" });
+    expect(dialogKey({ key: "Escape", shiftKey: false }, list, b, true)).toEqual({ type: "block" });
+    expect(dialogKey({ key: "Tab", shiftKey: false }, list, c, false)).toEqual({ type: "focus", target: a });
+    expect(dialogKey({ key: "Tab", shiftKey: true }, list, a, false)).toEqual({ type: "focus", target: c });
+    expect(dialogKey({ key: "Tab", shiftKey: false }, list, b, false)).toBeNull(); // the browser moves to c
+    expect(dialogKey({ key: "Tab", shiftKey: false }, list, "background-button", false)).toEqual({ type: "focus", target: a });
+    expect(dialogKey({ key: "Tab", shiftKey: false }, [], null, false)).toEqual({ type: "block" });
+    expect(dialogKey({ key: "Enter", shiftKey: false }, list, a, false)).toBeNull();
+  });
+
   it("share toggles the linked save's token", async () => {
     const f = mockFetcher({ "/api/me/teams/library%3A77": libraryModel(), "POST /api/fork/team-builder/saves/sv_a/share": { shareToken: "f".repeat(32) }, "DELETE /api/fork/team-builder/saves/sv_a/share": null });
     const m = createTeamManage({ api: f });
@@ -191,10 +204,13 @@ describe("team management + My teams pages (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer] = await Promise.all([vite.ssrLoadModule("/src/app.ts"), vite.ssrLoadModule("vue-router"), vite.ssrLoadModule("vue/server-renderer")]);
-    mods = { app, vueRouter, renderer };
+    const [app, vueRouter, renderer, manageMod] = await Promise.all([vite.ssrLoadModule("/src/app.ts"), vite.ssrLoadModule("vue-router"), vite.ssrLoadModule("vue/server-renderer"), vite.ssrLoadModule("/src/teams/manage.ts")]);
+    mods = { app, vueRouter, renderer, manageMod };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
+
+  // The SPA's own copy of the controller module (same Vue instance and injection key as the rendered app).
+  const createTeamManageSsr = (f: Fetcher) => mods.manageMod.createTeamManage({ api: f });
 
   async function render(path: string, routes: Routes): Promise<string> {
     const spa = mods.app.createSpa({
@@ -237,6 +253,25 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(html).toContain(`/t/${"e".repeat(32)}`);
     const gone = await render("/teams/library%3A9", { "/api/me/teams/library%3A9": new ApiError(404, "Team not found.") });
     expect(gone).toContain("This team isn&#39;t one of yours, or it no longer exists.");
+  });
+
+  it("with the advancement dialog open the page behind is inert and the dialog is a focusable aria-modal", async () => {
+    const f = mockFetcher({ "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" }, "/api/me/teams/library%3A77": libraryModel() });
+    const manage = createTeamManageSsr(f);
+    await manage.load("library:77");
+    manage.open(0, "skill");
+    const spa = mods.app.createSpa({ history: mods.vueRouter.createMemoryHistory("/app/"), ssr: true, fetcher: f });
+    spa.app.provide(mods.manageMod.TEAM_MANAGE_KEY, manage);
+    await spa.router.push("/teams/library%3A77");
+    await spa.router.isReady();
+    const html = (await mods.renderer.renderToString(spa.app)) as string;
+    expect(html).toMatch(/<div class="tm-content" inert aria-hidden="true">/);
+    expect(html).toMatch(/<div class="tn-modal tn-panel tm-modal" role="dialog" aria-modal="true" aria-labelledby="tm-adv-h" tabindex="-1" data-step="choose">/);
+    // the dialog sits outside the inert content
+    expect(html.indexOf('role="dialog"')).toBeGreaterThan(html.lastIndexOf('class="team-view tm-sheet"'));
+    const closed = await render("/teams/library%3A77", { "/api/me/teams/library%3A77": libraryModel() });
+    expect(closed).toContain('<div class="tm-content">');
+    expect(closed).not.toContain('role="dialog"');
   });
 
   it("My teams: coach-page panels, tiles linking to the management page, Avatars and Build a team panels", async () => {

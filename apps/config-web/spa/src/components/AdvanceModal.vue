@@ -2,8 +2,9 @@
 // Advancement modal on the team management page: drives POST /api/teams/<id>/advancement through the shared controller
 // (teams/manage.ts). Add Skill: random Primary (pick a category, keep one of two rolled skills) or chosen Primary; Secondary
 // shows the server's reason while it is unavailable. Add Characteristic: roll, then keep a stat or a Primary fallback.
-import { computed, onMounted, onUnmounted, ref } from "vue";
-import type { TeamManage } from "../teams/manage";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { FOCUSABLE } from "../home/shell";
+import { dialogKey, type TeamManage } from "../teams/manage";
 
 const props = defineProps<{ manage: TeamManage }>();
 const state = props.manage.state;
@@ -19,14 +20,38 @@ const chosen = ref("");
 const fallback = ref("");
 const unique = (list: string[]) => [...new Set(list)];
 
-const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !flow.value.busy) props.manage.close(); };
-onMounted(() => window.addEventListener("keydown", onKey));
-onUnmounted(() => window.removeEventListener("keydown", onKey));
+// Focus (aria-modal): on open focus moves into the dialog; Tab / Shift+Tab wrap inside it (the page behind is inert, see
+// TeamManageView); Escape closes unless a request is in flight. The view puts focus back on the opener after closing.
+const dialog = ref<HTMLElement | null>(null);
+const focusables = (): HTMLElement[] =>
+  Array.from(dialog.value?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter((el) => el.offsetParent !== null || el === document.activeElement);
+function onKey(e: KeyboardEvent): void {
+  const action = dialogKey(e, focusables(), document.activeElement as HTMLElement | null, flow.value.busy);
+  if (!action) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (action.type === "close") props.manage.close();
+  else if (action.type === "focus") action.target.focus({ preventScroll: true });
+}
+onMounted(async () => {
+  window.addEventListener("keydown", onKey, true);
+  await nextTick();
+  const first = dialog.value?.querySelector<HTMLElement>("[data-autofocus]") ?? focusables().find((el) => !el.classList.contains("tn-modal-x"));
+  (first ?? dialog.value)?.focus({ preventScroll: true });
+});
+onUnmounted(() => window.removeEventListener("keydown", onKey, true));
+// A step change re-renders the body and a request disables its buttons: keep focus inside the dialog.
+watch(() => [state.flow?.step, state.flow?.busy], () => { if (state.flow) keepFocus(); });
+function keepFocus(): void {
+  void nextTick(() => {
+    if (dialog.value && !dialog.value.contains(document.activeElement)) (focusables().find((el) => !el.classList.contains("tn-modal-x")) ?? dialog.value).focus({ preventScroll: true });
+  });
+}
 </script>
 
 <template>
   <div class="tn-modal-backdrop" @click.self="!flow.busy && manage.close()">
-    <div class="tn-modal tn-panel tm-modal" role="dialog" aria-modal="true" aria-labelledby="tm-adv-h">
+    <div ref="dialog" class="tn-modal tn-panel tm-modal" role="dialog" aria-modal="true" aria-labelledby="tm-adv-h" tabindex="-1" :data-step="flow.step">
       <h3 id="tm-adv-h" class="tn-band">
         {{ title }}
         <button type="button" class="tn-modal-x" aria-label="Close" :disabled="flow.busy" @click="manage.close()">×</button>
