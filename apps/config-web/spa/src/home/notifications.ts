@@ -237,3 +237,10 @@ export const NOTIFICATIONS_KEY: InjectionKey<NotificationsStore> = Symbol("notif
 
 /** Badge text for the bell: "" at 0 (badge hidden), "99+" above 99. */
 export const unreadBadge = (n: number): string => (n <= 0 ? "" : n > 99 ? "99+" : String(n));
+
+/** The Home row's badge in the left nav: unread notifications + unread messages + pending proposed times. Messages and
+ *  proposals have no stores yet, so the shell passes 0 for them. Negative or fractional inputs count as 0. */
+export function homeBadgeCount(parts: { unread: number; messages?: number; proposals?: number }): number {
+  const n = (v: number | undefined) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
+  return n(parts.unread) + n(parts.messages) + n(parts.proposals);
+}

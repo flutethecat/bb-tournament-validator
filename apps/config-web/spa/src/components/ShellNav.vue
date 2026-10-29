@@ -1,38 +1,22 @@
 <script setup lang="ts">
-// Left nav bar (spec §1-4): three trees, League / Tournament / Coach page, each a Silkscreen header row with a caret
+// Left nav bar (spec §1-4): trees: League / Tournament / Pages, each a Silkscreen header row with a caret
 // and indented children (14 px per level). Every row is a real RouterLink; the active row is seat blue with a 3 px
 // left bar; counts and chips sit right-aligned. Collapsed (56 px rail) only the header glyphs show.
 import { computed, inject, reactive } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import Crest from "./Crest.vue";
 import { NAV } from "../router";
-import { SESSION_KEY } from "../session";
 import { COACH_TREE_KEY, pickActive, type ChipTone } from "../home/tree";
-import { SHELL_UI_KEY, useNow } from "../home/shell";
-import { NOTIFICATIONS_KEY } from "../home/notifications";
+import { SHELL_UI_KEY } from "../home/shell";
+import { NOTIFICATIONS_KEY, homeBadgeCount, unreadBadge } from "../home/notifications";
 
-const session = inject(SESSION_KEY)!;
 const tree = inject(COACH_TREE_KEY)!;
 const notifications = inject(NOTIFICATIONS_KEY)!;
 const ui = inject(SHELL_UI_KEY)!;
 const route = useRoute();
-const now = useNow();
-const open = reactive({ league: true, tournament: true, coach: true, pages: true });
+const open = reactive({ league: true, tournament: true, pages: true });
 
 interface Row { key: string; to: string; label: string; level: number; count?: number; chip?: { label: string; tone: ChipTone }; muted?: boolean; crest?: string; logo?: string; sub?: string }
-
-const coachRows = computed<Row[]>(() => {
-  const deadlines = tree.state.deadlines.length;
-  const nearest = tree.nearestChip(now.value);
-  return [
-    { key: "c:notifications", to: "/home#notifications", label: "Notifications", level: 1, count: notifications.unread.value },
-    { key: "c:deadlines", to: "/home#deadlines", label: "Deadlines", level: 1, count: deadlines, ...(nearest ? { chip: { label: nearest === "overdue" ? "late" : nearest === "urgent" ? "<24h" : nearest === "soon" ? "<72h" : "ok", tone: nearest } } : {}) },
-    { key: "c:friends", to: "/home#friends", label: "Friends", level: 1 },
-    { key: "c:messages", to: "/home#messages", label: "Messages", level: 1, count: 0 },
-    { key: "c:schedule", to: "/home#schedule", label: "Schedule", level: 1 },
-    { key: "c:account", to: "/account", label: "Account", level: 1 },
-  ];
-});
 
 const tournamentRows = computed<Row[]>(() => {
   const rows: Row[] = [];
@@ -51,11 +35,14 @@ const tournamentRows = computed<Row[]>(() => {
 
 // Leagues have no store yet: the tree is the header and the way to browse (spec §2; leagues are later lanes).
 const leagueRows = computed<Row[]>(() => [{ key: "l:browse", to: "/tournaments", label: "Browse leagues", level: 1, muted: true }]);
-const pageRows = computed<Row[]>(() => NAV.map((n) => ({ key: `p:${n.to}`, to: n.to, label: n.label, level: 1 })));
+// Home carries the coach page's unread badge (notifications + messages + proposed times; the last two are wired to 0
+// until their stores land). Hidden at 0.
+const homeBadge = computed(() => homeBadgeCount({ unread: notifications.unread.value, messages: 0, proposals: 0 }));
+const pageRows = computed<Row[]>(() => NAV.map((n) => ({ key: `p:${n.to}`, to: n.to, label: n.label, level: 1, ...(n.to === "/home" && homeBadge.value > 0 ? { count: homeBadge.value } : {}) })));
 
-// One active row: the first in priority order whose target matches (Coach page, Tournament, League, then Pages).
+// One active row: the first in priority order whose target matches (Tournament, League, then Pages).
 const activeKey = computed(() => {
-  const ordered = [...coachRows.value, ...tournamentRows.value, ...leagueRows.value, ...pageRows.value];
+  const ordered = [...tournamentRows.value, ...leagueRows.value, ...pageRows.value];
   const to = pickActive(ordered.map((r) => r.to), route.fullPath);
   return to === undefined ? "" : ordered.find((r) => r.to === to)?.key ?? "";
 });
@@ -63,7 +50,6 @@ const activeKey = computed(() => {
 const trees = computed(() => [
   { id: "league" as const, label: "League", glyph: "L", to: "/tournaments", rows: leagueRows.value, count: 0 },
   { id: "tournament" as const, label: "Tournament", glyph: "T", to: "/tournaments", rows: tournamentRows.value, count: tree.state.tournaments.length },
-  { id: "coach" as const, label: "Coach page", glyph: "C", to: "/home", rows: coachRows.value, count: 0 },
   { id: "pages" as const, label: "Pages", glyph: "P", to: "/home", rows: pageRows.value, count: 0 },
 ]);
 </script>
@@ -82,17 +68,21 @@ const trees = computed(() => [
         <span v-if="t.count" class="sf-count" :aria-label="`${t.count} entries`">{{ t.count }}</span>
       </div>
       <ul v-show="open[t.id]" :id="`sf-tree-${t.id}`" class="sf-rows">
-        <li v-if="t.id === 'coach' && !session.signedIn()" class="sf-note">Sign in to see your page.</li>
         <template v-for="r in t.rows" :key="r.key">
           <li v-if="t.id === 'pages'">
             <RouterLink v-slot="{ href, navigate }" :to="r.to" custom>
+              <!-- two anchors, not a v-if span: a row without a badge keeps its bare ">Label</a>" markup -->
               <a
-                :href="href" class="sf-row" :style="{ '--sf-level': 1 }" data-level="1" :data-glyph="r.label.slice(0, 1)"
+                v-if="r.count" :href="href" class="sf-row" :style="{ '--sf-level': 1 }" data-level="1" :data-glyph="r.label.slice(0, 1)"
+                :data-active="activeKey === r.key ? 'true' : undefined" :aria-current="activeKey === r.key ? 'page' : undefined" @click="navigate"
+              >{{ r.label }}<span class="sf-count" :aria-label="`${r.count} unread`">{{ unreadBadge(r.count) }}</span></a>
+              <a
+                v-else :href="href" class="sf-row" :style="{ '--sf-level': 1 }" data-level="1" :data-glyph="r.label.slice(0, 1)"
                 :data-active="activeKey === r.key ? 'true' : undefined" :aria-current="activeKey === r.key ? 'page' : undefined" @click="navigate"
               >{{ r.label }}</a>
             </RouterLink>
           </li>
-          <li v-else-if="t.id !== 'coach' || session.signedIn() || r.key === 'c:account'">
+          <li v-else>
             <RouterLink v-slot="{ href, navigate }" :to="r.to" custom>
             <a
               :href="href" class="sf-row" :style="{ '--sf-level': r.level }" :data-level="r.level"

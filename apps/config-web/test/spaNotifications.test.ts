@@ -293,7 +293,9 @@ describe("NOTIFICATIONS panel + Message coach (server-rendered)", () => {
     const html = (await mods.renderer.renderToString(spa.app)) as string;
     expect(html).toMatch(/class="sf-bell"[^>]*aria-label="Notifications: 120"/);
     expect(html).toContain('<span class="sf-bell-count">99+</span>');
-    expect(html).toContain('href="/app/home#notifications"');
+    // owner 10-30: the sidebar's Home row carries the badge (the Coach page tree is gone)
+    expect(html).toMatch(/href="\/app\/home" class="sf-row"[^>]*>Home<span class="sf-count" aria-label="120 unread">99\+<\/span>/);
+    expect(html).not.toContain('href="/app/home#notifications"');
     expect(html).toMatch(/id="notifications"[\s\S]*?class="nf-band"/);
     expect(html).toContain("Kick-off moved to 7 pm.");
     expect(mods.store.unreadBadge(0)).toBe("");

@@ -124,6 +124,9 @@
   .sf-nav[data-collapsed="true"] .sf-head-link::before,
   .sf-nav[data-collapsed="true"] [data-tree="pages"] .sf-row::before { content: attr(data-glyph); font: 15px/1 var(--sf-band-font); }
   .sf-nav[data-collapsed="true"] [data-tree="pages"] .sf-tree-head { display: none; }
+  /* the Home glyph keeps a small unread count in the rail */
+  .sf-nav[data-collapsed="true"] [data-tree="pages"] .sf-row { position: relative; }
+  .sf-nav[data-collapsed="true"] [data-tree="pages"] .sf-row .sf-count { display: block; position: absolute; top: 1px; right: 4px; min-width: 14px; padding: 0 3px; font: 9px/14px var(--sf-band-font); color: var(--ui-scarlet-contrast); background: var(--ui-scarlet); }
 }
 
 /* under 1024: the nav is a drawer */

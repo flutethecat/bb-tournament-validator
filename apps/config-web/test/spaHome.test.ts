@@ -355,7 +355,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     };
     createMemoryHistory: (base?: string) => unknown;
     renderToString: (app: unknown) => Promise<string>;
-    bell: unknown; ctl: { createBell: (d: never, open?: boolean) => any }; shell: { CLOCK_KEY: symbol; createClock: typeof createClock }; notif: { useNotifications: (f: Fetcher) => { load(): Promise<void> }; NOTIFICATIONS_KEY: symbol }; sess: { SESSION_KEY: symbol };
+    bell: unknown; ctl: { createBell: (d: never, open?: boolean) => any }; shell: { CLOCK_KEY: symbol; createClock: typeof createClock }; notif: { useNotifications: (f: Fetcher) => { load(): Promise<void> }; NOTIFICATIONS_KEY: symbol; homeBadgeCount: (p: { unread: number; messages?: number; proposals?: number }) => number }; sess: { SESSION_KEY: symbol };
   };
 
   beforeAll(async () => {
@@ -381,14 +381,15 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
   const navOf = (html: string) => html.slice(html.indexOf('<nav class="sf-nav"'), html.indexOf("</nav>", html.indexOf('<nav class="sf-nav"')));
   const rowFor = (html: string, href: string) => html.match(new RegExp(`<a href="${href.replace(/[?]/g, "\\?")}" class="sf-row"[^>]*>[\\s\\S]*?</a>`))?.[0] ?? "";
 
-  it("wordmark home link, bell at 0, avatar menu, and the three trees with Silkscreen headers and carets", async () => {
+  it("wordmark home link, bell at 0, avatar menu, and the trees with Silkscreen headers and carets", async () => {
     const { html } = await render("/home", signedInRoutes());
     expect(html).toMatch(/<a [^>]*href="\/app\/home" class="[^"]*brand sf-wordmark"/);
     expect(html).toMatch(/class="sf-bell"[^>]*aria-label="Notifications: 0"/);
     expect(html).not.toContain('class="sf-bell-count"'); // the badge is hidden at 0
     expect(html).toContain('aria-haspopup="menu"');
-    for (const tree of ["League", "Tournament", "Coach page"]) expect(html).toMatch(new RegExp(`class="sf-head-link"[^>]*>${tree}</a>`));
-    expect((html.match(/class="sf-caret"/g) ?? []).length).toBe(4);
+    for (const tree of ["League", "Tournament", "Pages"]) expect(html).toMatch(new RegExp(`class="sf-head-link"[^>]*>${tree}</a>`));
+    expect(navOf(html)).not.toContain("Coach page"); // owner 10-30: the Coach page tree is gone; Home carries the badge
+    expect((html.match(/class="sf-caret"/g) ?? []).length).toBe(3);
     expect(html).not.toContain("Login with Discord");
   });
 
@@ -525,7 +526,8 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(nav).not.toContain("Dropped Cup");
     expect(nav).not.toContain("Not mine");
     expect(nav).toMatch(/>Tournament<\/a><span class="sf-count"[^>]*>2</);
-    expect(rowFor(nav, "/app/home#deadlines")).toMatch(/Deadlines[\s\S]*class="sf-count">2<[\s\S]*data-tone="urgent"/);
+    for (const gone of ["#deadlines", "#friends", "#messages", "#schedule", "#notifications"]) expect(nav).not.toContain(`/app/home${gone}`);
+    expect(rowFor(nav, "/app/home")).not.toContain("sf-count"); // 0 unread: no badge on Home
     expect(rowFor(nav, "/app/tournaments")).toBeTruthy();
     expect(nav).toContain("Browse leagues");
     expect(nav).toContain("Browse tournaments");
@@ -539,7 +541,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const active = (nav: string) => (nav.match(/<a href="([^"]+)" class="sf-row"[^>]*data-active="true"[^>]*>/g) ?? []);
     const home = await at("/home#deadlines");
     expect(active(home)).toHaveLength(1);
-    expect(active(home)[0]).toContain('href="/app/home#deadlines"');
+    expect(active(home)[0]).toContain('href="/app/home"');
     expect(active(home)[0]).toContain('aria-current="page"');
     const fixture = await at("/tournaments/t1?tab=rounds");
     expect(active(fixture)).toHaveLength(1);
@@ -577,10 +579,22 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(desktop).not.toMatch(/\binert\b|aria-hidden|role=/);
   });
 
-  it("signed out: the Coach page tree asks for a sign-in, /home shows the prompt, and the trees still link", async () => {
+  it("Home row badge: the unread count in the Pages tree, hidden at 0, capped at 99+", async () => {
+    const { html } = await render("/home", signedInRoutes(), (spa) => {
+      const shared = (spa.app._context.provides as Record<symbol, { unread: { value: number } }>)[mods.notif.NOTIFICATIONS_KEY];
+      shared.unread.value = 3;
+    });
+    expect(rowFor(navOf(html), "/app/home")).toMatch(/>Home<span class="sf-count" aria-label="3 unread">3<\/span>/);
+    expect(navOf(html)).not.toMatch(/Lobby<span class="sf-count"/);
+    expect(mods.notif.homeBadgeCount({ unread: 2, messages: 1, proposals: 4 })).toBe(7);
+    expect(mods.notif.homeBadgeCount({ unread: 0 })).toBe(0);
+    expect(mods.notif.homeBadgeCount({ unread: -2, messages: 1.9 })).toBe(1);
+  });
+
+  it("signed out: the Coach page tree is gone, /home shows the prompt, and the trees still link", async () => {
     const { html } = await render("/home", { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
     expect(html).toContain("Login with Discord");
-    expect(html).toContain("Sign in to see your page.");
+    expect(html).not.toContain("Sign in to see your page.");
     expect(html).not.toContain("hm-grid");
     expect(navOf(html)).toContain('href="/app/tournaments"');
   });
