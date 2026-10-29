@@ -225,6 +225,14 @@ function reporterFor(match: MatchRecord, events: readonly TabletopEvent[]): Game
   };
 }
 
+const flip = (side: Side): Side => (side === "home" ? "away" : "home");
+/** A recorder-ordered reporter read in the opposite home/away order (a fixture that lists the coaches swapped). */
+const swapReporter = (r: GameReporter): GameReporter => ({
+  ...r,
+  summaries: r.summaries ? { home: r.summaries.away, away: r.summaries.home } : null,
+  moments: r.moments.map((m) => ({ ...m, side: flip(m.side) })),
+});
+
 function baseSummary(card: GameCard, round: number | null, tournament: GameSummary["tournament"]): GameSummary {
   return {
     playedAt: card.playedAt, competition: card.context, round, tournament,
@@ -272,8 +280,12 @@ export function gameDetail(source: GameSource, id: string, inputs: GameInputs): 
       // A tabletop match recorded for this fixture: its sides follow the match, which may list the coaches swapped.
       const swapped = recorded.match.fixtureSwap === true;
       summary = withTabletop(summary, recorded);
-      if (swapped) summary = { ...summary, home: summary.away, away: summary.home };
       reporter = reporterFor(recorded.match, recorded.events);
+      if (swapped) {
+        // The page reads in fixture order: the summary, the reporter's two summaries and each moment's side all flip.
+        summary = { ...summary, home: summary.away, away: summary.home };
+        reporter = swapReporter(reporter);
+      }
     } else if (forkRow) {
       summary = withFork(summary, forkRow, forkRow.home.coach.trim().toLowerCase() !== m.home.coach.ffbCoachId.trim().toLowerCase() &&
         forkRow.away.coach.trim().toLowerCase() === m.home.coach.ffbCoachId.trim().toLowerCase());

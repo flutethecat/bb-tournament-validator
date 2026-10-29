@@ -130,6 +130,26 @@ describe("game detail", () => {
     expect(tt!.summary.home).toMatchObject({ scorers: [{ name: "Grim", count: 1 }], mvps: ["Grim"] });
   });
 
+  it("tournament: a tabletop match recorded with the coaches swapped reads in fixture order (summary, reporter, moments)", () => {
+    // Fixture: Carol (home) vs Dan (away), Dan won 1-0. The tabletop match lists Dan's team as its home side.
+    const d = gameDetail("tournament", "m1", inputs({
+      tournaments: [{ id: "t1", name: "Cup", entrants: [entrant("e1", "Carol's Crushers", "Orc"), entrant("e2", "Dan's Darlings", "Wood Elf")] as never,
+        matches: [fixture("m1", { homeScore: 0, awayScore: 1, reportedAt: "2026-10-22T00:00:00.000Z" })] as never }],
+      tabletop: [{
+        match: tabletopMatch("tm1", "published", { fixtureRef: "m1", fixtureSwap: true, preview,
+          home: { coach: "Dan", teamSaveId: "s2", teamName: "Dan's Darlings" }, away: { coach: "Carol", teamSaveId: "s3", teamName: "Carol's Crushers" } }),
+        events: playedEvents,
+      }] as never,
+    }));
+    expect(d!.card).toMatchObject({ home: { name: "Carol's Crushers", score: 0 }, away: { name: "Dan's Darlings", score: 1 } });
+    // fixture home (Carol) lost: its summary and report are the recorder's AWAY side
+    expect(d!.summary.home).toMatchObject({ scorers: [], mvps: [] });
+    expect(d!.summary.away).toMatchObject({ scorers: [{ name: "Grim", count: 1 }], mvps: ["Grim"] });
+    expect(d!.reporter!.summaries!.home).toMatchObject({ outcome: "lost", score: { for: 0, against: 1 } });
+    expect(d!.reporter!.summaries!.away).toMatchObject({ outcome: "won", score: { for: 1, against: 0 } });
+    expect(d!.reporter!.moments.map((m) => [m.side, m.text])).toEqual([["away", "Touchdown: Grim"], ["away", "Casualty: Basher on Squeak (SI)"]]);
+  });
+
   it("tabletop: the reporter's finished-game summary (no treasury), key moments in order, scorers and casualties", () => {
     const d = gameDetail("tabletop", "tm1", inputs({
       tabletop: [{ match: tabletopMatch("tm1", "confirmed", { preview }), events: playedEvents, race: { home: "Orc" } }] as never,
