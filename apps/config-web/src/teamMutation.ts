@@ -18,6 +18,7 @@ import {
 import { coachNamesEqual, storedTeamCoach, storedTeamFile } from "./teamDetail.js";
 import { injuryStatOf, playerProgression, type Characteristic } from "./teamAdvancement.js";
 import { skillCatalog } from "./data.js";
+import { shiftStoredPlayerValue } from "./storedPlayerValue.js";
 
 export type TeamMutationOperation =
   | "renumber"
@@ -702,7 +703,7 @@ function applyAdminPlayerOperation(
       }
       const nextBlock = appendPlayerListItem(target.block, "skillList", `<skill>${encodeXml(skill)}</skill>`);
       const delta = playerProgression(nextBlock, roster).currentValue - playerProgression(target.block, roster).currentValue;
-      return { xml: bumpTeamValueAggregates(teamXml.replace(target.block, nextBlock), delta), extra: { playerId } };
+      return { xml: bumpTeamValueAggregates(teamXml.replace(target.block, shiftStoredPlayerValue(nextBlock, delta)), delta), extra: { playerId } };
     }
     const found = acquired.find((entry) => entry.text === skill);
     if (!found) return fail(400, `Player does not have acquired skill ${skill}.`);
@@ -712,7 +713,7 @@ function applyAdminPlayerOperation(
     }
     const nextBlock = removePlayerListItem(target.block, found);
     const delta = playerProgression(nextBlock, roster).currentValue - playerProgression(target.block, roster).currentValue;
-    return { xml: bumpTeamValueAggregates(teamXml.replace(target.block, nextBlock), delta), extra: { playerId } };
+    return { xml: bumpTeamValueAggregates(teamXml.replace(target.block, shiftStoredPlayerValue(nextBlock, delta)), delta), extra: { playerId } };
   }
 
   if (injuryOperation) {
@@ -754,7 +755,7 @@ function applyAdminPlayerOperation(
   const derived = afterProgression.characteristics[stat];
   if (derived === null || derived < 1) return fail(400, `The requested ${stat} modifier does not produce a valid positive characteristic.`);
   const delta = afterProgression.currentValue - playerProgression(target.block, roster).currentValue;
-  return { xml: bumpTeamValueAggregates(teamXml.replace(target.block, nextBlock), delta), extra: { playerId, stat, modifier: body.modifier } };
+  return { xml: bumpTeamValueAggregates(teamXml.replace(target.block, shiftStoredPlayerValue(nextBlock, delta)), delta), extra: { playerId, stat, modifier: body.modifier } };
 }
 
 function playerHasHistory(block: string): boolean {

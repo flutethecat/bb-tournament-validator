@@ -447,6 +447,15 @@ describe("admin-only native player corrections", () => {
     expect(absent).toMatchObject({ status: 400, body: { error: expect.stringMatching(/does not have acquired skill/i) } });
   });
 
+  it("shifts a league player's stored value with an admin skill add and remove", async () => {
+    const d = setup(ADMIN_PLAYER_TEAM.replace('id="p1"', 'id="p1" storedValue="50000"'), ADMIN_PLAYER_ROSTER);
+    const admin = { admin: true };
+    expect((await teamMutationEndpoint(admin, "player/addSkill", { teamId: "42", playerId: "p1", skill: "Block" }, d.deps)).status).toBe(200);
+    expect(readFileSync(d.teamFile, "utf8")).toContain('id="p1" storedValue="80000"');
+    expect((await teamMutationEndpoint(admin, "player/removeSkill", { teamId: "42", playerId: "p1", skill: "Block" }, d.deps)).status).toBe(200);
+    expect(readFileSync(d.teamFile, "utf8")).toContain('id="p1" storedValue="50000"');
+  });
+
   it("refuses a stat injury that would take the stat below 1, and still takes one that leaves it positive", async () => {
     const worn = ADMIN_PLAYER_TEAM.replace("<injuryList/>", `<injuryList>${"<injury>Smashed Knee (-MA)</injury>".repeat(5)}</injuryList>`); // MA 6 -> 1
     const d = setup(worn, ADMIN_PLAYER_ROSTER);

@@ -90,6 +90,13 @@ describe("team progression mutation", () => {
     expect(readLibrary(deps.libraryDir, "Tarkin")[0]?.teamValue).toBe(1020);
   });
 
+  it("shifts a league player's stored value with the advancement, so a later death subtracts the real value", async () => {
+    const deps = setup(TEAM.replace('id="p1"', 'id="p1" storedValue="50000"'));
+    const result = await teamAdvancementEndpoint(auth, "42", { action: "applySkill", playerId: "p1", revision: deps.revision, method: "chosenPrimary", skill: "Wrestle" }, deps);
+    expect(result.status).toBe(200);
+    expect(readFileSync(deps.file, "utf8")).toContain('id="p1" storedValue="70000"');
+  });
+
   it("uses native 10k units for Team Builder XML and reports thousands in library metadata", async () => {
     const deps = setup(BUILDER_TEAM);
     const result = await teamAdvancementEndpoint(auth, "42", { action: "applySkill", playerId: "p1", revision: deps.revision, method: "chosenPrimary", skill: "Wrestle" }, deps);

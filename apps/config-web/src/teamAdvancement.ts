@@ -21,6 +21,7 @@ import {
 } from "@bb/fork-ops";
 import { withoutCaptainGrants, type SkillCategory } from "@bb/validator";
 import type { SessionIdentity } from "./auth/requireSession.js";
+import { shiftStoredPlayerValue } from "./storedPlayerValue.js";
 
 type AdvancementIdentity = Pick<SessionIdentity, "coach" | "organizer">;
 
@@ -859,6 +860,7 @@ export async function teamAdvancementEndpoint(auth: AdvancementIdentity | undefi
     if (skill) updatedPlayer = appendSkill(updatedPlayer, skill);
     if (characteristic) updatedPlayer = improveCharacteristic(updatedPlayer, characteristic, position);
     updatedPlayer = appendAudit(updatedPlayer, { method, cost, valueIncrease, ...(skill ? { skill, skillAccess: skillAccess ?? "primary" } : {}), ...(characteristic ? { characteristic } : {}), at: new Date(now).toISOString() });
+    updatedPlayer = shiftStoredPlayerValue(updatedPlayer, valueIncrease);
     let updatedXml = found.xml.replace(originalPlayer, updatedPlayer);
     try {
       updatedXml = bumpTeamValues(updatedXml, valueIncrease, isMng(originalPlayer) ? 0 : valueIncrease);
