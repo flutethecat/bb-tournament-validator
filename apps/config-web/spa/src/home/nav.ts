@@ -1,5 +1,5 @@
 // Sidebar model (owner 10-30): Home, then collapsible categories Leagues / Tournaments / Leaderboards / Help /
-// Useful resources, and Testing Tools for site admins only. Each top-level item has an original pixel icon in
+// Resources, and Testing Tools for site admins only. Each top-level item has an original pixel icon in
 // /icons/nav/ (README there). Which categories are open is remembered per category in localStorage when the browser
 // allows it, never required.
 
@@ -18,7 +18,7 @@ export const LEAGUES_TO = "/tournaments?hint=leagues";
 export const HELP_ROWS: NavLink[] = [{ label: "What's new", to: "/whats-new" }];
 export const LEADERBOARD_ROWS: NavLink[] = [{ label: "Tabletop standings", to: "/standings" }];
 
-/** Useful resources: external sites, each opened in a new tab. */
+/** Resources: external sites, each opened in a new tab. */
 export const RESOURCES: ExternalLink[] = [
   { label: "Blood Bowl Base", href: "https://bloodbowlbase.ru", icon: "bloodbowlbase" },
   { label: "Blood Bowl Dave", href: "https://bloodbowldave.com", icon: "bloodbowldave" },
@@ -36,7 +36,7 @@ export const TESTING_TOOLS: NavLink[] = [
 
 export const NAV_OPEN_STORAGE_KEY = "sf.navOpen";
 
-/** Every category starts open except Useful resources and Testing Tools. */
+/** Every category starts open except Resources and Testing Tools. */
 export const NAV_OPEN_DEFAULTS: Readonly<Record<NavCategoryId, boolean>> = {
   leagues: true, tournaments: true, leaderboards: true, help: true, resources: false, testing: false,
 };

@@ -418,8 +418,8 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(html).toContain('aria-haspopup="menu"');
     const nav = navOf(html);
     expect(nav).toContain('<nav class="sf-nav" data-collapsed="false" aria-label="Site"');
-    // owner 10-30: Home, Leagues, Tournaments, Leaderboards, Help, Useful resources (Testing Tools only for admins)
-    expect(topLabels(html)).toEqual(["Home", "Leagues", "Tournaments", "Leaderboards", "Help", "Useful resources"]);
+    // owner 10-30: Home, Leagues, Tournaments, Leaderboards, Help, Resources (Testing Tools only for admins)
+    expect(topLabels(html)).toEqual(["Home", "Leagues", "Tournaments", "Leaderboards", "Help", "Resources"]);
     for (const icon of ["home", "leagues", "tournaments", "leaderboards", "help", "resources"]) {
       expect(nav).toMatch(new RegExp(`<img class="sf-icon" src="/icons/nav/${icon}\.png" alt(="")? width="20" height="20">`));
     }
@@ -428,7 +428,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(nav).toMatch(/<a href="\/app\/leaderboards" class="sf-head-link"/);
     expect(nav).toMatch(/<a href="\/app\/help" class="sf-head-link"/);
     expect(nav).not.toContain("Coach page");
-    // every category is collapsible: one caret each; Useful resources is a toggle button, not a link
+    // every category is collapsible: one caret each; Resources is a toggle button, not a link
     expect((nav.match(/class="sf-caret"/g) ?? []).length).toBe(5);
     expect(nav).toMatch(/<button class="sf-head-link sf-head-toggle" type="button" aria-expanded="false" aria-controls="sf-tree-resources"/);
     // Account left the sidebar (top-bar menu); the old Pages rows are admin-only Testing Tools
@@ -438,7 +438,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(html).not.toContain("Login with Discord");
   });
 
-  it("useful resources: four outside sites, each in a new tab with noopener and a hidden note; collapsed by default", async () => {
+  it("resources: four outside sites, each in a new tab with noopener and a hidden note; collapsed by default", async () => {
     const nav = navOf((await render("/home", signedInRoutes())).html);
     const links = nav.match(/<a href="https:[^"]+"[^>]*>[\s\S]*?<\/a>/g) ?? [];
     expect(links.map((l) => l.match(/href="([^"]+)"/)![1])).toEqual(["https://bloodbowlbase.ru", "https://bloodbowldave.com", "https://tabbl.org", "https://fumbbl.com"]);
@@ -528,7 +528,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const { html } = await render("/home", signedInRoutes(), (spa) => { spa.ui.collapsed = true; });
     const nav = navOf(html);
     expect(nav).toMatch(/<a href="\/app\/home" class="sf-top-link"[^>]*title="Home"[^>]*><img [^>]*><span class="sf-top-label">Home<\/span>/);
-    for (const label of ["Leagues", "Tournaments", "Leaderboards", "Help", "Useful resources"]) {
+    for (const label of ["Leagues", "Tournaments", "Leaderboards", "Help", "Resources"]) {
       expect(nav).toMatch(new RegExp(`class="sf-head-link[^"]*"[^>]*title="${label}"[^>]*><img [^>]*><span class="sf-head-label">${label}</span>`));
     }
     const css = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");

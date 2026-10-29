@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Left nav bar (owner 10-30): Home on top, then collapsible categories Leagues / Tournaments / Leaderboards / Help /
-// Useful resources, and Testing Tools for site admins only. Each top-level item is an uppercase band-font label with an
+// Resources, and Testing Tools for site admins only. Each top-level item is an uppercase band-font label with an
 // original pixel icon (/icons/nav/). Children keep the 16 px row style, indented 14 px per level; the active item is seat
 // blue with a 3 px left bar. Collapsed (56 px rail) only the icons show; a category icon expands the rail and opens it.
 import { computed, inject, reactive } from "vue";
@@ -58,7 +58,7 @@ const categories = computed<Category[]>(() => [
   { id: "tournaments", label: "Tournaments", icon: "tournaments", to: "/tournaments", rows: tournamentRows.value, count: tree.state.tournaments.length },
   { id: "leaderboards", label: "Leaderboards", icon: "leaderboards", to: "/leaderboards", rows: linkRows("lb", LEADERBOARD_ROWS), count: 0 },
   { id: "help", label: "Help", icon: "help", to: "/help", rows: linkRows("h", HELP_ROWS), count: 0 },
-  { id: "resources", label: "Useful resources", icon: "resources", rows: [], external: RESOURCES, count: 0 },
+  { id: "resources", label: "Resources", icon: "resources", rows: [], external: RESOURCES, count: 0 },
   ...(isAdmin.value ? [{ id: "testing" as const, label: "Testing Tools", icon: "tools", rows: linkRows("x", TESTING_TOOLS), count: 0 }] : []),
 ]);
 

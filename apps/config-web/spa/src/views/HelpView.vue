@@ -24,7 +24,7 @@ import { RouterLink } from "vue-router";
         </li>
         <li>
           <h3 class="hm-log-title">Rules questions</h3>
-          <p>The Useful resources list in the sidebar links rules references and guides.</p>
+          <p>The Resources list in the sidebar links rules references and guides.</p>
         </li>
       </ul>
     </section>
