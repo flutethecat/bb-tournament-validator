@@ -17,6 +17,7 @@
 import { createHash } from "node:crypto";
 import { composeTeam, normName, parseForkRoster, type ForkRoster, type ForkRosterPosition } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
+import { bankingValueProblem } from "../site-backend/fumbblResultBanking.js";
 import type { FixtureForkTeam, LeaguePlayer, LeagueTeam } from "./types.js";
 
 export class ForkTeamBuildError extends Error {}
@@ -56,20 +57,30 @@ export const STAT_INJURY: Record<Characteristic, string> = {
   MA: "Smashed Knee (-MA)", ST: "Dislocated Shoulder (-ST)", AG: "Dislocated Hip (-AG)", PA: "Broken Arm (-PA)", AV: "Head Injury (-AV)",
 };
 
+/** The characteristic a league stat-advance entry names ("+ST", "+1 ST", "ST"), if it is one. */
+export function statAdvanceOf(skill: string): Characteristic | undefined {
+  return skill.trim().match(/^\+?\s*\d?\s*(ma|st|ag|pa|av)$/i)?.[1]?.toUpperCase() as Characteristic | undefined;
+}
+
 /**
- * How a league player's characteristics differ from the position, as the fork records it: one "+X" skill per step
- * better, one stat injury per step worse. AG and PA are targets (lower is better). A position without a PA (0) or a
- * player without a value keeps the position's.
+ * How a league player's characteristics are recorded on the fork. Purchased advances (the league's "+X" entries) are
+ * kept as "+X" skills, whatever the current value, so an advance offset by a lasting injury keeps both; the injuries
+ * are what separates the enhanced value (position + advances) from the league's current one; a current value better
+ * than the enhanced one adds the missing "+X" steps. AG and PA are targets (lower is better). A position without a PA
+ * (0) or a player without a value records only the purchased advances.
  */
-export function statDelta(p: Pick<LeaguePlayer, "ma" | "st" | "ag" | "pa" | "av">, pos: Pick<ForkRosterPosition, "MA" | "ST" | "AG" | "PA" | "AV">): { increases: string[]; injuries: string[] } {
+export function statDelta(p: Pick<LeaguePlayer, "ma" | "st" | "ag" | "pa" | "av"> & { skills?: string[] }, pos: Pick<ForkRosterPosition, "MA" | "ST" | "AG" | "PA" | "AV">): { increases: string[]; injuries: string[] } {
   const increases: string[] = [];
   const injuries: string[] = [];
   const rows: Array<[Characteristic, number | null, number | undefined, boolean]> = [
     ["MA", p.ma, pos.MA, false], ["ST", p.st, pos.ST, false], ["AG", p.ag, pos.AG, true], ["PA", p.pa, pos.PA, true], ["AV", p.av, pos.AV, false],
   ];
   for (const [key, value, base, target] of rows) {
+    const bought = (p.skills ?? []).filter((s) => statAdvanceOf(s) === key).length;
+    for (let i = 0; i < bought; i += 1) increases.push(`+${key}`);
     if (typeof value !== "number" || typeof base !== "number" || base <= 0) continue;
-    const better = target ? base - value : value - base;
+    const enhanced = target ? base - bought : base + bought;
+    const better = target ? enhanced - value : value - enhanced;
     for (let i = 0; i < Math.abs(better); i += 1) {
       if (better > 0) increases.push(`+${key}`); else injuries.push(STAT_INJURY[key]);
     }
@@ -117,6 +128,8 @@ export interface LeagueForkTeamInput {
   rosters: ReadonlyMap<string, string>;
   /** The season's edition (SeasonRecord.ruleset). */
   ruleset: string;
+  /** Result banking runs on this host: refuse any player the banker could not value after a death or a missed game. */
+  bankingGuard?: boolean;
   now?: Date;
 }
 
@@ -186,7 +199,11 @@ export function buildLeagueForkTeam(input: LeagueForkTeamInput): LeagueForkTeamF
     const id = forkPlayerIdFor(forkTeamId, p.playerId);
     if (seenIds.has(id)) throw new ForkTeamBuildError(`${team.name} lists the same player twice.`);
     seenIds.add(id);
-    blocks.push(playerXml(p, pos, nr, id));
+    const block = playerXml(p, pos, nr, id);
+    // Refuse a player the result banker could not value after a death or a missed game, before any game exists.
+    const problem = input.bankingGuard ? bankingValueProblem(block, rosterXml) : undefined;
+    if (problem) throw new ForkTeamBuildError(`${p.name || p.position}: Super FUMBBL results could not value this player yet (${problem}).`);
+    blocks.push(block);
     players.push({ forkPlayerId: id, playerId: p.playerId });
   }
   const tvUnits = Math.max(0, Math.round((team.teamValue ?? 0) / 10000));
