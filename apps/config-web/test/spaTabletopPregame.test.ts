@@ -16,7 +16,7 @@ let mods: Record<string, any>;
 beforeAll(async () => {
   const { createServer } = await import("vite");
   vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-  const [renderer, cine, cineC, pickerC, pregameC, rec, queue, feed] = await Promise.all([
+  const [renderer, cine, cineC, pickerC, pregameC, rec, queue, feed, cart, sheetFocus] = await Promise.all([
     vite.ssrLoadModule("vue/server-renderer"),
     vite.ssrLoadModule("/src/tabletop/pregameCine.ts"),
     vite.ssrLoadModule("/src/components/TabletopPregameCine.vue"),
@@ -25,8 +25,10 @@ beforeAll(async () => {
     vite.ssrLoadModule("/src/tabletop/recorder.ts"),
     vite.ssrLoadModule("/src/tabletop/queue.ts"),
     vite.ssrLoadModule("/src/tabletop/feed.ts"),
+    vite.ssrLoadModule("/src/tabletop/inducementCart.ts"),
+    vite.ssrLoadModule("/src/tabletop/sheetFocus.ts"),
   ]);
-  mods = { renderer, cine, cineC, pickerC, pregameC, rec, queue, feed };
+  mods = { renderer, cine, cineC, pickerC, pregameC, rec, queue, feed, cart, sheetFocus };
 }, 60_000);
 afterAll(async () => { await vite?.close(); });
 
@@ -193,5 +195,129 @@ describe("Testing Suite card", () => {
     expect(src).toContain('pregame: skipPregame.value ? "skip" : "full"');
     expect(src).toContain("Skip pre-game (start at the kick-off)");
     expect(src).toContain("const skipPregame = ref(false);");
+  });
+});
+
+// ---- Sol 6.1 review, three P2 regressions ----------------------------------------------------------------------
+const pgMatch = { id: "m", state: "recording", home: { coach: "Alice", teamName: "Alice Orcs", teamSaveId: "a" }, away: { coach: "Bob", teamName: "Bob Elves", teamSaveId: "b" }, postMatch: "full", createdBy: "Alice", confirmations: {} };
+const pgProps = (pregame: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+  ({ match: pgMatch, teams: { home: undefined, away: undefined }, phase: "pregame:coin", pregame, busy: false, error: "", ...extra });
+
+describe("P2 #1: a real coin goes call -> result -> choice, each by its own coach", () => {
+  it("only the caller sees the call; after a real-coin call either coach enters what the coin showed", async () => {
+    const notCaller = await mount(mods.pregameC, pgProps({ step: "coin", coin: { caller: "home" } }, { mySide: "away" }));
+    expect(notCaller).toContain("Alice (Alice Orcs) is calling the toss");
+    expect(notCaller).not.toContain("Flipping a real coin?"); // no hand entry that could call for Alice
+    expect(notCaller).not.toContain("The coin showed");
+    const caller = await mount(mods.pregameC, pgProps({ step: "coin", coin: { caller: "home" } }, { mySide: "home" }));
+    expect(caller).toContain("Flipping a real coin? Call it here, then enter the result");
+    expect(caller).not.toContain(">Kick<"); // the choice is never part of the call
+    const result = await mount(mods.pregameC, pgProps({ step: "coin", coin: { caller: "home", call: "heads", mode: "hand" } }, { mySide: "away" }));
+    expect(result).toContain("Alice called <b>HEADS</b> for a real coin");
+    expect(result).toContain("What did the coin show?");
+    expect(result).not.toContain(">Kick<");
+  });
+});
+
+describe("P2 #2: the inducement cart follows the other phone without losing a draft", () => {
+  it("a remote submission replaces a clean cart, polls keep a draft, a newer remote pick is flagged and reloadable", () => {
+    const c = mods.cart.createCartSync([]);
+    c.server([{ id: "bribes", qty: 1 }]); // the other phone bought a bribe
+    expect(c.state.picks).toEqual({ bribes: 1 });
+    expect(c.dirty()).toBe(false);
+    c.state.picks.team_mascot = 1; // local draft
+    c.server([{ id: "bribes", qty: 1 }]); // an unrelated poll
+    expect(c.state.picks).toEqual({ bribes: 1, team_mascot: 1 });
+    expect(c.state.remote).toBeNull();
+    c.server([{ id: "bribes", qty: 2 }]); // a newer remote submission while drafting
+    expect(c.state.picks).toEqual({ bribes: 1, team_mascot: 1 }); // the draft is kept...
+    expect(c.state.remote).toEqual({ bribes: 2 }); // ...and the change is flagged
+    c.reload();
+    expect(c.state.picks).toEqual({ bribes: 2 });
+    expect(c.state.remote).toBeNull();
+    c.state.picks.team_mascot = 1;
+    c.server([{ id: "team_mascot", qty: 1 }, { id: "bribes", qty: 2 }]); // our own submission comes back
+    expect(c.dirty()).toBe(false);
+    expect(c.state.remote).toBeNull();
+    expect(mods.cart.picksKey([{ id: "b", qty: 1 }, { id: "a", qty: 0 }])).toBe("b:1");
+  });
+
+  it("the picker starts from the server's submission (no Chosen with an empty cart)", async () => {
+    const html = await mount(mods.pickerC, {
+      side: "away", teamName: "Bob Elves", coach: "Bob", options: [{ id: "bribes", name: "Bribes", price: 50_000, max: 6 }], busy: false, canEdit: true, submitted: true,
+      initial: [{ id: "bribes", qty: 1 }], budget: { role: "favourite", pettyCash: 0, treasury: 100_000, topUpLimit: 100_000, spent: 50_000, submitted: true },
+    });
+    expect(html).toContain("1<small>/6</small>");
+    expect(html).toContain("Spent <b>50k</b>");
+    expect(html).toContain("Resubmit Bob Elves");
+  });
+});
+
+describe("P2 #3: a cine is the top dialog; skipping it never presses a button underneath", () => {
+  it("the Kick or receive? dialog waits while a cine plays", async () => {
+    const kr = { step: "kickreceive", coin: { caller: "away", call: "tails", result: "heads", winner: "home" } };
+    expect(await mount(mods.pregameC, pgProps(kr, { mySide: "home" }))).toContain("Kick or receive?");
+    const during = await mount(mods.pregameC, pgProps(kr, { mySide: "home", cinePlaying: true }));
+    expect(during).not.toContain("Kick or receive?");
+    expect(during).not.toContain(">Receive<");
+  });
+
+  it("skip keys are swallowed: no default, no propagation; only keydown closes", () => {
+    const key = (k: string, type = "keydown") => {
+      const e = { key: k, type, prevented: false, stopped: false, preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; } };
+      return { closes: mods.cine.swallowSkipKey(e), e };
+    };
+    for (const k of ["Enter", " ", "Escape"]) {
+      const down = key(k);
+      expect(down.closes).toBe(true);
+      expect(down.e.prevented && down.e.stopped).toBe(true);
+      const up = key(k, "keyup");
+      expect(up.closes).toBe(false);
+      expect(up.e.prevented && up.e.stopped).toBe(true);
+    }
+    const tab = key("Tab");
+    expect(tab.closes || tab.e.prevented).toBe(false);
+    const src = readFileSync(fileURLToPath(new URL("../spa/src/components/TabletopPregameCine.vue", import.meta.url)), "utf8");
+    expect(src).toContain('window.addEventListener("keydown", onKey, true);');
+    expect(src).toContain('window.addEventListener("keyup", onKey, true);');
+    expect(src).toMatch(/class="tt-cine"[^>]*role="dialog" aria-modal="true"/);
+  });
+
+  it("the focus manager keeps the cine on top even when a dialog opens under it later", () => {
+    class El {
+      children: El[] = []; parentElement: El | null = null; attrs = new Map<string, string>(); dataset: Record<string, string> = {}; isConnected = true;
+      constructor(readonly tag: string, readonly cls: string[], readonly ownerDocument: Doc) {}
+      add(c: El): El { c.parentElement = this; this.children.push(c); return c; }
+      walk(fn: (e: El) => void): void { fn(this); this.children.forEach((c) => c.walk(fn)); }
+      get classList() { return { contains: (c: string) => this.cls.includes(c) }; }
+      setAttribute(k: string, v: string) { this.attrs.set(k, v); }
+      removeAttribute(k: string) { this.attrs.delete(k); }
+      hasAttribute(k: string) { return this.attrs.has(k); }
+      contains(o: El | null) { for (let n = o; n; n = n.parentElement) if (n === this) return true; return false; }
+      closest(sel: string) { const cs = sel.split(",").map((x) => x.trim().slice(1)); for (let n: El | null = this; n; n = n.parentElement) if (cs.some((c) => n!.cls.includes(c))) return n; return null; }
+      querySelectorAll(sel: string): El[] {
+        const out: El[] = [];
+        const classes = sel.trim().startsWith(".") ? sel.split(",").map((x) => x.trim().slice(1)) : null;
+        this.children.forEach((c) => c.walk((e) => { if (classes ? classes.some((k) => e.cls.includes(k)) : e.tag === "button") out.push(e); }));
+        return out;
+      }
+      focus() { this.ownerDocument.activeElement = this; }
+    }
+    class Doc { activeElement: El | null = null; body = new El("body", [], this); defaultView = undefined; addEventListener() {} removeEventListener() {} }
+    const doc = new Doc();
+    const root = new El("div", ["tt-rec"], doc);
+    const feed = root.add(new El("main", ["tt-feed"], doc));
+    const cineEl = root.add(new El("div", ["tt-cine"], doc));
+    const sf = mods.sheetFocus.createSheetFocus(root as any);
+    expect(doc.activeElement).toBe(cineEl); // no buttons in a cine: the cine itself holds focus
+    // a remote flip makes this viewer the winner: a dialog with Receive appears in the page, under the cine
+    const dialog = feed.add(new El("div", ["tt-modal"], doc));
+    const receive = dialog.add(new El("button", ["tt-kr-btn"], doc));
+    sf.sync();
+    expect(doc.activeElement).toBe(cineEl);
+    expect(doc.activeElement).not.toBe(receive);
+    expect(cineEl.hasAttribute("inert")).toBe(false);
+    expect(feed.hasAttribute("inert")).toBe(true);
+    sf.detach();
   });
 });

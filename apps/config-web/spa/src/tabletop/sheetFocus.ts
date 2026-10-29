@@ -3,7 +3,9 @@
 // Tab wraps inside it, and when the last sheet closes focus returns to whatever opened it. Escape and the X are the sheets' own
 // (TabletopSheetHead); this only manages focus and the background.
 
-const SHEET = ".tt-sheet, .tt-modal";
+// A pre-game cine (.tt-cine) is a dialog too, and while it plays it is always the top one: a dialog that opens under it
+// (Kick or receive?) must not take focus, or the key that skips the cine would press its first button.
+const SHEET = ".tt-sheet, .tt-modal, .tt-cine";
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export interface SheetFocus { sync: () => void; detach: () => void }
@@ -43,7 +45,7 @@ export function createSheetFocus(root: HTMLElement): SheetFocus {
       return;
     }
     open.forEach(seqOf); // stamp unseen sheets in DOM order before comparing
-    const top = open.reduce((a, b) => (seqOf(b) > seqOf(a) ? b : a));
+    const top = open.find((el) => el.classList.contains("tt-cine")) ?? open.reduce((a, b) => (seqOf(b) > seqOf(a) ? b : a));
     if (!active) {
       active = true;
       const ae = doc.activeElement as HTMLElement | null;

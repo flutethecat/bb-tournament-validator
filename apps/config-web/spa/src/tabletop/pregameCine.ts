@@ -94,3 +94,17 @@ export function createCineQueue() {
     clear(): void { queue.length = 0; },
   };
 }
+
+/** Keys that skip a cine. */
+export const CINE_SKIP_KEYS: ReadonlySet<string> = new Set(["Escape", "Enter", " ", "Spacebar"]);
+/**
+ * A cine's key handler (window, capture phase, keydown and keyup): a skip key is swallowed (no default action, no
+ * further handlers) so Enter or Space can never also press a button under the cine. Returns true on the keydown that
+ * should close the cine.
+ */
+export function swallowSkipKey(e: { key: string; type: string; preventDefault(): void; stopPropagation(): void }): boolean {
+  if (!CINE_SKIP_KEYS.has(e.key)) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  return e.type === "keydown";
+}

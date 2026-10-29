@@ -423,7 +423,7 @@ onBeforeUnmount(() => {
 
       <TabletopPregame
         v-if="inPregame" :match="match" :teams="state.teams" :phase="state.phase" :pregame="state.pregame"
-        :busy="state.busy" :error="state.actionError" :clock="state.clock" :timer-answers="timerAnswers" :my-side="mySide" :organiser="organiser" :inducement-icons="state.inducementIcons"
+        :busy="state.busy" :error="state.actionError" :clock="state.clock" :timer-answers="timerAnswers" :my-side="mySide" :organiser="organiser" :inducement-icons="state.inducementIcons" :cine-playing="!!cine"
         @advance="(b: Record<string, unknown>) => rec.advance(b)" @skip="rec.skipPregame()"
       />
 

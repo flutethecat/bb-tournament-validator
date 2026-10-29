@@ -2,7 +2,7 @@
 // One pre-game cine (fans, weather, coin, kick/receive) over the recorder: at most 2.5 s, a click or a key skips it,
 // prefers-reduced-motion shows the result without movement (tabletop.css). Shows only what the server recorded.
 import { onBeforeUnmount, onMounted, ref } from "vue";
-import { CINE_MS, type CineItem } from "../tabletop/pregameCine";
+import { CINE_MS, swallowSkipKey, type CineItem } from "../tabletop/pregameCine";
 
 const props = defineProps<{ item: CineItem }>();
 const emit = defineEmits<{ (e: "done"): void }>();
@@ -17,10 +17,14 @@ function close(): void {
   closed = true;
   emit("done");
 }
-const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape" || e.key === "Enter" || e.key === " ") close(); };
+/** Skip keys are swallowed in the capture phase (see swallowSkipKey), so Enter or Space never also presses a button. */
+function onKey(e: KeyboardEvent): void {
+  if (swallowSkipKey(e)) close();
+}
 onMounted(() => {
   timer = setTimeout(close, CINE_MS[props.item.kind]);
-  window.addEventListener("keydown", onKey);
+  window.addEventListener("keydown", onKey, true);
+  window.addEventListener("keyup", onKey, true); // Space activates a button on keyup
   const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (props.item.kind === "fans" && !still && typeof requestAnimationFrame === "function") {
     const target = { home: props.item.home.total, away: props.item.away.total };
@@ -37,13 +41,14 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer);
   if (raf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(raf);
-  window.removeEventListener("keydown", onKey);
+  window.removeEventListener("keydown", onKey, true);
+  window.removeEventListener("keyup", onKey, true);
 });
 const up = (s: string): string => s.toUpperCase();
 </script>
 
 <template>
-  <div class="tt-cine" :data-kind="item.kind" role="status" aria-live="polite" @click="close">
+  <div class="tt-cine" :data-kind="item.kind" role="dialog" aria-modal="true" :aria-label="`Pre-game: ${item.kind}`" tabindex="-1" @click.stop.prevent="close">
     <template v-if="item.kind === 'fans'">
       <div class="tt-cine-title">The Fans</div>
       <div class="tt-cine-fans">
