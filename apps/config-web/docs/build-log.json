@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "League statistics cards; rosters always visible; assign a coach to a team",
+    "body": "The league statistics page now opens each rules edition (BB2020, BB2025, All time) with a row of spotlight cards: top scorer, casualty leader, most valuable player, best coach record, best team, biggest win, playmaker, interceptor, dirtiest player and iron man. Each card shows the big number, who holds it, their team and race with the race crest, the seasons it came from and anyone tied with them, and opens the player, the team or the match. On a phone the cards scroll sideways. The leader tables are still below. Team rosters are now always visible to everyone: the Hide team composition setting is gone. Redraft rookies never receive Team building starting skills, only the skills printed for their position. Organisers can assign a Super FUMBBL coach account to a league team from its roster on the Teams tab (for this season or every season of the team); the account is seated on the team’s fixtures that have no result yet, so a test league game can be played with it, and the change is logged on the season.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Result banking uses stored player values; no pre-game guard",
     "body": "A death, a missed game or a team-value adjustment now uses the player's stored value, which the fork team file carries from the league roster, and only prices skills when that value is absent. The fallback pricing is Primary skill 20,000, Secondary 40,000, Elite skill = the player's access price for its category + 10,000, with traits free and unknown skills still quarantining the result. The check that refused teams the banker could not price before a game is removed.",
     "links": []
