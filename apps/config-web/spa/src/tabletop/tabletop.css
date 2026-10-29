@@ -351,7 +351,7 @@
   .tt-crumb-btn { padding: 6px 12px; min-height: 0; background: transparent; color: var(--tt-ink); border: 1px solid var(--tt-line); border-radius: 2px; font: inherit; font-size: 13px; cursor: pointer; }
 
   /* hero: crest + name left | turn track over score over counters | crest + name right */
-  .tt-board { grid-template-columns: minmax(0, 1fr) 520px minmax(0, 1fr); grid-template-rows: auto auto auto; align-items: center; column-gap: 16px; padding: 12px 28px 14px; border-bottom: 0; }
+  .tt-board { grid-template-columns: minmax(0, 1fr) 400px minmax(0, 1fr); grid-template-rows: auto auto auto; align-items: center; column-gap: 16px; padding: 12px 28px 14px; border-bottom: 0; }
   .tt-turns { grid-column: 2; grid-row: 1; padding: 0; }
   .tt-track { max-width: 190px; }
   .tt-cell { padding: 2px 0; font-size: 10px; border-radius: 2px; }
@@ -597,7 +597,7 @@
 @media (min-width: 1024px) {
   .tt-rec {
     --tt-pad: max(0px, calc((100vw - 1400px) / 2));
-    --tt-hero-min: 168px; --tt-crest: 96px; --tt-team-fs: 28px; --tt-cell-h: 24px; --tt-cell-fs: 12px; --tt-track-w: 240px; --tt-score-fs: 56px; --tt-count-fs: 14px;
+    --tt-hero-min: 168px; --tt-crest: 96px; --tt-team-fs: 34px; --tt-cell-h: 24px; --tt-cell-fs: 12px; --tt-track-w: 240px; --tt-score-fs: 56px; --tt-count-fs: 14px;
     --tt-chip: 56px; --tt-chip-img: 46px; --tt-strip-h: 48px; --tt-strip-fs: 14px; --tt-marker: 28px; --tt-marker-icon: 18px;
     --tt-rail-btn: 56px; --tt-rail-icon: 20px; --tt-rail-fs: 16px; --tt-end-h: 96px; --tt-end-fs: 24px;
     --tt-card-min: 64px; --tt-card-fs: 15px; --tt-ev-icon: 32px; --tt-who-h: 36px; --tt-log-h-fs: 14px;
@@ -636,7 +636,7 @@
 }
 @media (min-width: 1600px) {
   .tt-rec {
-    --tt-hero-min: 200px; --tt-crest: 112px; --tt-team-fs: 32px; --tt-cell-h: 28px; --tt-cell-fs: 13px; --tt-track-w: 280px; --tt-score-fs: 64px;
+    --tt-hero-min: 200px; --tt-crest: 112px; --tt-team-fs: 40px; --tt-cell-h: 28px; --tt-cell-fs: 13px; --tt-track-w: 280px; --tt-score-fs: 64px;
     --tt-chip: 64px; --tt-chip-img: 52px; --tt-strip-h: 52px; --tt-marker: 32px; --tt-marker-icon: 20px; --tt-rail-btn: 64px; --tt-rail-fs: 18px; --tt-end-h: 112px;
   }
 }
@@ -865,16 +865,10 @@
   .tt-rec .tt-settings .tt-changeturn { max-width: 720px; }
 }
 
-.tt-cornerline { display: none; }
+.tt-crest-coach { display: none; }
 /* desktop hero rework: coach and race as one small line in the card's top corner; the name beside the crest, vertically centred; the chips in an inset tray under the name */
 @media (min-width: 1024px) {
-  .tt-rec > .tt-board { position: relative; padding-top: 38px; }
-  .tt-rec .tt-cornerline { display: block; position: absolute; top: 10px; margin: 0; font-size: 13px; line-height: 1.2; white-space: nowrap; color: var(--tt-muted); }
-  .tt-rec .tt-corner.home .tt-cornerline { left: 10px; }
-  .tt-rec .tt-corner.away .tt-cornerline { right: 10px; text-align: right; }
-  .tt-cornerline-coach { font-weight: 600; color: var(--ui-success, var(--tt-ink)); }
-  .tt-cornerline-race { text-transform: uppercase; letter-spacing: .06em; }
-  .tt-rec .tt-corner .tt-race, .tt-rec .tt-corner .tt-coachline > .tt-coach { display: none; }
+  .tt-rec .tt-corner .tt-coachline > .tt-coach { display: none; }
   .tt-rec .tt-corner.home, .tt-rec .tt-corner.away { grid-template-rows: 1fr auto; row-gap: 8px; align-content: stretch; }
   .tt-rec .tt-corner.home .tt-corner-top, .tt-rec .tt-corner.away .tt-corner-top { grid-row: 1 / span 2; align-self: center; }
   .tt-rec .tt-corner .tt-team { grid-row: 1; align-self: center; }
@@ -887,4 +881,36 @@
   .tt-rec .tt-corner .tt-coachline .tt-chips:empty { display: none; }
   .tt-rec .tt-corner.away .tt-coachline .tt-chips { justify-content: flex-end; }
   .tt-rec .tt-corner .tt-coachline .tt-qty { min-width: 20px; height: 20px; line-height: 20px; border-radius: 10px; }
+}
+
+/* desktop scoreboard rebalance: the crest column stacks coach / crest frame / race (6 px gaps) with the name and the chip tray beside it (away mirrored); soft crest and tray faces */
+@media (min-width: 1024px) {
+  .tt-rec .tt-corner.home, .tt-rec .tt-corner.away { grid-template-rows: auto auto auto; row-gap: 6px; align-content: center; }
+  .tt-rec .tt-crest-coach, .tt-rec .tt-corner .tt-race.tt-nameline {
+    display: block; margin: 0; padding: 0; text-align: center; max-width: 100%; overflow-wrap: anywhere; font-family: var(--font-heading, sans-serif); letter-spacing: .06em; text-shadow: var(--tt-name-shadow);
+  }
+  .tt-rec .tt-crest-coach { grid-row: 1; font-size: 14px; line-height: 1.15; color: var(--ui-success, var(--tt-ink)); }
+  .tt-rec .tt-corner.home .tt-crest-coach, .tt-rec .tt-corner.home .tt-corner-top, .tt-rec .tt-corner.home .tt-race.tt-nameline { grid-column: 1; }
+  .tt-rec .tt-corner.away .tt-crest-coach, .tt-rec .tt-corner.away .tt-corner-top, .tt-rec .tt-corner.away .tt-race.tt-nameline { grid-column: 2; }
+  .tt-rec .tt-corner.home .tt-corner-top, .tt-rec .tt-corner.away .tt-corner-top { grid-row: 2; justify-content: center; align-self: center; }
+  .tt-rec .tt-corner .tt-race.tt-nameline { grid-row: 3; font-size: 12px; line-height: 1.15; text-transform: uppercase; color: var(--ui-text-dim, var(--tt-muted)); }
+  .tt-rec .tt-corner.home .tt-team, .tt-rec .tt-corner.home .tt-coachline.tt-nameline { grid-column: 2; }
+  .tt-rec .tt-corner.away .tt-team, .tt-rec .tt-corner.away .tt-coachline.tt-nameline { grid-column: 1; }
+  .tt-rec .tt-corner .tt-team { grid-row: 1 / span 2; align-self: center; }
+  .tt-rec .tt-corner .tt-coachline.tt-nameline { grid-row: 3; align-self: end; }
+  .tt-rec .tt-crest-frame { background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 28%, transparent); border: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 35%, transparent); box-shadow: inset 0 1px 0 rgb(255 255 255 / .14); }
+  .tt-rec .tt-corner .tt-coachline .tt-chips, .tt-rec .tt-corner.home .tt-coachline .tt-chips, .tt-rec .tt-corner.away .tt-coachline .tt-chips { background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 28%, transparent); border: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 35%, transparent); box-shadow: inset 0 1px 0 rgb(255 255 255 / .14); }
+}
+
+/* chip notches (data-size from chipLayout) and the "+K" overflow chip */
+@media (min-width: 1024px) {
+  .tt-rec .tt-corner .tt-coachline .tt-chips { gap: 6px; }
+  .tt-rec .tt-chips[data-size="64"] li { width: 64px; height: 64px; }
+  .tt-rec .tt-chips[data-size="64"] .tt-chip-img { width: 52px; height: 52px; }
+  .tt-rec .tt-chips[data-size="56"] li { width: 56px; height: 56px; }
+  .tt-rec .tt-chips[data-size="56"] .tt-chip-img { width: 46px; height: 46px; }
+  .tt-rec .tt-chips[data-size="48"] li { width: 48px; height: 48px; }
+  .tt-rec .tt-chips[data-size="48"] .tt-chip-img { width: 40px; height: 40px; }
+  .tt-rec .tt-chips li.tt-chip-more { display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-heading, sans-serif); font-size: 16px; letter-spacing: .06em; color: var(--tt-ink); text-shadow: var(--tt-lettering-shadow); cursor: pointer; border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; background: var(--tt-panel); box-shadow: var(--tt-bevel); }
+  .tt-rec .tt-chips li.tt-chip-more:active { box-shadow: var(--tt-bevel-down); transform: translateY(2px); }
 }

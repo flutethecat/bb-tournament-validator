@@ -81,6 +81,8 @@ const unlock = (): void => cues.unlock();
 // Pick sheet (TD, CAS and the Other entries that need a team or player)
 const other = ref(false);
 const rosters = ref(false);
+const rostersSide = ref<Side | undefined>(undefined);
+function openRosters(side?: Side): void { rostersSide.value = side; rosters.value = true; }
 const pick = ref<OtherEvent | null>(null);
 const endSheet = ref(false);
 const openPick = (o: OtherEvent): void => { pick.value = o; };
@@ -269,14 +271,14 @@ onBeforeUnmount(() => {
       <RouterLink to="/tabletop">Tabletop</RouterLink><span aria-hidden="true">/</span>
       <span class="tt-crumb-cur">{{ match.home.teamName }} vs {{ match.away.teamName }}</span>
       <span class="tt-crumb-actions">
-        <button class="tt-crumb-btn" type="button" data-tip="Both rosters, skills and SPP" data-tip-pos="bottom" @click="rosters = true">Rosters</button>
+        <button class="tt-crumb-btn" type="button" data-tip="Both rosters, skills and SPP" data-tip-pos="bottom" @click="openRosters()">Rosters</button>
         <button class="tt-crumb-btn" type="button" aria-label="Open settings" data-tip="Settings" data-tip-pos="bottom" @click="settingsOpen = true">&#9881;</button>
       </span>
     </div>
     <TabletopScoreboard
       :match="match" :teams="state.teams" :tally="state.tally" :events="state.events" :pregame="state.pregame"
-      :clock="state.clock" :remaining="remaining" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy" :inducement-icons="state.inducementIcons" :art="state.art"
-      @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @rosters="rosters = true" @settings="settingsOpen = true"
+      :clock="state.clock" :remaining="remaining" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy" :inducement-icons="state.inducementIcons" :initial-side="rostersSide" :art="state.art"
+      @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @rosters="openRosters" @settings="settingsOpen = true"
     />
 
     <div class="tt-stripbar">

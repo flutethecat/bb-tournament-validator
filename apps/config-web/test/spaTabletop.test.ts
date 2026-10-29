@@ -129,7 +129,7 @@ describe("tabletop routes (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC] = await Promise.all([
+    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC, chipLayoutMod] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
@@ -156,8 +156,9 @@ describe("tabletop routes (server-rendered)", () => {
       vite.ssrLoadModule("/src/components/TabletopWeatherBar.vue"),
       vite.ssrLoadModule("/src/tabletop/clock.ts"),
       vite.ssrLoadModule("/src/components/TabletopRosterRow.vue"),
+      vite.ssrLoadModule("/src/tabletop/chipLayout.ts"),
     ]);
-    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC };
+    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC, chipLayoutMod };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -551,11 +552,14 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain('data-tip="Mystery Item x1"');
     expect(html).toContain('<span class="tt-chip-txt">M</span>');
     expect(html.match(/class="tt-qty"/g)).toHaveLength(2); // rerolls and bribes only
-    expect(html).toContain('<p class="tt-cornerline"><span class="tt-cornerline-coach">'); // coach and race as one corner line
-    expect(html.match(/class="tt-cornerline"/g)).toHaveLength(2);
+    expect(html.match(/class="tt-crest-coach"/g)).toHaveLength(2); // the coach sits above the crest frame
+    expect(html).not.toContain("tt-cornerline"); // the top-corner line is gone
     const css1 = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
-    expect(css1).toMatch(/\.tt-rec \.tt-cornerline \{ display: block; position: absolute; top: 10px;/);
-    expect(css1).toMatch(/\.tt-rec \.tt-corner\.home \.tt-cornerline \{ left: 10px; \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-crest-coach \{ grid-row: 1; font-size: 14px;/);
+    expect(css1).toMatch(/\.tt-rec \.tt-corner \.tt-race\.tt-nameline \{ grid-row: 3; font-size: 12px;[^}]*text-transform: uppercase; color: var\(--ui-text-dim/); // the race under the crest
+    expect(css1).toMatch(/--tt-team-fs: 34px;/);
+    expect(css1).toMatch(/--tt-team-fs: 40px;/);
+    expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
     expect(css1).toMatch(/\.tt-rec \.tt-corner \.tt-coachline \.tt-chips, [^{]*\{\s*box-sizing: border-box; display: flex; flex-wrap: wrap;[^}]*border: 1px solid var\(--tt-rule\); border-radius: 4px;/); // the inset chip tray
     expect(css1).toMatch(/--tt-chip: 56px; --tt-chip-img: 46px;/);
     expect(css1).toMatch(/--tt-chip: 64px; --tt-chip-img: 52px;/);
@@ -662,6 +666,34 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toMatch(/\.tt-rosters \.row-stats \{ width: 236px; justify-self: center; \}/); // the fixed centred stats column
     expect(css).toMatch(/\.tt-rosters \.tv-added \{[^}]*border: 1\.5px solid var\(--ui-gold\)/); // the gold added-skill box
     expect(css).toMatch(/\.tt-crest-frame \{[^}]*padding: 8px; border-radius: 6px;[^}]*0 8px 18px rgb\(0 0 0 \/ \.45\)/);
+  });
+
+  it("chip tray: two rows at most; the base size, then one notch smaller, then the first N plus a +K chip naming the hidden items", async () => {
+    const { chipLayout, trayInnerWidth } = mods.chipLayoutMod;
+    expect(trayInnerWidth(1400)).toBeGreaterThan(300); // the tray beside the crest column at the full 1400 px column
+    expect(chipLayout(8, 1400)).toMatchObject({ size: 56, step: 0, visible: 8, hidden: 0 }); // two rows, no overflow
+    expect(chipLayout(10, 1400)).toMatchObject({ size: 56, hidden: 0 });
+    expect(chipLayout(12, 1400)).toMatchObject({ size: 48, step: 1, visible: 12, hidden: 0 }); // stepped down, re-flowed
+    const many = chipLayout(20, 1400);
+    expect(many).toMatchObject({ size: 48 });
+    expect(many.visible + many.hidden).toBe(20);
+    expect(many.hidden).toBeGreaterThan(0); // the rest sit behind "+K"
+    expect(chipLayout(8, 1700).size).toBe(64); // from 1600 px the base chip is 64
+    const picks = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `ind${i}`, name: `Thing ${i}`, qty: 1 }));
+    const render = (n: number) => mount(mods.boardC, {
+      match: baseMatch("recording"), teams: { home: { ...teams.home, rerolls: 2, apothecary: true, dedicatedFans: 3 }, away: teams.away }, tally: serverTally,
+      events: [{ id: "i1", type: "inducement", team: "home", payload: { picks: picks(n) } }], pregame: {}, clock: clockOf("home", 3), localSide: "home", organiser: false, canAct: true,
+      inducementIcons: {}, art: {},
+    }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
+    const five = await render(5); // rerolls + apothecary + fans + 5 inducements = 8 chips
+    expect(five).toContain('data-size="56"');
+    expect(five).not.toContain("tt-chip-more");
+    const eleven = await render(11); // 14 chips: stepped down, one slot given to "+K"
+    expect(eleven).toContain('data-size="48"');
+    expect(eleven).toMatch(/class="tt-chip-more"[^>]*data-tip="Also: Thing \d+ x1/);
+    const seventeen = await render(17); // 20 chips
+    expect(seventeen).toMatch(/class="tt-chip-more"[^>]*>\+\d+</);
+    expect(seventeen).toContain("Thing 16 x1"); // the last (hidden) item is named in the tip
   });
 
   it("event feed (Modern Retro): home cards left, away cards right, both-team cards full width, a jump id per card, a turn mark", async () => {

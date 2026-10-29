@@ -3,7 +3,7 @@
 // count and icon chips for rerolls, apothecary, staff and fans), then the builder's roster grid (header band, one
 // zebra row per player, via the shared TabletopRosterRow) and an Inducements table under it. Rows come from the team
 // files the server returned; whatever the file lacks shows as a dash. Hover tips ride data-tip.
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { uiIcon } from "../tabletop/feed";
 import type { MatchView, RecordedEvent, ServerTally, Side, TeamView } from "../tabletop/recorder";
@@ -11,12 +11,12 @@ import TabletopRosterRow from "./TabletopRosterRow.vue";
 
 const props = defineProps<{
   match: MatchView; teams: Record<Side, TeamView | undefined>; tally: ServerTally; art?: ArtManifests;
-  events?: RecordedEvent[]; inducementIcons?: Record<string, string>;
+  events?: RecordedEvent[]; inducementIcons?: Record<string, string>; initialSide?: Side;
 }>();
 const emit = defineEmits<{ (e: "close"): void }>();
 
 const sides: Side[] = ["home", "away"];
-const side = ref<Side>("home");
+const side = ref<Side>(props.initialSide ?? "home");
 const open = ref("");
 const players = computed(() => props.teams[side.value]?.players ?? []);
 
@@ -29,6 +29,8 @@ const crest = (s: Side): string => {
   return props.art ? resolveCrest(props.art, props.teams[s]?.rosterId ?? props.teams[s]?.race) : "";
 };
 const crestInitials = (s: Side): string => (props.match[s].teamName.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("") || "?").toUpperCase();
+// a team opened from the hero's "+K" chip scrolls to its Inducements table
+onMounted(() => { if (props.initialSide) document.querySelector(".tt-ind")?.scrollIntoView({ block: "nearest" }); });
 const toggle = (id: string): void => { open.value = open.value === id ? "" : id; };
 
 interface Chip { key: string; src: string; label: string; qty: number; show: boolean }

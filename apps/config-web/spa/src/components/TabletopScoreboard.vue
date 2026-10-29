@@ -2,7 +2,8 @@
 // Scoreboard for the recorder: the client's two coach-corner panels plus the centre panel, compressed for a phone.
 // Crest, coach, team and the inducement row per corner; score and the half / turn stepper in the centre; weather and
 // coin on a compact line under it. Everything comes from the server's match, teams, tally and pre-game summary.
-import { computed } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { chipLayout } from "../tabletop/chipLayout";
 import { centreMode, formatTimer, halfLabel, turnCells, turnKey, turnLabel, turnLine, type ClockView } from "../tabletop/clock";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { uiIcon, weatherParts } from "../tabletop/feed";
@@ -25,7 +26,13 @@ const props = defineProps<{
   inducementIcons: Record<string, string>;
   art: ArtManifests;
 }>();
-const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters"): void; (e: "settings"): void }>();
+const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters", side?: Side): void; (e: "settings"): void }>();
+
+// Desktop chip tray: two rows at most; the layout follows the viewport width (1400 until mounted, so server renders are stable).
+const vw = ref(1400);
+const onResize = (): void => { vw.value = window.innerWidth; };
+onMounted(() => { onResize(); window.addEventListener("resize", onResize); });
+onBeforeUnmount(() => window.removeEventListener("resize", onResize));
 
 const sides: Side[] = ["home", "away"];
 /** The uploaded avatar (same-origin paths only) when the team has one, else the race crest. */
@@ -42,9 +49,10 @@ const chipTitle = (c: Chip): string => (c.key === "apo" ? c.label : c.key === "r
 const chips = (s: Side): Chip[] => {
   const out: Chip[] = [];
   const t = props.teams[s];
-  if (t?.dedicatedFans) out.push({ key: "fans", src: uiIcon("dedicated_fans"), label: "Dedicated fans", qty: t.dedicatedFans });
+  // tray order: rerolls, apothecary, staff / fans, then the inducements
   if (t?.rerolls) out.push({ key: "rr", src: uiIcon("re_roll"), label: "Team rerolls", qty: t.rerolls, always: true });
   if (t?.apothecary) out.push({ key: "apo", src: uiIcon("apothecary"), label: "Apothecary", qty: 1 });
+  if (t?.dedicatedFans) out.push({ key: "fans", src: uiIcon("dedicated_fans"), label: "Dedicated fans", qty: t.dedicatedFans });
   for (const e of props.events) {
     if (e.type !== "inducement" || e.team !== s) continue;
     // The server records one inducement event per team: {picks: [{id, qty}]} (an older shape carried id/name/qty).
@@ -78,6 +86,14 @@ const zero = computed(() => timed.value && (props.remaining as number) <= 0);
 const weather = computed(() => weatherParts(props.pregame, props.events));
 /** Turns the server recorded as ended (turnEnd events carry the half, turn and team). */
 const endedTurns = computed(() => new Set(props.events.filter((e) => e.type === "turnEnd").map((e) => turnKey((e as { half?: number | string }).half, (e as { turn?: number }).turn, e.team))));
+/** The tray's chips: all of them below 1024 px; on desktop what fits in two rows plus the hidden ones for the "+K" chip. */
+const tray = (s: Side) => {
+  const all = chips(s);
+  if (vw.value < 1024) return { size: 0, shown: all, hidden: [] as Chip[] };
+  const l = chipLayout(all.length, vw.value);
+  return { size: l.size, shown: all.slice(0, l.visible), hidden: all.slice(l.visible) };
+};
+const moreTip = (hidden: Chip[]): string => `Also: ${hidden.map(chipTitle).join(", ")}`;
 const cells = (s: Side) => turnCells(props.clock, s, endedTurns.value);
 const half = computed(() => halfLabel(props.clock?.half));
 /** "1st half, turn 3, Spike Rats" for a turn-track cell. */
@@ -100,7 +116,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
       <p class="tt-half">Turn<small>{{ half }}</small></p>
     </div>
     <section v-for="s in sides" :key="s" class="tt-corner" :class="s" :style="tint(s)">
-      <p class="tt-cornerline"><span class="tt-cornerline-coach">{{ match[s].coach }}</span><template v-if="race(s)"> &middot; <span class="tt-cornerline-race">{{ race(s) }}</span></template></p>
+      <p class="tt-crest-coach">{{ match[s].coach }}</p>
       <div class="tt-corner-top">
         <span class="tt-crest-frame">
           <img v-if="crest(s)" class="tt-crest" :src="crest(s)" alt="" />
@@ -111,12 +127,13 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
       <span v-if="race(s)" class="tt-race tt-nameline">{{ race(s) }}</span>
       <div class="tt-coachline tt-nameline">
         <span class="tt-coach">{{ match[s].coach }}</span>
-        <ul class="tt-chips">
-          <li v-for="c in chips(s)" :key="c.key" :data-tip="chipTitle(c)" data-tip-pos="bottom">
+        <ul class="tt-chips" :data-size="tray(s).size || null">
+          <li v-for="c in tray(s).shown" :key="c.key" :data-tip="chipTitle(c)" data-tip-pos="bottom">
             <img v-if="c.src" class="tt-chip-img" :src="c.src" :alt="c.label" />
             <span v-else class="tt-chip-txt">{{ c.label.charAt(0).toUpperCase() }}</span>
             <b v-if="c.qty > 1 || c.always" class="tt-qty">{{ c.qty }}</b>
           </li>
+          <li v-if="tray(s).hidden.length" class="tt-chip-more" role="button" tabindex="0" :data-tip="moreTip(tray(s).hidden)" data-tip-pos="bottom" @click="emit('rosters', s)" @keydown.enter.prevent="emit('rosters', s)">+{{ tray(s).hidden.length }}</li>
         </ul>
       </div>
     </section>
