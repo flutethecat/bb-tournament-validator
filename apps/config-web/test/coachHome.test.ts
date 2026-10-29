@@ -168,15 +168,15 @@ describe("scheduling validation", () => {
 });
 
 describe("build log parsing", () => {
-  it("keeps valid entries, newest date first, later-appended first within a date", () => {
+  it("keeps valid entries, newest date first, file order (prepended = newest) within a date", () => {
     const entries = parseBuildLog(JSON.stringify([
       { date: "2026-10-29", title: "A", body: "a", links: [] },
       { date: "2026-10-29", title: "B", body: "b", version: "1.2", links: [{ label: "x", href: "//evil.test" }, { label: "y", href: "https://ok.test/p" }] },
       { date: "2026-10-30", title: "C", body: "c" },
       { date: "2026-10-31", title: "", body: "no title" },
     ]));
-    expect(entries.map((e) => e.title)).toEqual(["C", "B", "A"]);
-    expect(entries[1]).toEqual({ date: "2026-10-29", version: "1.2", title: "B", body: "b", links: [{ label: "y", href: "https://ok.test/p" }] });
+    expect(entries.map((e) => e.title)).toEqual(["C", "A", "B"]);
+    expect(entries[2]).toEqual({ date: "2026-10-29", version: "1.2", title: "B", body: "b", links: [{ label: "y", href: "https://ok.test/p" }] });
     expect(parseBuildLog("not json")).toEqual([]);
     expect(parseBuildLog("{}")).toEqual([]);
   });

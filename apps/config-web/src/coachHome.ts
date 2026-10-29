@@ -241,7 +241,8 @@ export function parseBuildLog(text: string): BuildLogEntry[] {
   return raw
     .map((r, i) => ({ e: entryOf(r), i }))
     .filter((x): x is { e: BuildLogEntry; i: number } => x.e !== undefined)
-    .sort((a, b) => b.e.date.localeCompare(a.e.date) || b.i - a.i)
+    // Newest date first; within a date keep FILE order (the log is prepended: newest entry first in the file).
+    .sort((a, b) => b.e.date.localeCompare(a.e.date) || a.i - b.i)
     .map((x) => x.e);
 }
 
