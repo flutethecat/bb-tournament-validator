@@ -291,10 +291,11 @@ export function connectionsAfterIdentityEdit(previous: CoachIdentityRecord, iden
   return Object.keys(rest).length ? rest : undefined;
 }
 
-/** A record with `connections` replaced (undefined removes the key). */
+/** A record with `connections` replaced. The key is always present (undefined = deliberately none), so upsertIdentity
+ *  never carries the stored connections forward over an explicit removal. */
 export function withConnections(record: CoachIdentityRecord, connections: CoachConnections | undefined): CoachIdentityRecord {
   const { connections: _old, ...base } = record;
-  return connections && Object.keys(connections).length ? { ...base, connections } : base;
+  return { ...base, connections: connections && Object.keys(connections).length ? connections : undefined };
 }
 
 function normalizedRecord(value: unknown, allowLegacy = false): CoachIdentityRecord {
@@ -448,10 +449,19 @@ export function organizerUpdateIdentity(
   }).coaches[normalizeFfbCoachId(previous.ffbCoachId)]!;
 }
 
+/**
+ * Writes one record. A writer that rebuilds the record without a `connections` key (Discord sign-in, the admin
+ * identities route, test sign-in) keeps the stored connections, minus a NAF verification whose nafId/nafName pair the
+ * new identities no longer carry. A writer that means to set or remove them passes the key (withConnections).
+ */
 export function upsertIdentity(record: CoachIdentityRecord): IdentityStore {
-  const normalized = normalizedRecord(record);
-  const key = normalizeFfbCoachId(normalized.ffbCoachId);
+  const key = normalizeFfbCoachId(record.ffbCoachId);
   const current = readIdentities();
+  const stored = current.coaches[key];
+  const carried = !Object.hasOwn(record, "connections") && stored?.connections
+    ? withConnections(record, connectionsAfterIdentityEdit(stored, record.identities))
+    : record;
+  const normalized = normalizedRecord(carried);
   const store: IdentityStore = {
     version: 1,
     coaches: { ...current.coaches, [key]: normalized },

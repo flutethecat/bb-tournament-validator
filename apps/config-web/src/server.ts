@@ -144,6 +144,7 @@ import {
   removeProvisionalSignup,
   updateOwnAccount,
   upsertIdentity,
+  withConnections,
   type CoachIdentities,
   type CoachIdentityRecord,
   type CoachLevel,
@@ -2000,6 +2001,12 @@ async function handleApi(
       return sendJson(res, 400, { error: "note must be a string." });
     if (body.identities !== undefined && (!body.identities || typeof body.identities !== "object" || Array.isArray(body.identities)))
       return sendJson(res, 400, { error: "identities must be an object." });
+    // Admin override for the Connections duplicate rule: {"connections": {"naf": null}} clears that coach's NAF check
+    // (name and number stay). Without the key the stored connections are kept (upsertIdentity carries them).
+    const clearNaf = body.connections !== undefined;
+    if (clearNaf && (!body.connections || typeof body.connections !== "object" || Array.isArray(body.connections) ||
+      Object.keys(body.connections).join() !== "naf" || (body.connections as Record<string, unknown>).naf !== null))
+      return sendJson(res, 400, { error: 'connections only accepts {"naf": null} (clears the NAF check).' });
 
     const key = normalizeFfbCoachId(ffbCoachId);
     const previous = readIdentities().coaches[key];
@@ -2018,12 +2025,14 @@ async function handleApi(
       silenced: (body.silenced as boolean | undefined) ?? previous?.silenced ?? false,
       note: (body.note as string | undefined) ?? previous?.note ?? "",
       profile: previous?.profile ?? {},
+      ...(previous?.scheduling ? { scheduling: previous.scheduling } : {}),
       identities,
       updatedAt: new Date().toISOString(),
       updatedBy: auth?.coach ?? "admin",
     };
     try {
-      const store = upsertIdentity(record);
+      const { naf: _cleared, ...keptConnections } = previous?.connections ?? {};
+      const store = upsertIdentity(clearNaf ? withConnections(record, keptConnections) : record);
       return sendJson(res, 200, { ok: true, coach: store.coaches[key] });
     } catch (e) {
       return sendJson(res, 400, { error: (e as Error).message });

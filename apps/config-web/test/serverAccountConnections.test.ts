@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createSession } from "../src/auth/session.js";
 import { connectionsView, parseNafLinkInput, resetNafConnectionState, ConnectionError } from "../src/auth/connections.js";
 import { parseNafCoachIdentity } from "../src/nafRecords.js";
-import { organizerUpdateIdentity, updateOwnAccount, type CoachIdentityRecord } from "../src/auth/identitiesStore.js";
+import { organizerUpdateIdentity, updateOwnAccount, upsertIdentity, withConnections, type CoachIdentityRecord } from "../src/auth/identitiesStore.js";
 
 // Account page Connections: POST/DELETE /api/me/connections/naf over HTTP, the NAF coach page mocked at the global fetch.
 // "Verified" = the public coach page exists and its name/number match what the coach entered (the NAF has no OAuth).
@@ -55,6 +55,7 @@ beforeAll(async () => {
     nafcoach: record("NafCoach", { identities: { discordUserId: "111", discordUsername: "nc_dc" } }),
     othercoach: record("OtherCoach", { identities: { nafId: "42", nafName: "Other" } }),
     linkedcoach: record("LinkedCoach", { identities: { discordUserId: "333" } }),
+    admincoach: record("AdminCoach", { level: "admin" }),
   } }), "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
   writeFileSync(join(root, "coaches.json"), JSON.stringify([{ id: "r1", discordUserId: "333", fumbblName: "LinkedF", teams: [], updatedAt: "" }]), "utf8");
@@ -245,4 +246,44 @@ describe("other identity writers drop a stale NAF verification", () => {
     organizerUpdateIdentity("Org", "NafCoach", { nafName: "Renamed" });
     expect(identities().coaches.nafcoach!.connections).toBeUndefined();
   });
+});
+
+// ---------------------------------------------------------------- review fixes (Sol 6.1, 10-30)
+
+describe("NAF verification survives unrelated rewrites; ids are canonical", () => {
+  const adminPost = (body: unknown) =>
+    fetch(`${origin}/api/admin/identities`, { method: "POST", headers: { ...bearer("AdminCoach"), "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  it("a Discord re-sign-in (record rebuilt without connections, as discordSso.ts writes it) keeps verifiedAt", async () => {
+    expect((await linkAs("NafCoach", { nafName: "flutethecat", nafId: "34116" })).status).toBe(200);
+    const verifiedAt = identities().coaches.nafcoach!.connections!.naf!.verifiedAt;
+    const stored = identities().coaches.nafcoach as unknown as CoachIdentityRecord;
+    // discordSso.ts builds a fresh record: the same identities plus refreshed Discord fields, no `connections` key.
+    const { connections: _c, ...rebuilt } = stored;
+    upsertIdentity({ ...rebuilt, identities: { ...stored.identities, discordUsername: "nc_dc_renamed" }, updatedAt: new Date().toISOString(), updatedBy: "discord-sso" });
+    expect(identities().coaches.nafcoach!.connections?.naf?.verifiedAt).toBe(verifiedAt);
+    expect(row(await profileAs("NafCoach"), "naf")).toMatchObject({ status: "verified" });
+    // ... but a rebuilt record that changes the NAF number drops it
+    upsertIdentity({ ...rebuilt, identities: { ...stored.identities, nafId: "1" }, updatedAt: new Date().toISOString(), updatedBy: "discord-sso" });
+    expect(identities().coaches.nafcoach!.connections).toBeUndefined();
+  });
+
+  it("an unrelated admin identities update keeps verifiedAt; {connections: {naf: null}} clears it (the 409 override)", async () => {
+    expect((await linkAs("NafCoach", { nafName: "flutethecat", nafId: "34116" })).status).toBe(200);
+    const verifiedAt = identities().coaches.nafcoach!.connections!.naf!.verifiedAt;
+    const res = await adminPost({ ffbCoachId: "NafCoach", note: "checked by admin", identities: { tournamentCoachId: "t-1" } });
+    expect(res.status).toBe(200);
+    expect(identities().coaches.nafcoach!.connections?.naf?.verifiedAt).toBe(verifiedAt);
+    // the 409 names the override
+    const dup = await linkAs("LinkedCoach", { nafName: "flutethecat", nafId: "34116" });
+    expect(dup.status).toBe(409);
+    expect((await dup.json() as { error: string }).error).toMatch(/ask an admin: they can clear the other account's NAF check/);
+    expect((await adminPost({ ffbCoachId: "NafCoach", connections: { naf: "x" } })).status).toBe(400);
+    expect((await adminPost({ ffbCoachId: "NafCoach", connections: { naf: null } })).status).toBe(200);
+    expect(identities().coaches.nafcoach!.connections).toBeUndefined();
+    expect(identities().coaches.nafcoach!.identities).toMatchObject({ nafId: "34116", nafName: "flutethecat" });
+    expect((await linkAs("LinkedCoach", { nafName: "flutethecat", nafId: "34116" })).status).toBe(200);
+    await unlinkAs("LinkedCoach");
+  });
+
 });

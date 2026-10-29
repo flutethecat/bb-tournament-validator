@@ -198,7 +198,7 @@ export const nafProvider: ConnectionProvider = {
     const canonicalName = cleanName(page.nafName!);
     const self = normalizeFfbCoachId(coach);
     const taken = Object.entries(readIdentities().coaches).some(([key, r]) => key !== self && verifiedNaf(r)?.nafId === nafId);
-    if (taken) throw new ConnectionError(409, "That NAF record is already checked on another Super FUMBBL account. Ask an admin if it is yours.");
+    if (taken) throw new ConnectionError(409, "That NAF record is already checked on another Super FUMBBL account. If it is yours, ask an admin: they can clear the other account's NAF check, then you can link it here.");
     const previous = ownIdentityRecord(coach);
     const record = withConnections(
       { ...previous, identities: { ...previous.identities, nafName: canonicalName, nafId }, updatedAt: now.toISOString(), updatedBy: previous.ffbCoachId },
