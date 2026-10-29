@@ -29,9 +29,9 @@ competition's fixed rule, else off).
 |---|---|---|
 | fans, weather, journeymen, prayers | either coach or an organiser | "Roll for me" (site) or "Enter result" (coach) |
 | inducements | either coach for either team (one phone at the table) or an organiser; the higher-TV team first | none |
-| coin call | the drawn calling coach, or an organiser | none |
-| coin flip | site (auto) or entered by either coach/organiser (hand) | site D2 / real coin |
-| kick/receive | the toss winner, or an organiser | none |
+| coin call | the drawn calling coach, or an organiser (auto or real coin) | none |
+| coin result | site (auto, straight after the call) or, for a real coin, either coach / an organiser after the call | site D2 / real coin |
+| kick/receive | the toss winner, or an organiser (dialog held back while a cine plays) | none |
 | timers | each coach for their team; an organiser for both | none |
 | skip pre-game | organiser only | none |
 Spectators (organisers not playing, the other coach) see every step through the GET poll and the socket push.
@@ -42,8 +42,12 @@ Spectators (organisers not playing, the other coach) see every step through the 
 - journeymen: `{}`
 - inducements: `{team, picks:[{id,qty}]}` or `{team, skip:true}` (resubmit replaces)
 - prayers: `{}`/`{mode:"site"}`; `{mode:"hand", rolls:{home:[1-16...], away:[...]}}` (one per prayer bought, distinct)
-- coin: `{mode:"auto", call:"heads"|"tails"}` (server flips); then `{choice:"kick"|"receive"}` by the winner;
-  or `{mode:"hand", call, result, choice}` in one go. `caller`/`winner` in a body must match the server's.
+- coin, three sub-steps, each authorised on its own (review fix 10-30):
+  1. call: `{mode:"auto"|"hand", call:"heads"|"tails"}` by the drawn caller or an organiser (auto: the server flips at once);
+  2. real-coin result: `{mode:"hand", result}` by either coach or an organiser;
+  3. choice: `{choice:"kick"|"receive"}` by the winner or an organiser.
+  One request may carry several sub-steps (`{mode:"hand", call, result, choice}`) only if its sender may do each;
+  otherwise 403 and nothing is recorded. `caller`/`winner` in a body must match the server's.
 POST `.../pregame/skip` `{}` organiser only.
 
 GET view adds to `pregame`: `step`, `coin.caller` (before the call), and during inducements
@@ -59,8 +63,9 @@ topUpLimit, spent}}, tv: {home, away}`.
 | pg-inducement-side[-n] | inducement | picks, total, treasury, pettyCash, skipped, submittedBy |
 | pg-prayer-side-n | prayer | roll, name, rolledBy |
 | pg-coincaller | coinFlip | stage:"caller", caller, rolledBy:"site" |
-| pg-coinflip | coinFlip | mode, call, caller, result, winner, rolledBy, choice (hand) |
-| pg-coinchoice | coinFlip | stage:"choice", winner, choice |
+| pg-coincall | coinFlip | stage:"call", mode:"hand", caller, call, calledBy (real coin only) |
+| pg-coinflip | coinFlip | mode, call, caller, result, winner, rolledBy, enteredBy (hand) |
+| pg-coinchoice | coinFlip | stage:"choice", winner, choice (always its own event) |
 | pg-skip | pregameSkip | from (phase), by organiser |
 Every row shows in the Match log (feed.ts sentences). The socket (`tabletop-clock`) is pushed after every pre-game
 write, so the other phone refreshes at once.
@@ -73,7 +78,10 @@ petty cash, treasury, remaining; home then away, higher TV first). Coin: the cal
 others see "waiting". TabletopPregameCine.vue plays a cine when a new pre-game event arrives: fans (crowd counter rolls
 up, D3, fans + D3 = fan factor, both teams), weather (2D6 tumble then a splash with the name and effect line), coin
 (the coin spins and lands, caption), kick/receive result splash. Each <= 2.5 s, click skips, reduced motion = static.
-Own CSS (`--tt-*` palette), text and emoji only. Turn UI stays locked (`recording` is false) until `playing`.
+Own CSS (`--tt-*` palette), text and emoji only. A playing cine is the top dialog for the focus manager (sheetFocus.ts),
+swallows its skip keys (capture phase, preventDefault + stopPropagation, keydown and keyup), and the Kick or receive?
+dialog waits until it ends. The inducement cart follows the server's latest submission for the team; an unsaved draft
+is kept and a newer submission from the other phone is flagged with "Reload their picks" (inducementCart.ts). Turn UI stays locked (`recording` is false) until `playing`.
 Organiser: "Skip pre-game" (confirm).
 
 ## Discord (`DISCORD_RECORDER_WEBHOOK_URL`, optional, never logged)
@@ -97,3 +105,7 @@ There is no existing result-posting path in config-web; a result milestone can r
 3. "Randomly select a team for home/away": built as "the site draws which coach calls the toss"; home/away seats stay
    as created. Randomise the seats too?
 4. Set-up is not recorded beyond turn 0 ("Kick-off done"). Want a set-up confirmation step?
+5. A real coin's result may be entered by either coach (or an organiser) once the caller has called. Should the
+   result need both coaches to agree instead?
+6. Discord: post the final result (score, SPP, casualties) through the same webhook too, or leave that to the bot?
+7. Spectators: today only the two coaches and organisers can open a match. Open a read-only view for anyone?
