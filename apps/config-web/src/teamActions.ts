@@ -25,13 +25,16 @@ export const NO_ACTIONS: TeamActions = { count: 0, items: [] };
 
 const playerLabel = (p: { number: number; name: string }) => `#${p.number} ${p.name || "Player"}`;
 
-/** Advancement items for one team detail: a pending roll first, else an affordable skill / characteristic. */
-export function advancementItems(detail: Pick<TeamDetail, "players">, retired = false): string[] {
+/** Advancement items for one team detail: a pending roll first, else an affordable skill / characteristic. When advancement
+ *  is blocked on this host (the management page's `advancementBlocked`, e.g. no fork admin API) affordable entries are
+ *  suppressed, as the page disables them; a stored pending roll still counts. */
+export function advancementItems(detail: Pick<TeamDetail, "players">, retired = false, blocked = false): string[] {
   if (retired) return [];
   const items: string[] = [];
   for (const p of detail.players) {
     if (/dead|rip|retired/i.test(p.status ?? "")) continue;
     if (p.pendingAdvancement) { items.push(`${playerLabel(p)}: finish the advancement roll`); continue; }
+    if (blocked) continue;
     const m = p.advancementMethods;
     if (m.randomPrimary.available || m.chosenPrimary.available || m.characteristic.available) items.push(`${playerLabel(p)}: advancement available`);
   }

@@ -627,7 +627,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
           const advancement = teamsDir && t.retired !== true
             ? advancementItemsCached(teamsDir, t.teamId, () => {
               const detail = teamDetailEndpoint({ coach, organizer: false }, t.teamId, { libraryDir: LIBRARY_DIR, teamsDir, tokenSecret: TEAM_ADVANCEMENT_TOKEN_SECRET });
-              return detail.status === 200 ? advancementItems(detail.body.team) : [];
+              return detail.status === 200 ? advancementItems(detail.body.team, false, !forkAdminCfg) : [];
             })
             : [];
           return {

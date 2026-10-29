@@ -27,6 +27,15 @@ describe("team actions (red badge on My teams tiles)", () => {
     expect(advancementItems(detail([player(1, { pendingAdvancement: { token: "t" } })]), true)).toEqual([]);
   });
 
+  it("advancement blocked (fork admin API absent): no affordable entries, the pending roll still counts", () => {
+    const players = [
+      player(1, { advancementMethods: methods({ randomPrimary: yes, characteristic: yes }) }),
+      player(2, { pendingAdvancement: { token: "t" }, advancementMethods: methods({ randomPrimary: yes }) }),
+    ];
+    expect(advancementItems(detail(players), false, true)).toEqual(["#2 P2: finish the advancement roll"]);
+    expect(advancementItems(detail(players), false, false)).toHaveLength(2);
+  });
+
   it("registrations with roster problems add one item each; clean ones add none", () => {
     const a = teamActions(["x"], [{ tournamentId: "t1", tournamentName: "Spring Cup", problems: 2 }, { tournamentId: "t2", tournamentName: "Open", problems: 0 }]);
     expect(a).toEqual({ count: 2, items: ["x", "Spring Cup: 2 roster problems"] });
