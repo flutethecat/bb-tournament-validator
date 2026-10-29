@@ -4,7 +4,7 @@ import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import type { DeadlineView } from "../spa/src/home/deadlines";
 import {
-  agenda, availabilityByWeekday, calendarEvents, calendarZone, chipTone, dayKey, eventsByDay, loadProposals, monthGrid, monthLabel, monthOf, shiftMonth, timeOf,
+  agenda, availabilityByWeekday, calendarEvents, calendarZone, chipTone, dayKey, eventsByDay, loadProposals, monthGrid, monthLabel, monthOf, shiftMonth, timeOf, upcomingEvents, dayTone, shortDate,
   type ProposedTime,
 } from "../spa/src/account/calendar";
 import { createProfileEditor, profileProblems, type ProfileView } from "../spa/src/account/profile";
@@ -17,6 +17,44 @@ import { dialogKey } from "../spa/src/teams/manage";
 // Identity panel's editor (local checks, PATCH only the changed fields, linked FUMBBL name never sent).
 
 const H = 3_600_000;
+
+describe("mini calendar helpers", () => {
+  const ev = (id: string, at: string, chip: "ok" | "soon" | "urgent" | "overdue" = "ok") => ({ id, source: "deadline" as const, kind: "round", title: id, detail: "", at, chip, link: "/x" });
+  const now = new Date("2026-10-30T15:00:00Z");
+
+  it("upcomingEvents: the next 5 from today onward, across months, in time order", () => {
+    const events = [
+      ev("past", "2026-10-29T12:00:00Z"),
+      ev("later-today", "2026-10-30T20:00:00Z"),
+      ev("earlier-today", "2026-10-30T09:00:00Z"),
+      ev("nov-1", "2026-11-01T12:00:00Z"),
+      ev("dec", "2026-12-15T12:00:00Z"),
+      ev("nov-20", "2026-11-20T12:00:00Z"),
+      ev("jan", "2027-01-05T12:00:00Z"),
+      ev("feb", "2027-02-05T12:00:00Z"),
+    ];
+    expect(upcomingEvents(events, now, "UTC").map((e) => e.id)).toEqual(["earlier-today", "later-today", "nov-1", "nov-20", "dec"]);
+    expect(upcomingEvents(events, now, "UTC", 2).map((e) => e.id)).toEqual(["earlier-today", "later-today"]);
+    expect(upcomingEvents([ev("past", "2026-10-29T12:00:00Z")], now, "UTC")).toEqual([]);
+    expect(upcomingEvents([], now, "UTC")).toEqual([]);
+  });
+
+  it("upcomingEvents keys 'today' in the coach's zone", () => {
+    // 2026-10-30T03:00Z is still 29 Oct evening in New York: an event at 2026-10-30T01:00Z is yesterday's there
+    const ny = new Date("2026-10-30T03:00:00Z");
+    expect(upcomingEvents([ev("a", "2026-10-30T01:00:00Z")], ny, "America/New_York")).toHaveLength(1);
+    expect(upcomingEvents([ev("a", "2026-10-28T01:00:00Z")], ny, "America/New_York")).toHaveLength(0);
+  });
+
+  it("dayTone picks the most pressing chip; shortDate names the weekday in the zone", () => {
+    expect(dayTone([ev("a", "x", "ok"), ev("b", "x", "urgent"), ev("c", "x", "soon")])).toBe("urgent");
+    expect(dayTone([ev("a", "x", "overdue"), ev("b", "x", "ok")])).toBe("ok");
+    expect(dayTone([])).toBe("");
+    expect(dayTone(undefined)).toBe("");
+    expect(shortDate("2026-10-30T15:00:00Z", "UTC")).toBe("Fri 30 Oct");
+    expect(shortDate("garbage", "UTC")).toBe("");
+  });
+});
 
 describe("calendar helpers", () => {
   it("month grid is Monday-first, whole weeks, padded with the neighbouring months", () => {

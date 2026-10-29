@@ -163,3 +163,29 @@ export function calendarZone(src: { scheduleLoaded: boolean; scheduleZone: strin
   if (src.scheduleLoaded && src.scheduleZone) return src.scheduleZone;
   return src.treeZone || src.scheduleZone || src.browserZone;
 }
+
+/** The next `limit` events from today (in the coach's timezone) onward, across months, in time order. Earlier today still counts. */
+export function upcomingEvents(events: readonly CalendarEvent[], now: Date, timeZone: string, limit = 5): CalendarEvent[] {
+  const today = dayKey(now, timeZone);
+  return events
+    .filter((e) => { const k = dayKey(e.at, timeZone); return k !== "" && k >= today; })
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id))
+    .slice(0, limit);
+}
+
+const TONE_RANK: Record<DeadlineChip, number> = { overdue: 0, ok: 1, soon: 2, urgent: 3 };
+
+/** The tone a day's marker wears: the most pressing chip among its events ("" for an empty day). */
+export function dayTone(list: readonly CalendarEvent[] | undefined): DeadlineChip | "" {
+  let best: DeadlineChip | "" = "";
+  for (const e of list ?? []) if (best === "" || TONE_RANK[e.chip] > TONE_RANK[best]) best = e.chip;
+  return best;
+}
+
+/** "Fri 30 Oct" for an instant, in the coach's timezone. */
+export function shortDate(at: string, timeZone: string): string {
+  const k = dayKey(at, timeZone);
+  if (!k) return "";
+  const d = new Date(`${k}T00:00:00Z`);
+  return `${WEEKDAY_LABELS[(d.getUTCDay() + 6) % 7]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]!.slice(0, 3)}`;
+}
