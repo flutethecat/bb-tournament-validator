@@ -97,4 +97,12 @@ describe("page markup", () => {
     expect(block).toContain("cursor: grab");
     expect(block).not.toMatch(/#[0-9a-fA-F]{3,6}\b|rgb\(/);
   });
+  it("a roster rerender cancels any in-flight drag (no stale indices)", () => {
+    // No DOM in the vm harness, so assert the wiring: state is declared before renderRoster, which cancels first.
+    expect(js.indexOf("let dragFrom = null;")).toBeLessThan(js.indexOf("function renderRoster()"));
+    expect(js).toMatch(/function renderRoster\(\) \{\s*cancelDrag\(\);/);
+    expect(js).toMatch(/function cancelDrag\(\) \{[\s\S]*pointerDrag = null;[\s\S]*dragFrom = null;[\s\S]*clearDropMarks\(\);/);
+    expect(js).toContain('"lostpointercapture"');
+    expect(js).toContain('document.addEventListener("dragend"');
+  });
 });

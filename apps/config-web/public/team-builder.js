@@ -971,6 +971,9 @@ ${rosterSheetHtml(model)}
   let tierTableOpen = false;
   let leagueSelection = { selectedLeague: "", explicit: false };
   let slots = [];
+  // Roster drag state (gripper). Declared up here so renderRoster() can cancel it before replacing rows.
+  let dragFrom = null;
+  let pointerDrag = null;
   let staff = freshStaff();
   let inducementCatalog = [];
   let inducementCounts = {};
@@ -1444,7 +1447,19 @@ ${rosterSheetHtml(model)}
       }).join("");
   }
 
+  /** Drop any in-flight drag (native or pointer): indices refer to rows that are about to be replaced. */
+  function cancelDrag() {
+    if (pointerDrag) {
+      const id = pointerDrag.id;
+      pointerDrag = null;
+      try { document.querySelector("#roster-slots [data-grip]")?.releasePointerCapture?.(id); } catch { /* already released */ }
+    }
+    dragFrom = null;
+    clearDropMarks();
+  }
+
   function renderRoster() {
+    cancelDrag();
     $("player-count").textContent = `${slots.length} / ${MAX_PLAYERS}`;
     const skillKey = $("skill-key"); // tournament page: the key shows only once players are on the roster
     if (skillKey) skillKey.hidden = !slots.length;
@@ -2335,8 +2350,6 @@ ${rosterSheetHtml(model)}
     if (from < to) to -= 1;
     return to;
   };
-  let dragFrom = null;
-  let pointerDrag = null;
   $("roster-slots").addEventListener("dragstart", (event) => {
     const grip = event.target.closest?.("[data-grip]");
     if (!grip) return;
@@ -2362,7 +2375,10 @@ ${rosterSheetHtml(model)}
     clearDropMarks();
     if (target) reorderSlot(from, dropIndex(target, from));
   });
-  $("roster-slots").addEventListener("dragend", () => { dragFrom = null; clearDropMarks(); });
+  $("roster-slots").addEventListener("dragend", cancelDrag);
+  // A rerender can detach the drag source, so its own dragend never bubbles to the roster: also listen on the document.
+  document.addEventListener("dragend", () => { if (dragFrom != null) cancelDrag(); });
+  document.addEventListener("drop", () => { if (dragFrom != null) cancelDrag(); });
   // Touch / pen: HTML5 drag-and-drop is unreliable there, so the gripper drives a pointer drag.
   $("roster-slots").addEventListener("pointerdown", (event) => {
     const grip = event.target.closest?.("[data-grip]");
@@ -2389,6 +2405,7 @@ ${rosterSheetHtml(model)}
   };
   $("roster-slots").addEventListener("pointerup", (event) => endPointerDrag(event, true));
   $("roster-slots").addEventListener("pointercancel", (event) => endPointerDrag(event, false));
+  $("roster-slots").addEventListener("lostpointercapture", (event) => endPointerDrag(event, false));
   $("roster-slots").addEventListener("keydown", (event) => {
     const grip = event.target.closest?.("[data-grip]");
     if (!grip || !event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
