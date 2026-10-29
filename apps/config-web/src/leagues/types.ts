@@ -29,6 +29,8 @@ export interface LeagueRecord {
 /** One side of a fixture. coachId is set when the coach maps to a fork identity (NAF name match). */
 export interface FixtureSide {
   team: string;
+  /** The season team this side resolves to (LeagueTeam.id): team name + canonical coach, race as the tiebreaker. */
+  teamId?: string;
   coach: string;
   coachId?: string;
   race: string;
@@ -59,6 +61,7 @@ export interface StandingRow {
   group: string;
   rank: number;
   team: string;
+  teamId?: string;
   race: string;
   coach: string;
   coachId?: string;
@@ -151,6 +154,8 @@ export interface FormerPlayer {
 }
 
 export interface LeagueTeam {
+  /** Season-unique id (slug of name + coach, race added on a clash); fixtures and standings point at it. */
+  id: string;
   name: string;
   race: string;
   coach: string;
@@ -207,6 +212,19 @@ export interface LeagueAward {
   goldenStar: boolean;
 }
 
+/**
+ * Honour totals the export cannot pin to one player: two players of one team share a name and position, or two teams
+ * share a name. Recorded once (on the team when known), never copied onto several players.
+ */
+export interface UnattributedStats {
+  team: string;
+  teamId?: string;
+  name: string;
+  position: string;
+  stats: PlayerSeasonStats;
+  reason: string;
+}
+
 export interface SeasonRecord {
   id: string;
   leagueId: string;
@@ -223,6 +241,7 @@ export interface SeasonRecord {
   teams: LeagueTeam[];
   honours: HonourTable[];
   awards: LeagueAward[];
+  unattributedStats: UnattributedStats[];
   importedAt: string;
   source: "tourplay-export";
 }

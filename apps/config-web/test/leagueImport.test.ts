@@ -22,7 +22,7 @@ const fixturesCsv = crlf([
   FIX_HEAD,
   "Season;PreSeason;;1;1;Grudge Rollers;Rot Girl Summer;flutethecat (Jay);Jeff / @Chap;Dwarf;Nurgle;flutethecat;chap;1;1;2;3;;;;2026-05-29T00:25:04Z;2026-05-29T03:00:58Z",
   "Season;Regular;North;1;1;Grudge Rollers;\"Orcs; the \"\"Best\"\"\";flutethecat (Jay);RockyBoy;Dwarf;Orc;flutethecat;;3;0;1;0;;;;2026-06-01T00:00:00Z;2026-06-01T02:00:00Z",
-  "Season;Regular;North;2;1;Rot Girl Summer;Grudge Rollers;Jeff / @Chap;flutethecat (Jay);Nurgle;Dwarf;chap;flutethecat;0;2;0;0;True;;True;2026-06-08T00:00:00Z;2026-06-08T00:00:00Z",
+  "Season;Regular;North;2;1;Rot Girl Summer;Grudge Rollers;Jeff / @Chap;flutethecat (Jay);Nurgle;Dwarf;chap;flutethecat;0;2;0;0;True;True;;2026-06-08T00:00:00Z;2026-06-08T00:00:00Z",
   "Season;Regular;North;3;1;\"Orcs; the \"\"Best\"\"\";Rot Girl Summer;RockyBoy;Jeff / @Chap;Orc;Nurgle;;chap;0;0;0;0;True;;;2026-06-15T00:00:00Z;2026-06-15T00:00:00Z",
   "Season;Interdivision;;4;1;Rot Girl Summer;\"Orcs; the \"\"Best\"\"\";Jeff / @Chap;RockyBoy;Nurgle;Orc;chap;;2;1;0;1;;;;2026-06-22T00:00:00Z;2026-06-22T02:00:00Z",
   "Season;Regular;North;5;1;Grudge Rollers;Rot Girl Summer;flutethecat (Jay);Jeff / @Chap;Dwarf;Nurgle;flutethecat;chap;;;;;;;;;",
@@ -80,7 +80,7 @@ describe("TourPlay CSV parsing", () => {
     expect(f[0]!.away.coachId).toBeUndefined();
     expect(f[1]!.away.nafUser).toBeUndefined();
     expect(f[2]).toMatchObject({ suspended: true });
-    expect(f[2]!.away.conceded).toBe(true);
+    expect(f[2]!.home.conceded).toBe(true);
     expect(f[0]!.startedAt).toBe("2026-05-29T00:25:04.000Z");
     expect(fixturePlayed(f[2]!)).toBe(true); // suspended but a conceded result
     expect(fixturePlayed(f[3]!)).toBe(false); // suspended 0-0: not played

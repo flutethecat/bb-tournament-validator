@@ -17,6 +17,7 @@ import { promises as fsp } from "node:fs";
 import { join } from "node:path";
 import { AVATAR_CONTENT_TYPE, avatarRateLimit, sniffImage, type AvatarExt, type SniffedImage } from "../teamAvatars.js";
 import { leagueStats, isStatsScope, type LeagueStats, type StatsScope } from "./stats.js";
+import { fixturePlayed } from "./tourplay.js";
 import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, LeagueStore } from "./store.js";
 import type { LeagueRecord, LeagueRuleset, SeasonRecord, SeasonStatus } from "./types.js";
 
@@ -86,7 +87,7 @@ export function artUrl(league: Pick<LeagueRecord, "id" | "logoPath" | "bannerPat
 
 export function seasonSummary(s: SeasonRecord): SeasonSummary {
   const champ = s.awards.find((a) => a.type === "Overall Champion");
-  const played = s.fixtures.filter((f) => f.home.score !== null && f.away.score !== null && !(f.suspended && f.home.score === 0 && f.away.score === 0 && !f.home.conceded && !f.away.conceded)).length;
+  const played = s.fixtures.filter(fixturePlayed).length;
   return {
     id: s.id,
     number: s.number,

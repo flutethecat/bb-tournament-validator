@@ -19,7 +19,7 @@ const fx = (home: [string, string, string, number | null, number?], away: [strin
 });
 
 const team = (name: string, coach: string, race: string, players: Array<[string, Partial<typeof EMPTY_PLAYER_STATS>]>, former: Array<[string, Partial<typeof EMPTY_PLAYER_STATS>]> = []): LeagueTeam => ({
-  name, race, coach, teamValue: 1000000, treasury: 0, rerolls: 2, fans: 2, assistantCoaches: 0, cheerleaders: 0, apothecary: true, tier: "1", raceLeague: "",
+  id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name, race, coach, teamValue: 1000000, treasury: 0, rerolls: 2, fans: 2, assistantCoaches: 0, cheerleaders: 0, apothecary: true, tier: "1", raceLeague: "",
   players: players.map(([pname, stats], i) => ({ number: i + 1, name: pname, position: "Lineman", ma: 6, st: 3, ag: 3, pa: 4, av: 9, skills: [], value: 50000, level: "Rookie", availableSpp: 0, niggling: 0, missNextGame: false, stats: { ...EMPTY_PLAYER_STATS, ...stats } })),
   formerPlayers: former.map(([pname, stats]) => ({ name: pname, position: "Blitzer", level: "Rookie", stats: { ...EMPTY_PLAYER_STATS, ...stats } })),
 });
@@ -27,7 +27,7 @@ const team = (name: string, coach: string, race: string, players: Array<[string,
 const season = (number: number, ruleset: "BB2020" | "BB2025", fixtures: LeagueFixture[], teams: LeagueTeam[], champion?: [string, string, string]): SeasonRecord => ({
   id: `season-${number}`, leagueId: "tabbl", number, name: `Season ${number}`, sourceSlug: `s${number}`, ruleset, status: champion ? "completed" : "active",
   phases: [{ id: "season-regular", category: "Season", name: "Regular", groups: [""], standings: [] }],
-  fixtures, participants: [], teams, honours: [], importedAt: "2026-10-30T00:00:00.000Z", source: "tourplay-export",
+  fixtures, participants: [], teams, honours: [], unattributedStats: [], importedAt: "2026-10-30T00:00:00.000Z", source: "tourplay-export",
   awards: champion ? [{ category: "Season", type: "Overall Champion", name: "", description: "", coach: champion[0], team: champion[1], race: champion[2], goldenStar: false }] : [],
 });
 

@@ -18,7 +18,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkLeagueArt, storeLeagueArt, type ArtKind } from "../src/leagues/api.js";
 import { LeagueStore } from "../src/leagues/store.js";
-import { buildSeason, readTourplayDir, type CoachMapper } from "../src/leagues/tourplay.js";
+import { buildSeason, fixturePlayed, readTourplayDir, type CoachMapper } from "../src/leagues/tourplay.js";
 import type { LeagueRuleset, SeasonRecord } from "../src/leagues/types.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -56,6 +56,8 @@ export interface SeasonReport {
   honourTables: number;
   awards: number;
   mismatches: string[];
+  /** Honour totals the export could not pin to one player (recorded once, never copied). */
+  ambiguities: string[];
   unmappedCoaches: string[];
   replaced?: string;
 }
@@ -132,12 +134,13 @@ export async function importLeague(opts: ImportOptions): Promise<SeasonReport[]>
       players: s.teams.reduce((n, t) => n + t.players.length, 0),
       formerPlayers: s.teams.reduce((n, t) => n + t.formerPlayers.length, 0),
       fixtures: s.fixtures.length,
-      played: s.fixtures.filter((f) => f.home.score !== null && !(f.suspended && f.home.score === 0 && f.away.score === 0 && !f.home.conceded && !f.away.conceded)).length,
+      played: s.fixtures.filter(fixturePlayed).length,
       phases: s.phases.map((p) => `${p.category}/${p.name}${p.groups.filter(Boolean).length ? ` [${p.groups.filter(Boolean).join(", ")}]` : ""}`),
       honourCategories: [...new Set(s.honours.map((h) => h.category))],
       honourTables: s.honours.length,
       awards: s.awards.length,
       mismatches: r.mismatches,
+      ambiguities: r.ambiguities,
       unmappedCoaches: r.unmappedCoaches,
       ...(put.replaced ? { replaced: put.replaced } : {}),
     };
@@ -147,6 +150,7 @@ export async function importLeague(opts: ImportOptions): Promise<SeasonReport[]>
     log(`  phases: ${report.phases.join("; ")}`);
     log(`  honours: ${report.honourTables} tables in ${report.honourCategories.join(", ")}`);
     log(`  standings mismatches: ${report.mismatches.length}${report.mismatches.length ? `\n    ${report.mismatches.join("\n    ")}` : ""}`);
+    log(`  unsplittable honour totals: ${report.ambiguities.length}${report.ambiguities.length ? `\n    ${report.ambiguities.join("\n    ")}` : ""}`);
     log(`  unmapped coaches (${report.unmappedCoaches.length}): ${report.unmappedCoaches.join(", ")}`);
   }
 

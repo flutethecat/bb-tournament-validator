@@ -2,11 +2,15 @@
  * League statistics across seasons, filtered by rules edition (BB2020 / BB2025 / all time).
  *
  * Results (coach / team / race records, biggest wins, most games) come from the fixtures: every played fixture
- * counts (fixturePlayed: a suspended 0-0 with no concession is "not played"), 3 points a win, 1 a draw. Player
- * leaders come from the per-player season stats (the TourPlay player honours), summed per player career (same team
- * + same name across seasons) and including players no longer on a roster.
+ * counts with the shared outcome rule (identity.ts fixtureOutcome: a concession decides, then the score), 3 points
+ * a win, 1 a draw. Coaches aggregate by the canonical alias key (account id <-> NAF name <-> unambiguous display
+ * name, built over every season so it does not change with the scope); a team is canonical coach + team name +
+ * race, so two coaches' teams of the same name stay apart. Player leaders come from the per-player season stats
+ * (the TourPlay player honours), summed per career (same team identity + name + position; the shirt number joins
+ * the key when a roster holds two such players); totals the export could not split are never credited.
  */
-import { fixturePlayed, nameKey } from "./tourplay.js";
+import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, type CoachAliases, type SideOutcome } from "./identity.js";
+import { nameKey } from "./tourplay.js";
 import type { LeagueFixture, LeagueRuleset, PlayerSeasonStats, SeasonRecord } from "./types.js";
 
 export type StatsScope = "bb2020" | "bb2025" | "all";
@@ -99,9 +103,9 @@ const LEADER_LIMIT = 10;
 
 const blank = (): RecordLine => ({ games: 0, wins: 0, draws: 0, losses: 0, points: 0, tdFor: 0, tdAgainst: 0, casFor: 0, casAgainst: 0, winPct: 0 });
 
-function add(line: RecordLine, mine: number, theirs: number, casFor: number, casAgainst: number): void {
+function add(line: RecordLine, result: SideOutcome, mine: number, theirs: number, casFor: number, casAgainst: number): void {
   line.games += 1;
-  if (mine > theirs) { line.wins += 1; line.points += 3; } else if (mine === theirs) { line.draws += 1; line.points += 1; } else line.losses += 1;
+  if (result === "win") { line.wins += 1; line.points += 3; } else if (result === "draw") { line.draws += 1; line.points += 1; } else line.losses += 1;
   line.tdFor += mine;
   line.tdAgainst += theirs;
   line.casFor += casFor;
@@ -110,9 +114,13 @@ function add(line: RecordLine, mine: number, theirs: number, casFor: number, cas
 
 const finish = <T extends RecordLine>(line: T): T => ({ ...line, winPct: line.games ? Math.round(((line.wins + line.draws / 2) / line.games) * 1000) / 1000 : 0 });
 
-/** The coach key that merges a coach across seasons: the NAF name when known, else the display name. */
-export const coachKeyOf = (coach: string, nafUser?: string, coachId?: string): string =>
-  coachId ? `id:${coachId.trim().toLowerCase()}` : nafUser ? `naf:${nafUser.trim().toLowerCase()}` : `name:${nameKey(coach)}`;
+/** The alias table over every season (fixtures, participants, rosters, standings, awards). */
+export function leagueCoachAliases(seasons: SeasonRecord[]): CoachAliases {
+  return buildCoachAliases((function* () { for (const s of seasons) yield* seasonCoachFacets(s); })());
+}
+
+/** A team across seasons: canonical coach + team name + race. */
+export const teamKeyOf = (coachKey: string, team: string, race: string): string => `${coachKey}\0${nameKey(team)}\0${nameKey(race)}`;
 
 const pushSeason = (list: number[], n: number): void => { if (!list.includes(n)) { list.push(n); list.sort((a, b) => a - b); } };
 
@@ -131,18 +139,13 @@ export function leagueStats(allSeasons: SeasonRecord[], scope: StatsScope): Leag
   let touchdowns = 0;
   let casualties = 0;
 
-  // A display name seen with a NAF name maps to that NAF key in later rows that lack it (same season or another).
-  const nafByName = new Map<string, string>();
-  for (const s of seasons) {
-    for (const f of s.fixtures) for (const side of [f.home, f.away]) if (side.nafUser) nafByName.set(nameKey(side.coach), side.nafUser);
-    for (const p of s.participants) if (p.nafUser) nafByName.set(nameKey(p.coach), p.nafUser);
-  }
-  const keyFor = (coach: string, nafUser?: string, coachId?: string): string =>
-    coachKeyOf(coach, nafUser ?? nafByName.get(nameKey(coach)), coachId);
+  const aliases = leagueCoachAliases(allSeasons);
+  const keyFor = (coach: string, nafUser?: string, coachId?: string): string => aliases.key({ coach, nafUser, coachId });
 
   for (const s of seasons) {
     for (const f of s.fixtures) {
-      if (!fixturePlayed(f)) continue;
+      const outcome = fixtureOutcome(f);
+      if (!outcome) continue;
       const hs = f.home.score!;
       const as = f.away.score!;
       const hc = f.home.cas ?? 0;
@@ -150,27 +153,32 @@ export function leagueStats(allSeasons: SeasonRecord[], scope: StatsScope): Leag
       games += 1;
       touchdowns += hs + as;
       casualties += hc + ac;
-      for (const [side, mine, theirs, cf, ca] of [[f.home, hs, as, hc, ac], [f.away, as, hs, ac, hc]] as const) {
+      for (const [side, result, mine, theirs, cf, ca] of [[f.home, outcome.home, hs, as, hc, ac], [f.away, outcome.away, as, hs, ac, hc]] as const) {
         const ck = keyFor(side.coach, side.nafUser, side.coachId);
         let c = coaches.get(ck);
         if (!c) { c = { ...blank(), coach: side.coach, seasons: [], teams: 0, titles: 0, teamKeys: new Set(), lastSeen: -1 }; coaches.set(ck, c); }
         if (s.number >= c.lastSeen) { c.coach = side.coach; c.lastSeen = s.number; }
         if (side.coachId) c.coachId = side.coachId;
-        add(c, mine, theirs, cf, ca);
+        add(c, result, mine, theirs, cf, ca);
         pushSeason(c.seasons, s.number);
-        const tk = nameKey(side.team);
+        const tk = teamKeyOf(ck, side.team, side.race);
         c.teamKeys.add(tk);
         let t = teams.get(tk);
         if (!t) { t = { ...blank(), team: side.team, race: side.race, coach: side.coach, seasons: [] }; teams.set(tk, t); }
-        add(t, mine, theirs, cf, ca);
+        t.coach = side.coach;
+        add(t, result, mine, theirs, cf, ca);
         pushSeason(t.seasons, s.number);
         const rk = side.race || "Unknown";
         let r = races.get(rk);
         if (!r) { r = { ...blank(), race: rk, teams: 0, teamKeys: new Set() }; races.set(rk, r); }
-        add(r, mine, theirs, cf, ca);
+        add(r, result, mine, theirs, cf, ca);
         r.teamKeys.add(`${s.number}\0${tk}`);
       }
-      if (hs !== as) wins.push(bigWin(s, f, hs > as));
+      if (outcome.home !== outcome.away && (outcome.home === "win" || outcome.away === "win")) {
+        const homeWon = outcome.home === "win";
+        const margin = homeWon ? hs - as : as - hs;
+        if (margin > 0) wins.push(bigWin(s, f, homeWon));
+      }
     }
   }
 
@@ -191,7 +199,7 @@ export function leagueStats(allSeasons: SeasonRecord[], scope: StatsScope): Leag
   wins.sort((a, b) => b.margin - a.margin || b.winner.score - a.winner.score || a.season - b.season || a.round - b.round);
   const mostGames = [...coachList].sort((a, b) => b.games - a.games || b.wins - a.wins || a.coach.localeCompare(b.coach)).slice(0, LEADER_LIMIT);
 
-  const { leaders, players } = playerLeaders(seasons);
+  const { leaders, players } = playerLeaders(seasons, aliases);
   return {
     scope,
     seasons: [...seasons].sort((a, b) => b.number - a.number).map((s) => ({ id: s.id, number: s.number, name: s.name, ruleset: s.ruleset, status: s.status })),
@@ -221,25 +229,27 @@ function bigWin(s: SeasonRecord, f: LeagueFixture, homeWon: boolean): BigWin {
   };
 }
 
-function playerLeaders(seasons: SeasonRecord[]): { leaders: Record<LeaderStat, PlayerLeader[]>; players: number } {
+function playerLeaders(seasons: SeasonRecord[], aliases: CoachAliases): { leaders: Record<LeaderStat, PlayerLeader[]>; players: number } {
   const careers = new Map<string, { name: string; position: string; team: string; race: string; coach: string; seasons: number[]; stats: PlayerSeasonStats }>();
   for (const s of seasons) {
     for (const team of s.teams) {
+      const tk = teamKeyOf(aliases.key(team), team.name, team.race);
+      const ident = (name: string, position: string): string => `${nameKey(name)}\0${nameKey(position)}`;
+      const counts = new Map<string, number>();
+      for (const p of team.players) counts.set(ident(p.name, p.position), (counts.get(ident(p.name, p.position)) ?? 0) + 1);
       const all = [
-        ...team.players.map((p) => ({ name: p.name, position: p.position, stats: p.stats })),
-        ...team.formerPlayers.map((p) => ({ name: p.name, position: p.position, stats: p.stats })),
+        ...team.players.map((p) => ({ name: p.name, position: p.position, stats: p.stats, key: (counts.get(ident(p.name, p.position)) ?? 0) > 1 ? `${ident(p.name, p.position)}\0#${p.number ?? ""}` : ident(p.name, p.position) })),
+        ...team.formerPlayers.map((p) => ({ name: p.name, position: p.position, stats: p.stats, key: ident(p.name, p.position) })),
       ];
       for (const p of all) {
-        const key = `${nameKey(team.name)}\0${nameKey(p.name)}`;
+        const key = `${tk}\0${p.key}`;
         let c = careers.get(key);
         if (!c) {
           c = { name: p.name, position: p.position, team: team.name, race: team.race, coach: team.coach, seasons: [], stats: { td: 0, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 0, performance: 0 } };
           careers.set(key, c);
         }
-        const scored = Object.values(p.stats).some((v) => v > 0);
-        if (scored) pushSeason(c.seasons, s.number);
+        if (Object.values(p.stats).some((v) => v > 0)) pushSeason(c.seasons, s.number);
         for (const k of Object.keys(c.stats) as Array<keyof PlayerSeasonStats>) c.stats[k] += p.stats[k] ?? 0;
-        c.position = p.position || c.position;
         c.coach = team.coach;
       }
     }

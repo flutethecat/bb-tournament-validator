@@ -8,11 +8,12 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, type CoachFacets } from "./identity.js";
 import {
   EMPTY_PLAYER_STATS,
-  type FixtureSide, type FormerPlayer, type HonourKind, type HonourRow, type HonourTable, type HonourValue, type LeagueAward,
+  type FixtureSide, type HonourKind, type HonourRow, type HonourTable, type HonourValue, type LeagueAward,
   type LeagueFixture, type LeagueParticipant, type LeaguePhase, type LeaguePlayer, type LeagueRuleset, type LeagueTeam,
-  type PlayerSeasonStats, type SeasonRecord, type StandingRow,
+  type PlayerSeasonStats, type SeasonRecord, type StandingRow, type UnattributedStats,
 } from "./types.js";
 
 // ---- CSV ----
@@ -351,6 +352,7 @@ export function parseRoster(text: string, mapCoach: CoachMapper): LeagueTeam | u
   const nafUser = h.NafUser || undefined;
   const coachId = mapCoach(h.Coach ?? "", nafUser);
   return {
+    id: slugify(h.TeamName ?? ""),
     name: h.TeamName ?? "",
     race: h.TeamRace ?? "",
     coach: h.Coach ?? "",
@@ -370,61 +372,91 @@ export function parseRoster(text: string, mapCoach: CoachMapper): LeagueTeam | u
   };
 }
 
-/** Folds the player honours into per-player season stats; honour players missing from the roster become formerPlayers. */
-export function attachPlayerStats(teams: LeagueTeam[], honours: HonourTable[]): void {
-  const byTeam = new Map(teams.map((t) => [nameKey(t.name), t]));
-  const totals = new Map<string, { team: string; name: string; position: string; level: string; stats: PlayerSeasonStats }>();
+type HonourPlayer = { team: string; name: string; position: string; level: string; stats: PlayerSeasonStats; duplicate: boolean };
+
+/**
+ * Folds the player honours into per-player season stats. An honour player is team name + player name + position
+ * (the honours files carry the position). Its total lands on exactly one roster player or nowhere:
+ * - one roster player matches (name, and position when given): their stats;
+ * - none: a former player of that team (left the roster during the season);
+ * - several (two players share name and position), the same honour player listed twice in one board, or the team
+ *   name belongs to two teams this season: the total is recorded ONCE in the returned list (on the team when it is
+ *   known) with the reason, never copied onto several players.
+ */
+export function attachPlayerStats(teams: LeagueTeam[], honours: HonourTable[]): UnattributedStats[] {
+  const honourKey = (team: string, name: string, position: string): string => `${nameKey(team)}\0${nameKey(name)}\0${nameKey(position)}`;
+  const totals = new Map<string, HonourPlayer>();
   for (const table of honours) {
     if (table.kind !== "player") continue;
     const field = PLAYER_STAT_FIELD[table.stat];
     if (!field) continue;
+    const inTable = new Set<string>();
     for (const row of table.rows) {
       if (typeof row.value !== "number") continue;
-      const key = `${nameKey(row.team)}\0${nameKey(row.name)}`;
+      const key = honourKey(row.team, row.name, row.position ?? "");
       let entry = totals.get(key);
       if (!entry) {
-        entry = { team: row.team, name: row.name, position: row.position ?? "", level: row.level ?? "", stats: { ...EMPTY_PLAYER_STATS } };
+        entry = { team: row.team, name: row.name, position: row.position ?? "", level: row.level ?? "", stats: { ...EMPTY_PLAYER_STATS }, duplicate: false };
         totals.set(key, entry);
       }
+      if (inTable.has(key)) entry.duplicate = true; // two players behind one name in this board
+      inTable.add(key);
       entry.stats[field] += row.value;
     }
   }
-  const claimed = new Set<string>();
-  for (const team of teams) {
-    for (const p of team.players) {
-      const key = `${nameKey(team.name)}\0${nameKey(p.name)}`;
-      const t = totals.get(key);
-      if (t) { p.stats = { ...t.stats }; claimed.add(key); }
+  const unattributed: UnattributedStats[] = [];
+  for (const entry of totals.values()) {
+    const sameName = teams.filter((t) => nameKey(t.name) === nameKey(entry.team));
+    if (sameName.length > 1) {
+      unattributed.push({ team: entry.team, name: entry.name, position: entry.position, stats: entry.stats, reason: `${sameName.length} teams are called "${entry.team}" this season` });
+      continue;
     }
-  }
-  for (const [key, t] of totals) {
-    if (claimed.has(key)) continue;
-    const team = byTeam.get(nameKey(t.team));
-    const former: FormerPlayer = { name: t.name, position: t.position, level: t.level, stats: t.stats };
-    if (team) team.formerPlayers.push(former);
+    const team = sameName[0];
+    if (!team) {
+      unattributed.push({ team: entry.team, name: entry.name, position: entry.position, stats: entry.stats, reason: "no roster for this team" });
+      continue;
+    }
+    const byName = team.players.filter((p) => nameKey(p.name) === nameKey(entry.name));
+    const candidates = entry.position ? byName.filter((p) => nameKey(p.position) === nameKey(entry.position)) : byName;
+    if (entry.duplicate || candidates.length > 1) {
+      const n = Math.max(candidates.length, 2);
+      unattributed.push({
+        team: team.name, teamId: team.id, name: entry.name, position: entry.position, stats: entry.stats,
+        reason: `${n} players called "${entry.name}"${entry.position ? ` (${entry.position})` : ""}: the export cannot split their totals`,
+      });
+      continue;
+    }
+    if (candidates.length === 1) {
+      const p = candidates[0]!;
+      for (const k of Object.keys(p.stats) as Array<keyof PlayerSeasonStats>) p.stats[k] += entry.stats[k];
+      continue;
+    }
+    team.formerPlayers.push({ name: entry.name, position: entry.position, level: entry.level, stats: entry.stats });
   }
   for (const team of teams) team.formerPlayers.sort((a, b) => b.stats.spp - a.stats.spp || a.name.localeCompare(b.name));
+  return unattributed;
 }
 
 /** A fixture with a recorded result: not a suspended 0-0 with no concession (TourPlay's "not played"). */
 export function fixturePlayed(f: Pick<LeagueFixture, "home" | "away" | "suspended">): boolean {
-  if (f.home.score === null || f.away.score === null) return false;
-  if (f.suspended && f.home.score === 0 && f.away.score === 0 && !f.home.conceded && !f.away.conceded) return false;
-  return true;
+  return fixtureOutcome(f) !== undefined;
 }
 
 type Tally = Map<string, { w: number; d: number; l: number }>;
 
+const sideKey = (x: { team: string; teamId?: string }): string => x.teamId ?? `name:${nameKey(x.team)}`;
+
+/** W/D/L per team (by team id) over the given phases; the shared outcome rule (a concession decides). */
 function tallyFixtures(fixtures: LeagueFixture[], phaseIds: ReadonlySet<string>): Tally {
   const tally: Tally = new Map();
   for (const f of fixtures) {
-    if (!phaseIds.has(f.phaseId) || !fixturePlayed(f)) continue;
-    const hs = f.home.score!;
-    const as = f.away.score!;
-    for (const [side, mine, theirs] of [[f.home, hs, as], [f.away, as, hs]] as const) {
-      const key = nameKey(side.team);
+    if (!phaseIds.has(f.phaseId)) continue;
+    const outcome = fixtureOutcome(f);
+    if (!outcome) continue;
+    for (const [side, result] of [[f.home, outcome.home], [f.away, outcome.away]] as const) {
+      const key = sideKey(side);
       const t = tally.get(key) ?? { w: 0, d: 0, l: 0 };
-      if (mine > theirs) t.w += 1; else if (mine === theirs) t.d += 1; else t.l += 1;
+      if (result === "win") t.w += 1; else if (result === "draw") t.d += 1; else t.l += 1;
       tally.set(key, t);
     }
   }
@@ -434,7 +466,7 @@ function tallyFixtures(fixtures: LeagueFixture[], phaseIds: ReadonlySet<string>)
 function mismatchLines(phase: LeaguePhase, tally: Tally): string[] {
   const out: string[] = [];
   for (const row of phase.standings) {
-    const t = tally.get(nameKey(row.team)) ?? { w: 0, d: 0, l: 0 };
+    const t = tally.get(sideKey(row)) ?? { w: 0, d: 0, l: 0 };
     if (t.w !== row.wins || t.d !== row.draws || t.l !== row.losses)
       out.push(`${phase.category} ${phase.name}${row.group ? ` / ${row.group}` : ""}: ${row.team} exported ${row.wins}-${row.draws}-${row.losses}, fixtures ${t.w}-${t.d}-${t.l}`);
   }
@@ -480,22 +512,15 @@ export interface BuildSeasonInput {
 export interface BuildSeasonResult {
   season: SeasonRecord;
   mismatches: string[];
+  /** Honour totals that could not be pinned to one player (also season.unattributedStats). */
+  ambiguities: string[];
   /** TourPlay coach names that did not map to a fork identity (sorted, unique). */
   unmappedCoaches: string[];
 }
 
 export function buildSeason(input: BuildSeasonInput): BuildSeasonResult {
-  const seen = new Set<string>();
-  const byName = new Map<string, string>();
-  const mapCoach: CoachMapper = (coach, nafUser) => {
-    const name = coach.trim();
-    if (name) seen.add(name);
-    const id = input.mapCoach(coach, nafUser) ?? byName.get(nameKey(coach));
-    if (id && name) byName.set(nameKey(name), id);
-    return id;
-  };
   const { files } = input;
-  // Fixtures and participants carry NAF names; a coach mapped there maps by display name in the standings and awards.
+  const mapCoach: CoachMapper = (coach, nafUser) => input.mapCoach(coach, nafUser);
   const fixtures = files.fixtures ? parseFixtures(files.fixtures, mapCoach) : [];
   const { participants, rulesets } = files.participants ? parseParticipants(files.participants, mapCoach) : { participants: [], rulesets: [] };
   const phases: LeaguePhase[] = [];
@@ -520,9 +545,55 @@ export function buildSeason(input: BuildSeasonInput): BuildSeasonResult {
 
   const honours = files.honours.map((h) => parseHonours(h.name, h.text)).filter((h): h is HonourTable => Boolean(h));
   const teams = files.rosters.map((r) => parseRoster(r.text, mapCoach)).filter((t): t is LeagueTeam => Boolean(t && t.name));
-  teams.sort((a, b) => a.name.localeCompare(b.name));
-  attachPlayerStats(teams, honours);
+  teams.sort((a, b) => a.name.localeCompare(b.name) || a.coach.localeCompare(b.coach));
   const awards = files.awards ? parseAwards(files.awards, mapCoach) : [];
+
+  // Coach identity: the season's alias table (account id <-> NAF name <-> unambiguous display name). Rows carrying
+  // only a display name inherit the account id of the identity that name resolves to.
+  const shape = { fixtures, participants, teams, phases, awards };
+  const aliases = buildCoachAliases(seasonCoachFacets(shape));
+  const idByRoot = new Map<string, string>();
+  for (const row of seasonCoachFacets(shape)) if (row.coachId) idByRoot.set(aliases.key(row), row.coachId);
+  const mapped = new Set<string>();
+  const seen = new Set<string>();
+  for (const row of seasonCoachFacets(shape)) {
+    const name = (row.coach ?? "").trim();
+    if (name) seen.add(name);
+    if (!row.coachId) {
+      const id = idByRoot.get(aliases.key(row));
+      if (id) row.coachId = id;
+    }
+    if (row.coachId && name) mapped.add(name);
+  }
+
+  // Team identity: team name + canonical coach, race as the tiebreaker. Rosters register first; fixture sides and
+  // standings rows resolve onto them (or register a team the export has no roster for).
+  const registry: Array<{ id: string; name: string; coachKey: string; race: string }> = [];
+  const usedIds = new Set<string>();
+  const register = (name: string, coachKey: string, race: string, coach: string): string => {
+    let id = slugify(name);
+    if (usedIds.has(id)) id = `${slugify(name)}--${slugify(coach || "coach")}`;
+    if (usedIds.has(id)) id = `${slugify(name)}--${slugify(coach || "coach")}--${slugify(race || "race")}`;
+    for (let n = 2; usedIds.has(id); n += 1) id = `${slugify(name)}--${n}`;
+    usedIds.add(id);
+    registry.push({ id, name, coachKey, race });
+    return id;
+  };
+  const resolveTeam = (name: string, facets: CoachFacets, race: string): string => {
+    const coachKey = aliases.key(facets);
+    const byName = registry.filter((t) => nameKey(t.name) === nameKey(name));
+    let hit = byName.filter((t) => t.coachKey === coachKey);
+    if (hit.length > 1) hit = hit.filter((t) => nameKey(t.race) === nameKey(race));
+    if (hit.length === 1) return hit[0]!.id;
+    if (!coachKey && byName.length === 1) return byName[0]!.id;
+    return register(name, coachKey, race, facets.coach ?? "");
+  };
+  for (const t of teams) t.id = register(t.name, aliases.key(t), t.race, t.coach);
+  for (const f of fixtures) for (const side of [f.home, f.away]) side.teamId = resolveTeam(side.team, side, side.race);
+  for (const p of phases) for (const row of p.standings) row.teamId = resolveTeam(row.team, row, row.race);
+
+  const unattributedStats = attachPlayerStats(teams, honours);
+  const ambiguities = unattributedStats.map((u) => `${u.team}: ${u.name}${u.position ? ` (${u.position})` : ""}: ${u.reason}`);
 
   const times = fixtures.flatMap((f) => [f.startedAt, f.finishedAt]).filter((t): t is string => Boolean(t)).sort();
   const ruleset: LeagueRuleset = input.ruleset ?? (rulesets.includes("BB2025") ? "BB2025" : "BB2020");
@@ -542,9 +613,10 @@ export function buildSeason(input: BuildSeasonInput): BuildSeasonResult {
     teams,
     honours,
     awards,
+    unattributedStats,
     importedAt: (input.now ?? new Date()).toISOString(),
     source: "tourplay-export",
   };
-  const unmappedCoaches = [...seen].filter((name) => !byName.has(nameKey(name))).sort((a, b) => a.localeCompare(b));
-  return { season, mismatches: checkStandings(phases, fixtures), unmappedCoaches };
+  const unmappedCoaches = [...seen].filter((name) => !mapped.has(name)).sort((a, b) => a.localeCompare(b));
+  return { season, mismatches: checkStandings(phases, fixtures), ambiguities, unmappedCoaches };
 }
