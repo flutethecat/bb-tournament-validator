@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Sidebar polish: sprite icons, Resources, collapser in the top bar",
+    "body": "The sidebar icons are redrawn as little retro game sprites: a house, a pennant, a trophy, a podium with a star, a question scroll, a treasure chest, a hammer, a rulebook, a television, a mountain shield and a globe, in greens, golds, browns and blues instead of all red. They are a little bigger too, and bigger again on the narrow rail. Useful resources is now just Resources. The button that folds the sidebar to the rail has moved up into the top bar, at the right edge of the sidebar; the [ key still does the same.",
+    "links": [
+      {
+        "label": "Help",
+        "href": "/app/help"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Set schedule from the calendar",
     "body": "The weekly availability editor is no longer a panel of its own on the Account page. The Calendar now has a Set schedule button beside Deadlines; it opens the editor in a dialog with your timezone, the seven day columns and Save availability. Saving reshades the calendar straight away. Close, Escape and a click outside close the dialog (a click outside is ignored while you have unsaved changes, and your edits are kept if you close and reopen). Links to /account#schedule open the dialog. On a phone the dialog fills the screen minus a small margin and scrolls inside.",
     "links": [
