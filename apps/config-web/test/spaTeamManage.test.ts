@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
-import { createTeamManage, dialogKey, nextCostHint, progressLine, teamManagePath, type PlayerProgress, type TeamManageModel } from "../spa/src/teams/manage";
+import { canAdvance, careerCells, createTeamManage, dialogKey, nextCostHint, progressLine, sppMeter, teamManagePath, valueBreakdownText, type PlayerProgress, type TeamManageModel } from "../spa/src/teams/manage";
 
 // Team management page (/app/teams/:ref, owner 10-30) and the My teams page restyle. The controller is tested directly;
 // the views are server-rendered through the SPA's own Vite config (as spaHome.test.ts does).
@@ -191,6 +191,49 @@ describe("team management controller", () => {
     expect(m.state.model?.manage.shareToken).toBeUndefined();
   });
 
+  it("player sheet: opens and closes, refused while the advancement dialog is open, hands over to it on the row's rules", async () => {
+    const f = mockFetcher({ "/api/me/teams/library%3A77": libraryModel() });
+    const m = createTeamManage({ api: f });
+    await m.load("library:77");
+    expect(m.openSheet(5)).toBe(false);
+    expect(m.openSheet(1)).toBe(true);
+    expect(m.state.sheet).toEqual({ playerIndex: 1 });
+    // Grit can add neither: the sheet's buttons follow the row's enabled rule and stay put
+    expect(m.advanceFromSheet("skill")).toBe(false);
+    expect(m.state.sheet).toEqual({ playerIndex: 1 });
+    expect(m.closeSheet()).toBe(true);
+    expect(m.state.sheet).toBeNull();
+    expect(m.closeSheet()).toBe(false);
+    // Bob can add a skill: the sheet closes and the advancement dialog opens for him
+    m.openSheet(0);
+    expect(m.advanceFromSheet("characteristic")).toBe(false);
+    expect(m.advanceFromSheet("skill")).toBe(true);
+    expect(m.state.sheet).toBeNull();
+    expect(m.state.flow).toMatchObject({ playerIndex: 0, kind: "skill", step: "choose" });
+    expect(m.openSheet(0)).toBe(false);
+    m.close();
+    // loading another team drops the open sheet
+    m.openSheet(0);
+    await m.load("library:9").catch(() => undefined);
+    expect(m.state.sheet).toBeNull();
+  });
+
+  it("player sheet helpers: SPP meter, career cells with — for unrecorded, value breakdown, advance rules", () => {
+    expect(sppMeter(progress())).toEqual({ text: "12/6", percent: 100, rank: "Emerging Star" });
+    expect(sppMeter(progress({ spp: 4, costs: { randomPrimary: 16, chosenPrimary: 22, chosenSecondary: 28, characteristic: 30 }, rank: "Experienced" }))).toEqual({ text: "4/16", percent: 25, rank: "Experienced" });
+    expect(sppMeter(progress({ costs: null, rank: "Legend" }))).toEqual({ text: "12", percent: null, rank: "Legend" });
+    const known = careerCells({ games: null, td: 3, cas: 2, comp: 4, int: 1, mvp: 1, fouls: 0, deflections: null, ni: 1 });
+    expect(known.cells.map((c) => `${c.abbr}=${c.text}`)).toEqual(["TD=3", "CAS=2", "COM=4", "INT=1", "MVP=1", "FOUL=0", "NI=1", "GP=—"]);
+    expect(known.unknown).toBe(true);
+    expect(careerCells(undefined).cells.every((c) => c.text === "—")).toBe(true);
+    expect(valueBreakdownText({ base: 115000, added: 30000, total: 145000 })).toBe("(115+30)k");
+    expect(valueBreakdownText(null)).toBe("");
+    const pl = { progress: progress({ canAddSkill: false, canAddCharacteristic: false }) } as never;
+    expect(canAdvance(pl, "skill")).toBe(false);
+    expect(canAdvance({ progress: progress({ canAddSkill: false, pending: { method: "randomPrimary" } as never }) } as never, "characteristic")).toBe(true);
+    expect(canAdvance({} as never, "skill")).toBe(false);
+  });
+
   it("progress lines", () => {
     expect(progressLine(progress({ earnedSpp: 20 }))).toBe("SPP 12 (earned 20) · Emerging Star · 2 advancements");
     expect(nextCostHint(progress({ spp: 2, canAddSkill: false }))).toBe("Add Skill at 6 SPP");
@@ -278,6 +321,48 @@ describe("team management + My teams pages (server-rendered)", () => {
     const closed = await render("/teams/library%3A77", { "/api/me/teams/library%3A77": libraryModel() });
     expect(closed).toContain('<div class="tm-content">');
     expect(closed).not.toContain('role="dialog"');
+  });
+
+  it("each row's name is a player sheet button; the open sheet shows characteristics, skills, SPP bar + rank, career stats, injuries and value", async () => {
+    const closed = await render("/teams/library%3A77", { "/api/me/teams/library%3A77": libraryModel() });
+    expect(closed.match(/<button type="button" class="tv-open" data-sheet="0" aria-label="Open the player sheet for Big &lt;Bob&gt;, #1 Blitzer">/g)).toHaveLength(2);
+    expect(closed).toContain('<td class="tv-pos" title="Orc Blitzer" data-sheet-row="0">');
+    expect(closed).toContain('<div class="tv-card-head" data-sheet-row="1">');
+
+    const bob = { ...player(1, "Big <Bob>", progress({ spp: 4, costs: { randomPrimary: 16, chosenPrimary: 22, chosenSecondary: 28, characteristic: 30 }, rank: "Experienced", canAddSkill: false })),
+      statIncreases: ["ST"], stats: { MA: 6, ST: 4, AG: "3+", PA: "4+", AV: "10+" }, added: [{ name: "Tackle", category: "General", access: "primary" as const }],
+      careerStats: { games: null, td: 3, cas: 2, comp: 0, int: 1, mvp: 1, fouls: 4, deflections: null, ni: 1 },
+      injuries: ["Serious Injury (NI)"], valueBreakdown: { base: 80000, added: 80000, total: 160000 }, cost: 160000 };
+    const f = mockFetcher({ "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" }, "/api/me/teams/library%3A77": libraryModel([bob, player(2, "Grit")] as never) });
+    const manage = createTeamManageSsr(f);
+    await manage.load("library:77");
+    expect(manage.openSheet(0)).toBe(true);
+    const spa = mods.app.createSpa({ history: mods.vueRouter.createMemoryHistory("/app/"), ssr: true, fetcher: f });
+    spa.app.provide(mods.manageMod.TEAM_MANAGE_KEY, manage);
+    await spa.router.push("/teams/library%3A77");
+    await spa.router.isReady();
+    const html = (await mods.renderer.renderToString(spa.app)) as string;
+    expect(html).toMatch(/<div class="tm-content" inert aria-hidden="true">/);
+    expect(html).toContain('role="dialog" aria-modal="true" aria-labelledby="tm-ps-h" tabindex="-1"');
+    expect(html.indexOf('aria-labelledby="tm-ps-h"')).toBeGreaterThan(html.lastIndexOf('class="team-view tm-sheet"'));
+    expect(html).toContain('<p class="tm-ps-name">Big &lt;Bob&gt;</p>');
+    expect(html).toMatch(/<span class="tm-ps-num">#1<\/span> Orc Blitzer/);
+    // SPP current / next cost, the bar and the rank under it
+    expect(html).toContain('<b class="tm-spp">4/16</b>');
+    expect(html).toMatch(/role="progressbar"[^>]*aria-valuenow="25"><span style="width:25%;"><\/span>/);
+    expect(html).toContain('<span class="tm-ps-rank">Experienced</span>');
+    // the increased characteristic is marked
+    expect(html).toMatch(/<div class="tv-up"><dt>ST<\/dt><dd>4<span class="tv-up-mark" aria-label="increased">▲<\/span><\/dd><\/div>/);
+    expect(html).toContain('title="Primary skill added: Tackle">Tackle</span>');
+    // career stats; games not recorded -> — and the footnote
+    expect(html).toMatch(/<abbr title="Touchdowns">TD<\/abbr>/);
+    expect(html).toContain("<td>3</td><td>2</td><td>0</td><td>1</td><td>1</td><td>4</td><td>1</td><td>—</td>");
+    expect(html).toContain("Stats are recorded for games played through the site.");
+    expect(html).toContain("<li>Serious Injury (NI)</li>");
+    expect(html).toContain('Value <b>160k</b><span class="tm-ps-break" title="Position cost + added value">(80+80)k</span>');
+    // Add Skill greyed (not affordable), Add Stat greyed, Close
+    expect(html).toMatch(/<button type="button" class="tm-act" data-kind="skill" disabled aria-disabled="true">Add Skill<\/button>/);
+    expect(html).toMatch(/<button type="button" class="lobby-btn" data-autofocus>Close<\/button>/);
   });
 
   it("My teams: coach-page panels, tiles linking to the management page, Avatars and Build a team panels", async () => {

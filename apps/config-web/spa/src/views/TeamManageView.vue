@@ -11,7 +11,8 @@ import "../teams/teams.css";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import AdvanceModal from "../components/AdvanceModal.vue";
-import { builderHref, createTeamManage, progressLine, shareUrl, TEAM_MANAGE_KEY, teamManagePath, type ManagedPlayer } from "../teams/manage";
+import PlayerSheetModal from "../components/PlayerSheetModal.vue";
+import { builderHref, canAdvance, createTeamManage, progressLine, shareUrl, TEAM_MANAGE_KEY, teamManagePath, type ManagedPlayer } from "../teams/manage";
 
 interface TeamViewCore { viewHtml: (team: unknown, opts?: Record<string, unknown>) => string }
 const TeamView = (globalThis as unknown as { TeamView?: TeamViewCore }).TeamView;
@@ -45,30 +46,35 @@ function actionsHtml(p: ManagedPlayer, i: number): string {
   const pending = Boolean(g.pending);
   const btn = (kind: string, on: boolean, text: string, aria: string) =>
     `<button type="button" class="tm-act" data-adv="${i}" data-kind="${pending ? "resume" : kind}"${on ? "" : ' disabled aria-disabled="true"'} aria-label="${aria} ${label}">${text}</button>`;
-  const skillOn = pending || g.canAddSkill;
-  const statOn = pending || g.canAddCharacteristic;
+  const skillOn = canAdvance(p, "skill");
+  const statOn = canAdvance(p, "characteristic");
   const toast = pending
     ? '<span class="tm-toast" role="status">Finish level up</span>'
     : skillOn || statOn ? '<span class="tm-toast" role="status">Level up!</span>' : "";
   return `<span class="tm-acts">${btn("skill", skillOn, "Add Skill", "Add a skill to")}${btn("characteristic", statOn, "Add Stat", "Add a stat to")}${toast}</span>`;
 }
 
+/** The name/position button of each row opens the player sheet (owner 10-30). */
+const sheetLabel = (p: ManagedPlayer): string => `Open the player sheet for ${p.name ? `${p.name}, ` : ""}#${p.number} ${p.position}`;
+
 const sheetHtml = computed(() => {
   const m = model.value;
   if (!m || !TeamView) return "";
   const hasProgress = m.team.players.some((p) => p.progress);
-  return TeamView.viewHtml(m.team, { bylineLead: "Coach", hideOwnerLink: true, ...(hasProgress ? { actions: actionsHtml, spp: sppHtml } : {}) });
+  return TeamView.viewHtml(m.team, { bylineLead: "Coach", hideOwnerLink: true, sheet: sheetLabel, ...(hasProgress ? { actions: actionsHtml, spp: sppHtml } : {}) });
 });
 
-// The opener of the advancement dialog gets focus back on close, and again once the reloaded sheet re-renders (the
-// sheet is v-html, so a reload replaces the button). Falls back to the Back link when the button is gone.
+// The opener of the advancement dialog (or of the player sheet: kind "sheet", the row's name button, which also keeps focus
+// when the sheet hands over to the advancement dialog) gets focus back on close, and again once the reloaded sheet re-renders
+// (the sheet is v-html, so a reload replaces the button). Falls back to the Back link when the button is gone.
 const opener = ref<{ index: number; kind: string } | null>(null);
 const restorePending = ref(false);
 const backLink = ref<{ $el?: HTMLElement } | null>(null);
 function focusOpener(): void {
   const o = opener.value;
   if (!o || typeof document === "undefined") return;
-  const candidates = Array.from(document.querySelectorAll<HTMLElement>(`.tm-sheet [data-adv="${o.index}"]`));
+  const selector = o.kind === "sheet" ? `.tm-sheet [data-sheet="${o.index}"]` : `.tm-sheet [data-adv="${o.index}"]`;
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>(selector));
   const visible = candidates.filter((el) => el.offsetParent !== null);
   const target = visible.find((el) => el.dataset.kind === o.kind) ?? visible[0] ?? backLink.value?.$el;
   target?.focus({ preventScroll: true });
@@ -76,6 +82,11 @@ function focusOpener(): void {
 watch(() => state.flow, async (flow, was) => {
   if (flow || !was) return;
   restorePending.value = true;
+  await nextTick();
+  focusOpener();
+});
+watch(() => state.sheet, async (sheet, was) => {
+  if (sheet || !was || state.flow) return;
   await nextTick();
   focusOpener();
 });
@@ -87,8 +98,15 @@ watch(sheetHtml, async () => {
 });
 
 function onSheetClick(e: MouseEvent): void {
-  const btn = (e.target as HTMLElement | null)?.closest?.("[data-adv]") as HTMLElement | null;
-  if (!btn) return;
+  const target = e.target as HTMLElement | null;
+  const btn = target?.closest?.("[data-adv]") as HTMLElement | null;
+  if (!btn) {
+    // The name/position button, or anywhere else in that cell / the phone card's head.
+    const row = target?.closest?.("[data-sheet], [data-sheet-row]") as HTMLElement | null;
+    const i = Number(row?.dataset.sheet ?? row?.dataset.sheetRow);
+    if (row && Number.isInteger(i) && manage.openSheet(i)) opener.value = { index: i, kind: "sheet" };
+    return;
+  }
   const i = Number(btn.dataset.adv);
   if (manage.open(i, btn.dataset.kind === "characteristic" ? "characteristic" : "skill")) opener.value = { index: i, kind: btn.dataset.kind ?? "skill" };
 }
@@ -108,8 +126,8 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
 
 <template>
   <div class="tm-page">
-    <!-- While the advancement dialog is open the page behind it is inert (aria-modal; no Tab stops, no clicks). -->
-    <div class="tm-content" :inert="state.flow ? true : undefined" :aria-hidden="state.flow ? 'true' : undefined">
+    <!-- While the advancement dialog or the player sheet is open the page behind it is inert (aria-modal; no Tab stops, no clicks). -->
+    <div class="tm-content" :inert="state.flow || state.sheet ? true : undefined" :aria-hidden="state.flow || state.sheet ? 'true' : undefined">
     <nav class="tm-bar" aria-label="Team actions">
       <RouterLink ref="backLink" class="lobby-btn tm-back" to="/my-teams">Back to My teams</RouterLink>
       <template v-if="info">
@@ -140,5 +158,6 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
     </template>
     </div>
     <AdvanceModal v-if="state.flow && model" :manage="manage" />
+    <PlayerSheetModal v-else-if="state.sheet && model" :manage="manage" />
   </div>
 </template>

@@ -68,3 +68,41 @@
 .tm-spp { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
 .tv-table td.tv-spp, .tv-table th.tv-spp { text-align: center; }
 .tv-card-actions .tv-spp { margin-right: 8px; }
+
+/* Player sheet (owner 10-30): the name/position button in each row opens it; the dialog reuses the tn-modal frame. */
+.tm-page .tv-open { display: inline; padding: 0; margin: 0; color: inherit; background: none; border: 0; font: inherit; text-align: left; cursor: pointer; }
+.tm-page .tv-open:hover { text-decoration: underline; text-underline-offset: 3px; }
+.tm-page .tv-open:focus-visible { outline: 2px solid var(--ui-focus, #ff3b3b); outline-offset: 2px; border-radius: 2px; }
+.tm-page [data-sheet-row] { cursor: pointer; }
+.tm-psheet { width: min(640px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; }
+.tm-psheet .tn-panel-body { display: grid; gap: 12px; }
+.tm-ps-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.tm-ps-id { flex: 1 1 160px; min-width: 0; }
+.tm-ps-id p { margin: 0; }
+.tm-ps-name { color: var(--ui-text); font-size: 20px; font-weight: 600; overflow-wrap: anywhere; }
+.tm-ps-pos { color: var(--ui-position, var(--ui-muted)); }
+.tm-ps-num { color: var(--ui-muted); font-variant-numeric: tabular-nums; }
+.tm-ps-spp { display: grid; justify-items: center; gap: 3px; min-width: 120px; }
+.tm-ps-label { color: var(--ui-muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.tm-ps-bar { display: block; width: 100%; height: 8px; overflow: hidden; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 4px; }
+.tm-ps-bar > span { display: block; height: 100%; background: var(--ui-gold); }
+.tm-ps-rank { color: var(--ui-muted); font-size: 12px; }
+.tm-ps-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin: 0; }
+.tm-ps-stats > div { padding: 4px 0; text-align: center; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 4px; }
+.tm-ps-stats dt { color: var(--ui-skill-strength); font-size: 11px; letter-spacing: .06em; }
+.tm-ps-stats dd { margin: 0; color: var(--ui-text); font-size: 18px; font-weight: 600; }
+.tm-ps-stats .tv-up dd { color: var(--ui-success, var(--ui-text)); }
+.tm-ps-sec { display: grid; gap: 6px; }
+.tm-ps-sec h4 { margin: 0; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--ui-heading); }
+.tm-ps-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; font-size: 12px; opacity: .8; }
+.tm-ps-career { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; table-layout: fixed; }
+.tm-ps-career th, .tm-ps-career td { padding: 4px 2px; text-align: center; border: 1px solid var(--ui-border); }
+.tm-ps-career th { color: var(--ui-skill-strength); font-size: 11px; letter-spacing: .04em; font-weight: 500; }
+.tm-ps-career abbr { text-decoration: none; }
+.tm-ps-career td { color: var(--ui-text); font-size: 16px; font-weight: 600; }
+.tm-ps-foot { margin: 0; color: var(--ui-muted); font-size: 12px; }
+.tm-ps-inj { margin: 0; padding-left: 18px; }
+.tm-ps-value { margin: 0; color: var(--ui-muted); }
+.tm-ps-value b { color: var(--ui-text); }
+.tm-ps-break { margin-left: 4px; font-variant-numeric: tabular-nums; }
+.tm-psheet .tn-actions { flex-wrap: wrap; }

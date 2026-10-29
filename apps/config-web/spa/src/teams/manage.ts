@@ -44,7 +44,29 @@ export interface PlayerProgress {
   injuries: string[];
 }
 
-export type ManagedPlayer = SharedTeamView["players"][number] & { name?: string; progress?: PlayerProgress; sprite?: string | null };
+/** Career counters from the team XML (src/teamDetail.ts playerCareerStats); null = not recorded. */
+export interface CareerStats {
+  games: number | null;
+  td: number | null;
+  cas: number | null;
+  comp: number | null;
+  int: number | null;
+  mvp: number | null;
+  fouls: number | null;
+  deflections: number | null;
+  ni: number;
+}
+
+export interface ValueBreakdown { base: number; added: number; total: number }
+
+export type ManagedPlayer = SharedTeamView["players"][number] & {
+  name?: string;
+  progress?: PlayerProgress;
+  sprite?: string | null;
+  careerStats?: CareerStats;
+  injuries?: string[];
+  valueBreakdown?: ValueBreakdown | null;
+};
 
 export interface TeamManageModel {
   team: Omit<SharedTeamView, "players"> & { players: ManagedPlayer[]; verdict?: string; crest?: string | null; updatedAt?: string; avatarUrl?: string };
@@ -93,6 +115,8 @@ export interface TeamManageState {
   shareBusy: boolean;
   shareError: string;
   flow: AdvanceFlow | null;
+  /** The open player sheet (owner 10-30: clicking a player pops out their stats). Never open together with `flow`. */
+  sheet: { playerIndex: number } | null;
 }
 
 const enc = encodeURIComponent;
@@ -117,14 +141,57 @@ export function nextCostHint(p: PlayerProgress): string {
   return p.spp < skill ? `Add Skill at ${skill} SPP` : "";
 }
 
+/** Whether the row / sheet button for an advancement kind is enabled: a stored roll resumes, else it must be affordable now. */
+export function canAdvance(p: ManagedPlayer, kind: FlowKind): boolean {
+  const g = p.progress;
+  if (!g) return false;
+  return Boolean(g.pending) || (kind === "skill" ? g.canAddSkill : g.canAddCharacteristic);
+}
+
+/** SPP against the next (cheapest) advancement, TourPlay style: "12/16", a 0-100 bar, the rank name under it. */
+export function sppMeter(g: PlayerProgress): { text: string; percent: number | null; rank: string } {
+  const next = g.costs ? g.costs.randomPrimary : null;
+  if (next === null || next <= 0) return { text: String(g.spp), percent: null, rank: g.rank };
+  return { text: `${g.spp}/${next}`, percent: Math.max(0, Math.min(100, Math.round((g.spp / next) * 100))), rank: g.rank };
+}
+
+export const CAREER_COLUMNS: ReadonlyArray<{ key: keyof CareerStats; abbr: string; label: string }> = [
+  { key: "td", abbr: "TD", label: "Touchdowns" },
+  { key: "cas", abbr: "CAS", label: "Casualties caused" },
+  { key: "comp", abbr: "COM", label: "Completions" },
+  { key: "int", abbr: "INT", label: "Interceptions" },
+  { key: "mvp", abbr: "MVP", label: "Most Valuable Player awards" },
+  { key: "fouls", abbr: "FOUL", label: "Fouls" },
+  { key: "ni", abbr: "NI", label: "Niggling Injuries" },
+  { key: "games", abbr: "GP", label: "Games played" },
+];
+
+/** The career stats row: a number, or "—" for what is not recorded. `unknown` drives the footnote. */
+export function careerCells(stats: CareerStats | undefined): { cells: Array<{ abbr: string; label: string; text: string }>; unknown: boolean } {
+  let unknown = false;
+  const cells = CAREER_COLUMNS.map((c) => {
+    const v = stats ? stats[c.key] : null;
+    const known = typeof v === "number" && Number.isFinite(v);
+    if (!known) unknown = true;
+    return { abbr: c.abbr, label: c.label, text: known ? String(v) : "—" };
+  });
+  return { cells, unknown };
+}
+
+/** "(90+60)k" (base + added, as the TourPlay roster prints it); "" when unknown. */
+export function valueBreakdownText(v: ValueBreakdown | null | undefined): string {
+  if (!v) return "";
+  return `(${Math.round(v.base / 1000)}+${Math.round(v.added / 1000)})k`;
+}
+
 export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void }) {
   const state = reactive<TeamManageState>({
-    ref: "", model: null, loading: false, loaded: false, error: "", notFound: false, shareBusy: false, shareError: "", flow: null,
+    ref: "", model: null, loading: false, loaded: false, error: "", notFound: false, shareBusy: false, shareError: "", flow: null, sheet: null,
   });
   let gen = 0;
 
   async function load(ref: string): Promise<void> {
-    if (state.ref !== ref) state.model = null;
+    if (state.ref !== ref) { state.model = null; state.sheet = null; }
     state.ref = ref;
     const mine = ++gen;
     state.loading = true;
@@ -176,10 +243,33 @@ export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void 
     if (state.flow?.busy) return false;
     const progress = player(playerIndex)?.progress;
     if (!progress) return false;
+    state.sheet = null;
     const pending = progress.pending ?? null;
     const resumeKind: FlowKind = pending ? (pending.method === "characteristic" ? "characteristic" : "skill") : kind;
     state.flow = { id: ++flowSeq, playerIndex, playerId: progress.id, kind: resumeKind, step: pending ? "pick" : "choose", busy: false, error: "", pending, result: "", stale: false };
     return true;
+  }
+
+  /** Open the player sheet. Refused while the advancement dialog is open. */
+  function openSheet(playerIndex: number): boolean {
+    if (state.flow || !player(playerIndex)) return false;
+    state.sheet = { playerIndex };
+    return true;
+  }
+
+  function closeSheet(): boolean {
+    if (!state.sheet) return false;
+    state.sheet = null;
+    return true;
+  }
+
+  /** The sheet's Add Skill / Add Stat: same enabled rule as the row buttons; hands over to the advancement dialog. */
+  function advanceFromSheet(kind: FlowKind): boolean {
+    const s = state.sheet;
+    const p = s ? player(s.playerIndex) : undefined;
+    if (!s || !p || !canAdvance(p, kind)) return false;
+    state.sheet = null;
+    return open(s.playerIndex, kind);
   }
 
   /** Close the modal (ignored while a request is in flight). Reloads the team after a change, a reserved roll, or a conflict. */
@@ -280,7 +370,7 @@ export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void 
     if (res?.ok) finish(flow, choice.type === "skill" ? `${choice.skill} added` : `+${choice.characteristic} added`, res);
   }
 
-  return { state, load, setShared, open, close, rollRandomPrimary, rollCharacteristic, chooseSkill, commit };
+  return { state, load, setShared, open, close, openSheet, closeSheet, advanceFromSheet, rollRandomPrimary, rollCharacteristic, chooseSkill, commit };
 }
 
 export type TeamManage = ReturnType<typeof createTeamManage>;
