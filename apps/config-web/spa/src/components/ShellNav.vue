@@ -32,12 +32,13 @@ const tournamentRows = computed<Row[]>(() => {
         : { key: `t:${t.id}:fixture`, to: `${t.to}?tab=rounds`, label: "No fixture yet", level: 3, muted: true });
     }
   }
-  rows.push({ key: "t:browse", to: "/tournaments", label: "Browse tournaments", level: 1, muted: true });
+  // Owner 10-30: no "Browse" row; the tree header itself opens the list. With nothing to show, one muted note.
+  if (!rows.length) rows.push({ key: "t:none", to: "/tournaments", label: "No active tournaments", level: 1, muted: true });
   return rows;
 });
 
 // Leagues have no store yet: the tree is the header and the way to browse (spec §2; leagues are later lanes).
-const leagueRows = computed<Row[]>(() => [{ key: "l:browse", to: "/tournaments", label: "Browse leagues", level: 1, muted: true }]);
+const leagueRows = computed<Row[]>(() => [{ key: "l:none", to: "/tournaments", label: "No active leagues", level: 1, muted: true }]);
 // Home carries the coach page's unread badge (notifications + messages + proposed times; the last two are wired to 0
 // until their stores land). Hidden at 0 and when signed out.
 const homeBadge = computed(() => !session.signedIn() ? 0 : homeBadgeCount({ unread: notifications.unread.value, messages: 0, proposals: 0 }));
@@ -45,7 +46,8 @@ const pageRows = computed<Row[]>(() => NAV.map((n) => ({ key: `p:${n.to}`, to: n
 
 // One active row: the first in priority order whose target matches (Tournament, League, then Pages).
 const activeKey = computed(() => {
-  const ordered = [...tournamentRows.value, ...leagueRows.value, ...pageRows.value];
+  // Empty-state notes ("No active ...") never take the highlight: the Pages row for the same list does.
+  const ordered = [...tournamentRows.value, ...leagueRows.value, ...pageRows.value].filter((r) => r.key !== "t:none" && r.key !== "l:none");
   const to = pickActive(ordered.map((r) => r.to), route.fullPath);
   return to === undefined ? "" : ordered.find((r) => r.to === to)?.key ?? "";
 });
@@ -66,7 +68,7 @@ const trees = computed(() => [
           :aria-label="`${open[t.id] ? 'Collapse' : 'Expand'} ${t.label}`" @click="open[t.id] = !open[t.id]"
         ><span aria-hidden="true">{{ open[t.id] ? "▾" : "▸" }}</span></button>
         <RouterLink v-slot="{ href, navigate }" :to="t.to" custom>
-          <a :href="href" class="sf-head-link" :data-glyph="t.glyph" @click="navigate">{{ t.label }}</a>
+          <a :href="href" class="sf-head-link" :data-glyph="t.glyph" :aria-current="!activeKey && route.path === t.to ? 'page' : undefined" @click="navigate">{{ t.label }}</a>
         </RouterLink>
         <span v-if="t.count" class="sf-count" :aria-label="`${t.count} entries`">{{ t.count }}</span>
       </div>

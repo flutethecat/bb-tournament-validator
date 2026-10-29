@@ -529,8 +529,10 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     for (const gone of ["#deadlines", "#friends", "#messages", "#schedule", "#notifications"]) expect(nav).not.toContain(`/app/home${gone}`);
     expect(rowFor(nav, "/app/home")).not.toContain("sf-count"); // 0 unread: no badge on Home
     expect(rowFor(nav, "/app/tournaments")).toBeTruthy();
-    expect(nav).toContain("Browse leagues");
-    expect(nav).toContain("Browse tournaments");
+    // owner 10-30: no Browse rows; the tree headers open the lists. Leagues have no store yet, so a muted note.
+    expect(nav).toContain("No active leagues");
+    expect(nav).not.toContain("Browse tournaments");
+    expect(nav).not.toContain("No active tournaments"); // this coach has tournaments
     // the indent is 14 px per level from the row's level
     const css = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");
     expect(css).toContain("calc(10px + (var(--sf-level, 1) - 1) * 14px)");
@@ -546,9 +548,10 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const fixture = await at("/tournaments/t1?tab=rounds");
     expect(active(fixture)).toHaveLength(1);
     expect(active(fixture)[0]).toContain('href="/app/tournaments/t1?tab=rounds"');
+    // the tournaments list: the Pages row is the one highlighted (the "No active ..." notes never are)
     const list = await at("/tournaments");
     expect(active(list)).toHaveLength(1);
-    expect(list).toMatch(/data-active="true"[^>]*>[\s\S]{0,80}Browse tournaments/);
+    expect(list).toMatch(/data-active="true"[^>]*>[\s\S]{0,80}Tournaments/);
     const css = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");
     expect(css).toMatch(/\.sf-row\[data-active="true"\] \{[^}]*color: var\(--sf-seat-home\)[^}]*border-left-color: var\(--sf-seat-home\)/);
     expect(css).toMatch(/\.sf-row \{[^}]*border-left: 3px solid transparent/);

@@ -100,6 +100,7 @@
 .sf-tree-head { display: flex; align-items: center; gap: 4px; padding: 7px 8px 7px 4px; border-bottom: 1px solid var(--sf-panel-line); }
 .sf-caret { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; color: var(--ui-muted); background: transparent; border: 0; cursor: pointer; font-size: 13px; }
 .sf-head-link { flex: 1 1 auto; min-width: 0; font: 14px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-heading); text-decoration: none; }
+.sf-head-link[aria-current="page"] { color: var(--sf-seat-home); }
 .sf-rows { list-style: none; margin: 2px 0 0; padding: 0; }
 .sf-row { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 5px 10px 5px calc(10px + (var(--sf-level, 1) - 1) * 14px); color: var(--ui-text); text-decoration: none; font-size: 16px; line-height: 1.25; border-left: 3px solid transparent; }
 .sf-row:hover { background: var(--ui-hover); }
