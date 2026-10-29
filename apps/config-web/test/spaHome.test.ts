@@ -442,7 +442,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
       expect(nav).toMatch(new RegExp(`<img class="sf-icon" src="/icons/nav/${icon}\.png" alt(="")? width="26" height="26">`));
     }
     expect(homeLink(html)).toBeTruthy();
-    expect(nav).toMatch(/<a href="\/app\/tournaments\?hint=leagues" class="sf-head-link"/);
+    expect(nav).toMatch(/<a href="\/app\/leagues" class="sf-head-link"/);
     expect(nav).toMatch(/<a href="\/app\/leaderboards" class="sf-head-link"/);
     expect(nav).toMatch(/<a href="\/app\/help" class="sf-head-link"/);
     expect(nav).not.toContain("Coach page");
@@ -752,9 +752,9 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
       expect(active(nav)).toHaveLength(1);
       expect(active(nav)[0]).toContain(`href="${href}"`);
     }
-    const leagues = await at("/tournaments?hint=leagues");
+    const leagues = await at("/leagues");
     expect(active(leagues)).toHaveLength(1);
-    expect(active(leagues)[0]).toContain('href="/app/tournaments?hint=leagues"');
+    expect(active(leagues)[0]).toContain('href="/app/leagues"');
     const css = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");
     expect(css).toMatch(/\.sf-row\[data-active="true"\] \{[^}]*color: var\(--sf-seat-home\)[^}]*border-left-color: var\(--sf-seat-home\)/);
     expect(css).toMatch(/\.sf-row \{[^}]*border-left: 3px solid transparent/);

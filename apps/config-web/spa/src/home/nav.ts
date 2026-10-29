@@ -13,7 +13,7 @@ export const NAV_ICON = (name: string): string => `/icons/nav/${name}.png`;
 export const HOME_LINK: NavLink = { label: "Home", to: "/home" };
 
 /** Leagues have no page of their own yet: the header opens the tournament list with a leagues hint. */
-export const LEAGUES_TO = "/tournaments?hint=leagues";
+export const LEAGUES_TO = "/leagues";
 
 /** Resources: external sites, each opened in a new tab. */
 export const RESOURCES: ExternalLink[] = [
