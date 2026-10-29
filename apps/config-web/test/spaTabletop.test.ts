@@ -516,6 +516,10 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toMatch(/\.tt-rec \.tt-rail-btn, [^{]*\.tt-rec \.tt-big, [^{]*\{ text-shadow: var\(--tt-lettering-shadow\); letter-spacing: \.06em; \}/);
     expect(css).toMatch(/\.tt-rec \.tt-rail-turn \{[^}]*font-size: var\(--tt-turnmark-fs\);[^}]*text-shadow: var\(--tt-lettering-shadow\)/);
     expect(css).toMatch(/--tt-turnmark-fs: 13px;/); // the turn line is a subheader under the larger label
+    expect(css).toContain("--tt-strip-h: 48px; --tt-strip-fs: 14px; --tt-marker: 28px; --tt-marker-icon: 18px;"); // desktop strip and timeline markers
+    expect(css).toContain("--tt-strip-h: 52px; --tt-marker: 32px; --tt-marker-icon: 20px;"); // 1600 px
+    expect(css).toMatch(/@media \(min-width: 760px\) and \(max-width: 1023px\) \{\s*\.tt-rec \{ --tt-tl-h: 40px; --tt-marker: 24px;/); // tablet
+    expect(css).toMatch(/\.tt-stripbar \.tt-tl-mark \{ width: var\(--tt-marker\); height: var\(--tt-marker\); border-width: 2px; background: color-mix/);
     expect(css).toMatch(/--tt-rail-label-fs: 22px;/);
     expect(css).toMatch(/--tt-rail-label-fs: 24px;/); // the End Turn label steps up, 24 px from 1600
     expect(css).toMatch(/--tt-turnmark-fs: 14px;/);

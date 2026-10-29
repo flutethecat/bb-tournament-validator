@@ -598,7 +598,7 @@
   .tt-rec {
     --tt-pad: max(0px, calc((100vw - 1400px) / 2));
     --tt-hero-min: 168px; --tt-crest: 96px; --tt-team-fs: 28px; --tt-cell-h: 24px; --tt-cell-fs: 12px; --tt-track-w: 240px; --tt-score-fs: 56px; --tt-count-fs: 14px;
-    --tt-chip: 48px; --tt-chip-img: 40px; --tt-strip-h: 40px; --tt-strip-fs: 13px; --tt-marker: 16px;
+    --tt-chip: 48px; --tt-chip-img: 40px; --tt-strip-h: 48px; --tt-strip-fs: 14px; --tt-marker: 28px; --tt-marker-icon: 18px;
     --tt-rail-btn: 56px; --tt-rail-icon: 20px; --tt-rail-fs: 16px; --tt-end-h: 96px; --tt-end-fs: 24px;
     --tt-card-min: 64px; --tt-card-fs: 15px; --tt-ev-icon: 32px; --tt-who-h: 36px; --tt-log-h-fs: 14px;
     padding-inline: var(--tt-pad); grid-template-rows: auto auto var(--tt-strip-h) minmax(0, 1fr);
@@ -621,7 +621,7 @@
   .tt-rec > .tt-stripbar { height: var(--tt-strip-h); font-size: var(--tt-strip-fs); }
   .tt-stripbar .tt-tl, .tt-stripbar .tt-tl-line { height: calc(var(--tt-strip-h) - 4px); }
   .tt-stripbar .tt-tl-mark { width: var(--tt-marker); height: var(--tt-marker); }
-  .tt-stripbar .tt-tl-item { flex: 1 0 24px; min-width: 24px; }
+  .tt-stripbar .tt-tl-item { flex: 1 0 calc(var(--tt-marker) + 4px); min-width: calc(var(--tt-marker) + 4px); }
   .tt-rail-btn { height: var(--tt-rail-btn); font-size: var(--tt-rail-fs); }
   .tt-rail-btn .tt-glyph { width: var(--tt-rail-icon); height: var(--tt-rail-icon); }
   .tt-rail-btn .tt-glyph-text { font-size: var(--tt-rail-icon); width: auto; height: auto; }
@@ -637,7 +637,7 @@
 @media (min-width: 1600px) {
   .tt-rec {
     --tt-hero-min: 200px; --tt-crest: 112px; --tt-team-fs: 32px; --tt-cell-h: 28px; --tt-cell-fs: 13px; --tt-track-w: 280px; --tt-score-fs: 64px;
-    --tt-chip: 56px; --tt-chip-img: 46px; --tt-rail-btn: 64px; --tt-rail-fs: 18px; --tt-end-h: 112px;
+    --tt-chip: 56px; --tt-chip-img: 46px; --tt-strip-h: 52px; --tt-marker: 32px; --tt-marker-icon: 20px; --tt-rail-btn: 64px; --tt-rail-fs: 18px; --tt-end-h: 112px;
   }
 }
 
@@ -822,3 +822,19 @@
   .tt-rec .tt-rail-turn { margin-top: 0; }
 }
 @media (min-width: 1600px) { .tt-rec { --tt-rail-label-fs: 24px; } }
+
+/* timeline markers: bigger, dark faces with a 2 px ring in the side colour; tablet strip 40 px with 24 px markers (the strip proper is desktop-only) */
+@media (min-width: 760px) and (max-width: 1023px) {
+  .tt-rec { --tt-tl-h: 40px; --tt-marker: 24px; --tt-marker-icon: 16px; }
+  .tt-tl-line { height: var(--tt-tl-h); }
+  .tt-tl-mark { width: var(--tt-marker); height: var(--tt-marker); }
+  .tt-tl-mark .tt-glyph { width: var(--tt-marker-icon); height: var(--tt-marker-icon); }
+  .tt-tl-item { flex: 0 0 calc(var(--tt-marker) + 4px); }
+}
+@media (min-width: 1024px) {
+  .tt-stripbar .tt-tl-mark { width: var(--tt-marker); height: var(--tt-marker); border-width: 2px; background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 80%, #000); }
+  .tt-stripbar .tt-tl-mark .tt-glyph { width: var(--tt-marker-icon); height: var(--tt-marker-icon); }
+  .tt-stripbar .tt-tl-mark .tt-glyph-text { font-size: calc(var(--tt-marker-icon) * .8); width: auto; height: auto; }
+  .tt-stripbar .tt-tl-mark::before { inset: -6px -3px; }
+  .tt-stripbar .tt-tl-end { width: var(--tt-marker); font-size: calc(var(--tt-marker) * .7); background: none; }
+}
