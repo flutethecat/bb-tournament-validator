@@ -285,7 +285,7 @@ export async function leagueApi(
   }
   const fork = await leagueForkRoutes(method, route.id, route.rest, auth, deps);
   if (fork) return fork;
-  const redraft = await redraftRoutes(method, route.rest, league, auth, deps);
+  const redraft = await redraftRoutes(method, route.rest, league, auth, deps, query);
   if (redraft) return redraft;
   const managed = await settingsRoutes(method, route.rest, query, league, auth, deps);
   if (managed) return managed;
@@ -602,8 +602,7 @@ async function postMilestone(league: LeagueRecord, deps: LeagueApiDeps, payload:
 
 async function createSeason(league: LeagueRecord, who: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueApiDeps): Promise<LeagueApiResult> {
   const seasons = deps.store.seasons(league.id);
-  const open = seasons.find((s) => s.status === "active");
-  if (open) return { status: 409, body: { error: `Finish ${open.name} before starting a new season.` } };
+  // Seasons may overlap (owner 10-30): a season in progress does not block the next one; the newest is current.
   const newest = seasons[0];
   const number = (newest?.number ?? 0) + 1;
   let name = `Season ${number}`;

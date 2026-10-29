@@ -44,13 +44,35 @@ export class RedraftError extends Error {
 
 // ---- seasons ----
 
-/** The season a redraft runs from: the newest finished season. */
-export const redraftSource = (seasons: SeasonRecord[]): SeasonRecord | undefined =>
-  [...seasons].filter((s) => s.status === "completed").sort((a, b) => b.number - a.number)[0];
+/** Finished seasons, newest first: the seasons a redraft may run from. */
+export const finishedSeasons = (seasons: SeasonRecord[]): SeasonRecord[] =>
+  [...seasons].filter((s) => s.status === "completed").sort((a, b) => b.number - a.number);
 
-/** The season the draft lists go into: the newest season after the source (undefined = not started yet). */
-export const redraftTarget = (seasons: SeasonRecord[], source: SeasonRecord): SeasonRecord | undefined =>
-  [...seasons].filter((s) => s.number > source.number).sort((a, b) => b.number - a.number)[0];
+/**
+ * The season a redraft runs from. Seasons may overlap (owner 10-30), so the organiser may pick any finished season
+ * (`pick`, undefined when it is not a finished season); without a pick, a confirmed redraft still open wins, else the
+ * newest finished season.
+ */
+export function redraftSource(seasons: SeasonRecord[], pick?: string): SeasonRecord | undefined {
+  const finished = finishedSeasons(seasons);
+  if (pick) return finished.find((s) => s.id === pick);
+  return finished.find((s) => s.redraft && !s.redraft.closedAt) ?? finished[0];
+}
+
+/** Seasons after the source, newest first: where its draft lists may go. */
+export const redraftTargets = (seasons: SeasonRecord[], source: SeasonRecord): SeasonRecord[] =>
+  [...seasons].filter((s) => s.number > source.number).sort((a, b) => b.number - a.number);
+
+/**
+ * The season the draft lists go into (undefined = not started yet): the organiser's pick (`pick`, or the one stored on
+ * the confirmed redraft), else the newest in-progress season after the source, else the newest season after it.
+ */
+export function redraftTarget(seasons: SeasonRecord[], source: SeasonRecord, pick?: string): SeasonRecord | undefined {
+  const after = redraftTargets(seasons, source);
+  const want = pick ?? source.redraft?.targetSeasonId;
+  if (want) return after.find((s) => s.id === want);
+  return after.find((s) => s.status === "active") ?? after[0];
+}
 
 export interface TeamRecordLine { played: number; wins: number; draws: number; losses: number }
 

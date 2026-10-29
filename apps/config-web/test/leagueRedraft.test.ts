@@ -279,6 +279,36 @@ describe("redraft routes", () => {
     expect(store.season("tabbl", "season-6")!.redraft!.teams.find((t) => t.teamId === "orcs")!.appliedTo).toBe("season-7");
   });
 
+  it("overlapping seasons: the board picks the source and the target; default newest finished -> newest in progress", async () => {
+    store.putSeason(season(7, "active", []));
+    store.putSeason(season(8, "active", []));
+    type Picks = { redraft: { source: { id: string }; target: { id: string } | null; sources: Array<{ id: string }>; targets: Array<{ id: string; status: string }> } };
+    const def = ((await call("GET", "/api/leagues/tabbl/redraft", JAY)).body as Picks).redraft;
+    expect(def.source.id).toBe("season-6");
+    expect(def.target!.id).toBe("season-8");
+    expect(def.sources.map((x) => x.id)).toEqual(["season-6", "season-5"]);
+    expect(def.targets.map((x) => x.id)).toEqual(["season-8", "season-7"]);
+    const picked = ((await call("GET", "/api/leagues/tabbl/redraft?source=season-5&target=season-7", JAY)).body as Picks).redraft;
+    expect(picked.source.id).toBe("season-5");
+    expect(picked.target!.id).toBe("season-7");
+    expect(picked.targets.map((x) => x.id)).toEqual(["season-8", "season-7", "season-6"]);
+    const teams = [{ teamId: "gobbos", selected: true }];
+    expect((await call("POST", "/api/leagues/tabbl/redraft", JAY, { revision: 0, action: "confirm", sourceSeasonId: "season-6", targetSeasonId: "season-5", capEnabled: true, teams })).status).toBe(400);
+    expect((await call("POST", "/api/leagues/tabbl/redraft", JAY, { revision: 0, action: "confirm", sourceSeasonId: "season-8", capEnabled: true, teams })).status).toBe(400);
+    const ok = await call("POST", "/api/leagues/tabbl/redraft", JAY, { revision: 0, action: "confirm", sourceSeasonId: "season-6", targetSeasonId: "season-7", capEnabled: true, teams });
+    expect(ok.status).toBe(200);
+    expect(store.season("tabbl", "season-6")!.redraft!.targetSeasonId).toBe("season-7");
+    expect(((ok.body as Picks).redraft.target)!.id).toBe("season-7");
+    // A second redraft from another finished season waits until this one is closed.
+    expect((await call("POST", "/api/leagues/tabbl/redraft", JAY, { revision: 0, action: "confirm", sourceSeasonId: "season-5", capEnabled: true, teams: [{ teamId: "gobbos", selected: true }] })).status).toBe(409);
+    const sub = await call("POST", "/api/leagues/tabbl/redraft/teams/gobbos/submit", JAY, {
+      revision: 1, keep: [], hires: [{ position: "Goblin Lineman", count: 11 }], staff: { rerolls: 0, assistantCoaches: 0, cheerleaders: 0, apothecary: false },
+    });
+    expect(sub.status).toBe(200);
+    expect(store.season("tabbl", "season-7")!.teams.map((t) => t.id)).toEqual(["gobbos"]);
+    expect(store.season("tabbl", "season-8")!.teams).toEqual([]);
+  });
+
   it("submit with an existing next season writes straight into it; entered R&R results; close skips the rest", async () => {
     await confirm();
     // gobbos (inactive, no players): no R&R needed; season 7 exists without results

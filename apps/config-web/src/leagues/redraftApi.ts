@@ -2,8 +2,10 @@
  * Redraft routes (session-gated; anonymous 401; organiser writes revision-checked like the settings PATCH: no revision
  * 428, an older one 409). Rules and maths: redraft.ts.
  *
- *   GET  /api/leagues/:id/redraft                              organiser board (active + inactive teams, budgets, tasks)
- *   POST /api/leagues/:id/redraft                              { revision, action: "confirm", capEnabled, cap, teams: [{ teamId, selected, override? }] }
+ *   GET  /api/leagues/:id/redraft[?source=&target=]            organiser board (active + inactive teams, budgets, tasks);
+ *                                                              source = the finished season to redraft from, target = the
+ *                                                              season that receives the draft lists (seasons may overlap)
+ *   POST /api/leagues/:id/redraft                              { revision, action: "confirm", sourceSeasonId?, targetSeasonId?, capEnabled, cap, teams: [{ teamId, selected, override? }] }
  *                                                              { revision, action: "team", teamId, override: { budget, reason } | null } | { ..., skip: true }
  *                                                              { revision, action: "close" }
  *   GET  /api/leagues/:id/redraft/teams/:teamId                the team's coach or an organiser: the coach's redraft view
@@ -18,7 +20,7 @@ import { readJsonObject, requestRevision } from "./http.js";
 import { assignSeasonsPlayed, teamPlayedIn } from "./playerIds.js";
 import {
   applyDraftTeam, buildDraftTeam, coachOwnsTeam, coachView, leagueAliases, targetConflict, DEFAULT_CAP, datasetRoster, draftList, gold, leaguePlayerIds, OVERRIDE_MAX, parseDraftInput,
-  redraftBoard, RedraftError, redraftSource, redraftTarget, restAndRelaxation, sameCoach, spendable, validateDraft, type BoardRow, type DraftContext,
+  finishedSeasons, redraftBoard, RedraftError, redraftSource, redraftTarget, redraftTargets, restAndRelaxation, sameCoach, spendable, validateDraft, type BoardRow, type DraftContext,
 } from "./redraft.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import type { LeagueRecord, RedraftState, RedraftTeamTask, SeasonRecord } from "./types.js";
@@ -48,6 +50,9 @@ export interface RedraftBoardView {
   revision: number;
   source: { id: string; name: string; number: number; ruleset: string } | null;
   target: { id: string; name: string } | null;
+  /** Pickers (organiser): every finished season, and the seasons after the source. */
+  sources: Array<{ id: string; name: string }>;
+  targets: Array<{ id: string; name: string; status: string }>;
   state: Omit<RedraftState, "teams"> | null;
   capEnabled: boolean;
   cap: number;
@@ -56,16 +61,22 @@ export interface RedraftBoardView {
   note: string;
 }
 
-function boardView(league: LeagueRecord, seasons: SeasonRecord[]): RedraftBoardView {
-  const source = redraftSource(seasons);
+export interface RedraftPicks { source?: string; target?: string }
+
+function boardView(league: LeagueRecord, seasons: SeasonRecord[], picks: RedraftPicks = {}): RedraftBoardView {
+  // An unknown source pick falls back to the default (a stale link must not blank the board).
+  const source = redraftSource(seasons, picks.source) ?? redraftSource(seasons);
   const cap = capOf(league);
+  const sources = finishedSeasons(seasons).map((s) => ({ id: s.id, name: s.name }));
   if (!source) {
     return {
-      leagueId: league.id, leagueName: league.name, revision: 0, source: null, target: null, state: null, capEnabled: cap.enabled, cap: cap.cap,
+      leagueId: league.id, leagueName: league.name, revision: 0, source: null, target: null, sources, targets: [], state: null, capEnabled: cap.enabled, cap: cap.cap,
       active: [], inactive: [], note: "Finish a season first: a redraft runs between seasons.",
     };
   }
-  const target = redraftTarget(seasons, source);
+  // Once confirmed, the target is the one the redraft stored (or the default); a pick only steers an unconfirmed board.
+  const target = (source.redraft ? undefined : picks.target ? redraftTarget(seasons, source, picks.target) : undefined) ?? redraftTarget(seasons, source);
+  const targets = redraftTargets(seasons, source).map((s) => ({ id: s.id, name: s.name, status: s.status }));
   const state = source.redraft;
   const { active, inactive } = redraftBoard(seasons, source, state, cap);
   const { teams: _t, ...meta } = state ?? ({} as RedraftState);
@@ -73,6 +84,7 @@ function boardView(league: LeagueRecord, seasons: SeasonRecord[]): RedraftBoardV
     leagueId: league.id, leagueName: league.name, revision: state?.revision ?? 0,
     source: { id: source.id, name: source.name, number: source.number, ruleset: source.ruleset },
     target: target ? { id: target.id, name: target.name } : null,
+    sources, targets,
     state: state ? meta : null,
     capEnabled: state?.capEnabled ?? cap.enabled, cap: state?.cap ?? cap.cap,
     active, inactive,
@@ -132,6 +144,7 @@ export async function redraftRoutes(
   league: LeagueRecord | undefined,
   auth: LeagueApiIdentity | undefined,
   deps: LeagueApiDeps,
+  query?: URLSearchParams,
 ): Promise<LeagueApiResult | undefined> {
   if (rest[0] !== "redraft") return undefined;
   const [, second, teamId, action, ...more] = rest;
@@ -158,7 +171,7 @@ export async function redraftRoutes(
     if (board) {
       if (!isManager(lg, auth)) return fail(403, "This league is not one of yours: only its organisers and site admins run the redraft.");
       const seasons = loadSeasons(deps.store, lg.id);
-      if (read) return res(200, { redraft: boardView(lg, seasons) });
+      if (read) return res(200, { redraft: boardView(lg, seasons, { source: query?.get("source") || undefined, target: query?.get("target") || undefined }) });
       return await boardPost(lg, auth, input, seasons, deps);
     }
     const seasons = loadSeasons(deps.store, lg.id);
@@ -232,8 +245,16 @@ export async function redraftRoutes(
   }
 }
 
+const pickId = (v: unknown, field: string): string | undefined => {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (typeof v !== "string") throw new RedraftError(400, `${field} must be a season id.`, field);
+  return v;
+};
+
 async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Record<string, unknown>, seasons: SeasonRecord[], deps: LeagueApiDeps): Promise<LeagueApiResult> {
-  const source = redraftSource(seasons);
+  const sourcePick = pickId(input.sourceSeasonId, "sourceSeasonId");
+  const source = redraftSource(seasons, sourcePick);
+  if (sourcePick && !source) return fail(400, "Pick a finished season to redraft from.", { field: "sourceSeasonId" });
   if (!source) return fail(409, "Finish a season first: a redraft runs between seasons.");
   const stale = checkRevision(input, source.redraft?.revision ?? 0, deps.ifMatch);
   if (stale) return stale;
@@ -242,7 +263,11 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
 
   if (action === "confirm") {
     if (source.redraft) return fail(409, `A redraft from ${source.name} has already been confirmed.`);
-    const target = redraftTarget(seasons, source);
+    const open = seasons.find((s) => s.id !== source.id && s.redraft && !s.redraft.closedAt);
+    if (open) return fail(409, `Close the redraft from ${open.name} first.`);
+    const targetPick = pickId(input.targetSeasonId, "targetSeasonId");
+    const target = redraftTarget(seasons, source, targetPick);
+    if (targetPick && !target) return fail(400, `Pick a season after ${source.name} to receive the draft lists.`, { field: "targetSeasonId" });
     if (target && target.fixtures.some((f) => f.home.score !== null && f.away.score !== null))
       return fail(409, `${target.name} already has results: a redraft happens between seasons.`);
     if (typeof input.capEnabled !== "boolean") throw new RedraftError(400, "capEnabled must be true or false.", "capEnabled");
@@ -273,8 +298,11 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
         ...(selected && pick?.override ? { override: { ...pick.override, by: auth.coach, at: now } } : {}),
       };
     });
-    const text = `${auth.coach} started the redraft from ${source.name}: ${chosen} team${chosen === 1 ? "" : "s"} selected${cap.enabled ? `, budgets capped at ${gold(cap.cap)}` : ", no budget cap"}.`;
-    source.redraft = { startedAt: now, byCoach: auth.coach, capEnabled: cap.enabled, cap: cap.cap, revision: 1, teams, log: [{ at: now, by: auth.coach, text }] };
+    const text = `${auth.coach} started the redraft from ${source.name}${targetPick && target ? ` into ${target.name}` : ""}: ${chosen} team${chosen === 1 ? "" : "s"} selected${cap.enabled ? `, budgets capped at ${gold(cap.cap)}` : ", no budget cap"}.`;
+    source.redraft = {
+      startedAt: now, byCoach: auth.coach, capEnabled: cap.enabled, cap: cap.cap, revision: 1, teams, log: [{ at: now, by: auth.coach, text }],
+      ...(targetPick && target ? { targetSeasonId: target.id } : {}),
+    };
     deps.store.putSeason(source);
     deps.store.updateLeague(lg.id, (l) => { l.redraftCap = cap; });
     const coachNotices = teams.filter((t) => t.selected && t.coachId).map((t) => ({

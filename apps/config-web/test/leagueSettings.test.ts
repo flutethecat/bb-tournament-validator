@@ -220,9 +220,8 @@ describe("league settings routes", () => {
     expect(settings(await call("GET", "/api/leagues/tabbl/settings", JAY, undefined, "season=season-5")).teamBuilding.seasonId).toBe("season-5");
   });
 
-  it("seasons: start refuses while one is open; finish, then start copies the team building rules", async () => {
+  it("seasons: finish, then start copies the team building rules", async () => {
     await call("PATCH", "/api/leagues/tabbl/settings", JAY, { teamBuilding: { seasonId: "season-6", rosters: [{ roster: "Orc", tier: 4, treasury: 1000, startingSkills: { primary: 1, secondary: 0, elite: 0 } }] } });
-    expect((await call("POST", "/api/leagues/tabbl/seasons", JAY, { name: "Season 7" })).status).toBe(409);
     const fin = await call("POST", "/api/leagues/tabbl/seasons/season-6/finish", JAY);
     expect(fin.status).toBe(200);
     expect(store.season("tabbl", "season-6")).toMatchObject({ status: "completed", endedAt: "2026-10-30T12:00:00.000Z" });
@@ -235,6 +234,17 @@ describe("league settings routes", () => {
     expect(s7).toMatchObject({ source: "manual", phases: [{ id: "season-regular" }], fixtures: [], teams: [] });
     expect(s7.rules!.teamBuilding!.rosters).toEqual([{ roster: "Orc", tier: 4, treasury: 1000, startingSkills: { primary: 1, secondary: 0, elite: 0 } }]);
     expect(store.seasons("tabbl").map((s) => s.id)).toEqual(["season-7", "season-6", "season-5"]);
+  });
+
+  it("seasons may overlap: a new season starts while another is in progress and becomes current", async () => {
+    const made = await call("POST", "/api/leagues/tabbl/seasons", JAY, { name: "Season 7" });
+    expect(made.status).toBe(201);
+    expect(store.seasons("tabbl").filter((s) => s.status === "active").map((s) => s.id)).toEqual(["season-7", "season-6"]);
+    const read = await call("GET", "/api/leagues/tabbl", undefined);
+    expect((read.body as { league: { currentSeason: { id: string } } }).league.currentSeason.id).toBe("season-7");
+    // Either open season can still be finished.
+    expect((await call("POST", "/api/leagues/tabbl/seasons/season-6/finish", JAY)).status).toBe(200);
+    expect(store.season("tabbl", "season-7")!.status).toBe("active");
   });
 
   it("Discord: URL validated, stored in secrets.json, masked on read, never echoed; test post; milestone posts", async () => {

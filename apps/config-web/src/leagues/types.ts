@@ -528,4 +528,6 @@ export interface RedraftState {
   closedBy?: string;
   /** League news for the redraft (also posted to Discord when the league has a webhook). */
   log: RedraftLogEntry[];
+  /** The season the organiser picked to receive the draft lists (unset = the default target, see redraft.ts). */
+  targetSeasonId?: string;
 }
