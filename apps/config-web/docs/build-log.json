@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Team Captain nomination in the team builders",
+    "body": "Human, Orc and every other roster with the Team Captain special rule can now nominate a Team Captain in both the Team Builder and the Tournament Builder. Tap the round C beside a player to nominate them; picking another player moves the captaincy, and tapping it again clears it. Big Guys and Star Players cannot be captain, and the C never shows for rosters without the rule. The captain gains Pro for free: it adds nothing to skill cost or team value and never counts towards a tournament's skill limits. The nomination is optional, so the team summary shows \"not nominated\" as a hint rather than a problem. It is kept when you save, reload or share a team, prints on the roster sheet with a C marker and Pro, and the built team gives the game server both Team Captain and Pro. In a match, a team reroll used while the captain is on the pitch can come back free on a 6.",
+    "links": [
+      {
+        "label": "Team Builder",
+        "href": "/team-builder.html"
+      },
+      {
+        "label": "Tournament Builder",
+        "href": "/tournament-team-builder.html"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Coach page: What's new on top, availability editor fix",
     "body": "What's new now sits at the top of the coach page above Notifications. Editing a time in the weekly availability grid no longer re-sorts the column under your cursor; the blocks stay where they are until you save.",
     "links": [
