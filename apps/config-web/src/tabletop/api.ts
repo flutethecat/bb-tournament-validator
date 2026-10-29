@@ -163,6 +163,9 @@ export interface TabletopApiDeps {
   /** The seat draw at match creation: true = swap the home and away the request named. Default is crypto-random
    *  (owner ruling 10-30: seats are randomised for casual, fixture and test matches alike); tests inject. */
   drawSeats?: () => boolean;
+  /** GAME_PAGES_PUBLIC_PLAYER_LINES for the spectator view: false = a spectator sees no player names or player lines
+   *  (scores, casualties by team and the pre-game stay). Default true, as for the game pages. */
+  publicPlayerLines?: boolean;
   /** Called with the new clock payload whenever a match's clock or phase changes, and after every pre-game write (the Super socket feed). */
   publishClock?: (matchId: string, payload: unknown) => void;
   /** Pre-game milestones and the final result for the optional Discord webhook (src/tabletop/discord.ts). Fire-and-forget; never blocks the match. */
@@ -221,7 +224,9 @@ const resultGameId = (matchId: string): string => `tabletop-${matchId}`;
 // Per-match serialisation: a repository that is not synchronous (Postgres) still sees one writer per match.
 const chains = new Map<string, Promise<unknown>>();
 function serial<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const run = (chains.get(key) ?? Promise.resolve()).then(fn, fn);
+  // every serialised write drops the cached match snapshot, before and after it runs
+  const write = async (): Promise<T> => { dropSnapshot(key); try { return await fn(); } finally { dropSnapshot(key); } };
+  const run = (chains.get(key) ?? Promise.resolve()).then(write, write);
   const tail = run.catch(() => undefined);
   chains.set(key, tail);
   void tail.then(() => { if (chains.get(key) === tail) chains.delete(key); });
@@ -341,30 +346,162 @@ function viewerRole(match: MatchRecord, me: string, organiser: boolean): ViewerR
   return organiser ? "organiser" : "spectator";
 }
 
-/** GET /api/tabletop/matches/:id: the whole match view, the same for every role but for `role` (the page hides every
- *  control for a spectator; the server refuses a spectator's writes regardless). */
+/** The derived, role-independent part of the match view: built once per match revision and shared by every viewer
+ *  (the read-only page polls it). Never mutated after it is built. */
+interface MatchSnapshot {
+  events: readonly TabletopEvent[];
+  viewEvents: ReadonlyArray<Record<string, unknown>>;
+  effectiveEventIds: readonly string[];
+  teams: Record<Side, unknown>;
+  tally: ReturnType<typeof tallyView>;
+  pregame: Record<string, unknown>;
+}
+const SNAPSHOT_MAX = 200;
+/** Per repository (tests each bring their own), per match: the revision key and the (shared, coalesced) build. */
+const snapshotCache = new WeakMap<TabletopRepository, Map<string, { key: string; value: Promise<MatchSnapshot> }>>();
+const snapshotRepos = new Set<WeakRef<TabletopRepository>>();
+function dropSnapshot(matchId: string): void {
+  for (const ref of snapshotRepos) {
+    const repo = ref.deref();
+    if (!repo) { snapshotRepos.delete(ref); continue; }
+    snapshotCache.get(repo)?.delete(matchId);
+  }
+}
+/** The match's revision: its record plus the event log's size (append-only), so a write from anywhere shows. */
+async function snapshotKey(match: MatchRecord, deps: TabletopApiDeps): Promise<string> {
+  const ev = deps.repo.eventsRevision ? await deps.repo.eventsRevision(match.id) : "";
+  return `${match.updatedAt}|${match.state}|${match.phase ?? "playing"}|${ev}`;
+}
+async function matchSnapshot(match: MatchRecord, deps: TabletopApiDeps): Promise<MatchSnapshot> {
+  let byMatch = snapshotCache.get(deps.repo);
+  if (!byMatch) { byMatch = new Map(); snapshotCache.set(deps.repo, byMatch); snapshotRepos.add(new WeakRef(deps.repo)); }
+  const key = await snapshotKey(match, deps);
+  const hit = byMatch.get(match.id);
+  if (hit && hit.key === key) return hit.value;
+  const value = buildSnapshot(match, deps);
+  byMatch.delete(match.id); // re-insert: the map's order is least recently built first
+  byMatch.set(match.id, { key, value });
+  while (byMatch.size > SNAPSHOT_MAX) byMatch.delete(byMatch.keys().next().value!);
+  value.catch(() => { if (byMatch!.get(match.id)?.value === value) byMatch!.delete(match.id); });
+  return value;
+}
+async function buildSnapshot(match: MatchRecord, deps: TabletopApiDeps): Promise<MatchSnapshot> {
+  const events = await deps.repo.readEvents(match.id);
+  const base = await currentTeams(deps.repo, match);
+  const teams = overlayRosters(base, events);
+  const effective = effectiveEvents(events);
+  const effectiveIds = new Set(effective.map((e) => e.id));
+  // the undo that retracted each event, indexed once (the first undo naming it, as recorded)
+  const undoOf = new Map<string, TabletopEvent>();
+  for (const e of events) if (e.type === "undo" && typeof e.payload.target === "string" && !undoOf.has(e.payload.target)) undoOf.set(e.payload.target, e);
+  const kindOf = kindLookup(teams);
+  const phase: Phase = match.phase ?? "playing";
+  return {
+    events,
+    // a retracted event stays in the log with who removed it and when (the undo event's record), so the feed can show it struck through
+    viewEvents: events.map((e) => {
+      const u = e.type === "undo" ? undefined : undoOf.get(e.id);
+      return { ...e, sppEarned: effectiveIds.has(e.id) ? sppForEvent(e, kindOf) : 0, ...(u ? { removed: { by: u.by, at: u.ts, admin: u.admin === true } } : {}) };
+    }),
+    effectiveEventIds: effective.map((e) => e.id),
+    // per player: kind, available / unavailableReason, eligible{...} (server-derived, so the page filters without rules of its own)
+    teams: {
+      home: withAvatar(withRosterArt(decorateRoster("home", teams.home, events), deps.artDir), match.home.teamSaveId, deps),
+      away: withAvatar(withRosterArt(decorateRoster("away", teams.away, events), deps.artDir), match.away.teamSaveId, deps),
+    },
+    tally: tallyView(events, teams),
+    pregame: pregameViewOf(match, events, phase === "pregame:inducements" ? base : { home: undefined, away: undefined }, deps),
+  };
+}
+
+/** GET /api/tabletop/matches/:id: the whole match view for a seat or an organiser; a spectator gets the allowlisted
+ *  public view model (spectatorView). The page hides every control for a spectator; the server refuses their writes. */
 async function matchView(match: MatchRecord, role: ViewerRole, deps: TabletopApiDeps): Promise<TabletopResult> {
   const now = deps.now?.() ?? new Date();
-  const events = await deps.repo.readEvents(match.id);
-  const teams = overlayRosters(await currentTeams(deps.repo, match), events);
-  const effective = new Set(effectiveEvents(events).map((e) => e.id));
+  const snap = await matchSnapshot(match, deps);
+  const full = {
+    match, role, context: matchContext(match, deps), coachRating: coachRatings(match, deps), phase: match.phase ?? "playing", clock: clockView(match, snap.events, deps, now),
+    pregame: snap.pregame,
+    events: snap.viewEvents,
+    effectiveEventIds: snap.effectiveEventIds,
+    teams: snap.teams,
+    tally: snap.tally,
+    // the SPP each kind of event earns (the confirm modal shows the gain before an event is posted; the client keeps no table of its own)
+    sppValues: SPP_VALUES,
+  };
+  return { status: 200, body: role === "spectator" ? spectatorView(full, deps.publicPlayerLines !== false) : full };
+}
+
+type Rec = Record<string, unknown>;
+const pick = (o: unknown, keys: readonly string[]): Rec => {
+  const src = (o && typeof o === "object" ? o : {}) as Rec;
+  const out: Rec = {};
+  for (const k of keys) if (src[k] !== undefined) out[k] = src[k];
+  return out;
+};
+/** Payload keys a spectator never sees: what a team spent from its treasury (its treasury follows from it). */
+const PRIVATE_PAYLOAD_KEYS: ReadonlySet<string> = new Set(["treasury", "pettyCash"]);
+/** Payload keys that name a player: dropped when player lines are not public. */
+const PLAYER_PAYLOAD_KEYS: ReadonlySet<string> = new Set(["player", "victim", "thrower", "thrown"]);
+const PUBLIC_PLAYER_KEYS = ["id", "name", "number", "positionId", "position", "positionName", "kind", "sprite", "mng", "dead", "available"] as const;
+
+function publicPayload(p: unknown, lines: boolean): Rec {
+  const out: Rec = {};
+  for (const [k, v] of Object.entries((p && typeof p === "object" ? p : {}) as Rec)) {
+    if (PRIVATE_PAYLOAD_KEYS.has(k)) continue;
+    if (PLAYER_PAYLOAD_KEYS.has(k)) {
+      if (!lines) continue;
+      // a journeyman's payload carries the whole player: only the public fields
+      out[k] = v && typeof v === "object" ? pick(v, PUBLIC_PLAYER_KEYS) : v;
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * The spectator view model (owner ruling 10-30 #7, review fix): an allowlist, never the stored records. The scoreboard
+ * (score, casualties by team, concession, clock), the pre-game state, the public log lines, team names, races, colours
+ * and coaches. Player names and player lines (the roster, SPP per event, per-player tallies) only when
+ * GAME_PAGES_PUBLIC_PLAYER_LINES allows. Never: treasuries or what was spent from them, team values beyond the pre-game
+ * TV, save ids, revisions, journals, organiser notes, the post-match preview.
+ */
+export function spectatorView(full: { match: MatchRecord; [k: string]: unknown }, lines: boolean): Rec {
+  const m = full.match;
+  const seat = (s: MatchRecord["home"]) => ({ coach: s.coach, teamName: s.teamName });
+  const match: Rec = {
+    id: m.id, state: m.state, phase: m.phase ?? "playing", home: seat(m.home), away: seat(m.away), postMatch: m.postMatch,
+    confirmations: { ...m.confirmations }, createdAt: m.createdAt, updatedAt: m.updatedAt,
+    ...(m.test ? { test: true } : {}), ...(m.allowOvertime ? { allowOvertime: true } : {}),
+  };
+  const teamOf = (t: unknown) => {
+    if (!t || typeof t !== "object") return t;
+    const players = Array.isArray((t as Rec).players) ? ((t as Rec).players as unknown[]) : [];
+    return { ...pick(t, ["name", "race", "rosterId", "color", "avatarUrl"]), players: lines ? players.map((p) => pick(p, PUBLIC_PLAYER_KEYS)) : [] };
+  };
+  const teams = full.teams as Record<Side, unknown>;
+  const events = (full.events as Rec[]).map((e) => ({
+    ...pick(e, ["id", "type", "team", "half", "turn", "ts", "by", "admin", "removed"]),
+    ...(lines && e.player !== undefined ? { player: e.player, sppEarned: e.sppEarned } : {}),
+    payload: publicPayload(e.payload, lines),
+  }));
+  const t = full.tally as ReturnType<typeof tallyView>;
+  const tally = {
+    score: t.score, fanDelta: t.fanDelta, conceded: t.conceded, clock: t.clock, casualtiesSuffered: t.casualtiesSuffered,
+    players: lines ? t.players : { home: [], away: [] },
+    events: lines ? t.events : [],
+  };
+  const pg = { ...(full.pregame as Rec) };
+  const ind = pg.inducements as Rec | undefined;
+  if (ind && typeof ind === "object") pg.inducements = { home: ind.home && publicPayload(ind.home, lines), away: ind.away && publicPayload(ind.away, lines) };
+  const budget = pg.budget as Record<Side, unknown> | undefined;
+  if (budget) pg.budget = { home: pick(budget.home, ["role", "submitted", "spent"]), away: pick(budget.away, ["role", "submitted", "spent"]) };
+  if (!lines && pg.journeymen && typeof pg.journeymen === "object") pg.journeymen = { home: [], away: [] };
   return {
-    status: 200,
-    body: {
-      match, role, context: matchContext(match, deps), coachRating: coachRatings(match, deps), phase: match.phase ?? "playing", clock: clockView(match, events, deps, now),
-      pregame: await pregameView(match, events, deps),
-      // a retracted event stays in the log with who removed it and when (the undo event's record), so the feed can show it struck through
-      events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e, kindLookup(teams)) : 0, ...removedMeta(events, e) })),
-      effectiveEventIds: effectiveEvents(events).map((e) => e.id),
-      // per player: kind, available / unavailableReason, eligible{...} (server-derived, so the page filters without rules of its own)
-      teams: {
-        home: withAvatar(withRosterArt(decorateRoster("home", teams.home, events), deps.artDir), match.home.teamSaveId, deps),
-        away: withAvatar(withRosterArt(decorateRoster("away", teams.away, events), deps.artDir), match.away.teamSaveId, deps),
-      },
-      tally: tallyView(events, teams),
-      // the SPP each kind of event earns (the confirm modal shows the gain before an event is posted; the client keeps no table of its own)
-      sppValues: SPP_VALUES,
-    },
+    match, role: "spectator", context: full.context, coachRating: full.coachRating, phase: full.phase, clock: full.clock,
+    pregame: pg, events, effectiveEventIds: full.effectiveEventIds,
+    teams: { home: teamOf(teams.home), away: teamOf(teams.away) }, tally, sppValues: full.sppValues, playerLines: lines,
   };
 }
 
@@ -416,13 +553,6 @@ function tallyView(events: readonly TabletopEvent[], teams: Record<Side, Tableto
       ...(e.type === "throwTeamMate" ? { text: throwText(e, teams) } : {}),
     })),
   };
-}
-
-/** The retraction record of an undone event: who removed it, when, and whether an organiser did so for a team they do not coach. */
-function removedMeta(events: readonly TabletopEvent[], e: TabletopEvent): { removed?: { by: string; at: string; admin: boolean } } {
-  if (e.type === "undo") return {};
-  const u = events.find((x) => x.type === "undo" && x.payload.target === e.id);
-  return u ? { removed: { by: u.by, at: u.ts, admin: u.admin === true } } : {};
 }
 
 async function listMatches(me: string, organiser: boolean, deps: TabletopApiDeps): Promise<TabletopResult> {
@@ -1426,10 +1556,6 @@ function pregameViewOf(match: MatchRecord, events: readonly TabletopEvent[], bas
   if (phase === "pregame:inducements" && baseTeams.home && baseTeams.away)
     Object.assign(view, inducementMenu({ teams: { home: baseTeams.home, away: baseTeams.away }, events, offers: inducementOffersFor(inducementOptInsFor(match, deps)) }));
   return view;
-}
-async function pregameView(match: MatchRecord, events: readonly TabletopEvent[], deps: TabletopApiDeps): Promise<Record<string, unknown>> {
-  const baseTeams = (match.phase ?? "playing") === "pregame:inducements" ? await currentTeams(deps.repo, match) : { home: undefined, away: undefined };
-  return pregameViewOf(match, events, baseTeams, deps);
 }
 
 /**

@@ -625,6 +625,8 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     isBanned,
     isOrganizer: (coach) => coachLevel(coach) !== "player" || isOrganizer(coach),
     publishClock: (matchId, payload) => superService?.publishTabletopClock(matchId, payload),
+    // the spectator view follows the game pages' player-lines policy (read here: tabletopDeps can run before that const)
+    publicPlayerLines: publicPlayerLinesFromEnv(process.env.GAME_PAGES_PUBLIC_PLAYER_LINES),
     ...(recorderWebhook ? { announce: (a) => { const body = recorderAnnouncement(a, { baseUrl: PUBLIC_BASE_ORIGIN }); if (body) recorderWebhook.post(body); } } : {}),
     notify: (coach, input) => tournamentNotifier.coach(coach, input),
     listSaves: (coach) => readSaves(BUILDER_SAVES_DIR, coach).map((s) => ({ id: s.id, name: s.name })),
@@ -741,6 +743,10 @@ const standingsLimiter = new RateLimiter({ maxRequests: 60, maxChars: Number.MAX
 // Team share links: creation per coach (owner 10-27); the public read per IP.
 const shareCreateLimiter = new RateLimiter({ maxRequests: 30, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 5_000 });
 const sharedReadLimiter = new RateLimiter({ maxRequests: 120, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 10_000 });
+// Tabletop match view (GET /api/tabletop/matches/:id): open to anonymous spectators (owner ruling 10-30), so every read
+// is limited per session coach, else per IP: 60 a minute covers the page's 5 s poll with room for reloads.
+const matchViewLimiter = new RateLimiter({ maxRequests: 60, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 10_000 });
+const TABLETOP_MATCH_VIEW_PATH = /^\/api\/tabletop\/matches\/[\w-]{1,64}$/;
 
 async function handleTabletopRequest(req: IncomingMessage, res: ServerResponse, path: string, query: URLSearchParams): Promise<void> {
   const method = req.method ?? "GET";
@@ -752,6 +758,13 @@ async function handleTabletopRequest(req: IncomingMessage, res: ServerResponse, 
     }
   }
   const auth = lobbyAuthFor(req);
+  if ((method === "GET" || method === "HEAD") && TABLETOP_MATCH_VIEW_PATH.test(path)) {
+    const wait = matchViewLimiter.take([auth?.coach ? `coach:${auth.coach.toLowerCase()}` : `ip:${clientIp(req)}`], 0);
+    if (wait > 0) {
+      res.setHeader("retry-after", String(wait));
+      return sendJson(res, 429, { error: "Too many requests." });
+    }
+  }
   let body: unknown;
   if (method === "POST" && auth?.method === "discord") {
     const read = await readLobbyBody(req, readJsonBody, 128 * 1024);

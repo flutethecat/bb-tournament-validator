@@ -212,3 +212,116 @@ describe("ruling 6: the final result goes to Discord once the match is confirmed
     expect(out.home.score).toBe(0);
   });
 });
+
+// ---- Sol 6.1 review of codex/pregame-rulings: five P2 regressions ------------------------------------------------
+describe("review P2 #1: the spectator view is an allowlist and follows the player-lines policy", () => {
+  it("anonymous and stranger payloads carry no treasury, save ids, revisions or organiser notes; participants keep the full view", async () => {
+    const id = idOf(await create());
+    await repo.updateMatch({ ...(await repo.getMatch(id))!, note: "secret reopening note" });
+    // an inducement row carries what the team spent from its treasury
+    await repo.appendEvents(id, [{ id: "pg-inducement-home", matchId: id, type: "inducement", team: "home", payload: { picks: [{ id: "bribes", name: "Bribes", qty: 1, cost: 100_000 }], total: 100_000, treasury: 40_000, pettyCash: 60_000, skipped: false, submittedBy: "Alice" }, ts: "2026-10-30T10:00:00.000Z", by: "Alice" }]);
+    const mine = (await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as Record<string, any>;
+    expect(mine.role).toBe("home");
+    expect(mine.match).toMatchObject({ note: "secret reopening note", home: { teamSaveId: "sv_a" } });
+    expect(mine.teams.home.treasury).toBe(50_000);
+    expect(mine.pregame.inducements.home.treasury).toBe(40_000);
+    for (const who of [undefined, "Mallory"]) {
+      const body = (await as(who, "GET", `/api/tabletop/matches/${id}`)).body as Record<string, any>;
+      const text = JSON.stringify(body);
+      expect(body.role).toBe("spectator");
+      for (const secret of ["treasury", "pettyCash", "sv_a", "sv_b", "baseRevision", "secret reopening note", "createdBy", "teamValue"]) expect(text, `${who}: ${secret}`).not.toContain(secret);
+      expect(body.match).toMatchObject({ id, home: { coach: "Alice", teamName: "Alice XI" }, away: { coach: "Bob", teamName: "Bob XI" } });
+      expect(body.teams.home).toMatchObject({ name: "Alice XI", race: "Human" });
+      expect(body.teams.home.players[0]).toMatchObject({ id: "a1", name: "a 1" });
+      expect(Object.keys(body.teams.home.players[0]).sort()).toEqual(expect.arrayContaining(["id", "name"]));
+      expect(body.teams.home.players[0].spp).toBeUndefined();
+      expect(body.pregame.inducements.home).toMatchObject({ total: 100_000, picks: [{ name: "Bribes" }] });
+    }
+  });
+
+  it("with public player lines off a spectator gets no player names or player lines anywhere", async () => {
+    const id = idOf(await create({ pregame: "skip" }));
+    await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [{ id: "pl-td-0000001", type: "touchdown", team: "home", player: "a1", payload: {} }] });
+    const call = (who: string | undefined, publicPlayerLines: boolean) =>
+      tabletopApi("GET", `/api/tabletop/matches/${id}`, who ? { coach: who, method: "discord" } : undefined, undefined, { ...deps(), publicPlayerLines }, new URLSearchParams());
+    const open = (await call(undefined, true))!.body as Record<string, any>;
+    expect(open.playerLines).toBe(true);
+    expect(open.tally.players.home[0]).toMatchObject({ name: "a 1", touchdowns: 1 });
+    expect(open.events.find((e: { type: string }) => e.type === "touchdown")).toMatchObject({ player: "a1", sppEarned: 3 });
+    for (const who of [undefined, "Mallory"]) {
+      const closed = (await call(who, false))!.body as Record<string, any>;
+      expect(closed.playerLines).toBe(false);
+      expect(closed.tally.score).toEqual({ home: 1, away: 0 }); // the scoreboard stays
+      expect(closed.teams.home.players).toEqual([]);
+      expect(closed.tally.players).toEqual({ home: [], away: [] });
+      expect(closed.tally.events).toEqual([]);
+      const td = closed.events.find((e: { type: string }) => e.type === "touchdown");
+      expect(td.player).toBeUndefined();
+      expect(td.sppEarned).toBeUndefined();
+      expect(JSON.stringify(closed)).not.toContain("a 1");
+    }
+    // the coaches and organisers keep their player lines whatever the policy
+    expect(((await call("Alice", false))!.body as Record<string, any>).tally.players.home[0]).toMatchObject({ name: "a 1" });
+    expect(((await call("Org", false))!.body as Record<string, any>).teams.home.players.length).toBe(3);
+  });
+});
+
+describe("review P2 #2: the match view is a cached snapshot (bounded reads), rebuilt after a write", () => {
+  it("repeated and concurrent GETs read the log and the chains once per revision", async () => {
+    const id = idOf(await create({ pregame: "skip" }));
+    const counts = { readEvents: 0, getChain: 0 };
+    const counted = new Proxy(repo, {
+      get(target, key) {
+        const v = Reflect.get(target, key, target);
+        if (typeof v !== "function") return v;
+        return (...args: unknown[]) => {
+          if (key === "readEvents" || key === "getChain") counts[key] += 1;
+          return (v as (...a: unknown[]) => unknown).apply(target, args);
+        };
+      },
+    });
+    const d = { ...deps(), repo: counted as FileTabletopRepository };
+    const view = (who: string | undefined) => tabletopApi("GET", `/api/tabletop/matches/${id}`, who ? { coach: who, method: "discord" } : undefined, undefined, d, new URLSearchParams());
+    await Promise.all(Array.from({ length: 10 }, () => view(undefined))); // coalesced
+    for (let i = 0; i < 20; i += 1) expect((await view(i % 2 ? "Mallory" : undefined))!.status).toBe(200);
+    expect(counts).toEqual({ readEvents: 1, getChain: 2 });
+    // a write through the API invalidates; the next read rebuilds once
+    expect((await tabletopApi("POST", `/api/tabletop/matches/${id}/events`, { coach: "Alice", method: "discord" }, { events: [{ id: "snap-td-00001", type: "touchdown", team: "home", player: "a1", payload: {} }] }, d, new URLSearchParams()))!.status).toBe(200);
+    const before = counts.readEvents;
+    const after = (await view("Mallory"))!.body as Record<string, any>;
+    expect(after.tally.score.home).toBe(1);
+    await view(undefined);
+    expect(counts.readEvents - before).toBe(1);
+    // a write that bypasses the API (another process, recovery) still shows: the log's revision is in the key
+    await repo.appendEvents(id, [{ id: "snap-td-00002", matchId: id, type: "touchdown", team: "away", player: "b1", payload: {}, ts: "2026-10-30T10:00:00.000Z", by: "Bob" }]);
+    expect(((await view(undefined))!.body as Record<string, any>).tally.score).toEqual({ home: 1, away: 1 });
+  });
+});
+
+describe("review P2 #4: seats never swap once the pre-game is skipped or play has begun", () => {
+  it("a skipped pre-game (before or after the kick-off) refuses the swap", async () => {
+    const id = idOf(await create({ pregame: "skip" }));
+    expect((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body).toMatchObject({ pregame: { seatsSwappable: false } });
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/seats/swap`, {})).status).toBe(409);
+    expect((await as("Alice", "POST", `/api/tabletop/matches/${id}/turn/start`, {})).status).toBe(200); // a running turn
+    expect((await events(id)).every((e) => e.type === "seats")).toBe(true); // the log alone would still allow it
+    expect((await as("Org", "POST", `/api/tabletop/matches/${id}/seats/swap`, {})).status).toBe(409);
+    expect((await repo.getMatch(id))!.home.coach).toBe("Alice");
+  });
+});
+
+describe("review P2 #5: the Discord result counts only casualties the side caused", () => {
+  it("a standalone injury (no causer) is nobody's casualty; casualty events count for their causing side", () => {
+    const ev = (id: string, type: string, team: "home" | "away", player?: string, payload: Record<string, unknown> = {}) =>
+      ({ id, matchId: "m", type, team, ...(player ? { player } : {}), payload, ts: "t", by: "x" }) as TabletopEvent;
+    const out = resultSummaryOf([
+      ev("i1", "injury", "away", "b1", { result: "DEAD" }), // an away player dies with no one to credit
+      ev("c1", "casualty", "away", "b2", { victim: "a1", result: "BH", cause: "foul" }),
+      ev("c2", "casualty", "home", "a2", { victim: "b3", result: "stat loss", stat: "MA", cause: "block" }),
+      ev("c3", "casualty", "home", "a3", { victim: "b2", result: "DEAD", cause: "block" }),
+      ev("u3", "undo", "home", undefined, { target: "c3" }),
+    ], { home: mkTeam("Alice XI", "a"), away: mkTeam("Bob XI", "b") });
+    expect(out.home.casualties).toEqual({ bh: 0, si: 1, rip: 0 });
+    expect(out.away.casualties).toEqual({ bh: 1, si: 0, rip: 0 });
+  });
+});

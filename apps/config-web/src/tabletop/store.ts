@@ -9,7 +9,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 import type { StoredTournamentResult } from "../tournamentResults.js";
@@ -139,6 +139,8 @@ export interface TabletopRepository {
   /** An unfinished (recording/submitted) match already using this team save, other than `exceptId`. */
   findOpenMatchForSave(coach: string, saveId: string, exceptId?: string): Promise<MatchRecord | undefined>;
   readEvents(matchId: string): Promise<TabletopEvent[]>;
+  /** A cheap token that changes whenever the match's event log does (keys the match-view cache); optional. */
+  eventsRevision?(matchId: string): Promise<string>;
   /** Append events (callers have already de-duplicated). */
   appendEvents(matchId: string, events: readonly TabletopEvent[]): Promise<void>;
   getChain(coach: string, saveId: string): Promise<TeamChain | undefined>;
@@ -234,6 +236,14 @@ export class FileTabletopRepository implements TabletopRepository {
     const file = this.eventsFile(matchId);
     if (!existsSync(file)) return [];
     return readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as TabletopEvent);
+  }
+
+  /** The log is append-only, so its size (with the write time) changes on every append. */
+  async eventsRevision(matchId: string): Promise<string> {
+    const file = this.eventsFile(matchId);
+    if (!existsSync(file)) return "0";
+    const s = statSync(file);
+    return `${s.size}:${s.mtimeMs}`;
   }
 
   async appendEvents(matchId: string, events: readonly TabletopEvent[]): Promise<void> {
