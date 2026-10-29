@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Tournament pages: banner, details and news",
+    "body": "A tournament now has a front page of its own. Organisers can upload a banner (landscape, up to 1 MB), set the location, start time, entry fee, a summary and notes, registration and check-in deadlines, and post news; pinned posts stay on top. Text supports bold, italic, links and lists. Entrants get a notification when news is posted. The ruleset links open the Tournament Team Builder with the package preselected, and Edit ruleset opens the Tournament Creator.",
+    "links": [
+      {
+        "label": "Tournaments",
+        "href": "/app/tournaments"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Notifications from the bell",
     "body": "Tap the bell in the top bar and your latest notifications pop out right under it: the eight most recent, newest first, each with its icon, title, a one-line preview, how long ago it came and a dot while it is unread. Choosing one marks it read and takes you to it. Mark all read and a link to all your notifications sit at the bottom, and when there is nothing yet it says Nothing to read! Escape, tapping elsewhere or changing page closes it, and it works with the keyboard and on phones.",
     "links": [
