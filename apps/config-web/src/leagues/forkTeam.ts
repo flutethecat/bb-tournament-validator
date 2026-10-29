@@ -1,10 +1,14 @@
 /**
  * Play on Super FUMBBL: the fork team file for one league team (pure; forkPlay.ts writes it through the fork client).
  *
- * The league roster is the record: every player is written as the league has them now (characteristics after
- * injuries and increases, the skills the position does not print, spendable SPP, niggling injuries, a missed next
- * game as a recovering "Seriously Hurt (MNG)" injury so the server keeps the player out of this game), staff,
- * treasury and dedicated fans. The header and the roster's special rules come from the Team Builder composer
+ * The league roster is the record: every player is written as the league has them now, in the form the fork reads
+ * back. The fork resets a player's characteristics to the roster position on load, then applies stat-increase skills
+ * and lasting injuries (ffb-common RosterPlayer.updatePosition), so a characteristic that differs from the position is
+ * written as canonical "+MA"/"+ST"/"+AG"/"+PA"/"+AV" skills (improvements) or the BB2025 stat injuries (reductions),
+ * never as an override. Also written: the skills the position does not print, spendable SPP, niggling injuries, a
+ * missed next game as a recovering "Seriously Hurt (MNG)" injury so the server keeps the player out of this game,
+ * staff, treasury and dedicated fans. Only BB2025 seasons can be played (the fork's league rosters and the composer
+ * are BB2025); any other edition is refused before anything is installed. The header and the roster's special rules come from the Team Builder composer
  * (composeTeam with no picks), so the file is the same dialect the fork already loads for builder teams.
  *
  * One fork team per league / season / team (forkTeamIdFor); its player ids are derived from the league playerId, so
@@ -26,17 +30,58 @@ export const forkTeamIdFor = (leagueId: string, seasonId: string, teamId: string
 /** The fork player id of a league player on that team. */
 export const forkPlayerIdFor = (forkTeamId: string, playerId: string): string => `${forkTeamId}_${sha(playerId).slice(0, 10)}`;
 
-/** The fork roster for a league race: same race name (case and spacing tolerant), a `.bb2025` roster id preferred. */
-export function forkRosterFor(race: string, rosters: ReadonlyMap<string, string>): { rosterXml: string; roster: ForkRoster } | undefined {
+/** Rules editions Super FUMBBL can play a league fixture in. */
+export const FORK_RULESETS: readonly string[] = ["BB2025"];
+
+/** Why a season's edition cannot be played on Super FUMBBL ("" = it can). */
+export const rulesetBlocker = (ruleset: string): string =>
+  FORK_RULESETS.includes(ruleset) ? "" : `Super FUMBBL plays BB2025 league fixtures only; this season is ${ruleset || "of an unknown edition"}.`;
+
+/** The fork roster for a league race in the season's edition: same race name (case and spacing tolerant), roster id `<race>.<edition>`. */
+export function forkRosterFor(race: string, rosters: ReadonlyMap<string, string>, ruleset = "BB2025"): { rosterXml: string; roster: ForkRoster } | undefined {
   const want = normName(race);
-  let best: { rosterXml: string; roster: ForkRoster } | undefined;
+  const suffix = `.${ruleset.toLowerCase()}`;
   for (const [, xml] of rosters) {
     let roster: ForkRoster;
     try { roster = parseForkRoster(xml); } catch { continue; }
-    if (normName(roster.raceName) !== want) continue;
-    if (!best || (/\.bb2025$/i.test(roster.rosterId) && !/\.bb2025$/i.test(best.roster.rosterId))) best = { rosterXml: xml, roster };
+    if (normName(roster.raceName) === want && roster.rosterId.toLowerCase().endsWith(suffix)) return { rosterXml: xml, roster };
   }
-  return best;
+  return undefined;
+}
+
+export type Characteristic = "MA" | "ST" | "AG" | "PA" | "AV";
+
+/** The BB2025 stat injuries, by characteristic (SeriousInjury names the fork parses). */
+export const STAT_INJURY: Record<Characteristic, string> = {
+  MA: "Smashed Knee (-MA)", ST: "Dislocated Shoulder (-ST)", AG: "Dislocated Hip (-AG)", PA: "Broken Arm (-PA)", AV: "Head Injury (-AV)",
+};
+
+/**
+ * How a league player's characteristics differ from the position, as the fork records it: one "+X" skill per step
+ * better, one stat injury per step worse. AG and PA are targets (lower is better). A position without a PA (0) or a
+ * player without a value keeps the position's.
+ */
+export function statDelta(p: Pick<LeaguePlayer, "ma" | "st" | "ag" | "pa" | "av">, pos: Pick<ForkRosterPosition, "MA" | "ST" | "AG" | "PA" | "AV">): { increases: string[]; injuries: string[] } {
+  const increases: string[] = [];
+  const injuries: string[] = [];
+  const rows: Array<[Characteristic, number | null, number | undefined, boolean]> = [
+    ["MA", p.ma, pos.MA, false], ["ST", p.st, pos.ST, false], ["AG", p.ag, pos.AG, true], ["PA", p.pa, pos.PA, true], ["AV", p.av, pos.AV, false],
+  ];
+  for (const [key, value, base, target] of rows) {
+    if (typeof value !== "number" || typeof base !== "number" || base <= 0) continue;
+    const better = target ? base - value : value - base;
+    for (let i = 0; i < Math.abs(better); i += 1) {
+      if (better > 0) increases.push(`+${key}`); else injuries.push(STAT_INJURY[key]);
+    }
+  }
+  return { increases, injuries };
+}
+
+/** A fingerprint of everything the fork team file is built from (a changed roster means the team must be rebuilt). */
+export function leagueTeamRevision(team: LeagueTeam): string {
+  const players = team.players.map((p) => [p.playerId, p.number, p.name, p.position, p.ma, p.st, p.ag, p.pa, p.av, p.skills, p.availableSpp, p.niggling, p.missNextGame]);
+  return sha(JSON.stringify([team.name, team.race, team.coachId ?? team.coach, team.teamValue, team.treasury, team.rerolls, team.fans,
+    team.assistantCoaches, team.cheerleaders, team.apothecary, players])).slice(0, 16);
 }
 
 /** The roster position a league player plays: exact name, else the name without the race words ("Orc Lineman" ~ "Lineman"). */
@@ -70,6 +115,8 @@ export interface LeagueForkTeamInput {
   /** The fork coach who owns the team (the fixture side's coachId). */
   coach: string;
   rosters: ReadonlyMap<string, string>;
+  /** The season's edition (SeasonRecord.ruleset). */
+  ruleset: string;
   now?: Date;
 }
 
@@ -81,25 +128,26 @@ export interface LeagueForkTeamFile {
   /** For the coach's team library row. */
   library: { teamName: string; race: string; teamValueK: number; treasury: number; rerolls: number; fanFactor: number; apothecary: boolean };
   players: FixtureForkTeam["players"];
+  /** leagueTeamRevision of the roster this file was built from. */
+  revision: string;
 }
 
 function playerXml(p: LeaguePlayer, pos: ForkRosterPosition, nr: number, id: string): string {
   const label = p.name || `${p.position} #${nr}`;
   const printed = new Set((pos.skills ?? []).map(skillBase));
+  // "+MA"-style entries in the league skills are derived from the characteristics, never written twice.
   const extra = p.skills.filter((s) => s.trim() && !isStatIncrease(s) && !printed.has(skillBase(s)));
-  const stats: Array<[string, number | null, number | undefined]> = [
-    ["movement", p.ma, pos.MA], ["strength", p.st, pos.ST], ["agility", p.ag, pos.AG], ["passing", p.pa, pos.PA], ["armour", p.av, pos.AV],
-  ];
-  const statXml = stats.filter(([, v, base]) => typeof v === "number" && v !== base).map(([tag, v]) => `<${tag}>${v}</${tag}>`).join("");
+  const delta = statDelta(p, pos);
   const injuries = [
+    ...delta.injuries.map((name) => `<injury>${xmlEscape(name)}</injury>`),
     ...Array.from({ length: Math.max(0, p.niggling | 0) }, () => "<injury>Serious Injury (NI)</injury>"),
     ...(p.missNextGame ? ['<injury recovering="true">Seriously Hurt (MNG)</injury>'] : []),
   ];
   const spp = Math.max(0, Math.trunc(p.availableSpp || 0));
   return `\t<player nr="${nr}" id="${xmlEscape(id)}"><name>${xmlEscape(label)}</name>` +
     `<gender>${xmlEscape(pos.gender)}</gender><positionId>${xmlEscape(pos.positionId)}</positionId>` +
-    `${statXml}<playerStatistics currentSpps="${spp}"></playerStatistics>` +
-    `<skillList>${extra.map((s) => skillXml(s, label)).join("")}</skillList>` +
+    `<playerStatistics currentSpps="${spp}"></playerStatistics>` +
+    `<skillList>${[...extra.map((s) => skillXml(s, label)), ...delta.increases.map((s) => `<skill>${s}</skill>`)].join("")}</skillList>` +
     (injuries.length ? `<injuryList>${injuries.join("")}</injuryList>` : "<injuryList/>") + "</player>";
 }
 
@@ -108,9 +156,11 @@ const setTag = (xml: string, tag: string, value: string | number): string => xml
 /** Builds the fork team file for a league team. Throws ForkTeamBuildError with a coach-readable reason. */
 export function buildLeagueForkTeam(input: LeagueForkTeamInput): LeagueForkTeamFile {
   const { team } = input;
+  const edition = rulesetBlocker(input.ruleset);
+  if (edition) throw new ForkTeamBuildError(edition);
   if (!team.players.length) throw new ForkTeamBuildError(`${team.name} has no players on its league roster.`);
-  const found = forkRosterFor(team.race, input.rosters);
-  if (!found) throw new ForkTeamBuildError(`Super FUMBBL has no ${team.race} roster.`);
+  const found = forkRosterFor(team.race, input.rosters, input.ruleset);
+  if (!found) throw new ForkTeamBuildError(`Super FUMBBL has no ${input.ruleset} ${team.race} roster.`);
   const { roster, rosterXml } = found;
   const forkTeamId = forkTeamIdFor(input.leagueId, input.seasonId, team.id);
   let skeleton;
@@ -153,10 +203,27 @@ export function buildLeagueForkTeam(input: LeagueForkTeamInput): LeagueForkTeamF
   xml = xml.replace(/\n\n<\/team>\n$/, `${blocks.join("\n")}\n\n</team>\n`);
   if (!xml.includes(`<team id="${forkTeamId}">`) || !xml.includes(blocks[0]!)) throw new ForkTeamBuildError("The team file could not be assembled.");
   return {
-    forkTeamId, xml, rosterId: roster.rosterId, raceName: roster.raceName, players,
+    forkTeamId, xml, rosterId: roster.rosterId, raceName: roster.raceName, players, revision: leagueTeamRevision(team),
     library: {
       teamName: team.name, race: roster.raceName, teamValueK: Math.round((team.teamValue ?? 0) / 1000), treasury,
       rerolls: Math.max(0, team.rerolls ?? 0), fanFactor: Math.max(0, team.fans ?? 1), apothecary: team.apothecary,
     },
   };
+}
+
+/**
+ * Once a Super FUMBBL game has started for a fixture (a coach took a launch file, or the fork runs it), the league
+ * rosters of both its teams are locked until the result is in: the result is applied to the roster the fork played
+ * with. "" = not locked, else the reason.
+ */
+export function forkPlayLock(season: { fixtures: Array<{ home: { team: string; teamId?: string }; away: { team: string; teamId?: string }; fork?: { status: string; launched?: object; teams: Partial<Record<"home" | "away", { teamId: string }>> } }> }, teamId: string): string {
+  for (const f of season.fixtures) {
+    const fork = f.fork;
+    if (!fork) continue;
+    const started = fork.status === "in_progress" || (fork.status === "scheduled" && Boolean(fork.launched && Object.keys(fork.launched).length));
+    if (!started) continue;
+    if (fork.teams.home?.teamId === teamId || fork.teams.away?.teamId === teamId)
+      return `This team is playing a Super FUMBBL game (${f.home.team} vs ${f.away.team}); its league roster is locked until the result is in.`;
+  }
+  return "";
 }
