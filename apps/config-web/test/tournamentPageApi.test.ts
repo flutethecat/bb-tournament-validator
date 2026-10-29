@@ -103,6 +103,36 @@ describe("banner guards", () => {
     expect(existsSync(join(root, "tournament-banners"))).toBe(false);
   });
 
+  it("overlapping PUT and DELETE (identical bytes) never leave bannerPath pointing at a missing file", async () => {
+    const { store, root, t } = setup();
+    const bytes = png(1600, 400);
+    const other = png(1800, 450);
+    const delayedPut = (body: Buffer, auth: TournamentApiIdentity) => tournamentBannerApi("PUT", `/api/tournaments/${t.id}/banner`, auth, {
+      store, dataDir: root, now: () => now,
+      readBody: () => new Promise((resolve) => setImmediate(() => resolve(body))),
+    });
+    const remove = (auth: TournamentApiIdentity) => banner(store, root, "DELETE", t.id, auth);
+    const invariant = () => {
+      const rel = store.tournament(t.id)!.bannerPath;
+      const dir = join(root, "tournament-banners");
+      const files = existsSync(dir) ? readdirSync(dir) : [];
+      if (rel) expect(existsSync(join(root, rel)), `bannerPath ${rel} must exist`).toBe(true);
+      expect(files.filter((f) => !f.endsWith(".tmp")).map((f) => `tournament-banners/${f}`)).toEqual(rel ? [rel] : []);
+    };
+    for (let i = 0; i < 15; i++) {
+      resetAvatarRateLimit();
+      expect((await banner(store, root, "PUT", t.id, owner, bytes))?.status).toBe(200);
+      const results = await Promise.all([delayedPut(bytes, helper), remove(owner), delayedPut(other, admin), remove(helper), delayedPut(bytes, owner)]);
+      expect(results.every((r) => r && [200, 204].includes(r.status))).toBe(true);
+      invariant();
+      // The last mutation to enter the queue wins: the final PUT of identical bytes.
+      expect(store.tournament(t.id)!.bannerPath).toMatch(/^tournament-banners\/[a-f0-9]{64}\.png$/);
+      resetAvatarRateLimit();
+      await Promise.all([delayedPut(bytes, owner), remove(admin)]);
+      invariant();
+    }
+  });
+
   it("rate-limits banner changes per coach (10 a minute, PUT and DELETE share it)", async () => {
     const { store, root, t } = setup();
     for (let i = 0; i < 10; i++) expect((await banner(store, root, "DELETE", t.id, owner))?.status).toBe(204);

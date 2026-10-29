@@ -237,15 +237,18 @@ export async function tournamentBannerApi(
   if (!auth.admin && !isTournamentManager(tournament, auth.coach))
     return { status: 403, body: { error: "You are not this tournament's organizer." } };
   const now = deps.now?.() ?? new Date();
-  const previous = tournament.bannerPath;
-  const dropFile = async (rel: string | undefined): Promise<void> => {
-    if (!rel || !BANNER_PATH.test(rel)) return;
+  const dropUnreferenced = async (rel: string | undefined): Promise<void> => {
+    // Never unlink a file the record still points at (an identical re-upload maps to the same hashed path).
+    if (!rel || !BANNER_PATH.test(rel) || deps.store.tournament(id)?.bannerPath === rel) return;
     try { await fsp.unlink(join(deps.dataDir, rel)); } catch { /* already gone */ }
   };
   if (method === "DELETE") {
-    deps.store.setBanner(id, undefined, now);
-    await dropFile(previous);
-    return { status: 204 };
+    return withBannerLock(id, async () => {
+      const previous = deps.store.tournament(id)?.bannerPath;
+      deps.store.setBanner(id, undefined, now);
+      await dropUnreferenced(previous);
+      return { status: 204 };
+    });
   }
   const tooLarge: BannerApiResult = { status: 413, close: true, body: { error: "The banner must be at most 1 MB." } };
   if (deps.declaredTooLarge?.(BANNER_MAX_BYTES)) return tooLarge;
@@ -256,16 +259,32 @@ export async function tournamentBannerApi(
   const rel = `${BANNER_DIR_NAME}/${sha(`${id}\0${sha(bytes)}`)}.${checked.image.ext}`;
   const dir = join(deps.dataDir, BANNER_DIR_NAME);
   const target = join(deps.dataDir, rel);
-  const temp = `${target}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
-  try {
-    await fsp.mkdir(dir, { recursive: true });
-    await fsp.writeFile(temp, bytes, { flag: "wx", mode: 0o600 });
-    await fsp.rename(temp, target);
-  } catch {
-    try { await fsp.unlink(temp); } catch { /* none */ }
-    return { status: 500, body: { error: "Could not store the banner right now." } };
-  }
-  const updated = deps.store.setBanner(id, rel, now);
-  if (previous !== rel) await dropFile(previous);
-  return { status: 200, body: { ok: true, bannerUrl: bannerUrl(updated) } };
+  // Lookup of the current path, file write, record update and cleanup run as one unit per tournament.
+  return withBannerLock(id, async () => {
+    if (!deps.store.tournament(id)) return { status: 404, body: { error: "Tournament not found." } };
+    const previous = deps.store.tournament(id)?.bannerPath;
+    const temp = `${target}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+    try {
+      await fsp.mkdir(dir, { recursive: true });
+      await fsp.writeFile(temp, bytes, { flag: "wx", mode: 0o600 });
+      await fsp.rename(temp, target);
+    } catch {
+      try { await fsp.unlink(temp); } catch { /* none */ }
+      return { status: 500, body: { error: "Could not store the banner right now." } };
+    }
+    const updated = deps.store.setBanner(id, rel, now);
+    await dropUnreferenced(previous);
+    return { status: 200, body: { ok: true, bannerUrl: bannerUrl(updated) } };
+  });
+}
+
+const bannerLocks = new Map<string, Promise<unknown>>();
+/** Runs banner mutations of one tournament one at a time (a per-id promise chain; the entry is dropped when idle). */
+function withBannerLock<T>(id: string, task: () => Promise<T>): Promise<T> {
+  const prior = bannerLocks.get(id) ?? Promise.resolve();
+  const run = prior.then(task, task);
+  const tail = run.catch(() => undefined);
+  bannerLocks.set(id, tail);
+  void tail.then(() => { if (bannerLocks.get(id) === tail) bannerLocks.delete(id); });
+  return run;
 }
