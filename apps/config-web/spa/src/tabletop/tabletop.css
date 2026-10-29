@@ -92,7 +92,7 @@
 .tt-big-injury { background: color-mix(in srgb, var(--ui-warn, #f0a020) 80%, var(--tt-btn)); color: var(--ui-text-on-primary, #ffffff); }
 .tt-big-other { grid-column: 1 / -1; }
 /* phone-only pieces (shown by the max-width: 759px block at the end of this file) */
-.tt-stripbar-lead, .tt-stripbar-btn, .tt-hero-admin, .tt-big-dots { display: none; }
+.tt-stripbar-lead, .tt-stripbar-btn, .tt-hero-admin, .tt-hero-admin-row, .tt-big-dots { display: none; }
 
 /* popups */
 .tt-modal { position: fixed; inset: 0; z-index: 70; display: flex; align-items: flex-end; justify-content: center; background: rgb(0 0 0 / 0.55); }
@@ -1449,8 +1449,10 @@
   .tt-rec .tt-turns > .tt-weather-cell { grid-column: 2; grid-row: 1; position: relative; display: inline-flex; align-items: center; justify-content: center; justify-self: center; width: auto; min-width: 0; min-height: 0; padding: 0; font-size: var(--tt-weather-fs); line-height: 1; background: none; border: 0; box-shadow: none; color: inherit; cursor: default; }
   .tt-rec .tt-turns > button.tt-weather-cell { cursor: pointer; }
   .tt-rec .tt-turns > button.tt-weather-cell::before { content: ""; position: absolute; inset: -8px -12px; }
-  .tt-rec .tt-hero-admin { grid-column: 1 / -1; grid-row: 5; position: relative; display: inline-flex; align-items: center; justify-content: center; justify-self: end; height: var(--tt-admin-h); margin-top: 8px; padding: 0 10px; font-family: var(--font-heading, sans-serif); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ui-admin, #ffd23d); background: var(--tt-panel); border: 1px solid var(--ui-admin, #ffd23d); border-radius: 3px; cursor: pointer; }
-  .tt-rec .tt-hero-admin::before { content: ""; position: absolute; inset: -9px -4px; }
+  .tt-rec .tt-hero-admin { grid-column: 1 / -1; grid-row: 5; position: relative; display: inline-flex; align-items: center; justify-content: center; justify-self: end; height: var(--tt-tap); min-height: var(--tt-tap); margin-top: 0; padding: 0 14px; font-family: var(--font-heading, sans-serif); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ui-admin, #ffd23d); background: var(--tt-panel); border: 1px solid var(--ui-admin, #ffd23d); border-radius: 3px; cursor: pointer; }
+  .tt-rec .tt-hero-admin[aria-expanded="true"] { background: color-mix(in srgb, var(--ui-admin, #ffd23d) 30%, var(--tt-panel)); }
+  .tt-rec .tt-hero-admin-row { grid-column: 1 / -1; grid-row: 6; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 4px; }
+  .tt-rec .tt-hero-admin-btn { min-height: var(--tt-tap); padding: 0 10px; font-family: var(--font-heading, sans-serif); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--tt-btn-ink); background: var(--tt-btn); border: 1px solid var(--ui-admin, #ffd23d); border-radius: 3px; cursor: pointer; }
 
   .tt-rec .tt-corner.home, .tt-rec .tt-corner.away { grid-row: 2; align-items: center; justify-content: flex-start; text-align: center; height: auto; min-height: 0; padding: 2px 0 0; gap: 3px; overflow: hidden; }
   .tt-rec .tt-corner.home { grid-column: 1; }

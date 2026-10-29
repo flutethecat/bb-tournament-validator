@@ -654,7 +654,25 @@ describe("tabletop routes (server-rendered)", () => {
     expect(coach.html).toMatch(/class="tt-stripbar-btn tt-stripbar-cog" type="button" aria-label="Settings"/);
     expect(coach.html).not.toContain("tt-hero-admin"); // a participant has no admin chip
     const org = await renderMatch(body, session({ coach: "Zed", organizer: true }));
-    expect(org.html).toMatch(/<button class="tt-hero-admin" type="button" aria-label="Open the admin panel"[^>]*>Admin<\/button>/);
+    // collapsed by default: the chip is a disclosure (aria-expanded false, aria-controls the row) and the row is not rendered
+    expect(org.html).toMatch(/<button class="tt-hero-admin" type="button" aria-controls="tt-admin-row" aria-expanded="false"[^>]*>Admin<\/button>/);
+    expect(org.html).not.toContain('id="tt-admin-row"');
+    // expanded (remembered for the session): the row renders and the chip says so
+    const store = new Map<string, string>([["cw.tt.adminRowOpen", "1"]]);
+    const realSession = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+    Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) } });
+    let open: Awaited<ReturnType<typeof renderMatch>>;
+    try { open = await renderMatch(body, session({ coach: "Zed", organizer: true })); }
+    finally { if (realSession) Object.defineProperty(globalThis, "sessionStorage", realSession); else delete (globalThis as { sessionStorage?: unknown }).sessionStorage; }
+    expect(open.html).toMatch(/class="tt-hero-admin" type="button" aria-controls="tt-admin-row" aria-expanded="true"/);
+    expect(open.html).toMatch(/<div id="tt-admin-row" class="tt-hero-admin-row" role="group" aria-label="Admin tools">/);
+    expect(open.html).toContain("All admin tools");
+    // a throwing sessionStorage (private window, blocked data) leaves the row collapsed instead of breaking the page
+    Object.defineProperty(globalThis, "sessionStorage", { configurable: true, get() { throw new Error("blocked"); } });
+    let blocked: Awaited<ReturnType<typeof renderMatch>>;
+    try { blocked = await renderMatch(body, session({ coach: "Zed", organizer: true })); }
+    finally { if (realSession) Object.defineProperty(globalThis, "sessionStorage", realSession); else delete (globalThis as { sessionStorage?: unknown }).sessionStorage; }
+    expect(blocked.html).toContain('aria-expanded="false"');
     // CSS: the phone block sits behind the 759 px breakpoint and carries the owner rules
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
     const at = css.indexOf("PHONE (below 760 px)");
@@ -709,6 +727,13 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).not.toMatch(/\.tt-rec \.tt-stats-half \{[^}]*color: var\(--ui-text, #e6e9ef\)/);
     // the Admin chip has its own row (under End Turn), so it never overlaps the LED row
     expect(phone).toMatch(/\.tt-rec \.tt-hero-admin \{ grid-column: 1 \/ -1; grid-row: 5;/);
+    // the chip is a 44 px tap target; the admin row sits under it; desktop and tablet hide both (the rail panel is unchanged)
+    expect(phone).toMatch(/\.tt-rec \.tt-hero-admin \{[^}]*height: var\(--tt-tap\); min-height: var\(--tt-tap\);/);
+    expect(phone).toMatch(/\.tt-rec \.tt-hero-admin-row \{ grid-column: 1 \/ -1; grid-row: 6; display: grid;/);
+    expect(phone).toMatch(/\.tt-rec \.tt-hero-admin-btn \{ min-height: var\(--tt-tap\);/);
+    expect(css.slice(0, at)).toMatch(/\.tt-hero-admin, \.tt-hero-admin-row, \.tt-big-dots \{ display: none; \}/);
+    expect(css.slice(0, at)).not.toMatch(/\.tt-hero-admin(?:-row)? \{[^}]*display: (?:flex|grid|inline-flex)/);
+    expect(coach.html).not.toContain("tt-hero-admin-row");
     // the spectator line is upper-cased by CSS (the markup keeps "Bob's Turn"), the Match log heading is back above the log
     expect(phone).toMatch(/\.tt-rec \.tt-towait \{ text-transform: uppercase;/);
     expect(phone).toMatch(/\.tt-rec \.tt-mid > \.tt-log-h \{ display: flex;/);

@@ -38,7 +38,16 @@ const nafLine = (s: Side): string => {
   return `NAF ${typeof n.glicko === "number" ? `${Math.round(n.glicko)} \u00b7 ` : ""}${n.games} GAME${n.games === 1 ? "" : "S"}`;
 };
 const crTip = (s: Side): string => `Coach rating ${crOf(s)?.cr} \u00b7 ${crOf(s)?.rank}${crOf(s)?.pct ? ` · top ${crOf(s)?.pct}%` : ""} (${crOf(s)?.games ?? 0} game${crOf(s)?.games === 1 ? "" : "s"})${crOf(s)?.naf?.games ? ` · ${crOf(s)?.naf?.games} NAF game${crOf(s)?.naf?.games === 1 ? "" : "s"}` : ""}`;
-const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters", side?: Side): void; (e: "settings"): void; (e: "weather"): void; (e: "admin"): void }>();
+const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters", side?: Side): void; (e: "settings"): void; (e: "weather"): void; (e: "admin"): void; (e: "changeTurn"): void }>();
+
+// Phone: the organiser Admin chip is a disclosure. The admin row under it is collapsed by default (it costs feed height) and the choice is
+// remembered for the session. Desktop and tablet never show the chip, so the rail panel is unchanged.
+const ADMIN_ROW_KEY = "cw.tt.adminRowOpen";
+const adminRowOpen = ref((() => { try { return globalThis.sessionStorage?.getItem(ADMIN_ROW_KEY) === "1"; } catch { return false; } })());
+function toggleAdminRow(): void {
+  adminRowOpen.value = !adminRowOpen.value;
+  try { globalThis.sessionStorage?.setItem(ADMIN_ROW_KEY, adminRowOpen.value ? "1" : "0"); } catch { /* not remembered */ }
+}
 
 // Desktop chip tray: two rows at most; the layout follows the viewport width (1400 until mounted, so server renders are stable).
 const vw = ref(1400);
@@ -178,7 +187,11 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
       </div>
     </section>
     <section class="tt-centre">
-      <button v-if="organiser" class="tt-hero-admin" type="button" aria-label="Open the admin panel" data-tip="Admin panel" data-tip-pos="bottom" @click="emit('admin')">Admin</button>
+      <button v-if="organiser" class="tt-hero-admin" type="button" aria-controls="tt-admin-row" :aria-expanded="adminRowOpen ? 'true' : 'false'" data-tip="Admin tools" data-tip-pos="bottom" @click="toggleAdminRow()">Admin</button>
+      <div v-if="organiser && adminRowOpen" id="tt-admin-row" class="tt-hero-admin-row" role="group" aria-label="Admin tools">
+        <button class="tt-hero-admin-btn" type="button" @click="emit('changeTurn')">Change turn</button>
+        <button class="tt-hero-admin-btn" type="button" @click="emit('admin')">All admin tools</button>
+      </div>
       <div class="tt-top-pair">
         <button class="tt-rosters-btn" type="button" aria-label="Rosters" data-tip="Rosters" data-tip-pos="bottom" @click="emit('rosters')">
           <img class="tt-glyph" :src="uiIcon('football-helmet')" alt="" /><span>Rosters</span>
