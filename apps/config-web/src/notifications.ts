@@ -114,6 +114,8 @@ export interface NotificationStoreOptions {
   now?: () => Date;
   /** Called after a row is stored (the Super socket push). Errors are swallowed. */
   onAdded?: (coachKey: string, record: NotificationRecord, unread: number) => void;
+  /** Called after rows were marked read (the Super socket push, so the coach's other tabs follow). Errors are swallowed. */
+  onRead?: (coachKey: string, change: { unread: number; readIds: string[]; all?: true }) => void;
 }
 
 export class NotificationStore {
@@ -194,14 +196,18 @@ export class NotificationStore {
     const data = this.read(key);
     const at = (this.opts.now?.() ?? new Date()).toISOString();
     const wanted = "ids" in which ? new Set(which.ids) : undefined;
-    let marked = 0;
+    const readIds: string[] = [];
     const notifications = data.notifications.map((r) => {
       if (r.readAt || (wanted && !wanted.has(r.id))) return r;
-      marked += 1;
+      readIds.push(r.id);
       return { ...r, readAt: at };
     });
-    if (marked > 0) this.write(key, { ...data, notifications });
-    return { marked, unread: notifications.filter((r) => !r.readAt).length };
+    const unread = notifications.filter((r) => !r.readAt).length;
+    if (readIds.length > 0) {
+      this.write(key, { ...data, notifications });
+      try { this.opts.onRead?.(key, { unread, readIds, ...(wanted ? {} : { all: true as const }) }); } catch { /* the push is best effort */ }
+    }
+    return { marked: readIds.length, unread };
   }
 }
 
@@ -376,7 +382,7 @@ export function notificationsApi(
     if (!text) return err(400, "Write a message first.");
     if ([...text].length > MESSAGE_MAX_CHARS) return err(400, `A message is at most ${MESSAGE_MAX_CHARS} characters.`);
     const entrant = deps.tournaments.entrants(tournament.id)
-      .find((e) => notificationCoachKey(e.coach.ffbCoachId) === notificationCoachKey(target));
+      .find((e) => e.droppedAt === undefined && notificationCoachKey(e.coach.ffbCoachId) === notificationCoachKey(target));
     if (!entrant) return err(404, "That coach is not entered in this tournament.");
     if (deps.limiter && !deps.limiter.take(auth.coach, deps.now?.() ?? Date.now()))
       return err(429, "Too many messages; wait a minute and try again.");

@@ -509,6 +509,7 @@ let superService: ReturnType<typeof attachSuper> = null;
 // Coach notifications (landing spec §4.1): <FORK_STATE_DIR>/notifications/<coach>.json; a new row is pushed over the Super socket.
 const notificationStore = new NotificationStore(FORK_STATE_DIR, {
   onAdded: (coach, latest, unread) => superService?.publishNotify(coach, { unread, latest }),
+  onRead: (coach, change) => superService?.publishNotify(coach, change),
 });
 const tournamentNotifier = createTournamentNotifier(notificationStore, tournamentStore);
 setActiveNotifier(tournamentNotifier);
