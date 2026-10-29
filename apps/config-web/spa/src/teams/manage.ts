@@ -117,7 +117,24 @@ export interface TeamManageState {
   flow: AdvanceFlow | null;
   /** The open player sheet (owner 10-30: clicking a player pops out their stats). Never open together with `flow`. */
   sheet: { playerIndex: number } | null;
+  /** The team avatar dialog (owner 10-30: upload lives on this page, behind the "Team avatar" button). `url` is the avatar
+   *  shown on the banner and in the dialog ("" = none, the race crest shows); a fresh ?v= is appended after every change. */
+  avatar: { open: boolean; busy: boolean; error: string; url: string };
 }
+
+/** What the avatar PUT answers. */
+export interface AvatarUploadResult { ok: boolean; status: number; avatarUrl?: string; error?: string }
+/** Sends one raw image body (the JSON Fetcher cannot). Replaceable so tests need no network. */
+export type AvatarUploader = (path: string, body: Blob) => Promise<AvatarUploadResult>;
+
+const defaultUploader: AvatarUploader = async (path, body) => {
+  const res = await fetch(path, { method: "PUT", credentials: "same-origin", headers: { "x-cw-auth": "1", "content-type": body.type }, body });
+  const data = (await res.json().catch(() => null)) as { avatarUrl?: string; error?: string } | null;
+  return { ok: res.ok, status: res.status, avatarUrl: data?.avatarUrl, error: data?.error };
+};
+
+/** The avatar route of a team ref (src/teamAvatars.ts; library and builder-save refs both have one). */
+export const avatarPath = (ref: string): string => `/api/fork/teams/${encodeURIComponent(ref)}/avatar`;
 
 const enc = encodeURIComponent;
 /** HTTP status of a failed call (ApiError; duck-typed so a second copy of the module still reads it). */
@@ -184,14 +201,17 @@ export function valueBreakdownText(v: ValueBreakdown | null | undefined): string
   return `(${Math.round(v.base / 1000)}+${Math.round(v.added / 1000)})k`;
 }
 
-export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void }) {
+export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void; upload?: AvatarUploader; now?: () => number }) {
+  const upload = deps.upload ?? defaultUploader;
+  const now = deps.now ?? (() => Date.now());
   const state = reactive<TeamManageState>({
     ref: "", model: null, loading: false, loaded: false, error: "", notFound: false, shareBusy: false, shareError: "", flow: null, sheet: null,
+    avatar: { open: false, busy: false, error: "", url: "" },
   });
   let gen = 0;
 
   async function load(ref: string): Promise<void> {
-    if (state.ref !== ref) { state.model = null; state.sheet = null; }
+    if (state.ref !== ref) { state.model = null; state.sheet = null; state.avatar.open = false; state.avatar.error = ""; state.avatar.url = ""; }
     state.ref = ref;
     const mine = ++gen;
     state.loading = true;
@@ -199,6 +219,10 @@ export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void 
       const model = await deps.api<TeamManageModel>(`/api/me/teams/${enc(ref)}`);
       if (mine !== gen) return;
       state.model = model;
+      // Keep the cache-busted URL of an avatar changed on this page; otherwise take the server's.
+      const served = model.team.avatarUrl ?? "";
+      if (!served) state.avatar.url = "";
+      else if (!state.avatar.url.startsWith(served.split("?")[0]!)) state.avatar.url = served;
       state.error = "";
       state.notFound = false;
     } catch (err) {
@@ -233,6 +257,63 @@ export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void 
     }
   }
 
+  const versioned = (url: string | undefined, ref: string): string => `${(url ?? avatarPath(ref)).split("?")[0]}?v=${now()}`;
+
+  /** Open the avatar dialog (refused while another dialog is open). */
+  function openAvatar(): boolean {
+    if (!state.model || state.flow || state.sheet || state.avatar.open) return false;
+    state.avatar.error = "";
+    state.avatar.open = true;
+    return true;
+  }
+
+  /** Close it (ignored while a request is in flight). */
+  function closeAvatar(): boolean {
+    if (state.avatar.busy) return false;
+    state.avatar.open = false;
+    state.avatar.error = "";
+    return true;
+  }
+
+  /** PUT the prepared image; on success the banner and the dialog show the new avatar at once (the dialog stays open). */
+  async function uploadAvatar(blob: Blob): Promise<boolean> {
+    const ref = state.model?.manage.ref;
+    const a = state.avatar;
+    if (!ref || a.busy) return false;
+    a.busy = true;
+    a.error = "";
+    try {
+      const res = await upload(avatarPath(ref), blob);
+      if (!res.ok) { a.error = res.error || `Upload failed (${res.status}).`; return false; }
+      a.url = versioned(res.avatarUrl, ref);
+      return true;
+    } catch {
+      a.error = "Can't reach the server. Check your connection.";
+      return false;
+    } finally {
+      a.busy = false;
+    }
+  }
+
+  /** DELETE the stored avatar; the banner falls back to the race crest. */
+  async function removeAvatar(): Promise<boolean> {
+    const ref = state.model?.manage.ref;
+    const a = state.avatar;
+    if (!ref || a.busy || !a.url) return false;
+    a.busy = true;
+    a.error = "";
+    try {
+      await deps.api(avatarPath(ref), { method: "DELETE" });
+      a.url = "";
+      return true;
+    } catch (err) {
+      a.error = err instanceof Error ? err.message : "Could not remove the avatar.";
+      return false;
+    } finally {
+      a.busy = false;
+    }
+  }
+
   const player = (i: number): ManagedPlayer | undefined => state.model?.team.players[i];
 
   let flowSeq = 0;
@@ -240,7 +321,7 @@ export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void 
   /** Open the modal for a player. A stored pending roll for them opens at the pick step. Ignored while a request of the
    *  current modal is in flight (its response must land in the modal that sent it). */
   function open(playerIndex: number, kind: FlowKind): boolean {
-    if (state.flow?.busy) return false;
+    if (state.flow?.busy || state.avatar.open) return false;
     const progress = player(playerIndex)?.progress;
     if (!progress) return false;
     state.sheet = null;
@@ -252,7 +333,7 @@ export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void 
 
   /** Open the player sheet. Refused while the advancement dialog is open. */
   function openSheet(playerIndex: number): boolean {
-    if (state.flow || !player(playerIndex)) return false;
+    if (state.flow || state.avatar.open || !player(playerIndex)) return false;
     state.sheet = { playerIndex };
     return true;
   }
@@ -370,7 +451,7 @@ export function createTeamManage(deps: { api: Fetcher; onSignedOut?: () => void 
     if (res?.ok) finish(flow, choice.type === "skill" ? `${choice.skill} added` : `+${choice.characteristic} added`, res);
   }
 
-  return { state, load, setShared, open, close, openSheet, closeSheet, advanceFromSheet, rollRandomPrimary, rollCharacteristic, chooseSkill, commit };
+  return { state, load, setShared, open, close, openSheet, closeSheet, advanceFromSheet, openAvatar, closeAvatar, uploadAvatar, removeAvatar, rollRandomPrimary, rollCharacteristic, chooseSkill, commit };
 }
 
 export type TeamManage = ReturnType<typeof createTeamManage>;

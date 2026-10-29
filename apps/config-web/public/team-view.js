@@ -47,8 +47,10 @@
   /** Player name (fork teams on the management page); builder sheets carry none. */
   const nameHtml = (p) => (typeof p.name === "string" && p.name.trim() ? `<span class="tv-pname">${esc(p.name)}</span>` : "");
   const posTitle = (p) => (typeof p.positionFull === "string" && p.positionFull && p.positionFull !== p.position ? ` title="${esc(p.positionFull)}"` : "");
+  // An uploaded team avatar (src/teamAvatars.ts public read, optionally ?v=-busted) replaces the race crest in the banner.
+  const avatarSrc = (url) => (typeof url === "string" && /^\/api\/fork\/teams\/[^/?#]+\/avatar(?:\?v=\d+)?$/.test(url) ? url : "");
   function crestHtml(team) {
-    const src = artSrc(team.crest);
+    const src = avatarSrc(team.avatarUrl) || artSrc(team.crest);
     return `<span class="sprite-frame crest-frame tv-crest" aria-hidden="true"><span class="sprite-fallback">${esc(initials(team.teamName))}</span>${src ? `<img class="crest-image" src="${esc(src)}" alt="" decoding="async">` : ""}</span>`;
   }
 
