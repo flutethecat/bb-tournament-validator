@@ -19,8 +19,8 @@ const mode = computed(() => centreMode(props.clock, props.localSide, false, prop
 const label = computed(() => turnLabel(props.clock?.half, props.clock?.turn));
 const line = computed(() => turnLine(props.clock?.half, props.clock?.turn));
 const activeName = computed(() => (props.clock?.activeTeam ? props.match[props.clock.activeTeam].teamName : ""));
-/** Off turn: a coach in the match sees "Opponent's turn"; an organiser or onlooker outside it sees which team is to play. */
-const waitLabel = computed(() => (props.localSide !== null ? "Opponent's turn" : `${activeName.value || "Waiting"} to play`));
+/** Off turn: a coach in the match sees "Opponent's Turn"; an organiser or onlooker outside it sees which team is to play. */
+const waitLabel = computed(() => (props.localSide !== null ? "Opponent's Turn" : `${activeName.value || "Waiting"} to play`));
 /** Outside the match the button reads three lines: the active coach's name (possessive), "Turn", then the turn number. */
 const activeCoach = computed(() => (props.clock?.activeTeam ? possessive(props.match[props.clock.activeTeam].coach) : ""));
 const timed = computed(() => props.remaining !== undefined && props.clock?.turnTimer?.mode === "on");

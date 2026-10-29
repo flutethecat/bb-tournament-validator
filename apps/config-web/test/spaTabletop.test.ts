@@ -640,6 +640,79 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).not.toContain("tt-clock"); // no turn timer in this clock
   });
 
+  it("phone layout (below 760 px): strip, three 64 px squares + the OTHER row, admin chip, bottom sheets with the red X, single-column timeline, nothing wider than 375", async () => {
+    const { readFileSync } = await import("node:fs");
+    const body = { match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) };
+    // markup: TD, CAS, Injury squares then the Other row; the strip carries the turn, the timeline and Rosters / Settings; the admin chip is for organisers only
+    const coach = await renderMatch(body);
+    const bar = coach.html.slice(coach.html.indexOf('class="tt-actions-bar"'));
+    expect(bar.match(/class="tt-big tt-big-(td|cas|injury|other)"/g)).toEqual(['class="tt-big tt-big-td"', 'class="tt-big tt-big-cas"', 'class="tt-big tt-big-injury"', 'class="tt-big tt-big-other"']);
+    expect(bar).toContain("<span>Injury</span>");
+    expect(bar).toMatch(/class="tt-big tt-big-other"[^>]*><span class="tt-big-dots" aria-hidden="true">[^<]*<\/span><span>Other<\/span>/);
+    expect(coach.html).toMatch(/class="tt-stripbar"><span class="tt-stripbar-lead">1st half · TURN 3<\/span>/);
+    expect(coach.html).toMatch(/class="tt-stripbar-btn"[^>]*>Rosters<\/button>/);
+    expect(coach.html).toMatch(/class="tt-stripbar-btn tt-stripbar-cog" type="button" aria-label="Settings"/);
+    expect(coach.html).not.toContain("tt-hero-admin"); // a participant has no admin chip
+    const org = await renderMatch(body, session({ coach: "Zed", organizer: true }));
+    expect(org.html).toMatch(/<button class="tt-hero-admin" type="button" aria-label="Open the admin panel"[^>]*>Admin<\/button>/);
+    // CSS: the phone block sits behind the 759 px breakpoint and carries the owner rules
+    const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    const at = css.indexOf("PHONE (below 760 px)");
+    expect(at).toBeGreaterThan(-1);
+    const phone = css.slice(css.indexOf("@media (max-width: 759px) {", at));
+    expect(phone).toMatch(/^@media \(max-width: 759px\) \{\s*\.tt-rec \{\s*--tt-gutter: 16px;/); // the 16 px gutter is the first scale step
+    for (const v of ["--tt-sq: 64px", "--tt-other-h: 48px", "--tt-end-h: 48px", "--tt-strip-h: 48px", "--tt-tap: 44px", "--tt-score-w: 128px"]) expect(phone).toContain(v);
+    // three squares + the Other row
+    expect(phone).toMatch(/\.tt-rec > \.tt-actions-bar \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
+    expect(phone).toMatch(/\.tt-rec \.tt-big \{[^}]*aspect-ratio: auto; height: var\(--tt-sq\); min-height: var\(--tt-sq\);/);
+    expect(phone).toMatch(/\.tt-rec \.tt-big-other \{ grid-column: 1 \/ -1;[^}]*height: var\(--tt-other-h\);/);
+    // hero: the LED track collapses to the active LED; the scoreboard keeps score + TURN cell + stats; End Turn is a full-width row
+    expect(phone).toMatch(/\.tt-rec \.tt-track \.tt-cell:not\(\[data-state="active"\]\) \{ display: none; \}/);
+    expect(phone).toMatch(/\.tt-rec \.tt-score \{[^}]*grid-template-columns: minmax\(0, 1fr\) var\(--tt-turncell-w\) minmax\(0, 1fr\);/);
+    expect(phone).toMatch(/\.tt-rec \.tt-turns > \.tt-weather-cell \{ grid-column: 2; grid-row: 1;/);
+    expect(phone).toMatch(/\.tt-rec \.tt-stats \{ grid-column: 1 \/ -1;/);
+    expect(phone).toMatch(/\.tt-rec \.tt-endturn, \.tt-rec \.tt-towait \{ grid-column: 1 \/ -1;[^}]*height: var\(--tt-end-h\)/);
+    expect(phone).toMatch(/\.tt-rec \.tt-corner \.tt-coachline > \.tt-coach \{[^}]*font-family: var\(--font-heading, sans-serif\);[^}]*color: var\(--ui-coach-led, #4cff6a\)/); // LED-green coach names
+    expect(phone).toMatch(/\.tt-rec \.tt-corner \.tt-team \{ font-size: var\(--tt-team-fs\);/);
+    expect(phone).toMatch(/\.tt-rec \.tt-corner \.tt-namegroup > \.tt-race\.tt-nameline \{ display: block;/); // the race line stays (the CR text sits under the coach beneath it)
+    // popups are full-width bottom sheets; the X is the shared red one
+    expect(phone).toMatch(/\.tt-rec \.tt-modal-box, \.tt-rec \.tt-sheet, \.tt-rec \.tt-rosters:not\(\.tt-rosters-embed\), \.tt-rec \.tt-other-box \{\s*left: 0; right: 0; width: 100%; max-width: 100%; margin: 0;/);
+    expect(phone).toMatch(/border-radius: var\(--tt-sheet-r\) var\(--tt-sheet-r\) 0 0/);
+    expect(phone).toMatch(/\.tt-rec \.tt-x \{ width: var\(--tt-tap\); height: var\(--tt-tap\); \}/);
+    expect(css).toMatch(/\.tt-x \{ background: var\(--ui-danger, #ff4d4d\); color: var\(--ui-text-on-primary, #ffffff\); \}/);
+    expect(phone).toMatch(/\.tt-rec \.tt-ind \{ overflow-x: auto; \}/); // the inducements table scrolls inside its panel
+    // the inducement tray scrolls sideways inside its own box; the timeline strip too
+    expect(phone).toMatch(/\.tt-chips \{[^}]*flex-wrap: nowrap;[^}]*overflow-x: auto; overflow-y: hidden;/);
+    expect(phone).toMatch(/\.tt-rec \.tt-stripbar \.tt-tl \{[^}]*overflow-x: auto; overflow-y: hidden;/);
+    expect(phone).toMatch(/\.tt-rec \.tt-feed > \.tt-tl \{ display: none; \}/); // the strip carries the timeline, not the feed
+    // single-column timeline: spine on the left, home cards left, away cards right-aligned (order, never row-reverse), a dot per card on the spine
+    expect(phone).toMatch(/\.tt-rec \.tt-events::before \{ content: ""; position: absolute; left: var\(--tt-spine-x\);/);
+    expect(phone).toMatch(/\.tt-rec \.tt-ev\[data-row-side="home"\] \{ margin: 0 var\(--tt-ev-indent\) 0 0;/);
+    expect(phone).toMatch(/\.tt-rec \.tt-ev\[data-row-side="away"\] \{ margin: 0 0 0 var\(--tt-ev-indent\);[^}]*text-align: right;/);
+    expect(phone).toMatch(/\.tt-rec \.tt-ev\[data-row-side="home"\]::after, \.tt-rec \.tt-ev\[data-row-side="away"\]::after \{/);
+    expect(phone).not.toContain("row-reverse");
+    expect(phone).not.toMatch(/\.tt-events \{[^}]*grid-template-columns/); // one column
+    // nothing wider than 375: the page never scrolls sideways, the grid column can shrink, and no fixed width in the block exceeds the 343 px inside the gutters
+    expect(phone).toMatch(/grid-template-columns: minmax\(0, 1fr\); grid-template-rows: auto auto var\(--tt-strip-h\) minmax\(0, 1fr\) auto; overflow-x: hidden; max-width: 100vw;/);
+    const widths = [...phone.matchAll(/(?:^|[\s;{])(?:min-|max-)?width: (\d+)px/g)].map((m) => Number(m[1]));
+    expect(Math.max(0, ...widths)).toBeLessThanOrEqual(343);
+    const vars = [...phone.matchAll(/--tt-(?:score-w|led-w|turncell-w|chip|crest): (\d+)px/g)].map((m) => Number(m[1]));
+    expect(vars.length).toBeGreaterThan(4);
+    expect(2 * 44 + 128 + 2 * 8 + 32).toBeLessThanOrEqual(375); // two 44 px crests beside the 128 px score, 8 px gaps, 16 px gutters: the minimum the hero needs
+    // tokens only: no raw colours except black / white and the var() fallbacks
+    const raw = phone.replace(/var\([^()]*(?:\([^()]*\)[^()]*)*\)/g, "").match(/#[0-9a-fA-F]{3,8}\b/g) ?? [];
+    expect(raw.filter((c) => !["#000", "#ffffff"].includes(c.toLowerCase()))).toEqual([]);
+    // long-press card: no text selection or system callout on the held element, the card fits the gutters
+    expect(phone).toMatch(/\.tt-rec \[data-pcard\] \{ -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; \}/);
+    expect(phone).toMatch(/\.tt-pcard \{ width: min\(22em, calc\(100vw - 32px\)\); max-width: calc\(100vw - 32px\); \}/);
+    const view = readFileSync(fileURLToPath(new URL("../spa/src/views/TabletopRecorderView.vue", import.meta.url)), "utf8");
+    expect(view).toMatch(/@pointercancel="pcardCancel\(\)"/); // a scroll that takes over the touch cancels the 450 ms hold
+    // the pop-in stays, reduced motion is still respected; tablet keeps one row of four
+    expect(css).toMatch(/\.tt-ev--new \{ animation: tt-ev-in 220ms ease-out both; \}/);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.tt-ev--new \{ animation: tt-fade-in 120ms linear both; \}/);
+    expect(css).toMatch(/@media \(min-width: 760px\) \{\s*\.tt-actions-bar \{ grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);/);
+  });
+
   it("possessive coach names: Bob's, and Chris' for a name ending in s", async () => {
     const { possessive } = mods.clockMod;
     expect(possessive("Bob")).toBe("Bob's");
@@ -1712,7 +1785,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(mine.html).toContain("End Turn");
     const theirs = await renderMatch(body(clockOf("away", 3)));
     expect(theirs.html).not.toContain("End Turn");
-    expect(theirs.html).toContain("Opponent&#39;s turn"); // a coach off turn: not the team name
+    expect(theirs.html).toContain("Opponent&#39;s Turn"); // a coach off turn: not the team name
     expect(theirs.html).not.toContain("Bob Elves to play");
     expect(theirs.html).toContain("TURN 3");
     const organiser = await renderMatch(body(clockOf("away", 3)), session({ coach: "Zed", organizer: true }));
@@ -1720,9 +1793,9 @@ describe("tabletop routes (server-rendered)", () => {
     expect(organiser.html).not.toContain('class="tt-endturn"');
     expect(organiser.html).not.toContain('class="tt-rail-end"');
     expect(organiser.html).toContain('<span class="tt-rail-label tt-rail-label-sm">Bob&#39;s</span><span class="tt-rail-label tt-rail-label-sm">Turn</span>'); // outside the match: the active coach's name, "Turn", then the number
-    expect(organiser.html).toContain("Bob&#39;s turn"); // and on the phone hero button
+    expect(organiser.html).toContain("Bob&#39;s Turn"); // and on the phone hero button
     expect(organiser.html).not.toContain("Bob Elves to play");
-    expect(organiser.html).not.toContain("Opponent&#39;s turn");
+    expect(organiser.html).not.toContain("Opponent&#39;s Turn");
     expect(organiser.html).toContain("End this turn (override)"); // the organiser's way in, in the admin panel
     expect(mine.html).toContain('class="tt-rail-end"'); // the active coach's enabled rail button
     expect(mine.html).toContain('<span class="tt-rail-turn">TURN 3</span>'); // the big turn mark, no team name in the sub-line
@@ -1806,7 +1879,7 @@ describe("tabletop routes (server-rendered)", () => {
     // the other coach sees the same countdown dimmed with "<Team> to play"
     const other = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("away", 3, { turnTimer: { mode: "on", seconds: 120 }, turnStartedAt: S0 - 100_000, serverNow: S0 }) });
     expect(other.html).toMatch(/class="tt-towait"[\s\S]*role="timer">0:(19|20)</);
-    expect(other.html).toContain("Opponent&#39;s turn");
+    expect(other.html).toContain("Opponent&#39;s Turn");
     expect(other.html).not.toContain('class="tt-endturn"');
     // timer off keeps the plain End Turn label
     const off = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) });

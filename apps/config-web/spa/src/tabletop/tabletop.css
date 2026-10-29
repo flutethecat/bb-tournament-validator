@@ -87,6 +87,12 @@
 .tt-big-td { background: color-mix(in srgb, var(--tt-home) 70%, var(--tt-btn)); }
 .tt-big-cas { background: color-mix(in srgb, var(--tt-away) 70%, var(--tt-btn)); }
 .tt-big:active { transform: translate(1px, 1px); }
+.tt-big .tt-glyph { width: 36px; height: 36px; }
+.tt-big .tt-glyph-text { font-size: 36px; width: auto; height: auto; }
+.tt-big-injury { background: color-mix(in srgb, var(--ui-warn, #f0a020) 80%, var(--tt-btn)); color: var(--ui-text-on-primary, #ffffff); }
+.tt-big-other { grid-column: 1 / -1; }
+/* phone-only pieces (shown by the max-width: 759px block at the end of this file) */
+.tt-stripbar-lead, .tt-stripbar-btn, .tt-hero-admin, .tt-big-dots { display: none; }
 
 /* popups */
 .tt-modal { position: fixed; inset: 0; z-index: 70; display: flex; align-items: flex-end; justify-content: center; background: rgb(0 0 0 / 0.55); }
@@ -326,7 +332,8 @@
 
 /* desktop: the TD / Other / CAS bar is a compact 64 px row (icon and label inline); the feed keeps the rest of the height */
 @media (min-width: 760px) {
-  .tt-actions-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; height: 64px; padding: 8px max(16px, calc((100% - 960px) / 2)); align-items: stretch; }
+  .tt-actions-bar { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; height: 64px; padding: 8px max(16px, calc((100% - 960px) / 2)); align-items: stretch; }
+  .tt-big-other { grid-column: auto; }
   .tt-big { flex-direction: row; gap: 10px; aspect-ratio: auto; min-height: 0; height: 100%; font-size: 1.1rem; }
   .tt-big .tt-glyph { width: 28px; height: 28px; }
   .tt-big .tt-glyph-text { font-size: 28px; width: auto; height: auto; }
@@ -1398,4 +1405,162 @@
   .tt-cr[data-rank="mega"] { --tt-rank-c: color-mix(in srgb, var(--ui-warn, #f0a020) 65%, var(--ui-scarlet, #d7141f)); } /* orange, between Super Star and Legend */
   .tt-cr[data-rank="legend"] { --tt-rank-c: var(--ui-text-on-primary, #ffffff); }
   .tt-cr[data-rank="legend"] .tt-rank { filter: drop-shadow(0 0 3px var(--ui-text-on-primary, #ffffff)); }
+}
+
+/* ======================================================================================================================================
+   PHONE (below 760 px): the 390 px "Modern Retro" frame. One scale block (--tt-* steps), one column, 16 px side gutter, no horizontal page scroll.
+   Order top to bottom: context line, compact hero (LED / weather row, crests + names + broadcast-bug score, stats strip, End Turn), strip (turn + timeline +
+   Rosters + Settings), the single-column log, then TD / CAS / INJURY as three 64 px squares with an OTHER row under them. Popups are full-width bottom sheets.
+   Everything here sits behind the breakpoint; the tablet and desktop layouts above are untouched. Tokens only: --ui-* and --tt-*.
+   ====================================================================================================================================== */
+@media (max-width: 759px) {
+  .tt-rec {
+    --tt-gutter: 16px; --tt-rule: color-mix(in srgb, var(--ui-text, #e6e9ef) 16%, transparent); --tt-led-glow: 0 0 6px rgb(215 20 31 / .7), 0 0 12px rgb(215 20 31 / .4);
+    --tt-led-h: 28px; --tt-led-w: 36px; --tt-led-fs: 13px; --tt-weather-fs: 20px; --tt-admin-h: 26px;
+    --tt-crest: 44px; --tt-team-fs: 13px; --tt-race-fs: 10px; --tt-coach-fs: 12px; --tt-cr-fs: 11px; --tt-chip: 32px; --tt-chip-img: 26px;
+    --tt-score-w: 128px; --tt-score-h: 56px; --tt-score-fs: 26px; --tt-turncell-w: 44px; --tt-turncell-small: 9px; --tt-turncell-fs: 18px;
+    --tt-stats-h: 28px; --tt-stats-fs: 11px; --tt-end-h: 48px; --tt-end-fs: 16px; --tt-end-turn-fs: 12px;
+    --tt-strip-h: 48px; --tt-strip-fs: 12px; --tt-marker: 18px; --tt-marker-icon: 10px; --tt-tap: 44px;
+    --tt-sq: 64px; --tt-sq-icon: 22px; --tt-sq-fs: 12px; --tt-other-h: 48px; --tt-bar-gap: 10px;
+    --tt-card-min: 56px; --tt-card-fs: 13px; --tt-ev-icon: 26px; --tt-ev-gap: 8px; --tt-ev-indent: 28px; --tt-spine-pad: 38px; --tt-spine-x: 22px;
+    --tt-sheet-r: 6px; --tt-sheet-h: 92dvh;
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto var(--tt-strip-h) minmax(0, 1fr) auto; overflow-x: hidden; max-width: 100vw;
+  }
+  .tt-rec > * { min-width: 0; max-width: 100%; }
+  .tt-rec > .tt-top { grid-row: 1 / 2; }
+  .tt-rec > .tt-board { grid-row: 2 / 3; }
+  .tt-rec > .tt-stripbar { grid-row: 3 / 4; }
+  .tt-rec > .tt-mid { grid-row: 4 / 5; }
+  .tt-rec > .tt-actions-bar { grid-row: 5 / 6; }
+
+  /* hero: LED / weather row, crests + names around the score, stats strip, End Turn row */
+  .tt-rec > .tt-board { grid-template-columns: minmax(0, 1fr) var(--tt-score-w) minmax(0, 1fr); grid-template-rows: auto auto auto auto; column-gap: 8px; align-items: start; padding: 4px var(--tt-gutter) 8px; border-bottom: 1px solid var(--tt-rule); }
+  .tt-rec .tt-centre { display: contents; }
+  .tt-rec .tt-turns { grid-column: 1 / -1; grid-row: 1; display: grid; grid-template-columns: minmax(0, 1fr) var(--tt-score-w) minmax(0, 1fr); column-gap: 8px; align-items: center; min-height: var(--tt-led-h); padding: 0; background: none; }
+  .tt-rec .tt-half, .tt-rec .tt-clock, .tt-rec .tt-top-pair, .tt-rec .tt-weather, .tt-rec .tt-counters, .tt-rec .tt-fans-pill { display: none; }
+  /* the 1-16 LED track collapses to the current turn LED (the active team's); the counts live in the stats strip */
+  .tt-rec .tt-track { display: flex; max-width: none; width: auto; }
+  .tt-rec .tt-track.home { grid-column: 1; grid-row: 1; justify-self: end; }
+  .tt-rec .tt-track.away { grid-column: 3; grid-row: 1; justify-self: start; }
+  .tt-rec .tt-track .tt-cell:not([data-state="active"]) { display: none; }
+  .tt-rec .tt-track .tt-cell[data-state="active"] { display: flex; align-items: center; justify-content: center; width: var(--tt-led-w); height: var(--tt-led-h); padding: 0; font-size: var(--tt-led-fs); border-radius: 2px; }
+  .tt-rec .tt-turns > .tt-weather-cell { grid-column: 2; grid-row: 1; position: relative; display: inline-flex; align-items: center; justify-content: center; justify-self: center; width: auto; min-width: 0; min-height: 0; padding: 0; font-size: var(--tt-weather-fs); line-height: 1; background: none; border: 0; box-shadow: none; color: inherit; cursor: default; }
+  .tt-rec .tt-turns > button.tt-weather-cell { cursor: pointer; }
+  .tt-rec .tt-turns > button.tt-weather-cell::before { content: ""; position: absolute; inset: -8px -12px; }
+  .tt-rec .tt-hero-admin { grid-column: 1; grid-row: 1; z-index: 2; position: relative; display: inline-flex; align-items: center; justify-content: center; justify-self: start; height: var(--tt-admin-h); padding: 0 10px; font-family: var(--font-heading, sans-serif); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ui-admin, #ffd23d); background: rgb(0 0 0 / .55); border: 1px solid var(--ui-admin, #ffd23d); border-radius: 3px; cursor: pointer; }
+  .tt-rec .tt-hero-admin::before { content: ""; position: absolute; inset: -9px -4px; }
+
+  .tt-rec .tt-corner.home, .tt-rec .tt-corner.away { grid-row: 2; align-items: center; justify-content: flex-start; text-align: center; height: auto; min-height: 0; padding: 2px 0 0; gap: 3px; overflow: hidden; }
+  .tt-rec .tt-corner.home { grid-column: 1; }
+  .tt-rec .tt-corner.away { grid-column: 3; }
+  .tt-rec .tt-crestcol, .tt-rec .tt-namegroup { display: contents; }
+  .tt-rec .tt-corner-top, .tt-rec .tt-corner.away .tt-corner-top { width: auto; min-height: 0; justify-content: center; }
+  .tt-rec .tt-crest-frame { padding: 3px; border-radius: 4px; }
+  .tt-rec .tt-crest { width: var(--tt-crest); height: var(--tt-crest); }
+  .tt-rec .tt-corner .tt-team { font-size: var(--tt-team-fs); text-align: center; max-width: 100%; }
+  .tt-rec .tt-corner .tt-namegroup > .tt-race.tt-nameline { display: block; margin: 0; max-width: 100%; font-size: var(--tt-race-fs); line-height: 1.1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tt-rec .tt-corner .tt-coachline, .tt-rec .tt-corner.away .tt-coachline { flex-direction: column; flex-wrap: nowrap; align-items: center; justify-content: center; gap: 1px; width: 100%; margin: 0; padding: 0; }
+  .tt-rec .tt-corner .tt-coachline > .tt-coach { max-width: 100%; font-family: var(--font-heading, sans-serif); font-size: var(--tt-coach-fs); font-weight: 400; letter-spacing: .06em; color: var(--ui-coach-led, #4cff6a); text-shadow: var(--tt-name-shadow), 0 0 6px rgb(76 255 106 / .45); }
+  .tt-rec .tt-coach-cr { font-size: var(--tt-cr-fs); }
+  /* the inducement tray scrolls sideways inside its own box; the page never does */
+  .tt-rec .tt-corner .tt-coachline .tt-chips, .tt-rec .tt-corner.home .tt-coachline .tt-chips, .tt-rec .tt-corner.away .tt-coachline .tt-chips { display: flex; flex-wrap: nowrap; justify-content: flex-start; gap: 6px; width: 100%; max-width: 100%; min-width: 0; margin: 0; padding: 8px 8px 2px 4px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; direction: ltr; }
+  .tt-rec .tt-corner .tt-coachline .tt-chips::-webkit-scrollbar { display: none; }
+  .tt-rec .tt-corner .tt-coachline .tt-chips:empty { display: none; }
+  .tt-rec .tt-corner .tt-coachline .tt-chips li { flex: none; width: var(--tt-chip); height: var(--tt-chip); }
+  .tt-rec .tt-corner .tt-coachline .tt-chips li:first-child { margin-left: auto; }
+  .tt-rec .tt-corner .tt-coachline .tt-chips li:last-child { margin-right: auto; }
+  .tt-rec .tt-corner .tt-coachline .tt-chip-img { width: var(--tt-chip-img); height: var(--tt-chip-img); }
+
+  /* score row: the broadcast bug (home fill | TURN cell | away fill), Nuffle digits with the hard 3 px shadow */
+  .tt-rec .tt-score { grid-column: 2; grid-row: 2; align-self: center; justify-self: stretch; display: grid; grid-template-columns: minmax(0, 1fr) var(--tt-turncell-w) minmax(0, 1fr); grid-template-rows: 1fr; align-items: stretch; width: 100%; height: var(--tt-score-h); min-height: 0; margin: 0; padding: 0; overflow: hidden; border-radius: 4px; font-family: var(--font-heading, sans-serif); font-size: var(--tt-score-fs); color: var(--ui-text-on-primary, #ffffff); text-shadow: 3px 3px 0 #000; letter-spacing: .02em; line-height: 1; text-align: center; box-shadow: inset 0 1px 0 rgb(255 255 255 / .16); }
+  .tt-rec .tt-score > span:nth-child(1), .tt-rec .tt-score > span:nth-child(3), .tt-rec .tt-score-turn { grid-row: 1; display: grid; place-items: center; align-self: stretch; height: 100%; min-width: 0; }
+  .tt-rec .tt-score > span:nth-child(1) { grid-column: 1; background: linear-gradient(90deg, color-mix(in srgb, var(--ui-info, #4a86c8) 70%, #000), color-mix(in srgb, var(--ui-info, #4a86c8) 35%, #000)); }
+  .tt-rec .tt-score > span:nth-child(3) { grid-column: 3; background: linear-gradient(270deg, color-mix(in srgb, var(--ui-danger, #ff4d4d) 70%, #000), color-mix(in srgb, var(--ui-danger, #ff4d4d) 35%, #000)); }
+  .tt-rec .tt-score-colon { display: none; }
+  .tt-rec .tt-score-turn { grid-column: 2; place-content: center; gap: 2px; background: color-mix(in srgb, #000 78%, var(--ui-surface, #0d0d0d)); line-height: 1.1; }
+  .tt-rec .tt-score-turn small { font-size: var(--tt-turncell-small); letter-spacing: .06em; color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-name-shadow); }
+  .tt-rec .tt-score-turn b { font-size: var(--tt-turncell-fs); font-weight: 400; color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--tt-name-shadow); }
+  .tt-rec .tt-stats { grid-column: 1 / -1; grid-row: 3; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; height: var(--tt-stats-h); margin-top: 6px; padding: 0 8px; text-align: center; background: color-mix(in srgb, #000 70%, var(--ui-surface, #0d0d0d)); border: 1px solid var(--tt-rule); border-radius: 4px; font-family: var(--font-heading, sans-serif); font-size: var(--tt-stats-fs); letter-spacing: .06em; color: var(--ui-text, #e6e9ef); text-shadow: var(--tt-name-shadow); white-space: nowrap; }
+  .tt-rec .tt-stats > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .tt-rec .tt-stats b { font-weight: 400; }
+  .tt-rec .tt-stats-home b { color: var(--ui-info, #4a86c8); }
+  .tt-rec .tt-stats-away b { color: var(--ui-danger, #ff4d4d); }
+  .tt-rec .tt-stats-half { color: var(--ui-text, #e6e9ef); text-transform: uppercase; }
+
+  /* End Turn: scarlet, full width; "Opponent's Turn" off turn, "<COACH>'S TURN / TURN N" for onlookers */
+  .tt-rec .tt-endturn, .tt-rec .tt-towait { grid-column: 1 / -1; grid-row: 4; width: 100%; height: var(--tt-end-h); min-height: var(--tt-end-h); margin: 8px 0 0; flex: none; flex-direction: row; gap: 12px; padding: 0 12px; white-space: nowrap; }
+  .tt-rec .tt-endturn b, .tt-rec .tt-towait b { font-size: var(--tt-end-fs); letter-spacing: .06em; }
+  .tt-rec .tt-endturn small, .tt-rec .tt-towait small, .tt-rec .tt-turnmark { font-size: var(--tt-end-turn-fs); }
+  .tt-rec .tt-endturn { background-color: var(--ui-scarlet, var(--tt-accent)); color: var(--ui-scarlet-contrast, var(--tt-on-accent)); border-color: rgb(0 0 0 / .6); }
+  .tt-rec .tt-towait { opacity: 1; background-color: var(--tt-panel); color: var(--tt-ink); border: 1px solid var(--tt-line); border-radius: 3px; }
+  .tt-rec .tt-endturn-time { font-size: 1.4rem; }
+
+  /* the strip: turn line, timeline (sideways scroll inside it), Rosters, Settings */
+  .tt-rec > .tt-stripbar { display: flex; align-items: center; gap: 8px; height: var(--tt-strip-h); padding: 0 var(--tt-gutter); overflow: hidden; background: var(--tt-panel); border-bottom: 1px solid var(--tt-rule); font-size: var(--tt-strip-fs); color: var(--ui-text, #e6e9ef); }
+  .tt-rec .tt-stripbar-lead { display: inline; flex: none; margin-right: auto; font-weight: 600; white-space: nowrap; }
+  .tt-rec .tt-stripbar-end { display: none; }
+  .tt-rec .tt-stripbar .tt-tl { position: static; display: flex; align-items: center; flex: 1 1 auto; min-width: 0; height: calc(var(--tt-strip-h) - 4px); padding: 0 4px; background: none; border: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+  .tt-rec .tt-stripbar .tt-tl-line { height: 100%; gap: 0; min-width: 100%; margin: 0; }
+  .tt-rec .tt-stripbar .tt-tl-line::before { height: 2px; background: var(--tt-rule); }
+  .tt-rec .tt-stripbar .tt-tl-item { flex: 1 0 calc(var(--tt-marker) + 6px); min-width: calc(var(--tt-marker) + 6px); height: 100%; padding: 2px 0; }
+  .tt-rec .tt-stripbar .tt-tl-item[data-lane="home"] { align-items: flex-start; }
+  .tt-rec .tt-stripbar .tt-tl-item[data-lane="away"] { align-items: flex-end; }
+  .tt-rec .tt-stripbar .tt-tl-end { display: flex; align-items: center; justify-content: center; height: 100%; width: 18px; margin: 0; font-size: 12px; background: none; }
+  .tt-rec .tt-stripbar .tt-tl-mark { width: var(--tt-marker); height: var(--tt-marker); border-width: 2px; background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 80%, #000); }
+  .tt-rec .tt-stripbar .tt-tl-mark::before { inset: -13px -3px; }
+  .tt-rec .tt-stripbar .tt-tl-mark .tt-glyph { width: var(--tt-marker-icon); height: var(--tt-marker-icon); }
+  .tt-rec .tt-stripbar .tt-tl-mark .tt-glyph-text { font-size: var(--tt-marker-icon); width: auto; height: auto; }
+  .tt-rec .tt-feed > .tt-tl { display: none; } /* the strip carries the timeline on a phone */
+  .tt-rec .tt-stripbar-btn { display: inline-flex; flex: none; align-items: center; justify-content: center; min-width: var(--tt-tap); min-height: var(--tt-tap); padding: 0 10px; font-family: var(--font-heading, sans-serif); font-size: var(--tt-strip-fs); letter-spacing: .06em; color: var(--tt-btn-ink); background: var(--tt-btn); border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; box-shadow: var(--tt-bevel); text-shadow: var(--tt-btn-text-shadow); cursor: pointer; transition: transform .06s ease; }
+  .tt-rec .tt-stripbar-btn:active { box-shadow: var(--tt-bevel-down); transform: translateY(2px); }
+  .tt-rec .tt-stripbar-cog { padding: 0; font-size: 18px; }
+
+  /* weather + stadium line under the strip: compact */
+  .tt-rec .tt-wbar { gap: 8px; padding: 6px var(--tt-gutter); }
+  .tt-rec .tt-wbar-icon { font-size: 20px; }
+
+  /* the single-column log: the spine on the left, home cards left-aligned, away cards right-aligned, both-team lines full width */
+  .tt-rec .tt-events { --tt-icon: var(--tt-ev-icon); position: relative; display: grid; gap: var(--tt-ev-gap); padding: 12px var(--tt-gutter) 12px var(--tt-spine-pad); max-width: none; margin-inline: 0; }
+  .tt-rec .tt-events[data-compact="true"] { gap: 4px; }
+  .tt-rec .tt-events::before { content: ""; position: absolute; left: var(--tt-spine-x); top: 0; bottom: 0; width: 2px; background: color-mix(in srgb, var(--tt-red) 70%, transparent); transform: translateX(-1px); }
+  .tt-rec .tt-feed > * { max-width: none; }
+  .tt-rec .tt-ev { flex-wrap: wrap; min-height: var(--tt-card-min); font-size: var(--tt-card-fs); }
+  .tt-rec .tt-ev[data-row-side="home"] { margin: 0 var(--tt-ev-indent) 0 0; --tt-ev-shift: 0px; }
+  .tt-rec .tt-ev[data-row-side="away"] { margin: 0 0 0 var(--tt-ev-indent); --tt-ev-shift: var(--tt-ev-indent); text-align: right; }
+  .tt-rec .tt-ev[data-row-side="neutral"] { margin: 0; }
+  .tt-rec .tt-ev[data-row-side="away"] .tt-ev-text, .tt-rec .tt-ev[data-row-side="away"] .tt-time { text-align: right; }
+  .tt-rec .tt-ev[data-row-side="away"] .tt-ev-who { order: 0; }
+  .tt-rec .tt-ev[data-row-side="away"] .tt-ev-text { order: 1; }
+  .tt-rec .tt-ev[data-row-side="away"] .tt-ev-icon { order: 2; margin: 0 0 0 8px; }
+  .tt-rec .tt-ev[data-row-side="away"] .tt-trash { order: 3; }
+  .tt-rec .tt-ev[data-row-side="away"] .tt-ev-mark { left: auto; right: -1px; border-radius: 0 var(--tt-radius) 0 var(--tt-radius); }
+  .tt-rec .tt-ev[data-row-side="home"]::after, .tt-rec .tt-ev[data-row-side="away"]::after { content: ""; position: absolute; top: 50%; left: calc(var(--tt-spine-x) - var(--tt-spine-pad) - var(--tt-ev-shift, 0px) - 5px); width: 10px; height: 10px; margin-top: -5px; box-sizing: border-box; border-radius: 50%; background: var(--tt-red); border: 2px solid var(--ui-surface, #0d0d0d); }
+  .tt-rec .tt-ev--victim::after { display: none; }
+
+  /* popups: full-width bottom sheets with the red X top-right (the sticky sheet head) */
+  .tt-rec .tt-modal-box, .tt-rec .tt-sheet, .tt-rec .tt-rosters:not(.tt-rosters-embed), .tt-rec .tt-other-box {
+    left: 0; right: 0; width: 100%; max-width: 100%; margin: 0; transform: none; box-sizing: border-box; max-height: var(--tt-sheet-h); overflow-x: hidden;
+    padding: 12px var(--tt-gutter) calc(16px + env(safe-area-inset-bottom, 0px)); border-radius: var(--tt-sheet-r) var(--tt-sheet-r) 0 0; border-bottom: 0;
+  }
+  .tt-rec .tt-sheet { bottom: 0; }
+  .tt-rec .tt-x { width: var(--tt-tap); height: var(--tt-tap); }
+  .tt-rec .tt-rosters .tt-roster-tab { min-width: 0; padding: 8px 10px 10px; }
+  .tt-rec .tt-ind { overflow-x: auto; }
+  .tt-rec .tt-other { gap: 10px; }
+  .tt-rec .tt-other-btn { min-width: 0; }
+
+  /* TD / CAS / INJURY: three 64 px squares across; OTHER is a 48 px row under them that opens the Other grid sheet */
+  .tt-rec > .tt-actions-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--tt-bar-gap); height: auto; padding: 10px var(--tt-gutter) calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--tt-panel); border-top: 1px solid var(--tt-rule); }
+  .tt-rec .tt-big { flex-direction: column; aspect-ratio: auto; height: var(--tt-sq); min-height: var(--tt-sq); gap: 4px; padding: 0; font-family: var(--font-heading, sans-serif); font-size: var(--tt-sq-fs); letter-spacing: .06em; text-transform: uppercase; }
+  .tt-rec .tt-big .tt-glyph { width: var(--tt-sq-icon); height: var(--tt-sq-icon); }
+  .tt-rec .tt-big .tt-glyph-text { font-size: var(--tt-sq-icon); width: auto; height: auto; }
+  .tt-rec .tt-big-other { grid-column: 1 / -1; flex-direction: row; gap: 10px; height: var(--tt-other-h); min-height: var(--tt-other-h); }
+  .tt-rec .tt-big-dots { display: inline; font-size: var(--tt-sq-icon); line-height: 1; }
+
+  /* the portrait card on a phone: a tap-and-hold (450 ms) opens it, so the held element must not select text or raise the system callout */
+  .tt-rec [data-pcard] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  .tt-pcard { width: min(22em, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
+}
+@media (max-width: 759px) and (prefers-reduced-motion: reduce) {
+  .tt-rec .tt-stripbar-btn { transition: none; }
 }

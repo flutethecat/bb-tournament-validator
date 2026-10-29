@@ -38,7 +38,7 @@ const nafLine = (s: Side): string => {
   return `NAF ${typeof n.glicko === "number" ? `${Math.round(n.glicko)} \u00b7 ` : ""}${n.games} GAME${n.games === 1 ? "" : "S"}`;
 };
 const crTip = (s: Side): string => `Coach rating ${crOf(s)?.cr} \u00b7 ${crOf(s)?.rank}${crOf(s)?.pct ? ` · top ${crOf(s)?.pct}%` : ""} (${crOf(s)?.games ?? 0} game${crOf(s)?.games === 1 ? "" : "s"})${crOf(s)?.naf?.games ? ` · ${crOf(s)?.naf?.games} NAF game${crOf(s)?.naf?.games === 1 ? "" : "s"}` : ""}`;
-const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters", side?: Side): void; (e: "settings"): void; (e: "weather"): void }>();
+const emit = defineEmits<{ (e: "endTurn"): void; (e: "startTurn"): void; (e: "rosters", side?: Side): void; (e: "settings"): void; (e: "weather"): void; (e: "admin"): void }>();
 
 // Desktop chip tray: two rows at most; the layout follows the viewport width (1400 until mounted, so server renders are stable).
 const vw = ref(1400);
@@ -86,8 +86,8 @@ const line = computed(() => turnLine(props.clock?.half, props.clock?.turn));
 // Only the active team's coach gets the button; an organiser sees the disabled "to play" state (override lives in Quick).
 const mode = computed(() => centreMode(props.clock, props.localSide, false, props.canAct));
 const activeName = computed(() => (props.clock?.activeTeam ? props.match[props.clock.activeTeam].teamName : ""));
-/** Off turn: a coach in the match sees "Opponent's turn"; an organiser or onlooker outside it sees which team is to play. */
-const waitLabel = computed(() => (props.localSide !== null ? "Opponent's turn" : props.clock?.activeTeam ? `${possessive(props.match[props.clock.activeTeam].coach)} turn` : "Waiting"));
+/** Off turn: a coach in the match sees "Opponent's Turn"; an organiser or onlooker outside it sees which team is to play. */
+const waitLabel = computed(() => (props.localSide !== null ? "Opponent's Turn" : props.clock?.activeTeam ? `${possessive(props.match[props.clock.activeTeam].coach)} Turn` : "Waiting"));
 const timed = computed(() => props.remaining !== undefined && props.clock?.turnTimer?.mode === "on");
 const countdown = computed(() => (props.remaining === undefined ? "-:--" : formatTimer(props.remaining)));
 /** How much of the turn is left, as a percentage: the button background drains with it. */
@@ -178,6 +178,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
       </div>
     </section>
     <section class="tt-centre">
+      <button v-if="organiser" class="tt-hero-admin" type="button" aria-label="Open the admin panel" data-tip="Admin panel" data-tip-pos="bottom" @click="emit('admin')">Admin</button>
       <div class="tt-top-pair">
         <button class="tt-rosters-btn" type="button" aria-label="Rosters" data-tip="Rosters" data-tip-pos="bottom" @click="emit('rosters')">
           <img class="tt-glyph" :src="uiIcon('football-helmet')" alt="" /><span>Rosters</span>

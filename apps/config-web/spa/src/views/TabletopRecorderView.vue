@@ -25,13 +25,13 @@ import TabletopWeatherBar from "../components/TabletopWeatherBar.vue";
 import { canEditMatch, createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
 import { SESSION_KEY } from "../session";
 import { THEME_KEY } from "../theme";
-import { createCueTracker, timerOn, timerRemaining } from "../tabletop/clock";
+import { createCueTracker, halfLabel, timerOn, timerRemaining, turnLine } from "../tabletop/clock";
 import { createCuePlayer } from "../tabletop/sounds";
 import TabletopGlyph from "../components/TabletopGlyph.vue";
 import TabletopContextBar from "../components/TabletopContextBar.vue";
 import TabletopPlayerCard from "../components/TabletopPlayerCard.vue";
 import { CARD_DELAY_MS, CARD_HOLD_MS, parseCardKey, placeCard } from "../tabletop/playerCard";
-import { playerLabel, OTHER_EVENTS, CAS_EVENT, CASUALTY_RESULTS_UI, ELIGIBILITY_KEY, eligiblePlayers, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, visibleSidesFor, type OtherEvent } from "../tabletop/feed";
+import { playerLabel, OTHER_EVENTS, CAS_EVENT, CASUALTY_RESULTS_UI, ELIGIBILITY_KEY, eligiblePlayers, EVENT_GLYPHS, feedRows, INJURY_EVENT, pregameStep, TD_EVENT, visibleSidesFor, type OtherEvent } from "../tabletop/feed";
 import { browserStorage } from "../tabletop/queue";
 import { createRecorder, RECORDER_KEY, type RosterPlayerView, type Side, type SummaryView } from "../tabletop/recorder";
 
@@ -298,6 +298,8 @@ function overrideEnd(): void {
 const showRemoved = computed(() => (organiser.value && mySide.value === null) || viewer.state.showRemoved);
 const shownRows = computed(() => (showRemoved.value ? rows.value : rows.value.filter((r) => r.removed === null)));
 const adminOpen = ref(false);
+/** The phone strip's lead: the half and the match turn ("1st half · TURN 3"), nothing without a clock. */
+const stripLead = computed(() => (state.clock ? `${halfLabel(state.clock.half)} · ${turnLine(state.clock.half, state.clock.turn)}` : ""));
 /** The rail's admin panel can be collapsed to a Show button; the choice is remembered on this device. */
 const ADMIN_HIDDEN_KEY = "cw.tt.adminHidden";
 const adminHidden = ref((() => { try { return globalThis.localStorage?.getItem(ADMIN_HIDDEN_KEY) === "1"; } catch { return false; } })());
@@ -352,7 +354,7 @@ onBeforeUnmount(() => {
     <RouterLink to="/tabletop">Back to Tabletop</RouterLink>
   </section>
   <p v-else-if="!match" class="muted">Loading...</p>
-  <div v-else class="tt-rec" :data-tt-theme="theme" @pointerover="onTipOver($event); onCardOver($event)" @pointerout="tipClear(); onCardOut($event)" @pointerdown="onTipTouch($event); onCardTouch($event)" @pointerup="pcardCancel()" @focusin="onTipFocus($event); onCardFocus($event)" @focusout="tipClear(); pcardClose()">
+  <div v-else class="tt-rec" :data-tt-theme="theme" @pointerover="onTipOver($event); onCardOver($event)" @pointerout="tipClear(); onCardOut($event)" @pointerdown="onTipTouch($event); onCardTouch($event)" @pointerup="pcardCancel()" @pointercancel="pcardCancel()" @focusin="onTipFocus($event); onCardFocus($event)" @focusout="tipClear(); pcardClose()">
     <div class="tt-top">
     <div class="tt-crumbs">
       <span class="tt-crumb-brand">Super FUMBBL</span>
@@ -368,12 +370,15 @@ onBeforeUnmount(() => {
     <TabletopScoreboard
       :match="match" :teams="state.teams" :tally="state.tally" :events="state.events" :pregame="state.pregame"
       :clock="state.clock" :remaining="remaining" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy" :inducement-icons="state.inducementIcons" :coach-rating="state.coachRating" :initial-side="rostersSide" :art="state.art"
-      @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @rosters="openRosters" @weather="openPick(WEATHER_EVENT)" @settings="settingsOpen = true"
+      @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @rosters="openRosters" @weather="openPick(WEATHER_EVENT)" @settings="settingsOpen = true" @admin="adminOpen = true"
     />
 
     <div class="tt-stripbar">
+      <span class="tt-stripbar-lead">{{ stripLead }}</span>
       <TabletopTimeline :rows="shownRows" :new-ids="newIds" />
       <span class="tt-stripbar-end">Final</span>
+      <button class="tt-stripbar-btn" type="button" data-tip="Both rosters, skills and SPP" data-tip-pos="bottom" @click="openRosters()">Rosters</button>
+      <button class="tt-stripbar-btn tt-stripbar-cog" type="button" aria-label="Settings" data-tip="Settings" data-tip-pos="bottom" @click="settingsOpen = true">&#9881;</button>
     </div>
 
     <div class="tt-mid">
@@ -457,9 +462,10 @@ onBeforeUnmount(() => {
     </TabletopRail>
 
     <nav v-if="recording" class="tt-actions-bar" aria-label="Record an event">
-      <button class="tt-big tt-big-td" type="button" data-tip="Record a touchdown" @click="viewer.buzz(); openPick(TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" :size="36" /><span>TD</span></button>
-      <button class="tt-big tt-big-other" type="button" data-tip="More events" @click="viewer.buzz(); other = true"><span>Other</span></button>
-      <button class="tt-big tt-big-cas" type="button" data-tip="Record a casualty" @click="viewer.buzz(); openPick(CAS_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.casualty" :size="36" /><span>CAS</span></button>
+      <button class="tt-big tt-big-td" type="button" data-tip="Record a touchdown" @click="viewer.buzz(); openPick(TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" /><span>TD</span></button>
+      <button class="tt-big tt-big-cas" type="button" data-tip="Record a casualty" @click="viewer.buzz(); openPick(CAS_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.casualty" /><span>CAS</span></button>
+      <button class="tt-big tt-big-injury" type="button" data-tip="Record an injury with no player to credit" @click="viewer.buzz(); openPick(INJURY_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.injury" /><span>Injury</span></button>
+      <button class="tt-big tt-big-other" type="button" data-tip="More events" @click="viewer.buzz(); other = true"><span class="tt-big-dots" aria-hidden="true">&#8943;</span><span>Other</span></button>
     </nav>
 
     <TabletopPlayerCard v-if="pcard.show && pcardView" :player="pcardView.player" :side="pcardView.side" :line="pcardView.line" :obscured="pcardView.obscured" :x="pcard.x" :y="pcard.y" />
