@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
+import { notificationAge } from "../spa/src/home/notifications";
 import { browserTimeZone, CHIP_CLASS, chipFor, formatWhen, timeLeft } from "../spa/src/home/deadlines";
 import { blocksProblem, byDay, createScheduleEditor, MAX_BLOCKS, timeZoneOptions } from "../spa/src/home/schedule";
 import { createCoachTree, MAX_FINISHED_TOURNAMENTS, openFixture, pickActive, TREE_REFRESH_MS, tournamentStatus, validityChip } from "../spa/src/home/tree";
@@ -354,17 +355,18 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     };
     createMemoryHistory: (base?: string) => unknown;
     renderToString: (app: unknown) => Promise<string>;
-    bell: unknown; notif: { useNotifications: (f: Fetcher) => { load(): Promise<void> }; NOTIFICATIONS_KEY: symbol }; sess: { SESSION_KEY: symbol };
+    bell: unknown; ctl: { createBell: (d: never, open?: boolean) => any }; shell: { CLOCK_KEY: symbol; createClock: typeof createClock }; notif: { useNotifications: (f: Fetcher) => { load(): Promise<void> }; NOTIFICATIONS_KEY: symbol }; sess: { SESSION_KEY: symbol };
   };
 
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, bell, notif, sess] = await Promise.all([
+    const [app, vueRouter, renderer, bell, notif, sess, ctl, shell] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"), vite.ssrLoadModule("vue-router"), vite.ssrLoadModule("vue/server-renderer"),
       vite.ssrLoadModule("/src/components/BellPopover.vue"), vite.ssrLoadModule("/src/home/notifications.ts"), vite.ssrLoadModule("/src/session.ts"),
+      vite.ssrLoadModule("/src/home/bell.ts"), vite.ssrLoadModule("/src/home/shell.ts"),
     ]);
-    mods = { createSpa: app.createSpa, createMemoryHistory: vueRouter.createMemoryHistory, renderToString: renderer.renderToString, bell: bell.default, notif: notif as never, sess: sess as never };
+    mods = { createSpa: app.createSpa, createMemoryHistory: vueRouter.createMemoryHistory, renderToString: renderer.renderToString, bell: bell.default, notif: notif as never, sess: sess as never, ctl: ctl as never, shell: shell as never };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -408,6 +410,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     app.use(spa.router as never);
     app.provide(mods.notif.NOTIFICATIONS_KEY, store);
     app.provide(mods.sess.SESSION_KEY, spa.session);
+    app.provide(mods.shell.CLOCK_KEY, spa.clock);
     return { html: await mods.renderToString(app), f };
   }
   const nrow = (n: number, extra: Record<string, unknown> = {}) => ({
@@ -435,14 +438,75 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(html).not.toContain("Nothing to read!");
   });
 
-  it("bell popover: Mark all read posts to the store", async () => {
-    const { html } = await renderBell([nrow(1)], 1);
-    expect(html).toMatch(/<button type="button" class="nf-btn">Mark all read<\/button>/);
-    const f = mockFetcher({ "/api/me/notifications?limit=50": { notifications: [nrow(1)], unread: 1 }, "POST /api/me/notifications/read": { marked: 1, unread: 0 } });
-    const store = mods.notif.useNotifications(f) as unknown as { load(): Promise<void>; markAllRead(): Promise<void>; unread: { value: number } };
+  // The popover's handlers are the controller's (home/bell.ts); the markup binds them directly, so these drive the
+  // controller with the same store the component renders. (The suite has no DOM; the markup itself is covered above.)
+  async function bellFor(rows: unknown[], unread: number, opts: { writable?: boolean; open?: boolean; now?: () => number | undefined } = {}) {
+    const f = mockFetcher({
+      "/api/me/notifications?limit=50": { notifications: rows, unread },
+      "POST /api/me/notifications/read": (body: unknown) => ({ marked: unread, unread: (body as { all?: boolean }).all ? 0 : unread - 1 }),
+    });
+    const store = mods.notif.useNotifications(f) as unknown as { load(): Promise<void>; loaded: { value: boolean }; unread: { value: number } };
     await store.load();
-    await store.markAllRead();
+    let t = Date.parse("2026-10-29T12:00:00Z");
+    const ticks: Array<() => void> = [];
+    const clock = mods.shell.createClock({ now: () => t, setInterval: (fn) => { ticks.push(fn); return 1; }, clearInterval: () => undefined });
+    clock.acquire(); // the mounted bell holds the tick (useNow)
+    const events: string[] = [];
+    const pushed: string[] = [];
+    const bell = mods.ctl.createBell({
+      store, writable: () => opts.writable ?? true, push: (path: string) => pushed.push(path), focusBell: () => events.push("focus-bell"), clock, now: opts.now,
+    } as never, opts.open ?? true);
+    return { bell, store, f, events, pushed, clock, advance: (ms: number) => { t += ms; ticks.forEach((fn) => fn()); } };
+  }
+  const click = (over: Record<string, unknown> = {}) => ({ defaultPrevented: false, button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, preventDefault() { this.defaultPrevented = true; }, ...over });
+
+  it("bell popover: the Mark all read handler posts all:true and the unread count drops to 0", async () => {
+    const { html } = await renderBell([nrow(1), nrow(2)], 2);
+    expect(html).toMatch(/<button type="button" class="nf-btn">Mark all read<\/button>/);
+    const { bell, store, f } = await bellFor([nrow(1), nrow(2)], 2);
+    expect(store.unread.value).toBe(2);
+    await bell.markAll();
     expect(f.calls.at(-1)).toMatchObject({ path: "/api/me/notifications/read", method: "POST", body: { all: true } });
+    expect(store.unread.value).toBe(0);
+  });
+
+  it("bell popover: every close returns focus to the bell, except an outside press on another focusable control", async () => {
+    const row = nrow(1);
+    // choosing a row (the focused row is removed with the popover)
+    let c = await bellFor([row], 1);
+    c.bell.choose(row, click());
+    expect(c.bell.open.value).toBe(false);
+    expect(c.events).toEqual(["focus-bell"]);
+    expect(c.pushed).toEqual(["/home"]);
+    // Escape / All notifications / route change all call close()
+    c = await bellFor([row], 1);
+    c.bell.close();
+    expect(c.events).toEqual(["focus-bell"]);
+    // outside press on plain page: back to the bell; on another focusable control: that control keeps focus
+    c = await bellFor([row], 1);
+    c.bell.pressOutside(false);
+    expect(c.events).toEqual(["focus-bell"]);
+    c = await bellFor([row], 1);
+    c.bell.pressOutside(true);
+    expect(c.bell.open.value).toBe(false);
+    expect(c.events).toEqual([]);
+    // the bell button toggling shut also returns focus; an already-closed popover does nothing
+    c = await bellFor([row], 1);
+    c.bell.toggle();
+    c.bell.close();
+    expect(c.events).toEqual(["focus-bell"]);
+  });
+
+  it("bell popover: ages follow the shared clock instead of freezing, and the override still pins them", async () => {
+    const at = new Date(Date.parse("2026-10-29T12:00:00Z") - 2 * 60_000).toISOString();
+    const c = await bellFor([nrow(1, { at })], 1);
+    const age = () => notificationAge(at, c.bell.nowMs());
+    expect(age()).toBe("2 min");
+    c.advance(3_600_000);
+    expect(age()).toBe("1 h");
+    const pinned = await bellFor([nrow(1, { at })], 1, { now: () => Date.parse("2026-10-29T12:05:00Z") });
+    pinned.advance(3_600_000);
+    expect(pinned.bell.nowMs()).toBe(Date.parse("2026-10-29T12:05:00Z"));
   });
 
   it("every tree row is a real link; tournament rows carry status, team, validity and fixture; counts sit on the rows", async () => {
