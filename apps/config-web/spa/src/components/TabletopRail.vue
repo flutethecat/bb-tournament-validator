@@ -14,9 +14,11 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   (e: "endTurn"): void; (e: "startTurn"): void; (e: "pick", kind: OtherEvent): void; (e: "other"): void;
-  (e: "changeTurn"): void; (e: "undoLast"): void; (e: "endMatch"): void;
+  (e: "changeTurn"): void; (e: "undoLast"): void; (e: "overrideEnd"): void; (e: "endMatch"): void;
 }>();
-const mode = computed(() => centreMode(props.clock, props.localSide, props.organiser, props.canAct));
+const mode = computed(() => centreMode(props.clock, props.localSide, false, props.canAct));
+/** An organiser may end the active team's turn for them (override), only while a turn is running and it is not their own. */
+const canOverride = computed(() => props.organiser && props.recording && mode.value === "wait" && (props.clock?.turn ?? 0) >= 1 && !!props.clock?.activeTeam);
 const label = computed(() => turnLabel(props.clock?.half, props.clock?.turn));
 const activeName = computed(() => (props.clock?.activeTeam ? props.match[props.clock.activeTeam].teamName : ""));
 const timed = computed(() => props.remaining !== undefined && props.clock?.turnTimer?.mode === "on");
@@ -56,6 +58,7 @@ const zero = computed(() => timed.value && (props.remaining as number) <= 0);
       <h3 class="tt-label">Quick</h3>
       <button v-if="canChangeTurn" class="tt-quick-btn" type="button" data-tip="Set the half, turn and active team" @click="emit('changeTurn')">Change turn</button>
       <button v-if="canUndoLast" class="tt-quick-btn" type="button" data-tip="Take back the newest event you may undo" @click="emit('undoLast')">Undo last event</button>
+      <button v-if="canOverride" class="tt-quick-btn" type="button" data-tip="Organiser: end the active team's turn for them" @click="emit('overrideEnd')">End this turn (override)</button>
       <button v-if="recording" class="tt-quick-btn tt-quick-danger" type="button" data-tip="Record the end of the match and submit it" @click="emit('endMatch')">End match</button>
     </div>
   </aside>

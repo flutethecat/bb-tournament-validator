@@ -58,7 +58,8 @@ const chips = (s: Side): Chip[] => {
 };
 // The coin result is NOT shown here (it is a feed line); weather rides the centre panel.
 const label = computed(() => turnLabel(props.clock?.half, props.clock?.turn));
-const mode = computed(() => centreMode(props.clock, props.localSide, props.organiser, props.canAct));
+// Only the active team's coach gets the button; an organiser sees the disabled "to play" state (override lives in Quick).
+const mode = computed(() => centreMode(props.clock, props.localSide, false, props.canAct));
 const activeName = computed(() => (props.clock?.activeTeam ? props.match[props.clock.activeTeam].teamName : ""));
 const timed = computed(() => props.remaining !== undefined && props.clock?.turnTimer?.mode === "on");
 const countdown = computed(() => (props.remaining === undefined ? "-:--" : formatTimer(props.remaining)));

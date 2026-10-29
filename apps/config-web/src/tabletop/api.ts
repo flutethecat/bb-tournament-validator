@@ -1124,9 +1124,11 @@ async function turnAction(
   const events = await deps.repo.readEvents(match.id);
   const clock = currentClock(match, events);
   const stale = (message: string): TabletopResult => ({ status: 409, body: { error: message, clock: clockView(match, events, deps, now()) } });
-  if (!organiser && (clock.activeTeam === null || match[clock.activeTeam].coach !== me))
-    return err(403, clock.activeTeam ? `It is ${match[clock.activeTeam].coach}'s turn.` : "The match has no turns left.");
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  // Only the active team's coach moves the clock. An organiser may step in for them with `override: true` (nobody else can send it).
+  const isActiveCoach = clock.activeTeam !== null && match[clock.activeTeam].coach === me;
+  if (!isActiveCoach && !(organiser && b.override === true))
+    return err(403, clock.activeTeam ? `It is ${match[clock.activeTeam].coach}'s turn.` : "The match has no turns left.");
   // A stale press (the turn already moved on, e.g. a double tap or a second phone) changes nothing and answers 409 with the clock.
   if (b.expectedHalf !== undefined && b.expectedHalf !== clock.half) return stale("The clock has moved on.");
   if (b.expectedTurn !== undefined && b.expectedTurn !== clock.turn) return stale("The clock has moved on.");

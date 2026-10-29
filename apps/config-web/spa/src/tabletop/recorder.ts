@@ -292,7 +292,7 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     /** Pre-game wizard step: the server rolls / records and moves the phase on. */
     advance: (body: Record<string, unknown> = {}) => act("pregame/advance", body),
     /** End Turn, guarded by the half and turn the coach saw (the server refuses a stale press). */
-    endTurn: () => act("turn/end", { expectedHalf: state.clock?.half, expectedTurn: state.clock?.turn, expectedTeam: state.clock?.activeTeam }),
+    endTurn: (override = false) => act("turn/end", { expectedHalf: state.clock?.half, expectedTurn: state.clock?.turn, expectedTeam: state.clock?.activeTeam, ...(override ? { override: true } : {}) }),
     /** "Kick-off done" at turn 0: starts the first turn of the half. */
     /** Change turn: set the clock by hand ({half, turn, activeTeam}). */
     setTurn: (body: { half: number | string; turn: number; activeTeam: Side }) => act("turn/set", body),

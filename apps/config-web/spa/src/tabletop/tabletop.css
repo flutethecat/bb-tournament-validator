@@ -172,7 +172,7 @@
 .tt-weather { font-size: 32px; line-height: 1; min-width: 36px; text-align: center; }
 /* the centre panel under the score: End Turn fills it (or who is to play) */
 .tt-endturn, .tt-towait { flex: 1 1 0; min-height: 0; width: 100%; margin: 2px 0 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; box-sizing: border-box; }
-.tt-endturn { background: var(--tt-accent); color: var(--tt-on-accent); border: 3px solid var(--tt-line); border-radius: var(--tt-radius); box-shadow: var(--tt-shadow); font: inherit; cursor: pointer; }
+.tt-endturn { background: var(--ui-scarlet, var(--tt-accent)); color: var(--ui-scarlet-contrast, var(--tt-on-accent)); border: 3px solid var(--tt-line); border-radius: var(--tt-radius); box-shadow: 0 3px 0 color-mix(in srgb, var(--ui-scarlet, var(--tt-accent)) 55%, #000); font: inherit; cursor: pointer; }
 .tt-endturn b { font-family: var(--font-heading, sans-serif); font-size: 1.15rem; }
 .tt-endturn small, .tt-towait small { font-size: 12px; }
 .tt-towait { opacity: 0.6; padding: 0 4px; }
@@ -180,7 +180,7 @@
 /* the middle region is the log, full height */
 .tt-mid { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
 /* turn-timer mode: the End Turn button IS the timer - mm:ss large, "End turn" small, a background that drains with the time */
-.tt-endturn[data-timed="true"] { --tt-fill: 100%; background: linear-gradient(90deg, var(--tt-accent) var(--tt-fill), color-mix(in srgb, var(--tt-accent) 25%, var(--tt-btn)) var(--tt-fill)); }
+.tt-endturn[data-timed="true"] { --tt-fill: 100%; background: linear-gradient(90deg, var(--ui-scarlet, var(--tt-accent)) var(--tt-fill), color-mix(in srgb, var(--ui-scarlet, var(--tt-accent)) 25%, var(--tt-btn)) var(--tt-fill)); }
 .tt-endturn[data-alert="true"] { background: linear-gradient(90deg, var(--ui-danger, #ff4d4d) var(--tt-fill), color-mix(in srgb, var(--ui-danger, #ff4d4d) 25%, var(--tt-btn)) var(--tt-fill)); }
 .tt-endturn[data-zero="true"] { animation: tt-pulse 0.8s ease-in-out infinite; }
 .tt-endturn-time { font-family: var(--font-heading, sans-serif); font-size: 2rem; line-height: 1; font-variant-numeric: tabular-nums; }
@@ -314,7 +314,7 @@
   .tt-board { grid-template-columns: minmax(0, 1fr) minmax(260px, 260px) minmax(0, 1fr); }
   .tt-centre { padding: 2px 8px; }
   .tt-endturn, .tt-towait { background-color: var(--tt-panel); opacity: 1; }
-  .tt-endturn { background-color: var(--tt-accent); }
+  .tt-endturn { background-color: var(--ui-scarlet, var(--tt-accent)); }
   .tt-crest { width: 96px; height: 96px; }
   .tt-team { font-size: 1.5rem; }
   .tt-coach { font-size: 14px; }
@@ -413,12 +413,12 @@
 
   .tt-rail { display: flex; flex-direction: column; gap: 10px; grid-column: 2; grid-row: 4; padding: 16px 28px 24px 0; min-height: 0; overflow-y: auto; }
   .tt-rail-end, .tt-rail-wait { flex: none; height: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; margin: 0; border-radius: 2px; border: 1px solid var(--tt-line); font: inherit; text-align: center; }
-  .tt-rail-end { background: var(--tt-accent); color: var(--tt-on-accent); cursor: pointer; box-shadow: 0 3px 0 color-mix(in srgb, var(--tt-accent) 55%, #000); }
+  .tt-rail-end { background: var(--ui-scarlet, var(--tt-accent)); color: var(--ui-scarlet-contrast, var(--tt-on-accent)); cursor: pointer; box-shadow: 0 3px 0 color-mix(in srgb, var(--ui-scarlet, var(--tt-accent)) 55%, #000); }
   .tt-rail-wait { background: var(--tt-panel); color: var(--tt-ink); }
   .tt-rail-label { font-family: var(--font-heading, sans-serif); font-size: 14px; letter-spacing: 1px; text-transform: uppercase; }
   .tt-rail-time { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .tt-rail small { font-size: 11px; opacity: 0.85; }
-  .tt-rail-end[data-timed="true"] { --tt-fill: 100%; background: linear-gradient(90deg, var(--tt-accent) var(--tt-fill), color-mix(in srgb, var(--tt-accent) 25%, var(--tt-btn)) var(--tt-fill)); }
+  .tt-rail-end[data-timed="true"] { --tt-fill: 100%; background: linear-gradient(90deg, var(--ui-scarlet, var(--tt-accent)) var(--tt-fill), color-mix(in srgb, var(--ui-scarlet, var(--tt-accent)) 25%, var(--tt-btn)) var(--tt-fill)); }
   .tt-rail-end[data-alert="true"] { background: linear-gradient(90deg, var(--ui-danger, #ff4d4d) var(--tt-fill), color-mix(in srgb, var(--ui-danger, #ff4d4d) 25%, var(--tt-btn)) var(--tt-fill)); }
   .tt-rail-end[data-zero="true"] { animation: tt-pulse 0.8s ease-in-out infinite; }
   .tt-rail-btns { display: grid; gap: 8px; }

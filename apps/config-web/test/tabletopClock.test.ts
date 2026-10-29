@@ -121,7 +121,8 @@ describe("match clock", () => {
     expect(c).toMatchObject({ half: 2, turn: 8, activeTeam: "home" });
     c = (await press("Alice")).clock;
     expect(c).toMatchObject({ half: 2, turn: 8, activeTeam: null });
-    const over = await turn(id, "Org", "end");
+    expect((await turn(id, "Org", "end")).status).toBe(403); // nobody is active, and an organiser needs override
+    const over = await turn(id, "Org", "end", { override: true });
     expect(over.status).toBe(409); // out of turns: post endOfMatch
     // the feed has a turnEnd per press, written by the server
     const events = ((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ type: string; payload: any }> }).events;
@@ -134,8 +135,8 @@ describe("match clock", () => {
     await turn(id, "Alice", "start");
     let c: any = await clockOf(id);
     for (let i = 0; i < 16; i += 1) c = ((await turn(id, c.activeTeam === "home" ? "Alice" : "Bob", "end")).body as { clock: any }).clock;
-    await turn(id, "Org", "start");
-    for (let i = 0; i < 16; i += 1) c = ((await turn(id, "Org", "end")).body as { clock: any }).clock;
+    await turn(id, "Org", "start", { override: true });
+    for (let i = 0; i < 16; i += 1) c = ((await turn(id, "Org", "end", { override: true })).body as { clock: any }).clock;
     expect(c).toMatchObject({ half: "OT", turn: 0, allowOvertime: true });
   });
 
@@ -144,11 +145,23 @@ describe("match clock", () => {
     await turn(id, "Alice", "start");
     const first = await turn(id, "Alice", "end", { expectedHalf: 1, expectedTurn: 1 });
     expect(first.status).toBe(200);
-    const again = await turn(id, "Org", "end", { expectedHalf: 1, expectedTurn: 1, expectedTeam: "home" }); // a second phone, same press
+    const again = await turn(id, "Org", "end", { expectedHalf: 1, expectedTurn: 1, expectedTeam: "home", override: true }); // a second phone, same press
     expect(again.status).toBe(409);
     expect(again.body).toMatchObject({ clock: { half: 1, turn: 1, activeTeam: "away" } });
     const events = ((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ type: string }> }).events;
     expect(events.filter((e) => e.type === "turnEnd")).toHaveLength(1);
+  });
+
+  it("only the active team's coach ends the turn: the other coach and an organiser without override get 403, an organiser with override 200; override from a non-organiser is refused", async () => {
+    const id = await toPlaying();
+    await turn(id, "Alice", "start"); // home plays turn 1
+    const other = await turn(id, "Bob", "end");
+    expect(other.status).toBe(403);
+    expect((other.body as { error: string }).error).toBe("It is Alice's turn.");
+    expect((await turn(id, "Org", "end")).status).toBe(403);
+    expect((await turn(id, "Bob", "end", { override: true })).status).toBe(403); // override is organiser-only
+    expect((await turn(id, "Org", "end", { override: true })).status).toBe(200);
+    expect(((await clockOf(id)) as { activeTeam: string }).activeTeam).toBe("away");
   });
 
   it("events posted without a half/turn are stamped from the clock; explicit ones are kept", async () => {

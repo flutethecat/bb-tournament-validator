@@ -201,6 +201,13 @@ function onTipTouch(e: PointerEvent): void {
   tipShow(el);
   tipHide = setTimeout(() => { tip.show = false; }, 1500);
 }
+/** An organiser ends the active team's turn for them: asks first, then posts turn/end with override. */
+function overrideEnd(): void {
+  const c = state.clock;
+  const who = c?.activeTeam && match.value ? match.value[c.activeTeam].teamName : "the active team";
+  if (typeof window !== "undefined" && !window.confirm(`End ${who}'s turn for them?`)) return;
+  void rec.endTurn(true);
+}
 const undoById = (id: string): void => { const e = state.events.find((x) => x.id === id); if (e) void rec.undo(e); };
 
 /** The match state as a feed line (nothing while recording): green, full width, like TourPlay's "Match reported". */
@@ -331,7 +338,7 @@ onBeforeUnmount(() => {
       :match="match" :clock="state.clock" :remaining="remaining" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy"
       :recording="recording" :can-change-turn="canEdit" :can-undo-last="canUndoLast"
       @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @pick="(k) => { viewer.buzz(); openPick(k); }" @other="viewer.buzz(); other = true"
-      @change-turn="turnSetOpen = true" @undo-last="lastUndoable && undoById(lastUndoable.id)" @end-match="endSheet = true"
+      @change-turn="turnSetOpen = true" @undo-last="lastUndoable && undoById(lastUndoable.id)" @end-match="endSheet = true" @override-end="overrideEnd"
     />
 
     <nav v-if="recording" class="tt-actions-bar" aria-label="Record an event">

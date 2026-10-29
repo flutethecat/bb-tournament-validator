@@ -522,6 +522,11 @@ describe("tabletop routes (server-rendered)", () => {
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
     expect(css).toMatch(/\.tt-rail-injury \{[^}]*background: var\(--ui-warn\); color: var\(--ui-warn-contrast\)/);
     expect(css).not.toContain("--tt-warn");
+    const scarlet = /--ui-scarlet:\s*(#[0-9a-f]{6})/i.exec(fixed)![1]!;
+    const scarletInk = /--ui-scarlet-contrast:\s*(#[0-9a-f]{6})/i.exec(fixed)![1]!;
+    const [sh, sl] = [lum(scarlet), lum(scarletInk)].sort((x, y) => y - x);
+    expect((sh! + 0.05) / (sl! + 0.05)).toBeGreaterThanOrEqual(4.5); // white on scarlet
+    expect(css).toMatch(/\.tt-rail-end \{[^}]*background: var\(--ui-scarlet/); // the enabled End Turn is scarlet
   });
 
   it("Rosters pane (client roster language): five stat boxes with a changed-stat mark, a categorised skill chip, a gold added-skill box, a seat-tinted name and the sprite", async () => {
@@ -1106,8 +1111,14 @@ describe("tabletop routes (server-rendered)", () => {
     expect(theirs.html).toContain("Bob Elves to play");
     expect(theirs.html).toContain("1Ht3");
     const organiser = await renderMatch(body(clockOf("away", 3)), session({ coach: "Zed", organizer: true }));
-    expect(organiser.html).toContain("End Turn");
-    expect(organiser.html).toContain("Bob Elves");
+    expect(organiser.html).not.toContain("End Turn"); // an organiser never gets the enabled button on the opponent's turn
+    expect(organiser.html).not.toContain('class="tt-endturn"');
+    expect(organiser.html).not.toContain('class="tt-rail-end"');
+    expect(organiser.html).toContain("Bob Elves to play"); // the disabled state
+    expect(organiser.html).toContain("End this turn (override)"); // the organiser's way in, in the Quick box
+    expect(mine.html).toContain('class="tt-rail-end"'); // the active coach's enabled rail button
+    expect(mine.html).not.toContain("End this turn (override)");
+    expect(theirs.html).not.toContain("End this turn (override)"); // a coach never sees it
     const kick = await renderMatch(body(clockOf("home", 0)));
     expect(kick.html).toContain("Kick-off done");
     expect(kick.html).toContain("1Ht0");
