@@ -779,23 +779,49 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(navOf(html)).toContain('href="/app/tournaments"');
   });
 
-  it("account page: the schedule editor (saved zone selected, seven day columns, saved blocks) sits below the identity panel", async () => {
+  it("account page: no standalone Schedule panel; the Calendar band carries the Deadlines cap and a Set schedule button; the dialog is closed", async () => {
     const { html } = await render("/account", signedInRoutes());
-    expect(html).toContain('id="schedule"');
-    expect(html.indexOf('id="identity"')).toBeLessThan(html.indexOf('id="schedule"'));
-    expect(html).toMatch(/<option value="Europe\/London" selected>/);
-    expect((html.match(/class="hm-day-head"/g) ?? []).length).toBe(7);
-    expect(html).toMatch(/data-day="0"[\s\S]*?value="19:00"[\s\S]*?value="22:00"/);
-    expect(html).toMatch(/data-day="5"[\s\S]*?value="10:00"/);
-    expect(html).toContain("2 / 21 blocks");
+    expect(html).not.toContain('id="schedule"');
+    expect(html).not.toContain('class="hm-day-head"');
+    expect(html).not.toContain('role="dialog"');
+    const band = html.match(/<header class="hm-band"><h2 id="ac-calendar-h">Calendar<\/h2>[\s\S]*?<\/header>/)?.[0] ?? "";
+    expect(band).toContain(">Deadlines</a>");
+    expect(band).toMatch(/<button[^>]*class="lobby-btn ac-set-schedule"[^>]*aria-haspopup="dialog"[^>]*>Set schedule<\/button>/);
+    expect(html).not.toContain("inert");
   });
 
-  it("account page: title + LED name; Identity, Schedule, Calendar in the main column; Session and Teams beside", async () => {
+  it("account page: dialog open (injected controller) shows the editor with the saved zone, seven day columns, blocks, Save and Close; the page behind is inert", async () => {
+    const dlg = await vite.ssrLoadModule("/src/account/scheduleDialog.ts") as { createScheduleDialog: (d: { isDirty: () => boolean; focusOpener: () => void }, open?: boolean) => unknown; SCHEDULE_DIALOG_KEY: symbol };
+    const ctl = dlg.createScheduleDialog({ isDirty: () => false, focusOpener: () => {} }, true);
+    const { html } = await render("/account", signedInRoutes(), (spa) => { (spa.app as { provide: (k: symbol, v: unknown) => void }).provide(dlg.SCHEDULE_DIALOG_KEY, ctl); });
+    expect(html).toMatch(/role="dialog" aria-modal="true" aria-labelledby="ac-sched-h"/);
+    expect(html).toMatch(/id="ac-sched-h"[^>]*>\s*Set schedule/);
+    const pageTag = html.match(/<div class="hm-page ac-page"[^>]*>/)?.[0] ?? "";
+    expect(pageTag).toContain("inert");
+    expect(pageTag).toContain('aria-hidden="true"');
+    const d = html.slice(html.indexOf('role="dialog"'));
+    expect(d).toMatch(/<option value="Europe\/London" selected>/);
+    expect((d.match(/class="hm-day-head"/g) ?? []).length).toBe(7);
+    expect(d).toMatch(/data-day="0"[\s\S]*?value="19:00"[\s\S]*?value="22:00"/);
+    expect(d).toMatch(/data-day="5"[\s\S]*?value="10:00"/);
+    expect(d).toContain("2 / 21 blocks");
+    expect(d).toContain("Opponents see this when they propose a time.");
+    expect(d).toContain("Save availability");
+    expect(d).toMatch(/<button type="button" class="lobby-btn">Close<\/button>/);
+  });
+
+  it("account page: landing on #schedule opens the dialog", async () => {
+    const { html } = await render("/account#schedule", signedInRoutes());
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain("Save availability");
+  });
+
+  it("account page: title + LED name; Identity and Calendar in the main column; Session and Teams beside", async () => {
     const { html } = await render("/account", signedInRoutes());
     expect(html).toMatch(/<h1 class="hm-title">Account <span class="hm-led">Alice<\/span><\/h1>/);
     const main = html.slice(html.indexOf('class="hm-col hm-col-main"'), html.indexOf('class="hm-col hm-col-side"'));
     const side = html.slice(html.indexOf('class="hm-col hm-col-side"'));
-    const order = ["identity", "schedule", "calendar"].map((id) => main.indexOf(`id="${id}"`));
+    const order = ["identity", "calendar"].map((id) => main.indexOf(`id="${id}"`));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
     for (const id of ["session", "teams"]) expect(side).toContain(`id="${id}"`);

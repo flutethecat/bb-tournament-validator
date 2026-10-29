@@ -9,6 +9,8 @@ import {
 } from "../spa/src/account/calendar";
 import { createProfileEditor, profileProblems, type ProfileView } from "../spa/src/account/profile";
 import { createAccountEditors } from "../spa/src/account/editors";
+import { createScheduleDialog } from "../spa/src/account/scheduleDialog";
+import { dialogKey } from "../spa/src/teams/manage";
 
 // Account page controllers: the calendar helpers (Monday-first month grid, chip tones, events on the coach's day) and the
 // Identity panel's editor (local checks, PATCH only the changed fields, linked FUMBBL name never sent).
@@ -260,5 +262,59 @@ describe("account page review fixes", () => {
     expect(loading).toBe("America/New_York");
     expect(dayKey(at, loading)).toBe("2026-10-31");
     expect(calendarZone({ scheduleLoaded: false, scheduleZone: "", treeZone: "", browserZone: "Europe/Paris" })).toBe("Europe/Paris");
+  });
+});
+
+describe("Set schedule dialog controller", () => {
+  function make(open = false) {
+    const state = { dirty: false, focused: 0 };
+    const ctl = createScheduleDialog({ isDirty: () => state.dirty, focusOpener: () => { state.focused++; } }, open);
+    return { state, ctl };
+  }
+
+  it("opens, and the Close button / Escape close it and return focus to the opener once", () => {
+    const { state, ctl } = make();
+    expect(ctl.open.value).toBe(false);
+    ctl.show();
+    expect(ctl.open.value).toBe(true);
+    // Escape is the shared dialog rule: close (never blocked here, there is no request in flight)
+    expect(dialogKey({ key: "Escape", shiftKey: false }, [], null, false)).toEqual({ type: "close" });
+    ctl.close();
+    expect(ctl.open.value).toBe(false);
+    expect(state.focused).toBe(1);
+    ctl.close(); // already closed: no second focus move
+    expect(state.focused).toBe(1);
+  });
+
+  it("an overlay press closes only while the editor is clean; dirty keeps it open", () => {
+    const { state, ctl } = make(true);
+    state.dirty = true;
+    ctl.pressOverlay();
+    expect(ctl.open.value).toBe(true);
+    expect(state.focused).toBe(0);
+    state.dirty = false;
+    ctl.pressOverlay();
+    expect(ctl.open.value).toBe(false);
+    expect(state.focused).toBe(1);
+  });
+
+  it("closing with unsaved changes keeps the edits and the dirty hint in the shared editor; reopening shows them", async () => {
+    const api = (async () => ({ timezone: "Europe/London", blocks: [] })) as unknown as Fetcher;
+    const eds = createAccountEditors({ api, currentCoach: () => "Alice", loadProposals: async () => [] });
+    const ed = eds.schedule.value;
+    await ed.load();
+    ed.addBlock(0);
+    expect(ed.state.dirty).toBe(true);
+    const ctl = createScheduleDialog({ isDirty: () => eds.schedule.value.state.dirty, focusOpener: () => {} }, true);
+    ctl.close();
+    ctl.show();
+    expect(eds.schedule.value).toBe(ed);
+    expect(ed.state.blocks).toHaveLength(1);
+    expect(ed.state.dirty).toBe(true);
+    eds.stop();
+  });
+
+  it("starts open when asked to (the #schedule landing)", () => {
+    expect(make(true).ctl.open.value).toBe(true);
   });
 });
