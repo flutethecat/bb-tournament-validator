@@ -68,6 +68,19 @@ onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
     <h1 class="hm-title">Coach page <span class="hm-led">{{ session.coach() }}</span></h1>
     <div class="hm-grid">
       <div class="hm-col hm-col-main">
+        <section id="whats-new" class="hm-panel" aria-labelledby="hm-new-h">
+          <header class="hm-band" data-tone="admin"><h2 id="hm-new-h">What's new</h2><RouterLink class="hm-cap" to="/whats-new">All updates</RouterLink></header>
+          <p v-if="logError" class="lobby-error hm-small">{{ logError }}</p>
+          <p v-else-if="!log.length" class="hm-empty">Nothing yet</p>
+          <ul v-else class="hm-log">
+            <li v-for="(e, i) in log" :key="`${e.date}-${i}`">
+              <time :datetime="e.date" class="hm-log-date">{{ logDate(e.date) }}</time>
+              <strong class="hm-log-title">{{ e.title }}</strong>
+              <p class="hm-log-body">{{ e.body }}</p>
+            </li>
+          </ul>
+        </section>
+
         <div id="notifications" class="hm-notifications">
           <NotificationsPanel :notifications="notifications" :writable="canWrite" />
         </div>
@@ -120,19 +133,6 @@ onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
         <section id="account" class="hm-panel" aria-labelledby="hm-account-h">
           <header class="hm-band"><h2 id="hm-account-h">Account</h2></header>
           <p class="hm-links"><RouterLink to="/account">Account settings</RouterLink> · <RouterLink to="/my-teams">Team avatars</RouterLink></p>
-        </section>
-
-        <section id="whats-new" class="hm-panel" aria-labelledby="hm-new-h">
-          <header class="hm-band" data-tone="admin"><h2 id="hm-new-h">What's new</h2><RouterLink class="hm-cap" to="/whats-new">All updates</RouterLink></header>
-          <p v-if="logError" class="lobby-error hm-small">{{ logError }}</p>
-          <p v-else-if="!log.length" class="hm-empty">Nothing yet</p>
-          <ul v-else class="hm-log">
-            <li v-for="(e, i) in log" :key="`${e.date}-${i}`">
-              <time :datetime="e.date" class="hm-log-date">{{ logDate(e.date) }}</time>
-              <strong class="hm-log-title">{{ e.title }}</strong>
-              <p class="hm-log-body">{{ e.body }}</p>
-            </li>
-          </ul>
         </section>
       </div>
     </div>
