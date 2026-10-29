@@ -809,7 +809,8 @@ export async function tournamentApi(
       if (method === "POST") {
         if (newsMatch[2] !== undefined) return { status: 405, body: { error: "POST to /news to add a post." } };
         const post = deps.store.addNews(tournament.id, newNewsPost(parseNewsInput(jsonObject(body), false), identity.coach, now), NEWS_MAX_POSTS, now);
-        // Notifications hook: a new post should notify the entrants here (the notifications lane owns that store).
+        // TODO(notifications, wire after rebase): src/notifications.ts is not on this branch yet. Call
+        // notifyEntrants(tournament.id, "tournament-news", post.title, post.body, `/app/tournaments/${tournament.id}`) here.
         return { status: 201, body: { post, news: orderedNews(deps.store.tournament(tournament.id)?.news) } };
       }
       if (!newsId) return { status: 404, body: { error: "News post not found." } };
