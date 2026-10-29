@@ -1065,3 +1065,8 @@
   .tt-rec .tt-namegroup > .tt-team { align-self: auto; }
   .tt-rec .tt-namegroup > .tt-coachline.tt-nameline { align-self: stretch; }
 }
+
+/* desktop: only the race line under the crest shows; the in-group race copy (kept for tablets) is hidden */
+@media (min-width: 1024px) {
+  .tt-rec .tt-namegroup > .tt-race.tt-nameline { display: none; }
+}
