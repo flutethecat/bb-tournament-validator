@@ -1244,6 +1244,7 @@
 /* desktop: brighter LED-green coach names (the phone keeps its coach colour), and the dedicated fans as a pill under the chip tray */
 @media (min-width: 1024px) {
   .tt-rec .tt-crestcol .tt-crest-coach { color: var(--ui-coach-led, #4cff6a); text-shadow: var(--tt-name-shadow), 0 0 6px rgb(76 255 106 / .55); }
+  :root[data-theme="fumbbl"] .tt-rec .tt-crestcol .tt-crest-coach { text-shadow: var(--tt-name-shadow), 0 0 6px color-mix(in srgb, var(--ui-coach-led, #4cff6a) 35%, transparent); } /* light theme: a dark-green halo, never the bright LED glow */
   .tt-rec .tt-fans-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; font-family: var(--font-heading, sans-serif); font-size: 14px; letter-spacing: .06em; color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--tt-lettering-shadow); background: var(--tt-btn); border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; box-shadow: var(--tt-bevel); }
   .tt-rec .tt-fans-pill b { font-weight: 400; }
   .tt-rec .tt-fans-icon { width: 20px; height: 20px; object-fit: contain; image-rendering: pixelated; }

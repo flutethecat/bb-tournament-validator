@@ -997,6 +997,13 @@ describe("tabletop routes (server-rendered)", () => {
     expect(fansHtml).not.toContain('data-tip="Dedicated fans: 5" data-tip-pos'); // the tray no longer repeats it
     const themeCoach = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../public/theme.css", import.meta.url)), "utf8");
     expect(themeCoach).toContain("--ui-coach-led: #4cff6a;");
+    // light theme only: a darker green that clears WCAG AA 4.5:1 on --ui-surface (#dbd2bd), --ui-surface-2 (#cec5b1) and the tinted hero ends
+    const lightCoach = /:root\[data-theme="fumbbl"\] \{[^}]*--ui-coach-led: (#[0-9a-f]{6});/.exec(themeCoach)?.[1] ?? "";
+    expect(lightCoach).toBe("#083f12");
+    const lum = (hex: string): number => { const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+    const ratio = (f: string, g: string): number => { const x = lum(f), y = lum(g); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+    expect(ratio(lightCoach, "#dbd2bd")).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(lightCoach, "#cec5b1")).toBeGreaterThanOrEqual(4.5);
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/--tt-team-fs: 34px; --tt-team-fs-md: 28px; --tt-team-fs-lg: 24px;/); // name steps: over 14 characters 28 px, over 20 characters 24 px

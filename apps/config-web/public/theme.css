@@ -41,6 +41,7 @@
   --ui-text: #141414;
   --ui-muted: #6e6a60;
   --ui-text-dim: #8f8a7d;
+  --ui-coach-led: #083f12;      /* light theme only (owner: darker green): 8.1:1 on --ui-surface, 7.1:1 on --ui-surface-2, >=4.6:1 on the tinted hero ends */
 }
 /* Typography (owner 2026-10-22): body copy = sans-serif system stack (Helvetica family; no font files
    shipped for it), title lines = the Nuffle display face. ONE @font-face for every config-web page. */
