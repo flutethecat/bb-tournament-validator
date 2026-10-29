@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildCoachAliases, fixtureOutcome } from "../src/leagues/identity";
+import { linkPlayerCareers } from "../src/leagues/playerIds";
 import { leagueStats } from "../src/leagues/stats";
 import { attachPlayerStats, buildSeason, checkStandings, parseHonours } from "../src/leagues/tourplay";
 import { EMPTY_PLAYER_STATS, type FixtureSide, type LeagueFixture, type LeagueTeam, type SeasonRecord } from "../src/leagues/types";
@@ -31,9 +32,14 @@ const fixture = (home: FixtureSide, away: FixtureSide, over: Partial<LeagueFixtu
 const team = (name: string, coach: string, race: string, players: Array<[number, string, string, Partial<typeof EMPTY_PLAYER_STATS>]>, extra: Partial<LeagueTeam> = {}): LeagueTeam => ({
   id: `${name}-${coach}`.toLowerCase(), name, race, coach, teamValue: null, treasury: null, rerolls: null, fans: null, assistantCoaches: null, cheerleaders: null,
   apothecary: false, tier: "", raceLeague: "", formerPlayers: [], ...extra,
-  players: players.map(([number, pname, position, stats]) => ({ number, name: pname, position, ma: 6, st: 3, ag: 3, pa: 4, av: 9, skills: [], value: 50000, level: "Rookie", availableSpp: 0, niggling: 0, missNextGame: false, stats: { ...EMPTY_PLAYER_STATS, ...stats } })),
+  players: players.map(([number, pname, position, stats]) => ({ playerId: "", number, name: pname, position, ma: 6, st: 3, ag: 3, pa: 4, av: 9, skills: [], value: 50000, level: "Rookie", availableSpp: 0, niggling: 0, missNextGame: false, stats: { ...EMPTY_PLAYER_STATS, ...stats } })),
 });
-const season = (number: number, fixtures: LeagueFixture[], teams: LeagueTeam[] = [], over: Partial<SeasonRecord> = {}): SeasonRecord => ({
+const season = (number: number, fixtures: LeagueFixture[], teams: LeagueTeam[] = [], over: Partial<SeasonRecord> = {}): SeasonRecord => {
+  const s = seasonRecord(number, fixtures, teams, over);
+  linkPlayerCareers([s]);
+  return s;
+};
+const seasonRecord = (number: number, fixtures: LeagueFixture[], teams: LeagueTeam[] = [], over: Partial<SeasonRecord> = {}): SeasonRecord => ({
   id: `season-${number}`, leagueId: "l", number, name: `Season ${number}`, sourceSlug: `s${number}`, ruleset: "BB2025", status: "completed",
   phases: [{ id: "season-regular", category: "Season", name: "Regular", groups: [""], standings: [] }], fixtures, participants: [], teams, honours: [], awards: [],
   unattributedStats: [], importedAt: "2026-10-30T00:00:00.000Z", source: "tourplay-export", ...over,
@@ -113,7 +119,7 @@ describe("P2-2: duplicate player names never multiply statistics", () => {
     const t = roster2();
     t.players[0]!.stats.td = 2;
     t.players[1]!.stats.td = 3;
-    const s = season(1, [], [t], { unattributedStats: [{ team: "Hammers", teamId: t.id, name: "Bob", position: "Lineman", stats: { ...EMPTY_PLAYER_STATS, td: 9 }, reason: "x" }] });
+    const s = season(1, [], [t], { unattributedStats: [{ team: "Hammers", teamId: t.id, name: "Bob", position: "Lineman", stats: { ...EMPTY_PLAYER_STATS, td: 9 }, reason: "x", candidates: [] }] });
     const st = leagueStats([s], "all");
     expect(st.leaders.td.map((l) => l.value).sort()).toEqual([2, 3]);
     expect(st.totals.players).toBe(3);

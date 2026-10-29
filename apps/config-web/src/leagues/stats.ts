@@ -6,12 +6,12 @@
  * a win, 1 a draw. Coaches aggregate by the canonical alias key (account id <-> NAF name <-> unambiguous display
  * name, built over every season so it does not change with the scope); a team is canonical coach + team name +
  * race, so two coaches' teams of the same name stay apart. Player leaders come from the per-player season stats
- * (the TourPlay player honours), summed per career (same team identity + name + position; the shirt number joins
- * the key when a roster holds two such players); totals the export could not split are never credited.
+ * (the TourPlay player honours), summed per career: players link across seasons by the career key the importer
+ * records on each player (playerIds, never names); totals the export could not split are never credited.
  */
 import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, type CoachAliases, type SideOutcome } from "./identity.js";
 import { nameKey } from "./tourplay.js";
-import type { LeagueFixture, LeagueRuleset, PlayerSeasonStats, SeasonRecord } from "./types.js";
+import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeagueRuleset, type PlayerSeasonStats, type SeasonRecord } from "./types.js";
 
 export type StatsScope = "bb2020" | "bb2025" | "all";
 export const STATS_SCOPES: readonly StatsScope[] = ["bb2020", "bb2025", "all"];
@@ -22,6 +22,9 @@ export const LEADER_STATS = ["td", "cas", "mvp", "int", "completions", "fouls", 
 export type LeaderStat = (typeof LEADER_STATS)[number];
 
 export interface PlayerLeader {
+  /** The career's newest player id (open it with ?player= in `seasonId`). */
+  playerId: string;
+  seasonId: string;
   name: string;
   position: string;
   team: string;
@@ -199,7 +202,7 @@ export function leagueStats(allSeasons: SeasonRecord[], scope: StatsScope): Leag
   wins.sort((a, b) => b.margin - a.margin || b.winner.score - a.winner.score || a.season - b.season || a.round - b.round);
   const mostGames = [...coachList].sort((a, b) => b.games - a.games || b.wins - a.wins || a.coach.localeCompare(b.coach)).slice(0, LEADER_LIMIT);
 
-  const { leaders, players } = playerLeaders(seasons, aliases);
+  const { leaders, players } = playerLeaders(seasons);
   return {
     scope,
     seasons: [...seasons].sort((a, b) => b.number - a.number).map((s) => ({ id: s.id, number: s.number, name: s.name, ruleset: s.ruleset, status: s.status })),
@@ -229,25 +232,23 @@ function bigWin(s: SeasonRecord, f: LeagueFixture, homeWon: boolean): BigWin {
   };
 }
 
-function playerLeaders(seasons: SeasonRecord[], aliases: CoachAliases): { leaders: Record<LeaderStat, PlayerLeader[]>; players: number } {
-  const careers = new Map<string, { name: string; position: string; team: string; race: string; coach: string; seasons: number[]; stats: PlayerSeasonStats }>();
+/**
+ * Player careers, keyed by the importer's career key (the player's ids across seasons are linked on the record:
+ * careerKey / previousIds), never by name. A player without a career key (an older stored season) is its own career.
+ */
+function playerLeaders(seasons: SeasonRecord[]): { leaders: Record<LeaderStat, PlayerLeader[]>; players: number } {
+  const careers = new Map<string, { playerId: string; seasonId: string; name: string; position: string; team: string; race: string; coach: string; seasons: number[]; stats: PlayerSeasonStats }>();
   for (const s of seasons) {
     for (const team of s.teams) {
-      const tk = teamKeyOf(aliases.key(team), team.name, team.race);
-      const ident = (name: string, position: string): string => `${nameKey(name)}\0${nameKey(position)}`;
-      const counts = new Map<string, number>();
-      for (const p of team.players) counts.set(ident(p.name, p.position), (counts.get(ident(p.name, p.position)) ?? 0) + 1);
-      const all = [
-        ...team.players.map((p) => ({ name: p.name, position: p.position, stats: p.stats, key: (counts.get(ident(p.name, p.position)) ?? 0) > 1 ? `${ident(p.name, p.position)}\0#${p.number ?? ""}` : ident(p.name, p.position) })),
-        ...team.formerPlayers.map((p) => ({ name: p.name, position: p.position, stats: p.stats, key: ident(p.name, p.position) })),
-      ];
-      for (const p of all) {
-        const key = `${tk}\0${p.key}`;
+      for (const p of [...team.players, ...team.formerPlayers]) {
+        const key = p.careerKey ?? p.playerId;
         let c = careers.get(key);
         if (!c) {
-          c = { name: p.name, position: p.position, team: team.name, race: team.race, coach: team.coach, seasons: [], stats: { td: 0, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 0, performance: 0 } };
+          c = { playerId: p.playerId, seasonId: s.id, name: p.name, position: p.position, team: team.name, race: team.race, coach: team.coach, seasons: [], stats: { ...EMPTY_PLAYER_STATS } };
           careers.set(key, c);
         }
+        c.playerId = p.playerId; // seasons ascend: the newest appearance names the career
+        c.seasonId = s.id;
         if (Object.values(p.stats).some((v) => v > 0)) pushSeason(c.seasons, s.number);
         for (const k of Object.keys(c.stats) as Array<keyof PlayerSeasonStats>) c.stats[k] += p.stats[k] ?? 0;
         c.coach = team.coach;
@@ -257,8 +258,8 @@ function playerLeaders(seasons: SeasonRecord[], aliases: CoachAliases): { leader
   const list = [...careers.values()];
   const leaders = Object.fromEntries(LEADER_STATS.map((stat) => [stat, list
     .filter((c) => c.stats[stat] > 0)
-    .sort((a, b) => b.stats[stat] - a.stats[stat] || a.name.localeCompare(b.name))
+    .sort((a, b) => b.stats[stat] - a.stats[stat] || a.name.localeCompare(b.name) || a.playerId.localeCompare(b.playerId))
     .slice(0, LEADER_LIMIT)
-    .map((c) => ({ name: c.name, position: c.position, team: c.team, race: c.race, coach: c.coach, seasons: c.seasons, value: c.stats[stat] }))])) as Record<LeaderStat, PlayerLeader[]>;
+    .map((c) => ({ playerId: c.playerId, seasonId: c.seasonId, name: c.name, position: c.position, team: c.team, race: c.race, coach: c.coach, seasons: c.seasons, value: c.stats[stat] }))])) as Record<LeaderStat, PlayerLeader[]>;
   return { leaders, players: list.length };
 }

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { artUrl, checkLeagueArt, isPublicLeagueRead, leagueApi, leaguePath, type LeagueApiDeps } from "../src/leagues/api";
+import { linkPlayerCareers } from "../src/leagues/playerIds";
 import { leagueStats } from "../src/leagues/stats";
 import { LeagueStore } from "../src/leagues/store";
 import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeagueTeam, type SeasonRecord } from "../src/leagues/types";
@@ -20,8 +21,8 @@ const fx = (home: [string, string, string, number | null, number?], away: [strin
 
 const team = (name: string, coach: string, race: string, players: Array<[string, Partial<typeof EMPTY_PLAYER_STATS>]>, former: Array<[string, Partial<typeof EMPTY_PLAYER_STATS>]> = []): LeagueTeam => ({
   id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name, race, coach, teamValue: 1000000, treasury: 0, rerolls: 2, fans: 2, assistantCoaches: 0, cheerleaders: 0, apothecary: true, tier: "1", raceLeague: "",
-  players: players.map(([pname, stats], i) => ({ number: i + 1, name: pname, position: "Lineman", ma: 6, st: 3, ag: 3, pa: 4, av: 9, skills: [], value: 50000, level: "Rookie", availableSpp: 0, niggling: 0, missNextGame: false, stats: { ...EMPTY_PLAYER_STATS, ...stats } })),
-  formerPlayers: former.map(([pname, stats]) => ({ name: pname, position: "Blitzer", level: "Rookie", stats: { ...EMPTY_PLAYER_STATS, ...stats } })),
+  players: players.map(([pname, stats], i) => ({ playerId: "", number: i + 1, name: pname, position: "Lineman", ma: 6, st: 3, ag: 3, pa: 4, av: 9, skills: [], value: 50000, level: "Rookie", availableSpp: 0, niggling: 0, missNextGame: false, stats: { ...EMPTY_PLAYER_STATS, ...stats } })),
+  formerPlayers: former.map(([pname, stats]) => ({ playerId: "", name: pname, position: "Blitzer", level: "Rookie", stats: { ...EMPTY_PLAYER_STATS, ...stats } })),
 });
 
 const season = (number: number, ruleset: "BB2020" | "BB2025", fixtures: LeagueFixture[], teams: LeagueTeam[], champion?: [string, string, string]): SeasonRecord => ({
@@ -44,7 +45,9 @@ function seasons(): SeasonRecord[] {
     fx(["Dwarfs", "Cy", "Dwarf", 4], ["Elves", "Bob", "Wood Elf", 0]),
     fx(["Orcs", "Ann", "Orc", null], ["Elves", "Bob", "Wood Elf", null]),
   ], [team("Orcs", "Ann", "Orc", [["Grok", { td: 2, mvp: 1 }]]), team("Dwarfs", "Cy", "Dwarf", [["Thorin", { td: 4, int: 1 }]])]);
-  return [s1, s5];
+  const list = [s1, s5];
+  linkPlayerCareers(list); // what the importer does: ids and the career link
+  return list;
 }
 
 describe("league statistics", () => {
