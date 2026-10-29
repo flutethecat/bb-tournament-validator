@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { effectiveEvents, parseEvent, validateEvent, type RosterPair, type TabletopEvent } from "../src/tabletop/events.js";
 import { availabilityOf } from "../src/tabletop/eligibility.js";
-import { applyPostMatch, type TabletopPlayer, type TabletopTeamFile } from "../src/tabletop/postMatch.js";
+import { tallyMatch, applyPostMatch, type TabletopPlayer, type TabletopTeamFile } from "../src/tabletop/postMatch.js";
 
 const player = (id: string, extra: Partial<TabletopPlayer> = {}): TabletopPlayer =>
   ({ id, name: `Name ${id}`, spp: 0, skills: [], mng: false, niggles: 0, statLoss: {}, dead: false, ...extra });
@@ -176,6 +176,16 @@ describe("applyPostMatch (BB2025)", () => {
     expect(rejects([inj, ev("casualty", "home", "h1", { victim: "a1", result: "BH" })])).toMatch(/already suffered/);
     const inj2 = ev("injury", "away", "a1", { result: "NI" });
     expect(rejects([inj, ev("undo", "away", undefined, { target: inj.id }), inj2, ev("injury", "away", "a1", { result: "BH" })])).toMatch(/already suffered/);
+  });
+  it("the tally counts each team's fouls from the effective foul events (an undone foul does not count)", () => {
+    const f1 = ev("foul", "home", "h1");
+    const f2 = ev("foul", "home", "h2");
+    const f3 = ev("foul", "away", "a1");
+    const names = { home: new Map([["h1", "H1"], ["h2", "H2"]]), away: new Map([["a1", "A1"]]) };
+    const sum = (events: TabletopEvent[], side: "home" | "away") => [...tallyMatch(events, names).lines[side].values()].reduce((n, l) => n + l.fouls, 0);
+    expect(sum([f1, f2, f3], "home")).toBe(2);
+    expect(sum([f1, f2, f3], "away")).toBe(1);
+    expect(sum([f1, f2, f3, ev("undo", "home", undefined, { target: f2.id })], "home")).toBe(1);
   });
   it("a player who started MNG sat out: the flag clears", () => {
     const t = team("Home", { players: [player("h1", { mng: true }), player("h2")] });

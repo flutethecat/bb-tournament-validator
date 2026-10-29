@@ -122,17 +122,20 @@ export function teamFileFromLibraryDetail(team: TeamDetail): TabletopTeamFile {
   const players: TabletopPlayer[] = team.players.map((p) => {
     const ds = dsRoster?.positions.find((x) => x.name === p.position) ?? undefined;
     const dsStats = ds ? positionStats(ds) : undefined;
+    // A stored stat of 0 (or below) means "no value" in the team file (a position without a passing ability, or an unset field), never a real "0+":
+    // the printed value fills in instead, so a missing PA reads as the position's own PA (or none) and is not shown as an improvement.
+    const real = (v: number | null | undefined): number | undefined => (typeof v === "number" && v > 0 ? v : undefined);
     // Star Players are marked by the stored team's position name; the position's own skills are part of the player's skills
     const kind: PlayerKind = p.journeyman ? "journeyman" : p.position && isStarName(bb2025, p.position) ? "star" : "rostered";
     return {
     kind,
     // current characteristics from the stored team file (advancements and injuries already applied); the roster fills gaps
     ...(p.position ?? dsStats?.positionName ? { positionName: (p.position ?? dsStats?.positionName)! } : {}),
-    ...((p.movement ?? dsStats?.ma) !== undefined ? { ma: (p.movement ?? dsStats?.ma)! } : {}),
-    ...((p.strength ?? dsStats?.st) !== undefined ? { st: (p.strength ?? dsStats?.st)! } : {}),
-    ...((p.agility ?? dsStats?.ag) !== undefined ? { ag: (p.agility ?? dsStats?.ag)! } : {}),
-    ...(p.passing !== null || dsStats ? { pa: p.passing ?? dsStats?.pa ?? null } : {}),
-    ...((p.armour ?? dsStats?.av) !== undefined ? { av: (p.armour ?? dsStats?.av)! } : {}),
+    ...((real(p.movement) ?? dsStats?.ma) !== undefined ? { ma: (real(p.movement) ?? dsStats?.ma)! } : {}),
+    ...((real(p.strength) ?? dsStats?.st) !== undefined ? { st: (real(p.strength) ?? dsStats?.st)! } : {}),
+    ...((real(p.agility) ?? dsStats?.ag) !== undefined ? { ag: (real(p.agility) ?? dsStats?.ag)! } : {}),
+    ...(p.passing !== null || dsStats ? { pa: real(p.passing) ?? dsStats?.pa ?? null } : {}),
+    ...((real(p.armour) ?? dsStats?.av) !== undefined ? { av: (real(p.armour) ?? dsStats?.av)! } : {}),
     id: p.id,
     name: p.name,
     number: p.number,

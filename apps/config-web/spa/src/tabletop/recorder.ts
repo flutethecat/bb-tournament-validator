@@ -16,7 +16,7 @@ export type MatchState = "recording" | "submitted" | "confirmed" | "published";
 export interface MatchSide { coach: string; teamSaveId: string; teamName: string }
 
 export interface PlayerLineView {
-  id: string; name: string; touchdowns: number; casualtiesCaused: number; completions: number; interceptions: number;
+  id: string; name: string; touchdowns: number; casualtiesCaused: number; fouls?: number; completions: number; interceptions: number;
   deflections: number; mvp: number; sentOff: boolean; sppEarned: number;
   injury?: { result: string; stat?: string; apothecaryUsed: boolean };
 }

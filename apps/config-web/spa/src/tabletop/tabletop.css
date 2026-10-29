@@ -1013,8 +1013,8 @@
   .tt-rec .tt-score > span:nth-child(3) { grid-column: 3; background: linear-gradient(270deg, color-mix(in srgb, var(--ui-danger, #ff4d4d) 70%, #000), color-mix(in srgb, var(--ui-danger, #ff4d4d) 35%, #000)); }
   .tt-rec .tt-score-colon { display: none; }
   .tt-rec .tt-score-turn { grid-column: 2; display: grid; place-content: center; gap: 2px; background: color-mix(in srgb, #000 78%, var(--ui-surface, #0d0d0d)); font-family: var(--font-heading, sans-serif); text-align: center; line-height: 1.1; }
-  .tt-rec .tt-score-turn small { font-size: 12px; letter-spacing: .06em; color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-name-shadow); }
-  .tt-rec .tt-score-turn b { font-size: 20px; font-weight: 400; color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--tt-name-shadow); }
+  .tt-rec .tt-score-turn small { font-size: 16px; letter-spacing: .06em; color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-name-shadow); }
+  .tt-rec .tt-score-turn b { font-size: 26px; font-weight: 400; color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--tt-name-shadow); }
   .tt-rec .tt-stats { grid-column: 2; grid-row: 3; display: grid; grid-template-columns: minmax(0, 1fr) 84px minmax(0, 1fr); align-items: center; height: 36px; text-align: center; background: color-mix(in srgb, #000 70%, var(--ui-surface, #0d0d0d)); border-top: 1px solid var(--tt-rule); border-bottom: 1px solid var(--tt-rule); border-radius: 0 0 6px 6px; font-family: var(--font-heading, sans-serif); font-size: 13px; letter-spacing: .06em; color: var(--ui-text, #e6e9ef); text-shadow: var(--tt-name-shadow); }
   .tt-rec .tt-stats b { font-weight: 400; }
   .tt-rec .tt-stats-home b { color: var(--ui-info, #4a86c8); }
@@ -1084,4 +1084,26 @@
 @media (min-width: 1600px) {
   .tt-rec .tt-other-btn .tt-glyph { width: 56px; height: 56px; }
   .tt-rec .tt-other-btn .tt-glyph-text { font-size: 56px; }
+}
+
+/* every popup's header: title left, a 40 x 40 bevelled X right (sticky while the body scrolls); the picker's rows use the Rosters table grid from 760 px */
+.tt-sheet-head { position: sticky; top: 0; z-index: 6; display: flex; align-items: center; gap: 10px; margin: 0 0 6px; padding: 0 0 6px; background: inherit; }
+.tt-sheet-head .tt-sheet-title { margin: 0; flex: 1 1 auto; min-width: 0; font-family: var(--font-heading, sans-serif); }
+.tt-x { flex: none; margin-left: auto; width: 40px; height: 40px; min-width: 0; min-height: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--tt-btn); color: var(--tt-btn-ink); border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; box-shadow: var(--tt-bevel); font: inherit; font-size: 18px; line-height: 1; text-shadow: var(--tt-btn-text-shadow); cursor: pointer; transition: transform .06s ease; }
+.tt-x:active { box-shadow: var(--tt-bevel-down); transform: translateY(2px); }
+.tt-picker-search { width: 100%; box-sizing: border-box; min-height: 40px; margin: 0 0 6px; padding: 0 10px; }
+.tt-picker .tt-picker-list { max-height: 52dvh; overflow-y: auto; }
+@media (min-width: 760px) {
+  .tt-picker .tt-roster-list li.roster-row.tt-rp-pick { grid-template-columns: 56px minmax(140px, 1.2fr) 236px minmax(120px, 1.4fr); grid-template-areas: "sprite who stats skills"; align-items: center; }
+  .tt-picker .tt-rp-pick .row-stats { width: 236px; max-width: none; justify-self: center; }
+}
+
+/* scoreboard text sizes: the TURN cell grows, and the half label in the stats strip goes white and bigger */
+@media (min-width: 1024px) {
+  .tt-rec .tt-stats-half { font-size: 14px; color: var(--ui-text, #e6e9ef); text-shadow: var(--tt-lettering-shadow); }
+}
+@media (min-width: 1600px) {
+  .tt-rec .tt-score-turn small { font-size: 18px; }
+  .tt-rec .tt-score-turn b { font-size: 30px; }
+  .tt-rec .tt-stats-half { font-size: 16px; }
 }

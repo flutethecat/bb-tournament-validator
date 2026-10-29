@@ -9,8 +9,10 @@ import type { TabletopTeamFile } from "../src/tabletop/postMatch.js";
 import { FileTabletopRepository, headRevision } from "../src/tabletop/store.js";
 import { parseTeamRef, teamFileFromLibraryDetail } from "../src/tabletop/teamFile.js";
 import { teamDetailEndpoint } from "../src/teamDetail.js";
+import { bb2025 } from "@bb/validator/dataset";
 import { TournamentResultStore } from "../src/tournamentResults.js";
 
+const bb2025Positions = Object.values(bb2025.rosters).flatMap((r) => r.positions.map((p) => ({ ...p, race: r.name })));
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 const NOW = new Date("2026-03-01T10:00:00.000Z");
 const LIB_TEAM: LibraryTeam = {
@@ -87,6 +89,23 @@ describe("baseline from a fork library team", () => {
       name: "Big & Bob", number: 1, positionId: "860401", spp: 12, skills: ["Block", "Guard"], mng: true, niggles: 1, injuries: ["Smashed Knee"], dead: false,
     });
     expect(file.players[1]).toMatchObject({ number: 2, mng: false, niggles: 0 });
+  });
+});
+
+describe("library team stats", () => {
+  it("a stored 0 stat (no passing ability, an unset field) never becomes \"0+\": the position's printed value fills in, or PA stays null", () => {
+    const d = detailFor("Tarkin", "1272390");
+    if (d.status !== 200) throw new Error(d.body.error);
+    const base = d.body.team.players[0]!;
+    const orc = { ...d.body.team, race: "Orc", players: [{ ...base, position: "Orc Blitzer", positionId: "x", movement: 0, strength: 0, agility: 0, passing: 0, armour: 0 }] };
+    expect(teamFileFromLibraryDetail(orc).players[0]).toMatchObject({ ma: 6, st: 3, ag: 3, pa: 4, av: 10 }); // the Orc Blitzer's printed line, not zeros
+    const real = { ...orc, players: [{ ...base, position: "Orc Blitzer", positionId: "x", movement: 7, strength: 3, agility: 2, passing: 3, armour: 10 }] };
+    expect(teamFileFromLibraryDetail(real).players[0]).toMatchObject({ ma: 7, ag: 2, pa: 3 }); // real advancements are kept
+    const noPa = bb2025Positions.find((p) => !/\d/.test(String(p.PA)));
+    if (noPa) {
+      const none = { ...orc, race: noPa.race, players: [{ ...base, position: noPa.name, positionId: "x", passing: 0 }] };
+      expect(teamFileFromLibraryDetail(none).players[0]!.pa).toBeNull(); // a position with no PA stays "-"
+    }
   });
 });
 

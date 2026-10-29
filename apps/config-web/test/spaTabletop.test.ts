@@ -593,7 +593,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).not.toMatch(/\.tt-rec \.tt-counters b \{/); // the LED counter cells are gone
     expect(css1).toMatch(/\.tt-rec \.tt-crestcol \.tt-crest-race \{ color: var\(--ui-text, #e6e9ef\); \}/); // the race line is white
     expect(html).toContain('<span class="tt-score-turn"><small>TURN</small><b>3</b></span>'); // the dark centre cell
-    expect(html).toContain('<div class="tt-stats" aria-label="Match stats"><span class="tt-stats-home">TD <b>1</b>');
+    expect(html).toContain('<div class="tt-stats" aria-label="Match stats"><span class="tt-stats-home">FOULS <b>0</b> · CAS <b>'); // fouls and casualties per side, not TDs (the score halves show those)
     expect(html).toContain('<span class="tt-stats-half">1st half</span>');
     // desktop: MATCH LOG is a footer row under the field; the field and the rail start at the same y
     expect(css1).toMatch(/\.tt-rec \.tt-mid \{ grid-template-rows: minmax\(0, 1fr\) 28px; \}\s*\.tt-rec \.tt-mid > \.tt-feed \{ grid-row: 1; \}\s*\.tt-rec \.tt-mid > \.tt-log-h \{ grid-row: 2; justify-content: flex-end; \}/);
@@ -622,6 +622,12 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-rec \.tt-corner\.away \.tt-namegroup \{ grid-column: 1; align-items: flex-end; \}/);
     expect(html.match(/class="tt-namegroup"/g)).toHaveLength(2);
     expect(css1).toMatch(/@media \(min-width: 1024px\) \{\s*\.tt-rec \.tt-namegroup > \.tt-race\.tt-nameline \{ display: none; \}/); // the in-group race copy is hidden on desktop
+    expect(css1).toMatch(/\.tt-rec \.tt-score-turn small \{ font-size: 16px;/); // the TURN cell: label 16 px, number 26 px (18 / 30 from 1600)
+    expect(css1).toMatch(/\.tt-rec \.tt-score-turn b \{ font-size: 26px;/);
+    expect(css1).toMatch(/@media \(min-width: 1600px\) \{\s*\.tt-rec \.tt-score-turn small \{ font-size: 18px; \}\s*\.tt-rec \.tt-score-turn b \{ font-size: 30px; \}\s*\.tt-rec \.tt-stats-half \{ font-size: 16px; \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-stats-half \{ font-size: 14px; color: var\(--ui-text, #e6e9ef\); text-shadow: var\(--tt-lettering-shadow\); \}/); // 2ND HALF: white, 14 px
+    expect(css1).toMatch(/\.tt-x \{[^}]*width: 40px; height: 40px;[^}]*box-shadow: var\(--tt-bevel\)/); // the close X on every popup
+    expect(css1).toMatch(/\.tt-picker \.tt-roster-list li\.roster-row\.tt-rp-pick \{ grid-template-columns: 56px minmax\(140px, 1\.2fr\) 236px minmax\(120px, 1\.4fr\);/); // the picker's table-like rows
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
@@ -709,6 +715,10 @@ describe("tabletop routes (server-rendered)", () => {
     const victim = await mount(mods.rosterRowC, { player: rich.away.players[0], side: "away", variant: "pick", obscured: true });
     expect(victim).toContain("#7 · Catcher");
     expect(victim).not.toContain("Lirael"); // the name never reaches the markup
+    const zeroPa = await mount(mods.rosterRowC, { player: { ...rich.away.players[0], pa: 0, printedStats: { ma: 8, st: 2, ag: 2, pa: 3, av: 8 } }, side: "away", variant: "pick" });
+    expect(zeroPa).toContain("<b>-</b><small>PA</small>"); // a stored 0 reads "-", never "0+"
+    expect(zeroPa).not.toContain("0+");
+    expect(zeroPa).not.toContain('class="improved"'); // and is not marked as an improvement
     const named = await mount(mods.rosterRowC, { player: rich.away.players[0], side: "away", variant: "pick" });
     expect(named).toContain("Lirael");
     const evs = [{ id: "i1", type: "inducement", team: "home", payload: { picks: [{ id: "bribes", name: "Bribes", qty: 2, cost: 200000 }], total: 200000 } }];
@@ -764,6 +774,18 @@ describe("tabletop routes (server-rendered)", () => {
     const seventeen = await render(17); // 20 chips
     expect(seventeen).toMatch(/class="tt-chip-more"[^>]*>\+\d+</);
     expect(seventeen).toContain("Thing 16 x1"); // the last (hidden) item is named in the tip
+  });
+
+  it("every popup renders exactly one close button labelled Close (the shared sheet head)", async () => {
+    const roster = { home: { name: "A", players: [{ id: "h1", name: "Grob", number: 1, spp: 0, mng: false, dead: false, available: true }] }, away: { name: "B", players: [{ id: "a1", name: "Lirael", number: 7, spp: 0, mng: false, dead: false, available: true }] } };
+    const closes = (html: string) => (html.match(/aria-label="Close"/g) ?? []).length;
+    expect(closes(await mount(mods.pickC, { kind: mods.feedMod.TD_EVENT, match: baseMatch("recording"), teams: roster, visibleSides: ["home"] }))).toBe(1); // the picker
+    expect(closes(await mount(mods.pickC, { kind: { type: "weather", label: "Weather", needs: "weather" }, match: baseMatch("recording"), teams: roster, visibleSides: ["home"] }))).toBe(1); // a pick form
+    expect(closes(await mount(mods.rostersC, { match: baseMatch("recording"), teams: roster, tally: serverTally }))).toBe(1);
+    expect(closes(await mount(mods.otherC, {}))).toBe(1);
+    expect(closes(await mount(mods.settingsC, { theme: createTheme({ matchMedia: fakeMedia(true).matchMedia, storage: memStore(), doc: fakeDoc().doc }), settings: mods.settingsMod.createViewerSettings(mods.queue.memoryStorage()), editMode: false, canEdit: false }))).toBe(1);
+    expect(closes(await mount(mods.turnSetC, { match: baseMatch("recording"), clock: clockOf("home", 3), busy: false, error: "" }))).toBe(1);
+    expect(closes(await mount(mods.ttmC, { match: baseMatch("recording"), teams: roster, tally: serverTally, visibleSides: ["home"] }))).toBe(1);
   });
 
   it("event feed (Modern Retro): home cards left, away cards right, both-team cards full width, a jump id per card, a turn mark", async () => {
@@ -1141,11 +1163,12 @@ describe("tabletop routes (server-rendered)", () => {
     expect(foulHome).not.toContain("tt-pick-head"); // one roster: no team header
     const td = await mount(mods.pickC, { kind: mods.feedMod.TD_EVENT, match: baseMatch("recording"), teams: ttmTeams, visibleSides: ["away"] });
     expect(names(td)).toEqual(["Lirael", "Wisp"]); // Faen is unavailable
-    // an organiser in edit mode sees both rosters, still availability-filtered, with a team header
+    // an organiser in edit mode gets both rosters as tabs, still availability-filtered
     const both = await open("foul", ["home", "away"]);
-    expect(both).toContain('class="tt-pick-head">Alice Orcs');
-    expect(both).toContain('class="tt-pick-head">Bob Elves');
-    expect(names(both)).toEqual(["Grob", "Snaga", "Fleet", "Lirael"]);
+    expect(both).toMatch(/class="tt-roster-tab-name">Alice Orcs/); // an organiser picking from both teams gets team tabs, not headers
+    expect(both).toMatch(/class="tt-roster-tab-name">Bob Elves/);
+    expect(both).not.toContain("tt-pick-head");
+    expect(names(both)).toEqual(["Grob", "Snaga", "Fleet"]); // the first tab lists its own roster; the other is one tap away
     expect(mods.feedMod.visibleSidesFor("home", false, true)).toEqual(["home"]); // edit mode alone does not widen it
     expect(mods.feedMod.visibleSidesFor("away", true, false)).toEqual(["away"]); // nor does being an organiser
     expect(mods.feedMod.visibleSidesFor("home", true, true)).toEqual(["home", "away"]);

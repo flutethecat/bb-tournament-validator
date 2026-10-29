@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TabletopSheetHead from "./TabletopSheetHead.vue";
 // Change turn: set the match clock by hand (half, turn, active team), prefilled from the server's clock.
 import { reactive } from "vue";
 import type { ClockView } from "../tabletop/clock";
@@ -21,10 +22,7 @@ const save = (): void => emit("save", { half: form.half === "OT" ? "OT" : Number
 <template>
   <div class="tt-modal" role="dialog" aria-label="Change turn" @click.self="emit('close')">
     <div class="tt-modal-box tt-turnset">
-      <div class="tt-rosters-head">
-        <span class="tt-rosters-title">Change turn</span>
-        <button class="tt-close" type="button" aria-label="Close" @click="emit('close')">&#10005;</button>
-      </div>
+      <TabletopSheetHead title="Change turn" @close="emit('close')" />
       <p class="tt-set-label">Half</p>
       <div class="tt-seg" role="group" aria-label="Half" :style="{ gridTemplateColumns: `repeat(${halves().length}, minmax(0, 1fr))` }">
         <button v-for="h in halves()" :key="h" type="button" class="tt-seg-btn" :aria-pressed="form.half === h" @click="form.half = h">{{ h === "OT" ? "OT" : `Half ${h}` }}</button>

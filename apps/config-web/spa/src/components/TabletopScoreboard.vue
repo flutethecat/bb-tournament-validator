@@ -105,6 +105,8 @@ const tint = (s: Side): Record<string, string> | undefined => {
   const c = props.teams[s]?.color;
   return c && /^#[0-9a-f]{3,8}$/i.test(c) ? { "--tt-team": c } : undefined;
 };
+/** The team's fouls in the match (the server's tally: effective foul events). */
+const fouls = (s: Side): number => props.tally.players[s].reduce((n, l) => n + (l.fouls ?? 0), 0);
 const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.casualtiesCaused, 0);
 </script>
 
@@ -154,9 +156,9 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
       </div>
       <p class="tt-score" aria-label="Score"><span>{{ tally.score.home }}</span><span class="tt-score-colon">:</span><span>{{ tally.score.away }}</span><span class="tt-score-turn"><small>TURN</small><b>{{ turnNo }}</b></span></p>
       <div class="tt-stats" aria-label="Match stats">
-        <span class="tt-stats-home">TD <b>{{ tally.score.home }}</b> &middot; CAS <b>{{ cas("home") }}</b></span>
+        <span class="tt-stats-home">FOULS <b>{{ fouls("home") }}</b> &middot; CAS <b>{{ cas("home") }}</b></span>
         <span class="tt-stats-half">{{ half }}</span>
-        <span class="tt-stats-away">TD <b>{{ tally.score.away }}</b> &middot; CAS <b>{{ cas("away") }}</b></span>
+        <span class="tt-stats-away">FOULS <b>{{ fouls("away") }}</b> &middot; CAS <b>{{ cas("away") }}</b></span>
       </div>
       <ul class="tt-counters" aria-label="Counters">
         <li><b>{{ tally.score.home }}</b><span>TD</span><b>{{ tally.score.away }}</b></li>

@@ -1,10 +1,12 @@
 <script setup lang="ts">
-// Pick sheet for TD / CAS / Other: the player list shows only players the server says are available and eligible for
-// this action, from the acting roster only (both rosters, with a team header, for an organiser in edit mode).
+// Pick flow for TD / CAS / Other: the player step is the shared TabletopPlayerPicker (only players the server says are available and
+// eligible for this action, from the acting roster; both rosters as tabs for an organiser); the follow-up steps (injury result, weather,
+// objective text, team) are small forms here.
 import { computed, ref } from "vue";
 import { eligiblePlayers, ELIGIBILITY_KEY, INJURY_RESULTS_UI, pickSpec, WEATHER_RESULTS_UI, type OtherEvent } from "../tabletop/feed";
 import type { MatchView, Side, TeamView } from "../tabletop/recorder";
-import TabletopRosterRow from "./TabletopRosterRow.vue";
+import TabletopPlayerPicker from "./TabletopPlayerPicker.vue";
+import TabletopSheetHead from "./TabletopSheetHead.vue";
 
 const props = defineProps<{
   kind: OtherEvent;
@@ -29,7 +31,9 @@ const lasting = computed(() => !["stunned", "KO"].includes(result.value));
 const weather = ref<string>(WEATHER_RESULTS_UI[2]);
 const text = ref("");
 const action = computed(() => ELIGIBILITY_KEY[props.kind.type] ?? props.kind.type);
-const groups = computed(() => props.visibleSides.map((s) => ({ side: s, players: eligiblePlayers(props.teams, s, action.value) })));
+/** The ids the server allows for this action, per side: the picker's filter. */
+const allowed = computed(() => Object.fromEntries(props.visibleSides.map((s) => [s, new Set(eligiblePlayers(props.teams, s, action.value).map((p) => p.id))])) as Record<Side, Set<string>>);
+const filter = (p: { id: string }, s: Side): boolean => allowed.value[s]?.has(p.id) === true;
 /** Team tabs: a player list shows one team header per visible roster; team-only events still choose either team. */
 const teamChoice = computed(() => !needsPlayer.value && props.kind.needs !== "weather");
 
@@ -58,24 +62,17 @@ function saveText(): void {
 </script>
 
 <template>
-  <div class="tt-sheet" role="dialog" :aria-label="kind.label">
-    <h3>{{ kind.label }}<template v-if="needsPlayer"> - who?</template></h3>
+  <TabletopPlayerPicker
+    v-if="needsPlayer && !chosen" :title="`${kind.label} - who?`" :match="match" :teams="teams" :sides="visibleSides" :filter="filter"
+    @pick="pickPlayer" @cancel="emit('close')"
+  />
+  <div v-else class="tt-sheet" role="dialog" :aria-label="kind.label">
+    <TabletopSheetHead :title="kind.label" @close="emit('close')" />
     <div v-if="teamChoice" class="tt-roster-tabs" role="group" aria-label="Team">
       <button v-for="s in sides" :key="s" type="button" class="tt-roster-tab" :data-active="side === s" @click="pickTeam(s)">
         <span class="tt-roster-tab-name">{{ match[s].teamName }}</span><small>{{ match[s].coach }}</small>
       </button>
     </div>
-    <template v-if="needsPlayer && !chosen">
-      <div v-for="g in groups" :key="g.side" class="tt-pick-group">
-        <p v-if="visibleSides.length > 1" class="tt-pick-head">{{ match[g.side].teamName }}</p>
-        <p v-if="!g.players.length" class="muted">No available player.</p>
-        <div class="tt-rosters tt-rosters-embed">
-          <ul class="tt-roster-list">
-            <TabletopRosterRow v-for="p in g.players" :key="p.id" variant="pick" :player="p" :side="g.side" @select="pickPlayer(g.side, p.id)" />
-          </ul>
-        </div>
-      </div>
-    </template>
     <template v-if="kind.needs === 'player+result' && chosen">
       <label for="inj-result">Result</label>
       <select id="inj-result" v-model="result"><option v-for="r in INJURY_RESULTS_UI" :key="r" :value="r">{{ r }}</option></select>

@@ -8,6 +8,7 @@ import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { uiIcon } from "../tabletop/feed";
 import type { MatchView, RecordedEvent, ServerTally, Side, TeamView } from "../tabletop/recorder";
 import TabletopRosterRow from "./TabletopRosterRow.vue";
+import TabletopSheetHead from "./TabletopSheetHead.vue";
 
 const props = defineProps<{
   match: MatchView; teams: Record<Side, TeamView | undefined>; tally: ServerTally; art?: ArtManifests;
@@ -72,13 +73,11 @@ const gold = (n: number): string => `${Math.round(n / 1000)}k`;
 <template>
   <div class="tt-modal" role="dialog" aria-label="Rosters" @click.self="emit('close')">
     <div class="tt-modal-box tt-rosters">
-      <div class="tt-rosters-head">
-        <h2 class="section-title tt-rosters-title"><img class="tt-glyph" :src="uiIcon('football-helmet')" alt="" />Rosters</h2>
+      <TabletopSheetHead title="Rosters" @close="emit('close')">
         <p class="skill-key skill-key-compact" aria-label="Skill key">
           <span class="skill skill-general">General</span><span class="skill skill-agility">Agility</span><span class="skill skill-strength">Strength</span><span class="skill skill-passing">Passing</span><span class="skill skill-mutation">Mutation</span><span class="skill skill-trait">Trait</span><span class="skill tv-added skill-general">Added</span>
         </p>
-        <button class="tt-close" type="button" aria-label="Close rosters" @click="emit('close')">&#10005;</button>
-      </div>
+      </TabletopSheetHead>
       <div class="tt-roster-tabs" role="group" aria-label="Select roster team">
         <button v-for="s in sides" :key="s" type="button" class="tt-roster-tab" :data-seat="s" :data-active="side === s" @click="side = s">
           <span class="sprite-frame crest-frame tt-crest-frame" aria-hidden="true"><span class="sprite-fallback">{{ crestInitials(s) }}</span><img v-if="crest(s)" class="crest-image" :src="crest(s)" alt="" /></span>

@@ -30,14 +30,14 @@ const BADGE_NAMES: Record<string, string> = { RIP: "Dead", KO: "Knocked out", st
 /** MA and ST are plain values; AG, PA and AV are target numbers ("3+"); null / missing = "-". */
 const stat = (k: StatKey): string => {
   const v = p.value[k];
-  if (v === undefined || v === null) return "-";
+  if (v === undefined || v === null || (k !== "ma" && k !== "st" && v <= 0)) return "-"; // a target number of 0 is "no value", never "0+"
   return k === "ma" || k === "st" ? String(v) : `${v}+`;
 };
 /** +1 when the stat is better than the position's printed one, -1 when worse (AG / PA improve downwards). */
 function change(k: StatKey): number {
   const base = p.value.printedStats?.[k];
   const now = p.value[k];
-  if (base === undefined || base === null || now === undefined || now === null || base === now) return 0;
+  if (base === undefined || base === null || now === undefined || now === null || base === now || (k !== "ma" && k !== "st" && now <= 0)) return 0;
   const better = k === "ag" || k === "pa" ? now < base : now > base;
   return better ? 1 : -1;
 }

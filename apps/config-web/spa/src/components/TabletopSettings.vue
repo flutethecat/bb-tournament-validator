@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TabletopSheetHead from "./TabletopSheetHead.vue";
 // Settings sheet (the scoreboard cog): theme choice and the per-viewer recorder options.
 import type { ViewerSettingsStore } from "../tabletop/settings";
 import { themeLabel, type Theme, type ThemeMode } from "../theme";
@@ -11,10 +12,7 @@ const MODES: ThemeMode[] = ["system", "light", "dark"];
 <template>
   <div class="tt-modal" role="dialog" aria-label="Settings" @click.self="emit('close')">
     <div class="tt-modal-box tt-settings">
-      <div class="tt-rosters-head">
-        <span class="tt-rosters-title">Settings</span>
-        <button class="tt-close" type="button" aria-label="Close settings" @click="emit('close')">&#10005;</button>
-      </div>
+      <TabletopSheetHead title="Settings" @close="emit('close')" />
       <p class="tt-set-label">Theme</p>
       <div class="tt-seg" role="group" aria-label="Theme">
         <button v-for="m in MODES" :key="m" type="button" class="tt-seg-btn" :aria-pressed="theme.state.mode === m" @click="theme.setMode(m)">{{ themeLabel(m) }}</button>
