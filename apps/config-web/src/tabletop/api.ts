@@ -167,7 +167,7 @@ export interface TabletopApiDeps {
   /** A coach's saved teams (id + name only, never roster bodies). */
   listSaves?: (coach: string) => Array<{ id: string; name: string }>;
   /** Every team the coach can play: fork library teams ("library:<id>") and builder saves (bare id). */
-  listTeams?: (coach: string) => Array<{ ref: string; name: string; race: string; tv: number | null }>;
+  listTeams?: (coach: string) => Array<{ ref: string; name: string; race: string; tv: number | null; registered?: Array<{ id: string; name: string }>; actions?: { count: number; items: string[] } }>;
   now?: () => Date;
   /** Persisted coach titles (hysteresis memory + bounds); absent = in-memory plain percentile titles. */
   titles?: CoachTitleStore;
@@ -258,9 +258,11 @@ export async function tabletopApi(
     if (method !== "GET") return err(405, "Method not allowed.");
     const coach = query.get("coach")?.trim() ?? "";
     if (!coach || coach.length > 60) return err(400, "coach is required.");
+    const own = coach.toLowerCase() === me.toLowerCase();
     const saves = (deps.listSaves?.(coach) ?? []).map((s) => ({ id: s.id, name: s.name }));
-    const teams = (deps.listTeams?.(coach) ?? saves.map((x) => ({ ref: x.id, name: x.name, race: "", tv: null })))
-      .map((t) => ({ ref: t.ref, name: t.name, race: t.race, tv: t.tv }));
+    const teams = (deps.listTeams?.(coach) ?? saves.map((x) => ({ ref: x.id, name: x.name, race: "", tv: null })) as NonNullable<ReturnType<NonNullable<TabletopApiDeps["listTeams"]>>>)
+      // Registrations and outstanding actions are the coach's own business: an opponent's lookup gets the plain list.
+      .map((t) => (own ? { ref: t.ref, name: t.name, race: t.race, tv: t.tv, registered: t.registered ?? [], actions: t.actions ?? { count: 0, items: [] } } : { ref: t.ref, name: t.name, race: t.race, tv: t.tv }));
     return { status: 200, body: { coach, saves, teams } };
   }
   const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|turn\/start|turn\/end|turn\/set))?$/.exec(path);

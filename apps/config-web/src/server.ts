@@ -183,6 +183,7 @@ import {
   teamDetailEndpoint,
   teamDetailIdFromPath,
 } from "./teamDetail.js";
+import { advancementItems, createAdvancementCache, teamActions, type TeamRegistration } from "./teamActions.js";
 import { libraryManageView, meTeamPath, saveManageView } from "./teamManageView.js";
 import { advancementPath, teamAdvancementEndpoint } from "./teamAdvancement.js";
 import {
@@ -557,6 +558,21 @@ function lobbyAuthFor(req: IncomingMessage): { coach: string; method: string; te
 const TABLETOP_DIR = resolve(process.env.TABLETOP_DIR || join(dirname(LIBRARY_DIR), "tabletop"));
 let tabletopRepo: FileTabletopRepository | undefined;
 
+/** The coach's live registrations (draft + active tournaments), keyed to the team they entered, with the roster check's problem count. */
+function teamRegistrations(coach: string): Array<TeamRegistration & { teamId: string; saveId: string }> {
+  const out: Array<TeamRegistration & { teamId: string; saveId: string }> = [];
+  for (const t of tournamentStore.tournaments(["draft", "active"])) {
+    for (const e of tournamentStore.entrants(t.id)) {
+      if (e.droppedAt !== undefined || e.coach.ffbCoachId.trim().toLowerCase() !== coach.trim().toLowerCase()) continue;
+      const v = e.submission?.validation;
+      const problems = e.rosterVerifiedOverride === true || !v || v.ok ? 0 : Math.max(1, v.problems.length);
+      out.push({ tournamentId: t.id, tournamentName: t.name, problems, teamId: e.teamId, saveId: e.submission?.saveId ?? "" });
+    }
+  }
+  return out;
+}
+const advancementItemsCached = createAdvancementCache();
+
 async function tabletopDeps(): Promise<TabletopApiDeps> {
   const first = !tabletopRepo;
   tabletopRepo ??= new FileTabletopRepository(TABLETOP_DIR);
@@ -602,13 +618,35 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     publishClock: (matchId, payload) => superService?.publishTabletopClock(matchId, payload),
     notify: (coach, input) => tournamentNotifier.coach(coach, input),
     listSaves: (coach) => readSaves(BUILDER_SAVES_DIR, coach).map((s) => ({ id: s.id, name: s.name })),
-    listTeams: (coach) => [
-      ...readLibrary(LIBRARY_DIR, coach).map((t) => ({ ref: `library:${t.teamId}`, name: t.teamName, race: t.race, tv: typeof t.teamValue === "number" ? t.teamValue : null })),
-      ...readSaves(BUILDER_SAVES_DIR, coach).map((x) => ({
-        ref: x.id, name: x.name, race: x.raceName,
-        tv: typeof x.lastPreview?.teamValue === "number" ? (x.lastPreview.teamValue as number) : null,
-      })),
-    ],
+    listTeams: (coach) => {
+      const regs = teamRegistrations(coach);
+      const teamsDir = forkConfigFromEnv()?.teamsDir;
+      return [
+        ...readLibrary(LIBRARY_DIR, coach).map((t) => {
+          const registered = regs.filter((r) => r.teamId === t.teamId);
+          const advancement = teamsDir && t.retired !== true
+            ? advancementItemsCached(teamsDir, t.teamId, () => {
+              const detail = teamDetailEndpoint({ coach, organizer: false }, t.teamId, { libraryDir: LIBRARY_DIR, teamsDir, tokenSecret: TEAM_ADVANCEMENT_TOKEN_SECRET });
+              return detail.status === 200 ? advancementItems(detail.body.team) : [];
+            })
+            : [];
+          return {
+            ref: `library:${t.teamId}`, name: t.teamName, race: t.race, tv: typeof t.teamValue === "number" ? t.teamValue : null,
+            registered: registered.map((r) => ({ id: r.tournamentId, name: r.tournamentName })),
+            actions: teamActions(advancement, registered),
+          };
+        }),
+        ...readSaves(BUILDER_SAVES_DIR, coach).map((x) => {
+          const registered = regs.filter((r) => r.saveId === x.id || r.saveId === `save:${x.id}`);
+          return {
+            ref: x.id, name: x.name, race: x.raceName,
+            tv: typeof x.lastPreview?.teamValue === "number" ? (x.lastPreview.teamValue as number) : null,
+            registered: registered.map((r) => ({ id: r.tournamentId, name: r.tournamentName })),
+            actions: teamActions([], registered),
+          };
+        }),
+      ];
+    },
     fixtures: {
       get: (id) => {
         const m = tournamentStore.match(id);
