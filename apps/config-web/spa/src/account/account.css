@@ -55,3 +55,14 @@
   .ac-grid, .ac-legend { display: none; }
   .ac-agenda { display: block; }
 }
+
+/* ---- Set schedule (calendar band button + dialog) */
+.ac-page .hm-band:has(.ac-set-schedule) { flex-wrap: wrap; align-items: center; }
+.ac-page .hm-band:has(.ac-set-schedule) h2 { margin-right: auto; }
+.ac-set-schedule { min-height: 44px; }
+.ac-sched-modal { width: min(920px, 100%); }
+.ac-sched-body { display: grid; gap: 10px; min-width: 0; overflow-x: auto; }
+@media (max-width: 760px) {
+  .tn-modal-backdrop:has(.ac-sched-modal) { padding: 16px; place-items: center; }
+  .ac-sched-modal { width: 100%; max-height: calc(100dvh - 32px); }
+}

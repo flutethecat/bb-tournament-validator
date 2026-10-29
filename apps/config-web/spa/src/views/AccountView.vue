@@ -1,18 +1,20 @@
 <script setup lang="ts">
 // Account page (/app/account, owner 10-30), in the coach page's language: title + LED coach name, two columns (fluid /
-// 380 px at >= 1280). Main: Identity (GET/PATCH /api/me/profile), Schedule (the availability editor, GET/PUT
-// /api/me/scheduling; /account#schedule lands here), Calendar (deadlines and fixtures from the nav tree's
-// GET /api/me/deadlines, availability shading, proposed times once that lane lands). Side: Session, Teams, test sign-in.
-import { computed, inject, onBeforeUnmount, onMounted, onServerPrefetch, ref } from "vue";
-import { RouterLink } from "vue-router";
+// 380 px at >= 1280). Main: Identity (GET/PATCH /api/me/profile), Calendar (deadlines and fixtures from the nav tree's
+// GET /api/me/deadlines, availability shading, proposed times once that lane lands) with a "Set schedule" button in its
+// band: the availability editor (GET/PUT /api/me/scheduling) opens in a dialog, and /account#schedule opens it on load.
+// Side: Session, Teams, test sign-in.
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from "vue";
+import { RouterLink, useRoute } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import TestSignInCard from "../components/TestSignInCard.vue";
-import HomeSchedule from "../components/HomeSchedule.vue";
+import ScheduleDialog from "../components/ScheduleDialog.vue";
 import AccountIdentity from "../components/AccountIdentity.vue";
 import AccountCalendar from "../components/AccountCalendar.vue";
 import { calendarZone } from "../account/calendar";
 import { createAccountEditors } from "../account/editors";
+import { createScheduleDialog, SCHEDULE_DIALOG_KEY, SCHEDULE_HASH } from "../account/scheduleDialog";
 import { browserTimeZone } from "../home/deadlines";
 import { COACH_TREE_KEY } from "../home/tree";
 import { useNow } from "../home/shell";
@@ -54,13 +56,32 @@ async function signOut(): Promise<void> {
   }
 }
 
-onMounted(() => { void editors.refreshProposals(); });
+const route = useRoute();
+const opener = ref<HTMLButtonElement | null>(null);
+const scheduleDialog = inject(SCHEDULE_DIALOG_KEY, null) ?? createScheduleDialog({
+  isDirty: () => schedule.value.state.dirty,
+  focusOpener: () => { void nextTick(() => opener.value?.focus({ preventScroll: true })); },
+}, route.hash === SCHEDULE_HASH && session.signedIn());
+const dialogOpen = computed(() => scheduleDialog.open.value && session.signedIn());
+// A different coach (Test sign-in, sign out) gets a fresh editor: the dialog must not stay open over it.
+watch(coach, () => { scheduleDialog.close(); void loadWeek(); });
+// Landing on #schedule (also from a link while this page is mounted) opens the dialog.
+watch(() => route.hash, (h) => { if (h === SCHEDULE_HASH && session.signedIn()) scheduleDialog.show(); });
+
+// The calendar shades from the week, which used to load with the Schedule panel: load it here (once per editor).
+async function loadWeek(): Promise<void> {
+  const ed = schedule.value;
+  if (coach.value && !ed.state.loaded && !ed.state.loadFailed) await ed.load();
+}
+
+onMounted(() => { void editors.refreshProposals(); void loadWeek(); });
 // Server rendering: the week loads before the Schedule panel and the calendar both render from it.
 onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
 </script>
 
 <template>
-  <div class="hm-page ac-page">
+  <div class="ac-root">
+  <div class="hm-page ac-page" :inert="dialogOpen ? true : undefined" :aria-hidden="dialogOpen ? 'true' : undefined">
     <h1 class="hm-title">Account <span class="hm-led">{{ session.coach() }}</span></h1>
     <div class="hm-grid">
       <div class="hm-col hm-col-main">
@@ -69,14 +90,10 @@ onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
           <AccountIdentity :editor="profile" :coach="session.coach()" />
         </section>
 
-        <!-- Owner 10-30: the weekly availability editor moved here from the coach page. -->
-        <section v-if="session.signedIn()" id="schedule" :key="`schedule-${coach}`" class="hm-panel" aria-labelledby="hm-schedule-h">
-          <header class="hm-band"><h2 id="hm-schedule-h">Schedule</h2><span class="hm-cap">My availability</span></header>
-          <HomeSchedule :editor="schedule" />
-        </section>
-
         <section v-if="session.signedIn()" id="calendar" :key="`calendar-${coach}`" class="hm-panel" aria-labelledby="ac-calendar-h">
-          <header class="hm-band"><h2 id="ac-calendar-h">Calendar</h2><RouterLink class="hm-cap" to="/home#deadlines">Deadlines</RouterLink></header>
+          <header class="hm-band"><h2 id="ac-calendar-h">Calendar</h2><RouterLink class="hm-cap" to="/home#deadlines">Deadlines</RouterLink>
+            <button ref="opener" class="lobby-btn ac-set-schedule" type="button" aria-haspopup="dialog" @click="scheduleDialog.show()">Set schedule</button>
+          </header>
           <AccountCalendar :deadlines="deadlines" :proposals="proposals" :blocks="schedule.state.blocks" :timezone="zone" :now="now" :loading="tree?.state.loading" />
         </section>
       </div>
@@ -104,5 +121,7 @@ onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
         <TestSignInCard />
       </div>
     </div>
+  </div>
+  <ScheduleDialog v-if="dialogOpen" :key="`schedule-${coach}`" :editor="schedule" :dialog="scheduleDialog" />
   </div>
 </template>
