@@ -2413,8 +2413,10 @@ async function initialize() {
   state.bannedSkill = state.skills[0]?.name ?? "";
   state.ruleTeam = state.teams[0]?.name ?? "";
 
+  // Deep link from the Tournament page ("Edit ruleset"): ?package=<name> opens that package when it exists.
+  const requested = typeof location !== "undefined" ? new URLSearchParams(location.search).get("package") : null;
   if (state.packageNames.length) {
-    await loadSavedPackage(state.packageNames[0]);
+    await loadSavedPackage(requested && state.packageNames.includes(requested) ? requested : state.packageNames[0]);
   } else if (state.presets.length) {
     loadPreset(state.presets[0].id);
   } else {
