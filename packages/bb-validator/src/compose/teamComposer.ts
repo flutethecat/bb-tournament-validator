@@ -450,12 +450,18 @@ export function rosterOptions(forkRosterXml: string, data: Dataset): RosterOptio
  * 30 official races; this is the parallel path for the numeric-rosterId SL teams the dataset can't
  * resolve. AG/PA/AV are rendered `n+` (PA/AG=0 ⇒ "-", i.e. no passing / no agility roll offered).
  */
+/** Fork roster <type> normalized to the dataset's spelling style: "Big Guy" -> "bigguy", "Regular" -> "regular". */
+const forkPositionType = (type: string): string => type.toLowerCase().replace(/[^a-z]/g, "");
+
 export function rosterOptionsIntrinsic(forkRosterXml: string, data?: Dataset): RosterOptions {
   const fork = parseForkRoster(forkRosterXml);
   const plus = (n: number | undefined): string => (n && n > 0 ? `${n}+` : "-");
   const positions: RosterOption[] = fork.positions.map((p) => ({
     positionId: p.positionId,
     name: p.name,
+    // Normalized fork <type> ("Big Guy" -> "bigguy", "Regular" -> "regular") so the builder can tell a Big Guy
+    // apart on a dataset-free roster too (e.g. the Team Captain toggle never offers one).
+    type: forkPositionType(p.type),
     cost: p.cost ?? 0,
     max: p.quantity ?? 0,
     MA: p.MA ?? 0,

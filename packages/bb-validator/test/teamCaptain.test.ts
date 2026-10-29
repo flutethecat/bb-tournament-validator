@@ -137,3 +137,19 @@ describe("Team Captain nomination (composer)", () => {
       .toThrow(/cannot nominate a Team Captain/);
   });
 });
+
+describe("Team Captain on a dataset-free (Secret League) roster", () => {
+  it("exposes a normalized position type so the builder can keep the toggle off a Big Guy", async () => {
+    const { rosterOptionsIntrinsic } = await import("@bb/validator");
+    const sl = readFileSync(fileURLToPath(new URL("./fixtures/roster_secretleague.xml", import.meta.url)), "utf8")
+      .replace("<rule>Underworld Challenge</rule>", "<rule>Underworld Challenge</rule><rule>Team Captain</rule>");
+    const opts = rosterOptionsIntrinsic(sl);
+    expect(opts.specialRules).toContain("Team Captain");
+    expect(opts.positions.find((p) => p.name === "Rat Ogre")?.type).toBe("bigguy");
+    expect(opts.positions.find((p) => p.name === "Skaven Slave")?.type).toBe("regular");
+    // …and the server agrees with the toggle.
+    const ogreId = opts.positions.find((p) => p.name === "Rat Ogre")!.positionId;
+    expect(() => composeTeamIntrinsic({ ...base, forkRosterXml: sl, picks: [{ positionId: ogreId, count: 1, captain: true }] }, 42))
+      .toThrow(/Big Guy/);
+  });
+});
