@@ -6,7 +6,7 @@ import type { Fetcher } from "../spa/src/session";
 import {
   applyTierFill, createLeagueSettings, isSettingsTab, isWebhookUrl, nextSeasonDefaults, openSeason, openSeasons, postcodeError, teamBuildingError, tierFillPlan,
 } from "../spa/src/leagues/settings";
-import { createLeagueDetail, newFixtureError, newsList } from "../spa/src/leagues/league";
+import { createFixtureRows, createLeagueDetail, newFixtureError, newsList } from "../spa/src/leagues/league";
 import type { LeagueFixture, LeagueSettingsView, LeagueSummary, SeasonRecord, SeasonSummary, TeamBuildingRosterRule } from "../spa/src/leagues/types";
 
 // SPA League settings: the controller and helpers, every tab server-rendered against a mocked Fetcher, the cog on the
@@ -78,6 +78,21 @@ const API: Routes = {
 };
 
 describe("league settings helpers and controller", () => {
+  it("[review P2] fixtures editor rows never leak between seasons that reuse fixture ids", () => {
+    const rows = createFixtureRows();
+    const a = fx("f1", true);
+    const b = fx("f1", false, { date: "2026-12-01" });
+    rows.sync("season-5", [a]);
+    rows.rowOf("season-5", a).home = "7"; // a pending edit in Season 5
+    rows.sync("season-6", [b]);
+    expect(rows.rowOf("season-6", b)).toEqual({ date: "2026-12-01", home: "", away: "", homeCas: "", awayCas: "" });
+    expect(rows.has("season-5", "f1")).toBe(false); // switching seasons dropped the pending edit
+    rows.sync("season-5", [a]);
+    expect(rows.rowOf("season-5", a).home).toBe("2"); // fresh from the stored fixture, not the abandoned "7"
+    rows.drop("season-5", "f1");
+    expect(rows.has("season-5", "f1")).toBe(false);
+  });
+
   it("overlapping seasons: every open season, newest first; the newest is the current one", () => {
     const s7: SeasonSummary = { ...s6, id: "season-7", number: 7, name: "Season 7" };
     expect(openSeasons([s5, s6, s7]).map((s) => s.id)).toEqual(["season-7", "season-6"]);

@@ -76,6 +76,36 @@ export function newsList(season: Pick<SeasonRecord, "news"> | undefined): League
   return [...(season?.news ?? [])].sort((a, b) => Number(b.pinned) - Number(a.pinned) || Date.parse(b.at) - Date.parse(a.at) || b.id.localeCompare(a.id));
 }
 
+/** The fixtures editor's per-row state key: season AND fixture (imported seasons reuse fixture ids like f1). */
+export const fixtureRowKey = (seasonId: string, fixtureId: string): string => `${seasonId}/${fixtureId}`;
+
+/** One fixtures-editor row (strings, so an empty box means "none"). */
+export interface FixtureRowEdit { date: string; home: string; away: string; homeCas: string; awayCas: string }
+
+export const fixtureRowEdit = (f: LeagueFixture): FixtureRowEdit => ({
+  date: f.date ?? "", home: f.home.score === null ? "" : String(f.home.score), away: f.away.score === null ? "" : String(f.away.score),
+  homeCas: f.home.cas === null ? "" : String(f.home.cas), awayCas: f.away.cas === null ? "" : String(f.away.cas),
+});
+
+/**
+ * The fixtures editor's pending edits. Keyed by season + fixture, and a season switch drops every pending edit, so a
+ * score typed in one season can never be submitted into another season's fixture with the same id.
+ */
+export function createFixtureRows() {
+  const rows = reactive<Record<string, FixtureRowEdit>>({});
+  let current = "";
+  return {
+    has: (seasonId: string, fixtureId: string): boolean => fixtureRowKey(seasonId, fixtureId) in rows,
+    /** Call outside render whenever the season or its fixture list changes. */
+    sync(seasonId: string, fixtures: readonly LeagueFixture[]): void {
+      if (seasonId !== current) { for (const k of Object.keys(rows)) delete rows[k]; current = seasonId; }
+      for (const f of fixtures) rows[fixtureRowKey(seasonId, f.id)] ??= fixtureRowEdit(f);
+    },
+    rowOf: (seasonId: string, f: LeagueFixture): FixtureRowEdit => rows[fixtureRowKey(seasonId, f.id)] ?? fixtureRowEdit(f),
+    drop(seasonId: string, fixtureId: string): void { delete rows[fixtureRowKey(seasonId, fixtureId)]; },
+  };
+}
+
 export interface NewFixtureForm { home: string; away: string; round: number | null; phaseId: string; date: string; test: boolean }
 
 /** The first problem with an Add fixture form ("" = send it); the server checks the same rules. */

@@ -51,6 +51,12 @@ export interface RedraftBoardState {
   targetPick: string;
 }
 
+/** Which season pickers the board shows: source unless a redraft is running (closed ones never block), target before confirmation. */
+export function redraftPickers(view: Pick<RedraftBoardView, "state" | "sources" | "targets">): { source: boolean; target: boolean } {
+  const running = Boolean(view.state && !view.state.closedAt);
+  return { source: !running && (view.sources?.length ?? 0) > 1, target: !view.state && (view.targets?.length ?? 0) > 1 };
+}
+
 /** The board read with the organiser's season picks. */
 export function boardPath(leagueId: string, picks: { source?: string; target?: string } = {}): string {
   const q = new URLSearchParams();

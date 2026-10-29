@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
-import { boardPath, budgetNote, createRedraftBoard, createRedraftTeam, draftTotals, initialPicks, seasonsTitle, stepOf, tasksForTeam } from "../spa/src/leagues/redraft";
+import { boardPath, budgetNote, createRedraftBoard, redraftPickers, createRedraftTeam, draftTotals, initialPicks, seasonsTitle, stepOf, tasksForTeam } from "../spa/src/leagues/redraft";
 import type { CoachRedraftView, RedraftBoardRow, RedraftBoardView } from "../spa/src/leagues/types";
 
 // SPA league redraft: the board and coach controllers, the live draft sums, and the board / dialog server-rendered.
@@ -58,6 +58,15 @@ const coachView = (over: Partial<CoachRedraftView> = {}): CoachRedraftView => ({
 const rested = (): CoachRedraftView => coachView({ revision: 2, rest: { ...coachView().rest, done: true, rolls: [{ playerId: "p1", roll: 4, target: 3, recovered: true, source: "site" }] } });
 
 describe("redraft helpers and controllers", () => {
+  it("[review P2] pickers: source stays pickable after a redraft closes; target locks once confirmed", () => {
+    const lists = { sources: [{ id: "season-6", name: "Season 6" }, { id: "season-5", name: "Season 5" }], targets: [{ id: "season-8", name: "Season 8", status: "active" }, { id: "season-7", name: "Season 7", status: "active" }] };
+    const running = confirmedBoard().state!;
+    expect(redraftPickers({ ...lists, state: null })).toEqual({ source: true, target: true });
+    expect(redraftPickers({ ...lists, state: running })).toEqual({ source: false, target: false });
+    expect(redraftPickers({ ...lists, state: { ...running, closedAt: "2026-11-02T00:00:00.000Z", closedBy: "Jay" } })).toEqual({ source: true, target: false });
+    expect(redraftPickers({ state: null, sources: [lists.sources[0]!], targets: [] })).toEqual({ source: false, target: false });
+  });
+
   it("overlapping seasons: the board reads with the source / target picks and confirm sends them", async () => {
     expect(boardPath("tabbl")).toBe("/api/leagues/tabbl/redraft");
     expect(boardPath("tabbl", { source: "season-5", target: "season-7" })).toBe("/api/leagues/tabbl/redraft?source=season-5&target=season-7");

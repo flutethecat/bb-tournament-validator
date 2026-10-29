@@ -5,7 +5,7 @@
 // a reason; Confirm redraft creates the coaches' tasks. After: a progress column (Drafting / Submitted / Skipped), budget
 // overrides on teams still drafting, the redraft log and Close redraft.
 import { computed, inject, ref } from "vue";
-import { budgetNote, goldK, REDRAFT_BOARD_KEY, seasonsTitle, STATUS_LABEL, type BoardTab } from "../leagues/redraft";
+import { budgetNote, goldK, REDRAFT_BOARD_KEY, redraftPickers, seasonsTitle, STATUS_LABEL, type BoardTab } from "../leagues/redraft";
 import type { RedraftBoardRow } from "../leagues/types";
 
 const board = inject(REDRAFT_BOARD_KEY)!;
@@ -17,6 +17,9 @@ const tab = ref<BoardTab>("active");
 const rows = computed<RedraftBoardRow[]>(() => (tab.value === "active" ? view.value.active : view.value.inactive));
 const allChecked = computed(() => view.value.active.length > 0 && view.value.active.every((r) => state.picked[r.teamId]));
 const busy = computed(() => Boolean(state.busy));
+// The source stays pickable unless a redraft is running (a closed one must not block other seasons); the target is
+// locked once the redraft is confirmed.
+const pickers = computed(() => redraftPickers(view.value));
 
 // Budget override editor (one row at a time).
 const editing = ref("");
@@ -61,14 +64,14 @@ const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US
           Budget = initial treasury + treasury left + 20k per league game played + 20k per win + 10k per draw.
           Re-hiring a player costs their value + a 20k agent fee per season played. {{ view.note }}
         </p>
-        <div v-if="!started && ((view.sources?.length ?? 0) > 1 || (view.targets?.length ?? 0) > 1)" class="lg-toolbar rd-picks">
-          <label class="lg-select">
+        <div v-if="pickers.source || pickers.target" class="lg-toolbar rd-picks">
+          <label v-if="pickers.source" class="lg-select">
             <span>Redraft from</span>
             <select :value="view.source.id" :disabled="busy" @change="board.pickSource(($event.target as HTMLSelectElement).value)">
               <option v-for="s in view.sources ?? []" :key="s.id" :value="s.id">{{ s.name }}</option>
             </select>
           </label>
-          <label class="lg-select">
+          <label v-if="pickers.target" class="lg-select">
             <span>Draft lists go into</span>
             <select :value="view.target?.id ?? ''" :disabled="busy || !(view.targets?.length)" @change="board.pickTarget(($event.target as HTMLSelectElement).value)">
               <option v-if="!view.target" value="">The next season (not started)</option>

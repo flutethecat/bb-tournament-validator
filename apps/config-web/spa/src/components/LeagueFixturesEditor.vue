@@ -4,7 +4,7 @@
 // (score and casualties), delete one without a result. Creating a fixture posts "Fixture created" and a new result
 // posts "Match result" to the league's Discord channel when those events are on.
 import { computed, inject, reactive, ref, watch } from "vue";
-import { fixturePlayed, LEAGUE_DETAIL_KEY, newFixtureError, type NewFixtureForm } from "../leagues/league";
+import { createFixtureRows, fixturePlayed, LEAGUE_DETAIL_KEY, newFixtureError, type FixtureRowEdit, type NewFixtureForm } from "../leagues/league";
 import type { LeagueFixture, SeasonRecord } from "../leagues/types";
 
 const props = defineProps<{ season: SeasonRecord }>();
@@ -25,18 +25,12 @@ async function add(): Promise<void> {
   if (await detail.createFixture(props.season.id, { ...form })) Object.assign(form, { ...blank(), round: form.round, phaseId: form.phaseId, date: form.date, test: form.test });
 }
 
-// Per-fixture edits (kept as strings so an empty box means "none").
-interface RowEdit { date: string; home: string; away: string; homeCas: string; awayCas: string }
-const rows = reactive<Record<string, RowEdit>>({});
-const initRow = (f: LeagueFixture): RowEdit => ({
-  date: f.date ?? "", home: f.home.score === null ? "" : String(f.home.score), away: f.away.score === null ? "" : String(f.away.score),
-  homeCas: f.home.cas === null ? "" : String(f.home.cas), awayCas: f.away.cas === null ? "" : String(f.away.cas),
-});
-// Rows are created outside render (a new fixture, or one whose edits were dropped after clear / delete).
-watch(() => props.season.fixtures.map((f) => `${f.id}:${rows[f.id] ? 1 : 0}`).join("|"), () => {
-  for (const f of props.season.fixtures) rows[f.id] ??= initRow(f);
+// Per-fixture edits, keyed by season AND fixture (imported seasons reuse fixture ids like f1): see createFixtureRows.
+const edits = createFixtureRows();
+watch(() => `${props.season.id}|${props.season.fixtures.map((f) => `${f.id}:${edits.has(props.season.id, f.id) ? 1 : 0}`).join("|")}`, () => {
+  edits.sync(props.season.id, props.season.fixtures);
 }, { immediate: true });
-const rowOf = (f: LeagueFixture): RowEdit => rows[f.id] ?? initRow(f);
+const rowOf = (f: LeagueFixture): FixtureRowEdit => edits.rowOf(props.season.id, f);
 const roundFilter = ref("all");
 const rounds = computed(() => [...new Set(props.season.fixtures.map((f) => f.round))].sort((a, b) => a - b));
 const listed = computed(() => props.season.fixtures.filter((f) => roundFilter.value === "all" || String(f.round) === roundFilter.value));
@@ -56,12 +50,12 @@ async function saveResult(f: LeagueFixture): Promise<void> {
 }
 async function clearResult(f: LeagueFixture): Promise<void> {
   mine.value = true;
-  if (await detail.editFixture(props.season.id, f.id, { result: null })) delete rows[f.id];
+  if (await detail.editFixture(props.season.id, f.id, { result: null })) edits.drop(props.season.id, f.id);
 }
 const confirming = ref("");
 async function remove(f: LeagueFixture): Promise<void> {
   mine.value = true;
-  if (await detail.deleteFixture(props.season.id, f.id)) delete rows[f.id];
+  if (await detail.deleteFixture(props.season.id, f.id)) edits.drop(props.season.id, f.id);
   confirming.value = "";
 }
 </script>
