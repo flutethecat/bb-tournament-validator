@@ -10,6 +10,7 @@ import { THEME_KEY, themeLabel } from "./theme";
 import { gateFor } from "./router";
 import { COACH_TREE_KEY } from "./home/tree";
 import { DRAWER_QUERY, FOCUSABLE, rememberRail, SHELL_UI_KEY, trapTarget, typingTarget } from "./home/shell";
+import { NOTIFICATIONS_KEY, unreadBadge } from "./home/notifications";
 import type { AccountInfo } from "./shared/api";
 
 const session = inject(SESSION_KEY)!;
@@ -25,8 +26,18 @@ const gate = computed(() => gateFor(route, session));
 const loginHref = computed(() => discordLoginUrl(appPath(route.fullPath)));
 const avatar = ref("");
 const menuOpen = ref(false);
-/** Notifications have no store yet (lane 2): the bell is a placeholder at 0. */
-const unread = 0;
+/** The shared notifications store (createSpa): the bell shows its unread count, capped "99+", hidden at 0. */
+const notifications = inject(NOTIFICATIONS_KEY)!;
+const unread = computed(() => notifications.unread.value);
+const badge = computed(() => unreadBadge(unread.value));
+// The bell holds one subscription while a coach is signed in (browser only; never during a server render).
+let bellSubscribed = false;
+function followSession(coach: string): void {
+  if (coach && !bellSubscribed) { bellSubscribed = true; void notifications.load(); notifications.subscribe(); }
+  else if (!coach && bellSubscribed) { bellSubscribed = false; notifications.unsubscribe(); }
+}
+onMounted(() => watch(() => session.coach(), followSession, { immediate: true }));
+onBeforeUnmount(() => { if (bellSubscribed) { bellSubscribed = false; notifications.unsubscribe(); } });
 
 // Header avatar: the Discord avatar (or profile avatar) /api/account returns; the name alone is enough on failure.
 watch(
@@ -117,7 +128,7 @@ async function signOut(): Promise<void> {
         <RouterLink v-slot="{ href, navigate }" to="/home#notifications" custom>
         <a :href="href" class="sf-bell" :aria-label="`Notifications: ${unread}`" @click="navigate">
           <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 1a1 1 0 0 1 1 1v.6A4.5 4.5 0 0 1 12.5 7v3l1.5 2v1H2v-1l1.5-2V7A4.5 4.5 0 0 1 7 2.6V2a1 1 0 0 1 1-1Zm-1.7 13h3.4a1.7 1.7 0 0 1-3.4 0Z" /></svg>
-          <span class="sf-bell-count" :data-zero="unread === 0 ? 'true' : undefined">{{ unread }}</span>
+          <span v-if="badge" class="sf-bell-count">{{ badge }}</span>
         </a>
         </RouterLink>
         <div class="sf-avatar-menu">

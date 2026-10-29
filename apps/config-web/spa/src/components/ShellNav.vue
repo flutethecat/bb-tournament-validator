@@ -9,9 +9,11 @@ import { NAV } from "../router";
 import { SESSION_KEY } from "../session";
 import { COACH_TREE_KEY, pickActive, type ChipTone } from "../home/tree";
 import { SHELL_UI_KEY, useNow } from "../home/shell";
+import { NOTIFICATIONS_KEY } from "../home/notifications";
 
 const session = inject(SESSION_KEY)!;
 const tree = inject(COACH_TREE_KEY)!;
+const notifications = inject(NOTIFICATIONS_KEY)!;
 const ui = inject(SHELL_UI_KEY)!;
 const route = useRoute();
 const now = useNow();
@@ -23,7 +25,7 @@ const coachRows = computed<Row[]>(() => {
   const deadlines = tree.state.deadlines.length;
   const nearest = tree.nearestChip(now.value);
   return [
-    { key: "c:notifications", to: "/home#notifications", label: "Notifications", level: 1, count: 0 },
+    { key: "c:notifications", to: "/home#notifications", label: "Notifications", level: 1, count: notifications.unread.value },
     { key: "c:deadlines", to: "/home#deadlines", label: "Deadlines", level: 1, count: deadlines, ...(nearest ? { chip: { label: nearest === "overdue" ? "late" : nearest === "urgent" ? "<24h" : nearest === "soon" ? "<72h" : "ok", tone: nearest } } : {}) },
     { key: "c:friends", to: "/home#friends", label: "Friends", level: 1 },
     { key: "c:messages", to: "/home#messages", label: "Messages", level: 1, count: 0 },

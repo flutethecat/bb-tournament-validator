@@ -2,7 +2,7 @@
 // shows `unread` on the top-bar bell. Push = the Super socket's `notify` feature (hello { notify: true }); when the
 // socket is unavailable or refused, the store polls every 60 s instead. Rows are what the server sent, nothing more.
 
-import { ref, type Ref } from "vue";
+import { ref, type InjectionKey, type Ref } from "vue";
 import type { Fetcher } from "../session";
 
 export type NotificationType =
@@ -87,7 +87,8 @@ export interface NotificationsStore {
   load(): Promise<void>;
   markRead(ids: string[]): Promise<void>;
   markAllRead(): Promise<void>;
-  /** Start push (socket) with the 60 s poll fallback. Idempotent. */
+  /** Start push (socket) with the 60 s poll fallback. Counted: every subscribe() needs its own unsubscribe(), and
+   *  the socket opens on the first and closes on the last, so the bell and the coach page can share one store. */
   subscribe(): void;
   unsubscribe(): void;
 }
@@ -144,6 +145,7 @@ export function useNotifications(fetcher: Fetcher, options: NotificationsOptions
 
   let pollTimer: unknown;
   let socket: NotifySocket | undefined;
+  let holders = 0;
   let subscribed = false;
   let tries = 0;
   const startPoll = () => { if (pollTimer === undefined && subscribed) pollTimer = setI(() => { void load(); }, options.pollMs ?? POLL_MS); };
@@ -181,12 +183,15 @@ export function useNotifications(fetcher: Fetcher, options: NotificationsOptions
   return {
     rows, unread, loaded, error, live, load, markRead, markAllRead,
     subscribe() {
+      holders += 1;
       if (subscribed) return;
       subscribed = true;
       tries = 0;
       connect();
     },
     unsubscribe() {
+      if (holders > 0) holders -= 1;
+      if (holders > 0) return;
       subscribed = false;
       stopPoll();
       const s = socket;
@@ -211,3 +216,9 @@ export async function sendCoachMessage(fetcher: Fetcher, tournamentId: string, c
     return err instanceof Error ? err.message : "Can't send the message.";
   }
 }
+
+/** The one store the SPA shares (createSpa provides it): the top-bar bell and the coach page read the same rows. */
+export const NOTIFICATIONS_KEY: InjectionKey<NotificationsStore> = Symbol("notifications");
+
+/** Badge text for the bell: "" at 0 (badge hidden), "99+" above 99. */
+export const unreadBadge = (n: number): string => (n <= 0 ? "" : n > 99 ? "99+" : String(n));

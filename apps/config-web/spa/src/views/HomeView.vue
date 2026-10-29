@@ -1,12 +1,14 @@
 <script setup lang="ts">
 // Coach page (/app/home, spec §4.7): two columns at >= 1280 (fluid / 380 px), one column on a phone. Left:
-// Notifications (no store yet), Deadlines (GET /api/me/deadlines, via the nav tree), Schedule (availability editor).
+// Notifications (the shared store, NotificationsPanel), Deadlines (GET /api/me/deadlines, via the nav tree), Schedule (availability editor).
 // Right: Friends and Messages (empty until their lanes land), My teams strip, Account shortcut, What's new.
-import { computed, inject, onMounted, onServerPrefetch, ref } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, onServerPrefetch, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import HomeSchedule from "../components/HomeSchedule.vue";
-import { SESSION_KEY } from "../session";
+import NotificationsPanel from "../components/NotificationsPanel.vue";
+import { SESSION_KEY, writesAllowed } from "../session";
+import { NOTIFICATIONS_KEY } from "../home/notifications";
 import { COACH_TREE_KEY } from "../home/tree";
 import { browserTimeZone, CHIP_CLASS, chipFor, formatWhen, timeLeft } from "../home/deadlines";
 import { loadBuildLog, logDate, useNow, type BuildLogEntry } from "../home/shell";
@@ -17,6 +19,8 @@ interface MyTeam { ref: string; name: string; race?: string }
 const session = inject(SESSION_KEY)!;
 const fetcher = inject(API_KEY)!;
 const tree = inject(COACH_TREE_KEY)!;
+const notifications = inject(NOTIFICATIONS_KEY)!;
+const canWrite = computed(() => writesAllowed(session));
 
 // One shared clock (60 s tick) drives the chips and countdowns here and in the nav.
 const now = useNow();
@@ -52,7 +56,10 @@ const crestFor = (t: MyTeam) => resolveCrest(art.value, t.race);
 onMounted(() => {
   if (!teamsLoaded.value) void loadTeams();
   if (!log.value.length) void loadLog();
+  void notifications.load();
+  notifications.subscribe();
 });
+onBeforeUnmount(() => notifications.unsubscribe());
 onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
 </script>
 
@@ -61,10 +68,9 @@ onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
     <h1 class="hm-title">Coach page <span class="hm-led">{{ session.coach() }}</span></h1>
     <div class="hm-grid">
       <div class="hm-col hm-col-main">
-        <section id="notifications" class="hm-panel" aria-labelledby="hm-notifications-h">
-          <header class="hm-band" data-tone="info"><h2 id="hm-notifications-h">Notifications</h2><span class="hm-cap">0 new</span></header>
-          <p class="hm-empty">Nothing yet</p>
-        </section>
+        <div id="notifications" class="hm-notifications">
+          <NotificationsPanel :notifications="notifications" :writable="canWrite" />
+        </div>
 
         <section id="deadlines" class="hm-panel" aria-labelledby="hm-deadlines-h">
           <header class="hm-band"><h2 id="hm-deadlines-h">Deadlines</h2><span class="hm-cap">{{ zone }}</span></header>

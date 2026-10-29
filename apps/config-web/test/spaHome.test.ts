@@ -379,6 +379,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const { html } = await render("/home", signedInRoutes());
     expect(html).toMatch(/<a [^>]*href="\/app\/home" class="[^"]*brand sf-wordmark"/);
     expect(html).toMatch(/class="sf-bell"[^>]*aria-label="Notifications: 0"/);
+    expect(html).not.toContain('class="sf-bell-count"'); // the badge is hidden at 0
     expect(html).toContain('aria-haspopup="menu"');
     for (const tree of ["League", "Tournament", "Coach page"]) expect(html).toMatch(new RegExp(`class="sf-head-link"[^>]*>${tree}</a>`));
     expect((html.match(/class="sf-caret"/g) ?? []).length).toBe(4);
@@ -470,7 +471,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     for (const id of ["friends", "messages", "my-teams", "account", "whats-new"]) expect(side).toContain(`id="${id}"`);
     expect(main.indexOf('id="notifications"')).toBeLessThan(main.indexOf('id="deadlines"'));
     expect(main.indexOf('id="deadlines"')).toBeLessThan(main.indexOf('id="schedule"'));
-    expect(html).toMatch(/id="hm-notifications-h">Notifications<\/h2>[\s\S]*?<p class="hm-empty">Nothing yet<\/p>/);
+    expect(html).toMatch(/id="notifications"[\s\S]*?<span>Notifications<\/span>[\s\S]*?<p class="nf-empty">Nothing yet<\/p>/);
     // deadlines: nearest first, chip class by horizon, the zone named in the band caption and used for the times
     expect(html).toContain('<span class="hm-cap">America/New_York</span>');
     const rows = html.match(/<a href="\/app\/[^"]*" class="hm-deadline">[\s\S]*?<\/a>/g) ?? [];

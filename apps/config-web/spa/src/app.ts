@@ -11,6 +11,7 @@ import { api } from "./shared/api";
 import { createTheme, THEME_KEY, type Theme } from "./theme";
 import { COACH_TREE_KEY, createCoachTree, type CoachTree } from "./home/tree";
 import { CLOCK_KEY, createClock, createShellUi, SHELL_UI_KEY, type Clock, type ShellUi } from "./home/shell";
+import { NOTIFICATIONS_KEY, useNotifications } from "./home/notifications";
 
 /** The JSON fetcher views use (tests may swap it; the default is the shared same-origin api()). */
 export const API_KEY: InjectionKey<Fetcher> = Symbol("api");
@@ -51,6 +52,7 @@ export function createSpa(opts: SpaOptions): Spa {
   const ui = createShellUi();
   const clock = createClock();
   app.provide(API_KEY, fetcher);
+  app.provide(NOTIFICATIONS_KEY, useNotifications(fetcher));
   app.provide(COACH_TREE_KEY, tree);
   app.provide(SHELL_UI_KEY, ui);
   app.provide(CLOCK_KEY, clock);

@@ -99,6 +99,8 @@ describe("notifications store", () => {
     expect(n.rows.value[0]!.title).toBe("Pushed");
     h.sockets[0]!.onmessage!({ data: JSON.stringify({ type: "event", feature: "notify", payload: { unread: 4, latest: row({ id: "n9" }) } }) });
     expect(n.rows.value.filter((r) => r.id === "n9")).toHaveLength(1);
+    n.unsubscribe(); // subscriptions are counted: the second holder keeps the socket open
+    expect(n.live.value).toBe(true);
     n.unsubscribe();
     expect(n.live.value).toBe(false);
   });
@@ -240,6 +242,25 @@ describe("NOTIFICATIONS panel + Message coach (server-rendered)", () => {
     expect(html).toContain(">Message coach</button>");
     const test = await manage(AS("Veers", { test: true }));
     expect(test).not.toContain(">Message coach</button>");
+  });
+
+  it("the top-bar bell shows the shared store's unread count, capped at 99+, and the coach page mounts the panel", async () => {
+    const f = mockFetcher({ ...AS("Alice"), "/api/tabletop/saves?coach=Alice": { saves: [] }, "/api/build-log": [] });
+    const spa = mods.app.createSpa({ history: mods.vueRouter.createMemoryHistory("/app/"), ssr: true, fetcher: f });
+    const shared = (spa.app._context.provides as Record<symbol, ReturnType<typeof useNotifications>>)[mods.store.NOTIFICATIONS_KEY];
+    shared.unread.value = 120;
+    shared.rows.value = [row()];
+    await spa.router.push("/home");
+    await spa.router.isReady();
+    const html = (await mods.renderer.renderToString(spa.app)) as string;
+    expect(html).toMatch(/class="sf-bell"[^>]*aria-label="Notifications: 120"/);
+    expect(html).toContain('<span class="sf-bell-count">99+</span>');
+    expect(html).toContain('href="/app/home#notifications"');
+    expect(html).toMatch(/id="notifications"[\s\S]*?class="nf-band"/);
+    expect(html).toContain("Kick-off moved to 7 pm.");
+    expect(mods.store.unreadBadge(0)).toBe("");
+    expect(mods.store.unreadBadge(7)).toBe("7");
+    expect(mods.store.unreadBadge(100)).toBe("99+");
   });
 
   it("copy and token rules", () => {
