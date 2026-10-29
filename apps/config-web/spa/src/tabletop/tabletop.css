@@ -865,7 +865,8 @@
   .tt-rec .tt-settings .tt-changeturn { max-width: 720px; }
 }
 
-.tt-crest-coach { display: none; }
+.tt-crest-coach, .tt-crest-race { display: none; }
+.tt-crestcol { display: contents; }
 /* desktop hero rework: coach and race as one small line in the card's top corner; the name beside the crest, vertically centred; the chips in an inset tray under the name */
 @media (min-width: 1024px) {
   .tt-rec .tt-corner .tt-coachline > .tt-coach { display: none; }
@@ -913,4 +914,19 @@
   .tt-rec .tt-chips[data-size="48"] .tt-chip-img { width: 40px; height: 40px; }
   .tt-rec .tt-chips li.tt-chip-more { display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-heading, sans-serif); font-size: 16px; letter-spacing: .06em; color: var(--tt-ink); text-shadow: var(--tt-lettering-shadow); cursor: pointer; border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; background: var(--tt-panel); box-shadow: var(--tt-bevel); }
   .tt-rec .tt-chips li.tt-chip-more:active { box-shadow: var(--tt-bevel-down); transform: translateY(2px); }
+}
+
+/* the crest column is one content-sized stack (coach / crest frame / race, 6 px gaps), vertically centred in the card beside the name and tray; away mirrored */
+@media (min-width: 1024px) {
+  .tt-rec .tt-corner.home, .tt-rec .tt-corner.away { grid-template-rows: 1fr auto; align-content: stretch; }
+  .tt-rec .tt-crestcol { display: flex; flex-direction: column; align-items: center; align-self: center; gap: 6px; grid-row: 1 / -1; }
+  .tt-rec .tt-corner.home .tt-crestcol { grid-column: 1; }
+  .tt-rec .tt-corner.away .tt-crestcol { grid-column: 2; }
+  .tt-rec .tt-crestcol .tt-crest-coach, .tt-rec .tt-crestcol .tt-crest-race { display: block; grid-row: auto; grid-column: auto; margin: 0; padding: 0; text-align: center; max-width: 100%; overflow-wrap: anywhere; font-family: var(--font-heading, sans-serif); letter-spacing: .06em; text-shadow: var(--tt-name-shadow); line-height: 1.15; }
+  .tt-rec .tt-crestcol .tt-crest-coach { font-size: 16px; color: var(--ui-success, var(--tt-ink)); }
+  .tt-rec .tt-crestcol .tt-crest-race { font-size: 13px; text-transform: uppercase; color: var(--ui-text-dim, var(--tt-muted)); }
+  .tt-rec .tt-crestcol .tt-corner-top { grid-row: auto; grid-column: auto; align-self: auto; }
+  .tt-rec .tt-corner > .tt-race.tt-nameline { display: none; }
+  .tt-rec .tt-corner .tt-team { grid-row: 1; }
+  .tt-rec .tt-corner .tt-coachline.tt-nameline { grid-row: 2; }
 }

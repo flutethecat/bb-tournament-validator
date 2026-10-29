@@ -552,11 +552,14 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain('data-tip="Mystery Item x1"');
     expect(html).toContain('<span class="tt-chip-txt">M</span>');
     expect(html.match(/class="tt-qty"/g)).toHaveLength(2); // rerolls and bribes only
-    expect(html.match(/class="tt-crest-coach"/g)).toHaveLength(2); // the coach sits above the crest frame
+    expect(html.match(/class="tt-crest-coach"/g)).toHaveLength(2); // the coach sits above the crest frame, inside the crest column
+    expect(html.match(/class="tt-crestcol"/g)).toHaveLength(2);
     expect(html).not.toContain("tt-cornerline"); // the top-corner line is gone
     const css1 = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
-    expect(css1).toMatch(/\.tt-rec \.tt-crest-coach \{ grid-row: 1; font-size: 14px;/);
-    expect(css1).toMatch(/\.tt-rec \.tt-corner \.tt-race\.tt-nameline \{ grid-row: 3; font-size: 12px;[^}]*text-transform: uppercase; color: var\(--ui-text-dim/); // the race under the crest
+    expect(css1).toMatch(/\.tt-rec \.tt-crestcol \{ display: flex; flex-direction: column; align-items: center; align-self: center; gap: 6px; grid-row: 1 \/ -1; \}/); // one content-sized stack, centred in the card
+    expect(css1).not.toMatch(/\.tt-crestcol \{[^}]*space-between/);
+    expect(css1).toMatch(/\.tt-rec \.tt-crestcol \.tt-crest-coach \{ font-size: 16px;/);
+    expect(css1).toMatch(/\.tt-rec \.tt-crestcol \.tt-crest-race \{ font-size: 13px; text-transform: uppercase; color: var\(--ui-text-dim/); // the race under the crest
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);

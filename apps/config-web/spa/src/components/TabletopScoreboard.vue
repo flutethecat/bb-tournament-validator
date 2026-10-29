@@ -116,12 +116,15 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
       <p class="tt-half">Turn<small>{{ half }}</small></p>
     </div>
     <section v-for="s in sides" :key="s" class="tt-corner" :class="s" :style="tint(s)">
-      <p class="tt-crest-coach">{{ match[s].coach }}</p>
-      <div class="tt-corner-top">
-        <span class="tt-crest-frame">
-          <img v-if="crest(s)" class="tt-crest" :src="crest(s)" alt="" />
-          <span v-else class="tt-crest tt-crest-ph" aria-hidden="true">&#128737;</span>
-        </span>
+      <div class="tt-crestcol">
+        <p class="tt-crest-coach">{{ match[s].coach }}</p>
+        <div class="tt-corner-top">
+          <span class="tt-crest-frame">
+            <img v-if="crest(s)" class="tt-crest" :src="crest(s)" alt="" />
+            <span v-else class="tt-crest tt-crest-ph" aria-hidden="true">&#128737;</span>
+          </span>
+        </div>
+        <span v-if="race(s)" class="tt-crest-race">{{ race(s) }}</span>
       </div>
       <span class="tt-team tt-nameline" :data-long="match[s].teamName.length > 16 ? 'true' : null">{{ match[s].teamName }}</span>
       <span v-if="race(s)" class="tt-race tt-nameline">{{ race(s) }}</span>
