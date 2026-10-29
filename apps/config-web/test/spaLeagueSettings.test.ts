@@ -280,4 +280,38 @@ describe("league settings routes (server-rendered)", () => {
     const off = await render("/leagues/tabbl?tab=fixtures", detail, ORGANISER, { "/api/leagues/tabbl": { league: league({ playOnFork: false }), seasons: [s5, s6] } });
     expect(off.html).not.toContain("Allow Super FUMBBL");
   });
+  it("teams: a hidden roster shows the note and the player count, never a roster table", async () => {
+    const hidden = (): SeasonRecord => ({ ...season6(), teams: [{
+      id: "grudge-rollers", name: "Grudge Rollers", race: "Dwarf", coach: "Jay", teamValue: 1000000, treasury: 0, rerolls: 2, fans: 2, assistantCoaches: 0, cheerleaders: 0,
+      apothecary: false, tier: "1", raceLeague: "", players: [], formerPlayers: [], rosterHidden: true, playerCount: 12,
+    }] });
+    const extra = { "/api/leagues/tabbl/seasons/season-6": () => ({ league: league(), season: hidden() }) };
+    const list = await render("/leagues/tabbl?tab=teams", detail, COACH, extra);
+    expect(list.html).toContain("Rosters are hidden until the organisers publish them.");
+    expect(list.html).toContain(" · 12 players"); // on the tile, after the team value
+    const one = await render("/leagues/tabbl?tab=teams&team=grudge-rollers", detail, COACH, extra);
+    expect(one.html).toContain("Rosters are hidden until the organisers publish them. 12 players.");
+    expect(one.html).not.toContain("No roster recorded.");
+    expect(one.html).not.toContain("lg-players");
+  });
+});
+
+describe("league settings review regressions (SPA side)", () => {
+  it("a 409 on save reloads the settings and says another organiser changed them", async () => {
+    let settingsReads = 0;
+    const f = mockFetcher({
+      ...API,
+      "/api/leagues/tabbl/settings": () => { settingsReads += 1; return { settings: view({ revision: 3 }) }; },
+      // the reload keeps the team building season it showed
+      "/api/leagues/tabbl/settings?season=season-6": () => { settingsReads += 1; return { settings: view({ revision: 5 }) }; },
+      "PATCH /api/leagues/tabbl/settings": new ApiError(409, "These settings changed since you opened them."),
+    });
+    const s = createLeagueSettings({ api: f });
+    await s.load("tabbl");
+    expect(await s.save("information", { fullName: "Mine" })).toBe(false);
+    expect(f.calls.find((c) => c.method === "PATCH")!.body).toMatchObject({ revision: 3 });
+    expect(settingsReads).toBe(2);
+    expect(s.state.view!.revision).toBe(5);
+    expect(s.state.errors.information).toContain("Another organiser changed these settings");
+  });
 });

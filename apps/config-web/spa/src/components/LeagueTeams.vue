@@ -47,7 +47,8 @@ const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
             <div><dt>Apothecary</dt><dd>{{ picked.apothecary ? "Yes" : "No" }}</dd></div>
             <div v-if="picked.tier"><dt>Tier</dt><dd>{{ picked.tier }}</dd></div>
           </dl>
-          <p v-if="!picked.players.length" class="hm-empty">No roster recorded.</p>
+          <p v-if="picked.rosterHidden" class="hm-empty" data-roster-hidden>{{ picked.playerCount ? `Rosters are hidden until the organisers publish them. ${picked.playerCount} players.` : "Rosters are hidden until the organisers publish them." }}</p>
+          <p v-else-if="!picked.players.length" class="hm-empty">No roster recorded.</p>
           <div v-else class="lg-scroll">
             <table class="lg-table lg-players">
               <thead>
@@ -110,6 +111,7 @@ const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
     </template>
     <section v-else class="hm-panel" aria-labelledby="lg-teams-h">
       <header class="hm-band"><h2 id="lg-teams-h">Teams</h2><span class="hm-cap">{{ season.teams.length }} rosters</span></header>
+      <p v-if="season.teams.some((t) => t.rosterHidden)" class="hm-empty hm-small" data-roster-hidden>Rosters are hidden until the organisers publish them.</p>
       <p v-if="!season.teams.length" class="hm-empty">No rosters recorded for this season.</p>
       <ul v-else class="hm-teams hm-teams-lg lg-team-tiles">
         <li v-for="x in tiles" :key="x.t.id">
@@ -118,7 +120,7 @@ const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
             <span v-else class="hm-team-crest hm-team-blank" aria-hidden="true">{{ initials(x.t.name) }}</span>
             <span class="hm-team-name">{{ x.t.name }}</span>
             <span class="hm-team-race">{{ x.t.race }} · {{ x.t.coach }}</span>
-            <span class="hm-team-race">TV {{ kValue(x.t.teamValue) }}</span>
+            <span class="hm-team-race">TV {{ kValue(x.t.teamValue) }}<template v-if="x.t.rosterHidden"> · {{ x.t.playerCount ?? 0 }} players</template></span>
           </RouterLink>
         </li>
       </ul>

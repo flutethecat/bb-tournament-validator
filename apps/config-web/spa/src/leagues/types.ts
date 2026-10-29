@@ -149,6 +149,9 @@ export interface LeagueTeam {
   raceLeague: string;
   players: LeaguePlayer[];
   formerPlayers: FormerPlayer[];
+  /** The league hides team composition from this viewer: players emptied, playerCount kept. */
+  rosterHidden?: boolean;
+  playerCount?: number;
 }
 
 export type HonourValue = number | string | Record<string, number | string>;

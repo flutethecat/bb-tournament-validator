@@ -127,7 +127,11 @@ export function createLeagueSettings(deps: { api: Fetcher }) {
       if (section === "information" || section === "administration" || section === "connections") await loadLeague().catch(() => undefined);
       return true;
     } catch (err) {
-      say(key, errorText(err, "That did not save."));
+      if (statusOf(err) === 409) {
+        // Someone else saved first: take the fresh settings, then say so (the reload resets the form).
+        await load(state.id, state.view?.teamBuilding?.seasonId);
+        say(key, "Another organiser changed these settings, so the page reloaded them. Check and save again.");
+      } else say(key, errorText(err, "That did not save."));
       return false;
     } finally {
       state.busy = "";
