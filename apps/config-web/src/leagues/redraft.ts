@@ -169,9 +169,12 @@ export function boardRow(source: SeasonRecord, team: LeagueTeam, cap: { enabled:
  * The board: active teams (the source season's) and inactive teams (from earlier seasons, not in the source season;
  * each team once, from the newest season it played in).
  */
-export function redraftBoard(seasons: SeasonRecord[], source: SeasonRecord, state: RedraftState | undefined, cap: { enabled: boolean; cap: number }): { active: BoardRow[]; inactive: BoardRow[] } {
+export function redraftBoard(
+  seasons: SeasonRecord[], source: SeasonRecord, state: RedraftState | undefined, cap: { enabled: boolean; cap: number }, target?: SeasonRecord | null,
+): { active: BoardRow[]; inactive: BoardRow[] } {
   const effCap = state ? { enabled: state.capEnabled, cap: state.cap } : cap;
-  const rulesSeason = redraftTarget(seasons, source) ?? source;
+  // Initial treasuries come from the receiving season's Team building table (the resolved target; null = none yet).
+  const rulesSeason = (target === undefined ? redraftTarget(seasons, source) : target) ?? source;
   const taskOf = (id: string): RedraftTeamTask | undefined => state?.teams.find((t) => t.teamId === id);
   const active = source.teams.map((t) => boardRow(source, t, effCap, rulesSeason, taskOf(t.id)));
   const seen = new Set(source.teams.map(teamKey));
@@ -540,7 +543,11 @@ export function applyPendingDrafts(seasons: SeasonRecord[], next: SeasonRecord):
   const changed: SeasonRecord[] = [];
   for (const s of seasons) {
     if (s.number >= next.number || !s.redraft) continue;
+    // A redraft bound to another receiving season never re-targets; a waiting one binds to this new season.
+    if (s.redraft.targetSeasonId && s.redraft.targetSeasonId !== next.id) continue;
     let touched = false;
+    const waiting = !s.redraft.closedAt || s.redraft.teams.some((t) => t.status === "submitted" && !t.appliedTo);
+    if (!s.redraft.targetSeasonId && waiting) { s.redraft.targetSeasonId = next.id; touched = true; }
     for (const t of s.redraft.teams) {
       if (t.status !== "submitted" || t.appliedTo || !t.draft) continue;
       const conflict = targetConflict(next, { id: t.teamId, name: t.name }, t.draft.team);

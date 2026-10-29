@@ -78,7 +78,7 @@ function boardView(league: LeagueRecord, seasons: SeasonRecord[], picks: Redraft
   const target = (source.redraft ? undefined : picks.target ? redraftTarget(seasons, source, picks.target) : undefined) ?? redraftTarget(seasons, source);
   const targets = redraftTargets(seasons, source).map((s) => ({ id: s.id, name: s.name, status: s.status }));
   const state = source.redraft;
-  const { active, inactive } = redraftBoard(seasons, source, state, cap);
+  const { active, inactive } = redraftBoard(seasons, source, state, cap, target ?? null);
   const { teams: _t, ...meta } = state ?? ({} as RedraftState);
   return {
     leagueId: league.id, leagueName: league.name, revision: state?.revision ?? 0,
@@ -276,7 +276,7 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
       throw new RedraftError(400, "cap must be a whole number of gold.", "cap");
     const cap = { enabled: input.capEnabled, cap: capAmount };
     if (!Array.isArray(input.teams)) throw new RedraftError(400, "teams must be a list.", "teams");
-    const { active, inactive } = redraftBoard(seasons, source, undefined, cap);
+    const { active, inactive } = redraftBoard(seasons, source, undefined, cap, target ?? null);
     const rows = new Map([...active, ...inactive].map((r) => [r.teamId, r]));
     const picks = new Map<string, { selected: boolean; override?: { budget: number; reason: string } }>();
     for (const [i, raw] of (input.teams as unknown[]).entries()) {
@@ -301,7 +301,8 @@ async function boardPost(lg: LeagueRecord, auth: LeagueApiIdentity, input: Recor
     const text = `${auth.coach} started the redraft from ${source.name}${targetPick && target ? ` into ${target.name}` : ""}: ${chosen} team${chosen === 1 ? "" : "s"} selected${cap.enabled ? `, budgets capped at ${gold(cap.cap)}` : ", no budget cap"}.`;
     source.redraft = {
       startedAt: now, byCoach: auth.coach, capEnabled: cap.enabled, cap: cap.cap, revision: 1, teams, log: [{ at: now, by: auth.coach, text }],
-      ...(targetPick && target ? { targetSeasonId: target.id } : {}),
+      // Every resolved target is bound now: starting another season later never redirects this redraft.
+      ...(target ? { targetSeasonId: target.id } : {}),
     };
     deps.store.putSeason(source);
     deps.store.updateLeague(lg.id, (l) => { l.redraftCap = cap; });

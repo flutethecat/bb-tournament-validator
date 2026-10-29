@@ -309,6 +309,54 @@ describe("redraft routes", () => {
     expect(store.season("tabbl", "season-8")!.teams).toEqual([]);
   });
 
+  it("[review P2] the picked target season's Team building treasury drives preview and confirmed budgets", async () => {
+    const rules = (treasury: number) => ({ teamBuilding: { rosters: [{ roster: "Goblin", tier: 4, treasury, startingSkills: { primary: 0, secondary: 0, elite: 0 } }], eliteSkills: [] } });
+    store.putSeason({ ...season(7, "active", []), rules: rules(900) });
+    store.putSeason({ ...season(8, "active", []), rules: rules(1500) });
+    type B = { redraft: { inactive: Array<{ teamId: string; budget: { base: number } }> } };
+    const base = (b: unknown) => (b as B).redraft.inactive.find((r) => r.teamId === "gobbos")!.budget.base;
+    expect(base((await call("GET", "/api/leagues/tabbl/redraft", JAY)).body)).toBe(1_500_000); // default target = Season 8
+    expect(base((await call("GET", "/api/leagues/tabbl/redraft?target=season-7", JAY)).body)).toBe(900_000);
+    const ok = await call("POST", "/api/leagues/tabbl/redraft", JAY, { revision: 0, action: "confirm", targetSeasonId: "season-7", capEnabled: false, teams: [{ teamId: "gobbos", selected: true }] });
+    expect(ok.status).toBe(200);
+    expect(store.season("tabbl", "season-6")!.redraft!.teams.find((t) => t.teamId === "gobbos")!.budget.base).toBe(900_000);
+  });
+
+  it("[review P2] a confirmed redraft never re-targets when another season starts", async () => {
+    store.putSeason(season(7, "active", []));
+    await confirm(); // default target Season 7, now bound
+    expect(store.season("tabbl", "season-6")!.redraft!.targetSeasonId).toBe("season-7");
+    expect((await call("POST", "/api/leagues/tabbl/seasons", JAY, {})).status).toBe(201); // Season 8 overlaps
+    const b = (await call("GET", "/api/leagues/tabbl/redraft", JAY)).body as { redraft: { target: { id: string } } };
+    expect(b.redraft.target.id).toBe("season-7");
+    const sub = await call("POST", "/api/leagues/tabbl/redraft/teams/gobbos/submit", JAY, {
+      revision: 1, keep: [], hires: [{ position: "Goblin Lineman", count: 11 }], staff: { rerolls: 0, assistantCoaches: 0, cheerleaders: 0, apothecary: false },
+    });
+    expect(sub.status).toBe(200);
+    expect(store.season("tabbl", "season-7")!.teams.map((t) => t.id)).toEqual(["gobbos"]);
+    expect(store.season("tabbl", "season-8")!.teams).toEqual([]);
+  });
+
+  it("[review P2] a redraft confirmed before any next season binds to the first season started, then stays", async () => {
+    await confirm();
+    expect(store.season("tabbl", "season-6")!.redraft!.targetSeasonId).toBeUndefined();
+    expect((await call("POST", "/api/leagues/tabbl/seasons", JAY, {})).status).toBe(201);
+    expect(store.season("tabbl", "season-6")!.redraft!.targetSeasonId).toBe("season-7");
+    expect((await call("POST", "/api/leagues/tabbl/seasons", JAY, {})).status).toBe(201);
+    expect(store.season("tabbl", "season-6")!.redraft!.targetSeasonId).toBe("season-7");
+  });
+
+  it("[review P2] a closed redraft does not block a redraft from another finished season", async () => {
+    store.putSeason(season(7, "active", []));
+    await confirm();
+    expect((await call("POST", "/api/leagues/tabbl/redraft", JAY, { revision: 1, action: "close" })).status).toBe(200);
+    const other = await call("GET", "/api/leagues/tabbl/redraft?source=season-5", JAY);
+    expect((other.body as { redraft: { source: { id: string }; state: unknown } }).redraft).toMatchObject({ source: { id: "season-5" }, state: null });
+    const ok = await call("POST", "/api/leagues/tabbl/redraft", JAY, { revision: 0, action: "confirm", sourceSeasonId: "season-5", targetSeasonId: "season-7", capEnabled: true, teams: [{ teamId: "gobbos", selected: true }] });
+    expect(ok.status).toBe(200);
+    expect(store.season("tabbl", "season-5")!.redraft!.targetSeasonId).toBe("season-7");
+  });
+
   it("submit with an existing next season writes straight into it; entered R&R results; close skips the rest", async () => {
     await confirm();
     // gobbos (inactive, no players): no R&R needed; season 7 exists without results
