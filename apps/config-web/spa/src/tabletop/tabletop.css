@@ -1031,3 +1031,13 @@
   .tt-rec > .tt-mid { margin: 8px 20px 20px 0; }
   .tt-rec > .tt-rail { padding-top: 8px; }
 }
+
+/* the score row is a fixed-height grid (96 px, 108 px from 1600): the team fills and the TURN cell run its full height down to the stats strip, digits centred in the fill */
+@media (min-width: 1024px) {
+  .tt-rec { --tt-score-h: 96px; }
+  .tt-rec > .tt-board { grid-template-rows: auto var(--tt-score-h) auto; }
+  .tt-rec .tt-score { height: var(--tt-score-h); min-height: 0; margin: 0; padding: 0; align-items: stretch; align-self: stretch; }
+  .tt-rec .tt-score > span:nth-child(1), .tt-rec .tt-score > span:nth-child(3), .tt-rec .tt-score-turn { align-self: stretch; height: 100%; margin: 0; padding: 0; }
+  .tt-rec .tt-score > span:nth-child(1), .tt-rec .tt-score > span:nth-child(3) { display: grid; place-items: center; }
+}
+@media (min-width: 1600px) { .tt-rec { --tt-score-h: 108px; } }

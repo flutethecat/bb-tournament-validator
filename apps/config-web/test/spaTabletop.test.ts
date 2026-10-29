@@ -598,6 +598,12 @@ describe("tabletop routes (server-rendered)", () => {
     // desktop: MATCH LOG is a footer row under the field; the field and the rail start at the same y
     expect(css1).toMatch(/\.tt-rec \.tt-mid \{ grid-template-rows: minmax\(0, 1fr\) 28px; \}\s*\.tt-rec \.tt-mid > \.tt-feed \{ grid-row: 1; \}\s*\.tt-rec \.tt-mid > \.tt-log-h \{ grid-row: 2; justify-content: flex-end; \}/);
     expect(css1).toMatch(/\.tt-rec > \.tt-mid \{ margin: 8px 20px 20px 0; \}\s*\.tt-rec > \.tt-rail \{ padding-top: 8px; \}/);
+    // the score row has a fixed height and its three cells stretch the full height, digits centred
+    expect(css1).toMatch(/--tt-score-h: 96px;/);
+    expect(css1).toMatch(/--tt-score-h: 108px;/);
+    expect(css1).toMatch(/\.tt-rec > \.tt-board \{ grid-template-rows: auto var\(--tt-score-h\) auto; \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-score > span:nth-child\(1\), \.tt-rec \.tt-score > span:nth-child\(3\), \.tt-rec \.tt-score-turn \{ align-self: stretch; height: 100%; margin: 0; padding: 0; \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-score > span:nth-child\(1\), \.tt-rec \.tt-score > span:nth-child\(3\) \{ display: grid; place-items: center; \}/);
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
