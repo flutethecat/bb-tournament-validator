@@ -76,7 +76,8 @@ export interface StandingsRow {
 const emptyStore = (): TournamentResultStoreFile => ({ version: 1, results: {} });
 const casualtiesCaused = (team: GamestateTeamResult): number =>
   team.players.reduce((total, player) => total + player.casualtiesCaused, 0);
-const effectiveScore = (team: GamestateTeamResult): number =>
+/** The score that decides the game: the penalty-shootout score when one was recorded, else the score. */
+export const effectiveScore = (team: GamestateTeamResult): number =>
   team.penaltyScore >= 0 ? team.penaltyScore : team.score;
 
 /** Derive one side's record exclusively from the two authoritative server result blocks. */

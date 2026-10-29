@@ -8,7 +8,7 @@
 // twice. Casualties are null when the source does not know them (the card then shows nothing, never 0).
 
 import type { GamestateTeamResult } from "@bb/fork-ops";
-import type { StoredTournamentResult } from "./tournamentResults.js";
+import { effectiveScore, type StoredTournamentResult } from "./tournamentResults.js";
 import type { ScheduledMatchRecord, TournamentEntrantRecord } from "./tournaments/types.js";
 import type { MatchRecord } from "./tabletop/store.js";
 import type { TabletopEvent } from "./tabletop/events.js";
@@ -66,6 +66,8 @@ const iso = (value: unknown): string | null => {
 const num = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null);
 const casCaused = (team: GamestateTeamResult | undefined): number | null =>
   team && Array.isArray(team.players) ? team.players.reduce((n, p) => n + (num(p.casualtiesCaused) ?? 0), 0) : null;
+/** The deciding score (a penalty shootout's when one was recorded), the same rule standings use. */
+const forkScore = (team: GamestateTeamResult | undefined): number | null => (team ? num(effectiveScore(team)) : null);
 
 function side(name: string, race: string | undefined, coach: string, crestUrl: string | null | undefined, score: number | null, cas: number | null): RecentSide {
   return { name: name || "Unnamed team", race: race ?? "", coach, crestUrl: crestUrl || null, score, cas };
@@ -153,8 +155,8 @@ export function recentResults(inputs: RecentInputs, limit = RECENT_RESULTS_DEFAU
       context: pkg ? `Online · ${pkg}` : "Online · Friendly",
       playedAt: iso(row.playedAt) ?? iso(row.pulledAt),
       href: null,
-      home: side(row.home.teamName || homeInfo.name || "", homeInfo.race, row.home.coach, homeInfo.crestUrl, num(homeTeam?.score), casCaused(homeTeam)),
-      away: side(row.away.teamName || awayInfo.name || "", awayInfo.race, row.away.coach, awayInfo.crestUrl, num(awayTeam?.score), casCaused(awayTeam)),
+      home: side(row.home.teamName || homeInfo.name || "", homeInfo.race, row.home.coach, homeInfo.crestUrl, forkScore(homeTeam), casCaused(homeTeam)),
+      away: side(row.away.teamName || awayInfo.name || "", awayInfo.race, row.away.coach, awayInfo.crestUrl, forkScore(awayTeam), casCaused(awayTeam)),
       concede: homeTeam?.conceded ? "home" : awayTeam?.conceded ? "away" : null,
       suspended: false,
     });

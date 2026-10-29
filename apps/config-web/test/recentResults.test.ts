@@ -121,4 +121,10 @@ describe("recent results", () => {
     });
     expect(rows[1]).toMatchObject({ context: "Tabletop · Friendly", home: { score: 0 }, away: { score: 1 }, concede: null });
   });
+
+  it("fork cards show the deciding (penalty) score when one was recorded", () => {
+    const shootout = { ...forkTeam("h", 4, []), penaltyScore: 0 };
+    const rows = recentResults(inputs({ results: [forkRow("pk", "2026-10-02T00:00:00.000Z", { teams: [shootout, { ...forkTeam("a", 1, []), penaltyScore: 2 }] })] as never }));
+    expect(rows[0]).toMatchObject({ home: { score: 0 }, away: { score: 2 } });
+  });
 });
