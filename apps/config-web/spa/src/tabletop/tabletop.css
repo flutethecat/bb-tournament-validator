@@ -962,8 +962,8 @@
     content: ""; grid-column: 2; grid-row: 1 / 4; align-self: stretch; justify-self: stretch; pointer-events: none;
     background:
       repeating-linear-gradient(0deg, rgba(255, 255, 255, .03) 0 2px, transparent 2px 4px),
-      radial-gradient(ellipse at center, transparent 55%, rgb(0 0 0 / .45) 100%),
-      color-mix(in srgb, #000 78%, var(--ui-surface, #0d0d0d));
+      radial-gradient(ellipse at center, transparent 55%, rgb(0 0 0 / .22) 100%),
+      color-mix(in srgb, #000 58%, var(--ui-surface, #0d0d0d));
     border: 1px solid color-mix(in srgb, var(--ui-border, #3d0002) 60%, #000); border-radius: 6px; box-shadow: var(--tt-lift);
   }
   .tt-rec .tt-turns { padding: 8px 12px; }
@@ -1005,3 +1005,16 @@
 .tt-rec .tt-track .tt-cell[data-state="active"] { background: var(--ui-scarlet, var(--tt-accent)); color: var(--ui-scarlet-contrast, #ffffff); border: 1px solid var(--ui-scarlet, var(--tt-accent)); box-shadow: var(--tt-led-glow, 0 0 8px rgb(215 20 31 / .7), 0 0 18px rgb(215 20 31 / .4)); outline: 0; }
 /* played turns: soft grey digits (about 55% of the text colour); future turns stay bright white */
 .tt-rec .tt-track.home .tt-cell[data-state="done"], .tt-rec .tt-track.away .tt-cell[data-state="done"] { color: color-mix(in srgb, var(--ui-text, #e6e9ef) 55%, transparent); }
+
+/* scoreboard rows share the turn track's three-column grid (home half | TURN label | away half): the scores and the counters centre under the matching column */
+@media (min-width: 1024px) {
+  .tt-rec { --tt-half-w: 84px; --tt-rows: minmax(0, 1fr) var(--tt-half-w) minmax(0, 1fr); }
+  .tt-rec .tt-turns { grid-template-columns: var(--tt-rows); column-gap: 4px; }
+  .tt-rec .tt-half { width: var(--tt-half-w); justify-self: center; padding-inline: 0; }
+  .tt-rec .tt-score { display: grid; grid-template-columns: var(--tt-rows); column-gap: 4px; align-items: center; justify-items: center; width: 100%; box-sizing: border-box; padding: 0 12px; text-align: center; justify-self: stretch; }
+  .tt-rec .tt-counters { width: 100%; box-sizing: border-box; padding: 0 12px; gap: 6px; }
+  .tt-rec .tt-counters li { grid-template-columns: var(--tt-rows); column-gap: 4px; justify-items: center; align-items: center; }
+  .tt-rec .tt-counters b { width: 44px; height: 36px; font-size: 18px; }
+  .tt-rec .tt-counters span { font-family: var(--font-heading, sans-serif); font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: color-mix(in srgb, var(--ui-text, #e6e9ef) 85%, transparent); }
+}
+@media (min-width: 1600px) { .tt-rec .tt-counters span { font-size: 14px; } }

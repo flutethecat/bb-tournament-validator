@@ -572,11 +572,17 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame, [^{]*\{ margin-bottom: 4px; \}/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame, \.tt-rec \.tt-half,[^{]*\{\s*border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 60%, #000\); border-radius: 6px; box-shadow: var\(--tt-lift\);/);
     expect(css1).toMatch(/\.tt-rec \.tt-mid > \.tt-feed \{ border: 1px solid[^}]*border-radius: 6px; box-shadow: var\(--tt-bevel-inset\); \}/); // the log field: the inset half only
-    expect(css1).toMatch(/\.tt-rec > \.tt-board::before \{\s*content: ""; grid-column: 2; grid-row: 1 \/ 4;[^}]*repeating-linear-gradient\(0deg, rgba\(255, 255, 255, \.03\) 0 2px, transparent 2px 4px\)[^}]*color-mix\(in srgb, #000 78%, var\(--ui-surface[^}]*box-shadow: var\(--tt-lift\)/); // the scoreboard panel
+    expect(css1).toMatch(/\.tt-rec > \.tt-board::before \{\s*content: ""; grid-column: 2; grid-row: 1 \/ 4;[^}]*repeating-linear-gradient\(0deg, rgba\(255, 255, 255, \.03\) 0 2px, transparent 2px 4px\)[^}]*color-mix\(in srgb, #000 58%, var\(--ui-surface[^}]*box-shadow: var\(--tt-lift\)/); // the scoreboard panel, a softer black
+    expect(css1).toContain("radial-gradient(ellipse at center, transparent 55%, rgb(0 0 0 / .22) 100%)"); // half-strength vignette
     expect(css1).toContain("--tt-led-glow: 0 0 8px rgb(215 20 31 / .7), 0 0 18px rgb(215 20 31 / .4)");
     expect(css1).not.toContain("data-ghost"); // no ghost digits behind the score
     expect(css1).toMatch(/\.tt-rec \.tt-counters b \{\s*display: flex; align-items: center; justify-content: center; width: 36px; height: 32px; padding: 0; border-radius: 4px;[^}]*color-mix\(in srgb, #000 60%, var\(--ui-surface[^}]*box-shadow: var\(--tt-bevel-inset\)/); // visible LED cells
-    expect(css1).toMatch(/\.tt-rec \.tt-counters \{ gap: 6px; width: 240px; \}/);
+    expect(css1).toMatch(/--tt-rows: minmax\(0, 1fr\) var\(--tt-half-w\) minmax\(0, 1fr\);/); // one three-column grid for the track, the score and the counters
+    expect(css1).toMatch(/\.tt-rec \.tt-score \{ display: grid; grid-template-columns: var\(--tt-rows\);/);
+    expect(css1).toMatch(/\.tt-rec \.tt-counters li \{ grid-template-columns: var\(--tt-rows\);/);
+    expect(css1).toMatch(/\.tt-rec \.tt-counters b \{ width: 44px; height: 36px; font-size: 18px; \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-counters span \{ font-family: var\(--font-heading, sans-serif\); font-size: 13px; letter-spacing: \.06em;[^}]*85%/);
+    expect(css1).toMatch(/@media \(min-width: 1600px\) \{ \.tt-rec \.tt-counters span \{ font-size: 14px; \} \}/);
     expect(css1).toMatch(/--tt-score-w: 420px;/);
     expect(css1).toMatch(/--tt-score-w: 460px;/);
     expect(html).not.toContain("data-ghost");
