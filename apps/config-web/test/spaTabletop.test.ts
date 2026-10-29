@@ -699,9 +699,33 @@ describe("tabletop routes (server-rendered)", () => {
     const vars = [...phone.matchAll(/--tt-(?:score-w|led-w|turncell-w|chip|crest): (\d+)px/g)].map((m) => Number(m[1]));
     expect(vars.length).toBeGreaterThan(4);
     expect(2 * 44 + 128 + 2 * 8 + 32).toBeLessThanOrEqual(375); // two 44 px crests beside the 128 px score, 8 px gaps, 16 px gutters: the minimum the hero needs
-    // tokens only: no raw colours except black / white and the var() fallbacks
-    const raw = phone.replace(/var\([^()]*(?:\([^()]*\)[^()]*)*\)/g, "").match(/#[0-9a-fA-F]{3,8}\b/g) ?? [];
-    expect(raw.filter((c) => !["#000", "#ffffff"].includes(c.toLowerCase()))).toEqual([]);
+    // tokens only: no raw hex or rgb()/hsl() colours in the phone block (the var() fallbacks are the only literals)
+    const raw = phone.replace(/var\([^()]*(?:\([^()]*\)[^()]*)*\)/g, "").match(/#[0-9a-fA-F]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\(/g) ?? [];
+    expect(raw).toEqual([]);
+    // light and dark: the stats strip is black in both themes, so its text is the on-dark token (never --ui-text)
+    expect(phone).toMatch(/\.tt-rec \.tt-stats \{[^}]*color: var\(--tt-on-dark\);/);
+    expect(phone).toMatch(/--tt-on-dark: var\(--ui-text-on-primary, #ffffff\)/);
+    expect(css).not.toMatch(/\.tt-rec \.tt-stats \{[^}]*color: var\(--ui-text, #e6e9ef\)/); // the desktop strip too
+    expect(css).not.toMatch(/\.tt-rec \.tt-stats-half \{[^}]*color: var\(--ui-text, #e6e9ef\)/);
+    // the Admin chip has its own row (under End Turn), so it never overlaps the LED row
+    expect(phone).toMatch(/\.tt-rec \.tt-hero-admin \{ grid-column: 1 \/ -1; grid-row: 5;/);
+    // the spectator line is upper-cased by CSS (the markup keeps "Bob's Turn"), the Match log heading is back above the log
+    expect(phone).toMatch(/\.tt-rec \.tt-towait \{ text-transform: uppercase;/);
+    expect(phone).toMatch(/\.tt-rec \.tt-mid > \.tt-log-h \{ display: flex;/);
+    // timeline markers: a 44 x 44 hit area on a 14 px box inside the 2 px ring, items spaced 44 px apart
+    expect(phone).toMatch(/\.tt-stripbar \.tt-tl-mark::before \{ inset: -15px; \}/);
+    expect(phone).toMatch(/\.tt-tl-item\[data-lane\] \{ flex: 1 0 var\(--tt-tap\); min-width: var\(--tt-tap\);/);
+    // tablet changes are 3 -> 4 columns only: the TD / CAS glyphs stay 36 px there
+    expect(css).toMatch(/@media \(min-width: 760px\) \{[^@]*\.tt-big \.tt-glyph \{ width: 36px; height: 36px; \}/);
+    // a 375 px audit over every rule that applies below 760 px (everything outside min-width media): no fixed width above the 343 px inside the gutters
+    const applies: string[] = [];
+    for (let i = 0, depth = 0, start = 0, skip = false; i < css.length; i++) {
+      if (css[i] === "{") { if (depth === 0) { skip = /@media[^{]*min-width/.test(css.slice(start, i)); } depth++; }
+      else if (css[i] === "}") { depth--; if (depth === 0) { if (!skip) applies.push(css.slice(start, i + 1)); start = i + 1; } }
+    }
+    const fixed = applies.join("\n").match(/(?<![-\w])(?:min-)?width: (\d+)px/g) ?? [];
+    expect(fixed.length).toBeGreaterThan(10);
+    expect(Math.max(...fixed.map((m) => Number(m.replace(/\D+/g, ""))))).toBeLessThanOrEqual(343);
     // long-press card: no text selection or system callout on the held element, the card fits the gutters
     expect(phone).toMatch(/\.tt-rec \[data-pcard\] \{ -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; \}/);
     expect(phone).toMatch(/\.tt-pcard \{ width: min\(22em, calc\(100vw - 32px\)\); max-width: calc\(100vw - 32px\); \}/);
@@ -711,6 +735,24 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toMatch(/\.tt-ev--new \{ animation: tt-ev-in 220ms ease-out both; \}/);
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.tt-ev--new \{ animation: tt-fade-in 120ms linear both; \}/);
     expect(css).toMatch(/@media \(min-width: 760px\) \{\s*\.tt-actions-bar \{ grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);/);
+  });
+
+  it("phone: the strip reads the half and match turn (2nd half turn 3 = TURN 11), the spectator line stays \"Bob's Turn\" in the markup, OTHER opens the Other sheet", async () => {
+    const { readFileSync } = await import("node:fs");
+    const body = { match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("away", 3, { half: 2 }) };
+    const spectator = await renderMatch(body, session({ coach: "Zed", organizer: true }));
+    expect(spectator.html).toContain("2nd half · TURN 11");
+    expect(spectator.html).toMatch(/class="tt-towait"[^>]*>[^]{0,40}?<b>Bob&#39;s Turn<[/]b>/);
+    const coach = await renderMatch(body);
+    expect(coach.html).toMatch(/class="tt-towait"[^>]*>[^]{0,40}?<b>Opponent&#39;s Turn<[/]b>/);
+    // OTHER is wired to the Other sheet (a modal dialog with the shared X), which closes on its own X
+    const view = readFileSync(fileURLToPath(new URL("../spa/src/views/TabletopRecorderView.vue", import.meta.url)), "utf8");
+    expect(view).toMatch(/class="tt-big tt-big-other"[^>]*@click="viewer\.buzz\(\); other = true"/);
+    expect(view).toMatch(/<TabletopOther v-if="other" @pick="onOther" @close="other = false" \/>/);
+    const other = await mount(mods.otherC, {});
+    expect(other).toMatch(/class="tt-modal" role="dialog" aria-label="Other events"/);
+    expect(other.match(/aria-label="Close"/g)).toHaveLength(1);
+    expect(view).toMatch(/ref="recRoot"/); // the focus manager watches the recorder root
   });
 
   it("possessive coach names: Bob's, and Chris' for a name ending in s", async () => {
@@ -909,7 +951,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-rec \.tt-score-turn small \{ font-size: 16px;/); // the TURN cell: label 16 px, number 26 px (18 / 30 from 1600)
     expect(css1).toMatch(/\.tt-rec \.tt-score-turn b \{ font-size: 26px;/);
     expect(css1).toMatch(/@media \(min-width: 1600px\) \{\s*\.tt-rec \.tt-score-turn small \{ font-size: 18px; \}\s*\.tt-rec \.tt-score-turn b \{ font-size: 30px; \}\s*\.tt-rec \.tt-stats-half \{ font-size: 14px; \}/);
-    expect(css1).toMatch(/\.tt-rec \.tt-stats-half \{ font-size: 13px; white-space: nowrap; letter-spacing: \.02em; color: var\(--ui-text, #e6e9ef\); text-shadow: var\(--tt-lettering-shadow\); \}/); // 2ND HALF: white, 13 px, never wraps
+    expect(css1).toMatch(/\.tt-rec \.tt-stats-half \{ font-size: 13px; white-space: nowrap; letter-spacing: \.02em; color: var\(--ui-text-on-primary, #ffffff\); text-shadow: var\(--tt-lettering-shadow\); \}/); // 2ND HALF: white, 13 px, never wraps
     expect(css1).toMatch(/\.tt-rec \.tt-stats-half\[data-long="true"\] \{ font-size: 12px; \}/); // a longer label (overtime) shrinks
     expect(css1).toMatch(/\.tt-x \{[^}]*width: 40px; height: 40px;[^}]*box-shadow: var\(--tt-bevel\)/); // the close X on every popup
     expect(css1).toMatch(/\.tt-picker \.tt-roster-list li\.roster-row\.tt-rp-pick \{ grid-template-columns: 56px minmax\(140px, 1\.2fr\) 236px minmax\(120px, 1\.4fr\);/); // the picker's table-like rows
@@ -2100,5 +2142,100 @@ describe("tabletop routes (server-rendered)", () => {
     const pub = await renderMatch(body("published", { preview: { home: summary("home"), away: summary("away") } }));
     expect(pub.html).toMatch(/data-state="published" role="status">Match published</);
     expect(sub.html.indexOf("tt-match-row")).toBeLessThan(sub.html.indexOf("tt-events")); // at the top of the feed
+  });
+});
+
+
+// Popup focus management (phone bottom sheets and every other popup): a minimal fake DOM stands in for a browser here (no jsdom in the repo);
+// the real thing was also driven in Chromium at 375 px (Other opens, focus moves in, Tab wraps, Escape and the X close, focus returns).
+describe("sheet focus manager", () => {
+  class FakeEl {
+    children: FakeEl[] = []; parentElement: FakeEl | null = null; attrs = new Map<string, string>(); dataset: Record<string, string> = {}; isConnected = true;
+    constructor(readonly tag: string, readonly cls: string[], readonly ownerDocument: FakeDoc) {}
+    add(c: FakeEl): FakeEl { c.parentElement = this; this.children.push(c); return c; }
+    remove(): void { const p = this.parentElement!; p.children.splice(p.children.indexOf(this), 1); this.walk((e) => { e.isConnected = false; }); this.parentElement = null; }
+    walk(fn: (e: FakeEl) => void): void { fn(this); this.children.forEach((c) => c.walk(fn)); }
+    get classList() { return { contains: (c: string) => this.cls.includes(c) }; }
+    setAttribute(k: string, v: string) { this.attrs.set(k, v); }
+    removeAttribute(k: string) { this.attrs.delete(k); }
+    hasAttribute(k: string) { return this.attrs.has(k); }
+    contains(o: FakeEl | null) { for (let n = o; n; n = n.parentElement) if (n === this) return true; return false; }
+    closest(sel: string) { const cs = sel.split(",").map((x) => x.trim().slice(1)); for (let n: FakeEl | null = this; n; n = n.parentElement) if (cs.some((c) => n!.cls.includes(c))) return n; return null; }
+    querySelectorAll(sel: string): FakeEl[] {
+      const out: FakeEl[] = [];
+      const sheet = sel.includes(".tt-sheet");
+      this.children.forEach((c) => c.walk((e) => { if (sheet ? e.cls.includes("tt-sheet") || e.cls.includes("tt-modal") : e.tag === "button" || e.tag === "input") out.push(e); }));
+      return out;
+    }
+    focus() { this.ownerDocument.activeElement = this; }
+  }
+  class FakeDoc {
+    activeElement: FakeEl | null = null; body = new FakeEl("body", [], this); defaultView = undefined;
+    listeners: Array<(e: any) => void> = [];
+    addEventListener(_t: string, fn: (e: any) => void) { this.listeners.push(fn); }
+    removeEventListener(_t: string, fn: (e: any) => void) { this.listeners = this.listeners.filter((l) => l !== fn); }
+    press(key: string, shiftKey = false) { const e = { key, shiftKey, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }; this.listeners.forEach((l) => l(e)); return e; }
+  }
+  const setup = () => {
+    const doc = new FakeDoc();
+    const root = new FakeEl("div", ["tt-rec"], doc);
+    const board = root.add(new FakeEl("header", ["tt-board"], doc));
+    const bar = root.add(new FakeEl("nav", ["tt-actions-bar"], doc));
+    const other = bar.add(new FakeEl("button", ["tt-big-other"], doc));
+    other.focus();
+    const sheet = (cls: string) => {
+      const el = root.add(new FakeEl("div", [cls], doc));
+      const first = el.add(new FakeEl("button", ["tt-other-btn"], doc));
+      el.add(new FakeEl("button", ["tt-x"], doc));
+      const last = el.add(new FakeEl("button", ["tt-close"], doc));
+      return { el, first, last };
+    };
+    return { doc, root, board, bar, other, sheet };
+  };
+
+  it("opens: focus moves into the sheet, the page behind is inert, the scroll flag is set; closing restores focus to the opener", async () => {
+    const { createSheetFocus } = await import("../spa/src/tabletop/sheetFocus");
+    const { doc, root, board, bar, other, sheet } = setup();
+    const sf = createSheetFocus(root as any);
+    const s = sheet("tt-modal");
+    sf.sync();
+    expect(doc.activeElement).toBe(s.first);
+    expect(board.hasAttribute("inert")).toBe(true);
+    expect(bar.hasAttribute("inert")).toBe(true);
+    expect(s.el.hasAttribute("inert")).toBe(false);
+    expect(s.el.attrs.get("aria-modal")).toBe("true");
+    expect(root.attrs.get("data-sheet-open")).toBe("true");
+    s.el.remove(); // Escape and the X both just unmount the sheet
+    sf.sync();
+    expect(doc.activeElement).toBe(other);
+    expect(board.hasAttribute("inert") || bar.hasAttribute("inert") || root.hasAttribute("data-sheet-open")).toBe(false);
+  });
+
+  it("Tab wraps inside the topmost sheet, Shift+Tab wraps back, and a sheet over a sheet takes focus and makes the lower one inert", async () => {
+    const { createSheetFocus } = await import("../spa/src/tabletop/sheetFocus");
+    const { doc, root, other, sheet } = setup();
+    const sf = createSheetFocus(root as any);
+    const low = sheet("tt-sheet");
+    sf.sync();
+    low.last.focus();
+    expect(doc.press("Tab").defaultPrevented).toBe(true);
+    expect(doc.activeElement).toBe(low.first);
+    expect(doc.press("Tab", true).defaultPrevented).toBe(true);
+    expect(doc.activeElement).toBe(low.last);
+    other.focus(); // focus that escaped (it is inert in a browser) is pulled back in
+    doc.press("Tab");
+    expect(doc.activeElement).toBe(low.first);
+    const high = sheet("tt-sheet");
+    sf.sync();
+    expect(doc.activeElement).toBe(high.first);
+    expect(low.el.hasAttribute("inert")).toBe(true);
+    high.el.remove();
+    sf.sync();
+    expect(doc.activeElement).toBe(low.first);
+    expect(low.el.hasAttribute("inert")).toBe(false);
+    low.el.remove();
+    sf.sync();
+    expect(doc.activeElement).toBe(other); // the opener, not the lower sheet's button
+    sf.detach();
   });
 });

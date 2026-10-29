@@ -25,6 +25,7 @@ import TabletopWeatherBar from "../components/TabletopWeatherBar.vue";
 import { canEditMatch, createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
 import { SESSION_KEY } from "../session";
 import { THEME_KEY } from "../theme";
+import { createSheetFocus, type SheetFocus } from "../tabletop/sheetFocus";
 import { createCueTracker, halfLabel, timerOn, timerRemaining, turnLine } from "../tabletop/clock";
 import { createCuePlayer } from "../tabletop/sounds";
 import TabletopGlyph from "../components/TabletopGlyph.vue";
@@ -298,6 +299,11 @@ function overrideEnd(): void {
 const showRemoved = computed(() => (organiser.value && mySide.value === null) || viewer.state.showRemoved);
 const shownRows = computed(() => (showRemoved.value ? rows.value : rows.value.filter((r) => r.removed === null)));
 const adminOpen = ref(false);
+/** Popups: focus moves into the topmost one, the page behind is inert and its scroll locked, focus returns to the opener on close. */
+const recRoot = ref<HTMLElement | null>(null);
+let sheetFocus: SheetFocus | undefined;
+watch(recRoot, (el) => { sheetFocus?.detach(); sheetFocus = el ? createSheetFocus(el) : undefined; }, { flush: "post" });
+onBeforeUnmount(() => sheetFocus?.detach());
 /** The phone strip's lead: the half and the match turn ("1st half · TURN 3"), nothing without a clock. */
 const stripLead = computed(() => (state.clock ? `${halfLabel(state.clock.half)} · ${turnLine(state.clock.half, state.clock.turn)}` : ""));
 /** The rail's admin panel can be collapsed to a Show button; the choice is remembered on this device. */
@@ -354,7 +360,7 @@ onBeforeUnmount(() => {
     <RouterLink to="/tabletop">Back to Tabletop</RouterLink>
   </section>
   <p v-else-if="!match" class="muted">Loading...</p>
-  <div v-else class="tt-rec" :data-tt-theme="theme" @pointerover="onTipOver($event); onCardOver($event)" @pointerout="tipClear(); onCardOut($event)" @pointerdown="onTipTouch($event); onCardTouch($event)" @pointerup="pcardCancel()" @pointercancel="pcardCancel()" @focusin="onTipFocus($event); onCardFocus($event)" @focusout="tipClear(); pcardClose()">
+  <div v-else ref="recRoot" class="tt-rec" :data-tt-theme="theme" @pointerover="onTipOver($event); onCardOver($event)" @pointerout="tipClear(); onCardOut($event)" @pointerdown="onTipTouch($event); onCardTouch($event)" @pointerup="pcardCancel()" @pointercancel="pcardCancel()" @focusin="onTipFocus($event); onCardFocus($event)" @focusout="tipClear(); pcardClose()">
     <div class="tt-top">
     <div class="tt-crumbs">
       <span class="tt-crumb-brand">Super FUMBBL</span>
