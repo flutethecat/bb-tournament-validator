@@ -239,7 +239,7 @@ describe("league routes (server-rendered against a mocked API)", () => {
     });
     expect(html).toContain('<h1 class="hm-title">Leagues</h1>');
     expect(html).toContain('src="/api/leagues/tabbl/banner?v=0123456789ab"');
-    expect(html).toContain('alt="TABBL logo"');
+    expect(html).toContain('class="lg-card-logo" src="/api/leagues/tabbl/logo?v=abcdef123456" alt=""');
     expect(html).toContain("Tahoma Area Blood Bowl League");
     expect(html).toContain("In progress");
     expect(html).toContain('href="/app/leagues/tabbl"');

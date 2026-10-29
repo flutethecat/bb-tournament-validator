@@ -64,7 +64,7 @@ afterAll(async () => {
 beforeEach(() => resetAvatarRateLimit());
 
 const logo = `/api/leagues/tabbl/logo`;
-const put = (body: Buffer, headers: Record<string, string>) => fetch(`${origin}${logo}`, { method: "PUT", headers: { "content-type": "image/png", ...headers }, body });
+const put = (body: Buffer, headers: Record<string, string>) => fetch(`${origin}${logo}`, { method: "PUT", headers: { "content-type": "image/png", ...headers }, body: new Uint8Array(body) });
 
 describe("league routes over HTTP", () => {
   it("reads are public with the password gate on", async () => {

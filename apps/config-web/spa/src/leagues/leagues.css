@@ -12,13 +12,15 @@
   background: linear-gradient(115deg, var(--lg-home), var(--ui-surface-2) 50%, var(--lg-away)); border-bottom: 2px solid var(--sf-panel-line);
 }
 .lg-strip-img { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: cover; }
+.lg-strip[data-banner="image"] { min-height: 0; aspect-ratio: 1024 / 303; }
 .lg-strip-logo { width: 72px; height: 72px; object-fit: contain; filter: drop-shadow(0 2px 2px rgb(0 0 0 / .6)); }
 .lg-logo-blank {
   display: inline-flex; align-items: center; justify-content: center; font: 22px var(--sf-band-font); color: var(--ui-text);
   background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; filter: none;
 }
 .lg-chip { position: absolute; top: 8px; right: 8px; }
-.lg-card-name { margin: 0 0 2px; font: 16px/1.25 var(--sf-band-font); letter-spacing: .06em; text-transform: uppercase; }
+.lg-card-logo { width: 32px; height: 32px; object-fit: contain; flex: none; }
+.lg-card-name { display: flex; align-items: center; gap: 8px; margin: 0 0 2px; font: 16px/1.25 var(--sf-band-font); letter-spacing: .06em; text-transform: uppercase; }
 .lg-card-name a { color: var(--ui-heading); text-decoration: none; }
 .lg-card-name a:hover { text-decoration: underline; }
 .lg-card-name a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
@@ -31,6 +33,12 @@
   border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: 0 4px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi);
 }
 .lg-front-img { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: cover; object-position: center; }
+/* With a header bar: the bar shows whole, at its own proportions (its art carries its own lettering), and the logo
+   and name sit on a panel strip under it rather than over it. */
+.lg-front[data-banner="image"] { display: block; min-height: 0; }
+.lg-front[data-banner="image"] .lg-front-img { position: static; z-index: auto; display: block; width: 100%; height: auto; max-height: 360px; object-fit: contain; background: var(--ui-surface-2); }
+.lg-front[data-banner="image"] .lg-front-body { align-items: center; padding: 12px 16px; border-top: 2px solid var(--sf-panel-line); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); }
+.lg-front[data-banner="image"] .lg-front-logo { width: 88px; height: 88px; margin-top: -44px; }
 .lg-front-body {
   display: flex; align-items: flex-end; gap: 14px; min-width: 0; padding: 56px 16px 14px;
   background: linear-gradient(0deg, color-mix(in srgb, var(--ui-surface) 88%, transparent) 30%, transparent);
@@ -154,6 +162,8 @@
   .lg-front { min-height: 168px; }
   .lg-front-body { padding: 40px 12px 12px; gap: 10px; }
   .lg-front-logo { width: 72px; height: 72px; }
+  .lg-front[data-banner="image"] .lg-front-body { padding: 10px 12px; }
+  .lg-front[data-banner="image"] .lg-front-logo { width: 64px; height: 64px; margin-top: -28px; }
   .lg-front-name { font-size: 20px; }
   .lg-tabs { justify-self: stretch; }
   .lg-tab { flex: 1 0 auto; justify-content: center; padding: 0 12px; }

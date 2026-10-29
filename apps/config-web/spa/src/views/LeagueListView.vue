@@ -30,11 +30,15 @@ onMounted(() => { if (!state.loaded) void list.load(); });
         <article class="hm-panel tl-card lg-card" :aria-labelledby="`lg-${c.l.id}`">
           <div class="lg-strip" :data-banner="c.banner && !broken[`b:${c.l.id}`] ? 'image' : 'gradient'">
             <img v-if="c.banner && !broken[`b:${c.l.id}`]" class="lg-strip-img" :src="c.banner" alt="" @error="broken[`b:${c.l.id}`] = true" />
-            <img v-if="c.logo && !broken[`l:${c.l.id}`]" class="lg-strip-logo" :src="c.logo" :alt="`${c.l.name} logo`" @error="broken[`l:${c.l.id}`] = true" />
-            <span v-else class="lg-strip-logo lg-logo-blank" aria-hidden="true">{{ initials(c.l.name) }}</span>
+            <!-- The header bar carries its own art; without one the logo (or initials) sits on the gradient. -->
+            <template v-if="!(c.banner && !broken[`b:${c.l.id}`])">
+              <img v-if="c.logo && !broken[`l:${c.l.id}`]" class="lg-strip-logo" :src="c.logo" alt="" @error="broken[`l:${c.l.id}`] = true" />
+              <span v-else class="lg-strip-logo lg-logo-blank" aria-hidden="true">{{ initials(c.l.name) }}</span>
+            </template>
             <span v-if="c.l.currentSeason" class="sf-chip lg-chip" :data-tone="c.l.currentSeason.status === 'active' ? 'ok' : 'muted'">{{ SEASON_STATUS_LABEL[c.l.currentSeason.status] }}</span>
           </div>
           <h3 :id="`lg-${c.l.id}`" class="lg-card-name">
+            <img v-if="c.logo && !broken[`l:${c.l.id}`]" class="lg-card-logo" :src="c.logo" alt="" @error="broken[`l:${c.l.id}`] = true" />
             <RouterLink :to="{ name: 'league-detail', params: { id: c.l.id } }">{{ c.l.name }}</RouterLink>
           </h3>
           <p v-if="c.l.fullName && c.l.fullName !== c.l.name" class="lg-card-full">{{ c.l.fullName }}</p>

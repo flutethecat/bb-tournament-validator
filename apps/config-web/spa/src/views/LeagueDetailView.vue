@@ -67,9 +67,14 @@ function onSeasonKey(e: KeyboardEvent): void {
   void nextTick(() => seg.value?.querySelectorAll<HTMLElement>("[role=radio]")[to]?.focus());
 }
 
-watch(current, (s) => { if (s) void detail.ensureSeason(s.id); });
+// The picked season stays in view in the scrolling field (a deep link to an older season, arrow keys).
+const revealPicked = (): void => {
+  void nextTick(() => seg.value?.querySelector<HTMLElement>('[aria-checked="true"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" }));
+};
+watch(current, (s) => { if (s) { void detail.ensureSeason(s.id); revealPicked(); } });
 onMounted(async () => {
   if (!state.loaded || state.id !== props.id) await detail.load(props.id);
+  revealPicked();
   if (current.value) await detail.ensureSeason(current.value.id);
 });
 </script>
