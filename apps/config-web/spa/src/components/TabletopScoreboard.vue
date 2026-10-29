@@ -161,7 +161,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
       <p class="tt-score" aria-label="Score"><span>{{ tally.score.home }}</span><span class="tt-score-colon">:</span><span>{{ tally.score.away }}</span><span class="tt-score-turn"><small>TURN</small><b>{{ turnNo }}</b></span></p>
       <div class="tt-stats" aria-label="Match stats">
         <span class="tt-stats-home">FOULS <b>{{ fouls("home") }}</b> &middot; CAS <b>{{ cas("home") }}</b></span>
-        <span class="tt-stats-half">{{ half }}</span>
+        <span class="tt-stats-half" :data-long="half === 'Overtime' ? 'true' : null">{{ half }}</span>
         <span class="tt-stats-away">FOULS <b>{{ fouls("away") }}</b> &middot; CAS <b>{{ cas("away") }}</b></span>
       </div>
       <ul class="tt-counters" aria-label="Counters">

@@ -1100,12 +1100,14 @@
 
 /* scoreboard text sizes: the TURN cell grows, and the half label in the stats strip goes white and bigger */
 @media (min-width: 1024px) {
-  .tt-rec .tt-stats-half { font-size: 14px; color: var(--ui-text, #e6e9ef); text-shadow: var(--tt-lettering-shadow); }
+  .tt-rec .tt-stats-half { font-size: 13px; white-space: nowrap; letter-spacing: .02em; color: var(--ui-text, #e6e9ef); text-shadow: var(--tt-lettering-shadow); }
+  .tt-rec .tt-stats-half[data-long="true"] { font-size: 12px; }
 }
 @media (min-width: 1600px) {
   .tt-rec .tt-score-turn small { font-size: 18px; }
   .tt-rec .tt-score-turn b { font-size: 30px; }
-  .tt-rec .tt-stats-half { font-size: 16px; }
+  .tt-rec .tt-stats-half { font-size: 14px; }
+  .tt-rec .tt-stats-half[data-long="true"] { font-size: 12px; }
 }
 
 /* admin events: bright yellow cards (a 3 px edge on the side they belong to, the top edge on centred cards), an ADMIN tag by the turn mark, a yellow timeline ring */

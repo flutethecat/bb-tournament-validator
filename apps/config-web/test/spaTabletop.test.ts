@@ -626,8 +626,9 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/@media \(min-width: 1024px\) \{\s*\.tt-rec \.tt-namegroup > \.tt-race\.tt-nameline \{ display: none; \}/); // the in-group race copy is hidden on desktop
     expect(css1).toMatch(/\.tt-rec \.tt-score-turn small \{ font-size: 16px;/); // the TURN cell: label 16 px, number 26 px (18 / 30 from 1600)
     expect(css1).toMatch(/\.tt-rec \.tt-score-turn b \{ font-size: 26px;/);
-    expect(css1).toMatch(/@media \(min-width: 1600px\) \{\s*\.tt-rec \.tt-score-turn small \{ font-size: 18px; \}\s*\.tt-rec \.tt-score-turn b \{ font-size: 30px; \}\s*\.tt-rec \.tt-stats-half \{ font-size: 16px; \}/);
-    expect(css1).toMatch(/\.tt-rec \.tt-stats-half \{ font-size: 14px; color: var\(--ui-text, #e6e9ef\); text-shadow: var\(--tt-lettering-shadow\); \}/); // 2ND HALF: white, 14 px
+    expect(css1).toMatch(/@media \(min-width: 1600px\) \{\s*\.tt-rec \.tt-score-turn small \{ font-size: 18px; \}\s*\.tt-rec \.tt-score-turn b \{ font-size: 30px; \}\s*\.tt-rec \.tt-stats-half \{ font-size: 14px; \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-stats-half \{ font-size: 13px; white-space: nowrap; letter-spacing: \.02em; color: var\(--ui-text, #e6e9ef\); text-shadow: var\(--tt-lettering-shadow\); \}/); // 2ND HALF: white, 13 px, never wraps
+    expect(css1).toMatch(/\.tt-rec \.tt-stats-half\[data-long="true"\] \{ font-size: 12px; \}/); // a longer label (overtime) shrinks
     expect(css1).toMatch(/\.tt-x \{[^}]*width: 40px; height: 40px;[^}]*box-shadow: var\(--tt-bevel\)/); // the close X on every popup
     expect(css1).toMatch(/\.tt-picker \.tt-roster-list li\.roster-row\.tt-rp-pick \{ grid-template-columns: 56px minmax\(140px, 1\.2fr\) 236px minmax\(120px, 1\.4fr\);/); // the picker's table-like rows
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
