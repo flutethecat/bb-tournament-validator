@@ -5,11 +5,14 @@
 import { computed, inject, reactive } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import Crest from "./Crest.vue";
+import { RowLabel } from "./RowLabel";
 import { NAV } from "../router";
 import { COACH_TREE_KEY, pickActive, type ChipTone } from "../home/tree";
 import { SHELL_UI_KEY } from "../home/shell";
-import { NOTIFICATIONS_KEY, homeBadgeCount, unreadBadge } from "../home/notifications";
+import { SESSION_KEY } from "../session";
+import { NOTIFICATIONS_KEY, homeBadgeCount } from "../home/notifications";
 
+const session = inject(SESSION_KEY)!;
 const tree = inject(COACH_TREE_KEY)!;
 const notifications = inject(NOTIFICATIONS_KEY)!;
 const ui = inject(SHELL_UI_KEY)!;
@@ -36,8 +39,8 @@ const tournamentRows = computed<Row[]>(() => {
 // Leagues have no store yet: the tree is the header and the way to browse (spec §2; leagues are later lanes).
 const leagueRows = computed<Row[]>(() => [{ key: "l:browse", to: "/tournaments", label: "Browse leagues", level: 1, muted: true }]);
 // Home carries the coach page's unread badge (notifications + messages + proposed times; the last two are wired to 0
-// until their stores land). Hidden at 0.
-const homeBadge = computed(() => homeBadgeCount({ unread: notifications.unread.value, messages: 0, proposals: 0 }));
+// until their stores land). Hidden at 0 and when signed out.
+const homeBadge = computed(() => !session.signedIn() ? 0 : homeBadgeCount({ unread: notifications.unread.value, messages: 0, proposals: 0 }));
 const pageRows = computed<Row[]>(() => NAV.map((n) => ({ key: `p:${n.to}`, to: n.to, label: n.label, level: 1, ...(n.to === "/home" && homeBadge.value > 0 ? { count: homeBadge.value } : {}) })));
 
 // One active row: the first in priority order whose target matches (Tournament, League, then Pages).
@@ -71,15 +74,10 @@ const trees = computed(() => [
         <template v-for="r in t.rows" :key="r.key">
           <li v-if="t.id === 'pages'">
             <RouterLink v-slot="{ href, navigate }" :to="r.to" custom>
-              <!-- two anchors, not a v-if span: a row without a badge keeps its bare ">Label</a>" markup -->
               <a
-                v-if="r.count" :href="href" class="sf-row" :style="{ '--sf-level': 1 }" data-level="1" :data-glyph="r.label.slice(0, 1)"
+                :href="href" class="sf-row" :style="{ '--sf-level': 1 }" data-level="1" :data-glyph="r.label.slice(0, 1)"
                 :data-active="activeKey === r.key ? 'true' : undefined" :aria-current="activeKey === r.key ? 'page' : undefined" @click="navigate"
-              >{{ r.label }}<span class="sf-count" :aria-label="`${r.count} unread`">{{ unreadBadge(r.count) }}</span></a>
-              <a
-                v-else :href="href" class="sf-row" :style="{ '--sf-level': 1 }" data-level="1" :data-glyph="r.label.slice(0, 1)"
-                :data-active="activeKey === r.key ? 'true' : undefined" :aria-current="activeKey === r.key ? 'page' : undefined" @click="navigate"
-              >{{ r.label }}</a>
+              ><RowLabel :label="r.label" :count="r.count" /></a>
             </RouterLink>
           </li>
           <li v-else>

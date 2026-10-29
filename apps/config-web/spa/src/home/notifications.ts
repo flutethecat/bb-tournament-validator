@@ -213,6 +213,10 @@ export function useNotifications(fetcher: Fetcher, options: NotificationsOptions
       socket = undefined;
       live.value = false;
       try { s?.close(); } catch { /* ignore */ }
+      // Last holder gone (sign-out or unmount): drop the previous coach's rows so the bell and the Home badge read 0.
+      rows.value = [];
+      unread.value = 0;
+      loaded.value = false;
     },
   };
 }

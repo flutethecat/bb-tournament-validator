@@ -584,11 +584,39 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
       const shared = (spa.app._context.provides as Record<symbol, { unread: { value: number } }>)[mods.notif.NOTIFICATIONS_KEY];
       shared.unread.value = 3;
     });
-    expect(rowFor(navOf(html), "/app/home")).toMatch(/>Home<span class="sf-count" aria-label="3 unread">3<\/span>/);
+    expect(rowFor(navOf(html), "/app/home")).toMatch(/<!--\[-->Home<span class="sf-count" aria-label="3 unread">3<\/span><!--\]--><\/a>/);
     expect(navOf(html)).not.toMatch(/Lobby<span class="sf-count"/);
     expect(mods.notif.homeBadgeCount({ unread: 2, messages: 1, proposals: 4 })).toBe(7);
     expect(mods.notif.homeBadgeCount({ unread: 0 })).toBe(0);
     expect(mods.notif.homeBadgeCount({ unread: -2, messages: 1.9 })).toBe(1);
+  });
+
+  it("Home badge: signed out shows none even when the store still holds a count; the Home anchor is one element with or without the badge", async () => {
+    const setUnread = (n: number) => (spa: { app: { _context: { provides: object } } }) => {
+      (spa.app._context.provides as Record<symbol, { unread: { value: number } }>)[mods.notif.NOTIFICATIONS_KEY].unread.value = n;
+    };
+    const out = await render("/home", { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } }, setUnread(3));
+    expect(rowFor(navOf(out.html), "/app/home")).not.toContain("sf-count");
+    const open = (html: string) => (rowFor(navOf(html), "/app/home").match(/^<a [^>]*>/) ?? [""])[0];
+    const zero = (await render("/home", signedInRoutes(), setUnread(0))).html;
+    const three = (await render("/home", signedInRoutes(), setUnread(3))).html;
+    // one anchor either way (same opening tag), the badge is only a child: no anchor swap, so focus stays on it
+    expect(open(zero)).toBe(open(three));
+    expect((navOf(zero).match(/href="\/app\/home" class="sf-row"/g) ?? []).length).toBe(1);
+    expect((navOf(three).match(/href="\/app\/home" class="sf-row"/g) ?? []).length).toBe(1);
+    expect(rowFor(navOf(zero), "/app/home")).toMatch(/>Home<\/a>$/);
+    expect(rowFor(navOf(three), "/app/home")).toContain('aria-label="3 unread"');
+  });
+
+  it("notifications store: the last unsubscribe clears rows and unread so the bell agrees after sign-out", async () => {
+    const f = mockFetcher({ "/api/me/notifications?limit=50": { notifications: [], unread: 4 } });
+    const store = mods.notif.useNotifications(f) as unknown as { load(): Promise<void>; subscribe(): void; unsubscribe(): void; unread: { value: number }; loaded: { value: boolean } };
+    await store.load();
+    store.subscribe();
+    expect(store.unread.value).toBe(4);
+    store.unsubscribe();
+    expect(store.unread.value).toBe(0);
+    expect(store.loaded.value).toBe(false);
   });
 
   it("signed out: the Coach page tree is gone, /home shows the prompt, and the trees still link", async () => {
