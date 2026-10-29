@@ -504,7 +504,8 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toMatch(/\.tt-rec > \.tt-board \{ margin: 18px 2px 0; padding: 12px 20px 14px; overflow: hidden; border-radius: 4px 4px 0 0; border: 0; border-bottom: 1px solid color-mix/); // joined: square bottom corners, one divider
     expect(css).toMatch(/\.tt-rec > \.tt-board \{[^}]*box-shadow: none;/); // the shadow belongs to the shared outer card
     expect(css).not.toContain("margin-inline: calc(-1 * var(--tt-pad))");
-    expect(css).not.toMatch(/\.tt-board::(?:before|after)/);
+    expect(css).not.toMatch(/\.tt-board::after/);
+    expect(css).not.toMatch(/\.tt-board::before \{[^}]*grid-column: 1 \/ -1/); // no full-width pseudo-element: the only one is the centre scoreboard panel
     // readability pass: the team-name shadow stack, the button text-shadow and the CSS bevel with its pressed state
     expect(css).toContain("--tt-name-shadow: 2px 2px 0 rgb(0 0 0 / 80%), 0 0 10px rgb(0 0 0 / .45)"); // the builder h1 shadow + one soft glow
     expect(css).toMatch(/\.tt-rec \.tt-team \{ text-shadow: var\(--tt-name-shadow\); letter-spacing: \.06em; font-weight: 500; \}/);
@@ -569,6 +570,12 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toContain("--tt-lift: var(--tt-bevel-inset), 0 3px 0 rgb(0 0 0 / .45), 0 8px 18px rgb(0 0 0 / .40);");
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame, \.tt-rec \.tt-half,[^{]*\{\s*border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 60%, #000\); border-radius: 6px; box-shadow: var\(--tt-lift\);/);
     expect(css1).toMatch(/\.tt-rec \.tt-mid > \.tt-feed \{ border: 1px solid[^}]*border-radius: 6px; box-shadow: var\(--tt-bevel-inset\); \}/); // the log field: the inset half only
+    expect(css1).toMatch(/\.tt-rec > \.tt-board::before \{\s*content: ""; grid-column: 2; grid-row: 1 \/ 4;[^}]*repeating-linear-gradient\(0deg, rgba\(255, 255, 255, \.03\) 0 2px, transparent 2px 4px\)[^}]*color-mix\(in srgb, #000 78%, var\(--ui-surface[^}]*box-shadow: var\(--tt-lift\)/); // the scoreboard panel
+    expect(css1).toContain("--tt-led-glow: 0 0 8px rgb(215 20 31 / .7), 0 0 18px rgb(215 20 31 / .4)");
+    expect(css1).toMatch(/\.tt-rec \.tt-score::before \{ content: attr\(data-ghost\);[^}]*opacity: \.12;/); // the dimmed ghost segments
+    expect(css1).toMatch(/--tt-score-w: 420px;/);
+    expect(css1).toMatch(/--tt-score-w: 460px;/);
+    expect(html).toContain('data-ghost="8 : 8"'); // ghost digits under the live score
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);

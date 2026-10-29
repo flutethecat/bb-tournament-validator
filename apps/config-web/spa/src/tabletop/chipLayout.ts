@@ -1,15 +1,15 @@
 // Hero chip tray capacity on desktop: at most two rows. The chips try the base size, then one notch smaller; if two rows still
 // cannot hold them, the first N that fit are shown with a final "+K" overflow chip (its tip lists the hidden items).
 
-export const CHIP_GAP = 6;
+export const CHIP_GAP = 4;
 /** Chip sizes (px) by notch: from 1600 px 64 / 56 / 48, otherwise 56 / 48. The icon is drawn smaller inside the chip (CSS, data-size). */
 export const chipNotches = (vw: number): number[] => (vw >= 1600 ? [64, 56, 48] : [56, 48]);
 
-/** The tray's inner width at a viewport width: the 1400 px column, the card border and inset, the centre column (400 px), the column gaps, the crest column and the tray padding. */
+/** The tray's inner width at a viewport width: the 1400 px column, the card border and inset, the scoreboard centre column (420 px, 460 px from 1600), the column gaps, the crest column and the tray padding. */
 export function trayInnerWidth(vw: number): number {
   const col = Math.min(1400, vw);
   const crest = vw >= 1600 ? 112 : 96;
-  const side = (col - 4 - 40 - 400 - 32) / 2;
+  const side = (col - 4 - 40 - (vw >= 1600 ? 460 : 420) - 32) / 2;
   return Math.max(0, side - (crest + 18) - 16 - 12);
 }
 
