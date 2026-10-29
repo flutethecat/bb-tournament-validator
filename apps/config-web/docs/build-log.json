@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Sprite icons on the content panels",
+    "body": "Every content box now carries a small pixel sprite before its title, in the same hand-drawn style as the sidebar: a newspaper for What's new, a hand bell for Notifications, an hourglass for Deadlines, a football for Recent games, two figures for Friends, a sealed envelope for Messages, a banner for My teams and a shield for Account. The Account page gets a nameplate (Identity), a calendar leaf, a chain link (Connections) and a clock (Set schedule); My teams, Leaderboards, Help, the tournament list and the tournament panels get theirs too. All original art, drawn for both the dark and the light theme.",
+    "links": [
+      {
+        "label": "Home",
+        "href": "/app/home"
+      },
+      {
+        "label": "Account",
+        "href": "/app/account"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Team avatar upload moved to the team page",
     "body": "The Avatars panel on My teams is gone. Open a team from My teams and use the new Team avatar button next to Share: it opens a dialog with the current avatar (or the race crest), a file picker, Upload and Remove. Pictures are cropped square and shrunk to fit, PNG, JPEG or WebP up to 512 KB. After you upload or remove, the team banner updates straight away and the dialog stays open. Teams that already have an avatar still show it on their My teams tile.",
     "links": [
