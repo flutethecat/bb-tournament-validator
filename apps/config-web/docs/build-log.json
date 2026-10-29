@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Mini calendar on the coach page",
+    "body": "The Account box on the coach page is gone. In its place a Mini calendar shows the current month (Monday first, today outlined in green), a dot on every day with a deadline or fixture in that deadline's colour, previous and next month buttons, and an Upcoming list of your next five events from today onward, across months, each linking to its tournament or fixture. Full calendar opens the whole thing on the Account page. My teams now sits below it. Each team tile shows the competition it is registered in (or Not registered) and its current team value, and carries a red badge with the number of things still to do: advancement rolls waiting to be finished, players with an advancement they can afford, and roster problems flagged on a registration.",
+    "links": [
+      {
+        "label": "Coach page",
+        "href": "/app/home"
+      },
+      {
+        "label": "Full calendar",
+        "href": "/app/account#calendar"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Sprite icons on the content panels",
     "body": "Every content box now carries a small pixel sprite before its title, in the same hand-drawn style as the sidebar: a newspaper for What's new, a hand bell for Notifications, an hourglass for Deadlines, a football for Recent games, two figures for Friends, a sealed envelope for Messages, a banner for My teams and a shield for Account. The Account page gets a nameplate (Identity), a calendar leaf, a chain link (Connections) and a clock (Set schedule); My teams, Leaderboards, Help, the tournament list and the tournament panels get theirs too. All original art, drawn for both the dark and the light theme.",
     "links": [
