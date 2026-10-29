@@ -45,6 +45,9 @@ export interface FixtureView {
   home: { coach: string; teamId?: string };
   away: { coach: string; teamId?: string };
   tournament?: { id: string; name: string };
+  /** The tournament's total rounds, and its series' name when it belongs to a series (absent = none). */
+  roundCount?: number;
+  seriesName?: string;
   round?: number;
   resultReportedAt?: string;
   /** The tournament's turn-timer policy (absent = the default: optional, 240 s). */
@@ -64,7 +67,37 @@ export interface FixtureGateway {
   retract(id: string, input: { expectedRevision: number; status: string }, at: Date): void;
 }
 
+/** The header bar above the hero: what competition the match belongs to, composed here so the page renders only what the server sent. */
+export interface MatchContext {
+  kind: "league" | "tournament" | "casual";
+  title: string;
+  subtitle: string;
+  round?: number;
+  roundCount?: number;
+  startedAt?: string;
+  venue?: string;
+}
+
+export function matchContext(match: MatchRecord, deps: Pick<TabletopApiDeps, "fixtures" | "defaultPackageName">): MatchContext {
+  const fixture = match.fixtureRef ? deps.fixtures?.get(match.fixtureRef) : undefined;
+  const common = { startedAt: match.createdAt, ...(match.venue ? { venue: match.venue } : {}) };
+  const t = fixture?.tournament;
+  if (fixture && t) {
+    const round = fixture.round;
+    const roundCount = fixture.roundCount;
+    // a match counted in a league other than the tournament's own ruleset is a league fixture: "<League>" over "Round 7/8"
+    if (match.league && match.league !== fixture.packageName) {
+      return { kind: "league", title: match.league, subtitle: round ? `Round ${round}${roundCount ? `/${roundCount}` : ""}` : "League match", ...(round ? { round } : {}), ...(roundCount ? { roundCount } : {}), ...common };
+    }
+    return { kind: "tournament", title: t.name, subtitle: fixture.seriesName || fixture.packageName || "", ...(round ? { round } : {}), ...(roundCount ? { roundCount } : {}), ...common };
+  }
+  if (match.league) return { kind: "league", title: match.league, subtitle: "League match", ...common };
+  return { kind: "casual", title: "Casual match", subtitle: deps.defaultPackageName ?? "", ...common };
+}
+
 export interface TabletopApiDeps {
+  /** The ruleset/package name shown under "Casual match". */
+  defaultPackageName?: string;
   repo: TabletopRepository;
   /** The public folder holding the generated art manifests (sprites), for the roster sprites the match GET adds. */
   artDir?: string;
@@ -186,7 +219,7 @@ export async function tabletopApi(
     return {
       status: 200,
       body: {
-        match, phase: match.phase ?? "playing", clock: clockView(match, events, deps, now()), pregame: pregameSummary(events),
+        match, context: matchContext(match, deps), phase: match.phase ?? "playing", clock: clockView(match, events, deps, now()), pregame: pregameSummary(events),
         // a retracted event stays in the log with who removed it and when (the undo event's record), so the feed can show it struck through
         events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e, kindLookup(teams)) : 0, ...removedMeta(events, e) })),
         effectiveEventIds: effectiveEvents(events).map((e) => e.id),

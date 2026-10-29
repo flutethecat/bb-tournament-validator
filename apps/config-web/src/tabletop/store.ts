@@ -54,6 +54,8 @@ export interface MatchRecord {
   baseRevision: { home: number; away: number };
   /** Set on submit: the post-match preview both coaches confirm. */
   preview?: { home: PostMatchSummary; away: PostMatchSummary };
+  /** Venue or table, when known (shown in the header bar). */
+  venue?: string;
   /** Optional league id the result counts in (defaults to the fixture tournament's package name). */
   league?: string;
   /** True when the fixture lists the two coaches in the opposite home/away order to this match. */

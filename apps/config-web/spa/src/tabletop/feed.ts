@@ -178,6 +178,20 @@ function coinSentences(p: Record<string, unknown>, c: NameCtx): string {
   return [head, result ? flip : "", won, choiceOf()].filter(Boolean).join(" ");
 }
 
+/** What happened to the victim, as the second line of a casualty (and the only line of an injury): "is Badly Hurt", "loses AV", "is Dead". */
+export function victimPhrase(result: string, stat: unknown, apothecary: boolean): string {
+  const r = result.trim();
+  const note = apothecary ? " (apothecary used)" : "";
+  if (/^(bh|badly hurt)/i.test(r)) return `is Badly Hurt${note}`;
+  if (/^(mng|miss)/i.test(r)) return `is Miss Next Game${note}`;
+  if (/^(ni|niggl)/i.test(r)) return `is Niggled${note}`;
+  if (/stat/i.test(r)) return `loses ${word(stat) || "a stat"}${note}`;
+  if (/^(dead|rip|death)/i.test(r)) return `is Dead${note}`;
+  if (/^stun/i.test(r)) return "is Stunned";
+  if (/^ko|knock/i.test(r)) return "is Knocked Out";
+  return `is injured${r ? `: ${r}` : ""}${note}`;
+}
+
 export function eventSentence(e: RecordedEvent, who: string, teamName: string, sub: string, names?: NameCtx, extra?: { journeymen?: number }): { lead: string; rest: string } {
   const p = who;
   const pl = e.payload ?? {};
@@ -202,13 +216,13 @@ export function eventSentence(e: RecordedEvent, who: string, teamName: string, s
     }
   }
   switch (e.type) {
-    case "touchdown": return { lead: p, rest: " scores a touchdown." };
-    case "casualty": return { lead: p, rest: ` causes a casualty: ${sub}.` };
-    case "injury": return { lead: p, rest: ` is injured: ${sub}.` };
-    case "completion": return { lead: p, rest: " completes a pass." };
+    case "touchdown": return { lead: p, rest: " scores a touchdown!" };
+    case "casualty": return { lead: p, rest: " causes a casualty!" };
+    case "injury": return { lead: p, rest: ` ${victimPhrase(String(pl.result ?? ""), pl.stat, false)}.` };
+    case "completion": return { lead: p, rest: " completes a pass!" };
     case "catch": return { lead: p, rest: " catches the ball." };
     case "throwTeamMate": return { lead: p, rest: " throws a team-mate." };
-    case "interception": return { lead: p, rest: " intercepts the ball." };
+    case "interception": return { lead: p, rest: " intercepts the ball!" };
     case "deflection": return { lead: p, rest: " deflects the ball." };
     case "foul": return { lead: p, rest: " commits a foul." };
     case "sentOff": case "sendOff": return { lead: p, rest: " is sent off." };
@@ -231,6 +245,10 @@ export function eventSentence(e: RecordedEvent, who: string, teamName: string, s
 
 export interface FeedRow {
   id: string;
+  /** "victim" for the second line of a casualty (the injured player's side); every other row is "main". */
+  part: "main" | "victim";
+  /** The row's player id (the actor, or a casualty's victim on the victim line), for the portrait card. */
+  playerId: string;
   type: string;
   label: string;
   stars: number;
@@ -276,6 +294,71 @@ export function feedRows(
   const undoOf = new Map<string, { by: string; at: string; admin: boolean }>();
   for (const u of events) if (u.type === "undo" && typeof u.payload?.target === "string") undoOf.set(u.payload.target, { by: u.by ?? "", at: u.ts ?? "", admin: u.admin === true });
   const timeOf = (iso: string): string => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+  const victimSide = (c: RecordedEvent): Side => ((c.payload?.victimTeam as Side | undefined) ?? (c.team === "home" ? "away" : "home"));
+  const isLasting = (r: unknown): boolean => /^(bh|mng|ni|stat|dead|rip|death|badly|miss|niggl)/i.test(String(r ?? "").trim());
+  const sameTurn = (a: RecordedEvent, b: RecordedEvent): boolean => {
+    const x = a as { half?: number | string; turn?: number }, y = b as { half?: number | string; turn?: number };
+    return (x.half === undefined || y.half === undefined || x.half === y.half) && (x.turn === undefined || y.turn === undefined || x.turn === y.turn);
+  };
+  // Order guard: an injury recorded BEFORE a casualty naming the same victim in the same turn is paired with it: the injury's line renders
+  // directly beneath the casualty line (the casualty adopts its result), and the injury is not listed a second time on its own.
+  const pairedInjury = new Map<string, RecordedEvent>();
+  const consumed = new Set<string>();
+  events.forEach((c, ci) => {
+    if (c.type !== "casualty" || !live.has(c.id)) return;
+    const vs = victimSide(c);
+    for (let k = 0; k < ci; k += 1) {
+      const inj = events[k]!;
+      if (inj.type !== "injury" || !live.has(inj.id) || consumed.has(inj.id) || inj.team !== vs || inj.player !== c.payload?.victim || !isLasting(inj.payload?.result) || !sameTurn(inj, c)) continue;
+      pairedInjury.set(c.id, inj);
+      consumed.add(inj.id);
+      break;
+    }
+  });
+  const build = (e: RecordedEvent, part: "main" | "victim", isLive: boolean, retraction: { by: string; at: string; admin: boolean } | undefined, victimOf?: RecordedEvent): FeedRow => {
+    // the row's player: the event's own, or (a casualty's victim line) the injured player on the victim's side
+    const side: Side = victimOf ? victimSide(victimOf) : e.team;
+    const playerId = victimOf ? String(victimOf.payload?.victim ?? "") : e.player;
+    const pl = playerId ? teams[side]?.players.find((x) => x.id === playerId) : undefined;
+    const sub = eventSub(e, teams, obscureSide);
+    const hide = side === obscureSide;
+    const who = playerId ? (pl ? (hide ? playerLabel(pl, true) : pl.name) : playerId) : "";
+    const teamName = names?.team[side] ?? teams[side]?.name ?? (side === "home" ? "Home" : "Away");
+    let lead: string, rest: string;
+    if (victimOf) {
+      const pv = victimOf.payload ?? {};
+      lead = who;
+      rest = ` ${victimPhrase(String(pv.result ?? ""), pv.stat, pv.apothecaryUsed === true)}.`;
+    } else ({ lead, rest } = eventSentence(e, who, teamName, sub, names, { journeymen: journeymen[e.team] }));
+    const half = (e as { half?: number | "OT" }).half;
+    const turn = (e as { turn?: number }).turn;
+    return {
+      id: e.id,
+      part,
+      playerId: playerId ?? "",
+      type: e.type,
+      label: eventLabel(e.type),
+      stars: part === "victim" ? 0 : spp[e.id] ?? e.sppEarned ?? 0, // the server's SPP for this event (0 = no stars)
+      sub,
+      side: CENTRE_TYPES.has(e.type) ? "centre" : side,
+      team: side,
+      lead,
+      rest,
+      sprite: pl?.sprite ?? "",
+      chip: playerId ? (pl ? (hide ? playerLabel(pl, true) : `${pl.number !== undefined ? `#${pl.number} ` : ""}${pl.name}`) : playerId) : "",
+      number: pl?.number !== undefined ? `#${pl.number}` : "",
+      player: hide ? "" : pl?.name ?? "",
+      position: pl?.positionName ?? pl?.position ?? pl?.positionId ?? "",
+      when: half || turn ? `${half ? (half === "OT" || half >= 3 ? "OT" : `H${half}`) : ""}${half && turn ? " " : ""}${turn ? `T${turn}` : ""}` : "",
+      undoable: part === "main" && !PREGAME_TYPES.has(e.type) && isLive,
+      glyph: EVENT_GLYPHS[e.type],
+      half: half ?? 0,
+      turn: turn ?? 0,
+      clock: e.ts ? new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
+      admin: e.admin === true,
+      removed: !isLive && retraction ? { by: retraction.by, at: timeOf(retraction.at), admin: retraction.admin } : null,
+    };
+  };
   for (const e of events) {
     if (e.type === "undo") continue;
     const isLive = live.has(e.id);
@@ -283,39 +366,18 @@ export function feedRows(
     if (!isLive && !retraction) continue;
     if (isLive && e.type === "journeyman") { if (jmShown.has(e.team)) continue; jmShown.add(e.team); }
     if (!isLive && e.type === "journeyman") continue;
-    const pl = e.player ? teams[e.team]?.players.find((x) => x.id === e.player) : undefined;
-    const sub = eventSub(e, teams, obscureSide);
-    const hide = e.team === obscureSide;
-    const who = e.player ? (pl ? playerLabel(pl, hide) : e.player) : "";
-    let { lead, rest } = eventSentence(e, who, names?.team[e.team] ?? teams[e.team]?.name ?? (e.team === "home" ? "Home" : "Away"), sub, names, { journeymen: journeymen[e.team] });
-    // the actor is shown once, in the side chip: the sentence states only the action and the other party
-    if (who && lead === who && !CENTRE_TYPES.has(e.type)) { lead = ""; rest = rest.replace(/^\s+/, ""); }
-    const half = (e as { half?: number | "OT" }).half;
-    const turn = (e as { turn?: number }).turn;
-    rows.push({
-      id: e.id,
-      type: e.type,
-      label: eventLabel(e.type),
-      stars: spp[e.id] ?? e.sppEarned ?? 0, // the server's SPP for this event (0 = no stars)
-      sub,
-      side: CENTRE_TYPES.has(e.type) ? "centre" : e.team,
-      team: e.team,
-      lead,
-      rest,
-      sprite: pl?.sprite ?? "",
-      chip: e.player ? (pl ? (hide ? playerLabel(pl, true) : `${pl.number !== undefined ? `#${pl.number} ` : ""}${pl.name}`) : e.player) : "",
-      number: pl?.number !== undefined ? `#${pl.number}` : "",
-      player: hide ? "" : pl?.name ?? "",
-      position: pl?.positionName ?? pl?.position ?? pl?.positionId ?? "",
-      when: half || turn ? `${half ? (half === "OT" || half >= 3 ? "OT" : `H${half}`) : ""}${half && turn ? " " : ""}${turn ? `T${turn}` : ""}` : "",
-      undoable: !PREGAME_TYPES.has(e.type) && isLive,
-      glyph: EVENT_GLYPHS[e.type],
-      half: half ?? 0,
-      turn: turn ?? 0,
-      clock: e.ts ? new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
-      admin: e.admin === true,
-      removed: !isLive && retraction ? { by: retraction.by, at: timeOf(retraction.at), admin: retraction.admin } : null,
-    });
+    if (consumed.has(e.id)) continue; // listed beneath its casualty instead
+    if (e.type === "casualty") {
+      // two lines from the one event: the causer's line on top, the victim's line directly beneath (rows are reversed below, so the victim goes in first)
+      const inj = pairedInjury.get(e.id);
+      if (inj) {
+        const r = inj.removed ?? undoOf.get(inj.id);
+        rows.push({ ...build(inj, "victim", live.has(inj.id), r), undoable: true });
+      } else rows.push(build(e, "victim", isLive, retraction, e));
+      rows.push(build(e, "main", isLive, retraction));
+      continue;
+    }
+    rows.push(build(e, "main", isLive, retraction));
   }
   return rows.reverse();
 }
@@ -363,5 +425,5 @@ export interface TimelineMarker { id: string; label: string; lane: "home" | "awa
 
 /** Markers in play order (kick-off first, end of match last) from the feed rows, which arrive newest first. */
 export function timelineMarkers(rows: readonly FeedRow[]): TimelineMarker[] {
-  return [...rows].reverse().map((r) => ({ id: r.id, label: r.label, lane: r.side === "centre" ? "both" : r.side, glyph: r.glyph, mark: r.when, admin: r.admin, removed: r.removed !== null }));
+  return [...rows].filter((r) => r.part === "main").reverse().map((r) => ({ id: r.id, label: r.label, lane: r.side === "centre" ? "both" : r.side, glyph: r.glyph, mark: r.when, admin: r.admin, removed: r.removed !== null }));
 }

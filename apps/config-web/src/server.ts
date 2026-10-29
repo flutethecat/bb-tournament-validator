@@ -532,6 +532,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
   const deps: TabletopApiDeps = {
     repo: tabletopRepo,
     artDir: PUBLIC_DIR,
+    defaultPackageName: "Blood Bowl 2025",
     teamAvatarUrl: (ref) => avatarUrlFor(TEAM_AVATARS_DIR, ref),
     results: tournamentResults,
     loadTeamFile: (coach, ref) => {
@@ -570,7 +571,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
           revision: m.revision,
           home: { coach: m.home.coach.ffbCoachId, teamId: m.home.teamId },
           away: { coach: m.away?.coach.ffbCoachId ?? "", ...(m.away?.teamId ? { teamId: m.away.teamId } : {}) },
-          ...(t ? { tournament: { id: t.id, name: t.name }, turnTimer: t.turnTimer ?? DEFAULT_TOURNAMENT_TURN_TIMER, inducementOptIns: t.inducementOptIns ?? [] } : {}),
+          ...(t ? { tournament: { id: t.id, name: t.name }, roundCount: t.roundCount, ...((t as { seriesName?: string }).seriesName ? { seriesName: (t as { seriesName?: string }).seriesName } : {}), turnTimer: t.turnTimer ?? DEFAULT_TOURNAMENT_TURN_TIMER, inducementOptIns: t.inducementOptIns ?? [] } : {}),
           round: m.roundNumber,
           ...(m.result ? { resultReportedAt: m.result.reportedAt } : {}),
           ...(m.result?.opId ? { resultOpId: m.result.opId } : {}),

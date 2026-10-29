@@ -139,8 +139,8 @@ describe("applyPostMatch (BB2025)", () => {
     expect(rejects([ev("injury", "away", "a1", { result: "stat loss", stat: "AV" })])).toBeUndefined();
     expect(rejects([ev("injury", "home", "h1", { result: "BH" })])).toBeUndefined(); // victim from either team
     expect(rejects([ev("injury", "away", "a1", { result: "BH" }), ev("injury", "away", "a1", { result: "MNG" })])).toMatch(/already suffered/);
-    expect(rejects([ev("casualty", "home", "h1", { victim: "a1", result: "BH" }), ev("injury", "away", "a1", { result: "MNG" })])).toMatch(/already suffered/);
-    expect(rejects([ev("injury", "away", "a1", { result: "MNG" }), ev("casualty", "home", "h1", { victim: "a1", result: "BH" })])).toMatch(/already suffered/);
+    expect(rejects([ev("casualty", "home", "h1", { victim: "a1", result: "BH" }), ev("injury", "away", "a1", { result: "MNG" })])).toMatch(/already struck by a casualty this match: undo the casualty first/);
+    expect(rejects([ev("injury", "away", "a1", { result: "MNG" }), ev("casualty", "home", "h1", { victim: "a1", result: "BH" })])).toMatch(/already injured this match: undo the injury first/);
     const r = run([
       ev("injury", "away", "a1", { result: "NI", apothecaryUsed: true }),
       ev("injury", "away", "a2", { result: "stat loss", stat: "ST" }),
@@ -173,7 +173,7 @@ describe("applyPostMatch (BB2025)", () => {
     expect(rejects([cas, ev("undo", "home", undefined, { target: cas.id }), ev("injury", "away", "a1", { result: "MNG" })])).toBeUndefined();
     const inj = ev("injury", "away", "a1", { result: "MNG" });
     expect(rejects([inj, ev("undo", "away", undefined, { target: inj.id }), ev("casualty", "home", "h1", { victim: "a1", result: "BH" })])).toBeUndefined();
-    expect(rejects([inj, ev("casualty", "home", "h1", { victim: "a1", result: "BH" })])).toMatch(/already suffered/);
+    expect(rejects([inj, ev("casualty", "home", "h1", { victim: "a1", result: "BH" })])).toMatch(/already injured this match/);
     const inj2 = ev("injury", "away", "a1", { result: "NI" });
     expect(rejects([inj, ev("undo", "away", undefined, { target: inj.id }), inj2, ev("injury", "away", "a1", { result: "BH" })])).toMatch(/already suffered/);
   });
@@ -226,5 +226,24 @@ describe("applyPostMatch (BB2025)", () => {
     expect(r.teamFile.treasury).toBe(100_000);
     expect(JSON.stringify(t)).toBe(before);
     expect(() => applyPostMatch(t, [], { team: "home", postMatch: "full", ruleset: "bb2020" as never })).toThrow(/ruleset/);
+  });
+});
+
+describe("casualty / injury order guard answers 409", () => {
+  const status = (events: TabletopEvent[]): number | undefined => {
+    const stored: TabletopEvent[] = [];
+    for (const e of events) {
+      const v = validateEvent(e, stored, rosters());
+      if ("error" in v) return v.status;
+      stored.push(v.event);
+    }
+    return undefined;
+  };
+  it("a new casualty on a victim with a lasting injury is a 409; an injury on a player already struck by a casualty is a 409", () => {
+    expect(status([ev("injury", "away", "a1", { result: "BH" }), ev("casualty", "home", "h1", { victim: "a1", result: "BH" })])).toBe(409);
+    expect(status([ev("casualty", "home", "h1", { victim: "a1", result: "BH" }), ev("injury", "away", "a1", { result: "MNG" })])).toBe(409);
+  });
+  it("a stunned / KO injury does not block a later casualty", () => {
+    expect(status([ev("injury", "away", "a1", { result: "KO" }), ev("casualty", "home", "h1", { victim: "a1", result: "BH" })])).toBeUndefined();
   });
 });

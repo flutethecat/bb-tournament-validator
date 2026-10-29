@@ -138,7 +138,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
         <span v-if="race(s)" class="tt-crest-race">{{ race(s) }}</span>
       </div>
       <div class="tt-namegroup">
-      <span class="tt-team tt-nameline" :data-long="match[s].teamName.length > 16 ? 'true' : null">{{ match[s].teamName }}</span>
+      <span class="tt-team tt-nameline" :data-long="match[s].teamName.length > 16 ? 'true' : null" :data-fit="match[s].teamName.length > 20 ? 'lg' : match[s].teamName.length > 14 ? 'md' : null">{{ match[s].teamName }}</span>
       <span v-if="race(s)" class="tt-race tt-nameline">{{ race(s) }}</span>
       <div class="tt-coachline tt-nameline">
         <span class="tt-coach">{{ match[s].coach }}</span>

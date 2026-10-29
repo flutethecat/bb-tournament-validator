@@ -253,11 +253,10 @@
 .tt-empty { padding: 14px 0; color: var(--tt-muted); }
 .tt-ev { position: relative; display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 8px 10px; background: var(--tt-panel); border: 1px solid var(--tt-line); border-radius: var(--tt-radius); }
 .tt-ev[data-row-side="home"] { margin-right: 32px; border-left: 4px solid var(--ui-info, var(--tt-line)); background: linear-gradient(90deg, var(--tt-home), var(--tt-panel) 70%); }
-.tt-ev[data-row-side="away"] { margin-left: 32px; flex-direction: row-reverse; text-align: right; border-right: 4px solid var(--ui-danger, var(--tt-line)); background: linear-gradient(270deg, var(--tt-away), var(--tt-panel) 70%); }
+.tt-ev[data-row-side="away"] { margin-left: 32px; border-right: 4px solid var(--ui-danger, var(--tt-line)); background: linear-gradient(270deg, var(--tt-away), var(--tt-panel) 70%); }
 .tt-ev[data-row-side="neutral"] { margin: 0; justify-content: center; text-align: center; background: var(--tt-panel); }
 .tt-ev[data-flash="true"] { outline: 2px solid var(--ui-focus, var(--tt-accent)); }
 .tt-ev-mark { position: absolute; top: -1px; left: -1px; padding: 1px 6px; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--tt-on-accent); background: var(--tt-accent); border-radius: var(--tt-radius) 0 var(--tt-radius) 0; }
-.tt-ev[data-row-side="away"] .tt-ev-mark { left: auto; right: -1px; border-radius: 0 var(--tt-radius) 0 var(--tt-radius); }
 .tt-ev[data-row-side="neutral"] .tt-ev-mark { left: 50%; top: 0; transform: translateX(-50%); border-radius: 0 0 var(--tt-radius) var(--tt-radius); }
 .tt-ev-icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: var(--tt-icon); height: var(--tt-icon); }
 .tt-ev-icon .tt-glyph { width: var(--tt-icon); height: var(--tt-icon); }
@@ -265,13 +264,12 @@
 .tt-ev-text { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; line-height: 1.3; padding-top: 6px; }
 .tt-ev[data-row-side="neutral"] .tt-ev-text { flex: 0 1 auto; }
 .tt-ev-name { font-weight: 700; }
-.tt-ev-name[data-team="home"] { color: var(--ui-info, var(--tt-ink)); }
-.tt-ev-name[data-team="away"] { color: var(--ui-danger, var(--tt-ink)); }
+.tt-ev-name[data-team="home"] { color: var(--seat-home-text, var(--ui-info, var(--tt-ink))); }
+.tt-ev-name[data-team="away"] { color: var(--seat-away-text, var(--ui-danger, var(--tt-ink))); }
 .tt-ev[data-row-side="neutral"] .tt-ev-name { color: var(--tt-ink); }
 .tt-ev-who { flex: none; display: inline-flex; align-items: center; gap: 6px; max-width: 38%; }
-.tt-ev[data-row-side="away"] .tt-ev-who { flex-direction: row-reverse; }
 .tt-ev-num { min-width: 28px; padding: 3px 4px; text-align: center; font-family: var(--font-heading, sans-serif); font-size: 12px; background: var(--tt-bg); border: 2px solid var(--tt-line); border-radius: 2px; }
-.tt-ev-pname { display: grid; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.tt-ev-pname { display: grid; justify-items: start; text-align: left; min-width: 0; font-size: 12px; overflow-wrap: anywhere; } /* name over position, both starting on the same x */
 .tt-ev-pname small { color: var(--tt-muted); font-size: 10px; }
 .tt-stars { color: var(--ui-heading, var(--tt-accent)); font-weight: 700; }
 .tt-time { display: block; color: var(--tt-muted); font-size: 11px; }
@@ -286,7 +284,7 @@
 
 /* phone: the hero collapses to a compact two-row scoreboard (turn track, then crests / names / score), the state button a full-width row under it */
 @media (max-width: 719px) {
-  .tt-rec { grid-template-rows: auto minmax(0, 1fr) auto; }
+  .tt-rec { grid-template-rows: auto auto minmax(0, 1fr) auto; }
   .tt-board { grid-template-rows: auto auto auto; }
   .tt-turns { padding: 3px 16px 0; gap: 2px; }
   .tt-cell { padding: 2px 0; font-size: 9px; }
@@ -306,11 +304,10 @@
   .tt-endturn-time { font-size: 1.4rem; }
   /* cards: the player chip drops under the text */
   .tt-ev { flex-wrap: wrap; }
-  .tt-ev-who { order: 3; flex: 1 0 100%; max-width: 100%; }
 }
 /* tablet / desktop: the hero takes the height it needs and the full layout shows */
 @media (min-width: 720px) {
-  .tt-rec { grid-template-rows: auto minmax(0, 1fr) auto; }
+  .tt-rec { grid-template-rows: auto auto minmax(0, 1fr) auto; }
   .tt-board { grid-template-columns: minmax(0, 1fr) minmax(260px, 260px) minmax(0, 1fr); }
   .tt-centre { padding: 2px 8px; }
   .tt-endturn, .tt-towait { background-color: var(--tt-panel); opacity: 1; }
@@ -340,7 +337,7 @@
 .tt-rec .tt-label { margin: 0; font-family: var(--font-heading, sans-serif); font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--tt-muted); }
 @media (min-width: 1024px) {
   .tt-rec { grid-template-columns: minmax(0, 1fr) 232px; grid-template-rows: auto auto 32px minmax(0, 1fr); column-gap: 20px; }
-  .tt-rec > .tt-crumbs, .tt-rec > .tt-board, .tt-rec > .tt-stripbar { grid-column: 1 / -1; }
+  .tt-rec > .tt-top, .tt-rec > .tt-board, .tt-rec > .tt-stripbar { grid-column: 1 / -1; }
   .tt-rec > .tt-mid { grid-column: 1; grid-row: 4; }
   .tt-rec > .tt-actions-bar { display: none; }
 
@@ -450,7 +447,6 @@
 /* desktop hero names never cut off: two lines at most, one step smaller when the name is long */
 @media (min-width: 1024px) {
   .tt-corner .tt-team { white-space: normal; overflow: hidden; text-overflow: clip; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
-  .tt-corner .tt-team[data-long="true"] { font-size: 1.1rem; }
 }
 
 /* desktop: the action rail sits on the left of the match log; the Injury button wears the warning tint */
@@ -592,19 +588,20 @@
 @media (min-width: 1024px) {
   .tt-rec {
     --tt-pad: max(0px, calc((100vw - 1400px) / 2));
-    --tt-hero-min: 168px; --tt-crest: 96px; --tt-team-fs: 34px; --tt-cell-h: 24px; --tt-cell-fs: 12px; --tt-track-w: 240px; --tt-score-fs: 56px; --tt-count-fs: 14px;
+    --tt-hero-min: 168px; --tt-crest: 96px; --tt-team-fs: 34px; --tt-team-fs-md: 28px; --tt-team-fs-lg: 24px; --tt-cell-h: 24px; --tt-cell-fs: 12px; --tt-track-w: 240px; --tt-score-fs: 56px; --tt-count-fs: 14px;
     --tt-chip: 56px; --tt-chip-img: 46px; --tt-strip-h: 48px; --tt-strip-fs: 14px; --tt-marker: 28px; --tt-marker-icon: 18px;
     --tt-rail-btn: 56px; --tt-rail-icon: 20px; --tt-rail-fs: 16px; --tt-end-h: 96px; --tt-end-fs: 24px;
     --tt-card-min: 64px; --tt-card-fs: 15px; --tt-ev-icon: 32px; --tt-who-h: 36px; --tt-log-h-fs: 14px;
     padding-inline: var(--tt-pad); grid-template-rows: auto auto var(--tt-strip-h) minmax(0, 1fr);
   }
   .tt-rec > .tt-board { min-height: var(--tt-hero-min); }
-  .tt-rec > .tt-crumbs { padding-inline: 0; }
+  .tt-rec .tt-crumbs { padding-inline: 0; }
   .tt-rec .tt-crest { width: var(--tt-crest); height: var(--tt-crest); }
   .tt-rec .tt-corner.home { grid-template-columns: calc(var(--tt-crest) + 18px) minmax(0, 1fr); }
   .tt-rec .tt-corner.away { grid-template-columns: minmax(0, 1fr) calc(var(--tt-crest) + 18px); }
   .tt-rec .tt-corner .tt-team { font-size: var(--tt-team-fs); }
-  .tt-rec .tt-corner .tt-team[data-long="true"] { font-size: calc(var(--tt-team-fs) * .8); }
+  .tt-rec .tt-corner .tt-team[data-fit="md"] { font-size: var(--tt-team-fs-md); } /* over 14 characters: 34 -> 28 px (1600: 40 -> 32) */
+  .tt-rec .tt-corner .tt-team[data-fit="lg"] { font-size: var(--tt-team-fs-lg); } /* over 20 characters: 24 px (1600: 28) */
   .tt-rec .tt-track { max-width: var(--tt-track-w); }
   .tt-rec .tt-cell { display: flex; align-items: center; justify-content: center; height: var(--tt-cell-h); padding: 0; font-size: var(--tt-cell-fs); }
   .tt-rec .tt-half { font-size: calc(var(--tt-cell-fs) + 1px); }
@@ -631,7 +628,7 @@
 }
 @media (min-width: 1600px) {
   .tt-rec {
-    --tt-hero-min: 200px; --tt-crest: 112px; --tt-team-fs: 40px; --tt-cell-h: 28px; --tt-cell-fs: 13px; --tt-track-w: 280px; --tt-score-fs: 64px;
+    --tt-hero-min: 200px; --tt-crest: 112px; --tt-team-fs: 40px; --tt-team-fs-md: 32px; --tt-team-fs-lg: 28px; --tt-cell-h: 28px; --tt-cell-fs: 13px; --tt-track-w: 280px; --tt-score-fs: 64px;
     --tt-chip: 64px; --tt-chip-img: 52px; --tt-strip-h: 52px; --tt-marker: 32px; --tt-marker-icon: 20px; --tt-rail-btn: 64px; --tt-rail-fs: 18px; --tt-end-h: 112px;
   }
 }
@@ -650,7 +647,7 @@
    least as tall as the rail (the page scrolls when the viewport is shorter) while the log keeps its own internal scroll */
 @media (min-width: 1024px) {
   .tt-rec { overflow-y: auto; grid-template-rows: auto auto var(--tt-strip-h) minmax(auto, 1fr); }
-  .tt-rec > .tt-crumbs { grid-row: 1; }
+  .tt-rec > .tt-top { grid-row: 1; }
   .tt-rec > .tt-board { grid-row: 2; }
   .tt-rec > .tt-stripbar { grid-row: 3; }
   .tt-rec > .tt-rail { overflow: visible; align-self: start; }
@@ -663,10 +660,8 @@
 .tt-ev[data-row-side="neutral"] .tt-ev-text { flex: 0 1 auto; padding-top: 0; text-align: center; }
 .tt-ev[data-row-side="neutral"] .tt-time { text-align: center; }
 .tt-ev[data-row-side="neutral"] .tt-ev-mark { left: 50%; right: auto; top: 0; transform: translateX(-50%); border-radius: 0 0 var(--tt-radius) var(--tt-radius); }
-.tt-ev[data-row-side="away"] { flex-direction: row-reverse; text-align: right; }
-.tt-ev[data-row-side="away"] .tt-ev-text, .tt-ev[data-row-side="away"] .tt-time { text-align: right; }
-.tt-ev[data-row-side="away"] .tt-ev-mark { left: auto; right: -1px; }
-.tt-ev[data-row-side="away"] .tt-ev-who { flex-direction: row-reverse; margin-right: auto; }
+.tt-ev[data-row-side="home"], .tt-ev[data-row-side="away"] { flex-direction: row; text-align: left; }
+.tt-ev[data-row-side="home"] .tt-ev-text, .tt-ev[data-row-side="away"] .tt-ev-text, .tt-ev[data-row-side="home"] .tt-time, .tt-ev[data-row-side="away"] .tt-time { text-align: left; }
 
 /* desktop scoreboard card: the team-colour gradient is clipped to a bezelled card inside the column (no full-bleed colour), on a single soft near-black page */
 @media (min-width: 1024px) {
@@ -1054,7 +1049,7 @@
 /* the team name and the chip tray are one group: a column with a 10 px gap, vertically centred beside the crest column (the tray is no longer pinned to the bottom);
    home left-aligned, away right-aligned */
 @media (min-width: 1024px) {
-  .tt-rec .tt-namegroup { display: flex; flex-direction: column; gap: 10px; align-self: center; grid-row: 1 / -1; min-width: 0; }
+  .tt-rec .tt-namegroup { display: flex; flex-direction: column; gap: 10px; align-self: center; justify-self: stretch; width: 100%; grid-row: 1 / -1; min-width: 0; }
   .tt-rec .tt-corner.home .tt-namegroup { grid-column: 2; align-items: flex-start; }
   .tt-rec .tt-corner.away .tt-namegroup { grid-column: 1; align-items: flex-end; }
   .tt-rec .tt-namegroup > .tt-team { align-self: auto; }
@@ -1259,3 +1254,115 @@
 .tt-ev-pname-name { font-family: var(--font-heading, sans-serif); font-weight: 500; letter-spacing: .02em; }
 .tt-ev-pname-name[data-seat="home"] { color: var(--seat-home-text); }
 .tt-ev-pname-name[data-seat="away"] { color: var(--seat-away-text); }
+
+/* the hero is symmetric: crest column | name group (1fr) | 24 px | scoreboard | 24 px | name group (1fr) | crest column.
+   Both name groups fill their track and their trays stretch to the edge nearest the scoreboard, so the gap to the panel is 24 px on both sides at every width */
+@media (min-width: 760px) { .tt-rec > .tt-board { column-gap: 24px; } }
+@media (min-width: 1024px) {
+  .tt-rec .tt-corner.home, .tt-rec .tt-corner.away { width: 100%; justify-items: stretch; padding: 0; }
+  .tt-rec .tt-corner.home { grid-template-columns: calc(var(--tt-crest) + 18px) minmax(0, 1fr); }
+  .tt-rec .tt-corner.away { grid-template-columns: minmax(0, 1fr) calc(var(--tt-crest) + 18px); }
+  .tt-rec .tt-corner.home .tt-namegroup { align-items: stretch; }
+  .tt-rec .tt-corner.away .tt-namegroup { align-items: stretch; }
+  .tt-rec .tt-corner .tt-coachline .tt-chips { width: 100%; }
+  .tt-rec .tt-corner.home .tt-team { text-align: left; }
+  .tt-rec .tt-corner.away .tt-team { text-align: right; }
+}
+
+/* the context bar: the competition (server-composed) above the hero. Phone/tablet: one compact line; desktop: a 56 px bezelled card, 16 px under the breadcrumb */
+.tt-context { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 12px; min-width: 0; font-size: 12px; color: var(--tt-muted); }
+.tt-context-main { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.tt-context-title { font-family: var(--font-heading, sans-serif); font-weight: 500; letter-spacing: .04em; color: var(--ui-text, var(--tt-ink)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-context-sub { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-context-meta { display: flex; gap: 12px; flex: none; }
+@media (max-width: 1023px) { .tt-context-meta { display: none; } }
+@media (min-width: 1024px) {
+  .tt-rec > .tt-top { display: flex; flex-direction: column; }
+  .tt-rec .tt-context {
+    box-sizing: border-box; height: 56px; margin: 16px 2px 0; padding: 0 20px; border-radius: 4px;
+    background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 60%, transparent); border: 1px solid var(--tt-rule);
+    box-shadow: inset 0 1px 0 rgb(0 0 0 / .45), inset 0 -1px 0 rgb(255 255 255 / .06);
+  }
+  .tt-rec .tt-context-main { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .tt-rec .tt-context-title { font-size: 24px; line-height: 1.1; text-shadow: var(--tt-name-shadow); }
+  .tt-rec .tt-context-sub { font-size: 13px; font-family: var(--font-body, inherit); }
+  .tt-rec .tt-context-meta { flex-direction: column; align-items: flex-end; gap: 2px; font-size: 13px; }
+}
+@media (min-width: 1600px) { .tt-rec .tt-context-title { font-size: 28px; } }
+
+/* a casualty's second line (the victim) sits directly beneath the causer's line: tucked up against it, with no turn mark of its own */
+.tt-ev--victim { margin-top: -4px; min-height: 0; }
+
+/* player cards: home = chip | sentence + time (1fr) | icon; away = icon | chip | sentence + time (1fr); the icon vertically centred, 12 px in from its edge; centred game-event cards keep the icon above the text */
+.tt-ev:not([data-row-side="neutral"]) .tt-ev-icon { align-self: center; margin-right: 12px; margin-left: 8px; }
+.tt-ev[data-row-side="away"] .tt-ev-icon { order: -1; margin-left: 12px; margin-right: 8px; } /* the icon rides the edge nearest the spine: right for home, left for away */
+.tt-ev:not([data-row-side="neutral"]) .tt-ev-text { align-self: center; padding-top: 0; }
+.tt-ev[data-row-side="neutral"] .tt-ev-icon { order: -1; }
+
+/* the log's centre spine and the card borders take the brighter red: --ui-scarlet (dark themes), --ui-primary on the FUMBBL light preset.
+   Spine 2 px at 70 %, dots filled with a dark ring, card borders 1 px at 55 % (the side edges and the yellow admin edge keep their own colours) */
+.tt-rec { --tt-red: var(--ui-scarlet, #d7141f); }
+:root[data-theme="fumbbl"] .tt-rec { --tt-red: var(--ui-primary, #790004); }
+.tt-ev { border-top-color: color-mix(in srgb, var(--tt-red) 55%, transparent); border-bottom-color: color-mix(in srgb, var(--tt-red) 55%, transparent); }
+.tt-ev[data-row-side="home"] { border-right-color: color-mix(in srgb, var(--tt-red) 55%, transparent); }
+.tt-ev[data-row-side="away"] { border-left-color: color-mix(in srgb, var(--tt-red) 55%, transparent); }
+.tt-ev[data-row-side="neutral"] { border-color: color-mix(in srgb, var(--tt-red) 55%, transparent); }
+.tt-ev--admin[data-row-side="neutral"] { border-top-color: var(--ui-admin, #ffd23d); }
+@media (min-width: 1024px) {
+  .tt-events::before { width: 2px; background: color-mix(in srgb, var(--tt-red) 70%, transparent); }
+  .tt-ev[data-row-side="home"]::after, .tt-ev[data-row-side="away"]::after { background: var(--tt-red); border: 2px solid var(--ui-surface, #0d0d0d); }
+}
+
+/* name group: the team name's glyph edge, the tray's outer border and the FANS pill's outer border share ONE edge (left on home, right on away).
+   The name steps out by the display font's side bearing (--tt-name-bearing) so its glyph, not its box, sits on the line; the tray and pill wrappers carry no side padding or margin,
+   and the tray's chips start 8 px inside its border */
+@media (min-width: 1024px) {
+  .tt-rec .tt-corner.home .tt-namegroup > .tt-team.tt-nameline { margin-left: calc(var(--tt-name-bearing) * -1); }
+  .tt-rec .tt-corner.away .tt-namegroup > .tt-team.tt-nameline { margin-right: calc(var(--tt-name-bearing) * -1); }
+  .tt-rec .tt-corner .tt-namegroup > .tt-coachline.tt-nameline { margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; }
+  .tt-rec .tt-corner .tt-namegroup > .tt-fans-pill { margin-left: 0; margin-right: 0; }
+  .tt-rec .tt-corner .tt-coachline .tt-chips, .tt-rec .tt-corner.home .tt-coachline .tt-chips, .tt-rec .tt-corner.away .tt-coachline .tt-chips { padding: 6px 8px; }
+}
+
+/* the player portrait card (the client's .player-card language): the coach-panel bezel and shadow, radius 5, sprite portrait beside five stat boxes,
+   seat-tinted bold name, white position, categorised skill chips (added ones lifted), SPP with the match gain, status and injuries */
+.tt-pcard {
+  --ui-skill-general: #6ea8ff; --ui-skill-agility: #ffd23d; --ui-skill-strength: #ff6b6b; --ui-skill-passing: #ffffff; --ui-skill-mutation: #6fcf6f; --ui-skill-trait: #b08b5a;
+  --seat-home-text: #4a86fe; --seat-away-text: #fe6666; --tt-st-ko: #e0b040; --tt-st-bad: #e07a7a; --tt-st-down: #f05050; --tt-st-up: #4fce6a; --tt-st-res: #8a9ac0;
+  position: fixed; z-index: 400; width: 22em; max-width: calc(100vw - 16px); box-sizing: border-box; padding: .7em .85em; pointer-events: none;
+  font-size: 14px; color: var(--ui-text, #e6e9ef); background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 95%, transparent);
+  border: 1px solid var(--ui-border, #3d0002); border-radius: 5px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%), inset 0 -1px 0 rgb(0 0 0 / 45%), 0 4px 18px rgb(0 0 0 / 67%);
+}
+:root[data-theme="fumbbl"] .tt-pcard {
+  --ui-skill-general: #1d5fb8; --ui-skill-agility: #7a5c00; --ui-skill-strength: #a32626; --ui-skill-passing: #262626; --ui-skill-mutation: #2f6e2f; --ui-skill-trait: #6e4f28;
+  --seat-home-text: #1d4fb8; --seat-away-text: #b01e1e; --tt-st-ko: #7a5c00; --tt-st-bad: #a32626; --tt-st-down: #a32626; --tt-st-up: #2f6e2f; --tt-st-res: #4a5a80;
+}
+.tt-pcard-name { font-weight: 700; font-size: 1.16em; }
+.tt-pcard-name[data-side="home"] { color: var(--seat-home-text); }
+.tt-pcard-name[data-side="away"] { color: var(--seat-away-text); }
+.tt-pcard-position { color: var(--ui-text-on-primary, #ffffff); margin-bottom: .35em; font-size: 1.05em; }
+:root[data-theme="fumbbl"] .tt-pcard-position { color: var(--ui-text, #262626); }
+.tt-pcard-status { font-weight: 700; font-size: .95em; margin: 0 0 .35em; color: var(--ui-text-dim, #cbd4cb); }
+.tt-pcard-status[data-status="KO'd"] { color: var(--tt-st-ko); }
+.tt-pcard-status[data-status="Badly Hurt"], .tt-pcard-status[data-status="Seriously Hurt"], .tt-pcard-status[data-status="Dead"] { color: var(--tt-st-bad); }
+.tt-pcard-status[data-status="Reserves"] { color: var(--tt-st-res); }
+.tt-pcard-injuries { color: var(--tt-st-bad); font-size: .95em; margin: 0 0 .4em; }
+.tt-pcard-body { display: flex; gap: .55em; align-items: stretch; }
+.tt-pcard-stats { display: flex; flex-direction: column; gap: .3em; min-width: 6em; }
+.tt-pcard-stat { display: flex; justify-content: space-between; align-items: baseline; background: var(--ui-surface, #0d0d0d); border: 1px solid var(--ui-border, #3d0002); border-radius: 5px; padding: .22em .65em; font-size: 1.22em; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tt-pcard-stat em { font-style: normal; color: var(--ui-muted, #848689); font-size: .82em; font-weight: 600; letter-spacing: .03em; }
+.tt-pcard-stat span[data-reduced="true"] { color: var(--tt-st-down); font-weight: 700; }
+.tt-pcard-stat span[data-increased="true"] { color: var(--tt-st-up); font-weight: 700; }
+.tt-pcard-portrait { flex: 1; display: flex; align-items: center; justify-content: center; min-width: 64px; min-height: 64px; overflow: hidden; background: radial-gradient(ellipse at center, color-mix(in srgb, var(--ui-success, #4fce6a) 14%, var(--ui-surface-2, #242424)) 0%, var(--ui-surface, #0d0d0d) 85%); border: 1px solid var(--ui-border, #3d0002); border-radius: 6px; }
+.tt-pcard-portrait img { height: 100%; max-height: 96px; max-width: 100%; object-fit: contain; transform: scale(1.35); image-rendering: pixelated; }
+.tt-pcard-missing { color: var(--ui-text-dim, #848689); font-family: var(--font-heading, sans-serif); font-size: 1.4em; }
+.tt-pcard-skills { display: flex; flex-wrap: wrap; gap: .3em; margin-top: .55em; }
+.tt-pcard-skill { padding: .1em .5em; border: 1px solid currentColor; border-radius: 3px; font-size: .85em; font-weight: 600; color: var(--ui-skill-trait); background: color-mix(in srgb, currentColor 12%, transparent); }
+.tt-pcard-skill.skill-general { color: var(--ui-skill-general); } .tt-pcard-skill.skill-agility { color: var(--ui-skill-agility); }
+.tt-pcard-skill.skill-strength { color: var(--ui-skill-strength); } .tt-pcard-skill.skill-passing { color: var(--ui-skill-passing); }
+.tt-pcard-skill.skill-mutation { color: var(--ui-skill-mutation); }
+.tt-pcard-added { background: color-mix(in srgb, currentColor 30%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 45%, transparent); }
+.tt-pcard-spp { margin-top: .5em; font-size: 1.2em; font-weight: 600; }
+.tt-pcard-gain { color: var(--ui-success, #4fce6a); font-size: .85em; font-weight: 600; }
+.tt-ev-who[data-pcard], .tt-ev-name[data-pcard], .roster-sprite[data-pcard] { cursor: help; }

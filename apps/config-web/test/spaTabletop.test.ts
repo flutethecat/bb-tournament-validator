@@ -129,7 +129,7 @@ describe("tabletop routes (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC, chipLayoutMod, pickConfirmC] = await Promise.all([
+    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC, chipLayoutMod, pickConfirmC, cardC] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
@@ -158,8 +158,9 @@ describe("tabletop routes (server-rendered)", () => {
       vite.ssrLoadModule("/src/components/TabletopRosterRow.vue"),
       vite.ssrLoadModule("/src/tabletop/chipLayout.ts"),
       vite.ssrLoadModule("/src/components/TabletopPickConfirm.vue"),
+      vite.ssrLoadModule("/src/components/TabletopPlayerCard.vue"),
     ]);
-    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC, chipLayoutMod, pickConfirmC };
+    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC, chipLayoutMod, pickConfirmC, cardC };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -305,6 +306,124 @@ describe("tabletop routes (server-rendered)", () => {
     return (await mods.renderer.renderToString(app)) as string;
   };
 
+  it("log cards: a casualty is two lines (causer, then the victim beneath); injuries and out-of-order pairs; obscured victims; undo strikes both", async () => {
+    const pos = (id: string, name: string, n: number, positionName: string) => ({ ...player(id, name, n), positionName });
+    const t2 = { home: { name: "Alice Orcs", players: [pos("h1", "Grob", 1, "Blitzer"), pos("h2", "Snaga", 2, "Lineman")] }, away: { name: "Bob Elves", players: [pos("a1", "Lirael", 7, "Catcher"), pos("a2", "Faen", 8, "Lineman")] } };
+    const cas = { id: "c1", type: "casualty", team: "home", player: "h1", payload: { victim: "a1", victimTeam: "away", result: "BH", apothecaryUsed: true }, half: 1, turn: 2 };
+    const rowsOf = (evs: any[], live: string[], obscure: "home" | "away" | null = null) => mods.feedMod.feedRows(evs, live, t2, { c1: 2 }, undefined, obscure);
+    const r = rowsOf([cas], ["c1"]);
+    expect(r.map((x: any) => `${x.part}:${x.team}`)).toEqual(["main:home", "victim:away"]); // causer line on top, victim line beneath on the victim's side
+    const html = await mount(mods.feedC, { rows: r, canUndo: true });
+    expect(html).toContain('data-team="home" data-pcard="home:h1">Grob</span> causes a casualty!');
+    expect(html).toContain("(★2)"); // the stars ride the causer line
+    expect(html).toContain('data-team="away" data-pcard="away:a1">Lirael</span> is Badly Hurt (apothecary used).');
+    expect(html.indexOf("causes a casualty!")).toBeLessThan(html.indexOf("is Badly Hurt"));
+    expect(html.match(/class="tt-trash"/g)).toHaveLength(1); // one undo for the one event
+    expect(html).toContain('<b class="tt-ev-pname-name" data-seat="away">Lirael</b><small>Catcher</small>'); // chip: name over position, no number
+    // a participant (home) sees the opposing victim obscured: "#7 Catcher is Badly Hurt"
+    const hidden = await mount(mods.feedC, { rows: rowsOf([cas], ["c1"], "away"), canUndo: false });
+    expect(hidden).toContain("#7 Catcher</span> is Badly Hurt");
+    expect(hidden).not.toContain("Lirael");
+    // retracted: both lines struck
+    const undo = { id: "u1", type: "undo", team: "home", payload: { target: "c1" }, by: "Alice", ts: "2026-10-23T10:05:00.000Z" };
+    const struck = await mount(mods.feedC, { rows: rowsOf([cas, undo], []), canUndo: false, showRemoved: true });
+    expect(struck.match(/tt-ev--removed/g)).toHaveLength(2);
+    // injuries (no causer): the victim line only, with the other wordings
+    const inj = (id: string, result: string, extra: Record<string, unknown> = {}) => ({ id, type: "injury", team: "away", player: "a2", payload: { result, ...extra } });
+    const words = rowsOf([inj("i1", "MNG"), inj("i2", "NI"), inj("i3", "stat loss", { stat: "AV" }), inj("i4", "DEAD")], ["i1", "i2", "i3", "i4"]).map((x: any) => x.rest).reverse();
+    expect(words).toEqual([" is Miss Next Game.", " is Niggled.", " loses AV.", " is Dead."]);
+    expect(rowsOf([inj("i1", "BH")], ["i1"])).toHaveLength(1);
+    // order guard: an injury recorded BEFORE the casualty on the same victim and turn pairs with it and renders beneath it, once
+    const early = { id: "i0", type: "injury", team: "away", player: "a1", payload: { result: "MNG" }, half: 1, turn: 2 };
+    const paired = rowsOf([early, cas], ["i0", "c1"]);
+    expect(paired.map((x: any) => `${x.id}:${x.part}`)).toEqual(["c1:main", "i0:victim"]);
+    expect(paired[1].rest).toBe(" is Miss Next Game.");
+    // a different turn is not paired: two separate entries
+    expect(rowsOf([{ ...early, turn: 1 }, cas], ["i0", "c1"]).map((x: any) => x.id)).toEqual(["c1", "c1", "i0"]);
+  });
+
+  it("log red: the spine and the card borders use the scarlet token (primary on the FUMBBL light preset)", async () => {
+    const css = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.tt-rec \{ --tt-red: var\(--ui-scarlet, #d7141f\); \}/);
+    expect(css).toMatch(/:root\[data-theme="fumbbl"\] \.tt-rec \{ --tt-red: var\(--ui-primary, #790004\); \}/);
+    expect(css).toMatch(/\.tt-events::before \{ width: 2px; background: color-mix\(in srgb, var\(--tt-red\) 70%, transparent\); \}/); // spine: 2 px at 70 %
+    expect(css).toMatch(/::after \{ background: var\(--tt-red\); border: 2px solid var\(--ui-surface, #0d0d0d\); \}/); // dots: filled, dark ring
+    expect(css).toMatch(/\.tt-ev \{ border-top-color: color-mix\(in srgb, var\(--tt-red\) 55%, transparent\); border-bottom-color: color-mix\(in srgb, var\(--tt-red\) 55%, transparent\); \}/); // card borders: 55 %
+    expect(css).toMatch(/\.tt-ev\[data-row-side="neutral"\] \{ border-color: color-mix\(in srgb, var\(--tt-red\) 55%, transparent\); \}/);
+    expect(css).toMatch(/\.tt-ev--admin\[data-row-side="neutral"\] \{ border-top-color: var\(--ui-admin, #ffd23d\); \}/); // admin keeps the yellow edge
+  });
+
+  it("name group: name glyph, tray border and fans pill share one edge", async () => {
+    const css = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.tt-corner\.home \.tt-namegroup > \.tt-team\.tt-nameline \{ margin-left: calc\(var\(--tt-name-bearing\) \* -1\); \}/);
+    expect(css).toMatch(/\.tt-corner\.away \.tt-namegroup > \.tt-team\.tt-nameline \{ margin-right: calc\(var\(--tt-name-bearing\) \* -1\); \}/);
+    expect(css).toMatch(/\.tt-namegroup > \.tt-coachline\.tt-nameline \{ margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; \}/); // no padding-left on the tray wrapper
+    expect(css).toMatch(/\.tt-namegroup > \.tt-fans-pill \{ margin-left: 0; margin-right: 0; \}/);
+    expect(css).toMatch(/\.tt-coachline \.tt-chips \{ padding: 6px 8px; \}/); // chips start 8 px inside the border
+  });
+
+  it("player portrait card: stats, skill chips, SPP gain, status, injuries; the obscured variant names no one and lists no skills", async () => {
+    const mods2 = await import("../spa/src/tabletop/playerCard");
+    const full = { id: "h1", name: "Grob", number: 1, spp: 6, mng: false, dead: false, positionName: "Blitzer", sprite: "sprites/orc/blitzer.png", ma: 7, st: 3, ag: 2, pa: 4, av: 9,
+      printedStats: { ma: 6, st: 3, ag: 3, pa: 4, av: 9 }, printed: [{ name: "Block", category: "General" }], added: [{ name: "Dodge", category: "Agility" }], injuries: ["Smashed Knee"] };
+    const line = { id: "h1", name: "Grob", touchdowns: 1, casualtiesCaused: 0, completions: 0, interceptions: 0, deflections: 0, mvp: 0, sentOff: false, sppEarned: 3, injury: { result: "BH", apothecaryUsed: false } };
+    const html = await mount(mods.cardC, { player: full, side: "home", line, x: 10, y: 20 });
+    expect(html).toContain('class="tt-pcard-name" data-side="home">Grob</div>');
+    expect(html).toContain('class="tt-pcard-position">#1 · Blitzer</div>');
+    expect(html.match(/class="tt-pcard-stat"/g)).toHaveLength(5);
+    expect(html).toContain('<span data-increased="true">7</span>'); // MA improved over the printed 6
+    expect(html).toContain('<span data-increased="true">2+</span>'); // AG improved (lower target)
+    expect(html).toContain('<span>3</span>'); // ST unchanged
+    expect(html).toContain('class="skill-general tt-pcard-skill">Block</span>');
+    expect(html).toContain('class="skill-agility tt-pcard-skill tt-pcard-added">Dodge</span>'); // added skills are highlighted
+    expect(html).toContain('<div class="tt-pcard-spp">9 SPP<b class="tt-pcard-gain"> (+3)</b></div>');
+    expect(html).toContain('data-status="Badly Hurt"');
+    expect(html).toContain("\u2695 Smashed Knee");
+    expect(html).toContain('src="/sprites/orc/blitzer.png"');
+    expect(html).toContain("left:10px;top:20px;");
+    const hidden = await mount(mods.cardC, { player: full, side: "away", obscured: true });
+    expect(hidden).toContain('class="tt-pcard-name" data-side="away">#1 · Blitzer</div>');
+    expect(hidden).not.toContain("Grob");
+    expect(hidden).not.toContain("Block");
+    expect(hidden).not.toContain("tt-pcard-skills");
+    expect(hidden).not.toContain("Smashed Knee");
+    // keys and placement
+    expect(mods2.parseCardKey("home:h1")).toEqual({ side: "home", id: "h1" });
+    expect(mods2.parseCardKey("nope")).toBeNull();
+    const at = mods2.placeCard({ left: 100, top: 100, right: 160, bottom: 140 }, { w: 300, h: 200 }, { w: 1000, h: 800 }, 120);
+    expect(at.x).toBe(172); // beside the element, to its right
+    expect(mods2.placeCard({ left: 800, top: 100, right: 900, bottom: 140 }, { w: 300, h: 200 }, { w: 1000, h: 800 }, 120).x).toBe(488); // no room right: to its left
+    const narrow = mods2.placeCard({ left: 20, top: 100, right: 340, bottom: 140 }, { w: 300, h: 200 }, { w: 360, h: 800 }, 120);
+    expect(narrow.y).toBeGreaterThanOrEqual(140); // no room beside it: under it, never over it
+    // the hover targets carry the key
+    const feedHtml = await mount(mods.feedC, { rows: mods.feedMod.feedRows([{ id: "e1", type: "touchdown", team: "home", player: "h1", payload: {} }], ["e1"], teams), canUndo: false });
+    expect(feedHtml).toContain('data-pcard="home:h1"');
+    expect(mods2.CARD_DELAY_MS).toBe(250);
+  });
+
+  it("context bar: renders the server's competition context for the three kinds, nothing when it sent none", async () => {
+    const base = { match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) };
+    const league = (await renderMatch({ ...base, context: { kind: "league", title: "Pacific League", subtitle: "Round 7/8", round: 7, roundCount: 8, startedAt: "2026-10-28T20:00:00.000Z", venue: "Table 3" } })).html;
+    expect(league).toContain('class="tt-context" data-kind="league"');
+    expect(league).toContain('<b class="tt-context-title">Pacific League</b>');
+    expect(league).toContain('<span class="tt-context-sub">Round 7/8</span>');
+    expect(league).toContain('<span class="tt-context-venue">Table 3</span>');
+    expect(league).toContain('class="tt-context-when"');
+    expect(league.indexOf('class="tt-context"')).toBeLessThan(league.indexOf('class="tt-board"')); // above the hero
+    const tournament = (await renderMatch({ ...base, context: { kind: "tournament", title: "Spring Cup", subtitle: "Winter Series" } })).html;
+    expect(tournament).toContain('data-kind="tournament"');
+    expect(tournament).toContain('<span class="tt-context-sub">Winter Series</span>');
+    expect(tournament).not.toContain("tt-context-when");
+    const casual = (await renderMatch({ ...base, context: { kind: "casual", title: "Casual match", subtitle: "Blood Bowl 2025" } })).html;
+    expect(casual).toContain('<b class="tt-context-title">Casual match</b>');
+    expect(casual).toContain("Blood Bowl 2025");
+    expect((await renderMatch(base)).html).not.toContain('class="tt-context"');
+    const cssC = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(cssC).toMatch(/\.tt-rec \.tt-context \{\s*box-sizing: border-box; height: 56px; margin: 16px 2px 0;/);
+    expect(cssC).toMatch(/\.tt-rec \.tt-context-title \{ font-size: 24px;/);
+    expect(cssC).toMatch(/@media \(min-width: 1600px\) \{ \.tt-rec \.tt-context-title \{ font-size: 28px; \} \}/);
+  });
+
   it("recorder (recording): scoreboard, scrolling feed and TD / Other / CAS regions, rows from the server's events", async () => {
     const { html } = await renderMatch({ match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) });
     // layout regions, in order: scoreboard, feed, action bar
@@ -325,11 +444,11 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("Rosters");
     expect(html).not.toContain("tt-back"); // no back button: the shell navigation leaves the page
     // feed rows: the client log sentence, SPP stars, undo trash; the undone TD is gone
-    expect(html).toContain("scores a touchdown."); // the sentence states only the action...
-    expect(html).not.toContain("Grob #1</span>"); // ...the actor is the chip
+    expect(html).toContain('data-team="home" data-pcard="home:h1">Grob</span> scores a touchdown!'); // "<name> <action>" with the name in the sentence...
+    expect(html).not.toContain("Grob #1</span>"); // ...and no number glued to it
     expect(html).toContain("(&#9733;3)".replace("&#9733;", "\u2605"));
-    expect(html).toContain("completes a pass.");
-    expect(html).toContain("<small>#7</small>"); // the opponent (Alice plays home) is shown by number (and position when the roster has one) only, in the chip
+    expect(html).toContain("completes a pass!");
+    expect(html).toContain('data-seat="away">#7</b><small>'); // the opponent (Alice plays home) is shown by number (and position when the roster has one) only, in the chip
     expect(html).not.toContain("Lirael");
     expect(html).not.toContain("Lirael");
     expect(html).not.toContain('aria-label="Undo'); // undo rides edit mode (organisers) only
@@ -515,7 +634,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toMatch(/--tt-pad: max\(0px, calc\(\(100vw - 1400px\) \/ 2\)\)/); // the desktop page is centred in 1400 px
     expect(css).toMatch(/\.tt-rec::before \{[^}]*grid-row: 2 \/ 5;[^}]*border-radius: 6px;[^}]*0 6px 0 rgb\(0 0 0 \/ \.45\), 0 12px 28px/); // one shared card behind hero, strip, rail and log
     // row order: crumbs, hero, strip, then the body (strip before body), with the body row never shorter than the rail
-    const crumbRow = css.lastIndexOf(".tt-rec > .tt-crumbs { grid-row: 1; }");
+    const crumbRow = css.lastIndexOf(".tt-rec > .tt-top { grid-row: 1; }");
     expect(crumbRow).toBeGreaterThan(-1);
     expect(css.indexOf(".tt-rec > .tt-stripbar { grid-row: 3; }")).toBeGreaterThan(crumbRow);
     expect(css).toContain(".tt-rec > .tt-mid { grid-column: 2; grid-row: 4; }");
@@ -638,7 +757,7 @@ describe("tabletop routes (server-rendered)", () => {
     }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
     expect(longCoach).toContain('class="tt-crest-coach" data-long="true">Flutethecatwalker<'); // longer than 12 characters steps down
     expect(html).toContain('<p class="tt-crest-coach">Alice</p>'); // short names keep the full size
-    expect(css1).toMatch(/\.tt-rec \.tt-namegroup \{ display: flex; flex-direction: column; gap: 10px; align-self: center; grid-row: 1 \/ -1; min-width: 0; \}/); // name + tray: one centred group
+    expect(css1).toMatch(/\.tt-rec \.tt-namegroup \{ display: flex; flex-direction: column; gap: 10px; align-self: center; justify-self: stretch; width: 100%; grid-row: 1 \/ -1; min-width: 0; \}/); // name + tray: one centred group
     expect(css1).toMatch(/\.tt-rec \.tt-corner\.away \.tt-namegroup \{ grid-column: 1; align-items: flex-end; \}/);
     expect(html.match(/class="tt-namegroup"/g)).toHaveLength(2);
     expect(css1).toMatch(/@media \(min-width: 1024px\) \{\s*\.tt-rec \.tt-namegroup > \.tt-race\.tt-nameline \{ display: none; \}/); // the in-group race copy is hidden on desktop
@@ -693,6 +812,23 @@ describe("tabletop routes (server-rendered)", () => {
     expect(themeCoach).toContain("--ui-coach-led: #4cff6a;");
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
+    expect(css1).toMatch(/--tt-team-fs: 34px; --tt-team-fs-md: 28px; --tt-team-fs-lg: 24px;/); // name steps: over 14 characters 28 px, over 20 characters 24 px
+    expect(css1).toMatch(/--tt-team-fs: 40px; --tt-team-fs-md: 32px; --tt-team-fs-lg: 28px;/); // 1600: 40 / 32 / 28
+    expect(css1).toMatch(/\.tt-team\[data-fit="md"\] \{ font-size: var\(--tt-team-fs-md\); \}/);
+    expect(css1).toMatch(/\.tt-team\[data-fit="lg"\] \{ font-size: var\(--tt-team-fs-lg\); \}/);
+    // symmetric hero: 24 px gap each side of the scoreboard, name groups fill their track, trays stretch to the panel edge
+    expect(css1).toMatch(/\.tt-rec > \.tt-board \{ column-gap: 24px; \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-corner\.home \{ grid-template-columns: calc\(var\(--tt-crest\) \+ 18px\) minmax\(0, 1fr\); \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-corner\.away \{ grid-template-columns: minmax\(0, 1fr\) calc\(var\(--tt-crest\) \+ 18px\); \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-namegroup \{[^}]*justify-self: stretch; width: 100%;/);
+    expect(css1).toMatch(/\.tt-board \{ grid-template-columns: minmax\(0, 1fr\) var\(--tt-score-w, 420px\) minmax\(0, 1fr\);/);
+    const nameFit = async (n: string) => (await mount(mods.boardC, {
+      match: { ...baseMatch("recording"), home: { ...baseMatch("recording").home, teamName: n } }, teams, tally: serverTally,
+      events: [], pregame: {}, clock: clockOf("home", 3), localSide: "home", organiser: false, canAct: true, inducementIcons: {}, art: {},
+    }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })))).match(/class="tt-team tt-nameline"[^>]*data-fit="(\w+)"/)?.[1] ?? "";
+    expect(await nameFit("Spike Rats")).toBe(""); // 10 characters
+    expect(await nameFit("AmOrcs with a Bribe")).toBe("md"); // 19 characters: 28 px, two lines
+    expect(await nameFit("The Extremely Long Name")).toBe("lg"); // 23 characters
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
     expect(css1).toMatch(/\.tt-rec \.tt-corner \.tt-coachline \.tt-chips, [^{]*\{\s*box-sizing: border-box; display: flex; flex-wrap: wrap;[^}]*border: 1px solid var\(--tt-rule\); border-radius: 4px;/); // the inset chip tray
     expect(css1).toMatch(/--tt-chip: 56px; --tt-chip-img: 46px;/);
@@ -949,13 +1085,16 @@ describe("tabletop routes (server-rendered)", () => {
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
     expect(css).toMatch(/\.tt-ev\[data-row-side="neutral"\] \{[^}]*flex-direction: column; align-items: center;[^}]*text-align: center;/);
     expect(css).toMatch(/\.tt-ev\[data-row-side="neutral"\] \.tt-ev-mark \{[^}]*left: 50%;[^}]*translateX\(-50%\)/);
-    expect(css).toMatch(/\.tt-ev\[data-row-side="away"\] \{[^}]*flex-direction: row-reverse; text-align: right;/);
-    expect(css).toMatch(/\.tt-ev\[data-row-side="away"\] \.tt-ev-who \{[^}]*flex-direction: row-reverse; margin-right: auto;/);
+    expect(css).toMatch(/\.tt-ev\[data-row-side="home"\], \.tt-ev\[data-row-side="away"\] \{ flex-direction: row; text-align: left; \}/); // away reads left to right like home
+    expect(css).not.toMatch(/\.tt-ev\[data-row-side="away"\] \{[^}]*row-reverse/);
+    expect(css).toMatch(/\.tt-ev:not\(\[data-row-side="neutral"\]\) \.tt-ev-icon \{ align-self: center; margin-right: 12px;/); // the icon: home right edge
+    expect(css).toMatch(/\.tt-ev\[data-row-side="away"\] \.tt-ev-icon \{ order: -1; margin-left: 12px;/); // away left edge, nearest the spine
+    expect(css).toMatch(/\.tt-ev\[data-row-side="neutral"\] \.tt-ev-icon \{ order: -1; \}/); // centred cards keep it above the text
     expect(html).toContain('<span class="tt-ev-mark">H1 T3</span>');
-    expect(html).toContain('<b class="tt-ev-pname-name" data-seat="home">Grob</b><small>#1</small>'); // the single place for the actor: name in the seat tint, "#1 · position" under it
+    expect(html).toContain('<b class="tt-ev-pname-name" data-seat="home">Grob</b><small>'); // the chip: name in the seat tint over the position (no number)
+    expect(html).not.toContain("<small>#1");
     expect(html).toContain('class="tt-ev-sprite"'); // with a sprite frame (initials when the roster has none)
-    expect(html).not.toContain('data-team="home">Grob'); // the sentence no longer names the actor
-    expect(html).toContain("scores a touchdown.");
+    expect(html).toContain('data-team="home" data-pcard="home:h1">Grob</span> scores a touchdown!'); // the sentence names the actor, seat-tinted
     expect(html).not.toContain("tt-ev-grip"); // the store has no reordering, so no gripper
     const tl = await mount(mods.timelineC, { rows });
     expect(tl.match(/class="tt-tl-item"/g)).toHaveLength(3);

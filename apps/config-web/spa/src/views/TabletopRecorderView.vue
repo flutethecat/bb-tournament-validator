@@ -2,7 +2,7 @@
 // Tabletop recorder (/app/tabletop/:id): phone-first. Scoreboard on top (about 20 %), the events feed in the middle
 // (the only region that scrolls), TD / Other / CAS across the bottom third. Shows only what the server returned;
 // taps go through the offline queue and the screen follows the server next answer.
-import { computed, inject, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import TabletopFeed from "../components/TabletopFeed.vue";
@@ -28,6 +28,9 @@ import { THEME_KEY } from "../theme";
 import { createCueTracker, timerOn, timerRemaining } from "../tabletop/clock";
 import { createCuePlayer } from "../tabletop/sounds";
 import TabletopGlyph from "../components/TabletopGlyph.vue";
+import TabletopContextBar from "../components/TabletopContextBar.vue";
+import TabletopPlayerCard from "../components/TabletopPlayerCard.vue";
+import { CARD_DELAY_MS, CARD_HOLD_MS, parseCardKey, placeCard } from "../tabletop/playerCard";
 import { playerLabel, OTHER_EVENTS, CAS_EVENT, CASUALTY_RESULTS_UI, ELIGIBILITY_KEY, eligiblePlayers, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, visibleSidesFor, type OtherEvent } from "../tabletop/feed";
 import { browserStorage } from "../tabletop/queue";
 import { createRecorder, RECORDER_KEY, type RosterPlayerView, type Side, type SummaryView } from "../tabletop/recorder";
@@ -225,6 +228,65 @@ function onTipTouch(e: PointerEvent): void {
   tipShow(el);
   tipHide = setTimeout(() => { tip.show = false; }, 1500);
 }
+// Player portrait card: hovering (250 ms) or keyboard-focusing any [data-pcard="<side>:<id>"] element pops the card beside it; a touch hold (450 ms) does too.
+// It never covers the element, closes on mouseleave / blur / Escape, and takes no pointer events.
+const pcard = reactive({ show: false, key: "", x: 0, y: 0 });
+let pcardTimer: ReturnType<typeof setTimeout> | undefined;
+const pcardTarget = (e: Event): HTMLElement | null => (e.target instanceof Element ? (e.target.closest("[data-pcard]") as HTMLElement | null) : null);
+const pcardView = computed(() => {
+  const k = parseCardKey(pcard.key);
+  const player = k ? state.teams[k.side]?.players.find((x) => x.id === k.id) : undefined;
+  if (!k || !player) return null;
+  return { player, side: k.side, line: state.tally.players[k.side]?.find((l) => l.id === k.id), obscured: k.side === opponentSide.value };
+});
+function pcardOpen(el: HTMLElement, pointerY: number): void {
+  const key = el.dataset.pcard ?? "";
+  if (!parseCardKey(key)) return;
+  const r = el.getBoundingClientRect();
+  Object.assign(pcard, { show: true, key, x: -9999, y: -9999 });
+  // measure after the card renders, then place it beside the element
+  void nextTick(() => {
+    const card = document.querySelector(".tt-pcard") as HTMLElement | null;
+    const size = card ? { w: card.offsetWidth, h: card.offsetHeight } : { w: 340, h: 300 };
+    const at = placeCard({ left: r.left, top: r.top, right: r.right, bottom: r.bottom }, size, { w: window.innerWidth, h: window.innerHeight }, pointerY);
+    pcard.x = at.x;
+    pcard.y = at.y;
+  });
+}
+function pcardClose(): void {
+  clearTimeout(pcardTimer);
+  pcard.show = false;
+}
+function pcardCancel(): void { clearTimeout(pcardTimer); }
+function onCardOut(e: PointerEvent): void {
+  if (e.pointerType === "touch") return;
+  const from = pcardTarget(e);
+  if (from && e.relatedTarget instanceof Node && from.contains(e.relatedTarget)) return;
+  pcardClose();
+}
+function onCardOver(e: PointerEvent): void {
+  if (e.pointerType === "touch") return;
+  const el = pcardTarget(e);
+  clearTimeout(pcardTimer);
+  if (!el) { pcard.show = false; return; }
+  pcardTimer = setTimeout(() => pcardOpen(el, e.clientY), CARD_DELAY_MS);
+}
+function onCardFocus(e: FocusEvent): void {
+  const el = pcardTarget(e);
+  if (el && el.matches(":focus-visible")) { clearTimeout(pcardTimer); pcardTimer = setTimeout(() => pcardOpen(el, el.getBoundingClientRect().top), CARD_DELAY_MS); }
+}
+function onCardTouch(e: PointerEvent): void {
+  if (e.pointerType !== "touch") return;
+  const el = pcardTarget(e);
+  clearTimeout(pcardTimer);
+  if (!el) { pcard.show = false; return; }
+  pcardTimer = setTimeout(() => pcardOpen(el, e.clientY), CARD_HOLD_MS);
+}
+function onCardKey(e: KeyboardEvent): void {
+  if (e.key === "Escape" && pcard.show) { e.stopPropagation(); e.preventDefault(); pcardClose(); }
+}
+onMounted(() => window.addEventListener("keydown", onCardKey, true));
+onBeforeUnmount(() => { window.removeEventListener("keydown", onCardKey, true); clearTimeout(pcardTimer); });
 /** An organiser ends the active team's turn for them: asks first, then posts turn/end with override. */
 function overrideEnd(): void {
   const c = state.clock;
@@ -290,7 +352,8 @@ onBeforeUnmount(() => {
     <RouterLink to="/tabletop">Back to Tabletop</RouterLink>
   </section>
   <p v-else-if="!match" class="muted">Loading...</p>
-  <div v-else class="tt-rec" :data-tt-theme="theme" @pointerover="onTipOver" @pointerout="tipClear" @pointerdown="onTipTouch" @focusin="onTipFocus" @focusout="tipClear">
+  <div v-else class="tt-rec" :data-tt-theme="theme" @pointerover="onTipOver($event); onCardOver($event)" @pointerout="tipClear(); onCardOut($event)" @pointerdown="onTipTouch($event); onCardTouch($event)" @pointerup="pcardCancel()" @focusin="onTipFocus($event); onCardFocus($event)" @focusout="tipClear(); pcardClose()">
+    <div class="tt-top">
     <div class="tt-crumbs">
       <span class="tt-crumb-brand">Super FUMBBL</span>
       <RouterLink to="/tabletop">Tabletop</RouterLink><span aria-hidden="true">/</span>
@@ -299,6 +362,8 @@ onBeforeUnmount(() => {
         <button class="tt-crumb-btn" type="button" data-tip="Both rosters, skills and SPP" data-tip-pos="bottom" @click="openRosters()">Rosters</button>
         <button class="tt-crumb-btn" type="button" aria-label="Open settings" data-tip="Settings" data-tip-pos="bottom" @click="settingsOpen = true">&#9881;</button>
       </span>
+    </div>
+    <TabletopContextBar v-if="state.context" :context="state.context" />
     </div>
     <TabletopScoreboard
       :match="match" :teams="state.teams" :tally="state.tally" :events="state.events" :pregame="state.pregame"
@@ -397,6 +462,7 @@ onBeforeUnmount(() => {
       <button class="tt-big tt-big-cas" type="button" data-tip="Record a casualty" @click="viewer.buzz(); openPick(CAS_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.casualty" :size="36" /><span>CAS</span></button>
     </nav>
 
+    <TabletopPlayerCard v-if="pcard.show && pcardView" :player="pcardView.player" :side="pcardView.side" :line="pcardView.line" :obscured="pcardView.obscured" :x="pcard.x" :y="pcard.y" />
     <div v-if="tip.show" class="tt-tip" role="tooltip" :data-below="tip.below ? 'true' : null" :style="{ left: `${tip.x}px`, top: `${tip.y}px`, '--tt-tip-arrow': `${tip.arrow}%` }">{{ tip.text }}</div>
 
     <TabletopPlayerPicker

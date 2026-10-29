@@ -27,6 +27,9 @@ export interface SummaryView {
   fansBefore: number; fansAfter: number;
 }
 
+/** The competition header the server composes for the bar above the hero. */
+export interface MatchContext { kind: "league" | "tournament" | "casual"; title: string; subtitle: string; round?: number; roundCount?: number; startedAt?: string; venue?: string }
+
 export interface MatchView {
   id: string;
   state: MatchState;
@@ -109,6 +112,8 @@ export interface RecorderState {
   effectiveIds: string[];
   phase: string;
   pregame: Record<string, unknown>;
+  /** The competition header (server-composed), null until the first load. */
+  context: MatchContext | null;
   /** The server's match clock (half, turn, active team, turn timer) and the server-minus-local time offset of its last sync. */
   clock: ClockView | undefined;
   clockOffsetMs: number;
@@ -154,7 +159,7 @@ const POLL_MS = 5000;
 
 export function createRecorder(matchId: string, deps: RecorderDeps) {
   const state = reactive<RecorderState>({
-    loaded: false, error: "", match: null, events: [], effectiveIds: [], phase: "", pregame: {}, clock: undefined, clockOffsetMs: 0, inducementIcons: {}, art: {}, tally: EMPTY_TALLY, sppValues: {}, teams: { home: undefined, away: undefined },
+    loaded: false, error: "", match: null, context: null, events: [], effectiveIds: [], phase: "", pregame: {}, clock: undefined, clockOffsetMs: 0, inducementIcons: {}, art: {}, tally: EMPTY_TALLY, sppValues: {}, teams: { home: undefined, away: undefined },
     pending: 0, queueError: "", retryAt: 0, rejected: [], busy: false, actionError: "",
   });
   const base = `/api/tabletop/matches/${encodeURIComponent(matchId)}`;
@@ -244,6 +249,7 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     if (stopped) return;
     state.error = "";
     state.match = res.match;
+    state.context = res.context ?? null;
     state.events = res.events ?? [];
     state.effectiveIds = res.effectiveEventIds ?? [];
     state.tally = res.tally ?? EMPTY_TALLY;

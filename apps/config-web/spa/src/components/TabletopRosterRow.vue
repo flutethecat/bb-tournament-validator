@@ -72,7 +72,7 @@ const isPick = computed(() => props.variant === "pick");
   >
     <span class="slot-number tt-roster-nr" :data-tip="num ? `Shirt number ${num}` : null">{{ num }}</span>
     <div class="player-cell">
-      <span class="sprite-frame roster-sprite" aria-hidden="true"><span class="sprite-fallback">{{ initials }}</span><img v-if="spriteSrc" class="sprite-image" :src="spriteSrc" alt="" loading="lazy" decoding="async" /></span>
+      <span class="sprite-frame roster-sprite" :data-pcard="`${side}:${p.id}`" tabindex="-1"><span class="sprite-fallback">{{ initials }}</span><img v-if="spriteSrc" class="sprite-image" :src="spriteSrc" alt="" loading="lazy" decoding="async" /></span>
       <span class="player-copy">
         <strong class="tt-roster-name" :data-seat="side">{{ heading }}</strong>
         <small v-if="!obscured" class="tt-roster-pos">{{ position }}</small>

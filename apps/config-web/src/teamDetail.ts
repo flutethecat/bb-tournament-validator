@@ -338,7 +338,9 @@ export function parseStoredTeamDetail(
     race: element(xml, "race") ?? stored.race,
     rerolls: meta.rerolls ?? stored.rerolls ?? 0,
     apothecary: meta.apothecary ?? stored.apothecary ?? false,
-    fanFactor: meta.fanFactor ?? stored.fanFactor ?? 0,
+    // Dedicated fans: the team file's own value (an explicit 0 stays 0), then the stored library figure (a stored 0 is the
+    // ingest's "unset", never a real count), else the BB2025 baseline of 1.
+    fanFactor: meta.fanFactor ?? numberElement(xml, "dedicatedFans") ?? numberElement(xml, "fanFactor") ?? (stored.fanFactor !== undefined && stored.fanFactor > 0 ? stored.fanFactor : 1),
     assistantCoaches: numberElement(xml, "assistantCoaches") ?? 0,
     cheerleaders: numberElement(xml, "cheerleaders") ?? 0,
     treasury: /<treasury>/i.test(xml) ? meta.gold : stored.gold,

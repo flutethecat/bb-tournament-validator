@@ -18,21 +18,21 @@ const emit = defineEmits<{ (e: "undo", id: string): void }>();
   <ol class="tt-events" :data-compact="compact ? 'true' : null">
     <li v-if="!shown.length" class="tt-empty">Nothing recorded yet. Tap TD, Other or CAS.</li>
     <li
-      v-for="r in shown" :key="r.id" :id="`tt-ev-${r.id}`" class="tt-ev" :class="[`tt-ev--${r.side === 'centre' ? 'neutral' : r.side}`, { 'tt-ev--admin': r.admin, 'tt-ev--removed': r.removed, 'tt-ev--new': newIds?.has(r.id) }]"
-      :data-row-side="r.side === 'centre' ? 'neutral' : r.side" :data-type="r.type"
+      v-for="r in shown" :key="`${r.id}:${r.part}`" :id="r.part === 'main' ? `tt-ev-${r.id}` : `tt-ev-${r.id}-v`" class="tt-ev" :class="[`tt-ev--${r.side === 'centre' ? 'neutral' : r.side}`, { 'tt-ev--victim': r.part === 'victim', 'tt-ev--admin': r.admin, 'tt-ev--removed': r.removed, 'tt-ev--new': newIds?.has(r.id) }]"
+      :data-row-side="r.side === 'centre' ? 'neutral' : r.side" :data-type="r.type" :data-part="r.part"
     >
-      <span v-if="timestamps && r.when && r.admin" class="tt-ev-mark">{{ r.when }}<b class="tt-ev-admintag">ADMIN</b></span>
-      <span v-else-if="timestamps && r.when" class="tt-ev-mark">{{ r.when }}</span>
-      <span class="tt-ev-icon" :data-tip="r.label"><TabletopGlyph :glyph="r.glyph" /></span>
-      <span class="tt-ev-text">
-        <span class="tt-ev-line"><span v-if="r.lead" class="tt-ev-name" :data-team="r.team">{{ r.lead }}</span>{{ r.rest }}<span v-if="r.stars" class="tt-stars" :aria-label="`${r.stars} SPP`"> (&#9733;{{ r.stars }})</span></span>
-        <small v-if="timestamps && r.clock" class="tt-time">{{ r.clock }}</small>
-        <small v-if="r.removed" class="tt-ev-removed">Removed by {{ r.removed.by }}<template v-if="r.removed.at"> &middot; {{ r.removed.at }}</template><b v-if="r.removed.admin" class="tt-ev-admintag">ADMIN</b></small>
-      </span>
-      <span v-if="r.side !== 'centre' && (r.number || r.player)" class="tt-ev-who">
+      <span v-if="r.part === 'main' && timestamps && r.when && r.admin" class="tt-ev-mark">{{ r.when }}<b class="tt-ev-admintag">ADMIN</b></span>
+      <span v-else-if="r.part === 'main' && timestamps && r.when" class="tt-ev-mark">{{ r.when }}</span>
+      <span v-if="r.side !== 'centre' && (r.number || r.player)" class="tt-ev-who" :data-pcard="r.playerId ? `${r.team}:${r.playerId}` : null" :tabindex="r.playerId ? 0 : null">
         <span class="tt-ev-sprite" aria-hidden="true"><span class="tt-ev-sprite-fallback">{{ initialsOf(r) }}</span><img v-if="spriteOf(r)" class="tt-ev-sprite-img" :src="spriteOf(r)" alt="" loading="lazy" decoding="async" /></span>
-        <span class="tt-ev-pname"><b v-if="r.player" class="tt-ev-pname-name" :data-seat="r.team">{{ r.player }}</b><small>{{ [r.number, r.position].filter(Boolean).join(" · ") }}</small></span>
+        <span class="tt-ev-pname"><b class="tt-ev-pname-name" :data-seat="r.team">{{ r.player || r.number }}</b><small>{{ r.position }}</small></span>
       </span>
+      <span class="tt-ev-text">
+        <span class="tt-ev-line"><span v-if="r.lead" class="tt-ev-name" :data-team="r.team" :data-pcard="r.playerId && r.side !== 'centre' ? `${r.team}:${r.playerId}` : null">{{ r.lead }}</span>{{ r.rest }}<span v-if="r.stars" class="tt-stars" :aria-label="`${r.stars} SPP`"> (&#9733;{{ r.stars }})</span></span>
+        <small v-if="r.part === 'main' && timestamps && r.clock" class="tt-time">{{ r.clock }}</small>
+        <small v-if="r.removed && r.part === 'main'" class="tt-ev-removed">Removed by {{ r.removed.by }}<template v-if="r.removed.at"> &middot; {{ r.removed.at }}</template><b v-if="r.removed.admin" class="tt-ev-admintag">ADMIN</b></small>
+      </span>
+      <span class="tt-ev-icon" :data-tip="r.label"><TabletopGlyph :glyph="r.glyph" /></span>
       <button v-if="canUndo && r.undoable && (!undoSide || r.team === undoSide)" class="tt-trash" type="button" :aria-label="`Undo ${r.label}`" @click="emit('undo', r.id)">&#128465;</button>
     </li>
   </ol>

@@ -130,6 +130,7 @@ export function parseEvent(raw: unknown, matchId: string, by: string, nowIso: st
 export function validateEvent(event: TabletopEvent, stored: readonly TabletopEvent[], rosters: RosterPair): { error: string; status?: number } | { event: TabletopEvent } {
   const fail = (error: string) => ({ error: `event ${event.id}: ${error}` });
   const ineligible = (error: string) => ({ error: `event ${event.id}: ${error}`, status: 422 });
+  const conflict = (error: string) => ({ error: `event ${event.id}: ${error}`, status: 409 });
   if (event.type === "undo") {
     const target = event.payload.target;
     if (typeof target !== "string") return fail("undo needs payload.target (an event id).");
@@ -215,6 +216,8 @@ export function validateEvent(event: TabletopEvent, stored: readonly TabletopEve
       if (!lasting) return { event };
       if (p.apothecaryUsed !== undefined && typeof p.apothecaryUsed !== "boolean") return fail("payload.apothecaryUsed must be a boolean.");
       if (p.result === "stat loss" && !(STATS as readonly string[]).includes(p.stat as string)) return fail(`stat loss needs payload.stat (${STATS.join(", ")}).`);
+      if (live.some((e) => e.type === "casualty" && e.payload.victim === event.player && (e.payload.victimTeam ?? otherSide(e.team)) === event.team))
+        return conflict("already struck by a casualty this match: undo the casualty first.");
       if (live.some((e) => (e.type === "casualty" ? e.payload.victim === event.player && (e.payload.victimTeam ?? otherSide(e.team)) === event.team
         : e.type === "injury" && e.player === event.player && e.team === event.team && (LASTING_INJURY_RESULTS as readonly string[]).includes(e.payload.result as string))))
         return fail(`player ${event.player} already suffered a casualty in this match.`);
@@ -247,6 +250,8 @@ export function validateEvent(event: TabletopEvent, stored: readonly TabletopEve
   }
   const vbad = unavailable(victimTeam, p.victim);
   if (vbad) return ineligible(vbad);
+  if (live.some((e) => e.type === "injury" && e.player === p.victim && e.team === victimTeam && (LASTING_INJURY_RESULTS as readonly string[]).includes(e.payload.result as string)))
+    return conflict("already injured this match: undo the injury first.");
   if (live.some((e) => (e.type === "casualty" && e.payload.victim === p.victim && (e.payload.victimTeam ?? otherSide(e.team)) === victimTeam)
     || (e.type === "injury" && e.player === p.victim && e.team === victimTeam && (LASTING_INJURY_RESULTS as readonly string[]).includes(e.payload.result as string))))
     return fail(`player ${p.victim} already suffered a casualty in this match.`);

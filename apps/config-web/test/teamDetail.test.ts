@@ -352,3 +352,22 @@ describe("§3E schema widening", () => {
     }
   });
 });
+
+describe("dedicated fans source (team detail)", () => {
+  const xmlWith = (fans: string): string => `<?xml version="1.0"?>
+<team id="1272390"><coach>Tarkin</coach><name>Da</name><race>Human</race><rosterId>human</rosterId>${fans}<treasury>0</treasury>
+<player nr="1" id="p1"><name>Fresh</name><gender>female</gender><positionId>lineman</positionId><skillList></skillList></player></team>`;
+  const ROSTER = `<roster id="human"><name>Human</name><position id="lineman"><quantity>16</quantity><name>Lineman</name><cost>50000</cost></position></roster>`;
+  const fans = async (xml: string, stored: number | undefined): Promise<number> => {
+    const { parseStoredTeamDetail } = await import("../src/teamDetail.js");
+    const row = { ...STORED_TEAM } as Record<string, unknown>;
+    if (stored === undefined) delete row.fanFactor; else row.fanFactor = stored;
+    return parseStoredTeamDetail(xml, row as unknown as LibraryTeam, ROSTER).fanFactor;
+  };
+  it("reads the team file's fanFactor", async () => expect(await fans(xmlWith("<fanFactor>4</fanFactor>"), 0)).toBe(4));
+  it("reads the team file's dedicatedFans", async () => expect(await fans(xmlWith("<dedicatedFans>5</dedicatedFans>"), 0)).toBe(5));
+  it("keeps an explicit 0 from the file", async () => expect(await fans(xmlWith("<fanFactor>0</fanFactor>"), 3)).toBe(0));
+  it("uses the stored library figure when the file has none", async () => expect(await fans(xmlWith(""), 3)).toBe(3));
+  it("treats a stored 0 with no file value as unset: the BB2025 baseline of 1", async () => expect(await fans(xmlWith(""), 0)).toBe(1));
+  it("falls back to 1 when nothing carries a value", async () => expect(await fans(xmlWith(""), undefined)).toBe(1));
+});

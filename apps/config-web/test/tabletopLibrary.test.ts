@@ -7,7 +7,7 @@ import { readLibrary, upsertLibraryTeam, type LibraryTeam } from "@bb/fork-ops";
 import { tabletopApi, type TabletopApiDeps, type TabletopResult } from "../src/tabletop/api.js";
 import type { TabletopTeamFile } from "../src/tabletop/postMatch.js";
 import { FileTabletopRepository, headRevision } from "../src/tabletop/store.js";
-import { parseTeamRef, teamFileFromLibraryDetail } from "../src/tabletop/teamFile.js";
+import { parseTeamRef, teamFileFromLibraryDetail, teamFileFromSave } from "../src/tabletop/teamFile.js";
 import { teamDetailEndpoint } from "../src/teamDetail.js";
 import { bb2025 } from "@bb/validator/dataset";
 import { TournamentResultStore } from "../src/tournamentResults.js";
@@ -188,5 +188,19 @@ describe("saves lookup shape", () => {
     expect(bob.body).toEqual({
       coach: "Bob", saves: [{ id: "sv_bob", name: "Bob XI" }], teams: [{ ref: "sv_bob", name: "Bob XI", race: "Orc", tv: null }],
     });
+  });
+});
+
+describe("dedicated fans on the baseline team file", () => {
+  it("a fork library team carries its stored fan factor; a stored 0 reads as the baseline 1", () => {
+    const d = detailFor("Tarkin", "1272390");
+    if (d.status !== 200) throw new Error(d.body.error);
+    expect(teamFileFromLibraryDetail(d.body.team).dedicatedFans).toBe(3);
+    expect(teamFileFromLibraryDetail({ ...d.body.team, fanFactor: 1 }).dedicatedFans).toBe(1);
+  });
+  it("a Team Builder save carries its chosen dedicated fans (1 when absent)", () => {
+    const save = (body: Record<string, unknown>) => ({ id: "sv_1", name: "S", rosterId: "orc.bb2025", body } as unknown as Parameters<typeof teamFileFromSave>[0]);
+    expect(teamFileFromSave(save({ picks: [], dedicatedFans: 4 })).dedicatedFans).toBe(4);
+    expect(teamFileFromSave(save({ picks: [] })).dedicatedFans).toBe(1);
   });
 });

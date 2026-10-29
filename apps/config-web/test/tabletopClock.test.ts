@@ -87,6 +87,12 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("match clock", () => {
+  it("the match GET carries the server-composed competition context (casual here)", async () => {
+    const id = await toPlaying();
+    const body = (await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { context: { kind: string; title: string; startedAt?: string } };
+    expect(body.context).toMatchObject({ kind: "casual", title: "Casual match" });
+    expect(typeof body.context.startedAt).toBe("string");
+  });
   it("the RECEIVING team is active at 1Ht0/1Ht1; home starts when no coin phase ran", async () => {
     const skip = await as("Alice", "POST", "/api/tabletop/matches", { pregame: "skip", home: { coach: "Alice", team: "sv_a" }, away: { coach: "Bob", team: "sv_b" } });
     const sid = (skip.body as { match: { id: string } }).match.id;
