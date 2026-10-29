@@ -566,8 +566,8 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: var\(--tt-grad\); \}/);
     expect(css1).toMatch(/\.tt-rec > \.tt-stripbar \{ background: var\(--tt-grad-soft\); \}/);
     expect(css1).toMatch(/\.tt-rec \.tt-mid > \.tt-feed \{ background: var\(--tt-grad-soft\); \}/);
-    expect(css1).toContain("--tt-bevel-inset: inset 0 1px 0 rgb(255 255 255 / .18), inset 0 -2px 0 rgb(0 0 0 / .45), inset 1px 0 0 rgb(255 255 255 / .06), inset -1px 0 0 rgb(0 0 0 / .25);");
-    expect(css1).toContain("--tt-lift: var(--tt-bevel-inset), 0 6px 0 rgb(0 0 0 / .55), 0 14px 28px rgb(0 0 0 / .50), 0 2px 0 rgb(255 255 255 / .06);"); // the longer lift
+    expect(css1).toContain("--tt-bevel-inset: inset 0 1px 0 rgb(255 255 255 / .16), inset 0 -2px 0 rgb(0 0 0 / .35), inset 2px 0 0 rgb(255 255 255 / .06), inset -2px 0 0 rgb(0 0 0 / .22);");
+    expect(css1).toContain("--tt-lift: var(--tt-bevel-inset), 0 3px 0 rgb(0 0 0 / .35), 0 8px 20px rgb(0 0 0 / .45), 0 0 0 1px rgb(0 0 0 / .35), 0 2px 0 rgb(255 255 255 / .05);"); // the longer lift
     expect(css1).toMatch(/\.tt-rec \.tt-rail-btn, \.tt-rec \.tt-rail-end, \.tt-rec \.tt-quick \{ box-shadow: var\(--tt-lift\); \}/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame, [^{]*\{ margin-bottom: 4px; \}/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame, \.tt-rec \.tt-half,[^{]*\{\s*border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 60%, #000\); border-radius: 6px; box-shadow: var\(--tt-lift\);/);
