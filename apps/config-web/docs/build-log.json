@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Team sheet header: avatar click to upload, cleaner title row",
+    "body": "The team sheet header is re-laid out: the avatar box on the left spans both rows, the team name takes the full width of the first row, and the second row has the race and special rules on the left with the coach name on the right (hover it for the last-updated date). The Team and On the fork status block and the Coach label are gone, on the share page too. On your own team page the avatar is now a button: hover or focus it and an Upload plate appears; click it to open the Team avatar dialog. On phones the avatar shrinks to 72 px and the name, rules and coach stack beneath it.",
+    "links": [
+      {
+        "label": "My teams",
+        "href": "/app/my-teams"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Leagues: TABBL with six seasons and all-time statistics",
     "body": "Leagues now have their own pages. TABBL, the Tahoma Area Blood Bowl League, is on the site with all six seasons: every fixture and score, the standings for each phase and division, each team's end-of-season roster with skills, SPP and the season's touchdowns, casualties and MVPs, the honour boards and the awards. The league page shows the Season 6 header bar with the TABBL logo, a Season picker (newest first, each marked BB2020 or BB2025), and tabs for Overview, Standings, Fixtures, Teams and Honours. The latest results show as wide result cards in the two teams' colours. A Statistics page adds career leaders, coach and team records, race win rates, biggest wins and champions, with a BB2020 / BB2025 / All time switch on top. League organisers can upload a logo and a header bar.",
     "links": [
