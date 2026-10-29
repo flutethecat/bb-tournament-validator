@@ -66,6 +66,25 @@ export interface ForkAdminConfig {
   passwordMd5Hex: string;
 }
 
+/**
+ * One challenge/command exchange at a time per fork (base URL). The admin and gamestate servlets each keep a single
+ * last challenge, so a second exchange that fetches its challenge before the first one's command has gone out
+ * invalidates it; the refused command still answers HTTP 200 with <status>fail</status> (an empty-looking list).
+ * Every challenge-authenticated call in this module runs through here, paired with its own command; callers that
+ * issue their own challenge/command pair (a raw servlet call) must use it too. Never call a queued function from
+ * inside a task (it would wait on itself).
+ */
+const exchangeTails = new Map<string, Promise<unknown>>();
+export function adminExchange<T>(cfg: Pick<ForkAdminConfig, "baseUrl">, task: () => Promise<T>): Promise<T> {
+  const key = cfg.baseUrl;
+  const prev = exchangeTails.get(key) ?? Promise.resolve();
+  const run = prev.then(task, task);
+  const tail = run.then(() => undefined, () => undefined);
+  exchangeTails.set(key, tail);
+  void tail.then(() => { if (exchangeTails.get(key) === tail) exchangeTails.delete(key); });
+  return run;
+}
+
 /** Gated on `FORK_ADMIN_PASSWORD` (opt-in, mirrors the other forkConfigFromEnv helpers). */
 export function forkAdminConfigFromEnv(): ForkAdminConfig | undefined {
   const passwordMd5Hex = process.env.FORK_ADMIN_PASSWORD;
@@ -111,7 +130,16 @@ export async function adminChallenge(cfg: ForkAdminConfig): Promise<string> {
  * failure (e.g. a team whose roster isn't loaded yet will surface here, since the
  * fork's ServerCommandHandlerScheduleGame calls the same getTeamById path ingest uses).
  */
-export async function scheduleForkGame(
+export function scheduleForkGame(
+  cfg: ForkAdminConfig,
+  teamHomeId: string,
+  teamAwayId: string,
+  opts?: { overtime?: boolean },
+): Promise<{ gameId: string }> {
+  return adminExchange(cfg, () => scheduleExchange(cfg, teamHomeId, teamAwayId, opts));
+}
+
+async function scheduleExchange(
   cfg: ForkAdminConfig,
   teamHomeId: string,
   teamAwayId: string,
@@ -224,7 +252,11 @@ export function forkScheduler(
  * from this module entirely — the spec calls for hard-gating those out of the panel, and
  * the simplest hard gate is "the code to call them doesn't exist here."
  */
-async function adminCommand(cfg: ForkAdminConfig, op: string, params: Record<string, string> = {}): Promise<string> {
+function adminCommand(cfg: ForkAdminConfig, op: string, params: Record<string, string> = {}): Promise<string> {
+  return adminExchange(cfg, () => adminCommandExchange(cfg, op, params));
+}
+
+async function adminCommandExchange(cfg: ForkAdminConfig, op: string, params: Record<string, string>): Promise<string> {
   const challenge = await adminChallenge(cfg);
   const response = adminResponse(challenge, cfg.passwordMd5Hex);
   const qs = new URLSearchParams({ response, ...params }).toString();
@@ -261,6 +293,10 @@ async function adminCommand(cfg: ForkAdminConfig, op: string, params: Record<str
 export async function forkGameSeat(cfg: ForkAdminConfig, gameId: string, coach: string): Promise<"home" | "away" | null> {
   const wanted = coach.trim().toLowerCase();
   if (!gameId || !wanted) return null;
+  return adminExchange(cfg, () => forkGameSeatExchange(cfg, gameId, wanted));
+}
+
+async function forkGameSeatExchange(cfg: ForkAdminConfig, gameId: string, wanted: string): Promise<"home" | "away" | null> {
   // 1. gamestate-servlet challenge (its OWN /gamestate/challenge, not /admin/challenge) → response.
   const chRes = await fetchWithTimeout(`${cfg.baseUrl}/gamestate/challenge`);
   const chXml = await chRes.text();
@@ -384,7 +420,11 @@ function parseGamestateResultXml(xml: string): GamestateResult {
 }
 
 /** Pull the authoritative, finished-game result XML using a fresh one-shot challenge. */
-export async function gamestateResult(cfg: ForkAdminConfig, gameId: string): Promise<GamestateResult> {
+export function gamestateResult(cfg: ForkAdminConfig, gameId: string): Promise<GamestateResult> {
+  return adminExchange(cfg, () => gamestateResultExchange(cfg, gameId));
+}
+
+async function gamestateResultExchange(cfg: ForkAdminConfig, gameId: string): Promise<GamestateResult> {
   const chRes = await fetchWithTimeout(`${cfg.baseUrl}/gamestate/challenge`);
   const chXml = await chRes.text();
   const challenge = xmlTag(chXml, "challenge");
