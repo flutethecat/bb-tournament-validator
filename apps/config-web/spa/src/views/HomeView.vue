@@ -121,7 +121,7 @@ onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
           <header class="hm-band"><h2 id="hm-teams-h">My teams</h2><RouterLink class="hm-cap" to="/my-teams">All teams</RouterLink></header>
           <p v-if="teamsError" class="lobby-error hm-small">{{ teamsError }}</p>
           <p v-else-if="teamsLoaded && !teams.length" class="hm-empty">No teams yet. <a href="/team-builder.html">Build one</a>.</p>
-          <ul v-else class="hm-teams">
+          <ul v-else class="hm-teams hm-teams-strip" aria-label="My teams">
             <li v-for="t in teams" :key="t.ref">
               <RouterLink class="hm-team" :to="teamManagePath(t.ref)" :title="`Manage ${t.name}`">
                 <img v-if="crestFor(t)" class="hm-team-crest" :src="crestFor(t)" alt="" loading="lazy" />

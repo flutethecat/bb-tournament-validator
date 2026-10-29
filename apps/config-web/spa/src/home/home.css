@@ -156,6 +156,10 @@ a.hm-cap:hover { color: var(--ui-text); }
 .hm-team-blank { display: inline-flex; align-items: center; justify-content: center; font: 22px var(--sf-band-font); color: var(--ui-muted); border: 2px solid var(--sf-panel-line); border-radius: 50%; }
 .hm-team-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
 .hm-team-race { color: var(--ui-muted); font-size: 12px; }
+/* Coach page strip (owner 10-30): four rows visible, the rest scroll. Fixed row height so a two-line race name
+   ("Necromantic Horror") cannot stretch a row past the cap; the All-teams page (.hm-teams-lg) is not capped. */
+.hm-teams-strip { --hm-tile-h: 120px; grid-auto-rows: var(--hm-tile-h); max-height: calc(4 * var(--hm-tile-h) + 3 * 8px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 2px; }
+.hm-teams-strip .hm-team-race { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; line-height: 1.25; }
 /* Team tiles open the team management page (/app/teams/<ref>, owner 10-30). */
 a.hm-team { height: 100%; box-sizing: border-box; color: var(--ui-text); text-decoration: none; }
 a.hm-team:hover, a.hm-team:focus-visible { background: var(--ui-hover); border-color: var(--ui-heading); }
