@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-10-30",
+    "title": "League players get stable ids",
+    "body": "Every player in an imported league now has their own id, so two players who share a name are never mixed up. The id stays the same every time the league is re-imported, and the same player is linked across seasons (same team, shirt number, name and position), so career totals follow the player, not the name. Statistics leaders, the Honours boards and the roster rows all work from these ids, and a name in the leaders or an honours board opens that player's team with their row marked. When the TourPlay export lists two players of one team under the same name and position it still cannot say which of them earned the totals, so that total is shown once on the team and, in muted text, as a shared total on both players' rows.",
+    "links": [
+      {
+        "label": "TABBL",
+        "href": "/app/leagues/tabbl"
+      },
+      {
+        "label": "TABBL statistics",
+        "href": "/app/leagues/tabbl/stats"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Game pages: open any result for its summary and match report",
     "body": "Every card in Past Games now opens a page for that game. The result card sits at the top, followed by a summary: when it was played, the competition and round, casualties caused and suffered, any concession and the MVPs, plus each team’s scorers, casualty-makers and a player table when the game was played through the site (otherwise the page says per-player stats are recorded for games played through the site). Tabletop matches also show the match report: the key moments by half and turn, both teams’ finished-game summaries, and an Open match reporter button. Tournament fixtures link to the tournament’s Rounds tab.",
     "links": [
