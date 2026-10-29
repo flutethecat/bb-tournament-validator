@@ -618,6 +618,9 @@ describe("tabletop routes (server-rendered)", () => {
     }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
     expect(longCoach).toContain('class="tt-crest-coach" data-long="true">Flutethecatwalker<'); // longer than 12 characters steps down
     expect(html).toContain('<p class="tt-crest-coach">Alice</p>'); // short names keep the full size
+    expect(css1).toMatch(/\.tt-rec \.tt-namegroup \{ display: flex; flex-direction: column; gap: 10px; align-self: center; grid-row: 1 \/ -1; min-width: 0; \}/); // name + tray: one centred group
+    expect(css1).toMatch(/\.tt-rec \.tt-corner\.away \.tt-namegroup \{ grid-column: 1; align-items: flex-end; \}/);
+    expect(html.match(/class="tt-namegroup"/g)).toHaveLength(2);
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);

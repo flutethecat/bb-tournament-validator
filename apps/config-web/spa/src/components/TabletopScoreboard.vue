@@ -128,6 +128,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
         </div>
         <span v-if="race(s)" class="tt-crest-race">{{ race(s) }}</span>
       </div>
+      <div class="tt-namegroup">
       <span class="tt-team tt-nameline" :data-long="match[s].teamName.length > 16 ? 'true' : null">{{ match[s].teamName }}</span>
       <span v-if="race(s)" class="tt-race tt-nameline">{{ race(s) }}</span>
       <div class="tt-coachline tt-nameline">
@@ -140,6 +141,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
           </li>
           <li v-if="tray(s).hidden.length" class="tt-chip-more" role="button" tabindex="0" :data-tip="moreTip(tray(s).hidden)" data-tip-pos="bottom" @click="emit('rosters', s)" @keydown.enter.prevent="emit('rosters', s)">+{{ tray(s).hidden.length }}</li>
         </ul>
+      </div>
       </div>
     </section>
     <section class="tt-centre">

@@ -867,6 +867,7 @@
 
 .tt-crest-coach, .tt-crest-race { display: none; }
 .tt-crestcol { display: contents; }
+.tt-namegroup { display: contents; }
 /* desktop hero rework: coach and race as one small line in the card's top corner; the name beside the crest, vertically centred; the chips in an inset tray under the name */
 @media (min-width: 1024px) {
   .tt-rec .tt-corner .tt-coachline > .tt-coach { display: none; }
@@ -1053,4 +1054,14 @@
 @media (min-width: 1024px) {
   .tt-rec .tt-crestcol .tt-crest-coach { white-space: nowrap; width: max-content; max-width: 18em; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; align-self: center; }
   .tt-rec .tt-crestcol .tt-crest-coach[data-long="true"] { font-size: 14px; }
+}
+
+/* the team name and the chip tray are one group: a column with a 10 px gap, vertically centred beside the crest column (the tray is no longer pinned to the bottom);
+   home left-aligned, away right-aligned */
+@media (min-width: 1024px) {
+  .tt-rec .tt-namegroup { display: flex; flex-direction: column; gap: 10px; align-self: center; grid-row: 1 / -1; min-width: 0; }
+  .tt-rec .tt-corner.home .tt-namegroup { grid-column: 2; align-items: flex-start; }
+  .tt-rec .tt-corner.away .tt-namegroup { grid-column: 1; align-items: flex-end; }
+  .tt-rec .tt-namegroup > .tt-team { align-self: auto; }
+  .tt-rec .tt-namegroup > .tt-coachline.tt-nameline { align-self: stretch; }
 }
