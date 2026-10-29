@@ -69,8 +69,6 @@ export interface ForkClientConfig {
   overtime?: () => boolean;
   /** The finished-game results already pulled (tournament-results.json), read before asking the fork again. */
   results?: TournamentResultStore;
-  /** Result banking (the site backend) runs on this host. */
-  bankingGuard?: boolean;
 }
 
 const RESULT_TIMEOUT_MS = 10_000;
@@ -132,7 +130,6 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
     return dir;
   };
   return {
-    bankingGuard: cfg.bankingGuard === true,
     rosters() {
       const out = new Map<string, string>();
       let dir: string;

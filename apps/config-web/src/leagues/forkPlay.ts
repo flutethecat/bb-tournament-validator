@@ -47,8 +47,6 @@ export interface ForkGameState { status: "scheduled" | "active" | "finished"; pl
 export interface LeagueForkClient {
   /** Fork roster files by roster id. */
   rosters(): ReadonlyMap<string, string>;
-  /** Result banking (the site backend) runs on this host: teams it could not value are refused before scheduling. */
-  bankingGuard?: boolean;
   /**
    * In ONE critical section (the fork's team write locks for both teams and the cache-generation lock): check neither
    * team is in a live game, write `install` (rewrite the team files, list them in the coaches' libraries, reload), then
@@ -297,7 +295,7 @@ async function buildAndSchedule(deps: ForkRouteDeps, client: LeagueForkClient, l
   for (const s of rebuild) {
     const side = fixture[s];
     try {
-      files[s] = buildLeagueForkTeam({ leagueId, seasonId, team: season.teams.find((t) => t.id === side.teamId)!, coach: side.coachId!, rosters: client.rosters(), ruleset: season.ruleset, bankingGuard: client.bankingGuard === true, now: now() });
+      files[s] = buildLeagueForkTeam({ leagueId, seasonId, team: season.teams.find((t) => t.id === side.teamId)!, coach: side.coachId!, rosters: client.rosters(), ruleset: season.ruleset, now: now() });
     } catch (e) {
       if (e instanceof ForkTeamBuildError) return { ok: false, result: fail(409, e.message) };
       throw e;

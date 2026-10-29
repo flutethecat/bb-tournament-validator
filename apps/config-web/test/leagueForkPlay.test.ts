@@ -10,7 +10,7 @@ import { applyForkResult, fromParsedResult, mutateLeagueTeam, type ForkGameResul
 import { confirmedList } from "../src/leagues/forkClient";
 import { buildLeagueForkTeam, forkPlayerIdFor, forkPlayLock, forkRosterFor, forkTeamIdFor, ForkTeamBuildError, statDelta, type LeagueForkTeamFile } from "../src/leagues/forkTeam";
 import { targetConflict } from "../src/leagues/redraft";
-import { bankingValueProblem, buildBankTasks } from "../src/site-backend/fumbblResultBanking";
+import { buildBankTasks, computedPlayerValue } from "../src/site-backend/fumbblResultBanking";
 import { LeagueStore } from "../src/leagues/store";
 import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeaguePlayer, type LeagueTeam, type SeasonRecord } from "../src/leagues/types";
 import type { ParsedGameResult } from "../src/site-backend/fumbblResult";
@@ -819,11 +819,11 @@ describe("review regressions round 2: stat advances, banking +MA, the banking gu
     playerId, name: "", defecting: false, currentSpps: 0, earnedSpps: 0, completions: 0, touchdowns: 0, deflections: 0, interceptions: 0, casualties: 0,
     playerAwards: 0, landings: 0, blocks: 0, fouls: 0, rushing: 0, passing: 0, turnsPlayed: 16, injuries: [] as string[], gainedHatred: [] as string[], ...over,
   });
-  const bank = (injury: string) => {
+  const bank = (injury: string, fast: Partial<LeaguePlayer> = { ma: 7, skills: ["+MA"], value: null }) => {
     const { dir, teamsDir } = bankDir();
     try {
-      const team: LeagueTeam = { ...humans(), players: [player("fast", 1, "Fast", "Human Lineman", { ma: 7, skills: ["+MA"] }), player("plain", 2, "Plain", "Human Lineman")] };
-      const file = buildLeagueForkTeam({ leagueId: "l", seasonId: "s", team, coach: "Ann", rosters: ROSTERS, ruleset: "BB2025", bankingGuard: true });
+      const team: LeagueTeam = { ...humans(), players: [player("fast", 1, "Fast", "Human Lineman", fast), player("plain", 2, "Plain", "Human Lineman")] };
+      const file = buildLeagueForkTeam({ leagueId: "l", seasonId: "s", team, coach: "Ann", rosters: ROSTERS, ruleset: "BB2025" });
       writeFileSync(join(teamsDir, `team_Ann_${file.forkTeamId}.xml`), file.xml);
       const parsed: ParsedGameResult = { gameId: "g8", halves: 2, teams: [
         { teamId: file.forkTeamId, score: 0, conceded: false, stalled: false, casualtiesSuffered: { badlyHurt: 0, seriousInjury: 0, rip: 0 }, players: [
@@ -851,11 +851,36 @@ describe("review regressions round 2: stat advances, banking +MA, the banking gu
     expect(out).toContain("<currentTeamValue>103</currentTeamValue>");
   });
 
-  it("R2-1: with banking on, a player the banker still cannot value is refused before anything is scheduled", () => {
+  it("stored value: a death on a Block + Guard player banks from the stored value, no throw", () => {
+    const { file, out } = bank("Dead (RIP)", { skills: ["Block", "Guard"], value: 90000 });
+    expect(file.xml).toContain('storedValue="90000"');
+    expect(out).not.toContain(forkPlayerIdFor(file.forkTeamId, "fast"));
+    expect(out).toContain("<teamRating>101</teamRating>"); // 110 - 9
+    expect(out).toContain("<currentTeamValue>101</currentTeamValue>");
+  });
+
+  it("stored value absent: banking falls back to computed pricing", () => {
+    const { file, out } = bank("Dead (RIP)", { ma: 7, skills: ["+MA"], value: null });
+    expect(file.xml).toMatch(/<player nr="1" id="[^"]*"><name>Fast/);
+    expect(out).toContain("<teamRating>103</teamRating>");
+  });
+
+  it("fallback pricing: Primary 20k, Secondary 40k, Elite = access price + 10k, trait free, unknown throws", () => {
+    const posXml = (cats: string) => `<position id="10"><cost>50000</cost><skillList/>${cats}</position>`;
+    const roster = (cats: string) => `<roster>${posXml(cats)}</roster>`;
+    const one = (skill: string) => `<player nr="1" id="x"><positionId>10</positionId><skillList><skill>${skill}</skill></skillList><injuryList/></player>`;
+    const primary = roster("<normal>General</normal><double>Strength</double>");
+    const secondary = roster("<normal>Passing</normal><double>General</double>");
+    expect(computedPlayerValue(one("Sure Hands"), primary)).toBe(70_000);
+    expect(computedPlayerValue(one("Sure Hands"), secondary)).toBe(90_000);
+    expect(computedPlayerValue(one("Block"), primary)).toBe(80_000);
+    expect(computedPlayerValue(one("Block"), secondary)).toBe(100_000);
+    expect(computedPlayerValue(one("Loner"), primary)).toBe(50_000);
+    expect(() => computedPlayerValue(one("Nonexistent Skill"), primary)).toThrow(/unknown skill/);
+  });
+
+  it("the pre-game banking guard is gone: a team with Block schedules a build", () => {
     const team: LeagueTeam = { ...humans(), players: [player("e", 1, "Elite", "Human Lineman", { skills: ["Block"] })] };
-    const build = (bankingGuard: boolean) => () => buildLeagueForkTeam({ leagueId: "l", seasonId: "s", team, coach: "Ann", rosters: ROSTERS, ruleset: "BB2025", bankingGuard });
-    expect(build(true)).toThrow(/could not value this player yet \(post-match TV cannot safely price Elite skill Block\)/);
-    expect(build(false)).not.toThrow();
-    expect(bankingValueProblem('<player nr="1" id="x"><positionId>10</positionId><skillList><skill>+MA</skill></skillList><injuryList/></player>', HUMAN)).toBeUndefined();
+    expect(() => buildLeagueForkTeam({ leagueId: "l", seasonId: "s", team, coach: "Ann", rosters: ROSTERS, ruleset: "BB2025" })).not.toThrow();
   });
 });

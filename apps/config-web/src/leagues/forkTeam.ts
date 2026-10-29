@@ -17,7 +17,6 @@
 import { createHash } from "node:crypto";
 import { composeTeam, normName, parseForkRoster, type ForkRoster, type ForkRosterPosition } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
-import { bankingValueProblem } from "../site-backend/fumbblResultBanking.js";
 import type { FixtureForkTeam, LeaguePlayer, LeagueTeam } from "./types.js";
 
 export class ForkTeamBuildError extends Error {}
@@ -129,7 +128,6 @@ export interface LeagueForkTeamInput {
   /** The season's edition (SeasonRecord.ruleset). */
   ruleset: string;
   /** Result banking runs on this host: refuse any player the banker could not value after a death or a missed game. */
-  bankingGuard?: boolean;
   now?: Date;
 }
 
@@ -157,7 +155,9 @@ function playerXml(p: LeaguePlayer, pos: ForkRosterPosition, nr: number, id: str
     ...(p.missNextGame ? ['<injury recovering="true">Seriously Hurt (MNG)</injury>'] : []),
   ];
   const spp = Math.max(0, Math.trunc(p.availableSpp || 0));
-  return `\t<player nr="${nr}" id="${xmlEscape(id)}"><name>${xmlEscape(label)}</name>` +
+  // The league player's stored value (gold): result banking prices a death or missed game from it first.
+  const storedValue = typeof p.value === "number" && Number.isSafeInteger(p.value) && p.value > 0 ? ` storedValue="${p.value}"` : "";
+  return `\t<player nr="${nr}" id="${xmlEscape(id)}"${storedValue}><name>${xmlEscape(label)}</name>` +
     `<gender>${xmlEscape(pos.gender)}</gender><positionId>${xmlEscape(pos.positionId)}</positionId>` +
     `<playerStatistics currentSpps="${spp}"></playerStatistics>` +
     `<skillList>${[...extra.map((s) => skillXml(s, label)), ...delta.increases.map((s) => `<skill>${s}</skill>`)].join("")}</skillList>` +
@@ -200,9 +200,6 @@ export function buildLeagueForkTeam(input: LeagueForkTeamInput): LeagueForkTeamF
     if (seenIds.has(id)) throw new ForkTeamBuildError(`${team.name} lists the same player twice.`);
     seenIds.add(id);
     const block = playerXml(p, pos, nr, id);
-    // Refuse a player the result banker could not value after a death or a missed game, before any game exists.
-    const problem = input.bankingGuard ? bankingValueProblem(block, rosterXml) : undefined;
-    if (problem) throw new ForkTeamBuildError(`${p.name || p.position}: Super FUMBBL results could not value this player yet (${problem}).`);
     blocks.push(block);
     players.push({ forkPlayerId: id, playerId: p.playerId });
   }
