@@ -1,12 +1,13 @@
 <script setup lang="ts">
-// Opponent's team (/app/tournaments/:id/team/:eid): the submitted team as it was checked (players by position with
-// their chosen skills, sideline, inducements), its validity, and the live library facts. Read-only.
+// Opponent's team (/app/tournaments/:id/team/:eid): the submitted team as the shared Team Builder read-view model
+// describes it (players with printed and added skills and characteristic increases, sideline, inducements), its
+// validity, and the live library facts. Read-only. The problems list reaches only the coach and the managers.
 import { computed, inject, onMounted } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import { fmtK } from "../shared/format";
-import { createTournamentTeam, pickRows, sidelineLines, TOURNAMENT_TEAM_KEY } from "../tournaments/team";
+import { createTournamentTeam, playerRows, sidelineLines, TOURNAMENT_TEAM_KEY } from "../tournaments/team";
 
 const props = defineProps<{ id: string; eid: string }>();
 const fetcher = inject(API_KEY)!;
@@ -14,11 +15,11 @@ const session = inject(SESSION_KEY)!;
 const team = inject(TOURNAMENT_TEAM_KEY, null) ?? createTournamentTeam({ api: fetcher, onSignedOut: () => void session.load(true) });
 const { state } = team;
 const build = computed(() => state.build);
-const name = computed(() => build.value?.submission?.teamName || build.value?.team?.teamName || "Team");
-const race = computed(() => build.value?.submission?.race || build.value?.team?.race || "");
-const picks = computed(() => pickRows(build.value));
-const sideline = computed(() => sidelineLines(build.value));
-const players = computed(() => picks.value.reduce((n, p) => n + p.count, 0));
+const view = computed(() => build.value?.submission?.view);
+const name = computed(() => view.value?.teamName || build.value?.submission?.teamName || build.value?.team?.teamName || "Team");
+const race = computed(() => view.value?.raceName || build.value?.submission?.race || build.value?.team?.race || "");
+const players = computed(() => playerRows(view.value));
+const sideline = computed(() => sidelineLines(view.value));
 
 onMounted(() => { if (!state.loaded || state.key !== `${props.id}\0${props.eid}`) void team.load(props.id, props.eid); });
 </script>
@@ -42,22 +43,28 @@ onMounted(() => { if (!state.loaded || state.key !== `${props.id}\0${props.eid}`
         <div class="tn-panel-body">
           <p v-if="!build.submission" class="muted">This coach has not submitted a Team Builder sheet.</p>
           <template v-else>
-            <ul v-if="build.submission.problems.length" class="tn-problems" aria-label="Roster problems">
+            <ul v-if="build.submission.problems?.length" class="tn-problems" aria-label="Roster problems">
               <li v-for="(p, i) in build.submission.problems" :key="i">{{ p }}</li>
             </ul>
-            <div v-if="picks.length" class="table-wrap tn-table-wrap">
+            <p v-if="!view" class="muted">This entry has no Team Builder sheet to show.</p>
+            <div v-else-if="players.length" class="table-wrap tn-table-wrap">
               <table class="tn-table">
-                <thead><tr><th>Qty</th><th>Position</th><th>Chosen skills</th></tr></thead>
+                <thead><tr><th>#</th><th>Position</th><th>MA / ST / AG / PA / AV</th><th>Upgrades</th><th>Skills</th><th>Added skills</th></tr></thead>
                 <tbody>
-                  <tr v-for="p in picks" :key="p.key">
-                    <td data-label="Qty">{{ p.count }}</td>
-                    <td data-label="Position">{{ p.position }}</td>
-                    <td data-label="Chosen skills">{{ p.skills || "None" }}</td>
+                  <tr v-for="p in players" :key="p.key">
+                    <td data-label="#">{{ p.number }}</td>
+                    <td data-label="Position" :title="p.positionFull">{{ p.position }}</td>
+                    <td data-label="Stats">{{ p.stats }}</td>
+                    <td data-label="Upgrades">{{ p.upgrades || "None" }}</td>
+                    <td data-label="Skills">{{ p.skills || "None" }}</td>
+                    <td data-label="Added skills">{{ p.added || "None" }}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
-            <p v-if="picks.length" class="muted">{{ players }} players</p>
+            <p v-if="view" class="muted">
+              {{ view.summary.players }} players{{ view.summary.total !== null ? ` · ${fmtK(view.summary.total)}` : "" }}{{ view.summary.cap !== null ? ` of ${fmtK(view.summary.cap)}` : "" }}
+            </p>
             <p v-if="sideline.length" class="tn-sideline">{{ sideline.join(" · ") }}</p>
           </template>
         </div>

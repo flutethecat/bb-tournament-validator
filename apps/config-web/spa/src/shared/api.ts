@@ -239,19 +239,35 @@ export interface TournamentTeamBuild {
     teamName?: string;
     race?: string;
     valid: boolean;
-    problems: string[];
-    snapshot?: {
-      teamName?: string;
-      picks?: Array<{ positionId: string; count: number; chosenSkills?: string[] }>;
-      reRolls?: number;
-      apothecary?: boolean;
-      cheerleaders?: number;
-      assistantCoaches?: number;
-      dedicatedFans?: number;
-      rosteredInducements?: Array<{ key: string; count: number }>;
-      inducements?: Array<{ key: string; count: number }>;
-    } | null;
+    /** The coach and the managers only; the opponent sees validity. */
+    problems?: string[];
+    /** The shared Team Builder read-view model (the same one the public team page renders). */
+    view?: SharedTeamView;
   };
+}
+
+/** The fields of the server's shared team view model (src/teamShareView.ts) the SPA renders. */
+export interface SharedTeamView {
+  teamName: string;
+  coach: string;
+  raceName: string;
+  ruleset: { name: string; tierLabel: string | null } | null;
+  players: Array<{
+    number: number;
+    position: string;
+    positionFull: string;
+    isStar: boolean;
+    stats: { MA: number; ST: number; AG: string; PA: string; AV: string };
+    printed: Array<{ name: string; category: string }>;
+    added: Array<{ name: string; category: string; access?: "primary" | "secondary" }>;
+    statIncreases: string[];
+    cost: number | null;
+  }>;
+  sideline: { reRolls: number; apothecary: boolean; assistantCoaches: number; cheerleaders: number; dedicatedFans: number };
+  inducements: Array<{ name: string; count: number }>;
+  specialRules: string[];
+  summary: { players: number; total: number | null; cap: number | null; primarySkills: number; secondarySkills: number };
+  validity: { valid: boolean; issues: number; custom: boolean; findings: string[] };
 }
 
 /** GET /api/auth/test-login/options: the local-UAT test sign-in, when this server has it switched on. */

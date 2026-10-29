@@ -10,9 +10,12 @@ import {
   canGenerateRound, PAIRING_LABEL, roundProgress, SEEDING_LABEL, startDate, TOURNAMENT_DETAIL_KEY,
 } from "../tournaments/detail";
 import { FORMAT_LABEL, STATUS_LABEL } from "../tournaments/list";
+import { SESSION_KEY, writesAllowed } from "../session";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
 const { state } = detail;
+const session = inject(SESSION_KEY)!;
+const canWrite = computed(() => writesAllowed(session));
 const t = computed(() => state.tournament!);
 const busy = computed(() => Boolean(state.busy));
 const started = computed(() => Boolean(t.value.startedAt) || t.value.status !== "draft");
@@ -48,7 +51,7 @@ async function editTournament() {
           <div class="tn-fact"><span class="tn-fact-k">Seeding</span><strong>{{ SEEDING_LABEL[t.seedingMode ?? "elo"] }}</strong></div>
           <div class="tn-fact"><span class="tn-fact-k">Rosters</span><strong>{{ t.rostersLockedAt ? `Locked ${startDate(t.rostersLockedAt)}` : "Open" }}</strong></div>
         </div>
-        <div class="tn-actions tn-sticky-actions">
+        <div v-if="canWrite" class="tn-actions tn-sticky-actions">
           <button v-if="!started" class="lobby-btn primary" type="button" :disabled="busy" @click="open = true">Start Tournament</button>
           <button v-else class="lobby-btn" type="button" @click="editTournament">Edit Tournament</button>
           <button v-if="generate" class="lobby-btn primary" type="button" :disabled="busy" @click="open = true">Generate round {{ state.rounds.length + 1 }}</button>
@@ -58,12 +61,13 @@ async function editTournament() {
           </template>
           <button v-if="t.status === 'active'" class="lobby-btn" type="button" :disabled="busy" @click="detail.finish()">Finish tournament</button>
         </div>
+        <p v-if="!canWrite" class="muted tn-readonly">Test sign-in sessions can look but cannot change tournament data.</p>
         <p v-if="state.actionError && !open" class="lobby-error" role="alert">{{ state.actionError }}</p>
         <p v-else-if="state.notice && !open" class="tn-notice" role="status">{{ state.notice }}</p>
       </div>
     </section>
 
-    <TournamentStartModal v-if="open" @close="open = false" />
+    <TournamentStartModal v-if="open && canWrite" @close="open = false" />
 
     <section ref="editPane" class="tn-panel" aria-labelledby="tn-edit-h">
       <h3 id="tn-edit-h" class="tn-band">{{ started ? "Edit Tournament" : "Settings" }}</h3>

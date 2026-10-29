@@ -10,7 +10,8 @@ import {
   roundViews, rosterState, submitChoices, tabsFor, toLocalInput,
 } from "../spa/src/tournaments/detail";
 import { adminListPath, createAdminTournaments } from "../spa/src/tournaments/admin";
-import { pickRows, positionLabel, sidelineLines } from "../spa/src/tournaments/team";
+import { playerRows, sidelineLines } from "../spa/src/tournaments/team";
+import type { SharedTeamView } from "../spa/src/shared/api";
 
 // Phases 2 (player actions) and 3 (organiser core) of the SPA tournaments: controller unit tests with a mocked
 // Fetcher, and the views server-rendered through the SPA's own Vite config (no port), as in spaTournaments.test.ts.
@@ -52,6 +53,21 @@ const bob = (over: Partial<TournamentEntrant> = {}): TournamentEntrant => ({
 
 const detailBody = (over: Partial<TournamentDetailResponse> = {}): TournamentDetailResponse => ({
   tournament: tournament(), entrants: [alice(), bob()], rounds: [], scheduledMatches: [], capabilities: { manage: false, assignRoles: false }, ...over,
+});
+
+const sharedView = (): SharedTeamView => ({
+  teamName: "Bob Elves", coach: "Bob", raceName: "Wood Elf", ruleset: { name: "nut-cup", tierLabel: null },
+  players: [{
+    number: 1, position: "Catcher", positionFull: "Wood Elf Catcher", isStar: false,
+    stats: { MA: 8, ST: 2, AG: "2+", PA: "4+", AV: "9+" },
+    printed: [{ name: "Catch", category: "Agility" }, { name: "Dodge", category: "Agility" }],
+    added: [{ name: "Sure Hands", category: "General", access: "primary" }, { name: "Guard", category: "Strength", access: "secondary" }],
+    statIncreases: ["MA", "AV"], cost: 90000,
+  }],
+  sideline: { reRolls: 2, apothecary: true, assistantCoaches: 0, cheerleaders: 0, dedicatedFans: 1 },
+  inducements: [{ name: "Bribe", count: 1 }, { name: "Mascot", count: 0 }],
+  specialRules: [], summary: { players: 1, total: 1000000, cap: 1000000, primarySkills: 1, secondarySkills: 1 },
+  validity: { valid: true, issues: 0, custom: false, findings: [] },
 });
 
 const fixture = (id: string, round: number, home: string, away: string | null, status = "scheduled") => ({
@@ -219,19 +235,12 @@ describe("display helpers", () => {
     expect(toLocalInput(undefined)).toBe("");
   });
 
-  it("opponent snapshot: position labels, picks with chosen skills, sideline and inducements", () => {
-    expect(positionLabel("human_blitzer")).toBe("Human Blitzer");
-    expect(positionLabel("WoodElfCatcher")).toBe("Wood Elf Catcher");
-    const build = { tournamentId: "t1", entrantId: "e", submission: { submittedAt: "x", valid: true, problems: [], snapshot: {
-      picks: [{ positionId: "orc_blitzer", count: 2, chosenSkills: ["Guard"] }, { positionId: "orc_lineman", count: 9 }],
-      reRolls: 3, apothecary: true, rosteredInducements: [{ key: "bribe", count: 1 }, { key: "mascot", count: 0 }],
-    } } };
-    expect(pickRows(build)).toEqual([
-      { key: "0", count: 2, position: "Orc Blitzer", skills: "Guard" },
-      { key: "1", count: 9, position: "Orc Lineman", skills: "" },
+  it("opponent view rows come from the shared Team Builder view model, stat upgrades included", () => {
+    expect(playerRows(sharedView())).toEqual([
+      { key: "0", number: 1, position: "Catcher", positionFull: "Wood Elf Catcher", stats: "8 / 2 / 2+ / 4+ / 9+", upgrades: "+MA, +AV", skills: "Catch, Dodge", added: "Sure Hands, Guard (S)" },
     ]);
-    expect(sidelineLines(build)).toEqual(["Rerolls 3", "Apothecary", "Bribe x1"]);
-    expect(pickRows(null)).toEqual([]);
+    expect(sidelineLines(sharedView())).toEqual(["Rerolls 2", "Apothecary", "Dedicated fans 1", "Bribe x1"]);
+    expect(playerRows(undefined)).toEqual([]);
   });
 
   it("admin list path asks for every state", async () => {
@@ -435,7 +444,7 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
 
   it("opponent's team view: the submitted picks and sideline; a 403 shows the server's message; sign-in gate", async () => {
     const build = { tournamentId: "t1", entrantId: "t1:entrant:2", coachId: "Bob", team: { teamName: "Bob Elves", race: "Wood Elf", teamValue: 1050 },
-      submission: { submittedAt: "x", teamName: "Bob Elves", race: "Wood Elf", valid: true, problems: [], snapshot: { picks: [{ positionId: "wood_elf_catcher", count: 2, chosenSkills: ["Dodge"] }], reRolls: 2 } } };
+      submission: { submittedAt: "x", teamName: "Bob Elves", race: "Wood Elf", valid: true, view: sharedView() } };
     const path = "/api/tournaments/t1/entrants/t1%3Aentrant%3A2/build";
     const prep = async (inject: (k: symbol, v: unknown) => void, f: Fetcher) => {
       const t = mods.team.createTournamentTeam({ api: f });
@@ -446,8 +455,12 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     expect(ok.spa.router.currentRoute.value.name).toBe("tournament-team");
     expect(ok.html).toContain("Bob Elves");
     expect(ok.html).toContain("Wood Elf Catcher");
-    expect(ok.html).toContain("Dodge");
+    expect(ok.html).toContain("Catch, Dodge");
+    expect(ok.html).toContain("Sure Hands, Guard (S)");
+    expect(ok.html).toContain("+MA, +AV");
+    expect(ok.html).toContain("8 / 2 / 2+ / 4+ / 9+");
     expect(ok.html).toContain("Rerolls 2");
+    expect(ok.html).not.toContain("Roster problems");
     expect(ok.html).toContain(">Valid<");
     const denied = await render("/tournaments/t1/team/t1:entrant:2", { ...AS("Cy"), [path]: new ApiError(403, "You may fetch only your own tournament build or your current opponent's.") }, prep);
     expect(denied.html).toContain("current opponent");
@@ -476,10 +489,40 @@ describe("phase 2/3 views (server-rendered against a mocked API)", () => {
     expect(plain.html).not.toContain("Spike Open");
   });
 
+  it("test sign-in sessions see no write controls (entry, manage, admin)", async () => {
+    const TEST = (coach: string, extra: Record<string, unknown> = {}) => AS(coach, { test: true, ...extra });
+    const entry = await render("/tournaments/t1", {
+      ...TEST("Alice"), "/api/tournaments/t1": detailBody({ tournament: tournament({ myEntrantId: "t1:entrant:1" }) }), ...OPTIONS,
+    }, loaded("t1", "Alice"));
+    expect(entry.html).toContain("My entry");
+    expect(entry.html).toContain("Test sign-in sessions can look but cannot change tournament data.");
+    expect(entry.html).not.toContain(">Submit team</button>");
+    expect(entry.html).not.toContain(">Withdraw</button>");
+    const reg = await render("/tournaments/t1", { ...TEST("Alice"), "/api/tournaments/t1": detailBody({ entrants: [bob()] }), ...OPTIONS }, loaded("t1", "Alice"));
+    expect(reg.html).not.toContain(">Register</button>");
+    const manage = await render("/tournaments/t1?tab=manage", {
+      ...TEST("Veers"), "/api/tournaments/t1": detailBody({ capabilities: { manage: true, assignRoles: true } }),
+    }, loaded("t1"));
+    expect(manage.html).toContain(">Summary<");
+    for (const control of [">Start Tournament</button>", ">Lock rosters</button>", ">Save settings</button>", ">Set owner</button>", 'type="checkbox"', "tn-seed-input"]) {
+      expect(manage.html, control).not.toContain(control);
+    }
+    const list = { tournaments: [tournament()], page: 1, pageSize: 20, total: 1, hasMore: false };
+    const admin = await render("/admin/tournaments", { ...TEST("Root", { admin: true }), "/api/fork/tournaments?status=all": list }, async (inject, f) => {
+      const a = mods.admin.createAdminTournaments({ api: f });
+      await a.load();
+      inject(mods.admin.ADMIN_TOURNAMENTS_KEY, a);
+    });
+    expect(admin.html).toContain("Spike Open");
+    expect(admin.html).not.toContain(">Set owner</button>");
+    expect(admin.html).not.toContain("Remove organiser Piett");
+  });
+
   it("copy and layout rules: no hyphenated reroll, a phone breakpoint for the new panels", () => {
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tournaments/tournaments.css", import.meta.url)), "utf8");
     expect(css).toMatch(/@media \(max-width: 760px\)[\s\S]*\.tn-form-grid \{ grid-template-columns: 1fr; \}/);
     expect(css).toContain(".tn-modal");
+    expect(css).not.toMatch(/#000|#fff\b/i);
     for (const file of ["TournamentMyEntry", "TournamentManage", "TournamentStartModal", "TournamentParticipants", "TournamentSettingsForm"]) {
       const src = readFileSync(fileURLToPath(new URL(`../spa/src/components/${file}.vue`, import.meta.url)), "utf8");
       expect(src, file).not.toMatch(/re-roll/i);

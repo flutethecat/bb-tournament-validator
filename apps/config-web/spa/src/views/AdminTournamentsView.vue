@@ -5,7 +5,7 @@
 import { computed, inject, onMounted, reactive, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
-import { SESSION_KEY } from "../session";
+import { SESSION_KEY, writesAllowed } from "../session";
 import { ADMIN_TOURNAMENTS_KEY, createAdminTournaments } from "../tournaments/admin";
 import { startDate } from "../tournaments/detail";
 import { FORMAT_LABEL, STATUS_LABEL } from "../tournaments/list";
@@ -16,6 +16,7 @@ const admin = inject(ADMIN_TOURNAMENTS_KEY, null) ?? createAdminTournaments({ ap
 const { state } = admin;
 const isAdmin = computed(() => session.signedIn() && session.state.info?.admin === true);
 const query = ref(state.q);
+const canWrite = computed(() => writesAllowed(session));
 const ownerInput = reactive<Record<string, string>>({});
 const orgInput = reactive<Record<string, string>>({});
 
@@ -61,10 +62,10 @@ async function addOrganizer(id: string) {
             <ul v-if="t.organizerCoachIds?.length" class="tn-role-list" :aria-label="`Organisers of ${t.name}`">
               <li v-for="c in t.organizerCoachIds" :key="c">
                 <span>{{ c }}</span>
-                <button class="lobby-btn small" type="button" :disabled="Boolean(state.busy)" :aria-label="`Remove organiser ${c}`" @click="admin.removeOrganizer(t.id, c)">Remove</button>
+                <button v-if="canWrite" class="lobby-btn small" type="button" :disabled="Boolean(state.busy)" :aria-label="`Remove organiser ${c}`" @click="admin.removeOrganizer(t.id, c)">Remove</button>
               </li>
             </ul>
-            <div class="tn-admin-forms">
+            <div v-if="canWrite" class="tn-admin-forms">
               <form class="tn-inline-form" @submit.prevent="setOwner(t.id)">
                 <label :for="`own-${t.id}`">Owner</label>
                 <input :id="`own-${t.id}`" v-model="ownerInput[t.id]" type="text" maxlength="40" autocomplete="off" placeholder="Coach name" />

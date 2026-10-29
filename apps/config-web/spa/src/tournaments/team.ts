@@ -3,7 +3,7 @@
 // everyone else gets 403, shown as the server's message. No DOM; rendered by TournamentTeamView.
 
 import { reactive, type InjectionKey } from "vue";
-import { ApiError, type TournamentTeamBuild } from "../shared/api";
+import { ApiError, type SharedTeamView, type TournamentTeamBuild } from "../shared/api";
 import type { Fetcher } from "../session";
 
 export interface TournamentTeamState {
@@ -45,35 +45,43 @@ export function createTournamentTeam(deps: { api: Fetcher; onSignedOut?: () => v
 export type TournamentTeam = ReturnType<typeof createTournamentTeam>;
 export const TOURNAMENT_TEAM_KEY: InjectionKey<TournamentTeam> = Symbol("tournament-team");
 
-export interface PickRow { key: string; count: number; position: string; skills: string }
-
-/** "human_blitzer" / "HumanBlitzer" -> "Human Blitzer" (the builder's ids are not display names). */
-export function positionLabel(id: string): string {
-  return id.replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/\s+/g, " ").trim()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+export interface PlayerRow {
+  key: string;
+  number: number;
+  position: string;
+  positionFull: string;
+  /** MA / ST / AG / PA / AV as printed on the sheet (upgrades already applied by the shared model). */
+  stats: string;
+  /** Characteristic increases ("+MA", "+AV") from chosenStatIncreases / chosenStats. */
+  upgrades: string;
+  skills: string;
+  added: string;
 }
 
-export function pickRows(build: TournamentTeamBuild | null): PickRow[] {
-  const picks = build?.submission?.snapshot?.picks ?? [];
-  return picks.filter((p) => p && typeof p.positionId === "string").map((p, i) => ({
+/** Player rows from the shared Team Builder read-view model (no second composition of the sheet here). */
+export function playerRows(view: SharedTeamView | undefined): PlayerRow[] {
+  return (view?.players ?? []).map((p, i) => ({
     key: `${i}`,
-    count: Number.isFinite(p.count) ? p.count : 1,
-    position: positionLabel(p.positionId),
-    skills: (p.chosenSkills ?? []).join(", "),
+    number: p.number,
+    position: p.position,
+    positionFull: p.positionFull,
+    stats: [p.stats.MA, p.stats.ST, p.stats.AG, p.stats.PA, p.stats.AV].join(" / "),
+    upgrades: p.statIncreases.map((s) => `+${s}`).join(", "),
+    skills: p.printed.map((s) => s.name).join(", "),
+    added: p.added.map((s) => (s.access === "secondary" ? `${s.name} (S)` : s.name)).join(", "),
   }));
 }
 
-/** Sideline and inducement lines from the snapshot (rerolls, apothecary, staff, fans, inducements). */
-export function sidelineLines(build: TournamentTeamBuild | null): string[] {
-  const s = build?.submission?.snapshot;
-  if (!s) return [];
-  const inducements = s.rosteredInducements ?? s.inducements ?? [];
+/** Sideline and inducement lines from the shared model. */
+export function sidelineLines(view: SharedTeamView | undefined): string[] {
+  if (!view) return [];
+  const s = view.sideline;
   return [
     s.reRolls ? `Rerolls ${s.reRolls}` : "",
     s.apothecary ? "Apothecary" : "",
     s.assistantCoaches ? `Assistant coaches ${s.assistantCoaches}` : "",
     s.cheerleaders ? `Cheerleaders ${s.cheerleaders}` : "",
     s.dedicatedFans ? `Dedicated fans ${s.dedicatedFans}` : "",
-    ...inducements.filter((i) => i && i.count > 0).map((i) => `${positionLabel(i.key)} x${i.count}`),
+    ...view.inducements.filter((i) => i.count > 0).map((i) => `${i.name} x${i.count}`),
   ].filter(Boolean);
 }

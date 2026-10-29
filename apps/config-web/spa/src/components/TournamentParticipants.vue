@@ -6,9 +6,12 @@ import { computed, inject, ref } from "vue";
 import type { TournamentEntrant, TournamentEntrantFlags } from "../shared/api";
 import Crest from "./Crest.vue";
 import { nextFixtureFor, ROSTER_LABEL, rosterState, TOURNAMENT_DETAIL_KEY } from "../tournaments/detail";
+import { SESSION_KEY, writesAllowed } from "../session";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
 const { state } = detail;
+const session = inject(SESSION_KEY)!;
+const canWrite = computed(() => writesAllowed(session));
 
 const FLAGS: ReadonlyArray<{ key: keyof TournamentEntrantFlags; label: string }> = [
   { key: "paid", label: "Paid" },
@@ -72,7 +75,9 @@ function seed(e: TournamentEntrant, raw: string) {
         <tr v-for="r in rows" :key="r.e.id">
           <td data-label="Seed">
             <span class="tn-seed">{{ r.e.seed }}</span>
+            <span v-if="!canWrite" class="muted">{{ r.e.manualSeed ? `(manual ${r.e.manualSeed})` : "" }}</span>
             <input
+              v-else
               class="tn-seed-input" type="number" min="1" max="999" inputmode="numeric" :value="r.e.manualSeed ?? ''"
               :aria-label="`Manual seed for ${r.e.teamName || r.e.teamId}`" placeholder="-" :disabled="busyRow(r.e.id)"
               @change="seed(r.e, ($event.target as HTMLInputElement).value)"
@@ -87,7 +92,9 @@ function seed(e: TournamentEntrant, raw: string) {
             <span v-if="r.e.rosterVerifiedOverride !== undefined" class="muted"> by hand</span>
           </td>
           <td v-for="f in FLAGS" :key="f.key" :data-label="f.label" class="tn-flag">
+            <span v-if="!canWrite">{{ r.flags[f.key] ? "Yes" : "No" }}</span>
             <input
+              v-else
               type="checkbox" :checked="r.flags[f.key]" :aria-label="`${f.label}: ${r.e.teamName || r.e.teamId}`" :disabled="busyRow(r.e.id)"
               @change="toggle(r.e, f.key, ($event.target as HTMLInputElement).checked)"
             />

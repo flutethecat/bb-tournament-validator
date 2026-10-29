@@ -7,9 +7,12 @@ import type { TournamentPairingSystem, TournamentSeedingMode } from "../shared/a
 import {
   fromLocalInput, PAIRING_LABEL, SEEDING_LABEL, toLocalInput, TOURNAMENT_DETAIL_KEY, type TournamentSettingsPatch,
 } from "../tournaments/detail";
+import { SESSION_KEY, writesAllowed } from "../session";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
 const { state } = detail;
+const session = inject(SESSION_KEY)!;
+const canWrite = computed(() => writesAllowed(session));
 const t = computed(() => state.tournament!);
 const busy = computed(() => Boolean(state.busy));
 const hasRounds = computed(() => state.rounds.length > 0);
@@ -53,7 +56,7 @@ async function addOrganizer() { if (newOrganizer.value.trim()) { await detail.ad
 </script>
 
 <template>
-  <form class="tn-form-grid" @submit.prevent="save">
+  <form v-if="canWrite" class="tn-form-grid" @submit.prevent="save">
     <label class="tn-field"><span class="tn-fact-k">Starts (UTC)</span><input v-model="form.startsAt" type="datetime-local" /></label>
     <label class="tn-field"><span class="tn-fact-k">Ends (UTC)</span><input v-model="form.endsAt" type="datetime-local" /></label>
     <label class="tn-field"><span class="tn-fact-k">Max players</span><input v-model.number="form.maxPlayers" type="number" min="2" max="512" inputmode="numeric" /></label>
@@ -85,11 +88,11 @@ async function addOrganizer() { if (newOrganizer.value.trim()) { await detail.ad
     <ul v-if="t.organizerCoachIds?.length" class="tn-role-list">
       <li v-for="c in t.organizerCoachIds" :key="c">
         <span>{{ c }}</span>
-        <button v-if="state.capabilities.assignRoles" class="lobby-btn small" type="button" :disabled="busy" :aria-label="`Remove organiser ${c}`" @click="detail.removeOrganizer(c)">Remove</button>
+        <button v-if="state.capabilities.assignRoles && canWrite" class="lobby-btn small" type="button" :disabled="busy" :aria-label="`Remove organiser ${c}`" @click="detail.removeOrganizer(c)">Remove</button>
       </li>
     </ul>
     <p v-else class="muted">No other organisers.</p>
-    <template v-if="state.capabilities.assignRoles">
+    <template v-if="state.capabilities.assignRoles && canWrite">
       <form class="tn-inline-form" @submit.prevent="addOrganizer">
         <label for="tn-add-org">Add organiser</label>
         <input id="tn-add-org" v-model="newOrganizer" type="text" maxlength="40" autocomplete="off" placeholder="Coach name" />
@@ -101,6 +104,6 @@ async function addOrganizer() { if (newOrganizer.value.trim()) { await detail.ad
         <button class="lobby-btn" type="submit" :disabled="!newOwner.trim() || busy">Set owner</button>
       </form>
     </template>
-    <p v-else class="muted">Only the owner or an admin can change the roles.</p>
+    <p v-else-if="canWrite" class="muted">Only the owner or an admin can change the roles.</p>
   </div>
 </template>

@@ -5,7 +5,7 @@
 import { computed, inject, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import TeamSelect from "./TeamSelect.vue";
-import { SESSION_KEY } from "../session";
+import { SESSION_KEY, writesAllowed } from "../session";
 import {
   myEntrant, nextFixtureFor, registrationOpen, ROSTER_LABEL, rosterState, submitChoices, TOURNAMENT_DETAIL_KEY,
 } from "../tournaments/detail";
@@ -14,6 +14,7 @@ const detail = inject(TOURNAMENT_DETAIL_KEY)!;
 const session = inject(SESSION_KEY)!;
 const { state } = detail;
 const coach = computed(() => session.coach());
+const canWrite = computed(() => writesAllowed(session));
 const t = computed(() => state.tournament!);
 const mine = computed(() => myEntrant(state));
 const entered = computed(() => Boolean(mine.value && !mine.value.droppedAt));
@@ -53,7 +54,7 @@ async function doWithdraw() { await detail.withdraw(); }
       <template v-if="!entered">
         <template v-if="open">
           <p class="muted">{{ mine?.droppedAt ? "You withdrew from this tournament." : "You are not entered yet." }}</p>
-          <form v-if="!mine" class="tn-inline-form" @submit.prevent="doRegister">
+          <form v-if="!mine && canWrite" class="tn-inline-form" @submit.prevent="doRegister">
             <label for="tn-reg-team">Team</label>
             <TeamSelect id="tn-reg-team" v-model="teamId" :teams="state.teamOptions.library" />
             <button class="lobby-btn primary" type="submit" :disabled="!teamId || busy">Register</button>
@@ -87,7 +88,7 @@ async function doWithdraw() { await detail.withdraw(); }
           >Opponent's team</RouterLink>
         </div>
 
-        <form v-if="!closed" class="tn-inline-form" @submit.prevent="doSubmit">
+        <form v-if="!closed && canWrite" class="tn-inline-form" @submit.prevent="doSubmit">
           <label for="tn-submit-team">Submit team</label>
           <select id="tn-submit-team" v-model="saveRef" :disabled="locked || !choices.length">
             <option v-if="!choices.length" value="">No saved teams yet</option>
@@ -99,10 +100,11 @@ async function doWithdraw() { await detail.withdraw(); }
         </form>
         <p v-if="locked && !closed" class="muted">Rosters are locked. Ask an organiser to unlock them to change your team.</p>
 
-        <div v-if="!closed" class="tn-actions">
+        <div v-if="!closed && canWrite" class="tn-actions">
           <button class="lobby-btn" type="button" :disabled="busy" @click="doWithdraw">Withdraw</button>
         </div>
       </template>
+      <p v-if="!canWrite" class="muted tn-readonly">Test sign-in sessions can look but cannot change tournament data.</p>
       <p v-if="state.actionError" class="lobby-error" role="alert">{{ state.actionError }}</p>
       <p v-else-if="state.notice" class="tn-notice" role="status">{{ state.notice }}</p>
     </div>

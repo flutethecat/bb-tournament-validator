@@ -85,3 +85,8 @@ export const SESSION_KEY: InjectionKey<SessionStore> = Symbol("session");
 export function appPath(routePath: string): string {
   return `/app${routePath.startsWith("/") ? routePath : `/${routePath}`}`;
 }
+
+/** Test sign-in sessions (local UAT) cannot write tournament data on the server: write controls stay hidden for them. */
+export function writesAllowed(session: SessionStore): boolean {
+  return session.state.info?.test !== true;
+}
