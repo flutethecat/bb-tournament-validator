@@ -2,7 +2,8 @@
 // Inducement picker for one team, in the Super FUMBBL client's "Buy inducements" style: the catalogue (icon, name,
 // price, limit, steppers) on the left, the cart with the budget on the right. Prices, limits and the budget come from
 // the server (pregame.inducementOptions / pregame.budget, by the BB2025 petty-cash rules); the server validates again.
-import { computed, reactive } from "vue";
+import { computed, watch } from "vue";
+import { createCartSync, picksKey } from "../tabletop/inducementCart";
 import type { Side } from "../tabletop/recorder";
 
 export interface InducementOption { id: string; name: string; price?: number; cost?: number; max?: number | null }
@@ -26,14 +27,19 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ (e: "submit", side: Side, picks: Array<{ id: string; qty: number }>): void; (e: "skip", side: Side): void }>();
 
-const picks = reactive<Record<string, number>>(Object.fromEntries((props.initial ?? []).filter((x) => x && typeof x.id === "string" && x.qty > 0).map((x) => [x.id, x.qty])));
+// The cart follows the server's submission for this team (either phone may submit), keeping an unsaved draft and
+// flagging a newer submission instead of silently overwriting it (tabletop/inducementCart.ts).
+const sync = createCartSync(props.initial);
+watch(() => picksKey(props.initial), () => sync.server(props.initial));
+const picks = computed(() => sync.state.picks);
+const remoteChanged = computed(() => sync.state.remote !== null);
 const priceOf = (o: InducementOption): number => o.price ?? o.cost ?? 0;
 const k = (n: number): string => `${Math.round(n / 1000)}k`;
 const bump = (o: InducementOption, d: number): void => {
   const cap = o.max ?? 9;
-  picks[o.id] = Math.max(0, Math.min(cap, (picks[o.id] ?? 0) + d));
+  sync.state.picks[o.id] = Math.max(0, Math.min(cap, (sync.state.picks[o.id] ?? 0) + d));
 };
-const cart = computed(() => props.options.filter((o) => (picks[o.id] ?? 0) > 0).map((o) => ({ ...o, qty: picks[o.id]!, line: priceOf(o) * picks[o.id]! })));
+const cart = computed(() => props.options.filter((o) => (picks.value[o.id] ?? 0) > 0).map((o) => ({ ...o, qty: picks.value[o.id]!, line: priceOf(o) * picks.value[o.id]! })));
 const total = computed(() => cart.value.reduce((n, l) => n + l.line, 0));
 /** What can be spent: the favourite pays from its treasury; the underdog has petty cash plus a capped treasury top-up. */
 const available = computed(() => {
@@ -88,9 +94,13 @@ const submit = (): void => emit("submit", props.side, cart.value.map((l) => ({ i
           <li v-for="l in cart" :key="l.id"><span>{{ l.qty }} x {{ l.name }}</span><b>{{ k(l.line) }}</b></li>
           <li v-if="!cart.length" class="muted">Nothing picked.</li>
         </ul>
+        <p v-if="remoteChanged" class="tt-ipk-remote" role="alert">
+          The picks for {{ teamName }} changed on the other phone.
+          <button class="lobby-btn small tt-tap" type="button" @click="sync.reload()">Reload their picks</button>
+        </p>
         <p v-if="left < 0" class="lobby-error" role="alert">Over budget by {{ k(-left) }}.</p>
         <div v-if="canEdit" class="tt-actions-row">
-          <button class="lobby-btn primary tt-tap" type="button" :disabled="busy || locked || left < 0 || !cart.length" @click="submit">{{ submitted ? "Resubmit" : "Confirm" }} {{ teamName }}</button>
+          <button class="lobby-btn primary tt-tap" type="button" :disabled="busy || locked || remoteChanged || left < 0 || !cart.length" @click="submit">{{ submitted ? "Resubmit" : "Confirm" }} {{ teamName }}</button>
           <button class="lobby-btn tt-tap" type="button" :disabled="busy || locked" @click="emit('skip', side)">No inducements</button>
         </div>
       </aside>

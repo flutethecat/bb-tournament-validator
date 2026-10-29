@@ -1450,6 +1450,7 @@
 .tt-ipk-totals [data-low="true"] b { color: var(--ui-danger, #ff4d4d); }
 .tt-ipk-lines { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
 .tt-ipk-lines li { display: flex; justify-content: space-between; gap: 8px; }
+.tt-ipk-remote { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; padding: 6px; font-size: 12px; border: 1px solid #e8b84a; border-radius: 4px; }
 .tt-dots i { animation: tt-dots 1.2s infinite; font-style: normal; }
 .tt-dots i:nth-child(2) { animation-delay: 0.2s; }
 .tt-dots i:nth-child(3) { animation-delay: 0.4s; }
