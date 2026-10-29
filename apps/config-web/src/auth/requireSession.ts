@@ -99,7 +99,10 @@ function isPublicRequest(method: string, pathname: string): boolean {
       /^\/api\/tournaments\/[^/]+$/.test(pathname) ||
       /^\/api\/tournaments\/[^/]+\/standings$/.test(pathname) ||
       /^\/api\/fork\/tournaments\/[^/]+$/.test(pathname) ||
-      /^\/api\/fork\/tournaments\/[^/]+\/standings$/.test(pathname))
+      /^\/api\/fork\/tournaments\/[^/]+\/standings$/.test(pathname) ||
+      // Tournament banner image: a public read (PUT/DELETE stay session-gated and manager-checked in-handler).
+      /^\/api\/tournaments\/[^/]+\/banner$/.test(pathname) ||
+      /^\/api\/fork\/tournaments\/[^/]+\/banner$/.test(pathname))
   )
     return true;
   return PUBLIC_API_METHODS.get(pathname)?.has(method) === true;
