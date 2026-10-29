@@ -290,6 +290,7 @@ import { createTournamentNotifier, isNotificationApiPath, NotificationStore, not
 import { clientIp } from "./translate/route.js";
 import { clockView, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
+import { createRecorderWebhook, recorderAnnouncement } from "./tabletop/discord.js";
 import { isAdminTestingPath, testingApi } from "./tabletop/testing.js";
 import { parseTeamRef, saveCaptainError, teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
 import { tournamentApi } from "./tournaments/api.js";
@@ -563,6 +564,8 @@ function lobbyAuthFor(req: IncomingMessage): { coach: string; method: string; te
 // Tabletop match recorder store (env TABLETOP_DIR), created lazily on first use, beside the builder saves by default.
 const TABLETOP_DIR = resolve(process.env.TABLETOP_DIR || join(dirname(LIBRARY_DIR), "tabletop"));
 let tabletopRepo: FileTabletopRepository | undefined;
+/** Optional Discord webhook for the recorder's pre-game milestones (env DISCORD_RECORDER_WEBHOOK_URL; the URL is never logged). */
+const recorderWebhook = createRecorderWebhook({ url: process.env.DISCORD_RECORDER_WEBHOOK_URL });
 
 /** The coach's live registrations (draft + active tournaments), keyed to the team they entered, with the roster check's problem count. */
 function teamRegistrations(coach: string): Array<TeamRegistration & { teamId: string; saveId: string }> {
@@ -622,6 +625,7 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     isBanned,
     isOrganizer: (coach) => coachLevel(coach) !== "player" || isOrganizer(coach),
     publishClock: (matchId, payload) => superService?.publishTabletopClock(matchId, payload),
+    ...(recorderWebhook ? { announce: (a) => { const body = recorderAnnouncement(a, { baseUrl: PUBLIC_BASE_ORIGIN }); if (body) recorderWebhook.post(body); } } : {}),
     notify: (coach, input) => tournamentNotifier.coach(coach, input),
     listSaves: (coach) => readSaves(BUILDER_SAVES_DIR, coach).map((s) => ({ id: s.id, name: s.name })),
     listTeams: (coach) => {
