@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { deriveDeadlines, parseSchedulingInput, readBuildLog, schedulingView, toStoredScheduling } from "./coachHome.js";
+import { deriveDeadlines, matchEndedAt, parseSchedulingInput, readBuildLog, schedulingView, toStoredScheduling } from "./coachHome.js";
 import {
   composeTeam,
   composeTeamIntrinsic,
@@ -1713,13 +1713,25 @@ async function handleApi(
     let timezone = "";
     try { timezone = ownIdentityRecord(auth.coach).scheduling?.timezone ?? ""; } catch { /* no identity: browser zone */ }
     let tabletop: Awaited<ReturnType<TabletopApiDeps["repo"]["listMatches"]>> = [];
-    try { tabletop = await (await tabletopDeps()).repo.listMatches(); } catch { /* recorder store unavailable: tournaments only */ }
+    const endedAt = new Map<string, string>();
+    try {
+      const { repo } = await tabletopDeps();
+      const me = auth.coach.trim().toLowerCase();
+      tabletop = (await repo.listMatches()).filter((m) => !m.test && (m.state === "recording" || m.state === "submitted") &&
+        (m.home.coach.trim().toLowerCase() === me || m.away.coach.trim().toLowerCase() === me));
+      // Report-by counts from the immutable end of the match (its event log), read only for the coach's open matches.
+      for (const m of tabletop) {
+        const at = matchEndedAt(await repo.readEvents(m.id));
+        if (at) endedAt.set(m.id, at);
+      }
+    } catch { /* recorder store unavailable: tournaments only */ }
     const deadlines = deriveDeadlines({
       coach: auth.coach,
       tournaments: tournamentStore.tournaments(["draft", "active"]),
       entrants: (id) => tournamentStore.entrants(id),
       matches: (id) => tournamentStore.matches(id),
       tabletop,
+      endedAt: (id) => endedAt.get(id),
       now: new Date(),
     });
     return sendJson(res, 200, { timezone, deadlines });

@@ -47,12 +47,24 @@ const validIso = (v: unknown): string | undefined => (typeof v === "string" && v
 interface OptionalDeadlines { deadlines?: { registration?: unknown; checkIn?: unknown } }
 interface OptionalFixtureDeadline { deadline?: unknown }
 
+/** When a tabletop match was played out, from its event log (events are append-only, so this never moves): the latest
+ *  endOfMatch (the submit), else the turn end that ran the clock out. undefined = not ended. */
+export function matchEndedAt(events: ReadonlyArray<{ type: string; ts?: unknown }>): string | undefined {
+  const latest = (type: string) => events.reduce<string | undefined>((best, e) => {
+    const ts = e.type === type ? validIso(e.ts) : undefined;
+    return ts && (!best || ts > best) ? ts : best;
+  }, undefined);
+  return latest("endOfMatch") ?? latest("turnEnd");
+}
+
 export interface DeadlineSources {
   coach: string;
   tournaments: TournamentRecord[];
   entrants: (tournamentId: string) => TournamentEntrantRecord[];
   matches: (tournamentId: string) => ScheduledMatchRecord[];
   tabletop: MatchRecord[];
+  /** Immutable end time per tabletop match id (matchEndedAt over its events); the report-by window counts from it. */
+  endedAt: (matchId: string) => string | undefined;
   now: Date;
 }
 
@@ -93,7 +105,8 @@ export function deriveDeadlines(src: DeadlineSources): DeadlineRow[] {
     const isHome = sameCoach(m.home.coach, coach);
     if (!isHome && !sameCoach(m.away.coach, coach)) continue;
     const opp = isHome ? m.away.coach : m.home.coach;
-    const base = Date.parse(m.updatedAt);
+    // From when the match was played out, never updatedAt: a confirmation or clock edit must not extend the window.
+    const base = Date.parse(src.endedAt(m.id) ?? m.createdAt);
     if (!Number.isFinite(base)) continue;
     const at = new Date(base + REPORT_WINDOW_HOURS * HOUR).toISOString();
     const link = `/tabletop/${encodeURIComponent(m.id)}`;
@@ -142,7 +155,6 @@ export function parseSchedulingInput(body: unknown): SchedulingView {
   const list = b.availability === undefined ? [] : b.availability;
   if (!Array.isArray(list)) throw new SchedulingError("availability must be an array.");
   if (list.length > MAX_SCHEDULE_BLOCKS) throw new SchedulingError(`availability can hold at most ${MAX_SCHEDULE_BLOCKS} blocks.`);
-  const seen = new Set<string>();
   const availability = list.map((raw, i): ScheduleBlock => {
     const f = `availability[${i}]`;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new SchedulingError(`${f} must be an object.`);
@@ -151,13 +163,25 @@ export function parseSchedulingInput(body: unknown): SchedulingView {
     if (typeof item.start !== "string" || !HHMM.test(item.start)) throw new SchedulingError(`${f}.start must be a 24-hour time in HH:MM format.`);
     if (typeof item.end !== "string" || !HHMM.test(item.end)) throw new SchedulingError(`${f}.end must be a 24-hour time in HH:MM format.`);
     if (item.start >= item.end) throw new SchedulingError(`${f}: start must be before end.`);
-    const key = `${item.day}|${item.start}|${item.end}`;
-    if (seen.has(key)) throw new SchedulingError(`${f} repeats another block.`);
-    seen.add(key);
     return { day: item.day, start: item.start, end: item.end };
   });
-  availability.sort((a, b) => a.day - b.day || a.start.localeCompare(b.start));
+  availability.sort((a, b) => a.day - b.day || a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+  const clash = overlappingBlocks(availability);
+  if (clash) throw new SchedulingError(`availability: ${DAY_NAMES[clash[1].day]} ${clash[1].start}-${clash[1].end} overlaps ${clash[0].start}-${clash[0].end}.`);
   return { timezone: tz, availability };
+}
+
+const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+/** The first pair of same-day blocks that intersect (touching ends, 18:00-19:00 then 19:00-20:00, are fine), else undefined.
+ *  Expects the list sorted by day, then start. */
+export function overlappingBlocks(sorted: readonly ScheduleBlock[]): [ScheduleBlock, ScheduleBlock] | undefined {
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1]!;
+    const cur = sorted[i]!;
+    if (prev.day === cur.day && cur.start < prev.end) return [prev, cur];
+  }
+  return undefined;
 }
 
 /** The identity's stored scheduling as the API shows it (day codes -> 0-6; unknown codes dropped). */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  deadlineChip, deriveDeadlines, MAX_SCHEDULE_BLOCKS, parseBuildLog, parseSchedulingInput, REPORT_WINDOW_HOURS,
+  deadlineChip, deriveDeadlines, matchEndedAt, MAX_SCHEDULE_BLOCKS, parseBuildLog, parseSchedulingInput, REPORT_WINDOW_HOURS,
   schedulingView, toStoredScheduling, type DeadlineSources,
 } from "../src/coachHome";
 import type { MatchRecord } from "../src/tabletop/store";
@@ -53,10 +53,12 @@ function sources(over: Partial<DeadlineSources> = {}): DeadlineSources {
     tabletop: [
       tabletop("tt1", { clock: { half: 2, turn: 8, activeTeam: null, turnStartedAt: null } }),
       tabletop("tt2", { clock: { half: 2, turn: 5, activeTeam: "home", turnStartedAt: iso(-1) } }),
-      tabletop("tt3", { state: "submitted", updatedAt: iso(-60) }),
+      tabletop("tt3", { state: "submitted", updatedAt: iso(-1) }),
       tabletop("tt4", { state: "submitted", confirmations: { Alice: iso(-1) } }),
       tabletop("tt5", { state: "recording", test: true, clock: { half: 2, turn: 8, activeTeam: null, turnStartedAt: null } }),
     ],
+    // tt1 ran out of turns 5 h ago; tt3 was submitted 60 h ago (its updatedAt is recent: someone confirmed since)
+    endedAt: (id) => ({ tt1: iso(-5), tt3: iso(-60) } as Record<string, string>)[id],
     now: NOW, ...over,
   };
 }
@@ -96,6 +98,24 @@ describe("deadline derivation", () => {
     expect(rows.map((r) => r.id)).toEqual(["confirm:tt3", "report:tt1", "reg:t1"]);
   });
 
+  it("report-by counts from the immutable end of the match: a later confirmation or edit never extends it", () => {
+    const s = sources();
+    const before = deriveDeadlines(s).find((r) => r.id === "confirm:tt3")!;
+    expect(before).toMatchObject({ at: iso(-60 + REPORT_WINDOW_HOURS), chip: "overdue" });
+    // Bob confirms now (updatedAt moves to now): Alice's row stays overdue, same instant
+    const bumped = s.tabletop.map((m) => (m.id === "tt3" ? { ...m, updatedAt: NOW.toISOString(), confirmations: { Bob: NOW.toISOString() } } : m));
+    expect(deriveDeadlines({ ...s, tabletop: bumped }).find((r) => r.id === "confirm:tt3")).toEqual(before);
+    // with no end in the log the window counts from creation, never from updatedAt
+    expect(deriveDeadlines({ ...s, endedAt: () => undefined }).find((r) => r.id === "confirm:tt3")!.at).toBe(iso(-5 + REPORT_WINDOW_HOURS));
+  });
+
+  it("matchEndedAt: the latest endOfMatch, else the turn end that ran the clock out", () => {
+    expect(matchEndedAt([])).toBeUndefined();
+    expect(matchEndedAt([{ type: "touchdown", ts: iso(-9) }])).toBeUndefined();
+    expect(matchEndedAt([{ type: "turnEnd", ts: iso(-3) }, { type: "turnEnd", ts: iso(-2) }, { type: "turnEnd", ts: "bad" }])).toBe(iso(-2));
+    expect(matchEndedAt([{ type: "endOfMatch", ts: iso(-4) }, { type: "turnEnd", ts: iso(-1) }, { type: "endOfMatch", ts: iso(-3) }])).toBe(iso(-3));
+  });
+
   it("a coach with nothing on gets an empty list", () => {
     expect(deriveDeadlines(sources({ coach: "Nobody" }))).toEqual([]);
   });
@@ -108,6 +128,10 @@ describe("scheduling validation", () => {
     const v = parseSchedulingInput({ timezone: " America/New_York ", availability: [{ day: 5, start: "10:00", end: "12:30" }, { day: 0, start: "18:00", end: "23:59" }] });
     expect(v).toEqual({ timezone: "America/New_York", availability: [{ day: 0, start: "18:00", end: "23:59" }, { day: 5, start: "10:00", end: "12:30" }] });
     expect(parseSchedulingInput({})).toEqual({ timezone: "", availability: [] });
+    // touching blocks and the same hours on different days are fine
+    expect(parseSchedulingInput({ availability: [{ day: 0, start: "19:00", end: "21:00" }, { day: 0, start: "18:00", end: "19:00" }, { day: 1, start: "18:30", end: "20:00" }] }).availability)
+      .toEqual([{ day: 0, start: "18:00", end: "19:00" }, { day: 0, start: "19:00", end: "21:00" }, { day: 1, start: "18:30", end: "20:00" }]);
+    expect(() => parseSchedulingInput({ availability: [{ day: 0, start: "18:00", end: "21:00" }, { day: 0, start: "19:00", end: "20:00" }] })).toThrow(/Monday 19:00-20:00 overlaps 18:00-21:00/);
     expect(parseSchedulingInput({ availability: Array.from({ length: MAX_SCHEDULE_BLOCKS }, (_, i) => block(i)) }).availability).toHaveLength(MAX_SCHEDULE_BLOCKS);
   });
 
@@ -122,6 +146,8 @@ describe("scheduling validation", () => {
       { availability: [{ day: 1, start: "11:00", end: "11:00" }] },
       { availability: [{ day: 1, start: "12:00", end: "11:00" }] },
       { availability: [{ day: 1, start: "10:00", end: "11:00" }, { day: 1, start: "10:00", end: "11:00" }] },
+      { availability: [{ day: 0, start: "18:00", end: "21:00" }, { day: 0, start: "19:00", end: "20:00" }] },
+      { availability: [{ day: 3, start: "20:00", end: "22:00" }, { day: 3, start: "18:00", end: "20:30" }] },
       { timezone: "Not/AZone" },
       { timezone: 5 },
       { availability: "all week" },
