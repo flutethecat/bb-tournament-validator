@@ -380,6 +380,28 @@ describe("redraft routes", () => {
     expect((await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/submit", ANN, { revision: 4, keep: [], hires: [], staff: {} })).status).toBe(409);
   });
 
+  it("redraft rookies never receive Team building starting skills: only the position's printed skills", async () => {
+    await confirm();
+    // the target season grants starting skills at team creation; a redraft is not team creation (owner 10-30)
+    store.putSeason({ ...season(7, "active", []), rules: { teamBuilding: { rosters: [{ roster: "Goblin", tier: 4, treasury: 1000, startingSkills: { primary: 2, secondary: 1, elite: 1 } }], eliteSkills: ["Block"] } } });
+    const roster = datasetRoster("Goblin")!;
+    const lineman = roster.positions.find((p) => p.name === "Goblin Lineman")!;
+    expect(lineman.skills.length).toBeGreaterThan(0);
+    const ok = await call("POST", "/api/leagues/tabbl/redraft/teams/gobbos/submit", { coach: "Cat" }, {
+      revision: 1, keep: [], staff: { rerolls: 0, assistantCoaches: 0, cheerleaders: 0, apothecary: false },
+      // extra fields a client might send are ignored
+      hires: [{ position: "Goblin Lineman", count: 11, skills: ["Block", "Sure Hands"], startingSkills: { primary: 2 } }],
+      startingSkills: [{ skill: "Block" }],
+    });
+    expect(ok.status).toBe(200);
+    const team = store.season("tabbl", "season-7")!.teams.find((t) => t.id === "gobbos")!;
+    expect(team.players).toHaveLength(11);
+    for (const p of team.players) {
+      expect(p.skills).toEqual(lineman.skills);
+      expect(p).toMatchObject({ level: "Rookie", availableSpp: 0, value: lineman.cost });
+    }
+  });
+
   // ---- review regressions (Sol 6.1) ----
 
   it("[P1] public and participant season reads never carry redraft state (draft rosters included)", async () => {

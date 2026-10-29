@@ -442,7 +442,8 @@ const cKey = (playerId: string): string => `c-${createHash("sha256").update(`car
 /**
  * The next-season roster: kept players keep their profile (SPP, skills, level, career) with Rest & Relaxation applied
  * (niggles that rolled off removed, missed game cleared), season stats reset, seasonsPlayed advanced; hires are
- * rookies from the roster; staff as bought; the unspent budget is the treasury. Player ids are fresh (unique against
+ * rookies from the roster with the position's printed skills only (Team building starting skills are for a new team,
+ * never a redraft: owner 10-30); staff as bought; the unspent budget is the treasury. Player ids are fresh (unique against
  * `usedIds`, which is updated).
  */
 export function buildDraftTeam(ctx: DraftContext, price: DraftPrice, input: DraftInput, idCtx: { leagueId: string; slug: string }, usedIds: Set<string>): LeagueTeam {
