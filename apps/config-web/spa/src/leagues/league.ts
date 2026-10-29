@@ -220,11 +220,26 @@ export function phaseTitle(p: Pick<LeaguePhase, "category" | "name">): string {
   return p.category && p.category !== "Season" ? `${p.category} ${phaseLabel(p.name)}` : phaseLabel(p.name);
 }
 
-/** A fixture with a result: not unscored, not a suspended 0-0 with no concession (the server's rule). */
-export function fixturePlayed(f: Pick<LeagueFixture, "home" | "away" | "suspended">): boolean {
-  if (f.home.score === null || f.away.score === null) return false;
-  return !(f.suspended && f.home.score === 0 && f.away.score === 0 && !f.home.conceded && !f.away.conceded);
+export type SideOutcome = "win" | "draw" | "loss";
+
+/**
+ * The server's outcome rule (src/leagues/identity.ts fixtureOutcome): no result when unscored or a suspended 0-0
+ * with no concession; a concession decides (the conceding side loses, whatever the recorded score); else the score.
+ */
+export function fixtureOutcome(f: Pick<LeagueFixture, "home" | "away" | "suspended">): { home: SideOutcome; away: SideOutcome } | undefined {
+  if (f.home.score === null || f.away.score === null) return undefined;
+  const hc = f.home.conceded;
+  const ac = f.away.conceded;
+  if (f.suspended && f.home.score === 0 && f.away.score === 0 && !hc && !ac) return undefined;
+  if (hc && ac) return { home: "loss", away: "loss" };
+  if (hc) return { home: "loss", away: "win" };
+  if (ac) return { home: "win", away: "loss" };
+  const d = f.home.score - f.away.score;
+  return d > 0 ? { home: "win", away: "loss" } : d < 0 ? { home: "loss", away: "win" } : { home: "draw", away: "draw" };
 }
+
+/** A fixture with a result (see fixtureOutcome). */
+export const fixturePlayed = (f: Pick<LeagueFixture, "home" | "away" | "suspended">): boolean => fixtureOutcome(f) !== undefined;
 
 export const fixtureTime = (f: Pick<LeagueFixture, "finishedAt" | "startedAt">): string => f.finishedAt ?? f.startedAt ?? "";
 
@@ -279,8 +294,16 @@ export function standingsTables(season: SeasonRecord): Array<{ key: string; titl
   return out;
 }
 
-export const teamByName = (season: SeasonRecord, name: string): LeagueTeam | undefined =>
-  season.teams.find((t) => t.name.trim().toLowerCase() === name.trim().toLowerCase());
+/** The team a ?team= value names: its id (exact), else a team name only when exactly one team has it. */
+export function teamByRef(season: SeasonRecord, ref: string): LeagueTeam | undefined {
+  const byId = season.teams.find((t) => t.id === ref);
+  if (byId) return byId;
+  const named = season.teams.filter((t) => t.name.trim().toLowerCase() === ref.trim().toLowerCase());
+  return named.length === 1 ? named[0] : undefined;
+}
+
+/** Totals the export could not split between players, recorded once on this team. */
+export const teamUnattributed = (season: SeasonRecord, team: LeagueTeam) => (season.unattributedStats ?? []).filter((u) => u.teamId === team.id);
 
 /** 885000 -> "885k", 1205000 -> "1,205k". */
 export function kValue(n: number | null | undefined): string {

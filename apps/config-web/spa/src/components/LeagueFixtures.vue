@@ -3,7 +3,7 @@
 // unplayed ones as a compact row; Table view: one row per fixture with score, casualties, date and marks.
 import { computed, ref } from "vue";
 import ResultCard from "./ResultCard.vue";
-import { day, fixturePlayed, fixturesByPhase, fixtureTime, resultCardProps } from "../leagues/league";
+import { day, fixtureOutcome, fixturePlayed, fixturesByPhase, fixtureTime, resultCardProps } from "../leagues/league";
 import type { LeagueFixture, LeagueSummary, SeasonRecord } from "../leagues/types";
 
 const props = defineProps<{ league: LeagueSummary; season: SeasonRecord; crests: Record<string, string> }>();
@@ -18,6 +18,7 @@ const marks = (f: LeagueFixture): string[] => [
   ...(f.suspended && !f.home.conceded && !f.away.conceded ? [fixturePlayed(f) ? "Suspended" : "Not played"] : []),
 ];
 const score = (f: LeagueFixture): string => (f.home.score === null || f.away.score === null ? "vs" : `${f.home.score} - ${f.away.score}`);
+const result = (f: LeagueFixture, side: "home" | "away"): string => fixtureOutcome(f)?.[side] ?? "";
 const cas = (f: LeagueFixture): string => (fixturePlayed(f) && f.home.cas !== null && f.away.cas !== null ? `${f.home.cas} - ${f.away.cas}` : "");
 </script>
 
@@ -58,9 +59,9 @@ const cas = (f: LeagueFixture): string => (fixturePlayed(f) && f.home.cas !== nu
             <thead><tr><th scope="col">Home</th><th scope="col" class="lg-num">Score</th><th scope="col">Away</th><th scope="col" class="lg-num">CAS</th><th scope="col">Date</th><th scope="col">Notes</th></tr></thead>
             <tbody>
               <tr v-for="f in r.fixtures" :key="f.id">
-                <td class="lg-team-cell"><span class="lg-team-name">{{ f.home.team }}</span><small>{{ f.home.coach }}</small></td>
+                <td class="lg-team-cell" :data-outcome="result(f, 'home')"><span class="lg-team-name">{{ f.home.team }}</span><small>{{ f.home.coach }}</small></td>
                 <td class="lg-num lg-pts">{{ score(f) }}</td>
-                <td class="lg-team-cell"><span class="lg-team-name">{{ f.away.team }}</span><small>{{ f.away.coach }}</small></td>
+                <td class="lg-team-cell" :data-outcome="result(f, 'away')"><span class="lg-team-name">{{ f.away.team }}</span><small>{{ f.away.coach }}</small></td>
                 <td class="lg-num">{{ cas(f) }}</td>
                 <td class="lg-date">{{ day(fixtureTime(f)) }}</td>
                 <td><span v-for="m in marks(f)" :key="m" class="sf-chip" data-tone="muted">{{ m }}</span><span v-if="f.group" class="hm-small">{{ f.group }}</span></td>

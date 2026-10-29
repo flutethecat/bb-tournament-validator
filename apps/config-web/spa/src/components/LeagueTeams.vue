@@ -3,16 +3,17 @@
 // SPP and season stats) and the players who left the roster during the season.
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
-import { crestFor, initials, kValue, teamByName } from "../leagues/league";
+import { crestFor, initials, kValue, teamByRef, teamUnattributed } from "../leagues/league";
 import type { LeaguePlayer, SeasonRecord } from "../leagues/types";
 
 const props = defineProps<{ season: SeasonRecord; team: string; leagueId: string; crests: Record<string, string> }>();
 const route = useRoute();
-const picked = computed(() => (props.team ? teamByName(props.season, props.team) : undefined));
-const link = (name?: string) => ({
+const picked = computed(() => (props.team ? teamByRef(props.season, props.team) : undefined));
+const unsplit = computed(() => (picked.value ? teamUnattributed(props.season, picked.value) : []));
+const link = (teamId?: string) => ({
   name: "league-detail",
   params: { id: props.leagueId },
-  query: { ...(route.query.season ? { season: String(route.query.season) } : {}), tab: "teams", ...(name ? { team: name } : {}) },
+  query: { ...(route.query.season ? { season: String(route.query.season) } : {}), tab: "teams", ...(teamId ? { team: teamId } : {}) },
 });
 const stat = (v: number | null): string => (v === null ? "-" : String(v));
 const plus = (v: number | null, suffix = "+"): string => (v === null ? "-" : `${v}${suffix}`);
@@ -70,6 +71,21 @@ const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
             </table>
           </div>
         </section>
+        <section v-if="unsplit.length" class="hm-panel" :aria-label="`${picked.name} combined totals`">
+          <header class="hm-band"><h2>Combined totals</h2><span class="hm-cap">Not split by player</span></header>
+          <p class="hm-empty hm-small">The season export lists these players under one name, so their totals are shown once, together.</p>
+          <div class="lg-scroll">
+            <table class="lg-table">
+              <thead><tr><th scope="col">Players</th><th scope="col" class="lg-num">TD</th><th scope="col" class="lg-num">CAS</th><th scope="col" class="lg-num">MVP</th><th scope="col" class="lg-num">SPP</th></tr></thead>
+              <tbody>
+                <tr v-for="u in unsplit" :key="`${u.name}|${u.position}`">
+                  <th scope="row" class="lg-team-cell"><span class="lg-team-name">{{ u.name }}</span><small>{{ u.position }} · {{ u.reason }}</small></th>
+                  <td class="lg-num">{{ u.stats.td }}</td><td class="lg-num">{{ u.stats.cas }}</td><td class="lg-num">{{ u.stats.mvp }}</td><td class="lg-num lg-pts">{{ u.stats.spp }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
         <section v-if="picked.formerPlayers.length" class="hm-panel" :aria-label="`${picked.name} former players`">
           <header class="hm-band"><h2>Left the roster</h2><span class="hm-cap">{{ picked.formerPlayers.length }} players</span></header>
           <div class="lg-scroll">
@@ -90,8 +106,8 @@ const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
       <header class="hm-band"><h2 id="lg-teams-h">Teams</h2><span class="hm-cap">{{ season.teams.length }} rosters</span></header>
       <p v-if="!season.teams.length" class="hm-empty">No rosters recorded for this season.</p>
       <ul v-else class="hm-teams hm-teams-lg lg-team-tiles">
-        <li v-for="x in tiles" :key="x.t.name">
-          <RouterLink class="hm-team" :to="link(x.t.name)" :aria-label="`${x.t.name}, ${x.t.race}, coached by ${x.t.coach}`">
+        <li v-for="x in tiles" :key="x.t.id">
+          <RouterLink class="hm-team" :to="link(x.t.id)" :aria-label="`${x.t.name}, ${x.t.race}, coached by ${x.t.coach}`">
             <img v-if="x.crest" class="hm-team-crest" :src="x.crest" alt="" />
             <span v-else class="hm-team-crest hm-team-blank" aria-hidden="true">{{ initials(x.t.name) }}</span>
             <span class="hm-team-name">{{ x.t.name }}</span>

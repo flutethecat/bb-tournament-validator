@@ -30,7 +30,7 @@ const diff = (a: number, b: number): string => (a - b > 0 ? `+${a - b}` : String
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in t.rows" :key="r.team">
+            <tr v-for="r in t.rows" :key="r.teamId ?? `${r.team}|${r.coach}`">
               <td class="lg-num">{{ r.rank }}</td>
               <th scope="row" class="lg-team-cell"><span class="lg-team-name">{{ r.team }}</span><small>{{ r.race }} · {{ r.coach }}</small></th>
               <td class="lg-num">{{ r.played }}</td><td class="lg-num">{{ r.wins }}</td><td class="lg-num">{{ r.draws }}</td><td class="lg-num">{{ r.losses }}</td>

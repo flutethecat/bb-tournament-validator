@@ -32,6 +32,8 @@ export interface LeagueSummary {
 
 export interface FixtureSide {
   team: string;
+  /** LeagueTeam.id (team name + canonical coach, race as the tiebreaker). */
+  teamId?: string;
   coach: string;
   coachId?: string;
   race: string;
@@ -60,6 +62,7 @@ export interface StandingRow {
   group: string;
   rank: number;
   team: string;
+  teamId?: string;
   race: string;
   coach: string;
   coachId?: string;
@@ -123,6 +126,7 @@ export interface FormerPlayer {
 }
 
 export interface LeagueTeam {
+  id: string;
   name: string;
   race: string;
   coach: string;
@@ -161,6 +165,8 @@ export interface LeagueAward {
   goldenStar: boolean;
 }
 
+export interface UnattributedStats { team: string; teamId?: string; name: string; position: string; stats: PlayerSeasonStats; reason: string }
+
 export interface SeasonRecord {
   id: string;
   leagueId: string;
@@ -177,6 +183,8 @@ export interface SeasonRecord {
   teams: LeagueTeam[];
   honours: HonourTable[];
   awards: LeagueAward[];
+  /** Honour totals the export could not pin to one player (absent on files imported before it existed). */
+  unattributedStats?: UnattributedStats[];
   importedAt: string;
 }
 

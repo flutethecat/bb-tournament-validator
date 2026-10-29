@@ -98,6 +98,7 @@
 .lg-team-cell > .lg-team-name { display: block; font-weight: 600; }
 .lg-team-cell > small { display: block; }
 .lg-pts { font-weight: 700; color: var(--ui-heading); }
+.lg-team-cell[data-outcome="win"] > .lg-team-name { color: var(--ui-heading); }
 .lg-skills { min-width: 180px; font-size: 13px; }
 .lg-date { white-space: nowrap; }
 .lg-fx-table td .sf-chip { margin-right: 4px; }

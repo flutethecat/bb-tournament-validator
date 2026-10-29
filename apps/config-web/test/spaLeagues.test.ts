@@ -6,7 +6,7 @@ import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import {
   canManageLeague, createLeagueDetail, createLeagueList, createLeagueStats, crestFor, fixtureContext, fixturesByPhase, honourBoards, honourValue,
-  kValue, latestResults, pickSeason, resultCardProps, safeArtUrl, standingsTables,
+  fixtureOutcome, kValue, latestResults, pickSeason, resultCardProps, safeArtUrl, standingsTables, teamByRef,
 } from "../spa/src/leagues/league";
 import type { LeagueFixture, LeagueStats, LeagueSummary, SeasonRecord, SeasonSummary } from "../spa/src/leagues/types";
 
@@ -62,16 +62,17 @@ const season6 = (): SeasonRecord => ({
   ],
   participants: [],
   teams: [
-    { name: "Grudge Rollers", race: "Dwarf", coach: "flutethecat (Jay)", teamValue: 885000, treasury: 130000, rerolls: 1, fans: 3, assistantCoaches: 0, cheerleaders: 0, apothecary: false, tier: "2", raceLeague: "WorldsEdgeSuperleague",
+    { id: "grudge-rollers", name: "Grudge Rollers", race: "Dwarf", coach: "flutethecat (Jay)", teamValue: 885000, treasury: 130000, rerolls: 1, fans: 3, assistantCoaches: 0, cheerleaders: 0, apothecary: false, tier: "2", raceLeague: "WorldsEdgeSuperleague",
       players: [{ number: 4, name: "Dethirord Slenderstrength", position: "Troll Slayer", ma: 5, st: 3, ag: 4, pa: 5, av: 9, skills: ["Block", "Hatred (102)"], value: 95000, level: "Rookie", availableSpp: 6, niggling: 0, missNextGame: false, stats: { td: 2, cas: 1, mvp: 1, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 11, performance: 0 } }],
       formerPlayers: [{ name: "Gone Guy", position: "Dwarf Lineman", level: "Rookie", stats: { td: 0, cas: 2, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 4, performance: 0 } }] },
-    { name: "Rot Girl Summer", race: "Nurgle", coach: "Jeff / @Chap", teamValue: 1000000, treasury: 0, rerolls: 2, fans: 2, assistantCoaches: 1, cheerleaders: 1, apothecary: false, tier: "1", raceLeague: "", players: [], formerPlayers: [] },
+    { id: "rot-girl-summer", name: "Rot Girl Summer", race: "Nurgle", coach: "Jeff / @Chap", teamValue: 1000000, treasury: 0, rerolls: 2, fans: 2, assistantCoaches: 1, cheerleaders: 1, apothecary: false, tier: "1", raceLeague: "", players: [], formerPlayers: [] },
   ],
   honours: [
     { key: "season-mosttouchdowns", category: "season", stat: "mosttouchdowns", kind: "player", rows: [{ rank: 1, name: "Dethirord Slenderstrength", team: "Grudge Rollers", coach: "", value: 2 }] },
     { key: "season-bestrace", category: "season", stat: "bestrace", kind: "coach", rows: [{ rank: 1, name: "Kainis", team: "Caledor Crusaders", coach: "Kainis", value: { WinDrawRatio: 0.955, Wins: 10, Draws: 1, Defeats: 0, Points: 22 } }] },
   ],
   awards: [],
+  unattributedStats: [{ team: "Grudge Rollers", teamId: "grudge-rollers", name: "Bob", position: "Dwarf Lineman", stats: { td: 5, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 15, performance: 0 }, reason: "2 players called \"Bob\" (Dwarf Lineman): the export cannot split their totals" }],
 });
 
 const stats = (scope: "bb2020" | "bb2025" | "all"): LeagueStats => ({
@@ -98,6 +99,24 @@ const API: Routes = {
   "/api/leagues/tabbl/stats?scope=bb2020": stats("bb2020"),
   "/crests/manifest.json": { crests: { dwarf: "crests/dwarf.png", nurgle: "crests/nurgle.png" } },
 };
+
+describe("league review regressions (SPA side)", () => {
+  it("fixture outcome: a concession decides before the score; the fixtures tab and cards share it", () => {
+    const f = season6().fixtures[2]!; // Rot Girl Summer 1-2 Grudge Rollers, home conceded
+    expect(fixtureOutcome(f)).toEqual({ home: "loss", away: "win" });
+    const level = { ...f, home: { ...f.home, score: 2 } }; // 2-2 but home conceded
+    expect(fixtureOutcome(level)).toEqual({ home: "loss", away: "win" });
+    expect(fixtureOutcome({ ...level, home: { ...level.home, conceded: false } })).toEqual({ home: "draw", away: "draw" });
+  });
+
+  it("team pages pick a team by id; a bare name shared by two teams picks none", () => {
+    const s = season6();
+    s.teams.push({ ...s.teams[0]!, id: "grudge-rollers--other", coach: "Someone Else" });
+    expect(teamByRef(s, "grudge-rollers--other")!.coach).toBe("Someone Else");
+    expect(teamByRef(s, "Grudge Rollers")).toBeUndefined();
+    expect(teamByRef(s, "Rot Girl Summer")!.id).toBe("rot-girl-summer");
+  });
+});
 
 describe("league helpers", () => {
   it("latest results: played only (unplayed and void left out), newest first, capped", () => {
@@ -296,14 +315,24 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(fx.html).toContain(">Cards</button>");
     expect(fx.html).toContain(">Table</button>");
     const teams = await render("/leagues/tabbl?tab=teams", loadedDetail());
-    expect(teams.html).toContain('href="/app/leagues/tabbl?tab=teams&amp;team=Grudge+Rollers"');
+    expect(teams.html).toContain('href="/app/leagues/tabbl?tab=teams&amp;team=grudge-rollers"');
     expect(teams.html).toContain('src="/crests/dwarf.png"');
-    const roster = await render("/leagues/tabbl?tab=teams&team=Grudge%20Rollers", loadedDetail());
+    const roster = await render("/leagues/tabbl?tab=teams&team=grudge-rollers", loadedDetail());
     expect(roster.html).toContain("Dethirord Slenderstrength");
     expect(roster.html).toContain("Block, Hatred (102)");
     expect(roster.html).toContain("885k");
     expect(roster.html).toContain("Left the roster");
     expect(roster.html).toContain("Gone Guy");
+    // totals the export could not split are shown once on the team, never on a player
+    expect(roster.html).toContain("Combined totals");
+    expect(roster.html).toContain("the export cannot split their totals");
+    const table = await render("/leagues/tabbl?tab=fixtures", async (inject, f) => {
+      const d = mods.league.createLeagueDetail({ api: f });
+      await d.load("tabbl");
+      await d.ensureSeason("season-6");
+      inject(mods.league.LEAGUE_DETAIL_KEY, d);
+    });
+    expect(table.html).toContain('data-outcome="loss"'); // the conceding home side of f3 in its card
     const nobody = await render("/leagues/tabbl?tab=teams&team=Nobody", loadedDetail());
     expect(nobody.html).toContain("No team called");
     const hon = await render("/leagues/tabbl?tab=honours", loadedDetail());
@@ -357,6 +386,11 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(linked).toMatch(/^<a[^>]*href="\/app\/leagues\/tabbl\?tab=fixtures"/);
     expect(linked).toContain("--rc-home:#ff0000");
     expect(linked).toContain("--rc-away:#2aa39b"); // unsafe tone ignored
+    // a concession decides the outcome, even against the recorded score
+    const conceded = await renderCard({ ...base, home: { ...base.home, score: 1 }, away: { ...base.away, score: 1 }, concede: "away" });
+    expect(conceded).toMatch(/class="rc-side rc-home" data-outcome="win"/);
+    expect(conceded).toMatch(/class="rc-side rc-away" data-outcome="loss"/);
+    expect(conceded).toContain("Froggy Boys conceded");
     const bad = await renderCard({ ...base, href: "javascript:alert(1)" });
     expect(bad).not.toContain("javascript:");
     const unplayed = await renderCard({ ...base, home: { ...base.home, score: null, cas: null }, away: { ...base.away, score: null, cas: null }, playedAt: undefined });
