@@ -2,13 +2,14 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { GamestateTeamResult } from "@bb/fork-ops";
+import { parseAdminGameList, type GamestateTeamResult } from "@bb/fork-ops";
 import {
   FINISHED_GAME_STATUSES,
   TournamentResultStore,
   aggregateStandings,
   deriveTeamResult,
   discoverFinishedGames,
+  storedSide,
   mayReadResult,
   type StoredTournamentResult,
 } from "../src/tournamentResults.js";
@@ -147,5 +148,14 @@ describe("finished-game discovery", () => {
 
     expect((await discoverFinishedGames(cfg)).map((game) => game.gameId).sort()).toEqual(["backuped", "finished"]);
     expect(statuses.sort()).toEqual([...FINISHED_GAME_STATUSES].sort());
+  });
+});
+
+describe("stored result sides", () => {
+  it("decode the admin list's XML-escaped names once, so a team named <script>brains? is stored literally", () => {
+    const [game] = parseAdminGameList(`<admin><list><game id="9" status="finished" half="2" turn="8">
+      <team home="true" id="a" name="&lt;script&gt;brains? &amp;amp; &quot;x&quot;" coach="A&amp;B"/>
+      <team home="false" id="b" name="B" coach="C"/></game></list></admin>`);
+    expect(storedSide(game!, "home")).toEqual({ teamId: "a", teamName: '<script>brains? &amp; "x"', coach: "A&B" });
   });
 });

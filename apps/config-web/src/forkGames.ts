@@ -20,7 +20,7 @@ export type ForkGamesEndpointResult =
   | { status: 401; body: { error: string } }
   | { status: 502; body: { error: string } };
 
-const decodeXml = (value: string): string =>
+export const decodeXml = (value: string): string =>
   value
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")

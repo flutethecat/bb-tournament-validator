@@ -11,6 +11,7 @@ import {
   type GamestateTeamResult,
 } from "@bb/fork-ops";
 import type { TournamentMatchMetadata } from "./tournamentMatch.js";
+import { decodeXml } from "./forkGames.js";
 
 export const FINISHED_GAME_STATUSES = ["finished", "backuped"] as const;
 
@@ -171,10 +172,11 @@ export async function discoverFinishedGames(cfg: ForkAdminConfig): Promise<Admin
   return [...byGameId.values()];
 }
 
-const storedSide = (game: AdminGameEntry, side: "home" | "away"): ResultSide => ({
+export const storedSide = (game: AdminGameEntry, side: "home" | "away"): ResultSide => ({
   teamId: side === "home" ? game.homeTeamId : game.awayTeamId,
-  teamName: side === "home" ? game.homeTeamName : game.awayTeamName,
-  coach: side === "home" ? game.homeCoach : game.awayCoach,
+  // parseAdminGameList returns the raw XML attribute text: decode once here so the stored name is the literal one.
+  teamName: decodeXml(side === "home" ? game.homeTeamName : game.awayTeamName),
+  coach: decodeXml(side === "home" ? game.homeCoach : game.awayCoach),
 });
 
 /** The fork admin list's finished (else started) time as ISO, or undefined when it is absent or unreadable ("2026-03-01 10:15:00.0" and ISO both parse). */
