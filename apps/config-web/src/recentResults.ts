@@ -10,7 +10,7 @@
 import type { GamestateTeamResult } from "@bb/fork-ops";
 import { effectiveScore, type StoredTournamentResult } from "./tournamentResults.js";
 import type { ScheduledMatchRecord, TournamentEntrantRecord } from "./tournaments/types.js";
-import type { MatchRecord } from "./tabletop/store.js";
+import type { MatchRecord, TeamChain } from "./tabletop/store.js";
 import type { TabletopEvent } from "./tabletop/events.js";
 import { tallyMatch } from "./tabletop/postMatch.js";
 import { matchEndedAt } from "./coachHome.js";
@@ -78,6 +78,18 @@ const TABLETOP_LISTED = new Set(["submitted", "confirmed", "published"]);
 export function recentResults(inputs: RecentInputs, limit = RECENT_RESULTS_DEFAULT): RecentResult[] {
   const info = (ref: string | undefined, coach: string): TeamInfo => (ref ? inputs.teamInfo?.(ref, coach) : undefined) ?? {};
   const out: RecentResult[] = [];
+  // Team lookups (library / save reads) run only for the cards that make the cut, after sorting.
+  const enrichers = new Map<RecentResult, Array<() => void>>();
+  const later = (item: RecentResult, s: RecentSide, ref: string | undefined, coach: string, known: { name?: string; race?: string; fallbackName?: string }) => {
+    const list = enrichers.get(item) ?? [];
+    list.push(() => {
+      const team = info(ref, coach);
+      if (!known.name) s.name = team.name || known.fallbackName || "Unnamed team";
+      if (!known.race) s.race = team.race ?? "";
+      s.crestUrl ||= team.crestUrl || null;
+    });
+    enrichers.set(item, list);
+  };
 
   // Fixtures by id (tabletop links) and by launched fork game id (fork rows).
   const fixtures = new Map<string, { item: RecentResult; tournament: string; round: number }>();
@@ -87,11 +99,8 @@ export function recentResults(inputs: RecentInputs, limit = RECENT_RESULTS_DEFAU
     for (const m of t.matches) {
       if (!m.away || !m.result) continue;
       const r = m.result;
-      const sideOf = (s: ScheduledMatchRecord["home"], score: number, cas: number | undefined): RecentSide => {
-        const entrant = entrants.get(s.entrantId);
-        const team = info(s.teamId, s.coach.ffbCoachId);
-        return side(entrant?.submission?.teamName ?? team.name ?? s.teamId, entrant?.submission?.race ?? team.race, s.coach.ffbCoachId, team.crestUrl, num(score), num(cas));
-      };
+      const sideOf = (s: ScheduledMatchRecord["home"], score: number, cas: number | undefined): RecentSide =>
+        side(entrants.get(s.entrantId)?.submission?.teamName ?? s.teamId, entrants.get(s.entrantId)?.submission?.race, s.coach.ffbCoachId, null, num(score), num(cas));
       const item: RecentResult = {
         id: `tournament:${m.id}`,
         source: "tournament",
@@ -103,6 +112,10 @@ export function recentResults(inputs: RecentInputs, limit = RECENT_RESULTS_DEFAU
         concede: null,
         suspended: false,
       };
+      for (const [s, rec] of [[item.home, m.home], [item.away, m.away!]] as const) {
+        const sub = entrants.get(rec.entrantId)?.submission;
+        later(item, s, rec.teamId, rec.coach.ffbCoachId, { name: sub?.teamName, race: sub?.race, fallbackName: rec.teamId });
+      }
       fixtures.set(m.id, { item, tournament: t.name, round: m.roundNumber });
       if (m.launch?.gameId) fixtureByGame.set(m.launch.gameId, item);
     }
@@ -117,19 +130,20 @@ export function recentResults(inputs: RecentInputs, limit = RECENT_RESULTS_DEFAU
     const fixture = m.fixtureRef ? fixtures.get(m.fixtureRef) : undefined;
     if (fixture) replacedFixtures.add(m.fixtureRef!);
     const where = fixture ? `${fixture.tournament} · Round ${fixture.round}` : m.league ? m.league : "Friendly";
-    const homeInfo = info(m.home.teamSaveId, m.home.coach);
-    const awayInfo = info(m.away.teamSaveId, m.away.coach);
-    out.push({
+    const item: RecentResult = {
       id: `tabletop:${m.id}`,
       source: "tabletop",
       context: `Tabletop · ${where}`,
       playedAt: iso(matchEndedAt(events)) ?? iso(m.publishedAt) ?? iso(m.updatedAt),
       href: `/app/tabletop/${encodeURIComponent(m.id)}`,
-      home: side(m.home.teamName || homeInfo.name || "", race?.home ?? homeInfo.race, m.home.coach, homeInfo.crestUrl, tally.score.home, cas("home")),
-      away: side(m.away.teamName || awayInfo.name || "", race?.away ?? awayInfo.race, m.away.coach, awayInfo.crestUrl, tally.score.away, cas("away")),
+      home: side(m.home.teamName, race?.home, m.home.coach, null, tally.score.home, cas("home")),
+      away: side(m.away.teamName, race?.away, m.away.coach, null, tally.score.away, cas("away")),
       concede: tally.conceded.home ? "home" : tally.conceded.away ? "away" : null,
       suspended: false,
-    });
+    };
+    later(item, item.home, m.home.teamSaveId, m.home.coach, { name: m.home.teamName, race: race?.home });
+    later(item, item.away, m.away.teamSaveId, m.away.coach, { name: m.away.teamName, race: race?.away });
+    out.push(item);
   }
 
   // Fork games the site retained.
@@ -148,25 +162,87 @@ export function recentResults(inputs: RecentInputs, limit = RECENT_RESULTS_DEFAU
       fixture.concede ??= homeTeam?.conceded ? "home" : awayTeam?.conceded ? "away" : null;
       continue;
     }
-    const homeInfo = info(row.home.teamId, row.home.coach);
-    const awayInfo = info(row.away.teamId, row.away.coach);
     const pkg = inputs.forkMeta?.(row.gameId)?.packageName;
-    out.push({
+    const item: RecentResult = {
       id: `fork:${row.gameId}`,
       source: "fork",
       context: pkg ? `Online · ${pkg}` : "Online · Friendly",
       playedAt: iso(row.playedAt) ?? iso(row.pulledAt),
       href: null,
-      home: side(row.home.teamName || homeInfo.name || "", homeInfo.race, row.home.coach, homeInfo.crestUrl, forkScore(homeTeam), casCaused(homeTeam)),
-      away: side(row.away.teamName || awayInfo.name || "", awayInfo.race, row.away.coach, awayInfo.crestUrl, forkScore(awayTeam), casCaused(awayTeam)),
+      home: side(row.home.teamName, undefined, row.home.coach, null, forkScore(homeTeam), casCaused(homeTeam)),
+      away: side(row.away.teamName, undefined, row.away.coach, null, forkScore(awayTeam), casCaused(awayTeam)),
       concede: homeTeam?.conceded ? "home" : awayTeam?.conceded ? "away" : null,
       suspended: false,
-    });
+    };
+    later(item, item.home, row.home.teamId, row.home.coach, { name: row.home.teamName });
+    later(item, item.away, row.away.teamId, row.away.coach, { name: row.away.teamName });
+    out.push(item);
   }
 
   for (const [id, { item }] of fixtures) if (!replacedFixtures.has(id)) out.push(item);
 
   // Newest first; undated rows last; ties by id so the order is stable.
   out.sort((a, b) => (b.playedAt ?? "").localeCompare(a.playedAt ?? "") || a.id.localeCompare(b.id));
-  return out.slice(0, Math.max(0, Math.min(limit, RECENT_RESULTS_MAX)));
+  const picked = out.slice(0, Math.max(0, Math.min(limit, RECENT_RESULTS_MAX)));
+  for (const item of picked) for (const fill of enrichers.get(item) ?? []) fill();
+  return picked;
+}
+
+/** The recorder reads the gatherer needs (FileTabletopRepository satisfies it). */
+export interface TabletopReader {
+  listMatches(): Promise<MatchRecord[]>;
+  readEvents(matchId: string): Promise<TabletopEvent[]>;
+  getChain(coach: string, saveId: string): Promise<TeamChain | undefined>;
+}
+
+type TabletopRow = RecentInputs["tabletop"][number];
+
+/**
+ * Tabletop rows for the strip, bounded: only the newest `cap` listed matches (by updatedAt; a match is played out before
+ * its last update, so nothing older can be newer on the strip) have their event log and team chains read. A match whose
+ * updatedAt has not moved since the last refresh is served from the summary cache with no reads at all; team chains are
+ * read at most once per (coach, team) per refresh.
+ */
+export function createTabletopGatherer(cap = RECENT_RESULTS_MAX) {
+  let cache = new Map<string, { stamp: string; row: TabletopRow }>();
+  return async function gather(reader: TabletopReader): Promise<TabletopRow[]> {
+    const candidates = (await reader.listMatches())
+      .filter((m) => !m.test && TABLETOP_LISTED.has(m.state))
+      .sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")) || a.id.localeCompare(b.id))
+      .slice(0, Math.max(0, cap));
+    const chains = new Map<string, Promise<string | undefined>>();
+    const raceOf = (coach: string, saveId: string): Promise<string | undefined> => {
+      const key = `${coach}\u0000${saveId}`;
+      let hit = chains.get(key);
+      if (!hit) {
+        hit = reader.getChain(coach, saveId)
+          .then((chain) => chain?.revisions.find((r) => r.revision === chain.head)?.teamFile.race ?? undefined)
+          .catch(() => undefined);
+        chains.set(key, hit);
+      }
+      return hit;
+    };
+    const next = new Map<string, { stamp: string; row: TabletopRow }>();
+    const rows: TabletopRow[] = [];
+    for (const match of candidates) {
+      const stamp = `${match.updatedAt}|${match.state}`;
+      const cached = cache.get(match.id);
+      if (cached && cached.stamp === stamp) {
+        next.set(match.id, cached);
+        rows.push(cached.row);
+        continue;
+      }
+      try {
+        const row: TabletopRow = {
+          match,
+          events: await reader.readEvents(match.id),
+          race: { home: await raceOf(match.home.coach, match.home.teamSaveId), away: await raceOf(match.away.coach, match.away.teamSaveId) },
+        };
+        next.set(match.id, { stamp, row });
+        rows.push(row);
+      } catch { /* unreadable match: skipped */ }
+    }
+    cache = next; // only the current candidates stay cached
+    return rows;
+  };
 }

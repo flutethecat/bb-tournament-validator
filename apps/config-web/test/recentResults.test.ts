@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RECENT_RESULTS_DEFAULT, recentLimit, recentResults, type RecentInputs } from "../src/recentResults";
+import { createTabletopGatherer, RECENT_RESULTS_DEFAULT, recentLimit, recentResults, type RecentInputs, type TabletopReader } from "../src/recentResults";
 
 // GET /api/recent-results normalisation (src/recentResults.ts): every source, newest first, limit, null casualties,
 // concessions, and one card per game when sources overlap.
@@ -143,5 +143,55 @@ describe("recent results", () => {
     const shootout = { ...forkTeam("h", 4, []), penaltyScore: 0 };
     const rows = recentResults(inputs({ results: [forkRow("pk", "2026-10-02T00:00:00.000Z", { teams: [shootout, { ...forkTeam("a", 1, []), penaltyScore: 2 }] })] as never }));
     expect(rows[0]).toMatchObject({ home: { score: 0 }, away: { score: 2 } });
+  });
+
+  it("team lookups run only for the cards that make the cut", () => {
+    const looked: string[] = [];
+    const results = Array.from({ length: 40 }, (_, i) => forkRow(`g${i}`, new Date(Date.UTC(2026, 9, 1, i)).toISOString(), {
+      home: { teamId: `h${i}`, teamName: "", coach: "Alice" }, away: { teamId: `a${i}`, teamName: "Grinders", coach: "Bob" },
+      teams: [forkTeam(`h${i}`, 1, []), forkTeam(`a${i}`, 0, [])],
+    }));
+    const rows = recentResults(inputs({ results: results as never, teamInfo: (ref) => { looked.push(ref); return { name: `Team ${ref}`, race: "Orc" }; } }), 3);
+    expect(rows.map((r) => r.id)).toEqual(["fork:g39", "fork:g38", "fork:g37"]);
+    expect(looked.sort()).toEqual(["a37", "a38", "a39", "h37", "h38", "h39"]);
+    expect(rows[0]).toMatchObject({ home: { name: "Team h39", race: "Orc" }, away: { name: "Grinders", race: "Orc" } });
+  });
+});
+
+describe("tabletop gatherer", () => {
+  function countingRepo(n: number) {
+    const counts = { list: 0, events: 0, chains: 0 };
+    let matches = Array.from({ length: n }, (_, i) => tabletopMatch(`m${String(i).padStart(4, "0")}`, i % 10 === 0 ? "recording" : "published", {
+      updatedAt: new Date(Date.UTC(2026, 0, 1) + i * 60_000).toISOString(),
+      home: { coach: "Eve", teamSaveId: "library:9", teamName: "Owls" }, away: { coach: `C${i % 3}`, teamSaveId: "s1", teamName: "Rats" },
+    }));
+    const reader: TabletopReader = {
+      listMatches: async () => { counts.list += 1; return matches as never; },
+      readEvents: async () => { counts.events += 1; return []; },
+      getChain: async () => { counts.chains += 1; return { saveId: "x", coach: "x", head: 1, revisions: [{ saveId: "x", revision: 1, parent: null, teamFile: { race: "Orc" }, createdAt: "x" }] } as never; },
+    };
+    return { reader, counts, touch: (id: string) => { matches = matches.map((m) => (m.id === id ? { ...m, updatedAt: "2027-01-01T00:00:00.000Z" } : m)); } };
+  }
+
+  it("reads only the newest capped matches, memoises chains per refresh, and reuses unchanged summaries", async () => {
+    const { reader, counts, touch } = countingRepo(1000);
+    const gather = createTabletopGatherer(50);
+    const rows = await gather(reader);
+    expect(rows).toHaveLength(50);
+    expect(rows[0]!.match.id).toBe("m0999");
+    expect(rows.every((r) => r.match.state !== "recording")).toBe(true);
+    expect(counts.events).toBe(50);
+    expect(counts.chains).toBeLessThanOrEqual(4); // Eve/library:9 + three away coaches with s1
+    expect(rows[0]!.race).toEqual({ home: "Orc", away: "Orc" });
+    // second refresh: nothing changed, nothing read beyond the listing
+    const before = { ...counts };
+    await gather(reader);
+    expect(counts.events).toBe(before.events);
+    expect(counts.chains).toBe(before.chains);
+    // one match updated: only it is read again
+    touch("m0991");
+    const after = await gather(reader);
+    expect(after[0]!.match.id).toBe("m0991");
+    expect(counts.events).toBe(before.events + 1);
   });
 });

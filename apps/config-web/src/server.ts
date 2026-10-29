@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { deriveDeadlines, matchEndedAt, parseSchedulingInput, readBuildLog, schedulingView, toStoredScheduling } from "./coachHome.js";
 import { profileView, updateOwnProfile, type ProfileDeps } from "./accountProfile.js";
 import { RECENT_RESULTS_MAX, recentLimit, recentResults, type RecentInputs, type RecentResult, type TeamInfo } from "./recentResults.js";
+import { createTabletopGatherer, RECENT_RESULTS_MAX, recentLimit, recentResults, type RecentInputs, type RecentResult, type TeamInfo } from "./recentResults.js";
 import {
   composeTeam,
   composeTeamIntrinsic,
@@ -1345,9 +1346,18 @@ function recentTeamInfo(ref: string, coach: string): TeamInfo | undefined {
 
 /** Every source gathered once a minute at most (the tabletop event logs are read here). A broken source is skipped. */
 let recentCache: { at: number; rows: RecentResult[] } | undefined;
+/** Newest tabletop matches only, with per-match summaries cached across refreshes (src/recentResults.ts). */
+const gatherRecentTabletop = createTabletopGatherer(RECENT_RESULTS_MAX);
 async function cachedRecentResults(): Promise<RecentResult[]> {
   if (recentCache && Date.now() - recentCache.at < 60_000) return recentCache.rows;
-  const inputs: RecentInputs = { results: [], tournaments: [], tabletop: [], teamInfo: recentTeamInfo, forkMeta: (gameId) => tournamentMatches.get(gameId) };
+  // Team lookups scan the library: at most once per (team, coach) per refresh, and only for cards that make the cut.
+  const teams = new Map<string, TeamInfo | undefined>();
+  const teamInfo = (ref: string, coach: string): TeamInfo | undefined => {
+    const key = `${ref}\u0000${coach}`;
+    if (!teams.has(key)) teams.set(key, recentTeamInfo(ref, coach));
+    return teams.get(key);
+  };
+  const inputs: RecentInputs = { results: [], tournaments: [], tabletop: [], teamInfo, forkMeta: (gameId) => tournamentMatches.get(gameId) };
   try { inputs.results = tournamentResults.listAll(); } catch { /* no results store */ }
   try {
     inputs.tournaments = tournamentStore.tournaments(["active", "completed", "cancelled"]).map((t) => ({
@@ -1355,21 +1365,7 @@ async function cachedRecentResults(): Promise<RecentResult[]> {
     }));
   } catch { /* no tournaments store */ }
   try {
-    const { repo } = await tabletopDeps();
-    const listed = (await repo.listMatches()).filter((m) => !m.test && (m.state === "submitted" || m.state === "confirmed" || m.state === "published"));
-    const raceOf = async (coach: string, saveId: string): Promise<string | undefined> => {
-      try {
-        const chain = await repo.getChain(coach, saveId);
-        return chain?.revisions.find((r) => r.revision === chain.head)?.teamFile.race ?? undefined;
-      } catch { return undefined; }
-    };
-    const rows: RecentInputs["tabletop"][number][] = [];
-    for (const match of listed) {
-      try {
-        rows.push({ match, events: await repo.readEvents(match.id), race: { home: await raceOf(match.home.coach, match.home.teamSaveId), away: await raceOf(match.away.coach, match.away.teamSaveId) } });
-      } catch { /* unreadable match: skipped */ }
-    }
-    inputs.tabletop = rows;
+    inputs.tabletop = await gatherRecentTabletop((await tabletopDeps()).repo);
   } catch { /* recorder store unavailable */ }
   const rows = recentResults(inputs, RECENT_RESULTS_MAX);
   recentCache = { at: Date.now(), rows };
