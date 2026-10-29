@@ -38,6 +38,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { bb2025 } from "@bb/validator/dataset";
+import { rosterXmlById } from "../teamAdvancement.js";
+import { storedTeamFile } from "../teamDetail.js";
 import type { TeamBankTask } from "./banking.js";
 import type { ParsedGameResult, ParsedPlayerResult, ParsedTeamResult } from "./fumbblResult.js";
 
@@ -313,11 +315,19 @@ function adjustAggregateValues(xml: string, totalDeltaGold: number, currentDelta
   return nextHeader + tail;
 }
 
+/**
+ * The authoritative roster of a team: its own `roster_team_<id>.xml` (FUMBBL imports), else the roster the team file
+ * names in `<rosterId>`, matched by the roster's own `<roster id>` (base-roster teams: Team Builder and league teams).
+ */
 function rosterForTeam(teamsDir: string | undefined, teamId: string): string | undefined {
   if (!teamsDir) return undefined;
   const safeId = teamId.replace(/[^\w.-]+/g, "_");
-  const path = join(dirname(teamsDir), "rosters", `roster_team_${safeId}.xml`);
-  return existsSync(path) ? readFileSync(path, "utf8") : undefined;
+  const rostersDir = join(dirname(teamsDir), "rosters");
+  const path = join(rostersDir, `roster_team_${safeId}.xml`);
+  if (existsSync(path)) return readFileSync(path, "utf8");
+  let rosterId: string | undefined;
+  try { rosterId = storedTeamFile(teamsDir, teamId)?.xml.match(/<rosterId>([^<]+)<\/rosterId>/i)?.[1]?.trim(); } catch { return undefined; }
+  return rosterId ? rosterXmlById(rostersDir, rosterId) : undefined;
 }
 
 /** A team match advances the prior MNG slot before applying this game's new casualties. */
