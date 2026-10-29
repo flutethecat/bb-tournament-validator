@@ -13,7 +13,7 @@ import { findPosition, findRoster, isStarName, type SkillCategory } from "@bb/va
 import { bb2025 } from "@bb/validator/dataset";
 import type { LibraryTeam } from "@bb/fork-ops";
 import { shortPositionName } from "./positionNames.js";
-import type { Capability, TeamDetail, TeamDetailPlayer } from "./teamDetail.js";
+import type { Capability, PlayerCareerStats, TeamDetail, TeamDetailPlayer } from "./teamDetail.js";
 import type { AdvancementCosts, PendingAdvancementResponse } from "./teamAdvancement.js";
 import type { TeamBuilderSave } from "./teamBuilderSaves.js";
 import {
@@ -54,10 +54,23 @@ export interface ManagedPlayerProgress {
   injuries: string[];
 }
 
+/** Player value split as the TourPlay roster prints it, e.g. "(115+30)k": the position's cost plus what was added. */
+export interface ValueBreakdown {
+  base: number;
+  added: number;
+  total: number;
+}
+
 export interface ManagedPlayer extends SharedPlayer {
   /** Player name (fork teams; builder sheets have none). */
   name?: string;
   progress?: ManagedPlayerProgress;
+  /** Fork teams: career counters from the team XML (teamDetail.ts playerCareerStats); null = not recorded. */
+  careerStats?: PlayerCareerStats;
+  /** Fork teams: the injury list as stored (e.g. "Serious Injury (NI)"). */
+  injuries?: string[];
+  /** Fork teams: base position cost + added value; null when the roster cost is unknown. */
+  valueBreakdown?: ValueBreakdown | null;
 }
 
 export interface ManagedTeamView extends Omit<SharedTeamView, "players"> {
@@ -157,6 +170,11 @@ function managedLibraryPlayer(
     statIncreases,
     cost: p.currentValue > 0 ? p.currentValue : null,
     sprite: safeArt(resolveSprite(ctx.sprites, ctx.race, positionFull)),
+    careerStats: p.careerStats,
+    injuries: [...p.injuries],
+    valueBreakdown: p.baseValue !== null && p.currentValue >= p.baseValue
+      ? { base: p.baseValue, added: p.currentValue - p.baseValue, total: p.currentValue }
+      : null,
     progress: {
       id: p.id,
       spp: p.spp,

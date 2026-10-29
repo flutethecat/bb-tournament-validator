@@ -9,7 +9,7 @@ import { findRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { readLibrary, upsertLibraryTeam, type LibraryTeam } from "@bb/fork-ops";
 import { createSession } from "../src/auth/session.js";
-import { teamDetailEndpoint, storedRosterXml } from "../src/teamDetail.js";
+import { parseStoredTeamDetail, playerCareerStats, teamDetailEndpoint, storedRosterXml } from "../src/teamDetail.js";
 import { libraryManageView, meTeamPath } from "../src/teamManageView.js";
 
 // Team management page (owner 10-30): GET /api/me/teams/<ref> answers the coach's own team in the shared team view's
@@ -112,9 +112,40 @@ describe("libraryManageView", () => {
     expect(bob!.progress).toMatchObject({ spp: 12, rank: "Emerging Star", costs: { randomPrimary: 6, chosenPrimary: 12, chosenSecondary: 16, characteristic: 20 }, canAddSkill: true, canAddCharacteristic: false });
     expect(bob!.progress!.methods.chosenSecondary.available).toBe(false);
     expect(grit!.progress).toMatchObject({ spp: 0, canAddSkill: false, canAddCharacteristic: false });
+    // Career stats come from the team XML <playerStatistics>: Bob has the element (touchdowns 1, the rest 0), Grit none.
+    expect(bob!.careerStats).toEqual({ games: null, td: 1, cas: 0, comp: 0, int: 0, mvp: 0, fouls: 0, deflections: null, ni: 0 });
+    expect(bob!.injuries).toEqual(["Smashed Knee"]);
+    expect(bob!.valueBreakdown).toEqual({ base: 90000, added: 60000, total: bob!.cost });
+    expect(bob!.cost).toBe(150000);
+    expect(grit!.careerStats).toEqual({ games: null, td: null, cas: null, comp: null, int: null, mvp: null, fouls: null, deflections: null, ni: 0 });
+    expect(grit!.injuries).toEqual([]);
+    expect(grit!.valueBreakdown).toEqual({ base: 45000, added: 0, total: 45000 });
     const blocked = libraryManageView({ coach: "Tarkin", detail: detail.body.team, stored, publicDir: root, advancementBlocked: "no admin API" });
     expect(blocked.manage.advancement).toEqual({ available: false, reason: "no admin API" });
     expect(blocked.team.players[0]!.progress!.canAddSkill).toBe(false);
+  });
+});
+
+describe("playerCareerStats", () => {
+  it("reads the banked counters, counts Niggling Injuries and never invents games or deflections", () => {
+    const block = `<player nr="3" id="9"><playerStatistics currentSpps="20" earnedSpps="31"><completions>4</completions><touchdowns>3</touchdowns>` +
+      `<interceptions>1</interceptions><casualties>2</casualties><mvps>1</mvps><fouls>5</fouls><blocks>40</blocks><games>9</games></playerStatistics>` +
+      `<injuryList><injury>Serious Injury (NI)</injury><injury>Niggling Injury</injury><injury>Head Injury (-AV)</injury></injuryList></player>`;
+    expect(playerCareerStats(block, ["Serious Injury (NI)", "Niggling Injury", "Head Injury (-AV)"])).toEqual({
+      games: null, td: 3, cas: 2, comp: 4, int: 1, mvp: 1, fouls: 5, deflections: null, ni: 2,
+    });
+    expect(playerCareerStats('<player><playerStatistics currentSpps="0"/></player>', [])).toMatchObject({ td: 0, cas: 0, fouls: 0, games: null });
+    expect(playerCareerStats("<player><touchdowns>2</touchdowns></player>", [])).toMatchObject({ td: null, comp: null });
+  });
+
+  it("is carried on every parsed player with the roster's base cost", () => {
+    const xml = `<team id="1"><player nr="1" id="p1"><name>A</name><positionId>860401</positionId><skillList/>` +
+      `<playerStatistics currentSpps="2"><casualties>1</casualties></playerStatistics><injuryList/></player></team>`;
+    const roster = '<roster><position id="860401"><name>Black Orc</name><cost>90000</cost><skillList/></position></roster>';
+    const [p] = parseStoredTeamDetail(xml, { ...STORED, teamId: "1" }, roster).players;
+    expect(p!.careerStats).toMatchObject({ cas: 1, td: 0 });
+    expect(p!.baseValue).toBe(90000);
+    expect(parseStoredTeamDetail(xml, { ...STORED, teamId: "1" }).players[0]!.baseValue).toBeNull();
   });
 });
 

@@ -44,6 +44,53 @@ export interface TeamDetailPlayer {
   gender: string | null;
   journeyman: boolean;
   refundable: boolean;
+  /** Career counters from the team XML `<playerStatistics>` (see playerCareerStats); null = not recorded. */
+  careerStats: PlayerCareerStats;
+  /** The position's own cost from the roster XML (gold); null when the roster is unavailable. */
+  baseValue: number | null;
+}
+
+/**
+ * Per-player career counters as the stored team XML records them. Post-match result banking
+ * (site-backend/fumbblResultBanking.ts STAT_INCREMENTS) increments `<completions>`, `<touchdowns>`,
+ * `<interceptions>`, `<casualties>`, `<mvps>` and `<fouls>` inside `<playerStatistics>` for every game played
+ * through the site; an imported team carries whatever totals it came with. A counter absent from an existing
+ * `<playerStatistics>` element is 0 (banking skips zero deltas); a player with no `<playerStatistics>` at all has
+ * nothing recorded (null). Games played and deflections are not banked into the team file: always null. NI is the
+ * count of Niggling Injuries in the injury list (always known).
+ */
+export interface PlayerCareerStats {
+  games: number | null;
+  td: number | null;
+  cas: number | null;
+  comp: number | null;
+  int: number | null;
+  mvp: number | null;
+  fouls: number | null;
+  deflections: number | null;
+  ni: number;
+}
+
+const NIGGLING = /\bNI\b|niggl/i;
+
+export function playerCareerStats(playerXml: string, injuries: readonly string[]): PlayerCareerStats {
+  const statistics = playerXml.match(/<playerStatistics\b[^>]*?(?:\/>|>([\s\S]*?)<\/playerStatistics>)/i);
+  const counter = (tag: string): number | null => {
+    if (!statistics) return null;
+    const value = numberElement(statistics[1] ?? "", tag);
+    return value === undefined ? 0 : Number.isSafeInteger(value) && value >= 0 ? value : null;
+  };
+  return {
+    games: null,
+    td: counter("touchdowns"),
+    cas: counter("casualties"),
+    comp: counter("completions"),
+    int: counter("interceptions"),
+    mvp: counter("mvps"),
+    fouls: counter("fouls"),
+    deflections: null,
+    ni: injuries.filter((name) => NIGGLING.test(name)).length,
+  };
 }
 
 export interface TeamDetailFiredPlayer {
@@ -179,6 +226,17 @@ function positionNames(rosterXml: string | undefined): Map<string, string> {
   return positions;
 }
 
+function positionCosts(rosterXml: string | undefined): Map<string, number> {
+  const costs = new Map<string, number>();
+  if (!rosterXml) return costs;
+  for (const found of rosterXml.matchAll(/<position\b([^>]*)>([\s\S]*?)<\/position>/gi)) {
+    const id = decodeXml(attr(found[1]!, "id") ?? "");
+    const cost = numberElement(found[2]!, "cost");
+    if (id && cost !== undefined && Number.isSafeInteger(cost) && cost >= 0) costs.set(id, cost);
+  }
+  return costs;
+}
+
 function currentSpp(playerXml: string): number {
   const statistics = playerXml.match(/<playerStatistics\b([^>]*)>/i)?.[1];
   const fromStatistics = statistics ? Number(attr(statistics, "currentSpps")) : Number.NaN;
@@ -205,6 +263,7 @@ export function parseStoredTeamDetail(
 ): TeamDetail {
   const meta = parseTeamXmlMeta(xml);
   const names = positionNames(rosterXml);
+  const costs = positionCosts(rosterXml);
   const players: TeamDetailPlayer[] = [];
   const revision = teamRevision(xml);
   const hasAnyPending = /<pendingAdvancement\b/i.test(xml);
@@ -298,6 +357,8 @@ export function parseStoredTeamDetail(
       refundable: teamIsNew && skills.length === 0 && injuries.length === 0 && spp === 0 &&
         !playerMng(block, status) &&
         !/<(?:playedGames|games)>\s*[1-9]/i.test(block),
+      careerStats: playerCareerStats(block, injuries),
+      baseValue: costs.get(positionId) ?? null,
     });
   }
 
