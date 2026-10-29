@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { adminExchange } from "@bb/fork-ops";
 import { leagueApi, resetForkToggleLimit, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
 import type { DiscordPayload } from "../src/leagues/discord";
 import { syncLeagueForkResults, type ForkFindOutcome, type ForkScheduleOutcome, type LeagueForkClient } from "../src/leagues/forkPlay";
@@ -9,7 +10,7 @@ import { applyForkResult, fromParsedResult, mutateLeagueTeam, type ForkGameResul
 import { confirmedList } from "../src/leagues/forkClient";
 import { buildLeagueForkTeam, forkPlayerIdFor, forkPlayLock, forkRosterFor, forkTeamIdFor, ForkTeamBuildError, statDelta, type LeagueForkTeamFile } from "../src/leagues/forkTeam";
 import { targetConflict } from "../src/leagues/redraft";
-import { buildBankTasks } from "../src/site-backend/fumbblResultBanking";
+import { bankingValueProblem, buildBankTasks } from "../src/site-backend/fumbblResultBanking";
 import { LeagueStore } from "../src/leagues/store";
 import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeaguePlayer, type LeagueTeam, type SeasonRecord } from "../src/leagues/types";
 import type { ParsedGameResult } from "../src/site-backend/fumbblResult";
@@ -621,6 +622,46 @@ describe("Super FUMBBL fixture routes", () => {
     expect(s.teams.find((t) => t.id === "orcs")!.players[0]!.availableSpp).toBe(0);
     expect(s.teams.find((t) => t.id === "grudge")!.players[0]!.availableSpp).toBe(8);
   });
+
+  // ---- review regressions (Sol 6.1 round 2) ----
+
+  it("R2-2: GET jnlp runs the same roster check and launch recording: a stale team is rebuilt first", async () => {
+    await call("POST", `${base}/fork/generate`, ANN, {});
+    const s = store.season("tabbl", "season-7")!;
+    s.teams[0]!.players[0]!.availableSpp = 30;
+    store.putSeason(s);
+    fork.next = { kind: "scheduled", gameId: "g44" };
+    const j = await call("GET", `${base}/fork/jnlp`, ANN);
+    expect(j.status).toBe(200);
+    expect(fork.deletes).toEqual(["g42"]);
+    expect(j.download!.bytes.toString()).toContain('game="g44"');
+    expect(fixture().fork).toMatchObject({ gameId: "g44", launched: { home: expect.any(String) } });
+  });
+
+  it("R2-2: GET jnlp on a stale roster whose old game cannot be withdrawn answers 409 and records nothing", async () => {
+    await call("POST", `${base}/fork/generate`, ANN, {});
+    const s = store.season("tabbl", "season-7")!;
+    s.teams[0]!.players[0]!.availableSpp = 30;
+    store.putSeason(s);
+    fork.deleteOk = false;
+    const j = await call("GET", `${base}/fork/jnlp`, ANN);
+    expect(j.status).toBe(409);
+    expect(fork.launches).toHaveLength(0);
+    expect(fixture().fork).toMatchObject({ status: "scheduled", gameId: "g42" });
+    expect(fixture().fork!.launched).toBeUndefined();
+  });
+
+  it("R2-5: a team record without a fingerprint counts as stale: rebuilt through a confirmed withdrawal", async () => {
+    await call("POST", `${base}/fork/generate`, ANN, {});
+    const s = store.season("tabbl", "season-7")!;
+    delete s.fixtures[0]!.fork!.teams.away!.revision;
+    store.putSeason(s);
+    fork.next = { kind: "scheduled", gameId: "g45" };
+    const r = await call("POST", `${base}/fork/launch`, BOB, {});
+    expect(r.body).toMatchObject({ gameId: "g45", rebuilt: ["away"] });
+    expect(fork.deletes).toEqual(["g42"]);
+    expect(fixture().fork!.teams.away!.revision).toMatch(/^[a-f0-9]{16}$/);
+  });
 });
 
 // ---- review regressions (Sol 6.1 round 1): pure ----
@@ -670,7 +711,8 @@ describe("review regressions: team file, admin lists, banking, mutation limits",
     const ok = '<admin><list size="1"><game id="7" status="active"><team home="true" id="A" name="A" coach="x"/><team home="false" id="B" name="B" coach="y"/></game></list><status>ok</status></admin>';
     let inflight = 0;
     let max = 0;
-    const slow = (xml: string) => async (): Promise<string> => { inflight += 1; max = Math.max(max, inflight); await new Promise((r) => setTimeout(r, 5)); inflight -= 1; return xml; };
+    // the stub stands in for adminList: an exchange on the shared transport queue
+    const slow = (xml: string) => (c: { baseUrl: string }): Promise<string> => adminExchange(c, async () => { inflight += 1; max = Math.max(max, inflight); await new Promise((r) => setTimeout(r, 5)); inflight -= 1; return xml; });
     const lists = await Promise.all([confirmedList(cfg, "active", slow(ok)), confirmedList(cfg, "paused", slow(ok)), confirmedList(cfg, "scheduled", slow(ok))]);
     expect(max).toBe(1);
     expect(lists[0]!.map((g) => g.gameId)).toEqual(["7"]);
@@ -735,5 +777,73 @@ describe("review regressions: team file, admin lists, banking, mutation limits",
     expect(basic.treasury).toBe(100_000);
     const full = mutateLeagueTeam({ ...humans(), treasury: 100_000 }, { teamId: hid2, score: 1, conceded: false, winnings: 50_000, treasurySpent: 40_000, players: [] }, map2, "full").team;
     expect(full.treasury).toBe(110_000);
+  });
+});
+
+// ---- review regressions (Sol 6.1 round 2): pure ----
+
+describe("review regressions round 2: stat advances, banking +MA, the banking guard", () => {
+  it("R2-3: an advance offset by a lasting injury keeps both; the fork load gives the league value with the advance counted", () => {
+    expect(statDelta({ ma: 6, st: 3, ag: 3, pa: 4, av: 9, skills: ["+ST"] }, { MA: 6, ST: 3, AG: 3, PA: 4, AV: 9 }))
+      .toEqual({ increases: ["+ST"], injuries: ["Dislocated Shoulder (-ST)"] });
+    const team: LeagueTeam = { ...humans(), players: [player("o", 1, "Offset", "Human Lineman", { st: 3, ag: 2, skills: ["+ST", "+AG"] })] };
+    const file = buildLeagueForkTeam({ leagueId: "l", seasonId: "s", team, coach: "Ann", rosters: ROSTERS, ruleset: "BB2025" });
+    const block = file.xml.match(/<player [\s\S]*?<\/player>/)![0];
+    expect(forkLoad(block, HUMAN)).toMatchObject({ ST: 3, AG: 2 });
+    expect(block.match(/<skill>\+ST<\/skill>/g)).toHaveLength(1);
+    expect(block.match(/<skill>\+AG<\/skill>/g)).toHaveLength(1);
+    expect(block).toContain("<injury>Dislocated Shoulder (-ST)</injury>");
+  });
+
+  const bankDir = (): { dir: string; teamsDir: string } => {
+    const dir = mkdtempSync(join(tmpdir(), "league-bank2-"));
+    const teamsDir = join(dir, "teams");
+    mkdirSync(teamsDir, { recursive: true });
+    mkdirSync(join(dir, "rosters"), { recursive: true });
+    writeFileSync(join(dir, "rosters", "roster_human.xml"), HUMAN);
+    return { dir, teamsDir };
+  };
+  const pr = (playerId: string, over: Record<string, unknown> = {}) => ({
+    playerId, name: "", defecting: false, currentSpps: 0, earnedSpps: 0, completions: 0, touchdowns: 0, deflections: 0, interceptions: 0, casualties: 0,
+    playerAwards: 0, landings: 0, blocks: 0, fouls: 0, rushing: 0, passing: 0, turnsPlayed: 16, injuries: [] as string[], gainedHatred: [] as string[], ...over,
+  });
+  const bank = (injury: string) => {
+    const { dir, teamsDir } = bankDir();
+    try {
+      const team: LeagueTeam = { ...humans(), players: [player("fast", 1, "Fast", "Human Lineman", { ma: 7, skills: ["+MA"] }), player("plain", 2, "Plain", "Human Lineman")] };
+      const file = buildLeagueForkTeam({ leagueId: "l", seasonId: "s", team, coach: "Ann", rosters: ROSTERS, ruleset: "BB2025", bankingGuard: true });
+      writeFileSync(join(teamsDir, `team_Ann_${file.forkTeamId}.xml`), file.xml);
+      const parsed: ParsedGameResult = { gameId: "g8", halves: 2, teams: [
+        { teamId: file.forkTeamId, score: 0, conceded: false, stalled: false, casualtiesSuffered: { badlyHurt: 0, seriousInjury: 0, rip: 0 }, players: [
+          pr(forkPlayerIdFor(file.forkTeamId, "fast"), { injuries: [injury] }), pr(forkPlayerIdFor(file.forkTeamId, "plain")),
+        ] },
+        { teamId: "other", score: 0, conceded: false, stalled: false, casualtiesSuffered: { badlyHurt: 0, seriousInjury: 0, rip: 0 }, players: [] },
+      ] };
+      return { file, out: buildBankTasks(parsed, teamsDir).find((t) => t.teamId === file.forkTeamId)!.applyFn(file.xml) };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("R2-1: a death on a generated +MA player banks, priced from the advancement table (50k + 20k)", () => {
+    const { file, out } = bank("Dead (RIP)");
+    expect(out).not.toContain(forkPlayerIdFor(file.forkTeamId, "fast"));
+    expect(out).toContain("<teamRating>103</teamRating>"); // 110 - 7
+    expect(out).toContain("<currentTeamValue>103</currentTeamValue>");
+  });
+
+  it("R2-1: a missed game on a generated +MA player banks (current value only)", () => {
+    const { out } = bank("Seriously Hurt (MNG)");
+    expect(out).toContain('<injury recovering="true">Seriously Hurt (MNG)</injury>');
+    expect(out).toContain("<teamRating>110</teamRating>");
+    expect(out).toContain("<currentTeamValue>103</currentTeamValue>");
+  });
+
+  it("R2-1: with banking on, a player the banker still cannot value is refused before anything is scheduled", () => {
+    const team: LeagueTeam = { ...humans(), players: [player("e", 1, "Elite", "Human Lineman", { skills: ["Block"] })] };
+    const build = (bankingGuard: boolean) => () => buildLeagueForkTeam({ leagueId: "l", seasonId: "s", team, coach: "Ann", rosters: ROSTERS, ruleset: "BB2025", bankingGuard });
+    expect(build(true)).toThrow(/could not value this player yet \(post-match TV cannot safely price Elite skill Block\)/);
+    expect(build(false)).not.toThrow();
+    expect(bankingValueProblem('<player nr="1" id="x"><positionId>10</positionId><skillList><skill>+MA</skill></skillList><injuryList/></player>', HUMAN)).toBeUndefined();
   });
 });

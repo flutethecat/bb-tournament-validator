@@ -14,10 +14,11 @@
  *   gameStates    live statuses, then the finished ones
  *   result        /gamestate/result parsed as the server's FumbblResult; else the compact result
  *
- * Every admin exchange (challenge then command) goes through one queue: the admin servlet keeps a single last
- * challenge, so two exchanges in flight invalidate each other and a refused one still answers HTTP 200 with
- * <status>fail</status>. A list is trusted only with <status>ok</status> and a <list> element; anything else throws,
- * and callers treat that as "unknown" (never as "no games").
+ * Every admin exchange (challenge then command) is serialised per fork by the shared transport (bb-fork-ops
+ * adminExchange), for every caller on this server: the servlets keep a single last challenge, so two exchanges in
+ * flight invalidate each other and a refused one still answers HTTP 200 with <status>fail</status>. A list is trusted
+ * only with <status>ok</status> and a <list> element; anything else throws, and callers treat that as "unknown"
+ * (never as "no games").
  *
  * Secrets: the admin password digest and coach credential digests are used here only and never logged or returned in
  * an error message.
@@ -29,6 +30,7 @@ import {
   acquireTeamNameWriteLock,
   acquireTeamWriteLock,
   adminDelete,
+  adminExchange,
   adminList,
   adminResponse,
   atomicWriteTextFile,
@@ -67,26 +69,18 @@ export interface ForkClientConfig {
   overtime?: () => boolean;
   /** The finished-game results already pulled (tournament-results.json), read before asking the fork again. */
   results?: TournamentResultStore;
+  /** Result banking (the site backend) runs on this host. */
+  bankingGuard?: boolean;
 }
 
 const RESULT_TIMEOUT_MS = 10_000;
-
-// ---- one admin exchange at a time ----
-
-let adminTail: Promise<unknown> = Promise.resolve();
-/** Runs an admin challenge/command exchange after every earlier one finished (failures do not block the queue). */
-export function serialAdmin<T>(task: () => Promise<T>): Promise<T> {
-  const run = adminTail.then(task, task);
-  adminTail = run.catch(() => undefined);
-  return run;
-}
 
 /** True only for an admin answer the servlet marked ok. */
 export const adminOk = (xml: string): boolean => /<status>\s*ok\s*<\/status>/i.test(xml);
 
 /** One confirmed admin list: throws unless the servlet said ok and sent a <list>. */
 export async function confirmedList(cfg: ForkAdminConfig, status: string, list = adminList): Promise<AdminGameEntry[]> {
-  const xml = await serialAdmin(() => list(cfg, status));
+  const xml = await list(cfg, status);
   if (!adminOk(xml) || !/<list\b/i.test(xml)) throw new Error(`the fork's ${status} game list could not be confirmed`);
   return parseAdminGameList(xml);
 }
@@ -116,8 +110,12 @@ async function fetchText(url: string): Promise<{ ok: boolean; status: number; te
   }
 }
 
-/** The raw /gamestate/result body (the server's FumbblResult document). */
-async function rawResultXml(cfg: ForkAdminConfig, gameId: string): Promise<string> {
+/** The raw /gamestate/result body (the server's FumbblResult document): one exchange on the shared queue. */
+function rawResultXml(cfg: ForkAdminConfig, gameId: string): Promise<string> {
+  return adminExchange(cfg, () => rawResultExchange(cfg, gameId));
+}
+
+async function rawResultExchange(cfg: ForkAdminConfig, gameId: string): Promise<string> {
   const ch = await fetchText(`${cfg.baseUrl}/gamestate/challenge`);
   const challenge = ch.text.match(/<challenge>([^<]*)<\/challenge>/i)?.[1];
   if (!ch.ok || !challenge) throw new Error(`gamestate/challenge failed (HTTP ${ch.status})`);
@@ -134,6 +132,7 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
     return dir;
   };
   return {
+    bankingGuard: cfg.bankingGuard === true,
     rosters() {
       const out = new Map<string, string>();
       let dir: string;
@@ -198,7 +197,7 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
           installed = true;
         }
         // Still under the same locks: schedule.
-        const outcome = await serialAdmin(() => forkScheduler(admin, { overtime: cfg.overtime }).schedule(home, away));
+        const outcome = await forkScheduler(admin, { overtime: cfg.overtime }).schedule(home, away);
         if (outcome.kind === "scheduled") return { kind: "scheduled", gameId: outcome.gameId };
         return { kind: outcome.kind, error: outcome.error ?? (outcome.kind === "unknown" ? "no answer" : "refused") };
       } catch (error) {
@@ -237,7 +236,7 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
       try {
         const live = await confirmedLists(admin, ["scheduled"]);
         if (!live.some((g) => g.gameId === gameId)) return false; // started (or unknown): never deleted from here
-        return adminOk(await serialAdmin(() => adminDelete(admin, gameId)));
+        return adminOk(await adminDelete(admin, gameId));
       } catch {
         return false;
       }
@@ -274,13 +273,13 @@ export function createLeagueForkClient(cfg: ForkClientConfig): LeagueForkClient 
       if (!cfg.adminCfg) return undefined;
       const admin = cfg.adminCfg;
       try {
-        const xml = (await serialAdmin(() => rawResultXml(admin, gameId))).replace(/^\s*<\?xml[^>]*\?>\s*/, "");
+        const xml = (await rawResultXml(admin, gameId)).replace(/^\s*<\?xml[^>]*\?>\s*/, "");
         const parsed = parseFumbblResult(xml);
         if (parsed.teams.length === 2 && parsed.gameId === gameId) return fromParsedResult(parsed, playedAt);
       } catch { /* not readable as the full result: fall back to the compact one */ }
       const stored = cfg.results?.get(gameId);
       if (stored && stored.teams.length === 2) return fromBasicResult(gameId, { teams: stored.teams }, playedAt ?? stored.playedAt);
-      return fromBasicResult(gameId, await serialAdmin(() => gamestateResult(admin, gameId)), playedAt);
+      return fromBasicResult(gameId, await gamestateResult(admin, gameId), playedAt);
     },
   };
 }

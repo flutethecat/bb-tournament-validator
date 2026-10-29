@@ -536,6 +536,8 @@ const tournamentNotifier = createTournamentNotifier(notificationStore, tournamen
 const leagueFork = createLeagueForkClient({
   forkConfig: forkConfigFromEnv, adminCfg: forkAdminCfg, dbCfg: challengeDbCfg, stateDir: FORK_STATE_DIR, libraryDir: LIBRARY_DIR,
   overtime: () => overtimeEnabled, results: tournamentResults,
+  // With result banking on, a league team the banker could not value after a death or a missed game is refused up front.
+  bankingGuard: process.env.SITE_BACKEND_ENABLED === "1",
 });
 const leagueNotify = (coach: string, input: Parameters<typeof notificationStore.add>[1]): void => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } };
 if (forkAdminCfg) {

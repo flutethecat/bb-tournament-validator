@@ -46,6 +46,8 @@ export interface ForkGameState { status: "scheduled" | "active" | "finished"; pl
 export interface LeagueForkClient {
   /** Fork roster files by roster id. */
   rosters(): ReadonlyMap<string, string>;
+  /** Result banking (the site backend) runs on this host: teams it could not value are refused before scheduling. */
+  bankingGuard?: boolean;
   /**
    * In ONE critical section (the fork's team write locks for both teams and the cache-generation lock): check neither
    * team is in a live game, write `install` (rewrite the team files, list them in the coaches' libraries, reload), then
@@ -290,7 +292,7 @@ async function buildAndSchedule(deps: ForkRouteDeps, client: LeagueForkClient, l
   for (const s of rebuild) {
     const side = fixture[s];
     try {
-      files[s] = buildLeagueForkTeam({ leagueId, seasonId, team: season.teams.find((t) => t.id === side.teamId)!, coach: side.coachId!, rosters: client.rosters(), ruleset: season.ruleset, now: now() });
+      files[s] = buildLeagueForkTeam({ leagueId, seasonId, team: season.teams.find((t) => t.id === side.teamId)!, coach: side.coachId!, rosters: client.rosters(), ruleset: season.ruleset, bankingGuard: client.bankingGuard === true, now: now() });
     } catch (e) {
       if (e instanceof ForkTeamBuildError) return { ok: false, result: fail(409, e.message) };
       throw e;
@@ -349,7 +351,9 @@ function staleSides(season: SeasonRecord, f: LeagueFixture): ForkSide[] {
     const built = f.fork?.teams[s];
     if (!built) return true;
     const team = season.teams.find((t) => t.id === f[s].teamId);
-    return Boolean(team && built.revision && built.revision !== leagueTeamRevision(team));
+    if (!team) return false;
+    // A team recorded before fingerprints existed cannot be shown current: rebuild it.
+    return !built.revision || built.revision !== leagueTeamRevision(team);
   });
 }
 
@@ -402,7 +406,8 @@ const playStarted = (f: LeagueFixture): boolean => f.fork?.status === "in_progre
  * Before the first launch: a team whose league roster changed since it was built is rebuilt, and the unstarted game is
  * withdrawn (the fork confirms) and scheduled again with the fresh teams. After play starts nothing is rebuilt.
  */
-async function launch(deps: ForkRouteDeps, client: LeagueForkClient, leagueId: string, seasonId: string, fixtureId: string, who: LeagueApiIdentity): Promise<LeagueApiResult> {
+async function prepareLaunch(deps: ForkRouteDeps, client: LeagueForkClient, leagueId: string, seasonId: string, fixtureId: string, who: LeagueApiIdentity): Promise<
+  { side: ForkSide; stale: ForkSide[] } | LeagueApiResult> {
   const at = locate(deps.store, leagueId, seasonId, fixtureId);
   if (isResult(at)) return at;
   const seat = seatedLive(at, who);
@@ -429,13 +434,47 @@ async function launch(deps: ForkRouteDeps, client: LeagueForkClient, leagueId: s
     });
     if (refreshed) return refreshed;
   }
+  return { side: seat.side, stale };
+}
+
+/** Records that this seat took its launch file (play has started: no more rebuilds, the rosters lock). */
+function recordLaunch(deps: ForkRouteDeps, leagueId: string, seasonId: string, fixtureId: string, side: ForkSide): LeagueFixture | undefined {
   const t = deps.now?.() ?? new Date();
   const saved = saveFork(deps.store, leagueId, seasonId, fixtureId, (f) => {
     if (!f.fork) return;
-    f.fork.launched = { ...(f.fork.launched ?? {}), [seat.side]: t.toISOString() };
+    f.fork.launched = { ...(f.fork.launched ?? {}), [side]: t.toISOString() };
   });
-  const gameId = saved?.fixtures.find((f) => f.id === fixtureId)?.fork?.gameId;
-  return res(200, { ok: true, jnlpUrl: `/api/leagues/${encodeURIComponent(leagueId)}/seasons/${encodeURIComponent(seasonId)}/fixtures/${encodeURIComponent(fixtureId)}/fork/jnlp`, side: seat.side, gameId, ...(stale.length ? { rebuilt: stale } : {}) });
+  return saved?.fixtures.find((f) => f.id === fixtureId);
+}
+
+async function launch(deps: ForkRouteDeps, client: LeagueForkClient, leagueId: string, seasonId: string, fixtureId: string, who: LeagueApiIdentity): Promise<LeagueApiResult> {
+  const ready = await prepareLaunch(deps, client, leagueId, seasonId, fixtureId, who);
+  if ("status" in ready) return ready;
+  const gameId = recordLaunch(deps, leagueId, seasonId, fixtureId, ready.side)?.fork?.gameId;
+  return res(200, { ok: true, jnlpUrl: `/api/leagues/${encodeURIComponent(leagueId)}/seasons/${encodeURIComponent(seasonId)}/fixtures/${encodeURIComponent(fixtureId)}/fork/jnlp`, side: ready.side, gameId, ...(ready.stale.length ? { rebuilt: ready.stale } : {}) });
+}
+
+/**
+ * The launch file itself: the same fixture lock, seat and roster-freshness preparation as POST launch (a stale team is
+ * rebuilt first, or 409 when its old game cannot be withdrawn), and the launch is recorded once the file is made.
+ */
+async function launchFileRoute(deps: ForkRouteDeps, client: LeagueForkClient, leagueId: string, seasonId: string, fixtureId: string, who: LeagueApiIdentity): Promise<LeagueApiResult> {
+  const ready = await prepareLaunch(deps, client, leagueId, seasonId, fixtureId, who);
+  if ("status" in ready) return ready;
+  const at = locate(deps.store, leagueId, seasonId, fixtureId);
+  if (isResult(at)) return at;
+  const fork = at.fixture.fork;
+  const team = fork?.teams[ready.side];
+  if (!fork?.gameId || !team) return fail(409, "Generate the fixture on Super FUMBBL first.");
+  try {
+    const jnlp = await client.launchFile({ coach: team.coach, teamId: team.forkTeamId, gameName: fork.gameName ?? `league-${fixtureId}`, gameId: fork.gameId });
+    recordLaunch(deps, leagueId, seasonId, fixtureId, ready.side);
+    const safe = (s: string): string => s.replace(/[^\w.-]+/g, "_").slice(0, 60) || "game";
+    return { status: 200, download: { bytes: Buffer.from(jnlp, "utf8"), contentType: "application/x-java-jnlp-file; charset=utf-8", filename: `league_${safe(fixtureId)}_${safe(team.coach)}.jnlp` }, headers: { ...NO_STORE } };
+  } catch (e) {
+    if (e instanceof ForkClientError) return fail(e.status, e.message);
+    return fail(502, "The launch file could not be made right now.");
+  }
 }
 
 async function reset(deps: ForkRouteDeps, leagueId: string, seasonId: string, fixtureId: string, who: LeagueApiIdentity, input: Record<string, unknown>): Promise<LeagueApiResult> {
@@ -684,19 +723,5 @@ export async function leagueForkRoutes(
     return res(200, { ok: true, applied: out.applied, errors: out.errors, fork: fixtureForkView(now.league, now.season, now.fixture, auth) });
   }
   if (action === "launch") return withFixtureLock(key, () => launch(deps, client, leagueId, seasonId, fixtureId, auth));
-  const at = locate(deps.store, leagueId, seasonId, fixtureId);
-  if (isResult(at)) return at;
-  const seat = seatedLive(at, auth);
-  if ("status" in seat) return seat;
-  const { side, fork } = seat;
-  // jnlp
-  const team = fork.teams[side]!;
-  try {
-    const jnlp = await client.launchFile({ coach: team.coach, teamId: team.forkTeamId, gameName: fork.gameName ?? `league-${fixtureId}`, gameId: fork.gameId! });
-    const safe = (s: string): string => s.replace(/[^\w.-]+/g, "_").slice(0, 60) || "game";
-    return { status: 200, download: { bytes: Buffer.from(jnlp, "utf8"), contentType: "application/x-java-jnlp-file; charset=utf-8", filename: `league_${safe(fixtureId)}_${safe(team.coach)}.jnlp` }, headers: { ...NO_STORE } };
-  } catch (e) {
-    if (e instanceof ForkClientError) return fail(e.status, e.message);
-    return fail(502, "The launch file could not be made right now.");
-  }
+  return withFixtureLock(key, () => launchFileRoute(deps, client, leagueId, seasonId, fixtureId, auth));
 }
