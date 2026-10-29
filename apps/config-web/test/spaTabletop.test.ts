@@ -722,6 +722,11 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toMatch(/\.tt-rec \{ --tt-col: min\(1400px, 100vw\); \}/); // popups share the centred column width
     expect(css).toMatch(/\.tt-rec \.tt-modal-box, \.tt-rec \.tt-sheet, \.tt-rec \.tt-rosters, \.tt-rec \.tt-other-box \{\s*width: calc\(var\(--tt-col\) - 40px\); max-width: none; margin-inline: auto;/);
     expect(css).toMatch(/\.tt-rec \.tt-settings \.tt-seg \{ max-width: 720px; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
+    expect(css).toMatch(/\.tt-rec \.tt-other-btn \.tt-glyph \{ width: 48px; height: 48px; \}/); // bigger Other icons
+    expect(css).toMatch(/@media \(min-width: 1600px\) \{\s*\.tt-rec \.tt-other-btn \.tt-glyph \{ width: 56px; height: 56px; \}/);
+    expect(css).toMatch(/\.tt-rec \.tt-other > li:nth-child\(3n\+2\) \.tt-other-btn \{ background: color-mix\(in srgb, var\(--tt-home\) 70%[^}]*border-color: var\(--ui-info/); // left column: the TD blue
+    expect(css).toMatch(/\.tt-rec \.tt-other > li:nth-child\(3n\) \.tt-other-btn \{ background: var\(--tt-btn\); \}/); // centre: neutral
+    expect(css).toMatch(/\.tt-rec \.tt-other > li:nth-child\(3n\+1\) \.tt-other-btn \{ background: color-mix\(in srgb, var\(--tt-away\) 70%[^}]*border-color: var\(--ui-danger/); // right column: the CAS red
     const other = await mount(mods.otherC, {});
     expect(other).toContain('class="tt-other-btn"');
     expect(other).toContain('class="tt-other-injury"'); // the Injury tile stays in the markup (phones, tablets)

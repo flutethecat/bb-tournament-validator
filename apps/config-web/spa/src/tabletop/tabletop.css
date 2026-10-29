@@ -1070,3 +1070,18 @@
 @media (min-width: 1024px) {
   .tt-rec .tt-namegroup > .tt-race.tt-nameline { display: none; }
 }
+
+/* Other grid on desktop: bigger icons (48 px, 56 px from 1600) over 14 px labels, and tiles coloured by column like the rail buttons - left the TD blue (home), centre neutral, right the CAS red.
+   The Injury tile is hidden here, so the visible tiles run li 2, 3, 4 / 5, 6, 7 / ...: the columns are 3n+2, 3n and 3n+1. */
+@media (min-width: 1024px) {
+  .tt-rec .tt-other-btn .tt-glyph { width: 48px; height: 48px; }
+  .tt-rec .tt-other-btn .tt-glyph-text { font-size: 48px; width: auto; height: auto; }
+  .tt-rec .tt-other-btn { font-size: 14px; }
+  .tt-rec .tt-other > li:nth-child(3n+2) .tt-other-btn { background: color-mix(in srgb, var(--tt-home) 70%, var(--tt-btn)); border-color: var(--ui-info, var(--tt-line)); }
+  .tt-rec .tt-other > li:nth-child(3n) .tt-other-btn { background: var(--tt-btn); }
+  .tt-rec .tt-other > li:nth-child(3n+1) .tt-other-btn { background: color-mix(in srgb, var(--tt-away) 70%, var(--tt-btn)); border-color: var(--ui-danger, var(--tt-line)); }
+}
+@media (min-width: 1600px) {
+  .tt-rec .tt-other-btn .tt-glyph { width: 56px; height: 56px; }
+  .tt-rec .tt-other-btn .tt-glyph-text { font-size: 56px; }
+}
