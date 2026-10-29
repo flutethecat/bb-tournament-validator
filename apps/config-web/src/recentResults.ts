@@ -140,7 +140,9 @@ export function recentResults(inputs: RecentInputs, limit = RECENT_RESULTS_DEFAU
     const awayTeam = teams.find((t) => t.teamId === row.away.teamId);
     const fixture = fixtureByGame.get(row.gameId);
     if (fixture) {
-      // The fixture already lists this game: lend it the casualties and the concession the fork recorded.
+      // The fixture already lists this game: lend it the time it was played (the fixture only knows when it was
+      // reported), the casualties and the concession the fork recorded.
+      fixture.playedAt = iso(row.playedAt) ?? fixture.playedAt;
       fixture.home.cas ??= casCaused(homeTeam);
       fixture.away.cas ??= casCaused(awayTeam);
       fixture.concede ??= homeTeam?.conceded ? "home" : awayTeam?.conceded ? "away" : null;

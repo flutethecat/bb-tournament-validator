@@ -122,6 +122,23 @@ describe("recent results", () => {
     expect(rows[1]).toMatchObject({ context: "Tabletop · Friendly", home: { score: 0 }, away: { score: 1 }, concede: null });
   });
 
+  it("a fixture-linked fork game sorts by when it was played, not when the fixture was reported", () => {
+    const launch = (gameId: string) => ({ launch: { challengePath: "/api/fork/challenge", jnlpPath: "/api/fork/jnlp", retryCount: 0, gameId } });
+    const rows = recentResults(inputs({
+      results: [forkRow("old", "2026-10-01T00:00:00.000Z"), forkRow("plain", "2026-10-28T00:00:00.000Z")] as never,
+      tournaments: [{ id: "t1", name: "Cup", entrants: [], matches: [
+        fixture("late", 1, { homeScore: 2, awayScore: 1, reportedAt: "2026-10-29T00:00:00.000Z" }, launch("old")),
+        // no retained fork row: the report time stays the fallback
+        fixture("solo", 2, { homeScore: 0, awayScore: 0, reportedAt: "2026-10-27T00:00:00.000Z" }, launch("missing")),
+      ] as never }],
+    }));
+    expect(rows.map((r) => [r.id, r.playedAt])).toEqual([
+      ["fork:plain", "2026-10-28T00:00:00.000Z"],
+      ["tournament:solo", "2026-10-27T00:00:00.000Z"],
+      ["tournament:late", "2026-10-01T00:00:00.000Z"],
+    ]);
+  });
+
   it("fork cards show the deciding (penalty) score when one was recorded", () => {
     const shootout = { ...forkTeam("h", 4, []), penaltyScore: 0 };
     const rows = recentResults(inputs({ results: [forkRow("pk", "2026-10-02T00:00:00.000Z", { teams: [shootout, { ...forkTeam("a", 1, []), penaltyScore: 2 }] })] as never }));
