@@ -493,9 +493,9 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).not.toContain("margin-inline: calc(-1 * var(--tt-pad))");
     expect(css).not.toMatch(/\.tt-board::(?:before|after)/);
     // readability pass: the team-name shadow stack, the button text-shadow and the CSS bevel with its pressed state
-    expect(css).toContain("--tt-name-shadow: 4px 5px 0 rgb(0 0 0 / 85%), 0 7px 18px rgb(0 0 0 / 75%), 0 12px 28px rgb(0 0 0 / 45%)");
-    expect(css).toMatch(/\.tt-rec \.tt-team \{ text-shadow: var\(--tt-name-shadow\); \}/);
-    expect(css).toMatch(/@media \(max-width: 759px\) \{\s*\.tt-rec \.tt-corner \.tt-team \{ font-size: 13px; text-shadow: 2px 2px 0 rgb\(0 0 0 \/ \.9\), 0 0 4px rgb\(0 0 0 \/ \.6\);[^}]*line-clamp: 2;/); // phone: no glow, 13 px, two lines
+    expect(css).toContain("--tt-name-shadow: 2px 2px 0 rgb(0 0 0 / 80%), 0 0 10px rgb(0 0 0 / .45)"); // the builder h1 shadow + one soft glow
+    expect(css).toMatch(/\.tt-rec \.tt-team \{ text-shadow: var\(--tt-name-shadow\); letter-spacing: \.06em; font-weight: 500; \}/);
+    expect(css).toMatch(/@media \(max-width: 759px\) \{\s*\.tt-rec \.tt-corner \.tt-team \{ font-size: 13px;[^}]*line-clamp: 2;/); // phone: 13 px, two lines, same shadow
     expect(css).toContain("--tt-btn-text-shadow: 0 1px 0 rgb(0 0 0 / .8), 0 0 6px rgb(0 0 0 / .5)");
     expect(css).toContain("--tt-bevel: inset 0 2px 0 rgb(255 255 255 / .22), inset 0 -3px 0 rgb(0 0 0 / .45), inset 2px 0 0 rgb(255 255 255 / .08), inset -2px 0 0 rgb(0 0 0 / .25), 0 3px 0 rgb(0 0 0 / .5)");
     expect(css).toMatch(/\.tt-rec \.tt-rail-btn, [^{]*\{\s*border: 1px solid rgb\(0 0 0 \/ \.6\); border-radius: 3px; box-shadow: var\(--tt-bevel\); text-shadow: var\(--tt-btn-text-shadow\);/);

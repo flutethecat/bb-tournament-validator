@@ -682,12 +682,12 @@
 
 /* ---- readability pass (10-28): builder-style team names, centred bigger button text with a legibility shadow, and a CSS-only bevel ---- */
 .tt-rec {
-  --tt-name-shadow: 4px 5px 0 rgb(0 0 0 / 85%), 0 7px 18px rgb(0 0 0 / 75%), 0 12px 28px rgb(0 0 0 / 45%); /* the team view's team-name stack (team-view.css .tv-banner-top h1) */
+  --tt-name-shadow: 2px 2px 0 rgb(0 0 0 / 80%), 0 0 10px rgb(0 0 0 / .45); /* the Team Builder's h1 shadow (team-builder.css) plus one soft glow for lift on the gradient */
   --tt-btn-text-shadow: 0 1px 0 rgb(0 0 0 / .8), 0 0 6px rgb(0 0 0 / .5);
   --tt-bevel: inset 0 2px 0 rgb(255 255 255 / .22), inset 0 -3px 0 rgb(0 0 0 / .45), inset 2px 0 0 rgb(255 255 255 / .08), inset -2px 0 0 rgb(0 0 0 / .25), 0 3px 0 rgb(0 0 0 / .5);
   --tt-bevel-down: inset 0 3px 0 rgb(0 0 0 / .45), inset 0 -2px 0 rgb(255 255 255 / .18), inset 2px 0 0 rgb(0 0 0 / .25), inset -2px 0 0 rgb(255 255 255 / .08);
 }
-.tt-rec .tt-team { text-shadow: var(--tt-name-shadow); }
+.tt-rec .tt-team { text-shadow: var(--tt-name-shadow); letter-spacing: .06em; font-weight: 500; } /* the builder's h1: .06em, weight 500 */
 :root[data-theme="fumbbl"] .tt-rec .tt-team { color: var(--ui-text-on-primary, #ffffff); }
 .tt-rec .tt-rail-btn, .tt-rec .tt-rail-end, .tt-rec .tt-big, .tt-rec .tt-endturn, .tt-rec .tt-rosters-btn, .tt-rec .tt-cog, .tt-rec .tt-crumb-btn,
 .tt-rec .lobby-btn, .tt-rec .tt-close, .tt-rec .tt-seg-btn {
@@ -708,7 +708,7 @@
   .tt-rec .tt-rail-btn { gap: 10px; }
 }
 
-/* phone (below 760 px): a tighter name shadow (no glow) and one size step up so the 13 px names stay crisp, two lines kept */
+/* phone (below 760 px): one size step up so the 13 px names stay crisp, two lines kept (the shadow is the same builder stack at every width) */
 @media (max-width: 759px) {
-  .tt-rec .tt-corner .tt-team { font-size: 13px; text-shadow: 2px 2px 0 rgb(0 0 0 / .9), 0 0 4px rgb(0 0 0 / .6); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+  .tt-rec .tt-corner .tt-team { font-size: 13px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 }
