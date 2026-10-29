@@ -1,0 +1,228 @@
+/**
+ * Leagues: a league (name, artwork, organisers) with numbered seasons. Seasons are stored whole (phases with their
+ * standings, fixtures, participants, team rosters with per-player season stats, honours, awards). The first league
+ * (TABBL) was imported from the organiser's TourPlay exports (scripts/import-tourplay-league.ts).
+ *
+ * Storage: <FORK_STATE_DIR>/leagues/<leagueId>/league.json + seasons/<seasonId>.json, atomic writes.
+ * The read model (api.ts) exposes logoUrl / bannerUrl, never the stored file paths.
+ */
+
+export type LeagueRuleset = "BB2020" | "BB2025";
+export const LEAGUE_RULESETS: readonly LeagueRuleset[] = ["BB2020", "BB2025"];
+export type SeasonStatus = "active" | "completed";
+
+export interface LeagueRecord {
+  id: string;
+  name: string;
+  fullName: string;
+  slug: string;
+  description: string;
+  /** `league-art/<sha256>.<ext>` under the league's directory, or unset. */
+  logoPath?: string;
+  bannerPath?: string;
+  /** Coach ids (fork accounts) who may change the league artwork; admins always may. */
+  organisers: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One side of a fixture. coachId is set when the coach maps to a fork identity (NAF name match). */
+export interface FixtureSide {
+  team: string;
+  coach: string;
+  coachId?: string;
+  race: string;
+  nafUser?: string;
+  score: number | null;
+  cas: number | null;
+  conceded: boolean;
+}
+
+export interface LeagueFixture {
+  id: string;
+  /** TourPlay category: "Season" or "Cup". */
+  category: string;
+  phase: string;
+  /** `<category>-<phase>` slug; matches LeaguePhase.id. */
+  phaseId: string;
+  group: string;
+  round: number;
+  table: number;
+  home: FixtureSide;
+  away: FixtureSide;
+  suspended: boolean;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface StandingRow {
+  group: string;
+  rank: number;
+  team: string;
+  race: string;
+  coach: string;
+  coachId?: string;
+  points: number;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  tdFor: number;
+  tdAgainst: number;
+  casFor: number;
+  casAgainst: number;
+  injuriesFor: number;
+  injuriesAgainst: number;
+  completions: number;
+  interceptions: number;
+  deathsFor: number;
+  deathsAgainst: number;
+  foulsFor: number;
+  foulsAgainst: number;
+  sentOffsFor: number;
+  sentOffsAgainst: number;
+  secretObjectives: number;
+  buchholz: number;
+}
+
+export interface LeaguePhase {
+  id: string;
+  category: string;
+  name: string;
+  groups: string[];
+  standings: StandingRow[];
+  /** Fixture-only phases whose games count in this phase's standings (e.g. Interdivision in Regular). */
+  includes?: string[];
+}
+
+export interface LeagueParticipant {
+  coach: string;
+  coachId?: string;
+  nafUser?: string;
+  country: string;
+  race: string;
+  team: string;
+  registeredAt?: string;
+  active: boolean;
+}
+
+/** Season totals for one player, from the TourPlay player honours (absent = 0). */
+export interface PlayerSeasonStats {
+  td: number;
+  cas: number;
+  mvp: number;
+  int: number;
+  completions: number;
+  fouls: number;
+  injuries: number;
+  sentOffs: number;
+  spp: number;
+  performance: number;
+}
+
+export const EMPTY_PLAYER_STATS: PlayerSeasonStats = {
+  td: 0, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 0, performance: 0,
+};
+
+export interface LeaguePlayer {
+  number: number | null;
+  name: string;
+  position: string;
+  ma: number | null;
+  st: number | null;
+  ag: number | null;
+  pa: number | null;
+  av: number | null;
+  skills: string[];
+  value: number | null;
+  level: string;
+  availableSpp: number;
+  niggling: number;
+  missNextGame: boolean;
+  stats: PlayerSeasonStats;
+}
+
+/** A player who appears in the season honours but not on the final roster (dead, fired, retired). */
+export interface FormerPlayer {
+  name: string;
+  position: string;
+  level: string;
+  stats: PlayerSeasonStats;
+}
+
+export interface LeagueTeam {
+  name: string;
+  race: string;
+  coach: string;
+  coachId?: string;
+  nafUser?: string;
+  teamValue: number | null;
+  treasury: number | null;
+  rerolls: number | null;
+  fans: number | null;
+  assistantCoaches: number | null;
+  cheerleaders: number | null;
+  apothecary: boolean;
+  tier: string;
+  /** TourPlay's sub-league label for the race ("WorldsEdgeSuperleague"). */
+  raceLeague: string;
+  players: LeaguePlayer[];
+  formerPlayers: FormerPlayer[];
+}
+
+export type HonourKind = "player" | "team" | "coach";
+
+/** A coach honour value: a plain number or a TourPlay brace record ({ Wins = 4, Draws = 0, ... }). */
+export type HonourValue = number | string | Record<string, number | string>;
+
+export interface HonourRow {
+  rank: number;
+  /** Player name (player honours), team name (team honours) or coach (coach honours). */
+  name: string;
+  team: string;
+  coach: string;
+  position?: string;
+  level?: string;
+  value: HonourValue;
+}
+
+export interface HonourTable {
+  /** `<category>-<stat>`, e.g. "season-mosttouchdowns". */
+  key: string;
+  category: string;
+  stat: string;
+  kind: HonourKind;
+  rows: HonourRow[];
+}
+
+export interface LeagueAward {
+  category: string;
+  type: string;
+  name: string;
+  description: string;
+  coach: string;
+  coachId?: string;
+  team: string;
+  race: string;
+  goldenStar: boolean;
+}
+
+export interface SeasonRecord {
+  id: string;
+  leagueId: string;
+  number: number;
+  name: string;
+  sourceSlug: string;
+  ruleset: LeagueRuleset;
+  status: SeasonStatus;
+  startedAt?: string;
+  endedAt?: string;
+  phases: LeaguePhase[];
+  fixtures: LeagueFixture[];
+  participants: LeagueParticipant[];
+  teams: LeagueTeam[];
+  honours: HonourTable[];
+  awards: LeagueAward[];
+  importedAt: string;
+  source: "tourplay-export";
+}
