@@ -731,7 +731,9 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
   it("account route shows the Discord identity and the FUMBBL name from the profile route, never the email", async () => {
     const profile = (extra: Record<string, unknown>) => ({
       coach: "Alice", displayName: "", fumbblName: "", fumbblLinked: false, nafName: "", nafId: "", avatar: null, avatarSource: "none",
-      discord: { linked: true, username: "alice_dc" }, ...extra,
+      discord: { linked: true, username: "alice_dc" },
+      connections: [{ id: "discord", label: "Discord", kind: "oauth", icon: "/icons/ui/action-pass.png", status: "linked", identity: "alice_dc", note: "You sign in with this Discord account. It can't be changed here.", actions: [] }],
+      ...extra,
     });
     const { html } = await render("/account", {
       "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" },
