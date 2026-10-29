@@ -4,13 +4,13 @@ import { createSSRApp } from "vue";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
-import type { Fetcher } from "../spa/src/session";
+import { createSessionStore, SESSION_REVALIDATE_MS, type Fetcher } from "../spa/src/session";
 import { notificationAge } from "../spa/src/home/notifications";
 import { browserTimeZone, CHIP_CLASS, chipFor, formatWhen, timeLeft } from "../spa/src/home/deadlines";
 import { blocksProblem, byDay, createScheduleEditor, MAX_BLOCKS, timeZoneOptions } from "../spa/src/home/schedule";
 import { createCoachTree, MAX_FINISHED_TOURNAMENTS, openFixture, pickActive, TREE_REFRESH_MS, tournamentStatus, validityChip } from "../spa/src/home/tree";
 import { CLOCK_TICK_MS, createClock, logDate, routerPathOf, trapTarget, typingTarget } from "../spa/src/home/shell";
-import { NAV_OPEN_STORAGE_KEY, readNavOpen, rememberNavOpen } from "../spa/src/home/nav";
+import { NAV_OPEN_STORAGE_KEY, railIntercepts, readNavOpen, rememberNavOpen } from "../spa/src/home/nav";
 
 // Shell nav trees + coach page (/app/home) + What's new (/app/whats-new). Controllers are tested directly; the views are
 // server-rendered through the SPA's own Vite config (as spaShell.test.ts does), so the HTML is what build:spa compiles.
@@ -443,6 +443,81 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(nav).not.toContain('href="/app/account"');
   });
 
+  it("category open state: a localStorage getter that throws (blocked site data) never escapes", () => {
+    const had = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, get() { throw new DOMException("blocked", "SecurityError"); } });
+    try {
+      expect(() => readNavOpen()).not.toThrow();
+      expect(readNavOpen()).toEqual({ leagues: true, tournaments: true, leaderboards: true, help: true, resources: false, testing: false });
+      expect(() => rememberNavOpen(readNavOpen())).not.toThrow();
+    } finally {
+      if (had) Object.defineProperty(globalThis, "localStorage", had);
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  });
+
+  it("rail icons intercept only an unmodified primary click on the collapsed desktop rail", () => {
+    const click = (over: Partial<MouseEvent> = {}) => ({ button: 0, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, defaultPrevented: false, ...over });
+    const rail = { collapsed: true, narrow: false };
+    expect(railIntercepts(click(), rail)).toBe(true);
+    for (const mod of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }, { defaultPrevented: true }]) {
+      expect(railIntercepts(click(mod), rail)).toBe(false);
+    }
+    expect(railIntercepts(click(), { collapsed: false, narrow: false })).toBe(false); // open bar: plain navigation
+    expect(railIntercepts(click(), { collapsed: true, narrow: true })).toBe(false); // phone drawer never acts as a rail
+  });
+
+  it("session: a revoked admin flag reaches the shell on the next (throttled) revalidation; a failed read fails closed", async () => {
+    let t = 1_000_000;
+    let reply: unknown = { authenticated: true, coach: "Alice", authMethod: "discord", admin: true };
+    const f = mockFetcher({ "/api/auth/session": () => reply });
+    const s = createSessionStore(f, { now: () => t });
+    await s.load();
+    expect(s.admin()).toBe(true);
+    reply = { authenticated: true, coach: "Alice", authMethod: "discord", admin: false };
+    await s.revalidate(); // inside the floor: no read
+    expect(f.calls.filter((c) => c.path === "/api/auth/session")).toHaveLength(1);
+    expect(s.admin()).toBe(true);
+    t += SESSION_REVALIDATE_MS;
+    await s.revalidate();
+    expect(f.calls.filter((c) => c.path === "/api/auth/session")).toHaveLength(2);
+    expect(s.admin()).toBe(false);
+    // while a later re-read is pending after a "not admin" answer, admin stays off even if the cached info said admin
+    t += SESSION_REVALIDATE_MS;
+    reply = new ApiError(401, "Sign in");
+    const pending = s.revalidate();
+    s.state.info = { authenticated: true, coach: "Alice", authMethod: "discord", admin: true };
+    expect(s.state.status).toBe("loading");
+    expect(s.admin()).toBe(false);
+    await pending;
+    expect(s.state.status).toBe("error");
+    expect(s.admin()).toBe(false); // a 401 drops admin
+  });
+
+  it("Testing Tools: the rendered sidebar follows session.admin(), so a revalidated non-admin session hides it", async () => {
+    let reply: unknown = { authenticated: true, coach: "Alice", authMethod: "discord", admin: true };
+    const { html, spa } = await render("/home", { ...signedInRoutes(), "/api/auth/session": () => reply });
+    expect(navOf(html)).toContain("Testing Tools");
+    reply = { authenticated: true, coach: "Alice", authMethod: "discord", admin: false };
+    await spa.session.load(true);
+    expect(navOf(await mods.renderToString(spa.app))).not.toContain("Testing Tools");
+  });
+
+  it("collapsed rail: every icon keeps an accessible name (visually hidden label, title tooltip)", async () => {
+    const { html } = await render("/home", signedInRoutes(), (spa) => { spa.ui.collapsed = true; });
+    const nav = navOf(html);
+    expect(nav).toMatch(/<a href="\/app\/home" class="sf-top-link"[^>]*title="Home"[^>]*><img [^>]*><span class="sf-top-label">Home<\/span>/);
+    for (const label of ["Leagues", "Tournaments", "Leaderboards", "Help", "Useful resources"]) {
+      expect(nav).toMatch(new RegExp(`class="sf-head-link[^"]*"[^>]*title="${label}"[^>]*><img [^>]*><span class="sf-head-label">${label}</span>`));
+    }
+    const css = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");
+    const rail = css.slice(css.indexOf("@media (min-width: 1024px)"), css.indexOf("/* under 1024"));
+    expect(rail).not.toMatch(/\.sf-(?:head|top)-label[^{]*\{ display: none/);
+    expect(rail).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-top-label \{ position: absolute; width: 1px; height: 1px;[^}]*clip: rect\(0 0 0 0\)/);
+    // the open bar carries no tooltip (the label is visible)
+    expect(navOf((await render("/home", signedInRoutes())).html)).not.toContain('title="Home"');
+  });
+
   it("category open state: defaults, remembered per category, bad storage falls back", () => {
     const store: Record<string, string> = {};
     const storage = { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = v; } };
@@ -640,7 +715,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(css).toContain("--sf-nav-w: 260px;");
     expect(css).toMatch(/\.sf-body\[data-rail="true"\] \{ grid-template-columns: var\(--sf-rail-w\)/);
     expect(navOf(html)).not.toContain("data-glyph"); // icons replace the letter glyphs
-    expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-head-label,\s*\.sf-nav\[data-collapsed="true"\] \.sf-top-label,\s*\.sf-nav\[data-collapsed="true"\] \.sf-rows \{ display: none; \}/);
+    expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-count,\s*\.sf-nav\[data-collapsed="true"\] \.sf-rows \{ display: none; \}/);
     expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-icon \{ width: 24px; height: 24px; \}/);
   });
 

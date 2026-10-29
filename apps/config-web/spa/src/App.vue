@@ -57,7 +57,9 @@ watch(() => session.coach(), (coach) => void tree.load(coach), { immediate: true
 onServerPrefetch(() => tree.load(session.coach()));
 
 // A route change closes the drawer and refreshes the trees (at most once a minute).
-watch(() => route.fullPath, () => { ui.drawerOpen = false; menuOpen.value = false; void tree.refresh(); });
+// Every navigation also re-reads the session (throttled to once a minute) so a revoked admin flag or an expired
+// session reaches the shell without a reload.
+watch(() => route.fullPath, () => { ui.drawerOpen = false; menuOpen.value = false; void tree.refresh(); void session.revalidate(); });
 
 // The drawer (< 1024 px): inert and hidden while closed; open, focus moves to its first row and Tab stays inside;
 // closing (Escape, the scrim, a row) puts focus back on the Menu button.
@@ -91,12 +93,14 @@ function onKey(e: KeyboardEvent): void {
   else toggleRail();
 }
 // Coming back to the tab refreshes the trees (same once-a-minute bound).
-const onFocus = () => void tree.refresh();
+const onFocus = () => { void tree.refresh(); void session.revalidate(); };
+const onVisible = () => { if (document.visibilityState === "visible") void session.revalidate(); };
 let media: MediaQueryList | undefined;
 const onMedia = () => { ui.narrow = media?.matches === true; if (!ui.narrow) ui.drawerOpen = false; };
 onMounted(() => {
   window.addEventListener("keydown", onKey);
   window.addEventListener("focus", onFocus);
+  document.addEventListener("visibilitychange", onVisible);
   media = window.matchMedia?.(DRAWER_QUERY);
   onMedia();
   media?.addEventListener?.("change", onMedia);
@@ -104,6 +108,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKey);
   window.removeEventListener("focus", onFocus);
+  document.removeEventListener("visibilitychange", onVisible);
   media?.removeEventListener?.("change", onMedia);
 });
 

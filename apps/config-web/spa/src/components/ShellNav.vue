@@ -11,7 +11,7 @@ import { rememberRail, SHELL_UI_KEY } from "../home/shell";
 import { SESSION_KEY } from "../session";
 import { NOTIFICATIONS_KEY, homeBadgeCount, unreadBadge } from "../home/notifications";
 import {
-  HELP_ROWS, HOME_LINK, LEADERBOARD_ROWS, LEAGUES_TO, NAV_ICON, readNavOpen, rememberNavOpen, RESOURCES, TESTING_TOOLS,
+  HELP_ROWS, HOME_LINK, LEADERBOARD_ROWS, LEAGUES_TO, NAV_ICON, railIntercepts, readNavOpen, rememberNavOpen, RESOURCES, TESTING_TOOLS,
   type ExternalLink, type NavCategoryId,
 } from "../home/nav";
 
@@ -45,8 +45,9 @@ const tournamentRows = computed<Row[]>(() => {
 const leagueRows: Row[] = [{ key: "l:none", to: LEAGUES_TO, label: "No active leagues", level: 1, muted: true }];
 const linkRows = (prefix: string, links: { label: string; to: string }[]): Row[] => links.map((l) => ({ key: `${prefix}:${l.to}`, to: l.to, label: l.label, level: 1 }));
 
-// Testing Tools: site admins only (the session says admin); everyone else never sees the category or its rows.
-const isAdmin = computed(() => session.signedIn() && session.state.info?.admin === true);
+// Testing Tools: site admins only, per the latest session read (session.admin() fails closed and the shell re-reads
+// the session on navigation and focus, so a revoked flag hides the category); everyone else never sees it.
+const isAdmin = computed(() => session.admin());
 
 // Home carries the coach page's unread badge (notifications + messages + proposed times; the last two are wired to 0
 // until their stores land). Hidden at 0 and when signed out.
@@ -80,8 +81,8 @@ function toggle(id: NavCategoryId): void {
   rememberNavOpen({ ...open });
 }
 // In the 56 px rail a category icon expands the rail and opens that category instead of navigating or toggling.
-function fromRail(id: NavCategoryId, e: Event): boolean {
-  if (!ui.collapsed || ui.narrow) return false;
+function fromRail(id: NavCategoryId, e: MouseEvent): boolean {
+  if (!railIntercepts(e, ui)) return false;
   e.preventDefault();
   ui.collapsed = false;
   rememberRail(ui);
@@ -100,7 +101,7 @@ function onHeadToggle(id: NavCategoryId, e: MouseEvent): void {
   <nav class="sf-nav" :data-collapsed="ui.collapsed ? 'true' : 'false'" aria-label="Site">
     <RouterLink v-slot="{ href, navigate }" :to="HOME_LINK.to" custom>
       <a
-        :href="href" class="sf-top-link" data-tree="home" :data-active="activeKey === 'home' ? 'true' : undefined"
+        :href="href" class="sf-top-link" data-tree="home" :data-active="activeKey === 'home' ? 'true' : undefined" :title="ui.collapsed ? HOME_LINK.label : undefined"
         :aria-current="activeKey === 'home' ? 'page' : undefined" @click="navigate"
       ><img class="sf-icon" :src="NAV_ICON('home')" alt="" width="20" height="20" /><span class="sf-top-label">{{ HOME_LINK.label }}</span><span
         v-if="homeBadge > 0" class="sf-count" :aria-label="`${homeBadge} unread`">{{ unreadBadge(homeBadge) }}</span></a>
@@ -113,12 +114,12 @@ function onHeadToggle(id: NavCategoryId, e: MouseEvent): void {
         ><span aria-hidden="true">{{ open[c.id] ? "▾" : "▸" }}</span></button>
         <RouterLink v-if="c.to" v-slot="{ href, navigate }" :to="c.to" custom>
           <a
-            :href="href" class="sf-head-link" :data-active="activeKey === `c:${c.id}` ? 'true' : undefined"
+            :href="href" class="sf-head-link" :data-active="activeKey === `c:${c.id}` ? 'true' : undefined" :title="ui.collapsed ? c.label : undefined"
             :aria-current="activeKey === `c:${c.id}` ? 'page' : undefined" @click="onHeadLink(c.id, $event, navigate)"
           ><img class="sf-icon" :src="NAV_ICON(c.icon)" alt="" width="20" height="20" /><span class="sf-head-label">{{ c.label }}</span></a>
         </RouterLink>
         <button
-          v-else class="sf-head-link sf-head-toggle" type="button" :aria-expanded="open[c.id] ? 'true' : 'false'"
+          v-else class="sf-head-link sf-head-toggle" type="button" :aria-expanded="open[c.id] ? 'true' : 'false'" :title="ui.collapsed ? c.label : undefined"
           :aria-controls="`sf-tree-${c.id}`" @click="onHeadToggle(c.id, $event)"
         ><img class="sf-icon" :src="NAV_ICON(c.icon)" alt="" width="20" height="20" /><span class="sf-head-label">{{ c.label }}</span></button>
         <span v-if="c.count" class="sf-count" :aria-label="`${c.count} entries`">{{ c.count }}</span>

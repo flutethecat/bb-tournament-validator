@@ -41,11 +41,15 @@ export const NAV_OPEN_DEFAULTS: Readonly<Record<NavCategoryId, boolean>> = {
   leagues: true, tournaments: true, leaderboards: true, help: true, resources: false, testing: false,
 };
 
+// Resolved inside each function's try: in a sandboxed frame or with site data blocked, merely reading
+// `localStorage` throws, and that must never break rendering.
+const browserStorage = (): Storage | undefined => (typeof localStorage === "undefined" ? undefined : localStorage);
+
 /** The remembered open state merged over the defaults; anything unreadable falls back to the defaults. */
-export function readNavOpen(storage: Pick<Storage, "getItem"> | undefined = typeof localStorage === "undefined" ? undefined : localStorage): Record<NavCategoryId, boolean> {
+export function readNavOpen(storage?: Pick<Storage, "getItem">): Record<NavCategoryId, boolean> {
   const out = { ...NAV_OPEN_DEFAULTS };
   try {
-    const raw = storage?.getItem(NAV_OPEN_STORAGE_KEY);
+    const raw = (storage ?? browserStorage())?.getItem(NAV_OPEN_STORAGE_KEY);
     const saved: unknown = raw ? JSON.parse(raw) : undefined;
     if (saved && typeof saved === "object") {
       for (const id of Object.keys(out) as NavCategoryId[]) {
@@ -57,6 +61,16 @@ export function readNavOpen(storage: Pick<Storage, "getItem"> | undefined = type
   return out;
 }
 
-export function rememberNavOpen(open: Record<NavCategoryId, boolean>, storage: Pick<Storage, "setItem"> | undefined = typeof localStorage === "undefined" ? undefined : localStorage): void {
-  try { storage?.setItem(NAV_OPEN_STORAGE_KEY, JSON.stringify(open)); } catch { /* no storage */ }
+export function rememberNavOpen(open: Record<NavCategoryId, boolean>, storage?: Pick<Storage, "setItem">): void {
+  try { (storage ?? browserStorage())?.setItem(NAV_OPEN_STORAGE_KEY, JSON.stringify(open)); } catch { /* no storage */ }
+}
+
+/** The click a rail icon takes over (expand the rail, open the category): only an unmodified primary click on the
+ * collapsed desktop rail. Ctrl/Meta/Shift/Alt or middle clicks keep the browser's own behaviour (a new tab). */
+export function railIntercepts(
+  e: Pick<MouseEvent, "button" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey" | "defaultPrevented">,
+  ui: { collapsed: boolean; narrow: boolean },
+): boolean {
+  if (!ui.collapsed || ui.narrow || e.defaultPrevented) return false;
+  return e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey;
 }

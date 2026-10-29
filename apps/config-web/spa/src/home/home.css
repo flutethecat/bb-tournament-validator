@@ -133,9 +133,10 @@
 @media (min-width: 1024px) {
   .sf-nav[data-collapsed="true"] .sf-caret,
   .sf-nav[data-collapsed="true"] .sf-count,
-  .sf-nav[data-collapsed="true"] .sf-head-label,
-  .sf-nav[data-collapsed="true"] .sf-top-label,
   .sf-nav[data-collapsed="true"] .sf-rows { display: none; }
+  /* labels stay in the accessibility tree (visually hidden), so every rail icon keeps its name */
+  .sf-nav[data-collapsed="true"] .sf-head-label,
+  .sf-nav[data-collapsed="true"] .sf-top-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   .sf-nav[data-collapsed="true"] .sf-tree-head,
   .sf-nav[data-collapsed="true"] > .sf-top-link { justify-content: center; margin-left: 4px; margin-right: 4px; padding: 6px 0; border-left-width: 2px; }
   .sf-nav[data-collapsed="true"] .sf-head-link { flex: none; justify-content: center; }
