@@ -115,7 +115,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
         <li v-for="c in cells(s)" :key="c.n" class="tt-cell" :data-state="c.state" :data-tip="cellTip(s, c.n)" data-tip-pos="bottom" :aria-current="c.state === 'active' ? 'step' : undefined">{{ c.n }}</li>
         <li v-if="timed && clock?.activeTeam === s" class="tt-clock" aria-hidden="true">&#9201; {{ countdown }}</li>
       </ol>
-      <p class="tt-half">Turn<small>{{ half }}</small></p>
+      <p v-if="vw < 1024" class="tt-half">Turn<small>{{ half }}</small></p>
     </div>
     <section v-for="s in sides" :key="s" class="tt-corner" :class="s" :style="tint(s)">
       <div class="tt-crestcol">

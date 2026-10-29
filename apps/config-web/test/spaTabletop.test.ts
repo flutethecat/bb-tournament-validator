@@ -585,10 +585,10 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-rec \.tt-track \.tt-cell\[data-state="active"\] \{ background: var\(--ui-scarlet/);
     expect(css1).toMatch(/\.tt-rec \.tt-track\.home \.tt-cell\[data-state="done"\], \.tt-rec \.tt-track\.away \.tt-cell\[data-state="done"\] \{ color: color-mix\(in srgb, var\(--ui-text, #e6e9ef\) 55%, transparent\); \}/); // played = soft grey, future = full white
     // scoreboard variant C: the broadcast bug (three columns, Nuffle digits with a hard shadow, no LED glow) and the stats strip
-    expect(css1).toMatch(/\.tt-rec \.tt-score \{ display: grid; grid-template-columns: minmax\(0, 1fr\) 72px minmax\(0, 1fr\);[^}]*font-family: var\(--font-heading, sans-serif\);[^}]*text-shadow: 3px 3px 0 #000;/);
+    expect(css1).toMatch(/\.tt-rec \.tt-score \{ display: grid; grid-template-columns: minmax\(0, 1fr\) 84px minmax\(0, 1fr\); grid-template-rows: 1fr;[^}]*font-family: var\(--font-heading, sans-serif\);[^}]*text-shadow: 3px 3px 0 #000;/);
     expect(css1).toMatch(/\.tt-rec \.tt-score > span:nth-child\(1\) \{ grid-column: 1; background: linear-gradient\(90deg, color-mix\(in srgb, var\(--ui-info/);
     expect(css1).toMatch(/\.tt-rec \.tt-score > span:nth-child\(3\) \{ grid-column: 3; background: linear-gradient\(270deg, color-mix\(in srgb, var\(--ui-danger/);
-    expect(css1).toMatch(/\.tt-rec \.tt-stats \{ grid-column: 2; grid-row: 3; display: grid; grid-template-columns: minmax\(0, 1fr\) 72px minmax\(0, 1fr\);[^}]*border-top: 1px solid var\(--tt-rule\); border-bottom: 1px solid var\(--tt-rule\);[^}]*font-family: var\(--font-heading, sans-serif\)/);
+    expect(css1).toMatch(/\.tt-rec \.tt-stats \{ grid-column: 2; grid-row: 3; display: grid; grid-template-columns: minmax\(0, 1fr\) 84px minmax\(0, 1fr\);[^}]*border-top: 1px solid var\(--tt-rule\); border-bottom: 1px solid var\(--tt-rule\);[^}]*font-family: var\(--font-heading, sans-serif\)/);
     expect(css1).not.toMatch(/\.tt-rec \.tt-score \{[^}]*(?:glow|scarlet)/); // no LED red on the digits
     expect(css1).not.toMatch(/\.tt-rec \.tt-counters b \{/); // the LED counter cells are gone
     expect(css1).toMatch(/\.tt-rec \.tt-crestcol \.tt-crest-race \{ color: var\(--ui-text, #e6e9ef\); \}/); // the race line is white
@@ -604,6 +604,13 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-rec > \.tt-board \{ grid-template-rows: auto var\(--tt-score-h\) auto; \}/);
     expect(css1).toMatch(/\.tt-rec \.tt-score > span:nth-child\(1\), \.tt-rec \.tt-score > span:nth-child\(3\), \.tt-rec \.tt-score-turn \{ align-self: stretch; height: 100%; margin: 0; padding: 0; \}/);
     expect(css1).toMatch(/\.tt-rec \.tt-score > span:nth-child\(1\), \.tt-rec \.tt-score > span:nth-child\(3\) \{ display: grid; place-items: center; \}/);
+    // the score row: exactly three items on row 1 (the colon is display:none), a single 1fr row so the fills equal the row height; no label on the track
+    expect(css1).toMatch(/\.tt-rec \.tt-score > span:nth-child\(1\), \.tt-rec \.tt-score > span:nth-child\(3\), \.tt-rec \.tt-score-turn \{ grid-row: 1; \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-score-colon \{ display: none; \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-turns > \.tt-half \{ display: none; \}/);
+    const score = /<p class="tt-score"[^>]*>([\s\S]*?)<\/p>/.exec(html)![1]!;
+    expect(score.match(/<span(?: class="tt-score-(?:colon|turn)")?>|<span class="tt-score-(?:colon|turn)">/g)).toHaveLength(4); // home, colon (hidden), away, TURN
+    expect(html).not.toContain('class="tt-half"'); // no TURN / half label on the track (the server render is the desktop one)
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);

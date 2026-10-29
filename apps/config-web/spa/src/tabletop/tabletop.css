@@ -1006,7 +1006,7 @@
   .tt-rec > .tt-board { grid-template-rows: auto 1fr auto; }
   .tt-rec .tt-counters { display: none; }
   .tt-rec .tt-turns { border-radius: 6px 6px 0 0; background: rgb(0 0 0 / .25); }
-  .tt-rec .tt-score { display: grid; grid-template-columns: minmax(0, 1fr) 72px minmax(0, 1fr); align-items: stretch; justify-items: stretch; width: 100%; box-sizing: border-box; padding: 0; justify-self: stretch; align-self: stretch; min-height: 88px; font-family: var(--font-heading, sans-serif); color: var(--ui-text-on-primary, #ffffff); text-shadow: 3px 3px 0 #000; letter-spacing: .04em; line-height: 1; text-align: center; }
+  .tt-rec .tt-score { display: grid; grid-template-columns: minmax(0, 1fr) 84px minmax(0, 1fr); grid-template-rows: 1fr; align-items: stretch; justify-items: stretch; width: 100%; box-sizing: border-box; padding: 0; justify-self: stretch; align-self: stretch; min-height: 88px; font-family: var(--font-heading, sans-serif); color: var(--ui-text-on-primary, #ffffff); text-shadow: 3px 3px 0 #000; letter-spacing: .04em; line-height: 1; text-align: center; }
   .tt-rec .tt-score > span:nth-child(1), .tt-rec .tt-score > span:nth-child(3) { display: grid; place-items: center; }
   .tt-rec .tt-score > span:nth-child(1) { grid-column: 1; background: linear-gradient(90deg, color-mix(in srgb, var(--ui-info, #4a86c8) 70%, #000), color-mix(in srgb, var(--ui-info, #4a86c8) 35%, #000)); }
   .tt-rec .tt-score > span:nth-child(3) { grid-column: 3; background: linear-gradient(270deg, color-mix(in srgb, var(--ui-danger, #ff4d4d) 70%, #000), color-mix(in srgb, var(--ui-danger, #ff4d4d) 35%, #000)); }
@@ -1014,7 +1014,7 @@
   .tt-rec .tt-score-turn { grid-column: 2; display: grid; place-content: center; gap: 2px; background: color-mix(in srgb, #000 78%, var(--ui-surface, #0d0d0d)); font-family: var(--font-heading, sans-serif); text-align: center; line-height: 1.1; }
   .tt-rec .tt-score-turn small { font-size: 12px; letter-spacing: .06em; color: var(--ui-scarlet, var(--tt-accent)); text-shadow: var(--tt-name-shadow); }
   .tt-rec .tt-score-turn b { font-size: 20px; font-weight: 400; color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--tt-name-shadow); }
-  .tt-rec .tt-stats { grid-column: 2; grid-row: 3; display: grid; grid-template-columns: minmax(0, 1fr) 72px minmax(0, 1fr); align-items: center; height: 36px; text-align: center; background: color-mix(in srgb, #000 70%, var(--ui-surface, #0d0d0d)); border-top: 1px solid var(--tt-rule); border-bottom: 1px solid var(--tt-rule); border-radius: 0 0 6px 6px; font-family: var(--font-heading, sans-serif); font-size: 13px; letter-spacing: .06em; color: var(--ui-text, #e6e9ef); text-shadow: var(--tt-name-shadow); }
+  .tt-rec .tt-stats { grid-column: 2; grid-row: 3; display: grid; grid-template-columns: minmax(0, 1fr) 84px minmax(0, 1fr); align-items: center; height: 36px; text-align: center; background: color-mix(in srgb, #000 70%, var(--ui-surface, #0d0d0d)); border-top: 1px solid var(--tt-rule); border-bottom: 1px solid var(--tt-rule); border-radius: 0 0 6px 6px; font-family: var(--font-heading, sans-serif); font-size: 13px; letter-spacing: .06em; color: var(--ui-text, #e6e9ef); text-shadow: var(--tt-name-shadow); }
   .tt-rec .tt-stats b { font-weight: 400; }
   .tt-rec .tt-stats-home b { color: var(--ui-info, #4a86c8); }
   .tt-rec .tt-stats-away b { color: var(--ui-danger, #ff4d4d); }
@@ -1041,3 +1041,10 @@
   .tt-rec .tt-score > span:nth-child(1), .tt-rec .tt-score > span:nth-child(3) { display: grid; place-items: center; }
 }
 @media (min-width: 1600px) { .tt-rec { --tt-score-h: 108px; } }
+
+/* the score row is a single-row grid: the home fill, the TURN cell and the away fill each take row 1 explicitly (auto-placement had pushed the TURN cell to a second row) and stretch its full height;
+   the track has no label on desktop, only the 84 px gap between the halves */
+@media (min-width: 1024px) {
+  .tt-rec .tt-score > span:nth-child(1), .tt-rec .tt-score > span:nth-child(3), .tt-rec .tt-score-turn { grid-row: 1; }
+  .tt-rec .tt-turns > .tt-half { display: none; }
+}
