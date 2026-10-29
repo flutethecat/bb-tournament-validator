@@ -33,7 +33,6 @@
   --sf-panel-drop: color-mix(in srgb, var(--ui-border) 70%, #000000);
   --sf-panel-hi: color-mix(in srgb, var(--ui-surface-2) 60%, #ffffff);
   --sf-bevel: inset 0 1px 0 rgb(255 255 255 / 0.5), inset 0 -1px 0 rgb(0 0 0 / 0.18);
-  --sf-led: #1f7a33;
 }
 
 /* ---- top bar */
