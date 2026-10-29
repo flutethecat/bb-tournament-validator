@@ -19,6 +19,7 @@ import TabletopRail from "../components/TabletopRail.vue";
 import TabletopPlayerPicker from "../components/TabletopPlayerPicker.vue";
 import TabletopSheetHead from "../components/TabletopSheetHead.vue";
 import { assignTitle } from "../tabletop/confirm";
+import { useNewIds } from "../tabletop/newIds";
 import TabletopTimeline from "../components/TabletopTimeline.vue";
 import TabletopWeatherBar from "../components/TabletopWeatherBar.vue";
 import { canEditMatch, createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
@@ -235,6 +236,15 @@ function overrideEnd(): void {
 const showRemoved = computed(() => (organiser.value && mySide.value === null) || viewer.state.showRemoved);
 const shownRows = computed(() => (showRemoved.value ? rows.value : rows.value.filter((r) => r.removed === null)));
 const adminOpen = ref(false);
+/** The rail's admin panel can be collapsed to a Show button; the choice is remembered on this device. */
+const ADMIN_HIDDEN_KEY = "cw.tt.adminHidden";
+const adminHidden = ref((() => { try { return globalThis.localStorage?.getItem(ADMIN_HIDDEN_KEY) === "1"; } catch { return false; } })());
+function setAdminHidden(on: boolean): void {
+  adminHidden.value = on;
+  try { globalThis.localStorage?.setItem(ADMIN_HIDDEN_KEY, on ? "1" : "0"); } catch { /* not remembered */ }
+}
+/** Event ids that just arrived (not on first load): their cards and timeline markers animate in. */
+const newIds = useNewIds(() => shownRows.value.map((r) => r.id));
 const canOverrideEnd = computed(() => recording.value && (state.clock?.turn ?? 0) >= 1 && !!state.clock?.activeTeam);
 const undoById = (id: string): void => { const e = state.events.find((x) => x.id === id); if (e) void rec.undo(e); };
 
@@ -297,7 +307,7 @@ onBeforeUnmount(() => {
     />
 
     <div class="tt-stripbar">
-      <TabletopTimeline :rows="shownRows" />
+      <TabletopTimeline :rows="shownRows" :new-ids="newIds" />
       <span class="tt-stripbar-end">Final</span>
     </div>
 
@@ -364,7 +374,7 @@ onBeforeUnmount(() => {
       </template>
 
       <p v-if="canEdit && editMode" class="tt-edit-bar" role="status">You are in edit mode.<template v-if="match.state === 'confirmed' || match.state === 'published'"> Reopen the match first to undo events.</template></p>
-      <TabletopFeed :rows="rows" :show-removed="showRemoved" :can-undo="canEdit && editMode && (recording || (organiser && match.state === 'submitted'))" :undo-side="organiser ? null : mySide" :compact="viewer.state.compact" :timestamps="viewer.state.timestamps" @undo="undoById" />
+      <TabletopFeed :rows="rows" :show-removed="showRemoved" :new-ids="newIds" :can-undo="canEdit && editMode && (recording || (organiser && match.state === 'submitted'))" :undo-side="organiser ? null : mySide" :compact="viewer.state.compact" :timestamps="viewer.state.timestamps" @undo="undoById" />
     </main>
     </div>
 
@@ -373,8 +383,9 @@ onBeforeUnmount(() => {
       :recording="recording"
       @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @pick="(k) => { viewer.buzz(); openPick(k); }" @other="viewer.buzz(); other = true"
     >
+      <button v-if="organiser && adminHidden" class="tt-admin-btn tt-admin-wide tt-admin-show" type="button" @click="setAdminHidden(false)">Show admin panel</button>
       <TabletopAdmin
-        v-if="organiser" :recording="recording" :can-override="canOverrideEnd" :edit-mode="editMode" :busy="state.busy" :state="match.state" :can-confirm="canConfirm"
+        v-else-if="organiser" collapsible @hide="setAdminHidden(true)" :recording="recording" :can-override="canOverrideEnd" :edit-mode="editMode" :busy="state.busy" :state="match.state" :can-confirm="canConfirm"
         @add="(k) => openPick(k)" @other="other = true" @change-turn="turnSetOpen = true" @override-end="overrideEnd"
         @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)"
       />

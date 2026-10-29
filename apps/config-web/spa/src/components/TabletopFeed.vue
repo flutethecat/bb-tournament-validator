@@ -5,7 +5,7 @@ import { computed } from "vue";
 import type { FeedRow } from "../tabletop/feed";
 import TabletopGlyph from "./TabletopGlyph.vue";
 
-const props = withDefaults(defineProps<{ rows: FeedRow[]; canUndo: boolean; compact?: boolean; timestamps?: boolean; undoSide?: "home" | "away" | null; showRemoved?: boolean }>(), { compact: false, timestamps: true, undoSide: null, showRemoved: true });
+const props = withDefaults(defineProps<{ rows: FeedRow[]; canUndo: boolean; compact?: boolean; timestamps?: boolean; undoSide?: "home" | "away" | null; showRemoved?: boolean; newIds?: ReadonlySet<string> }>(), { compact: false, timestamps: true, undoSide: null, showRemoved: true });
 /** Retracted events stay in the log (struck through) unless the viewer chose to hide them. */
 const shown = computed(() => (props.showRemoved ? props.rows : props.rows.filter((r) => r.removed === null)));
 const emit = defineEmits<{ (e: "undo", id: string): void }>();
@@ -15,7 +15,7 @@ const emit = defineEmits<{ (e: "undo", id: string): void }>();
   <ol class="tt-events" :data-compact="compact ? 'true' : null">
     <li v-if="!shown.length" class="tt-empty">Nothing recorded yet. Tap TD, Other or CAS.</li>
     <li
-      v-for="r in shown" :key="r.id" :id="`tt-ev-${r.id}`" class="tt-ev" :class="[`tt-ev--${r.side === 'centre' ? 'neutral' : r.side}`, { 'tt-ev--admin': r.admin, 'tt-ev--removed': r.removed }]"
+      v-for="r in shown" :key="r.id" :id="`tt-ev-${r.id}`" class="tt-ev" :class="[`tt-ev--${r.side === 'centre' ? 'neutral' : r.side}`, { 'tt-ev--admin': r.admin, 'tt-ev--removed': r.removed, 'tt-ev--new': newIds?.has(r.id) }]"
       :data-row-side="r.side === 'centre' ? 'neutral' : r.side" :data-type="r.type"
     >
       <span v-if="timestamps && r.when && r.admin" class="tt-ev-mark">{{ r.when }}<b class="tt-ev-admintag">ADMIN</b></span>

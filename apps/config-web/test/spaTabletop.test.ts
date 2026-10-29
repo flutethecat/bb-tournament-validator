@@ -669,6 +669,12 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-confirm-yes \{ background: var\(--ui-success, #3fb463\); \}/); // YES is green
     expect(css1).toMatch(/\.tt-confirm-again \{ background: var\(--ui-danger, #ff4d4d\); \}/); // CHOOSE SOMEONE ELSE is red
     expect(css1).toMatch(/\.tt-x \{ background: var\(--ui-danger, #ff4d4d\); color: var\(--ui-text-on-primary, #ffffff\); \}/); // the Close X is red with a white X
+    // new cards pop in (not on first load); reduced motion: a 120 ms fade and no movement
+    expect(css1).toMatch(/@keyframes tt-ev-in \{ 0% \{ opacity: 0; transform: translateY\(-12px\) scale\(1\.02\); \} 70% \{[^}]*scale\(1\.02\); \} 100% \{ opacity: 1; transform: none; \} \}/);
+    expect(css1).toMatch(/\.tt-ev--new \{ animation: tt-ev-in 220ms ease-out both; \}/);
+    expect(css1).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.tt-ev--new \{ animation: tt-fade-in 120ms linear both; \}/);
+    expect(css1).toMatch(/\.tt-ev \.tt-ev-line, \.tt-ev \.tt-ev-icon \{ transition: opacity 160ms ease; \}/); // a removed card fades to its struck state
+    expect(html).not.toContain("tt-ev--new"); // nothing animates on first load
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
@@ -861,6 +867,9 @@ describe("tabletop routes (server-rendered)", () => {
     const org = await renderMatch(body, session({ coach: "Zed", organizer: true }));
     expect(org.html).toContain('class="tt-admin"');
     expect(org.html).toContain("Add event");
+    expect(org.html).toContain("Hide admin panel"); // collapsible for an organiser (the Show button replaces it once hidden)
+    expect(coach.html).not.toContain("Hide admin panel");
+    expect(coach.html).not.toContain("Show admin panel");
     expect(org.html).not.toContain("Set half / overtime"); // Change turn covers it
     expect(org.html).toContain("Change turn");
     expect(org.html).not.toContain("End match"); // the admin panel has no End match button either: the Other grid's End of match tile is the only way
