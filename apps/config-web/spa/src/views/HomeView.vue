@@ -9,7 +9,7 @@ import HomeSchedule from "../components/HomeSchedule.vue";
 import { SESSION_KEY } from "../session";
 import { COACH_TREE_KEY } from "../home/tree";
 import { browserTimeZone, CHIP_CLASS, chipFor, formatWhen, timeLeft } from "../home/deadlines";
-import { loadBuildLog, logDate, type BuildLogEntry } from "../home/shell";
+import { loadBuildLog, logDate, useNow, type BuildLogEntry } from "../home/shell";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 
 interface MyTeam { ref: string; name: string; race?: string }
@@ -18,7 +18,8 @@ const session = inject(SESSION_KEY)!;
 const fetcher = inject(API_KEY)!;
 const tree = inject(COACH_TREE_KEY)!;
 
-const now = ref(new Date());
+// One shared clock (60 s tick) drives the chips and countdowns here and in the nav.
+const now = useNow();
 const zone = computed(() => tree.state.timezone || browserTimeZone());
 const deadlines = computed(() => tree.state.deadlines.map((d) => ({ ...d, chip: chipFor(d.at, now.value) })));
 const CHIP_TEXT = { ok: "More than 3 days", soon: "Under 72 hours", urgent: "Under 24 hours", overdue: "Overdue" } as const;
@@ -49,7 +50,6 @@ async function loadLog(): Promise<void> {
 const crestFor = (t: MyTeam) => resolveCrest(art.value, t.race);
 
 onMounted(() => {
-  now.value = new Date();
   if (!teamsLoaded.value) void loadTeams();
   if (!log.value.length) void loadLog();
 });

@@ -10,7 +10,7 @@ import { createSessionStore, SESSION_KEY, type Fetcher, type SessionStore } from
 import { api } from "./shared/api";
 import { createTheme, THEME_KEY, type Theme } from "./theme";
 import { COACH_TREE_KEY, createCoachTree, type CoachTree } from "./home/tree";
-import { createShellUi, SHELL_UI_KEY, type ShellUi } from "./home/shell";
+import { CLOCK_KEY, createClock, createShellUi, SHELL_UI_KEY, type Clock, type ShellUi } from "./home/shell";
 
 /** The JSON fetcher views use (tests may swap it; the default is the shared same-origin api()). */
 export const API_KEY: InjectionKey<Fetcher> = Symbol("api");
@@ -33,6 +33,8 @@ export interface Spa {
   tree: CoachTree;
   /** Nav rail / drawer state. */
   ui: ShellUi;
+  /** The shared 60 s clock for deadline chips and countdowns. */
+  clock: Clock;
 }
 
 export function createSpa(opts: SpaOptions): Spa {
@@ -47,9 +49,11 @@ export function createSpa(opts: SpaOptions): Spa {
   app.provide(LIBRARY_KEY, library);
   const tree = createCoachTree({ api: fetcher });
   const ui = createShellUi();
+  const clock = createClock();
   app.provide(API_KEY, fetcher);
   app.provide(COACH_TREE_KEY, tree);
   app.provide(SHELL_UI_KEY, ui);
+  app.provide(CLOCK_KEY, clock);
   app.use(router);
-  return { app, router, session, library, theme, tree, ui };
+  return { app, router, session, library, theme, tree, ui, clock };
 }

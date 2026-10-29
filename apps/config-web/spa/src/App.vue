@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "./app";
 import ShellNav from "./components/ShellNav.vue";
@@ -9,7 +9,7 @@ import { appPath, discordLoginUrl, SESSION_KEY } from "./session";
 import { THEME_KEY, themeLabel } from "./theme";
 import { gateFor } from "./router";
 import { COACH_TREE_KEY } from "./home/tree";
-import { rememberRail, SHELL_UI_KEY, typingTarget } from "./home/shell";
+import { DRAWER_QUERY, FOCUSABLE, rememberRail, SHELL_UI_KEY, trapTarget, typingTarget } from "./home/shell";
 import type { AccountInfo } from "./shared/api";
 
 const session = inject(SESSION_KEY)!;
@@ -46,7 +46,22 @@ watch(
 watch(() => session.coach(), (coach) => void tree.load(coach), { immediate: true });
 onServerPrefetch(() => tree.load(session.coach()));
 
-watch(() => route.fullPath, () => { ui.drawerOpen = false; menuOpen.value = false; });
+// A route change closes the drawer and refreshes the trees (at most once a minute).
+watch(() => route.fullPath, () => { ui.drawerOpen = false; menuOpen.value = false; void tree.refresh(); });
+
+// The drawer (< 1024 px): inert and hidden while closed; open, focus moves to its first row and Tab stays inside;
+// closing (Escape, the scrim, a row) puts focus back on the Menu button.
+const aside = ref<HTMLElement | null>(null);
+const menuBtn = ref<HTMLButtonElement | null>(null);
+const drawerClosed = computed(() => ui.narrow && !ui.drawerOpen);
+const drawerModal = computed(() => ui.narrow && ui.drawerOpen);
+const focusables = (): HTMLElement[] => Array.from(aside.value?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter((el) => el.offsetParent !== null || el === document.activeElement);
+watch(drawerModal, async (open, was) => {
+  if (typeof document === "undefined") return;
+  await nextTick();
+  if (open) (focusables()[0] ?? aside.value)?.focus({ preventScroll: true });
+  else if (was && ui.narrow) menuBtn.value?.focus({ preventScroll: true });
+});
 
 function toggleRail(): void {
   ui.collapsed = !ui.collapsed;
@@ -55,13 +70,32 @@ function toggleRail(): void {
 
 function onKey(e: KeyboardEvent): void {
   if (e.key === "Escape") { ui.drawerOpen = false; menuOpen.value = false; return; }
+  if (e.key === "Tab" && drawerModal.value) {
+    const target = trapTarget(focusables(), document.activeElement as HTMLElement | null, e.shiftKey);
+    if (target) { e.preventDefault(); target.focus({ preventScroll: true }); }
+    return;
+  }
   if (e.key !== "[" || e.ctrlKey || e.metaKey || e.altKey || typingTarget(e.target)) return;
   e.preventDefault();
-  if (typeof window !== "undefined" && window.matchMedia?.("(max-width: 1023.98px)").matches) ui.drawerOpen = !ui.drawerOpen;
+  if (ui.narrow) ui.drawerOpen = !ui.drawerOpen;
   else toggleRail();
 }
-onMounted(() => window.addEventListener("keydown", onKey));
-onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+// Coming back to the tab refreshes the trees (same once-a-minute bound).
+const onFocus = () => void tree.refresh();
+let media: MediaQueryList | undefined;
+const onMedia = () => { ui.narrow = media?.matches === true; if (!ui.narrow) ui.drawerOpen = false; };
+onMounted(() => {
+  window.addEventListener("keydown", onKey);
+  window.addEventListener("focus", onFocus);
+  media = window.matchMedia?.(DRAWER_QUERY);
+  onMedia();
+  media?.addEventListener?.("change", onMedia);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKey);
+  window.removeEventListener("focus", onFocus);
+  media?.removeEventListener?.("change", onMedia);
+});
 
 async function signOut(): Promise<void> {
   menuOpen.value = false;
@@ -73,7 +107,7 @@ async function signOut(): Promise<void> {
 <template>
   <header class="shell-header sf-top">
     <button
-      class="sf-menu" type="button" :aria-expanded="ui.drawerOpen ? 'true' : 'false'" aria-controls="sf-aside"
+      ref="menuBtn" class="sf-menu" type="button" :aria-expanded="ui.drawerOpen ? 'true' : 'false'" aria-controls="sf-aside"
       aria-label="Menu" @click="ui.drawerOpen = !ui.drawerOpen"
     ><span aria-hidden="true">☰</span></button>
     <RouterLink class="brand sf-wordmark" to="/home" aria-label="Super FUMBBL home">Super FUMBBL</RouterLink>
@@ -105,7 +139,12 @@ async function signOut(): Promise<void> {
   </header>
   <div class="sf-body" :data-rail="ui.collapsed ? 'true' : 'false'">
     <div v-if="ui.drawerOpen" class="sf-scrim" aria-hidden="true" @click="ui.drawerOpen = false"></div>
-    <aside id="sf-aside" class="sf-aside" :data-open="ui.drawerOpen ? 'true' : 'false'">
+    <aside
+      id="sf-aside" ref="aside" class="sf-aside" :data-open="ui.drawerOpen ? 'true' : 'false'"
+      :inert="drawerClosed || undefined" :aria-hidden="drawerClosed ? 'true' : undefined"
+      :role="drawerModal ? 'dialog' : undefined" :aria-modal="drawerModal ? 'true' : undefined" :aria-label="drawerModal ? 'Navigation' : undefined"
+      :tabindex="drawerModal ? -1 : undefined"
+    >
       <ShellNav />
       <button class="sf-rail-toggle" type="button" :aria-label="ui.collapsed ? 'Expand navigation ([)' : 'Collapse navigation ([)'" @click="toggleRail">
         <span aria-hidden="true">{{ ui.collapsed ? "»" : "«" }}</span>
