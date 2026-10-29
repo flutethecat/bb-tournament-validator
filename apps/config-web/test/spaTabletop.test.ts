@@ -325,9 +325,12 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("Rosters");
     expect(html).not.toContain("tt-back"); // no back button: the shell navigation leaves the page
     // feed rows: the client log sentence, SPP stars, undo trash; the undone TD is gone
-    expect(html).toContain("Grob #1</span> scores a touchdown.");
+    expect(html).toContain("scores a touchdown."); // the sentence states only the action...
+    expect(html).not.toContain("Grob #1</span>"); // ...the actor is the chip
     expect(html).toContain("(&#9733;3)".replace("&#9733;", "\u2605"));
-    expect(html).toContain("#7 player</span> completes a pass."); // the opponent (Alice plays home) is named by number and position only
+    expect(html).toContain("completes a pass.");
+    expect(html).toContain("<small>#7</small>"); // the opponent (Alice plays home) is shown by number (and position when the roster has one) only, in the chip
+    expect(html).not.toContain("Lirael");
     expect(html).not.toContain("Lirael");
     expect(html).not.toContain('aria-label="Undo'); // undo rides edit mode (organisers) only
     expect(html.match(/data-type="touchdown"/g)).toHaveLength(2); // the undone TD stays in the log...
@@ -679,6 +682,11 @@ describe("tabletop routes (server-rendered)", () => {
     const fansHtml = await mount(mods.boardC, {
       match: baseMatch("recording"), teams: { home: { ...teams.home, dedicatedFans: 5 }, away: teams.away }, tally: serverTally, events: [], pregame: {}, clock: clockOf("home", 3), localSide: "home", organiser: false, canAct: true, inducementIcons: {}, art: {},
     }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
+    const noFans = await mount(mods.boardC, {
+      match: baseMatch("recording"), teams, tally: serverTally, events: [], pregame: {}, clock: clockOf("home", 3), localSide: "home", organiser: false, canAct: true, inducementIcons: {}, art: {},
+    }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
+    expect(noFans.match(/class="tt-fans-pill"/g)).toHaveLength(2); // the pill always shows, for both teams
+    expect(noFans).toContain("FANS <b>0</b>"); // FANS 0 when the team file carries none
     expect(fansHtml).toMatch(/<span class="tt-fans-pill"[^>]*><img class="tt-fans-icon"[^>]*>FANS <b>5<\/b><\/span>/); // the fans pill renders the count
     expect(fansHtml).not.toContain('data-tip="Dedicated fans: 5" data-tip-pos'); // the tray no longer repeats it
     const themeCoach = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../public/theme.css", import.meta.url)), "utf8");
@@ -944,7 +952,10 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toMatch(/\.tt-ev\[data-row-side="away"\] \{[^}]*flex-direction: row-reverse; text-align: right;/);
     expect(css).toMatch(/\.tt-ev\[data-row-side="away"\] \.tt-ev-who \{[^}]*flex-direction: row-reverse; margin-right: auto;/);
     expect(html).toContain('<span class="tt-ev-mark">H1 T3</span>');
-    expect(html).toContain('<b class="tt-ev-num">#1</b>'); // the acting player's number
+    expect(html).toContain('<b class="tt-ev-pname-name" data-seat="home">Grob</b><small>#1</small>'); // the single place for the actor: name in the seat tint, "#1 · position" under it
+    expect(html).toContain('class="tt-ev-sprite"'); // with a sprite frame (initials when the roster has none)
+    expect(html).not.toContain('data-team="home">Grob'); // the sentence no longer names the actor
+    expect(html).toContain("scores a touchdown.");
     expect(html).not.toContain("tt-ev-grip"); // the store has no reordering, so no gripper
     const tl = await mount(mods.timelineC, { rows });
     expect(tl.match(/class="tt-tl-item"/g)).toHaveLength(3);

@@ -140,6 +140,9 @@ describe("tabletop create with library refs", () => {
     expect(match.away.teamSaveId).toBe("sv_bob"); // a save keeps its bare id
     const chain = (await repo.getChain("Tarkin", "library:1272390"))!;
     expect(headRevision(chain).teamFile.players).toHaveLength(2);
+    // the match GET carries the library team's dedicated fans (the team file's fanFactor) for the scoreboard's FANS pill
+    const got = (await as("Tarkin", "GET", `/api/tabletop/matches/${match.id}`)).body as { teams: { home: { dedicatedFans: number; rerolls: number } } };
+    expect(got.teams.home).toMatchObject({ dedicatedFans: 3, rerolls: 2 });
 
     // the MNG library player cannot play; the other can score
     const bad = await as("Tarkin", "POST", `/api/tabletop/matches/${match.id}/events`, { events: [{ id: "evt-lib-0001", type: "touchdown", team: "home", player: "17854689" }] });

@@ -238,6 +238,8 @@ export interface FeedRow {
   side: Side | "centre";
   team: Side;
   chip: string;
+  /** The acting player's roster sprite path (art folder), empty when the roster has none. */
+  sprite: string;
   /** The acting player's shirt number ("#7") and name, empty for team-level events. */
   number: string;
   player: string;
@@ -285,7 +287,9 @@ export function feedRows(
     const sub = eventSub(e, teams, obscureSide);
     const hide = e.team === obscureSide;
     const who = e.player ? (pl ? playerLabel(pl, hide) : e.player) : "";
-    const { lead, rest } = eventSentence(e, who, names?.team[e.team] ?? teams[e.team]?.name ?? (e.team === "home" ? "Home" : "Away"), sub, names, { journeymen: journeymen[e.team] });
+    let { lead, rest } = eventSentence(e, who, names?.team[e.team] ?? teams[e.team]?.name ?? (e.team === "home" ? "Home" : "Away"), sub, names, { journeymen: journeymen[e.team] });
+    // the actor is shown once, in the side chip: the sentence states only the action and the other party
+    if (who && lead === who && !CENTRE_TYPES.has(e.type)) { lead = ""; rest = rest.replace(/^\s+/, ""); }
     const half = (e as { half?: number | "OT" }).half;
     const turn = (e as { turn?: number }).turn;
     rows.push({
@@ -298,6 +302,7 @@ export function feedRows(
       team: e.team,
       lead,
       rest,
+      sprite: pl?.sprite ?? "",
       chip: e.player ? (pl ? (hide ? playerLabel(pl, true) : `${pl.number !== undefined ? `#${pl.number} ` : ""}${pl.name}`) : e.player) : "",
       number: pl?.number !== undefined ? `#${pl.number}` : "",
       player: hide ? "" : pl?.name ?? "",

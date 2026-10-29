@@ -151,7 +151,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
           <li v-if="tray(s).hidden.length" class="tt-chip-more" role="button" tabindex="0" :data-tip="moreTip(tray(s).hidden)" data-tip-pos="bottom" @click="emit('rosters', s)" @keydown.enter.prevent="emit('rosters', s)">+{{ tray(s).hidden.length }}</li>
         </ul>
       </div>
-      <span v-if="teams[s]?.dedicatedFans" class="tt-fans-pill" :data-tip="`Dedicated fans: ${teams[s]?.dedicatedFans}`"><img class="tt-fans-icon" :src="uiIcon('dedicated_fans')" alt="" />FANS <b>{{ teams[s]?.dedicatedFans }}</b></span>
+      <span v-if="teams[s]" class="tt-fans-pill" :data-tip="`Dedicated fans: ${teams[s]?.dedicatedFans ?? 0}`"><img class="tt-fans-icon" :src="uiIcon('dedicated_fans')" alt="" />FANS <b>{{ teams[s]?.dedicatedFans ?? 0 }}</b></span>
       </div>
     </section>
     <section class="tt-centre">

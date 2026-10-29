@@ -7,6 +7,9 @@ import TabletopGlyph from "./TabletopGlyph.vue";
 
 const props = withDefaults(defineProps<{ rows: FeedRow[]; canUndo: boolean; compact?: boolean; timestamps?: boolean; undoSide?: "home" | "away" | null; showRemoved?: boolean; newIds?: ReadonlySet<string> }>(), { compact: false, timestamps: true, undoSide: null, showRemoved: true });
 /** Retracted events stay in the log (struck through) unless the viewer chose to hide them. */
+/** The chip's sprite (a path inside the art folder only) and the initials shown when there is none. */
+const spriteOf = (r: FeedRow): string => (/^sprites\/(?:[a-z0-9_-]+\/)*[a-z0-9_-]+\.png$/.test(r.sprite) ? `/${r.sprite}` : "");
+const initialsOf = (r: FeedRow): string => (r.position || r.player || r.number).split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
 const shown = computed(() => (props.showRemoved ? props.rows : props.rows.filter((r) => r.removed === null)));
 const emit = defineEmits<{ (e: "undo", id: string): void }>();
 </script>
@@ -22,13 +25,13 @@ const emit = defineEmits<{ (e: "undo", id: string): void }>();
       <span v-else-if="timestamps && r.when" class="tt-ev-mark">{{ r.when }}</span>
       <span class="tt-ev-icon" :data-tip="r.label"><TabletopGlyph :glyph="r.glyph" /></span>
       <span class="tt-ev-text">
-        <span class="tt-ev-line"><span class="tt-ev-name" :data-team="r.team">{{ r.lead }}</span>{{ r.rest }}<span v-if="r.stars" class="tt-stars" :aria-label="`${r.stars} SPP`"> (&#9733;{{ r.stars }})</span></span>
+        <span class="tt-ev-line"><span v-if="r.lead" class="tt-ev-name" :data-team="r.team">{{ r.lead }}</span>{{ r.rest }}<span v-if="r.stars" class="tt-stars" :aria-label="`${r.stars} SPP`"> (&#9733;{{ r.stars }})</span></span>
         <small v-if="timestamps && r.clock" class="tt-time">{{ r.clock }}</small>
         <small v-if="r.removed" class="tt-ev-removed">Removed by {{ r.removed.by }}<template v-if="r.removed.at"> &middot; {{ r.removed.at }}</template><b v-if="r.removed.admin" class="tt-ev-admintag">ADMIN</b></small>
       </span>
       <span v-if="r.side !== 'centre' && (r.number || r.player)" class="tt-ev-who">
-        <b class="tt-ev-num">{{ r.number }}</b>
-        <span class="tt-ev-pname">{{ r.player }}<small v-if="r.position">{{ r.position }}</small></span>
+        <span class="tt-ev-sprite" aria-hidden="true"><span class="tt-ev-sprite-fallback">{{ initialsOf(r) }}</span><img v-if="spriteOf(r)" class="tt-ev-sprite-img" :src="spriteOf(r)" alt="" loading="lazy" decoding="async" /></span>
+        <span class="tt-ev-pname"><b v-if="r.player" class="tt-ev-pname-name" :data-seat="r.team">{{ r.player }}</b><small>{{ [r.number, r.position].filter(Boolean).join(" · ") }}</small></span>
       </span>
       <button v-if="canUndo && r.undoable && (!undoSide || r.team === undoSide)" class="tt-trash" type="button" :aria-label="`Undo ${r.label}`" @click="emit('undo', r.id)">&#128465;</button>
     </li>
