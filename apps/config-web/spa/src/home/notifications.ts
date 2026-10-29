@@ -107,9 +107,14 @@ export function useNotifications(fetcher: Fetcher, options: NotificationsOptions
   const clearI = options.clearInterval ?? ((h) => clearInterval(h as ReturnType<typeof setInterval>));
   const setT = options.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
 
-  async function load(): Promise<void> {
+  // Bumped by every push and read mutation: a list GET that was in flight across one is stale (it would drop a pushed
+  // row or undo a read), so it is discarded and fetched once more.
+  let generation = 0;
+  async function load(retried = false): Promise<void> {
     try {
+      const started = generation;
       const res = await fetcher<NotificationListResponse>(`${NOTIFICATIONS_PATH}?limit=${limit}`);
+      if (generation !== started) { if (!retried) await load(true); return; }
       rows.value = Array.isArray(res?.notifications) ? res.notifications : [];
       unread.value = typeof res?.unread === "number" ? res.unread : rows.value.filter((r) => !r.readAt).length;
       error.value = "";
@@ -119,12 +124,18 @@ export function useNotifications(fetcher: Fetcher, options: NotificationsOptions
     }
   }
 
+  /** Mark rows read locally: `ids`, or every row when undefined. */
+  function applyRead(ids: ReadonlySet<string> | undefined): void {
+    const at = new Date().toISOString();
+    rows.value = rows.value.map((r) => (r.readAt || (ids && !ids.has(r.id)) ? r : { ...r, readAt: at }));
+  }
+
   async function post(body: { ids: string[] } | { all: true }): Promise<void> {
     try {
+      generation += 1;
       const res = await fetcher<{ marked: number; unread: number }>(`${NOTIFICATIONS_PATH}/read`, { method: "POST", body });
-      const at = new Date().toISOString();
-      const wanted = "ids" in body ? new Set(body.ids) : undefined;
-      rows.value = rows.value.map((r) => (r.readAt || (wanted && !wanted.has(r.id)) ? r : { ...r, readAt: at }));
+      generation += 1;
+      applyRead("ids" in body ? new Set(body.ids) : undefined);
       unread.value = typeof res?.unread === "number" ? res.unread : rows.value.filter((r) => !r.readAt).length;
       error.value = "";
     } catch (err) {
@@ -135,9 +146,13 @@ export function useNotifications(fetcher: Fetcher, options: NotificationsOptions
   const markAllRead = () => post({ all: true });
 
   /** A pushed { unread, latest }: the count follows the server, the new row goes on top. */
+  /** A pushed { unread, latest } (a new row) or { unread, readIds, all? } (read in another tab). */
   function onPush(payload: unknown): void {
-    const p = payload as { unread?: unknown; latest?: NotificationRow } | undefined;
+    const p = payload as { unread?: unknown; latest?: NotificationRow; readIds?: unknown; all?: unknown } | undefined;
     if (!p || typeof p !== "object") return;
+    generation += 1;
+    if (p.all === true) applyRead(undefined);
+    else if (Array.isArray(p.readIds)) applyRead(new Set(p.readIds.filter((id): id is string => typeof id === "string")));
     if (typeof p.unread === "number") unread.value = p.unread;
     const latest = p.latest;
     if (latest && typeof latest.id === "string" && !rows.value.some((r) => r.id === latest.id)) rows.value = [latest, ...rows.value].slice(0, limit);
