@@ -219,7 +219,13 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     const m = msg as { type?: string; feature?: string; payload?: ClockView; clock?: ClockView | null } | undefined;
     if (!m || typeof m !== "object") return;
     if (m.type === "tabletopWelcome" && m.clock) applyClock(m.clock);
-    else if (m.feature === "tabletop-clock" && m.payload) applyClock(m.payload);
+    else if (m.feature === "tabletop-clock" && m.payload) {
+      applyClock(m.payload);
+      // The server pushes after every pre-game write (the other coach's roll, call or choice) and on each phase change:
+      // reload so the step, the log and the cines follow at once instead of at the next poll.
+      const phase = (m.payload as { phase?: unknown }).phase;
+      if (typeof phase === "string" && !state.busy && (phase !== state.phase || phase.startsWith("pregame:"))) void refresh();
+    }
   }
 
   // Push channel: the Super socket's tabletop-clock room (participants + organisers). Polling stays as the fallback.
@@ -326,6 +332,8 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     submit: () => act("submit"),
     /** Pre-game wizard step: the server rolls / records and moves the phase on. */
     advance: (body: Record<string, unknown> = {}) => act("pregame/advance", body),
+    /** Organiser: skip the rest of the pre-game (the server logs it and starts the set-up). */
+    skipPregame: () => act("pregame/skip"),
     /** End Turn, guarded by the half and turn the coach saw (the server refuses a stale press). */
     endTurn: (override = false) => act("turn/end", { expectedHalf: state.clock?.half, expectedTurn: state.clock?.turn, expectedTeam: state.clock?.activeTeam, ...(override ? { override: true } : {}) }),
     /** "Kick-off done" at turn 0: starts the first turn of the half. */

@@ -40,6 +40,7 @@ export const EVENT_GLYPHS: Record<string, Glyph> = {
   inducement: { text: "🛒" }, // client kind inducements
   prayer: { text: "🙏" }, // client kind prayer
   coinFlip: { text: "🪙" }, // client kind coin
+  pregameSkip: { text: "⏭️" },
   turnEnd: { text: "⏳" }, // client kind turnEnd
   turnSet: { text: "⏳" },
   timers: { text: "⏱️" }, // client kind timeout
@@ -99,14 +100,14 @@ const LABELS: Record<string, string> = {
   touchdown: "Touchdown", casualty: "Casualty", injury: "Injury", completion: "Completion", catch: "Catch", throwTeamMate: "Throw Team-mate",
   interception: "Interception", deflection: "Deflection", foul: "Foul", sentOff: "Sent-off", sendOff: "Sent-off", stalling: "Stalling",
   secretObjective: "Secret Objectives", mvp: "MVP", weather: "Weather", concede: "Concede match", endOfMatch: "End of match",
-  fans: "Fans", fanChange: "Fan change", journeymen: "Journeymen", journeyman: "Journeyman", inducement: "Inducement", prayer: "Prayer to Nuffle", coinFlip: "Coin flip", turnEnd: "End of turn", turnSet: "Clock set", timers: "Turn timers", turnTimers: "Turn timers", timerAgree: "Turn timers",
+  fans: "Fans", fanChange: "Fan change", journeymen: "Journeymen", journeyman: "Journeyman", inducement: "Inducement", prayer: "Prayer to Nuffle", coinFlip: "Coin flip", pregameSkip: "Pre-game skipped", turnEnd: "End of turn", turnSet: "Clock set", timers: "Turn timers", turnTimers: "Turn timers", timerAgree: "Turn timers",
 };
 export const eventLabel = (type: string): string => LABELS[type] ?? type;
 
 /** Rows with no undo button (pre-game results and turn ends the server wrote). */
-export const PREGAME_TYPES: ReadonlySet<string> = new Set(["fans", "weather", "journeymen", "journeyman", "inducement", "prayer", "coinFlip", "timers", "turnTimers", "timerAgree", "turnEnd", "turnSet"]);
+export const PREGAME_TYPES: ReadonlySet<string> = new Set(["fans", "weather", "journeymen", "journeyman", "inducement", "prayer", "coinFlip", "pregameSkip", "timers", "turnTimers", "timerAgree", "turnEnd", "turnSet"]);
 /** Rows drawn across the whole feed rather than on a team side. */
-const CENTRE_TYPES: ReadonlySet<string> = new Set(["weather", "endOfMatch", "coinFlip", "fans", "fanChange", "journeymen", "journeyman", "prayer", "winnings", "turnEnd", "turnSet", "timers", "turnTimers"]);
+const CENTRE_TYPES: ReadonlySet<string> = new Set(["weather", "endOfMatch", "coinFlip", "pregameSkip", "fans", "fanChange", "journeymen", "journeyman", "prayer", "winnings", "turnEnd", "turnSet", "timers", "turnTimers"]);
 
 const word = (v: unknown): string => {
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
@@ -141,7 +142,13 @@ export function eventSub(e: RecordedEvent, teams: Record<Side, TeamView | undefi
       return `${Number(p.qty ?? 1)} x ${word(p.name) || word(p.id)}`;
     }
     case "fans": return `${Number(p.roll ?? 0)} + ${Number(p.dedicatedFans ?? 0)} dedicated = ${Number(p.total ?? 0)}`;
-    case "weather": return word(p.result) || word(p.name);
+    case "weather": {
+      // pre-game: the 2D6 and who rolled them ("Blizzard (6 + 6, rolled at the table)"); mid-game entries are a name only
+      const name = word(p.result) || word(p.name);
+      const dice = Array.isArray(p.dice) ? (p.dice as unknown[]).map(Number).join(" + ") : "";
+      const how = rollWord(p);
+      return dice && how ? `${name} (${dice}, ${how})` : name;
+    }
     case "prayer": return word(p.name);
     case "journeyman": return word(p.player);
     case "fanChange": return Number(p.delta) > 0 ? `+${Number(p.delta)}` : String(Number(p.delta));
@@ -161,6 +168,11 @@ const other = (s: Side): Side => (s === "home" ? "away" : "home");
 const isSide = (v: unknown): v is Side => v === "home" || v === "away";
 const fmtMmSs = (n: number): string => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
 
+/** Who rolled a pre-game die: the site ("Roll for me") or the coaches at the table ("Enter result"); "" for older events. */
+export function rollWord(p: Record<string, unknown>): string {
+  return p.rolledBy === "coach" ? `rolled at the table${typeof p.enteredBy === "string" ? `, entered by ${p.enteredBy}` : ""}` : p.rolledBy === "site" ? "site roll" : "";
+}
+
 /** "<Caller> (<Team>) calls heads. The coin lands heads. <Winner> wins the toss." plus the choice when it rides along. */
 function coinSentences(p: Record<string, unknown>, c: NameCtx): string {
   const winner = isSide(p.winner) ? p.winner : undefined;
@@ -169,6 +181,7 @@ function coinSentences(p: Record<string, unknown>, c: NameCtx): string {
     return `${c.coach[winner]} chooses to ${p.choice}. ${c.team[other(winner)]} will ${p.choice === "kick" ? "receive" : "kick"}.`;
   };
   if (p.stage === "choice") return choiceOf();
+  if (p.stage === "caller") return isSide(p.caller) ? `The site draws ${c.coach[p.caller]} (${c.team[p.caller]}) to call the toss.` : "";
   const caller = isSide(p.caller) ? p.caller : undefined;
   const call = typeof p.call === "string" ? p.call : "";
   const result = typeof p.result === "string" ? p.result : "";
@@ -198,9 +211,13 @@ export function eventSentence(e: RecordedEvent, who: string, teamName: string, s
   if (names) {
     switch (e.type) {
       case "coinFlip": return { lead: "", rest: coinSentences(pl, names) };
-      case "fans": return { lead: names.team[e.team], rest: ` brings ${Number(pl.total ?? 0)} fans (rolled ${Number(pl.roll ?? 0)}).` };
+      case "fans": {
+        const how = rollWord(pl);
+        return { lead: names.team[e.team], rest: ` brings ${Number(pl.total ?? 0)} fans (rolled ${Number(pl.roll ?? 0)}${how ? `, ${how}` : ""}).` };
+      }
+      case "pregameSkip": return { lead: "", rest: `${(e as { by?: string }).by ?? "An organiser"} skipped the pre-game.` };
       case "journeyman": { const n = extra?.journeymen ?? 1; return { lead: names.team[e.team], rest: ` takes on ${n} journeym${n === 1 ? "an" : "en"}.` }; }
-      case "prayer": return { lead: names.team[e.team], rest: ` prays to Nuffle: ${sub}.` };
+      case "prayer": { const how = rollWord(pl); return { lead: names.team[e.team], rest: ` prays to Nuffle: ${sub}${how ? ` (${Number(pl.roll ?? 0)}, ${how})` : ""}.` }; }
       case "turnSet": {
         // The server records {from, to: {half, turn, activeTeam}, by}; a flat payload is read the same way.
         const to = (pl.to && typeof pl.to === "object" ? pl.to : pl) as { half?: number | string; turn?: number; activeTeam?: unknown };
@@ -385,6 +402,8 @@ export function feedRows(
 }
 
 export const PREGAME_STEPS = ["fans", "weather", "journeymen", "inducements", "prayers", "coin", "timers"] as const;
+/** The server's `pregame.step`: a PREGAME_STEPS entry, or kickreceive (inside coin), setup / done once playing. */
+export type PregameViewStep = PregameStep | "kickreceive" | "setup" | "done";
 export type PregameStep = (typeof PREGAME_STEPS)[number];
 export const PREGAME_LABELS: Record<PregameStep, string> = {
   fans: "Fans", weather: "Weather", journeymen: "Journeymen", inducements: "Inducements", prayers: "Prayers to Nuffle", coin: "Coin flip", timers: "Turn timers",

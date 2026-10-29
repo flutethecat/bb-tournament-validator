@@ -21,6 +21,8 @@ const loaded = teams.state;
 const error = ref("");
 const notice = ref("");
 const busy = ref(false);
+/** Test matches walk the full pre-game (fans, weather, inducements, coin) unless this is ticked. */
+const skipPregame = ref(false);
 
 const teamLabel = (t: Team): string => `${t.name}${t.race ? ` (${t.race})` : ""}`;
 
@@ -59,7 +61,7 @@ async function create(): Promise<void> {
   try {
     const r = await fetcher<{ url: string }>("/api/admin/testing/tabletop-match", {
       method: "POST",
-      body: { home: home.value, away: away.value },
+      body: { home: home.value, away: away.value, pregame: skipPregame.value ? "skip" : "full" },
     });
     await router.push(r.url.replace(/^\/app/, ""));
   } catch (e) {
@@ -103,6 +105,7 @@ onServerPrefetch(init);
         <option v-if="!loaded.away.length" value="">No teams found</option>
         <option v-for="t in loaded.away" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
       </select>
+      <label class="tt-check"><input v-model="skipPregame" type="checkbox" /> Skip pre-game (start at the kick-off)</label>
       <button class="lobby-btn primary tt-tap" type="submit" :disabled="busy">Create test match</button>
     </form>
     <button class="lobby-btn" type="button" @click="purge">Purge test matches</button>
