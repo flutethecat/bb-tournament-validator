@@ -10,9 +10,12 @@
  * (`c-<12 hex>`); `previousIds` lists that player's ids in earlier seasons. The linking happens once, at import time
  * (linkPlayerCareers), so nothing matches names at query time. A former player has no shirt number: it joins the
  * career of the one roster player of its team lineage with the same name and position, else starts its own.
+ *
+ * `seasonsPlayed` (our store's field, the FFB server has none) is derived from the same career links: the number of
+ * earlier seasons in which the player's career sat on a roster whose team played at least one game (assignSeasonsPlayed).
  */
 import { createHash } from "node:crypto";
-import { buildCoachAliases, seasonCoachFacets, type CoachAliases } from "./identity.js";
+import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, type CoachAliases } from "./identity.js";
 import type { FormerPlayer, LeaguePlayer, LeagueTeam, SeasonRecord } from "./types.js";
 
 export interface PlayerIdContext { leagueId: string; slug: string }
@@ -99,6 +102,36 @@ export function linkPlayerCareers(seasons: SeasonRecord[]): void {
       if (!list.includes(id)) list.push(id);
       idsByCareer.set(career, list);
     }
+  }
+  assignSeasonsPlayed(ordered);
+}
+
+/** True when the team played at least one game in the season (a fixture with a result, else a standings row with games). */
+export function teamPlayedIn(season: Pick<SeasonRecord, "fixtures" | "phases">, team: Pick<LeagueTeam, "id" | "name">): boolean {
+  const named = key(team.name);
+  const isTeam = (side: { teamId?: string; team: string }): boolean => (side.teamId ? side.teamId === team.id : key(side.team) === named);
+  if (season.fixtures.some((f) => (isTeam(f.home) || isTeam(f.away)) && fixtureOutcome(f) !== undefined)) return true;
+  return season.phases.some((p) => p.standings.some((r) => isTeam(r) && r.played > 0));
+}
+
+/**
+ * Sets `seasonsPlayed` on every roster player: how many EARLIER seasons the player's career (careerKey) was on a roster
+ * of a team that played at least one game. Seasons are walked oldest first; players without a careerKey count only
+ * themselves (0). Idempotent; a redraft's carried value equals what this derives once the career is linked.
+ */
+export function assignSeasonsPlayed(seasons: SeasonRecord[]): void {
+  const ordered = [...seasons].sort((a, b) => a.number - b.number);
+  const count = new Map<string, number>();
+  for (const s of ordered) {
+    const played: string[] = [];
+    for (const t of s.teams) {
+      const counted = teamPlayedIn(s, t);
+      for (const p of t.players) {
+        p.seasonsPlayed = p.careerKey ? count.get(p.careerKey) ?? 0 : 0;
+        if (counted && p.careerKey) played.push(p.careerKey);
+      }
+    }
+    for (const c of new Set(played)) count.set(c, (count.get(c) ?? 0) + 1);
   }
 }
 

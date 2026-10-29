@@ -19,6 +19,10 @@
  *   POST   /api/leagues/:id/discord/test                          send a small test embed to the webhook
  *   GET    /api/leagues/:id/export.zip[?season=]                  CSV zip (teams, fixtures, standings, participants, honours, awards)
  *
+ * Redraft (board for organisers, Team Draft List for the team's coach): see redraftApi.ts.
+ *   GET|POST /api/leagues/:id/redraft, GET /api/leagues/:id/redraft/teams/:teamId, POST .../rest, POST .../submit,
+ *   GET /api/leagues?redraft=mine
+ *
  * Image guards reuse the team-avatar helpers (magic-byte sniff with header-parsed dimensions, the per-coach rate
  * limit) as the tournament banner does; files are stored under the league's own directory with a hashed name.
  */
@@ -29,6 +33,9 @@ import { AVATAR_CONTENT_TYPE, avatarRateLimit, sniffImage, type AvatarExt, type 
 import type { NotificationInput } from "../notifications.js";
 import { buildMilestonePost, buildTestPost, discordEvents, postWebhook as defaultPoster, type DiscordPayload, type WebhookPoster } from "./discord.js";
 import { leagueCsvFiles, zipFiles } from "./exportZip.js";
+import { readJsonObject, requestRevision } from "./http.js";
+import { applyPendingDrafts } from "./redraft.js";
+import { myRedraftTasks, redraftRoutes } from "./redraftApi.js";
 import {
   parseConnections, parseInformation, parseRegistrations, parseTeamBuilding, registrationsOf, settingsView, SettingsError, teamBuildingTable,
 } from "./settings.js";
@@ -87,6 +94,8 @@ export interface LeagueApiDeps {
   identities?: () => LeagueIdentityRow[];
   /** Stores one notification (fire-and-forget; src/notifications.ts NotificationStore.add). */
   notify?: (coach: string, input: NotificationInput) => void;
+  /** Rest & Relaxation die for "Roll for me" (tests stub it; default crypto d6). */
+  rollD6?: () => number;
   /** Discord webhook poster (tests stub it; default POSTs with fetch). */
   postWebhook?: WebhookPoster;
   /** The request's If-Match header (settings PATCH revision, as an alternative to body.revision). */
@@ -254,6 +263,11 @@ export async function leagueApi(
   const read = method === "GET" || method === "HEAD";
   if (!route.id) {
     if (!read) return { status: 405, body: { error: "Use GET." } };
+    if (query.get("redraft") === "mine") {
+      // The signed-in coach's open redraft tasks (team management page panel).
+      if (!auth) return { status: 401, headers: { "cache-control": "no-store" }, body: { error: "Sign in to see your redraft tasks." } };
+      return { status: 200, headers: { "cache-control": "no-store" }, body: { tasks: myRedraftTasks(store, auth.coach) } };
+    }
     return { status: 200, body: { leagues: store.list().map((l) => leagueSummary(l, store.seasons(l.id))) } };
   }
   const league = store.league(route.id);
@@ -263,6 +277,8 @@ export async function leagueApi(
     if (second !== undefined) return { status: 404, body: { error: "Not found." } };
     return artRoute(method, first, route.id, league, auth, deps);
   }
+  const redraft = await redraftRoutes(method, route.rest, league, auth, deps);
+  if (redraft) return redraft;
   const managed = await settingsRoutes(method, route.rest, query, league, auth, deps);
   if (managed) return managed;
   if (!read) return { status: 405, body: { error: "Use GET." } };
@@ -354,18 +370,9 @@ function gate(league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefi
 }
 
 async function jsonBody(deps: LeagueApiDeps): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; result: LeagueApiResult }> {
-  const tooLarge: LeagueApiResult = { status: 413, close: true, body: { error: "Request too large." } };
-  if (deps.declaredTooLarge?.(SETTINGS_MAX_BYTES)) return { ok: false, result: tooLarge };
-  const raw = await deps.readBody?.(SETTINGS_MAX_BYTES);
-  if (raw === undefined) return { ok: false, result: tooLarge };
-  if (raw.length === 0) return { ok: true, value: {} };
-  try {
-    const v = JSON.parse(raw.toString("utf8")) as unknown;
-    if (!v || typeof v !== "object" || Array.isArray(v)) return { ok: false, result: { status: 400, body: { error: "Send a JSON object." } } };
-    return { ok: true, value: v as Record<string, unknown> };
-  } catch {
-    return { ok: false, result: { status: 400, body: { error: "Send valid JSON." } } };
-  }
+  const r = await readJsonObject(deps, SETTINGS_MAX_BYTES);
+  if (r.ok) return r;
+  return { ok: false, result: { status: r.status, ...(r.close ? { close: true } : {}), body: { error: r.error } } };
 }
 
 const sameCoach = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -484,14 +491,7 @@ function view(league: LeagueRecord, who: LeagueApiIdentity, deps: LeagueApiDeps,
   return settingsView(league, deps.store.secrets(league.id), deps.store.seasons(league.id), who, siteAdmins(deps), seasonId);
 }
 
-/** The revision a settings PATCH names: body.revision, else the If-Match header ("3", W/"3" or 3). */
-export function requestRevision(input: Record<string, unknown>, ifMatch: string | undefined): number | "missing" | "bad" {
-  if (input.revision !== undefined) return typeof input.revision === "number" && Number.isSafeInteger(input.revision) && input.revision >= 0 ? input.revision : "bad";
-  const raw = ifMatch?.trim();
-  if (!raw) return "missing";
-  const m = /^(?:W\/)?"?(\d{1,15})"?$/.exec(raw);
-  return m ? Number(m[1]) : "bad";
-}
+export { requestRevision };
 
 /**
  * Synchronous from validation to the last write (the caller re-loaded `league` after the body arrived), so the
@@ -621,7 +621,10 @@ async function createSeason(league: LeagueRecord, who: LeagueApiIdentity, input:
     // Team building rules carry over from the previous season (the organiser edits them on the Team building tab).
     ...(copied ? { rules: { teamBuilding: { ...structuredClone(copied), updatedAt: at, updatedBy: who.coach } } } : {}),
   };
+  // Draft lists submitted in a redraft before this season existed become its teams.
+  const redrafted = applyPendingDrafts(seasons, season);
   deps.store.putSeason(season);
+  for (const s of redrafted) deps.store.putSeason(s);
   await postMilestone(league, deps, buildMilestonePost(league, "season-started", name, ruleset));
   return { status: 201, body: { ok: true, season: seasonSummary(season) } };
 }

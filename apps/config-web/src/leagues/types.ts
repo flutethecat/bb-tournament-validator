@@ -34,6 +34,8 @@ export interface LeagueRecord {
   discordEvents?: DiscordEvents;
   /** Play on Super FUMBBL (default off): fixtures an admin allows can then be generated on the fork (later lane). */
   playOnFork?: boolean;
+  /** Redraft budget cap the board starts from (default on, 1,300,000); remembered from the last confirmed redraft. */
+  redraftCap?: { enabled: boolean; cap: number };
   /** Settings revision: every settings write bumps it; a PATCH naming an older revision is refused (409). */
   revision?: number;
   createdAt: string;
@@ -228,6 +230,12 @@ export interface LeaguePlayer extends PlayerIdentity {
   niggling: number;
   missNextGame: boolean;
   stats: PlayerSeasonStats;
+  /**
+   * Seasons this player took part in BEFORE this roster's season (our store's field; the FFB server has none). A
+   * season counts when the player is on a roster whose team played at least one game in it. Derived at import from
+   * the career links (playerIds.ts assignSeasonsPlayed); a redraft carries it forward with the finished season added.
+   */
+  seasonsPlayed?: number;
 }
 
 /** A player who appears in the season honours but not on the final roster (dead, fired, retired). */
@@ -339,4 +347,87 @@ export interface SeasonRecord {
   /** "manual" = started from League settings (Start a new season). */
   source: "tourplay-export" | "manual";
   rules?: SeasonRules;
+  /** The off-season redraft run FROM this (finished) season: see redraft.ts. */
+  redraft?: RedraftState;
+}
+
+// ---- Redraft (League settings, Administration -> Start redraft; spec-league-settings-2026-10-30 §2) ----
+
+export type RedraftTaskStatus = "pending" | "submitted" | "skipped";
+
+/** Budget terms in gold (see redraft.ts redraftBudget). raw = base + treasury + bonus; capped = what the coach may spend. */
+export interface RedraftBudget {
+  base: number;
+  treasury: number;
+  /** League fixtures played last season, wins and draws (counts, not gold). */
+  played: number;
+  wins: number;
+  draws: number;
+  /** played x 20k + wins x 20k + draws x 10k. */
+  bonus: number;
+  raw: number;
+  capped: number;
+}
+
+/** One Rest & Relaxation roll: a niggling injury rolls off on target+ (4+, or 3+ with an Apothecary). */
+export interface RestRoll {
+  playerId: string;
+  roll: number;
+  target: number;
+  recovered: boolean;
+  /** "site" = rolled by the server ("Roll for me"); "entered" = the coach typed a tabletop result. */
+  source: "site" | "entered";
+}
+
+/** A player kept on the draft list: the source season's playerId, plus the cost that was charged. */
+export interface DraftKeep { playerId: string; cost: number }
+
+/** The coach's submitted Team Draft List (what was bought). */
+export interface DraftList {
+  keep: DraftKeep[];
+  hires: Array<{ position: string; count: number; cost: number }>;
+  staff: { rerolls: number; assistantCoaches: number; cheerleaders: number; apothecary: boolean; cost: number };
+  spent: number;
+  /** Unspent budget: becomes the new team's treasury. */
+  treasury: number;
+  /** The new roster (players with fresh ids for the next season). */
+  team: LeagueTeam;
+}
+
+export interface RedraftTeamTask {
+  teamId: string;
+  /** The season the team's roster comes from (the redraft season for active teams; an earlier one for inactive). */
+  sourceSeasonId: string;
+  /** Snapshot for the board (the coach may have renamed nothing; these are the source roster's). */
+  name: string;
+  coach: string;
+  coachId?: string;
+  race: string;
+  selected: boolean;
+  budget: RedraftBudget;
+  status: RedraftTaskStatus;
+  /** Organiser override of the spendable budget (gold), with the reason shown to the coach. */
+  override?: { budget: number; reason: string; by: string; at: string };
+  rest?: { at: string; by: string; rolls: RestRoll[] };
+  submittedAt?: string;
+  submittedBy?: string;
+  draft?: DraftList;
+  /** The season the draft list was written into ("" / unset = waiting for Start a new season). */
+  appliedTo?: string;
+}
+
+export interface RedraftLogEntry { at: string; by: string; text: string }
+
+export interface RedraftState {
+  startedAt: string;
+  byCoach: string;
+  capEnabled: boolean;
+  cap: number;
+  /** Bumped on every write; a POST naming an older revision is refused (409), none at all 428. */
+  revision: number;
+  teams: RedraftTeamTask[];
+  closedAt?: string;
+  closedBy?: string;
+  /** League news for the redraft (also posted to Discord when the league has a webhook). */
+  log: RedraftLogEntry[];
 }
