@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFile
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deriveDeadlines, matchEndedAt, parseSchedulingInput, readBuildLog, schedulingView, toStoredScheduling } from "./coachHome.js";
+import { profileView, updateOwnProfile, type ProfileDeps } from "./accountProfile.js";
 import {
   composeTeam,
   composeTeamIntrinsic,
@@ -1290,6 +1291,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/admin/identities/naf" ||
     pathname === "/api/account" ||
     pathname === "/api/me/scheduling" ||
+    pathname === "/api/me/profile" ||
     pathname === "/api/me/notifications/read" ||
     isTeamMutationWritePath(pathname) ||
     pathname.startsWith("/api/tournaments/") ||
@@ -1767,6 +1769,24 @@ async function handleApi(
       return sendJson(res, 400, { error: "A JSON object is required." });
     try {
       return sendJson(res, 200, updateOwnAccount(auth.coach, rawBody));
+    } catch (error) {
+      return sendJson(res, 400, { error: (error as Error).message });
+    }
+  }
+
+  // Account page Identity panel (/app/account): the session coach's own profile only (src/accountProfile.ts).
+  if (path === "/api/me/profile" && (method === "GET" || method === "PATCH")) {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    const deps: ProfileDeps = { linkedFumbblName, discordAvatarUrl };
+    if (method === "GET") {
+      try { return sendJson(res, 200, profileView(ownIdentityRecord(auth.coach), deps)); } catch (error) {
+        return sendJson(res, 400, { error: (error as Error).message });
+      }
+    }
+    let rawBody: unknown;
+    try { rawBody = await readBody(req, 16 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); }
+    try {
+      return sendJson(res, 200, updateOwnProfile(auth.coach, rawBody, deps));
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
     }
