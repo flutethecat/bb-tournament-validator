@@ -82,27 +82,28 @@
     return { up, text: value === undefined || value === null || value === "" ? "—" : String(value) };
   }
 
-  function tableHtml(players, actions) {
+  function tableHtml(players, actions, spp) {
     const rows = players.map((p, i) => `<tr${p.isStar ? ' class="tv-star"' : ""}>
         <td class="tv-col-sprite">${spriteHtml(p)}</td>
         <td class="tv-num">${esc(p.number)}</td>
         <td class="tv-pos"${posTitle(p)}>${nameHtml(p)}${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}${p.captain ? CAPTAIN_TAG : ""}</td>
         ${STATS.map((stat) => { const c = statCell(p, stat); return `<td class="tv-stat${c.up ? " tv-up" : ""}"${c.up ? ` title="${stat} increased"` : ""}><span class="tv-stat-box">${esc(c.text)}${c.up ? '<span class="tv-up-mark" aria-hidden="true">▲</span>' : ""}</span></td>`; }).join("")}
         <td class="tv-skills"><div class="row-skills">${skillsHtml(p)}</div></td>
-        <td class="tv-cost">${gold(p.cost)}</td>${actions ? `
+        <td class="tv-cost">${gold(p.cost)}</td>${spp ? `
+        <td class="tv-spp">${spp(p, i)}</td>` : ""}${actions ? `
         <td class="tv-actions">${actions(p, i)}</td>` : ""}
       </tr>`).join("");
     return `<table class="tv-table">
-      <thead><tr><th scope="col"><span class="visually-hidden">Sprite</span></th><th scope="col">#</th><th scope="col">Position</th>${STATS.map((s) => `<th scope="col" class="tv-stat">${s}</th>`).join("")}<th scope="col">Skills</th><th scope="col" class="tv-cost">Cost</th>${actions ? '<th scope="col" class="tv-actions">Advancement</th>' : ""}</tr></thead>
+      <thead><tr><th scope="col"><span class="visually-hidden">Sprite</span></th><th scope="col">#</th><th scope="col">Position</th>${STATS.map((s) => `<th scope="col" class="tv-stat">${s}</th>`).join("")}<th scope="col">Skills</th><th scope="col" class="tv-cost">Cost</th>${spp ? '<th scope="col" class="tv-spp">SPP</th>' : ""}${actions ? '<th scope="col" class="tv-actions">Advancement</th>' : ""}</tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   }
-  function cardsHtml(players, actions) {
+  function cardsHtml(players, actions, spp) {
     return `<ol class="tv-cards">${players.map((p, i) => `<li class="tv-card${p.isStar ? " tv-star" : ""}">
         <div class="tv-card-head">${spriteHtml(p)}<span class="tv-num">#${esc(p.number)}</span><span class="tv-pos"${posTitle(p)}>${nameHtml(p)}${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}${p.captain ? CAPTAIN_TAG : ""}</span><span class="tv-cost">${gold(p.cost)}</span></div>
         <dl class="tv-card-stats">${STATS.map((stat) => { const c = statCell(p, stat); return `<div class="${c.up ? "tv-up" : ""}"><dt>${stat}</dt><dd>${esc(c.text)}${c.up ? '<span class="tv-up-mark" aria-label="increased">▲</span>' : ""}</dd></div>`; }).join("")}</dl>
-        <div class="row-skills">${skillsHtml(p)}</div>${actions ? `
-        <div class="tv-card-actions">${actions(p, i)}</div>` : ""}
+        <div class="row-skills">${skillsHtml(p)}</div>${actions || spp ? `
+        <div class="tv-card-actions">${spp ? `<span class="tv-spp">${spp(p, i)}</span>` : ""}${actions ? actions(p, i) : ""}</div>` : ""}
       </li>`).join("")}</ol>`;
   }
 
@@ -170,11 +171,12 @@
   /**
    * The whole page body for a team model. opts (the team management page, /app/teams/<ref>; the public page passes
    * none): { bylineLead: "Coach" (default "Shared by"), hideOwnerLink: true, actions(player, index) -> HTML for an
-   * extra "Advancement" column / card footer }.
+   * extra "Advancement" column / card footer, spp(player, index) -> HTML for an "SPP" column before it }.
    */
   function viewHtml(team, opts = {}) {
     const players = Array.isArray(team.players) ? team.players : [];
     const actions = typeof opts.actions === "function" ? opts.actions : null;
+    const spp = typeof opts.spp === "function" ? opts.spp : null;
     const ruleset = rulesetText(team);
     const date = formatDate(team.updatedAt);
     const byline = [`${esc(opts.bylineLead || "Shared by")} <strong>${esc(team.coach)}</strong>`, ruleset ? esc(ruleset) : "", date ? `updated ${esc(date)}` : ""].filter(Boolean).join(" · ");
@@ -196,7 +198,7 @@
       </header>
       ${totalsHtml(team)}
       <section class="tv-roster" aria-label="Roster">
-        ${players.length ? tableHtml(players, actions) + cardsHtml(players, actions) : '<p class="status-copy">This team has no players on this server.</p>'}
+        ${players.length ? tableHtml(players, actions, spp) + cardsHtml(players, actions, spp) : '<p class="status-copy">This team has no players on this server.</p>'}
       </section>
       <div class="tv-extras">${sidelineHtml(team)}${inducementsHtml(team)}</div>
 `;

@@ -11,7 +11,7 @@ import "../teams/teams.css";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import AdvanceModal from "../components/AdvanceModal.vue";
-import { builderHref, createTeamManage, nextCostHint, progressLine, shareUrl, TEAM_MANAGE_KEY, teamManagePath, type ManagedPlayer } from "../teams/manage";
+import { builderHref, createTeamManage, progressLine, shareUrl, TEAM_MANAGE_KEY, teamManagePath, type ManagedPlayer } from "../teams/manage";
 
 interface TeamViewCore { viewHtml: (team: unknown, opts?: Record<string, unknown>) => string }
 const TeamView = (globalThis as unknown as { TeamView?: TeamViewCore }).TeamView;
@@ -27,26 +27,37 @@ const info = computed(() => state.model?.manage);
 const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ESC[c]!);
 
-/** The Advancement cell for one player (HTML for team-view.js's actions hook; clicks are delegated). */
+/** The SPP cell for one player: current SPP against the cost of the next (cheapest) advancement, e.g. "0/14". */
+function sppHtml(p: ManagedPlayer): string {
+  const g = p.progress;
+  if (!g) return '<span class="tv-none">—</span>';
+  const cost = g.costs ? g.costs.randomPrimary : null;
+  return `<span class="tm-spp" title="${esc(progressLine(g))}">${g.spp}${cost !== null ? `/${cost}` : ""}</span>`;
+}
+
+/** The Advancement cell for one player (HTML for team-view.js's actions hook; clicks are delegated). Owner 10-30: always
+ *  the two buttons, greyed out when the player cannot take that advancement, no explanatory text; a "Level up!" toast
+ *  beside them when an advancement is waiting (or "Finish level up" when a roll is saved on the team). */
 function actionsHtml(p: ManagedPlayer, i: number): string {
   const g = p.progress;
   if (!g) return '<span class="tv-none">—</span>';
   const label = esc(p.name || `#${p.number} ${p.position}`);
-  const buttons: string[] = [];
-  if (g.pending) buttons.push(`<button type="button" class="tm-act" data-adv="${i}" data-kind="resume" aria-label="Finish the pending advancement for ${label}">Finish advancement</button>`);
-  else {
-    if (g.canAddSkill) buttons.push(`<button type="button" class="tm-act" data-adv="${i}" data-kind="skill" aria-label="Add a skill to ${label}">Add Skill</button>`);
-    if (g.canAddCharacteristic) buttons.push(`<button type="button" class="tm-act" data-adv="${i}" data-kind="characteristic" aria-label="Add a characteristic to ${label}">Add Characteristic</button>`);
-  }
-  const hint = nextCostHint(g);
-  return `<span class="tm-prog">${esc(progressLine(g))}${hint ? `<br>${esc(hint)}` : ""}</span>${buttons.length ? `<span class="tm-acts">${buttons.join("")}</span>` : ""}`;
+  const pending = Boolean(g.pending);
+  const btn = (kind: string, on: boolean, text: string, aria: string) =>
+    `<button type="button" class="tm-act" data-adv="${i}" data-kind="${pending ? "resume" : kind}"${on ? "" : ' disabled aria-disabled="true"'} aria-label="${aria} ${label}">${text}</button>`;
+  const skillOn = pending || g.canAddSkill;
+  const statOn = pending || g.canAddCharacteristic;
+  const toast = pending
+    ? '<span class="tm-toast" role="status">Finish level up</span>'
+    : skillOn || statOn ? '<span class="tm-toast" role="status">Level up!</span>' : "";
+  return `<span class="tm-acts">${btn("skill", skillOn, "Add Skill", "Add a skill to")}${btn("characteristic", statOn, "Add Stat", "Add a stat to")}${toast}</span>`;
 }
 
 const sheetHtml = computed(() => {
   const m = model.value;
   if (!m || !TeamView) return "";
   const hasProgress = m.team.players.some((p) => p.progress);
-  return TeamView.viewHtml(m.team, { bylineLead: "Coach", hideOwnerLink: true, ...(hasProgress ? { actions: actionsHtml } : {}) });
+  return TeamView.viewHtml(m.team, { bylineLead: "Coach", hideOwnerLink: true, ...(hasProgress ? { actions: actionsHtml, spp: sppHtml } : {}) });
 });
 
 // The opener of the advancement dialog gets focus back on close, and again once the reloaded sheet re-renders (the

@@ -224,7 +224,7 @@ describe("team management + My teams pages (server-rendered)", () => {
     return html;
   }
 
-  it("renders the share view's sheet with Add Skill only where affordable, and the header actions", async () => {
+  it("renders the share view's sheet with the SPP column, both buttons (greyed when unaffordable), the toast, and the header actions", async () => {
     const html = await render("/teams/library%3A77", { "/api/me/teams/library%3A77": libraryModel() });
     expect(html).toContain("<h1>Da Boyz</h1>");
     expect(html).toContain('class="tv-banner"');
@@ -232,11 +232,17 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(html).toContain("Coach <strong>Alice</strong>");
     expect(html).toContain('<span class="tv-pname">Big &lt;Bob&gt;</span>');
     expect(html).toContain('<th scope="col" class="tv-actions">Advancement</th>');
-    // table + phone card each carry the button, for player 1 only
-    expect(html.match(/data-adv="0" data-kind="skill"/g)).toHaveLength(2);
-    expect(html).not.toContain('data-adv="1" data-kind="skill"');
+    // table + phone card each carry both buttons for every player; only player 1 can add a skill (owner 10-30: grey out the rest)
+    expect(html.match(/data-adv="0" data-kind="skill" aria-label="Add a skill to/g)).toHaveLength(2);
+    expect(html.match(/data-adv="0" data-kind="characteristic" disabled aria-disabled="true"/g)).toHaveLength(2);
+    expect(html.match(/data-adv="1" data-kind="skill" disabled aria-disabled="true"/g)).toHaveLength(2);
+    expect(html).toContain(">Add Stat<");
     expect(html).not.toContain(">Add Characteristic<");
-    expect(html).toContain("SPP 0 · Emerging Star · 2 advancements<br>Add Skill at 6 SPP");
+    expect(html.match(/<span class="tm-toast" role="status">Level up!<\/span>/g)).toHaveLength(2);
+    expect(html).not.toContain("Emerging Star · 2 advancements<br>");
+    // SPP column: current against the next advancement's cost
+    expect(html).toContain('<th scope="col" class="tv-spp">SPP</th>');
+    expect(html).toContain('<td class="tv-spp"><span class="tm-spp" title="SPP 12 · Emerging Star · 2 advancements">12/6</span></td>');
     expect(html).toMatch(/<a href="\/app\/my-teams" class="[^"]*tm-back[^"]*">Back to My teams<\/a>/);
     expect(html).toContain('href="/tournament-team-builder.html?save=sv_a">Open in Tournament Builder</a>');
     expect(html).toMatch(/<button type="button" class="lobby-btn primary">Share<\/button>/);
