@@ -155,13 +155,11 @@ export function parseNafCoachPage(html: string, fetchedAt = new Date().toISOStri
   try {
     const profile: NafProfile = { fetchedAt };
     const rows = [...html.matchAll(/<tr\b[\s\S]*?<\/tr\s*>/gi)].map((m) => [...m[0].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]\s*>/gi)].map((c) => cellText(c[1]!)));
-    const valueOf = (label: RegExp): string | undefined => rows.find((cells) => cells.length >= 2 && label.test(cells[0]!))?.slice(1).join(" ");
-    const text = cellText(html);
-    const afterLabel = (label: RegExp): string | undefined => { const at = text.search(label); return at < 0 ? undefined : text.slice(at).replace(label, ""); };
-    const glickoText = valueOf(/^global glicko\b/i) ?? afterLabel(/global glicko(?: rating)?/i);
+    const valueOf = (label: RegExp): string | undefined => rows.find((cells) => cells.length >= 2 && label.test(cells[0]!))?.[1];
+    const glickoText = valueOf(/^global glicko\b/i);
     const glicko = glickoText === undefined ? undefined : /-?\d+(?:\.\d+)?/.exec(glickoText)?.[0];
     if (glicko !== undefined && Number.isFinite(Number(glicko)) && Number(glicko) > 0 && Number(glicko) < 10_000) profile.glicko = Number(glicko);
-    const recordText = valueOf(/^record\s*\(w\/[td]\/l\)/i) ?? afterLabel(/record\s*\(w\/[td]\/l\)/i);
+    const recordText = valueOf(/^record\s*\(w\/[td]\/l\)/i);
     const record = recordText === undefined ? undefined : /(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)/.exec(recordText);
     if (record) { profile.wins = Number(record[1]); profile.draws = Number(record[2]); profile.losses = Number(record[3]); }
     const name = valueOf(/^naf name$/i)?.trim();
@@ -264,7 +262,7 @@ export class NafRecordStore {
   putProfile(nafId: string, nafName: string, profile: NafProfile): void {
     const current = this.read().coaches;
     const previous = Object.hasOwn(current, nafId) ? validRecord(nafId, current[nafId]) : undefined;
-    this.write({ ...current, [nafId]: { nafId, nafName: previous?.nafName || nafName, fetchedAt: previous?.fetchedAt ?? "", ...(previous?.lastAttemptAt ? { lastAttemptAt: previous.lastAttemptAt } : {}), profile, games: previous?.games ?? [] } });
+    this.write({ ...current, [nafId]: { nafId, nafName: previous?.nafName || nafName, fetchedAt: previous?.fetchedAt ?? "", ...(previous?.lastAttemptAt ? { lastAttemptAt: previous.lastAttemptAt } : {}), profile: { ...previous?.profile, ...profile }, games: previous?.games ?? [] } });
   }
 }
 
@@ -474,6 +472,7 @@ export function nafSummaryFor(store: NafRecordStore, identities: NafIdentities, 
   const record = { w: 0, d: 0, l: 0 };
   let counted = 0;
   for (const g of cached.games) {
+    if (g.coachIds && g.coachIds[0] === g.coachIds[1]) continue;
     let side = g.coachIds ? g.coachIds.indexOf(link.nafId) : -1;
     if (side < 0) { const names = g.coaches.map((c) => c.trim().toLowerCase()); side = mine.has(names[0]!) && !mine.has(names[1]!) ? 0 : mine.has(names[1]!) && !mine.has(names[0]!) ? 1 : -1; }
     if (side < 0) continue;

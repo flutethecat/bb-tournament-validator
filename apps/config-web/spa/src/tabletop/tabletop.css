@@ -1373,7 +1373,7 @@
 .tt-coach-cr { display: block; font-size: 11px; color: var(--tt-muted); letter-spacing: .04em; }
 /* the NAF side of the rating: a second, smaller muted line directly under the CR (chip on desktop, text under the coach name below 1024 px); never wraps, ellipsises instead of reaching the race name or the tray */
 .tt-cr-naf { display: none; }
-.tt-coach-naf { display: block; font-size: 10px; color: var(--tt-muted); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.tt-coach-naf { display: block; flex: 0 0 100%; font-size: 10px; color: var(--tt-muted); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 @media (min-width: 1024px) {
   .tt-coach-cr, .tt-coach-naf { display: none; }
   .tt-rec .tt-crestcol .tt-cr-naf { display: block; align-self: center; margin: -3px 0 0; padding: 0; max-width: 100%; width: max-content; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-family: var(--font-heading, sans-serif); font-size: 10px; line-height: 1.1; letter-spacing: .06em; text-transform: uppercase; color: var(--tt-muted); }

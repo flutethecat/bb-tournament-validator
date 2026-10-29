@@ -74,7 +74,10 @@ describe("parseNafCoachPage", () => {
   it("leaves out a field whose label is absent, and gives undefined when nothing is found", () => {
     expect(parseNafCoachPage("<table><tr><td>Global Glicko</td><td>1501.25</td></tr></table>")).toMatchObject({ glicko: 1501.25 });
     expect(parseNafCoachPage("<table><tr><td>Global Glicko</td><td>1501.25</td></tr></table>")).not.toHaveProperty("wins");
-    expect(parseNafCoachPage("<p>Record (W/T/L) 3/2/1</p>")).toMatchObject({ wins: 3, draws: 2, losses: 1 });
+    expect(parseNafCoachPage("<table><tr><td>Record (W/T/L)</td><td>3/2/1</td></tr></table>")).toMatchObject({ wins: 3, draws: 2, losses: 1 });
+    // Only the cell right after the label counts: free text and later columns never feed a number.
+    expect(parseNafCoachPage("<p>Record (W/T/L) 3/2/1</p>")).toBeUndefined();
+    expect(parseNafCoachPage("<table><tr><td>Global Glicko</td><td>n/a</td><td>86</td></tr></table>")).toBeUndefined();
     expect(parseNafCoachPage("<html><body>maintenance</body></html>")).toBeUndefined();
     expect(parseNafCoachPage("<table><tr><td>Global Glicko</td><td>n/a</td></tr></table>")).toBeUndefined();
   });
