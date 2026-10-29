@@ -52,6 +52,7 @@ function deps(store: TournamentStore, over: Partial<TournamentApiDeps> = {}): To
     validateSubmission,
     registeredCoach: (id) => REGISTERED.find((name) => name.toLowerCase() === id.trim().toLowerCase()),
     coachRating: (name) => ({ Alice: 1500, Bob: 1700, Cy: 1600, Dee: 1400 })[name],
+    submissionTeamView: (_coach, submission) => ({ teamName: submission.teamName }),
     now: () => now,
     ...over,
   };
@@ -335,7 +336,9 @@ describe("fixtures and the opponent's team", () => {
     const bob = entrantOf(store, t.id, "Bob");
     const cy = entrantOf(store, t.id, "Cy");
     const read = await call(store, "GET", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(bob.id)}/build`, coach("Alice"));
-    expect(read).toMatchObject({ status: 200, body: { coachId: "Bob", submission: { snapshot: { coach: "Bob" }, valid: true }, inert: true } });
+    expect(read).toMatchObject({ status: 200, body: { coachId: "Bob", submission: { valid: true, view: { teamName: "Bob XI" } }, inert: true } });
+    expect(read!.body).not.toHaveProperty("submission.problems");
+    expect(JSON.stringify(read!.body)).not.toContain("Lineman");
     expect(await call(store, "GET", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(cy.id)}/build`, coach("Alice"))).toMatchObject({ status: 403 });
     expect(await call(store, "GET", `/api/tournaments/${t.id}/entrants/${encodeURIComponent(cy.id)}/build`, helper)).toMatchObject({ status: 403 });
     await call(store, "POST", `/api/tournaments/${t.id}/organizers/Piett`, owner);

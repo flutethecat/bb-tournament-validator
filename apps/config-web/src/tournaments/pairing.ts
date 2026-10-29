@@ -175,9 +175,13 @@ export function generateSwissPairings(
   matches: readonly ScheduledMatchRecord[],
   points: TournamentPoints,
   tiebreakers: readonly TournamentTiebreaker[],
+  eligible?: (entrant: TournamentEntrantRecord) => boolean,
 ): SwissPairing[] {
+  // Standings always count every undropped entrant; `eligible` only narrows who is drawn this round.
+  const drawable = new Set(activeEntrants(entrants).filter((entrant) => !eligible || eligible(entrant)).map((entrant) => entrant.id));
   if (completed(matches).length === 0) {
     const ordered = activeEntrants(entrants)
+      .filter((entrant) => drawable.has(entrant.id))
       .sort((left, right) => left.seed - right.seed || left.id.localeCompare(right.id));
     const pairings: SwissPairing[] = [];
     if (ordered.length % 2 === 1) {
@@ -193,7 +197,8 @@ export function generateSwissPairings(
     return pairings;
   }
 
-  const standings = calculateStandings(entrants, matches, points, tiebreakers);
+  const standings = calculateStandings(entrants, matches, points, tiebreakers)
+    .filter((row) => drawable.has(row.entrantId));
   const played = new Set<string>();
   const byeRecipients = new Set<string>();
   for (const match of completed(matches)) {
@@ -369,15 +374,7 @@ export function generateTournamentPairings(
     if (named) return named;
     // No legal pairing without a rematch: the min-cost matcher (rematch = heavy cost) is the fallback.
   }
-  if (!eligible) return generateSwissPairings(entrants, matches, points, tiebreakers);
-  const excluded = new Set(activeEntrants(entrants).filter((entrant) => !eligible(entrant)).map((entrant) => entrant.id));
-  if (excluded.size === 0) return generateSwissPairings(entrants, matches, points, tiebreakers);
-  return generateSwissPairings(
-    entrants.map((entrant) => excluded.has(entrant.id) ? { ...entrant, droppedAt: entrant.droppedAt ?? "standby" } : entrant),
-    matches,
-    points,
-    tiebreakers,
-  );
+  return generateSwissPairings(entrants, matches, points, tiebreakers, eligible);
 }
 
 // ---- named Swiss systems ----

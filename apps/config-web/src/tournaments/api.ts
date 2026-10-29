@@ -35,6 +35,10 @@ export interface TournamentApiDeps {
   validateSubmission?(coach: string, ref: string, packageName: string, now: Date): TournamentSubmission | { error: string; status?: 400 | 404 | 409 };
   /** v4: the stored spelling of a registered coach id (identities store), or undefined when nobody has that id. */
   registeredCoach?(coachId: string): string | undefined;
+  /** v4: the package file's current revision; Start refuses rosters checked against another revision. */
+  packageRevision?(packageName: string): string | undefined;
+  /** v4: the shared Team Builder read-view model (teamShareView) of a submitted snapshot, or undefined. */
+  submissionTeamView?(coach: string, submission: TournamentSubmission, packageName: string): unknown | undefined;
   now?: () => Date;
 }
 
@@ -153,7 +157,12 @@ function rosterChecks(
       continue;
     }
     const ref = entrant.submission?.saveId ?? `library:${entrant.teamId}`;
-    const check = deps.validateSubmission(entrant.coach.ffbCoachId, ref, tournament.packageName, now);
+    let check: ReturnType<NonNullable<TournamentApiDeps["validateSubmission"]>>;
+    try {
+      check = deps.validateSubmission(entrant.coach.ffbCoachId, ref, tournament.packageName, now);
+    } catch {
+      throw new TournamentStoreError(503, "Team validation failed on this host; nothing was locked. Try again.");
+    }
     out[entrant.id] = "error" in check ? { error: check.error } : check;
   }
   return out;
@@ -207,10 +216,36 @@ function validationTable(entrants: readonly TournamentEntrantRecord[], deps: Pic
       teamName: stringField(team, "teamName") ?? entrant.submission?.teamName ?? entrant.teamId,
       valid: Boolean(entrant.flags?.rosterVerified),
       validatorOk: entrant.submission?.validation.ok ?? false,
+      ...(entrant.submission ? { checkedAgainst: entrant.submission.validation.packageName } : {}),
       ...(entrant.rosterVerifiedOverride === undefined ? {} : { override: entrant.rosterVerifiedOverride }),
       problems: entrant.submission?.validation.problems ?? [],
     };
   });
+}
+
+/** A fixture for an entrant who does not play in it: names, teams, round, status, score. No coach identities beyond
+ *  the fork coach name, no launch, lease or challenge data. */
+function publicMatch(match: ScheduledMatchRecord) {
+  const side = (s: ScheduledMatchRecord["home"]) => ({ entrantId: s.entrantId, teamId: s.teamId, coach: { ffbCoachId: s.coach.ffbCoachId } });
+  return {
+    id: match.id,
+    matchId: match.id,
+    tournamentId: match.tournamentId,
+    roundId: match.roundId,
+    roundNumber: match.roundNumber,
+    round: match.roundNumber,
+    status: match.status,
+    home: side(match.home),
+    ...(match.away ? { away: side(match.away) } : {}),
+    ...(match.result ? {
+      result: {
+        homeScore: match.result.homeScore,
+        awayScore: match.result.awayScore,
+        ...(match.result.homeCasualties === undefined ? {} : { homeCasualties: match.result.homeCasualties }),
+        ...(match.result.awayCasualties === undefined ? {} : { awayCasualties: match.result.awayCasualties }),
+      },
+    } : {}),
+  };
 }
 
 function clientMatch(
@@ -531,7 +566,12 @@ export async function tournamentApi(
       const checks = tournament.rostersLockedAt
         ? undefined
         : rosterChecks(tournament, deps.store.entrants(tournament.id), deps, now);
-      const result = deps.store.startTournament(tournament.id, { force: input.force === true, ...(checks ? { checks } : {}) }, now);
+      const packageRevision = deps.packageRevision?.(tournament.packageName);
+      const result = deps.store.startTournament(tournament.id, {
+        force: input.force === true,
+        ...(checks ? { checks } : {}),
+        ...(packageRevision ? { packageRevision } : {}),
+      }, now);
       const validation = validationTable(result.entrants, deps);
       if (!result.started) {
         return {
@@ -794,7 +834,9 @@ export async function tournamentApi(
       const scheduledMatches = auth
         ? deps.store.matches(tournament.id)
           .filter((match) => auth.organizer || manager || entered || isParticipant(match, auth.coach))
-          .map((match) => clientMatch(deps.store, match, auth, now, deps.teamBuild))
+          .map((match) => auth.organizer || manager || isParticipant(match, auth.coach)
+            ? clientMatch(deps.store, match, auth, now, deps.teamBuild)
+            : publicMatch(match))
         : [];
       return {
         status: 200,
@@ -831,11 +873,16 @@ export async function tournamentApi(
         match.roundNumber === buildTournament.currentRound && match.away !== undefined && match.status !== "cancelled" &&
         ((match.home.entrantId === entrant.id && coachKey(match.away.coach.ffbCoachId) === coachKey(identity.coach)) ||
           (match.away.entrantId === entrant.id && coachKey(match.home.coach.ffbCoachId) === coachKey(identity.coach))));
-      const mayRead = identity.organizer || self || opponentNow || (buildTournament !== undefined && canManage(buildTournament, identity));
+      // Only THIS tournament's managers: the global organiser flag is not a licence to read every event's rosters.
+      const manager = buildTournament !== undefined && canManage(buildTournament, identity);
+      const mayRead = self || opponentNow || manager;
       if (!mayRead) return { status: 403, body: { error: "You may fetch only your own tournament build or your current opponent's." } };
       const team = deps.teamBuild(entrant.teamId);
       const submission = entrant.submission;
       if (!team && !submission?.snapshot) return { status: 404, body: { error: "Tournament team build not found." } };
+      const view = submission?.snapshot && buildTournament
+        ? deps.submissionTeamView?.(entrant.coach.ffbCoachId, submission, buildTournament.packageName)
+        : undefined;
       return {
         status: 200,
         body: {
@@ -848,9 +895,10 @@ export async function tournamentApi(
               submittedAt: submission.submittedAt,
               ...(submission.teamName ? { teamName: submission.teamName } : {}),
               ...(submission.race ? { race: submission.race } : {}),
-              snapshot: submission.snapshot,
               valid: Boolean(entrant.flags?.rosterVerified),
-              problems: submission.validation.problems,
+              // The problems list is for the coach and the managers; the opponent sees validity only.
+              ...(self || manager ? { problems: submission.validation.problems } : {}),
+              ...(view ? { view } : {}),
             },
           } : {}),
           inert: true,

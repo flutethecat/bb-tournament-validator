@@ -195,6 +195,28 @@ function lockInto(
   return entrants;
 }
 
+/** The ruleset changed: every check is void (ok false, a reason), hand verifications are cleared, the lock is lifted. */
+function invalidateRosterChecks(data: TournamentDataFileV4, tournamentId: string, timestamp: string): void {
+  const tournament = data.tournaments[tournamentId];
+  if (!tournament) return;
+  for (const entrant of Object.values(data.entrants)) {
+    if (entrant.tournamentId !== tournamentId) continue;
+    delete entrant.rosterVerifiedOverride;
+    if (entrant.submission) {
+      entrant.submission.validation = {
+        ...entrant.submission.validation,
+        ok: false,
+        problems: ["The ruleset changed; resubmit this team so it is checked against the new ruleset."],
+        checkedAt: timestamp,
+        packageName: tournament.packageName,
+      };
+      delete entrant.submission.validation.packageRevision;
+    }
+    entrant.flags = { ...withVerified(entrant), frozen: false };
+  }
+  delete tournament.rostersLockedAt;
+}
+
 interface RoundPlan {
   number: number;
   seeds: Record<string, number>;
@@ -267,7 +289,7 @@ function planRound(
 }
 
 export class TournamentStoreError extends Error {
-  constructor(readonly status: 400 | 401 | 403 | 404 | 409, message: string) {
+  constructor(readonly status: 400 | 401 | 403 | 404 | 409 | 503, message: string) {
     super(message);
   }
 }
@@ -417,7 +439,10 @@ export class TournamentStore {
       if (patch.turnTimer !== undefined) tournament.turnTimer = { enforced: patch.turnTimer.enforced, seconds: patch.turnTimer.seconds };
       if (patch.maxPlayers !== undefined) tournament.maxPlayers = patch.maxPlayers;
       if (patch.format !== undefined) tournament.format = patch.format;
-      if (patch.packageName !== undefined) tournament.packageName = patch.packageName;
+      if (patch.packageName !== undefined && patch.packageName !== tournament.packageName) {
+        tournament.packageName = patch.packageName;
+        invalidateRosterChecks(data, tournamentId, now.toISOString());
+      }
       if (patch.primaryTiebreaker !== undefined) {
         tournament.tiebreakers = tiebreakerLadder(patch.primaryTiebreaker);
         delete data.standings[tournamentId];
@@ -683,6 +708,8 @@ export class TournamentStore {
         throw new TournamentStoreError(409, "Rosters are locked; ask an organiser to unlock them before resubmitting.");
       const roundOneExists = Object.values(data.rounds).some((round) => round.tournamentId === tournamentId);
       entrant.submission = structuredClone(submission);
+      // A hand verification belonged to the previous roster: a resubmitted team is judged by the validator again.
+      delete entrant.rosterVerifiedOverride;
       if (submission.teamId && !roundOneExists) entrant.teamId = submission.teamId;
       entrant.flags = withVerified(entrant);
       tournament.updatedAt = now.toISOString();
@@ -704,8 +731,8 @@ export class TournamentStore {
       const tournament = data.tournaments[tournamentId];
       if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
       if (!tournament.rostersLockedAt) throw new TournamentStoreError(409, "Rosters are not locked.");
-      if (Object.values(data.rounds).some((round) => round.tournamentId === tournamentId))
-        throw new TournamentStoreError(409, "Rosters stay locked once round 1 exists.");
+      if (tournament.status !== "draft")
+        throw new TournamentStoreError(409, "Rosters stay locked once the tournament has started.");
       delete tournament.rostersLockedAt;
       for (const entrant of Object.values(data.entrants)) {
         if (entrant.tournamentId !== tournamentId) continue;
@@ -723,7 +750,7 @@ export class TournamentStore {
    */
   startTournament(
     tournamentId: string,
-    input: { force: boolean; checks?: Record<string, TournamentSubmission | { error: string }> },
+    input: { force: boolean; checks?: Record<string, TournamentSubmission | { error: string }>; packageRevision?: string },
     now = new Date(),
   ): { started: boolean; tournament: TournamentRecord; entrants: TournamentEntrantRecord[]; invalid: TournamentEntrantRecord[] } {
     return this.mutate((data) => {
@@ -739,6 +766,21 @@ export class TournamentStore {
       const entrants = Object.values(data.entrants)
         .filter((entrant) => entrant.tournamentId === tournamentId)
         .sort((left, right) => left.seed - right.seed);
+      // A roster checked against another ruleset (or another revision of the package file) is not valid for this
+      // start unless an organiser verified it by hand since; the refusal records why.
+      for (const entrant of entrants) {
+        const validation = entrant.submission?.validation;
+        if (entrant.droppedAt !== undefined || !validation || entrant.rosterVerifiedOverride !== undefined) continue;
+        const stale = validation.packageName !== tournament.packageName ||
+          (input.packageRevision !== undefined && validation.packageRevision !== input.packageRevision);
+        if (!stale) continue;
+        entrant.submission!.validation = {
+          ...validation,
+          ok: false,
+          problems: ["The ruleset changed after this roster was checked. Unlock the rosters and start again to re-check it."],
+        };
+        entrant.flags = withVerified(entrant);
+      }
       const invalid = entrants.filter((entrant) => entrant.droppedAt === undefined && !entrant.flags?.rosterVerified);
       if (invalid.length > 0 && !input.force) return { started: false, tournament, entrants, invalid };
       const timestamp = now.toISOString();
