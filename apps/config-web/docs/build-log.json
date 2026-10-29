@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Leagues: overlapping seasons, news, Discord events, tier shortcut",
+    "body": "A new season can now start while another is still in progress: the newest season becomes the current one, and Finish season lets organisers pick which open season to close. The Redraft board picks which finished season to redraft from and which season receives the draft lists (by default the newest finished season into the newest season in progress). League news is here: organisers post news on the league Overview (pin, edit, delete; simple formatting), the season’s coaches are notified, and the post goes to the league Discord. Organisers also get a fixtures editor on the Fixtures tab: add a fixture (home, away, round, date, or a test fixture), change its date, enter or clear the result, and delete one that has no result. Every Discord toggle is now wired: league news, fixture created, match started and match result post through the league webhook when switched on, with a [Test] tag on test fixtures. On the Team building tab, each roster row has Apply to all rosters in this tier, which copies its starting treasury and Primary, Secondary and Elite starting skills to every roster of the same tier (it asks first before overwriting values already set); save to keep them.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "League fixtures can be played on Super FUMBBL",
     "body": "When a league plays on Super FUMBBL and an organiser allows a fixture, its summary page (Summary on any fixture in the Fixtures tab) now has Generate fixture on Super FUMBBL. Either coach or an organiser can press it: both league teams are built on Super FUMBBL from their league rosters (players, skills, injuries, SPP, staff and treasury as the league has them), the game is scheduled, the opponent is told \"<Coach> has invited you to play your match on Super FUMBBL\", and the organisers hear about it too. Pressing it again re-uses the same teams and game. Each coach then gets Start Game on Super FUMBBL, which downloads their own launch file; nobody else can take it. The page shows where things stand: teams built, game scheduled, in progress, result recorded, or failed with the reason, and organisers can reset a failed game (with a reason that goes in the history), allow a late launch, or cancel Super FUMBBL play for that fixture. When the game ends the result comes back by itself: the score, casualties and player lines go on the fixture, and both league teams are updated from the game the same way Super FUMBBL updates its own teams (SPP, injuries, deaths, missed games, winnings into the treasury, dedicated fans). Both coaches get a notification and the result posts to the league's Discord channel when that is switched on.",
     "links": [
