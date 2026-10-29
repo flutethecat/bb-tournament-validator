@@ -63,7 +63,7 @@ const sheetHtml = computed(() => {
   if (!m || !TeamView) return "";
   const hasProgress = m.team.players.some((p) => p.progress);
   const team = { ...m.team, avatarUrl: state.avatar.url || undefined };
-  return TeamView.viewHtml(team, { bylineLead: "Coach", hideOwnerLink: true, sheet: sheetLabel, ...(hasProgress ? { actions: actionsHtml, spp: sppHtml } : {}) });
+  return TeamView.viewHtml(team, { avatarButton: true, hideOwnerLink: true, sheet: sheetLabel, ...(hasProgress ? { actions: actionsHtml, spp: sppHtml } : {}) });
 });
 
 // The opener of the advancement dialog (or of the player sheet: kind "sheet", the row's name button, which also keeps focus
@@ -73,7 +73,7 @@ const avatarBtn = ref<HTMLElement | null>(null);
 watch(() => state.avatar.open, async (open, was) => {
   if (open || !was) return;
   await nextTick();
-  (avatarBtn.value ?? backLink.value?.$el)?.focus({ preventScroll: true });
+  (document.querySelector<HTMLElement>(".tm-sheet [data-avatar-open]") ?? avatarBtn.value ?? backLink.value?.$el)?.focus({ preventScroll: true });
 });
 const opener = ref<{ index: number; kind: string } | null>(null);
 const restorePending = ref(false);
@@ -107,6 +107,7 @@ watch(sheetHtml, async () => {
 
 function onSheetClick(e: MouseEvent): void {
   const target = e.target as HTMLElement | null;
+  if (target?.closest?.("[data-avatar-open]")) { manage.openAvatar(); return; }
   const btn = target?.closest?.("[data-adv]") as HTMLElement | null;
   if (!btn) {
     // The name/position button, or anywhere else in that cell / the phone card's head.

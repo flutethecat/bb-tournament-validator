@@ -351,10 +351,11 @@ describe("team management + My teams pages (server-rendered)", () => {
 
   it("renders the share view's sheet with the SPP column, both buttons (greyed when unaffordable), the toast, and the header actions", async () => {
     const html = await render("/teams/library%3A77", { "/api/me/teams/library%3A77": libraryModel() });
-    expect(html).toContain("<h1>Da Boyz</h1>");
+    expect(html).toContain('<h1 class="tv-name">Da Boyz</h1>');
     expect(html).toContain('class="tv-banner"');
-    expect(html).toContain("</span>On the fork</span>");
-    expect(html).toContain("Coach <strong>Alice</strong>");
+    expect(html).not.toContain("On the fork");
+    expect(html).toContain('<p class="tv-byline"><strong title="Updated 1 Oct 2026">Alice</strong></p>');
+    expect(html).toContain('aria-label="Change team avatar"');
     expect(html).toContain('<span class="tv-pname">Big &lt;Bob&gt;</span>');
     expect(html).toContain('<th scope="col" class="tv-actions"><span class="visually-hidden">Advancement</span></th>');
     // table + phone card each carry both buttons for every player; only player 1 can add a skill (owner 10-30: grey out the rest)

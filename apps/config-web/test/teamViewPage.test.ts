@@ -49,11 +49,13 @@ describe("team view core", () => {
 
   it("renders the banner, the desktop table and the mobile cards", () => {
     const markup = TeamView.viewHtml(fixture());
-    expect(markup).toContain("<h1>Grudge &lt;XI&gt;</h1>");
+    expect(markup).toContain('<h1 class="tv-name">Grudge &lt;XI&gt;</h1>');
     expect(markup).not.toContain("Grudge <XI>");
     expect(markup).toContain('src="/crests/dwarf.png"');
-    expect(markup).toContain("Shared by <strong>Alice</strong> · EuroBowl 2026 — Tier 2 · updated 27 Oct 2026");
-    expect(markup).toContain('<span class="tv-badge tv-valid" title="Valid team"><small>EuroBowl 2026</small><span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10003;</span>Verified</span></span>');
+    // Owner 10-30: coach name only (date as a tooltip); no Team / On the fork status block, no "Coach" / "Shared by" label.
+    expect(markup).toContain('<p class="tv-byline"><strong title="Updated 27 Oct 2026">Alice</strong></p>');
+    expect(markup).not.toMatch(/Shared by|updated 27|tv-badge|tv-verdict|tv-check/);
+    expect(markup).not.toContain("tv-avatar-btn");
     expect(markup).toContain('<table class="tv-table">');
     expect(markup).toContain('<ol class="tv-cards">');
     const rosterStart = markup.indexOf('<table class="tv-table">');
@@ -97,14 +99,11 @@ describe("team view core", () => {
     expect(markup).not.toContain('id="tv-rules-title"');
   });
 
-  it("an invalid team gets an issue badge; the owner link appears only with ownerSaveId", () => {
-    const invalid = { ...fixture(), validity: { valid: false, issues: 3, custom: false, findings: ["Team spends 1,160k; the cap is 1,150k.", "Guard is not a primary skill for Dwarf Blitzer.", "<b>bad</b>"] } };
-    expect(TeamView.viewHtml(invalid)).toContain('<ul class="tv-issues" aria-label="Issues"><li>Team spends 1,160k; the cap is 1,150k.</li><li>Guard is not a primary skill for Dwarf Blitzer.</li><li>&lt;b&gt;bad&lt;/b&gt;</li></ul>');
-    expect(TeamView.viewHtml(invalid)).toContain('<span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10007;</span>Has 3 issues</span>');
-    expect(TeamView.viewHtml(fixture())).toMatch(/<span class="tv-badge tv-valid"[^>]*><small>[^<]+<\/small><span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10003;<\/span>Verified<\/span>/);
-    // the team name sits above the crest: h1 before the crest markup
+  it("the header has no validity badge (invalid teams too); the team name comes first; the owner link appears only with ownerSaveId", () => {
+    const invalid = { ...fixture(), validity: { valid: false, issues: 3, custom: false, findings: ["Team spends 1,160k; the cap is 1,150k."] } };
+    expect(TeamView.viewHtml(invalid)).not.toMatch(/tv-issues|tv-verdict|Has 3 issues/);
     const m = TeamView.viewHtml(fixture());
-    expect(m.indexOf("<h1>")).toBeLessThan(m.indexOf('tv-banner-main'));
+    expect(m.indexOf("<h1")).toBeLessThan(m.indexOf('tv-banner-meta'));
     expect(TeamView.viewHtml(fixture())).not.toContain("Open in Tournament Builder");
     const owned = TeamView.viewHtml({ ...fixture(), ownerSaveId: "sv_abc" });
     expect(owned).toContain('<a class="session-button tv-owner" href="/tournament-team-builder.html?save=sv_abc">Open in Tournament Builder</a>');
@@ -229,10 +228,9 @@ describe("team view: hostile strings (Sol r1 P3)", () => {
       expect(part).toContain(escaped); // position / skills / stats
       expect(part).toContain(`<span class="skill skill-trait" title="${escaped}">${escaped}</span>`);
     }
-    expect(markup).toContain(`<h1>${escaped}</h1>`);
-    expect(markup).toContain(`Shared by <strong>${escaped}</strong>`);
+    expect(markup).toContain(`<h1 class="tv-name">${escaped}</h1>`);
+    expect(markup).toContain(`>${escaped}</strong>`);
     expect(markup).toContain(`aria-label="Special rules">${escaped}</small>`); // special rule beside the team type
-    expect(markup).toContain("Has 1 issue"); // a non-numeric issue count never reaches the markup
     expect(markup).toContain("+&lt;img"); // stat increase chip
   });
 
@@ -266,19 +264,23 @@ describe("team view core: management page options (owner 10-30)", () => {
     expect(plain).not.toContain("tv-actions");
     expect(plain).not.toContain("tv-pname");
     const team = { ...fixture(), verdict: "On the fork", ownerSaveId: "sv_1", players: fixture().players.map((p: Any, i: number) => ({ ...p, name: i === 0 ? "Big <Bob>" : "" })) };
-    const markup = TeamView.viewHtml(team, { bylineLead: "Coach", hideOwnerLink: true, actions: (p: Any, i: number) => `<button data-adv="${i}">Add Skill ${p.number}</button>` });
+    const markup = TeamView.viewHtml(team, { avatarButton: true, hideOwnerLink: true, actions: (p: Any, i: number) => `<button data-adv="${i}">Add Skill ${p.number}</button>` });
     expect(markup).toContain('<th scope="col" class="tv-actions"><span class="visually-hidden">Advancement</span></th>');
     expect(markup.match(/<td class="tv-actions"><button data-adv="0">Add Skill 1<\/button><\/td>/g)).toHaveLength(1);
     expect(markup.match(/<div class="tv-card-actions"><button data-adv="2">Add Skill 3<\/button><\/div>/g)).toHaveLength(1);
     expect(markup).toContain('<span class="tv-pname">Big &lt;Bob&gt;</span>');
     expect(markup.match(/tv-pname/g)).toHaveLength(2); // table + card for the named player only
-    expect(markup).toContain("Coach <strong>Alice</strong>");
-    expect(markup).toContain("</span>On the fork</span>");
+    expect(markup).toContain("<strong");
+    expect(markup).not.toContain("On the fork");
+    expect(markup).not.toMatch(/Coach <strong/);
+    // The avatar box is a button wrapping the crest, with the Upload plate.
+    expect(markup).toMatch(/<button type="button" class="tv-avatar-btn" data-avatar-open aria-haspopup="dialog" aria-label="Change team avatar"><span class="sprite-frame crest-frame tv-crest"/);
+    expect(markup).toContain("<span>Upload</span>");
     expect(markup).not.toContain("Open in Tournament Builder");
   });
 
-  it("the public (no-options) output matches the golden rendering captured from 3c20228's team-view.js byte for byte", () => {
-    // test/fixtures/team-view-public.golden.html = viewHtml(fixture()) rendered by `git show 3c20228:apps/config-web/public/team-view.js`.
+  it("the public (no-options) output matches the golden rendering (regenerated 10-30 for the new header) byte for byte", () => {
+    // test/fixtures/team-view-public.golden.html = viewHtml(fixture()) rendered by the 10-30 header rework (no Team / On the fork block, coach name only); the rows below the header are unchanged since 3c20228.
     // Line endings follow the checkout (core.autocrlf rewrites both team-view.js's template literals and the golden), so both
     // sides are compared as LF; every other byte must match.
     const lf = (text: string) => text.replace(/\r\n/g, "\n");
@@ -337,7 +339,10 @@ describe("team sheet totals bar and advancement buttons CSS (owner 10-30)", () =
     expect(b).toMatch(/border-radius: 2px/);
     expect(b).toMatch(/0 4px 0 var\(--sf-panel-drop/);
     expect(b).toMatch(/linear-gradient\(var\(--sf-panel-top/);
-    expect(css).toMatch(/\.tv-banner-top h1 \{ text-shadow: 4px 5px 0/);
+    expect(css).toMatch(/\.tv-banner \.tv-name \{ text-shadow: 4px 5px 0/);
+    // Owner 10-30: crest spans both rows; name on row 1, race + coach on row 2.
+    expect(css).toMatch(/grid-template-areas: "crest name" "crest meta"/);
+    expect(css).toMatch(/\.tv-avatar-btn:hover \.tv-upload-plate/);
   });
   it("shrinks the advancement column and lifts the Add buttons", () => {
     expect(css).not.toMatch(/min-width: 180px/);

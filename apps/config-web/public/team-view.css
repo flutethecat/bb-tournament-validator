@@ -5,7 +5,7 @@
 /* Owner 10-28: use the room on wide monitors - a wider column and larger type/sprites from 1600 px up. */
 @media (min-width: 1600px) {
   .team-view { max-width: min(1800px, 88vw); }
-  .tv-banner-top h1 { font-size: clamp(34px, 2.4vw, 48px); }
+  .tv-banner .tv-name { font-size: clamp(34px, 2.4vw, 48px); }
   .tv-race { font-size: 18px; }
   .tv-byline { font-size: 15px; }
   .tv-totals b { font-size: 22px; }
@@ -146,8 +146,7 @@
 
 /* Owner 10-27: team name above the crest; small check + ruleset top right (no stencil badge). */
 .tv-banner { flex-direction: column; align-items: stretch; gap: 8px; }
-.tv-banner-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.tv-banner-top h1 { margin: 0; flex: 1 1 220px; }
+.tv-banner .tv-name { margin: 0; }
 .tv-banner-main { display: flex; align-items: center; gap: 12px 16px; }
 .tv-banner .tv-badge { padding: 0; background: none; border: 0; font: 17px/1.2 var(--font-body); text-transform: none; letter-spacing: 0; display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .tv-banner .tv-verdict { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600; }
@@ -232,10 +231,10 @@
 .tv-banner-main { flex-wrap: wrap; }
 .tv-banner-main .tv-key { margin: 0 0 0 auto; align-self: flex-end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 /* Owner 10-28: a soft drop shadow lifts the team name off the banner. */
-.tv-banner-top h1 { text-shadow: 4px 5px 0 rgb(0 0 0 / 85%), 0 7px 18px rgb(0 0 0 / 75%), 0 12px 28px rgb(0 0 0 / 45%); }
+.tv-banner .tv-name { text-shadow: 4px 5px 0 rgb(0 0 0 / 85%), 0 7px 18px rgb(0 0 0 / 75%), 0 12px 28px rgb(0 0 0 / 45%); }
 /* Owner 10-28: in the FUMBBL (light) theme the shadowed title goes white so it is not black on black. */
-:root[data-theme="fumbbl"] .tv-banner-top h1 { color: #fff; }
-:root[data-theme="fumbbl"] .tv-banner-top h1 span { color: #fff; }
+:root[data-theme="fumbbl"] .tv-banner .tv-name { color: #fff; }
+:root[data-theme="fumbbl"] .tv-banner .tv-name span { color: #fff; }
 /* Team management page (/app/teams/<ref>, owner 10-30): player names above the position, the Advancement column
    (table) / card footer with Add Skill and Add Characteristic. The public share page renders none of these. */
 .tv-pname { display: block; color: var(--ui-text); font-family: var(--font-heading); font-size: 15px; letter-spacing: .03em; white-space: normal; }
@@ -243,3 +242,33 @@
 .tv-table td.tv-actions, .tv-table th.tv-actions { width: 1%; white-space: nowrap; }
 .tv-table td.tv-spp, .tv-table th.tv-spp { width: 1%; white-space: nowrap; }
 .tv-table td.tv-actions > * + * { margin-top: 4px; }
+
+/* Owner 10-30: header grid. Avatar box spans both rows; row 1 is the team name across the full width; row 2 holds the
+   race + special rules on the left and the coach name (with the skill key under it) on the right. */
+.tv-banner { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "crest name" "crest meta"; align-items: center; gap: 6px 16px; }
+.tv-banner .tv-crest, .tv-avatar-btn { grid-area: crest; align-self: center; }
+.tv-banner .tv-name { grid-area: name; min-width: 0; font-family: var(--font-heading); overflow-wrap: anywhere; }
+.tv-banner-meta { grid-area: meta; min-width: 0; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 16px; }
+.tv-banner-meta .tv-race { margin: 0; flex: 1 1 260px; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.tv-banner-meta .tv-rules-inline { margin-left: 0; }
+.tv-banner-meta .tv-banner-side { flex: 0 1 auto; flex-direction: column; align-items: flex-end; gap: 6px; margin-left: auto; }
+.tv-banner-meta .tv-byline { margin: 0; text-align: right; font-size: 17px; }
+.tv-banner-meta .tv-key { margin: 0; }
+.tv-banner .tv-crest { width: 96px; height: 96px; }
+.tv-avatar-btn { position: relative; display: block; width: 96px; height: 96px; min-width: 44px; min-height: 44px; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; color: inherit; }
+.tv-avatar-btn .tv-crest { width: 100%; height: 100%; }
+.tv-avatar-btn:focus-visible { outline: 3px solid var(--ui-gold, #ffe27a); outline-offset: 2px; }
+.tv-upload-plate { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: rgb(8 6 4 / 66%); color: #fff; font-family: var(--font-heading); font-size: 14px; letter-spacing: .08em; text-transform: uppercase; opacity: 0; transition: opacity .12s; pointer-events: none; }
+.tv-upload-glyph { width: 24px; height: 24px; image-rendering: pixelated; }
+.tv-avatar-btn:hover .tv-upload-plate, .tv-avatar-btn:focus-visible .tv-upload-plate { opacity: 1; }
+@media (hover: none) { .tv-avatar-btn .tv-upload-plate { opacity: 1; background: linear-gradient(transparent 55%, rgb(8 6 4 / 70%)); justify-content: flex-end; padding-bottom: 4px; } .tv-avatar-btn .tv-upload-glyph { display: none; } }
+@media (prefers-reduced-motion: reduce) { .tv-upload-plate { transition: none; } }
+@media (max-width: 640px) {
+  .tv-banner { grid-template-columns: 72px minmax(0, 1fr); gap: 6px 12px; }
+  .tv-banner .tv-crest, .tv-avatar-btn { width: 72px; height: 72px; }
+  .tv-banner-meta { grid-column: 1 / -1; grid-area: auto; flex-direction: column; align-items: stretch; }
+  .tv-banner { grid-template-areas: "crest name" "meta meta"; }
+  .tv-banner-meta { grid-area: meta; }
+  .tv-banner-meta .tv-banner-side { align-items: flex-start; margin-left: 0; }
+  .tv-banner-meta .tv-byline { text-align: left; }
+}

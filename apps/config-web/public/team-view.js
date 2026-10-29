@@ -49,9 +49,13 @@
   const posTitle = (p) => (typeof p.positionFull === "string" && p.positionFull && p.positionFull !== p.position ? ` title="${esc(p.positionFull)}"` : "");
   // An uploaded team avatar (src/teamAvatars.ts public read, optionally ?v=-busted) replaces the race crest in the banner.
   const avatarSrc = (url) => (typeof url === "string" && /^\/api\/fork\/teams\/[^/?#]+\/avatar(?:\?v=\d+)?$/.test(url) ? url : "");
-  function crestHtml(team) {
+  function crestHtml(team, editable) {
     const src = avatarSrc(team.avatarUrl) || artSrc(team.crest);
-    return `<span class="sprite-frame crest-frame tv-crest" aria-hidden="true"><span class="sprite-fallback">${esc(initials(team.teamName))}</span>${src ? `<img class="crest-image" src="${esc(src)}" alt="" decoding="async">` : ""}</span>`;
+    const frame = `<span class="sprite-frame crest-frame tv-crest" aria-hidden="true"><span class="sprite-fallback">${esc(initials(team.teamName))}</span>${src ? `<img class="crest-image" src="${esc(src)}" alt="" decoding="async">` : ""}</span>`;
+    if (!editable) return frame;
+    // Management page (owner 10-30): the avatar box is a button; hover / focus shows an "Upload" plate over it.
+    const glyph = `<svg class="tv-upload-glyph" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" shape-rendering="crispEdges"><path fill="currentColor" d="M8 1 3 6h3v5h4V6h3zM2 13h12v2H2z"/></svg>`;
+    return `<button type="button" class="tv-avatar-btn" data-avatar-open aria-haspopup="dialog" aria-label="Change team avatar">${frame}<span class="tv-upload-plate" aria-hidden="true">${glyph}<span>Upload</span></span></button>`;
   }
 
   function formatDate(iso) {
@@ -166,21 +170,10 @@
       <div class="tv-total${over ? " tv-over" : ""}"><span>Total</span><b>${total}</b></div>
     </section>`;
   }
-  /** Owner 10-27: no stencil badge - a small check (or cross) with the ruleset name in small text, top right. */
-  function badgeHtml(team) {
-    const v = team.validity ?? {};
-    const ruleset = team.ruleset?.name ?? "";
-    // Owner 10-28: ruleset name on its own line; the check (or cross) with "Verified" / the issue count beneath it.
-    if (v.valid) return `<span class="tv-badge tv-valid" title="Valid team"><small>${ruleset ? esc(ruleset) : "Team"}</small><span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10003;</span>${esc(typeof team.verdict === "string" && team.verdict ? team.verdict : "Verified")}</span></span>`;
-    const n = isNum(v.issues) && v.issues > 0 ? v.issues : 1;
-    const findings = Array.isArray(v.findings) ? v.findings.map(String).filter(Boolean) : [];
-    const list = findings.length ? `<ul class="tv-issues" aria-label="Issues">${findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : "";
-    return `<span class="tv-badge tv-invalid"><small>${ruleset ? esc(ruleset) : "Team"}</small><span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10007;</span>Has ${n} issue${n === 1 ? "" : "s"}</span>${list}</span>`;
-  }
 
   /**
    * The whole page body for a team model. opts (the team management page, /app/teams/<ref>; the public page passes
-   * none): { bylineLead: "Coach" (default "Shared by"), hideOwnerLink: true, actions(player, index) -> HTML for an
+   * none): { avatarButton: true (crest becomes the "Change team avatar" button), hideOwnerLink: true, actions(player, index) -> HTML for an
    * extra "Advancement" column / card footer, spp(player, index) -> HTML for an "SPP" column before it,
    * sheet(player, index) -> the accessible label of a name/position button (data-sheet="<index>") opening the player sheet }.
    */
@@ -189,23 +182,19 @@
     const actions = typeof opts.actions === "function" ? opts.actions : null;
     const spp = typeof opts.spp === "function" ? opts.spp : null;
     const sheet = typeof opts.sheet === "function" ? opts.sheet : null;
-    const ruleset = rulesetText(team);
     const date = formatDate(team.updatedAt);
-    const byline = [`${esc(opts.bylineLead || "Shared by")} <strong>${esc(team.coach)}</strong>`, ruleset ? esc(ruleset) : "", date ? `updated ${esc(date)}` : ""].filter(Boolean).join(" · ");
+    const dateTitle = date ? ` title="${esc(`Updated ${date}`)}"` : "";
     const owner = !opts.hideOwnerLink && typeof team.ownerSaveId === "string" && /^[\w-]{1,64}$/.test(team.ownerSaveId)
       ? `<a class="session-button tv-owner" href="/tournament-team-builder.html?save=${encodeURIComponent(team.ownerSaveId)}">Open in Tournament Builder</a>` : "";
     return `<header class="tv-banner">
-        <div class="tv-banner-top">
-          <h1>${esc(team.teamName)}</h1>
-          <div class="tv-banner-side">${badgeHtml(team)}${owner}</div>
-        </div>
-        <div class="tv-banner-main">
-          ${crestHtml(team)}
-          <div class="tv-title">
-            <p class="tv-race">${esc(team.raceName)}${rulesInlineHtml(team)}</p>
-            <p class="tv-byline">${byline}</p>
+        ${crestHtml(team, Boolean(opts.avatarButton))}
+        <h1 class="tv-name">${esc(team.teamName)}</h1>
+        <div class="tv-banner-meta">
+          <p class="tv-race">${esc(team.raceName)}${rulesInlineHtml(team)}</p>
+          <div class="tv-banner-side">
+            <p class="tv-byline"><strong${dateTitle}>${esc(team.coach)}</strong></p>${owner}
+            <p class="tv-key" aria-label="Skill key"><span class="skill skill-general">General</span><span class="skill skill-agility">Agility</span><span class="skill skill-strength">Strength</span><span class="skill skill-passing">Passing</span><span class="skill skill-mutation">Mutation</span><span class="skill skill-trait">Trait</span><span class="skill tv-added skill-general">Added</span><span class="skill tv-stat-up">+Stat</span></p>
           </div>
-          <p class="tv-key" aria-label="Skill key"><span class="skill skill-general">General</span><span class="skill skill-agility">Agility</span><span class="skill skill-strength">Strength</span><span class="skill skill-passing">Passing</span><span class="skill skill-mutation">Mutation</span><span class="skill skill-trait">Trait</span><span class="skill tv-added skill-general">Added</span><span class="skill tv-stat-up">+Stat</span></p>
         </div>
       </header>
       ${totalsHtml(team)}
