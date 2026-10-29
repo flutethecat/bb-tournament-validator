@@ -48,7 +48,7 @@ const deps = (): TabletopApiDeps => ({
   resolveFixtureTeam: (coach, teamId) => (resolvable && teamId === `team-${coach.toLowerCase()}` ? { ref: `sv_${coach[0]!.toLowerCase()}`, name: `${coach} XI` } : undefined),
   loadTeamFile: (coach, ref) => files[`${coach}/${ref}`],
   isBanned: () => false,
-  isOrganizer: (c) => c === "Org",
+  drawSeats: () => false, isOrganizer: (c) => c === "Org",
   now: () => NOW,
 });
 const as = async (coach: string, method: string, path: string, body?: unknown): Promise<TabletopResult> => {

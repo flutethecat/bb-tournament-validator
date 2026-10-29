@@ -24,7 +24,7 @@ const deps = (): TabletopApiDeps => ({
   listSaves: () => [],
   listTeams: () => [],
   isBanned: () => false,
-  isOrganizer: (c) => c === "Org",
+  drawSeats: () => false, isOrganizer: (c) => c === "Org",
   now: () => new Date("2026-03-01T10:00:00.000Z"),
   rollDie: () => 1,
 });

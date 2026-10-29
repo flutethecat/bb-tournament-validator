@@ -47,7 +47,7 @@ const deps = (): TabletopApiDeps => ({
     ...(coach === "Bob" ? [{ ref: "sv_bob", name: "Bob XI", race: "Orc", tv: null }] : []),
   ],
   isBanned: () => false,
-  isOrganizer: (c) => c === "Org",
+  drawSeats: () => false, isOrganizer: (c) => c === "Org",
   now: () => NOW,
 });
 const as = async (coach: string, method: string, path: string, body?: unknown): Promise<TabletopResult> => {

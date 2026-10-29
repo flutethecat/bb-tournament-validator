@@ -29,7 +29,7 @@ const deps = (): TabletopApiDeps => ({
   listSaves: (c) => (c === "Alice" ? [{ id: "sv_a", name: "Alice XI" }] : []),
   listTeams: (c) => (c === "Alice" ? [{ ref: "library:77", name: "Alice Lib", race: "Human", tv: 1000 }, { ref: "sv_a", name: "Alice XI", race: "Human", tv: null }] : []),
   isBanned: () => false,
-  isOrganizer: (c) => c === "Org",
+  drawSeats: () => false, isOrganizer: (c) => c === "Org",
   now: () => new Date("2026-03-01T10:00:00.000Z"),
   rollDie: () => 1,
 });
@@ -86,11 +86,13 @@ describe("testing suite routes", () => {
     await repo.updateMatch({ ...(await repo.getMatch(id))!, state: "confirmed" });
     const timed = await T("POST", "/api/admin/testing/tabletop-match", { ...sides, pregame: "full", turnTimer: { mode: "on", seconds: 90 } });
     const tid = (timed.body as { matchId: string }).matchId;
-    const advance = (body?: unknown) => tabletopApi("POST", `/api/tabletop/matches/${tid}/pregame/advance`, { coach: "Alice", method: "discord" }, body, deps(), new URLSearchParams());
+    const advance = (body?: unknown, coach = "Alice") => tabletopApi("POST", `/api/tabletop/matches/${tid}/pregame/advance`, { coach, method: "discord" }, body, deps(), new URLSearchParams());
     for (let i = 0; i < 3; i += 1) await advance();
     await advance({ team: "home", skip: true });
     await advance({ team: "away", skip: true });
-    const coin = await advance({ mode: "hand", call: "heads", caller: "home", result: "heads", winner: "home", choice: "receive" });
+    // the away coach (Bob) calls; tails called, heads shown: home (Alice) wins and receives
+    await advance({ mode: "hand", call: "tails", caller: "away", result: "heads", winner: "home" }, "Bob");
+    const coin = await advance({ choice: "receive" });
     expect(coin!.body).toMatchObject({ phase: "playing", clock: { activeTeam: "home", turnTimer: { mode: "on", seconds: 90 } } });
     const skipTimed = await T("POST", "/api/admin/testing/tabletop-match", { ...sides, pregame: "skip", turnTimer: { mode: "on", seconds: 60 } });
     expect(skipTimed.status).toBe(409); // the teams are still in the unfinished timed match: same validation as the normal route

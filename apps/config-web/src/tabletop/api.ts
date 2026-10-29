@@ -8,7 +8,11 @@
  *   POST /api/tabletop/matches/:id/undo-revision  organiser: revert both teams one revision, reopen
  *   POST /api/tabletop/matches/:id/pregame/advance run / record the current pre-game step (see pregameAdvance)
  *   POST /api/tabletop/matches/:id/pregame/skip    organiser: skip the rest of the pre-game (logged)
- * Auth: Discord session only (401 anonymous, 403 non-Discord session / banned / non-participant).
+ *   POST /api/tabletop/matches/:id/seats/swap      organiser: swap home and away before the pre-game starts (logged)
+ * Auth: Discord session for every write (401 anonymous, 403 non-Discord session / banned / non-participant).
+ * The match view (GET /api/tabletop/matches/:id) is also open read-only (owner ruling 10-30): any signed-in coach who is
+ * neither a participant nor an organiser gets `role: "spectator"`, and an anonymous visitor (or a non-Discord session)
+ * does too when the match is not a test match. Every write from a spectator is refused with 403.
  */
 
 import { randomBytes, randomInt } from "node:crypto";
@@ -19,10 +23,10 @@ import {
   MAX_EVENTS_PER_BATCH, MAX_EVENTS_PER_MATCH, effectiveEvents, parseEvent, validateEvent, type Side, type TabletopEvent,
 } from "./events.js";
 import {
-  PRAYERS_TO_NUFFLE, inducementMenu, journeymenNeeded, makeJourneymen, overlayRosters, inducementOffersFor, planInducements, pregameStepOf, pregameSummary, teamValueWithJourneymen, weatherFor,
+  PRAYERS_TO_NUFFLE, coinCallerOf, inducementMenu, journeymenNeeded, makeJourneymen, overlayRosters, inducementOffersFor, planInducements, pregameStepOf, pregameSummary, seatsSwappable, teamValueWithJourneymen, weatherFor,
   type MatchPhase,
 } from "./pregame.js";
-import type { AnnouncementKind, RecorderAnnouncement } from "./discord.js";
+import type { AnnouncementKind, RecorderAnnouncement, ResultSummary } from "./discord.js";
 import {
   DEFAULT_TURN_TIMER_POLICY, endTurn, firstHalfReceiver, initialClock, startTurn,
   type ClockState, type MatchTimers, type TurnTimerPolicy,
@@ -156,9 +160,12 @@ export interface TabletopApiDeps {
   resolveFixtureTeam?: (coach: string, teamId: string) => { ref: string; name: string } | undefined;
   /** Die roller for the server-side pre-game rolls: 1..sides. Default is crypto-random; tests inject. */
   rollDie?: (sides: number) => number;
+  /** The seat draw at match creation: true = swap the home and away the request named. Default is crypto-random
+   *  (owner ruling 10-30: seats are randomised for casual, fixture and test matches alike); tests inject. */
+  drawSeats?: () => boolean;
   /** Called with the new clock payload whenever a match's clock or phase changes, and after every pre-game write (the Super socket feed). */
   publishClock?: (matchId: string, payload: unknown) => void;
-  /** Pre-game milestones for the optional Discord webhook (src/tabletop/discord.ts). Fire-and-forget; never blocks the match. */
+  /** Pre-game milestones and the final result for the optional Discord webhook (src/tabletop/discord.ts). Fire-and-forget; never blocks the match. */
   announce?: (a: RecorderAnnouncement) => void;
   /** Fork-game metadata lookup for league standings (package name of a fork tournament game). */
   forkMetadata?: Parameters<typeof leagueStandings>[2];
@@ -238,8 +245,17 @@ export async function tabletopApi(
     const rows = leagueStandings(deps.results.list(), league, deps.forkMetadata ?? (() => undefined), deps.pointsFor?.(league));
     return { status: 200, body: { league, rows } };
   }
-  if (!auth?.coach) return err(401, "Sign in with Discord first.");
-  if (auth.method !== "discord") return err(403, "The match recorder needs a Discord sign-in.");
+  // The read-only match view for an anonymous visitor or a non-Discord session: only a match that is not a test match.
+  if (!auth?.coach || auth.method !== "discord") {
+    const view = /^\/api\/tabletop\/matches\/([\w-]{1,64})$/.exec(path);
+    if (view && (method === "GET" || method === "HEAD") && !(auth?.coach && deps.isBanned(auth.coach))) {
+      const match = await deps.repo.getMatch(view[1]!);
+      if (match && !match.test) return matchView(match, "spectator", deps);
+      if (match && !auth?.coach) return err(401, "Sign in with Discord to watch a test match.");
+    }
+    if (!auth?.coach) return err(401, "Sign in with Discord first.");
+    return err(403, "The match recorder needs a Discord sign-in.");
+  }
   const me = auth.coach;
   if (deps.isBanned(me)) return err(403, BANNED_ACCOUNT_MESSAGE);
   const organiser = deps.isOrganizer(me);
@@ -270,41 +286,22 @@ export async function tabletopApi(
       .map((t) => (own ? { ref: t.ref, name: t.name, race: t.race, tv: t.tv, registered: t.registered ?? [], actions: t.actions ?? { count: 0, items: [] } } : { ref: t.ref, name: t.name, race: t.race, tv: t.tv }));
     return { status: 200, body: { coach, saves, teams } };
   }
-  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|pregame\/skip|turn\/start|turn\/end|turn\/set))?$/.exec(path);
+  const m = /^\/api\/tabletop\/matches\/([\w-]{1,64})(?:\/(events|submit|confirm|publish|undo-revision|resolve-conflict|pregame\/advance|pregame\/skip|seats\/swap|turn\/start|turn\/end|turn\/set))?$/.exec(path);
   if (!m) return err(404, "Not found.");
   const id = m[1]!;
   const action = m[2];
 
   const match = await repo.getMatch(id);
   if (!match) return err(404, "Match not found.");
-  const participant = match.home.coach === me || match.away.coach === me;
-  if (!participant && !organiser) return err(403, "You are not a participant in this match.");
+  const role = viewerRole(match, me, organiser);
 
   if (!action) {
     if (method !== "GET") return err(405, "Method not allowed.");
-    const events = await repo.readEvents(id);
-    const teams = overlayRosters(await currentTeams(repo, match), events);
-    const effective = new Set(effectiveEvents(events).map((e) => e.id));
-    return {
-      status: 200,
-      body: {
-        match, context: matchContext(match, deps), coachRating: coachRatings(match, deps), phase: match.phase ?? "playing", clock: clockView(match, events, deps, now()),
-        pregame: await pregameView(match, events, deps),
-        // a retracted event stays in the log with who removed it and when (the undo event's record), so the feed can show it struck through
-        events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e, kindLookup(teams)) : 0, ...removedMeta(events, e) })),
-        effectiveEventIds: effectiveEvents(events).map((e) => e.id),
-        // per player: kind, available / unavailableReason, eligible{...} (server-derived, so the page filters without rules of its own)
-        teams: {
-          home: withAvatar(withRosterArt(decorateRoster("home", teams.home, events), deps.artDir), match.home.teamSaveId, deps),
-          away: withAvatar(withRosterArt(decorateRoster("away", teams.away, events), deps.artDir), match.away.teamSaveId, deps),
-        },
-        tally: tallyView(events, teams),
-        // the SPP each kind of event earns (the confirm modal shows the gain before an event is posted; the client keeps no table of its own)
-        sppValues: SPP_VALUES,
-      },
-    };
+    return matchView(match, role, deps);
   }
   if (method !== "POST") return err(405, "Method not allowed.");
+  // a spectator reads; every write (events, turns, pre-game, seats, submit, confirm, organiser tools) is refused here
+  if (role === "spectator") return err(403, "You are watching this match: only its coaches and organisers can change it.");
 
   return serial(id, async () => {
     if (action === "resolve-conflict") {
@@ -327,12 +324,48 @@ export async function tabletopApi(
     if (action === "turn/start" || action === "turn/end") return turnAction(fresh, me, organiser, action, body, deps, now);
     if (action === "pregame/advance") return pregameAdvance(fresh, me, organiser, body, deps, now);
     if (action === "pregame/skip") return pregameSkip(fresh, me, organiser, deps, now);
+    if (action === "seats/swap") return swapSeats(fresh, me, organiser, deps, now);
     if (action === "submit") return submit(fresh, deps, now);
     if (action === "confirm") return confirm(fresh, me, organiser, deps, now);
     if (!organiser) return err(403, "Organizer access required.");
     if (action === "publish") return publish(fresh, me, deps, now);
     return undoRevision(fresh, deps, now, undefined, me);
   });
+}
+
+/** Who is looking at a match: a seat (home / away) first, then an organiser, else a spectator (read-only). */
+export type ViewerRole = "home" | "away" | "organiser" | "spectator";
+function viewerRole(match: MatchRecord, me: string, organiser: boolean): ViewerRole {
+  if (match.home.coach === me) return "home";
+  if (match.away.coach === me) return "away";
+  return organiser ? "organiser" : "spectator";
+}
+
+/** GET /api/tabletop/matches/:id: the whole match view, the same for every role but for `role` (the page hides every
+ *  control for a spectator; the server refuses a spectator's writes regardless). */
+async function matchView(match: MatchRecord, role: ViewerRole, deps: TabletopApiDeps): Promise<TabletopResult> {
+  const now = deps.now?.() ?? new Date();
+  const events = await deps.repo.readEvents(match.id);
+  const teams = overlayRosters(await currentTeams(deps.repo, match), events);
+  const effective = new Set(effectiveEvents(events).map((e) => e.id));
+  return {
+    status: 200,
+    body: {
+      match, role, context: matchContext(match, deps), coachRating: coachRatings(match, deps), phase: match.phase ?? "playing", clock: clockView(match, events, deps, now),
+      pregame: await pregameView(match, events, deps),
+      // a retracted event stays in the log with who removed it and when (the undo event's record), so the feed can show it struck through
+      events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e, kindLookup(teams)) : 0, ...removedMeta(events, e) })),
+      effectiveEventIds: effectiveEvents(events).map((e) => e.id),
+      // per player: kind, available / unavailableReason, eligible{...} (server-derived, so the page filters without rules of its own)
+      teams: {
+        home: withAvatar(withRosterArt(decorateRoster("home", teams.home, events), deps.artDir), match.home.teamSaveId, deps),
+        away: withAvatar(withRosterArt(decorateRoster("away", teams.away, events), deps.artDir), match.away.teamSaveId, deps),
+      },
+      tally: tallyView(events, teams),
+      // the SPP each kind of event earns (the confirm modal shows the gain before an event is posted; the client keeps no table of its own)
+      sppValues: SPP_VALUES,
+    },
+  };
 }
 
 async function ensureChain(deps: TabletopApiDeps, coach: string, saveId: string, at: string): Promise<TeamChain | { error: string } | undefined> {
@@ -456,14 +489,18 @@ export async function createMatch(
     return v && typeof v.coach === "string" && v.coach.trim() && ref ? { coach: v.coach.trim(), teamSaveId: ref.ref, kind: ref.kind } : undefined;
   };
   if (options.test && b.fixtureRef) return err(400, "A test match cannot be linked to a fixture.");
-  const home = side(b.home);
-  const away = side(b.away);
+  let home = side(b.home);
+  let away = side(b.away);
   if (!home || !away) return err(400, b.fixtureRef ? "Choose both teams: a fixture team could not be found automatically (send home.team / away.team as library:<id> or save:<id>)." : "home and away each need {coach, team}, team being library:<id> or save:<id>.");
   if (home.coach === away.coach) return err(400, "A match needs two different coaches.");
   const postMatch = b.postMatch ?? "full";
   if (typeof postMatch !== "string" || !POST_MATCH.includes(postMatch)) return err(400, "postMatch must be none, spp-only or full.");
   if (b.fixtureRef !== undefined && (typeof b.fixtureRef !== "string" || b.fixtureRef.length > 120)) return err(400, "fixtureRef must be a short string.");
   if (home.coach !== me && away.coach !== me && !organiser) return err(403, "You can only record a match you play in (or as an organiser).");
+  // Home and away are drawn at random here (owner ruling 10-30), for every kind of match; the request only names the two
+  // teams. The fixture check below runs on the drawn seats, so a fixture match records which way round it was played.
+  const swapped = (deps.drawSeats ?? (() => randomInt(2) === 1))();
+  if (swapped) [home, away] = [away, home];
   if (deps.isBanned(home.coach) || deps.isBanned(away.coach)) return err(403, "A banned account cannot play a recorded match.");
   if (b.league !== undefined && (typeof b.league !== "string" || b.league.length > 60)) return err(400, "league must be a short string.");
   let league: string | undefined = typeof b.league === "string" && b.league.trim() ? b.league.trim() : undefined;
@@ -508,10 +545,46 @@ export async function createMatch(
     baseRevision: { home: chainHome.head, away: chainAway.head },
   };
   await deps.repo.createMatch(match);
+  await deps.repo.appendEvents(match.id, [seatsEvent(match, "pg-seats", { stage: "draw", swapped, rolledBy: "site" }, me, at)]);
   // a fixture is starting: refresh the NAF cache of both coaches in the background (never awaited, never fails the request)
   try { void Promise.resolve(deps.naf?.refreshFor?.([home.coach, away.coach])).catch((e) => console.warn(`[naf] refresh failed: ${(e as Error).message}`)); }
   catch (e) { console.warn(`[naf] refresh failed: ${(e as Error).message}`); }
   return { status: 201, body: { match } };
+}
+
+/** A `seats` log row: who sits where (names copied in, so the row still reads right after a later swap). */
+function seatsEvent(match: MatchRecord, id: string, payload: Record<string, unknown>, by: string, at: string): TabletopEvent {
+  const seat = (s: MatchRecord["home"]) => ({ coach: s.coach, teamName: s.teamName });
+  return { id, matchId: match.id, type: "seats", team: "home", payload: { ...payload, home: seat(match.home), away: seat(match.away) }, ts: at, by };
+}
+
+/**
+ * POST .../seats/swap: an organiser swaps home and away (owner ruling 10-30), logged as a `seats` row. Only before the
+ * first pre-game record, because every pre-game record (fans, journeymen, inducements, the coin) names a seat. The
+ * match's base revisions and a fixture's orientation swap with the seats.
+ */
+async function swapSeats(match: MatchRecord, me: string, organiser: boolean, deps: TabletopApiDeps, now: () => Date): Promise<TabletopResult> {
+  if (!organiser) return err(403, "Only an organiser can swap home and away.");
+  if (match.state !== "recording") return err(409, `This match is ${match.state}.`);
+  const stored = await deps.repo.readEvents(match.id);
+  if (!seatsSwappable(stored)) return err(409, "The pre-game has started: home and away can only be swapped before the first pre-game roll.");
+  const at = now().toISOString();
+  const { fixtureSwap: _fs, ...rest } = match;
+  const flipped = match.fixtureRef ? match.fixtureSwap !== true : false;
+  const updated: MatchRecord = {
+    ...rest, home: match.away, away: match.home, updatedAt: at,
+    baseRevision: { home: match.baseRevision.away, away: match.baseRevision.home },
+    ...(flipped ? { fixtureSwap: true } : {}),
+  };
+  const n = stored.filter((e) => e.type === "seats" && e.payload.stage === "swap").length;
+  const base = seatsEvent(updated, `pg-seatswap-${n + 1}`, { stage: "swap" }, me, at);
+  const row: TabletopEvent = updated.home.coach !== me && updated.away.coach !== me ? { ...base, admin: true } : base;
+  await deps.repo.appendEvents(match.id, [row]);
+  await deps.repo.updateMatch(updated);
+  const events = [...stored, row];
+  const clock = clockView(updated, events, deps, now());
+  deps.publishClock?.(match.id, { ...clock, phase: updated.phase ?? "playing" });
+  return { status: 200, body: { match: updated, recorded: [row.id], pregame: pregameViewOf(updated, events, { home: undefined, away: undefined }, deps) } };
 }
 
 /** Events that belong to the match rather than a team: every other event credits or names a player of `team`, so a participant may record it for their own team only. */
@@ -641,8 +714,42 @@ async function confirm(match: MatchRecord, me: string, organiser: boolean, deps:
   const built = await buildConfirmJournal(match, me, confirmations, deps, at, organiser);
   if (!built.ok) return built.error;
   const done = await commit(built.journal, deps);
-  if (done.status === 200) notifyConfirmed(match, me, deps);
+  if (done.status === 200) { notifyConfirmed(match, me, deps); await announceResult(built.journal.match, deps); }
   return done;
+}
+
+/**
+ * The final result for the Discord webhook (owner ruling 10-30): posted once each time a match is confirmed for good
+ * (both coaches, an organiser for both, or the organiser's confirm-and-publish). Built from the same tally as the
+ * results row. Best effort: nothing here can fail the confirmation.
+ */
+async function announceResult(match: MatchRecord, deps: TabletopApiDeps): Promise<void> {
+  if (!deps.announce) return;
+  try {
+    const events = await deps.repo.readEvents(match.id);
+    announce(deps, ["result"], match, events, resultSummaryOf(events, overlayRosters(await currentTeams(deps.repo, match), events)));
+  } catch (e) {
+    console.warn(`[recorder-webhook] result summary failed: ${(e as Error).message}`);
+  }
+}
+
+/** Score, casualties, concession, MVPs and scorers per side, named from the rosters (the Discord result embed). */
+export function resultSummaryOf(events: readonly TabletopEvent[], teams: Record<Side, TabletopTeamFile | undefined>): ResultSummary {
+  const names = (t: TabletopTeamFile | undefined) => new Map((t?.players ?? []).map((p) => [p.id, p.name] as const));
+  const t = tallyMatch(events, { home: names(teams.home), away: names(teams.away) }, kindLookup(teams));
+  const side = (s: Side) => {
+    const lines = [...t.lines[s].values()];
+    const other: Side = s === "home" ? "away" : "home";
+    return {
+      score: t.score[s],
+      // casualties this side caused = what the other side suffered (BH / SI / dead)
+      casualties: { ...t.casualtiesSuffered[other] },
+      conceded: t.conceded[s],
+      scorers: lines.filter((l) => l.touchdowns > 0).map((l) => ({ name: l.name, touchdowns: l.touchdowns })),
+      mvps: lines.filter((l) => l.mvp > 0).map((l) => l.name),
+    };
+  };
+  return { home: side("home"), away: side("away") };
 }
 
 type Built = { ok: true; journal: CommitJournal } | { ok: false; error: TabletopResult };
@@ -1027,7 +1134,7 @@ async function confirmAndPublish(match: MatchRecord, me: string, deps: TabletopA
   const row = (j.result as { put: StoredTournamentResult }).put;
   const next: MatchRecord = { ...confirmed, state: "published", publishedAt: at, publishedBy: me, ...(fx.fixtureLink ? { fixtureLink: fx.fixtureLink } : {}) };
   const done = await commit({ ...j, kind: "publish", result: { put: { ...row, published: true } }, ...(fx.fixture ? { fixture: fx.fixture } : {}), match: next }, deps);
-  if (done.status === 200) notifyConfirmed(match, me, deps);
+  if (done.status === 200) { notifyConfirmed(match, me, deps); await announceResult(next, deps); }
   return done;
 }
 
@@ -1057,8 +1164,9 @@ type Phase = MatchPhase;
  *   journeymen: {}
  *   inducements: {team: "home"|"away", picks: [{id, qty}], skip?: true}
  *   prayers:  {} | {mode: "site"} | {mode: "hand", rolls: {home: [1-16...], away: [...]}} (one per prayer bought, distinct)
- *   coin: the site draws the calling team when the phase opens (pg-coincaller). Then three sub-steps, each authorised
- *         on its own: the call ({mode: "auto"|"hand", call}, the drawn caller or an organiser); the result (auto: the
+ *   coin: the AWAY coach calls the toss (owner ruling 10-30: the seats are drawn at creation, the caller is derived
+ *         from them; coinCallerOf). Three sub-steps, each authorised
+ *         on its own: the call ({mode: "auto"|"hand", call}, the away coach or an organiser); the result (auto: the
  *         server flips at once; hand: {mode: "hand", result} from either coach or an organiser, recorded as pg-coincall
  *         then pg-coinflip); the choice ({choice: "kick"|"receive"}, the winner or an organiser). A request may carry
  *         several sub-steps ({mode: "hand", call, result, choice}) only if its sender may do each of them.
@@ -1097,12 +1205,6 @@ async function pregameAdvance(
   const rollMode = b.mode === undefined || b.mode === "site" ? "site" : b.mode === "hand" ? "coach" : undefined;
   const entered = (rolledBy: "site" | "coach") => (rolledBy === "coach" ? { rolledBy, enteredBy: me } : { rolledBy });
   const isRoll = (v: unknown, max: number): v is number => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= max;
-  /** Entering the coin phase: the site draws which coach calls the toss (recorded, so a reload cannot redraw). */
-  const drawCaller = (): void => {
-    if (all().some((e) => e.id === "pg-coincaller")) return;
-    const caller: Side = die(2) === 1 ? "home" : "away";
-    mk("pg-coincaller", "coinFlip", caller, { stage: "caller", caller, rolledBy: "site" });
-  };
   let timers: MatchTimers | undefined;
   /** After the coin: the competition may forbid (off) or require (required) turn timers; otherwise the coaches are asked. */
   const afterCoin = (): Phase => {
@@ -1167,7 +1269,6 @@ async function pregameAdvance(
     });
     const both = sides.every((s) => all().some((e) => e.type === "inducement" && e.team === s));
     if (both) next = prayersBought("home") + prayersBought("away") > 0 ? "pregame:prayers" : "pregame:coin";
-    if (next === "pregame:coin") drawCaller();
   } else if (phase === "pregame:prayers") {
     if (!rollMode) return err(400, 'mode must be "site" or "hand".');
     if (rollMode === "coach") {
@@ -1189,26 +1290,20 @@ async function pregameAdvance(
       }
     }
     next = "pregame:coin";
-    drawCaller();
   } else if (phase === "pregame:coin") {
     // Determine the kicking team (#determine-kicking-team). Three sub-steps, each with its own actor:
-    //   1. the call: only the coach the site drew (or an organiser);
+    //   1. the call: only the away coach (or an organiser; a match drawn under the old rule keeps its drawn caller);
     //   2. the result: the site flips (auto, straight after the call) or either coach / an organiser enters the real coin;
     //   3. kick or receive: only the toss winner (or an organiser).
     // One request may carry several sub-steps, but each is authorised on its own and nothing is recorded if any fails.
     const flip = all().find((e) => e.id === "pg-coinflip");
-    const callerEvent = all().find((e) => e.id === "pg-coincaller");
     const callEvent = all().find((e) => e.id === "pg-coincall");
     const choiceGiven = b.choice !== undefined;
     if (choiceGiven && b.choice !== "kick" && b.choice !== "receive") return err(400, 'choice must be "kick" or "receive".');
     const mayChoose = (winner: Side): boolean => organiser || match[winner].coach === me;
-    if (!flip && !callerEvent) {
-      // A match that reached the coin phase before the draw existed: draw now and answer with the caller (nothing else
-      // is accepted in this request, so the draw can never be retried for a better caller).
-      drawCaller();
-    } else if (!flip) {
-      const caller = callerEvent!.payload.caller as Side;
-      if (b.caller !== undefined && b.caller !== caller) return err(400, `The site drew ${match[caller].coach} (${caller}) to call the toss.`);
+    if (!flip) {
+      const caller = coinCallerOf(all());
+      if (b.caller !== undefined && b.caller !== caller) return err(400, `${match[caller].coach} (${caller}) calls the toss.`);
       const other: Side = caller === "home" ? "away" : "home";
       const mode = callEvent ? "hand" : b.mode;
       if (mode !== "auto" && mode !== "hand") return err(400, 'mode must be "auto" or "hand".');
@@ -1304,17 +1399,21 @@ async function pregameAdvance(
 }
 
 /** Hands pre-game milestones to the optional Discord poster; a failure there never reaches the match. */
-function announce(deps: TabletopApiDeps, kinds: readonly AnnouncementKind[], match: MatchRecord, events: readonly TabletopEvent[]): void {
+function announce(deps: TabletopApiDeps, kinds: readonly AnnouncementKind[], match: MatchRecord, events: readonly TabletopEvent[], result?: ResultSummary): void {
   if (!deps.announce) return;
   for (const kind of kinds) {
-    try { deps.announce({ kind, match, events }); } catch (e) { console.warn(`[recorder-webhook] announce failed: ${(e as Error).message}`); }
+    try { deps.announce({ kind, match, events, ...(result ? { result } : {}) }); } catch (e) { console.warn(`[recorder-webhook] announce failed: ${(e as Error).message}`); }
   }
 }
 
 /** The `pregame` block of the match view: the summary, the step the page shows and, during inducements, the menu. */
 function pregameViewOf(match: MatchRecord, events: readonly TabletopEvent[], baseTeams: Record<Side, TabletopTeamFile | undefined>, deps: TabletopApiDeps): Record<string, unknown> {
   const phase: Phase = match.phase ?? "playing";
-  const view: Record<string, unknown> = { ...pregameSummary(events), step: pregameStepOf(phase, events, match.clock ?? null) };
+  const view: Record<string, unknown> = {
+    ...pregameSummary(events, phase), step: pregameStepOf(phase, events, match.clock ?? null),
+    // the organiser may still swap home and away (before the first pre-game record)
+    seatsSwappable: match.state === "recording" && seatsSwappable(events),
+  };
   if (phase === "pregame:inducements" && baseTeams.home && baseTeams.away)
     Object.assign(view, inducementMenu({ teams: { home: baseTeams.home, away: baseTeams.away }, events, offers: inducementOffersFor(inducementOptInsFor(match, deps)) }));
   return view;

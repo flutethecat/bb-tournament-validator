@@ -6,7 +6,8 @@
  *   #the-weather / #weather-table (2D6), take on journeymen (league_play #take-on-journeymen),
  *   inducements (league_play #inducements; catalogue: inducements #purchasing-inducements),
  *   Prayers to Nuffle (inducements #0-3-prayers-to-nuffle: a PURCHASED inducement, one D16 roll each, duplicates
- *   re-rolled), then #determine-kicking-team (roll-off, the winner chooses to kick or receive).
+ *   re-rolled), then #determine-kicking-team (the away coach calls the toss, the winner chooses to kick or receive).
+ * Home and away are drawn at random when the match is created (owner ruling 10-30; api.ts createMatch).
  * The rulebook grants no prayers for a TV gap: they exist only when bought, so the prayers phase is skipped
  * when neither team bought one.
  *
@@ -192,15 +193,30 @@ export function overlayRosters<T extends Record<Side, TabletopTeamFile | undefin
   return out;
 }
 
-export function pregameSummary(events: readonly TabletopEvent[]) {
+/**
+ * The coach who calls the coin toss: the AWAY coach (owner ruling 10-30, the visiting side's convention), now that the
+ * seats themselves are drawn at random when the match is created. A match whose caller was drawn under the old rule
+ * (a recorded `pg-coincaller` event) keeps that caller, so a match in flight never changes hands mid-toss.
+ */
+export function coinCallerOf(events: readonly TabletopEvent[]): Side {
+  const legacy = events.find((e) => e.id === "pg-coincaller")?.payload.caller;
+  return legacy === "home" || legacy === "away" ? legacy : "away";
+}
+
+/** The seat draw and organiser swaps (`seats` events): may the organiser still swap? Only before the first pre-game
+ *  record, because every pre-game record (fans, inducements, the coin) names a seat. */
+export const seatsSwappable = (events: readonly TabletopEvent[]): boolean => events.every((e) => e.type === "seats");
+
+export function pregameSummary(events: readonly TabletopEvent[], phase?: MatchPhase) {
   const of = (type: string, side?: Side) => events.filter((e) => e.type === type && (side === undefined || e.team === side));
   const side = <T,>(f: (s: Side) => T): Record<Side, T> => ({ home: f("home"), away: f("away") });
   const fans = side((s) => of("fans", s)[0]?.payload);
   const weather = events.find((e) => e.type === "weather" && e.payload.pregame === true)?.payload;
   const flip = events.find((e) => e.id === "pg-coinflip");
   const choice = events.find((e) => e.id === "pg-coinchoice");
-  const caller = events.find((e) => e.id === "pg-coincaller");
+  const caller = coinCallerOf(events);
   const call = events.find((e) => e.id === "pg-coincall"); // a real coin: the call is recorded before the result
+  const coinOpen = phase === "pregame:coin" || !!call || events.some((e) => e.id === "pg-coincaller");
   const skip = events.find((e) => e.type === "pregameSkip");
   return {
     fans: fans.home || fans.away ? fans : undefined,
@@ -209,8 +225,8 @@ export function pregameSummary(events: readonly TabletopEvent[]) {
     inducements: side((s) => of("inducement", s).at(-1)?.payload), // the latest submission per team replaces earlier ones
     prayers: side((s) => of("prayer", s).map((e) => e.payload)),
     // {mode, call, caller, result, winner, choice?}: choice arrives with a second advance after a server flip
-    // before the call: only {caller} (the coach the site drew to call the toss)
-    coin: flip ? { ...flip.payload, winner: flip.team, ...(choice ? { choice: choice.payload.choice } : {}) } : caller ? { caller: caller.payload.caller, ...(call ? { call: call.payload.call, mode: "hand" } : {}) } : undefined,
+    // before the call (coin phase): only {caller}, the away coach (derived from the seats, never drawn)
+    coin: flip ? { ...flip.payload, winner: flip.team, ...(choice ? { choice: choice.payload.choice } : {}) } : coinOpen ? { caller, ...(call ? { call: call.payload.call, mode: "hand" } : {}) } : undefined,
     ...(skip ? { skipped: { by: skip.by, from: skip.payload.from } } : {}),
   };
 }

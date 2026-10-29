@@ -79,18 +79,27 @@ describe("tabletop routes (sidecar off)", () => {
   it("403 without X-CW-Auth on a write", async () => {
     expect((await call("POST", "/api/tabletop/matches", "TtAlice", {}, false)).status).toBe(403);
   });
-  it("participant creates and records; a non-participant gets 403", async () => {
+  it("participant creates and records; a non-participant or anonymous visitor only watches (403 on writes)", async () => {
     const created = await create("TtAlice");
     expect(created.status).toBe(201);
-    const id = ((await created.json()) as { match: { id: string } }).match.id;
-    expect((await call("GET", `/api/tabletop/matches/${id}`, "TtMallory")).status).toBe(403);
+    // the seats are drawn at random on the live route (owner ruling 10-30): read where Bob sits
+    const made = ((await created.json()) as { match: { id: string; home: { coach: string } } }).match;
+    const id = made.id;
+    const bobSide = made.home.coach === "TtBob" ? "home" : "away";
+    const watched = await call("GET", `/api/tabletop/matches/${id}`, "TtMallory");
+    expect(watched.status).toBe(200);
+    expect(((await watched.json()) as { role: string }).role).toBe("spectator");
+    const anon = await call("GET", `/api/tabletop/matches/${id}`);
+    expect(anon.status).toBe(200);
+    expect(((await anon.json()) as { role: string }).role).toBe("spectator");
     expect((await call("POST", `/api/tabletop/matches/${id}/events`, "TtMallory", { events: [] })).status).toBe(403);
+    expect((await call("POST", `/api/tabletop/matches/${id}/events`, undefined, { events: [] })).status).toBe(401);
     const ok = await call("POST", `/api/tabletop/matches/${id}/events`, "TtBob", {
-      events: [{ id: "evt-route-0001", type: "touchdown", team: "away", player: "lineman-1" }],
+      events: [{ id: "evt-route-0001", type: "touchdown", team: bobSide, player: "lineman-1" }],
     });
     expect(ok.status).toBe(200);
-    const got = (await (await call("GET", `/api/tabletop/matches/${id}`, "TtAlice")).json()) as { events: Array<{ by: string }>; teams: { home: { players: unknown[] } } };
-    expect(got.events[0]!.by).toBe("TtBob");
+    const got = (await (await call("GET", `/api/tabletop/matches/${id}`, "TtAlice")).json()) as { events: Array<{ by: string; type: string }>; teams: { home: { players: unknown[] } } };
+    expect(got.events.filter((e) => e.type !== "seats")[0]!.by).toBe("TtBob");
     expect(got.teams.home.players).toHaveLength(3);
   });
 });

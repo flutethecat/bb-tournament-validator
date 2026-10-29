@@ -286,7 +286,7 @@ describe("TeamView carries avatarUrl", () => {
       const deps: TabletopApiDeps = {
         repo, results: new TournamentResultStore(join(dir, "results")),
         loadTeamFile: (coach, ref) => files[`${coach}/${ref}`],
-        listSaves: () => [], listTeams: () => [], isBanned: () => false, isOrganizer: () => false,
+        listSaves: () => [], listTeams: () => [], isBanned: () => false, drawSeats: () => false, isOrganizer: () => false,
         now: () => new Date("2026-03-01T10:00:00.000Z"), rollDie: () => 1,
         teamAvatarUrl: (ref) => (ref === "sv_a" ? "/api/fork/teams/save%3Asv_a/avatar?v=1" : undefined),
       };

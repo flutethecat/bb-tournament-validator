@@ -30,7 +30,7 @@ const deps = (): TabletopApiDeps => ({
   repo: failRepo ?? repo, results: failResults ?? results,
   loadTeamFile: (coach, saveId) => files[`${coach}/${saveId}`],
   isBanned: (c) => banned.has(c),
-  isOrganizer: (c) => organisers.has(c),
+  drawSeats: () => false, isOrganizer: (c) => organisers.has(c),
   listSaves: (c) => (c === "Alice" ? [{ id: "sv_a", name: "Alice XI" }] : []),
   now: () => new Date("2026-02-01T10:00:00.000Z"),
 });
@@ -71,10 +71,16 @@ describe("tabletop API: auth", () => {
     banned.add("Alice");
     expect((await as("Alice", "POST", "/api/tabletop/matches", {})).status).toBe(403);
   });
-  it("403 for a non-participant on every route; an organiser is allowed", async () => {
+  it("a non-participant reads as a spectator (owner ruling 10-30) and gets 403 on every write; an organiser is allowed", async () => {
     const id = await newMatch();
-    for (const [m, p] of [["GET", ""], ["POST", "/events"], ["POST", "/submit"], ["POST", "/confirm"]] as const)
-      expect((await as("Mallory", m, `/api/tabletop/matches/${id}${p}`, { events: [E("touchdown", "home", "a1")] })).status).toBe(403);
+    const seen = await as("Mallory", "GET", `/api/tabletop/matches/${id}`);
+    expect(seen.status).toBe(200);
+    expect(seen.body).toMatchObject({ role: "spectator", match: { id } });
+    for (const p of ["/events", "/submit", "/confirm", "/pregame/advance", "/pregame/skip", "/seats/swap", "/turn/start", "/turn/end", "/turn/set", "/publish", "/resolve-conflict"])
+      expect((await as("Mallory", "POST", `/api/tabletop/matches/${id}${p}`, { events: [E("touchdown", "home", "a1")] })).status, p).toBe(403);
+    expect((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body).toMatchObject({ role: "home" });
+    expect((await as("Bob", "GET", `/api/tabletop/matches/${id}`)).body).toMatchObject({ role: "away" });
+    expect((await as("Org", "GET", `/api/tabletop/matches/${id}`)).body).toMatchObject({ role: "organiser" });
     expect((await as("Mallory", "POST", "/api/tabletop/matches", {
       pregame: "skip", home: { coach: "Alice", teamSaveId: "sv_a" }, away: { coach: "Bob", teamSaveId: "sv_b" },
     })).status).toBe(403);
@@ -96,14 +102,15 @@ describe("tabletop API: events", () => {
     const id = await newMatch();
     const td = E("touchdown", "home", "a1");
     const first = await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [td] });
-    expect(first.body).toMatchObject({ accepted: [td.id], duplicates: [], total: 1 });
+    expect(first.body).toMatchObject({ accepted: [td.id], duplicates: [], total: 2 }); // the seat draw row is the first event
     const again = await as("Bob", "POST", `/api/tabletop/matches/${id}/events`, { events: [td, E("completion", "away", "b1")] });
-    expect(again.body).toMatchObject({ duplicates: [td.id], total: 2 });
+    expect(again.body).toMatchObject({ duplicates: [td.id], total: 3 });
     const bad = await as("Alice", "POST", `/api/tabletop/matches/${id}/events`, { events: [E("touchdown", "home", "a2"), E("touchdown", "home", "ghost")] });
     expect(bad.status).toBe(422); // ghost is not on the roster: an eligibility refusal
-    const got = (await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ id: string; by: string }> };
-    expect(got.events).toHaveLength(2); // the valid first event of the bad batch was NOT stored
-    expect(got.events.map((e) => e.by)).toEqual(["Alice", "Bob"]);
+    const got = (await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ id: string; by: string; type: string }> };
+    const played = got.events.filter((e) => e.type !== "seats");
+    expect(played).toHaveLength(2); // the valid first event of the bad batch was NOT stored
+    expect(played.map((e) => e.by)).toEqual(["Alice", "Bob"]);
   });
   it("409 once the match is no longer recording", async () => {
     const id = await newMatch();

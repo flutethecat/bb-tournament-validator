@@ -43,7 +43,7 @@ const deps = (): TabletopApiDeps => ({
   repo, results, fixtures: gateway(),
   loadTeamFile: (coach, saveId) => files[`${coach}/${saveId}`],
   isBanned: (c) => banned.has(c),
-  isOrganizer: (c) => c === "Org",
+  drawSeats: () => false, isOrganizer: (c) => c === "Org",
   now: () => NOW,
 });
 const as = async (coach: string, method: string, path: string, body?: unknown): Promise<TabletopResult> => {

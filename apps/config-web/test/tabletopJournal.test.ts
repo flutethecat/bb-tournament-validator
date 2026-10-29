@@ -64,7 +64,7 @@ const deps = (): TabletopApiDeps => {
     repo: flaky, results: res, fixtures: gateway(),
     loadTeamFile: (coach, saveId) => files[`${coach}/${saveId}`],
     isBanned: () => false,
-    isOrganizer: (c) => c === "Org",
+    drawSeats: () => false, isOrganizer: (c) => c === "Org",
     now: () => NOW,
   };
 };

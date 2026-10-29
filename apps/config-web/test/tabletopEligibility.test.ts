@@ -144,7 +144,7 @@ const deps = (): TabletopApiDeps => ({
   repo, results,
   loadTeamFile: (coach, ref) => files[`${coach}/${ref}`],
   isBanned: () => false,
-  isOrganizer: (c) => c === "Org",
+  drawSeats: () => false, isOrganizer: (c) => c === "Org",
   now: () => new Date("2026-03-01T10:00:00.000Z"),
   rollDie: () => 1,
 });
@@ -182,7 +182,7 @@ describe("over the API", () => {
     expect((await post(id, E("touchdown", "home", "a1"))).status).toBe(422);
     expect((await post(id, E("touchdown", "home", "ghost"))).status).toBe(422);
     expect((await post(id, E("touchdown", "home"))).status).toBe(400); // malformed, not an eligibility problem
-    expect(((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: unknown[] }).events).toHaveLength(0);
+    expect(((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ type: string }> }).events.filter((e) => e.type !== "seats")).toHaveLength(0);
   });
 
   it("the match GET exposes kind, available, unavailableReason and eligible per player", async () => {
@@ -211,7 +211,7 @@ describe("over the API", () => {
     const posted = (await post(id, star, jm, merc, plain)).body as { tally: any };
     expect(posted.tally.score).toEqual({ home: 4, away: 0 });
     const spp = Object.fromEntries(posted.tally.events.map((e: any) => [e.id, e.sppEarned]));
-    expect(spp).toEqual({ [star.id]: 0, [jm.id]: 3, [merc.id]: 0, [plain.id]: 3 });
+    expect(spp).toEqual({ "pg-seats": 0, [star.id]: 0, [jm.id]: 3, [merc.id]: 0, [plain.id]: 3 }); // the seat draw row earns nothing
     const lines = Object.fromEntries(posted.tally.players.home.map((l: any) => [l.id, l]));
     expect(lines.h9).toMatchObject({ touchdowns: 1, sppEarned: 0 });
     expect(lines.h11).toMatchObject({ touchdowns: 1, sppEarned: 3 });

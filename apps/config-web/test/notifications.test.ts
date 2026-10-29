@@ -373,7 +373,7 @@ describe("tabletop hook", () => {
     const files: Record<string, TabletopTeamFile> = { "Alice/sv_a": mkTeam("Alice XI", "a"), "Bob/sv_b": mkTeam("Bob XI", "b") };
     const deps: TabletopApiDeps = {
       repo: new FileTabletopRepository(join(dir, "tt")), results: new TournamentResultStore(join(dir, "results")),
-      loadTeamFile: (c, s) => files[`${c}/${s}`], isBanned: () => false, isOrganizer: (c) => c === "Org", now: () => NOW,
+      loadTeamFile: (c, s) => files[`${c}/${s}`], isBanned: () => false, drawSeats: () => false, isOrganizer: (c) => c === "Org", now: () => NOW,
       notify: (coachName, input) => sent.push({ coach: coachName, input }),
     };
     const as = (who: string, method: string, path: string, body?: unknown) =>
