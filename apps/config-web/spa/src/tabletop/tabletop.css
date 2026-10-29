@@ -930,3 +930,13 @@
   .tt-rec .tt-corner .tt-team { grid-row: 1; }
   .tt-rec .tt-corner .tt-coachline.tt-nameline { grid-row: 2; }
 }
+
+/* inset boxes on the desktop scoreboard (crest frame, chip tray, half label) take a centre-out gradient instead of a flat face; the state strip and log field the same at a lower strength */
+@media (min-width: 1024px) {
+  .tt-rec { --tt-grad: radial-gradient(ellipse at center, color-mix(in srgb, var(--ui-surface, #0d0d0d) 45%, transparent) 0%, color-mix(in srgb, var(--ui-surface, #0d0d0d) 18%, transparent) 70%, transparent 100%); --tt-grad-soft: radial-gradient(ellipse at center, color-mix(in srgb, var(--ui-surface, #0d0d0d) 35%, transparent) 0%, color-mix(in srgb, var(--ui-surface, #0d0d0d) 12%, transparent) 70%, transparent 100%); }
+  .tt-rec .tt-crest-frame { background: var(--tt-grad); }
+  .tt-rec .tt-corner .tt-coachline .tt-chips, .tt-rec .tt-corner.home .tt-coachline .tt-chips, .tt-rec .tt-corner.away .tt-coachline .tt-chips { background: var(--tt-grad); }
+  .tt-rec .tt-half { background: var(--tt-grad); }
+  .tt-rec > .tt-stripbar { background: var(--tt-grad-soft); }
+  .tt-rec .tt-mid > .tt-feed { background: var(--tt-grad-soft); }
+}

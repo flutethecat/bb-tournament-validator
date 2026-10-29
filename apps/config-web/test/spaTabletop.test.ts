@@ -560,6 +560,11 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).not.toMatch(/\.tt-crestcol \{[^}]*space-between/);
     expect(css1).toMatch(/\.tt-rec \.tt-crestcol \.tt-crest-coach \{ font-size: 16px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crestcol \.tt-crest-race \{ font-size: 13px; text-transform: uppercase; color: var\(--ui-text-dim/); // the race under the crest
+    expect(css1).toContain("--tt-grad: radial-gradient(ellipse at center, color-mix(in srgb, var(--ui-surface, #0d0d0d) 45%, transparent) 0%, color-mix(in srgb, var(--ui-surface, #0d0d0d) 18%, transparent) 70%, transparent 100%)");
+    expect(css1).toMatch(/--tt-grad-soft: radial-gradient\(ellipse at center, color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 35%, transparent\) 0%, color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 12%/);
+    expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: var\(--tt-grad\); \}/);
+    expect(css1).toMatch(/\.tt-rec > \.tt-stripbar \{ background: var\(--tt-grad-soft\); \}/);
+    expect(css1).toMatch(/\.tt-rec \.tt-mid > \.tt-feed \{ background: var\(--tt-grad-soft\); \}/);
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
