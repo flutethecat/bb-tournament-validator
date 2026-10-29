@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Team avatar upload moved to the team page",
+    "body": "The Avatars panel on My teams is gone. Open a team from My teams and use the new Team avatar button next to Share: it opens a dialog with the current avatar (or the race crest), a file picker, Upload and Remove. Pictures are cropped square and shrunk to fit, PNG, JPEG or WebP up to 512 KB. After you upload or remove, the team banner updates straight away and the dialog stays open. Teams that already have an avatar still show it on their My teams tile.",
+    "links": [
+      {
+        "label": "My teams",
+        "href": "/app/my-teams"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Team sheet totals: centred, bevelled, scoreboard numerals",
     "body": "The totals bar on the shared team sheet and the team management page now has centred, bevelled cells that sit lifted on a drop edge, with the values in the pixel heading font and the scoreboard's dark text shadow (TOTAL larger, keeping its tint). On the management page the Advancement column is now as narrow as its buttons (the header text is hidden but still read by screen readers), and the Add Skill / Add Stat buttons are bevelled and lifted: they rise on hover and press down on click.",
     "links": [
