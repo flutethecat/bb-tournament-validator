@@ -1,0 +1,310 @@
+// Game pages (owner 10-30: "Clicking on a recent game should pop the match reporter view for that game and a summary"):
+// GET /api/games/:source/:id (public) answers one played game, normalised the same way for every source. Pure: server.ts
+// reads the stores and hands the rows in.
+//
+//   tournament  a fixture with a reported result (id = the fixture id); per-player lines come from the fork game the
+//               fixture launched or the tabletop match recorded for it, when the site holds either.
+//   tabletop    a tabletop match played out (submitted onwards, never a test match); the match reporter's finished-game
+//               summary rides along as `reporter`.
+//   online      a fork game in the results store (never a test or tabletop row).
+//
+// The hero card is built by the Past Games normaliser itself (recentResults over just this game), so the page and the
+// card never disagree. Anything not public (draft tournaments, test or unfinished tabletop matches) is a 404.
+
+import type { GamestateTeamResult } from "@bb/fork-ops";
+import { recentResults, TABLETOP_LISTED, type GameSource, type RecentInputs, type RecentResult, type RecentSide } from "./recentResults.js";
+import type { StoredTournamentResult } from "./tournamentResults.js";
+import type { ScheduledMatchRecord, TournamentEntrantRecord } from "./tournaments/types.js";
+import type { MatchRecord, MatchState } from "./tabletop/store.js";
+import { effectiveEvents, type Side, type TabletopEvent } from "./tabletop/events.js";
+import { tallyMatch, type PlayerLine, type PostMatchSummary } from "./tabletop/postMatch.js";
+
+export const PER_PLAYER_NOTE = "Per-player stats are recorded for games played through the site.";
+
+/** ResultCard's props (spa/src/components/ResultCard.vue). */
+export interface GameCard {
+  context: string;
+  home: RecentSide;
+  away: RecentSide;
+  playedAt: string | null;
+  href: null;
+  concede: "home" | "away" | null;
+  suspended: boolean;
+}
+
+export interface GamePlayerLine {
+  name: string;
+  touchdowns: number;
+  casualtiesCaused: number;
+  completions: number;
+  interceptions: number;
+  deflections: number;
+  mvp: number;
+  /** Tabletop only (the fork result carries no SPP). */
+  sppEarned?: number;
+  sentOff?: boolean;
+  /** "SI", "BH", "stat loss MA", ... (tabletop only). */
+  injury?: string;
+}
+
+export interface Tally { name: string; count: number }
+
+export interface GameTeamSummary {
+  mvps: string[];
+  scorers: Tally[];
+  casualtyMakers: Tally[];
+  /** Players with at least one line, most SPP-worthy first. */
+  players: GamePlayerLine[];
+  casualtiesSuffered: { bh: number; si: number; rip: number } | null;
+}
+
+export interface GameSummary {
+  playedAt: string | null;
+  competition: string;
+  round: number | null;
+  /** The tournament the game counted in, with a link to its Rounds tab. */
+  tournament: { id: string; name: string; href: string } | null;
+  casualties: { home: number | null; away: number | null };
+  concede: "home" | "away" | null;
+  perPlayer: boolean;
+  /** Shown when the game has no per-player lines. */
+  note: string | null;
+  home: GameTeamSummary | null;
+  away: GameTeamSummary | null;
+}
+
+/** The match reporter's finished-game summary for one team, public subset (no treasury). */
+export interface ReporterSummary {
+  postMatch: PostMatchSummary["postMatch"];
+  applied: boolean;
+  score: { for: number; against: number };
+  outcome: "won" | "drawn" | "lost";
+  players: Array<Pick<PlayerLine, "id" | "name" | "touchdowns" | "casualtiesCaused" | "completions" | "interceptions" | "deflections" | "mvp" | "sentOff" | "sppEarned" | "injury">>;
+  deaths: string[];
+  winnings: number;
+  fansBefore: number;
+  fansAfter: number;
+}
+
+export interface ReporterMoment { half: string | number | null; turn: number | null; side: Side; kind: "touchdown" | "casualty" | "sendOff"; text: string }
+
+export interface GameReporter {
+  matchId: string;
+  /** The recorder (participants and organisers). */
+  href: string;
+  state: MatchState;
+  summaries: { home: ReporterSummary; away: ReporterSummary } | null;
+  moments: ReporterMoment[];
+}
+
+export interface GameDetail {
+  source: GameSource;
+  id: string;
+  card: GameCard;
+  summary: GameSummary;
+  reporter?: GameReporter;
+}
+
+export interface GameTournament {
+  id: string;
+  name: string;
+  matches: readonly ScheduledMatchRecord[];
+  entrants: readonly TournamentEntrantRecord[];
+}
+
+export interface GameInputs {
+  /** Public tournaments only (active / completed / cancelled). */
+  tournaments: readonly GameTournament[];
+  /** Every retained results-store row. */
+  results: readonly StoredTournamentResult[];
+  /** The tabletop match(es) this game may involve: the match itself, or those recorded for the fixture. */
+  tabletop: RecentInputs["tabletop"];
+  forkMeta?: RecentInputs["forkMeta"];
+  teamInfo?: RecentInputs["teamInfo"];
+}
+
+/** /api/games/<source>/<id> -> its parts, or undefined (the id is URL-decoded and kept to a safe alphabet). */
+export function parseGamePath(path: string): { source: GameSource; id: string } | undefined {
+  const m = /^\/api\/games\/(tournament|tabletop|online)\/([^/]{1,240})$/.exec(path);
+  if (!m) return undefined;
+  let id: string;
+  try { id = decodeURIComponent(m[2]!); } catch { return undefined; }
+  return /^[\w.:-]{1,160}$/.test(id) ? { source: m[1] as GameSource, id } : undefined;
+}
+
+const isForkRow = (row: StoredTournamentResult): boolean => row.test !== true && (row.source === undefined || row.source === "fork");
+const listedTabletop = (m: MatchRecord): boolean => !m.test && TABLETOP_LISTED.has(m.state);
+const roundsHref = (tournamentId: string): string => `/app/tournaments/${encodeURIComponent(tournamentId)}?tab=rounds`;
+
+function findFixture(tournaments: readonly GameTournament[], pred: (m: ScheduledMatchRecord) => boolean): { t: GameTournament; m: ScheduledMatchRecord } | undefined {
+  for (const t of tournaments) for (const m of t.matches) if (m.away && m.result && pred(m)) return { t, m };
+  return undefined;
+}
+
+const toCard = (r: RecentResult): GameCard => ({
+  context: r.context, home: r.home, away: r.away, playedAt: r.playedAt, href: null, concede: r.concede, suspended: r.suspended,
+});
+
+const byCount = (a: Tally, b: Tally) => b.count - a.count || a.name.localeCompare(b.name);
+const tallies = (lines: readonly GamePlayerLine[], key: "touchdowns" | "casualtiesCaused"): Tally[] =>
+  lines.filter((l) => l[key] > 0).map((l) => ({ name: l.name, count: l[key] })).sort(byCount);
+const weight = (l: GamePlayerLine) => l.sppEarned ?? l.touchdowns * 3 + l.casualtiesCaused * 2 + l.completions + l.interceptions * 2 + l.deflections + l.mvp * 4;
+
+function teamSummary(lines: GamePlayerLine[], suffered: GameTeamSummary["casualtiesSuffered"]): GameTeamSummary {
+  const players = lines
+    .filter((l) => l.touchdowns || l.casualtiesCaused || l.completions || l.interceptions || l.deflections || l.mvp || l.sentOff || l.injury)
+    .sort((a, b) => weight(b) - weight(a) || a.name.localeCompare(b.name));
+  return {
+    mvps: lines.filter((l) => l.mvp > 0).map((l) => l.name),
+    scorers: tallies(lines, "touchdowns"),
+    casualtyMakers: tallies(lines, "casualtiesCaused"),
+    players,
+    casualtiesSuffered: suffered,
+  };
+}
+
+const forkLines = (team: GamestateTeamResult | undefined): GamePlayerLine[] =>
+  (Array.isArray(team?.players) ? team!.players : []).map((p) => ({
+    name: p.name || "Unnamed player",
+    touchdowns: p.touchdowns || 0, casualtiesCaused: p.casualtiesCaused || 0, completions: p.completions || 0,
+    interceptions: p.interceptions || 0, deflections: p.deflections || 0, mvp: p.mvp || 0,
+  }));
+
+const injuryText = (i: PlayerLine["injury"]): string | undefined => (i ? `${i.result}${i.stat ? ` ${i.stat}` : ""}` : undefined);
+const tabletopLines = (players: readonly PlayerLine[]): GamePlayerLine[] =>
+  players.map((l) => ({
+    name: l.name, touchdowns: l.touchdowns, casualtiesCaused: l.casualtiesCaused, completions: l.completions,
+    interceptions: l.interceptions, deflections: l.deflections, mvp: l.mvp, sppEarned: l.sppEarned,
+    ...(l.sentOff ? { sentOff: true } : {}), ...(l.injury ? { injury: injuryText(l.injury) } : {}),
+  }));
+
+const publicSummary = (s: PostMatchSummary): ReporterSummary => ({
+  postMatch: s.postMatch, applied: s.applied, score: { ...s.score }, outcome: s.outcome,
+  players: s.players.map((l) => ({
+    id: l.id, name: l.name, touchdowns: l.touchdowns, casualtiesCaused: l.casualtiesCaused, completions: l.completions,
+    interceptions: l.interceptions, deflections: l.deflections, mvp: l.mvp, sentOff: l.sentOff, sppEarned: l.sppEarned,
+    ...(l.injury ? { injury: { ...l.injury } } : {}),
+  })),
+  deaths: [...s.deaths], winnings: s.winnings, fansBefore: s.fansBefore, fansAfter: s.fansAfter,
+});
+
+/** The tabletop match's per-side player lines: the confirmed preview's (named), else the raw tally's. */
+function tabletopPlayers(match: MatchRecord, events: readonly TabletopEvent[]): Record<Side, PlayerLine[]> {
+  if (match.preview) return { home: match.preview.home.players, away: match.preview.away.players };
+  const t = tallyMatch(events);
+  return { home: [...t.lines.home.values()], away: [...t.lines.away.values()] };
+}
+
+/** Touchdowns, casualties and send-offs in match order, worded with the reporter's player names. */
+function moments(events: readonly TabletopEvent[], players: Record<Side, PlayerLine[]>, teamName: Record<Side, string>): ReporterMoment[] {
+  const names: Record<Side, Map<string, string>> = { home: new Map(players.home.map((l) => [l.id, l.name])), away: new Map(players.away.map((l) => [l.id, l.name])) };
+  const who = (side: Side, id: unknown) => (typeof id === "string" && names[side].get(id)) || `a ${teamName[side]} player`;
+  const out: ReporterMoment[] = [];
+  for (const e of effectiveEvents(events)) {
+    const at = { half: e.half ?? null, turn: typeof e.turn === "number" ? e.turn : null, side: e.team };
+    if (e.type === "touchdown") out.push({ ...at, kind: "touchdown", text: `Touchdown: ${who(e.team, e.player)}` });
+    else if (e.type === "sendOff") out.push({ ...at, kind: "sendOff", text: `Sent off: ${who(e.team, e.player)}` });
+    else if (e.type === "casualty") {
+      const victimSide = (e.payload.victimTeam as Side | undefined) ?? (e.team === "home" ? "away" : "home");
+      const result = `${String(e.payload.result ?? "")}${e.payload.stat ? ` ${String(e.payload.stat)}` : ""}`.trim();
+      const by = e.player ? `${who(e.team, e.player)} on ` : "";
+      out.push({ ...at, kind: "casualty", text: `Casualty: ${by}${who(victimSide, e.payload.victim)}${result ? ` (${result})` : ""}` });
+    }
+  }
+  return out;
+}
+
+function reporterFor(match: MatchRecord, events: readonly TabletopEvent[]): GameReporter {
+  const players = tabletopPlayers(match, events);
+  return {
+    matchId: match.id,
+    href: `/app/tabletop/${encodeURIComponent(match.id)}`,
+    state: match.state,
+    summaries: match.preview ? { home: publicSummary(match.preview.home), away: publicSummary(match.preview.away) } : null,
+    moments: moments(events, players, { home: match.home.teamName || "home", away: match.away.teamName || "away" }),
+  };
+}
+
+function baseSummary(card: GameCard, round: number | null, tournament: GameSummary["tournament"]): GameSummary {
+  return {
+    playedAt: card.playedAt, competition: card.context, round, tournament,
+    casualties: { home: card.home.cas, away: card.away.cas }, concede: card.concede,
+    perPlayer: false, note: PER_PLAYER_NOTE, home: null, away: null,
+  };
+}
+
+function withLines(s: GameSummary, home: GameTeamSummary, away: GameTeamSummary): GameSummary {
+  const any = home.players.length > 0 || away.players.length > 0;
+  return { ...s, perPlayer: true, note: any ? null : "No player recorded a touchdown, casualty or award in this game.", home, away };
+}
+
+function withTabletop(s: GameSummary, row: RecentInputs["tabletop"][number]): GameSummary {
+  const players = tabletopPlayers(row.match, row.events);
+  const suffered = row.match.preview
+    ? { home: row.match.preview.home.casualtiesSuffered ?? null, away: row.match.preview.away.casualtiesSuffered ?? null }
+    : (() => { const t = tallyMatch(row.events); return { home: t.casualtiesSuffered.home, away: t.casualtiesSuffered.away }; })();
+  return withLines(s, teamSummary(tabletopLines(players.home), suffered.home), teamSummary(tabletopLines(players.away), suffered.away));
+}
+
+function withFork(s: GameSummary, row: StoredTournamentResult, swap = false): GameSummary {
+  const teams = Array.isArray(row.teams) ? row.teams : [];
+  let h = teams.find((t) => t.teamId === row.home.teamId);
+  let a = teams.find((t) => t.teamId === row.away.teamId);
+  if (swap) [h, a] = [a, h];
+  return withLines(s, teamSummary(forkLines(h), h?.casualtiesSuffered ?? null), teamSummary(forkLines(a), a?.casualtiesSuffered ?? null));
+}
+
+/** One played game, or undefined (unknown, not public, or not played). */
+export function gameDetail(source: GameSource, id: string, inputs: GameInputs): GameDetail | undefined {
+  const common = { forkMeta: inputs.forkMeta, teamInfo: inputs.teamInfo };
+  if (source === "tournament") {
+    const hit = findFixture(inputs.tournaments, (m) => m.id === id);
+    if (!hit) return undefined;
+    const { t, m } = hit;
+    const forkRow = m.launch?.gameId ? inputs.results.find((r) => r.gameId === m.launch.gameId && isForkRow(r)) : undefined;
+    const [card] = recentResults({ ...common, results: forkRow ? [forkRow] : [], tournaments: [{ ...t, matches: [m] }], tabletop: [] }, 1);
+    if (!card) return undefined;
+    const gameCard = toCard(card);
+    let summary = baseSummary(gameCard, m.roundNumber, { id: t.id, name: t.name, href: roundsHref(t.id) });
+    const recorded = inputs.tabletop.find((r) => r.match.fixtureRef === m.id && listedTabletop(r.match));
+    let reporter: GameReporter | undefined;
+    if (recorded) {
+      // A tabletop match recorded for this fixture: its sides follow the match, which may list the coaches swapped.
+      const swapped = recorded.match.fixtureSwap === true;
+      summary = withTabletop(summary, recorded);
+      if (swapped) summary = { ...summary, home: summary.away, away: summary.home };
+      reporter = reporterFor(recorded.match, recorded.events);
+    } else if (forkRow) {
+      summary = withFork(summary, forkRow, forkRow.home.coach.trim().toLowerCase() !== m.home.coach.ffbCoachId.trim().toLowerCase() &&
+        forkRow.away.coach.trim().toLowerCase() === m.home.coach.ffbCoachId.trim().toLowerCase());
+    }
+    return { source, id, card: gameCard, summary, ...(reporter ? { reporter } : {}) };
+  }
+
+  if (source === "tabletop") {
+    const row = inputs.tabletop.find((r) => r.match.id === id);
+    if (!row || !listedTabletop(row.match)) return undefined;
+    const fixture = row.match.fixtureRef ? findFixture(inputs.tournaments, (m) => m.id === row.match.fixtureRef) : undefined;
+    const [card] = recentResults({ ...common, results: [], tabletop: [row], tournaments: fixture ? [{ ...fixture.t, matches: [fixture.m] }] : [] }, 1);
+    if (!card) return undefined;
+    const gameCard = toCard(card);
+    const summary = withTabletop(
+      baseSummary(gameCard, fixture?.m.roundNumber ?? null, fixture ? { id: fixture.t.id, name: fixture.t.name, href: roundsHref(fixture.t.id) } : null),
+      row,
+    );
+    return { source, id, card: gameCard, summary, reporter: reporterFor(row.match, row.events) };
+  }
+
+  const row = inputs.results.find((r) => r.gameId === id && isForkRow(r));
+  if (!row) return undefined;
+  const [card] = recentResults({ ...common, results: [row], tournaments: [], tabletop: [] }, 1);
+  if (!card) return undefined;
+  const gameCard = toCard(card);
+  const fixture = findFixture(inputs.tournaments, (m) => m.launch?.gameId === id);
+  const summary = withFork(
+    baseSummary(gameCard, fixture?.m.roundNumber ?? null, fixture ? { id: fixture.t.id, name: fixture.t.name, href: roundsHref(fixture.t.id) } : null),
+    row,
+  );
+  return { source, id, card: gameCard, summary };
+}
+

@@ -5,7 +5,8 @@
 // and submitted / confirmed / published ("Tabletop · ..."), and fork games whose result the site already retained (the
 // results store; nothing here calls the fork server). One game is listed once: a tabletop match linked to a fixture
 // replaces that fixture, and a fork game launched from a fixture lends the fixture its casualties instead of appearing
-// twice. Casualties are null when the source does not know them (the card then shows nothing, never 0).
+// twice. Casualties are null when the source does not know them (the card then shows nothing, never 0). Every card
+// links to its game page, /app/games/<tournament|tabletop|online>/<id> (src/gameDetail.ts).
 
 import type { GamestateTeamResult } from "@bb/fork-ops";
 import { effectiveScore, type StoredTournamentResult } from "./tournamentResults.js";
@@ -32,6 +33,7 @@ export interface RecentResult {
   source: "tournament" | "tabletop" | "fork";
   context: string;
   playedAt: string | null;
+  /** The game page (/app/games/<source>/<id>); every card links to one. */
   href: string | null;
   home: RecentSide;
   away: RecentSide;
@@ -73,7 +75,13 @@ function side(name: string, race: string | undefined, coach: string, crestUrl: s
   return { name: name || "Unnamed team", race: race ?? "", coach, crestUrl: crestUrl || null, score, cas };
 }
 
-const TABLETOP_LISTED = new Set(["submitted", "confirmed", "published"]);
+export const TABLETOP_LISTED: ReadonlySet<string> = new Set(["submitted", "confirmed", "published"]);
+
+/** The game page sources (route /app/games/:source/:id); a fork game is "online" in the URL. */
+export type GameSource = "tournament" | "tabletop" | "online";
+export const GAME_SOURCES: readonly GameSource[] = ["tournament", "tabletop", "online"];
+/** The SPA game page for one played game (src/gameDetail.ts answers its GET /api/games/:source/:id). */
+export const gameHref = (source: GameSource, id: string): string => `/app/games/${source}/${encodeURIComponent(id)}`;
 
 export function recentResults(inputs: RecentInputs, limit = RECENT_RESULTS_DEFAULT): RecentResult[] {
   const info = (ref: string | undefined, coach: string): TeamInfo => (ref ? inputs.teamInfo?.(ref, coach) : undefined) ?? {};
@@ -106,7 +114,7 @@ export function recentResults(inputs: RecentInputs, limit = RECENT_RESULTS_DEFAU
         source: "tournament",
         context: `${t.name} · Round ${m.roundNumber}`,
         playedAt: iso(r.reportedAt) ?? iso(m.updatedAt),
-        href: `/app/tournaments/${encodeURIComponent(t.id)}`,
+        href: gameHref("tournament", m.id),
         home: sideOf(m.home, r.homeScore, r.homeCasualties),
         away: sideOf(m.away, r.awayScore, r.awayCasualties),
         concede: null,
@@ -135,7 +143,7 @@ export function recentResults(inputs: RecentInputs, limit = RECENT_RESULTS_DEFAU
       source: "tabletop",
       context: `Tabletop · ${where}`,
       playedAt: iso(matchEndedAt(events)) ?? iso(m.publishedAt) ?? iso(m.updatedAt),
-      href: `/app/tabletop/${encodeURIComponent(m.id)}`,
+      href: gameHref("tabletop", m.id),
       home: side(m.home.teamName, race?.home, m.home.coach, null, tally.score.home, cas("home")),
       away: side(m.away.teamName, race?.away, m.away.coach, null, tally.score.away, cas("away")),
       concede: tally.conceded.home ? "home" : tally.conceded.away ? "away" : null,
@@ -168,7 +176,7 @@ export function recentResults(inputs: RecentInputs, limit = RECENT_RESULTS_DEFAU
       source: "fork",
       context: pkg ? `Online · ${pkg}` : "Online · Friendly",
       playedAt: iso(row.playedAt) ?? iso(row.pulledAt),
-      href: null,
+      href: gameHref("online", row.gameId),
       home: side(row.home.teamName, undefined, row.home.coach, null, forkScore(homeTeam), casCaused(homeTeam)),
       away: side(row.away.teamName, undefined, row.away.coach, null, forkScore(awayTeam), casCaused(awayTeam)),
       concede: homeTeam?.conceded ? "home" : awayTeam?.conceded ? "away" : null,

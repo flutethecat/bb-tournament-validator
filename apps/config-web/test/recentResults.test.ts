@@ -55,7 +55,7 @@ describe("recent results", () => {
       ] as never,
     }), 2);
     expect(rows.map((r) => r.id)).toEqual(["fork:g2", "fork:g1"]);
-    expect(rows[0]).toMatchObject({ source: "fork", context: "Online · Friendly", href: null, concede: "home", suspended: false, home: { name: "Reavers", coach: "Alice", score: 0, cas: 0 }, away: { score: 2, cas: 3 } });
+    expect(rows[0]).toMatchObject({ source: "fork", context: "Online · Friendly", href: "/app/games/online/g2", concede: "home", suspended: false, home: { name: "Reavers", coach: "Alice", score: 0, cas: 0 }, away: { score: 2, cas: 3 } });
     expect(rows[1]!.home.cas).toBe(2);
     expect(rows[1]!.concede).toBeNull();
     const all = recentResults(inputs({ results: [forkRow("g1", "2026-10-02T00:00:00.000Z"), forkRow("g3", undefined)] as never }));
@@ -77,7 +77,7 @@ describe("recent results", () => {
     }));
     expect(rows.map((r) => r.id)).toEqual(["tournament:m1", "tournament:m2"]);
     expect(rows[0]).toMatchObject({
-      source: "tournament", context: "Spike Beta Test · Round 3", href: "/app/tournaments/t1", concede: null,
+      source: "tournament", context: "Spike Beta Test · Round 3", href: "/app/games/tournament/m1", concede: null,
       home: { name: "Carol's Crushers", race: "Orc", coach: "Carol", score: 0, cas: null, crestUrl: null },
       away: { name: "Dan's Darlings", race: "Wood Elf", coach: "Dan", score: 4, cas: null },
     });
@@ -115,7 +115,7 @@ describe("recent results", () => {
     }));
     expect(rows.map((r) => r.id)).toEqual(["tabletop:tm1", "tabletop:tm2"]);
     expect(rows[0]).toMatchObject({
-      source: "tabletop", context: "Tabletop · League · Round 5", href: "/app/tabletop/tm1", playedAt: "2026-10-21T12:00:00.000Z", concede: "away",
+      source: "tabletop", context: "Tabletop · League · Round 5", href: "/app/games/tabletop/tm1", playedAt: "2026-10-21T12:00:00.000Z", concede: "away",
       home: { name: "Night <Owls>", race: "Orc", coach: "Eve", score: 1, cas: 1 },
       away: { name: "Saved Side", race: "Dwarf", crestUrl: "/api/team-avatars/x.png", score: 0, cas: 0 },
     });
@@ -143,6 +143,21 @@ describe("recent results", () => {
     const shootout = { ...forkTeam("h", 4, []), penaltyScore: 0 };
     const rows = recentResults(inputs({ results: [forkRow("pk", "2026-10-02T00:00:00.000Z", { teams: [shootout, { ...forkTeam("a", 1, []), penaltyScore: 2 }] })] as never }));
     expect(rows[0]).toMatchObject({ home: { score: 0 }, away: { score: 2 } });
+  });
+
+  it("every card links to its game page (/app/games/<source>/<id>), whatever the source", () => {
+    const rows = recentResults(inputs({
+      results: [forkRow("g 1/x", "2026-10-02T00:00:00.000Z")] as never,
+      tournaments: [{ id: "t1", name: "Cup", entrants: [], matches: [fixture("m9", 1, { homeScore: 1, awayScore: 0, reportedAt: "2026-10-03T00:00:00.000Z" })] as never }],
+      tabletop: [{ match: tabletopMatch("tt1", "confirmed"), events: [] }] as never,
+    }), 50);
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => typeof r.href === "string" && r.href.startsWith("/app/games/"))).toBe(true);
+    expect(Object.fromEntries(rows.map((r) => [r.id, r.href]))).toEqual({
+      "fork:g 1/x": "/app/games/online/g%201%2Fx",
+      "tournament:m9": "/app/games/tournament/m9",
+      "tabletop:tt1": "/app/games/tabletop/tt1",
+    });
   });
 
   it("team lookups run only for the cards that make the cut", () => {

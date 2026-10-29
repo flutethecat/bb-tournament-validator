@@ -15,7 +15,8 @@ import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deriveDeadlines, matchEndedAt, parseSchedulingInput, readBuildLog, schedulingView, toStoredScheduling } from "./coachHome.js";
 import { profileView, updateOwnProfile, type ProfileDeps } from "./accountProfile.js";
-import { createTabletopGatherer, RECENT_RESULTS_MAX, recentLimit, recentResults, type RecentInputs, type RecentResult, type TeamInfo } from "./recentResults.js";
+import { createTabletopGatherer, RECENT_RESULTS_MAX, recentLimit, recentResults, type GameSource, type RecentInputs, type RecentResult, type TeamInfo } from "./recentResults.js";
+import { gameDetail, parseGamePath, type GameDetail, type GameInputs } from "./gameDetail.js";
 import { ConnectionError, NAF_CONNECTION_ENDPOINT, nafProvider } from "./auth/connections.js";
 import {
   composeTeam,
@@ -1419,6 +1420,46 @@ async function cachedRecentResults(): Promise<RecentResult[]> {
   return rows;
 }
 
+/** One game page (GET /api/games/:source/:id, src/gameDetail.ts): reads only the stores that game can involve. */
+async function readGameDetail(source: GameSource, id: string): Promise<GameDetail | undefined> {
+  const teams = new Map<string, TeamInfo | undefined>();
+  const teamInfo = (ref: string, coach: string): TeamInfo | undefined => {
+    const key = `${ref} ${coach}`;
+    if (!teams.has(key)) teams.set(key, recentTeamInfo(ref, coach));
+    return teams.get(key);
+  };
+  const inputs: GameInputs = { results: [], tournaments: [], tabletop: [], teamInfo, forkMeta: (gameId) => tournamentMatches.get(gameId) };
+  try {
+    inputs.tournaments = tournamentStore.tournaments(["active", "completed", "cancelled"]).map((t) => ({
+      id: t.id, name: t.name, matches: tournamentStore.matches(t.id), entrants: tournamentStore.entrants(t.id),
+    }));
+  } catch { /* no tournaments store */ }
+  if (source !== "tabletop") {
+    try { inputs.results = tournamentResults.listAll(); } catch { /* no results store */ }
+  }
+  if (source !== "online") {
+    try {
+      const { repo } = await tabletopDeps();
+      const matches = source === "tabletop"
+        ? [await repo.getMatch(id).catch(() => undefined)].filter((m): m is NonNullable<typeof m> => !!m)
+        : (await repo.listMatches()).filter((m) => m.fixtureRef === id);
+      const raceOf = async (coach: string, saveId: string) => {
+        try {
+          const chain = await repo.getChain(coach, saveId);
+          return chain?.revisions.find((r) => r.revision === chain.head)?.teamFile.race ?? undefined;
+        } catch { return undefined; }
+      };
+      for (const match of matches.filter((m) => !m.test).slice(0, 5)) {
+        inputs.tabletop = [...inputs.tabletop, {
+          match, events: await repo.readEvents(match.id),
+          race: { home: await raceOf(match.home.coach, match.home.teamSaveId), away: await raceOf(match.away.coach, match.away.teamSaveId) },
+        }];
+      }
+    } catch { /* recorder store unavailable */ }
+  }
+  return gameDetail(source, id, inputs);
+}
+
 function ffbCoachIdForDiscordId(discordId: string): string | undefined {
   return Object.values(readIdentities().coaches).find(
     (record) => record.identities?.discordUserId === discordId,
@@ -1952,6 +1993,15 @@ async function handleApi(
     } catch {
       return sendJson(res, 200, { results: [] });
     }
+  }
+
+  // Game page (Past Games cards link here): public, read-only; unknown, test or unfinished games are 404.
+  const gamePath = parseGamePath(path);
+  if (gamePath && (method === "GET" || method === "HEAD")) {
+    res.setHeader("cache-control", "public, max-age=60");
+    let detail: GameDetail | undefined;
+    try { detail = await readGameDetail(gamePath.source, gamePath.id); } catch { detail = undefined; }
+    return detail ? sendJson(res, 200, detail) : sendJson(res, 404, { error: "Game not found." });
   }
 
   // Coach home page (/app/home): derived deadlines + the availability editor. Session-gated, own data only.
@@ -3822,6 +3872,10 @@ export const server = createServer((req, res) => {
       }
       // Recent games strip: public, read-only, in both deployment modes.
       if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/api/recent-results") {
+        return await handleApi(req, res, url.pathname, url.searchParams);
+      }
+      // Game pages: public, read-only, in both deployment modes.
+      if ((req.method === "GET" || req.method === "HEAD") && parseGamePath(url.pathname)) {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
       // name/generate is the same public read-only posture as checkName (contract §3A).
