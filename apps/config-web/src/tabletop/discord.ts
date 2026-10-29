@@ -1,24 +1,40 @@
 /**
- * Match recorder -> Discord webhook (optional). One embed per pre-game milestone, for the BloodBowl bot to pick up.
+ * Match recorder -> Discord webhook (optional). One embed per pre-game milestone, and one summary embed for the final
+ * result (owner ruling 10-30), for the BloodBowl bot to pick up.
  *
  *   env DISCORD_RECORDER_WEBHOOK_URL   unset = off. The URL is a secret: it is never logged or echoed.
  *
  * `recorderAnnouncement` is pure (tests build payloads with no network); `createRecorderWebhook` owns the network side:
  * a small queue, a minimum gap between posts (Discord rate limits webhooks), a timeout, and failures that are logged
  * (without the URL) and never reach the match routes. Payload shape: docs/artifact-orchestration/spec-recorder-pregame-2026-10-30.md.
- * The bot keys on `embeds[0].footer.text` = "tabletop:<matchId> | pregame.<kind>".
+ * The bot keys on `embeds[0].footer.text` = "tabletop:<matchId> | pregame.<kind>" (milestones) or
+ * "tabletop:<matchId> | result" (the final result, linking the public game page /app/games/tabletop/<id>).
  */
 
 import type { Side, TabletopEvent } from "./events.js";
 
-export type AnnouncementKind = "fans" | "weather" | "inducements" | "prayers" | "coin" | "skip";
+export type AnnouncementKind = "fans" | "weather" | "inducements" | "prayers" | "coin" | "skip" | "result";
+/** One side of the final result, server-tallied (api.ts resultSummaryOf). */
+export interface ResultSide {
+  score: number;
+  /** Casualties this side caused, by outcome. */
+  casualties: { bh: number; si: number; rip: number };
+  conceded: boolean;
+  scorers: Array<{ name: string; touchdowns: number }>;
+  mvps: string[];
+}
+export type ResultSummary = Record<Side, ResultSide>;
 export interface AnnouncementMatch {
   id: string;
   test?: boolean;
   home: { coach: string; teamName: string };
   away: { coach: string; teamName: string };
 }
-export interface RecorderAnnouncement { kind: AnnouncementKind; match: AnnouncementMatch; events: readonly TabletopEvent[] }
+export interface RecorderAnnouncement {
+  kind: AnnouncementKind; match: AnnouncementMatch; events: readonly TabletopEvent[];
+  /** kind "result" only: the final tally. */
+  result?: ResultSummary;
+}
 
 export interface DiscordEmbedField { name: string; value: string; inline?: boolean }
 export interface DiscordWebhookBody {
@@ -27,7 +43,7 @@ export interface DiscordWebhookBody {
   embeds: Array<{ title: string; description: string; color: number; fields: DiscordEmbedField[]; footer: { text: string }; timestamp: string; url?: string }>;
 }
 
-const COLORS: Record<AnnouncementKind, number> = { fans: 0xe8b84a, weather: 0x3498db, inducements: 0x9b59b6, prayers: 0xf1c40f, coin: 0x2ecc71, skip: 0x95a5a6 };
+const COLORS: Record<AnnouncementKind, number> = { fans: 0xe8b84a, weather: 0x3498db, inducements: 0x9b59b6, prayers: 0xf1c40f, coin: 0x2ecc71, skip: 0x95a5a6, result: 0xe74c3c };
 /** One plain-language effect line per weather result (our own wording; the table is at
  *  https://bloodbowlbase.ru/bb2025/core_rules/the_game_of_blood_bowl/ #weather-table). */
 const WEATHER_EFFECT: Record<string, string> = {
@@ -45,7 +61,7 @@ const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n -
 const safe = (s: string): string => clip(String(s).replace(/@/g, "@​").replace(/([*_`~|>\\])/g, "\\$1"), 200);
 const rolled = (p: Record<string, unknown>): string => (p.rolledBy === "coach" ? "entered by the coach" : "rolled by the site");
 
-/** The webhook body for one milestone, or undefined when the events do not carry it (nothing is posted). */
+/** The webhook body for one milestone (or the final result), or undefined when the input does not carry it (nothing is posted). */
 export function recorderAnnouncement(a: RecorderAnnouncement, opts: { baseUrl?: string; now?: Date } = {}): DiscordWebhookBody | undefined {
   const { match, events, kind } = a;
   const team = (s: Side) => `${safe(match[s].teamName)} (${safe(match[s].coach)})`;
@@ -53,7 +69,35 @@ export function recorderAnnouncement(a: RecorderAnnouncement, opts: { baseUrl?: 
   let title = "";
   let description = "";
   const fields: DiscordEmbedField[] = [];
-  if (kind === "fans") {
+  if (kind === "result") {
+    const r = a.result;
+    if (!r) return undefined;
+    const cas = (c: ResultSide["casualties"]) => {
+      const n = c.bh + c.si + c.rip;
+      const parts = [c.bh ? `${c.bh} BH` : "", c.si ? `${c.si} SI` : "", c.rip ? `${c.rip} dead` : ""].filter(Boolean);
+      return `${n}${parts.length ? ` (${parts.join(", ")})` : ""}`;
+    };
+    const scorers = (x: ResultSide) => (x.scorers.length ? x.scorers.map((p) => `${safe(p.name)}${p.touchdowns > 1 ? ` x${p.touchdowns}` : ""}`).join(", ") : "None");
+    title = `Result: ${safe(match.home.teamName)} ${r.home.score} - ${r.away.score} ${safe(match.away.teamName)}`;
+    const conceded = (["home", "away"] as const).filter((s) => r[s].conceded);
+    const h = r.home.score, w = r.away.score;
+    description = [
+      h === w ? "A draw." : `${safe(match[h > w ? "home" : "away"].teamName)} win.`,
+      ...conceded.map((s) => `${safe(match[s].teamName)} (${safe(match[s].coach)}) conceded.`),
+    ].join(" ");
+    for (const s of ["home", "away"] as const)
+      fields.push({
+        name: team(s),
+        value: [
+          `Score: **${r[s].score}**`,
+          `Touchdowns: ${scorers(r[s])}`,
+          `Casualties caused: ${cas(r[s].casualties)}`,
+          `MVP: ${r[s].mvps.length ? r[s].mvps.map(safe).join(", ") : "None"}`,
+          ...(r[s].conceded ? ["Conceded"] : []),
+        ].join("\n"),
+        inline: true,
+      });
+  } else if (kind === "fans") {
     const f = { home: of("fans", "home")[0]?.payload, away: of("fans", "away")[0]?.payload };
     if (!f.home || !f.away) return undefined;
     title = "Fans";
@@ -114,9 +158,11 @@ export function recorderAnnouncement(a: RecorderAnnouncement, opts: { baseUrl?: 
       description: clip(`${team("home")} v ${team("away")}\n${description}`, 2000),
       color: COLORS[kind],
       fields: fields.slice(0, 10),
-      footer: { text: `tabletop:${match.id} | pregame.${kind}` },
+      footer: { text: kind === "result" ? `tabletop:${match.id} | result` : `tabletop:${match.id} | pregame.${kind}` },
       timestamp: (opts.now ?? new Date()).toISOString(),
-      ...(opts.baseUrl ? { url: `${opts.baseUrl}/app/tabletop/${encodeURIComponent(match.id)}` } : {}),
+      // the result links the public game page (a test match has none: its recorder instead); milestones link the live
+      // recorder (read-only for onlookers)
+      ...(opts.baseUrl ? { url: `${opts.baseUrl}${kind === "result" && !match.test ? `/app/games/tabletop/${encodeURIComponent(match.id)}` : `/app/tabletop/${encodeURIComponent(match.id)}`}` } : {}),
     }],
   };
 }

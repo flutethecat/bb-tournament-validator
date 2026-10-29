@@ -98,3 +98,48 @@ describe("createRecorderWebhook", () => {
     expect(logs.join(" ")).not.toContain("secret-token");
   });
 });
+
+// Owner ruling 10-30 #6: the final result goes to Discord as one summary embed.
+describe("recorderAnnouncement: the result summary", () => {
+  const side = (score: number, extra: Record<string, unknown> = {}) => ({ score, casualties: { bh: 0, si: 0, rip: 0 }, conceded: false, scorers: [], mvps: [], ...extra });
+  it("both teams, coaches, score, scorers, casualties, MVPs; the footer and the game-page link for the bot", () => {
+    const body = recorderAnnouncement({
+      kind: "result", match, events: [],
+      result: {
+        home: side(2, { scorers: [{ name: "Griff @here", touchdowns: 2 }], casualties: { bh: 1, si: 1, rip: 1 }, mvps: ["Griff @here"] }),
+        away: side(0, { conceded: true }),
+      },
+    }, { baseUrl: "https://example.test", now })!;
+    const embed = body.embeds[0]!;
+    expect(embed.title).toBe("Result: Reikland Reavers 2 - 0 Grim @​everyone Gits");
+    expect(embed.description).toContain("Reikland Reavers (Alice) v Grim @​everyone Gits (Bob)");
+    expect(embed.description).toContain("Reikland Reavers win. Grim @​everyone Gits (Bob) conceded.");
+    expect(embed.fields.map((f) => f.name)).toEqual(["Reikland Reavers (Alice)", "Grim @​everyone Gits (Bob)"]);
+    expect(embed.fields[0]!.value).toBe("Score: **2**\nTouchdowns: Griff @​here x2\nCasualties caused: 3 (1 BH, 1 SI, 1 dead)\nMVP: Griff @​here");
+    expect(embed.fields[1]!.value).toBe("Score: **0**\nTouchdowns: None\nCasualties caused: 0\nMVP: None\nConceded");
+    expect(embed.footer.text).toBe("tabletop:tm_abc | result");
+    expect(embed.url).toBe("https://example.test/app/games/tabletop/tm_abc");
+    expect(body.allowed_mentions).toEqual({ parse: [] });
+  });
+
+  it("a test match is marked [Test] and links its recorder (a test match has no public game page); no result, no post", () => {
+    const body = recorderAnnouncement({ kind: "result", match: { ...match, test: true }, events: [], result: { home: side(1), away: side(1) } }, { baseUrl: "https://example.test" })!;
+    expect(body.embeds[0]!.title).toBe("[Test] Result: Reikland Reavers 1 - 1 Grim @​everyone Gits");
+    expect(body.embeds[0]!.description).toContain("A draw.");
+    expect(body.embeds[0]!.url).toBe("https://example.test/app/tabletop/tm_abc");
+    expect(recorderAnnouncement({ kind: "result", match, events: [] })).toBeUndefined();
+  });
+
+  it("goes through the same poster: queued, spaced, never throwing (no network)", async () => {
+    const sent: string[] = [];
+    let t = 0;
+    const hook = createRecorderWebhook({
+      url: "https://discord.example/api/webhooks/1/secret-token", minGapMs: 1200, now: () => t,
+      sleep: async (ms) => { t += ms; }, fetch: (async (_u: unknown, init: { body: string }) => { sent.push(init.body); return { ok: true, status: 204 }; }) as unknown as typeof fetch,
+    })!;
+    hook.post(recorderAnnouncement({ kind: "result", match, events: [], result: { home: side(1), away: side(0) } })!);
+    await hook.idle();
+    expect(sent).toHaveLength(1);
+    expect((JSON.parse(sent[0]!) as DiscordWebhookBody).embeds[0]!.footer.text).toBe("tabletop:tm_abc | result");
+  });
+});
