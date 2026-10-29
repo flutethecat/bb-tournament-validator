@@ -419,10 +419,17 @@ describe("tabletop routes (server-rendered)", () => {
     for (const [k, t] of [["rookie", "--ui-muted"], ["experienced", "--ui-success"], ["veteran", "--ui-info"], ["star", "--ui-gold"], ["super", "--ui-scarlet"], ["legend", "--ui-text-on-primary"]]) {
       expect(css).toMatch(new RegExp(`\\.tt-cr\\[data-rank="${k}"\\] \\{ --tt-rank-c: var\\(${t},`));
     }
-    expect(css).toMatch(/\.tt-cr\[data-rank="mega"\] \{ --tt-rank-c: color-mix\(in srgb, var\(--ui-warn,[^;]*var\(--ui-scarlet,/); // Megastar: orange, between Super Star and Legend
+    expect(css).toMatch(/\.tt-cr\[data-rank="mega"\] \{ --tt-rank-c: color-mix\(in srgb, var\(--ui-warn,[^;]*var\(--ui-scarlet,/); // Mega-Star: orange, between Super Star and Legend
     expect(css).toMatch(/\.tt-cr\[data-rank="emerging"\] \{ --tt-rank-c: color-mix\(/);
-    expect(css).toMatch(/\.tt-rec \.tt-corner\.home \.tt-cr \{ left: 0; \}/);
-    expect(css).toMatch(/\.tt-rec \.tt-corner\.away \.tt-cr \{ right: 0;/);
+    expect(css).not.toMatch(/\.tt-cr \{[^}]*position: absolute/); // in the column's flow, never over the crest
+    expect(css).toMatch(/\.tt-rec \.tt-cr \{[^}]*align-self: center;/);
+    expect(css).toMatch(/\.tt-rec \.tt-crestcol \{ display: flex; flex-direction: column; align-items: center; align-self: center; gap: 6px;/); // the 6 px gap
+    // order inside the crest column: coach, crest, race, then the CR badge
+    const col = html.slice(html.indexOf('class="tt-crestcol"'), html.indexOf('class="tt-namegroup"'));
+    const order = [col.indexOf('tt-crest-coach'), col.indexOf('tt-corner-top'), col.indexOf('tt-crest-race'), col.indexOf('class="tt-cr"')].filter((v) => v >= 0); // the race line shows only when the team has a race
+    expect(order.length).toBeGreaterThanOrEqual(3);
+    expect(order).toEqual([...order].sort((x, y) => x - y));
+    expect(col.lastIndexOf('class="tt-cr"')).toBeGreaterThan(col.lastIndexOf('tt-corner-top')); // last in the column
   });
 
   it("context bar: renders the server's competition context for the three kinds, nothing when it sent none", async () => {

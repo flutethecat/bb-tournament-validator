@@ -1367,22 +1367,19 @@
 .tt-pcard-gain { color: var(--ui-success, #4fce6a); font-size: .85em; font-weight: 600; }
 .tt-ev-who[data-pcard], .tt-ev-name[data-pcard], .roster-sprite[data-pcard] { cursor: help; }
 
-/* coach rating: desktop = a bevelled "CR 152" badge plus a pixel rank shield at the crest's bottom corner (left on home, right on away); below 1024 px only the CR text
+/* coach rating: desktop = a bevelled "CR 1523" badge plus a pixel rank shield as the LAST row of the crest column (coach / crest / race / CR), centred under the race line on both sides (the column's 6 px gap); below 1024 px only the CR text
    under the coach name. The shield is our own inline SVG, coloured per rank from tokens (never an image) */
 .tt-cr { display: none; }
 .tt-coach-cr { display: block; font-size: 11px; color: var(--tt-muted); letter-spacing: .04em; }
 @media (min-width: 1024px) {
   .tt-coach-cr { display: none; }
-  .tt-rec .tt-corner-top { position: relative; }
   .tt-rec .tt-cr {
     --tt-rank-c: var(--ui-muted, #848689);
-    position: absolute; bottom: -6px; display: inline-flex; align-items: center; gap: 5px; z-index: 2; padding: 2px 7px 2px 6px; border-radius: 4px; cursor: help;
+    display: inline-flex; align-items: center; justify-content: center; align-self: center; gap: 5px; margin-top: 0; padding: 2px 7px 2px 6px; border-radius: 4px; cursor: help;
     font-family: var(--font-heading, sans-serif); font-size: 12px; letter-spacing: .06em; color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--tt-lettering-shadow, 1px 1px 0 rgb(0 0 0 / 80%));
     background: var(--tt-btn); border: 1px solid color-mix(in srgb, var(--tt-rank-c) 60%, var(--ui-border, #3d0002));
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 14%), inset 0 -1px 0 rgb(0 0 0 / 45%), 0 2px 4px rgb(0 0 0 / 45%);
   }
-  .tt-rec .tt-corner.home .tt-cr { left: 0; }
-  .tt-rec .tt-corner.away .tt-cr { right: 0; flex-direction: row-reverse; }
   .tt-rec .tt-cr-text { font-weight: 400; }
   .tt-rank { flex: none; display: block; }
   .tt-rank-shield { fill: var(--tt-rank-c); stroke: var(--ui-surface, #0d0d0d); stroke-width: 1; }

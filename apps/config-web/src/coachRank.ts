@@ -5,6 +5,30 @@
 // FUMBBL assigns the other titles as percentages of ACTIVE coaches (Legend = the top X), recomputed periodically with hysteresis, and does not publish the
 // formula. Until we have enough coaches for percentiles, BANDS below are fixed defaults on the Elo.
 // TODO: replace BANDS with percentile bands over our active coaches, recalculated periodically, with hysteresis so a coach does not flap at a boundary.
+//
+// PROVISIONAL: Super FUMBBL has NO local rating thresholds to reuse. The client (apps/tauri/src/game/fumbblCoachProfile.ts) only shows the title and CR that
+// fumbbl.com sends for a FUMBBL coach (parsed by src/coachRating.ts here); coachElo.ts has no titles. What IS reused verbatim from the client is the title list,
+// its order and its normalisation (COACH_TITLE_SLUGS / coachTitleSlug, including FUMBBL's hyphenated "Mega-Star"). BANDS are therefore a fixed, flagged default.
+
+/** FUMBBL's eight titles and their badge slugs, in order (verbatim from the client's COACH_TITLE_SLUGS). */
+export const COACH_TITLE_SLUGS = {
+  "rookie": "rookie",
+  "experienced": "experienced",
+  "veteran": "veteran",
+  "emerging star": "emerging-star",
+  "star": "star",
+  "super star": "super-star",
+  "mega star": "mega-star",
+  "legend": "legend",
+} as const;
+export type CoachTitleSlug = (typeof COACH_TITLE_SLUGS)[keyof typeof COACH_TITLE_SLUGS];
+
+/** "Super Star" / " super  STAR " / "Mega-Star" -> "super-star" / "mega-star"; anything not one of FUMBBL's eight titles -> undefined (the client's coachTitleSlug). */
+export function coachTitleSlug(title: string | undefined | null): CoachTitleSlug | undefined {
+  if (typeof title !== "string") return undefined;
+  const key = title.trim().replace(/[-_\u2010-\u2015]+/g, " ").replace(/\s+/g, " ").toLowerCase();
+  return Object.prototype.hasOwnProperty.call(COACH_TITLE_SLUGS, key) ? COACH_TITLE_SLUGS[key as keyof typeof COACH_TITLE_SLUGS] : undefined;
+}
 
 export interface CoachRank { name: string; key: string; pips: number }
 
@@ -15,7 +39,7 @@ export const BANDS: ReadonlyArray<CoachRank & { min: number }> = [
   { name: "Emerging Star", key: "emerging", pips: 4, min: 1500 }, // 1500-1549
   { name: "Star", key: "star", pips: 5, min: 1550 }, // 1550-1599
   { name: "Super Star", key: "super", pips: 6, min: 1600 }, // 1600-1674
-  { name: "Megastar", key: "mega", pips: 7, min: 1675 }, // 1675-1749
+  { name: "Mega-Star", key: "mega", pips: 7, min: 1675 }, // 1675-1749 (FUMBBL writes "Mega-Star")
   { name: "Legend", key: "legend", pips: 8, min: 1750 }, // 1750 and up
 ];
 export const ROOKIE: CoachRank = { name: "Rookie", key: "rookie", pips: 1 };

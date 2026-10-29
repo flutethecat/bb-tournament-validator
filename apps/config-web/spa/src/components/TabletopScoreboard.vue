@@ -139,15 +139,15 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
             <img v-if="crest(s)" class="tt-crest" :src="crest(s)" alt="" />
             <span v-else class="tt-crest tt-crest-ph" aria-hidden="true">&#128737;</span>
           </span>
-          <span v-if="crOf(s)" class="tt-cr" :data-rank="crOf(s)?.rankKey" :data-tip="crTip(s)" data-tip-pos="bottom">
-            <b class="tt-cr-text">CR {{ crOf(s)?.cr }}</b>
-            <svg class="tt-rank" viewBox="0 0 18 16" width="18" height="16" aria-hidden="true" shape-rendering="crispEdges">
-              <path class="tt-rank-shield" d="M0 1h18v8l-3 3-3 3-3 1-3-1-3-3-3-3z" />
-              <rect v-for="n in RANK_PIPS[crOf(s)?.rankKey ?? ''] ?? 1" :key="n" class="tt-rank-pip" :x="1 + (n - 1) * 2" y="3" width="1" height="2" />
-            </svg>
-          </span>
         </div>
         <span v-if="race(s)" class="tt-crest-race">{{ race(s) }}</span>
+        <span v-if="crOf(s)" class="tt-cr" :data-rank="crOf(s)?.rankKey" :data-tip="crTip(s)" data-tip-pos="bottom">
+          <b class="tt-cr-text">CR {{ crOf(s)?.cr }}</b>
+          <svg class="tt-rank" viewBox="0 0 18 16" width="18" height="16" aria-hidden="true" shape-rendering="crispEdges">
+            <path class="tt-rank-shield" d="M0 1h18v8l-3 3-3 3-3 1-3-1-3-3-3-3z" />
+            <rect v-for="n in RANK_PIPS[crOf(s)?.rankKey ?? ''] ?? 1" :key="n" class="tt-rank-pip" :x="1 + (n - 1) * 2" y="3" width="1" height="2" />
+          </svg>
+        </span>
       </div>
       <div class="tt-namegroup">
       <span class="tt-team tt-nameline" :data-long="match[s].teamName.length > 16 ? 'true' : null" :data-fit="match[s].teamName.length > 20 ? 'lg' : match[s].teamName.length > 14 ? 'md' : null">{{ match[s].teamName }}</span>

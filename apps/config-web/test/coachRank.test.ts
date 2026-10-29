@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BANDS, coachRatingFor, eloToCr, ELO_BASELINE, rankOf, ROOKIE, ROOKIE_GAMES } from "../src/coachRank.js";
+import { BANDS, COACH_TITLE_SLUGS, coachRatingFor, coachTitleSlug, eloToCr, ELO_BASELINE, rankOf, ROOKIE, ROOKIE_GAMES } from "../src/coachRank.js";
 
 describe("coach rank (CR = fork Elo, FUMBBL titles)", () => {
   it("CR is the Elo itself, whole-numbered, 1500 baseline", () => {
@@ -12,19 +12,26 @@ describe("coach rank (CR = fork Elo, FUMBBL titles)", () => {
     expect(rankOf(1200, 0).name).toBe("Rookie");
     expect(rankOf(1900, ROOKIE_GAMES).name).toBe("Legend");
   });
-  it("the default bands: Experienced < 1450, Veteran 1450-1499, Emerging Star 1500-1549, Star 1550-1599, Super Star 1600-1674, Megastar 1675-1749, Legend >= 1750", () => {
+  it("the default bands: Experienced < 1450, Veteran 1450-1499, Emerging Star 1500-1549, Star 1550-1599, Super Star 1600-1674, Mega-Star 1675-1749, Legend >= 1750", () => {
     const at = (cr: number): string => rankOf(cr, 50).name;
     expect([at(1449), at(1450), at(1499), at(1500), at(1549), at(1550), at(1599), at(1600), at(1674), at(1675), at(1749), at(1750)]).toEqual([
-      "Experienced", "Veteran", "Veteran", "Emerging Star", "Emerging Star", "Star", "Star", "Super Star", "Super Star", "Megastar", "Megastar", "Legend",
+      "Experienced", "Veteran", "Veteran", "Emerging Star", "Emerging Star", "Star", "Star", "Super Star", "Super Star", "Mega-Star", "Mega-Star", "Legend",
     ]);
     expect(at(900)).toBe("Experienced");
   });
   it("eight titles in order, with one more pip per step", () => {
-    expect([ROOKIE, ...BANDS].map((r) => r.name)).toEqual(["Rookie", "Experienced", "Veteran", "Emerging Star", "Star", "Super Star", "Megastar", "Legend"]);
+    expect([ROOKIE, ...BANDS].map((r) => r.name)).toEqual(["Rookie", "Experienced", "Veteran", "Emerging Star", "Star", "Super Star", "Mega-Star", "Legend"]);
     expect([ROOKIE, ...BANDS].map((r) => r.pips)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
   it("a new coach (1500, no games) is a Rookie; a rated one carries cr, rank, key and games", () => {
     expect(coachRatingFor(undefined)).toEqual({ cr: 1500, rank: "Rookie", rankKey: "rookie", games: 0 });
     expect(coachRatingFor(1523, 12)).toEqual({ cr: 1523, rank: "Emerging Star", rankKey: "emerging", games: 12 });
+  });
+  it("the title list, order and normalisation are the client's (FUMBBL's eight titles; every band name maps to a slug)", () => {
+    expect(Object.keys(COACH_TITLE_SLUGS)).toEqual(["rookie", "experienced", "veteran", "emerging star", "star", "super star", "mega star", "legend"]);
+    expect(coachTitleSlug(" super  STAR ")).toBe("super-star");
+    expect(coachTitleSlug("Mega-Star")).toBe("mega-star");
+    expect(coachTitleSlug("Hero")).toBeUndefined();
+    for (const r of [ROOKIE, ...BANDS]) expect(coachTitleSlug(r.name), r.name).toBeDefined();
   });
 });
