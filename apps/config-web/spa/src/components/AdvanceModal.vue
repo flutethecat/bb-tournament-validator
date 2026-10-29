@@ -28,6 +28,8 @@ const focusables = (): HTMLElement[] =>
 function onKey(e: KeyboardEvent): void {
   const action = dialogKey(e, focusables(), document.activeElement as HTMLElement | null, flow.value.busy);
   if (!action) return;
+  // Shell shortcuts stop here (this listener runs first: window, capture) so App.vue never sees them; typing is kept.
+  if (action.type === "stop") { e.stopPropagation(); return; }
   e.preventDefault();
   e.stopPropagation();
   if (action.type === "close") props.manage.close();
@@ -51,7 +53,7 @@ function keepFocus(): void {
 
 <template>
   <div class="tn-modal-backdrop" @click.self="!flow.busy && manage.close()">
-    <div ref="dialog" class="tn-modal tn-panel tm-modal" role="dialog" aria-modal="true" aria-labelledby="tm-adv-h" tabindex="-1" :data-step="flow.step">
+    <div ref="dialog" class="tn-modal tn-panel tm-modal" role="dialog" @keydown.stop aria-modal="true" aria-labelledby="tm-adv-h" tabindex="-1" :data-step="flow.step">
       <h3 id="tm-adv-h" class="tn-band">
         {{ title }}
         <button type="button" class="tn-modal-x" aria-label="Close" :disabled="flow.busy" @click="manage.close()">×</button>

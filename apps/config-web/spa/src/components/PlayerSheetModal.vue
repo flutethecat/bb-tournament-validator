@@ -41,6 +41,8 @@ const focusables = (): HTMLElement[] =>
 function onKey(e: KeyboardEvent): void {
   const action = dialogKey(e, focusables(), document.activeElement as HTMLElement | null, false);
   if (!action) return;
+  // Shell shortcuts stop here (this listener runs first: window, capture) so App.vue never sees them; typing is kept.
+  if (action.type === "stop") { e.stopPropagation(); return; }
   e.preventDefault();
   e.stopPropagation();
   if (action.type === "close") props.manage.closeSheet();
@@ -56,7 +58,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey, true));
 
 <template>
   <div class="tn-modal-backdrop" @click.self="manage.closeSheet()">
-    <div ref="dialog" class="tn-modal tn-panel tm-modal tm-psheet" role="dialog" aria-modal="true" aria-labelledby="tm-ps-h" tabindex="-1">
+    <div ref="dialog" class="tn-modal tn-panel tm-modal tm-psheet" role="dialog" @keydown.stop aria-modal="true" aria-labelledby="tm-ps-h" tabindex="-1">
       <h3 id="tm-ps-h" class="tn-band">
         Player sheet
         <button type="button" class="tn-modal-x" aria-label="Close" @click="manage.closeSheet()">×</button>

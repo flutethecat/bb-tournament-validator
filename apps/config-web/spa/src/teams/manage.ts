@@ -377,14 +377,20 @@ export type TeamManage = ReturnType<typeof createTeamManage>;
 
 export const TEAM_MANAGE_KEY: InjectionKey<TeamManage> = Symbol("team-manage");
 
-/** Keyboard handling of the advancement dialog (aria-modal): Escape closes unless a request is in flight; Tab and
- *  Shift+Tab wrap inside the dialog (trapTarget, as the shell drawer does). Pure so it is tested without a DOM. */
+/** Shell-wide single-key shortcuts (App.vue: "[" toggles the nav rail / opens the phone drawer). */
+export const SHELL_SHORTCUT_KEYS: readonly string[] = ["["];
+
+/** Keyboard handling of the team dialogs (aria-modal): Escape closes unless a request is in flight; Tab and
+ *  Shift+Tab wrap inside the dialog (trapTarget, as the shell drawer does); a shell shortcut key is "stop": it must not
+ *  reach App.vue's window listener (it would open the drawer above the dialog), but its default action is kept.
+ *  Pure so it is tested without a DOM. */
 export function dialogKey<T>(
   e: { key: string; shiftKey: boolean },
   focusables: readonly T[],
   active: T | null,
   busy: boolean,
-): { type: "close" } | { type: "focus"; target: T } | { type: "block" } | null {
+): { type: "close" } | { type: "focus"; target: T } | { type: "block" } | { type: "stop" } | null {
+  if (SHELL_SHORTCUT_KEYS.includes(e.key)) return { type: "stop" };
   if (e.key === "Escape") return busy ? { type: "block" } : { type: "close" };
   if (e.key !== "Tab") return null;
   if (!focusables.length) return { type: "block" };

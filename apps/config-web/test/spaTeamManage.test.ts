@@ -181,6 +181,19 @@ describe("team management controller", () => {
     expect(dialogKey({ key: "Enter", shiftKey: false }, list, a, false)).toBeNull();
   });
 
+  it("dialog keys: the shell's [ shortcut is stopped inside both team dialogs so it never opens the drawer above them", async () => {
+    expect(dialogKey({ key: "[", shiftKey: false }, ["a"], "a", false)).toEqual({ type: "stop" });
+    expect(dialogKey({ key: "[", shiftKey: false }, [], null, true)).toEqual({ type: "stop" });
+    // both dialogs' window (capture) handlers stop propagation for it, and the containers stop bubbling keydowns
+    const { readFileSync } = await import("node:fs");
+    for (const file of ["AdvanceModal.vue", "PlayerSheetModal.vue"]) {
+      const src = readFileSync(fileURLToPath(new URL(`../spa/src/components/${file}`, import.meta.url)), "utf8");
+      expect(src).toContain('if (action.type === "stop") { e.stopPropagation(); return; }');
+      expect(src).toMatch(/role="dialog" @keydown\.stop/);
+      expect(src).toContain('window.addEventListener("keydown", onKey, true)');
+    }
+  });
+
   it("share toggles the linked save's token", async () => {
     const f = mockFetcher({ "/api/me/teams/library%3A77": libraryModel(), "POST /api/fork/team-builder/saves/sv_a/share": { shareToken: "f".repeat(32) }, "DELETE /api/fork/team-builder/saves/sv_a/share": null });
     const m = createTeamManage({ api: f });
