@@ -16,6 +16,8 @@
  *   POST   /api/leagues/:id/seasons                               { name?, ruleset? } start the next season
  *   POST   /api/leagues/:id/seasons/:seasonId/finish              status -> completed
  *   PATCH  /api/leagues/:id/seasons/:seasonId/fixtures/:fixtureId { forkEnabled?, forkAllowLate?, forkCancelled? } Super FUMBBL per fixture
+ *                                                                 { date?, round?, result? } fixtures editor (events.ts)
+ * News and the fixtures editor (create / delete): see events.ts.
  *   POST   /api/leagues/:id/discord/test                          send a small test embed to the webhook
  *   GET    /api/leagues/:id/export.zip[?season=]                  CSV zip (teams, fixtures, standings, participants, honours, awards)
  *
@@ -35,6 +37,7 @@ import { join } from "node:path";
 import { AVATAR_CONTENT_TYPE, avatarRateLimit, sniffImage, type AvatarExt, type SniffedImage } from "../teamAvatars.js";
 import type { NotificationInput } from "../notifications.js";
 import { buildMilestonePost, buildTestPost, discordEvents, postWebhook as defaultPoster, type DiscordPayload, type WebhookPoster } from "./discord.js";
+import { editFixture, leagueEventRoutes } from "./events.js";
 import { leagueCsvFiles, zipFiles } from "./exportZip.js";
 import { readJsonObject, requestRevision } from "./http.js";
 import { applyForkSettings, leagueForkRoutes, publicForkState, updateForkSettings, type LeagueForkClient } from "./forkPlay.js";
@@ -287,6 +290,8 @@ export async function leagueApi(
   if (fork) return fork;
   const redraft = await redraftRoutes(method, route.rest, league, auth, deps, query);
   if (redraft) return redraft;
+  const events = await leagueEventRoutes(method, route.rest, league, auth, deps);
+  if (events) return events;
   const managed = await settingsRoutes(method, route.rest, query, league, auth, deps);
   if (managed) return managed;
   if (!read) return { status: 405, body: { error: "Use GET." } };
@@ -484,6 +489,9 @@ async function settingsRoute(
       }
       if (third === "fixtures" && fourth) {
         if (method !== "PATCH") return { status: 405, body: { error: "Use PATCH." } };
+        // Super FUMBBL fields go to patchFixture; date / round / result go to the fixtures editor (events.ts).
+        const forkFields = input.forkEnabled !== undefined || input.forkAllowLate !== undefined || input.forkCancelled !== undefined;
+        if (!forkFields) return await editFixture(lg, second, fourth, who, input, deps);
         return await patchFixture(lg, second, fourth, who, input, deps);
       }
     }

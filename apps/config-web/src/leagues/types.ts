@@ -132,6 +132,10 @@ export interface LeagueFixture {
   forkEnabled?: boolean;
   /** Internal (never in a read model): who was told this fixture may be played on Super FUMBBL, and when last. */
   forkNotice?: { at: string; to: string[] };
+  /** Scheduled date (YYYY-MM-DD) set in the organiser fixtures editor. */
+  date?: string;
+  /** Test data: Discord posts about this fixture carry the "[Test]" prefix. */
+  test?: boolean;
   /** Admin per-game setting: the fixture may be generated on Super FUMBBL although its season is finished or the fixture is marked not played. */
   forkAllowLate?: boolean;
   /** Admin per-game setting: Super FUMBBL play is cancelled for this fixture (no generate, no start). */
@@ -444,6 +448,33 @@ export interface SeasonRecord {
   rules?: SeasonRules;
   /** The off-season redraft run FROM this (finished) season: see redraft.ts. */
   redraft?: RedraftState;
+  /** League news posted during this season (stored in posting order; reads sort pinned first, newest first). */
+  news?: LeagueNewsPost[];
+  /** Season activity log (fixtures created / deleted, matches started, results), newest first, capped: see events.ts. */
+  log?: LeagueEventEntry[];
+}
+
+/** A league news post (League page, Overview): modelled on the tournament news (MarkdownLite body). */
+export interface LeagueNewsPost {
+  id: string;
+  title: string;
+  body: string;
+  by: string;
+  at: string;
+  pinned: boolean;
+  editedAt?: string;
+}
+
+export type LeagueEventKind = "fixture-created" | "fixture-deleted" | "match-started" | "match-result";
+
+export interface LeagueEventEntry {
+  at: string;
+  by: string;
+  kind: LeagueEventKind;
+  fixtureId?: string;
+  text: string;
+  /** match-result: the score the post announced ("2-1/3-0"); the same result is never announced twice. */
+  sig?: string;
 }
 
 // ---- Redraft (League settings, Administration -> Start redraft; spec-league-settings-2026-10-30 §2) ----

@@ -299,6 +299,7 @@ import { leagueApi, leaguePath } from "./leagues/api.js";
 import { LeagueStore } from "./leagues/store.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
 import { syncLeagueForkResults } from "./leagues/forkPlay.js";
+import { registerLeagueEvents } from "./leagues/events.js";
 import type { TournamentSubmission } from "./tournaments/types.js";
 import { checkTournamentSubmission, type SubmissionCheckDeps } from "./tournaments/submissionCheck.js";
 
@@ -431,6 +432,8 @@ const nafRecords = new NafRecordStore(FORK_STATE_DIR);
 const tournamentStore = new TournamentStore(TOURNAMENTS_DIR);
 // Leagues (TABBL and later): <FORK_STATE_DIR>/leagues/<id>/; public reads, organiser/admin artwork writes (src/leagues/api.ts).
 const leagueStore = new LeagueStore(FORK_STATE_DIR);
+// recordLeagueFixtureEvent (match started / result from the fork and tabletop paths) posts through this store.
+registerLeagueEvents({ store: leagueStore, notify: (coach, input) => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } } });
 
 const packages = new PackageFiles(PACKAGES_DIR);
 // Process-local matchmaking state (poll-based delivery, ~10min TTL) — see @bb/fork-ops.
