@@ -15,7 +15,7 @@ describe("squareCrop", () => {
   });
 });
 
-describe("My teams avatar control (server-rendered)", () => {
+describe("My teams page (server-rendered)", () => {
   let vite: ViteDevServer;
   let mods: Record<string, any>;
   beforeAll(async () => {
@@ -29,7 +29,7 @@ describe("My teams avatar control (server-rendered)", () => {
   const fetcher = (routes: Record<string, unknown>): Fetcher =>
     (async (path: string) => { if (!(path in routes)) throw new ApiError(404, `no mock for ${path}`); return routes[path]; }) as Fetcher;
 
-  it("lists each team with an Avatar file input (image/*), Upload and Remove, and the crest fallback line", async () => {
+  it("lists the team tiles; the avatar upload moved to the team page (no file input, Upload or Remove here)", async () => {
     const spa = mods.app.createSpa({
       history: mods.vueRouter.createMemoryHistory("/app/"), ssr: true,
       fetcher: fetcher({
@@ -43,9 +43,24 @@ describe("My teams avatar control (server-rendered)", () => {
     expect(html).toContain("My teams");
     expect(html).toContain("Alice Lib");
     expect(html).toContain("Alice Save");
-    expect(html.match(/type="file"[^>]*accept="image\/\*"|accept="image\/\*"[^>]*type="file"/g)).toHaveLength(2);
-    expect(html.match(/>Upload</g)).toHaveLength(2);
-    expect(html.match(/>Remove</g)).toHaveLength(2);
-    expect(html).toContain("Race crest (no avatar yet)");
+    expect(html).not.toContain('type="file"');
+    expect(html).not.toContain(">Upload<");
+    expect(html).not.toContain(">Remove<");
+    expect(html).not.toContain("Avatars</h2>");
+    expect(html).toContain("Build a team");
+  });
+
+  it("a team tile shows its avatar when one exists", async () => {
+    const spa = mods.app.createSpa({
+      history: mods.vueRouter.createMemoryHistory("/app/"), ssr: true,
+      fetcher: fetcher({
+        "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" },
+        "/api/tabletop/saves?coach=Alice": { coach: "Alice", teams: [{ ref: "library:77", name: "Alice Lib", race: "Human", avatarUrl: "/api/fork/teams/library%3A77/avatar?v=3" }] },
+      }),
+    });
+    await spa.router.push("/my-teams");
+    await spa.router.isReady();
+    const html = (await mods.renderer.renderToString(spa.app)) as string;
+    expect(html).toContain('class="hm-team-crest hm-team-avatar" src="/api/fork/teams/library%3A77/avatar?v=3"');
   });
 });

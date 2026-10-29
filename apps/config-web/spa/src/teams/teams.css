@@ -34,6 +34,13 @@
 .tm-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .tm-bar .lobby-btn, .tm-act, .tm-modal .lobby-btn, .tm-choice { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
 .tm-bar .tm-back { margin-right: auto; }
+/* Team avatar dialog: full width minus the 16 px gutters on a phone. */
+.tm-avatar .tn-panel-body { display: grid; gap: 8px; justify-items: start; }
+.tm-avatar .avatar-preview { width: min(256px, 100%); height: auto; aspect-ratio: 1; object-fit: contain; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 4px; display: grid; place-items: center; font-size: 48px; }
+.tm-avatar input[type="file"] { max-width: 100%; min-height: 44px; color: var(--ui-text); }
+.tm-av-limit { margin: 0; font-size: 13px; }
+.tm-av-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 600px) { .tm-avatar.tm-modal { width: calc(100vw - 32px); max-width: none; justify-self: center; align-self: center; overflow-y: auto; } }
 .tm-share { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .tm-share input { flex: 1 1 240px; min-width: 0; min-height: 44px; padding: 6px 10px; color: var(--ui-text); background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 4px; font: inherit; }
 .tm-note { margin: 0; padding: 8px 12px; color: var(--ui-text); background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-left: 4px solid var(--ui-info, var(--ui-heading)); border-radius: 4px; }

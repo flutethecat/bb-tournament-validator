@@ -2,7 +2,7 @@
 // Team management (/app/teams/:ref, owner 10-30): the coach's own team laid out exactly like the public share page (the
 // sheet is public/team-view.js's own markup, styled by public/team-view.css), plus per player an "Add Skill" button when a
 // random or chosen Primary advancement is affordable and an "Add Characteristic" button when the characteristic roll is
-// (teamAdvancement.ts costs). Header: Back to My teams, Share / Unshare, Open in Tournament Builder.
+// (teamAdvancement.ts costs). Header: Back to My teams, Team avatar (opens the upload dialog), Share / Unshare, Open in Tournament Builder.
 import { computed, inject, nextTick, onMounted, onServerPrefetch, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import "../../../public/team-view.js";
@@ -12,6 +12,7 @@ import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import AdvanceModal from "../components/AdvanceModal.vue";
 import PlayerSheetModal from "../components/PlayerSheetModal.vue";
+import TeamAvatarModal from "../components/TeamAvatarModal.vue";
 import { builderHref, canAdvance, createTeamManage, progressLine, shareUrl, TEAM_MANAGE_KEY, teamManagePath, type ManagedPlayer } from "../teams/manage";
 
 interface TeamViewCore { viewHtml: (team: unknown, opts?: Record<string, unknown>) => string }
@@ -61,12 +62,19 @@ const sheetHtml = computed(() => {
   const m = model.value;
   if (!m || !TeamView) return "";
   const hasProgress = m.team.players.some((p) => p.progress);
-  return TeamView.viewHtml(m.team, { bylineLead: "Coach", hideOwnerLink: true, sheet: sheetLabel, ...(hasProgress ? { actions: actionsHtml, spp: sppHtml } : {}) });
+  const team = { ...m.team, avatarUrl: state.avatar.url || undefined };
+  return TeamView.viewHtml(team, { bylineLead: "Coach", hideOwnerLink: true, sheet: sheetLabel, ...(hasProgress ? { actions: actionsHtml, spp: sppHtml } : {}) });
 });
 
 // The opener of the advancement dialog (or of the player sheet: kind "sheet", the row's name button, which also keeps focus
 // when the sheet hands over to the advancement dialog) gets focus back on close, and again once the reloaded sheet re-renders
 // (the sheet is v-html, so a reload replaces the button). Falls back to the Back link when the button is gone.
+const avatarBtn = ref<HTMLElement | null>(null);
+watch(() => state.avatar.open, async (open, was) => {
+  if (open || !was) return;
+  await nextTick();
+  (avatarBtn.value ?? backLink.value?.$el)?.focus({ preventScroll: true });
+});
 const opener = ref<{ index: number; kind: string } | null>(null);
 const restorePending = ref(false);
 const backLink = ref<{ $el?: HTMLElement } | null>(null);
@@ -127,10 +135,11 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
 <template>
   <div class="tm-page">
     <!-- While the advancement dialog or the player sheet is open the page behind it is inert (aria-modal; no Tab stops, no clicks). -->
-    <div class="tm-content" :inert="state.flow || state.sheet ? true : undefined" :aria-hidden="state.flow || state.sheet ? 'true' : undefined">
+    <div class="tm-content" :inert="state.flow || state.sheet || state.avatar.open ? true : undefined" :aria-hidden="state.flow || state.sheet || state.avatar.open ? 'true' : undefined">
     <nav class="tm-bar" aria-label="Team actions">
       <RouterLink ref="backLink" class="lobby-btn tm-back" to="/my-teams">Back to My teams</RouterLink>
       <template v-if="info">
+        <button ref="avatarBtn" type="button" class="lobby-btn" aria-haspopup="dialog" @click="manage.openAvatar()">Team avatar</button>
         <a v-if="info.saveId" class="lobby-btn" :href="builderHref(info.saveId)">Open in Tournament Builder</a>
         <RouterLink v-if="info.libraryRef" class="lobby-btn" :to="teamManagePath(info.libraryRef)">Manage the fork team</RouterLink>
         <button v-if="info.saveId && !info.shareToken" type="button" class="lobby-btn primary" :disabled="state.shareBusy" @click="manage.setShared(true)">Share</button>
@@ -157,7 +166,8 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
       <div class="team-view tm-sheet" @click="onSheetClick" v-html="sheetHtml"></div>
     </template>
     </div>
-    <AdvanceModal v-if="state.flow && model" :manage="manage" />
+    <TeamAvatarModal v-if="state.avatar.open && model" :manage="manage" />
+    <AdvanceModal v-else-if="state.flow && model" :manage="manage" />
     <PlayerSheetModal v-else-if="state.sheet && model" :manage="manage" />
   </div>
 </template>

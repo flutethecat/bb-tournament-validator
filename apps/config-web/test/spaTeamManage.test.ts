@@ -194,6 +194,75 @@ describe("team management controller", () => {
     }
   });
 
+  it("avatar dialog controller: open/close, upload PUTs the library ref's avatar route and cache-busts, remove DELETEs, errors stay inline", async () => {
+    let served: string | undefined; // what the server reports on the next team read
+    const f = mockFetcher({ "/api/me/teams/library%3A77": () => { const m = libraryModel(); return served ? { ...m, team: { ...m.team, avatarUrl: served } } : m; }, "DELETE /api/fork/teams/library%3A77/avatar": { ok: true } });
+    const puts: Array<{ path: string; size: number }> = [];
+    let answer: { ok: boolean; status: number; avatarUrl?: string; error?: string } = { ok: true, status: 200, avatarUrl: "/api/fork/teams/library%3A77/avatar?v=111" };
+    let clock = 1000;
+    const m = createTeamManage({ api: f, now: () => clock, upload: async (path, body) => { puts.push({ path, size: body.size }); return answer; } });
+    expect(m.openAvatar()).toBe(false); // nothing loaded yet
+    await m.load("library:77");
+    expect(m.openAvatar()).toBe(true);
+    expect(m.state.avatar.open).toBe(true);
+    expect(m.openAvatar()).toBe(false);
+    expect(m.open(0, "skill")).toBe(false); // other dialogs refused while it is open
+    expect(m.openSheet(0)).toBe(false);
+    expect(m.closeAvatar()).toBe(true);
+    expect(m.state.avatar.open).toBe(false);
+    m.openAvatar();
+    expect(await m.removeAvatar()).toBe(false); // no avatar yet
+    expect(await m.uploadAvatar(new Blob(["x".repeat(10)], { type: "image/png" }))).toBe(true);
+    expect(puts).toEqual([{ path: "/api/fork/teams/library%3A77/avatar", size: 10 }]);
+    expect(m.state.avatar.url).toBe("/api/fork/teams/library%3A77/avatar?v=1000"); // cache-busted
+    expect(m.state.avatar.open).toBe(true); // the dialog stays open
+    expect(m.state.avatar.busy).toBe(false);
+    clock = 2000;
+    await m.uploadAvatar(new Blob(["y"], { type: "image/webp" }));
+    expect(m.state.avatar.url).toBe("/api/fork/teams/library%3A77/avatar?v=2000");
+    served = "/api/fork/teams/library%3A77/avatar?v=111";
+    await m.load("library:77"); // a reload keeps the busted URL of the same route
+    expect(m.state.avatar.url).toBe("/api/fork/teams/library%3A77/avatar?v=2000");
+    answer = { ok: false, status: 400, error: "The image must be a PNG, JPEG or WebP file." };
+    expect(await m.uploadAvatar(new Blob(["z"]))).toBe(false);
+    expect(m.state.avatar.error).toBe("The image must be a PNG, JPEG or WebP file.");
+    expect(m.state.avatar.url).toBe("/api/fork/teams/library%3A77/avatar?v=2000");
+    answer = { ok: false, status: 500 };
+    await m.uploadAvatar(new Blob(["z"]));
+    expect(m.state.avatar.error).toBe("Upload failed (500).");
+    expect(await m.removeAvatar()).toBe(true);
+    expect(f.calls.some((c) => c.path === "/api/fork/teams/library%3A77/avatar" && c.method === "DELETE")).toBe(true);
+    expect(m.state.avatar.url).toBe("");
+    expect(m.state.avatar.open).toBe(true);
+  });
+
+  it("avatar dialog controller: close is refused while a request runs; a failing DELETE and a network failure show inline; builder saves use the save ref", async () => {
+    const base = libraryModel();
+    const saveModel = { ...base, manage: { ...base.manage, kind: "save" as const, ref: "save:sv_a" } };
+    const f = mockFetcher({ "/api/me/teams/save%3Asv_a": saveModel, "DELETE /api/fork/teams/save%3Asv_a/avatar": new ApiError(403, "You can only change the avatar of your own team.") });
+    let release!: () => void;
+    const paths: string[] = [];
+    const m = createTeamManage({ api: f, upload: (path) => { paths.push(path); return new Promise((resolve) => { release = () => resolve({ ok: true, status: 200, avatarUrl: "/api/fork/teams/save%3Asv_a/avatar?v=9" }); }); } });
+    await m.load("save:sv_a");
+    m.openAvatar();
+    const pending = m.uploadAvatar(new Blob(["a"]));
+    expect(m.state.avatar.busy).toBe(true);
+    expect(m.closeAvatar()).toBe(false);
+    expect(await m.uploadAvatar(new Blob(["b"]))).toBe(false); // double submit refused
+    release();
+    await pending;
+    expect(paths).toEqual(["/api/fork/teams/save%3Asv_a/avatar"]);
+    expect(m.state.avatar.url).toMatch(/^\/api\/fork\/teams\/save%3Asv_a\/avatar\?v=\d+$/);
+    expect(await m.removeAvatar()).toBe(false);
+    expect(m.state.avatar.error).toBe("You can only change the avatar of your own team.");
+    expect(m.state.avatar.url).not.toBe("");
+    const n = createTeamManage({ api: f, upload: async () => { throw new Error("offline"); } });
+    await n.load("save:sv_a");
+    await n.uploadAvatar(new Blob(["a"]));
+    expect(n.state.avatar.error).toBe("Can't reach the server. Check your connection.");
+    expect(n.closeAvatar()).toBe(true);
+  });
+
   it("share toggles the linked save's token", async () => {
     const f = mockFetcher({ "/api/me/teams/library%3A77": libraryModel(), "POST /api/fork/team-builder/saves/sv_a/share": { shareToken: "f".repeat(32) }, "DELETE /api/fork/team-builder/saves/sv_a/share": null });
     const m = createTeamManage({ api: f });
@@ -303,6 +372,46 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(html).toContain('href="/tournament-team-builder.html?save=sv_a">Open in Tournament Builder</a>');
     expect(html).toMatch(/<button type="button" class="lobby-btn primary">Share<\/button>/);
     expect(html).toContain("Team value <b>1,000k</b>");
+    expect(html).toMatch(/<button type="button" class="lobby-btn" aria-haspopup="dialog">Team avatar<\/button>/);
+    expect(html).not.toContain('aria-labelledby="tm-av-h"');
+  });
+
+  async function renderWith(manage: any, f: Fetcher): Promise<string> {
+    const spa = mods.app.createSpa({ history: mods.vueRouter.createMemoryHistory("/app/"), ssr: true, fetcher: f });
+    spa.app.provide(mods.manageMod.TEAM_MANAGE_KEY, manage);
+    await spa.router.push("/teams/library%3A77");
+    await spa.router.isReady();
+    return (await mods.renderer.renderToString(spa.app)) as string;
+  }
+
+  it("the Team avatar dialog: aria-modal, page inert, preview + file input + Upload (no Remove without an avatar) + Close; the banner shows the avatar", async () => {
+    const session = { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } };
+    const f = mockFetcher({ ...session, "/api/me/teams/library%3A77": libraryModel() });
+    const manage = createTeamManageSsr(f);
+    await manage.load("library:77");
+    manage.openAvatar();
+    const html = await renderWith(manage, f);
+    expect(html).toMatch(/<div class="tm-content" inert aria-hidden="true">/);
+    expect(html).toMatch(/role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="tm-av-h"/);
+    expect(html).toContain("Team avatar");
+    expect(html).toMatch(/type="file" accept="image\/png,image\/jpeg,image\/webp"/);
+    expect(html).toContain("up to 512 KB");
+    expect(html).toContain("Race crest (no avatar yet)");
+    expect(html).toMatch(/<button type="button" class="lobby-btn primary" disabled[^>]*>Upload<\/button>/);
+    expect(html).not.toContain(">Remove<");
+    expect(html).toMatch(/>Close<\/button>/);
+    expect(html.indexOf('role="dialog"')).toBeGreaterThan(html.lastIndexOf('class="team-view tm-sheet"'));
+
+    const base = libraryModel();
+    const withAvatar = { ...base, team: { ...base.team, avatarUrl: "/api/fork/teams/library%3A77/avatar?v=5" } };
+    const g = mockFetcher({ ...session, "/api/me/teams/library%3A77": withAvatar });
+    const m2 = createTeamManageSsr(g);
+    await m2.load("library:77");
+    m2.openAvatar();
+    const html2 = await renderWith(m2, g);
+    expect(html2).toContain('class="crest-image" src="/api/fork/teams/library%3A77/avatar?v=5"');
+    expect(html2).toContain("Current avatar");
+    expect(html2).toMatch(/>Remove<\/button>/);
   });
 
   it("a builder save is read-only with the server's note; 404 shows the friendly message", async () => {
@@ -386,8 +495,10 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(html).toContain('class="hm-teams hm-teams-lg"');
     expect(html).toContain('<a href="/app/teams/library%3A77" class="hm-team" title="Manage Alice Lib">');
     expect(html).toContain('<a href="/app/teams/sv_a" class="hm-team" title="Manage Alice Save">');
-    expect(html).toMatch(/<h2 id="mt-avatars-h">Avatars<\/h2>/);
-    expect(html.match(/>Upload</g)).toHaveLength(2);
+    // owner 10-30: avatar upload moved to the team page; no Avatars panel or per-team upload forms here
+    expect(html).not.toContain("mt-avatars-h");
+    expect(html).not.toContain(">Upload<");
+    expect(html).not.toContain('type="file"');
     expect(html).toContain('<a href="/team-builder.html">Team Builder</a> · <a href="/tournament-team-builder.html">Tournament Builder</a>');
     const empty = await render("/my-teams", { "/api/tabletop/saves?coach=Alice": { coach: "Alice", teams: [] } });
     expect(empty).toContain('<p class="hm-empty">No teams yet. <a href="/team-builder.html">Build one</a>.</p>');

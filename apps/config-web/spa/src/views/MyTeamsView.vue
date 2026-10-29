@@ -1,12 +1,11 @@
 <script setup lang="ts">
 // My teams (/app/my-teams): the coach's teams (fork library + builder saves) in the coach page's design language
 // (owner 10-30: hm-title, hm-panel / hm-band, the hm-grid two columns). Main: the team tiles, each opening the team
-// management page (/app/teams/<ref>). Side: the Avatars panel (upload an avatar per team) and Build a team links.
+// management page (/app/teams/<ref>). Side: Build a team links. (Avatars are uploaded on the team management page.)
 import { computed, inject, onMounted, onServerPrefetch, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
-import TeamAvatarControl from "../components/TeamAvatarControl.vue";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { teamManagePath } from "../teams/manage";
 
@@ -44,7 +43,6 @@ async function load(): Promise<void> {
 
 const crestFor = (t: MyTeam): string => resolveCrest(art.value, t.race);
 const countLabel = computed(() => `${teams.value.length} team${teams.value.length === 1 ? "" : "s"}`);
-function changed(t: MyTeam, url: string | undefined): void { t.avatarUrl = url; }
 
 onMounted(() => void load());
 onServerPrefetch(async () => {
@@ -83,18 +81,6 @@ onServerPrefetch(async () => {
       </div>
 
       <div class="hm-col hm-col-side">
-        <section id="avatars" class="hm-panel" aria-labelledby="mt-avatars-h">
-          <header class="hm-band"><h2 id="mt-avatars-h">Avatars</h2></header>
-          <p class="muted hm-small">Upload an avatar to show for a team. Without one, the Super FUMBBL race crest is used.</p>
-          <p v-if="loaded && !teams.length" class="hm-empty">No teams yet.</p>
-          <ul class="hm-avatars">
-            <li v-for="t in teams" :key="t.ref">
-              <h3>{{ t.name }}<span v-if="t.race" class="muted"> ({{ t.race }})</span></h3>
-              <TeamAvatarControl :team-ref="t.ref" :name="t.name" :crest="crestFor(t)" :avatar-url="t.avatarUrl" @changed="changed(t, $event)" />
-            </li>
-          </ul>
-        </section>
-
         <section id="build" class="hm-panel" aria-labelledby="mt-build-h">
           <header class="hm-band"><h2 id="mt-build-h">Build a team</h2></header>
           <p class="hm-links"><a href="/team-builder.html">Team Builder</a> · <a href="/tournament-team-builder.html">Tournament Builder</a></p>

@@ -221,8 +221,6 @@ a.hm-team:hover, a.hm-team:focus-visible { background: var(--ui-hover); border-c
 .hm-teams-lg .hm-team-crest { width: 72px; height: 72px; }
 .hm-teams-lg .hm-team-avatar { border-radius: 2px; image-rendering: auto; object-fit: cover; }
 .hm-teams-lg .hm-team-name { font-size: 15px; white-space: normal; overflow-wrap: anywhere; }
-.hm-avatars { list-style: none; padding: 0; margin-top: 0; margin-bottom: 0; display: grid; gap: 12px; }
-.hm-avatars h3 { margin: 0 0 6px; font-size: 14px; }
 
 
 .hm-log { display: grid; gap: 10px; }
