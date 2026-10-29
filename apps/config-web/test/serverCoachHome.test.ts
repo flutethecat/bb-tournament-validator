@@ -1,0 +1,101 @@
+import { once } from "node:events";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createSession } from "../src/auth/session.js";
+
+// Coach home routes over HTTP: GET /api/build-log (public, cached 60 s), GET /api/me/deadlines and GET/PUT
+// /api/me/scheduling (session-gated, own identity only).
+
+const root = mkdtempSync(join(tmpdir(), "server-coach-home-"));
+const previousEnv = new Map<string, string | undefined>();
+let origin = "";
+let server: (typeof import("../src/server.js"))["server"];
+
+beforeAll(async () => {
+  for (const [name, value] of Object.entries({
+    AUTH_SIDECAR_ENABLED: "1",
+    HOST: "127.0.0.1",
+    PORT: "0",
+    IDENTITIES_FILE: join(root, "identities.json"),
+    ORGANIZERS_FILE: join(root, "organizers.json"),
+    FORK_LIBRARY_DIR: join(root, "library"),
+    FORK_TEAMS_DIR: join(root, "teams"),
+    PACKAGES_DIR: join(root, "packages"),
+    TOURNAMENTS_DIR: join(root, "tournaments"),
+    TABLETOP_DIR: join(root, "tabletop"),
+    BUILD_LOG_FILE: join(root, "build-log.json"),
+    FORK_ADMIN_PASSWORD: "",
+  })) {
+    previousEnv.set(name, process.env[name]);
+    process.env[name] = value;
+  }
+  for (const directory of ["library", "teams", "packages", "tournaments", "log"]) mkdirSync(join(root, directory), { recursive: true });
+  writeFileSync(join(root, "log", "default.log"), "", "utf8");
+  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: {} }), "utf8");
+  writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
+  writeFileSync(join(root, "build-log.json"), JSON.stringify([
+    { date: "2026-10-29", title: "Older", body: "First entry.", links: [{ label: "Tournaments", href: "/app/tournaments" }, { label: "bad", href: "javascript:alert(1)" }] },
+    { date: "2026-10-30", title: "Newer", body: "Second entry.", links: [] },
+    { date: "nope", title: "Broken", body: "dropped" },
+  ]), "utf8");
+  ({ server } = await import("../src/server.js"));
+  if (!server.listening) await once(server, "listening");
+  origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+});
+
+afterAll(async () => {
+  if (server?.listening) await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  for (const [name, value] of previousEnv) {
+    if (value === undefined) delete process.env[name]; else process.env[name] = value;
+  }
+  rmSync(root, { recursive: true, force: true });
+});
+
+const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
+
+describe("coach home HTTP routes", () => {
+  it("GET /api/build-log is public, newest first, cached 60 s, and drops malformed entries and unsafe links", async () => {
+    const res = await fetch(`${origin}/api/build-log`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("public, max-age=60");
+    const body = await res.json() as { entries: Array<{ title: string; links: unknown[] }> };
+    expect(body.entries.map((e) => e.title)).toEqual(["Newer", "Older"]);
+    expect(body.entries[1]!.links).toEqual([{ label: "Tournaments", href: "/app/tournaments" }]);
+    expect((await fetch(`${origin}/api/build-log`, { method: "POST" })).status).not.toBe(200);
+  });
+
+  it("the me routes need a session", async () => {
+    expect((await fetch(`${origin}/api/me/deadlines`)).status).toBe(401);
+    expect((await fetch(`${origin}/api/me/scheduling`)).status).toBe(401);
+  });
+
+  it("GET /api/me/deadlines answers the coach's timezone and an empty list with no events", async () => {
+    const { token } = createSession("HomeCoach", Date.now(), "discord");
+    const res = await fetch(`${origin}/api/me/deadlines`, { headers: bearer(token) });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ timezone: "", deadlines: [] });
+  });
+
+  it("PUT /api/me/scheduling validates, stores in the identity, and GET reads it back", async () => {
+    const { token } = createSession("HomeCoach", Date.now(), "discord");
+    const put = (body: unknown) => fetch(`${origin}/api/me/scheduling`, {
+      method: "PUT", headers: { ...bearer(token), "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    expect((await put({ timezone: "Mars/Olympus", availability: [] })).status).toBe(400);
+    expect((await put({ timezone: "Europe/London", availability: [{ day: 7, start: "18:00", end: "20:00" }] })).status).toBe(400);
+    expect((await put({ timezone: "Europe/London", availability: [{ day: 1, start: "20:00", end: "18:00" }] })).status).toBe(400);
+    const tooMany = Array.from({ length: 22 }, (_, i) => ({ day: i % 7, start: `${String(i).padStart(2, "0")}:00`, end: `${String(i).padStart(2, "0")}:30` }));
+    expect((await put({ timezone: "Europe/London", availability: tooMany })).status).toBe(400);
+    const ok = await put({ timezone: "Europe/London", availability: [{ day: 6, start: "14:00", end: "18:00" }, { day: 0, start: "19:00", end: "22:00" }] });
+    expect(ok.status).toBe(200);
+    const expected = { timezone: "Europe/London", availability: [{ day: 0, start: "19:00", end: "22:00" }, { day: 6, start: "14:00", end: "18:00" }] };
+    expect(await ok.json()).toEqual(expected);
+    const read = await fetch(`${origin}/api/me/scheduling`, { headers: bearer(token) });
+    expect(await read.json()).toEqual(expected);
+    const deadlines = await fetch(`${origin}/api/me/deadlines`, { headers: bearer(token) });
+    expect(((await deadlines.json()) as { timezone: string }).timezone).toBe("Europe/London");
+  });
+});

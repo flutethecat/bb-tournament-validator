@@ -13,6 +13,7 @@ import { readFile } from "node:fs/promises";
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { deriveDeadlines, parseSchedulingInput, readBuildLog, schedulingView, toStoredScheduling } from "./coachHome.js";
 import {
   composeTeam,
   composeTeamIntrinsic,
@@ -370,6 +371,8 @@ const translateHandler = createTranslateHandler();
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = resolve(HERE, "../public");
+/** Site build log (WHAT'S NEW): appended by every landed lane, served read-only at GET /api/build-log. */
+const BUILD_LOG_FILE = process.env.BUILD_LOG_FILE || resolve(HERE, "../docs/build-log.json");
 const PORT = Number(process.env.PORT ?? 4310);
 const HOST = process.env.HOST ?? "127.0.0.1";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -1263,6 +1266,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/admin/identities" ||
     pathname === "/api/admin/identities/naf" ||
     pathname === "/api/account" ||
+    pathname === "/api/me/scheduling" ||
     isTeamMutationWritePath(pathname) ||
     pathname.startsWith("/api/tournaments/") ||
     pathname.startsWith("/api/fork/tournaments/") ||
@@ -1693,6 +1697,47 @@ async function handleApi(
       return sendJson(res, 400, { error: "A JSON object is required." });
     try {
       return sendJson(res, 200, updateOwnAccount(auth.coach, rawBody));
+    } catch (error) {
+      return sendJson(res, 400, { error: (error as Error).message });
+    }
+  }
+
+  if (path === "/api/build-log" && (method === "GET" || method === "HEAD")) {
+    res.setHeader("cache-control", "public, max-age=60");
+    return sendJson(res, 200, { entries: readBuildLog(BUILD_LOG_FILE) });
+  }
+
+  // Coach home page (/app/home): derived deadlines + the availability editor. Session-gated, own data only.
+  if (path === "/api/me/deadlines" && method === "GET") {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    let timezone = "";
+    try { timezone = ownIdentityRecord(auth.coach).scheduling?.timezone ?? ""; } catch { /* no identity: browser zone */ }
+    let tabletop: Awaited<ReturnType<TabletopApiDeps["repo"]["listMatches"]>> = [];
+    try { tabletop = await (await tabletopDeps()).repo.listMatches(); } catch { /* recorder store unavailable: tournaments only */ }
+    const deadlines = deriveDeadlines({
+      coach: auth.coach,
+      tournaments: tournamentStore.tournaments(["draft", "active"]),
+      entrants: (id) => tournamentStore.entrants(id),
+      matches: (id) => tournamentStore.matches(id),
+      tabletop,
+      now: new Date(),
+    });
+    return sendJson(res, 200, { timezone, deadlines });
+  }
+
+  if (path === "/api/me/scheduling" && (method === "GET" || method === "PUT")) {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    if (method === "GET") {
+      try { return sendJson(res, 200, schedulingView(ownIdentityRecord(auth.coach).scheduling)); } catch (error) {
+        return sendJson(res, 400, { error: (error as Error).message });
+      }
+    }
+    let rawBody: unknown;
+    try { rawBody = await readBody(req); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); }
+    try {
+      const view = parseSchedulingInput(rawBody);
+      const record = updateOwnAccount(auth.coach, { scheduling: toStoredScheduling(view) });
+      return sendJson(res, 200, schedulingView(record.scheduling));
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
     }
@@ -3460,6 +3505,10 @@ export const server = createServer((req, res) => {
       if (req.method === "GET" && url.pathname === "/api/fork/records") {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
+      // Build log (WHAT'S NEW): public, read-only, in both deployment modes.
+      if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/api/build-log") {
+        return await handleApi(req, res, url.pathname, url.searchParams);
+      }
       // name/generate is the same public read-only posture as checkName (contract §3A).
       if ((req.method === "POST" || req.method === "GET") && nameGeneratePath(url.pathname)) {
         return await handleApi(req, res, url.pathname, url.searchParams);
@@ -3535,6 +3584,7 @@ export const server = createServer((req, res) => {
         const auth = requestIdentity(req);
         const accountSession = auth !== undefined && (
           url.pathname === "/api/account" ||
+          url.pathname.startsWith("/api/me/") ||
           url.pathname === "/api/admin/identities/naf" ||
           teamBuilderSavesPath(url.pathname) !== undefined ||
           teamAvatarPath(url.pathname) !== undefined ||

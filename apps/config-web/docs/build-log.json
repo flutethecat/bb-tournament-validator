@@ -1,0 +1,26 @@
+[
+  {
+    "date": "2026-10-29",
+    "title": "NAF record line on the scoreboard",
+    "body": "The match recorder's scoreboard shows each coach's NAF Glicko rating and W/T/L record, read from the coach's NAF page and refreshed when a fixture starts.",
+    "links": [{ "label": "Tabletop", "href": "/app/tabletop" }]
+  },
+  {
+    "date": "2026-10-29",
+    "title": "Coach titles by percentile",
+    "body": "Coach titles now come from the coach's percentile in the active pool: Legend is the top 2 %, and a coach with fewer than 10 games is a Rookie.",
+    "links": []
+  },
+  {
+    "date": "2026-10-29",
+    "title": "Phone layout for the match recorder",
+    "body": "The match recorder fits a 375 px phone: actions open in bottom sheets and every tap target is bigger.",
+    "links": [{ "label": "Tabletop", "href": "/app/tabletop" }]
+  },
+  {
+    "date": "2026-10-29",
+    "title": "Tournaments: submissions, roster lock, pairing, roles",
+    "body": "Coaches submit a team and see whether it is valid; the opponent's team can be viewed; organisers lock rosters and start the event in one click, pair rounds with Dutch or Monrad, and run it from the Manage tab. Admins get a tournaments page.",
+    "links": [{ "label": "Tournaments", "href": "/app/tournaments" }]
+  }
+]
