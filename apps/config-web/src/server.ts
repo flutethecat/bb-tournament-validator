@@ -297,6 +297,8 @@ import { tournamentApi } from "./tournaments/api.js";
 import { tournamentBannerApi, tournamentBannerPath } from "./tournaments/page.js";
 import { leagueApi, leaguePath } from "./leagues/api.js";
 import { LeagueStore } from "./leagues/store.js";
+import { createLeagueForkClient } from "./leagues/forkClient.js";
+import { syncLeagueForkResults } from "./leagues/forkPlay.js";
 import type { TournamentSubmission } from "./tournaments/types.js";
 import { checkTournamentSubmission, type SubmissionCheckDeps } from "./tournaments/submissionCheck.js";
 
@@ -530,6 +532,23 @@ const notificationStore = new NotificationStore(FORK_STATE_DIR, {
   onRead: (coach, change) => superService?.publishNotify(coach, change),
 });
 const tournamentNotifier = createTournamentNotifier(notificationStore, tournamentStore);
+// Play on Super FUMBBL for league fixtures (src/leagues/forkPlay.ts): the fork behind it, and a result check every 2 minutes.
+const leagueFork = createLeagueForkClient({
+  forkConfig: forkConfigFromEnv, adminCfg: forkAdminCfg, dbCfg: challengeDbCfg, stateDir: FORK_STATE_DIR, libraryDir: LIBRARY_DIR,
+  overtime: () => overtimeEnabled, results: tournamentResults,
+});
+const leagueNotify = (coach: string, input: Parameters<typeof notificationStore.add>[1]): void => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } };
+if (forkAdminCfg) {
+  let leagueSyncing = false;
+  setInterval(() => {
+    if (leagueSyncing) return;
+    leagueSyncing = true;
+    void syncLeagueForkResults({ store: leagueStore, fork: leagueFork, notify: leagueNotify })
+      .then((out) => { if (out.applied.length) console.log(`[leagues] Super FUMBBL results applied: ${out.applied.join(", ")}`); })
+      .catch(() => { /* retried on the next tick */ })
+      .finally(() => { leagueSyncing = false; });
+  }, 2 * 60 * 1000).unref();
+}
 setActiveNotifier(tournamentNotifier);
 const messageLimiter = new SenderRateLimiter(30, 60_000);
 
@@ -1551,7 +1570,8 @@ async function handleApi(
       declaredTooLarge: (max) => declaredTooLarge(req, max),
       // League settings: organiser lookup + the site admins list (read-only), Super FUMBBL fixture notifications.
       identities: () => Object.values(readIdentities().coaches).map((c) => ({ coach: c.ffbCoachId, level: c.level, banned: c.banned })),
-      notify: (coach, input) => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } },
+      notify: leagueNotify,
+      fork: leagueFork,
       ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,
     });
     if (league) {

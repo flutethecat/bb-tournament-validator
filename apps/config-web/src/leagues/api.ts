@@ -15,9 +15,12 @@
  *   GET    /api/leagues/:id/coaches?q=                            coach-name lookup against the identities (add organiser)
  *   POST   /api/leagues/:id/seasons                               { name?, ruleset? } start the next season
  *   POST   /api/leagues/:id/seasons/:seasonId/finish              status -> completed
- *   PATCH  /api/leagues/:id/seasons/:seasonId/fixtures/:fixtureId { forkEnabled } allow Super FUMBBL for one fixture
+ *   PATCH  /api/leagues/:id/seasons/:seasonId/fixtures/:fixtureId { forkEnabled?, forkAllowLate?, forkCancelled? } Super FUMBBL per fixture
  *   POST   /api/leagues/:id/discord/test                          send a small test embed to the webhook
  *   GET    /api/leagues/:id/export.zip[?season=]                  CSV zip (teams, fixtures, standings, participants, honours, awards)
+ *
+ * Play on Super FUMBBL (fixture summary, generate, launch file, reset, result sync): see forkPlay.ts.
+ *   GET /api/leagues/:id/seasons/:seasonId/fixtures/:fixtureId, POST .../fork/generate|launch|reset|sync, GET .../fork/jnlp
  *
  * Redraft (board for organisers, Team Draft List for the team's coach): see redraftApi.ts.
  *   GET|POST /api/leagues/:id/redraft, GET /api/leagues/:id/redraft/teams/:teamId, POST .../rest, POST .../submit,
@@ -34,6 +37,7 @@ import type { NotificationInput } from "../notifications.js";
 import { buildMilestonePost, buildTestPost, discordEvents, postWebhook as defaultPoster, type DiscordPayload, type WebhookPoster } from "./discord.js";
 import { leagueCsvFiles, zipFiles } from "./exportZip.js";
 import { readJsonObject, requestRevision } from "./http.js";
+import { applyForkSettings, leagueForkRoutes, publicForkState, type LeagueForkClient } from "./forkPlay.js";
 import { applyPendingDrafts } from "./redraft.js";
 import { myRedraftTasks, redraftRoutes } from "./redraftApi.js";
 import {
@@ -98,6 +102,8 @@ export interface LeagueApiDeps {
   rollD6?: () => number;
   /** Discord webhook poster (tests stub it; default POSTs with fetch). */
   postWebhook?: WebhookPoster;
+  /** Play on Super FUMBBL: the fork (forkClient.ts on the server, a stub in tests); unset = not connected (503 on fork actions). */
+  fork?: LeagueForkClient;
   /** The request's If-Match header (settings PATCH revision, as an alternative to body.revision). */
   ifMatch?: string;
   /** Raw body reader (artwork PUT): undefined = larger than max (the caller closes the connection). */
@@ -277,6 +283,8 @@ export async function leagueApi(
     if (second !== undefined) return { status: 404, body: { error: "Not found." } };
     return artRoute(method, first, route.id, league, auth, deps);
   }
+  const fork = await leagueForkRoutes(method, route.id, route.rest, auth, deps);
+  if (fork) return fork;
   const redraft = await redraftRoutes(method, route.rest, league, auth, deps);
   if (redraft) return redraft;
   const managed = await settingsRoutes(method, route.rest, query, league, auth, deps);
@@ -690,8 +698,12 @@ function forkToggleWait(coach: string, now: number): number {
  * FORK_TOGGLE_LIMIT times in FORK_TOGGLE_WINDOW_MS.
  */
 function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: string, who: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueApiDeps): LeagueApiResult {
-  if (typeof input.forkEnabled !== "boolean") throw new SettingsError(400, "forkEnabled must be true or false.", "forkEnabled");
-  const on = input.forkEnabled;
+  for (const key of ["forkEnabled", "forkAllowLate", "forkCancelled"] as const)
+    if (input[key] !== undefined && typeof input[key] !== "boolean") throw new SettingsError(400, `${key} must be true or false.`, key);
+  if (input.forkEnabled === undefined && input.forkAllowLate === undefined && input.forkCancelled === undefined)
+    throw new SettingsError(400, "forkEnabled must be true or false.", "forkEnabled");
+  if (input.forkEnabled === undefined) return patchForkSettings(league, seasonId, fixtureId, who, input as { forkAllowLate?: boolean; forkCancelled?: boolean }, deps);
+  const on = input.forkEnabled as boolean;
   const season = deps.store.season(league.id, seasonId);
   if (!season) return { status: 404, body: { error: "Season not found." } };
   const fixture = season.fixtures.find((f) => f.id === fixtureId);
@@ -710,12 +722,24 @@ function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: string,
     send = forkFixtureNotices(league, season.id, fixture, who.coach, siteAdmins(deps)).filter((n) => !told.has(n.coach.toLowerCase()));
     if (send.length) fixture.forkNotice = { at: now.toISOString(), to: [...(last?.to ?? []), ...send.map((n) => n.coach)] };
   }
+  applyForkSettings(fixture, input as { forkAllowLate?: boolean; forkCancelled?: boolean }, who.coach, now);
   deps.store.putSeason(season);
   for (const n of send) {
     try { deps.notify!(n.coach, n.input); } catch { /* fire-and-forget */ }
   }
-  const { forkNotice: _n, ...shown } = fixture;
-  return { status: 200, body: { ok: true, fixture: shown } };
+  return { status: 200, body: { ok: true, fixture: publicForkState(fixture) } };
+}
+
+/** "Allow late launch" / "Cancel Super FUMBBL play" for one fixture (organisers; the default is both off). */
+function patchForkSettings(league: LeagueRecord, seasonId: string, fixtureId: string, who: LeagueApiIdentity, input: { forkAllowLate?: boolean; forkCancelled?: boolean }, deps: LeagueApiDeps): LeagueApiResult {
+  const season = deps.store.season(league.id, seasonId);
+  if (!season) return { status: 404, body: { error: "Season not found." } };
+  const fixture = season.fixtures.find((f) => f.id === fixtureId);
+  if (!fixture) return { status: 404, body: { error: "Fixture not found." } };
+  if (fixture.fork?.status === "finished" && input.forkCancelled === true) return { status: 409, body: { error: "This fixture's Super FUMBBL game is finished." } };
+  applyForkSettings(fixture, input, who.coach, deps.now?.() ?? new Date());
+  deps.store.putSeason(season);
+  return { status: 200, body: { ok: true, fixture: publicForkState(fixture) } };
 }
 
 // ---- season read model: hidden team composition --------------------------------------------------------------------
@@ -728,11 +752,7 @@ function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: string,
 export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: LeagueApiIdentity | undefined): SeasonRecord {
   // Redraft state (budgets, R&R, draft rosters) is served only by the authorised redraft routes, never in a season read.
   const { redraft: _r, ...season } = full;
-  const fixtures = season.fixtures.map((f) => {
-    if (!f.forkNotice) return f;
-    const { forkNotice: _n, ...rest } = f;
-    return rest;
-  });
+  const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork ? publicForkState(f) : f));
   const manager = Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach)));
   if (manager || !registrationsOf(league).hideTeamComposition) return { ...season, fixtures };
   const me = auth?.coach.trim().toLowerCase() ?? "";

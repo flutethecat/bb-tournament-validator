@@ -70,6 +70,11 @@ export function buildRedraftPost(league: Pick<LeagueRecord, "name">, title: stri
   return { username: BRAND, embeds: [{ title: clip(`${league.name}: ${title}`, 256), description: clip(description, 2000), color: GOLD }], allowed_mentions: { parse: [] } };
 }
 
+/** Fixture news (generated on Super FUMBBL, a Super FUMBBL result). */
+export function buildFixturePost(league: Pick<LeagueRecord, "name">, title: string, description: string): DiscordPayload {
+  return { username: BRAND, embeds: [{ title: clip(`${league.name}: ${title}`, 256), description: clip(description, 2000), color: GOLD }], allowed_mentions: { parse: [] } };
+}
+
 export type WebhookPoster = (url: string, payload: DiscordPayload) => Promise<{ ok: boolean; status: number }>;
 
 /** POST the payload (5 s timeout). Never logs; the caller reports only the status. */
