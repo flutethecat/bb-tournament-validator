@@ -17,7 +17,7 @@
 import { createHash, randomInt } from "node:crypto";
 import { findPosition, findRoster, type DatasetPosition, type DatasetRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
-import { fixtureOutcome } from "./identity.js";
+import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, type CoachAliases } from "./identity.js";
 import { playerIdFor, teamPlayedIn } from "./playerIds.js";
 import {
   EMPTY_PLAYER_STATS, type DraftList, type LeaguePlayer, type LeagueTeam, type RedraftBudget, type RedraftState, type RedraftTeamTask,
@@ -251,6 +251,7 @@ export interface CoachRedraftView {
   sourceSeason: { id: string; name: string };
   targetSeason: { id: string; name: string } | null;
   status: RedraftTeamTask["status"];
+  expiredReason: string;
   closed: boolean;
   budget: RedraftBudget;
   capEnabled: boolean;
@@ -277,7 +278,7 @@ export function coachView(leagueId: string, state: RedraftState, ctx: DraftConte
     leagueId, revision: state.revision, teamId: team.id, name: team.name, race: team.race, coach: team.coach,
     sourceSeason: { id: ctx.source.id, name: ctx.source.name },
     targetSeason: targetSeason ? { id: targetSeason.id, name: targetSeason.name } : null,
-    status: task.status, closed: Boolean(state.closedAt),
+    status: task.status, expiredReason: task.expiredReason ?? "", closed: Boolean(state.closedAt),
     budget: task.budget, capEnabled: state.capEnabled, cap: state.cap, override: task.override ?? null, spendable: spendable(task),
     apothecaryNow: team.apothecary,
     rest: {
@@ -437,6 +438,8 @@ export function buildDraftTeam(ctx: DraftContext, price: DraftPrice, input: Draf
       playerId: fresh(p.number, p.name, p.position),
       careerKey: p.careerKey ?? cKey(p.playerId),
       previousIds: [...(p.previousIds ?? []), p.playerId],
+      // The value that was charged (the position cost when the import had none), so the team value counts it.
+      value: k.quote.value,
       niggling: nigglesAfter(p, rolls),
       missNextGame: false,
       stats: { ...EMPTY_PLAYER_STATS },
@@ -517,6 +520,8 @@ export function applyPendingDrafts(seasons: SeasonRecord[], next: SeasonRecord):
     let touched = false;
     for (const t of s.redraft.teams) {
       if (t.status !== "submitted" || t.appliedTo || !t.draft) continue;
+      const conflict = targetConflict(next, { id: t.teamId, name: t.name }, t.draft.team);
+      if (conflict) { t.status = "expired"; t.expiredReason = conflict; touched = true; continue; }
       applyDraftTeam(next, t.draft.team);
       t.appliedTo = next.id;
       touched = true;
@@ -529,5 +534,32 @@ export function applyPendingDrafts(seasons: SeasonRecord[], next: SeasonRecord):
 /** Same coach (trimmed, case-insensitive). */
 export const sameCoach = (a: string | undefined, b: string | undefined): boolean => Boolean(a && b) && a!.trim().toLowerCase() === b!.trim().toLowerCase();
 
-/** The coach of the team (fork identity first, else the recorded name). */
-export const coachesTeam = (t: Pick<RedraftTeamTask, "coach" | "coachId">, coach: string): boolean => sameCoach(t.coachId, coach) || sameCoach(t.coach, coach);
+const norm = (v: string | undefined): string => (v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+
+/** The league's coach alias table (account id, NAF name, display name) over every season. */
+export const leagueAliases = (seasons: SeasonRecord[]): CoachAliases =>
+  buildCoachAliases((function* () { for (const s of seasons) yield* seasonCoachFacets(s); })());
+
+/**
+ * Whether this signed-in account coaches the team. A recorded coachId (fork account) is authoritative. Only a team
+ * with NO coachId falls back to its imported display name, and only when that name resolves through the alias table to
+ * this account (seen together with it or with its verified NAF name), or stands alone and is exactly this account's name.
+ */
+export function coachOwnsTeam(team: { coach: string; coachId?: string; nafUser?: string }, coach: string, aliases: CoachAliases): boolean {
+  if (norm(team.coachId)) return sameCoach(team.coachId, coach);
+  if (!norm(coach) || !norm(team.coach)) return false;
+  const teamKey = aliases.key({ coach: team.coach, ...(team.nafUser ? { nafUser: team.nafUser } : {}) });
+  if (teamKey === aliases.key({ coachId: coach })) return true;
+  return teamKey === `name:${norm(team.coach)}` && norm(team.coach) === norm(coach);
+}
+
+/**
+ * Before a draft list goes into the next season: refused when that season already has a result for the team, or holds
+ * a roster for the team that is not the one this draft list made. "" = fine, else the reason.
+ */
+export function targetConflict(target: SeasonRecord, team: Pick<LeagueTeam, "id" | "name">, draftTeam?: LeagueTeam): string {
+  if (teamPlayedIn(target, team)) return `${target.name} already has results for ${team.name}.`;
+  const present = target.teams.find((t) => t.id === team.id);
+  if (present && (!draftTeam || JSON.stringify(present) !== JSON.stringify(draftTeam))) return `${target.name} already has a different ${team.name} roster.`;
+  return "";
+}

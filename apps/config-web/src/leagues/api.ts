@@ -725,7 +725,9 @@ function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: string,
  * composition, coaches other than the league's organisers / site admins see every other team without its players
  * (player count and team value only, rosterHidden); a coach still sees their own team's roster.
  */
-export function seasonForViewer(league: LeagueRecord, season: SeasonRecord, auth: LeagueApiIdentity | undefined): SeasonRecord {
+export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: LeagueApiIdentity | undefined): SeasonRecord {
+  // Redraft state (budgets, R&R, draft rosters) is served only by the authorised redraft routes, never in a season read.
+  const { redraft: _r, ...season } = full;
   const fixtures = season.fixtures.map((f) => {
     if (!f.forkNotice) return f;
     const { forkNotice: _n, ...rest } = f;

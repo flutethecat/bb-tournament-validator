@@ -16,7 +16,7 @@ const statusOf = (err: unknown): number | undefined =>
 
 export const redraftPath = (leagueId: string): string => `/api/leagues/${encodeURIComponent(leagueId)}/redraft`;
 
-export const STATUS_LABEL: Record<string, string> = { pending: "Drafting", submitted: "Submitted", skipped: "Skipped" };
+export const STATUS_LABEL: Record<string, string> = { pending: "Drafting", submitted: "Submitted", skipped: "Skipped", expired: "Expired" };
 
 /** "Budget 1,160k" plus the cap note ("capped from 1,420k") when the cap cut it. */
 export function budgetNote(row: Pick<RedraftBoardRow, "budget" | "override">): string {

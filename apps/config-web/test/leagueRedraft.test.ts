@@ -7,7 +7,7 @@ import { leagueApi, type LeagueApiDeps, type LeagueApiResult } from "../src/leag
 import type { DiscordPayload } from "../src/leagues/discord";
 import {
   AGENT_FEE, baseFor, DEFAULT_CAP, feeSeasons, nigglesAfter, redraftBudget, RedraftError, rehireQuote, restAndRelaxation, restTarget, spendable,
-  teamRecord, validateDraft, datasetRoster, type DraftContext,
+  teamRecord, validateDraft, datasetRoster, applyPendingDrafts, coachOwnsTeam, leagueAliases, type DraftContext,
 } from "../src/leagues/redraft";
 import { LeagueStore } from "../src/leagues/store";
 import type { LeagueFixture, LeaguePlayer, LeagueTeam, SeasonRecord } from "../src/leagues/types";
@@ -300,6 +300,108 @@ describe("redraft routes", () => {
     expect(store.season("tabbl", "season-6")!.redraft!.teams.find((t) => t.teamId === "orcs")!.status).toBe("skipped");
     expect(posts.at(-1)!.embeds[0]!.title).toBe("TABBL: Redraft closed");
     expect((await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/submit", ANN, { revision: 4, keep: [], hires: [], staff: {} })).status).toBe(409);
+  });
+
+  // ---- review regressions (Sol 6.1) ----
+
+  it("[P1] public and participant season reads never carry redraft state (draft rosters included)", async () => {
+    await confirm();
+    dice = [6];
+    await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/rest", ANN, { revision: 1, mode: "site" });
+    const keep = store.season("tabbl", "season-6")!.teams.find((t) => t.id === "orcs")!.players.map((p) => p.playerId);
+    const ok = await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/submit", ANN, { revision: 2, keep, hires: [], staff: { rerolls: 0, assistantCoaches: 0, cheerleaders: 0, apothecary: false } });
+    expect(ok.status).toBe(200);
+    expect(store.season("tabbl", "season-6")!.redraft!.teams.find((t) => t.teamId === "orcs")!.draft!.team.players).toHaveLength(12);
+    store.updateLeague("tabbl", (l) => { l.registrations = { allowedRosters: { official: true, nafApproved: true, unofficial: false }, allowRegistration: false, hideTeamComposition: true, maxRegistrations: null, maxPerRace: null }; });
+    for (const who of [undefined, BOB, ANN]) {
+      const r = await call("GET", "/api/leagues/tabbl/seasons/season-6", who);
+      expect(r.status).toBe(200);
+      const s = (r.body as { season: Record<string, unknown> }).season;
+      expect(s).not.toHaveProperty("redraft");
+      expect(JSON.stringify(r.body)).not.toContain("draftList");
+    }
+  });
+
+  it("[P1] a present coachId is authoritative: the display name of another account is refused (403)", async () => {
+    const s6 = store.season("tabbl", "season-6")!;
+    const t = s6.teams.find((x) => x.id === "orcs")!;
+    t.coachId = "ActualOwner";
+    t.coach = "OtherAccount";
+    store.putSeason(s6);
+    await confirm();
+    expect((await call("GET", "/api/leagues/tabbl/redraft/teams/orcs", { coach: "otheraccount" })).status).toBe(403);
+    expect((await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/rest", { coach: "OtherAccount" }, { revision: 1, mode: "site" })).status).toBe(403);
+    expect((await call("GET", "/api/leagues?redraft=mine", { coach: "OtherAccount" })).body).toEqual({ tasks: [] });
+    expect((await call("GET", "/api/leagues/tabbl/redraft/teams/orcs", { coach: "actualowner" })).status).toBe(200);
+  });
+
+  it("[P1] no coachId: the display name counts only when it resolves to exactly this account", () => {
+    const facets = season(6, "completed", [], []);
+    facets.participants = [
+      { coach: "Dee Display", coachId: "DeeAccount", country: "", race: "", team: "A", active: true }, // name seen with the account
+      { coach: "Shared", coachId: "One", country: "", race: "", team: "B", active: true },
+      { coach: "Shared", coachId: "Two", country: "", race: "", team: "C", active: true }, // ambiguous name
+    ];
+    const aliases = leagueAliases([facets]);
+    expect(coachOwnsTeam({ coach: "Dee Display" }, "DeeAccount", aliases)).toBe(true);
+    expect(coachOwnsTeam({ coach: "Dee Display" }, "Dee Display", aliases)).toBe(false); // the name belongs to DeeAccount
+    expect(coachOwnsTeam({ coach: "Shared" }, "One", aliases)).toBe(false);
+    expect(coachOwnsTeam({ coach: "Loner" }, "loner", aliases)).toBe(true); // stands alone, identical name
+    expect(coachOwnsTeam({ coach: "Loner" }, "Other", aliases)).toBe(false);
+    expect(coachOwnsTeam({ coach: "Whoever", coachId: "Real" }, "Whoever", aliases)).toBe(false);
+  });
+
+  it("[P1] a late submission after the next season has a result for the team expires (409), nothing is applied", async () => {
+    await confirm();
+    store.putSeason(season(7, "active", [], [fx("n1", ["Orcs", 1], ["Elves", 0])]));
+    dice = [6];
+    await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/rest", ANN, { revision: 1, mode: "site" });
+    const keep = store.season("tabbl", "season-6")!.teams.find((t) => t.id === "orcs")!.players.map((p) => p.playerId);
+    const late = await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/submit", ANN, { revision: 2, keep, hires: [], staff: { rerolls: 0, assistantCoaches: 0, cheerleaders: 0, apothecary: false } });
+    expect(late.status).toBe(409);
+    expect((late.body as { error: string }).error).toContain("Season 7 already has results for Orcs");
+    const task = store.season("tabbl", "season-6")!.redraft!.teams.find((t) => t.teamId === "orcs")!;
+    expect(task).toMatchObject({ status: "expired", expiredReason: "Season 7 already has results for Orcs." });
+    expect(task.draft).toBeUndefined();
+    expect(store.season("tabbl", "season-7")!.teams).toEqual([]);
+    const again = await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/submit", ANN, { revision: 3, keep, hires: [], staff: { rerolls: 0, assistantCoaches: 0, cheerleaders: 0, apothecary: false } });
+    expect((again.body as { error: string }).error).toContain("expired");
+  });
+
+  it("[P1] a different roster already in the next season also expires the task; a waiting list meeting one at season start expires", async () => {
+    await confirm();
+    const progressed = { ...orcs(), players: orcs().players.slice(0, 11) };
+    store.putSeason(season(7, "active", [progressed]));
+    await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/rest", ANN, { revision: 1, mode: "site" });
+    const keep = orcs().players.map((p) => p.playerId);
+    const r = await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/submit", ANN, { revision: 2, keep, hires: [], staff: { rerolls: 0, assistantCoaches: 0, cheerleaders: 0, apothecary: false } });
+    expect(r.status).toBe(409);
+    expect(store.season("tabbl", "season-7")!.teams[0]!.players).toHaveLength(11); // untouched
+    // applyPendingDrafts: a submitted list whose team already has a result in the new season expires instead of overwriting
+    const next = season(8, "active", [], [fx("m1", ["Gobbos", 2], ["Elves", 0])]);
+    const src = season(7, "completed", [goblins()]);
+    src.redraft = { startedAt: "", byCoach: "Jay", capEnabled: true, cap: DEFAULT_CAP, revision: 3, log: [], teams: [{
+      teamId: "gobbos", sourceSeasonId: "season-7", name: "Gobbos", coach: "Cat", race: "Goblin", selected: true, status: "submitted", budget: redraftBudget({ base: 0, treasury: 0, played: 0, wins: 0, draws: 0 }, { enabled: false, cap: 0 }),
+      draft: { keep: [], hires: [], staff: { rerolls: 0, assistantCoaches: 0, cheerleaders: 0, apothecary: false, cost: 0 }, spent: 0, treasury: 0, team: goblins() },
+    }] };
+    applyPendingDrafts([src], next);
+    expect(src.redraft.teams[0]).toMatchObject({ status: "expired", expiredReason: "Season 8 already has results for Gobbos." });
+    expect(next.teams).toEqual([]);
+  });
+
+  it("[P2] retained players with no imported value keep the charged value: 11 Orc Linemen make a 550,000 team value", async () => {
+    const s6 = store.season("tabbl", "season-6")!;
+    const t = s6.teams.find((x) => x.id === "orcs")!;
+    t.players = Array.from({ length: 11 }, (_, i) => pl(i + 1, "Orc Lineman", { value: null, seasonsPlayed: 0 }));
+    store.putSeason(s6);
+    await confirm();
+    const keep = t.players.map((p) => p.playerId);
+    const r = await call("POST", "/api/leagues/tabbl/redraft/teams/orcs/submit", ANN, { revision: 1, keep, hires: [], staff: { rerolls: 0, assistantCoaches: 0, cheerleaders: 0, apothecary: false } });
+    expect(r.status).toBe(200);
+    const draft = store.season("tabbl", "season-6")!.redraft!.teams.find((x) => x.teamId === "orcs")!.draft!;
+    expect(draft.spent).toBe(11 * (50_000 + AGENT_FEE)); // 770k with the fees
+    expect(draft.team.players.every((p) => p.value === 50_000)).toBe(true);
+    expect(draft.team.teamValue).toBe(550_000);
   });
 });
 

@@ -17,7 +17,7 @@ import { buildRedraftPost, discordEvents, postWebhook as defaultPoster, type Dis
 import { readJsonObject, requestRevision } from "./http.js";
 import { assignSeasonsPlayed, teamPlayedIn } from "./playerIds.js";
 import {
-  applyDraftTeam, buildDraftTeam, coachesTeam, coachView, DEFAULT_CAP, datasetRoster, draftList, gold, leaguePlayerIds, OVERRIDE_MAX, parseDraftInput,
+  applyDraftTeam, buildDraftTeam, coachOwnsTeam, coachView, leagueAliases, targetConflict, DEFAULT_CAP, datasetRoster, draftList, gold, leaguePlayerIds, OVERRIDE_MAX, parseDraftInput,
   redraftBoard, RedraftError, redraftSource, redraftTarget, restAndRelaxation, sameCoach, spendable, validateDraft, type BoardRow, type DraftContext,
 } from "./redraft.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
@@ -165,14 +165,18 @@ export async function redraftRoutes(
     const source = redraftSource(seasons);
     const ctx = source ? draftContext(seasons, source, teamId!) : undefined;
     if (!source || !source.redraft || !ctx) return fail(404, "No redraft for this team.");
-    if (!isManager(lg, auth) && !coachesTeam(ctx.task, auth.coach)) return fail(403, "This is not your team: only its coach and the league organisers can see its redraft.");
+    if (!isManager(lg, auth) && !coachOwnsTeam(ctx.team, auth.coach, leagueAliases(seasons))) return fail(403, "This is not your team: only its coach and the league organisers can see its redraft.");
     const state = source.redraft;
     const target = redraftTarget(seasons, source);
     if (read) return res(200, { redraft: coachView(lg.id, state, ctx, target) });
     const stale = checkRevision(input, state.revision, deps.ifMatch);
     if (stale) return stale;
     if (state.closedAt) return fail(409, "The redraft is closed.");
-    if (ctx.task.status !== "pending") return fail(409, ctx.task.status === "submitted" ? "This team's draft list is already submitted." : "This team was taken out of the redraft.");
+    if (ctx.task.status !== "pending") {
+      const why = ctx.task.status === "submitted" ? "This team's draft list is already submitted."
+        : ctx.task.status === "expired" ? `This redraft expired: ${ctx.task.expiredReason ?? "the next season moved on."}` : "This team was taken out of the redraft.";
+      return fail(409, why);
+    }
     const now = (deps.now?.() ?? new Date()).toISOString();
 
     if (action === "rest") {
@@ -191,6 +195,16 @@ export async function redraftRoutes(
     if (!ctx.task.rest && ctx.team.players.some((p) => (p.niggling | 0) > 0)) return fail(409, "Roll Rest & Relaxation first.");
     const draftInput = parseDraftInput(input);
     const price = validateDraft(ctx, draftInput);
+    // The next season may have moved on since the board was confirmed: re-check it inside this read-modify-write.
+    const conflict = target ? targetConflict(target, ctx.team) : "";
+    if (conflict) {
+      ctx.task.status = "expired";
+      ctx.task.expiredReason = conflict;
+      state.log.unshift({ at: now, by: auth.coach, text: `${ctx.team.name}'s redraft expired: ${conflict}` });
+      state.revision += 1;
+      deps.store.putSeason(source);
+      return fail(409, `This redraft expired: ${conflict}`, { revision: state.revision });
+    }
     const used = leaguePlayerIds(seasons);
     const newTeam = buildDraftTeam(ctx, price, draftInput, { leagueId: lg.id, slug: target?.sourceSlug ?? `redraft:${source.id}` }, used);
     ctx.task.draft = draftList(price, draftInput, newTeam);
@@ -332,15 +346,19 @@ export interface MyRedraftTask {
   link: string;
 }
 
-/** Open redraft tasks (pending or submitted, redraft not closed) of this coach across every league. */
+/** Open redraft tasks (pending, submitted or expired; redraft not closed) of this coach across every league. */
 export function myRedraftTasks(store: LeagueStore, coach: string): MyRedraftTask[] {
   const out: MyRedraftTask[] = [];
   for (const lg of store.list()) {
-    const source = redraftSource(store.seasons(lg.id));
+    const seasons = store.seasons(lg.id);
+    const source = redraftSource(seasons);
     const state = source?.redraft;
     if (!state || state.closedAt) continue;
+    const aliases = leagueAliases(seasons);
     for (const t of state.teams) {
-      if (!t.selected || t.status === "skipped" || !coachesTeam(t, coach)) continue;
+      if (!t.selected || t.status === "skipped") continue;
+      const team = seasons.find((s) => s.id === t.sourceSeasonId)?.teams.find((x) => x.id === t.teamId) ?? t;
+      if (!coachOwnsTeam(team, coach, aliases)) continue;
       out.push({ leagueId: lg.id, leagueName: lg.name, teamId: t.teamId, teamName: t.name, race: t.race, status: t.status, spendable: spendable(t), link: redraftLink(lg.id, t.teamId) });
     }
   }

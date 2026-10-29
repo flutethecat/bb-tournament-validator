@@ -272,7 +272,7 @@ export interface LeagueSettingsView {
 
 // ---- Redraft (server: src/leagues/redraft.ts + redraftApi.ts) ----
 
-export type RedraftTaskStatus = "pending" | "submitted" | "skipped";
+export type RedraftTaskStatus = "pending" | "submitted" | "skipped" | "expired";
 export interface RedraftBudget { base: number; treasury: number; played: number; wins: number; draws: number; bonus: number; raw: number; capped: number }
 export interface RedraftOverride { budget: number; reason: string; by: string; at: string }
 export interface RedraftLogEntry { at: string; by: string; text: string }
@@ -349,6 +349,8 @@ export interface CoachRedraftView {
   sourceSeason: { id: string; name: string };
   targetSeason: { id: string; name: string } | null;
   status: RedraftTaskStatus;
+  /** Why the task expired (status "expired"); "" otherwise. */
+  expiredReason?: string;
   closed: boolean;
   budget: RedraftBudget;
   capEnabled: boolean;

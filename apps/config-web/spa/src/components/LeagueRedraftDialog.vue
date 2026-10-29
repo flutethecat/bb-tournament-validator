@@ -157,7 +157,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
 
           <!-- Done -->
           <section v-else aria-labelledby="rd-done-h">
-            <h4 id="rd-done-h" class="rd-h">{{ view.status === "submitted" ? "Draft list submitted" : view.closed ? "The redraft is closed" : "Taken out of the redraft" }}</h4>
+            <h4 id="rd-done-h" class="rd-h">{{ view.status === "submitted" ? "Draft list submitted" : view.status === "expired" ? "This redraft expired" : view.closed ? "The redraft is closed" : "Taken out of the redraft" }}</h4>
+            <p v-if="view.status === 'expired' && view.expiredReason">{{ view.expiredReason }} Ask the league organisers how to go on.</p>
             <p v-if="view.draft">
               {{ plural(view.draft.keep.length, "player") }} re-hired, {{ view.draft.hires.reduce((n, h) => n + h.count, 0) }} new,
               {{ goldK(view.draft.spent) }} spent, {{ goldK(view.draft.treasury) }} to the treasury.

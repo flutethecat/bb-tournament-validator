@@ -353,7 +353,8 @@ export interface SeasonRecord {
 
 // ---- Redraft (League settings, Administration -> Start redraft; spec-league-settings-2026-10-30 §2) ----
 
-export type RedraftTaskStatus = "pending" | "submitted" | "skipped";
+/** expired = the next season moved on (results, or a different roster) before the draft list could be applied. */
+export type RedraftTaskStatus = "pending" | "submitted" | "skipped" | "expired";
 
 /** Budget terms in gold (see redraft.ts redraftBudget). raw = base + treasury + bonus; capped = what the coach may spend. */
 export interface RedraftBudget {
@@ -414,6 +415,8 @@ export interface RedraftTeamTask {
   draft?: DraftList;
   /** The season the draft list was written into ("" / unset = waiting for Start a new season). */
   appliedTo?: string;
+  /** Why the task expired (status "expired"). */
+  expiredReason?: string;
 }
 
 export interface RedraftLogEntry { at: string; by: string; text: string }
