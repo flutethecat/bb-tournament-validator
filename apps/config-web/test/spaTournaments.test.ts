@@ -80,7 +80,12 @@ describe("tournament list card helpers", () => {
     expect(cardAction({ ...open, myEntrantId: "e1" }, "Alice", true)).toBe("entry");
     expect(cardAction({ ...open, myEntrantId: "e1", myDroppedAt: "x" }, "Alice", true)).toBe("open");
     expect(cardAction({ ...open, ownerCoachId: "Alice", myEntrantId: "e1" }, "Alice", true)).toBe("manage");
-    expect(cardAction({ ...open, ownerCoachId: "alice" }, "Alice", true)).toBe("register");
+    // coach ids match the way the server's manager check does: trimmed and case-insensitive
+    expect(cardAction({ ...open, ownerCoachId: "alice" }, "Alice", true)).toBe("manage");
+    expect(cardAction({ ...open, ownerCoachId: " ALICE " }, "alice", false)).toBe("manage");
+    expect(cardAction({ ...open, organizerCoachIds: ["Bob", "aLiCe"] }, "Alice ", true)).toBe("manage");
+    expect(cardAction({ ...open, organizerCoachIds: ["Alicia"] }, "Alice", true)).toBe("register");
+    expect(cardAction({ ...open, ownerCoachId: "alice" }, "  ", true)).toBe("open");
     expect(cardAction({ ...open, ownerCoachId: "" }, "", true)).toBe("open");
   });
 });
@@ -490,7 +495,7 @@ describe("tournament routes (server-rendered against a mocked API)", () => {
   it("list (redesign): footer action follows the viewer's role from the list row", async () => {
     const items = [
       tournament({ id: "t1", name: "Mine To Run", ownerCoachId: "Alice" }),
-      tournament({ id: "t2", name: "Helping Out", organizerCoachIds: ["Alice"] }),
+      tournament({ id: "t2", name: "Helping Out", organizerCoachIds: [" alice "] }),
       tournament({ id: "t3", name: "Entered", currentRound: 0, myEntrantId: "t3:entrant:1" }),
       tournament({ id: "t4", name: "Open Door", status: "draft", currentRound: 0 }),
       tournament({ id: "t5", name: "Full House", status: "draft", currentRound: 0, entrantCount: 8, maxPlayers: 8 }),

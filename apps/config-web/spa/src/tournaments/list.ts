@@ -141,6 +141,9 @@ export function entrantsLine(t: Pick<TournamentSummary, "entrantCount" | "maxPla
   return `${n} of ${t.maxPlayers} · ${left ? `${left} ${left === 1 ? "place" : "places"} left` : "Full"}`;
 }
 
+/** Coach ids compare as the server's manager check does (src/tournaments/store.ts): trimmed, lower-cased. */
+export const coachKey = (coach: string | undefined | null): string => (typeof coach === "string" ? coach.trim().toLowerCase() : "");
+
 export type CardAction = "manage" | "entry" | "register" | "open";
 
 /**
@@ -149,11 +152,12 @@ export type CardAction = "manage" | "entry" | "register" | "open";
  * started, rosters unlocked, a place left) for a signed-in coach who can write, otherwise Open.
  */
 export function cardAction(t: TournamentSummary, coach: string, canWrite: boolean): CardAction {
-  if (coach && (t.ownerCoachId === coach || (t.organizerCoachIds ?? []).includes(coach))) return "manage";
+  const me = coachKey(coach);
+  if (me && (coachKey(t.ownerCoachId) === me || (t.organizerCoachIds ?? []).some((id) => coachKey(id) === me))) return "manage";
   if (t.myEntrantId && !t.myDroppedAt) return "entry";
   const open = (t.status === "draft" || t.status === "active") && !(t.currentRound > 0) && !t.rostersLockedAt
     && !(t.maxPlayers > 0 && (t.entrantCount ?? 0) >= t.maxPlayers);
-  if (open && coach && canWrite && !t.myEntrantId) return "register";
+  if (open && me && canWrite && !t.myEntrantId) return "register";
   return "open";
 }
 
