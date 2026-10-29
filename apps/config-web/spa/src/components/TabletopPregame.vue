@@ -1,10 +1,15 @@
 <script setup lang="ts">
-// Pre-game wizard (match.phase "pregame:<step>"): fans, weather, journeymen, inducements, prayers, coin. The server
-// rolls and records; this shows the step, what the server already decided, and the one control the step needs.
-import { reactive, ref } from "vue";
+// Pre-game (match.phase "pregame:<step>", the server's pregame.step): fans, weather, journeymen, inducements, prayers,
+// coin flip, kick/receive, turn timers. The dice are rolled at the table, so every roll offers "Roll for me" (the site
+// rolls) and "Enter result" (the coaches type what they rolled); both are recorded. The server validates each step and
+// who may act; this shows the step, what the server already decided, and the controls the step needs.
+// BB2025 pre-game sequence: https://bloodbowlbase.ru/bb2025/core_rules/the_game_of_blood_bowl/
+import { computed, reactive, ref } from "vue";
 import type { ClockView } from "../tabletop/clock";
-import { PREGAME_LABELS, PREGAME_STEPS, pregameStep } from "../tabletop/feed";
+import { PREGAME_LABELS, PREGAME_STEPS, pregameStep, rollWord, type PregameViewStep } from "../tabletop/feed";
+import { WEATHER_EFFECTS } from "../tabletop/pregameCine";
 import type { MatchView, Side, TeamView } from "../tabletop/recorder";
+import TabletopInducementPicker, { type InducementBudget, type InducementOption } from "./TabletopInducementPicker.vue";
 
 const props = defineProps<{
   match: MatchView;
@@ -16,167 +21,282 @@ const props = defineProps<{
   clock?: ClockView;
   /** Each team's latest turn-timer answer (from the timerAgree events). */
   timerAnswers?: Partial<Record<Side, boolean>>;
+  /** The session coach's seat (null: an organiser or onlooker). */
+  mySide?: Side | null;
+  organiser?: boolean;
+  inducementIcons?: Record<string, string>;
 }>();
-const emit = defineEmits<{ (e: "advance", body: Record<string, unknown>): void }>();
+const emit = defineEmits<{ (e: "advance", body: Record<string, unknown>): void; (e: "skip"): void }>();
 
 const sides: Side[] = ["home", "away"];
-const step = (): string => pregameStep(props.phase);
-const idx = (): number => (PREGAME_STEPS as readonly string[]).indexOf(step());
+const other = (s: Side): Side => (s === "home" ? "away" : "home");
+/** The server's step (kickreceive included); the phase is the fallback for an older server answer. */
+const step = computed<PregameViewStep | "">(() => (typeof props.pregame.step === "string" ? (props.pregame.step as PregameViewStep) : pregameStep(props.phase)));
+const stepperKey = computed(() => (step.value === "kickreceive" ? "coin" : step.value));
+const idx = computed(() => (PREGAME_STEPS as readonly string[]).indexOf(stepperKey.value));
+const participant = computed(() => props.mySide === "home" || props.mySide === "away");
+/** No seat given (an embedding that does not know the viewer): show every control; the server still checks the actor. */
+const unknownViewer = computed(() => props.mySide === undefined);
+const canAct = computed(() => unknownViewer.value || participant.value || props.organiser === true);
+const team = (s: Side): string => props.match[s].teamName;
+const coach = (s: Side): string => props.match[s].coach;
 
-const text = (v: unknown): string => {
-  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
-  if (Array.isArray(v)) return v.map(text).filter(Boolean).join(", ");
-  if (v && typeof v === "object")
-    return Object.entries(v as Record<string, unknown>).map(([k, x]) => `${k} ${text(x)}`).filter((s) => !s.endsWith(" ")).join(" · ");
-  return "";
-};
-/** What the server has already settled, one line per finished step. */
-const results = (): Array<{ key: string; label: string; value: string }> =>
-  PREGAME_STEPS.filter((k) => k !== "coin").map((k) => ({ key: k, label: PREGAME_LABELS[k], value: text(props.pregame[k]) })).filter((r) => r.value);
+// ---- the results so far (one line per settled step) ----
+type Rec = Record<string, unknown>;
+const obj = (v: unknown): Rec | undefined => (v && typeof v === "object" && !Array.isArray(v) ? (v as Rec) : undefined);
+const results = computed(() => {
+  const out: Array<{ key: string; label: string; value: string }> = [];
+  const fans = obj(props.pregame.fans);
+  if (fans) {
+    const f = (s: Side) => obj(fans[s]);
+    if (f("home") || f("away")) out.push({ key: "fans", label: "Fans", value: sides.map((s) => `${team(s)} ${Number(f(s)?.total ?? 0)}`).join(" · ") });
+  } else if (typeof props.pregame.fans === "string") out.push({ key: "fans", label: "Fans", value: props.pregame.fans });
+  const w = props.pregame.weather;
+  const wName = typeof w === "string" ? w : String(obj(w)?.result ?? "");
+  if (wName) out.push({ key: "weather", label: "Weather", value: wName });
+  const jm = obj(props.pregame.journeymen);
+  if (jm && sides.some((s) => Array.isArray(jm[s]) && (jm[s] as unknown[]).length)) out.push({ key: "journeymen", label: "Journeymen", value: sides.map((s) => `${team(s)} ${(jm[s] as unknown[] | undefined)?.length ?? 0}`).join(" · ") });
+  const ind = obj(props.pregame.inducements);
+  if (ind) {
+    const line = (s: Side) => {
+      const p = obj(ind[s]);
+      if (!p) return "";
+      const picks = (p.picks as Array<{ name?: string; id: string; qty: number }> | undefined) ?? [];
+      return `${team(s)}: ${picks.length ? picks.map((x) => `${x.qty} x ${x.name ?? x.id}`).join(", ") : "none"}`;
+    };
+    const v = sides.map(line).filter(Boolean).join(" · ");
+    if (v) out.push({ key: "inducements", label: "Inducements", value: v });
+  }
+  const pr = obj(props.pregame.prayers);
+  if (pr && sides.some((s) => Array.isArray(pr[s]) && (pr[s] as unknown[]).length))
+    out.push({ key: "prayers", label: "Prayers", value: sides.map((s) => ((pr[s] as Rec[] | undefined) ?? []).map((x) => String(x.name ?? "")).join(", ")).filter(Boolean).join(" · ") });
+  return out;
+});
 
-interface Opt { id: string; name: string; cost?: number; max?: number }
-const options = (s: Side): Opt[] => {
-  const o = (props.pregame.inducementOptions as Record<string, Opt[]> | undefined)?.[s];
-  return Array.isArray(o) ? o : [];
+// ---- dice entry ("Enter result") ----
+const entering = ref(false);
+const fansHand = reactive<Record<Side, number>>({ home: 0, away: 0 });
+const weatherHand = reactive<[number, number]>([0, 0]);
+const prayersBought = (s: Side): number => {
+  const p = obj(obj(props.pregame.inducements)?.[s]);
+  return ((p?.picks as Array<{ id: string; qty: number }> | undefined) ?? []).find((x) => x.id === "prayers_to_nuffle")?.qty ?? 0;
 };
-const done = (s: Side): boolean =>
-  (props.pregame.inducementsDone as Record<string, boolean> | undefined)?.[s] === true ||
-  (props.pregame.inducements !== null && typeof props.pregame.inducements === "object" && s in (props.pregame.inducements as object));
-const picks = reactive<Record<Side, Record<string, number>>>({ home: {}, away: {} });
-const bump = (s: Side, o: Opt, d: number): void => {
-  const next = Math.max(0, Math.min(o.max ?? 9, (picks[s][o.id] ?? 0) + d));
-  picks[s][o.id] = next;
+const prayerHand = reactive<Record<Side, number[]>>({ home: [], away: [] });
+const fansReady = computed(() => fansHand.home > 0 && fansHand.away > 0);
+const weatherReady = computed(() => weatherHand[0] > 0 && weatherHand[1] > 0);
+const weatherPreview = computed(() => {
+  const t = weatherHand[0] + weatherHand[1];
+  if (!weatherReady.value) return "";
+  const name = t <= 2 ? "Sweltering Heat" : t === 3 ? "Very Sunny" : t <= 10 ? "Perfect Conditions" : t === 11 ? "Pouring Rain" : "Blizzard";
+  return `${t}: ${name}`;
+});
+const prayersReady = computed(() => sides.every((s) => {
+  const r = prayerHand[s].slice(0, prayersBought(s));
+  return r.length === prayersBought(s) && r.every((x) => x >= 1 && x <= 16) && new Set(r).size === r.length;
+}));
+function sendHand(): void {
+  if (step.value === "fans") emit("advance", { mode: "hand", rolls: { home: fansHand.home, away: fansHand.away } });
+  else if (step.value === "weather") emit("advance", { mode: "hand", dice: [weatherHand[0], weatherHand[1]] });
+  else if (step.value === "prayers") emit("advance", { mode: "hand", rolls: { home: prayerHand.home.slice(0, prayersBought("home")), away: prayerHand.away.slice(0, prayersBought("away")) } });
+  entering.value = false;
+}
+const ROLL_STEPS: Record<string, { title: string; rule: string }> = {
+  fans: { title: "The Fans", rule: "Each team rolls a D3 and adds its Dedicated Fans: that is its Fan Factor for this game." },
+  weather: { title: "Weather", rule: "Roll 2D6 on the Weather table." },
+  prayers: { title: "Prayers to Nuffle", rule: "One D16 per Prayer bought; a repeated result is rerolled." },
 };
-const send = (s: Side, skip: boolean): void =>
-  emit("advance", { team: s, picks: skip ? [] : Object.entries(picks[s]).filter(([, q]) => q > 0).map(([id, qty]) => ({ id, qty })) });
 
-/** The server's coin answer (set after the call): the animation only ever lands on result. */
-const coin = (): { result?: string; call?: string; winner?: string } => {
-  const c = (props.pregame.coin ?? props.pregame.coinFlip) as Record<string, unknown> | undefined;
-  return c && typeof c === "object" ? (c as { result?: string; call?: string; winner?: string }) : {};
+// ---- inducements ----
+const options = (s: Side): InducementOption[] => {
+  const o = obj(props.pregame.inducementOptions)?.[s];
+  return Array.isArray(o) ? (o as InducementOption[]) : [];
 };
-const winnerName = (): string => {
-  const w = coin().winner;
-  return w === "home" || w === "away" ? props.match[w].teamName : "The winner";
-};
-/** The competition may require or forbid timers ("required" / "off"); "optional" lets the coaches answer. */
+const budget = (s: Side): InducementBudget | undefined => obj(obj(props.pregame.budget)?.[s]) as InducementBudget | undefined;
+const submitted = (s: Side): boolean => budget(s)?.submitted === true || !!obj(obj(props.pregame.inducements)?.[s]);
+/** Higher team value first (its treasury spend feeds the petty cash); equal values: home then away. */
+const order = computed<Side[]>(() => (budget("away")?.role === "favourite" ? ["away", "home"] : ["home", "away"]));
+const waitingFor = (s: Side): string => (budget(s)?.role === "underdog" && !submitted(other(s)) ? team(other(s)) : "");
+
+// ---- coin and kick/receive ----
+const coin = computed(() => (obj(props.pregame.coin) ?? obj(props.pregame.coinFlip) ?? {}) as { caller?: Side; call?: string; result?: string; winner?: Side; choice?: string; mode?: string; rolledBy?: string });
+const caller = computed<Side | undefined>(() => (coin.value.caller === "home" || coin.value.caller === "away" ? coin.value.caller : undefined));
+const winner = computed<Side | undefined>(() => (coin.value.winner === "home" || coin.value.winner === "away" ? coin.value.winner : undefined));
+const canCall = computed(() => !!caller.value && (unknownViewer.value || props.mySide === caller.value || props.organiser === true));
+const canChoose = computed(() => !!winner.value && (unknownViewer.value || props.mySide === winner.value || props.organiser === true));
+const hand = ref(false);
+const handCall = ref<"heads" | "tails" | "">("");
+const handResult = ref<"heads" | "tails" | "">("");
+const handChoice = ref<"kick" | "receive" | "">("");
+const handWinner = computed<Side | "">(() => (caller.value && handCall.value && handResult.value ? (handCall.value === handResult.value ? caller.value : other(caller.value)) : ""));
+const handReady = computed(() => handWinner.value !== "" && handChoice.value !== "");
+const sendCoinHand = (): void => emit("advance", { mode: "hand", call: handCall.value, result: handResult.value, choice: handChoice.value });
+const up = (s: unknown): string => String(s ?? "").toUpperCase();
+
+// ---- timers ----
 const timerRule = (): "required" | "off" | "" => {
   const e = props.clock?.turnTimer?.enforced;
   return e === "required" || e === true ? "required" : e === "off" ? "off" : "";
 };
 const answerText = (s: Side): string => (props.timerAnswers?.[s] === undefined ? "has not answered yet" : props.timerAnswers[s] ? "says yes" : "says no");
-const hand = ref(false);
-function choose(c: "kick" | "receive"): void {
-  emit("advance", { mode: "auto", call: coin().call, caller: "away", winner: coin().winner, choice: c });
+
+function skipAll(): void {
+  if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm("Skip the rest of the pre-game? The match starts at the kick-off set-up and the skip is logged.")) return;
+  emit("skip");
 }
-const handCall = ref<"heads" | "tails" | "">("");
-const handResult = ref<"heads" | "tails" | "">("");
-const choice = ref<"kick" | "receive" | "">("");
-/** The caller is the away coach: they win the toss when the coin matches their call. */
-const handWinner = (): Side | "" => (handCall.value && handResult.value ? (handCall.value === handResult.value ? "away" : "home") : "");
-const handReady = (): boolean => handWinner() !== "" && choice.value !== "";
-const sendHand = (): void => emit("advance", { mode: "hand", call: handCall.value, caller: "away", result: handResult.value, winner: handWinner(), choice: choice.value });
+const fansRow = (s: Side): string => {
+  const f = obj(obj(props.pregame.fans)?.[s]);
+  return f ? `${Number(f.dedicatedFans ?? 0)} dedicated + D3 ${Number(f.roll ?? 0)} = ${Number(f.total ?? 0)}${rollWord(f) ? ` (${rollWord(f)})` : ""}` : "";
+};
+const weatherObj = computed(() => obj(props.pregame.weather));
 </script>
 
 <template>
   <section class="tt-pregame" aria-label="Pre-game">
+    <div class="tt-pre-head">
+      <h3 class="tt-pre-h">Pre-game</h3>
+      <button v-if="organiser" class="lobby-btn small tt-tap tt-pre-skip" type="button" :disabled="busy" @click="skipAll">Skip pre-game</button>
+    </div>
     <ol class="tt-steps">
-      <li v-for="(k, i) in PREGAME_STEPS" :key="k" :data-state="i < idx() ? 'done' : i === idx() ? 'now' : 'next'">{{ PREGAME_LABELS[k] }}</li>
+      <li v-for="(k, i) in PREGAME_STEPS" :key="k" :data-state="i < idx ? 'done' : i === idx ? 'now' : 'next'">{{ PREGAME_LABELS[k] }}</li>
     </ol>
-    <ul v-if="results().length" class="tt-pre-results">
-      <li v-for="r in results()" :key="r.key"><b>{{ r.label }}</b> {{ r.value }}</li>
+    <ul v-if="results.length" class="tt-pre-results">
+      <li v-for="r in results" :key="r.key"><b>{{ r.label }}</b> {{ r.value }}</li>
     </ul>
 
-    <div v-if="step() === 'inducements'" class="tt-pre-card">
-      <h3>Inducements</h3>
-      <div v-for="s in sides" :key="s" class="tt-pre-team">
-        <h4>{{ match[s].teamName }}</h4>
-        <p v-if="done(s)" class="muted" role="status">Submitted. You can change it and submit again.</p>
-        <template v-if="true">
-          <p v-if="!options(s).length" class="muted">No inducements offered.</p>
-          <div v-for="o in options(s)" :key="o.id" class="tt-pre-opt">
-            <span>{{ o.name }}<small v-if="o.cost"> {{ Math.round(o.cost / 1000) }}k</small></span>
-            <span class="tt-pre-qty">
-              <button type="button" class="tt-step" :aria-label="`Fewer ${o.name}`" @click="bump(s, o, -1)">&#8722;</button>
-              <b>{{ picks[s][o.id] ?? 0 }}</b>
-              <button type="button" class="tt-step" :aria-label="`More ${o.name}`" @click="bump(s, o, 1)">+</button>
-            </span>
-          </div>
-          <div class="tt-actions-row">
-            <button class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="send(s, false)">{{ done(s) ? "Resubmit" : "Submit" }} {{ match[s].teamName }}</button>
-            <button class="lobby-btn tt-tap" type="button" :disabled="busy" @click="send(s, true)">Skip</button>
-          </div>
-        </template>
-      </div>
-    </div>
-
-    <div v-else-if="step() === 'coin'" class="tt-pre-card tt-coin-card">
-      <h3>Coin flip</h3>
-      <template v-if="!coin().result">
-        <p class="tt-coin-call">{{ match.away.coach }} calls the toss</p>
-        <div class="tt-actions-row">
-          <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="emit('advance', { mode: 'auto', call: 'heads', caller: 'away' })">Heads <span class="tt-coin-side heads">H</span></button>
-          <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="emit('advance', { mode: 'auto', call: 'tails', caller: 'away' })">Tails <span class="tt-coin-side tails">T</span></button>
+    <!-- fans / weather / prayers: Roll for me or Enter result -->
+    <div v-if="step === 'fans' || step === 'weather' || step === 'prayers'" class="tt-pre-card" :data-step="step">
+      <h3>{{ ROLL_STEPS[step]!.title }}</h3>
+      <p class="muted">{{ ROLL_STEPS[step]!.rule }}</p>
+      <template v-if="canAct">
+        <div v-if="!entering" class="tt-actions-row">
+          <button class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="emit('advance', { mode: 'site' })">Roll for me</button>
+          <button class="lobby-btn tt-tap" type="button" :disabled="busy" @click="entering = true">Enter result</button>
         </div>
-      </template>
-      <template v-else>
-        <p class="tt-coin-call">{{ match.away.coach }} called <b>{{ String(coin().call).toUpperCase() }}</b></p>
-        <div class="tt-coin-stage">
-          <div class="tt-coin-lift">
-            <div class="tt-coin" :data-result="coin().result" :key="`${coin().result}-${coin().call}`">
-              <div class="tt-coin-face heads">H</div>
-              <div class="tt-coin-face tails">T</div>
+        <div v-else class="tt-pre-entry">
+          <template v-if="step === 'fans'">
+            <div v-for="s in sides" :key="s" class="tt-pre-dice-row">
+              <span class="tt-pre-dice-who">{{ team(s) }} D3</span>
+              <button v-for="n in 3" :key="n" type="button" class="tt-pre-die" :aria-pressed="fansHand[s] === n" :aria-label="`${team(s)} rolled ${n}`" @click="fansHand[s] = n">{{ n }}</button>
             </div>
-          </div>
-        </div>
-        <div class="tt-coin-reveal">
-          <p class="tt-coin-caption">{{ String(coin().result).toUpperCase() }} - {{ winnerName() }} wins the toss</p>
+          </template>
+          <template v-else-if="step === 'weather'">
+            <div v-for="d in [0, 1]" :key="d" class="tt-pre-dice-row">
+              <span class="tt-pre-dice-who">D6 {{ d + 1 }}</span>
+              <button v-for="n in 6" :key="n" type="button" class="tt-pre-die" :aria-pressed="weatherHand[d] === n" :aria-label="`Die ${d + 1} shows ${n}`" @click="weatherHand[d] = n">{{ n }}</button>
+            </div>
+            <p v-if="weatherPreview" class="muted" role="status">{{ weatherPreview }}</p>
+          </template>
+          <template v-else>
+            <div v-for="s in sides" :key="s">
+              <div v-for="i in prayersBought(s)" :key="`${s}-${i}`" class="tt-pre-dice-row">
+                <label class="tt-pre-dice-who" :for="`pr-${s}-${i}`">{{ team(s) }} prayer {{ i }} (D16)</label>
+                <select :id="`pr-${s}-${i}`" v-model.number="prayerHand[s][i - 1]"><option :value="0">-</option><option v-for="n in 16" :key="n" :value="n">{{ n }}</option></select>
+              </div>
+            </div>
+          </template>
           <div class="tt-actions-row">
-            <button class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="choose('kick')">{{ winnerName() }} kicks</button>
-            <button class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="choose('receive')">{{ winnerName() }} receives</button>
+            <button class="lobby-btn primary tt-tap" type="button" :disabled="busy || (step === 'fans' ? !fansReady : step === 'weather' ? !weatherReady : !prayersReady)" @click="sendHand">Record the result</button>
+            <button class="lobby-btn tt-tap" type="button" @click="entering = false">Back</button>
           </div>
         </div>
       </template>
-      <p v-if="!hand" class="tt-hand-link"><a href="#" @click.prevent="hand = true">Rolled a real coin? Enter the result</a></p>
-      <div v-else class="tt-hand">
-        <p class="muted">{{ match.away.coach }} called:</p>
+      <p v-else class="muted" role="status">Waiting for the coaches.</p>
+    </div>
+
+    <div v-else-if="step === 'journeymen'" class="tt-pre-card" data-step="journeymen">
+      <h3>Journeymen</h3>
+      <p class="muted">A team with fewer than 11 players available takes on journeymen (Lineman, Loner) to make up 11.</p>
+      <div v-if="fansRow('home') || weatherObj" class="tt-pre-mini">
+        <span v-for="s in sides" :key="s">{{ team(s) }} fans: {{ fansRow(s) }}</span>
+        <span v-if="weatherObj">Weather: {{ String(weatherObj.result ?? "") }}. {{ WEATHER_EFFECTS[String(weatherObj.result ?? "")] ?? "" }}</span>
+      </div>
+      <button v-if="canAct" class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="emit('advance', {})">Take on journeymen</button>
+    </div>
+
+    <div v-else-if="step === 'inducements'" class="tt-pre-card tt-pre-ind" data-step="inducements">
+      <h3>Inducements</h3>
+      <TabletopInducementPicker
+        v-for="s in order" :key="s" :side="s" :team-name="team(s)" :coach="coach(s)" :options="options(s)" :budget="budget(s)" :icons="inducementIcons"
+        :busy="busy" :can-edit="canAct" :waiting-for="waitingFor(s)" :submitted="submitted(s)"
+        @submit="(sd, picks) => emit('advance', { team: sd, picks })" @skip="(sd) => emit('advance', { team: sd, skip: true })"
+      />
+    </div>
+
+    <div v-else-if="step === 'coin'" class="tt-pre-card tt-coin-card" data-step="coin">
+      <h3>Coin flip</h3>
+      <template v-if="!caller">
+        <p class="muted">The site draws which coach calls the toss.</p>
+        <button v-if="canAct" class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="emit('advance', {})">Draw the caller</button>
+      </template>
+      <template v-else-if="canCall">
+        <p class="tt-coin-call">{{ coach(caller) }} calls the toss</p>
         <div class="tt-actions-row">
-          <button v-for="f in ['heads', 'tails']" :key="`c-${f}`" class="lobby-btn tt-tap" type="button" :aria-pressed="handCall === f" @click="handCall = f as 'heads' | 'tails'">{{ f }}</button>
+          <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="emit('advance', { mode: 'auto', call: 'heads' })">Heads <span class="tt-coin-side heads">H</span></button>
+          <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="emit('advance', { mode: 'auto', call: 'tails' })">Tails <span class="tt-coin-side tails">T</span></button>
         </div>
-        <p class="muted">The coin showed:</p>
-        <div class="tt-actions-row">
-          <button v-for="f in ['heads', 'tails']" :key="`r-${f}`" class="lobby-btn tt-tap" type="button" :aria-pressed="handResult === f" @click="handResult = f as 'heads' | 'tails'">{{ f }}</button>
+      </template>
+      <div v-else class="tt-coin-wait" role="status">
+        <span class="tt-coin-spinner" aria-hidden="true" />
+        <p class="tt-coin-call">{{ coach(caller) }} ({{ team(caller) }}) is calling the toss</p>
+        <p class="muted">Waiting...</p>
+      </div>
+      <template v-if="caller && canAct">
+        <p v-if="!hand" class="tt-hand-link"><a href="#" @click.prevent="hand = true">Flipped a real coin? Enter the result</a></p>
+        <div v-else class="tt-hand">
+          <p class="muted">{{ coach(caller) }} called:</p>
+          <div class="tt-actions-row">
+            <button v-for="f in ['heads', 'tails']" :key="`c-${f}`" class="lobby-btn tt-tap" type="button" :aria-pressed="handCall === f" @click="handCall = f as 'heads' | 'tails'">{{ f }}</button>
+          </div>
+          <p class="muted">The coin showed:</p>
+          <div class="tt-actions-row">
+            <button v-for="f in ['heads', 'tails']" :key="`r-${f}`" class="lobby-btn tt-tap" type="button" :aria-pressed="handResult === f" @click="handResult = f as 'heads' | 'tails'">{{ f }}</button>
+          </div>
+          <p v-if="handWinner" class="muted">{{ team(handWinner) }} wins the toss and chooses to:</p>
+          <div class="tt-actions-row">
+            <button class="lobby-btn tt-tap" type="button" :aria-pressed="handChoice === 'receive'" @click="handChoice = 'receive'">Receive</button>
+            <button class="lobby-btn tt-tap" type="button" :aria-pressed="handChoice === 'kick'" @click="handChoice = 'kick'">Kick</button>
+          </div>
+          <button class="lobby-btn tt-tap" type="button" :disabled="busy || !handReady" @click="sendCoinHand">Record the result</button>
         </div>
-        <p v-if="handWinner()" class="muted">{{ match[handWinner() as Side].teamName }} wins the toss and:</p>
-        <div class="tt-actions-row">
-          <button class="lobby-btn tt-tap" type="button" :aria-pressed="choice === 'kick'" @click="choice = 'kick'">Kick</button>
-          <button class="lobby-btn tt-tap" type="button" :aria-pressed="choice === 'receive'" @click="choice = 'receive'">Receive</button>
+      </template>
+    </div>
+
+    <div v-else-if="step === 'kickreceive'" class="tt-pre-card tt-coin-card" data-step="kickreceive">
+      <h3>Coin flip</h3>
+      <p class="tt-coin-caption">{{ up(coin.result) }} - {{ winner ? `${team(winner)} wins the toss` : "" }}</p>
+      <p class="muted">{{ caller ? `${coach(caller)} called ${up(coin.call)}.` : "" }}</p>
+      <div v-if="canChoose && winner" class="tt-modal tt-kr-modal" role="dialog" aria-label="Kick or receive?">
+        <div class="tt-kr-box">
+          <div class="tt-kr-title">Kick or receive?</div>
+          <p class="muted">{{ team(winner) }} won the toss.</p>
+          <div class="tt-kr-actions">
+            <button class="lobby-btn primary tt-tap tt-kr-btn" type="button" :disabled="busy" @click="emit('advance', { choice: 'receive' })">Receive</button>
+            <button class="lobby-btn tt-tap tt-kr-btn" type="button" :disabled="busy" @click="emit('advance', { choice: 'kick' })">Kick</button>
+          </div>
         </div>
-        <button class="lobby-btn tt-tap" type="button" :disabled="busy || !handReady()" @click="sendHand">Record the result</button>
+      </div>
+      <div v-else-if="winner" class="tt-coin-wait" role="status">
+        <span class="tt-coin-spinner" aria-hidden="true" />
+        <p class="tt-coin-call">{{ coach(winner) }} won the toss and is choosing to kick or receive</p>
+        <p class="muted">Waiting...</p>
       </div>
     </div>
 
-    <div v-else-if="step() === 'timers'" class="tt-pre-card">
+    <div v-else-if="step === 'timers'" class="tt-pre-card" data-step="timers">
       <h3>Turn timers</h3>
       <p v-if="timerRule() === 'required'" class="muted">Turn timers are required for this competition.</p>
       <p v-else-if="timerRule() === 'off'" class="muted">Turn timers are off for this competition.</p>
       <template v-else>
         <p class="tt-coin-call">Use turn timers?</p>
-        <div class="tt-actions-row">
+        <div v-if="canAct" class="tt-actions-row">
           <button class="lobby-btn tt-tap" type="button" :disabled="busy" @click="emit('advance', { agree: true })">Yes</button>
           <button class="lobby-btn tt-tap" type="button" :disabled="busy" @click="emit('advance', { agree: false })">No</button>
         </div>
         <ul class="tt-pre-results">
-          <li v-for="s in sides" :key="s"><b>{{ match[s].teamName }}</b> {{ answerText(s) }}</li>
+          <li v-for="s in sides" :key="s"><b>{{ team(s) }}</b> {{ answerText(s) }}</li>
         </ul>
         <p class="muted">Timers start only if both coaches say yes.</p>
       </template>
-    </div>
-
-    <div v-else-if="step()" class="tt-pre-card">
-      <h3>{{ PREGAME_LABELS[step() as keyof typeof PREGAME_LABELS] }}</h3>
-      <p class="muted">The server rolls this and records the result.</p>
-      <button class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="emit('advance', {})">Roll {{ PREGAME_LABELS[step() as keyof typeof PREGAME_LABELS].toLowerCase() }}</button>
     </div>
     <p v-if="error" class="lobby-error" role="alert">{{ error }}</p>
   </section>

@@ -11,6 +11,8 @@ import TabletopOther from "../components/TabletopOther.vue";
 import TabletopPick from "../components/TabletopPick.vue";
 import TabletopTtm from "../components/TabletopTtm.vue";
 import TabletopPregame from "../components/TabletopPregame.vue";
+import TabletopPregameCine from "../components/TabletopPregameCine.vue";
+import { createCineQueue, type CineItem } from "../tabletop/pregameCine";
 import TabletopRosters from "../components/TabletopRosters.vue";
 import TabletopScoreboard from "../components/TabletopScoreboard.vue";
 import TabletopMatchSummary from "../components/TabletopMatchSummary.vue";
@@ -59,6 +61,20 @@ const me = computed(() => session.coach());
 const organiser = computed(() => session.state.info?.organizer === true);
 const inPregame = computed(() => pregameStep(state.phase) !== "");
 const recording = computed(() => match.value?.state === "recording" && !inPregame.value);
+
+// Pre-game cines: a new fans / weather / coin / kick-receive event from the server plays its short cine (one at a
+// time, click to skip). Nothing replays when the match is opened: the first load only marks what is already there.
+const cineQueue = createCineQueue();
+const cine = ref<CineItem | undefined>(undefined);
+watch(() => [state.loaded, state.events] as const, () => {
+  if (!state.loaded) return;
+  cineQueue.see(state.events, match.value);
+  cine.value = cineQueue.current;
+}, { immediate: true });
+function cineDone(): void {
+  cineQueue.next();
+  cine.value = cineQueue.current;
+}
 const rows = computed(() => feedRows(state.events, state.effectiveIds, state.teams, Object.fromEntries((state.tally.events ?? []).map((e) => [e.id, e.sppEarned])), match.value ?? undefined, opponentSide.value));
 const heading = (s: Side): string => (match.value ? `${s === "home" ? "Home" : "Away"}: ${match.value[s].teamName} (${match.value[s].coach})` : "");
 
@@ -407,7 +423,8 @@ onBeforeUnmount(() => {
 
       <TabletopPregame
         v-if="inPregame" :match="match" :teams="state.teams" :phase="state.phase" :pregame="state.pregame"
-        :busy="state.busy" :error="state.actionError" :clock="state.clock" :timer-answers="timerAnswers" @advance="(b: Record<string, unknown>) => rec.advance(b)"
+        :busy="state.busy" :error="state.actionError" :clock="state.clock" :timer-answers="timerAnswers" :my-side="mySide" :organiser="organiser" :inducement-icons="state.inducementIcons"
+        @advance="(b: Record<string, unknown>) => rec.advance(b)" @skip="rec.skipPregame()"
       />
 
       <template v-if="match.state !== 'recording'">
@@ -460,6 +477,7 @@ onBeforeUnmount(() => {
       <button class="tt-big tt-big-other" type="button" data-tip="More events" @click="viewer.buzz(); other = true"><span class="tt-big-dots" aria-hidden="true">&#8943;</span><span>Other</span></button>
     </nav>
 
+    <TabletopPregameCine v-if="cine" :key="cine.key" :item="cine" @done="cineDone" />
     <TabletopPlayerCard v-if="pcard.show && pcardView" :player="pcardView.player" :side="pcardView.side" :line="pcardView.line" :obscured="pcardView.obscured" :x="pcard.x" :y="pcard.y" />
     <div v-if="tip.show" class="tt-tip" role="tooltip" :data-below="tip.below ? 'true' : null" :style="{ left: `${tip.x}px`, top: `${tip.y}px`, '--tt-tip-arrow': `${tip.arrow}%` }">{{ tip.text }}</div>
 

@@ -1412,51 +1412,65 @@ describe("tabletop routes (server-rendered)", () => {
 
   const pregameProps = (phase: string, pregame: Record<string, unknown> = {}) => ({ match: baseMatch("recording"), teams, phase, pregame, busy: false, error: "" });
 
-  it("pre-game wizard: a server-rolled step shows its result and one roll button per phase", async () => {
-    for (const [phase, label] of [["fans", "Roll fans"], ["weather", "Roll weather"], ["journeymen", "Roll journeymen"], ["prayers", "Roll prayers to nuffle"]]) {
+  it("pre-game wizard: every dice step offers Roll for me and Enter result; journeymen is one button", async () => {
+    for (const phase of ["fans", "weather", "prayers"]) {
       const html = await mount(mods.pregameC, pregameProps(`pregame:${phase}`, { fans: "Home 5, Away 2" }));
-      expect(html, phase).toContain(label);
-      expect(html, phase).toContain("The server rolls this and records the result.");
+      expect(html, phase).toContain(">Roll for me<");
+      expect(html, phase).toContain(">Enter result<");
       expect(html, phase).toContain('data-state="now"');
     }
+    expect(await mount(mods.pregameC, pregameProps("pregame:journeymen"))).toContain("Take on journeymen");
     const later = await mount(mods.pregameC, pregameProps("pregame:weather", { fans: "Home 5, Away 2" }));
     expect(later).toContain("Home 5, Away 2"); // the earlier result, from the server
   });
 
-  it("pre-game wizard: inducements per team with Skip, from the server's options", async () => {
+  it("pre-game wizard: an inducement picker per team (catalogue + cart), from the server's options", async () => {
     const html = await mount(mods.pregameC, pregameProps("pregame:inducements", {
       inducementOptions: { home: [{ id: "bribes", name: "Bribes", cost: 100000, max: 3 }], away: [] },
     }));
     expect(html).toContain("Bribes");
     expect(html).toContain("100k");
-    expect(html).toContain("Submit Alice Orcs");
-    expect(html).toContain("Submit Bob Elves"); // one phone submits both teams
+    expect(html).toContain("Confirm Alice Orcs");
+    expect(html).toContain("Confirm Bob Elves"); // one phone submits both teams
     expect(html).toContain("No inducements offered.");
-    expect(html.match(/>Skip</g)).toHaveLength(2);
+    expect(html.match(/>No inducements</g)).toHaveLength(2);
     const again = await mount(mods.pregameC, pregameProps("pregame:inducements", { inducements: { home: { picks: [] } }, inducementOptions: { home: [{ id: "bribes", name: "Bribes", max: 3 }], away: [] } }));
     expect(again).toContain("Resubmit Alice Orcs"); // a resubmission replaces
-    expect(again).toContain("Submit Bob Elves");
+    expect(again).toContain("Confirm Bob Elves");
   });
 
-  it("coin flipper: opens on Heads / Tails, no coin yet; hand entry is a small link at the bottom", async () => {
-    const html = await mount(mods.pregameC, pregameProps("pregame:coin"));
+  it("coin flipper: the drawn caller sees Heads / Tails, the other coach waits; hand entry is a small link at the bottom", async () => {
+    const html = await mount(mods.pregameC, pregameProps("pregame:coin", { coin: { caller: "away" } }));
     expect(html).toContain("Bob calls the toss");
     expect(html).toContain("Heads ");
     expect(html).toContain("Tails ");
     expect(html).not.toContain('class="tt-coin"');
-    expect(html).toContain("Rolled a real coin? Enter the result");
-    expect(html.indexOf("Rolled a real coin?")).toBeGreaterThan(html.indexOf("Tails"));
-    expect(html).not.toContain("Record hand-rolled result"); // not a peer button
+    expect(html).toContain("Flipped a real coin? Enter the result");
+    expect(html.indexOf("Flipped a real coin?")).toBeGreaterThan(html.indexOf("Tails"));
+    const other = await mount(mods.pregameC, { ...pregameProps("pregame:coin", { coin: { caller: "away" } }), mySide: "home" });
+    expect(other).toContain("Bob (Bob Elves) is calling the toss");
+    expect(other).not.toContain("Heads <");
+    const caller = await mount(mods.pregameC, { ...pregameProps("pregame:coin", { coin: { caller: "away" } }), mySide: "away" });
+    expect(caller).toContain("Heads ");
+    const org = await mount(mods.pregameC, { ...pregameProps("pregame:coin", { coin: { caller: "away" } }), mySide: null, organiser: true });
+    expect(org).toContain("Heads "); // an organiser may call for the coaches
+    expect(org).toContain("Skip pre-game");
+    expect(other).not.toContain("Skip pre-game");
+    expect(await mount(mods.pregameC, pregameProps("pregame:coin"))).toContain("Draw the caller"); // an older match with no draw yet
   });
 
-  it("coin flipper: the animation lands on the server's face, then the winner picks Kick / Receive", async () => {
+  it("kick/receive: the winner gets the Kick or receive? dialog; everyone else waits", async () => {
     for (const result of ["heads", "tails"]) {
-      const html = await mount(mods.pregameC, pregameProps("pregame:coin", { coin: { result, call: "heads", winner: "away" } }));
-      expect(html).toContain(`data-result="${result}"`);
+      const kr = { step: "kickreceive", coin: { caller: "home", result, call: "heads", winner: "away" } };
+      const html = await mount(mods.pregameC, { ...pregameProps("pregame:coin", kr), mySide: "away" });
       expect(html).toContain(`${result.toUpperCase()} - Bob Elves wins the toss`);
-      expect(html).toContain("Bob Elves kicks");
-      expect(html).toContain("Bob Elves receives");
+      expect(html).toContain("Kick or receive?");
+      expect(html).toContain(">Receive<");
+      expect(html).toContain(">Kick<");
       expect(html).not.toContain("calls the toss");
+      const loser = await mount(mods.pregameC, { ...pregameProps("pregame:coin", kr), mySide: "home" });
+      expect(loser).toContain("Bob won the toss and is choosing to kick or receive");
+      expect(loser).not.toContain("Kick or receive?");
     }
     const { readFileSync } = await import("node:fs");
     const css = readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");

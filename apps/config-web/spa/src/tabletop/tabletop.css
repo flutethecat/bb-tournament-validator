@@ -1408,6 +1408,107 @@
   .tt-cr[data-rank="legend"] .tt-rank { filter: drop-shadow(0 0 3px var(--ui-text-on-primary, #ffffff)); }
 }
 
+/* ---- pre-game flow (spec-recorder-pregame-2026-10-30): step cards, dice entry, inducement picker, kick/receive, cines ---- */
+.tt-pre-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tt-pre-h { margin: 0; }
+.tt-pre-skip { font-size: 12px; }
+.tt-pre-card h3 { margin-bottom: 4px; }
+.tt-pre-entry { display: grid; gap: 6px; margin-top: 6px; }
+.tt-pre-dice-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tt-pre-dice-who { min-width: 9em; font-size: 13px; font-weight: 700; }
+.tt-pre-die { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; background: #f4f1e8; color: #1c1c1c; border: 2px solid var(--tt-line); border-radius: 8px; box-shadow: inset 0 -3px 0 #0003; font: inherit; font-weight: 900; font-size: 18px; cursor: pointer; }
+.tt-pre-die[aria-pressed="true"] { background: var(--tt-accent); color: var(--tt-on-accent); box-shadow: 0 0 0 2px var(--tt-ink); }
+.tt-pre-mini { display: grid; gap: 2px; margin: 6px 0; font-size: 12px; color: var(--tt-muted); }
+
+/* inducement picker: catalogue left, cart right (stacked on a phone), the client's gold-on-dark rows */
+.tt-pre-ind { display: grid; gap: 10px; }
+.tt-ipk { padding: 8px; background: rgb(14 18 26 / 0.92); color: #dfe6ff; border: 1px solid rgb(120 150 190 / 0.5); border-radius: 8px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.4); }
+.tt-rec[data-tt-theme="snes"] .tt-ipk { background: var(--tt-panel); color: var(--tt-ink); border-color: var(--tt-line); box-shadow: var(--tt-shadow); }
+.tt-ipk-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.tt-ipk-title { font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; color: #e8b84a; }
+.tt-ipk-team { font-family: var(--font-heading, sans-serif); font-size: 14px; }
+.tt-ipk-done { margin-left: auto; color: #8fd18f; font-weight: 700; font-size: 12px; }
+.tt-ipk-role, .tt-ipk-wait { margin: 4px 0; font-size: 12px; }
+.tt-ipk-grid { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 640px) { .tt-ipk-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
+.tt-ipk-list { display: grid; gap: 2px; max-height: 340px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.tt-ipk-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; align-items: center; gap: 6px; min-height: 44px; padding: 2px 4px; border-radius: 4px; }
+.tt-ipk-row[data-picked="true"] { background: color-mix(in srgb, #e8b84a 16%, transparent); }
+.tt-ipk-icon { width: 28px; height: 28px; object-fit: contain; }
+.tt-ipk-ph { display: inline-flex; align-items: center; justify-content: center; border: 1px dashed currentColor; border-radius: 4px; font-size: 13px; opacity: 0.6; }
+.tt-ipk-name { font-size: 13px; overflow-wrap: anywhere; }
+.tt-ipk-cost { font-variant-numeric: tabular-nums; font-size: 12px; color: #e8b84a; }
+.tt-ipk-stepper { display: inline-flex; align-items: center; gap: 4px; }
+.tt-ipk-btn { width: 36px; height: 36px; background: var(--tt-btn); color: var(--tt-btn-ink); border: 2px solid var(--tt-line); border-radius: var(--tt-radius); font: inherit; font-size: 18px; cursor: pointer; }
+.tt-ipk-btn::before { content: ""; } /* 36 px visual, row is 44 px tall */
+.tt-ipk-btn:disabled { opacity: 0.4; cursor: default; }
+.tt-ipk-count { min-width: 2.6em; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tt-ipk-count small { opacity: 0.6; font-weight: 400; }
+.tt-ipk-cart { padding: 6px; border: 1px solid rgb(120 150 190 / 0.35); border-radius: 6px; }
+.tt-ipk-totals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 8px; font-size: 12px; }
+.tt-ipk-totals b { font-variant-numeric: tabular-nums; }
+.tt-ipk-totals [data-low="true"] b { color: var(--ui-danger, #ff4d4d); }
+.tt-ipk-lines { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
+.tt-ipk-lines li { display: flex; justify-content: space-between; gap: 8px; }
+.tt-dots i { animation: tt-dots 1.2s infinite; font-style: normal; }
+.tt-dots i:nth-child(2) { animation-delay: 0.2s; }
+.tt-dots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes tt-dots { 0%, 60%, 100% { opacity: 0.2; } 30% { opacity: 1; } }
+
+/* coin: waiting for the other coach, and the winner's Kick or receive? dialog (the client's yes/no card) */
+.tt-coin-wait { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; text-align: center; }
+.tt-coin-wait p { margin: 0; }
+.tt-coin-spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid color-mix(in srgb, var(--tt-ink) 25%, transparent); border-top-color: #e8b84a; animation: tt-spin 1s linear infinite; }
+@keyframes tt-spin { to { transform: rotate(360deg); } }
+.tt-kr-modal { align-items: center; }
+.tt-kr-box { width: min(92vw, 360px); padding: 16px; background: rgb(14 18 26 / 0.96); color: #eef0e6; border: 1px solid #e8b84a; border-radius: 10px; box-shadow: 0 8px 28px #000a; text-align: center; }
+.tt-rec[data-tt-theme="snes"] .tt-kr-box { background: var(--tt-panel); color: var(--tt-ink); border: 2px solid var(--tt-line); box-shadow: var(--tt-shadow); }
+.tt-kr-title { font-family: var(--font-heading, sans-serif); font-size: 1.3rem; font-weight: 800; margin-bottom: 4px; }
+.tt-kr-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.tt-kr-btn { min-height: 64px; font-size: 1.2rem; font-weight: 800; }
+
+/* the cines: a dark radial wash over the recorder, at most 2.5 s, tap to skip */
+.tt-cine { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 16px; background: radial-gradient(ellipse at center, #000c 0%, #0008 55%, #0003 100%); color: #f3efe2; text-align: center; cursor: pointer; animation: tt-cine-in 180ms ease-out; }
+.tt-cine-title { font-family: var(--font-heading, sans-serif); font-size: 1.15rem; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; text-shadow: 0 2px 6px #000d; }
+.tt-cine-caption { font-size: 1.35rem; font-weight: 800; text-shadow: 0 2px 6px #000d; opacity: 0; animation: tt-coin-caption 400ms ease-out 950ms forwards; }
+.tt-cine-caption b { color: #ffd24a; font-size: 1.6rem; }
+.tt-cine-late { animation-delay: 1900ms; }
+.tt-cine-skip { position: absolute; bottom: 16px; font-size: 11px; opacity: 0.6; }
+.tt-cine-die { width: 58px; height: 58px; display: inline-flex; align-items: center; justify-content: center; background: #f4f1e8; color: #1c1c1c; border-radius: 12px; box-shadow: inset 0 -4px 0 #0003, 0 8px 14px #000a; font-size: 1.8rem; font-weight: 900; }
+.tt-cine-die.d3 { width: 46px; height: 46px; font-size: 1.4rem; border-radius: 50% 50% 12px 12px; }
+.tt-cine-dice { display: flex; gap: 26px; }
+.tt-cine-die.from-north { animation: tt-drop-north 900ms cubic-bezier(0.25, 0.6, 0.3, 1) both; }
+.tt-cine-die.from-south { animation: tt-drop-south 900ms cubic-bezier(0.25, 0.6, 0.3, 1) both; }
+.tt-cine-splash { display: flex; align-items: center; gap: 14px; opacity: 0; transform: scale(0.85); animation: tt-splash-in 500ms cubic-bezier(0.2, 0.9, 0.3, 1.2) 950ms forwards; }
+.tt-cine-icon { font-size: 2.6rem; line-height: 1; filter: drop-shadow(0 2px 5px #000b); }
+.tt-cine-weather { font-family: var(--font-heading, sans-serif); font-size: 2rem; font-weight: 900; text-shadow: 0 3px 14px #000f, 0 0 26px #e8b84a55; }
+.tt-cine-effect { margin: 0; max-width: 28em; font-size: 0.95rem; opacity: 0; animation: tt-coin-caption 400ms ease-out 1300ms forwards; }
+.tt-cine-fans { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px 36px; }
+.tt-cine-fan { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 16px; border-radius: 12px; border: 2px solid #ffffff20; min-width: 130px; }
+.tt-cine-fan.home { animation: tt-drop-south 800ms cubic-bezier(0.25, 0.6, 0.3, 1) both; }
+.tt-cine-fan.away { animation: tt-drop-north 800ms cubic-bezier(0.25, 0.6, 0.3, 1) both; }
+.tt-cine-fan[data-leader="true"] { background: color-mix(in srgb, #e8b84a 13%, transparent); border-color: color-mix(in srgb, #e8b84a 67%, transparent); box-shadow: 0 0 20px color-mix(in srgb, #e8b84a 27%, transparent); }
+.tt-cine-coach { font-weight: 800; text-shadow: 0 2px 5px #000d; max-width: 12em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-cine-count { font-family: var(--font-heading, sans-serif); font-size: 2.6rem; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; color: #ffd24a; text-shadow: 0 3px 10px #000e; }
+.tt-cine-math { font-size: 0.9rem; color: #e8e2d0; }
+.tt-cine-math b { color: #ffd24a; }
+.tt-cine-call { font-size: 1.15rem; font-weight: 800; text-shadow: 0 2px 6px #000d; animation: tt-coin-caption 300ms ease-out both; }
+.tt-cine-coin-lift { perspective: 600px; animation: tt-coin-toss 1800ms cubic-bezier(0.3, -0.5, 0.4, 1) both; }
+.tt-cine-coin { animation-duration: 1800ms; }
+.tt-cine-kr { font-family: var(--font-heading, sans-serif); font-size: 2rem; font-weight: 900; text-shadow: 0 3px 14px #000f; opacity: 0; transform: scale(0.85); animation: tt-splash-in 450ms cubic-bezier(0.2, 0.9, 0.3, 1.2) 100ms forwards; }
+.tt-cine-kr-team { color: #ffd24a; }
+.tt-cine[data-kind="kickreceive"] .tt-cine-caption { animation-delay: 500ms; }
+@keyframes tt-cine-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tt-drop-north { 0% { transform: translateY(-45vh) rotate(-220deg) scale(0.6); opacity: 0; } 70% { opacity: 1; } 100% { transform: none; opacity: 1; } }
+@keyframes tt-drop-south { 0% { transform: translateY(45vh) rotate(220deg) scale(0.6); opacity: 0; } 70% { opacity: 1; } 100% { transform: none; opacity: 1; } }
+@keyframes tt-splash-in { 0% { transform: scale(0.85) translateY(14px); opacity: 0; } 100% { transform: none; opacity: 1; } }
+/* reduced motion: the result, no movement */
+@media (prefers-reduced-motion: reduce) {
+  .tt-cine, .tt-cine *, .tt-coin-spinner, .tt-dots i { animation: none !important; }
+  .tt-cine-caption, .tt-cine-splash, .tt-cine-effect, .tt-cine-kr { opacity: 1; transform: none; }
+  .tt-cine-coin[data-result="tails"] { transform: rotateX(180deg); }
+}
+
 /* ======================================================================================================================================
    PHONE (below 760 px): the 390 px "Modern Retro" frame. One scale block (--tt-* steps), one column, 16 px side gutter, no horizontal page scroll.
    Order top to bottom: context line, compact hero (LED / weather row, crests + names + broadcast-bug score, stats strip, End Turn), strip (turn + timeline +
