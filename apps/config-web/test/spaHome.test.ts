@@ -6,8 +6,8 @@ import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import { browserTimeZone, CHIP_CLASS, chipFor, formatWhen, timeLeft } from "../spa/src/home/deadlines";
 import { blocksProblem, byDay, createScheduleEditor, MAX_BLOCKS, timeZoneOptions } from "../spa/src/home/schedule";
-import { createCoachTree, openFixture, pickActive, tournamentStatus, validityChip } from "../spa/src/home/tree";
-import { logDate, routerPathOf, typingTarget } from "../spa/src/home/shell";
+import { createCoachTree, MAX_FINISHED_TOURNAMENTS, openFixture, pickActive, TREE_REFRESH_MS, tournamentStatus, validityChip } from "../spa/src/home/tree";
+import { CLOCK_TICK_MS, createClock, logDate, routerPathOf, trapTarget, typingTarget } from "../spa/src/home/shell";
 
 // Shell nav trees + coach page (/app/home) + What's new (/app/whats-new). Controllers are tested directly; the views are
 // server-rendered through the SPA's own Vite config (as spaShell.test.ts does), so the HTML is what build:spa compiles.
@@ -109,7 +109,10 @@ describe("availability editor", () => {
     expect(blocksProblem([{ day: 2, start: "21:00", end: "18:00" }])).toMatch(/start must be before the end/);
     expect(blocksProblem([{ day: 2, start: "9:00", end: "18:00" }])).toMatch(/HH:MM/);
     expect(blocksProblem([{ day: 9, start: "09:00", end: "18:00" }])).toMatch(/Pick a day/);
-    expect(blocksProblem([{ day: 1, start: "09:00", end: "10:00" }, { day: 1, start: "09:00", end: "10:00" }])).toMatch(/twice/);
+    expect(blocksProblem([{ day: 1, start: "09:00", end: "10:00" }, { day: 1, start: "09:00", end: "10:00" }])).toMatch(/overlaps/);
+    // intersecting blocks on one day are refused (like the server); touching ones and other days are fine
+    expect(blocksProblem([{ day: 0, start: "18:00", end: "21:00" }, { day: 0, start: "19:00", end: "20:00" }])).toBe("Mon 19:00-20:00 overlaps 18:00-21:00.");
+    expect(blocksProblem([{ day: 0, start: "19:00", end: "21:00" }, { day: 0, start: "18:00", end: "19:00" }, { day: 1, start: "18:30", end: "20:00" }])).toBe("");
     expect(blocksProblem(Array.from({ length: MAX_BLOCKS + 1 }, (_, i) => ({ day: i % 7, start: "09:00", end: `1${i % 10}:00` })))).toMatch(/At most 21/);
     expect(byDay([{ day: 6, start: "12:00", end: "13:00" }, { day: 6, start: "09:00", end: "10:00" }])[6]!.map((b) => b.start)).toEqual(["09:00", "12:00"]);
     expect(timeZoneOptions("Odd/Zone")[0]).toBe("Odd/Zone");
@@ -118,7 +121,7 @@ describe("availability editor", () => {
   it("detects the timezone until one is saved, refuses a bad block locally, and PUTs the week", async () => {
     const f = mockFetcher({
       "GET /api/me/scheduling": { timezone: "", availability: [] },
-      "PUT /api/me/scheduling": (body) => body,
+      "PUT /api/me/scheduling": (body: unknown) => body,
     });
     const ed = createScheduleEditor({ api: f, detect: () => "Europe/Berlin" });
     await ed.load();
@@ -131,6 +134,35 @@ describe("availability editor", () => {
     expect(await ed.save()).toBe(true);
     expect(f.calls.at(-1)).toMatchObject({ method: "PUT", path: "/api/me/scheduling", body: { timezone: "Europe/Berlin", availability: [{ day: 4, start: "18:00", end: "19:00" }] } });
     expect(ed.state).toMatchObject({ detected: false, dirty: false, notice: "Availability saved." });
+  });
+
+  it("a failed read keeps Save off (never PUTs an empty week), shows the error, and Retry recovers", async () => {
+    let fail = true;
+    const f = mockFetcher({
+      "GET /api/me/scheduling": () => (fail ? new ApiError(503, "Busy.") : { timezone: "Europe/London", availability: [{ day: 2, start: "18:00", end: "20:00" }] }),
+      "PUT /api/me/scheduling": (body: unknown) => body,
+    });
+    const ed = createScheduleEditor({ api: f, detect: () => "UTC" });
+    await ed.load();
+    expect(ed.state).toMatchObject({ loaded: false, loadFailed: true, blocks: [] });
+    expect(ed.state.error).toContain("Busy.");
+    expect(ed.addBlock(0)).toBe(false);
+    expect(await ed.save()).toBe(false);
+    expect(f.calls.some((c) => c.method === "PUT")).toBe(false);
+    fail = false;
+    await ed.load();
+    expect(ed.state).toMatchObject({ loaded: true, loadFailed: false, error: "", blocks: [{ day: 2, start: "18:00", end: "20:00" }] });
+  });
+
+  it("a successful save tells the shell (the nav trees refetch)", async () => {
+    let saved = 0;
+    const ed = createScheduleEditor({
+      api: mockFetcher({ "GET /api/me/scheduling": { timezone: "UTC", availability: [] }, "PUT /api/me/scheduling": (b: unknown) => b }),
+      onSaved: () => { saved++; },
+    });
+    await ed.load();
+    await ed.save();
+    expect(saved).toBe(1);
   });
 
   it("shows the server's refusal", async () => {
@@ -164,6 +196,69 @@ describe("nav tree controller", () => {
     expect(tree.state.tournaments).toEqual([]);
   });
 
+  it("keeps the coach's most recent finished entries (at most 5) with the Finished chip", async () => {
+    const finished = Array.from({ length: 7 }, (_, i) => summary(`f${i}`, `Old Cup ${i}`, "completed", { myEntrantId: `x${i}`, endsAt: `2026-0${i + 1}-15T00:00:00Z` }));
+    const tree = createCoachTree({
+      api: mockFetcher({ ...signedInRoutes(), "/api/fork/tournaments?status=completed": { tournaments: [...finished, summary("f9", "Theirs", "completed")], hasMore: false } }),
+    });
+    await tree.load("Alice");
+    const done = tree.state.tournaments.filter((t) => t.status.label === "Finished");
+    expect(done).toHaveLength(MAX_FINISHED_TOURNAMENTS);
+    expect(done.map((t) => t.id)).toEqual(["f6", "f5", "f4", "f3", "f2"]);
+    expect(tree.state.tournaments.slice(0, 2).map((t) => t.id)).toEqual(["t1", "t2"]);
+  });
+
+  it("refreshes at most once a minute on its own, and at once when invalidated", async () => {
+    let t = 1_000_000;
+    const f = mockFetcher(signedInRoutes());
+    const tree = createCoachTree({ api: f, now: () => t });
+    await tree.load("Alice");
+    const reads = () => f.calls.filter((c) => c.path === "/api/me/deadlines").length;
+    expect(reads()).toBe(1);
+    t += TREE_REFRESH_MS - 1;
+    await tree.refresh();
+    expect(reads()).toBe(1);
+    t += 1;
+    await tree.refresh();
+    expect(reads()).toBe(2);
+    await tree.invalidate();
+    expect(reads()).toBe(3);
+    // invalidated mid-fetch: exactly one more fetch once the running one lands
+    const running = tree.invalidate();
+    void tree.invalidate();
+    await running;
+    for (let i = 0; i < 20 && tree.state.loading; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(reads()).toBe(5);
+  });
+
+  it("one shared clock ticks every 60 s while something on screen uses it", () => {
+    let now = 0;
+    const timers: Array<{ fn: () => void; ms: number }> = [];
+    const cleared: unknown[] = [];
+    const clock = createClock({ now: () => now, setInterval: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearInterval: (h) => { cleared.push(h); } });
+    const a = clock.acquire();
+    const b = clock.acquire();
+    expect(timers).toHaveLength(1);
+    expect(timers[0]!.ms).toBe(CLOCK_TICK_MS);
+    now = 60_000;
+    timers[0]!.fn();
+    expect(clock.state.now).toBe(60_000);
+    a(); a();
+    expect(cleared).toHaveLength(0);
+    b();
+    expect(cleared).toEqual([1]);
+  });
+
+  it("drawer focus trap: Tab wraps at the ends and pulls stray focus back inside", () => {
+    const list = ["a", "b", "c"];
+    expect(trapTarget(list, "c", false)).toBe("a");
+    expect(trapTarget(list, "a", true)).toBe("c");
+    expect(trapTarget(list, "b", false)).toBeUndefined();
+    expect(trapTarget(list, "outside", false)).toBe("a");
+    expect(trapTarget(list, null, true)).toBe("c");
+    expect(trapTarget([], null, false)).toBeUndefined();
+  });
+
   it("a failing source leaves an empty tree, never an error", async () => {
     const tree = createCoachTree({ api: mockFetcher({}) });
     await tree.load("Alice");
@@ -176,6 +271,16 @@ describe("nav tree controller", () => {
     expect(tournamentStatus({ status: "completed" }, undefined).label).toBe("Finished");
     expect(validityChip(undefined).label).toBe("No team");
     expect(validityChip({ id: "e", seed: 1, teamId: "t", submission: { submittedAt: "", valid: false, problemCount: 1 } }).label).toBe("1 problem");
+    // organiser decisions win, as on the tournament page (rosterState)
+    const flags = (rosterVerified: boolean) => ({ paid: false, rosterVerified, frozen: false, checkedIn: false, active: true });
+    const verified = { id: "e", seed: 1, teamId: "t", flags: flags(true), rosterVerifiedOverride: true, submission: { submittedAt: "", valid: false, problemCount: 2 } };
+    const rejected = { id: "e", seed: 1, teamId: "t", flags: flags(false), rosterVerifiedOverride: false, submission: { submittedAt: "", valid: true, problemCount: 0 } };
+    const validatorSaysNo = { id: "e", seed: 1, teamId: "t", flags: flags(false), submission: { submittedAt: "", valid: false, problemCount: 2 } };
+    expect(validityChip(verified)).toEqual({ label: "Valid", tone: "ok" });
+    expect(validityChip(rejected)).toEqual({ label: "Invalid", tone: "urgent" });
+    expect(validityChip(validatorSaysNo).label).toBe("2 problems");
+    expect(tournamentStatus({ status: "draft" }, verified).label).toBe("Open");
+    expect(tournamentStatus({ status: "draft" }, rejected).label).toBe("Pending");
     expect(openFixture([], "e1")).toBeUndefined();
     const rows = ["/home#deadlines", "/tournaments/t1", "/tournaments/t1?tab=rounds", "/home", "/account"];
     expect(pickActive(rows, "/home#deadlines")).toBe("/home#deadlines");
@@ -202,7 +307,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
   let mods: {
     createSpa: (o: { history: unknown; ssr?: boolean; fetcher?: Fetcher }) => {
       app: unknown; router: { push: (p: string) => Promise<unknown>; isReady: () => Promise<void>; currentRoute: { value: { name: unknown } } };
-      ui: { collapsed: boolean; drawerOpen: boolean };
+      ui: { collapsed: boolean; drawerOpen: boolean; narrow: boolean };
     };
     createMemoryHistory: (base?: string) => unknown;
     renderToString: (app: unknown) => Promise<string>;
@@ -293,6 +398,18 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(css).toContain("--sf-nav-w: 260px;");
     expect(css).toMatch(/\.sf-body\[data-rail="true"\] \{ grid-template-columns: var\(--sf-rail-w\)/);
     expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-head-link::before[^{]*\{ content: attr\(data-glyph\)/);
+  });
+
+  it("phone drawer: inert and hidden while closed, a modal dialog while open; the desktop bar is never inert", async () => {
+    const closed = (await render("/home", signedInRoutes(), (spa) => { spa.ui.narrow = true; })).html.match(/<aside [^>]*>/)![0];
+    expect(closed).toMatch(/\binert\b/);
+    expect(closed).toContain('aria-hidden="true"');
+    const open = (await render("/home", signedInRoutes(), (spa) => { spa.ui.narrow = true; spa.ui.drawerOpen = true; })).html.match(/<aside [^>]*>/)![0];
+    expect(open).not.toMatch(/\binert\b|aria-hidden/);
+    expect(open).toContain('role="dialog"');
+    expect(open).toContain('aria-modal="true"');
+    const desktop = (await render("/home", signedInRoutes())).html.match(/<aside [^>]*>/)![0];
+    expect(desktop).not.toMatch(/\binert\b|aria-hidden|role=/);
   });
 
   it("signed out: the Coach page tree asks for a sign-in, /home shows the prompt, and the trees still link", async () => {
