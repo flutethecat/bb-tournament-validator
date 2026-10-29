@@ -75,8 +75,38 @@ export interface TournamentRecord {
   startedAt?: string;
   /** v4: reserved for Tournament Series (phase 5). */
   seriesId?: string;
+  /** Tournament page (lane 6, additive, no version bump): `tournament-banners/<sha256>.<png|jpg|webp>` relative to the
+   *  tournaments data dir. Never sent to clients; the read model carries `bannerUrl` instead. */
+  bannerPath?: string;
+  location?: TournamentLocation;
+  /** Local start time at the venue, "HH:MM" (24 h). */
+  startTime?: string;
+  /** Free text, e.g. "15 GBP" or "Free". */
+  entryFee?: string;
+  /** Organiser-written markdown-lite (paragraphs, **bold**, *italic*, http(s) links, lists). */
+  summary?: string;
+  /** "What to bring" notes, markdown-lite. */
+  notes?: string;
+  /** Organiser news posts (stored in posting order; the read model sorts pinned first, newest first). */
+  news?: TournamentNewsPost[];
+  /** ISO timestamps. The coach home Deadlines panel reads exactly these names. */
+  deadlines?: TournamentDeadlines;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TournamentLocation { venue?: string; address?: string; mapUrl?: string }
+export interface TournamentDeadlines { registration?: string; checkIn?: string }
+export interface TournamentNewsPost {
+  id: string;
+  title: string;
+  body: string;
+  /** The posting manager's coach id. */
+  by: string;
+  /** ISO posting time. */
+  at: string;
+  pinned: boolean;
+  editedAt?: string;
 }
 
 /** A tournament seat always points at a coach identity verified by config-web auth. */

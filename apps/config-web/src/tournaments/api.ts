@@ -2,6 +2,7 @@ import { bb2025 } from "@bb/validator/dataset";
 import { generateTournamentPairings } from "./pairing.js";
 import { NafExportError, renderNafTournamentXml } from "./nafExport.js";
 import { isTournamentManager, tournamentOwner, TournamentStore, TournamentStoreError, type TournamentUpdate } from "./store.js";
+import { bannerUrl, NEWS_MAX_POSTS, newNewsPost, orderedNews, PAGE_FIELDS, parseNewsInput, parsePagePatch } from "./page.js";
 import { DEFAULT_ENTRANT_FLAGS, DEFAULT_TOURNAMENT_TURN_TIMER, TOURNAMENT_PAIRING_SYSTEMS, TOURNAMENT_SEEDING_MODES } from "./types.js";
 import type {
   ScheduledMatchRecord,
@@ -305,7 +306,8 @@ function clientTournament(
   entrants: TournamentEntrantRecord[],
   auth?: TournamentApiIdentity,
 ) {
-  const { startsAt, endsAt, ...record } = tournament;
+  const { startsAt, endsAt, bannerPath: _bannerPath, news, ...record } = tournament;
+  const banner = bannerUrl(tournament);
   const ownEntrant = auth
     ? entrants.find((entrant) => coachKey(entrant.coach.ffbCoachId) === coachKey(auth.coach))
     : undefined;
@@ -315,6 +317,8 @@ function clientTournament(
     inducementOptIns: tournament.inducementOptIns ?? [],
     ...(startsAt === undefined ? {} : { startsAt }),
     ...(endsAt === undefined ? {} : { endsAt }),
+    ...(banner ? { bannerUrl: banner } : {}),
+    ...(news?.length ? { news: orderedNews(news) } : {}),
     ...(tournamentOwner(tournament) ? { ownerCoachId: tournamentOwner(tournament) } : {}),
     organizerCoachIds: tournament.organizerCoachIds ?? [],
     pairingSystem: tournament.pairingSystem ?? "eloSeeded",
@@ -594,7 +598,11 @@ export async function tournamentApi(
       const offset = (page - 1) * TOURNAMENT_PAGE_SIZE;
       const tournaments = filtered
         .slice(offset, offset + TOURNAMENT_PAGE_SIZE)
-        .map((tournament) => clientTournament(tournament, deps.store.entrants(tournament.id), auth));
+        .map((tournament) => {
+          // The list stays light: news, summary and notes are read from the detail route.
+          const { news: _news, summary: _summary, notes: _notes, ...item } = clientTournament(tournament, deps.store.entrants(tournament.id), auth);
+          return item;
+        });
       return {
         status: 200,
         body: {
@@ -790,6 +798,29 @@ export async function tournamentApi(
       };
     }
 
+    const newsMatch = path.match(/^\/api\/tournaments\/([^/]+)\/news(?:\/([^/]+))?$/);
+    if (newsMatch && (method === "POST" || method === "PATCH" || method === "DELETE")) {
+      const identity = authenticated(auth);
+      const tournamentId = decoded(newsMatch[1]!);
+      const newsId = newsMatch[2] === undefined ? undefined : decoded(newsMatch[2]);
+      const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
+      if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
+      requireTournamentManager(tournament, identity);
+      if (method === "POST") {
+        if (newsMatch[2] !== undefined) return { status: 405, body: { error: "POST to /news to add a post." } };
+        const post = deps.store.addNews(tournament.id, newNewsPost(parseNewsInput(jsonObject(body), false), identity.coach, now), NEWS_MAX_POSTS, now);
+        // Notifications hook: a new post should notify the entrants here (the notifications lane owns that store).
+        return { status: 201, body: { post, news: orderedNews(deps.store.tournament(tournament.id)?.news) } };
+      }
+      if (!newsId) return { status: 404, body: { error: "News post not found." } };
+      if (method === "PATCH") {
+        const post = deps.store.updateNews(tournament.id, newsId, parseNewsInput(jsonObject(body), true), now);
+        return { status: 200, body: { post, news: orderedNews(deps.store.tournament(tournament.id)?.news) } };
+      }
+      deps.store.deleteNews(tournament.id, newsId, now);
+      return { status: 200, body: { news: orderedNews(deps.store.tournament(tournament.id)?.news) } };
+    }
+
     const standingsMatch = path.match(/^\/api\/tournaments\/([^/]+)\/standings$/);
     if (standingsMatch && method === "GET") {
       const tournamentId = decoded(standingsMatch[1]!);
@@ -806,6 +837,9 @@ export async function tournamentApi(
       if (!existing) return { status: 404, body: { error: "Tournament not found." } };
       requireTournamentManager(existing, identity);
       const input = jsonObject(body);
+      // Tournament page fields are validated before anything is written, then applied after the core settings.
+      const pagePatch = parsePagePatch(input);
+      const hasPage = PAGE_FIELDS.some((field) => input[field] !== undefined);
       const patch: TournamentUpdate = {};
       if (input.organizerCoachId !== undefined) {
         if (!identity.admin)
@@ -867,7 +901,9 @@ export async function tournamentApi(
         if (bad !== undefined) return { status: 400, body: { error: `"${bad}" is not an opt-in inducement.` } };
         patch.inducementOptIns = (input.inducementOptIns as string[]).map((k) => k.trim());
       }
-      const tournament = deps.store.updateTournament(tournamentId, patch, now);
+      const coreKeys = Object.keys(input).filter((key) => !(PAGE_FIELDS as readonly string[]).includes(key));
+      let tournament = coreKeys.length || !hasPage ? deps.store.updateTournament(tournamentId, patch, now) : existing;
+      if (hasPage) tournament = deps.store.updatePage(tournamentId, pagePatch, now);
       return {
         status: 200,
         body: { tournament: clientTournament(tournament, deps.store.entrants(tournamentId), auth) },

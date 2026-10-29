@@ -286,6 +286,7 @@ import { FileTabletopRepository } from "./tabletop/store.js";
 import { isAdminTestingPath, testingApi } from "./tabletop/testing.js";
 import { parseTeamRef, saveCaptainError, teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
 import { tournamentApi } from "./tournaments/api.js";
+import { tournamentBannerApi, tournamentBannerPath } from "./tournaments/page.js";
 import type { TournamentSubmission } from "./tournaments/types.js";
 import { checkTournamentSubmission, type SubmissionCheckDeps } from "./tournaments/submissionCheck.js";
 
@@ -1399,6 +1400,39 @@ async function handleApi(
     // A test sign-in session (src/auth/testLogin.ts) must never create real tournament or scheduled-match state.
     if (WRITE_METHODS.has(method) && getSession(sessionTokenFromRequest(req))?.test)
       return sendJson(res, 403, { error: "Test sign-in sessions cannot write tournament or scheduled-match data." });
+    // Tournament banner (raw image body, managers; public read): src/tournaments/page.ts, guards shared with team avatars.
+    if (tournamentBannerPath(path) !== undefined) {
+      const banner = await tournamentBannerApi(method, path, auth, {
+        store: tournamentStore,
+        dataDir: TOURNAMENTS_DIR,
+        readBody: (max) => readRawCapped(req, max),
+        declaredTooLarge: (max) => declaredTooLarge(req, max),
+      });
+      if (banner) {
+        for (const [name, value] of Object.entries(banner.headers ?? {})) res.setHeader(name, value);
+        if (banner.close) {
+          res.once("finish", () => req.destroy());
+          res.setHeader("connection", "close");
+        }
+        if (banner.file) {
+          try {
+            const bytes = await readFile(banner.file.path);
+            res.writeHead(200, {
+              "content-type": banner.file.contentType,
+              "content-length": String(bytes.length),
+              "cache-control": "public, max-age=3600",
+              "x-content-type-options": "nosniff",
+            });
+            res.end(method === "HEAD" ? undefined : bytes);
+          } catch {
+            sendJson(res, 404, { error: "No banner." });
+          }
+          return;
+        }
+        if (banner.status === 204) { res.writeHead(204).end(); return; }
+        return sendJson(res, banner.status, banner.body);
+      }
+    }
     const body = WRITE_METHODS.has(method) && method !== "DELETE" ? await readBody(req) : undefined;
     let eloSnapshot: ReturnType<typeof computeElo> | undefined;
     const result = await tournamentApi(method, path, query, auth, body, {

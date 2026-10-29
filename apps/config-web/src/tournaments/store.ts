@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 import { calculateStandings, generateTournamentPairings, stableTieFlip } from "./pairing.js";
 import { DEFAULT_ENTRANT_FLAGS, TOURNAMENT_PAIRING_SYSTEMS, TOURNAMENT_SEEDING_MODES } from "./types.js";
+import type { NewsInput, TournamentPagePatch } from "./page.js";
 import type {
   ScheduledMatchRecord,
   TournamentDataFileV2,
@@ -14,6 +15,7 @@ import type {
   TournamentSeedingMode,
   TournamentSubmission,
   TournamentEntrantRecord,
+  TournamentNewsPost,
   TournamentPrimaryTiebreaker,
   TournamentRecord,
   TournamentRoundRecord,
@@ -470,6 +472,73 @@ export class TournamentStore {
       }
       tournament.updatedAt = now.toISOString();
       return tournament;
+    });
+  }
+
+  /** Tournament page fields (parsed by page.ts parsePagePatch): null clears a field. */
+  updatePage(tournamentId: string, patch: TournamentPagePatch, now = new Date()): TournamentRecord {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      for (const field of ["location", "startTime", "entryFee", "summary", "notes", "deadlines"] as const) {
+        const value = patch[field];
+        if (value === undefined) continue;
+        if (value === null) delete tournament[field];
+        else (tournament as unknown as Record<string, unknown>)[field] = structuredClone(value);
+      }
+      tournament.updatedAt = now.toISOString();
+      return tournament;
+    });
+  }
+
+  /** Records (or clears) the banner file path; the caller owns the file itself. */
+  setBanner(tournamentId: string, bannerPath: string | undefined, now = new Date()): TournamentRecord {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      if (bannerPath === undefined) delete tournament.bannerPath;
+      else tournament.bannerPath = bannerPath;
+      tournament.updatedAt = now.toISOString();
+      return tournament;
+    });
+  }
+
+  addNews(tournamentId: string, post: TournamentNewsPost, maxPosts: number, now = new Date()): TournamentNewsPost {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      const news = tournament.news ?? [];
+      if (news.length >= maxPosts) throw new TournamentStoreError(409, `A tournament can hold at most ${maxPosts} news posts; delete an old one first.`);
+      tournament.news = [...news, post];
+      tournament.updatedAt = now.toISOString();
+      return post;
+    });
+  }
+
+  updateNews(tournamentId: string, newsId: string, patch: NewsInput, now = new Date()): TournamentNewsPost {
+    return this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      const post = tournament.news?.find((candidate) => candidate.id === newsId);
+      if (!post) throw new TournamentStoreError(404, "News post not found.");
+      if (patch.title !== undefined) post.title = patch.title;
+      if (patch.body !== undefined) post.body = patch.body;
+      if (patch.pinned !== undefined) post.pinned = patch.pinned;
+      if (patch.title !== undefined || patch.body !== undefined) post.editedAt = now.toISOString();
+      tournament.updatedAt = now.toISOString();
+      return post;
+    });
+  }
+
+  deleteNews(tournamentId: string, newsId: string, now = new Date()): void {
+    this.mutate((data) => {
+      const tournament = data.tournaments[tournamentId];
+      if (!tournament) throw new TournamentStoreError(404, "Tournament not found.");
+      const news = tournament.news ?? [];
+      if (!news.some((candidate) => candidate.id === newsId)) throw new TournamentStoreError(404, "News post not found.");
+      tournament.news = news.filter((candidate) => candidate.id !== newsId);
+      if (!tournament.news.length) delete tournament.news;
+      tournament.updatedAt = now.toISOString();
     });
   }
 
