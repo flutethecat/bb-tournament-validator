@@ -565,6 +565,10 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: var\(--tt-grad\); \}/);
     expect(css1).toMatch(/\.tt-rec > \.tt-stripbar \{ background: var\(--tt-grad-soft\); \}/);
     expect(css1).toMatch(/\.tt-rec \.tt-mid > \.tt-feed \{ background: var\(--tt-grad-soft\); \}/);
+    expect(css1).toContain("--tt-bevel-inset: inset 0 1px 0 rgb(255 255 255 / .18), inset 0 -2px 0 rgb(0 0 0 / .45), inset 1px 0 0 rgb(255 255 255 / .06), inset -1px 0 0 rgb(0 0 0 / .25);");
+    expect(css1).toContain("--tt-lift: var(--tt-bevel-inset), 0 3px 0 rgb(0 0 0 / .45), 0 8px 18px rgb(0 0 0 / .40);");
+    expect(css1).toMatch(/\.tt-rec \.tt-crest-frame, \.tt-rec \.tt-half,[^{]*\{\s*border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 60%, #000\); border-radius: 6px; box-shadow: var\(--tt-lift\);/);
+    expect(css1).toMatch(/\.tt-rec \.tt-mid > \.tt-feed \{ border: 1px solid[^}]*border-radius: 6px; box-shadow: var\(--tt-bevel-inset\); \}/); // the log field: the inset half only
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
