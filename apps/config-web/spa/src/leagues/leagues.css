@@ -239,3 +239,39 @@
 .ls-tabs .tl-seg-btn { text-decoration: none; }
 .ls-tabs .tl-seg-btn[aria-current="page"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
 .ls-tabs .tl-seg-btn:focus-visible { outline-offset: -2px; }
+
+/* ---- Redraft (/app/leagues/:id/redraft) */
+.rd-tabs { display: flex; flex-wrap: wrap; height: auto; min-height: 44px; }
+.rd-tabs .tl-seg-btn { min-height: 44px; height: auto; }
+.rd-tabs .tl-seg-btn[aria-selected="true"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
+.rd-cap { align-items: center; }
+.rd-cap-amount input { width: 96px; }
+.rd-table th[scope="row"] { text-align: left; font-weight: 600; white-space: nowrap; }
+.rd-table input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--ui-primary); }
+.rd-sub { display: block; color: var(--ui-muted); font-size: 12px; font-weight: 400; white-space: normal; }
+.rd-status, .rd-badge { display: inline-block; padding: 2px 8px; border-radius: 2px; font: 11px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .06em; border: 1px solid var(--sf-panel-line); }
+.rd-status[data-status="pending"], .rd-badge[data-status="pending"] { background: color-mix(in srgb, var(--ui-primary) 25%, transparent); }
+.rd-status[data-status="submitted"], .rd-badge[data-status="submitted"] { background: color-mix(in srgb, var(--ui-success) 30%, transparent); }
+.rd-status[data-status="skipped"] { color: var(--ui-muted); }
+.rd-edit-row td { background: var(--ui-surface-2); }
+.rd-log, .rd-list, .rd-problems { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.rd-log time { color: var(--ui-muted); font-size: 12px; margin-right: 6px; }
+.rd-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rd-problems { color: var(--ui-danger); }
+.rd-modal { width: min(860px, 100%); }
+.rd-body { display: grid; gap: 14px; }
+.rd-h { margin: 0 0 6px; font: 12px var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.rd-terms { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 0; }
+.rd-terms > div { display: grid; gap: 2px; padding: 8px 10px; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); }
+.rd-terms dt { font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.rd-terms dd { margin: 0; font: 20px/1.1 var(--sf-band-font); color: var(--ui-heading); font-variant-numeric: tabular-nums; }
+.rd-bar { height: 12px; margin-top: 10px; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; overflow: hidden; }
+.rd-bar span { display: block; height: 100%; background: var(--ui-success); }
+.rd-bar[data-over="true"] span { background: var(--ui-danger); width: 100% !important; }
+.rd-remaining { margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+.rd-dice { display: inline-flex; gap: 6px; }
+.rd-dice input { width: 56px; min-height: 40px; padding: 0 6px; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; font: inherit; }
+.rd-roll { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 2px; }
+.rd-roll[data-ok="true"] { background: color-mix(in srgb, var(--ui-success) 30%, transparent); }
+.rd-staff input { width: 100%; }
+.rd-panel p { margin: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

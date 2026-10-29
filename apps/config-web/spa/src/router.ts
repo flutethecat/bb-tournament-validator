@@ -11,6 +11,7 @@ import GameSummaryView from "./views/GameSummaryView.vue";
 import HomeView from "./views/HomeView.vue";
 import LeaderboardsView from "./views/LeaderboardsView.vue";
 import LeagueDetailView from "./views/LeagueDetailView.vue";
+import LeagueRedraftView from "./views/LeagueRedraftView.vue";
 import LeagueListView from "./views/LeagueListView.vue";
 import LeagueSettingsView from "./views/LeagueSettingsView.vue";
 import LeagueStatsView from "./views/LeagueStatsView.vue";
@@ -99,6 +100,8 @@ export const routes: RouteRecordRaw[] = [
   { path: "/leagues/:id([a-z0-9-]{1,64})/stats", name: "league-stats", component: LeagueStatsView, props: true, meta: { title: "League statistics" } },
   // League settings (cog on the league page): organisers and site admins; others get the "not one of yours" note.
   { path: "/leagues/:id([a-z0-9-]{1,64})/settings", name: "league-settings", component: LeagueSettingsView, props: true, meta: { requiresAuth: true, title: "League settings" } },
+  // Redraft: the organisers' board; a coach's own redraft (?team= opens the dialog from the notification link).
+  { path: "/leagues/:id([a-z0-9-]{1,64})/redraft", name: "league-redraft", component: LeagueRedraftView, props: true, meta: { requiresAuth: true, title: "League redraft" } },
   { path: "/admin/tournaments", name: "admin-tournaments", component: AdminTournamentsView, meta: { requiresAuth: true, title: "Tournaments admin" } },
   {
     path: "/team-builder",

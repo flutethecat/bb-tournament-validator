@@ -269,3 +269,100 @@ export interface LeagueSettingsView {
   rulesets: LeagueRuleset[];
   eliteSkills: string[];
 }
+
+// ---- Redraft (server: src/leagues/redraft.ts + redraftApi.ts) ----
+
+export type RedraftTaskStatus = "pending" | "submitted" | "skipped";
+export interface RedraftBudget { base: number; treasury: number; played: number; wins: number; draws: number; bonus: number; raw: number; capped: number }
+export interface RedraftOverride { budget: number; reason: string; by: string; at: string }
+export interface RedraftLogEntry { at: string; by: string; text: string }
+
+export interface RedraftBoardRow {
+  teamId: string;
+  sourceSeasonId: string;
+  sourceSeasonName: string;
+  name: string;
+  coach: string;
+  coachId?: string;
+  race: string;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  treasury: number;
+  budget: RedraftBudget;
+  players: Array<{ name: string; position: string; seasons: number }>;
+  selected: boolean;
+  status?: RedraftTaskStatus;
+  override?: RedraftOverride;
+  spendable: number;
+}
+
+export interface RedraftBoardView {
+  leagueId: string;
+  leagueName: string;
+  revision: number;
+  source: { id: string; name: string; number: number; ruleset: string } | null;
+  target: { id: string; name: string } | null;
+  state: { startedAt: string; byCoach: string; capEnabled: boolean; cap: number; revision: number; closedAt?: string; closedBy?: string; log: RedraftLogEntry[] } | null;
+  capEnabled: boolean;
+  cap: number;
+  active: RedraftBoardRow[];
+  inactive: RedraftBoardRow[];
+  note: string;
+}
+
+export interface RestRoll { playerId: string; roll: number; target: number; recovered: boolean; source: "site" | "entered" }
+
+export interface RedraftPlayerQuote {
+  playerId: string;
+  number: number | null;
+  name: string;
+  position: string;
+  value: number;
+  seasons: number;
+  fee: number;
+  cost: number;
+  niggling: number;
+  nigglingAfter: number;
+  missNextGame: boolean;
+  bigGuy: boolean;
+}
+
+export interface RedraftStaffQuote {
+  rerollCost: number;
+  maxRerolls: number;
+  assistantCoachCost: number;
+  cheerleaderCost: number;
+  apothecaryCost: number;
+  apothecaryAllowed: boolean;
+  current: { rerolls: number; assistantCoaches: number; cheerleaders: number; apothecary: boolean };
+}
+
+export interface CoachRedraftView {
+  leagueId: string;
+  revision: number;
+  teamId: string;
+  name: string;
+  race: string;
+  coach: string;
+  sourceSeason: { id: string; name: string };
+  targetSeason: { id: string; name: string } | null;
+  status: RedraftTaskStatus;
+  closed: boolean;
+  budget: RedraftBudget;
+  capEnabled: boolean;
+  cap: number;
+  override: RedraftOverride | null;
+  spendable: number;
+  apothecaryNow: boolean;
+  rest: { target: number; done: boolean; rolls: RestRoll[]; needed: Array<{ playerId: string; name: string; position: string; niggling: number }> };
+  players: RedraftPlayerQuote[];
+  staff: RedraftStaffQuote;
+  positions: Array<{ name: string; cost: number; max: number; bigGuy: boolean }>;
+  limits: { minPlayers: number; maxPlayers: number; assistantCoaches: number; cheerleaders: number; maxBigGuys: number };
+  draft: { spent: number; treasury: number; keep: Array<{ playerId: string; cost: number }>; hires: Array<{ position: string; count: number; cost: number }> } | null;
+  knownRoster: boolean;
+}
+
+export interface MyRedraftTask { leagueId: string; leagueName: string; teamId: string; teamName: string; race: string; status: RedraftTaskStatus; spendable: number; link: string }

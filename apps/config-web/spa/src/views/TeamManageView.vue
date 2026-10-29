@@ -11,6 +11,7 @@ import "../teams/teams.css";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import AdvanceModal from "../components/AdvanceModal.vue";
+import LeagueRedraftPanel from "../components/LeagueRedraftPanel.vue";
 import PlayerSheetModal from "../components/PlayerSheetModal.vue";
 import TeamAvatarModal from "../components/TeamAvatarModal.vue";
 import { builderHref, canAdvance, createTeamManage, progressLine, shareUrl, TEAM_MANAGE_KEY, teamManagePath, type ManagedPlayer } from "../teams/manage";
@@ -159,6 +160,7 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
       </div>
       <p v-if="info?.shareToken && info.kind === 'library'" class="muted">The share link shows the Tournament Builder sheet this team was built from.</p>
       <p v-if="state.shareError" class="lobby-error" role="alert">{{ state.shareError }}</p>
+      <LeagueRedraftPanel :team-name="model.team.teamName" :api="fetcher" />
       <p v-if="!info!.advancement.available && info!.advancement.reason" class="tm-note">{{ info!.advancement.reason }}</p>
       <p v-if="info!.kind === 'library'" class="tm-facts">
         <span v-if="typeof info!.teamValue === 'number'">Team value <b>{{ kTv(info!.teamValue) }}</b></span>

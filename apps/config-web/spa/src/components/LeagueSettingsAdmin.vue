@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // League settings, Administration: who runs the league (owner, organisers added / removed by coach name looked up in
 // the identities, site admins read-only), the season actions (Start a new season in a dialog, Finish season) and
-// Start redraft (a placeholder until the redraft board lane lands).
+// Start redraft (opens the Redraft board, /app/leagues/:id/redraft).
 import { computed, inject, nextTick, ref } from "vue";
+import { useRouter } from "vue-router";
 import { LEAGUE_SETTINGS_KEY, nextSeasonDefaults, openSeason } from "../leagues/settings";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
@@ -43,7 +44,8 @@ async function finish(): Promise<void> {
   if (await settings.finishSeason(open.value.id)) confirmFinish.value = false;
 }
 
-const redraft = ref(false);
+const router = useRouter();
+const openRedraft = (): void => { void router.push({ name: "league-redraft", params: { id: view.value.id } }); };
 </script>
 
 <template>
@@ -105,11 +107,7 @@ const redraft = ref(false);
     <section class="hm-panel" aria-labelledby="ls-redraft-h">
       <header class="hm-band"><h2 id="ls-redraft-h">Redraft</h2><span class="hm-cap">Off-season</span></header>
       <p class="hm-small">Between seasons, coaches re-hire players and staff on a budget and build next season's roster.</p>
-      <div class="ls-actions"><button class="lobby-btn" type="button" :aria-expanded="redraft ? 'true' : 'false'" aria-controls="ls-redraft-board" @click="redraft = !redraft">Start redraft</button></div>
-      <div v-if="redraft" id="ls-redraft-board" class="ls-placeholder" role="status">
-        The redraft board is coming: a table of every team with games played, treasury and redraft budget, a checkbox per team to
-        select it for redraft, and a redraft task for each selected coach.
-      </div>
+      <div class="ls-actions"><button class="lobby-btn" type="button" @click="openRedraft">Start redraft</button></div>
     </section>
 
     <div v-if="dialog" class="tn-modal-backdrop" @click.self="dialog = false" @keydown.esc="dialog = false">
