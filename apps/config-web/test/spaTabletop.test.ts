@@ -502,6 +502,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(css).toMatch(/\.tt-rec \.tt-rail-btn:active[^{]*\{\s*box-shadow: var\(--tt-bevel-down\); transform: translateY\(2px\);/);
     expect(css).toMatch(/--tt-rail-fs: 16px;/);
     expect(css).toMatch(/--tt-rail-fs: 18px;/);
+    expect(css).toMatch(/@media \(min-width: 760px\) \{\s*\.tt-rec \.tt-feed \.tt-log-h \{ display: block; position: sticky; top: 0;[^}]*margin: 0 12px 6px auto;[^}]*color: var\(--ui-text, #e6e9ef\); text-shadow: var\(--tt-btn-text-shadow\);/); // MATCH LOG: white, sticky, top-right
     expect(css).toMatch(/--tt-hero-min: 168px;[\s\S]*--tt-hero-min: 200px;/); // one scale block, two steps
   });
 

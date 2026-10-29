@@ -712,3 +712,11 @@
 @media (max-width: 759px) {
   .tt-rec .tt-corner .tt-team { font-size: 13px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
 }
+
+/* MATCH LOG label: white, pinned to the top-right of the log field (sticky, so it stays while the cards scroll); hidden on phones */
+@media (min-width: 760px) {
+  .tt-rec .tt-feed .tt-log-h { display: block; position: sticky; top: 0; z-index: 3; width: fit-content; margin: 0 12px 6px auto; padding: 2px 8px; color: var(--ui-text, #e6e9ef); text-shadow: var(--tt-btn-text-shadow); text-align: right; background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 75%, transparent); border-radius: 2px; }
+}
+@media (min-width: 1024px) {
+  .tt-rec .tt-feed .tt-log-h { margin-right: 0; }
+}
