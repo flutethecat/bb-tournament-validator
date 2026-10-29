@@ -21,6 +21,7 @@ export const sessionIdleMs = (): number => envMs("SESSION_IDLE_MS", SESSION_TTL_
 export const sessionMaxMs = (): number => envMs("SESSION_MAX_MS", SESSION_ABSOLUTE_MS);
 
 /** How the session was authenticated. Discord-only surfaces (the web Lobby) require "discord". */
+// A "naf" login would register here (and in src/auth/connections.ts as an oauth provider) if the NAF ever offers OAuth; it has none today.
 export type SessionMethod = "discord" | "password";
 
 export interface Session {

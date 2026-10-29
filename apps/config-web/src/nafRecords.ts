@@ -294,6 +294,41 @@ export async function fetchNafProfile(nafId: string, fetchImpl: typeof fetch = f
   } catch { return undefined; } finally { clearTimeout(timer); }
 }
 
+/** What the NAF coach page says about who it belongs to (Account page Connections: src/auth/connections.ts). */
+export type NafCoachIdentity =
+  | { kind: "found"; nafName?: string; nafNumber?: string }
+  /** 404, or a 200 page with neither a "NAF number" nor a "NAF name" row (the NAF answers unknown numbers with an empty page). */
+  | { kind: "missing" }
+  /** Non-200 other than 404, timeout, network error, or the NAF_SCRAPE_DISABLED kill switch. */
+  | { kind: "unavailable" };
+
+/** The "NAF number" and "NAF name" rows of a coach page, by label (same reading as parseNafCoachPage). */
+export function parseNafCoachIdentity(html: string): { nafName?: string; nafNumber?: string } {
+  try {
+    const rows = [...html.matchAll(/<tr\b[\s\S]*?<\/tr\s*>/gi)].map((m) => [...m[0].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]\s*>/gi)].map((c) => cellText(c[1]!)));
+    const valueOf = (label: RegExp): string | undefined => rows.find((cells) => cells.length >= 2 && label.test(cells[0]!))?.[1]?.trim();
+    const name = valueOf(/^naf name$/i);
+    const number = valueOf(/^naf number$/i);
+    return { ...(name && name.length <= 100 ? { nafName: name } : {}), ...(number && isNafId(number) ? { nafNumber: number } : {}) };
+  } catch { return {}; }
+}
+
+/** One coach page read for identity verification; never throws. Same URL, user agent, timeout and kill switch as fetchNafProfile. */
+export async function fetchNafCoachIdentity(nafId: string, fetchImpl: typeof fetch = fetch): Promise<NafCoachIdentity> {
+  if (nafScrapeDisabled()) return { kind: "unavailable" };
+  if (!isNafId(nafId.trim())) return { kind: "missing" };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), NAF_TIMEOUT_MS);
+  try {
+    const url = `https://member.thenaf.net/index.php?module=NAF&type=coachpage&coach=${encodeURIComponent(nafId.trim())}`;
+    const res = await fetchImpl(url, { headers: { "User-Agent": NAF_USER_AGENT }, signal: controller.signal });
+    if (res.status === 404) return { kind: "missing" };
+    if (res.status !== 200) return { kind: "unavailable" };
+    const found = parseNafCoachIdentity(await res.text());
+    return found.nafName || found.nafNumber ? { kind: "found", ...found } : { kind: "missing" };
+  } catch { return { kind: "unavailable" }; } finally { clearTimeout(timer); }
+}
+
 // ---- identities ---------------------------------------------------------------------------------------------------------------------------------
 
 /** The slice of the identity store this module reads. */

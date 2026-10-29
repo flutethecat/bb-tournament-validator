@@ -27,6 +27,20 @@ export interface CoachScheduling {
   availability?: Array<{ day: string; start: string; end: string }>;
 }
 
+/** A NAF record confirmed against the public NAF coach page (src/auth/connections.ts). It proves the record exists and
+ *  matches what the coach entered, NOT that the coach owns it: the NAF offers no sign-in or OAuth. Only valid while the
+ *  identity's nafId/nafName still equal the verified pair (every writer that changes either drops it). */
+export interface NafConnection {
+  verifiedAt: string;
+  source: "coachpage";
+  nafId: string;
+  nafName: string;
+}
+
+export interface CoachConnections {
+  naf?: NafConnection;
+}
+
 export interface CoachIdentityRecord {
   ffbCoachId: string;
   level: CoachLevel;
@@ -36,6 +50,8 @@ export interface CoachIdentityRecord {
   profile: CoachProfile;
   scheduling?: CoachScheduling;
   identities: CoachIdentities;
+  /** Verified provider links (Account page Connections). Absent = nothing verified. */
+  connections?: CoachConnections;
   updatedAt: string;
   updatedBy: string;
 }
@@ -255,6 +271,32 @@ export function normalizedScheduling(value: unknown, field = "scheduling"): Coac
   };
 }
 
+function normalizedConnections(value: unknown): CoachConnections | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const naf = (value as Record<string, unknown>).naf;
+  if (!naf || typeof naf !== "object" || Array.isArray(naf)) return undefined;
+  const n = naf as Record<string, unknown>;
+  const ok = typeof n.verifiedAt === "string" && n.verifiedAt.length > 0 && n.verifiedAt.length <= 64 && n.source === "coachpage" &&
+    isNafId(n.nafId) && typeof n.nafName === "string" && n.nafName.length > 0 && n.nafName.length <= MAX_IDENTITY_VALUE_LENGTH;
+  return ok ? { naf: { verifiedAt: n.verifiedAt as string, source: "coachpage", nafId: n.nafId as string, nafName: n.nafName as string } } : undefined;
+}
+
+/** The connections that survive an identity edit: the NAF verification is kept only while nafId and nafName still
+ *  equal the verified pair. */
+export function connectionsAfterIdentityEdit(previous: CoachIdentityRecord, identities: CoachIdentities): CoachConnections | undefined {
+  const naf = previous.connections?.naf;
+  if (!naf) return previous.connections;
+  if (identities.nafId === naf.nafId && identities.nafName === naf.nafName) return previous.connections;
+  const { naf: _dropped, ...rest } = previous.connections ?? {};
+  return Object.keys(rest).length ? rest : undefined;
+}
+
+/** A record with `connections` replaced (undefined removes the key). */
+export function withConnections(record: CoachIdentityRecord, connections: CoachConnections | undefined): CoachIdentityRecord {
+  const { connections: _old, ...base } = record;
+  return connections && Object.keys(connections).length ? { ...base, connections } : base;
+}
+
 function normalizedRecord(value: unknown, allowLegacy = false): CoachIdentityRecord {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("identity record must be an object.");
@@ -278,6 +320,7 @@ function normalizedRecord(value: unknown, allowLegacy = false): CoachIdentityRec
   const scheduling = record.scheduling === undefined
     ? undefined
     : normalizedScheduling(record.scheduling);
+  const connections = normalizedConnections(record.connections);
   return {
     ffbCoachId,
     level: record.level as CoachLevel,
@@ -287,6 +330,7 @@ function normalizedRecord(value: unknown, allowLegacy = false): CoachIdentityRec
     profile: normalizedProfile(record.profile ?? {}),
     ...(scheduling ? { scheduling } : {}),
     identities,
+    ...(connections ? { connections } : {}),
     updatedAt: boundedString(record.updatedAt, "updatedAt", MAX_IDENTITY_VALUE_LENGTH),
     updatedBy: boundedString(record.updatedBy, "updatedBy", MAX_IDENTITY_VALUE_LENGTH),
   };
@@ -363,7 +407,7 @@ export function updateOwnAccount(coach: string, body: unknown, now = new Date())
       else identities[field] = value;
     }
   }
-  const { scheduling: _previousScheduling, ...base } = previous;
+  const { scheduling: _previousScheduling, ...base } = withConnections(previous, connectionsAfterIdentityEdit(previous, identities));
   return upsertIdentity({
     ...base,
     profile,
@@ -397,7 +441,7 @@ export function organizerUpdateIdentity(
   // Owner intent: organizers manage NAF identity for coaches in their tournaments. No
   // tournament-participant registry exists yet, so organizer level is the enforceable gate.
   return upsertIdentity({
-    ...previous,
+    ...withConnections(previous, connectionsAfterIdentityEdit(previous, identities)),
     identities,
     updatedAt: now.toISOString(),
     updatedBy: actingCoach,
@@ -486,8 +530,10 @@ export function mergeIdentityRecords(
   // Profile/scheduling belong to the real fork coach: fill target gaps from the
   // accidental identity, but never overwrite the target's own preferences.
   const profile = { ...source.profile, ...target.profile } as CoachProfile;
+  const naf = target.connections?.naf ?? source.connections?.naf;
+  const connections = naf && naf.nafId === identities.nafId && naf.nafName === identities.nafName ? { naf } : undefined;
   const coach = normalizedRecord({
-    ...target,
+    ...withConnections(target, connections),
     ffbCoachId: target.ffbCoachId || targetFfbCoachId.trim(),
     profile,
     identities,

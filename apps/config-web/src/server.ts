@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { deriveDeadlines, matchEndedAt, parseSchedulingInput, readBuildLog, schedulingView, toStoredScheduling } from "./coachHome.js";
 import { profileView, updateOwnProfile, type ProfileDeps } from "./accountProfile.js";
 import { createTabletopGatherer, RECENT_RESULTS_MAX, recentLimit, recentResults, type RecentInputs, type RecentResult, type TeamInfo } from "./recentResults.js";
+import { ConnectionError, NAF_CONNECTION_ENDPOINT, nafProvider } from "./auth/connections.js";
 import {
   composeTeam,
   composeTeamIntrinsic,
@@ -1295,6 +1296,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/account" ||
     pathname === "/api/me/scheduling" ||
     pathname === "/api/me/profile" ||
+    pathname === NAF_CONNECTION_ENDPOINT ||
     pathname === "/api/me/notifications/read" ||
     isTeamMutationWritePath(pathname) ||
     pathname.startsWith("/api/tournaments/") ||
@@ -1834,6 +1836,25 @@ async function handleApi(
     try {
       return sendJson(res, 200, updateOwnProfile(auth.coach, rawBody, deps));
     } catch (error) {
+      return sendJson(res, 400, { error: (error as Error).message });
+    }
+  }
+
+  // Account page Connections: link (POST, checks the public NAF coach page) or unlink (DELETE) the session coach's
+  // own NAF record. "Verified" = the record exists and matches; the NAF has no OAuth (src/auth/connections.ts).
+  if (path === NAF_CONNECTION_ENDPOINT && (method === "POST" || method === "DELETE")) {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    const deps: ProfileDeps = { linkedFumbblName, discordAvatarUrl };
+    try {
+      if (method === "DELETE") return sendJson(res, 200, profileView(nafProvider.unlink!(auth.coach), deps));
+      let rawBody: unknown;
+      try { rawBody = await readBody(req, 4 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); }
+      return sendJson(res, 200, profileView(await nafProvider.link!(auth.coach, rawBody), deps));
+    } catch (error) {
+      if (error instanceof ConnectionError) {
+        if (error.extra.retryAfter) res.setHeader("retry-after", String(error.extra.retryAfter));
+        return sendJson(res, error.status, { error: error.message, ...(error.extra.mismatch ? { mismatch: error.extra.mismatch } : {}) });
+      }
       return sendJson(res, 400, { error: (error as Error).message });
     }
   }

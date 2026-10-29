@@ -8,10 +8,12 @@
 //                   read through linkedFumbblName) stays authoritative: when it links a name, that name is shown and
 //                   the field is locked; config-web never writes the bot's file.
 // - nafName/nafId -> record.identities.nafName / nafId, the fields the NAF rating scrape and the organiser NAF route
-//                   already use.
+//                   already use. They stay editable here; changing either clears a NAF verification
+//                   (record.connections.naf, written by POST /api/me/connections/naf, src/auth/connections.ts).
 // - avatar       -> read-only: record.profile.avatar (set by an admin) else the Discord avatar.
 
-import { isNafId, ownIdentityRecord, upsertIdentity, normalizeFfbCoachId, type CoachIdentityRecord } from "./auth/identitiesStore.js";
+import { connectionsAfterIdentityEdit, isNafId, ownIdentityRecord, upsertIdentity, normalizeFfbCoachId, withConnections, type CoachIdentityRecord } from "./auth/identitiesStore.js";
+import { connectionsView, type ConnectionView } from "./auth/connections.js";
 
 export const DISPLAY_NAME_MAX = 32;
 export const FUMBBL_NAME_MAX = 40;
@@ -36,6 +38,8 @@ export interface ProfileView {
   avatar: string | null;
   avatarSource: "profile" | "discord" | "none";
   discord: { linked: boolean; username: string };
+  /** The Connections table (Discord, NAF, FUMBBL), src/auth/connections.ts. */
+  connections: ConnectionView[];
 }
 
 export class ProfileError extends Error {}
@@ -61,6 +65,7 @@ export function profileView(record: CoachIdentityRecord, deps: ProfileDeps): Pro
     avatar: own || discord || null,
     avatarSource: own ? "profile" : discord ? "discord" : "none",
     discord: { linked: Boolean(discordUserId), username: record.identities.discordUsername ?? "" },
+    connections: connectionsView(record, linked),
   };
 }
 
@@ -119,6 +124,6 @@ export function updateOwnProfile(coach: string, body: unknown, deps: ProfileDeps
   if (!linked) set(profile, "fumbblName", patch.fumbblName);
   set(identities as Record<string, string | undefined>, "nafName", patch.nafName);
   set(identities as Record<string, string | undefined>, "nafId", patch.nafId);
-  const store = upsertIdentity({ ...previous, profile, identities, updatedAt: now.toISOString(), updatedBy: previous.ffbCoachId });
+  const store = upsertIdentity({ ...withConnections(previous, connectionsAfterIdentityEdit(previous, identities)), profile, identities, updatedAt: now.toISOString(), updatedBy: previous.ffbCoachId });
   return profileView(store.coaches[normalizeFfbCoachId(previous.ffbCoachId)]!, deps);
 }
