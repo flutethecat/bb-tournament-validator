@@ -200,8 +200,9 @@
 /* ---- League settings (/app/leagues/:id/settings) */
 .ls-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .ls-head .lg-card-logo { width: 40px; height: 40px; }
-.ls-tabs { justify-self: start; max-width: 100%; overflow-x: auto; height: auto; min-height: 44px; }
-.ls-tabs .tl-seg-btn { min-height: 44px; }
+/* Wraps (no inner scrollbar) when the five tabs do not fit on one row. */
+.ls-tabs { display: flex; flex-wrap: wrap; justify-self: start; max-width: 100%; height: auto; min-height: 44px; }
+.ls-tabs .tl-seg-btn { flex: 1 0 auto; min-height: 44px; height: auto; }
 .ls-form { display: grid; gap: 12px; }
 .ls-grid { display: grid; gap: 12px 16px; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }
 .ls-field { display: grid; gap: 4px; min-width: 0; }
@@ -232,7 +233,7 @@
 .ls-modal { width: min(460px, 100%); }
 @media (max-width: 640px) {
   .ls-tabs { justify-self: stretch; }
-  .ls-tabs .tl-seg-btn { flex: 1 0 auto; padding: 0 10px; }
+  .ls-tabs .tl-seg-btn { padding: 0 10px; }
   .lg-cog { margin-left: 0; }
 }
 .ls-tabs .tl-seg-btn { text-decoration: none; }
