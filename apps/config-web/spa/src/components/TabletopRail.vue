@@ -3,7 +3,7 @@
 // its label, then TD, CAS and Other, and nothing else (ending the match is the Other grid's End of match tile). Same actions as the
 // phone bottom bar and the hero state button; the page shows only one of them for the viewport.
 import { computed } from "vue";
-import { centreMode, formatTimer, turnLabel, turnLine, type ClockView } from "../tabletop/clock";
+import { centreMode, formatTimer, possessive, turnLabel, turnLine, type ClockView } from "../tabletop/clock";
 import { CAS_EVENT, EVENT_GLYPHS, INJURY_EVENT, TD_EVENT, type OtherEvent } from "../tabletop/feed";
 import type { MatchView } from "../tabletop/recorder";
 import TabletopGlyph from "./TabletopGlyph.vue";
@@ -21,6 +21,8 @@ const line = computed(() => turnLine(props.clock?.half, props.clock?.turn));
 const activeName = computed(() => (props.clock?.activeTeam ? props.match[props.clock.activeTeam].teamName : ""));
 /** Off turn: a coach in the match sees "Opponent's turn"; an organiser or onlooker outside it sees which team is to play. */
 const waitLabel = computed(() => (props.localSide !== null ? "Opponent's turn" : `${activeName.value || "Waiting"} to play`));
+/** Outside the match the button reads three lines: the active coach's name (possessive), "Turn", then the turn number. */
+const activeCoach = computed(() => (props.clock?.activeTeam ? possessive(props.match[props.clock.activeTeam].coach) : ""));
 const timed = computed(() => props.remaining !== undefined && props.clock?.turnTimer?.mode === "on");
 const countdown = computed(() => (props.remaining === undefined ? "-:--" : formatTimer(props.remaining)));
 const fill = computed(() => {
@@ -45,7 +47,8 @@ const zero = computed(() => timed.value && (props.remaining as number) <= 0);
       <span class="tt-rail-label">Kick-off done</span><span class="tt-rail-turn">{{ line }}</span>
     </button>
     <p v-else-if="mode === 'wait'" class="tt-rail-wait" role="status">
-      <span class="tt-rail-label">{{ waitLabel }}</span>
+      <span v-if="localSide !== null || !activeCoach" class="tt-rail-label">{{ waitLabel }}</span>
+      <template v-else><span class="tt-rail-label tt-rail-label-sm">{{ activeCoach }}</span><span class="tt-rail-label tt-rail-label-sm">Turn</span></template>
       <span v-if="timed" class="tt-rail-time">{{ countdown }}</span>
       <span class="tt-rail-turn">{{ line }}</span>
     </p>

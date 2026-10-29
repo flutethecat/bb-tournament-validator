@@ -1219,3 +1219,8 @@
 .tt-confirm-again { background: var(--ui-danger, #ff4d4d); }
 .tt-confirm-yes:active, .tt-confirm-again:active { box-shadow: var(--tt-bevel-down); transform: translateY(2px); }
 .tt-x { background: var(--ui-danger, #ff4d4d); color: var(--ui-text-on-primary, #ffffff); }
+
+/* outside the match the state button's name and TURN lines are a touch smaller so three lines and the turn number fit */
+@media (min-width: 1024px) {
+  .tt-rec .tt-rail-label.tt-rail-label-sm { font-size: calc(var(--tt-rail-label-fs, 22px) - 4px); line-height: 1; margin: 0; }
+}

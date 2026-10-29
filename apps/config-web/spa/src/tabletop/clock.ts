@@ -39,6 +39,9 @@ export function turnLine(half: number | string | undefined, turn: number | undef
   return `TURN ${base + t}`;
 }
 
+/** "Bob's" / "Chris'": the possessive of a coach name (a name ending in s takes only the apostrophe). */
+export const possessive = (name: string): string => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
+
 /** serverNow - local now at the moment of a sync (re-measured on every poll and push). */
 export function serverOffset(clock: ClockView | undefined, localNowMs: number): number {
   const s = ms(clock?.serverNow);

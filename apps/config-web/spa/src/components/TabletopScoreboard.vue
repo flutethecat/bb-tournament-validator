@@ -4,7 +4,7 @@
 // coin on a compact line under it. Everything comes from the server's match, teams, tally and pre-game summary.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { chipLayout } from "../tabletop/chipLayout";
-import { centreMode, formatTimer, halfLabel, turnCells, turnKey, turnLabel, turnLine, type ClockView } from "../tabletop/clock";
+import { centreMode, formatTimer, halfLabel, possessive, turnCells, turnKey, turnLabel, turnLine, type ClockView } from "../tabletop/clock";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import { uiIcon, weatherParts } from "../tabletop/feed";
 import type { MatchView, RecordedEvent, ServerTally, Side, TeamView } from "../tabletop/recorder";
@@ -75,7 +75,7 @@ const line = computed(() => turnLine(props.clock?.half, props.clock?.turn));
 const mode = computed(() => centreMode(props.clock, props.localSide, false, props.canAct));
 const activeName = computed(() => (props.clock?.activeTeam ? props.match[props.clock.activeTeam].teamName : ""));
 /** Off turn: a coach in the match sees "Opponent's turn"; an organiser or onlooker outside it sees which team is to play. */
-const waitLabel = computed(() => (props.localSide !== null ? "Opponent's turn" : `${activeName.value || "Waiting"} to play`));
+const waitLabel = computed(() => (props.localSide !== null ? "Opponent's turn" : props.clock?.activeTeam ? `${possessive(props.match[props.clock.activeTeam].coach)} turn` : "Waiting"));
 const timed = computed(() => props.remaining !== undefined && props.clock?.turnTimer?.mode === "on");
 const countdown = computed(() => (props.remaining === undefined ? "-:--" : formatTimer(props.remaining)));
 /** How much of the turn is left, as a percentage: the button background drains with it. */

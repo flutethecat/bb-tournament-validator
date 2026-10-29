@@ -446,6 +446,13 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).not.toContain("tt-clock"); // no turn timer in this clock
   });
 
+  it("possessive coach names: Bob's, and Chris' for a name ending in s", async () => {
+    const { possessive } = mods.clockMod;
+    expect(possessive("Bob")).toBe("Bob's");
+    expect(possessive("Chris")).toBe("Chris'");
+    expect(possessive("Jess")).toBe("Jess'");
+  });
+
   it("turnLine: the match turn number 1-16 (2Ht1 is Turn 9), overtime continues from 17, turn 0 reads Kick-off", () => {
     const { turnLine } = mods.clockMod;
     expect(turnLine(1, 3)).toBe("TURN 3");
@@ -1472,7 +1479,9 @@ describe("tabletop routes (server-rendered)", () => {
     expect(organiser.html).not.toContain("End Turn"); // an organiser never gets the enabled button on the opponent's turn
     expect(organiser.html).not.toContain('class="tt-endturn"');
     expect(organiser.html).not.toContain('class="tt-rail-end"');
-    expect(organiser.html).toContain("Bob Elves to play"); // an organiser outside the match keeps the team name
+    expect(organiser.html).toContain('<span class="tt-rail-label tt-rail-label-sm">Bob&#39;s</span><span class="tt-rail-label tt-rail-label-sm">Turn</span>'); // outside the match: the active coach's name, "Turn", then the number
+    expect(organiser.html).toContain("Bob&#39;s turn"); // and on the phone hero button
+    expect(organiser.html).not.toContain("Bob Elves to play");
     expect(organiser.html).not.toContain("Opponent&#39;s turn");
     expect(organiser.html).toContain("End this turn (override)"); // the organiser's way in, in the admin panel
     expect(mine.html).toContain('class="tt-rail-end"'); // the active coach's enabled rail button
