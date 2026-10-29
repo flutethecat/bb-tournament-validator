@@ -747,7 +747,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const list = await at("/tournaments");
     expect(active(list)).toHaveLength(1);
     expect(active(list)[0]).toMatch(/href="\/app\/tournaments" class="sf-head-link" data-active="true" aria-current="page"/);
-    for (const [path, href] of [["/leaderboards", "/app/leaderboards"], ["/help", "/app/help"]] as const) {
+    for (const [path, href] of [["/leaderboards", "/app/leaderboards"], ["/help", "/app/help"], ["/whats-new", "/app/help"], ["/standings", "/app/leaderboards"]] as const) {
       const nav = await at(path);
       expect(active(nav)).toHaveLength(1);
       expect(active(nav)[0]).toContain(`href="${href}"`);

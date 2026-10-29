@@ -64,12 +64,15 @@ const categories = computed<Category[]>(() => [
 
 // One active item: the first in priority order whose target matches (coach tournament rows, Home and the category
 // headers, then the other rows). Empty-state notes never take the highlight: the header for the same list does.
+const PARENT_ROUTES: { key: string; to: string }[] = [{ key: "c:leaderboards", to: "/standings" }, { key: "c:help", to: "/whats-new" }];
 const activeKey = computed(() => {
   const cats = categories.value;
   const ordered: { key: string; to: string }[] = [
     ...tournamentRows.value.filter((r) => r.key !== "t:none"),
     { key: "home", to: HOME_LINK.to },
     ...cats.filter((c) => c.to).map((c) => ({ key: `c:${c.id}`, to: c.to! })),
+    // Pages with no row of their own (the child rows were removed) light their parent category header.
+    ...PARENT_ROUTES,
     ...cats.flatMap((c) => c.rows).filter((r) => !r.key.startsWith("t:") && r.key !== "l:none"),
   ];
   const to = pickActive(ordered.map((r) => r.to), route.fullPath);
