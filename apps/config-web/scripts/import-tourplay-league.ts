@@ -20,6 +20,7 @@ import { checkLeagueArt, storeLeagueArt, type ArtKind } from "../src/leagues/api
 import { assertUniquePlayerIds, linkPlayerCareers } from "../src/leagues/playerIds.js";
 import { LeagueStore } from "../src/leagues/store.js";
 import { buildSeason, fixturePlayed, readTourplayDir, type CoachMapper } from "../src/leagues/tourplay.js";
+import { carryCoachAssignments } from "../src/leagues/teamCoach.js";
 import type { LeagueRuleset, SeasonRecord } from "../src/leagues/types.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -64,6 +65,8 @@ export interface SeasonReport {
   ambiguities: string[];
   unmappedCoaches: string[];
   replaced?: string;
+  /** Team ids whose organiser coach assignment (or clear) was kept from the season this import replaced. */
+  coachAssignmentsKept?: string[];
 }
 
 /** NAF name (lower-case) -> fork coach id, from an identities.json. A missing / unreadable file maps nothing. */
@@ -133,6 +136,9 @@ export async function importLeague(opts: ImportOptions): Promise<SeasonReport[]>
   const reports: SeasonReport[] = [];
   for (const r of results) {
     const s: SeasonRecord = r.season;
+    // Organiser overrides survive a re-import: coach accounts assigned / cleared on the season this replaces.
+    const prior = store.seasons(opts.league).find((x) => x.sourceSlug === s.sourceSlug || x.id === s.id);
+    const carried = carryCoachAssignments(prior, s);
     const put = opts.dryRun ? {} : store.putSeason(s);
     const report: SeasonReport = {
       number: s.number,
@@ -154,6 +160,7 @@ export async function importLeague(opts: ImportOptions): Promise<SeasonReport[]>
       ambiguities: r.ambiguities,
       unmappedCoaches: r.unmappedCoaches,
       ...(put.replaced ? { replaced: put.replaced } : {}),
+      ...(carried.length ? { coachAssignmentsKept: carried } : {}),
     };
     reports.push(report);
     log(`Season ${report.number} (${report.slug}) ${report.ruleset} ${report.status}${report.replaced ? ` [replaced ${report.replaced}]` : ""}`);

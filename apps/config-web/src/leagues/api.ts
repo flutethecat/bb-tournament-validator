@@ -492,7 +492,7 @@ async function settingsRoute(
       }
       if (third === "teams" && fourth) {
         if (method !== "PATCH") return { status: 405, body: { error: "Use PATCH." } };
-        return assignTeamCoach(lg, second, fourth, who, input, deps, (name) => lookupCoach(deps, name));
+        return await assignTeamCoach(lg, second, fourth, who, input, deps, (name) => lookupCoach(deps, name));
       }
       if (third === "fixtures" && fourth) {
         if (method !== "PATCH") return { status: 405, body: { error: "Use PATCH." } };

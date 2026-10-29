@@ -357,8 +357,11 @@ export interface LeagueTeam {
   race: string;
   coach: string;
   coachId?: string;
-  /** An organiser assigned coachId (Assign coach account): who and when. The account is authoritative (identity.ts). */
-  coachAssigned?: { by: string; at: string };
+  /**
+   * An organiser set the coach account (Assign coach account): who and when. With coachId the account is authoritative
+   * (identity.ts); `cleared` = the organiser removed the account (kept so a re-import does not bring it back).
+   */
+  coachAssigned?: { by: string; at: string; cleared?: true };
   nafUser?: string;
   teamValue: number | null;
   treasury: number | null;

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { leagueApi, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
-import { fixtureForkView } from "../src/leagues/forkPlay";
+import { fixtureForkView, fixtureLockKey, withForkLocks } from "../src/leagues/forkPlay";
 import { buildCoachAliases } from "../src/leagues/identity";
 import { applyDraftTeam, coachOwnsTeam, leagueAliases } from "../src/leagues/redraft";
 import { leagueStats } from "../src/leagues/stats";
@@ -107,7 +107,7 @@ describe("assign coach account", () => {
     expect(cleared.status).toBe(200);
     const after = store.season("tabbl", "season-6")!;
     expect(after.teams[0]).not.toHaveProperty("coachId");
-    expect(after.teams[0]).not.toHaveProperty("coachAssigned");
+    expect(after.teams[0]!.coachAssigned).toEqual({ by: "Jay", at: "2026-10-30T18:00:00.000Z", cleared: true }); // kept for re-imports
     expect(after.fixtures.find((f) => f.id === "f2")!.home).not.toHaveProperty("coachId");
     expect(after.log![0]!.text).toBe("Jay cleared the coach account of Orcs.");
   });
@@ -130,6 +130,26 @@ describe("assign coach account", () => {
     expect((r.body as { error: string }).error).toContain("Super FUMBBL game");
   });
 
+  it("[review P2] clearing an imported account removes it from the participant row and every unplayed fixture seat", async () => {
+    // the imported team carries Ann's account on the team, the participant row and the fixtures (no assignment marker)
+    const s6 = store.season("tabbl", "season-6")!;
+    s6.teams[0]!.coachId = "Ann";
+    s6.participants[0]!.coachId = "Ann";
+    for (const f of s6.fixtures) f.home.coachId = "Ann";
+    store.putSeason(s6);
+    const r = await call("PATCH", path(), JAY, { revision: rev(), coachId: null });
+    expect(r.status).toBe(200);
+    const after = store.season("tabbl", "season-6")!;
+    expect(after.teams[0]).not.toHaveProperty("coachId");
+    expect(after.participants[0]).not.toHaveProperty("coachId");
+    expect(after.fixtures.find((f) => f.id === "f2")!.home).not.toHaveProperty("coachId"); // unplayed: unseated
+    expect(after.fixtures.find((f) => f.id === "f1")!.home.coachId).toBe("Ann"); // played: history kept
+    // Ann is no longer seated on the fixture
+    const view = fixtureForkView(store.league("tabbl")!, after, after.fixtures.find((f) => f.id === "f2")!, { coach: "Ann", admin: false });
+    expect(view.mySide).toBeUndefined();
+    expect(view.canStart).toBe(false);
+  });
+
   it("[review P2] a fixture created (or a redraft roster applied) after an assignment keeps the account marked: no alias merge", async () => {
     await call("PATCH", path(), JAY, { revision: rev(), coachId: "ForkTester" });
     body = { home: "orcs", away: "elves", round: 3 };
@@ -149,6 +169,35 @@ describe("assign coach account", () => {
     expect(next.participants[0]).toMatchObject({ coachId: "ForkTester", coachAssigned: true });
     const withNext = leagueAliases([...store.seasons("tabbl"), next]);
     expect(withNext.key({ coachId: "ForkTester" })).not.toBe(withNext.key({ coachId: "DeeAccount" }));
+  });
+
+  it("[review P2] an assignment waits for a launch holding the fixture lock and is judged against what it recorded", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let entered!: () => void;
+    const inside = new Promise<void>((r) => { entered = r; });
+    // a launch in flight: holds the fork lock of f2 and records the launch before it lets go
+    const launch = withForkLocks([fixtureLockKey("tabbl", "season-6", "f2")], [], async () => {
+      entered();
+      await gate;
+      const s6 = store.season("tabbl", "season-6")!;
+      s6.fixtures.find((f) => f.id === "f2")!.fork = { status: "scheduled", gameId: "g1", launched: { home: "2026-10-30T18:00:00Z" }, teams: { home: { teamId: "orcs" }, away: { teamId: "elves" } }, log: [] } as unknown as LeagueFixture["fork"];
+      store.putSeason(s6);
+    });
+    await inside;
+    const pending = call("PATCH", path(), JAY, { revision: rev(), coachId: "ForkTester" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(store.season("tabbl", "season-6")!.teams[0]!.coachId).toBeUndefined(); // still waiting on the lock
+    release();
+    await launch;
+    const r = await pending;
+    expect(r.status).toBe(409); // the launch moved the season on (and the team is now playing)
+    expect(store.season("tabbl", "season-6")!.teams[0]!.coachId).toBeUndefined();
+    expect(store.season("tabbl", "season-6")!.fixtures.find((f) => f.id === "f2")!.home.coachId).toBeUndefined();
+    // even with the fresh revision, the started game refuses the change
+    const fresh = await call("PATCH", path(), JAY, { revision: rev(), coachId: "ForkTester" });
+    expect(fresh.status).toBe(409);
+    expect((fresh.body as { error: string }).error).toContain("Super FUMBBL game");
   });
 
   it("alias precedence: the assigned account keys alone; the imported name and NAF name stay with their coach", async () => {

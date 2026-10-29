@@ -212,7 +212,7 @@ export interface LeagueTeam {
   coach: string;
   coachId?: string;
   /** An organiser assigned the coach account (Teams tab, Assign coach account). */
-  coachAssigned?: { by: string; at: string };
+  coachAssigned?: { by: string; at: string; cleared?: true };
   teamValue: number | null;
   treasury: number | null;
   rerolls: number | null;

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { importLeague, nafMapFromIdentities, seasonNumberFromSlug } from "../scripts/import-tourplay-league";
 import { LeagueStore } from "../src/leagues/store";
+import { applyTeamCoach } from "../src/leagues/teamCoach";
 import {
   attachPlayerStats, buildSeason, checkStandings, csvRecords, fixturePlayed, parseCsv, parseFixtures, parseHonours,
   parseHonourValue, parseRoster, parseSkills, readTourplayDir,
@@ -219,5 +220,45 @@ describe("league store and importer", () => {
     expect(second.every((r) => r.replaced === `season-${r.number}`)).toBe(true);
     expect(readdirSync(join(stateDir, "leagues", "tabbl", "seasons")).sort()).toEqual(["season-1.json", "season-4.json", "season-5.json", "season-6.json"]);
     expect(store.league("tabbl")!.createdAt).toBeTruthy();
+  });
+
+  it("[review P2] a re-import keeps the organiser's coach assignments and clears (team, participant, unplayed fixtures, log)", async () => {
+    const root = tmp();
+    writeExport(root, "tabbl---season-5---bb2025", { champion: true });
+    writeExport(root, "tabbl---season-6");
+    const identities = join(root, "identities.json");
+    writeFileSync(identities, JSON.stringify({ version: 1, coaches: { jay: { ffbCoachId: "Jay", identities: { nafName: "FluteTheCat" } } } }));
+    const stateDir = tmp();
+    const opts = { league: "tabbl", name: "TABBL", fullName: "TABBL", exports: root, identities, stateDir, log: () => undefined };
+    await importLeague(opts);
+    const store = new LeagueStore(stateDir);
+    const s6 = store.season("tabbl", "season-6")!;
+    const gr = s6.teams.find((t) => t.name === "Grudge Rollers")!;
+    expect(gr.coachId).toBe("Jay"); // imported through the NAF name
+    applyTeamCoach(s6, gr.id, "ForkTester", "Organiser", "2026-10-30T18:00:00.000Z");
+    store.putSeason(s6);
+    const s5 = store.season("tabbl", "season-5")!;
+    applyTeamCoach(s5, gr.id, null, "Organiser", "2026-10-30T18:05:00.000Z");
+    store.putSeason(s5);
+    const again = await importLeague(opts);
+    expect(again.find((r) => r.number === 6)).toMatchObject({ replaced: "season-6", coachAssignmentsKept: [gr.id] });
+    const n6 = store.season("tabbl", "season-6")!;
+    expect(n6.teams.find((t) => t.id === gr.id)).toMatchObject({ coachId: "ForkTester", coachAssigned: { by: "Organiser", at: "2026-10-30T18:00:00.000Z" } });
+    expect(n6.participants.find((p) => p.team === "Grudge Rollers")).toMatchObject({ coachId: "ForkTester", coachAssigned: true });
+    const unplayed = n6.fixtures.filter((f) => !fixturePlayed(f) && (f.home.teamId === gr.id || f.away.teamId === gr.id));
+    expect(unplayed.length).toBeGreaterThan(0);
+    for (const f of unplayed) expect([f.home, f.away].find((x) => x.teamId === gr.id)).toMatchObject({ coachId: "ForkTester", coachAssigned: true });
+    const played = n6.fixtures.filter((f) => fixturePlayed(f) && f.home.teamId === gr.id);
+    expect(played.length).toBeGreaterThan(0);
+    for (const f of played) expect(f.home.coachId).toBe("Jay"); // history as exported
+    expect(n6.log?.filter((e) => e.kind === "team-coach").map((e) => e.text)).toEqual(["Organiser assigned the coach account ForkTester to Grudge Rollers (was Jay)."]);
+    // the clear on season 5 survives too: the imported account does not come back
+    const n5 = store.season("tabbl", "season-5")!;
+    expect(n5.teams.find((t) => t.id === gr.id)).toMatchObject({ coachAssigned: { by: "Organiser", cleared: true } });
+    expect(n5.teams.find((t) => t.id === gr.id)).not.toHaveProperty("coachId");
+    for (const f of n5.fixtures.filter((x) => !fixturePlayed(x))) for (const x of [f.home, f.away]) if (x.teamId === gr.id) expect(x).not.toHaveProperty("coachId");
+    // a third import changes nothing more (the audit entry is not duplicated)
+    await importLeague(opts);
+    expect(store.season("tabbl", "season-6")!.log?.filter((e) => e.kind === "team-coach")).toHaveLength(1);
   });
 });

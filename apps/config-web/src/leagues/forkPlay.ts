@@ -113,6 +113,20 @@ function withTeamLocks<T>(teamIds: string[], task: () => Promise<T>): Promise<T>
   return step(0);
 }
 
+/** The lock key of one fixture's fork work (generate, launch, reset, settings, result sync). */
+export const fixtureLockKey = (leagueId: string, seasonId: string, fixtureId: string): string => `${leagueId}/${seasonId}/${fixtureId}`;
+
+/**
+ * Runs `task` holding the fork locks of several fixtures (sorted) and then of their fork teams (sorted), the order every
+ * fork route takes them (fixture first, then teams), so it never deadlocks with them. Used by Assign coach account
+ * (teamCoach.ts): a seat change waits for a generate / launch in flight and is judged against what it recorded.
+ */
+export function withForkLocks<T>(fixtureKeys: string[], forkTeamIds: string[], task: () => Promise<T>): Promise<T> {
+  const keys = [...new Set(fixtureKeys)].sort();
+  const step = (i: number): Promise<T> => (i >= keys.length ? withTeamLocks(forkTeamIds, task) : withFixtureLock(keys[i]!, () => step(i + 1)));
+  return step(0);
+}
+
 // ---- who ----
 
 function admins(deps: ForkRouteDeps): string[] {
@@ -539,7 +553,7 @@ export function applyForkSettings(f: LeagueFixture, input: { forkAllowLate?: boo
  * reference stays and the result is still synced. Allowing play again returns to where the fixture was.
  */
 export async function updateForkSettings(deps: ForkRouteDeps, leagueId: string, seasonId: string, fixtureId: string, who: LeagueApiIdentity, input: { forkAllowLate?: boolean; forkCancelled?: boolean }): Promise<LeagueApiResult> {
-  return withFixtureLock(`${leagueId}/${seasonId}/${fixtureId}`, async () => {
+  return withFixtureLock(fixtureLockKey(leagueId, seasonId, fixtureId), async () => {
     const at = locate(deps.store, leagueId, seasonId, fixtureId);
     if (isResult(at)) return at;
     const fork0 = at.fixture.fork;
@@ -592,7 +606,7 @@ export interface SyncDeps {
 
 /** Applies a finished game's result to its fixture once (under the fixture lock). */
 export async function applyFixtureResult(deps: SyncDeps, leagueId: string, seasonId: string, fixtureId: string, result: ForkGameResult): Promise<{ applied: boolean; reason?: string }> {
-  return withFixtureLock(`${leagueId}/${seasonId}/${fixtureId}`, async () => {
+  return withFixtureLock(fixtureLockKey(leagueId, seasonId, fixtureId), async () => {
     const now = deps.now?.() ?? new Date();
     let outcome: ReturnType<typeof applyForkResult> | undefined;
     const saved = saveFork(deps.store, leagueId, seasonId, fixtureId, (f, season) => {
@@ -651,7 +665,7 @@ export async function syncLeagueForkResults(deps: SyncDeps, only?: { leagueId: s
     const st = states.get(o.gameId);
     if (!st) continue;
     if (st.status === "active" && o.status === "scheduled") {
-      await withFixtureLock(`${o.leagueId}/${o.seasonId}/${o.fixtureId}`, async () => {
+      await withFixtureLock(fixtureLockKey(o.leagueId, o.seasonId, o.fixtureId), async () => {
         saveFork(deps.store, o.leagueId, o.seasonId, o.fixtureId, (f) => {
           if (f.fork?.gameId === o.gameId && f.fork.status === "scheduled") f.fork.status = "in_progress";
         });
@@ -710,7 +724,7 @@ export async function leagueForkRoutes(
     input = body.value;
   }
   const client = deps.fork;
-  const key = `${leagueId}/${seasonId}/${fixtureId}`;
+  const key = fixtureLockKey(leagueId, seasonId, fixtureId);
   if (action === "reset") return withFixtureLock(key, () => reset(deps, leagueId, seasonId, fixtureId, auth, input));
   if (!client) return fail(503, "Super FUMBBL is not connected on this server.");
   if (action === "generate") return withFixtureLock(key, () => generate(deps, client, leagueId, seasonId, fixtureId, auth));
