@@ -252,3 +252,9 @@
 /* Owner 10-28: in the FUMBBL (light) theme the shadowed title goes white so it is not black on black. */
 :root[data-theme="fumbbl"] .tv-banner-top h1 { color: #fff; }
 :root[data-theme="fumbbl"] .tv-banner-top h1 span { color: #fff; }
+/* Team management page (/app/teams/<ref>, owner 10-30): player names above the position, the Advancement column
+   (table) / card footer with Add Skill and Add Characteristic. The public share page renders none of these. */
+.tv-pname { display: block; color: var(--ui-text); font-family: var(--font-heading); font-size: 15px; letter-spacing: .03em; white-space: normal; }
+.tv-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--ui-border); }
+.tv-table td.tv-actions { min-width: 180px; }
+.tv-table td.tv-actions > * + * { margin-top: 4px; }

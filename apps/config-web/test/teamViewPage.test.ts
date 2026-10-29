@@ -259,3 +259,21 @@ describe("team view: hostile strings (Sol r1 P3)", () => {
     expect(markup.indexOf('id="tv-sideline-title"')).toBeGreaterThan(rosterEnd);
     expect(markup.indexOf('id="tv-ind-title"')).toBeGreaterThan(markup.indexOf('id="tv-sideline-title"'));
   });
+
+describe("team view core: management page options (owner 10-30)", () => {
+  it("adds an Advancement column and card footer, player names, a byline lead and a verdict; the default output is unchanged", () => {
+    const plain = TeamView.viewHtml(fixture());
+    expect(plain).not.toContain("tv-actions");
+    expect(plain).not.toContain("tv-pname");
+    const team = { ...fixture(), verdict: "On the fork", ownerSaveId: "sv_1", players: fixture().players.map((p: Any, i: number) => ({ ...p, name: i === 0 ? "Big <Bob>" : "" })) };
+    const markup = TeamView.viewHtml(team, { bylineLead: "Coach", hideOwnerLink: true, actions: (p: Any, i: number) => `<button data-adv="${i}">Add Skill ${p.number}</button>` });
+    expect(markup).toContain('<th scope="col" class="tv-actions">Advancement</th>');
+    expect(markup.match(/<td class="tv-actions"><button data-adv="0">Add Skill 1<\/button><\/td>/g)).toHaveLength(1);
+    expect(markup.match(/<div class="tv-card-actions"><button data-adv="2">Add Skill 3<\/button><\/div>/g)).toHaveLength(1);
+    expect(markup).toContain('<span class="tv-pname">Big &lt;Bob&gt;</span>');
+    expect(markup.match(/tv-pname/g)).toHaveLength(2); // table + card for the named player only
+    expect(markup).toContain("Coach <strong>Alice</strong>");
+    expect(markup).toContain("</span>On the fork</span>");
+    expect(markup).not.toContain("Open in Tournament Builder");
+  });
+});

@@ -44,6 +44,8 @@
     return `<span class="sprite-frame tv-sprite" aria-hidden="true"><span class="sprite-fallback">${esc(initials(player.position))}</span>${src ? `<img class="sprite-image" src="${esc(src)}" alt="" loading="lazy" decoding="async">` : ""}</span>`;
   }
   /** Short position name (server model `position`); the full name (`positionFull`) is the tooltip. */
+  /** Player name (fork teams on the management page); builder sheets carry none. */
+  const nameHtml = (p) => (typeof p.name === "string" && p.name.trim() ? `<span class="tv-pname">${esc(p.name)}</span>` : "");
   const posTitle = (p) => (typeof p.positionFull === "string" && p.positionFull && p.positionFull !== p.position ? ` title="${esc(p.positionFull)}"` : "");
   function crestHtml(team) {
     const src = artSrc(team.crest);
@@ -80,25 +82,27 @@
     return { up, text: value === undefined || value === null || value === "" ? "—" : String(value) };
   }
 
-  function tableHtml(players) {
-    const rows = players.map((p) => `<tr${p.isStar ? ' class="tv-star"' : ""}>
+  function tableHtml(players, actions) {
+    const rows = players.map((p, i) => `<tr${p.isStar ? ' class="tv-star"' : ""}>
         <td class="tv-col-sprite">${spriteHtml(p)}</td>
         <td class="tv-num">${esc(p.number)}</td>
-        <td class="tv-pos"${posTitle(p)}>${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}${p.captain ? CAPTAIN_TAG : ""}</td>
+        <td class="tv-pos"${posTitle(p)}>${nameHtml(p)}${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}${p.captain ? CAPTAIN_TAG : ""}</td>
         ${STATS.map((stat) => { const c = statCell(p, stat); return `<td class="tv-stat${c.up ? " tv-up" : ""}"${c.up ? ` title="${stat} increased"` : ""}><span class="tv-stat-box">${esc(c.text)}${c.up ? '<span class="tv-up-mark" aria-hidden="true">▲</span>' : ""}</span></td>`; }).join("")}
         <td class="tv-skills"><div class="row-skills">${skillsHtml(p)}</div></td>
-        <td class="tv-cost">${gold(p.cost)}</td>
+        <td class="tv-cost">${gold(p.cost)}</td>${actions ? `
+        <td class="tv-actions">${actions(p, i)}</td>` : ""}
       </tr>`).join("");
     return `<table class="tv-table">
-      <thead><tr><th scope="col"><span class="visually-hidden">Sprite</span></th><th scope="col">#</th><th scope="col">Position</th>${STATS.map((s) => `<th scope="col" class="tv-stat">${s}</th>`).join("")}<th scope="col">Skills</th><th scope="col" class="tv-cost">Cost</th></tr></thead>
+      <thead><tr><th scope="col"><span class="visually-hidden">Sprite</span></th><th scope="col">#</th><th scope="col">Position</th>${STATS.map((s) => `<th scope="col" class="tv-stat">${s}</th>`).join("")}<th scope="col">Skills</th><th scope="col" class="tv-cost">Cost</th>${actions ? '<th scope="col" class="tv-actions">Advancement</th>' : ""}</tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   }
-  function cardsHtml(players) {
-    return `<ol class="tv-cards">${players.map((p) => `<li class="tv-card${p.isStar ? " tv-star" : ""}">
-        <div class="tv-card-head">${spriteHtml(p)}<span class="tv-num">#${esc(p.number)}</span><span class="tv-pos"${posTitle(p)}>${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}${p.captain ? CAPTAIN_TAG : ""}</span><span class="tv-cost">${gold(p.cost)}</span></div>
+  function cardsHtml(players, actions) {
+    return `<ol class="tv-cards">${players.map((p, i) => `<li class="tv-card${p.isStar ? " tv-star" : ""}">
+        <div class="tv-card-head">${spriteHtml(p)}<span class="tv-num">#${esc(p.number)}</span><span class="tv-pos"${posTitle(p)}>${nameHtml(p)}${esc(p.position)}${p.isStar ? ' <span class="tv-tag">Star</span>' : ""}${p.captain ? CAPTAIN_TAG : ""}</span><span class="tv-cost">${gold(p.cost)}</span></div>
         <dl class="tv-card-stats">${STATS.map((stat) => { const c = statCell(p, stat); return `<div class="${c.up ? "tv-up" : ""}"><dt>${stat}</dt><dd>${esc(c.text)}${c.up ? '<span class="tv-up-mark" aria-label="increased">▲</span>' : ""}</dd></div>`; }).join("")}</dl>
-        <div class="row-skills">${skillsHtml(p)}</div>
+        <div class="row-skills">${skillsHtml(p)}</div>${actions ? `
+        <div class="tv-card-actions">${actions(p, i)}</div>` : ""}
       </li>`).join("")}</ol>`;
   }
 
@@ -156,20 +160,25 @@
     const v = team.validity ?? {};
     const ruleset = team.ruleset?.name ?? "";
     // Owner 10-28: ruleset name on its own line; the check (or cross) with "Verified" / the issue count beneath it.
-    if (v.valid) return `<span class="tv-badge tv-valid" title="Valid team"><small>${ruleset ? esc(ruleset) : "Team"}</small><span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10003;</span>Verified</span></span>`;
+    if (v.valid) return `<span class="tv-badge tv-valid" title="Valid team"><small>${ruleset ? esc(ruleset) : "Team"}</small><span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10003;</span>${esc(typeof team.verdict === "string" && team.verdict ? team.verdict : "Verified")}</span></span>`;
     const n = isNum(v.issues) && v.issues > 0 ? v.issues : 1;
     const findings = Array.isArray(v.findings) ? v.findings.map(String).filter(Boolean) : [];
     const list = findings.length ? `<ul class="tv-issues" aria-label="Issues">${findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : "";
     return `<span class="tv-badge tv-invalid"><small>${ruleset ? esc(ruleset) : "Team"}</small><span class="tv-verdict"><span class="tv-check" aria-hidden="true">&#10007;</span>Has ${n} issue${n === 1 ? "" : "s"}</span>${list}</span>`;
   }
 
-  /** The whole page body for a team model. */
-  function viewHtml(team) {
+  /**
+   * The whole page body for a team model. opts (the team management page, /app/teams/<ref>; the public page passes
+   * none): { bylineLead: "Coach" (default "Shared by"), hideOwnerLink: true, actions(player, index) -> HTML for an
+   * extra "Advancement" column / card footer }.
+   */
+  function viewHtml(team, opts = {}) {
     const players = Array.isArray(team.players) ? team.players : [];
+    const actions = typeof opts.actions === "function" ? opts.actions : null;
     const ruleset = rulesetText(team);
     const date = formatDate(team.updatedAt);
-    const byline = [`Shared by <strong>${esc(team.coach)}</strong>`, ruleset ? esc(ruleset) : "", date ? `updated ${esc(date)}` : ""].filter(Boolean).join(" · ");
-    const owner = typeof team.ownerSaveId === "string" && /^[\w-]{1,64}$/.test(team.ownerSaveId)
+    const byline = [`${esc(opts.bylineLead || "Shared by")} <strong>${esc(team.coach)}</strong>`, ruleset ? esc(ruleset) : "", date ? `updated ${esc(date)}` : ""].filter(Boolean).join(" · ");
+    const owner = !opts.hideOwnerLink && typeof team.ownerSaveId === "string" && /^[\w-]{1,64}$/.test(team.ownerSaveId)
       ? `<a class="session-button tv-owner" href="/tournament-team-builder.html?save=${encodeURIComponent(team.ownerSaveId)}">Open in Tournament Builder</a>` : "";
     return `<header class="tv-banner">
         <div class="tv-banner-top">
@@ -187,7 +196,7 @@
       </header>
       ${totalsHtml(team)}
       <section class="tv-roster" aria-label="Roster">
-        ${players.length ? tableHtml(players) + cardsHtml(players) : '<p class="status-copy">This team has no players on this server.</p>'}
+        ${players.length ? tableHtml(players, actions) + cardsHtml(players, actions) : '<p class="status-copy">This team has no players on this server.</p>'}
       </section>
       <div class="tv-extras">${sidelineHtml(team)}${inducementsHtml(team)}</div>
 `;
