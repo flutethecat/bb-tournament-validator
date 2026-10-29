@@ -5,6 +5,7 @@ import { createRouter, type RouteLocationNormalized, type RouteRecordRaw, type R
 import { LOBBY_ID_PATTERN } from "./shared/format";
 import type { SessionStore } from "./session";
 import AccountView from "./views/AccountView.vue";
+import AdminTournamentsView from "./views/AdminTournamentsView.vue";
 import MyTeamsView from "./views/MyTeamsView.vue";
 import LinkOutView from "./views/LinkOutView.vue";
 import LobbyRoomView from "./views/LobbyRoomView.vue";
@@ -16,6 +17,7 @@ import TabletopOrganiserView from "./views/TabletopOrganiserView.vue";
 import TabletopRecorderView from "./views/TabletopRecorderView.vue";
 import TournamentDetailView from "./views/TournamentDetailView.vue";
 import TournamentListView from "./views/TournamentListView.vue";
+import TournamentTeamView from "./views/TournamentTeamView.vue";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -71,6 +73,15 @@ export const routes: RouteRecordRaw[] = [
     props: true,
     meta: { title: "Tournament" },
   },
+  // Opponent's team: the server answers the coach, their current-round opponent and the managers only.
+  {
+    path: "/tournaments/:id([\\w-]{1,64})/team/:eid([\\w:.-]{1,160})",
+    name: "tournament-team",
+    component: TournamentTeamView,
+    props: true,
+    meta: { requiresAuth: true, title: "Team" },
+  },
+  { path: "/admin/tournaments", name: "admin-tournaments", component: AdminTournamentsView, meta: { requiresAuth: true, title: "Tournaments admin" } },
   {
     path: "/team-builder",
     name: "team-builder",

@@ -1,11 +1,19 @@
 // Tournament detail controller (/app/tournaments/:id): GET /api/tournaments/:id for Overview / Entrants / Rounds and
-// GET /api/tournaments/:id/standings for Standings. Read-only and public. Fixtures are whatever the server sends
-// (anonymous visitors get none today): the Rounds tab shows an empty state then. No DOM; rendered by the views.
+// GET /api/tournaments/:id/standings for Standings. Reads are public; fixtures are whatever the server sends
+// (anonymous visitors get none). Phase 2/3 add the player actions (register, withdraw, submit a team) and the
+// organiser actions (roles, settings, roster lock, start, generate fixtures, participant flags). Every write refetches
+// the tournament and shows the server's message on failure; nothing is retried. No DOM; rendered by the views.
 
 import { reactive, type InjectionKey } from "vue";
 import {
   ApiError,
+  type BuilderSaveSummary,
+  type LibraryTeam,
   type TournamentDetailResponse,
+  type TournamentEntrantFlags,
+  type TournamentPairingSystem,
+  type TournamentRoundPreview,
+  type TournamentSeedingMode,
   type TournamentEntrant,
   type TournamentFixture,
   type TournamentRound,
@@ -14,14 +22,17 @@ import {
 } from "../shared/api";
 import type { Fetcher } from "../session";
 
-export type DetailTab = "overview" | "entrants" | "rounds" | "standings";
+export type DetailTab = "overview" | "entrants" | "rounds" | "standings" | "manage";
 export const DETAIL_TABS: ReadonlyArray<{ id: DetailTab; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "entrants", label: "Entrants" },
   { id: "rounds", label: "Rounds" },
   { id: "standings", label: "Standings" },
 ];
-export const isDetailTab = (v: unknown): v is DetailTab => DETAIL_TABS.some((t) => t.id === v);
+/** The organiser tab, shown only when the server says the viewer manages this tournament. */
+export const MANAGE_TAB: { id: DetailTab; label: string } = { id: "manage", label: "Manage" };
+export const isDetailTab = (v: unknown): v is DetailTab => v === "manage" || DETAIL_TABS.some((t) => t.id === v);
+export const tabsFor = (manage: boolean): ReadonlyArray<{ id: DetailTab; label: string }> => (manage ? [...DETAIL_TABS, MANAGE_TAB] : DETAIL_TABS);
 
 export interface TournamentDetailState {
   id: string;
@@ -36,7 +47,31 @@ export interface TournamentDetailState {
   loading: boolean;
   notFound: boolean;
   error: string;
+  capabilities: { manage: boolean; assignRoles: boolean };
+  /** The write in flight ("" = none): buttons disable while it runs. */
+  busy: string;
+  /** The last write's server message (failure) and a short confirmation (success). */
+  actionError: string;
+  notice: string;
+  /** The signed-in coach's library teams and Team Builder saves for Register / Submit team. */
+  teamOptions: { status: "idle" | "loading" | "ok"; library: LibraryTeam[]; saves: BuilderSaveSummary[] };
+  /** Generate fixtures preview (organiser), or null. */
+  preview: TournamentRoundPreview | null;
+  /** The Start Tournament outcome: refused = some roster is not verified (the table shows which). */
+  startOutcome: "" | "refused" | "started";
 }
+
+export interface TournamentSettingsPatch {
+  startsAt?: string;
+  endsAt?: string;
+  maxPlayers?: number;
+  roundCount?: number;
+  pairingSystem?: TournamentPairingSystem;
+  seedingMode?: TournamentSeedingMode;
+  primaryTiebreaker?: "buchholz" | "sonnebornBerger";
+}
+
+export interface EntrantPatch { flags?: Partial<TournamentEntrantFlags>; manualSeed?: number | null }
 
 /** Only http(s) image URLs are rendered as crests; anything else (data:, javascript:, relative junk) is dropped. */
 export function safeCrestUrl(url: string | undefined | null): string {
@@ -47,6 +82,8 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
   const state = reactive<TournamentDetailState>({
     id: "", tournament: null, entrants: [], rounds: [], fixtures: [], standings: [], standingsStatus: "idle", standingsError: "",
     loaded: false, loading: false, notFound: false, error: "",
+    capabilities: { manage: false, assignRoles: false }, busy: "", actionError: "", notice: "",
+    teamOptions: { status: "idle", library: [], saves: [] }, preview: null, startOutcome: "",
   });
 
   // Request generations: a response is applied only if no newer request of its kind started (A -> B -> A safe).
@@ -62,6 +99,8 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     if (state.id !== id) {
       state.tournament = null; state.entrants = []; state.rounds = []; state.fixtures = [];
       state.standings = []; state.standingsStatus = "idle"; state.standingsError = "";
+      state.capabilities = { manage: false, assignRoles: false }; state.preview = null; state.startOutcome = "";
+      state.actionError = ""; state.notice = "";
       standingsGen++;
     }
     state.id = id;
@@ -74,6 +113,7 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
       state.entrants = res.entrants ?? [];
       state.rounds = [...(res.rounds ?? [])].sort((a, b) => a.number - b.number);
       state.fixtures = res.scheduledMatches ?? [];
+      state.capabilities = { manage: res.capabilities?.manage === true, assignRoles: res.capabilities?.assignRoles === true };
       state.error = "";
       state.notFound = false;
     } catch (err) {
@@ -120,7 +160,106 @@ export function createTournamentDetail(deps: { api: Fetcher; onSignedOut?: () =>
     if (tab === "standings" && state.tournament && state.standingsStatus === "idle") await loadStandings();
   }
 
-  return { state, load, loadStandings, ensureTab, refresh };
+  const base = (): string => `/api/tournaments/${encodeURIComponent(state.id)}`;
+  const message = (err: unknown, fallback: string): string =>
+    signedOut(err) ? "Signed out. Sign in and try again." : err instanceof Error ? err.message : fallback;
+
+  /** One write: busy flag, server message on failure, refetch (tournament + opened standings) after it either way. */
+  async function run<T>(name: string, write: () => Promise<T>, notice = ""): Promise<T | undefined> {
+    if (!state.id || state.busy) return undefined;
+    state.busy = name;
+    state.actionError = "";
+    state.notice = "";
+    try {
+      const out = await write();
+      state.notice = notice;
+      return out;
+    } catch (err) {
+      state.actionError = message(err, "That did not work.");
+      return undefined;
+    } finally {
+      state.busy = "";
+      await refresh();
+    }
+  }
+
+  /** Library teams + Team Builder saves of the signed-in coach (a failed read is an empty list, never an error). */
+  async function loadTeamOptions(coach: string): Promise<void> {
+    if (!coach) return;
+    state.teamOptions.status = "loading";
+    const [library, saves] = await Promise.all([
+      deps.api<{ teams?: LibraryTeam[] }>(`/api/fork/library?coach=${encodeURIComponent(coach)}`).then((r) => r.teams ?? []).catch(() => [] as LibraryTeam[]),
+      deps.api<{ saves?: BuilderSaveSummary[] }>("/api/fork/team-builder/saves").then((r) => r.saves ?? []).catch(() => [] as BuilderSaveSummary[]),
+    ]);
+    state.teamOptions = { status: "ok", library, saves };
+  }
+
+  // ---- player actions ----
+  const register = (teamId: string) =>
+    run("register", () => deps.api(`${base()}/entrants`, { method: "POST", body: { teamId } }), "You are registered.");
+  const withdraw = () => {
+    const mine = state.tournament?.myEntrantId;
+    return mine
+      ? run("withdraw", () => deps.api(`${base()}/entrants/${encodeURIComponent(mine)}`, { method: "DELETE" }), "Your entry is withdrawn.")
+      : Promise.resolve(undefined);
+  };
+  const submit = (saveId: string) =>
+    run("submit", () => deps.api(`${base()}/submissions`, { method: "POST", body: { saveId } }), "Team submitted.");
+
+  // ---- organiser actions ----
+  const saveSettings = (patch: TournamentSettingsPatch) =>
+    run("settings", () => deps.api(base(), { method: "PATCH", body: patch }), "Settings saved.");
+  const setOwner = (coachId: string) =>
+    run("owner", () => deps.api(`${base()}/owner`, { method: "POST", body: { coachId } }), "Owner changed.");
+  const addOrganizer = (coachId: string) =>
+    run("organizers", () => deps.api(`${base()}/organizers/${encodeURIComponent(coachId)}`, { method: "POST" }), "Organiser added.");
+  const removeOrganizer = (coachId: string) =>
+    run("organizers", () => deps.api(`${base()}/organizers/${encodeURIComponent(coachId)}`, { method: "DELETE" }), "Organiser removed.");
+  const lockRosters = () => run("lock", () => deps.api(`${base()}/lock-rosters`, { method: "POST" }), "Rosters locked.");
+  const unlockRosters = () => run("lock", () => deps.api(`${base()}/unlock-rosters`, { method: "POST" }), "Rosters unlocked.");
+  const finish = () => run("finish", () => deps.api(`${base()}/finish`, { method: "POST" }), "Tournament finished.");
+  const patchEntrant = (entrantId: string, patch: EntrantPatch) =>
+    run(`entrant:${entrantId}`, () => deps.api(`${base()}/entrants/${encodeURIComponent(entrantId)}`, { method: "PATCH", body: patch }));
+
+  /** One click: lock + validate + start. A refusal (409) leaves the lock, so the table shows which rosters fail. */
+  async function start(force = false): Promise<void> {
+    state.startOutcome = "";
+    const ok = await run("start", () => deps.api(`${base()}/start`, { method: "POST", body: force ? { force: true } : {} }), "Tournament started.");
+    state.startOutcome = ok === undefined ? (state.actionError ? "refused" : "") : "started";
+  }
+
+  async function previewRound(pairingSystem?: TournamentPairingSystem, seedingMode?: TournamentSeedingMode): Promise<void> {
+    if (!state.id || state.busy) return;
+    state.busy = "preview";
+    state.actionError = "";
+    try {
+      state.preview = await deps.api<TournamentRoundPreview>(`${base()}/rounds`, {
+        method: "POST",
+        body: { preview: true, ...(pairingSystem ? { pairingSystem } : {}), ...(seedingMode ? { seedingMode } : {}) },
+      });
+    } catch (err) {
+      state.preview = null;
+      state.actionError = message(err, "Can't preview the round.");
+    } finally {
+      state.busy = "";
+    }
+  }
+
+  async function generateRound(pairingSystem?: TournamentPairingSystem, seedingMode?: TournamentSeedingMode): Promise<boolean> {
+    const ok = await run("generate", () => deps.api(`${base()}/rounds`, {
+      method: "POST",
+      body: { ...(pairingSystem ? { pairingSystem } : {}), ...(seedingMode ? { seedingMode } : {}) },
+    }), "Fixtures generated.");
+    if (ok !== undefined) state.preview = null;
+    return ok !== undefined;
+  }
+
+  return {
+    state, load, loadStandings, ensureTab, refresh, loadTeamOptions,
+    register, withdraw, submit,
+    saveSettings, setOwner, addOrganizer, removeOrganizer, lockRosters, unlockRosters, finish, patchEntrant,
+    start, previewRound, generateRound,
+  };
 }
 
 export type TournamentDetail = ReturnType<typeof createTournamentDetail>;
@@ -226,3 +365,90 @@ export function startDate(iso: string | undefined): string {
 
 /** Entrant status: dropped coaches are labelled, everyone else is registered. */
 export const entrantStatus = (e: TournamentEntrant): string => (e.droppedAt ? "Dropped" : "Registered");
+
+// ---- phase 2/3 display helpers (pure) ----
+
+export const PAIRING_LABEL: Record<TournamentPairingSystem, string> = { dutch: "Dutch", monrad: "Monrad", eloSeeded: "Elo-seeded" };
+export const SEEDING_LABEL: Record<TournamentSeedingMode, string> = { elo: "By rating (Elo)", manual: "Manual seeds" };
+
+export type RosterState = "none" | "valid" | "invalid";
+/** The roster chip: no submission, valid (validator or organiser override), invalid. */
+export function rosterState(e: Pick<TournamentEntrant, "submission" | "flags">): RosterState {
+  if (e.flags?.rosterVerified) return "valid";
+  if (!e.submission) return "none";
+  if (e.flags) return "invalid";
+  return e.submission.valid ? "valid" : "invalid";
+}
+export const ROSTER_LABEL: Record<RosterState, string> = { none: "Not submitted", valid: "Valid", invalid: "Invalid" };
+
+/** Registration is open: draft or active before round 1, rosters not locked. */
+export function registrationOpen(t: TournamentSummary, rounds: TournamentRound[]): boolean {
+  return (t.status === "draft" || t.status === "active") && rounds.length === 0 && !t.rostersLockedAt;
+}
+
+export function remainingRounds(t: TournamentSummary): number {
+  if (typeof t.remainingRounds === "number") return t.remainingRounds;
+  return t.status === "completed" || t.status === "cancelled" ? 0 : Math.max(0, t.roundCount - t.currentRound);
+}
+
+/** The viewer's own entrant row (by the server's myEntrantId). */
+export function myEntrant(s: Pick<TournamentDetailState, "tournament" | "entrants">): TournamentEntrant | undefined {
+  const id = s.tournament?.myEntrantId;
+  return id ? s.entrants.find((e) => e.id === id) : undefined;
+}
+
+export interface NextFixtureView { fixtureId: string; round: number; opponentEntrantId: string | null; opponentTeam: string; opponentCoach: string; status: string }
+
+/** An entrant's next unplayed fixture (latest round first), with the opponent named from the entrant list. */
+export function nextFixtureFor(entrantId: string, s: Pick<TournamentDetailState, "fixtures" | "entrants">): NextFixtureView | null {
+  const labels = teamLabels(s.entrants);
+  const open = [...s.fixtures]
+    .filter((f) => f.status !== "completed" && f.status !== "cancelled" && f.status !== "dismissed" &&
+      (f.home.entrantId === entrantId || f.away?.entrantId === entrantId))
+    .sort((a, b) => b.roundNumber - a.roundNumber)[0];
+  if (!open) return null;
+  const other = open.home.entrantId === entrantId ? open.away : open.home;
+  const label = other ? labels.get(other.entrantId) : undefined;
+  return {
+    fixtureId: open.id, round: open.roundNumber, status: open.status,
+    opponentEntrantId: other?.entrantId ?? null,
+    opponentTeam: other ? label?.team || other.teamId : "Bye",
+    opponentCoach: other ? label?.coach || other.coach.ffbCoachId : "",
+  };
+}
+
+/** Rounds view filtered to the fixtures an entrant plays in ("Mine"). */
+export function onlyMine(rounds: RoundView[], fixtures: TournamentFixture[], entrantId: string): RoundView[] {
+  const mine = new Set(fixtures.filter((f) => f.home.entrantId === entrantId || f.away?.entrantId === entrantId).map((f) => f.id));
+  return rounds.map((r) => ({ ...r, fixtures: r.fixtures.filter((f) => mine.has(f.id)) })).filter((r) => r.fixtures.length > 0);
+}
+
+/** Active, every drawn round complete, rounds left: the organiser may generate the next round. */
+export function canGenerateRound(t: TournamentSummary, rounds: TournamentRound[]): boolean {
+  if (t.status !== "active") return false;
+  if (rounds.some((r) => r.status !== "completed")) return false;
+  return rounds.length < t.roundCount;
+}
+
+/** ISO timestamp -> the value of a datetime-local input (UTC, minutes), and back ("" clears). */
+export function toLocalInput(iso: string | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 16);
+}
+export function fromLocalInput(value: string): string {
+  if (!value) return "";
+  const d = new Date(`${value}:00.000Z`);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
+export interface SubmitChoice { ref: string; label: string; group: "Team Builder saves" | "Library teams" }
+
+/** Submit team choices: Team Builder saves first (save:<id>), then library teams without a sheet (library:<teamId>). */
+export function submitChoices(options: TournamentDetailState["teamOptions"]): SubmitChoice[] {
+  const linked = new Set(options.saves.map((s) => s.teamId).filter((id): id is string => Boolean(id)));
+  return [
+    ...options.saves.map((s) => ({ ref: `save:${s.id}`, label: `${s.name}${s.raceName ? ` (${s.raceName})` : ""}`, group: "Team Builder saves" as const })),
+    ...options.library.filter((t) => !linked.has(t.teamId)).map((t) => ({ ref: `library:${t.teamId}`, label: `${t.teamName} (${t.race})`, group: "Library teams" as const })),
+  ];
+}

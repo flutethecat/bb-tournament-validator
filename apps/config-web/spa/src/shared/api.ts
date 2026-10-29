@@ -127,6 +127,35 @@ export interface TournamentSummary {
   tiebreakers?: string[];
   startsAt?: string;
   entrantCount?: number;
+  /** v4 (phase 2/3): roles, dates, systems, lock and start stamps. */
+  endsAt?: string;
+  ownerCoachId?: string;
+  organizerCoachIds?: string[];
+  pairingSystem?: TournamentPairingSystem;
+  seedingMode?: TournamentSeedingMode;
+  rostersLockedAt?: string;
+  startedAt?: string;
+  remainingRounds?: number;
+  myEntrantId?: string;
+  myDroppedAt?: string;
+}
+
+export type TournamentPairingSystem = "dutch" | "monrad" | "eloSeeded";
+export type TournamentSeedingMode = "elo" | "manual";
+
+/** The five participant flags (coach and managers only). */
+export interface TournamentEntrantFlags { paid: boolean; rosterVerified: boolean; frozen: boolean; checkedIn: boolean; active: boolean }
+
+/** A submitted team as the page shows it; `problems` only reaches the coach and the managers. */
+export interface TournamentSubmissionView {
+  saveId?: string;
+  submittedAt: string;
+  teamName?: string;
+  race?: string;
+  valid: boolean;
+  problemCount: number;
+  checkedAt?: string;
+  problems?: string[];
 }
 
 export interface TournamentListPage {
@@ -148,6 +177,10 @@ export interface TournamentEntrant {
   logoUrl?: string;
   registeredAt?: string;
   droppedAt?: string;
+  submission?: TournamentSubmissionView;
+  flags?: TournamentEntrantFlags;
+  rosterVerifiedOverride?: boolean;
+  manualSeed?: number;
 }
 
 export interface TournamentRound { id: string; number: number; status: "pending" | "active" | "completed"; scheduledMatchIds: string[] }
@@ -162,6 +195,7 @@ export interface TournamentFixture {
   /** Absent = bye. */
   away?: TournamentFixtureSide;
   result?: { homeScore: number; awayScore: number; homeCasualties?: number; awayCasualties?: number };
+  revision?: number;
 }
 
 export interface TournamentStandingRow {
@@ -178,6 +212,46 @@ export interface TournamentDetailResponse {
   rounds: TournamentRound[];
   standings?: TournamentStandingRow[];
   scheduledMatches?: TournamentFixture[];
+  /** What the viewer may do here (the server stays the authority). */
+  capabilities?: { manage: boolean; assignRoles: boolean };
+}
+
+/** GET /api/fork/team-builder/saves rows the team picker reads. */
+export interface BuilderSaveSummary { id: string; name: string; raceName?: string; packageName: string | null; teamId: string | null; updatedAt: string }
+
+/** POST /api/tournaments/:id/rounds {preview: true}. */
+export interface TournamentRoundPreview {
+  roundNumber: number;
+  pairings: Array<{ homeEntrantId: string; awayEntrantId?: string }>;
+  seeds: Record<string, number>;
+  pairingSystem: TournamentPairingSystem;
+  seedingMode: TournamentSeedingMode;
+}
+
+/** GET /api/tournaments/:id/entrants/:eid/build: the read-only team (live library row and/or the submitted snapshot). */
+export interface TournamentTeamBuild {
+  tournamentId: string;
+  entrantId: string;
+  coachId?: string;
+  team?: { teamName?: string; race?: string; teamValue?: number; rerolls?: number; apothecary?: boolean; fanFactor?: number };
+  submission?: {
+    submittedAt: string;
+    teamName?: string;
+    race?: string;
+    valid: boolean;
+    problems: string[];
+    snapshot?: {
+      teamName?: string;
+      picks?: Array<{ positionId: string; count: number; chosenSkills?: string[] }>;
+      reRolls?: number;
+      apothecary?: boolean;
+      cheerleaders?: number;
+      assistantCoaches?: number;
+      dedicatedFans?: number;
+      rosteredInducements?: Array<{ key: string; count: number }>;
+      inducements?: Array<{ key: string; count: number }>;
+    } | null;
+  };
 }
 
 /** GET /api/auth/test-login/options: the local-UAT test sign-in, when this server has it switched on. */

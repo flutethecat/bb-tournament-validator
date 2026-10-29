@@ -1,25 +1,41 @@
 <script setup lang="ts">
 // Rounds tab: per round, fixture rows (home team + coach, crest, score with TD / CAS sub-counts, away team + coach,
-// crest; "vs" for an unplayed fixture). Read-only. The server sends fixtures only to signed-in participants and
-// organisers, so an anonymous visitor sees the rounds with an empty state.
-import { computed } from "vue";
+// crest; "vs" for an unplayed fixture). The server sends fixtures only to signed-in coaches (an entrant gets every
+// fixture of the event, others only their own) and organisers, so an anonymous visitor sees the rounds with an empty
+// state. An entrant can switch between all fixtures and their own; their fixtures are highlighted.
+import { computed, ref } from "vue";
 import Crest from "./Crest.vue";
 import type { TournamentDetailState } from "../tournaments/detail";
-import { roundViews } from "../tournaments/detail";
+import { onlyMine, remainingRounds, roundViews } from "../tournaments/detail";
 
-const props = defineProps<{ data: Pick<TournamentDetailState, "rounds" | "fixtures" | "entrants"> }>();
-const rounds = computed(() => roundViews(props.data));
-const fixtureCount = computed(() => rounds.value.reduce((n, r) => n + r.fixtures.length, 0));
+const props = defineProps<{ data: Pick<TournamentDetailState, "rounds" | "fixtures" | "entrants" | "tournament"> }>();
+const all = computed(() => roundViews(props.data));
+const myId = computed(() => (props.data.tournament?.myDroppedAt ? "" : props.data.tournament?.myEntrantId ?? ""));
+const mineIds = computed(() => new Set(props.data.fixtures
+  .filter((f) => myId.value && (f.home.entrantId === myId.value || f.away?.entrantId === myId.value)).map((f) => f.id)));
+const filter = ref<"all" | "mine">("all");
+const rounds = computed(() => (filter.value === "mine" && myId.value ? onlyMine(all.value, props.data.fixtures, myId.value) : all.value));
+const fixtureCount = computed(() => all.value.reduce((n, r) => n + r.fixtures.length, 0));
+const left = computed(() => (props.data.tournament ? remainingRounds(props.data.tournament) : 0));
 </script>
 
 <template>
-  <p v-if="!rounds.length" class="muted">No rounds have been drawn yet.</p>
+  <div class="tn-rounds-head">
+    <p v-if="data.tournament && data.tournament.status !== 'completed'" class="muted tn-left">
+      {{ left === 1 ? "1 round left" : `${left} rounds left` }}
+    </p>
+    <div v-if="mineIds.size" class="tn-filter" role="group" aria-label="Fixtures shown">
+      <button type="button" class="tn-tab" :class="{ on: filter === 'all' }" :aria-pressed="filter === 'all'" @click="filter = 'all'">All fixtures</button>
+      <button type="button" class="tn-tab" :class="{ on: filter === 'mine' }" :aria-pressed="filter === 'mine'" @click="filter = 'mine'">My fixtures</button>
+    </div>
+  </div>
+  <p v-if="!all.length" class="muted">No rounds have been drawn yet.</p>
   <template v-else>
     <p v-if="!fixtureCount" class="muted">Fixtures are shown to signed-in participants and organisers. Nothing to show here yet.</p>
     <section v-for="r in rounds" :key="r.number" class="tn-round">
       <h3 class="tn-round-h">Round {{ r.number }} <span class="tn-chip" :data-status="r.status">{{ r.status }}</span></h3>
       <ul v-if="r.fixtures.length" class="tn-fixtures">
-        <li v-for="f in r.fixtures" :key="f.id" class="tn-fixture" :data-played="f.played">
+        <li v-for="f in r.fixtures" :key="f.id" class="tn-fixture" :class="{ 'tn-mine': mineIds.has(f.id) }" :data-played="f.played">
           <div class="tn-side tn-home">
             <Crest :url="f.home.logoUrl" />
             <span class="tn-side-text"><strong>{{ f.home.team }}</strong><span class="muted">{{ f.home.coach }}</span></span>
