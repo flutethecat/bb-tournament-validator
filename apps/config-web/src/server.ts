@@ -10,13 +10,14 @@ import "dotenv/config";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deriveDeadlines, matchEndedAt, parseSchedulingInput, readBuildLog, schedulingView, toStoredScheduling } from "./coachHome.js";
 import { profileView, updateOwnProfile, type ProfileDeps } from "./accountProfile.js";
-import { createTabletopGatherer, RECENT_RESULTS_MAX, recentLimit, recentResults, type GameSource, type RecentInputs, type RecentResult, type TeamInfo } from "./recentResults.js";
-import { gameDetail, parseGamePath, type GameDetail, type GameInputs } from "./gameDetail.js";
+import { createTabletopGatherer, RECENT_RESULTS_MAX, recentLimit, recentResults, type RecentInputs, type RecentResult, type TeamInfo } from "./recentResults.js";
+import { parseGamePath } from "./gameDetail.js";
+import { createGameDetailLoader, maySeePlayerLines, publicPlayerLinesFromEnv, withoutPlayerLines, type GameFixture, type LoadedGame } from "./gameDetailLoader.js";
 import { ConnectionError, NAF_CONNECTION_ENDPOINT, nafProvider } from "./auth/connections.js";
 import {
   composeTeam,
@@ -1420,45 +1421,36 @@ async function cachedRecentResults(): Promise<RecentResult[]> {
   return rows;
 }
 
-/** One game page (GET /api/games/:source/:id, src/gameDetail.ts): reads only the stores that game can involve. */
-async function readGameDetail(source: GameSource, id: string): Promise<GameDetail | undefined> {
-  const teams = new Map<string, TeamInfo | undefined>();
-  const teamInfo = (ref: string, coach: string): TeamInfo | undefined => {
-    const key = `${ref} ${coach}`;
-    if (!teams.has(key)) teams.set(key, recentTeamInfo(ref, coach));
-    return teams.get(key);
+/** Game pages (GET /api/games/:source/:id): targeted, cached reads (src/gameDetailLoader.ts). */
+const GAME_PAGES_PUBLIC_PLAYER_LINES = publicPlayerLinesFromEnv(process.env.GAME_PAGES_PUBLIC_PLAYER_LINES);
+const fileStamp = (path: string): string => { try { const s = statSync(path); return `${s.mtimeMs}:${s.size}`; } catch { return "-"; } };
+const PUBLIC_TOURNAMENT_STATUSES = new Set(["active", "completed", "cancelled"]);
+/** One tournaments.json parse: the public fixture matching `pred`, its tournament and entrants, and who manages it. */
+function gameFixture(pred: (m: GameFixture["matches"][number]) => boolean, byId?: string): GameFixture | undefined {
+  const data = tournamentStore.snapshot();
+  const match = byId !== undefined
+    ? (Object.hasOwn(data.scheduledMatches, byId) ? data.scheduledMatches[byId] : undefined)
+    : Object.values(data.scheduledMatches).find(pred);
+  const t = match ? data.tournaments[match.tournamentId] : undefined;
+  if (!match || !t || !PUBLIC_TOURNAMENT_STATUSES.has(t.status)) return undefined;
+  const managers = [t.ownerCoachId, t.organizerCoachId, ...(t.organizerCoachIds ?? [])].filter((c): c is string => typeof c === "string" && c !== "");
+  return {
+    id: t.id, name: t.name, matches: [match], managers,
+    entrants: Object.values(data.entrants).filter((e) => e.tournamentId === t.id && (e.id === match.home.entrantId || e.id === match.away?.entrantId)),
   };
-  const inputs: GameInputs = { results: [], tournaments: [], tabletop: [], teamInfo, forkMeta: (gameId) => tournamentMatches.get(gameId) };
-  try {
-    inputs.tournaments = tournamentStore.tournaments(["active", "completed", "cancelled"]).map((t) => ({
-      id: t.id, name: t.name, matches: tournamentStore.matches(t.id), entrants: tournamentStore.entrants(t.id),
-    }));
-  } catch { /* no tournaments store */ }
-  if (source !== "tabletop") {
-    try { inputs.results = tournamentResults.listAll(); } catch { /* no results store */ }
-  }
-  if (source !== "online") {
-    try {
-      const { repo } = await tabletopDeps();
-      const matches = source === "tabletop"
-        ? [await repo.getMatch(id).catch(() => undefined)].filter((m): m is NonNullable<typeof m> => !!m)
-        : (await repo.listMatches()).filter((m) => m.fixtureRef === id);
-      const raceOf = async (coach: string, saveId: string) => {
-        try {
-          const chain = await repo.getChain(coach, saveId);
-          return chain?.revisions.find((r) => r.revision === chain.head)?.teamFile.race ?? undefined;
-        } catch { return undefined; }
-      };
-      for (const match of matches.filter((m) => !m.test).slice(0, 5)) {
-        inputs.tabletop = [...inputs.tabletop, {
-          match, events: await repo.readEvents(match.id),
-          race: { home: await raceOf(match.home.coach, match.home.teamSaveId), away: await raceOf(match.away.coach, match.away.teamSaveId) },
-        }];
-      }
-    } catch { /* recorder store unavailable */ }
-  }
-  return gameDetail(source, id, inputs);
 }
+const gameLoader = createGameDetailLoader({
+  revision: () => [
+    tournamentResults.revision(), fileStamp(join(TOURNAMENTS_DIR, "tournaments.json")),
+    fileStamp(join(FORK_STATE_DIR, "tournament-matches.json")), fileStamp(join(TABLETOP_DIR, "matches")),
+  ].join("|"),
+  fixture: (id) => { try { return gameFixture(() => false, id); } catch { return undefined; } },
+  fixtureForGame: (gameId) => { try { return gameFixture((m) => m.launch?.gameId === gameId); } catch { return undefined; } },
+  result: (gameId) => { try { return tournamentResults.get(gameId); } catch { return undefined; } },
+  forkMeta: (gameId) => { try { return tournamentMatches.get(gameId); } catch { return undefined; } },
+  teamInfo: recentTeamInfo,
+  tabletop: async () => (await tabletopDeps()).repo,
+});
 
 function ffbCoachIdForDiscordId(discordId: string): string | undefined {
   return Object.values(readIdentities().coaches).find(
@@ -1998,10 +1990,14 @@ async function handleApi(
   // Game page (Past Games cards link here): public, read-only; unknown, test or unfinished games are 404.
   const gamePath = parseGamePath(path);
   if (gamePath && (method === "GET" || method === "HEAD")) {
-    res.setHeader("cache-control", "public, max-age=60");
-    let detail: GameDetail | undefined;
-    try { detail = await readGameDetail(gamePath.source, gamePath.id); } catch { detail = undefined; }
-    return detail ? sendJson(res, 200, detail) : sendJson(res, 404, { error: "Game not found." });
+    let loaded: LoadedGame | undefined;
+    try { loaded = await gameLoader.load(gamePath.source, gamePath.id); } catch { loaded = undefined; }
+    // With public player lines off the answer depends on who asks: never shared-cacheable.
+    res.setHeader("cache-control", GAME_PAGES_PUBLIC_PLAYER_LINES ? "public, max-age=60" : "private, no-store");
+    if (!loaded) return sendJson(res, 404, { error: "Game not found." });
+    const viewer = GAME_PAGES_PUBLIC_PLAYER_LINES ? undefined : sessionFromRequest(req)?.coach;
+    const full = maySeePlayerLines(GAME_PAGES_PUBLIC_PLAYER_LINES, loaded.access, viewer, (c) => coachLevel(c) !== "player" || isOrganizer(c));
+    return sendJson(res, 200, full ? loaded.detail : withoutPlayerLines(loaded.detail));
   }
 
   // Coach home page (/app/home): derived deadlines + the availability editor. Session-gated, own data only.
