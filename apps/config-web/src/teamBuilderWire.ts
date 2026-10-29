@@ -103,6 +103,8 @@ export function teamBuilderWireError(body: unknown): string | null {
   if (Array.isArray(picks)) {
     for (const pick of picks) {
       if (!pick || typeof pick !== "object" || Array.isArray(pick)) continue; // composer reports bad picks
+      const captain = (pick as Record<string, unknown>).captain;
+      if (captain !== undefined && typeof captain !== "boolean") return "captain must be a boolean when supplied.";
       const stats = (pick as Record<string, unknown>).chosenStats;
       if (stats !== undefined) {
         if (!stats || typeof stats !== "object" || Array.isArray(stats)) return "chosenStats must be an object when supplied.";

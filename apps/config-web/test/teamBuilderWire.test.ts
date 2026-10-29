@@ -60,4 +60,11 @@ describe("teamBuilderWireError", () => {
       expect(teamBuilderWireError(body)).toMatch(/rosteredInducements|rostered inducement/i);
     },
   );
+
+  it("accepts a boolean Team Captain flag on a pick and rejects anything else", () => {
+    expect(teamBuilderWireError({ picks: [{ positionId: "1", count: 1, captain: true }] })).toBeNull();
+    expect(teamBuilderWireError({ picks: [{ positionId: "1", count: 1, captain: false }] })).toBeNull();
+    for (const captain of ["true", 1, null])
+      expect(teamBuilderWireError({ picks: [{ positionId: "1", count: 1, captain }] })).toBe("captain must be a boolean when supplied.");
+  });
 });

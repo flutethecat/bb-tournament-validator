@@ -23,10 +23,12 @@ export function teamFileFromSave(save: TeamBuilderSave): TabletopTeamFile {
     const skills = Array.isArray(pick.chosenSkills) ? (pick.chosenSkills as unknown[]).filter((s): s is string => typeof s === "string") : [];
     const dsPos = rosterOf?.positions.find((p) => p.id === positionId);
     const stats = dsPos ? { ...positionStats(dsPos), ...applyIncreases(dsPos, pick) } : {};
-    // position skills first (a team file's skills include the position's own), then the chosen ones; deduplicated
-    const allSkills = [...new Set([...(dsPos?.skills ?? []), ...skills])];
     // Star Players are listed separately in the builder: recognised here by name only (the dataset's star names) or an explicit flag
     const kind: PlayerKind = pick.isStar === true || isStarName(bb2025, positionId) ? "star" : "rostered";
+    // A nominated Team Captain carries the trait and its free Pro, as the composed team XML does.
+    const captainSkills = pick.captain === true && kind !== "star" ? ["Team Captain", "Pro"] : [];
+    // position skills first (a team file's skills include the position's own), then the chosen ones; deduplicated
+    const allSkills = [...new Set([...(dsPos?.skills ?? []), ...captainSkills, ...skills])];
     for (let k = 0; k < count && players.length < 16; k += 1) {
       const i = (perPosition.get(positionId) ?? 0) + 1;
       perPosition.set(positionId, i);

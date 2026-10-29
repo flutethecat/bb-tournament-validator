@@ -289,6 +289,11 @@ describe("tabletop: baseline team file ids", () => {
     expect(file.players.map((p) => p.id)).toEqual(["B-1", "B-2", "L-1", "B-3", "B-4"]);
     expect(duplicatePlayerId(file)).toBeUndefined();
   });
+  it("a nominated Team Captain carries the trait and its free Pro", () => {
+    const file = teamFileFromSave(save([{ positionId: "B", count: 1, captain: true }, { positionId: "B", count: 1 }]));
+    expect(file.players[0]!.skills).toEqual(expect.arrayContaining(["Team Captain", "Pro"]));
+    expect(file.players[1]!.skills).not.toContain("Team Captain");
+  });
   it("a baseline with a duplicate id is refused before it is persisted", async () => {
     const bad = mkTeam("Dup", "a");
     bad.players[1]!.id = bad.players[0]!.id;

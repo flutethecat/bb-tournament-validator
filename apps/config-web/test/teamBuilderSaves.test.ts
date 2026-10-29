@@ -261,4 +261,8 @@ describe("build-body whitelist audit (re-review 10-22)", () => {
     expect(out.inducements).toEqual([{ key: "team_mascot", count: 1 }]);
     expect(out.coach).toBeUndefined();
   });
+  it("keeps a Team Captain nomination on its pick", () => {
+    const out = buildBodyForSave({ ...sheet("P"), picks: [{ positionId: "1", count: 1, captain: true, junk: 1 }, { positionId: "2", count: 3 }] });
+    expect(out.picks).toEqual([{ positionId: "1", count: 1, captain: true }, { positionId: "2", count: 3 }]);
+  });
 });
