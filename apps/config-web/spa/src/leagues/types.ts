@@ -1,0 +1,208 @@
+// League API shapes the SPA reads (server: src/leagues/types.ts + src/leagues/api.ts + src/leagues/stats.ts).
+
+export type LeagueRuleset = "BB2020" | "BB2025";
+
+export interface SeasonSummary {
+  id: string;
+  number: number;
+  name: string;
+  ruleset: LeagueRuleset;
+  status: "active" | "completed";
+  startedAt?: string;
+  endedAt?: string;
+  teamCount: number;
+  fixtureCount: number;
+  playedCount: number;
+  champion?: { coach: string; team: string; race: string };
+}
+
+export interface LeagueSummary {
+  id: string;
+  name: string;
+  fullName: string;
+  slug: string;
+  description: string;
+  organisers: string[];
+  createdAt: string;
+  logoUrl?: string;
+  bannerUrl?: string;
+  seasonCount: number;
+  currentSeason?: SeasonSummary;
+}
+
+export interface FixtureSide {
+  team: string;
+  coach: string;
+  coachId?: string;
+  race: string;
+  nafUser?: string;
+  score: number | null;
+  cas: number | null;
+  conceded: boolean;
+}
+
+export interface LeagueFixture {
+  id: string;
+  category: string;
+  phase: string;
+  phaseId: string;
+  group: string;
+  round: number;
+  table: number;
+  home: FixtureSide;
+  away: FixtureSide;
+  suspended: boolean;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface StandingRow {
+  group: string;
+  rank: number;
+  team: string;
+  race: string;
+  coach: string;
+  coachId?: string;
+  points: number;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  tdFor: number;
+  tdAgainst: number;
+  casFor: number;
+  casAgainst: number;
+  [key: string]: unknown;
+}
+
+export interface LeaguePhase {
+  id: string;
+  category: string;
+  name: string;
+  groups: string[];
+  standings: StandingRow[];
+  includes?: string[];
+}
+
+export interface PlayerSeasonStats {
+  td: number;
+  cas: number;
+  mvp: number;
+  int: number;
+  completions: number;
+  fouls: number;
+  injuries: number;
+  sentOffs: number;
+  spp: number;
+  performance: number;
+}
+
+export interface LeaguePlayer {
+  number: number | null;
+  name: string;
+  position: string;
+  ma: number | null;
+  st: number | null;
+  ag: number | null;
+  pa: number | null;
+  av: number | null;
+  skills: string[];
+  value: number | null;
+  level: string;
+  availableSpp: number;
+  niggling: number;
+  missNextGame: boolean;
+  stats: PlayerSeasonStats;
+}
+
+export interface FormerPlayer {
+  name: string;
+  position: string;
+  level: string;
+  stats: PlayerSeasonStats;
+}
+
+export interface LeagueTeam {
+  name: string;
+  race: string;
+  coach: string;
+  coachId?: string;
+  teamValue: number | null;
+  treasury: number | null;
+  rerolls: number | null;
+  fans: number | null;
+  assistantCoaches: number | null;
+  cheerleaders: number | null;
+  apothecary: boolean;
+  tier: string;
+  raceLeague: string;
+  players: LeaguePlayer[];
+  formerPlayers: FormerPlayer[];
+}
+
+export type HonourValue = number | string | Record<string, number | string>;
+
+export interface HonourTable {
+  key: string;
+  category: string;
+  stat: string;
+  kind: "player" | "team" | "coach";
+  rows: Array<{ rank: number; name: string; team: string; coach: string; position?: string; level?: string; value: HonourValue }>;
+}
+
+export interface LeagueAward {
+  category: string;
+  type: string;
+  name: string;
+  description: string;
+  coach: string;
+  team: string;
+  race: string;
+  goldenStar: boolean;
+}
+
+export interface SeasonRecord {
+  id: string;
+  leagueId: string;
+  number: number;
+  name: string;
+  sourceSlug: string;
+  ruleset: LeagueRuleset;
+  status: "active" | "completed";
+  startedAt?: string;
+  endedAt?: string;
+  phases: LeaguePhase[];
+  fixtures: LeagueFixture[];
+  participants: Array<{ coach: string; team: string; race: string; country: string }>;
+  teams: LeagueTeam[];
+  honours: HonourTable[];
+  awards: LeagueAward[];
+  importedAt: string;
+}
+
+export type StatsScope = "bb2020" | "bb2025" | "all";
+export type LeaderStat = "td" | "cas" | "mvp" | "int" | "completions" | "fouls" | "spp";
+
+export interface PlayerLeader { name: string; position: string; team: string; race: string; coach: string; seasons: number[]; value: number }
+export interface RecordLine { games: number; wins: number; draws: number; losses: number; points: number; tdFor: number; tdAgainst: number; casFor: number; casAgainst: number; winPct: number }
+export interface CoachRecord extends RecordLine { coach: string; coachId?: string; seasons: number[]; teams: number; titles: number }
+export interface TeamRecord extends RecordLine { team: string; race: string; coach: string; seasons: number[] }
+export interface RaceRecord extends RecordLine { race: string; teams: number }
+export interface BigWin {
+  seasonId: string; season: number; phase: string; round: number; margin: number; playedAt?: string;
+  winner: { team: string; coach: string; race: string; score: number };
+  loser: { team: string; coach: string; race: string; score: number };
+}
+
+export interface LeagueStats {
+  scope: StatsScope;
+  seasons: Array<{ id: string; number: number; name: string; ruleset: LeagueRuleset; status: string }>;
+  totals: { seasons: number; games: number; touchdowns: number; casualties: number; teams: number; coaches: number; players: number };
+  leaders: Record<LeaderStat, PlayerLeader[]>;
+  coaches: CoachRecord[];
+  teams: TeamRecord[];
+  races: RaceRecord[];
+  biggestWins: BigWin[];
+  mostGames: CoachRecord[];
+  champions: Array<{ seasonId: string; season: number; ruleset: LeagueRuleset; coach: string; team: string; race: string }>;
+}

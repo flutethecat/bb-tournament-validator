@@ -1,0 +1,366 @@
+import { fileURLToPath } from "node:url";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createSSRApp } from "vue";
+import type { ViteDevServer } from "vite";
+import { ApiError } from "../spa/src/shared/api";
+import type { Fetcher } from "../spa/src/session";
+import {
+  canManageLeague, createLeagueDetail, createLeagueList, createLeagueStats, crestFor, fixtureContext, fixturesByPhase, honourBoards, honourValue,
+  kValue, latestResults, pickSeason, resultCardProps, safeArtUrl, standingsTables,
+} from "../spa/src/leagues/league";
+import type { LeagueFixture, LeagueStats, LeagueSummary, SeasonRecord, SeasonSummary } from "../spa/src/leagues/types";
+
+// SPA Leagues: controllers + display helpers, and the list / league page / statistics routes server-rendered through
+// the SPA's Vite config against a mocked Fetcher (as in spaTournaments.test.ts).
+
+const SPA_CONFIG = fileURLToPath(new URL("../spa/vite.config.ts", import.meta.url));
+
+type Routes = Record<string, unknown>;
+function mockFetcher(routes: Routes): Fetcher & { calls: string[] } {
+  const calls: string[] = [];
+  const f = (async (path: string) => {
+    calls.push(path);
+    const hit = routes[path];
+    if (hit === undefined) throw new ApiError(404, `no mock for ${path}`);
+    if (hit instanceof Error) throw hit;
+    return hit;
+  }) as Fetcher & { calls: string[] };
+  f.calls = calls;
+  return f;
+}
+
+const s6sum: SeasonSummary = { id: "season-6", number: 6, name: "Season 6", ruleset: "BB2025", status: "active", startedAt: "2026-05-29T00:00:00.000Z", endedAt: "2026-09-01T00:00:00.000Z", teamCount: 2, fixtureCount: 4, playedCount: 3 };
+const s1sum: SeasonSummary = { id: "season-1", number: 1, name: "Season 1", ruleset: "BB2020", status: "completed", teamCount: 2, fixtureCount: 1, playedCount: 1, champion: { coach: "Ann", team: "Orcs", race: "Orc" } };
+const league: LeagueSummary = {
+  id: "tabbl", name: "TABBL", fullName: "Tahoma Area Blood Bowl League", slug: "tabbl", description: "", organisers: ["Jay"], createdAt: "2026-10-30T00:00:00.000Z",
+  logoUrl: "/api/leagues/tabbl/logo?v=abcdef123456", bannerUrl: "/api/leagues/tabbl/banner?v=0123456789ab", seasonCount: 2, currentSeason: s6sum,
+};
+
+const fx = (id: string, phaseId: string, phase: string, round: number, home: [string, number | null, number | null], away: [string, number | null, number | null], over: Partial<LeagueFixture> = {}): LeagueFixture => ({
+  id, category: "Season", phase, phaseId, group: phaseId === "season-regular" ? "Tahoma" : "", round, table: 1,
+  home: { team: home[0], coach: home[0] === "Grudge Rollers" ? "flutethecat (Jay)" : "Jeff / @Chap", race: home[0] === "Grudge Rollers" ? "Dwarf" : "Nurgle", score: home[1], cas: home[2], conceded: false },
+  away: { team: away[0], coach: away[0] === "Grudge Rollers" ? "flutethecat (Jay)" : "Jeff / @Chap", race: away[0] === "Grudge Rollers" ? "Dwarf" : "Nurgle", score: away[1], cas: away[2], conceded: false },
+  suspended: false, ...over,
+});
+
+const season6 = (): SeasonRecord => ({
+  id: "season-6", leagueId: "tabbl", number: 6, name: "Season 6", sourceSlug: "tabbl---season-6", ruleset: "BB2025", status: "active", importedAt: "2026-10-30T00:00:00.000Z",
+  startedAt: s6sum.startedAt, endedAt: s6sum.endedAt,
+  phases: [
+    { id: "season-preseason", category: "Season", name: "PreSeason", groups: [""], standings: [] },
+    { id: "season-regular", category: "Season", name: "Regular", groups: ["Tahoma"], includes: ["season-interdivision"], standings: [
+      { group: "Tahoma", rank: 1, team: "Grudge Rollers", race: "Dwarf", coach: "flutethecat (Jay)", points: 6, played: 2, wins: 2, draws: 0, losses: 0, tdFor: 4, tdAgainst: 1, casFor: 3, casAgainst: 2 },
+      { group: "Tahoma", rank: 2, team: "Rot Girl Summer", race: "Nurgle", coach: "Jeff / @Chap", points: 0, played: 2, wins: 0, draws: 0, losses: 2, tdFor: 1, tdAgainst: 4, casFor: 2, casAgainst: 3 },
+    ] },
+    { id: "season-interdivision", category: "Season", name: "Interdivision", groups: [""], standings: [] },
+  ],
+  fixtures: [
+    fx("f1", "season-preseason", "PreSeason", 1, ["Grudge Rollers", 1, 2], ["Rot Girl Summer", 1, 3], { finishedAt: "2026-05-29T03:00:00.000Z" }),
+    fx("f2", "season-regular", "Regular", 1, ["Grudge Rollers", 3, 1], ["Rot Girl Summer", 0, 2], { finishedAt: "2026-06-10T03:00:00.000Z" }),
+    fx("f3", "season-regular", "Regular", 2, ["Rot Girl Summer", 1, 0], ["Grudge Rollers", 2, 1], { finishedAt: "2026-07-01T03:00:00.000Z", suspended: true, away: { team: "Grudge Rollers", coach: "flutethecat (Jay)", race: "Dwarf", score: 2, cas: 1, conceded: false }, home: { team: "Rot Girl Summer", coach: "Jeff / @Chap", race: "Nurgle", score: 1, cas: 0, conceded: true } }),
+    fx("f4", "season-regular", "Regular", 3, ["Grudge Rollers", null, null], ["Rot Girl Summer", null, null]),
+  ],
+  participants: [],
+  teams: [
+    { name: "Grudge Rollers", race: "Dwarf", coach: "flutethecat (Jay)", teamValue: 885000, treasury: 130000, rerolls: 1, fans: 3, assistantCoaches: 0, cheerleaders: 0, apothecary: false, tier: "2", raceLeague: "WorldsEdgeSuperleague",
+      players: [{ number: 4, name: "Dethirord Slenderstrength", position: "Troll Slayer", ma: 5, st: 3, ag: 4, pa: 5, av: 9, skills: ["Block", "Hatred (102)"], value: 95000, level: "Rookie", availableSpp: 6, niggling: 0, missNextGame: false, stats: { td: 2, cas: 1, mvp: 1, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 11, performance: 0 } }],
+      formerPlayers: [{ name: "Gone Guy", position: "Dwarf Lineman", level: "Rookie", stats: { td: 0, cas: 2, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 4, performance: 0 } }] },
+    { name: "Rot Girl Summer", race: "Nurgle", coach: "Jeff / @Chap", teamValue: 1000000, treasury: 0, rerolls: 2, fans: 2, assistantCoaches: 1, cheerleaders: 1, apothecary: false, tier: "1", raceLeague: "", players: [], formerPlayers: [] },
+  ],
+  honours: [
+    { key: "season-mosttouchdowns", category: "season", stat: "mosttouchdowns", kind: "player", rows: [{ rank: 1, name: "Dethirord Slenderstrength", team: "Grudge Rollers", coach: "", value: 2 }] },
+    { key: "season-bestrace", category: "season", stat: "bestrace", kind: "coach", rows: [{ rank: 1, name: "Kainis", team: "Caledor Crusaders", coach: "Kainis", value: { WinDrawRatio: 0.955, Wins: 10, Draws: 1, Defeats: 0, Points: 22 } }] },
+  ],
+  awards: [],
+});
+
+const stats = (scope: "bb2020" | "bb2025" | "all"): LeagueStats => ({
+  scope,
+  seasons: scope === "bb2020" ? [{ id: "season-1", number: 1, name: "Season 1", ruleset: "BB2020", status: "completed" }] : [{ id: "season-6", number: 6, name: "Season 6", ruleset: "BB2025", status: "active" }],
+  totals: { seasons: 1, games: 3, touchdowns: 8, casualties: 9, teams: 2, coaches: 2, players: 2 },
+  leaders: {
+    td: [{ name: scope === "bb2020" ? "Old Timer" : "Dethirord Slenderstrength", position: "Troll Slayer", team: "Grudge Rollers", race: "Dwarf", coach: "flutethecat (Jay)", seasons: [6], value: 2 }],
+    cas: [], mvp: [], int: [], completions: [], fouls: [], spp: [],
+  },
+  coaches: [{ coach: "flutethecat (Jay)", seasons: [6], teams: 1, titles: 0, games: 3, wins: 2, draws: 1, losses: 0, points: 7, tdFor: 6, tdAgainst: 2, casFor: 4, casAgainst: 5, winPct: 0.833 }],
+  teams: [{ team: "Grudge Rollers", race: "Dwarf", coach: "flutethecat (Jay)", seasons: [6], games: 3, wins: 2, draws: 1, losses: 0, points: 7, tdFor: 6, tdAgainst: 2, casFor: 4, casAgainst: 5, winPct: 0.833 }],
+  races: [{ race: "Dwarf", teams: 1, games: 3, wins: 2, draws: 1, losses: 0, points: 7, tdFor: 6, tdAgainst: 2, casFor: 4, casAgainst: 5, winPct: 0.833 }],
+  biggestWins: [{ seasonId: "season-6", season: 6, phase: "PreSeason", round: 1, margin: 3, winner: { team: "Grudge Rollers", coach: "Jay", race: "Dwarf", score: 3 }, loser: { team: "Rot Girl Summer", coach: "Jeff", race: "Nurgle", score: 0 } }],
+  mostGames: [{ coach: "flutethecat (Jay)", seasons: [6], teams: 1, titles: 0, games: 3, wins: 2, draws: 1, losses: 0, points: 7, tdFor: 6, tdAgainst: 2, casFor: 4, casAgainst: 5, winPct: 0.833 }],
+  champions: scope === "bb2025" ? [] : [{ seasonId: "season-1", season: 1, ruleset: "BB2020", coach: "Ann", team: "Orcs", race: "Orc" }],
+});
+
+const API: Routes = {
+  "/api/leagues": { leagues: [league] },
+  "/api/leagues/tabbl": { league, seasons: [s1sum, s6sum] },
+  "/api/leagues/tabbl/seasons/season-6": { league, season: season6() },
+  "/api/leagues/tabbl/stats?scope=all": stats("all"),
+  "/api/leagues/tabbl/stats?scope=bb2020": stats("bb2020"),
+  "/crests/manifest.json": { crests: { dwarf: "crests/dwarf.png", nurgle: "crests/nurgle.png" } },
+};
+
+describe("league helpers", () => {
+  it("latest results: played only (unplayed and void left out), newest first, capped", () => {
+    expect(latestResults(season6()).map((f) => f.id)).toEqual(["f3", "f2", "f1"]);
+    expect(latestResults(season6(), 2)).toHaveLength(2);
+  });
+
+  it("fixtures by phase and round, standings tables with the included phases noted", () => {
+    const groups = fixturesByPhase(season6());
+    expect(groups.map((g) => [g.title, g.rounds.map((r) => `${r.round}:${r.played}/${r.fixtures.length}`)])).toEqual([
+      ["Pre-season", ["1:1/1"]], ["Regular", ["1:1/1", "2:1/1", "3:0/1"]],
+    ]);
+    const tables = standingsTables(season6());
+    expect(tables).toHaveLength(1);
+    expect(tables[0]).toMatchObject({ title: "Regular · Tahoma", note: "Includes Interdivision games." });
+  });
+
+  it("result card props, context line, honour values and boards", () => {
+    const s = season6();
+    const card = resultCardProps(league, s, s.fixtures[2]!, { dwarf: "crests/dwarf.png" });
+    expect(card).toMatchObject({
+      context: "TABBL · Season 6 · Regular · Tahoma · Round 2", concede: "home", suspended: true, playedAt: "2026-07-01T03:00:00.000Z",
+      home: { name: "Rot Girl Summer", score: 1, cas: 0, crestUrl: null }, away: { name: "Grudge Rollers", score: 2, cas: 1, crestUrl: "/crests/dwarf.png" },
+    });
+    expect(fixtureContext({ name: "TABBL" }, { name: "Season 4" }, { ...s.fixtures[0]!, category: "Cup", phase: "Final" })).toBe("TABBL · Season 4 · Cup Final · Round 1");
+    expect(honourValue({ WinDrawRatio: 0.955, Wins: 10, Draws: 1, Defeats: 0, Points: 22 })).toBe("10-1-0 · 22 pts");
+    expect(honourValue(4.5)).toBe("4.50");
+    expect(honourBoards(s).map((b) => b.title)).toEqual(["Players", "Coaches"]);
+    expect(kValue(1205000)).toBe("1,205k");
+    expect(kValue(null)).toBe("-");
+  });
+
+  it("season pick, artwork URL guard, crest lookup, organiser check", () => {
+    expect(pickSeason([s6sum, s1sum], "season-1")!.id).toBe("season-1");
+    expect(pickSeason([s1sum, s6sum], "nope")!.id).toBe("season-6");
+    expect(pickSeason([], undefined)).toBeUndefined();
+    expect(safeArtUrl("/api/leagues/tabbl/logo?v=abc")).toBe("/api/leagues/tabbl/logo?v=abc");
+    expect(safeArtUrl("javascript:alert(1)")).toBe("");
+    expect(safeArtUrl("https://evil.test/x.png")).toBe("");
+    expect(crestFor({ underworlddenizens: "crests/underworlddenizens.png" }, "Underworld Denizen")).toBe("/crests/underworlddenizens.png");
+    expect(crestFor({ x: "../../etc" }, "x")).toBe("");
+    expect(canManageLeague(league, " jay ", false)).toBe(true);
+    expect(canManageLeague(league, "Mallory", false)).toBe(false);
+    expect(canManageLeague(league, "Mallory", true)).toBe(true);
+    expect(canManageLeague(league, "", true)).toBe(false);
+  });
+
+  it("controllers: list, detail with on-demand seasons, stats per scope cached", async () => {
+    const f = mockFetcher(API);
+    const list = createLeagueList({ api: f });
+    await list.load();
+    expect(list.state.leagues.map((l) => l.id)).toEqual(["tabbl"]);
+    const d = createLeagueDetail({ api: f });
+    await d.load("tabbl");
+    expect(d.state.seasons.map((s) => s.id)).toEqual(["season-6", "season-1"]);
+    expect(d.state.crests.dwarf).toBe("crests/dwarf.png");
+    await d.ensureSeason("season-6");
+    await d.ensureSeason("season-6");
+    expect(f.calls.filter((c) => c.endsWith("/seasons/season-6"))).toHaveLength(1);
+    await d.ensureSeason("season-1");
+    expect(d.state.seasonError).toContain("no mock");
+    const missing = createLeagueDetail({ api: f });
+    await missing.load("nope");
+    expect(missing.state.error).toBe("League not found.");
+    const st = createLeagueStats({ api: f });
+    await st.load("tabbl", "all");
+    await st.load("tabbl", "bb2020");
+    await st.load("tabbl", "all");
+    expect(f.calls.filter((c) => c.includes("/stats?scope=all"))).toHaveLength(1);
+    expect(st.state.byScope.bb2020!.leaders.td[0]!.name).toBe("Old Timer");
+  });
+});
+
+describe("league routes (server-rendered against a mocked API)", () => {
+  let vite: ViteDevServer;
+  let mods: {
+    createSpa: (o: { history: unknown; ssr?: boolean; fetcher?: Fetcher }) => {
+      app: { provide: (k: unknown, v: unknown) => void };
+      router: { push: (p: string) => Promise<unknown>; isReady: () => Promise<void>; currentRoute: { value: { name: unknown; meta: Record<string, unknown> } } };
+      session: unknown;
+    };
+    createMemoryHistory: (base?: string) => unknown;
+    renderToString: (app: unknown) => Promise<string>;
+    gateFor: (route: { meta: Record<string, unknown> }, s: unknown) => string;
+    league: typeof import("../spa/src/leagues/league");
+    ResultCard: unknown;
+  };
+
+  beforeAll(async () => {
+    const { createServer } = await import("vite");
+    vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
+    const [app, router, league, vueRouter, renderer, card] = await Promise.all([
+      vite.ssrLoadModule("/src/app.ts"),
+      vite.ssrLoadModule("/src/router.ts"),
+      vite.ssrLoadModule("/src/leagues/league.ts"),
+      vite.ssrLoadModule("vue-router"),
+      vite.ssrLoadModule("vue/server-renderer"),
+      vite.ssrLoadModule("/src/components/ResultCard.vue"),
+    ]);
+    mods = {
+      createSpa: app.createSpa, createMemoryHistory: vueRouter.createMemoryHistory, renderToString: renderer.renderToString, gateFor: router.gateFor,
+      league: league as typeof import("../spa/src/leagues/league"), ResultCard: card.default,
+    };
+  }, 60_000);
+  afterAll(async () => { await vite?.close(); });
+
+  const ANON = { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } };
+  const ORGANISER = { "/api/auth/session": { authenticated: true, coach: "Jay", authMethod: "discord", discordSsoEnabled: true } };
+
+  async function render(path: string, prep?: (inject: (key: symbol, v: unknown) => void, f: Fetcher) => Promise<void>, session: Routes = ANON) {
+    const f = mockFetcher({ ...API, ...session });
+    const spa = mods.createSpa({ history: mods.createMemoryHistory("/app/"), ssr: true, fetcher: f });
+    await prep?.((k, v) => spa.app.provide(k, v), f);
+    await spa.router.push(path);
+    await spa.router.isReady();
+    return { html: await mods.renderToString(spa.app), spa };
+  }
+  const loadedDetail = (season = "season-6") => async (inject: (k: symbol, v: unknown) => void, f: Fetcher) => {
+    const d = mods.league.createLeagueDetail({ api: f });
+    await d.load("tabbl");
+    await d.ensureSeason(season);
+    inject(mods.league.LEAGUE_DETAIL_KEY, d);
+  };
+
+  it("router: the league routes are public; bad ids are not found", async () => {
+    for (const path of ["/leagues", "/leagues/tabbl", "/leagues/tabbl/stats", "/leagues/tabbl?tab=teams&team=x"]) {
+      const { html, spa } = await render(path);
+      expect(mods.gateFor(spa.router.currentRoute.value, spa.session), path).toBe("allow");
+      expect(html, path).not.toContain("Login with Discord to");
+    }
+    expect((await render("/leagues/<x>")).spa.router.currentRoute.value.name).toBe("not-found");
+  });
+
+  it("list: a card per league with header bar, logo, current season chip and actions", async () => {
+    const { html } = await render("/leagues", async (inject, f) => {
+      const l = mods.league.createLeagueList({ api: f });
+      await l.load();
+      inject(mods.league.LEAGUE_LIST_KEY, l);
+    });
+    expect(html).toContain('<h1 class="hm-title">Leagues</h1>');
+    expect(html).toContain('src="/api/leagues/tabbl/banner?v=0123456789ab"');
+    expect(html).toContain('alt="TABBL logo"');
+    expect(html).toContain("Tahoma Area Blood Bowl League");
+    expect(html).toContain("In progress");
+    expect(html).toContain('href="/app/leagues/tabbl"');
+    expect(html).toContain('href="/app/leagues/tabbl/stats"');
+    expect(html).toMatch(/data-tone="ok"[^>]*>BB2025</);
+  });
+
+  it("list: empty and loading states", async () => {
+    const empty = await render("/leagues", async (inject) => {
+      const l = mods.league.createLeagueList({ api: mockFetcher({ "/api/leagues": { leagues: [] } }) });
+      await l.load();
+      inject(mods.league.LEAGUE_LIST_KEY, l);
+    });
+    expect(empty.html).toContain("No leagues yet.");
+    expect((await render("/leagues")).html).toContain("Loading leagues...");
+  });
+
+  it("league page overview: header bar + logo front, season field newest first with rules chips, tabs, latest results cards", async () => {
+    const { html } = await render("/leagues/tabbl", loadedDetail());
+    expect(html).toContain('class="lg-front" data-banner="image"');
+    expect(html).toContain('<h1 class="lg-front-name">TABBL</h1>');
+    expect(html).toContain('role="radiogroup"');
+    const s6 = html.indexOf(">Season 6<");
+    const s1 = html.indexOf(">Season 1<");
+    expect(s6).toBeGreaterThan(0);
+    expect(s1).toBeGreaterThan(s6);
+    expect(html).toContain('data-ruleset="BB2020"');
+    expect(html).toContain('data-ruleset="BB2025"');
+    for (const t of ["Overview", "Standings", "Fixtures", "Teams", "Honours"]) expect(html).toContain(`>${t}</a>`);
+    expect(html).toContain("Latest results");
+    expect(html.match(/class="rc-card"/g)).toHaveLength(3);
+    expect(html).toContain("TABBL · Season 6 · Regular · Tahoma · Round 2");
+    expect(html).toContain("Rot Girl Summer conceded");
+    expect(html).toContain('href="/app/leagues/tabbl?tab=fixtures"');
+    expect(html).toContain("3 played of 4");
+    expect(html).not.toContain("League artwork"); // anonymous
+  });
+
+  it("league page: organisers see the artwork controls", async () => {
+    const { html } = await render("/leagues/tabbl", loadedDetail(), ORGANISER);
+    expect(html).toContain("League artwork");
+    expect(html).toContain("Upload header bar");
+  });
+
+  it("standings, fixtures (cards + an unplayed row), teams, a team roster and honours tabs", async () => {
+    const st = await render("/leagues/tabbl?tab=standings", loadedDetail());
+    expect(st.html).toContain("Regular · Tahoma");
+    expect(st.html).toContain("Includes Interdivision games.");
+    expect(st.html).toContain("Grudge Rollers");
+    const fx = await render("/leagues/tabbl?tab=fixtures", loadedDetail());
+    expect(fx.html).toContain("Round 3");
+    expect(fx.html).toContain("0 of 1 played");
+    expect(fx.html).toContain("lg-fx-open");
+    expect(fx.html).toContain(">Cards</button>");
+    expect(fx.html).toContain(">Table</button>");
+    const teams = await render("/leagues/tabbl?tab=teams", loadedDetail());
+    expect(teams.html).toContain('href="/app/leagues/tabbl?tab=teams&amp;team=Grudge+Rollers"');
+    expect(teams.html).toContain('src="/crests/dwarf.png"');
+    const roster = await render("/leagues/tabbl?tab=teams&team=Grudge%20Rollers", loadedDetail());
+    expect(roster.html).toContain("Dethirord Slenderstrength");
+    expect(roster.html).toContain("Block, Hatred (102)");
+    expect(roster.html).toContain("885k");
+    expect(roster.html).toContain("Left the roster");
+    expect(roster.html).toContain("Gone Guy");
+    const nobody = await render("/leagues/tabbl?tab=teams&team=Nobody", loadedDetail());
+    expect(nobody.html).toContain("No team called");
+    const hon = await render("/leagues/tabbl?tab=honours", loadedDetail());
+    expect(hon.html).toContain("Awards are given at the end of the season.");
+    expect(hon.html).toContain("Most touchdowns");
+    expect(hon.html).toContain("10-1-0 · 22 pts");
+  });
+
+  it("statistics: the BB2020 | BB2025 | All time divider and the aggregate panels", async () => {
+    const all = await render("/leagues/tabbl/stats", async (inject, f) => {
+      const s = mods.league.createLeagueStats({ api: f });
+      await s.load("tabbl", "all");
+      inject(mods.league.LEAGUE_STATS_KEY, s);
+    });
+    expect(all.html).toContain('aria-label="Rules edition"');
+    expect(all.html).toMatch(/aria-checked="true"[^>]*>All time</);
+    for (const label of ["BB2020", "BB2025", "All time"]) expect(all.html).toContain(`>${label}</button>`);
+    for (const panel of ["Champions", "Player leaders", "Coach records", "Team records", "Race win rates", "Biggest wins", "Most games"]) expect(all.html).toContain(panel);
+    expect(all.html).toContain("Dethirord Slenderstrength");
+    expect(all.html).toContain("83%");
+    expect(all.html).toContain("Pre-season");
+    const old = await render("/leagues/tabbl/stats?scope=bb2020", async (inject, f) => {
+      const s = mods.league.createLeagueStats({ api: f });
+      await s.load("tabbl", "bb2020");
+      inject(mods.league.LEAGUE_STATS_KEY, s);
+    });
+    expect(old.html).toMatch(/aria-checked="true"[^>]*>BB2020</);
+    expect(old.html).toContain("Old Timer");
+    expect((await render("/leagues/tabbl/stats")).html).toContain("Loading statistics...");
+  });
+
+  it("ResultCard: race-derived gradient tones, casualties in brackets, initials badge, safe link only", async () => {
+    const renderCard = (props: Record<string, unknown>) => mods.renderToString(createSSRApp(mods.ResultCard as never, props));
+    const base = {
+      context: "TABBL · Season 6 · Regular · Round 3",
+      home: { name: "Sandy Bones", race: "Tomb Kings", coach: "Cubone208", crestUrl: null, score: 0, cas: 1 },
+      away: { name: "Froggy Boys", race: "Slann", coach: "FroggyBoys", crestUrl: "/crests/slann.png", score: 4, cas: 2 },
+      playedAt: "2026-08-23T21:32:03Z",
+    };
+    const html = await renderCard(base);
+    expect(html).toContain("--rc-home:#c9a45a");
+    expect(html).toContain("--rc-away:#2aa39b");
+    expect(html).toContain(">(1)<");
+    expect(html).toContain(">(2)<");
+    expect(html).toContain(">SB<");
+    expect(html).toContain('src="/crests/slann.png"');
+    expect(html).toContain("2026-08-23");
+    expect(html).toContain('data-outcome="win"');
+    expect(html).toMatch(/^<article/);
+    const linked = await renderCard({ ...base, href: "/app/leagues/tabbl?tab=fixtures", tone: { home: "#ff0000", away: "url(x)" } });
+    expect(linked).toMatch(/^<a[^>]*href="\/app\/leagues\/tabbl\?tab=fixtures"/);
+    expect(linked).toContain("--rc-home:#ff0000");
+    expect(linked).toContain("--rc-away:#2aa39b"); // unsafe tone ignored
+    const bad = await renderCard({ ...base, href: "javascript:alert(1)" });
+    expect(bad).not.toContain("javascript:");
+    const unplayed = await renderCard({ ...base, home: { ...base.home, score: null, cas: null }, away: { ...base.away, score: null, cas: null }, playedAt: undefined });
+    expect(unplayed).toContain('data-played="false"');
+    expect(unplayed).not.toContain("(1)");
+  });
+});

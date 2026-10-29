@@ -9,6 +9,9 @@ import AdminTournamentsView from "./views/AdminTournamentsView.vue";
 import HelpView from "./views/HelpView.vue";
 import HomeView from "./views/HomeView.vue";
 import LeaderboardsView from "./views/LeaderboardsView.vue";
+import LeagueDetailView from "./views/LeagueDetailView.vue";
+import LeagueListView from "./views/LeagueListView.vue";
+import LeagueStatsView from "./views/LeagueStatsView.vue";
 import MyTeamsView from "./views/MyTeamsView.vue";
 import LinkOutView from "./views/LinkOutView.vue";
 import LobbyRoomView from "./views/LobbyRoomView.vue";
@@ -78,6 +81,10 @@ export const routes: RouteRecordRaw[] = [
     props: true,
     meta: { requiresAuth: true, title: "Team" },
   },
+  // Leagues (TABBL, imported from TourPlay): public read, no sign-in gate.
+  { path: "/leagues", name: "leagues", component: LeagueListView, meta: { title: "Leagues" } },
+  { path: "/leagues/:id([a-z0-9-]{1,64})", name: "league-detail", component: LeagueDetailView, props: true, meta: { title: "League" } },
+  { path: "/leagues/:id([a-z0-9-]{1,64})/stats", name: "league-stats", component: LeagueStatsView, props: true, meta: { title: "League statistics" } },
   { path: "/admin/tournaments", name: "admin-tournaments", component: AdminTournamentsView, meta: { requiresAuth: true, title: "Tournaments admin" } },
   {
     path: "/team-builder",
