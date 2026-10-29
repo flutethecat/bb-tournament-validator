@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-10-30",
+    "title": "Player sheet on the team management page",
+    "body": "Click a player on your team management page (the name in the table, or the top of the card on phones) and their player sheet pops out: number, position and sprite, the five characteristics with increases marked, printed, added and free Team Captain skills, SPP against the next advancement with a progress bar and the rank name under it, and the career stats the team file records: touchdowns, casualties caused, completions, interceptions, MVPs, fouls and niggling injuries, plus injuries and value with its breakdown (position cost + added). Stats are recorded for games played through the site; anything not recorded shows a dash, and games played are not tracked yet. Add Skill and Add Stat work from the sheet just like the row buttons. Escape closes it and focus goes back to the player.",
+    "links": [
+      {
+        "label": "My teams",
+        "href": "/app/my-teams"
+      }
+    ]
+  },
+  {
+    "date": "2026-10-30",
     "title": "Tournaments list in the site's design",
     "body": "The Tournaments page now looks like the rest of the site. The Active / Upcoming / Finished pills, which could stretch into tall capsules with a big empty gap above them, are replaced by a compact square switch next to the search box, right under the page title. It works with the keyboard too: arrow keys move between the three choices. Each tournament is a panel card with its banner (or the ruleset crest when there is none), a status chip, the dates (or Not set), ruleset, format, entrants and places left, and the round. The button at the bottom fits you: Manage for organisers, Your entry when you are registered, Register while places are open, otherwise Open. On a phone the cards stack in one column.",
     "links": [
