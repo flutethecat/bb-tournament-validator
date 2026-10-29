@@ -4,8 +4,8 @@ import TabletopSheetHead from "./TabletopSheetHead.vue";
 import type { ViewerSettingsStore } from "../tabletop/settings";
 import { themeLabel, type Theme, type ThemeMode } from "../theme";
 
-defineProps<{ theme: Theme; settings: ViewerSettingsStore; editMode: boolean; canEdit: boolean }>();
-const emit = defineEmits<{ (e: "close"): void; (e: "edit", on: boolean): void; (e: "changeTurn"): void }>();
+defineProps<{ theme: Theme; settings: ViewerSettingsStore; editMode: boolean; canEdit: boolean; removedForced?: boolean; canAdmin?: boolean }>();
+const emit = defineEmits<{ (e: "close"): void; (e: "edit", on: boolean): void; (e: "changeTurn"): void; (e: "admin"): void }>();
 const MODES: ThemeMode[] = ["system", "light", "dark"];
 </script>
 
@@ -19,8 +19,10 @@ const MODES: ThemeMode[] = ["system", "light", "dark"];
       </div>
       <label class="tt-check"><input type="checkbox" :checked="settings.state.compact" @change="settings.set('compact', ($event.target as HTMLInputElement).checked)" /> Compact rows</label>
       <label class="tt-check"><input type="checkbox" :checked="settings.state.timestamps" @change="settings.set('timestamps', ($event.target as HTMLInputElement).checked)" /> Show timestamps</label>
+      <label class="tt-check"><input type="checkbox" :checked="removedForced || settings.state.showRemoved" :disabled="removedForced" @change="settings.set('showRemoved', ($event.target as HTMLInputElement).checked)" /> Show removed events<small v-if="removedForced" class="muted"> (always shown for organisers)</small></label>
       <label class="tt-check"><input type="checkbox" :checked="settings.state.sounds" @change="settings.set('sounds', ($event.target as HTMLInputElement).checked)" /> Sounds</label>
       <label class="tt-check"><input type="checkbox" :checked="settings.state.haptic" @change="settings.set('haptic', ($event.target as HTMLInputElement).checked)" /> Vibrate on tap</label>
+      <button v-if="canAdmin" class="lobby-btn tt-tap tt-open-admin" type="button" @click="emit('admin')">Admin</button>
       <button v-if="canEdit" class="lobby-btn tt-tap tt-changeturn" type="button" @click="emit('changeTurn')">Change turn</button>
       <label v-if="canEdit" class="tt-check"><input type="checkbox" :checked="editMode" @change="emit('edit', ($event.target as HTMLInputElement).checked)" /> Edit mode</label>
       <p class="tt-credit muted">Turn-timer sounds: Retro SFX by Andrea Baroni (Cyberleaf Studio).</p>

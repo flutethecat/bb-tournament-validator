@@ -22,7 +22,7 @@ function jump(id: string): void {
     <ol class="tt-tl-line">
       <li class="tt-tl-end" aria-hidden="true">&#9201;</li>
       <li v-for="m in markers" :key="m.id" class="tt-tl-item" :data-lane="m.lane">
-        <button class="tt-tl-mark" type="button" :data-tip="m.mark ? `${m.label} (${m.mark})` : m.label" data-tip-pos="bottom" :aria-label="`Go to ${m.label}`" @click="jump(m.id)"><TabletopGlyph :glyph="m.glyph" /></button>
+        <button class="tt-tl-mark" type="button" :data-admin="m.admin ? 'true' : null" :data-removed="m.removed ? 'true' : null" :data-tip="m.mark ? `${m.label} (${m.mark})` : m.label" data-tip-pos="bottom" :aria-label="`Go to ${m.label}`" @click="jump(m.id)"><TabletopGlyph :glyph="m.glyph" /></button>
       </li>
       <li class="tt-tl-end" aria-hidden="true">&#127937;</li>
     </ol>

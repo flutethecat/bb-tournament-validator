@@ -187,7 +187,8 @@ export async function tabletopApi(
       status: 200,
       body: {
         match, phase: match.phase ?? "playing", clock: clockView(match, events, deps, now()), pregame: pregameSummary(events),
-        events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e, kindLookup(teams)) : 0 })),
+        // a retracted event stays in the log with who removed it and when (the undo event's record), so the feed can show it struck through
+        events: events.map((e) => ({ ...e, sppEarned: effective.has(e.id) ? sppForEvent(e, kindLookup(teams)) : 0, ...removedMeta(events, e) })),
         effectiveEventIds: effectiveEvents(events).map((e) => e.id),
         // per player: kind, available / unavailableReason, eligible{...} (server-derived, so the page filters without rules of its own)
         teams: {
@@ -275,6 +276,13 @@ function tallyView(events: readonly TabletopEvent[], teams: Record<Side, Tableto
       ...(e.type === "throwTeamMate" ? { text: throwText(e, teams) } : {}),
     })),
   };
+}
+
+/** The retraction record of an undone event: who removed it, when, and whether an organiser did so for a team they do not coach. */
+function removedMeta(events: readonly TabletopEvent[], e: TabletopEvent): { removed?: { by: string; at: string; admin: boolean } } {
+  if (e.type === "undo") return {};
+  const u = events.find((x) => x.type === "undo" && x.payload.target === e.id);
+  return u ? { removed: { by: u.by, at: u.ts, admin: u.admin === true } } : {};
 }
 
 async function listMatches(me: string, organiser: boolean, deps: TabletopApiDeps): Promise<TabletopResult> {
@@ -451,6 +459,8 @@ async function postEvents(match: MatchRecord, me: string, organiser: boolean, bo
     }
     const v = validateEvent(parsed.event, running, rosters);
     if ("error" in v) return err(v.status ?? 400, v.error);
+    // an organiser acting for a team they do not coach (an undo carries its target's team) is stamped admin: persisted, replayed, shown in the log
+    if (organiser && !mySides.includes(v.event.team)) v.event = { ...v.event, admin: true };
     known.add(v.event.id);
     running.push(v.event);
     accepted.push(v.event);

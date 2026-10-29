@@ -250,6 +250,10 @@ export interface FeedRow {
   half: number | "OT";
   turn: number;
   clock: string;
+  /** Recorded by an organiser for a team they do not coach. */
+  admin: boolean;
+  /** A retracted event kept in the log: who removed it, when (a time of day), and whether an organiser did. */
+  removed: { by: string; at: string; admin: boolean } | null;
 }
 
 /** Newest first; only events still in force (the server names them in effectiveEventIds). */
@@ -266,9 +270,17 @@ export function feedRows(
   const journeymen: Record<string, number> = {};
   for (const e of events) if (live.has(e.id) && e.type === "journeyman") journeymen[e.team] = (journeymen[e.team] ?? 0) + 1;
   const jmShown = new Set<string>();
+  // retractions: the undo event names its target, who undid it and when (the server also copies this onto the retracted event)
+  const undoOf = new Map<string, { by: string; at: string; admin: boolean }>();
+  for (const u of events) if (u.type === "undo" && typeof u.payload?.target === "string") undoOf.set(u.payload.target, { by: u.by ?? "", at: u.ts ?? "", admin: u.admin === true });
+  const timeOf = (iso: string): string => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
   for (const e of events) {
-    if (!live.has(e.id) || e.type === "undo") continue;
-    if (e.type === "journeyman") { if (jmShown.has(e.team)) continue; jmShown.add(e.team); }
+    if (e.type === "undo") continue;
+    const isLive = live.has(e.id);
+    const retraction = e.removed ?? undoOf.get(e.id);
+    if (!isLive && !retraction) continue;
+    if (isLive && e.type === "journeyman") { if (jmShown.has(e.team)) continue; jmShown.add(e.team); }
+    if (!isLive && e.type === "journeyman") continue;
     const pl = e.player ? teams[e.team]?.players.find((x) => x.id === e.player) : undefined;
     const sub = eventSub(e, teams, obscureSide);
     const hide = e.team === obscureSide;
@@ -291,11 +303,13 @@ export function feedRows(
       player: hide ? "" : pl?.name ?? "",
       position: pl?.positionName ?? pl?.position ?? pl?.positionId ?? "",
       when: half || turn ? `${half ? (half === "OT" || half >= 3 ? "OT" : `H${half}`) : ""}${half && turn ? " " : ""}${turn ? `T${turn}` : ""}` : "",
-      undoable: !PREGAME_TYPES.has(e.type),
+      undoable: !PREGAME_TYPES.has(e.type) && isLive,
       glyph: EVENT_GLYPHS[e.type],
       half: half ?? 0,
       turn: turn ?? 0,
       clock: e.ts ? new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "",
+      admin: e.admin === true,
+      removed: !isLive && retraction ? { by: retraction.by, at: timeOf(retraction.at), admin: retraction.admin } : null,
     });
   }
   return rows.reverse();
@@ -340,9 +354,9 @@ export const INJURY_RESULTS_UI = ["stunned", "KO", "BH", "MNG", "NI", "stat loss
 export const WEATHER_RESULTS_UI = ["Sweltering Heat", "Very Sunny", "Perfect Conditions", "Pouring Rain", "Blizzard"] as const;
 
 /** One marker of the timeline strip: the event, the lane it rides (home above the line, away below, both-team on it) and its icon. */
-export interface TimelineMarker { id: string; label: string; lane: "home" | "away" | "both"; glyph: Glyph | undefined; mark: string }
+export interface TimelineMarker { id: string; label: string; lane: "home" | "away" | "both"; glyph: Glyph | undefined; mark: string; admin: boolean; removed: boolean }
 
 /** Markers in play order (kick-off first, end of match last) from the feed rows, which arrive newest first. */
 export function timelineMarkers(rows: readonly FeedRow[]): TimelineMarker[] {
-  return [...rows].reverse().map((r) => ({ id: r.id, label: r.label, lane: r.side === "centre" ? "both" : r.side, glyph: r.glyph, mark: r.when }));
+  return [...rows].reverse().map((r) => ({ id: r.id, label: r.label, lane: r.side === "centre" ? "both" : r.side, glyph: r.glyph, mark: r.when, admin: r.admin, removed: r.removed !== null }));
 }

@@ -196,7 +196,7 @@ describe("tabletop routes (server-rendered)", () => {
   const events = [
     { id: "e1", type: "touchdown", team: "home", player: "h1", payload: {} },
     { id: "e2", type: "touchdown", team: "home", player: "h1", payload: {} },
-    { id: "e3", type: "undo", team: "home", payload: { target: "e2" } },
+    { id: "e3", type: "undo", team: "home", payload: { target: "e2" }, by: "Alice", ts: "2026-10-23T10:05:00.000Z" },
     { id: "e4", type: "completion", team: "away", player: "a1", payload: {} },
   ];
   const line = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
@@ -329,7 +329,9 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).toContain("#7 player</span> completes a pass."); // the opponent (Alice plays home) is named by number and position only
     expect(html).not.toContain("Lirael");
     expect(html).not.toContain('aria-label="Undo'); // undo rides edit mode (organisers) only
-    expect(html.match(/data-type="touchdown"/g)).toHaveLength(1); // the undone TD has no row
+    expect(html.match(/data-type="touchdown"/g)).toHaveLength(2); // the undone TD stays in the log...
+    expect(html.match(/tt-ev--removed/g)).toHaveLength(1); // ...struck through, with who removed it
+    expect(html).toMatch(/class="tt-ev-removed">Removed by Alice/);
     expect(html).not.toContain("waiting");
     expect(html).not.toContain("Undo revision");
     expect(html).not.toContain("Submit match"); // submitting is part of End of match
@@ -788,6 +790,40 @@ describe("tabletop routes (server-rendered)", () => {
     expect(closes(await mount(mods.ttmC, { match: baseMatch("recording"), teams: roster, tally: serverTally, visibleSides: ["home"] }))).toBe(1);
   });
 
+  it("admin: the panel is absent for participants and present for organisers; admin events are yellow with an ADMIN tag; removed events stay unless a participant hides them, and organisers outside the match always see them", async () => {
+    const body = { match: baseMatch("recording"), events, effectiveEventIds: ["e1", "e4"], teams, tally: serverTally, clock: clockOf("home", 3) };
+    const coach = await renderMatch(body);
+    expect(coach.html).not.toContain('class="tt-admin"'); // a participant has no admin panel
+    expect(coach.html).not.toContain("Reopen match");
+    const org = await renderMatch(body, session({ coach: "Zed", organizer: true }));
+    expect(org.html).toContain('class="tt-admin"');
+    expect(org.html).toContain("Add event");
+    expect(org.html).toContain("Set half / overtime");
+    expect(org.html).toContain("End this turn (override)");
+    const adminRows = mods.feedMod.feedRows([{ id: "e9", type: "touchdown", team: "away", player: "a1", payload: {}, half: 1, turn: 2, admin: true }], ["e9"], teams, {}, undefined);
+    const feed = await mount(mods.feedC, { rows: adminRows, canUndo: false });
+    expect(feed).toContain("tt-ev--admin");
+    expect(feed).toContain('<b class="tt-ev-admintag">ADMIN</b>');
+    // removed events: hidden by a participant who turned the setting off, always shown to an organiser outside the match
+    const hide = (sess: unknown) => render("/tabletop/tm_abc123", { "/api/auth/session": sess, "/api/tabletop/matches/tm_abc123": body }, async (spa, f) => {
+      const recorder = mods.rec.createRecorder("tm_abc123", { api: f, onSignedOut: () => undefined, storage: mods.queue.memoryStorage() });
+      await recorder.refresh();
+      spa.app.provide(mods.rec.RECORDER_KEY, () => recorder);
+      const settings = mods.settingsMod.createViewerSettings(mods.queue.memoryStorage());
+      settings.set("showRemoved", false);
+      spa.app.provide(mods.settingsMod.VIEWER_SETTINGS_INJECT, settings);
+    });
+    expect((await hide(session())).html).not.toContain("tt-ev--removed"); // a participant who hides them
+    expect((await hide(session({ coach: "Zed", organizer: true }))).html).toContain("tt-ev--removed"); // an organiser outside the match: forced on
+    const struck = await mount(mods.feedC, { rows: mods.feedMod.feedRows(events, ["e1", "e4"], teams), canUndo: false });
+    expect(struck).toContain("tt-ev--removed");
+    const css = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.tt-ev--admin \{ background: color-mix\(in srgb, var\(--ui-admin, #ffd23d\) 22%, var\(--ui-surface-2/);
+    expect(css).toMatch(/\.tt-ev--removed \.tt-ev-text > \.tt-ev-name, \.tt-ev--removed \.tt-ev-text \{ text-decoration: line-through; \}/);
+    const theme = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../public/theme.css", import.meta.url)), "utf8");
+    expect(theme).toContain("--ui-admin: #ffd23d;");
+  });
+
   it("event feed (Modern Retro): home cards left, away cards right, both-team cards full width, a jump id per card, a turn mark", async () => {
     const evs = [
       { id: "p1", type: "coinFlip", team: "home", payload: { mode: "auto", result: "tails" } },
@@ -1118,11 +1154,11 @@ describe("tabletop routes (server-rendered)", () => {
     for (const t of ["Settings", ">System<", ">Light<", ">Dark<", "Compact rows", "Show timestamps", "Sounds", "Vibrate on tap"]) expect(html, t).toContain(t);
     expect(html).toContain("Andrea Baroni (Cyberleaf Studio)"); // credit for the timer sounds
     expect(html).toMatch(/aria-pressed="true">System</);
-    expect(settings.state).toEqual({ compact: false, timestamps: true, haptic: false, sounds: true });
+    expect(settings.state).toEqual({ compact: false, timestamps: true, haptic: false, sounds: true, showRemoved: true });
     settings.set("compact", true);
     settings.set("timestamps", false);
     const again = mods.settingsMod.createViewerSettings(store);
-    expect(again.state).toEqual({ compact: true, timestamps: false, haptic: false, sounds: true });
+    expect(again.state).toEqual({ compact: true, timestamps: false, haptic: false, sounds: true, showRemoved: true });
     const broken = mods.settingsMod.createViewerSettings({ getItem: () => { throw new Error("x"); }, setItem: () => { throw new Error("x"); }, removeItem: () => undefined });
     broken.set("haptic", true);
     expect(broken.state.haptic).toBe(true);

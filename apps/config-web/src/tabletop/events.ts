@@ -58,6 +58,8 @@ export interface TabletopEvent {
   payload: Record<string, unknown>;
   ts: string;
   by: string;
+  /** Stamped by the server when an organiser records (or undoes) an event for a team they do not coach; persisted and replayed. */
+  admin?: boolean;
 }
 
 /** What validation needs to know about a roster (the team file satisfies this structurally). */

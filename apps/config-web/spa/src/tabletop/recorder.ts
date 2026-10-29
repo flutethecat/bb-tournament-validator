@@ -62,6 +62,10 @@ export interface TeamView {
 
 export interface RecordedEvent {
   id: string; type: string; team: Side; player?: string; payload: Record<string, unknown>; ts?: string; by?: string; sppEarned?: number;
+  /** Recorded (or removed) by an organiser for a team they do not coach. */
+  admin?: boolean;
+  /** Present on a retracted event: who removed it, when, and whether an organiser did so for the other team. */
+  removed?: { by: string; at: string; admin: boolean };
 }
 
 /** The server's own count of the effective events (GET match and the events POST both return it). */

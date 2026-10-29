@@ -1107,3 +1107,30 @@
   .tt-rec .tt-score-turn b { font-size: 30px; }
   .tt-rec .tt-stats-half { font-size: 16px; }
 }
+
+/* admin events: bright yellow cards (a 3 px edge on the side they belong to, the top edge on centred cards), an ADMIN tag by the turn mark, a yellow timeline ring */
+.tt-ev--admin { background: color-mix(in srgb, var(--ui-admin, #ffd23d) 22%, var(--ui-surface-2, #242424)); }
+.tt-ev--admin[data-row-side="home"] { border-left: 3px solid var(--ui-admin, #ffd23d); background: color-mix(in srgb, var(--ui-admin, #ffd23d) 22%, var(--ui-surface-2, #242424)); }
+.tt-ev--admin[data-row-side="away"] { border-right: 3px solid var(--ui-admin, #ffd23d); background: color-mix(in srgb, var(--ui-admin, #ffd23d) 22%, var(--ui-surface-2, #242424)); }
+.tt-ev--admin[data-row-side="neutral"] { border-top: 3px solid var(--ui-admin, #ffd23d); }
+.tt-ev-admintag { margin-left: 6px; padding: 0 4px; font-family: var(--font-heading, sans-serif); font-size: 9px; font-weight: 400; letter-spacing: .08em; color: var(--ui-admin, #ffd23d); background: rgb(0 0 0 / .55); border-radius: 2px; }
+.tt-ev-removed .tt-ev-admintag, .tt-ev--admin .tt-ev-mark .tt-ev-admintag { vertical-align: 1px; }
+.tt-tl-mark[data-admin="true"] { border-color: var(--ui-admin, #ffd23d) !important; }
+
+/* a retracted event stays in the log: struck through, dimmed, with who removed it and when; its timeline marker stays hollow and dim */
+.tt-ev--removed { opacity: .55; }
+.tt-ev--removed .tt-ev-text > .tt-ev-name, .tt-ev--removed .tt-ev-text { text-decoration: line-through; }
+.tt-ev--removed .tt-ev-icon { opacity: .6; filter: grayscale(.6); }
+.tt-ev--removed .tt-ev-removed, .tt-ev--removed .tt-time { display: block; text-decoration: none; font-size: 11px; color: var(--tt-muted); }
+.tt-ev--removed .tt-ev-removed { font-style: italic; }
+.tt-tl-mark[data-removed="true"] { background: transparent; opacity: .5; border-style: dashed; }
+
+/* the admin panel: Quick-box styling, bevelled buttons; it fills the lower-left of the desktop rail */
+.tt-admin { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--tt-panel); border: 1px solid var(--tt-line); border-radius: 2px; font-size: 12px; }
+.tt-admin-group { margin: 6px 0 0; font-family: var(--font-heading, sans-serif); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--tt-muted); }
+.tt-admin-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.tt-admin-btn { min-height: 36px; padding: 0 8px; font: inherit; font-family: var(--font-heading, sans-serif); font-size: 13px; letter-spacing: .06em; color: var(--tt-btn-ink); background: var(--tt-btn); border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; box-shadow: var(--tt-bevel); text-shadow: var(--tt-lettering-shadow); cursor: pointer; transition: transform .06s ease; }
+.tt-admin-btn:active { box-shadow: var(--tt-bevel-down); transform: translateY(2px); }
+.tt-admin-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--ui-admin, #ffd23d) 30%, var(--tt-btn)); border-color: var(--ui-admin, #ffd23d); }
+.tt-admin-danger { color: var(--ui-danger, var(--tt-btn-ink)); }
+.tt-admin-wide { width: 100%; }

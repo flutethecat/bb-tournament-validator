@@ -388,6 +388,28 @@ describe("undo rules", () => {
     expect((await post("Bob", { id: "mvp-away-by-bob-02", type: "mvp", team: "away", player: "b3", payload: {} })).status).toBe(409); // confirmed: closed
   });
 
+  it("admin stamp: an organiser's event or undo for a team they do not coach carries admin:true (persisted, replayed); a participant's never does; a retracted event keeps who removed it and when", async () => {
+    const { id } = await playing();
+    const post = (who: string, e: Record<string, unknown>) => as(who, "POST", `/api/tabletop/matches/${id}/events`, { events: [e] });
+    expect((await post("Alice", { id: "td-own-by-alice-01", type: "touchdown", team: "home", player: "a2", payload: {} })).status).toBe(200);
+    expect((await post("Org", { id: "td-away-by-org-0001", type: "touchdown", team: "away", player: "b2", payload: {} })).status).toBe(200);
+    expect((await post("Org", { id: "undo-by-org-0000001", type: "undo", payload: { target: "td-own-by-alice-01" } })).status).toBe(200);
+    expect((await post("Bob", { id: "undo-by-bob-0000001", type: "undo", payload: { target: "td-away-by-org-0001" } })).status).toBe(200);
+    const events = ((await as("Alice", "GET", `/api/tabletop/matches/${id}`)).body as { events: Array<{ id: string; admin?: boolean; removed?: { by: string; at: string; admin: boolean } }> }).events;
+    const by = Object.fromEntries(events.map((e) => [e.id, e]));
+    expect(by["td-own-by-alice-01"]!.admin).toBeUndefined(); // a participant's own event is never flagged
+    expect(by["td-away-by-org-0001"]!.admin).toBe(true); // the organiser's event for a team they do not coach
+    expect(by["undo-by-org-0000001"]!.admin).toBe(true); // and an organiser's undo of the other team's event
+    expect(by["undo-by-bob-0000001"]!.admin).toBeUndefined(); // a coach's undo of their own team's event
+    expect(by["td-own-by-alice-01"]!.removed).toMatchObject({ by: "Org", admin: true }); // retraction metadata stays on the event
+    expect(by["td-away-by-org-0001"]!.removed).toMatchObject({ by: "Bob", admin: false });
+    expect(typeof by["td-own-by-alice-01"]!.removed!.at).toBe("string");
+    // replay round trip: a fresh repository over the same files still has the flag
+    const replay = await new FileTabletopRepository(join(dir, "tt")).readEvents(id);
+    expect(replay.find((e) => e.id === "td-away-by-org-0001")!.admin).toBe(true);
+    expect(replay.find((e) => e.id === "td-own-by-alice-01")!.admin).toBeUndefined();
+  });
+
   it("once submitted, participants cannot undo (403); an organiser can, and the preview is recomputed", async () => {
     const { id, own } = await playing();
     await as("Alice", "POST", `/api/tabletop/matches/${id}/submit`);

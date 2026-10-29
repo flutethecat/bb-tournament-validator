@@ -14,6 +14,7 @@ import TabletopRosters from "../components/TabletopRosters.vue";
 import TabletopScoreboard from "../components/TabletopScoreboard.vue";
 import TabletopSettings from "../components/TabletopSettings.vue";
 import TabletopTurnSet from "../components/TabletopTurnSet.vue";
+import TabletopAdmin from "../components/TabletopAdmin.vue";
 import TabletopRail from "../components/TabletopRail.vue";
 import TabletopPlayerPicker from "../components/TabletopPlayerPicker.vue";
 import TabletopSheetHead from "../components/TabletopSheetHead.vue";
@@ -234,6 +235,11 @@ function overrideEnd(): void {
   if (typeof window !== "undefined" && !window.confirm(`End ${who}'s turn for them?`)) return;
   void rec.endTurn(true);
 }
+/** Retracted events stay in the log struck through; a viewer may hide them, except an organiser outside the match, who always sees them. */
+const showRemoved = computed(() => (organiser.value && mySide.value === null) || viewer.state.showRemoved);
+const shownRows = computed(() => (showRemoved.value ? rows.value : rows.value.filter((r) => r.removed === null)));
+const adminOpen = ref(false);
+const canOverrideEnd = computed(() => recording.value && (state.clock?.turn ?? 0) >= 1 && !!state.clock?.activeTeam);
 const undoById = (id: string): void => { const e = state.events.find((x) => x.id === id); if (e) void rec.undo(e); };
 
 /** The match state as a feed line (nothing while recording): green, full width, like TourPlay's "Match reported". */
@@ -297,7 +303,7 @@ onBeforeUnmount(() => {
     <div class="tt-stripbar">
       <span v-if="weatherName" class="tt-stripbar-w">{{ weatherName }}</span><span v-if="weatherName && stripState" aria-hidden="true">&middot;</span>
       <span v-if="stripState" class="tt-stripbar-t">{{ stripState }}</span>
-      <TabletopTimeline :rows="rows" />
+      <TabletopTimeline :rows="shownRows" />
       <span class="tt-stripbar-end">Final</span>
     </div>
 
@@ -363,16 +369,22 @@ onBeforeUnmount(() => {
       </template>
 
       <p v-if="canEdit && editMode" class="tt-edit-bar" role="status">You are in edit mode.</p>
-      <TabletopFeed :rows="rows" :can-undo="canEdit && editMode && recording" :undo-side="organiser ? null : mySide" :compact="viewer.state.compact" :timestamps="viewer.state.timestamps" @undo="undoById" />
+      <TabletopFeed :rows="rows" :show-removed="showRemoved" :can-undo="canEdit && editMode && (recording || organiser)" :undo-side="organiser ? null : mySide" :compact="viewer.state.compact" :timestamps="viewer.state.timestamps" @undo="undoById" />
     </main>
     </div>
 
     <TabletopRail
       :match="match" :clock="state.clock" :remaining="remaining" :local-side="mySide" :organiser="organiser" :can-act="canAct" :busy="state.busy"
-      :recording="recording" :can-change-turn="canEdit" :can-undo-last="canUndoLast"
+      :recording="recording" :can-change-turn="canEdit && !organiser" :can-undo-last="canUndoLast"
       @end-turn="rec.endTurn()" @start-turn="rec.startTurn()" @pick="(k) => { viewer.buzz(); openPick(k); }" @other="viewer.buzz(); other = true"
-      @change-turn="turnSetOpen = true" @undo-last="lastUndoable && undoById(lastUndoable.id)" @end-match="endSheet = true" @override-end="overrideEnd"
-    />
+      @change-turn="turnSetOpen = true" @undo-last="lastUndoable && undoById(lastUndoable.id)" @end-match="endSheet = true"
+    >
+      <TabletopAdmin
+        v-if="organiser" :recording="recording" :can-override="canOverrideEnd" :edit-mode="editMode" :busy="state.busy" :state="match.state" :can-confirm="canConfirm"
+        @add="(k) => openPick(k)" @other="other = true" @change-turn="turnSetOpen = true" @override-end="overrideEnd" @end-match="endSheet = true"
+        @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)"
+      />
+    </TabletopRail>
 
     <nav v-if="recording" class="tt-actions-bar" aria-label="Record an event">
       <button class="tt-big tt-big-td" type="button" data-tip="Record a touchdown" @click="viewer.buzz(); openPick(TD_EVENT)"><TabletopGlyph :glyph="EVENT_GLYPHS.touchdown" :size="36" /><span>TD</span></button>
@@ -391,7 +403,18 @@ onBeforeUnmount(() => {
       @pick="(s, id) => { mvpPick[s] = id; mvpFor = null; }" @cancel="mvpFor = null"
     />
 
-    <TabletopSettings v-if="settingsOpen" :theme="themeCtl" :settings="viewer" :edit-mode="editMode" :can-edit="canEdit" @edit="(on: boolean) => (editMode = on)" @change-turn="settingsOpen = false; turnSetOpen = true" @close="settingsOpen = false" />
+    <div v-if="adminOpen && organiser" class="tt-modal" role="dialog" aria-label="Admin" @click.self="adminOpen = false">
+      <div class="tt-modal-box tt-admin-box">
+        <TabletopSheetHead title="Admin" @close="adminOpen = false" />
+        <TabletopAdmin
+          :recording="recording" :can-override="canOverrideEnd" :edit-mode="editMode" :busy="state.busy" :state="match.state" :can-confirm="canConfirm"
+          @add="(k) => { adminOpen = false; openPick(k); }" @other="adminOpen = false; other = true" @change-turn="adminOpen = false; turnSetOpen = true" @override-end="adminOpen = false; overrideEnd()"
+          @end-match="adminOpen = false; endSheet = true" @reopen="rec.undoRevision()" @confirm="rec.confirm()" @edit="(on) => (editMode = on)"
+        />
+      </div>
+    </div>
+
+    <TabletopSettings v-if="settingsOpen" :theme="themeCtl" :settings="viewer" :edit-mode="editMode" :can-edit="canEdit" :removed-forced="organiser && mySide === null" :can-admin="organiser" @admin="settingsOpen = false; adminOpen = true" @edit="(on: boolean) => (editMode = on)" @change-turn="settingsOpen = false; turnSetOpen = true" @close="settingsOpen = false" />
     <TabletopTurnSet v-if="turnSetOpen" :match="match" :clock="state.clock" :busy="state.busy" :error="state.actionError" @close="turnSetOpen = false" @save="saveTurn" />
     <TabletopOther v-if="other" @pick="onOther" @close="other = false" />
     <TabletopRosters v-if="rosters" :match="match" :teams="state.teams" :tally="state.tally" :art="state.art" :events="state.events" :inducement-icons="state.inducementIcons" @close="rosters = false" />

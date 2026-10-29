@@ -12,10 +12,12 @@ export interface ViewerSettings {
   haptic: boolean;
   /** Turn-timer cues (1:00, 0:10, 0:03). */
   sounds: boolean;
+  /** Show retracted events struck through in the log (organisers outside the match always see them). */
+  showRemoved: boolean;
 }
 
 export const VIEWER_SETTINGS_KEY = "tabletop-viewer-settings";
-const DEFAULTS: ViewerSettings = { compact: false, timestamps: true, haptic: false, sounds: true };
+const DEFAULTS: ViewerSettings = { compact: false, timestamps: true, haptic: false, sounds: true, showRemoved: true };
 
 export function createViewerSettings(storage: QueueStorage = browserStorage()) {
   const state = reactive<ViewerSettings>({ ...DEFAULTS });
