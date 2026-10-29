@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -49,8 +49,8 @@ describe("percentile title bands", () => {
     const veteranMin = b.lower[1]!, emergingMin = b.lower[2]!;
     expect(title(emergingMin + HYSTERESIS - 1, b, "Veteran")).toBe("Veteran");
     expect(title(emergingMin + HYSTERESIS, b, "Veteran")).toBe("Emerging Star");
-    expect(title(emergingMin - (HYSTERESIS - 1), b, "Emerging Star")).toBe("Emerging Star");
-    expect(title(emergingMin - HYSTERESIS, b, "Emerging Star")).toBe("Veteran");
+    expect(title(emergingMin - HYSTERESIS, b, "Emerging Star")).toBe("Emerging Star");
+    expect(title(emergingMin - HYSTERESIS - 1, b, "Emerging Star")).toBe("Veteran");
     expect(title(veteranMin + 5, b, "Veteran")).toBe("Veteran");
     // no previous title: the plain percentile title, no margin
     expect(title(emergingMin, b)).toBe("Emerging Star");
@@ -112,4 +112,72 @@ describe("coach rank (FUMBBL titles)", () => {
     expect(coachTitleSlug("Hero")).toBeUndefined();
     for (const r of [ROOKIE, ...BANDS]) expect(coachTitleSlug(r.name), r.name).toBeDefined();
   });
+});
+
+describe("review fixes", () => {
+  const same = (n: number, cr = 1300): Map<string, CoachGlicko> => new Map(Array.from({ length: n }, (_, i) => [`k${String(i).padStart(3, "0")}`, g(cr)] as const));
+  const countBy = (m: Map<string, CoachGlicko>, b: Bounds): Record<string, number> => {
+    const out: Record<string, number> = {};
+    for (const [k, v] of m) { const t = rankFor(k, v, { bounds: b }).name; out[t] = (out[t] ?? 0) + 1; }
+    return out;
+  };
+  it("tied CRs keep the band counts (ties broken by coach key)", () => {
+    const m = same(100);
+    expect(countBy(m, computeTitleBands(m, ASOF))).toEqual({ "Legend": 2, "Mega-Star": 5, "Super Star": 10, "Star": 19, "Emerging Star": 30, "Veteran": 19, "Experienced": 15 });
+    expect(rankFor("k000", g(1300), { bounds: computeTitleBands(m, ASOF) }).name).toBe("Legend");
+  });
+  it("2- and 3-coach pools", () => {
+    const two = pool(2), three = pool(3);
+    expect(countBy(two, computeTitleBands(two, ASOF))).toEqual({ "Legend": 1, "Emerging Star": 1 });
+    expect(countBy(three, computeTitleBands(three, ASOF))).toEqual({ "Legend": 1, "Star": 1, "Veteran": 1 });
+    expect(rankFor("c0", g(1002), { bounds: computeTitleBands(three, ASOF) }).name).toBe("Legend");
+  });
+  it("a multi-band jump needs 10 beyond the destination bound; future and stale activity stamps are not active", () => {
+    const b = computeTitleBands(pool(), ASOF);
+    expect(title(b.lower[5]! + HYSTERESIS, b, "Veteran")).toBe("Mega-Star");
+    expect(title(b.lower[5]! + HYSTERESIS - 1, b, "Veteran")).toBe("Super Star");
+    const m = pool(); m.set("future", { ...g(3000), lastPlayedMs: ASOF.getTime() + DAY }); m.set("old", g(3000, 20, 366));
+    expect(computeTitleBands(m, ASOF).poolSize).toBe(100);
+  });
+  it("naf: keys count in the pool", () => {
+    const m = pool(98); m.set("naf:someone", g(5000)); m.set("naf:other", g(1));
+    const b = computeTitleBands(m, ASOF);
+    expect(b.poolSize).toBe(100);
+    expect(rankFor("naf:someone", g(5000), { bounds: b }).name).toBe("Legend");
+  });
+  const withDir = (fn: (dir: string, file: string) => void): void => {
+    const dir = mkdtempSync(join(tmpdir(), "titles-"));
+    try { fn(dir, join(dir, "coach-titles.json")); } finally { try { chmodSync(dir, 0o755); } catch { /* */ } rmSync(dir, { recursive: true, force: true }); }
+  };
+  it("a malformed or wrong-shape file recovers", () => withDir((_d, file) => {
+    writeFileSync(file, "{not json");
+    expect(new CoachTitleStore(file).session(pool(), ASOF).bounds.poolSize).toBe(100);
+    writeFileSync(file, JSON.stringify({ version: 1, boundsPeriod: 1, bounds: { poolSize: 5, lower: [1], crs: [] }, titles: { a: { title: 1 } } }));
+    const s = new CoachTitleStore(file).session(pool(), ASOF);
+    expect(s.bounds.poolSize).toBe(100);
+    expect(s.view("c0").rank).toBe("Legend");
+  }));
+  it("a shrinking pool or a backwards period recomputes the bounds", () => withDir((_d, file) => {
+    const old = (n: number): Map<string, CoachGlicko> => new Map(Array.from({ length: n }, (_, i) => [`c${i}`, g(1000 + i, 20, 30)] as const));
+    new CoachTitleStore(file).session(old(100), ASOF).flush();
+    expect(new CoachTitleStore(file).session(old(40), new Date(ASOF.getTime() + 8 * DAY)).bounds.poolSize).toBe(40);
+    expect(new CoachTitleStore(file).session(old(60), new Date(ASOF.getTime() - 8 * DAY)).bounds.poolSize).toBe(60);
+  }));
+  it("a failed write stays pending and is retried on the next flush", () => withDir((dir) => {
+    const file = join(dir, "coach-titles.json");
+    mkdirSync(file); // a directory where the file belongs: the atomic write fails
+    const store = new CoachTitleStore(file);
+    const s1 = store.session(pool(), ASOF); s1.view("c0"); s1.flush();
+    rmSync(file, { recursive: true });
+    store.session(pool(), ASOF).flush(); // same period, nothing new, but the earlier write is still owed
+    expect(JSON.parse(readFileSync(file, "utf8")).titles.c0.title).toBe("Legend");
+  }));
+  it("unviewed coaches advance with the viewed ones at a rollover (identical coaches stay identical)", () => withDir((_d, file) => {
+    const m = pool(); m.set("twinA", g(1060)); m.set("twinB", g(1060));
+    const s1 = new CoachTitleStore(file).session(m, ASOF);
+    s1.view("twinA"); s1.flush();
+    const saved = JSON.parse(readFileSync(file, "utf8")).titles;
+    expect(saved.twinB.title).toBe(saved.twina?.title ?? saved.twinA?.title);
+    expect(Object.keys(saved)).toContain("c0");
+  }));
 });

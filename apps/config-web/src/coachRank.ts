@@ -66,40 +66,67 @@ export const TITLE_PERCENT = {
 } as const;
 
 /** Percentile bounds. `lower[i]` is the lowest CR of band i (0 Experienced = the pool's lowest .. 6 Legend); empty when the pool is empty. `crs` is the pool's CRs, highest first (for pct). */
-export interface Bounds { poolSize: number; legendCount: number; lower: number[]; crs: number[] }
-export const EMPTY_BOUNDS: Bounds = { poolSize: 0, legendCount: 0, lower: [], crs: [] };
+export interface Bounds {
+  poolSize: number; legendCount: number; lower: number[]; crs: number[];
+  /** The pool's coach keys, parallel to `crs` (CR descending, ties by key ascending): a pool member's initial placement is by this rank, so ties at a cutoff cannot inflate a band. */
+  keys: string[];
+  /** Exclusive end rank of Legend, Mega-Star, Super Star, Star, Emerging Star, Veteran (Experienced runs to the end). */
+  ends: number[];
+}
+export const EMPTY_BOUNDS: Bounds = { poolSize: 0, legendCount: 0, lower: [], crs: [], keys: [], ends: [] };
+export const isBounds = (b: unknown): b is Bounds => {
+  const x = b as Bounds | null;
+  return !!x && typeof x === "object" && Number.isInteger(x.poolSize) && Number.isInteger(x.legendCount) && Array.isArray(x.lower) && Array.isArray(x.crs) && Array.isArray(x.keys) && Array.isArray(x.ends)
+    && x.crs.length === x.poolSize && x.keys.length === x.poolSize && x.crs.every((n) => typeof n === "number" && Number.isFinite(n))
+    && (x.poolSize === 0 ? x.lower.length === 0 : x.lower.length === 7 && x.ends.length === 6 && x.lower.every((n) => typeof n === "number" && Number.isFinite(n)) && x.ends.every((n) => Number.isInteger(n)));
+};
 
 const DAY_MS = 86_400_000;
 export const isActiveCoach = (g: Pick<CoachGlicko, "games" | "lastPlayedMs">, asOf: Date): boolean =>
-  g.games >= ROOKIE_GAMES && g.lastPlayedMs !== undefined && g.lastPlayedMs >= asOf.getTime() - ACTIVE_DAYS * DAY_MS;
+  g.games >= ROOKIE_GAMES && g.lastPlayedMs !== undefined && g.lastPlayedMs >= asOf.getTime() - ACTIVE_DAYS * DAY_MS && g.lastPlayedMs <= asOf.getTime();
 
 /** The bounds from the active pool of `ratings` (every key, `naf:` opponents included). Deterministic. */
 export function computeTitleBands(ratings: Map<string, CoachGlicko>, asOf: Date): Bounds {
-  const crs = [...ratings.values()].filter((g) => isActiveCoach(g, asOf)).map((g) => g.cr).sort((a, b) => b - a);
+  const pool = [...ratings].filter(([, g]) => isActiveCoach(g, asOf)).map(([k, g]) => ({ k, cr: g.cr }))
+    .sort((a, b) => b.cr - a.cr || (a.k < b.k ? -1 : a.k > b.k ? 1 : 0));
+  const crs = pool.map((x) => x.cr);
+  const keys = pool.map((x) => x.k);
   const n = crs.length;
-  if (n === 0) return { ...EMPTY_BOUNDS };
+  if (n === 0) return { ...EMPTY_BOUNDS, lower: [], crs: [], keys: [], ends: [] };
   const legendCount = Math.max(1, Math.round(TITLE_PERCENT.legend * n));
   const rest = n - legendCount;
   const lower: number[] = new Array(7);
+  const ends: number[] = [legendCount];
   lower[6] = crs[legendCount - 1]!; // Legend
-  let cum = 0, at = legendCount, floor = lower[6]!;
+  let cum = 0, floor = lower[6]!;
   // Mega-Star (lower[5]) .. Veteran (lower[1]); Experienced is the remainder.
   for (let i = 0; i < 5; i += 1) {
     cum += TITLE_PERCENT.rest[i]!.share;
     const end = legendCount + Math.round(cum * rest); // cumulative rounding: no drift
-    if (end > at) floor = crs[end - 1]!; // an empty band shares the band above's bound, so nobody lands in it
+    if (end > ends[ends.length - 1]!) floor = crs[end - 1]!; // an empty band shares the band above's bound, so nobody lands in it
     lower[5 - i] = floor;
-    at = Math.max(at, end);
+    ends.push(Math.max(end, ends[ends.length - 1]!));
   }
   lower[0] = crs[n - 1]!; // Experienced's own floor: the pool's lowest CR (informational)
-  return { poolSize: n, legendCount, lower, crs };
+  return { poolSize: n, legendCount, lower, crs, keys, ends };
 }
 
 /** Lowest CR of band index i (0 Experienced .. 6 Legend). */
 const minOf = (b: Bounds, i: number): number => (i === 0 ? -Infinity : b.lower[i] ?? Infinity);
 
-/** The plain percentile band index of a CR. */
-function plainBand(cr: number, b: Bounds): number {
+const rankIndex = new WeakMap<Bounds, Map<string, number>>();
+/**
+ * The plain percentile band index. A pool member (same CR as when the bounds were built) is placed by its RANK in the pool (CR descending, ties by coach key
+ * ascending), so a run of equal CRs straddling a cutoff is split and the band counts hold. Anyone else (inactive, or changed since) is placed by CR against the bounds.
+ */
+function plainBand(coach: string, cr: number, b: Bounds): number {
+  let idx = rankIndex.get(b);
+  if (!idx) { idx = new Map(b.keys.map((k, i) => [k, i])); rankIndex.set(b, idx); }
+  const r = idx.get(coach.trim().toLowerCase());
+  if (r !== undefined && b.crs[r] === cr && b.ends.length === 6) {
+    const k = b.ends.findIndex((end) => r < end); // 0 Legend .. 5 Veteran, -1 Experienced
+    return k < 0 ? 0 : 6 - k;
+  }
   let best = 0;
   for (let i = 1; i < 7; i += 1) if (cr >= minOf(b, i)) best = i;
   return best;
@@ -108,17 +135,17 @@ function plainBand(cr: number, b: Bounds): number {
 export interface RankContext { bounds: Bounds; /** the persisted title, if any */ previousTitle?: string | undefined }
 
 /** The title: forced Rookie / Emerging Star, else the percentile band with hysteresis against `previousTitle`. */
-export function rankFor(_coach: string, glicko: Pick<CoachGlicko, "cr" | "games">, context: RankContext): CoachRank {
+export function rankFor(coach: string, glicko: Pick<CoachGlicko, "cr" | "games">, context: RankContext): CoachRank {
   if (glicko.games <= 0) return EMERGING;
   if (glicko.games < ROOKIE_GAMES) return ROOKIE;
   const b = context.bounds;
   if (b.poolSize === 0) return EMERGING;
   const cr = Math.round(glicko.cr);
   const prev = BANDS.findIndex((x) => x.name === context.previousTitle);
-  if (prev < 0) return BANDS[plainBand(cr, b)]!;
+  if (prev < 0) return BANDS[plainBand(coach, cr, b)]!;
   let i = prev;
   while (i < 6 && cr >= minOf(b, i + 1) + HYSTERESIS) i += 1;
-  if (i === prev) while (i > 0 && cr <= minOf(b, i) - HYSTERESIS) i -= 1;
+  if (i === prev) while (i > 0 && cr < minOf(b, i) - HYSTERESIS) i -= 1;
   return BANDS[i]!;
 }
 
@@ -140,16 +167,14 @@ export function coachRatingFor(coach: string, glicko: Pick<CoachGlicko, "cr" | "
   return { cr, rank: r.name, rankKey: r.key, slug: coachTitleSlug(r.name) ?? r.key, games: glicko.games, ...(pct !== undefined ? { pct } : {}) };
 }
 
-interface TitleFile {
-  version: 1;
-  boundsPeriod?: number;
-  bounds?: Bounds;
-  titles: Record<string, { title: string; cr: number; at: string }>;
-}
+interface TitleEntry { title: string; cr: number; at: string; /** last time the coach was in the ratings map at a rollover */ seen?: string }
+interface TitleFile { version: 1; boundsPeriod?: number; bounds?: Bounds; titles: Record<string, TitleEntry> }
+const PRUNE_MS = 2 * 365 * DAY_MS;
 
 /** Persists each coach's title (hysteresis memory) and the bounds of the current 7-day rating period in <FORK_STATE_DIR>/coach-titles.json. Single writer, atomic writes. No file = in memory only. */
 export class CoachTitleStore {
   private data: TitleFile | undefined;
+  private dirty = false;
   constructor(private readonly file?: string) {}
 
   private load(): TitleFile {
@@ -157,32 +182,56 @@ export class CoachTitleStore {
     let d: TitleFile = { version: 1, titles: {} };
     try {
       if (this.file && existsSync(this.file)) {
-        const raw = JSON.parse(readFileSync(this.file, "utf8")) as Partial<TitleFile>;
-        if (raw && typeof raw === "object") d = { version: 1, titles: raw.titles && typeof raw.titles === "object" ? raw.titles : {}, ...(typeof raw.boundsPeriod === "number" && raw.bounds ? { boundsPeriod: raw.boundsPeriod, bounds: raw.bounds } : {}) };
+        const raw = JSON.parse(readFileSync(this.file, "utf8")) as Partial<TitleFile> | null;
+        if (raw && typeof raw === "object") {
+          const titles: Record<string, TitleEntry> = {};
+          if (raw.titles && typeof raw.titles === "object") {
+            for (const [k, v] of Object.entries(raw.titles)) if (v && typeof v.title === "string" && typeof v.cr === "number" && typeof v.at === "string") titles[k] = v;
+          }
+          d = { version: 1, titles, ...(typeof raw.boundsPeriod === "number" && isBounds(raw.bounds) ? { boundsPeriod: raw.boundsPeriod, bounds: raw.bounds } : {}) };
+        }
       }
     } catch { /* fail open: start fresh */ }
     this.data = d;
     return d;
   }
 
-  /** One batch: bounds (recomputed once per rating period and on first run) and a per-coach view that advances the persisted title; flush() writes if anything changed. */
+  /**
+   * One batch: bounds (recomputed whenever the rating period differs from the stored one, forwards or backwards, and on first run) and a per-coach view
+   * that advances the persisted title. At a rollover EVERY rated coach's title advances (not only viewed ones), so identical coaches never diverge.
+   * flush() writes if anything changed; a failed write stays pending and is retried by the next flush.
+   */
   session(ratings: Map<string, CoachGlicko>, asOf: Date): { bounds: Bounds; view: (coach: string, glicko?: CoachGlicko) => CoachRatingView; flush: () => void } {
     const d = this.load();
-    let dirty = false;
+    const at = asOf.toISOString();
+    const advance = (key: string, g: CoachGlicko, bounds: Bounds): CoachRatingView => {
+      const prev = d.titles[key];
+      const out = coachRatingFor(key, g, { bounds, previousTitle: prev?.title });
+      if (g.games > 0 && prev?.title !== out.rank) { d.titles[key] = { title: out.rank, cr: out.cr, at, ...(prev?.seen ? { seen: prev.seen } : {}) }; this.dirty = true; }
+      return out;
+    };
     const period = Math.floor((asOf.getTime() - PERIOD_EPOCH_MS) / (PERIOD_DAYS * DAY_MS));
-    if (d.boundsPeriod !== period || !d.bounds) { d.bounds = computeTitleBands(ratings, asOf); d.boundsPeriod = period; dirty = true; }
+    if (d.boundsPeriod !== period || !d.bounds) {
+      d.bounds = computeTitleBands(ratings, asOf); d.boundsPeriod = period; this.dirty = true;
+      for (const [key, g] of ratings) {
+        advance(key, g, d.bounds);
+        const e = d.titles[key];
+        if (e && g.games > 0) e.seen = at;
+      }
+      for (const [key, e] of Object.entries(d.titles)) {
+        if (ratings.has(key)) continue;
+        const last = Date.parse(e.seen ?? e.at);
+        if (Number.isFinite(last) && asOf.getTime() - last > PRUNE_MS) { delete d.titles[key]; this.dirty = true; }
+      }
+    }
     const bounds = d.bounds;
     const view = (coach: string, glicko?: CoachGlicko): CoachRatingView => {
       const key = coach.trim().toLowerCase();
-      const g = glicko ?? ratings.get(key) ?? unratedGlicko();
-      const prev = d.titles[key];
-      const out = coachRatingFor(key, g, { bounds, previousTitle: prev?.title });
-      if (g.games > 0 && prev?.title !== out.rank) { d.titles[key] = { title: out.rank, cr: out.cr, at: asOf.toISOString() }; dirty = true; }
-      return out;
+      return advance(key, glicko ?? ratings.get(key) ?? unratedGlicko(), bounds);
     };
     const flush = (): void => {
-      if (!dirty || !this.file) { dirty = false; return; }
-      try { atomicWriteTextFile(this.file, `${JSON.stringify(d, null, 2)}\n`); dirty = false; } catch { /* fail open: titles still served from memory */ }
+      if (!this.dirty || !this.file) { this.dirty = false; return; }
+      try { atomicWriteTextFile(this.file, `${JSON.stringify(d, null, 2)}\n`); this.dirty = false; } catch { /* fail open: titles still served from memory; retried on the next flush */ }
     };
     return { bounds, view, flush };
   }
