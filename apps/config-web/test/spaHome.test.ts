@@ -99,7 +99,7 @@ function signedInRoutes(): Routes {
       coach: "Alice", displayName: "Ally", fumbblName: "", fumbblLinked: false, nafName: "Alice N", nafId: "1234", avatar: "https://cdn.example.test/a.png",
       avatarSource: "discord", discord: { linked: true, username: "alice_dc" }, connections: [connDiscord, connNafVerified, connFumbblEmpty],
     },
-    "/api/tabletop/saves?coach=Alice": { coach: "Alice", saves: [], teams: [{ ref: "library:1", name: "Alice Orcs", race: "Orc" }, { ref: "save:2", name: "Nameless", race: "" }] },
+    "/api/tabletop/saves?coach=Alice": { coach: "Alice", saves: [], teams: [{ ref: "library:1", name: "Alice Orcs", race: "Orc", tv: 1100000, registered: [{ id: "t1", name: "Spring Cup" }], actions: { count: 2, items: ["#2 P2: finish the advancement roll", "Spring Cup: 1 roster problem"] } }, { ref: "save:2", name: "Nameless", race: "", tv: null, registered: [], actions: { count: 0, items: [] } }] },
     "/api/me/scheduling": { timezone: "Europe/London", availability: [{ day: 0, start: "19:00", end: "22:00" }, { day: 5, start: "10:00", end: "14:00" }] },
     "/api/build-log": {
       entries: Array.from({ length: 6 }, (_, i) => ({ date: `2026-10-${String(30 - i).padStart(2, "0")}`, title: `Entry ${i + 1}`, body: `Body ${i + 1}`, links: i === 0 ? [{ label: "Tournaments", href: "/app/tournaments" }, { label: "Elsewhere", href: "https://example.test/x" }] : [] })),
@@ -995,7 +995,35 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const side = html.slice(html.indexOf('class="hm-col hm-col-side"'));
     for (const id of ["whats-new", "notifications", "deadlines"]) expect(main).toContain(`id="${id}"`);
     expect(main).not.toContain('id="schedule"'); // owner 10-30: the availability editor lives on the Account page
-    for (const id of ["friends", "messages", "my-teams", "account"]) expect(side).toContain(`id="${id}"`);
+    for (const id of ["friends", "messages", "mini-calendar", "my-teams"]) expect(side).toContain(`id="${id}"`);
+    expect(side).not.toContain('id="account"'); // owner 10-30: the Account box became the Mini calendar
+    // owner 10-30: Friends, Messages, Mini calendar, then My teams
+    const at = (id: string) => side.indexOf(`id="${id}"`);
+    const order = [at("friends"), at("messages"), at("mini-calendar"), at("my-teams")];
+    expect(order.every((n) => n >= 0) && order.every((n, i) => i === 0 || n > order[i - 1]!)).toBe(true);
+    const mini = side.slice(at("mini-calendar"), at("my-teams"));
+    expect(mini).toContain("<h2 id=\"hm-minical-h\">Mini calendar</h2>");
+    expect(mini).toMatch(/<a href="\/app\/account#calendar" class="hm-cap">Full calendar<\/a>/);
+    expect(mini).toContain('aria-label="Previous month"');
+    expect(mini).toContain('aria-label="Next month"');
+    expect(mini).toContain('role="presentation"'); // the grid is not a tab stop farm
+    expect((mini.match(/<a /g) ?? []).length).toBe(1 + 2); // Full calendar + the two upcoming events; no link per day
+    const up = mini.match(/<a href="\/app\/[^"]*" class="hm-deadline"[\s\S]*?<\/a>/g) ?? [];
+    expect(up).toHaveLength(2);
+    expect(up[0]).toContain("Round 2 vs Bob");
+    expect(up[1]).toContain("Registration closes");
+    expect(mini).not.toContain("Nothing coming up.");
+    expect(mini).toContain("mc-dot");
+    // team tiles: registered competition + TV, red badge only when actions are outstanding
+    const teamsHtml = side.slice(at("my-teams"));
+    const tiles = teamsHtml.match(/<a href="\/app\/teams\/[^"]*" class="hm-team"[\s\S]*?<\/a>/g) ?? [];
+    expect(tiles).toHaveLength(2);
+    expect(tiles[0]).toContain('<small class="hm-team-comp">Spring Cup</small>');
+    expect(tiles[0]).toContain('<small class="hm-team-tv">TV 1,100k</small>');
+    expect(tiles[0]).toMatch(/<span class="sf-count hm-team-badge" role="img" aria-label="2 actions needed"[^>]*>2<\/span>/);
+    expect(tiles[1]).toContain('<small class="hm-team-comp">Not registered</small>');
+    expect(tiles[1]).toContain('<small class="hm-team-tv">TV —</small>');
+    expect(tiles[1]).not.toContain("hm-team-badge");
     // owner 10-30: What's new sits above Notifications
     expect(main.indexOf('id="whats-new"')).toBeLessThan(main.indexOf('id="notifications"'));
     expect(main.indexOf('id="notifications"')).toBeLessThan(main.indexOf('id="deadlines"'));
@@ -1023,6 +1051,14 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(f.calls.some((c) => c.path === "/api/build-log")).toBe(true);
     expect(html).not.toMatch(/re-roll/i);
     expect(html).not.toMatch(/\bjava\b/i);
+  });
+
+  it("coach page: the Mini calendar says so when nothing is coming up, and the grid still renders", async () => {
+    const { html } = await render("/home", { ...signedInRoutes(), "/api/me/deadlines": { timezone: "America/New_York", deadlines: [] } });
+    const mini = html.slice(html.indexOf('id="mini-calendar"'), html.indexOf('id="my-teams"'));
+    expect(mini).toContain('<p class="hm-empty">Nothing coming up.</p>');
+    expect(mini).not.toContain("mc-dot");
+    expect(mini).toContain('data-today="true"');
   });
 
   it("what's new page: every entry, in-app links stay in the SPA, outside links open a new tab", async () => {

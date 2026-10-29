@@ -208,9 +208,13 @@ a.hm-cap:hover { color: var(--ui-text); }
 .hm-team-blank { display: inline-flex; align-items: center; justify-content: center; font: 22px var(--sf-band-font); color: var(--ui-muted); border: 2px solid var(--sf-panel-line); border-radius: 50%; }
 .hm-team-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
 .hm-team-race { color: var(--ui-muted); font-size: 12px; }
+.hm-team-comp, .hm-team-tv { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-muted); font-size: 11px; line-height: 1.25; }
+.hm-team-tv { color: var(--ui-text); }
+.hm-team { position: relative; }
+.hm-team-badge { position: absolute; top: 4px; right: 4px; min-width: 18px; padding: 0 4px; font: 11px/18px var(--sf-band-font); color: var(--ui-scarlet-contrast); background: var(--ui-scarlet); }
 /* Coach page strip (owner 10-30): three rows visible, the rest scroll. Fixed row height so a two-line race name
    ("Necromantic Horror") cannot stretch a row past the cap; the All-teams page (.hm-teams-lg) is not capped. */
-.hm-teams-strip { --hm-tile-h: 120px; grid-auto-rows: var(--hm-tile-h); max-height: calc(3 * var(--hm-tile-h) + 2 * 8px); overflow-y: auto; scrollbar-gutter: stable; padding-right: 2px; }
+.hm-teams-strip { --hm-tile-h: 156px; grid-auto-rows: var(--hm-tile-h); max-height: calc(3 * var(--hm-tile-h) + 2 * 8px); overflow-y: auto; scrollbar-gutter: stable; padding-right: 2px; }
 .hm-teams-strip .hm-team-race { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; line-height: 1.25; }
 /* Team tiles open the team management page (/app/teams/<ref>, owner 10-30). */
 a.hm-team { height: 100%; box-sizing: border-box; color: var(--ui-text); text-decoration: none; }
@@ -291,3 +295,14 @@ h3.hm-log-title { font-family: var(--font-body, sans-serif); font-weight: 700; }
 :is(#lb-h, #tn-summary-h)::before { content: ""; background-image: url(/icons/panel/stats.png); }
 :is(#mt-build-h, #tn-team-h, #tn-live-h, #tm-ps-h)::before { content: ""; background-image: url(/icons/panel/teams-roster.png); }
 #help-h::before { content: ""; background-image: url(/icons/nav/help.png); }
+/* Mini calendar (coach page side panel) */
+.mc-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.mc-month { flex: 1; margin: 0; text-align: center; font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.mc-grid { display: grid; gap: 2px; }
+.mc-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.mc-wd { font: 10px/1.2 var(--sf-band-font); text-transform: uppercase; text-align: center; color: var(--ui-muted); padding: 2px 0; }
+.mc-cell { position: relative; display: grid; place-items: center; min-height: 32px; border: 1px solid var(--sf-panel-line); border-radius: 2px; background: color-mix(in srgb, var(--ui-surface-2) 45%, transparent); font-size: 12px; }
+.mc-cell[data-out="true"] { opacity: .4; }
+.mc-cell[data-today="true"] { border-color: var(--sf-led); box-shadow: inset 0 0 0 1px var(--sf-led); color: var(--sf-led); }
+.mc-dot { position: absolute; bottom: 3px; left: 50%; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; border: 1px solid transparent; }
+.mc-up-head { margin: 10px 0 4px; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
