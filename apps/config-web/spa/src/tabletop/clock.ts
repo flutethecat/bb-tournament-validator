@@ -135,7 +135,7 @@ export interface TurnCell { n: number; state: "done" | "active" | "todo" }
 export const turnKey = (half: number | string | undefined, turn: number | undefined, team: Side): string => `${half ?? 1}:${turn ?? 0}:${team}`;
 
 /**
- * The turn track of one team for the half in play: eight cells numbered 1-8 (the half label carries the half). A cell
+ * The turn track of one team for the half in play: eight cells numbered by match turn (1-8 in the first half, 9-16 in the second, overtime from 17). A cell
  * is active on the team's own current turn; done once that turn was played: every turn before the current one, the
  * current number when the server already recorded this team's turn end for it (the team that went first), and both
  * last cells when the match is over (turn in play, no active team). `ended` holds turnKey()s from the turnEnd events.
@@ -143,11 +143,13 @@ export const turnKey = (half: number | string | undefined, turn: number | undefi
 export function turnCells(clock: ClockView | undefined, side: Side, ended: ReadonlySet<string> = new Set()): TurnCell[] {
   const turn = clock?.turn ?? 0;
   const over = turn > 0 && !clock?.activeTeam;
+  const half = clock?.half;
+  const base = half === "OT" || (typeof half === "number" && half >= 3) ? 16 : half === 2 || half === "2" ? 8 : 0;
   return Array.from({ length: 8 }, (_, i) => {
     const t = i + 1;
     const state: TurnCell["state"] = turn === t && clock?.activeTeam === side ? "active"
       : t < turn || ended.has(turnKey(clock?.half, t, side)) || (over && t <= turn) ? "done" : "todo";
-    return { n: t, state };
+    return { n: base + t, state };
   });
 }
 

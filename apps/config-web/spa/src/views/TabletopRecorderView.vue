@@ -18,6 +18,7 @@ import TabletopAdmin from "../components/TabletopAdmin.vue";
 import TabletopRail from "../components/TabletopRail.vue";
 import TabletopPlayerPicker from "../components/TabletopPlayerPicker.vue";
 import TabletopSheetHead from "../components/TabletopSheetHead.vue";
+import { assignTitle } from "../tabletop/confirm";
 import TabletopTimeline from "../components/TabletopTimeline.vue";
 import TabletopWeatherBar from "../components/TabletopWeatherBar.vue";
 import { canEditMatch, createViewerSettings, VIEWER_SETTINGS_INJECT } from "../tabletop/settings";
@@ -28,7 +29,7 @@ import { createCuePlayer } from "../tabletop/sounds";
 import TabletopGlyph from "../components/TabletopGlyph.vue";
 import { playerLabel, OTHER_EVENTS, CAS_EVENT, CASUALTY_RESULTS_UI, ELIGIBILITY_KEY, eligiblePlayers, EVENT_GLYPHS, feedRows, pregameStep, TD_EVENT, visibleSidesFor, type OtherEvent } from "../tabletop/feed";
 import { browserStorage } from "../tabletop/queue";
-import { createRecorder, RECORDER_KEY, type Side, type SummaryView } from "../tabletop/recorder";
+import { createRecorder, RECORDER_KEY, type RosterPlayerView, type Side, type SummaryView } from "../tabletop/recorder";
 
 const props = defineProps<{ id: string }>();
 
@@ -135,6 +136,12 @@ const pickedLabel = (side: Side, id: string, hide: boolean): string => {
   const p = state.teams[side]?.players.find((x) => x.id === id);
   return p ? playerLabel(p, hide) : id;
 };
+/** The victim pick confirms the whole casualty: the causer, the victim (an opponent's by number and position only) and the causer's SPP gain. */
+const victimConfirm = (p: RosterPlayerView, _side: Side) => ({
+  title: assignTitle("casualty", "casualty", `${casualtyBy.value} on ${playerLabel(p, !organiser.value)}`),
+  gainType: "casualty", cause: sheet.cause, sppPlayer: { side: sheet.side, id: sheet.player },
+});
+const mvpConfirm = (p: RosterPlayerView, _side: Side) => ({ title: assignTitle("mvp", "MVP", p.name), gainType: "mvp" });
 const victimFilter = (p: { id: string }): boolean => victims.value.some((v) => v.id === p.id);
 const mvpFilter = (side: Side) => (p: { id: string }): boolean => mvpChoices(side).some((v) => v.id === p.id);
 function onTtm(spec: { type: string; team: Side; player?: string; payload?: Record<string, unknown> }): void {
@@ -382,11 +389,11 @@ onBeforeUnmount(() => {
     <div v-if="tip.show" class="tt-tip" role="tooltip" :data-below="tip.below ? 'true' : null" :style="{ left: `${tip.x}px`, top: `${tip.y}px`, '--tt-tip-arrow': `${tip.arrow}%` }">{{ tip.text }}</div>
 
     <TabletopPlayerPicker
-      v-if="victimOpen && sheet.open" :art="state.art" title="Casualty - victim?" caption="Opponent" :match="match" :teams="state.teams" :sides="[otherSide(sheet.side)]" :filter="victimFilter" :obscure-names="!organiser"
+      v-if="victimOpen && sheet.open" :art="state.art" :confirm="victimConfirm" :tally="state.tally" :spp-values="state.sppValues" title="Casualty - victim?" caption="Opponent" :match="match" :teams="state.teams" :sides="[otherSide(sheet.side)]" :filter="victimFilter" :obscure-names="!organiser"
       @pick="(_s, id) => { sheet.victim = id; victimOpen = false; }" @cancel="victimOpen = false"
     />
     <TabletopPlayerPicker
-      v-if="mvpFor" :art="state.art" title="MVP - who?" :match="match" :teams="state.teams" :sides="[mvpFor]" :filter="mvpFilter(mvpFor)"
+      v-if="mvpFor" :art="state.art" :confirm="mvpConfirm" :tally="state.tally" :spp-values="state.sppValues" title="MVP - who?" :match="match" :teams="state.teams" :sides="[mvpFor]" :filter="mvpFilter(mvpFor)"
       @pick="(s, id) => { mvpPick[s] = id; mvpFor = null; }" @cancel="mvpFor = null"
     />
 
@@ -405,8 +412,8 @@ onBeforeUnmount(() => {
     <TabletopTurnSet v-if="turnSetOpen" :match="match" :clock="state.clock" :busy="state.busy" :error="state.actionError" @close="turnSetOpen = false" @save="saveTurn" />
     <TabletopOther v-if="other" @pick="onOther" @close="other = false" />
     <TabletopRosters v-if="rosters" :match="match" :teams="state.teams" :tally="state.tally" :art="state.art" :events="state.events" :inducement-icons="state.inducementIcons" @close="rosters = false" />
-    <TabletopPick v-if="pick" :art="state.art" :kind="pick" :match="match" :teams="state.teams" :visible-sides="pickSides" @pick="onPicked" @close="pick = null" />
-    <TabletopTtm v-if="ttmOpen" :art="state.art" :match="match" :teams="state.teams" :tally="state.tally" :visible-sides="visibleSides" @post="onTtm" @close="ttmOpen = false" />
+    <TabletopPick v-if="pick" :art="state.art" :tally="state.tally" :spp-values="state.sppValues" :kind="pick" :match="match" :teams="state.teams" :visible-sides="pickSides" @pick="onPicked" @close="pick = null" />
+    <TabletopTtm v-if="ttmOpen" :art="state.art" :spp-values="state.sppValues" :match="match" :teams="state.teams" :tally="state.tally" :visible-sides="visibleSides" @post="onTtm" @close="ttmOpen = false" />
 
     <div v-if="sheet.open" class="tt-sheet" role="dialog" aria-label="Casualty">
       <TabletopSheetHead :title="`Casualty by ${casualtyBy}`" @close="sheet.open = false" />

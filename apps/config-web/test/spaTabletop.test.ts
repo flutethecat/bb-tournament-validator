@@ -129,7 +129,7 @@ describe("tabletop routes (server-rendered)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC, chipLayoutMod] = await Promise.all([
+    const [app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC, chipLayoutMod, pickConfirmC] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
@@ -157,8 +157,9 @@ describe("tabletop routes (server-rendered)", () => {
       vite.ssrLoadModule("/src/tabletop/clock.ts"),
       vite.ssrLoadModule("/src/components/TabletopRosterRow.vue"),
       vite.ssrLoadModule("/src/tabletop/chipLayout.ts"),
+      vite.ssrLoadModule("/src/components/TabletopPickConfirm.vue"),
     ]);
-    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC, chipLayoutMod };
+    mods = { app, vueRouter, renderer, rec, list, queue, organiser, standings, coachSearch, feedMod, otherC, rostersC, pregameC, feedC, boardC, pickC, settingsC, settingsMod, sharedApi, turnSetC, ttm, ttmC, timelineC, weatherBarC, clockMod, rosterRowC, chipLayoutMod, pickConfirmC };
   }, 60_000);
   afterAll(async () => { await vite?.close(); });
 
@@ -437,7 +438,7 @@ describe("tabletop routes (server-rendered)", () => {
     }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
     expect(html.match(/class="tt-cell"/g)).toHaveLength(16); // 8 per team for the half in play
     expect(html.match(/data-state="active"/g)).toHaveLength(1); // the active team's current turn only
-    expect(html).toMatch(/data-state="active"[^>]*aria-current="step">3</); // turns read 1-8 in every half
+    expect(html).toMatch(/data-state="active"[^>]*aria-current="step">11</); // match turns: 2Ht3 is turn 11 (1-8 first half, 9-16 second)
     expect(html).toContain("2nd half");
     expect(html).toContain('<span>1</span><span class="tt-score-colon">:</span><span>0</span>');
     expect(html).toContain("<span>TD</span>");
@@ -459,8 +460,11 @@ describe("tabletop routes (server-rendered)", () => {
     const { turnCells, turnKey } = mods.clockMod;
     const states = (cells: Array<{ state: string }>) => cells.map((c) => c.state[0]).join("");
     const clock = (active: "home" | "away" | null, turn: number, half = 2) => ({ half, turn, activeTeam: active });
-    // second half, turn 3, away active: numbers stay 1-8
-    expect(turnCells(clock("away", 3), "away").map((c: { n: number }) => c.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    // second half, turn 3, away active: the cells read 9-16 (first half 1-8, overtime from 17)
+    expect(turnCells(clock("away", 3), "away").map((c: { n: number }) => c.n)).toEqual([9, 10, 11, 12, 13, 14, 15, 16]);
+    expect(turnCells(clock("away", 3, 1), "away").map((c: { n: number }) => c.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(turnCells({ half: "OT", turn: 1, activeTeam: "home" }, "home")[0].n).toBe(17);
+    expect(turnCells(clock("home", 5), "home").find((c: { state: string }) => c.state === "active")!.n).toBe(13); // 2Ht5
     // kicker/receiver: home played turn 3 first (its turnEnd is recorded), away is active on turn 3
     const ended = new Set([turnKey(2, 3, "home")]);
     expect(states(turnCells(clock("away", 3), "home", ended))).toBe("dddttttt");
@@ -655,6 +659,9 @@ describe("tabletop routes (server-rendered)", () => {
     const cols = gridRule.split(/\s+(?=\d|minmax)/).length;
     expect(px + 12 * (cols - 1)).toBeLessThan(1236 - 24);
     expect(css1).toMatch(/\.tt-rec \.tt-rosters-embed \{ width: 100%; max-width: 100%; box-sizing: border-box;/); // embedded lists take no popup width
+    expect(css1).toMatch(/\.tt-confirm-yes \{ background: var\(--ui-success, #3fb463\); \}/); // YES is green
+    expect(css1).toMatch(/\.tt-confirm-again \{ background: var\(--ui-danger, #ff4d4d\); \}/); // CHOOSE SOMEONE ELSE is red
+    expect(css1).toMatch(/\.tt-x \{ background: var\(--ui-danger, #ff4d4d\); color: var\(--ui-text-on-primary, #ffffff\); \}/); // the Close X is red with a white X
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/\.tt-rec \.tt-crest-frame \{ background: color-mix\(in srgb, var\(--ui-surface, #0d0d0d\) 28%, transparent\); border: 1px solid color-mix\(in srgb, var\(--ui-border, #3d0002\) 35%, transparent\); box-shadow: inset 0 1px 0 rgb\(255 255 255 \/ \.14\); \}/);
@@ -805,6 +812,26 @@ describe("tabletop routes (server-rendered)", () => {
     const seventeen = await render(17); // 20 chips
     expect(seventeen).toMatch(/class="tt-chip-more"[^>]*>\+\d+</);
     expect(seventeen).toContain("Thing 16 x1"); // the last (hidden) item is named in the tip
+  });
+
+  it("confirm modal: the assign title, the player's row, the SPP line with the gain, YES and CHOOSE SOMEONE ELSE; the title and gain helpers", async () => {
+    const { assignTitle, sppGain } = await import("../spa/src/tabletop/confirm");
+    expect(assignTitle("touchdown", "Touchdown", "Gutter Runner 1")).toBe("ASSIGN TOUCHDOWN TO GUTTER RUNNER 1?");
+    expect(assignTitle("casualty", "Casualty", "Grob on #3 Big Un Blocker")).toBe("ASSIGN CASUALTY TO GROB ON #3 BIG UN BLOCKER?");
+    expect(assignTitle("mvp", "MVP", "Lirael")).toBe("ASSIGN MVP TO LIRAEL?");
+    const values = { touchdown: 3, casualty: 2, completion: 1, interception: 2, deflection: 1, mvp: 4 };
+    expect(sppGain("touchdown", "rostered", values)).toBe(3);
+    expect(sppGain("touchdown", "star", values)).toBe(0); // a Star earns none
+    expect(sppGain("casualty", "rostered", values, "foul")).toBe(0); // only a block casualty counts
+    expect(sppGain("foul", "rostered", values)).toBe(0); // events with no SPP
+    const html = await mount(mods.pickConfirmC, { title: "ASSIGN TOUCHDOWN TO GRUB?", player: { id: "h1", name: "Grub", number: 1, spp: 3, mng: false, dead: false, positionName: "Blitzer" }, side: "home", spp: { current: 3, gain: 3 } });
+    expect(html).toContain("ASSIGN TOUCHDOWN TO GRUB?");
+    expect(html).toContain('class="roster-row roster-grid tt-rp tt-rp-pick"'); // the same roster row
+    expect(html).toContain('<p class="tt-confirm-spp">SPP 3 <b class="tt-gain">(+3)</b></p>');
+    expect(html).toContain('<button class="tt-confirm-yes" type="button">Yes</button>');
+    expect(html).toContain('<button class="tt-confirm-again" type="button">Choose someone else</button>');
+    const none = await mount(mods.pickConfirmC, { title: "ASSIGN FOUL TO GRUB?", player: { id: "h1", name: "Grub", spp: 3, mng: false, dead: false }, side: "home", spp: { current: 3, gain: 0 } });
+    expect(none).toContain("SPP 3 <b class=\"tt-gain\">(+0)</b>"); // an event without SPP still reads +0
   });
 
   it("every popup renders exactly one close button labelled Close (the shared sheet head)", async () => {

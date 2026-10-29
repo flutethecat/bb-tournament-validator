@@ -27,7 +27,7 @@ import {
 import { decorateRoster } from "./eligibility.js";
 import { withRosterArt } from "./rosterArt.js";
 import { leagueStandings, type LeaguePoints } from "./standings.js";
-import { applyPostMatch, sppCredits, sppForEvent, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile } from "./postMatch.js";
+import { applyPostMatch, sppCredits, sppForEvent, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile, SPP_VALUES } from "./postMatch.js";
 import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
 import { duplicatePlayerId, parseTeamRef } from "./teamFile.js";
 
@@ -196,6 +196,8 @@ export async function tabletopApi(
           away: withAvatar(withRosterArt(decorateRoster("away", teams.away, events), deps.artDir), match.away.teamSaveId, deps),
         },
         tally: tallyView(events, teams),
+        // the SPP each kind of event earns (the confirm modal shows the gain before an event is posted; the client keeps no table of its own)
+        sppValues: SPP_VALUES,
       },
     };
   }

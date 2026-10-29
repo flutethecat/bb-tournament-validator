@@ -4,9 +4,11 @@
 // objective text, team) are small forms here.
 import { computed, ref } from "vue";
 import { eligiblePlayers, ELIGIBILITY_KEY, INJURY_RESULTS_UI, pickSpec, WEATHER_RESULTS_UI, type OtherEvent } from "../tabletop/feed";
-import type { MatchView, Side, TeamView } from "../tabletop/recorder";
+import type { MatchView, RosterPlayerView, ServerTally, Side, TeamView } from "../tabletop/recorder";
 import type { ArtManifests } from "../tabletop/art";
 import TabletopPlayerPicker from "./TabletopPlayerPicker.vue";
+import TabletopPickConfirm from "./TabletopPickConfirm.vue";
+import { assignTitle } from "../tabletop/confirm";
 import TabletopSheetHead from "./TabletopSheetHead.vue";
 
 const props = defineProps<{
@@ -16,6 +18,8 @@ const props = defineProps<{
   /** The rosters this viewer may act for: their own side, both for an organiser in edit mode. */
   visibleSides: Side[];
   art?: ArtManifests;
+  tally?: ServerTally;
+  sppValues?: Record<string, number>;
 }>();
 const emit = defineEmits<{
   (e: "pick", spec: { type: string; team: Side; player?: string; payload?: Record<string, unknown> }): void;
@@ -44,6 +48,11 @@ function pickPlayer(s: Side, id: string): void {
   if (props.kind.needs === "player+result") { chosen.value = id; return; }
   emit("pick", pickSpec(props.kind, s, id));
 }
+/** A single-pick event confirms at the pick; a casualty confirms at its victim pick and an injury at its Save, so each flow confirms once, at the end. */
+const confirmFn = computed(() => (props.kind.type === "casualty" || props.kind.needs === "player+result" ? undefined
+  : (p: RosterPlayerView) => ({ title: assignTitle(props.kind.type, props.kind.label, p.name), gainType: props.kind.type })));
+const confirmingInjury = ref(false);
+const chosenPlayer = computed(() => props.teams[side.value]?.players.find((p) => p.id === chosen.value));
 function saveInjury(): void {
   const payload: Record<string, unknown> = { result: result.value };
   if (lasting.value) payload.apothecaryUsed = apothecary.value;
@@ -66,7 +75,11 @@ function saveText(): void {
 <template>
   <TabletopPlayerPicker
     v-if="needsPlayer && !chosen" :title="`${kind.label} - who?`" :match="match" :teams="teams" :sides="visibleSides" :filter="filter" :art="art"
-    @pick="pickPlayer" @cancel="emit('close')"
+    :confirm="confirmFn" :tally="tally" :spp-values="sppValues" @pick="pickPlayer" @cancel="emit('close')"
+  />
+  <TabletopPickConfirm
+    v-else-if="confirmingInjury && chosenPlayer" :title="assignTitle('injury', 'injury', `${chosenPlayer.name} (${result})`)" :player="chosenPlayer" :side="side"
+    @yes="saveInjury" @again="confirmingInjury = false; chosen = ''"
   />
   <div v-else class="tt-sheet" role="dialog" :aria-label="kind.label">
     <TabletopSheetHead :title="kind.label" @close="emit('close')" />
@@ -83,7 +96,7 @@ function saveText(): void {
         <select id="inj-stat" v-model="stat"><option v-for="n in ['MA', 'ST', 'AG', 'PA', 'AV']" :key="n" :value="n">{{ n }}</option></select>
       </template>
       <label v-if="lasting" class="tt-check"><input v-model="apothecary" type="checkbox" /> Apothecary used</label>
-      <button class="lobby-btn primary tt-tap" type="button" @click="saveInjury">Save injury</button>
+      <button class="lobby-btn primary tt-tap" type="button" @click="confirmingInjury = true">Save injury</button>
     </template>
     <template v-if="kind.needs === 'weather'">
       <label for="wx-result">New weather</label>

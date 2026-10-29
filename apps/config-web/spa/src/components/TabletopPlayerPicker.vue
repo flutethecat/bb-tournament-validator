@@ -4,10 +4,12 @@
 // team tabs when more than one roster is offered (organisers), a search box when the list is long, the scrollable list of roster rows
 // (one tap picks) and Cancel. The caller says which rosters, which players (filter) and whether names are hidden (an opponent's players).
 import { computed, ref } from "vue";
-import type { MatchView, RosterPlayerView, Side, TeamView } from "../tabletop/recorder";
+import type { MatchView, RosterPlayerView, ServerTally, Side, TeamView } from "../tabletop/recorder";
 import TabletopRosterRow from "./TabletopRosterRow.vue";
 import TabletopSheetHead from "./TabletopSheetHead.vue";
 import TabletopTeamTab from "./TabletopTeamTab.vue";
+import TabletopPickConfirm from "./TabletopPickConfirm.vue";
+import { sppGain } from "../tabletop/confirm";
 import type { ArtManifests } from "../tabletop/art";
 
 const props = withDefaults(defineProps<{
@@ -25,11 +27,28 @@ const props = withDefaults(defineProps<{
   searchAbove?: number;
   /** Crest manifest for the team tabs (initials when absent). */
   art?: ArtManifests;
+  /** When given, a pick opens the confirm modal first: its title, and the event type / cause for the SPP line (a casualty victim pick credits the causer: sppPlayer). */
+  confirm?: (player: RosterPlayerView, side: Side) => { title: string; gainType?: string; cause?: string; sppPlayer?: { side: Side; id: string } };
+  tally?: ServerTally;
+  sppValues?: Record<string, number>;
 }>(), { caption: "", filter: undefined, obscureNames: false, searchAbove: 12 });
 const emit = defineEmits<{ (e: "pick", side: Side, id: string): void; (e: "cancel"): void }>();
 
 const side = ref<Side>(props.sides[0] ?? "home");
 const query = ref("");
+/** The pick waiting for a YES (when a confirm step is configured). */
+const pending = ref<{ player: RosterPlayerView; side: Side; title: string; spp: { current: number; gain: number } | null } | null>(null);
+const sppOf = (player: RosterPlayerView, side: Side): number => player.spp + (props.tally?.players[side].find((l) => l.id === player.id)?.sppEarned ?? 0);
+function choose(p: RosterPlayerView): void {
+  if (!props.confirm) { emit("pick", side.value, p.id); return; }
+  const info = props.confirm(p, side.value);
+  const who = info.sppPlayer ? props.teams[info.sppPlayer.side]?.players.find((x) => x.id === info.sppPlayer!.id) : p;
+  const whoSide = info.sppPlayer?.side ?? side.value;
+  pending.value = {
+    player: p, side: side.value, title: info.title,
+    spp: info.gainType !== undefined && who ? { current: sppOf(who, whoSide), gain: sppGain(info.gainType, who.kind, props.sppValues, info.cause) } : null,
+  };
+}
 const players = computed(() => (props.teams[side.value]?.players ?? []).filter((p) => (props.filter ? props.filter(p, side.value) : true)));
 const searchable = computed(() => players.value.length > props.searchAbove);
 const shown = computed(() => {
@@ -43,7 +62,11 @@ const shown = computed(() => {
 </script>
 
 <template>
-  <div class="tt-sheet tt-picker" role="dialog" :aria-label="title">
+  <TabletopPickConfirm
+    v-if="pending" :title="pending.title" :player="pending.player" :side="pending.side" :obscured="obscureNames" :spp="pending.spp"
+    :line="tally?.players[pending.side].find((l) => l.id === pending!.player.id)" @yes="emit('pick', pending!.side, pending!.player.id)" @again="pending = null"
+  />
+  <div v-else class="tt-sheet tt-picker" role="dialog" :aria-label="title">
     <TabletopSheetHead :title="title" @close="emit('cancel')" />
     <p v-if="caption" class="tt-pick-head tt-caption">{{ caption }}</p>
     <div v-if="sides.length > 1" class="tt-rosters tt-rosters-embed tt-picker-tabs">
@@ -55,7 +78,7 @@ const shown = computed(() => {
     <p v-if="!players.length" class="muted">No available player.</p>
     <div class="tt-rosters tt-rosters-embed">
       <ul class="tt-roster-list tt-picker-list">
-        <TabletopRosterRow v-for="p in shown" :key="p.id" variant="pick" :player="p" :side="side" :obscured="obscureNames" @select="emit('pick', side, p.id)" />
+        <TabletopRosterRow v-for="p in shown" :key="p.id" variant="pick" :player="p" :side="side" :obscured="obscureNames" @select="choose(p)" />
       </ul>
     </div>
     <button class="lobby-btn tt-tap" type="button" @click="emit('cancel')">Cancel</button>

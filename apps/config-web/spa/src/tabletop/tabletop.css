@@ -1210,3 +1210,12 @@
 /* the roster lists inside a sheet (the picker's tabs and rows) fill the sheet's content box: they are not popups themselves, so they take no popup width, bezel or shadow */
 .tt-rec .tt-rosters-embed { width: 100%; max-width: 100%; box-sizing: border-box; margin-inline: 0; border: 0; box-shadow: none; background: none; }
 .tt-rec .tt-picker { overflow-x: hidden; }
+
+/* the confirm modal: the SPP line in the log's notation, YES green and CHOOSE SOMEONE ELSE red, bevelled with white lettering; every sheet's Close X has the red face too */
+.tt-confirm-spp { margin: 8px 0; font-family: var(--font-heading, sans-serif); font-size: 16px; letter-spacing: .06em; color: var(--ui-text, #e6e9ef); text-shadow: var(--tt-lettering-shadow); }
+.tt-confirm-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.tt-confirm-yes, .tt-confirm-again { min-height: 48px; padding: 0 12px; font-family: var(--font-heading, sans-serif); font-size: 15px; letter-spacing: .06em; text-transform: uppercase; color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--tt-lettering-shadow); border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; box-shadow: var(--tt-bevel); cursor: pointer; transition: transform .06s ease; }
+.tt-confirm-yes { background: var(--ui-success, #3fb463); }
+.tt-confirm-again { background: var(--ui-danger, #ff4d4d); }
+.tt-confirm-yes:active, .tt-confirm-again:active { box-shadow: var(--tt-bevel-down); transform: translateY(2px); }
+.tt-x { background: var(--ui-danger, #ff4d4d); color: var(--ui-text-on-primary, #ffffff); }

@@ -50,6 +50,8 @@ export interface RosterPlayerView {
   id: string; name: string; number?: number; spp: number; mng: boolean; dead: boolean;
   /** The server's availability and per-action eligibility (throwTeamMate, rightStuff, pass, catch, intercept, foul ...). */
   available?: boolean; unavailableReason?: string; eligible?: Record<string, boolean>;
+  /** rostered | star | mercenary | journeyman (a Star or Mercenary earns no SPP). */
+  kind?: string;
   positionId?: string; position?: string; positionName?: string; skills?: string[]; injuries?: string[]; niggles?: number;
   /** MA and ST are values; AG, PA and AV are target numbers (rendered "3+"); pa null = no passing. */
   ma?: number | null; st?: number | null; ag?: number | null; pa?: number | null; av?: number | null;
@@ -92,6 +94,8 @@ export interface MatchResponse {
   effectiveEventIds: string[];
   teams: Record<Side, TeamView | undefined>;
   tally?: ServerTally;
+  /** The SPP each kind of event earns, from the server. */
+  sppValues?: Record<string, number>;
   phase?: string;
   pregame?: Record<string, unknown>;
   clock?: ClockView;
@@ -113,6 +117,7 @@ export interface RecorderState {
   /** Sprite and crest manifests of the builder-art pack, read once. */
   art: ArtManifests;
   tally: ServerTally;
+  sppValues: Record<string, number>;
   teams: Record<Side, TeamView | undefined>;
   /** Events accepted by this browser's queue but not yet by the server. */
   pending: number;
@@ -149,7 +154,7 @@ const POLL_MS = 5000;
 
 export function createRecorder(matchId: string, deps: RecorderDeps) {
   const state = reactive<RecorderState>({
-    loaded: false, error: "", match: null, events: [], effectiveIds: [], phase: "", pregame: {}, clock: undefined, clockOffsetMs: 0, inducementIcons: {}, art: {}, tally: EMPTY_TALLY, teams: { home: undefined, away: undefined },
+    loaded: false, error: "", match: null, events: [], effectiveIds: [], phase: "", pregame: {}, clock: undefined, clockOffsetMs: 0, inducementIcons: {}, art: {}, tally: EMPTY_TALLY, sppValues: {}, teams: { home: undefined, away: undefined },
     pending: 0, queueError: "", retryAt: 0, rejected: [], busy: false, actionError: "",
   });
   const base = `/api/tabletop/matches/${encodeURIComponent(matchId)}`;
@@ -242,6 +247,7 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     state.events = res.events ?? [];
     state.effectiveIds = res.effectiveEventIds ?? [];
     state.tally = res.tally ?? EMPTY_TALLY;
+    state.sppValues = res.sppValues ?? state.sppValues;
     state.phase = res.phase ?? res.match.phase ?? "";
     state.pregame = res.pregame ?? res.match.pregame ?? {};
     applyClock(res.clock);
