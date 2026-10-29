@@ -73,7 +73,7 @@ onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
           <header class="hm-band" data-tone="admin"><h2 id="hm-new-h">What's new</h2><RouterLink class="hm-cap" to="/whats-new">All updates</RouterLink></header>
           <p v-if="logError" class="lobby-error hm-small">{{ logError }}</p>
           <p v-else-if="!log.length" class="hm-empty">Nothing yet</p>
-          <ul v-else class="hm-log">
+          <ul v-else class="hm-log hm-log-strip" aria-label="What's new">
             <li v-for="(e, i) in log" :key="`${e.date}-${i}`">
               <time :datetime="e.date" class="hm-log-date">{{ logDate(e.date) }}</time>
               <strong class="hm-log-title">{{ e.title }}</strong>
