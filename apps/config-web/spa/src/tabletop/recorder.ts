@@ -31,7 +31,7 @@ export interface SummaryView {
 export interface MatchContext { kind: "league" | "tournament" | "casual"; title: string; subtitle: string; round?: number; roundCount?: number; startedAt?: string; venue?: string }
 
 /** A seat's coach rating and rank, server-computed from the fork results. */
-export interface CoachRatingView { cr: number; rank: string; rankKey: string; games: number }
+export interface CoachRatingView { cr: number; rank: string; rankKey: string; slug?: string; games: number }
 
 export interface MatchView {
   id: string;
@@ -328,12 +328,13 @@ export function createRecorder(matchId: string, deps: RecorderDeps) {
     /** Inducement icons and crests (builder-art manifests); a missing one only drops that art. */
     async loadArt(): Promise<void> {
       const get = async <T>(path: string): Promise<T | undefined> => { try { return await deps.api<T>(path); } catch { return undefined; } };
-      const [ind, crests] = await Promise.all([
+      const [ind, crests, badges] = await Promise.all([
         get<{ icons?: Record<string, string> }>("/icons/inducements/manifest.json"),
         get<ArtManifests["crests"]>("/crests/manifest.json"),
+        get<{ retro?: Record<string, string> }>("/icons/coach-badges/manifest.json"),
       ]);
       state.inducementIcons = ind?.icons ?? {};
-      state.art = { crests };
+      state.art = { crests, coachBadges: badges?.retro };
     },
     confirm: () => act("confirm"),
     undoRevision: () => act("undo-revision"),

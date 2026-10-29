@@ -57,10 +57,11 @@ export function rankOf(cr: number, games: number): CoachRank {
   return best;
 }
 
-export interface CoachRatingView { cr: number; rank: string; rankKey: string; games: number }
+/** `slug` is the client's badge slug for the title ("emerging-star"); the recorder maps it to the badge PNG. */
+export interface CoachRatingView { cr: number; rank: string; rankKey: string; slug: string; games: number }
 
 export function coachRatingFor(elo: number | undefined, games = 0): CoachRatingView {
   const cr = eloToCr(elo ?? ELO_BASELINE);
   const r = rankOf(cr, games);
-  return { cr, rank: r.name, rankKey: r.key, games };
+  return { cr, rank: r.name, rankKey: r.key, slug: coachTitleSlug(r.name) ?? r.key, games };
 }

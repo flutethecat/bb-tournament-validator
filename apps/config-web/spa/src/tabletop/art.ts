@@ -3,6 +3,14 @@
 
 export interface ArtManifests {
   crests?: { crests?: Record<string, string> };
+  /** The client's coach title badges, retro (pixel) set: title slug -> path (icons/coach-badges/<slug>-retro.png). */
+  coachBadges?: Record<string, string>;
+}
+
+/** Coach badge path (from the site root) for a title slug, only when the manifest lists it and the path is one of ours. */
+export function resolveCoachBadge(art: ArtManifests, slug: unknown): string {
+  const p = typeof slug === "string" ? art.coachBadges?.[slug] : undefined;
+  return p && /^icons\/coach-badges\/[a-z-]+-retro\.png$/.test(p) ? `/${p}` : "";
 }
 
 const normalizeKey = (value: unknown): string => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");

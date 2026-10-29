@@ -415,6 +415,26 @@ describe("tabletop routes (server-rendered)", () => {
     expect(html).not.toMatch(/<img[^>]*rank/i); // our own inline SVG, never an image
     expect(html.match(/class="tt-coach-cr">CR /g)).toHaveLength(2); // phone: CR text under the coach name
     expect((await renderMatch(base)).html).not.toContain('class="tt-cr"');
+    // the client's own retro badge image when the manifest lists it; the SVG shield otherwise
+    const board = (art: Record<string, unknown>) => mount(mods.boardC, {
+      match: baseMatch("recording"), teams, tally: serverTally, events: [], pregame: {}, clock: clockOf("home", 3), localSide: "home", organiser: false, canAct: true, inducementIcons: {}, art,
+      coachRating: { home: { cr: 1571, rank: "Star", rankKey: "star", slug: "star", games: 30 }, away: { cr: 1523, rank: "Emerging Star", rankKey: "emerging", slug: "emerging-star", games: 12 } },
+    }, (app) => app.use(mods.vueRouter.createRouter({ history: mods.vueRouter.createMemoryHistory(), routes: [{ path: "/tabletop", component: { render: () => null } }] })));
+    const withBadges = await board({ coachBadges: { star: "icons/coach-badges/star-retro.png", "emerging-star": "icons/coach-badges/emerging-star-retro.png", evil: "//evil.example/x.png" } });
+    expect(withBadges).toContain('<img class="tt-rank-img" src="/icons/coach-badges/star-retro.png" alt="" height="28">');
+    expect(withBadges).toContain('src="/icons/coach-badges/emerging-star-retro.png"');
+    expect(withBadges).not.toContain("tt-rank-shield"); // the image replaces the shield
+    expect(withBadges).toContain("CR 1571");
+    const partial = await board({ coachBadges: { star: "icons/coach-badges/star-retro.png" } });
+    expect(partial.match(/class="tt-rank-img"/g)).toHaveLength(1);
+    expect(partial.match(/class="tt-rank-shield"/g)).toHaveLength(1); // the missing badge falls back to the SVG shield
+    const unsafe = await board({ coachBadges: { star: "//evil.example/x.png", "emerging-star": "icons/coach-badges/../x.png" } });
+    expect(unsafe).not.toContain("evil.example");
+    expect(unsafe).not.toContain("tt-rank-img");
+    const manifest = JSON.parse((await import("node:fs")).readFileSync(fileURLToPath(new URL("../public/icons/coach-badges/manifest.json", import.meta.url)), "utf8"));
+    expect(Object.keys(manifest.retro)).toHaveLength(8);
+    expect(manifest.source.commit).toMatch(/^[0-9a-f]{40}$/); // the source commit travels with the art
+    expect(manifest.retro.star).toBe("icons/coach-badges/star-retro.png");
     const css = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
     for (const [k, t] of [["rookie", "--ui-muted"], ["experienced", "--ui-success"], ["veteran", "--ui-info"], ["star", "--ui-gold"], ["super", "--ui-scarlet"], ["legend", "--ui-text-on-primary"]]) {
       expect(css).toMatch(new RegExp(`\\.tt-cr\\[data-rank="${k}"\\] \\{ --tt-rank-c: var\\(${t},`));

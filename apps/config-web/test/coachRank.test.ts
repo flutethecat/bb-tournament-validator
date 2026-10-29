@@ -24,8 +24,8 @@ describe("coach rank (CR = fork Elo, FUMBBL titles)", () => {
     expect([ROOKIE, ...BANDS].map((r) => r.pips)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
   it("a new coach (1500, no games) is a Rookie; a rated one carries cr, rank, key and games", () => {
-    expect(coachRatingFor(undefined)).toEqual({ cr: 1500, rank: "Rookie", rankKey: "rookie", games: 0 });
-    expect(coachRatingFor(1523, 12)).toEqual({ cr: 1523, rank: "Emerging Star", rankKey: "emerging", games: 12 });
+    expect(coachRatingFor(undefined)).toEqual({ cr: 1500, rank: "Rookie", rankKey: "rookie", slug: "rookie", games: 0 });
+    expect(coachRatingFor(1523, 12)).toEqual({ cr: 1523, rank: "Emerging Star", rankKey: "emerging", slug: "emerging-star", games: 12 });
   });
   it("the title list, order and normalisation are the client's (FUMBBL's eight titles; every band name maps to a slug)", () => {
     expect(Object.keys(COACH_TITLE_SLUGS)).toEqual(["rookie", "experienced", "veteran", "emerging star", "star", "super star", "mega star", "legend"]);

@@ -1382,6 +1382,7 @@
   }
   .tt-rec .tt-cr-text { font-weight: 400; }
   .tt-rank { flex: none; display: block; }
+  .tt-rank-img { flex: none; display: block; height: 28px; width: auto; image-rendering: pixelated; } /* the client's own retro coach badge; the SVG shield is the fallback */
   .tt-rank-shield { fill: var(--tt-rank-c); stroke: var(--ui-surface, #0d0d0d); stroke-width: 1; }
   .tt-rank-pip { fill: var(--ui-surface, #0d0d0d); }
   .tt-cr[data-rank="rookie"] { --tt-rank-c: var(--ui-muted, #848689); }
