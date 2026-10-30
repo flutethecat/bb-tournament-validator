@@ -658,7 +658,7 @@ export function buildSeason(input: BuildSeasonInput): BuildSeasonResult {
   };
   // The league is the record (owner 10-30): players without a stored value get the fallback price stored, and every
   // team's value is recomputed from the stored values (BB2025 seasons; others keep the imported figure).
-  refreshTeamValues(season, undefined, { fillStoredValues: true });
+  refreshTeamValues(season, undefined, { fillStoredValues: true, ...(input.now ? { now: input.now } : {}) });
   const unmappedCoaches = [...seen].filter((name) => !mapped.has(name)).sort((a, b) => a.localeCompare(b));
   return { season, mismatches: checkStandings(phases, fixtures), ambiguities, unmappedCoaches };
 }

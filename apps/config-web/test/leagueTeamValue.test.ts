@@ -58,19 +58,23 @@ describe("computeTeamValue", () => {
 
   it("refreshTeamValues: BB2025 seasons only; a race the dataset cannot resolve keeps its value", () => {
     const s = season([team({ players: [pl("a", "Human Lineman")] }), team({ id: "u", race: "Martians", teamValue: 777 })]);
-    expect(refreshTeamValues(s)).toEqual(["u"]);
+    expect(refreshTeamValues(s, undefined, { now: new Date("2026-10-30T12:00:00Z") })).toEqual(["u"]);
     expect(s.teams[0]).toMatchObject({ teamValue: 50_000, currentTeamValue: 50_000 });
     expect(s.teams[1]!.teamValue).toBe(777);
+    // Not silent: the season log says so, once per team however often the hook runs.
+    refreshTeamValues(s);
+    expect(s.log).toEqual([{ at: "2026-10-30T12:00:00.000Z", by: "Super FUMBBL", kind: "team-value-unresolved", teamId: "u", text: 'Team value not recomputed for Team: race "Martians" not in dataset.' }]);
     const old = season([team({ players: [pl("a", "Human Lineman")] })], [], "BB2020");
     expect(refreshTeamValues(old)).toEqual(["t"]);
     expect(old.teams[0]!.teamValue).toBe(999);
+    expect(old.log).toBeUndefined(); // other editions are skipped by design
     expect(signedK(40_000)).toBe("+40k");
     expect(signedK(-20_000)).toBe("-20k");
   });
 });
 
 describe("the value refreshes on every mutation path", () => {
-  it("fork result banking: recomputed after a death and a new MNG; the fork's figure is compared, never adopted", () => {
+  it("fork result banking: recomputed after a death and a new MNG; the fork's kickoff figure is compared like for like, never adopted", () => {
     const home = team({ id: "home", name: "Home", rerolls: 2, players: [pl("a", "Human Lineman"), pl("b", "Human Lineman"), pl("c", "Human Blitzer", { value: 85_000 })] });
     const away = team({ id: "away", name: "Away", players: [pl("z", "Human Lineman")] });
     const hid = forkTeamIdFor("l", "season-7", "home");
@@ -98,9 +102,11 @@ describe("the value refreshes on every mutation path", () => {
     const h = s.teams.find((t) => t.id === "home")!;
     // b 50k + c 85k + 2 rerolls x 50k; b misses the next game
     expect(h).toMatchObject({ teamValue: 235_000, currentTeamValue: 185_000 });
-    expect(f.fork!.result!.home.forkTeamValueDiff).toBe(110_000);
-    expect(f.fork!.result!.away).not.toHaveProperty("forkTeamValueDiff");
-    if (out.applied) expect(out.teamValueDiffs).toEqual([{ side: "home", teamId: "home", team: "Home", diff: 110_000, fork: 345_000, league: 235_000 }]);
+    // Kickoff figures (pre-result CTV + dedicated fans x 10k): home a 50k + b 50k + c 85k + 2 rerolls 100k = 285k + 6 fans 60k = 345k,
+    // which matches the fork's 345k: no diff. Away 50k + 6 fans 60k = 110k against the fork's 50k: -60k.
+    expect(f.fork!.result!.home).not.toHaveProperty("forkTeamValueDiff");
+    expect(f.fork!.result!.away.forkTeamValueDiff).toBe(-60_000);
+    if (out.applied) expect(out.teamValueDiffs).toEqual([{ side: "away", teamId: "away", team: "Away", diff: -60_000, fork: 50_000, leagueKickoff: 110_000 }]);
   });
 
   it("redraft: the placed roster is recomputed by the receiving season", () => {

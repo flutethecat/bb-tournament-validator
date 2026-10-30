@@ -8,8 +8,10 @@
  * spendable balance (a conceding team's balance is cleared), counters are added, injuries land (MNG; niggling +1;
  * characteristic losses; a death or a defection retires the player to former players), treasury = treasury - the part
  * of it spent on inducements + winnings, dedicated fans + the server's modifier. Seasons played is never touched. The
- * team value is then RECOMPUTED by the league (teamValue.ts); the fork's teamValue is only compared, and a difference is
- * recorded as forkTeamValueDiff on the fixture result side (owner 10-30: informational, never adopted).
+ * team value is then RECOMPUTED by the league (teamValue.ts); the fork's teamValue is only compared, like for like: the
+ * fork's figure is a kickoff value (current team value + dedicated fans x 10k), so it is compared with the league
+ * team's PRE-result current team value + dedicated fans x 10k, and a difference is recorded as forkTeamValueDiff on the
+ * fixture result side (owner 10-30: informational, never adopted).
  *
  * A "basic" result (the fork's finished-game listing without the FumbblResult body) carries no SPP, injuries, fan
  * change or inducement spend: SPP balances (also of a conceding team), injuries, fans and the TREASURY are left as
@@ -28,7 +30,7 @@
  */
 import type { GamestateResult } from "@bb/fork-ops";
 import type { ParsedGameResult } from "../site-backend/fumbblResult.js";
-import { refreshTeamValue } from "./teamValue.js";
+import { kickoffTeamValue, refreshTeamValues } from "./teamValue.js";
 import { fixturePlayed } from "./tourplay.js";
 import { FORK_PLAYER_COUNTERS } from "./types.js";
 import type {
@@ -265,8 +267,8 @@ export function mutateLeagueTeam(input: LeagueTeam, side: ForkGameTeamResult, ma
   return { team, lines, retired: [...gone] };
 }
 
-/** One side whose fork team value differed from the league's recomputed value (informational). */
-export interface TeamValueDiff { side: ForkSide; teamId: string; team: string; diff: number; fork: number; league: number }
+/** One side whose fork kickoff team value differed from the league's kickoff figure (informational). */
+export interface TeamValueDiff { side: ForkSide; teamId: string; team: string; diff: number; fork: number; leagueKickoff: number }
 
 export type ApplyOutcome =
   | { applied: true; result: FixtureForkResult; retired: Record<ForkSide, string[]>; teamValueDiffs: TeamValueDiff[] }
@@ -301,16 +303,19 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
     let lines: ForkPlayerLine[];
     let diff: number | undefined;
     if (i >= 0) {
+      // Like for like (teamValue.ts kickoffTeamValue): the fork's teamValue is its kickoff figure = current team value
+      // (missed-game players excluded) + dedicated fans x 10k, so it is compared with the league team BEFORE this
+      // result: pre-result current team value + dedicated fans x 10k.
+      const kickoff = kickoffTeamValue(season.teams[i]!, season.ruleset);
       const m = mutateLeagueTeam(season.teams[i]!, r, ft.players, result.source);
-      // The league is the record: the value is recomputed from the mutated roster; the fork's figure is only compared.
-      refreshTeamValue(m.team, season.ruleset);
       season.teams[i] = m.team;
+      // The league is the record: the value is recomputed from the mutated roster; the fork's figure is only compared.
+      refreshTeamValues(season, [m.team.id], { now });
       lines = m.lines;
       retired[s] = m.retired;
-      const league = m.team.teamValue;
-      if (result.source === "full" && typeof r.teamValue === "number" && r.teamValue > 0 && typeof league === "number" && r.teamValue !== league) {
-        diff = r.teamValue - league;
-        teamValueDiffs.push({ side: s, teamId: m.team.id, team: m.team.name, diff, fork: r.teamValue, league });
+      if (result.source === "full" && typeof r.teamValue === "number" && r.teamValue > 0 && kickoff !== undefined && r.teamValue !== kickoff) {
+        diff = r.teamValue - kickoff;
+        teamValueDiffs.push({ side: s, teamId: m.team.id, team: m.team.name, diff, fork: r.teamValue, leagueKickoff: kickoff });
       }
     } else {
       lines = mutateLeagueTeam({ id: ft.teamId, name: "", race: "", coach: "", teamValue: null, treasury: null, rerolls: null, fans: null, assistantCoaches: null,

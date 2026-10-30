@@ -215,8 +215,9 @@ export interface ForkSideResult {
   winnings: number;
   lines: ForkPlayerLine[];
   /**
-   * Full results only: the fork's teamValue minus the league's recomputed teamValue after the result (signed gold),
-   * when they differ. Informational (owner 10-30): the league value is the record; this never changes anything.
+   * Full results only, when they differ: the fork's teamValue minus the league's KICKOFF figure for the team (signed
+   * gold) = its current team value before the result was applied + dedicated fans x 10k, the same terms the fork's
+   * kickoff figure counts (teamValue.ts kickoffTeamValue). Informational (owner 10-30): never changes anything.
    */
   forkTeamValueDiff?: number;
 }
@@ -521,14 +522,14 @@ export interface LeagueNewsPost {
   editedAt?: string;
 }
 
-export type LeagueEventKind = "fixture-created" | "fixture-deleted" | "match-started" | "match-result" | "team-coach" | "team-value-diff";
+export type LeagueEventKind = "fixture-created" | "fixture-deleted" | "match-started" | "match-result" | "team-coach" | "team-value-diff" | "team-value-unresolved";
 
 export interface LeagueEventEntry {
   at: string;
   by: string;
   kind: LeagueEventKind;
   fixtureId?: string;
-  /** team-coach: the season team whose coach account changed; team-value-diff: the team whose fork value differed. */
+  /** team-coach: the season team whose coach account changed; team-value-diff / team-value-unresolved: the team concerned. */
   teamId?: string;
   text: string;
   /** match-result: the score the post announced ("2-1/3-0"); the same result is never announced twice. */

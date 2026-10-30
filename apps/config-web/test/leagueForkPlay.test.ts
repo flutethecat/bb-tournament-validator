@@ -596,17 +596,32 @@ describe("Super FUMBBL fixture routes", () => {
     expect(read.season.fixtures[0]!.fork).toEqual({ status: "finished", teams: {}, log: [] });
   });
 
-  it("result sync: the league recomputes both team values; a differing fork team value is logged for organisers only as information", async () => {
+  // Kickoff figures (pre-result CTV + dedicated fans x 10k), what the fork's teamValue counts:
+  // Grudge Rollers: Arm 95k + Doomed 50k (Limp misses the game) + 2 rerolls 100k + assistant 10k + apothecary 50k = 305k, + 2 fans = 325k.
+  // Green Tide: Grot 50k + 3 rerolls x 60k = 230k, + 1 fan = 240k.
+  const syncWithForkValues = async (home: number, away: number) => {
     await call("POST", `${base}/fork/generate`, ANN, {});
-    const hid = forkTeamIdFor("tabbl", "season-7", "grudge");
-    const aid = forkTeamIdFor("tabbl", "season-7", "orcs");
-    const r = fullResult(hid, aid);
-    r.teams[0]!.teamValue = 345_000;
-    r.teams[1]!.teamValue = 230_000;
+    const r = fullResult(forkTeamIdFor("tabbl", "season-7", "grudge"), forkTeamIdFor("tabbl", "season-7", "orcs"));
+    r.teams[0]!.teamValue = home;
+    r.teams[1]!.teamValue = away;
     fork.states.set("g42", { status: "finished", playedAt: "2026-10-30T20:00:00.000Z" });
     fork.results.set("g42", r);
     await syncLeagueForkResults({ store, fork });
-    const s = store.season("tabbl", "season-7")!;
+    return store.season("tabbl", "season-7")!;
+  };
+
+  it("result sync: a fork team value that matches the league's kickoff figure records no diff and no event", async () => {
+    const s = await syncWithForkValues(325_000, 240_000);
+    const f = s.fixtures.find((x) => x.id === "f1")!;
+    expect(f.fork!.status).toBe("finished");
+    expect(f.fork!.result!.home).not.toHaveProperty("forkTeamValueDiff");
+    expect(f.fork!.result!.away).not.toHaveProperty("forkTeamValueDiff");
+    expect(f.fork!.log.some((e) => e.text.startsWith("Fork team value differs"))).toBe(false);
+    expect((s.log ?? []).some((e) => e.kind === "team-value-diff")).toBe(false);
+  });
+
+  it("result sync: the league recomputes both team values; a differing fork kickoff value is logged for organisers only as information", async () => {
+    const s = await syncWithForkValues(365_000, 240_000);
     const home = s.teams.find((t) => t.id === "grudge")!;
     // Arm 95k (now misses the next game) + Limp 50k + 2 rerolls x 50k + 1 assistant 10k + apothecary 50k; Doomed died.
     expect(home).toMatchObject({ teamValue: 305_000, currentTeamValue: 210_000 });
@@ -615,7 +630,7 @@ describe("Super FUMBBL fixture routes", () => {
     const f = s.fixtures.find((x) => x.id === "f1")!;
     expect(f.fork!.result!.home.forkTeamValueDiff).toBe(40_000);
     expect(f.fork!.result!.away).not.toHaveProperty("forkTeamValueDiff");
-    const text = "Fork team value differs by +40k for Grudge Rollers (fork 345k, league 305k).";
+    const text = "Fork team value differs by +40k for Grudge Rollers (fork 365k, league kickoff 325k).";
     expect(f.fork!.log.map((e) => e.text)).toContain(text);
     expect(s.log!.filter((e) => e.kind === "team-value-diff")).toEqual([expect.objectContaining({ fixtureId: "f1", teamId: "grudge", text })]);
     // The fork history (where the entry lives) is organiser-only: a public read carries no log.

@@ -617,7 +617,7 @@ export async function applyFixtureResult(deps: SyncDeps, leagueId: string, seaso
         log(f.fork!, now, "Super FUMBBL", `Result ${r.home.score} - ${r.away.score} applied (game ${r.gameId}, ${r.source === "full" ? "full result" : "score and player counters only"}).`);
         // Informational only (owner 10-30): the league's recomputed team value is the record, the fork's is compared.
         for (const d of outcome.teamValueDiffs) {
-          const text = `Fork team value differs by ${signedK(d.diff)} for ${d.team} (fork ${kGold(d.fork)}, league ${kGold(d.league)}).`;
+          const text = `Fork team value differs by ${signedK(d.diff)} for ${d.team} (fork ${kGold(d.fork)}, league kickoff ${kGold(d.leagueKickoff)}).`;
           log(f.fork!, now, "Super FUMBBL", text);
           addLog(season, { at: now.toISOString(), by: "Super FUMBBL", kind: "team-value-diff", fixtureId: f.id, teamId: d.teamId, text });
         }

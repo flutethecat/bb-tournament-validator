@@ -24,7 +24,7 @@ import {
   type RestRoll, type SeasonRecord,
 } from "./types.js";
 import { forkPlayLock } from "./forkTeam.js";
-import { computeTeamValue, refreshTeamValue } from "./teamValue.js";
+import { computeTeamValue, refreshTeamValues } from "./teamValue.js";
 
 export const REDRAFT_BASE = 1_000_000;
 export const PER_GAME = 20_000;
@@ -527,10 +527,10 @@ export function draftList(price: DraftPrice, input: DraftInput, team: LeagueTeam
 /** Puts the draft roster into the next season (replacing a team with the same id) and lists the coach as a participant. */
 export function applyDraftTeam(season: SeasonRecord, team: LeagueTeam): void {
   const placed = structuredClone(team);
-  // The season's own recompute (the same figures buildDraftTeam wrote, so the placed roster still equals the draft's).
-  refreshTeamValue(placed, season.ruleset);
   const i = season.teams.findIndex((t) => t.id === team.id);
   if (i >= 0) season.teams[i] = placed; else season.teams.push(placed);
+  // The season's own recompute (the same figures buildDraftTeam wrote, so the placed roster still equals the draft's).
+  refreshTeamValues(season, [team.id]);
   const named = team.name.trim().toLowerCase();
   if (!season.participants.some((p) => p.team.trim().toLowerCase() === named)) {
     season.participants.push({ coach: team.coach, ...teamSeat(team), country: "", race: team.race, team: team.name, active: true });

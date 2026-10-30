@@ -20,7 +20,7 @@ import { canonSkill, findPosition, findRoster, findSkill, type DatasetPosition, 
 import { bb2025 } from "@bb/validator/dataset";
 import { CHARACTERISTIC_VALUE } from "../teamAdvancement.js";
 import { positionFor, statAdvanceOf, statDelta } from "./forkTeam.js";
-import type { LeaguePlayer, LeagueTeam, SeasonRecord } from "./types.js";
+import type { LeagueEventEntry, LeaguePlayer, LeagueTeam, SeasonRecord } from "./types.js";
 
 /** BB2025 staff prices (gold). */
 export const STAFF_VALUE = { assistantCoach: 10_000, cheerleader: 10_000, apothecary: 50_000 } as const;
@@ -105,11 +105,14 @@ export function computeTeamValue(team: LeagueTeam, roster: DatasetRoster): TeamV
 export interface RefreshOptions {
   /** Import: write the fallback price as the stored value of every player that has none. */
   fillStoredValues?: boolean;
+  /** Time stamp of the season log entry for a team that could not be valued (default now). */
+  now?: Date;
 }
 
 /**
  * Recomputes one team's teamValue / currentTeamValue in place. Returns false (and leaves the team alone) when the
- * season is not BB2025 or the dataset has no roster for the race.
+ * season is not BB2025 or the dataset has no roster for the race. Mutation paths call refreshTeamValues (which also
+ * logs a race the dataset cannot resolve).
  */
 export function refreshTeamValue(team: LeagueTeam, ruleset: string, opts: RefreshOptions = {}): boolean {
   if (ruleset !== "BB2025") return false;
@@ -128,18 +131,44 @@ export function refreshTeamValue(team: LeagueTeam, ruleset: string, opts: Refres
   return true;
 }
 
+/** The season log's cap (events.ts LOG_CAP; not imported, events.ts sits above this module). */
+const SEASON_LOG_CAP = 200;
+
 /**
  * The single refresh hook every league mutation path calls before putSeason: recomputes the named teams (all when
- * `teamIds` is omitted). Returns the ids of the teams it could not value (not BB2025, or race not in the dataset).
+ * `teamIds` is omitted). Returns the ids of the teams it could not value. In a BB2025 season a team whose race the
+ * dataset cannot resolve is never silent: the season log gets "Team value not recomputed for X: race not in dataset"
+ * once per team (kind team-value-unresolved). Other editions are skipped by design, without a log entry.
  */
 export function refreshTeamValues(season: SeasonRecord, teamIds?: readonly string[], opts: RefreshOptions = {}): string[] {
   const only = teamIds ? new Set(teamIds) : undefined;
   const skipped: string[] = [];
   for (const t of season.teams) {
     if (only && !only.has(t.id)) continue;
-    if (!refreshTeamValue(t, season.ruleset, opts)) skipped.push(t.id);
+    if (refreshTeamValue(t, season.ruleset, opts)) continue;
+    skipped.push(t.id);
+    if (season.ruleset !== "BB2025") continue;
+    if ((season.log ?? []).some((e) => e.kind === "team-value-unresolved" && e.teamId === t.id)) continue;
+    const entry: LeagueEventEntry = {
+      at: (opts.now ?? new Date()).toISOString(), by: "Super FUMBBL", kind: "team-value-unresolved", teamId: t.id,
+      text: `Team value not recomputed for ${t.name}: race "${t.race}" not in dataset.`,
+    };
+    season.log = [entry, ...(season.log ?? [])].slice(0, SEASON_LOG_CAP);
   }
   return skipped;
+}
+
+/**
+ * The fork's teamValue is a KICKOFF figure (upstream UtilTeamValue.findTeamValue, set at game start): rerolls, staff
+ * and the players without a recovering injury (a missed game is written as one) PLUS dedicated fans x 10k. The
+ * like-for-like league figure is therefore the team's current team value BEFORE the result is applied plus
+ * dedicatedFans x 10k. Undefined when the team cannot be valued (not BB2025, or race not in the dataset).
+ */
+export function kickoffTeamValue(team: LeagueTeam, ruleset: string): number | undefined {
+  if (ruleset !== "BB2025") return undefined;
+  const roster = teamValueRoster(team.race);
+  if (!roster) return undefined;
+  return computeTeamValue(team, roster).currentTeamValue + Math.max(0, team.fans ?? 0) * 10_000;
 }
 
 /** "1,740k" for gold. */
