@@ -14,6 +14,8 @@ import TabletopTeamTab from "./TabletopTeamTab.vue";
 const props = defineProps<{
   match: MatchView; teams: Record<Side, TeamView | undefined>; tally: ServerTally; art?: ArtManifests;
   events?: RecordedEvent[]; inducementIcons?: Record<string, string>; initialSide?: Side;
+  /** A finished game read-only (game page): no availability count, SPP earned this game only. */
+  completed?: boolean;
 }>();
 const emit = defineEmits<{ (e: "close"): void }>();
 
@@ -59,7 +61,7 @@ const gold = (n: number): string => `${Math.round(n / 1000)}k`;
       <div class="tt-roster-tabs" role="group" aria-label="Select roster team">
         <TabletopTeamTab
           v-for="s in sides" :key="s" :match="match" :teams="teams" :side="s" :active="side === s" :art="art" :inducement-icons="inducementIcons"
-          :count="`${eligible(s)}/${size(s)}`" :count-tip="`${eligible(s)} of ${size(s)} players available`" @select="side = s"
+          :count="completed ? undefined : `${eligible(s)}/${size(s)}`" :count-tip="completed ? undefined : `${eligible(s)} of ${size(s)} players available`" @select="side = s"
         />
       </div>
       <div class="tt-roster-page">
@@ -67,7 +69,7 @@ const gold = (n: number): string => `${Math.round(n / 1000)}k`;
         <div class="roster-grid roster-header" aria-hidden="true"><span>#</span><span></span><span>Player</span><span class="tt-hd-stats">Stats</span><span>Skills</span><span class="tt-hd-spp">SPP</span></div>
         <ul class="tt-roster-list">
           <li v-if="!players.length" class="muted roster-empty">No player records.</li>
-          <TabletopRosterRow v-for="p in players" :key="p.id" :player="p" :side="side" :line="line(p.id)" :open="open === p.id" @select="toggle(p.id)" />
+          <TabletopRosterRow v-for="p in players" :key="p.id" :player="p" :side="side" :line="line(p.id)" :open="open === p.id" :earned-only="completed" @select="toggle(p.id)" />
         </ul>
         <section v-if="inducements" class="tt-ind" aria-label="Inducements">
           <h3 class="section-title tt-ind-title">Inducements</h3>

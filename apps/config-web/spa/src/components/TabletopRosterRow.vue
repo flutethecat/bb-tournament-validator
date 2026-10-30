@@ -8,7 +8,9 @@ import type { PlayerLineView, RosterPlayerView, Side } from "../tabletop/recorde
 
 const props = withDefaults(defineProps<{
   player: RosterPlayerView; side: Side; line?: PlayerLineView; variant?: "roster" | "pick"; obscured?: boolean; open?: boolean; active?: boolean;
-}>(), { variant: "roster", obscured: false, open: false, active: false });
+  /** A finished game's roster (game page): no running SPP total is known, so only the SPP earned this game shows (blank when none). */
+  earnedOnly?: boolean;
+}>(), { variant: "roster", obscured: false, open: false, active: false, earnedOnly: false });
 const emit = defineEmits<{ (e: "select"): void }>();
 
 const STATS = ["ma", "st", "ag", "pa", "av"] as const;
@@ -86,10 +88,11 @@ const isPick = computed(() => props.variant === "pick");
       <span v-for="(sk, i) in printed" :key="`${sk.name}-${i}`" class="skill" :class="skillClass(sk.category)" :data-tip="skillTip(sk, false)">{{ sk.name }}</span>
       <span v-for="(sk, i) in added" :key="`a-${sk.name}-${i}`" class="skill tv-added" :class="skillClass(sk.category)" :data-tip="skillTip(sk, true)">{{ sk.name }}</span>
     </div>
-    <span v-if="!isPick" class="cost tt-roster-spp" :data-zero="spp === 0" :data-tip="sppTip">{{ spp }} SPP<b v-if="gained" class="tt-gain"> (+{{ gained }})</b></span>
+    <span v-if="!isPick && earnedOnly" class="cost tt-roster-spp" :data-zero="gained === 0" :data-tip="gained ? `+${gained} SPP this match` : null"><template v-if="gained">+{{ gained }} SPP</template></span>
+    <span v-else-if="!isPick" class="cost tt-roster-spp" :data-zero="spp === 0" :data-tip="sppTip">{{ spp }} SPP<b v-if="gained" class="tt-gain"> (+{{ gained }})</b></span>
     <span v-if="!isPick && (open || p.injuries?.length)" class="tt-roster-inj">
       <template v-if="p.injuries?.length">&#9877; {{ p.injuries.join(" · ") }}</template>
-      <template v-if="open"><span class="muted"> {{ p.unavailableReason ?? (p.available === false ? "Unavailable" : "Available") }}<template v-if="p.niggles"> · {{ p.niggles }} niggling</template></span></template>
+      <template v-if="open && !earnedOnly"><span class="muted"> {{ p.unavailableReason ?? (p.available === false ? "Unavailable" : "Available") }}<template v-if="p.niggles"> · {{ p.niggles }} niggling</template></span></template>
     </span>
   </li>
 </template>

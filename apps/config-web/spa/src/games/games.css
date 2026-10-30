@@ -1,34 +1,25 @@
-/* Game page (/app/games/:source/:id): hero card, Summary panel, Match report panel. */
+/* Game page (/app/games/:source/:id): the loading / missing / error page, and the match reporter's completed state
+   (GameReporterView: the recorder's .tt-rec screen with no rail, clock or action bar). */
 .gs-page { display: grid; gap: 14px; max-width: 980px; margin: 0 auto; min-width: 0; }
 .gs-crumbs { margin: 0; font-size: .9rem; color: var(--ui-muted); }
 .gs-crumbs a { color: inherit; }
-.gs-title { margin: 0; font-size: 1.25rem; overflow-wrap: anywhere; }
-.gs-hero, .gs-panel { min-width: 0; }
-.gs-facts { display: grid; gap: 6px; margin: 0 0 10px; }
-.gs-facts > div { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 8px; }
-.gs-facts dt { color: var(--ui-muted); }
-.gs-facts dd { margin: 0; overflow-wrap: anywhere; }
-.gs-note, .gs-source { margin: 0 0 8px; }
-.gs-teams { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px; }
-.gs-team { min-width: 0; }
-.gs-team h3 { margin: 0 0 6px; font-size: 1rem; overflow-wrap: anywhere; }
-.gs-team p { margin: 0 0 6px; }
-.gs-k { color: var(--ui-muted); margin-right: 4px; }
-.gs-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-.gs-table th, .gs-table td { padding: 4px 6px; border-bottom: 1px solid var(--ui-border); text-align: center; }
-.gs-table th[scope="row"], .gs-table thead th:first-child { text-align: left; font-weight: 500; overflow-wrap: anywhere; }
-.gs-inj { color: var(--ui-muted); font-size: .85em; }
-.gs-actions { margin: 10px 0 0; }
-/* The recorder's summary panels outside the recorder screen: the same tokens .tt-rec defines. */
-.gs-report {
-  --tt-panel: var(--ui-surface-2, #242424); --tt-line: var(--ui-border, #3d0002); --tt-accent: var(--ui-accent, #a55456);
-  --tt-shadow: none; --tt-radius: 4px;
+
+/* the page heading for assistive tech: the breadcrumb and the scoreboard carry it on screen */
+.tt-rec--final .tt-final-h { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* below 1024 px the breadcrumb is hidden: a plain back link above the context line */
+.tt-rec--final .tt-final-back { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; color: var(--tt-ink); font-size: 13px; text-decoration: none; }
+.tt-rec--final .tt-final-note { margin: 8px 12px; overflow-wrap: anywhere; }
+.tt-rec--final .tt-final-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 12px; }
+.tt-rec--final .tt-summary { margin: 8px 12px; }
+.tt-rec--final .tt-match-row { margin-inline: 12px; }
+@media (min-width: 1024px) {
+  .tt-rec--final .tt-final-back { display: none; }
+  /* no rail: the log takes the whole body row */
+  .tt-rec.tt-rec--final { grid-template-columns: minmax(0, 1fr); }
+  .tt-rec.tt-rec--final > .tt-mid { grid-column: 1; margin-left: 20px; }
 }
-.gs-moments { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 4px; }
-.gs-moments li { padding: 4px 8px; border-left: 3px solid var(--ui-border); overflow-wrap: anywhere; }
-.gs-moments li[data-side="home"] { border-left-color: var(--ui-heading); }
-.gs-moments li[data-side="away"] { border-left-color: var(--ui-info); }
-.gs-at { display: inline-block; min-width: 4.5em; color: var(--ui-muted); font-variant-numeric: tabular-nums; }
-.gs-reporter { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 0 12px; }
-.gs-reporter .tt-panel { margin: 8px 0; }
-@media (max-width: 520px) { .gs-facts > div { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+/* the result log's longer heading may wrap below 1024 px: its row grows instead of overlapping the log */
+@media (max-width: 1023px) {
+  .tt-rec.tt-rec--final .tt-mid { grid-template-rows: auto minmax(0, 1fr); }
+  .tt-rec.tt-rec--final .tt-mid > .tt-log-h { height: auto; min-height: 28px; padding-block: 4px; }
+}

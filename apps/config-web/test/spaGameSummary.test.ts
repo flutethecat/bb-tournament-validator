@@ -5,8 +5,8 @@ import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 
-// Game page (/app/games/:source/:id, owner 10-30): the hero result card, the Summary panel and, for tabletop matches,
-// the match reporter's summary read-only with a link into the recorder. Rendered server-side through the SPA's Vite config.
+// Game page (/app/games/:source/:id, owner 10-30: "Clicking a game should open the Match reporter view that we currently
+// have but with a completed state"): the recorder's screen read-only and finished. Rendered server-side through the SPA's Vite config.
 
 const SPA_CONFIG = fileURLToPath(new URL("../spa/vite.config.ts", import.meta.url));
 
@@ -91,69 +91,86 @@ describe("game page (SSR)", () => {
     await spa.router.isReady();
     return { html: await mods.renderToString(spa.app), f };
   }
-  const page = (html: string) => html.slice(html.indexOf('class="gs-page"'));
+  const page = (html: string) => html.slice(html.indexOf('class="tt-rec tt-rec--final"'));
+  const plain = (html: string) => html.slice(html.indexOf('class="gs-page"'));
 
-  it("online: public, hero card (not a link), summary facts, scorers and per-player table; no match report", async () => {
+  it("online: the match reporter, completed and read-only: final scoreboard, result-only Match log, summaries, Rosters; no controls", async () => {
     const { html, f } = await render("/games/online/g1", signedOut({ "/api/games/online/g1": online, "/crests/manifest.json": { crests: { orc: "crests/orc.png" } } }));
     const p = page(html);
     expect(f.calls).toContain("/api/games/online/g1");
+    expect(html).toContain('class="tt-rec tt-rec--final"');
     expect(p).not.toContain("Login with Discord");
-    expect(p).toMatch(/<div class="gs-hero"><div class="rc-card"[^>]*data-size="lg"/);
-    expect(p).toContain('src="/crests/orc.png"');
-    expect(p).toContain('<h2 id="gs-summary-h">Summary</h2>');
-    expect(p).toContain("Online · BB2025");
-    expect(p).toContain("Reavers 1 (suffered 1 BH, 0 SI, 0 dead)");
-    expect(p).toContain("Grak (Reavers)"); // MVP line
-    expect(p).toContain("Grak ×2");
+    expect(p).toContain('<h1 class="tt-final-h">Reavers vs Grinders</h1>');
+    expect(p).toContain('src="/crests/orc.png"'); // the race crest from the manifest
+    expect(p).toContain('class="tt-board"');
+    expect(p).toMatch(/<p class="tt-score" aria-label="Score"><span>2<\/span><span class="tt-score-colon">:<\/span><span>1<\/span>(<!---->)?<\/p>/);
+    expect(p).toContain('<span class="tt-stats-half">Final</span>');
+    expect(p).toContain("CAS <b>1</b>");
+    expect(p).not.toContain("FOULS"); // the fixture's lines carry no fouls: none are shown
+    expect(p).not.toContain('class="tt-turns"'); // no turn track, clock or turn button
+    expect(p).not.toContain("tt-endturn");
+    expect(p).not.toContain('class="tt-cog"');
+    expect(p).not.toContain("tt-rail");
+    expect(p).not.toContain("tt-actions-bar");
+    expect(p).not.toContain("tt-trash"); // no undo
+    expect(p).toContain("Match log (from the game result; order not recorded)");
+    expect(p).toContain("Final: Reavers 2-1 Grinders");
+    expect((p.match(/data-type="touchdown"/g) ?? []).length).toBe(3); // Grak x2, Snik x1
+    expect(p).toContain('data-type="casualty"');
+    expect(p).toContain('data-type="mvp"');
+    expect(p).toContain(" suffered 1 Badly Hurt.");
+    expect(p).not.toMatch(/class="tt-ev-mark"/); // no half or turn is shown for a fork result
     expect(p).toContain("&lt;b&gt;Snik&lt;/b&gt;");
     expect(p).not.toContain("<b>Snik</b>");
-    expect(p).toContain('class="gs-table"');
-    expect(p).not.toContain(">SPP<"); // the fork result carries no SPP
+    expect((p.match(/class="tt-panel tt-summary"/g) ?? []).length).toBe(2);
+    expect(p).toContain("Won 2-1");
+    expect(p).not.toContain("SPP"); // the fork result carries no SPP
+    expect(p).not.toContain("post-match not applied");
     expect(p).toContain("Played online on the Super FUMBBL client");
-    expect(p).not.toContain("Per-player stats are recorded");
-    expect(p).not.toContain('id="match-report"');
+    expect(p).toContain(">Rosters</button>");
     expect(p).toContain('href="/app/lobby#recent-games"'); // signed out: Past Games is under the sign-in card
   });
 
-  it("tournament: the per-player note, the concession, and links to the Rounds tab", async () => {
-    const { html } = await render("/games/tournament/m1", signedOut({ "/api/games/tournament/m1": tournament }));
+  it("tournament without player data: the scoreboard, a 'No match log' note, the concession and the Rounds tab link", async () => {
+    const fixture = { ...tournament, card: card("Spike Beta Test · Round 3", { concede: "away", away: side("Grinders", "Dwarf", "Bob", 1, null) }) };
+    const { html } = await render("/games/tournament/m1", signedOut({ "/api/games/tournament/m1": fixture }));
     const p = page(html);
     expect(p).toContain("Spike Beta Test · Round 3");
+    expect(p).toContain("No match log for this fixture");
     expect(p).toContain("Per-player stats are recorded for games played through the site.");
-    expect(p).toContain("Conceded by Bob (Grinders)");
+    expect(p).toContain("CAS <b>–</b>"); // away casualties not recorded: a dash, never a 0
+    expect(p).not.toContain('class="tt-events"');
     expect(p).not.toContain("legal concession"); // no server verdict: nothing said
-    expect(p).toContain("Grinders not recorded");
-    expect((p.match(/href="\/app\/tournaments\/t1\?tab=rounds"/g) ?? []).length).toBe(2);
+    expect((p.match(/href="\/app\/tournaments\/t1\?tab=rounds"/g) ?? []).length).toBe(1);
     expect(p).toContain("Tournament rounds");
-    expect(p).not.toContain('class="gs-table"');
-    expect(p).not.toContain('id="match-report"');
   });
 
-  it("online: a league fixture's banked legal-concession verdict follows the concession", async () => {
+  it("online: a league fixture's banked legal-concession verdict is in the log's concession line", async () => {
     const legal = { ...online, id: "g9", card: card("Online · BB2025", { concede: "away" }), summary: { ...online.summary, concede: "away", concededLegally: false } };
     const p = page((await render("/games/online/g9", signedOut({ "/api/games/online/g9": legal }))).html);
-    expect(p).toMatch(/Conceded by Bob \(Grinders\)(<!--\[-->)? · not a legal concession/);
+    expect(p).toContain("concedes the match (not a legal concession).");
   });
 
-  it("tabletop: the match report panel with key moments, both reporter summaries (no treasury) and the recorder link", async () => {
+  it("tabletop: the recorded moments in order with half and turn, both reporter summaries (no treasury) and the recorder link", async () => {
     const { html } = await render("/games/tabletop/tm1", signedOut({ "/api/games/tabletop/tm1": tabletop }));
     const p = page(html);
-    expect(p).toContain('<h2 id="gs-report-h">Match report</h2>');
-    expect(p).toContain('<span class="gs-at">H1 T3</span>Touchdown: Grim');
+    expect(p).toContain('<h2 class="tt-label tt-log-h">Match log</h2>');
+    expect(p).toContain('<span class="tt-ev-mark">H1 T3</span>');
+    expect(p).toContain('data-type="touchdown"');
     expect((p.match(/class="tt-panel tt-summary"/g) ?? []).length).toBe(2);
     expect(p).toContain("Won 1-0");
     expect(p).toContain("winnings 10k");
     expect(p).toContain("fans 3 to 4");
     expect(p).not.toContain("treasury");
     expect(p).toContain("SI");
-    expect(p).toMatch(/<a href="\/app\/tabletop\/tm1" class="lobby-btn primary">Open match reporter<\/a>/);
-    expect(p).toContain(">SPP<");
+    expect(p).toContain("+7 SPP");
+    expect(p).toMatch(/<a href="\/app\/tabletop\/tm1" class="lobby-btn">Open in the recorder<\/a>/);
   });
 
   it("unknown, unsupported and failing games: friendly notes, never a stack trace", async () => {
-    const missing = page((await render("/games/online/nope", signedOut())).html);
+    const missing = plain((await render("/games/online/nope", signedOut())).html);
     expect(missing).toContain("Game not found");
-    const failing = page((await render("/games/online/g1", signedOut({ "/api/games/online/g1": new ApiError(500, "Internal stack trace at foo.ts:1") }))).html);
+    const failing = plain((await render("/games/online/g1", signedOut({ "/api/games/online/g1": new ApiError(500, "Internal stack trace at foo.ts:1") }))).html);
     expect(failing).toContain("The game could not be loaded");
     expect(failing).not.toContain("stack trace");
     const bad = (await render("/games/fork/g1", signedOut())).html;

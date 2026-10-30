@@ -5,7 +5,7 @@ import { ApiError } from "../shared/api";
 import type { Fetcher } from "../session";
 import { resolveCrest, type ArtManifests } from "../tabletop/art";
 import type { RecentSide } from "../home/recent";
-import type { MatchSummaryView } from "../components/TabletopMatchSummary.vue";
+import type { MatchSummaryView } from "../tabletop/finished";
 
 export type GameSource = "tournament" | "tabletop" | "online";
 export const GAME_SOURCES: readonly GameSource[] = ["tournament", "tabletop", "online"];
@@ -14,11 +14,17 @@ export const isGameSource = (v: unknown): v is GameSource => typeof v === "strin
 export interface GamePlayerLine {
   name: string; touchdowns: number; casualtiesCaused: number; completions: number; interceptions: number; deflections: number; mvp: number;
   sppEarned?: number; sentOff?: boolean; injury?: string;
+  /** Roster position (league season roster), fouls the server counted, and MNG only when the server's injury text says so. */
+  position?: string; fouls?: number; missNextGame?: true;
 }
 export interface Tally { name: string; count: number }
 export interface GameTeamSummary {
   mvps: string[]; scorers: Tally[]; casualtyMakers: Tally[]; players: GamePlayerLine[];
   casualtiesSuffered: { bh: number; si: number; rip: number } | null;
+  /** Every player the result lists, in its own order. */
+  squad?: GamePlayerLine[];
+  /** Fork games: winnings (gold); a banked league result: the server's fan factor and dedicated-fans change. */
+  winnings?: number; fanFactor?: number; dedicatedFansModifier?: number;
 }
 export interface GameSummary {
   playedAt: string | null; competition: string; round: number | null;
@@ -29,7 +35,10 @@ export interface GameSummary {
   concededLegally?: boolean;
   home: GameTeamSummary | null; away: GameTeamSummary | null;
 }
-export interface ReporterMoment { half: string | number | null; turn: number | null; side: "home" | "away"; kind: "touchdown" | "casualty" | "sendOff"; text: string }
+export interface ReporterMoment {
+  half: string | number | null; turn: number | null; side: "home" | "away"; kind: "touchdown" | "casualty" | "sendOff"; text: string;
+  player?: string; victim?: string; victimSide?: "home" | "away"; result?: string;
+}
 export interface GameReporter {
   matchId: string; href: string; state: string;
   summaries: { home: MatchSummaryView; away: MatchSummaryView } | null;

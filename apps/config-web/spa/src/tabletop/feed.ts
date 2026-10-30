@@ -35,6 +35,7 @@ export const EVENT_GLYPHS: Record<string, Glyph> = {
   fans: { text: "👥" }, // client kind fans
   fanChange: { text: "👥" },
   winnings: { text: "💰" }, // client kind winnings
+  casualtiesSuffered: ui("apothecary"), // stand-in: the injury icon (a game page's team-level casualties line)
   journeymen: { text: "🤝" }, // stand-in: hired
   journeyman: { text: "🤝" },
   inducement: { text: "🛒" }, // client kind inducements
@@ -101,7 +102,7 @@ const LABELS: Record<string, string> = {
   touchdown: "Touchdown", casualty: "Casualty", injury: "Injury", completion: "Completion", catch: "Catch", throwTeamMate: "Throw Team-mate",
   interception: "Interception", deflection: "Deflection", foul: "Foul", sentOff: "Sent-off", sendOff: "Sent-off", stalling: "Stalling",
   secretObjective: "Secret Objectives", mvp: "MVP", weather: "Weather", concede: "Concede match", endOfMatch: "End of match",
-  fans: "Fans", fanChange: "Fan change", journeymen: "Journeymen", journeyman: "Journeyman", inducement: "Inducement", prayer: "Prayer to Nuffle", coinFlip: "Coin flip", seats: "Home and away", pregameSkip: "Pre-game skipped", turnEnd: "End of turn", turnSet: "Clock set", timers: "Turn timers", turnTimers: "Turn timers", timerAgree: "Turn timers",
+  fans: "Fans", fanChange: "Fan change", winnings: "Winnings", casualtiesSuffered: "Casualties suffered", journeymen: "Journeymen", journeyman: "Journeyman", inducement: "Inducement", prayer: "Prayer to Nuffle", coinFlip: "Coin flip", seats: "Home and away", pregameSkip: "Pre-game skipped", turnEnd: "End of turn", turnSet: "Clock set", timers: "Turn timers", turnTimers: "Turn timers", timerAgree: "Turn timers",
 };
 export const eventLabel = (type: string): string => LABELS[type] ?? type;
 
@@ -221,8 +222,15 @@ export function victimPhrase(result: string, stat: unknown, apothecary: boolean)
   return `is injured${r ? `: ${r}` : ""}${note}`;
 }
 
+/** "1 Badly Hurt, 2 Seriously Injured, 1 dead" from a {bh, si, rip} count (zero parts left out). */
+export function sufferedText(c: Record<string, unknown>): string {
+  const n = (k: string) => (typeof c[k] === "number" ? (c[k] as number) : 0);
+  return [n("bh") ? `${n("bh")} Badly Hurt` : "", n("si") ? `${n("si")} Seriously Injured` : "", n("rip") ? `${n("rip")} dead` : ""].filter(Boolean).join(", ");
+}
+
 export function eventSentence(e: RecordedEvent, who: string, teamName: string, sub: string, names?: NameCtx, extra?: { journeymen?: number }): { lead: string; rest: string } {
-  const p = who;
+  // an event that names no player (a game page's team-level line) reads with the team as its subject
+  const p = who || teamName;
   const pl = e.payload ?? {};
   if (names) {
     switch (e.type) {
@@ -260,10 +268,12 @@ export function eventSentence(e: RecordedEvent, who: string, teamName: string, s
     case "deflection": return { lead: p, rest: " deflects the ball." };
     case "foul": return { lead: p, rest: " commits a foul." };
     case "sentOff": case "sendOff": return { lead: p, rest: " is sent off." };
-    case "mvp": return { lead: p, rest: " is the MVP." };
+    case "mvp": { const n = Number(pl.count ?? 1); return { lead: p, rest: n > 1 ? ` is the MVP (${n} awards).` : " is the MVP." }; }
     case "stalling": return { lead: teamName, rest: " is stalling." };
     case "secretObjective": return { lead: teamName, rest: ` secret objective: ${sub}` };
-    case "concede": return { lead: teamName, rest: " concedes the match." };
+    case "concede": return { lead: teamName, rest: pl.legal === true ? " concedes the match (a legal concession)." : pl.legal === false ? " concedes the match (not a legal concession)." : " concedes the match." };
+    case "winnings": return { lead: teamName, rest: ` earns ${Math.round(Number(pl.amount ?? 0) / 1000)}k in winnings.` };
+    case "casualtiesSuffered": return { lead: teamName, rest: ` suffered ${sufferedText(pl)}.` };
     case "weather": return { lead: "Weather", rest: sub ? `: ${sub}` : "." };
     case "endOfMatch": return { lead: "End of match", rest: "." };
     case "inducement": return { lead: teamName, rest: ` buys ${sub}.` };
@@ -409,7 +419,7 @@ export function feedRows(
       if (inj) {
         const r = inj.removed ?? undoOf.get(inj.id);
         rows.push({ ...build(inj, "victim", live.has(inj.id), r), undoable: true });
-      } else rows.push(build(e, "victim", isLive, retraction, e));
+      } else if (e.payload?.victim !== undefined) rows.push(build(e, "victim", isLive, retraction, e)); // a game page's casualty may name no victim
       rows.push(build(e, "main", isLive, retraction));
       continue;
     }

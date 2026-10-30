@@ -8,6 +8,7 @@ import { centreMode, formatTimer, halfLabel, possessive, turnCells, turnKey, tur
 import { resolveCoachBadge, resolveCrest, type ArtManifests } from "../tabletop/art";
 import { uiIcon, weatherParts } from "../tabletop/feed";
 import type { CoachRatingView, MatchView, RecordedEvent, ServerTally, Side, TeamView } from "../tabletop/recorder";
+import type { FinalBoard } from "../tabletop/finished";
 
 const props = defineProps<{
   match: MatchView;
@@ -27,6 +28,11 @@ const props = defineProps<{
   art: ArtManifests;
   /** Each seat's coach rating (CR) and rank, as the server computed them; absent = no badge. */
   coachRating?: Record<Side, CoachRatingView> | null;
+  /**
+   * A finished game shown read-only (the game page): the server's final score and casualties (null = not recorded, shown
+   * as a dash) and the fouls it counted (null = unknown, not shown). No turn track, clock, settings or turn button.
+   */
+  final?: FinalBoard | null;
 }>();
 const RANK_PIPS: Record<string, number> = { rookie: 1, experienced: 2, veteran: 3, emerging: 4, star: 5, super: 6, mega: 7, legend: 8 };
 const badgeOf = (s: Side): string => resolveCoachBadge(props.art, crOf(s)?.slug);
@@ -132,13 +138,16 @@ const tint = (s: Side): Record<string, string> | undefined => {
   return c && /^#[0-9a-f]{3,8}$/i.test(c) ? { "--tt-team": c } : undefined;
 };
 /** The team's fouls in the match (the server's tally: effective foul events). */
-const fouls = (s: Side): number => props.tally.players[s].reduce((n, l) => n + (l.fouls ?? 0), 0);
-const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.casualtiesCaused, 0);
+const fouls = (s: Side): number => (props.final ? props.final.fouls?.[s] ?? 0 : props.tally.players[s].reduce((n, l) => n + (l.fouls ?? 0), 0));
+const showFouls = computed(() => !props.final || props.final.fouls !== null);
+const dash = (n: number | null): string => (n === null ? "–" : String(n));
+const cas = (s: Side): string => (props.final ? dash(props.final.cas[s]) : String(props.tally.players[s].reduce((n, l) => n + l.casualtiesCaused, 0)));
+const score = (s: Side): string => (props.final ? dash(props.final.score[s]) : String(props.tally.score[s]));
 </script>
 
 <template>
   <header class="tt-board" aria-label="Scoreboard">
-    <div class="tt-turns" aria-label="Turn track">
+    <div v-if="!final" class="tt-turns" aria-label="Turn track">
       <ol v-for="s in sides" :key="s" class="tt-track" :class="s" :aria-label="`${match[s].teamName} turns`">
         <li v-for="c in cells(s)" :key="c.n" class="tt-cell" :data-state="c.state" :data-tip="cellTip(s, c.n)" data-tip-pos="bottom" :aria-current="c.state === 'active' ? 'step' : undefined">{{ c.n }}</li>
         <li v-if="timed && clock?.activeTeam === s" class="tt-clock" aria-hidden="true">&#9201; {{ countdown }}</li>
@@ -183,7 +192,7 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
           <li v-if="tray(s).hidden.length" class="tt-chip-more" role="button" tabindex="0" :data-tip="moreTip(tray(s).hidden)" data-tip-pos="bottom" @click="emit('rosters', s)" @keydown.enter.prevent="emit('rosters', s)">+{{ tray(s).hidden.length }}</li>
         </ul>
       </div>
-      <span v-if="teams[s]" class="tt-fans-pill" :data-tip="`Dedicated fans: ${teams[s]?.dedicatedFans ?? 0}`"><img class="tt-fans-icon" :src="uiIcon('dedicated_fans')" alt="" />FANS <b>{{ teams[s]?.dedicatedFans ?? 0 }}</b></span>
+      <span v-if="teams[s] && (!final || teams[s]?.dedicatedFans !== undefined)" class="tt-fans-pill" :data-tip="`Dedicated fans: ${teams[s]?.dedicatedFans ?? 0}`"><img class="tt-fans-icon" :src="uiIcon('dedicated_fans')" alt="" />FANS <b>{{ teams[s]?.dedicatedFans ?? 0 }}</b></span>
       </div>
     </section>
     <section class="tt-centre">
@@ -197,16 +206,18 @@ const cas = (s: Side): number => props.tally.players[s].reduce((n, l) => n + l.c
           <img class="tt-glyph" :src="uiIcon('football-helmet')" alt="" /><span>Rosters</span>
         </button>
         <span v-if="weather.icon" class="tt-weather" role="img" :aria-label="weather.name" :data-tip="weather.name" data-tip-pos="bottom">{{ weather.icon }}</span>
-        <button class="tt-cog" type="button" aria-label="Settings" data-tip="Settings" data-tip-pos="bottom" @click="emit('settings')">&#9881;</button>
+        <button v-if="!final" class="tt-cog" type="button" aria-label="Settings" data-tip="Settings" data-tip-pos="bottom" @click="emit('settings')">&#9881;</button>
       </div>
-      <p class="tt-score" aria-label="Score"><span>{{ tally.score.home }}</span><span class="tt-score-colon">:</span><span>{{ tally.score.away }}</span><span class="tt-score-turn"><small>TURN</small><b>{{ turnNo }}</b></span></p>
+      <p class="tt-score" aria-label="Score"><span>{{ score("home") }}</span><span class="tt-score-colon">:</span><span>{{ score("away") }}</span><span v-if="!final" class="tt-score-turn"><small>TURN</small><b>{{ turnNo }}</b></span></p>
       <div class="tt-stats" aria-label="Match stats">
-        <span class="tt-stats-home">FOULS <b>{{ fouls("home") }}</b> &middot; CAS <b>{{ cas("home") }}</b></span>
-        <span class="tt-stats-half" :data-long="half === 'Overtime' ? 'true' : null">{{ half }}</span>
-        <span class="tt-stats-away">FOULS <b>{{ fouls("away") }}</b> &middot; CAS <b>{{ cas("away") }}</b></span>
+        <span v-if="showFouls" class="tt-stats-home">FOULS <b>{{ fouls("home") }}</b> &middot; CAS <b>{{ cas("home") }}</b></span>
+        <span v-else class="tt-stats-home">CAS <b>{{ cas("home") }}</b></span>
+        <span class="tt-stats-half" :data-long="!final && half === 'Overtime' ? 'true' : null">{{ final ? "Final" : half }}</span>
+        <span v-if="showFouls" class="tt-stats-away">FOULS <b>{{ fouls("away") }}</b> &middot; CAS <b>{{ cas("away") }}</b></span>
+        <span v-else class="tt-stats-away">CAS <b>{{ cas("away") }}</b></span>
       </div>
       <ul class="tt-counters" aria-label="Counters">
-        <li><b>{{ tally.score.home }}</b><span>TD</span><b>{{ tally.score.away }}</b></li>
+        <li><b>{{ score("home") }}</b><span>TD</span><b>{{ score("away") }}</b></li>
         <li><b>{{ cas("home") }}</b><span>CAS</span><b>{{ cas("away") }}</b></li>
       </ul>
       <button
