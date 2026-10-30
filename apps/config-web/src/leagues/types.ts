@@ -192,10 +192,26 @@ export interface ForkPlayerLine {
   injuries: string[];
 }
 
+/** Casualties a team suffered, as the server counted them (FumbblResult casualtiesSuffered; the basic listing's bh/si/rip). */
+export interface CasualtiesSuffered { badlyHurt: number; seriousInjury: number; rip: number }
+
+/**
+ * One side of a Super FUMBBL result. The optional fields fill themselves from the server's result (no coach input) and
+ * are omitted when the result did not carry them (the server's serializer omits zero / false values, so absent = 0).
+ */
 export interface ForkSideResult {
   score: number;
   cas: number;
   conceded: boolean;
+  /** Full results, conceding side only: the server judged the concession legal (true) or not (false). */
+  concededLegally?: boolean;
+  /** Casualties this team suffered (omitted when none). */
+  casualtiesSuffered?: CasualtiesSuffered;
+  /** Full results only, as the server sent them: attendance, fame, fan factor and the dedicated-fans change. */
+  spectators?: number;
+  fame?: number;
+  fanFactor?: number;
+  dedicatedFansModifier?: number;
   winnings: number;
   lines: ForkPlayerLine[];
 }
@@ -298,11 +314,30 @@ export interface PlayerSeasonStats {
   int: number;
   completions: number;
   fouls: number;
+  /**
+   * Injuries SUFFERED by this player (the victim), not inflicted: `cas` is the casualties the player caused. A Super
+   * FUMBBL result adds one per game in which the server recorded a casualty result for the player (a serious injury or
+   * death). The server's per-player result names serious injuries only, so a Badly Hurt is not counted per player.
+   */
   injuries: number;
   sentOffs: number;
   spp: number;
   performance: number;
+  /**
+   * Counters from Super FUMBBL results only (FumbblResult player statistics), added once per banked fixture. Absent = 0;
+   * rushing and passing are the server's signed yardage.
+   */
+  blocks?: number;
+  rushing?: number;
+  passing?: number;
+  deflections?: number;
+  landings?: number;
+  turnsPlayed?: number;
 }
+
+/** The optional per-fixture counters of PlayerSeasonStats, in display order. */
+export const FORK_PLAYER_COUNTERS = ["blocks", "rushing", "passing", "deflections", "landings", "turnsPlayed"] as const;
+export type ForkPlayerCounter = (typeof FORK_PLAYER_COUNTERS)[number];
 
 export const EMPTY_PLAYER_STATS: PlayerSeasonStats = {
   td: 0, cas: 0, mvp: 0, int: 0, completions: 0, fouls: 0, injuries: 0, sentOffs: 0, spp: 0, performance: 0,

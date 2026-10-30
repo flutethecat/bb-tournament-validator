@@ -6,7 +6,7 @@ import { adminExchange } from "@bb/fork-ops";
 import { leagueApi, resetForkToggleLimit, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
 import type { DiscordPayload } from "../src/leagues/discord";
 import { syncLeagueForkResults, type ForkFindOutcome, type ForkScheduleOutcome, type LeagueForkClient } from "../src/leagues/forkPlay";
-import { applyForkResult, fromParsedResult, mutateLeagueTeam, type ForkGameResult } from "../src/leagues/forkResult";
+import { applyForkResult, concessionVerdicts, fromBasicResult, fromParsedResult, mutateLeagueTeam, type ForkGameResult } from "../src/leagues/forkResult";
 import { confirmedList } from "../src/leagues/forkClient";
 import { buildLeagueForkTeam, forkPlayerIdFor, forkPlayLock, forkRosterFor, forkTeamIdFor, ForkTeamBuildError, statDelta, type LeagueForkTeamFile } from "../src/leagues/forkTeam";
 import { targetConflict } from "../src/leagues/redraft";
@@ -213,6 +213,94 @@ describe("result -> league team mutation (pure)", () => {
     const again = applyForkResult(s, f, fullResult(hid, aid), new Date());
     expect(again).toMatchObject({ applied: false, already: true });
     expect(s.teams.find((t) => t.id === "orcs")!.players[0]!.availableSpp).toBe(5);
+  });
+});
+
+describe("extra result data that fills itself (owner 10-30: G1, G2, G4)", () => {
+  const hid = forkTeamIdFor("tabbl", "season-7", "grudge");
+  const aid = forkTeamIdFor("tabbl", "season-7", "orcs");
+  const map = humans().players.map((p) => ({ forkPlayerId: forkPlayerIdFor(hid, p.playerId), playerId: p.playerId }));
+  const scheduled = (): { s: SeasonRecord; f: LeagueFixture } => {
+    const s = season([fx("f1")]);
+    const f = s.fixtures[0]!;
+    f.fork = { status: "scheduled", gameId: "g42", log: [], teams: {
+      home: { teamId: "grudge", forkTeamId: hid, coach: "Ann", builtAt: "", players: map },
+      away: { teamId: "orcs", forkTeamId: aid, coach: "Bob", builtAt: "", players: [{ forkPlayerId: forkPlayerIdFor(aid, "q-1"), playerId: "q-1" }] },
+    } };
+    return { s, f };
+  };
+  const parsed = (): ParsedGameResult => ({ gameId: "g42", halves: 2, teams: [
+    { teamId: hid, score: 2, conceded: false, stalled: false, spectators: 23_000, fame: 1, fanFactor: 4, winnings: 60_000, dedicatedFansModifier: 1,
+      casualtiesSuffered: { badlyHurt: 1, seriousInjury: 0, rip: 1 }, players: [
+        { playerId: forkPlayerIdFor(hid, "p-thrower"), name: "Arm", defecting: false, currentSpps: 8, earnedSpps: 7, completions: 1, touchdowns: 1, deflections: 1, interceptions: 0, casualties: 0, playerAwards: 1, landings: 0, blocks: 3, fouls: 0, rushing: 41, passing: -2, turnsPlayed: 15, injuries: ["Head Injury (-AV)"], gainedHatred: [] },
+        { playerId: forkPlayerIdFor(hid, "p-doomed"), name: "Doomed", defecting: false, completions: 0, touchdowns: 0, deflections: 0, interceptions: 0, casualties: 0, playerAwards: 0, landings: 1, blocks: 0, fouls: 0, rushing: 0, passing: 0, turnsPlayed: 6, injuries: ["Dead (RIP)"], gainedHatred: [] },
+        { playerId: forkPlayerIdFor(hid, "p-lino"), name: "Limp", defecting: false, completions: 0, touchdowns: 0, deflections: 0, interceptions: 0, casualties: 0, playerAwards: 0, landings: 0, blocks: 0, fouls: 0, rushing: 0, passing: 0, turnsPlayed: 0, injuries: [], gainedHatred: [] },
+      ] },
+    { teamId: aid, score: 0, conceded: true, concededLegally: false, stalled: false, casualtiesSuffered: { badlyHurt: 0, seriousInjury: 0, rip: 0 }, players: [
+      { playerId: forkPlayerIdFor(aid, "q-1"), name: "Grot", defecting: false, completions: 0, touchdowns: 0, deflections: 0, interceptions: 0, casualties: 2, playerAwards: 0, landings: 0, blocks: 5, fouls: 0, rushing: 3, passing: 0, turnsPlayed: 8, injuries: [], gainedHatred: [] },
+    ] },
+  ] });
+
+  it("parsing: the concession verdict, casualties suffered, attendance and player counters come through; zeros are omitted", () => {
+    const r = fromParsedResult(parsed());
+    const [home, away] = r.teams;
+    expect(home).toMatchObject({ spectators: 23_000, fame: 1, fanFactor: 4, dedicatedFansModifier: 1, casualtiesSuffered: { badlyHurt: 1, seriousInjury: 0, rip: 1 } });
+    expect(home).not.toHaveProperty("concededLegally");
+    expect(home!.players[0]).toMatchObject({ blocks: 3, rushing: 41, passing: -2, deflections: 1, turnsPlayed: 15 });
+    expect(home!.players[0]).not.toHaveProperty("landings");
+    expect(home!.players[2]).not.toHaveProperty("blocks");
+    expect(away).toMatchObject({ conceded: true, concededLegally: false });
+    expect(away).not.toHaveProperty("casualtiesSuffered");
+    expect(away).not.toHaveProperty("spectators");
+  });
+
+  it("the basic listing's casualties suffered and blocks / deflections come through too", () => {
+    const r = fromBasicResult("g42", { teams: [{ teamId: hid, score: 1, winnings: 0, penaltyScore: -1, conceded: false, casualtiesSuffered: { bh: 2, si: 1, rip: 0 },
+      players: [{ playerId: "x", name: "X", touchdowns: 0, casualtiesCaused: 0, blocks: 4, fouls: 0, completions: 0, interceptions: 0, deflections: 0, mvp: 0 }] }] });
+    expect(r.teams[0]).toMatchObject({ casualtiesSuffered: { badlyHurt: 2, seriousInjury: 1, rip: 0 }, players: [{ blocks: 4 }] });
+    expect(r.teams[0]!.players[0]).not.toHaveProperty("deflections");
+  });
+
+  it("banking: the fixture result carries the extra data and the season stats gain the counters, once", () => {
+    const { s, f } = scheduled();
+    expect(applyForkResult(s, f, fromParsedResult(parsed()), new Date("2026-10-31T00:00:00Z")).applied).toBe(true);
+    expect(f.fork!.result!.home).toMatchObject({ casualtiesSuffered: { badlyHurt: 1, seriousInjury: 0, rip: 1 }, spectators: 23_000, fame: 1, fanFactor: 4, dedicatedFansModifier: 1 });
+    expect(f.fork!.result!.home).not.toHaveProperty("concededLegally");
+    expect(f.fork!.result!.away).toMatchObject({ conceded: true, concededLegally: false });
+    expect(f.fork!.result!.away).not.toHaveProperty("casualtiesSuffered");
+    const grudge = (): LeagueTeam => s.teams.find((t) => t.id === "grudge")!;
+    const arm = () => grudge().players.find((p) => p.playerId === "p-thrower")!;
+    expect(arm().stats).toMatchObject({ blocks: 3, rushing: 41, passing: -2, deflections: 1, turnsPlayed: 15, injuries: 1 });
+    expect(arm().stats).not.toHaveProperty("landings");
+    expect(grudge().players.find((p) => p.playerId === "p-lino")!.stats).toEqual({ ...EMPTY_PLAYER_STATS }); // nothing to add, nothing written
+    expect(s.teams.find((t) => t.id === "orcs")!.players[0]!.stats).toMatchObject({ blocks: 5, rushing: 3, turnsPlayed: 8, cas: 2, injuries: 0 });
+    // The same game again: refused, nothing counted twice.
+    expect(applyForkResult(s, f, fromParsedResult(parsed()), new Date())).toMatchObject({ applied: false, already: true });
+    expect(arm().stats).toMatchObject({ blocks: 3, rushing: 41, turnsPlayed: 15, injuries: 1 });
+    expect(s.teams.find((t) => t.id === "orcs")!.players[0]!.stats).toMatchObject({ blocks: 5, turnsPlayed: 8 });
+  });
+
+  it("injuries = injuries SUFFERED by the victim (a death included, carried to former players); casualties stay inflicted", () => {
+    const { s, f } = scheduled();
+    applyForkResult(s, f, fromParsedResult(parsed()), new Date());
+    const grudge = s.teams.find((t) => t.id === "grudge")!;
+    const doomed = grudge.formerPlayers.find((p) => p.playerId === "p-doomed")!;
+    expect(doomed.stats).toMatchObject({ injuries: 1, landings: 1, turnsPlayed: 6, cas: 0 });
+    const grot = s.teams.find((t) => t.id === "orcs")!.players[0]!;
+    expect(grot.stats).toMatchObject({ cas: 2, injuries: 0 }); // the casualty-maker gains cas, never injuries
+    // A Decay player's two results in one game are one casualty suffered.
+    const decay = mutateLeagueTeam(humans(), { teamId: hid, score: 0, conceded: false, winnings: 0, players: [
+      { forkPlayerId: map[0]!.forkPlayerId, name: "", td: 0, cas: 0, completions: 0, interceptions: 0, mvp: 0, fouls: 0, earnedSpps: 0, injuries: ["Seriously Hurt (MNG)", "Smashed Knee (-MA)"] },
+    ] }, map, "full").team;
+    expect(decay.players.find((p) => p.playerId === "p-thrower")!.stats.injuries).toBe(1);
+  });
+
+  it("the game page finds the banked legal-concession verdict by fork game id", () => {
+    const { s, f } = scheduled();
+    expect(concessionVerdicts([s], "g42")).toBeUndefined(); // no result yet
+    applyForkResult(s, f, fromParsedResult(parsed()), new Date());
+    expect(concessionVerdicts([s], "g42")).toEqual({ [aid]: false });
+    expect(concessionVerdicts([s], "g43")).toBeUndefined();
   });
 });
 

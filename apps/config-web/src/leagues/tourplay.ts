@@ -447,7 +447,7 @@ export function attachPlayerStats(teams: LeagueTeam[], honours: HonourTable[], i
     }
     if (candidates.length === 1) {
       const p = candidates[0]!;
-      for (const k of Object.keys(p.stats) as Array<keyof PlayerSeasonStats>) p.stats[k] += entry.stats[k];
+      for (const k of Object.keys(p.stats) as Array<keyof PlayerSeasonStats>) p.stats[k] = (p.stats[k] ?? 0) + (entry.stats[k] ?? 0);
       resolved.set(key, p.playerId);
       continue;
     }

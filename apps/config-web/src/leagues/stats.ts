@@ -333,8 +333,12 @@ function playerLeaders(seasons: SeasonRecord[]): { leaders: Record<LeaderStat, P
         c.team = team.name;
         c.race = team.race;
         if (!c.rostered.some((r) => r.seasonId === s.id)) c.rostered.push({ season: s.number, seasonId: s.id, teamId: team.id });
-        if (Object.values(p.stats).some((v) => v > 0)) pushSeason(c.seasons, s.number);
-        for (const k of Object.keys(c.stats) as Array<keyof PlayerSeasonStats>) c.stats[k] += p.stats[k] ?? 0;
+        if (Object.values(p.stats).some((v) => typeof v === "number" && v > 0)) pushSeason(c.seasons, s.number);
+        // The optional Super FUMBBL counters (blocks, rushing, ...) are summed too when a season carries them.
+        for (const k of Object.keys(p.stats) as Array<keyof PlayerSeasonStats>) {
+          const v = p.stats[k];
+          if (typeof v === "number" && v) c.stats[k] = (c.stats[k] ?? 0) + v;
+        }
         c.coach = team.coachAssigned && team.coachId ? team.coachId : team.coach;
       }
     }
@@ -348,8 +352,8 @@ function playerLeaders(seasons: SeasonRecord[]): { leaders: Record<LeaderStat, P
 
 /** Careers with a positive total for the stat, highest first (name, then id, break ties). */
 const rankBy = (list: Career[], stat: keyof PlayerSeasonStats): Career[] => list
-  .filter((c) => c.stats[stat] > 0)
-  .sort((a, b) => b.stats[stat] - a.stats[stat] || a.name.localeCompare(b.name) || a.playerId.localeCompare(b.playerId));
+  .filter((c) => (c.stats[stat] ?? 0) > 0)
+  .sort((a, b) => (b.stats[stat] ?? 0) - (a.stats[stat] ?? 0) || a.name.localeCompare(b.name) || a.playerId.localeCompare(b.playerId));
 
 // ---- spotlight cards ------------------------------------------------------------------------------------------------
 

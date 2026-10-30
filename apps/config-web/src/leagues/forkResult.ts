@@ -14,14 +14,22 @@
  * they are (winnings without the spend would overstate it), and the fixture records source "basic" with
  * financialPending for an organiser to settle.
  *
+ * Extra result data that fills itself from the result (owner 10-30, no coach input): per side the legal-concession flag,
+ * the casualties suffered and the attendance figures (spectators, fame, fan factor, dedicated-fans change) are recorded on
+ * the fixture result; per player the blocks / rushing / passing / deflections / landings / turns-played counters are added
+ * to the season stats, and a player the server recorded a casualty result for counts one injury SUFFERED
+ * (PlayerSeasonStats.injuries; `cas` stays casualties inflicted). All of it lands once per fixture: applyForkResult
+ * refuses a fixture that already holds a result, so banking the same game twice never double counts.
+ *
  * Characteristic losses respect the fork's limits (ffb-common mechanics/mixed/StatsMechanic: MA 1-9, ST 1-8, AG and PA
  * 1-6, AV 3-11; a lasting injury never takes a value past them) while the injury still causes the missed game.
  */
 import type { GamestateResult } from "@bb/fork-ops";
 import type { ParsedGameResult } from "../site-backend/fumbblResult.js";
 import { fixturePlayed } from "./tourplay.js";
+import { FORK_PLAYER_COUNTERS } from "./types.js";
 import type {
-  FixtureForkResult, FixtureForkTeam, ForkPlayerLine, ForkSide, ForkSideResult, FormerPlayer, LeagueFixture, LeaguePlayer, LeagueTeam, SeasonRecord,
+  CasualtiesSuffered, FixtureForkResult, ForkPlayerCounter, FixtureForkTeam, ForkPlayerLine, ForkSide, ForkSideResult, FormerPlayer, LeagueFixture, LeaguePlayer, LeagueTeam, SeasonRecord,
 } from "./types.js";
 
 export interface ForkGamePlayerResult {
@@ -38,6 +46,13 @@ export interface ForkGamePlayerResult {
   injuries?: string[];
   defecting?: boolean;
   gainedHatred?: string[];
+  /** Server statistics (absent = 0): blocks, signed rushing / passing yardage, deflections, landings, turns played. */
+  blocks?: number;
+  rushing?: number;
+  passing?: number;
+  deflections?: number;
+  landings?: number;
+  turnsPlayed?: number;
 }
 
 export interface ForkGameTeamResult {
@@ -51,6 +66,13 @@ export interface ForkGameTeamResult {
   treasurySpent?: number;
   /** Full results only: the server's dedicated-fans change. */
   dedicatedFansModifier?: number;
+  /** Full results, conceding side only: the server's legal-concession verdict. */
+  concededLegally?: boolean;
+  casualtiesSuffered?: CasualtiesSuffered;
+  /** Full results only, when the server sent them. */
+  spectators?: number;
+  fame?: number;
+  fanFactor?: number;
   players: ForkGamePlayerResult[];
 }
 
@@ -75,6 +97,11 @@ export function fromParsedResult(parsed: ParsedGameResult, playedAt?: string): F
       winnings: t.winnings ?? 0,
       treasurySpent: t.treasurySpentOnInducements ?? 0,
       dedicatedFansModifier: t.dedicatedFansModifier ?? 0,
+      ...(t.conceded && t.concededLegally !== undefined ? { concededLegally: t.concededLegally } : {}),
+      ...suffered(t.casualtiesSuffered),
+      ...(t.spectators ? { spectators: t.spectators } : {}),
+      ...(t.fame ? { fame: t.fame } : {}),
+      ...(t.fanFactor ? { fanFactor: t.fanFactor } : {}),
       players: t.players.filter((p) => p.playerId).map((p) => ({
         forkPlayerId: p.playerId,
         name: p.name ?? "",
@@ -88,6 +115,7 @@ export function fromParsedResult(parsed: ParsedGameResult, playedAt?: string): F
         injuries: [...p.injuries],
         defecting: p.defecting,
         gainedHatred: [...p.gainedHatred],
+        ...counters(p),
       })),
     })),
   };
@@ -105,12 +133,30 @@ export function fromBasicResult(gameId: string, result: GamestateResult, playedA
       ...(t.penaltyScore >= 0 ? { penaltyScore: t.penaltyScore } : {}),
       conceded: t.conceded,
       winnings: t.winnings,
+      ...suffered(t.casualtiesSuffered ? { badlyHurt: t.casualtiesSuffered.bh, seriousInjury: t.casualtiesSuffered.si, rip: t.casualtiesSuffered.rip } : undefined),
       players: t.players.filter((p) => p.playerId).map((p) => ({
         forkPlayerId: p.playerId, name: p.name, td: p.touchdowns, cas: p.casualtiesCaused, completions: p.completions,
         interceptions: p.interceptions, mvp: p.mvp, fouls: p.fouls,
+        ...counters({ blocks: p.blocks, deflections: p.deflections }),
       })),
     })),
   };
+}
+
+/** casualtiesSuffered when the server counted any (all zero / absent = omitted). */
+function suffered(c: CasualtiesSuffered | undefined): { casualtiesSuffered?: CasualtiesSuffered } {
+  if (!c) return {};
+  const v = { badlyHurt: num(c.badlyHurt), seriousInjury: num(c.seriousInjury), rip: num(c.rip) };
+  return v.badlyHurt || v.seriousInjury || v.rip ? { casualtiesSuffered: v } : {};
+}
+
+const num = (v: unknown): number => (typeof v === "number" && Number.isSafeInteger(v) ? v : 0);
+
+/** The non-zero player statistics counters of a server result row. */
+function counters(p: Partial<Record<ForkPlayerCounter, number>>): Partial<Record<ForkPlayerCounter, number>> {
+  const out: Partial<Record<ForkPlayerCounter, number>> = {};
+  for (const k of FORK_PLAYER_COUNTERS) { const v = num(p[k]); if (v) out[k] = v; }
+  return out;
 }
 
 const injuryKey = (name: string): string => name.replace(/[^a-z]/gi, "").toLowerCase();
@@ -184,12 +230,16 @@ export function mutateLeagueTeam(input: LeagueTeam, side: ForkGameTeamResult, ma
     p.stats.int += r.interceptions;
     p.stats.mvp += r.mvp;
     p.stats.fouls += r.fouls;
+    for (const k of FORK_PLAYER_COUNTERS) { const v = num(r[k]); if (v) p.stats[k] = (p.stats[k] ?? 0) + v; }
     if (full) {
       const earned = side.conceded ? 0 : Math.max(0, r.earnedSpps ?? 0);
       p.availableSpp = (p.availableSpp || 0) + earned;
       p.stats.spp += earned;
       addHatred(p, r.gainedHatred ?? []);
       const injuries = r.injuries ?? [];
+      // Injuries suffered (the victim's counter): one per game the server recorded a casualty result for the player. A
+      // Decay player's two results are one casualty. Counted before a death retires the player, so it follows them.
+      if (injuries.length) p.stats.injuries = (p.stats.injuries || 0) + 1;
       if (r.defecting || injuries.some(isDead)) { gone.add(p.playerId); continue; }
       for (const injury of injuries) applyInjury(p, injury);
     }
@@ -252,7 +302,16 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
       retired[s] = [];
     }
     const cas = r.players.reduce((n, p) => n + p.cas, 0);
-    out[s] = { score: r.score, cas, conceded: r.conceded, winnings: r.winnings, lines };
+    out[s] = {
+      score: r.score, cas, conceded: r.conceded,
+      ...(r.conceded && r.concededLegally !== undefined ? { concededLegally: r.concededLegally } : {}),
+      ...suffered(r.casualtiesSuffered),
+      ...(r.spectators ? { spectators: r.spectators } : {}),
+      ...(r.fame ? { fame: r.fame } : {}),
+      ...(r.fanFactor ? { fanFactor: r.fanFactor } : {}),
+      ...(result.source === "full" && r.dedicatedFansModifier ? { dedicatedFansModifier: r.dedicatedFansModifier } : {}),
+      winnings: r.winnings, lines,
+    };
     const side = fixture[s];
     side.score = r.score;
     side.cas = cas;
@@ -271,4 +330,25 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
   fork.result = applied;
   fork.status = "finished";
   return { applied: true, result: applied, retired };
+}
+
+/**
+ * The legal-concession verdicts a league fixture banked for fork game `gameId`, keyed by fork team id (the game page
+ * reads them; src/gameDetail.ts). Undefined when no league fixture holds that game's result or nobody conceded.
+ */
+export function concessionVerdicts(seasons: Iterable<SeasonRecord>, gameId: string): Record<string, boolean> | undefined {
+  for (const season of seasons) {
+    for (const f of season.fixtures) {
+      const fork = f.fork;
+      if (!fork?.result || fork.result.gameId !== gameId) continue;
+      const out: Record<string, boolean> = {};
+      for (const side of ["home", "away"] as const) {
+        const verdict = fork.result[side].concededLegally;
+        const team = fork.teams[side];
+        if (team && typeof verdict === "boolean") out[team.forkTeamId] = verdict;
+      }
+      return Object.keys(out).length ? out : undefined;
+    }
+  }
+  return undefined;
 }
