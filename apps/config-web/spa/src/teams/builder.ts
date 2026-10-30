@@ -35,6 +35,8 @@ export interface PackageRules {
 export interface TierRow { name: string; tier: number | null; gold: number | null; raw: Record<string, unknown> }
 export interface PreviewResult {
   rosterId: string;
+  /** docKey() of the document this verdict was computed for: a verdict only counts for that exact document. */
+  doc: string;
   valid: boolean;
   failed?: boolean;
   errors: unknown[];
@@ -499,9 +501,16 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     return out;
   }
   const checkable = (): boolean => Boolean(state.roster && state.slots.length && state.teamName.trim());
+  /** The document the verdict is about: everything the coach edits (not the session coach, not server echoes). */
+  const docKey = (): string => JSON.stringify([
+    state.packageName, state.roster?.rosterId ?? "", state.teamName.trim(), state.slots, state.staff, state.inducementCounts,
+    state.skillPack, state.league, state.editingTeamId,
+  ]);
+  /** The preview's verdict, only while it describes the current document (any edit makes it pending again). */
+  const currentVerdict = (): PreviewResult | null => (state.preview && !state.previewPending && state.preview.doc === docKey() ? state.preview : null);
   function validity(): { tone: "pending" | "checking" | "valid" | "invalid"; headline: string; errors: string[]; warnings: string[]; notices: string[] } {
     const ok = checkable();
-    const p = state.preview;
+    const p = currentVerdict();
     const errors = ok ? (p?.errors ?? []).map(findingText) : [];
     const warnings = ok ? (p?.warnings ?? []).map(findingText) : [];
     let tone: "pending" | "checking" | "valid" | "invalid" = "checking";
@@ -510,11 +519,11 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     else if (p?.failed) { tone = "invalid"; headline = "Couldn't check the team"; }
     else if (p) {
       tone = p.valid ? "valid" : "invalid";
-      headline = p.valid ? "Team is valid" : `Team is invalid${errors.length && !state.previewPending ? `: ${errors.length} ${errors.length === 1 ? "issue" : "issues"} to fix` : ""}`;
+      headline = p.valid ? "Team is valid" : `Team is invalid${errors.length ? `: ${errors.length} ${errors.length === 1 ? "issue" : "issues"} to fix` : ""}`;
     }
     return { tone, headline, errors, warnings, notices: notices() };
   }
-  const sheetValid = (): boolean => state.preview?.valid === true && !state.previewPending;
+  const sheetValid = (): boolean => checkable() && currentVerdict()?.valid === true;
   const canExport = (): boolean => Boolean(state.roster && state.slots.length) && sheetValid() && !state.pdfBusy;
   const canBuild = (): boolean => Boolean(deps.coach()) && sheetValid() && !state.buildBusy;
   const canSave = (): boolean => Boolean(deps.coach() && state.roster) && !state.saveBusy;
@@ -794,16 +803,17 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   }
   async function runPreview(seq: number): Promise<void> {
     const rosterId = state.roster?.rosterId ?? "";
+    const doc = docKey();
     try {
       const result = await api<Rec>("/api/fork/team-builder/preview", { method: "POST", body: requestBody() });
       if (seq !== previewSequence) return;
       state.preview = {
-        rosterId, valid: result?.valid === true, errors: arr(result?.errors), warnings: arr(result?.warnings),
+        rosterId, doc, valid: result?.valid === true, errors: arr(result?.errors), warnings: arr(result?.warnings),
         summary: sanitizeSummary(result?.summary), package: sanitizeEcho(result?.package),
       };
     } catch (e) {
       if (seq !== previewSequence) return;
-      state.preview = { rosterId, failed: true, valid: false, errors: [(e as Error).message], warnings: [], summary: state.preview?.summary ?? null, package: state.preview?.package ?? null };
+      state.preview = { rosterId, doc, failed: true, valid: false, errors: [(e as Error).message], warnings: [], summary: state.preview?.summary ?? null, package: state.preview?.package ?? null };
     }
     state.previewPending = false;
   }
@@ -1088,8 +1098,9 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     schedulePreview();
     return true;
   }
+  /** A 401 keeps everything (the open save too, so the page stays at its address and no edit is lost): sign in again
+   *  and save. */
   function sessionExpired(message: string): void {
-    state.currentSave = null;
     state.savesStatus = message;
     deps.onSignedOut?.();
   }
@@ -1312,7 +1323,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     } catch {
       pdf?.abandonPdfMakeLoad?.();
       state.buildResult = { ok: false, title: "Export PDF", lines: ["PDF service unavailable, opened the print dialog instead."] };
-      state.printHtml = core.rosterSheetHtml(model ?? sheetModel());
+      // The sheet's own stylesheet rides with it (table rules, print colours, A4 landscape), as on the vanilla page.
+      state.printHtml = `<style>${core.SHEET_CSS}</style>${core.rosterSheetHtml(model ?? sheetModel())}`;
       deps.print?.();
       return "print";
     } finally {

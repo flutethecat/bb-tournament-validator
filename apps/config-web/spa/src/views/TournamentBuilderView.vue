@@ -1,8 +1,18 @@
 <script lang="ts">
 import type { TournamentBuilder as KeptBuilder, BuilderTab as KeptTab } from "../teams/builder";
-// Survives one remount (see reuseKept below).
-let kept: { builder: KeptBuilder } | null = null;
-let keptTab: KeptTab | null = null;
+/** Page-session handoff: the shell keys RouterView by path, so when this page moves its own address (a save gets its
+ *  /<saveId>, a new ruleset or race leaves it) the view remounts. The outgoing view leaves its controller and tab here,
+ *  addressed to the path it navigates to; only the mount at that path, straight after, takes them. */
+type Handoff = { builder: KeptBuilder; tab: KeptTab; path: string; at: number };
+let handoff: Handoff | null = null;
+const HANDOFF_MS = 5000;
+/** Take the handoff addressed to `path` (consumed either way). */
+function takeHandoff(path: string): Handoff | null {
+  const h = handoff;
+  handoff = null;
+  return h && h.path === path && Date.now() - h.at < HANDOFF_MS ? h : null;
+}
+function leaveHandoff(h: Handoff): void { handoff = h; }
 </script>
 
 <script setup lang="ts">
@@ -29,30 +39,41 @@ import TournamentBuilderSheet from "../components/TournamentBuilderSheet.vue";
 import TournamentBuilderValueBar from "../components/TournamentBuilderValueBar.vue";
 
 const props = defineProps<{ saveId?: string }>();
-// The shell keys RouterView by path, so saving (which moves the address to /tournament-team-builder/<saveId>) remounts
-// this view: the remount picks the same controller (and tab) back up instead of reloading the save.
-function reuseKept(): TournamentBuilder | null {
-  const k = kept;
-  kept = null;
-  return k && props.saveId && k.builder.state.currentSave?.id === props.saveId ? k.builder : null;
-}
 const fetcher = inject(API_KEY)!;
 const session = inject(SESSION_KEY)!;
 const route = useRoute();
 const router = useRouter();
-const builder = inject(TOURNAMENT_BUILDER_KEY, null) ?? reuseKept() ?? createTournamentBuilder({
+const taken = takeHandoff(route.path);
+const builder: TournamentBuilder = inject(TOURNAMENT_BUILDER_KEY, null) ?? taken?.builder ?? createTournamentBuilder({
   api: fetcher,
   coach: () => session.coach(),
   organizer: () => session.state.info?.organizer === true,
   onSignedOut: () => void session.load(true),
-  print: () => { if (typeof window !== "undefined") window.setTimeout(() => window.print(), 0); },
+  print: printFallback,
 });
 provide(TOURNAMENT_BUILDER_KEY, builder);
 const { state } = builder;
 
 const asked = typeof route.query.tab === "string" && isBuilderTab(route.query.tab) ? route.query.tab : null;
-const tab = ref<BuilderTab>(asked && (asked === "ruleset" || state.roster) ? asked : keptTab && state.roster ? keptTab : state.roster ? "roster" : "ruleset");
-keptTab = null;
+const tab = ref<BuilderTab>(taken ? taken.tab : asked && (asked === "ruleset" || state.roster) ? asked : state.roster ? "roster" : "ruleset");
+/** Move this page's own address, handing the controller to the remount the shell makes for the new path. */
+function moveTo(saveId: string): void {
+  const target = router.resolve({ name: "tournament-team-builder", params: { saveId }, query: saveId ? {} : route.query });
+  leaveHandoff({ builder, tab: tab.value, path: target.path, at: Date.now() });
+  void router.replace(target);
+}
+/** Print fallback: html.tb-printing scopes the print rule to the builder's sheet host only while printing. */
+function printFallback(): void {
+  if (typeof window === "undefined") return;
+  window.setTimeout(() => {
+    const root = document.documentElement;
+    root.classList.add("tb-printing");
+    // Afterwards the host (and its A4 @page rule) goes, so later prints of this page are unaffected.
+    const done = (): void => { root.classList.remove("tb-printing"); window.removeEventListener("afterprint", done); state.printHtml = ""; };
+    window.addEventListener("afterprint", done);
+    try { window.print(); } finally { window.setTimeout(done, 1000); }
+  }, 0);
+}
 const ready = computed(() => Boolean(state.packageName && state.roster));
 function go(t: BuilderTab): void {
   if (t !== "ruleset" && !ready.value) return;
@@ -80,14 +101,10 @@ const linkedSave = computed(() => {
   const id = props.saveId ?? (typeof route.query.save === "string" ? route.query.save : "");
   return id && SAVE_ID_RE.test(id) ? id : "";
 });
-onBeforeUnmount(() => {
-  if (typeof window === "undefined") return;
-  kept = { builder };
-  keptTab = tab.value;
-});
+onBeforeUnmount(() => { if (typeof document !== "undefined") document.documentElement.classList.remove("tb-printing"); });
 onMounted(async () => {
   await session.load();
-  if (state.booted && props.saveId && state.currentSave?.id === props.saveId) return; // picked back up after a save
+  if (taken) return; // the same page session, picked back up after this page moved its address
   const opened = await builder.init({
     saveId: linkedSave.value || undefined,
     packageName: typeof route.query.package === "string" ? route.query.package : typeof route.query.preset === "string" ? route.query.preset : undefined,
@@ -97,8 +114,8 @@ onMounted(async () => {
 });
 // Saving gives the team its own address (/tournament-team-builder/<saveId>); the old ?save= link is replaced by it.
 watch(() => state.currentSave?.id, (id) => {
-  if (id && id !== props.saveId) void router.replace({ name: "tournament-team-builder", params: { saveId: id } });
-  else if (!id && props.saveId) void router.replace({ name: "tournament-team-builder", params: { saveId: "" }, query: route.query });
+  if (id && id !== props.saveId) moveTo(id);
+  else if (!id && props.saveId) moveTo("");
 });
 watch(() => props.saveId, (id) => {
   if (id && id !== state.currentSave?.id && SAVE_ID_RE.test(id)) void builder.loadSave(id).then((ok) => { if (ok) tab.value = "roster"; });

@@ -295,7 +295,56 @@ describe("tournament builder controller", () => {
     expect(await broken.exportPdf()).toBe("print");
     expect(printed).toBe(1);
     expect(broken.state.printHtml).toContain('<article class="roster-sheet">');
+    expect(broken.state.printHtml.startsWith(`<style>${core.SHEET_CSS}</style>`)).toBe(true); // table rules, print colours, A4 landscape
     expect(broken.state.buildResult?.lines).toEqual(["PDF service unavailable, opened the print dialog instead."]);
+  });
+
+  it("any edit makes the verdict pending: export / build wait for the preview of the current document", async () => {
+    const f = mockFetcher(routes());
+    const b = createTournamentBuilder({ api: f, coach: () => "Alice", previewDelay: 60_000, loadSheetPdf: async () => { throw new Error("unused"); } });
+    await b.init({ packageName: "Test Cup", race: "human" });
+    b.setTeamName("Reavers");
+    b.addPosition("hlin");
+    await b.flushPreview();
+    expect(b.validity().headline).toBe("Team is valid");
+    expect(b.canExport()).toBe(true);
+    expect(b.canBuild()).toBe(true);
+    // An ordinary edit: the old "valid" no longer describes the team.
+    b.stepStaff("reRolls", 1);
+    expect(b.validity()).toMatchObject({ tone: "checking", headline: "Checking team..." });
+    expect(b.canExport()).toBe(false);
+    expect(b.canBuild()).toBe(false);
+    await b.flushPreview();
+    expect(b.canExport()).toBe(true);
+    // Clearing the name: no preview runs, and the last valid verdict must not export an unnamed team.
+    b.setTeamName("");
+    expect(b.state.previewPending).toBe(false);
+    expect(b.validity().tone).toBe("pending");
+    expect(b.canExport()).toBe(false);
+    expect(b.canBuild()).toBe(false);
+    expect(await b.exportPdf()).toBe("skipped");
+    // Back to the same document: the verdict for it counts again.
+    b.setTeamName("Reavers");
+    await b.flushPreview();
+    expect(b.canExport()).toBe(true);
+  });
+
+  it("a 401 on save keeps the open save and the edits (the page stays at its address)", async () => {
+    let signedOut = 0;
+    const f = mockFetcher(routes({
+      "POST /api/fork/team-builder/saves": { save: { id: "sv_abc", name: "Reavers" } },
+      "PUT /api/fork/team-builder/saves/sv_abc": new ApiError(401, "Sign in."),
+    }));
+    const b = createTournamentBuilder({ api: f, coach: () => "Alice", previewDelay: 0, onSignedOut: () => { signedOut++; } });
+    await b.init({ packageName: "Test Cup", race: "human" });
+    b.setTeamName("Reavers");
+    await b.saveTeam();
+    b.addPosition("hbli");
+    expect(await b.saveTeam()).toBe(false);
+    expect(signedOut).toBe(1);
+    expect(b.state.currentSave).toEqual({ id: "sv_abc", name: "Reavers" });
+    expect(b.state.slots.map((s) => s.positionId)).toEqual(["hbli"]);
+    expect(b.state.savesStatus).toBe("Your session expired. Sign in again to use saved teams.");
   });
 
   it("ingestion copies fields only; findings read as text", () => {
@@ -406,6 +455,16 @@ describe("tournament builder page (server-rendered)", () => {
 });
 
 describe("tournament builder wiring", () => {
+  it("the print rule only applies while the builder prints (html.tb-printing); other routes print normally", () => {
+    const css = readFileSync(new URL("../spa/src/teams/builder.css", import.meta.url), "utf8");
+    const print = css.slice(css.indexOf("@media print"));
+    expect(print).toContain("html.tb-printing body * { visibility: hidden; }");
+    expect(print).not.toMatch(/^\s*body \* \{/m);
+    const view = readFileSync(new URL("../spa/src/views/TournamentBuilderView.vue", import.meta.url), "utf8");
+    expect(view).toContain('root.classList.add("tb-printing")');
+    expect(view).toContain('root.classList.remove("tb-printing")');
+  });
+
   const router = readFileSync(new URL("../spa/src/router.ts", import.meta.url), "utf8");
   it("routes /tournament-team-builder and /:saveId to the view; the vanilla page still serves", () => {
     expect(router.replace(/\r\n/g, "\n")).toContain('path: "/tournament-team-builder/:saveId([\\\\w-]{1,64})?",\n    name: "tournament-team-builder",\n    component: TournamentBuilderView,');

@@ -240,12 +240,13 @@
 .tb-sheet .tv-table { display: none; }
 @media (min-width: 760px) { .tb-sheet .tv-table { display: table; } }
 
-/* print fallback: only the roster sheet prints */
+/* print fallback: only the roster sheet prints, and only while the builder has set html.tb-printing (other routes print
+   normally) */
 .tb-print-host { display: none; }
 @media print {
-  body * { visibility: hidden; }
-  .tb-print-host, .tb-print-host * { visibility: visible; }
-  .tb-print-host { display: block; position: absolute; inset: 0 auto auto 0; width: 100%; }
+  html.tb-printing body * { visibility: hidden; }
+  html.tb-printing .tb-print-host, html.tb-printing .tb-print-host * { visibility: visible; }
+  html.tb-printing .tb-print-host { display: block; position: absolute; inset: 0 auto auto 0; width: 100%; }
 }
 
 @media (min-width: 760px) {
