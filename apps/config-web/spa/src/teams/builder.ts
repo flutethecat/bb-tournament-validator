@@ -67,17 +67,17 @@ export interface BuilderBody {
   rosteredInducements?: Array<{ key: string; count: number }>;
 }
 
-export type BuilderTab = "ruleset" | "roster" | "skills" | "sheet";
+export type BuilderTab = "ruleset" | "roster" | "sheet";
 export const BUILDER_TABS: ReadonlyArray<{ id: BuilderTab; label: string }> = [
   { id: "ruleset", label: "Ruleset" },
   { id: "roster", label: "Roster" },
-  { id: "skills", label: "Skills, Stars & Inducements" },
   { id: "sheet", label: "Sheet" },
 ];
 export const isBuilderTab = (v: unknown): v is BuilderTab => BUILDER_TABS.some((t) => t.id === v);
-/** Deep links from before the merge: the old Staff & Inducements tab ("staff") is now the Skills, Stars & Inducements pane. */
+/** Deep links from before the one working pane (owner 10-30): the old Skills, Staff, Stars and Inducements tabs are all on Roster now. */
+const OLD_ROSTER_TABS = new Set(["skills", "staff", "stars", "inducements"]);
 export function toBuilderTab(v: unknown): BuilderTab | null {
-  return v === "staff" ? "skills" : isBuilderTab(v) ? v : null;
+  return typeof v === "string" && OLD_ROSTER_TABS.has(v) ? "roster" : isBuilderTab(v) ? v : null;
 }
 
 /** Sideline staff (BB2025 costs; rerolls priced per roster). */
@@ -458,6 +458,19 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       estimated: !s,
     };
   }
+  /** Skill points (the vanilla page's tournament box, now the validator box): used / budget (the server's count once a
+   *  preview is in) and each player's SP for added skills. Null when the ruleset has no SP budget. */
+  function skillPoints(): { used: number; budget: number; over: boolean; players: Array<{ index: number; name: string; sp: number }> } | null {
+    const s = state.preview?.summary ?? null;
+    const budget = packSummary()?.skillPointBudget || s?.skillPointBudget || raceRules()?.skillPointBudget || 0;
+    if (!budget) return null;
+    const costs = raceRules()?.skillCosts ?? core.DEFAULT_SKILL_COSTS;
+    const players = state.slots.map((sl, index) => ({
+      index, name: shortName(positionById(sl.positionId)), sp: core.playerSkillSp(sl.chosenSkills, (k) => accessOf(sl.positionId, k) === "secondary", costs),
+    }));
+    const used = s?.skillPointsUsed ?? players.reduce((n, p) => n + p.sp, 0);
+    return { used, budget, over: used > budget, players: players.filter((p) => p.sp > 0) };
+  }
   /** The value breakdown lines (the vanilla page's Team Value card). */
   function valueLines(): Array<{ label: string; value: string; tone?: "over" | "hint" }> {
     const t = totals();
@@ -483,11 +496,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       const over = (pack.maxSkills != null && total > pack.maxSkills) || (pack.maxSecondary != null && t.secondary > pack.maxSecondary);
       lines.push({ label: "Pack skills", value: `${total} / ${pack.maxSkills ?? "∞"}${pack.maxSecondary != null ? ` (${t.secondary} / ${pack.maxSecondary} secondary)` : ""}`, ...(over ? { tone: "over" as const } : {}) });
     }
-    const spBudget = pack?.skillPointBudget || s?.skillPointBudget || raceRules()?.skillPointBudget || 0;
-    if (spBudget) {
-      const used = s?.skillPointsUsed ?? state.slots.reduce((n, sl) => n + core.playerSkillSp(sl.chosenSkills, (k) => accessOf(sl.positionId, k) === "secondary", raceRules()?.skillCosts ?? core.DEFAULT_SKILL_COSTS), 0);
-      lines.push({ label: "Skill points", value: `${used} / ${spBudget}`, ...(used > spBudget ? { tone: "over" as const } : {}) });
-    }
+    const sp = skillPoints();
+    if (sp) lines.push({ label: "Skill points", value: `${sp.used} / ${sp.budget}`, ...(sp.over ? { tone: "over" as const } : {}) });
     lines.push({ label: t.estimated ? (state.previewPending ? "Calculating team value..." : "Estimate") : "Total", value: `${core.gold(t.used)} / ${core.gold(t.budget)}`, ...(t.over ? { tone: "over" as const } : {}) });
     return lines;
   }
@@ -499,7 +509,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     if (!state.roster) out.push("Choose a ruleset and a race to start.");
     else {
       if (!state.teamName.trim()) out.push("Name your team.");
-      if (!state.slots.length) out.push("Add players from the position cards.");
+      if (!state.slots.length) out.push("Add players from Hireable players.");
     }
     return out;
   }
@@ -1352,7 +1362,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     // derived
     positionById, shortName, raceRules, tierRules, statRules, allowedStats, packSummary, captainAvailable, slotCanCaptain, leagueOptions,
     leaguePresentation, activeLeague, selectedSpecialRule, accessOf, isElite, skillClass, totals, valueLines, validity, canExport, canBuild, canSave,
-    positionCards, starChoices, starRow, starCap, starPickCount, starsAllowed, starSpTable, inducementRows, rulesetLines, tierLabel, raceTable,
+    skillPoints, positionCards, starChoices, starRow, starCap, starPickCount, starsAllowed, starSpTable, inducementRows, rulesetLines, tierLabel, raceTable,
     eligibleRosters, staffRows: () => staffRows(state.roster), staffIcon, skillIcon, spritePath, crestPath, pickerSections, skillPrice, statOptions,
     slotLocks, legalSet, requestBody, sheetModel, teamViewModel, gateCtx, named, signedIn: (): boolean => Boolean(deps.coach()),
     // actions
@@ -1364,3 +1374,9 @@ export function createTournamentBuilder(deps: BuilderDeps) {
 
 export type TournamentBuilder = ReturnType<typeof createTournamentBuilder>;
 export const TOURNAMENT_BUILDER_KEY: InjectionKey<TournamentBuilder> = Symbol("tournament-builder");
+
+/** The working pane's shared UI (the view provides it): the "name your team first" gate. Adding a player or a star to an
+ *  unnamed team sets `nameGate` (the Errors / Valid box shows the message until the team is named) and focuses the team
+ *  name field in the Team controls. */
+export interface TournamentBuilderUi { nameGate: boolean; requireName: () => boolean }
+export const TOURNAMENT_BUILDER_UI_KEY: InjectionKey<TournamentBuilderUi> = Symbol("tournament-builder-ui");

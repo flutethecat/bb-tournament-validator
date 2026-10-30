@@ -18,11 +18,12 @@ function leaveHandoff(h: Handoff): void { handoff = h; }
 <script setup lang="ts">
 // Tournament Builder (/app/tournament-team-builder[/:saveId], owner 10-30): the coach-facing team builder against a
 // tournament ruleset, migrated from public/tournament-team-builder.html (which keeps serving unchanged). Design: the
-// shell's left nav, a top row of band tabs (Ruleset · Roster · Skills, Stars & Inducements · Sheet) and a centred
-// working pane of bezel-and-lift panels. Browsing and building are public, as on the vanilla page (the preview runs as a
+// shell's left nav, a top row of band tabs (Ruleset · Roster · Sheet) and a centred pane of bezel-and-lift panels. The
+// Roster tab is the one working pane: three columns on desktop (left: hireable players, inducements, star players, staff;
+// centre: the roster table; right: team controls, the validator, errors / valid), stacked in that order on a phone. Browsing and building are public, as on the vanilla page (the preview runs as a
 // guest); saving, sharing and creating on the Fork need the Discord session. Deep links: /:saveId (or ?save=) opens a
 // saved team, ?package=<name>[&race=<rosterId>] preselects the ruleset (and race).
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import "../../../public/team-view.css";
 import "../teams/teams.css";
@@ -30,14 +31,20 @@ import "../teams/builder.css";
 import { API_KEY } from "../app";
 import { discordLoginUrl, SESSION_KEY } from "../session";
 import { fmtK } from "../shared/format";
-import { BUILDER_TABS, createTournamentBuilder, SAVE_ID_RE, TOURNAMENT_BUILDER_KEY, toBuilderTab, type BuilderTab, type TournamentBuilder } from "../teams/builder";
+import {
+  BUILDER_TABS, createTournamentBuilder, SAVE_ID_RE, TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY, toBuilderTab, type BuilderTab, type TournamentBuilder,
+  type TournamentBuilderUi,
+} from "../teams/builder";
 import TournamentBuilderRuleset from "../components/TournamentBuilderRuleset.vue";
-import TournamentBuilderRoster from "../components/TournamentBuilderRoster.vue";
-import TournamentBuilderSkills from "../components/TournamentBuilderSkills.vue";
-import TournamentBuilderStars from "../components/TournamentBuilderStars.vue";
+import TournamentBuilderHire from "../components/TournamentBuilderHire.vue";
 import TournamentBuilderInducements from "../components/TournamentBuilderInducements.vue";
+import TournamentBuilderStars from "../components/TournamentBuilderStars.vue";
+import TournamentBuilderStaff from "../components/TournamentBuilderStaff.vue";
+import TournamentBuilderRoster from "../components/TournamentBuilderRoster.vue";
+import TournamentBuilderTeam from "../components/TournamentBuilderTeam.vue";
+import TournamentBuilderValidator from "../components/TournamentBuilderValidator.vue";
+import TournamentBuilderVerdict from "../components/TournamentBuilderVerdict.vue";
 import TournamentBuilderSheet from "../components/TournamentBuilderSheet.vue";
-import TournamentBuilderValueBar from "../components/TournamentBuilderValueBar.vue";
 
 const props = defineProps<{ saveId?: string }>();
 const fetcher = inject(API_KEY)!;
@@ -54,6 +61,19 @@ const builder: TournamentBuilder = inject(TOURNAMENT_BUILDER_KEY, null) ?? taken
 });
 provide(TOURNAMENT_BUILDER_KEY, builder);
 const { state } = builder;
+/** The name gate: hiring a player or a star needs a named team. The message shows in the Errors / Valid box until the team
+ *  is named, and focus goes to the team name field in the Team controls. */
+const ui: TournamentBuilderUi = reactive({
+  nameGate: false,
+  requireName(): boolean {
+    if (builder.named()) return true;
+    ui.nameGate = true;
+    if (typeof document !== "undefined") document.getElementById("tb-team-name")?.focus();
+    return false;
+  },
+});
+provide(TOURNAMENT_BUILDER_UI_KEY, ui);
+watch(() => builder.named(), (named) => { if (named) ui.nameGate = false; });
 
 const asked = toBuilderTab(route.query.tab);
 const tab = ref<BuilderTab>(taken ? taken.tab : asked && (asked === "ruleset" || state.roster) ? asked : state.roster ? "roster" : "ruleset");
@@ -142,7 +162,7 @@ async function pickPackage(name: string): Promise<void> {
 </script>
 
 <template>
-  <div class="hm-page tm-page tb-page">
+  <div class="hm-page tm-page tb-page" :class="{ 'tb-wide': tab === 'roster' }">
     <h1 class="hm-title">Tournament Builder <span v-if="state.currentSave" class="hm-led">{{ state.currentSave.name }}</span></h1>
 
     <div ref="tabsEl" class="tl-seg tb-tabs" role="tablist" aria-label="Tournament Builder steps" @keydown="onTabKey">
@@ -158,21 +178,31 @@ async function pickPackage(name: string): Promise<void> {
       <span>{{ lockedLine }}</span>
     </p>
 
-    <TournamentBuilderValueBar v-if="ready && tab !== 'ruleset' && tab !== 'sheet'" />
-
     <p v-if="state.bootError" class="lobby-error" role="alert">{{ state.bootError }}</p>
     <p v-else-if="!state.booted" class="hm-empty" role="status">Loading tournament rulesets...</p>
     <p v-if="state.status" :class="state.statusError ? 'lobby-error' : 'hm-empty'" role="status">{{ state.status }}</p>
 
     <div v-if="state.booted" :id="`tb-pane-${tab}`" class="tb-pane" role="tabpanel" :aria-labelledby="`tb-tab-${tab}`">
       <TournamentBuilderRuleset v-if="tab === 'ruleset'" @package="pickPackage" @race="pickRace" @next="go('roster')" />
-      <TournamentBuilderRoster v-else-if="tab === 'roster'" />
-      <template v-else-if="tab === 'skills'">
-        <TournamentBuilderSkills />
-        <TournamentBuilderStars />
-        <TournamentBuilderInducements />
-      </template>
-      <TournamentBuilderSheet v-else :sign-in-href="signInHref" :sso-enabled="session.ssoEnabled()" />
+      <div v-else-if="tab === 'roster'" class="tb-work">
+        <!-- Source order is the phone reading order: 1 hireable players, 2 inducements, 3 star players, staff, the roster, 4 team
+             controls, 5 validator, 6 errors / valid. Desktop places the three groups as columns. -->
+        <div class="tb-col tb-col-left">
+          <TournamentBuilderHire />
+          <TournamentBuilderInducements />
+          <TournamentBuilderStars />
+          <TournamentBuilderStaff />
+        </div>
+        <div class="tb-col tb-col-centre">
+          <TournamentBuilderRoster />
+        </div>
+        <div class="tb-col tb-col-right">
+          <TournamentBuilderTeam :sign-in-href="signInHref" :sso-enabled="session.ssoEnabled()" />
+          <TournamentBuilderValidator />
+          <TournamentBuilderVerdict />
+        </div>
+      </div>
+      <TournamentBuilderSheet v-else />
     </div>
 
     <!-- Print fallback (Export PDF unavailable): only this sheet prints. -->

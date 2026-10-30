@@ -1,38 +1,27 @@
 <script setup lang="ts">
-// Tournament Builder, Roster tab: team name (required before adding players), league / special rule, the choose-one skill
-// pack, the position cards (limits, position groups, the 16-player cap), the roster in builder order (drag the gripper or
-// Alt+Up / Alt+Down to reorder; numbers follow the order and the save keeps it), the Team Captain toggle, and the Staff section
-// (rerolls at the roster's price, the apothecary only where the roster allows one, one dedicated fan free).
+// Tournament Builder, the Roster table (centre of the Roster pane, owner 10-30): the roster in builder order (drag the
+// gripper or Alt+Up / Alt+Down to reorder; numbers follow the order and the save keeps it), the Team Captain toggle, and per
+// row Add Skill / Add Stat as on the team management page (the picker offers only what the shared core's gates allow; stars
+// never take either). Added skills and stats carry a remove ×. The skill key and the skill counts sit under the roster.
 import { computed, inject, nextTick, ref } from "vue";
 import { TOURNAMENT_BUILDER_KEY } from "../teams/builder";
 import { core, type BuilderPosition, type Slot } from "../teams/builderCore";
 import TournamentBuilderStats from "./TournamentBuilderStats.vue";
+import TournamentBuilderSkillPicker from "./TournamentBuilderSkillPicker.vue";
 
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
 const { state } = builder;
 
-const nameInput = ref<HTMLInputElement | null>(null);
-const nameGate = ref(false);
-let gateTimer: ReturnType<typeof setTimeout> | null = null;
-function showNameGate(): void {
-  nameGate.value = true;
-  nameInput.value?.focus();
-  if (gateTimer) clearTimeout(gateTimer);
-  gateTimer = setTimeout(() => { nameGate.value = false; }, 3000);
-}
-function add(positionId: string): void {
-  if (!builder.named()) { showNameGate(); return; }
-  builder.addPosition(positionId);
-}
-
-const league = computed(() => builder.leaguePresentation());
-const race = computed(() => builder.raceRules());
-const cards = computed(() => builder.positionCards());
-const apothecaryOff = computed(() => Boolean(state.roster && !state.roster.apothecaryAllowed));
+const totals = computed(() => builder.totals());
 const position = (s: Slot): BuilderPosition | null => builder.positionById(s.positionId);
 const printed = (p: BuilderPosition | null): string[] => p?.skills ?? [];
 const captainOn = (s: Slot): boolean => s.captain === true && builder.slotCanCaptain(s);
-const liveStats = (s: Slot): string[] => s.chosenStatIncreases.filter((k) => builder.allowedStats().includes(k));
+const role = (s: Slot): string => (position(s)?.isStar ? "Star player: no added skills" : captainOn(s) ? "Team Captain" : "Roster player");
+
+// ── Add Skill / Add Stat ──
+const picker = ref<InstanceType<typeof TournamentBuilderSkillPicker> | null>(null);
+const openSkill = (i: number, e: MouseEvent): void => void picker.value?.openSkill(i, e.currentTarget as HTMLElement);
+const openStat = (i: number, e: MouseEvent): void => picker.value?.openStat(i, e.currentTarget as HTMLElement);
 
 // ── reorder: pointer drag on the gripper (mouse, touch, pen) and Alt+Arrow on it ──
 const live = ref("");
@@ -81,65 +70,9 @@ function onGripKey(e: KeyboardEvent, index: number): void {
 </script>
 
 <template>
-  <section class="hm-panel tb-panel" aria-labelledby="tb-team-h">
-    <header class="hm-band"><h2 id="tb-team-h">Team</h2><span class="hm-cap">{{ state.roster?.raceName }}</span></header>
-    <div class="tb-fields">
-      <label class="tb-field">
-        <span>Team name</span>
-        <input ref="nameInput" type="text" maxlength="60" placeholder="Name your team" autocomplete="off" :value="state.teamName"
-          @input="builder.setTeamName(($event.target as HTMLInputElement).value)" />
-      </label>
-      <label v-if="league.visible" class="tb-field">
-        <span>League</span>
-        <select :disabled="!league.interactive" :required="league.interactive" :value="builder.activeLeague() || (league.interactive ? '' : builder.leagueOptions()[0])"
-          @change="builder.selectLeague(($event.target as HTMLSelectElement).value)">
-          <option v-if="league.interactive" value="" disabled>Choose a league</option>
-          <option v-for="l in builder.leagueOptions()" :key="l" :value="l">{{ l }}</option>
-        </select>
-        <small v-if="builder.selectedSpecialRule()" class="muted">Special rule: {{ builder.selectedSpecialRule() }}</small>
-      </label>
-    </div>
-    <p v-if="nameGate" class="tb-toast" role="status">You must name your team.</p>
-    <p v-if="state.leagueNotice" class="tm-note" role="status">{{ state.leagueNotice }}</p>
-    <div v-if="race?.packs.length" class="tb-packs">
-      <p class="tb-k">Skill pack</p>
-      <div class="tb-pack-grid">
-        <button v-for="p in race.packs" :key="p.label" type="button" class="tb-pack" :aria-pressed="state.skillPack === p.label ? 'true' : 'false'" @click="builder.setSkillPack(p.label)">
-          <strong>{{ p.label }}</strong>
-          <small>{{ core.packTermsText(p) }}{{ p.maxPerPlayer != null ? ` · ${p.maxPerPlayer} skill${p.maxPerPlayer === 1 ? "" : "s"}/player` : "" }}</small>
-        </button>
-      </div>
-      <p v-if="!state.skillPack" class="tm-note">Pick your skill pack.</p>
-    </div>
-  </section>
-
-  <section class="hm-panel tb-panel" aria-labelledby="tb-add-h">
-    <header class="hm-band"><h2 id="tb-add-h">Add players</h2><span class="hm-cap">{{ state.slots.length }} / {{ core.MAX_PLAYERS }}</span></header>
-    <div class="tb-positions">
-      <button
-        v-for="c in cards" :key="c.position.positionId" type="button" class="tb-position" :class="{ 'name-required': !builder.named() }"
-        :disabled="c.exhausted" :aria-label="`Add ${c.position.name}`"
-        :title="!builder.named() ? 'You must name your team.' : c.group ? `${c.group.label || 'Position group'} limit reached` : c.name !== c.position.name ? c.position.name : undefined"
-        @click="add(c.position.positionId)"
-      >
-        <span class="sprite-frame tb-sprite" aria-hidden="true"><span class="sprite-fallback">{{ c.name.slice(0, 2).toUpperCase() }}</span><img v-if="builder.spritePath(c.position.name)" class="sprite-image" :src="builder.spritePath(c.position.name)" alt="" loading="lazy" /></span>
-        <span class="tb-position-head">
-          <strong>{{ c.name }}</strong>
-          <small>{{ c.left }} of {{ c.position.max }} left<template v-if="c.role"> · {{ c.role }}</template></small>
-        </span>
-        <span class="tb-cost">{{ core.gold(c.position.cost) }}</span>
-        <TournamentBuilderStats :position="c.position" />
-        <span class="row-skills tb-printed">
-          <span v-for="k in printed(c.position)" :key="k" :class="builder.skillClass(k)">{{ k }}</span>
-          <span v-if="!printed(c.position).length" class="muted">No printed skills</span>
-        </span>
-      </button>
-    </div>
-  </section>
-
-  <section class="hm-panel tb-panel" aria-labelledby="tb-roster-h">
+  <section class="hm-panel tb-panel tb-roster-panel" aria-labelledby="tb-roster-h">
     <header class="hm-band"><h2 id="tb-roster-h">Roster</h2><span class="hm-cap">{{ state.slots.length }} / {{ core.MAX_PLAYERS }} players</span></header>
-    <p v-if="!state.slots.length" class="hm-empty">Add a player from a position card above.</p>
+    <p v-if="!state.slots.length" class="hm-empty">Add a player from the hireable players.</p>
     <ol v-else ref="rowsEl" class="tb-rows">
       <li v-for="(s, i) in state.slots" :key="i" class="tb-row" :data-row="i"
         :class="{ dragging: drag?.from === i, 'drop-mark': drag && drag.to === i && drag.from !== i, captain: captainOn(s) }">
@@ -151,38 +84,41 @@ function onGripKey(e: KeyboardEvent, index: number): void {
         <span class="sprite-frame tb-sprite small" aria-hidden="true"><span class="sprite-fallback">{{ builder.shortName(position(s)).slice(0, 2).toUpperCase() }}</span><img v-if="builder.spritePath(position(s)?.name ?? '')" class="sprite-image" :src="builder.spritePath(position(s)?.name ?? '')" alt="" loading="lazy" /></span>
         <span class="tb-who">
           <strong :title="position(s)?.name">{{ builder.shortName(position(s)) || "Unknown position" }}</strong>
-          <small>{{ position(s)?.isStar ? "Star player" : captainOn(s) ? "Team Captain" : "Roster player" }}</small>
+          <small>{{ role(s) }}</small>
         </span>
         <button v-if="builder.slotCanCaptain(s)" type="button" class="tb-captain" :aria-pressed="captainOn(s) ? 'true' : 'false'"
           title="Team Captain" :aria-label="`Team Captain: ${position(s)?.name ?? 'player'}, player ${i + 1}`" @click="builder.toggleCaptain(i)">C</button>
         <span v-else-if="builder.captainAvailable()" class="tb-captain-slot" aria-hidden="true"></span>
-        <TournamentBuilderStats :position="position(s)" :increases="liveStats(s)" class="tb-row-stats" />
+        <TournamentBuilderStats :position="position(s)" :increases="builder.slotLocks(i).liveStats" class="tb-row-stats" />
         <span class="row-skills tb-row-skills">
           <span v-for="k in printed(position(s))" :key="`p-${k}`" :class="builder.skillClass(k)">{{ k }}</span>
           <template v-if="captainOn(s)"><span class="skill skill-trait tb-free" title="Team Captain: gains Pro for free">{{ core.TEAM_CAPTAIN }}</span><span class="skill skill-trait tb-free" title="Free with Team Captain">Pro</span></template>
-          <span v-for="k in s.chosenSkills" :key="`a-${k}`" :class="[builder.skillClass(k), 'tb-added', `access-${builder.accessOf(s.positionId, k)}`]">{{ k }}</span>
-          <span v-for="k in liveStats(s)" :key="`s-${k}`" class="skill tb-stat-chip">+{{ k }}</span>
+          <span v-for="k in s.chosenSkills" :key="`a-${k}`" :class="[builder.skillClass(k), 'tb-added', `access-${builder.accessOf(s.positionId, k)}`]">
+            {{ k }}<button type="button" class="tb-chip-x" :aria-label="`Remove ${k}`" @click="builder.removeSkill(i, k)">×</button>
+          </span>
+          <span v-for="k in builder.slotLocks(i).liveStats" :key="`s-${k}`" class="skill tb-stat-chip">
+            +{{ k }}<button type="button" class="tb-chip-x" :aria-label="`Remove +${k}`" @click="builder.removeStat(i, k)">×</button>
+          </span>
         </span>
         <span class="tb-cost">{{ core.gold(position(s)?.cost) }}</span>
         <button type="button" class="tb-fire" :aria-label="`Remove ${position(s)?.name ?? 'player'}`" @click="builder.removeSlot(i)">Fire</button>
+        <span v-if="!position(s)?.isStar" class="tm-acts tb-row-actions">
+          <button type="button" class="tm-act" data-kind="skill" :disabled="builder.slotLocks(i).skillLocked || !builder.slotLocks(i).canMoreSkills"
+            :title="builder.slotLocks(i).skillLocked ? 'A player with a stat increase can\'t also have an added skill.' : !builder.slotLocks(i).canMoreSkills ? 'This player can\'t take another skill.' : undefined"
+            :aria-label="`Add a skill to #${i + 1} ${builder.shortName(position(s))}`" aria-haspopup="dialog" @click="openSkill(i, $event)">Add Skill</button>
+          <button v-if="builder.slotLocks(i).statOffered" type="button" class="tm-act" data-kind="characteristic" :disabled="builder.slotLocks(i).statLocked || builder.slotLocks(i).statFull"
+            :title="builder.slotLocks(i).statLocked ? 'A player with an added skill can\'t also take a stat increase.' : builder.slotLocks(i).statFull ? `Max ${builder.slotLocks(i).maxStats} stat increase${builder.slotLocks(i).maxStats === 1 ? '' : 's'} per player.` : undefined"
+            :aria-label="`Add a stat to #${i + 1} ${builder.shortName(position(s))}`" aria-haspopup="dialog" @click="openStat(i, $event)">Add Stat</button>
+        </span>
       </li>
     </ol>
     <p class="tn-sr" role="status" aria-live="polite">{{ live }}</p>
+    <p class="tb-counts">Primary skills <b>{{ totals.primary }}</b> · Secondary skills <b>{{ totals.secondary }}</b></p>
+    <p class="tv-key tb-key" aria-label="Skill key">
+      <span class="skill skill-general">General</span><span class="skill skill-agility">Agility</span><span class="skill skill-strength">Strength</span>
+      <span class="skill skill-passing">Passing</span><span class="skill skill-mutation">Mutation</span><span class="skill skill-trait">Trait</span>
+      <span class="skill skill-general tb-added access-primary">Primary</span><span class="skill skill-general tb-added access-secondary">Secondary</span>
+    </p>
   </section>
-
-  <section class="hm-panel tb-panel" aria-labelledby="tb-staff-h">
-    <header class="hm-band"><h2 id="tb-staff-h">Staff</h2><span class="hm-cap">{{ core.gold(builder.totals().sidelineCost) }}</span></header>
-    <ul class="tb-steppers">
-      <li v-for="r in builder.staffRows()" :key="r.key" class="tb-step-row" :class="{ off: r.key === 'apothecary' && apothecaryOff }">
-        <span class="tb-step-icon" aria-hidden="true"><img v-if="builder.staffIcon(r.key)" class="crest-image" :src="builder.staffIcon(r.key)" alt="" loading="lazy" /></span>
-        <span class="tb-who"><strong>{{ r.label }}</strong><small>{{ r.key === 'apothecary' && apothecaryOff ? "Not available to this roster" : `${r.min}–${r.max} · ${core.gold(r.cost)} each${r.free ? `, ${r.free} free` : ""}` }}</small></span>
-        <span class="tb-stepper">
-          <button type="button" :disabled="(r.key === 'apothecary' && apothecaryOff) || state.staff[r.key] <= r.min" :aria-label="`Remove ${r.label}`" @click="builder.stepStaff(r.key, -1)">−</button>
-          <b aria-live="polite">{{ state.staff[r.key] }}</b>
-          <button type="button" :disabled="(r.key === 'apothecary' && apothecaryOff) || state.staff[r.key] >= r.max" :aria-label="`Add ${r.label}`" @click="builder.stepStaff(r.key, 1)">+</button>
-        </span>
-        <small class="tb-step-cost">{{ core.gold(Math.max(0, state.staff[r.key] - r.free) * r.cost) }}</small>
-      </li>
-    </ul>
-  </section>
+  <TournamentBuilderSkillPicker ref="picker" />
 </template>

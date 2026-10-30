@@ -1,13 +1,13 @@
 <script setup lang="ts">
-// The treasury / team value bar on the build tabs: the team management page's scoreboard cells (team-view.css .tv-totals,
-// band numerals with the drop shadow). Server preview figures when they are in, client estimates until then.
+// The team value cards at the top of the Validator box: the team management page's scoreboard cells (team-view.css
+// .tv-totals, band numerals with the drop shadow), stacked. Server preview figures when they are in, client estimates until
+// then. The verdict sits in the Errors / Valid box under the Validator.
 import { computed, inject } from "vue";
 import { TOURNAMENT_BUILDER_KEY } from "../teams/builder";
 import { core } from "../teams/builderCore";
 
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
 const t = computed(() => builder.totals());
-const v = computed(() => builder.validity());
 </script>
 
 <template>
@@ -19,7 +19,6 @@ const v = computed(() => builder.validity());
     <div class="tv-total" :class="{ 'tv-over': t.over }">
       <span>{{ t.estimated ? "Estimate" : "Total" }}</span>
       <b>{{ core.gold(t.used) }} <small>/ {{ core.gold(t.budget) }}</small></b>
-      <em class="tb-verdict" :data-tone="v.tone" role="status">{{ v.headline }}</em>
     </div>
   </section>
 </template>

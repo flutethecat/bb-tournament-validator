@@ -6,6 +6,7 @@
 
 .tb-page { --tb-col: 1040px; align-content: start; justify-items: center; max-width: none; }
 .tb-page > * { width: 100%; max-width: var(--tb-col); min-width: 0; }
+.tb-page.tb-wide { --tb-col: 1560px; } /* the Roster tab's three-column working pane uses the room */
 .tb-page .hm-title { justify-self: center; }
 .tb-pane { display: grid; gap: 16px; min-width: 0; }
 .tb-panel { min-width: 0; }
@@ -23,14 +24,44 @@
 .tb-locked { display: flex; align-items: center; gap: 10px; margin: 0; padding: 6px 12px; font: 12px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; overflow-wrap: anywhere; }
 .tb-locked-crest { width: 32px; height: 32px; object-fit: contain; flex: none; }
 
-/* value bar: five scoreboard cells, the total spans and carries the verdict */
-.tv-totals.tb-value { margin-bottom: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.tv-totals.tb-value .tv-total { grid-column: 1 / -1; }
-.tv-totals.tb-value > div > span { font-family: var(--tv-score-font); font-size: 12px; font-weight: 500; letter-spacing: .08em; line-height: 1.1; text-shadow: var(--tv-score-shadow); } /* labels share the figures' scoreboard face + drop shadow, colour unchanged */
-.tb-verdict { font: 11px/1.3 var(--sf-band-font); font-style: normal; text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
-.tb-verdict[data-tone="valid"] { color: var(--ui-success); }
-.tb-verdict[data-tone="invalid"] { color: var(--ui-danger); }
-@media (min-width: 760px) { .tv-totals.tb-value { grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.6fr); } .tv-totals.tb-value .tv-total { grid-column: auto; } }
+/* The Roster tab: one working pane. Source order = the phone reading order (left group, roster, right group); from 1180 px
+   (the shell's 260 px nav beside it) the three groups become columns. Panels in the pane are size containers, so rows lay
+   out by the room their column gives them, not by the viewport. */
+.tb-work { display: grid; gap: 16px; min-width: 0; }
+.tb-col { display: grid; gap: 16px; align-content: start; min-width: 0; }
+.tb-work .tb-panel { container: tbpanel / inline-size; }
+@media (min-width: 1180px) {
+  .tb-work { grid-template-columns: minmax(240px, 300px) minmax(360px, 1fr) minmax(250px, 310px); align-items: start; }
+}
+
+/* Validator: the five value cards stacked (scoreboard face + drop shadow on the labels too), then SP, the remaining value
+   lines and the tournament's rules for this race */
+.tv-totals.tb-value { margin: 0 0 10px; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.tv-totals.tb-value .tv-total { grid-column: auto; }
+.tv-totals.tb-value > div { flex-direction: row; justify-content: space-between; min-height: 44px; padding: 6px 12px; gap: 10px; }
+.tv-totals.tb-value > div > span { font-family: var(--tv-score-font); font-size: 12px; font-weight: 500; letter-spacing: .08em; line-height: 1.1; text-align: left; text-shadow: var(--tv-score-shadow); } /* labels share the figures' scoreboard face + drop shadow, colour unchanged */
+.tv-totals.tb-value b { font-size: 18px; text-align: right; }
+.tv-totals.tb-value b small { font-size: 12px; }
+.tv-totals.tb-value .tv-total { min-height: 52px; }
+.tv-totals.tb-value .tv-total b { font-size: 20px; }
+.tb-sp { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 4px 10px; margin: 0 0 10px; padding: 8px 12px; background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); }
+.tb-sp > .tb-k { margin: 0; }
+.tb-sp-total { font: 20px/1.1 var(--sf-band-font); font-weight: 500; color: var(--ui-gold); text-shadow: 2px 2px 0 rgb(0 0 0 / 80%); white-space: nowrap; }
+.tb-sp-total small { font-size: 12px; color: var(--ui-muted); }
+.tb-sp[data-tone="over"] .tb-sp-total { color: var(--ui-danger); }
+.tb-sp-players { grid-column: 1 / -1; list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font-size: 14px; }
+.tb-sp-players li { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; border-top: 1px solid var(--sf-panel-line); }
+.tb-sp-players span { min-width: 0; overflow-wrap: anywhere; }
+.tb-sp-players b { font-family: var(--sf-band-font); font-weight: 500; white-space: nowrap; }
+.tb-validator .tb-value-lines { margin-bottom: 10px; }
+.tb-rules { padding-top: 8px; border-top: 2px solid var(--sf-panel-line); }
+.tb-rules .tb-lines { font-size: 14px; }
+.tb-note { margin: 0 0 6px; font-size: 13px; }
+.tb-name-gate { margin: 0 0 8px; }
+.tb-col-right .tb-fields { grid-template-columns: minmax(0, 1fr); }
+.tb-col-right .tb-pack-grid { grid-template-columns: minmax(0, 1fr); }
+.tb-col-right .tb-action-row .tb-btn { flex: 1 1 auto; }
+.tb-col-left .tb-positions { grid-template-columns: minmax(0, 1fr); }
 
 /* buttons: band font, bevel and a 3 px lift */
 .tb-btn {
@@ -150,7 +181,6 @@
 .tb-row:has(> .tb-captain, > .tb-captain-slot) { grid-template-columns: auto auto auto minmax(0, 1fr) auto auto; grid-template-areas: "grip num sprite who capt cost" "stats stats stats stats fire fire" "skills skills skills skills skills skills" "actions actions actions actions actions actions"; }
 .tb-row:has(> .tb-captain, > .tb-captain-slot) > :is(.tb-captain, .tb-captain-slot) { grid-area: capt; }
 .tb-captain-slot { width: 44px; }
-.tb-skill-row { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "num who" "stats stats" "skills skills" "actions actions"; }
 .tb-num { min-width: 24px; font: 16px/1 var(--sf-band-font); text-align: center; color: var(--ui-heading); text-shadow: 2px 2px 0 rgb(0 0 0 / 80%); }
 .tb-grip { width: 44px; height: 44px; padding: 0; display: grid; place-items: center; cursor: grab; touch-action: none; color: var(--ui-muted); background: transparent; border: 2px solid var(--sf-panel-line); border-radius: 2px; }
 .tb-grip i { width: 10px; height: 16px; background: radial-gradient(circle, currentColor 1.5px, transparent 2px) 0 0 / 5px 5px; }
@@ -159,7 +189,7 @@
 .tb-captain[aria-pressed="true"] { color: var(--ui-surface); background: var(--ui-gold); border-color: var(--ui-gold); }
 .tb-fire { min-height: 36px; padding: 0 12px; font: 11px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-danger); background: transparent; border: 2px solid var(--sf-panel-line); border-radius: 2px; cursor: pointer; }
 .tb-fire:hover { border-color: var(--ui-danger); }
-.tb-row-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 3px; }
+.tb-row-actions .tm-act { min-height: 40px; }
 .tb-page .row-skills .skill { gap: 4px; }
 .tb-added { font-style: italic; }
 .tb-added.access-primary { box-shadow: inset 0 -2px 0 var(--ui-skill-general); }
@@ -191,9 +221,9 @@
 .tb-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .tb-table th, .tb-table td { padding: 6px; text-align: left; border-bottom: 1px solid var(--sf-panel-line); }
 
-/* Skills tab */
+/* skill rules, counts and key; the Add Skill / Add Stat picker */
 .tb-lines { margin: 0 0 8px; padding-left: 18px; display: grid; gap: 2px; }
-.tb-counts { margin: 0 0 8px; color: var(--ui-muted); }
+.tb-counts { margin: 10px 0 8px; color: var(--ui-muted); }
 .tb-counts b { font-family: var(--sf-band-font); color: var(--ui-text); }
 .tb-key { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; font-size: 13px; }
 .tb-modal { width: min(820px, 100%); }
@@ -216,7 +246,7 @@
 .tb-stat-option { color: var(--ui-text); }
 .tb-stat-option b { font-family: var(--sf-band-font); color: var(--ui-skill-general); }
 
-/* Sheet tab */
+/* Errors / Valid box */
 .tb-verdict-panel[data-tone="valid"] .hm-band { border-left-color: var(--ui-success); }
 .tb-verdict-panel[data-tone="valid"] .hm-band h2 { color: var(--ui-success); }
 .tb-verdict-panel[data-tone="invalid"] .hm-band { border-left-color: var(--ui-danger); }
@@ -226,18 +256,18 @@
 .tb-finding[data-kind="warning"] { border-left-color: var(--ui-gold); }
 .tb-finding[data-kind="notice"] { border-left-color: var(--ui-info, var(--sf-panel-line)); color: var(--ui-muted); }
 .tb-status { margin: 0 0 8px; color: var(--ui-muted); }
+.tb-panel .tm-share { flex-wrap: wrap; }
 .tb-result { display: grid; gap: 2px; margin-bottom: 8px; padding: 8px 12px; background: var(--ui-surface-2); border-left: 4px solid var(--ui-danger); border-radius: 2px; overflow-wrap: anywhere; }
 .tb-result[data-ok="true"] { border-left-color: var(--ui-success); }
 .tb-value-lines { display: grid; gap: 2px; margin: 0; }
 .tb-value-lines > div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--sf-panel-line); }
 .tb-value-lines dt { color: var(--ui-muted); }
 .tb-value-lines dd { margin: 0; font-family: var(--sf-band-font); text-align: right; }
-.tb-value-lines > div:last-child dd { color: var(--ui-gold); text-shadow: 1px 1px 0 rgb(0 0 0 / 70%); }
 .tb-value-lines > div[data-tone="over"] dd { color: var(--ui-danger); }
 .tb-value-lines > div[data-tone="hint"] dd { color: var(--ui-muted); font-style: italic; }
 .tb-sheet { min-width: 0; }
 .tb-sheet .tv-banner .tv-name { margin: 0; }
-/* phone: the share view's cards only (its table needs 760 px) */
+/* Sheet tab; phone: the share view's cards only (its table needs 760 px) */
 .tb-sheet .tv-table { display: none; }
 @media (min-width: 760px) { .tb-sheet .tv-table { display: table; } }
 
@@ -250,26 +280,26 @@
   html.tb-printing .tb-print-host { display: block; position: absolute; inset: 0 auto auto 0; width: 100%; }
 }
 
-@media (min-width: 760px) {
-  .tb-row { grid-template-columns: auto auto auto minmax(140px, 1fr) auto minmax(0, 2fr) auto auto; grid-template-areas: "grip num sprite who stats skills cost fire"; }
-  .tb-row:has(> .tb-captain, > .tb-captain-slot) { grid-template-columns: auto auto auto minmax(140px, 1fr) auto auto minmax(0, 2fr) auto auto; grid-template-areas: "grip num sprite who capt stats skills cost fire"; }
-  .tb-skill-row { grid-template-columns: auto minmax(120px, 1fr) auto minmax(0, 2fr) auto; grid-template-areas: "num who stats skills actions"; }
+/* roster rows: identity + stats on one line, then skills beside the Add Skill / Add Stat buttons, once the column is wide */
+@container tbpanel (min-width: 600px) {
+  .tb-row { grid-template-columns: auto auto auto minmax(110px, 1fr) auto auto auto; grid-template-areas: "grip num sprite who stats cost fire" "skills skills skills skills actions actions actions"; }
+  .tb-row:has(> .tb-captain, > .tb-captain-slot) { grid-template-columns: auto auto auto minmax(110px, 1fr) auto auto auto auto; grid-template-areas: "grip num sprite who capt stats cost fire" "skills skills skills skills skills actions actions actions"; }
   .tb-row > .tb-row-actions { justify-self: end; }
-  .tb-step-row { grid-template-columns: 40px minmax(0, 1fr) auto 140px; grid-template-areas: "icon who step cost"; }
-  .tb-step-row:not(:has(> .tb-step-cost)) { grid-template-columns: 40px minmax(0, 1fr) auto 140px; grid-template-areas: "icon who step ."; }
+}
+@container tbpanel (min-width: 480px) {
+  .tb-step-row { grid-template-columns: 40px minmax(0, 1fr) auto 120px; grid-template-areas: "icon who step cost"; }
+  .tb-step-row:not(:has(> .tb-step-cost)) { grid-template-columns: 40px minmax(0, 1fr) auto 120px; grid-template-areas: "icon who step ."; }
+}
+@container tbpanel (max-width: 420px) {
+  .tb-row .tb-who small { display: none; }
+  .tb-row .tb-stats { grid-template-columns: repeat(5, minmax(30px, 1fr)); }
+  .tb-position > .tb-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); width: 100%; }
 }
 @media (max-width: 640px) {
-  .tv-totals.tb-value { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
-  .tv-totals.tb-value > div { min-height: 0; padding: 6px 4px; gap: 2px; }
-  .tv-totals.tb-value > div > span { font-size: 10px; letter-spacing: .04em; }
-  .tv-totals.tb-value b { font-size: 15px; }
-  .tv-totals.tb-value .tv-total b { font-size: 20px; }
   .tb-tabs .tl-seg-btn { padding: 0 8px; font-size: 11px; letter-spacing: .06em; }
   .tb-summary .tt-summary-row { grid-template-columns: 1fr; }
-  .tb-position > .tb-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); width: 100%; }
-  .tb-row .tb-who small { display: none; }
-  .tb-row .tb-stats { grid-template-columns: repeat(5, minmax(32px, 1fr)); }
 }
 
 /* FUMBBL (light) theme: the hard numeral shadows read as smudges on the light panels. */
 :root[data-theme="fumbbl"] .tb-page :is(.tb-cost, .tb-stat b, .tb-num, .tb-stepper b, .tt-rt-tier, .tb-value-lines dd) { text-shadow: none; }
+
