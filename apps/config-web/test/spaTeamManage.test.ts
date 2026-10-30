@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
-import { canAdvance, careerCells, createTeamManage, dialogKey, nextCostHint, progressLine, sppMeter, teamManagePath, valueBreakdownText, type PlayerProgress, type TeamManageModel } from "../spa/src/teams/manage";
+import { builderHref, canAdvance, careerCells, createTeamManage, dialogKey, nextCostHint, progressLine, sppMeter, teamManagePath, valueBreakdownText, type PlayerProgress, type TeamManageModel } from "../spa/src/teams/manage";
 
 // Team management page (/app/teams/:ref, owner 10-30) and the My teams page restyle. The controller is tested directly;
 // the views are server-rendered through the SPA's own Vite config (as spaHome.test.ts does).
@@ -60,6 +60,7 @@ describe("team management controller", () => {
     await g.load("library:9");
     expect(g.state).toMatchObject({ notFound: true, model: null, error: "Team not found." });
     expect(teamManagePath("library:77")).toBe("/teams/library%3A77");
+    expect(builderHref("sv_a")).toBe("/tournament-team-builder/sv_a");
   });
 
   it("random Primary: roll a category, keep a rolled skill with the reserved revision, then reload on close", async () => {
@@ -370,7 +371,7 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(html).toContain('<th scope="col" class="tv-spp">SPP</th>');
     expect(html).toContain('<td class="tv-spp"><span class="tm-spp" title="SPP 12 · Emerging Star · 2 advancements">12/6</span></td>');
     expect(html).toMatch(/<a href="\/app\/my-teams" class="[^"]*tm-back[^"]*">Back to My teams<\/a>/);
-    expect(html).toContain('href="/tournament-team-builder.html?save=sv_a">Open in Tournament Builder</a>');
+    expect(html).toMatch(/<a href="\/app\/tournament-team-builder\/sv_a" class="[^"]*lobby-btn[^"]*">Open in Tournament Builder<\/a>/);
     expect(html).toMatch(/<button type="button" class="lobby-btn primary">Share<\/button>/);
     expect(html).toContain("Team value <b>1,000k</b>");
     expect(html).toMatch(/<button type="button" class="lobby-btn" aria-haspopup="dialog">Team avatar<\/button>/);
@@ -500,7 +501,7 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(html).not.toContain("mt-avatars-h");
     expect(html).not.toContain(">Upload<");
     expect(html).not.toContain('type="file"');
-    expect(html).toContain('<a href="/team-builder.html">Team Builder</a> · <a href="/tournament-team-builder.html">Tournament Builder</a>');
+    expect(html).toContain('<a href="/team-builder.html">Team Builder</a> · <a href="/app/tournament-team-builder"');
     const empty = await render("/my-teams", { "/api/tabletop/saves?coach=Alice": { coach: "Alice", teams: [] } });
     expect(empty).toContain('<p class="hm-empty">No teams yet. <a href="/team-builder.html">Build one</a>.</p>');
   });

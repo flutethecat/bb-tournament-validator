@@ -106,7 +106,7 @@ describe("team view core", () => {
     expect(m.indexOf("<h1")).toBeLessThan(m.indexOf('tv-banner-meta'));
     expect(TeamView.viewHtml(fixture())).not.toContain("Open in Tournament Builder");
     const owned = TeamView.viewHtml({ ...fixture(), ownerSaveId: "sv_abc" });
-    expect(owned).toContain('<a class="session-button tv-owner" href="/tournament-team-builder.html?save=sv_abc">Open in Tournament Builder</a>');
+    expect(owned).toContain('<a class="session-button tv-owner" href="/app/tournament-team-builder/sv_abc">Open in Tournament Builder</a>');
     expect(TeamView.viewHtml({ ...fixture(), ownerSaveId: "x\"><script>" })).not.toContain("Open in Tournament Builder");
   });
 });
@@ -146,7 +146,7 @@ describe("team view controller", () => {
     expect(rootEl.innerHTML).not.toContain("Open in Tournament Builder");
     expect(doc.title).toBe("Grudge <XI> — Super FUMBBL");
     expect(nav.every((link) => link.hidden)).toBe(true);
-    expect(html).toContain('<a href="/tournament-team-builder.html">Tournament</a>');
+    expect(html).toContain('<a href="/app/tournament-team-builder">Tournament</a>');
   });
 
   it("the owner's session gets the Open in Tournament Builder link (from the server's ownerSaveId)", async () => {
@@ -155,7 +155,7 @@ describe("team view controller", () => {
       [`/api/fork/team-builder/shared/${TOKEN}`]: () => ({ status: 200, body: { team: { ...fixture(), ownerSaveId: "sv_abc" } } }),
     });
     await page.start();
-    expect(rootEl.innerHTML).toContain("?save=sv_abc");
+    expect(rootEl.innerHTML).toContain("/app/tournament-team-builder/sv_abc");
     expect(nav.find((link) => link.text === "My Teams")!.hidden).toBe(false);
     expect(nav.filter((link) => link.admin).every((link) => link.hidden)).toBe(true);
   });

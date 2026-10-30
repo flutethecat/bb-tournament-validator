@@ -83,7 +83,7 @@ onServerPrefetch(async () => {
       <div class="hm-col hm-col-side">
         <section id="build" class="hm-panel" aria-labelledby="mt-build-h">
           <header class="hm-band"><h2 id="mt-build-h">Build a team</h2></header>
-          <p class="hm-links"><a href="/team-builder.html">Team Builder</a> · <a href="/tournament-team-builder.html">Tournament Builder</a></p>
+          <p class="hm-links"><a href="/team-builder.html">Team Builder</a> · <RouterLink to="/tournament-team-builder">Tournament Builder</RouterLink></p>
         </section>
       </div>
     </div>

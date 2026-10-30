@@ -58,7 +58,7 @@
 
   /** The team management page (SPA, owner 10-30). */
   const manageUrl = (id) => `/app/teams/${encodeURIComponent(id)}`;
-  const openUrl = (id) => `/tournament-team-builder.html?save=${encodeURIComponent(id)}`;
+  const openUrl = (id) => `/app/tournament-team-builder/${encodeURIComponent(id)}`;
 
   /** The share-link strip under the table: the link in a read-only field + Copy. */
   function shareFieldHtml(link) {

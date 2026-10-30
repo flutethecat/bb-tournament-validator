@@ -501,7 +501,7 @@ export function submitChoices(options: TournamentDetailState["teamOptions"]): Su
 // ---- tournament page helpers (pure) ----
 
 /** The Tournament Builder pre-filtered to a package (its ?package= deep link). */
-export const rulesetBuilderHref = (packageName: string): string => `/tournament-team-builder.html?package=${encodeURIComponent(packageName)}`;
+export const rulesetBuilderHref = (packageName: string): string => `/tournament-team-builder?package=${encodeURIComponent(packageName)}`;
 /** The Tournament Creator opened on a package (organiser page in the SPA; the name rides in the query so dots survive). */
 export const rulesetCreatorHref = (packageName: string): string => `/app/tournament-creator?package=${encodeURIComponent(packageName)}`;
 

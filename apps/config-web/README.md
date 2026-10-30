@@ -31,7 +31,7 @@ are loaded by `spa/index.html`; the shell styles with their `--ui-*` tokens, so 
 | `/app/standings?league=` | league standings table from `/api/standings` (public) |
 | `/app/tournaments` | placeholder linking to `/tournaments.html` |
 | `/app/team-builder` | placeholder linking to `/team-builder.html` |
-| `/app/tournament-team-builder` | placeholder linking to `/tournament-team-builder.html` |
+| `/app/tournament-team-builder` | the Tournament Builder (the old `/tournament-team-builder.html` 302s here, `?save=<id>` becomes the path) |
 | `/app/account` | the session's Discord identity + linked FUMBBL name (`GET /api/account`), Sign out |
 
 Identity is the Discord session only: `spa/src/session.ts` reads `GET /api/auth/session` (the same endpoint the

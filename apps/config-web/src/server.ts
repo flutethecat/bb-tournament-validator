@@ -3875,6 +3875,29 @@ const siteBackend = await createSiteBackend(LIBRARY_DIR, async () => {
 // Persisted sessions: prune expired ones every 10 minutes (memory and disk).
 setInterval(() => sweepSessions(), 10 * 60 * 1000).unref();
 
+/**
+ * Owner 10-30: the SPA routes are the ONE display path for the Tournament Builder and Tournament Creator. The old
+ * vanilla URLs answer with a 302 that carries the query through (`?save=<id>` becomes the path segment).
+ */
+export function legacyTournamentRedirect(pathname: string, search: string): string | undefined {
+  if (pathname === "/tournament-team-builder.html") {
+    const params = new URLSearchParams(search);
+    const save = params.get("save");
+    let path = "/app/tournament-team-builder";
+    if (save && /^[\w-]{1,64}$/.test(save)) {
+      params.delete("save");
+      path += `/${encodeURIComponent(save)}`;
+    }
+    const q = params.toString();
+    return q ? `${path}?${q}` : path;
+  }
+  if (pathname === "/tournament-rules.html") {
+    const q = new URLSearchParams(search).toString();
+    return q ? `/app/tournament-creator?${q}` : "/app/tournament-creator";
+  }
+  return undefined;
+}
+
 export const server = createServer((req, res) => {
   refreshSessionCookie(req, res); // slides the browser cookie with the server-side idle expiry (throttled)
   void (async () => {
@@ -3937,9 +3960,16 @@ export const server = createServer((req, res) => {
       if ((req.method === "POST" || req.method === "GET") && nameGeneratePath(url.pathname)) {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
+      {
+        const legacy = req.method === "GET" || req.method === "HEAD" ? legacyTournamentRedirect(url.pathname, url.search) : undefined;
+        if (legacy) {
+          res.writeHead(302, { location: legacy, "cache-control": "no-store" }).end();
+          return;
+        }
+      }
       // Owner 10-27: the bare origin ("/") is the coach-facing Tournament Builder, never the admin hub.
       if ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/" || url.pathname === "/index.html")) {
-        res.writeHead(302, { location: "/tournament-team-builder.html", "cache-control": "no-store" }).end();
+        res.writeHead(302, { location: "/app/tournament-team-builder", "cache-control": "no-store" }).end();
         return;
       }
       if (
@@ -3983,7 +4013,7 @@ export const server = createServer((req, res) => {
         // Owner 10-27: the control-panel hub is admin/organiser only; a coach or anonymous visitor is sent to
         // the Tournament Builder instead of seeing the workspace chooser.
         if ((url.pathname === "/control-panel.html" || url.pathname === "/control-panel.js") && !(auth?.admin || auth?.organizer)) {
-          res.writeHead(302, { location: "/tournament-team-builder.html", "cache-control": "no-store" }).end();
+          res.writeHead(302, { location: "/app/tournament-team-builder", "cache-control": "no-store" }).end();
           return;
         }
         if (isOrganizerWrite(method, url.pathname) && !auth?.organizer) {

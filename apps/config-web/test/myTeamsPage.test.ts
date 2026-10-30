@@ -143,7 +143,7 @@ describe("my teams page — controller", () => {
     await page.start();
     byId.get("my-teams-list").listeners.click[0]({ target: clickTarget("data-open-save", "sv_new") });
     byId.get("my-teams-list").listeners.keydown[0]({ key: "Enter", target: clickTarget("data-open-save", "sv/old") });
-    expect(navigations).toEqual(["/tournament-team-builder.html?save=sv_new", "/tournament-team-builder.html?save=sv%2Fold"]);
+    expect(navigations).toEqual(["/app/tournament-team-builder/sv_new", "/app/tournament-team-builder/sv%2Fold"]);
   });
 
   it("Rename PUTs the stored body under the new name; Delete asks first and DELETEs", async () => {

@@ -142,7 +142,7 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
       <RouterLink ref="backLink" class="lobby-btn tm-back" to="/my-teams">Back to My teams</RouterLink>
       <template v-if="info">
         <button ref="avatarBtn" type="button" class="lobby-btn" aria-haspopup="dialog" @click="manage.openAvatar()">Team avatar</button>
-        <a v-if="info.saveId" class="lobby-btn" :href="builderHref(info.saveId)">Open in Tournament Builder</a>
+        <RouterLink v-if="info.saveId" class="lobby-btn" :to="builderHref(info.saveId)">Open in Tournament Builder</RouterLink>
         <RouterLink v-if="info.libraryRef" class="lobby-btn" :to="teamManagePath(info.libraryRef)">Manage the fork team</RouterLink>
         <button v-if="info.saveId && !info.shareToken" type="button" class="lobby-btn primary" :disabled="state.shareBusy" @click="manage.setShared(true)">Share</button>
       </template>

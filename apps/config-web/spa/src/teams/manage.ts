@@ -141,7 +141,8 @@ const enc = encodeURIComponent;
 const statusOf = (err: unknown): number => (err instanceof ApiError ? err.status : typeof (err as { status?: unknown })?.status === "number" ? (err as { status: number }).status : 0);
 export const teamManagePath = (ref: string): string => `/teams/${enc(ref)}`;
 export const shareUrl = (origin: string, token: string): string => `${origin.replace(/\/+$/, "")}/t/${token}`;
-export const builderHref = (saveId: string): string => `/tournament-team-builder.html?save=${enc(saveId)}`;
+/** Router path (the SPA Tournament Builder, owner 10-30): render with RouterLink, not a plain href. */
+export const builderHref = (saveId: string): string => `/tournament-team-builder/${enc(saveId)}`;
 const k = (gold: number): string => `${Math.round(gold / 1000)}k`;
 
 /** One player's progression line ("SPP 12 (earned 20) · Emerging Star · 2 advancements"). */

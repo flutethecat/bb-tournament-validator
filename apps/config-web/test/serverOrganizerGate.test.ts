@@ -206,7 +206,7 @@ describe("control-panel landing", () => {
     for (const path of ["/", "/index.html"]) {
       const response = await fetch(`${origin}${path}`, { redirect: "manual" });
       expect(response.status).toBe(302);
-      expect(response.headers.get("location")).toBe("/tournament-team-builder.html");
+      expect(response.headers.get("location")).toBe("/app/tournament-team-builder");
     }
     // anonymous and plain-coach visitors never see the workspace chooser
     const anon = await fetch(`${origin}/control-panel.html`, { redirect: "manual" });
@@ -215,14 +215,14 @@ describe("control-panel landing", () => {
     const coach = createSession("PlainCoach");
     const asCoach = await fetch(`${origin}/control-panel.html`, { redirect: "manual", headers: { authorization: `Bearer ${coach.token}` } });
     expect(asCoach.status).toBe(302);
-    expect(asCoach.headers.get("location")).toBe("/tournament-team-builder.html");
+    expect(asCoach.headers.get("location")).toBe("/app/tournament-team-builder");
     const organizer = createSession("OrganizerCoach");
     const asOrganizer = await fetch(`${origin}/control-panel.html`, { headers: { authorization: `Bearer ${organizer.token}` } });
     expect(asOrganizer.status).toBe(200);
     expect(await asOrganizer.text()).toContain("Choose a workspace");
-    const rules = await fetch(`${origin}/tournament-rules.html`);
-    expect(rules.status).toBe(200);
-    expect(await rules.text()).toContain("Tournament Creator");
+    const rules = await fetch(`${origin}/tournament-rules.html?package=x`, { redirect: "manual" });
+    expect(rules.status).toBe(302); // the old page is one display path with the SPA Tournament Creator
+    expect(rules.headers.get("location")).toBe("/app/tournament-creator?package=x");
   });
 });
 

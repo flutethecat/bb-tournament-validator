@@ -76,6 +76,25 @@ describe("SPA routes (sidecar on)", () => {
     expect(((await after.json()) as { authenticated: boolean }).authenticated).toBe(false);
   });
 
+  it("the old Tournament Builder / Creator pages 302 to the SPA routes, query carried, no-store", async () => {
+    const cases: Array<[string, string]> = [
+      ["/tournament-team-builder.html", "/app/tournament-team-builder"],
+      ["/tournament-team-builder.html?save=sv_a1", "/app/tournament-team-builder/sv_a1"],
+      ["/tournament-team-builder.html?save=sv_a1&race=Orc", "/app/tournament-team-builder/sv_a1?race=Orc"],
+      ["/tournament-team-builder.html?package=nut-cup&race=Orc", "/app/tournament-team-builder?package=nut-cup&race=Orc"],
+      ["/tournament-team-builder.html?save=a%2Fb", "/app/tournament-team-builder?save=a%2Fb"],
+      ["/tournament-rules.html", "/app/tournament-creator"],
+      ["/tournament-rules.html?package=nut.cup", "/app/tournament-creator?package=nut.cup"],
+      ["/tournament-rules.html?new=1", "/app/tournament-creator?new=1"],
+    ];
+    for (const [from, to] of cases) {
+      const res = await fetch(`${origin}${from}`, { redirect: "manual" });
+      expect(res.status, from).toBe(302);
+      expect(res.headers.get("location"), from).toBe(to);
+      expect(res.headers.get("cache-control"), from).toBe("no-store");
+    }
+  });
+
   it("a non-SPA page still redirects to /login, and the API the SPA calls still answers 401", async () => {
     const page = await fetch(`${origin}/users.html`, { redirect: "manual" });
     expect(page.status).toBe(302);

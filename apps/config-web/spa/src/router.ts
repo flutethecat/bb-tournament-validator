@@ -95,7 +95,7 @@ export const routes: RouteRecordRaw[] = [
     props: true,
     meta: { requiresAuth: true, title: "Team" },
   },
-  // Tournament Creator (owner 10-30): the organiser's ruleset-package editor; /tournament-rules.html keeps serving. One
+  // Tournament Creator (owner 10-30): the organiser's ruleset-package editor; /tournament-rules.html 302s here. One
   // route: the package rides in the query (?package=<name>, the old page's deep link; ?new=1 for an unsaved document), so
   // names with dots survive a refresh and switching documents never remounts the editor. Organisers and admins only.
   // Loaded on demand (an organiser-only page): the view is imported here so this block stays self-contained.
@@ -124,7 +124,7 @@ export const routes: RouteRecordRaw[] = [
   // Tournament Builder (owner 10-30): public like the vanilla page (browsing and the guest preview need no sign-in; saving,
   // sharing and Create on Fork ask for the Discord session in place). /tournament-team-builder/<saveId> opens a saved team
   // (one record with an optional param, so saving swaps the address without remounting); ?package=&race= and the vanilla
-  // ?save= deep links keep working. /tournament-team-builder.html still serves the vanilla page unchanged.
+  // ?save= deep links keep working. /tournament-team-builder.html 302s here (server.ts legacyTournamentRedirect).
   {
     path: "/tournament-team-builder/:saveId([\\w-]{1,64})?",
     name: "tournament-team-builder",

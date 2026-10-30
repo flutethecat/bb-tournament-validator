@@ -185,7 +185,7 @@
     const date = formatDate(team.updatedAt);
     const dateTitle = date ? ` title="${esc(`Updated ${date}`)}"` : "";
     const owner = !opts.hideOwnerLink && typeof team.ownerSaveId === "string" && /^[\w-]{1,64}$/.test(team.ownerSaveId)
-      ? `<a class="session-button tv-owner" href="/tournament-team-builder.html?save=${encodeURIComponent(team.ownerSaveId)}">Open in Tournament Builder</a>` : "";
+      ? `<a class="session-button tv-owner" href="/app/tournament-team-builder/${encodeURIComponent(team.ownerSaveId)}">Open in Tournament Builder</a>` : "";
     return `<header class="tv-banner">
         ${crestHtml(team, Boolean(opts.avatarButton))}
         <h1 class="tv-name">${esc(team.teamName)}</h1>
@@ -207,7 +207,7 @@
 
   function notFoundHtml() {
     return `<section class="tv-gone"><h1><span>T</span>eam not found</h1><p>This team link is no longer available.</p>
-      <p><a class="session-button secondary" href="/tournament-team-builder.html">Build a team</a></p></section>`;
+      <p><a class="session-button secondary" href="/app/tournament-team-builder">Build a team</a></p></section>`;
   }
 
   /**

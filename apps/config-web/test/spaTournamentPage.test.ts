@@ -77,7 +77,7 @@ describe("page helpers", () => {
     expect(facts.location).toMatchObject({ value: "The Dugout", sub: "1 Pitch Lane", subHref: "https://maps.example.org/?q=dugout" });
     expect(facts.dates?.value).toBe("2026-11-28 to 2026-11-29");
     expect(facts.startTime?.value).toBe("09:30");
-    expect(facts.ruleset).toMatchObject({ value: "nut-cup", href: "/tournament-team-builder.html?package=nut-cup" });
+    expect(facts.ruleset).toMatchObject({ value: "nut-cup", href: "/tournament-team-builder?package=nut-cup" });
     expect(facts.format?.value).toBe("Swiss · Dutch · 5 rounds");
     expect(facts.entryFee?.value).toBe("15 GBP");
     expect(facts.places?.value).toBe("6");
@@ -177,7 +177,7 @@ describe("tournament page views (server-rendered against a mocked API)", () => {
     expect(html).not.toContain("tn-front-img");
     for (const text of ["The Dugout", "1 Pitch Lane", "09:30", "15 GBP", "Swiss · Dutch · 5 rounds", "Places left", "Registration closes", "2026-11-20 23:59 UTC", "Check-in by"])
       expect(html, text).toContain(text);
-    expect(html).toContain('href="/tournament-team-builder.html?package=nut-cup"');
+    expect(html).toContain('href="/app/tournament-team-builder?package=nut-cup"');
     expect(html).toContain('href="https://maps.example.org/?q=dugout"');
     // SSR fragment markers sit between the tags; strip them for the structural checks.
     const flat = html.replace(/<!--[\s\S]*?-->/g, "");
