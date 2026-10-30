@@ -508,7 +508,10 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     const tb = await render("/team-builder", { "/api/auth/session": { authenticated: false } });
     expect(tb.html).toContain('href="/team-builder.html"');
     const ttb = await render("/tournament-team-builder", { "/api/auth/session": { authenticated: false } });
-    expect(ttb.html).toContain('href="/tournament-team-builder.html"');
+    // Owner 10-30: the Tournament Builder is a real SPA view now (public like the vanilla page), not a link-out.
+    expect(ttb.spa.router.currentRoute.value.name).toBe("tournament-team-builder");
+    expect(ttb.html).toContain('<h1 class="hm-title">Tournament Builder');
+    expect(ttb.html).not.toContain("Login with Discord to");
     const nf = await render("/nowhere", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } });
     expect(nf.html).toContain("Page not found");
     const badId = await render("/lobby/<x>", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } });

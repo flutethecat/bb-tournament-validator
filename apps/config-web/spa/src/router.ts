@@ -25,6 +25,7 @@ import TabletopListView from "./views/TabletopListView.vue";
 import TabletopOrganiserView from "./views/TabletopOrganiserView.vue";
 import TabletopRecorderView from "./views/TabletopRecorderView.vue";
 import TeamManageView from "./views/TeamManageView.vue";
+import TournamentBuilderView from "./views/TournamentBuilderView.vue";
 import TournamentDetailView from "./views/TournamentDetailView.vue";
 import TournamentListView from "./views/TournamentListView.vue";
 import TournamentTeamView from "./views/TournamentTeamView.vue";
@@ -120,11 +121,15 @@ export const routes: RouteRecordRaw[] = [
     props: { title: "Team Builder", href: "/team-builder.html", blurb: "Build and save a team sheet." },
     meta: { title: "Team Builder" },
   },
+  // Tournament Builder (owner 10-30): public like the vanilla page (browsing and the guest preview need no sign-in; saving,
+  // sharing and Create on Fork ask for the Discord session in place). /tournament-team-builder/<saveId> opens a saved team
+  // (one record with an optional param, so saving swaps the address without remounting); ?package=&race= and the vanilla
+  // ?save= deep links keep working. /tournament-team-builder.html still serves the vanilla page unchanged.
   {
-    path: "/tournament-team-builder",
+    path: "/tournament-team-builder/:saveId([\\w-]{1,64})?",
     name: "tournament-team-builder",
-    component: LinkOutView,
-    props: { title: "Tournament Builder", href: "/tournament-team-builder.html", blurb: "Build a team against a tournament's rules." },
+    component: TournamentBuilderView,
+    props: (route) => ({ saveId: typeof route.params.saveId === "string" && route.params.saveId ? route.params.saveId : undefined }),
     meta: { title: "Tournament Builder" },
   },
   { path: "/my-teams", name: "my-teams", component: MyTeamsView, meta: { requiresAuth: true, title: "My teams" } },
