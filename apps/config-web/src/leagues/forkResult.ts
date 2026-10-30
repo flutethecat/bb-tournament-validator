@@ -332,23 +332,3 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
   return { applied: true, result: applied, retired };
 }
 
-/**
- * The legal-concession verdicts a league fixture banked for fork game `gameId`, keyed by fork team id (the game page
- * reads them; src/gameDetail.ts). Undefined when no league fixture holds that game's result or nobody conceded.
- */
-export function concessionVerdicts(seasons: Iterable<SeasonRecord>, gameId: string): Record<string, boolean> | undefined {
-  for (const season of seasons) {
-    for (const f of season.fixtures) {
-      const fork = f.fork;
-      if (!fork?.result || fork.result.gameId !== gameId) continue;
-      const out: Record<string, boolean> = {};
-      for (const side of ["home", "away"] as const) {
-        const verdict = fork.result[side].concededLegally;
-        const team = fork.teams[side];
-        if (team && typeof verdict === "boolean") out[team.forkTeamId] = verdict;
-      }
-      return Object.keys(out).length ? out : undefined;
-    }
-  }
-  return undefined;
-}

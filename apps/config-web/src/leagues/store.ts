@@ -8,7 +8,29 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync 
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 import { linkPlayerCareers, needsPlayerIds } from "./playerIds.js";
-import type { LeagueRecord, LeagueSecrets, SeasonRecord } from "./types.js";
+import type { LeagueFixture, LeagueRecord, LeagueSecrets, SeasonRecord } from "./types.js";
+
+/** Where a fork game was played for a league fixture, and the legal-concession verdicts its banked result carries. */
+export interface ForkGameIndexEntry {
+  leagueId: string;
+  seasonId: string;
+  fixtureId: string;
+  /** By fork team id; only sides whose banked result carries concededLegally. Absent = none. */
+  verdicts?: Record<string, boolean>;
+}
+
+/** The index entry of one fixture's fork game (undefined when the fixture has no fork game). */
+function forkGameEntry(leagueId: string, seasonId: string, f: LeagueFixture): ForkGameIndexEntry | undefined {
+  const fork = f.fork;
+  if (!fork?.gameId && !fork?.result) return undefined;
+  const verdicts: Record<string, boolean> = {};
+  for (const side of ["home", "away"] as const) {
+    const verdict = fork.result?.[side].concededLegally;
+    const team = fork.teams[side];
+    if (team && typeof verdict === "boolean") verdicts[team.forkTeamId] = verdict;
+  }
+  return { leagueId, seasonId, fixtureId: f.id, ...(Object.keys(verdicts).length ? { verdicts } : {}) };
+}
 
 export const LEAGUE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const SEASON_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -27,8 +49,51 @@ export type LeagueInput = Omit<LeagueRecord, "createdAt" | "updatedAt" | "organi
 export class LeagueStore {
   readonly root: string;
 
-  constructor(stateDir: string) {
+  /**
+   * Fork game id -> league fixture (forkGame). Built lazily from every season once, then kept current by putSeason /
+   * removeSeason, so a lookup (hit or miss) reads no file. A season written by ANOTHER process (an import run, a rig) is
+   * picked up when the index is rebuilt, at most every `forkIndexTtlMs`.
+   */
+  private forkIndex: { at: number; byGame: Map<string, ForkGameIndexEntry> } | undefined;
+  private readonly forkIndexTtlMs: number;
+  private readonly now: () => number;
+
+  constructor(stateDir: string, opts: { forkIndexTtlMs?: number; now?: () => number } = {}) {
     this.root = join(stateDir, "leagues");
+    this.forkIndexTtlMs = opts.forkIndexTtlMs ?? 10 * 60_000;
+    this.now = opts.now ?? Date.now;
+  }
+
+  /** The league fixture fork game `gameId` was played for, if any (cached index; see forkIndex). */
+  forkGame(gameId: string): ForkGameIndexEntry | undefined {
+    const index = this.forkIndex && this.now() - this.forkIndex.at < this.forkIndexTtlMs ? this.forkIndex : this.buildForkIndex();
+    const hit = index.byGame.get(gameId);
+    return hit ? structuredClone(hit) : undefined;
+  }
+
+  private buildForkIndex(): NonNullable<LeagueStore["forkIndex"]> {
+    const byGame = new Map<string, ForkGameIndexEntry>();
+    if (existsSync(this.root)) {
+      for (const leagueId of readdirSync(this.root).filter((id) => LEAGUE_ID.test(id))) {
+        for (const s of this.rawSeasons(leagueId)) this.indexSeason(byGame, s);
+      }
+    }
+    this.forkIndex = { at: this.now(), byGame };
+    return this.forkIndex;
+  }
+
+  private indexSeason(byGame: Map<string, ForkGameIndexEntry>, s: SeasonRecord): void {
+    for (const f of s.fixtures ?? []) {
+      const entry = forkGameEntry(s.leagueId, s.id, f);
+      const gameId = f.fork?.result?.gameId ?? f.fork?.gameId;
+      if (entry && gameId) byGame.set(gameId, entry);
+    }
+  }
+
+  /** Drops a season's entries from a built index (a season write or removal); an unbuilt index stays unbuilt. */
+  private unindexSeason(leagueId: string, seasonId: string): void {
+    if (!this.forkIndex) return;
+    for (const [gameId, e] of this.forkIndex.byGame) if (e.leagueId === leagueId && e.seasonId === seasonId) this.forkIndex.byGame.delete(gameId);
   }
 
   leagueDir(id: string): string {
@@ -169,6 +234,8 @@ export class LeagueStore {
     // Monotonic per season id (also when the caller wrote from a stale copy): read-model caches key on it.
     season.revision = Math.max(all.find((s) => s.id === season.id)?.revision ?? 0, season.revision ?? 0) + 1;
     this.write(join(dir, `${season.id}.json`), season);
+    this.unindexSeason(season.leagueId, season.id);
+    if (this.forkIndex) this.indexSeason(this.forkIndex.byGame, season);
     if (prior && prior.id !== season.id) this.removeSeason(season.leagueId, prior.id);
     return prior ? { replaced: prior.id } : {};
   }
@@ -177,6 +244,7 @@ export class LeagueStore {
     if (!SEASON_ID.test(seasonId)) return;
     const path = join(this.leagueDir(leagueId), "seasons", `${seasonId}.json`);
     try { unlinkSync(path); } catch { /* gone */ }
+    this.unindexSeason(leagueId, seasonId);
   }
 }
 

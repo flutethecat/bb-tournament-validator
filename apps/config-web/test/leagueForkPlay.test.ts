@@ -1,12 +1,12 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { adminExchange } from "@bb/fork-ops";
 import { leagueApi, resetForkToggleLimit, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
 import type { DiscordPayload } from "../src/leagues/discord";
 import { syncLeagueForkResults, type ForkFindOutcome, type ForkScheduleOutcome, type LeagueForkClient } from "../src/leagues/forkPlay";
-import { applyForkResult, concessionVerdicts, fromBasicResult, fromParsedResult, mutateLeagueTeam, type ForkGameResult } from "../src/leagues/forkResult";
+import { applyForkResult, fromBasicResult, fromParsedResult, mutateLeagueTeam, type ForkGameResult } from "../src/leagues/forkResult";
 import { confirmedList } from "../src/leagues/forkClient";
 import { buildLeagueForkTeam, forkPlayerIdFor, forkPlayLock, forkRosterFor, forkTeamIdFor, ForkTeamBuildError, statDelta, type LeagueForkTeamFile } from "../src/leagues/forkTeam";
 import { targetConflict } from "../src/leagues/redraft";
@@ -295,12 +295,42 @@ describe("extra result data that fills itself (owner 10-30: G1, G2, G4)", () => 
     expect(decay.players.find((p) => p.playerId === "p-thrower")!.stats.injuries).toBe(1);
   });
 
-  it("the game page finds the banked legal-concession verdict by fork game id", () => {
-    const { s, f } = scheduled();
-    expect(concessionVerdicts([s], "g42")).toBeUndefined(); // no result yet
-    applyForkResult(s, f, fromParsedResult(parsed()), new Date());
-    expect(concessionVerdicts([s], "g42")).toEqual({ [aid]: false });
-    expect(concessionVerdicts([s], "g43")).toBeUndefined();
+  it("the game page reads the verdict from the store's fork-game index: no season file read after it is built, a new bank is found at once", () => {
+    const dir = mkdtempSync(join(tmpdir(), "league-forkindex-"));
+    try {
+      let clock = 0;
+      const store = new LeagueStore(dir, { now: () => clock });
+      store.upsertLeague({ id: "tabbl", name: "TABBL", fullName: "TABBL", slug: "tabbl", organisers: ["Jay"], playOnFork: true });
+      const { s, f } = scheduled();
+      const other = { ...season([fx("f9")]), id: "season-6", number: 6, sourceSlug: "s6" };
+      store.putSeason(s);
+      store.putSeason(other);
+      const reads = vi.spyOn(store as unknown as { readJson: (p: string) => unknown }, "readJson");
+      expect(store.forkGame("g42")).toEqual({ leagueId: "tabbl", seasonId: "season-7", fixtureId: "f1" }); // built here, no verdict yet
+      const built = reads.mock.calls.length;
+      expect(built).toBeGreaterThan(0);
+      expect(store.forkGame("g42")).toBeDefined();
+      expect(store.forkGame("no-such-game")).toBeUndefined(); // a miss is answered from the index too
+      expect(store.forkGame("no-such-game")).toBeUndefined();
+      expect(reads.mock.calls.length).toBe(built);
+      // Banking writes through putSeason: the index follows without a rebuild (or a restart).
+      applyForkResult(s, f, fromParsedResult(parsed()), new Date());
+      reads.mockClear();
+      store.putSeason(s);
+      const banked = reads.mock.calls.length; // putSeason's own revision read
+      expect(store.forkGame("g42")).toEqual({ leagueId: "tabbl", seasonId: "season-7", fixtureId: "f1", verdicts: { [aid]: false } });
+      expect(reads.mock.calls.length).toBe(banked);
+      // Removing the season drops its games.
+      store.removeSeason("tabbl", "season-7");
+      expect(store.forkGame("g42")).toBeUndefined();
+      expect(reads.mock.calls.length).toBe(banked);
+      // A season written by another process shows up once the index is older than its TTL.
+      store.putSeason(s);
+      new LeagueStore(dir).removeSeason("tabbl", "season-7");
+      expect(store.forkGame("g42")).toBeDefined(); // still the cached index
+      clock += 10 * 60_000;
+      expect(store.forkGame("g42")).toBeUndefined();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
 
