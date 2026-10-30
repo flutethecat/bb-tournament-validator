@@ -67,15 +67,18 @@ export interface BuilderBody {
   rosteredInducements?: Array<{ key: string; count: number }>;
 }
 
-export type BuilderTab = "ruleset" | "roster" | "skills" | "staff" | "sheet";
+export type BuilderTab = "ruleset" | "roster" | "skills" | "sheet";
 export const BUILDER_TABS: ReadonlyArray<{ id: BuilderTab; label: string }> = [
   { id: "ruleset", label: "Ruleset" },
   { id: "roster", label: "Roster" },
-  { id: "skills", label: "Skills" },
-  { id: "staff", label: "Staff & Inducements" },
+  { id: "skills", label: "Skills, Stars & Inducements" },
   { id: "sheet", label: "Sheet" },
 ];
 export const isBuilderTab = (v: unknown): v is BuilderTab => BUILDER_TABS.some((t) => t.id === v);
+/** Deep links from before the merge: the old Staff & Inducements tab ("staff") is now the Skills, Stars & Inducements pane. */
+export function toBuilderTab(v: unknown): BuilderTab | null {
+  return v === "staff" ? "skills" : isBuilderTab(v) ? v : null;
+}
 
 /** Sideline staff (BB2025 costs; rerolls priced per roster). */
 export interface StaffRow { key: keyof Staff; label: string; min: number; max: number; cost: number; free: number }

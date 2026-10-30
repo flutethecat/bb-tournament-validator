@@ -18,11 +18,11 @@ function leaveHandoff(h: Handoff): void { handoff = h; }
 <script setup lang="ts">
 // Tournament Builder (/app/tournament-team-builder[/:saveId], owner 10-30): the coach-facing team builder against a
 // tournament ruleset, migrated from public/tournament-team-builder.html (which keeps serving unchanged). Design: the
-// shell's left nav, a top row of band tabs (Ruleset · Roster · Skills · Staff & Inducements · Sheet) and a centred
+// shell's left nav, a top row of band tabs (Ruleset · Roster · Skills, Stars & Inducements · Sheet) and a centred
 // working pane of bezel-and-lift panels. Browsing and building are public, as on the vanilla page (the preview runs as a
 // guest); saving, sharing and creating on the Fork need the Discord session. Deep links: /:saveId (or ?save=) opens a
 // saved team, ?package=<name>[&race=<rosterId>] preselects the ruleset (and race).
-import { computed, inject, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import "../../../public/team-view.css";
 import "../teams/teams.css";
@@ -30,11 +30,12 @@ import "../teams/builder.css";
 import { API_KEY } from "../app";
 import { discordLoginUrl, SESSION_KEY } from "../session";
 import { fmtK } from "../shared/format";
-import { BUILDER_TABS, createTournamentBuilder, isBuilderTab, SAVE_ID_RE, TOURNAMENT_BUILDER_KEY, type BuilderTab, type TournamentBuilder } from "../teams/builder";
+import { BUILDER_TABS, createTournamentBuilder, SAVE_ID_RE, TOURNAMENT_BUILDER_KEY, toBuilderTab, type BuilderTab, type TournamentBuilder } from "../teams/builder";
 import TournamentBuilderRuleset from "../components/TournamentBuilderRuleset.vue";
 import TournamentBuilderRoster from "../components/TournamentBuilderRoster.vue";
 import TournamentBuilderSkills from "../components/TournamentBuilderSkills.vue";
-import TournamentBuilderStaff from "../components/TournamentBuilderStaff.vue";
+import TournamentBuilderStars from "../components/TournamentBuilderStars.vue";
+import TournamentBuilderInducements from "../components/TournamentBuilderInducements.vue";
 import TournamentBuilderSheet from "../components/TournamentBuilderSheet.vue";
 import TournamentBuilderValueBar from "../components/TournamentBuilderValueBar.vue";
 
@@ -54,7 +55,7 @@ const builder: TournamentBuilder = inject(TOURNAMENT_BUILDER_KEY, null) ?? taken
 provide(TOURNAMENT_BUILDER_KEY, builder);
 const { state } = builder;
 
-const asked = typeof route.query.tab === "string" && isBuilderTab(route.query.tab) ? route.query.tab : null;
+const asked = toBuilderTab(route.query.tab);
 const tab = ref<BuilderTab>(taken ? taken.tab : asked && (asked === "ruleset" || state.roster) ? asked : state.roster ? "roster" : "ruleset");
 /** Move this page's own address, handing the controller to the remount the shell makes for the new path. */
 function moveTo(saveId: string): void {
@@ -123,7 +124,16 @@ watch(() => props.saveId, (id) => {
 // A new ruleset or race sends the coach to the matching tab; a race picked on the Ruleset tab opens the Roster tab.
 async function pickRace(rosterId: string): Promise<void> {
   if (state.roster && state.roster.rosterId !== rosterId && state.slots.length && typeof window !== "undefined" && !window.confirm("Discard the current roster and start over?")) return;
-  if (await builder.chooseRace(rosterId)) tab.value = "roster";
+  if (await builder.chooseRace(rosterId)) { tab.value = "roster"; scrollToTop(); }
+}
+/** The next screen opens at its top: the page (and the shell's scrolling main, when it is the scroller) goes back to 0. */
+function scrollToTop(): void {
+  if (typeof window === "undefined") return;
+  void nextTick(() => {
+    window.scrollTo?.({ top: 0 });
+    document.querySelector("main")?.scrollTo?.({ top: 0 });
+    document.getElementById("tb-tab-roster")?.focus({ preventScroll: true });
+  });
 }
 async function pickPackage(name: string): Promise<void> {
   if (name !== state.packageName && state.slots.length && typeof window !== "undefined" && !window.confirm("Discard the current roster and start over?")) return;
@@ -157,8 +167,11 @@ async function pickPackage(name: string): Promise<void> {
     <div v-if="state.booted" :id="`tb-pane-${tab}`" class="tb-pane" role="tabpanel" :aria-labelledby="`tb-tab-${tab}`">
       <TournamentBuilderRuleset v-if="tab === 'ruleset'" @package="pickPackage" @race="pickRace" @next="go('roster')" />
       <TournamentBuilderRoster v-else-if="tab === 'roster'" />
-      <TournamentBuilderSkills v-else-if="tab === 'skills'" />
-      <TournamentBuilderStaff v-else-if="tab === 'staff'" />
+      <template v-else-if="tab === 'skills'">
+        <TournamentBuilderSkills />
+        <TournamentBuilderStars />
+        <TournamentBuilderInducements />
+      </template>
       <TournamentBuilderSheet v-else :sign-in-href="signInHref" :sso-enabled="session.ssoEnabled()" />
     </div>
 

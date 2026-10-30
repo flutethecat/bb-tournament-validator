@@ -26,6 +26,7 @@
 /* value bar: five scoreboard cells, the total spans and carries the verdict */
 .tv-totals.tb-value { margin-bottom: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .tv-totals.tb-value .tv-total { grid-column: 1 / -1; }
+.tv-totals.tb-value > div > span { font-family: var(--tv-score-font); font-size: 12px; font-weight: 500; letter-spacing: .08em; line-height: 1.1; text-shadow: var(--tv-score-shadow); } /* labels share the figures' scoreboard face + drop shadow, colour unchanged */
 .tb-verdict { font: 11px/1.3 var(--sf-band-font); font-style: normal; text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
 .tb-verdict[data-tone="valid"] { color: var(--ui-success); }
 .tb-verdict[data-tone="invalid"] { color: var(--ui-danger); }
@@ -260,7 +261,7 @@
 @media (max-width: 640px) {
   .tv-totals.tb-value { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
   .tv-totals.tb-value > div { min-height: 0; padding: 6px 4px; gap: 2px; }
-  .tv-totals.tb-value span { font-size: 10px; letter-spacing: .04em; }
+  .tv-totals.tb-value > div > span { font-size: 10px; letter-spacing: .04em; }
   .tv-totals.tb-value b { font-size: 15px; }
   .tv-totals.tb-value .tv-total b { font-size: 20px; }
   .tb-tabs .tl-seg-btn { padding: 0 8px; font-size: 11px; letter-spacing: .06em; }

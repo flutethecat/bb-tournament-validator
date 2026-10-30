@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
-import { createTournamentBuilder, findingText, isExamplePackage, sanitizePackageRules, sanitizeRoster } from "../spa/src/teams/builder";
+import { createTournamentBuilder, findingText, isExamplePackage, sanitizePackageRules, sanitizeRoster, toBuilderTab } from "../spa/src/teams/builder";
 import { core } from "../spa/src/teams/builderCore";
 
 // Tournament Builder in the SPA (/app/tournament-team-builder, owner 10-30). The controller is tested directly; the view is
@@ -381,12 +381,12 @@ describe("tournament builder page (server-rendered)", () => {
     return html;
   }
 
-  it("the route replaces the LinkOut: band tabs (Ruleset · Roster · Skills · Staff & Inducements · Sheet), the locked line and the value bar", async () => {
+  it("the route replaces the LinkOut: band tabs (Ruleset · Roster · Skills, Stars & Inducements · Sheet), the locked line and the value bar", async () => {
     const html = await render("/tournament-team-builder", mockFetcher(routes()));
     expect(html).not.toContain("tournament-team-builder.html\" class=\"lobby-btn");
     expect(html).toContain('<h1 class="hm-title">Tournament Builder');
     const tabs = [...html.matchAll(/role="tab" class="tl-seg-btn" data-tab="(\w+)" aria-selected="(\w+)"[^>]*>([^<]+)</g)].map((m) => [m[1], m[2], m[3]]);
-    expect(tabs).toEqual([["ruleset", "false", "Ruleset"], ["roster", "true", "Roster"], ["skills", "false", "Skills"], ["staff", "false", "Staff &amp; Inducements"], ["sheet", "false", "Sheet"]]);
+    expect(tabs).toEqual([["ruleset", "false", "Ruleset"], ["roster", "true", "Roster"], ["skills", "false", "Skills, Stars &amp; Inducements"], ["sheet", "false", "Sheet"]]);
     expect(html).toContain("Test Cup · Human · Tier 1 · TV cap 1,150k");
     expect(html).toContain('class="tv-totals tb-value"');
     expect(html).toContain("Add players");
@@ -452,9 +452,39 @@ describe("tournament builder page (server-rendered)", () => {
     expect(html.match(/>Add Skill<\/button>/g)).toHaveLength(1);
     expect(html).toContain("Star player: no added skills");
   });
+
+  it("the merged pane: Skills, then Stars, then Inducements; the old Staff & Inducements deep link lands on it", async () => {
+    for (const q of ["skills", "staff"]) {
+      const html = await render(`/tournament-team-builder?tab=${q}`, mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hbli"); });
+      expect(html).toContain('id="tb-pane-skills"');
+      const at = ["tb-skills-h", "tb-stars-h", "tb-ind-h"].map((id) => html.indexOf(`id="${id}"`));
+      expect(at.every((n) => n > 0)).toBe(true);
+      expect(at).toEqual([...at].sort((a, b) => a - b));
+      expect(html).not.toContain('id="tb-staff-h"');
+    }
+    expect(toBuilderTab("staff")).toBe("skills");
+    expect(toBuilderTab("nope")).toBeNull();
+  });
+
+  it("Staff sits in the Roster tab below the roster table", async () => {
+    const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); });
+    expect(html.indexOf('id="tb-roster-h"')).toBeLessThan(html.indexOf('id="tb-staff-h"'));
+    expect(html).toContain(">Staff</h2>");
+    expect(html).not.toContain('id="tb-stars-h"');
+  });
 });
 
 describe("tournament builder wiring", () => {
+  it("picking a race on the Ruleset tab opens the Roster tab at the top; a ruleset card stays on Ruleset", () => {
+    const view = readFileSync(new URL("../spa/src/views/TournamentBuilderView.vue", import.meta.url), "utf8");
+    expect(view).toContain('if (await builder.chooseRace(rosterId)) { tab.value = "roster"; scrollToTop(); }');
+    expect(view).toContain("window.scrollTo?.({ top: 0 })");
+    const pkg = view.slice(view.indexOf("async function pickPackage"), view.indexOf("</script>", view.indexOf("async function pickPackage")));
+    expect(pkg).not.toContain('tab.value = "roster"');
+    const ruleset = readFileSync(new URL("../spa/src/components/TournamentBuilderRuleset.vue", import.meta.url), "utf8");
+    expect(ruleset).toContain('emit("race", id)'); // the table's data-tt-race buttons: Enter / Space fire click natively
+  });
+
   it("the print rule only applies while the builder prints (html.tb-printing); other routes print normally", () => {
     const css = readFileSync(new URL("../spa/src/teams/builder.css", import.meta.url), "utf8");
     const print = css.slice(css.indexOf("@media print"));

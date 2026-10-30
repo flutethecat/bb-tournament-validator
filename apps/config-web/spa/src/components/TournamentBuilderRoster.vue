@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Tournament Builder, Roster tab: team name (required before adding players), league / special rule, the choose-one skill
 // pack, the position cards (limits, position groups, the 16-player cap), the roster in builder order (drag the gripper or
-// Alt+Up / Alt+Down to reorder; numbers follow the order and the save keeps it), the Team Captain toggle, and star players.
+// Alt+Up / Alt+Down to reorder; numbers follow the order and the save keeps it), the Team Captain toggle, and the Staff section
+// (rerolls at the roster's price, the apothecary only where the roster allows one, one dedicated fan free).
 import { computed, inject, nextTick, ref } from "vue";
 import { TOURNAMENT_BUILDER_KEY } from "../teams/builder";
 import { core, type BuilderPosition, type Slot } from "../teams/builderCore";
@@ -23,17 +24,11 @@ function add(positionId: string): void {
   if (!builder.named()) { showNameGate(); return; }
   builder.addPosition(positionId);
 }
-function addStar(key: string): void {
-  if (!builder.named()) { showNameGate(); return; }
-  builder.addStar(key);
-}
 
 const league = computed(() => builder.leaguePresentation());
 const race = computed(() => builder.raceRules());
 const cards = computed(() => builder.positionCards());
-const stars = computed(() => (builder.starsAllowed() ? builder.starChoices().map((c) => builder.starRow(c)) : []));
-const spTable = computed(() => builder.starSpTable());
-const cap = computed(() => builder.starCap());
+const apothecaryOff = computed(() => Boolean(state.roster && !state.roster.apothecaryAllowed));
 const position = (s: Slot): BuilderPosition | null => builder.positionById(s.positionId);
 const printed = (p: BuilderPosition | null): string[] => p?.skills ?? [];
 const captainOn = (s: Slot): boolean => s.captain === true && builder.slotCanCaptain(s);
@@ -175,35 +170,19 @@ function onGripKey(e: KeyboardEvent, index: number): void {
     <p class="tn-sr" role="status" aria-live="polite">{{ live }}</p>
   </section>
 
-  <section v-if="builder.starsAllowed()" class="hm-panel tb-panel" aria-labelledby="tb-stars-h">
-    <header class="hm-band"><h2 id="tb-stars-h">Star players</h2><span v-if="cap != null" class="hm-cap">{{ builder.starPickCount() }} / {{ cap }}</span></header>
-    <p class="muted tb-hint">Stars never take added skills or characteristic increases.</p>
-    <p v-if="!stars.length" class="hm-empty">No star players are available for this roster under this ruleset.</p>
-    <ul v-else class="tb-stars">
-      <li v-for="r in stars" :key="r.choice.key" class="tb-star">
-        <span class="tb-star-sprites" aria-hidden="true">
-          <span v-for="m in r.choice.members" :key="m.positionId" class="sprite-frame tb-sprite small"><span class="sprite-fallback">{{ m.name.slice(0, 2).toUpperCase() }}</span><img v-if="builder.spritePath(m.name)" class="sprite-image" :src="builder.spritePath(m.name)" alt="" loading="lazy" /></span>
-        </span>
-        <span class="tb-who">
-          <strong>{{ r.choice.label }}</strong>
-          <small>{{ r.price }} · {{ r.status }}</small>
-          <small v-if="r.packs" class="muted">{{ r.packs }}</small>
-        </span>
+  <section class="hm-panel tb-panel" aria-labelledby="tb-staff-h">
+    <header class="hm-band"><h2 id="tb-staff-h">Staff</h2><span class="hm-cap">{{ core.gold(builder.totals().sidelineCost) }}</span></header>
+    <ul class="tb-steppers">
+      <li v-for="r in builder.staffRows()" :key="r.key" class="tb-step-row" :class="{ off: r.key === 'apothecary' && apothecaryOff }">
+        <span class="tb-step-icon" aria-hidden="true"><img v-if="builder.staffIcon(r.key)" class="crest-image" :src="builder.staffIcon(r.key)" alt="" loading="lazy" /></span>
+        <span class="tb-who"><strong>{{ r.label }}</strong><small>{{ r.key === 'apothecary' && apothecaryOff ? "Not available to this roster" : `${r.min}–${r.max} · ${core.gold(r.cost)} each${r.free ? `, ${r.free} free` : ""}` }}</small></span>
         <span class="tb-stepper">
-          <button type="button" :disabled="!r.present" :aria-label="`Remove ${r.choice.label}`" @click="builder.removeStar(r.choice.key)">−</button>
-          <button type="button" :class="{ 'name-required': !builder.named() }" :disabled="!r.canAdd"
-            :title="!builder.named() ? 'You must name your team.' : r.capReached ? 'This ruleset\'s star player limit is reached.' : undefined"
-            :aria-label="`Add ${r.choice.label}`" @click="addStar(r.choice.key)">+</button>
+          <button type="button" :disabled="(r.key === 'apothecary' && apothecaryOff) || state.staff[r.key] <= r.min" :aria-label="`Remove ${r.label}`" @click="builder.stepStaff(r.key, -1)">−</button>
+          <b aria-live="polite">{{ state.staff[r.key] }}</b>
+          <button type="button" :disabled="(r.key === 'apothecary' && apothecaryOff) || state.staff[r.key] >= r.max" :aria-label="`Add ${r.label}`" @click="builder.stepStaff(r.key, 1)">+</button>
         </span>
+        <small class="tb-step-cost">{{ core.gold(Math.max(0, state.staff[r.key] - r.free) * r.cost) }}</small>
       </li>
     </ul>
-    <details v-if="spTable.rows.length || spTable.banned.length" class="tb-notes">
-      <summary>Star Player SP costs<template v-if="spTable.rows.length"> ({{ spTable.rows.length }})</template></summary>
-      <table v-if="spTable.rows.length" class="tb-table">
-        <thead><tr><th scope="col">Star Player</th><th scope="col">SP Cost</th></tr></thead>
-        <tbody><tr v-for="r in spTable.rows" :key="r.name"><th scope="row">{{ r.name }}</th><td>{{ r.sp }} SP</td></tr></tbody>
-      </table>
-      <p v-if="spTable.banned.length" class="muted">Banned: {{ spTable.banned.join(", ") }}</p>
-    </details>
   </section>
 </template>
