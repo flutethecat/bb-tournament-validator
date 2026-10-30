@@ -21,7 +21,6 @@ onMounted(() => { if (!state.loaded) void st.load(league.value); });
 
 <template>
   <section class="lobby-card">
-    <h2>Standings</h2>
     <form class="lobby-form inline" @submit.prevent="go">
       <label for="st-league">League</label>
       <input id="st-league" v-model="league" type="text" maxlength="60" autocomplete="off" placeholder="League name" />

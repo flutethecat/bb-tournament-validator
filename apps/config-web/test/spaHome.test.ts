@@ -891,7 +891,8 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
 
   it("account page: title + LED name; Identity and Calendar in the main column; Session and Teams beside", async () => {
     const { html } = await render("/account", signedInRoutes());
-    expect(html).toMatch(/<h1 class="hm-title">Account <span class="hm-led">Alice<\/span><\/h1>/);
+    expect(html).toContain(`<h1 class="sf-page-title" aria-live="polite">Account</h1>`); // the header's h1; the page itself has none
+    expect((html.match(/<h1[ >]/g) ?? []).length).toBe(1);
     const main = html.slice(html.indexOf('class="hm-col hm-col-main"'), html.indexOf('class="hm-col hm-col-side"'));
     const side = html.slice(html.indexOf('class="hm-col hm-col-side"'));
     const order = ["identity", "calendar"].map((id) => main.indexOf(`id="${id}"`));

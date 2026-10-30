@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Lobby (/app/lobby/:id): presence, chat, rosters, the opponent's coach card and the Start game button.
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { usePageTitle } from "../shell/pageTitle";
 import { RouterLink, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import RosterTable from "../components/RosterTable.vue";
@@ -104,18 +105,17 @@ onMounted(() => {
   room.start();
 });
 onBeforeUnmount(() => room.stop());
+usePageTitle(() => (view.value ? title.value : ""));
 </script>
 
 <template>
   <section v-if="state.gone" class="lobby-card">
-    <h2>Lobby</h2>
     <p>{{ state.gone }}</p>
     <RouterLink class="lobby-btn" :to="{ name: 'lobby' }">Back to Start Game</RouterLink>
   </section>
   <template v-else>
     <p><RouterLink :to="{ name: 'lobby' }">← Start Game</RouterLink></p>
     <section class="lobby-card">
-      <h2>{{ title }}</h2>
       <p class="lobby-status">{{ status }}</p>
       <p class="muted">{{ state.expiry }}</p>
       <ul v-if="view" class="presence">

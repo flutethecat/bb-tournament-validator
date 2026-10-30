@@ -511,7 +511,7 @@ describe("tournament routes (server-rendered against a mocked API)", () => {
       tournament({ id: "t3", name: "Old Knockout", status: "completed", format: "knockout", maxPlayers: 0, entrantCount: 5, currentRound: 3, ownerCoachId: "Alice" }),
     ];
     const { html } = await render("/tournaments", { "/api/fork/tournaments": listPage(items) }, loadedList(items));
-    expect(html).toContain('<h1 class="hm-title">Tournaments</h1>');
+    expect(html).toContain(`<h1 class="sf-page-title" aria-live="polite">Tournaments</h1>`);
     // the stretched pill row is gone: no .tn-tabs / .tn-tab on the list page
     expect(html).not.toContain("tn-tab");
     expect(html).not.toContain("lobby-card");
@@ -589,8 +589,9 @@ describe("tournament routes (server-rendered against a mocked API)", () => {
   });
 
   it("detail overview: format, ruleset, status, round x/y, start date, entrant count; tabs present; no organiser controls", async () => {
-    const { html } = await render("/tournaments/t1", { "/api/tournaments/t1": detailBody() }, loadedDetail("t1"));
-    expect(html).toContain("Spring Swiss");
+    const { html, spa } = await render("/tournaments/t1", { "/api/tournaments/t1": detailBody() }, loadedDetail("t1"));
+    expect(spa.pageTitle.state.text).toBe("Spring Swiss"); // the tournament's name is the header title now
+    expect(html).not.toContain("tn-front-name");
     expect(html).toContain("Swiss");
     expect(html).toContain("nut-cup");
     expect(html).toContain("Round 2 of 3");

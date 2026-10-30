@@ -43,6 +43,9 @@
   border-bottom: 2px solid var(--sf-panel-line); box-shadow: 0 2px 0 var(--sf-panel-drop);
 }
 .sf-wordmark.brand { font-family: var(--sf-wordmark-font); font-style: italic; text-transform: none; letter-spacing: .02em; font-size: 1.45rem; color: var(--ui-heading); }
+/* The page title (owner 10-30): the h1 of every page, centred between the wordmark and the right-hand controls; one line,
+   ellipsis when it does not fit (the header never grows). */
+.sf-page-title { flex: 1 1 0; min-width: 0; margin: 0; padding: 0 8px; text-align: center; font: 1.05rem/1.2 var(--sf-band-font); letter-spacing: .08em; text-transform: uppercase; color: var(--ui-heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sf-menu { display: none; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; font-size: 20px; color: var(--ui-text); background: transparent; border: 2px solid var(--sf-panel-line); border-radius: 2px; cursor: pointer; }
 .sf-top .shell-who { gap: 10px; min-width: 0; }
 .sf-bell { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; color: var(--ui-text); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); text-decoration: none; }
@@ -163,7 +166,13 @@
   .shell-header.sf-top { padding: 6px 16px; gap: 8px; }
   .sf-wordmark.brand { padding-right: 0; font-size: 1.15rem; }
   .sf-top .shell-theme { display: none; }
-  .sf-avatar-menu .shell-me { max-width: 132px; }
+  .sf-avatar-menu .shell-me { max-width: 110px; }
+  .sf-page-title { padding: 0 4px; font-size: .85rem; letter-spacing: .05em; }
+}
+/* phones: the title takes the wordmark's room (the wordmark stays a labelled link for assistive tech; Home is in the menu) */
+@media (max-width: 480px) {
+  .sf-wordmark.brand { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .sf-page-title { text-align: left; }
 }
 
 /* ---- coach page */

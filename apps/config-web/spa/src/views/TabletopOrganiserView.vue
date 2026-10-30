@@ -22,14 +22,12 @@ onMounted(() => { if (isOrganiser.value) void org.loadTournaments(); });
 
 <template>
   <section v-if="!isOrganiser" class="lobby-card">
-    <h2>Organiser</h2>
     <p>Organiser access only.</p>
     <RouterLink to="/tabletop">Back to Tabletop</RouterLink>
   </section>
   <template v-else>
     <section class="lobby-card">
       <RouterLink to="/tabletop">Tabletop</RouterLink>
-      <h2>Organiser</h2>
       <div class="lobby-form tt-form">
         <label for="org-t">Tournament</label>
         <select id="org-t" v-model="pick" @change="org.choose(pick, 1)">

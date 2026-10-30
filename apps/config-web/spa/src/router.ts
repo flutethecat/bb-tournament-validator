@@ -35,7 +35,7 @@ declare module "vue-router" {
   interface RouteMeta {
     /** Needs a Discord session: signed out, the shell shows the sign-in prompt in place of the page. */
     requiresAuth?: boolean;
-    /** Document title suffix. */
+    /** The page title: the shell header's h1 and the document title (a view may override it with usePageTitle). */
     title?: string;
   }
 }
@@ -144,7 +144,7 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: "Team management" },
   },
   { path: "/account", name: "account", component: AccountView, meta: { requiresAuth: true, title: "Account" } },
-  { path: "/:pathMatch(.*)*", name: "not-found", component: NotFoundView, meta: { title: "Not found" } },
+  { path: "/:pathMatch(.*)*", name: "not-found", component: NotFoundView, meta: { title: "Page not found" } },
 ];
 
 export type GateResult = "loading" | "error" | "signin" | "allow";

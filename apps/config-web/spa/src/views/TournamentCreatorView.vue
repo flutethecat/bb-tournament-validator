@@ -5,6 +5,7 @@
 // only (the server's package-write gate); anyone else gets the friendly "not one of yours" note. The packages it saves
 // (tournament-packages/*.json) are what the Tournament Builder's ruleset table reads.
 import { computed, inject, onMounted, provide, ref, watch } from "vue";
+import { usePageTitle } from "../shell/pageTitle";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
@@ -67,12 +68,12 @@ async function save(): Promise<void> {
   if (state.selected && state.selected !== route.query.package && !state.conflict) await router.replace(withTab({ package: state.selected }));
 }
 function reload(): void { if (state.selected) void creator.open(state.selected); }
+usePageTitle(() => (allowed.value && state.pkg ? `Tournament Creator · ${title.value}` : ""));
 </script>
 
 <template>
   <div class="hm-page cr-page">
     <RouterLink class="tn-back" to="/tournaments">All tournaments</RouterLink>
-    <h1 class="hm-title">Tournament Creator <span v-if="allowed && state.pkg" class="hm-led">{{ title }}</span></h1>
 
     <section v-if="!allowed" class="hm-panel" aria-labelledby="cr-denied-h">
       <header class="hm-band"><h2 id="cr-denied-h">Not one of yours</h2></header>

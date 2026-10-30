@@ -3,6 +3,7 @@
 // scope's spotlight cards (LeagueStatsCards), totals, champions, player leaders, coach and team records, race win
 // rates, biggest wins and most games.
 import { computed, inject, nextTick, onMounted, ref, watch } from "vue";
+import { usePageTitle } from "../shell/pageTitle";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import LeagueStatsCards from "../components/LeagueStatsCards.vue";
@@ -45,12 +46,12 @@ const diff = (a: number, b: number): string => (a - b > 0 ? `+${a - b}` : String
 
 watch(scope, (s) => void ctl.load(props.id, s));
 onMounted(() => { if (state.id !== props.id || !state.byScope[scope.value]) void ctl.load(props.id, scope.value); });
+usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : ""));
 </script>
 
 <template>
   <div class="hm-page lg-page">
     <RouterLink class="tn-back lg-back" :to="{ name: 'league-detail', params: { id } }">{{ state.league?.name ?? "League" }}</RouterLink>
-    <h1 class="hm-title">{{ state.league?.name ? `${state.league.name} statistics` : "League statistics" }}</h1>
     <div ref="seg" class="tl-seg lg-scope" role="radiogroup" aria-label="Rules edition" @keydown="onSegKey">
       <button
         v-for="s in STATS_SCOPES" :key="s.id" type="button" role="radio" class="tl-seg-btn"

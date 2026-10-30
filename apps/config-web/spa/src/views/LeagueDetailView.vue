@@ -6,6 +6,7 @@
 // composer (Overview) and the fixtures editor (Fixtures). A fixture's summary (?tab=fixtures&fixture=<id>) replaces
 // the fixtures list: the match, its result, and Play on Super FUMBBL.
 import { computed, inject, nextTick, onMounted, provide, ref, watch } from "vue";
+import { usePageTitle } from "../shell/pageTitle";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY, writesAllowed } from "../session";
@@ -86,6 +87,7 @@ onMounted(async () => {
   revealPicked();
   if (current.value) await detail.ensureSeason(current.value.id);
 });
+usePageTitle(() => state.league?.name);
 </script>
 
 <template>
@@ -100,7 +102,6 @@ onMounted(async () => {
           <img v-if="logo && !failed.logo" class="lg-front-logo" :src="logo" :alt="`${state.league.name} logo`" @error="failed.logo = true" />
           <span v-else class="lg-front-logo lg-logo-blank" aria-hidden="true">{{ initials(state.league.name) }}</span>
           <div class="lg-front-text">
-            <h1 class="lg-front-name">{{ state.league.name }}</h1>
             <p v-if="state.league.fullName && state.league.fullName !== state.league.name" class="lg-front-full">{{ state.league.fullName }}</p>
             <p class="lg-front-links">
               <span class="sf-chip">{{ state.seasons.length }} {{ state.seasons.length === 1 ? "season" : "seasons" }}</span>

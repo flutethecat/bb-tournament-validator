@@ -81,8 +81,6 @@ onUnmounted(() => stopPolling());
 
 <template>
   <div class="hm-page tl-page">
-    <h1 class="hm-title">Tournaments</h1>
-
     <div class="tl-toolbar">
       <div ref="seg" class="tl-seg" role="radiogroup" aria-label="Tournament status" @keydown="onSegKey">
         <button

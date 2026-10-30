@@ -424,7 +424,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
   let vite: ViteDevServer;
   // Loaded through the SPA's Vite config so .vue files compile; every module comes from one graph (one Vue).
   let mods: {
-    createSpa: (o: { history: unknown; ssr?: boolean; fetcher?: Fetcher }) => { app: { provide: (k: unknown, v: unknown) => void }; router: { push: (p: string) => Promise<unknown>; isReady: () => Promise<void>; currentRoute: { value: { name: unknown; meta: Record<string, unknown> } } }; session: ReturnType<typeof createSessionStore> };
+    createSpa: (o: { history: unknown; ssr?: boolean; fetcher?: Fetcher }) => { app: { provide: (k: unknown, v: unknown) => void }; router: { push: (p: string) => Promise<unknown>; isReady: () => Promise<void>; currentRoute: { value: { name: unknown; meta: Record<string, unknown> } } }; session: ReturnType<typeof createSessionStore>; pageTitle: { state: { text: string; path: string; owner: number }; claim: (path: string) => { set: (t: string) => void; release: () => void } } };
     createMemoryHistory: (base?: string) => unknown;
     renderToString: (app: unknown) => Promise<string>;
     gateFor: (route: { meta: Record<string, unknown> }, s: ReturnType<typeof createSessionStore>) => string;
@@ -513,7 +513,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     expect(ttb.html).toContain('<h1 class="hm-title">Tournament Builder');
     expect(ttb.html).not.toContain("Login with Discord to");
     const nf = await render("/nowhere", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } });
-    expect(nf.html).toContain("Page not found");
+    expect(nf.html).toContain(`<h1 class="sf-page-title" aria-live="polite">Page not found</h1>`);
     const badId = await render("/lobby/<x>", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } });
     expect(badId.spa.router.currentRoute.value.name).toBe("not-found");
     const home = await render("/", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } });
@@ -534,14 +534,14 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
 
   it("lobby route renders the server's lobby: title, status, presence, card, chat, rosters, Start game", async () => {
     const lobby = readyLobby();
-    const { html } = await render("/lobby/lobbyAB12", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } }, async (spa, f) => {
+    const { html, spa } = await render("/lobby/lobbyAB12", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } }, async (spa, f) => {
       const room = mods.createLobbyRoom("lobbyAB12", { api: mockFetcher(roomRoutes(lobby)), me: () => "Alice", onSignedOut: vi.fn() });
       await room.poll();
       await flush();
       spa.app.provide(mods.LOBBY_ROOM_KEY, () => room);
       void f;
     });
-    expect(html).toContain("Alice vs Bob");
+    expect(spa.pageTitle.state.text).toBe("Alice vs Bob"); // the header title (set by the view, reactive in the browser)
     expect(html).toContain("Game set up (game 77). Ready to start.");
     expect(html).toContain("Alice is here");
     expect(html).toContain("Bob is in the client");
@@ -743,7 +743,8 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
       "/api/account": { ffbCoachId: "Alice", identities: { discordUsername: "alice_dc", email: "a@example.test" }, fumbblName: "AliceF" },
       "/api/me/profile": profile({ fumbblName: "AliceF", fumbblLinked: true }),
     });
-    expect(html).toMatch(/<h1 class="hm-title">Account <span class="hm-led">Alice<\/span><\/h1>/);
+    expect(html).toContain(`<h1 class="sf-page-title" aria-live="polite">Account</h1>`); // the header's h1; the page itself has none
+    expect((html.match(/<h1[ >]/g) ?? []).length).toBe(1);
     expect(html).toContain("alice_dc");
     expect(html).toMatch(/id="ac-fumbbl"[^>]*value="AliceF"[^>]*readonly/);
     expect(html).toContain("Linked through tournament registration");
@@ -775,4 +776,78 @@ describe("SPA build (smoke)", () => {
       rmSync(outDir, { recursive: true, force: true });
     }
   }, 60_000);
+});
+
+describe("page title: the shell header h1 and document.title (owner 10-30)", () => {
+  let vite: ViteDevServer;
+  let m: {
+    createSpa: (o: { history: unknown; ssr?: boolean; fetcher?: Fetcher }) => { app: { runWithContext: <T>(fn: () => T) => T }; router: { push: (p: string) => Promise<unknown>; isReady: () => Promise<void> }; pageTitle: { state: { text: string; path: string; owner: number }; claim: (path: string) => { set: (t: string) => void; release: () => void } } };
+    createMemoryHistory: (base?: string) => unknown;
+    renderToString: (app: unknown) => Promise<string>;
+    useShellTitle: () => { value: string };
+  };
+  const fetcher = mockFetcher({ "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } });
+
+  beforeAll(async () => {
+    const { createServer } = await import("vite");
+    vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
+    const [app, title, vueRouter, renderer] = await Promise.all([
+      vite.ssrLoadModule("/src/app.ts"), vite.ssrLoadModule("/src/shell/pageTitle.ts"), vite.ssrLoadModule("vue-router"), vite.ssrLoadModule("vue/server-renderer"),
+    ]);
+    m = { createSpa: app.createSpa, createMemoryHistory: vueRouter.createMemoryHistory, renderToString: renderer.renderToString, useShellTitle: title.useShellTitle };
+  }, 60_000);
+  afterAll(async () => { await vite?.close(); });
+
+  const boot = async (path: string) => {
+    const spa = m.createSpa({ history: m.createMemoryHistory("/app/"), ssr: true, fetcher });
+    await spa.router.push(path);
+    await spa.router.isReady();
+    return spa;
+  };
+
+  it("the header carries the route's meta.title as the page's one h1", async () => {
+    for (const [path, title] of [["/tournaments", "Tournaments"], ["/leagues", "Leagues"], ["/help", "Help"], ["/nowhere", "Page not found"]] as const) {
+      const spa = await boot(path);
+      const html = await m.renderToString(spa.app);
+      expect(html, path).toContain(`<h1 class="sf-page-title" aria-live="polite">${title}</h1>`);
+      expect((html.match(/<h1[ >]/g) ?? []).length, path).toBe(1);
+    }
+  });
+
+  it("a view's override replaces the title and document.title follows; the next page falls back to meta.title", async () => {
+    const g = globalThis as { document?: { title: string } };
+    g.document = { title: "" };
+    try {
+      const spa = await boot("/leagues/tabbl");
+      const title = spa.app.runWithContext(() => m.useShellTitle());
+      expect(title.value).toBe("League");
+      expect(g.document.title).toBe("League · Super FUMBBL");
+      const own = spa.pageTitle.claim("/leagues/tabbl");
+      own.set("  TABBL  ");
+      expect(title.value).toBe("TABBL");
+      await flush();
+      expect(g.document.title).toBe("TABBL · Super FUMBBL");
+      await spa.router.push("/tournaments"); // the old view has not unmounted yet: its override must not show here
+      expect(title.value).toBe("Tournaments");
+      await flush();
+      expect(g.document.title).toBe("Tournaments · Super FUMBBL");
+      own.release();
+      expect(spa.pageTitle.state.text).toBe("");
+    } finally {
+      delete g.document;
+    }
+  });
+
+  it("a stale handle never clears or overwrites a newer claim", async () => {
+    const spa = await boot("/leagues/tabbl");
+    const a = spa.pageTitle.claim("/leagues/tabbl");
+    a.set("Old");
+    const b = spa.pageTitle.claim("/leagues/tabbl");
+    b.set("New");
+    a.set("Stale");
+    a.release();
+    expect(spa.pageTitle.state.text).toBe("New");
+    b.release();
+    expect(spa.pageTitle.state.text).toBe("");
+  });
 });

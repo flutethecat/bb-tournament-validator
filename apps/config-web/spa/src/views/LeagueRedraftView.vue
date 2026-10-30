@@ -3,6 +3,7 @@
 // Organisers and site admins get the Redraft board; a coach gets their own redraft tasks in this league. ?team=<teamId>
 // opens the redraft dialog for that team (the link the coach's notification carries).
 import { computed, inject, onMounted, provide, ref, watch } from "vue";
+import { usePageTitle } from "../shell/pageTitle";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "../app";
 import LeagueRedraftBoard from "../components/LeagueRedraftBoard.vue";
@@ -42,14 +43,12 @@ onMounted(() => {
   void loadAll();
   if (teamId.value && (team.state.teamId !== teamId.value || !team.state.loaded)) void team.load(props.id, teamId.value);
 });
+usePageTitle(() => (state.view?.leagueName ? `${state.view.leagueName} redraft` : ""));
 </script>
 
 <template>
   <div class="hm-page lg-page ls-page">
     <RouterLink class="tn-back lg-back" :to="{ name: 'league-settings', params: { id } }">Back to League settings</RouterLink>
-    <div class="ls-head">
-      <h1 class="hm-title">Redraft <span v-if="state.view" class="hm-led">{{ state.view.leagueName }}</span></h1>
-    </div>
 
     <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
     <section v-else-if="state.denied" class="hm-panel" aria-labelledby="rd-mine-h">

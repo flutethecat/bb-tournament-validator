@@ -12,6 +12,7 @@ import { createTheme, THEME_KEY, type Theme } from "./theme";
 import { COACH_TREE_KEY, createCoachTree, type CoachTree } from "./home/tree";
 import { CLOCK_KEY, createClock, createShellUi, SHELL_UI_KEY, type Clock, type ShellUi } from "./home/shell";
 import { NOTIFICATIONS_KEY, useNotifications } from "./home/notifications";
+import { createPageTitle, PAGE_TITLE_KEY, type PageTitleStore } from "./shell/pageTitle";
 import { createTournamentCreator, TOURNAMENT_CREATOR_KEY } from "./tournaments/create";
 
 /** The JSON fetcher views use (tests may swap it; the default is the shared same-origin api()). */
@@ -37,6 +38,8 @@ export interface Spa {
   ui: ShellUi;
   /** The shared 60 s clock for deadline chips and countdowns. */
   clock: Clock;
+  /** The page-title store: the header h1 and document.title (views override it with usePageTitle). */
+  pageTitle: PageTitleStore;
 }
 
 export function createSpa(opts: SpaOptions): Spa {
@@ -57,7 +60,9 @@ export function createSpa(opts: SpaOptions): Spa {
   app.provide(COACH_TREE_KEY, tree);
   app.provide(SHELL_UI_KEY, ui);
   app.provide(CLOCK_KEY, clock);
+  const pageTitle = createPageTitle();
+  app.provide(PAGE_TITLE_KEY, pageTitle);
   app.provide(TOURNAMENT_CREATOR_KEY, createTournamentCreator({ api: fetcher, onSignedOut: () => void session.load(true), onCreated: () => void tree.invalidate() }));
   app.use(router);
-  return { app, router, session, library, theme, tree, ui, clock };
+  return { app, router, session, library, theme, tree, ui, clock, pageTitle };
 }

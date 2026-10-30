@@ -299,7 +299,7 @@ describe("league routes (server-rendered against a mocked API)", () => {
       await l.load();
       inject(mods.league.LEAGUE_LIST_KEY, l);
     });
-    expect(html).toContain('<h1 class="hm-title">Leagues</h1>');
+    expect(html).toContain(`<h1 class="sf-page-title" aria-live="polite">Leagues</h1>`);
     expect(html).toContain('src="/api/leagues/tabbl/banner?v=0123456789ab"');
     expect(html).toContain('class="lg-card-logo" src="/api/leagues/tabbl/logo?v=abcdef123456" alt=""');
     expect(html).toContain("Tahoma Area Blood Bowl League");
@@ -320,9 +320,10 @@ describe("league routes (server-rendered against a mocked API)", () => {
   });
 
   it("league page overview: header bar + logo front, season field newest first with rules chips, tabs, latest results cards", async () => {
-    const { html } = await render("/leagues/tabbl", loadedDetail());
+    const { html, spa } = await render("/leagues/tabbl", loadedDetail());
     expect(html).toContain('class="lg-front" data-banner="image"');
-    expect(html).toContain('<h1 class="lg-front-name">TABBL</h1>');
+    expect(spa.pageTitle.state.text).toBe("TABBL"); // the league's name is the header title now
+    expect(html).not.toContain("lg-front-name");
     expect(html).toContain('role="radiogroup"');
     const s6 = html.indexOf(">Season 6<");
     const s1 = html.indexOf(">Season 1<");

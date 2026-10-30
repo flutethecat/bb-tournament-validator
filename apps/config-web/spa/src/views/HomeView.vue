@@ -73,7 +73,6 @@ onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
 
 <template>
   <div class="hm-page">
-    <h1 class="hm-title">Coach page <span class="hm-led">{{ session.coach() }}</span></h1>
     <div class="hm-grid">
       <div class="hm-col hm-col-main">
         <section id="whats-new" class="hm-panel" aria-labelledby="hm-new-h">

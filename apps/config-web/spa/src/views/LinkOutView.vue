@@ -5,7 +5,6 @@ defineProps<{ title: string; href: string; blurb: string }>();
 
 <template>
   <section class="lobby-card">
-    <h2>{{ title }}</h2>
     <p>{{ blurb }}</p>
     <a class="lobby-btn primary" :href="href">Open {{ title }}</a>
   </section>

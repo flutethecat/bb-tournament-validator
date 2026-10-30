@@ -491,7 +491,7 @@ describe("team management + My teams pages (server-rendered)", () => {
 
   it("My teams: coach-page panels, tiles linking to the management page, Avatars and Build a team panels", async () => {
     const html = await render("/my-teams", { "/api/tabletop/saves?coach=Alice": { coach: "Alice", teams: [{ ref: "library:77", name: "Alice Lib", race: "Human" }, { ref: "sv_a", name: "Alice Save", race: "Orc" }] } });
-    expect(html).toContain('<h1 class="hm-title">My teams <span class="hm-led">Alice</span></h1>');
+    expect(html).toContain(`<h1 class="sf-page-title" aria-live="polite">My teams</h1>`);
     expect(html).toContain('class="hm-grid"');
     expect(html).toContain('<span class="hm-cap">2 teams</span>');
     expect(html).toContain('class="hm-teams hm-teams-lg"');

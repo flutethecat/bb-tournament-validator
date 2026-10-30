@@ -18,7 +18,6 @@ onMounted(() => { if (!state.loaded) void list.load(); });
 
 <template>
   <div class="hm-page lg-page">
-    <h1 class="hm-title">Leagues</h1>
     <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.loaded" class="hm-empty" role="status">Loading leagues...</p>
     <section v-else-if="!state.leagues.length" class="hm-panel" aria-labelledby="lg-none-h">

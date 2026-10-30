@@ -7,6 +7,7 @@
 import { computed, inject, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
+import { usePageTitle } from "../shell/pageTitle";
 import { SESSION_KEY } from "../session";
 import GameReporterView from "../components/GameReporterView.vue";
 import { isGameSource, loadGameDetail, type GameLoad } from "../games/detail";
@@ -51,10 +52,8 @@ function pollReplay(): void {
 watch(() => [game.value?.source, game.value?.id, game.value?.replay], () => { if (!isReplayPending(game.value)) { stopPoll?.(); stopPoll = undefined; } else if (!stopPoll) pollReplay(); });
 watch(() => [props.source, props.id], () => { stopPoll?.(); stopPoll = undefined; });
 onBeforeUnmount(() => stopPoll?.());
-// The tab names the match ("<Home> vs <Away>") once it is known.
-watch(game, (g) => {
-  if (g && typeof document !== "undefined") document.title = `${g.card.home.name} vs ${g.card.away.name} · Super FUMBBL`;
-}, { immediate: true });
+// The header (and the tab) name the match ("<Home> vs <Away>") once it is known.
+usePageTitle(() => (game.value ? `${game.value.card.home.name} vs ${game.value.card.away.name}` : ""));
 </script>
 
 <template>
@@ -68,7 +67,6 @@ watch(game, (g) => {
       <RouterLink class="lobby-btn" to="/lobby">Go to the Lobby</RouterLink>
     </section>
     <section v-else-if="result.status === 'error'" class="lobby-card">
-      <h2>Game</h2>
       <p class="lobby-error" role="alert">{{ result.message }}</p>
     </section>
   </div>

@@ -48,7 +48,7 @@ function openRosters(side?: Side): void { rostersSide.value = side; rosters.valu
 <template>
   <div class="tt-rec tt-rec--final" :data-tt-theme="theme" :data-ordered="model.ordered ? 'true' : null">
     <div class="tt-top">
-      <h1 class="tt-final-h">{{ title }}</h1>
+      <h2 class="tt-final-h">{{ title }}</h2>
       <div class="tt-crumbs">
         <span class="tt-crumb-brand">Super FUMBBL</span>
         <RouterLink :to="backTo">Past Games</RouterLink><span aria-hidden="true">/</span>

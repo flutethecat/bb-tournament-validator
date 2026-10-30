@@ -35,7 +35,6 @@ async function addOrganizer(id: string) {
 <template>
   <section class="lobby-card tn-page">
     <div class="tn-head">
-      <h2>Tournaments admin</h2>
       <form v-if="isAdmin" class="tn-search" role="search" @submit.prevent="admin.search(query)">
         <label class="tn-sr" for="tn-admin-q">Search tournaments</label>
         <input id="tn-admin-q" v-model="query" type="search" placeholder="Search by name" />

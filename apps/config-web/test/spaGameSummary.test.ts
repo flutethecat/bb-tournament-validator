@@ -89,7 +89,7 @@ describe("game page (SSR)", () => {
     const spa = mods.createSpa({ history: mods.createMemoryHistory("/app/"), ssr: true, fetcher: f });
     await spa.router.push(path);
     await spa.router.isReady();
-    return { html: await mods.renderToString(spa.app), f };
+    return { html: await mods.renderToString(spa.app), f, spa };
   }
   const page = (html: string) => html.slice(html.indexOf('class="tt-rec tt-rec--final"'));
   const plain = (html: string) => html.slice(html.indexOf('class="gs-page"'));
@@ -100,7 +100,8 @@ describe("game page (SSR)", () => {
     expect(f.calls).toContain("/api/games/online/g1");
     expect(html).toContain('class="tt-rec tt-rec--final"');
     expect(p).not.toContain("Login with Discord");
-    expect(p).toContain('<h1 class="tt-final-h">Reavers vs Grinders</h1>');
+    expect(p).toContain('<h2 class="tt-final-h">Reavers vs Grinders</h2>'); // the reporter's own title is no longer an h1
+    expect(p).not.toContain("<h1 class=\"tt-final-h\">");
     expect(p).toContain('src="/crests/orc.png"'); // the race crest from the manifest
     expect(p).toContain('class="tt-board"');
     expect(p).toMatch(/<p class="tt-score" aria-label="Score"><span>2<\/span><span class="tt-score-colon">:<\/span><span>1<\/span>(<!---->)?<\/p>/);
@@ -176,7 +177,7 @@ describe("game page (SSR)", () => {
     expect(failing).toContain("The game could not be loaded");
     expect(failing).not.toContain("stack trace");
     const bad = (await render("/games/fork/g1", signedOut())).html;
-    expect(bad).toContain("Page not found");
+    expect(bad).toContain(`<h1 class="sf-page-title" aria-live="polite">Page not found</h1>`);
   });
 
   it("the recorder renders its finished-game summary through the shared component", () => {

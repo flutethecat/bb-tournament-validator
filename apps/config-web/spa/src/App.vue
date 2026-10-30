@@ -15,6 +15,7 @@ import { THEME_KEY, themeLabel } from "./theme";
 import { gateFor } from "./router";
 import { COACH_TREE_KEY } from "./home/tree";
 import { DRAWER_QUERY, FOCUSABLE, rememberRail, SHELL_UI_KEY, trapTarget, typingTarget } from "./home/shell";
+import { useShellTitle } from "./shell/pageTitle";
 import { NOTIFICATIONS_KEY } from "./home/notifications";
 import type { AccountInfo } from "./shared/api";
 
@@ -25,6 +26,7 @@ const tree = inject(COACH_TREE_KEY)!;
 const ui = inject(SHELL_UI_KEY)!;
 const route = useRoute();
 const router = useRouter();
+const pageTitle = useShellTitle();
 const creator = inject(TOURNAMENT_CREATOR_KEY, null);
 // "Create tournament" in the account menu: organisers only, the server's POST /api/tournaments rule. The rule gates
 // opening only: once open, the dialog stays until Cancel / Escape even if the session lapses (its 401 error shows).
@@ -144,6 +146,7 @@ async function signOut(): Promise<void> {
       aria-label="Menu" @click="ui.drawerOpen = !ui.drawerOpen"
     ><span aria-hidden="true">☰</span></button>
     <RouterLink class="brand sf-wordmark" to="/home" aria-label="Super FUMBBL home">Super FUMBBL</RouterLink>
+    <h1 class="sf-page-title" aria-live="polite">{{ pageTitle }}</h1>
     <div class="shell-who" aria-live="polite">
       <button class="lobby-btn small shell-theme" type="button" :aria-label="`Theme: ${themeLabel(theme.state.mode)}. Tap to change.`" @click="theme.cycle()">Theme: {{ themeLabel(theme.state.mode) }}</button>
       <template v-if="session.signedIn()">

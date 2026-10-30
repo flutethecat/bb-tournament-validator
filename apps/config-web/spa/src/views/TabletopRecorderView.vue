@@ -5,6 +5,7 @@
 // A spectator (the server's `role: "spectator"`, owner ruling 10-30: a signed-in coach outside the match, or anyone for a
 // match that is not a test match) gets the same page read-only: scoreboard, pre-game and cines, the log; no controls.
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { usePageTitle } from "../shell/pageTitle";
 import { COACH_TREE_KEY } from "../home/tree";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
@@ -373,11 +374,11 @@ onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", unlock);
   rec.stop();
 });
+usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value.away.teamName}` : ""));
 </script>
 
 <template>
   <section v-if="state.error && !state.loaded" class="lobby-card">
-    <h2>Match</h2>
     <p class="lobby-error" role="alert">{{ state.error }}</p>
     <RouterLink to="/tabletop">Back to Tabletop</RouterLink>
   </section>

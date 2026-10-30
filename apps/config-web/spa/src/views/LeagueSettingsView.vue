@@ -4,6 +4,7 @@
 // 403 and decides). Five tabs as a segmented control: Administration, Information, Registrations, Team building,
 // External connections; each tab is panels with their own Save (PATCH /api/leagues/:id/settings sections).
 import { computed, inject, onMounted, provide } from "vue";
+import { usePageTitle } from "../shell/pageTitle";
 import { RouterLink, useRoute } from "vue-router";
 import { API_KEY } from "../app";
 import LeagueSettingsAdmin from "../components/LeagueSettingsAdmin.vue";
@@ -27,6 +28,7 @@ const tabQuery = (t: SettingsTab): Record<string, string> => (t === "administrat
 const logo = computed(() => safeArtUrl(state.league?.logoUrl));
 
 onMounted(() => { if (!state.loaded || state.id !== props.id) void settings.load(props.id); });
+usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
 </script>
 
 <template>
@@ -34,7 +36,6 @@ onMounted(() => { if (!state.loaded || state.id !== props.id) void settings.load
     <RouterLink class="tn-back lg-back" :to="{ name: 'league-detail', params: { id } }">Back to the league</RouterLink>
     <div class="ls-head">
       <img v-if="logo" class="lg-card-logo" :src="logo" alt="" />
-      <h1 class="hm-title">League settings <span v-if="state.league" class="hm-led">{{ state.league.name }}</span></h1>
     </div>
 
     <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>

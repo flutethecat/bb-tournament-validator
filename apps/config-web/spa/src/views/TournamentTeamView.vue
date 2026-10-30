@@ -3,6 +3,7 @@
 // describes it (players with printed and added skills and characteristic increases, sideline, inducements), its
 // validity, and the live library facts. Read-only. The problems list reaches only the coach and the managers.
 import { computed, inject, onMounted } from "vue";
+import { usePageTitle } from "../shell/pageTitle";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
@@ -22,6 +23,7 @@ const players = computed(() => playerRows(view.value));
 const sideline = computed(() => sidelineLines(view.value));
 
 onMounted(() => { if (!state.loaded || state.key !== `${props.id}\0${props.eid}`) void team.load(props.id, props.eid); });
+usePageTitle(() => (view.value || build.value ? name.value : ""));
 </script>
 
 <template>
@@ -31,7 +33,6 @@ onMounted(() => { if (!state.loaded || state.key !== `${props.id}\0${props.eid}`
     <p v-else-if="!state.loaded || !build" class="muted" role="status">Loading team...</p>
     <template v-else>
       <header class="tn-hero">
-        <h2>{{ name }}</h2>
         <p class="tn-hero-meta muted">
           <span v-if="build.submission" class="tn-chip" :data-roster="build.submission.valid ? 'valid' : 'invalid'">{{ build.submission.valid ? "Valid" : "Invalid" }}</span>
           <span v-else class="tn-chip" data-roster="none">Not submitted</span>

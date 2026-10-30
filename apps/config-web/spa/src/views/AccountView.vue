@@ -82,7 +82,6 @@ onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
 <template>
   <div class="ac-root">
   <div class="hm-page ac-page" :inert="dialogOpen ? true : undefined" :aria-hidden="dialogOpen ? 'true' : undefined">
-    <h1 class="hm-title">Account <span class="hm-led">{{ session.coach() }}</span></h1>
     <div class="hm-grid">
       <div class="hm-col hm-col-main">
         <section v-if="session.signedIn()" id="identity" :key="`identity-${coach}`" class="hm-panel" aria-labelledby="ac-identity-h">

@@ -59,7 +59,6 @@ onServerPrefetch(async () => {
 
 <template>
   <div class="hm-page">
-    <h1 class="hm-title">My teams <span class="hm-led">{{ session.coach() }}</span></h1>
     <div class="hm-grid">
       <div class="hm-col hm-col-main">
         <section id="teams" class="hm-panel" aria-labelledby="mt-teams-h">

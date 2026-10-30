@@ -3,6 +3,7 @@
 // Edit) on every tab, then Overview (facts strip, summary, news, My entry for a signed-in coach) /
 // Entrants / Rounds / Standings, and Manage for the tournament's owner, organisers and admins.
 import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch } from "vue";
+import { usePageTitle } from "../shell/pageTitle";
 import { COACH_TREE_KEY } from "../home/tree";
 import { RouterLink, useRoute } from "vue-router";
 import { API_KEY } from "../app";
@@ -50,6 +51,7 @@ onMounted(async () => {
   await ready;
 });
 onUnmounted(() => stopPolling());
+usePageTitle(() => state.tournament?.name);
 </script>
 
 <template>
