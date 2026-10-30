@@ -11,6 +11,7 @@ import {
   STATUS_LABEL, STATUS_TONE, TOURNAMENT_LIST_KEY, type CardAction, type ListTab,
 } from "../tournaments/list";
 import { startPolling } from "../tournaments/poll";
+import { canCreateTournament, TOURNAMENT_CREATOR_KEY } from "../tournaments/create";
 import { formatLine, roundProgress, rulesetInitials, safeBannerUrl } from "../tournaments/detail";
 import type { TournamentSummary } from "../shared/api";
 
@@ -22,6 +23,9 @@ const list = inject(TOURNAMENT_LIST_KEY, null) ?? createTournamentList({ api: fe
 const { state } = list;
 const coach = computed(() => session.coach());
 const canWrite = computed(() => writesAllowed(session));
+// CREATE: organisers only, the same rule as the server's POST /api/tournaments (tournaments/create.ts).
+const creator = inject(TOURNAMENT_CREATOR_KEY, null);
+const canCreate = computed(() => Boolean(creator) && canCreateTournament(session));
 
 // The URL (?tab=&q=&page=) is the source of truth: refresh and Back restore the same view.
 const changed = list.restore(parseListQuery(route.query));
@@ -86,11 +90,14 @@ onUnmounted(() => stopPolling());
           :aria-checked="state.tab === t.id ? 'true' : 'false'" :tabindex="state.tab === t.id ? 0 : -1" @click="pick(t.id)"
         >{{ t.label }}</button>
       </div>
-      <form class="tl-search" role="search" @submit.prevent="find">
-        <label class="tn-sr" for="tn-q">Search tournaments</label>
-        <input id="tn-q" v-model="q" type="search" maxlength="60" autocomplete="off" placeholder="Search by name" />
-        <button class="tl-search-btn" type="submit">Search</button>
-      </form>
+      <div class="tl-tools">
+        <form class="tl-search" role="search" @submit.prevent="find">
+          <label class="tn-sr" for="tn-q">Search tournaments</label>
+          <input id="tn-q" v-model="q" type="search" maxlength="60" autocomplete="off" placeholder="Search by name" />
+          <button class="tl-search-btn" type="submit">Search</button>
+        </form>
+        <button v-if="canCreate" class="tl-create-btn" type="button" aria-haspopup="dialog" @click="creator!.show()">Create</button>
+      </div>
     </div>
 
     <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>

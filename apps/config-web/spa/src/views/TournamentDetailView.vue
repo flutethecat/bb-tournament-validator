@@ -2,12 +2,13 @@
 // Tournament detail (/app/tournaments/:id, ?tab=): public read. The front block (banner, name, chips, registration,
 // Edit) on every tab, then Overview (facts strip, summary, news, My entry for a signed-in coach) /
 // Entrants / Rounds / Standings, and Manage for the tournament's owner, organisers and admins.
-import { computed, inject, nextTick, onMounted, onUnmounted, provide, watch } from "vue";
+import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch } from "vue";
 import { COACH_TREE_KEY } from "../home/tree";
 import { RouterLink, useRoute } from "vue-router";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import { startPolling } from "../tournaments/poll";
+import { TOURNAMENT_CREATOR_KEY } from "../tournaments/create";
 import { browserHashScroll, scrollToHashAfter } from "../tournaments/scroll";
 import TournamentEntrants from "../components/TournamentEntrants.vue";
 import TournamentFront from "../components/TournamentFront.vue";
@@ -26,6 +27,8 @@ const coachTree = inject(COACH_TREE_KEY, null);
 const detail = inject(TOURNAMENT_DETAIL_KEY, null) ?? createTournamentDetail({ api: fetcher, onSignedOut: () => void session.load(true), onChanged: () => void coachTree?.invalidate() });
 provide(TOURNAMENT_DETAIL_KEY, detail);
 const { state } = detail;
+// Arriving from Create Tournament: "Tournament created as a draft." once.
+const createdNotice = ref(inject(TOURNAMENT_CREATOR_KEY, null)?.takeNotice(props.id) ?? "");
 const tabs = computed(() => tabsFor(state.capabilities.manage));
 const tab = computed<DetailTab>(() => {
   const asked = isDetailTab(route.query.tab) ? route.query.tab : "overview";
@@ -55,6 +58,7 @@ onUnmounted(() => stopPolling());
     <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!state.loaded || !state.tournament" class="muted" role="status">Loading tournament...</p>
     <template v-else>
+      <p v-if="createdNotice" class="tn-notice" role="status">{{ createdNotice }}</p>
       <TournamentFront />
       <nav class="tn-tabs" aria-label="Tournament sections">
         <RouterLink

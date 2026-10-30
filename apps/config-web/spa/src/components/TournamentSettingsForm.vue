@@ -8,6 +8,7 @@ import {
   fromLocalInput, PAIRING_LABEL, SEEDING_LABEL, toLocalInput, TOURNAMENT_DETAIL_KEY, type TournamentSettingsPatch,
 } from "../tournaments/detail";
 import { SESSION_KEY, writesAllowed } from "../session";
+import TournamentRulesFields from "./TournamentRulesFields.vue";
 
 const detail = inject(TOURNAMENT_DETAIL_KEY)!;
 const { state } = detail;
@@ -18,7 +19,7 @@ const busy = computed(() => Boolean(state.busy));
 const hasRounds = computed(() => state.rounds.length > 0);
 
 interface Form {
-  startsAt: string; endsAt: string; maxPlayers: number; roundCount: number;
+  startsAt: string; endsAt: string; maxPlayers: number | ""; roundCount: number | "";
   pairingSystem: TournamentPairingSystem; seedingMode: TournamentSeedingMode; primaryTiebreaker: "buchholz" | "sonnebornBerger";
 }
 const fromRecord = (): Form => ({
@@ -59,23 +60,19 @@ async function addOrganizer() { if (newOrganizer.value.trim()) { await detail.ad
   <form v-if="canWrite" class="tn-form-grid" @submit.prevent="save">
     <label class="tn-field"><span class="tn-fact-k">Starts (UTC)</span><input v-model="form.startsAt" type="datetime-local" /></label>
     <label class="tn-field"><span class="tn-fact-k">Ends (UTC)</span><input v-model="form.endsAt" type="datetime-local" /></label>
-    <label class="tn-field"><span class="tn-fact-k">Max players</span><input v-model.number="form.maxPlayers" type="number" min="2" max="512" inputmode="numeric" /></label>
-    <label v-if="t.format === 'swiss'" class="tn-field"><span class="tn-fact-k">Rounds</span><input v-model.number="form.roundCount" type="number" min="1" max="50" inputmode="numeric" /></label>
-    <label v-if="t.format === 'swiss'" class="tn-field">
-      <span class="tn-fact-k">Pairing system</span>
-      <select v-model="form.pairingSystem"><option v-for="(label, key) in PAIRING_LABEL" :key="key" :value="key">{{ label }}</option></select>
-    </label>
-    <label class="tn-field">
-      <span class="tn-fact-k">Seeding</span>
-      <select v-model="form.seedingMode" :disabled="hasRounds"><option v-for="(label, key) in SEEDING_LABEL" :key="key" :value="key">{{ label }}</option></select>
-    </label>
-    <label class="tn-field">
-      <span class="tn-fact-k">First tiebreaker</span>
-      <select v-model="form.primaryTiebreaker" :disabled="t.status === 'completed'">
-        <option value="buchholz">Buchholz</option>
-        <option value="sonnebornBerger">Sonneborn-Berger</option>
-      </select>
-    </label>
+    <TournamentRulesFields
+      v-model:max-players="form.maxPlayers" v-model:round-count="form.roundCount" v-model:primary-tiebreaker="form.primaryTiebreaker"
+      :swiss="t.format === 'swiss'" :tiebreaker-disabled="t.status === 'completed'"
+    >
+      <label v-if="t.format === 'swiss'" class="tn-field">
+        <span class="tn-fact-k">Pairing system</span>
+        <select v-model="form.pairingSystem"><option v-for="(label, key) in PAIRING_LABEL" :key="key" :value="key">{{ label }}</option></select>
+      </label>
+      <label class="tn-field">
+        <span class="tn-fact-k">Seeding</span>
+        <select v-model="form.seedingMode" :disabled="hasRounds"><option v-for="(label, key) in SEEDING_LABEL" :key="key" :value="key">{{ label }}</option></select>
+      </label>
+    </TournamentRulesFields>
     <div class="tn-actions tn-form-actions">
       <button class="lobby-btn primary" type="submit" :disabled="!dirty || busy">Save settings</button>
       <button class="lobby-btn" type="button" :disabled="!dirty || busy" @click="Object.assign(form, fromRecord())">Reset</button>

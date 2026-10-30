@@ -2,11 +2,14 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { API_KEY } from "./app";
+import AccountMenu from "./components/AccountMenu.vue";
 import BellPopover from "./components/BellPopover.vue";
 import ShellNav from "./components/ShellNav.vue";
 import RecentGames from "./components/RecentGames.vue";
 import SignInPrompt from "./components/SignInPrompt.vue";
 import TestSignInCard from "./components/TestSignInCard.vue";
+import TournamentCreateDialog from "./components/TournamentCreateDialog.vue";
+import { canCreateTournament, TOURNAMENT_CREATOR_KEY } from "./tournaments/create";
 import { appPath, discordLoginUrl, SESSION_KEY } from "./session";
 import { THEME_KEY, themeLabel } from "./theme";
 import { gateFor } from "./router";
@@ -22,6 +25,13 @@ const tree = inject(COACH_TREE_KEY)!;
 const ui = inject(SHELL_UI_KEY)!;
 const route = useRoute();
 const router = useRouter();
+const creator = inject(TOURNAMENT_CREATOR_KEY, null);
+// "Create tournament" in the account menu: organisers only, the server's POST /api/tournaments rule.
+const canCreate = computed(() => Boolean(creator) && canCreateTournament(session));
+function openCreate(): void {
+  menuOpen.value = false;
+  creator?.show();
+}
 
 // RouterView is keyed by path: moving between two lobbies builds a fresh controller.
 const gate = computed(() => gateFor(route, session));
@@ -142,10 +152,7 @@ async function signOut(): Promise<void> {
             <span>{{ session.coach() }}</span>
             <span aria-hidden="true" class="sf-menu-caret">▾</span>
           </button>
-          <ul v-if="menuOpen" class="sf-avatar-list" role="menu">
-            <li role="none"><RouterLink role="menuitem" to="/account">Account</RouterLink></li>
-            <li role="none"><button role="menuitem" type="button" @click="signOut">Sign out</button></li>
-          </ul>
+          <AccountMenu v-if="menuOpen" :can-create="canCreate" @create="openCreate" @sign-out="signOut" />
         </div>
       </template>
       <a v-else-if="session.state.status === 'ready' && session.ssoEnabled()" class="lobby-btn primary small" :href="loginHref">
@@ -178,4 +185,5 @@ async function signOut(): Promise<void> {
       <RouterView v-else :key="route.path" />
     </main>
   </div>
+  <TournamentCreateDialog v-if="creator?.state.open && canCreate" />
 </template>

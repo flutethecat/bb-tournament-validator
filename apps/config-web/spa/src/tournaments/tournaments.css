@@ -260,15 +260,19 @@ a.tn-fact-sub { color: var(--ui-text); text-decoration: underline; }
   height: 40px; min-height: 0; box-sizing: border-box; width: 240px; min-width: 0; max-width: 100%; margin: 0; padding: 0 10px;
   font: inherit; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-right: 0; border-radius: 2px 0 0 2px;
 }
-.tl-search-btn, .tl-page-btn, .tl-action {
+/* right side of the toolbar: search, then CREATE (organisers) at the same 40 px height */
+.tl-tools { display: flex; align-items: stretch; gap: 10px; min-width: 0; }
+.tl-search-btn, .tl-create-btn, .tl-page-btn, .tl-action {
   display: inline-flex; align-items: center; justify-content: center; height: 40px; min-height: 0; box-sizing: border-box; margin: 0; padding: 0 14px;
   font: 12px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; text-decoration: none; white-space: nowrap; cursor: pointer;
   color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel);
 }
 .tl-search-btn { color: var(--ui-text-on-primary); background: var(--ui-primary); border-radius: 0 2px 2px 0; }
+.tl-create-btn { color: var(--ui-text-on-primary); background: var(--ui-primary); }
+.tl-create-btn:hover,
 .tl-search-btn:hover, .tl-page-btn:hover:not(:disabled), .tl-action:hover { border-color: var(--ui-heading); }
 .tl-page-btn:disabled { opacity: .45; cursor: not-allowed; }
-.tl-search-btn:focus-visible, .tl-page-btn:focus-visible, .tl-action:focus-visible, .tl-name a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.tl-search-btn:focus-visible, .tl-create-btn:focus-visible, .tl-page-btn:focus-visible, .tl-action:focus-visible, .tl-name a:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 
 /* result cards */
 .tl-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); align-items: stretch; }
@@ -305,6 +309,11 @@ a.tn-fact-sub { color: var(--ui-text); text-decoration: underline; }
   .tl-toolbar { flex-direction: column; align-items: stretch; }
   .tl-seg { width: 100%; }
   .tl-seg-btn { flex: 1 1 0; padding: 0 8px; min-width: 0; }
-  .tl-search { width: 100%; }
+  .tl-tools { width: 100%; }
+  .tl-search { flex: 1 1 auto; width: auto; }
   .tl-search input { flex: 1 1 auto; width: auto; }
 }
+
+/* Create Tournament dialog (tn-modal frame) */
+.tn-modal.tc-modal { width: min(600px, 100%); }
+.tc-full { grid-column: 1 / -1; margin: 0; }

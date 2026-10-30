@@ -413,6 +413,8 @@ export const entrantStatus = (e: TournamentEntrant): string => (e.droppedAt ? "D
 
 export const PAIRING_LABEL: Record<TournamentPairingSystem, string> = { dutch: "Dutch", monrad: "Monrad", eloSeeded: "Elo-seeded" };
 export const SEEDING_LABEL: Record<TournamentSeedingMode, string> = { elo: "By rating (Elo)", manual: "Manual seeds" };
+export type TournamentPrimaryTiebreaker = "buchholz" | "sonnebornBerger";
+export const TIEBREAKER_LABEL: Record<TournamentPrimaryTiebreaker, string> = { buchholz: "Buchholz", sonnebornBerger: "Sonneborn-Berger" };
 
 export type RosterState = "none" | "valid" | "invalid";
 /** The roster chip: no submission, valid (validator or organiser override), invalid. */

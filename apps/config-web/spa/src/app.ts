@@ -12,6 +12,7 @@ import { createTheme, THEME_KEY, type Theme } from "./theme";
 import { COACH_TREE_KEY, createCoachTree, type CoachTree } from "./home/tree";
 import { CLOCK_KEY, createClock, createShellUi, SHELL_UI_KEY, type Clock, type ShellUi } from "./home/shell";
 import { NOTIFICATIONS_KEY, useNotifications } from "./home/notifications";
+import { createTournamentCreator, TOURNAMENT_CREATOR_KEY } from "./tournaments/create";
 
 /** The JSON fetcher views use (tests may swap it; the default is the shared same-origin api()). */
 export const API_KEY: InjectionKey<Fetcher> = Symbol("api");
@@ -56,6 +57,7 @@ export function createSpa(opts: SpaOptions): Spa {
   app.provide(COACH_TREE_KEY, tree);
   app.provide(SHELL_UI_KEY, ui);
   app.provide(CLOCK_KEY, clock);
+  app.provide(TOURNAMENT_CREATOR_KEY, createTournamentCreator({ api: fetcher, onSignedOut: () => void session.load(true), onCreated: () => void tree.invalidate() }));
   app.use(router);
   return { app, router, session, library, theme, tree, ui, clock };
 }
