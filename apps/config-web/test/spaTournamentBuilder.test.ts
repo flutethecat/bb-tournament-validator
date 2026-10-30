@@ -764,3 +764,41 @@ describe("tournament builder wiring", () => {
     expect(readFileSync(new URL("../public/tournament-team-builder.html", import.meta.url), "utf8")).toContain('<body data-builder="tournament">');
   });
 });
+
+describe("Hireable players four-card window", () => {
+  it("fourCardHeight: the bottom of the 4th card, nothing for four or fewer", async () => {
+    const { fourCardHeight } = await import("../spa/src/teams/hireWindow");
+    const card = (top: number, h: number) => ({ offsetTop: top, offsetHeight: h });
+    expect(fourCardHeight([card(0, 100), card(110, 100), card(220, 100), card(330, 100)])).toBeUndefined();
+    expect(fourCardHeight([card(0, 100), card(110, 120), card(240, 100), card(350, 140), card(500, 100)])).toBe(490);
+  });
+
+  it("watchFourCards re-measures on card resize, image load and fonts.ready, re-attaches on rewatch, disconnects on stop", async () => {
+    const { watchFourCards } = await import("../spa/src/teams/hireWindow");
+    const observed = new Set<unknown>();
+    let fire: () => void = () => {};
+    class FakeRO { constructor(cb: () => void) { fire = cb; } observe(e: unknown) { observed.add(e); } disconnect() { observed.clear(); } }
+    let fontsDone: () => void = () => {};
+    const g = globalThis as any;
+    const saved = { ro: g.ResizeObserver, doc: g.document };
+    g.ResizeObserver = FakeRO;
+    g.document = { fonts: { ready: new Promise<void>((r) => { fontsDone = r; }) } };
+    try {
+      const listeners: Record<string, () => void> = {};
+      const kids = [1, 2, 3, 4, 5, 6].map((n) => ({ n }));
+      const list: any = { children: kids, addEventListener: (t: string, f: () => void) => { listeners[t] = f; }, removeEventListener: (t: string) => { delete listeners[t]; } };
+      let calls = 0;
+      const w = watchFourCards(list, () => { calls++; });
+      expect([...observed]).toEqual([kids[0], kids[1], kids[2], kids[3], list]); // first four cards + the box, not the rest
+      fire(); expect(calls).toBe(1);
+      listeners.load!(); expect(calls).toBe(2);
+      fontsDone(); await Promise.resolve(); await Promise.resolve(); expect(calls).toBe(3);
+      list.children = [{ n: 9 }, ...kids.slice(0, 5)];
+      w.rewatch();
+      expect(observed.has(list.children[0])).toBe(true);
+      w.stop();
+      expect(observed.size).toBe(0);
+      expect(listeners.load).toBeUndefined();
+    } finally { g.ResizeObserver = saved.ro; g.document = saved.doc; }
+  });
+});

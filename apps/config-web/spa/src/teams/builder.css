@@ -31,7 +31,7 @@
 .tb-col { display: grid; gap: 16px; align-content: start; min-width: 0; }
 .tb-work .tb-panel { container: tbpanel / inline-size; }
 @media (min-width: 1180px) {
-  .tb-work { grid-template-columns: minmax(240px, 1fr) minmax(360px, 2fr) minmax(280px, 1.3fr); align-items: start; }
+  .tb-work { grid-template-columns: minmax(200px, 1fr) minmax(300px, 2fr) minmax(240px, 1.3fr); align-items: start; }
 }
 
 /* Validator: the five value cards stacked (scoreboard face + drop shadow on the labels too), then SP, the remaining value

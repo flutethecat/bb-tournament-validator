@@ -5,6 +5,7 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
 import { core, type BuilderPosition } from "../teams/builderCore";
+import { fourCardHeight, watchFourCards } from "../teams/hireWindow";
 import TournamentBuilderStats from "./TournamentBuilderStats.vue";
 
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
@@ -17,16 +18,19 @@ const list = ref<HTMLElement | null>(null);
 const maxH = ref<string | undefined>(undefined);
 function measure(): void {
   const el = list.value;
-  const kids = el ? Array.from(el.children) as HTMLElement[] : [];
-  if (!el || kids.length <= 4) { maxH.value = undefined; return; }
-  const four = kids[3]!;
-  maxH.value = `${four.offsetTop - kids[0]!.offsetTop + four.offsetHeight}px`;
+  const h = el ? fourCardHeight(Array.from(el.children) as HTMLElement[]) : undefined;
+  maxH.value = h === undefined ? undefined : `${h}px`;
 }
-let ro: ResizeObserver | null = null;
+let watcher: ReturnType<typeof watchFourCards> | null = null;
 function remeasure(): void { maxH.value = undefined; void nextTick(measure); } // card heights follow the width: unset, then measure
-onMounted(() => { measure(); if (typeof window !== "undefined") window.addEventListener("resize", remeasure); if (typeof ResizeObserver !== "undefined" && list.value) { ro = new ResizeObserver(measure); ro.observe(list.value); } });
-onBeforeUnmount(() => { ro?.disconnect(); if (typeof window !== "undefined") window.removeEventListener("resize", remeasure); });
-watch(cards, () => void nextTick(measure));
+onMounted(() => {
+  measure();
+  if (typeof window !== "undefined") window.addEventListener("resize", remeasure);
+  if (list.value) watcher = watchFourCards(list.value, measure);
+});
+onBeforeUnmount(() => { watcher?.stop(); watcher = null; if (typeof window !== "undefined") window.removeEventListener("resize", remeasure); });
+// A different ruleset / race changes the cards: re-measure and re-attach the observers to the new first four.
+watch(cards, () => void nextTick(() => { measure(); watcher?.rewatch(); }));
 function add(positionId: string): void {
   if (ui.requireName()) builder.addPosition(positionId);
 }
