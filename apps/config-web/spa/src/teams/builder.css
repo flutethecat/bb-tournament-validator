@@ -31,7 +31,7 @@
 .tb-col { display: grid; gap: 16px; align-content: start; min-width: 0; }
 .tb-work .tb-panel { container: tbpanel / inline-size; }
 @media (min-width: 1180px) {
-  .tb-work { grid-template-columns: minmax(240px, 300px) minmax(360px, 1fr) minmax(250px, 310px); align-items: start; }
+  .tb-work { grid-template-columns: minmax(240px, 1fr) minmax(360px, 2fr) minmax(280px, 1.3fr); align-items: start; }
 }
 
 /* Validator: the five value cards stacked (scoreboard face + drop shadow on the labels too), then SP, the remaining value
@@ -55,8 +55,7 @@
 .tb-sp-players b { font-family: var(--sf-band-font); font-weight: 500; white-space: nowrap; }
 .tb-validator .tb-value-lines { margin-bottom: 10px; }
 .tb-rules { padding-top: 8px; border-top: 2px solid var(--sf-panel-line); }
-.tb-rules .tb-lines { font-size: 14px; }
-.tb-note { margin: 0 0 6px; font-size: 13px; }
+.tb-rules .tb-lines { margin: 0; font-size: 14px; }
 .tb-name-gate { margin: 0 0 8px; }
 .tb-col-right .tb-fields { grid-template-columns: minmax(0, 1fr); }
 .tb-col-right .tb-pack-grid { grid-template-columns: minmax(0, 1fr); }
@@ -217,7 +216,11 @@
 .tb-step-row.off { opacity: .55; }
 .tb-step-icon { width: 40px; height: 40px; display: grid; place-items: center; }
 .tb-step-icon img { width: 36px; height: 36px; object-fit: contain; image-rendering: pixelated; }
+.tb-race-scroll { max-height: max(320px, calc(100vh - 280px)); overflow: auto; padding-right: 0; }
+.tb-race-scroll thead th { position: sticky; top: 0; z-index: 2; box-shadow: 0 2px 0 var(--sf-panel-line); } /* header row stays at the top of the scroll region */
 .tb-scroll-list { max-height: 520px; overflow-y: auto; padding-right: 2px; }
+/* Hireable players: a scroll box showing four position cards at a time (max-height measured in the component) */
+.tb-hire-list { overflow-y: auto; padding-right: 2px; align-content: start; }
 .tb-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .tb-table th, .tb-table td { padding: 6px; text-align: left; border-bottom: 1px solid var(--sf-panel-line); }
 

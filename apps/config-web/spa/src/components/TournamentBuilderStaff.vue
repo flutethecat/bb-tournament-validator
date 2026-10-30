@@ -12,7 +12,7 @@ const apothecaryOff = computed(() => Boolean(state.roster && !state.roster.apoth
 
 <template>
   <section class="hm-panel tb-panel" aria-labelledby="tb-staff-h">
-    <header class="hm-band"><h2 id="tb-staff-h">Staff</h2><span class="hm-cap">{{ core.gold(builder.totals().sidelineCost) }}</span></header>
+    <header class="hm-band"><h2 id="tb-staff-h">Sideline staff</h2><span class="hm-cap">{{ core.gold(builder.totals().sidelineCost) }}</span></header>
     <ul class="tb-steppers">
       <li v-for="r in builder.staffRows()" :key="r.key" class="tb-step-row" :class="{ off: r.key === 'apothecary' && apothecaryOff }">
         <span class="tb-step-icon" aria-hidden="true"><img v-if="builder.staffIcon(r.key)" class="crest-image" :src="builder.staffIcon(r.key)" alt="" loading="lazy" /></span>

@@ -37,17 +37,20 @@ function onTableClick(e: MouseEvent): void {
   <section v-if="state.packageName" class="hm-panel tb-panel" aria-labelledby="tb-package-h">
     <header class="hm-band"><h2 id="tb-package-h">{{ state.packageName }}</h2><span class="hm-cap">Ruleset</span></header>
     <dl v-if="summaryHtml" class="tt-summary tb-summary" v-html="summaryHtml"></dl>
-    <details v-if="description || note" class="tb-notes">
+    <details v-if="description" class="tb-notes">
       <summary>Organiser notes</summary>
-      <p v-if="description" class="tb-notes-text">{{ description }}</p>
-      <p v-if="note" class="muted">{{ note }}</p>
+      <p class="tb-notes-text">{{ description }}</p>
+    </details>
+    <details v-if="note" class="tb-notes">
+      <summary>Rules note</summary>
+      <p class="muted tb-notes-text">{{ note }}</p>
     </details>
   </section>
 
   <section v-if="state.packageName" class="hm-panel tb-panel" aria-labelledby="tb-race-h">
     <header class="hm-band"><h2 id="tb-race-h">Pick a race</h2><span class="hm-cap">Step 2</span></header>
     <p class="muted tb-hint">Each team name picks that race.</p>
-    <div v-if="table.html" class="tb-scroll" @click="onTableClick">
+    <div v-if="table.html" class="tb-scroll tb-race-scroll" tabindex="0" role="region" aria-label="Races by tier" @click="onTableClick">
       <table :class="table.legacy ? 'tier-table' : 'tt-rules-table'" v-html="table.html"></table>
     </div>
     <p v-if="!table.selectable" class="hm-empty">No installed roster is eligible for this ruleset.</p>

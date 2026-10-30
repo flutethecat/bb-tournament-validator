@@ -19,8 +19,8 @@ function leaveHandoff(h: Handoff): void { handoff = h; }
 // Tournament Builder (/app/tournament-team-builder[/:saveId], owner 10-30): the coach-facing team builder against a
 // tournament ruleset, migrated from public/tournament-team-builder.html (which keeps serving unchanged). Design: the
 // shell's left nav, a top row of band tabs (Ruleset · Roster · Sheet) and a centred pane of bezel-and-lift panels. The
-// Roster tab is the one working pane: three columns on desktop (left: hireable players, inducements, star players, staff;
-// centre: the roster table; right: team controls, the validator, errors / valid), stacked in that order on a phone. Browsing and building are public, as on the vanilla page (the preview runs as a
+// Roster tab is the one working pane: three columns on desktop (left: hireable players, sideline staff;
+// centre: the roster table; right: team controls, the validator, errors / valid, inducements, star players), stacked in that order on a phone. Browsing and building are public, as on the vanilla page (the preview runs as a
 // guest); saving, sharing and creating on the Fork need the Discord session. Deep links: /:saveId (or ?save=) opens a
 // saved team, ?package=<name>[&race=<rosterId>] preselects the ruleset (and race).
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from "vue";
@@ -165,8 +165,6 @@ async function pickPackage(name: string): Promise<void> {
 
 <template>
   <div class="hm-page tm-page tb-page" :class="{ 'tb-wide': tab === 'roster' }">
-    <h1 class="hm-title">Tournament Builder <span v-if="state.currentSave" class="hm-led">{{ state.currentSave.name }}</span></h1>
-
     <div ref="tabsEl" class="tl-seg tb-tabs" role="tablist" aria-label="Tournament Builder steps" @keydown="onTabKey">
       <button
         v-for="t in BUILDER_TABS" :id="`tb-tab-${t.id}`" :key="t.id" type="button" role="tab" class="tl-seg-btn" :data-tab="t.id"
@@ -187,12 +185,10 @@ async function pickPackage(name: string): Promise<void> {
     <div v-if="state.booted" :id="`tb-pane-${tab}`" class="tb-pane" role="tabpanel" :aria-labelledby="`tb-tab-${tab}`">
       <TournamentBuilderRuleset v-if="tab === 'ruleset'" @package="pickPackage" @race="pickRace" @next="go('roster')" />
       <div v-else-if="tab === 'roster'" class="tb-work">
-        <!-- Source order is the phone reading order: 1 hireable players, 2 inducements, 3 star players, staff, the roster, 4 team
-             controls, 5 validator, 6 errors / valid. Desktop places the three groups as columns. -->
+        <!-- Source order is the phone reading order: hireable players, sideline staff, the roster, team controls, validator,
+             errors / valid, inducements, star players. Desktop places the three groups as columns (left 1 : centre 2 : right 1.3). -->
         <div class="tb-col tb-col-left">
           <TournamentBuilderHire />
-          <TournamentBuilderInducements />
-          <TournamentBuilderStars />
           <TournamentBuilderStaff />
         </div>
         <div class="tb-col tb-col-centre">
@@ -202,6 +198,8 @@ async function pickPackage(name: string): Promise<void> {
           <TournamentBuilderTeam :sign-in-href="signInHref" :sso-enabled="session.ssoEnabled()" />
           <TournamentBuilderValidator />
           <TournamentBuilderVerdict />
+          <TournamentBuilderInducements />
+          <TournamentBuilderStars />
         </div>
       </div>
       <TournamentBuilderSheet v-else />

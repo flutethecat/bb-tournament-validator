@@ -436,7 +436,7 @@ describe("tournament builder page (server-rendered)", () => {
   it("the route replaces the LinkOut: band tabs (Ruleset · Roster · Sheet), the locked line and the value cards in the validator", async () => {
     const html = await render("/tournament-team-builder", mockFetcher(routes()));
     expect(html).not.toContain("tournament-team-builder.html\" class=\"lobby-btn");
-    expect(html).toContain('<h1 class="hm-title">Tournament Builder');
+    expect(html).not.toContain('<h1 class="hm-title">'); // the page title lives in the shell's header bar
     const tabs = [...html.matchAll(/role="tab" class="tl-seg-btn" data-tab="(\w+)" aria-selected="(\w+)"[^>]*>([^<]+)</g)].map((m) => [m[1], m[2], m[3]]);
     expect(tabs).toEqual([["ruleset", "false", "Ruleset"], ["roster", "true", "Roster"], ["sheet", "false", "Sheet"]]);
     expect(html).toContain("Test Cup · Human · Tier 1 · TV cap 1,150k");
@@ -447,21 +447,35 @@ describe("tournament builder page (server-rendered)", () => {
     expect(html).toMatch(/<strong>Blitzer<\/strong>/); // short position name (src/positionNames.ts)
   });
 
-  it("the Roster pane: left = hireable players, inducements, star players, staff; centre = roster; right = team, validator, errors (phone order = source order)", async () => {
+  it("the Roster pane: left = hireable players, sideline staff; centre = roster; right = team, validator, errors, inducements, star players (phone order = source order)", async () => {
     const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); });
     expect(html).toContain('id="tb-pane-roster"');
     const cols = ["tb-col-left", "tb-col-centre", "tb-col-right"].map((c) => html.indexOf(`class="tb-col ${c}"`));
     expect(cols.every((n) => n > 0)).toBe(true);
     expect(cols).toEqual([...cols].sort((a, b) => a - b));
-    const order = ["tb-add-h", "tb-ind-h", "tb-stars-h", "tb-staff-h", "tb-roster-h", "tb-team-h", "tb-validator-h", "tb-valid-h"].map((id) => html.indexOf(`id="${id}"`));
+    const order = ["tb-add-h", "tb-staff-h", "tb-roster-h", "tb-team-h", "tb-validator-h", "tb-valid-h", "tb-ind-h", "tb-stars-h"].map((id) => html.indexOf(`id="${id}"`));
     expect(order.every((n) => n > 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
-    expect(html.indexOf('id="tb-staff-h"')).toBeLessThan(cols[1]!); // Staff: the left column, under Star Players
+    expect(html.indexOf('id="tb-staff-h"')).toBeLessThan(cols[1]!); // Sideline staff: the left column, under the hireable players
+    expect(html).toMatch(/class="tb-positions tb-hire-list"/); // the hire list scrolls (four cards at a time)
+    expect(html.indexOf('id="tb-ind-h"')).toBeGreaterThan(cols[2]!); // Inducements and Star Players close the right column
+    expect(html.indexOf('id="tb-stars-h"')).toBeGreaterThan(html.indexOf('id="tb-ind-h"'));
     expect(html.indexOf('id="tb-roster-h"')).toBeGreaterThan(cols[1]!);
     expect(html.indexOf('id="tb-team-h"')).toBeGreaterThan(cols[2]!);
     // The roster table is the top of the centre column; the skill key sits under it.
     expect(between(html, "tb-roster-h", "tb-team-h")).toContain('aria-label="Skill key"');
     expect(html).toContain('id="tb-team-name"');
+  });
+
+  it("the Ruleset tab's Pick a race table sits in a scroll region with a sticky header; the panel header and helper line stay outside it", async () => {
+    const html = await render("/tournament-team-builder?package=Test%20Cup&tab=ruleset", mockFetcher(routes()));
+    const region = html.indexOf('class="tb-scroll tb-race-scroll"');
+    expect(region).toBeGreaterThan(html.indexOf('id="tb-race-h"'));
+    expect(region).toBeGreaterThan(html.indexOf("Each team name picks that race."));
+    expect(html.slice(region, region + 400)).toContain("<table");
+    const css = readFileSync(new URL("../spa/src/teams/builder.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.tb-race-scroll \{[^}]*max-height: max\(320px, calc\(100vh[^}]*overflow: auto/);
+    expect(css).toMatch(/\.tb-race-scroll thead th \{[^}]*position: sticky; top: 0/);
   });
 
   it("old tab ids (skills, staff, stars, inducements) land on the Roster pane", async () => {
@@ -487,7 +501,9 @@ describe("tournament builder page (server-rendered)", () => {
     expect(validator).toContain("Stars (max 1)");
     expect(validator).toContain("Secondary skills: max 0");
     expect(validator).toContain("Stacked players: max 1");
-    expect(validator).toContain("Test Cup · Tier 1");
+    expect(validator).not.toContain("Test Cup · Tier 1"); // no package title line above the bullets
+    expect(validator).not.toContain("tb-note");           // no data-note paragraph
+    expect(html).not.toContain('<span class="tb-chip"');                // the summary bar stays crest · package · race · tier · TV cap
   });
 
   it("the validator shows the SP display (used / budget, each player's SP) where the ruleset has an SP budget", async () => {
@@ -545,7 +561,7 @@ describe("tournament builder page (server-rendered)", () => {
     expect(team).toMatch(/>Unshare<\/button>/);
     expect(team).not.toMatch(/>Share link<\/button>/);
     expect(team).toContain("Editing Reavers");
-    expect(html).toContain('<span class="hm-led">Reavers</span>');
+    expect(html).toContain("Editing Reavers");
   });
 
   it("signed out: building stays open, saving asks for Discord", async () => {

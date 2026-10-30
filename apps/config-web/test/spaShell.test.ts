@@ -510,7 +510,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     const ttb = await render("/tournament-team-builder", { "/api/auth/session": { authenticated: false } });
     // Owner 10-30: the Tournament Builder is a real SPA view now (public like the vanilla page), not a link-out.
     expect(ttb.spa.router.currentRoute.value.name).toBe("tournament-team-builder");
-    expect(ttb.html).toContain('<h1 class="hm-title">Tournament Builder');
+    expect(ttb.html).toContain('role="tablist" aria-label="Tournament Builder steps"'); // the page title moved to the shell header; the tab row leads the pane
     expect(ttb.html).not.toContain("Login with Discord to");
     const nf = await render("/nowhere", { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord" } });
     expect(nf.html).toContain(`<h1 class="sf-page-title" aria-live="polite">Page not found</h1>`);
