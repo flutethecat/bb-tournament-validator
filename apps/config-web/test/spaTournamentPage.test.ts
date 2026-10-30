@@ -94,7 +94,7 @@ describe("page helpers", () => {
     expect(formatLine({ format: "roundRobin", roundCount: 1 })).toBe("Round robin · 1 round");
     expect(rulesetInitials("nut-cup")).toBe("NC");
     expect(rulesetInitials("Eurobowl")).toBe("EU");
-    expect(rulesetCreatorHref("nut cup")).toBe("/tournament-rules.html?package=nut%20cup");
+    expect(rulesetCreatorHref("nut cup")).toBe("/app/tournament-creator/nut%20cup");
     expect(safeBannerUrl("/api/tournaments/t1/banner?v=abc123")).toBe("/api/tournaments/t1/banner?v=abc123");
     expect(safeBannerUrl("https://evil.example/banner.png")).toBe("");
     expect(newsList(tournament()).map((n) => n.id)).toEqual(["n3", "n2", "n1"]);
@@ -221,7 +221,7 @@ describe("tournament page views (server-rendered against a mocked API)", () => {
     const html = await render("/tournaments/t1", { ...AS("Veers"), "/api/tournaments/t1": body });
     expect(html).toContain(">Edit</a>");
     expect(html).toContain("tab=manage#tn-page-h");
-    expect(html).toContain('href="/tournament-rules.html?package=nut-cup"');
+    expect(html).toContain('href="/app/tournament-creator/nut-cup"');
     expect(html).toContain("Post news");
     expect(html).toContain(">Unpin</button>");
     expect(html).toContain("Delete news Old news");

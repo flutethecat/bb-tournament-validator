@@ -9,6 +9,7 @@ import Crest from "./Crest.vue";
 import { COACH_TREE_KEY, pickActive, type ChipTone } from "../home/tree";
 import { rememberRail, SHELL_UI_KEY } from "../home/shell";
 import { SESSION_KEY } from "../session";
+import { creatorAllowed } from "../tournaments/creator";
 import { NOTIFICATIONS_KEY, homeBadgeCount, unreadBadge } from "../home/notifications";
 import {
   HOME_LINK, LEAGUES_TO, NAV_ICON, railIntercepts, readNavOpen, rememberNavOpen, RESOURCES, TESTING_TOOLS,
@@ -38,6 +39,12 @@ const tournamentRows = computed<Row[]>(() => {
   }
   // With nothing to show, one muted note; the Tournaments header itself opens the list.
   if (!rows.length) rows.push({ key: "t:none", to: "/tournaments", label: "No active tournaments", level: 1, muted: true });
+  // Tournament Creator (owner 10-30): organisers and site admins only, per the latest session read. On a package's own
+  // URL the row targets that URL, so it stays the highlighted row.
+  if (session.signedIn() && creatorAllowed(session.state.info)) {
+    const onCreator = route.path === "/tournament-creator" || route.path.startsWith("/tournament-creator/");
+    rows.push({ key: "t:creator", to: onCreator ? route.path : "/tournament-creator", label: "Tournament Creator", level: 1 });
+  }
   return rows;
 });
 
