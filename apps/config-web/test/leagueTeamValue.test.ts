@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyForkResult, type ForkGameResult } from "../src/leagues/forkResult";
 import { forkPlayerIdFor, forkTeamIdFor } from "../src/leagues/forkTeam";
 import { applyDraftTeam } from "../src/leagues/redraft";
-import { computeTeamValue, fallbackPlayerValue, refreshTeamValues, signedK, teamValueRoster } from "../src/leagues/teamValue";
+import { computeTeamValue, fallbackPlayerValue, kickoffTeamValue, refreshTeamValues, signedK, teamValueRoster } from "../src/leagues/teamValue";
 import { buildSeason } from "../src/leagues/tourplay";
 import { EMPTY_PLAYER_STATS, type LeagueFixture, type LeaguePlayer, type LeagueTeam, type SeasonRecord } from "../src/leagues/types";
 
@@ -49,6 +49,15 @@ describe("computeTeamValue", () => {
     expect(fallbackPlayerValue(pl("q", "Wizard", { value: null }), HUMAN)).toEqual({ value: undefined, unpriced: ['q: the Human roster has no "Wizard" position'] });
   });
 
+  it("skill spellings the fork team file accepts price the same: \"&\" reads as \"and\", parameters dropped", () => {
+    // Hit and Run is Agility: Secondary for a Human Lineman (50k + 40k), as the banker prices the fork file.
+    expect(fallbackPlayerValue(pl("h", "Human Lineman", { value: null, skills: ["Hit & Run"] }), HUMAN)).toEqual({ value: 90_000, unpriced: [] });
+    // A Goblin Fanatic's printed Ball and Chain, written with "&", is free.
+    const goblin = teamValueRoster("Goblin")!;
+    expect(fallbackPlayerValue(pl("f", "Fanatic", { value: null, ma: 3, st: 7, ag: 3, pa: null, av: 8, skills: ["Ball & Chain", "No Ball", "Secret Weapon", "Stunty"] }), goblin))
+      .toEqual({ value: 70_000, unpriced: [] });
+  });
+
   it("an apothecary only counts when the roster may hire one", () => {
     expect(NURGLE.apothecaryAllowed).toBe(false);
     const t = team({ race: "Nurgle", apothecary: true, rerolls: 1, players: [pl("r", "Rotter Lineman", { value: 40_000 })] });
@@ -64,10 +73,23 @@ describe("computeTeamValue", () => {
     // Not silent: the season log says so, once per team however often the hook runs.
     refreshTeamValues(s);
     expect(s.log).toEqual([{ at: "2026-10-30T12:00:00.000Z", by: "Super FUMBBL", kind: "team-value-unresolved", teamId: "u", text: 'Team value not recomputed for Team: race "Martians" not in dataset.' }]);
+    // The marker lives on the team, so the capped log evicting the entry never repeats it; a new race logs again.
+    expect(s.teams[1]!.valueUnresolvedRace).toBe("Martians");
+    s.log = [];
+    refreshTeamValues(s);
+    expect(s.log).toEqual([]);
+    s.teams[1]!.race = "Venusians";
+    refreshTeamValues(s);
+    expect(s.log.map((e) => e.text)).toEqual(['Team value not recomputed for Team: race "Venusians" not in dataset.']);
+    s.teams[1]!.race = "Human";
+    refreshTeamValues(s);
+    expect(s.teams[1]).not.toHaveProperty("valueUnresolvedRace");
     const old = season([team({ players: [pl("a", "Human Lineman")] })], [], "BB2020");
     expect(refreshTeamValues(old)).toEqual(["t"]);
     expect(old.teams[0]!.teamValue).toBe(999);
     expect(old.log).toBeUndefined(); // other editions are skipped by design
+    // Kickoff figure: unset dedicated fans count 1, as the fork team file writes them (forkTeam.ts forkDedicatedFans).
+    expect(kickoffTeamValue(team({ fans: null, players: [pl("a", "Human Lineman")] }), "BB2025")).toBe(50_000 + 10_000);
     expect(signedK(40_000)).toBe("+40k");
     expect(signedK(-20_000)).toBe("-20k");
   });
@@ -107,6 +129,33 @@ describe("the value refreshes on every mutation path", () => {
     expect(f.fork!.result!.home).not.toHaveProperty("forkTeamValueDiff");
     expect(f.fork!.result!.away.forkTeamValueDiff).toBe(-60_000);
     if (out.applied) expect(out.teamValueDiffs).toEqual([{ side: "away", teamId: "away", team: "Away", diff: -60_000, fork: 50_000, leagueKickoff: 110_000 }]);
+  });
+
+  it("fork result banking: a player without a stored value keeps his inferred advancement value after an injury lowers it", () => {
+    // ST 4 Human Lineman with no "+ST" entry and no stored value: 50k + ST 60k = 110k.
+    const home = team({ id: "home", name: "Home", players: [pl("a", "Human Lineman", { value: null, st: 4 })] });
+    const away = team({ id: "away", name: "Away", players: [pl("z", "Human Lineman")] });
+    const hid = forkTeamIdFor("l", "season-7", "home");
+    const aid = forkTeamIdFor("l", "season-7", "away");
+    const f: LeagueFixture = {
+      id: "f1", category: "Season", phase: "Regular", phaseId: "season-regular", group: "", round: 1, table: 1, suspended: false,
+      home: { team: "Home", teamId: "home", coach: "Ann", race: "Human", score: null, cas: null, conceded: false },
+      away: { team: "Away", teamId: "away", coach: "Bob", race: "Human", score: null, cas: null, conceded: false },
+      fork: { status: "in_progress", gameId: "g1", log: [], teams: {
+        home: { teamId: "home", forkTeamId: hid, coach: "Ann", builtAt: "", players: [{ forkPlayerId: forkPlayerIdFor(hid, "a"), playerId: "a" }] },
+        away: { teamId: "away", forkTeamId: aid, coach: "Bob", builtAt: "", players: [{ forkPlayerId: forkPlayerIdFor(aid, "z"), playerId: "z" }] },
+      } },
+    };
+    const s = season([home, away], [f]);
+    const zero = { td: 0, cas: 0, completions: 0, interceptions: 0, mvp: 0, fouls: 0, earnedSpps: 0 };
+    const out = applyForkResult(s, f, { gameId: "g1", source: "full", teams: [
+      { teamId: hid, score: 0, conceded: false, winnings: 0, players: [{ forkPlayerId: forkPlayerIdFor(hid, "a"), name: "a", ...zero, injuries: ["Dislocated Shoulder (-ST)"] }] },
+      { teamId: aid, score: 0, conceded: false, winnings: 0, players: [] },
+    ] }, new Date("2026-10-30T12:00:00Z"));
+    expect(out.applied).toBe(true);
+    const a = s.teams.find((t) => t.id === "home")!.players[0]!;
+    expect(a).toMatchObject({ st: 3, value: 110_000, missNextGame: true });
+    expect(s.teams.find((t) => t.id === "home")).toMatchObject({ teamValue: 110_000, currentTeamValue: 0 });
   });
 
   it("redraft: the placed roster is recomputed by the receiving season", () => {

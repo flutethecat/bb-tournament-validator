@@ -30,7 +30,7 @@
  */
 import type { GamestateResult } from "@bb/fork-ops";
 import type { ParsedGameResult } from "../site-backend/fumbblResult.js";
-import { kickoffTeamValue, refreshTeamValues } from "./teamValue.js";
+import { kickoffTeamValue, refreshTeamValues, storeFallbackValues } from "./teamValue.js";
 import { fixturePlayed } from "./tourplay.js";
 import { FORK_PLAYER_COUNTERS } from "./types.js";
 import type {
@@ -306,6 +306,9 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
       // Like for like (teamValue.ts kickoffTeamValue): the fork's teamValue is its kickoff figure = current team value
       // (missed-game players excluded) + dedicated fans x 10k, so it is compared with the league team BEFORE this
       // result: pre-result current team value + dedicated fans x 10k.
+      // A player without a stored value gets his fallback price stored FIRST, so an injury that lowers a characteristic
+      // never reprices him below it (the inferred advancement stays in his value).
+      storeFallbackValues(season.teams[i]!, season.ruleset);
       const kickoff = kickoffTeamValue(season.teams[i]!, season.ruleset);
       const m = mutateLeagueTeam(season.teams[i]!, r, ft.players, result.source);
       season.teams[i] = m.team;

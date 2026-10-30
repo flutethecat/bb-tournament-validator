@@ -413,6 +413,8 @@ export interface LeagueTeam {
   currentTeamValue?: number | null;
   /** The team value the TourPlay export listed at import (its CurrentTeamValue), kept for reference only. */
   importedTeamValue?: number | null;
+  /** The race "Team value not recomputed" was logged for (once per team and race; cleared when the race resolves). */
+  valueUnresolvedRace?: string;
   treasury: number | null;
   rerolls: number | null;
   fans: number | null;

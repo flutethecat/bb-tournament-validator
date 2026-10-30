@@ -16,10 +16,10 @@
  * Only BB2025 seasons are recomputed (the dataset is BB2025); a team whose race the dataset cannot resolve keeps its
  * value as it is.
  */
-import { canonSkill, findPosition, findRoster, findSkill, type DatasetPosition, type DatasetRoster, type ForkRoster } from "@bb/validator";
+import { findPosition, findRoster, type DatasetPosition, type DatasetRoster, type ForkRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { CHARACTERISTIC_VALUE } from "../teamAdvancement.js";
-import { positionFor, statAdvanceOf, statDelta } from "./forkTeam.js";
+import { forkDedicatedFans, knownSkillName, positionFor, skillBase, statAdvanceOf, statDelta } from "./forkTeam.js";
 import type { LeagueEventEntry, LeaguePlayer, LeagueTeam, SeasonRecord } from "./types.js";
 
 /** BB2025 staff prices (gold). */
@@ -58,10 +58,13 @@ export function fallbackPlayerValue(p: LeaguePlayer, roster: DatasetRoster): { v
   if (!pos) return { value: undefined, unpriced: [`${label}: the ${roster.name} roster has no "${p.position}" position`] };
   const unpriced: string[] = [];
   let value = pos.cost;
-  const printed = new Set(pos.skills.map(canonSkill));
+  // The fork team file's canonicaliser (forkTeam.ts skillBase / knownSkillName), so a skill prices as the banker prices
+  // the file: "Hit & Run" is "Hit and Run", "Hatred (Undead)" is "Hatred".
+  const printed = new Set(pos.skills.map(skillBase));
   for (const raw of p.skills) {
-    if (!raw.trim() || statAdvanceOf(raw) || printed.has(canonSkill(raw))) continue;
-    const meta = findSkill(bb2025, raw) ?? findSkill(bb2025, raw.replace(/\s*\([^)]*\)\s*$/, ""));
+    if (!raw.trim() || statAdvanceOf(raw) || printed.has(skillBase(raw))) continue;
+    const name = knownSkillName(raw);
+    const meta = name ? bb2025.skills[name] : undefined;
     if (meta?.trait) continue;
     if (!meta?.category) { unpriced.push(`${label}: unknown skill ${raw}`); continue; }
     const access = pos.primaryCategories.includes(meta.category) ? 20_000 : pos.secondaryCategories.includes(meta.category) ? 40_000 : undefined;
@@ -102,6 +105,22 @@ export function computeTeamValue(team: LeagueTeam, roster: DatasetRoster): TeamV
   return { teamValue: players + staff, currentTeamValue: players - unavailable + staff, unpriced };
 }
 
+/**
+ * Writes the fallback price as the stored value of every player of the team that has none (BB2025 seasons, races the
+ * dataset resolves). Import does it for every team; result banking does it BEFORE a result is applied, so an
+ * advancement the price infers from the characteristics stays in the value after an injury lowers them.
+ */
+export function storeFallbackValues(team: LeagueTeam, ruleset: string): void {
+  if (ruleset !== "BB2025") return;
+  const roster = teamValueRoster(team.race);
+  if (!roster) return;
+  for (const p of team.players) {
+    if (stored(p) !== undefined) continue;
+    const f = fallbackPlayerValue(p, roster);
+    if (f.value !== undefined) p.value = f.value;
+  }
+}
+
 export interface RefreshOptions {
   /** Import: write the fallback price as the stored value of every player that has none. */
   fillStoredValues?: boolean;
@@ -118,13 +137,7 @@ export function refreshTeamValue(team: LeagueTeam, ruleset: string, opts: Refres
   if (ruleset !== "BB2025") return false;
   const roster = teamValueRoster(team.race);
   if (!roster) return false;
-  if (opts.fillStoredValues) {
-    for (const p of team.players) {
-      if (stored(p) !== undefined) continue;
-      const f = fallbackPlayerValue(p, roster);
-      if (f.value !== undefined) p.value = f.value;
-    }
-  }
+  if (opts.fillStoredValues) storeFallbackValues(team, ruleset);
   const tv = computeTeamValue(team, roster);
   team.teamValue = tv.teamValue;
   team.currentTeamValue = tv.currentTeamValue;
@@ -134,21 +147,25 @@ export function refreshTeamValue(team: LeagueTeam, ruleset: string, opts: Refres
 /** The season log's cap (events.ts LOG_CAP; not imported, events.ts sits above this module). */
 const SEASON_LOG_CAP = 200;
 
+/** Season log kinds only organisers and admins read (api.ts seasonForViewer drops them for everyone else). */
+export const ORGANISER_LOG_KINDS: ReadonlySet<string> = new Set(["team-value-diff", "team-value-unresolved"]);
+
 /**
  * The single refresh hook every league mutation path calls before putSeason: recomputes the named teams (all when
  * `teamIds` is omitted). Returns the ids of the teams it could not value. In a BB2025 season a team whose race the
  * dataset cannot resolve is never silent: the season log gets "Team value not recomputed for X: race not in dataset"
- * once per team (kind team-value-unresolved). Other editions are skipped by design, without a log entry.
+ * once per team and race (kind team-value-unresolved; the team record keeps valueUnresolvedRace so the capped log
+ * never repeats it). Other editions are skipped by design, without a log entry.
  */
 export function refreshTeamValues(season: SeasonRecord, teamIds?: readonly string[], opts: RefreshOptions = {}): string[] {
   const only = teamIds ? new Set(teamIds) : undefined;
   const skipped: string[] = [];
   for (const t of season.teams) {
     if (only && !only.has(t.id)) continue;
-    if (refreshTeamValue(t, season.ruleset, opts)) continue;
+    if (refreshTeamValue(t, season.ruleset, opts)) { delete t.valueUnresolvedRace; continue; }
     skipped.push(t.id);
-    if (season.ruleset !== "BB2025") continue;
-    if ((season.log ?? []).some((e) => e.kind === "team-value-unresolved" && e.teamId === t.id)) continue;
+    if (season.ruleset !== "BB2025" || t.valueUnresolvedRace === t.race) continue;
+    t.valueUnresolvedRace = t.race;
     const entry: LeagueEventEntry = {
       at: (opts.now ?? new Date()).toISOString(), by: "Super FUMBBL", kind: "team-value-unresolved", teamId: t.id,
       text: `Team value not recomputed for ${t.name}: race "${t.race}" not in dataset.`,
@@ -168,7 +185,8 @@ export function kickoffTeamValue(team: LeagueTeam, ruleset: string): number | un
   if (ruleset !== "BB2025") return undefined;
   const roster = teamValueRoster(team.race);
   if (!roster) return undefined;
-  return computeTeamValue(team, roster).currentTeamValue + Math.max(0, team.fans ?? 0) * 10_000;
+  // The fans the fork team file carried (forkTeam.ts forkDedicatedFans: unset = 1), as the fork counted them.
+  return computeTeamValue(team, roster).currentTeamValue + forkDedicatedFans(team) * 10_000;
 }
 
 /** "1,740k" for gold. */

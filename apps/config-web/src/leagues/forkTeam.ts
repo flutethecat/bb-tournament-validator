@@ -117,13 +117,19 @@ export function positionFor(roster: ForkRoster, position: string): ForkRosterPos
 }
 
 // "&" and "and" spell the same skill ("Ball & Chain" ~ "Ball and Chain").
-const skillBase = (s: string): string => normName(s.replace(/\s*\([^)]*\)\s*$/, "").replace(/\s*&\s*/g, " and "));
+export const skillBase = (s: string): string => normName(s.replace(/\s*\([^)]*\)\s*$/, "").replace(/\s*&\s*/g, " and "));
 const isStatIncrease = (s: string): boolean => /^\+?\s*\d?\s*(ma|st|ag|pa|av)$/i.test(s.trim());
 const KNOWN_SKILLS = new Map(Object.keys(bb2025.skills).map((name) => [skillBase(name), name]));
 
+/** The dataset spelling of a league skill entry ("Hit & Run" -> "Hit and Run", "Hatred (Undead)" -> "Hatred"), if known. */
+export const knownSkillName = (raw: string): string | undefined => KNOWN_SKILLS.get(skillBase(raw));
+
+/** The dedicated fans the fork team file carries for a league team (unset = 1, the composer's minimum). */
+export const forkDedicatedFans = (team: Pick<LeagueTeam, "fans">): number => Math.max(0, team.fans ?? 1);
+
 /** `<skill>` for an acquired skill: the dataset spelling, a parameter as the value ("Hatred (Undead)" -> value="undead", "Loner (4+)" -> value="4"). */
 function skillXml(raw: string, player: string): string {
-  const name = KNOWN_SKILLS.get(skillBase(raw));
+  const name = knownSkillName(raw);
   if (!name) throw new ForkTeamBuildError(`${player} has a skill Super FUMBBL does not know: "${raw}".`);
   const param = raw.match(/\(([^)]*)\)\s*$/)?.[1]?.trim();
   const value = param ? (/^(\d+)\+?$/.test(param) ? param.replace("+", "") : param.toLowerCase()) : "";
@@ -192,7 +198,7 @@ export function buildLeagueForkTeam(input: LeagueForkTeamInput): LeagueForkTeamF
   try {
     skeleton = composeTeam({
       forkRosterXml: rosterXml, coach: input.coach, teamName: team.name, picks: [], reRolls: Math.max(0, team.rerolls ?? 0),
-      apothecary: team.apothecary, dedicatedFans: Math.max(0, team.fans ?? 1), assistantCoaches: team.assistantCoaches ?? 0, cheerleaders: team.cheerleaders ?? 0,
+      apothecary: team.apothecary, dedicatedFans: forkDedicatedFans(team), assistantCoaches: team.assistantCoaches ?? 0, cheerleaders: team.cheerleaders ?? 0,
       custom: true,
     }, bb2025, (input.now ?? new Date()).getTime());
   } catch (e) {
@@ -232,7 +238,7 @@ export function buildLeagueForkTeam(input: LeagueForkTeamInput): LeagueForkTeamF
     forkTeamId, xml, rosterId: roster.rosterId, raceName: roster.raceName, players, revision: leagueTeamRevision(team),
     library: {
       teamName: team.name, race: roster.raceName, teamValueK: Math.round((team.teamValue ?? 0) / 1000), treasury,
-      rerolls: Math.max(0, team.rerolls ?? 0), fanFactor: Math.max(0, team.fans ?? 1), apothecary: team.apothecary,
+      rerolls: Math.max(0, team.rerolls ?? 0), fanFactor: forkDedicatedFans(team), apothecary: team.apothecary,
     },
   };
 }

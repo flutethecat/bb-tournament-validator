@@ -636,6 +636,14 @@ describe("Super FUMBBL fixture routes", () => {
     // The fork history (where the entry lives) is organiser-only: a public read carries no log.
     expect(view(await call("GET", base, EVE))).not.toHaveProperty("log");
     expect(view(await call("GET", base, JAY)).log.map((e: { text: string }) => e.text)).toContain(text);
+    // The public season read drops the organiser-only log kinds; organisers still read them.
+    const kinds = async (who?: { coach: string; admin: boolean }) =>
+      ((await call("GET", "/api/leagues/tabbl/seasons/season-7", who)).body as { season: SeasonRecord }).season.log?.map((e) => e.kind) ?? [];
+    expect(await kinds()).not.toContain("team-value-diff");
+    expect(await kinds(EVE)).not.toContain("team-value-diff");
+    expect(await kinds()).toContain("match-result");
+    expect(await kinds(JAY)).toContain("team-value-diff");
+    expect(await kinds(ROOT)).toContain("team-value-diff");
   });
 
   it("a fixture that got a result by hand is never overwritten by the fork result", async () => {

@@ -50,6 +50,7 @@ import {
 } from "./settings.js";
 import { leagueStats, isStatsScope, type LeagueStats, type StatsScope } from "./stats.js";
 import { fixturePlayed } from "./tourplay.js";
+import { ORGANISER_LOG_KINDS } from "./teamValue.js";
 import { isLeagueOrganiser, LEAGUE_ART_DIR, LEAGUE_ART_PATH, leagueOwner, LeagueStore, LeagueStoreError, SEASON_ID } from "./store.js";
 import { LEAGUE_RULESETS, type LeagueFixture, type LeagueRecord, type LeagueTeam, type LeagueRuleset, type SeasonRecord, type SeasonStatus } from "./types.js";
 
@@ -753,9 +754,12 @@ async function patchFixture(league: LeagueRecord, seasonId: string, fixtureId: s
  * The season as this viewer may see it: rosters are always visible (owner 10-30); the internal fork-notice bookkeeping
  * and the redraft state never leave the server in a season read.
  */
-export function seasonForViewer(_league: LeagueRecord, full: SeasonRecord, _auth: LeagueApiIdentity | undefined): SeasonRecord {
+export function seasonForViewer(league: LeagueRecord, full: SeasonRecord, auth: LeagueApiIdentity | undefined): SeasonRecord {
   // Redraft state (budgets, R&R, draft rosters) is served only by the authorised redraft routes, never in a season read.
   const { redraft: _r, ...season } = full;
   const fixtures = season.fixtures.map((f) => (f.forkNotice || f.fork ? publicForkState(f) : f));
-  return { ...season, fixtures };
+  // Organiser-only log entries (team value diff / not recomputed) stay with organisers and admins.
+  const manager = Boolean(auth && (auth.admin || isLeagueOrganiser(league, auth.coach)));
+  if (manager || !season.log) return { ...season, fixtures };
+  return { ...season, fixtures, log: season.log.filter((e) => !ORGANISER_LOG_KINDS.has(e.kind)) };
 }
