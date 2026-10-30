@@ -78,17 +78,24 @@ export interface CreateTournamentState {
   packagesStatus: "idle" | "loading" | "ready" | "error";
   busy: boolean;
   error: string;
+  /** The last submit came back 401: the dialog offers the sign-in link next to the error. */
+  signedOut: boolean;
   /** One-time notice for the tournament just created; the detail page shows it, then clears it. */
   created: { id: string; notice: string } | null;
 }
 
 export function createTournamentCreator(deps: { api: Fetcher; onSignedOut?: () => void; onCreated?: () => void }) {
   const state = reactive<CreateTournamentState>({
-    open: false, form: blankForm(), packages: [], packagesStatus: "idle", busy: false, error: "", created: null,
+    open: false, form: blankForm(), packages: [], packagesStatus: "idle", busy: false, error: "", signedOut: false, created: null,
   });
 
-  async function loadPackages(): Promise<void> {
-    if (state.packagesStatus === "loading" || state.packagesStatus === "ready") return;
+  // Refetched on every open (a ruleset saved in another tab shows up); the last list stays on screen while it loads.
+  let inflight: Promise<void> | undefined;
+  function loadPackages(): Promise<void> {
+    inflight ??= fetchPackages().finally(() => { inflight = undefined; });
+    return inflight;
+  }
+  async function fetchPackages(): Promise<void> {
     state.packagesStatus = "loading";
     try {
       const list = await deps.api<unknown>("/api/packages");
@@ -96,10 +103,9 @@ export function createTournamentCreator(deps: { api: Fetcher; onSignedOut?: () =
         .map((entry) => (entry && typeof entry === "object" ? String((entry as { name?: unknown }).name ?? "") : ""))
         .filter(Boolean);
       state.packagesStatus = "ready";
-      if (!state.form.packageName && state.packages.length) state.form.packageName = state.packages[0]!;
+      if (!state.packages.includes(state.form.packageName)) state.form.packageName = state.packages[0] ?? "";
     } catch {
-      state.packages = [];
-      state.packagesStatus = "error";
+      state.packagesStatus = state.packages.length ? "ready" : "error";
     }
   }
 
@@ -107,11 +113,11 @@ export function createTournamentCreator(deps: { api: Fetcher; onSignedOut?: () =
     state,
     show(): void {
       state.form = blankForm();
+      state.form.packageName = state.packages[0] ?? "";
       state.error = "";
+      state.signedOut = false;
       state.open = true;
-      void loadPackages().then(() => {
-        if (!state.form.packageName && state.packages.length) state.form.packageName = state.packages[0]!;
-      });
+      void loadPackages();
     },
     close(): void { if (!state.busy) state.open = false; },
     loadPackages,
@@ -122,6 +128,7 @@ export function createTournamentCreator(deps: { api: Fetcher; onSignedOut?: () =
       if (problem) { state.error = problem; return undefined; }
       state.busy = true;
       state.error = "";
+      state.signedOut = false;
       try {
         const res = await deps.api<{ tournament?: { id?: unknown } }>("/api/tournaments", { method: "POST", body: createBody(state.form) });
         const id = typeof res?.tournament?.id === "string" ? res.tournament.id : "";
@@ -133,6 +140,7 @@ export function createTournamentCreator(deps: { api: Fetcher; onSignedOut?: () =
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
           deps.onSignedOut?.();
+          state.signedOut = true;
           state.error = "Signed out. Sign in and try again.";
         } else {
           state.error = err instanceof Error ? err.message : "Can't create the tournament.";

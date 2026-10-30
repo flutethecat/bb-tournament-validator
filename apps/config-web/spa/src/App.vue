@@ -26,11 +26,13 @@ const ui = inject(SHELL_UI_KEY)!;
 const route = useRoute();
 const router = useRouter();
 const creator = inject(TOURNAMENT_CREATOR_KEY, null);
-// "Create tournament" in the account menu: organisers only, the server's POST /api/tournaments rule.
+// "Create tournament" in the account menu: organisers only, the server's POST /api/tournaments rule. The rule gates
+// opening only: once open, the dialog stays until Cancel / Escape even if the session lapses (its 401 error shows).
 const canCreate = computed(() => Boolean(creator) && canCreateTournament(session));
+const createOpen = computed(() => creator?.state.open === true);
 function openCreate(): void {
   menuOpen.value = false;
-  creator?.show();
+  if (canCreate.value) creator?.show();
 }
 
 // RouterView is keyed by path: moving between two lobbies builds a fresh controller.
@@ -131,7 +133,7 @@ async function signOut(): Promise<void> {
 </script>
 
 <template>
-  <header class="shell-header sf-top" :data-rail="ui.collapsed ? 'true' : 'false'">
+  <header class="shell-header sf-top" :data-rail="ui.collapsed ? 'true' : 'false'" :inert="createOpen || undefined" :aria-hidden="createOpen ? 'true' : undefined">
     <!-- Rail collapser (owner 10-30): in the top bar at the right edge of the sidebar column; desktop only (phones use Menu). -->
     <button
       class="sf-rail-toggle" type="button" :data-rail="ui.collapsed ? 'true' : 'false'"
@@ -160,7 +162,7 @@ async function signOut(): Promise<void> {
       </a>
     </div>
   </header>
-  <div class="sf-body" :data-rail="ui.collapsed ? 'true' : 'false'">
+  <div class="sf-body" :data-rail="ui.collapsed ? 'true' : 'false'" :inert="createOpen || undefined" :aria-hidden="createOpen ? 'true' : undefined">
     <div v-if="ui.drawerOpen" class="sf-scrim" aria-hidden="true" @click="ui.drawerOpen = false"></div>
     <aside
       id="sf-aside" ref="aside" class="sf-aside" :data-open="ui.drawerOpen ? 'true' : 'false'"
@@ -185,5 +187,5 @@ async function signOut(): Promise<void> {
       <RouterView v-else :key="route.path" />
     </main>
   </div>
-  <TournamentCreateDialog v-if="creator?.state.open && canCreate" />
+  <TournamentCreateDialog v-if="creator?.state.open" />
 </template>

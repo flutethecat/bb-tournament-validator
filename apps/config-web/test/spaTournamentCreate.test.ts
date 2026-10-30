@@ -83,6 +83,36 @@ describe("create controller", () => {
     expect(c.takeNotice("t9")).toBe("");
   });
 
+  it("the ruleset list is refetched on every open; the last list stays while loading and after a failed reread", async () => {
+    let names = ["nut-cup"];
+    let release: () => void = () => undefined;
+    let gate: Promise<void> = Promise.resolve();
+    let fail = false;
+    const f = mockFetcher({ "/api/packages": async () => { await gate; if (fail) throw new ApiError(500, "x"); return names.map((name) => ({ name })); } });
+    const c = createTournamentCreator({ api: f });
+    c.show();
+    await c.loadPackages();
+    expect(c.state.packages).toEqual(["nut-cup"]);
+    c.close();
+    names = ["nut-cup", "fresh-cup"];
+    gate = new Promise((r) => { release = r; });
+    c.show();
+    expect(c.state.packagesStatus).toBe("loading");
+    expect(c.state.packages).toEqual(["nut-cup"]);
+    expect(c.state.form.packageName).toBe("nut-cup");
+    release();
+    await c.loadPackages();
+    expect(c.state.packages).toEqual(["nut-cup", "fresh-cup"]);
+    expect(f.calls.filter((x) => x.path === "/api/packages")).toHaveLength(2);
+    c.close();
+    fail = true;
+    gate = Promise.resolve();
+    c.show();
+    await c.loadPackages();
+    expect(c.state.packages).toEqual(["nut-cup", "fresh-cup"]);
+    expect(c.state.packagesStatus).toBe("ready");
+  });
+
   it("server refusals show verbatim and keep the dialog open; a local problem never reaches the server; 401 signs out", async () => {
     let signedOut = 0;
     let reply: unknown = new ApiError(400, "Unknown tournament rules package.");
@@ -104,6 +134,8 @@ describe("create controller", () => {
     await c.submit();
     expect(signedOut).toBe(1);
     expect(c.state.error).toBe("Signed out. Sign in and try again.");
+    expect(c.state.signedOut).toBe(true);
+    expect(c.state.open).toBe(true);
     expect(c.state.busy).toBe(false);
   });
 });
@@ -116,15 +148,16 @@ describe("create views (server-rendered against a mocked API)", () => {
   beforeAll(async () => {
     const { createServer } = await import("vite");
     vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
-    const [app, create, detail, vueRouter, renderer, menu] = await Promise.all([
+    const [app, create, detail, vueRouter, renderer, menu, api] = await Promise.all([
       vite.ssrLoadModule("/src/app.ts"),
       vite.ssrLoadModule("/src/tournaments/create.ts"),
       vite.ssrLoadModule("/src/tournaments/detail.ts"),
       vite.ssrLoadModule("vue-router"),
       vite.ssrLoadModule("vue/server-renderer"),
       vite.ssrLoadModule("/src/components/AccountMenu.vue"),
+      vite.ssrLoadModule("/src/shared/api.ts"),
     ]);
-    mods = { app, create, detail, vueRouter, renderer, menu };
+    mods = { app, create, detail, vueRouter, renderer, menu, api };
   }, 60_000);
 
   afterAll(async () => { await vite?.close(); });
@@ -177,14 +210,46 @@ describe("create views (server-rendered against a mocked API)", () => {
     expect(labels).toEqual(["Name", "Ruleset", "Type", "Max players", "Rounds", "First tiebreaker"]);
     expect(dlg).toContain('<option value="nut-cup" selected>nut-cup</option><option value="small-gods">small-gods</option>');
     expect(dlg).toContain('placeholder="Auto"');
-    expect(dlg).toContain('<p class="lobby-error tc-full" role="alert">A tournament with that name already exists.</p>');
+    expect(dlg).toMatch(/<p class="lobby-error tc-full" role="alert">\s*A tournament with that name already exists\.\s*(<!---->)?<\/p>/);
     expect(dlg).toContain(">Create draft</button>");
     const ko = await render("/tournaments", { ...AS("Veers", { organizer: true }), ...PACKAGES }, prep("knockout"));
     const koLabels = [...ko.html.slice(ko.html.indexOf('role="dialog"')).matchAll(/class="tn-fact-k">([^<]+)</g)].map((m) => m[1]);
     expect(koLabels).not.toContain("Rounds");
-    // Not an organiser: the dialog never renders even if opened.
-    const bob = await render("/tournaments", { ...AS("Bob"), ...PACKAGES }, prep("swiss"));
-    expect(bob.html).not.toContain('role="dialog"');
+    // Modal: the shell behind is inert, the dialog takes focus (tabindex -1) and a backdrop click never closes it.
+    expect(html).toMatch(/<header class="shell-header sf-top"[^>]*inert[^>]*aria-hidden="true"/);
+    expect(html).toMatch(/<div class="sf-body"[^>]*inert[^>]*aria-hidden="true"/);
+    expect(dlg).toMatch(/role="dialog"[^>]*tabindex="-1"/);
+  });
+
+  it("a lapsed session keeps the open dialog: its 401 error shows with the sign-in link, the shell stays inert", async () => {
+    const lapsed = (inject: (k: symbol, v: unknown) => void, f: Fetcher) => (async () => {
+      const creator: Creator = mods.create.createTournamentCreator({ api: f });
+      creator.show();
+      await creator.loadPackages();
+      creator.state.form.name = "Spike Open";
+      expect(await creator.submit()).toBeUndefined();
+      inject(mods.create.TOURNAMENT_CREATOR_KEY, creator);
+    })();
+    const { html } = await render("/tournaments", { ...ANON, ...PACKAGES, "POST /api/tournaments": new mods.api.ApiError(401, "Authentication required.") }, lapsed);
+    expect(html).not.toContain("tl-create-btn");
+    const dlg = html.slice(html.indexOf('role="dialog"'));
+    expect(dlg).toContain("Signed out. Sign in and try again.");
+    expect(dlg).toMatch(/<a class="lobby-btn small primary" href="\/api\/auth\/discord\/start\?next=%2Fapp%2Ftournaments">Login with Discord<\/a>/);
+    expect(html).toMatch(/<div class="sf-body"[^>]*inert/);
+  });
+
+  it("keyboard: the dialog uses the shared dialogKey trap (Tab wraps, Escape closes, Escape held while creating)", async () => {
+    const manage = await vite.ssrLoadModule("/src/teams/manage.ts");
+    const [a, b, c] = ["name", "select", "cancel"];
+    expect(manage.dialogKey({ key: "Tab", shiftKey: false }, [a, b, c], c, false)).toEqual({ type: "focus", target: a });
+    expect(manage.dialogKey({ key: "Tab", shiftKey: true }, [a, b, c], a, false)).toEqual({ type: "focus", target: c });
+    expect(manage.dialogKey({ key: "Escape", shiftKey: false }, [a], a, false)).toEqual({ type: "close" });
+    expect(manage.dialogKey({ key: "Escape", shiftKey: false }, [a], a, true)).toEqual({ type: "block" });
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(fileURLToPath(new URL("../spa/src/components/TournamentCreateDialog.vue", import.meta.url)), "utf8");
+    expect(src).toContain("dialogKey(e, focusables(), document.activeElement as HTMLElement | null, state.busy)");
+    expect(src).toContain('window.addEventListener("keydown", onKey, true)');
+    expect(src).not.toContain("@click.self");
   });
 
   it("after Create: the new draft's Manage tab shows the created notice once", async () => {
