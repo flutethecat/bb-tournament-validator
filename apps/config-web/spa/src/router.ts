@@ -94,23 +94,14 @@ export const routes: RouteRecordRaw[] = [
     props: true,
     meta: { requiresAuth: true, title: "Team" },
   },
-  // Tournament Creator (owner 10-30): the organiser's ruleset-package editor; /tournament-rules.html keeps serving. The old
-  // page's ?package=<name> deep link lands on the package's own URL. Organisers and admins; others get the friendly note.
+  // Tournament Creator (owner 10-30): the organiser's ruleset-package editor; /tournament-rules.html keeps serving. One
+  // route: the package rides in the query (?package=<name>, the old page's deep link; ?new=1 for an unsaved document), so
+  // names with dots survive a refresh and switching documents never remounts the editor. Organisers and admins only.
   // Loaded on demand (an organiser-only page): the view is imported here so this block stays self-contained.
   {
     path: "/tournament-creator",
     name: "tournament-creator",
     component: () => import("./views/TournamentCreatorView.vue"),
-    beforeEnter: (to) => (typeof to.query.package === "string" && to.query.package
-      ? { name: "tournament-creator-package", params: { packageId: to.query.package }, query: { ...to.query, package: undefined }, replace: true }
-      : true),
-    meta: { requiresAuth: true, title: "Tournament Creator" },
-  },
-  {
-    path: "/tournament-creator/:packageId",
-    name: "tournament-creator-package",
-    component: () => import("./views/TournamentCreatorView.vue"),
-    props: true,
     meta: { requiresAuth: true, title: "Tournament Creator" },
   },
   // Leagues (TABBL, imported from TourPlay): public read, no sign-in gate.

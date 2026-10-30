@@ -38,7 +38,8 @@ const NUT_CUP: RawDoc = {
 };
 
 const API: Routes = {
-  "/api/packages": ["Nut Cup", { name: "Spike Open" }],
+  "/api/packages": ["Nut Cup", { name: "Spike Open" }, "Cup v1.2"],
+  "/api/packages/Cup%20v1.2": () => ({ raw: { ...structuredClone(NUT_CUP), name: "Cup v1.2" }, revision: "rev-d", problems: [], schemaProblems: [] }),
   "/api/presets": [{ id: "eurobowl", label: "Eurobowl", pkg: { name: "Eurobowl", eligibleRosters: ["*"] } }],
   "/api/skills": { elite: [{ name: "Block", category: "General" }], general: [{ name: "Dodge", category: "Agility" }, { name: "Block", category: "General" }] },
   "/api/stars": [{ name: "Griff Oberwald" }, { name: "Grak", pairedWith: "Crumbleberry", pairPrimary: true }, { name: "Crumbleberry", pairedWith: "Grak" }],
@@ -74,7 +75,7 @@ describe("tournament creator core + controller", () => {
   it("catalogs load; a package opens as authored with its revision", async () => {
     const c = createTournamentCreator({ api: mockFetcher(API) });
     await c.init();
-    expect(c.state.packageNames).toEqual(["Nut Cup", "Spike Open"]);
+    expect(c.state.packageNames).toEqual(["Cup v1.2", "Nut Cup", "Spike Open"]);
     expect(c.state.skills.map((s) => s.name)).toEqual(["Block", "Dodge"]); // de-duplicated, sorted
     await c.open("Nut Cup");
     expect(c.state.selected).toBe("Nut Cup");
@@ -153,6 +154,68 @@ describe("tournament creator core + controller", () => {
   });
 });
 
+describe("tournament creator: URL sync, save race, 401", () => {
+  it("open saved -> New blank: the editor shows the blank document and ?new=1 keeps it", async () => {
+    const { syncCreatorToQuery } = await import("../spa/src/tournaments/creator");
+    const c = createTournamentCreator({ api: mockFetcher(API) });
+    await c.init();
+    expect(await syncCreatorToQuery(c, {})).toBe("Cup v1.2"); // first visit lands on the first saved package
+    await syncCreatorToQuery(c, { package: "Nut Cup" });
+    expect(c.state.pkg!.name).toBe("Nut Cup");
+    c.newBlank();
+    await syncCreatorToQuery(c, { new: "1", tab: "skills" });
+    expect(c.state.selected).toBe("");
+    expect(c.state.pkg!.name).toBe("");
+    expect(c.state.pkg!.tiers).toEqual([]);
+    c.duplicate(); // a copy of the blank one stays too
+    await syncCreatorToQuery(c, { new: "1" });
+    expect(c.state.pkg!.name).toBe("Package copy");
+    await syncCreatorToQuery(c, { package: "Nut Cup" });
+    expect(c.state.pkg!.name).toBe("Nut Cup");
+  });
+
+  it("an edit made while a save is in flight survives the save and stays dirty", async () => {
+    let release: (v: unknown) => void = () => undefined;
+    const f = mockFetcher({ ...API, "POST /api/packages": () => new Promise((r) => { release = r; }) });
+    const c = createTournamentCreator({ api: f });
+    await c.init();
+    await c.open("Nut Cup");
+    c.setField("description", "First");
+    const saving = c.save();
+    await Promise.resolve();
+    c.setField("dataNote", "Typed while saving");
+    release({ ok: true, savedAs: "nut-cup.json", name: "Nut Cup", problems: [], revision: "rev-2" });
+    await saving;
+    expect(c.state.revision).toBe("rev-2");
+    expect(c.state.pkg!.dataNote).toBe("Typed while saving");
+    expect(c.state.pkg!.description).toBe("First");
+    expect(c.dirty()).toBe(true);
+    expect(c.serialize()).toEqual({ ...NUT_CUP, description: "First", dataNote: "Typed while saving" });
+    expect(c.state.original).toEqual({ ...NUT_CUP, description: "First" }); // what the server wrote
+  });
+
+  it("401 on save or preview: the sidecar note shows and the editor stays read-only, across packages", async () => {
+    const { AUTH_BLOCKED } = await import("../spa/src/tournaments/creator");
+    const f = mockFetcher({ ...API, "POST /api/packages": new ApiError(401, "Saving a package requires login (bearer token) or admin auth.") });
+    let signedOut = 0;
+    const c = createTournamentCreator({ api: f, onSignedOut: () => { signedOut += 1; } });
+    await c.init();
+    await c.open("Nut Cup");
+    c.setField("description", "x");
+    await c.save();
+    expect(c.state.readOnly).toBe(AUTH_BLOCKED);
+    expect(signedOut).toBe(1);
+    await c.open("Nut Cup");
+    expect(c.state.readOnly).toBe(AUTH_BLOCKED);
+    const p = createTournamentCreator({ api: mockFetcher({ ...API, "POST /api/packages/preview": new ApiError(401, "The package preview requires the organiser login.") }) });
+    await p.init();
+    await p.open("Nut Cup");
+    await p.requestPreview();
+    expect(p.state.preview.error).toBe(AUTH_BLOCKED);
+    expect(p.state.readOnly).toBe(AUTH_BLOCKED);
+  });
+});
+
 describe("tournament creator view (server-rendered)", () => {
   let vite: ViteDevServer;
   let mods: {
@@ -195,10 +258,10 @@ describe("tournament creator view (server-rendered)", () => {
   }
 
   it("gate: signed out gets the sign-in prompt; a coach who is not an organiser gets the friendly note", async () => {
-    const anon = await render("/tournament-creator/Nut%20Cup", ANON);
+    const anon = await render("/tournament-creator?package=Nut%20Cup", ANON);
     expect(anon.html).toContain("Sign in with Discord to use this page.");
     expect(anon.html).not.toContain("Tournament packages");
-    const coach = await render("/tournament-creator/Nut%20Cup", COACH);
+    const coach = await render("/tournament-creator?package=Nut%20Cup", COACH);
     expect(coach.html).toContain("Not one of yours");
     expect(coach.html).toContain("only they can create and change ruleset packages");
     expect(coach.html).not.toContain("Save package");
@@ -206,11 +269,11 @@ describe("tournament creator view (server-rendered)", () => {
   });
 
   it("organiser: shelf, top row of tabs with Nuffle numerals, centred pane on the Overview tab", async () => {
-    const { html, spa } = await render("/tournament-creator/Nut%20Cup", ORGANISER);
-    expect(spa.router.currentRoute.value.name).toBe("tournament-creator-package");
+    const { html, spa } = await render("/tournament-creator?package=Nut%20Cup", ORGANISER);
+    expect(spa.router.currentRoute.value.name).toBe("tournament-creator");
     expect(html).toContain("Tournament Creator");
     expect(html).toContain("Tournament packages");
-    expect(html).toMatch(/aria-current="page" href="\/app\/tournament-creator\/Nut%20Cup" class="[^"]*cr-card">Nut Cup</);
+    expect(html).toMatch(/aria-current="page" href="\/app\/tournament-creator\?package=Nut\+Cup" class="[^"]*cr-card">Nut Cup</);
     for (const t of ["Overview", "Tiers", "Team rules", "Skills", "Stars", "Inducements", "Advanced", "Preview"]) expect(html).toContain(`</b>${t}</a>`);
     expect(html).toMatch(/aria-current="page"[^>]*tl-seg-btn"><b class="cr-num">1<\/b>Overview</);
     expect(html).not.toMatch(/aria-current="page"[^>]*tl-seg-btn"><b class="cr-num">2<\/b>/);
@@ -218,36 +281,43 @@ describe("tournament creator view (server-rendered)", () => {
     expect(html).toContain('value="Nut Cup"');
     expect(html).toContain("Eligible races");
     expect(html).toContain(">Save package</button>");
-    expect(html).toContain('href="/app/tournament-creator/Nut%20Cup"'); // the nav row targets the open package
+    expect(html).toMatch(/href="\/app\/tournament-creator" class="sf-row"[^>]*data-active="true"/); // the nav row, lit on any package
   });
 
   it("tabs render their section: Tiers, Skills, Stars, Inducements, Advanced", async () => {
-    const tiers = (await render("/tournament-creator/Nut%20Cup?tab=tiers", ORGANISER)).html;
+    const tiers = (await render("/tournament-creator?package=Nut%20Cup&tab=tiers", ORGANISER)).html;
     expect(tiers).toContain("Tournament system");
     expect(tiers).toContain('aria-label="Tier number"');
     expect(tiers).toContain("Unassigned teams");
     expect(tiers).toMatch(/aria-label="Add Dwarf to the selected tier"/);
-    const skills = (await render("/tournament-creator/Nut%20Cup?tab=skills", ORGANISER)).html;
+    const skills = (await render("/tournament-creator?package=Nut%20Cup&tab=skills", ORGANISER)).html;
     expect(skills).toContain("Skill allotment");
     expect(skills).toContain("Stacked player: max secondary");
     expect(skills).toContain("Banned skills");
-    const stars = (await render("/tournament-creator/Nut%20Cup?tab=stars", ORGANISER)).html;
+    const stars = (await render("/tournament-creator?package=Nut%20Cup&tab=stars", ORGANISER)).html;
     expect(stars).toContain("Grak &amp; Crumbleberry"); // paired stars move together
     expect(stars).toContain("Star packs");
-    const ind = (await render("/tournament-creator/Nut%20Cup?tab=inducements", ORGANISER)).html;
+    const ind = (await render("/tournament-creator?package=Nut%20Cup&tab=inducements", ORGANISER)).html;
     expect(ind).toContain("Bretonnian Pastries");
     expect(ind).toContain('aria-label="Raise Bribe cap"');
-    const adv = (await render("/tournament-creator/Nut%20Cup?tab=advanced", ORGANISER)).html;
+    const adv = (await render("/tournament-creator?package=Nut%20Cup&tab=advanced", ORGANISER)).html;
     expect(adv).toContain("Sideline staff");
     expect(adv).toContain("Max team rerolls");
     expect(adv).toContain("futureField"); // package JSON shows what a save sends
   });
 
-  it("the old ?package= deep link lands on the package's own URL; a 409 shows the reload action", async () => {
+  it("one route for every document: ?package= (dots survive), ?new=1, tabs; a 409 shows the reload action", async () => {
     const { spa } = await render("/tournament-creator?package=Nut%20Cup&tab=skills", ORGANISER);
-    expect(spa.router.currentRoute.value.name).toBe("tournament-creator-package");
-    expect(spa.router.currentRoute.value.params.packageId).toBe("Nut Cup");
-    expect(spa.router.currentRoute.value.query).toEqual({ tab: "skills" });
+    expect(spa.router.currentRoute.value.name).toBe("tournament-creator");
+    expect(spa.router.currentRoute.value.query).toEqual({ package: "Nut Cup", tab: "skills" });
+    const before = (spa.router.currentRoute.value as unknown as { path: string }).path;
+    await spa.router.push("/tournament-creator?new=1");
+    // Same path: the shell's RouterView (keyed by path) keeps the view and its controller.
+    expect((spa.router.currentRoute.value as unknown as { path: string }).path).toBe(before);
+    const dotted = await render("/tournament-creator?package=Cup%20v1.2", ORGANISER, "Cup v1.2");
+    expect(dotted.c.state.selected).toBe("Cup v1.2");
+    expect(dotted.html).toMatch(/aria-current="page" href="\/app\/tournament-creator\?package=Cup\+v1\.2" class="[^"]*cr-card">Cup v1\.2</);
+    expect(dotted.html).toContain('value="Cup v1.2"');
 
     const f = mockFetcher({ ...API, ...ORGANISER, "POST /api/packages": new ApiError(409, "Changed since you opened it.", { revision: "rev-9" }) });
     const app = mods.createSpa({ history: mods.createMemoryHistory("/app/"), ssr: true, fetcher: f });
@@ -257,7 +327,7 @@ describe("tournament creator view (server-rendered)", () => {
     c.setField("description", "Mine");
     await c.save();
     app.app.provide(mods.creator.TOURNAMENT_CREATOR_KEY, c);
-    await app.router.push("/tournament-creator/Nut%20Cup");
+    await app.router.push("/tournament-creator?package=Nut%20Cup");
     await app.router.isReady();
     const html = await mods.renderToString(app.app);
     expect(html).toContain("Changed on the server");

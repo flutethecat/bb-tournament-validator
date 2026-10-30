@@ -502,8 +502,8 @@ export function submitChoices(options: TournamentDetailState["teamOptions"]): Su
 
 /** The Tournament Builder pre-filtered to a package (its ?package= deep link). */
 export const rulesetBuilderHref = (packageName: string): string => `/tournament-team-builder.html?package=${encodeURIComponent(packageName)}`;
-/** The Tournament Creator opened on a package (organiser page in the SPA; the package's own URL). */
-export const rulesetCreatorHref = (packageName: string): string => `/app/tournament-creator/${encodeURIComponent(packageName)}`;
+/** The Tournament Creator opened on a package (organiser page in the SPA; the name rides in the query so dots survive). */
+export const rulesetCreatorHref = (packageName: string): string => `/app/tournament-creator?package=${encodeURIComponent(packageName)}`;
 
 /** Two-letter initials for the ruleset crest fallback ("nut-cup" -> "NC"). */
 export function rulesetInitials(name: string): string {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Tournament Creator (/app/tournament-creator[/:packageId], ?tab=): the organiser's ruleset-package editor, migrated
+// Tournament Creator (/app/tournament-creator?package=<name>&tab=, ?new=1 for an unsaved document): the organiser's ruleset-package editor, migrated
 // from the vanilla page (public/tournament-rules.html keeps serving). The shell's side nav on the left; a package shelf,
 // a top row of tabs in the Tournaments band style, and one centred working pane under them. Organisers and site admins
 // only (the server's package-write gate); anyone else gets the friendly "not one of yours" note. The packages it saves
@@ -17,52 +17,44 @@ import CreatorStars from "../components/CreatorStars.vue";
 import CreatorTeamRules from "../components/CreatorTeamRules.vue";
 import CreatorTiers from "../components/CreatorTiers.vue";
 import {
-  CREATOR_TABS, createTournamentCreator, creatorAllowed, isCreatorTab, TOURNAMENT_CREATOR_KEY, type CreatorTab,
+  CREATOR_TABS, createTournamentCreator, creatorAllowed, creatorDocQuery, isCreatorTab, syncCreatorToQuery, TOURNAMENT_CREATOR_KEY, type CreatorTab,
 } from "../tournaments/creator";
 import "../tournaments/creator.css";
 
-const props = withDefaults(defineProps<{ packageId?: string }>(), { packageId: "" });
 const fetcher = inject(API_KEY)!;
 const session = inject(SESSION_KEY)!;
 const route = useRoute();
 const router = useRouter();
+// One route record, the package in the query (?package=<name>, ?new=1 for an unsaved document): the shell keys the
+// RouterView by path, so switching packages, New blank, Duplicate and presets keep this instance and its controller.
 const creator = inject(TOURNAMENT_CREATOR_KEY, null) ?? createTournamentCreator({ api: fetcher, onSignedOut: () => void session.load(true) });
 provide(TOURNAMENT_CREATOR_KEY, creator);
 const { state } = creator;
 
 const allowed = computed(() => session.signedIn() && creatorAllowed(session.state.info));
 const tab = computed<CreatorTab>(() => (isCreatorTab(route.query.tab) ? route.query.tab : "overview"));
-const tabQuery = (t: CreatorTab): Record<string, string> => (t === "overview" ? {} : { tab: t });
-const here = (t: CreatorTab = tab.value) => (props.packageId
-  ? { name: "tournament-creator-package", params: { packageId: props.packageId }, query: tabQuery(t) }
-  : { name: "tournament-creator", query: tabQuery(t) });
+const docQuery = computed(() => creatorDocQuery(route.query));
+const here = (t: CreatorTab = tab.value) => ({ name: "tournament-creator", query: { ...docQuery.value, ...(t === "overview" ? {} : { tab: t }) } });
+const withTab = (doc: Record<string, string>) => ({ name: "tournament-creator", query: { ...doc, ...(tab.value === "overview" ? {} : { tab: tab.value }) } });
 const title = computed(() => (state.pkg?.name?.trim() ? state.pkg.name : state.selected || "New package"));
 const dirty = computed(() => creator.dirty());
 const presetPick = ref("");
 
-/** Bring the editor in line with the URL: a package id opens that package; no id keeps an unsaved document, or opens
- *  the first saved package (then a preset, then a blank package) on first load. */
-async function sync(id: string): Promise<void> {
+/** Bring the editor in line with the URL (see syncCreatorToQuery); a first visit with no package lands on one. */
+async function sync(): Promise<void> {
   if (!state.loaded) return;
-  if (id) {
-    if (id !== state.selected || !state.pkg) await creator.open(id);
-    return;
-  }
-  if (state.pkg) return;
-  if (state.packageNames.length) await router.replace({ name: "tournament-creator-package", params: { packageId: state.packageNames[0]! }, query: route.query });
-  else if (!state.presets.length || !creator.loadPreset(state.presets[0]!.id)) creator.newBlank();
+  const landOn = await syncCreatorToQuery(creator, route.query);
+  if (landOn) await router.replace(withTab({ package: landOn }));
 }
 
 onMounted(async () => {
   if (!allowed.value) return;
   if (!state.loaded) await creator.init();
-  await sync(props.packageId);
+  await sync();
 });
-watch(() => props.packageId, (id) => void sync(id));
+watch(() => [route.query.package, route.query.new], () => void sync());
 
-function goUnsaved(): void {
-  if (props.packageId) void router.push({ name: "tournament-creator", query: route.query });
-}
+const goUnsaved = (): void => void router.push(withTab({ new: "1" }));
 function newBlank(): void { creator.newBlank(); goUnsaved(); }
 function duplicate(): void { creator.duplicate(); goUnsaved(); }
 function pickPreset(e: Event): void {
@@ -72,9 +64,7 @@ function pickPreset(e: Event): void {
 }
 async function save(): Promise<void> {
   await creator.save();
-  if (state.selected && state.selected !== props.packageId && !state.conflict) {
-    await router.replace({ name: "tournament-creator-package", params: { packageId: state.selected }, query: route.query });
-  }
+  if (state.selected && state.selected !== route.query.package && !state.conflict) await router.replace(withTab({ package: state.selected }));
 }
 function reload(): void { if (state.selected) void creator.open(state.selected); }
 </script>
@@ -98,7 +88,7 @@ function reload(): void { if (state.selected) void creator.open(state.selected);
           <li v-for="name in state.packageNames" :key="name">
             <RouterLink
               class="cr-card" :aria-current="name === state.selected ? 'page' : undefined"
-              :to="{ name: 'tournament-creator-package', params: { packageId: name }, query: route.query }"
+              :to="withTab({ package: name })"
             >{{ name }}</RouterLink>
           </li>
         </ul>

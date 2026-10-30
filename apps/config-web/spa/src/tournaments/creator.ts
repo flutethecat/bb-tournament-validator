@@ -112,6 +112,8 @@ export interface CreatorState {
   revision: string | null;
   conflict: string;
   readOnly: string;
+  /** Set after a 401 from save / preview: the editor stays read-only (survives opening another package). */
+  authBlocked: string;
   preview: PreviewState;
 }
 
@@ -124,6 +126,8 @@ export interface CreatorDeps {
   /** After a 401 (the session ended): re-read the session. */
   onSignedOut?: () => void;
 }
+
+export const AUTH_BLOCKED = "This server needs the sign-in sidecar for the Creator; saving is unavailable here.";
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 // Read off the error's shape (an ApiError from the shared fetcher, or any fetcher's equivalent), not its class.
@@ -171,7 +175,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
     packageNames: [], presets: [], skills: [], stars: [], teams: [],
     selected: "", pkg: null, original: {}, baseline: null, injected: new Set(), touched: new Set(),
     view: freshView("skillpoints", "pool"), activeTier: 0,
-    problems: [], saved: null, exported: false, busy: false, revision: null, conflict: "", readOnly: "",
+    problems: [], saved: null, exported: false, busy: false, revision: null, conflict: "", readOnly: "", authBlocked: "",
     preview: { key: "", data: null, overview: null, problems: [], error: "", loading: false },
   });
 
@@ -191,7 +195,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
     state.view = inferView(state.pkg!);
     state.activeTier = 0;
     state.revision = null;
-    state.readOnly = "";
+    state.readOnly = state.authBlocked;
     state.conflict = "";
     state.problems = safeArray<unknown>(problems).map(String);
     state.saved = null;
@@ -755,6 +759,22 @@ export function createTournamentCreator(deps: CreatorDeps) {
     Object.assign(state, keep);
   }
 
+  /** A save that went out while edits continued: `sent` becomes the as-authored document, the live model stays. Filled
+   *  defaults the save wrote out are the organiser's own from now on, so they stop counting as injected. */
+  function rebaseOnto(sent: RawDoc): void {
+    state.original = clone(sent);
+    state.baseline = normalizePackage(sent);
+    state.injected = new Set([...state.injected].filter((key) => getPath(sent, JSON.parse(key) as Path) === undefined));
+  }
+
+  /** A 401 on save / preview (the session is gone, or a server without the sign-in sidecar wants a bearer token the SPA
+   *  never holds): say so and keep the editor read-only for the rest of the visit. */
+  function blockAuth(): void {
+    state.authBlocked = AUTH_BLOCKED;
+    state.readOnly = AUTH_BLOCKED;
+    deps.onSignedOut?.();
+  }
+
   async function save(): Promise<void> {
     if (!state.pkg || state.busy || state.readOnly) return;
     state.busy = true;
@@ -765,9 +785,12 @@ export function createTournamentCreator(deps: CreatorDeps) {
       // Optimistic concurrency: the revision we opened. The server refuses (409) when the file changed since.
       const headers: Record<string, string> = state.revision ? { "If-Match": state.revision } : {};
       const result = await api<Record<string, unknown>>("/api/packages", { method: "POST", body: sent, headers });
-      // The server wrote `sent` verbatim: it is the new "as authored" document later edits diff against.
-      adoptDocument(sent);
-      state.view = freshView(state.view.system, state.view.skillMode);
+      // The server wrote `sent` verbatim: it is the new "as authored" document later edits diff against. Edits made
+      // while the save was in flight stay: the editing model is kept and only rebased onto `sent` (still dirty).
+      if (deepEqual(serialize(), sent)) {
+        adoptDocument(sent);
+        state.view = freshView(state.view.system, state.view.skillMode);
+      } else rebaseOnto(sent);
       state.revision = typeof result.revision === "string" ? result.revision : null;
       state.conflict = "";
       state.problems = safeArray<unknown>(result.problems).map(String);
@@ -783,7 +806,7 @@ export function createTournamentCreator(deps: CreatorDeps) {
       const msg = message(error);
       state.problems = [msg, ...safeArray<unknown>(errorData(error).problems).map(String).filter((p) => p !== msg)];
       if (errorStatus(error) === 409) state.conflict = msg;
-      if (errorStatus(error) === 401) deps.onSignedOut?.();
+      if (errorStatus(error) === 401) blockAuth();
     } finally {
       state.busy = false;
     }
@@ -822,7 +845,8 @@ export function createTournamentCreator(deps: CreatorDeps) {
     } catch (error) {
       if (state.preview.key !== key) return;
       const status = errorStatus(error);
-      const msg = status === 401 || status === 403 ? "Sign in as an organiser to see the preview." : message(error);
+      if (status === 401) blockAuth();
+      const msg = status === 401 ? AUTH_BLOCKED : status === 403 ? "Sign in as an organiser to see the preview." : message(error);
       state.preview = { key, data: null, overview: null, problems: safeArray<unknown>(errorData(error).problems).map(String), error: msg, loading: false };
     }
   }
@@ -879,4 +903,33 @@ export function packageSummary(state: Pick<CreatorState, "pkg" | "view" | "teams
     { label: "Star packs", value: safeArray(pkg.starPacks).length ? String(safeArray(pkg.starPacks).length) : "none" },
     { label: "Banned skills", value: safeArray(pkg.special.bannedSkills).length ? String(safeArray(pkg.special.bannedSkills).length) : "none" },
   ];
+}
+
+/** The document part of the Creator's query: ?package=<name> (a saved package) or ?new=1 (an unsaved document). */
+export function creatorDocQuery(query: Record<string, unknown>): Record<string, string> {
+  if (typeof query.package === "string" && query.package) return { package: query.package };
+  if (query.new === "1") return { new: "1" };
+  return {};
+}
+
+/**
+ * Bring the controller in line with the URL. ?package=<name> opens that package (unless it is already open); ?new=1
+ * keeps the unsaved document in the editor (a fresh visit gets a blank one); neither keeps what is open, or on a first
+ * visit returns the first saved package for the caller to land on (else a preset, else a blank package opens).
+ */
+export async function syncCreatorToQuery(creator: TournamentCreator, query: Record<string, unknown>): Promise<string | undefined> {
+  const { state } = creator;
+  const doc = creatorDocQuery(query);
+  if (doc.package) {
+    if (doc.package !== state.selected || !state.pkg) await creator.open(doc.package);
+    return undefined;
+  }
+  if (doc.new) {
+    if (!state.pkg || state.selected) creator.newBlank();
+    return undefined;
+  }
+  if (state.pkg) return undefined;
+  if (state.packageNames.length) return state.packageNames[0];
+  if (!state.presets.length || !creator.loadPreset(state.presets[0]!.id)) creator.newBlank();
+  return undefined;
 }
