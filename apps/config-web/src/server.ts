@@ -1489,6 +1489,7 @@ const gameLoader = createGameDetailLoader({
   forkMeta: (gameId) => { try { return tournamentMatches.get(gameId); } catch { return undefined; } },
   teamInfo: recentTeamInfo,
   concededLegally: (gameId) => leagueStore.forkGame(gameId)?.verdicts,
+  leagueGame: (gameId) => leagueStore.forkGame(gameId)?.digest,
   tabletop: async () => (await tabletopDeps()).repo,
 });
 

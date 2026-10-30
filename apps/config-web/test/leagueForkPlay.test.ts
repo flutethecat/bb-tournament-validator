@@ -306,7 +306,9 @@ describe("extra result data that fills itself (owner 10-30: G1, G2, G4)", () => 
       store.putSeason(s);
       store.putSeason(other);
       const reads = vi.spyOn(store as unknown as { readJson: (p: string) => unknown }, "readJson");
-      expect(store.forkGame("g42")).toEqual({ leagueId: "tabbl", seasonId: "season-7", fixtureId: "f1" }); // built here, no verdict yet
+      const first = store.forkGame("g42");
+      expect(first).toMatchObject({ leagueId: "tabbl", seasonId: "season-7", fixtureId: "f1" }); // built here, no verdict yet
+      expect(first!.verdicts).toBeUndefined();
       const built = reads.mock.calls.length;
       expect(built).toBeGreaterThan(0);
       expect(store.forkGame("g42")).toBeDefined();
@@ -318,7 +320,13 @@ describe("extra result data that fills itself (owner 10-30: G1, G2, G4)", () => 
       reads.mockClear();
       store.putSeason(s);
       const banked = reads.mock.calls.length; // putSeason's own revision read
-      expect(store.forkGame("g42")).toEqual({ leagueId: "tabbl", seasonId: "season-7", fixtureId: "f1", verdicts: { [aid]: false } });
+      expect(store.forkGame("g42")).toMatchObject({ leagueId: "tabbl", seasonId: "season-7", fixtureId: "f1", verdicts: { [aid]: false } });
+      // the game page's public digest: the banked full result's extras by fork team / player id, never the treasury or team value
+      const digest = store.forkGame("g42")!.digest!;
+      expect(digest.source).toBe("full");
+      expect(Object.keys(digest.teams).length).toBeGreaterThan(0);
+      expect(Object.values(digest.teams).some((t) => Object.values(t.players).some((p) => typeof p.position === "string"))).toBe(true);
+      expect(JSON.stringify(digest)).not.toMatch(/treasury|teamValue|coach/i);
       expect(reads.mock.calls.length).toBe(banked);
       // Removing the season drops its games.
       store.removeSeason("tabbl", "season-7");

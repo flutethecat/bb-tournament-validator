@@ -151,5 +151,20 @@ describe("GAME_PAGES_PUBLIC_PLAYER_LINES", () => {
     const online = withoutPlayerLines((await loader.load("online", "g1"))!.detail);
     expect(online.summary.home).toMatchObject({ mvps: ["Grak"], scorers: [], players: [] });
     expect(JSON.stringify(online.summary)).not.toContain('"touchdowns"');
+    expect(online.summary.home).not.toHaveProperty("squad");
+  });
+
+  it("online: the league digest rides in once per load (cached with the answer); a redacted answer drops its player names", async () => {
+    const { stores } = rig({ results: { g1: forkRow("g1") } });
+    let calls = 0;
+    stores.leagueGame = (id) => { calls += 1; return id === "g1" ? { source: "full", teams: { h: { fanFactor: 3, players: { p: { position: "Blitzer", spp: 4, injuries: ["Seriously Hurt (MNG)"] } } } } } : undefined; };
+    const loader = createGameDetailLoader(stores);
+    const d = (await loader.load("online", "g1"))!.detail;
+    await loader.load("online", "g1");
+    expect(calls).toBe(1);
+    expect(d.summary.home).toMatchObject({ fanFactor: 3, squad: [expect.objectContaining({ name: "Grak", position: "Blitzer", sppEarned: 4, injury: "Seriously Hurt (MNG)", missNextGame: true })] });
+    const red = withoutPlayerLines(d);
+    expect(JSON.stringify(red)).not.toContain("Blitzer");
+    expect(red.summary.home).toMatchObject({ fanFactor: 3, players: [] });
   });
 });

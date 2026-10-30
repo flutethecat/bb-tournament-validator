@@ -12,6 +12,7 @@ import { TABLETOP_LISTED, type GameSource, type RecentInputs, type TeamInfo } fr
 import type { StoredTournamentResult } from "./tournamentResults.js";
 import type { MatchRecord } from "./tabletop/store.js";
 import type { TabletopEvent } from "./tabletop/events.js";
+import type { LeagueGameDigest } from "./leagues/store.js";
 
 export interface GameTabletopReader {
   getMatch(id: string): Promise<MatchRecord | undefined>;
@@ -36,6 +37,8 @@ export interface GameStores {
   teamInfo?: (ref: string, coach: string) => TeamInfo | undefined;
   /** Legal-concession verdicts a league fixture banked for this fork game, by fork team id (absent = none known). */
   concededLegally?: (gameId: string) => Record<string, boolean> | undefined;
+  /** The league fixture's public digest of this fork game (positions, banked SPP / injuries / winnings / fans), from the same cached index. */
+  leagueGame?: (gameId: string) => LeagueGameDigest | undefined;
   tabletop(): Promise<GameTabletopReader | undefined>;
 }
 
@@ -137,6 +140,9 @@ export function createGameDetailLoader(stores: GameStores, opts: GameLoaderOptio
         try { verdicts = stores.concededLegally?.(id); } catch { verdicts = undefined; }
         if (verdicts) inputs.concededLegally = verdicts;
       }
+      let digest: LeagueGameDigest | undefined;
+      try { digest = stores.leagueGame?.(id); } catch { digest = undefined; }
+      if (digest) inputs.leagueGame = digest;
     }
     if (fixture) inputs.tournaments = [fixture];
     const detail = gameDetail(source, id, inputs);
@@ -193,7 +199,11 @@ export function maySeePlayerLines(publicLines: boolean, access: GameAccess, view
  * tables, the reporter's player lines and deaths go, and key moments name the team instead of the player.
  */
 export function withoutPlayerLines(d: GameDetail): GameDetail {
-  const team = (t: GameDetail["summary"]["home"]) => (t ? { ...t, scorers: [], casualtyMakers: [], players: [] } : t);
+  const team = (t: GameDetail["summary"]["home"]) => {
+    if (!t) return t;
+    const { squad: _squad, ...rest } = t;
+    return { ...rest, scorers: [], casualtyMakers: [], players: [] };
+  };
   const hadLines = d.summary.perPlayer;
   const label = { touchdown: "Touchdown", casualty: "Casualty caused", sendOff: "Sent off" } as const;
   return {
@@ -211,7 +221,7 @@ export function withoutPlayerLines(d: GameDetail): GameDetail {
         summaries: d.reporter.summaries
           ? { home: { ...d.reporter.summaries.home, players: [], deaths: [] }, away: { ...d.reporter.summaries.away, players: [], deaths: [] } }
           : null,
-        moments: d.reporter.moments.map((m) => ({ ...m, text: `${label[m.kind]}: ${d.card[m.side].name}` })),
+        moments: d.reporter.moments.map(({ player: _p, victim: _v, ...m }) => ({ ...m, text: `${label[m.kind]}: ${d.card[m.side].name}` })),
       },
     } : {}),
   };

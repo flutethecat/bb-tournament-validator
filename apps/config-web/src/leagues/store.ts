@@ -8,7 +8,14 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync 
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
 import { linkPlayerCareers, needsPlayerIds } from "./playerIds.js";
-import type { LeagueFixture, LeagueRecord, LeagueSecrets, SeasonRecord } from "./types.js";
+import type { LeagueFixture, LeagueRecord, LeagueSecrets, LeagueTeam, SeasonRecord } from "./types.js";
+
+/** One player of a league fork game, public subset: the roster position, and from a full result the SPP the league banked and the server's injury names. */
+export interface LeagueGamePlayer { position?: string; spp?: number; injuries?: string[] }
+/** One side of a league fork game, by fork team id: what the banked result carries beyond the results store (no treasury). */
+export interface LeagueGameSide { winnings?: number; fanFactor?: number; dedicatedFansModifier?: number; players: Record<string, LeagueGamePlayer> }
+/** The public digest of a league fixture's fork game (game pages): positions from the season rosters, plus the banked result's extras. */
+export interface LeagueGameDigest { source?: "full" | "basic"; teams: Record<string, LeagueGameSide> }
 
 /** Where a fork game was played for a league fixture, and the legal-concession verdicts its banked result carries. */
 export interface ForkGameIndexEntry {
@@ -17,10 +24,54 @@ export interface ForkGameIndexEntry {
   fixtureId: string;
   /** By fork team id; only sides whose banked result carries concededLegally. Absent = none. */
   verdicts?: Record<string, boolean>;
+  /** Positions and banked-result extras by fork team / fork player id (absent when the fixture knows none). */
+  digest?: LeagueGameDigest;
+}
+
+/** The public digest of one fixture's fork game: roster positions by fork player id, and the banked result's SPP, injuries, winnings and fans. */
+function forkGameDigest(f: LeagueFixture, teams: readonly LeagueTeam[]): LeagueGameDigest | undefined {
+  const fork = f.fork;
+  if (!fork) return undefined;
+  const out: LeagueGameDigest = { ...(fork.result ? { source: fork.result.source } : {}), teams: {} };
+  for (const side of ["home", "away"] as const) {
+    const ft = fork.teams[side];
+    if (!ft) continue;
+    const team = teams.find((t) => t.id === ft.teamId);
+    const positionOf = (playerId: string | undefined): string | undefined => {
+      if (!playerId || !team) return undefined;
+      const p = team.players.find((x) => x.playerId === playerId) ?? (team.formerPlayers ?? []).find((x) => x.playerId === playerId);
+      return p?.position || undefined;
+    };
+    const players: Record<string, LeagueGamePlayer> = {};
+    for (const m of ft.players ?? []) {
+      const position = positionOf(m.playerId);
+      if (position) players[m.forkPlayerId] = { position };
+    }
+    const r = fork.result?.[side];
+    const full = fork.result?.source === "full";
+    for (const l of r?.lines ?? []) {
+      const position = positionOf(l.playerId) ?? players[l.forkPlayerId]?.position;
+      const injuries = full ? (l.injuries ?? []).filter((x) => typeof x === "string" && x !== "") : [];
+      const entry: LeagueGamePlayer = {
+        ...(position ? { position } : {}),
+        ...(full && typeof l.spp === "number" ? { spp: l.spp } : {}),
+        ...(injuries.length ? { injuries } : {}),
+      };
+      if (Object.keys(entry).length) players[l.forkPlayerId] = entry;
+    }
+    const sideOut: LeagueGameSide = {
+      ...(r && full && typeof r.winnings === "number" ? { winnings: r.winnings } : {}),
+      ...(r && typeof r.fanFactor === "number" ? { fanFactor: r.fanFactor } : {}),
+      ...(r && typeof r.dedicatedFansModifier === "number" ? { dedicatedFansModifier: r.dedicatedFansModifier } : {}),
+      players,
+    };
+    if (Object.keys(sideOut).length > 1 || Object.keys(players).length) out.teams[ft.forkTeamId] = sideOut;
+  }
+  return Object.keys(out.teams).length ? out : undefined;
 }
 
 /** The index entry of one fixture's fork game (undefined when the fixture has no fork game). */
-function forkGameEntry(leagueId: string, seasonId: string, f: LeagueFixture): ForkGameIndexEntry | undefined {
+function forkGameEntry(leagueId: string, seasonId: string, f: LeagueFixture, teams: readonly LeagueTeam[] = []): ForkGameIndexEntry | undefined {
   const fork = f.fork;
   if (!fork?.gameId && !fork?.result) return undefined;
   const verdicts: Record<string, boolean> = {};
@@ -29,7 +80,8 @@ function forkGameEntry(leagueId: string, seasonId: string, f: LeagueFixture): Fo
     const team = fork.teams[side];
     if (team && typeof verdict === "boolean") verdicts[team.forkTeamId] = verdict;
   }
-  return { leagueId, seasonId, fixtureId: f.id, ...(Object.keys(verdicts).length ? { verdicts } : {}) };
+  const digest = forkGameDigest(f, teams);
+  return { leagueId, seasonId, fixtureId: f.id, ...(Object.keys(verdicts).length ? { verdicts } : {}), ...(digest ? { digest } : {}) };
 }
 
 export const LEAGUE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -84,7 +136,7 @@ export class LeagueStore {
 
   private indexSeason(byGame: Map<string, ForkGameIndexEntry>, s: SeasonRecord): void {
     for (const f of s.fixtures ?? []) {
-      const entry = forkGameEntry(s.leagueId, s.id, f);
+      const entry = forkGameEntry(s.leagueId, s.id, f, s.teams ?? []);
       const gameId = f.fork?.result?.gameId ?? f.fork?.gameId;
       if (entry && gameId) byGame.set(gameId, entry);
     }

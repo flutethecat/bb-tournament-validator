@@ -175,9 +175,41 @@ describe("game detail", () => {
     expect(d!.reporter!.summaries!.home).not.toHaveProperty("treasuryBefore");
     expect(d!.reporter!.summaries!.home).not.toHaveProperty("treasuryAfter");
     expect(d!.reporter!.moments).toEqual([
-      { half: 1, turn: 3, side: "home", kind: "touchdown", text: "Touchdown: Grim" },
-      { half: 2, turn: 2, side: "home", kind: "casualty", text: "Casualty: Basher on Squeak (SI)" },
+      { half: 1, turn: 3, side: "home", kind: "touchdown", text: "Touchdown: Grim", player: "Grim" },
+      { half: 2, turn: 2, side: "home", kind: "casualty", text: "Casualty: Basher on Squeak (SI)", player: "Basher", victim: "Squeak", victimSide: "away", result: "SI" },
     ]);
+  });
+
+  it("online: the reporter's read model: every listed player (squad), fouls, winnings; no SPP, injury or position without a league digest", () => {
+    const d = gameDetail("online", "g1", inputs({ results: [forkRow("g1")] as never }));
+    const home = d!.summary.home!;
+    expect(home.squad!.map((p) => p.name)).toEqual(["Grak", "Bonk", "Idle"]);
+    expect(home.squad![2]).toEqual({ name: "Idle", touchdowns: 0, casualtiesCaused: 0, completions: 0, interceptions: 0, deflections: 0, mvp: 0, fouls: 0 });
+    expect(home.winnings).toBe(0);
+    expect(home).not.toHaveProperty("fanFactor");
+    expect(home.players.every((p) => p.sppEarned === undefined && p.injury === undefined && p.position === undefined && p.missNextGame === undefined)).toBe(true);
+  });
+
+  it("online: a league digest adds positions, the banked SPP, the server's injury text (MNG only when it says so), fan factor and fans change", () => {
+    const leagueGame = {
+      source: "full" as const,
+      teams: {
+        h: { winnings: 60_000, fanFactor: 4, dedicatedFansModifier: 1, players: { Grak: { position: "Blitzer", spp: 7 }, Idle: { position: "Lineman", spp: 0, injuries: ["Seriously Hurt (MNG)"] } } },
+        a: { players: { Snik: { position: "Gutter Runner", spp: 3, injuries: ["Dead (RIP)"] } } },
+      },
+    };
+    const d = gameDetail("online", "g1", inputs({ results: [forkRow("g1")] as never, leagueGame }));
+    const home = d!.summary.home!;
+    expect(home).toMatchObject({ winnings: 0, fanFactor: 4, dedicatedFansModifier: 1 }); // winnings stay the results store's own number
+    expect(home.squad!.find((p) => p.name === "Grak")).toMatchObject({ position: "Blitzer", sppEarned: 7 });
+    expect(home.squad!.find((p) => p.name === "Idle")).toMatchObject({ position: "Lineman", injury: "Seriously Hurt (MNG)", missNextGame: true });
+    expect(home.players.map((p) => p.name)).toContain("Idle"); // an injury is a line
+    const snik = d!.summary.away!.squad!.find((p) => p.name === "Snik")!;
+    expect(snik).toMatchObject({ injury: "Dead (RIP)", sppEarned: 3 });
+    expect(snik).not.toHaveProperty("missNextGame");
+    // public-safe: nothing private rides along
+    const json = JSON.stringify(d);
+    for (const k of ["treasury", "email", "password", "teamValue", "forkTeamValueDiff", "coachId"]) expect(json).not.toContain(k);
   });
 
   it("tabletop: a match without a preview still gets lines from the tally; test, recording and unknown matches are 404", () => {

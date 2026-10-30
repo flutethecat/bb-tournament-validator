@@ -18,6 +18,7 @@ import type { ScheduledMatchRecord, TournamentEntrantRecord } from "./tournament
 import type { MatchRecord, MatchState } from "./tabletop/store.js";
 import { effectiveEvents, type Side, type TabletopEvent } from "./tabletop/events.js";
 import { tallyMatch, type PlayerLine, type PostMatchSummary } from "./tabletop/postMatch.js";
+import type { LeagueGameDigest, LeagueGameSide } from "./leagues/store.js";
 
 export const PER_PLAYER_NOTE = "Per-player stats are recorded for games played through the site.";
 
@@ -40,11 +41,17 @@ export interface GamePlayerLine {
   interceptions: number;
   deflections: number;
   mvp: number;
-  /** Tabletop only (the fork result carries no SPP). */
+  /** Tabletop, and a league fork game whose full result the league banked (the SPP it applied); the results store carries none. */
   sppEarned?: number;
   sentOff?: boolean;
-  /** "SI", "BH", "stat loss MA", ... (tabletop only). */
+  /** Tabletop: "SI", "BH", "stat loss MA", ...; a banked league fork game: the server's injury names, e.g. "Seriously Hurt (MNG)". */
   injury?: string;
+  /** The player's roster position, when the league season roster names it. */
+  position?: string;
+  /** Fouls the server counted (fork games and tabletop tallies). */
+  fouls?: number;
+  /** The server's own injury text marks a missed next game ("(MNG)"). Never derived from a rule. */
+  missNextGame?: true;
 }
 
 export interface Tally { name: string; count: number }
@@ -55,7 +62,14 @@ export interface GameTeamSummary {
   casualtyMakers: Tally[];
   /** Players with at least one line, most SPP-worthy first. */
   players: GamePlayerLine[];
+  /** Every player the result lists, in its own order (the reporter's Rosters popout). */
+  squad?: GamePlayerLine[];
   casualtiesSuffered: { bh: number; si: number; rip: number } | null;
+  /** Fork games: the winnings the server paid (gold). */
+  winnings?: number;
+  /** A banked league fork game, when its result carried them: the server's fan factor and dedicated-fans change. */
+  fanFactor?: number;
+  dedicatedFansModifier?: number;
 }
 
 export interface GameSummary {
@@ -91,7 +105,15 @@ export interface ReporterSummary {
   fansAfter: number;
 }
 
-export interface ReporterMoment { half: string | number | null; turn: number | null; side: Side; kind: "touchdown" | "casualty" | "sendOff"; text: string }
+export interface ReporterMoment {
+  half: string | number | null; turn: number | null; side: Side; kind: "touchdown" | "casualty" | "sendOff"; text: string;
+  /** The acting player's name (scorer, casualty-maker, sent-off player), when the recorder names one. */
+  player?: string;
+  /** A casualty's victim: name and side, and the result as recorded ("SI", "stat loss MA"). */
+  victim?: string;
+  victimSide?: Side;
+  result?: string;
+}
 
 export interface GameReporter {
   matchId: string;
@@ -128,6 +150,8 @@ export interface GameInputs {
   teamInfo?: RecentInputs["teamInfo"];
   /** Legal-concession verdicts a league fixture banked for this fork game, by fork team id (src/leagues/forkResult.ts). */
   concededLegally?: Readonly<Record<string, boolean>>;
+  /** The league fixture's digest of this fork game (positions; SPP, injuries, winnings and fans of a banked full result). */
+  leagueGame?: LeagueGameDigest;
 }
 
 /** /api/games/<source>/<id> -> its parts, or undefined (the id is URL-decoded and kept to a safe alphabet). */
@@ -157,7 +181,7 @@ const tallies = (lines: readonly GamePlayerLine[], key: "touchdowns" | "casualti
   lines.filter((l) => l[key] > 0).map((l) => ({ name: l.name, count: l[key] })).sort(byCount);
 const weight = (l: GamePlayerLine) => l.sppEarned ?? l.touchdowns * 3 + l.casualtiesCaused * 2 + l.completions + l.interceptions * 2 + l.deflections + l.mvp * 4;
 
-function teamSummary(lines: GamePlayerLine[], suffered: GameTeamSummary["casualtiesSuffered"]): GameTeamSummary {
+function teamSummary(lines: GamePlayerLine[], suffered: GameTeamSummary["casualtiesSuffered"], extra: Partial<GameTeamSummary> = {}): GameTeamSummary {
   const players = lines
     .filter((l) => l.touchdowns || l.casualtiesCaused || l.completions || l.interceptions || l.deflections || l.mvp || l.sentOff || l.injury)
     .sort((a, b) => weight(b) - weight(a) || a.name.localeCompare(b.name));
@@ -166,22 +190,41 @@ function teamSummary(lines: GamePlayerLine[], suffered: GameTeamSummary["casualt
     scorers: tallies(lines, "touchdowns"),
     casualtyMakers: tallies(lines, "casualtiesCaused"),
     players,
+    squad: lines,
     casualtiesSuffered: suffered,
+    ...extra,
   };
 }
 
-const forkLines = (team: GamestateTeamResult | undefined): GamePlayerLine[] =>
-  (Array.isArray(team?.players) ? team!.players : []).map((p) => ({
-    name: p.name || "Unnamed player",
-    touchdowns: p.touchdowns || 0, casualtiesCaused: p.casualtiesCaused || 0, completions: p.completions || 0,
-    interceptions: p.interceptions || 0, deflections: p.deflections || 0, mvp: p.mvp || 0,
-  }));
+const MNG_TEXT = /\bMNG\b/i;
+const forkLines = (team: GamestateTeamResult | undefined, league?: LeagueGameSide): GamePlayerLine[] =>
+  (Array.isArray(team?.players) ? team!.players : []).map((p) => {
+    const extra = p.playerId ? league?.players[p.playerId] : undefined;
+    const injuries = extra?.injuries ?? [];
+    return {
+      name: p.name || "Unnamed player",
+      touchdowns: p.touchdowns || 0, casualtiesCaused: p.casualtiesCaused || 0, completions: p.completions || 0,
+      interceptions: p.interceptions || 0, deflections: p.deflections || 0, mvp: p.mvp || 0,
+      ...(typeof p.fouls === "number" ? { fouls: p.fouls } : {}),
+      ...(extra?.position ? { position: extra.position } : {}),
+      ...(typeof extra?.spp === "number" ? { sppEarned: extra.spp } : {}),
+      ...(injuries.length ? { injury: injuries.join(", ") } : {}),
+      ...(injuries.some((i) => MNG_TEXT.test(i)) ? { missNextGame: true as const } : {}),
+    };
+  });
+/** A fork side's team-level extras: the results store's winnings, a banked league result's fan factor and dedicated-fans change. */
+const forkExtras = (team: GamestateTeamResult | undefined, league?: LeagueGameSide): Partial<GameTeamSummary> => ({
+  ...(typeof team?.winnings === "number" ? { winnings: team.winnings } : {}),
+  ...(typeof league?.fanFactor === "number" ? { fanFactor: league.fanFactor } : {}),
+  ...(typeof league?.dedicatedFansModifier === "number" ? { dedicatedFansModifier: league.dedicatedFansModifier } : {}),
+});
 
 const injuryText = (i: PlayerLine["injury"]): string | undefined => (i ? `${i.result}${i.stat ? ` ${i.stat}` : ""}` : undefined);
 const tabletopLines = (players: readonly PlayerLine[]): GamePlayerLine[] =>
   players.map((l) => ({
     name: l.name, touchdowns: l.touchdowns, casualtiesCaused: l.casualtiesCaused, completions: l.completions,
     interceptions: l.interceptions, deflections: l.deflections, mvp: l.mvp, sppEarned: l.sppEarned,
+    ...(typeof l.fouls === "number" ? { fouls: l.fouls } : {}),
     ...(l.sentOff ? { sentOff: true } : {}), ...(l.injury ? { injury: injuryText(l.injury) } : {}),
   }));
 
@@ -205,17 +248,24 @@ function tabletopPlayers(match: MatchRecord, events: readonly TabletopEvent[]): 
 /** Touchdowns, casualties and send-offs in match order, worded with the reporter's player names. */
 function moments(events: readonly TabletopEvent[], players: Record<Side, PlayerLine[]>, teamName: Record<Side, string>): ReporterMoment[] {
   const names: Record<Side, Map<string, string>> = { home: new Map(players.home.map((l) => [l.id, l.name])), away: new Map(players.away.map((l) => [l.id, l.name])) };
-  const who = (side: Side, id: unknown) => (typeof id === "string" && names[side].get(id)) || `a ${teamName[side]} player`;
+  const named = (side: Side, id: unknown): string | undefined => (typeof id === "string" && names[side].get(id)) || undefined;
+  const who = (side: Side, id: unknown) => named(side, id) ?? `a ${teamName[side]} player`;
   const out: ReporterMoment[] = [];
   for (const e of effectiveEvents(events)) {
     const at = { half: e.half ?? null, turn: typeof e.turn === "number" ? e.turn : null, side: e.team };
-    if (e.type === "touchdown") out.push({ ...at, kind: "touchdown", text: `Touchdown: ${who(e.team, e.player)}` });
-    else if (e.type === "sendOff") out.push({ ...at, kind: "sendOff", text: `Sent off: ${who(e.team, e.player)}` });
+    const actor = named(e.team, e.player);
+    const by = actor ? { player: actor } : {};
+    if (e.type === "touchdown") out.push({ ...at, kind: "touchdown", text: `Touchdown: ${who(e.team, e.player)}`, ...by });
+    else if (e.type === "sendOff") out.push({ ...at, kind: "sendOff", text: `Sent off: ${who(e.team, e.player)}`, ...by });
     else if (e.type === "casualty") {
       const victimSide = (e.payload.victimTeam as Side | undefined) ?? (e.team === "home" ? "away" : "home");
       const result = `${String(e.payload.result ?? "")}${e.payload.stat ? ` ${String(e.payload.stat)}` : ""}`.trim();
-      const by = e.player ? `${who(e.team, e.player)} on ` : "";
-      out.push({ ...at, kind: "casualty", text: `Casualty: ${by}${who(victimSide, e.payload.victim)}${result ? ` (${result})` : ""}` });
+      const byText = e.player ? `${who(e.team, e.player)} on ` : "";
+      const victim = named(victimSide, e.payload.victim);
+      out.push({
+        ...at, kind: "casualty", text: `Casualty: ${byText}${who(victimSide, e.payload.victim)}${result ? ` (${result})` : ""}`, ...by,
+        victimSide, ...(victim ? { victim } : {}), ...(result ? { result } : {}),
+      });
     }
   }
   return out;
@@ -237,7 +287,7 @@ const flip = (side: Side): Side => (side === "home" ? "away" : "home");
 const swapReporter = (r: GameReporter): GameReporter => ({
   ...r,
   summaries: r.summaries ? { home: r.summaries.away, away: r.summaries.home } : null,
-  moments: r.moments.map((m) => ({ ...m, side: flip(m.side) })),
+  moments: r.moments.map((m) => ({ ...m, side: flip(m.side), ...(m.victimSide ? { victimSide: flip(m.victimSide) } : {}) })),
 });
 
 function baseSummary(card: GameCard, round: number | null, tournament: GameSummary["tournament"]): GameSummary {
@@ -261,12 +311,17 @@ function withTabletop(s: GameSummary, row: RecentInputs["tabletop"][number]): Ga
   return withLines(s, teamSummary(tabletopLines(players.home), suffered.home), teamSummary(tabletopLines(players.away), suffered.away));
 }
 
-function withFork(s: GameSummary, row: StoredTournamentResult, swap = false): GameSummary {
+function withFork(s: GameSummary, row: StoredTournamentResult, swap = false, league?: LeagueGameDigest): GameSummary {
   const teams = Array.isArray(row.teams) ? row.teams : [];
   let h = teams.find((t) => t.teamId === row.home.teamId);
   let a = teams.find((t) => t.teamId === row.away.teamId);
   if (swap) [h, a] = [a, h];
-  return withLines(s, teamSummary(forkLines(h), h?.casualtiesSuffered ?? null), teamSummary(forkLines(a), a?.casualtiesSuffered ?? null));
+  const lg = (t: GamestateTeamResult | undefined) => (t ? league?.teams[t.teamId] : undefined);
+  return withLines(
+    s,
+    teamSummary(forkLines(h, lg(h)), h?.casualtiesSuffered ?? null, forkExtras(h, lg(h))),
+    teamSummary(forkLines(a, lg(a)), a?.casualtiesSuffered ?? null, forkExtras(a, lg(a))),
+  );
 }
 
 /** One played game, or undefined (unknown, not public, or not played). */
@@ -295,7 +350,7 @@ export function gameDetail(source: GameSource, id: string, inputs: GameInputs): 
       }
     } else if (forkRow) {
       summary = withFork(summary, forkRow, forkRow.home.coach.trim().toLowerCase() !== m.home.coach.ffbCoachId.trim().toLowerCase() &&
-        forkRow.away.coach.trim().toLowerCase() === m.home.coach.ffbCoachId.trim().toLowerCase());
+        forkRow.away.coach.trim().toLowerCase() === m.home.coach.ffbCoachId.trim().toLowerCase(), inputs.leagueGame);
     }
     return { source, id, card: gameCard, summary, ...(reporter ? { reporter } : {}) };
   }
@@ -323,6 +378,8 @@ export function gameDetail(source: GameSource, id: string, inputs: GameInputs): 
   const summary = withFork(
     baseSummary(gameCard, fixture?.m.roundNumber ?? null, fixture ? { id: fixture.t.id, name: fixture.t.name, href: roundsHref(fixture.t.id) } : null),
     row,
+    false,
+    inputs.leagueGame,
   );
   const conceder = summary.concede ? row[summary.concede]?.teamId : undefined;
   const verdict = conceder ? inputs.concededLegally?.[conceder] : undefined;
