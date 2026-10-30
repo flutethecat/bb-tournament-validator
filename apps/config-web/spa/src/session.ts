@@ -41,7 +41,7 @@ export interface SessionStore {
   signOut(): Promise<void>;
 }
 
-export type Fetcher = <T>(path: string, init?: { method?: string; body?: unknown }) => Promise<T>;
+export type Fetcher = <T>(path: string, init?: { method?: string; body?: unknown; headers?: Record<string, string> }) => Promise<T>;
 
 /** Floor between two revalidation reads of the session (navigation, focus and visibility changes). */
 export const SESSION_REVALIDATE_MS = 60_000;

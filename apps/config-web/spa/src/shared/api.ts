@@ -2,14 +2,15 @@
 // X-CW-Auth CSRF header the server requires for cookie-authenticated writes.
 
 export class ApiError extends Error {
-  constructor(readonly status: number, message: string) {
+  /** `data`: the parsed JSON error body when there was one (e.g. a 409's `revision`, a 422's `problems`). */
+  constructor(readonly status: number, message: string, readonly data?: unknown) {
     super(message);
   }
 }
 
-export async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function api<T>(path: string, init: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
   const method = init.method ?? "GET";
-  const headers: Record<string, string> = { accept: "application/json" };
+  const headers: Record<string, string> = { ...init.headers, accept: "application/json" };
   if (method !== "GET") {
     headers["content-type"] = "application/json";
     headers["x-cw-auth"] = "1";
@@ -31,7 +32,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
     const msg = data && typeof data === "object" && typeof (data as { error?: unknown }).error === "string"
       ? (data as { error: string }).error
       : `Request failed (${res.status}).`;
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, data ?? undefined);
   }
   return data as T;
 }
