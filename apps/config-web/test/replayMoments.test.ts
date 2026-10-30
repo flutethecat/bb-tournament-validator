@@ -85,15 +85,62 @@ describe("replay moments: reports the captured games do not carry", () => {
     ]);
   });
 
-  it("the apothecary outcome lands on that player's casualty", () => {
+  const hurt = (si: string) => sync(
+    [mc("fieldModelSetPlayerState", "h2", 7), mc("playerResultSetSeriousInjury", "h2", si)],
+    [injury("h2", "a1", 7, { seriousInjury: si })],
+  );
+  const apoRoll = (state: number, si: string | null) => sync([], [{ reportId: "apothecaryRoll", playerId: "h2", casualtyRoll: [3, 2], playerState: state, seriousInjury: si }]);
+
+  it("apothecary result kept: the player model confirms it at the turn end; the injury that stands is the new one", () => {
+    const d = deriveReplayMoments(game, [
+      turn("away", 3),
+      hurt("Smashed Knee (-MA)"),
+      apoRoll(6, null),
+      sync([mc("fieldModelSetPlayerState", "h2", 6), mc("playerResultSetSeriousInjury", "h2", null)], [{ reportId: "apothecaryChoice", playerId: "h2", playerState: 6, seriousInjury: null }]),
+      turn("home", 4),
+    ]);
+    expect(d.moments).toHaveLength(1);
+    expect(d.moments[0]).toMatchObject({
+      kind: "casualty", side: "away", result: "Badly Hurt", rolled: "Smashed Knee (-MA)", apothecary: "Badly Hurt",
+      text: "Casualty: Snik on Bonk (Smashed Knee (-MA); apothecary: Badly Hurt)",
+    });
+  });
+
+  it("apothecary reroll rejected (no apothecaryChoice report): the model keeps the first result, the roll is context only", () => {
+    const d = deriveReplayMoments(game, [
+      turn("away", 3),
+      hurt("Seriously Hurt (MNG)"),
+      apoRoll(8, "Dead (RIP)"),
+      turn("home", 4),
+    ]);
+    expect(d.moments[0]).toMatchObject({
+      result: "Seriously Hurt (MNG)", apothecary: "rolled Dead (RIP), kept Seriously Hurt (MNG)",
+      text: "Casualty: Snik on Bonk (Seriously Hurt (MNG); apothecary rolled Dead (RIP), kept Seriously Hurt (MNG))",
+    });
+  });
+
+  it("apothecary with no model change after the casualty: the rolled injury stands, the roll is context", () => {
     const d = deriveReplayMoments(game, [
       turn("away", 3),
       sync([], [injury("h2", "a1", 7, { seriousInjury: "Smashed Knee (-MA)" })]),
-      sync([], [{ reportId: "apothecaryRoll", playerId: "h2", casualtyRoll: [3, 2], playerState: 6, seriousInjury: null }]),
-      sync([], [{ reportId: "apothecaryChoice", playerId: "h2", playerState: 6, seriousInjury: null }]),
+      apoRoll(6, null),
     ]);
-    expect(d.moments).toHaveLength(1);
-    expect(d.moments[0]).toMatchObject({ kind: "casualty", side: "away", result: "Smashed Knee (-MA)", apothecary: "Badly Hurt", text: "Casualty: Snik on Bonk (Smashed Knee (-MA); apothecary: Badly Hurt)" });
+    expect(d.moments[0]).toMatchObject({ result: "Smashed Knee (-MA)", apothecary: "rolled Badly Hurt", text: "Casualty: Snik on Bonk (Smashed Knee (-MA); apothecary rolled Badly Hurt)" });
+  });
+
+  it("the two halves of one injury report split across commands (a regeneration / Igor pause) make one casualty; the next turn's is new", () => {
+    const d = deriveReplayMoments(game, [
+      turn("home", 2),
+      sync([], [injury("a1", "h1", 6, { skipInjuryParts: "CAS" })]),
+      sync([mc("gameSetDialogParameter", null, { dialogId: "useIgor" })]),
+      sync([], [injury("a1", "h1", 6, { skipInjuryParts: "EVERYTHING_BUT_CAS" })]),
+      turn("home", 3),
+      sync([], [injury("a1", "h1", 6)]),
+    ]);
+    expect(d.moments.map(brief)).toEqual([
+      "1/2 home casualty: Casualty: Grak on Snik (Badly Hurt)",
+      "1/3 home casualty: Casualty: Grak on Snik (Badly Hurt)",
+    ]);
   });
 
   it("send-offs carry the argue-the-call and bribe outcomes the server reported for that player in that turn; a fouled player is no send-off", () => {

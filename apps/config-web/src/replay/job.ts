@@ -3,128 +3,164 @@
 //
 //   triggers  a fork result stored in the results store (onResultStored, tournamentResults.ts), a sweep shortly after
 //             startup and then every `intervalMs` (results imported by another process), newest games first;
-//   pace      one replay at a time, `gapMs` between reads, each read bounded by the reader's own deadlines;
+//   pace      one game at a time and at least `gapMs` between two visits to the fork (a global last-visit stamp, kept
+//             when the queue empties, so two results arriving back to back never open two connections together);
 //   once      a game the fork answered is cached for good, ready or unavailable ("Replay Unavailable" for 1072);
-//             a failed read (fork down, timeout) is retried by later sweeps, at most `maxFailures` times per process;
-//   guard     a game is only replayed when the fork's finished list shows it as a started, two-team, non-test-mode game.
-//             Replaying loads the game into the fork's game cache, and the fork deletes a cached test-mode game (or an
-//             unstarted / one-team one) from its database when it evicts it (GameCache.removeGame): such games are
-//             cached as unavailable instead, and never loaded.
+//             any failure (fork down, timeout, a cache write that fails) is retried later with a doubling backoff, at
+//             most `maxFailures` times per process; the job never rejects;
+//   guard     replaying loads the game into the fork's game cache, and the fork deletes a cached TEST game (or an
+//             unstarted / one-team one) from its database when it evicts it (GameCache.removeGame). The fork's status
+//             lists do not select the testing column (DbAdminListByStatusQuery: every game reads testMode="false"), so
+//             the job asks the fork's per-game admin list (`list?gameId=`, DbAdminListByIdQuery, which does select it)
+//             and also refuses every game the site itself knows as a test (test-games.json, a test results row). A game
+//             whose test status cannot be known is never loaded: cached unavailable.
 
-import { adminList, parseAdminGameList, type ForkAdminConfig } from "@bb/fork-ops";
+import { adminChallenge, adminExchange, adminResponse, parseAdminGameList, type ForkAdminConfig } from "@bb/fork-ops";
 import type { ReplayReadResult } from "./reader.js";
 import type { ReplayMomentStore } from "./store.js";
 
-export interface ReplayGuard { testMode: boolean; started?: string; homeTeamId: string; awayTeamId: string }
+export interface ReplayGuard {
+  /** The fork's testing column; undefined when the answer did not carry it (unknown = not safe). */
+  testMode: boolean | undefined;
+  status: string;
+  started?: string;
+  homeTeamId: string;
+  awayTeamId: string;
+}
 
-/** The fork's finished + backuped games with what the guard needs (sequential: the admin servlet keeps one challenge). */
-export async function finishedGameGuards(cfg: ForkAdminConfig): Promise<Map<string, ReplayGuard>> {
-  const out = new Map<string, ReplayGuard>();
-  for (const status of ["finished", "backuped"]) {
-    const xml = await adminList(cfg, status);
-    const testMode = new Map<string, boolean>();
-    for (const m of xml.matchAll(/<game\b([^>]*)>/g)) {
-      const id = /\bid="([^"]*)"/.exec(m[1]!)?.[1];
-      if (id) testMode.set(id, /\btestMode="true"/.test(m[1]!));
-    }
-    for (const g of parseAdminGameList(xml)) {
-      out.set(g.gameId, { testMode: testMode.get(g.gameId) ?? false, started: g.started, homeTeamId: g.homeTeamId, awayTeamId: g.awayTeamId });
-    }
+/** The fork's per-game admin entry (`admin/list?gameId=`), or undefined when the fork lists no such game. */
+export async function forkGameGuard(cfg: ForkAdminConfig, gameId: string): Promise<ReplayGuard | undefined> {
+  const xml = await adminExchange(cfg, async () => {
+    const response = adminResponse(await adminChallenge(cfg), cfg.passwordMd5Hex);
+    const res = await fetch(`${cfg.baseUrl}/admin/list?response=${encodeURIComponent(response)}&gameId=${encodeURIComponent(gameId)}`, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) throw new Error(`fork admin/list?gameId failed (HTTP ${res.status})`);
+    return res.text();
+  });
+  if (/<error>/i.test(xml)) throw new Error("fork admin/list?gameId answered an error");
+  return parseGameGuard(xml, gameId);
+}
+
+/** One game's guard from an admin list answer. */
+export function parseGameGuard(xml: string, gameId: string): ReplayGuard | undefined {
+  const entry = parseAdminGameList(xml).find((g) => g.gameId === gameId);
+  if (!entry) return undefined;
+  let testMode: boolean | undefined;
+  for (const m of xml.matchAll(/<game\b([^>]*)>/g)) {
+    if (/\bid="([^"]*)"/.exec(m[1]!)?.[1] !== gameId) continue;
+    const t = /\btestMode="([^"]*)"/.exec(m[1]!)?.[1];
+    testMode = t === "true" ? true : t === "false" ? false : undefined;
   }
-  return out;
+  return { testMode, status: entry.status, started: entry.started, homeTeamId: entry.homeTeamId, awayTeamId: entry.awayTeamId };
 }
 
 /** Why replaying this game could cost the fork its copy, or undefined when it is safe to load. */
 export function unsafeReason(guard: ReplayGuard): string | undefined {
-  if (guard.testMode) return "fork test-mode game: not replayed (the fork deletes a test-mode game it evicts after loading it)";
+  if (guard.testMode === true) return "fork test game: not replayed (the fork deletes a test game it evicts after loading it)";
+  if (guard.testMode !== false) return "test status unknown: not replayed (the fork deletes a test game it evicts after loading it)";
   if (!guard.homeTeamId || !guard.awayTeamId) return "one-team game: not replayed (the fork deletes it when it evicts it)";
   const started = guard.started?.trim();
   if (!started || /^1970-01-01/.test(started)) return "unstarted game: not replayed (the fork deletes it when it evicts it)";
   return undefined;
 }
 
+const FINISHED = new Set(["finished", "backuped"]);
+export const SITE_TEST_REASON = "site test game (test-games.json or a test result): not replayed";
+export const UNKNOWN_GAME_REASON = "test status unknown: the fork lists no such game";
+
 export interface ReplayJobRow { gameId: string; source?: string; playedAt?: string; pulledAt?: string }
 
 export interface ReplayJobDeps {
   store: ReplayMomentStore;
-  /** Every results-store row (test rows included: their own pages may read moments; ratings never see this cache). */
+  /** Every results-store row. */
   rows: () => readonly ReplayJobRow[];
-  guards: () => Promise<Map<string, ReplayGuard>>;
+  /** The fork's per-game guard (throws when the fork cannot be asked). */
+  guard: (gameId: string) => Promise<ReplayGuard | undefined>;
+  /** A game the site knows as a test (test-games.json, a test results row): never loaded. */
+  isSiteTest: (gameId: string) => boolean;
   read: (gameId: string) => Promise<ReplayReadResult>;
+  /** Minimum time between two visits to the fork. */
   gapMs?: number;
-  guardTtlMs?: number;
+  /** First retry delay after a failure; doubles per failure. */
+  retryBaseMs?: number;
   maxFailures?: number;
   now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
   log?: (line: string) => void;
 }
 
 export type ReplayStatus = "ready" | "pending" | "unavailable";
 
-const isForkRow = (r: ReplayJobRow): boolean => (r.source === undefined || r.source === "fork") && /^[0-9]{1,18}$/.test(r.gameId);
-const sleep = (ms: number): Promise<void> => new Promise((r) => { const t = setTimeout(r, ms); t.unref?.(); });
+const SAFE_ID = /^[0-9]{1,18}$/;
+const isForkRow = (r: ReplayJobRow): boolean => (r.source === undefined || r.source === "fork") && SAFE_ID.test(r.gameId);
+const realSleep = (ms: number): Promise<void> => new Promise((r) => { const t = setTimeout(r, ms); t.unref?.(); });
 
 export function createReplayJob(deps: ReplayJobDeps) {
   const gapMs = deps.gapMs ?? 20_000;
-  const guardTtlMs = deps.guardTtlMs ?? 5 * 60_000;
+  const retryBaseMs = deps.retryBaseMs ?? 10 * 60_000;
   const maxFailures = deps.maxFailures ?? 3;
   const now = deps.now ?? Date.now;
+  const sleep = deps.sleep ?? realSleep;
   const log = deps.log ?? (() => {});
   const queue: string[] = [];
   const queued = new Set<string>();
   const failures = new Map<string, number>();
-  let guardCache: { at: number; map: Map<string, ReplayGuard> } | undefined;
+  const retryAt = new Map<string, number>();
+  const logged = new Set<string>();
+  let lastVisit = Number.NEGATIVE_INFINITY;
   let running: Promise<void> | undefined;
   let stopped = false;
   let timer: ReturnType<typeof setInterval> | undefined;
   let startTimer: ReturnType<typeof setTimeout> | undefined;
 
   const gaveUp = (id: string): boolean => (failures.get(id) ?? 0) >= maxFailures;
-  const fail = (id: string, why: string): void => {
-    failures.set(id, (failures.get(id) ?? 0) + 1);
-    log(`[replay] game ${id}: ${why} (attempt ${failures.get(id)}/${maxFailures})`);
-  };
+  const waiting = (id: string): boolean => (retryAt.get(id) ?? 0) > now();
+  const cached = (id: string): boolean => { try { return deps.store.has(id); } catch { return false; } };
+  const skip = (id: string): boolean => cached(id) || gaveUp(id) || waiting(id);
 
-  async function guards(): Promise<Map<string, ReplayGuard>> {
-    if (guardCache && now() - guardCache.at < guardTtlMs) return guardCache.map;
-    const map = await deps.guards();
-    if (map.size === 0) throw new Error("the fork's finished list came back empty");
-    guardCache = { at: now(), map };
-    return map;
+  /** A failure: retried later (doubling backoff), logged once per game and kind. */
+  function fail(id: string, kind: string, why: string): void {
+    const n = (failures.get(id) ?? 0) + 1;
+    failures.set(id, n);
+    retryAt.set(id, now() + retryBaseMs * 2 ** (n - 1));
+    if (!logged.has(`${id}:${kind}`)) { logged.add(`${id}:${kind}`); log(`[replay] game ${id}: ${why} (retried later, attempt ${n}/${maxFailures})`); }
+  }
+
+  function cacheUnavailable(id: string, reason: string): void {
+    deps.store.put({ gameId: id, status: "unavailable", readAt: new Date(now()).toISOString(), reason });
+    log(`[replay] game ${id}: ${reason}`);
+  }
+
+  async function visit(): Promise<void> {
+    const wait = lastVisit + gapMs - now();
+    if (wait > 0) await sleep(wait);
+    lastVisit = now();
   }
 
   async function processOne(id: string): Promise<void> {
+    let siteTest = true;
+    try { siteTest = deps.isSiteTest(id); } catch { siteTest = true; }
+    if (siteTest) { cacheUnavailable(id, SITE_TEST_REASON); return; }
+    await visit();
     let guard: ReplayGuard | undefined;
     try {
-      guard = (await guards()).get(id);
+      guard = await deps.guard(id);
     } catch (e) {
-      fail(id, `finished list unavailable: ${(e as Error).message}`);
+      fail(id, "guard", `the fork's game entry could not be read: ${(e as Error).message}`);
       return;
     }
-    if (!guard) {
-      // an admin list can parse to [] under a concurrent challenge (another process): never cached from one miss
-      guardCache = undefined;
-      fail(id, "not in the fork's finished list");
-      return;
-    }
+    if (!guard) { cacheUnavailable(id, UNKNOWN_GAME_REASON); return; }
+    if (!FINISHED.has(guard.status)) { fail(id, "status", `not finished on the fork (${guard.status || "no status"})`); return; }
     const unsafe = unsafeReason(guard);
-    if (unsafe) {
-      deps.store.put({ gameId: id, status: "unavailable", readAt: new Date(now()).toISOString(), reason: unsafe });
-      log(`[replay] game ${id}: ${unsafe}`);
-      return;
-    }
+    if (unsafe) { cacheUnavailable(id, unsafe); return; }
     let result: ReplayReadResult;
     try {
       result = await deps.read(id);
     } catch (e) {
-      fail(id, (e as Error).message);
+      fail(id, "read", (e as Error).message);
       return;
     }
     const readAt = new Date(now()).toISOString();
-    if (result.status === "unavailable") {
-      deps.store.put({ gameId: id, status: "unavailable", readAt, reason: result.reason });
-      log(`[replay] game ${id}: ${result.reason}`);
-      return;
-    }
+    if (result.status === "unavailable") { cacheUnavailable(id, result.reason); return; }
     const d = result.derivation;
     deps.store.put({ gameId: id, status: "ready", readAt, commands: d.commands, truncated: d.truncated, teams: d.teams, moments: d.moments });
     log(`[replay] game ${id}: ${d.moments.length} moments from ${d.commands} commands`);
@@ -134,14 +170,18 @@ export function createReplayJob(deps: ReplayJobDeps) {
     while (queue.length && !stopped) {
       const id = queue.shift()!;
       queued.delete(id);
-      if (deps.store.has(id) || gaveUp(id)) continue;
-      await processOne(id);
-      if (queue.length && !stopped) await sleep(gapMs);
+      if (skip(id)) continue;
+      try {
+        await processOne(id);
+      } catch (e) {
+        // a cache write that failed (ENOSPC, EACCES) or anything unforeseen: this game later, the job carries on
+        fail(id, "write", `could not be cached: ${(e as Error).message}`);
+      }
     }
   }
 
   function kick(): Promise<void> {
-    running ??= drain().finally(() => { running = undefined; });
+    running ??= drain().catch(() => { /* never rejects */ }).finally(() => { running = undefined; });
     return running;
   }
 
@@ -149,7 +189,7 @@ export function createReplayJob(deps: ReplayJobDeps) {
     /** Queue one game (a result just stored). */
     enqueue(gameId: string): void {
       const id = String(gameId);
-      if (stopped || !/^[0-9]{1,18}$/.test(id) || queued.has(id) || deps.store.has(id) || gaveUp(id)) return;
+      if (stopped || !SAFE_ID.test(id) || queued.has(id) || skip(id)) return;
       queue.push(id);
       queued.add(id);
       void kick();
@@ -160,14 +200,15 @@ export function createReplayJob(deps: ReplayJobDeps) {
       let rows: readonly ReplayJobRow[] = [];
       try { rows = deps.rows(); } catch { return 0; }
       const when = (r: ReplayJobRow): number => Date.parse(r.playedAt ?? r.pulledAt ?? "") || 0;
-      const todo = rows.filter((r) => isForkRow(r) && !queued.has(r.gameId) && !gaveUp(r.gameId) && !deps.store.has(r.gameId)).sort((a, b) => when(b) - when(a));
+      const todo = rows.filter((r) => isForkRow(r) && !queued.has(r.gameId) && !skip(r.gameId)).sort((a, b) => when(b) - when(a));
       for (const r of todo) { queue.push(r.gameId); queued.add(r.gameId); }
       if (todo.length) void kick();
       return todo.length;
     },
     /** What the game page says about this game's ordered log. */
     status(gameId: string): ReplayStatus {
-      const entry = deps.store.get(gameId);
+      let entry;
+      try { entry = deps.store.get(gameId); } catch { entry = undefined; }
       if (entry) return entry.status;
       return stopped || gaveUp(gameId) ? "unavailable" : "pending";
     },

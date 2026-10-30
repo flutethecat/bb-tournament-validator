@@ -9,7 +9,7 @@ import type { ReplayMoment, ReplaySide, ReplayTeam } from "./moments.js";
 
 export const REPLAY_SCHEMA = 1;
 /** Bump when the derivation changes what it reads: every cached game is read again. */
-export const REPLAY_READER_VERSION = 1;
+export const REPLAY_READER_VERSION = 2;
 export const REPLAY_DIR = "replay-moments";
 
 export interface ReplayReady {

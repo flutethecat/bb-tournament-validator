@@ -17,8 +17,13 @@
 //     Deflections (value rises)
 //   report injury, injury state BH / SI / RIP               casualty (attacker on the other team) or injury (no attacker,
 //                                                           or a team-mate); the report is sent twice per injury (armour
-//                                                           and injury part, then the casualty part): read once
-//   report apothecaryRoll / apothecaryChoice                the apothecary outcome on that player's casualty or injury
+//                                                           and injury part, then the casualty part), possibly in two
+//                                                           commands (a regeneration / Igor pause): read once per
+//                                                           attacker, defender, injury type, half and turn
+//   report apothecaryRoll (apothecaryChoice)                context only: the injury that stands is the player model's
+//   + fieldModelSetPlayerState / playerResultSetSeriousInjury  (state and serious injury after the casualty, read when
+//                                                           the turn ends), since a coach who keeps the first result
+//                                                           gets no apothecaryChoice report
 //   playerResultSetSendToBoxReason foulBan /                sendOff, with the argueTheCall / bribesRoll outcome the
 //     secretWeaponBan / officiousRef / threwToBombs         server reported for that player in the same turn
 //   teamResultSetConceded true (+ gameSetConcededLegally)   concession
@@ -47,9 +52,14 @@ export interface ReplayMoment {
   victimId?: string;
   victim?: string;
   victimSide?: ReplaySide;
-  /** The injury as the server rolled it ("Badly Hurt", "Seriously Hurt (MNG)", "Dead (RIP)"); the weather or kick-off result. */
+  /**
+   * The injury that stands ("Badly Hurt", "Seriously Hurt (MNG)", "Dead (RIP)"): as rolled, or after an apothecary as the
+   * player model shows it; the weather or kick-off result.
+   */
   result?: string;
-  /** The apothecary outcome the server reported for this injury ("Badly Hurt", "Knocked Out", ...). */
+  /** The injury as first rolled, when an apothecary was used. */
+  rolled?: string;
+  /** The apothecary's part, as context: "Badly Hurt" (its result kept) or "rolled Dead (RIP), kept Seriously Hurt (MNG)". */
   apothecary?: string;
   /** A touchdown the server awarded after a concession. */
   awarded?: true;
@@ -137,6 +147,14 @@ export function createMomentDeriver(game: unknown, opts: DeriverOptions = {}) {
   /** argue / bribe outcomes waiting for the send-off of that player in this half and turn. */
   const pending = new Map<string, { half: number; turn: number | null; text: string[] }>();
   let legalVerdict: boolean | undefined;
+  /** Injuries already read this turn (attacker|defender|type), and the turn they belong to. */
+  const seenInjuries = new Set<string>();
+  let injuryTurn = "";
+  /** The player model after a casualty: base state and serious injury per hurt player (cleared at each casualty). */
+  const modelState = new Map<string, number>();
+  const modelSI = new Map<string, string>();
+  /** Casualties with an apothecary roll, settled from the player model when the turn ends. */
+  const apoPending = new Map<string, { moment: ReplayMoment; roll: string }>();
 
   const halfNow = (): number | null => (half > 0 ? half : null);
   const turnNow = (): number | null => {
@@ -157,6 +175,9 @@ export function createMomentDeriver(game: unknown, opts: DeriverOptions = {}) {
     if (state === undefined || !CASUALTY_STATES.has(state) || !victimId) return;
     const victimSide = sideOf(victimId);
     if (!victimSide) return;
+    modelState.delete(victimId);
+    modelSI.delete(victimId);
+    apoPending.delete(victimId);
     const result = str(r.seriousInjury) ?? STATE_NAME[state]!;
     const attackerId = str(r.attackerId);
     const attackerSide = sideOf(attackerId);
@@ -171,21 +192,53 @@ export function createMomentDeriver(game: unknown, opts: DeriverOptions = {}) {
     }
   }
 
-  function apothecary(r: Json): void {
+  const hurtOf = (m: ReplayMoment): string | undefined => (m.kind === "casualty" ? m.victimId : m.kind === "injury" ? m.playerId : undefined);
+  const headOf = (m: ReplayMoment): string => (m.kind === "casualty" ? `Casualty: ${m.player} on ${m.victim}` : `Injury: ${m.player}`);
+
+  /** An apothecary report: what it rolled is context; the injury that stands is settled from the player model. */
+  function apothecary(r: Json, isRoll: boolean): void {
     const id = str(r.playerId);
     if (!id) return;
     const state = stateOf(r.playerState);
     const outcome = str(r.seriousInjury) ?? (state !== undefined ? STATE_NAME[state] : undefined);
     if (!outcome) return;
+    const open = apoPending.get(id);
+    if (open) { if (isRoll) open.roll = outcome; return; }
     for (let i = moments.length - 1; i >= 0; i--) {
       const m = moments[i]!;
-      const hurt = m.kind === "casualty" ? m.victimId : m.kind === "injury" ? m.playerId : undefined;
-      if (hurt !== id) continue;
-      m.apothecary = outcome;
-      const head = m.kind === "casualty" ? `Casualty: ${m.player} on ${m.victim}` : `Injury: ${m.player}`;
-      m.text = `${head} (${m.result}; apothecary: ${outcome})`;
+      if (hurtOf(m) !== id) continue;
+      apoPending.set(id, { moment: m, roll: outcome });
       return;
     }
+  }
+
+  /** The injury the player model shows now for a hurt player, or undefined when the model said nothing since. */
+  function modelInjury(id: string): string | undefined {
+    const state = modelState.get(id);
+    const si = modelSI.get(id);
+    if (state !== undefined && state !== 7 && state !== 8) return STATE_NAME[state];
+    return si ?? (state !== undefined ? STATE_NAME[state] : undefined);
+  }
+
+  /** Settles every pending apothecary from the player model (at a turn or half change, and at the end). */
+  function settleApothecaries(): void {
+    for (const [id, { moment: m, roll }] of apoPending) {
+      const rolled = m.result!;
+      const final = modelInjury(id);
+      m.rolled = rolled;
+      if (final === undefined) {
+        m.apothecary = `rolled ${roll}`;
+        m.text = `${headOf(m)} (${rolled}; apothecary rolled ${roll})`;
+      } else if (final === roll || final !== rolled) {
+        m.result = final;
+        m.apothecary = final;
+        m.text = `${headOf(m)} (${rolled}; apothecary: ${final})`;
+      } else {
+        m.apothecary = `rolled ${roll}, kept ${final}`;
+        m.text = `${headOf(m)} (${rolled}; apothecary rolled ${roll}, kept ${final})`;
+      }
+    }
+    apoPending.clear();
   }
 
   function refereeOutcome(r: Json, kind: "argue" | "bribe"): void {
@@ -218,7 +271,6 @@ export function createMomentDeriver(game: unknown, opts: DeriverOptions = {}) {
 
     // reports first: they describe what led to this command's model changes
     const awarded = new Set<string>();
-    let lastInjury = "";
     for (const r of reports) {
       switch (r.reportId) {
         case "startHalf": {
@@ -239,13 +291,17 @@ export function createMomentDeriver(game: unknown, opts: DeriverOptions = {}) {
           break;
         }
         case "injury": {
-          const key = JSON.stringify([r.defenderId, r.attackerId, r.injuryType, r.armorRoll, r.injuryRoll, r.casualtyRoll, r.injury, r.seriousInjury]);
-          if (key === lastInjury) break; // the same injury's second half (skipInjuryParts)
-          lastInjury = key;
+          // the same injury's second half (skipInjuryParts), in this command or a later one of the same turn
+          const turnKey = `${at.half}|${at.turn}`;
+          if (turnKey !== injuryTurn) { injuryTurn = turnKey; seenInjuries.clear(); }
+          const key = JSON.stringify([r.attackerId ?? null, r.defenderId ?? null, r.injuryType ?? null]);
+          if (seenInjuries.has(key)) break;
+          seenInjuries.add(key);
           injuryMoment(r, commandNr, at);
           break;
         }
-        case "apothecaryRoll": case "apothecaryChoice": apothecary(r); break;
+        case "apothecaryRoll": apothecary(r, true); break;
+        case "apothecaryChoice": apothecary(r, false); break;
         case "argueTheCall": refereeOutcome(r, "argue"); break;
         case "bribesRoll": refereeOutcome(r, "bribe"); break;
         case "playerEvent": {
@@ -261,9 +317,15 @@ export function createMomentDeriver(game: unknown, opts: DeriverOptions = {}) {
       const id = m.modelChangeId;
       const key = str(m.modelChangeKey);
       const value = m.modelChangeValue;
-      if (id === "gameSetHalf") { const h = num(value); if (h !== undefined) half = h; continue; }
+      if (id === "gameSetHalf") { const h = num(value); if (h !== undefined) { if (h !== half) settleApothecaries(); half = h; } continue; }
+      if (id === "fieldModelSetPlayerState") { const st = stateOf(value); if (key && st !== undefined) modelState.set(key, st); continue; }
+      if (id === "playerResultSetSeriousInjury") { if (key) { const si = str(value); if (si) modelSI.set(key, si); else modelSI.delete(key); } continue; }
       if (id === "gameSetHomePlaying") { if (typeof value === "boolean") homePlaying = value; continue; }
-      if (id === "turnDataSetTurnNr") { const n = num(value); if (n !== undefined && (key === "home" || key === "away")) turnNr[key] = n; continue; }
+      if (id === "turnDataSetTurnNr") {
+        const n = num(value);
+        if (n !== undefined && (key === "home" || key === "away")) { if (n !== turnNr[key]) settleApothecaries(); turnNr[key] = n; }
+        continue;
+      }
       if (id === "gameSetConcededLegally") {
         if (typeof value === "boolean") {
           legalVerdict = value;
@@ -310,6 +372,7 @@ export function createMomentDeriver(game: unknown, opts: DeriverOptions = {}) {
   return {
     feed,
     result(): ReplayDerivation {
+      settleApothecaries();
       // the game state's own verdict, when no model change carried one
       const verdict = g.concededLegally;
       if (typeof verdict === "boolean") for (const m of moments) if (m.kind === "concession" && m.legal === undefined) m.legal = verdict;

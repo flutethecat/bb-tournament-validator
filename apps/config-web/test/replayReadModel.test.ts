@@ -122,7 +122,8 @@ describe("game page: ordered online moments", () => {
     expect(rows[2]).toMatchObject({ lead: "Kick-off", rest: ": Brilliant Coaching (4 + 3)" });
     expect(rows[3]).toMatchObject({ player: "Grashnak Blackhoof", sub: "Badly Hurt on Gnome Lineman 1" });
     expect(rows[4]).toMatchObject({ lead: "UAt2 Nurgle", rest: " concedes the match (not a legal concession)." });
-    expect(rows[5]).toMatchObject({ player: "Swiftvine Glimmershard", rest: "scores a touchdown!" });
+    expect(rows[5]).toMatchObject({ player: "Swiftvine Glimmershard", rest: "is awarded a touchdown (concession)." });
+    expect(rows[6]).toMatchObject({ player: "Jordell Freshbreeze", rest: "is awarded a touchdown (concession)." });
     // the casualty's victim line, directly beneath it
     const victim = [...m.rows].reverse().find((r) => r.part === "victim")!;
     expect(victim).toMatchObject({ team: "home", player: "Gnome Lineman 1", rest: "is Badly Hurt." });

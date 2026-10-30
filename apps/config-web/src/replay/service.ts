@@ -5,14 +5,15 @@
 import type { ForkAdminConfig } from "@bb/fork-ops";
 import type { ReplayState } from "../gameDetail.js";
 import { onResultStored, type StoredTournamentResult } from "../tournamentResults.js";
-import { createReplayJob, finishedGameGuards, type ReplayJob } from "./job.js";
+import { TestGameStore } from "../testGames.js";
+import { createReplayJob, forkGameGuard, type ReplayJob } from "./job.js";
 import { readReplay, replayOptionsFromEnv, type ReplayReadOptions } from "./reader.js";
 import { ReplayMomentStore, type ReplayEntry } from "./store.js";
 
 export interface ReplayServiceDeps {
   dataDir: string;
   adminCfg: ForkAdminConfig | undefined;
-  results: { listAll(): StoredTournamentResult[] };
+  results: { listAll(): StoredTournamentResult[]; get(gameId: string): StoredTournamentResult | undefined };
   env?: NodeJS.ProcessEnv;
   log?: (line: string) => void;
   /** Off in tests: no timers. */
@@ -33,11 +34,14 @@ export function createReplayService(deps: ReplayServiceDeps): ReplayService {
   const off = /^(false|0|no|off)$/i.test((env.FORK_REPLAY_ENABLED ?? "").trim());
   const options: ReplayReadOptions = replayOptionsFromEnv(env);
   const adminCfg = deps.adminCfg;
+  const testGames = new TestGameStore(deps.dataDir);
   const job = adminCfg && !off
     ? createReplayJob({
       store,
       rows: () => deps.results.listAll(),
-      guards: () => finishedGameGuards(adminCfg),
+      guard: (gameId) => forkGameGuard(adminCfg, gameId),
+      // the site's own test marks: test-games.json and a test results row (the fork's status lists carry no test flag)
+      isSiteTest: (gameId) => testGames.has(gameId) || deps.results.get(gameId)?.test === true,
       read: (gameId) => readReplay(gameId, options),
       log: deps.log ?? ((line) => console.log(line)),
     })

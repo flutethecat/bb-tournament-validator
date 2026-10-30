@@ -147,9 +147,12 @@ export function reporterModel(game: GameDetail): ReporterModel {
       const side = m.side;
       const player = squads[side].idOf(m.player, m.playerIndex);
       const by = player ? { player } : {};
-      const outcome = m.apothecary ?? m.result;
+      // the injury as it stands after any apothecary (the reader confirms it from the player model)
+      const outcome = m.result;
       const apo = m.apothecary ? { apothecaryUsed: true } : {};
-      if (m.kind === "touchdown" || m.kind === "sendOff" || m.kind === "completion" || m.kind === "interception" || m.kind === "deflection") {
+      if (m.kind === "touchdown") {
+        events.push(ev("touchdown", side, { ...at, ...by, ...(m.awarded ? { payload: { awarded: true } } : {}) }));
+      } else if (m.kind === "sendOff" || m.kind === "completion" || m.kind === "interception" || m.kind === "deflection") {
         events.push(ev(m.kind, side, { ...at, ...by }));
       } else if (m.kind === "injury") {
         events.push(ev("injury", side, { ...at, ...by, payload: { ...(outcome ? { result: outcome } : {}), ...apo } }));

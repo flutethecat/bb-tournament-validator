@@ -260,7 +260,7 @@ export function eventSentence(e: RecordedEvent, who: string, teamName: string, s
     }
   }
   switch (e.type) {
-    case "touchdown": return { lead: p, rest: " scores a touchdown!" };
+    case "touchdown": return { lead: p, rest: pl.awarded === true ? " is awarded a touchdown (concession)." : " scores a touchdown!" };
     case "casualty": return { lead: p, rest: " causes a casualty!" };
     case "injury": return { lead: p, rest: ` ${victimPhrase(String(pl.result ?? ""), pl.stat, false)}.` };
     case "completion": return { lead: p, rest: " completes a pass!" };
