@@ -24,6 +24,7 @@ import {
   type RestRoll, type SeasonRecord,
 } from "./types.js";
 import { forkPlayLock } from "./forkTeam.js";
+import { computeTeamValue, refreshTeamValue } from "./teamValue.js";
 
 export const REDRAFT_BASE = 1_000_000;
 export const PER_GAME = 20_000;
@@ -490,10 +491,8 @@ export function buildDraftTeam(ctx: DraftContext, price: DraftPrice, input: Draf
   }
   players.sort((a, b) => (a.number ?? 999) - (b.number ?? 999));
   const st = input.staff;
-  const staffValue = st.rerolls * rerollCost(roster) + st.assistantCoaches * STAFF_COST.assistantCoach + st.cheerleaders * STAFF_COST.cheerleader + (st.apothecary ? STAFF_COST.apothecary : 0);
-  return {
+  const drafted: LeagueTeam = {
     ...structuredClone(team),
-    teamValue: players.reduce((n, p) => n + (p.value ?? 0), 0) + staffValue,
     treasury: price.remaining,
     rerolls: st.rerolls,
     assistantCoaches: st.assistantCoaches,
@@ -502,6 +501,16 @@ export function buildDraftTeam(ctx: DraftContext, price: DraftPrice, input: Draf
     players,
     formerPlayers: [],
   };
+  // The league recomputes the value (teamValue.ts); without a dataset roster the price paid stands in for it.
+  if (roster) {
+    const tv = computeTeamValue(drafted, roster);
+    drafted.teamValue = tv.teamValue;
+    drafted.currentTeamValue = tv.currentTeamValue;
+  } else {
+    drafted.teamValue = players.reduce((n, p) => n + (p.value ?? 0), 0) + price.staffCost;
+    drafted.currentTeamValue = drafted.teamValue;
+  }
+  return drafted;
 }
 
 export function draftList(price: DraftPrice, input: DraftInput, team: LeagueTeam): DraftList {
@@ -517,8 +526,11 @@ export function draftList(price: DraftPrice, input: DraftInput, team: LeagueTeam
 
 /** Puts the draft roster into the next season (replacing a team with the same id) and lists the coach as a participant. */
 export function applyDraftTeam(season: SeasonRecord, team: LeagueTeam): void {
+  const placed = structuredClone(team);
+  // The season's own recompute (the same figures buildDraftTeam wrote, so the placed roster still equals the draft's).
+  refreshTeamValue(placed, season.ruleset);
   const i = season.teams.findIndex((t) => t.id === team.id);
-  if (i >= 0) season.teams[i] = structuredClone(team); else season.teams.push(structuredClone(team));
+  if (i >= 0) season.teams[i] = placed; else season.teams.push(placed);
   const named = team.name.trim().toLowerCase();
   if (!season.participants.some((p) => p.team.trim().toLowerCase() === named)) {
     season.participants.push({ coach: team.coach, ...teamSeat(team), country: "", race: team.race, team: team.name, active: true });

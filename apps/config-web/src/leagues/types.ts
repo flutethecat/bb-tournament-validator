@@ -214,6 +214,11 @@ export interface ForkSideResult {
   dedicatedFansModifier?: number;
   winnings: number;
   lines: ForkPlayerLine[];
+  /**
+   * Full results only: the fork's teamValue minus the league's recomputed teamValue after the result (signed gold),
+   * when they differ. Informational (owner 10-30): the league value is the record; this never changes anything.
+   */
+  forkTeamValueDiff?: number;
 }
 
 export interface FixtureForkResult {
@@ -398,7 +403,15 @@ export interface LeagueTeam {
    */
   coachAssigned?: { by: string; at: string; cleared?: true };
   nafUser?: string;
+  /**
+   * Team value (gold), RECOMPUTED by the league from the stored player values plus staff after every mutation
+   * (teamValue.ts refreshTeamValues; owner 10-30). The fork's figure is never adopted.
+   */
   teamValue: number | null;
+  /** Current team value: teamValue without the players who miss the next game (teamValue.ts). Unset until recomputed. */
+  currentTeamValue?: number | null;
+  /** The team value the TourPlay export listed at import (its CurrentTeamValue), kept for reference only. */
+  importedTeamValue?: number | null;
   treasury: number | null;
   rerolls: number | null;
   fans: number | null;
@@ -508,14 +521,14 @@ export interface LeagueNewsPost {
   editedAt?: string;
 }
 
-export type LeagueEventKind = "fixture-created" | "fixture-deleted" | "match-started" | "match-result" | "team-coach";
+export type LeagueEventKind = "fixture-created" | "fixture-deleted" | "match-started" | "match-result" | "team-coach" | "team-value-diff";
 
 export interface LeagueEventEntry {
   at: string;
   by: string;
   kind: LeagueEventKind;
   fixtureId?: string;
-  /** team-coach: the season team whose coach account changed. */
+  /** team-coach: the season team whose coach account changed; team-value-diff: the team whose fork value differed. */
   teamId?: string;
   text: string;
   /** match-result: the score the post announced ("2-1/3-0"); the same result is never announced twice. */

@@ -136,6 +136,7 @@
 .lg-team-facts > div { display: grid; gap: 1px; }
 .lg-team-facts dt { font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
 .lg-team-facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+.lg-tv-secondary { color: var(--ui-muted); }
 
 /* ---- honour boards / leaders */
 .lg-boards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }

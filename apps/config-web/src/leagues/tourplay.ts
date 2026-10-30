@@ -16,6 +16,7 @@ import {
   type LeagueFixture, type LeagueParticipant, type LeaguePhase, type LeaguePlayer, type LeagueRuleset, type LeagueTeam,
   type PlayerSeasonStats, type SeasonRecord, type StandingRow, type UnattributedStats,
 } from "./types.js";
+import { refreshTeamValues } from "./teamValue.js";
 
 // ---- CSV ----
 
@@ -369,7 +370,9 @@ export function parseRoster(text: string, mapCoach: CoachMapper): LeagueTeam | u
     coach: h.Coach ?? "",
     ...(coachId ? { coachId } : {}),
     ...(nafUser ? { nafUser } : {}),
+    // TourPlay's figure is kept for reference; buildSeason recomputes teamValue from the stored values (teamValue.ts).
     teamValue: numOrNull(h.CurrentTeamValue),
+    importedTeamValue: numOrNull(h.CurrentTeamValue),
     treasury: numOrNull(h.Treasury),
     rerolls: numOrNull(h.ReRolls),
     fans: numOrNull(h.Fans),
@@ -653,6 +656,9 @@ export function buildSeason(input: BuildSeasonInput): BuildSeasonResult {
     importedAt: (input.now ?? new Date()).toISOString(),
     source: "tourplay-export",
   };
+  // The league is the record (owner 10-30): players without a stored value get the fallback price stored, and every
+  // team's value is recomputed from the stored values (BB2025 seasons; others keep the imported figure).
+  refreshTeamValues(season, undefined, { fillStoredValues: true });
   const unmappedCoaches = [...seen].filter((name) => !mapped.has(name)).sort((a, b) => a.localeCompare(b));
   return { season, mismatches: checkStandings(phases, fixtures), ambiguities, unmappedCoaches };
 }

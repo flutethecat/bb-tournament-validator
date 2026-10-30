@@ -490,6 +490,16 @@ export function kValue(n: number | null | undefined): string {
   return `${Math.round(n / 1000).toLocaleString("en-US")}k`;
 }
 
+/**
+ * A league team's value figures as the server sent them: the current team value (CTV) is the main figure, with the
+ * team value (TV) secondary when they differ; one TV figure when they match or no CTV was sent.
+ */
+export function teamValueFigures(t: { teamValue: number | null; currentTeamValue?: number | null }): { main: { label: "CTV" | "TV"; value: number | null }; secondary?: { label: "TV"; value: number } } {
+  const ctv = t.currentTeamValue;
+  if (typeof ctv === "number" && typeof t.teamValue === "number" && ctv !== t.teamValue) return { main: { label: "CTV", value: ctv }, secondary: { label: "TV", value: t.teamValue } };
+  return { main: { label: "TV", value: t.teamValue } };
+}
+
 const STAT_LABEL: Record<string, string> = {
   mosttouchdowns: "Most touchdowns", mostcasualties: "Most casualties", mostmvp: "Most MVPs", mostinterceptions: "Most interceptions",
   mostpass: "Most completions", mostdirtyplay: "Most fouls", mostinjuries: "Most injuries caused", mostsentoffs: "Most sent off",

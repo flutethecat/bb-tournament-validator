@@ -5,7 +5,7 @@
 // get a column each only when a player in that table has a non-zero value.
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
-import { crestFor, initials, kValue, playerByRef, sharedTotalsFor, teamByRef, teamUnattributed } from "../leagues/league";
+import { crestFor, initials, kValue, playerByRef, sharedTotalsFor, teamByRef, teamUnattributed, teamValueFigures } from "../leagues/league";
 import type { LeaguePlayer, PlayerSeasonStats, SeasonRecord } from "../leagues/types";
 import LeagueTeamCoach from "./LeagueTeamCoach.vue";
 
@@ -25,7 +25,8 @@ const link = (teamId?: string) => ({
 });
 const stat = (v: number | null): string => (v === null ? "-" : String(v));
 const plus = (v: number | null, suffix = "+"): string => (v === null ? "-" : `${v}${suffix}`);
-const tiles = computed(() => props.season.teams.map((t) => ({ t, crest: crestFor(props.crests, t.race) })));
+const tiles = computed(() => props.season.teams.map((t) => ({ t, crest: crestFor(props.crests, t.race), tv: teamValueFigures(t) })));
+const pickedTv = computed(() => (picked.value ? teamValueFigures(picked.value) : undefined));
 const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
 type Counter = "blocks" | "rushing" | "passing" | "deflections" | "landings" | "turnsPlayed";
 const COUNTERS: ReadonlyArray<{ key: Counter; label: string; title: string }> = [
@@ -56,7 +57,8 @@ const count = (p: { stats: PlayerSeasonStats }, key: Counter): number => p.stats
           <header class="hm-band"><h2>{{ picked.name }}</h2><span class="hm-cap">{{ picked.race }} · {{ picked.coach }}<template v-if="picked.coachId && picked.coachAssigned"> · {{ picked.coachId }}</template></span></header>
           <LeagueTeamCoach v-if="manage" :season="season" :team="picked" />
           <dl class="lg-team-facts">
-            <div><dt>Team value</dt><dd>{{ kValue(picked.teamValue) }}</dd></div>
+            <div v-if="pickedTv?.secondary" data-tv="ctv"><dt>Current team value</dt><dd>{{ kValue(pickedTv.main.value) }} <small class="lg-tv-secondary">TV {{ kValue(pickedTv.secondary.value) }}</small></dd></div>
+            <div v-else data-tv="tv"><dt>Team value</dt><dd>{{ kValue(picked.teamValue) }}</dd></div>
             <div><dt>Treasury</dt><dd>{{ kValue(picked.treasury) }}</dd></div>
             <div><dt>Rerolls</dt><dd>{{ stat(picked.rerolls) }}</dd></div>
             <div><dt>Fans</dt><dd>{{ stat(picked.fans) }}</dd></div>
@@ -140,7 +142,7 @@ const count = (p: { stats: PlayerSeasonStats }, key: Counter): number => p.stats
             <span v-else class="hm-team-crest hm-team-blank" aria-hidden="true">{{ initials(x.t.name) }}</span>
             <span class="hm-team-name">{{ x.t.name }}</span>
             <span class="hm-team-race">{{ x.t.race }} · {{ x.t.coach }}</span>
-            <span class="hm-team-race">TV {{ kValue(x.t.teamValue) }}</span>
+            <span class="hm-team-race">{{ x.tv.main.label }} {{ kValue(x.tv.main.value) }}<small v-if="x.tv.secondary" class="lg-tv-secondary"> · {{ x.tv.secondary.label }} {{ kValue(x.tv.secondary.value) }}</small></span>
           </RouterLink>
         </li>
       </ul>

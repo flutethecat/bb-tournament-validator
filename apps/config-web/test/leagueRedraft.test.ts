@@ -502,6 +502,7 @@ describe("redraft routes", () => {
     expect(draft.spent).toBe(11 * (50_000 + AGENT_FEE)); // 770k with the fees
     expect(draft.team.players.every((p) => p.value === 50_000)).toBe(true);
     expect(draft.team.teamValue).toBe(550_000);
+    expect(draft.team.currentTeamValue).toBe(550_000); // recomputed by teamValue.ts (no staff, nobody misses a game)
   });
 });
 

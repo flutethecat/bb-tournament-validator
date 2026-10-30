@@ -7,7 +7,7 @@ import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import {
   canManageLeague, cardQuery, cardSeasonChips, tiedLine, createLeagueDetail, createLeagueList, createLeagueStats, crestFor, fixtureContext, fixturesByPhase, honourBoards, honourValue,
-  fixtureOutcome, kValue, latestResults, pickSeason, playerByRef, sharedTotalsFor, resultCardProps, safeArtUrl, standingsTables, teamByRef,
+  fixtureOutcome, kValue, teamValueFigures, latestResults, pickSeason, playerByRef, sharedTotalsFor, resultCardProps, safeArtUrl, standingsTables, teamByRef,
 } from "../spa/src/leagues/league";
 import type { LeagueFixture, LeagueStats, LeagueSummary, SeasonRecord, SeasonSummary } from "../spa/src/leagues/types";
 
@@ -169,6 +169,9 @@ describe("league helpers", () => {
     expect(honourBoards(s).map((b) => b.title)).toEqual(["Players", "Coaches"]);
     expect(kValue(1205000)).toBe("1,205k");
     expect(kValue(null)).toBe("-");
+    expect(teamValueFigures({ teamValue: 1_770_000, currentTeamValue: 1_700_000 })).toEqual({ main: { label: "CTV", value: 1_700_000 }, secondary: { label: "TV", value: 1_770_000 } });
+    expect(teamValueFigures({ teamValue: 1_700_000, currentTeamValue: 1_700_000 })).toEqual({ main: { label: "TV", value: 1_700_000 } });
+    expect(teamValueFigures({ teamValue: 885_000 })).toEqual({ main: { label: "TV", value: 885_000 } });
   });
 
   it("season pick, artwork URL guard, crest lookup, organiser check", () => {

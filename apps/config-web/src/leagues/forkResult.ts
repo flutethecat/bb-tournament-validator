@@ -7,7 +7,9 @@
  * (src/site-backend/fumbblResultBanking.ts): last game's missed-next-game players recover, earned SPP is added to the
  * spendable balance (a conceding team's balance is cleared), counters are added, injuries land (MNG; niggling +1;
  * characteristic losses; a death or a defection retires the player to former players), treasury = treasury - the part
- * of it spent on inducements + winnings, dedicated fans + the server's modifier. Seasons played is never touched.
+ * of it spent on inducements + winnings, dedicated fans + the server's modifier. Seasons played is never touched. The
+ * team value is then RECOMPUTED by the league (teamValue.ts); the fork's teamValue is only compared, and a difference is
+ * recorded as forkTeamValueDiff on the fixture result side (owner 10-30: informational, never adopted).
  *
  * A "basic" result (the fork's finished-game listing without the FumbblResult body) carries no SPP, injuries, fan
  * change or inducement spend: SPP balances (also of a conceding team), injuries, fans and the TREASURY are left as
@@ -26,6 +28,7 @@
  */
 import type { GamestateResult } from "@bb/fork-ops";
 import type { ParsedGameResult } from "../site-backend/fumbblResult.js";
+import { refreshTeamValue } from "./teamValue.js";
 import { fixturePlayed } from "./tourplay.js";
 import { FORK_PLAYER_COUNTERS } from "./types.js";
 import type {
@@ -73,6 +76,8 @@ export interface ForkGameTeamResult {
   spectators?: number;
   fame?: number;
   fanFactor?: number;
+  /** Full results only: the fork's own team value (gold). Compared with the league's, never adopted (owner 10-30). */
+  teamValue?: number;
   players: ForkGamePlayerResult[];
 }
 
@@ -102,6 +107,7 @@ export function fromParsedResult(parsed: ParsedGameResult, playedAt?: string): F
       ...(t.spectators ? { spectators: t.spectators } : {}),
       ...(t.fame ? { fame: t.fame } : {}),
       ...(t.fanFactor ? { fanFactor: t.fanFactor } : {}),
+      ...(t.teamValue ? { teamValue: t.teamValue } : {}),
       players: t.players.filter((p) => p.playerId).map((p) => ({
         forkPlayerId: p.playerId,
         name: p.name ?? "",
@@ -247,22 +253,23 @@ export function mutateLeagueTeam(input: LeagueTeam, side: ForkGameTeamResult, ma
   // A conceding team's spendable SPP is cleared (banking: currentSpps 0 for the conceding side), from a full result only:
   // a basic result cannot tell what the server did.
   if (full && side.conceded) for (const p of team.players) p.availableSpp = 0;
-  let lost = 0;
   for (const id of gone) {
     const i = team.players.findIndex((p) => p.playerId === id);
     if (i < 0) continue;
     const [p] = team.players.splice(i, 1);
-    lost += p!.value ?? 0;
     team.formerPlayers.push(retire(p!));
   }
-  if (team.teamValue !== null && lost) team.teamValue = Math.max(0, team.teamValue - lost);
+  // The team value is not adjusted here: applyForkResult recomputes it from the mutated roster (teamValue.ts).
   if (full) team.treasury = Math.max(0, (team.treasury ?? 0) - (side.treasurySpent ?? 0) + side.winnings);
   if (full && side.dedicatedFansModifier) team.fans = (team.fans ?? 1) + side.dedicatedFansModifier;
   return { team, lines, retired: [...gone] };
 }
 
+/** One side whose fork team value differed from the league's recomputed value (informational). */
+export interface TeamValueDiff { side: ForkSide; teamId: string; team: string; diff: number; fork: number; league: number }
+
 export type ApplyOutcome =
-  | { applied: true; result: FixtureForkResult; retired: Record<ForkSide, string[]> }
+  | { applied: true; result: FixtureForkResult; retired: Record<ForkSide, string[]>; teamValueDiffs: TeamValueDiff[] }
   | { applied: false; reason: string; already?: boolean };
 
 /**
@@ -286,16 +293,25 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
   }
   const out = {} as Record<ForkSide, ForkSideResult>;
   const retired = {} as Record<ForkSide, string[]>;
+  const teamValueDiffs: TeamValueDiff[] = [];
   for (const s of sides) {
     const ft = fork.teams[s]!;
     const r = picked[s];
     const i = season.teams.findIndex((t) => t.id === ft.teamId);
     let lines: ForkPlayerLine[];
+    let diff: number | undefined;
     if (i >= 0) {
       const m = mutateLeagueTeam(season.teams[i]!, r, ft.players, result.source);
+      // The league is the record: the value is recomputed from the mutated roster; the fork's figure is only compared.
+      refreshTeamValue(m.team, season.ruleset);
       season.teams[i] = m.team;
       lines = m.lines;
       retired[s] = m.retired;
+      const league = m.team.teamValue;
+      if (result.source === "full" && typeof r.teamValue === "number" && r.teamValue > 0 && typeof league === "number" && r.teamValue !== league) {
+        diff = r.teamValue - league;
+        teamValueDiffs.push({ side: s, teamId: m.team.id, team: m.team.name, diff, fork: r.teamValue, league });
+      }
     } else {
       lines = mutateLeagueTeam({ id: ft.teamId, name: "", race: "", coach: "", teamValue: null, treasury: null, rerolls: null, fans: null, assistantCoaches: null,
         cheerleaders: null, apothecary: false, tier: "", raceLeague: "", players: [], formerPlayers: [] }, r, [], result.source).lines;
@@ -311,6 +327,7 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
       ...(r.fanFactor ? { fanFactor: r.fanFactor } : {}),
       ...(result.source === "full" && r.dedicatedFansModifier ? { dedicatedFansModifier: r.dedicatedFansModifier } : {}),
       winnings: r.winnings, lines,
+      ...(diff !== undefined ? { forkTeamValueDiff: diff } : {}),
     };
     const side = fixture[s];
     side.score = r.score;
@@ -329,6 +346,6 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
   };
   fork.result = applied;
   fork.status = "finished";
-  return { applied: true, result: applied, retired };
+  return { applied: true, result: applied, retired, teamValueDiffs };
 }
 

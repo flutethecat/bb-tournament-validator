@@ -25,10 +25,11 @@
 import type { NotificationInput } from "../notifications.js";
 import type { LeagueApiIdentity, LeagueApiResult } from "./api.js";
 import type { WebhookPoster } from "./discord.js";
-import { recordLeagueFixtureEvent } from "./events.js";
+import { addLog, recordLeagueFixtureEvent } from "./events.js";
 import { readJsonObject, type BodyDeps } from "./http.js";
 import { applyForkResult, type ForkGameResult } from "./forkResult.js";
 import { buildLeagueForkTeam, forkTeamIdFor, ForkTeamBuildError, leagueTeamRevision, rulesetBlocker, type LeagueForkTeamFile } from "./forkTeam.js";
+import { kGold, signedK } from "./teamValue.js";
 import { fixturePlayed } from "./tourplay.js";
 import { isLeagueOrganiser, leagueOwner, type LeagueStore } from "./store.js";
 import type { FixtureForkState, FixtureForkStatus, ForkSide, LeagueFixture, LeagueRecord, SeasonRecord } from "./types.js";
@@ -614,6 +615,12 @@ export async function applyFixtureResult(deps: SyncDeps, leagueId: string, seaso
       if (outcome.applied) {
         const r = outcome.result;
         log(f.fork!, now, "Super FUMBBL", `Result ${r.home.score} - ${r.away.score} applied (game ${r.gameId}, ${r.source === "full" ? "full result" : "score and player counters only"}).`);
+        // Informational only (owner 10-30): the league's recomputed team value is the record, the fork's is compared.
+        for (const d of outcome.teamValueDiffs) {
+          const text = `Fork team value differs by ${signedK(d.diff)} for ${d.team} (fork ${kGold(d.fork)}, league ${kGold(d.league)}).`;
+          log(f.fork!, now, "Super FUMBBL", text);
+          addLog(season, { at: now.toISOString(), by: "Super FUMBBL", kind: "team-value-diff", fixtureId: f.id, teamId: d.teamId, text });
+        }
       } else if (!outcome.already && f.fork) {
         log(f.fork, now, "Super FUMBBL", `Result of game ${result.gameId} not applied: ${outcome.reason}`);
       }

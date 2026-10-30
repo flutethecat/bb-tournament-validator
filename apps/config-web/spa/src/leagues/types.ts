@@ -230,7 +230,10 @@ export interface LeagueTeam {
   coachId?: string;
   /** An organiser assigned the coach account (Teams tab, Assign coach account). */
   coachAssigned?: { by: string; at: string; cleared?: true };
+  /** Recomputed by the league from stored player values + staff (server teamValue.ts). */
   teamValue: number | null;
+  /** teamValue without the players who miss the next game; unset until the server recomputed it. */
+  currentTeamValue?: number | null;
   treasury: number | null;
   rerolls: number | null;
   fans: number | null;

@@ -149,7 +149,7 @@ describe("result -> league team mutation (pure)", () => {
     expect(t.players.find((p) => p.playerId === "p-doomed")).toBeUndefined();
     expect(t.formerPlayers).toEqual([expect.objectContaining({ playerId: "p-doomed", name: "Doomed", stats: expect.objectContaining({ fouls: 1 }) })]);
     expect(m.retired).toEqual(["p-doomed"]);
-    expect(t.teamValue).toBe(1_100_000 - 50_000);
+    expect(t.teamValue).toBe(1_100_000); // the pure mutation leaves the value alone: applyForkResult recomputes it (teamValue.ts)
     expect(t.treasury).toBe(10_000 - 10_000 + 60_000);
     expect(t.fans).toBe(3);
     expect(t.players.every((p) => p.seasonsPlayed === undefined)).toBe(true);
@@ -594,6 +594,33 @@ describe("Super FUMBBL fixture routes", () => {
     expect(sum).toMatchObject({ status: "finished", result: { home: { lines: expect.arrayContaining([expect.objectContaining({ playerId: "p-thrower", td: 2 })]) } } });
     const read = (await call("GET", "/api/leagues/tabbl/seasons/season-7", EVE)).body as { season: SeasonRecord };
     expect(read.season.fixtures[0]!.fork).toEqual({ status: "finished", teams: {}, log: [] });
+  });
+
+  it("result sync: the league recomputes both team values; a differing fork team value is logged for organisers only as information", async () => {
+    await call("POST", `${base}/fork/generate`, ANN, {});
+    const hid = forkTeamIdFor("tabbl", "season-7", "grudge");
+    const aid = forkTeamIdFor("tabbl", "season-7", "orcs");
+    const r = fullResult(hid, aid);
+    r.teams[0]!.teamValue = 345_000;
+    r.teams[1]!.teamValue = 230_000;
+    fork.states.set("g42", { status: "finished", playedAt: "2026-10-30T20:00:00.000Z" });
+    fork.results.set("g42", r);
+    await syncLeagueForkResults({ store, fork });
+    const s = store.season("tabbl", "season-7")!;
+    const home = s.teams.find((t) => t.id === "grudge")!;
+    // Arm 95k (now misses the next game) + Limp 50k + 2 rerolls x 50k + 1 assistant 10k + apothecary 50k; Doomed died.
+    expect(home).toMatchObject({ teamValue: 305_000, currentTeamValue: 210_000 });
+    // Grot 50k (misses the next game) + 3 rerolls x 60k (Orc listed price).
+    expect(s.teams.find((t) => t.id === "orcs")).toMatchObject({ teamValue: 230_000, currentTeamValue: 180_000 });
+    const f = s.fixtures.find((x) => x.id === "f1")!;
+    expect(f.fork!.result!.home.forkTeamValueDiff).toBe(40_000);
+    expect(f.fork!.result!.away).not.toHaveProperty("forkTeamValueDiff");
+    const text = "Fork team value differs by +40k for Grudge Rollers (fork 345k, league 305k).";
+    expect(f.fork!.log.map((e) => e.text)).toContain(text);
+    expect(s.log!.filter((e) => e.kind === "team-value-diff")).toEqual([expect.objectContaining({ fixtureId: "f1", teamId: "grudge", text })]);
+    // The fork history (where the entry lives) is organiser-only: a public read carries no log.
+    expect(view(await call("GET", base, EVE))).not.toHaveProperty("log");
+    expect(view(await call("GET", base, JAY)).log.map((e: { text: string }) => e.text)).toContain(text);
   });
 
   it("a fixture that got a result by hand is never overwritten by the fork result", async () => {
