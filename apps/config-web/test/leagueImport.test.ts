@@ -71,6 +71,7 @@ describe("TourPlay CSV parsing", () => {
   it("skills keep bracketed parameters", () => {
     expect(parseSkills("Block,Hatred (102),Loner (4+), Thick Skull")).toEqual(["Block", "Hatred (102)", "Loner (4+)", "Thick Skull"]);
     expect(parseSkills("")).toEqual([]);
+    expect(parseSkills("Eye Gunge,Block")).toEqual(["Eye Gouge", "Block"]);
   });
 
   it("fixtures: blank groups, suspended / concede flags, missing NAF names, unplayed rows", () => {

@@ -101,7 +101,16 @@ export const slugify = (v: string): string =>
 /** Name key for matching players / teams across files: trimmed, inner whitespace collapsed, lower-case. */
 export const nameKey = (v: string): string => v.trim().replace(/\s+/g, " ").toLowerCase();
 
-/** "Block,Hatred (102),Loner (4+)" -> ["Block", "Hatred (102)", "Loner (4+)"] (commas inside brackets kept). */
+/** TourPlay spellings that differ from the rulebook / dataset name (owner 10-30: "Eye Gunge" is Eye Gouge). */
+const TOURPLAY_SKILL_SPELLINGS: ReadonlyMap<string, string> = new Map([["eye gunge", "Eye Gouge"]]);
+const rulebookSkill = (s: string): string => {
+  const m = s.match(/^(.*?)(\s*\(.*\))?$/);
+  const base = (m?.[1] ?? s).trim();
+  const fixed = TOURPLAY_SKILL_SPELLINGS.get(nameKey(base));
+  return fixed ? fixed + (m?.[2] ?? "") : s;
+};
+
+/** "Block,Hatred (102),Loner (4+)" -> ["Block", "Hatred (102)", "Loner (4+)"] (commas inside brackets kept; TourPlay misspellings corrected). */
 export function parseSkills(raw: string): string[] {
   const out: string[] = [];
   let depth = 0;
@@ -109,10 +118,10 @@ export function parseSkills(raw: string): string[] {
   for (const ch of raw) {
     if (ch === "(") depth += 1;
     if (ch === ")") depth = Math.max(0, depth - 1);
-    if (ch === "," && depth === 0) { if (cur.trim()) out.push(cur.trim()); cur = ""; continue; }
+    if (ch === "," && depth === 0) { if (cur.trim()) out.push(rulebookSkill(cur.trim())); cur = ""; continue; }
     cur += ch;
   }
-  if (cur.trim()) out.push(cur.trim());
+  if (cur.trim()) out.push(rulebookSkill(cur.trim()));
   return out;
 }
 
