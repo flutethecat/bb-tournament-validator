@@ -198,8 +198,18 @@ export class TournamentResultStore {
     };
     this.writes += 1;
     atomicWriteTextFile(this.file, `${JSON.stringify(next, null, 2)}\n`);
+    if (result.source === undefined || result.source === "fork") {
+      for (const listener of resultStoredListeners) { try { listener(result); } catch { /* a listener never fails the write */ } }
+    }
     return result;
   }
+}
+
+const resultStoredListeners = new Set<(row: StoredTournamentResult) => void>();
+/** Called after every fork row any TournamentResultStore in this process stores (the replay job queues the game). */
+export function onResultStored(listener: (row: StoredTournamentResult) => void): () => void {
+  resultStoredListeners.add(listener);
+  return () => { resultStoredListeners.delete(listener); };
 }
 
 /** Discover every retained finished game; the fork has no usable `status=all`. */
