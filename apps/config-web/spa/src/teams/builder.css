@@ -303,3 +303,17 @@
 /* FUMBBL (light) theme: the hard numeral shadows read as smudges on the light panels. */
 :root[data-theme="fumbbl"] .tb-page :is(.tb-cost, .tb-stat b, .tb-num, .tb-stepper b, .tt-rt-tier, .tb-value-lines dd) { text-shadow: none; }
 
+/* Narrow columns (the Roster pane's side columns on desktop): tighter stepper rows, smaller finding text, the meta label
+   keeps its room beside a long verdict. */
+@container tbpanel (max-width: 340px) {
+  .tb-step-row, .tb-step-row:not(:has(> .tb-step-cost)) { grid-template-columns: 32px minmax(0, 1fr) auto; grid-template-areas: "icon who who" "step step cost"; gap: 4px 8px; }
+  .tb-step-row > .tb-stepper { justify-self: start; }
+  .tb-step-row > .tb-step-cost { align-self: center; }
+  .tb-star { grid-template-columns: auto minmax(0, 1fr); }
+  .tb-star > .tb-stepper { grid-column: 1 / -1; justify-self: start; }
+  .tb-step-icon, .tb-step-icon img { width: 32px; height: 32px; }
+  .tb-step-row .tb-stepper { gap: 4px; }
+  .tb-step-row .tb-stepper button { width: 40px; height: 40px; }
+}
+.tb-col-right .tb-finding { font-size: 14px; }
+.tb-verdict-panel .hm-cap { flex: none; }
