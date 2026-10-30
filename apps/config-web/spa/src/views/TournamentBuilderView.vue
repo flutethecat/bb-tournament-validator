@@ -131,7 +131,9 @@ onMounted(async () => {
     packageName: typeof route.query.package === "string" ? route.query.package : typeof route.query.preset === "string" ? route.query.preset : undefined,
     race: typeof route.query.race === "string" ? route.query.race : undefined,
   });
-  if (!asked || (asked !== "ruleset" && !ready.value)) tab.value = opened;
+  // Loading has finished: the asked tab (old ids already mapped, e.g. ?tab=stars -> roster) wins when the page can show it,
+  // else the tab init picked. Before this the roster was not loaded, so the first guess fell back to Ruleset.
+  tab.value = asked && (asked === "ruleset" || ready.value) ? asked : opened;
 });
 // Saving gives the team its own address (/tournament-team-builder/<saveId>); the old ?save= link is replaced by it.
 watch(() => state.currentSave?.id, (id) => {

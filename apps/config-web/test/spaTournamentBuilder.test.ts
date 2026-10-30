@@ -363,6 +363,40 @@ describe("tournament builder controller", () => {
     expect(sp.valueLines().find((l) => l.label === "Skill points")).toEqual({ label: "Skill points", value: "3.5 / 2", tone: "over" });
   });
 
+  it("per-player SP sums to the total: no stacking surcharge with a choose-one skill pack, the surcharge without one", async () => {
+    const costs = { primary: 1, secondary: 2, eliteSurcharge: 0, stackSurcharge: 1, eliteSkills: [] };
+    const build = async (race: object, summary: object = { goldUsed: 600000 }) => {
+      const f = mockFetcher(routes({
+        "/api/packages/Test%20Cup?roster=Human": { pkg: { description: "", eligibleRosters: ["Human"] }, rules: { ...RULES, race: { ...RACE, ...race } } },
+        "POST /api/fork/team-builder/preview": { valid: true, errors: [], warnings: [], summary, package: { name: "Test Cup", budget: 1150000, rules: TIER_ROW } },
+      }));
+      const { b } = await ready(f);
+      b.setTeamName("Reavers");
+      b.addPosition("hlin");
+      await b.openSkills(0);
+      expect(b.addSkill(0, "Tackle")).toBe("");
+      expect(b.addSkill(0, "Wrestle")).toBe(""); // two 1-SP primaries stacked on one player
+      return b;
+    };
+    const sum = (sp: { players: Array<{ sp: number }> }) => sp.players.reduce((n, p) => n + p.sp, 0);
+    // Choose-one pack: the server charges no stacking surcharge (bb-validator validate.ts); per-player must agree.
+    const pack = await build({ skillCosts: costs, packs: [{ label: "Pack A", gold: 1150000, skillPointBudget: 4 }] });
+    pack.setSkillPack("Pack A");
+    expect(pack.skillPoints()).toMatchObject({ used: 2, budget: 4, players: [{ index: 0, sp: 2 }] });
+    expect(sum(pack.skillPoints()!)).toBe(pack.skillPoints()!.used);
+    await pack.flushPreview();
+    // ...and the same once the server's authoritative count is in.
+    const served = await build({ skillCosts: costs, packs: [{ label: "Pack A", gold: 1150000, skillPointBudget: 4 }] }, { goldUsed: 600000, skillPointsUsed: 2, skillPointBudget: 4 });
+    served.setSkillPack("Pack A");
+    await served.flushPreview();
+    expect(served.skillPoints()!.used).toBe(2);
+    expect(sum(served.skillPoints()!)).toBe(2);
+    // No pack: the NAF-style surcharge applies to the stacked player (1 + 1 + 1).
+    const plain = await build({ skillCosts: costs, skillPointBudget: 6 });
+    expect(plain.skillPoints()).toMatchObject({ used: 3, budget: 6, players: [{ index: 0, sp: 3 }] });
+    expect(sum(plain.skillPoints()!)).toBe(plain.skillPoints()!.used);
+  });
+
   it("ingestion copies fields only; findings read as text", () => {
     const r = sanitizeRoster({ ...HUMAN, positions: [{ positionId: "x", name: "<img>", cost: "<b>", extra: 1 }], evil: "x" });
     expect(r.positions[0]).toMatchObject({ positionId: "x", name: "<img>", cost: 0 });
@@ -660,6 +694,17 @@ describe("tournament builder page (client behaviour)", () => {
       expect(fakeDocument.main.scrolled).toEqual([{ top: 0 }]);
       expect(fakeDocument.activeElement?.attrs.id).toBe("tb-tab-roster");
     } finally { page.app.unmount(); }
+  });
+
+  it("a cold deep link with an old tab id (?package=&race=&tab=stars / inducements) lands on the Roster pane", async () => {
+    for (const q of ["stars", "inducements"]) {
+      // The view builds its own controller here (nothing pre-initialised): the roster loads after the first tab guess.
+      const page = await mount(`/tournament-team-builder?package=Test%20Cup&race=human&tab=${q}`, mockFetcher(routes()));
+      try {
+        expect(page.selectedTab()).toBe("roster");
+        expect(page.find((e) => e.attrs.role === "tabpanel").attrs.id).toBe("tb-pane-roster");
+      } finally { page.app.unmount(); }
+    }
   });
 
   it("hiring with no team name: the Errors / Valid box says so and focus goes to the team name field; naming the team clears it", async () => {

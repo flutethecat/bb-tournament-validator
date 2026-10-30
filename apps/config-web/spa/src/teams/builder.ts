@@ -458,16 +458,21 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       estimated: !s,
     };
   }
+  /** One player's SP for added skills, as the server counts it: choose-one skill packs charge no stacking surcharge
+   *  (bb-validator validate.ts / the skill-packages rule), other rulesets add stackSurcharge per skill beyond the first. */
+  function slotSkillSp(sl: Slot): number {
+    const base = raceRules()?.skillCosts ?? core.DEFAULT_SKILL_COSTS;
+    const costs = raceRules()?.packs.length ? { ...base, stackSurcharge: 0 } : base;
+    return core.playerSkillSp(sl.chosenSkills, (k) => accessOf(sl.positionId, k) === "secondary", costs);
+  }
   /** Skill points (the vanilla page's tournament box, now the validator box): used / budget (the server's count once a
    *  preview is in) and each player's SP for added skills. Null when the ruleset has no SP budget. */
   function skillPoints(): { used: number; budget: number; over: boolean; players: Array<{ index: number; name: string; sp: number }> } | null {
     const s = state.preview?.summary ?? null;
     const budget = packSummary()?.skillPointBudget || s?.skillPointBudget || raceRules()?.skillPointBudget || 0;
     if (!budget) return null;
-    const costs = raceRules()?.skillCosts ?? core.DEFAULT_SKILL_COSTS;
-    const players = state.slots.map((sl, index) => ({
-      index, name: shortName(positionById(sl.positionId)), sp: core.playerSkillSp(sl.chosenSkills, (k) => accessOf(sl.positionId, k) === "secondary", costs),
-    }));
+    const players = state.slots.map((sl, index) => ({ index, name: shortName(positionById(sl.positionId)), sp: slotSkillSp(sl) }));
+    // The client total is the sum of the per-player figures (one implementation); the server's count wins once in.
     const used = s?.skillPointsUsed ?? players.reduce((n, p) => n + p.sp, 0);
     return { used, budget, over: used > budget, players: players.filter((p) => p.sp > 0) };
   }

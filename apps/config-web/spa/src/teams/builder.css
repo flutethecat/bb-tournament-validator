@@ -280,8 +280,11 @@
   html.tb-printing .tb-print-host { display: block; position: absolute; inset: 0 auto auto 0; width: 100%; }
 }
 
-/* roster rows: identity + stats on one line, then skills beside the Add Skill / Add Stat buttons, once the column is wide */
-@container tbpanel (min-width: 600px) {
+/* roster rows: identity + stats on one line, then skills beside the Add Skill / Add Stat buttons, once the column is wide.
+   Threshold = the widest variant's measured minimum (captain control + grip + number + sprite + 110 px identity + five
+   stat cells + price + Fire, band fonts loaded: 646 px of panel content) plus a margin; narrower columns keep the stacked
+   row (stats on their own line). */
+@container tbpanel (min-width: 720px) {
   .tb-row { grid-template-columns: auto auto auto minmax(110px, 1fr) auto auto auto; grid-template-areas: "grip num sprite who stats cost fire" "skills skills skills skills actions actions actions"; }
   .tb-row:has(> .tb-captain, > .tb-captain-slot) { grid-template-columns: auto auto auto minmax(110px, 1fr) auto auto auto auto; grid-template-areas: "grip num sprite who capt stats cost fire" "skills skills skills skills skills actions actions actions"; }
   .tb-row > .tb-row-actions { justify-self: end; }
