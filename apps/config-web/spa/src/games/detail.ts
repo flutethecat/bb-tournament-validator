@@ -37,22 +37,32 @@ export interface GameSummary {
   concededLegally?: boolean;
   home: GameTeamSummary | null; away: GameTeamSummary | null;
 }
+export type ReporterMomentKind =
+  | "touchdown" | "casualty" | "sendOff"
+  | "injury" | "completion" | "interception" | "deflection" | "kickoff" | "weather" | "halfStart" | "concession";
 export interface ReporterMoment {
-  half: string | number | null; turn: number | null; side: "home" | "away"; kind: "touchdown" | "casualty" | "sendOff"; text: string;
+  /** side null: a moment of the whole game (kick-off, weather, half start; an online game's replay only). */
+  half: string | number | null; turn: number | null; side: "home" | "away" | null; kind: ReporterMomentKind; text: string;
   player?: string; victim?: string; victimSide?: "home" | "away"; result?: string;
   /** The actor's / victim's place in their team's squad. */
   playerIndex?: number; victimIndex?: number;
+  /** Replay moments: the apothecary outcome on a casualty, a touchdown awarded on a concession, the concession verdict. */
+  apothecary?: string; awarded?: true; legal?: boolean;
 }
 export interface GameReporter {
   matchId: string; href: string; state: string;
   summaries: { home: MatchSummaryView; away: MatchSummaryView } | null;
   moments: ReporterMoment[];
+  /** "replay": an online game's moments read from the fork's replay (no recorder behind it). */
+  source?: "replay";
 }
+/** An online game's turn-ordered log: read ("ready"), still to be read ("pending"), or not readable. */
+export type ReplayState = "pending" | "unavailable" | "ready";
 export interface GameCard {
   context: string; home: RecentSide; away: RecentSide; playedAt: string | null; href: null;
   concede: "home" | "away" | null; suspended: boolean;
 }
-export interface GameDetail { source: GameSource; id: string; card: GameCard; summary: GameSummary; reporter?: GameReporter }
+export interface GameDetail { source: GameSource; id: string; card: GameCard; summary: GameSummary; reporter?: GameReporter; replay?: ReplayState }
 
 export const gameApiPath = (source: GameSource, id: string): string => `/api/games/${source}/${encodeURIComponent(id)}`;
 

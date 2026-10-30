@@ -18,6 +18,7 @@ import { profileView, updateOwnProfile, type ProfileDeps } from "./accountProfil
 import { createTabletopGatherer, RECENT_RESULTS_MAX, recentLimit, recentResults, type RecentInputs, type RecentResult, type TeamInfo } from "./recentResults.js";
 import { parseGamePath } from "./gameDetail.js";
 import { createGameDetailLoader, maySeePlayerLines, publicPlayerLinesFromEnv, withoutPlayerLines, type GameFixture, type LoadedGame } from "./gameDetailLoader.js";
+import { createReplayService } from "./replay/service.js";
 import { ConnectionError, NAF_CONNECTION_ENDPOINT, nafProvider } from "./auth/connections.js";
 import {
   composeTeam,
@@ -1478,9 +1479,12 @@ function gameFixture(pred: (m: GameFixture["matches"][number]) => boolean, byId?
     entrants: Object.values(data.entrants).filter((e) => e.tournamentId === t.id && (e.id === match.home.entrantId || e.id === match.away?.entrantId)),
   };
 }
+// Turn-ordered online match logs (src/replay): the fork's replay of each finished game, read once in the background
+// into <FORK_STATE_DIR>/replay-moments/; the game page only reads that cache.
+const replayService = createReplayService({ dataDir: FORK_STATE_DIR, adminCfg: forkAdminCfg, results: tournamentResults });
 const gameLoader = createGameDetailLoader({
   revision: () => [
-    tournamentResults.revision(), fileStamp(join(TOURNAMENTS_DIR, "tournaments.json")),
+    tournamentResults.revision(), replayService.revision(), fileStamp(join(TOURNAMENTS_DIR, "tournaments.json")),
     fileStamp(join(FORK_STATE_DIR, "tournament-matches.json")), fileStamp(join(TABLETOP_DIR, "matches")),
     // a banked or revised league result (SPP, injuries, fans, concession verdicts) invalidates at once
     leagueStore.forkIndexVersion(),
@@ -1492,6 +1496,7 @@ const gameLoader = createGameDetailLoader({
   teamInfo: recentTeamInfo,
   concededLegally: (gameId) => leagueStore.forkGame(gameId)?.verdicts,
   leagueGame: (gameId) => leagueStore.forkGame(gameId)?.digest,
+  replay: (gameId) => replayService.forGame(gameId),
   tabletop: async () => (await tabletopDeps()).repo,
 });
 

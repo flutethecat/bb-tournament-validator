@@ -39,6 +39,8 @@ export interface GameStores {
   concededLegally?: (gameId: string) => Record<string, boolean> | undefined;
   /** The league fixture's public digest of this fork game (positions, banked SPP / injuries / winnings / fans), from the same cached index. */
   leagueGame?: (gameId: string) => LeagueGameDigest | undefined;
+  /** An online game's replay cache entry and the replay job's state for it (src/replay); absent = no reader. */
+  replay?: (gameId: string) => GameInputs["replay"];
   tabletop(): Promise<GameTabletopReader | undefined>;
 }
 
@@ -143,6 +145,7 @@ export function createGameDetailLoader(stores: GameStores, opts: GameLoaderOptio
       let digest: LeagueGameDigest | undefined;
       try { digest = stores.leagueGame?.(id); } catch { digest = undefined; }
       if (digest) inputs.leagueGame = digest;
+      try { inputs.replay = stores.replay?.(id); } catch { inputs.replay = undefined; }
     }
     if (fixture) inputs.tournaments = [fixture];
     const detail = gameDetail(source, id, inputs);
@@ -205,7 +208,10 @@ export function withoutPlayerLines(d: GameDetail): GameDetail {
     return { ...rest, scorers: [], casualtyMakers: [], players: [] };
   };
   const hadLines = d.summary.perPlayer;
-  const label = { touchdown: "Touchdown", casualty: "Casualty caused", sendOff: "Sent off" } as const;
+  const label: Record<string, string> = {
+    touchdown: "Touchdown", casualty: "Casualty caused", sendOff: "Sent off", injury: "Injury", completion: "Completion",
+    interception: "Interception", deflection: "Deflection", concession: "Concession",
+  };
   return {
     ...d,
     summary: {
@@ -221,9 +227,10 @@ export function withoutPlayerLines(d: GameDetail): GameDetail {
         summaries: d.reporter.summaries
           ? { home: { ...d.reporter.summaries.home, players: [], deaths: [] }, away: { ...d.reporter.summaries.away, players: [], deaths: [] } }
           : null,
-        // the team and the moment's time stay; who did it, to whom and the injury result go
-        moments: d.reporter.moments.map(({ player: _p, victim: _v, victimSide: _vs, result: _r, playerIndex: _pi, victimIndex: _vi, ...m }) =>
-          ({ ...m, text: `${label[m.kind]}: ${d.card[m.side].name}` })),
+        // the team and the moment's time stay; who did it, to whom and the injury result go (a game-wide moment, kick-off,
+        // weather or half start, names no player and keeps its text)
+        moments: d.reporter.moments.map(({ player: _p, victim: _v, victimSide: _vs, result: _r, playerIndex: _pi, victimIndex: _vi, apothecary: _a, ...m }) =>
+          (m.side === null || !label[m.kind] ? m : { ...m, text: `${label[m.kind]}: ${d.card[m.side].name}` })),
       },
     } : {}),
   };

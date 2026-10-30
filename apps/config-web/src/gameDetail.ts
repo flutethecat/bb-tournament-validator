@@ -19,6 +19,7 @@ import type { MatchRecord, MatchState } from "./tabletop/store.js";
 import { effectiveEvents, type Side, type TabletopEvent } from "./tabletop/events.js";
 import { tallyMatch, type PlayerLine, type PostMatchSummary } from "./tabletop/postMatch.js";
 import type { LeagueGameDigest, LeagueGameSide } from "./leagues/store.js";
+import type { ReplayEntry } from "./replay/store.js";
 
 export const PER_PLAYER_NOTE = "Per-player stats are recorded for games played through the site.";
 
@@ -107,8 +108,14 @@ export interface ReporterSummary {
   fansAfter: number;
 }
 
+/** Tabletop moments are touchdowns, casualties and send-offs; an online game's replay (src/replay) adds the rest. */
+export type ReporterMomentKind =
+  | "touchdown" | "casualty" | "sendOff"
+  | "injury" | "completion" | "interception" | "deflection" | "kickoff" | "weather" | "halfStart" | "concession";
+
 export interface ReporterMoment {
-  half: string | number | null; turn: number | null; side: Side; kind: "touchdown" | "casualty" | "sendOff"; text: string;
+  /** null side: a moment of the whole game (kick-off, weather, half start; replay moments only). */
+  half: string | number | null; turn: number | null; side: Side | null; kind: ReporterMomentKind; text: string;
   /** The acting player's name (scorer, casualty-maker, sent-off player), when the recorder names one. */
   player?: string;
   /** A casualty's victim: name and side, and the result as recorded ("SI", "stat loss MA"). */
@@ -118,6 +125,10 @@ export interface ReporterMoment {
   /** The actor's and the victim's place in their team's `squad` (same-named players stay apart). */
   playerIndex?: number;
   victimIndex?: number;
+  /** Replay moments: the apothecary outcome on a casualty, a touchdown awarded on a concession, the concession verdict. */
+  apothecary?: string;
+  awarded?: true;
+  legal?: boolean;
 }
 
 export interface GameReporter {
@@ -127,7 +138,12 @@ export interface GameReporter {
   state: MatchState;
   summaries: { home: ReporterSummary; away: ReporterSummary } | null;
   moments: ReporterMoment[];
+  /** "replay": an online game's moments read from the fork's replay (no recorder behind it; href is the game page). */
+  source?: "replay";
 }
+
+/** An online game's ordered log: read from the fork's replay ("ready"), still to be read ("pending"), or not readable. */
+export type ReplayState = "pending" | "unavailable" | "ready";
 
 export interface GameDetail {
   source: GameSource;
@@ -135,6 +151,8 @@ export interface GameDetail {
   card: GameCard;
   summary: GameSummary;
   reporter?: GameReporter;
+  /** Online games only: the state of the turn-ordered log. */
+  replay?: ReplayState;
 }
 
 export interface GameTournament {
@@ -157,6 +175,8 @@ export interface GameInputs {
   concededLegally?: Readonly<Record<string, boolean>>;
   /** The league fixture's digest of this fork game (positions; SPP, injuries, winnings and fans of a banked full result). */
   leagueGame?: LeagueGameDigest;
+  /** Online games: the replay cache's entry for this game (src/replay/store.ts) and the job's state for it. */
+  replay?: { state: ReplayState; entry?: ReplayEntry };
 }
 
 /** /api/games/<source>/<id> -> its parts, or undefined (the id is URL-decoded and kept to a safe alphabet). */
@@ -291,7 +311,7 @@ function reporterFor(match: MatchRecord, events: readonly TabletopEvent[]): Game
   };
 }
 
-const flip = (side: Side): Side => (side === "home" ? "away" : "home");
+const flip = <S extends Side | null>(side: S): S => (side === null ? side : side === "home" ? "away" : "home") as S;
 /** A recorder-ordered reporter read in the opposite home/away order (a fixture that lists the coaches swapped). */
 const swapReporter = (r: GameReporter): GameReporter => ({
   ...r,
@@ -331,6 +351,49 @@ function withFork(s: GameSummary, row: StoredTournamentResult, swap = false, lea
     teamSummary(forkLines(h, lg(h)), h?.casualtiesSuffered ?? null, forkExtras(h, lg(h))),
     teamSummary(forkLines(a, lg(a)), a?.casualtiesSuffered ?? null, forkExtras(a, lg(a))),
   );
+}
+
+/**
+ * An online game's replay moments as the game page's reporter: sides follow the result row (the replay's home team is
+ * the row's home team, else the sides are read swapped; a replay naming neither pairing is not used), names and squad
+ * indexes come from the result's own player list by player id, the replay's name only for a player the result does
+ * not list. Undefined when the cache holds no ready replay for this row.
+ */
+export function replayReporter(row: StoredTournamentResult, entry: ReplayEntry | undefined): GameReporter | undefined {
+  if (!entry || entry.status !== "ready") return undefined;
+  const ids = { home: row.home.teamId, away: row.away.teamId };
+  const swap = entry.teams.home.teamId === ids.away && entry.teams.away.teamId === ids.home;
+  if (!swap && (entry.teams.home.teamId !== ids.home || entry.teams.away.teamId !== ids.away)) return undefined;
+  const side = <S extends Side | null>(s: S): S => (swap ? flip(s) : s);
+  const teams = Array.isArray(row.teams) ? row.teams : [];
+  const squads: Record<Side, ReadonlyArray<{ playerId?: string; name: string }>> = {
+    home: teams.find((t) => t.teamId === ids.home)?.players ?? [],
+    away: teams.find((t) => t.teamId === ids.away)?.players ?? [],
+  };
+  const resolve = (s: Side | null | undefined, id: string | undefined, fallback: string | undefined): { name?: string; index?: number } => {
+    const index = s && id ? squads[s].findIndex((p) => p.playerId === id) : -1;
+    if (index >= 0) return { name: squads[s!][index]!.name || fallback, index };
+    return fallback ? { name: fallback } : {};
+  };
+  const moments: ReporterMoment[] = entry.moments.map((m) => {
+    const s = side(m.side);
+    const actor = resolve(s, m.playerId, m.player);
+    const vs = m.victimSide ? side(m.victimSide) : undefined;
+    const victim = resolve(vs, m.victimId, m.victim);
+    // the reader's text; a name the result spells differently replaces the replay's
+    let text = m.text;
+    if (actor.name && m.player && actor.name !== m.player) text = text.replace(m.player, actor.name);
+    if (victim.name && m.victim && victim.name !== m.victim) text = text.replace(m.victim, victim.name);
+    return {
+      half: m.half, turn: m.turn, side: s, kind: m.kind, text,
+      ...(actor.name ? { player: actor.name } : {}), ...(actor.index !== undefined ? { playerIndex: actor.index } : {}),
+      ...(vs ? { victimSide: vs } : {}), ...(victim.name ? { victim: victim.name } : {}), ...(victim.index !== undefined ? { victimIndex: victim.index } : {}),
+      ...(m.result && (m.kind === "casualty" || m.kind === "injury") ? { result: m.result } : {}),
+      ...(m.apothecary ? { apothecary: m.apothecary } : {}), ...(m.awarded ? { awarded: true as const } : {}),
+      ...(typeof m.legal === "boolean" ? { legal: m.legal } : {}),
+    };
+  });
+  return { matchId: row.gameId, href: `/app/games/online/${encodeURIComponent(row.gameId)}`, state: "published", summaries: null, moments, source: "replay" };
 }
 
 /** One played game, or undefined (unknown, not public, or not played). */
@@ -393,6 +456,8 @@ export function gameDetail(source: GameSource, id: string, inputs: GameInputs): 
   const conceder = summary.concede ? row[summary.concede]?.teamId : undefined;
   const verdict = conceder ? inputs.concededLegally?.[conceder] : undefined;
   if (typeof verdict === "boolean") summary.concededLegally = verdict;
-  return { source, id, card: gameCard, summary };
+  const reporter = replayReporter(row, inputs.replay?.entry);
+  const replay: ReplayState = reporter ? "ready" : inputs.replay?.state === "pending" ? "pending" : "unavailable";
+  return { source, id, card: gameCard, summary, ...(reporter ? { reporter } : {}), replay };
 }
 

@@ -3,9 +3,10 @@
 // read-only page drives the recorder's scoreboard, timeline, Match log, summaries and Rosters popout unchanged.
 //
 // SERVER-DERIVED: every row comes from something the server sent. A tabletop match's key moments carry their half and
-// turn (the log is in match order); an online (fork) game's result has no order at all, so its log is built from the
-// result's counters with no half or turn, under a heading that says so. Nothing is invented: no turn, no SPP total, no
-// casualty victim the result did not name.
+// turn (the log is in match order); so do an online (fork) game's moments once the site has read the game's replay from
+// the fork (src/replay, owner 10-30: "Commission the turn ordered online match logs"). Until then, or when the fork has
+// no replay, an online game's log is built from the result's counters with no half or turn, under a heading that says
+// so. Nothing is invented: no turn, no SPP total, no casualty victim the server did not name.
 
 import type { FinalBoard, MatchSummaryView, SummaryPlayerLine } from "../tabletop/finished";
 import { feedRows, type FeedRow } from "../tabletop/feed";
@@ -14,6 +15,10 @@ import type { GameDetail, GamePlayerLine, GameTeamSummary } from "./detail";
 
 export const ORDERED_LOG_TITLE = "Match log";
 export const RESULT_LOG_TITLE = "Match log (from the game result; order not recorded)";
+export const PENDING_LOG_TITLE = "Match log (from the game result; turn order loading…)";
+export const ONLINE_NOTE = "Played online on the Super FUMBBL client. The log lists what the game result recorded; it has no turn order.";
+export const ONLINE_PENDING_NOTE = "Played online on the Super FUMBBL client. The log lists what the game result recorded; its turn order is still being read from the game server.";
+export const ONLINE_REPLAY_NOTE = "Played online on the Super FUMBBL client. The log lists the game in turn order, read from the game server's replay.";
 export const NO_LOG_NOTE = "No match log for this fixture";
 
 export interface ReporterModel {
@@ -28,6 +33,8 @@ export interface ReporterModel {
   /** False when the game has no player events to log (a tournament fixture reported without player data); a concession still shows as a row. */
   hasLog: boolean;
   logTitle: string;
+  /** The line under the log saying where it came from (online games), or "". */
+  sourceNote: string;
   summaries: Array<{ side: Side; heading: string; summary: MatchSummaryView }>;
   final: FinalBoard;
   /** The final-result line of the log ("Final: Reavers 2-1 Grinders"). */
@@ -122,19 +129,38 @@ export function reporterModel(game: GameDetail): ReporterModel {
   /** In reading order (top first); the recorder's feed wants oldest first, so ordered logs keep it and the result log is flipped. */
   const events: RecordedEvent[] = [];
   const ordered = !!reporter;
+  // an online game's replay moments: no recorder behind them, so the result's own post-game rows still follow
+  const replayed = reporter?.source === "replay";
+  let replayConcede = false;
 
   if (reporter) {
-    // Tabletop: the recorder's key moments in match order, each with its half and turn.
+    // Tabletop, and an online game's replay: the key moments in match order, each with its half and turn.
+    const tail = (text: string): string => text.replace(/^[^:]*:\s*/, "");
     for (const m of reporter.moments) {
       const at = { ...(m.half !== null ? { half: m.half } : {}), ...(m.turn !== null ? { turn: m.turn } : {}) };
-      const player = squads[m.side].idOf(m.player, m.playerIndex);
+      if (m.side === null) {
+        // a moment of the whole game (centre rows): the reader's own text after its label
+        if (m.kind === "kickoff" || m.kind === "weather") events.push(ev(m.kind, "home", { ...at, payload: { result: tail(m.text) } }));
+        else if (m.kind === "halfStart") events.push(ev("halfStart", "home", { ...at, payload: { text: m.text } }));
+        continue;
+      }
+      const side = m.side;
+      const player = squads[side].idOf(m.player, m.playerIndex);
       const by = player ? { player } : {};
-      if (m.kind === "touchdown") events.push(ev("touchdown", m.side, { ...at, ...by }));
-      else if (m.kind === "sendOff") events.push(ev("sendOff", m.side, { ...at, ...by }));
-      else {
-        const vs = m.victimSide ?? other(m.side);
+      const outcome = m.apothecary ?? m.result;
+      const apo = m.apothecary ? { apothecaryUsed: true } : {};
+      if (m.kind === "touchdown" || m.kind === "sendOff" || m.kind === "completion" || m.kind === "interception" || m.kind === "deflection") {
+        events.push(ev(m.kind, side, { ...at, ...by }));
+      } else if (m.kind === "injury") {
+        events.push(ev("injury", side, { ...at, ...by, payload: { ...(outcome ? { result: outcome } : {}), ...apo } }));
+      } else if (m.kind === "concession") {
+        replayConcede = true;
+        const legal = summary.concededLegally ?? m.legal;
+        events.push(ev("concede", side, { ...at, payload: legal !== undefined ? { legal } : {} }));
+      } else if (m.kind === "casualty") {
+        const vs = m.victimSide ?? other(side);
         const victim = squads[vs].idOf(m.victim, m.victimIndex);
-        events.push(ev("casualty", m.side, { ...at, ...by, payload: { ...(victim ? { victim } : {}), victimTeam: vs, ...(m.result ? { result: m.result } : {}) } }));
+        events.push(ev("casualty", side, { ...at, ...by, payload: { ...(victim ? { victim } : {}), victimTeam: vs, ...(outcome ? { result: outcome } : {}), ...apo } }));
       }
     }
   } else if (summary.perPlayer) {
@@ -167,10 +193,10 @@ export function reporterModel(game: GameDetail): ReporterModel {
     for (const s of SIDES) for (const name of teamOf(s)?.mvps ?? []) events.push(ev("mvp", s, { player: squads[s].idOf(name)! }));
   }
   const playerEvents = events.length;
-  if (summary.concede) {
+  if (summary.concede && !replayConcede) {
     events.push(ev("concede", summary.concede, { payload: summary.concededLegally !== undefined ? { legal: summary.concededLegally } : {} }));
   }
-  if (!reporter) {
+  if (!reporter || replayed) {
     for (const s of SIDES) {
       const t = teamOf(s);
       if (t?.winnings) events.push(ev("winnings", s, { payload: { amount: t.winnings } }));
@@ -236,7 +262,10 @@ export function reporterModel(game: GameDetail): ReporterModel {
     rows: feedRows(input, input.map((e) => e.id), feedTeams, {}, match, null),
     ordered,
     hasLog: playerEvents > 0 || !!reporter || summary.perPlayer,
-    logTitle: ordered ? ORDERED_LOG_TITLE : RESULT_LOG_TITLE,
+    logTitle: ordered ? ORDERED_LOG_TITLE : game.source === "online" && game.replay === "pending" ? PENDING_LOG_TITLE : RESULT_LOG_TITLE,
+    sourceNote: replayed ? ONLINE_REPLAY_NOTE
+      : game.source === "online" ? (game.replay === "pending" ? ONLINE_PENDING_NOTE : ONLINE_NOTE)
+      : game.source === "tournament" && !reporter && summary.perPlayer ? ONLINE_NOTE : "",
     summaries,
     final,
     finalLine: `Final: ${card.home.name}${scoreText}${card.away.name}${final.concede ? ` · ${card[final.concede].name} conceded` : ""}`,

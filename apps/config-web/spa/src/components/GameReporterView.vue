@@ -36,11 +36,9 @@ const playedOn = computed(() => {
   return Number.isFinite(t) ? new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "";
 });
 const spaPath = (href: string) => routerPathOf(href) ?? href;
-const sourceNote = computed(() => {
-  const g = props.game;
-  if (g.source === "online" || (g.source === "tournament" && !g.reporter && g.summary.perPlayer)) return "Played online on the Super FUMBBL client. The log lists what the game result recorded; it has no turn order.";
-  return "";
-});
+const sourceNote = computed(() => model.value.sourceNote);
+// an online game's replay log has no recorder behind it
+const recorderHref = computed(() => (props.game.reporter && props.game.reporter.source !== "replay" ? props.game.reporter.href : ""));
 
 const rosters = ref(false);
 const rostersSide = ref<Side | undefined>(undefined);
@@ -83,9 +81,9 @@ function openRosters(side?: Side): void { rostersSide.value = side; rosters.valu
         <TabletopMatchSummary v-for="s in model.summaries" :key="s.side" :heading="s.heading" :summary="s.summary" />
         <p v-if="sourceNote" class="muted tt-final-note">{{ sourceNote }}</p>
         <p v-if="game.summary.note" class="muted tt-final-note">{{ game.summary.note }}</p>
-        <p v-if="game.summary.tournament || game.reporter" class="tt-final-actions">
+        <p v-if="game.summary.tournament || recorderHref" class="tt-final-actions">
           <RouterLink v-if="game.summary.tournament" class="lobby-btn" :to="spaPath(game.summary.tournament.href)">Tournament rounds</RouterLink>
-          <RouterLink v-if="game.reporter" class="lobby-btn" :to="spaPath(game.reporter.href)">Open in the recorder</RouterLink>
+          <RouterLink v-if="recorderHref" class="lobby-btn" :to="spaPath(recorderHref)">Open in the recorder</RouterLink>
         </p>
         <p v-if="!model.hasLog" class="muted tt-final-note">{{ NO_LOG_NOTE }}</p>
         <TabletopFeed v-if="model.rows.length" :rows="model.rows" :can-undo="false" />

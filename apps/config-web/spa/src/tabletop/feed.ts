@@ -103,13 +103,15 @@ const LABELS: Record<string, string> = {
   interception: "Interception", deflection: "Deflection", foul: "Foul", sentOff: "Sent-off", sendOff: "Sent-off", stalling: "Stalling",
   secretObjective: "Secret Objectives", mvp: "MVP", weather: "Weather", concede: "Concede match", endOfMatch: "End of match",
   fans: "Fans", fanChange: "Fan change", winnings: "Winnings", casualtiesSuffered: "Casualties suffered", journeymen: "Journeymen", journeyman: "Journeyman", inducement: "Inducement", prayer: "Prayer to Nuffle", coinFlip: "Coin flip", seats: "Home and away", pregameSkip: "Pre-game skipped", turnEnd: "End of turn", turnSet: "Clock set", timers: "Turn timers", turnTimers: "Turn timers", timerAgree: "Turn timers",
+  // an online game's replay (game page only)
+  kickoff: "Kick-off", halfStart: "Start of half",
 };
 export const eventLabel = (type: string): string => LABELS[type] ?? type;
 
 /** Rows with no undo button (pre-game results and turn ends the server wrote). */
 export const PREGAME_TYPES: ReadonlySet<string> = new Set(["seats", "fans", "weather", "journeymen", "journeyman", "inducement", "prayer", "coinFlip", "pregameSkip", "timers", "turnTimers", "timerAgree", "turnEnd", "turnSet"]);
 /** Rows drawn across the whole feed rather than on a team side. */
-const CENTRE_TYPES: ReadonlySet<string> = new Set(["weather", "endOfMatch", "coinFlip", "seats", "pregameSkip", "fans", "fanChange", "journeymen", "journeyman", "prayer", "winnings", "turnEnd", "turnSet", "timers", "turnTimers"]);
+const CENTRE_TYPES: ReadonlySet<string> = new Set(["weather", "kickoff", "halfStart", "endOfMatch", "coinFlip", "seats", "pregameSkip", "fans", "fanChange", "journeymen", "journeyman", "prayer", "winnings", "turnEnd", "turnSet", "timers", "turnTimers"]);
 
 const word = (v: unknown): string => {
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
@@ -276,6 +278,7 @@ export function eventSentence(e: RecordedEvent, who: string, teamName: string, s
     case "casualtiesSuffered": return { lead: teamName, rest: ` suffered ${sufferedText(pl)}.` };
     case "weather": return { lead: "Weather", rest: sub ? `: ${sub}` : "." };
     case "endOfMatch": return { lead: "End of match", rest: "." };
+    case "halfStart": return { lead: word(pl.text) || "Start of half", rest: "." };
     case "inducement": return { lead: teamName, rest: ` buys ${sub}.` };
     case "fans": return { lead: teamName, rest: ` fans: ${sub}.` };
     case "prayer": return { lead: teamName, rest: ` prays to Nuffle: ${sub}.` };
