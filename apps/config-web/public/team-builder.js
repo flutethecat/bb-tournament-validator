@@ -954,6 +954,162 @@ ${rosterSheetHtml(model)}
       return `${gold(pack.gold)} · ${packSkillText(pack)}${pack.starPlayersAllowed === false ? " · no stars" : ""}`;
     }
 
+    // ── Builder gates (owner 10-30): ONE implementation shared by this page and the SPA Tournament Builder
+    //    (/app/tournament-team-builder imports this file). UX hints only: the server preview stays authoritative. ──
+    // A gate context `ctx`: { mode, slots, positionById(id), tierRules (normalizeTierRules), raceRules (the
+    // package's race block), packSummary (the chosen skill pack), legal(positionId) -> { primary, secondary } | null,
+    // isElite(skill), accessOf(positionId, skill) -> "primary" | "secondary" | "custom", statRules, allowedStats,
+    // captainRules }.
+    const MAX_PLAYERS = 16;
+    /** Client-side skill gold (estimates only; the preview summary replaces them). */
+    const SKILL_GOLD = { primary: 20_000, secondary: 40_000, elite: 10_000 };
+    const DEFAULT_ELITE_SKILLS = ["Block", "Dodge", "Guard", "Mighty Blow"];
+    /** The package's own Elite set wins (same as the server's isElite(skill, pkg.skillAllotment)); the dataset flag
+     *  (`meta.elite`) / the default set only apply when the package doesn't define one. */
+    function isEliteSkill(skill, packageElite, meta) {
+      if (Array.isArray(packageElite) && packageElite.length) return packageElite.includes(skill);
+      if (meta) return meta.elite === true;
+      return DEFAULT_ELITE_SKILLS.includes(skill);
+    }
+    const bareSkillName = (skill) => String(skill).replace(/\s*\(.*\)\s*$/, "").replace(/\*+$/, "");
+    const editsSkills = (ctx) => ctx.mode === "custom" || ctx.mode === "tournament";
+    const exclusiveStatAndSkill = (ctx) => ctx.statRules?.exclusiveWithSkills !== false;
+    const maxStatsPerPlayer = (ctx) => Number(ctx.statRules?.maxPerPlayer ?? 1) || 1;
+    /** Whether the player may still take another added skill (per-player, pack and tier stack caps). */
+    function moreSkillsAllowed(ctx, slot) {
+      if (ctx.mode === "custom") return true;
+      const caps = [];
+      const perPlayer = ctx.raceRules?.maxPerPlayer;
+      if (typeof perPlayer === "number") caps.push(perPlayer);
+      const packPerPlayer = ctx.packSummary?.maxPerPlayer;
+      if (typeof packPerPlayer === "number") caps.push(packPerPlayer);
+      const rules = ctx.tierRules;
+      if (rules) {
+        if (rules.maxStackedPlayers === 0) caps.push(1);
+        else {
+          if (typeof rules.stackedPlayer?.maxSkills === "number") caps.push(rules.stackedPlayer.maxSkills);
+          const othersStacked = (ctx.slots ?? []).filter((other) => other !== slot && other.chosenSkills.length > 1).length;
+          if (typeof rules.maxStackedPlayers === "number" && slot.chosenSkills.length <= 1 && othersStacked >= rules.maxStackedPlayers) caps.push(1);
+        }
+      }
+      return !caps.length || slot.chosenSkills.length < Math.min(...caps);
+    }
+    /** Tier stack-type caps (Small Gods: T1-T4 no elite on a stacked player, T1-T2 no secondary). Mirrors the
+     *  server's `stacked-player` rule: once a player would hold 2+ added skills, ALL of them count. */
+    function stackedTypeBlock(ctx, slot, skill) {
+      if (ctx.mode === "custom") return "";
+      const caps = ctx.tierRules?.stackedPlayer;
+      if (!caps) return "";
+      const after = [...slot.chosenSkills, skill];
+      if (after.length < 2) return "";
+      const elite = after.filter((s) => ctx.isElite(s)).length;
+      if (typeof caps.maxElite === "number" && elite > caps.maxElite)
+        return caps.maxElite === 0 ? "Elite skills can't be stacked in this tier (a player with 2+ skills may have no elite skill)." : `Max ${caps.maxElite} elite skills on a stacked player in this tier.`;
+      const secondary = after.filter((s) => ctx.accessOf(slot.positionId, s) === "secondary").length;
+      if (typeof caps.maxSecondary === "number" && secondary > caps.maxSecondary)
+        return caps.maxSecondary === 0 ? "A stacked player may take primary skills only in this tier." : `Max ${caps.maxSecondary} secondary skills on a stacked player in this tier.`;
+      return "";
+    }
+    /** Why this player can't take `skill` now ("" = allowed). Callers re-check right before mutating. */
+    function skillPickBlock(ctx, slot, skill) {
+      const position = slot ? ctx.positionById(slot.positionId) : null;
+      if (!slot || !position || position.isStar || !editsSkills(ctx)) return "This player can't take added skills.";
+      if (slot.chosenSkills.includes(skill)) return "Already added.";
+      const captainOn = slot.captain === true && canCaptain(position, ctx.captainRules);
+      if (skill === TEAM_CAPTAIN || (skill === CAPTAIN_FREE_SKILL && captainOn)) return "Already gains Pro as Team Captain.";
+      if ((position.skills ?? []).some((printed) => bareSkillName(printed) === skill)) return "Already printed.";
+      if (ctx.statRules && exclusiveStatAndSkill(ctx) && (slot.chosenStatIncreases ?? []).some((stat) => (ctx.allowedStats ?? []).includes(stat))) return "A player with a stat increase can't also have an added skill.";
+      if (ctx.mode !== "custom") {
+        const set = ctx.legal(slot.positionId);
+        if (!set || ![...set.primary, ...set.secondary].some((entry) => entry.skill === skill)) return "Not a legal skill for this position.";
+      }
+      if (!moreSkillsAllowed(ctx, slot)) return "This player can't take another skill.";
+      return stackedTypeBlock(ctx, slot, skill);
+    }
+    /** Why this player can't take a +`stat` increase now ("" = allowed). */
+    function statOptionState(ctx, slot, position, stat) {
+      if (!slot || !position || position.isStar || !ctx.statRules) return "This player can't take a stat increase.";
+      const allowed = ctx.allowedStats ?? [];
+      if (!allowed.includes(stat)) return `${stat} increases aren't allowed in this tier.`;
+      const chosen = slot.chosenStatIncreases ?? [];
+      const noValue = (stat === "PA" || stat === "AG") && !/\d/.test(String(position?.[stat] ?? ""));
+      if (noValue) return `This position has no ${stat} to improve.`;
+      if (chosen.includes(stat)) return "Already taken.";
+      if (chosen.filter((s) => allowed.includes(s)).length >= maxStatsPerPlayer(ctx)) return `Max ${maxStatsPerPlayer(ctx)} per player.`;
+      if (exclusiveStatAndSkill(ctx) && slot.chosenSkills.length) return "A player with an added skill can't also take a stat increase.";
+      return "";
+    }
+    /** Characteristics the tier lets a player raise (empty when the ruleset offers none). */
+    function allowedStatList(statRules) {
+      if (!statRules) return [];
+      return Array.isArray(statRules.stats) && statRules.stats.length ? statRules.stats : STATS;
+    }
+    /** Client gold estimate of one slot's added skills (stars never carry added skills). */
+    function slotSkillGold(ctx, slot) {
+      if (ctx.positionById(slot.positionId)?.isStar) return 0;
+      return slot.chosenSkills.reduce((sum, skill) => sum
+        + (ctx.accessOf(slot.positionId, skill) === "secondary" ? SKILL_GOLD.secondary : SKILL_GOLD.primary)
+        + (ctx.isElite(skill) ? SKILL_GOLD.elite : 0), 0);
+    }
+
+    // ── Inducement terms. `team`: { raceName, specialRules, specialRule } (the roster's always-on rules plus the
+    //    chosen league / special rule). Bribery and Corruption (and any other unlocking rule) decide whether the
+    //    reduced price + max apply. Mirrors the server's inducementWireGold / inducements rule. ──
+    const ruleKey = (rule) => String(rule ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const teamIsRoster = (team, name) => Boolean(name && team && ruleKey(team.raceName) === ruleKey(name));
+    function inducementTerms(item, team) {
+      const teamHasRule = (rule) => Boolean(rule && team)
+        && [...(Array.isArray(team.specialRules) ? team.specialRules : []), team.specialRule].some((r) => ruleKey(r) === ruleKey(rule));
+      if (item?.reducedRoster && item.reducedPrice != null && teamIsRoster(team, item.reducedRoster))
+        return { price: item.reducedPrice, max: item.reducedMax ?? item.max, reduced: true };
+      if (item?.reducedSpecialRule && item.reducedPrice != null && teamHasRule(item.reducedSpecialRule))
+        return { price: item.reducedPrice, max: item.reducedMax ?? item.max, reduced: true };
+      return { price: item?.price ?? 0, max: item?.max ?? null, reduced: false };
+    }
+    /** Package `inducements.rosterOnly` (e.g. Halfling Master Chef: Halfling only). */
+    function inducementOpenToRoster(item, team) {
+      return !item?.rosterOnly?.length || item.rosterOnly.some((name) => teamIsRoster(team, name));
+    }
+
+    // ── Star players offered under a ruleset. `ctx`: { mode, positions, leagueOptions, activeLeague, raceRules,
+    //    tierRules, slots, positionGroups } ──
+    function starCap(raceRules, tierRules) {
+      const caps = [raceRules?.stars?.maxCount, tierRules?.maxStars].filter((n) => typeof n === "number");
+      return caps.length ? Math.min(...caps) : null;
+    }
+    function offeredStarChoices(ctx) {
+      if (ctx.mode === "create") return [];
+      const eligible = (position) => starEligibleForLeague(position.playsFor, ctx.leagueOptions ?? [], ctx.activeLeague ?? "");
+      const base = buildStarChoices(ctx.positions ?? []).filter((choice) => choice.members.every(eligible));
+      if (ctx.mode === "custom") return base.sort((a, b) => a.label.localeCompare(b.label));
+      const race = ctx.raceRules;
+      if (race && race.stars && !race.stars.allowed) return [];
+      const banned = new Set((race?.bannedStars ?? []).map(norm));
+      const priced = race?.stars?.spCosts?.length ? new Set(race.stars.spCosts.map((star) => norm(star.name))) : null;
+      const packs = ctx.tierRules?.starPacks ?? [];
+      return base
+        .filter((choice) => choice.members.every((member) => !banned.has(norm(member.name))))
+        .filter((choice) => !priced || choice.members.some((member) => priced.has(norm(member.name))))
+        .filter((choice) => !packs.length || choice.members.some((member) => starPacksFor(member.name, packs).length))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    }
+    function canAddStarChoice(ctx, choice) {
+      const slots = ctx.slots ?? [];
+      const count = (id) => slots.filter((slot) => slot.positionId === id).length;
+      if (choice.members.every((m) => count(m.positionId) > 0)) return false;
+      if (choice.members.some((m) => !m.isStar || !starEligibleForLeague(m.playsFor, ctx.leagueOptions ?? [], ctx.activeLeague ?? ""))) return false;
+      const missing = choice.members.filter((m) => count(m.positionId) === 0);
+      if (slots.length + missing.length > MAX_PLAYERS) return false;
+      const counts = new Map();
+      for (const slot of slots) counts.set(slot.positionId, (counts.get(slot.positionId) ?? 0) + 1);
+      for (const member of missing) {
+        if ((counts.get(member.positionId) ?? 0) >= (member.max ?? 1)) return false;
+        if (ctx.mode !== "custom" && positionGroupCapped(member.positionId, ctx.positionGroups, counts)) return false;
+        counts.set(member.positionId, (counts.get(member.positionId) ?? 0) + 1);
+      }
+      return true;
+    }
+
     return {
       esc, gold, norm, num, STATS, packSkillText, packTermsText, deriveStatChanges, skillIconKey, rosterRaceKey, resolveSprite, resolveCrest, roleKeywords, cardRoleTag, ROLE_KEYWORDS, shortPositionName,
       normalizeLeagueOptions, leagueFieldPresentation, reconcileLeagueSelection, explicitLeagueSpecialRule, starEligibleForLeague,
@@ -963,6 +1119,8 @@ ${rosterSheetHtml(model)}
       normalizeOverview, overviewSummaryHtml, overviewTableHtml, raceTableOverview, teamPickHtml,
       stackLabel, stackLimitLines, statIncreaseLabel, DEFAULT_SKILL_COSTS, playerSkillSp,
       rosterSheetModel, rosterSheetHtml, standaloneSheetDocument, sheetFileName, SHEET_CSS,
+      MAX_PLAYERS, SKILL_GOLD, isEliteSkill, moreSkillsAllowed, stackedTypeBlock, skillPickBlock, statOptionState, allowedStatList, slotSkillGold,
+      inducementTerms, inducementOpenToRoster, starCap, offeredStarChoices, canAddStarChoice,
     };
   })();
   root.TeamBuilderCore = Core;
@@ -974,7 +1132,7 @@ ${rosterSheetHtml(model)}
   // ════════════════════════════════════════════════════════════════════════════
   const { esc, gold, norm } = Core;
   const $ = (id) => document.getElementById(id);
-  const MAX_PLAYERS = 16;
+  const MAX_PLAYERS = Core.MAX_PLAYERS;
 
   // Skill colouring fallback until the /api/skills catalog lands (traits are absent from the catalog).
   const SKILL_GROUPS = {
@@ -993,10 +1151,9 @@ ${rosterSheetHtml(model)}
     { key: "dedicatedFans", label: "Dedicated Fans", min: 1, max: () => 7, cost: () => 10_000, free: 1 },
     { key: "apothecary", label: "Apothecary", min: 0, max: () => 1, cost: () => 50_000, free: 0 },
   ];
-  const PRIMARY_GOLD = 20_000;
-  const SECONDARY_GOLD = 40_000;
-  const ELITE_GOLD = 10_000;
-  const DEFAULT_ELITE = new Set(["Block", "Dodge", "Guard", "Mighty Blow"]);
+  const PRIMARY_GOLD = Core.SKILL_GOLD.primary;
+  const SECONDARY_GOLD = Core.SKILL_GOLD.secondary;
+  const ELITE_GOLD = Core.SKILL_GOLD.elite;
 
   const PREVIEW_COACH = "Guest"; // preview-only stand-in while signed out
   const freshStaff = () => ({ reRolls: 0, assistantCoaches: 0, cheerleaders: 0, dedicatedFans: 1, apothecary: 0 });
@@ -1134,15 +1291,8 @@ ${rosterSheetHtml(model)}
     const group = FALLBACK_CATEGORY.get(base);
     return group ? `skill skill-${group}` : "skill skill-trait";
   }
-  // The package's own Elite set wins (same as the server's isElite(skill, pkg.skillAllotment));
-  // the dataset flag / default set only apply when the package doesn't define one.
-  const isElite = (skill) => {
-    const own = raceRules()?.skillCosts?.eliteSkills;
-    if (Array.isArray(own) && own.length) return own.includes(skill);
-    const meta = skillMeta(skill);
-    if (meta) return meta.elite === true;
-    return DEFAULT_ELITE.has(skill);
-  };
+  // The package's own Elite set wins (Core.isEliteSkill, shared with the SPA Tournament Builder).
+  const isElite = (skill) => Core.isEliteSkill(skill, raceRules()?.skillCosts?.eliteSkills, skillMeta(skill));
   const legalKey = (positionId) => `${current?.rosterId}:${positionId}`;
   function skillAccess(positionId, skill) {
     const set = legalSkillsCache.get(legalKey(positionId));
@@ -1151,10 +1301,15 @@ ${rosterSheetHtml(model)}
     return mode === "custom" ? "custom" : "primary";
   }
   function slotSkillGold(slot) {
-    if (positionById(slot.positionId)?.isStar) return 0; // stars never carry added skills
-    return slot.chosenSkills.reduce((sum, skill) => sum
-      + (skillAccess(slot.positionId, skill) === "secondary" ? SECONDARY_GOLD : PRIMARY_GOLD)
-      + (isElite(skill) ? ELITE_GOLD : 0), 0);
+    return Core.slotSkillGold(gateCtx(), slot); // stars never carry added skills
+  }
+  /** The shared Core gates' context (Core.skillPickBlock & co., one implementation with the SPA). */
+  function gateCtx() {
+    return {
+      mode, slots, positionById, tierRules: tierRules(), raceRules: raceRules(), packSummary: selectedPackSummary(),
+      legal: (positionId) => legalSkillsCache.get(legalKey(positionId)) ?? null, isElite, accessOf: skillAccess,
+      statRules: statRules(), allowedStats: allowedStatList(), captainRules: captainRules(),
+    };
   }
   function slotStatGold(slot) {
     if (positionById(slot.positionId)?.isStar) return 0;
@@ -1195,26 +1350,19 @@ ${rosterSheetHtml(model)}
   function starEligible(position) {
     return Core.starEligibleForLeague(position.playsFor, leagueOptions(), activeLeague());
   }
+  /** Core.offeredStarChoices / canAddStarChoice context. */
+  const starCtx = () => ({
+    mode, positions: current?.positions ?? [], leagueOptions: leagueOptions(), activeLeague: activeLeague(), raceRules: raceRules(),
+    tierRules: tierRules(), slots, positionGroups: current?.positionGroups,
+  });
   function displayedStarChoices() {
     if (mode === "create" || !current) return [];
-    const base = allStarChoices().filter((choice) => choice.members.every(starEligible));
-    if (mode === "custom") return base.sort((a, b) => a.label.localeCompare(b.label));
-    const race = raceRules();
-    if (race && race.stars && !race.stars.allowed) return [];
-    const banned = new Set((race?.bannedStars ?? []).map(norm));
-    const priced = race?.stars?.spCosts?.length ? new Set(race.stars.spCosts.map((star) => norm(star.name))) : null;
-    const packs = tierRules()?.starPacks ?? [];
-    return base
-      .filter((choice) => choice.members.every((member) => !banned.has(norm(member.name))))
-      .filter((choice) => !priced || choice.members.some((member) => priced.has(norm(member.name))))
-      .filter((choice) => !packs.length || choice.members.some((member) => Core.starPacksFor(member.name, packs).length))
-      .sort((a, b) => a.label.localeCompare(b.label));
+    return Core.offeredStarChoices(starCtx());
   }
   const starSectionVisible = () => mode === "custom" || (mode === "tournament" && (raceRules()?.stars?.allowed ?? true) && Boolean(current));
   function starCap() {
     if (mode !== "tournament") return null;
-    const caps = [raceRules()?.stars?.maxCount, tierRules()?.maxStars].filter((n) => typeof n === "number");
-    return caps.length ? Math.min(...caps) : null;
+    return Core.starCap(raceRules(), tierRules());
   }
   function starSp(choice) {
     const costs = raceRules()?.stars?.spCosts;
@@ -1730,42 +1878,19 @@ ${rosterSheetHtml(model)}
       : "") + (banned.length ? `<div class="ruleset-line">Banned: ${esc(banned.join(", "))}</div>` : "");
   }
   function canAddStarChoice(choice) {
-    if (choice.members.every((m) => positionCount(m.positionId) > 0)) return false;
-    if (choice.members.some((m) => !m.isStar || !starEligible(m))) return false;
-    const missing = choice.members.filter((m) => positionCount(m.positionId) === 0);
-    if (slots.length + missing.length > MAX_PLAYERS) return false;
-    const counts = positionCounts();
-    for (const member of missing) {
-      if ((counts.get(member.positionId) ?? 0) >= (member.max ?? 1)) return false;
-      if (mode !== "custom" && Core.positionGroupCapped(member.positionId, current?.positionGroups, counts)) return false;
-      counts.set(member.positionId, (counts.get(member.positionId) ?? 0) + 1);
-    }
-    return true;
+    return Core.canAddStarChoice(starCtx(), choice);
   }
 
   // Bribery and Corruption (and any other unlocking rule): the roster's always-on rules plus the
-  // chosen league/special rule decide whether the reduced price + max apply. Mirrors the server's
-  // inducementWireGold / inducements rule, so the shown price == what preview charges.
-  const ruleKey = (rule) => String(rule ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  function teamHasRule(rule) {
-    if (!rule || !current) return false;
-    const want = ruleKey(rule);
-    const rules = [...(Array.isArray(current.specialRules) ? current.specialRules : []), selectedSpecialRule()];
-    return rules.some((r) => ruleKey(r) === want);
-  }
-  function teamIsRoster(name) {
-    return Boolean(name && current && ruleKey(current.raceName) === ruleKey(name));
-  }
+  // chosen league/special rule decide whether the reduced price + max apply (Core.inducementTerms, shared with the
+  // SPA; mirrors the server's inducementWireGold / inducements rule, so the shown price == what preview charges).
+  const inducementTeam = () => (current ? { raceName: current.raceName, specialRules: current.specialRules, specialRule: selectedSpecialRule() } : null);
   function inducementTerms(item) {
-    if (item?.reducedRoster && item.reducedPrice != null && teamIsRoster(item.reducedRoster))
-      return { price: item.reducedPrice, max: item.reducedMax ?? item.max, reduced: true };
-    if (item?.reducedSpecialRule && item.reducedPrice != null && teamHasRule(item.reducedSpecialRule))
-      return { price: item.reducedPrice, max: item.reducedMax ?? item.max, reduced: true };
-    return { price: item?.price ?? 0, max: item?.max ?? null, reduced: false };
+    return Core.inducementTerms(item, inducementTeam());
   }
   /** Package `inducements.rosterOnly` (e.g. Halfling Master Chef: Halfling only) — mirrors the server rule. */
   function inducementOpenToRoster(item) {
-    return !item?.rosterOnly?.length || item.rosterOnly.some((name) => teamIsRoster(name));
+    return Core.inducementOpenToRoster(item, inducementTeam());
   }
   function clampInducementCounts() {
     for (const item of inducementCatalog) {
@@ -2156,9 +2281,7 @@ ${rosterSheetHtml(model)}
   // ════════════════ preview / build ════════════════
   /** Characteristics the current tier lets a player raise (empty when the ruleset offers none). */
   function allowedStatList() {
-    const rules = statRules();
-    if (!rules) return [];
-    return Array.isArray(rules.stats) && rules.stats.length ? rules.stats : Core.STATS;
+    return Core.allowedStatList(statRules());
   }
   /** `forSave`: a tournament draft keeps its stat increases while the tier rules are still unknown
    *  (not yet loaded / failed), so a save never silently drops them. Preview/build only ever send
@@ -2511,57 +2634,13 @@ ${rosterSheetHtml(model)}
       row.focus();
     }
   }
-  /** Why the open picker's player can't take `skill` now ("" = allowed). Re-checked right before mutating. */
+  /** Why the open picker's player can't take `skill` now ("" = allowed); re-checked right before mutating. */
   function skillPickBlock(slot, skill) {
-    const position = slot ? positionById(slot.positionId) : null;
-    if (!slot || !position || position.isStar || !canEditSkills()) return "This player can't take added skills.";
-    if (slot.chosenSkills.includes(skill)) return "Already added.";
-    if (skill === Core.TEAM_CAPTAIN || (skill === "Pro" && slot.captain === true && slotCanCaptain(slot))) return "Already gains Pro as Team Captain.";
-    if ((position.skills ?? []).some((printed) => String(printed).replace(/\s*\(.*\)\s*$/, "").replace(/\*+$/, "") === skill)) return "Already printed.";
-    if (statRules() && exclusiveStatAndSkill() && (slot.chosenStatIncreases ?? []).some((stat) => allowedStatList().includes(stat))) return "A player with a stat increase can't also have an added skill.";
-    if (mode !== "custom") {
-      const set = legalSkillsCache.get(legalKey(slot.positionId));
-      if (!set || ![...set.primary, ...set.secondary].some((entry) => entry.skill === skill)) return "Not a legal skill for this position.";
-    }
-    if (!moreSkillsAllowed(slot)) return "This player can't take another skill.";
-    const stackBlock = stackedTypeBlock(slot, skill);
-    if (stackBlock) return stackBlock;
-    return "";
-  }
-  /** Tier stack-type caps (Small Gods: T1-T4 no elite on a stacked player, T1-T2 no secondary). Mirrors the
-   *  server's `stacked-player` rule: once a player would hold 2+ added skills, ALL of them count. */
-  function stackedTypeBlock(slot, skill) {
-    if (mode === "custom") return "";
-    const caps = tierRules()?.stackedPlayer;
-    if (!caps) return "";
-    const after = [...slot.chosenSkills, skill];
-    if (after.length < 2) return "";
-    const elite = after.filter((s) => isElite(s)).length;
-    if (typeof caps.maxElite === "number" && elite > caps.maxElite)
-      return caps.maxElite === 0 ? "Elite skills can't be stacked in this tier (a player with 2+ skills may have no elite skill)." : `Max ${caps.maxElite} elite skills on a stacked player in this tier.`;
-    const secondary = after.filter((s) => skillAccess(slot.positionId, s) === "secondary").length;
-    if (typeof caps.maxSecondary === "number" && secondary > caps.maxSecondary)
-      return caps.maxSecondary === 0 ? "A stacked player may take primary skills only in this tier." : `Max ${caps.maxSecondary} secondary skills on a stacked player in this tier.`;
-    return "";
+    return Core.skillPickBlock(gateCtx(), slot, skill);
   }
   /** Whether the player in the open picker may still take another added skill (keeps the modal open). */
   function moreSkillsAllowed(slot) {
-    if (mode === "custom") return true;
-    const caps = [];
-    const perPlayer = raceRules()?.maxPerPlayer;
-    if (typeof perPlayer === "number") caps.push(perPlayer);
-    const packPerPlayer = selectedPackSummary()?.maxPerPlayer;
-    if (typeof packPerPlayer === "number") caps.push(packPerPlayer);
-    const rules = tierRules();
-    if (rules) {
-      if (rules.maxStackedPlayers === 0) caps.push(1);
-      else {
-        if (typeof rules.stackedPlayer?.maxSkills === "number") caps.push(rules.stackedPlayer.maxSkills);
-        const othersStacked = slots.filter((other) => other !== slot && other.chosenSkills.length > 1).length;
-        if (typeof rules.maxStackedPlayers === "number" && slot.chosenSkills.length <= 1 && othersStacked >= rules.maxStackedPlayers) caps.push(1);
-      }
-    }
-    return !caps.length || slot.chosenSkills.length < Math.min(...caps);
+    return Core.moreSkillsAllowed(gateCtx(), slot);
   }
   async function openSkillPicker(index) {
     const slot = slots[index];
@@ -2591,15 +2670,7 @@ ${rosterSheetHtml(model)}
   // ── Add stat modal ──
   let statPickerIndex = null;
   function statOptionState(slot, position, stat) {
-    if (!slot || !position || position.isStar || !statRules()) return "This player can't take a stat increase.";
-    if (!allowedStatList().includes(stat)) return `${stat} increases aren't allowed in this tier.`;
-    const chosen = slot.chosenStatIncreases ?? [];
-    const noValue = (stat === "PA" || stat === "AG") && !/\d/.test(String(position?.[stat] ?? ""));
-    if (noValue) return `This position has no ${stat} to improve.`;
-    if (chosen.includes(stat)) return "Already taken.";
-    if (chosen.filter((s) => allowedStatList().includes(s)).length >= maxStatsPerPlayer()) return `Max ${maxStatsPerPlayer()} per player.`;
-    if (exclusiveStatAndSkill() && slot.chosenSkills.length) return "A player with an added skill can't also take a stat increase.";
-    return "";
+    return Core.statOptionState(gateCtx(), slot, position, stat);
   }
   function renderStatPicker() {
     const dialog = $("stat-picker");

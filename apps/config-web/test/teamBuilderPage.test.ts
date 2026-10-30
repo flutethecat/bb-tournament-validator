@@ -664,11 +664,16 @@ describe("team builder page — review round 3", () => {
     expect(add.indexOf("skillPickBlock(slot, skill)")).toBeLessThan(add.indexOf("chosenSkills.push"));
     const set = js.slice(js.indexOf("function setStatIncrease(index, stat) {"), js.indexOf("function setStatIncrease(index, stat) {") + 800);
     expect(set.indexOf("statOptionState(slot, positionById(slot.positionId), stat)")).toBeLessThan(set.indexOf("slot.chosenStatIncreases = ["));
-    expect(js).toContain("selectedPackSummary()?.maxPerPlayer");
-    const block = js.slice(js.indexOf("function skillPickBlock("), js.indexOf("function skillPickBlock(") + 1400);
-    for (const reason of ["position.isStar", "exclusiveStatAndSkill()", "Not a legal skill", "moreSkillsAllowed(slot)"]) expect(block).toContain(reason);
-    const state = js.slice(js.indexOf("function statOptionState("), js.indexOf("function statOptionState(") + 900);
-    for (const reason of ["position.isStar", "allowedStatList().includes(stat)", "to improve", "maxStatsPerPlayer()", "exclusiveStatAndSkill()"]) expect(state).toContain(reason);
+    expect(js).toContain("ctx.packSummary?.maxPerPlayer");
+    expect(js).toContain("packSummary: selectedPackSummary()");
+    // The gates live in the pure core (owner 10-30: one implementation with the SPA Tournament Builder); the page's
+    // skillPickBlock / statOptionState hand them the page's context.
+    const block = js.slice(js.indexOf("function skillPickBlock(ctx, slot, skill)"), js.indexOf("function skillPickBlock(ctx, slot, skill)") + 1600);
+    for (const reason of ["position.isStar", "exclusiveStatAndSkill(ctx)", "Not a legal skill", "moreSkillsAllowed(ctx, slot)"]) expect(block).toContain(reason);
+    const state = js.slice(js.indexOf("function statOptionState(ctx, slot, position, stat)"), js.indexOf("function statOptionState(ctx, slot, position, stat)") + 900);
+    for (const reason of ["position.isStar", "allowed.includes(stat)", "to improve", "maxStatsPerPlayer(ctx)", "exclusiveStatAndSkill(ctx)"]) expect(state).toContain(reason);
+    expect(js).toContain("return Core.skillPickBlock(gateCtx(), slot, skill);");
+    expect(js).toContain("return Core.statOptionState(gateCtx(), slot, position, stat);");
   });
 
   it("returns focus to an enabled control in the row and only closes on true backdrop clicks", () => {
