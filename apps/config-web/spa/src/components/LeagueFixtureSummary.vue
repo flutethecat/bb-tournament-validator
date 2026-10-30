@@ -3,7 +3,8 @@
 // and an organiser allowed the fixture, the Super FUMBBL panel: "Generate fixture on Super FUMBBL" for the seated coaches
 // and the organisers, "Start Game on Super FUMBBL" for each seated coach, the status steps (teams built, game scheduled,
 // in progress, result recorded; a failure with its reason), and for organisers the per-game settings (allow, late
-// launch, cancel), "Check for result" and "Reset fork game" with a reason. The result's player lines show once played.
+// launch, cancel), "Check for result" and "Reset fork game" with a reason. The result's player lines show once played,
+// with each team's casualties suffered and the server's legal-concession verdict when the result carried them.
 import { computed, inject, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
@@ -34,6 +35,16 @@ const doReset = async (): Promise<void> => {
   if (await ctl.reset(reason.value.trim())) { reason.value = ""; resetOpen.value = false; }
 };
 const lines = (side: ForkSide): ForkPlayerLine[] => fork.value?.result?.[side].lines ?? [];
+/** The server's legal-concession verdict for the conceding side (" (legal concession)"), or "" when it sent none. */
+const legal = (side: ForkSide): string => {
+  const v = fork.value?.result?.[side].concededLegally;
+  return v === undefined ? "" : v ? " (legal concession)" : " (not a legal concession)";
+};
+const sufferedText = (side: ForkSide): string => {
+  const c = fork.value?.result?.[side].casualtiesSuffered;
+  return c ? `${c.badlyHurt} BH, ${c.seriousInjury} SI, ${c.rip} dead` : "none";
+};
+const anySuffered = computed(() => Boolean(fork.value?.result && (fork.value.result.home.casualtiesSuffered || fork.value.result.away.casualtiesSuffered)));
 const when = (iso?: string): string => (iso ? day(iso) : "");
 const checked = (e: Event): boolean => (e.target as HTMLInputElement).checked;
 </script>
@@ -62,7 +73,8 @@ const checked = (e: Event): boolean => (e.target as HTMLInputElement).checked;
         </div>
       </div>
       <p class="hm-small">{{ [s!.season.name, f.phase, f.group, `Round ${f.round}`, day(fixtureTime(f))].filter(Boolean).join(" · ") }}</p>
-      <p v-if="f.home.conceded || f.away.conceded" class="hm-small">{{ f.home.conceded ? f.home.team : f.away.team }} conceded.</p>
+      <p v-if="f.home.conceded || f.away.conceded" class="hm-small" data-concession>{{ f.home.conceded ? f.home.team : f.away.team }} conceded{{ legal(f.home.conceded ? "home" : "away") }}.</p>
+      <p v-if="anySuffered" class="hm-small" data-cas-suffered>Casualties suffered: {{ f.home.team }} {{ sufferedText("home") }} · {{ f.away.team }} {{ sufferedText("away") }}</p>
 
       <section v-if="showFork && fork" class="lg-fork-panel" aria-labelledby="lg-fork-h" :data-status="fork.status">
         <h3 id="lg-fork-h" class="lg-round-h">

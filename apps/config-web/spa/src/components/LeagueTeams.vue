@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // League page, Teams tab: a tile per team; ?team=<name> opens that team's end-of-season roster (players, skills,
 // SPP and season stats) and the players who left the roster during the season. Organisers and admins (manage) get
-// Assign coach account in the roster header (LeagueTeamCoach).
+// Assign coach account in the roster header (LeagueTeamCoach). The Super FUMBBL result counters (blocks, rushing, ...)
+// get a column each only when a player in that table has a non-zero value.
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { crestFor, initials, kValue, playerByRef, sharedTotalsFor, teamByRef, teamUnattributed } from "../leagues/league";
-import type { LeaguePlayer, SeasonRecord } from "../leagues/types";
+import type { LeaguePlayer, PlayerSeasonStats, SeasonRecord } from "../leagues/types";
 import LeagueTeamCoach from "./LeagueTeamCoach.vue";
 
 const props = defineProps<{ season: SeasonRecord; team: string; player?: string; leagueId: string; crests: Record<string, string>; manage?: boolean }>();
@@ -26,6 +27,20 @@ const stat = (v: number | null): string => (v === null ? "-" : String(v));
 const plus = (v: number | null, suffix = "+"): string => (v === null ? "-" : `${v}${suffix}`);
 const tiles = computed(() => props.season.teams.map((t) => ({ t, crest: crestFor(props.crests, t.race) })));
 const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
+type Counter = "blocks" | "rushing" | "passing" | "deflections" | "landings" | "turnsPlayed";
+const COUNTERS: ReadonlyArray<{ key: Counter; label: string; title: string }> = [
+  { key: "blocks", label: "BLK", title: "Blocks this season (Super FUMBBL results)" },
+  { key: "rushing", label: "RUSH", title: "Rushing yards this season (Super FUMBBL results)" },
+  { key: "passing", label: "PASS", title: "Passing yards this season (Super FUMBBL results)" },
+  { key: "deflections", label: "DEF", title: "Deflections this season (Super FUMBBL results)" },
+  { key: "landings", label: "LAND", title: "Landings this season (Super FUMBBL results)" },
+  { key: "turnsPlayed", label: "TURNS", title: "Turns played this season (Super FUMBBL results)" },
+];
+/** The counters at least one of these players has a non-zero value for. */
+const countersFor = (players: ReadonlyArray<{ stats: PlayerSeasonStats }>) => COUNTERS.filter((c) => players.some((p) => (p.stats[c.key] ?? 0) !== 0));
+const rosterCounters = computed(() => countersFor(picked.value?.players ?? []));
+const formerCounters = computed(() => countersFor(picked.value?.formerPlayers ?? []));
+const count = (p: { stats: PlayerSeasonStats }, key: Counter): number => p.stats[key] ?? 0;
 </script>
 
 <template>
@@ -58,8 +73,9 @@ const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
                   <th scope="col" class="lg-num">#</th><th scope="col">Player</th>
                   <th scope="col" class="lg-num">MA</th><th scope="col" class="lg-num">ST</th><th scope="col" class="lg-num">AG</th><th scope="col" class="lg-num">PA</th><th scope="col" class="lg-num">AV</th>
                   <th scope="col">Skills</th>
-                  <th scope="col" class="lg-num" title="Touchdowns this season">TD</th><th scope="col" class="lg-num" title="Casualties this season">CAS</th>
+                  <th scope="col" class="lg-num" title="Touchdowns this season">TD</th><th scope="col" class="lg-num" title="Casualties caused (inflicted) this season">CAS</th>
                   <th scope="col" class="lg-num" title="MVP awards this season">MVP</th><th scope="col" class="lg-num" title="SPP earned this season">SPP</th>
+                  <th v-for="c in rosterCounters" :key="c.key" scope="col" class="lg-num" :title="c.title">{{ c.label }}</th>
                   <th scope="col" class="lg-num" title="Unspent SPP">Avail.</th><th scope="col" class="lg-num">Value</th>
                 </tr>
               </thead>
@@ -74,7 +90,9 @@ const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
                   <td class="lg-num">{{ stat(p.ma) }}</td><td class="lg-num">{{ stat(p.st) }}</td><td class="lg-num">{{ plus(p.ag) }}</td><td class="lg-num">{{ plus(p.pa) }}</td><td class="lg-num">{{ plus(p.av) }}</td>
                   <td class="lg-skills">{{ p.skills.join(", ") }}</td>
                   <td class="lg-num">{{ p.stats.td }}</td><td class="lg-num">{{ p.stats.cas }}</td><td class="lg-num">{{ p.stats.mvp }}</td>
-                  <td class="lg-num lg-pts">{{ sppTotal(p) }}</td><td class="lg-num">{{ p.availableSpp }}</td><td class="lg-num">{{ kValue(p.value) }}</td>
+                  <td class="lg-num lg-pts">{{ sppTotal(p) }}</td>
+                  <td v-for="c in rosterCounters" :key="c.key" class="lg-num" :data-counter="c.key">{{ count(p, c.key) }}</td>
+                  <td class="lg-num">{{ p.availableSpp }}</td><td class="lg-num">{{ kValue(p.value) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -99,11 +117,12 @@ const sppTotal = (p: Pick<LeaguePlayer, "stats">): number => p.stats.spp;
           <header class="hm-band"><h2>Left the roster</h2><span class="hm-cap">{{ picked.formerPlayers.length }} players</span></header>
           <div class="lg-scroll">
             <table class="lg-table">
-              <thead><tr><th scope="col">Player</th><th scope="col" class="lg-num">TD</th><th scope="col" class="lg-num">CAS</th><th scope="col" class="lg-num">MVP</th><th scope="col" class="lg-num">SPP</th></tr></thead>
+              <thead><tr><th scope="col">Player</th><th scope="col" class="lg-num">TD</th><th scope="col" class="lg-num">CAS</th><th scope="col" class="lg-num">MVP</th><th scope="col" class="lg-num">SPP</th><th v-for="c in formerCounters" :key="c.key" scope="col" class="lg-num" :title="c.title">{{ c.label }}</th></tr></thead>
               <tbody>
                 <tr v-for="p in picked.formerPlayers" :key="p.playerId" :id="`player-${p.playerId}`" :data-player="p.playerId" :class="{ 'lg-row-picked': p.playerId === focusId }" :aria-current="p.playerId === focusId ? 'true' : undefined">
                   <th scope="row" class="lg-team-cell"><span class="lg-team-name">{{ p.name }}</span><small>{{ p.position }}</small></th>
                   <td class="lg-num">{{ p.stats.td }}</td><td class="lg-num">{{ p.stats.cas }}</td><td class="lg-num">{{ p.stats.mvp }}</td><td class="lg-num lg-pts">{{ p.stats.spp }}</td>
+                  <td v-for="c in formerCounters" :key="c.key" class="lg-num" :data-counter="c.key">{{ count(p, c.key) }}</td>
                 </tr>
               </tbody>
             </table>

@@ -106,7 +106,7 @@ const sourceNote = computed(() => {
             <dt>Casualties</dt>
             <dd><span v-for="(s, i) in sides" :key="s.key"><template v-if="i"> · </template>{{ s.name }} {{ casText(game.summary.casualties[s.key]) }}{{ suffered(s.team) }}</span></dd>
           </div>
-          <div v-if="conceder"><dt>Concession</dt><dd>Conceded by {{ conceder }}</dd></div>
+          <div v-if="conceder"><dt>Concession</dt><dd>Conceded by {{ conceder }}<template v-if="game.summary.concededLegally !== undefined"> · {{ game.summary.concededLegally ? "legal concession" : "not a legal concession" }}</template></dd></div>
           <div v-if="mvps.length"><dt>MVP</dt><dd>{{ mvps.join(", ") }}</dd></div>
         </dl>
         <p v-if="sourceNote" class="muted gs-source">{{ sourceNote }}</p>

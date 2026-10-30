@@ -90,7 +90,16 @@ export interface ForkPlayerLine {
   injuries: string[];
 }
 
-export interface ForkSideResult { score: number; cas: number; conceded: boolean; winnings: number; lines: ForkPlayerLine[] }
+export interface CasualtiesSuffered { badlyHurt: number; seriousInjury: number; rip: number }
+
+/** One side of a Super FUMBBL result; the optional fields are the server's own figures, omitted when it sent none. */
+export interface ForkSideResult {
+  score: number; cas: number; conceded: boolean; winnings: number; lines: ForkPlayerLine[];
+  /** Conceding side of a full result: the server judged the concession legal (true) or not (false). */
+  concededLegally?: boolean;
+  casualtiesSuffered?: CasualtiesSuffered;
+  spectators?: number; fame?: number; fanFactor?: number; dedicatedFansModifier?: number;
+}
 
 export interface FixtureForkResult {
   gameId: string;
@@ -171,10 +180,18 @@ export interface PlayerSeasonStats {
   int: number;
   completions: number;
   fouls: number;
+  /** Injuries SUFFERED by the player (see src/leagues/types.ts); `cas` is casualties caused. */
   injuries: number;
   sentOffs: number;
   spp: number;
   performance: number;
+  /** Super FUMBBL result counters (absent = 0); rushing / passing are signed yardage. */
+  blocks?: number;
+  rushing?: number;
+  passing?: number;
+  deflections?: number;
+  landings?: number;
+  turnsPlayed?: number;
 }
 
 /** Every imported player carries a stable id; careerKey / previousIds link the same player across seasons. */

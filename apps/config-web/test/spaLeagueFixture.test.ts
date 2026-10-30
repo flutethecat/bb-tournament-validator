@@ -228,6 +228,21 @@ describe("fixture summary page (server-rendered)", () => {
     expect(html).toContain("Head Injury (-AV)");
     expect(html).not.toContain("Start Game on Super FUMBBL");
     expect(html).not.toContain("data-financial-pending");
+    expect(html).not.toContain("data-cas-suffered"); // the result sent none
+    expect(html).not.toContain("data-concession");
+  });
+
+  it("finished: casualties suffered per team and the server's legal-concession verdict", async () => {
+    const played = fx({ home: { ...fx().home, score: 2, cas: 1 }, away: { ...fx().away, score: 0, cas: 0, conceded: true }, fork: { status: "finished" } });
+    const done = forkView({
+      status: "finished", statusLabel: "Finished", gameId: "g42", teams: { home: { builtAt: "x" }, away: { builtAt: "x" } },
+      result: { gameId: "g42", source: "full", appliedAt: "x",
+        home: { score: 2, cas: 1, conceded: false, winnings: 80000, casualtiesSuffered: { badlyHurt: 1, seriousInjury: 0, rip: 1 }, lines: [] },
+        away: { score: 0, cas: 0, conceded: true, concededLegally: false, winnings: 0, lines: [] } },
+    });
+    const html = await render(PAGE, summary(done, played));
+    expect(html).toContain("Green Tide conceded (not a legal concession).");
+    expect(html).toContain("Casualties suffered: Grudge Rollers 1 BH, 0 SI, 1 dead · Green Tide none");
   });
 
   it("a basic result says the treasuries wait for an organiser (review P2-9)", async () => {

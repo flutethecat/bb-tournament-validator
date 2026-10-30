@@ -34,6 +34,8 @@ export interface GameStores {
   result(gameId: string): StoredTournamentResult | undefined;
   forkMeta?: RecentInputs["forkMeta"];
   teamInfo?: (ref: string, coach: string) => TeamInfo | undefined;
+  /** Legal-concession verdicts a league fixture banked for this fork game, by fork team id (absent = none known). */
+  concededLegally?: (gameId: string) => Record<string, boolean> | undefined;
   tabletop(): Promise<GameTabletopReader | undefined>;
 }
 
@@ -130,6 +132,11 @@ export function createGameDetailLoader(stores: GameStores, opts: GameLoaderOptio
       inputs.results = [row];
       fixture = stores.fixtureForGame(id);
       coaches.add(lc(row.home.coach)).add(lc(row.away.coach));
+      if (Array.isArray(row.teams) && row.teams.some((t) => t.conceded)) {
+        let verdicts: Record<string, boolean> | undefined;
+        try { verdicts = stores.concededLegally?.(id); } catch { verdicts = undefined; }
+        if (verdicts) inputs.concededLegally = verdicts;
+      }
     }
     if (fixture) inputs.tournaments = [fixture];
     const detail = gameDetail(source, id, inputs);

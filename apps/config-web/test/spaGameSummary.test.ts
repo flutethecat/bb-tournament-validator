@@ -121,11 +121,18 @@ describe("game page (SSR)", () => {
     expect(p).toContain("Spike Beta Test · Round 3");
     expect(p).toContain("Per-player stats are recorded for games played through the site.");
     expect(p).toContain("Conceded by Bob (Grinders)");
+    expect(p).not.toContain("legal concession"); // no server verdict: nothing said
     expect(p).toContain("Grinders not recorded");
     expect((p.match(/href="\/app\/tournaments\/t1\?tab=rounds"/g) ?? []).length).toBe(2);
     expect(p).toContain("Tournament rounds");
     expect(p).not.toContain('class="gs-table"');
     expect(p).not.toContain('id="match-report"');
+  });
+
+  it("online: a league fixture's banked legal-concession verdict follows the concession", async () => {
+    const legal = { ...online, id: "g9", card: card("Online · BB2025", { concede: "away" }), summary: { ...online.summary, concede: "away", concededLegally: false } };
+    const p = page((await render("/games/online/g9", signedOut({ "/api/games/online/g9": legal }))).html);
+    expect(p).toMatch(/Conceded by Bob \(Grinders\)(<!--\[-->)? · not a legal concession/);
   });
 
   it("tabletop: the match report panel with key moments, both reporter summaries (no treasury) and the recorder link", async () => {

@@ -97,6 +97,17 @@ describe("game detail", () => {
     expect(d!.summary).toMatchObject({ round: 2, tournament: { id: "t1", name: "Cup", href: "/app/tournaments/t1?tab=rounds" } });
   });
 
+  it("online: a league fixture's banked legal-concession verdict names the conceding side's concession; none is never guessed", () => {
+    const conceded = forkRow("g8", { teams: [forkTeam("h", 2, [pl("Grak")]), forkTeam("a", 0, [pl("Snik")], true)] });
+    const plain = gameDetail("online", "g8", inputs({ results: [conceded] as never }))!;
+    expect(plain.summary.concede).toBe("away");
+    expect(plain.summary).not.toHaveProperty("concededLegally");
+    expect(gameDetail("online", "g8", inputs({ results: [conceded] as never, concededLegally: { a: false } }))!.summary.concededLegally).toBe(false);
+    expect(gameDetail("online", "g8", inputs({ results: [conceded] as never, concededLegally: { a: true } }))!.summary.concededLegally).toBe(true);
+    // A verdict for the other team does not describe this concession.
+    expect(gameDetail("online", "g8", inputs({ results: [conceded] as never, concededLegally: { h: true } }))!.summary).not.toHaveProperty("concededLegally");
+  });
+
   it("tournament: a reported fixture's card links nothing, points at the Rounds tab, and says per-player stats are missing", () => {
     const d = gameDetail("tournament", "m1", inputs({
       tournaments: [{

@@ -297,6 +297,7 @@ import { tournamentApi } from "./tournaments/api.js";
 import { tournamentBannerApi, tournamentBannerPath } from "./tournaments/page.js";
 import { leagueApi, leaguePath } from "./leagues/api.js";
 import { LeagueStore } from "./leagues/store.js";
+import { concessionVerdicts } from "./leagues/forkResult.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
 import { syncLeagueForkResults } from "./leagues/forkPlay.js";
 import { registerLeagueEvents } from "./leagues/events.js";
@@ -1488,6 +1489,7 @@ const gameLoader = createGameDetailLoader({
   result: (gameId) => { try { return tournamentResults.get(gameId); } catch { return undefined; } },
   forkMeta: (gameId) => { try { return tournamentMatches.get(gameId); } catch { return undefined; } },
   teamInfo: recentTeamInfo,
+  concededLegally: (gameId) => concessionVerdicts((function* () { for (const l of leagueStore.list()) yield* leagueStore.seasons(l.id); })(), gameId),
   tabletop: async () => (await tabletopDeps()).repo,
 });
 

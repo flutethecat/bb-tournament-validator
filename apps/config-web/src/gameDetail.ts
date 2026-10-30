@@ -66,6 +66,11 @@ export interface GameSummary {
   tournament: { id: string; name: string; href: string } | null;
   casualties: { home: number | null; away: number | null };
   concede: "home" | "away" | null;
+  /**
+   * The server's legal-concession verdict for the conceding side, when a league fixture banked this game's full result
+   * (FumbblResult concededLegally). Absent when unknown: never guessed.
+   */
+  concededLegally?: boolean;
   perPlayer: boolean;
   /** Shown when the game has no per-player lines. */
   note: string | null;
@@ -121,6 +126,8 @@ export interface GameInputs {
   tabletop: RecentInputs["tabletop"];
   forkMeta?: RecentInputs["forkMeta"];
   teamInfo?: RecentInputs["teamInfo"];
+  /** Legal-concession verdicts a league fixture banked for this fork game, by fork team id (src/leagues/forkResult.ts). */
+  concededLegally?: Readonly<Record<string, boolean>>;
 }
 
 /** /api/games/<source>/<id> -> its parts, or undefined (the id is URL-decoded and kept to a safe alphabet). */
@@ -317,6 +324,9 @@ export function gameDetail(source: GameSource, id: string, inputs: GameInputs): 
     baseSummary(gameCard, fixture?.m.roundNumber ?? null, fixture ? { id: fixture.t.id, name: fixture.t.name, href: roundsHref(fixture.t.id) } : null),
     row,
   );
+  const conceder = summary.concede ? row[summary.concede]?.teamId : undefined;
+  const verdict = conceder ? inputs.concededLegally?.[conceder] : undefined;
+  if (typeof verdict === "boolean") summary.concededLegally = verdict;
   return { source, id, card: gameCard, summary };
 }
 

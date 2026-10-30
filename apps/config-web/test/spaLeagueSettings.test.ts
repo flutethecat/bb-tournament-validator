@@ -401,6 +401,13 @@ describe("league settings routes (server-rendered)", () => {
     expect(one.html).not.toContain("Rosters are hidden");
     expect(one.html).toContain("lg-players");
     expect(one.html).toContain("Durin");
+    expect(one.html).not.toContain("data-counter"); // no Super FUMBBL counters yet: no extra columns
+    const counted = (): SeasonRecord => { const s = shown(); s.teams[0]!.players[0]!.stats = { ...stats, blocks: 4, turnsPlayed: 16 }; return s; };
+    const withCounters = await render("/leagues/tabbl?tab=teams&team=grudge-rollers", detail, COACH, { "/api/leagues/tabbl/seasons/season-6": () => ({ league: league(), season: counted() }) });
+    expect(withCounters.html).toContain('data-counter="blocks"');
+    expect(withCounters.html).toContain('data-counter="turnsPlayed"');
+    expect(withCounters.html).not.toContain('data-counter="rushing"');
+    expect(withCounters.html).toContain(">BLK<");
   });
 
   it("teams: Assign coach account in the roster header for organisers only", async () => {

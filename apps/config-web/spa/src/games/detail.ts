@@ -25,6 +25,8 @@ export interface GameSummary {
   tournament: { id: string; name: string; href: string } | null;
   casualties: { home: number | null; away: number | null };
   concede: "home" | "away" | null; perPlayer: boolean; note: string | null;
+  /** The server's legal-concession verdict for the conceding side, when known. */
+  concededLegally?: boolean;
   home: GameTeamSummary | null; away: GameTeamSummary | null;
 }
 export interface ReporterMoment { half: string | number | null; turn: number | null; side: "home" | "away"; kind: "touchdown" | "casualty" | "sendOff"; text: string }
