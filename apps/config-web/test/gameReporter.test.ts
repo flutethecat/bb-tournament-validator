@@ -38,7 +38,7 @@ describe("completed match reporter: online (fork result)", () => {
   it("a 999-like game: final board, both rosters, a result-only log (2 TDs, MVP, concession, 1 BH suffered) with no turn or half", () => {
     const m = reporterModel(online999());
     expect(m.match).toMatchObject({ home: { teamName: "UAT2 Woodland", coach: "Flutethecat" }, away: { teamName: "UAt2 Nurgle", coach: "Gondra87" } });
-    expect(m.final).toEqual({ score: { home: 2, away: 0 }, cas: { home: 0, away: 0 }, fouls: { home: 0, away: 0 } });
+    expect(m.final).toEqual({ score: { home: 2, away: 0 }, cas: { home: 0, away: 0 }, fouls: { home: 0, away: 0 }, concede: "away" });
     expect(m.teams.home).toMatchObject({ name: "UAT2 Woodland", race: "Gnome", avatarUrl: "/crests/gnome.png" });
     expect(m.teams.away).not.toHaveProperty("avatarUrl");
     expect(m.teams.home.players.map((p) => p.name)).toEqual(["Gnome Lineman 2", "Jordell Freshbreeze", "Swiftvine Glimmershard", "Gnome Lineman 5"]);
@@ -55,7 +55,7 @@ describe("completed match reporter: online (fork result)", () => {
     expect(shown[3]).toMatchObject({ player: "Gnome Lineman 2", rest: "is the MVP (2 awards)." });
     expect(shown[4]).toMatchObject({ team: "away", lead: "UAt2 Nurgle", rest: " concedes the match." });
     expect(shown[5]).toMatchObject({ lead: "UAT2 Woodland", rest: " earns 40k in winnings." });
-    expect(m.finalLine).toBe("Final: UAT2 Woodland 2-0 UAt2 Nurgle");
+    expect(m.finalLine).toBe("Final: UAT2 Woodland 2-0 UAt2 Nurgle · UAt2 Nurgle conceded");
     // the finished-game summaries: outcome and lines, no SPP (the fork result has none), no treasury or fans
     expect(m.summaries.map((s) => s.heading)).toEqual(["Home: UAT2 Woodland (Flutethecat)", "Away: UAt2 Nurgle (Gondra87)"]);
     expect(m.summaries[0]!.summary).toMatchObject({ outcome: "won", score: { for: 2, against: 0 }, winnings: 40_000, deaths: [] });
@@ -99,6 +99,38 @@ describe("completed match reporter: online (fork result)", () => {
   });
 });
 
+describe("completed match reporter: same-named players", () => {
+  it("rows follow the server's squad index; without one, an ambiguous name gets a name-only row, never a guessed position", () => {
+    const g = online999();
+    const blitzer = pline("Twin", { position: "Blitzer", touchdowns: 1, index: 0 });
+    const lineman = pline("Twin", { position: "Lineman", index: 1 });
+    g.summary.home = team({ players: [blitzer], squad: [blitzer, lineman], mvps: ["Twin"] }) as never;
+    const m = reporterModel(g);
+    const td = m.rows.find((r) => r.type === "touchdown")!;
+    expect(td).toMatchObject({ player: "Twin", position: "Blitzer" });
+    expect(m.teams.home.players.map((p) => p.position)).toEqual(["Blitzer", "Lineman"]);
+    // the same game with player lines withheld: only the MVP name is known, and two players wear it
+    g.summary = { ...g.summary, perPlayer: false, home: team({ squad: [{ ...blitzer, index: undefined }, { ...lineman, index: undefined }], mvps: ["Twin"] }) as never };
+    const red = reporterModel(g);
+    const mvp = red.rows.find((r) => r.type === "mvp")!;
+    expect(mvp).toMatchObject({ player: "Twin", position: "" });
+    expect(red.teams.home.players).toHaveLength(2); // the stand-in is not listed in the Rosters popout
+  });
+
+  it("tabletop moments carry squad indexes for actor and victim", () => {
+    const g = online999();
+    g.source = "tabletop";
+    const a = pline("Twin", { position: "Blitzer", index: 0 });
+    const b = pline("Twin", { position: "Lineman", casualtiesCaused: 1, index: 1 });
+    g.summary.home = team({ players: [b], squad: [a, b] }) as never;
+    g.summary.away = team({ players: [], squad: [pline("Squeak", { index: 0 })] }) as never;
+    g.reporter = { matchId: "x", href: "/app/tabletop/x", state: "confirmed", summaries: null,
+      moments: [{ half: 1, turn: 2, side: "home", kind: "casualty", text: "", player: "Twin", playerIndex: 1, victim: "Squeak", victimIndex: 0, victimSide: "away", result: "BH" }] };
+    const m = reporterModel(g);
+    expect(m.rows.find((r) => r.type === "casualty" && r.part === "main")).toMatchObject({ position: "Lineman" });
+  });
+});
+
 describe("completed match reporter: tabletop and tournament", () => {
   it("tabletop moments keep their order, half and turn; casualties carry the victim line; MVP rows carry no turn", () => {
     const g = {
@@ -139,9 +171,11 @@ describe("completed match reporter: tabletop and tournament", () => {
     } as unknown as GameDetail;
     const m = reporterModel(g);
     expect(m.hasLog).toBe(false);
-    expect(m.rows).toEqual([]);
-    expect(m.final).toEqual({ score: { home: 1, away: 0 }, cas: { home: null, away: null }, fouls: null });
+    expect(m.final).toEqual({ score: { home: 1, away: 0 }, cas: { home: null, away: null }, fouls: null, concede: "away" });
     expect(m.summaries).toEqual([]);
+    // the concession still shows: a log row and the final line (the scoreboard marks the side through final.concede)
+    expect(m.rows.map((r) => [r.type, r.team, r.rest])).toEqual([["concede", "away", " concedes the match."]]);
+    expect(m.finalLine).toBe("Final: Reavers 1-0 Grinders · Grinders conceded");
     expect(NO_LOG_NOTE).toBe("No match log for this fixture");
   });
 });

@@ -25,7 +25,7 @@ export interface ReporterModel {
   rows: FeedRow[];
   /** The log carries half and turn (tabletop moments); false for a result-only log. */
   ordered: boolean;
-  /** False when the game has nothing to log (a tournament fixture reported without player data). */
+  /** False when the game has no player events to log (a tournament fixture reported without player data); a concession still shows as a row. */
   hasLog: boolean;
   logTitle: string;
   summaries: Array<{ side: Side; heading: string; summary: MatchSummaryView }>;
@@ -38,22 +38,46 @@ const SIDES: Side[] = ["home", "away"];
 const DEAD = /\b(dead|rip|death)\b/i;
 const other = (s: Side): Side => (s === "home" ? "away" : "home");
 
-/** Players of one side, by id; a name looks up the first player wearing it. */
+/**
+ * Players of one side. A player is found by the server's squad index first; by name only when no index came, and then
+ * only when exactly one player wears that name. Two or more same-named players with no index: the row gets a name-only
+ * stand-in (no position, sprite or line), never a guess at which of them it was.
+ */
 class Squad {
   readonly players: RosterPlayerView[] = [];
-  readonly lines: PlayerLineView[] = [];
-  private byName = new Map<string, string>();
+  private byIndex = new Map<number, string>();
+  private byName = new Map<string, string[]>();
+  private nameOnly = new Map<string, string>();
   constructor(private readonly side: Side) {}
-  add(name: string, extra: Partial<RosterPlayerView> = {}): string {
+  private push(name: string, extra: Partial<RosterPlayerView>): string {
     const id = `${this.side}-${this.players.length + 1}`;
     this.players.push({ id, name, spp: 0, mng: false, dead: false, ...extra });
-    if (!this.byName.has(name)) this.byName.set(name, id);
     return id;
   }
-  idOf(name: string | undefined): string | undefined {
-    if (!name) return undefined;
-    return this.byName.get(name) ?? this.add(name);
+  /** A listed player (the squad, or the lines the server kept), keyed by its squad index when it has one. */
+  add(name: string, extra: Partial<RosterPlayerView> = {}, index?: number): string {
+    const id = this.push(name, extra);
+    if (typeof index === "number") this.byIndex.set(index, id);
+    this.byName.set(name, [...(this.byName.get(name) ?? []), id]);
+    return id;
   }
+  idOf(name: string | undefined, index?: number): string | undefined {
+    if (typeof index === "number" && this.byIndex.has(index)) return this.byIndex.get(index);
+    if (!name) return undefined;
+    const ids = this.byName.get(name) ?? [];
+    if (ids.length === 1) return ids[0];
+    if (ids.length === 0) return this.add(name);
+    // ambiguous: a name-only stand-in, kept out of the roster list
+    let id = this.nameOnly.get(name);
+    if (!id) {
+      id = `${this.side}-n${this.nameOnly.size + 1}`;
+      this.nameOnly.set(name, id);
+      this.ghosts.push({ id, name, spp: 0, mng: false, dead: false });
+    }
+    return id;
+  }
+  /** Name-only stand-ins (feed lookups only; never listed in the Rosters popout). */
+  readonly ghosts: RosterPlayerView[] = [];
 }
 
 const rosterExtra = (p: GamePlayerLine): Partial<RosterPlayerView> => ({
@@ -87,7 +111,7 @@ export function reporterModel(game: GameDetail): ReporterModel {
   for (const s of SIDES) {
     const t = teamOf(s);
     for (const p of t?.squad ?? t?.players ?? []) {
-      const id = squads[s].add(p.name, rosterExtra(p));
+      const id = squads[s].add(p.name, rosterExtra(p), p.index);
       lines[s].push(playerLine(id, p));
     }
   }
@@ -103,13 +127,13 @@ export function reporterModel(game: GameDetail): ReporterModel {
     // Tabletop: the recorder's key moments in match order, each with its half and turn.
     for (const m of reporter.moments) {
       const at = { ...(m.half !== null ? { half: m.half } : {}), ...(m.turn !== null ? { turn: m.turn } : {}) };
-      const player = squads[m.side].idOf(m.player);
+      const player = squads[m.side].idOf(m.player, m.playerIndex);
       const by = player ? { player } : {};
       if (m.kind === "touchdown") events.push(ev("touchdown", m.side, { ...at, ...by }));
       else if (m.kind === "sendOff") events.push(ev("sendOff", m.side, { ...at, ...by }));
       else {
         const vs = m.victimSide ?? other(m.side);
-        const victim = squads[vs].idOf(m.victim);
+        const victim = squads[vs].idOf(m.victim, m.victimIndex);
         events.push(ev("casualty", m.side, { ...at, ...by, payload: { ...(victim ? { victim } : {}), victimTeam: vs, ...(m.result ? { result: m.result } : {}) } }));
       }
     }
@@ -117,16 +141,16 @@ export function reporterModel(game: GameDetail): ReporterModel {
     // Online (fork result): counters only, grouped; no half or turn.
     const result: RecordedEvent[] = [];
     for (const s of SIDES) for (const p of teamOf(s)?.squad ?? teamOf(s)?.players ?? []) {
-      const id = squads[s].idOf(p.name)!;
+      const id = squads[s].idOf(p.name, p.index)!;
       for (let i = 0; i < p.touchdowns; i++) result.push(ev("touchdown", s, { player: id }));
     }
     for (const s of SIDES) for (const p of teamOf(s)?.squad ?? teamOf(s)?.players ?? []) {
-      const id = squads[s].idOf(p.name)!;
+      const id = squads[s].idOf(p.name, p.index)!;
       for (let i = 0; i < p.casualtiesCaused; i++) result.push(ev("casualty", s, { player: id }));
     }
     for (const s of SIDES) {
       for (const p of teamOf(s)?.squad ?? teamOf(s)?.players ?? []) {
-        if (p.injury) result.push(ev("injury", s, { player: squads[s].idOf(p.name)!, payload: { result: p.injury } }));
+        if (p.injury) result.push(ev("injury", s, { player: squads[s].idOf(p.name, p.index)!, payload: { result: p.injury } }));
       }
       const c = teamOf(s)?.casualtiesSuffered;
       if (c && c.bh + c.si + c.rip > 0) result.push(ev("casualtiesSuffered", s, { payload: { ...c } }));
@@ -136,13 +160,14 @@ export function reporterModel(game: GameDetail): ReporterModel {
   // Both: MVPs (no turn: the award is made after the game), then the concession, money and fans.
   if (summary.perPlayer) {
     for (const s of SIDES) for (const p of teamOf(s)?.squad ?? teamOf(s)?.players ?? []) {
-      if (p.mvp > 0) events.push(ev("mvp", s, { player: squads[s].idOf(p.name)!, payload: { count: p.mvp } }));
+      if (p.mvp > 0) events.push(ev("mvp", s, { player: squads[s].idOf(p.name, p.index)!, payload: { count: p.mvp } }));
     }
   } else {
     // player lines withheld: the MVP names the server still sends
     for (const s of SIDES) for (const name of teamOf(s)?.mvps ?? []) events.push(ev("mvp", s, { player: squads[s].idOf(name)! }));
   }
-  if (summary.concede && (events.length || summary.perPlayer || reporter)) {
+  const playerEvents = events.length;
+  if (summary.concede) {
     events.push(ev("concede", summary.concede, { payload: summary.concededLegally !== undefined ? { legal: summary.concededLegally } : {} }));
   }
   if (!reporter) {
@@ -175,6 +200,12 @@ export function reporterModel(game: GameDetail): ReporterModel {
     score: { home: card.home.score, away: card.away.score },
     cas: { home: card.home.cas, away: card.away.cas },
     fouls: anyFouls ? { home: lines.home.reduce((n, l) => n + (l.fouls ?? 0), 0), away: lines.away.reduce((n, l) => n + (l.fouls ?? 0), 0) } : null,
+    concede: summary.concede ?? card.concede ?? null,
+  };
+  // the feed also resolves name-only stand-ins (ambiguous names); the Rosters popout lists only the real players
+  const feedTeams: Record<Side, TeamView> = {
+    home: { ...teams.home, players: [...squads.home.players, ...squads.home.ghosts] },
+    away: { ...teams.away, players: [...squads.away.players, ...squads.away.ghosts] },
   };
 
   const heading = (s: Side): string => `${s === "home" ? "Home" : "Away"}: ${card[s].name}${card[s].coach ? ` (${card[s].coach})` : ""}`;
@@ -185,7 +216,7 @@ export function reporterModel(game: GameDetail): ReporterModel {
     summaries = SIDES.map((s) => {
       const t = teamOf(s);
       const f = card[s].score as number, a = card[other(s)].score as number;
-      const players = (t?.players ?? []).map((p) => summaryLine(squads[s].idOf(p.name)!, p));
+      const players = (t?.players ?? []).map((p) => summaryLine(squads[s].idOf(p.name, p.index)!, p));
       return {
         side: s, heading: heading(s),
         summary: {
@@ -202,12 +233,12 @@ export function reporterModel(game: GameDetail): ReporterModel {
   const scoreText = card.home.score !== null && card.away.score !== null ? ` ${card.home.score}-${card.away.score} ` : " vs ";
   return {
     match, teams, tally, events: input,
-    rows: feedRows(input, input.map((e) => e.id), teams, {}, match, null),
+    rows: feedRows(input, input.map((e) => e.id), feedTeams, {}, match, null),
     ordered,
-    hasLog: input.length > 0,
+    hasLog: playerEvents > 0 || !!reporter || summary.perPlayer,
     logTitle: ordered ? ORDERED_LOG_TITLE : RESULT_LOG_TITLE,
     summaries,
     final,
-    finalLine: `Final: ${card.home.name}${scoreText}${card.away.name}`,
+    finalLine: `Final: ${card.home.name}${scoreText}${card.away.name}${final.concede ? ` · ${card[final.concede].name} conceded` : ""}`,
   };
 }

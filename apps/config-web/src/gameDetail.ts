@@ -52,6 +52,8 @@ export interface GamePlayerLine {
   fouls?: number;
   /** The server's own injury text marks a missed next game ("(MNG)"). Never derived from a rule. */
   missNextGame?: true;
+  /** The player's place in the team's `squad` (the result's own order): tells same-named players apart. */
+  index?: number;
 }
 
 export interface Tally { name: string; count: number }
@@ -113,6 +115,9 @@ export interface ReporterMoment {
   victim?: string;
   victimSide?: Side;
   result?: string;
+  /** The actor's and the victim's place in their team's `squad` (same-named players stay apart). */
+  playerIndex?: number;
+  victimIndex?: number;
 }
 
 export interface GameReporter {
@@ -181,7 +186,8 @@ const tallies = (lines: readonly GamePlayerLine[], key: "touchdowns" | "casualti
   lines.filter((l) => l[key] > 0).map((l) => ({ name: l.name, count: l[key] })).sort(byCount);
 const weight = (l: GamePlayerLine) => l.sppEarned ?? l.touchdowns * 3 + l.casualtiesCaused * 2 + l.completions + l.interceptions * 2 + l.deflections + l.mvp * 4;
 
-function teamSummary(lines: GamePlayerLine[], suffered: GameTeamSummary["casualtiesSuffered"], extra: Partial<GameTeamSummary> = {}): GameTeamSummary {
+function teamSummary(input: GamePlayerLine[], suffered: GameTeamSummary["casualtiesSuffered"], extra: Partial<GameTeamSummary> = {}): GameTeamSummary {
+  const lines = input.map((l, index) => ({ ...l, index }));
   const players = lines
     .filter((l) => l.touchdowns || l.casualtiesCaused || l.completions || l.interceptions || l.deflections || l.mvp || l.sentOff || l.injury)
     .sort((a, b) => weight(b) - weight(a) || a.name.localeCompare(b.name));
@@ -249,12 +255,14 @@ function tabletopPlayers(match: MatchRecord, events: readonly TabletopEvent[]): 
 function moments(events: readonly TabletopEvent[], players: Record<Side, PlayerLine[]>, teamName: Record<Side, string>): ReporterMoment[] {
   const names: Record<Side, Map<string, string>> = { home: new Map(players.home.map((l) => [l.id, l.name])), away: new Map(players.away.map((l) => [l.id, l.name])) };
   const named = (side: Side, id: unknown): string | undefined => (typeof id === "string" && names[side].get(id)) || undefined;
+  const indexOf = (side: Side, id: unknown): number => (typeof id === "string" ? players[side].findIndex((l) => l.id === id) : -1);
   const who = (side: Side, id: unknown) => named(side, id) ?? `a ${teamName[side]} player`;
   const out: ReporterMoment[] = [];
   for (const e of effectiveEvents(events)) {
     const at = { half: e.half ?? null, turn: typeof e.turn === "number" ? e.turn : null, side: e.team };
     const actor = named(e.team, e.player);
-    const by = actor ? { player: actor } : {};
+    const ai = indexOf(e.team, e.player);
+    const by = actor ? { player: actor, ...(ai >= 0 ? { playerIndex: ai } : {}) } : {};
     if (e.type === "touchdown") out.push({ ...at, kind: "touchdown", text: `Touchdown: ${who(e.team, e.player)}`, ...by });
     else if (e.type === "sendOff") out.push({ ...at, kind: "sendOff", text: `Sent off: ${who(e.team, e.player)}`, ...by });
     else if (e.type === "casualty") {
@@ -262,9 +270,10 @@ function moments(events: readonly TabletopEvent[], players: Record<Side, PlayerL
       const result = `${String(e.payload.result ?? "")}${e.payload.stat ? ` ${String(e.payload.stat)}` : ""}`.trim();
       const byText = e.player ? `${who(e.team, e.player)} on ` : "";
       const victim = named(victimSide, e.payload.victim);
+      const vi = indexOf(victimSide, e.payload.victim);
       out.push({
         ...at, kind: "casualty", text: `Casualty: ${byText}${who(victimSide, e.payload.victim)}${result ? ` (${result})` : ""}`, ...by,
-        victimSide, ...(victim ? { victim } : {}), ...(result ? { result } : {}),
+        victimSide, ...(victim ? { victim, ...(vi >= 0 ? { victimIndex: vi } : {}) } : {}), ...(result ? { result } : {}),
       });
     }
   }

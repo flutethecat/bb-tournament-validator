@@ -221,7 +221,9 @@ export function withoutPlayerLines(d: GameDetail): GameDetail {
         summaries: d.reporter.summaries
           ? { home: { ...d.reporter.summaries.home, players: [], deaths: [] }, away: { ...d.reporter.summaries.away, players: [], deaths: [] } }
           : null,
-        moments: d.reporter.moments.map(({ player: _p, victim: _v, ...m }) => ({ ...m, text: `${label[m.kind]}: ${d.card[m.side].name}` })),
+        // the team and the moment's time stay; who did it, to whom and the injury result go
+        moments: d.reporter.moments.map(({ player: _p, victim: _v, victimSide: _vs, result: _r, playerIndex: _pi, victimIndex: _vi, ...m }) =>
+          ({ ...m, text: `${label[m.kind]}: ${d.card[m.side].name}` })),
       },
     } : {}),
   };

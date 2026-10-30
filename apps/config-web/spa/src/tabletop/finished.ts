@@ -17,4 +17,8 @@ export type MatchSummaryView = Omit<SummaryView, "treasuryBefore" | "treasuryAft
  * A finished game on the scoreboard (game page): the server's final score and casualties (null = not recorded, shown as a
  * dash) and the fouls it counted (null = unknown, not shown).
  */
-export interface FinalBoard { score: Record<Side, number | null>; cas: Record<Side, number | null>; fouls: Record<Side, number> | null }
+export interface FinalBoard {
+  score: Record<Side, number | null>; cas: Record<Side, number | null>; fouls: Record<Side, number> | null;
+  /** The side that conceded, as the server reported it. */
+  concede?: Side | null;
+}

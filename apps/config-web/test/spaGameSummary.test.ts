@@ -139,8 +139,10 @@ describe("game page (SSR)", () => {
     expect(p).toContain("No match log for this fixture");
     expect(p).toContain("Per-player stats are recorded for games played through the site.");
     expect(p).toContain("CAS <b>–</b>"); // away casualties not recorded: a dash, never a 0
-    expect(p).not.toContain('class="tt-events"');
     expect(p).not.toContain("legal concession"); // no server verdict: nothing said
+    expect(p).toMatch(/data-type="concede"[^]*?data-team="away">Grinders<\/span> concedes the match\./); // the concession row, without player data
+    expect(p).toContain("Final: Reavers 2-1 Grinders · Grinders conceded");
+    expect(p).toContain('<span class="tt-conceded tt-nameline">Conceded</span>');
     expect((p.match(/href="\/app\/tournaments\/t1\?tab=rounds"/g) ?? []).length).toBe(1);
     expect(p).toContain("Tournament rounds");
   });

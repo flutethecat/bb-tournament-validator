@@ -177,6 +177,7 @@ const score = (s: Side): string => (props.final ? dash(props.final.score[s]) : S
         <span v-if="nafLine(s)" class="tt-cr-naf">{{ nafLine(s) }}</span>
       </div>
       <div class="tt-namegroup">
+      <span v-if="final?.concede === s" class="tt-conceded tt-nameline">Conceded</span>
       <span class="tt-team tt-nameline" :data-long="match[s].teamName.length > 16 ? 'true' : null" :data-fit="match[s].teamName.length > 20 ? 'lg' : match[s].teamName.length > 14 ? 'md' : null">{{ match[s].teamName }}</span>
       <span v-if="race(s)" class="tt-race tt-nameline">{{ race(s) }}</span>
       <div class="tt-coachline tt-nameline">

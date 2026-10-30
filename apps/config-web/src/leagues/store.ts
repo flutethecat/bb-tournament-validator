@@ -107,6 +107,8 @@ export class LeagueStore {
    * picked up when the index is rebuilt, at most every `forkIndexTtlMs`.
    */
   private forkIndex: { at: number; byGame: Map<string, ForkGameIndexEntry> } | undefined;
+  /** Season writes / removals through this store (forkIndexVersion). */
+  private seasonWrites = 0;
   private readonly forkIndexTtlMs: number;
   private readonly now: () => number;
 
@@ -114,6 +116,14 @@ export class LeagueStore {
     this.root = join(stateDir, "leagues");
     this.forkIndexTtlMs = opts.forkIndexTtlMs ?? 10 * 60_000;
     this.now = opts.now ?? Date.now;
+  }
+
+  /**
+   * Changes whenever the fork-game index may have changed: a season written or removed here, or the index rebuilt (which
+   * picks up another process's writes). Game-page caches put it in their revision stamp. Reads no file.
+   */
+  forkIndexVersion(): string {
+    return `${this.seasonWrites}:${this.forkIndex?.at ?? 0}`;
   }
 
   /** The league fixture fork game `gameId` was played for, if any (cached index; see forkIndex). */
@@ -286,6 +296,7 @@ export class LeagueStore {
     // Monotonic per season id (also when the caller wrote from a stale copy): read-model caches key on it.
     season.revision = Math.max(all.find((s) => s.id === season.id)?.revision ?? 0, season.revision ?? 0) + 1;
     this.write(join(dir, `${season.id}.json`), season);
+    this.seasonWrites += 1;
     this.unindexSeason(season.leagueId, season.id);
     if (this.forkIndex) this.indexSeason(this.forkIndex.byGame, season);
     if (prior && prior.id !== season.id) this.removeSeason(season.leagueId, prior.id);
@@ -296,6 +307,7 @@ export class LeagueStore {
     if (!SEASON_ID.test(seasonId)) return;
     const path = join(this.leagueDir(leagueId), "seasons", `${seasonId}.json`);
     try { unlinkSync(path); } catch { /* gone */ }
+    this.seasonWrites += 1;
     this.unindexSeason(leagueId, seasonId);
   }
 }

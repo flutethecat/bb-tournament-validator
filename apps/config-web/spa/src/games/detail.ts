@@ -16,6 +16,8 @@ export interface GamePlayerLine {
   sppEarned?: number; sentOff?: boolean; injury?: string;
   /** Roster position (league season roster), fouls the server counted, and MNG only when the server's injury text says so. */
   position?: string; fouls?: number; missNextGame?: true;
+  /** The player's place in the team's squad (the result's order): tells same-named players apart. */
+  index?: number;
 }
 export interface Tally { name: string; count: number }
 export interface GameTeamSummary {
@@ -38,6 +40,8 @@ export interface GameSummary {
 export interface ReporterMoment {
   half: string | number | null; turn: number | null; side: "home" | "away"; kind: "touchdown" | "casualty" | "sendOff"; text: string;
   player?: string; victim?: string; victimSide?: "home" | "away"; result?: string;
+  /** The actor's / victim's place in their team's squad. */
+  playerIndex?: number; victimIndex?: number;
 }
 export interface GameReporter {
   matchId: string; href: string; state: string;

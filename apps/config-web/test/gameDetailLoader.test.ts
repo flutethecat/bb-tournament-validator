@@ -154,6 +154,18 @@ describe("GAME_PAGES_PUBLIC_PLAYER_LINES", () => {
     expect(online.summary.home).not.toHaveProperty("squad");
   });
 
+  it("private player lines: a tabletop casualty keeps its team and time, never its causer, victim, victim side or injury result", async () => {
+    const { stores } = rig({
+      matches: [match("tm1", "confirmed")],
+      events: { tm1: [ev("1", "casualty", "home", { player: "p", half: 2, turn: 1, payload: { victim: "q", result: "stat loss", stat: "MA" } })] },
+    });
+    const full = (await createGameDetailLoader(stores).load("tabletop", "tm1"))!.detail;
+    expect(full.reporter!.moments[0]).toMatchObject({ result: "stat loss MA", victimSide: "away" });
+    const red = withoutPlayerLines(full);
+    expect(red.reporter!.moments).toEqual([{ half: 2, turn: 1, side: "home", kind: "casualty", text: "Casualty caused: Owls" }]);
+    expect(JSON.stringify(red)).not.toMatch(/stat loss|victim|playerIndex/);
+  });
+
   it("online: the league digest rides in once per load (cached with the answer); a redacted answer drops its player names", async () => {
     const { stores } = rig({ results: { g1: forkRow("g1") } });
     let calls = 0;

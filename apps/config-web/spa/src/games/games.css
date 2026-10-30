@@ -23,3 +23,5 @@
   .tt-rec.tt-rec--final .tt-mid { grid-template-rows: auto minmax(0, 1fr); }
   .tt-rec.tt-rec--final .tt-mid > .tt-log-h { height: auto; min-height: 28px; padding-block: 4px; }
 }
+/* the side that conceded, under its team name (server-reported) */
+.tt-rec--final .tt-conceded { display: block; font-family: var(--font-heading, sans-serif); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ui-danger, #ff4d4d); text-shadow: var(--tt-name-shadow); }

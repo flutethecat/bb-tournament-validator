@@ -1482,6 +1482,8 @@ const gameLoader = createGameDetailLoader({
   revision: () => [
     tournamentResults.revision(), fileStamp(join(TOURNAMENTS_DIR, "tournaments.json")),
     fileStamp(join(FORK_STATE_DIR, "tournament-matches.json")), fileStamp(join(TABLETOP_DIR, "matches")),
+    // a banked or revised league result (SPP, injuries, fans, concession verdicts) invalidates at once
+    leagueStore.forkIndexVersion(),
   ].join("|"),
   fixture: (id) => { try { return gameFixture(() => false, id); } catch { return undefined; } },
   fixtureForGame: (gameId) => { try { return gameFixture((m) => m.launch?.gameId === gameId); } catch { return undefined; } },

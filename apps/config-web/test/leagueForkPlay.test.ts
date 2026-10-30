@@ -316,10 +316,13 @@ describe("extra result data that fills itself (owner 10-30: G1, G2, G4)", () => 
       expect(store.forkGame("no-such-game")).toBeUndefined();
       expect(reads.mock.calls.length).toBe(built);
       // Banking writes through putSeason: the index follows without a rebuild (or a restart).
+      const versionBefore = store.forkIndexVersion();
+      expect(store.forkIndexVersion()).toBe(versionBefore); // stable while nothing changes
       applyForkResult(s, f, fromParsedResult(parsed()), new Date());
       reads.mockClear();
       store.putSeason(s);
       const banked = reads.mock.calls.length; // putSeason's own revision read
+      expect(store.forkIndexVersion()).not.toBe(versionBefore); // the game page's cache stamp moves with the bank
       expect(store.forkGame("g42")).toMatchObject({ leagueId: "tabbl", seasonId: "season-7", fixtureId: "f1", verdicts: { [aid]: false } });
       // the game page's public digest: the banked full result's extras by fork team / player id, never the treasury or team value
       const digest = store.forkGame("g42")!.digest!;
@@ -329,7 +332,9 @@ describe("extra result data that fills itself (owner 10-30: G1, G2, G4)", () => 
       expect(JSON.stringify(digest)).not.toMatch(/treasury|teamValue|coach/i);
       expect(reads.mock.calls.length).toBe(banked);
       // Removing the season drops its games.
+      const versionBanked = store.forkIndexVersion();
       store.removeSeason("tabbl", "season-7");
+      expect(store.forkIndexVersion()).not.toBe(versionBanked);
       expect(store.forkGame("g42")).toBeUndefined();
       expect(reads.mock.calls.length).toBe(banked);
       // A season written by another process shows up once the index is older than its TTL.

@@ -175,8 +175,8 @@ describe("game detail", () => {
     expect(d!.reporter!.summaries!.home).not.toHaveProperty("treasuryBefore");
     expect(d!.reporter!.summaries!.home).not.toHaveProperty("treasuryAfter");
     expect(d!.reporter!.moments).toEqual([
-      { half: 1, turn: 3, side: "home", kind: "touchdown", text: "Touchdown: Grim", player: "Grim" },
-      { half: 2, turn: 2, side: "home", kind: "casualty", text: "Casualty: Basher on Squeak (SI)", player: "Basher", victim: "Squeak", victimSide: "away", result: "SI" },
+      { half: 1, turn: 3, side: "home", kind: "touchdown", text: "Touchdown: Grim", player: "Grim", playerIndex: 0 },
+      { half: 2, turn: 2, side: "home", kind: "casualty", text: "Casualty: Basher on Squeak (SI)", player: "Basher", playerIndex: 1, victim: "Squeak", victimIndex: 0, victimSide: "away", result: "SI" },
     ]);
   });
 
@@ -184,7 +184,7 @@ describe("game detail", () => {
     const d = gameDetail("online", "g1", inputs({ results: [forkRow("g1")] as never }));
     const home = d!.summary.home!;
     expect(home.squad!.map((p) => p.name)).toEqual(["Grak", "Bonk", "Idle"]);
-    expect(home.squad![2]).toEqual({ name: "Idle", touchdowns: 0, casualtiesCaused: 0, completions: 0, interceptions: 0, deflections: 0, mvp: 0, fouls: 0 });
+    expect(home.squad![2]).toEqual({ name: "Idle", touchdowns: 0, casualtiesCaused: 0, completions: 0, interceptions: 0, deflections: 0, mvp: 0, fouls: 0, index: 2 });
     expect(home.winnings).toBe(0);
     expect(home).not.toHaveProperty("fanFactor");
     expect(home.players.every((p) => p.sppEarned === undefined && p.injury === undefined && p.position === undefined && p.missNextGame === undefined)).toBe(true);
