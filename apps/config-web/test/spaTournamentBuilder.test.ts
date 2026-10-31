@@ -543,8 +543,12 @@ describe("tournament builder page (server-rendered)", () => {
     expect(team).toMatch(/<button type="button" class="tb-btn">Save Team<\/button>/);
     expect(team).toMatch(/<button type="button" class="tb-btn" disabled>Create team on Fork<\/button>/);
     const sheet = await render("/tournament-team-builder?tab=sheet", f, prepare);
-    expect(sheet).toContain('<h2 class="tv-name">Reavers &lt;x&gt;</h2>');
-    expect(sheet).toContain("tv-secondary"); // Guard printed as an added Secondary skill
+    // The Sheet tab is the exported PDF previewed on paper (owner 10-30): the PDF's header, ruleset box and roster table.
+    expect(sheet).toContain('<h2 id="ps-frame-h">Sheet · preview of the exported PDF</h2>');
+    expect(sheet).toContain('<span class="ps-label">TEAM</span> Reavers &lt;x&gt;');
+    expect(sheet).toContain('<span class="ps-secondary">Guard</span>'); // Guard printed as an added Secondary skill
+    expect(sheet).toContain('<th colspan="4">TOURNAMENT RULESET</th>');
+    expect(sheet).toContain('<td class="ps-k">Package</td><td class="ps-v">Test Cup</td>');
     expect(sheet).not.toContain('id="tb-valid-h"');
     expect(sheet).not.toMatch(/>Export PDF<\/button>/);
   });

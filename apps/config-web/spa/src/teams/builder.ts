@@ -17,6 +17,7 @@ import {
   type InducementTeam, type LeagueSelection, type LegalSet, type Overview, type RaceRules, type SheetModel, type SkillCosts, type SkillPack,
   type Slot, type SpriteManifest, type Staff, type Stat, type StarChoice, type StarContext, type StatRules, type TierRules,
 } from "./builderCore";
+import { sheetRulesetRows, type PrintSheetModel } from "./sheetRuleset";
 
 // ── wire shapes ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -1258,9 +1259,9 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   }
 
   // ── sheet + PDF ───────────────────────────────────────────────────────────────────────────────────────────────
-  function sheetModel(): SheetModel {
+  function sheetModel(): PrintSheetModel {
     const roster = state.roster;
-    return core.rosterSheetModel({
+    return { ...core.rosterSheetModel({
       raceName: roster?.raceName ?? "",
       coach: deps.coach(),
       teamName: state.teamName.trim(),
@@ -1284,7 +1285,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       summary: state.preview?.summary ?? null,
       costs: { players: rawPlayerCost(), stars: rawStarCost(), sideline: staffCost(), skills: addedSkillGold(), inducements: inducementGold() },
       budget: budget(),
-    });
+    }), ruleset: sheetRulesetRows({ packageName: state.packageName, tierLabel: tierLabel(), raceRules: raceRules(), pack: packSummary(), tierRules: tierRules(), league: activeLeague(), budget: state.packageRules?.budget ?? null }) };
   }
   /** The shared team view model (public/team-view.js viewHtml) for the Sheet tab: the share page's look, from this build. */
   function teamViewModel() {
