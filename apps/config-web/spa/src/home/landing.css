@@ -1,10 +1,10 @@
 /* Signed-out landing (LandingWelcome.vue): welcome splash + content box. Header rules live in home.css. */
-.lw-landing { --lw-box: rgb(10 12 15 / 0.84); display: flex; flex-direction: column; gap: 16px; width: 100%; max-width: 100%; min-width: 0; }
+.lw-landing { --lw-box: rgb(10 12 15 / 0.6); display: flex; flex-direction: column; gap: 16px; width: 100%; max-width: 100%; min-width: 0; }
 
 /* Splash: bezel-and-lift frame; the art (--lw-splash, set by the component) sits bottom-centred so the trophy shows
    below the box; a light overall darkening only, the box carries the text contrast. */
 .lw-splash {
-  position: relative; display: flex; align-items: flex-start; justify-content: center; overflow: hidden;
+  position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden;
   min-height: 420px; aspect-ratio: 16 / 9; max-height: 620px; padding: 24px 16px;
   border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: 0 4px 0 var(--sf-panel-drop), var(--sf-bevel);
   background:
@@ -19,21 +19,24 @@
   background: var(--lw-box); border: 2px solid var(--sf-panel-line); border-radius: 2px;
   box-shadow: 0 4px 0 var(--sf-panel-drop), var(--sf-bevel);
 }
-@supports (backdrop-filter: blur(2px)) { .lw-box { backdrop-filter: blur(2px); } }
+@supports (backdrop-filter: blur(4px)) { .lw-box { backdrop-filter: blur(4px); } }
 .lw-logo { margin: 0 0 10px; padding: 0; font-size: 0; line-height: 0; }
 .lw-logo-img { display: block; width: min(360px, 78%); height: auto; margin: 0 auto; filter: drop-shadow(0 2px 0 rgb(0 0 0 / 0.5)); }
-.lw-lead { margin: 0 0 8px; font-size: 1.3rem; font-weight: 700; line-height: 1.3; color: #fff; }
-.lw-sub { margin: 0 auto 20px; max-width: 62ch; font-size: 1.02rem; line-height: 1.5; color: #f1ece2; }
-.lw-cta { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px 20px; }
-.lw-link { color: var(--lw-gold); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
-.lw-flat { margin: 18px 0 0; font-size: 1rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--lw-gold); }
-@media (min-width: 721px) { .lw-flat { white-space: nowrap; } }
-.lw-link:hover { color: #fff; }
+.lw-lead { text-shadow: 0 1px 3px #000, 0 0 8px #000; margin: 0 0 8px; font-size: 1.3rem; font-weight: 700; line-height: 1.3; color: #fff; }
+.lw-sub { text-shadow: 0 1px 3px #000, 0 0 6px #000; margin: 0 auto 20px; max-width: 62ch; font-size: 1.02rem; line-height: 1.5; color: #f1ece2; }
+.lw-cta { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 14px 20px; }
+/* Secondary buttons: same height as the Discord login, bevelled and lifted like it; the box is always dark so the colours are pinned. */
+.lw-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; box-sizing: border-box; padding: 6px 14px; font: 600 14px/1 var(--font-body, system-ui, sans-serif); color: var(--lw-gold); text-decoration: none; white-space: nowrap; background: linear-gradient(#2b3038, #14171c); border: 1px solid #4a525d; border-radius: 4px; box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.16), inset 0 -1px 0 rgb(0 0 0 / 0.4), 0 3px 0 #050607; transform: translateY(-1px); transition: transform .08s ease, box-shadow .08s ease, filter .08s ease; }
+.lw-btn:hover { color: #fff; filter: brightness(1.12); transform: translateY(-2px); }
+.lw-btn:active { transform: translateY(1px); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.16), 0 1px 0 #050607; }
 .lw-landing .rc-landing { align-self: stretch; }
 
 @media (max-width: 720px) {
-  .lw-splash { aspect-ratio: auto; min-height: 0; max-height: none; padding: 12px 8px 150px; }
+  .lw-splash { align-items: flex-start; aspect-ratio: auto; min-height: 0; max-height: none; padding: 12px 8px 150px; }
   .lw-box { padding: 14px 14px 18px; }
-    .lw-lead { font-size: 1.1rem; }
+    /* phones: stack centred, Login first so it stays the primary action */
+  .lw-cta { flex-direction: column; }
+  .lw-login { order: -1; }
+  .lw-lead { font-size: 1.1rem; }
   .lw-sub { font-size: .98rem; }
 }

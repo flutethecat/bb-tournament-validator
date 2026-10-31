@@ -855,10 +855,19 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const { html } = await render("/home", { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
     expect(html).not.toContain("motherboard-header");
     expect(html).not.toContain("landing-banner");
-    expect(html).toContain("Tell your league&#39;s story using your manager.");
-    expect(html).toContain("across multiple seasons.</p>");
-    expect(html).toContain('<p class="lw-flat">All for one flat rate.</p>');
-    expect(html.indexOf("lw-flat")).toBeGreaterThan(html.indexOf("lw-cta"));
+    expect(html).toContain('<p class="lw-lead">Tell your league&#39;s story</p>');
+    expect(html).not.toContain("using your manager");
+    expect(html).toContain("Run your tabletop leagues and tournaments, build rosters for your favorite tournaments, contact your players, integrate with Discord, and have detailed league stats across multiple seasons.</p>");
+    expect(html).not.toContain("flat rate");
+    // button row: Browse tournaments (left), Login (centre, label "Login", aria-label stays), Browse leagues (right)
+    const row = html.slice(html.indexOf('class="lw-cta"'));
+    const at = (needle: string) => row.indexOf(needle);
+    expect(at("Browse tournaments")).toBeGreaterThan(0);
+    expect(at("Browse tournaments")).toBeLessThan(at('aria-label="Login with Discord"'));
+    expect(at('aria-label="Login with Discord"')).toBeLessThan(at("Browse leagues"));
+    expect(row).toContain("<span>Login</span>");
+    expect(row).toContain('href="/app/tournaments" class="lw-btn lw-btn-left"');
+    expect(row).toContain('href="/app/leagues" class="lw-btn lw-btn-right"');
     expect(html).not.toContain("Welcome to Super FUMBBL League Manager!");
     expect(html).toContain('<h2 id="lw-welcome" class="lw-logo"><img class="lw-logo-img" src="/assets/league-manager-logo.png" alt="Super FUMBBL League Manager"');
     expect(html).toContain("Login with Discord");

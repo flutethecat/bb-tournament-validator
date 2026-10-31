@@ -22,15 +22,14 @@ useBlankPageTitle();
     <section class="lw-splash" aria-labelledby="lw-welcome" :style="{ '--lw-splash': `url(${SPLASH_IMAGE})` }">
       <div class="lw-box">
         <h2 id="lw-welcome" class="lw-logo"><img class="lw-logo-img" :src="LOGO" alt="Super FUMBBL League Manager" /></h2>
-        <p class="lw-lead">Tell your league's story using your manager.</p>
-        <p class="lw-sub">Run your tabletop leagues and tournaments, build rosters for your favorite tournaments, and track all your league's stats across multiple seasons.</p>
+        <p class="lw-lead">Tell your league's story</p>
+        <p class="lw-sub">Run your tabletop leagues and tournaments, build rosters for your favorite tournaments, contact your players, integrate with Discord, and have detailed league stats across multiple seasons.</p>
         <div class="lw-cta">
-          <DiscordLoginButton v-if="ssoEnabled" :href="href" label="Login with Discord" />
-          <p v-else class="lobby-error" role="alert">Discord sign-in is not set up on this server.</p>
-          <RouterLink class="lw-link" to="/tournaments">Browse tournaments</RouterLink>
-          <RouterLink class="lw-link" to="/leagues">Browse leagues</RouterLink>
+          <RouterLink class="lw-btn lw-btn-left" to="/tournaments">Browse tournaments</RouterLink>
+          <DiscordLoginButton v-if="ssoEnabled" class="lw-login" :href="href" label="Login" />
+          <p v-else class="lobby-error lw-login" role="alert">Discord sign-in is not set up on this server.</p>
+          <RouterLink class="lw-btn lw-btn-right" to="/leagues">Browse leagues</RouterLink>
         </div>
-        <p class="lw-flat">All for one flat rate.</p>
       </div>
     </section>
 
