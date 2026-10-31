@@ -957,7 +957,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(main).toMatch(/id="ac-naf-name"[^>]*value="Alice N"/);
     expect(main).toMatch(/id="ac-naf-id"[^>]*value="1234"/);
     expect(main).toContain('src="https://cdn.example.test/a.png"');
-    expect(main).toContain("Avatar from your Discord account.");
+    expect(main).toContain("Your avatar. Falls back to your Discord avatar."); // owner 10-31: upload control, Discord fallback
     expect(main).toContain("alice_dc");
     expect(side).toContain("Sign out");
     expect(side).toContain('href="/app/my-teams#avatars"');

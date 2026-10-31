@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // IDENTITY panel (Account page): display name, FUMBBL name, NAF name and number, saved with PATCH /api/me/profile.
-// Avatar is read-only. A FUMBBL name linked by tournament registration is locked. Below the form, the CONNECTIONS table
+// The avatar is the coach's own upload (Upload / Remove on the picture; cropped square and shrunk in the browser, the
+// server checks again), else an admin-set one, else the Discord avatar (owner 10-31). A FUMBBL name linked by tournament registration is locked. Below the form, the CONNECTIONS table
 // (Discord, NAF, FUMBBL) renders the server's rows (src/account/connections.ts); NAF links through an inline form that
 // the server checks against the public NAF coach page (the NAF has no sign-in, so this is not proof of ownership).
-import { onMounted, onServerPrefetch } from "vue";
+import { onMounted, onServerPrefetch, ref } from "vue";
+import { prepareAvatar } from "../shared/avatarImage";
 import { DISPLAY_NAME_MAX, FUMBBL_NAME_MAX, NAF_NAME_MAX, type ProfileEditor, type ProfileField } from "../account/profile";
 import { actionLabel, STATUS_LABEL, STATUS_TONE, type ConnectionAction, type ConnectionView } from "../account/connections";
 
@@ -21,6 +23,23 @@ function act(row: ConnectionView, action: ConnectionAction): void {
   else if (row.linkVia?.mode === "field") document.getElementById("ac-fumbbl")?.focus();
   else conn.link(row);
 }
+const fileInput = ref<HTMLInputElement | null>(null);
+const avatarFailed = ref("");
+/** Pick -> crop/shrink -> upload at once; the file input is cleared either way so the same file can be picked again. */
+async function onAvatarPick(e: Event): Promise<void> {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  state.avatar.error = "";
+  if (!file) return;
+  try {
+    const blob = await prepareAvatar(file);
+    await props.editor.uploadAvatar(blob);
+  } catch (err) {
+    state.avatar.error = (err as Error).message || "That file could not be read as an image.";
+  } finally {
+    input.value = "";
+  }
+}
 const formFields = (row: ConnectionView) => (row.linkVia?.mode === "form" ? row.linkVia.fields : []);
 
 onMounted(() => { if (!state.loaded && !state.loadFailed) void props.editor.load(); });
@@ -33,12 +52,27 @@ onServerPrefetch(() => props.editor.load());
     <template v-else-if="state.view">
     <form class="ac-form" novalidate :aria-busy="state.saving ? 'true' : undefined" @submit.prevent="editor.save()">
       <div class="ac-who">
-        <img v-if="state.view.avatar" class="ac-avatar" :src="state.view.avatar" alt="" />
-        <span v-else class="ac-avatar ac-avatar-blank" aria-hidden="true">{{ coach.slice(0, 1) }}</span>
+        <div class="ac-avatar-ctl" :aria-busy="state.avatar.busy ? 'true' : undefined">
+          <img
+            v-if="state.view.avatar && avatarFailed !== state.view.avatar" class="ac-avatar" :src="state.view.avatar" alt="" referrerpolicy="no-referrer"
+            @error="avatarFailed = state.view.avatar ?? ''"
+          />
+          <span v-else class="ac-avatar ac-avatar-blank" aria-hidden="true">{{ coach.slice(0, 1) }}</span>
+          <label class="ac-avatar-up" :class="{ busy: state.avatar.busy }" for="ac-avatar-file">{{ state.avatar.busy ? "…" : "Upload" }}</label>
+          <input
+            id="ac-avatar-file" ref="fileInput" class="ac-sr" type="file" accept="image/png,image/jpeg,image/webp"
+            :disabled="state.avatar.busy" aria-describedby="ac-avatar-help" @change="onAvatarPick"
+          />
+        </div>
         <div class="ac-who-text">
           <strong class="ac-shown">{{ state.form.displayName.trim() || coach }}</strong>
           <small class="muted hm-small">Coach name <span class="hm-led">{{ coach }}</span></small>
-          <small class="muted hm-small">{{ state.view.avatarSource === "profile" ? "Avatar set by an admin." : state.view.avatarSource === "discord" ? "Avatar from your Discord account." : "No avatar: set one on Discord." }}</small>
+          <small id="ac-avatar-help" class="muted hm-small">Your avatar. Falls back to your Discord avatar.</small>
+          <span class="ac-avatar-actions">
+            <button v-if="state.view.avatarSource === 'upload'" class="lobby-btn small" type="button" :disabled="state.avatar.busy" @click="editor.removeAvatar()">Remove</button>
+            <small v-if="state.avatar.busy" class="muted hm-small" role="status">Working…</small>
+          </span>
+          <small v-if="state.avatar.error" class="lobby-error hm-small" role="alert">{{ state.avatar.error }}</small>
         </div>
       </div>
 

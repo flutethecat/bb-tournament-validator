@@ -9,7 +9,7 @@ export interface RecentSide {
   race: string;
   coach: string;
   crestUrl: string | null;
-  /** The coach's avatar, when the API sends one (it does not yet: see ResultCard). */
+  /** The coach's avatar (src/coachAvatars.ts: upload > admin-set > Discord); absent for coaches without a site identity. */
   avatarUrl?: string | null;
   score: number | null;
   cas: number | null;

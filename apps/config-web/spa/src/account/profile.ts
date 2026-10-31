@@ -1,5 +1,5 @@
-// Account page IDENTITY panel: GET/PATCH /api/me/profile (display name, FUMBBL name, NAF name and number; avatar and
-// Discord read-only). The checks mirror the server's (src/accountProfile.ts), which stays the authority. No DOM;
+// Account page IDENTITY panel: GET/PATCH /api/me/profile (display name, FUMBBL name, NAF name and number; Discord
+// read-only) and the coach's own avatar (PUT/DELETE /api/me/avatar, src/coachAvatars.ts: upload > admin-set > Discord). The checks mirror the server's (src/accountProfile.ts), which stays the authority. No DOM;
 // rendered by AccountIdentity.vue.
 
 import { reactive } from "vue";
@@ -14,7 +14,8 @@ export interface ProfileView {
   nafName: string;
   nafId: string;
   avatar: string | null;
-  avatarSource: "profile" | "discord" | "none";
+  /** upload (the coach's own) > profile (admin-set) > discord > none. */
+  avatarSource: "upload" | "profile" | "discord" | "none";
   discord: { linked: boolean; username: string };
   /** The Connections table (Discord, NAF, FUMBBL); absent from an older server. */
   connections?: ConnectionView[];
@@ -45,6 +46,20 @@ export function profileProblems(form: ProfileForm): ProfileForm {
   };
 }
 
+/** The coach's own avatar route (PUT a raw image, DELETE to fall back). */
+export const OWN_AVATAR_PATH = "/api/me/avatar";
+
+/** What the avatar PUT answers. */
+export interface OwnAvatarResult { ok: boolean; status: number; profile?: ProfileView; error?: string }
+/** Sends one raw image body (the JSON Fetcher cannot). Replaceable so tests need no network. */
+export type OwnAvatarUploader = (body: Blob) => Promise<OwnAvatarResult>;
+
+const defaultUploader: OwnAvatarUploader = async (body) => {
+  const res = await fetch(OWN_AVATAR_PATH, { method: "PUT", credentials: "same-origin", headers: { "x-cw-auth": "1", "content-type": body.type }, body });
+  const data = (await res.json().catch(() => null)) as { profile?: ProfileView; error?: string } | null;
+  return { ok: res.ok, status: res.status, profile: data?.profile, error: data?.error };
+};
+
 export interface ProfileState {
   view: ProfileView | null;
   form: ProfileForm;
@@ -54,6 +69,8 @@ export interface ProfileState {
   saving: boolean;
   error: string;
   notice: string;
+  /** The avatar control: a request in flight, and its last error ("" = none). */
+  avatar: { busy: boolean; error: string };
 }
 
 const formOf = (v: ProfileView): ProfileForm => ({ displayName: v.displayName, fumbblName: v.fumbblName, nafName: v.nafName, nafId: v.nafId });
@@ -66,8 +83,9 @@ const sameCoach = (a: string, b: string) => a.trim().toLowerCase() === b.trim().
  * lands after the session switched (or that answers for a different coach) is dropped, and a save is refused once the
  * session is no longer the editor's coach. The page recreates the editor on a coach switch.
  */
-export function createProfileEditor(deps: { api: Fetcher; coach?: string; currentCoach?: () => string }) {
-  const state = reactive<ProfileState>({ view: null, form: blank(), problems: blank(), loaded: false, loadFailed: false, saving: false, error: "", notice: "" });
+export function createProfileEditor(deps: { api: Fetcher; coach?: string; currentCoach?: () => string; uploadAvatar?: OwnAvatarUploader }) {
+  const state = reactive<ProfileState>({ view: null, form: blank(), problems: blank(), loaded: false, loadFailed: false, saving: false, error: "", notice: "", avatar: { busy: false, error: "" } });
+  const uploader = deps.uploadAvatar ?? defaultUploader;
   const tag = deps.coach ?? "";
   /** True when the session moved on from the coach this editor was made for. */
   const stale = () => Boolean(tag && deps.currentCoach && !sameCoach(deps.currentCoach(), tag));
@@ -116,11 +134,56 @@ export function createProfileEditor(deps: { api: Fetcher; coach?: string; curren
 
   const connections = createConnectionsController<ProfileView>({ api: deps.api, adopt, stale });
 
+  /** The server's view after an avatar change: only the avatar fields move (form edits in progress are kept). */
+  function adoptAvatar(v: ProfileView | undefined): void {
+    if (!v || stale() || foreign(v) || !state.view) return;
+    state.view = { ...state.view, avatar: v.avatar, avatarSource: v.avatarSource };
+  }
+
+  async function uploadAvatar(blob: Blob): Promise<boolean> {
+    const a = state.avatar;
+    if (!state.view || a.busy) return false;
+    if (stale()) { a.error = "You are signed in as another coach now. Reload the page."; return false; }
+    a.busy = true;
+    a.error = "";
+    try {
+      const res = await uploader(blob);
+      if (!res.ok) { a.error = res.error || `Upload failed (${res.status}).`; return false; }
+      adoptAvatar(res.profile);
+      return true;
+    } catch {
+      a.error = "Can't reach the server. Check your connection.";
+      return false;
+    } finally {
+      a.busy = false;
+    }
+  }
+
+  async function removeAvatar(): Promise<boolean> {
+    const a = state.avatar;
+    if (!state.view || a.busy || state.view.avatarSource !== "upload") return false;
+    if (stale()) { a.error = "You are signed in as another coach now. Reload the page."; return false; }
+    a.busy = true;
+    a.error = "";
+    try {
+      const res = await deps.api<{ profile?: ProfileView }>(OWN_AVATAR_PATH, { method: "DELETE" });
+      adoptAvatar(res?.profile);
+      return true;
+    } catch (e) {
+      a.error = e instanceof Error ? e.message : "Could not remove your avatar.";
+      return false;
+    } finally {
+      a.busy = false;
+    }
+  }
+
   return {
     state,
     load,
     changes,
     connections,
+    uploadAvatar,
+    removeAvatar,
     /** True when the NAF record is Verified and the form changes its name or number (saving clears the check). */
     nafEditClearsVerified(): boolean {
       const c = changes();

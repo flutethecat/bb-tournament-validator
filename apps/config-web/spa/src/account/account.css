@@ -9,6 +9,20 @@
 .ac-avatar { width: 56px; height: 56px; flex: none; border: 2px solid var(--sf-panel-line); border-radius: 2px; object-fit: cover; box-shadow: var(--sf-bevel); }
 .ac-avatar-blank { display: inline-flex; align-items: center; justify-content: center; font: 24px var(--sf-band-font); color: var(--ui-muted); background: var(--ui-surface-2); }
 .ac-who-text { display: grid; gap: 2px; min-width: 0; }
+/* The avatar control (owner 10-31): the picture with an Upload strip over its foot; the file input is visually hidden
+   behind the label, so a keyboard user tabs to the input and the label shows the focus ring. */
+.ac-avatar-ctl { position: relative; flex: none; width: 56px; height: 56px; }
+.ac-avatar-ctl .ac-avatar { border-radius: 50%; }
+.ac-avatar-up {
+  position: absolute; inset: auto 0 0 0; display: flex; justify-content: center; padding: 2px 0 3px; cursor: pointer;
+  font: 9px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-text);
+  background: color-mix(in srgb, var(--ui-surface, #0d0d0d) 78%, transparent); border-radius: 0 0 28px 28px;
+}
+.ac-avatar-up:hover { color: var(--ui-heading); }
+.ac-avatar-up.busy { cursor: progress; }
+.ac-avatar-ctl:has(input:focus-visible) .ac-avatar-up { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+.ac-avatar-actions { display: flex; align-items: center; gap: 8px; min-height: 0; }
+.ac-avatar-actions:empty { display: none; }
 .ac-shown { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ac-field { display: grid; gap: 4px; min-width: 0; }
 .ac-field label, .ac-label { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }

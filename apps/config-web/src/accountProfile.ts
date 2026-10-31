@@ -10,10 +10,12 @@
 // - nafName/nafId -> record.identities.nafName / nafId, the fields the NAF rating scrape and the organiser NAF route
 //                   already use. They stay editable here; changing either clears a NAF verification
 //                   (record.connections.naf, written by POST /api/me/connections/naf, src/auth/connections.ts).
-// - avatar       -> read-only: record.profile.avatar (set by an admin) else the Discord avatar.
+// - avatar       -> the coach's own upload (PUT/DELETE /api/me/avatar, src/coachAvatars.ts), else record.profile.avatar
+//                   (set by an admin), else the Discord avatar. Not part of the PATCH body.
 
 import { connectionsAfterIdentityEdit, isNafId, ownIdentityRecord, upsertIdentity, normalizeFfbCoachId, withConnections, type CoachIdentityRecord } from "./auth/identitiesStore.js";
 import { connectionsView, type ConnectionView } from "./auth/connections.js";
+import { resolveCoachAvatar, type CoachAvatarSource } from "./coachAvatars.js";
 
 export const DISPLAY_NAME_MAX = 32;
 export const FUMBBL_NAME_MAX = 40;
@@ -36,7 +38,8 @@ export interface ProfileView {
   nafName: string;
   nafId: string;
   avatar: string | null;
-  avatarSource: "profile" | "discord" | "none";
+  /** upload (the coach's own) > profile (admin-set) > discord > none. */
+  avatarSource: CoachAvatarSource;
   discord: { linked: boolean; username: string };
   /** The Connections table (Discord, NAF, FUMBBL), src/auth/connections.ts. */
   connections: ConnectionView[];
@@ -48,13 +51,18 @@ export interface ProfileDeps {
   /** The registry-linked FUMBBL name (server.ts linkedFumbblName), null when none. */
   linkedFumbblName: (coach: string, discordUserId: string) => string | null;
   discordAvatarUrl: (discordUserId: string, hash: string | undefined) => string | null | undefined;
+  /** The coach's own uploaded avatar URL (src/coachAvatars.ts uploadedCoachAvatarUrl), undefined when none. */
+  uploadedAvatarUrl?: (coach: string) => string | undefined;
 }
 
 export function profileView(record: CoachIdentityRecord, deps: ProfileDeps): ProfileView {
   const discordUserId = record.identities.discordUserId ?? "";
   const linked = deps.linkedFumbblName(record.ffbCoachId, discordUserId);
-  const own = record.profile.avatar || "";
-  const discord = deps.discordAvatarUrl(discordUserId, record.identities.discordAvatarHash) || "";
+  const shown = resolveCoachAvatar({
+    upload: deps.uploadedAvatarUrl?.(record.ffbCoachId),
+    profile: record.profile.avatar,
+    discord: deps.discordAvatarUrl(discordUserId, record.identities.discordAvatarHash),
+  });
   return {
     coach: record.ffbCoachId,
     displayName: record.profile.displayName ?? "",
@@ -62,8 +70,8 @@ export function profileView(record: CoachIdentityRecord, deps: ProfileDeps): Pro
     fumbblLinked: Boolean(linked),
     nafName: record.identities.nafName ?? "",
     nafId: record.identities.nafId ?? "",
-    avatar: own || discord || null,
-    avatarSource: own ? "profile" : discord ? "discord" : "none",
+    avatar: shown.url,
+    avatarSource: shown.source,
     discord: { linked: Boolean(discordUserId), username: record.identities.discordUsername ?? "" },
     connections: connectionsView(record, linked),
   };

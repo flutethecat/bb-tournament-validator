@@ -114,6 +114,7 @@ import { handleTestLogin } from "./auth/testLogin.js";
 import {
   avatarRateLimit, avatarStoreFor, avatarUrlFor, AVATAR_CONTENT_TYPE, AVATAR_MAX_BYTES, checkAvatar, declaredTooLarge, readRawCapped, teamAvatarPath,
 } from "./teamAvatars.js";
+import { OWN_AVATAR_PATH, coachAvatarKey, coachAvatarPath, createCoachAvatarResolver, resolveCoachAvatar, uploadedCoachAvatarUrl, withSideAvatars } from "./coachAvatars.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
 import { isSpaPath, spaStaticPath } from "./spaRoutes.js";
 import { linkedFumbblNameIn } from "./fumbblLink.js";
@@ -423,6 +424,11 @@ const LIBRARY_DIR = resolve(process.env.FORK_LIBRARY_DIR || join(HERE, "../data-
 // Team Builder saved sheets (one JSON file per coach), beside the library by default.
 const BUILDER_SAVES_DIR = resolve(process.env.FORK_BUILDER_SAVES_DIR || join(dirname(LIBRARY_DIR), "builder-saves"));
 const TEAM_AVATARS_DIR = resolve(process.env.TEAM_AVATARS_DIR || join(dirname(LIBRARY_DIR), "team-avatars"));
+// Coach avatars uploaded on the Account page (src/coachAvatars.ts), beside the team avatars by default.
+const COACH_AVATARS_DIR = resolve(process.env.COACH_AVATARS_DIR || join(dirname(LIBRARY_DIR), "coach-avatars"));
+/** Public result cards: coach name -> avatar URL from memory (upload index + an identities snapshot, 30 s). */
+const coachAvatars = createCoachAvatarResolver({ dir: COACH_AVATARS_DIR, discordAvatarUrl });
+const uploadedAvatarUrl = (coach: string): string | undefined => uploadedCoachAvatarUrl(COACH_AVATARS_DIR, coach);
 // Bug reports land here (one folder per report) for later ingestion by the owner.
 const BUG_REPORTS_DIR = resolve(process.env.BUG_REPORTS_DIR || join(HERE, "../bug-reports"));
 // Tracks the last successful fork (game server) reload — see @bb/fork-ops's forkReload.
@@ -831,7 +837,11 @@ async function handleLobbyRequest(req: IncomingMessage, res: ServerResponse, pat
       try {
         const record = ownIdentityRecord(coach);
         discordUserId = record.identities.discordUserId ?? "";
-        avatar = record.profile.avatar || discordAvatarUrl(discordUserId, record.identities.discordAvatarHash) || null;
+        avatar = resolveCoachAvatar({
+          upload: uploadedAvatarUrl(coach),
+          profile: record.profile.avatar,
+          discord: discordAvatarUrl(discordUserId, record.identities.discordAvatarHash),
+        }).url;
       } catch { /* unknown coach: no card extras */ }
       return { avatar, fumbblName: linkedFumbblName(coach, discordUserId) };
     },
@@ -1208,6 +1218,8 @@ function authorized(req: IncomingMessage, pathname: string): boolean {
   if (teamBuilderSavesPath(pathname) !== undefined || teamBuilderSharePath(pathname) !== undefined) return true;
   // Team avatars: PUT/DELETE are session + ownership gated in-handler; the GET read is public.
   if (teamAvatarPath(pathname) !== undefined) return true;
+  // Coach avatars: the GET read is public; PUT/DELETE /api/me/avatar are session gated in-handler.
+  if ((req.method === "GET" || req.method === "HEAD") && coachAvatarPath(pathname) !== undefined) return true;
   // Public team share link read + its page (owner 10-27): GET/HEAD only.
   if ((req.method === "GET" || req.method === "HEAD") && (teamBuilderSharedPath(pathname) !== undefined || teamViewPagePath(pathname) !== undefined)) return true;
   // Web Lobby: session-gated in-handler (401 JSON); its built page is public static.
@@ -1421,6 +1433,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === "/api/account" ||
     pathname === "/api/me/scheduling" ||
     pathname === "/api/me/profile" ||
+    pathname === OWN_AVATAR_PATH ||
     pathname === NAF_CONNECTION_ENDPOINT ||
     pathname === "/api/me/notifications/read" ||
     isTeamMutationWritePath(pathname) ||
@@ -2040,7 +2053,7 @@ async function handleApi(
   // Account page Identity panel (/app/account): the session coach's own profile only (src/accountProfile.ts).
   if (path === "/api/me/profile" && (method === "GET" || method === "PATCH")) {
     if (!auth) return sendJson(res, 401, { error: "Authentication required." });
-    const deps: ProfileDeps = { linkedFumbblName, discordAvatarUrl };
+    const deps: ProfileDeps = { linkedFumbblName, discordAvatarUrl, uploadedAvatarUrl };
     if (method === "GET") {
       try { return sendJson(res, 200, profileView(ownIdentityRecord(auth.coach), deps)); } catch (error) {
         return sendJson(res, 400, { error: (error as Error).message });
@@ -2059,7 +2072,7 @@ async function handleApi(
   // own NAF record. "Verified" = the record exists and matches; the NAF has no OAuth (src/auth/connections.ts).
   if (path === NAF_CONNECTION_ENDPOINT && (method === "POST" || method === "DELETE")) {
     if (!auth) return sendJson(res, 401, { error: "Authentication required." });
-    const deps: ProfileDeps = { linkedFumbblName, discordAvatarUrl };
+    const deps: ProfileDeps = { linkedFumbblName, discordAvatarUrl, uploadedAvatarUrl };
     try {
       if (method === "DELETE") return sendJson(res, 200, profileView(nafProvider.unlink!(auth.coach), deps));
       let rawBody: unknown;
@@ -2083,7 +2096,8 @@ async function handleApi(
   if (path === "/api/recent-results" && (method === "GET" || method === "HEAD")) {
     res.setHeader("cache-control", "public, max-age=60");
     try {
-      return sendJson(res, 200, { results: (await cachedRecentResults()).slice(0, recentLimit(query.get("limit"))) });
+      const rows = (await cachedRecentResults()).slice(0, recentLimit(query.get("limit")));
+      return sendJson(res, 200, { results: rows.map((r) => withSideAvatars(r, coachAvatars.avatarFor)) });
     } catch {
       return sendJson(res, 200, { results: [] });
     }
@@ -2099,7 +2113,8 @@ async function handleApi(
     if (!loaded) return sendJson(res, 404, { error: "Game not found." });
     const viewer = GAME_PAGES_PUBLIC_PLAYER_LINES ? undefined : sessionFromRequest(req)?.coach;
     const full = maySeePlayerLines(GAME_PAGES_PUBLIC_PLAYER_LINES, loaded.access, viewer, (c) => coachLevel(c) !== "player" || isOrganizer(c));
-    return sendJson(res, 200, full ? loaded.detail : withoutPlayerLines(loaded.detail));
+    const detail = full ? loaded.detail : withoutPlayerLines(loaded.detail);
+    return sendJson(res, 200, { ...detail, card: withSideAvatars(detail.card, coachAvatars.avatarFor) });
   }
 
   // Coach home page (/app/home): derived deadlines + the availability editor. Session-gated, own data only.
@@ -3280,6 +3295,65 @@ async function handleApi(
     }
   }
 
+  // --- Coach avatars: PUT/DELETE /api/me/avatar by the session coach, public GET (src/coachAvatars.ts) ---
+  // Same checks, limits and store as the team avatars below (src/teamAvatars.ts).
+  {
+    const coachId = coachAvatarPath(path);
+    if (coachId !== undefined) {
+      if (method !== "GET" && method !== "HEAD") return sendJson(res, 405, { error: "Use GET." });
+      const store = avatarStoreFor(COACH_AVATARS_DIR);
+      await store.ready;
+      const found = store.find(coachAvatarKey(coachId)); // index only: a miss costs no disk access
+      if (!found) return sendJson(res, 404, { error: "No avatar." });
+      try {
+        const bytes = await readFile(found.path);
+        res.writeHead(200, {
+          "content-type": AVATAR_CONTENT_TYPE[found.ext],
+          "content-length": String(bytes.length),
+          "cache-control": "public, max-age=3600",
+          "x-content-type-options": "nosniff",
+        });
+        res.end(method === "HEAD" ? undefined : bytes);
+      } catch {
+        sendJson(res, 404, { error: "No avatar." });
+      }
+      return;
+    }
+    if (path === OWN_AVATAR_PATH) {
+      if (method !== "PUT" && method !== "DELETE") return sendJson(res, 405, { error: "Use PUT or DELETE." });
+      if (!auth) return sendJson(res, 401, { error: "Sign in to change your avatar." });
+      // Its own bucket in the shared limiter (10 changes a minute), so team avatar changes do not use it up.
+      const wait = avatarRateLimit(`coach-avatar:${auth.coach.trim().toLowerCase()}`);
+      if (wait > 0) {
+        res.setHeader("retry-after", String(wait));
+        return sendJson(res, 429, { error: "Too many avatar changes. Try again in a minute." });
+      }
+      const key = coachAvatarKey(auth.coach);
+      const deps: ProfileDeps = { linkedFumbblName, discordAvatarUrl, uploadedAvatarUrl };
+      try {
+        const store = avatarStoreFor(COACH_AVATARS_DIR);
+        if (method === "DELETE") {
+          await store.remove(key);
+          return sendJson(res, 200, { ok: true, profile: profileView(ownIdentityRecord(auth.coach), deps) });
+        }
+        const tooLarge = (): void => {
+          res.once("finish", () => req.destroy());
+          res.setHeader("connection", "close");
+          sendJson(res, 413, { error: `The image must be at most ${AVATAR_MAX_BYTES / 1024} KB.` });
+        };
+        if (declaredTooLarge(req, AVATAR_MAX_BYTES)) return tooLarge();
+        const body = await readRawCapped(req, AVATAR_MAX_BYTES);
+        if (!body) return tooLarge();
+        const checked = checkAvatar(body);
+        if (!checked.ok) return sendJson(res, 400, { error: checked.error });
+        await store.save(auth.coach.trim().toLowerCase(), key, body, checked.image.ext);
+        return sendJson(res, 200, { ok: true, avatarUrl: uploadedAvatarUrl(auth.coach), profile: profileView(ownIdentityRecord(auth.coach), deps) });
+      } catch {
+        return sendJson(res, 500, { error: "Could not update your avatar right now." });
+      }
+    }
+  }
+
   // --- Team avatars: PUT/DELETE by the owning coach, public GET (src/teamAvatars.ts) ---
   {
     const teamKey = teamAvatarPath(path);
@@ -3982,6 +4056,10 @@ export const server = createServer((req, res) => {
       }
       // Team avatar read is public (like the share-link read); PUT/DELETE fall through to the session gate.
       if ((req.method === "GET" || req.method === "HEAD") && teamAvatarPath(url.pathname) !== undefined) {
+        return await handleApi(req, res, url.pathname, url.searchParams);
+      }
+      // Coach avatar read is public too (result cards show it); the writes are /api/me/avatar, session gated.
+      if ((req.method === "GET" || req.method === "HEAD") && coachAvatarPath(url.pathname) !== undefined) {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
       if (req.method === "GET" && url.pathname === "/api/fork/records") {

@@ -7,13 +7,15 @@ import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import { raceTone } from "../shared/raceTone";
 import { routerPathOf } from "../home/shell";
+import { createAvatarFallback } from "../shared/avatarUrl";
 
 export interface ResultCardSide {
   name: string;
   race: string;
   coach: string;
   crestUrl?: string | null;
-  /** The coach's avatar when the API sends one; otherwise the letter badge shows. */
+  /** The coach's avatar when the API sends one (src/coachAvatars.ts: upload > admin-set > Discord); otherwise, or when it
+   *  is not on the allow-list or fails to load, the letter badge shows. */
   avatarUrl?: string | null;
   score: number | null;
   cas: number | null;
@@ -42,6 +44,8 @@ const imageSrc = (url: string | null | undefined): string => {
   const u = typeof url === "string" ? url.trim() : "";
   return /^\/(?!\/)/.test(u) || /^https?:\/\//i.test(u) ? u : "";
 };
+/** Avatars that failed to load fall back to the letter badge (shared/avatarUrl.ts). */
+const avatar = createAvatarFallback();
 const initials = (name: string): string =>
   name.split(/\s+/).map((w) => w.match(/[\p{L}\p{N}]/u)?.[0] ?? "").filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
 const scoreText = (n: number | null) => (n === null || n === undefined ? "–" : String(n));
@@ -105,8 +109,11 @@ const sides = computed(() => [
           <span class="rc-who">
             <span class="rc-name">{{ s.side.name }}</span>
             <span v-if="s.side.coach" class="rc-coach">
-              <img v-if="imageSrc(s.side.avatarUrl)" class="rc-avatar" :src="imageSrc(s.side.avatarUrl)" alt="" loading="lazy" referrerpolicy="no-referrer" />
-              <span v-else class="rc-avatar" aria-hidden="true">{{ initials(s.side.coach) }}</span>
+              <img
+                v-if="avatar.shown(s.side.avatarUrl)" class="rc-avatar" :src="avatar.shown(s.side.avatarUrl)" alt="" width="24" height="24"
+                loading="lazy" referrerpolicy="no-referrer" decoding="async" @error="avatar.fail(s.side.avatarUrl)"
+              />
+              <span v-else class="rc-avatar" aria-hidden="true" :data-avatar-fallback="avatar.marker(s.side.avatarUrl)">{{ initials(s.side.coach) }}</span>
               <span class="rc-coach-name">{{ s.side.coach }}</span>
             </span>
           </span>
