@@ -216,19 +216,25 @@
 .tb-step-row.off { opacity: .55; }
 .tb-step-icon { width: 40px; height: 40px; display: grid; place-items: center; }
 .tb-step-icon img { width: 36px; height: 36px; object-fit: contain; image-rendering: pixelated; }
-/* The Ruleset tab: one flow. Source order = the phone / keyboard order (rulesets, rules summary, Pick a race). From 1180 px (the
-   same threshold as the Roster pane, nav included) grid areas seat Pick a race as the left column (3fr, as tall as its scroller) and the
-   rules selector over the rules summary on the right (2fr); the cards go two to a row. */
+/* The Ruleset tab: one flow. Source order = the phone / keyboard order (rulesets, rules summary, Pick a race). With no ruleset only
+   step 1 shows, in the left column (2fr). Choosing one slides it to the right column (2fr again, so its width never changes) and
+   Pick a race pops in as the left column (3fr, as tall as its scroller); the cards go two to a row. From 1180 px (the same threshold
+   as the Roster pane, nav included). The motion itself lives in TournamentBuilderRuleset.vue (FLIP) and teams/rulesetMotion.ts. */
 .tb-rsflow { display: grid; gap: 16px; min-width: 0; }
 .tb-area-rulesets { grid-area: rulesets; }
 .tb-area-summary { grid-area: summary; }
 .tb-area-race { grid-area: race; }
 .tb-rsflow { grid-template-areas: "rulesets" "summary" "race"; }
+.tb-rsflow.tb-rs-anim { overflow-x: clip; } /* the slide never widens the page */
 @media (min-width: 1180px) {
-  .tb-rsflow { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); grid-template-rows: auto 1fr; grid-template-areas: "rulesets race" "summary race"; align-items: start; } /* step 1 left, step 2 right (owner 10-31) */
+  .tb-rsflow { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: auto 1fr; grid-template-areas: "race rulesets" "race summary"; align-items: start; }
+  .tb-rsflow.tb-rs-none { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); grid-template-rows: auto; grid-template-areas: "rulesets ."; }
   .tb-area-race { align-self: start; } /* as tall as its table + scroller, never stretched to the rulesets column (no dead gap) */
   .tb-rsflow .tb-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+@keyframes tb-race-swap { from { opacity: 0; } to { opacity: 1; } }
+.tb-race-swap { animation: tb-race-swap 160ms ease-out; } /* a later ruleset pick: the race table crossfades in place */
+@media (prefers-reduced-motion: reduce) { .tb-race-swap { animation-duration: 1ms; } }
 .tb-race-scroll { max-height: max(320px, calc(100vh - 280px)); overflow: auto; padding-right: 0; }
 .tb-race-scroll thead th { position: sticky; top: 0; z-index: 2; box-shadow: 0 2px 0 var(--sf-panel-line); } /* header row stays at the top of the scroll region */
 .tb-scroll-list { max-height: 520px; overflow-y: auto; padding-right: 2px; }

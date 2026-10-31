@@ -469,7 +469,7 @@ describe("tournament builder page (server-rendered)", () => {
 
   it("the Ruleset tab's Pick a race table sits in a scroll region with a sticky header; the panel header and helper line stay outside it", async () => {
     const html = await render("/tournament-team-builder?package=Test%20Cup&tab=ruleset", mockFetcher(routes()));
-    const region = html.indexOf('class="tb-scroll tb-race-scroll"');
+    const region = html.indexOf('class="tb-scroll tb-race-scroll tb-race-swap"');
     expect(region).toBeGreaterThan(html.indexOf('id="tb-race-h"'));
     expect(region).toBeGreaterThan(html.indexOf("Each team name picks that race."));
     expect(html.slice(region, region + 400)).toContain("<table");
@@ -478,10 +478,10 @@ describe("tournament builder page (server-rendered)", () => {
     expect(css).toMatch(/\.tb-race-scroll thead th \{[^}]*position: sticky; top: 0/);
   });
 
-  it("the Ruleset tab reflows: DOM order is rulesets, rules summary, Pick a race; grid areas seat the race picker left from 1180 px; the empty state keeps the race panel", async () => {
+  it("the Ruleset tab reflows: DOM order is rulesets, rules summary, Pick a race; once a ruleset is chosen the race picker is the left column and the rulesets sit right", async () => {
     const html = await render("/tournament-team-builder?package=Test%20Cup&tab=ruleset", mockFetcher(routes()));
     const at = (id: string) => html.indexOf(`id="${id}"`);
-    expect(html).toContain('class="tb-rsflow"');
+    expect(html).toContain('class="tb-rsflow tb-rs-sel"');
     expect(at("tb-rulesets-h")).toBeGreaterThan(-1);
     expect(at("tb-package-h")).toBeGreaterThan(at("tb-rulesets-h"));
     expect(at("tb-race-h")).toBeGreaterThan(at("tb-package-h"));
@@ -489,14 +489,44 @@ describe("tournament builder page (server-rendered)", () => {
     const css = readFileSync(new URL("../spa/src/teams/builder.css", import.meta.url), "utf8");
     expect(css).toMatch(/\.tb-area-race \{ grid-area: race; \}/);
     expect(css).toMatch(/\.tb-rsflow \{ grid-template-areas: "rulesets" "summary" "race"; \}/);
-    expect(css).toMatch(/@media \(min-width: 1180px\) \{\s*\.tb-rsflow \{[^}]*2fr[^}]*3fr[^}]*"rulesets race" "summary race"/);
+    expect(css).toMatch(/@media \(min-width: 1180px\) \{\s*\.tb-rsflow \{[^}]*3fr[^}]*2fr[^}]*"race rulesets" "race summary"/);
+    expect(css).toMatch(/\.tb-rsflow\.tb-rs-none \{[^}]*2fr[^}]*3fr[^}]*"rulesets \."/);
+    expect(css).toMatch(/\.tb-rsflow\.tb-rs-anim \{ overflow-x: clip; \}/);
     expect(css).toMatch(/\.tb-rsflow \.tb-cards \{ grid-template-columns: repeat\(2,/);
     expect(html).toContain("tb-wide");
+  });
+
+  it("no ruleset chosen: only the rulesets panel renders (left column); a deep link renders the final layout with no animating class", async () => {
     const bare = await render("/tournament-team-builder?tab=ruleset", mockFetcher(routes()), async (b) => { await b.choosePackage(""); });
-    expect(bare).toContain('id="tb-race-h"');
-    expect(bare).toContain("Pick a tournament ruleset first.");
+    expect(bare).toContain('class="tb-rsflow tb-rs-none"');
+    expect(bare).toContain('id="tb-rulesets-h"');
+    expect(bare).not.toContain('id="tb-race-h"');
+    expect(bare).not.toContain('id="tb-package-h"');
+    expect(bare).not.toContain("Pick a tournament ruleset first.");
     expect(bare).not.toContain("tb-race-scroll");
     expect(bare).not.toContain("<table");
+    const deep = await render("/tournament-team-builder?package=Test%20Cup&tab=ruleset", mockFetcher(routes()));
+    expect(deep).toContain("tb-rs-sel");
+    expect(deep).not.toContain("tb-rs-none");
+    expect(deep).not.toContain("tb-rs-anim");
+    expect(deep).toContain('id="tb-race-h"');
+  });
+
+  it("first-pick motion: slide on a wide screen, fade when stacked, instant (opacity only) under prefers-reduced-motion", async () => {
+    const m = await import("../spa/src/teams/rulesetMotion");
+    expect(m.pickMotion(true, false)).toBe("slide");
+    expect(m.pickMotion(false, false)).toBe("fade");
+    expect(m.pickMotion(true, true)).toBe("quick");
+    expect(m.pickMotion(false, true)).toBe("quick");
+    expect(m.QUICK_MS).toBeLessThanOrEqual(120);
+    expect(m.SLIDE_MS).toBeGreaterThanOrEqual(250);
+    expect(m.POP_MS).toBeGreaterThanOrEqual(250);
+    expect(m.POP_MS).toBeLessThanOrEqual(350);
+    expect(m.POP_DELAY_MS).toBeGreaterThan(0);
+    const src = readFileSync(new URL("../spa/src/components/TournamentBuilderRuleset.vue", import.meta.url), "utf8");
+    // only the quick path returns before animating = reduced motion never sets the animating (overflow clip) class
+    expect(src.indexOf('run.motion === "quick"')).toBeLessThan(src.indexOf("animating.value = true"));
+    expect(src).toMatch(/if \(!state\.packageName\) \{\s*const motion = currentMotion\(\)/); // only a pick from the empty state arms the motion
   });
 
   it("old tab ids (skills, staff, stars, inducements) land on the Roster pane", async () => {
