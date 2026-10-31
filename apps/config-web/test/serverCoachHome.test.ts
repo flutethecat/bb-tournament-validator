@@ -26,6 +26,7 @@ beforeAll(async () => {
     PACKAGES_DIR: join(root, "packages"),
     TOURNAMENTS_DIR: join(root, "tournaments"),
     TABLETOP_DIR: join(root, "tabletop"),
+    FORK_STATE_DIR: join(root, "state"), // results / matches stores: never the live data-store
     BUILD_LOG_FILE: join(root, "build-log.json"),
     FORK_ADMIN_PASSWORD: "",
   })) {
