@@ -734,7 +734,7 @@ describe("tournament builder page (server-rendered)", () => {
     expect(picked).not.toContain('id="tb-team-h"');
   });
 
-  it("left accordion: Hireable players pinned first and open by default; another open panel sits last with its body", async () => {
+  it("left accordion: fixed order, Hireable players open by default; another panel opens in place (owner 10-31)", async () => {
     const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); });
     const bars = [...html.matchAll(/id="tb-acc-(\w+)" type="button" class="tb-acc-btn" aria-expanded="(\w+)"/g)].map((m) => [m[1], m[2]]);
     expect(bars).toEqual([["hire", "true"], ["staff", "false"], ["inducements", "false"], ["stars", "false"]]);
@@ -744,7 +744,7 @@ describe("tournament builder page (server-rendered)", () => {
     expect(html).not.toMatch(/<span class="tb-acc-title">Hireable players<\/span><span class="hm-cap">/); // no count meta on Hireable players
     const staff = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.state.leftPanel = "staff"; });
     const order = [...staff.matchAll(/id="tb-acc-(\w+)" type="button" class="tb-acc-btn" aria-expanded="(\w+)"/g)].map((m) => [m[1], m[2]]);
-    expect(order).toEqual([["hire", "false"], ["inducements", "false"], ["stars", "false"], ["staff", "true"]]);
+    expect(order).toEqual([["hire", "false"], ["staff", "true"], ["inducements", "false"], ["stars", "false"]]);
     expect(staff).toContain('id="tb-acc-body-staff"');
     expect(staff).not.toContain('id="tb-acc-body-hire"');
     expect(staff).toContain('class="tb-steppers tb-scroll-list tb-row-window"'); // five lines at a time
@@ -1025,7 +1025,7 @@ describe("tournament builder page (client behaviour)", () => {
   const bars = (page: { all: () => FakeEl[] }): string[] => page.all().filter((e) => e.tag === "section" && String(e.attrs.class ?? "").includes("tb-acc"))
     .map((e) => `${e.attrs["data-panel"]}${String(e.attrs.class).includes("open") ? "*" : ""}`);
 
-  it("left accordion: a click opens a panel (the others collapse, Hireable players stays first), focus stays on its header; closing it reopens Hireable players", async () => {
+  it("left accordion: a click opens a panel in place (the others collapse, order never changes), focus stays on its header; closing it reopens Hireable players", async () => {
     const page = await mount("/tournament-team-builder?package=Test%20Cup&race=human", mockFetcher(routes()));
     try {
       expect(bars(page)).toEqual(["hire*", "staff", "inducements", "stars"]);
@@ -1033,7 +1033,7 @@ describe("tournament builder page (client behaviour)", () => {
       expect(btn("staff").tag).toBe("button"); // Enter / Space activate it natively
       expect(btn("staff").attrs["aria-controls"]).toBe("tb-acc-body-staff");
       await page.fire(btn("inducements"), "click");
-      expect(bars(page)).toEqual(["hire", "staff", "stars", "inducements*"]);
+      expect(bars(page)).toEqual(["hire", "staff", "inducements*", "stars"]);
       expect(btn("inducements").attrs["aria-expanded"]).toBe("true");
       expect(btn("hire").attrs["aria-expanded"]).toBe("false");
       expect(page.all().some((e) => e.attrs.id === "tb-acc-body-inducements")).toBe(true);

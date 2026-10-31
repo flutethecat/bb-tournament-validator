@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Tournament Builder, the Roster pane's left accordion (owner 10-31): Hireable players, Sideline staff, Inducements and Star
 // players, one open at a time. Hireable players is pinned first and is the open panel by default (on load, and whenever no
-// other panel is open). The other collapsed header bars stack directly under it in that fixed order and another open panel
-// sits last with its body (DOM order = visual order, so reading and tab order match the screen). Clicking a collapsed bar
+// other panel is open). The panels keep one fixed order (owner 10-31: a panel opens IN PLACE and pushes the bars below it
+// down; nothing re-sorts), DOM order = visual order, so reading and tab order match the screen. Clicking a collapsed bar
 // opens it and collapses the others; clicking an open bar other than Hireable players closes it, which reopens Hireable
 // players. Headers are buttons (aria-expanded / aria-controls; Enter and Space work natively). The open panel lives on the controller (state.leftPanel), so it survives
 // the page's own address moves for the page session. A race with no star access keeps its star bar, titled NO STAR ACCESS,
@@ -27,8 +27,8 @@ const disabled = (p: LeftPanel): boolean => p === "stars" && noStars.value;
 /** The open panel: Hireable players unless another one is open (a remembered Star players panel falls back to Hireable
  *  players for a race with no star access). */
 const open = computed<LeftPanel>(() => (!state.leftPanel || disabled(state.leftPanel) ? "hire" : state.leftPanel));
-/** Hireable players first, then the other collapsed bars (fixed order), then another open panel. */
-const ordered = computed(() => ["hire" as const, ...LEFT_PANELS.filter((p) => p !== "hire" && p !== open.value), ...(open.value !== "hire" ? [open.value] : [])]);
+/** Fixed order; the open panel expands in place (owner 10-31). */
+const ordered = computed(() => [...LEFT_PANELS]);
 
 function title(p: LeftPanel): string {
   if (p === "hire") return "Hireable players";
@@ -49,7 +49,7 @@ function cap(p: LeftPanel): string {
 async function toggle(p: LeftPanel): Promise<void> {
   if (disabled(p) || (p === "hire" && open.value === "hire")) return; // Hireable players stays open until another panel opens
   state.leftPanel = open.value === p ? null : p;
-  // The panels re-order (the clicked bar moves under the collapsed ones): keep focus on its button.
+  // Keep focus on the clicked header after the bodies swap.
   await nextTick();
   if (typeof document !== "undefined") document.getElementById(`tb-acc-${p}`)?.focus?.({ preventScroll: true });
 }
