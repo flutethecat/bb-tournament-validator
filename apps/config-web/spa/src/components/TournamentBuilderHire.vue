@@ -29,13 +29,13 @@ function add(positionId: string): void {
       @click="add(c.position.positionId)"
     >
       <span class="sprite-frame tb-sprite" aria-hidden="true"><span class="sprite-fallback">{{ c.name.slice(0, 2).toUpperCase() }}</span><img v-if="builder.spritePath(c.position.name)" class="sprite-image" :src="builder.spritePath(c.position.name)" alt="" loading="lazy" /></span>
-      <span class="tb-position-head">
-        <strong>{{ c.name }}</strong>
-        <small>{{ c.left }} of {{ c.position.max }} left<template v-if="c.role"> · {{ c.role }}</template></small>
+      <span class="tb-position-head"><strong>{{ c.name }}</strong></span>
+      <span class="tb-corner">
+        <span class="tb-cost">{{ core.gold(c.position.cost) }}</span>
+        <small class="tb-hired" :aria-label="`${c.count} of ${c.position.max} hired`">{{ c.count }}/{{ c.position.max }}</small>
       </span>
-      <span class="tb-cost">{{ core.gold(c.position.cost) }}</span>
       <TournamentBuilderStats :position="c.position" />
-      <span class="row-skills tb-printed">
+      <span class="row-skills tb-printed tb-skillband">
         <span v-for="k in printed(c.position)" :key="k" :class="builder.skillClass(k)">{{ k }}</span>
         <span v-if="!printed(c.position).length" class="muted">No printed skills</span>
       </span>

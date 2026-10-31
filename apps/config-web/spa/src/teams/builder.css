@@ -170,10 +170,12 @@
 .tb-position > .tb-sprite { grid-area: sprite; }
 .tb-position-head { grid-area: head; display: grid; min-width: 0; }
 .tb-position-head strong, .tb-who strong { font-family: var(--font-heading, sans-serif); font-weight: 500; letter-spacing: .03em; color: var(--ui-position, var(--ui-text)); overflow-wrap: break-word; }
-.tb-position-head small, .tb-who small { color: var(--ui-muted); font-size: 13px; }
-.tb-position > .tb-cost { grid-area: cost; }
+.tb-who small { color: var(--ui-muted); font-size: 13px; }
+.tb-position > .tb-corner { grid-area: cost; align-self: start; display: grid; justify-items: end; gap: 3px; }
+.tb-hired { color: var(--ui-muted); font-size: 11px; line-height: 1; letter-spacing: .08em; text-transform: uppercase; font-variant-caps: all-small-caps; white-space: nowrap; }
 .tb-position > .tb-stats { grid-area: stats; }
-.tb-position > .tb-printed { grid-area: skills; }
+.tb-position > .tb-printed { grid-area: skills; box-sizing: border-box; padding: 3px 8px; background: var(--tb-skillbar); border-radius: 0 0 2px 2px; }
+.tb-position > .tb-printed .muted { color: var(--ui-muted); }
 .tb-cost { font: 14px/1 var(--sf-band-font); color: var(--ui-gold); text-shadow: 1px 1px 0 rgb(0 0 0 / 70%); white-space: nowrap; }
 .tb-page .sprite-frame.tb-sprite { width: 48px; height: 48px; }
 .tb-page .sprite-frame.tb-sprite.small { width: 40px; height: 40px; font-size: 12px; }

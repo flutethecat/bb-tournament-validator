@@ -509,6 +509,20 @@ describe("tournament builder page (server-rendered)", () => {
     expect(html).toContain('id="tb-team-name"');
   });
 
+  it("hire cards: no role tags; cost over a hired/max count in the top-right corner; printed skills on the roster's grey band", async () => {
+    const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); });
+    const cards = html.slice(html.indexOf('class="tb-positions tb-hire-list'));
+    expect(cards).not.toMatch(/ left/);
+    expect(cards).not.toContain("Big Guy");
+    expect(cards).not.toMatch(/<small>[^<]* · /);
+    expect(cards).toMatch(/<span class="tb-corner"><span class="tb-cost">[^<]*<\/span><small class="tb-hired" aria-label="\d+ of \d+ hired">\d+\/\d+<\/small><\/span>/);
+    expect(cards).toContain('aria-label="0 of 1 hired"');
+    expect(cards).toMatch(/class="row-skills tb-printed tb-skillband"/);
+    const css = readFileSync(new URL("../spa/src/teams/builder.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.tb-position > \.tb-printed \{[^}]*background: var\(--tb-skillbar\); border-radius: 0 0 2px 2px/);
+    expect(css).toMatch(/\.tb-position > \.tb-corner \{[^}]*justify-items: end/);
+  });
+
   it("the Ruleset tab's Pick a race table sits in a scroll region with a sticky header; the panel header and helper line stay outside it", async () => {
     const html = await render("/tournament-team-builder?package=Test%20Cup&tab=ruleset", mockFetcher(routes()));
     const region = html.indexOf('class="tb-scroll tb-race-scroll"');
