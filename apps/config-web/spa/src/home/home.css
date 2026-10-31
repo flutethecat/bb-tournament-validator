@@ -52,13 +52,8 @@
 }
 .sf-wordmark.brand { font-family: var(--sf-wordmark-font); font-style: italic; text-transform: none; letter-spacing: .02em; font-size: 1.45rem; color: var(--ui-heading); }
 /* The page title (owner 10-30): the h1 of every page; one line, ellipsis when it does not fit (the header never grows).
-   Owner 10-31: it starts at the content column's left edge, just right of the rail collapser, not centred: on desktop
-   the wordmark box is as wide as the nav column so the title lines up with the page content below it. */
-.sf-page-title { flex: 1 1 0; min-width: 0; margin: 0; padding: 0 8px; text-align: left; font: 1.05rem/1.2 var(--sf-band-font); letter-spacing: .08em; text-transform: uppercase; color: var(--ui-heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-@media (min-width: 1024px) {
-  .sf-wordmark.brand { flex: 0 0 auto; min-width: calc(var(--sf-nav-w) - 12px); }
-  .shell-header[data-rail="true"] .sf-wordmark.brand { min-width: 0; }
-}
+   Owner 10-31: left-aligned right after the wordmark, in gold. */
+.sf-page-title { flex: 1 1 0; min-width: 0; margin: 0; padding: 0 8px; text-align: left; font: 1.05rem/1.2 var(--sf-band-font); letter-spacing: .08em; text-transform: uppercase; color: var(--sf-gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sf-menu { display: none; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; font-size: 20px; color: var(--ui-text); background: transparent; border: 2px solid var(--sf-panel-line); border-radius: 2px; cursor: pointer; }
 .sf-top .shell-who { gap: 10px; min-width: 0; }
 .sf-bell { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; color: var(--ui-text); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); text-decoration: none; }
