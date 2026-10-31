@@ -42,7 +42,7 @@ export function loadSheetFonts(fetcher: typeof fetch = (...a) => fetch(...a)): P
       if (!b64) continue;
       const font = new g.FontFace!(SHEET_FONT_FAMILY, toBytes(b64), { weight: face.weight, style: face.style });
       await font.load();
-      g.document!.fonts.add(font);
+      (g.document!.fonts as unknown as { add(face: FontFace): void }).add(font);
       added++;
     }
     return added > 0;

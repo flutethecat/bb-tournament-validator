@@ -21,7 +21,7 @@
 .ps-paper b, .ps-paper th { font-weight: 700; }
 .ps-r { text-align: right !important; }
 .ps-nowrap { white-space: nowrap; }
-.ps-muted { color: var(--ps-muted); }
+.ps-paper .ps-muted { color: var(--ps-muted); }
 
 /* header: race, COACH / TEAM, the ruleset box top right */
 .ps-header { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 40%); gap: 0 12px; align-items: start; }
@@ -54,11 +54,11 @@
 .ps-pos { white-space: nowrap; }
 .ps-mark-star { margin-left: 6px; font-size: 10px; color: var(--ps-muted); }
 .ps-mark-captain { margin-left: 6px; font-size: 10px; font-weight: 700; }
-.ps-improved { font-weight: 700; color: var(--ps-blue); }
-.ps-trait { color: var(--ps-trait); }
-.ps-primary { font-style: italic; color: var(--ps-blue); }
-.ps-secondary { font-style: italic; color: var(--ps-green); }
-.ps-stat-up { font-style: italic; font-weight: 700; color: var(--ps-blue); }
+.ps-paper .ps-improved { font-weight: 700; color: var(--ps-blue); }
+.ps-paper .ps-trait { color: var(--ps-trait); }
+.ps-paper .ps-primary { font-style: italic; color: var(--ps-blue); }
+.ps-paper .ps-secondary { font-style: italic; color: var(--ps-green); }
+.ps-paper .ps-stat-up { font-style: italic; font-weight: 700; color: var(--ps-blue); }
 
 .ps-keywords { margin: 0; font-size: 11px; white-space: pre-wrap; }
 .ps-footer { margin-top: 2px; font-size: 9px; color: var(--ps-muted); }

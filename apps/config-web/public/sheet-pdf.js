@@ -65,7 +65,7 @@
   function rulesetPanel(rows) {
     const body = [[{ text: "TOURNAMENT RULESET", style: "panelTitle", colSpan: 4 }, {}, {}, {}]];
     for (let i = 0; i < rows.length; i += 2) {
-      const pair = (row) => (row ? [{ text: row[0], color: MUTED, noWrap: true }, { text: row[1], bold: true }] : [{ text: "" }, { text: "" }]);
+      const pair = (row) => (row ? [{ text: row[0], color: MUTED, noWrap: true }, { text: softBreak(row[1]), bold: true }] : [{ text: "" }, { text: "" }]);
       body.push([...pair(rows[i]), ...pair(rows[i + 1])]);
     }
     return {
@@ -84,6 +84,12 @@
       fontSize: 8,
     };
   }
+
+  /**
+   * Long unbroken words (a 60-character team name, a package name without spaces) get a zero-width break opportunity
+   * every 14 characters, so the header's identity column can wrap and the ruleset box always fits the page.
+   */
+  const softBreak = (value) => String(value ?? "").replace(/\S{15,}/g, (word) => word.replace(/(.{14})(?=.)/g, "$1\u200B"));
 
   /** A boxed key/value panel for the top band. */
   function panel(title, rows, emptyText = "None") {
@@ -141,13 +147,13 @@
 
     const header = {
       columns: [
-        { text: model.raceName || "Team", style: "race", width: "auto" },
+        { text: softBreak(model.raceName || "Team"), style: "race", width: "auto" },
         {
           width: "*",
           margin: [12, 3, 0, 0],
           stack: [
-            { text: [{ text: "COACH  ", style: "label" }, { text: model.coach || "—" }] },
-            { text: [{ text: "TEAM  ", style: "label" }, { text: model.teamName || "—" }], margin: [0, 2, 0, 0] },
+            { text: [{ text: "COACH  ", style: "label" }, { text: softBreak(model.coach || "—") }] },
+            { text: [{ text: "TEAM  ", style: "label" }, { text: softBreak(model.teamName || "—") }], margin: [0, 2, 0, 0] },
           ],
         },
         // Owner 10-30: the tournament ruleset, boxed, top right of page 1 (the header content sits left of it).

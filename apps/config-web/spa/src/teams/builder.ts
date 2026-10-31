@@ -17,7 +17,7 @@ import {
   type InducementTeam, type LeagueSelection, type LegalSet, type Overview, type RaceRules, type SheetModel, type SkillCosts, type SkillPack,
   type Slot, type SpriteManifest, type Staff, type Stat, type StarChoice, type StarContext, type StatRules, type TierRules,
 } from "./builderCore";
-import { sheetRulesetRows, type PrintSheetModel } from "./sheetRuleset";
+import { sanitizeSkillSystem, sheetRulesetRows, type PrintSheetModel } from "./sheetRuleset";
 
 // ── wire shapes ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -178,6 +178,7 @@ export function sanitizePackageRules(raw: unknown): PackageRules | null {
         roster: sv(race.roster), source: sv(race.source), tierNumber: n0(race.tierNumber), ...(race.tierLabel ? { tierLabel: sv(race.tierLabel) } : {}),
         gold: n0(race.gold), skillPointBudget: nn(race.skillPointBudget, 0), ...(sanitizeSkillCosts(race.skillCosts) ? { skillCosts: sanitizeSkillCosts(race.skillCosts) } : {}),
         maxPerPlayer: n0(race.maxPerPlayer), packs: arr(race.packs).map(sanitizePack), bannedStars: strList(race.bannedStars),
+        ...sanitizeSkillSystem(race.skillSystem), // the team sheet's ruleset box (sheetRuleset.ts)
         ...(stars ? {
           stars: {
             allowed: stars.allowed !== false, maxCount: n0(stars.maxCount), paidInSkillPoints: stars.paidInSkillPoints === true,

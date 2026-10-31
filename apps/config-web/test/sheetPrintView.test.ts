@@ -6,6 +6,8 @@ import type { ViteDevServer } from "vite";
 import { findRoster, loadPackage, type TournamentPackage } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import nafJson from "../../../tournament-packages/naf-world-cup-2027.json";
+import nutJson from "../../../tournament-packages/whbb-nut-cup-2026.json";
+import smallGodsJson from "../../../tournament-packages/small-gods.json";
 import { extractPdfPages } from "../../../packages/bb-ingest/src/pdf/extractText.js";
 import { packageRaceRules } from "../src/teamBuilderPackage";
 import { teamBuilderTierCatalog } from "../src/teamBuilderTiers";
@@ -67,6 +69,7 @@ const NAF_RULESET: Array<[string, string]> = [
   ["Tier", "Gold Budget 1,160,000"],
   ["TV cap", "1,160k"],
   ["SP budget", "52 SP"],
+  ["SP prices", "primary 6 · secondary 10 · elite +2 · stacking +2"],
   ["Skills per player", "max 2"],
   ["Stacked players", "max 1 (max 2 skills · max 2 secondary)"],
   ["Star players", "None"],
@@ -86,16 +89,76 @@ describe("sheetModel: the one model for the screen and the PDF", () => {
     const own = { ...baseModel(), ruleset: [["Package", "X"]] as Array<[string, string]> };
     expect(sheetModel(fakeBuilder(own))).toBe(own);
   });
-  it("rows only for what the package defines: pack, league, star cap, empty values dropped", () => {
-    const rows = sheetRulesetRows({
-      packageName: "Nut Cup", tierLabel: "", league: "Old World Classic", budget: 1_000_000, tierRules: null,
-      raceRules: { ...RACE, gold: null, skillPointBudget: 0, maxPerPlayer: null, stars: { allowed: true, maxCount: 2, paidInSkillPoints: true }, packs: [] },
-      pack: { label: "Pack B", gold: 1_150_000, skillPointBudget: 0, maxPerPlayer: 1, maxSkills: 6, maxSecondary: 1 },
+});
+
+// The rows follow the tournament's skill system as validation applies it (Sol 6.1 P2s, 10-30): real packages.
+describe("sheetRulesetRows: the skill system decides the rows", () => {
+  const raceOf = (p: TournamentPackage, race: string) => {
+    const r = packageRaceRules(p, race) as unknown as RaceRules;
+    const t = (teamBuilderTierCatalog(p, bb2025, true) as any[]).find((x) => x.name === race);
+    return { race: r, tier: core.normalizeTierRules(t?.rules ?? null) };
+  };
+  const rowsFor = (p: TournamentPackage, race: string, packLabel: string | null = null, league = "") => {
+    const { race: r, tier } = raceOf(p, race);
+    const pack = packLabel ? r.packs.find((x) => x.label === packLabel)! : null;
+    return sheetRulesetRows({ packageName: p.name, tierLabel: r.tierLabel ?? "", raceRules: r, pack, tierRules: tier, league, budget: p.goldBudget });
+  };
+  const labels = (rows: Array<[string, string]>) => rows.map(([k]) => k);
+
+  it("skill points (NAF World Cup 2027): SP budget and SP prices, no primary / secondary counts", () => {
+    const rows = rowsFor(pkg, "Necromantic Horror");
+    expect(rows).toEqual(NAF_RULESET);
+    expect(labels(rows)).not.toContain("Primary skills");
+  });
+
+  it("choose-one packs (WHBB Nut Cup Tier 5): the selected pack's allowance wins over the tier's secondary limit", () => {
+    const nut = loadPackage(nutJson as unknown as Partial<TournamentPackage>).pkg;
+    const rows = rowsFor(nut, "Goblin", "1,150k · 8 skills + Star");
+    expect(Object.fromEntries(rows)).toMatchObject({
+      "Skill pack": "1,150k · 8 skills + Star: 8 skills (primary only)",
+      "Secondary skills": "none",
+      "Skills per player": "max 2",
     });
-    expect(rows).toEqual([
-      ["Package", "Nut Cup"], ["TV cap", "1,150k"], ["Skill pack", "Pack B: 6 skills (≤1 secondary)"], ["Skills per player", "max 1"],
-      ["Star players", "max 2, paid in SP"], ["League / special rule", "Old World Classic"],
-    ]);
+    expect(rows.find(([k]) => k === "Stacked players")?.[1] ?? "").not.toMatch(/secondary\)/);
+    expect(labels(rows)).not.toContain("SP budget"); // validation ignores the SP pool with packs
+    expect(JSON.stringify(rows)).not.toContain("max 2 secondary");
+    // The plain 8-skill pack keeps the tier's 2 secondary.
+    expect(Object.fromEntries(rowsFor(nut, "Goblin", "1,150k · 8 skills"))["Secondary skills"]).toBe("max 2");
+    // No pack chosen yet: the packs on offer, still no SP budget.
+    const open = rowsFor(nut, "Goblin");
+    expect(Object.fromEntries(open)["Skill packs"]).toMatch(/^choose one: 1,150k · 8 skills · /);
+    expect(labels(open)).not.toContain("SP budget");
+  });
+
+  it("count mode via a matrix cell: the cell, Primary / Secondary skills and the swap; never the SP budget", () => {
+    const matrixPkg = loadPackage({
+      name: "Matrix Cup", goldBudget: 1_000_000,
+      skillAllotment: { skillPointBudget: 12 } as TournamentPackage["skillAllotment"],
+      matrix: {
+        columns: [{ gold: 1_110_000 }, { gold: 1_150_000 }],
+        rows: [{ label: "6 Primary", primary: 6, secondary: 0, secondarySwap: false }, { primary: 8, secondary: 1, secondarySwap: true, secondarySwapMax: 1 }],
+        cells: [{ col: 0, row: 0, teams: ["Orc"] }, { col: 1, row: 1, teams: ["Human"] }],
+      },
+    } as unknown as Partial<TournamentPackage>).pkg;
+    const orc = rowsFor(matrixPkg, "Orc");
+    expect(orc.slice(0, 5)).toEqual([["Package", "Matrix Cup"], ["TV cap", "1,110k"], ["Matrix cell", "6 Primary @ 1110k"], ["Primary skills", "6"], ["Secondary skills", "none"]]);
+    expect(labels(orc)).not.toContain("SP budget");
+    const human = rowsFor(matrixPkg, "Human");
+    expect(Object.fromEntries(human)).toMatchObject({ "Matrix cell": "8 pri / 1 sec @ 1150k", "Primary skills": "8", "Secondary skills": "1", "Secondary swap": "2 primary → 1 secondary (max 1)" });
+    expect(labels(human)).not.toContain("SP budget");
+  });
+
+  it("count mode via tiers (Small Gods): Primary / Secondary skills from the resolved race rules", () => {
+    const sg = loadPackage(smallGodsJson as unknown as Partial<TournamentPackage>).pkg;
+    const race = (sg.tiers ?? [])[0]!.rosters[0]!;
+    const rows = rowsFor(sg, race);
+    const sys = (packageRaceRules(sg, race) as any).skillSystem;
+    expect(sys.mode).toBe("count");
+    expect(Object.fromEntries(rows)).toMatchObject({
+      "Primary skills": sys.maxPrimary == null ? "any" : String(sys.maxPrimary),
+      "Secondary skills": sys.maxSecondary == null ? "any" : sys.maxSecondary === 0 ? "none" : String(sys.maxSecondary),
+    });
+    expect(labels(rows)).not.toContain("SP budget");
   });
 });
 
@@ -135,6 +198,32 @@ describe("sheet-pdf.js: the TOURNAMENT RULESET box", () => {
     const pages = (await extractPdfPages(bytes)).map((p: any) => p.lines.map((l: any) => l.text).join("\n"));
     expect(pages).toHaveLength(1);
     for (const needle of ["TOURNAMENT RULESET", "52 SP", "Stacked players", "Malta Moonlighters", "Page 1 / 1"]) expect(pages[0]).toContain(needle);
+  }, 30_000);
+});
+
+describe("sheet-pdf.js: a long unbroken team name never pushes the ruleset box off the page", () => {
+  it("a 60-character name wraps; every glyph run stays inside the right margin; one page", async () => {
+    const ctx = loadContext(true);
+    const model = JSON.parse(JSON.stringify({ ...sheetModel(fakeBuilder()), teamName: "W".repeat(60), coach: "C".repeat(40) }));
+    const bytes = new Uint8Array(await ctx.pdfMake.createPdf(ctx.SheetPdf.buildSheetDocDefinition(model, { gold: core.gold })).getBuffer());
+    // pdfjs-dist (bb-ingest's copy, as extractText.ts uses it) for item positions AND widths.
+    const pdfjsPath = new URL("../../../packages/bb-ingest/node_modules/pdfjs-dist/legacy/build/pdf.mjs", import.meta.url).href;
+    const { getDocument } = await import(/* @vite-ignore */ pdfjsPath);
+    const doc = await getDocument({ data: bytes, useSystemFonts: true }).promise;
+    expect(doc.numPages).toBe(1);
+    const page = await doc.getPage(1);
+    const pageWidth = (page.view as number[])[2]!;
+    const items = (await page.getTextContent()).items.filter((it: any) => "str" in it && it.str.trim()) as any[];
+    const right = Math.max(...items.map((it) => it.transform[4] + it.width));
+    const margin = 10 * (72 / 25.4);
+    expect(pageWidth).toBeCloseTo(841.89, 0);
+    expect(right).toBeLessThanOrEqual(pageWidth - margin + 0.5);
+    const title = items.find((it) => it.str === "TOURNAMENT");
+    expect(title.transform[4]).toBeGreaterThan(pageWidth / 2); // still top right
+    const ws = items.filter((it) => /^W+$/.test(it.str.replace(/\u200B/g, "")));
+    expect(ws.length).toBeGreaterThan(1); // the name wrapped onto several lines
+    expect(ws.map((it) => it.str.replace(/\u200B/g, "")).join("")).toBe("W".repeat(60)); // no glyphs lost
+    await doc.destroy();
   }, 30_000);
 });
 
@@ -184,6 +273,8 @@ describe("the on-screen sheet (TournamentBuilderPrintSheet.vue, server-rendered)
     const P = SheetPdf.PALETTE;
     for (const [v, c] of [["ink", P.INK], ["muted", P.MUTED], ["rule", P.RULE], ["head", P.HEAD_FILL], ["zebra", P.ZEBRA_FILL], ["blue", P.BLUE], ["green", P.GREEN], ["trait", P.TRAIT]]) expect(css).toContain(`--ps-${v}: ${c};`);
     expect(css).not.toMatch(/https?:\/\//);
+    // Mark classes outrank the paper's `.ps-paper td { font/color: inherit }` reset (0,1,1), so improved stats stay bold blue.
+    for (const cls of ["ps-improved", "ps-primary", "ps-secondary", "ps-stat-up", "ps-trait", "ps-muted"]) expect(css.split(/\r?\n/).some((l) => l.startsWith(`.ps-paper .${cls} {`))).toBe(true);
     const vfs = readFileSync(new URL("../public/vendor/pdfmake/vfs_fonts.js", import.meta.url), "utf8");
     for (const f of ["Roboto-Regular.ttf", "Roboto-Medium.ttf", "Roboto-Italic.ttf", "Roboto-MediumItalic.ttf"]) expect(vfsEntry(vfs, f).slice(0, 8)).toBe("AAEAAAAR"); // a TrueType header
   });

@@ -1,6 +1,7 @@
 import {
   eligibleTeamNames,
   isCountPack,
+  resolveMatrixCell,
   resolveTeamConfig,
   usesCountMode,
   type Dataset,
@@ -249,6 +250,33 @@ export interface RaceRulesInfo {
     spCosts?: { name: string; sp: number }[];
   };
   bannedStars: string[];
+  /** How validation limits this race's added skills (owner 10-30, the team sheet's ruleset box): the SAME branch order
+   *  as the skill-points rule (choose-one packs > count mode > SP budget), with the resolved counts. `matrixCell`
+   *  names the cash x skills cell ("2 pri / 1 sec @ 1150k") when a matrix set them. */
+  skillSystem: RaceSkillSystem;
+}
+export interface RaceSkillSystem {
+  mode: "packs" | "count" | "points";
+  maxPrimary: number | null;
+  maxSecondary: number | null;
+  secondarySwap: boolean;
+  secondarySwapRatio: number;
+  secondarySwapMax: number | null;
+  matrixCell?: string;
+}
+
+function raceSkillSystem(pkg: TournamentPackage, race: string, cfg: ResolvedTeamConfig): RaceSkillSystem {
+  const cell = cfg.source === "matrix" ? resolveMatrixCell(pkg, race) : undefined;
+  const row = cell ? pkg.matrix?.rows[cell.row] : undefined;
+  return {
+    mode: cfg.skillPackages?.length ? "packs" : usesCountMode(cfg) ? "count" : "points",
+    maxPrimary: cfg.maxPrimary,
+    maxSecondary: cfg.maxSecondary,
+    secondarySwap: cfg.secondarySwap,
+    secondarySwapRatio: cfg.secondarySwapRatio,
+    secondarySwapMax: cfg.secondarySwapMax,
+    ...(cell ? { matrixCell: `${row?.label ?? `${cell.primary} pri / ${cell.secondary} sec`} @ ${fmtK(cell.gold)}` } : {}),
+  };
 }
 
 /** Derive one race's effective rules from the package config (resolveTeamConfig is the
@@ -289,6 +317,7 @@ export function packageRaceRules(pkg: TournamentPackage, race: string): RaceRule
       ...(spCosts ? { spCosts } : {}),
     },
     bannedStars: cfg.bannedStars,
+    skillSystem: raceSkillSystem(pkg, race, cfg),
   };
 }
 
