@@ -8,9 +8,10 @@ import { avatarSrc, createAvatarFallback } from "../spa/src/shared/avatarUrl";
 import { createProfileEditor, OWN_AVATAR_PATH, type OwnAvatarUploader, type ProfileView } from "../spa/src/account/profile";
 
 // Coach avatars on the client (owner 10-31): the card allow-list and load-error fallback, the Account page avatar
-// control (Upload / Remove).
+// control (Upload / Remove), and the race line under the crest wrapping only at spaces.
 
 const SPA_CONFIG = fileURLToPath(new URL("../spa/vite.config.ts", import.meta.url));
+const CARD_CSS = readFileSync(fileURLToPath(new URL("../spa/src/shared/result-card.css", import.meta.url)), "utf8");
 
 const view = (over: Partial<ProfileView> = {}): ProfileView => ({
   coach: "Alice", displayName: "", fumbblName: "", fumbblLinked: false, nafName: "", nafId: "",
@@ -131,5 +132,29 @@ describe("SSR markup", () => {
     const uploaded = await render(view({ avatar: "/api/coach-avatars/alice?v=4", avatarSource: "upload" }));
     expect(uploaded).toContain('src="/api/coach-avatars/alice?v=4"');
     expect(uploaded).toContain(">Remove</button>");
+  });
+});
+
+describe("race line wraps only at spaces", () => {
+  const rule = (selector: string) => {
+    const at = CARD_CSS.indexOf(`${selector} {`);
+    expect(at).toBeGreaterThan(-1);
+    return CARD_CSS.slice(at, CARD_CSS.indexOf("}", at));
+  };
+  it("never breaks inside a word or hyphenates", () => {
+    const race = rule(".rc-race");
+    expect(race).toMatch(/overflow-wrap: normal/);
+    expect(race).toMatch(/word-break: normal/);
+    expect(race).toMatch(/hyphens: manual/);
+    expect(race).not.toMatch(/anywhere|break-all/);
+    expect(CARD_CSS).not.toMatch(/\.rc-race[^{]*\{[^}]*overflow-wrap: anywhere/);
+  });
+  it("the crest column can grow past the crest (up to a cap) so two-word races fit on two lines", () => {
+    const col = rule(".rc-crestcol");
+    expect(col).toMatch(/width: max-content/);
+    expect(col).toMatch(/min-width: 64px/);
+    expect(col).toMatch(/max-width: 104px/);
+    expect(CARD_CSS).not.toMatch(/\.rc-crestcol \{[^}]*max-width: (64|72)px/);
+    expect(CARD_CSS).toMatch(/\.rc-card\[data-size="lg"\] \.rc-crestcol \{ min-width: 72px; max-width: 124px; \}/);
   });
 });

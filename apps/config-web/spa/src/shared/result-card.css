@@ -38,14 +38,19 @@ a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading))
 .rc-body { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; }
 .rc-team { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .rc-away { flex-direction: row-reverse; text-align: right; }
-/* The crest with the race centred under it. */
-.rc-crestcol { flex: none; display: grid; justify-items: center; gap: 3px; width: 64px; max-width: 64px; text-align: center; }
+/* The crest with the race centred under it. The column is as wide as the race needs, from the crest's width up to a cap,
+   so a two-word race ("Shambling Undead") breaks at its space and never inside a word (owner 10-31). */
+.rc-crestcol { flex: none; display: grid; justify-items: center; gap: 3px; width: max-content; min-width: 64px; max-width: 104px; text-align: center; }
 .rc-crest { flex: none; width: 56px; height: 56px; object-fit: contain; image-rendering: pixelated; }
 .rc-initials {
   display: inline-flex; align-items: center; justify-content: center; font: 18px var(--sf-band-font, sans-serif); color: var(--ui-text);
   background: color-mix(in srgb, var(--ui-surface-2, #1a1d22) 80%, transparent); border: 2px solid var(--sf-panel-line, #353b44); border-radius: 50%;
 }
-.rc-race { max-width: 100%; font-size: 11px; line-height: 1.15; font-variant: small-caps; letter-spacing: .06em; color: var(--ui-muted); overflow-wrap: anywhere; }
+.rc-race {
+  max-width: 100%; font-size: 11px; line-height: 1.15; font-variant: small-caps; letter-spacing: .06em; color: var(--ui-muted);
+  /* wrap only at spaces: never mid-word, never an automatic hyphen */
+  white-space: normal; overflow-wrap: normal; word-break: normal; hyphens: manual; text-wrap: balance;
+}
 .rc-who { display: grid; min-width: 0; gap: 4px; }
 /* Team names: white with the card's drop shadow (the tabletop scoreboard's name shadow); two lines before they clip. */
 .rc-name {
@@ -101,7 +106,7 @@ a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading))
 .rc-grid-lg { grid-template-columns: repeat(auto-fill, minmax(min(100%, max(420px, calc((100% - 12px) / 2))), 1fr)); }
 .rc-card[data-size="lg"] { min-height: 150px; padding: 16px 18px 18px; gap: 12px; }
 .rc-card[data-size="lg"] .rc-top { font-size: 13px; }
-.rc-card[data-size="lg"] .rc-crestcol { width: 72px; max-width: 72px; }
+.rc-card[data-size="lg"] .rc-crestcol { min-width: 72px; max-width: 124px; }
 .rc-card[data-size="lg"] .rc-crest { width: 64px; height: 64px; }
 .rc-card[data-size="lg"] .rc-initials { font-size: 20px; }
 .rc-card[data-size="lg"] .rc-name { font-size: 22px; }
@@ -116,7 +121,7 @@ a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading))
 @media (max-width: 640px) { .rc-card[data-size="lg"] { padding: 12px; } }
 @container (max-width: 560px) {
   .rc-card[data-size="lg"] .rc-name { font-size: 17px; }
-  .rc-card[data-size="lg"] .rc-crestcol { width: 64px; max-width: 64px; }
+  .rc-card[data-size="lg"] .rc-crestcol { min-width: 64px; max-width: 112px; }
   .rc-card[data-size="lg"] .rc-crest { width: 56px; height: 56px; }
   .rc-card[data-size="lg"] .rc-comp { max-width: 80px; font-size: 11px; }
   .rc-card[data-size="lg"] .rc-num { font-size: 30px; }
