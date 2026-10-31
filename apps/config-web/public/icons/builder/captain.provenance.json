@@ -1,0 +1,9 @@
+{
+  "asset": "captain.png",
+  "tool": "hand-authored pixel grid via Python stdlib RGBA PNG encoder",
+  "model": "gpt-5.6-sol",
+  "date": "2026-10-31",
+  "prompt": "Exact 16x16 pixel grid ('.' is transparent), followed by the exact palette:\n................\n......KKKK......\n....KKyyyyKK....\n...KyYYYyyyyK...\n..KyYYKKKKKyyK..\n.KyYyKKKKKKKyyK.\n.KYYKKKyyyKKy1K.\n.KYyKKyyyyyyy1K.\n.KYyKKyyyyyyy1K.\n.KyyKKyyyyyyy1K.\n..KyKKKyyyKK1K..\n..KyyKKKKKKK1K..\n...KyyKKKKK1K...\n....KKyy11KK....\n......KKKK......\n................\nPalette: K=#1b1512, w=#f2e8cc, Y=#ffe27a, y=#e8b02c, 1=#9c6a14",
+  "negative": "No Games Workshop, Warhammer, or Blood Bowl imagery; no eagle or Aquila; no trademarked logos; no image-to-image source; no filled counter; no closed right side; no G-shaped crossbar.",
+  "edits": "Replaced the filled bone-and-outline mark with a single-colour dark C drawn directly on the gold face: an 8x9 glyph with a two-pixel spine, rounded bars, an empty gold counter, and a three-pixel-tall centred opening at right. Rendered the hand-authored 16x16 RGBA grid, then upscaled 4x to 64x64 with integer nearest-neighbour sampling and encoded an 8-bit RGBA PNG using Python's struct and zlib standard-library modules. Derived captain-off.png pixel-by-pixel from captain.png: preserved transparent pixels and the #1b1512 outline exactly; converted every other opaque pixel to Rec.601 luminance (0.299R + 0.587G + 0.114B), multiplied by 0.60, rounded to the nearest integer, and wrote that value to R, G, and B while preserving alpha. Created captain-sheet.png using nearest-neighbour previews at 64, 32, and 26 px on #0e1115 and #ece8de backgrounds."
+}
