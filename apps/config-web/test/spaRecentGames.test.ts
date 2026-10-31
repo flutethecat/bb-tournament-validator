@@ -177,7 +177,12 @@ describe("recent games (SSR)", () => {
     // white team-name class; the shadow itself is in result-card.css
     expect(html).toContain('<span class="rc-name">Rot Girl Summer</span>');
     const css = readFileSync(fileURLToPath(new URL("../spa/src/shared/result-card.css", import.meta.url)), "utf8");
-    expect(css).toMatch(/\.rc-name \{[^}]*color: var\(--ui-text-on-primary, #ffffff\); text-shadow: var\(--rc-num-shadow\)/);
+    expect(css).toMatch(/\.rc-name \{[^}]*color: var\(--rc-name-ink\); text-shadow: var\(--rc-name-shadow\)/);
+    expect(css).toMatch(/--rc-name-ink: var\(--ui-text-on-primary, #ffffff\); --rc-name-shadow: var\(--rc-num-shadow\)/); // dark themes: white + shadow
+    expect(css).toMatch(/:root\[data-theme="fumbbl"\] \.rc-card \{ --rc-name-ink: var\(--ui-text, #141414\)/); // light theme: dark ink
+    // the sides stack when the CARD is narrow (container query), not the viewport
+    expect(css).toMatch(/container-type: inline-size/);
+    expect(css).toMatch(/@container \(max-width: 560px\)/);
     // avatar: the provided safe URL renders as a round image; an unsafe or missing one falls back to the letter badge
     expect(html).toContain('<img class="rc-avatar" src="https://cdn.discordapp.com/avatars/1/a.png?size=64"');
     expect(html).not.toContain("javascript:");

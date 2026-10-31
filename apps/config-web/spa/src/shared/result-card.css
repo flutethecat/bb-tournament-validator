@@ -11,6 +11,9 @@
 .rc-card {
   --rc-home: #3a4150; --rc-away: #3a4150;
   --rc-num-shadow: 2px 2px 0 rgb(0 0 0 / 80%), 0 0 10px rgb(0 0 0 / .45); /* same as the tabletop scoreboard's --tt-name-shadow */
+  /* Team-name ink: white with the drop shadow on the dark themes; dark ink with a light edge on the light (FUMBBL) theme, where white fails contrast on the pale gradients. */
+  --rc-name-ink: var(--ui-text-on-primary, #ffffff); --rc-name-shadow: var(--rc-num-shadow);
+  container-type: inline-size; /* the sides stack when the CARD is narrow, whatever the viewport */
   position: relative; display: grid; gap: 8px; min-width: 0; min-height: 44px; padding: 10px 12px 12px;
   color: var(--ui-text); text-decoration: none;
   background:
@@ -23,6 +26,8 @@
 /* Linked cards lift on hover and keyboard focus, the drop growing from 4 to 6 px. */
 a.rc-card:hover, a.rc-card:focus-visible { transform: translateY(-2px); box-shadow: 0 6px 0 var(--sf-panel-drop, #000), inset 0 1px 0 var(--sf-panel-hi, #626b77), inset 0 -2px 0 rgb(0 0 0 / .35); }
 @media (prefers-reduced-motion: reduce) { .rc-card { transition: none; } a.rc-card:hover, a.rc-card:focus-visible { transform: none; } }
+/* Light theme: dark ink, no dark shadow. */
+:root[data-theme="fumbbl"] .rc-card { --rc-name-ink: var(--ui-text, #141414); --rc-name-shadow: 0 1px 0 rgb(255 255 255 / .55); }
 a.rc-card:hover, a.rc-card:focus-visible { border-color: var(--ui-accent, var(--ui-heading)); }
 a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading)); outline-offset: 2px; }
 
@@ -45,7 +50,7 @@ a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading))
 /* Team names: white with the card's drop shadow (the tabletop scoreboard's name shadow); two lines before they clip. */
 .rc-name {
   font: 16px/1.2 var(--sf-band-font, sans-serif); text-transform: uppercase; letter-spacing: .04em;
-  color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--rc-num-shadow);
+  color: var(--rc-name-ink); text-shadow: var(--rc-name-shadow);
   overflow: hidden; overflow-wrap: break-word; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
 }
 .rc-coach { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; min-width: 0; }
@@ -69,16 +74,24 @@ a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading))
 .rc-flag { margin: 0; font: 10px/1.2 var(--sf-band-font, sans-serif); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); text-align: center; }
 .rc-card[data-suspended="true"] .rc-flag { color: var(--ui-warning, var(--ui-muted)); }
 
-/* Phone: each team stacks (crest, race, name, coach, all centred) so the names get the whole half-width. */
-@media (max-width: 640px) {
-  .rc-card { padding: 10px; }
+/* Narrow CARD (container query, not the viewport): each team stacks (crest, race, name, coach, all centred) so the names get the whole half-width. */
+@media (max-width: 640px) { .rc-card { padding: 10px; } }
+@container (max-width: 560px) {
   .rc-team, .rc-away { flex-direction: column; align-items: center; gap: 6px; text-align: center; }
   .rc-who { justify-items: center; max-width: 100%; }
   .rc-coach, .rc-away .rc-coach { flex-direction: row; justify-content: center; max-width: 100%; }
-  .rc-body { gap: 6px; }
+  .rc-body { gap: 4px; }
   .rc-num { font-size: 24px; }
-  .rc-nums { gap: 10px; }
-  .rc-comp { max-width: 96px; font-size: 11px; }
+  .rc-nums { gap: 8px; }
+  .rc-comp { max-width: 80px; font-size: 11px; }
+  .rc-name { -webkit-line-clamp: 2; line-clamp: 2; }
+}
+
+/* Very narrow card (about a phone's width, on any viewport): the side padding is claimed back for the names (each name keeps >= 120 px). */
+@container (max-width: 400px) {
+  .rc-body { margin-inline: -14px; gap: 2px; }
+  .rc-nums { gap: 6px; }
+  .rc-comp, .rc-card[data-size="lg"] .rc-comp { max-width: 64px; }
 }
 
 /* the strip on the landing page (signed out, under the sign-in card) and the coach page */
@@ -100,12 +113,12 @@ a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading))
 .rc-card[data-size="lg"] .rc-cas { font-size: 13px; }
 .rc-card[data-size="lg"] .rc-flag { font-size: 11px; }
 .rc-card[data-size="lg"] .rc-plate-cap { font-size: 10px; }
-@media (max-width: 640px) {
-  .rc-card[data-size="lg"] { padding: 12px; }
+@media (max-width: 640px) { .rc-card[data-size="lg"] { padding: 12px; } }
+@container (max-width: 560px) {
   .rc-card[data-size="lg"] .rc-name { font-size: 17px; }
   .rc-card[data-size="lg"] .rc-crestcol { width: 64px; max-width: 64px; }
   .rc-card[data-size="lg"] .rc-crest { width: 56px; height: 56px; }
-  .rc-card[data-size="lg"] .rc-comp { max-width: 96px; font-size: 11px; }
+  .rc-card[data-size="lg"] .rc-comp { max-width: 80px; font-size: 11px; }
   .rc-card[data-size="lg"] .rc-num { font-size: 30px; }
 }
 
