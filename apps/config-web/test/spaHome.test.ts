@@ -855,13 +855,12 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     const { html } = await render("/home", { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
     expect(html).not.toContain("motherboard-header");
     expect(html).not.toContain("landing-banner");
-    expect(html).toContain('src="/assets/super-fumbbl-logo.png"');
-    expect(html).toContain('alt="Super FUMBBL"');
     expect(html).toContain("Tell your league&#39;s story using your manager.");
     expect(html).toContain("across multiple seasons.</p>");
     expect(html).toContain('<p class="lw-flat">All for one flat rate.</p>');
     expect(html.indexOf("lw-flat")).toBeGreaterThan(html.indexOf("lw-cta"));
-    expect(html).toContain("Welcome to Super FUMBBL League Manager!");
+    expect(html).not.toContain("Welcome to Super FUMBBL League Manager!");
+    expect(html).toContain('<h2 id="lw-welcome" class="lw-logo"><img class="lw-logo-img" src="/assets/league-manager-logo.png" alt="Super FUMBBL League Manager"');
     expect(html).toContain("Login with Discord");
     expect(html).toContain('href="/api/auth/discord/start?next=');
     expect(html).toContain('href="/app/tournaments"');

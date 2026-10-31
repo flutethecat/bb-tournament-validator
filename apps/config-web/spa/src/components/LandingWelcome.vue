@@ -11,7 +11,7 @@ import "../home/landing.css";
 // Public assets, served as-is (a bound string keeps Vite from trying to bundle them).
 // Splash artwork: ONE constant, so swapping candidates (e.g. to a candidate B file) is a one-line change.
 const SPLASH_IMAGE = "/assets/welcome-splash.jpg";
-const LOGO = "/assets/super-fumbbl-logo.png";
+const LOGO = "/assets/league-manager-logo.png";
 
 defineProps<{ href: string; ssoEnabled: boolean }>();
 useBlankPageTitle();
@@ -21,8 +21,7 @@ useBlankPageTitle();
   <div class="lw-landing">
     <section class="lw-splash" aria-labelledby="lw-welcome" :style="{ '--lw-splash': `url(${SPLASH_IMAGE})` }">
       <div class="lw-box">
-        <img class="lw-logo" :src="LOGO" alt="Super FUMBBL" />
-        <h2 id="lw-welcome" class="lw-title">Welcome to Super FUMBBL League Manager!</h2>
+        <h2 id="lw-welcome" class="lw-logo"><img class="lw-logo-img" :src="LOGO" alt="Super FUMBBL League Manager" /></h2>
         <p class="lw-lead">Tell your league's story using your manager.</p>
         <p class="lw-sub">Run your tabletop leagues and tournaments, build rosters for your favorite tournaments, and track all your league's stats across multiple seasons.</p>
         <div class="lw-cta">
