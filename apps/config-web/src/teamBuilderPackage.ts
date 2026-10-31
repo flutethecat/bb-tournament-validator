@@ -1,6 +1,7 @@
 import {
   eligibleTeamNames,
   isCountPack,
+  loadPackage,
   resolveMatrixCell,
   resolveTeamConfig,
   usesCountMode,
@@ -14,6 +15,20 @@ import { bb2025 } from "@bb/validator/dataset";
 import type { PackageFiles } from "./data.js";
 import { isFreeCreatePackage } from "./freeCreate.js";
 
+/**
+ * Free Create's build profile (owner 10-31): only the core roster checks the fork needs (roster eligibility, squad size,
+ * the race's position limits, legal skill access, star rules, sideline). No gold cap, no Skill Point budget or per-player
+ * skill count, characteristic increases allowed, no Insignificant ratio. With "Ignore in-game limits" the composer and
+ * these checks refuse what the fork would refuse.
+ */
+export const FREE_CREATE_BUILD_PACKAGE: TournamentPackage = loadPackage({
+  name: "Free Create",
+  goldBudget: null,
+  eligibleRosters: ["*"],
+  skillAllotment: { skillPointBudget: Number.MAX_SAFE_INTEGER, maxPerPlayer: null, maxSameSkillTeamwide: null, maxStackedPlayers: null },
+  special: { insignificantTraitConstraint: false, statIncreasesAllowed: true },
+}).pkg;
+
 /** What preview/build validate against, plus (when a tournament package was
  *  explicitly selected) the info the client needs to render the ruleset note
  *  and auto-populate the budget field. */
@@ -21,7 +36,7 @@ export interface ResolvedBuilderPackage {
   pkg: TournamentPackage;
   /** Set only when `packageName` was supplied and resolved — omitted for the baseline. */
   selected?: { name: string; description?: string };
-  /** Roster Builder Free Create (freeCreate.ts): the baseline, asked for by its marker. No tournament rules apply. */
+  /** Roster Builder Free Create (freeCreate.ts): FREE_CREATE_BUILD_PACKAGE, asked for by its marker. */
   free?: true;
 }
 
@@ -33,7 +48,7 @@ export interface ResolvedBuilderPackage {
  *     a tournament-mode caller asking for a specific ruleset must get a clear 4xx, not a
  *     roster validated against the wrong rules).
  *   - `packageName` set and found → that package, `selected` populated for the response.
- *   - `packageName` = the Free Create marker → the baseline, `free` set (no `selected`, no echo).
+ *   - `packageName` = the Free Create marker → FREE_CREATE_BUILD_PACKAGE, `free` set (no `selected`, no echo).
  */
 export function resolveBuilderPackage(
   packages: PackageFiles,
@@ -41,9 +56,9 @@ export function resolveBuilderPackage(
   packageName: string | undefined,
 ): ResolvedBuilderPackage | { error: string } {
   if (!packageName) return { pkg: baseline };
-  // Free Create (owner 10-31) is not a package: its marker resolves to the standalone baseline (core roster legality
-  // only), so a Free Create roster built on the Fork still passes the fork's own checks and nothing else.
-  if (isFreeCreatePackage(packageName)) return { pkg: baseline, free: true };
+  // Free Create (owner 10-31) is not a saved package: its marker resolves to its own build profile (core roster legality
+  // only), so a Free Create roster built on the Fork meets the fork's own checks and nothing else.
+  if (isFreeCreatePackage(packageName)) return { pkg: FREE_CREATE_BUILD_PACKAGE, free: true };
   const found = packages.get(packageName);
   if (!found) return { error: `Unknown tournament package "${packageName}".` };
   return { pkg: found.pkg, selected: { name: found.pkg.name, description: found.pkg.description } };

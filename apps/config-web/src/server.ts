@@ -1013,7 +1013,9 @@ function sharedViewFor(coach: string, save: TeamBuilderSave, viewer: string | un
       } else {
         const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
         if (!("error" in resolvedPkg)) {
-          const composed = resolvedPkg.free && body.ignoreLimits === true ? composeFreeDisplay(cfg.teamsDir, body) : composeFromBody(cfg.teamsDir, body);
+          const display = resolvedPkg.free ? composeFreeDisplay(cfg.teamsDir, body) : undefined;
+          const composed = display?.composed ?? composeFromBody(cfg.teamsDir, body);
+          if (display?.dropped.length) input.displayNotes = display.dropped;
           input.roster = composed.roster;
           input.result = validate(composed.roster, resolvedPkg.pkg, bb2025);
           const info = packageResponseInfo(resolvedPkg, composed.roster.rosterName);
@@ -1100,16 +1102,32 @@ function composeIntrinsicFromBody(teamsDir: string, body: TeamBuilderBody): Comp
 }
 
 /** Resolve a builder request to a composed team (throws with a client-safe message on bad input). */
-/** Compose a Free Create sheet with the limits ignored, for display: the widened roster, any chosen skill as-is (custom),
- *  and (when a star from another league would trip the league check) without the league rule. */
-function composeFreeDisplay(teamsDir: string, body: TeamBuilderBody) {
-  const xml = freeDisplayRosterXml(loadBaseForkRosters(teamsDir), body.rosterId ?? "");
-  const display = { ...body, custom: true };
-  try {
-    return composeFromBody(teamsDir, display, xml);
-  } catch {
-    return composeFromBody(teamsDir, { ...display, specialRule: undefined }, xml);
+/** Compose a Free Create sheet for the public share view. It never throws for a saved team: it renders what it can and
+ *  says what it left out. With the limits ignored the race's roster is widened for display (freeCreateDisplay.ts) and any
+ *  chosen skill is applied as-is; a star from another league drops the league rule; a sheet the composer still refuses
+ *  (e.g. an increase past a characteristic cap saved before the caps were enforced) shows without its characteristic
+ *  increases, then without its added skills. */
+function composeFreeDisplay(teamsDir: string, body: TeamBuilderBody): { composed: ReturnType<typeof composeFromBody>; dropped: string[] } | undefined {
+  const ignore = body.ignoreLimits === true;
+  const xml = ignore ? freeDisplayRosterXml(loadBaseForkRosters(teamsDir), body.rosterId ?? "") : undefined;
+  const base: TeamBuilderBody = ignore ? { ...body, custom: true } : body;
+  const strip = (key: "chosenStatIncreases" | "chosenSkills", from: TeamBuilderBody): TeamBuilderBody =>
+    ({ ...from, picks: (from.picks ?? []).map((p) => ({ ...p, [key]: [] })) });
+  const noStats = strip("chosenStatIncreases", base);
+  const attempts: Array<[TeamBuilderBody, string[]]> = [
+    [base, []],
+    [{ ...base, specialRule: undefined }, []],
+    [{ ...noStats, specialRule: undefined }, ["Characteristic increases could not be shown."]],
+    [{ ...strip("chosenSkills", noStats), specialRule: undefined }, ["Characteristic increases could not be shown.", "Added skills could not be shown."]],
+  ];
+  for (const [attempt, dropped] of attempts) {
+    try {
+      return { composed: composeFromBody(teamsDir, attempt, xml), dropped };
+    } catch {
+      // next, smaller attempt
+    }
   }
+  return undefined;
 }
 
 function composeFromBody(teamsDir: string, body: TeamBuilderBody, rosterXml?: string) {

@@ -5,7 +5,7 @@ import { createContext, runInContext } from "node:vm";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ViteDevServer } from "vite";
-import { composeTeam } from "@bb/validator";
+import { composeTeam, DEFAULT_SKILL_GOLD } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
@@ -13,9 +13,10 @@ import { createTournamentBuilder, FREE_CREATE_PACKAGE } from "../spa/src/teams/b
 import { core } from "../spa/src/teams/builderCore";
 import { sheetRulesetRows } from "../spa/src/teams/sheetRuleset";
 import { CHARACTERISTIC_VALUE } from "../src/characteristicValue";
+import { FREE_CREATE_SKILL_GOLD, freeCreateSkillGold } from "../src/freeCreate";
 import { CHARACTERISTIC_VALUE as ADVANCEMENT_VALUE } from "../src/teamAdvancement";
 import { freeDisplayRosterXml } from "../src/freeCreateDisplay";
-import { resolveBuilderPackage } from "../src/teamBuilderPackage";
+import { FREE_CREATE_BUILD_PACKAGE, resolveBuilderPackage } from "../src/teamBuilderPackage";
 import { buildBodyForSave, createSave, type TeamBuilderSave } from "../src/teamBuilderSaves";
 import { teamBuilderWireError } from "../src/teamBuilderWire";
 import { sharedTeamView } from "../src/teamShareView";
@@ -50,6 +51,7 @@ const HUMAN = {
   positions: [
     { positionId: "hlin", name: "Human Lineman", type: "Lineman", cost: 50000, max: 16, MA: 6, ST: 3, AG: "3+", PA: "4+", AV: "9+", skills: [], playsFor: [] },
     { positionId: "hogr", name: "Ogre", type: "BigGuy", cost: 140000, max: 1, MA: 5, ST: 5, AG: "4+", PA: "5+", AV: "10+", skills: ["Loner (4+)", "Bone Head"], playsFor: [] },
+    { positionId: "hrun", name: "Human Sprinter", type: "Runner", cost: 70000, max: 2, MA: 9, ST: 3, AG: "2+", PA: "4+", AV: "8+", skills: [], playsFor: [] },
     { positionId: "sgrim", name: "Grim Ironjaw", type: "Star", cost: 200000, max: 1, MA: 5, ST: 4, AG: "3+", PA: "-", AV: "9+", skills: ["Block"], isStar: true, playsFor: ["(any)"] },
   ],
 };
@@ -80,9 +82,11 @@ function routes(over: Routes = {}): Routes {
     "/api/skills": {
       general: [{ name: "Block", category: "General", elite: true }, { name: "Tackle", category: "General" }],
       strength: [{ name: "Guard", category: "Strength", elite: true }], agility: [{ name: "Dodge", category: "Agility", elite: true }],
+      passing: ["Accurate", "Cannoneer", "Cloud Burster", "Dump-off", "Fumblerooskie", "Hail Mary Pass", "Leader", "Nerves of Steel", "On the Ball", "Pass"].map((name) => ({ name, category: "Passing" })),
     },
     "/api/fork/team-builder/legal-skills?rosterId=human&positionId=hlin": LEGAL,
     "/api/fork/team-builder/legal-skills?rosterId=human&positionId=hogr": LEGAL,
+    "/api/fork/team-builder/legal-skills?rosterId=human&positionId=hrun": LEGAL,
     "POST /api/fork/team-builder/saves": (body: any) => ({ save: { id: "sv1", name: body.name } }),
     "POST /api/fork/team-builder/build": { teamId: "t1" },
     ...over,
@@ -150,7 +154,7 @@ describe("Free Create: controller", () => {
     expect(b.state.slots).toHaveLength(16); // 16 players
   });
 
-  it("save line states: no verdict; export, save, share and Create team on Fork once named with a player; build sends the marker", async () => {
+  it("save line states: no verdict; export, save, share and Create team on Fork once named with a player; the build request carries the marker", async () => {
     const { b, f } = await freeHuman();
     expect(b.canExport()).toBe(false);
     b.setTeamName("Free Reavers");
@@ -162,10 +166,8 @@ describe("Free Create: controller", () => {
     expect(b.canShare()).toBe(false); // not saved yet
     expect(await b.saveTeam()).toBe(true);
     expect(b.canShare()).toBe(true);
-    expect(await b.build()).toBe(true);
-    const build = f.calls.find((c) => c.path === "/api/fork/team-builder/build")!.body as any;
-    expect(build.packageName).toBe("free-create");
-    expect(build.saveId).toBe("sv1");
+    // The real build path (Free Create's build profile) is exercised in freeCreateHttp.test.ts; here only the request.
+    expect(b.requestBody().packageName).toBe("free-create");
   });
 
   it("save round trip: the free marker and the checkbox are stored and reload into Free Create", async () => {
@@ -245,6 +247,48 @@ describe("Free Create: Ignore in-game limits", () => {
     expect(b.requestBody().ignoreLimits).toBeUndefined();
   });
 
+  it("a league change while the box is ticked keeps every pick (the unrestricted picker still offers those stars)", async () => {
+    const { b } = await freeHuman();
+    b.setTeamName("Wild Bunch");
+    await b.setIgnoreLimits(true);
+    b.addStar(b.starChoices().find((c) => c.paired)!.key);
+    b.selectLeague("Old World Classic");
+    expect(b.state.slots.map((s) => s.positionId)).toEqual(["sgrak", "scrum"]);
+    expect(b.state.leagueNotice).toBe("");
+  });
+
+  it("the BB2025 characteristic caps hold even with the box ticked; unticking drops a stored increase past a cap", async () => {
+    const { b } = await freeHuman();
+    b.setTeamName("Sprinters");
+    b.addPosition("hrun");
+    expect(b.addStat(0, "MA")).toBe("MA can't go above 9.");
+    expect(b.statOptions(0).find((o) => o.stat === "MA")?.reason).toBe("MA can't go above 9.");
+    await b.setIgnoreLimits(true);
+    expect(b.addStat(0, "MA")).toBe("MA can't go above 9.");
+    expect(b.addStat(0, "AG")).toBe(""); // 2+ -> 1+
+    // A save from before the caps were enforced: +MA on the MA 9 Sprinter.
+    const saved = { rosterId: "human", teamName: "Old", packageName: "free-create", ignoreLimits: true, picks: [{ positionId: "hrun", count: 1, chosenStatIncreases: ["MA", "AG"] }] };
+    const c = make(mockFetcher(routes({ "/api/fork/team-builder/saves/sv9": { save: { id: "sv9", name: "Old", body: saved } } })));
+    await c.init({ saveId: "sv9" });
+    await c.setIgnoreLimits(false);
+    expect(c.state.slots[0]!.chosenStatIncreases).toEqual(["AG"]);
+  });
+
+  it("added skills stop at the server's save bound (8 per player), with a reason", async () => {
+    const { b } = await freeHuman();
+    b.setTeamName("Polymaths");
+    await b.setIgnoreLimits(true);
+    b.addPosition("hlin");
+    await b.openSkills(0);
+    const all = b.pickerSections(0)!.flatMap((s) => s.groups.flatMap((g) => g.skills)).filter((k) => !k.innate).map((k) => k.skill);
+    expect(all.length).toBeGreaterThan(8);
+    for (const k of all.slice(0, 8)) expect(b.addSkill(0, k)).toBe("");
+    expect(b.addSkill(0, all[8]!)).toBe("Max 8 added skills per player.");
+    expect(b.skillBlock(b.state.slots[0]!, all[8]!)).toBe("Max 8 added skills per player.");
+    expect(b.moreSkills(b.state.slots[0]!)).toBe(false);
+    expect(b.slotLocks(0).canMoreSkills).toBe(false);
+  });
+
   it("only Free Create has the box; picking another ruleset clears it", async () => {
     const { b } = await freeHuman();
     await b.setIgnoreLimits(true);
@@ -289,8 +333,10 @@ describe("Free Create: sheet and PDF ruleset box", () => {
 
 describe("Free Create: server", () => {
   const baseline = { name: "Baseline" } as any;
-  it("the marker resolves to the standalone baseline (no package echo); ignoreLimits must be a boolean and is stored", () => {
-    expect(resolveBuilderPackage(new Map() as any, baseline, "free-create")).toEqual({ pkg: baseline, free: true });
+  it("the marker resolves to Free Create's own build profile (no package echo); ignoreLimits must be a boolean and is stored", () => {
+    expect(resolveBuilderPackage(new Map() as any, baseline, "free-create")).toEqual({ pkg: FREE_CREATE_BUILD_PACKAGE, free: true });
+    expect(FREE_CREATE_BUILD_PACKAGE).toMatchObject({ goldBudget: null, special: { statIncreasesAllowed: true } });
+    expect(FREE_CREATE_BUILD_PACKAGE.skillAllotment.maxPerPlayer).toBeNull();
     expect(teamBuilderWireError({ rosterId: "human", packageName: "free-create", ignoreLimits: "yes" })).toBe("ignoreLimits must be a boolean when supplied.");
     expect(teamBuilderWireError({ rosterId: "human", packageName: "free-create", ignoreLimits: true })).toBeNull();
     expect(buildBodyForSave({ rosterId: "human", packageName: "free-create", ignoreLimits: true, junk: 1 })).toEqual({ rosterId: "human", packageName: "free-create", ignoreLimits: true });
@@ -337,6 +383,10 @@ describe("Free Create: server", () => {
 
   it("one characteristic price table: the league table and the Free Create display read the same numbers", () => {
     expect(ADVANCEMENT_VALUE).toBe(CHARACTERISTIC_VALUE);
+    // Skill gold: Free Create's one function uses the same flat numbers as the core estimate and the validator.
+    expect(FREE_CREATE_SKILL_GOLD).toEqual({ primary: core.SKILL_GOLD.primary, secondary: core.SKILL_GOLD.secondary, eliteSurcharge: core.SKILL_GOLD.elite });
+    expect(FREE_CREATE_SKILL_GOLD).toEqual({ primary: DEFAULT_SKILL_GOLD.primary, secondary: DEFAULT_SKILL_GOLD.secondary, eliteSurcharge: DEFAULT_SKILL_GOLD.eliteSurcharge });
+    expect(freeCreateSkillGold("secondary", true)).toBe(50_000);
     const src = readFileSync(new URL("../src/server.ts", import.meta.url), "utf8");
     expect(src).toContain("if (isFreeCreatePackage(body.packageName)) { input.free = true; input.ruleset = { name: FREE_CREATE_LABEL");
   });

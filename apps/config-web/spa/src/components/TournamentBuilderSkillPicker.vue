@@ -46,7 +46,7 @@ function chip(skill: PickerSkill) {
   const s = slot.value!;
   const innate = skill.innate === true || (position.value?.skills ?? []).some((k) => k.replace(/\s*\(.*\)\s*$/, "").replace(/\*+$/, "") === skill.skill);
   const added = s.chosenSkills.includes(skill.skill);
-  const reason = innate || added ? "" : core.skillPickBlock(builder.gateCtx(), s, skill.skill);
+  const reason = innate || added ? "" : builder.skillBlock(s, skill.skill);
   return { innate, added, reason, price: innate ? "" : builder.skillPrice(activeSection.value?.access ?? "primary", skill.elite) };
 }
 function pick(skill: string): void {
@@ -55,7 +55,7 @@ function pick(skill: string): void {
   const refused = builder.addSkill(index, skill);
   if (refused) { picker.value = { ...picker.value, error: refused }; return; }
   const s = state.slots[index];
-  if (s && !core.moreSkillsAllowed(builder.gateCtx(), s)) void close();
+  if (s && !builder.moreSkills(s)) void close();
 }
 function pickStat(stat: string): void {
   if (!picker.value) return;

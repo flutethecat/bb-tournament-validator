@@ -25,6 +25,7 @@ import {
 import { bb2025 } from "@bb/validator/dataset";
 import type { TeamBuilderSave } from "./teamBuilderSaves.js";
 import { shortPositionName } from "./positionNames.js";
+import { freeCreateSkillGold, freeCreateStatGold } from "./freeCreate.js";
 
 export interface SharedSkill {
   name: string;
@@ -171,8 +172,10 @@ export interface SharedViewInput {
   /** Package info from packageResponseInfo (name, budget, rules.tierLabel). */
   ruleset?: { name: string; budget: number | null; tierLabel?: string | null } | null;
   custom?: boolean;
-  /** Roster Builder Free Create save (freeCreate.ts): no verdict (always valid, no findings) and no TV cap. */
+  /** Roster Builder Free Create save (freeCreate.ts): no verdict and no TV cap; priced as the builder prices. */
   free?: boolean;
+  /** Free Create only: what the display compose had to leave out (shown as findings, never a verdict). */
+  displayNotes?: string[];
   publicDir: string;
   /** The viewer's proven session coach, when signed in. */
   viewer?: string;
@@ -180,6 +183,7 @@ export interface SharedViewInput {
 
 export function sharedTeamView(input: SharedViewInput): SharedTeamView {
   const { save, roster, result } = input;
+  const free = input.free === true;
   const body = save.body ?? {};
   const raceName = roster?.rosterName || save.raceName || "";
   const sprites = readManifest<SpriteManifest>(input.publicDir, "sprites/manifest.json");
@@ -211,7 +215,8 @@ export function sharedTeamView(input: SharedViewInput): SharedTeamView {
       added: addedNames.map((name) => ({
         name,
         category: skillCategory(name),
-        access: ds && skillAccess(bb2025, ds, bareSkill(name)) === "secondary" ? "secondary" as const : "primary" as const,
+        // Free Create with the limits ignored: a skill outside the position's access reads (and prices) as a secondary.
+        access: ds && (skillAccess(bb2025, ds, bareSkill(name)) === "secondary" || (free && skillAccess(bb2025, ds, bareSkill(name)) === "illegal")) ? "secondary" as const : "primary" as const,
       })),
       statIncreases: star ? [] : statIncreases(p, ds),
       cost: num(p.cost),
@@ -224,14 +229,18 @@ export function sharedTeamView(input: SharedViewInput): SharedTeamView {
   const primary = num(rs?.primarySkillCount) ?? players.reduce((n, p) => n + p.added.filter((s) => s.access !== "secondary").length, 0);
   const secondary = num(rs?.secondarySkillCount) ?? players.reduce((n, p) => n + p.added.filter((s) => s.access === "secondary").length, 0);
   const custom = input.custom === true;
-  const free = input.free === true;
   const issues = roster === undefined ? 1 : result ? (custom || free ? 0 : result.errors.length) : input.intrinsic?.issues ?? 0;
   const valid = roster !== undefined && (result ? custom || free || result.valid : input.intrinsic?.legal !== false);
   // Owner 10-28: the public page lists the validator's own error messages under the cross (team facts only, no ids).
-  const findings = !valid && result && !custom && !free
+  const findings = free ? [...(input.displayNotes ?? [])] : !valid && result && !custom
     ? result.errors.map((e) => String((e as { message?: unknown }).message ?? "").trim()).filter(Boolean).slice(0, 20).map((m) => (m.length > 240 ? `${m.slice(0, 237)}...` : m))
     : [];
   const sideline = roster?.sideline;
+  // Free Create: the builder's own pricing (freeCreate.ts), so the shared total matches the Roster Builder's.
+  const freeSkillsGold = players.filter((p) => !p.isStar).reduce((n, p) => n + p.added.reduce((m, s) => m + freeCreateSkillGold(s.access ?? "primary", findSkill(bb2025, bareSkill(s.name))?.elite === true), 0), 0);
+  const freeStatGold = players.filter((p) => !p.isStar).reduce((n, p) => n + p.statIncreases.reduce((m, k) => m + freeCreateStatGold(k), 0), 0);
+  const freeTotal = (num(composedSummary?.playersCost) ?? 0) + freeSkillsGold + freeStatGold
+    + (num(rs?.inducementsCost) ?? num(composedSummary?.inducementCost) ?? 0) + (num(composedSummary?.sidelineCost) ?? 0);
   const view: SharedTeamView = {
     teamName: String(roster?.teamName || body.teamName || save.name),
     coach: input.coach,
@@ -258,10 +267,10 @@ export function sharedTeamView(input: SharedViewInput): SharedTeamView {
       players: players.length,
       playersCost,
       starsCost: num(rs?.starsCost),
-      skillsCost: num(rs?.skillsCost) ?? num(composedSummary?.skillsCost),
+      skillsCost: free ? freeSkillsGold : num(rs?.skillsCost) ?? num(composedSummary?.skillsCost),
       inducementsCost: num(rs?.inducementsCost) ?? num(composedSummary?.inducementCost),
       sidelineCost: num(composedSummary?.sidelineCost),
-      total: num(rs?.goldUsed) ?? num(composedSummary?.total),
+      total: free ? (roster ? freeTotal : null) : num(rs?.goldUsed) ?? num(composedSummary?.total),
       cap: free ? null : num(input.ruleset?.budget) ?? num(rs?.goldBudget) ?? num(body.budget),
       primarySkills: primary,
       secondarySkills: secondary,

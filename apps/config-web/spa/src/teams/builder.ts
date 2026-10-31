@@ -19,7 +19,10 @@ import {
 } from "./builderCore";
 import { sanitizeSkillSystem, sheetRulesetRows, type PrintSheetModel, type SheetSkillSystem } from "./sheetRuleset";
 import { CHARACTERISTIC_VALUE } from "../../../src/characteristicValue";
-import { FREE_CREATE_DESCRIPTION, FREE_CREATE_LABEL, FREE_CREATE_PACKAGE } from "../../../src/freeCreate";
+import {
+  FREE_CREATE_DESCRIPTION, FREE_CREATE_LABEL, FREE_CREATE_PACKAGE, freeCreateSkillGold, freeCreateStatGold, statCapReason,
+} from "../../../src/freeCreate";
+import { TEAM_BUILDER_BODY_BOUNDS } from "../../../src/teamBuilderWire";
 
 // ── wire shapes ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -127,6 +130,9 @@ export const SAVE_ID_RE = /^[\w-]{1,64}$/;
 export { FREE_CREATE_PACKAGE, FREE_CREATE_LABEL, FREE_CREATE_DESCRIPTION };
 /** Packages the Roster Builder no longer offers as cards (owner 10-31: Free Create replaces BB2025 Default). Deep links
  *  and saves that name them keep working; the Tournament Creator's presets still use the package. */
+/** Added skills one player may carry: the server's save and build bound (teamBuilderWire.ts skillsPerPick), which Free
+ *  Create's open gates would otherwise run past. */
+export const MAX_SKILLS_PER_PLAYER = TEAM_BUILDER_BODY_BOUNDS.skillsPerPick;
 export const HIDDEN_RULESET_CARDS: ReadonlySet<string> = new Set(["BB2025 Default"]);
 export interface RulesetCard { name: string; label: string; description: string; free: boolean }
 /** Free Create stat increases: one per player (each characteristic once while limits are ignored); skills and stats combine. */
@@ -483,8 +489,12 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     Object.entries(state.inducementCounts).filter(([, c]) => c > 0).map(([key, count]) => ({ key, count }));
   const inducementGold = (): number =>
     inducementPicks().reduce((n, p) => n + p.count * inducementTerms(state.inducementCatalog.find((i) => i.key === p.key)).price, 0);
-  const addedSkillGold = (): number => state.slots.reduce((n, s) => n + core.slotSkillGold(gateCtx(), s), 0);
+  /** Free Create prices with src/freeCreate.ts, the same functions the share view uses (one implementation). */
+  const freeSlotSkillGold = (s: Slot): number => (isStarSlot(s) ? 0
+    : s.chosenSkills.reduce((n, k) => n + freeCreateSkillGold(accessOf(s.positionId, k) === "secondary" ? "secondary" : "primary", isElite(k)), 0));
+  const addedSkillGold = (): number => state.slots.reduce((n, s) => n + (free() ? freeSlotSkillGold(s) : core.slotSkillGold(gateCtx(), s)), 0);
   const statGold = (): number => {
+    if (free()) return state.slots.filter((s) => !isStarSlot(s)).reduce((n, s) => n + s.chosenStatIncreases.reduce((m, k) => m + freeCreateStatGold(k), 0), 0);
     const rules = statRules();
     const allowed = allowedStats();
     return state.slots.filter((s) => !isStarSlot(s))
@@ -999,6 +1009,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   }
   function selectLeague(league: string): void {
     state.league = core.reconcileLeagueSelection(leagueOptions(), { selectedLeague: league, explicit: true });
+    // Ignore in-game limits offers every star whatever the league: a league change keeps every pick.
+    if (ignoring()) { state.leagueNotice = ""; clampInducements(); changed(); return; }
     // Stars no longer eligible for the chosen league leave (pairs atomically).
     const before = state.slots.length;
     const choiceOf = new Map<string, StarChoice>();
@@ -1084,10 +1096,23 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     });
     changed();
   }
+  /** The skill gate: the shared core's, plus (Free Create) the server's per-player bound. */
+  function skillBlock(slot: Slot | null, skill: string): string {
+    const block = core.skillPickBlock(gateCtx(), slot, skill);
+    if (block || !slot || !free()) return block;
+    return slot.chosenSkills.length >= MAX_SKILLS_PER_PLAYER ? `Max ${MAX_SKILLS_PER_PLAYER} added skills per player.` : "";
+  }
+  /** Whether the player may take another added skill (the core's caps, and the per-player bound in Free Create). */
+  const moreSkills = (slot: Slot): boolean => core.moreSkillsAllowed(gateCtx(), slot) && !(free() && slot.chosenSkills.length >= MAX_SKILLS_PER_PLAYER);
+  /** The stat gate: the shared core's, plus the BB2025 characteristic caps (MA 9, ST 8, AG / PA 1+, AV 11+), which hold
+   *  even with Ignore in-game limits (the box lifts how many increases, never the game's caps). */
+  function statBlock(slot: Slot | null, position: BuilderPosition | null, stat: string): string {
+    return core.statOptionState(gateCtx(), slot, position, stat) || (position && free() ? statCapReason(position, stat) : "");
+  }
   /** Add a skill after the shared gate re-checks it; resolves the gate's reason when refused ("" = added). */
   function addSkill(index: number, skill: string): string {
     const slot = state.slots[index];
-    const block = core.skillPickBlock(gateCtx(), slot ?? null, skill);
+    const block = skillBlock(slot ?? null, skill);
     if (block || !slot) return block || "This player can't take added skills.";
     state.slots = state.slots.map((s, i) => (i === index ? { ...s, chosenSkills: [...s.chosenSkills, skill] } : s));
     changed();
@@ -1099,7 +1124,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   }
   function addStat(index: number, stat: string): string {
     const slot = state.slots[index];
-    const block = core.statOptionState(gateCtx(), slot ?? null, slot ? positionById(slot.positionId) : null, stat);
+    const block = statBlock(slot ?? null, slot ? positionById(slot.positionId) : null, stat);
     if (block || !slot) return block || "This player can't take a stat increase.";
     const live = slot.chosenStatIncreases.filter((k) => allowedStats().includes(k));
     state.slots = state.slots.map((s, i) => (i === index ? { ...s, chosenStatIncreases: [...live, stat] } : s));
@@ -1150,7 +1175,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       counts.set(s.positionId, n + 1);
       const set = legalSet(s.positionId);
       const skills = set ? s.chosenSkills.filter((k) => [...set.primary, ...set.secondary].some((e) => e.skill === k)) : s.chosenSkills;
-      const stats = s.chosenStatIncreases.slice(0, 1);
+      const stats = s.chosenStatIncreases.filter((k) => !statCapReason(p, k)).slice(0, 1);
       undone += s.chosenSkills.length - skills.length + s.chosenStatIncreases.length - stats.length;
       kept.push({ ...s, chosenSkills: skills, chosenStatIncreases: stats });
     }
@@ -1212,7 +1237,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     const chosen = slot.chosenStatIncreases.filter((k) => allowedStats().includes(k));
     const now = core.improvedStats(position, chosen);
     return allowedStats().map((stat) => {
-      const reason = core.statOptionState(gateCtx(), slot, position, stat);
+      const reason = statBlock(slot, position, stat);
       const next = core.improvedStats(position, [...chosen, stat]);
       const cost = core.statIncreaseCost(statRules(), stat);
       return { stat, reason, from: String(now[stat as Stat].value), to: String(reason && /no /.test(reason) ? now[stat as Stat].value : next[stat as Stat].value), cost: cost != null ? `+${core.gold(cost)}` : "" };
@@ -1227,7 +1252,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     return {
       liveStats,
       skillLocked: Boolean(statRules()) && exclusive && liveStats.length > 0,
-      canMoreSkills: core.moreSkillsAllowed(gateCtx(), slot),
+      canMoreSkills: moreSkills(slot),
       statOffered: Boolean(statRules()) && allowedStats().length > 0,
       statLocked: exclusive && slot.chosenSkills.length > 0,
       statFull: liveStats.length >= maxStats,
@@ -1529,7 +1554,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     skillPoints, positionCards, starChoices, starRow, starCap, starPickCount, starsAllowed, starSpTable, inducementRows, rulesetLines, tierLabel, raceTable,
     eligibleRosters, staffRows: () => staffRows(state.roster), staffIcon, skillIcon, spritePath, crestPath, pickerSections, skillPrice, statOptions,
     captainIndex, skillAllowance, slotLocks, legalSet, requestBody, sheetModel, teamViewModel, gateCtx, named, signedIn: (): boolean => Boolean(deps.coach()),
-    free, ignoring, capped, canShare, rulesetCards, rulesetLabel, freeRaces, canAddStar,
+    free, ignoring, capped, canShare, skillBlock, moreSkills, rulesetCards, rulesetLabel, freeRaces, canAddStar,
     // actions
     init, boot, choosePackage, chooseRace, setTeamName, selectLeague, setSkillPack, addPosition, removeSlot, addStar, removeStar, moveSlot,
     toggleCaptain, openSkills, addSkill, removeSkill, addStat, removeStat, stepStaff, stepInducement, setIgnoreLimits, schedulePreview, flushPreview,
