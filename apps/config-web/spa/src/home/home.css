@@ -23,6 +23,10 @@
   --sf-rail-w: 56px;
   --sf-band-font: "Silkscreen", var(--font-heading, sans-serif);
   --sf-wordmark-font: "SNES", var(--font-heading, sans-serif);
+  --sf-discord: #5865f2; /* Discord Blurple (brand colour, same in both themes) */
+  --sf-discord-hover: #4752c4;
+  --sf-discord-ink: #ffffff;
+  --sf-discord-drop: rgb(0 0 0 / 0.35);
 }
 :root[data-theme="fumbbl"] {
   --sf-seat-home: #1d4fb8;
@@ -315,3 +319,10 @@ h3.hm-log-title { font-family: var(--font-body, sans-serif); font-weight: 700; }
 .mc-cell[data-today="true"] { border-color: var(--sf-led); box-shadow: inset 0 0 0 1px var(--sf-led); color: var(--sf-led); }
 .mc-dot { position: absolute; bottom: 3px; left: 50%; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; border: 1px solid transparent; }
 .mc-up-head { margin: 10px 0 4px; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+
+/* Header sign-in (owner 10-31): "Login" beside the Discord mark, in Discord Blurple. */
+.sf-discord-login { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 14px; font: 600 14px/1 var(--font-body, system-ui, sans-serif); color: var(--sf-discord-ink); text-decoration: none; background: var(--sf-discord); border: 1px solid var(--sf-discord-hover); border-radius: 4px; box-shadow: 0 2px 0 var(--sf-discord-drop); }
+.sf-discord-login:hover { background: var(--sf-discord-hover); }
+.sf-discord-login:active { transform: translateY(1px); box-shadow: 0 1px 0 var(--sf-discord-drop); }
+.sf-discord-login:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.sf-discord-mark { flex: 0 0 auto; display: block; }
