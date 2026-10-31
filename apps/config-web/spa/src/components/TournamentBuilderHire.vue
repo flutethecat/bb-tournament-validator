@@ -24,7 +24,7 @@ function add(positionId: string): void {
   <div ref="list" class="tb-positions tb-hire-list tb-row-window" :style="maxHeight ? { maxHeight } : undefined">
     <button
       v-for="c in cards" :key="c.position.positionId" type="button" class="tb-position" :class="{ 'name-required': !builder.named() }"
-      :disabled="c.exhausted" :aria-label="`Add ${c.position.name}`"
+      :disabled="c.exhausted" :aria-label="`Add ${c.position.name}, ${c.count} of ${c.position.max} hired, ${core.gold(c.position.cost)}`"
       :title="!builder.named() ? 'You must name your team.' : c.group ? `${c.group.label || 'Position group'} limit reached` : c.name !== c.position.name ? c.position.name : undefined"
       @click="add(c.position.positionId)"
     >
@@ -32,7 +32,7 @@ function add(positionId: string): void {
       <span class="tb-position-head"><strong>{{ c.name }}</strong></span>
       <span class="tb-corner">
         <span class="tb-cost">{{ core.gold(c.position.cost) }}</span>
-        <small class="tb-hired" :aria-label="`${c.count} of ${c.position.max} hired`">{{ c.count }}/{{ c.position.max }}</small>
+        <small class="tb-hired">{{ c.count }}/{{ c.position.max }}</small>
       </span>
       <TournamentBuilderStats :position="c.position" />
       <span class="row-skills tb-printed tb-skillband">

@@ -483,7 +483,7 @@ describe("tournament builder page (server-rendered)", () => {
     expect(between(html, "tb-validator-h")).not.toMatch(/Server preview|Estimate<\/span><\/header>/i); // no meta label on the Validator header
     expect(html).toContain('<span class="tb-acc-title">Hireable players</span>');
     expect(html).not.toContain(">Add players</h2>");
-    expect(html).toContain('aria-label="Add Human Blitzer"');
+    expect(html).toContain('aria-label="Add Human Blitzer, ');
     expect(html).toMatch(/<strong>Blitzer<\/strong>/); // short position name (src/positionNames.ts)
   });
 
@@ -515,11 +515,14 @@ describe("tournament builder page (server-rendered)", () => {
     expect(cards).not.toMatch(/ left/);
     expect(cards).not.toContain("Big Guy");
     expect(cards).not.toMatch(/<small>[^<]* · /);
-    expect(cards).toMatch(/<span class="tb-corner"><span class="tb-cost">[^<]*<\/span><small class="tb-hired" aria-label="\d+ of \d+ hired">\d+\/\d+<\/small><\/span>/);
-    expect(cards).toContain('aria-label="0 of 1 hired"');
+    expect(cards).toMatch(/<span class="tb-corner"><span class="tb-cost">[^<]*<\/span><small class="tb-hired">\d+\/\d+<\/small><\/span>/);
+    expect(cards).toMatch(/aria-label="Add [^"]+, \d+ of \d+ hired, [^"]+"/); // the button's accessible name carries the count and cost
+    expect(cards).not.toMatch(/<small class="tb-hired" aria-label/);
     expect(cards).toMatch(/class="row-skills tb-printed tb-skillband"/);
     const css = readFileSync(new URL("../spa/src/teams/builder.css", import.meta.url), "utf8");
     expect(css).toMatch(/\.tb-position > \.tb-printed \{[^}]*background: var\(--tb-skillbar\); border-radius: 0 0 2px 2px/);
+    expect(css).toMatch(/\.tb-position > \.tb-printed \.muted \{ color: var\(--tb-skillbar-muted\)/);
+    expect(css.match(/--tb-skillbar-muted: #/g)).toHaveLength(2); // both token blocks
     expect(css).toMatch(/\.tb-position > \.tb-corner \{[^}]*justify-items: end/);
   });
 
@@ -1000,7 +1003,7 @@ describe("tournament builder page (client behaviour)", () => {
     try {
       expect(page.selectedTab()).toBe("roster");
       const verdict = () => page.find((e) => e.attrs["aria-labelledby"] === "tb-valid-h");
-      const lineman = () => page.find((e) => e.attrs["aria-label"] === "Add Human Lineman");
+      const lineman = () => page.find((e) => String(e.attrs["aria-label"]).startsWith("Add Human Lineman,"));
       await page.fire(lineman(), "click");
       expect(textOf(verdict())).toContain("You must name your team first.");
       expect(fakeDocument.activeElement?.attrs.id).toBe("tb-team-name");
@@ -1052,8 +1055,8 @@ describe("tournament builder page (client behaviour)", () => {
       const page = await mount("/tournament-team-builder?package=Test%20Cup&race=human", mockFetcher(routes()));
       try {
         await page.fire(page.find((e) => e.attrs.id === "tb-team-name"), "input", { value: "Reavers" });
-        await page.fire(page.find((e) => e.attrs["aria-label"] === "Add Human Lineman"), "click");
-        await page.fire(page.find((e) => e.attrs["aria-label"] === "Add Human Blitzer"), "click");
+        await page.fire(page.find((e) => String(e.attrs["aria-label"]).startsWith("Add Human Lineman,")), "click");
+        await page.fire(page.find((e) => String(e.attrs["aria-label"]).startsWith("Add Human Blitzer,")), "click");
         expect(seen).toEqual([[0, { block: "nearest", behavior: "smooth" }], [1, { block: "nearest", behavior: "smooth" }]]);
         expect(String(page.find((e) => e.attrs["data-row"] === 1).attrs.class)).toContain("tb-row-new");
         seen.length = 0;
@@ -1077,7 +1080,7 @@ describe("tournament builder page (client behaviour)", () => {
     const page = await mount("/tournament-team-builder?package=Test%20Cup&race=human", mockFetcher(routes()));
     try {
       await page.fire(page.find((e) => e.attrs.id === "tb-team-name"), "input", { value: "Reavers" });
-      for (const who of ["Add Human Blitzer", "Add Human Lineman", "Add Human Lineman"]) await page.fire(page.find((e) => e.attrs["aria-label"] === who), "click");
+      for (const who of ["Add Human Blitzer", "Add Human Lineman", "Add Human Lineman"]) await page.fire(page.find((e) => String(e.attrs["aria-label"]).startsWith(who + ",")), "click");
       const toggles = () => page.all().filter((e) => e.tag === "button" && String(e.attrs.class ?? "").startsWith("tb-num tb-captain"));
       expect(toggles().length).toBe(3);
       await page.fire(toggles()[1]!, "click");
@@ -1103,7 +1106,7 @@ describe("tournament builder page (client behaviour)", () => {
     const page = await mount("/tournament-team-builder?package=Test%20Cup&race=human", mockFetcher(routes()));
     try {
       await page.fire(page.find((e) => e.attrs.id === "tb-team-name"), "input", { value: "Reavers" });
-      await page.fire(page.find((e) => e.attrs["aria-label"] === "Add Human Lineman"), "click");
+      await page.fire(page.find((e) => String(e.attrs["aria-label"]).startsWith("Add Human Lineman,")), "click");
       const inRow = (e: FakeEl): boolean => { for (let p = e.parent; p; p = p.parent) if (p.attrs["data-row"] !== undefined) return true; return false; };
       const chipX = () => page.all().filter((e) => e.attrs.class === "tb-chip-x" && inRow(e));
       expect(chipX()).toEqual([]);
