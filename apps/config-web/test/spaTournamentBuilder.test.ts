@@ -473,7 +473,7 @@ describe("tournament builder page (server-rendered)", () => {
     expect(html).toMatch(/<strong>Blitzer<\/strong>/); // short position name (src/positionNames.ts)
   });
 
-  it("the Roster pane: left = the accordion (hireable players, sideline staff, inducements, star players); centre = roster; right = team, save line, validator (phone order = source order)", async () => {
+  it("the Roster pane: left = the accordion (hireable players, sideline staff, inducements, star players); centre = roster; right = team (save line in its footer), validator (phone order = source order)", async () => {
     const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); });
     expect(html).toContain('id="tb-pane-roster"');
     const cols = ["tb-col-left", "tb-col-centre", "tb-col-right"].map((c) => html.indexOf(`class="tb-col ${c}"`));
@@ -487,7 +487,9 @@ describe("tournament builder page (server-rendered)", () => {
     expect(html).toMatch(/class="tb-positions tb-hire-list tb-row-window"/); // the hire list scrolls (five cards at a time)
     expect(html.indexOf('id="tb-roster-h"')).toBeGreaterThan(cols[1]!);
     expect(html.indexOf('id="tb-team-h"')).toBeGreaterThan(cols[2]!);
-    expect(html.indexOf('id="tb-valid-h"')).toBeGreaterThan(html.indexOf('id="tb-team-h"')); // the save line sits under the Team controls
+    expect(html.indexOf('id="tb-valid-h"')).toBeGreaterThan(html.indexOf('id="tb-team-name"')); // no packs: the save line sits under name / league from the start
+    expect(between(html, "tb-team-h", "tb-validator-h")).toContain('<section class="tb-saveline"'); // inside the Team panel, no separate box
+    expect(html).not.toContain("Change skill pack");
     // The roster table is the top of the centre column; the skill key sits under it.
     expect(between(html, "tb-roster-h", "tb-team-h")).toContain('aria-label="Skill key"');
     expect(html).toContain('id="tb-team-name"');
@@ -624,7 +626,7 @@ describe("tournament builder page (server-rendered)", () => {
       await b.flushPreview();
     };
     const html = await render("/tournament-team-builder?tab=roster", f, prepare);
-    expect(html).toContain('<h2 id="tb-valid-h" aria-live="polite">Team is invalid: 1 issue</h2>');
+    expect(html).toContain('<h3 id="tb-valid-h" class="tb-saveline-head" aria-live="polite">Team is invalid: 1 issue</h3>');
     const line = between(html, "tb-valid-h", "tb-validator-h");
     const errorAt = line.indexOf('data-kind="error">Tier 1 allows no secondary skills (Guard on #1).</li>');
     const warningAt = line.indexOf('data-kind="warning">Unspent gold</li>');
@@ -649,8 +651,8 @@ describe("tournament builder page (server-rendered)", () => {
 
   it("the save line: valid for the current document -> the buttons (Export PDF, Save Team, Create team on Fork), no issues list", async () => {
     const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), async (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); await b.flushPreview(); });
-    expect(html).toContain('<h2 id="tb-valid-h" aria-live="polite">Team is valid</h2>');
-    expect(html).toContain('class="hm-panel tb-panel tb-saveline" data-tone="valid"');
+    expect(html).toContain('<h3 id="tb-valid-h" class="tb-saveline-head" aria-live="polite">Team is valid</h3>');
+    expect(html).toContain('<section class="tb-saveline" data-tone="valid"');
     const line = between(html, "tb-valid-h", "tb-validator-h");
     expect(line).not.toContain('class="tb-issues"');
     const at = ["Export PDF", "Save Team", "Create team on Fork"].map((t) => line.indexOf(`>${t}</button>`));
@@ -660,8 +662,25 @@ describe("tournament builder page (server-rendered)", () => {
 
   it("the save line while the preview is out: Checking team..., the issues list (checklist) instead of the buttons", async () => {
     const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); b.state.previewPending = true; });
-    expect(html).toContain('<h2 id="tb-valid-h" aria-live="polite">Checking team...</h2>');
+    expect(html).toContain('<h3 id="tb-valid-h" class="tb-saveline-head" aria-live="polite">Checking team...</h3>');
     expect(between(html, "tb-valid-h", "tb-validator-h")).not.toMatch(/>Export PDF<\/button>/);
+  });
+
+  const PACKS = [{ label: "Pack A", gold: 1150000, skillPointBudget: 4, maxPerPlayer: 2 }, { label: "Pack B", gold: 1100000, skillPointBudget: 8, maxPerPlayer: 2 }];
+  const packRoutes = () => routes({ "/api/packages/Test%20Cup?roster=Human": { pkg: { description: "", eligibleRosters: ["Human"] }, rules: { ...RULES, race: { ...RACE, packs: PACKS } } } });
+
+  it("skill packs: no pack yet -> the pack list, save line and Validator rule bullets hidden; a chosen pack (deep link / save / handoff) -> the save line in its place and Change skill pack", async () => {
+    const start = await render("/tournament-team-builder?tab=roster", mockFetcher(packRoutes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); });
+    expect(start).toContain('id="tb-team-packs"');
+    expect(start).not.toContain('id="tb-valid-h"');
+    expect(start).not.toContain('class="tb-rules"');
+    expect(between(start, "tb-validator-h")).toContain('class="tv-totals tb-value"'); // the value cards stay
+    expect(start).not.toContain("Change skill pack");
+    const picked = await render("/tournament-team-builder?tab=roster", mockFetcher(packRoutes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); b.setSkillPack("Pack B"); });
+    expect(picked).not.toContain('id="tb-team-packs"');
+    expect(picked).toContain('id="tb-valid-h"');
+    expect(picked).toContain('class="tb-rules"');
+    expect(picked).toMatch(/<h2 id="tb-team-h">Team<\/h2><span class="hm-cap">Human<\/span><button type="button" class="tb-btn small tb-change-pack" aria-controls="tb-team-packs">Change skill pack<\/button>/);
   });
 
   it("left accordion: Hireable players pinned first and open by default; another open panel sits last with its body", async () => {
@@ -1018,6 +1037,29 @@ describe("tournament builder page (client behaviour)", () => {
       expect(chipX().map((e) => e.attrs["aria-label"])).toEqual(["Remove Tackle"]);
       await page.fire(chipX()[0]!, "click");
       expect(chipX()).toEqual([]);
+    } finally { page.app.unmount(); }
+  });
+
+  it("skill packs: picking collapses the list into the save line; Change skill pack re-opens it with focus on the chosen pack; re-picking the same pack keeps it", async () => {
+    const PACKS = [{ label: "Pack A", gold: 1150000, skillPointBudget: 4 }, { label: "Pack B", gold: 1100000, skillPointBudget: 8 }];
+    const f = mockFetcher(routes({ "/api/packages/Test%20Cup?roster=Human": { pkg: { description: "", eligibleRosters: ["Human"] }, rules: { ...RULES, race: { ...RACE, packs: PACKS } } } }));
+    const page = await mount("/tournament-team-builder?package=Test%20Cup&race=human", f);
+    try {
+      const has = (id: string) => page.all().some((e) => e.attrs.id === id);
+      const rules = () => page.all().some((e) => e.attrs.class === "tb-rules");
+      const pack = (label: string) => page.find((e) => e.tag === "button" && e.attrs.class === "tb-pack" && textOf(e).startsWith(label));
+      expect([has("tb-team-packs"), has("tb-valid-h"), rules()]).toEqual([true, false, false]);
+      await page.fire(pack("Pack B"), "click");
+      expect([has("tb-team-packs"), has("tb-valid-h"), rules()]).toEqual([false, true, true]);
+      const change = page.find((e) => e.tag === "button" && textOf(e) === "Change skill pack");
+      await page.fire(change, "click");
+      expect([has("tb-team-packs"), has("tb-valid-h"), rules()]).toEqual([true, false, false]);
+      expect(fakeDocument.activeElement === pack("Pack B")).toBe(true);
+      expect(pack("Pack B").attrs["aria-pressed"]).toBe("true");
+      await page.fire(pack("Pack B"), "click"); // the same pack: still chosen
+      expect(has("tb-valid-h")).toBe(true);
+      await page.fire(page.find((e) => e.tag === "button" && textOf(e) === "Change skill pack"), "click");
+      expect(pack("Pack B").attrs["aria-pressed"]).toBe("true");
     } finally { page.app.unmount(); }
   });
 

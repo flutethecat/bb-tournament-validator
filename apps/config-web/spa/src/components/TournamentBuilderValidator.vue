@@ -4,10 +4,11 @@
 // breakdown (stars, stat increases, star fees, pack skills), and at the bottom the rule bullets for this race (budget, SP,
 // skills per player, stars, tier limits incl. stacking). The package's data note is not shown here (Ruleset tab).
 import { computed, inject } from "vue";
-import { TOURNAMENT_BUILDER_KEY } from "../teams/builder";
+import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
 import TournamentBuilderValueBar from "./TournamentBuilderValueBar.vue";
 
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
+const ui = inject(TOURNAMENT_BUILDER_UI_KEY, null);
 const { state } = builder;
 const sp = computed(() => builder.skillPoints());
 // The cards and the SP display already show these; the last line is the total. The Team Captain line is left out too (owner
@@ -32,7 +33,8 @@ const pending = computed(() => Boolean(state.preview && !state.preview.package &
     <dl v-if="extras.length" class="tb-value-lines">
       <div v-for="l in extras" :key="l.label" :data-tone="l.tone"><dt>{{ l.label }}</dt><dd>{{ l.value }}</dd></div>
     </dl>
-    <div v-if="rules.length" class="tb-rules">
+    <!-- the rule bullets wait while the Team panel shows the skill-pack list (owner 10-31) -->
+    <div v-if="rules.length && !ui?.pickingPack()" class="tb-rules">
       <ul class="tb-lines">
         <li v-for="l in rules" :key="l">{{ l }}</li>
       </ul>

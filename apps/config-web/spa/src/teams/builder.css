@@ -355,16 +355,24 @@
 .tb-stat-option { color: var(--ui-text); }
 .tb-stat-option b { font-family: var(--sf-band-font); color: var(--ui-skill-general); }
 
-/* The save line (owner 10-31): the verdict is the box's header; the actions while valid, else the live issues list */
-.tb-saveline[data-tone="valid"] .hm-band { border-left-color: var(--ui-success); }
-.tb-saveline[data-tone="valid"] .hm-band h2 { color: var(--ui-success); }
-.tb-saveline[data-tone="invalid"] .hm-band { border-left-color: var(--ui-danger); }
-.tb-saveline[data-tone="invalid"] .hm-band h2 { color: var(--ui-danger); }
-.tb-saveline:is([data-tone="checking"], [data-tone="pending"]) .hm-band h2 { color: var(--ui-muted); }
-.tb-saveline .tb-action-row { margin-bottom: 0; }
-.tb-saveline > * + * { margin-top: 8px; }
+/* The save line (owner 10-31): the Team panel's footer box (in the skill-pack list's place on pack rulesets once a pack is
+   picked); the verdict is its header, then the actions while valid, else the live issues list */
+.tb-saveline { display: grid; gap: 8px; padding: 10px; background: color-mix(in srgb, var(--ui-surface-2) 60%, transparent); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi); }
+.tb-saveline-head { margin: 0; font: 13px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .14em; color: var(--ui-muted); }
+.tb-saveline[data-tone="valid"] { border-left-color: var(--ui-success); }
+.tb-saveline[data-tone="valid"] .tb-saveline-head { color: var(--ui-success); }
+.tb-saveline[data-tone="invalid"] { border-left-color: var(--ui-danger); }
+.tb-saveline[data-tone="invalid"] .tb-saveline-head { color: var(--ui-danger); }
+.tb-saveline .tb-action-row { margin: 0; padding: 0 0 3px; background: none; border: 0; box-shadow: none; }
+.tb-saveline > :is(.tm-share, .tb-status, .tb-result) { margin: 0; }
 .tb-issues { display: grid; gap: 4px; }
 .tb-issues .tb-name-gate { margin: 0; }
+/* Team panel header: the race meta, then "Change skill pack" on pack rulesets */
+.tb-team-band { align-items: center; }
+.tb-team-band h2 { margin-right: auto; }
+.tb-team-band .hm-cap { min-width: 0; }
+.tb-change-pack { flex: none; min-height: 32px; padding: 0 8px; font-size: 10px; letter-spacing: .08em; }
+.tb-team .tb-name-gate { margin: 0 12px 8px; }
 .tb-findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .tb-finding { padding: 6px 10px; background: var(--ui-surface-2); border-left: 4px solid var(--ui-danger); border-radius: 2px; overflow-wrap: anywhere; }
 .tb-finding[data-kind="warning"] { border-left-color: var(--ui-gold); }

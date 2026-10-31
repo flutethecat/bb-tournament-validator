@@ -1410,5 +1410,11 @@ export interface TournamentBuilderUi {
    *  by reorder, fire, a load, a deep link or a remount. */
   added: number;
   noteAdded: () => void;
+  /** Pack rulesets: true while the coach re-opened the skill-pack list ("Change skill pack"). Transient: a remount with a pack
+   *  chosen opens on the save line. */
+  packPicking: boolean;
+  /** The Team panel shows the pack list (save line and the Validator's rule bullets hidden): a pack ruleset with no pack
+   *  chosen yet, or re-opened. */
+  pickingPack: () => boolean;
 }
 export const TOURNAMENT_BUILDER_UI_KEY: InjectionKey<TournamentBuilderUi> = Symbol("tournament-builder-ui");

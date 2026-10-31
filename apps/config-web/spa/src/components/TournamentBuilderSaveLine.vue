@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// Tournament Builder, the save line (right column of the Roster pane, under the Team controls, owner 10-31): one bordered
-// box whose header is the verdict ("Team is valid" green, "Team is invalid: N issues" red, "Checking team..." while the
+// Tournament Builder, the save line (the Team panel's footer, under name / league, owner 10-31; on pack rulesets it takes the
+// skill-pack list's place once a pack is picked): one bordered box whose header is the verdict ("Team is valid" green, "Team is invalid: N issues" red, "Checking team..." while the
 // preview of the current document is out). While the verdict for the CURRENT document is valid the box holds the actions
 // (Export PDF, Save Team, Share link, Create team on Fork). Otherwise the same footprint shows the live list of broken rules
 // (errors, then warnings, then the checklist notices incl. the "name your team first" gate); Export PDF and Create team on
@@ -21,8 +21,8 @@ const buildLabel = computed(() => (state.buildBusy ? (state.editingTeamId ? "Sav
 </script>
 
 <template>
-  <section class="hm-panel tb-panel tb-saveline" :data-tone="v.tone" aria-labelledby="tb-valid-h">
-    <header class="hm-band"><h2 id="tb-valid-h" aria-live="polite">{{ v.headline }}</h2></header>
+  <section class="tb-saveline" :data-tone="v.tone" aria-labelledby="tb-valid-h">
+    <h3 id="tb-valid-h" class="tb-saveline-head" aria-live="polite">{{ v.headline }}</h3>
     <div v-if="!valid" class="tb-issues" aria-live="polite">
       <p v-if="gate" class="lobby-error tb-name-gate" role="alert">You must name your team first.</p>
       <ul v-if="v.errors.length || v.warnings.length || v.notices.length" class="tb-findings">

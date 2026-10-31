@@ -10,7 +10,7 @@
 import { computed, inject, nextTick } from "vue";
 import { LEFT_PANELS, TOURNAMENT_BUILDER_KEY, type LeftPanel } from "../teams/builder";
 import { core } from "../teams/builderCore";
-import { ACCORDION_MS, accordionMotion } from "../teams/accordionMotion";
+import { heightEnter, heightLeave } from "../teams/accordionMotion";
 import TournamentBuilderHire from "./TournamentBuilderHire.vue";
 import TournamentBuilderStaff from "./TournamentBuilderStaff.vue";
 import TournamentBuilderInducements from "./TournamentBuilderInducements.vue";
@@ -54,24 +54,6 @@ async function toggle(p: LeftPanel): Promise<void> {
   if (typeof document !== "undefined") document.getElementById(`tb-acc-${p}`)?.focus?.({ preventScroll: true });
 }
 
-// Body open / close: height + opacity (Web Animations), instant under prefers-reduced-motion or without the API.
-function onEnter(el: Element, done: () => void): void {
-  const node = el as HTMLElement;
-  if (!accordionMotion() || typeof node.animate !== "function") { done(); return; }
-  const h = node.scrollHeight;
-  node.style.overflow = "hidden";
-  const a = node.animate([{ height: "0px", opacity: 0 }, { height: `${h}px`, opacity: 1 }], { duration: ACCORDION_MS, easing: "ease-out" });
-  const end = (): void => { node.style.overflow = ""; done(); };
-  a.finished.then(end, end);
-}
-function onLeave(el: Element, done: () => void): void {
-  const node = el as HTMLElement;
-  if (!accordionMotion() || typeof node.animate !== "function") { done(); return; }
-  const h = node.scrollHeight;
-  node.style.overflow = "hidden";
-  const a = node.animate([{ height: `${h}px`, opacity: 1 }, { height: "0px", opacity: 0 }], { duration: ACCORDION_MS, easing: "ease-in" });
-  a.finished.then(done, done);
-}
 </script>
 
 <template>
@@ -92,7 +74,7 @@ function onLeave(el: Element, done: () => void): void {
         </button>
       </h2>
     </header>
-    <Transition :css="false" @enter="onEnter" @leave="onLeave">
+    <Transition :css="false" @enter="heightEnter" @leave="heightLeave">
       <div v-if="open === p" :id="`tb-acc-body-${p}`" class="tb-acc-body" role="region" :aria-labelledby="`tb-acc-${p}`">
         <component :is="BODY[p]" />
       </div>

@@ -1,20 +1,46 @@
 <script setup lang="ts">
-// Tournament Builder, Team controls (right column of the Roster pane, owner 10-30): team name (required before hiring),
-// league / special rule and the choose-one skill pack. The actions live in the save line under it
-// (TournamentBuilderSaveLine.vue, owner 10-31).
-import { computed, inject } from "vue";
-import { TOURNAMENT_BUILDER_KEY } from "../teams/builder";
+// Tournament Builder, Team controls (right column of the Roster pane, owner 10-30 / 10-31): team name (required before
+// hiring), league / special rule, then either the choose-one skill pack list or the save line (TournamentBuilderSaveLine.vue)
+// in the same place. Pack rulesets start on the pack list (save line and the Validator's rule bullets hidden); picking a pack
+// collapses the list and the save line takes its place; "Change skill pack" in the header re-opens the list. Rulesets
+// without packs show the save line from the start. Signed out, building stays open and saving asks for Discord.
+import { computed, inject, nextTick } from "vue";
+import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
 import { core } from "../teams/builderCore";
+import { heightEnter, heightLeave } from "../teams/accordionMotion";
+import TournamentBuilderSaveLine from "./TournamentBuilderSaveLine.vue";
 
+const props = defineProps<{ signInHref: string; ssoEnabled: boolean }>();
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
+const ui = inject(TOURNAMENT_BUILDER_UI_KEY)!;
 const { state } = builder;
 const league = computed(() => builder.leaguePresentation());
 const race = computed(() => builder.raceRules());
+const hasPacks = computed(() => Boolean(race.value?.packs.length));
+const picking = computed(() => ui.pickingPack());
+const gate = computed(() => ui.nameGate && !builder.named());
+
+/** Pick a pack (the same one keeps it chosen) and return to the save line. */
+function pick(label: string): void {
+  if (state.skillPack !== label) builder.setSkillPack(label);
+  ui.packPicking = false;
+}
+/** Re-open the pack list with focus on the chosen pack. */
+async function changePack(): Promise<void> {
+  ui.packPicking = true;
+  await nextTick();
+  const at = Math.max(0, race.value?.packs.findIndex((p) => p.label === state.skillPack) ?? 0);
+  if (typeof document !== "undefined") document.getElementById(`tb-pack-${at}`)?.focus?.();
+}
 </script>
 
 <template>
-  <section class="hm-panel tb-panel" aria-labelledby="tb-team-h">
-    <header class="hm-band"><h2 id="tb-team-h">Team</h2><span class="hm-cap">{{ state.currentSave ? `Editing ${state.currentSave.name}` : state.roster?.raceName }}</span></header>
+  <section class="hm-panel tb-panel tb-team" aria-labelledby="tb-team-h">
+    <header class="hm-band tb-team-band">
+      <h2 id="tb-team-h">Team</h2>
+      <span class="hm-cap">{{ state.currentSave ? `Editing ${state.currentSave.name}` : state.roster?.raceName }}</span>
+      <button v-if="hasPacks && !picking" type="button" class="tb-btn small tb-change-pack" aria-controls="tb-team-packs" @click="changePack">Change skill pack</button>
+    </header>
     <div class="tb-fields">
       <label class="tb-field">
         <span>Team name</span>
@@ -32,15 +58,22 @@ const race = computed(() => builder.raceRules());
       </label>
     </div>
     <p v-if="state.leagueNotice" class="tm-note" role="status">{{ state.leagueNotice }}</p>
-    <div v-if="race?.packs.length" class="tb-packs">
-      <p class="tb-k">Skill pack</p>
-      <div class="tb-pack-grid">
-        <button v-for="p in race.packs" :key="p.label" type="button" class="tb-pack" :aria-pressed="state.skillPack === p.label ? 'true' : 'false'" @click="builder.setSkillPack(p.label)">
-          <strong>{{ p.label }}</strong>
-          <small>{{ core.packTermsText(p) }}{{ p.maxPerPlayer != null ? ` · ${p.maxPerPlayer} skill${p.maxPerPlayer === 1 ? "" : "s"}/player` : "" }}</small>
-        </button>
+    <!-- the save line is hidden while the pack list shows: the name gate speaks here then -->
+    <p v-if="gate && picking" class="lobby-error tb-name-gate" role="alert">You must name your team first.</p>
+    <Transition :css="false" @enter="heightEnter" @leave="heightLeave">
+      <div v-if="hasPacks && picking" id="tb-team-packs" class="tb-packs">
+        <p class="tb-k">Skill pack</p>
+        <div class="tb-pack-grid">
+          <button v-for="(p, i) in race!.packs" :id="`tb-pack-${i}`" :key="p.label" type="button" class="tb-pack" :aria-pressed="state.skillPack === p.label ? 'true' : 'false'" @click="pick(p.label)">
+            <strong>{{ p.label }}</strong>
+            <small>{{ core.packTermsText(p) }}{{ p.maxPerPlayer != null ? ` · ${p.maxPerPlayer} skill${p.maxPerPlayer === 1 ? "" : "s"}/player` : "" }}</small>
+          </button>
+        </div>
+        <p v-if="!state.skillPack" class="tm-note">Pick your skill pack.</p>
       </div>
-      <p v-if="!state.skillPack" class="tm-note">Pick your skill pack.</p>
-    </div>
+    </Transition>
+    <Transition :css="false" @enter="heightEnter" @leave="heightLeave">
+      <TournamentBuilderSaveLine v-if="!picking" :sign-in-href="props.signInHref" :sso-enabled="props.ssoEnabled" />
+    </Transition>
   </section>
 </template>
