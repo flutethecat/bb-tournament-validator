@@ -851,6 +851,27 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(store.loaded.value).toBe(false);
   });
 
+  it("signed out /home is the landing: banner, welcome heading, login button, Past games; no Sign in card or test sign-in", async () => {
+    const { html } = await render("/home", { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
+    expect(html).toContain('data-testid="landing-banner"');
+    expect(html).toContain('alt="Super FUMBBL"');
+    expect(html).toContain("Welcome to Super FUMBBL League Manager!");
+    expect(html).toContain("Login with Discord");
+    expect(html).toContain('href="/api/auth/discord/start?next=');
+    expect(html).toContain('href="/app/tournaments"');
+    expect(html).toContain('href="/app/leagues"');
+    expect(html).toContain("rc-landing");
+    expect(html).not.toContain("<h2>Sign in</h2>");
+    expect(html).not.toContain("Sign in to use this page");
+    expect(html.toLowerCase()).not.toContain("test sign-in");
+  });
+
+  it("signed out /account keeps the Sign in card (the test sign-in card loads client-side only when the server enables it)", async () => {
+    const { html } = await render("/account", { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
+    expect(html).toContain("<h2>Sign in</h2>");
+    expect(html).not.toContain("Welcome to Super FUMBBL League Manager!");
+  });
+
   it("signed out: the Coach page tree is gone, /home shows the prompt, and the trees still link", async () => {
     const { html } = await render("/home", { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
     expect(html).toContain("Login with Discord");

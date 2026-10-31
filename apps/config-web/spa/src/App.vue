@@ -6,6 +6,7 @@ import { API_KEY } from "./app";
 import AccountMenu from "./components/AccountMenu.vue";
 import BellPopover from "./components/BellPopover.vue";
 import ShellNav from "./components/ShellNav.vue";
+import LandingWelcome from "./components/LandingWelcome.vue";
 import RecentGames from "./components/RecentGames.vue";
 import SignInPrompt from "./components/SignInPrompt.vue";
 import TestSignInCard from "./components/TestSignInCard.vue";
@@ -211,6 +212,7 @@ async function signOut(): Promise<void> {
         <p class="lobby-error" role="alert">{{ session.state.error }}</p>
         <button class="lobby-btn" type="button" @click="session.load(true)">Try again</button>
       </section>
+      <LandingWelcome v-else-if="gate === 'signin' && route.name === 'home'" :href="loginHref" :sso-enabled="session.ssoEnabled()" />
       <template v-else-if="gate === 'signin'">
         <SignInPrompt :href="loginHref" :sso-enabled="session.ssoEnabled()" :other-session="session.otherSession()" />
         <TestSignInCard />
