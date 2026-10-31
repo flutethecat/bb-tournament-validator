@@ -1,19 +1,13 @@
-// Coach avatar URLs a result card may load (owner 10-31): https on cdn.discordapp.com (the Discord avatar Discord already
-// serves publicly), or the site's own coach-avatar route. The server applies the same list (src/coachAvatars.ts
-// isAllowedCardAvatarUrl); anything else is "" and the card shows the letter badge.
+// Coach avatar URLs a result card may load (owner 10-31): only the site's own coach-avatar route with its version token.
+// A Discord CDN URL is never accepted on a card: the server proxies the Discord fallback through the same route
+// (src/coachAvatars.ts isAllowedCardAvatarUrl). Anything else is "" and the card shows the letter badge.
 
 import { reactive } from "vue";
 
-/** Coach avatars: https on cdn.discordapp.com, or the site's own coach-avatar route (the server applies the same list). */
+/** The site's own coach-avatar route (`/api/coach-avatars/<coach>?v=<16 hex>`), else "". */
 export const avatarSrc = (url: string | null | undefined): string => {
   const u = typeof url === "string" ? url.trim() : "";
-  if (/^\/api\/coach-avatars\/[^/?#\\]+(\?v=\d+)?$/.test(u)) return u;
-  try {
-    const parsed = new URL(u);
-    return parsed.protocol === "https:" && parsed.hostname === "cdn.discordapp.com" && !parsed.username && !parsed.password && !parsed.port ? u : "";
-  } catch {
-    return "";
-  }
+  return u.length <= 512 && /^\/api\/coach-avatars\/[^/?#\\]+\?v=[a-f0-9]{16}$/.test(u) ? u : "";
 };
 
 /** Per-card memory of avatar URLs that failed to load (the img's error event): a failed URL shows the letter badge,

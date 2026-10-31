@@ -31,10 +31,9 @@ function fetcher(routes: Record<string, (init?: { method?: string }) => unknown>
 }
 
 describe("card avatar allow-list and fallback", () => {
-  it("allows https cdn.discordapp.com and the site's coach-avatar route only", () => {
-    expect(avatarSrc("https://cdn.discordapp.com/avatars/1/a.png?size=64")).toBe("https://cdn.discordapp.com/avatars/1/a.png?size=64");
-    expect(avatarSrc("/api/coach-avatars/alice?v=12")).toBe("/api/coach-avatars/alice?v=12");
-    for (const bad of ["http://cdn.discordapp.com/a.png", "https://evil.test/a.png", "https://cdn.discordapp.com:8443/a.png", "//cdn.discordapp.com/a.png",
+  it("allows the site's own coach-avatar route only: never a Discord CDN URL", () => {
+    expect(avatarSrc("/api/coach-avatars/alice?v=0123456789abcdef")).toBe("/api/coach-avatars/alice?v=0123456789abcdef");
+    for (const bad of ["https://cdn.discordapp.com/avatars/1/a.png?size=64", "/api/coach-avatars/alice?v=12", "/api/coach-avatars/alice", "http://cdn.discordapp.com/a.png", "https://evil.test/a.png", "https://cdn.discordapp.com:8443/a.png", "//cdn.discordapp.com/a.png",
       "/api/fork/teams/x/avatar", "/api/coach-avatars/a/b", "javascript:alert(1)", "", null, undefined]) {
       expect(avatarSrc(bad as string)).toBe("");
     }
@@ -42,8 +41,8 @@ describe("card avatar allow-list and fallback", () => {
 
   it("a failed avatar falls back to the letter badge with the error marker; other sides are unaffected", () => {
     const fb = createAvatarFallback();
-    const ok = "/api/coach-avatars/alice?v=1";
-    const other = "https://cdn.discordapp.com/avatars/2/b.png";
+    const ok = "/api/coach-avatars/alice?v=0123456789abcdef";
+    const other = "/api/coach-avatars/bob?v=fedcba9876543210";
     expect(fb.shown(ok)).toBe(ok);
     expect(fb.marker(ok)).toBeUndefined();
     fb.fail(ok);
@@ -104,10 +103,10 @@ describe("SSR markup", () => {
 
   it("ResultCard: an allowed avatar is a lazy, no-referrer image left of the coach name; others are letter badges", async () => {
     const html = await mods.renderToString(createSSRApp(mods.ResultCard as never, {
-      context: "Online · Friendly", home: side("Alice", "/api/coach-avatars/alice?v=3"), away: side("Zed", "https://evil.test/z.png"),
+      context: "Online · Friendly", home: side("Alice", "/api/coach-avatars/alice?v=0123456789abcdef"), away: side("Zed", "https://cdn.discordapp.com/avatars/9/z.png"),
     }));
-    expect(html).toMatch(/<span class="rc-coach"><img class="rc-avatar" src="\/api\/coach-avatars\/alice\?v=3" alt(="")? width="24" height="24" loading="lazy" referrerpolicy="no-referrer" decoding="async"><span class="rc-coach-name">Alice<\/span>/);
-    expect(html).not.toContain("evil.test");
+    expect(html).toMatch(/<span class="rc-coach"><img class="rc-avatar" src="\/api\/coach-avatars\/alice\?v=0123456789abcdef" alt(="")? width="24" height="24" loading="lazy" referrerpolicy="no-referrer" decoding="async"><span class="rc-coach-name">Alice<\/span>/);
+    expect(html).not.toContain("discord"); // a Discord URL never renders on a card
     expect(html).toContain('<span class="rc-avatar" aria-hidden="true">Z</span><span class="rc-coach-name">Zed</span>');
     const none = await mods.renderToString(createSSRApp(mods.ResultCard as never, { context: "x", home: side("Amy"), away: side("Bo") }));
     expect(none).not.toContain('<img class="rc-avatar"');

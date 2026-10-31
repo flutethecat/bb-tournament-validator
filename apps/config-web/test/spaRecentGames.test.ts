@@ -160,7 +160,7 @@ describe("recent games (SSR)", () => {
   it("ResultCard (owner 10-31): date only on top, competition under the score and cas, race under the crest, white name, avatar or letter badge", async () => {
     const html = await card({
       context: "TABBL · Season 6", playedAt: "2026-10-29T10:00:00.000Z",
-      home: { ...side("Rot Girl Summer", "Nurgle", "Jeff", 1, 2, "/crests/nurgle.png"), avatarUrl: "https://cdn.discordapp.com/avatars/1/a.png?size=64" },
+      home: { ...side("Rot Girl Summer", "Nurgle", "Jeff", 1, 2, "/crests/nurgle.png"), avatarUrl: "/api/coach-avatars/jeff?v=0123456789abcdef" },
       away: { ...side("Grudge Rollers", "Dwarf", "Kay", 2, 0, "/crests/dwarf.png"), avatarUrl: "javascript:alert(1)" },
     });
     // no phase / group / round text; the top line carries only the date
@@ -184,7 +184,7 @@ describe("recent games (SSR)", () => {
     expect(css).toMatch(/container-type: inline-size/);
     expect(css).toMatch(/@container \(max-width: 560px\)/);
     // avatar: the provided safe URL renders as a round image; an unsafe or missing one falls back to the letter badge
-    expect(html).toContain('<img class="rc-avatar" src="https://cdn.discordapp.com/avatars/1/a.png?size=64"');
+    expect(html).toContain('<img class="rc-avatar" src="/api/coach-avatars/jeff?v=0123456789abcdef"');
     expect(html).not.toContain("javascript:");
     expect(html).toContain('<span class="rc-avatar" aria-hidden="true">K</span>');
     const none = await card({ context: "Online · Friendly", home: side("A", "Orc", "Zed", 1, 0), away: side("B", "Orc", "Yan", 0, 0) });

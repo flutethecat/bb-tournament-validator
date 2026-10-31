@@ -114,7 +114,7 @@ import { handleTestLogin } from "./auth/testLogin.js";
 import {
   avatarRateLimit, avatarStoreFor, avatarUrlFor, AVATAR_CONTENT_TYPE, AVATAR_MAX_BYTES, checkAvatar, declaredTooLarge, readRawCapped, teamAvatarPath,
 } from "./teamAvatars.js";
-import { OWN_AVATAR_PATH, coachAvatarKey, coachAvatarPath, createCoachAvatarResolver, resolveCoachAvatar, uploadedCoachAvatarUrl, withSideAvatars } from "./coachAvatars.js";
+import { OWN_AVATAR_PATH, coachAvatarId, coachAvatarKey, coachAvatarPath, createCoachAvatarResolver, resolveCoachAvatar, uploadedCoachAvatarUrl, withSideAvatars } from "./coachAvatars.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
 import { isSpaPath, spaStaticPath } from "./spaRoutes.js";
 import { linkedFumbblNameIn } from "./fumbblLink.js";
@@ -151,6 +151,7 @@ import {
   updateOwnAccount,
   upsertIdentity,
   withConnections,
+  onIdentitiesWritten,
   type CoachIdentities,
   type CoachIdentityRecord,
   type CoachLevel,
@@ -429,6 +430,12 @@ const COACH_AVATARS_DIR = resolve(process.env.COACH_AVATARS_DIR || join(dirname(
 /** Public result cards: coach name -> avatar URL from memory (upload index + an identities snapshot, 30 s). */
 const coachAvatars = createCoachAvatarResolver({ dir: COACH_AVATARS_DIR, discordAvatarUrl });
 const uploadedAvatarUrl = (coach: string): string | undefined => uploadedCoachAvatarUrl(COACH_AVATARS_DIR, coach);
+// Every identities write in this process (ban/unban, merge, delete, admin avatar, profile): the avatar resolver adopts
+// the new store at once (and drops the uploads of identities that are gone), and the recent-results cache is rebuilt.
+onIdentitiesWritten((store) => {
+  void coachAvatars.identitiesWritten(store);
+  recentCache = undefined;
+});
 // Bug reports land here (one folder per report) for later ingestion by the owner.
 const BUG_REPORTS_DIR = resolve(process.env.BUG_REPORTS_DIR || join(HERE, "../bug-reports"));
 // Tracks the last successful fork (game server) reload — see @bb/fork-ops's forkReload.
@@ -2097,6 +2104,7 @@ async function handleApi(
     res.setHeader("cache-control", "public, max-age=60");
     try {
       const rows = (await cachedRecentResults()).slice(0, recentLimit(query.get("limit")));
+      await coachAvatars.ready; // the upload index first: never a lower source while it loads
       return sendJson(res, 200, { results: rows.map((r) => withSideAvatars(r, coachAvatars.avatarFor)) });
     } catch {
       return sendJson(res, 200, { results: [] });
@@ -2114,6 +2122,7 @@ async function handleApi(
     const viewer = GAME_PAGES_PUBLIC_PLAYER_LINES ? undefined : sessionFromRequest(req)?.coach;
     const full = maySeePlayerLines(GAME_PAGES_PUBLIC_PLAYER_LINES, loaded.access, viewer, (c) => coachLevel(c) !== "player" || isOrganizer(c));
     const detail = full ? loaded.detail : withoutPlayerLines(loaded.detail);
+    await coachAvatars.ready;
     return sendJson(res, 200, { ...detail, card: withSideAvatars(detail.card, coachAvatars.avatarFor) });
   }
 
@@ -3301,29 +3310,24 @@ async function handleApi(
     const coachId = coachAvatarPath(path);
     if (coachId !== undefined) {
       if (method !== "GET" && method !== "HEAD") return sendJson(res, 405, { error: "Use GET." });
-      const store = avatarStoreFor(COACH_AVATARS_DIR);
-      await store.ready;
-      const found = store.find(coachAvatarKey(coachId)); // index only: a miss costs no disk access
-      if (!found) return sendJson(res, 404, { error: "No avatar." });
-      try {
-        const bytes = await readFile(found.path);
-        res.writeHead(200, {
-          "content-type": AVATAR_CONTENT_TYPE[found.ext],
-          "content-length": String(bytes.length),
-          "cache-control": "public, max-age=3600",
-          "x-content-type-options": "nosniff",
-        });
-        res.end(method === "HEAD" ? undefined : bytes);
-      } catch {
-        sendJson(res, 404, { error: "No avatar." });
-      }
+      // Eligibility (identity exists, not banned) is checked on every request; then upload > admin-set > Discord,
+      // the last two proxied (never a redirect to the Discord CDN).
+      const image = await coachAvatars.image(coachId);
+      if (!image) return sendJson(res, 404, { error: "No avatar." });
+      res.writeHead(200, {
+        "content-type": image.contentType,
+        "content-length": String(image.bytes.length),
+        "cache-control": "public, max-age=3600",
+        "x-content-type-options": "nosniff",
+      });
+      res.end(method === "HEAD" ? undefined : image.bytes);
       return;
     }
     if (path === OWN_AVATAR_PATH) {
       if (method !== "PUT" && method !== "DELETE") return sendJson(res, 405, { error: "Use PUT or DELETE." });
       if (!auth) return sendJson(res, 401, { error: "Sign in to change your avatar." });
       // Its own bucket in the shared limiter (10 changes a minute), so team avatar changes do not use it up.
-      const wait = avatarRateLimit(`coach-avatar:${auth.coach.trim().toLowerCase()}`);
+      const wait = avatarRateLimit(`coach-avatar:${coachAvatarId(auth.coach)}`);
       if (wait > 0) {
         res.setHeader("retry-after", String(wait));
         return sendJson(res, 429, { error: "Too many avatar changes. Try again in a minute." });
@@ -3332,6 +3336,7 @@ async function handleApi(
       const deps: ProfileDeps = { linkedFumbblName, discordAvatarUrl, uploadedAvatarUrl };
       try {
         const store = avatarStoreFor(COACH_AVATARS_DIR);
+        await store.ready;
         if (method === "DELETE") {
           await store.remove(key);
           return sendJson(res, 200, { ok: true, profile: profileView(ownIdentityRecord(auth.coach), deps) });
@@ -3346,7 +3351,10 @@ async function handleApi(
         if (!body) return tooLarge();
         const checked = checkAvatar(body);
         if (!checked.ok) return sendJson(res, 400, { error: checked.error });
-        await store.save(auth.coach.trim().toLowerCase(), key, body, checked.image.ext);
+        // Only a site coach who may be shown (identity record, not banned) can publish an avatar.
+        coachAvatars.invalidate();
+        if (!coachAvatars.eligible(auth.coach)) return sendJson(res, 403, { error: "Your account cannot set an avatar." });
+        await store.save(coachAvatarId(auth.coach), key, body, checked.image.ext);
         return sendJson(res, 200, { ok: true, avatarUrl: uploadedAvatarUrl(auth.coach), profile: profileView(ownIdentityRecord(auth.coach), deps) });
       } catch {
         return sendJson(res, 500, { error: "Could not update your avatar right now." });

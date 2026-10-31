@@ -478,6 +478,14 @@ export function upsertIdentity(record: CoachIdentityRecord): IdentityStore {
   return store;
 }
 
+const writeListeners = new Set<(store: IdentityStore) => void>();
+/** Called after every successful identities write in this process (ban/unban, merge, profile, admin edits, signups),
+ *  with the coaches now stored. Used to drop caches derived from the store (src/coachAvatars.ts). Returns an unsubscribe. */
+export function onIdentitiesWritten(listener: (store: IdentityStore) => void): () => void {
+  writeListeners.add(listener);
+  return () => { writeListeners.delete(listener); };
+}
+
 function writeIdentityStore(store: IdentityStore): void {
   // Writers that only know about coaches must not drop the provisional-signup section.
   const provisionalSignups = Object.fromEntries(
@@ -500,6 +508,9 @@ function writeIdentityStore(store: IdentityStore): void {
   } catch (error) {
     if (existsSync(temp)) unlinkSync(temp);
     throw error;
+  }
+  for (const listener of writeListeners) {
+    try { listener({ version: 1, coaches: store.coaches }); } catch { /* a cache listener never fails a write */ }
   }
 }
 
