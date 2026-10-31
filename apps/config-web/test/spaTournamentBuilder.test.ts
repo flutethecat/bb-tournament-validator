@@ -479,19 +479,19 @@ describe("tournament builder page (server-rendered)", () => {
     const cols = ["tb-col-left", "tb-col-centre", "tb-col-right"].map((c) => html.indexOf(`class="tb-col ${c}"`));
     expect(cols.every((n) => n > 0)).toBe(true);
     expect(cols).toEqual([...cols].sort((a, b) => a - b));
-    const order = ["tb-add-h", "tb-staff-h", "tb-ind-h", "tb-stars-h", "tb-roster-h", "tb-team-h", "tb-valid-h", "tb-validator-h"].map((id) => html.indexOf(`id="${id}"`));
+    const order = ["tb-add-h", "tb-staff-h", "tb-ind-h", "tb-stars-h", "tb-roster-h", "tb-team-name", "tb-valid-h", "tb-validator-h"].map((id) => html.indexOf(`id="${id}"`));
     expect(order.every((n) => n > 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
     for (const id of ["tb-add-h", "tb-staff-h", "tb-ind-h", "tb-stars-h"]) expect(html.indexOf(`id="${id}"`)).toBeLessThan(cols[1]!); // all four in the left column
     expect(html).not.toContain('id="tb-picked-h"'); // no Selected inducements panel anywhere while nothing is picked (and never on the right)
     expect(html).toMatch(/class="tb-positions tb-hire-list tb-row-window"/); // the hire list scrolls (five cards at a time)
     expect(html.indexOf('id="tb-roster-h"')).toBeGreaterThan(cols[1]!);
-    expect(html.indexOf('id="tb-team-h"')).toBeGreaterThan(cols[2]!);
+    expect(html.indexOf('id="tb-team-name"')).toBeGreaterThan(cols[2]!);
     expect(html.indexOf('id="tb-valid-h"')).toBeGreaterThan(html.indexOf('id="tb-team-name"')); // no packs: the save line sits under name / league from the start
-    expect(between(html, "tb-team-h", "tb-validator-h")).toContain('<section class="tb-saveline"'); // inside the Team panel, no separate box
+    expect(between(html, "tb-team-name", "tb-validator-h")).toContain('<section class="tb-saveline"'); // inside the Team panel, no separate box
     expect(html).not.toContain("Change skill pack");
     // The roster table is the top of the centre column; the skill key sits under it.
-    expect(between(html, "tb-roster-h", "tb-team-h")).toContain('aria-label="Skill key"');
+    expect(between(html, "tb-roster-h", "tb-team-name")).toContain('aria-label="Skill key"');
     expect(html).toContain('id="tb-team-name"');
   });
 
@@ -557,6 +557,17 @@ describe("tournament builder page (server-rendered)", () => {
     expect(src).toMatch(/if \(!state\.packageName\) \{\s*const motion = currentMotion\(\)/); // only a pick from the empty state arms the motion
   });
 
+  it("the step tabs: the shell header has the (empty-elsewhere) slot; server rendering keeps the tablist inline until mount", async () => {
+    const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()));
+    expect(html).toContain('<div id="sf-header-slot" class="sf-header-slot"></div>');
+    expect(html).toMatch(/<div class="sf-titleblock"><a [^>]*class="[^"]*brand sf-wordmark"[^>]*>Super FUMBBL<\/a><h1 class="sf-page-title" aria-live="polite">Roster Builder<\/h1><\/div>/);
+    expect(html.indexOf('role="tablist" aria-label="Roster Builder steps"')).toBeGreaterThan(html.indexOf('class="hm-page tm-page tb-page'));
+    expect(html).toContain('<p class="tb-locked">'); // not a button off the phone
+    const view = readFileSync(new URL("../spa/src/views/TournamentBuilderView.vue", import.meta.url), "utf8");
+    expect(view).toContain('<Teleport to="#sf-header-slot" :disabled="!inHeader">');
+    expect(view).toContain('aria-label="Change ruleset or race"');
+  });
+
   it("old tab ids (skills, staff, stars, inducements) land on the Roster pane", async () => {
     for (const q of ["skills", "staff", "stars", "inducements"]) {
       const html = await render(`/tournament-team-builder?tab=${q}`, mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hbli"); });
@@ -570,8 +581,10 @@ describe("tournament builder page (server-rendered)", () => {
 
   it("the roster rows carry Add Skill / Add Stat as on the team page; stars get neither; the validator lists the tier rules", async () => {
     const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hbli"); b.addStar(b.starChoices()[0].key); });
-    const roster = between(html, "tb-roster-h", "tb-team-h");
-    expect(roster.match(/>Add Skill<\/button>/g)).toHaveLength(1);
+    const roster = between(html, "tb-roster-h", "tb-team-name");
+    expect(roster.match(/>\+ Skill<\/button>/g)).toHaveLength(1); // "+ Skill" (owner 10-31), the full action in its name
+    expect(roster).toContain('aria-label="Add skill to Blitzer #1" aria-haspopup="dialog">+ Skill</button>');
+    expect(roster).not.toContain(">Add Skill<");
     expect(roster).toContain('class="tm-act" data-kind="skill"');
     expect(roster).toContain("Star player: no added skills");
     // the Roster header carries the skill counts against the allowance (tier 1: no secondary); the player count sits bottom right
@@ -584,6 +597,9 @@ describe("tournament builder page (server-rendered)", () => {
     expect(roster).not.toContain('class="tb-fire"');
     expect(roster).toContain('class="tb-fire-x" aria-label="Fire Human Blitzer #1"');
     expect(roster).toContain('aria-label="Fire Grim Ironjaw #2"');
+    // the row number is the captain toggle on eligible rows; the star keeps a plain number, no badge, not a button
+    expect(roster).toMatch(/<button type="button" class="tb-num tb-captain" data-tone="grey" aria-pressed="false"[^>]*><img class="tb-captain-img"[^>]*><span class="tb-num-n">1<\/span><\/button>/);
+    expect(roster).toContain('<span class="tb-num">2</span>');
     expect(roster).not.toContain("Roster player"); // no subtitle except the star line
     expect(roster).toContain('class="sprite-frame tb-sprite tb-row-sprite"'); // the bigger portrait
     expect(roster.match(/class="row-skills tb-row-skills"/g)).toHaveLength(2); // the skills band on every row
@@ -637,7 +653,7 @@ describe("tournament builder page (server-rendered)", () => {
     expect(line).toMatch(/<button type="button" class="tb-btn">Save Team<\/button>/); // a draft can still be saved
     expect(line.indexOf(">Save Team</button>")).toBeGreaterThan(warningAt); // under the issues
     expect(line).not.toContain("The server checked this team against"); // no explanatory sentence
-    expect(between(html, "tb-team-h", "tb-valid-h")).not.toMatch(/class="tb-action-row"/); // the Team controls hold no actions
+    expect(between(html, "tb-team-name", "tb-valid-h")).not.toMatch(/class="tb-action-row"/); // the Team controls hold no actions
     const sheet = await render("/tournament-team-builder?tab=sheet", f, prepare);
     // The Sheet tab is the exported PDF previewed on paper (owner 10-30): the PDF's header, ruleset box and roster table.
     expect(sheet).toContain('<h2 id="ps-frame-h">Sheet · preview of the exported PDF</h2>');
@@ -680,7 +696,11 @@ describe("tournament builder page (server-rendered)", () => {
     expect(picked).not.toContain('id="tb-team-packs"');
     expect(picked).toContain('id="tb-valid-h"');
     expect(picked).toContain('class="tb-rules"');
-    expect(picked).toMatch(/<h2 id="tb-team-h">Team<\/h2><span class="hm-cap">Human<\/span><button type="button" class="tb-btn small tb-change-pack" aria-controls="tb-team-packs">Change skill pack<\/button>/);
+    // Change skill pack sits in the save line, under the buttons (owner 10-31); no Team header band
+    const line = between(picked, "tb-valid-h", "tb-validator-h");
+    expect(line.indexOf('class="tb-btn small tb-change-pack" aria-controls="tb-team-packs">Change skill pack</button>')).toBeGreaterThan(line.indexOf('class="tb-action-row"'));
+    expect(picked).toContain('<section class="hm-panel tb-panel tb-team" aria-label="Team">');
+    expect(picked).not.toContain('id="tb-team-h"');
   });
 
   it("left accordion: Hireable players pinned first and open by default; another open panel sits last with its body", async () => {
@@ -713,16 +733,18 @@ describe("tournament builder page (server-rendered)", () => {
   it("captain badge: the owner's painted badge (gold on, grey toggle), only the captain's row while one is set; added skills wear the gold border and the red X badge, printed skills neither", async () => {
     const f = mockFetcher(routes());
     const none = await render("/tournament-team-builder?tab=roster", f, (b) => { b.setTeamName("Reavers"); b.addPosition("hbli"); b.addPosition("hlin"); });
-    const rows0 = between(none, "tb-roster-h", "tb-team-h");
-    expect(rows0.match(/class="tb-captain"/g)).toHaveLength(2);
+    const rows0 = between(none, "tb-roster-h", "tb-team-name");
+    expect(rows0.match(/class="tb-num tb-captain"/g)).toHaveLength(2); // grey badges behind every eligible number
     expect(rows0).toContain('src="/icons/builder/team-captain-grey-32.png" srcset="/icons/builder/team-captain-grey-32.png 1x, /icons/builder/team-captain-grey-64.png 2x" width="32" height="32" alt=""');
     expect(rows0).toContain('title="Make team captain"');
     const set = await render("/tournament-team-builder?tab=roster", f, async (b) => {
       b.setTeamName("Reavers"); b.addPosition("hbli"); b.addPosition("hlin"); b.toggleCaptain(1);
       await b.openSkills(0); b.addSkill(0, "Tackle");
     });
-    const rows = between(set, "tb-roster-h", "tb-team-h");
-    expect(rows.match(/class="tb-captain"/g)).toHaveLength(1); // the other eligible row shows no toggle at all
+    const rows = between(set, "tb-roster-h", "tb-team-name");
+    expect(rows.match(/class="tb-num tb-captain"/g)).toHaveLength(1); // the other eligible row shows its plain number
+    expect(rows).toMatch(/class="tb-num tb-captain" data-tone="gold" aria-pressed="true"[^>]*><img[^>]*><span class="tb-num-n">2<\/span>/);
+    expect(rows).toContain('<span class="tb-num">1</span>');
     expect(rows).toContain('src="/icons/builder/team-captain-gold-32.png"');
     expect(rows).toContain('aria-pressed="true" title="Team captain. Remove to choose another player." aria-description="Team captain. Remove to choose another player."');
     expect(rows).not.toContain("tb-captain-slot");
@@ -739,12 +761,11 @@ describe("tournament builder page (server-rendered)", () => {
       "POST /api/fork/team-builder/saves/sv_abc/share": { shareToken: token },
     }));
     const html = await render("/tournament-team-builder/sv_abc?tab=roster", f, async (b) => { b.setTeamName("Reavers"); await b.saveTeam(); await b.share(); });
-    const team = between(html, "tb-team-h", "tb-validator-h");
+    const team = between(html, "tb-team-name", "tb-validator-h");
     expect(team).toContain(`value="https://sf.example/t/${token}"`);
     expect(team).toMatch(/>Unshare<\/button>/);
     expect(team).not.toMatch(/>Share link<\/button>/);
-    expect(team).toContain("Editing Reavers");
-    expect(html).toContain("Editing Reavers");
+    expect(html).not.toContain("Editing Reavers"); // the Team panel has no header band any more (owner 10-31)
   });
 
   it("signed out: building stays open, saving asks for Discord", async () => {
@@ -999,12 +1020,12 @@ describe("tournament builder page (client behaviour)", () => {
     } finally { proto.scrollIntoView = was; }
   });
 
-  it("captain badge: with a captain set the other rows show no toggle; clearing it or firing the captain restores them; a broken image falls back to the C glyph", async () => {
+  it("captain badge behind the number: with a captain set the other rows show plain numbers; clearing it or firing the captain restores them; a broken image keeps the number with a ring", async () => {
     const page = await mount("/tournament-team-builder?package=Test%20Cup&race=human", mockFetcher(routes()));
     try {
       await page.fire(page.find((e) => e.attrs.id === "tb-team-name"), "input", { value: "Reavers" });
       for (const who of ["Add Human Blitzer", "Add Human Lineman", "Add Human Lineman"]) await page.fire(page.find((e) => e.attrs["aria-label"] === who), "click");
-      const toggles = () => page.all().filter((e) => e.tag === "button" && e.attrs.class === "tb-captain");
+      const toggles = () => page.all().filter((e) => e.tag === "button" && String(e.attrs.class ?? "").startsWith("tb-num tb-captain"));
       expect(toggles().length).toBe(3);
       await page.fire(toggles()[1]!, "click");
       expect(toggles().length).toBe(1);
@@ -1017,8 +1038,10 @@ describe("tournament builder page (client behaviour)", () => {
       expect(toggles().length).toBe(2);
       const img = toggles()[0]!.children.find((c) => c.tag === "img")!;
       expect(img.attrs.src).toBe("/icons/builder/team-captain-grey-32.png");
+      expect(textOf(toggles()[0]!)).toBe("1"); // the number on top of the badge
       await page.fire(img, "error");
-      expect(textOf(toggles()[0]!)).toBe("C");
+      expect(textOf(toggles()[0]!)).toBe("1");
+      expect(String(toggles()[0]!.attrs.class)).toContain("broken"); // the ring fallback
       expect(toggles()[0]!.children.some((c) => c.tag === "img")).toBe(false);
     } finally { page.app.unmount(); }
   });
@@ -1032,7 +1055,7 @@ describe("tournament builder page (client behaviour)", () => {
       const chipX = () => page.all().filter((e) => e.attrs.class === "tb-chip-x" && inRow(e));
       expect(chipX()).toEqual([]);
       // add Tackle through the skill picker
-      await page.fire(page.find((e) => e.attrs["aria-label"] === "Add a skill to #1 Lineman"), "click");
+      await page.fire(page.find((e) => e.attrs["aria-label"] === "Add skill to Lineman #1"), "click");
       await page.fire(page.find((e) => e.tag === "button" && textOf(e).startsWith("Tackle")), "click");
       expect(chipX().map((e) => e.attrs["aria-label"])).toEqual(["Remove Tackle"]);
       await page.fire(chipX()[0]!, "click");
@@ -1227,7 +1250,7 @@ describe("roster scroller, reveal and drag edge (owner 10-31)", () => {
     expect(css).toMatch(/\.tb-added\.access-primary \{ box-shadow: inset 0 -3px 0 var\(--ui-heading\); \}/);
     expect(css).toMatch(/\.tb-added\.access-secondary \{ box-shadow: inset 0 -3px 0 var\(--tb-secondary-bar\); \}/);
     expect(css).toMatch(/\.tb-page \.row-skills \.tb-bought \{[^}]*border: 2px solid var\(--ui-gold\)/);
-    expect(css).toMatch(/\.tb-captain-img \{ width: 32px; height: 32px;/);
+    expect(css).toMatch(/\.tb-captain-img \{ grid-area: 1 \/ 1; width: 32px; height: 32px;/);
     expect(css).not.toMatch(/\.tb-captain-img \{[^}]*pixelated/); // painted art: normal smoothing
   });
 });

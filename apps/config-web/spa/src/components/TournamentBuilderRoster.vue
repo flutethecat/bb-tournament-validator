@@ -28,8 +28,8 @@ const captainOn = (s: Slot): boolean => s.captain === true && builder.slotCanCap
 /** The subtitle under the name, only for stars (owner 10-31: the captain badge says Team Captain). */
 const role = (s: Slot): string => (position(s)?.isStar ? "Star player: no added skills" : "");
 
-// ── Team Captain (owner 10-31): the owner's painted badge (gold = this player is the captain, grey = "make captain";
-// the "C" glyph if the image fails to load). While a captain is set only the captain's row shows it; the coach clears it
+// ── Team Captain (owner 10-31): the row number is the toggle, the owner's painted badge behind it (gold = this player is
+// the captain, grey = "make captain"; a gold / grey ring if the image fails to load). Ineligible rows show a plain number. While a captain is set only the captain's row shows it; the coach clears it
 // there before another row offers the toggle again. ──
 const CAPTAIN_ON_HINT = "Team captain. Remove to choose another player.";
 const CAPTAIN_OFF_HINT = "Make team captain";
@@ -162,17 +162,18 @@ function onGripKey(e: KeyboardEvent, index: number): void {
           :aria-label="`Reorder ${position(s)?.name ?? 'player'}, player ${i + 1}. Alt plus Up or Down arrow moves it.`"
           @pointerdown="onGripDown($event, i)" @pointermove="onGripMove" @pointerup="onGripUp($event, true)" @pointercancel="onGripUp($event, false)"
           @keydown="onGripKey($event, i)"><i aria-hidden="true"></i></button>
-        <span class="tb-num">{{ i + 1 }}</span>
+        <!-- the row number is the Team Captain toggle (owner 10-31): the badge sits behind the number on eligible rows -->
+        <button v-if="showCaptain(s, i)" type="button" class="tb-num tb-captain" :class="{ broken: brokenIcon[captainTone(s)] }" :data-tone="captainTone(s)"
+          :aria-pressed="captainOn(s) ? 'true' : 'false'" :title="captainOn(s) ? CAPTAIN_ON_HINT : CAPTAIN_OFF_HINT" :aria-description="captainOn(s) ? CAPTAIN_ON_HINT : undefined"
+          :aria-label="`${captainOn(s) ? 'Team captain' : 'Make team captain'}: ${position(s)?.name ?? 'player'}, player ${i + 1}`" @click="builder.toggleCaptain(i)"
+        ><img v-if="!brokenIcon[captainTone(s)]" class="tb-captain-img" :src="captainSrc(s, 32)" :srcset="`${captainSrc(s, 32)} 1x, ${captainSrc(s, 64)} 2x`"
+          width="32" height="32" alt="" @error="brokenIcon[captainTone(s)] = true" /><span class="tb-num-n">{{ i + 1 }}</span></button>
+        <span v-else class="tb-num">{{ i + 1 }}</span>
         <span class="sprite-frame tb-sprite tb-row-sprite" aria-hidden="true"><span class="sprite-fallback">{{ builder.shortName(position(s)).slice(0, 2).toUpperCase() }}</span><img v-if="builder.spritePath(position(s)?.name ?? '')" class="sprite-image" :src="builder.spritePath(position(s)?.name ?? '')" alt="" loading="lazy" /></span>
         <span class="tb-who">
           <strong :title="position(s)?.name">{{ builder.shortName(position(s)) || "Unknown position" }}</strong>
           <small v-if="role(s)">{{ role(s) }}</small>
         </span>
-        <button v-if="showCaptain(s, i)" type="button" class="tb-captain" :aria-pressed="captainOn(s) ? 'true' : 'false'"
-          :title="captainOn(s) ? CAPTAIN_ON_HINT : CAPTAIN_OFF_HINT" :aria-description="captainOn(s) ? CAPTAIN_ON_HINT : undefined"
-          :aria-label="`${captainOn(s) ? 'Team captain' : 'Make team captain'}: ${position(s)?.name ?? 'player'}, player ${i + 1}`" @click="builder.toggleCaptain(i)"
-        ><img v-if="!brokenIcon[captainTone(s)]" class="tb-captain-img" :src="captainSrc(s, 32)" :srcset="`${captainSrc(s, 32)} 1x, ${captainSrc(s, 64)} 2x`"
-          width="32" height="32" alt="" @error="brokenIcon[captainTone(s)] = true" /><span v-else class="tb-captain-c" aria-hidden="true">C</span></button>
         <span class="tb-cost">{{ core.gold(position(s)?.cost) }}</span>
         <button type="button" class="tb-fire-x" :aria-label="`Fire ${position(s)?.name ?? 'player'} #${i + 1}`" title="Fire" @click="builder.removeSlot(i)"><span aria-hidden="true">×</span></button>
         <span class="tb-row-line2">
@@ -180,10 +181,10 @@ function onGripKey(e: KeyboardEvent, index: number): void {
           <span v-if="!position(s)?.isStar" class="tm-acts tb-row-actions">
             <button type="button" class="tm-act" data-kind="skill" :disabled="builder.slotLocks(i).skillLocked || !builder.slotLocks(i).canMoreSkills"
               :title="builder.slotLocks(i).skillLocked ? 'A player with a stat increase can\'t also have an added skill.' : !builder.slotLocks(i).canMoreSkills ? 'This player can\'t take another skill.' : undefined"
-              :aria-label="`Add a skill to #${i + 1} ${builder.shortName(position(s))}`" aria-haspopup="dialog" @click="openSkill(i, $event)">Add Skill</button>
+              :aria-label="`Add skill to ${builder.shortName(position(s))} #${i + 1}`" aria-haspopup="dialog" @click="openSkill(i, $event)">+ Skill</button>
             <button v-if="builder.slotLocks(i).statOffered" type="button" class="tm-act" data-kind="characteristic" :disabled="builder.slotLocks(i).statLocked || builder.slotLocks(i).statFull"
               :title="builder.slotLocks(i).statLocked ? 'A player with an added skill can\'t also take a stat increase.' : builder.slotLocks(i).statFull ? `Max ${builder.slotLocks(i).maxStats} stat increase${builder.slotLocks(i).maxStats === 1 ? '' : 's'} per player.` : undefined"
-              :aria-label="`Add a stat to #${i + 1} ${builder.shortName(position(s))}`" aria-haspopup="dialog" @click="openStat(i, $event)">Add Stat</button>
+              :aria-label="`Add stat to ${builder.shortName(position(s))} #${i + 1}`" aria-haspopup="dialog" @click="openStat(i, $event)">+ Stat</button>
           </span>
         </span>
         <span class="row-skills tb-row-skills">

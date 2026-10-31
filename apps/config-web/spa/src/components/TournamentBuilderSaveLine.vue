@@ -9,7 +9,8 @@
 import { computed, inject } from "vue";
 import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
 
-const props = defineProps<{ signInHref: string; ssoEnabled: boolean }>();
+const props = defineProps<{ signInHref: string; ssoEnabled: boolean; changePack?: boolean }>();
+const emit = defineEmits<{ "change-pack": [] }>();
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
 const ui = inject(TOURNAMENT_BUILDER_UI_KEY)!;
 const { state } = builder;
@@ -43,6 +44,8 @@ const buildLabel = computed(() => (state.buildBusy ? (state.editingTeamId ? "Sav
         <span v-else class="lobby-error">Discord sign-in is not available on this server right now.</span>
       </template>
     </div>
+    <!-- pack rulesets: back to the pack list, under the buttons (and so under the issues list too) -->
+    <button v-if="props.changePack" type="button" class="tb-btn small tb-change-pack" aria-controls="tb-team-packs" @click="emit('change-pack')">Change skill pack</button>
     <ul v-if="valid && v.warnings.length" class="tb-findings">
       <li v-for="(f, i) in v.warnings" :key="`w${i}`" class="tb-finding" data-kind="warning">{{ f }}</li>
     </ul>

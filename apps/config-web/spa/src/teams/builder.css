@@ -10,11 +10,13 @@
   --tb-skillbar: color-mix(in srgb, var(--ui-surface-2) 80%, #ffffff 20%);
   --tb-badge-ink: #ffffff; --tb-badge-line: rgb(0 0 0 / 75%); --tb-badge-drop: rgb(0 0 0 / 50%);
   --tb-secondary-bar: #ffffff;
+  --tb-num-outline: -1px -1px 0 #000000, 1px -1px 0 #000000, -1px 1px 0 #000000, 1px 1px 0 #000000, 0 0 4px rgb(0 0 0 / 80%);
 }
 :root[data-theme="fumbbl"] .tb-page {
   --tb-skillbar: color-mix(in srgb, var(--ui-surface-2) 86%, #000000 14%);
   --tb-badge-ink: #ffffff; --tb-badge-line: rgb(0 0 0 / 60%); --tb-badge-drop: rgb(0 0 0 / 30%);
   --tb-secondary-bar: #262626; /* white would vanish on the light chips: the light preset's ink */
+  --tb-num-outline: -1px -1px 0 #000000, 1px -1px 0 #000000, -1px 1px 0 #000000, 1px 1px 0 #000000, 0 0 4px rgb(0 0 0 / 80%);
 }
 
 .tb-page { --tb-col: 1040px; align-content: start; justify-items: center; max-width: none; }
@@ -198,8 +200,8 @@
    red fire X in the top-right corner. Second line (beside the portrait): the stat strip with Add Skill / Add Stat at its right
    end. Then the skills. The slim gripper runs the full card height, flush against the left edge. */
 .tb-row {
-  position: relative; display: grid; grid-template-columns: 22px auto auto minmax(0, 1fr) auto auto auto;
-  grid-template-areas: "grip num sprite who capt cost x" "grip num sprite line2 line2 line2 line2" "grip num sprite skills skills skills skills";
+  position: relative; display: grid; grid-template-columns: 22px 34px auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "grip num sprite who cost x" "grip num sprite line2 line2 line2" "grip num sprite skills skills skills";
   column-gap: 10px; row-gap: 0; align-items: center; padding: 0 6px 4px 0; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px;
   scroll-margin-top: calc(var(--sf-top-h, 56px) + 12px); scroll-margin-bottom: 12px;
 }
@@ -210,7 +212,6 @@
 .tb-row > .tb-num { grid-area: num; padding-top: 4px; align-self: center; }
 .tb-row > .tb-sprite { grid-area: sprite; margin-top: 4px; align-self: center; }
 .tb-row > .tb-who { grid-area: who; display: grid; align-content: center; min-width: 0; padding-top: 4px; }
-.tb-row > .tb-captain { grid-area: capt; width: 36px; height: 32px; margin: -2px 0 -4px; }
 .tb-row > .tb-cost { grid-area: cost; padding-top: 4px; }
 .tb-row > .tb-fire-x { grid-area: x; align-self: start; justify-self: end; }
 .tb-row > .tb-row-line2 { grid-area: line2; margin-top: 2px; }
@@ -229,11 +230,15 @@
 .tb-grip:focus-visible, .tb-captain:focus-visible, .tb-fire-x:focus-visible, .tb-stepper button:focus-visible, .tb-chip:focus-visible, .tb-blade:focus-visible, .tb-chip-x:focus-visible, .tb-acc-btn:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 /* the Team Captain badge (the owner's painted art at 32 CSS px, normal smoothing, no box behind it; the "C" glyph if the
    image fails) */
-.tb-captain { width: 40px; height: 40px; padding: 0; display: grid; place-items: center; font: 14px/1 var(--sf-band-font); color: var(--ui-muted); background: none; border: 0; border-radius: 4px; cursor: pointer; }
+/* the row number as the Team Captain toggle (owner 10-31): the painted badge (32 px, normal smoothing, no box) behind the
+   number; the number keeps its colour with a dark outline so it reads on gold and grey; a ring if the image fails */
+.tb-captain { position: relative; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; background: none; border: 0; border-radius: 50%; cursor: pointer; }
 .tb-captain:hover .tb-captain-img { filter: brightness(1.12); }
-.tb-captain-img { width: 32px; height: 32px; object-fit: contain; pointer-events: none; }
-.tb-captain-c { width: 30px; height: 30px; display: grid; place-items: center; background: var(--ui-surface); border: 2px solid var(--sf-panel-line); border-radius: 50%; }
-.tb-captain[aria-pressed="true"] .tb-captain-c { color: var(--ui-surface); background: var(--ui-gold); border-color: var(--ui-gold); }
+.tb-captain-img { grid-area: 1 / 1; width: 32px; height: 32px; object-fit: contain; pointer-events: none; }
+.tb-num-n { grid-area: 1 / 1; position: relative; text-shadow: var(--tb-num-outline); }
+.tb-captain.broken { border: 2px solid var(--ui-muted); }
+.tb-captain.broken[data-tone="gold"] { border-color: var(--ui-gold); }
+.tb-row > .tb-num.tb-captain { padding: 0; justify-self: center; }
 /* red X badges: fire the player (card corner) and remove an added skill / stat (chip corner) */
 .tb-fire-x, .tb-row-skills .tb-chip-x {
   position: relative; display: grid; place-items: center; min-width: 0; min-height: 0; margin: 0; padding: 0; color: var(--tb-badge-ink); cursor: pointer;
@@ -375,11 +380,9 @@
 .tb-saveline > :is(.tm-share, .tb-status, .tb-result) { margin: 0; }
 .tb-issues { display: grid; gap: 4px; }
 .tb-issues .tb-name-gate { margin: 0; }
-/* Team panel header: the race meta, then "Change skill pack" on pack rulesets */
-.tb-team-band { align-items: center; }
-.tb-team-band h2 { margin-right: auto; }
-.tb-team-band .hm-cap { min-width: 0; }
-.tb-change-pack { flex: none; min-height: 32px; padding: 0 8px; font-size: 10px; letter-spacing: .08em; }
+/* the Team panel has no header band (owner 10-31): it opens on the name field */
+.tb-team { padding-top: 12px; }
+.tb-change-pack { width: 100%; }
 .tb-team .tb-name-gate { margin: 0 12px 8px; }
 .tb-findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .tb-finding { padding: 6px 10px; background: var(--ui-surface-2); border-left: 4px solid var(--ui-danger); border-radius: 2px; overflow-wrap: anywhere; }
@@ -422,16 +425,15 @@
 /* wide roster (660 px of panel and up, e.g. 1920): one line per player (name, captain, stats, Add Skill, cost, fire X) with
    the skills band beside the portrait under it, so more rows fit in the roster scroller */
 @container tbpanel (min-width: 660px) {
-  .tb-row { grid-template-columns: 22px auto auto minmax(90px, 1fr) auto auto auto auto; grid-template-areas: "grip num sprite who capt line2 cost x" "grip num sprite skills skills skills skills skills"; column-gap: 8px; }
+  .tb-row { grid-template-columns: 22px 34px auto minmax(90px, 1fr) auto auto auto; grid-template-areas: "grip num sprite who line2 cost x" "grip num sprite skills skills skills skills"; column-gap: 8px; }
   .tb-row > .tb-row-line2 { margin-top: 4px; flex-wrap: nowrap; }
   .tb-row-line2 > .tb-row-stats { flex: none; width: 216px; min-width: 0; }
-  .tb-row > .tb-captain { margin: 2px 0 0; }
   .tb-row > .tb-fire-x { margin-top: 4px; }
 }
 /* narrow roster (under 520 px of panel: nav open at 1280, phones): the stat line starts under the number instead of beside
    the portrait; Add Skill / Add Stat stay at its right end while they fit, else wrap under the stats */
 @container tbpanel (max-width: 520px) {
-  .tb-row { grid-template-areas: "grip num sprite who capt cost x" "grip line2 line2 line2 line2 line2 line2" "grip skills skills skills skills skills skills"; column-gap: 8px; }
+  .tb-row { grid-template-areas: "grip num sprite who cost x" "grip line2 line2 line2 line2 line2" "grip skills skills skills skills skills"; column-gap: 8px; }
   .tb-row-line2 > .tb-row-stats { flex: 1 1 0; min-width: 200px; max-width: none; }
   .tb-page .sprite-frame.tb-sprite.tb-row-sprite { width: 48px; height: 48px; }
 }

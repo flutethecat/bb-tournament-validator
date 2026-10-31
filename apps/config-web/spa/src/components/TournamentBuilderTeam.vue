@@ -2,8 +2,8 @@
 // Tournament Builder, Team controls (right column of the Roster pane, owner 10-30 / 10-31): team name (required before
 // hiring), league / special rule, then either the choose-one skill pack list or the save line (TournamentBuilderSaveLine.vue)
 // in the same place. Pack rulesets start on the pack list (save line and the Validator's rule bullets hidden); picking a pack
-// collapses the list and the save line takes its place; "Change skill pack" in the header re-opens the list. Rulesets
-// without packs show the save line from the start. Signed out, building stays open and saving asks for Discord.
+// collapses the list and the save line takes its place; "Change skill pack" under the save line's buttons re-opens the
+// list. Rulesets without packs show the save line from the start. No header band (owner 10-31: the roster shows the race). Signed out, building stays open and saving asks for Discord.
 import { computed, inject, nextTick } from "vue";
 import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
 import { core } from "../teams/builderCore";
@@ -35,12 +35,7 @@ async function changePack(): Promise<void> {
 </script>
 
 <template>
-  <section class="hm-panel tb-panel tb-team" aria-labelledby="tb-team-h">
-    <header class="hm-band tb-team-band">
-      <h2 id="tb-team-h">Team</h2>
-      <span class="hm-cap">{{ state.currentSave ? `Editing ${state.currentSave.name}` : state.roster?.raceName }}</span>
-      <button v-if="hasPacks && !picking" type="button" class="tb-btn small tb-change-pack" aria-controls="tb-team-packs" @click="changePack">Change skill pack</button>
-    </header>
+  <section class="hm-panel tb-panel tb-team" aria-label="Team">
     <div class="tb-fields">
       <label class="tb-field">
         <span>Team name</span>
@@ -73,7 +68,7 @@ async function changePack(): Promise<void> {
       </div>
     </Transition>
     <Transition :css="false" @enter="heightEnter" @leave="heightLeave">
-      <TournamentBuilderSaveLine v-if="!picking" :sign-in-href="props.signInHref" :sso-enabled="props.ssoEnabled" />
+      <TournamentBuilderSaveLine v-if="!picking" :sign-in-href="props.signInHref" :sso-enabled="props.ssoEnabled" :change-pack="hasPacks" @change-pack="changePack" />
     </Transition>
   </section>
 </template>
