@@ -8,6 +8,8 @@ import "../home/landing.css";
 
 // Public assets, served as-is (a bound string keeps Vite from trying to bundle them).
 const BANNER_BG = "/assets/motherboard-header.jpg";
+// Splash artwork: ONE constant, so swapping candidates (e.g. to a candidate B file) is a one-line change.
+const SPLASH_IMAGE = "/assets/welcome-splash.jpg";
 const BANNER_LOGO = "/assets/super-fumbbl-logo.png";
 
 defineProps<{ href: string; ssoEnabled: boolean }>();
@@ -21,7 +23,7 @@ defineProps<{ href: string; ssoEnabled: boolean }>();
       <img class="lw-banner-logo" :src="BANNER_LOGO" alt="Super FUMBBL" />
     </div>
 
-    <section class="lw-splash" aria-labelledby="lw-welcome">
+    <section class="lw-splash" aria-labelledby="lw-welcome" :style="{ '--lw-splash': `url(${SPLASH_IMAGE})` }">
       <div class="lw-splash-body">
         <h1 id="lw-welcome" class="lw-title">Welcome to Super FUMBBL League Manager!</h1>
         <p class="lw-sub">Run leagues and tournaments, build rosters and play your matches on Super FUMBBL.</p>
