@@ -3,6 +3,7 @@
 // public/sheet-pdf.js rulesetRows(model) prints them in the PDF and in the on-screen sheet (TournamentBuilderPrintSheet.vue),
 // so the two can never disagree. Only rows the package defines; empty ones are left out.
 import { core, type RaceRules, type SheetModel, type SkillPack, type TierRules } from "./builderCore";
+import { FREE_CREATE_LABEL, isFreeCreatePackage } from "../../../src/freeCreate";
 
 export type SheetRulesetRow = [string, string];
 export interface SheetRulesetInput {
@@ -15,6 +16,8 @@ export interface SheetRulesetInput {
   league: string;
   /** Fallback gold cap (the package budget) when the race block names none. */
   budget?: number | null;
+  /** Free Create's "Ignore in-game limits" (only read for Free Create). */
+  ignoreLimits?: boolean;
 }
 /** The sheet model plus the ruleset rows: the one object both the on-screen sheet and the PDF consume. */
 export type PrintSheetModel = SheetModel & { ruleset?: SheetRulesetRow[] };
@@ -63,6 +66,10 @@ export function sanitizeSkillSystem(raw: unknown): { skillSystem?: SheetSkillSys
  * A selected pack's restrictions win over the tier limits (a primary-only pack never shows "Secondary skills: max 2").
  */
 export function sheetRulesetRows(input: SheetRulesetInput): SheetRulesetRow[] {
+  // Free Create (owner 10-31): one row, plus a second when the coach ignored the in-game limits.
+  if (isFreeCreatePackage(input.packageName)) {
+    return [["Ruleset", `${FREE_CREATE_LABEL} — no tournament rules`], ...(input.ignoreLimits ? [["Limits", "Ignore in-game limits"] as SheetRulesetRow] : [])];
+  }
   const race = input.raceRules as RaceWithSystem | null;
   const pack = input.pack;
   const tier = input.tierRules;
@@ -132,7 +139,7 @@ export function sheetRulesetRows(input: SheetRulesetInput): SheetRulesetRow[] {
 
 /** The builder's public API, as far as the sheet reads it (createTournamentBuilder's return). */
 export interface SheetBuilderLike {
-  state: { packageName: string; packageRules: { budget: number | null } | null };
+  state: { packageName: string; packageRules: { budget: number | null } | null; ignoreLimits?: boolean };
   sheetModel(): SheetModel & { ruleset?: SheetRulesetRow[] };
   raceRules(): RaceRules | null;
   packSummary(): SkillPack | null;
@@ -143,7 +150,7 @@ export interface SheetBuilderLike {
 export function builderRulesetInput(b: SheetBuilderLike): SheetRulesetInput {
   return {
     packageName: b.state.packageName, tierLabel: b.tierLabel(), raceRules: b.raceRules(), pack: b.packSummary(),
-    tierRules: b.tierRules(), league: b.activeLeague(), budget: b.state.packageRules?.budget ?? null,
+    tierRules: b.tierRules(), league: b.activeLeague(), budget: b.state.packageRules?.budget ?? null, ignoreLimits: b.state.ignoreLimits === true,
   };
 }
 /** The sheet model: the builder's own (the PDF's) model, with the ruleset rows (kept when the builder already adds them). */

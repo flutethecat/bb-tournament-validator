@@ -114,6 +114,22 @@
 .tb-card:hover { border-color: var(--ui-heading); }
 .tb-card[aria-pressed="true"] { border-color: var(--ui-heading); border-left-color: var(--ui-heading); background: color-mix(in srgb, var(--ui-primary) 28%, var(--ui-surface-2)); }
 .tb-card:focus-visible, .tb-pack:focus-visible, .tb-position:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+/* Free Create (owner 10-31): the first card carries its one-line description; its race step is a grid of race buttons. */
+.tb-card-free { display: flex; flex-direction: column; gap: 4px; }
+.tb-card-desc { color: var(--ui-muted); font-size: 12px; line-height: 1.35; }
+.tb-free-note { margin: 0 0 10px; }
+.tb-free-races { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 1fr)); margin-bottom: 10px; }
+.tb-free-race {
+  display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 4px 10px 4px 6px; text-align: left; font: inherit; font-weight: 500;
+  color: var(--ui-text); cursor: pointer; background: color-mix(in srgb, var(--ui-primary) 10%, var(--ui-surface-2));
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi);
+}
+.tb-free-race:hover { border-color: var(--ui-heading); }
+.tb-free-race[aria-pressed="true"] { border-color: var(--ui-heading); background: color-mix(in srgb, var(--ui-primary) 32%, var(--ui-surface-2)); }
+.tb-free-race:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.tb-free-race .tt-team-crest { flex: 0 0 24px; width: 24px; height: 24px; }
+.tb-limits { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
+.tb-limits input { width: 18px; height: 18px; margin: 0; accent-color: var(--ui-heading); }
 .tb-summary { display: grid; gap: 6px; margin: 0 0 10px; }
 .tb-summary .tt-summary-row { display: grid; grid-template-columns: minmax(110px, 180px) minmax(0, 1fr); gap: 4px 12px; align-items: baseline; }
 .tb-summary dt { font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }

@@ -17,8 +17,8 @@ const t = computed(() => builder.totals());
     <div><span>Inducements</span><b>{{ core.gold(t.inducementsCost) }}</b></div>
     <div><span>Sideline</span><b>{{ core.gold(t.sidelineCost) }}</b></div>
     <div class="tv-total" :class="{ 'tv-over': t.over }">
-      <span>{{ t.estimated ? "Estimate" : "Total" }}</span>
-      <b>{{ core.gold(t.used) }} <small>/ {{ core.gold(t.budget) }}</small></b>
+      <span>{{ t.estimated && t.capped ? "Estimate" : "Total" }}</span>
+      <b>{{ core.gold(t.used) }} <small v-if="t.capped">/ {{ core.gold(t.budget) }}</small></b>
     </div>
   </section>
 </template>

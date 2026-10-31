@@ -18,6 +18,8 @@ import {
   type Slot, type SpriteManifest, type Staff, type Stat, type StarChoice, type StarContext, type StatRules, type TierRules,
 } from "./builderCore";
 import { sanitizeSkillSystem, sheetRulesetRows, type PrintSheetModel, type SheetSkillSystem } from "./sheetRuleset";
+import { CHARACTERISTIC_VALUE } from "../../../src/characteristicValue";
+import { FREE_CREATE_DESCRIPTION, FREE_CREATE_LABEL, FREE_CREATE_PACKAGE } from "../../../src/freeCreate";
 
 // ── wire shapes ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -66,6 +68,8 @@ export interface BuilderBody {
   skillPack?: string;
   specialRule?: string;
   rosteredInducements?: Array<{ key: string; count: number }>;
+  /** Free Create only: "Ignore in-game limits" is ticked (stored with the save; the server never validates by it). */
+  ignoreLimits?: boolean;
 }
 
 export type BuilderTab = "ruleset" | "roster" | "sheet";
@@ -111,6 +115,24 @@ const PREVIEW_COACH = "Guest"; // preview-only stand-in while signed out (previe
 /** Sample packages shipped for tests/docs are never offered to coaches. */
 export const isExamplePackage = (name: unknown): boolean => /\((example|sample)\)\s*$/i.test(String(name ?? ""));
 export const SAVE_ID_RE = /^[\w-]{1,64}$/;
+
+// ── Free Create (owner 10-31) ─────────────────────────────────────────────────────────────────────────────────────
+// Not a package: the marker FREE_CREATE_PACKAGE (src/freeCreate.ts) in state.packageName. Any base BB2025 race, the race's
+// own roster limits (position maxes, 16 players, star pairing, league star eligibility) and nothing else: no budget, tier,
+// skill points, packs, caps or bans, and no preview (no site validation at all). Skills from the position's primary or
+// secondary access at the core's flat gold (core.SKILL_GOLD: 20k / 40k / elite +10k, the site's league fallback pricing),
+// stat increases at CHARACTERISTIC_VALUE (src/characteristicValue.ts, the league table). "Ignore in-game limits" (Free
+// Create only) lifts position maxes, skill access and the stat limit and offers every star the fork lists; 16 players
+// stays the limit (owner 10-31).
+export { FREE_CREATE_PACKAGE, FREE_CREATE_LABEL, FREE_CREATE_DESCRIPTION };
+/** Packages the Roster Builder no longer offers as cards (owner 10-31: Free Create replaces BB2025 Default). Deep links
+ *  and saves that name them keep working; the Tournament Creator's presets still use the package. */
+export const HIDDEN_RULESET_CARDS: ReadonlySet<string> = new Set(["BB2025 Default"]);
+export interface RulesetCard { name: string; label: string; description: string; free: boolean }
+/** Free Create stat increases: one per player (each characteristic once while limits are ignored); skills and stats combine. */
+const freeStatRules = (ignore: boolean): StatRules => ({
+  allowed: true, stats: [...core.STATS], costGold: { ...CHARACTERISTIC_VALUE }, maxPerPlayer: ignore ? core.STATS.length : 1, exclusiveWithSkills: false,
+});
 
 // ── ingestion (field-by-field copies; never spread a server object) ───────────────────────────────────────────────
 
@@ -318,6 +340,8 @@ export interface BuilderState {
   printHtml: string;
   /** The left accordion's open panel (null = the default, Hireable players). */
   leftPanel: LeftPanel | null;
+  /** Free Create only: "Ignore in-game limits". */
+  ignoreLimits: boolean;
 }
 
 function blankState(): BuilderState {
@@ -327,7 +351,7 @@ function blankState(): BuilderState {
     inducementCatalog: [], inducementCounts: {}, inducementStatus: "", preview: null, previewPending: false, skillCatalog: null, legal: {},
     art: { sprites: null, crests: null, icons: null, skillIcons: null, uiIcons: null }, status: "", statusError: false,
     currentSave: null, savesStatus: "", saveBusy: false, shareBusy: false, shareUrl: "", editingTeamId: null, buildBusy: false, buildResult: null,
-    pdfBusy: false, printHtml: "", leftPanel: "hire",
+    pdfBusy: false, printHtml: "", leftPanel: "hire", ignoreLimits: false,
   };
 }
 
@@ -371,7 +395,25 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   let generation = 0;
 
   // ── derived ───────────────────────────────────────────────────────────────────────────────────────────────────────
-  const positionById = (id: string): BuilderPosition | null => state.roster?.positions.find((p) => p.positionId === id) ?? null;
+  /** Free Create is the open ruleset (no package). */
+  const free = (): boolean => state.packageName === FREE_CREATE_PACKAGE;
+  /** Free Create with "Ignore in-game limits" ticked. */
+  const ignoring = (): boolean => free() && state.ignoreLimits;
+  /** Every star player the fork's base rosters list (one entry per positionId): the Ignore in-game limits star pool. */
+  const allStars = (): BuilderPosition[] => {
+    const seen = new Map<string, BuilderPosition>();
+    for (const r of state.rosters) for (const p of r.positions) if (p.isStar && !seen.has(p.positionId)) seen.set(p.positionId, p);
+    return [...seen.values()];
+  };
+  const positionById = (id: string): BuilderPosition | null =>
+    state.roster?.positions.find((p) => p.positionId === id) ?? (ignoring() && state.roster ? allStars().find((p) => p.positionId === id) ?? null : null);
+  /** The positions stars are paired / added from: the race's own, plus every other star while limits are ignored. */
+  const starPool = (): BuilderPosition[] => {
+    const own = state.roster?.positions ?? [];
+    if (!ignoring()) return own;
+    const ids = new Set(own.map((p) => p.positionId));
+    return [...own, ...allStars().filter((p) => !ids.has(p.positionId))];
+  };
   const captainRules = (): string[] => (state.roster ? [...(state.roster.specialRules ?? []), ...(state.roster.alwaysOnRules ?? [])] : []);
   const captainAvailable = (): boolean => core.rosterHasCaptain(captainRules());
   const slotCanCaptain = (slot: Slot | undefined): boolean => Boolean(slot) && core.canCaptain(positionById(slot!.positionId), captainRules());
@@ -382,8 +424,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   const raceRules = (): RaceRules | null => (state.roster ? state.packageRules?.race ?? null : null);
   const ownTierRow = (): TierRow | undefined => (state.roster ? state.tierRows.find((r) => core.norm(r.name) === core.norm(state.roster!.raceName)) : undefined);
   /** Tier knobs for the current race: the authoritative preview echo first, then the /tiers row. */
-  const tierRules = (): TierRules | null => core.normalizeTierRules(state.preview?.package?.rules) ?? core.normalizeTierRules(ownTierRow()?.raw);
-  const statRules = (): StatRules | null => tierRules()?.statIncreases ?? null;
+  const tierRules = (): TierRules | null => (free() ? null : core.normalizeTierRules(state.preview?.package?.rules) ?? core.normalizeTierRules(ownTierRow()?.raw));
+  const statRules = (): StatRules | null => (free() ? freeStatRules(state.ignoreLimits) : tierRules()?.statIncreases ?? null);
   const allowedStats = (): string[] => core.allowedStatList(statRules());
   const packSummary = (): SkillPack | null => {
     const race = raceRules();
@@ -408,10 +450,13 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     const set = legalSet(positionId);
     if (set?.primary.some((e) => e.skill === skill)) return "primary";
     if (set?.secondary.some((e) => e.skill === skill)) return "secondary";
+    // Ignore in-game limits: a skill outside the position's access prices (and reads) as a secondary.
+    if (set && ignoring()) return "secondary";
     return "primary";
   }
   const gateCtx = (): GateContext => ({
-    mode: "tournament", slots: state.slots, positionById, tierRules: tierRules(), raceRules: raceRules(), packSummary: packSummary(),
+    // Ignore in-game limits runs the core's open ("custom") gates: any skill, no per-player or stacking caps.
+    mode: ignoring() ? "custom" : "tournament", slots: state.slots, positionById, tierRules: tierRules(), raceRules: raceRules(), packSummary: packSummary(),
     legal: legalSet, isElite, accessOf, statRules: statRules(), allowedStats: allowedStats(), captainRules: captainRules(),
   });
   const starCtx = (): StarContext => ({
@@ -446,6 +491,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       .reduce((n, s) => n + s.chosenStatIncreases.filter((k) => allowed.includes(k)).reduce((m, k) => m + (core.statIncreaseCost(rules, k) ?? 0), 0), 0);
   };
   const budget = (): number => packSummary()?.gold ?? state.preview?.package?.budget ?? state.packageRules?.budget ?? 1_000_000;
+  /** Whether the ruleset has a TV cap at all (Free Create has none). */
+  const capped = (): boolean => !free();
   const skillCounts = () => {
     let primary = 0;
     let secondary = 0;
@@ -474,7 +521,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       secondary: pick(s?.secondarySkillCount, counts.secondary),
       used,
       budget: budget(),
-      over: used > budget(),
+      capped: capped(),
+      over: capped() && used > budget(),
       estimated: !s,
     };
   }
@@ -523,7 +571,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     }
     const sp = skillPoints();
     if (sp) lines.push({ label: "Skill points", value: `${sp.used} / ${sp.budget}`, ...(sp.over ? { tone: "over" as const } : {}) });
-    lines.push({ label: t.estimated ? (state.previewPending ? "Calculating team value..." : "Estimate") : "Total", value: `${core.gold(t.used)} / ${core.gold(t.budget)}`, ...(t.over ? { tone: "over" as const } : {}) });
+    if (!t.capped) lines.push({ label: "Total", value: core.gold(t.used) });
+    else lines.push({ label: t.estimated ? (state.previewPending ? "Calculating team value..." : "Estimate") : "Total", value: `${core.gold(t.used)} / ${core.gold(t.budget)}`, ...(t.over ? { tone: "over" as const } : {}) });
     return lines;
   }
 
@@ -542,7 +591,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   /** The document the verdict is about: everything the coach edits (not the session coach, not server echoes). */
   const docKey = (): string => JSON.stringify([
     state.packageName, state.roster?.rosterId ?? "", state.teamName.trim(), state.slots, state.staff, state.inducementCounts,
-    state.skillPack, state.league, state.editingTeamId,
+    state.skillPack, state.league, state.editingTeamId, state.ignoreLimits,
   ]);
   /** The preview's verdict, only while it describes the current document (any edit makes it pending again). */
   const currentVerdict = (): PreviewResult | null => (state.preview && !state.previewPending && state.preview.doc === docKey() ? state.preview : null);
@@ -561,10 +610,13 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     }
     return { tone, headline, errors, warnings, notices: notices() };
   }
-  const sheetValid = (): boolean => checkable() && currentVerdict()?.valid === true;
+  // Free Create has no verdict: a named team with a player can always export, share and go to the Fork (which checks it).
+  const sheetValid = (): boolean => checkable() && (free() || currentVerdict()?.valid === true);
   const canExport = (): boolean => Boolean(state.roster && state.slots.length) && sheetValid() && !state.pdfBusy;
   const canBuild = (): boolean => Boolean(deps.coach()) && sheetValid() && !state.buildBusy;
   const canSave = (): boolean => Boolean(deps.coach() && state.roster) && !state.saveBusy;
+  /** Share link: a saved team whose sheet could be exported (valid, or Free Create with a name and a player). */
+  const canShare = (): boolean => Boolean(deps.coach() && state.currentSave) && sheetValid() && !state.shareBusy;
 
   // ── roster model (positions, stars, inducements) ────────────────────────────────────────────────────────────────
   function positionCards() {
@@ -577,15 +629,28 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       const name = shortName(position);
       return {
         position, name, count, left: Math.max(0, position.max - count), group,
-        exhausted: count >= position.max || Boolean(group) || state.slots.length >= core.MAX_PLAYERS,
+        exhausted: (!ignoring() && (count >= position.max || Boolean(group))) || state.slots.length >= core.MAX_PLAYERS,
         role: core.cardRoleTag(position, roster.positions, name),
       };
     });
   }
-  const starChoices = (): StarChoice[] => (state.roster ? core.offeredStarChoices(starCtx()) : []);
+  const starChoices = (): StarChoice[] => {
+    if (!state.roster) return [];
+    // Ignore in-game limits: every star the fork lists, whatever the race or league (pairs still come as one choice).
+    if (ignoring()) return core.buildStarChoices(starPool()).sort((a, b) => a.label.localeCompare(b.label));
+    return core.offeredStarChoices(starCtx());
+  };
+  /** Whether a star choice can be added now: the core's gate, or (limits ignored) only "not already in" and 16 players. */
+  function canAddStar(choice: StarChoice): boolean {
+    if (!ignoring()) return core.canAddStarChoice(starCtx(), choice);
+    const missing = choice.members.filter((m) => positionCount(m.positionId) === 0);
+    return missing.length > 0 && state.slots.length + missing.length <= core.MAX_PLAYERS;
+  }
+  const starChoiceOf = (positionId: string): StarChoice | undefined =>
+    core.buildStarChoices(starPool()).find((c) => c.members.some((m) => m.positionId === positionId));
   const starCap = (): number | null => core.starCap(raceRules(), tierRules());
-  const starPickCount = (): number => core.buildStarChoices(state.roster?.positions ?? []).filter((c) => c.members.some((m) => positionCount(m.positionId) > 0)).length;
-  const starsAllowed = (): boolean => Boolean(state.roster) && (raceRules()?.stars?.allowed ?? true);
+  const starPickCount = (): number => core.buildStarChoices(starPool()).filter((c) => c.members.some((m) => positionCount(m.positionId) > 0)).length;
+  const starsAllowed = (): boolean => Boolean(state.roster) && (ignoring() || (raceRules()?.stars?.allowed ?? true));
   function starSp(choice: StarChoice): number | null {
     const costs = raceRules()?.stars?.spCosts;
     if (!costs?.length) return null;
@@ -604,7 +669,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     return {
       choice, present, status, price: sp != null ? `${sp} SP` : core.gold(choice.cost),
       packs: memberPacks.map((p) => core.starPackLabel(p)).join(" · "),
-      canAdd: core.canAddStarChoice(starCtx(), choice) && !(cap != null && starPickCount() >= cap && present === 0),
+      canAdd: canAddStar(choice) && !(cap != null && starPickCount() >= cap && present === 0),
       capReached: cap != null && starPickCount() >= cap && present === 0,
     };
   }
@@ -647,6 +712,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   };
   /** Roster ids this package admits (and the fork has). */
   function eligibleRosters(): Map<string, BuilderRoster> {
+    // Free Create: every base BB2025 roster the fork has.
+    if (free()) return new Map(state.rosters.map((r) => [r.rosterId, r]));
     const listed = state.packageDoc?.eligibleRosters ?? [];
     const all = !listed.length || listed.includes("*");
     const admitted = (name: string) => all || listed.some((e) => core.norm(e) === core.norm(name));
@@ -659,6 +726,20 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     } else for (const roster of state.rosters) if (admitted(roster.raceName)) out.set(roster.rosterId, roster);
     return out;
   }
+  /** Free Create's race picker: every base roster, by name, with its crest. */
+  function freeRaces(): Array<{ rosterId: string; raceName: string; crest: string; selected: boolean }> {
+    return state.rosters.slice().sort((a, b) => a.raceName.localeCompare(b.raceName))
+      .map((r) => ({ rosterId: r.rosterId, raceName: r.raceName, crest: crestPath(r.raceName), selected: state.roster?.rosterId === r.rosterId }));
+  }
+  /** The Ruleset tab's cards: Free Create first, then the tournament packages (minus the ones it replaces). */
+  function rulesetCards(): RulesetCard[] {
+    return [
+      { name: FREE_CREATE_PACKAGE, label: FREE_CREATE_LABEL, description: FREE_CREATE_DESCRIPTION, free: true },
+      ...state.packages.filter((p) => !HIDDEN_RULESET_CARDS.has(p.name)).map((p) => ({ name: p.name, label: p.name, description: p.description, free: false })),
+    ];
+  }
+  /** The ruleset's display name (Free Create's marker reads "Free Create"). */
+  const rulesetLabel = (): string => (free() ? FREE_CREATE_LABEL : state.packageName);
   /** The race table markup (core.overviewTableHtml / legacy tierTableHtml); team cells are pick buttons (data-tt-race). */
   function raceTable(): { html: string; legacy: boolean; selectable: boolean } {
     const eligible = eligibleRosters();
@@ -760,7 +841,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   async function loadPackageRules(): Promise<void> {
     const seq = ++rulesSequence;
     const name = state.packageName;
-    if (!name) { state.packageRules = null; state.packageDoc = null; state.tierRows = []; return; }
+    if (!name || free()) { state.packageRules = null; state.packageDoc = null; state.tierRows = []; return; }
     const race = state.roster?.raceName;
     const [rules, tiers] = await Promise.allSettled([
       api<Rec>(`/api/packages/${encodeURIComponent(name)}${race ? `?roster=${encodeURIComponent(race)}` : ""}`),
@@ -775,7 +856,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   }
   async function loadInducements(): Promise<void> {
     const seq = ++inducementSequence;
-    const name = state.packageName;
+    // Free Create asks for the base BB2025 list (the server's baseline: every inducement at its standard price).
+    const name = free() ? "" : state.packageName;
     try {
       const data = await api<Rec>(`/api/fork/team-builder/inducements${name ? `?packageName=${encodeURIComponent(name)}` : ""}`);
       if (seq !== inducementSequence) return;
@@ -827,6 +909,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       ...(state.skillPack ? { skillPack: state.skillPack } : {}),
       ...(specialRule ? { specialRule } : {}),
       ...(inducements.length ? { rosteredInducements: inducements } : {}),
+      ...(ignoring() ? { ignoreLimits: true } : {}),
     };
   }
   function schedulePreview(): void {
@@ -834,6 +917,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     previewTimer = null;
     previewSequence++;
     if (state.preview && state.preview.rosterId !== state.roster?.rosterId) state.preview = null;
+    // Free Create never goes to the validator (owner 10-31).
+    if (free()) { state.preview = null; state.previewPending = false; return; }
     if (!checkable()) { state.previewPending = false; return; }
     state.previewPending = true;
     const seq = previewSequence;
@@ -887,6 +972,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       state.shareUrl = "";
       state.editingTeamId = null;
       state.inducementCounts = {};
+      state.ignoreLimits = false;
     }
     state.packageName = name;
     await Promise.all([loadPackageRules(), loadInducements()]);
@@ -937,8 +1023,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   function addPosition(positionId: string): boolean {
     if (!named()) return false;
     const p = positionById(positionId);
-    if (!p || p.isStar || positionCount(positionId) >= p.max || state.slots.length >= core.MAX_PLAYERS) return false;
-    if (core.positionGroupCapped(positionId, state.roster?.positionGroups, positionCounts())) return false;
+    if (!p || p.isStar || state.slots.length >= core.MAX_PLAYERS) return false;
+    if (!ignoring() && (positionCount(positionId) >= p.max || core.positionGroupCapped(positionId, state.roster?.positionGroups, positionCounts()))) return false;
     state.slots = [...state.slots, { positionId, chosenSkills: [], chosenStatIncreases: [] }];
     changed();
     return true;
@@ -946,15 +1032,15 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   function removeSlot(index: number): void {
     const slot = state.slots[index];
     if (!slot) return;
-    const pair = core.buildStarChoices(state.roster?.positions ?? []).find((c) => c.paired && c.members.some((m) => m.positionId === slot.positionId));
-    if (pair) { removeStar(pair.key); return; }
+    const pair = starChoiceOf(slot.positionId);
+    if (pair?.paired) { removeStar(pair.key); return; }
     state.slots = state.slots.filter((_, i) => i !== index);
     changed();
   }
   function addStar(key: string): boolean {
     if (!named()) return false;
     const choice = starChoices().find((c) => c.key === key);
-    if (!choice || !core.canAddStarChoice(starCtx(), choice)) return false;
+    if (!choice || !canAddStar(choice)) return false;
     const cap = starCap();
     if (cap != null && starPickCount() >= cap) return false;
     const add = choice.members.filter((m) => positionCount(m.positionId) === 0).map((m): Slot => ({ positionId: m.positionId, chosenSkills: [], chosenStatIncreases: [] }));
@@ -963,7 +1049,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     return true;
   }
   function removeStar(key: string): void {
-    const choice = core.buildStarChoices(state.roster?.positions ?? []).find((c) => c.key === key);
+    const choice = core.buildStarChoices(starPool()).find((c) => c.key === key);
     if (!choice) return;
     let next = state.slots.slice();
     for (const m of choice.members) {
@@ -1041,6 +1127,45 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     schedulePreview();
   }
 
+  /** Free Create's "Ignore in-game limits". Turning it off puts the race's roster limits back: stars from other races
+   *  (or the wrong league) leave (pairs together), positions over their max or group cap drop their latest rows, skills
+   *  outside the position's access and stat increases past one per player go; the notice says how many changes. */
+  async function setIgnoreLimits(on: boolean): Promise<void> {
+    if (!free() || state.ignoreLimits === on) return;
+    if (on) { state.ignoreLimits = true; changed(); return; }
+    const gen = generation;
+    await Promise.allSettled([...new Set(state.slots.filter((s) => s.chosenSkills.length).map((s) => s.positionId))].map((id) => ensureLegal(id)));
+    if (gen !== generation) return;
+    // The offered stars and every position lookup below are the race's own once the box is off.
+    state.ignoreLimits = false;
+    let undone = 0;
+    const offered = new Set(starChoices().flatMap((c) => c.members.map((m) => m.positionId)));
+    const counts = new Map<string, number>();
+    const kept: Slot[] = [];
+    for (const s of state.slots) {
+      const p = positionById(s.positionId);
+      const n = counts.get(s.positionId) ?? 0;
+      const over = !p || (p.isStar ? !offered.has(p.positionId) : n >= p.max || Boolean(core.positionGroupCapped(s.positionId, state.roster?.positionGroups, counts)));
+      if (over) { undone++; continue; }
+      counts.set(s.positionId, n + 1);
+      const set = legalSet(s.positionId);
+      const skills = set ? s.chosenSkills.filter((k) => [...set.primary, ...set.secondary].some((e) => e.skill === k)) : s.chosenSkills;
+      const stats = s.chosenStatIncreases.slice(0, 1);
+      undone += s.chosenSkills.length - skills.length + s.chosenStatIncreases.length - stats.length;
+      kept.push({ ...s, chosenSkills: skills, chosenStatIncreases: stats });
+    }
+    // A pair loses both halves when one went.
+    const present = new Set(kept.map((s) => s.positionId));
+    const whole = kept.filter((s) => {
+      const c = positionById(s.positionId)?.isStar ? starChoiceOf(s.positionId) : undefined;
+      return !c || c.members.every((m) => present.has(m.positionId));
+    });
+    undone += kept.length - whole.length;
+    state.slots = whole;
+    state.leagueNotice = undone ? `In-game limits back on: ${undone} change${undone === 1 ? "" : "s"} undone.` : "";
+    changed();
+  }
+
   // ── skill / stat pickers (model only; the view owns the dialog) ────────────────────────────────────────────────
   /** The Add skill picker: Primary / Secondary sections of category groups, innate printed skills shown owned. */
   function pickerSections(index: number): Array<{ label: string; access: "primary" | "secondary"; groups: PickerGroup[] }> | null {
@@ -1056,9 +1181,16 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     const secondaryCats = new Set(set.secondary.map((s) => s.category));
     const innateSecondary = (p: PickerSkill) => secondaryCats.has(p.category) && !primaryCats.has(p.category);
     const asPicker = (l: LegalSet["primary"]): PickerSkill[] => l.map((s) => ({ skill: s.skill, category: s.category ?? meta(s.skill)?.category ?? "", elite: s.elite === true || meta(s.skill)?.elite === true }));
+    const printedNames = new Set(position.skills.map(bare));
+    // Ignore in-game limits: every other skill in the dataset, priced as a secondary (Team Captain is never picked).
+    const other: PickerSkill[] = ignoring()
+      ? Object.entries(state.skillCatalog ?? {}).filter(([name, m]) => m.category && !listed.has(name) && !printedNames.has(name) && name !== core.TEAM_CAPTAIN)
+        .map(([name, m]) => ({ skill: name, category: m.category, elite: m.elite }))
+      : [];
     return [
       { label: "Primary", access: "primary" as const, groups: groupByCategory([...asPicker(set.primary), ...printed.filter((p) => !innateSecondary(p))]) },
       { label: "Secondary", access: "secondary" as const, groups: groupByCategory([...asPicker(set.secondary), ...printed.filter(innateSecondary)]) },
+      { label: "Other skills", access: "secondary" as const, groups: groupByCategory(other) },
     ].filter((s) => s.groups.length);
   }
   async function openSkills(index: number): Promise<string> {
@@ -1117,6 +1249,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       state.slots = [];
       return false;
     }
+    state.ignoreLimits = packageName === FREE_CREATE_PACKAGE && body.ignoreLimits === true;
     state.league = core.reconcileLeagueSelection(leagueOptions(),
       typeof body.specialRule === "string" && body.specialRule ? { selectedLeague: body.specialRule, explicit: true } : { selectedLeague: "", explicit: false });
     state.slots = core.reconcileCaptain(core.slotsFromPicks(body.picks, positionById), positionById, captainRules());
@@ -1166,7 +1299,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
         return false;
       }
       // A save whose ruleset is gone is not loaded: saving it again would drop its packageName.
-      if (!state.packages.some((p) => p.name === body.packageName)) {
+      if (body.packageName !== FREE_CREATE_PACKAGE && !state.packages.some((p) => p.name === body.packageName)) {
         state.savesStatus = "This team's ruleset is no longer available.";
         return false;
       }
@@ -1289,7 +1422,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       raceName: roster?.raceName ?? "",
       coach: deps.coach(),
       teamName: state.teamName.trim(),
-      rulesetName: [state.packageName, raceRules()?.tierLabel].filter(Boolean).join(" — "),
+      rulesetName: [rulesetLabel(), raceRules()?.tierLabel].filter(Boolean).join(" — "),
       players: state.slots.map((s) => {
         const star = isStarSlot(s);
         return {
@@ -1306,10 +1439,11 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       inducements: inducementPicks().map((p) => ({ label: state.inducementCatalog.find((i) => i.key === p.key)?.label ?? p.key, count: p.count })),
       specialRules: [...(roster?.specialRules ?? []), ...(roster?.alwaysOnRules ?? []), ...(activeLeague() ? [activeLeague()] : [])],
       captainAvailable: captainAvailable(),
-      summary: state.preview?.summary ?? null,
+      // Free Create has no preview: the sheet's Total row is the client total (no cap).
+      summary: free() ? { goldUsed: totals().used } : state.preview?.summary ?? null,
       costs: { players: rawPlayerCost(), stars: rawStarCost(), sideline: staffCost(), skills: addedSkillGold(), inducements: inducementGold() },
-      budget: budget(),
-    }), ruleset: sheetRulesetRows({ packageName: state.packageName, tierLabel: tierLabel(), raceRules: raceRules(), pack: packSummary(), tierRules: tierRules(), league: activeLeague(), budget: state.packageRules?.budget ?? null }) };
+      ...(capped() ? { budget: budget() } : {}),
+    }), ruleset: sheetRulesetRows({ packageName: state.packageName, tierLabel: tierLabel(), raceRules: raceRules(), pack: packSummary(), tierRules: tierRules(), league: activeLeague(), budget: state.packageRules?.budget ?? null, ignoreLimits: ignoring() }) };
   }
   /** The shared team view model (public/team-view.js viewHtml) for the Sheet tab: the share page's look, from this build. */
   function teamViewModel() {
@@ -1321,7 +1455,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       coach: model.coach,
       raceName: model.raceName,
       crest: core.resolveCrest(state.art.crests, model.raceName),
-      ruleset: state.packageName ? { name: state.packageName, tierLabel: raceRules()?.tierLabel ?? null } : null,
+      ruleset: state.packageName ? { name: rulesetLabel(), tierLabel: raceRules()?.tierLabel ?? null } : null,
       specialRules: model.specialRules,
       players: model.rows.map((r) => ({
         number: r.number, position: r.position, positionFull: r.positionFull, isStar: r.isStar, captain: r.captain,
@@ -1338,7 +1472,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       })),
       summary: {
         players: t.players, playersCost: t.playersCost, starsCost: t.starsCost, skillsCost: t.skillsCost, inducementsCost: t.inducementsCost,
-        sidelineCost: t.sidelineCost, primarySkills: t.primary, secondarySkills: t.secondary, total: t.used, cap: t.budget,
+        sidelineCost: t.sidelineCost, primarySkills: t.primary, secondarySkills: t.secondary, total: t.used, cap: t.capped ? t.budget : null,
       },
     };
   }
@@ -1380,7 +1514,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   async function init(link: { saveId?: string; packageName?: string; race?: string }): Promise<BuilderTab> {
     if (!state.booted) await boot();
     if (link.saveId && deps.coach() && (await loadSave(link.saveId, { silent: true }))) return "roster";
-    if (link.packageName && state.packages.some((p) => p.name === link.packageName)) {
+    if (link.packageName && (link.packageName === FREE_CREATE_PACKAGE || state.packages.some((p) => p.name === link.packageName))) {
       await choosePackage(link.packageName);
       if (link.race && state.rosters.some((r) => r.rosterId === link.race) && (await chooseRace(link.race))) return "roster";
     }
@@ -1395,9 +1529,10 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     skillPoints, positionCards, starChoices, starRow, starCap, starPickCount, starsAllowed, starSpTable, inducementRows, rulesetLines, tierLabel, raceTable,
     eligibleRosters, staffRows: () => staffRows(state.roster), staffIcon, skillIcon, spritePath, crestPath, pickerSections, skillPrice, statOptions,
     captainIndex, skillAllowance, slotLocks, legalSet, requestBody, sheetModel, teamViewModel, gateCtx, named, signedIn: (): boolean => Boolean(deps.coach()),
+    free, ignoring, capped, canShare, rulesetCards, rulesetLabel, freeRaces, canAddStar,
     // actions
     init, boot, choosePackage, chooseRace, setTeamName, selectLeague, setSkillPack, addPosition, removeSlot, addStar, removeStar, moveSlot,
-    toggleCaptain, openSkills, addSkill, removeSkill, addStat, removeStat, stepStaff, stepInducement, schedulePreview, flushPreview,
+    toggleCaptain, openSkills, addSkill, removeSkill, addStat, removeStat, stepStaff, stepInducement, setIgnoreLimits, schedulePreview, flushPreview,
     loadSave, saveTeam, share, unshare, copyShare, build, exportPdf,
   };
 }

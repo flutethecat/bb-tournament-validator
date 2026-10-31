@@ -60,6 +60,11 @@ async function changePack(): Promise<void> {
         </select>
         <small v-if="builder.selectedSpecialRule()" class="muted">Special rule: {{ builder.selectedSpecialRule() }}</small>
       </label>
+      <!-- Free Create only (owner 10-31): lifts position maxes, skill access and stat limits and lists every star; 16 players stays -->
+      <label v-if="builder.free()" class="tb-limits">
+        <input id="tb-ignore-limits" type="checkbox" :checked="state.ignoreLimits" @change="builder.setIgnoreLimits(($event.target as HTMLInputElement).checked)" />
+        <span>Ignore in-game limits</span>
+      </label>
     </div>
     <p v-if="state.leagueNotice" class="tm-note" role="status">{{ state.leagueNotice }}</p>
     <!-- the save line is hidden while the pack list shows: the name gate speaks here then -->

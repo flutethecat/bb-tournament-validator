@@ -7,6 +7,8 @@
 // Fork stay hidden and Save Team stays under the list so a work-in-progress draft can still be saved. Share link and the link /
 // Copy follow the same verdict; Unshare stays. The share link,
 // save status and Fork result sit at the bottom of the box. Signed out, the sign-in link stands where Save would be.
+// Free Create (owner 10-31) has no verdict: no header and no issues list; the actions show from the start (Export PDF and
+// Share light up once the team is named and has a player) and Create team on Fork stays (the fork checks the team itself).
 import { computed, inject } from "vue";
 import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
 
@@ -16,15 +18,18 @@ const builder = inject(TOURNAMENT_BUILDER_KEY)!;
 const ui = inject(TOURNAMENT_BUILDER_UI_KEY)!;
 const { state } = builder;
 const v = computed(() => builder.validity());
-const valid = computed(() => v.value.tone === "valid");
+const free = computed(() => builder.free());
+/** The actions row in full: a valid verdict, or always in Free Create. */
+const valid = computed(() => free.value || v.value.tone === "valid");
 const gate = computed(() => ui.nameGate && !builder.named());
 const signedIn = computed(() => builder.signedIn());
 const buildLabel = computed(() => (state.buildBusy ? (state.editingTeamId ? "Saving..." : "Creating...") : state.editingTeamId ? "Save team on Fork" : "Create team on Fork"));
 </script>
 
 <template>
-  <section class="tb-saveline" :data-tone="v.tone" aria-labelledby="tb-valid-h">
-    <h3 id="tb-valid-h" class="tb-saveline-head" tabindex="-1" aria-live="polite">{{ v.headline }}</h3>
+  <section class="tb-saveline" :data-tone="free ? 'free' : v.tone" :aria-labelledby="free ? undefined : 'tb-valid-h'" :aria-label="free ? 'Save' : undefined">
+    <h3 v-if="!free" id="tb-valid-h" class="tb-saveline-head" tabindex="-1" aria-live="polite">{{ v.headline }}</h3>
+    <p v-if="free && gate" class="lobby-error tb-name-gate" role="alert">You must name your team first.</p>
     <div v-if="!valid" class="tb-issues" aria-live="polite">
       <p v-if="gate" class="lobby-error tb-name-gate" role="alert">You must name your team first.</p>
       <ul v-if="v.errors.length || v.warnings.length || v.notices.length" class="tb-findings">
@@ -37,7 +42,7 @@ const buildLabel = computed(() => (state.buildBusy ? (state.editingTeamId ? "Sav
       <button v-if="valid" type="button" class="tb-btn primary" :disabled="!builder.canExport()" @click="builder.exportPdf()">{{ state.pdfBusy ? "Exporting..." : "Export PDF" }}</button>
       <template v-if="signedIn">
         <button type="button" class="tb-btn" :disabled="!builder.canSave()" @click="builder.saveTeam()">{{ state.saveBusy ? "Saving..." : "Save Team" }}</button>
-        <button v-if="valid && state.currentSave && !state.shareUrl" type="button" class="tb-btn" :disabled="state.shareBusy" @click="builder.share()">Share link</button>
+        <button v-if="valid && state.currentSave && !state.shareUrl" type="button" class="tb-btn" :disabled="state.shareBusy || (free && !builder.canShare())" @click="builder.share()">Share link</button>
         <button v-if="valid" type="button" class="tb-btn" :disabled="!builder.canBuild()" @click="builder.build()">{{ buildLabel }}</button>
       </template>
       <template v-else>

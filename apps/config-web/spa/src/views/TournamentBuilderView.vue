@@ -115,7 +115,7 @@ function onTabKey(e: KeyboardEvent): void {
 }
 
 const crest = computed(() => (state.roster ? builder.crestPath(state.roster.raceName) : ""));
-const lockedLine = computed(() => [state.packageName, state.roster?.raceName, builder.tierLabel(), state.roster ? `TV cap ${fmtK(builder.totals().budget)}` : ""].filter(Boolean).join(" · "));
+const lockedLine = computed(() => [builder.rulesetLabel(), state.roster?.raceName, builder.tierLabel(), state.roster && builder.capped() ? `TV cap ${fmtK(builder.totals().budget)}` : "", builder.ignoring() ? "In-game limits ignored" : ""].filter(Boolean).join(" · "));
 const signInHref = computed(() => discordLoginUrl(route.fullPath.startsWith("/") ? `/app${route.fullPath}` : "/app/tournament-team-builder"));
 
 /** The save id in the address bar: the route param, else the vanilla page's ?save= deep link. */
@@ -205,7 +205,7 @@ async function pickPackage(name: string): Promise<void> {
     </p>
 
     <p v-if="state.bootError" class="lobby-error" role="alert">{{ state.bootError }}</p>
-    <p v-else-if="!state.booted" class="hm-empty" role="status">Loading tournament rulesets...</p>
+    <p v-else-if="!state.booted" class="hm-empty" role="status">Loading rulesets...</p>
     <p v-if="state.status" :class="state.statusError ? 'lobby-error' : 'hm-empty'" role="status">{{ state.status }}</p>
 
     <div v-if="state.booted" :id="`tb-pane-${tab}`" class="tb-pane" role="tabpanel" :aria-labelledby="`tb-tab-${tab}`">

@@ -3,6 +3,7 @@
 // skill points display from the vanilla page's tournament box (used / budget, each player's SP), the rest of the team value
 // breakdown (stars, stat increases, star fees, pack skills), and at the bottom the rule bullets for this race (budget, SP,
 // skills per player, stars, tier limits incl. stacking). The package's data note is not shown here (Ruleset tab).
+// Free Create (owner 10-31): titled "Roster summary": the value cards with no cap, no SP block and no rule bullets.
 import { computed, inject } from "vue";
 import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
 import TournamentBuilderValueBar from "./TournamentBuilderValueBar.vue";
@@ -10,18 +11,19 @@ import TournamentBuilderValueBar from "./TournamentBuilderValueBar.vue";
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
 const ui = inject(TOURNAMENT_BUILDER_UI_KEY, null);
 const { state } = builder;
-const sp = computed(() => builder.skillPoints());
+const free = computed(() => builder.free());
+const sp = computed(() => (free.value ? null : builder.skillPoints()));
 // The cards and the SP display already show these; the last line is the total. The Team Captain line is left out too (owner
 // 10-31): the roster row's captain badge says it.
 const SHOWN = new Set(["Players", "Sideline staff", "Inducements", "Skills", "Skill points", "Primary skills", "Secondary skills", "Team Captain"]);
 const extras = computed(() => builder.valueLines().slice(0, -1).filter((l) => !SHOWN.has(l.label)));
-const rules = computed(() => builder.rulesetLines());
-const pending = computed(() => Boolean(state.preview && !state.preview.package && state.preview.rosterId === state.roster?.rosterId));
+const rules = computed(() => (free.value ? [] : builder.rulesetLines()));
+const pending = computed(() => !free.value && Boolean(state.preview && !state.preview.package && state.preview.rosterId === state.roster?.rosterId));
 </script>
 
 <template>
   <section class="hm-panel tb-panel tb-validator" aria-labelledby="tb-validator-h">
-    <header class="hm-band"><h2 id="tb-validator-h">Validator</h2></header>
+    <header class="hm-band"><h2 id="tb-validator-h">{{ free ? "Roster summary" : "Validator" }}</h2></header>
     <TournamentBuilderValueBar />
     <div v-if="sp" class="tb-sp" :data-tone="sp.over ? 'over' : undefined" aria-label="Skill points">
       <span class="tb-k">Skill points</span>
