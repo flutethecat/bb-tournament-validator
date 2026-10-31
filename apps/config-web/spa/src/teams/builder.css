@@ -236,10 +236,13 @@
    image fails) */
 /* the row number as the Team Captain toggle (owner 10-31): the painted badge (32 px, normal smoothing, no box) behind the
    number; the number keeps its colour with a dark outline so it reads on gold and grey; a ring if the image fails */
-.tb-captain { position: relative; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; background: none; border: 0; border-radius: 50%; cursor: pointer; }
+.tb-captain { position: relative; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; background: none; border: 0; border-radius: 50%; cursor: pointer; }
 .tb-captain:hover .tb-captain-img { filter: brightness(1.12); }
-.tb-captain-img { grid-area: 1 / 1; width: 32px; height: 32px; object-fit: contain; pointer-events: none; }
-.tb-num-n { grid-area: 1 / 1; position: relative; text-shadow: var(--tb-num-outline); }
+.tb-captain-img { grid-area: 1 / 1; width: 40px; height: 40px; object-fit: contain; pointer-events: none; }
+/* The number sits in the C's opening (owner 10-31): the badge's C stroke covers ~16-44% of its width, so the counter's
+   centre is ~62% across, mid-height. A broken image (plain ring) centres it normally. */
+.tb-num-n { position: absolute; left: 62%; top: 50%; transform: translate(-50%, -50%); font-size: 15px; line-height: 1; text-shadow: var(--tb-num-outline); pointer-events: none; }
+.tb-captain.broken .tb-num-n { left: 50%; }
 .tb-captain.broken { border: 2px solid var(--ui-muted); }
 .tb-captain.broken[data-tone="gold"] { border-color: var(--ui-gold); }
 .tb-row > .tb-num.tb-captain { padding: 0; justify-self: center; }

@@ -166,8 +166,8 @@ function onGripKey(e: KeyboardEvent, index: number): void {
         <button v-if="showCaptain(s, i)" type="button" class="tb-num tb-captain" :class="{ broken: brokenIcon[captainTone(s)] }" :data-tone="captainTone(s)"
           :aria-pressed="captainOn(s) ? 'true' : 'false'" :title="captainOn(s) ? CAPTAIN_ON_HINT : CAPTAIN_OFF_HINT" :aria-description="captainOn(s) ? CAPTAIN_ON_HINT : undefined"
           :aria-label="`${captainOn(s) ? 'Team captain' : 'Make team captain'}: ${position(s)?.name ?? 'player'}, player ${i + 1}`" @click="builder.toggleCaptain(i)"
-        ><img v-if="!brokenIcon[captainTone(s)]" class="tb-captain-img" :src="captainSrc(s, 32)" :srcset="`${captainSrc(s, 32)} 1x, ${captainSrc(s, 64)} 2x`"
-          width="32" height="32" alt="" @error="brokenIcon[captainTone(s)] = true" /><span class="tb-num-n">{{ i + 1 }}</span></button>
+        ><img v-if="!brokenIcon[captainTone(s)]" class="tb-captain-img" :src="captainSrc(s, 48)" :srcset="`${captainSrc(s, 48)} 1x, ${captainSrc(s, 64)} 2x`"
+          width="40" height="40" alt="" @error="brokenIcon[captainTone(s)] = true" /><span class="tb-num-n">{{ i + 1 }}</span></button>
         <span v-else class="tb-num">{{ i + 1 }}</span>
         <span class="sprite-frame tb-sprite tb-row-sprite" aria-hidden="true"><span class="sprite-fallback">{{ builder.shortName(position(s)).slice(0, 2).toUpperCase() }}</span><img v-if="builder.spritePath(position(s)?.name ?? '')" class="sprite-image" :src="builder.spritePath(position(s)?.name ?? '')" alt="" loading="lazy" /></span>
         <span class="tb-who">

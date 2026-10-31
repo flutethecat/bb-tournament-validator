@@ -766,7 +766,7 @@ describe("tournament builder page (server-rendered)", () => {
     const none = await render("/tournament-team-builder?tab=roster", f, (b) => { b.setTeamName("Reavers"); b.addPosition("hbli"); b.addPosition("hlin"); });
     const rows0 = between(none, "tb-roster-h", "tb-team-name");
     expect(rows0.match(/class="tb-num tb-captain"/g)).toHaveLength(2); // grey badges behind every eligible number
-    expect(rows0).toContain('src="/icons/builder/team-captain-grey-32.png" srcset="/icons/builder/team-captain-grey-32.png 1x, /icons/builder/team-captain-grey-64.png 2x" width="32" height="32" alt=""');
+    expect(rows0).toContain('src="/icons/builder/team-captain-grey-48.png" srcset="/icons/builder/team-captain-grey-48.png 1x, /icons/builder/team-captain-grey-64.png 2x" width="40" height="40" alt=""');
     expect(rows0).toContain('title="Make team captain"');
     const set = await render("/tournament-team-builder?tab=roster", f, async (b) => {
       b.setTeamName("Reavers"); b.addPosition("hbli"); b.addPosition("hlin"); b.toggleCaptain(1);
@@ -776,7 +776,7 @@ describe("tournament builder page (server-rendered)", () => {
     expect(rows.match(/class="tb-num tb-captain"/g)).toHaveLength(1); // the other eligible row shows its plain number
     expect(rows).toMatch(/class="tb-num tb-captain" data-tone="gold" aria-pressed="true"[^>]*><img[^>]*><span class="tb-num-n">2<\/span>/);
     expect(rows).toContain('<span class="tb-num">1</span>');
-    expect(rows).toContain('src="/icons/builder/team-captain-gold-32.png"');
+    expect(rows).toContain('src="/icons/builder/team-captain-gold-48.png"');
     expect(rows).toContain('aria-pressed="true" title="Team captain. Remove to choose another player." aria-description="Team captain. Remove to choose another player."');
     expect(rows).not.toContain("tb-captain-slot");
     expect(rows).not.toMatch(/<small>Team Captain<\/small>/); // no captain subtitle either
@@ -1093,7 +1093,7 @@ describe("tournament builder page (client behaviour)", () => {
       await page.fire(page.find((e) => e.attrs["aria-label"] === "Fire Human Lineman #3"), "click"); // fire the captain
       expect(toggles().length).toBe(2);
       const img = toggles()[0]!.children.find((c) => c.tag === "img")!;
-      expect(img.attrs.src).toBe("/icons/builder/team-captain-grey-32.png");
+      expect(img.attrs.src).toBe("/icons/builder/team-captain-grey-48.png");
       expect(textOf(toggles()[0]!)).toBe("1"); // the number on top of the badge
       await page.fire(img, "error");
       expect(textOf(toggles()[0]!)).toBe("1");
@@ -1319,7 +1319,7 @@ describe("roster scroller, reveal and drag edge (owner 10-31)", () => {
     expect(css).toMatch(/\.tb-added\.access-primary \{ box-shadow: inset 0 -3px 0 var\(--ui-heading\); \}/);
     expect(css).toMatch(/\.tb-added\.access-secondary \{ box-shadow: inset 0 -3px 0 var\(--tb-secondary-bar\); \}/);
     expect(css).toMatch(/\.tb-page \.row-skills \.tb-bought \{[^}]*border: 2px solid var\(--ui-gold\)/);
-    expect(css).toMatch(/\.tb-captain-img \{ grid-area: 1 \/ 1; width: 32px; height: 32px;/);
+    expect(css).toMatch(/\.tb-captain-img \{ grid-area: 1 \/ 1; width: 40px; height: 40px;/);
     expect(css).not.toMatch(/\.tb-captain-img \{[^}]*pixelated/); // painted art: normal smoothing
   });
 });
