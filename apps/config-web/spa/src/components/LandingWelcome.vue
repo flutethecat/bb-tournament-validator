@@ -21,8 +21,8 @@ useBlankPageTitle();
   <div class="lw-landing">
     <section class="lw-splash" aria-labelledby="lw-welcome" :style="{ '--lw-splash': `url(${SPLASH_IMAGE})` }">
       <div class="lw-box">
-        <h2 id="lw-welcome" class="lw-logo"><img class="lw-logo-img" :src="LOGO" alt="Super FUMBBL League Manager" /></h2>
         <p class="lw-lead">Tell your league's story</p>
+        <h2 id="lw-welcome" class="lw-logo"><img class="lw-logo-img" :src="LOGO" alt="Super FUMBBL League Manager" /></h2>
         <p class="lw-sub">Run your tabletop leagues and tournaments, build rosters for your favorite tournaments, contact your players, integrate with Discord, and have detailed league stats across multiple seasons.</p>
         <div class="lw-cta">
           <RouterLink class="lw-btn lw-btn-left" to="/tournaments">Browse tournaments</RouterLink>

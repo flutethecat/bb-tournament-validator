@@ -857,6 +857,10 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(html).not.toContain("landing-banner");
     expect(html).toContain('<p class="lw-lead">Tell your league&#39;s story</p>');
     expect(html).not.toContain("using your manager");
+    // order: lead, then the logo h2, then the body, then the buttons
+    expect(html.indexOf("lw-lead")).toBeLessThan(html.indexOf('id="lw-welcome"'));
+    expect(html.indexOf('id="lw-welcome"')).toBeLessThan(html.indexOf("lw-sub"));
+    expect(html.indexOf("lw-sub")).toBeLessThan(html.indexOf("lw-cta"));
     expect(html).toContain("Run your tabletop leagues and tournaments, build rosters for your favorite tournaments, contact your players, integrate with Discord, and have detailed league stats across multiple seasons.</p>");
     expect(html).not.toContain("flat rate");
     // button row: Browse tournaments (left), Login (centre, label "Login", aria-label stays), Browse leagues (right)
