@@ -90,6 +90,10 @@ export function teamBuilderWireError(body: unknown): string | null {
   if (packageName !== undefined && typeof packageName !== "string") {
     return "packageName must be a string when supplied.";
   }
+  const ignoreLimits = (body as Record<string, unknown>).ignoreLimits;
+  if (ignoreLimits !== undefined && typeof ignoreLimits !== "boolean") {
+    return "ignoreLimits must be a boolean when supplied.";
+  }
   const saveId = (body as Record<string, unknown>).saveId;
   if (saveId !== undefined && (typeof saveId !== "string" || !saveId.trim())) {
     return "saveId must be a non-empty string when supplied.";

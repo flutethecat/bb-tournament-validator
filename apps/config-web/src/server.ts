@@ -104,6 +104,8 @@ import {
   type AdminTeamSearchMode,
 } from "./data";
 import { builderTierRows, packageRaceRules, packageResponseInfo, resolveBuilderPackage } from "./teamBuilderPackage.js";
+import { FREE_CREATE_LABEL, isFreeCreatePackage } from "./freeCreate.js";
+import { freeDisplayRosterXml } from "./freeCreateDisplay.js";
 import { packagesApi } from "./packagesApi.js";
 import { isPublicArtPath } from "./publicArt.js";
 import { PRESETS } from "./presets";
@@ -964,6 +966,9 @@ interface TeamBuilderBody {
   /** Tournament ruleset picker (owner GO): validate against this saved package instead of the
    *  standalone baseline. Omitted ⇒ current baseline behavior, byte-identical. Unknown name ⇒ 4xx. */
   packageName?: string;
+  /** Roster Builder Free Create only (freeCreate.ts): the coach ticked "Ignore in-game limits". Stored with the save;
+   *  compose and validation ignore it (the fork refuses what it refuses). */
+  ignoreLimits?: boolean;
   /** Existing coach-owned library team to replace. Omitted mints a new team as before. */
   teamId?: string;
   /** Tournament-only predefined inducements. */
@@ -1008,17 +1013,20 @@ function sharedViewFor(coach: string, save: TeamBuilderSave, viewer: string | un
       } else {
         const resolvedPkg = resolveBuilderPackage(packages, TEAM_BUILDER_BASELINE, body.packageName);
         if (!("error" in resolvedPkg)) {
-          const composed = composeFromBody(cfg.teamsDir, body);
+          const composed = resolvedPkg.free && body.ignoreLimits === true ? composeFreeDisplay(cfg.teamsDir, body) : composeFromBody(cfg.teamsDir, body);
           input.roster = composed.roster;
           input.result = validate(composed.roster, resolvedPkg.pkg, bb2025);
           const info = packageResponseInfo(resolvedPkg, composed.roster.rosterName);
           if (info) input.ruleset = { name: info.name, budget: info.budget, tierLabel: packageRaceRules(resolvedPkg.pkg, composed.roster.rosterName).tierLabel ?? null };
+          if (resolvedPkg.free) input.free = true;
         }
       }
     }
   } catch {
     // Falls through: the view shows the sheet's header and "Has 1 issue".
   }
+  // Free Create (owner 10-31): "Free Create" stands where the ruleset goes; no verdict and no cap (sharedTeamView).
+  if (isFreeCreatePackage(body.packageName)) { input.free = true; input.ruleset = { name: FREE_CREATE_LABEL, budget: null, tierLabel: null }; }
   if (!input.ruleset && save.packageName) input.ruleset = { name: save.packageName, budget: null, tierLabel: null };
   const view = sharedTeamView(input);
   const avatarUrl = avatarUrlFor(TEAM_AVATARS_DIR, `save:${save.id}`);
@@ -1092,14 +1100,26 @@ function composeIntrinsicFromBody(teamsDir: string, body: TeamBuilderBody): Comp
 }
 
 /** Resolve a builder request to a composed team (throws with a client-safe message on bad input). */
-function composeFromBody(teamsDir: string, body: TeamBuilderBody) {
+/** Compose a Free Create sheet with the limits ignored, for display: the widened roster, any chosen skill as-is (custom),
+ *  and (when a star from another league would trip the league check) without the league rule. */
+function composeFreeDisplay(teamsDir: string, body: TeamBuilderBody) {
+  const xml = freeDisplayRosterXml(loadBaseForkRosters(teamsDir), body.rosterId ?? "");
+  const display = { ...body, custom: true };
+  try {
+    return composeFromBody(teamsDir, display, xml);
+  } catch {
+    return composeFromBody(teamsDir, { ...display, specialRule: undefined }, xml);
+  }
+}
+
+function composeFromBody(teamsDir: string, body: TeamBuilderBody, rosterXml?: string) {
   const bounds = teamBuilderBoundsError(body);
   if (bounds) throw new Error(bounds);
   if (!body.rosterId) throw new Error("rosterId is required.");
   if (!body.coach?.trim()) throw new Error("coach is required.");
   if (!body.teamName?.trim()) throw new Error("teamName is required.");
   if (!Array.isArray(body.picks) || body.picks.length === 0) throw new Error("At least one player pick is required.");
-  const xml = loadBaseForkRosters(teamsDir).get(body.rosterId);
+  const xml = rosterXml ?? loadBaseForkRosters(teamsDir).get(body.rosterId);
   if (!xml) throw new Error(`Unknown rosterId "${body.rosterId}".`);
   return composeTeam(
     {

@@ -27,7 +27,8 @@
         id: save.id,
         name: String(save.name ?? ""),
         race: String(save.raceName || save.rosterId || ""),
-        ruleset: save.packageName ? String(save.packageName) : "",
+        // A Free Create save (src/freeCreate.ts) carries the "free-create" marker, shown by its name.
+        ruleset: save.packageName === "free-create" ? "Free Create" : save.packageName ? String(save.packageName) : "",
         shared: typeof save.shareToken === "string" && /^[0-9a-f]{32}$/.test(save.shareToken),
       }));
   }

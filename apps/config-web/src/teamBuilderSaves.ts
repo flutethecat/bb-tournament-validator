@@ -96,7 +96,7 @@ export const summarizeSave = (s: TeamBuilderSave): TeamBuilderSaveSummary => ({
  *  always wins) — incl. `skillPack`, the chosen choose-one skill package. */
 const BUILD_BODY_FIELDS = [
   "rosterId", "teamName", "picks", "reRolls", "apothecary", "cheerleaders", "assistantCoaches",
-  "dedicatedFans", "specialRule", "budget", "custom", "packageName", "skillPack", "teamId",
+  "dedicatedFans", "specialRule", "budget", "custom", "packageName", "skillPack", "teamId", "ignoreLimits",
   "rosteredInducements", "inducements",
 ] as const;
 const INDUCEMENT_FIELDS = ["key", "count"] as const;

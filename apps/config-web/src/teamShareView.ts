@@ -171,6 +171,8 @@ export interface SharedViewInput {
   /** Package info from packageResponseInfo (name, budget, rules.tierLabel). */
   ruleset?: { name: string; budget: number | null; tierLabel?: string | null } | null;
   custom?: boolean;
+  /** Roster Builder Free Create save (freeCreate.ts): no verdict (always valid, no findings) and no TV cap. */
+  free?: boolean;
   publicDir: string;
   /** The viewer's proven session coach, when signed in. */
   viewer?: string;
@@ -222,10 +224,11 @@ export function sharedTeamView(input: SharedViewInput): SharedTeamView {
   const primary = num(rs?.primarySkillCount) ?? players.reduce((n, p) => n + p.added.filter((s) => s.access !== "secondary").length, 0);
   const secondary = num(rs?.secondarySkillCount) ?? players.reduce((n, p) => n + p.added.filter((s) => s.access === "secondary").length, 0);
   const custom = input.custom === true;
-  const issues = roster === undefined ? 1 : result ? (custom ? 0 : result.errors.length) : input.intrinsic?.issues ?? 0;
-  const valid = roster !== undefined && (result ? custom || result.valid : input.intrinsic?.legal !== false);
+  const free = input.free === true;
+  const issues = roster === undefined ? 1 : result ? (custom || free ? 0 : result.errors.length) : input.intrinsic?.issues ?? 0;
+  const valid = roster !== undefined && (result ? custom || free || result.valid : input.intrinsic?.legal !== false);
   // Owner 10-28: the public page lists the validator's own error messages under the cross (team facts only, no ids).
-  const findings = !valid && result && !custom
+  const findings = !valid && result && !custom && !free
     ? result.errors.map((e) => String((e as { message?: unknown }).message ?? "").trim()).filter(Boolean).slice(0, 20).map((m) => (m.length > 240 ? `${m.slice(0, 237)}...` : m))
     : [];
   const sideline = roster?.sideline;
@@ -259,7 +262,7 @@ export function sharedTeamView(input: SharedViewInput): SharedTeamView {
       inducementsCost: num(rs?.inducementsCost) ?? num(composedSummary?.inducementCost),
       sidelineCost: num(composedSummary?.sidelineCost),
       total: num(rs?.goldUsed) ?? num(composedSummary?.total),
-      cap: num(input.ruleset?.budget) ?? num(rs?.goldBudget) ?? num(body.budget),
+      cap: free ? null : num(input.ruleset?.budget) ?? num(rs?.goldBudget) ?? num(body.budget),
       primarySkills: primary,
       secondarySkills: secondary,
     },

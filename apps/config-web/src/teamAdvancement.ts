@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { bb2025 } from "@bb/validator/dataset";
+import { CHARACTERISTIC_VALUE } from "./characteristicValue.js";
 import {
   acknowledgeForkCacheReload,
   acknowledgeRestoredTeamXmlTransaction,
@@ -79,8 +80,9 @@ const ADVANCEMENT_ROWS: ReadonlyArray<{ rank: string; costs: AdvancementCosts }>
   { rank: "Legend", costs: { randomPrimary: 15, chosenPrimary: 30, chosenSecondary: 34, characteristic: 38 } },
 ];
 
-/** BB2025 value of one characteristic improvement (gold); result banking prices +X skills from this table too. */
-export const CHARACTERISTIC_VALUE: Record<Characteristic, number> = { AV: 10_000, MA: 20_000, PA: 20_000, AG: 30_000, ST: 60_000 };
+/** BB2025 value of one characteristic improvement (gold); result banking prices +X skills from this table too. The table
+ *  lives in characteristicValue.ts so the Roster Builder (SPA) prices Free Create stat increases from the same numbers. */
+export { CHARACTERISTIC_VALUE } from "./characteristicValue.js";
 const CHARACTERISTIC_MAX: Record<Characteristic, number> = { MA: 9, ST: 8, AG: 1, PA: 1, AV: 11 };
 const TOKEN_TTL_MS = 10 * 60 * 1000;
 

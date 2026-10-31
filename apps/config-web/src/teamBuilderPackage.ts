@@ -12,6 +12,7 @@ import {
 } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import type { PackageFiles } from "./data.js";
+import { isFreeCreatePackage } from "./freeCreate.js";
 
 /** What preview/build validate against, plus (when a tournament package was
  *  explicitly selected) the info the client needs to render the ruleset note
@@ -20,6 +21,8 @@ export interface ResolvedBuilderPackage {
   pkg: TournamentPackage;
   /** Set only when `packageName` was supplied and resolved — omitted for the baseline. */
   selected?: { name: string; description?: string };
+  /** Roster Builder Free Create (freeCreate.ts): the baseline, asked for by its marker. No tournament rules apply. */
+  free?: true;
 }
 
 /**
@@ -30,6 +33,7 @@ export interface ResolvedBuilderPackage {
  *     a tournament-mode caller asking for a specific ruleset must get a clear 4xx, not a
  *     roster validated against the wrong rules).
  *   - `packageName` set and found → that package, `selected` populated for the response.
+ *   - `packageName` = the Free Create marker → the baseline, `free` set (no `selected`, no echo).
  */
 export function resolveBuilderPackage(
   packages: PackageFiles,
@@ -37,6 +41,9 @@ export function resolveBuilderPackage(
   packageName: string | undefined,
 ): ResolvedBuilderPackage | { error: string } {
   if (!packageName) return { pkg: baseline };
+  // Free Create (owner 10-31) is not a package: its marker resolves to the standalone baseline (core roster legality
+  // only), so a Free Create roster built on the Fork still passes the fork's own checks and nothing else.
+  if (isFreeCreatePackage(packageName)) return { pkg: baseline, free: true };
   const found = packages.get(packageName);
   if (!found) return { error: `Unknown tournament package "${packageName}".` };
   return { pkg: found.pkg, selected: { name: found.pkg.name, description: found.pkg.description } };
