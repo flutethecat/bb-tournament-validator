@@ -1,20 +1,27 @@
 <script setup lang="ts">
-// Tournament Builder, Sheet tab: the printable team sheet only (owner 10-30), in the shared team view's own markup
-// (public/team-view.js, the same look as the public share page). The verdict and the actions live in the Roster pane.
-import { computed, inject } from "vue";
-import "../../../public/team-view.js";
+// Tournament Builder, Sheet tab (owner 10-30): the exported PDF previewed on screen. One bezel-and-lift panel (the frame,
+// themed like the Roster pane) holds the paper sheet (TournamentBuilderPrintSheet: public/sheet-pdf.js's layout, palette and
+// Roboto). The model is the PDF's own (sheetRuleset.ts sheetModel: the builder's sheetModel() + the ruleset rows). The
+// verdict and the actions live in the Roster pane; the public share page (/t/<token>) keeps public/team-view.js.
+import { computed, inject, onMounted } from "vue";
 import { TOURNAMENT_BUILDER_KEY } from "../teams/builder";
-
-interface TeamViewCore { viewHtml: (team: unknown, opts?: Record<string, unknown>) => string }
-const TeamView = (globalThis as unknown as { TeamView?: TeamViewCore }).TeamView;
+import { core } from "../teams/builderCore";
+import { sheetModel } from "../teams/sheetRuleset";
+import { loadSheetFonts } from "../teams/sheetFonts";
+import TournamentBuilderPrintSheet from "./TournamentBuilderPrintSheet.vue";
 
 const builder = inject(TOURNAMENT_BUILDER_KEY)!;
 const { state } = builder;
-// The page already has its h1: the sheet's team name becomes the section heading.
-const sheetHtml = computed(() => (TeamView && state.roster ? TeamView.viewHtml(builder.teamViewModel(), { hideOwnerLink: true }).replace(/<h1 class="tv-name">([\s\S]*?)<\/h1>/, '<h2 class="tv-name">$1</h2>') : ""));
+const model = computed(() => (state.roster ? sheetModel(builder) : null));
+onMounted(() => { void loadSheetFonts(); });
 </script>
 
 <template>
-  <div v-if="sheetHtml" class="team-view tb-sheet" v-html="sheetHtml"></div>
-  <p v-else class="hm-empty">Choose a ruleset and a race to see the team sheet.</p>
+  <section class="hm-panel tb-panel ps-frame" aria-labelledby="ps-frame-h">
+    <header class="hm-band"><h2 id="ps-frame-h">Sheet · preview of the exported PDF</h2><span class="hm-cap">A4 landscape</span></header>
+    <div class="ps-frame-body">
+      <TournamentBuilderPrintSheet v-if="model" :model="model" :gold="core.gold" />
+      <p v-else class="hm-empty">Choose a ruleset and a race to see the team sheet.</p>
+    </div>
+  </section>
 </template>

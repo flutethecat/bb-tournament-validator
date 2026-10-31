@@ -1,0 +1,78 @@
+/* The on-screen team sheet (owner 10-30): the exported PDF (public/sheet-pdf.js) previewed on paper. The paper keeps the
+   PDF's palette in BOTH SPA themes (INK on white, MUTED labels, RULE hairlines, HEAD_FILL header rows, ZEBRA_FILL rows,
+   added-skill blue / green, Team Captain trait ink; values pinned to SheetPdf.PALETTE by test/sheetPrintView.test.ts) and
+   Roboto (sheetFonts.ts, the vendored OFL copy) at the PDF's proportions (9 pt body = 12 px). The frame around it is an
+   ordinary bezel-and-lift .hm-panel and follows the theme; the band font appears only on the frame's header strip. */
+.ps-frame { min-width: 0; }
+.ps-frame-body { padding: 0 12px; }
+.ps-frame .hm-cap { font-size: 11px; }
+
+.ps-paper {
+  --ps-ink: #000000; --ps-muted: #555555; --ps-rule: #9a9a9a; --ps-head: #e6e6e6; --ps-zebra: #f4f4f4;
+  --ps-blue: #1a5fb4; --ps-green: #3d7a1f; --ps-trait: #6e4f28;
+  display: grid; gap: 10px; min-width: 0; margin: 0 auto; padding: 28px; /* 10 mm margins at screen scale */
+  color: var(--ps-ink); background: #ffffff; color-scheme: light;
+  font: 12px/1.25 "Sheet Roboto", Roboto, "Helvetica Neue", Arial, sans-serif;
+  border: 1px solid #c9c9c9; box-shadow: 0 1px 2px rgb(0 0 0 / 25%), 0 6px 18px rgb(0 0 0 / 30%);
+  text-align: left; text-transform: none; letter-spacing: normal;
+}
+.ps-paper table { border-collapse: collapse; color: inherit; font: inherit; }
+.ps-paper th, .ps-paper td { padding: 2px 5px; vertical-align: top; text-align: left; font: inherit; color: inherit; background: none; border: 0; }
+.ps-paper b, .ps-paper th { font-weight: 700; }
+.ps-r { text-align: right !important; }
+.ps-nowrap { white-space: nowrap; }
+.ps-muted { color: var(--ps-muted); }
+
+/* header: race, COACH / TEAM, the ruleset box top right */
+.ps-header { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 40%); gap: 0 12px; align-items: start; }
+.ps-race { font-size: 24px; font-weight: 700; line-height: 1.1; }
+.ps-ident { display: grid; gap: 3px; padding-top: 4px; overflow-wrap: anywhere; }
+.ps-label { font-size: 9px; font-weight: 700; letter-spacing: .05em; color: var(--ps-muted); margin-right: 6px; }
+
+/* boxed panels: 0.8 pt ink outline, ink rule under the HEAD_FILL title row, no inner rules */
+.ps-box { width: 100%; border: 1px solid var(--ps-ink) !important; }
+.ps-box > thead th { font-size: 10px; letter-spacing: .05em; background: var(--ps-head); border-bottom: 1px solid var(--ps-ink); }
+.ps-box td { padding-top: 1.5px; padding-bottom: 1.5px; }
+.ps-ruleset { font-size: 11px; table-layout: fixed; }
+.ps-ruleset .ps-ck { width: 21%; }
+.ps-ruleset .ps-cv { width: 29%; }
+.ps-ruleset .ps-k { color: var(--ps-muted); }
+.ps-ruleset .ps-v { font-weight: 700; overflow-wrap: anywhere; }
+.ps-band { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; align-items: start; }
+.ps-band .ps-box td.ps-r { white-space: nowrap; }
+.ps-rules { margin: 0; padding-left: 14px; }
+
+/* roster: ink outer frame + ink rule under the head, RULE hairlines inside, head fill and zebra rows */
+.ps-roster-wrap { min-width: 0; overflow-x: auto; }
+.ps-roster { width: 100%; min-width: 620px; border: 1.2px solid var(--ps-ink) !important; }
+.ps-roster th, .ps-roster td { padding: 3px 5px; border: 0.5px solid var(--ps-rule) !important; }
+.ps-roster > thead th { font-size: 10px; background: var(--ps-head); border-bottom: 1.2px solid var(--ps-ink) !important; }
+.ps-roster > tbody > tr:nth-child(even) > td { background: var(--ps-zebra); }
+.ps-roster th:nth-child(n+3):nth-child(-n+7), .ps-roster td:nth-child(n+3):nth-child(-n+7) { width: 30px; }
+.ps-roster th:first-child, .ps-roster td:first-child { width: 22px; }
+.ps-roster th:last-child, .ps-roster td:last-child { width: 50px; }
+.ps-pos { white-space: nowrap; }
+.ps-mark-star { margin-left: 6px; font-size: 10px; color: var(--ps-muted); }
+.ps-mark-captain { margin-left: 6px; font-size: 10px; font-weight: 700; }
+.ps-improved { font-weight: 700; color: var(--ps-blue); }
+.ps-trait { color: var(--ps-trait); }
+.ps-primary { font-style: italic; color: var(--ps-blue); }
+.ps-secondary { font-style: italic; color: var(--ps-green); }
+.ps-stat-up { font-style: italic; font-weight: 700; color: var(--ps-blue); }
+
+.ps-keywords { margin: 0; font-size: 11px; white-space: pre-wrap; }
+.ps-footer { margin-top: 2px; font-size: 9px; color: var(--ps-muted); }
+
+/* narrower panes: the band wraps 2 + 2, then 1; the ruleset box drops under the identity block */
+@media (max-width: 900px) {
+  .ps-band { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ps-header { grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; }
+  .ps-ruleset { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .ps-paper { padding: 14px; }
+  .ps-frame-body { padding: 0 8px; }
+  .ps-band { grid-template-columns: minmax(0, 1fr); }
+  .ps-header { grid-template-columns: minmax(0, 1fr); }
+  .ps-race { font-size: 20px; }
+}
