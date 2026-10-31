@@ -1,6 +1,6 @@
 // SPA theme: follows the device (prefers-color-scheme) by default, live, with System / Light / Dark as an explicit
 // choice that overrides it (remembered per viewer when storage allows). Dark = the Black/Red preset (the recorder
-// draws its SNES dark look), light = the FUMBBL preset (the recorder draws its SNES grey look). Also keeps the
+// draws its SNES dark look), light = the Light preset, derived from the dark one (tools/theme/derive-light.mjs; the recorder follows it). Also keeps the
 // browser chrome (theme-color meta) in step.
 
 import { reactive, type InjectionKey } from "vue";
@@ -9,8 +9,8 @@ export type ThemeMode = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
 
 export const THEME_STORAGE_KEY = "spa-theme-mode";
-export const THEME_COLORS: Record<ResolvedTheme, string> = { dark: "#0b0d12", light: "#d4d5e0" };
-const PRESET: Record<ResolvedTheme, string> = { dark: "brand-red", light: "fumbbl" };
+export const THEME_COLORS: Record<ResolvedTheme, string> = { dark: "#0b0d12", light: "#c2c2c2" };
+const PRESET: Record<ResolvedTheme, string> = { dark: "brand-red", light: "light" };
 const QUERY = "(prefers-color-scheme: dark)";
 
 interface MediaLike { matches: boolean; addEventListener?: (type: "change", fn: (e: { matches: boolean }) => void) => void }

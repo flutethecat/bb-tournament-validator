@@ -179,7 +179,7 @@ describe("recent games (SSR)", () => {
     const css = readFileSync(fileURLToPath(new URL("../spa/src/shared/result-card.css", import.meta.url)), "utf8");
     expect(css).toMatch(/\.rc-name \{[^}]*color: var\(--rc-name-ink\); text-shadow: var\(--rc-name-shadow\)/);
     expect(css).toMatch(/--rc-name-ink: var\(--ui-text-on-primary, #ffffff\); --rc-name-shadow: var\(--rc-num-shadow\)/); // dark themes: white + shadow
-    expect(css).toMatch(/:root\[data-theme="fumbbl"\] \.rc-card \{ --rc-name-ink: var\(--ui-text, #141414\)/); // light theme: dark ink
+    expect(css).toMatch(/:root\[data-theme="light"\] \.rc-card \{ --rc-name-ink: var\(--ui-text, #131519\)/); // light theme: dark ink
     // the sides stack when the CARD is narrow (container query), not the viewport
     expect(css).toMatch(/container-type: inline-size/);
     expect(css).toMatch(/@container \(max-width: 560px\)/);

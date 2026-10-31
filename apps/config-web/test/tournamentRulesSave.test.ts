@@ -236,11 +236,11 @@ describe("Tournament Creator — Sol r1 fixes", () => {
     expect(preview.exceptions.map((e) => [e.roster, e.source, e.gold])).toEqual([["Orc", "team", 1050000], ["Dwarf", "team", null]]);
   });
 
-  it("FUMBBL theme inks green text darker and keeps active race chips on the theme text colour", () => {
+  it("the light theme inks green text darker and keeps active race chips on the theme text colour", () => {
     const css = readPublic("tournament-rules.css");
-    expect(css).toMatch(/:root\[data-theme="fumbbl"\] \{[^}]*--success-ink: #1f5a28;/);
+    expect(css).toMatch(/:root\[data-theme="light"\] \{[^}]*--success-ink: #015c27;/);
     expect(css).toContain(".star-column.allowed .star-column-title { color: var(--success-ink); }");
     expect(css).toMatch(/\.race-chip\.active \{[^}]*color: var\(--text\); \}/);
-    expect(css).not.toContain('[data-theme="fumbbl"] .race-chip.active');
+    expect(css).not.toContain('[data-theme="light"] .race-chip.active');
   });
 });

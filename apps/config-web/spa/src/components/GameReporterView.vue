@@ -22,7 +22,7 @@ const props = defineProps<{ game: GameDetail; backTo: string }>();
 
 const themeCtl = inject(THEME_KEY, null);
 /** The recorder's theme: dark follows the site, light draws the SNES grey look. */
-const theme = computed<"dark" | "snes">(() => (!themeCtl || themeCtl.state.resolved === "dark" ? "dark" : "snes"));
+const theme = computed<"dark" | "light">(() => (!themeCtl || themeCtl.state.resolved === "dark" ? "dark" : "light"));
 const model = computed(() => reporterModel(props.game));
 const title = computed(() => `${props.game.card.home.name} vs ${props.game.card.away.name}`);
 const context = computed<MatchContext>(() => ({

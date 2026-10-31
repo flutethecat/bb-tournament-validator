@@ -1137,8 +1137,8 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     // the week grid: 7 columns, a list of days on a phone
     expect(css).toMatch(/\.hm-week \{ display: grid; grid-template-columns: repeat\(7, minmax\(0, 1fr\)\)/);
     expect(css).toMatch(/@media \(max-width: 760px\) \{\s*\.hm-week \{ grid-template-columns: minmax\(0, 1fr\); \}/);
-    // tokens only: raw colours appear only in the two token blocks (dark default, FUMBBL light preset)
-    const tokenBlocks = css.match(/:root(\[data-theme="fumbbl"\])? \{[^}]*\}/g) ?? [];
+    // tokens only: raw colours appear only in the two token blocks (dark default, derived light preset)
+    const tokenBlocks = css.match(/:root(\[data-theme="light"\])? \{[^}]*\}/g) ?? [];
     expect(tokenBlocks).toHaveLength(2);
     const rest = tokenBlocks.reduce((s, b) => s.replace(b, ""), css);
     expect(rest).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i);

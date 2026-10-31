@@ -1313,7 +1313,7 @@ describe("roster scroller, reveal and drag edge (owner 10-31)", () => {
     expect(css).toMatch(/@media \(min-width: 1180px\) \{\n  \.tb-roster-scroll \{ overflow-y: auto; overscroll-behavior: contain;/);
     expect(css).not.toMatch(/^\.tb-roster-scroll \{[^}]*overflow/m); // never a nested scroller when stacked
     const dark = css.match(/^\.tb-page \{\n[^}]*\}/m)?.[0] ?? "";
-    const light = css.match(/^:root\[data-theme="fumbbl"\] \.tb-page \{\n[^}]*\}/m)?.[0] ?? "";
+    const light = css.match(/^:root\[data-theme="light"\] \.tb-page \{\n[^}]*\}/m)?.[0] ?? "";
     for (const t of ["--tb-skillbar", "--tb-badge-ink", "--tb-secondary-bar"]) { expect(dark).toContain(`${t}:`); expect(light).toContain(`${t}:`); }
     expect(css).toMatch(/\.tb-row > \.tb-row-skills \{[^}]*background: var\(--tb-skillbar\)/);
     expect(css).toMatch(/\.tb-added\.access-primary \{ box-shadow: inset 0 -3px 0 var\(--ui-heading\); \}/);

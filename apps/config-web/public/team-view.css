@@ -232,9 +232,9 @@
 .tv-banner-main .tv-key { margin: 0 0 0 auto; align-self: flex-end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 /* Owner 10-28: a soft drop shadow lifts the team name off the banner. */
 .tv-banner .tv-name { text-shadow: 4px 5px 0 rgb(0 0 0 / 85%), 0 7px 18px rgb(0 0 0 / 75%), 0 12px 28px rgb(0 0 0 / 45%); }
-/* Owner 10-28: in the FUMBBL (light) theme the shadowed title goes white so it is not black on black. */
-:root[data-theme="fumbbl"] .tv-banner .tv-name { color: #fff; }
-:root[data-theme="fumbbl"] .tv-banner .tv-name span { color: #fff; }
+/* Owner 10-28: in the light theme the shadowed title goes white so it is not black on black. */
+:root[data-theme="light"] .tv-banner .tv-name { color: #fff; }
+:root[data-theme="light"] .tv-banner .tv-name span { color: #fff; }
 /* Team management page (/app/teams/<ref>, owner 10-30): player names above the position, the Advancement column
    (table) / card footer with Add Skill and Add Characteristic. The public share page renders none of these. */
 .tv-pname { display: block; color: var(--ui-text); font-family: var(--font-heading); font-size: 15px; letter-spacing: .03em; white-space: normal; }

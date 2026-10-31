@@ -349,10 +349,10 @@ describe("tabletop routes (server-rendered)", () => {
     expect(rowsOf([{ ...early, turn: 1 }, cas], ["i0", "c1"]).map((x: any) => x.id)).toEqual(["c1", "c1", "i0"]);
   });
 
-  it("log red: the spine and the card borders use the scarlet token (primary on the FUMBBL light preset)", async () => {
+  it("log red: the spine and the card borders use the scarlet token (primary on the light preset)", async () => {
     const css = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../spa/src/tabletop/tabletop.css", import.meta.url)), "utf8");
     expect(css).toMatch(/\.tt-rec \{ --tt-red: var\(--ui-scarlet, #d7141f\); \}/);
-    expect(css).toMatch(/:root\[data-theme="fumbbl"\] \.tt-rec \{ --tt-red: var\(--ui-primary, #790004\); \}/);
+    expect(css).toMatch(/:root\[data-theme="light"\] \.tt-rec \{ --tt-red: var\(--ui-primary, #790004\); \}/);
     expect(css).toMatch(/\.tt-events::before \{ width: 2px; background: color-mix\(in srgb, var\(--tt-red\) 70%, transparent\); \}/); // spine: 2 px at 70 %
     expect(css).toMatch(/::after \{ background: var\(--tt-red\); border: 2px solid var\(--ui-surface, #0d0d0d\); \}/); // dots: filled, dark ring
     expect(css).toMatch(/\.tt-ev \{ border-top-color: color-mix\(in srgb, var\(--tt-red\) 55%, transparent\); border-bottom-color: color-mix\(in srgb, var\(--tt-red\) 55%, transparent\); \}/); // card borders: 55 %
@@ -1027,13 +1027,15 @@ describe("tabletop routes (server-rendered)", () => {
     expect(fansHtml).not.toContain('data-tip="Dedicated fans: 5" data-tip-pos'); // the tray no longer repeats it
     const themeCoach = (await import("node:fs")).readFileSync(fileURLToPath(new URL("../public/theme.css", import.meta.url)), "utf8");
     expect(themeCoach).toContain("--ui-coach-led: #4cff6a;");
-    // light theme only: a darker green that clears WCAG AA 4.5:1 on --ui-surface (#dbd2bd), --ui-surface-2 (#cec5b1) and the tinted hero ends
-    const lightCoach = /:root\[data-theme="fumbbl"\] \{[^}]*--ui-coach-led: (#[0-9a-f]{6});/.exec(themeCoach)?.[1] ?? "";
-    expect(lightCoach).toBe("#083f12");
+    // light theme only: the LED green darkened (tools/theme/derive-light.mjs) to clear WCAG AA 4.5:1 on --ui-surface and --ui-surface-2
+    const lightBlock = /:root\[data-theme="light"\] \{[^}]*\}/.exec(themeCoach)?.[0] ?? "";
+    const tok = (n: string): string => new RegExp(`${n}: (#[0-9a-f]{6});`).exec(lightBlock)?.[1] ?? "";
+    const lightCoach = tok("--ui-coach-led");
+    expect(lightCoach).toMatch(/^#[0-9a-f]{6}$/);
     const lum = (hex: string): number => { const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
     const ratio = (f: string, g: string): number => { const x = lum(f), y = lum(g); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
-    expect(ratio(lightCoach, "#dbd2bd")).toBeGreaterThanOrEqual(4.5);
-    expect(ratio(lightCoach, "#cec5b1")).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(lightCoach, tok("--ui-surface"))).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(lightCoach, tok("--ui-surface-2"))).toBeGreaterThanOrEqual(4.5);
     expect(css1).toMatch(/--tt-team-fs: 34px;/);
     expect(css1).toMatch(/--tt-team-fs: 40px;/);
     expect(css1).toMatch(/--tt-team-fs: 34px; --tt-team-fs-md: 28px; --tt-team-fs-lg: 24px;/); // name steps: over 14 characters 28 px, over 20 characters 24 px
@@ -1375,7 +1377,7 @@ describe("tabletop routes (server-rendered)", () => {
   };
   const memStore = (init: Record<string, string> = {}) => { const m = { ...init }; return { m, getItem: (k: string) => m[k] ?? null, setItem: (k: string, v: string) => { m[k] = v; } }; };
 
-  it("theme: the default follows the device setting (dark -> Black/Red, light -> FUMBBL) and the browser chrome colour", () => {
+  it("theme: the default follows the device setting (dark -> Black/Red, light -> Light) and the browser chrome colour", () => {
     const dark = fakeDoc();
     const t1 = createTheme({ matchMedia: fakeMedia(true).matchMedia, storage: memStore(), doc: dark.doc });
     expect(t1.state.mode).toBe("system");
@@ -1385,7 +1387,7 @@ describe("tabletop routes (server-rendered)", () => {
     const light = fakeDoc();
     const t2 = createTheme({ matchMedia: fakeMedia(false).matchMedia, storage: memStore(), doc: light.doc });
     expect(t2.state.resolved).toBe("light");
-    expect(light.attrs["data-theme"]).toBe("fumbbl");
+    expect(light.attrs["data-theme"]).toBe("light");
     expect(light.metas.themeColor).toBe(THEME_COLORS.light);
   });
 
@@ -1396,7 +1398,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(t.state.resolved).toBe("dark");
     media.flip(false);
     expect(t.state.resolved).toBe("light");
-    expect(d.attrs["data-theme"]).toBe("fumbbl");
+    expect(d.attrs["data-theme"]).toBe("light");
     media.flip(true);
     expect(t.state.resolved).toBe("dark");
   });
@@ -1426,13 +1428,13 @@ describe("tabletop routes (server-rendered)", () => {
     expect(b.state.resolved).toBe("dark");
   });
 
-  it("theme: the recorder follows the device (light = SNES grey, dark = SNES dark) and shows the three-state control", async () => {
+  it("theme: the recorder follows the device (light = the derived Light preset, dark = SNES dark) and shows the three-state control", async () => {
     const body = { match: baseMatch("recording"), events, effectiveEventIds: [], teams, tally: serverTally };
     const dark = await renderMatch(body, session(), [], createTheme({ matchMedia: fakeMedia(true).matchMedia, storage: memStore(), doc: fakeDoc().doc }));
     expect(dark.html).toContain('data-tt-theme="dark"');
     expect(dark.html).toContain("Theme: System");
     const light = await renderMatch(body, session(), [], createTheme({ matchMedia: fakeMedia(false).matchMedia, storage: memStore(), doc: fakeDoc().doc }));
-    expect(light.html).toContain('data-tt-theme="snes"');
+    expect(light.html).toContain('data-tt-theme="light"');
     const forced = await renderMatch(body, session(), [], createTheme({ matchMedia: fakeMedia(false).matchMedia, storage: memStore({ [THEME_STORAGE_KEY]: "dark" }), doc: fakeDoc().doc }));
     expect(forced.html).toContain('data-tt-theme="dark"');
     expect(forced.html).toContain("Theme: Dark");

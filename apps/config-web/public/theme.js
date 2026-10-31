@@ -1,15 +1,16 @@
 /*
-  Config-web presets-only theme switcher. Black/Red (brand-red) default + FUMBBL variant.
+  Config-web presets-only theme switcher. Black/Red (brand-red) default + Light variant (derived from Black/Red).
   Persists to localStorage; injects a fixed toggle so no per-page header markup is needed.
   (The live custom Primary/Secondary picker is CLIENT-only — config-web ships presets only.)
 */
 (function () {
   var KEY = "configweb-ui-theme";
-  var PRESETS = ["brand-red", "fumbbl"];
-  var LABEL = { "brand-red": "Theme: Black/Red", fumbbl: "Theme: FUMBBL" };
+  var PRESETS = ["brand-red", "light"];
+  var LABEL = { "brand-red": "Theme: Black/Red", light: "Theme: Light" };
 
   function current() {
     var t = localStorage.getItem(KEY);
+    if (t === "fumbbl") t = "light"; // the light preset was called "fumbbl" before 10-31
     return PRESETS.indexOf(t) >= 0 ? t : "brand-red";
   }
   function apply(t) {

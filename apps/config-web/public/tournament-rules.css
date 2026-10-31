@@ -8,7 +8,7 @@
 /*
   Organiser-console stylesheet (tournament-rules.html; shared by admin.html, control-panel.html and
   discord-complete.html). Every colour derives from the theme tokens in /theme.css, so the page follows
-  the Black/Red and FUMBBL presets (theme.js) like the Tournament Team Builder. The short legacy names
+  the Black/Red and Light presets (theme.js) like the Tournament Team Builder. The short legacy names
   (--bg, --panel, --carmine …) stay as aliases because admin.css reads them.
 */
 :root {
@@ -21,15 +21,15 @@
   --ui-skill-mutation: #6fcf6f;
   --ui-skill-trait: #b08b5a;
 }
-:root[data-theme="fumbbl"] {
-  --ui-eggshell: #3d3424;
-  --ui-gold: #8a5a00;
-  --ui-skill-general: #1d5fb8;
-  --ui-skill-agility: #7a5c00;
-  --ui-skill-strength: #a32626;
-  --ui-skill-passing: #262626;
-  --ui-skill-mutation: #2f6e2f;
-  --ui-skill-trait: #6e4f28;
+:root[data-theme="light"] {
+  --ui-eggshell: #231c0b;
+  --ui-gold: #6f4802;
+  --ui-skill-general: #154d9d;
+  --ui-skill-agility: #614d02;
+  --ui-skill-strength: #a30220;
+  --ui-skill-passing: #121212;
+  --ui-skill-mutation: #025e0e;
+  --ui-skill-trait: #6b4a17;
 }
 
 :root {
@@ -54,9 +54,9 @@
   --tint: color-mix(in srgb, var(--carmine) 16%, var(--panel));
   --shadow: rgb(0 0 0 / 45%);
 }
-/* Green used AS TEXT: the fixed success green is ~1.7:1 on parchment, so the FUMBBL theme inks it darker (≥4.5:1). */
+/* Green used AS TEXT: the fixed success green is ~1.7:1 on the light surfaces, so the light theme inks it darker (≥4.5:1). */
 :root { --success-ink: var(--green); }
-:root[data-theme="fumbbl"] { color-scheme: light; --shadow: rgb(0 0 0 / 18%); --success-ink: #1f5a28; }
+:root[data-theme="light"] { color-scheme: light; --shadow: rgb(0 0 0 / 36%); --success-ink: #015c27; }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }

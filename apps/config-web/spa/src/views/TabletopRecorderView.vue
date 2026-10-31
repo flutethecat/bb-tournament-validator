@@ -84,7 +84,7 @@ const rows = computed(() => feedRows(state.events, state.effectiveIds, state.tea
 const heading = (s: Side): string => (match.value ? `${s === "home" ? "Home" : "Away"}: ${match.value[s].teamName} (${match.value[s].coach})` : "");
 
 // Theme: follows the device (System), or the explicit Light / Dark choice; light draws the SNES grey look.
-const theme = computed<"dark" | "snes">(() => (themeCtl.state.resolved === "dark" ? "dark" : "snes"));
+const theme = computed<"dark" | "light">(() => (themeCtl.state.resolved === "dark" ? "dark" : "light"));
 
 // The server owns the clock: it stamps every event with its half and turn, so nothing is sent from here.
 const now = ref(Date.now());

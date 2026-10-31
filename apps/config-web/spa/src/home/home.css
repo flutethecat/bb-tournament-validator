@@ -1,6 +1,6 @@
 /* Shell (top bar + left nav trees) and the coach page, in the match recorder's language: client coach-panel
    gradients, Silkscreen bands with a right caption, seat-blue active rows, bevelled chips. Tokens only: the raw
-   values live in the two token blocks below (dark default, light = the FUMBBL preset). */
+   values live in the two token blocks below (dark default, light = generated from the dark block by tools/theme/derive-light.mjs). */
 
 @font-face {
   font-family: "SNES";
@@ -31,16 +31,17 @@
   --sf-discord-top: #6d78f5;
   --sf-discord-deep: #3c45a5;
 }
-:root[data-theme="fumbbl"] {
-  --sf-seat-home: #1d4fb8;
-  --sf-seat-away: #b01e1e;
-  --sf-gold: #8a5a00;
-  --sf-panel-top: color-mix(in srgb, var(--ui-surface-2) 92%, #ffffff);
-  --sf-panel-bottom: var(--ui-surface);
-  --sf-panel-line: var(--ui-border);
-  --sf-panel-drop: color-mix(in srgb, var(--ui-border) 70%, #000000);
-  --sf-panel-hi: color-mix(in srgb, var(--ui-surface-2) 60%, #ffffff);
-  --sf-bevel: inset 0 1px 0 rgb(255 255 255 / 0.5), inset 0 -1px 0 rgb(0 0 0 / 0.18);
+:root[data-theme="light"] {
+  /* generated from the block above by tools/theme/derive-light.mjs (OKLCH lightness map, hue kept) */
+  --sf-seat-home: #0f46b9;
+  --sf-seat-away: #a3011f;
+  --sf-gold: #6f4802;
+  --sf-panel-top: rgb(218 221 225 / 0.9);
+  --sf-panel-bottom: rgb(208 209 212 / 0.9);
+  --sf-panel-line: #999da4;
+  --sf-panel-drop: #7a7b7c;
+  --sf-panel-hi: #eff2f6;
+  --sf-bevel: inset 0 1px 0 rgb(255 255 255 / 0.51), inset 0 -1px 0 rgb(0 0 0 / 0.18);
 }
 
 /* ---- top bar */

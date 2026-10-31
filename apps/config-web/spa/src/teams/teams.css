@@ -7,9 +7,9 @@
   --ui-skill-general: #6ea8ff; --ui-skill-agility: #ffd23d; --ui-skill-strength: #ff6b6b; --ui-skill-passing: #ffffff; --ui-skill-mutation: #6fcf6f; --ui-skill-trait: #b08b5a;
   display: grid; gap: 12px; max-width: 1280px; min-width: 0;
 }
-:root[data-theme="fumbbl"] .tm-page {
-  --ui-gold: #8a5a00; --ui-position: #7a5c00; --ui-eggshell: #3d3424; --ui-table-head-ink: #4a0808;
-  --ui-skill-general: #1d5fb8; --ui-skill-agility: #7a5c00; --ui-skill-strength: #a32626; --ui-skill-passing: #262626; --ui-skill-mutation: #2f6e2f; --ui-skill-trait: #6e4f28;
+:root[data-theme="light"] .tm-page {
+  --ui-gold: #6f4802; --ui-position: #614d02; --ui-eggshell: #231c0b; --ui-table-head-ink: #840118;
+  --ui-skill-general: #154d9d; --ui-skill-agility: #614d02; --ui-skill-strength: #a30220; --ui-skill-passing: #121212; --ui-skill-mutation: #025e0e; --ui-skill-trait: #6b4a17;
 }
 .tm-page .skill { display: inline-flex; align-items: center; padding: 1px 6px; background: var(--ui-surface-2); border: 1px solid var(--ui-border); border-radius: 5px; }
 .tm-page .skill-general { color: var(--ui-skill-general); }

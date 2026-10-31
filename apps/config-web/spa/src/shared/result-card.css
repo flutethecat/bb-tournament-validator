@@ -27,7 +27,7 @@
 a.rc-card:hover, a.rc-card:focus-visible { transform: translateY(-2px); box-shadow: 0 6px 0 var(--sf-panel-drop, #000), inset 0 1px 0 var(--sf-panel-hi, #626b77), inset 0 -2px 0 rgb(0 0 0 / .35); }
 @media (prefers-reduced-motion: reduce) { .rc-card { transition: none; } a.rc-card:hover, a.rc-card:focus-visible { transform: none; } }
 /* Light theme: dark ink, no dark shadow. */
-:root[data-theme="fumbbl"] .rc-card { --rc-name-ink: var(--ui-text, #141414); --rc-name-shadow: 0 1px 0 rgb(255 255 255 / .55); }
+:root[data-theme="light"] .rc-card { --rc-name-ink: var(--ui-text, #131519); --rc-name-shadow: 0 1px 0 rgb(255 255 255 / .55); }
 a.rc-card:hover, a.rc-card:focus-visible { border-color: var(--ui-accent, var(--ui-heading)); }
 a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading)); outline-offset: 2px; }
 

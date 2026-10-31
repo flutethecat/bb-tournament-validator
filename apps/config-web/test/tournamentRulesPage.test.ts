@@ -39,7 +39,7 @@ describe("Tournament Creator — page shell", () => {
     expect(css).toMatch(/\.view-title,[\s\S]*?\.section-title,[\s\S]*?\{ font-family: var\(--font-heading/);
     expect(css).toContain("--carmine: var(--ui-primary");
     expect(css).toContain("--panel: color-mix(in srgb, var(--ui-surface-2");
-    expect(css).toContain(':root[data-theme="fumbbl"]');
+    expect(css).toContain(':root[data-theme="light"]');
     for (const selector of [".console-shell", ".console-tabs a.active", ".session-button", ".create-button", ".package-card", ".rules-tabs button.active", ".rules-tab-panel"]) {
       expect(css).toContain(`${selector} {`);
     }

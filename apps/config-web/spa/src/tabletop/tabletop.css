@@ -26,7 +26,7 @@
   position: fixed; inset: 0; z-index: 60; display: grid; grid-template-rows: minmax(150px, 20dvh) minmax(0, 1fr) auto;
   background: var(--tt-bg); color: var(--tt-ink); font-family: var(--font-body, sans-serif);
 }
-.tt-rec[data-tt-theme="snes"] { --tt-shadow: 2px 2px 0 var(--ui-border, #818f72); --tt-radius: 2px; }
+.tt-rec[data-tt-theme="light"] { --tt-shadow: 2px 2px 0 var(--ui-border, #d9aba5); --tt-radius: 2px; }
 .tt-rec *, .tt-rec *::before, .tt-rec *::after { box-sizing: border-box; }
 .tt-rec .lobby-btn { background: var(--tt-btn); color: var(--tt-btn-ink); border: 2px solid var(--tt-line); border-radius: var(--tt-radius); box-shadow: var(--tt-shadow); }
 .tt-rec .lobby-btn.primary { background: var(--tt-accent); color: var(--tt-on-accent); }
@@ -492,10 +492,10 @@
   --tt-st-ko: #e0b040; --tt-st-bad: #e07a7a; --tt-st-down: #f05050; /* the client's status colours */
   width: min(1100px, calc(100% - 16px)); padding: 12px 14px 14px; overflow-x: hidden;
 }
-:root[data-theme="fumbbl"] .tt-rosters {
-  --ui-gold: #8a5a00; --ui-position: #7a5c00; --ui-eggshell: #3d3424; --ui-table-head-ink: #4a0808;
-  --ui-skill-general: #1d5fb8; --ui-skill-agility: #7a5c00; --ui-skill-strength: #a32626; --ui-skill-passing: #262626; --ui-skill-mutation: #2f6e2f; --ui-skill-trait: #6e4f28;
-  --seat-home-text: #1d4fb8; --seat-away-text: #b01e1e; --tt-st-ko: #7a5c00; --tt-st-bad: #a32626; --tt-st-down: #a32626;
+:root[data-theme="light"] .tt-rosters {
+  --ui-gold: #6f4802; --ui-position: #614d02; --ui-eggshell: #231c0b; --ui-table-head-ink: #840118;
+  --ui-skill-general: #154d9d; --ui-skill-agility: #614d02; --ui-skill-strength: #a30220; --ui-skill-passing: #121212; --ui-skill-mutation: #025e0e; --ui-skill-trait: #6b4a17;
+  --seat-home-text: #0f46b9; --seat-away-text: #a3011f; --tt-st-ko: #664b03; --tt-st-bad: #8c2f34; --tt-st-down: #a3011a;
 }
 .tt-rosters-head { gap: 10px; flex-wrap: wrap; }
 .tt-rosters .section-title { margin: 0; color: var(--ui-heading, var(--tt-ink)); font-family: var(--font-heading, sans-serif); font-size: clamp(15px, 1.05vw, 18px); font-weight: 500; letter-spacing: .14em; text-transform: uppercase; }
@@ -685,7 +685,7 @@
   --tt-bevel-down: inset 0 3px 0 rgb(0 0 0 / .45), inset 0 -2px 0 rgb(255 255 255 / .18), inset 2px 0 0 rgb(0 0 0 / .25), inset -2px 0 0 rgb(255 255 255 / .08);
 }
 .tt-rec .tt-team { text-shadow: var(--tt-name-shadow); letter-spacing: .06em; font-weight: 500; } /* the builder's h1: .06em, weight 500 */
-:root[data-theme="fumbbl"] .tt-rec .tt-team { color: var(--ui-text-on-primary, #ffffff); }
+:root[data-theme="light"] .tt-rec .tt-team { color: var(--ui-text-on-primary, #ffffff); }
 .tt-rec .tt-rail-btn, .tt-rec .tt-rail-end, .tt-rec .tt-big, .tt-rec .tt-endturn, .tt-rec .tt-rosters-btn, .tt-rec .tt-cog, .tt-rec .tt-crumb-btn,
 .tt-rec .lobby-btn, .tt-rec .tt-close, .tt-rec .tt-seg-btn {
   border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; box-shadow: var(--tt-bevel); text-shadow: var(--tt-btn-text-shadow);
@@ -695,9 +695,9 @@
 .tt-rec .tt-crumb-btn:active, .tt-rec .lobby-btn:active, .tt-rec .tt-close:active, .tt-rec .tt-seg-btn:active {
   box-shadow: var(--tt-bevel-down); transform: translateY(2px);
 }
-/* a light face (FUMBBL theme) takes a light legibility shadow instead */
-:root[data-theme="fumbbl"] .tt-rec .tt-rosters-btn, :root[data-theme="fumbbl"] .tt-rec .tt-cog, :root[data-theme="fumbbl"] .tt-rec .tt-crumb-btn,
-:root[data-theme="fumbbl"] .tt-rec .lobby-btn:not(.primary), :root[data-theme="fumbbl"] .tt-rec .tt-close, :root[data-theme="fumbbl"] .tt-rec .tt-seg-btn:not([aria-pressed="true"]) {
+/* a light face (light theme) takes a light legibility shadow instead */
+:root[data-theme="light"] .tt-rec .tt-rosters-btn, :root[data-theme="light"] .tt-rec .tt-cog, :root[data-theme="light"] .tt-rec .tt-crumb-btn,
+:root[data-theme="light"] .tt-rec .lobby-btn:not(.primary), :root[data-theme="light"] .tt-rec .tt-close, :root[data-theme="light"] .tt-rec .tt-seg-btn:not([aria-pressed="true"]) {
   text-shadow: 0 1px 0 rgb(255 255 255 / .6);
 }
 @media (min-width: 1024px) {
@@ -1244,7 +1244,7 @@
 /* desktop: brighter LED-green coach names (the phone keeps its coach colour), and the dedicated fans as a pill under the chip tray */
 @media (min-width: 1024px) {
   .tt-rec .tt-crestcol .tt-crest-coach { color: var(--ui-coach-led, #4cff6a); text-shadow: var(--tt-name-shadow), 0 0 6px rgb(76 255 106 / .55); }
-  :root[data-theme="fumbbl"] .tt-rec .tt-crestcol .tt-crest-coach { text-shadow: var(--tt-name-shadow), 0 0 6px color-mix(in srgb, var(--ui-coach-led, #4cff6a) 35%, transparent); } /* light theme: a dark-green halo, never the bright LED glow */
+  :root[data-theme="light"] .tt-rec .tt-crestcol .tt-crest-coach { text-shadow: var(--tt-name-shadow), 0 0 6px color-mix(in srgb, var(--ui-coach-led, #4cff6a) 35%, transparent); } /* light theme: a dark-green halo, never the bright LED glow */
   .tt-rec .tt-fans-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; font-family: var(--font-heading, sans-serif); font-size: 14px; letter-spacing: .06em; color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--tt-lettering-shadow); background: var(--tt-btn); border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; box-shadow: var(--tt-bevel); }
   .tt-rec .tt-fans-pill b { font-weight: 400; }
   .tt-rec .tt-fans-icon { width: 20px; height: 20px; object-fit: contain; image-rendering: pixelated; }
@@ -1254,7 +1254,7 @@
 
 /* the log card's actor chip is the single place for the actor: a 40 px roster sprite (initials when there is none), the name in the seat tint, and "#1 . Position" under it */
 .tt-rec { --seat-home-text: #4a86fe; --seat-away-text: #fe6666; }
-:root[data-theme="fumbbl"] .tt-rec { --seat-home-text: #1d4fb8; --seat-away-text: #b01e1e; }
+:root[data-theme="light"] .tt-rec { --seat-home-text: #0f46b9; --seat-away-text: #a3011f; --tt-home: #95a7bb; --tt-away: #ca9590; } /* generated (tools/theme/derive-light.mjs): seat inks + muted seat tints */
 .tt-ev-sprite { position: relative; display: grid; place-items: center; flex: none; width: 40px; height: 40px; overflow: hidden; background: var(--tt-panel); border: 1px solid var(--tt-line); border-radius: 4px; }
 .tt-ev-sprite-fallback { color: var(--tt-muted); font-family: var(--font-heading, sans-serif); font-size: 13px; }
 .tt-ev-sprite-img { position: absolute; inset: 1px; width: calc(100% - 2px); height: calc(100% - 2px); object-fit: contain; image-rendering: pixelated; }
@@ -1307,10 +1307,10 @@
 .tt-ev:not([data-row-side="neutral"]) .tt-ev-text { align-self: center; padding-top: 0; }
 .tt-ev[data-row-side="neutral"] .tt-ev-icon { order: -1; }
 
-/* the log's centre spine and the card borders take the brighter red: --ui-scarlet (dark themes), --ui-primary on the FUMBBL light preset.
+/* the log's centre spine and the card borders take the brighter red: --ui-scarlet (dark themes), --ui-primary on the light preset.
    Spine 2 px at 70 %, dots filled with a dark ring, card borders 1 px at 55 % (the side edges and the yellow admin edge keep their own colours) */
 .tt-rec { --tt-red: var(--ui-scarlet, #d7141f); }
-:root[data-theme="fumbbl"] .tt-rec { --tt-red: var(--ui-primary, #790004); }
+:root[data-theme="light"] .tt-rec { --tt-red: var(--ui-primary, #790004); }
 .tt-ev { border-top-color: color-mix(in srgb, var(--tt-red) 55%, transparent); border-bottom-color: color-mix(in srgb, var(--tt-red) 55%, transparent); }
 .tt-ev[data-row-side="home"] { border-right-color: color-mix(in srgb, var(--tt-red) 55%, transparent); }
 .tt-ev[data-row-side="away"] { border-left-color: color-mix(in srgb, var(--tt-red) 55%, transparent); }
@@ -1342,15 +1342,15 @@
   border: 1px solid var(--ui-border, #3d0002); border-radius: 5px;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%), inset 0 -1px 0 rgb(0 0 0 / 45%), 0 4px 18px rgb(0 0 0 / 67%);
 }
-:root[data-theme="fumbbl"] .tt-pcard {
-  --ui-skill-general: #1d5fb8; --ui-skill-agility: #7a5c00; --ui-skill-strength: #a32626; --ui-skill-passing: #262626; --ui-skill-mutation: #2f6e2f; --ui-skill-trait: #6e4f28;
-  --seat-home-text: #1d4fb8; --seat-away-text: #b01e1e; --tt-st-ko: #7a5c00; --tt-st-bad: #a32626; --tt-st-down: #a32626; --tt-st-up: #2f6e2f; --tt-st-res: #4a5a80;
+:root[data-theme="light"] .tt-pcard {
+  --ui-skill-general: #154d9d; --ui-skill-agility: #614d02; --ui-skill-strength: #a30220; --ui-skill-passing: #121212; --ui-skill-mutation: #025e0e; --ui-skill-trait: #6b4a17;
+  --seat-home-text: #0f46b9; --seat-away-text: #a3011f; --tt-st-ko: #664b03; --tt-st-bad: #8c2f34; --tt-st-down: #a3011a; --tt-st-up: #015d21; --tt-st-res: #424f71;
 }
 .tt-pcard-name { font-weight: 700; font-size: 1.16em; }
 .tt-pcard-name[data-side="home"] { color: var(--seat-home-text); }
 .tt-pcard-name[data-side="away"] { color: var(--seat-away-text); }
 .tt-pcard-position { color: var(--ui-text-on-primary, #ffffff); margin-bottom: .35em; font-size: 1.05em; }
-:root[data-theme="fumbbl"] .tt-pcard-position { color: var(--ui-text, #262626); }
+:root[data-theme="light"] .tt-pcard-position { color: var(--ui-text, #131519); }
 .tt-pcard-status { font-weight: 700; font-size: .95em; margin: 0 0 .35em; color: var(--ui-text-dim, #cbd4cb); }
 .tt-pcard-status[data-status="KO'd"] { color: var(--tt-st-ko); }
 .tt-pcard-status[data-status="Badly Hurt"], .tt-pcard-status[data-status="Seriously Hurt"], .tt-pcard-status[data-status="Dead"] { color: var(--tt-st-bad); }
@@ -1427,7 +1427,7 @@
 /* inducement picker: catalogue left, cart right (stacked on a phone), the client's gold-on-dark rows */
 .tt-pre-ind { display: grid; gap: 10px; }
 .tt-ipk { padding: 8px; background: rgb(14 18 26 / 0.92); color: #dfe6ff; border: 1px solid rgb(120 150 190 / 0.5); border-radius: 8px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.4); }
-.tt-rec[data-tt-theme="snes"] .tt-ipk { background: var(--tt-panel); color: var(--tt-ink); border-color: var(--tt-line); box-shadow: var(--tt-shadow); }
+.tt-rec[data-tt-theme="light"] .tt-ipk { background: var(--tt-panel); color: var(--tt-ink); border-color: var(--tt-line); box-shadow: var(--tt-shadow); }
 .tt-ipk-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
 .tt-ipk-title { font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; color: #e8b84a; }
 .tt-ipk-team { font-family: var(--font-heading, sans-serif); font-size: 14px; }
@@ -1467,7 +1467,7 @@
 @keyframes tt-spin { to { transform: rotate(360deg); } }
 .tt-kr-modal { align-items: center; }
 .tt-kr-box { width: min(92vw, 360px); padding: 16px; background: rgb(14 18 26 / 0.96); color: #eef0e6; border: 1px solid #e8b84a; border-radius: 10px; box-shadow: 0 8px 28px #000a; text-align: center; }
-.tt-rec[data-tt-theme="snes"] .tt-kr-box { background: var(--tt-panel); color: var(--tt-ink); border: 2px solid var(--tt-line); box-shadow: var(--tt-shadow); }
+.tt-rec[data-tt-theme="light"] .tt-kr-box { background: var(--tt-panel); color: var(--tt-ink); border: 2px solid var(--tt-line); box-shadow: var(--tt-shadow); }
 .tt-kr-title { font-family: var(--font-heading, sans-serif); font-size: 1.3rem; font-weight: 800; margin-bottom: 4px; }
 .tt-kr-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
 .tt-kr-btn { min-height: 64px; font-size: 1.2rem; font-weight: 800; }
