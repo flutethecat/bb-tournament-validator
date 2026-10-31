@@ -117,8 +117,8 @@
 .sf-theme-ico { display: block; }
 /* Rail collapser (owner 10-30): a 28 px square in the top bar, at the right edge of the sidebar column (the rail's
    when collapsed), vertically centred. Hidden under 1024 px, where the Menu button opens the drawer. */
-.sf-rail-toggle { position: fixed; bottom: 4px; left: calc(var(--sf-nav-w) - 2px); z-index: 45; width: 22px; height: 30px; min-height: 0; margin: 0; padding: 0 0 0 2px; display: inline-flex; align-items: center; justify-content: center; color: var(--ui-muted); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-left: 0; border-radius: 0 4px 4px 0; box-shadow: 2px 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); cursor: pointer; font: 14px/1 var(--sf-band-font); }
-.sf-rail-toggle[data-rail="true"] { left: calc(var(--sf-rail-w) - 2px); }
+.sf-rail-toggle { position: fixed; bottom: 4px; left: calc(var(--sf-nav-w) - 32px); z-index: 45; width: 22px; height: 30px; min-height: 0; margin: 0; padding: 0 0 0 2px; display: inline-flex; align-items: center; justify-content: center; color: var(--ui-muted); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); cursor: pointer; font: 14px/1 var(--sf-band-font); } /* expanded: inside the sidebar, bottom right (owner 10-31) */
+.sf-rail-toggle[data-rail="true"] { left: calc(var(--sf-rail-w) - 2px); border-left: 0; border-radius: 0 4px 4px 0; box-shadow: 2px 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); } /* collapsed: a tag on the rail edge */
 .sf-rail-toggle:hover { color: var(--ui-text); border-color: var(--ui-heading); }
 .sf-rail-toggle:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .sf-scrim { display: none; }

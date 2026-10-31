@@ -779,7 +779,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-count,\s*\.sf-nav\[data-collapsed="true"\] \.sf-rows \{ display: none; \}/);
     expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-icon \{ width: 30px; height: 30px; \}/);
     expect(css).toMatch(/\.sf-icon \{ width: 26px; height: 26px;[^}]*image-rendering: pixelated/);
-    expect(css).toMatch(/\.sf-rail-toggle\[data-rail="true"\] \{ left: calc\(var\(--sf-rail-w\) - 2px\); \}/);
+    expect(css).toMatch(/\.sf-rail-toggle\[data-rail="true"\] \{ left: calc\(var\(--sf-rail-w\) - 2px\); border-left: 0; border-radius: 0 4px 4px 0;/);
   });
 
   it("rail collapser: a tag on the sidebar's right edge at the bottom of the screen (owner 10-31), not in the header or the aside; hidden in the drawer layout", async () => {
@@ -794,7 +794,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(rail).toMatch(/<header class="shell-header sf-top" data-rail="true" data-title="red">/);
     expect(rail).toMatch(/<button class="sf-rail-toggle" type="button" data-rail="true" aria-label="Expand navigation \(\[\)"/);
     const css = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");
-    expect(css).toMatch(/\.sf-rail-toggle \{ position: fixed; bottom: 4px; left: calc\(var\(--sf-nav-w\) - 2px\);[^}]*border-left: 0; border-radius: 0 4px 4px 0;/);
+    expect(css).toMatch(/\.sf-rail-toggle \{ position: fixed; bottom: 4px; left: calc\(var\(--sf-nav-w\) - 32px\);/);
     expect(css).toMatch(/@media \(max-width: 1023\.98px\) \{[\s\S]*?\.sf-rail-toggle \{ display: none; \}/);
     expect(css).not.toMatch(/\.sf-nav > \.sf-top-link \{ margin-right/); // Home no longer reserves room for it
   });
