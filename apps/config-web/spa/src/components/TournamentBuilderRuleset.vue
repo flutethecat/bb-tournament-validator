@@ -23,7 +23,10 @@ function onTableClick(e: MouseEvent): void {
 </script>
 
 <template>
-  <section class="hm-panel tb-panel" aria-labelledby="tb-rulesets-h">
+  <!-- DOM order is the reading / focus order: rulesets (step 1), the rules summary, then Pick a race (step 2). From 1180 px the
+       grid areas seat the race picker as the tall left column and the other two stacked on the right (builder.css .tb-rsflow). -->
+  <div class="tb-rsflow">
+  <section class="hm-panel tb-panel tb-area-rulesets" aria-labelledby="tb-rulesets-h">
     <header class="hm-band"><h2 id="tb-rulesets-h">Tournament rulesets</h2><span class="hm-cap">Step 1</span></header>
     <div v-if="state.packages.length" class="tb-cards" role="list">
       <button
@@ -34,7 +37,7 @@ function onTableClick(e: MouseEvent): void {
     <p v-else class="hm-empty">No tournament packages are saved yet.</p>
   </section>
 
-  <section v-if="state.packageName" class="hm-panel tb-panel" aria-labelledby="tb-package-h">
+  <section v-if="state.packageName" class="hm-panel tb-panel tb-area-summary" aria-labelledby="tb-package-h">
     <header class="hm-band"><h2 id="tb-package-h">{{ state.packageName }}</h2><span class="hm-cap">Ruleset</span></header>
     <dl v-if="summaryHtml" class="tt-summary tb-summary" v-html="summaryHtml"></dl>
     <details v-if="description" class="tb-notes">
@@ -47,8 +50,10 @@ function onTableClick(e: MouseEvent): void {
     </details>
   </section>
 
-  <section v-if="state.packageName" class="hm-panel tb-panel" aria-labelledby="tb-race-h">
+  <section class="hm-panel tb-panel tb-area-race" aria-labelledby="tb-race-h">
     <header class="hm-band"><h2 id="tb-race-h">Pick a race</h2><span class="hm-cap">Step 2</span></header>
+    <p v-if="!state.packageName" class="hm-empty">Pick a tournament ruleset first.</p>
+    <template v-else>
     <p class="muted tb-hint">Each team name picks that race.</p>
     <div v-if="table.html" class="tb-scroll tb-race-scroll" tabindex="0" role="region" aria-label="Races by tier" @click="onTableClick">
       <table :class="table.legacy ? 'tier-table' : 'tt-rules-table'" v-html="table.html"></table>
@@ -57,5 +62,7 @@ function onTableClick(e: MouseEvent): void {
     <div v-if="state.roster" class="tb-actions">
       <button type="button" class="tb-btn primary" @click="emit('next')">Build the {{ state.roster.raceName }} team</button>
     </div>
+    </template>
   </section>
+  </div>
 </template>

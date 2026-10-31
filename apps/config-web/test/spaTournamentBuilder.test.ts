@@ -478,6 +478,24 @@ describe("tournament builder page (server-rendered)", () => {
     expect(css).toMatch(/\.tb-race-scroll thead th \{[^}]*position: sticky; top: 0/);
   });
 
+  it("the Ruleset tab reflows: DOM order is rulesets, rules summary, Pick a race; grid areas seat the race picker left from 1180 px; the empty state keeps the race panel", async () => {
+    const html = await render("/tournament-team-builder?package=Test%20Cup&tab=ruleset", mockFetcher(routes()));
+    const at = (id: string) => html.indexOf(`id="${id}"`);
+    expect(html).toContain('class="tb-rsflow"');
+    expect(at("tb-rulesets-h")).toBeGreaterThan(-1);
+    expect(at("tb-package-h")).toBeGreaterThan(at("tb-rulesets-h"));
+    expect(at("tb-race-h")).toBeGreaterThan(at("tb-package-h"));
+    for (const a of ["rulesets", "summary", "race"]) expect(html).toContain(`tb-area-${a}`);
+    const css = readFileSync(new URL("../spa/src/teams/builder.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.tb-area-race \{ grid-area: race; \}/);
+    expect(css).toMatch(/\.tb-rsflow \{ grid-template-areas: "rulesets" "summary" "race"; \}/);
+    expect(css).toMatch(/@media \(min-width: 1180px\) \{\s*\.tb-rsflow \{[^}]*3fr[^}]*2fr[^}]*"race rulesets" "race summary"/);
+    expect(css).toMatch(/\.tb-rsflow \.tb-cards \{ grid-template-columns: repeat\(2,/);
+    expect(html).toContain("tb-wide");
+    const bare = await render("/tournament-team-builder?tab=ruleset", mockFetcher(routes()), async (b) => { await b.choosePackage(""); });
+    expect(bare).toContain('id="tb-race-h"');
+  });
+
   it("old tab ids (skills, staff, stars, inducements) land on the Roster pane", async () => {
     for (const q of ["skills", "staff", "stars", "inducements"]) {
       const html = await render(`/tournament-team-builder?tab=${q}`, mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hbli"); });

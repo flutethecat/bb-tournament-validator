@@ -216,6 +216,19 @@
 .tb-step-row.off { opacity: .55; }
 .tb-step-icon { width: 40px; height: 40px; display: grid; place-items: center; }
 .tb-step-icon img { width: 36px; height: 36px; object-fit: contain; image-rendering: pixelated; }
+/* The Ruleset tab: one flow. Source order = the phone / keyboard order (rulesets, rules summary, Pick a race). From 1180 px (the
+   same threshold as the Roster pane, nav included) grid areas seat Pick a race as the full-height left column (3fr) and the
+   rules selector over the rules summary on the right (2fr); the cards go two to a row. */
+.tb-rsflow { display: grid; gap: 16px; min-width: 0; }
+.tb-area-rulesets { grid-area: rulesets; }
+.tb-area-summary { grid-area: summary; }
+.tb-area-race { grid-area: race; }
+.tb-rsflow { grid-template-areas: "rulesets" "summary" "race"; }
+@media (min-width: 1180px) {
+  .tb-rsflow { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: auto 1fr; grid-template-areas: "race rulesets" "race summary"; align-items: start; }
+  .tb-area-race { align-self: stretch; }
+  .tb-rsflow .tb-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .tb-race-scroll { max-height: max(320px, calc(100vh - 280px)); overflow: auto; padding-right: 0; }
 .tb-race-scroll thead th { position: sticky; top: 0; z-index: 2; box-shadow: 0 2px 0 var(--sf-panel-line); } /* header row stays at the top of the scroll region */
 .tb-scroll-list { max-height: 520px; overflow-y: auto; padding-right: 2px; }

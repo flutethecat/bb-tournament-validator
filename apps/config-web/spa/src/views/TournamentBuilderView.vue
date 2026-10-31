@@ -164,7 +164,7 @@ async function pickPackage(name: string): Promise<void> {
 </script>
 
 <template>
-  <div class="hm-page tm-page tb-page" :class="{ 'tb-wide': tab === 'roster' }">
+  <div class="hm-page tm-page tb-page" :class="{ 'tb-wide': tab === 'roster' || tab === 'ruleset' }">
     <div ref="tabsEl" class="tl-seg tb-tabs" role="tablist" aria-label="Tournament Builder steps" @keydown="onTabKey">
       <button
         v-for="t in BUILDER_TABS" :id="`tb-tab-${t.id}`" :key="t.id" type="button" role="tab" class="tl-seg-btn" :data-tab="t.id"
