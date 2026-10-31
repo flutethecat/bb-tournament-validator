@@ -489,7 +489,7 @@ describe("tournament builder page (server-rendered)", () => {
     const css = readFileSync(new URL("../spa/src/teams/builder.css", import.meta.url), "utf8");
     expect(css).toMatch(/\.tb-area-race \{ grid-area: race; \}/);
     expect(css).toMatch(/\.tb-rsflow \{ grid-template-areas: "rulesets" "summary" "race"; \}/);
-    expect(css).toMatch(/@media \(min-width: 1180px\) \{\s*\.tb-rsflow \{[^}]*3fr[^}]*2fr[^}]*"race rulesets" "race summary"/);
+    expect(css).toMatch(/@media \(min-width: 1180px\) \{\s*\.tb-rsflow \{[^}]*2fr[^}]*3fr[^}]*"rulesets race" "summary race"/);
     expect(css).toMatch(/\.tb-rsflow \.tb-cards \{ grid-template-columns: repeat\(2,/);
     expect(html).toContain("tb-wide");
     const bare = await render("/tournament-team-builder?tab=ruleset", mockFetcher(routes()), async (b) => { await b.choosePackage(""); });

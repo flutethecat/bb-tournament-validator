@@ -225,8 +225,8 @@
 .tb-area-race { grid-area: race; }
 .tb-rsflow { grid-template-areas: "rulesets" "summary" "race"; }
 @media (min-width: 1180px) {
-  .tb-rsflow { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: auto 1fr; grid-template-areas: "race rulesets" "race summary"; align-items: start; }
-  .tb-area-race { align-self: start; } /* as tall as its table + scroller, never stretched to the right column (no dead gap) */
+  .tb-rsflow { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); grid-template-rows: auto 1fr; grid-template-areas: "rulesets race" "summary race"; align-items: start; } /* step 1 left, step 2 right (owner 10-31) */
+  .tb-area-race { align-self: start; } /* as tall as its table + scroller, never stretched to the rulesets column (no dead gap) */
   .tb-rsflow .tb-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .tb-race-scroll { max-height: max(320px, calc(100vh - 280px)); overflow: auto; padding-right: 0; }
