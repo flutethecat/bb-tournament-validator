@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// One played game as a wide card (owner 10-30, after TourPlay's results view): a diagonal tint of the two teams'
-// colours, a muted context line, each team block (crest, name, race, coach) either side of a big score with the
-// casualties under each number. Shared contract with the league views: props below, styles in shared/result-card.css.
+// One played game as a wide card (owner 10-30, after TourPlay's results view; reworked 10-31): a diagonal tint of the
+// two teams' colours, the date on a muted top line, each team block (crest with the race under it, white team name,
+// coach with avatar) either side of a big score with the casualties under each number and the competition (league and
+// season, tournament, or "Online · Friendly") under that. No round names on the card. Shared contract with the league views: props below, styles in shared/result-card.css.
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import { raceTone } from "../shared/raceTone";
@@ -12,6 +13,8 @@ export interface ResultCardSide {
   race: string;
   coach: string;
   crestUrl?: string | null;
+  /** The coach's avatar when the API sends one; otherwise the letter badge shows. */
+  avatarUrl?: string | null;
   score: number | null;
   cas: number | null;
 }
@@ -35,7 +38,7 @@ const colour = (value: string | undefined, race: string) => (value && SAFE_COLOU
 const style = computed(() => ({ "--rc-home": colour(props.tone?.home, props.home.race), "--rc-away": colour(props.tone?.away, props.away.race) }));
 
 /** Site paths and http(s) URLs only; anything else falls back to the initials badge. */
-const crestSrc = (url: string | null | undefined): string => {
+const imageSrc = (url: string | null | undefined): string => {
   const u = typeof url === "string" ? url.trim() : "";
   return /^\/(?!\/)/.test(u) || /^https?:\/\//i.test(u) ? u : "";
 };
@@ -80,23 +83,32 @@ const sides = computed(() => [
     :data-size="size"
     :data-conceded="concede ? 'true' : undefined"
   >
-    <p class="rc-context"><span class="rc-context-text">{{ context }}</span><time v-if="when" class="rc-when" :datetime="playedAt">{{ when }}</time></p>
+    <p v-if="when" class="rc-top"><time class="rc-when" :datetime="playedAt">{{ when }}</time></p>
     <div class="rc-body">
       <template v-for="(s, i) in sides" :key="s.key">
-        <div v-if="i === 1" class="rc-score" :data-conceded="concede ? 'true' : undefined">
+        <div v-if="i === 1" class="rc-centre">
+        <div class="rc-score" :data-conceded="concede ? 'true' : undefined">
           <span class="rc-nums">
             <span class="rc-num">{{ scoreText(home.score) }}<small v-if="casText(home.cas)" class="rc-cas">{{ casText(home.cas) }}</small></span>
             <span class="rc-num">{{ scoreText(away.score) }}<small v-if="casText(away.cas)" class="rc-cas">{{ casText(away.cas) }}</small></span>
           </span>
           <span v-if="concede" class="rc-plate-cap">Conceded</span>
         </div>
+          <span v-if="context" class="rc-comp">{{ context }}</span>
+        </div>
         <div class="rc-team" :class="`rc-${s.key}`">
-          <img v-if="crestSrc(s.side.crestUrl)" class="rc-crest" :src="crestSrc(s.side.crestUrl)" alt="" loading="lazy" referrerpolicy="no-referrer" />
-          <span v-else class="rc-crest rc-initials" aria-hidden="true">{{ initials(s.side.name) }}</span>
+          <span class="rc-crestcol">
+            <img v-if="imageSrc(s.side.crestUrl)" class="rc-crest" :src="imageSrc(s.side.crestUrl)" alt="" loading="lazy" referrerpolicy="no-referrer" />
+            <span v-else class="rc-crest rc-initials" aria-hidden="true">{{ initials(s.side.name) }}</span>
+            <span v-if="s.side.race" class="rc-race">{{ s.side.race }}</span>
+          </span>
           <span class="rc-who">
             <span class="rc-name">{{ s.side.name }}</span>
-            <span v-if="s.side.race" class="rc-race">{{ s.side.race }}</span>
-            <span v-if="s.side.coach" class="rc-coach"><span class="rc-avatar" aria-hidden="true">{{ initials(s.side.coach) }}</span>{{ s.side.coach }}</span>
+            <span v-if="s.side.coach" class="rc-coach">
+              <img v-if="imageSrc(s.side.avatarUrl)" class="rc-avatar" :src="imageSrc(s.side.avatarUrl)" alt="" loading="lazy" referrerpolicy="no-referrer" />
+              <span v-else class="rc-avatar" aria-hidden="true">{{ initials(s.side.coach) }}</span>
+              <span class="rc-coach-name">{{ s.side.coach }}</span>
+            </span>
           </span>
         </div>
       </template>

@@ -319,9 +319,10 @@ const swapReporter = (r: GameReporter): GameReporter => ({
   moments: r.moments.map((m) => ({ ...m, side: flip(m.side), ...(m.victimSide ? { victimSide: flip(m.victimSide) } : {}) })),
 });
 
-function baseSummary(card: GameCard, round: number | null, tournament: GameSummary["tournament"]): GameSummary {
+/** The game page keeps the round in its competition line ("Cup · Round 3") for games that belong to a tournament fixture; the card does not. */
+function baseSummary(card: GameCard, round: number | null, tournament: GameSummary["tournament"], withRound = false): GameSummary {
   return {
-    playedAt: card.playedAt, competition: card.context, round, tournament,
+    playedAt: card.playedAt, competition: withRound && round !== null ? `${card.context} · Round ${round}` : card.context, round, tournament,
     casualties: { home: card.home.cas, away: card.away.cas }, concede: card.concede,
     perPlayer: false, note: PER_PLAYER_NOTE, home: null, away: null,
   };
@@ -407,7 +408,7 @@ export function gameDetail(source: GameSource, id: string, inputs: GameInputs): 
     const [card] = recentResults({ ...common, results: forkRow ? [forkRow] : [], tournaments: [{ ...t, matches: [m] }], tabletop: [] }, 1);
     if (!card) return undefined;
     const gameCard = toCard(card);
-    let summary = baseSummary(gameCard, m.roundNumber, { id: t.id, name: t.name, href: roundsHref(t.id) });
+    let summary = baseSummary(gameCard, m.roundNumber, { id: t.id, name: t.name, href: roundsHref(t.id) }, true);
     const recorded = inputs.tabletop.find((r) => r.match.fixtureRef === m.id && listedTabletop(r.match));
     let reporter: GameReporter | undefined;
     if (recorded) {
@@ -435,7 +436,7 @@ export function gameDetail(source: GameSource, id: string, inputs: GameInputs): 
     if (!card) return undefined;
     const gameCard = toCard(card);
     const summary = withTabletop(
-      baseSummary(gameCard, fixture?.m.roundNumber ?? null, fixture ? { id: fixture.t.id, name: fixture.t.name, href: roundsHref(fixture.t.id) } : null),
+      baseSummary(gameCard, fixture?.m.roundNumber ?? null, fixture ? { id: fixture.t.id, name: fixture.t.name, href: roundsHref(fixture.t.id) } : null, true),
       row,
     );
     return { source, id, card: gameCard, summary, reporter: reporterFor(row.match, row.events) };

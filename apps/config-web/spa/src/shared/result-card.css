@@ -17,42 +17,49 @@
     linear-gradient(135deg, color-mix(in srgb, var(--rc-home) 35%, transparent) 0%, transparent 48%, transparent 52%, color-mix(in srgb, var(--rc-away) 35%, transparent) 100%),
     linear-gradient(var(--sf-panel-top, #23272d), var(--sf-panel-bottom, #0a0c0f)), var(--ui-surface, #0d0d0d);
   border: 2px solid var(--sf-panel-line, #353b44); border-radius: 2px;
-  box-shadow: 0 4px 0 var(--sf-panel-drop, #000), inset 0 1px 0 var(--sf-panel-hi, #626b77);
+  box-shadow: 0 4px 0 var(--sf-panel-drop, #000), inset 0 1px 0 var(--sf-panel-hi, #626b77), inset 0 -2px 0 rgb(0 0 0 / .35);
   transition: transform .12s ease, box-shadow .12s ease;
 }
 /* Linked cards lift on hover and keyboard focus, the drop growing from 4 to 6 px. */
-a.rc-card:hover, a.rc-card:focus-visible { transform: translateY(-2px); box-shadow: 0 6px 0 var(--sf-panel-drop, #000), inset 0 1px 0 var(--sf-panel-hi, #626b77); }
+a.rc-card:hover, a.rc-card:focus-visible { transform: translateY(-2px); box-shadow: 0 6px 0 var(--sf-panel-drop, #000), inset 0 1px 0 var(--sf-panel-hi, #626b77), inset 0 -2px 0 rgb(0 0 0 / .35); }
 @media (prefers-reduced-motion: reduce) { .rc-card { transition: none; } a.rc-card:hover, a.rc-card:focus-visible { transform: none; } }
 a.rc-card:hover, a.rc-card:focus-visible { border-color: var(--ui-accent, var(--ui-heading)); }
 a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading)); outline-offset: 2px; }
 
-.rc-context { display: flex; justify-content: space-between; gap: 8px; margin: 0; font-size: 12px; color: var(--ui-muted); min-width: 0; }
-.rc-context-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Top line: the date only, right-aligned (the competition sits under the score). */
+.rc-top { display: flex; justify-content: flex-end; margin: 0; font-size: 12px; color: var(--ui-muted); min-width: 0; }
 .rc-when { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 .rc-body { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; }
-.rc-team { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rc-team { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .rc-away { flex-direction: row-reverse; text-align: right; }
-.rc-crest { flex: none; width: 40px; height: 40px; object-fit: contain; image-rendering: pixelated; }
+/* The crest with the race centred under it. */
+.rc-crestcol { flex: none; display: grid; justify-items: center; gap: 3px; width: 64px; max-width: 64px; text-align: center; }
+.rc-crest { flex: none; width: 56px; height: 56px; object-fit: contain; image-rendering: pixelated; }
 .rc-initials {
-  display: inline-flex; align-items: center; justify-content: center; font: 14px var(--sf-band-font, sans-serif); color: var(--ui-text);
+  display: inline-flex; align-items: center; justify-content: center; font: 18px var(--sf-band-font, sans-serif); color: var(--ui-text);
   background: color-mix(in srgb, var(--ui-surface-2, #1a1d22) 80%, transparent); border: 2px solid var(--sf-panel-line, #353b44); border-radius: 50%;
 }
-.rc-who { display: grid; min-width: 0; gap: 1px; }
-/* Team names wrap to two lines before they clip (a long name on a phone stays readable). */
+.rc-race { max-width: 100%; font-size: 11px; line-height: 1.15; font-variant: small-caps; letter-spacing: .06em; color: var(--ui-muted); overflow-wrap: anywhere; }
+.rc-who { display: grid; min-width: 0; gap: 4px; }
+/* Team names: white with the card's drop shadow (the tabletop scoreboard's name shadow); two lines before they clip. */
 .rc-name {
-  font: 13px/1.2 var(--sf-band-font, sans-serif); text-transform: uppercase; letter-spacing: .04em; color: var(--ui-heading);
+  font: 16px/1.2 var(--sf-band-font, sans-serif); text-transform: uppercase; letter-spacing: .04em;
+  color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--rc-num-shadow);
   overflow: hidden; overflow-wrap: break-word; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
 }
-.rc-race { font-size: 11px; font-variant: small-caps; letter-spacing: .06em; color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rc-coach { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-coach { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; min-width: 0; }
+.rc-coach-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rc-away .rc-coach { justify-content: flex-end; flex-direction: row-reverse; }
 .rc-avatar {
-  flex: none; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
-  font: 8px var(--sf-band-font, sans-serif); color: var(--ui-text); background: var(--ui-surface-2, #1a1d22); border: 1px solid var(--sf-panel-line, #353b44); border-radius: 50%;
+  flex: none; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; object-fit: cover;
+  font: 9px var(--sf-band-font, sans-serif); color: var(--ui-text); background: var(--ui-surface-2, #1a1d22); border: 1px solid var(--sf-panel-line, #353b44); border-radius: 50%;
 }
 
+.rc-centre { display: grid; gap: 6px; justify-items: center; min-width: 0; }
 .rc-score { display: grid; gap: 4px; justify-items: center; }
+/* League · season, tournament name, or "Online · Friendly", under the score and casualties. */
+.rc-comp { max-width: 160px; font-size: 12px; line-height: 1.25; text-align: center; color: var(--ui-muted); overflow-wrap: anywhere; }
 .rc-nums { display: flex; gap: 14px; align-items: flex-start; }
 /* A conceded game: a solid dark plate with a 2 px heading-red frame behind the score block. */
 .rc-score[data-conceded="true"] { padding: 6px 12px 5px; background: var(--ui-surface, #0d0d0d); border: 2px solid var(--ui-heading); border-radius: 6px; }
@@ -62,13 +69,16 @@ a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading))
 .rc-flag { margin: 0; font: 10px/1.2 var(--sf-band-font, sans-serif); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); text-align: center; }
 .rc-card[data-suspended="true"] .rc-flag { color: var(--ui-warning, var(--ui-muted)); }
 
-/* Phone: the crest sits above the name so the name gets the whole half-width. */
+/* Phone: each team stacks (crest, race, name, coach, all centred) so the names get the whole half-width. */
 @media (max-width: 640px) {
   .rc-card { padding: 10px; }
-  .rc-team { flex-direction: column; align-items: flex-start; gap: 4px; }
-  .rc-away { flex-direction: column; align-items: flex-end; }
+  .rc-team, .rc-away { flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+  .rc-who { justify-items: center; max-width: 100%; }
+  .rc-coach, .rc-away .rc-coach { flex-direction: row; justify-content: center; max-width: 100%; }
+  .rc-body { gap: 6px; }
   .rc-num { font-size: 24px; }
   .rc-nums { gap: 10px; }
+  .rc-comp { max-width: 96px; font-size: 11px; }
 }
 
 /* the strip on the landing page (signed out, under the sign-in card) and the coach page */
@@ -77,22 +87,27 @@ a.rc-card:focus-visible { outline: 2px solid var(--ui-accent, var(--ui-heading))
 /* Large cards (size="lg", the Past Games strip): at most two columns, none narrower than 420 px, one column below ~850 px. */
 .rc-grid-lg { grid-template-columns: repeat(auto-fill, minmax(min(100%, max(420px, calc((100% - 12px) / 2))), 1fr)); }
 .rc-card[data-size="lg"] { min-height: 150px; padding: 16px 18px 18px; gap: 12px; }
-.rc-card[data-size="lg"] .rc-context { font-size: 13px; }
-.rc-card[data-size="lg"] .rc-crest { width: 56px; height: 56px; }
-.rc-card[data-size="lg"] .rc-initials { font-size: 18px; }
-.rc-card[data-size="lg"] .rc-name { font-size: 18px; }
+.rc-card[data-size="lg"] .rc-top { font-size: 13px; }
+.rc-card[data-size="lg"] .rc-crestcol { width: 72px; max-width: 72px; }
+.rc-card[data-size="lg"] .rc-crest { width: 64px; height: 64px; }
+.rc-card[data-size="lg"] .rc-initials { font-size: 20px; }
+.rc-card[data-size="lg"] .rc-name { font-size: 22px; }
 .rc-card[data-size="lg"] .rc-race { font-size: 13px; }
-.rc-card[data-size="lg"] .rc-coach { font-size: 14px; }
-.rc-card[data-size="lg"] .rc-avatar { width: 20px; height: 20px; font-size: 9px; }
+.rc-card[data-size="lg"] .rc-coach { font-size: 16px; }
+.rc-card[data-size="lg"] .rc-avatar { width: 24px; height: 24px; font-size: 10px; }
+.rc-card[data-size="lg"] .rc-comp { font-size: 13px; max-width: 180px; }
 .rc-card[data-size="lg"] .rc-num { font-size: 36px; }
 .rc-card[data-size="lg"] .rc-cas { font-size: 13px; }
 .rc-card[data-size="lg"] .rc-flag { font-size: 11px; }
 .rc-card[data-size="lg"] .rc-plate-cap { font-size: 10px; }
 @media (max-width: 640px) {
   .rc-card[data-size="lg"] { padding: 12px; }
-  .rc-card[data-size="lg"] .rc-name { font-size: 16px; }
+  .rc-card[data-size="lg"] .rc-name { font-size: 17px; }
+  .rc-card[data-size="lg"] .rc-crestcol { width: 64px; max-width: 64px; }
+  .rc-card[data-size="lg"] .rc-crest { width: 56px; height: 56px; }
+  .rc-card[data-size="lg"] .rc-comp { max-width: 96px; font-size: 11px; }
   .rc-card[data-size="lg"] .rc-num { font-size: 30px; }
 }
 
 /* The Past Games grid scrolls inside the panel (band header fixed above), like the coach page What's new box. */
-.rc-scroll { max-height: 520px; overflow-y: auto; scrollbar-gutter: stable; padding: 2px 4px 8px 0; } /* room for the card lift and drop */
+.rc-scroll { max-height: 560px; overflow-y: auto; scrollbar-gutter: stable; padding: 4px 8px 10px 4px; } /* room for the card lift and drop */

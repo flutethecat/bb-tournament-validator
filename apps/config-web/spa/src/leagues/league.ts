@@ -567,11 +567,15 @@ export function concedeOf(f: LeagueFixture): "home" | "away" | null {
   return null;
 }
 
+/** The card's competition line: "TABBL · Season 6" (no phase, group or round). */
+export const fixtureCompetition = (league: Pick<LeagueSummary, "name">, season: Pick<SeasonRecord, "name">): string =>
+  [league.name, season.name].filter(Boolean).join(" · ");
+
 /** ResultCard props for a fixture (the shared components/ResultCard.vue contract; each side names its coach). */
 export function resultCardProps(league: Pick<LeagueSummary, "name">, season: Pick<SeasonRecord, "name">, f: LeagueFixture, crests: Record<string, string>) {
   const side = (s: LeagueFixture["home"]) => ({ name: s.team, race: s.race, coach: s.coach, crestUrl: crestFor(crests, s.race) || null, score: s.score, cas: s.cas });
   return {
-    context: fixtureContext(league, season, f),
+    context: fixtureCompetition(league, season),
     home: side(f.home),
     away: side(f.away),
     ...(fixtureTime(f) ? { playedAt: fixtureTime(f) } : {}),

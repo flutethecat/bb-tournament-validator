@@ -77,7 +77,7 @@ describe("recent results", () => {
     }));
     expect(rows.map((r) => r.id)).toEqual(["tournament:m1", "tournament:m2"]);
     expect(rows[0]).toMatchObject({
-      source: "tournament", context: "Spike Beta Test · Round 3", href: "/app/games/tournament/m1", concede: null,
+      source: "tournament", context: "Spike Beta Test", href: "/app/games/tournament/m1", concede: null,
       home: { name: "Carol's Crushers", race: "Orc", coach: "Carol", score: 0, cas: null, crestUrl: null },
       away: { name: "Dan's Darlings", race: "Wood Elf", coach: "Dan", score: 4, cas: null },
     });
@@ -115,7 +115,7 @@ describe("recent results", () => {
     }));
     expect(rows.map((r) => r.id)).toEqual(["tabletop:tm1", "tabletop:tm2"]);
     expect(rows[0]).toMatchObject({
-      source: "tabletop", context: "Tabletop · League · Round 5", href: "/app/games/tabletop/tm1", playedAt: "2026-10-21T12:00:00.000Z", concede: "away",
+      source: "tabletop", context: "Tabletop · League", href: "/app/games/tabletop/tm1", playedAt: "2026-10-21T12:00:00.000Z", concede: "away",
       home: { name: "Night <Owls>", race: "Orc", coach: "Eve", score: 1, cas: 1 },
       away: { name: "Saved Side", race: "Dwarf", crestUrl: "/api/team-avatars/x.png", score: 0, cas: 0 },
     });

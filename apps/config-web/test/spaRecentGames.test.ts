@@ -32,7 +32,7 @@ function mockFetcher(routes: Routes): Fetcher & { calls: string[] } {
 const side = (name: string, race: string, coach: string, score: number | null, cas: number | null, crestUrl: string | null = null) => ({ name, race, coach, crestUrl, score, cas });
 const results = () => ({
   results: [
-    { id: "tournament:m1", source: "tournament", context: "Spike Beta Test · Round 3", playedAt: "2026-10-29T10:00:00.000Z", href: "/app/games/tournament/m1", home: side("Carol's Crushers", "Orc", "Carol", 0, 1), away: side("Dan's Darlings", "Wood Elf", "Dan", 4, null), concede: null, suspended: false },
+    { id: "tournament:m1", source: "tournament", context: "Spike Beta Test", playedAt: "2026-10-29T10:00:00.000Z", href: "/app/games/tournament/m1", home: side("Carol's Crushers", "Orc", "Carol", 0, 1), away: side("Dan's Darlings", "Wood Elf", "Dan", 4, null), concede: null, suspended: false },
     { id: "tabletop:x", source: "tabletop", context: "Tabletop · Friendly", playedAt: "2026-10-28T10:00:00.000Z", href: "/app/games/tabletop/x", home: side("<b>Bold</b> Boys", "Dwarf", "Eve<script>", 2, 0), away: side("Nameless", "", "Finn", 1, 0), concede: "away", suspended: false },
   ],
 });
@@ -90,7 +90,9 @@ describe("recent games (SSR)", () => {
     expect(html.indexOf("Login with Discord")).toBeLessThan(html.indexOf('id="recent-games"'));
     expect(html).toMatch(/<h2 id="rc-recent-h">Past Games<\/h2><span class="hm-cap">\(2\)<\/span>/);
     expect((strip(html).match(/class="rc-card"/g) ?? []).length).toBe(2);
-    expect(strip(html)).toContain("Spike Beta Test · Round 3");
+    expect(strip(html)).toContain('<span class="rc-comp">Spike Beta Test</span>');
+    expect(strip(html)).toContain('<span class="rc-comp">Tabletop · Friendly</span>');
+    expect(strip(html)).not.toContain("Round 3");
     // in-SPA links for /app paths; casualties shown only when known
     expect(strip(html)).toMatch(/<a href="\/app\/games\/tournament\/m1" class="rc-card"[^>]*aria-label=/);
     expect(strip(html)).toMatch(/<a href="\/app\/games\/tabletop\/x" class="rc-card"/);
@@ -153,6 +155,37 @@ describe("recent games (SSR)", () => {
     expect(await card({ context: "x", home: side("A", "", "", 1, null), away: side("B", "", "", 0, null), href: "javascript:alert(1)" })).toMatch(/^<div class="rc-card"/);
     expect(html).toContain('<small class="rc-cas">(2)</small>');
     expect((html.match(/class="rc-cas"/g) ?? []).length).toBe(1);
+  });
+
+  it("ResultCard (owner 10-31): date only on top, competition under the score and cas, race under the crest, white name, avatar or letter badge", async () => {
+    const html = await card({
+      context: "TABBL · Season 6", playedAt: "2026-10-29T10:00:00.000Z",
+      home: { ...side("Rot Girl Summer", "Nurgle", "Jeff", 1, 2, "/crests/nurgle.png"), avatarUrl: "https://cdn.discordapp.com/avatars/1/a.png?size=64" },
+      away: { ...side("Grudge Rollers", "Dwarf", "Kay", 2, 0, "/crests/dwarf.png"), avatarUrl: "javascript:alert(1)" },
+    });
+    // no phase / group / round text; the top line carries only the date
+    expect(html).not.toMatch(/Round|Regular/);
+    expect(html).toMatch(/<p class="rc-top"><time class="rc-when" datetime="2026-10-29T10:00:00.000Z">29 Oct 2026<\/time><\/p>/);
+    expect(html).not.toContain("rc-context");
+    // the context sits in the centre column after the score block (and its cas lines)
+    const centre = html.slice(html.indexOf('class="rc-centre"'), html.indexOf('class="rc-team rc-away"'));
+    expect(centre.indexOf('class="rc-cas"')).toBeGreaterThan(-1);
+    expect(centre.indexOf('class="rc-cas"')).toBeLessThan(centre.indexOf('<span class="rc-comp">TABBL · Season 6</span>'));
+    // race under the crest, inside the crest column, not under the name
+    expect(html).toMatch(/<span class="rc-crestcol"><img class="rc-crest" src="\/crests\/nurgle.png"[^>]*><span class="rc-race">Nurgle<\/span><\/span>/);
+    expect(html).not.toMatch(/<span class="rc-name">[^<]*<\/span><span class="rc-race"/);
+    // white team-name class; the shadow itself is in result-card.css
+    expect(html).toContain('<span class="rc-name">Rot Girl Summer</span>');
+    const css = readFileSync(fileURLToPath(new URL("../spa/src/shared/result-card.css", import.meta.url)), "utf8");
+    expect(css).toMatch(/\.rc-name \{[^}]*color: var\(--ui-text-on-primary, #ffffff\); text-shadow: var\(--rc-num-shadow\)/);
+    // avatar: the provided safe URL renders as a round image; an unsafe or missing one falls back to the letter badge
+    expect(html).toContain('<img class="rc-avatar" src="https://cdn.discordapp.com/avatars/1/a.png?size=64"');
+    expect(html).not.toContain("javascript:");
+    expect(html).toContain('<span class="rc-avatar" aria-hidden="true">K</span>');
+    const none = await card({ context: "Online · Friendly", home: side("A", "Orc", "Zed", 1, 0), away: side("B", "Orc", "Yan", 0, 0) });
+    expect(none).not.toContain("<img class=\"rc-avatar\"");
+    expect((none.match(/class="rc-avatar" aria-hidden="true"/g) ?? []).length).toBe(2);
+    expect(none).toContain('<span class="rc-comp">Online · Friendly</span>');
   });
 
   it("ResultCard: missing scores show a dash, external hrefs are plain links, suspended games say so", async () => {

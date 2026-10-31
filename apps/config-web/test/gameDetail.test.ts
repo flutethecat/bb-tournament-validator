@@ -116,7 +116,7 @@ describe("game detail", () => {
         matches: [fixture("m1", { homeScore: 0, awayScore: 4, homeCasualties: 1, reportedAt: "2026-10-10T00:00:00.000Z" }), fixture("m2", undefined)] as never,
       }],
     }));
-    expect(d!.card).toMatchObject({ context: "Spike Beta Test · Round 2", href: null, home: { name: "Carol's Crushers", race: "Orc", score: 0, cas: 1 }, away: { name: "Dan's Darlings", score: 4, cas: null } });
+    expect(d!.card).toMatchObject({ context: "Spike Beta Test", href: null, home: { name: "Carol's Crushers", race: "Orc", score: 0, cas: 1 }, away: { name: "Dan's Darlings", score: 4, cas: null } });
     expect(d!.summary).toMatchObject({
       competition: "Spike Beta Test · Round 2", round: 2, tournament: { id: "t1", href: "/app/tournaments/t1?tab=rounds" },
       perPlayer: false, note: PER_PLAYER_NOTE, home: null, away: null, casualties: { home: 1, away: null },

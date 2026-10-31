@@ -160,7 +160,7 @@ describe("league helpers", () => {
     const s = season6();
     const card = resultCardProps(league, s, s.fixtures[2]!, { dwarf: "crests/dwarf.png" });
     expect(card).toMatchObject({
-      context: "TABBL · Season 6 · Regular · Tahoma · Round 2", concede: "home", suspended: false, playedAt: "2026-07-01T03:00:00.000Z",
+      context: "TABBL · Season 6", concede: "home", suspended: false, playedAt: "2026-07-01T03:00:00.000Z",
       home: { name: "Rot Girl Summer", score: 1, cas: 0, crestUrl: null }, away: { name: "Grudge Rollers", score: 2, cas: 1, crestUrl: "/crests/dwarf.png" },
     });
     expect(fixtureContext({ name: "TABBL" }, { name: "Season 4" }, { ...s.fixtures[0]!, category: "Cup", phase: "Final" })).toBe("TABBL · Season 4 · Cup Final · Round 1");
@@ -334,7 +334,8 @@ describe("league routes (server-rendered against a mocked API)", () => {
     for (const t of ["Overview", "Standings", "Fixtures", "Teams", "Honours"]) expect(html).toContain(`>${t}</a>`);
     expect(html).toContain("Latest results");
     expect(html.match(/class="rc-card"/g)).toHaveLength(3);
-    expect(html).toContain("TABBL · Season 6 · Regular · Tahoma · Round 2");
+    expect(html).toContain('<span class="rc-comp">TABBL · Season 6</span>'); // league · season only, no phase, group or round
+    expect(html).not.toContain("Tahoma · Round 2");
     expect(html).toContain("Conceded by Jeff / @Chap"); // the live card names the conceding coach
     expect(html).toContain('class="rc-plate-cap">Conceded<');
     expect(html).toContain('href="/app/leagues/tabbl?tab=fixtures"');
@@ -456,7 +457,8 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(html).toContain("flutethecat (Jay)");
     expect(html).toContain("Conceded by Jeff / @Chap");
     expect(html).toContain('data-conceded="true"');
-    expect(html).toContain("TABBL · Season 6 · Regular · Tahoma · Round 2");
+    expect(html).toContain('<span class="rc-comp">TABBL · Season 6</span>');
+    expect(html).not.toMatch(/Round 2|Regular|Tahoma/);
     // an ordinary result: no concession, no flag
     const plain = await renderCard(mods.league.resultCardProps(league, s, s.fixtures[1]!, {}));
     expect(plain).not.toContain("Conceded");

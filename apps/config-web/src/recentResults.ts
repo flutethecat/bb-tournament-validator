@@ -1,7 +1,7 @@
 // Recent games (owner 10-30): the newest results from every source the site holds, normalised for the landing page and
 // the coach page (GET /api/recent-results, public). Pure: server.ts gathers the stores and hands the rows in.
 //
-// Sources: tournament fixtures with a reported result ("Tournament · Round n"), tabletop matches that were played out
+// Sources: tournament fixtures with a reported result (context = the tournament name; no round on the card), tabletop matches that were played out
 // and submitted / confirmed / published ("Tabletop · ..."), and fork games whose result the site already retained (the
 // results store; nothing here calls the fork server). One game is listed once: a tabletop match linked to a fixture
 // replaces that fixture, and a fork game launched from a fixture lends the fixture its casualties instead of appearing
@@ -31,6 +31,7 @@ export interface RecentSide {
 export interface RecentResult {
   id: string;
   source: "tournament" | "tabletop" | "fork";
+  /** The competition under the score: the tournament name, "Tabletop · <league|Friendly>" or "Online · <package|Friendly>". Never a round. */
   context: string;
   playedAt: string | null;
   /** The game page (/app/games/<source>/<id>); every card links to one. */
@@ -112,7 +113,7 @@ export function recentResults(inputs: RecentInputs, limit = RECENT_RESULTS_DEFAU
       const item: RecentResult = {
         id: `tournament:${m.id}`,
         source: "tournament",
-        context: `${t.name} · Round ${m.roundNumber}`,
+        context: t.name,
         playedAt: iso(r.reportedAt) ?? iso(m.updatedAt),
         href: gameHref("tournament", m.id),
         home: sideOf(m.home, r.homeScore, r.homeCasualties),
@@ -137,7 +138,7 @@ export function recentResults(inputs: RecentInputs, limit = RECENT_RESULTS_DEFAU
     const cas = (s: "home" | "away") => [...tally.lines[s].values()].reduce((n, l) => n + l.casualtiesCaused, 0);
     const fixture = m.fixtureRef ? fixtures.get(m.fixtureRef) : undefined;
     if (fixture) replacedFixtures.add(m.fixtureRef!);
-    const where = fixture ? `${fixture.tournament} · Round ${fixture.round}` : m.league ? m.league : "Friendly";
+    const where = fixture ? fixture.tournament : m.league ? m.league : "Friendly";
     const item: RecentResult = {
       id: `tabletop:${m.id}`,
       source: "tabletop",
