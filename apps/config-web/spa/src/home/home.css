@@ -57,7 +57,7 @@
 .sf-page-title { flex: 1 1 0; min-width: 0; margin: 0; padding: 0 8px; text-align: left; font: 1.05rem/1.2 var(--sf-band-font); letter-spacing: .08em; text-transform: uppercase; color: var(--ui-heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (min-width: 1024px) {
   .sf-wordmark.brand { flex: 0 0 auto; min-width: calc(var(--sf-nav-w) - 12px); }
-  .shell-header:has(.sf-rail-toggle[data-rail="true"]) .sf-wordmark.brand { min-width: 0; }
+  .shell-header[data-rail="true"] .sf-wordmark.brand { min-width: 0; }
 }
 .sf-menu { display: none; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; font-size: 20px; color: var(--ui-text); background: transparent; border: 2px solid var(--sf-panel-line); border-radius: 2px; cursor: pointer; }
 .sf-top .shell-who { gap: 10px; min-width: 0; }
@@ -103,10 +103,18 @@
 .sf-body[data-rail="true"] { grid-template-columns: var(--sf-rail-w) minmax(0, 1fr); }
 .sf-body .shell-main { max-width: 1600px; width: 100%; margin: 0; min-width: 0; }
 .sf-aside { position: sticky; top: var(--sf-top-h); align-self: start; display: flex; flex-direction: column; height: calc(100dvh - var(--sf-top-h)); overflow-y: auto; overflow-x: hidden; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border-right: 2px solid var(--sf-panel-line); }
+/* Theme switch at the foot of the nav (owner 10-31): a bevelled square icon button, bottom left of the screen. */
+.sf-aside-foot { margin-top: auto; padding: 10px 6px 12px; }
+.sf-theme { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; color: var(--sf-gold); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); cursor: pointer; }
+.sf-theme[data-mode="dark"] { color: var(--ui-text); }
+.sf-theme:hover { filter: brightness(1.12); }
+.sf-theme:active { transform: translateY(1px); box-shadow: 0 1px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); }
+.sf-theme:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.sf-theme-ico { display: block; }
 /* Rail collapser (owner 10-30): a 28 px square in the top bar, at the right edge of the sidebar column (the rail's
    when collapsed), vertically centred. Hidden under 1024 px, where the Menu button opens the drawer. */
-.sf-rail-toggle { position: absolute; top: 50%; left: calc(var(--sf-nav-w) - 36px); transform: translateY(-50%); width: 28px; height: 28px; min-height: 0; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--ui-muted); background: transparent; border: 2px solid var(--sf-panel-line); border-radius: 2px; cursor: pointer; font: 14px/1 var(--sf-band-font); }
-.sf-rail-toggle[data-rail="true"] { left: calc(var(--sf-rail-w) - 36px); }
+.sf-rail-toggle { position: fixed; bottom: 18px; left: calc(var(--sf-nav-w) - 2px); z-index: 45; width: 24px; height: 44px; min-height: 0; margin: 0; padding: 0 0 0 2px; display: inline-flex; align-items: center; justify-content: center; color: var(--ui-muted); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-left: 0; border-radius: 0 4px 4px 0; box-shadow: 2px 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); cursor: pointer; font: 14px/1 var(--sf-band-font); }
+.sf-rail-toggle[data-rail="true"] { left: calc(var(--sf-rail-w) - 2px); }
 .sf-rail-toggle:hover { color: var(--ui-text); border-color: var(--ui-heading); }
 .sf-rail-toggle:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .sf-scrim { display: none; }
@@ -116,7 +124,8 @@
 /* Tree headers wear the coach page band box (owner 10-30): panel surface, 2 px frame, 4 px heading-red left accent. */
 .sf-tree-head { display: flex; align-items: center; gap: 4px; margin: 0 6px; padding: 6px 4px 6px 10px; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); }
 .sf-tree + .sf-tree { margin-top: 10px; }
-.sf-caret { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: -9px 0; padding: 0; color: var(--ui-muted); background: transparent; border: 0; cursor: pointer; font-size: 13px; }
+.sf-caret { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: -9px 0; padding: 0; color: var(--ui-text); background: transparent; border: 0; cursor: pointer; font-size: 22px; line-height: 1; text-shadow: 0 1px 0 var(--sf-panel-drop); } /* owner 10-31: larger and white so it is clearly visible */
+.sf-caret:hover { color: var(--sf-gold); }
 .sf-head-link { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0; font: 24px/1.15 var(--sf-wordmark-font); text-transform: uppercase; letter-spacing: .05em; text-align: left; color: var(--ui-heading); background: transparent; border: 0; text-decoration: none; cursor: pointer; }
 .sf-head-link[data-active="true"] { color: var(--sf-seat-home); }
 /* Leagues and Tournaments headers in gold (owner 10-31), active or not; the active page still shows by the blue left bar. */
@@ -185,7 +194,6 @@
 @media (max-width: 640px) {
   .shell-header.sf-top { padding: 6px 16px; gap: 8px; }
   .sf-wordmark.brand { padding-right: 0; font-size: 1.15rem; }
-  .sf-top .shell-theme { display: none; }
   .sf-avatar-menu .shell-me { max-width: 110px; }
   .sf-page-title { padding: 0 4px; font-size: .85rem; letter-spacing: .05em; }
 }

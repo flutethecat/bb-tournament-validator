@@ -137,11 +137,6 @@ async function signOut(): Promise<void> {
 
 <template>
   <header class="shell-header sf-top" :data-rail="ui.collapsed ? 'true' : 'false'" :inert="createOpen || undefined" :aria-hidden="createOpen ? 'true' : undefined">
-    <!-- Rail collapser (owner 10-30): in the top bar at the right edge of the sidebar column; desktop only (phones use Menu). -->
-    <button
-      class="sf-rail-toggle" type="button" :data-rail="ui.collapsed ? 'true' : 'false'"
-      :aria-label="ui.collapsed ? 'Expand navigation ([)' : 'Collapse navigation ([)'" @click="toggleRail"
-    ><span aria-hidden="true">{{ ui.collapsed ? "»" : "«" }}</span></button>
     <button
       ref="menuBtn" class="sf-menu" type="button" :aria-expanded="ui.drawerOpen ? 'true' : 'false'" aria-controls="sf-aside"
       aria-label="Menu" @click="ui.drawerOpen = !ui.drawerOpen"
@@ -149,7 +144,6 @@ async function signOut(): Promise<void> {
     <RouterLink class="brand sf-wordmark" to="/home" aria-label="Super FUMBBL home">Super FUMBBL</RouterLink>
     <h1 class="sf-page-title" aria-live="polite">{{ pageTitle }}</h1>
     <div class="shell-who" aria-live="polite">
-      <button class="lobby-btn small shell-theme" type="button" :aria-label="`Theme: ${themeLabel(theme.state.mode)}. Tap to change.`" @click="theme.cycle()">Theme: {{ themeLabel(theme.state.mode) }}</button>
       <template v-if="session.signedIn()">
         <BellPopover />
         <div class="sf-avatar-menu">
@@ -173,7 +167,36 @@ async function signOut(): Promise<void> {
       :tabindex="drawerModal ? -1 : undefined"
     >
       <ShellNav />
+      <!-- Theme switch (owner 10-31): an icon at the bottom left of the screen. Sun = light, moon = dark, half sun / half
+           moon = automatic (follows the device). Click cycles System -> Light -> Dark. -->
+      <div class="sf-aside-foot">
+        <button
+          class="sf-theme" type="button" :data-mode="theme.state.mode"
+          :aria-label="`Theme: ${themeLabel(theme.state.mode)}. Tap to change.`" @click="theme.cycle()"
+        >
+          <svg v-if="theme.state.mode === 'light'" class="sf-theme-ico" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="4.5" fill="currentColor" />
+            <g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" /></g>
+          </svg>
+          <svg v-else-if="theme.state.mode === 'dark'" class="sf-theme-ico" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+            <path fill="currentColor" d="M20.3 14.6A8.5 8.5 0 0 1 9.4 3.7a8.5 8.5 0 1 0 10.9 10.9Z" />
+          </svg>
+          <svg v-else class="sf-theme-ico" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+            <path fill="currentColor" d="M12 5.5a6.5 6.5 0 0 0 0 13Z" />
+            <path fill="currentColor" d="M12 5.5a6.5 6.5 0 0 1 0 13 4.6 4.6 0 0 0 0-13Z" opacity=".55" />
+            <circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6" />
+            <g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 1.8v2M4.8 4.8l1.4 1.4M1.8 12h2M4.8 19.2l1.4-1.4M12 20.2v2" /></g>
+          </svg>
+          <span class="sf-sr">Theme: {{ themeLabel(theme.state.mode) }}</span>
+        </button>
+      </div>
     </aside>
+    <!-- Rail collapser (owner 10-31): a tag hanging on the sidebar's right edge at the bottom of the screen; desktop only
+         (phones use Menu). -->
+    <button
+      class="sf-rail-toggle" type="button" :data-rail="ui.collapsed ? 'true' : 'false'"
+      :aria-label="ui.collapsed ? 'Expand navigation ([)' : 'Collapse navigation ([)'" @click="toggleRail"
+    ><span aria-hidden="true">{{ ui.collapsed ? "»" : "«" }}</span></button>
     <main class="shell-main">
       <p v-if="gate === 'loading'" class="muted">Loading…</p>
       <section v-else-if="gate === 'error'" class="lobby-card">

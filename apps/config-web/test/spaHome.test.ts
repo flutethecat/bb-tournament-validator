@@ -774,20 +774,22 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-count,\s*\.sf-nav\[data-collapsed="true"\] \.sf-rows \{ display: none; \}/);
     expect(css).toMatch(/\.sf-nav\[data-collapsed="true"\] \.sf-icon \{ width: 30px; height: 30px; \}/);
     expect(css).toMatch(/\.sf-icon \{ width: 26px; height: 26px;[^}]*image-rendering: pixelated/);
-    expect(css).toMatch(/\.sf-rail-toggle\[data-rail="true"\] \{ left: calc\(var\(--sf-rail-w\) - 36px\); \}/);
+    expect(css).toMatch(/\.sf-rail-toggle\[data-rail="true"\] \{ left: calc\(var\(--sf-rail-w\) - 2px\); \}/);
   });
 
-  it("rail collapser: lives in the top bar at the sidebar column's right edge, not in the aside; hidden in the drawer layout", async () => {
+  it("rail collapser: a tag on the sidebar's right edge at the bottom of the screen (owner 10-31), not in the header or the aside; hidden in the drawer layout", async () => {
     const open = (await render("/home", signedInRoutes())).html;
     const header = open.slice(open.indexOf("<header"), open.indexOf("</header>"));
     const aside = open.slice(open.indexOf("<aside"), open.indexOf("</aside>"));
-    expect(header).toMatch(/<button class="sf-rail-toggle" type="button" data-rail="false" aria-label="Collapse navigation \(\[\)"/);
+    const afterAside = open.slice(open.indexOf("</aside>"), open.indexOf("<main"));
+    expect(afterAside).toMatch(/<button class="sf-rail-toggle" type="button" data-rail="false" aria-label="Collapse navigation \(\[\)"/);
+    expect(header).not.toContain("sf-rail-toggle");
     expect(aside).not.toContain("sf-rail-toggle");
     const rail = (await render("/home", signedInRoutes(), (spa) => { spa.ui.collapsed = true; })).html;
     expect(rail).toMatch(/<header class="shell-header sf-top" data-rail="true">/);
     expect(rail).toMatch(/<button class="sf-rail-toggle" type="button" data-rail="true" aria-label="Expand navigation \(\[\)"/);
     const css = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");
-    expect(css).toMatch(/\.sf-rail-toggle \{ position: absolute; top: 50%; left: calc\(var\(--sf-nav-w\) - 36px\); transform: translateY\(-50%\); width: 28px; height: 28px;/);
+    expect(css).toMatch(/\.sf-rail-toggle \{ position: fixed; bottom: 18px; left: calc\(var\(--sf-nav-w\) - 2px\);[^}]*border-left: 0; border-radius: 0 4px 4px 0;/);
     expect(css).toMatch(/@media \(max-width: 1023\.98px\) \{[\s\S]*?\.sf-rail-toggle \{ display: none; \}/);
     expect(css).not.toMatch(/\.sf-nav > \.sf-top-link \{ margin-right/); // Home no longer reserves room for it
   });
