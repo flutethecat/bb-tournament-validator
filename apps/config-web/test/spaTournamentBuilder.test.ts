@@ -145,7 +145,7 @@ describe("tournament builder controller", () => {
     await b.flushPreview();
     const v = b.validity();
     expect(v.tone).toBe("invalid");
-    expect(v.headline).toBe("Team is invalid: 1 issue to fix");
+    expect(v.headline).toBe("Team is invalid: 1 issue");
     expect(v.errors).toEqual(["Tier 1 allows no secondary skills (Guard on #2)."]);
     const body = f.calls.filter((c) => c.method === "POST" && c.path.endsWith("/preview")).at(-1)!.body as any;
     expect(body.picks).toEqual([{ positionId: "hlin", count: 1, chosenSkills: ["Tackle", "Wrestle"] }, { positionId: "hlin", count: 1, chosenSkills: ["Guard"] }]);
@@ -177,6 +177,31 @@ describe("tournament builder controller", () => {
     expect(b.state.slots[1]!.captain).toBe(true);
     expect(b.requestBody().picks.find((p) => p.captain)).toEqual({ positionId: "hbli", count: 1, captain: true });
     expect(b.valueLines().find((l) => l.label === "Team Captain")?.value).toBe("#2 Blitzer");
+  });
+
+  it("Team Captain: no direct reassignment; clearing the captain (or firing them) frees the toggle (owner 10-31)", async () => {
+    const { b } = await ready(mockFetcher(routes()));
+    b.setTeamName("Reavers");
+    b.addPosition("hbli");
+    b.addPosition("hlin");
+    b.toggleCaptain(0);
+    expect(b.captainIndex()).toBe(0);
+    b.toggleCaptain(1); // another row cannot take it while #1 is captain
+    expect(b.captainIndex()).toBe(0);
+    expect(b.state.slots[1]!.captain).toBeUndefined();
+    b.toggleCaptain(0); // clear it on the captain's row
+    expect(b.captainIndex()).toBe(-1);
+    b.toggleCaptain(1);
+    expect(b.captainIndex()).toBe(1);
+    b.removeSlot(1); // firing the captain clears it
+    expect(b.captainIndex()).toBe(-1);
+  });
+
+  it("the left accordion's open panel lives on the controller: Hireable players by default", async () => {
+    const { b } = await ready(mockFetcher(routes()));
+    expect(b.state.leftPanel).toBe("hire");
+    b.state.leftPanel = "staff";
+    expect(b.state.leftPanel).toBe("staff");
   });
 
   it("Save Team posts the builder body named after the team, then PUTs the open save", async () => {
@@ -440,28 +465,29 @@ describe("tournament builder page (server-rendered)", () => {
     const tabs = [...html.matchAll(/role="tab" class="tl-seg-btn" data-tab="(\w+)" aria-selected="(\w+)"[^>]*>([^<]+)</g)].map((m) => [m[1], m[2], m[3]]);
     expect(tabs).toEqual([["ruleset", "false", "Ruleset"], ["roster", "true", "Roster"], ["sheet", "false", "Sheet"]]);
     expect(html).toContain("Test Cup · Human · Tier 1 · TV cap 1,150k");
-    expect(between(html, "tb-validator-h", "tb-valid-h")).toContain('class="tv-totals tb-value"');
-    expect(html).toContain(">Hireable players</h2>");
+    expect(between(html, "tb-validator-h")).toContain('class="tv-totals tb-value"');
+    expect(between(html, "tb-validator-h")).not.toMatch(/Server preview|Estimate<\/span><\/header>/i); // no meta label on the Validator header
+    expect(html).toContain('<span class="tb-acc-title">Hireable players</span>');
     expect(html).not.toContain(">Add players</h2>");
     expect(html).toContain('aria-label="Add Human Blitzer"');
     expect(html).toMatch(/<strong>Blitzer<\/strong>/); // short position name (src/positionNames.ts)
   });
 
-  it("the Roster pane: left = hireable players, sideline staff; centre = roster; right = team, validator, errors, inducements, star players (phone order = source order)", async () => {
+  it("the Roster pane: left = the accordion (hireable players, sideline staff, inducements, star players); centre = roster; right = team, save line, validator (phone order = source order)", async () => {
     const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); });
     expect(html).toContain('id="tb-pane-roster"');
     const cols = ["tb-col-left", "tb-col-centre", "tb-col-right"].map((c) => html.indexOf(`class="tb-col ${c}"`));
     expect(cols.every((n) => n > 0)).toBe(true);
     expect(cols).toEqual([...cols].sort((a, b) => a - b));
-    const order = ["tb-add-h", "tb-staff-h", "tb-roster-h", "tb-team-h", "tb-validator-h", "tb-valid-h", "tb-ind-h", "tb-stars-h"].map((id) => html.indexOf(`id="${id}"`));
+    const order = ["tb-add-h", "tb-staff-h", "tb-ind-h", "tb-stars-h", "tb-roster-h", "tb-team-h", "tb-valid-h", "tb-validator-h"].map((id) => html.indexOf(`id="${id}"`));
     expect(order.every((n) => n > 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
-    expect(html.indexOf('id="tb-staff-h"')).toBeLessThan(cols[1]!); // Sideline staff: the left column, under the hireable players
-    expect(html).toMatch(/class="tb-positions tb-hire-list"/); // the hire list scrolls (four cards at a time)
-    expect(html.indexOf('id="tb-ind-h"')).toBeGreaterThan(cols[2]!); // Inducements and Star Players close the right column
-    expect(html.indexOf('id="tb-stars-h"')).toBeGreaterThan(html.indexOf('id="tb-ind-h"'));
+    for (const id of ["tb-add-h", "tb-staff-h", "tb-ind-h", "tb-stars-h"]) expect(html.indexOf(`id="${id}"`)).toBeLessThan(cols[1]!); // all four in the left column
+    expect(html).not.toContain('id="tb-picked-h"'); // no Selected inducements panel anywhere while nothing is picked (and never on the right)
+    expect(html).toMatch(/class="tb-positions tb-hire-list tb-row-window"/); // the hire list scrolls (five cards at a time)
     expect(html.indexOf('id="tb-roster-h"')).toBeGreaterThan(cols[1]!);
     expect(html.indexOf('id="tb-team-h"')).toBeGreaterThan(cols[2]!);
+    expect(html.indexOf('id="tb-valid-h"')).toBeGreaterThan(html.indexOf('id="tb-team-h"')); // the save line sits under the Team controls
     // The roster table is the top of the centre column; the skill key sits under it.
     expect(between(html, "tb-roster-h", "tb-team-h")).toContain('aria-label="Skill key"');
     expect(html).toContain('id="tb-team-name"');
@@ -546,8 +572,20 @@ describe("tournament builder page (server-rendered)", () => {
     expect(roster.match(/>Add Skill<\/button>/g)).toHaveLength(1);
     expect(roster).toContain('class="tm-act" data-kind="skill"');
     expect(roster).toContain("Star player: no added skills");
-    expect(roster).toContain("Primary skills <b>0</b>");
-    const validator = between(html, "tb-validator-h", "tb-valid-h");
+    // the Roster header carries the skill counts against the allowance (tier 1: no secondary); the player count sits bottom right
+    expect(roster).toContain('id="tb-roster-h">Roster</h2><span class="hm-cap tb-skill-meta">Primary 0 · Secondary 0/0</span>');
+    expect(roster).not.toContain("Primary skills <b>");
+    expect(roster.indexOf('aria-label="Skill key"')).toBeLessThan(roster.indexOf('class="hm-cap tb-player-count">2 / 16 players</span>'));
+    // Add Skill sits at the right end of the stat line (owner 10-31: where Fire was); no Fire button, a red X fires instead
+    expect(roster).toMatch(/<span class="tb-row-line2"><span class="tb-stats tb-row-stats">.*?<\/span><span class="tm-acts tb-row-actions"><button type="button" class="tm-act" data-kind="skill"/s);
+    expect(roster).not.toMatch(/>Fire<\/button>/);
+    expect(roster).not.toContain('class="tb-fire"');
+    expect(roster).toContain('class="tb-fire-x" aria-label="Fire Human Blitzer #1"');
+    expect(roster).toContain('aria-label="Fire Grim Ironjaw #2"');
+    expect(roster).not.toContain("Roster player"); // no subtitle except the star line
+    expect(roster).toContain('class="sprite-frame tb-sprite tb-row-sprite"'); // the bigger portrait
+    expect(roster.match(/class="row-skills tb-row-skills"/g)).toHaveLength(2); // the skills band on every row
+    const validator = between(html, "tb-validator-h");
     expect(validator).toContain("Budget 1,150k");
     expect(validator).toContain("Stars (max 1)");
     expect(validator).toContain("Secondary skills: max 0");
@@ -569,14 +607,14 @@ describe("tournament builder page (server-rendered)", () => {
       await b.openSkills(1);
       b.addSkill(1, "Guard");
     });
-    const validator = between(html, "tb-validator-h", "tb-valid-h");
+    const validator = between(html, "tb-validator-h");
     expect(validator).toContain('class="tb-sp-total">3.5 <small>/ 6 SP</small>');
     expect(validator).toContain("<span>#1 Blitzer</span><b>1 SP</b>");
     expect(validator).toContain("<span>#2 Lineman</span><b>2.5 SP</b>");
     expect(validator).toContain("6 SP"); // the race's rule line: Budget 1,150k · 6 SP
   });
 
-  it("the Errors / Valid box shows a tier violation from the preview; the Team controls carry the actions; the Sheet tab is the sheet only", async () => {
+  it("the save line: invalid -> the verdict header and the live issues list replace Export PDF / Create team on Fork (Save Team stays); the Sheet tab is the sheet only", async () => {
     const f = mockFetcher(routes({ "POST /api/fork/team-builder/preview": { valid: false, errors: ["Tier 1 allows no secondary skills (Guard on #1)."], warnings: ["Unspent gold"], summary: { goldUsed: 90000 }, package: { name: "Test Cup", budget: 1150000, rules: TIER_ROW } } }));
     const prepare = async (b: any) => {
       b.setTeamName("Reavers <x>");
@@ -586,13 +624,18 @@ describe("tournament builder page (server-rendered)", () => {
       await b.flushPreview();
     };
     const html = await render("/tournament-team-builder?tab=roster", f, prepare);
-    expect(html).toContain('<h2 id="tb-valid-h">Team is invalid: 1 issue to fix</h2>');
-    expect(html).toContain('data-kind="error">Tier 1 allows no secondary skills (Guard on #1).</li>');
-    expect(html).toContain('data-kind="warning">Unspent gold</li>');
-    const team = between(html, "tb-team-h", "tb-validator-h");
-    expect(team).toMatch(/<button type="button" class="tb-btn primary" disabled>Export PDF<\/button>/);
-    expect(team).toMatch(/<button type="button" class="tb-btn">Save Team<\/button>/);
-    expect(team).toMatch(/<button type="button" class="tb-btn" disabled>Create team on Fork<\/button>/);
+    expect(html).toContain('<h2 id="tb-valid-h" aria-live="polite">Team is invalid: 1 issue</h2>');
+    const line = between(html, "tb-valid-h", "tb-validator-h");
+    const errorAt = line.indexOf('data-kind="error">Tier 1 allows no secondary skills (Guard on #1).</li>');
+    const warningAt = line.indexOf('data-kind="warning">Unspent gold</li>');
+    expect(errorAt).toBeGreaterThan(0);
+    expect(warningAt).toBeGreaterThan(errorAt); // errors first, then warnings
+    expect(line).not.toMatch(/>Export PDF<\/button>/);
+    expect(line).not.toMatch(/>Create team on Fork<\/button>/);
+    expect(line).toMatch(/<button type="button" class="tb-btn">Save Team<\/button>/); // a draft can still be saved
+    expect(line.indexOf(">Save Team</button>")).toBeGreaterThan(warningAt); // under the issues
+    expect(line).not.toContain("The server checked this team against"); // no explanatory sentence
+    expect(between(html, "tb-team-h", "tb-valid-h")).not.toMatch(/class="tb-action-row"/); // the Team controls hold no actions
     const sheet = await render("/tournament-team-builder?tab=sheet", f, prepare);
     // The Sheet tab is the exported PDF previewed on paper (owner 10-30): the PDF's header, ruleset box and roster table.
     expect(sheet).toContain('<h2 id="ps-frame-h">Sheet · preview of the exported PDF</h2>');
@@ -602,6 +645,72 @@ describe("tournament builder page (server-rendered)", () => {
     expect(sheet).toContain('<td class="ps-k">Package</td><td class="ps-v">Test Cup</td>');
     expect(sheet).not.toContain('id="tb-valid-h"');
     expect(sheet).not.toMatch(/>Export PDF<\/button>/);
+  });
+
+  it("the save line: valid for the current document -> the buttons (Export PDF, Save Team, Create team on Fork), no issues list", async () => {
+    const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), async (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); await b.flushPreview(); });
+    expect(html).toContain('<h2 id="tb-valid-h" aria-live="polite">Team is valid</h2>');
+    expect(html).toContain('class="hm-panel tb-panel tb-saveline" data-tone="valid"');
+    const line = between(html, "tb-valid-h", "tb-validator-h");
+    expect(line).not.toContain('class="tb-issues"');
+    const at = ["Export PDF", "Save Team", "Create team on Fork"].map((t) => line.indexOf(`>${t}</button>`));
+    expect(at.every((n) => n > 0)).toBe(true);
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+  });
+
+  it("the save line while the preview is out: Checking team..., the issues list (checklist) instead of the buttons", async () => {
+    const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); b.state.previewPending = true; });
+    expect(html).toContain('<h2 id="tb-valid-h" aria-live="polite">Checking team...</h2>');
+    expect(between(html, "tb-valid-h", "tb-validator-h")).not.toMatch(/>Export PDF<\/button>/);
+  });
+
+  it("left accordion: Hireable players pinned first and open by default; another open panel sits last with its body", async () => {
+    const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); });
+    const bars = [...html.matchAll(/id="tb-acc-(\w+)" type="button" class="tb-acc-btn" aria-expanded="(\w+)"/g)].map((m) => [m[1], m[2]]);
+    expect(bars).toEqual([["hire", "true"], ["staff", "false"], ["inducements", "false"], ["stars", "false"]]);
+    expect(html).toContain('id="tb-acc-body-hire"');
+    expect(html).not.toContain('id="tb-acc-body-staff"');
+    expect(html).toContain('aria-controls="tb-acc-body-staff"');
+    expect(html).not.toMatch(/<span class="tb-acc-title">Hireable players<\/span><span class="hm-cap">/); // no count meta on Hireable players
+    const staff = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.state.leftPanel = "staff"; });
+    const order = [...staff.matchAll(/id="tb-acc-(\w+)" type="button" class="tb-acc-btn" aria-expanded="(\w+)"/g)].map((m) => [m[1], m[2]]);
+    expect(order).toEqual([["hire", "false"], ["inducements", "false"], ["stars", "false"], ["staff", "true"]]);
+    expect(staff).toContain('id="tb-acc-body-staff"');
+    expect(staff).not.toContain('id="tb-acc-body-hire"');
+    expect(staff).toContain('class="tb-steppers tb-scroll-list tb-row-window"'); // five lines at a time
+  });
+
+  it("NO STAR ACCESS: a race with no stars keeps the bar, muted and never expandable; a remembered Star players panel falls back to Hireable players", async () => {
+    const f = mockFetcher(routes({ "/api/packages/Test%20Cup?roster=Human": { pkg: { description: "", eligibleRosters: ["Human"] }, rules: { ...RULES, race: { ...RACE, stars: { allowed: false } } } } }));
+    const html = await render("/tournament-team-builder?tab=roster", f, (b) => { b.setTeamName("Reavers"); b.state.leftPanel = "stars"; });
+    expect(html).toMatch(/id="tb-acc-stars" type="button" class="tb-acc-btn" aria-expanded="false" aria-disabled="true"[^>]*><span class="tb-acc-title">NO STAR ACCESS<\/span>/);
+    expect(html).toContain('<section class="off hm-panel tb-panel tb-acc" data-panel="stars"');
+    expect(html).not.toContain('id="tb-acc-body-stars"');
+    expect(html).not.toContain('aria-controls="tb-acc-body-stars"');
+    expect(html).toContain('id="tb-acc-body-hire"');
+    expect(html).not.toContain(">Star Players<");
+  });
+
+  it("captain badge: the owner's painted badge (gold on, grey toggle), only the captain's row while one is set; added skills wear the gold border and the red X badge, printed skills neither", async () => {
+    const f = mockFetcher(routes());
+    const none = await render("/tournament-team-builder?tab=roster", f, (b) => { b.setTeamName("Reavers"); b.addPosition("hbli"); b.addPosition("hlin"); });
+    const rows0 = between(none, "tb-roster-h", "tb-team-h");
+    expect(rows0.match(/class="tb-captain"/g)).toHaveLength(2);
+    expect(rows0).toContain('src="/icons/builder/team-captain-grey-32.png" srcset="/icons/builder/team-captain-grey-32.png 1x, /icons/builder/team-captain-grey-64.png 2x" width="32" height="32" alt=""');
+    expect(rows0).toContain('title="Make team captain"');
+    const set = await render("/tournament-team-builder?tab=roster", f, async (b) => {
+      b.setTeamName("Reavers"); b.addPosition("hbli"); b.addPosition("hlin"); b.toggleCaptain(1);
+      await b.openSkills(0); b.addSkill(0, "Tackle");
+    });
+    const rows = between(set, "tb-roster-h", "tb-team-h");
+    expect(rows.match(/class="tb-captain"/g)).toHaveLength(1); // the other eligible row shows no toggle at all
+    expect(rows).toContain('src="/icons/builder/team-captain-gold-32.png"');
+    expect(rows).toContain('aria-pressed="true" title="Team captain. Remove to choose another player." aria-description="Team captain. Remove to choose another player."');
+    expect(rows).not.toContain("tb-captain-slot");
+    expect(rows).not.toMatch(/<small>Team Captain<\/small>/); // no captain subtitle either
+    expect(rows).toMatch(/class="skill skill-general tb-added tb-bought access-primary">\s*Tackle<button type="button" class="tb-chip-x" aria-label="Remove Tackle">/);
+    expect(rows).toMatch(/<span class="skill skill-general">Block<\/span>/); // the printed skill: no tb-bought, no X
+    expect(rows).not.toContain('aria-label="Remove Block"');
   });
 
   it("the Team controls with a shared save: the link field, Copy and Unshare", async () => {
@@ -803,15 +912,112 @@ describe("tournament builder page (client behaviour)", () => {
       expect(textOf(verdict())).toContain("You must name your team first.");
       expect(fakeDocument.activeElement?.attrs.id).toBe("tb-team-name");
       expect(page.all().filter((e) => e.attrs.class === "tb-row" || String(e.attrs.class ?? "").startsWith("tb-row ")).length).toBe(0);
-      // A star player takes the same gate.
+      // A star player takes the same gate (open the Star players panel of the left accordion first).
+      await page.fire(page.find((e) => e.attrs.id === "tb-acc-stars"), "click");
       fakeDocument.activeElement = null;
       await page.fire(page.find((e) => e.attrs["aria-label"] === "Add Grim Ironjaw"), "click");
       expect(fakeDocument.activeElement?.attrs.id).toBe("tb-team-name");
       const name = page.find((e) => e.attrs.id === "tb-team-name");
       await page.fire(name, "input", { value: "Reavers" });
       expect(textOf(verdict())).not.toContain("You must name your team first.");
+      await page.fire(page.find((e) => e.attrs.id === "tb-acc-hire"), "click"); // back to Hireable players
       await page.fire(lineman(), "click");
       expect(page.all().some((e) => e.attrs["data-row"] === 0)).toBe(true);
+    } finally { page.app.unmount(); }
+  });
+
+  const bars = (page: { all: () => FakeEl[] }): string[] => page.all().filter((e) => e.tag === "section" && String(e.attrs.class ?? "").includes("tb-acc"))
+    .map((e) => `${e.attrs["data-panel"]}${String(e.attrs.class).includes("open") ? "*" : ""}`);
+
+  it("left accordion: a click opens a panel (the others collapse, Hireable players stays first), focus stays on its header; closing it reopens Hireable players", async () => {
+    const page = await mount("/tournament-team-builder?package=Test%20Cup&race=human", mockFetcher(routes()));
+    try {
+      expect(bars(page)).toEqual(["hire*", "staff", "inducements", "stars"]);
+      const btn = (p: string) => page.find((e) => e.attrs.id === `tb-acc-${p}`);
+      expect(btn("staff").tag).toBe("button"); // Enter / Space activate it natively
+      expect(btn("staff").attrs["aria-controls"]).toBe("tb-acc-body-staff");
+      await page.fire(btn("inducements"), "click");
+      expect(bars(page)).toEqual(["hire", "staff", "stars", "inducements*"]);
+      expect(btn("inducements").attrs["aria-expanded"]).toBe("true");
+      expect(btn("hire").attrs["aria-expanded"]).toBe("false");
+      expect(page.all().some((e) => e.attrs.id === "tb-acc-body-inducements")).toBe(true);
+      expect(page.all().some((e) => e.attrs.id === "tb-acc-body-hire")).toBe(false);
+      expect(fakeDocument.activeElement?.attrs.id).toBe("tb-acc-inducements");
+      await page.fire(btn("inducements"), "click"); // close it: Hireable players opens again
+      expect(bars(page)).toEqual(["hire*", "staff", "inducements", "stars"]);
+      await page.fire(btn("hire"), "click"); // Hireable players stays open until another panel opens
+      expect(bars(page)).toEqual(["hire*", "staff", "inducements", "stars"]);
+    } finally { page.app.unmount(); }
+  });
+
+  it("a hire scrolls the newest row into view and flashes it; loading a saved team does not", async () => {
+    const seen: unknown[] = [];
+    const proto = FakeEl.prototype as any;
+    const was = proto.scrollIntoView;
+    proto.scrollIntoView = function (this: FakeEl, o: unknown) { seen.push([this.attrs["data-row"], o]); };
+    try {
+      const page = await mount("/tournament-team-builder?package=Test%20Cup&race=human", mockFetcher(routes()));
+      try {
+        await page.fire(page.find((e) => e.attrs.id === "tb-team-name"), "input", { value: "Reavers" });
+        await page.fire(page.find((e) => e.attrs["aria-label"] === "Add Human Lineman"), "click");
+        await page.fire(page.find((e) => e.attrs["aria-label"] === "Add Human Blitzer"), "click");
+        expect(seen).toEqual([[0, { block: "nearest", behavior: "smooth" }], [1, { block: "nearest", behavior: "smooth" }]]);
+        expect(String(page.find((e) => e.attrs["data-row"] === 1).attrs.class)).toContain("tb-row-new");
+        seen.length = 0;
+        await page.fire(page.find((e) => e.attrs["aria-label"] === "Fire Human Lineman #1"), "click"); // fire: no scroll
+        expect(seen).toEqual([]);
+        expect(page.all().filter((e) => e.attrs["data-row"] !== undefined).length).toBe(1);
+      } finally { page.app.unmount(); }
+      seen.length = 0;
+      const save = { id: "sv_abc", name: "Reavers", body: { rosterId: "human", teamName: "Reavers", packageName: "Test Cup", picks: [{ positionId: "hlin", count: 3 }] } };
+      const lf = mockFetcher(routes({ "/api/fork/team-builder/saves/sv_abc": { save } }));
+      const loaded = await mount("/tournament-team-builder?save=sv_abc", lf); // the test mounts the view as the app root: the ?save= deep link
+      try {
+        expect(loaded.selectedTab()).toBe("roster");
+        expect(loaded.all().filter((e) => e.attrs["data-row"] !== undefined).length).toBe(3);
+        expect(seen).toEqual([]);
+      } finally { loaded.app.unmount(); }
+    } finally { proto.scrollIntoView = was; }
+  });
+
+  it("captain badge: with a captain set the other rows show no toggle; clearing it or firing the captain restores them; a broken image falls back to the C glyph", async () => {
+    const page = await mount("/tournament-team-builder?package=Test%20Cup&race=human", mockFetcher(routes()));
+    try {
+      await page.fire(page.find((e) => e.attrs.id === "tb-team-name"), "input", { value: "Reavers" });
+      for (const who of ["Add Human Blitzer", "Add Human Lineman", "Add Human Lineman"]) await page.fire(page.find((e) => e.attrs["aria-label"] === who), "click");
+      const toggles = () => page.all().filter((e) => e.tag === "button" && e.attrs.class === "tb-captain");
+      expect(toggles().length).toBe(3);
+      await page.fire(toggles()[1]!, "click");
+      expect(toggles().length).toBe(1);
+      expect(toggles()[0]!.attrs["aria-pressed"]).toBe("true");
+      await page.fire(toggles()[0]!, "click"); // clear it on the captain's row
+      expect(toggles().length).toBe(3);
+      await page.fire(toggles()[2]!, "click");
+      expect(toggles().length).toBe(1);
+      await page.fire(page.find((e) => e.attrs["aria-label"] === "Fire Human Lineman #3"), "click"); // fire the captain
+      expect(toggles().length).toBe(2);
+      const img = toggles()[0]!.children.find((c) => c.tag === "img")!;
+      expect(img.attrs.src).toBe("/icons/builder/team-captain-grey-32.png");
+      await page.fire(img, "error");
+      expect(textOf(toggles()[0]!)).toBe("C");
+      expect(toggles()[0]!.children.some((c) => c.tag === "img")).toBe(false);
+    } finally { page.app.unmount(); }
+  });
+
+  it("the red X badge on an added skill removes it", async () => {
+    const page = await mount("/tournament-team-builder?package=Test%20Cup&race=human", mockFetcher(routes()));
+    try {
+      await page.fire(page.find((e) => e.attrs.id === "tb-team-name"), "input", { value: "Reavers" });
+      await page.fire(page.find((e) => e.attrs["aria-label"] === "Add Human Lineman"), "click");
+      const inRow = (e: FakeEl): boolean => { for (let p = e.parent; p; p = p.parent) if (p.attrs["data-row"] !== undefined) return true; return false; };
+      const chipX = () => page.all().filter((e) => e.attrs.class === "tb-chip-x" && inRow(e));
+      expect(chipX()).toEqual([]);
+      // add Tackle through the skill picker
+      await page.fire(page.find((e) => e.attrs["aria-label"] === "Add a skill to #1 Lineman"), "click");
+      await page.fire(page.find((e) => e.tag === "button" && textOf(e).startsWith("Tackle")), "click");
+      expect(chipX().map((e) => e.attrs["aria-label"])).toEqual(["Remove Tackle"]);
+      await page.fire(chipX()[0]!, "click");
+      expect(chipX()).toEqual([]);
     } finally { page.app.unmount(); }
   });
 
@@ -887,16 +1093,18 @@ describe("tournament builder wiring", () => {
   });
 });
 
-describe("Hireable players four-card window", () => {
-  it("fourCardHeight: the bottom of the 4th card, nothing for four or fewer", async () => {
-    const { fourCardHeight } = await import("../spa/src/teams/hireWindow");
+describe("left accordion five-row window", () => {
+  it("rowWindowHeight: the bottom of the 5th row, nothing for five or fewer", async () => {
+    const { rowWindowHeight, ROW_WINDOW } = await import("../spa/src/teams/hireWindow");
+    expect(ROW_WINDOW).toBe(5);
     const card = (top: number, h: number) => ({ offsetTop: top, offsetHeight: h });
-    expect(fourCardHeight([card(0, 100), card(110, 100), card(220, 100), card(330, 100)])).toBeUndefined();
-    expect(fourCardHeight([card(0, 100), card(110, 120), card(240, 100), card(350, 140), card(500, 100)])).toBe(490);
+    expect(rowWindowHeight([card(0, 100), card(110, 100), card(220, 100), card(330, 100), card(440, 100)])).toBeUndefined();
+    expect(rowWindowHeight([card(0, 100), card(110, 120), card(240, 100), card(350, 140), card(500, 100), card(610, 100)])).toBe(600);
+    expect(rowWindowHeight([card(0, 100), card(110, 120), card(240, 100), card(350, 140), card(500, 100)], 4)).toBe(490);
   });
 
-  it("watchFourCards re-measures on card resize, image load and fonts.ready, re-attaches on rewatch, disconnects on stop", async () => {
-    const { watchFourCards } = await import("../spa/src/teams/hireWindow");
+  it("watchRowWindow re-measures on row resize, image load and fonts.ready, re-attaches on rewatch, disconnects on stop", async () => {
+    const { watchRowWindow: watchFourCards } = await import("../spa/src/teams/hireWindow");
     const observed = new Set<unknown>();
     let fire: () => void = () => {};
     class FakeRO { constructor(cb: () => void) { fire = cb; } observe(e: unknown) { observed.add(e); } disconnect() { observed.clear(); } }
@@ -910,7 +1118,7 @@ describe("Hireable players four-card window", () => {
       const kids = [1, 2, 3, 4, 5, 6].map((n) => ({ n }));
       const list: any = { children: kids, addEventListener: (t: string, f: () => void) => { listeners[t] = f; }, removeEventListener: (t: string) => { delete listeners[t]; } };
       let calls = 0;
-      const w = watchFourCards(list, () => { calls++; });
+      const w = watchFourCards(list, () => { calls++; }, 4);
       expect([...observed]).toEqual([kids[0], kids[1], kids[2], kids[3], list]); // first four cards + the box, not the rest
       fire(); expect(calls).toBe(1);
       listeners.load!(); expect(calls).toBe(2);
@@ -922,5 +1130,62 @@ describe("Hireable players four-card window", () => {
       expect(observed.size).toBe(0);
       expect(listeners.load).toBeUndefined();
     } finally { g.ResizeObserver = saved.ro; g.document = saved.doc; }
+  });
+});
+
+describe("roster scroller, reveal and drag edge (owner 10-31)", () => {
+  it("revealRow scrolls the roster scroller when it overflows, else the page; revealTop shows the whole row", async () => {
+    const { revealRow, revealTop } = await import("../spa/src/teams/rosterReveal");
+    const box = (scrollTop: number) => ({ offsetTop: 0, offsetHeight: 400, scrollTop, clientHeight: 400, scrollHeight: 1200, calls: [] as unknown[], scrollTo(o: unknown) { this.calls.push(o); } });
+    expect(revealTop({ offsetTop: 500, offsetHeight: 100 }, box(0))).toBe(200);
+    expect(revealTop({ offsetTop: 100, offsetHeight: 100 }, box(300))).toBe(100);
+    expect(revealTop({ offsetTop: 100, offsetHeight: 100 }, box(50))).toBeNull();
+    const scroller = box(0);
+    const row = { offsetTop: 900, offsetHeight: 80, intoView: [] as unknown[], scrollIntoView(o: unknown) { this.intoView.push(o); } };
+    revealRow(row, scroller, false);
+    expect(scroller.calls).toEqual([{ top: 580, behavior: "smooth" }]); // the container, not the page
+    expect(row.intoView).toEqual([]);
+    revealRow(row, { ...box(0), scrollHeight: 400 }, true); // not overflowing (stacked layout): the page
+    expect(row.intoView).toEqual([{ block: "nearest", behavior: "auto" }]);
+  });
+
+  it("rosterHeight fills the viewport below the panel header; edgeStep scrolls near the edges while dragging", async () => {
+    const { rosterHeight, edgeStep, ROSTER_MIN_PX } = await import("../spa/src/teams/rosterReveal");
+    expect(rosterHeight(1080, 236, 56)).toBe(772);
+    expect(rosterHeight(600, 400, 56)).toBe(ROSTER_MIN_PX);
+    expect(edgeStep(500, 200, 900)).toBe(0);
+    expect(edgeStep(200, 200, 900)).toBe(-16);
+    expect(edgeStep(224, 200, 900)).toBe(-8);
+    expect(edgeStep(899, 200, 900)).toBeGreaterThan(0);
+  });
+
+  it("accordion motion is instant without matchMedia (and under reduced motion)", async () => {
+    const { accordionMotion, ACCORDION_MS } = await import("../spa/src/teams/accordionMotion");
+    expect(ACCORDION_MS).toBe(200);
+    const g = globalThis as any;
+    const saved = g.window;
+    try {
+      g.window = {};
+      expect(accordionMotion()).toBe(false);
+      g.window = { matchMedia: (q: string) => ({ matches: q.includes("reduce") }) };
+      expect(accordionMotion()).toBe(false);
+      g.window = { matchMedia: () => ({ matches: false }) };
+      expect(accordionMotion()).toBe(true);
+    } finally { g.window = saved; }
+  });
+
+  it("builder.css: the roster scroller only in the three-column layout; the skills band and badges use tokens defined in both theme blocks", () => {
+    const css = readFileSync(new URL("../spa/src/teams/builder.css", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+    expect(css).toMatch(/@media \(min-width: 1180px\) \{\n  \.tb-roster-scroll \{ overflow-y: auto; overscroll-behavior: contain;/);
+    expect(css).not.toMatch(/^\.tb-roster-scroll \{[^}]*overflow/m); // never a nested scroller when stacked
+    const dark = css.match(/^\.tb-page \{\n[^}]*\}/m)?.[0] ?? "";
+    const light = css.match(/^:root\[data-theme="fumbbl"\] \.tb-page \{\n[^}]*\}/m)?.[0] ?? "";
+    for (const t of ["--tb-skillbar", "--tb-badge-ink", "--tb-secondary-bar"]) { expect(dark).toContain(`${t}:`); expect(light).toContain(`${t}:`); }
+    expect(css).toMatch(/\.tb-row > \.tb-row-skills \{[^}]*background: var\(--tb-skillbar\)/);
+    expect(css).toMatch(/\.tb-added\.access-primary \{ box-shadow: inset 0 -3px 0 var\(--ui-heading\); \}/);
+    expect(css).toMatch(/\.tb-added\.access-secondary \{ box-shadow: inset 0 -3px 0 var\(--tb-secondary-bar\); \}/);
+    expect(css).toMatch(/\.tb-page \.row-skills \.tb-bought \{[^}]*border: 2px solid var\(--ui-gold\)/);
+    expect(css).toMatch(/\.tb-captain-img \{ width: 32px; height: 32px;/);
+    expect(css).not.toMatch(/\.tb-captain-img \{[^}]*pixelated/); // painted art: normal smoothing
   });
 });
