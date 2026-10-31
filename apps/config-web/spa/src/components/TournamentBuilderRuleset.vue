@@ -2,8 +2,8 @@
 // Tournament Builder, Ruleset tab: the tournament ruleset cards, the chosen ruleset's generated highlights (package values
 // only; the organiser's free text sits under "Organiser notes"), and the per-team tier table whose team cells pick the race
 // (the shared core's overview / legacy tier table markup, every value escaped by the core).
-import { computed, inject, nextTick, ref, watch } from "vue";
-import { currentMotion, FADE_MS, POP_DELAY_MS, POP_MS, QUICK_MS, SLIDE_MS, type RulesetMotion } from "../teams/rulesetMotion";
+import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { currentMotion, FADE_MS, POP_DELAY_MS, POP_MS, QUICK_MS, SLIDE_MS, SWAP_MS, type RulesetMotion } from "../teams/rulesetMotion";
 import { TOURNAMENT_BUILDER_KEY } from "../teams/builder";
 import { core } from "../teams/builderCore";
 
@@ -22,29 +22,50 @@ const table = computed(() => (state.packageName ? builder.raceTable() : { html: 
 const rulesetsEl = ref<HTMLElement | null>(null);
 const summaryEl = ref<HTMLElement | null>(null);
 const raceEl = ref<HTMLElement | null>(null);
+const scrollEl = ref<HTMLElement | null>(null);
 const animating = ref(false);
+const loading = ref(false); // a re-pick is waiting for the new ruleset's data: the old table stays, dimmed
 const announce = ref("");
 let pending: { motion: RulesetMotion; first: DOMRect | null } | null = null;
+let repickTo = "";
+let awaitingData = false;
+let disposed = false;
+const running = new Set<Animation>();
 
 function onPick(name: string): void {
   if (!state.packageName) {
     const motion = currentMotion();
     pending = { motion, first: motion === "slide" ? rulesetsEl.value?.getBoundingClientRect() ?? null : null };
-  }
+  } else if (name !== state.packageName) repickTo = name;
   emit("package", name);
 }
 
 function play(el: HTMLElement | null, frames: Keyframe[], duration: number, delay = 0, easing = "cubic-bezier(.2, .8, .2, 1)"): Promise<unknown> {
   if (!el || typeof el.animate !== "function") return Promise.resolve();
-  return el.animate(frames, { duration, delay, easing, fill: "backwards" }).finished.catch(() => undefined);
+  const a = el.animate(frames, { duration, delay, easing, fill: "backwards" });
+  running.add(a);
+  return a.finished.catch(() => undefined).finally(() => running.delete(a));
 }
 
-watch(() => state.packageName, async (now) => {
+// Leaving the tab (or the page) mid-motion stops every animation at once and drops the overflow clip.
+onBeforeUnmount(() => {
+  disposed = true;
+  for (const a of [...running]) a.cancel();
+  running.clear();
+  animating.value = false;
+  loading.value = false;
+});
+
+watch(() => state.packageName, async (now, was) => {
   const run = pending;
   pending = null;
+  const repick = repickTo === now && Boolean(was) && Boolean(now);
+  repickTo = "";
+  if (repick) { awaitingData = true; loading.value = true; return; }
   if (!now || !run) return;
   announce.value = "Step 2: pick a race";
   await nextTick();
+  if (disposed) return;
   const race = raceEl.value;
   if (run.motion === "quick") { void play(race, [{ opacity: 0 }, { opacity: 1 }], QUICK_MS, 0, "linear"); return; }
   if (run.motion === "fade") {
@@ -61,7 +82,18 @@ watch(() => state.packageName, async (now) => {
     play(summaryEl.value, [{ transform: from, opacity: 0 }, { transform: "none", opacity: 1 }], SLIDE_MS),
     play(race, [{ opacity: 0, transform: "translateY(14px) scale(.97)" }, { opacity: 1, transform: "none" }], POP_MS, POP_DELAY_MS, "ease-out"),
   ]);
-  animating.value = false;
+  if (!disposed) animating.value = false;
+}, { flush: "post" });
+
+// The re-pick crossfade plays when the new ruleset's data lands (packageRules and tierRows are replaced by the response, never by
+// the request), so the table never fades while it still shows the old ruleset. Only a re-pick arms it: never on mount or tab return.
+watch(() => [state.packageRules, state.tierRows], async () => {
+  if (!awaitingData) return;
+  awaitingData = false;
+  loading.value = false;
+  await nextTick();
+  if (disposed) return;
+  void play(scrollEl.value, [{ opacity: 0 }, { opacity: 1 }], currentMotion() === "quick" ? QUICK_MS : SWAP_MS, 0, "ease-out");
 }, { flush: "post" });
 
 function onTableClick(e: MouseEvent): void {
@@ -104,7 +136,7 @@ function onTableClick(e: MouseEvent): void {
     <header class="hm-band"><h2 id="tb-race-h">Pick a race</h2><span class="hm-cap">Step 2</span></header>
     <template v-if="state.packageName">
     <p class="muted tb-hint">Each team name picks that race.</p>
-    <div v-if="table.html" :key="state.packageName" class="tb-scroll tb-race-scroll tb-race-swap" tabindex="0" role="region" aria-label="Races by tier" @click="onTableClick">
+    <div v-if="table.html" ref="scrollEl" class="tb-scroll tb-race-scroll" :class="{ 'tb-race-loading': loading }" :aria-busy="loading ? 'true' : 'false'" tabindex="0" role="region" aria-label="Races by tier" @click="onTableClick">
       <table :class="table.legacy ? 'tier-table' : 'tt-rules-table'" v-html="table.html"></table>
     </div>
     <p v-if="!table.selectable" class="hm-empty">No installed roster is eligible for this ruleset.</p>

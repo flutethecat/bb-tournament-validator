@@ -232,9 +232,7 @@
   .tb-area-race { align-self: start; } /* as tall as its table + scroller, never stretched to the rulesets column (no dead gap) */
   .tb-rsflow .tb-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@keyframes tb-race-swap { from { opacity: 0; } to { opacity: 1; } }
-.tb-race-swap { animation: tb-race-swap 160ms ease-out; } /* a later ruleset pick: the race table crossfades in place */
-@media (prefers-reduced-motion: reduce) { .tb-race-swap { animation-duration: 1ms; } }
+.tb-race-loading { opacity: .5; pointer-events: none; transition: opacity 120ms linear; } /* a re-pick waiting on the new ruleset: the old table stays, dimmed, until the response lands */
 .tb-race-scroll { max-height: max(320px, calc(100vh - 280px)); overflow: auto; padding-right: 0; }
 .tb-race-scroll thead th { position: sticky; top: 0; z-index: 2; box-shadow: 0 2px 0 var(--sf-panel-line); } /* header row stays at the top of the scroll region */
 .tb-scroll-list { max-height: 520px; overflow-y: auto; padding-right: 2px; }

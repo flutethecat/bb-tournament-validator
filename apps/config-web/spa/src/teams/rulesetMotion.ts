@@ -10,6 +10,7 @@ export const POP_MS = 300;
 export const POP_DELAY_MS = 90;
 export const FADE_MS = 220;
 export const QUICK_MS = 100;
+export const SWAP_MS = 160; // the race table crossfade when a re-picked ruleset's data lands
 
 export function pickMotion(wide: boolean, reduced: boolean): RulesetMotion {
   if (reduced) return "quick";

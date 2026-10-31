@@ -469,7 +469,7 @@ describe("tournament builder page (server-rendered)", () => {
 
   it("the Ruleset tab's Pick a race table sits in a scroll region with a sticky header; the panel header and helper line stay outside it", async () => {
     const html = await render("/tournament-team-builder?package=Test%20Cup&tab=ruleset", mockFetcher(routes()));
-    const region = html.indexOf('class="tb-scroll tb-race-scroll tb-race-swap"');
+    const region = html.indexOf('class="tb-scroll tb-race-scroll"');
     expect(region).toBeGreaterThan(html.indexOf('id="tb-race-h"'));
     expect(region).toBeGreaterThan(html.indexOf("Each team name picks that race."));
     expect(html.slice(region, region + 400)).toContain("<table");
@@ -633,7 +633,22 @@ describe("tournament builder page (server-rendered)", () => {
 // No jsdom in this repo: the SPA's Vite config is reused with its Vue plugin forced to compile for the client (render
 // functions, not ssrRender), the modules run in Node, and the view mounts through Vue's createRenderer onto FakeEl nodes.
 // Events are dispatched to the handlers Vue bound (bubbling to the parents), so the test drives the view's own code.
+/** A stand-in for the Web Animations API object: `finished` settles only when the test finishes it or cancel() rejects it. */
+class FakeAnim {
+  cancelled = false;
+  finished: Promise<unknown>;
+  private done!: (v?: unknown) => void;
+  private fail!: (e: unknown) => void;
+  constructor(public frames: unknown[], public opts: { duration: number }) { this.finished = new Promise((res, rej) => { this.done = res; this.fail = rej; }); }
+  cancel(): void { this.cancelled = true; this.fail(new Error("AbortError")); }
+  finish(): void { this.done(); }
+}
 class FakeEl {
+  animations: FakeAnim[] = [];
+  rectLeft = 0;
+  animate(frames: unknown[], opts: { duration: number }): FakeAnim { const a = new FakeAnim(frames, opts); this.animations.push(a); return a; }
+  getBoundingClientRect(): { left: number; top: number } { return { left: this.rectLeft, top: 0 }; }
+  scrollIntoView(): void { /* the stacked layout's smooth scroll */ }
   parent: FakeEl | null = null;
   children: FakeEl[] = [];
   attrs: Record<string, any> = {};
@@ -798,6 +813,58 @@ describe("tournament builder page (client behaviour)", () => {
       await page.fire(lineman(), "click");
       expect(page.all().some((e) => e.attrs["data-row"] === 0)).toBe(true);
     } finally { page.app.unmount(); }
+  });
+
+  const OTHER_RULES = { ...RULES, name: "Other Cup" };
+  const otherRoutes = (over: Routes = {}): Routes => routes({
+    "/api/packages": [{ name: "Test Cup", description: "A test ruleset" }, { name: "Other Cup" }],
+    "/api/packages/Other%20Cup": { pkg: { eligibleRosters: ["Human", "Dwarf"] }, rules: OTHER_RULES },
+    "/api/fork/team-builder/tiers?packageName=Other%20Cup": { races: [TIER_ROW] },
+    "/api/fork/team-builder/inducements?packageName=Other%20Cup": { inducements: [] },
+    ...over,
+  });
+  const wide = (): void => { (globalThis as any).window.matchMedia = (q: string) => ({ matches: q.includes("min-width") }); };
+  const card = (page: { find: (p: (e: FakeEl) => boolean) => FakeEl }, name: string): FakeEl => page.find((e) => e.tag === "button" && e.attrs.class === "tb-card" && textOf(e) === name);
+  const hasClass = (e: FakeEl, c: string): boolean => String(e.attrs.class ?? "").split(/\s+/).includes(c);
+
+  it("a re-pick keeps the old table dimmed until the new ruleset's data lands, then crossfades once; mount and deep links never animate", async () => {
+    let release!: (v: unknown) => void;
+    const later = new Promise((r) => { release = r; });
+    const page = await mount("/tournament-team-builder?package=Test%20Cup&tab=ruleset", mockFetcher(otherRoutes({ "/api/packages/Other%20Cup": later })));
+    try {
+      wide();
+      const scroll = () => page.find((e) => hasClass(e, "tb-race-scroll"));
+      expect(page.all().every((e) => e.animations.length === 0)).toBe(true); // deep link: straight into place
+      expect(hasClass(scroll(), "tb-race-loading")).toBe(false);
+      await page.fire(card(page, "Other Cup"), "click");
+      expect(hasClass(scroll(), "tb-race-loading")).toBe(true); // still ruleset A's table, dimmed
+      expect(scroll().attrs["aria-busy"]).toBe("true");
+      expect(scroll().animations).toEqual([]); // no fade while the old table is on screen
+      release({ pkg: { eligibleRosters: ["Human", "Dwarf"] }, rules: OTHER_RULES });
+      await settle();
+      expect(hasClass(scroll(), "tb-race-loading")).toBe(false);
+      expect(scroll().animations.map((a) => a.opts.duration)).toEqual([160]); // one crossfade, after the data arrived
+      expect(page.all().filter((e) => e !== scroll()).every((e) => e.animations.length === 0)).toBe(true); // no slide on a re-pick
+    } finally { page.app.unmount(); }
+  });
+
+  it("leaving the Ruleset tab mid-slide cancels every animation and the late finish touches nothing", async () => {
+    const page = await mount("/tournament-team-builder?tab=ruleset", mockFetcher(otherRoutes()));
+    try {
+      wide();
+      const rulesets = page.find((e) => hasClass(e, "tb-area-rulesets"));
+      await page.fire(card(page, "Test Cup"), "click");
+      rulesets.rectLeft = 700; // the layout flip moved the panel right; its first rect was measured at 0
+      await settle();
+      const flow = page.find((e) => hasClass(e, "tb-rsflow"));
+      const live = page.all().flatMap((e) => e.animations);
+      expect(live.length).toBe(3); // rulesets slide, summary slide, race pop
+      expect(hasClass(flow, "tb-rs-anim")).toBe(true);
+      page.app.unmount();
+      expect(live.every((a) => a.cancelled)).toBe(true);
+      live.forEach((a) => a.finish());
+      await settle();
+    } finally { try { page.app.unmount(); } catch { /* already unmounted */ } }
   });
 });
 
