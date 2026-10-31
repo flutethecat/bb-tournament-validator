@@ -17,7 +17,7 @@ import {
   type InducementTeam, type LeagueSelection, type LegalSet, type Overview, type RaceRules, type SheetModel, type SkillCosts, type SkillPack,
   type Slot, type SpriteManifest, type Staff, type Stat, type StarChoice, type StarContext, type StatRules, type TierRules,
 } from "./builderCore";
-import { sanitizeSkillSystem, sheetRulesetRows, type PrintSheetModel } from "./sheetRuleset";
+import { sanitizeSkillSystem, sheetRulesetRows, type PrintSheetModel, type SheetSkillSystem } from "./sheetRuleset";
 
 // ── wire shapes ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -389,11 +389,16 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     const race = raceRules();
     return race && state.skillPack ? race.packs.find((p) => p.label === state.skillPack) ?? null : null;
   };
-  /** The team's added-skill allowance where the ruleset fixes one (the chosen pack's skill / secondary caps, else the tier's
-   *  secondary cap); null = no fixed allowance (e.g. pure skill points). */
+  /** The team's added-skill allowance where the ruleset fixes one, in order: the chosen pack's caps; the race's count limits
+   *  (skillSystem count mode: tier / team rule / matrix maxPrimary / maxSecondary); the tier's secondary cap; null = no fixed
+   *  allowance (e.g. pure skill points). */
   const skillAllowance = (): { primary: number | null; secondary: number | null } => {
     const pack = packSummary();
-    return { primary: pack?.maxSkills ?? null, secondary: pack?.maxSecondary ?? tierRules()?.maxSecondary ?? null };
+    const tierSecondary = tierRules()?.maxSecondary ?? null;
+    if (pack) return { primary: pack.maxSkills ?? null, secondary: pack.maxSecondary ?? tierSecondary };
+    const system = (raceRules() as { skillSystem?: SheetSkillSystem } | null)?.skillSystem;
+    if (system?.mode === "count") return { primary: system.maxPrimary, secondary: system.maxSecondary ?? tierSecondary };
+    return { primary: null, secondary: tierSecondary };
   };
   const skillMeta = (skill: string): SkillMeta | null => state.skillCatalog?.[skill] ?? null;
   const isElite = (skill: string): boolean => core.isEliteSkill(skill, raceRules()?.skillCosts?.eliteSkills, skillMeta(skill));

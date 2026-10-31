@@ -20,10 +20,18 @@ const hasPacks = computed(() => Boolean(race.value?.packs.length));
 const picking = computed(() => ui.pickingPack());
 const gate = computed(() => ui.nameGate && !builder.named());
 
-/** Pick a pack (the same one keeps it chosen) and return to the save line. */
+/** Pick a pack (the same one keeps it chosen) and return to the save line; focus follows to its verdict header once the
+ *  list has collapsed (the focused card goes away). */
+let focusSaveLine = false;
 function pick(label: string): void {
   if (state.skillPack !== label) builder.setSkillPack(label);
+  focusSaveLine = true;
   ui.packPicking = false;
+}
+function onSaveLineIn(): void {
+  if (!focusSaveLine) return;
+  focusSaveLine = false;
+  if (typeof document !== "undefined") document.getElementById("tb-valid-h")?.focus?.();
 }
 /** Re-open the pack list with focus on the chosen pack. */
 async function changePack(): Promise<void> {
@@ -41,6 +49,7 @@ async function changePack(): Promise<void> {
         <span>Team name</span>
         <input id="tb-team-name" type="text" maxlength="60" placeholder="Name your team" autocomplete="off" :value="state.teamName"
           @input="builder.setTeamName(($event.target as HTMLInputElement).value)" />
+        <small v-if="state.currentSave" class="muted tb-editing">Editing {{ state.currentSave.name }}</small>
       </label>
       <label v-if="league.visible" class="tb-field">
         <span>League</span>
@@ -67,7 +76,7 @@ async function changePack(): Promise<void> {
         <p v-if="!state.skillPack" class="tm-note">Pick your skill pack.</p>
       </div>
     </Transition>
-    <Transition :css="false" @enter="heightEnter" @leave="heightLeave">
+    <Transition :css="false" @enter="heightEnter" @after-enter="onSaveLineIn" @leave="heightLeave">
       <TournamentBuilderSaveLine v-if="!picking" :sign-in-href="props.signInHref" :sso-enabled="props.ssoEnabled" :change-pack="hasPacks" @change-pack="changePack" />
     </Transition>
   </section>

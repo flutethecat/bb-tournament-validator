@@ -197,6 +197,20 @@ describe("tournament builder controller", () => {
     expect(b.captainIndex()).toBe(-1);
   });
 
+  it("skill allowance for the Roster header: pack caps, then the race's count limits, then the tier's secondary cap, else none", async () => {
+    const withRace = (race: object) => mockFetcher(routes({ "/api/packages/Test%20Cup?roster=Human": { pkg: { description: "", eligibleRosters: ["Human"] }, rules: { ...RULES, race: { ...RACE, ...race } } } }));
+    const count = (await ready(withRace({ skillSystem: { mode: "count", maxPrimary: 6, maxSecondary: 2 } }))).b;
+    expect(count.skillAllowance()).toEqual({ primary: 6, secondary: 2 });
+    const countNoSecondary = (await ready(withRace({ skillSystem: { mode: "count", maxPrimary: 6, maxSecondary: null } }))).b;
+    expect(countNoSecondary.skillAllowance()).toEqual({ primary: 6, secondary: 0 }); // the tier row's maxSecondary 0
+    const pack = (await ready(withRace({ packs: [{ label: "Pack A", gold: 1150000, maxSkills: 4, maxSecondary: 1 }], skillSystem: { mode: "packs" } }))).b;
+    expect(pack.skillAllowance()).toEqual({ primary: null, secondary: 0 }); // no pack chosen yet: the tier's cap
+    pack.setSkillPack("Pack A");
+    expect(pack.skillAllowance()).toEqual({ primary: 4, secondary: 1 });
+    const points = (await ready(withRace({ skillPointBudget: 6, skillSystem: { mode: "points" } }))).b;
+    expect(points.skillAllowance()).toEqual({ primary: null, secondary: 0 });
+  });
+
   it("the left accordion's open panel lives on the controller: Hireable players by default", async () => {
     const { b } = await ready(mockFetcher(routes()));
     expect(b.state.leftPanel).toBe("hire");
@@ -642,7 +656,7 @@ describe("tournament builder page (server-rendered)", () => {
       await b.flushPreview();
     };
     const html = await render("/tournament-team-builder?tab=roster", f, prepare);
-    expect(html).toContain('<h3 id="tb-valid-h" class="tb-saveline-head" aria-live="polite">Team is invalid: 1 issue</h3>');
+    expect(html).toContain('<h3 id="tb-valid-h" class="tb-saveline-head" tabindex="-1" aria-live="polite">Team is invalid: 1 issue</h3>');
     const line = between(html, "tb-valid-h", "tb-validator-h");
     const errorAt = line.indexOf('data-kind="error">Tier 1 allows no secondary skills (Guard on #1).</li>');
     const warningAt = line.indexOf('data-kind="warning">Unspent gold</li>');
@@ -667,7 +681,7 @@ describe("tournament builder page (server-rendered)", () => {
 
   it("the save line: valid for the current document -> the buttons (Export PDF, Save Team, Create team on Fork), no issues list", async () => {
     const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), async (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); await b.flushPreview(); });
-    expect(html).toContain('<h3 id="tb-valid-h" class="tb-saveline-head" aria-live="polite">Team is valid</h3>');
+    expect(html).toContain('<h3 id="tb-valid-h" class="tb-saveline-head" tabindex="-1" aria-live="polite">Team is valid</h3>');
     expect(html).toContain('<section class="tb-saveline" data-tone="valid"');
     const line = between(html, "tb-valid-h", "tb-validator-h");
     expect(line).not.toContain('class="tb-issues"');
@@ -678,7 +692,7 @@ describe("tournament builder page (server-rendered)", () => {
 
   it("the save line while the preview is out: Checking team..., the issues list (checklist) instead of the buttons", async () => {
     const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); b.state.previewPending = true; });
-    expect(html).toContain('<h3 id="tb-valid-h" class="tb-saveline-head" aria-live="polite">Checking team...</h3>');
+    expect(html).toContain('<h3 id="tb-valid-h" class="tb-saveline-head" tabindex="-1" aria-live="polite">Checking team...</h3>');
     expect(between(html, "tb-valid-h", "tb-validator-h")).not.toMatch(/>Export PDF<\/button>/);
   });
 
@@ -754,18 +768,43 @@ describe("tournament builder page (server-rendered)", () => {
     expect(rows).not.toContain('aria-label="Remove Block"');
   });
 
+  it("Share link follows the verdict like Export PDF: hidden for an invalid draft or while the preview is out; Unshare always stays", async () => {
+    const token = "0123456789abcdef0123456789abcdef";
+    const bad = { valid: false, errors: ["Too few players."], warnings: [], summary: { goldUsed: 50000 }, package: { name: "Test Cup", budget: 1150000, rules: TIER_ROW } };
+    const unshared = await render("/tournament-team-builder/sv_abc?tab=roster", mockFetcher(routes({
+      "POST /api/fork/team-builder/saves": { save: { id: "sv_abc", name: "Reavers" } },
+      "POST /api/fork/team-builder/preview": bad,
+    })), async (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); await b.saveTeam(); await b.flushPreview(); });
+    expect(between(unshared, "tb-valid-h", "tb-validator-h")).not.toMatch(/>Share link<\/button>/);
+    const shared = await render("/tournament-team-builder/sv_abc?tab=roster", mockFetcher(routes({
+      "POST /api/fork/team-builder/saves": { save: { id: "sv_abc", name: "Reavers" } },
+      "POST /api/fork/team-builder/saves/sv_abc/share": { shareToken: token },
+      "POST /api/fork/team-builder/preview": bad,
+    })), async (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); await b.saveTeam(); await b.share(); await b.flushPreview(); });
+    const line = between(shared, "tb-valid-h", "tb-validator-h");
+    expect(line).not.toContain('id="tb-share-url"');
+    expect(line).not.toMatch(/>Copy<\/button>/);
+    expect(line).toMatch(/>Unshare<\/button>/);
+    const pending = await render("/tournament-team-builder/sv_abc?tab=roster", mockFetcher(routes({ "POST /api/fork/team-builder/saves": { save: { id: "sv_abc", name: "Reavers" } } })),
+      async (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); await b.saveTeam(); await b.flushPreview(); b.addPosition("hlin"); }); // an edit after the valid preview
+    expect(between(pending, "tb-valid-h", "tb-validator-h")).not.toMatch(/>Share link<\/button>/);
+    const ok = await render("/tournament-team-builder/sv_abc?tab=roster", mockFetcher(routes({ "POST /api/fork/team-builder/saves": { save: { id: "sv_abc", name: "Reavers" } } })),
+      async (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); await b.saveTeam(); await b.flushPreview(); });
+    expect(between(ok, "tb-valid-h", "tb-validator-h")).toMatch(/>Share link<\/button>/);
+  });
+
   it("the Team controls with a shared save: the link field, Copy and Unshare", async () => {
     const token = "0123456789abcdef0123456789abcdef";
     const f = mockFetcher(routes({
       "POST /api/fork/team-builder/saves": { save: { id: "sv_abc", name: "Reavers" } },
       "POST /api/fork/team-builder/saves/sv_abc/share": { shareToken: token },
     }));
-    const html = await render("/tournament-team-builder/sv_abc?tab=roster", f, async (b) => { b.setTeamName("Reavers"); await b.saveTeam(); await b.share(); });
+    const html = await render("/tournament-team-builder/sv_abc?tab=roster", f, async (b) => { b.setTeamName("Reavers"); b.addPosition("hlin"); await b.saveTeam(); await b.share(); await b.flushPreview(); });
     const team = between(html, "tb-team-name", "tb-validator-h");
     expect(team).toContain(`value="https://sf.example/t/${token}"`);
     expect(team).toMatch(/>Unshare<\/button>/);
     expect(team).not.toMatch(/>Share link<\/button>/);
-    expect(html).not.toContain("Editing Reavers"); // the Team panel has no header band any more (owner 10-31)
+    expect(between(html, "tb-team-name", "tb-valid-h")).toContain('<small class="muted tb-editing">Editing Reavers</small>'); // under the name field (no header band)
   });
 
   it("signed out: building stays open, saving asks for Discord", async () => {
@@ -1074,6 +1113,7 @@ describe("tournament builder page (client behaviour)", () => {
       expect([has("tb-team-packs"), has("tb-valid-h"), rules()]).toEqual([true, false, false]);
       await page.fire(pack("Pack B"), "click");
       expect([has("tb-team-packs"), has("tb-valid-h"), rules()]).toEqual([false, true, true]);
+      expect(fakeDocument.activeElement?.attrs.id).toBe("tb-valid-h"); // focus follows to the save line's verdict header
       const change = page.find((e) => e.tag === "button" && textOf(e) === "Change skill pack");
       await page.fire(change, "click");
       expect([has("tb-team-packs"), has("tb-valid-h"), rules()]).toEqual([true, false, false]);
@@ -1222,6 +1262,18 @@ describe("roster scroller, reveal and drag edge (owner 10-31)", () => {
     expect(edgeStep(200, 200, 900)).toBe(-16);
     expect(edgeStep(224, 200, 900)).toBe(-8);
     expect(edgeStep(899, 200, 900)).toBeGreaterThan(0);
+  });
+
+  it("collapse hooks: a leaving body is inert from the start of its leave; an entering one is not", async () => {
+    const { heightEnter, heightLeave } = await import("../spa/src/teams/accordionMotion");
+    const attrs: Record<string, string> = {};
+    const el: any = { setAttribute: (k: string, v: string) => { attrs[k] = v; }, removeAttribute: (k: string) => { delete attrs[k]; } };
+    let done = 0;
+    heightLeave(el, () => { done++; });
+    expect(attrs.inert).toBe("");
+    heightEnter(el, () => { done++; });
+    expect(attrs.inert).toBeUndefined();
+    expect(done).toBe(2);
   });
 
   it("accordion motion is instant without matchMedia (and under reduced motion)", async () => {

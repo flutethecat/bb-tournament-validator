@@ -4,7 +4,8 @@
 // preview of the current document is out). While the verdict for the CURRENT document is valid the box holds the actions
 // (Export PDF, Save Team, Share link, Create team on Fork). Otherwise the same footprint shows the live list of broken rules
 // (errors, then warnings, then the checklist notices incl. the "name your team first" gate); Export PDF and Create team on
-// Fork stay hidden and Save Team stays under the list so a work-in-progress draft can still be saved. The share link,
+// Fork stay hidden and Save Team stays under the list so a work-in-progress draft can still be saved. Share link and the link /
+// Copy follow the same verdict; Unshare stays. The share link,
 // save status and Fork result sit at the bottom of the box. Signed out, the sign-in link stands where Save would be.
 import { computed, inject } from "vue";
 import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
@@ -23,7 +24,7 @@ const buildLabel = computed(() => (state.buildBusy ? (state.editingTeamId ? "Sav
 
 <template>
   <section class="tb-saveline" :data-tone="v.tone" aria-labelledby="tb-valid-h">
-    <h3 id="tb-valid-h" class="tb-saveline-head" aria-live="polite">{{ v.headline }}</h3>
+    <h3 id="tb-valid-h" class="tb-saveline-head" tabindex="-1" aria-live="polite">{{ v.headline }}</h3>
     <div v-if="!valid" class="tb-issues" aria-live="polite">
       <p v-if="gate" class="lobby-error tb-name-gate" role="alert">You must name your team first.</p>
       <ul v-if="v.errors.length || v.warnings.length || v.notices.length" class="tb-findings">
@@ -36,7 +37,7 @@ const buildLabel = computed(() => (state.buildBusy ? (state.editingTeamId ? "Sav
       <button v-if="valid" type="button" class="tb-btn primary" :disabled="!builder.canExport()" @click="builder.exportPdf()">{{ state.pdfBusy ? "Exporting..." : "Export PDF" }}</button>
       <template v-if="signedIn">
         <button type="button" class="tb-btn" :disabled="!builder.canSave()" @click="builder.saveTeam()">{{ state.saveBusy ? "Saving..." : "Save Team" }}</button>
-        <button v-if="state.currentSave && !state.shareUrl" type="button" class="tb-btn" :disabled="state.shareBusy" @click="builder.share()">Share link</button>
+        <button v-if="valid && state.currentSave && !state.shareUrl" type="button" class="tb-btn" :disabled="state.shareBusy" @click="builder.share()">Share link</button>
         <button v-if="valid" type="button" class="tb-btn" :disabled="!builder.canBuild()" @click="builder.build()">{{ buildLabel }}</button>
       </template>
       <template v-else>
@@ -49,10 +50,13 @@ const buildLabel = computed(() => (state.buildBusy ? (state.editingTeamId ? "Sav
     <ul v-if="valid && v.warnings.length" class="tb-findings">
       <li v-for="(f, i) in v.warnings" :key="`w${i}`" class="tb-finding" data-kind="warning">{{ f }}</li>
     </ul>
+    <!-- the link and Copy follow the verdict like Export PDF; Unshare is always there (removing a link is always safe) -->
     <div v-if="state.shareUrl" class="tm-share" role="group" aria-label="Share link">
-      <label class="tn-sr" for="tb-share-url">Share link</label>
-      <input id="tb-share-url" type="text" readonly :value="state.shareUrl" @focus="($event.target as HTMLInputElement).select()" />
-      <button type="button" class="tb-btn small" @click="builder.copyShare()">Copy</button>
+      <template v-if="valid">
+        <label class="tn-sr" for="tb-share-url">Share link</label>
+        <input id="tb-share-url" type="text" readonly :value="state.shareUrl" @focus="($event.target as HTMLInputElement).select()" />
+        <button type="button" class="tb-btn small" @click="builder.copyShare()">Copy</button>
+      </template>
       <button type="button" class="tb-btn small" :disabled="state.shareBusy" @click="builder.unshare()">Unshare</button>
     </div>
     <p v-if="state.savesStatus" class="tb-status" role="status">{{ state.savesStatus }}</p>

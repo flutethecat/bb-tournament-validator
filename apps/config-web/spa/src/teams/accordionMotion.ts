@@ -1,6 +1,7 @@
 // Collapse / expand motion for the Roster pane (owner 10-31): the left accordion's bodies and the Team panel's skill-pack list.
 // Height + opacity for ACCORDION_MS; instant without window / matchMedia / the Web Animations API, or under
-// prefers-reduced-motion. The hooks are Vue <Transition :css="false"> enter / leave handlers.
+// prefers-reduced-motion. The hooks are Vue <Transition :css="false"> enter / leave handlers. A leaving body is inert from
+// the start of its leave (nothing in it takes focus while it collapses); an entering one is not.
 export const ACCORDION_MS = 200;
 const REDUCED_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -11,6 +12,7 @@ export function accordionMotion(): boolean {
 
 export function heightEnter(el: Element, done: () => void): void {
   const node = el as HTMLElement;
+  node.removeAttribute?.("inert");
   if (!accordionMotion() || typeof node.animate !== "function") { done(); return; }
   const h = node.scrollHeight;
   node.style.overflow = "hidden";
@@ -21,6 +23,7 @@ export function heightEnter(el: Element, done: () => void): void {
 
 export function heightLeave(el: Element, done: () => void): void {
   const node = el as HTMLElement;
+  node.setAttribute?.("inert", "");
   if (!accordionMotion() || typeof node.animate !== "function") { done(); return; }
   const h = node.scrollHeight;
   node.style.overflow = "hidden";
