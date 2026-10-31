@@ -30,6 +30,8 @@
 .lw-sub { margin: 0 auto 20px; max-width: 62ch; font-size: 1.02rem; line-height: 1.5; color: #f1ece2; }
 .lw-cta { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px 20px; }
 .lw-link { color: var(--lw-gold); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.lw-flat { margin: 18px 0 0; font-size: 1rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--lw-gold); }
+@media (min-width: 721px) { .lw-flat { white-space: nowrap; } }
 .lw-link:hover { color: #fff; }
 .lw-landing .rc-landing { align-self: stretch; }
 
