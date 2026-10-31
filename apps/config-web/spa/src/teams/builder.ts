@@ -81,6 +81,11 @@ export function toBuilderTab(v: unknown): BuilderTab | null {
   return typeof v === "string" && OLD_ROSTER_TABS.has(v) ? "roster" : isBuilderTab(v) ? v : null;
 }
 
+/** The Roster pane's left accordion (owner 10-31): four panels in this fixed order, one open at a time (null = Hireable players).
+ *  The open panel lives on the controller, so it survives the page's own address moves for the page session. */
+export type LeftPanel = "hire" | "staff" | "inducements" | "stars";
+export const LEFT_PANELS: ReadonlyArray<LeftPanel> = ["hire", "staff", "inducements", "stars"];
+
 /** Sideline staff (BB2025 costs; rerolls priced per roster). */
 export interface StaffRow { key: keyof Staff; label: string; min: number; max: number; cost: number; free: number }
 export function staffRows(roster: BuilderRoster | null): StaffRow[] {
@@ -311,6 +316,8 @@ export interface BuilderState {
   pdfBusy: boolean;
   /** The sheet the print fallback shows (rosterSheetHtml markup). */
   printHtml: string;
+  /** The left accordion's open panel (null = the default, Hireable players). */
+  leftPanel: LeftPanel | null;
 }
 
 function blankState(): BuilderState {
@@ -320,7 +327,7 @@ function blankState(): BuilderState {
     inducementCatalog: [], inducementCounts: {}, inducementStatus: "", preview: null, previewPending: false, skillCatalog: null, legal: {},
     art: { sprites: null, crests: null, icons: null, skillIcons: null, uiIcons: null }, status: "", statusError: false,
     currentSave: null, savesStatus: "", saveBusy: false, shareBusy: false, shareUrl: "", editingTeamId: null, buildBusy: false, buildResult: null,
-    pdfBusy: false, printHtml: "",
+    pdfBusy: false, printHtml: "", leftPanel: "hire",
   };
 }
 
@@ -381,6 +388,12 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   const packSummary = (): SkillPack | null => {
     const race = raceRules();
     return race && state.skillPack ? race.packs.find((p) => p.label === state.skillPack) ?? null : null;
+  };
+  /** The team's added-skill allowance where the ruleset fixes one (the chosen pack's skill / secondary caps, else the tier's
+   *  secondary cap); null = no fixed allowance (e.g. pure skill points). */
+  const skillAllowance = (): { primary: number | null; secondary: number | null } => {
+    const pack = packSummary();
+    return { primary: pack?.maxSkills ?? null, secondary: pack?.maxSecondary ?? tierRules()?.maxSecondary ?? null };
   };
   const skillMeta = (skill: string): SkillMeta | null => state.skillCatalog?.[skill] ?? null;
   const isElite = (skill: string): boolean => core.isEliteSkill(skill, raceRules()?.skillCosts?.eliteSkills, skillMeta(skill));
@@ -539,7 +552,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     else if (p?.failed) { tone = "invalid"; headline = "Couldn't check the team"; }
     else if (p) {
       tone = p.valid ? "valid" : "invalid";
-      headline = p.valid ? "Team is valid" : `Team is invalid${errors.length ? `: ${errors.length} ${errors.length === 1 ? "issue" : "issues"} to fix` : ""}`;
+      headline = p.valid ? "Team is valid" : `Team is invalid${errors.length ? `: ${errors.length} ${errors.length === 1 ? "issue" : "issues"}` : ""}`;
     }
     return { tone, headline, errors, warnings, notices: notices() };
   }
@@ -963,11 +976,16 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     changed();
     return true;
   }
-  /** Nominate (or clear) the Team Captain: one per team; the captain's chosen Pro goes (it gains Pro for free). */
+  /** The Team Captain's row, or -1 while none is nominated. */
+  const captainIndex = (): number => state.slots.findIndex((sl) => sl.captain === true && slotCanCaptain(sl));
+  /** Nominate (or clear) the Team Captain: one per team; the captain's chosen Pro goes (it gains Pro for free). No direct
+   *  reassignment (owner 10-31): while a captain is set, only clearing that captain works; then any eligible row can take it. */
   function toggleCaptain(index: number): void {
     const slot = state.slots[index];
     if (!slotCanCaptain(slot)) return;
     const on = slot!.captain !== true;
+    const current = captainIndex();
+    if (on && current >= 0 && current !== index) return;
     state.slots = state.slots.map((s, i) => {
       const { captain: _c, ...rest } = s;
       if (i !== index || !on) return rest;
@@ -1371,7 +1389,7 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     leaguePresentation, activeLeague, selectedSpecialRule, accessOf, isElite, skillClass, totals, valueLines, validity, canExport, canBuild, canSave,
     skillPoints, positionCards, starChoices, starRow, starCap, starPickCount, starsAllowed, starSpTable, inducementRows, rulesetLines, tierLabel, raceTable,
     eligibleRosters, staffRows: () => staffRows(state.roster), staffIcon, skillIcon, spritePath, crestPath, pickerSections, skillPrice, statOptions,
-    slotLocks, legalSet, requestBody, sheetModel, teamViewModel, gateCtx, named, signedIn: (): boolean => Boolean(deps.coach()),
+    captainIndex, skillAllowance, slotLocks, legalSet, requestBody, sheetModel, teamViewModel, gateCtx, named, signedIn: (): boolean => Boolean(deps.coach()),
     // actions
     init, boot, choosePackage, chooseRace, setTeamName, selectLeague, setSkillPack, addPosition, removeSlot, addStar, removeStar, moveSlot,
     toggleCaptain, openSkills, addSkill, removeSkill, addStat, removeStat, stepStaff, stepInducement, schedulePreview, flushPreview,
@@ -1383,7 +1401,14 @@ export type TournamentBuilder = ReturnType<typeof createTournamentBuilder>;
 export const TOURNAMENT_BUILDER_KEY: InjectionKey<TournamentBuilder> = Symbol("tournament-builder");
 
 /** The working pane's shared UI (the view provides it): the "name your team first" gate. Adding a player or a star to an
- *  unnamed team sets `nameGate` (the Errors / Valid box shows the message until the team is named) and focuses the team
+ *  unnamed team sets `nameGate` (the save-line box lists the message until the team is named) and focuses the team
  *  name field in the Team controls. */
-export interface TournamentBuilderUi { nameGate: boolean; requireName: () => boolean }
+export interface TournamentBuilderUi {
+  nameGate: boolean;
+  requireName: () => boolean;
+  /** Bumped each time a hire (position card or star) adds rows: the roster scrolls its newest row into view. Never bumped
+   *  by reorder, fire, a load, a deep link or a remount. */
+  added: number;
+  noteAdded: () => void;
+}
 export const TOURNAMENT_BUILDER_UI_KEY: InjectionKey<TournamentBuilderUi> = Symbol("tournament-builder-ui");

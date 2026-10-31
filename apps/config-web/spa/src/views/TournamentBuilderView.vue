@@ -19,8 +19,9 @@ function leaveHandoff(h: Handoff): void { handoff = h; }
 // Tournament Builder (/app/tournament-team-builder[/:saveId], owner 10-30): the coach-facing team builder against a
 // tournament ruleset, migrated from public/tournament-team-builder.html (which keeps serving unchanged). Design: the
 // shell's left nav, a top row of band tabs (Ruleset · Roster · Sheet) and a centred pane of bezel-and-lift panels. The
-// Roster tab is the one working pane: three columns on desktop (left: hireable players, sideline staff;
-// centre: the roster table; right: team controls, the validator, errors / valid, inducements, star players), stacked in that order on a phone. Browsing and building are public, as on the vanilla page (the preview runs as a
+// Roster tab is the one working pane: three columns on desktop (left: an accordion of hireable players, sideline staff,
+// inducements and star players; centre: the roster table; right: team controls, the save line, the validator), stacked in
+// that order on a phone. Browsing and building are public, as on the vanilla page (the preview runs as a
 // guest); saving, sharing and creating on the Fork need the Discord session. Deep links: /:saveId (or ?save=) opens a
 // saved team, ?package=<name>[&race=<rosterId>] preselects the ruleset (and race).
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from "vue";
@@ -36,14 +37,11 @@ import {
   type TournamentBuilderUi,
 } from "../teams/builder";
 import TournamentBuilderRuleset from "../components/TournamentBuilderRuleset.vue";
-import TournamentBuilderHire from "../components/TournamentBuilderHire.vue";
-import TournamentBuilderInducements from "../components/TournamentBuilderInducements.vue";
-import TournamentBuilderStars from "../components/TournamentBuilderStars.vue";
-import TournamentBuilderStaff from "../components/TournamentBuilderStaff.vue";
+import TournamentBuilderAccordion from "../components/TournamentBuilderAccordion.vue";
 import TournamentBuilderRoster from "../components/TournamentBuilderRoster.vue";
 import TournamentBuilderTeam from "../components/TournamentBuilderTeam.vue";
 import TournamentBuilderValidator from "../components/TournamentBuilderValidator.vue";
-import TournamentBuilderVerdict from "../components/TournamentBuilderVerdict.vue";
+import TournamentBuilderSaveLine from "../components/TournamentBuilderSaveLine.vue";
 import TournamentBuilderSheet from "../components/TournamentBuilderSheet.vue";
 
 const props = defineProps<{ saveId?: string }>();
@@ -61,8 +59,8 @@ const builder: TournamentBuilder = inject(TOURNAMENT_BUILDER_KEY, null) ?? taken
 });
 provide(TOURNAMENT_BUILDER_KEY, builder);
 const { state } = builder;
-/** The name gate: hiring a player or a star needs a named team. The message shows in the Errors / Valid box until the team
- *  is named, and focus goes to the team name field in the Team controls. */
+/** The name gate: hiring a player or a star needs a named team. The message shows in the save line's issues list until the
+ *  team is named, and focus goes to the team name field in the Team controls. `added` tells the roster a hire landed. */
 const ui: TournamentBuilderUi = reactive({
   nameGate: false,
   requireName(): boolean {
@@ -71,6 +69,8 @@ const ui: TournamentBuilderUi = reactive({
     if (typeof document !== "undefined") document.getElementById("tb-team-name")?.focus();
     return false;
   },
+  added: 0,
+  noteAdded(): void { ui.added += 1; },
 });
 provide(TOURNAMENT_BUILDER_UI_KEY, ui);
 watch(() => builder.named(), (named) => { if (named) ui.nameGate = false; });
@@ -185,21 +185,19 @@ async function pickPackage(name: string): Promise<void> {
     <div v-if="state.booted" :id="`tb-pane-${tab}`" class="tb-pane" role="tabpanel" :aria-labelledby="`tb-tab-${tab}`">
       <TournamentBuilderRuleset v-if="tab === 'ruleset'" @package="pickPackage" @race="pickRace" @next="go('roster')" />
       <div v-else-if="tab === 'roster'" class="tb-work">
-        <!-- Source order is the phone reading order: hireable players, sideline staff, the roster, team controls, validator,
-             errors / valid, inducements, star players. Desktop places the three groups as columns (left 1 : centre 2 : right 1.3). -->
+        <!-- Source order is the phone reading order: the left accordion (hireable players, sideline staff, inducements, star
+             players), the roster, team controls, the save line (verdict + actions or issues), the validator. Desktop places the
+             three groups as columns (left 1 : centre 2 : right 1.3). -->
         <div class="tb-col tb-col-left">
-          <TournamentBuilderHire />
-          <TournamentBuilderStaff />
+          <TournamentBuilderAccordion />
         </div>
         <div class="tb-col tb-col-centre">
           <TournamentBuilderRoster />
         </div>
         <div class="tb-col tb-col-right">
-          <TournamentBuilderTeam :sign-in-href="signInHref" :sso-enabled="session.ssoEnabled()" />
+          <TournamentBuilderTeam />
+          <TournamentBuilderSaveLine :sign-in-href="signInHref" :sso-enabled="session.ssoEnabled()" />
           <TournamentBuilderValidator />
-          <TournamentBuilderVerdict />
-          <TournamentBuilderInducements />
-          <TournamentBuilderStars />
         </div>
       </div>
       <TournamentBuilderSheet v-else />
