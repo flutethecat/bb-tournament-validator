@@ -494,6 +494,9 @@ describe("tournament builder page (server-rendered)", () => {
     expect(html).toContain("tb-wide");
     const bare = await render("/tournament-team-builder?tab=ruleset", mockFetcher(routes()), async (b) => { await b.choosePackage(""); });
     expect(bare).toContain('id="tb-race-h"');
+    expect(bare).toContain("Pick a tournament ruleset first.");
+    expect(bare).not.toContain("tb-race-scroll");
+    expect(bare).not.toContain("<table");
   });
 
   it("old tab ids (skills, staff, stars, inducements) land on the Roster pane", async () => {
