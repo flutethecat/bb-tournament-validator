@@ -13,6 +13,8 @@
     var(--ui-surface);
 }
 .lw-box {
+  /* The box is always dark, so its heading and link colours are pinned to the dark-theme values (they must not flip with the Light theme). */
+  --lw-heading: #ff3b3b; --lw-gold: #e8a33d;
   width: 100%; max-width: 760px; box-sizing: border-box; padding: 20px 28px 24px; text-align: center;
   background: var(--lw-box); border: 2px solid var(--sf-panel-line); border-radius: 2px;
   box-shadow: 0 4px 0 var(--sf-panel-drop), var(--sf-bevel);
@@ -21,13 +23,13 @@
 .lw-logo { display: block; width: min(320px, 70%); height: auto; margin: 0 auto 10px; filter: drop-shadow(0 2px 0 rgb(0 0 0 / 0.5)); }
 .lw-title {
   margin: 0 0 12px; font: 2.2rem/1.1 var(--sf-wordmark-font); font-style: italic; text-transform: none; letter-spacing: .02em;
-  color: var(--ui-heading); text-shadow: 0 2px 0 #000;
-  padding-bottom: 10px; border-bottom: 3px solid var(--sf-gold);
+  color: var(--lw-heading); text-shadow: 0 2px 0 #000;
+  padding-bottom: 10px; border-bottom: 3px solid var(--lw-gold);
 }
 .lw-lead { margin: 0 0 8px; font-size: 1.3rem; font-weight: 700; line-height: 1.3; color: #fff; }
 .lw-sub { margin: 0 auto 20px; max-width: 62ch; font-size: 1.02rem; line-height: 1.5; color: #f1ece2; }
 .lw-cta { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px 20px; }
-.lw-link { color: var(--sf-gold); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.lw-link { color: var(--lw-gold); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 .lw-link:hover { color: #fff; }
 .lw-landing .rc-landing { align-self: stretch; }
 

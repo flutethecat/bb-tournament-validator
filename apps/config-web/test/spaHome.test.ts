@@ -870,6 +870,13 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(html.toLowerCase()).not.toContain("test sign-in");
   });
 
+  it("a password session on /home keeps the Sign in explanation, not the welcome splash", async () => {
+    const { html } = await render("/home", { "/api/auth/session": { authenticated: true, coach: "PwCoach", authMethod: "password", discordSsoEnabled: true } });
+    expect(html).toContain("This page needs a Discord sign-in.");
+    expect(html).toContain("<h2>Sign in</h2>");
+    expect(html).not.toContain("Welcome to Super FUMBBL League Manager!");
+  });
+
   it("signed out /account keeps the Sign in card (the test sign-in card loads client-side only when the server enables it)", async () => {
     const { html } = await render("/account", { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
     expect(html).toContain("<h2>Sign in</h2>");

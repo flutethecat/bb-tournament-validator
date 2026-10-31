@@ -9,25 +9,25 @@ import { useRoute } from "vue-router";
 export const SITE_NAME = "Super FUMBBL";
 
 export interface PageTitleStore {
-  readonly state: { text: string; path: string; owner: number; blank: boolean };
+  readonly state: { text: string; path: string; owner: number; blank: boolean; blankName: string };
   /** Claims the override for a path; the returned handle sets and releases it (a stale handle cannot clear a newer one). */
-  claim(path: string): { set(text: string): void; blank(): void; release(): void };
+  claim(path: string, name?: string): { set(text: string): void; blank(): void; release(): void };
 }
 
 export const PAGE_TITLE_KEY: InjectionKey<PageTitleStore> = Symbol("page-title");
 
 export function createPageTitle(): PageTitleStore {
-  const state = reactive({ text: "", path: "", owner: 0, blank: false });
+  const state = reactive({ text: "", path: "", owner: 0, blank: false, blankName: "" });
   let next = 0;
   return {
     state,
-    claim(path) {
+    claim(path, name = "") {
       const id = ++next;
-      state.owner = id; state.path = path; state.text = ""; state.blank = false;
+      state.owner = id; state.path = path; state.text = ""; state.blank = false; state.blankName = name;
       return {
         set(text) { if (state.owner === id) { state.text = text.trim(); state.blank = false; } },
         blank() { if (state.owner === id) { state.text = ""; state.blank = true; } },
-        release() { if (state.owner === id) { state.owner = 0; state.path = ""; state.text = ""; state.blank = false; } },
+        release() { if (state.owner === id) { state.owner = 0; state.path = ""; state.text = ""; state.blank = false; state.blankName = ""; } },
       };
     },
   };
@@ -46,7 +46,9 @@ export function usePageTitle(source: MaybeRefOrGetter<string | null | undefined>
 export function useBlankPageTitle(): void {
   const store = inject(PAGE_TITLE_KEY, null);
   if (!store) return;
-  const handle = store.claim(useRoute().path);
+  // Keyed to the route NAME: /home, /home/?x=1 and /home#x are the same page and keep the same mounted view.
+  const route = useRoute();
+  const handle = store.claim(route.path, String(route.name ?? ""));
   handle.blank();
   onBeforeUnmount(() => handle.release());
 }
@@ -57,7 +59,7 @@ export function useShellTitle(): ComputedRef<string> {
   const route = useRoute();
   const title = computed(() => {
     const mine = store.state.path === route.path;
-    if (mine && store.state.blank) return "";
+    if (store.state.blank && store.state.blankName !== "" && store.state.blankName === String(route.name ?? "")) return "";
     return store.state.text && mine ? store.state.text : route.meta.title ?? "";
   });
   watch(title, (t) => { if (typeof document !== "undefined") document.title = documentTitle(t); }, { immediate: true });

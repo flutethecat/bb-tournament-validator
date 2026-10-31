@@ -171,8 +171,6 @@ export function createAppRouter(history: RouterHistory, session: SessionStore) {
     await session.load();
     return true;
   });
-  router.afterEach((to) => {
-    if (typeof document !== "undefined") document.title = `${to.meta.title ? `${to.meta.title} · ` : ""}Super FUMBBL`;
-  });
+  // document.title is set in ONE place: useShellTitle's watcher (shell/pageTitle.ts), which follows the page-title store.
   return router;
 }

@@ -212,7 +212,7 @@ async function signOut(): Promise<void> {
         <p class="lobby-error" role="alert">{{ session.state.error }}</p>
         <button class="lobby-btn" type="button" @click="session.load(true)">Try again</button>
       </section>
-      <LandingWelcome v-else-if="gate === 'signin' && route.name === 'home'" :href="loginHref" :sso-enabled="session.ssoEnabled()" />
+      <LandingWelcome v-else-if="gate === 'signin' && route.name === 'home' && !session.otherSession()" :href="loginHref" :sso-enabled="session.ssoEnabled()" />
       <template v-else-if="gate === 'signin'">
         <SignInPrompt :href="loginHref" :sso-enabled="session.ssoEnabled()" :other-session="session.otherSession()" />
         <TestSignInCard />

@@ -424,7 +424,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
   let vite: ViteDevServer;
   // Loaded through the SPA's Vite config so .vue files compile; every module comes from one graph (one Vue).
   let mods: {
-    createSpa: (o: { history: unknown; ssr?: boolean; fetcher?: Fetcher }) => { app: { provide: (k: unknown, v: unknown) => void }; router: { push: (p: string) => Promise<unknown>; isReady: () => Promise<void>; currentRoute: { value: { name: unknown; meta: Record<string, unknown> } } }; session: ReturnType<typeof createSessionStore>; pageTitle: { state: { text: string; path: string; owner: number }; claim: (path: string) => { set: (t: string) => void; blank: () => void; release: () => void } } };
+    createSpa: (o: { history: unknown; ssr?: boolean; fetcher?: Fetcher }) => { app: { provide: (k: unknown, v: unknown) => void }; router: { push: (p: string) => Promise<unknown>; isReady: () => Promise<void>; currentRoute: { value: { name: unknown; meta: Record<string, unknown> } } }; session: ReturnType<typeof createSessionStore>; pageTitle: { state: { text: string; path: string; owner: number }; claim: (path: string, name?: string) => { set: (t: string) => void; blank: () => void; release: () => void } } };
     createMemoryHistory: (base?: string) => unknown;
     renderToString: (app: unknown) => Promise<string>;
     gateFor: (route: { meta: Record<string, unknown> }, s: ReturnType<typeof createSessionStore>) => string;
@@ -818,12 +818,34 @@ describe("page title: the shell header h1 and document.title (owner 10-30)", () 
     const spa = await boot("/home");
     const title = spa.app.runWithContext(() => m.useShellTitle());
     expect(title.value).toBe("Coach page");
-    const own = spa.pageTitle.claim("/home");
+    const own = spa.pageTitle.claim("/home", "home");
     own.blank();
     expect(title.value).toBe("");
     await spa.router.push("/tournaments");
     expect(title.value).toBe("Tournaments");
     own.release();
+  });
+
+  it("a blank claim survives same-route navigation (query, hash, Home again) and document.title follows the store", async () => {
+    const g = globalThis as { document?: { title: string } };
+    g.document = { title: "" };
+    try {
+      const spa = await boot("/home");
+      const title = spa.app.runWithContext(() => m.useShellTitle());
+      const own = spa.pageTitle.claim("/home", "home");
+      own.blank();
+      await flush();
+      expect(g.document.title).toBe("Super FUMBBL");
+      for (const to of ["/home?x=1", "/home#deadlines", "/home"]) {
+        await spa.router.push(to);
+        await flush();
+        expect(title.value, to).toBe("");
+        expect(g.document.title, to).toBe("Super FUMBBL");
+      }
+      own.release();
+    } finally {
+      delete g.document;
+    }
   });
 
   it("a view's override replaces the title and document.title follows; the next page falls back to meta.title", async () => {
