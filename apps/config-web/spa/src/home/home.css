@@ -130,7 +130,7 @@
 /* An open category reads as one panel (owner 10-31, like the page panels): the header row is the band, its children sit
    in a matching bordered body directly beneath it, joined by a 1 px divider instead of the band's drop shadow. */
 .sf-tree-head:has(.sf-caret[aria-expanded="true"]) { border-bottom-width: 1px; border-radius: 2px 2px 0 0; box-shadow: inset 0 1px 0 var(--sf-panel-hi); }
-.sf-tree-head:has(.sf-caret[aria-expanded="true"]) + .sf-rows { margin: 0 6px; padding: 6px 0; background: var(--sf-panel-bottom), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-top: 0; border-radius: 0 0 2px 2px; box-shadow: 0 2px 0 var(--sf-panel-drop); }
+.sf-tree-head:has(.sf-caret[aria-expanded="true"]) + .sf-rows { margin: 0 6px; padding: 6px 0; background: linear-gradient(var(--sf-panel-bottom), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-top: 0; border-radius: 0 0 2px 2px; box-shadow: 0 2px 0 var(--sf-panel-drop); }
 .sf-row { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 5px 10px 5px calc(10px + (var(--sf-level, 1) - 1) * 14px); color: var(--ui-text); text-decoration: none; font-size: 16px; line-height: 1.25; border-left: 3px solid transparent; }
 .sf-row:hover { background: var(--ui-hover); }
 .sf-row[data-muted="true"] { color: var(--ui-muted); }
