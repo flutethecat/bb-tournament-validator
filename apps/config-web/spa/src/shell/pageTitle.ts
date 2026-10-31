@@ -9,24 +9,25 @@ import { useRoute } from "vue-router";
 export const SITE_NAME = "Super FUMBBL";
 
 export interface PageTitleStore {
-  readonly state: { text: string; path: string; owner: number };
+  readonly state: { text: string; path: string; owner: number; blank: boolean };
   /** Claims the override for a path; the returned handle sets and releases it (a stale handle cannot clear a newer one). */
-  claim(path: string): { set(text: string): void; release(): void };
+  claim(path: string): { set(text: string): void; blank(): void; release(): void };
 }
 
 export const PAGE_TITLE_KEY: InjectionKey<PageTitleStore> = Symbol("page-title");
 
 export function createPageTitle(): PageTitleStore {
-  const state = reactive({ text: "", path: "", owner: 0 });
+  const state = reactive({ text: "", path: "", owner: 0, blank: false });
   let next = 0;
   return {
     state,
     claim(path) {
       const id = ++next;
-      state.owner = id; state.path = path; state.text = "";
+      state.owner = id; state.path = path; state.text = ""; state.blank = false;
       return {
-        set(text) { if (state.owner === id) state.text = text.trim(); },
-        release() { if (state.owner === id) { state.owner = 0; state.path = ""; state.text = ""; } },
+        set(text) { if (state.owner === id) { state.text = text.trim(); state.blank = false; } },
+        blank() { if (state.owner === id) { state.text = ""; state.blank = true; } },
+        release() { if (state.owner === id) { state.owner = 0; state.path = ""; state.text = ""; state.blank = false; } },
       };
     },
   };
@@ -41,11 +42,24 @@ export function usePageTitle(source: MaybeRefOrGetter<string | null | undefined>
   onBeforeUnmount(() => handle.release());
 }
 
+/** A view that wants NO page title in the header (the signed-out landing): an explicit empty title, not the meta.title fallback. */
+export function useBlankPageTitle(): void {
+  const store = inject(PAGE_TITLE_KEY, null);
+  if (!store) return;
+  const handle = store.claim(useRoute().path);
+  handle.blank();
+  onBeforeUnmount(() => handle.release());
+}
+
 /** The shell's title for the current route (override > meta.title); also keeps document.title in sync (the one place). */
 export function useShellTitle(): ComputedRef<string> {
   const store = inject(PAGE_TITLE_KEY)!;
   const route = useRoute();
-  const title = computed(() => (store.state.text && store.state.path === route.path ? store.state.text : route.meta.title ?? ""));
+  const title = computed(() => {
+    const mine = store.state.path === route.path;
+    if (mine && store.state.blank) return "";
+    return store.state.text && mine ? store.state.text : route.meta.title ?? "";
+  });
   watch(title, (t) => { if (typeof document !== "undefined") document.title = documentTitle(t); }, { immediate: true });
   return title;
 }

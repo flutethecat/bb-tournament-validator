@@ -853,8 +853,12 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
 
   it("signed out /home is the landing: banner, welcome heading, login button, Past games; no Sign in card or test sign-in", async () => {
     const { html } = await render("/home", { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } });
-    expect(html).toContain('data-testid="landing-banner"');
+    expect(html).not.toContain("motherboard-header");
+    expect(html).not.toContain("landing-banner");
+    expect(html).toContain('src="/assets/super-fumbbl-logo.png"');
     expect(html).toContain('alt="Super FUMBBL"');
+    expect(html).toContain("Tell your league&#39;s story using your manager.");
+    expect(html).toContain("All for one flat rate.");
     expect(html).toContain("Welcome to Super FUMBBL League Manager!");
     expect(html).toContain("Login with Discord");
     expect(html).toContain('href="/api/auth/discord/start?next=');

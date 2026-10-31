@@ -424,7 +424,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
   let vite: ViteDevServer;
   // Loaded through the SPA's Vite config so .vue files compile; every module comes from one graph (one Vue).
   let mods: {
-    createSpa: (o: { history: unknown; ssr?: boolean; fetcher?: Fetcher }) => { app: { provide: (k: unknown, v: unknown) => void }; router: { push: (p: string) => Promise<unknown>; isReady: () => Promise<void>; currentRoute: { value: { name: unknown; meta: Record<string, unknown> } } }; session: ReturnType<typeof createSessionStore>; pageTitle: { state: { text: string; path: string; owner: number }; claim: (path: string) => { set: (t: string) => void; release: () => void } } };
+    createSpa: (o: { history: unknown; ssr?: boolean; fetcher?: Fetcher }) => { app: { provide: (k: unknown, v: unknown) => void }; router: { push: (p: string) => Promise<unknown>; isReady: () => Promise<void>; currentRoute: { value: { name: unknown; meta: Record<string, unknown> } } }; session: ReturnType<typeof createSessionStore>; pageTitle: { state: { text: string; path: string; owner: number }; claim: (path: string) => { set: (t: string) => void; blank: () => void; release: () => void } } };
     createMemoryHistory: (base?: string) => unknown;
     renderToString: (app: unknown) => Promise<string>;
     gateFor: (route: { meta: Record<string, unknown> }, s: ReturnType<typeof createSessionStore>) => string;
@@ -812,6 +812,18 @@ describe("page title: the shell header h1 and document.title (owner 10-30)", () 
       expect(html, path).toContain(`<h1 class="sf-page-title" aria-live="polite">${title}</h1>`);
       expect((html.match(/<h1[ >]/g) ?? []).length, path).toBe(1);
     }
+  });
+
+  it("a blank claim (the signed-out landing) shows an empty header title instead of meta.title, only on its own path", async () => {
+    const spa = await boot("/home");
+    const title = spa.app.runWithContext(() => m.useShellTitle());
+    expect(title.value).toBe("Coach page");
+    const own = spa.pageTitle.claim("/home");
+    own.blank();
+    expect(title.value).toBe("");
+    await spa.router.push("/tournaments");
+    expect(title.value).toBe("Tournaments");
+    own.release();
   });
 
   it("a view's override replaces the title and document.title follows; the next page falls back to meta.title", async () => {
