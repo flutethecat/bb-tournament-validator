@@ -1,0 +1,11 @@
+{
+  "asset": "team-captain-gold-*.png, team-captain-grey-*.png",
+  "source": "Owner handoff team-captain-handoff-v1.zip (Documents/ChatGPT/Super FUMBBL Team Icons/handoffs), received 2026-10-31",
+  "tool": "ChatGPT image generation (owner-run)",
+  "date": "2026-10-31",
+  "description_gold": "Chunky hockey-style captain C; battered warm gold, ivory highlights, charcoal outline, silver rivets and two restrained spikes on the left. Wide open counter, strong small-size silhouette, transparent background.",
+  "description_grey": "Recolour of the gold reference to neutral grey steel with silver-white highlights and charcoal bevels; C, spikes, rivets and weathering preserved; transparent background.",
+  "exact_prompt": "not included in the handoff (the reproduction descriptions above come from its HANDOFF.md); owner to supply if the provenance record needs the verbatim prompt",
+  "masters": "apps/config-web/tools/art/team-captain-v1/ (1254 px, not served)",
+  "use": "gold = captain set; grey = 'make captain' toggle on eligible players (Yularen mapping; the handoff assigns no state meaning to colour)"
+}

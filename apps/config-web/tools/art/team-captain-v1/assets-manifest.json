@@ -1,0 +1,113 @@
+{
+  "asset": "Team Captain",
+  "purpose": "Tournament builder captain marker",
+  "variants": [
+    {
+      "variant": "gold",
+      "files": [
+        {
+          "file": "masters/team-captain-gold.png",
+          "width": 1254,
+          "height": 1254,
+          "transparent": true
+        },
+        {
+          "file": "24/team-captain-gold.png",
+          "width": 24,
+          "height": 24,
+          "transparent": true
+        },
+        {
+          "file": "32/team-captain-gold.png",
+          "width": 32,
+          "height": 32,
+          "transparent": true
+        },
+        {
+          "file": "48/team-captain-gold.png",
+          "width": 48,
+          "height": 48,
+          "transparent": true
+        },
+        {
+          "file": "64/team-captain-gold.png",
+          "width": 64,
+          "height": 64,
+          "transparent": true
+        },
+        {
+          "file": "128/team-captain-gold.png",
+          "width": 128,
+          "height": 128,
+          "transparent": true
+        },
+        {
+          "file": "256/team-captain-gold.png",
+          "width": 256,
+          "height": 256,
+          "transparent": true
+        }
+      ]
+    },
+    {
+      "variant": "grey",
+      "files": [
+        {
+          "file": "masters/team-captain-grey.png",
+          "width": 1254,
+          "height": 1254,
+          "transparent": true
+        },
+        {
+          "file": "24/team-captain-grey.png",
+          "width": 24,
+          "height": 24,
+          "transparent": true
+        },
+        {
+          "file": "32/team-captain-grey.png",
+          "width": 32,
+          "height": 32,
+          "transparent": true
+        },
+        {
+          "file": "48/team-captain-grey.png",
+          "width": 48,
+          "height": 48,
+          "transparent": true
+        },
+        {
+          "file": "64/team-captain-grey.png",
+          "width": 64,
+          "height": 64,
+          "transparent": true
+        },
+        {
+          "file": "128/team-captain-grey.png",
+          "width": 128,
+          "height": 128,
+          "transparent": true
+        },
+        {
+          "file": "256/team-captain-grey.png",
+          "width": 256,
+          "height": 256,
+          "transparent": true
+        }
+      ]
+    }
+  ],
+  "integration": {
+    "meaning": "Both variants represent Team Captain. No active/inactive or rank distinction is assigned.",
+    "sizes": [
+      24,
+      32,
+      48,
+      64,
+      128,
+      256
+    ],
+    "format": "PNG with alpha",
+    "label": "Team captain"
+  }
+}
