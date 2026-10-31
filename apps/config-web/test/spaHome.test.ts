@@ -459,7 +459,12 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(nav).toMatch(/<button class="sf-head-link sf-head-toggle" type="button" aria-expanded="false" aria-controls="sf-tree-resources"/);
     // Account left the sidebar (top-bar menu); the old Pages rows are admin-only Testing
     expect(nav).not.toContain('href="/app/account"');
-    for (const gone of ["/app/lobby", "/app/tabletop", "/app/team-builder", "/app/tournament-team-builder"]) expect(nav).not.toContain(`href="${gone}"`);
+    for (const gone of ["/app/lobby", "/app/tabletop", "/app/team-builder"]) expect(nav).not.toContain(`href="${gone}"`);
+    // Owner 10-31: action buttons under the rows: Browse Leagues; Build a team (Roster Builder) + Browse Tournaments.
+    const leagues = nav.slice(nav.indexOf('data-tree="leagues"'), nav.indexOf('data-tree="tournaments"'));
+    expect(leagues).toMatch(/No active leagues[\s\S]*<li class="sf-actions"><!--\[--><a href="\/app\/leagues" class="sf-nav-btn" data-action="a:leagues">Browse Leagues<\/a>/);
+    const tourns = nav.slice(nav.indexOf('data-tree="tournaments"'), nav.indexOf('data-tree="leaderboards"'));
+    expect(tourns).toMatch(/<li class="sf-actions"><!--\[--><a href="\/app\/tournament-team-builder" class="sf-nav-btn" data-action="a:build">Build a team<\/a><a href="\/app\/tournaments" class="sf-nav-btn" data-action="a:tournaments">Browse Tournaments<\/a>/);
     expect(nav).not.toContain("Testing");
     expect(html).not.toContain("Login with Discord");
   });

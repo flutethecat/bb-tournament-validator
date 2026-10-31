@@ -24,7 +24,8 @@ const route = useRoute();
 const open = reactive(readNavOpen());
 
 interface Row { key: string; to: string; label: string; level: number; count?: number; chip?: { label: string; tone: ChipTone }; muted?: boolean; crest?: string; logo?: string; sub?: string }
-interface Category { id: NavCategoryId; label: string; icon: string; to?: string; rows: Row[]; external?: ExternalLink[]; count: number }
+interface NavAction { key: string; label: string; to: string }
+interface Category { id: NavCategoryId; label: string; icon: string; to?: string; rows: Row[]; external?: ExternalLink[]; actions?: NavAction[]; count: number }
 
 const tournamentRows = computed<Row[]>(() => {
   const rows: Row[] = [];
@@ -57,8 +58,9 @@ const isAdmin = computed(() => session.admin());
 const homeBadge = computed(() => !session.signedIn() ? 0 : homeBadgeCount({ unread: notifications.unread.value, messages: 0, proposals: 0 }));
 
 const categories = computed<Category[]>(() => [
-  { id: "leagues", label: "Leagues", icon: "leagues", to: LEAGUES_TO, rows: leagueRows, count: 0 },
-  { id: "tournaments", label: "Tournaments", icon: "tournaments", to: "/tournaments", rows: tournamentRows.value, count: tree.state.tournaments.length },
+  // Action buttons under the rows (owner 10-31): Browse Leagues; Build a team (Roster Builder) and Browse Tournaments.
+  { id: "leagues", label: "Leagues", icon: "leagues", to: LEAGUES_TO, rows: leagueRows, actions: [{ key: "a:leagues", label: "Browse Leagues", to: LEAGUES_TO }], count: 0 },
+  { id: "tournaments", label: "Tournaments", icon: "tournaments", to: "/tournaments", rows: tournamentRows.value, actions: [{ key: "a:build", label: "Build a team", to: "/tournament-team-builder" }, { key: "a:tournaments", label: "Browse Tournaments", to: "/tournaments" }], count: tree.state.tournaments.length },
   { id: "leaderboards", label: "Leaderboards", icon: "leaderboards", to: "/leaderboards", rows: [], count: 0 },
   { id: "help", label: "Help", icon: "help", to: "/help", rows: [], count: 0 },
   { id: "resources", label: "Resources", icon: "resources", rows: [], external: RESOURCES, count: 0 },
@@ -83,7 +85,7 @@ const activeKey = computed(() => {
 });
 
 /** A category with no child rows (Leaderboards, Help) is a plain header link: no caret, no list. */
-const hasChildren = (c: Category): boolean => c.rows.length > 0 || (c.external?.length ?? 0) > 0;
+const hasChildren = (c: Category): boolean => c.rows.length > 0 || (c.external?.length ?? 0) > 0 || (c.actions?.length ?? 0) > 0;
 function toggle(id: NavCategoryId): void {
   open[id] = !open[id];
   rememberNavOpen({ ...open });
@@ -151,6 +153,9 @@ function onHeadToggle(id: NavCategoryId, e: MouseEvent): void {
               <span v-if="r.chip" class="sf-chip" :data-tone="r.chip.tone">{{ r.chip.label }}</span>
             </a>
           </RouterLink>
+        </li>
+        <li v-if="c.actions?.length" class="sf-actions">
+          <RouterLink v-for="a in c.actions" :key="a.key" :to="a.to" class="sf-nav-btn" :data-action="a.key">{{ a.label }}</RouterLink>
         </li>
       </ul>
     </section>
