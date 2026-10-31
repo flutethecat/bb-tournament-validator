@@ -143,8 +143,13 @@ async function signOut(): Promise<void> {
       ref="menuBtn" class="sf-menu" type="button" :aria-expanded="ui.drawerOpen ? 'true' : 'false'" aria-controls="sf-aside"
       aria-label="Menu" @click="ui.drawerOpen = !ui.drawerOpen"
     ><span aria-hidden="true">☰</span></button>
-    <RouterLink class="brand sf-wordmark" to="/home" aria-label="Super FUMBBL home">Super FUMBBL</RouterLink>
-    <h1 class="sf-page-title" aria-live="polite">{{ pageTitle }}</h1>
+    <!-- the wordmark with the page title stacked under it (owner 10-31) -->
+    <div class="sf-titleblock">
+      <RouterLink class="brand sf-wordmark" to="/home" aria-label="Super FUMBBL home">Super FUMBBL</RouterLink>
+      <h1 class="sf-page-title" aria-live="polite">{{ pageTitle }}</h1>
+    </div>
+    <!-- a page's own header controls (Teleport target; empty on every page but the Tournament Builder, owner 10-31) -->
+    <div id="sf-header-slot" class="sf-header-slot"></div>
     <div class="shell-who" aria-live="polite">
       <template v-if="session.signedIn()">
         <BellPopover />

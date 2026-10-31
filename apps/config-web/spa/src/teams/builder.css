@@ -33,6 +33,14 @@
 .tb-tabs .tl-seg-btn[aria-selected="true"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
 .tb-tabs .tl-seg-btn:disabled { opacity: .45; cursor: not-allowed; }
 .tb-tabs .tl-seg-btn:focus-visible { outline-offset: -2px; }
+/* in the shell header (owner 10-31): compact, header-height tabs inline after the page title */
+.tb-tabs.tb-tabs-header { flex-wrap: nowrap; min-height: 0; height: 36px; flex: 0 1 auto; min-width: 0; }
+.tb-tabs.tb-tabs-header .tl-seg-btn { flex: 0 1 auto; min-height: 0; height: 100%; padding: 0 14px; font-size: 11px; letter-spacing: .08em; white-space: nowrap; }
+@media (max-width: 900px) { .tb-tabs.tb-tabs-header .tl-seg-btn { padding: 0 8px; letter-spacing: .04em; } }
+/* phones: no step tabs (owner 10-31); the summary bar is the way back to Ruleset */
+@media (max-width: 639.98px) { .tb-page > .tb-tabs { display: none; } }
+.tb-locked-btn { width: 100%; font: 12px/1.4 var(--sf-band-font); text-align: left; cursor: pointer; }
+.tb-locked-btn:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 
 .tb-locked { display: flex; align-items: center; gap: 10px; margin: 0; padding: 6px 12px; font: 12px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-heading); border-radius: 2px; overflow-wrap: anywhere; }
 .tb-locked-crest { width: 32px; height: 32px; object-fit: contain; flex: none; }

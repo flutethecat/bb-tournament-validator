@@ -28,8 +28,8 @@ watch(serialized, () => void c.requestPreview());
 <template>
   <section class="hm-panel" aria-labelledby="cr-preview-h">
     <header class="hm-band"><h2 id="cr-preview-h">Ruleset table preview</h2></header>
-    <p class="cr-hint">Resolved by the server exactly as the Tournament Builder (coach page) will read this package once saved.</p>
-    <p v-if="preview.loading" class="hm-empty" role="status">Resolving the package the way the Tournament Builder will...</p>
+    <p class="cr-hint">Resolved by the server exactly as the Roster Builder (coach page) will read this package once saved.</p>
+    <p v-if="preview.loading" class="hm-empty" role="status">Resolving the package the way the Roster Builder will...</p>
     <div v-else-if="preview.error" class="cr-problems" role="alert">
       <strong>Preview unavailable</strong>
       <p>{{ preview.error }}</p>
@@ -39,7 +39,7 @@ watch(serialized, () => void c.requestPreview());
     <template v-else>
       <div v-if="preview.problems.length" class="cr-notice"><p v-for="(p, i) in preview.problems" :key="i">{{ p }}</p></div>
       <template v-if="overview">
-        <h3 class="cr-sub">What coaches will see (Tournament Builder)</h3>
+        <h3 class="cr-sub">What coaches will see (Roster Builder)</h3>
         <dl v-if="overview.summary?.length" class="cr-summary">
           <div v-for="line in overview.summary" :key="line.key" :data-summary="line.key">
             <dt>{{ line.label }}</dt>

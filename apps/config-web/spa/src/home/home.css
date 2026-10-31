@@ -46,17 +46,25 @@
 /* ---- top bar */
 .shell-header.sf-top {
   /* Below the match recorder (.tt-rec z 60) so its dialogs cover the header and the rail collapser (Sol 10-30). */
-  position: sticky; top: 0; z-index: 50; min-height: var(--sf-top-h); flex-wrap: nowrap; padding: 8px 16px; gap: 12px;
+  position: sticky; top: 0; z-index: 50; min-height: var(--sf-top-h); flex-wrap: nowrap; padding: 6px 16px; gap: 12px;
   background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
   border-bottom: 2px solid var(--sf-panel-line); box-shadow: 0 2px 0 var(--sf-panel-drop);
 }
-.sf-wordmark.brand { font-family: var(--sf-wordmark-font); font-style: italic; text-transform: none; letter-spacing: .02em; font-size: 1.45rem; color: var(--ui-heading); }
+.sf-wordmark.brand { font-family: var(--sf-wordmark-font); font-style: italic; text-transform: none; letter-spacing: .02em; font-size: 1.45rem; line-height: 1; color: var(--ui-heading); }
+/* Owner 10-31: the wordmark and the page title stack in the header's left block (the header row's middle is free for a
+   page's own controls, see .sf-header-slot); both lines fit the 56 px header. */
+.sf-titleblock { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 0; flex: 0 1 auto; min-width: 0; }
+.sf-titleblock .sf-wordmark.brand { max-width: 100%; }
 /* The page title (owner 10-30): the h1 of every page; one line, ellipsis when it does not fit (the header never grows).
-   Owner 10-31: left-aligned right after the wordmark, in gold. */
-.sf-page-title { flex: 1 1 0; min-width: 0; margin: 0; padding: 0 8px; text-align: left; font: 1.05rem/1.2 var(--sf-band-font); letter-spacing: .08em; text-transform: uppercase; color: var(--ui-heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+   Owner 10-31: stacked under the wordmark (left-aligned with it, no nav-width box), in the wordmark's face; red, gold on
+   the Tournaments and Leagues pages. */
+.sf-page-title { max-width: 100%; min-width: 0; margin: 0; padding: 0; text-align: left; font: italic 1.05rem/1.12 var(--sf-wordmark-font); letter-spacing: .02em; text-transform: none; color: var(--ui-heading); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .shell-header[data-title="gold"] .sf-page-title { color: var(--sf-gold); } /* Tournaments and Leagues pages (owner 10-31) */
+/* The header slot: a page's own controls inline after the title block (the Roster Builder's step tabs); empty elsewhere. */
+.sf-header-slot { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; margin-right: auto; }
+.sf-header-slot:empty { display: none; }
 .sf-menu { display: none; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; font-size: 20px; color: var(--ui-text); background: transparent; border: 2px solid var(--sf-panel-line); border-radius: 2px; cursor: pointer; }
-.sf-top .shell-who { gap: 10px; min-width: 0; }
+.sf-top .shell-who { gap: 10px; min-width: 0; margin-left: auto; }
 .sf-bell { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; color: var(--ui-text); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); text-decoration: none; }
 .sf-bell { background: transparent; font: inherit; cursor: pointer; padding: 0; }
 .sf-bell:focus-visible, .sf-bell-all:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
@@ -189,7 +197,7 @@
   .shell-header.sf-top { padding: 6px 16px; gap: 8px; }
   .sf-wordmark.brand { padding-right: 0; font-size: 1.15rem; }
   .sf-avatar-menu .shell-me { max-width: 110px; }
-  .sf-page-title { padding: 0 4px; font-size: .85rem; letter-spacing: .05em; }
+  .sf-page-title { font-size: .9rem; }
 }
 /* phones: the title takes the wordmark's room (the wordmark stays a labelled link for assistive tech; Home is in the menu) */
 @media (max-width: 480px) {

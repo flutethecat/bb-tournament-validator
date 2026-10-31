@@ -123,6 +123,23 @@ const linkedSave = computed(() => {
   const id = props.saveId ?? (typeof route.query.save === "string" ? route.query.save : "");
   return id && SAVE_ID_RE.test(id) ? id : "";
 });
+// Where the step tabs go (owner 10-31): the shell header from 640 px (after mount, so server rendering keeps them inline);
+// below 640 px nowhere.
+const inHeader = ref(false);
+const phone = ref(false);
+let narrowMq: MediaQueryList | null = null;
+function placeTabs(): void {
+  const narrow = Boolean(narrowMq?.matches);
+  phone.value = narrow;
+  inHeader.value = !narrow && Boolean(typeof document !== "undefined" && document.getElementById("sf-header-slot"));
+}
+onMounted(() => {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+  narrowMq = window.matchMedia("(max-width: 639.98px)");
+  narrowMq.addEventListener?.("change", placeTabs);
+  placeTabs();
+});
+onBeforeUnmount(() => { narrowMq?.removeEventListener?.("change", placeTabs); narrowMq = null; });
 onBeforeUnmount(() => { if (typeof document !== "undefined") document.documentElement.classList.remove("tb-printing"); });
 onMounted(async () => {
   await session.load();
@@ -166,15 +183,23 @@ async function pickPackage(name: string): Promise<void> {
 
 <template>
   <div class="hm-page tm-page tb-page" :class="{ 'tb-wide': tab === 'roster' || tab === 'ruleset' }">
-    <div ref="tabsEl" class="tl-seg tb-tabs" role="tablist" aria-label="Tournament Builder steps" @keydown="onTabKey">
-      <button
-        v-for="t in BUILDER_TABS" :id="`tb-tab-${t.id}`" :key="t.id" type="button" role="tab" class="tl-seg-btn" :data-tab="t.id"
-        :aria-selected="tab === t.id ? 'true' : 'false'" :aria-controls="`tb-pane-${t.id}`" :tabindex="tab === t.id ? 0 : -1"
-        :disabled="t.id !== 'ruleset' && !ready" @click="go(t.id)"
-      >{{ t.label }}</button>
-    </div>
+    <!-- The step tabs live in the shell header (owner 10-31) once mounted on a screen 640 px and wider; until then (and in
+         server rendering) they render here. Phones get no tabs at all: the summary bar below returns to Ruleset. -->
+    <Teleport to="#sf-header-slot" :disabled="!inHeader">
+      <div v-if="!phone" ref="tabsEl" class="tl-seg tb-tabs" :class="{ 'tb-tabs-header': inHeader }" role="tablist" aria-label="Roster Builder steps" @keydown="onTabKey">
+        <button
+          v-for="t in BUILDER_TABS" :id="`tb-tab-${t.id}`" :key="t.id" type="button" role="tab" class="tl-seg-btn" :data-tab="t.id"
+          :aria-selected="tab === t.id ? 'true' : 'false'" :aria-controls="`tb-pane-${t.id}`" :tabindex="tab === t.id ? 0 : -1"
+          :disabled="t.id !== 'ruleset' && !ready" @click="go(t.id)"
+        >{{ t.label }}</button>
+      </div>
+    </Teleport>
 
-    <p v-if="ready" class="tb-locked">
+    <button v-if="ready && phone && tab !== 'ruleset'" type="button" class="tb-locked tb-locked-btn" aria-label="Change ruleset or race" @click="go('ruleset')">
+      <img v-if="crest" class="tb-locked-crest" :src="crest" alt="" aria-hidden="true" />
+      <span>{{ lockedLine }}</span>
+    </button>
+    <p v-else-if="ready" class="tb-locked">
       <img v-if="crest" class="tb-locked-crest" :src="crest" alt="" aria-hidden="true" />
       <span>{{ lockedLine }}</span>
     </p>

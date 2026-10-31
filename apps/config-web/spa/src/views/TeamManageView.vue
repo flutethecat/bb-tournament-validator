@@ -142,7 +142,7 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
       <RouterLink ref="backLink" class="lobby-btn tm-back" to="/my-teams">Back to My teams</RouterLink>
       <template v-if="info">
         <button ref="avatarBtn" type="button" class="lobby-btn" aria-haspopup="dialog" @click="manage.openAvatar()">Team avatar</button>
-        <RouterLink v-if="info.saveId" class="lobby-btn" :to="builderHref(info.saveId)">Open in Tournament Builder</RouterLink>
+        <RouterLink v-if="info.saveId" class="lobby-btn" :to="builderHref(info.saveId)">Open in Roster Builder</RouterLink>
         <RouterLink v-if="info.libraryRef" class="lobby-btn" :to="teamManagePath(info.libraryRef)">Manage the fork team</RouterLink>
         <button v-if="info.saveId && !info.shareToken" type="button" class="lobby-btn primary" :disabled="state.shareBusy" @click="manage.setShared(true)">Share</button>
       </template>
@@ -158,7 +158,7 @@ watch(() => props.teamRef, (ref) => void manage.load(ref));
         <button type="button" class="lobby-btn" @click="copy">Copy</button>
         <button type="button" class="lobby-btn" :disabled="state.shareBusy" @click="manage.setShared(false)">Unshare</button>
       </div>
-      <p v-if="info?.shareToken && info.kind === 'library'" class="muted">The share link shows the Tournament Builder sheet this team was built from.</p>
+      <p v-if="info?.shareToken && info.kind === 'library'" class="muted">The share link shows the Roster Builder sheet this team was built from.</p>
       <p v-if="state.shareError" class="lobby-error" role="alert">{{ state.shareError }}</p>
       <LeagueRedraftPanel :team-name="model.team.teamName" :api="fetcher" />
       <p v-if="!info!.advancement.available && info!.advancement.reason" class="tm-note">{{ info!.advancement.reason }}</p>

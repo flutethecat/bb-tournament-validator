@@ -130,7 +130,7 @@ export const routes: RouteRecordRaw[] = [
     name: "tournament-team-builder",
     component: TournamentBuilderView,
     props: (route) => ({ saveId: typeof route.params.saveId === "string" && route.params.saveId ? route.params.saveId : undefined }),
-    meta: { title: "Tournament Builder" },
+    meta: { title: "Roster Builder" },
   },
   { path: "/my-teams", name: "my-teams", component: MyTeamsView, meta: { requiresAuth: true, title: "My teams" } },
   // Team management (owner 10-30): the coach's own team (fork library team "library:<id>" or a Tournament Builder save id).

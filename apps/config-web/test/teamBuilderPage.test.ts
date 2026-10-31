@@ -446,7 +446,7 @@ describe("tournament team builder page", () => {
 
   it("is listed on the control panel with the shared hub-card markup", () => {
     expect(panel).toContain(`<a class="hub-card" href="/app/tournament-team-builder">
-          <span class="hub-card-name">Tournament Builder</span>
+          <span class="hub-card-name">Roster Builder</span>
           <span class="hub-card-description">Pick a tournament ruleset, choose a tiered race, and build a legal roster with its roster sheet.</span>
           <span class="hub-card-destination">app/tournament-team-builder</span>
         </a>`);

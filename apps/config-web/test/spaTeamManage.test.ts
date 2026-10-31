@@ -371,7 +371,7 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(html).toContain('<th scope="col" class="tv-spp">SPP</th>');
     expect(html).toContain('<td class="tv-spp"><span class="tm-spp" title="SPP 12 · Emerging Star · 2 advancements">12/6</span></td>');
     expect(html).toMatch(/<a href="\/app\/my-teams" class="[^"]*tm-back[^"]*">Back to My teams<\/a>/);
-    expect(html).toMatch(/<a href="\/app\/tournament-team-builder\/sv_a" class="[^"]*lobby-btn[^"]*">Open in Tournament Builder<\/a>/);
+    expect(html).toMatch(/<a href="\/app\/tournament-team-builder\/sv_a" class="[^"]*lobby-btn[^"]*">Open in Roster Builder<\/a>/);
     expect(html).toMatch(/<button type="button" class="lobby-btn primary">Share<\/button>/);
     expect(html).toContain("Team value <b>1,000k</b>");
     expect(html).toMatch(/<button type="button" class="lobby-btn" aria-haspopup="dialog">Team avatar<\/button>/);

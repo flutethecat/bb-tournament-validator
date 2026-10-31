@@ -28,7 +28,7 @@ export const TESTING_TOOLS: NavLink[] = [
   { label: "Lobby", to: "/lobby" },
   { label: "Tabletop", to: "/tabletop" },
   { label: "Team Builder", to: "/team-builder" },
-  { label: "Tournament Builder", to: "/tournament-team-builder" },
+  { label: "Roster Builder", to: "/tournament-team-builder" },
 ];
 
 export const NAV_OPEN_STORAGE_KEY = "sf.navOpen";
