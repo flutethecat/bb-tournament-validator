@@ -27,6 +27,8 @@ const tree = inject(COACH_TREE_KEY)!;
 const ui = inject(SHELL_UI_KEY)!;
 const route = useRoute();
 const router = useRouter();
+// Header title colour follows the section (owner 10-31): Tournaments and Leagues pages carry gold, every other page red.
+const titleArea = computed(() => (/^\/(tournaments|tournament-creator|admin\/tournaments|leagues)(\/|$|\?)/.test(route.path) ? "gold" : "red"));
 const pageTitle = useShellTitle();
 const creator = inject(TOURNAMENT_CREATOR_KEY, null);
 // "Create tournament" in the account menu: organisers only, the server's POST /api/tournaments rule. The rule gates
@@ -136,7 +138,7 @@ async function signOut(): Promise<void> {
 </script>
 
 <template>
-  <header class="shell-header sf-top" :data-rail="ui.collapsed ? 'true' : 'false'" :inert="createOpen || undefined" :aria-hidden="createOpen ? 'true' : undefined">
+  <header class="shell-header sf-top" :data-rail="ui.collapsed ? 'true' : 'false'" :data-title="titleArea" :inert="createOpen || undefined" :aria-hidden="createOpen ? 'true' : undefined">
     <button
       ref="menuBtn" class="sf-menu" type="button" :aria-expanded="ui.drawerOpen ? 'true' : 'false'" aria-controls="sf-aside"
       aria-label="Menu" @click="ui.drawerOpen = !ui.drawerOpen"

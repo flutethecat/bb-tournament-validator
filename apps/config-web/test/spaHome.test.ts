@@ -786,7 +786,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(header).not.toContain("sf-rail-toggle");
     expect(aside).not.toContain("sf-rail-toggle");
     const rail = (await render("/home", signedInRoutes(), (spa) => { spa.ui.collapsed = true; })).html;
-    expect(rail).toMatch(/<header class="shell-header sf-top" data-rail="true">/);
+    expect(rail).toMatch(/<header class="shell-header sf-top" data-rail="true" data-title="red">/);
     expect(rail).toMatch(/<button class="sf-rail-toggle" type="button" data-rail="true" aria-label="Expand navigation \(\[\)"/);
     const css = readFileSync(new URL("../spa/src/home/home.css", import.meta.url), "utf8");
     expect(css).toMatch(/\.sf-rail-toggle \{ position: fixed; bottom: 4px; left: calc\(var\(--sf-nav-w\) - 2px\);[^}]*border-left: 0; border-radius: 0 4px 4px 0;/);
