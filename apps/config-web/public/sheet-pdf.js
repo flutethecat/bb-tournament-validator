@@ -31,6 +31,9 @@
   const GREEN = "#3d7a1f"; // added secondary skills (same distinction as the on-screen sheet)
   const TRAIT = "#6e4f28"; // Team Captain grants (same ink as the on-screen sheet's .sk-trait)
   const STATS = ["MA", "ST", "AG", "PA", "AV"];
+  const RULESET_BOX_WIDTH = 330; // pt: about 40 % of the A4 landscape content width
+  /** The sheet palette; the on-screen preview (spa/src/teams/sheet.css) uses the same values. */
+  const PALETTE = { INK, MUTED, RULE, HEAD_FILL, ZEBRA_FILL, BLUE, GREEN, TRAIT };
 
   const fallbackGold = (value) =>
     typeof value === "number" && Number.isFinite(value) ? `${Math.round(value / 1000).toLocaleString("en-US")}k` : "—";
@@ -38,6 +41,49 @@
     const d = value instanceof Date ? value : new Date(value ?? Date.now());
     return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
   };
+
+  /**
+   * The TOURNAMENT RULESET box rows (owner 10-30), [label, value] pairs. A model that carries `ruleset` (the SPA's
+   * sheetModel: spa/src/teams/sheetRuleset.ts) prints exactly those rows; a model without it (the vanilla page, or a
+   * builder that does not pass them yet) falls back to what the model itself holds: the package and tier from
+   * `rulesetName` ("Package — Tier") and the TV cap from the summary's "Total" row ("used / cap"). Empty rows are dropped.
+   * The on-screen sheet calls this same function, so the screen and the PDF never disagree.
+   */
+  function rulesetRows(model) {
+    const clean = (rows) => (Array.isArray(rows) ? rows : [])
+      .filter((row) => Array.isArray(row) && String(row[0] ?? "").trim() && String(row[1] ?? "").trim())
+      .map(([k, v]) => [String(k).trim(), String(v).trim()]);
+    if (Array.isArray(model?.ruleset)) return clean(model.ruleset);
+    const [pkg, ...tier] = String(model?.rulesetName ?? "").split(" — ");
+    const total = (model?.summary ?? []).find((row) => Array.isArray(row) && row[0] === "Total");
+    const cap = total && / \/ /.test(String(total[1])) ? String(total[1]).split(" / ").pop() : "";
+    // A trailing parenthetical note on the tier label stays off the box (as in sheetRuleset.ts).
+    return clean([["Package", pkg], ["Tier", tier.join(" — ").replace(/\s*\([^()]*\)\s*$/, "")], ["TV cap", cap]]);
+  }
+
+  /** The ruleset box: panel()'s hairline style, two label/value pairs per line so it stays as short as the header. */
+  function rulesetPanel(rows) {
+    const body = [[{ text: "TOURNAMENT RULESET", style: "panelTitle", colSpan: 4 }, {}, {}, {}]];
+    for (let i = 0; i < rows.length; i += 2) {
+      const pair = (row) => (row ? [{ text: row[0], color: MUTED, noWrap: true }, { text: row[1], bold: true }] : [{ text: "" }, { text: "" }]);
+      body.push([...pair(rows[i]), ...pair(rows[i + 1])]);
+    }
+    return {
+      table: { widths: ["auto", "*", "auto", "*"], body },
+      layout: {
+        hLineWidth: (i, node) => (i === 0 || i === 1 || i === node.table.body.length ? 0.8 : 0),
+        vLineWidth: (i, node) => (i === 0 || i === node.table.widths.length ? 0.8 : 0),
+        hLineColor: () => INK,
+        vLineColor: () => INK,
+        fillColor: (rowIndex) => (rowIndex === 0 ? HEAD_FILL : null),
+        paddingLeft: () => 4,
+        paddingRight: () => 4,
+        paddingTop: () => 1.5,
+        paddingBottom: () => 1.5,
+      },
+      fontSize: 8,
+    };
+  }
 
   /** A boxed key/value panel for the top band. */
   function panel(title, rows, emptyText = "None") {
@@ -91,6 +137,7 @@
     const gold = typeof options.gold === "function" ? options.gold : fallbackGold;
     const date = isoDate(options.generatedOn);
     const rows = Array.isArray(model.rows) ? model.rows : [];
+    const ruleset = rulesetRows(model);
 
     const header = {
       columns: [
@@ -103,6 +150,8 @@
             { text: [{ text: "TEAM  ", style: "label" }, { text: model.teamName || "—" }], margin: [0, 2, 0, 0] },
           ],
         },
+        // Owner 10-30: the tournament ruleset, boxed, top right of page 1 (the header content sits left of it).
+        ...(ruleset.length ? [{ width: RULESET_BOX_WIDTH, stack: [rulesetPanel(ruleset)] }] : []),
       ],
       columnGap: 8,
       margin: [0, 0, 0, 6],
@@ -264,7 +313,7 @@
     loading = null;
   }
 
-  const api = { buildSheetDocDefinition, sheetPdfFileName, loadPdfMake, abandonPdfMakeLoad, PDFMAKE_SCRIPTS, PRODUCT };
+  const api = { buildSheetDocDefinition, rulesetRows, PALETTE, sheetPdfFileName, loadPdfMake, abandonPdfMakeLoad, PDFMAKE_SCRIPTS, PRODUCT };
   root.SheetPdf = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();
