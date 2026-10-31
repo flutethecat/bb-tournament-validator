@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DiscordLoginButton from "./DiscordLoginButton.vue";
 // Create Tournament dialog (owner 10-30): Name, Ruleset, Type, then the rule fields Edit Tournament shares (Max players,
 // Rounds for Swiss, First tiebreaker). Create = POST /api/tournaments; the new draft opens on its Manage tab. The
 // server's refusals (400 / 409) show inline, word for word.
@@ -87,7 +88,7 @@ onUnmounted(() => {
           <p v-else-if="noPackages" class="lobby-error tc-full" role="alert">No saved rulesets yet: save one in the Tournament Creator first.</p>
           <p v-if="state.error" class="lobby-error tc-full" role="alert">
             {{ state.error }}
-            <a v-if="state.signedOut" class="lobby-btn small primary" :href="loginHref">Login with Discord</a>
+            <DiscordLoginButton v-if="state.signedOut" :href="loginHref" small />
           </p>
           <div class="tn-actions tn-form-actions">
             <button class="lobby-btn primary" type="submit" :disabled="state.busy || !state.packages.length">{{ state.busy ? "Creating..." : "Create draft" }}</button>

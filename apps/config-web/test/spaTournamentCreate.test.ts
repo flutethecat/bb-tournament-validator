@@ -234,7 +234,7 @@ describe("create views (server-rendered against a mocked API)", () => {
     expect(html).not.toContain("tl-create-btn");
     const dlg = html.slice(html.indexOf('role="dialog"'));
     expect(dlg).toContain("Signed out. Sign in and try again.");
-    expect(dlg).toMatch(/<a class="lobby-btn small primary" href="\/api\/auth\/discord\/start\?next=%2Fapp%2Ftournaments">Login with Discord<\/a>/);
+    expect(dlg).toMatch(/<a class="sf-discord-login small" href="\/api\/auth\/discord\/start\?next=%2Fapp%2Ftournaments" aria-label="Login with Discord">[\s\S]*?<span>Login with Discord<\/span><\/a>/);
     expect(html).toMatch(/<div class="sf-body"[^>]*inert/);
   });
 
