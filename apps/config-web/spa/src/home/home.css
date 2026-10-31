@@ -160,8 +160,6 @@
 /* collapsed: a 56 px rail of the top-level icons (desktop only; the drawer always shows the full trees). A category icon
    expands the rail and opens that category (ShellNav fromRail). */
 @media (min-width: 1024px) {
-  /* the wordmark clears the collapser sitting over the 56 px rail */
-  .shell-header.sf-top[data-rail="true"] { padding-left: calc(var(--sf-rail-w) + 12px); }
   .sf-nav[data-collapsed="true"] .sf-caret,
   .sf-nav[data-collapsed="true"] .sf-count,
   .sf-nav[data-collapsed="true"] .sf-rows { display: none; }
