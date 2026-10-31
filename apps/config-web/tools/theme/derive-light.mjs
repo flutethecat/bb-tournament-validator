@@ -149,7 +149,8 @@ export function derive(spec) {
 
 // ---- block I/O ---------------------------------------------------------------------------------------------------------
 function blockRange(css, selector) {
-  const start = css.indexOf(selector);
+  let start = css.indexOf(selector);
+  if (start < 0 && selector.includes("\n")) start = css.indexOf(selector.replace(/\n/g, "\r\n")); // CRLF checkouts
   if (start < 0) return null;
   const open = css.indexOf("{", start);
   const end = css.indexOf("}", open);
