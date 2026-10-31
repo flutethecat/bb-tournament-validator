@@ -23,6 +23,7 @@
   --sf-rail-w: 56px;
   --sf-band-font: "Silkscreen", var(--font-heading, sans-serif);
   --sf-wordmark-font: "SNES", var(--font-heading, sans-serif);
+  --sf-gold: #e8a33d; /* same gold as --ui-gold (dark) */
   --sf-discord: #5865f2; /* Discord Blurple (brand colour, same in both themes) */
   --sf-discord-hover: #4752c4;
   --sf-discord-ink: #ffffff;
@@ -33,6 +34,7 @@
 :root[data-theme="fumbbl"] {
   --sf-seat-home: #1d4fb8;
   --sf-seat-away: #b01e1e;
+  --sf-gold: #8a5a00;
   --sf-panel-top: color-mix(in srgb, var(--ui-surface-2) 92%, #ffffff);
   --sf-panel-bottom: var(--ui-surface);
   --sf-panel-line: var(--ui-border);
@@ -117,6 +119,9 @@
 .sf-caret { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: -9px 0; padding: 0; color: var(--ui-muted); background: transparent; border: 0; cursor: pointer; font-size: 13px; }
 .sf-head-link { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0; font: 24px/1.15 var(--sf-wordmark-font); text-transform: uppercase; letter-spacing: .05em; text-align: left; color: var(--ui-heading); background: transparent; border: 0; text-decoration: none; cursor: pointer; }
 .sf-head-link[data-active="true"] { color: var(--sf-seat-home); }
+/* Leagues and Tournaments headers in gold (owner 10-31), active or not; the active page still shows by the blue left bar. */
+.sf-tree[data-tree="leagues"] .sf-head-link, .sf-tree[data-tree="tournaments"] .sf-head-link,
+.sf-tree[data-tree="leagues"] .sf-head-link[data-active="true"], .sf-tree[data-tree="tournaments"] .sf-head-link[data-active="true"] { color: var(--sf-gold); }
 .sf-head-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sf-head-link:focus-visible, .sf-top-link:focus-visible, .sf-caret:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 /* Top-level items: uppercase SNES Italic (the wordmark font, owner 10-30; 24 px = 18 pt, owner 10-30) beside a 26 px pixel sprite. Home is a plain top row in the band box. */
