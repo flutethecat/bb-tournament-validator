@@ -390,13 +390,49 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(rule).toContain("scroll-snap-type: x");
   });
 
-  it("season row scroll: right end for the latest, picked older card kept in view, otherwise untouched", () => {
-    const row = { scrollLeft: 0, scrollWidth: 1000, clientWidth: 400 };
-    expect(mods.league.seasonRowScroll(row, { offsetLeft: 880, offsetWidth: 112 }, true)).toBe(600); // latest fully visible
-    expect(mods.league.seasonRowScroll({ ...row, scrollWidth: 300 }, null, true)).toBe(0); // fits: no scroll
-    expect(mods.league.seasonRowScroll({ ...row, scrollLeft: 600 }, { offsetLeft: 120, offsetWidth: 112 }, false)).toBe(120); // older card left of view
-    expect(mods.league.seasonRowScroll(row, { offsetLeft: 500, offsetWidth: 112 }, false)).toBe(212); // right of view
-    expect(mods.league.seasonRowScroll({ ...row, scrollLeft: 300 }, { offsetLeft: 350, offsetWidth: 112 }, false)).toBe(300); // already visible
+  it("season row scroll: right end for the latest, picked older card kept in view, from real row-relative rects", () => {
+    // The card sits inside a row that is NOT its offset parent: only rect differences count.
+    const rowAt = (scrollLeft: number, scrollWidth = 1000, clientWidth = 400) => ({ scrollLeft, scrollWidth, clientWidth, getBoundingClientRect: () => ({ left: 50 }) });
+    // A card whose content-left is `x` in the row's scroll space shows at rect.left = 50 + x - scrollLeft.
+    const cardAt = (x: number, scrollLeft: number, width = 112) => ({ getBoundingClientRect: () => ({ left: 50 + x - scrollLeft, width }) });
+    expect(mods.league.seasonRowScroll(rowAt(0), cardAt(880, 0), true)).toBe(600); // latest fully visible
+    expect(mods.league.seasonRowScroll(rowAt(0, 300), null, true)).toBe(0); // fits: no scroll
+    expect(mods.league.seasonRowScroll(rowAt(600), cardAt(120, 600), false)).toBe(120); // older card left of view
+    expect(mods.league.seasonRowScroll(rowAt(0), cardAt(500, 0), false)).toBe(212); // right of view
+    expect(mods.league.seasonRowScroll(rowAt(300), cardAt(350, 300), false)).toBe(300); // already visible
+    expect(mods.league.seasonRowScroll(rowAt(0), cardAt(0, 0), false)).toBe(0);
+  });
+
+  it("season carries through every tab link, both ways; the stats page honours it", async () => {
+    const { html } = await render("/leagues/tabbl?season=season-1", loadedDetail("season-1"));
+    expect(html).toContain('href="/app/leagues/tabbl/stats?season=season-1"');
+    expect(html).toContain('href="/app/leagues/tabbl?season=season-1&amp;tab=standings"');
+    const latest = await render("/leagues/tabbl", loadedDetail());
+    expect(latest.html).toContain('href="/app/leagues/tabbl/stats"'); // the latest needs no season param
+    const stats = await render("/leagues/tabbl/stats?season=season-1", async (inject, f) => {
+      const d = mods.league.createLeagueDetail({ api: f });
+      await d.load("tabbl");
+      inject(mods.league.LEAGUE_DETAIL_KEY, d);
+    });
+    expect(stats.html).toContain('href="/app/leagues/tabbl?season=season-1&amp;tab=standings"');
+    expect(stats.html).toContain('href="/app/leagues/tabbl?season=season-1"'); // Overview and the back link
+    expect(stats.html).toContain('href="/app/leagues/tabbl/stats?season=season-1"');
+    expect(mods.league.carriedSeason([s1sum, s6sum], "season-6")).toBe("");
+    expect(mods.league.carriedSeason([s1sum, s6sum], "season-1")).toBe("season-1");
+    expect(mods.league.carriedSeason([s1sum, s6sum], "bogus")).toBe("");
+  });
+
+  it("a league with no seasons still shows the tab bar (Statistics reachable)", async () => {
+    const { html } = await render("/leagues/tabbl", async (inject, f) => {
+      const api = mockFetcher({ ...API, "/api/leagues/tabbl": { league, seasons: [] } });
+      void f;
+      const d = mods.league.createLeagueDetail({ api });
+      await d.load("tabbl");
+      inject(mods.league.LEAGUE_DETAIL_KEY, d);
+    });
+    expect(html).toContain("No seasons yet.");
+    expect(html).toContain('class="lg-tabs"');
+    expect(html).toMatch(/href="\/app\/leagues\/tabbl\/stats"[^>]*>Statistics<|>Statistics<\/a>/);
   });
 
   it("league page: organisers see the artwork controls", async () => {

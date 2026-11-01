@@ -369,15 +369,25 @@ export function leagueFounded(seasons: ReadonlyArray<Pick<SeasonSummary, "starte
 /** Where the Season row (oldest first, scrolling sideways) should sit: the right end when the latest season is picked,
  *  otherwise just enough to bring the picked card fully into view (scrollLeft unchanged when it already is). */
 export function seasonRowScroll(
-  row: { scrollLeft: number; scrollWidth: number; clientWidth: number },
-  card: { offsetLeft: number; offsetWidth: number } | null,
+  row: { scrollLeft: number; scrollWidth: number; clientWidth: number; getBoundingClientRect(): { left: number } },
+  card: { getBoundingClientRect(): { left: number; width: number } } | null,
   latestPicked: boolean,
 ): number {
   const end = Math.max(0, row.scrollWidth - row.clientWidth);
   if (latestPicked || !card) return end;
-  if (card.offsetLeft < row.scrollLeft) return Math.max(0, card.offsetLeft);
-  if (card.offsetLeft + card.offsetWidth > row.scrollLeft + row.clientWidth) return Math.min(end, card.offsetLeft + card.offsetWidth - row.clientWidth);
+  // Row-relative geometry from real rects (offsetLeft is relative to the offset parent, which is not the row).
+  const r = card.getBoundingClientRect();
+  const left = r.left - row.getBoundingClientRect().left + row.scrollLeft;
+  if (left < row.scrollLeft) return Math.max(0, left);
+  if (left + r.width > row.scrollLeft + row.clientWidth) return Math.min(end, left + r.width - row.clientWidth);
   return row.scrollLeft;
+}
+
+/** The season to carry through the league tab links: the asked one when it is a known season other than the latest. */
+export function carriedSeason(seasons: SeasonSummary[], asked: unknown): string {
+  const id = Array.isArray(asked) ? asked[0] : asked;
+  if (typeof id !== "string" || !seasons.some((s) => s.id === id)) return "";
+  return id === [...seasons].sort((a, b) => b.number - a.number)[0]?.id ? "" : id;
 }
 
 export function seasonDates(s: Pick<SeasonSummary, "startedAt" | "endedAt">): string {

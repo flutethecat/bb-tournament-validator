@@ -9,7 +9,7 @@ import { API_KEY } from "../app";
 import LeagueTabs from "../components/LeagueTabs.vue";
 import LeagueFront from "../components/LeagueFront.vue";
 import LeagueStatsCards from "../components/LeagueStatsCards.vue";
-import { createLeagueDetail, createLeagueStats, LEAGUE_DETAIL_KEY, isStatsScope, LEAGUE_STATS_KEY, pct, phaseLabel, playerQuery, RULESET_TONE, seasonsLine, STATS_SCOPES } from "../leagues/league";
+import { carriedSeason, createLeagueDetail, createLeagueStats, LEAGUE_DETAIL_KEY, isStatsScope, LEAGUE_STATS_KEY, pct, phaseLabel, playerQuery, RULESET_TONE, seasonsLine, STATS_SCOPES } from "../leagues/league";
 import type { LeagueTab } from "../leagues/league";
 import type { LeaderStat, StatsScope } from "../leagues/types";
 import "../leagues/leagues.css";
@@ -23,11 +23,14 @@ const { state } = ctl;
 // The league front and tab bar are the league page's own: the league and its seasons come from the detail controller.
 const detail = inject(LEAGUE_DETAIL_KEY, null) ?? createLeagueDetail({ api: fetcher });
 const head = detail.state;
-const tabQuery = (t: LeagueTab): Record<string, string> => (t === "overview" ? {} : { tab: t });
+// The league page's season rides through every link (and the scope divider) so the round trip lands on the same season.
+const season = computed(() => carriedSeason(head.seasons, route.query.season));
+const withSeason = (q: Record<string, string>): Record<string, string> => (season.value ? { season: season.value, ...q } : q);
+const tabQuery = (t: LeagueTab): Record<string, string> => withSeason(t === "overview" ? {} : { tab: t });
 const scope = computed<StatsScope>(() => (isStatsScope(route.query.scope) ? route.query.scope : "all"));
 const stats = computed(() => state.byScope[scope.value]);
 const scopeLabel = computed(() => STATS_SCOPES.find((s) => s.id === scope.value)?.label ?? "");
-const pickScope = (s: StatsScope): void => { if (s !== scope.value) void router.replace({ query: s === "all" ? {} : { scope: s } }); };
+const pickScope = (s: StatsScope): void => { if (s !== scope.value) void router.replace({ query: withSeason(s === "all" ? {} : { scope: s }) }); };
 
 const seg = ref<HTMLElement | null>(null);
 function onSegKey(e: KeyboardEvent): void {
@@ -60,9 +63,9 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} statistics` : "")
 
 <template>
   <div class="hm-page lg-page">
-    <RouterLink class="tn-back lg-back" :to="{ name: 'league-detail', params: { id } }">{{ state.league?.name ?? "League" }}</RouterLink>
+    <RouterLink class="tn-back lg-back" :to="{ name: 'league-detail', params: { id }, query: withSeason({}) }">{{ state.league?.name ?? "League" }}</RouterLink>
     <LeagueFront v-if="head.loaded && head.league && head.id === id" :id="id" :league="head.league" :seasons="head.seasons" />
-    <LeagueTabs :id="id" active="stats" :query="tabQuery" />
+    <LeagueTabs :id="id" active="stats" :query="tabQuery" :stats-query="withSeason({})" />
     <div ref="seg" class="tl-seg lg-scope" role="radiogroup" aria-label="Rules edition" @keydown="onSegKey">
       <button
         v-for="s in STATS_SCOPES" :key="s.id" type="button" role="radio" class="tl-seg-btn"

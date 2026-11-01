@@ -55,6 +55,11 @@ const tabQuery = (t: LeagueTab): Record<string, string> => {
   if (t !== "overview") q.tab = t;
   return q;
 };
+const statsQuery = computed<Record<string, string>>(() => {
+  const q: Record<string, string> = {};
+  if (current.value && current.value.id !== state.seasons[0]?.id) q.season = current.value.id;
+  return q;
+});
 const pickSeasonId = (id: string): void => { if (id !== current.value?.id) void router.replace({ query: seasonQuery(id) }); };
 
 // Season field = a radio group: one tab stop, arrows / Home / End move the choice.
@@ -120,7 +125,7 @@ usePageTitle(() => state.league?.name);
         </div>
       </section>
 
-      <LeagueTabs v-if="current" :id="id" :active="tab" :query="tabQuery" />
+      <LeagueTabs :id="id" :active="tab" :query="tabQuery" :stats-query="statsQuery" />
 
       <p v-if="current && !season && state.seasonError" class="lobby-error" role="alert">{{ state.seasonError }}</p>
       <p v-else-if="current && !season" class="hm-empty" role="status">Loading {{ current.name }}...</p>

@@ -4,7 +4,7 @@
 import { RouterLink } from "vue-router";
 import { LEAGUE_STATS_TAB_LABEL, LEAGUE_TABS, type LeagueTab } from "../leagues/league";
 
-defineProps<{ id: string; active: LeagueTab | "stats"; query: (t: LeagueTab) => Record<string, string> }>();
+defineProps<{ id: string; active: LeagueTab | "stats"; query: (t: LeagueTab) => Record<string, string>; statsQuery?: Record<string, string> }>();
 </script>
 
 <template>
@@ -13,6 +13,6 @@ defineProps<{ id: string; active: LeagueTab | "stats"; query: (t: LeagueTab) => 
       v-for="t in LEAGUE_TABS" :key="t.id" class="lg-tab" :aria-current="active === t.id ? 'page' : undefined"
       :to="{ name: 'league-detail', params: { id }, query: query(t.id) }" replace
     >{{ t.label }}</RouterLink>
-    <RouterLink class="lg-tab lg-tab-stats" :aria-current="active === 'stats' ? 'page' : undefined" :to="{ name: 'league-stats', params: { id } }">{{ LEAGUE_STATS_TAB_LABEL }}</RouterLink>
+    <RouterLink class="lg-tab lg-tab-stats" :aria-current="active === 'stats' ? 'page' : undefined" :to="{ name: 'league-stats', params: { id }, query: statsQuery ?? {} }">{{ LEAGUE_STATS_TAB_LABEL }}</RouterLink>
   </nav>
 </template>
