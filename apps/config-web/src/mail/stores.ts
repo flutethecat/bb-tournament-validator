@@ -116,6 +116,9 @@ export interface CoachMailPrefs {
   reconsentAt?: string;
   /** The open verification request (one at a time; a new request replaces it). */
   pending?: { address: string; nonce: string; requestedAt: string; expiresAt: string };
+  /** Account page "Discord messages for actions I need to take" (absent = on for a coach with Discord linked), stamped
+   *  with when it was set and the wording version (src/mail/service.ts DISCORD_DM_VERSION). */
+  discordDm?: { on: boolean; at: string; version: string };
 }
 
 interface PrefsFile { version: 1; coaches: Record<string, CoachMailPrefs> }

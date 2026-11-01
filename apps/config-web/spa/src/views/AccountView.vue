@@ -4,7 +4,8 @@
 // GET /api/me/deadlines, availability shading, proposed times once that lane lands) with a "Set schedule" button in its
 // band: the availability editor (GET/PUT /api/me/scheduling) opens in a dialog, and /account#schedule opens it on load.
 // Sharing (owner 10-31, src/components/AccountSharing.vue): what each league's / tournament's organisers can see.
-// Side: Session, Email (league-email address and confirmation, src/components/AccountEmail.vue), Teams, Privacy (download
+// Side: Session, Email (league-email address and confirmation, src/components/AccountEmail.vue), Notifications (Discord
+// DMs for actions, src/components/AccountNotifications.vue), Teams, Privacy (download
 // my data / delete my account), test sign-in.
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, onServerPrefetch, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
@@ -22,6 +23,7 @@ import { LEAGUE_SHARING_KEY } from "../account/leagueSharing";
 import { createContactEditor } from "../account/contact";
 import { ONBOARDING_KEY } from "../account/onboarding";
 import AccountEmail from "../components/AccountEmail.vue";
+import AccountNotifications from "../components/AccountNotifications.vue";
 import AccountPrivacy from "../components/AccountPrivacy.vue";
 import { createPrivacyController, DELETED_NOTICE, setFlash } from "../account/privacy";
 import { calendarZone } from "../account/calendar";
@@ -161,6 +163,11 @@ onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
         <section v-if="session.signedIn()" id="email" :key="`email-${coach}`" class="hm-panel" aria-labelledby="ac-email-h">
           <header class="hm-band"><h2 id="ac-email-h">Email</h2><span class="hm-cap">League emails</span></header>
           <AccountEmail />
+        </section>
+
+        <section v-if="session.signedIn()" id="notifications" :key="`notifications-${coach}`" class="hm-panel" aria-labelledby="ac-notify-h">
+          <header class="hm-band"><h2 id="ac-notify-h">Notifications</h2><span class="hm-cap">Discord</span></header>
+          <AccountNotifications />
         </section>
 
         <section id="teams" class="hm-panel" aria-labelledby="ac-teams-h">

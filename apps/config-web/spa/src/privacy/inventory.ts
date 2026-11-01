@@ -47,7 +47,7 @@ export const INVENTORY: readonly InventoryRow[] = [
   {
     id: "identities", store: "identities.json",
     data: "Coach name, Discord user id, Discord username, Discord avatar, the verified email on your Discord account, display name, links to your FUMBBL / NAF profiles, roles, ban flag.",
-    purpose: "Your account and signing in; contacting you about your account.",
+    purpose: "Your account and signing in; contacting you about your account. Your Discord user id is also used to send you Discord messages about actions you need to take (you can turn them off on the Account page).",
     public: "partly", publicNote: "Coach name and avatar only. Email and Discord ids are never shown.",
     retention: ACCOUNT_LIFETIME,
   },
@@ -193,10 +193,10 @@ export const INVENTORY: readonly InventoryRow[] = [
   },
   {
     id: "mail", store: "data-store/mail/ (outbox/journal.jsonl, prefs.json, suppression.json, audit.jsonl)",
-    data: "Emails waiting to be sent or recently sent (your address and the message), the address you confirmed for league emails and any open confirmation request, whether you turned league emails off, a one-way hash of addresses that bounced or reported spam, and a log of league messages (league, sender, how many recipients; no addresses).",
-    purpose: "Sending confirmation links and league messages without showing your address to organisers; not sending to addresses that bounced.",
+    data: "Emails waiting to be sent or recently sent (your address and the message), Discord messages waiting to be sent or recently sent (the message only: your Discord user id is looked up when it is sent and is not stored with it), the address you confirmed for league emails and any open confirmation request, whether you turned league emails off, whether you want Discord messages about actions you need to take (and when you chose), a one-way hash of addresses that bounced or reported spam, and a log of league messages (league, sender, how many recipients; no addresses).",
+    purpose: "Sending confirmation links and league messages without showing your address to organisers; sending you Discord messages about actions you need to take; not sending to addresses that bounced.",
     public: "no",
-    retention: "Message bodies and addresses in the outbox: 30 days after sending; the rest of the outbox record (no address or text): 180 days. Bounce and complaint hashes are kept so we never mail that address again. Your confirmed address and email choice: while your account exists.",
+    retention: "Message bodies and addresses in the outbox (emails and Discord messages): 30 days after sending; the rest of the outbox record (no address or text): 180 days. Bounce and complaint hashes are kept so we never mail that address again. Your confirmed address, email choice and Discord message choice: while your account exists.",
   },
   {
     id: "bug-reports", store: "bug-reports/ (BUG_REPORTS_DIR)",
@@ -258,7 +258,7 @@ export const COLLECT_GROUPS: readonly CollectGroup[] = [
   { title: "Your account", text: "Your Discord user id and username, the verified email on your Discord account, and your Discord avatar. If you add them: your preferred name, a contact email, your country and one phone number.", ids: ["identities", "contact-details", "consents", "sessions", "discord-sso", "organizers"] },
   { title: "What you create", text: "Rosters, teams, logos, avatars, match records, and league and tournament entries.", ids: ["coach-avatars", "team-avatars", "builder-saves", "team-library", "tournaments", "leagues", "tabletop", "tabletop-teams"] },
   { title: "Game results and ratings", text: "Who played, who won, and the ratings and titles that follow.", ids: ["results", "tournament-matches", "fork-db", "fork-teams-xml"] },
-  { title: "Notifications, email, chat and bug reports", text: "Notices we send you on the site, emails we send you (only if you opt in and confirm an address), lobby chat messages, and the bug reports you choose to send.", ids: ["notifications", "mail", "bug-reports", "lobby-chat"] },
+  { title: "Notifications, email, chat and bug reports", text: "Notices we send you on the site, Discord messages from our bot about actions you need to take (you can turn them off), emails we send you (only if you opt in and confirm an address), lobby chat messages, and the bug reports you choose to send.", ids: ["notifications", "mail", "bug-reports", "lobby-chat"] },
   { title: "Friends, private messages and blocks", text: "Your friends and friend requests, the private messages you send and receive on the site, and the coaches you blocked.", ids: ["friends", "messages", "blocks"] },
   { title: "Technical data", text: "A session cookie, and your IP address held in memory only, for abuse limits.", ids: ["logs", "desktop-claims", "translation-cache"] },
 ];

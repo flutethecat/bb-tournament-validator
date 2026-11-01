@@ -88,6 +88,40 @@ export function renderVerifyEmail(m: { coach: string; verifyUrl: string }): Rend
   return { subject, text, html, headers: [] };
 }
 
+/** Email fallback for an actionable notification whose Discord DM could not be delivered (src/mail/service.ts). */
+export function renderActionEmail(m: { coach: string; title: string; text: string; url: string; unsubscribeUrl: string }): RenderedMail {
+  const coach = oneLine(m.coach);
+  const subject = oneLine(m.title) || "An action on Super FUMBBL needs you";
+  const body = oneLine(m.text);
+  const text = [
+    `Hello ${coach},`,
+    "",
+    body,
+    "",
+    "--",
+    "We could not reach you on Discord, so we sent this by email (you agreed to emails from Super FUMBBL).",
+    "Replies to this email are not read.",
+    `Stop these emails: ${m.unsubscribeUrl}`,
+  ].join("\n");
+  const html = shell(
+    subject,
+    `<p style="margin:0 0 12px">Hello ${escapeHtml(coach)},</p>`
+      + `<p style="margin:0 0 16px;line-height:1.5">${escapeHtml(body)}</p>`
+      + `<p style="margin:0 0 16px"><a href="${escapeHtml(m.url)}" style="display:inline-block;background:#1d1b18;color:#f2c14e;padding:10px 16px;text-decoration:none;font-weight:700">Open Super FUMBBL</a></p>`,
+    `We could not reach you on Discord, so we sent this by email because you agreed to emails from Super FUMBBL. Replies are not read. `
+      + `<a href="${escapeHtml(m.unsubscribeUrl)}" style="color:#6b665c">Stop these emails</a>.`,
+  );
+  return {
+    subject,
+    text,
+    html,
+    headers: [
+      { name: "List-Unsubscribe", value: `<${m.unsubscribeUrl}>` },
+      { name: "List-Unsubscribe-Post", value: "List-Unsubscribe=One-Click" },
+    ],
+  };
+}
+
 /** The small HTML pages the public link routes answer with. */
 export function linkPage(title: string, message: string, form?: { action: string; token: string; button: string }): string {
   const formHtml = form

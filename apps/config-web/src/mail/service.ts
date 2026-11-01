@@ -11,17 +11,30 @@
 //   GET  /api/mail/verify?token=      marks the pending address verified.
 //   GET  /api/me/email                the session coach's own mail status (their own address only).
 //   POST /api/me/email/verify         { email? } sends a verification link (email omitted = the identity contact email).
+//   GET  /api/me/notification-settings  the coach's Discord DM choice (never the Discord id) and whether email fallback
+//                                       would apply.
+//   POST /api/me/notification-settings  { discordDm: boolean } "Discord messages for actions I need to take".
+//
+// Discord DMs (owner 11-01, laws §E 23c): an actionable notification (src/mail/actionMessages.ts) also goes out as a bot
+// DM through the outbox's "discord" channel (src/mail/discord.ts) when DISCORD_BOT_TOKEN and a link origin are set, the
+// coach has Discord linked and has not opted out (on by default). If the DM fails for good (DMs closed, no shared server,
+// out of retries), it falls back to ONE email, only with the coach's email consent (league-contact consent, a confirmed
+// address, no unsubscribe since, not suppressed), re-checked again at send time.
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { join } from "node:path";
 import { isEmailAddress, mailConfigFromEnv, type MailConfig } from "./config.js";
+import { actionDmText } from "./actionMessages.js";
+import { createDiscordDmTransport, discordDmConfigFromEnv } from "./discord.js";
+import { isCoachFenced } from "../privacy/fence.js";
+import type { NotificationInput, NotificationRecord } from "../notifications.js";
 import { MailWorker, Outbox, type OutboxEntry, type OutboxItem, type RecheckResult } from "./outbox.js";
 import { createPostmarkTransport } from "./postmark.js";
 import {
   createDefaultRecipientResolver, identityMailFields, type ContactWriter, type RecipientResolver,
 } from "./recipients.js";
 import { MailAuditLog, mailCoachKey, MailPrefsStore, normalizeAddress, SuppressionStore, type SuppressionReason } from "./stores.js";
-import { linkPage, renderVerifyEmail } from "./templates.js";
+import { linkPage, renderActionEmail, renderVerifyEmail } from "./templates.js";
 import { hostKey, signLink, UNSUBSCRIBE_TTL_S, verifyLink, VERIFY_TTL_S } from "./tokens.js";
 import { createLogTransport, type MailMessage, type MailTransport } from "./transport.js";
 
@@ -40,6 +53,12 @@ export interface MailServiceDeps {
   /** Identity-side writes (unsubscribe, verification); default no-op. */
   contactWriter?: ContactWriter;
   transport?: MailTransport;
+  /** The Discord DM transport (tests); default: the Discord REST transport when DISCORD_BOT_TOKEN is set. */
+  discordTransport?: MailTransport;
+  /** The coach's Discord user id (default: identities.discordUserId on the identity record). Server-side only. */
+  discordUserId?: (coach: string) => string | undefined;
+  /** The Discord transport's wait between its own retries (tests). */
+  discordSleep?: (ms: number) => Promise<void>;
   /** For the Postmark adapter (tests). */
   fetch?: typeof fetch;
   now?: () => number;
@@ -53,6 +72,11 @@ export interface MeMailAuth { coach: string; test?: boolean }
 /** Verification requests per coach per hour, and the minimum gap between two. */
 export const VERIFY_MAX_PER_HOUR = 5;
 export const VERIFY_MIN_GAP_MS = 60_000;
+
+/** The Account page wording of the Discord DM choice, and its version (stamped on every saved choice). */
+export const DISCORD_DM_TEXT = "Discord messages for actions I need to take";
+export const DISCORD_DM_VERSION = "2026-11-01";
+const NOTIFICATION_SETTINGS_PATH = "/api/me/notification-settings";
 
 const NO_STORE = { "cache-control": "no-store" };
 const page = (status: number, title: string, message: string, form?: Parameters<typeof linkPage>[2]): MailRouteResult => ({
@@ -80,6 +104,50 @@ export function createMailService(stateDir: string, env: Record<string, string |
     ? deps.resolver(prefs)
     : deps.resolver ?? createDefaultRecipientResolver({ identity: deps.identity, prefs });
   const writer: ContactWriter = deps.contactWriter ?? { revokeLeagueContact() {}, markEmailVerified() {} };
+
+  // ---- Discord DMs --------------------------------------------------------------------------------------------------
+
+  const objOf = (v: unknown): Record<string, unknown> | undefined => (v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : undefined);
+  /** The coach's Discord user id, read fresh every time (never stored by the mailer, never returned or logged). */
+  function discordUserIdOf(coach: string): string | undefined {
+    if (deps.discordUserId) return deps.discordUserId(coach);
+    let record: Record<string, unknown> | undefined;
+    try { record = objOf(deps.identity(coach)); } catch { return undefined; }
+    if (!record || record.banned === true) return undefined;
+    const id = objOf(record.identities)?.discordUserId;
+    return typeof id === "string" && /^\d{5,25}$/.test(id) ? id : undefined;
+  }
+  const discordConfig = discordDmConfigFromEnv(env);
+  const discordTransport: MailTransport | undefined = deps.discordTransport
+    ?? (discordConfig.token ? createDiscordDmTransport({ token: discordConfig.token, resolveUserId: discordUserIdOf, ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(deps.discordSleep ? { sleep: deps.discordSleep } : {}) }) : undefined);
+  /** DMs can go out: a transport and absolute links. */
+  const discordEnabled = (): boolean => Boolean(discordTransport) && Boolean(config.linkBase);
+  /** The coach's choice (absent = on, owner 11-01). */
+  const discordDmOn = (coach: string): boolean => prefs.get(coach).discordDm?.on ?? true;
+  /** May this coach get a Discord DM now: not being deleted, Discord linked, not opted out. */
+  function discordDmEligible(coach: string | undefined): RecheckResult {
+    if (!coach || isCoachFenced(coach)) return { ok: false, reason: "noConsent" };
+    if (!discordUserIdOf(coach)) return { ok: false, reason: "unverified" };
+    return discordDmOn(coach) ? { ok: true } : { ok: false, reason: "noConsent" };
+  }
+  /**
+   * Email for an actionable notification (only the DM fallback): the coach's existing email consent (league-contact
+   * consent granted and no unsubscribe-link opt-out since), a confirmed address (equal to `address` when given: the one
+   * a queued row goes to) and no suppression. Returns the address, or why not.
+   */
+  function actionEmailCheck(coach: string, address?: string): { ok: true; address: string } | Exclude<RecheckResult, { ok: true }> {
+    if (isCoachFenced(coach)) return { ok: false, reason: "noConsent" };
+    let fields: ReturnType<typeof identityMailFields> | undefined;
+    try { fields = identityMailFields(deps.identity(coach)); } catch { /* no identity */ }
+    if (!fields || fields.banned || !fields.leagueContact) return { ok: false, reason: "noConsent" };
+    const optOut = Date.parse(prefs.get(coach).leagueMailOff?.at ?? "");
+    if (Number.isFinite(optOut) && !(consentAt(coach) > optOut)) return { ok: false, reason: "noConsent" };
+    const contact = resolver.resolve(coach);
+    if (!contact?.email || !contact.verified) return { ok: false, reason: "unverified" };
+    if (address !== undefined && normalizeAddress(contact.email) !== normalizeAddress(address)) return { ok: false, reason: "unverified" };
+    if (suppression.isSuppressed(contact.email)) return { ok: false, reason: "suppressed" };
+    return { ok: true, address: contact.email };
+  }
   /**
    * Send-time re-check (consent may be withdrawn while a message waits in the queue or between retries): league mail
    * needs the same consent, acknowledgement, verified address (unchanged since queueing) and no suppression as at
@@ -88,6 +156,13 @@ export function createMailService(stateDir: string, env: Record<string, string |
    * (an older journal row) is re-checked by the coach in its key, or dropped.
    */
   function recheck(entry: OutboxEntry): RecheckResult {
+    if (entry.channel === "discord") return discordDmEligible(entry.recipient?.coach);
+    if (entry.template === "action-email") {
+      const coach = entry.recipient?.coach;
+      if (!coach) return { ok: false, reason: "noConsent" };
+      const check = actionEmailCheck(coach, entry.message?.to ?? "");
+      return check.ok ? { ok: true } : check;
+    }
     const to = entry.message?.to ?? "";
     const league = isLeagueEntry(entry);
     if (league) {
@@ -124,8 +199,43 @@ export function createMailService(stateDir: string, env: Record<string, string |
     return coach ? { coach, leagueId } : undefined;
   }
 
+  /** A Discord DM that failed for good: ONE email instead, only with the coach's email consent (key-idempotent). */
+  function discordFallback(entry: OutboxEntry): void {
+    const coach = entry.recipient?.coach;
+    if (entry.channel !== "discord" || !coach || !entry.message || !entry.key.startsWith("action:dm:") || !emailEnabled()) return;
+    const check = actionEmailCheck(coach);
+    if (!check.ok) return;
+    const url = typeof entry.message.metadata?.url === "string" ? entry.message.metadata.url : absolute("/app/");
+    const rendered = renderActionEmail({ coach, title: entry.message.subject, text: entry.message.text, url, unsubscribeUrl: unsubscribeUrl(coach, undefined, check.address) });
+    enqueue([{
+      key: `action:email:${entry.key.slice("action:dm:".length)}`,
+      message: { to: check.address, subject: rendered.subject, text: rendered.text, html: rendered.html, headers: rendered.headers, template: "action-email", stream: config.stream },
+      recipient: { coach },
+    }]);
+  }
+
+  /**
+   * An actionable notification was stored (NotificationStore onAdded): queue the bot DM when its type DMs
+   * (src/mail/actionMessages.ts), DMs are set up, and the coach has Discord linked and has not opted out.
+   */
+  function notifyAction(coach: string, record: NotificationRecord, input?: Pick<NotificationInput, "subject">): boolean {
+    if (!discordEnabled() || !discordDmEligible(coach).ok) return false;
+    const url = absolute(record.link.startsWith("/") ? record.link : "/app/");
+    const text = actionDmText({ record, ...(input?.subject ? { subject: input.subject } : {}), url });
+    if (!text) return false;
+    const r = enqueue([{
+      key: `action:dm:${mailCoachKey(coach)}:${record.id}:${record.at}`,
+      channel: "discord",
+      // No address and no Discord id: the transport resolves the id from the recipient at send time.
+      message: { to: "", subject: record.title, text, html: "", template: "action-dm", metadata: { type: record.type, url } },
+      recipient: { coach },
+    }]);
+    return r.added > 0;
+  }
+
   const worker = new MailWorker({
-    outbox, transports: { email: transport }, now, log, recheck,
+    outbox, transports: { email: transport, ...(discordTransport ? { discord: discordTransport } : {}) }, now, log, recheck,
+    onFailed: (entry) => { if (entry.channel === "discord") discordFallback(entry); },
     onDropped: (entry, reason) => {
       if (entry.auditId && entry.leagueId) audit.recordDrop({ id: entry.auditId, leagueId: entry.leagueId, at: new Date(now()).toISOString(), reason });
     },
@@ -291,6 +401,26 @@ export function createMailService(stateDir: string, env: Record<string, string |
     };
   }
 
+  /** Account page notification settings: the coach's own choice and state only (never the Discord id). */
+  function notificationSettings(auth: MeMailAuth): MailRouteResult {
+    const saved = prefs.get(auth.coach).discordDm;
+    return {
+      status: 200,
+      headers: NO_STORE,
+      json: {
+        discordDm: {
+          label: DISCORD_DM_TEXT,
+          on: saved?.on ?? true,
+          linked: discordUserIdOf(auth.coach) !== undefined,
+          available: discordEnabled(),
+          at: saved?.at ?? null,
+          version: DISCORD_DM_VERSION,
+        },
+        emailFallback: actionEmailCheck(auth.coach).ok,
+      },
+    };
+  }
+
   /** Account page: turn league email back on after a link opt-out (consent itself is the onboarding lane's). */
   function clearOptOut(auth: MeMailAuth): MailRouteResult {
     if (auth.test) return jsonErr(403, "Test sign-in sessions cannot change account email.");
@@ -342,7 +472,7 @@ export function createMailService(stateDir: string, env: Record<string, string |
 
   const PUBLIC = new Set(["/api/mail/postmark/webhook", "/api/mail/unsubscribe", "/api/mail/verify"]);
   const isPublicMailPath = (path: string): boolean => PUBLIC.has(path);
-  const isMeMailPath = (path: string): boolean => path === "/api/me/email" || path === "/api/me/email/verify" || path === "/api/me/email/league-mail";
+  const isMeMailPath = (path: string): boolean => path === "/api/me/email" || path === "/api/me/email/verify" || path === "/api/me/email/league-mail" || path === NOTIFICATION_SETTINGS_PATH;
 
   /** Public mail routes. `readText` reads the raw body (bounded by the caller). */
   async function publicRoute(
@@ -382,6 +512,16 @@ export function createMailService(stateDir: string, env: Record<string, string |
     if (!isMeMailPath(path)) return undefined;
     if (!auth) return jsonErr(401, "Authentication required.");
     if (path === "/api/me/email") return method === "GET" || method === "HEAD" ? myStatus(auth) : jsonErr(405, "Use GET.");
+    if (path === NOTIFICATION_SETTINGS_PATH) {
+      if (method === "GET" || method === "HEAD") return notificationSettings(auth);
+      if (method !== "POST") return jsonErr(405, "Use GET or POST.");
+      if (auth.test) return jsonErr(403, "Test sign-in sessions cannot change notification settings.");
+      const input = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
+      if (typeof input.discordDm !== "boolean") return jsonErr(400, "Send { discordDm: true } or { discordDm: false }.");
+      const on = input.discordDm;
+      prefs.update(auth.coach, (p) => ({ ...p, discordDm: { on, at: new Date(now()).toISOString(), version: DISCORD_DM_VERSION } }));
+      return notificationSettings(auth);
+    }
     if (path === "/api/me/email/verify") return method === "POST" ? requestVerification(auth, body) : jsonErr(405, "Use POST.");
     if (path === "/api/me/email/league-mail") {
       if (method !== "POST") return jsonErr(405, "Use POST.");
@@ -393,7 +533,7 @@ export function createMailService(stateDir: string, env: Record<string, string |
   }
 
   return {
-    config, transport, outbox, worker, suppression, prefs, audit, resolver, recheck,
+    config, transport, discordTransport, discordEnabled, notifyAction, outbox, worker, suppression, prefs, audit, resolver, recheck,
     /** Start the background work (server only): the outbox worker and the daily retention sweep. */
     start(): void { worker.start(); outbox.startRetention(); },
     stop(): void { worker.stop(); outbox.stopRetention(); },
@@ -408,9 +548,10 @@ export function createMailService(stateDir: string, env: Record<string, string |
     exportCoach: (coach: string): unknown => ({
       prefs: prefs.get(coach),
       deliveries: outbox.forCoach(coach).map((e) => ({
-        template: e.template, status: e.status, leagueId: e.leagueId ?? null, enqueuedAt: new Date(e.enqueuedAt).toISOString(),
+        channel: e.channel, template: e.template, status: e.status, leagueId: e.leagueId ?? null, enqueuedAt: new Date(e.enqueuedAt).toISOString(),
         ...(e.doneAt ? { doneAt: new Date(e.doneAt).toISOString() } : {}),
-        ...(e.message ? { to: e.message.to, subject: e.message.subject, text: e.message.text } : {}),
+        // A Discord row has no address (and never a Discord id): only its subject and text.
+        ...(e.message ? { ...(e.channel === "email" ? { to: e.message.to } : {}), subject: e.message.subject, text: e.message.text } : {}),
       })),
     }),
     normalizeAddress,

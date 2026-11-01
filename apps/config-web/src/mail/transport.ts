@@ -49,10 +49,13 @@ export interface MailSendOptions {
    * passes its send-time eligibility re-check here).
    */
   stillEligible?: () => boolean;
+  /** Who the message is for (the Discord DM transport resolves the coach's Discord id from it at send time, so the id is
+   *  never stored in the outbox). Email transports ignore it. */
+  recipient?: { coach: string };
 }
 
 export interface MailTransport {
-  readonly name: "postmark" | "log" | "memory";
+  readonly name: "postmark" | "log" | "memory" | "discord";
   send(message: MailMessage, options?: MailSendOptions): Promise<MailSendResult>;
 }
 
@@ -74,6 +77,8 @@ export function createLogTransport(log: (line: string) => void = (l) => console.
 export class MemoryTransport implements MailTransport {
   readonly name = "memory" as const;
   readonly sent: MailMessage[] = [];
+  /** The recipient option of each successful send (same order as `sent`). */
+  readonly recipients: Array<{ coach: string } | undefined> = [];
   fail?: (message: MailMessage, attempt: number) => MailSendError | undefined;
   private attempts = 0;
   async send(message: MailMessage, options?: MailSendOptions): Promise<MailSendResult> {
@@ -82,6 +87,7 @@ export class MemoryTransport implements MailTransport {
     const error = this.fail?.(message, this.attempts);
     if (error) throw error;
     this.sent.push(message);
+    this.recipients.push(options?.recipient);
     return { providerId: `mem-${this.sent.length}` };
   }
 }

@@ -20,6 +20,8 @@ Environment keys (`apps/config-web/.env`):
 - [ ] `MAIL_LINK_SECRET`: 32+ random characters; signs unsubscribe and confirmation links.
 - [ ] `MAIL_LINK_BASE_URL`: the public origin, for example `https://superfumbbl.com` (or set `PUBLIC_BASE_URL`).
 - [ ] `POSTMARK_WEBHOOK_SECRET`: a random string; the webhook password.
+- [ ] `DISCORD_BOT_TOKEN`: the bot's token, the same value as `DISCORD_TOKEN` in `apps/discord-bot/.env`
+      ([Discord DMs](#discord-dms)).
 
 Outside steps:
 
@@ -85,3 +87,30 @@ transport writes one redacted line per message).
 6. **Test.** Send yourself a confirmation link from the Account page; then, as an organiser, "Message members" to a
    second account that has league-contact consent, the league acknowledgement and a confirmed address. Check Postmark
    Activity and `<state>/mail/outbox/journal.jsonl`.
+
+## Discord DMs
+
+Actionable notifications also go out as a Discord DM from the bot, with a link (owner 11-01): today a game-time
+proposal received, countered or accepted. config-web sends them itself through the Discord REST API with the bot's token;
+the bot process does not need to change or restart. Coaches choose on the Account page (Notifications panel, "Discord
+messages for actions I need to take"): on by default for coaches with Discord linked.
+
+1. **Token.** Put the bot's token in the live `apps/config-web/.env` as `DISCORD_BOT_TOKEN=<value>` (the same value as
+   `DISCORD_TOKEN` in `apps/discord-bot/.env`). Never commit it or paste it anywhere. Unset = no DMs are queued.
+2. **Link origin.** DMs carry absolute links, so `MAIL_LINK_BASE_URL` (or `PUBLIC_BASE_URL`) must be set too; without it
+   DMs stay off and the log says so (`[discord-dm]`).
+3. **Bot setup (Discord Developer Portal).** No privileged gateway intents are needed for DMs (config-web uses REST only;
+   the bot must have connected to the gateway at least once, which the running bot does). Opening a DM and sending a
+   message need no server permission. Coaches must **share a server with the bot** and allow DMs from server members;
+   otherwise Discord refuses the DM (403).
+4. **Restart** config-web (the scheduled task).
+
+Behaviour: DMs ride the mail outbox (`<FORK_STATE_DIR>/mail/outbox/journal.jsonl`, channel `discord`) with the same
+retries, backoff and send-time re-checks as email (opt-out, Discord still linked, account not being deleted). Discord rate
+limits are honoured. A refused DM (DMs closed, no shared server) or one out of retries is dead-lettered and falls back to
+ONE email, only when the coach agreed to emails (league-contact consent) and has a confirmed address. The outbox never
+stores the coach's Discord id (it is looked up at send time), and logs never carry it or the token.
+
+**Test.** With two accounts that share a server with the bot, propose a time from one to the other; the second gets a DM
+"<coach> proposed times for <fixture>. Accept or decline: <link>". Turn the setting off on the Account page and propose
+again: no DM.

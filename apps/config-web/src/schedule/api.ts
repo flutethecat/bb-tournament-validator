@@ -35,6 +35,8 @@ export const MAX_AHEAD_MS = 366 * 24 * 3_600_000;
 /** Answered proposals stay in the list's history this long. */
 export const HISTORY_MS = 14 * 24 * 3_600_000;
 export const NOT_ACCEPTING = "This coach is not accepting game proposals. Ask the organiser to set a time.";
+/** An opponent seat with no account behind it (test or imported data only). Never says "Super FUMBBL" (laws §E 23b). */
+export const OPPONENT_UNLINKED = "This fixture's opponent isn't linked to an account on this site yet. Ask the organiser.";
 export const YOU_BLOCKED = "You blocked this coach. Unblock them to propose a time.";
 
 export interface ScheduleAuth { coach: string; test?: boolean }
@@ -161,10 +163,11 @@ function fixtureTitle(e: FixtureEntry, seat: Seat): string {
 /** Why the coach cannot propose on this fixture (undefined = they can), and the opponent's identity spelling. */
 function proposeBlocker(deps: ScheduleApiDeps, me: string, seat: Seat): { reason?: string; status?: number; opponent?: string } {
   if (seat.shared) return { status: 409, reason: "More than one account is linked to your team on this fixture. Ask the organiser to assign the coach account." };
-  if (!seat.opponentKey) return { status: 409, reason: "Your opponent has no Super FUMBBL account linked to this fixture yet. Ask the organiser." };
+  // Only test or imported data has an unlinked seat (every live coach registers with an account, laws §E 23b).
+  if (!seat.opponentKey) return { status: 409, reason: OPPONENT_UNLINKED };
   if (isReservedCoachName(seat.opponentKey)) return { status: 410, reason: "This coach's account was deleted." };
   const opponent = deps.coach(seat.opponentKey);
-  if (!opponent) return { status: 409, reason: "Your opponent has no active Super FUMBBL account yet. Ask the organiser." };
+  if (!opponent) return { status: 409, reason: OPPONENT_UNLINKED };
   if (deps.hasBlocked(opponent, me) || deps.isFenced(opponent)) return { status: 403, reason: NOT_ACCEPTING, opponent };
   if (deps.hasBlocked(me, opponent)) return { status: 403, reason: YOU_BLOCKED, opponent };
   return { opponent };
@@ -321,6 +324,7 @@ function propose(deps: ScheduleApiDeps, me: string, body: unknown, now: number):
   notify(deps, pair.opponent, {
     type: "proposal-received",
     title: `${me} proposed a time for your fixture`,
+    subject: label,
     body: `${label}. ${read.slots.length === 1 ? "One time" : `${read.slots.length} times`} to choose from: ${read.slots.map((s) => formatIn(s, zoneOf(deps, pair.opponent))).join(", ")}.`,
     link: `/app/schedule?proposal=${created.id}`,
     from: me,
@@ -375,10 +379,12 @@ function respond(deps: ScheduleApiDeps, me: string, body: unknown, now: number):
         else if (r.fixture === p.fixture && r.status === "pending") { r.status = "superseded"; r.answeredAt = at; r.replacedBy = p.id; }
       }
     }, now);
+    const acceptedLabel = `${fixtureTitle(pair.entry, seatOf(pair.entry, p.from) ?? seatOf(pair.entry, me)!)} · ${pair.entry.competition}`;
     notify(deps, p.from, {
       type: "proposal-accepted",
       title: `${me} accepted a time for your fixture`,
-      body: `${fixtureTitle(pair.entry, seatOf(pair.entry, p.from) ?? seatOf(pair.entry, me)!)} · ${pair.entry.competition}: ${formatIn(slot, zoneOf(deps, p.from))}.`,
+      subject: acceptedLabel,
+      body: `${acceptedLabel}: ${formatIn(slot, zoneOf(deps, p.from))}.`,
       link: `/app/schedule?proposal=${p.id}`,
       from: me,
     });
@@ -399,10 +405,12 @@ function respond(deps: ScheduleApiDeps, me: string, body: unknown, now: number):
     list.push(record);
     return record;
   }, now);
+  const counterLabel = `${fixtureTitle(pair.entry, seatOf(pair.entry, pair.opponent) ?? seatOf(pair.entry, me)!)} · ${pair.entry.competition}`;
   notify(deps, pair.opponent, {
     type: "proposal-countered",
     title: `${me} suggested other times for your fixture`,
-    body: `${fixtureTitle(pair.entry, seatOf(pair.entry, pair.opponent) ?? seatOf(pair.entry, me)!)} · ${pair.entry.competition}: ${read.slots.map((s) => formatIn(s, zoneOf(deps, pair.opponent))).join(", ")}.`,
+    subject: counterLabel,
+    body: `${counterLabel}: ${read.slots.map((s) => formatIn(s, zoneOf(deps, pair.opponent))).join(", ")}.`,
     link: `/app/schedule?proposal=${created.id}`,
     from: me,
   });

@@ -308,7 +308,7 @@ import { sharedTeamView, type SharedViewInput } from "./teamShareView.js";
 import { TournamentStore } from "./tournaments/store.js";
 import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./tournaments/types.js";
 import { RateLimiter } from "./translate/guards.js";
-import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier, setOrganiserThreadSink } from "./notifications.js";
+import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier, setOrganiserThreadSink, type NotificationInput, type NotificationRecord } from "./notifications.js";
 import { appendOrganiserMessage, createSocialLimiters, isSocialApiPath, socialApi, type SocialApiDeps } from "./social/api.js";
 import { SocialStore } from "./social/store.js";
 import { isScheduleApiPath, scheduleApi, type ScheduleApiDeps } from "./schedule/api.js";
@@ -609,8 +609,13 @@ const lobbyAllowedOrigins = lobbyAllowedOriginsFromEnv();
 let lobbyChatLive = false;
 let superService: ReturnType<typeof attachSuper> = null;
 // Coach notifications (landing spec §4.1): <FORK_STATE_DIR>/notifications/<coach>.json; a new row is pushed over the Super socket.
+// An actionable row (src/mail/actionMessages.ts) also queues a Discord DM from the bot (set once the mail service exists).
+let actionDm: ((coach: string, record: NotificationRecord, input: NotificationInput) => void) | undefined;
 const notificationStore = new NotificationStore(FORK_STATE_DIR, {
-  onAdded: (coach, latest, unread) => superService?.publishNotify(coach, { unread, latest }),
+  onAdded: (coach, latest, unread, input) => {
+    superService?.publishNotify(coach, { unread, latest });
+    try { actionDm?.(coach, latest, input); } catch (e) { console.error(`[discord-dm] enqueue failed: ${(e as Error).message}`); }
+  },
   onRead: (coach, change) => superService?.publishNotify(coach, change),
 });
 const tournamentNotifier = createTournamentNotifier(notificationStore, tournamentStore);
@@ -643,6 +648,8 @@ const mail = createMailService(FORK_STATE_DIR, process.env, {
   }),
 });
 for (const warning of mailConfigWarnings(process.env, mail.config)) console.error(`[mail] ${warning}`);
+if (process.env.DISCORD_BOT_TOKEN?.trim() && !mail.config.linkBase) console.error("[discord-dm] DISCORD_BOT_TOKEN is set but there is no link origin (MAIL_LINK_BASE_URL / PUBLIC_BASE_URL): Discord DMs are off.");
+actionDm = (coach, record, input) => { mail.notifyAction(coach, record, input); };
 mail.start();
 const leagueMessageLimiter = new LeagueMessageLimiter();
 

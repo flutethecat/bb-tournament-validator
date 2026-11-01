@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-11-01",
+    "title": "Discord messages for game-time proposals",
+    "body": "When a coach proposes, changes or accepts a game time with you, the Super FUMBBL bot now also messages you on Discord with a link to answer it. It's on for everyone with Discord linked; turn it off on your Account page under Notifications. You need to share a Discord server with the bot.",
+    "links": [
+      {
+        "label": "Account",
+        "href": "/app/account#notifications"
+      },
+      {
+        "label": "Schedule",
+        "href": "/app/schedule"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "Player names in the Roster Builder",
     "body": "Every player you hire now gets a name that fits the race. Click a name (or press Enter or F2 on it) to rename the player, or use the reroll button for another one. Names are kept in saves, share links, teams created on the fork and the PDF sheet, which now shows each player's name over their position and your team's name as its title.",
     "links": [

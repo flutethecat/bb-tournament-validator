@@ -7,8 +7,9 @@
 // strips the whole message (the id, key, league and status stay as a tombstone so the key stays idempotent); tombstones go
 // after 180 days. Compaction runs at start, after 5,000 journal ops, and on a daily timer (startRetention).
 //
-// Channel-agnostic: every item names its channel ("email" today) and the worker picks the transport per channel, so a
-// later "discord" DM transport slots in beside email without touching the queue.
+// Channel-agnostic: every item names its channel ("email" or "discord") and the worker picks the transport per channel.
+// A Discord row never holds the coach's Discord id: its transport resolves it from the recipient at send time
+// (src/mail/discord.ts), so the journal, exports and logs never carry one.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { mailCoachKey } from "./stores.js";
@@ -24,8 +25,8 @@ export const OUTBOX_MAX_ATTEMPTS = 6;
 
 export type OutboxStatus = "queued" | "sent" | "dead";
 
-/** Delivery channels. Only email exists today; a Discord DM channel is planned (bot DM first, email fallback). */
-export type MailChannel = "email";
+/** Delivery channels: email, and Discord DMs from the bot (actionable notifications, src/mail/actionMessages.ts). */
+export type MailChannel = "email" | "discord";
 export const RETENTION_SWEEP_MS = 24 * 3600 * 1000;
 
 /** Who a message is for, so the worker can re-check eligibility at send time (league mail: consent, ack, address). */
@@ -243,6 +244,9 @@ export interface MailWorkerOptions {
   isSuppressed?: (address: string) => boolean;
   /** The provider refused the address as inactive: suppress it. */
   onInactive?: (address: string) => void;
+  /** A delivery was dead-lettered by a transport failure (refused for good, or out of retries); never called for a row
+   *  the eligibility re-check dropped. The Discord channel's email fallback hangs off it. */
+  onFailed?: (entry: OutboxEntry, error: MailSendError) => void;
   ratePerSecond?: number;
   leagueDailyCap?: number;
   now?: () => number;
@@ -315,7 +319,7 @@ export class MailWorker {
         let refused: Exclude<RecheckResult, { ok: true }> | undefined;
         const stillEligible = (): boolean => { const r = check(); if (!r.ok) refused = r; return r.ok; };
         try {
-          await transport.send(entry.message, { stillEligible });
+          await transport.send(entry.message, { stillEligible, ...(entry.recipient ? { recipient: { coach: entry.recipient.coach } } : {}) });
           outbox.markSent(entry.id);
         } catch (e) {
           if (e instanceof MailSendAborted || refused) { drop(refused ?? { ok: false, reason: "noConsent" }, entry.attempts); continue; }
@@ -327,6 +331,7 @@ export class MailWorker {
             outbox.markRetry(entry.id, attempts, this.now() + retryDelayMs(attempts), err.message.slice(0, 120));
           } else {
             outbox.markDead(entry.id, attempts, err.message.slice(0, 120));
+            try { this.opts.onFailed?.(entry, err); } catch { /* best effort */ }
           }
           this.opts.log?.(`[mail] ${entry.template} ${entry.id} failed (attempt ${attempts}): ${err.message.slice(0, 120)}`);
         }

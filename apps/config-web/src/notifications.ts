@@ -52,6 +52,9 @@ export interface NotificationInput {
   body: string;
   link: string;
   from?: string;
+  /** Short name of the thing the row is about (a fixture label), for the Discord DM text
+   *  (src/mail/actionMessages.ts). Not stored. */
+  subject?: string;
 }
 
 export const NOTIFICATION_CAP = 500;
@@ -120,7 +123,7 @@ export interface NotificationList {
 export interface NotificationStoreOptions {
   now?: () => Date;
   /** Called after a row is stored (the Super socket push). Errors are swallowed. */
-  onAdded?: (coachKey: string, record: NotificationRecord, unread: number) => void;
+  onAdded?: (coachKey: string, record: NotificationRecord, unread: number, input: NotificationInput) => void;
   /** Called after rows were marked read (the Super socket push, so the coach's other tabs follow). Errors are swallowed. */
   onRead?: (coachKey: string, change: { unread: number; readIds: string[]; all?: true }) => void;
 }
@@ -194,7 +197,7 @@ export class NotificationStore {
     const notifications = [...data.notifications, record].slice(-NOTIFICATION_CAP);
     this.write(key, { version: 1, seq, notifications });
     const unread = notifications.filter((r) => !r.readAt).length;
-    try { this.opts.onAdded?.(key, record, unread); } catch { /* the push is best effort */ }
+    try { this.opts.onAdded?.(key, record, unread, input); } catch { /* the push is best effort */ }
     return record;
   }
 

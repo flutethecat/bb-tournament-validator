@@ -15,7 +15,7 @@ import { setResultCoachFilter } from "../src/tournamentResults";
 import { setNafIdFilter } from "../src/nafRecords";
 import { setReplayCoachFilter } from "../src/replay/store";
 import { SocialStore } from "../src/social/store";
-import { isScheduleApiPath, NOT_ACCEPTING, parseSlot, scheduleApi, slotWarnings, socialSlot, YOU_BLOCKED, type ScheduleApiDeps, type SchedulingInfo } from "../src/schedule/api";
+import { isScheduleApiPath, NOT_ACCEPTING, OPPONENT_UNLINKED, parseSlot, scheduleApi, slotWarnings, socialSlot, YOU_BLOCKED, type ScheduleApiDeps, type SchedulingInfo } from "../src/schedule/api";
 import { clearScheduleIndex, createFixtureSource, leagueRef, parseRef, tournamentRef } from "../src/schedule/fixtures";
 import { KEEP_SETTLED_MS, ProposalStore } from "../src/schedule/store";
 import { INVENTORY } from "../spa/src/privacy/inventory";
@@ -187,6 +187,30 @@ describe("routes and gates", () => {
     h.deps.isFenced = () => false;
     expect(h.propose("Bob", F1, [S1]).status).toBe(409);
     expect(h.store.all()).toEqual([]);
+  });
+});
+
+describe("opponent without an account (test or imported data only)", () => {
+  it("refuses with plain wording that never says Super FUMBBL; the 409 rule stays", () => {
+    expect(OPPONENT_UNLINKED).toBe("This fixture's opponent isn't linked to an account on this site yet. Ask the organiser.");
+    expect(OPPONENT_UNLINKED).not.toMatch(/super fumbbl/i);
+    // A seat whose coach has no account behind it.
+    const coach = h.deps.coach;
+    h.deps.coach = (name) => (name.trim().toLowerCase() === "dee" ? undefined : coach(name));
+    const r = h.propose("Cat", leagueRef("tabbl", "season-1", "f2"), [S1]);
+    expect(r).toEqual({ status: 409, body: { error: OPPONENT_UNLINKED } });
+    h.deps.coach = coach;
+    // A seat with no coach at all.
+    const s = season();
+    s.teams = s.teams.map((t) => (t.id === "dwarfs" ? { ...t, coach: "", coachId: "" } as LeagueTeam : t));
+    h.leagues.putSeason(s);
+    clearScheduleIndex(h.leagues);
+    const r2 = h.propose("Cat", leagueRef("tabbl", "season-1", "f2"), [S1]);
+    expect(r2.status).toBe(409);
+    expect(r2.body.error).toBe(OPPONENT_UNLINKED);
+    const view = h.mine("Cat").fixtures.find((f: { ref: string }) => f.ref === leagueRef("tabbl", "season-1", "f2"));
+    expect(JSON.stringify(view)).not.toMatch(/super fumbbl/i);
+    expect(h.notes).toHaveLength(0);
   });
 });
 
