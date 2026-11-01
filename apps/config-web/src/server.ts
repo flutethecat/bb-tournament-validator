@@ -162,7 +162,7 @@ import {
   onboardingGateApplies, onboardingView, updateOwnContact,
 } from "./auth/onboarding.js";
 import { onboardingNeeded } from "./auth/contactSchema.js";
-import { createContactLookup, organiserAccess, publicIdentityRecord, type MembershipSources } from "./auth/contactFor.js";
+import { createMailerRecipientLookup, organiserAccess, organiserMemberView, publicIdentityRecord, type MembershipSources } from "./auth/contactFor.js";
 import { LEAGUE_SHARING_PATH, leagueSharingView, setLeagueSharing } from "./auth/leagueSharing.js";
 import { attachSuper } from "./super/index.js";
 import {
@@ -462,11 +462,11 @@ const tournamentStore = new TournamentStore(TOURNAMENTS_DIR);
 const leagueStore = new LeagueStore(FORK_STATE_DIR);
 // recordLeagueFixtureEvent (match started / result from the fork and tabletop paths) posts through this store.
 /**
- * Organiser contact lookup for later use (src/auth/contactFor.ts): a coach's email/phones only with their league-contact
- * consent and membership of that league or tournament. Deliberately NOT exposed through any route yet.
+ * MAILER-ONLY recipient lookup for the coming league mailer (src/auth/contactFor.ts): a coach's address only with their
+ * league-contact consent and membership. Its result goes to the email delivery provider, never into an HTTP response.
  */
 const membershipSources: MembershipSources = { tournaments: tournamentStore, leagues: leagueStore };
-export const contactFor = createContactLookup(membershipSources);
+export const mailerRecipientFor = createMailerRecipientLookup(membershipSources);
 registerLeagueEvents({ store: leagueStore, notify: (coach, input) => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } } });
 
 const packages = new PackageFiles(PACKAGES_DIR);
@@ -2281,12 +2281,13 @@ async function handleApi(
     const body = rawBody as Record<string, unknown>;
     const ffbCoachId = typeof body.ffbCoachId === "string" ? body.ffbCoachId.trim() : "";
     if (!ffbCoachId) return sendJson(res, 400, { error: "ffbCoachId is required." });
-    // Owner ruling 10-31: a site admin manages anyone (full record back). An organiser manages only coaches on a league
-    // they own or organise (403 otherwise; tournaments do not count), and gets the FULL record back only when the coach
-    // acknowledged sharing their data with that league; else the record without personal fields (contactFor.ts).
+    // Owner rulings 10-31: a site admin (or the coach themself) gets the full record. An organiser manages only coaches on
+    // a league they own or organise (403 otherwise; tournaments do not count) and never receives email addresses or phone
+    // numbers: an acknowledged member answers organiserMemberView (name, preferred name, public profile, NAF fields,
+    // acceptsLeagueMessages), anyone else on their league the public allow-list (contactFor.ts).
     const siteAdmin = auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req);
     const self = auth !== undefined && normalizeFfbCoachId(auth.coach) === normalizeFfbCoachId(ffbCoachId);
-    let access: "full" | "member" | "none" = siteAdmin || self ? "full" : "none";
+    let access: "admin" | "full" | "member" | "none" = siteAdmin || self ? "admin" : "none";
     if (access === "none" && auth) {
       try { access = organiserAccess(auth.coach, ownIdentityRecord(ffbCoachId), membershipSources); } catch { access = "none"; }
     }
@@ -2300,7 +2301,8 @@ async function handleApi(
         ffbCoachId,
         identityPatch,
       );
-      return sendJson(res, 200, { ok: true, coach: access === "full" ? coach : publicIdentityRecord(coach) });
+      const view = access === "admin" ? coach : access === "full" ? organiserMemberView(coach) : publicIdentityRecord(coach);
+      return sendJson(res, 200, { ok: true, coach: view });
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
     }

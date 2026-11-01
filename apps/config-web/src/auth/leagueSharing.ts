@@ -1,5 +1,5 @@
-// League data-sharing acknowledgement (owner 10-31): "Registering for a league should carry a consent notice informing
-// the user that they're sharing their personal data with the league organizer."
+// League acknowledgement (owner 10-31): joining a league carries a notice that its organisers can see the coach's name
+// and profile and can send league messages through Super FUMBBL; the email address is never shown to them.
 //
 // There is no self-service league registration yet: every coach reaches a league through an organiser (import, Assign
 // coach account). So the notice is shown to the coach on their next visit for each league they are on and have not

@@ -173,20 +173,21 @@ checks; reads and anonymous calls are untouched. The Account page edits the same
   constant in `spa/src/privacy/version.ts` (bump it to ask everyone again). Routes and gate: `src/auth/onboarding.ts`.
 - A Discord re-sign-in refreshes the contact email only while it is Discord-sourced; a coach-edited email or preferred
   name is never overwritten.
-- League data sharing (owner 10-31): each league a coach is on (team or participant on their fork account) shows a
-  one-time, non-blocking notice ("By joining <League>, you share your personal data ... with the league's organisers")
-  with a required checkbox; `GET/POST /api/me/leagues/sharing` stores `consent.leagues[<id>] = { at, version }` or a
-  decline (`consent.leaguesDeclined`); the Account page lists the leagues with Stop sharing / Share. There is no
-  self-service league join yet (coaches arrive by import or Assign coach account); a future join must ask the same notice.
-- Organiser identity access (`src/auth/contactFor.ts` `organiserAccess`): `POST /api/admin/identities/naf` by a
-  non-admin organiser is allowed only for a coach on a league they own or organise (403 otherwise; tournaments do not
-  count), and answers the FULL record only when that coach shared their data with the league, else the record without
-  contact, consent, preferred name or Discord email. Site admins are unchanged. The admin identities list, edit and
-  merge stay site-admin only.
-- `contactFor(coach, leagueOrTournamentId)` (exported from `server.ts`) gives a coach's email/phones only with their
-  league-contact consent (the opt-in to be CONTACTED) AND membership: a league they shared their data with, or a
-  tournament entry. It is not exposed through any route yet; a future route must also check the caller organises it.
-  Nothing public ever includes email or phones.
+- League notice (owner 10-31): each league a coach is on (team or participant on their fork account) shows a one-time,
+  non-blocking notice ("By joining <League>, its organisers can see your name and profile, and can send you league
+  messages through Super FUMBBL (your email address is never shown to them).") with a required checkbox;
+  `GET/POST /api/me/leagues/sharing` stores `consent.leagues[<id>] = { at, version }` or a decline
+  (`consent.leaguesDeclined`); the Account page lists the leagues with Stop sharing / Share. There is no self-service
+  league join yet (coaches arrive by import or Assign coach account); a future join must ask the same notice.
+- Organisers never receive email addresses or phone numbers (`src/auth/contactFor.ts`). `POST /api/admin/identities/naf`
+  by a non-admin organiser is allowed only for a coach on a league they own or organise (403 otherwise; tournaments do
+  not count); an acknowledged member answers `organiserMemberView` (name, preferred name, public profile, NAF fields,
+  `acceptsLeagueMessages`), anyone else on their league the public allow-list (coach name, NAF fields). Site admins
+  are unchanged. The admin identities list, edit and merge stay site-admin only.
+- `mailerRecipientFor(coach, leagueOrTournamentId)` (exported from `server.ts`) is MAILER-ONLY: the address the coming
+  league mailer sends to (through the email delivery provider, Postmark), only with the league-contact opt-in AND
+  membership (an acknowledged league, or a tournament entry). Its result never goes into an HTTP response; a test
+  crawls every literal `/api` GET route to check no route returns another coach's email or phones.
 
 ## Tabletop recorder: team files
 

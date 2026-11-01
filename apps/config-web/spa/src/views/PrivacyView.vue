@@ -78,8 +78,8 @@ const sections = [
         <li><h3 class="hm-log-title">To run your account and the services you use</h3><p>Signing in, rosters, teams, games, leagues and tournaments. Legal basis: contract.</p></li>
         <li><h3 class="hm-log-title">For public results and standings</h3><p>Game results, ratings and standings are a shared record for the community and organisers. Legal basis: legitimate interest. You have the right to object.</p></li>
         <li><h3 class="hm-log-title">For security and abuse prevention</h3><p>Rate limits, bans and keeping the site safe. Legal basis: legitimate interest.<template v-if="FEATURES.delete"> If a banned coach deletes their account we keep a hash of their Discord id so the ban holds.</template></p></li>
-        <li><h3 class="hm-log-title">To share your details with your league's organisers</h3><p>When you join a league we ask whether you agree to share your personal data (name, contact email, phone numbers and profile) with that league's organisers so they can run the league. If you don't, you stay on your team and they see only your public profile. Legal basis: your consent. You can stop sharing at any time on the <RouterLink to="/account">Account page</RouterLink>.</p></li>
-        <li><h3 class="hm-log-title">To let organisers contact you</h3><p>If you agree, the organisers of leagues and tournaments you join may contact you by email or phone. Legal basis: your consent. <template v-if="FEATURES.consentWithdrawal">You can withdraw it at any time on the <RouterLink to="/account">Account page</RouterLink>.</template><template v-else>You can withdraw it by emailing the contact above; withdrawing on the Account page is coming soon.</template><template v-if="FEATURES.consentRecording"> We record your choice, and that you accepted this notice when you signed up.</template></p></li>
+        <li><h3 class="hm-log-title">To show your profile to your league's organisers</h3><p>When you join a league we ask whether its organisers may see your name and profile and send you league messages through Super FUMBBL. Your email address and phone numbers are never shown to them. If you don't agree, you stay on your team and they see only your coach name and NAF details. Legal basis: your consent. You can stop at any time on the <RouterLink to="/account">Account page</RouterLink>.</p></li>
+        <li><h3 class="hm-log-title">To send you league messages</h3><p>If you agree, organisers of leagues you join can send you league messages. Super FUMBBL sends them for the organiser through our email delivery provider; the organiser never receives your address. Legal basis: your consent. <template v-if="FEATURES.consentWithdrawal">You can withdraw it at any time on the <RouterLink to="/account">Account page</RouterLink>.</template><template v-else>You can withdraw it by emailing the contact above; withdrawing on the Account page is coming soon.</template><template v-if="FEATURES.consentRecording"> We record your choice, and that you accepted this notice when you signed up.</template></p></li>
         <li><h3 class="hm-log-title">Announcement emails</h3><p>We send none today. If we add them, they will be opt-in, and your consent is the legal basis.</p></li>
       </ul>
     </section>
@@ -88,7 +88,7 @@ const sections = [
       <header class="hm-band"><h2 id="pv-public-h">What is public</h2></header>
       <p>Anyone can see your coach name, avatar, teams, rosters you share, your tournament and league participation, and your game results and ratings.</p>
       <p><strong>Your email, phone numbers and Discord ids are never public.</strong></p>
-      <p>Your preferred name, contact email and phone numbers are visible only to the organisers of leagues you joined and agreed to share your data with. Whether they may contact you is a separate choice you make.<template v-if="FEATURES.delete"> They are deleted with your account.</template></p>
+      <p>Your contact email and phone numbers are never shared with organisers. Your preferred name and profile are visible to the organisers of leagues you joined and agreed to show them to. Whether they may send you league messages is a separate choice you make.<template v-if="FEATURES.delete"> They are deleted with your account.</template></p>
     </section>
 
     <section id="share" class="hm-panel" aria-labelledby="pv-share-h">
@@ -97,7 +97,7 @@ const sections = [
         <li><h3 class="hm-log-title">Discord</h3><p>You sign in with it, and a league's webhook posts that league's news to its Discord server.</p></li>
         <li><h3 class="hm-log-title">Our hosting provider</h3><p>It stores the data on our behalf.</p></li>
         <li v-if="translationName" data-testid="translation-provider"><h3 class="hm-log-title">{{ translationName }} (chat translation)</h3><p>Chat translation is switched on. When you translate a chat message, its text is sent to {{ translationName }}. Without it, no message text leaves our server.</p></li>
-        <li><h3 class="hm-log-title">A mail provider</h3><p>Only if we add email. We will list it here first.</p></li>
+        <li><h3 class="hm-log-title">Our email delivery provider</h3><p>When an organiser sends a league message to coaches who agreed to receive them, Super FUMBBL sends the email through our email delivery provider. It receives your email address and the message, and nothing else.</p></li>
       </ul>
       <p>We do not sell your data, show ads, or run analytics trackers.</p>
     </section>

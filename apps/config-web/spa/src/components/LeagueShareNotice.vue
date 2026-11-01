@@ -13,7 +13,7 @@ const league = computed(() => sharing.pending());
 
 <template>
   <section v-if="league" class="tn-panel ls-notice" role="region" aria-labelledby="ls-notice-h" :aria-busy="state.busy ? 'true' : undefined">
-    <h2 id="ls-notice-h" class="tn-band">Sharing your data with {{ league.name }}</h2>
+    <h2 id="ls-notice-h" class="tn-band">Your profile and {{ league.name }}</h2>
     <div class="tn-panel-body">
       <p class="ls-notice-text">{{ league.text }}</p>
       <label class="ob-check">
@@ -21,9 +21,9 @@ const league = computed(() => sharing.pending());
           type="checkbox" required :checked="state.ticked === league.id" :disabled="Boolean(state.busy)"
           @change="sharing.tick(league.id, ($event.target as HTMLInputElement).checked)"
         />
-        <span>I agree to share my personal data with the organisers of {{ league.name }}.</span>
+        <span>I agree that the organisers of {{ league.name }} can see my name and profile and send me league messages.</span>
       </label>
-      <p class="muted hm-small ls-notice-help">If you don't share, you stay on your team; the organisers see only your public profile. You can change this on your Account page.</p>
+      <p class="muted hm-small ls-notice-help">If you don't share, you stay on your team; the organisers see only your coach name and NAF details. You can change this on your Account page.</p>
       <p v-if="state.error" class="lobby-error hm-small" role="alert">{{ state.error }}</p>
       <div class="ob-actions">
         <button class="lobby-btn primary" type="button" :disabled="state.ticked !== league.id || Boolean(state.busy)" @click="sharing.share(league.id)">{{ state.busy === league.id ? "Saving…" : "Share" }}</button>

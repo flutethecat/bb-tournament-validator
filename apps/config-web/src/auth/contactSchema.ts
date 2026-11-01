@@ -54,8 +54,9 @@ export interface PrivacyAcceptance {
   at: string;
 }
 
-/** A league data-sharing acknowledgement (owner 10-31): the coach shares their personal data with that league's
- *  organisers. Without it the coach is treated as a non-member for identity access and contactFor. */
+/** A league acknowledgement (owner 10-31): that league's organisers may see the coach's name and profile, and may send
+ *  them league messages through Super FUMBBL (when the leagueContact consent is on too). Organisers never receive email
+ *  addresses or phone numbers. Without it the coach is treated as a non-member for identity access and the mailer. */
 export interface LeagueShareAck {
   at: string;
   version: string;
@@ -73,7 +74,7 @@ export interface CoachConsent {
 /** The league data-sharing notice (owner 10-31) and its wording version. `{league}` is the league's name. */
 export const LEAGUE_SHARE_VERSION = "2026-10-31";
 export const LEAGUE_SHARE_TEXT =
-  "By joining {league}, you share your personal data (name, contact email, phone numbers and profile) with the league's organisers so they can run the league and contact you.";
+  "By joining {league}, its organisers can see your name and profile, and can send you league messages through Super FUMBBL (your email address is never shown to them).";
 export const leagueShareText = (league: string): string => LEAGUE_SHARE_TEXT.replace("{league}", league);
 const LEAGUE_KEY = /^[a-z0-9-]{1,80}$/;
 const MAX_LEAGUE_ACKS = 200;

@@ -35,7 +35,7 @@ onMounted(() => { void sharing.load(props.coach); });
           <p class="hm-small">{{ l.text }}</p>
           <label class="ob-check">
             <input type="checkbox" required :checked="state.ticked === l.id" @change="sharing.tick(l.id, ($event.target as HTMLInputElement).checked)" />
-            <span>I agree to share my personal data with the organisers of {{ l.name }}.</span>
+            <span>I agree that the organisers of {{ l.name }} can see my name and profile and send me league messages.</span>
           </label>
           <div class="ob-actions">
             <button class="lobby-btn primary small" type="button" :disabled="state.ticked !== l.id || Boolean(state.busy)" @click="share(l)">Share</button>
@@ -44,7 +44,7 @@ onMounted(() => { void sharing.load(props.coach); });
         </div>
       </li>
     </ul>
-    <p class="muted hm-small">Organisers of a league you share with see your name, contact email, phone numbers and profile. Being contacted is a separate choice (Contact &amp; consent above).</p>
+    <p class="muted hm-small">Organisers of a league you share with see your name and profile and can send you league messages through Super FUMBBL (only if you also allow league messages in Contact &amp; consent above). Your email address and phone numbers are never shown to them.</p>
     <p v-if="state.error" class="lobby-error hm-small" role="alert">{{ state.error }}</p>
   </div>
 </template>

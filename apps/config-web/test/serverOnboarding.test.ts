@@ -217,13 +217,14 @@ describe("organiser identity access (owner ruling 10-31: full record only for ac
   const leaks = (text: string, values = personal) => [...values, "leagueContact", "\"contact\"", "\"consent\""].filter((t) => text.includes(t));
   const naf = (as: string, target: string) => call(as, "POST", "/api/admin/identities/naf", { ffbCoachId: target, nafName: `${target} NAF`, nafId: "4242" });
 
-  it("a league organiser gets the FULL record of a member who acknowledged sharing with that league", async () => {
+  it("a league organiser sees an acknowledged member's name, preferred name, profile and NAF fields, never their email or phones", async () => {
     const res = await naf("Org", "Victim");
     expect(res.status).toBe(200);
-    expect((await res.json()).coach).toMatchObject({
-      ffbCoachId: "Victim", profile: { preferredName: "Secret Pref" },
-      contact: { email: "victim@example.test", phones: [{ number: "+15550001111" }] }, consent: { leagues: { lg: { version: "2026-10-31" } } },
+    const text = await res.text();
+    expect(JSON.parse(text).coach).toEqual({
+      ffbCoachId: "Victim", preferredName: "Secret Pref", profile: {}, identities: { nafName: "Victim NAF", nafId: "4242" }, acceptsLeagueMessages: true,
     });
+    for (const leaked of ["victim@example.test", "victim-discord@example.test", "+15550001111", "909", "victim_dc", "\"consent\"", "\"contact\""]) expect(text, leaked).not.toContain(leaked);
   });
 
   it("the same organiser: a member who has not acknowledged gets the public record; a non-member is a 403 and nothing is written", async () => {
@@ -280,21 +281,43 @@ describe("GET/POST /api/me/leagues/sharing", () => {
   it("lists the coach's leagues with the notice; sharing needs the checkbox; stop sharing removes organiser access", async () => {
     const view = await (await call("Quiet", "GET", "/api/me/leagues/sharing")).json();
     expect(view.leagues).toEqual([expect.objectContaining({ id: "lg", name: "Test League", status: "pending", onRoster: true })]);
-    expect(view.leagues[0].text).toContain("By joining Test League, you share your personal data");
+    expect(view.leagues[0].text).toBe("By joining Test League, its organisers can see your name and profile, and can send you league messages through Super FUMBBL (your email address is never shown to them).");
     expect((await call("Quiet", "POST", "/api/me/leagues/sharing", { leagueId: "lg", share: true })).status).toBe(400);
     const shared = await call("Quiet", "POST", "/api/me/leagues/sharing", { leagueId: "lg", share: true, acknowledged: true });
     expect(shared.status).toBe(200);
     expect((await shared.json()).leagues[0]).toMatchObject({ status: "shared" });
     expect((await (await call("Org", "POST", "/api/admin/identities/naf", { ffbCoachId: "Quiet", nafName: "Quiet NAF", nafId: "4242" })).json()).coach)
-      .toMatchObject({ contact: { email: "quiet@example.test" } });
+      .toMatchObject({ preferredName: "Quiet Pref", acceptsLeagueMessages: false });
     const stopped = await call("Quiet", "POST", "/api/me/leagues/sharing", { leagueId: "lg", share: false });
     expect((await stopped.json()).leagues[0]).toMatchObject({ status: "declined" });
     const after = await (await call("Org", "POST", "/api/admin/identities/naf", { ffbCoachId: "Quiet", nafName: "Quiet NAF", nafId: "4242" })).text();
-    expect(after).not.toContain("quiet@example.test");
+    expect(after).not.toContain("Quiet Pref");
     // Cookie writes need X-CW-Auth; a not-onboarded coach is gated.
     expect((await fetch(`${origin}/api/me/leagues/sharing`, { method: "POST", headers: { cookie: cookie("Quiet"), "content-type": "application/json" }, body: "{}" })).status).toBe(403);
     expect((await call("Gated", "POST", "/api/me/leagues/sharing", { leagueId: "lg", share: false })).status).toBe(428);
   });
+});
+
+describe("no HTTP route returns another coach's contact email or phones to anyone but a site admin", () => {
+  it("every literal /api GET route in server.ts, as an organiser of the coach's league and as a plain coach", async () => {
+    const source = readFileSync(join(import.meta.dirname, "..", "src", "server.ts"), "utf8");
+    const paths = [...new Set([...source.matchAll(/path === "(\/api\/[^"]+)"/g)].map((m) => m[1]!))]
+      .filter((p) => !p.startsWith("/api/auth/discord/")); // the Discord sign-in redirects off-site
+    expect(paths.length).toBeGreaterThan(40);
+    const secrets = ["victim@example.test", "+15550001111"];
+    for (const as of ["Org", "Quiet", undefined]) {
+      for (const path of paths) {
+        const res = await fetch(`${origin}${path}`, { headers: as ? { cookie: cookie(as) } : {}, redirect: "manual" });
+        const text = await res.text();
+        expect(secrets.filter((t) => text.includes(t)), `${as ?? "anonymous"} GET ${path}`).toEqual([]);
+      }
+    }
+    // The organiser write that returns an identity: never the address either; the site admin does see it.
+    const org = await (await call("Org", "POST", "/api/admin/identities/naf", { ffbCoachId: "Victim", nafName: "Victim NAF", nafId: "4242" })).text();
+    expect(secrets.filter((t) => org.includes(t))).toEqual([]);
+    const admin = await (await call("Boss", "POST", "/api/admin/identities/naf", { ffbCoachId: "Victim", nafName: "Victim NAF", nafId: "4242" })).text();
+    expect(admin).toContain("victim@example.test");
+  }, 60_000);
 });
 
 describe("nothing public carries contact details", () => {

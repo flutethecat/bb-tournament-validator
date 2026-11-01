@@ -9,7 +9,7 @@ import {
 } from "../src/auth/contactSchema.js";
 import { completeOnboarding, contactView, onboardingGateApplies, onboardingView, updateOwnContact } from "../src/auth/onboarding.js";
 import {
-  createContactLookup, isLeagueRosterMember, isMemberOf, isTournamentMember, leaguesOf, organiserAccess, publicIdentityRecord, type MembershipSources,
+  createMailerRecipientLookup, isLeagueRosterMember, isMemberOf, isTournamentMember, leaguesOf, organiserAccess, organiserMemberView, publicIdentityRecord, type MembershipSources,
 } from "../src/auth/contactFor.js";
 import { leagueSharingView, setLeagueSharing } from "../src/auth/leagueSharing.js";
 import { completeDiscordCoachAssociation } from "../src/auth/discordSso.js";
@@ -341,11 +341,18 @@ describe("league membership, data-sharing acknowledgement, organiser access and 
     expect(publicIdentityRecord(full)).toEqual({
       ffbCoachId: "Kim", identities: { nafName: "N", nafId: "7" }, connections: { naf: { verifiedAt: "2026-10-01", source: "coachpage", nafId: "7", nafName: "N" } },
     });
+    // An acknowledged member: name, preferred name, public profile, NAF fields and the league-messages flag; never contact.
+    expect(organiserMemberView(full)).toEqual({
+      ffbCoachId: "Kim", preferredName: "P", profile: { displayName: "D" }, identities: { nafName: "N", nafId: "7" },
+      connections: { naf: { verifiedAt: "2026-10-01", source: "coachpage", nafId: "7", nafName: "N" } }, acceptsLeagueMessages: true,
+    });
+    const member = JSON.stringify(organiserMemberView(full));
+    for (const leaked of ["c@example.test", "+15551234567", "123", "kim_dc", "e@x.yz", "Europe/Oslo", "admin-only note", "\"consent\"", "\"contact\"", "\"avatar\""]) expect(member).not.toContain(leaked);
     const text = JSON.stringify(publicIdentityRecord(full));
     for (const leaked of ["123", "kim_dc", "Europe/Oslo", "18:00", "admin-only note", "e@x.yz", "organizer", "P", "\"D\""]) expect(text).not.toContain(leaked);
   });
 
-  it("contactFor answers email/phones only with the league-contact opt-in AND (an acknowledged league membership or a tournament entry)", () => {
+  it("mailerRecipientFor (mailer-only) answers the address only with the league-contact opt-in AND (an acknowledged league membership or a tournament entry)", () => {
     seed(
       record("Ivy", { contact, consent: consent() }),
       record("Kim", { contact, consent: consent() }),
@@ -354,20 +361,20 @@ describe("league membership, data-sharing acknowledgement, organiser access and 
       record("Jay_team", { contact, consent: { ...consent({ leagues: { lg: ack } }), leagueContact: { granted: false, at: "x", version: "y" } } }),
       record("Dropped", { contact, consent: consent() }),
     );
-    const contactFor = createContactLookup(sources);
-    expect(contactFor("Ivy", "t1")).toEqual({ coach: "Ivy", email: "c@example.test", emailVerified: false, phones: [{ number: "+15551234567" }] });
-    expect(contactFor("Pat", "lg")).toMatchObject({ coach: "Pat", email: "c@example.test" });
-    expect(contactFor("Kim", "lg")).toBeUndefined(); // on the roster, no acknowledgement
-    expect(contactFor("Lee", "lg")).toBeUndefined(); // acknowledgement, not on the roster
-    expect(contactFor("Jay_team", "lg")).toBeUndefined(); // acknowledged, but no league-contact opt-in
-    expect(contactFor("Dropped", "t1")).toBeUndefined();
-    expect(contactFor("Nobody", "t1")).toBeUndefined();
+    const mailerRecipientFor = createMailerRecipientLookup(sources);
+    expect(mailerRecipientFor("Ivy", "t1")).toEqual({ coach: "Ivy", email: "c@example.test", emailVerified: false, phones: [{ number: "+15551234567" }] });
+    expect(mailerRecipientFor("Pat", "lg")).toMatchObject({ coach: "Pat", email: "c@example.test" });
+    expect(mailerRecipientFor("Kim", "lg")).toBeUndefined(); // on the roster, no acknowledgement
+    expect(mailerRecipientFor("Lee", "lg")).toBeUndefined(); // acknowledgement, not on the roster
+    expect(mailerRecipientFor("Jay_team", "lg")).toBeUndefined(); // acknowledged, but no league-contact opt-in
+    expect(mailerRecipientFor("Dropped", "t1")).toBeUndefined();
+    expect(mailerRecipientFor("Nobody", "t1")).toBeUndefined();
   });
 
   it("share / decline / stop sharing: checkbox required, roster only, stored per league, other consent untouched", () => {
     seed(record("Kim", { consent: consent() }));
     expect(leagueSharingView(stored("Kim"), sources).leagues.map((l) => [l.id, l.status])).toEqual([["lg", "pending"], ["other", "pending"]]);
-    expect(leagueSharingView(stored("Kim"), sources).leagues[0]!.text).toBe("By joining Test League, you share your personal data (name, contact email, phone numbers and profile) with the league's organisers so they can run the league and contact you.");
+    expect(leagueSharingView(stored("Kim"), sources).leagues[0]!.text).toBe("By joining Test League, its organisers can see your name and profile, and can send you league messages through Super FUMBBL (your email address is never shown to them).");
     expect(() => setLeagueSharing("Kim", { leagueId: "lg", share: true }, sources)).toThrow(/Tick the box/);
     expect(() => setLeagueSharing("Kim", { leagueId: "nope", share: true, acknowledged: true }, sources)).toThrow(/not on that league/);
     expect(() => setLeagueSharing("Kim", { leagueId: "lg", share: "yes" }, sources)).toThrow(/true or false/);

@@ -54,13 +54,13 @@ export const INVENTORY: readonly InventoryRow[] = [
   {
     id: "contact-details", store: "identities.json (profile and contact fields)",
     data: "The name you prefer to be called, a contact email you enter (it can differ from your Discord email, and we note whether it is verified), and up to three phone numbers.",
-    purpose: "So the organisers of leagues you join can run the league, and contact you if you allow it.",
-    public: "no", publicNote: "Only the organisers of leagues you joined and agreed to share your data with can see them (you can stop sharing on the Account page). Being contacted is a separate choice. Never public.",
+    purpose: "So Super FUMBBL can send you league messages from the organisers of leagues you join, if you allow it; your preferred name is shown to those organisers if you agree.",
+    public: "no", publicNote: "Your email and phone numbers are never shared with organisers or made public. League messages are sent by Super FUMBBL through our email delivery provider. Your preferred name is visible to the organisers of leagues you agreed to show your profile to.",
     retention: ACCOUNT_LIFETIME,
   },
   {
     id: "consents", store: "identities.json (consent records)",
-    data: "Whether you agreed to be contacted by league and tournament organisers, and when; for each league, whether you agreed to share your data with its organisers, and when; and which version of this notice you accepted, and when.",
+    data: "Whether you agreed to be contacted by league and tournament organisers, and when; for each league, whether you agreed to show your profile to its organisers and receive their league messages, and when; and which version of this notice you accepted, and when.",
     purpose: "Proof of your choices: your consents (which you can withdraw on the Account page) and your acceptance of this notice.",
     public: "no", retention: ACCOUNT_LIFETIME,
   },
