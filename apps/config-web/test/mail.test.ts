@@ -6,7 +6,7 @@ import { mailConfigFromEnv } from "../src/mail/config";
 import { disclosedCounts, LeagueMessageLimiter, leagueMessagesRoute, PRIVATE_SUMMARY, type LeagueMessageDeps } from "../src/mail/leagueMessages";
 import { MailWorker, Outbox, OUTBOX_BODY_RETENTION_MS, RETENTION_SWEEP_MS, retryDelayMs } from "../src/mail/outbox";
 import { createPostmarkTransport, POSTMARK_EMAIL_URL, postmarkBody } from "../src/mail/postmark";
-import { createDefaultRecipientResolver, createIdentityContactWriter, leagueAcknowledged } from "../src/mail/recipients";
+import { createContactForResolver, createDefaultRecipientResolver, createIdentityContactWriter, leagueAcknowledged } from "../src/mail/recipients";
 import { createMailService, type MailServiceDeps } from "../src/mail/service";
 import { MailPrefsStore } from "../src/mail/stores";
 import { renderLeagueMessage } from "../src/mail/templates";
@@ -346,7 +346,7 @@ describe("signed links", () => {
     expect(post!.status).toBe(200);
     expect(post!.html).toContain("League emails turned off");
     expect(svc.prefs.get("ann").leagueMailOff?.at).toBe(new Date(T0).toISOString());
-    expect(writes[0]).toMatchObject({ consent: { leagueContact: { granted: false } } });
+    expect(writes[0]).toMatchObject({ consent: { leagueContact: { granted: false, at: new Date(T0).toISOString() } } });
     expect(svc.resolver.resolve("Ann")!.canReceiveLeagueMail("tabbl")).toBe(false);
     // The page's form button posts the token in the body.
     const form = await svc.publicRoute("POST", url.pathname, new URLSearchParams(), {}, async () => `token=${encodeURIComponent(url.searchParams.get("token")!)}`);
@@ -399,6 +399,45 @@ describe("signed links", () => {
     expect(leagueAcknowledged({ a: { granted: false } }, "a")).toBe(false);
     expect(leagueAcknowledged({ a: { acknowledgedAt: "x", revokedAt: "y" } }, "a")).toBe(false);
     expect(leagueAcknowledged({}, "a")).toBe(false);
+  });
+});
+
+describe("contactFor seam", () => {
+  it("eligibility comes from mailerRecipientFor; the address from the contact email; a link opt-out holds until a later grant", () => {
+    const prefs = new MailPrefsStore(tmp());
+    let grantedAt = Date.parse("2026-10-01T00:00:00.000Z");
+    const contacts: Record<string, { email: string | null; emailVerified: boolean }> = {
+      ann: { email: "ann@example.test", emailVerified: true },
+      bob: { email: "bob@example.test", emailVerified: false },
+      cat: { email: null, emailVerified: false },
+    };
+    const r = createContactForResolver({
+      mailerRecipientFor: (coach, leagueId) => (coach.toLowerCase() === "ann" && leagueId === "tabbl" ? { email: "ann@example.test", emailVerified: true } : undefined),
+      contact: (coach) => contacts[coach.toLowerCase()],
+      consentAt: () => grantedAt,
+      prefs,
+    });
+    expect(r.resolve("nobody")).toBeUndefined();
+    const ann = r.resolve("Ann")!;
+    expect(ann).toMatchObject({ email: "ann@example.test", verified: true });
+    expect(ann.canReceiveLeagueMail("tabbl")).toBe(true);
+    expect(ann.canReceiveLeagueMail("other")).toBe(false);
+    expect(r.resolve("Bob")).toMatchObject({ email: "bob@example.test", verified: false });
+    prefs.update("bob", () => ({ email: { address: "BOB@example.test", verifiedAt: "x" } }));
+    expect(r.resolve("Bob")!.verified).toBe(true); // confirmed here through /api/me/email/verify
+    prefs.update("cat", () => ({ email: { address: "cat@example.test", verifiedAt: "x" } }));
+    expect(r.resolve("Cat")).toMatchObject({ email: "cat@example.test", verified: true });
+    prefs.update("ann", () => ({ leagueMailOff: { at: "2026-10-15T00:00:00.000Z" } }));
+    expect(r.resolve("Ann")!.canReceiveLeagueMail("tabbl")).toBe(false);
+    grantedAt = Date.parse("2026-10-20T00:00:00.000Z");
+    expect(r.resolve("Ann")!.canReceiveLeagueMail("tabbl")).toBe(true);
+  });
+
+  it("a coach with an address on file can only confirm that address", () => {
+    const svc = createMailService(tmp(), ENV, { identity: () => consenting("ann@example.test", undefined, false), transport: new MemoryTransport() });
+    expect(svc.meRoute("POST", "/api/me/email/verify", { coach: "Ann" }, { email: "other@example.test" })!.status).toBe(409);
+    expect(svc.meRoute("POST", "/api/me/email/verify", { coach: "Ann" }, {})!.status).toBe(202);
+    expect(svc.outbox.list()[0]!.message!.to).toBe("ann@example.test");
   });
 });
 

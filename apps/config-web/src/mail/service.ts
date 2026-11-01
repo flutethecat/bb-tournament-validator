@@ -35,8 +35,8 @@ export interface MailRouteResult {
 export interface MailServiceDeps {
   /** Identity record for a coach (unknown shape: the resolver reads optional onboarding fields). */
   identity(coach: string): unknown;
-  /** Plug the onboarding lane's contactFor() in here; default reads the identity fields. */
-  resolver?: RecipientResolver;
+  /** Plug the onboarding lane's contactFor() in here (a factory gets the prefs store); default reads the identity fields. */
+  resolver?: RecipientResolver | ((prefs: MailPrefsStore) => RecipientResolver);
   /** Identity-side writes (unsubscribe, verification); default no-op. */
   contactWriter?: ContactWriter;
   transport?: MailTransport;
@@ -76,7 +76,9 @@ export function createMailService(stateDir: string, env: Record<string, string |
     ?? (config.transport === "postmark" && config.postmarkToken && config.from
       ? createPostmarkTransport({ token: config.postmarkToken, from: config.from, stream: config.stream, ...(config.replyTo ? { replyTo: config.replyTo } : {}), ...(deps.fetch ? { fetch: deps.fetch } : {}) })
       : createLogTransport(log));
-  const resolver = deps.resolver ?? createDefaultRecipientResolver({ identity: deps.identity, prefs });
+  const resolver: RecipientResolver = typeof deps.resolver === "function"
+    ? deps.resolver(prefs)
+    : deps.resolver ?? createDefaultRecipientResolver({ identity: deps.identity, prefs });
   const writer: ContactWriter = deps.contactWriter ?? { revokeLeagueContact() {}, markEmailVerified() {} };
   /**
    * Send-time re-check (consent may be withdrawn while a message waits in the queue or between retries): league mail
@@ -209,10 +211,13 @@ export function createMailService(stateDir: string, env: Record<string, string |
     if (input.email !== undefined) {
       if (typeof input.email !== "string" || !isEmailAddress(input.email.trim())) return jsonErr(400, "Enter a valid email address.");
       address = input.email.trim();
-    } else {
-      address = resolver.resolve(auth.coach)?.email;
-      if (!address) return jsonErr(400, "Enter the email address to confirm.");
     }
+    // A coach with an address on file confirms that one (change it in the Contact panel first).
+    const onFile = resolver.resolve(auth.coach)?.email;
+    if (address && onFile && normalizeAddress(address) !== normalizeAddress(onFile))
+      return jsonErr(409, "Change your contact email on the Account page first, then confirm it here.");
+    address ??= onFile;
+    if (!address) return jsonErr(400, "Enter the email address to confirm.");
     if (!emailEnabled()) return jsonErr(503, "Email is not set up on this site yet.");
     // The rate limit is consumed first, and a suppressed address gets the same 202 (nothing is sent), so this route
     // cannot be used to probe which addresses bounced or complained.

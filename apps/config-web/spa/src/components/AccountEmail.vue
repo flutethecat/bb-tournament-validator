@@ -54,8 +54,9 @@ onMounted(load);
       <p v-if="status.pending" class="hm-small">A confirmation link was sent to {{ status.pending.email }}.</p>
       <p class="hm-small hm-empty">League organisers never see your address: messages are sent by Super FUMBBL.</p>
       <form v-if="status.emailEnabled" class="ls-form" @submit.prevent="sendLink">
-        <label class="ls-field"><span>Email to confirm</span><input v-model="address" type="email" maxlength="254" autocomplete="email" :placeholder="status.email ?? 'you@example.com'" /></label>
-        <p class="hm-actions"><button class="lobby-btn" type="submit" :disabled="busy || (!address.trim() && !status.email)">Send confirmation link</button></p>
+        <label v-if="!status.email" class="ls-field"><span>Email to confirm</span><input v-model="address" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" /></label>
+        <p v-else-if="!status.verified" class="hm-small hm-empty">To use another address, change your contact email first.</p>
+        <p v-if="!status.email || !status.verified" class="hm-actions"><button class="lobby-btn" type="submit" :disabled="busy || (!address.trim() && !status.email)">Send confirmation link</button></p>
       </form>
       <p v-else class="hm-small hm-empty">Email is not set up on this site yet.</p>
       <p v-if="status.leagueMailOff" class="hm-small">

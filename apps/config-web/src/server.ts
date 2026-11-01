@@ -161,13 +161,13 @@ import {
   completeOnboarding, CONTACT_PATH, contactView, ONBOARDING_PATH, ONBOARDING_REQUIRED_MESSAGE,
   onboardingGateApplies, onboardingView, updateOwnContact,
 } from "./auth/onboarding.js";
-import { onboardingNeeded } from "./auth/contactSchema.js";
+import { contactOf, onboardingNeeded } from "./auth/contactSchema.js";
 import { createMailerRecipientLookup, publicIdentityRecord, tournamentOrganiserOf, type MembershipSources } from "./auth/contactFor.js";
 import { LEAGUE_SHARING_PATH, leagueSharingView, setLeagueSharing } from "./auth/leagueSharing.js";
 import { attachSuper } from "./super/index.js";
 import { mailConfigWarnings } from "./mail/config.js";
 import { LeagueMessageLimiter, leagueMessagesPath, leagueMessagesRoute } from "./mail/leagueMessages.js";
-import { createIdentityContactWriter } from "./mail/recipients.js";
+import { createContactForResolver, createIdentityContactWriter, identityMailFields } from "./mail/recipients.js";
 import { createMailService, type MailRouteResult } from "./mail/service.js";
 import {
   isLobbyApiPath,
@@ -466,7 +466,7 @@ const tournamentStore = new TournamentStore(TOURNAMENTS_DIR);
 const leagueStore = new LeagueStore(FORK_STATE_DIR);
 // recordLeagueFixtureEvent (match started / result from the fork and tabletop paths) posts through this store.
 /**
- * MAILER-ONLY recipient lookup for the coming league mailer (src/auth/contactFor.ts): a coach's address only with their
+ * MAILER-ONLY recipient lookup for the league mailer (src/auth/contactFor.ts; src/mail/ resolves through it): a coach's address only with their
  * league-contact consent and membership. Its result goes to the email delivery provider, never into an HTTP response.
  */
 const membershipSources: MembershipSources = { tournaments: tournamentStore, leagues: leagueStore };
@@ -584,6 +584,17 @@ const leagueNotify = (coach: string, input: Parameters<typeof notificationStore.
 const mailIdentity = (coach: string): unknown => readIdentities().coaches[normalizeFfbCoachId(coach)];
 const mail = createMailService(FORK_STATE_DIR, process.env, {
   identity: mailIdentity,
+  // THE SEAM: league email eligibility comes from the onboarding lane's mailer-only contactFor lookup (league-contact
+  // opt-in + acknowledged membership); the address from contactOf (never into a response).
+  resolver: (prefs) => createContactForResolver({
+    mailerRecipientFor,
+    contact: (coach) => {
+      const record = readIdentities().coaches[normalizeFfbCoachId(coach)];
+      return record && !record.banned ? contactOf(record) : undefined;
+    },
+    consentAt: (coach) => identityMailFields(mailIdentity(coach)).leagueContactAt,
+    prefs,
+  }),
   // Writes the onboarding lane's contact / consent fields only when the record has them (prefs.json holds the state otherwise).
   contactWriter: createIdentityContactWriter({
     identity: mailIdentity,

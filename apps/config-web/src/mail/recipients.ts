@@ -1,9 +1,8 @@
 // Who may receive league email. THE SEAM with the onboarding lane: `RecipientResolver` maps a coach to
-// { email, verified, canReceiveLeagueMail(leagueId) }. The default implementation below reads the onboarding fields
-// when the identity record has them (contact.email / contact.emailVerified, consent.leagueContact.granted,
-// consent.leagues[leagueId]) and treats their absence as "no consent". When the onboarding lane's server-internal
-// contactFor() lands (src/auth/contactFor.ts), wrap it in a RecipientResolver and pass that to createMailService instead;
-// nothing else in src/mail/ reads identity fields.
+// { email, verified, canReceiveLeagueMail(leagueId) }. server.ts plugs in createContactForResolver over the onboarding
+// lane's mailer-only contactFor lookup (src/auth/contactFor.ts mailerRecipientFor: league-contact opt-in + acknowledged
+// membership) and contactOf. createDefaultRecipientResolver reads the same fields straight off a record (tests, and any
+// host without contactFor) and treats their absence as "no consent". Nothing else in src/mail/ reads identity fields.
 //
 // Addresses resolved here go only into the outbox and the transport: never into a response, a log line or the audit.
 
@@ -96,6 +95,49 @@ export function createDefaultRecipientResolver(deps: DefaultResolverDeps): Recip
   };
 }
 
+/** What the contactFor adapter needs (server.ts passes the onboarding lane's functions). */
+export interface ContactForResolverDeps {
+  /** contactFor's MAILER-ONLY lookup: defined only with the league-contact opt-in and an acknowledged membership. */
+  mailerRecipientFor(coach: string, leagueId: string): { email: string | null; emailVerified: boolean } | undefined;
+  /** The coach's own contact (contactSchema contactOf); undefined = no identity or banned. */
+  contact(coach: string): { email: string | null; emailVerified: boolean } | undefined;
+  prefs: MailPrefsStore;
+  /** When league consent was last granted (epoch ms; NaN = unknown): a link opt-out stands until a later grant. */
+  consentAt(coach: string): number;
+}
+
+/**
+ * RecipientResolver over contactFor. Address: the contact email (verified by onboarding, or confirmed here through
+ * /api/me/email/verify); a portal-confirmed address from prefs only while the coach has no contact email.
+ */
+export function createContactForResolver(deps: ContactForResolverDeps): RecipientResolver {
+  return {
+    resolve(coach) {
+      const c = deps.contact(coach);
+      if (!c) return undefined;
+      const prefs = deps.prefs.get(coach);
+      const confirmed = prefs.email && isEmailAddress(prefs.email.address) ? prefs.email.address : undefined;
+      let email: string | undefined;
+      let verified = false;
+      if (c.email) {
+        email = c.email;
+        verified = c.emailVerified || (confirmed !== undefined && normalizeAddress(confirmed) === normalizeAddress(c.email));
+      } else if (confirmed) {
+        email = confirmed;
+        verified = true;
+      }
+      const optOut = prefs.leagueMailOff ? stamp(prefs.leagueMailOff.at) : NaN;
+      const granted = deps.consentAt(coach);
+      const optedOut = Number.isFinite(optOut) && !(Number.isFinite(granted) && granted > optOut);
+      return {
+        ...(email ? { email } : {}),
+        verified,
+        canReceiveLeagueMail: (leagueId) => !optedOut && deps.mailerRecipientFor(coach, leagueId) !== undefined,
+      };
+    },
+  };
+}
+
 export interface IdentityContactWriterDeps {
   identity(coach: string): unknown;
   /** Persist a changed record (server: upsertIdentity). Called only when the field exists on the record. */
@@ -110,7 +152,7 @@ export function createIdentityContactWriter(deps: IdentityContactWriterDeps): Co
       const consent = obj(record?.consent);
       const lc = obj(consent?.leagueContact);
       if (!record || !consent || !lc) return;
-      deps.write(coach, { ...record, consent: { ...consent, leagueContact: { ...lc, granted: false, updatedAt: at } } });
+      deps.write(coach, { ...record, consent: { ...consent, leagueContact: { ...lc, granted: false, at } } });
     },
     markEmailVerified(coach, address, at) {
       const record = obj(deps.identity(coach));

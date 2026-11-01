@@ -122,9 +122,9 @@ describe("privacy notice (server-rendered)", () => {
     expect(withMail).toContain("Postmark");
     const without = await render("/privacy", { ...out, ...contact });
     expect(without).not.toContain('data-testid="mail-provider"');
-    expect(without).toContain("None is switched on, so we send no email.");
+    expect(without).toContain("None is switched on yet, so we send no email.");
     expect(without).toContain('data-row="mail"');
-    expect(without).toContain("the organiser never sees your address");
+    expect(without).toContain("the organiser never receives your address");
   });
 
   it("inventory rows are complete and unique", () => {
