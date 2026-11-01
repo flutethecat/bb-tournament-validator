@@ -419,7 +419,7 @@ describe("Free Create: page (server-rendered)", () => {
     const html = await render("/tournament-team-builder?tab=ruleset", mockFetcher(routes()));
     const cards = [...html.matchAll(/data-ruleset="([^"]+)"/g)].map((m) => m[1]);
     expect(cards).toEqual(["free-create", "Test Cup"]);
-    expect(html).toContain('<small class="tb-card-desc">Build any roster. No tournament rules, no validation.</small>');
+    expect(html).not.toContain('class="tb-card-desc"'); // owner 10-31: no description line on the card
     expect(html).not.toContain("<strong>BB2025 Default</strong>");
     expect([...html.matchAll(/class="tb-free-race" data-tt-race="(\w+)"/g)].map((m) => m[1])).toEqual(["human", "orc"]);
   });

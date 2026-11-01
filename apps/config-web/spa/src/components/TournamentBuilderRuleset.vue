@@ -119,7 +119,7 @@ function onTableClick(e: MouseEvent): void {
       <button
         v-for="c in cards" :key="c.name" type="button" role="listitem" class="tb-card" :class="{ 'tb-card-free': c.free }" :data-ruleset="c.name"
         :aria-pressed="c.name === state.packageName ? 'true' : 'false'" @click="onPick(c.name)"
-      ><strong>{{ c.label }}</strong><small v-if="c.free" class="tb-card-desc">{{ c.description }}</small></button>
+      ><strong>{{ c.label }}</strong></button>
     </div>
     <p v-if="cards.length === 1" class="hm-empty">No tournament packages are saved yet.</p>
   </section>
