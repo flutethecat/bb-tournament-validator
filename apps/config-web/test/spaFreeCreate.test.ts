@@ -496,6 +496,38 @@ describe("Roster Builder player names (owner 11-01)", () => {
     expect(teamBuilderBoundsError({ picks: [{ positionId: "hlin", count: 1, names: "Bob" }] })).toBe("names must be an array when supplied.");
   });
 
+  it("names keep only XML 1.0 characters minus controls and bidi overrides; the wire refuses an unclean name", () => {
+    const bad = ["A\uFFFFb", "A\uFFFEb", "A\uD800b", "A\uDC00b", "A\u0001b", "A\tb", "A\nb", "A\u202Eb", "A\u2066b", "A\u0085b"];
+    for (const raw of bad) {
+      expect(cleanPlayerName(raw), JSON.stringify(raw)).toBe("A b");
+      expect(pickNamesError([raw], 1), JSON.stringify(raw)).toBe("each names entry must be plain text (no control characters, no leading or trailing spaces).");
+    }
+    expect(cleanPlayerName("Zoë \u{1F3C8} Ball")).toBe("Zoë \u{1F3C8} Ball"); // astral characters stay whole
+    expect(Array.from(cleanPlayerName("\u{1F3C8}".repeat(40))).length).toBe(PLAYER_NAME_MAX); // 30 code points, never a split pair
+    expect(pickNamesError([" Padded"], 1)).not.toBeNull();
+    expect(pickNamesError(["Clean Name"], 1)).toBeNull();
+  });
+
+  it("a restore keeps 30 code points (never half a surrogate pair)", () => {
+    const pos = { positionId: "hlin", name: "Human Lineman", isStar: false };
+    const slots = core.slotsFromPicks([{ positionId: "hlin", count: 1, names: ["\u{1F3C8}".repeat(31)] }] as any, (id: string) => (id === "hlin" ? pos : null) as any);
+    expect(Array.from(slots[0]!.name!).length).toBe(30);
+    expect(slots[0]!.name!).toBe("\u{1F3C8}".repeat(30));
+  });
+
+  it("the fork build never renames a star, even when names[] carries one", () => {
+    const xml = '<roster id="human.bb2025"><name>Human</name><reRollCost>50000</reRollCost><maxReRolls>8</maxReRolls><apothecary>true</apothecary>'
+      + '<position id="1"><quantity>16</quantity><name>Human Lineman</name><type>Regular</type><gender>male</gender></position>'
+      + '<position id="9"><race>Special</race><quantity>1</quantity><name>Grim Ironjaw</name><type>Star</type><gender>male</gender><cost>200000</cost><movement>5</movement><strength>4</strength><agility>3</agility><passing></passing><armour>9</armour><skillList><skill>Block</skill></skillList></position></roster>';
+    const picks = [{ positionId: "1", count: 1, names: ["Ada"] }, { positionId: "9", count: 1, names: ["Not Grim"] }];
+    const composed = composeTeam({ forkRosterXml: xml, coach: "C", teamName: "T", reRolls: 0, apothecary: false, custom: true, picks: picks.map(({ names: _n, ...p }) => p) }, bb2025, 1);
+    const before = [...composed.xml.matchAll(/<player nr="\d+"[^>]*><name>([^<]*)<\/name>/g)].map((m) => m[1]);
+    const got = [...applyPickNames(composed, picks).xml.matchAll(/<player nr="\d+"[^>]*><name>([^<]*)<\/name>/g)].map((m) => m[1]);
+    expect(got[0]).toBe("Ada");
+    expect(got[1]).toBe(before[1]); // the star keeps the composer's name
+    expect(got[1]).not.toBe("Not Grim");
+  });
+
   it("the fork build writes the kept names into the team XML (escaped), by player order", () => {
     const xml = '<roster id="human.bb2025"><name>Human</name><reRollCost>50000</reRollCost><maxReRolls>8</maxReRolls><apothecary>true</apothecary>'
       + '<position id="1"><quantity>16</quantity><name>Human Lineman</name><type>Regular</type><gender>male</gender></position></roster>';

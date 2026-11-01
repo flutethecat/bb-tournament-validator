@@ -52,17 +52,23 @@ export function retargetComposedTeam<T extends ComposeResult>(composed: T, teamI
 const xmlText = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 /** Roster Builder player names (owner 11-01): the composer writes "<Position> <n>" for every player; a name the coach
  *  kept on the pick (`names[i]`, cleaned) replaces it in the team XML, matched by player order. Untouched when the
- *  composed players don't line up one-to-one with the picks. */
+ *  composed players don't line up one-to-one with the picks. Stars are never renamed: a player whose composed name
+ *  isn't "<Position> <n>" (the composer writes a star's own name) or whose position is a star keeps its name, whatever
+ *  names[] says. */
 export function applyPickNames<T extends ComposeResult>(composed: T, picks: unknown): T {
   const names = expandPickNames(picks);
   if (!names.some(Boolean)) return composed;
   const re = /(<player nr="\d+"[^>]*><name>)([^<]*)(<\/name>)/g;
   const found = composed.xml.match(re)?.length ?? 0;
   if (found !== names.length) return composed;
+  const positions = composed.roster.players.map((p) => p.positionName);
   let i = 0;
-  const xml = composed.xml.replace(re, (whole, open: string, _old: string, close: string) => {
-    const name = names[i++] ?? "";
-    return name ? `${open}${xmlText(name)}${close}` : whole;
+  const xml = composed.xml.replace(re, (whole, open: string, old: string, close: string) => {
+    const at = i++;
+    const name = names[at] ?? "";
+    const position = positions[at] ?? "";
+    const star = !/\s\d+$/.test(old) || (position !== "" && isStarName(bb2025, position));
+    return name && !star ? `${open}${xmlText(name)}${close}` : whole;
   });
   return { ...composed, xml };
 }

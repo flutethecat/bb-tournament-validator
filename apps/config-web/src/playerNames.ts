@@ -9,14 +9,23 @@ import { generateName } from "./nameGenerate.js";
 /** Longest player name the builder keeps (the rename field's maxlength; the wire bound). */
 export const PLAYER_NAME_MAX = 30;
 
-/** Characters a stored name never keeps: C0/C1 controls, zero-width and bidi controls, the BOM. */
-const INVISIBLE = new RegExp("[\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u2028-\\u202e\\u2066-\\u2069\\ufeff]", "g");
+/** Whether a code point may stay in a stored name: an XML 1.0 Char (so the team XML stays well-formed: no C0 controls,
+ *  no lone surrogates, no U+FFFE / U+FFFF), and none of the C1 controls, zero-width / bidi controls, line / paragraph
+ *  separators or the BOM. Tab and newline are dropped too (whitespace is collapsed to single spaces). */
+function keepCodePoint(cp: number): boolean {
+  if (cp < 0x20 || (cp >= 0x7f && cp <= 0x9f)) return false;
+  if (cp >= 0xd800 && cp <= 0xdfff) return false; // a lone surrogate (Array.from yields pairs as one code point)
+  if (cp === 0xfffe || cp === 0xffff || cp > 0x10ffff) return false;
+  if ((cp >= 0x200b && cp <= 0x200f) || (cp >= 0x2028 && cp <= 0x202e) || (cp >= 0x2066 && cp <= 0x2069) || cp === 0xfeff) return false;
+  return true;
+}
 
-/** A player name as stored: plain text, NFC, control characters dropped, whitespace collapsed, trimmed, at most
- *  PLAYER_NAME_MAX characters. Anything that isn't a string is "". */
+/** A player name as stored: plain text, NFC, disallowed code points dropped (keepCodePoint), whitespace collapsed,
+ *  trimmed, at most PLAYER_NAME_MAX code points. Anything that isn't a string is "". */
 export function cleanPlayerName(value: unknown): string {
   if (typeof value !== "string") return "";
-  const text = value.normalize("NFC").replace(INVISIBLE, " ").replace(/\s+/g, " ").trim();
+  const kept = Array.from(value.normalize("NFC")).map((ch) => (keepCodePoint(ch.codePointAt(0)!) ? ch : " ")).join("");
+  const text = kept.replace(/\s+/g, " ").trim();
   return Array.from(text).slice(0, PLAYER_NAME_MAX).join("").trim();
 }
 
@@ -61,5 +70,8 @@ export function pickNamesError(names: unknown, count: number): string | null {
   if (!Array.isArray(names)) return "names must be an array when supplied.";
   if (names.length > count) return "names may list at most one entry per player of the pick.";
   for (const n of names) if (typeof n !== "string" || Array.from(n).length > PLAYER_NAME_MAX) return `each names entry must be a string of at most ${PLAYER_NAME_MAX} characters.`;
+  // Stored as sent (saves keep the body), so only an already-clean name is accepted: no control, bidi or XML-invalid
+  // characters, no stray whitespace. The builder always sends cleaned names.
+  for (const n of names as string[]) if (n !== cleanPlayerName(n)) return "each names entry must be plain text (no control characters, no leading or trailing spaces).";
   return null;
 }

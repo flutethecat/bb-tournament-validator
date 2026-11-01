@@ -260,7 +260,8 @@
             slots.push({ positionId: position.positionId, isStar: true, chosenSkills: [], chosenStatIncreases: [] });
             continue;
           }
-          const name = Array.isArray(pick.names) && typeof pick.names[i] === "string" ? pick.names[i].trim().slice(0, 30) : "";
+          // 30 code points, as the server bounds it (never a split surrogate pair)
+          const name = Array.isArray(pick.names) && typeof pick.names[i] === "string" ? Array.from(pick.names[i].trim()).slice(0, 30).join("").trim() : "";
           slots.push({
             positionId: position.positionId,
             isStar: position.isStar === true,
