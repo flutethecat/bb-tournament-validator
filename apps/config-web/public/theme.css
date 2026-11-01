@@ -68,6 +68,7 @@
 /* Fixed semantics — identical in both presets (Fives canonical). */
 :root {
   --ui-danger: #ff4d4d;
+  --ui-on-danger: #ffffff;      /* text and icons on a --ui-danger fill (both presets; the light danger is derived to clear 4.5:1 under it) */
   --ui-coach-led: #4cff6a;      /* bright LED green for the coach names in the desktop scoreboard */
   --ui-admin: #ffd23d;          /* bright yellow: events an organiser recorded or removed for a team they do not coach */
   --ui-scarlet: #d7141f;          /* saturated scarlet: the recorder End Turn button */

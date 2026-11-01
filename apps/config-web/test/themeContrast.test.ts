@@ -40,6 +40,8 @@ const LIGHT: Record<string, string> = {
   ...block(teams, ':root[data-theme="light"] .tm-page {'),
   ...block(tabletop, ':root[data-theme="light"] .tt-pcard {'),
 };
+const DARK_REC: Record<string, string> = { ...DARK, ...block(tabletop, ".tt-rec {") };
+const LIGHT_REC: Record<string, string> = { ...LIGHT, ...block(tabletop, ".tt-rec {"), ...block(tabletop, ':root[data-theme="light"] .tt-rec { --seat') };
 
 type RGBA = [number, number, number, number];
 type RGB = [number, number, number];
@@ -94,18 +96,28 @@ const PAIRS: Array<[string, string, string[], number]> = [
   ["coach LED on panel", "--ui-coach-led", SURFACES, 4.5],
   ["heading red, band size", "--ui-heading", SURFACES, 3],
   ["focus ring", "--ui-focus", SURFACES, 3],
+  ["on-danger ink on a danger fill", "--ui-on-danger", ["--ui-danger"], 4.5],
+  ["red X badge ink on heading red", "--tb-badge-ink", ["--ui-heading"], 4.5],
+];
+// The recorder / game page scoreboard: its coach names sit on the seat-tint gradients (--tt-home / --tt-away -> --tt-panel),
+// so both ends of each gradient are audited, with the recorder's own token scope.
+const PAIRS_REC: Array<[string, string, string[], number]> = [
+  ["recorder coach name on the home tint (both ends)", "--ui-coach-led", ["--tt-home", "--tt-panel"], 4.5],
+  ["recorder coach name on the away tint (both ends)", "--ui-coach-led", ["--tt-away", "--tt-panel"], 4.5],
 ];
 // Dark-preset pairs that are below the bar today. The dark preset is not changed by this audit; listed so the gap is visible
 // and the test fails if a new one appears (or if one of these is fixed, so the list stays honest).
 const DARK_KNOWN_LOW = new Set([
   "muted text", "heading red on panel", "link (--ui-accent) on surface",
   "chip: general", "chip: strength", "chip: mutation", "chip: trait (also extraordinary, which has no ink of its own)", // on the lighter dark skills band
+  "on-danger ink on a danger fill", "red X badge ink on heading red", // white on the bright dark-theme reds
 ]);
 
 export function auditTable(): Array<{ label: string; theme: string; worst: number; on: string; min: number }> {
   const rows: Array<{ label: string; theme: string; worst: number; on: string; min: number }> = [];
-  for (const [themeName, tokens] of [["dark", DARK], ["light", LIGHT]] as const) {
-    for (const [label, ink, bgs, min] of PAIRS) {
+  const sets = [["dark", DARK, PAIRS], ["light", LIGHT, PAIRS], ["dark", DARK_REC, PAIRS_REC], ["light", LIGHT_REC, PAIRS_REC]] as const;
+  for (const [themeName, tokens, pairs] of sets) {
+    for (const [label, ink, bgs, min] of pairs) {
       let worst = Infinity, on = "";
       for (const bg of bgs) { const r = ratio(solid(tokens, ink), solid(tokens, bg)); if (r < worst) { worst = r; on = bg; } }
       rows.push({ label, theme: themeName, worst: Math.round(worst * 100) / 100, on, min });

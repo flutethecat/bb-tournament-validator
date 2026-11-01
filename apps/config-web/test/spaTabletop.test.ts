@@ -702,7 +702,7 @@ describe("tabletop routes (server-rendered)", () => {
     expect(phone).toMatch(/\.tt-rec \.tt-modal-box, \.tt-rec \.tt-sheet, \.tt-rec \.tt-rosters:not\(\.tt-rosters-embed\), \.tt-rec \.tt-other-box \{\s*left: 0; right: 0; width: 100%; max-width: 100%; margin: 0;/);
     expect(phone).toMatch(/border-radius: var\(--tt-sheet-r\) var\(--tt-sheet-r\) 0 0/);
     expect(phone).toMatch(/\.tt-rec \.tt-x \{ width: var\(--tt-tap\); height: var\(--tt-tap\); \}/);
-    expect(css).toMatch(/\.tt-x \{ background: var\(--ui-danger, #ff4d4d\); color: var\(--ui-text-on-primary, #ffffff\); \}/);
+    expect(css).toMatch(/\.tt-x \{ background: var\(--ui-danger, #ff4d4d\); color: var\(--ui-on-danger, #ffffff\); \}/);
     expect(phone).toMatch(/\.tt-rec \.tt-ind \{ overflow-x: auto; \}/); // the inducements table scrolls inside its panel
     // the inducement tray scrolls sideways inside its own box; the timeline strip too
     expect(phone).toMatch(/\.tt-chips \{[^}]*flex-wrap: nowrap;[^}]*overflow-x: auto; overflow-y: hidden;/);
@@ -1005,8 +1005,8 @@ describe("tabletop routes (server-rendered)", () => {
     expect(px + 12 * (cols - 1)).toBeLessThan(1236 - 24);
     expect(css1).toMatch(/\.tt-rec \.tt-rosters-embed \{ width: 100%; max-width: 100%; box-sizing: border-box;/); // embedded lists take no popup width
     expect(css1).toMatch(/\.tt-confirm-yes \{ background: var\(--ui-success, #3fb463\); \}/); // YES is green
-    expect(css1).toMatch(/\.tt-confirm-again \{ background: var\(--ui-danger, #ff4d4d\); \}/); // CHOOSE SOMEONE ELSE is red
-    expect(css1).toMatch(/\.tt-x \{ background: var\(--ui-danger, #ff4d4d\); color: var\(--ui-text-on-primary, #ffffff\); \}/); // the Close X is red with a white X
+    expect(css1).toMatch(/\.tt-confirm-again \{ background: var\(--ui-danger, #ff4d4d\); color: var\(--ui-on-danger, #ffffff\); \}/); // CHOOSE SOMEONE ELSE is red
+    expect(css1).toMatch(/\.tt-x \{ background: var\(--ui-danger, #ff4d4d\); color: var\(--ui-on-danger, #ffffff\); \}/); // the Close X is red with a white X
     // new cards pop in (not on first load); reduced motion: a 120 ms fade and no movement
     expect(css1).toMatch(/@keyframes tt-ev-in \{ 0% \{ opacity: 0; transform: translateY\(-12px\) scale\(1\.02\); \} 70% \{[^}]*scale\(1\.02\); \} 100% \{ opacity: 1; transform: none; \} \}/);
     expect(css1).toMatch(/\.tt-ev--new \{ animation: tt-ev-in 220ms ease-out both; \}/);

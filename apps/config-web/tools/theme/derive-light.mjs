@@ -22,6 +22,7 @@
 //   accent     starts at the dark value; L steps down (C clipped to the sRGB gamut) until it clears 'min' on every 'on' colour.
 //   fixed      unchanged (white on fills, badge outlines, Discord etc. never appear here).
 //   calc       a helper colour computed from light tokens (not written), for 'on' lists.
+// 'key' gives a second derivation of the same CSS name its own id (e.g. the recorder's coach LED, re-derived against the seat tints).
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -142,7 +143,7 @@ export function derive(spec) {
       value = fmt(rgb, d.a);
       if (d.a < 1) rgb = mix(rgb, resolveRgb(t.over), d.a);
     }
-    out.set(t.name, { value, rgb, blocks: t.blocks ?? [] });
+    out.set(t.key ?? t.name, { name: t.name, value, rgb, blocks: t.blocks ?? [] }); // key: a second derivation of one CSS name (a scoped override)
   }
   return out;
 }
@@ -168,7 +169,7 @@ function main() {
   }
   const files = new Map();
   const problems = [];
-  for (const [name, { value, blocks }] of out) {
+  for (const { name, value, blocks } of out.values()) {
     for (const b of blocks) {
       const def = spec.blocks[b];
       const path = resolve(ROOT, def.file);

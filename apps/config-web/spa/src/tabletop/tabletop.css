@@ -440,7 +440,7 @@
 }
 .tt-corner .tt-coachline .tt-chips li { width: 28px; height: 28px; max-width: none; max-height: none; aspect-ratio: auto; flex: none; align-self: auto; justify-self: auto; }
 .tt-corner .tt-coachline .tt-chip-txt { border-radius: 50%; background: var(--tt-panel); font-weight: 700; font-size: 12px; }
-.tt-corner .tt-coachline .tt-qty { top: -6px; right: -6px; bottom: auto; min-width: 16px; height: 16px; padding: 0 2px; line-height: 16px; font-size: 10px; font-weight: 700; border-radius: 8px; background: var(--ui-danger, #ff4d4d); color: var(--ui-text-on-primary, #ffffff); box-shadow: 0 0 0 1px var(--ui-text-on-primary, #ffffff); }
+.tt-corner .tt-coachline .tt-qty { top: -6px; right: -6px; bottom: auto; min-width: 16px; height: 16px; padding: 0 2px; line-height: 16px; font-size: 10px; font-weight: 700; border-radius: 8px; background: var(--ui-danger, #ff4d4d); color: var(--ui-on-danger, #ffffff); box-shadow: 0 0 0 1px var(--ui-text-on-primary, #ffffff); }
 @media (max-width: 719px) {
   .tt-corner .tt-coachline { justify-content: center; }
   .tt-corner .tt-coachline .tt-chips li { width: 24px; height: 24px; }
@@ -753,7 +753,7 @@
 
 /* added skills: the gold box with a red + badge; printed skills keep their category colours */
 .tt-rosters .tv-added { position: relative; border: 1.5px solid var(--ui-gold); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-gold) 35%, transparent); border-radius: 4px; padding-right: 14px; margin-right: 6px; font-style: normal; }
-.tt-rosters .tv-added::after { content: "+"; position: absolute; top: -8px; right: -8px; width: 16px; height: 16px; display: grid; place-items: center; font: 800 13px/1 var(--font-body, sans-serif); color: var(--ui-text-on-primary, #ffffff); background: var(--ui-danger, #ff4d4d); border-radius: 50%; box-shadow: 0 0 0 1px var(--tt-panel); }
+.tt-rosters .tv-added::after { content: "+"; position: absolute; top: -8px; right: -8px; width: 16px; height: 16px; display: grid; place-items: center; font: 800 13px/1 var(--font-body, sans-serif); color: var(--ui-on-danger, #ffffff); background: var(--ui-danger, #ff4d4d); border-radius: 50%; box-shadow: 0 0 0 1px var(--tt-panel); }
 
 /* stats: a fixed, centred column at the same x on every row */
 @media (min-width: 760px) {
@@ -766,7 +766,7 @@
 .tt-roster-chips { align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
 .tt-rchip { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; }
 .tt-rchip-img { width: 26px; height: 26px; object-fit: contain; image-rendering: pixelated; }
-.tt-rchip .tt-qty { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 2px; line-height: 18px; font-size: 11px; font-weight: 700; text-align: center; border-radius: 9px; background: var(--ui-danger, #ff4d4d); color: var(--ui-text-on-primary, #ffffff); box-shadow: 0 0 0 1px var(--ui-text-on-primary, #ffffff); }
+.tt-rchip .tt-qty { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 2px; line-height: 18px; font-size: 11px; font-weight: 700; text-align: center; border-radius: 9px; background: var(--ui-danger, #ff4d4d); color: var(--ui-on-danger, #ffffff); box-shadow: 0 0 0 1px var(--ui-text-on-primary, #ffffff); }
 
 /* inducements under the roster (no header row) */
 .tt-ind { padding: 12px; }
@@ -1216,9 +1216,9 @@
 .tt-confirm-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .tt-confirm-yes, .tt-confirm-again { min-height: 48px; padding: 0 12px; font-family: var(--font-heading, sans-serif); font-size: 15px; letter-spacing: .06em; text-transform: uppercase; color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--tt-lettering-shadow); border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; box-shadow: var(--tt-bevel); cursor: pointer; transition: transform .06s ease; }
 .tt-confirm-yes { background: var(--ui-success, #3fb463); }
-.tt-confirm-again { background: var(--ui-danger, #ff4d4d); }
+.tt-confirm-again { background: var(--ui-danger, #ff4d4d); color: var(--ui-on-danger, #ffffff); }
 .tt-confirm-yes:active, .tt-confirm-again:active { box-shadow: var(--tt-bevel-down); transform: translateY(2px); }
-.tt-x { background: var(--ui-danger, #ff4d4d); color: var(--ui-text-on-primary, #ffffff); }
+.tt-x { background: var(--ui-danger, #ff4d4d); color: var(--ui-on-danger, #ffffff); }
 
 /* outside the match the state button's name and TURN lines are a touch smaller so three lines and the turn number fit */
 @media (min-width: 1024px) {
@@ -1244,7 +1244,7 @@
 /* desktop: brighter LED-green coach names (the phone keeps its coach colour), and the dedicated fans as a pill under the chip tray */
 @media (min-width: 1024px) {
   .tt-rec .tt-crestcol .tt-crest-coach { color: var(--ui-coach-led, #4cff6a); text-shadow: var(--tt-name-shadow), 0 0 6px rgb(76 255 106 / .55); }
-  :root[data-theme="light"] .tt-rec .tt-crestcol .tt-crest-coach { text-shadow: var(--tt-name-shadow), 0 0 6px color-mix(in srgb, var(--ui-coach-led, #4cff6a) 35%, transparent); } /* light theme: a dark-green halo, never the bright LED glow */
+  :root[data-theme="light"] .tt-rec .tt-crestcol .tt-crest-coach { text-shadow: 0 2px 0 var(--sf-panel-line, #999da4); } /* light theme: dark ink with a soft grey offset (owner 10-31: no black shadow on dark ink), never the bright LED glow */
   .tt-rec .tt-fans-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; font-family: var(--font-heading, sans-serif); font-size: 14px; letter-spacing: .06em; color: var(--ui-text-on-primary, #ffffff); text-shadow: var(--tt-lettering-shadow); background: var(--tt-btn); border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; box-shadow: var(--tt-bevel); }
   .tt-rec .tt-fans-pill b { font-weight: 400; }
   .tt-rec .tt-fans-icon { width: 20px; height: 20px; object-fit: contain; image-rendering: pixelated; }
@@ -1254,7 +1254,7 @@
 
 /* the log card's actor chip is the single place for the actor: a 40 px roster sprite (initials when there is none), the name in the seat tint, and "#1 . Position" under it */
 .tt-rec { --seat-home-text: #4a86fe; --seat-away-text: #fe6666; }
-:root[data-theme="light"] .tt-rec { --seat-home-text: #0f46b9; --seat-away-text: #a3011f; --tt-home: #95a7bb; --tt-away: #ca9590; } /* generated (tools/theme/derive-light.mjs): seat inks + muted seat tints */
+:root[data-theme="light"] .tt-rec { --seat-home-text: #0f46b9; --seat-away-text: #a3011f; --tt-home: #95a7bb; --tt-away: #ca9590; --ui-coach-led: #024210; } /* generated (tools/theme/derive-light.mjs): seat inks, muted seat tints, and the coach LED ink re-derived to clear 4.5:1 on both ends of each tint */
 .tt-ev-sprite { position: relative; display: grid; place-items: center; flex: none; width: 40px; height: 40px; overflow: hidden; background: var(--tt-panel); border: 1px solid var(--tt-line); border-radius: 4px; }
 .tt-ev-sprite-fallback { color: var(--tt-muted); font-family: var(--font-heading, sans-serif); font-size: 13px; }
 .tt-ev-sprite-img { position: absolute; inset: 1px; width: calc(100% - 2px); height: calc(100% - 2px); object-fit: contain; image-rendering: pixelated; }
