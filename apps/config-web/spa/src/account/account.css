@@ -110,9 +110,9 @@
 
 /* Privacy panel (privacy spec 2026-10-31): download / delete my account. */
 .ac-privacy .hm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-/* Destructive buttons (design §5): danger fill, on-danger ink, same bevel and lift as .ob-btn. */
-.ob-btn.ac-danger { color: var(--ui-on-danger); background: linear-gradient(color-mix(in srgb, var(--ui-danger) 88%, white), var(--ui-danger) 55%, color-mix(in srgb, var(--ui-danger) 82%, black)); border-color: color-mix(in srgb, var(--ui-danger) 60%, black); }
-.ob-btn.ac-danger:hover:not(:disabled) { border-color: color-mix(in srgb, var(--ui-danger) 60%, black); filter: brightness(1.06); }
+/* Destructive buttons (design §5): scarlet fill (white ink clears 4.5:1 in dark; --ui-danger did not), same bevel and lift as .ob-btn. */
+.ob-btn.ac-danger { color: var(--ui-scarlet-contrast); background: linear-gradient(color-mix(in srgb, var(--ui-scarlet) 88%, white), var(--ui-scarlet) 55%, color-mix(in srgb, var(--ui-scarlet) 82%, black)); border-color: color-mix(in srgb, var(--ui-scarlet) 60%, black); }
+.ob-btn.ac-danger:hover:not(:disabled) { border-color: color-mix(in srgb, var(--ui-scarlet) 60%, black); filter: brightness(1.06); }
 .ac-privacy-step { margin-top: 10px; padding-top: 8px; border-top: 2px solid var(--sf-panel-line); }
 .ac-privacy-step h3 { margin: 0 0 6px; font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-danger); }
 .ac-privacy-step ul { margin: 4px 0 8px; padding-left: 20px; }
