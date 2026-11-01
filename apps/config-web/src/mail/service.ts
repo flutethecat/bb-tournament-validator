@@ -12,13 +12,13 @@
 //   GET  /api/me/email                the session coach's own mail status (their own address only).
 //   POST /api/me/email/verify         { email? } sends a verification link (email omitted = the identity contact email).
 
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { join } from "node:path";
 import { isEmailAddress, mailConfigFromEnv, type MailConfig } from "./config.js";
-import { MailWorker, Outbox, type OutboxItem } from "./outbox.js";
+import { MailWorker, Outbox, type OutboxEntry, type OutboxItem, type RecheckResult } from "./outbox.js";
 import { createPostmarkTransport } from "./postmark.js";
 import {
-  createDefaultRecipientResolver, type ContactWriter, type RecipientResolver,
+  createDefaultRecipientResolver, identityMailFields, type ContactWriter, type RecipientResolver,
 } from "./recipients.js";
 import { MailAuditLog, mailCoachKey, MailPrefsStore, normalizeAddress, SuppressionStore, type SuppressionReason } from "./stores.js";
 import { linkPage, renderVerifyEmail } from "./templates.js";
@@ -78,9 +78,28 @@ export function createMailService(stateDir: string, env: Record<string, string |
       : createLogTransport(log));
   const resolver = deps.resolver ?? createDefaultRecipientResolver({ identity: deps.identity, prefs });
   const writer: ContactWriter = deps.contactWriter ?? { revokeLeagueContact() {}, markEmailVerified() {} };
+  /**
+   * Send-time re-check (consent may be withdrawn while a message waits in the queue or between retries): league mail
+   * needs the same consent, acknowledgement, verified address (unchanged since queueing) and no suppression as at
+   * enqueue; every message needs an unsuppressed address (except a re-verification the coach asked for).
+   */
+  function recheck(entry: OutboxEntry): RecheckResult {
+    const to = entry.message?.to ?? "";
+    const leagueId = entry.recipient?.leagueId;
+    if (entry.recipient && leagueId) {
+      const contact = resolver.resolve(entry.recipient.coach);
+      if (!contact || !contact.canReceiveLeagueMail(leagueId)) return { ok: false, reason: "noConsent" };
+      if (!contact.email || !contact.verified || normalizeAddress(contact.email) !== normalizeAddress(to)) return { ok: false, reason: "unverified" };
+    }
+    if (!entry.reverify && suppression.isSuppressed(to)) return { ok: false, reason: "suppressed" };
+    return { ok: true };
+  }
+
   const worker = new MailWorker({
-    outbox, transport, now, log,
-    isSuppressed: (a) => suppression.isSuppressed(a),
+    outbox, transports: { email: transport }, now, log, recheck,
+    onDropped: (entry, reason) => {
+      if (entry.auditId && entry.leagueId) audit.recordDrop({ id: entry.auditId, leagueId: entry.leagueId, at: new Date(now()).toISOString(), reason });
+    },
     onInactive: (a) => suppression.suppress(a, "inactive"),
     ...(deps.ratePerSecond ? { ratePerSecond: deps.ratePerSecond } : {}),
     ...(deps.leagueDailyCap ? { leagueDailyCap: deps.leagueDailyCap } : {}),
@@ -91,9 +110,43 @@ export function createMailService(stateDir: string, env: Record<string, string |
   const emailEnabled = (): boolean => Boolean(config.linkBase) && !(config.transport === "postmark" && !config.from && !deps.transport);
   const absolute = (path: string): string => `${config.linkBase ?? ""}${path}`;
 
-  function unsubscribeUrl(coach: string, leagueId?: string): string {
-    const token = signLink(linkSecret, { v: 1, p: "unsub", c: mailCoachKey(coach), e: Math.floor(now() / 1000) + UNSUBSCRIBE_TTL_S, ...(leagueId ? { l: leagueId } : {}) });
+  /** Keyed short hash of an address for link binding (never the address itself in a URL). */
+  const addressTag = (address: string): string => createHmac("sha256", linkSecret).update(`addr\0${normalizeAddress(address)}`).digest("base64url").slice(0, 16);
+  const consentGen = (coach: string): number => prefs.get(coach).consentGen ?? 0;
+  /** When league consent was last (re)granted: the identity's consent stamp or the Account page "turn back on". */
+  function consentAt(coach: string): number {
+    let identityAt = NaN;
+    try { identityAt = identityMailFields(deps.identity(coach)).leagueContactAt; } catch { /* no identity */ }
+    const prefsAt = Date.parse(prefs.get(coach).reconsentAt ?? "");
+    return Math.max(Number.isFinite(identityAt) ? identityAt : 0, Number.isFinite(prefsAt) ? prefsAt : 0);
+  }
+
+  /** One-click unsubscribe link, bound to the coach, the address the message goes to and the consent generation. */
+  function unsubscribeUrl(coach: string, leagueId: string | undefined, address: string): string {
+    const t = Math.floor(now() / 1000);
+    const token = signLink(linkSecret, {
+      v: 1, p: "unsub", c: mailCoachKey(coach), e: t + UNSUBSCRIBE_TTL_S, i: t, h: addressTag(address), g: consentGen(coach), ...(leagueId ? { l: leagueId } : {}),
+    });
     return absolute(`/api/mail/unsubscribe?token=${encodeURIComponent(token)}`);
+  }
+
+  type UnsubCheck = { ok: true; coach: string; leagueId?: string } | { ok: false; result: MailRouteResult };
+  function checkUnsubscribe(token: string): UnsubCheck {
+    const check = verifyLink(linkSecret, token, "unsub", now());
+    if (!check.ok) {
+      return {
+        ok: false,
+        result: check.reason === "expired"
+          ? page(410, "Link expired", "This link has expired. Turn league emails off on your Account page instead.")
+          : page(400, "Link not valid", "This unsubscribe link is not valid. Turn league emails off on your Account page instead."),
+      };
+    }
+    const { c: coach, h, g, i } = check.payload;
+    const current = resolver.resolve(coach)?.email;
+    const stale = !h || !current || addressTag(current) !== h || (g ?? -1) !== consentGen(coach) || typeof i !== "number" || consentAt(coach) > i * 1000;
+    if (stale)
+      return { ok: false, result: page(410, "Link out of date", "Your email address or your league-email choice changed after this email was sent, so this link no longer works. Use your Account page instead.") };
+    return { ok: true, coach, ...(check.payload.l ? { leagueId: check.payload.l } : {}) };
   }
 
   function enqueue(items: OutboxItem[]) {
@@ -103,15 +156,11 @@ export function createMailService(stateDir: string, env: Record<string, string |
   // ---- unsubscribe --------------------------------------------------------------------------------------------------
 
   function unsubscribe(token: string): MailRouteResult {
-    const check = verifyLink(linkSecret, token, "unsub", now());
-    if (!check.ok) {
-      return check.reason === "expired"
-        ? page(410, "Link expired", "This link has expired. Turn league emails off on your Account page instead.")
-        : page(400, "Link not valid", "This unsubscribe link is not valid. Turn league emails off on your Account page instead.");
-    }
+    const check = checkUnsubscribe(token);
+    if (!check.ok) return check.result;
     const at = new Date(now()).toISOString();
-    const coach = check.payload.c;
-    prefs.update(coach, (p) => ({ ...p, leagueMailOff: { at, ...(check.payload.l ? { leagueId: check.payload.l } : {}) } }));
+    const coach = check.coach;
+    prefs.update(coach, (p) => ({ ...p, leagueMailOff: { at, ...(check.leagueId ? { leagueId: check.leagueId } : {}) } }));
     try { writer.revokeLeagueContact(coach, at); } catch (e) { log(`[mail] consent write failed: ${(e as Error).message}`); }
     return page(200, "League emails turned off", "You will not get league emails any more. In-portal notifications still show league messages. You can turn league emails back on from your Account page.");
   }
@@ -136,6 +185,9 @@ export function createMailService(stateDir: string, env: Record<string, string |
       return next;
     });
     try { writer.markEmailVerified(coach, pending.address, at); } catch (e) { log(`[mail] verified write failed: ${(e as Error).message}`); }
+    // A complaint is cleared only by the coach re-verifying the address after re-consenting (or by an admin).
+    const sup = suppression.entry(pending.address);
+    if (sup?.reason === "complaint" && consentAt(coach) > Date.parse(sup.at)) suppression.clear(pending.address, "reverify-reconsent", log);
     return page(200, "Email confirmed", "Thanks: this address is confirmed for league emails.");
   }
 
@@ -162,16 +214,22 @@ export function createMailService(stateDir: string, env: Record<string, string |
       if (!address) return jsonErr(400, "Enter the email address to confirm.");
     }
     if (!emailEnabled()) return jsonErr(503, "Email is not set up on this site yet.");
-    if (suppression.isSuppressed(address)) return jsonErr(409, "Mail to this address bounced or was reported as spam, so we cannot send to it. Use another address.");
+    // The rate limit is consumed first, and a suppressed address gets the same 202 (nothing is sent), so this route
+    // cannot be used to probe which addresses bounced or complained.
     if (!takeVerifySlot(auth.coach)) return { ...jsonErr(429, "Too many confirmation emails; wait a few minutes and try again."), headers: { ...NO_STORE, "retry-after": "60" } };
+    const accepted: MailRouteResult = { status: 202, json: { sent: true, expiresInHours: VERIFY_TTL_S / 3600 }, headers: NO_STORE };
+    const sup = suppression.entry(address);
+    // Re-verification after a complaint is allowed only once the coach has re-consented since the complaint.
+    const reverify = sup?.reason === "complaint" && consentAt(auth.coach) > Date.parse(sup.at);
+    if (sup && !reverify) return accepted;
     const nonce = randomBytes(12).toString("base64url");
     const t = now();
     prefs.update(auth.coach, (p) => ({ ...p, pending: { address, nonce, requestedAt: new Date(t).toISOString(), expiresAt: new Date(t + VERIFY_TTL_S * 1000).toISOString() } }));
     const token = signLink(linkSecret, { v: 1, p: "verify", c: mailCoachKey(auth.coach), e: Math.floor(t / 1000) + VERIFY_TTL_S, n: nonce });
     const rendered = renderVerifyEmail({ coach: auth.coach, verifyUrl: absolute(`/api/mail/verify?token=${encodeURIComponent(token)}`) });
     const message: MailMessage = { to: address, subject: rendered.subject, text: rendered.text, html: rendered.html, template: "verify-email", stream: config.stream };
-    enqueue([{ key: `verify:${mailCoachKey(auth.coach)}:${nonce}`, message }]);
-    return { status: 202, json: { sent: true, expiresInHours: VERIFY_TTL_S / 3600 }, headers: NO_STORE };
+    enqueue([{ key: `verify:${mailCoachKey(auth.coach)}:${nonce}`, message, recipient: { coach: auth.coach }, ...(reverify ? { reverify: true as const } : {}) }]);
+    return accepted;
   }
 
   function myStatus(auth: MeMailAuth): MailRouteResult {
@@ -196,7 +254,12 @@ export function createMailService(stateDir: string, env: Record<string, string |
   /** Account page: turn league email back on after a link opt-out (consent itself is the onboarding lane's). */
   function clearOptOut(auth: MeMailAuth): MailRouteResult {
     if (auth.test) return jsonErr(403, "Test sign-in sessions cannot change account email.");
-    prefs.update(auth.coach, (p) => { const next = { ...p }; delete next.leagueMailOff; return next; });
+    // Re-consent: a new generation voids every unsubscribe link sent before.
+    prefs.update(auth.coach, (p) => {
+      const next = { ...p, consentGen: (p.consentGen ?? 0) + 1, reconsentAt: new Date(now()).toISOString() };
+      delete next.leagueMailOff;
+      return next;
+    });
     return myStatus(auth);
   }
 
@@ -257,8 +320,8 @@ export function createMailService(stateDir: string, env: Record<string, string |
       const queryToken = query.get("token") ?? "";
       if (method === "GET" || method === "HEAD") {
         if (!queryToken) return page(400, "Link not valid", "This unsubscribe link is not complete.");
-        const check = verifyLink(linkSecret, queryToken, "unsub", now());
-        if (!check.ok) return unsubscribe(queryToken); // the error page
+        const check = checkUnsubscribe(queryToken);
+        if (!check.ok) return check.result;
         return page(200, "Stop league emails?", "Press the button to stop league emails from Super FUMBBL. In-portal notifications are not affected.", { action: "/api/mail/unsubscribe", token: queryToken, button: "Stop league emails" });
       }
       if (method !== "POST") return jsonErr(405, "Use GET or POST.");
@@ -290,7 +353,12 @@ export function createMailService(stateDir: string, env: Record<string, string |
   }
 
   return {
-    config, transport, outbox, worker, suppression, prefs, audit, resolver,
+    config, transport, outbox, worker, suppression, prefs, audit, resolver, recheck,
+    /** Start the background work (server only): the outbox worker and the daily retention sweep. */
+    start(): void { worker.start(); outbox.startRetention(); },
+    stop(): void { worker.stop(); outbox.stopRetention(); },
+    /** Explicit admin clear of a suppression (the only way besides re-verify + re-consent to lift a complaint). */
+    clearSuppression: (address: string) => suppression.clear(address, "admin", log),
     emailEnabled, absolute, unsubscribeUrl, enqueue,
     isPublicMailPath, isMeMailPath, publicRoute, meRoute,
     /** Account deletion hook (export/delete lane): forget a coach's mail prefs. Suppression hashes stay. */

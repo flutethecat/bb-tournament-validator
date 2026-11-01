@@ -81,7 +81,8 @@ Postmark's "Send test" button should return 200.
 2. League emails also need league-contact consent and the league acknowledgement (the onboarding flow records both).
    Until that lands, league messages reach notifications only and report every member as "no email".
 3. As an organiser, League page > Overview > **Message members** > one coach (yourself on a second account) > Send. The
-   result shows counts only.
+   result shows no counts for one coach or one team (counts would reveal that coach's choices); an all-members message
+   to 5 or more shows the notified count, and the email breakdown only when no group is 1 or 2 members.
 4. Open the email's "Stop league emails" link: a confirmation page with one button. In Gmail, the "Unsubscribe" link next
    to the sender uses the one-click header.
 5. Postmark Activity shows each message; the outbox is `<state>/mail/outbox/journal.jsonl`.
@@ -94,6 +95,16 @@ Postmark's "Send test" button should return 200.
   outbox (30 s, 2 min, 8 min, 32 min, 1 h; 6 attempts), then dead-letter. Other 4xx are not retried; Postmark error 406
   (inactive recipient) suppresses the address.
 - Outbox: addresses and bodies of sent / dead messages are removed after 30 days; the remaining record (no address or
-  text) after 180 days. Suppression hashes are kept. Postmark keeps its own activity (with addresses) for the retention
+  text) after 180 days; a daily sweep applies this on a running server. Suppression hashes are kept.
+- Queued league mail is re-checked right before each attempt: a coach who withdrew consent, changed or lost the
+  confirmed address, or got suppressed meanwhile is dropped (the audit counts it as skipped).
+- Complaints are sticky: a later bounce or a Postmark reactivation never lifts them. Only an explicit admin clear
+  (`mail.clearSuppression`, logged) or the coach re-confirming the address after turning league email back on does.
+- Unsubscribe links last 60 days and are bound to the coach, the address the email went to and the coach's consent
+  generation: after an address change or a re-consent, older links show "Link out of date" and change nothing.
+- Asking for a confirmation link to an address that bounced or complained answers like any other request (and uses up
+  the rate limit) but sends nothing, so the form cannot be used to test which addresses are suppressed.
+- The outbox is channel-agnostic (`channel: "email"` on every item, a transport per channel), ready for a Discord DM
+  channel later. Postmark keeps its own activity (with addresses) for the retention
   set on the server (45 days by default); lower it in the server settings if you like.
 - Processor record: `docs/privacy/processors.md`. Inventory row: `mail` in `apps/config-web/spa/src/privacy/inventory.ts`.

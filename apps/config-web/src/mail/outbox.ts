@@ -3,8 +3,12 @@
 // sent or dead) is a no-op. The worker drains due messages with a global rate limit (default 10/s) and a per-league
 // daily cap (default 500, counted per UTC day); retryable failures back off, the rest are dead-lettered.
 //
-// Retention: a sent or dead message keeps its address and body for 30 days, then compaction strips both (the id, key,
-// league and status stay as a tombstone so the key stays idempotent); tombstones go after 180 days.
+// Retention: a sent or dead message keeps its address and body (with its signed links) for 30 days, then compaction
+// strips the whole message (the id, key, league and status stay as a tombstone so the key stays idempotent); tombstones go
+// after 180 days. Compaction runs at start, after 5,000 journal ops, and on a daily timer (startRetention).
+//
+// Channel-agnostic: every item names its channel ("email" today) and the worker picks the transport per channel, so a
+// later "discord" DM transport slots in beside email without touching the queue.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,11 +22,24 @@ export const OUTBOX_MAX_ATTEMPTS = 6;
 
 export type OutboxStatus = "queued" | "sent" | "dead";
 
+/** Delivery channels. Only email exists today; a Discord DM channel is planned (bot DM first, email fallback). */
+export type MailChannel = "email";
+export const RETENTION_SWEEP_MS = 24 * 3600 * 1000;
+
+/** Who a message is for, so the worker can re-check eligibility at send time (league mail: consent, ack, address). */
+export interface OutboxRecipient { coach: string; leagueId?: string }
+
 export interface OutboxEntry {
   id: string;
   key: string;
   template: string;
+  channel: MailChannel;
   leagueId?: string;
+  recipient?: OutboxRecipient;
+  /** The league message (audit row) this delivery belongs to. */
+  auditId?: string;
+  /** A re-verification the coach asked for after re-consenting: may go to a complaint-suppressed address. */
+  reverify?: true;
   /** Absent once compaction stripped it (sent / dead and older than the retention). */
   message?: MailMessage;
   status: OutboxStatus;
@@ -38,7 +55,12 @@ export interface OutboxEntry {
 export interface OutboxItem {
   key: string;
   message: MailMessage;
+  /** Default "email". */
+  channel?: MailChannel;
   leagueId?: string;
+  recipient?: OutboxRecipient;
+  auditId?: string;
+  reverify?: true;
 }
 
 type JournalLine =
@@ -80,7 +102,7 @@ export class Outbox {
   private apply(line: JournalLine): void {
     if (line.op === "add") {
       if (!line.entry?.id || !line.entry.key || this.byKey.has(line.entry.key)) return;
-      this.entries.set(line.entry.id, { ...line.entry });
+      this.entries.set(line.entry.id, { ...line.entry, channel: line.entry.channel ?? "email" });
       this.byKey.set(line.entry.key, line.entry.id);
       return;
     }
@@ -118,6 +140,18 @@ export class Outbox {
     this.ops = 0;
   }
 
+  private retentionTimer?: ReturnType<typeof setInterval>;
+  /** Daily compaction on a long-running instance (the 30-day strip must not wait for a restart). */
+  startRetention(intervalMs = RETENTION_SWEEP_MS): void {
+    if (this.retentionTimer) return;
+    this.retentionTimer = setInterval(() => { try { this.compact(); } catch { /* next sweep retries */ } }, intervalMs);
+    this.retentionTimer.unref?.();
+  }
+  stopRetention(): void {
+    if (this.retentionTimer) clearInterval(this.retentionTimer);
+    this.retentionTimer = undefined;
+  }
+
   /** Adds messages whose key is new; returns how many were added and how many keys were already known. */
   enqueue(items: OutboxItem[]): { added: number; duplicates: number } {
     const now = this.now();
@@ -130,8 +164,9 @@ export class Outbox {
       lines.push({
         op: "add",
         entry: {
-          id: `m${now.toString(36)}${randomBytes(5).toString("hex")}`, key: item.key, template: item.message.template,
-          ...(item.leagueId ? { leagueId: item.leagueId } : {}), message: item.message, status: "queued", attempts: 0, nextAt: now, enqueuedAt: now,
+          id: `m${now.toString(36)}${randomBytes(5).toString("hex")}`, key: item.key, template: item.message.template, channel: item.channel ?? "email",
+          ...(item.leagueId ? { leagueId: item.leagueId } : {}), ...(item.recipient ? { recipient: item.recipient } : {}), ...(item.auditId ? { auditId: item.auditId } : {}), ...(item.reverify ? { reverify: true as const } : {}),
+          message: item.message, status: "queued", attempts: 0, nextAt: now, enqueuedAt: now,
         },
       });
     }
@@ -169,9 +204,19 @@ export class Outbox {
 
 // ---- worker ---------------------------------------------------------------------------------------------------------
 
+/** Send-time re-check: still eligible (send) or why not (drop as skipped). */
+export type RecheckResult = { ok: true } | { ok: false; reason: "noConsent" | "unverified" | "suppressed" };
+
 export interface MailWorkerOptions {
   outbox: Outbox;
-  transport: MailTransport;
+  /** Transport per channel. */
+  transports?: Partial<Record<MailChannel, MailTransport>>;
+  /** Shorthand for transports.email. */
+  transport?: MailTransport;
+  /** Re-resolves the recipient right before each attempt (consent may be withdrawn while a message waits). */
+  recheck?: (entry: OutboxEntry) => RecheckResult;
+  /** A message dropped by the re-check (the audit counts it as skipped). */
+  onDropped?: (entry: OutboxEntry, reason: Exclude<RecheckResult, { ok: true }>["reason"]) => void;
   /** Suppression check at send time (an address may have bounced since it was queued). */
   isSuppressed?: (address: string) => boolean;
   /** The provider refused the address as inactive: suppress it. */
@@ -201,6 +246,10 @@ export class MailWorker {
 
   private now(): number { return this.opts.now?.() ?? Date.now(); }
 
+  private transportFor(channel: MailChannel): MailTransport | undefined {
+    return this.opts.transports?.[channel] ?? (channel === "email" ? this.opts.transport : undefined);
+  }
+
   /** One pass: sends up to the rate limit's remaining budget for this second. Returns how many sends were attempted. */
   async drain(): Promise<number> {
     if (this.running) return 0;
@@ -223,12 +272,19 @@ export class MailWorker {
             continue;
           }
         }
-        if (this.opts.isSuppressed?.(entry.message.to)) { outbox.markDead(entry.id, entry.attempts, "suppressed"); continue; }
+        const recheck = this.opts.recheck?.(entry) ?? (this.opts.isSuppressed?.(entry.message.to) ? { ok: false as const, reason: "suppressed" as const } : { ok: true as const });
+        if (!recheck.ok) {
+          outbox.markDead(entry.id, entry.attempts, recheck.reason === "suppressed" ? "suppressed" : `ineligible: ${recheck.reason}`);
+          try { this.opts.onDropped?.(entry, recheck.reason); } catch { /* best effort */ }
+          continue;
+        }
+        const transport = this.transportFor(entry.channel);
+        if (!transport) { outbox.markDead(entry.id, entry.attempts, `no transport for ${entry.channel}`); continue; }
         this.starts.push(now);
         attempted += 1;
         const attempts = entry.attempts + 1;
         try {
-          await this.opts.transport.send(entry.message);
+          await transport.send(entry.message);
           outbox.markSent(entry.id);
         } catch (e) {
           const err = e instanceof MailSendError ? e : new MailSendError("send failed", true);

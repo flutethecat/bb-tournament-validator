@@ -1,6 +1,6 @@
 // Signed mail links: base64url(JSON payload) + "." + base64url(HMAC-SHA256). The payload names a purpose, a coach key and
-// an expiry; it never carries an email address (verification tokens carry a short hash of it plus a nonce that must
-// match the pending request).
+// an expiry; it never carries an email address. Verification tokens carry a nonce that must match the pending request;
+// unsubscribe tokens are bound to a keyed hash of the address and the coach's consent generation.
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -20,9 +20,15 @@ export interface LinkPayload {
   l?: string;
   /** Verification: nonce of the pending request. */
   n?: string;
+  /** Unsubscribe: short keyed hash of the address the message went to (a changed address voids the link). */
+  h?: string;
+  /** Unsubscribe: the coach's consent generation when issued (re-consent voids older links). */
+  g?: number;
+  /** Issued at, epoch seconds. */
+  i?: number;
 }
 
-export const UNSUBSCRIBE_TTL_S = 180 * 24 * 3600;
+export const UNSUBSCRIBE_TTL_S = 60 * 24 * 3600;
 export const VERIFY_TTL_S = 24 * 3600;
 
 const b64 = (buf: Buffer): string => buf.toString("base64url");

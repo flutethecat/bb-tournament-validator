@@ -591,7 +591,7 @@ const mail = createMailService(FORK_STATE_DIR, process.env, {
   }),
 });
 for (const warning of mailConfigWarnings(process.env, mail.config)) console.error(`[mail] ${warning}`);
-mail.worker.start();
+mail.start();
 const leagueMessageLimiter = new LeagueMessageLimiter();
 
 function sendMailResult(res: ServerResponse, method: string, result: MailRouteResult): void {

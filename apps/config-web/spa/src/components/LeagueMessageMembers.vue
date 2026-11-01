@@ -1,14 +1,14 @@
 <script setup lang="ts">
 // League page, Overview (organisers and site admins, newest season only): "Message members". The message goes to every
 // recipient's notifications, and by email (sent by the site) to members who opted in with a confirmed address. The
-// organiser never sees an address; the result is counts only (src/mail/leagueMessages.ts).
+// organiser never sees an address, and counts only for large all-members messages (src/mail/leagueMessages.ts).
 import { computed, inject, onMounted, reactive, ref } from "vue";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import { ApiError } from "../shared/api";
 import { day } from "../leagues/league";
 import {
-  LEAGUE_BODY_MAX, LEAGUE_SUBJECT_MAX, loadLeagueMessages, messageCoaches, messageTeams, newRequestId, sendLeagueMessage, sentSummary,
+  LEAGUE_BODY_MAX, LEAGUE_SUBJECT_MAX, loadLeagueMessages, logCounts, messageCoaches, messageTeams, newRequestId, sendLeagueMessage, sentSummary,
   type LeagueMessageLog, type MessageScope,
 } from "../leagues/messages";
 import type { SeasonRecord } from "../leagues/types";
@@ -98,7 +98,7 @@ onMounted(refresh);
     <details v-if="recent.length" class="lg-message-recent">
       <summary>Recent messages</summary>
       <ul>
-        <li v-for="r in recent" :key="r.id" class="hm-small">{{ day(r.at) }} · {{ r.sender }} · {{ scopeLabel(r.scope) }} · {{ r.notified }} notified · {{ r.queued }} emailed</li>
+        <li v-for="r in recent" :key="r.id" class="hm-small">{{ day(r.at) }} · {{ r.sender }} · {{ scopeLabel(r.scope) }} · {{ logCounts(r) }}</li>
       </ul>
     </details>
   </section>

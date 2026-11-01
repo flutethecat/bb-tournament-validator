@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mailConfigFromEnv } from "../src/mail/config";
-import { LeagueMessageLimiter, leagueMessagesRoute, type LeagueMessageDeps } from "../src/mail/leagueMessages";
-import { MailWorker, Outbox, OUTBOX_BODY_RETENTION_MS, retryDelayMs } from "../src/mail/outbox";
+import { disclosedCounts, LeagueMessageLimiter, leagueMessagesRoute, PRIVATE_SUMMARY, type LeagueMessageDeps } from "../src/mail/leagueMessages";
+import { MailWorker, Outbox, OUTBOX_BODY_RETENTION_MS, RETENTION_SWEEP_MS, retryDelayMs } from "../src/mail/outbox";
 import { createPostmarkTransport, POSTMARK_EMAIL_URL, postmarkBody } from "../src/mail/postmark";
 import { createDefaultRecipientResolver, createIdentityContactWriter, leagueAcknowledged } from "../src/mail/recipients";
 import { createMailService, type MailServiceDeps } from "../src/mail/service";
@@ -159,6 +159,30 @@ describe("outbox", () => {
   });
 });
 
+describe("outbox retention sweep", () => {
+  afterEach(() => { vi.useRealTimers(); });
+  it("a long-running instance strips sent mail older than 30 days on the daily timer, without a restart", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    const outbox = new Outbox(tmp(), () => Date.now());
+    outbox.enqueue([
+      { key: "old", message: msg("old@example.test", { text: "link https://x/api/mail/unsubscribe?token=abc" }) },
+      { key: "waiting", message: msg("wait@example.test") },
+    ]);
+    outbox.markSent(outbox.byIdempotencyKey("old")!.id);
+    outbox.startRetention();
+    vi.advanceTimersByTime(29 * RETENTION_SWEEP_MS);
+    expect(outbox.byIdempotencyKey("old")!.message).toBeDefined();
+    vi.advanceTimersByTime(2 * RETENTION_SWEEP_MS);
+    expect(outbox.byIdempotencyKey("old")!.message).toBeUndefined();
+    const journal = readFileSync(outbox.file, "utf8");
+    expect(journal).not.toContain("old@example.test");
+    expect(journal).not.toContain("token=abc");
+    expect(outbox.byIdempotencyKey("waiting")!.message?.to).toBe("wait@example.test"); // still queued: kept
+    outbox.stopRetention();
+  });
+});
+
 describe("mail worker", () => {
   it("sends at most ratePerSecond per second", async () => {
     let now = T0;
@@ -213,6 +237,19 @@ describe("mail worker", () => {
     expect(outbox.byIdempotencyKey("r")!.status).toBe("sent");
   });
 
+  it("picks the transport per channel and dead-letters a channel without one", async () => {
+    const outbox = new Outbox(tmp(), () => T0);
+    outbox.enqueue([{ key: "e", channel: "email", message: msg("e@example.test") }]);
+    expect(outbox.byIdempotencyKey("e")!.channel).toBe("email");
+    const email = new MemoryTransport();
+    await new MailWorker({ outbox, transports: { email }, now: () => T0 }).drain();
+    expect(email.sent).toHaveLength(1);
+    const none = new Outbox(tmp(), () => T0);
+    none.enqueue([{ key: "x", message: msg("x@example.test") }]);
+    await new MailWorker({ outbox: none, transports: {}, now: () => T0 }).drain();
+    expect(none.byIdempotencyKey("x")!).toMatchObject({ status: "dead", error: "no transport for email" });
+  });
+
   it("skips an address suppressed after it was queued", async () => {
     const outbox = new Outbox(tmp(), () => T0);
     outbox.enqueue([{ key: "s", message: msg("s@example.test") }]);
@@ -254,11 +291,19 @@ describe("Postmark webhook", () => {
     const stored = readFileSync(join(dir, "mail", "suppression.json"), "utf8");
     expect(stored).not.toContain("example.test");
     expect(lines.join("\n")).not.toContain("example.test");
+    // A complaint is sticky: a later bounce or inactive event does not downgrade it.
+    await call(svc, { RecordType: "Bounce", Type: "HardBounce", Email: "spam@example.test" }, basic("hook-secret"));
+    expect(svc.suppression.entry("spam@example.test")!.reason).toBe("complaint");
     // Reactivation lifts a manual suppression but never a complaint.
     await call(svc, { RecordType: "SubscriptionChange", Recipient: "sub@example.test", SuppressSending: false }, basic("hook-secret"));
     await call(svc, { RecordType: "SubscriptionChange", Recipient: "spam@example.test", SuppressSending: false }, basic("hook-secret"));
     expect(svc.suppression.isSuppressed("sub@example.test")).toBe(false);
     expect(svc.suppression.isSuppressed("spam@example.test")).toBe(true);
+    // Only an explicit admin clear removes it, and that is logged without the address.
+    expect(svc.clearSuppression("spam@example.test")).toBe(true);
+    expect(svc.suppression.isSuppressed("spam@example.test")).toBe(false);
+    expect(lines.some((l) => l.includes("suppression cleared (complaint) by admin"))).toBe(true);
+    expect(lines.join("\n")).not.toContain("example.test");
   });
 });
 
@@ -290,7 +335,7 @@ describe("signed links", () => {
       contactWriter: createIdentityContactWriter({ identity, write: (c, r) => { writes.push(r); identities[c.toLowerCase()] = r; } }),
     });
     expect(svc.resolver.resolve("Ann")!.canReceiveLeagueMail("tabbl")).toBe(true);
-    const url = new URL(svc.unsubscribeUrl("Ann", "tabbl"));
+    const url = new URL(svc.unsubscribeUrl("Ann", "tabbl", "ann@example.test"));
     expect(url.origin).toBe("https://site.example.test");
     expect(url.search).not.toContain("example.test");
     const get = await svc.publicRoute("GET", url.pathname, url.searchParams, {}, async () => "");
@@ -310,12 +355,38 @@ describe("signed links", () => {
     expect(bad!.status).toBe(400);
   });
 
-  it("an expired unsubscribe link answers 410", async () => {
+  it("an unsubscribe link expires after 60 days", async () => {
     let now = T0;
-    const svc = createMailService(tmp(), ENV, { identity: () => undefined, now: () => now });
-    const url = new URL(svc.unsubscribeUrl("Ann"));
-    now += 181 * 24 * 3600 * 1000;
-    expect((await svc.publicRoute("POST", url.pathname, url.searchParams, {}, async () => ""))!.status).toBe(410);
+    const svc = createMailService(tmp(), ENV, { identity: () => consenting("ann@example.test"), now: () => now });
+    const url = new URL(svc.unsubscribeUrl("Ann", "tabbl", "ann@example.test"));
+    now += 59 * 24 * 3600 * 1000;
+    expect((await svc.publicRoute("GET", url.pathname, url.searchParams, {}, async () => ""))!.status).toBe(200);
+    now += 2 * 24 * 3600 * 1000;
+    const r = await svc.publicRoute("POST", url.pathname, url.searchParams, {}, async () => "");
+    expect(r!.status).toBe(410);
+    expect(r!.html).toContain("Link expired");
+  });
+
+  it("an unsubscribe link is void after the address changes or the coach re-consents", async () => {
+    let now = T0;
+    const identities: Record<string, unknown> = { ann: consenting("ann@example.test") };
+    const svc = createMailService(tmp(), ENV, { identity: (c) => identities[c.toLowerCase()], now: () => now });
+    const old = new URL(svc.unsubscribeUrl("Ann", "tabbl", "ann@example.test"));
+    identities.ann = consenting("ann2@example.test");
+    const moved = await svc.publicRoute("POST", old.pathname, old.searchParams, {}, async () => "");
+    expect(moved!.status).toBe(410);
+    expect(moved!.html).toContain("Link out of date");
+    expect(svc.prefs.get("ann").leagueMailOff).toBeUndefined();
+
+    identities.ann = consenting("ann@example.test");
+    const first = new URL(svc.unsubscribeUrl("Ann", "tabbl", "ann@example.test"));
+    expect((await svc.publicRoute("POST", first.pathname, first.searchParams, {}, async () => ""))!.status).toBe(200);
+    now += 1000;
+    svc.meRoute("POST", "/api/me/email/league-mail", { coach: "Ann" }, { on: true }); // re-consent: new generation
+    expect(svc.prefs.get("ann").consentGen).toBe(1);
+    expect((await svc.publicRoute("GET", first.pathname, first.searchParams, {}, async () => ""))!.status).toBe(410);
+    const fresh = new URL(svc.unsubscribeUrl("Ann", "tabbl", "ann@example.test"));
+    expect((await svc.publicRoute("POST", fresh.pathname, fresh.searchParams, {}, async () => ""))!.status).toBe(200);
   });
 
   it("a link opt-out yields to consent granted again after it", () => {
@@ -360,10 +431,16 @@ describe("email verification", () => {
     expect((svc.meRoute("GET", "/api/me/email", { coach: "Ann" }, undefined)!.json as { verified: boolean }).verified).toBe(true);
   });
 
-  it("refuses to send to a suppressed address and when email is off", () => {
+  it("a suppressed address gets the same 202 (nothing sent) after the rate limit is consumed; 503 when email is off", () => {
     const svc = createMailService(tmp(), ENV, { identity: () => ({}), transport: new MemoryTransport() });
     svc.suppression.suppress("ann@example.test", "bounce");
-    expect(svc.meRoute("POST", "/api/me/email/verify", { coach: "Ann" }, { email: "ann@example.test" })!.status).toBe(409);
+    const fresh = svc.meRoute("POST", "/api/me/email/verify", { coach: "Bob" }, { email: "bob@example.test" })!;
+    const r = svc.meRoute("POST", "/api/me/email/verify", { coach: "Ann" }, { email: "ann@example.test" })!;
+    expect(r.status).toBe(202);
+    expect(r.json).toEqual(fresh.json);
+    expect(svc.outbox.list().map((e) => e.message?.to)).toEqual(["bob@example.test"]);
+    expect(svc.prefs.get("ann").pending).toBeUndefined();
+    expect(svc.meRoute("POST", "/api/me/email/verify", { coach: "Ann" }, { email: "ann@example.test" })!.status).toBe(429);
     const off = createMailService(tmp(), { MAIL_LINK_SECRET: ENV.MAIL_LINK_SECRET }, { identity: () => ({}) });
     expect(off.meRoute("POST", "/api/me/email/verify", { coach: "Ann" }, { email: "ann@example.test" })!.status).toBe(503);
   });
@@ -445,11 +522,12 @@ describe("league messages: authz and validation", () => {
 });
 
 describe("league messages: recipients, email, notifications, audit", () => {
-  it("emails only consenting, acknowledged, verified, unsuppressed members; counts only in the response", async () => {
+  it("emails only consenting, acknowledged, verified, unsuppressed members; the response hides small skipped groups", async () => {
     const { deps, svc, transport, notifications, dir } = leagueFixture();
     const r = post(deps, JAY, ALL);
     expect(r.status).toBe(201);
-    expect(r.body).toMatchObject({ notified: 6, queued: 1, skipped: { noConsent: 3, unverified: 1, suppressed: 1 }, emailEnabled: true });
+    // 6 recipients, but unverified (1) and suppressed (1) are 1-2 member groups: no breakdown, no queued figure.
+    expect(r.body).toEqual({ id: expect.any(String), emailEnabled: true, counts: { notified: 6, queued: null, skipped: null } });
     const text = JSON.stringify(r.body);
     for (const leak of ["example.test", "Bob", "Cat", "Dee", "Eve", "Fay"]) expect(text).not.toContain(leak);
 
@@ -477,21 +555,26 @@ describe("league messages: recipients, email, notifications, audit", () => {
     expect(audit).not.toContain("example.test");
     expect(JSON.parse(audit.trim())).toMatchObject({ leagueId: "tabbl", sender: "Jay", scope: "all", notified: 6, queued: 1 });
     const view = leagueMessagesRoute("GET", "/api/leagues/tabbl/messages", JAY, undefined, deps)!;
-    expect(view.body).toMatchObject({ emailEnabled: true, recent: [{ sender: "Jay", notified: 6, queued: 1 }] });
+    expect(view.body).toMatchObject({ emailEnabled: true, recent: [{ sender: "Jay", scope: "all", counts: { notified: 6, queued: null, skipped: null } }] });
     expect(JSON.stringify(view.body)).not.toContain("example.test");
   });
 
-  it("one team's coach and one coach", () => {
-    const { deps, notifications } = leagueFixture();
-    expect(post(deps, JAY, { ...ALL, scope: "team", teamId: "orcs" }).body).toMatchObject({ notified: 1, queued: 1 });
-    expect(post(deps, JAY, { ...ALL, scope: "coach", coach: "bob" }).body).toMatchObject({ notified: 1, queued: 0, skipped: { noConsent: 1, unverified: 0, suppressed: 0 } });
+  it("one team's coach and one coach: no counts at all (they would reveal that coach's choices)", () => {
+    const { deps, notifications, svc } = leagueFixture();
+    const team = post(deps, JAY, { ...ALL, scope: "team", teamId: "orcs" }).body;
+    const coach = post(deps, JAY, { ...ALL, scope: "coach", coach: "bob" }).body;
+    expect(team).toEqual({ id: expect.any(String), emailEnabled: true, counts: null, summary: PRIVATE_SUMMARY });
+    expect(coach).toEqual({ id: expect.any(String), emailEnabled: true, counts: null, summary: PRIVATE_SUMMARY });
+    expect(svc.outbox.list()).toHaveLength(1); // Ann was emailed, Bob was not: indistinguishable to the organiser
+    const view = leagueMessagesRoute("GET", "/api/leagues/tabbl/messages", JAY, undefined, deps)!.body as { recent: Array<{ counts: unknown }> };
+    expect(view.recent.map((x) => x.counts)).toEqual([null, null]);
     expect(notifications.list("Bob").total).toBe(1);
     expect(notifications.list("Cat").total).toBe(0);
   });
 
   it("with email off, members are still notified and nothing is queued", () => {
     const { deps, svc } = leagueFixture({ emailOn: false });
-    expect(post(deps, JAY, ALL).body).toMatchObject({ notified: 6, queued: 0, emailEnabled: false });
+    expect(post(deps, JAY, ALL).body).toMatchObject({ counts: { notified: 6 }, emailEnabled: false });
     expect(svc.outbox.list()).toHaveLength(0);
   });
 
@@ -510,6 +593,37 @@ describe("league messages: recipients, email, notifications, audit", () => {
     const capped = leagueFixture({ cap: 1 });
     expect(post(capped.deps, JAY, ALL).status).toBe(201);
     expect(post(capped.deps, JAY, ALL).status).toBe(429);
+  });
+
+  it("disclosure rule: all-members with >= 5 recipients only; breakdown only when no skipped group is 1 or 2", () => {
+    const sk = (noConsent: number, unverified: number, suppressed: number) => ({ noConsent, unverified, suppressed });
+    expect(disclosedCounts("coach", { notified: 9, queued: 9, skipped: sk(0, 0, 0) })).toBeNull();
+    expect(disclosedCounts("team", { notified: 9, queued: 9, skipped: sk(0, 0, 0) })).toBeNull();
+    expect(disclosedCounts("all", { notified: 4, queued: 1, skipped: sk(3, 0, 0) })).toBeNull();
+    expect(disclosedCounts("all", { notified: 12, queued: 3, skipped: sk(3, 6, 0) })).toEqual({ notified: 12, queued: 3, skipped: sk(3, 6, 0) });
+    expect(disclosedCounts("all", { notified: 12, queued: 4, skipped: sk(5, 2, 1) })).toEqual({ notified: 12, queued: null, skipped: null });
+  });
+
+  it("re-checks consent at send time: a coach who withdrew while queued is dropped and counted as skipped", async () => {
+    const { deps, svc, transport } = leagueFixture();
+    expect(post(deps, JAY, { ...ALL, scope: "team", teamId: "orcs" }).status).toBe(201);
+    expect(svc.outbox.list()).toHaveLength(1);
+    // Ann turns league email off with a fresh link before the worker runs.
+    const url = new URL(svc.unsubscribeUrl("Ann", "tabbl", "ann@example.test"));
+    expect((await svc.publicRoute("POST", url.pathname, url.searchParams, {}, async () => ""))!.status).toBe(200);
+    await svc.worker.drain();
+    expect(transport.sent).toHaveLength(0);
+    expect(svc.outbox.list()[0]).toMatchObject({ status: "dead", error: "ineligible: noConsent" });
+    expect(svc.audit.forLeague("tabbl")[0]).toMatchObject({ queued: 0, skipped: { noConsent: 1, unverified: 0, suppressed: 0 } });
+  });
+
+  it("re-checks at send time: a changed address or a new suppression drops the queued copy", async () => {
+    const changed = leagueFixture();
+    expect(post(changed.deps, JAY, { ...ALL, scope: "team", teamId: "orcs" }).status).toBe(201);
+    changed.svc.suppression.suppress("ann@example.test", "complaint");
+    await changed.svc.worker.drain();
+    expect(changed.transport.sent).toHaveLength(0);
+    expect(changed.svc.audit.forLeague("tabbl")[0]!.skipped.suppressed).toBe(1);
   });
 
   it("renders user text as plain text only", () => {

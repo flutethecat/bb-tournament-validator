@@ -58,13 +58,36 @@ export class SuppressionStore {
     return Object.hasOwn(this.read().entries, this.hash(address));
   }
 
+  /** The stored reason and time for an address, if suppressed. */
+  entry(address: string): { reason: SuppressionReason; at: string } | undefined {
+    return this.read().entries[this.hash(address)];
+  }
+
+  /** Suppress an address. A complaint is sticky: a later bounce / inactive / manual event never downgrades it. */
   suppress(address: string, reason: SuppressionReason): void {
     const data = this.read();
-    data.entries[this.hash(address)] = { reason, at: this.now().toISOString() };
+    const key = this.hash(address);
+    if (data.entries[key]?.reason === "complaint" && reason !== "complaint") return;
+    data.entries[key] = { reason, at: this.now().toISOString() };
     writeJson(this.file, data);
   }
 
-  /** Lift a suppression (provider reactivation). Complaints are never lifted automatically. */
+  /**
+   * Explicit clear (an admin action, or the coach re-verifying and re-consenting after the suppression). The only way a
+   * complaint is ever removed; it is logged (who, the reason and a hash prefix; never the address).
+   */
+  clear(address: string, by: "admin" | "reverify-reconsent", log: (line: string) => void): boolean {
+    const data = this.read();
+    const key = this.hash(address);
+    const hit = data.entries[key];
+    if (!hit) return false;
+    delete data.entries[key];
+    writeJson(this.file, data);
+    log(`[mail] suppression cleared (${hit.reason}) by ${by}: ${key.slice(0, 12)}`);
+    return true;
+  }
+
+  /** Lift a suppression (provider reactivation). Complaints are never lifted this way. */
   unsuppress(address: string): boolean {
     const data = this.read();
     const key = this.hash(address);
@@ -87,6 +110,10 @@ export interface CoachMailPrefs {
   leagueMailOff?: { at: string; leagueId?: string };
   /** An address the coach verified through the portal. */
   email?: { address: string; verifiedAt: string };
+  /** Bumped when league email is turned back on (re-consent): unsubscribe links issued before stop working. */
+  consentGen?: number;
+  /** When the coach last turned league email back on from the Account page. */
+  reconsentAt?: string;
   /** The open verification request (one at a time; a new request replaces it). */
   pending?: { address: string; nonce: string; requestedAt: string; expiresAt: string };
 }
@@ -141,6 +168,9 @@ export interface MailAuditEntry {
   skipped: { noConsent: number; unverified: number; suppressed: number };
 }
 
+/** A queued delivery dropped at send time (consent withdrawn, address changed, suppressed since). */
+export interface MailAuditDrop { kind: "drop"; id: string; leagueId: string; at: string; reason: keyof MailAuditEntry["skipped"] }
+
 export class MailAuditLog {
   private readonly file: string;
   constructor(dir: string) {
@@ -152,15 +182,29 @@ export class MailAuditLog {
     appendFileSync(this.file, `${JSON.stringify(entry)}\n`, { mode: 0o600 });
   }
 
-  /** Newest first. */
+  recordDrop(drop: Omit<MailAuditDrop, "kind">): void {
+    appendFileSync(this.file, `${JSON.stringify({ kind: "drop", ...drop })}\n`, { mode: 0o600 });
+  }
+
+  /** Newest first; send-time drops are folded in (queued down, skipped up). */
   forLeague(leagueId: string, limit = 20): MailAuditEntry[] {
     if (!existsSync(this.file)) return [];
     const out: MailAuditEntry[] = [];
+    const byId = new Map<string, MailAuditEntry>();
     for (const line of readFileSync(this.file, "utf8").split("\n")) {
       if (!line.trim()) continue;
       try {
-        const e = JSON.parse(line) as MailAuditEntry;
-        if (e.leagueId === leagueId) out.push(e);
+        const e = JSON.parse(line) as MailAuditEntry | MailAuditDrop;
+        if (e.leagueId !== leagueId) continue;
+        if ("kind" in e && e.kind === "drop") {
+          const row = byId.get(e.id);
+          if (row && typeof row.skipped[e.reason] === "number") { row.queued = Math.max(0, row.queued - 1); row.skipped[e.reason] += 1; }
+          continue;
+        }
+        const entry = e as MailAuditEntry;
+        const row: MailAuditEntry = { ...entry, skipped: { ...entry.skipped } };
+        byId.set(row.id, row);
+        out.push(row);
       } catch { /* skip a torn line */ }
     }
     return out.reverse().slice(0, limit);

@@ -91,8 +91,9 @@ The site emails coaches itself, so league organisers never see an address. Owner
 - League "Message members" (League page, Overview, organisers and site admins): `GET|POST /api/leagues/:id/messages`
   (`{ scope: "all"|"team"|"coach", teamId?, coach?, subject <= 120, body <= 5000 plain text, requestId? }`). Every
   recipient gets a notification; email only to members with league-contact consent, the league acknowledgement and a
-  confirmed, non-suppressed address (`RecipientResolver`, `src/mail/recipients.ts`). Response: `{ id, notified, queued,
-  skipped: { noConsent, unverified, suppressed }, emailEnabled }`, counts only. 10 messages an hour per organiser per
+  confirmed, non-suppressed address (`RecipientResolver`, `src/mail/recipients.ts`). Response: `{ id, emailEnabled, counts,
+  summary? }`; `counts` is `null` for one-coach / team messages and fewer than 5 recipients, else `{ notified, queued,
+  skipped }` with `queued` / `skipped` `null` when any skipped group is 1-2 members. Queued mail is re-checked at send time. 10 messages an hour per organiser per
   league; 500 emails a day per league.
 - Account page Email panel: `GET /api/me/email`, `POST /api/me/email/verify { email? }`, `POST /api/me/email/league-mail { on: true }`.
 - Public: `GET /api/mail/verify?token=`, `GET|POST /api/mail/unsubscribe` (GET = confirmation page, POST = RFC 8058

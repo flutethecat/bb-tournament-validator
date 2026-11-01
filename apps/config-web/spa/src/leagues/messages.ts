@@ -11,15 +11,22 @@ export type MessageScope = "all" | "team" | "coach";
 
 export interface LeagueMessageInput { scope: MessageScope; teamId?: string; coach?: string; subject: string; body: string; requestId: string }
 
-export interface LeagueMessageSent {
-  id: string;
+/** Delivery counts the server discloses: null for one-coach / team / small messages (they would reveal a coach's choices). */
+export interface LeagueMessageCounts {
   notified: number;
-  queued: number;
-  skipped: { noConsent: number; unverified: number; suppressed: number };
-  emailEnabled: boolean;
+  /** null when the breakdown is hidden (a skipped group of 1 or 2 members). */
+  queued: number | null;
+  skipped: { noConsent: number; unverified: number; suppressed: number } | null;
 }
 
-export interface LeagueMessageLog { id: string; sender: string; at: string; scope: MessageScope; notified: number; queued: number; skipped: LeagueMessageSent["skipped"] }
+export interface LeagueMessageSent {
+  id: string;
+  emailEnabled: boolean;
+  counts: LeagueMessageCounts | null;
+  summary?: string;
+}
+
+export interface LeagueMessageLog { id: string; sender: string; at: string; scope: MessageScope; counts: LeagueMessageCounts | null }
 export interface LeagueMessagesView { emailEnabled: boolean; recent: LeagueMessageLog[] }
 
 /** Teams of the season with a coach account (the "one team" picker). */
@@ -47,17 +54,28 @@ export function messageCoaches(season: Pick<SeasonRecord, "teams" | "participant
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
-/** One line for the composer after a send: counts only. */
+export const PRIVATE_SUMMARY = "Sent. Every recipient sees it in their notifications; members who accept league messages also get it by email.";
+
+/** One line for the composer after a send: only what the server disclosed. */
 export function sentSummary(r: LeagueMessageSent): string {
-  const parts = [`Sent to ${plural(r.notified, "member's", "members'")} notifications.`];
+  const c = r.counts;
+  if (!c) return r.emailEnabled ? (r.summary ?? PRIVATE_SUMMARY) : "Sent to the recipients' notifications. Email is not set up on this site yet.";
+  const parts = [`Sent to ${plural(c.notified, "member's", "members'")} notifications.`];
   if (!r.emailEnabled) parts.push("Email is not set up on this site yet.");
+  else if (c.queued === null || !c.skipped) parts.push("Members who accept league messages also get it by email; some members get no email.");
   else {
-    parts.push(`${plural(r.queued, "email", "emails")} queued.`);
-    const s = r.skipped;
-    const noEmail = s.noConsent + s.unverified + s.suppressed;
+    parts.push(`${plural(c.queued, "email", "emails")} queued.`);
+    const noEmail = c.skipped.noConsent + c.skipped.unverified + c.skipped.suppressed;
     if (noEmail) parts.push(`${plural(noEmail, "member gets", "members get")} no email (not opted in, no confirmed address, or the address bounced).`);
   }
   return parts.join(" ");
+}
+
+/** The "Recent messages" line's delivery part. */
+export function logCounts(r: LeagueMessageLog): string {
+  const c = r.counts;
+  if (!c) return "sent";
+  return c.queued === null ? `${c.notified} notified` : `${c.notified} notified · ${c.queued} emailed`;
 }
 
 export const newRequestId = (): string => {

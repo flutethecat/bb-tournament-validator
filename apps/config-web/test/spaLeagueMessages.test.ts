@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mailStatusLine, messageCoaches, messageTeams, sentSummary, type MyMailStatus } from "../spa/src/leagues/messages";
+import { logCounts, mailStatusLine, messageCoaches, messageTeams, sentSummary, type MyMailStatus } from "../spa/src/leagues/messages";
 import type { SeasonRecord } from "../spa/src/leagues/types";
 
 // League "Message members" composer and the Account Email panel: the display helpers (counts only, never an address of
@@ -19,11 +19,14 @@ describe("message members helpers", () => {
     expect(messageCoaches(season, "Jay")).toEqual(["Ann", "bob", "Cat"]);
   });
 
-  it("summarises a send with counts only", () => {
-    expect(sentSummary({ id: "x", notified: 5, queued: 2, skipped: { noConsent: 2, unverified: 1, suppressed: 0 }, emailEnabled: true }))
-      .toBe("Sent to 5 members' notifications. 2 emails queued. 3 members get no email (not opted in, no confirmed address, or the address bounced).");
-    expect(sentSummary({ id: "x", notified: 1, queued: 0, skipped: { noConsent: 0, unverified: 0, suppressed: 0 }, emailEnabled: false }))
-      .toBe("Sent to 1 member's notifications. Email is not set up on this site yet.");
+  it("summarises a send with only what the server disclosed", () => {
+    expect(sentSummary({ id: "x", emailEnabled: true, counts: { notified: 8, queued: 3, skipped: { noConsent: 3, unverified: 0, suppressed: 0 } } }))
+      .toBe("Sent to 8 members' notifications. 3 emails queued. 3 members get no email (not opted in, no confirmed address, or the address bounced).");
+    expect(sentSummary({ id: "x", emailEnabled: true, counts: { notified: 8, queued: null, skipped: null } }))
+      .toBe("Sent to 8 members' notifications. Members who accept league messages also get it by email; some members get no email.");
+    expect(sentSummary({ id: "x", emailEnabled: true, counts: null, summary: "S" })).toBe("S");
+    expect(sentSummary({ id: "x", emailEnabled: false, counts: null })).toMatch(/Email is not set up/);
+    expect(logCounts({ id: "x", sender: "Jay", at: "", scope: "coach", counts: null })).toBe("sent");
   });
 
   it("account email status line", () => {

@@ -7,7 +7,9 @@
 // 403). Recipients are resolved server-side from the league's newest season (teams' and participants' fork accounts),
 // the sender excluded. Every recipient gets an in-portal notification; email goes only to members who acknowledged
 // sharing with this league, have league-contact consent and a verified, non-suppressed address (RecipientResolver).
-// The response carries counts only: never an address, and never who was skipped.
+// The response never carries an address or who was skipped, and it reveals no single coach's choices: counts appear only
+// for an all-members message with at least DISCLOSE_MIN_RECIPIENTS recipients, and the skipped breakdown only when no
+// category holds 1 or 2 members (disclosedCounts). The exact counts stay in the server-side audit.
 
 import { createHash, randomBytes } from "node:crypto";
 import type { NotificationInput } from "../notifications.js";
@@ -35,7 +37,7 @@ export interface LeagueMessageDeps {
   leagueLoad(leagueId: string): { sentToday: number; queued: number };
   leagueDailyCap: number;
   emailEnabled(): boolean;
-  unsubscribeUrl(coach: string, leagueId: string): string;
+  unsubscribeUrl(coach: string, leagueId: string, address: string): string;
   absolute(path: string): string;
   leagueStream?: string;
   notify(coach: string, input: NotificationInput): void;
@@ -45,6 +47,27 @@ export interface LeagueMessageDeps {
 }
 
 export interface LeagueMessageResult { status: number; body: unknown; headers?: Record<string, string> }
+
+export const DISCLOSE_MIN_RECIPIENTS = 5;
+export const PRIVATE_SUMMARY = "Sent. Every recipient sees it in their notifications; members who accept league messages also get it by email.";
+
+export interface DisclosedCounts {
+  notified: number;
+  /** null when the skipped breakdown is hidden (it would let the queued figure single someone out). */
+  queued: number | null;
+  skipped: MailAuditEntry["skipped"] | null;
+}
+
+/**
+ * What an organiser may see of a message's delivery counts. Single-coach / team messages and small groups: nothing (the
+ * counts would reveal one coach's preferences). All-members messages with >= 5 recipients: the notified count, plus the
+ * queued count and skipped breakdown only when every skipped category is 0 or >= 3.
+ */
+export function disclosedCounts(scope: MailAuditEntry["scope"], c: { notified: number; queued: number; skipped: MailAuditEntry["skipped"] }): DisclosedCounts | null {
+  if (scope !== "all" || c.notified < DISCLOSE_MIN_RECIPIENTS) return null;
+  const small = Object.values(c.skipped).some((n) => n === 1 || n === 2);
+  return small ? { notified: c.notified, queued: null, skipped: null } : { notified: c.notified, queued: c.queued, skipped: { ...c.skipped } };
+}
 
 /** Sliding one-hour window per organiser per league (in memory). */
 export class LeagueMessageLimiter {
@@ -123,7 +146,7 @@ export function leagueMessagesRoute(
       body: {
         emailEnabled: deps.emailEnabled(),
         limits: { subject: LEAGUE_SUBJECT_MAX, body: LEAGUE_BODY_MAX, perHour: LEAGUE_MESSAGES_PER_HOUR, dailyEmails: deps.leagueDailyCap },
-        recent: deps.audit.forLeague(lg.id, 20).map((e) => ({ id: e.id, sender: e.sender, at: e.at, scope: e.scope, notified: e.notified, queued: e.queued, skipped: e.skipped })),
+        recent: deps.audit.forLeague(lg.id, 20).map((e) => ({ id: e.id, sender: e.sender, at: e.at, scope: e.scope, counts: disclosedCounts(e.scope, e) })),
       },
     };
   }
@@ -174,14 +197,14 @@ export function leagueMessagesRoute(
     const items: OutboxItem[] = emailTo.map(({ coach, address }) => {
       const rendered = renderLeagueMessage({
         leagueName: lg.name, senderCoach: who.coach, subject, body: text,
-        leagueUrl: deps.absolute(leaguePath), unsubscribeUrl: deps.unsubscribeUrl(coach, lg.id),
+        leagueUrl: deps.absolute(leaguePath), unsubscribeUrl: deps.unsubscribeUrl(coach, lg.id, address),
       });
       const message: MailMessage = {
         to: address, subject: rendered.subject, text: rendered.text, html: rendered.html, headers: rendered.headers, template: "league-message",
         ...(deps.leagueStream ? { stream: deps.leagueStream } : {}),
         metadata: { league: lg.id, message: id },
       };
-      return { key: `league:${lg.id}:${id}:${mailCoachKey(coach)}`, leagueId: lg.id, message };
+      return { key: `league:${lg.id}:${id}:${mailCoachKey(coach)}`, channel: "email", leagueId: lg.id, recipient: { coach, leagueId: lg.id }, auditId: id, message };
     });
     queued = deps.enqueue(items).added;
   }
@@ -194,7 +217,8 @@ export function leagueMessagesRoute(
 
   const entry: MailAuditEntry = { id, leagueId: lg.id, sender: who.coach, at: new Date(now).toISOString(), scope: recipients.scope, notified, queued, skipped };
   try { deps.audit.append(entry); } catch { /* the audit write must not fail the send */ }
-  const result: LeagueMessageResult = { status: 201, headers: NO_STORE, body: { id, notified, queued, skipped, emailEnabled: emailOn } };
+  const counts = disclosedCounts(recipients.scope, { notified, queued, skipped });
+  const result: LeagueMessageResult = { status: 201, headers: NO_STORE, body: { id, emailEnabled: emailOn, counts, ...(counts ? {} : { summary: PRIVATE_SUMMARY }) } };
   if (replayKey) recentRequests.set(replayKey, { at: now, result });
   return result;
 }
