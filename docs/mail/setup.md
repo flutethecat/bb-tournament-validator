@@ -78,8 +78,8 @@ Postmark's "Send test" button should return 200.
 
 1. On the Account page, Email panel: enter an address you own and press **Send confirmation link**. The email arrives
    from "Super FUMBBL"; the link shows "Email confirmed".
-2. League emails also need league-contact consent and the league acknowledgement (the onboarding flow records both).
-   Until that lands, league messages reach notifications only and report every member as "no email".
+2. League emails also need league-contact consent (onboarding / Account page Contact) and the league acknowledgement
+   (the league notice on joining, Account page League sharing). Members without both get the message in notifications only.
 3. As an organiser, League page > Overview > **Message members** > one coach (yourself on a second account) > Send. The
    result shows no counts for one coach or one team (counts would reveal that coach's choices); an all-members message
    to 5 or more shows the notified count, and the email breakdown only when no group is 1 or 2 members.
