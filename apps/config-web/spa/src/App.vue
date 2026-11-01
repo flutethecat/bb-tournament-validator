@@ -197,6 +197,7 @@ async function signOut(): Promise<void> {
           </svg>
           <span class="sf-sr">Theme: {{ themeLabel(theme.state.mode) }}</span>
         </button>
+        <RouterLink class="sf-privacy-link" to="/privacy" data-testid="nav-privacy">Privacy</RouterLink>
       </div>
     </aside>
     <!-- Rail collapser (owner 10-31): a tag hanging on the sidebar's right edge at the bottom of the screen; desktop only

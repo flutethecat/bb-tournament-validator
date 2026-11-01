@@ -75,6 +75,14 @@ Sign out (Account page) posts `POST /api/auth/logout` (`X-CW-Auth: 1`, live sess
 handles it with the sidecar on; with it off, `server.ts` dispatches the same handler (`handleLogout` in
 `src/auth/portal.ts`).
 
+## Privacy notice (`/app/privacy`)
+
+Public page; the data inventory it renders lives in `spa/src/privacy/inventory.ts` (the export/delete lanes import it too).
+The "Who we are" block reads `GET /api/privacy/contact` (cached 5 min), which serves `PRIVACY_CONTROLLER_NAME` and
+`PRIVACY_CONTACT_EMAIL` from the environment (see `.env.example`); unset, both are `null` and the page says "Contact: see the
+Help page". Hosting is fixed at "United States" and `euRepresentative` is `null` until paid launch. Breach runbook, processor
+list and log-hygiene notes are in the repo root `docs/privacy/`.
+
 ## Start Game / Lobby page (`/lobby/`)
 
 Source: `lobby/` (vanilla TypeScript + Vite, styled with the site theme `/theme.css` + `/theme.js`, which stay

@@ -20,6 +20,7 @@ import LinkOutView from "./views/LinkOutView.vue";
 import LobbyRoomView from "./views/LobbyRoomView.vue";
 import LobbyStartView from "./views/LobbyStartView.vue";
 import NotFoundView from "./views/NotFoundView.vue";
+import PrivacyView from "./views/PrivacyView.vue";
 import StandingsView from "./views/StandingsView.vue";
 import TabletopListView from "./views/TabletopListView.vue";
 import TabletopOrganiserView from "./views/TabletopOrganiserView.vue";
@@ -49,6 +50,7 @@ export const routes: RouteRecordRaw[] = [
   { path: "/home", name: "home", component: HomeView, meta: { requiresAuth: true, title: "Coach page" } },
   { path: "/leaderboards", name: "leaderboards", component: LeaderboardsView, meta: { title: "Leaderboards" } },
   { path: "/help", name: "help", component: HelpView, meta: { title: "Help" } },
+  { path: "/privacy", name: "privacy", component: PrivacyView, meta: { title: "Privacy" } },
   { path: "/whats-new", name: "whats-new", component: WhatsNewView, meta: { title: "What's new" } },
   { path: "/lobby", name: "lobby", component: LobbyStartView, meta: { requiresAuth: true, title: "Start Game" } },
   {

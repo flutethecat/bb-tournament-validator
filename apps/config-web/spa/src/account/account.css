@@ -101,3 +101,4 @@
   .tn-modal-backdrop:has(.ac-sched-modal) { padding: 16px; place-items: center; }
   .ac-sched-modal { width: 100%; max-height: calc(100dvh - 32px); }
 }
+.ac-privacy-link { margin: 0 0 12px; font-size: 14px; }

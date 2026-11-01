@@ -293,6 +293,7 @@ import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./tournaments/types.js";
 import { RateLimiter } from "./translate/guards.js";
 import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier } from "./notifications.js";
 import { clientIp } from "./translate/route.js";
+import { privacyContact } from "./privacy/contact.js";
 import { clockView, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
 import { createRecorderWebhook, recorderAnnouncement } from "./tabletop/discord.js";
@@ -391,6 +392,8 @@ const PUBLIC_PATHS = new Set([
   // calls here. Guarded in-handler by size limits + per-IP/per-coach rate limits (src/translate/).
   "/api/translate",
   "/api/translate/languages",
+  // Privacy notice contact block: public, read-only, env-driven (src/privacy/contact.ts).
+  "/api/privacy/contact",
 ]);
 const translateHandler = createTranslateHandler();
 
@@ -2097,6 +2100,12 @@ async function handleApi(
   if (path === "/api/build-log" && (method === "GET" || method === "HEAD")) {
     res.setHeader("cache-control", "public, max-age=60");
     return sendJson(res, 200, { entries: readBuildLog(BUILD_LOG_FILE) });
+  }
+
+  // Privacy notice contact block: public, read-only, cached 5 minutes; env-driven, falls back to nulls.
+  if (path === "/api/privacy/contact" && (method === "GET" || method === "HEAD")) {
+    res.setHeader("cache-control", "public, max-age=300");
+    return sendJson(res, 200, privacyContact());
   }
 
   // Recent games (landing page + coach page): public, read-only, newest first, cached 60 s like the build log.
@@ -4075,6 +4084,10 @@ export const server = createServer((req, res) => {
       }
       // Build log (WHAT'S NEW): public, read-only, in both deployment modes.
       if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/api/build-log") {
+        return await handleApi(req, res, url.pathname, url.searchParams);
+      }
+      // Privacy notice contact block: public, read-only, in both deployment modes.
+      if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/api/privacy/contact") {
         return await handleApi(req, res, url.pathname, url.searchParams);
       }
       // Recent games strip: public, read-only, in both deployment modes.

@@ -1,0 +1,122 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { ViteDevServer } from "vite";
+import { ApiError } from "../spa/src/shared/api";
+import type { Fetcher } from "../spa/src/session";
+import { privacyContact } from "../src/privacy/contact";
+
+// Privacy notice (/app/privacy): sections, inventory rows, contact block, and the links to it; plus the env-driven contact endpoint.
+
+const SPA_CONFIG = fileURLToPath(new URL("../spa/vite.config.ts", import.meta.url));
+
+describe("privacy notice (server-rendered)", () => {
+  let vite: ViteDevServer;
+  let mods: Record<string, any>;
+
+  beforeAll(async () => {
+    const { createServer } = await import("vite");
+    vite = await createServer({ configFile: SPA_CONFIG, logLevel: "silent", appType: "custom", server: { middlewareMode: true, hmr: false, ws: false } });
+    const [app, vueRouter, renderer, inventory] = await Promise.all([
+      vite.ssrLoadModule("/src/app.ts"),
+      vite.ssrLoadModule("vue-router"),
+      vite.ssrLoadModule("vue/server-renderer"),
+      vite.ssrLoadModule("/src/privacy/inventory.ts"),
+    ]);
+    mods = { app, vueRouter, renderer, inventory };
+  }, 60_000);
+  afterAll(async () => { await vite?.close(); });
+
+  const fetcher = (routes: Record<string, unknown>): Fetcher =>
+    (async (path: string) => {
+      const hit = routes[path];
+      if (hit === undefined) throw new ApiError(404, `no mock for ${path}`);
+      return hit;
+    }) as Fetcher;
+
+  async function render(path: string, routes: Record<string, unknown>): Promise<string> {
+    const spa = mods.app.createSpa({ history: mods.vueRouter.createMemoryHistory("/app/"), ssr: true, fetcher: fetcher(routes) });
+    await spa.router.push(path);
+    await spa.router.isReady();
+    return (await mods.renderer.renderToString(spa.app)) as string;
+  }
+
+  const out = { "/api/auth/session": { authenticated: false, discordSsoEnabled: true } };
+  const signedIn = { "/api/auth/session": { authenticated: true, coach: "Alice", authMethod: "discord", discordSsoEnabled: true } };
+  const contact = { "/api/privacy/contact": { controller: "Example Operator", email: "privacy@example.test", hosting: "United States", euRepresentative: null } };
+
+  it("renders every section anchor, the date, and every inventory row", async () => {
+    const html = await render("/privacy", { ...out, ...contact });
+    for (const id of ["who", "collect", "why", "public", "share", "transfers", "keep", "rights", "cookies", "children", "changes"]) {
+      expect(html, id).toContain(`id="${id}"`);
+      expect(html, `toc ${id}`).toContain(`href="#${id}"`);
+    }
+    expect(html).toContain("Last updated 2026-10-31");
+    const { INVENTORY } = mods.inventory;
+    expect(INVENTORY.length).toBeGreaterThan(10);
+    for (const row of INVENTORY) expect(html, row.id).toContain(`data-row="${row.id}"`);
+    expect(html).toContain("Example Operator");
+    expect(html).toContain("mailto:privacy@example.test");
+    expect(html).toContain("United States");
+    for (const word of ["preferred name", "phone numbers", "Legal basis: your consent", "never public"]) expect(html, word).toContain(word);
+  });
+
+  it("exports the privacy version from one place", async () => {
+    const version = await vite.ssrLoadModule("/src/privacy/version.ts");
+    expect(version.PRIVACY_VERSION).toBe("2026-10-31");
+    expect(mods.inventory.PRIVACY_VERSION).toBe(version.PRIVACY_VERSION);
+    expect(mods.inventory.PRIVACY_LAST_UPDATED).toBe(version.PRIVACY_VERSION);
+  });
+
+  it("shows the neutral contact line when the endpoint has no details or fails", async () => {
+    for (const routes of [{ ...out, "/api/privacy/contact": { controller: null, email: null, hosting: "United States", euRepresentative: null } }, out]) {
+      const html = await render("/privacy", routes);
+      expect(html).toContain("Contact: see the");
+      expect(html).not.toContain("mailto:");
+    }
+  });
+
+  it("inventory rows are complete and unique", () => {
+    const { INVENTORY, COLLECT_GROUPS } = mods.inventory;
+    const ids = INVENTORY.map((r: any) => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const r of INVENTORY) {
+      for (const key of ["store", "data", "purpose", "retention"]) expect(r[key], `${r.id}.${key}`).toBeTruthy();
+      expect(["yes", "no", "partly"]).toContain(r.public);
+    }
+    for (const g of COLLECT_GROUPS) for (const id of g.ids) expect(ids, id).toContain(id);
+  });
+
+  it("links to the notice from the nav foot, landing, account page and sign-in prompt", async () => {
+    const landing = await render("/home", { ...out });
+    expect(landing).toContain('data-testid="landing-privacy"');
+    expect(landing).toContain('data-testid="nav-privacy"');
+    const account = await render("/account", { ...signedIn, "/api/account": { ffbCoachId: "Alice", fumbblName: null } });
+    expect(account).toContain("How we use your data");
+    expect(account).toContain('href="/app/privacy"');
+    const prompt = await render("/account", { ...out });
+    expect(prompt).toContain("By signing in you agree to the");
+    expect(prompt).toContain('data-testid="signin-privacy"');
+  });
+});
+
+describe("GET /api/privacy/contact", () => {
+  it("reads only the two env keys", () => {
+    const env = { PRIVACY_CONTROLLER_NAME: " Example Operator ", PRIVACY_CONTACT_EMAIL: "privacy@example.test", DISCORD_CLIENT_SECRET: "never-echoed", ADMIN_PASSWORD: "never-echoed" };
+    const body = privacyContact(env);
+    expect(body).toEqual({ controller: "Example Operator", email: "privacy@example.test", hosting: "United States", euRepresentative: null });
+    expect(JSON.stringify(body)).not.toContain("never-echoed");
+  });
+
+  it("falls back to nulls when unset or malformed", () => {
+    const unset = { controller: null, email: null, hosting: "United States", euRepresentative: null };
+    expect(privacyContact({})).toEqual(unset);
+    expect(privacyContact({ PRIVACY_CONTROLLER_NAME: "  ", PRIVACY_CONTACT_EMAIL: "not an address" })).toEqual(unset);
+  });
+
+  it("is wired as a public, 5-minute-cached route", () => {
+    const source = readFileSync(fileURLToPath(new URL("../src/server.ts", import.meta.url)), "utf8");
+    expect(source).toMatch(/PUBLIC_PATHS = new Set\(\[[\s\S]*"\/api\/privacy\/contact"[\s\S]*\]\);/);
+    expect(source).toMatch(/path === "\/api\/privacy\/contact"[\s\S]{0,200}max-age=300/);
+  });
+});

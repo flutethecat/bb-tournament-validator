@@ -109,7 +109,10 @@
 .sf-body .shell-main { max-width: 1600px; width: 100%; margin: 0; min-width: 0; }
 .sf-aside { position: sticky; top: var(--sf-top-h); align-self: start; display: flex; flex-direction: column; height: calc(100dvh - var(--sf-top-h)); overflow-y: auto; overflow-x: hidden; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border-right: 2px solid var(--sf-panel-line); }
 /* Theme switch at the foot of the nav (owner 10-31): a bevelled square icon button, bottom left of the screen. */
-.sf-aside-foot { margin-top: auto; padding: 10px 6px 12px; }
+.sf-aside-foot { margin-top: auto; padding: 10px 6px 12px; display: flex; align-items: center; gap: 10px; }
+.sf-privacy-link { font-size: 12px; color: var(--ui-muted); text-decoration: underline; } /* hidden in the collapsed rail (owner keeps the foot to the theme icon) */
+.sf-privacy-link:hover { color: var(--ui-text); }
+.sf-body[data-rail="true"] .sf-privacy-link { display: none; }
 .sf-theme { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; color: var(--sf-gold); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); cursor: pointer; }
 .sf-theme[data-mode="dark"] { color: var(--ui-text); }
 .sf-theme:hover { filter: brightness(1.12); }

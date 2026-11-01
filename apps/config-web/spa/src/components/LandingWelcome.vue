@@ -33,6 +33,8 @@ useBlankPageTitle();
       </div>
     </section>
 
+    <p class="pv-small lw-privacy" data-testid="landing-privacy"><RouterLink to="/privacy">Privacy</RouterLink></p>
+
     <RecentGames class="rc-landing" />
   </div>
 </template>
