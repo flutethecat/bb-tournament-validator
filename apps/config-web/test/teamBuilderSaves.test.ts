@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { findRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
-import { createSession, SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { createSession, onboardedCoaches } from "./onboardedFixture.js";
 import { TEAM_BUILDER_SAVES_BODY_CAP, buildBodyForSave, coachSaveKey, createSave, readSaves, recordBuild, teamBuilderSavesPath } from "../src/teamBuilderSaves.js";
 
 const root = mkdtempSync(join(tmpdir(), "team-builder-saves-"));
@@ -60,7 +61,7 @@ beforeAll(async () => {
   // Trip reloadFork's busy guard so this suite cannot stop or spawn a live fork.
   writeFileSync(join(root, "log", "default.log"), "", "utf8");
   writeFileSync(join(root, "rosters", "dwarf.xml"), dwarfRosterXml(), "utf8");
-  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: {} }), "utf8");
+  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: onboardedCoaches("Alice", "Bob") }), "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
   ({ server } = await import("../src/server.js"));
   if (!server.listening) await once(server, "listening");

@@ -4,7 +4,8 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createSession, SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { createSession } from "./onboardedFixture.js";
 import { createSave } from "../src/teamBuilderSaves.js";
 
 // Route wiring in the live host's mode (sidecar OFF): Discord session only, CSRF header on writes, temp dirs, port 0.

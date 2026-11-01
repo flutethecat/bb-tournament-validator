@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createSession } from "../src/auth/session.js";
+import { createSession } from "./onboardedFixture.js";
 import { request } from "node:http";
 import { AvatarStore, avatarRateBuckets, avatarRateLimit, avatarUrlFor, canonicalTeamKey, checkAvatar, resetAvatarRateLimit, sniffImage, sweepAvatarRateLimit, teamAvatarPath } from "../src/teamAvatars.js";
 import { tabletopApi, type TabletopApiDeps } from "../src/tabletop/api.js";

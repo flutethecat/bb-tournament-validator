@@ -4,7 +4,8 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { createSession, SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { createSession } from "./onboardedFixture.js";
 
 // A fork whose schedule answer is always lost (uncertain). The client's challenge route for a held coach answers
 // 409 with the lobby where it can be resolved; the error text alone stays readable for the current client.

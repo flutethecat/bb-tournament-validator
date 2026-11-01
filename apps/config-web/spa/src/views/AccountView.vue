@@ -14,6 +14,7 @@ import AccountIdentity from "../components/AccountIdentity.vue";
 import AccountCalendar from "../components/AccountCalendar.vue";
 import AccountContact from "../components/AccountContact.vue";
 import { createContactEditor } from "../account/contact";
+import { ONBOARDING_KEY } from "../account/onboarding";
 import { calendarZone } from "../account/calendar";
 import { createAccountEditors } from "../account/editors";
 import { createScheduleDialog, SCHEDULE_DIALOG_KEY, SCHEDULE_HASH } from "../account/scheduleDialog";
@@ -34,8 +35,12 @@ const editors = createAccountEditors({
 });
 const { coach, profile, schedule, proposals } = editors;
 onBeforeUnmount(() => editors.stop());
-// Contact & consent (new-user flow fields, PATCH /api/me/contact): a fresh editor per coach, like the panels above.
-const contact = computed(() => { void coach.value; return createContactEditor({ api: fetcher }); });
+// Contact & consent (new-user flow fields, PATCH /api/me/contact): a fresh editor per coach, like the panels above, and
+// again when the welcome modal completes (the one loaded behind it holds pre-onboarding consent).
+const onboarding = inject(ONBOARDING_KEY, null);
+const contactRound = ref(0);
+watch(() => onboarding?.open() === true, (open, was) => { if (was && !open) contactRound.value++; });
+const contact = computed(() => { void coach.value; void contactRound.value; return createContactEditor({ api: fetcher }); });
 
 const zone = computed(() => calendarZone({
   scheduleLoaded: schedule.value.state.loaded, scheduleZone: schedule.value.state.timezone, treeZone: tree?.state.timezone ?? "", browserZone: browserTimeZone(),
@@ -94,7 +99,7 @@ onServerPrefetch(() => (coach.value ? schedule.value.load() : undefined));
           <AccountIdentity :editor="profile" :coach="session.coach()" />
         </section>
 
-        <section v-if="session.signedIn()" id="contact" :key="`contact-${coach}`" class="hm-panel" aria-labelledby="ac-contact-h">
+        <section v-if="session.signedIn()" id="contact" :key="`contact-${coach}-${contactRound}`" class="hm-panel" aria-labelledby="ac-contact-h">
           <header class="hm-band"><h2 id="ac-contact-h">Contact &amp; consent</h2><span class="hm-cap">Only organisers you allow</span></header>
           <AccountContact :editor="contact" />
         </section>

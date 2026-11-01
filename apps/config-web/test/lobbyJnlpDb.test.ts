@@ -4,7 +4,8 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { createSession, SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { createSession } from "./onboardedFixture.js";
 
 // End to end with a stubbed fork ACCOUNT STORE (the MySQL reads only; everything else is the real server):
 // the stored digest reaches a coach only through the session-scoped GET /api/lobby/:id/jnlp, for that coach's

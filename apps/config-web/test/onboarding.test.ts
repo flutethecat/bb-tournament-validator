@@ -96,7 +96,9 @@ describe("validation", () => {
     for (const bad of ["nope", "a@b", "a b@c.de", "@c.de"]) expect(() => parseEmail(bad)).toThrow(/valid email/);
     expect(normalizePhoneNumber("+1 555 123 4567")).toBe("+15551234567");
     expect(normalizePhoneNumber("+44 (20) 7946-0000")).toBe("+442079460000");
-    for (const bad of ["555 123 4567", "+1234567", "+1234567890123456", "+1 555 CALL ME"]) expect(() => normalizePhoneNumber(bad)).toThrow(/\+1 555 123 4567/);
+    for (const bad of ["555 123 4567", "+1234567", "+1234567890123456", "+1 555 CALL ME", "+00000000", "+0123456789", "+0 555 123 4567"]) expect(() => normalizePhoneNumber(bad)).toThrow(/\+1 555 123 4567/);
+    expect(normalizePhoneNumber("+12345678")).toBe("+12345678"); // 8 digits in all, country code 1
+    expect(normalizePhoneNumber("+123456789012345")).toBe("+123456789012345"); // 15 digits
     expect(parsePhones([{ number: "+15551234567", label: "mobile" }, { number: "+442079460000" }])).toEqual([{ number: "+15551234567", label: "mobile" }, { number: "+442079460000" }]);
     expect(() => parsePhones([{ number: "+15551234567", label: "work" }])).toThrow(/mobile, home or other/);
     expect(() => parsePhones(Array.from({ length: 4 }, (_, i) => ({ number: `+1555123456${i}` })))).toThrow(/At most 3/);
@@ -144,6 +146,23 @@ describe("onboarding and contact writers", () => {
     expect(stored("Fresh")).toMatchObject({ ffbCoachId: "Fresh", level: "player", contact: { email: null, emailSource: "discord" } });
   });
 
+  it("re-acceptance after a version bump: the view prefills stored phones and choice; a POST without phones keeps them", () => {
+    seed(record("Re", {
+      identities: { email: "re@example.test" },
+      contact: { email: "re@example.test", emailSource: "discord", emailVerified: true, phones: [{ number: "+15551234567", label: "home" }] },
+      consent: { leagueContact: { granted: true, at: NOW.toISOString(), version: "2026-10-31" }, privacy: { acceptedVersion: "2025-01-01", at: NOW.toISOString() } },
+    }));
+    expect(onboardingView(stored("Re"))).toMatchObject({ needed: true, prefill: { phones: [{ number: "+15551234567", label: "home" }], leagueContact: true } });
+    const { phones: _p, leagueContact: _l, ...noPhones } = okBody;
+    completeOnboarding("Re", { ...noPhones, email: "re@example.test" }, LATER);
+    expect(stored("Re").contact?.phones).toEqual([{ number: "+15551234567", label: "home" }]);
+    expect(stored("Re").consent?.leagueContact).toEqual({ granted: true, at: NOW.toISOString(), version: "2026-10-31" });
+    expect(stored("Re").consent?.privacy).toEqual({ acceptedVersion: PRIVACY_VERSION, at: LATER.toISOString() });
+    // Sending an empty list does clear them.
+    completeOnboarding("Re", { ...okBody, email: "re@example.test", phones: [] }, LATER);
+    expect(stored("Re").contact?.phones).toEqual([]);
+  });
+
   it("PATCH edits any field; the consent timestamp changes only when the choice changes; privacy stays put", () => {
     seed(record("Cy", { identities: { email: "cy@discord.test" } }));
     completeOnboarding("Cy", { ...okBody, email: "cy@discord.test", leagueContact: false }, NOW);
@@ -183,11 +202,13 @@ describe("onboarding and contact writers", () => {
     expect(() => updateOwnAccount("Di", { profile: { preferredName: "x".repeat(300) } })).toThrow(/\/api\/me\/contact/);
   });
 
-  it("the 428 gate covers /api/me and /api/account writes except onboarding and data deletion; reads and other paths are never gated", () => {
-    for (const [m, p] of [["PATCH", "/api/me/profile"], ["PUT", "/api/me/scheduling"], ["PUT", "/api/me/avatar"], ["DELETE", "/api/me/avatar"], ["POST", "/api/me/connections/naf"], ["PATCH", "/api/me/contact"], ["POST", "/api/me/notifications/read"], ["PATCH", "/api/account"]])
-      expect(onboardingGateApplies(m!, p!)).toBe(true);
-    for (const [m, p] of [["POST", "/api/me/onboarding"], ["POST", "/api/me/delete"], ["GET", "/api/me/profile"], ["GET", "/api/me/contact"], ["POST", "/api/auth/logout"], ["POST", "/api/tournaments"], ["GET", "/api/me/export"], ["GET", "/api/account"]])
-      expect(onboardingGateApplies(m!, p!)).toBe(false);
+  it("the 428 gate covers every state-changing /api request except the allow-list; reads are never gated", () => {
+    for (const [m, p] of [["PATCH", "/api/me/profile"], ["PUT", "/api/me/avatar"], ["DELETE", "/api/me/avatar"], ["PATCH", "/api/me/contact"], ["PATCH", "/api/account"],
+      ["POST", "/api/fork/team-builder/saves"], ["PUT", "/api/fork/teams/x/avatar"], ["POST", "/api/tournaments/t1/entrants"], ["POST", "/api/leagues/lg/news"], ["POST", "/api/lobby"], ["POST", "/api/tabletop/matches"], ["POST", "/api/bug-reports"]])
+      expect(onboardingGateApplies(m!, p!), `${m} ${p}`).toBe(true);
+    for (const [m, p] of [["POST", "/api/me/onboarding"], ["POST", "/api/me/delete"], ["POST", "/api/auth/logout"], ["POST", "/api/auth/discord/complete"], ["POST", "/api/auth/desktop/claim"],
+      ["POST", "/api/team/checkName"], ["GET", "/api/me/profile"], ["HEAD", "/api/account"], ["OPTIONS", "/api/lobby"], ["GET", "/api/me/export"], ["POST", "/app/whatever"]])
+      expect(onboardingGateApplies(m!, p!), `${m} ${p}`).toBe(false);
   });
 });
 
@@ -213,6 +234,37 @@ describe("Discord re-sign-in keeps the coach's edits", () => {
     expect(w.contact).toEqual({ email: "eve@mine.test", emailSource: "user", emailVerified: false, phones: [{ number: "+15551234567" }] });
     expect(w.identities.email).toBe("eve@new.test"); // the Discord field itself follows Discord
     expect(w.consent).toEqual(consent);
+  });
+
+  it("first-time linking re-reads the identity after the fork-auth await: a consent withdrawn or a phone deleted meanwhile is never restored", async () => {
+    const { createHash } = await import("node:crypto");
+    let current = record("Linker", {
+      identities: { nafName: "Linker NAF" },
+      contact: { email: "l@mine.test", emailSource: "user", emailVerified: false, phones: [{ number: "+15551234567" }] },
+      consent: { leagueContact: { granted: true, at: NOW.toISOString(), version: "2026-10-31" }, privacy: { acceptedVersion: PRIVACY_VERSION, at: NOW.toISOString() } },
+    });
+    const digest = createHash("md5").update("pw", "utf8").digest("hex");
+    let written: CoachIdentityRecord | undefined;
+    const result = await completeDiscordCoachAssociation(req, { discordId: "d-77", discordUsername: "linker_dc", email: "l@discord.test", next: "/app/" } as never, { ffbCoachId: "Linker", passwordMd5: digest }, undefined, {
+      fork: {
+        coachExists: async () => true,
+        verifyCoachDigest: async (_c: string, d: string) => {
+          // While the fork check is in flight the coach withdraws consent and deletes the phone (another tab).
+          current = { ...current, contact: { ...current.contact!, phones: [] }, consent: { ...current.consent, leagueContact: { granted: false, at: LATER.toISOString(), version: "2026-10-31" } } };
+          return d === digest;
+        },
+        createForkAccountDigestIfAvailable: async () => { throw new Error("not used"); },
+      },
+      identityForCoach: () => current,
+      isCoachBanned: () => false,
+      upsertIdentity: (r: CoachIdentityRecord) => { written = r; },
+      createSessionToken: () => "token",
+    } as never);
+    expect(result.status).toBe(200);
+    expect(written!.contact?.phones).toEqual([]);
+    expect(written!.consent?.leagueContact).toEqual({ granted: false, at: LATER.toISOString(), version: "2026-10-31" });
+    expect(written!.identities).toMatchObject({ discordUserId: "d-77", discordUsername: "linker_dc", email: "l@discord.test", nafName: "Linker NAF" });
+    expect(written!.contact?.email).toBe("l@mine.test"); // coach-typed email untouched
   });
 
   it("a Discord-sourced email follows the Discord verified email (and clears when Discord sends none)", async () => {

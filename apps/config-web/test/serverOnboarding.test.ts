@@ -45,6 +45,14 @@ beforeAll(async () => {
     newbie: record("Newbie", { identities: { discordUserId: "101", discordUsername: "newbie_dc", email: "newbie@example.test" } }),
     stale: record("Stale", { consent: { privacy: { acceptedVersion: "2025-01-01", at: "2025-01-01T00:00:00.000Z" } } }),
     limited: record("Limited"),
+    victim: record("Victim", {
+      identities: { discordUserId: "909", discordUsername: "victim_dc", email: "victim-discord@example.test", nafName: "Victim NAF", nafId: "4242" },
+      profile: { preferredName: "Secret Pref" },
+      contact: { email: "victim@example.test", emailSource: "user", emailVerified: false, phones: [{ number: "+15550001111" }] },
+      consent: { leagueContact: { granted: true, at: "2026-10-31T00:00:00.000Z", version: "2026-10-31" }, privacy: { acceptedVersion: PRIVACY_VERSION, at: "2026-10-31T00:00:00.000Z" } },
+    }),
+    org: record("Org", { level: "organizer", consent: { privacy: { acceptedVersion: PRIVACY_VERSION, at: "2026-10-31T00:00:00.000Z" } } }),
+    boss: record("Boss", { level: "admin", consent: { privacy: { acceptedVersion: PRIVACY_VERSION, at: "2026-10-31T00:00:00.000Z" } } }),
   } }), "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
   writeFileSync(join(root, "coaches.json"), "[]", "utf8");
@@ -149,6 +157,53 @@ describe("POST /api/me/onboarding", () => {
     for (let i = 0; i < 11; i++) last = await call("Limited", "POST", "/api/me/onboarding", { ...okBody, privacyAccepted: false });
     expect(last!.status).toBe(429);
     expect(Number(last!.headers.get("retry-after"))).toBeGreaterThan(0);
+  });
+});
+
+describe("all writes are gated while onboarding is needed", () => {
+  it("builder save, team avatar, tournament entry, league action and a lobby write answer 428; the allow-list and anonymous calls do not", async () => {
+    for (const [method, path] of [
+      ["POST", "/api/fork/team-builder/saves"], ["PUT", "/api/fork/teams/abc/avatar"], ["POST", "/api/tournaments/t1/entrants"],
+      ["POST", "/api/leagues/lg/news"], ["POST", "/api/lobby"], ["POST", "/api/tabletop/matches"], ["POST", "/api/bug-reports"],
+    ]) {
+      const res = await call("Gated", method!, path!, {});
+      expect(res.status, `${method} ${path}`).toBe(428);
+    }
+    // Allow-list: logout, the onboarding POST (400 here: invalid body, but not 428), name checks; anonymous lobby write.
+    expect((await call("Gated", "POST", "/api/auth/logout", {})).status).not.toBe(428);
+    expect((await call("Gated", "POST", "/api/me/onboarding", {})).status).toBe(400);
+    expect((await call("Gated", "POST", "/api/team/checkName", { name: "x" })).status).not.toBe(428);
+    expect((await call(undefined, "POST", "/api/lobby", {})).status).not.toBe(428);
+  });
+});
+
+describe("organisers never see another coach's contact details or consent", () => {
+  const leaks = (text: string) => ["victim@example.test", "victim-discord@example.test", "+15550001111", "Secret Pref", "leagueContact", "\"contact\"", "\"consent\""].filter((t) => text.includes(t));
+
+  it("POST /api/admin/identities/naf: an organiser gets the coach name and NAF fields only; a site admin the full record", async () => {
+    const org = await call("Org", "POST", "/api/admin/identities/naf", { ffbCoachId: "Victim", nafName: "Victim NAF", nafId: "4242" });
+    expect(org.status).toBe(200);
+    const text = await org.text();
+    expect(leaks(text)).toEqual([]);
+    expect(JSON.parse(text).coach).toEqual({ ffbCoachId: "Victim", identities: { nafName: "Victim NAF", nafId: "4242" } });
+    expect(text).not.toContain("909"); // no Discord id either
+    const admin = await call("Boss", "POST", "/api/admin/identities/naf", { ffbCoachId: "Victim", nafName: "Victim NAF", nafId: "4242" });
+    expect((await admin.json()).coach).toMatchObject({ contact: { email: "victim@example.test" } });
+  });
+
+  it("the admin identities list, edit and merge refuse an organiser (403)", async () => {
+    expect((await call("Org", "GET", "/api/admin/identities")).status).toBe(403);
+    expect((await call("Org", "POST", "/api/admin/identities", { ffbCoachId: "Victim", note: "x" })).status).toBe(403);
+    expect((await call("Org", "POST", "/api/admin/identities/merge", { sourceFfbCoachId: "Victim", targetFfbCoachId: "Org" })).status).toBe(403);
+  });
+
+  it("the organiser's own account, profile, contact and onboarding views carry only their own record", async () => {
+    for (const path of ["/api/account", "/api/me/profile", "/api/me/contact", "/api/me/onboarding"]) {
+      const res = await call("Org", "GET", path);
+      expect(res.status, path).toBe(200);
+      const text = await res.text();
+      expect(["victim@example.test", "victim-discord@example.test", "+15550001111", "Secret Pref"].filter((t) => text.includes(t)), path).toEqual([]);
+    }
   });
 });
 

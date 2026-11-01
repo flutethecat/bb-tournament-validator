@@ -1,10 +1,11 @@
 // New-user flow (owner 10-31): GET/POST /api/me/onboarding (the blocking welcome modal) and GET/PATCH /api/me/contact
 // (the Account page's "Contact & consent" section). Field schema and defaults: src/auth/contactSchema.ts.
 //
-// Gate: while onboardingNeeded (privacy notice never accepted, or an older version), every /api/me/* WRITE other than
-// the onboarding POST itself (and the data-deletion route, which a coach must always reach) answers 428 "Complete your
-// profile first." /api/account writes are gated the same way. Reads stay open so the page renders behind the modal; sign-out is /api/auth/logout (never gated);
-// public routes are unaffected.
+// Gate: while onboardingNeeded (privacy notice never accepted, or an older version), EVERY state-changing /api request
+// (any method but GET/HEAD/OPTIONS) by a signed-in coach answers 428 "Complete your profile first.", lobby and tabletop
+// writes included. Allow-list: the onboarding POST, /api/me/delete (a coach must always reach deletion), the sign-in /
+// sign-out flows under /api/auth/ (logout, Discord SSO, desktop claim), and the read-only public POSTs the caller names
+// (name checks). Reads stay open so the page renders behind the modal; anonymous requests are never gated.
 
 import {
   contactOf, contactWithEmail, ContactValidationError, LEAGUE_CONTACT_TEXT, LEAGUE_CONTACT_VERSION, onboardingNeeded,
@@ -18,18 +19,20 @@ export { ContactValidationError } from "./contactSchema.js";
 export const ONBOARDING_PATH = "/api/me/onboarding";
 export const CONTACT_PATH = "/api/me/contact";
 export const ONBOARDING_REQUIRED_MESSAGE = "Complete your profile first.";
-/** /api/me/* writes that stay open while onboarding is needed. */
-const GATE_EXEMPT = new Set([ONBOARDING_PATH, "/api/me/delete"]);
-const WRITES = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+/** Writes that stay open while onboarding is needed. */
+const GATE_EXEMPT = new Set([ONBOARDING_PATH, "/api/me/delete", "/api/team/checkName"]);
+const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-/** True for the requests the 428 gate covers (it applies only while the coach's onboarding is needed). */
+/** True for the requests the 428 gate covers (it applies only to a signed-in coach whose onboarding is needed). */
 export function onboardingGateApplies(method: string, path: string): boolean {
-  return WRITES.has(method) && (path === "/api/account" || (path.startsWith("/api/me/") && !GATE_EXEMPT.has(path)));
+  if (READ_METHODS.has(method.toUpperCase()) || !path.startsWith("/api/")) return false;
+  return !GATE_EXEMPT.has(path) && !path.startsWith("/api/auth/");
 }
 
 export interface OnboardingView {
   needed: boolean;
-  prefill: { preferredName: string; email: string | null; emailSource: CoachContact["emailSource"] };
+  /** phones and leagueContact carry what is stored, so a re-acceptance after a privacy-version bump keeps them. */
+  prefill: { preferredName: string; email: string | null; emailSource: CoachContact["emailSource"]; phones: CoachPhone[]; leagueContact: boolean };
   privacyVersion: string;
   leagueContactText: string;
   leagueContactVersion: string;
@@ -39,7 +42,10 @@ export function onboardingView(record: CoachIdentityRecord): OnboardingView {
   const contact = contactOf(record);
   return {
     needed: onboardingNeeded(record),
-    prefill: { preferredName: preferredNameOf(record), email: contact.email, emailSource: contact.emailSource },
+    prefill: {
+      preferredName: preferredNameOf(record), email: contact.email, emailSource: contact.emailSource,
+      phones: contact.phones, leagueContact: record.consent?.leagueContact?.granted === true,
+    },
     privacyVersion: PRIVACY_VERSION,
     leagueContactText: LEAGUE_CONTACT_TEXT,
     leagueContactVersion: LEAGUE_CONTACT_VERSION,
@@ -107,7 +113,7 @@ function save(previous: CoachIdentityRecord, next: { preferredName: string; cont
 
 /**
  * POST /api/me/onboarding: { preferredName, email (string | null), phones?, leagueContact?, privacyAccepted: true,
- * privacyVersion? }. Saves every field in one write; throws ContactValidationError (400) on any problem, including a
+ * privacyVersion? }. phones / leagueContact absent = keep what is stored. Saves every field in one write; throws ContactValidationError (400) on any problem, including a
  * missing privacy acceptance or a privacyVersion other than the current one (the page was stale).
  */
 export function completeOnboarding(coach: string, body: unknown, now = new Date()): CoachIdentityRecord {
@@ -119,9 +125,11 @@ export function completeOnboarding(coach: string, body: unknown, now = new Date(
   if (!("email" in body)) throw new ContactValidationError("Confirm your email address (or leave it empty).");
   const preferredName = parsePreferredName(body.preferredName);
   const email = parseEmail(body.email);
-  const phones = parsePhones(body.phones);
-  const granted = parseLeagueContact(body.leagueContact);
   const previous = ownIdentityRecord(coach);
+  // Phones are replaced only when the client sends the field (a missing field keeps the stored numbers).
+  const phones = "phones" in body ? parsePhones(body.phones) : contactOf(previous).phones;
+  // The league-contact choice likewise: absent keeps the stored choice (a first onboarding = not granted).
+  const granted = "leagueContact" in body ? parseLeagueContact(body.leagueContact) : previous.consent?.leagueContact?.granted === true;
   return save(previous, {
     preferredName,
     contact: contactWithEmail(email, previous.identities.email, phones),

@@ -19,7 +19,7 @@ export const EMAIL_UNVERIFIED_NOTE = "We'll verify this address later.";
 
 export interface OnboardingInfo {
   needed: boolean;
-  prefill: { preferredName: string; email: string | null; emailSource: "discord" | "user" };
+  prefill: { preferredName: string; email: string | null; emailSource: "discord" | "user"; phones?: Array<{ number: string; label?: PhoneLabel }>; leagueContact?: boolean };
   privacyVersion: string;
   leagueContactText: string;
   leagueContactVersion?: string;
@@ -112,6 +112,9 @@ export function createOnboarding(deps: { api: Fetcher; onSignedOut?: () => void 
         preferredName: info.prefill.preferredName ?? "",
         email: info.prefill.email ?? "",
         editingEmail: !info.prefill.email,
+        // After a privacy-version bump the stored numbers and choice come back prefilled (never wiped on submit).
+        phones: (info.prefill.phones ?? []).map((p) => ({ number: p.number, label: p.label ?? "" })),
+        leagueContact: info.prefill.leagueContact === true,
       };
     } catch {
       if (readFor === coach) readFor = ""; // retry on the next call

@@ -4,7 +4,8 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createSession, SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { createSession } from "./onboardedFixture.js";
 
 const root = mkdtempSync(join(tmpdir(), "server-tournament-entry-"));
 const previousEnv = new Map<string, string | undefined>();

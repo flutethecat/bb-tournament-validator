@@ -55,16 +55,28 @@ export function contactBody(form: ContactForm) {
   };
 }
 
+type ContactBody = ReturnType<typeof contactBody>;
+/** Only the fields that differ from what the server last answered: a name edit never resubmits consent or phones. */
+export function changedFields(form: ContactForm, view: ContactInfo): Partial<ContactBody> {
+  const next = contactBody(form);
+  const was = contactBody(formOf(view));
+  const out: Partial<ContactBody> = {};
+  for (const key of Object.keys(next) as Array<keyof ContactBody>) {
+    if (JSON.stringify(next[key]) !== JSON.stringify(was[key])) (out as Record<string, unknown>)[key] = next[key];
+  }
+  return out;
+}
+
 export function createContactEditor(deps: { api: Fetcher }) {
   const state = reactive<ContactState>({
     view: null, form: { preferredName: "", email: "", phones: [], leagueContact: false }, loaded: false, loadFailed: false, saving: false, error: "", notice: "",
   });
   const problems = () => contactProblems(state.form);
   const valid = () => { const p = problems(); return !p.preferredName && !p.email && p.phones.every((x) => !x); };
-  const dirty = () => Boolean(state.view) && JSON.stringify(contactBodySafe(state.form)) !== JSON.stringify(contactBodySafe(formOf(state.view!)));
-  function contactBodySafe(form: ContactForm) {
-    try { return contactBody(form); } catch { return form; }
-  }
+  const dirty = () => {
+    if (!state.view) return false;
+    try { return Object.keys(changedFields(state.form, state.view)).length > 0; } catch { return true; }
+  };
   return {
     state,
     problems,
@@ -89,10 +101,13 @@ export function createContactEditor(deps: { api: Fetcher }) {
       state.notice = "";
       if (state.saving) return false;
       if (!valid()) { state.error = "Fix the highlighted fields first."; return false; }
+      if (!state.view) return false;
+      const body = changedFields(state.form, state.view);
+      if (!Object.keys(body).length) { state.notice = "Nothing to save."; return true; }
       state.saving = true;
       state.error = "";
       try {
-        const v = await deps.api<ContactInfo>("/api/me/contact", { method: "PATCH", body: contactBody(state.form) });
+        const v = await deps.api<ContactInfo>("/api/me/contact", { method: "PATCH", body });
         state.view = v;
         state.form = formOf(v);
         state.notice = "Saved.";

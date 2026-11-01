@@ -4,8 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createSession } from "../src/auth/session.js";
-import { ONBOARDED_CONSENT } from "./onboardedFixture.js";
+import { createSession, ONBOARDED_CONSENT } from "./onboardedFixture.js";
 
 const root = mkdtempSync(join(tmpdir(), "server-organizer-gate-"));
 const previousEnv = new Map<string, string | undefined>();
@@ -244,9 +243,10 @@ describe("NAF identity HTTP gates", () => {
       coach: {
         ffbCoachId: "TargetCoach",
         identities: { nafName: "Target NAF", nafId: "12345" },
-        updatedBy: "OrganizerCoach",
+        // an organiser gets the coach name and NAF fields only (organizerIdentityView); the write itself is theirs
       },
     });
+    expect(JSON.parse(readFileSync(join(root, "identities.json"), "utf8")).coaches.targetcoach.updatedBy).toBe("OrganizerCoach");
 
     const forbiddenIdentityResponse = await fetch(`${origin}/api/admin/identities/naf`, {
       method: "POST",

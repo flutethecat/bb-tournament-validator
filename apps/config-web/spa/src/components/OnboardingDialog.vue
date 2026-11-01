@@ -104,6 +104,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey, true));
                 <div class="ob-field ob-phone-label">
                   <label :for="`ob-phone-${i}-label`">Type</label>
                   <select :id="`ob-phone-${i}-label`" v-model="phone.label">
+                    <option value="">None</option>
                     <option v-for="l in PHONE_LABELS" :key="l" :value="l">{{ l[0]!.toUpperCase() + l.slice(1) }}</option>
                   </select>
                 </div>

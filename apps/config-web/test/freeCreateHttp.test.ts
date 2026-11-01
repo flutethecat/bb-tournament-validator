@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { composeTeam, findPosition, findRoster, loadPackage, skillAccess, validate, type TeamPick } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
-import { createSession } from "../src/auth/session.js";
+import { createSession, onboardedCoaches } from "./onboardedFixture.js";
 import { FREE_CREATE_BUILD_PACKAGE, resolveBuilderPackage } from "../src/teamBuilderPackage.js";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
@@ -53,7 +53,7 @@ beforeAll(async () => {
   // The second roster carries a star the Dwarf roster does not list (the Ignore in-game limits pool).
   writeFileSync(join(root, "rosters", "dwarf.xml"), rosterXml("Dwarf", "dwarf.bb2025", "d"), "utf8");
   writeFileSync(join(root, "rosters", "human.xml"), rosterXml("Human", "human.bb2025", "h", [{ id: "s900", name: "Griff Oberwald" }]), "utf8");
-  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: {} }), "utf8");
+  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: onboardedCoaches("Alice") }), "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
   ({ server } = await import("../src/server.js"));
   if (!server.listening) await once(server, "listening");

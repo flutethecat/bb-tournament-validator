@@ -523,36 +523,43 @@ async function completeDiscordCoachAssociationNow(
   if (deps.isCoachBanned(ffbCoachId))
     return { status: 403, body: { error: BANNED_ACCOUNT_MESSAGE } };
 
-  const identities = {
-    ...(previous?.identities ?? {}),
-    discordUserId: pending.discordId,
-    discordUsername: pending.discordUsername,
-  };
-  if (pending.discordAvatarHash) identities.discordAvatarHash = pending.discordAvatarHash;
-  else delete identities.discordAvatarHash;
-  if (pending.email) identities.email = pending.email;
-  else delete identities.email;
-  const newProfile = {
-    displayName: pending.discordUsername,
-    // New-user flow: the preferred name starts as the Discord username; the onboarding modal confirms or changes it.
-    preferredName: [...pending.discordUsername.trim()].slice(0, PREFERRED_NAME_MAX).join(""),
-    avatar: discordAvatarUrl(pending.discordId, pending.discordAvatarHash) ?? "",
-  };
-  const identityRecord: CoachIdentityRecord = {
-    ffbCoachId,
-    level: previous?.level ?? "player",
-    banned: previous?.banned ?? false,
-    silenced: previous?.silenced ?? false,
-    note: previous?.note ?? "",
-    profile: { ...(previous?.profile ?? newProfile) },
-    ...(previous?.scheduling ? { scheduling: previous.scheduling } : {}),
-    identities,
-    // A Discord-sourced contact email follows the Discord verified email; one the coach typed is never overwritten
-    // (src/auth/contactSchema.ts). An absent contact reads from identities.email, refreshed just above.
-    ...(previous?.contact ? { contact: contactAfterDiscordSignIn(previous.contact, pending.email) } : {}),
-    ...(previous?.consent ? { consent: previous.consent } : {}),
-    updatedAt: new Date(now).toISOString(),
-    updatedBy: "discord-sso",
+  /**
+   * The identity write, built from a FRESH read of the stored record at write time (never the snapshot taken before the
+   * fork-auth awaits below): only the Discord fields are merged in, so a contact edit, a withdrawn consent or a deleted
+   * phone made meanwhile is never restored. Contact and consent come from that fresh read (a Discord-sourced email
+   * follows the Discord verified email; a coach-typed one is never overwritten, src/auth/contactSchema.ts).
+   */
+  const buildIdentityRecord = (): CoachIdentityRecord => {
+    const current = deps.identityForCoach(ffbCoachId) ?? previous;
+    const identities = {
+      ...(current?.identities ?? {}),
+      discordUserId: pending.discordId,
+      discordUsername: pending.discordUsername,
+    };
+    if (pending.discordAvatarHash) identities.discordAvatarHash = pending.discordAvatarHash;
+    else delete identities.discordAvatarHash;
+    if (pending.email) identities.email = pending.email;
+    else delete identities.email;
+    const newProfile = {
+      displayName: pending.discordUsername,
+      // New-user flow: the preferred name starts as the Discord username; the onboarding modal confirms or changes it.
+      preferredName: [...pending.discordUsername.trim()].slice(0, PREFERRED_NAME_MAX).join(""),
+      avatar: discordAvatarUrl(pending.discordId, pending.discordAvatarHash) ?? "",
+    };
+    return {
+      ffbCoachId,
+      level: current?.level ?? "player",
+      banned: current?.banned ?? false,
+      silenced: current?.silenced ?? false,
+      note: current?.note ?? "",
+      profile: { ...(current?.profile ?? newProfile) },
+      ...(current?.scheduling ? { scheduling: current.scheduling } : {}),
+      identities,
+      ...(current?.contact ? { contact: contactAfterDiscordSignIn(current.contact, pending.email) } : {}),
+      ...(current?.consent ? { consent: current.consent } : {}),
+      updatedAt: new Date(now).toISOString(),
+      updatedBy: "discord-sso",
+    };
   };
 
   let sessionToken: string;
@@ -602,6 +609,7 @@ async function completeDiscordCoachAssociationNow(
     };
     /** The confirmed link and the removal of its recovery record, in one durable write, BEFORE any session. */
     const confirmLink = (rec: ProvisionalSignup): void => {
+      const identityRecord = buildIdentityRecord();
       if (deps.provisional?.confirm) deps.provisional.confirm(identityRecord, rec.discordUserId, rec.operationId);
       else {
         deps.upsertIdentity(identityRecord);
@@ -729,7 +737,7 @@ async function completeDiscordCoachAssociationNow(
     }
   }
 
-  deps.upsertIdentity(identityRecord);
+  deps.upsertIdentity(buildIdentityRecord());
 
   return {
     status: 200,

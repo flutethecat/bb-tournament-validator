@@ -65,7 +65,8 @@ export class ContactValidationError extends Error {}
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001F\u007F-\u009F]/;
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s.]+$/;
-const E164 = /^\+\d{8,15}$/;
+/** "+", a country code that never starts with 0, then digits: 8 to 15 digits in all. */
+const E164 = /^\+[1-9]\d{7,14}$/;
 const ISO_MAX = 64;
 
 const isObject = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === "object" && !Array.isArray(v);
@@ -101,7 +102,7 @@ export function normalizePhoneNumber(value: unknown): string {
   if (typeof value !== "string") throw new ContactValidationError("Phone number must be text.");
   const compact = value.trim().replace(/[\s().-]/g, "");
   if (!E164.test(compact))
-    throw new ContactValidationError("Phone numbers start with + and the country code, then 8 to 15 digits in all (for example +1 555 123 4567).");
+    throw new ContactValidationError("Phone numbers start with + and the country code (not 0), then 8 to 15 digits in all (for example +1 555 123 4567).");
   return compact;
 }
 

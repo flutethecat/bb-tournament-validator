@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createSession } from "../src/auth/session.js";
+import { createSession } from "./onboardedFixture.js";
 import { resetAvatarRateLimit } from "../src/teamAvatars.js";
 import { TournamentStore } from "../src/tournaments/store.js";
 

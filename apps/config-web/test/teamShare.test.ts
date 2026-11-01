@@ -8,7 +8,8 @@ import { runInNewContext } from "node:vm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { findRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
-import { createSession, SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { createSession, onboardedCoaches } from "./onboardedFixture.js";
 import {
   coachSaveKey,
   createSave,
@@ -79,7 +80,7 @@ beforeAll(async () => {
     mkdirSync(join(root, directory), { recursive: true });
   writeFileSync(join(root, "log", "default.log"), "", "utf8");
   writeFileSync(join(root, "rosters", "dwarf.xml"), dwarfRosterXml(), "utf8");
-  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: {} }), "utf8");
+  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: onboardedCoaches("Alice", "Bob", "Carol", "Dave", "Fay", "Erin") }), "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
   ({ server } = await import("../src/server.js"));
   if (!server.listening) await once(server, "listening");

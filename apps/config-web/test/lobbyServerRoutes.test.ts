@@ -4,7 +4,8 @@ import { connect, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createSession, SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { createSession } from "./onboardedFixture.js";
 
 // Route wiring in the live host's mode (sidecar OFF, ADMIN_PASSWORD set, no fork DB / admin, FORK_TEAMS_DIR set so
 // the game-start lock is live): Discord-only sessions, CSRF, lock ordering, the session-scoped JNLP, and the

@@ -4,7 +4,8 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createSession, SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { SESSION_COOKIE_NAME } from "../src/auth/session.js";
+import { createSession } from "./onboardedFixture.js";
 import { coachSaveKey } from "../src/teamBuilderSaves.js";
 
 // Sidecar-OFF (the live ADMIN_PASSWORD host mode): saves must bypass the legacy Basic gate and be

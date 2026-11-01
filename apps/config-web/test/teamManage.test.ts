@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { findRoster } from "@bb/validator";
 import { bb2025 } from "@bb/validator/dataset";
 import { readLibrary, upsertLibraryTeam, type LibraryTeam } from "@bb/fork-ops";
-import { createSession } from "../src/auth/session.js";
+import { createSession, onboardedCoaches } from "./onboardedFixture.js";
 import { parseStoredTeamDetail, playerCareerStats, teamDetailEndpoint, storedRosterXml } from "../src/teamDetail.js";
 import { libraryManageView, meTeamPath } from "../src/teamManageView.js";
 
@@ -61,7 +61,7 @@ beforeAll(async () => {
   cpSync(join(FIXTURES, "team-detail.xml"), join(root, "teams", "team_Tarkin_1272390.xml"));
   cpSync(join(FIXTURES, "roster-team-detail.xml"), join(root, "rosters", "roster_team_1272390.xml"));
   upsertLibraryTeam(join(root, "library"), "Tarkin", STORED);
-  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: {} }), "utf8");
+  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: onboardedCoaches("Tarkin", "Gondra87") }), "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
   ({ server } = await import("../src/server.js"));
   if (!server.listening) await once(server, "listening");

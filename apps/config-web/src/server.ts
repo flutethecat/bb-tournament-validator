@@ -139,6 +139,7 @@ import {
   normalizeFfbCoachId,
   mergeIdentityRecords,
   organizerUpdateIdentity,
+  organizerIdentityView,
   ownIdentityRecord,
   readIdentities,
   identitiesFile,
@@ -1591,6 +1592,18 @@ async function handleApi(
   query: URLSearchParams,
   auth?: SessionIdentity,
 ): Promise<void> {
+  // New-user flow gate (src/auth/onboarding.ts): until a signed-in coach completes onboarding, every state-changing
+  // /api request (lobby and tabletop included, so it runs before their dispatch) answers 428, except the allow-list
+  // (onboarding POST, /api/me/delete, /api/auth/* sign-in/out, read-only name checks). Reads and anonymous calls pass.
+  {
+    const gateCoach = auth?.coach ?? sessionFromRequest(req)?.coach;
+    const gateMethod = req.method ?? "GET";
+    if (gateCoach && onboardingGateApplies(gateMethod, path) && !nameGeneratePath(path)) {
+      let needed = true;
+      try { needed = onboardingNeeded(ownIdentityRecord(gateCoach)); } catch { needed = true; }
+      if (needed) return sendJson(res, 428, { error: ONBOARDING_REQUIRED_MESSAGE, onboarding: true });
+    }
+  }
   // Web Lobby: authenticates and reads its body BEFORE taking the game-start lock (handleLobbyRequest).
   if (isLobbyApiPath(path)) return handleLobbyRequest(req, res, path, query);
   if (isTabletopApiPath(path)) return handleTabletopRequest(req, res, path, query);
@@ -1637,14 +1650,6 @@ async function handleApi(
       // Session provenance ("discord" | "password"): Discord-only surfaces (the web Lobby) check it at boot.
       ...(session ? { authMethod: session.method, expiresAt: new Date(session.expiry).toISOString(), ...(session.test ? { test: true } : {}) } : {}),
     });
-  }
-
-  // New-user flow gate (src/auth/onboarding.ts): until the coach completes onboarding, /api/me/* writes other than the
-  // onboarding POST answer 428. Reads, sign-out and public routes are untouched.
-  if (auth && onboardingGateApplies(method, path)) {
-    let needed = true;
-    try { needed = onboardingNeeded(ownIdentityRecord(auth.coach)); } catch { needed = true; }
-    if (needed) return sendJson(res, 428, { error: ONBOARDING_REQUIRED_MESSAGE, onboarding: true });
   }
 
   // New-user flow: the welcome modal (GET = needed + prefill; POST = save every field + accept the privacy notice).
@@ -2261,7 +2266,11 @@ async function handleApi(
         ffbCoachId,
         identityPatch,
       );
-      return sendJson(res, 200, { ok: true, coach });
+      // A site admin gets the full record back; an organiser only the coach name and the NAF fields they manage
+      // (never another coach's contact details, consent or Discord data).
+      const siteAdmin = auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req);
+      const self = auth !== undefined && normalizeFfbCoachId(auth.coach) === normalizeFfbCoachId(coach.ffbCoachId);
+      return sendJson(res, 200, { ok: true, coach: siteAdmin || self ? coach : organizerIdentityView(coach) });
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
     }

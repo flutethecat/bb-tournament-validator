@@ -4,7 +4,7 @@ import type { ViteDevServer } from "vite";
 import { ApiError } from "../spa/src/shared/api";
 import type { Fetcher } from "../spa/src/session";
 import { canSubmit, createOnboarding, onboardingBody, onboardingKey, onboardingProblems, type OnboardingForm } from "../spa/src/account/onboarding";
-import { contactBody, createContactEditor, dateOf } from "../spa/src/account/contact";
+import { changedFields, contactBody, createContactEditor, dateOf } from "../spa/src/account/contact";
 
 // New-user flow in the SPA: the onboarding controller (prefill, validation, disabled states, the POST), the modal's
 // keyboard rules (Tab wraps, Escape does nothing), the modal over the shell on any route (server-rendered through the
@@ -137,15 +137,32 @@ describe("contact editor (Account page)", () => {
     e.state.form.leagueContact = false;
     expect(e.dirty()).toBe(true);
     expect(await e.save()).toBe(true);
-    expect(f.calls.at(-1)?.body).toEqual({ preferredName: "Alice", email: "alice@example.test", phones: [{ number: "+15551234567", label: "mobile" }], leagueContact: false });
+    // Partial: only the changed field goes up (the phone was re-typed to the same number).
+    expect(f.calls.at(-1)?.body).toEqual({ leagueContact: false });
     expect(e.state.notice).toBe("Saved.");
     expect(dateOf("2026-11-02T00:00:00.000Z")).toBe("2026-11-02");
     expect(contactBody({ preferredName: " A ", email: "", phones: [{ number: "+15551234567", label: "" }], leagueContact: false })).toEqual({ preferredName: "A", email: null, phones: [{ number: "+15551234567" }], leagueContact: false });
   });
 
+  it("a name edit never resubmits consent, phones or email", () => {
+    const view = CONTACT as never;
+    expect(changedFields({ preferredName: "Alicia", email: "alice@example.test", phones: [{ number: "+15551234567", label: "mobile" }], leagueContact: true }, view)).toEqual({ preferredName: "Alicia" });
+    expect(changedFields({ preferredName: "Alice", email: "alice@example.test", phones: [], leagueContact: true }, view)).toEqual({ phones: [] });
+  });
+
+  it("re-acceptance prefills the stored phones and league-contact choice in the modal", async () => {
+    const o = createOnboarding({ api: mockFetcher({ "/api/me/onboarding": INFO(true, { prefill: { preferredName: "a", email: "a@b.cd", emailSource: "discord", phones: [{ number: "+15551234567", label: "home" }, { number: "+442079460000" }], leagueContact: true } }) }) });
+    await o.load("Alice");
+    expect(o.state.form.phones).toEqual([{ number: "+15551234567", label: "home" }, { number: "+442079460000", label: "" }]);
+    expect(o.state.form.leagueContact).toBe(true);
+  });
+
   it("a 428 says to finish the welcome form", async () => {
     const e = createContactEditor({ api: mockFetcher({ "/api/me/contact": CONTACT, "PATCH /api/me/contact": new ApiError(428, "Complete your profile first.") }) });
     await e.load();
+    expect(await e.save()).toBe(true); // nothing changed: no request
+    expect(e.state.notice).toBe("Nothing to save.");
+    e.state.form.preferredName = "Alicia";
     expect(await e.save()).toBe(false);
     expect(e.state.error).toBe("Complete the welcome form first.");
   });
