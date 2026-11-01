@@ -13,6 +13,7 @@ import {
   PROXY_MAX_BYTES, resolveCoachAvatar, smallDiscordAvatar, withSideAvatars,
 } from "../src/coachAvatars.js";
 import { mergeIdentityRecords, ownIdentityRecord, upsertIdentity, type IdentityStore } from "../src/auth/identitiesStore.js";
+import { ONBOARDED_CONSENT } from "./onboardedFixture.js";
 
 // Coach avatars (owner 10-31): the coach uploads their own (PUT/DELETE /api/me/avatar), Discord is the fallback, and the
 // public result cards carry the site's own avatar route for eligible site coaches only; Discord images are proxied, never
@@ -27,7 +28,7 @@ const png = (w: number, h: number, pad = 0): Buffer => {
 const sha = (t: string): string => createHash("sha256").update(t, "utf8").digest("hex");
 
 const record = (ffbCoachId: string, extra: Record<string, unknown> = {}) => ({
-  ffbCoachId, level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, updatedAt: "", updatedBy: "", ...extra,
+  ffbCoachId, level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, consent: ONBOARDED_CONSENT, updatedAt: "", updatedBy: "", ...extra,
 });
 const store = (coaches: Record<string, ReturnType<typeof record>>): IdentityStore => ({ version: 1, coaches } as unknown as IdentityStore);
 
@@ -255,11 +256,12 @@ const card = async (id: string) => (await recent()).find((r) => r.id === id)!;
 const bytesOf = async (path: string) => { const r = await fetch(`${origin}${path}`); return { status: r.status, type: r.headers.get("content-type"), body: Buffer.from(await r.arrayBuffer()) }; };
 
 describe("coach avatar routes", () => {
-  it("401 without a session, 403 without X-CW-Auth on a cookie write or without a site identity, 405 for other methods", async () => {
+  it("401 without a session, 403 without X-CW-Auth on a cookie write, 428 without a site identity (never onboarded), 405 for other methods", async () => {
     expect((await fetch(`${origin}/api/me/avatar`, { method: "PUT", headers: { "x-cw-auth": "1" }, body: png(128, 128) as unknown as BodyInit })).status).toBe(401);
     expect((await fetch(`${origin}/api/me/avatar`, { method: "DELETE", headers: { "x-cw-auth": "1" } })).status).toBe(401);
     expect((await put(png(128, 128), alice, {})).status).toBe(403);
-    expect((await put(png(128, 128), cookieOf("Ghost"))).status).toBe(403); // no identity record
+    // No identity record = never onboarded: the new-user gate refuses first (428; the avatar route would answer 403).
+    expect((await put(png(128, 128), cookieOf("Ghost"))).status).toBe(428);
     expect((await fetch(`${origin}/api/coach-avatars/alice`, { method: "PUT", headers: { cookie: alice, "x-cw-auth": "1" } })).status).not.toBe(200);
   });
 

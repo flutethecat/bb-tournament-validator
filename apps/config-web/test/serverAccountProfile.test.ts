@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSession } from "../src/auth/session.js";
 import { parseProfilePatch } from "../src/accountProfile.js";
+import { ONBOARDED_CONSENT } from "./onboardedFixture.js";
 
 // Account page Identity panel: GET/PATCH /api/me/profile over HTTP. Session-gated, own record only, validated, written
 // through the identities store; the tournament registry's FUMBBL link stays authoritative.
@@ -18,7 +19,7 @@ type StoredRecord = { profile: Record<string, string>; identities: Record<string
 const identities = () => JSON.parse(readFileSync(join(root, "identities.json"), "utf8")) as { coaches: Record<string, StoredRecord> };
 
 const record = (ffbCoachId: string, extra: Record<string, unknown> = {}) => ({
-  ffbCoachId, level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, updatedAt: "", updatedBy: "", ...extra,
+  ffbCoachId, level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, consent: ONBOARDED_CONSENT, updatedAt: "", updatedBy: "", ...extra,
 });
 
 beforeAll(async () => {

@@ -2,6 +2,9 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizedConsent, normalizedContact, type CoachConsent, type CoachContact } from "./contactSchema.js";
+
+export type { CoachConsent, CoachContact, CoachPhone } from "./contactSchema.js";
 
 export type CoachLevel = "player" | "organizer" | "admin";
 
@@ -52,6 +55,10 @@ export interface CoachIdentityRecord {
   identities: CoachIdentities;
   /** Verified provider links (Account page Connections). Absent = nothing verified. */
   connections?: CoachConnections;
+  /** New-user flow contact details (src/auth/contactSchema.ts). Absent = derived from identities.email (contactOf). */
+  contact?: CoachContact;
+  /** League-contact consent and privacy-notice acceptance (src/auth/contactSchema.ts). Absent = onboarding needed. */
+  consent?: CoachConsent;
   updatedAt: string;
   updatedBy: string;
 }
@@ -330,6 +337,8 @@ function normalizedRecord(value: unknown, allowLegacy = false): CoachIdentityRec
     ? undefined
     : normalizedScheduling(record.scheduling);
   const connections = normalizedConnections(record.connections);
+  const contact = normalizedContact(record.contact);
+  const consent = normalizedConsent(record.consent);
   return {
     ffbCoachId,
     level: record.level as CoachLevel,
@@ -340,6 +349,8 @@ function normalizedRecord(value: unknown, allowLegacy = false): CoachIdentityRec
     ...(scheduling ? { scheduling } : {}),
     identities,
     ...(connections ? { connections } : {}),
+    ...(contact ? { contact } : {}),
+    ...(consent ? { consent } : {}),
     updatedAt: boundedString(record.updatedAt, "updatedAt", MAX_IDENTITY_VALUE_LENGTH),
     updatedBy: boundedString(record.updatedBy, "updatedBy", MAX_IDENTITY_VALUE_LENGTH),
   };
@@ -395,6 +406,8 @@ export function updateOwnAccount(coach: string, body: unknown, now = new Date())
   if (!hasProfile && !hasScheduling && !hasIdentities)
     throw new Error("profile, scheduling, or identities is required.");
   const previous = ownIdentityRecord(coach);
+  if (hasProfile && patch.profile && typeof patch.profile === "object" && Object.hasOwn(patch.profile, "preferredName"))
+    throw new Error("profile.preferredName is edited through /api/me/contact.");
   const profile = hasProfile
     ? normalizedProfile({ ...previous.profile, ...normalizedProfile(patch.profile, "profile") })
     : previous.profile;
@@ -466,9 +479,16 @@ export function upsertIdentity(record: CoachIdentityRecord): IdentityStore {
   const key = normalizeFfbCoachId(record.ffbCoachId);
   const current = readIdentities();
   const stored = current.coaches[key];
-  const carried = !Object.hasOwn(record, "connections") && stored?.connections
+  const withConn = !Object.hasOwn(record, "connections") && stored?.connections
     ? withConnections(record, connectionsAfterIdentityEdit(stored, record.identities))
     : record;
+  // Contact and consent ride along the same way: a writer that rebuilds the record without the key (admin identities
+  // route, test sign-in) keeps what the coach stored; the onboarding / contact writers and Discord sign-in pass it.
+  const carried: CoachIdentityRecord = {
+    ...withConn,
+    ...(!Object.hasOwn(record, "contact") && stored?.contact ? { contact: stored.contact } : {}),
+    ...(!Object.hasOwn(record, "consent") && stored?.consent ? { consent: stored.consent } : {}),
+  };
   const normalized = normalizedRecord(carried);
   const store: IdentityStore = {
     version: 1,
@@ -569,6 +589,9 @@ export function mergeIdentityRecords(
     ...(target.scheduling ?? source.scheduling
       ? { scheduling: target.scheduling ?? source.scheduling }
       : {}),
+    // Contact details and consent belong to the person: the target's win, the source fills a gap.
+    ...(target.contact ?? source.contact ? { contact: target.contact ?? source.contact } : {}),
+    ...(target.consent ?? source.consent ? { consent: target.consent ?? source.consent } : {}),
     updatedAt: now.toISOString(),
     updatedBy: actingCoach,
   });

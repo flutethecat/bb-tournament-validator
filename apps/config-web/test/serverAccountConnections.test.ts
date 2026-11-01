@@ -8,6 +8,7 @@ import { createSession } from "../src/auth/session.js";
 import { connectionsView, parseNafLinkInput, resetNafConnectionState, ConnectionError } from "../src/auth/connections.js";
 import { parseNafCoachIdentity } from "../src/nafRecords.js";
 import { organizerUpdateIdentity, updateOwnAccount, upsertIdentity, withConnections, type CoachIdentityRecord } from "../src/auth/identitiesStore.js";
+import { ONBOARDED_CONSENT } from "./onboardedFixture.js";
 
 // Account page Connections: POST/DELETE /api/me/connections/naf over HTTP, the NAF coach page mocked at the global fetch.
 // "Verified" = the public coach page exists and its name/number match what the coach entered (the NAF has no OAuth).
@@ -21,7 +22,7 @@ const identities = () => JSON.parse(readFileSync(join(root, "identities.json"), 
 const coachPage = readFileSync(join(import.meta.dirname, "fixtures", "naf-coachpage-34116.html"), "utf8");
 
 const record = (ffbCoachId: string, extra: Record<string, unknown> = {}) => ({
-  ffbCoachId, level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, updatedAt: "", updatedBy: "", ...extra,
+  ffbCoachId, level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, consent: ONBOARDED_CONSENT, updatedAt: "", updatedBy: "", ...extra,
 });
 
 // The NAF mock: number -> page (string = 200 body, number = status, "throw" = network error). Every NAF request is counted.

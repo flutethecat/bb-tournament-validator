@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { coachSecretDigest } from "@bb/fork-ops";
 import { BANNED_ACCOUNT_MESSAGE } from "./access.js";
 import { coachLogin } from "./coachLogin.js";
+import { contactAfterDiscordSignIn, PREFERRED_NAME_MAX } from "./contactSchema.js";
 import type { CoachIdentityRecord, ProvisionalSignup } from "./identitiesStore.js";
 
 export const DISCORD_OAUTH_STATE_COOKIE = "discord_oauth_state";
@@ -533,6 +534,8 @@ async function completeDiscordCoachAssociationNow(
   else delete identities.email;
   const newProfile = {
     displayName: pending.discordUsername,
+    // New-user flow: the preferred name starts as the Discord username; the onboarding modal confirms or changes it.
+    preferredName: [...pending.discordUsername.trim()].slice(0, PREFERRED_NAME_MAX).join(""),
     avatar: discordAvatarUrl(pending.discordId, pending.discordAvatarHash) ?? "",
   };
   const identityRecord: CoachIdentityRecord = {
@@ -544,6 +547,10 @@ async function completeDiscordCoachAssociationNow(
     profile: { ...(previous?.profile ?? newProfile) },
     ...(previous?.scheduling ? { scheduling: previous.scheduling } : {}),
     identities,
+    // A Discord-sourced contact email follows the Discord verified email; one the coach typed is never overwritten
+    // (src/auth/contactSchema.ts). An absent contact reads from identities.email, refreshed just above.
+    ...(previous?.contact ? { contact: contactAfterDiscordSignIn(previous.contact, pending.email) } : {}),
+    ...(previous?.consent ? { consent: previous.consent } : {}),
     updatedAt: new Date(now).toISOString(),
     updatedBy: "discord-sso",
   };

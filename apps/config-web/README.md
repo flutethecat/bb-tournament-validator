@@ -159,6 +159,24 @@ Environment:
 | `PUBLIC_BASE_URL` | (none: relative links) | public http(s) origin (no credentials, no path; validated at startup, an invalid value is ignored) used for absolute lobby links in the held-consent 409; never derived from the request's Host header |
 | `SUPER_WS_ALLOWED_ORIGINS` | (none) | comma list of browser origins allowed on lobby sockets; the origin of `DISCORD_OAUTH_REDIRECT_URI` is always allowed; with neither set, same host only. **REQUIRED** on any host whose public browser origin differs from the Discord redirect origin (e.g. page at `https://<host>`, redirect URI `http://<host>:4310`): list every origin coaches open the page from, or lobby chat is refused |
 
+## New-user flow (welcome modal, contact & consent)
+
+After a Discord sign-in the SPA reads `GET /api/me/onboarding`; while `needed` (the privacy notice was never accepted,
+or an older version was) a blocking "Welcome to Super FUMBBL" modal covers every route until `POST /api/me/onboarding`
+saves the preferred name, email, phones, league-contact consent (opt-in) and the privacy acceptance (required). Until
+then every `/api/me/*` write other than the onboarding POST (and `/api/me/delete`) answers **428** "Complete your
+profile first."; reads, sign-out and public routes are untouched. The Account page edits the same fields later with
+`GET/PATCH /api/me/contact`.
+
+- Field schema, defaults for existing records and `PRIVACY_VERSION`: `src/auth/contactSchema.ts` (bump the version to
+  ask everyone again). Routes and gate: `src/auth/onboarding.ts`.
+- A Discord re-sign-in refreshes the contact email only while it is Discord-sourced; a coach-edited email or preferred
+  name is never overwritten.
+- `contactFor(coach, leagueOrTournamentId)` (`src/auth/contactFor.ts`, exported from `server.ts`) gives organisers a
+  coach's email/phones only with that coach's league-contact consent AND membership of that league or tournament. It is
+  not exposed through any route yet; a future route must also check the caller organises it. Nothing public ever
+  includes email or phones.
+
 ## Tabletop recorder: team files
 
 `POST /api/tabletop/matches` takes `home.team` / `away.team` as `library:<teamId>` (a fork library team, read from its

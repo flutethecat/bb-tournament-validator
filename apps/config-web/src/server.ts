@@ -157,6 +157,12 @@ import {
   type CoachLevel,
 } from "./auth/identitiesStore.js";
 import { legacyPasswordAuthCounts, noteLegacyPasswordAuth } from "./auth/deprecation.js";
+import {
+  completeOnboarding, CONTACT_PATH, contactView, ONBOARDING_PATH, ONBOARDING_REQUIRED_MESSAGE,
+  onboardingGateApplies, onboardingView, updateOwnContact,
+} from "./auth/onboarding.js";
+import { onboardingNeeded } from "./auth/contactSchema.js";
+import { createContactLookup } from "./auth/contactFor.js";
 import { attachSuper } from "./super/index.js";
 import {
   isLobbyApiPath,
@@ -454,6 +460,11 @@ const tournamentStore = new TournamentStore(TOURNAMENTS_DIR);
 // Leagues (TABBL and later): <FORK_STATE_DIR>/leagues/<id>/; public reads, organiser/admin artwork writes (src/leagues/api.ts).
 const leagueStore = new LeagueStore(FORK_STATE_DIR);
 // recordLeagueFixtureEvent (match started / result from the fork and tabletop paths) posts through this store.
+/**
+ * Organiser contact lookup for later use (src/auth/contactFor.ts): a coach's email/phones only with their league-contact
+ * consent and membership of that league or tournament. Deliberately NOT exposed through any route yet.
+ */
+export const contactFor = createContactLookup({ tournaments: tournamentStore, leagues: leagueStore });
 registerLeagueEvents({ store: leagueStore, notify: (coach, input) => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } } });
 
 const packages = new PackageFiles(PACKAGES_DIR);
@@ -782,6 +793,8 @@ async function handleTestingRequest(req: IncomingMessage, res: ServerResponse, p
 
 /** Tabletop recorder HTTP: Discord session only (checked in tabletopApi), bounded body. */
 // Public standings read: per-IP rate limit (the same limiter the public translate relay uses).
+/** POST /api/me/onboarding and PATCH /api/me/contact: 10 writes a minute per coach. */
+const onboardingLimiter = new RateLimiter({ maxRequests: 10, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 5_000 });
 const standingsLimiter = new RateLimiter({ maxRequests: 60, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 5_000 });
 // Team share links: creation per coach (owner 10-27); the public read per IP.
 const shareCreateLimiter = new RateLimiter({ maxRequests: 30, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 5_000 });
@@ -1448,6 +1461,8 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === OWN_AVATAR_PATH ||
     pathname === NAF_CONNECTION_ENDPOINT ||
     pathname === "/api/me/notifications/read" ||
+    pathname === ONBOARDING_PATH ||
+    pathname === CONTACT_PATH ||
     isTeamMutationWritePath(pathname) ||
     pathname.startsWith("/api/tournaments/") ||
     pathname.startsWith("/api/fork/tournaments/") ||
@@ -1622,6 +1637,46 @@ async function handleApi(
       // Session provenance ("discord" | "password"): Discord-only surfaces (the web Lobby) check it at boot.
       ...(session ? { authMethod: session.method, expiresAt: new Date(session.expiry).toISOString(), ...(session.test ? { test: true } : {}) } : {}),
     });
+  }
+
+  // New-user flow gate (src/auth/onboarding.ts): until the coach completes onboarding, /api/me/* writes other than the
+  // onboarding POST answer 428. Reads, sign-out and public routes are untouched.
+  if (auth && onboardingGateApplies(method, path)) {
+    let needed = true;
+    try { needed = onboardingNeeded(ownIdentityRecord(auth.coach)); } catch { needed = true; }
+    if (needed) return sendJson(res, 428, { error: ONBOARDING_REQUIRED_MESSAGE, onboarding: true });
+  }
+
+  // New-user flow: the welcome modal (GET = needed + prefill; POST = save every field + accept the privacy notice).
+  if (path === ONBOARDING_PATH && (method === "GET" || method === "POST")) {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    res.setHeader("cache-control", "private, no-store");
+    try {
+      if (method === "GET") return sendJson(res, 200, onboardingView(ownIdentityRecord(auth.coach)));
+      const wait = onboardingLimiter.take([`coach:${normalizeFfbCoachId(auth.coach)}`], 0);
+      if (wait) { res.setHeader("retry-after", String(wait)); return sendJson(res, 429, { error: "Too many attempts. Try again in a minute." }); }
+      let rawBody: unknown;
+      try { rawBody = await readBody(req, 8 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); }
+      return sendJson(res, 200, onboardingView(completeOnboarding(auth.coach, rawBody)));
+    } catch (error) {
+      return sendJson(res, 400, { error: (error as Error).message });
+    }
+  }
+
+  // Account page "Contact & consent": the session coach's own contact details and league-contact consent.
+  if (path === CONTACT_PATH && (method === "GET" || method === "PATCH")) {
+    if (!auth) return sendJson(res, 401, { error: "Authentication required." });
+    res.setHeader("cache-control", "private, no-store");
+    try {
+      if (method === "GET") return sendJson(res, 200, contactView(ownIdentityRecord(auth.coach)));
+      const wait = onboardingLimiter.take([`coach:${normalizeFfbCoachId(auth.coach)}`], 0);
+      if (wait) { res.setHeader("retry-after", String(wait)); return sendJson(res, 429, { error: "Too many changes. Try again in a minute." }); }
+      let rawBody: unknown;
+      try { rawBody = await readBody(req, 8 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); }
+      return sendJson(res, 200, contactView(updateOwnContact(auth.coach, rawBody)));
+    } catch (error) {
+      return sendJson(res, 400, { error: (error as Error).message });
+    }
   }
 
   if (isNotificationApiPath(path)) {

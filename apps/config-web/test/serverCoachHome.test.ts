@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSession } from "../src/auth/session.js";
+import { ONBOARDED_CONSENT } from "./onboardedFixture.js";
 
 // Coach home routes over HTTP: GET /api/build-log (public, cached 60 s), GET /api/me/deadlines and GET/PUT
 // /api/me/scheduling (session-gated, own identity only).
@@ -35,7 +36,10 @@ beforeAll(async () => {
   }
   for (const directory of ["library", "teams", "packages", "tournaments", "log"]) mkdirSync(join(root, directory), { recursive: true });
   writeFileSync(join(root, "log", "default.log"), "", "utf8");
-  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: {} }), "utf8");
+  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: {
+    // Onboarded (the new-user gate answers 428 to /api/me writes otherwise).
+    homecoach: { ffbCoachId: "HomeCoach", level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, consent: ONBOARDED_CONSENT, updatedAt: "", updatedBy: "" },
+  } }), "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
   writeFileSync(join(root, "build-log.json"), JSON.stringify([
     { date: "2026-10-29", title: "Older", body: "First entry.", links: [{ label: "Tournaments", href: "/app/tournaments" }, { label: "bad", href: "javascript:alert(1)" }] },
