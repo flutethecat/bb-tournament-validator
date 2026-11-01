@@ -68,7 +68,7 @@ describe("routes: auth and paths", () => {
     expect(call(h, "GET", `/api/me/threads/${id}`, as("Bob")).status).toBe(200);
     expect(call(h, "GET", `/api/me/threads/${id}`, as("Carol")).status).toBe(404);
     expect(call(h, "POST", `/api/me/threads/${id}`, as("Carol"), { text: "sneaky" }).status).toBe(404);
-    expect(call(h, "POST", `/api/me/threads/${id}/read`, as("Carol")).status).toBe(404);
+    expect(call(h, "POST", `/api/me/threads/${id}/read`, as("Carol"), { upTo: 1 }).status).toBe(404);
     expect(call(h, "GET", "/api/me/threads/..%2Fetc", as("Alice")).status).toBe(404);
     expect(call(h, "GET", "/api/me/threads/a/b", as("Alice"))).toBeUndefined(); // not a social route: the server's 404
     expect(call(h, "GET", "/api/me/threads/t0000000000000000", as("Alice")).status).toBe(404);
@@ -239,9 +239,41 @@ describe("messages: send, read, unread counts, one notification per burst", () =
     expect(view.messages.map((m: any) => [m.from, m.text, m.mine])).toEqual([["Alice", "Game Saturday?", false], ["Alice", "Or Sunday.", false]]);
     // GET does not mark read; POST /read does
     expect(json(call(h, "GET", "/api/me/threads/unread", as("Bob")))).toEqual({ unread: 2 });
-    expect(json(call(h, "POST", `/api/me/threads/${id}/read`, as("Bob")))).toEqual({ unread: 0 });
+    expect(json(call(h, "POST", `/api/me/threads/${id}/read`, as("Bob"), { upTo: 2 }))).toEqual({ unread: 0 });
     expect(call(h, "POST", `/api/me/threads/${id}`, as("Bob"), { text: "Saturday works." }).status).toBe(201);
     expect(json(call(h, "GET", "/api/me/threads/unread", as("Alice")))).toEqual({ unread: 1 });
+  });
+
+  it("read marks only up to the last message the reader was shown; later messages stay unread; never moves back (Sol P2)", () => {
+    const h = harness();
+    const id = json(call(h, "POST", "/api/me/threads", as("Alice"), { to: "Bob", text: "one" })).thread.id;
+    call(h, "POST", `/api/me/threads/${id}`, as("Alice"), { text: "two" });
+    // Bob's screen showed message 1 only; message 2 arrived while he was reading
+    expect(json(call(h, "POST", `/api/me/threads/${id}/read`, as("Bob"), { upTo: 1 }))).toEqual({ unread: 1 });
+    call(h, "POST", `/api/me/threads/${id}`, as("Alice"), { text: "three" });
+    expect(json(call(h, "GET", "/api/me/threads/unread", as("Bob")))).toEqual({ unread: 2 });
+    expect(json(call(h, "POST", `/api/me/threads/${id}/read`, as("Bob"), { upTo: 0 }))).toEqual({ unread: 2 }); // no step back
+    expect(call(h, "POST", `/api/me/threads/${id}/read`, as("Bob"), {}).status).toBe(400);
+    expect(call(h, "POST", `/api/me/threads/${id}/read`, as("Bob"), { upTo: "3" }).status).toBe(400);
+    expect(json(call(h, "POST", `/api/me/threads/${id}/read`, as("Bob"), { upTo: 99 }))).toEqual({ unread: 0 }); // clamped to the thread
+    // the reader's own replies never count as unread for them
+    call(h, "POST", `/api/me/threads/${id}`, as("Bob"), { text: "reply" });
+    expect(json(call(h, "GET", "/api/me/threads/unread", as("Bob")))).toEqual({ unread: 0 });
+  });
+
+  it("an index-evicted thread is found again through the pair map: one thread per pair, row re-added on activity (Sol P2)", () => {
+    const h = harness();
+    const id = json(call(h, "POST", "/api/me/threads", as("Alice"), { to: "Bob", text: "old thread" })).thread.id;
+    // Alice's index at the cap without the Bob thread (what the cap leaves after 1000 newer conversations)
+    const xf = join(h.dir, "messages", "index", socialFileName("Alice"));
+    const rows = Array.from({ length: 1000 }, (_, i) => ({ id: `t${(i + 1).toString(16).padStart(16, "0")}`, with: `C${i}`, lastAt: "2020-01-01T00:00:00.000Z", lastFrom: "Alice", preview: "", unread: 0 }));
+    writeFileSync(xf, JSON.stringify({ version: 1, threads: rows }));
+    expect(h.store.index("Alice").threads.some((t) => t.id === id)).toBe(false);
+    expect(json(call(h, "POST", "/api/me/threads", as("Alice"), { to: "Bob", text: "still the same thread" })).thread.id).toBe(id);
+    expect(h.store.index("Alice").threads[0]).toMatchObject({ id, with: "Bob" });
+    expect(h.store.thread(id)!.messages.map((m) => m.text)).toEqual(["old thread", "still the same thread"]);
+    // and from the other side by name
+    expect(json(call(h, "POST", "/api/me/threads", as("Bob"), { to: "alice", text: "yes" })).thread.id).toBe(id);
   });
 
   it("notifies the recipient once per burst (first unread message), again only after they read", () => {
@@ -251,7 +283,7 @@ describe("messages: send, read, unread counts, one notification per burst", () =
     call(h, "POST", `/api/me/threads/${id}`, as("Alice"), { text: "three" });
     expect(h.notes.map((n) => n.coach)).toEqual(["Bob"]);
     expect(h.notes[0]!.input).toMatchObject({ type: "private-message", title: "New message from Alice", body: "one", link: `/app/messages/${id}`, from: "Alice" });
-    call(h, "POST", `/api/me/threads/${id}/read`, as("Bob"));
+    call(h, "POST", `/api/me/threads/${id}/read`, as("Bob"), { upTo: 3 });
     call(h, "POST", `/api/me/threads/${id}`, as("Alice"), { text: "four" });
     expect(h.notes).toHaveLength(2);
   });

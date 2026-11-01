@@ -61,9 +61,14 @@ async function loadThread(scroll = true): Promise<void> {
     const grew = !current.value || current.value.thread.id !== id || res.messages.at(-1)?.id !== current.value.messages.at(-1)?.id;
     current.value = res;
     threadError.value = "";
-    if (canWrite.value && threads.value?.find((t) => t.id === id)?.unread !== 0) {
-      try { messages.set((await socialApi.read(fetcher, id)).unread); } catch { /* stays unread */ }
-      if (threads.value) threads.value = threads.value.map((t) => (t.id === id ? { ...t, unread: 0 } : t));
+    // Read up to the last message this screen now shows; anything that arrives later stays unread.
+    const shown = res.messages.at(-1)?.id ?? 0;
+    if (canWrite.value && shown > 0 && threads.value?.find((t) => t.id === id)?.unread !== 0) {
+      try {
+        const left = (await socialApi.read(fetcher, id, shown)).unread;
+        messages.set(left);
+        void loadList();
+      } catch { /* stays unread */ }
     }
     if (scroll && grew) void scrollToEnd();
   } catch (e) { current.value = null; threadError.value = (e as Error).message; }

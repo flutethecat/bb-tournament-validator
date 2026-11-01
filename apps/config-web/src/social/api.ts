@@ -15,7 +15,7 @@
 //   POST   /api/me/threads {to, text}       start (or continue) the thread with a coach
 //   GET    /api/me/threads/:id              one thread (?before=<message id>&limit=)
 //   POST   /api/me/threads/:id {text}       send
-//   POST   /api/me/threads/:id/read         mark read
+//   POST   /api/me/threads/:id/read {upTo}  mark read up to the last message shown
 
 import type { NotificationInput } from "../notifications.js";
 import { SenderRateLimiter } from "../notifications.js";
@@ -323,7 +323,10 @@ function route(method: string, path: string, query: URLSearchParams, me: string,
     if (!t) return err(404, "Conversation not found.");
     if (threadMatch[2]) {
       if (method !== "POST") return undefined;
-      return { status: 200, body: { unread: deps.store.markRead(me, t.id) } };
+      // upTo = the id of the last message the client displayed; later messages stay unread.
+      const upTo = obj(body)?.upTo;
+      if (typeof upTo !== "number" || !Number.isSafeInteger(upTo) || upTo < 0) return err(400, "upTo (the last message id shown) is required.");
+      return { status: 200, body: { unread: deps.store.markRead(me, t.id, upTo) } };
     }
     if (method === "GET") return { status: 200, body: threadView(deps, me, t, query) };
     if (method === "POST") {

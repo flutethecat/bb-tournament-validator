@@ -531,7 +531,7 @@ export const STORE_COLLECTORS: StoreCollector[] = [
   },
   {
     id: "messages",
-    location: "FORK_STATE_DIR/messages/threads/<id>.json, FORK_STATE_DIR/messages/index/<coach>.json",
+    location: "FORK_STATE_DIR/messages/threads/<id>.json, FORK_STATE_DIR/messages/index/<coach>.json, FORK_STATE_DIR/messages/pairs/<hash>.json",
     export: (ctx) => {
       // Every thread the coach is one of the two coaches of (by identity key), with both coaches' messages.
       let paths: string[] = [];
@@ -972,9 +972,18 @@ export const DELETE_STEPS: DeleteStep[] = [
     run: ({ deps, an, text }) => {
       const tx = text();
       for (const path of listFiles(join(deps.stateDir, "messages", "threads"), ".json")) {
-        rewriteJson(path, (t) => [an.list(t.coaches), ...objs(t.messages).map((m) => [an.fields(m, ["from"], []), tx.texts(m, ["text"])].some(Boolean))].some(Boolean));
+        // Organiser metadata (the competition name a message carries) gets the same free-text pass as the text.
+        rewriteJson(path, (t) => [
+          an.list(t.coaches),
+          ...objs(t.messages).map((m) => [an.fields(m, ["from"], []), tx.texts(m, ["text"]), isObj(m.organiser) ? tx.texts(m.organiser, ["name"]) : false].some(Boolean)),
+        ].some(Boolean));
         const after = readJson<Obj>(path);
         if (after && Array.isArray(after.coaches) && after.coaches.length > 0 && after.coaches.every((c) => isReservedCoachName(c))) unlinkIfExists(path);
+      }
+      // The pair map: a pair naming the deleted coach goes (a new account with the old name never reaches the old thread).
+      for (const path of listFiles(join(deps.stateDir, "messages", "pairs"), ".json")) {
+        const pair = readJson<Obj>(path);
+        if (pair && Array.isArray(pair.coaches) && pair.coaches.some((c) => an.matches(c))) unlinkIfExists(path);
       }
       for (const path of listFiles(join(deps.stateDir, "messages", "index"), ".json")) {
         rewriteJson(path, (idx) => objs(idx.threads).map((e) => [an.fields(e, ["with", "lastFrom"], []), tx.texts(e, ["preview"])].some(Boolean)).some(Boolean));

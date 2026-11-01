@@ -94,7 +94,7 @@ describe("social HTTP routes", () => {
     const view = await (await fetch(`${origin}/api/me/threads/${thread.id}`, { headers: cy })).json() as { messages: Array<{ text: string }> };
     expect(view.messages[0]!.text).toBe("<b>Game?</b>"); // stored and answered as plain text; the SPA renders it as text
     expect(JSON.stringify(view)).not.toMatch(/example\.test|900000000000000099/);
-    expect(await (await post(`/api/me/threads/${thread.id}/read`, cy, {})).json()).toEqual({ unread: 0 });
+    expect(await (await post(`/api/me/threads/${thread.id}/read`, cy, { upTo: 1 })).json()).toEqual({ unread: 0 });
     // the recipient got one notification for the burst
     const notes = await (await fetch(`${origin}/api/me/notifications`, { headers: cy })).json() as { notifications: Array<{ type: string; link: string }> };
     expect(notes.notifications.filter((n) => n.type === "private-message")).toHaveLength(1);

@@ -4,13 +4,14 @@
 //   blocks/<coach>.json           { version, blocked[] }                            coaches this coach blocked
 //   messages/threads/<id>.json    { version, id, coaches[2], seq, messages[] }      one 1:1 thread (capped)
 //   messages/index/<coach>.json   { version, threads[] }                            the coach's thread list + unread
+//   messages/pairs/<hash>.json    { version, id, coaches[2] }                       the ONE thread of a pair of coaches
 //
 // Every file is written atomically. Reads are STRICT: a missing file is empty, an unreadable or malformed one throws
 // (a corrupt block list must never read as "nobody blocked", which would fail open). Coaches are keyed by the identity
 // store's key (trim + lower case) and stored in the spelling of their identity record. Everything here is synchronous,
 // so one request's read-modify-write of both coaches' files never interleaves with another's.
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
@@ -49,6 +50,8 @@ export interface IndexEntry {
   lastFrom: string;
   preview: string;
   unread: number;
+  /** The last message id the coach has seen (read up to). */
+  readSeq?: number;
   organiser?: true;
 }
 export interface IndexFile { version: 1; threads: IndexEntry[] }
@@ -99,12 +102,14 @@ export class SocialStore {
   readonly blocksDir: string;
   readonly threadsDir: string;
   readonly indexDir: string;
+  readonly pairsDir: string;
 
   constructor(readonly stateDir: string, private readonly opts: SocialStoreOptions = {}) {
     this.friendsDir = join(stateDir, "friends");
     this.blocksDir = join(stateDir, "blocks");
     this.threadsDir = join(stateDir, "messages", "threads");
     this.indexDir = join(stateDir, "messages", "index");
+    this.pairsDir = join(stateDir, "messages", "pairs");
   }
 
   private nowIso(): string { return (this.opts.now?.() ?? new Date()).toISOString(); }
@@ -249,7 +254,9 @@ export class SocialStore {
     const threads = entries<IndexEntry>(raw?.threads, (o) => isStr(o.id) && THREAD_ID.test(o.id) && isStr(o.with) && isStr(o.lastAt))
       .map((t) => ({
         id: t.id, with: t.with, lastAt: t.lastAt, lastFrom: isStr(t.lastFrom) ? t.lastFrom : "", preview: isStr(t.preview) ? t.preview : "",
-        unread: Number.isSafeInteger(t.unread) && t.unread > 0 ? t.unread : 0, ...(t.organiser === true ? { organiser: true as const } : {}),
+        unread: Number.isSafeInteger(t.unread) && t.unread > 0 ? t.unread : 0,
+        ...(Number.isSafeInteger(t.readSeq) && (t.readSeq as number) > 0 ? { readSeq: t.readSeq } : {}),
+        ...(t.organiser === true ? { organiser: true as const } : {}),
       }));
     return { version: 1, threads };
   }
@@ -287,9 +294,23 @@ export class SocialStore {
     return socialKey(t.coaches[0]) === socialKey(coach) ? t.coaches[1] : t.coaches[0];
   }
 
-  /** The existing thread between the two (found through the sender's index), if any. */
+  /** The pair file name: a hash of the two identity keys, sorted (names never appear in the file name). */
+  static pairFile(a: string, b: string): string {
+    const keys = [socialKey(a), socialKey(b)].sort();
+    return `${createHash("sha256").update(`pair:${keys[0]}\n${keys[1]}`, "utf8").digest("hex").slice(0, 32)}.json`;
+  }
+
+  /**
+   * The ONE thread between the two: resolved through the pair map (independent of either coach's capped index), so an
+   * evicted index row never starts a second thread. Falls back to the sender's index for a thread without a pair file.
+   */
   findThread(me: string, other: string): ThreadFile | undefined {
     const k = socialKey(other);
+    const pair = readStrict(join(this.pairsDir, SocialStore.pairFile(me, other)));
+    if (pair && isStr(pair.id)) {
+      const t = this.threadFor(me, pair.id);
+      if (t && socialKey(SocialStore.other(t, me)) === k) return t;
+    }
     for (const entry of this.index(me).threads) {
       if (socialKey(entry.with) !== k) continue;
       const t = this.threadFor(me, entry.id);
@@ -329,21 +350,35 @@ export class SocialStore {
     const theirs = this.index(to);
     const prior = theirs.threads.find((t) => t.id === next.id);
     const burst = !prior || prior.unread === 0;
-    const row = (withCoach: string, unread: number): IndexEntry => ({
-      id: next.id, with: withCoach, lastAt: at, lastFrom: from, preview: preview(clean), unread, ...(next.organiser ? { organiser: true as const } : {}),
+    // A row the cap evicted comes back on activity (prior undefined: a new burst for the recipient).
+    const row = (withCoach: string, unread: number, readSeq: number | undefined): IndexEntry => ({
+      id: next.id, with: withCoach, lastAt: at, lastFrom: from, preview: preview(clean), unread,
+      ...(readSeq ? { readSeq } : {}), ...(next.organiser ? { organiser: true as const } : {}),
     });
     this.write(this.threadsDir, `${next.id}.json`, next);
-    this.putIndex(to, { version: 1, threads: [row(from, (prior?.unread ?? 0) + 1), ...theirs.threads.filter((t) => t.id !== next.id)] });
+    if (created) this.write(this.pairsDir, SocialStore.pairFile(from, to), { version: 1, id: next.id, coaches: next.coaches });
+    this.putIndex(to, { version: 1, threads: [row(from, (prior?.unread ?? 0) + 1, prior?.readSeq), ...theirs.threads.filter((t) => t.id !== next.id)] });
     const mine = this.index(from);
-    this.putIndex(from, { version: 1, threads: [row(to, 0), ...mine.threads.filter((t) => t.id !== next.id)] });
+    // The sender has seen everything up to their own message.
+    this.putIndex(from, { version: 1, threads: [row(to, 0, message.id), ...mine.threads.filter((t) => t.id !== next.id)] });
     return { thread: next, message, created, burst };
   }
 
-  /** Mark one thread read for the coach; returns their new total unread. */
-  markRead(coach: string, id: string): number {
+  /**
+   * Mark one thread read up to message `upTo` (the last one the coach's screen showed): messages from the other coach
+   * after it stay unread. Never moves the read point back. Returns the coach's new total unread.
+   */
+  markRead(coach: string, id: string, upTo: number): number {
+    const t = this.threadFor(coach, id);
     const data = this.index(coach);
-    const row = data.threads.find((t) => t.id === id);
-    if (row && row.unread > 0) this.putIndex(coach, { version: 1, threads: data.threads.map((t) => (t.id === id ? { ...t, unread: 0 } : t)) });
+    const row = data.threads.find((x) => x.id === id);
+    if (!t || !row) return this.unread(coach);
+    const readSeq = Math.max(row.readSeq ?? 0, Math.min(Math.max(0, Math.floor(upTo)), t.seq));
+    const me = socialKey(coach);
+    // Unread = the other coach's messages after the read point (older ones the cap dropped count as read).
+    const unread = t.messages.filter((m) => m.id > readSeq && socialKey(m.from) !== me).length;
+    if (unread !== row.unread || readSeq !== (row.readSeq ?? 0))
+      this.putIndex(coach, { version: 1, threads: data.threads.map((x) => (x.id === id ? { ...x, unread, readSeq } : x)) });
     return this.unread(coach);
   }
 }

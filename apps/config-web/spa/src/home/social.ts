@@ -48,7 +48,8 @@ export const socialApi = {
   thread: (f: Fetcher, id: string, before?: number) => f<ThreadResponse>(`/api/me/threads/${enc(id)}${before ? `?before=${before}` : ""}`),
   start: (f: Fetcher, to: string, text: string) => f<{ thread: { id: string; with: string }; message: MessageView }>("/api/me/threads", { method: "POST", body: { to, text } }),
   send: (f: Fetcher, id: string, text: string) => f<{ thread: { id: string }; message: MessageView }>(`/api/me/threads/${enc(id)}`, { method: "POST", body: { text } }),
-  read: (f: Fetcher, id: string) => f<{ unread: number }>(`/api/me/threads/${enc(id)}/read`, { method: "POST" }),
+  /** Mark read up to `upTo`, the id of the last message shown (later ones stay unread). */
+  read: (f: Fetcher, id: string, upTo: number) => f<{ unread: number }>(`/api/me/threads/${enc(id)}/read`, { method: "POST", body: { upTo } }),
 };
 
 /** The router path of a thread (or the Messages page). */

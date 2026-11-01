@@ -62,7 +62,7 @@ describe("registry", () => {
     // a new directory in the social store without a collector naming it fails here
     const s = new SocialStore("/state");
     const locations = STORE_COLLECTORS.map((c) => c.location).join("\n");
-    for (const dir of [s.friendsDir, s.blocksDir, s.threadsDir, s.indexDir]) {
+    for (const dir of [s.friendsDir, s.blocksDir, s.threadsDir, s.indexDir, s.pairsDir]) {
       expect(locations, dir).toContain(`FORK_STATE_DIR/${relative("/state", dir).replace(/\\/g, "/")}/`);
     }
   });
@@ -122,6 +122,26 @@ describe("delete", () => {
     // the store still reads every file
     const s = new SocialStore(deps.stateDir);
     expect(s.index("Bob").threads.map((x) => x.with).sort()).toEqual(["Carol", P].sort());
+  });
+
+  it("organiser metadata naming the coach is anonymised too ('Alice Open'), and her pair files go (Sol P2)", async () => {
+    await seed(root);
+    const deps = depsFor(root);
+    const { s, ab } = seedSocial(deps.stateDir);
+    const org = s.append("Bob", "Carol", "Alice Open round 2 is up.", { kind: "tournament", id: "x1", name: "Alice Open" }).thread.id;
+    const pairs = join(deps.stateDir, "messages", "pairs");
+    expect(existsSync(join(pairs, SocialStore.pairFile("Alice", "Bob")))).toBe(true);
+    expect((await new PrivacyService(deps).deleteCoach("Alice", "Alice", "self")).pending).toEqual([]);
+    const m = readJ(join(deps.stateDir, "messages", "threads", `${org}.json`)).messages.at(-1);
+    expect(m.organiser).toEqual({ kind: "tournament", id: "x1", name: "Deleted coach #1 Open" });
+    expect(m.text).toBe("Deleted coach #1 Open round 2 is up.");
+    expect(existsSync(join(pairs, SocialStore.pairFile("Alice", "Bob")))).toBe(false);
+    expect(existsSync(join(pairs, SocialStore.pairFile("Bob", "Carol")))).toBe(true);
+    expect(filesContaining(join(deps.stateDir, "messages"), /\bAlice\b/)).toEqual([]);
+    // a new account later taking the old name gets a fresh thread, never the anonymised one
+    clearFences(); // past the post-delete grace period
+    const fresh = new SocialStore(deps.stateDir).append("Bob", "Alice", "Welcome!").thread.id;
+    expect(fresh).not.toBe(ab);
   });
 
   it("a thread whose two coaches are both deleted goes", async () => {
