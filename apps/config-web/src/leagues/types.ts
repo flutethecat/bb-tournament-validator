@@ -188,6 +188,8 @@ export interface LeagueFixture {
   deadline?: string;
   /** What happened at the deadline (deadlines.ts): the auto-forfeit job's outcome, or an organiser's decision. */
   deadlineOutcome?: FixtureDeadlineOutcome;
+  /** An organiser reopened the fixture after its deadline: auto-forfeit skips it while its effective deadline is still this one. */
+  deadlineReopenedFor?: string;
 }
 
 // ---- Fixture deadlines (spec-main-landing-nav §2.2, ruling §6(d); deadlines.ts) ----

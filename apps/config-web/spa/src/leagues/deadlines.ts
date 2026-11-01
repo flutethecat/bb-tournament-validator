@@ -65,12 +65,23 @@ export function toLocalInput(iso: string | undefined): string {
   const d = new Date(t);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-/** A datetime-local value (browser timezone) -> UTC ISO; null for empty or unreadable. */
-export function fromLocalInput(v: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) return null;
+/**
+ * A datetime-local value (browser timezone) -> an ISO instant with the explicit offset in force ("...T18:30:00+01:00"),
+ * so the server never re-guesses the zone; null for empty or unreadable. When the value is what `saved` already shows,
+ * `saved` itself comes back: an unchanged deadline is never re-derived (a DST-ambiguous hour would move it).
+ */
+export function fromLocalInput(v: string, saved?: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v)) return null;
+  if (saved && toLocalInput(saved) === v) return saved;
   const t = new Date(v).getTime();
-  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+  if (!Number.isFinite(t)) return null;
+  const off = -new Date(t).getTimezoneOffset();
+  const a = Math.abs(off);
+  return `${v}:00${off >= 0 ? "+" : "-"}${pad(Math.floor(a / 60))}:${pad(a % 60)}`;
 }
+
+/** The organiser changed this input (a draft that differs from what the saved deadline shows). */
+export const draftChanged = (draft: string | undefined, saved: string | undefined): boolean => draft !== undefined && draft !== toLocalInput(saved);
 
 /** Every (phase, round) pair the season's fixtures use, phase order first, then round. */
 export function deadlineRounds(season: Pick<SeasonRecord, "phases" | "fixtures">): Array<{ phaseId: string; phase: string; round: number }> {

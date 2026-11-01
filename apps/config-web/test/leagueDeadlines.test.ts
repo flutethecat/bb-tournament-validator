@@ -6,7 +6,7 @@ import { onboardingGateApplies } from "../src/auth/onboarding";
 import { deadlineChip, deriveDeadlines } from "../src/coachHome";
 import type { NotificationInput } from "../src/notifications";
 import { leagueApi, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
-import { applyDue, dueFixtures, effectiveDeadline, parseDeadline, policyOf, runDeadlineJob } from "../src/leagues/deadlines";
+import { applyDue, dueFixtures, effectiveDeadline, parseDeadline, policyOf, runDeadlineJob, watchedSeasons } from "../src/leagues/deadlines";
 import { clearMyLeaguesIndex, myLeagueDeadlines, myLeagues } from "../src/leagues/myLeagues";
 import { computePhaseStandings } from "../src/leagues/standings";
 import { LeagueStore } from "../src/leagues/store";
@@ -287,6 +287,43 @@ describe("league deadlines route and job", () => {
     expect(list.map((d) => [d.kind, d.at, d.chip])).toEqual([["league", iso(30), "soon"], ["league", iso(100), "ok"]]);
     expect(myLeagueDeadlines(store, "Cat").map((r) => r.at)).toEqual([iso(100)]);
     expect(myLeagueDeadlines(store, "Nobody")).toEqual([]);
+  });
+
+  it("Reopen with auto-forfeit on: not re-applied in that PATCH or by the job, no new notice; a changed deadline re-arms it", async () => {
+    await call("PATCH", ORG, { revision: rev(), policy: { autoForfeit: true }, rounds: [{ phaseId: "season-regular", round: 1, deadline: iso(-1) }] });
+    expect(fixture("f1").deadlineOutcome?.outcome).toBe("review");
+    const told = sent.length;
+    for (let i = 0; i < 3; i++) {
+      const r = await call("PATCH", ORG, { revision: rev(), fixtures: [{ id: "f1", decision: null }] });
+      expect(r.status).toBe(200);
+      expect(fixture("f1").deadlineOutcome).toBeUndefined();
+      expect(fixture("f1").deadlineReopenedFor).toBe(iso(-1));
+    }
+    expect(job().applied).toEqual([]);
+    expect(sent.length).toBe(told);
+    // A new deadline (still past) is a new deadline: the marker is spent and auto-forfeit applies once more.
+    await call("PATCH", ORG, { revision: rev(), fixtures: [{ id: "f1", deadline: iso(-0.5) }] });
+    expect(fixture("f1").deadlineReopenedFor).toBeUndefined();
+    expect(fixture("f1").deadlineOutcome).toMatchObject({ outcome: "review", deadline: iso(-0.5) });
+    expect(sent.length).toBe(told + 3);
+  });
+
+  it("job index: only active seasons with auto-forfeit on are watched; nothing on = nothing read; rebuilt after a write", async () => {
+    expect(watchedSeasons(store, NOW.getTime())).toEqual([]);
+    expect(job().applied).toEqual([]);
+    await call("PATCH", ORG, { revision: rev(), policy: { autoForfeit: true } });
+    expect(watchedSeasons(store, NOW.getTime())).toEqual([{ leagueId: "tabbl", seasonId: "season-1" }]);
+    const s = saved(); s.status = "completed"; store.putSeason(s);
+    expect(watchedSeasons(store, NOW.getTime())).toEqual([]);
+  });
+
+  it("coach deadlines cover every active season the coach has a seat in", async () => {
+    await call("PATCH", ORG, { revision: rev(), rounds: [{ phaseId: "season-regular", round: 1, deadline: iso(30) }] });
+    const older = { ...baseSeason(), id: "season-0", number: 0, sourceSlug: "tabbl-s0", fixtures: [fx("g1", 1, "Orcs", "Dwarfs", { deadline: iso(10) })] };
+    store.putSeason(older);
+    clearMyLeaguesIndex(store);
+    expect(myLeagueDeadlines(store, "Ann").map((r) => r.at).sort()).toEqual([iso(10), iso(30)]);
+    expect(myLeagueDeadlines(store, "Ann").find((r) => r.at === iso(10))!.link).toBe("/leagues/tabbl?season=season-0&tab=fixtures&fixture=g1");
   });
 
   it("an overdue fixture waiting for a decision stays as the next fixture, flagged", async () => {

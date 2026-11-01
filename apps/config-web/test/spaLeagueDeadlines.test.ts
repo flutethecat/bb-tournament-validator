@@ -4,7 +4,7 @@ import type { ViteDevServer } from "vite";
 import { createSSRApp } from "vue";
 import { chipFor } from "../spa/src/home/deadlines";
 import { treeLeagues } from "../spa/src/home/tree";
-import { deadlineChip, deadlineRounds, effectiveDeadline, fixtureDeadlineChip, fromLocalInput, toLocalInput } from "../spa/src/leagues/deadlines";
+import { deadlineChip, deadlineRounds, draftChanged, effectiveDeadline, fixtureDeadlineChip, fromLocalInput, toLocalInput } from "../spa/src/leagues/deadlines";
 import type { LeagueFixture, LeagueSummary, SeasonRecord } from "../spa/src/leagues/types";
 
 // League fixture deadlines, page side (spa/src/leagues/deadlines.ts): effective deadline, the chip (amber < 72 h,
@@ -62,7 +62,14 @@ describe("deadline helpers (page side)", () => {
   it("datetime-local round trip and the (phase, round) list", () => {
     const local = toLocalInput("2026-11-12T18:30:00.000Z");
     expect(local).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
-    expect(fromLocalInput(local)).toBe("2026-11-12T18:30:00.000Z");
+    // New values carry the explicit offset in force; an unchanged value gives back the saved instant itself (DST-safe).
+    const sent = fromLocalInput(local)!;
+    expect(sent).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00[+-]\d{2}:\d{2}$/);
+    expect(new Date(sent).toISOString()).toBe("2026-11-12T18:30:00.000Z");
+    expect(fromLocalInput(local, "2026-11-12T18:30:00.000Z")).toBe("2026-11-12T18:30:00.000Z");
+    expect(draftChanged(undefined, "2026-11-12T18:30:00.000Z")).toBe(false);
+    expect(draftChanged(local, "2026-11-12T18:30:00.000Z")).toBe(false);
+    expect(draftChanged("2026-11-12T19:45", "2026-11-12T18:30:00.000Z")).toBe(true);
     expect(fromLocalInput("")).toBeNull();
     expect(toLocalInput(undefined)).toBe("");
     expect(deadlineRounds(season())).toEqual([{ phaseId: "season-regular", phase: "Regular", round: 1 }, { phaseId: "season-regular", phase: "Regular", round: 2 }]);
@@ -156,6 +163,8 @@ describe("Fixtures tab and Deadlines editor (server-rendered)", () => {
     expect(html).toMatch(/<fieldset class="lg-dl-outcomes" disabled/);
     expect(html.match(/data-round="season-regular#\d"/g)).toHaveLength(2);
     expect(html.match(/type="datetime-local"/g)).toHaveLength(2 + 7);
+    // Nothing changed yet: every Save is disabled (an unchanged deadline is never re-sent).
+    expect(html.match(/<button class="sf-btn small" type="button" disabled>Save<\/button>/g)).toHaveLength(2 + 7);
     // Decisions: f4 (round deadline passed), f5 (review) and f6 (both lose) — never f1-f3 (not due) or f7 (a result).
     expect(html.match(/aria-label="Decision for /g)).toHaveLength(3);
     expect(html).toMatch(/data-fixture="f5"[\s\S]*?Reopen/);

@@ -5,7 +5,7 @@
 // Times are entered in the browser's timezone and stored as UTC; every save sends the season revision.
 import { computed, inject, reactive, ref, watch } from "vue";
 import { browserTimeZone, formatWhen } from "../home/deadlines";
-import { deadlineRounds, effectiveDeadline, fixtureDeadlineChip, fromLocalInput, hasRealResult, OUTCOME_CHOICES, OUTCOME_LABEL, roundDeadline, toLocalInput } from "../leagues/deadlines";
+import { deadlineRounds, draftChanged, effectiveDeadline, fixtureDeadlineChip, fromLocalInput, hasRealResult, OUTCOME_CHOICES, OUTCOME_LABEL, roundDeadline, toLocalInput } from "../leagues/deadlines";
 import { LEAGUE_DETAIL_KEY } from "../leagues/league";
 import type { DeadlineOutcome, LeagueFixture, SeasonRecord } from "../leagues/types";
 
@@ -36,8 +36,11 @@ const roundKey = (r: { phaseId: string; round: number }): string => `${props.sea
 const roundDraft = reactive<Record<string, string>>({});
 const roundValue = (r: { phaseId: string; round: number }): string => roundDraft[roundKey(r)] ?? toLocalInput(roundDeadline(props.season, r.phaseId, r.round));
 const setRound = (r: { phaseId: string; round: number }, e: Event): void => { roundDraft[roundKey(r)] = (e.target as HTMLInputElement).value; };
+const roundChanged = (r: { phaseId: string; round: number }): boolean => draftChanged(roundDraft[roundKey(r)], roundDeadline(props.season, r.phaseId, r.round));
 async function saveRound(r: { phaseId: string; round: number }, clear = false): Promise<void> {
-  const deadline = clear ? null : fromLocalInput(roundValue(r));
+  // Only a value the organiser changed is sent (an unchanged one is never re-derived from the local time).
+  if (!clear && !roundChanged(r)) return;
+  const deadline = clear ? null : fromLocalInput(roundValue(r), roundDeadline(props.season, r.phaseId, r.round));
   mine.value = true;
   if (!clear && !deadline) { state.editError = "Pick a date and time first."; state.editNotice = ""; return; }
   if (await detail.saveDeadlines(props.season.id, { rounds: [{ phaseId: r.phaseId, round: r.round, deadline }] }, clear ? `Round ${r.round} deadline cleared.` : `Round ${r.round} deadline saved.`)) delete roundDraft[roundKey(r)];
@@ -52,8 +55,10 @@ const fxDraft = reactive<Record<string, string>>({});
 const fxValue = (f: LeagueFixture): string => fxDraft[fxKey(f)] ?? toLocalInput(f.deadline);
 const setFx = (f: LeagueFixture, e: Event): void => { fxDraft[fxKey(f)] = (e.target as HTMLInputElement).value; };
 const roundOf = (f: LeagueFixture): string => { const d = roundDeadline(props.season, f.phaseId, f.round); return d ? formatWhen(d, zone) : "none"; };
+const fxChanged = (f: LeagueFixture): boolean => draftChanged(fxDraft[fxKey(f)], f.deadline);
 async function saveFixture(f: LeagueFixture, clear = false): Promise<void> {
-  const deadline = clear ? null : fromLocalInput(fxValue(f));
+  if (!clear && !fxChanged(f)) return;
+  const deadline = clear ? null : fromLocalInput(fxValue(f), f.deadline);
   mine.value = true;
   if (!clear && !deadline) { state.editError = "Pick a date and time first."; state.editNotice = ""; return; }
   if (await detail.saveDeadlines(props.season.id, { fixtures: [{ id: f.id, deadline }] }, clear ? "Fixture uses its round deadline again." : "Fixture deadline saved.")) delete fxDraft[fxKey(f)];
@@ -98,7 +103,7 @@ const chip = (f: LeagueFixture) => fixtureDeadlineChip(props.season, f, now.valu
         <li v-for="r in rounds" :key="roundKey(r)" :data-round="`${r.phaseId}#${r.round}`">
           <span class="lg-dl-round-name">{{ season.phases.length > 1 ? `${r.phase} · ` : "" }}Round {{ r.round }}</span>
           <input type="datetime-local" class="lg-dl-input" :value="roundValue(r)" :aria-label="`Deadline of ${r.phase} round ${r.round}`" @input="setRound(r, $event)" />
-          <button class="sf-btn small" type="button" :disabled="busy" @click="saveRound(r)">Save</button>
+          <button class="sf-btn small" type="button" :disabled="busy || !roundChanged(r)" @click="saveRound(r)">Save</button>
           <button v-if="roundDeadline(season, r.phaseId, r.round)" class="sf-btn small" type="button" :disabled="busy" @click="saveRound(r, true)">Clear</button>
         </li>
       </ul>
@@ -121,13 +126,13 @@ const chip = (f: LeagueFixture) => fixtureDeadlineChip(props.season, f, now.valu
           <small class="lg-dl-fx-round">Round deadline: {{ roundOf(f) }}</small>
           <div class="lg-dl-fx-row">
             <input type="datetime-local" class="lg-dl-input" :value="fxValue(f)" :aria-label="`Own deadline of ${f.home.team} vs ${f.away.team}`" @input="setFx(f, $event)" />
-            <button class="sf-btn small" type="button" :disabled="busy" @click="saveFixture(f)">Save</button>
+            <button class="sf-btn small" type="button" :disabled="busy || !fxChanged(f)" @click="saveFixture(f)">Save</button>
             <button v-if="f.deadline" class="sf-btn small" type="button" :disabled="busy" @click="saveFixture(f, true)">Use round</button>
           </div>
           <div v-if="decidable(f)" class="lg-dl-fx-row lg-dl-decide" role="group" :aria-label="`Decision for ${f.home.team} vs ${f.away.team}`">
             <button class="sf-btn small" type="button" :disabled="busy || f.deadlineOutcome?.outcome === 'both-lose'" @click="decide(f, 'both-lose')">Both lose</button>
             <button class="sf-btn small" type="button" :disabled="busy || f.deadlineOutcome?.outcome === 'no-result'" @click="decide(f, 'no-result')">No result</button>
-            <button v-if="f.deadlineOutcome" class="sf-btn small" type="button" :disabled="busy" @click="decide(f, null)">Reopen</button>
+            <button v-if="f.deadlineOutcome" class="sf-btn small" type="button" :disabled="busy" title="Auto-forfeit leaves the fixture alone until you change its deadline." @click="decide(f, null)">Reopen</button>
           </div>
         </li>
       </ul>

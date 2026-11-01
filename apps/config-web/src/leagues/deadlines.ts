@@ -21,7 +21,9 @@
  * The outcome is written before anyone is told, so it is applied and announced once (both coaches and the league's
  * organisers, one notification each); a restart finds it written and skips it. The job runs on a server timer, at
  * startup, and after a deadlines write; never in a GET handler. A fixture with a result or an organiser's decision is
- * never touched. An organiser who moves a deadline into the future lifts an auto-applied outcome (an extension); their
+ * never touched, and neither is one whose Super FUMBBL game is under way or still to report; a real result (fork sync
+ * or the fixtures editor) always replaces an auto-applied outcome. Reopen keeps auto-forfeit off the fixture until its
+ * deadline changes. An organiser who moves a deadline into the future lifts an auto-applied outcome (an extension); their
  * own decisions stay until they change them, and entering a result in the fixtures editor replaces any outcome.
  */
 import type { NotificationInput } from "../notifications.js";
@@ -78,13 +80,26 @@ const hasScore = (f: LeagueFixture): boolean => f.home.score !== null || f.away.
 /** A result the deadline logic must leave alone: any score that is not our own both-lose placeholder. */
 export const hasRealResult = (f: LeagueFixture): boolean => hasScore(f) && f.deadlineOutcome?.outcome !== "both-lose";
 
+/**
+ * A Super FUMBBL game is under way for the fixture or its result is still to come: scheduled, in progress, or a game id
+ * without an applied result (not cancelled, not a failed launch). Auto-forfeit waits for it.
+ */
+export function forkGamePending(f: Pick<LeagueFixture, "fork">): boolean {
+  const fork = f.fork;
+  if (!fork || fork.result) return false;
+  if (fork.status === "scheduled" || fork.status === "in_progress") return true;
+  return Boolean(fork.gameId) && fork.status !== "cancelled" && fork.status !== "launch_failed";
+}
+
 /** Fixtures the auto-forfeit job would act on now (policy on, active season). Pure. */
 export function dueFixtures(season: SeasonRecord, now: Date): LeagueFixture[] {
   if (season.status !== "active" || !policyOf(season).autoForfeit) return [];
   const t = now.getTime();
   return season.fixtures.filter((f) => {
-    if (f.deadlineOutcome || f.suspended || hasScore(f)) return false;
+    if (f.deadlineOutcome || f.suspended || hasScore(f) || forkGamePending(f)) return false;
     const d = effectiveDeadline(season, f);
+    // Reopened by an organiser: skipped until the fixture's deadline changes.
+    if (d !== undefined && f.deadlineReopenedFor === d) return false;
     return d !== undefined && Date.parse(d) <= t;
   });
 }
@@ -169,6 +184,20 @@ function notifyApplied(notify: ((coach: string, input: NotificationInput) => voi
   }
 }
 
+/** Active seasons with auto-forfeit on; rebuilt only after a write through the store (version()) or WATCH_TTL_MS. */
+export const WATCH_TTL_MS = 10 * 60_000;
+interface WatchIndex { version: number; at: number; seasons: Array<{ leagueId: string; seasonId: string }> }
+const watchIndexes = new WeakMap<LeagueStore, WatchIndex>();
+export function watchedSeasons(store: LeagueStore, now = Date.now()): Array<{ leagueId: string; seasonId: string }> {
+  const hit = watchIndexes.get(store);
+  if (hit && hit.version === store.version() && now - hit.at < WATCH_TTL_MS) return hit.seasons;
+  const seasons: WatchIndex["seasons"] = [];
+  for (const league of store.list())
+    for (const s of store.seasons(league.id)) if (s.status === "active" && policyOf(s).autoForfeit) seasons.push({ leagueId: league.id, seasonId: s.id });
+  watchIndexes.set(store, { version: store.version(), at: now, seasons });
+  return seasons;
+}
+
 export interface DeadlineJobDeps {
   store: LeagueStore;
   notify?: (coach: string, input: NotificationInput) => void;
@@ -184,17 +213,18 @@ export interface DeadlineJobOutcome { applied: Array<{ leagueId: string; seasonI
 export function runDeadlineJob(deps: DeadlineJobDeps): DeadlineJobOutcome {
   const now = deps.now?.() ?? new Date();
   const out: DeadlineJobOutcome = { applied: [] };
-  for (const league of deps.store.list()) {
-    for (const listed of deps.store.seasons(league.id)) {
-      if (!dueFixtures(listed, now).length) continue;
-      const season = deps.store.season(league.id, listed.id);
-      if (!season) continue;
-      const marked = applyDue(season, now);
-      if (!marked.length) continue;
-      try { deps.store.putSeason(season); } catch { continue; }
-      notifyApplied(deps.notify, league, season, marked);
-      for (const f of marked) out.applied.push({ leagueId: league.id, seasonId: season.id, fixtureId: f.id, outcome: f.deadlineOutcome!.outcome });
-    }
+  const watched = watchedSeasons(deps.store, now.getTime());
+  if (!watched.length) return out;
+  for (const { leagueId, seasonId } of watched) {
+    const league = deps.store.league(leagueId);
+    if (!league) continue;
+    const season = deps.store.season(league.id, seasonId);
+    if (!season || !dueFixtures(season, now).length) continue;
+    const marked = applyDue(season, now);
+    if (!marked.length) continue;
+    try { deps.store.putSeason(season); } catch { continue; }
+    notifyApplied(deps.notify, league, season, marked);
+    for (const f of marked) out.applied.push({ leagueId: league.id, seasonId: season.id, fixtureId: f.id, outcome: f.deadlineOutcome!.outcome });
   }
   return out;
 }
@@ -298,9 +328,15 @@ function applyInput(season: SeasonRecord, input: ParsedInput, who: string, now: 
   for (const row of input.fixtures) {
     const f = season.fixtures.find((x) => x.id === row.id)!;
     if (row.deadline !== undefined) { if (row.deadline === null) delete f.deadline; else f.deadline = row.deadline; }
-    if (row.decision === null) { if (f.deadlineOutcome && dropOutcome(f)) standings = true; }
-    else if (row.decision) { if (putOutcome(f, row.decision, at, { by: who, deadline: effectiveDeadline(season, f) })) standings = true; }
+    if (row.decision === null) {
+      if (f.deadlineOutcome && dropOutcome(f)) standings = true;
+      // Reopen: auto-forfeit leaves the fixture alone until its deadline changes (no re-apply, no re-notify).
+      const d = effectiveDeadline(season, f);
+      if (d !== undefined && Date.parse(d) <= now.getTime()) f.deadlineReopenedFor = d; else delete f.deadlineReopenedFor;
+    } else if (row.decision) { delete f.deadlineReopenedFor; if (putOutcome(f, row.decision, at, { by: who, deadline: effectiveDeadline(season, f) })) standings = true; }
   }
+  // A reopen marker for a deadline that is no longer the fixture's is spent.
+  for (const f of season.fixtures) if (f.deadlineReopenedFor !== undefined && f.deadlineReopenedFor !== effectiveDeadline(season, f)) delete f.deadlineReopenedFor;
   // An extension: an auto-applied outcome whose fixture's deadline is now in the future is lifted.
   for (const f of season.fixtures) {
     if (!f.deadlineOutcome?.auto) continue;

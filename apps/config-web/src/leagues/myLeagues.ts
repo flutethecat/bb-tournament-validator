@@ -194,10 +194,15 @@ function buildIndex(store: LeagueStore): Pick<SeatIndex, "byCoach" | "deadlines"
       const owners = seatOwners(t, aliases, observed);
       if (!owners.length) continue;
       const row = myLeagueTeam(lg.id, active, latestId, t);
-      const due = myTeamDeadlines(lg.id, lg.name, active, latestId, t);
-      for (const o of owners) {
-        perCoach.set(o, [...(perCoach.get(o) ?? []), row]);
-        if (due.length) deadlines.set(o, [...(deadlines.get(o) ?? []), ...due]);
+      for (const o of owners) perCoach.set(o, [...(perCoach.get(o) ?? []), row]);
+    }
+    // Deadlines: every active season the coach holds a seat in (the sidebar shows the newest one only).
+    for (const s of activeSeasons) {
+      for (const t of s.teams) {
+        const owners = seatOwners(t, aliases, observed);
+        if (!owners.length) continue;
+        const due = myTeamDeadlines(lg.id, lg.name, s, latestId, t);
+        if (due.length) for (const o of owners) deadlines.set(o, [...(deadlines.get(o) ?? []), ...due]);
       }
     }
     for (const [coach, teams] of perCoach) {

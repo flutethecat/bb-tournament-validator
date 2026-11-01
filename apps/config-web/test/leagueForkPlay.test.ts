@@ -6,6 +6,7 @@ import { adminExchange } from "@bb/fork-ops";
 import { leagueApi, resetForkToggleLimit, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
 import type { DiscordPayload } from "../src/leagues/discord";
 import { syncLeagueForkResults, type ForkFindOutcome, type ForkScheduleOutcome, type LeagueForkClient } from "../src/leagues/forkPlay";
+import { dueFixtures, forkGamePending } from "../src/leagues/deadlines";
 import { applyForkResult, fromBasicResult, fromParsedResult, mutateLeagueTeam, type ForkGameResult } from "../src/leagues/forkResult";
 import { confirmedList } from "../src/leagues/forkClient";
 import { buildLeagueForkTeam, forkPlayerIdFor, forkPlayLock, forkRosterFor, forkTeamIdFor, ForkTeamBuildError, statDelta, type LeagueForkTeamFile } from "../src/leagues/forkTeam";
@@ -1124,5 +1125,56 @@ describe("league-fork-test findings: TABBL rosters the fork names differently", 
   it("'Ball & Chain' is the dataset's Ball and Chain", () => {
     const file = build(team("Goblin", [player("g1", 1, "Spinny", "Fanatic", { ma: 3, st: 7, av: 8, skills: ["Ball & Chain"] })]));
     expect(file.xml).toContain("<skill>Ball and Chain</skill>");
+  });
+});
+
+describe("fixture deadlines meet Super FUMBBL (deadlines.ts)", () => {
+  const hid = forkTeamIdFor("tabbl", "season-7", "grudge");
+  const aid = forkTeamIdFor("tabbl", "season-7", "orcs");
+  const map = humans().players.map((p) => ({ forkPlayerId: forkPlayerIdFor(hid, p.playerId), playerId: p.playerId }));
+  const scheduled = (): { s: SeasonRecord; f: LeagueFixture } => {
+    const s = season([fx("f1")]);
+    const f = s.fixtures[0]!;
+    f.fork = { status: "scheduled", gameId: "g42", log: [], teams: {
+      home: { teamId: "grudge", forkTeamId: hid, coach: "Ann", builtAt: "", players: map },
+      away: { teamId: "orcs", forkTeamId: aid, coach: "Bob", builtAt: "", players: [{ forkPlayerId: forkPlayerIdFor(aid, "q-1"), playerId: "q-1" }] },
+    } };
+    return { s, f };
+  };
+  const both = (f: LeagueFixture, auto: boolean): void => {
+    f.home = { ...f.home, score: 0, cas: null, conceded: true };
+    f.away = { ...f.away, score: 0, cas: null, conceded: true };
+    f.deadlineOutcome = { outcome: "both-lose", at: "2026-10-30T00:00:00.000Z", ...(auto ? { auto: true as const } : { by: "Org" }) };
+  };
+
+  it("a real result replaces a job-applied both-lose placeholder, rosters included", () => {
+    const { s, f } = scheduled();
+    both(f, true);
+    const out = applyForkResult(s, f, fullResult(hid, aid), new Date("2026-10-31T00:00:00Z"));
+    expect(out.applied).toBe(true);
+    expect(f.deadlineOutcome).toBeUndefined();
+    expect(f.home).toMatchObject({ score: 2, conceded: false });
+    expect(f.away).toMatchObject({ score: 1, conceded: false });
+    expect(s.teams.find((t) => t.id === "orcs")!.players[0]).toMatchObject({ availableSpp: 5 });
+  });
+
+  it("an organiser's both-lose decision is a decided result: the sync leaves it", () => {
+    const { s, f } = scheduled();
+    both(f, false);
+    expect(applyForkResult(s, f, fullResult(hid, aid), new Date())).toMatchObject({ applied: false });
+    expect(f.deadlineOutcome?.by).toBe("Org");
+  });
+
+  it("auto-forfeit waits for a launched, running or unreported Super FUMBBL game", () => {
+    for (const status of ["scheduled", "in_progress", "teams_built", "launch_failed", "cancelled", "finished"] as const) {
+      const { s, f } = scheduled();
+      f.fork!.status = status;
+      if (status === "teams_built") delete f.fork!.gameId;
+      s.deadlinePolicy = { autoForfeit: true, outcome: "review" };
+      s.roundDeadlines = [{ phaseId: "season-regular", round: 1, deadline: "2026-10-01T00:00:00.000Z" }];
+      const due = dueFixtures(s, new Date("2026-10-31T00:00:00Z")).length;
+      expect(due, status).toBe(status === "teams_built" || status === "launch_failed" || status === "cancelled" ? 1 : 0);
+      expect(forkGamePending(f), status).toBe(due === 0);
+    }
   });
 });

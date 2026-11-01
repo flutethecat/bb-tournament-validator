@@ -284,7 +284,8 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
   if (fork.result?.gameId === result.gameId) return { applied: false, already: true, reason: "This result is already applied." };
   if (fork.result) return { applied: false, reason: `The fixture already holds the result of game ${fork.result.gameId}.` };
   if (fork.gameId !== result.gameId) return { applied: false, reason: `Game ${result.gameId} is not this fixture's Super FUMBBL game.` };
-  if (fixturePlayed(fixture)) return { applied: false, reason: "The fixture already has a result." };
+  // An auto-forfeit outcome (deadlines.ts) is never a played result: the real game replaces it, rosters included.
+  if (fixturePlayed(fixture) && !fixture.deadlineOutcome?.auto) return { applied: false, reason: "The fixture already has a result." };
   const sides: ForkSide[] = ["home", "away"];
   const picked = {} as Record<ForkSide, ForkGameTeamResult>;
   for (const s of sides) {
@@ -343,6 +344,7 @@ export function applyForkResult(season: SeasonRecord, fixture: LeagueFixture, re
     side.conceded = r.conceded;
   }
   fixture.suspended = false;
+  if (fixture.deadlineOutcome?.auto) delete fixture.deadlineOutcome;
   fixture.finishedAt = result.playedAt ?? now.toISOString();
   const h = picked.home.penaltyScore;
   const a = picked.away.penaltyScore;
