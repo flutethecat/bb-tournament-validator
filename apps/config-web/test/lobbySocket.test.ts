@@ -104,6 +104,8 @@ let lobbyId = "";
 let carolLobbyId = "";
 /** Tokens revoked WITHOUT a session-store event (models expiry noticed only on access). */
 const silentlyRevoked = new Set<string>();
+/** Coaches who have not completed onboarding (lower-cased): the service's canWrite says no for them. */
+const notOnboarded = new Set<string>();
 
 beforeAll(async () => {
   const matchmaker = new Matchmaker();
@@ -120,6 +122,7 @@ beforeAll(async () => {
     lobbyChatIntervalMs: 200,
     lobbyMaxSocketsPerCoach: 2,
     lobbySessionCheckMs: 60_000, // the idle backstop; these tests prove the immediate paths
+    canWrite: (coach) => !notOnboarded.has(coach.toLowerCase()),
     lobby: lobbySocketBridge(store, {
       sessionFromRequest: (req) => {
         const token = sessionTokenFromRequest(req as IncomingMessage);
@@ -202,6 +205,34 @@ describe("lobby socket over a real upgrade", () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(store.history(lobbyId)).toHaveLength(1);
     for (const c of [a1, a2, bob]) c.end();
+  });
+
+  it("new-user gate: a coach who has not completed onboarding is refused a lobby room, and a publish after the gate applies is dropped", async () => {
+    notOnboarded.add("alice");
+    try {
+      const gated = await wsClient(port, { Origin: ORIGIN, Cookie: cookie("Alice").header });
+      hello(gated);
+      expect(await refusedWith(gated)).toBe("onboarding");
+      await gated.closed;
+    } finally {
+      notOnboarded.delete("alice");
+    }
+    // Joined while onboarded; the gate applies later (a privacy-version bump): chat is refused, nothing is stored.
+    const alice = await wsClient(port, { Origin: ORIGIN, Cookie: cookie("Alice").header });
+    const bob = await wsClient(port, { Origin: ORIGIN, Cookie: cookie("Bob").header });
+    for (const c of [alice, bob]) { hello(c); await c.waitFor((f) => f.type === "lobbyWelcome"); }
+    const before = store.history(lobbyId).length;
+    notOnboarded.add("alice");
+    try {
+      alice.send({ type: "publish", feature: "lobby-chat", payload: { text: "gated chat" } });
+      await new Promise((r) => setTimeout(r, 150));
+      expect(alice.frames.find((f) => f.type === "lobbyRefused")).toMatchObject({ reason: "onboarding" });
+      expect(store.history(lobbyId)).toHaveLength(before);
+      expect(bob.frames.some((f) => f.feature === "lobby-chat" && (f.payload as { text?: string })?.text === "gated chat")).toBe(false);
+    } finally {
+      notOnboarded.delete("alice");
+      for (const c of [alice, bob]) c.end();
+    }
   });
 
   it("logout (session deleted) closes the socket and stops publishing", async () => {

@@ -1598,8 +1598,14 @@ async function handleApi(
   // /api request (lobby and tabletop included, so it runs before their dispatch) answers 428, except the allow-list
   // (onboarding POST, /api/me/delete, /api/auth/* sign-in/out, read-only name checks). Reads and anonymous calls pass.
   {
-    const gateCoach = auth?.coach ?? sessionFromRequest(req)?.coach;
     const gateMethod = req.method ?? "GET";
+    // The legacy GET challenge / matchstatus calls may authenticate by the coach's password digest instead of a session:
+    // the coach they act for is then the `coach` parameter (only when a credential is supplied: an anonymous poll changes
+    // nothing). /api/fork/register acts for a session only (an anonymous
+    // sign-up has no record yet and is never gated).
+    const actsForQueryCoach = gateMethod === "GET" && (path === "/api/fork/challenge" || path === "/api/fork/matchstatus") &&
+      Boolean(query.get("passwordMd5")?.trim() || query.get("password")?.trim());
+    const gateCoach = auth?.coach ?? sessionFromRequest(req)?.coach ?? (actsForQueryCoach ? query.get("coach")?.trim() || undefined : undefined);
     if (gateCoach && onboardingGateApplies(gateMethod, path) && !nameGeneratePath(path)) {
       let needed = true;
       try { needed = onboardingNeeded(ownIdentityRecord(gateCoach)); } catch { needed = true; }
@@ -4359,6 +4365,8 @@ server.listen(PORT, LISTEN_HOST, () => {
 if (challengeDbCfg && forkAdminCfg) {
   superService = attachSuper(server, {
     dbCfg: challengeDbCfg,
+    // New-user flow: no socket writes (lobby room, chat, game-room publishes) until the coach completes onboarding.
+    canWrite: (coach) => !onboardingNeeded(ownIdentityRecord(coach)),
     forkCfg: forkAdminCfg,
     tabletop: {
       isMember: async (matchId, coach) => {

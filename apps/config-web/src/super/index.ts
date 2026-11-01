@@ -26,6 +26,8 @@ export interface AttachSuperOptions {
   lobby?: LobbySocketBridge;
   /** Tabletop match clock rooms over this same socket (tabletop-clock). */
   tabletop?: TabletopSocketBridge;
+  /** May this coach write over the socket (new-user flow: false until onboarding is complete). Default: yes. */
+  canWrite?: (coach: string) => boolean;
   /** Receives the service handle once constructed (so the HTTP side can publish into it). */
   onService?: (service: SuperService) => void;
 }
@@ -43,6 +45,7 @@ export function attachSuper(server: Server, opts: AttachSuperOptions): SuperServ
       log,
       lobby: opts.lobby,
       tabletop: opts.tabletop,
+      ...(opts.canWrite ? { canWrite: opts.canWrite } : {}),
       // SM-5/RC-2: challenge-response over the coach's stored md5 — secret never leaves the fork store.
       verifyAuth: (coach, nonce, ts, response) =>
         verifyCoachChallenge(opts.dbCfg, coach, nonce, ts, response),

@@ -23,8 +23,19 @@ export const ONBOARDING_REQUIRED_MESSAGE = "Complete your profile first.";
 const GATE_EXEMPT = new Set([ONBOARDING_PATH, "/api/me/delete", "/api/team/checkName"]);
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+/**
+ * Legacy GET routes that change state (the desktop client still calls them with GET), gated like any write:
+ *   /api/fork/register    creates a fork account or sets its password
+ *   /api/fork/challenge   enters a matchmaking challenge (schedules a game)
+ *   /api/fork/matchstatus consumes the match delivery (hands out the credentialed JNLP)
+ * /api/fork/cancel (drops the coach's own pending challenge) stays open, like /api/me/delete: a coach can always
+ * withdraw. Every other GET handler only reads (audited 10-31).
+ */
+export const MUTATING_GET_PATHS: ReadonlySet<string> = new Set(["/api/fork/register", "/api/fork/challenge", "/api/fork/matchstatus"]);
+
 /** True for the requests the 428 gate covers (it applies only to a signed-in coach whose onboarding is needed). */
 export function onboardingGateApplies(method: string, path: string): boolean {
+  if (method.toUpperCase() === "GET" && MUTATING_GET_PATHS.has(path)) return true;
   if (READ_METHODS.has(method.toUpperCase()) || !path.startsWith("/api/")) return false;
   return !GATE_EXEMPT.has(path) && !path.startsWith("/api/auth/");
 }

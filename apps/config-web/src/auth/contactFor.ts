@@ -85,12 +85,24 @@ export function organiserAccess(caller: string, target: CoachIdentityRecord, sou
   return access;
 }
 
-/** The record without personal fields: no contact details, consent, preferred name or Discord email. */
-export function publicIdentityRecord(record: CoachIdentityRecord): CoachIdentityRecord {
-  const { contact: _c, consent: _k, ...rest } = record;
-  const { preferredName: _p, ...profile } = record.profile;
-  const { email: _e, secondaryEmail: _s, ...identities } = record.identities;
-  return { ...rest, profile, identities };
+export interface PublicIdentityRecord {
+  ffbCoachId: string;
+  identities: { nafName?: string; nafId?: string };
+  connections?: { naf: NonNullable<CoachIdentityRecord["connections"]>["naf"] };
+}
+
+/**
+ * What an organiser sees of a coach who has NOT shared their data with the organiser's league: built from an explicit
+ * allow-list (the coach name, the NAF name and number they manage, and the NAF check over that pair). Nothing else: no
+ * contact details, consent, profile, Discord ids or username, scheduling, level, flags or admin note.
+ */
+export function publicIdentityRecord(record: CoachIdentityRecord): PublicIdentityRecord {
+  const { nafName, nafId } = record.identities;
+  return {
+    ffbCoachId: record.ffbCoachId,
+    identities: { ...(nafName ? { nafName } : {}), ...(nafId ? { nafId } : {}) },
+    ...(record.connections?.naf ? { connections: { naf: record.connections.naf } } : {}),
+  };
 }
 
 export function createContactLookup(

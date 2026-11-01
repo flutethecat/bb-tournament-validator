@@ -207,10 +207,11 @@ describe("onboarding and contact writers", () => {
 
   it("the 428 gate covers every state-changing /api request except the allow-list; reads are never gated", () => {
     for (const [m, p] of [["PATCH", "/api/me/profile"], ["PUT", "/api/me/avatar"], ["DELETE", "/api/me/avatar"], ["PATCH", "/api/me/contact"], ["PATCH", "/api/account"],
-      ["POST", "/api/fork/team-builder/saves"], ["PUT", "/api/fork/teams/x/avatar"], ["POST", "/api/tournaments/t1/entrants"], ["POST", "/api/leagues/lg/news"], ["POST", "/api/lobby"], ["POST", "/api/tabletop/matches"], ["POST", "/api/bug-reports"]])
+      ["POST", "/api/fork/team-builder/saves"], ["PUT", "/api/fork/teams/x/avatar"], ["POST", "/api/tournaments/t1/entrants"], ["POST", "/api/leagues/lg/news"], ["POST", "/api/lobby"], ["POST", "/api/tabletop/matches"], ["POST", "/api/bug-reports"],
+      ["GET", "/api/fork/register"], ["GET", "/api/fork/challenge"], ["GET", "/api/fork/matchstatus"]])
       expect(onboardingGateApplies(m!, p!), `${m} ${p}`).toBe(true);
     for (const [m, p] of [["POST", "/api/me/onboarding"], ["POST", "/api/me/delete"], ["POST", "/api/auth/logout"], ["POST", "/api/auth/discord/complete"], ["POST", "/api/auth/desktop/claim"],
-      ["POST", "/api/team/checkName"], ["GET", "/api/me/profile"], ["HEAD", "/api/account"], ["OPTIONS", "/api/lobby"], ["GET", "/api/me/export"], ["POST", "/app/whatever"]])
+      ["POST", "/api/team/checkName"], ["GET", "/api/me/profile"], ["HEAD", "/api/account"], ["OPTIONS", "/api/lobby"], ["GET", "/api/me/export"], ["POST", "/app/whatever"], ["GET", "/api/fork/cancel"], ["GET", "/api/fork/jnlp"], ["GET", "/api/fork/library"]])
       expect(onboardingGateApplies(m!, p!), `${m} ${p}`).toBe(false);
   });
 });
@@ -330,11 +331,18 @@ describe("league membership, data-sharing acknowledgement, organiser access and 
     expect(organiserAccess("LeagueOrg", record("Ivy", { consent: { leagues: { lg: ack } } }), sources)).toBe("none"); // acked, not on the roster
     expect(organiserAccess("OtherOwner", record("Kim", { consent: { leagues: { lg: ack } } }), sources)).toBe("member"); // owner of "other"; Kim acked lg only
     expect(organiserAccess("Nobody", record("Kim", { consent: { leagues: { lg: ack } } }), sources)).toBe("none");
-    const pub = publicIdentityRecord(record("Kim", { profile: { preferredName: "P", displayName: "D" }, identities: { email: "e@x.yz", nafName: "N" }, contact, consent: consent() }));
-    expect(pub).not.toHaveProperty("contact");
-    expect(pub).not.toHaveProperty("consent");
-    expect(pub.profile).toEqual({ displayName: "D" });
-    expect(pub.identities).toEqual({ nafName: "N" });
+    const full = record("Kim", {
+      level: "organizer", note: "admin-only note", profile: { preferredName: "P", displayName: "D", avatar: "a" },
+      identities: { email: "e@x.yz", discordUserId: "123", discordUsername: "kim_dc", discordAvatarHash: "h", nafName: "N", nafId: "7" },
+      scheduling: { timezone: "Europe/Oslo", availability: [{ day: "mon", start: "18:00", end: "22:00" }] },
+      connections: { naf: { verifiedAt: "2026-10-01", source: "coachpage", nafId: "7", nafName: "N" } }, contact, consent: consent(),
+    });
+    // Allow-list: coach name, NAF name / number and the NAF check; nothing else.
+    expect(publicIdentityRecord(full)).toEqual({
+      ffbCoachId: "Kim", identities: { nafName: "N", nafId: "7" }, connections: { naf: { verifiedAt: "2026-10-01", source: "coachpage", nafId: "7", nafName: "N" } },
+    });
+    const text = JSON.stringify(publicIdentityRecord(full));
+    for (const leaked of ["123", "kim_dc", "Europe/Oslo", "18:00", "admin-only note", "e@x.yz", "organizer", "P", "\"D\""]) expect(text).not.toContain(leaked);
   });
 
   it("contactFor answers email/phones only with the league-contact opt-in AND (an acknowledged league membership or a tournament entry)", () => {

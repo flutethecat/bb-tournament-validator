@@ -167,5 +167,6 @@ export function lobbyControl(v: {
 export function chatRefusedLine(reason: string): string {
   return reason === "session" ? "Chat needs a Discord sign-in. Reload the page."
     : reason === "too-many" ? "Chat is open in too many tabs."
+    : reason === "onboarding" ? "Finish the welcome form to use chat, then reload the page."
     : "Live chat is off for this page.";
 }

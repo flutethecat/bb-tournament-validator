@@ -78,6 +78,13 @@ export interface SuperOptions {
   lobbyMaxSocketsPerCoach?: number;
   /** how often lobby sockets re-check their session (default 15 s; 0 disables the timer). */
   lobbySessionCheckMs?: number;
+  /**
+   * May this coach write over the socket? New-user flow (src/auth/onboarding.ts): false while the coach has not completed
+   * onboarding. A lobby hello is then refused (reason "onboarding": joining a lobby room marks presence and opens chat),
+   * and publishes (lobby chat, game-room features) are dropped. Read-only rooms (tabletop clock, notifications) stay
+   * open. Absent = every coach may write.
+   */
+  canWrite?: (coach: string) => boolean;
 }
 
 interface Participant {
@@ -243,6 +250,7 @@ export class SuperService {
     if (!conn.data.authed) return;
     const gameId = String(conn.data.gameId);
     const coach = String(conn.data.coach);
+    if (!this.mayWrite(coach)) return; // new-user gate: a coach who has not completed onboarding publishes nothing
     const room = this.rooms.get(gameId);
     if (!room) return;
     const me = room.members.get(coach);
@@ -325,6 +333,7 @@ export class SuperService {
       : !coach ? "session"
       : claimed && claimed !== coach.toLowerCase() ? "session"
       : !lobby.isMember(lobbyId, coach) ? "member"
+      : !this.mayWrite(coach) ? "onboarding"
       : mine >= this.lobbyMaxSocketsPerCoach ? "too-many"
       : "";
     if (reason || !lobby) {
@@ -478,12 +487,19 @@ export class SuperService {
     }
   }
 
+  /** New-user gate (canWrite): fails closed when the check throws. */
+  private mayWrite(coach: string): boolean {
+    if (!this.opts.canWrite) return true;
+    try { return this.opts.canWrite(coach); } catch { return false; }
+  }
+
   private handleLobbyPublish(conn: WsConnection, msg: Record<string, unknown>): void {
     const lobby = this.opts.lobby;
     if (!lobby || !conn.data.authed) return;
     const lobbyId = String(conn.data.lobbyId);
     const coach = String(conn.data.coach);
     if (!this.lobbySessionValid(conn)) { conn.close(); return; }
+    if (!this.mayWrite(coach)) { this.safeSend(conn, { type: "lobbyRefused", v: 1, lobbyId, reason: "onboarding" }); return; }
     const feature = getLobbyFeature(typeof msg.feature === "string" ? msg.feature : "");
     if (!feature || !feature.publishable) return;
     const now = Date.now();

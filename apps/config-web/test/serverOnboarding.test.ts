@@ -55,7 +55,10 @@ beforeAll(async () => {
       consent: { leagueContact: { granted: true, at: "2026-10-31T00:00:00.000Z", version: "2026-10-31" }, privacy: { acceptedVersion: PRIVACY_VERSION, at: "2026-10-31T00:00:00.000Z" }, leagues: { lg: { at: "2026-10-31T00:00:00.000Z", version: "2026-10-31" } } },
     }),
     org: record("Org", { level: "organizer", consent: { privacy: { acceptedVersion: PRIVACY_VERSION, at: "2026-10-31T00:00:00.000Z" } } }),
-    quiet: record("Quiet", { profile: { preferredName: "Quiet Pref" }, contact: { email: "quiet@example.test", emailSource: "user", emailVerified: false, phones: [{ number: "+15550002222" }] }, consent: { privacy: { acceptedVersion: PRIVACY_VERSION, at: "2026-10-31T00:00:00.000Z" } } }),
+    quiet: record("Quiet", {
+      note: "quiet-admin-note", identities: { discordUserId: "777000", discordUsername: "quiet_dc", email: "quiet-discord@example.test" },
+      scheduling: { timezone: "Pacific/Auckland", availability: [{ day: "tue", start: "19:15", end: "21:45" }] },
+      profile: { preferredName: "Quiet Pref", displayName: "Quiet Display" }, contact: { email: "quiet@example.test", emailSource: "user", emailVerified: false, phones: [{ number: "+15550002222" }] }, consent: { privacy: { acceptedVersion: PRIVACY_VERSION, at: "2026-10-31T00:00:00.000Z" } } }),
     outsider: record("Outsider", { contact: { email: "outsider@example.test", emailSource: "user", emailVerified: false, phones: [] }, consent: { privacy: { acceptedVersion: PRIVACY_VERSION, at: "2026-10-31T00:00:00.000Z" } } }),
     org2: record("Org2", { level: "organizer", consent: { privacy: { acceptedVersion: PRIVACY_VERSION, at: "2026-10-31T00:00:00.000Z" } } }),
     torg: record("TOrg", { level: "organizer", consent: { privacy: { acceptedVersion: PRIVACY_VERSION, at: "2026-10-31T00:00:00.000Z" } } }),
@@ -189,6 +192,24 @@ describe("all writes are gated while onboarding is needed", () => {
     expect((await call("Gated", "POST", "/api/team/checkName", { name: "x" })).status).not.toBe(428);
     expect((await call(undefined, "POST", "/api/lobby", {})).status).not.toBe(428);
   });
+
+  it("legacy GET routes that change state are gated too; onboarded coaches and anonymous sign-ups keep working", async () => {
+    // Session-authenticated.
+    expect((await call("Gated", "GET", "/api/fork/register?coach=Gated")).status).toBe(428);
+    expect((await call("Gated", "GET", "/api/fork/challenge?coach=Gated&teamId=t&opponent=Org")).status).toBe(428);
+    expect((await call("Gated", "GET", "/api/fork/matchstatus?coach=Gated")).status).toBe(428);
+    // Digest-authenticated legacy calls act for the `coach` parameter.
+    expect((await call(undefined, "GET", "/api/fork/challenge?coach=Gated&teamId=t&opponent=Org&passwordMd5=" + "a".repeat(32))).status).toBe(428);
+    expect((await call(undefined, "GET", "/api/fork/matchstatus?coach=Gated&passwordMd5=" + "a".repeat(32))).status).toBe(428);
+    // An anonymous poll without a credential changes nothing and is not gated.
+    expect((await call(undefined, "GET", "/api/fork/matchstatus?coach=Gated")).status).not.toBe(428);
+    // Withdrawing a challenge and plain reads stay open; an onboarded coach is never gated; an anonymous sign-up is not gated.
+    expect((await call("Gated", "GET", "/api/fork/cancel?coach=Gated")).status).not.toBe(428);
+    expect((await call("Gated", "GET", "/api/fork/library?coach=Gated")).status).not.toBe(428);
+    expect((await call("Org", "GET", "/api/fork/challenge?coach=Org&teamId=t&opponent=Boss")).status).not.toBe(428);
+    expect((await call("Org", "GET", "/api/fork/matchstatus?coach=Org")).status).toBe(200);
+    expect((await call(undefined, "GET", "/api/fork/register?coach=BrandNew")).status).not.toBe(428);
+  });
 });
 
 describe("organiser identity access (owner ruling 10-31: full record only for acknowledged members of the caller's leagues)", () => {
@@ -210,7 +231,10 @@ describe("organiser identity access (owner ruling 10-31: full record only for ac
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(leaks(text, ["quiet@example.test", "+15550002222", "Quiet Pref"])).toEqual([]);
-    expect(JSON.parse(text).coach).toMatchObject({ ffbCoachId: "Quiet", identities: { nafName: "Quiet NAF", nafId: "4242" } });
+    // Allow-list only: no Discord id / username / email, scheduling, admin note, profile or level.
+    for (const leaked of ["777000", "quiet_dc", "quiet-discord@example.test", "Pacific/Auckland", "19:15", "quiet-admin-note", "Quiet Display", "\"level\"", "\"note\"", "\"scheduling\"", "\"profile\""])
+      expect(text, leaked).not.toContain(leaked);
+    expect(JSON.parse(text).coach).toEqual({ ffbCoachId: "Quiet", identities: { nafName: "Quiet NAF", nafId: "4242" } });
     const before = JSON.stringify(identities().coaches.outsider);
     const refused = await naf("Org", "Outsider");
     expect(refused.status).toBe(403);

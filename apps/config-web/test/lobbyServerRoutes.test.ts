@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SESSION_COOKIE_NAME } from "../src/auth/session.js";
-import { createSession } from "./onboardedFixture.js";
+import { createSession, onboardedCoaches } from "./onboardedFixture.js";
 
 // Route wiring in the live host's mode (sidecar OFF, ADMIN_PASSWORD set, no fork DB / admin, FORK_TEAMS_DIR set so
 // the game-start lock is live): Discord-only sessions, CSRF, lock ordering, the session-scoped JNLP, and the
@@ -43,7 +43,8 @@ beforeAll(async () => {
     process.env[name] = value;
   }
   for (const directory of ["library", "packages", "tournaments", "state", "teams"]) mkdirSync(join(root, directory), { recursive: true });
-  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: {} }), "utf8");
+  // Onboarded (the new-user gate answers 428 to the legacy digest-authenticated challenge / matchstatus otherwise).
+  writeFileSync(join(root, "identities.json"), JSON.stringify({ version: 1, coaches: onboardedCoaches("LobbyAlice", "LobbyBob", "LobbyCarol", "LobbyDave", "LobbyEve", "MixA", "MixB", "MixC", "MixD") }), "utf8");
   writeFileSync(join(root, "organizers.json"), JSON.stringify({ organizers: [] }), "utf8");
   const lib = (coach: string, teamId: string) =>
     writeFileSync(join(root, "library", `${coach.toLowerCase()}.json`), JSON.stringify([team(coach, teamId, `${coach} XI`)]), "utf8");
