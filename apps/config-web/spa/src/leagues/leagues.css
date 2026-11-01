@@ -521,3 +521,79 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
   border: 2px solid var(--sf-panel-line); border-radius: 2px; font: 15px/1.3 var(--font-body, sans-serif);
 }
 .ls-dialog .tm-choices select:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+
+/* ---- Fixtures header nav bar (round strip, Prev / Next, phase and team filters, Cards | Table) and the table view */
+.lg-fx-nav { display: grid; gap: 10px; }
+.lg-fx-nav > .hm-band { margin-bottom: 0; }
+.lg-fx-rounds { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lg-fx-strip { position: relative; flex: 0 1 auto; min-width: 0; justify-self: auto; }
+.lg-fx-strip .sf-tab { min-height: 36px; padding: 0 12px; font-size: 11px; }
+.lg-fx-step { flex: none; }
+.lg-fx-step[aria-disabled="true"] { cursor: not-allowed; transform: none; color: var(--ui-muted); background: var(--ui-surface-2); border-style: dashed; box-shadow: none; }
+.lg-fx-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.lg-fx-tools .lg-select select { min-height: 36px; padding: 0 8px; }
+.lg-fx-view { margin-left: auto; }
+.lg-fx-table { font-size: 14px; }
+.hm-panel > .lg-fx-table { width: calc(100% - 24px); }
+.lg-fx-table th.lg-fx-c, .lg-fx-table td.lg-fx-c { text-align: center; }
+.lg-fx-row { position: relative; }
+.lg-fx-row:hover { background: var(--ui-hover); }
+.lg-fx-round, .lg-fx-when { white-space: nowrap; }
+.lg-fx-round { font: 11px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.lg-fx-round small { display: block; font: 12px var(--font-body, sans-serif); text-transform: none; letter-spacing: 0; }
+.lg-fx-when { color: var(--ui-muted); font-variant-numeric: tabular-nums; }
+.lg-fx-side { min-width: 0; }
+.lg-fx-side { display: table-cell; }
+.lg-fx-side > * { vertical-align: middle; }
+.lg-fx-crest { display: inline-flex; width: 28px; height: 28px; margin-right: 8px; object-fit: contain; font-size: 10px; }
+.lg-fx-who { display: inline-grid; gap: 1px; min-width: 0; max-width: calc(100% - 40px); }
+.lg-fx-who .lg-team-name { font-family: var(--font-heading, sans-serif); font-weight: 500; letter-spacing: .03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg-fx-who small { color: var(--ui-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg-fx-side[data-outcome="win"] .lg-team-name { color: var(--ui-heading); }
+.lg-fx-score-cell { white-space: nowrap; }
+/* The score box is the row's link: its ::after stretches over the whole row; the fork switch sits above it. */
+.lg-fx-score {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 64px; min-height: 36px; padding: 0 10px; box-sizing: border-box;
+  font: 18px/1 var(--sf-band-font); font-variant-numeric: tabular-nums; color: var(--ui-text); text-decoration: none;
+  background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel);
+}
+.lg-fx-score::after { content: ""; position: absolute; inset: 0; }
+.lg-fx-score[data-open="true"] { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); border-style: dashed; }
+.lg-fx-dash { color: var(--ui-muted); }
+.lg-fx-row:hover .lg-fx-score { border-color: var(--ui-heading); }
+.lg-fx-score:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.lg-fx-cas { display: block; margin-top: 3px; font-size: 11px; color: var(--ui-muted); }
+.lg-fx-status { display: table-cell; }
+.lg-fx-status .sf-chip { margin: 0 4px 2px 0; }
+.lg-fx-mark { display: block; color: var(--ui-muted); font-size: 12px; }
+.lg-fx-status .lg-fork-switch { position: relative; z-index: 1; min-height: 32px; }
+/* Narrow: each row becomes a compact card (home | score | away, the round, date and status under it). */
+@media (max-width: 760px) {
+  .lg-fx-rounds .lg-fx-step { padding: 0 8px; }
+  .lg-fx-view { margin-left: 0; }
+  .lg-fx-tools .lg-select { flex: 1 1 100%; }
+  .lg-fx-tools .lg-select select { flex: 1 1 auto; }
+  .lg-fx-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .lg-fx-table, .lg-fx-table tbody { display: block; }
+  .hm-panel > .lg-fx-table { width: auto; }
+  .lg-fx-table tbody { display: grid; gap: 8px; }
+  .lg-fx-table tbody tr:nth-child(even) { background: none; }
+  .lg-fx-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "home score away" "round round when" "status status status";
+    gap: 6px 8px; align-items: center; padding: 8px 10px;
+    background: color-mix(in srgb, var(--ui-surface-2) 60%, transparent); border: 2px solid var(--sf-panel-line); border-radius: 2px;
+  }
+  .lg-fx-row > td { display: block; padding: 0; border: 0; }
+  .lg-fx-row > .lg-fx-round { grid-area: round; }
+  .lg-fx-row > .lg-fx-round small { display: inline; margin-left: 6px; }
+  .lg-fx-row > .lg-fx-when { grid-area: when; text-align: right; font-size: 12px; }
+  .lg-fx-row > .lg-fx-side[data-side="home"] { grid-area: home; }
+  .lg-fx-row > .lg-fx-side[data-side="away"] { grid-area: away; text-align: right; }
+  .lg-fx-row > .lg-fx-score-cell { grid-area: score; }
+  .lg-fx-row > .lg-fx-status { grid-area: status; }
+  .lg-fx-side { display: grid; justify-items: start; gap: 4px; }
+  .lg-fx-side[data-side="away"] { justify-items: end; }
+  .lg-fx-crest { margin-right: 0; }
+  .lg-fx-who { max-width: 100%; }
+  .lg-fx-score { min-width: 52px; font-size: 16px; }
+}

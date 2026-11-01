@@ -9,6 +9,7 @@ import {
   canManageLeague, cardQuery, cardSeasonChips, tiedLine, createLeagueDetail, createLeagueList, createLeagueStats, crestFor, fixtureContext, fixturesByPhase, honourBoards, honourValue,
   fixtureOutcome, kValue, teamValueFigures, latestResults, pickSeason, playerByRef, sharedTotalsFor, resultCardProps, safeArtUrl, standingsTables, teamByRef,
 } from "../spa/src/leagues/league";
+import { currentRound, filterFixtures, fixtureRounds, fixtureStatus, fixtureTeams, parseRound, readFixturesView, roundSteps, writeFixturesView } from "../spa/src/leagues/fixtureNav";
 import type { LeagueFixture, LeagueStats, LeagueSummary, SeasonRecord, SeasonSummary } from "../spa/src/leagues/types";
 
 // SPA Leagues: controllers + display helpers, and the list / league page / statistics routes server-rendered through
@@ -519,7 +520,7 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(byPlayer.html).not.toMatch(/data-player="p-bob000000007"[^>]*lg-row-picked/);
     const former = await render("/leagues/tabbl?tab=teams&player=p-gone00000001", loadedDetail());
     expect(former.html).toMatch(/data-player="p-gone00000001"[^>]*class="lg-row-picked"/);
-    const table = await render("/leagues/tabbl?tab=fixtures", async (inject, f) => {
+    const table = await render("/leagues/tabbl?tab=fixtures&round=all", async (inject, f) => {
       const d = mods.league.createLeagueDetail({ api: f });
       await d.load("tabbl");
       await d.ensureSeason("season-6");
@@ -534,6 +535,53 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(hon.html).toContain("Most touchdowns");
     expect(hon.html).toContain('href="/app/leagues/tabbl?season=season-6&amp;tab=teams&amp;player=p-deth00000001"'); // a board row that is one player links by id
     expect(hon.html).toContain("10-1-0 · 22 pts");
+  });
+
+  it("fixtures nav bar: round strip opens on the current round, ?round= picks one or all, Prev / Next, team filter, view toggle", async () => {
+    const active = (html: string) => [...html.matchAll(/<a([^>]*)>(All|Round \d+)<\/a>/g)].filter((m) => m[1]!.includes('aria-current="page"')).map((m) => m[2]);
+    const cur = await render("/leagues/tabbl?tab=fixtures", loadedDetail());
+    expect(cur.html).toContain('aria-labelledby="lg-fx-nav-h"');
+    expect(cur.html).toMatch(/aria-label="Rounds"[^]*>All<\/a>[^]*>Round 1<\/a>[^]*>Round 2<\/a>[^]*>Round 3<\/a>/);
+    expect(active(cur.html)).toEqual(["Round 3"]); // the first round with an unplayed fixture
+    expect(cur.html).toContain("Round 3 · 0 of 1 played");
+    expect(cur.html).not.toContain("Conceded by Jeff / @Chap"); // f3 is round 2
+    expect(cur.html).toMatch(/aria-label="Previous round, Round 2"/);
+    expect(cur.html).toMatch(/<span class="sf-btn small lg-fx-step" aria-disabled="true">Next ›<\/span>/);
+    expect(cur.html).toContain('href="/app/leagues/tabbl?tab=fixtures&amp;round=all"');
+    expect(cur.html).toMatch(/<option value=""[^>]*>All teams<\/option>/);
+    expect(cur.html).toContain('<option value="Grudge Rollers">Grudge Rollers</option>');
+    expect(cur.html).toMatch(/aria-pressed="true"[^>]*>Cards<\/button>/);
+    expect(cur.html).toMatch(/aria-pressed="false"[^>]*>Table<\/button>/);
+    const r2 = await render("/leagues/tabbl?tab=fixtures&round=2", loadedDetail());
+    expect(r2.html).toContain("Conceded by Jeff / @Chap");
+    expect(active(r2.html)).toEqual(["Round 2"]);
+    expect(r2.html.match(/class="rc-card"/g)).toHaveLength(1); // round 2 = f3 only
+    const all = await render("/leagues/tabbl?tab=fixtures&round=all", loadedDetail());
+    expect(active(all.html)).toEqual(["All"]);
+    expect(all.html).toContain("All rounds · 3 of 4 played");
+    expect(all.html).not.toContain("Previous round");
+    const bogus = await render("/leagues/tabbl?tab=fixtures&round=99", loadedDetail());
+    expect(bogus.html).toContain("Round 3 · 0 of 1 played"); // an unknown round falls back to the current one
+  });
+
+  it("fixtures table view (remembered per viewer): Round, Date, Home, Score, Away, Status; rows open the fixture summary", async () => {
+    const store = new Map<string, string>([["sf-league-fixtures-view", "table"]]);
+    const g = globalThis as { localStorage?: unknown };
+    g.localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    try {
+      const { html } = await render("/leagues/tabbl?tab=fixtures&round=all", loadedDetail());
+      expect(html).toMatch(/aria-pressed="true"[^>]*>Table<\/button>/);
+      expect(html).toMatch(/<th scope="col">Round<\/th><th scope="col">Date<\/th><th scope="col">Home<\/th><th scope="col" class="lg-fx-c">Score<\/th><th scope="col">Away<\/th><th scope="col">Status<\/th>/);
+      expect(html.match(/class="lg-fx-row"/g)).toHaveLength(4);
+      expect(html).toContain('class="lg-fx-crest" src="/crests/dwarf.png"');
+      expect(html).toMatch(/<a[^>]*href="\/app\/leagues\/tabbl\?tab=fixtures&amp;fixture=f2"[^>]*lg-fx-score"/);
+      expect(html).toMatch(/data-open="true"[^>]*>(<!--\[-->)?vs/); // f4 unplayed: "vs" in the box
+      expect(html).toContain('data-status="played"');
+      expect(html).toContain('data-status="forfeit"'); // f3: home conceded
+      expect(html).toContain('data-status="scheduled"');
+      expect(html).toContain("Rot Girl Summer conceded");
+      expect(html).not.toContain('class="rc-card"');
+    } finally { delete g.localStorage; }
   });
 
   it("statistics: the BB2020 | BB2025 | All time divider and the aggregate panels", async () => {
@@ -599,5 +647,64 @@ describe("league routes (server-rendered against a mocked API)", () => {
     expect(plain).not.toContain("rc-flag");
     // a suspended game with no concession is not played: it never reaches a card (latestResults / fixturePlayed)
     expect(mods.league.fixturePlayed({ ...s.fixtures[1]!, suspended: true, home: { ...s.fixtures[1]!.home, score: 0 }, away: { ...s.fixtures[1]!.away, score: 0 } })).toBe(false);
+  });
+});
+
+describe("fixtures nav helpers (round strip, filters, status, remembered view)", () => {
+  it("rounds, the current round, ?round= parsing and Prev / Next", () => {
+    const groups = fixturesByPhase(season6());
+    expect(fixtureRounds(groups)).toEqual([1, 2, 3]);
+    expect(currentRound(groups)).toBe(3); // f4 (round 3) is the first unplayed
+    const done = fixturesByPhase({ ...season6(), fixtures: season6().fixtures.slice(0, 3) });
+    expect(currentRound(done)).toBe(2); // all played: the last round
+    expect(currentRound([])).toBe("all");
+    expect(parseRound("2", [1, 2, 3])).toBe(2);
+    expect(parseRound("all", [1, 2, 3])).toBe("all");
+    expect(parseRound("9", [1, 2, 3])).toBeUndefined();
+    expect(parseRound("2x", [1, 2, 3])).toBeUndefined();
+    expect(parseRound(undefined, [1, 2, 3])).toBeUndefined();
+    expect(roundSteps([1, 2, 3], 2)).toEqual({ prev: 1, next: 3 });
+    expect(roundSteps([1, 2, 3], 1)).toEqual({ next: 2 });
+    expect(roundSteps([1, 2, 3], 3)).toEqual({ prev: 2 });
+    expect(roundSteps([1, 2, 3], "all")).toEqual({});
+  });
+
+  it("round and team filters drop empty rounds and phases and recount played", () => {
+    const groups = fixturesByPhase(season6());
+    expect(fixtureTeams(groups)).toEqual(["Grudge Rollers", "Rot Girl Summer"]);
+    const r1 = filterFixtures(groups, 1, "");
+    expect(r1.map((g) => g.phase.id)).toEqual(["season-preseason", "season-regular"]); // round 1 in both phases
+    expect(r1.flatMap((g) => g.rounds.flatMap((r) => r.fixtures.map((f) => f.id)))).toEqual(["f1", "f2"]);
+    const r3 = filterFixtures(groups, 3, "");
+    expect(r3).toHaveLength(1);
+    expect(r3[0]!.rounds[0]!.played).toBe(0);
+    expect(filterFixtures(groups, "all", "Nobody")).toEqual([]);
+    expect(filterFixtures(groups, "all", "Grudge Rollers").flatMap((g) => g.rounds).length).toBe(4);
+  });
+
+  it("status chip: played, forfeit, suspended / not played, overdue, scheduled", () => {
+    const [f1, , f3, f4] = season6().fixtures;
+    expect(fixtureStatus(f1!, "2026-11-01")).toEqual({ label: "Played", tone: "ok" });
+    expect(fixtureStatus(f3!, "2026-11-01")).toEqual({ label: "Forfeit", tone: "soon" });
+    expect(fixtureStatus(f4!, "2026-11-01")).toEqual({ label: "Scheduled", tone: "muted" });
+    expect(fixtureStatus({ ...f4!, date: "2026-10-01" }, "2026-11-01")).toEqual({ label: "Overdue", tone: "urgent" });
+    expect(fixtureStatus({ ...f4!, date: "2026-12-01" }, "2026-11-01").label).toBe("Scheduled");
+    expect(fixtureStatus({ ...f4!, suspended: true }, "2026-11-01")).toEqual({ label: "Not played", tone: "muted" });
+  });
+
+  it("the Cards | Table choice is remembered per viewer and never needs storage", () => {
+    const g = globalThis as { localStorage?: unknown };
+    expect(readFixturesView()).toBe("cards"); // no storage at all
+    const store = new Map<string, string>();
+    g.localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    try {
+      writeFixturesView("table");
+      expect(readFixturesView()).toBe("table");
+      store.set("sf-league-fixtures-view", "nonsense");
+      expect(readFixturesView()).toBe("cards");
+      g.localStorage = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+      expect(readFixturesView()).toBe("cards");
+      expect(() => writeFixturesView("table")).not.toThrow();
+    } finally { delete g.localStorage; }
   });
 });
