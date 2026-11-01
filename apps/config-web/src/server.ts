@@ -117,6 +117,7 @@ import {
 } from "./teamAvatars.js";
 import { OWN_AVATAR_PATH, coachAvatarId, coachAvatarKey, coachAvatarPath, createCoachAvatarResolver, resolveCoachAvatar, uploadedCoachAvatarUrl, withSideAvatars } from "./coachAvatars.js";
 import { requireSession, type SessionIdentity } from "./auth/requireSession.js";
+import { csrfHeaderMissing } from "./auth/csrf.js";
 import { isSpaPath, spaStaticPath } from "./spaRoutes.js";
 import { linkedFumbblNameIn } from "./fumbblLink.js";
 import { coachLogin, sendCoachLogin } from "./auth/coachLogin.js";
@@ -1605,48 +1606,6 @@ function isOrganizerWrite(method: string, pathname: string): boolean {
   );
 }
 
-function isStateChangingApiWrite(method: string, pathname: string): boolean {
-  if (!pathname.startsWith("/api/") || !WRITE_METHODS.has(method)) return false;
-  return (
-    isOrganizerWrite(method, pathname) ||
-    pathname === "/api/admin/identities/naf" || // CSRF guard still applies to this write
-    pathname === "/api/auth/login" ||
-    pathname === "/api/auth/logout" ||
-    pathname === "/api/fork/library/ingest" ||
-    pathname === "/api/fork/library/retire" ||
-    pathname === "/api/fork/reload" ||
-    pathname === "/api/fork/team-builder/build" ||
-    teamAvatarPath(pathname) !== undefined ||
-    teamBuilderSavesPath(pathname) !== undefined ||
-    teamBuilderSharePath(pathname) !== undefined ||
-    isLobbyApiPath(pathname) ||
-    isTabletopApiPath(pathname) ||
-    pathname === "/api/bug-reports" ||
-    pathname === "/api/admin/identities" ||
-    pathname === "/api/admin/identities/naf" ||
-    pathname === "/api/account" ||
-    pathname === "/api/me/scheduling" ||
-    pathname === "/api/me/profile" ||
-    pathname === OWN_AVATAR_PATH ||
-    pathname === NAF_CONNECTION_ENDPOINT ||
-    pathname === "/api/me/notifications/read" ||
-    isSocialApiPath(pathname) ||
-    pathname === ONBOARDING_PATH ||
-    pathname === CONTACT_PATH ||
-    pathname === LEAGUE_SHARING_PATH ||
-    pathname === SHARING_PATH || pathname.startsWith(`${SHARING_PATH}/`) ||
-    pathname.startsWith("/api/me/email") ||
-    pathname === "/api/me/delete" ||
-    isTeamMutationWritePath(pathname) ||
-    pathname.startsWith("/api/tournaments/") ||
-    pathname.startsWith("/api/fork/tournaments/") ||
-    pathname.startsWith("/api/scheduled-matches/") ||
-    leaguePath(pathname) !== undefined ||
-    seriesPath(pathname) !== undefined ||
-    /^\/api\/teams\/[^/]+\/advancement$/.test(pathname)
-  );
-}
-
 function libraryOwnerForTeam(teamId: string, options: { activeOnly?: boolean } = {}): string | undefined {
   try {
     for (const libraryCoach of libraryCoaches(LIBRARY_DIR)) {
@@ -2104,7 +2063,7 @@ async function handleApi(
   }
 
   // Tournament Series (src/tournaments/series.ts): public reads; writes are organiser / series-organiser gated in-handler,
-  // need the CSRF header (isStateChangingApiWrite) and onboarding (the 428 gate above), and never come from a test session.
+  // need the CSRF header (src/auth/csrf.ts) and onboarding (the 428 gate above), and never come from a test session.
   if (seriesPath(path) !== undefined) {
     if (WRITE_METHODS.has(method) && getSession(sessionTokenFromRequest(req))?.test)
       return sendJson(res, 403, { error: "Test sign-in sessions cannot write tournament data." });
@@ -4553,6 +4512,12 @@ export const server = createServer((req, res) => {
         res.writeHead(204).end();
         return;
       }
+      // CSRF guard (src/auth/csrf.ts), ahead of EVERY /api dispatch and on both gate paths: a cookie-ridden request
+      // (live cw_session, no Bearer) needs X-CW-Auth on any state-changing method and on the legacy state-changing GETs.
+      // Derived from the method, so a new write route is covered by default.
+      if (csrfHeaderMissing(req, req.method ?? "GET", url.pathname)) {
+        return sendJson(res, 403, { error: "Missing required X-CW-Auth header." });
+      }
       // Portal mail links + Postmark webhook (src/mail/service.ts): public in both deployment modes; the webhook checks its
       // own Basic-auth secret, the link routes check their signed tokens.
       if (mail.isPublicMailPath(url.pathname)) {
@@ -4666,13 +4631,8 @@ export const server = createServer((req, res) => {
             error: auth ? "Organizer access required." : "Authentication required.",
           });
         }
-        // X-CW-Auth is a CSRF guard, and CSRF is a COOKIE problem: a cross-site form can make the
-        // browser attach cw_session, but it cannot set an Authorization header. A request that
-        // authenticated by Bearer is therefore exempt (owner ruling 08-17 — the FUMBBL40k client
-        // carries a token, not a cookie, and must not need a second ceremonial header).
-        if (auth && !bearerTokenFromRequest(req) && isStateChangingApiWrite(method, url.pathname) && req.headers["x-cw-auth"] !== "1") {
-          return sendJson(res, 403, { error: "Missing required X-CW-Auth header." });
-        }
+        // X-CW-Auth (CSRF) was enforced for every cookie-ridden state change above (csrfHeaderMissing); Bearer callers
+        // such as the FUMBBL40k client are exempt (owner ruling 08-17).
         if (url.pathname.startsWith("/api/"))
           return await handleApi(req, res, url.pathname, url.searchParams, auth);
         await serveStatic(res, url.pathname);
@@ -4704,15 +4664,8 @@ export const server = createServer((req, res) => {
           res.writeHead(401, { "www-authenticate": 'Basic realm="BB Config"' }).end("auth required");
           return;
         }
-        const method = req.method ?? "GET";
-        if (
-          accountSession &&
-          !bearerTokenFromRequest(req) &&
-          isStateChangingApiWrite(method, url.pathname) &&
-          req.headers["x-cw-auth"] !== "1"
-        ) {
-          return sendJson(res, 403, { error: "Missing required X-CW-Auth header." });
-        }
+        // X-CW-Auth (CSRF) was enforced above for EVERY cookie-ridden state change (csrfHeaderMissing), not only the
+        // accountSession routes: tournament, team, library and admin writes that pass authorized() are covered too.
         if (url.pathname.startsWith("/api/"))
           return await handleApi(req, res, url.pathname, url.searchParams, auth);
       }

@@ -148,7 +148,7 @@ describe("lobby routes (sidecar off)", () => {
     // P0 / #13: a lobby seat is never delivered through the public match poll (status only, no JNLP), not even
     // to its owning session; and polls never consume it.
     for (const [coach, cookie] of [["LobbyAlice", undefined], ["LobbyBob", bob]] as const) {
-      const res = (await (await fetch(`${origin}/api/fork/matchstatus?coach=${coach}`, cookie ? { headers: { cookie } } : {})).json()) as Record<string, unknown>;
+      const res = (await (await fetch(`${origin}/api/fork/matchstatus?coach=${coach}`, cookie ? { headers: { cookie, "x-cw-auth": "1" } } : {})).json()) as Record<string, unknown>;
       expect(res).toMatchObject({ status: "matched", gameName: expect.stringMatching(/^chal_/) });
       expect(res).not.toHaveProperty("jnlp");
     }
@@ -173,9 +173,11 @@ describe("lobby routes (sidecar off)", () => {
     expect(anon).not.toHaveProperty("jnlp"); // status only
     const wrong = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave&passwordMd5=${"e".repeat(32)}`)).json()) as Record<string, unknown>;
     expect(wrong).not.toHaveProperty("jnlp");
-    const other = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`, { headers: { cookie: discordCookie("LobbyEve") } })).json()) as Record<string, unknown>;
+    const other = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`, { headers: { cookie: discordCookie("LobbyEve"), "x-cw-auth": "1" } })).json()) as Record<string, unknown>;
     expect(other).not.toHaveProperty("jnlp"); // another coach's session is not the owner
-    const own = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`, { headers: { cookie: discordCookie("LobbyDave") } })).json()) as { jnlp: string };
+    // CSRF: the owning cookie session without X-CW-Auth is refused before anything is consumed.
+    expect((await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`, { headers: { cookie: discordCookie("LobbyDave") } })).status).toBe(403);
+    const own = (await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`, { headers: { cookie: discordCookie("LobbyDave"), "x-cw-auth": "1" } })).json()) as { jnlp: string };
     expect(own.jnlp).toContain(`<argument>-passwordMd5</argument><argument>${digest}</argument>`);
     expect(own.jnlp).not.toContain("12345");
     expect(await (await fetch(`${origin}/api/fork/matchstatus?coach=LobbyDave`)).json()).toEqual({ status: "waiting" });
@@ -208,11 +210,12 @@ describe("lobby routes (sidecar off)", () => {
     await fetch(`${origin}/api/fork/challenge?coach=LobbyEve&teamId=9105&opponent=MixA&passwordMd5=${digest}`);
     const anon = await fetch(`${origin}/api/fork/cancel?coach=LobbyEve`);
     expect(anon.status).toBe(401);
-    expect((await fetch(`${origin}/api/fork/cancel?coach=LobbyEve`, { headers: { cookie: discordCookie("LobbyDave") } })).status).toBe(401);
+    expect((await fetch(`${origin}/api/fork/cancel?coach=LobbyEve`, { headers: { cookie: discordCookie("LobbyDave"), "x-cw-auth": "1" } })).status).toBe(401);
     expect((await fetch(`${origin}/api/fork/cancel?coach=LobbyEve&passwordMd5=${"8".repeat(32)}`)).status).toBe(401);
     expect((await fetch(`${origin}/api/fork/cancel?coach=LobbyEve&passwordMd5=${digest}`)).status).toBe(200);
     await fetch(`${origin}/api/fork/challenge?coach=LobbyEve&teamId=9105&opponent=MixA&passwordMd5=${digest}`);
-    expect((await fetch(`${origin}/api/fork/cancel?coach=LobbyEve`, { headers: { cookie: discordCookie("LobbyEve") } })).status).toBe(200);
+    expect((await fetch(`${origin}/api/fork/cancel?coach=LobbyEve`, { headers: { cookie: discordCookie("LobbyEve") } })).status).toBe(403); // CSRF: cookie without X-CW-Auth
+    expect((await fetch(`${origin}/api/fork/cancel?coach=LobbyEve`, { headers: { cookie: discordCookie("LobbyEve"), "x-cw-auth": "1" } })).status).toBe(200);
   });
 });
 

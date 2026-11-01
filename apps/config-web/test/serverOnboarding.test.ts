@@ -93,7 +93,8 @@ const cookie = (coach: string) => `cw_session=${createSession(coach, Date.now(),
 const call = (coach: string | undefined, method: string, path: string, body?: unknown, extra: Record<string, string> = {}) =>
   fetch(`${origin}${path}`, {
     method,
-    headers: { ...(coach ? { cookie: cookie(coach) } : {}), ...(method !== "GET" ? { "x-cw-auth": "1", "content-type": "application/json" } : {}), ...extra },
+    // Our own pages send X-CW-Auth on cookie calls; the legacy state-changing GETs need it too (src/auth/csrf.ts).
+    headers: { ...(coach ? { cookie: cookie(coach), "x-cw-auth": "1" } : {}), ...(method !== "GET" ? { "x-cw-auth": "1", "content-type": "application/json" } : {}), ...extra },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 const okBody = { preferredName: "New Bie", email: "newbie@example.test", country: "US", phones: [{ number: "555 123 4567" }], leagueContact: false, privacyAccepted: true, privacyVersion: PRIVACY_VERSION };
