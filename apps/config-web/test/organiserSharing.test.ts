@@ -465,30 +465,37 @@ describe("NAF pending (P2)", () => {
   });
 });
 
-describe("NAF owed is derived, not only the stored flag (review P2 on a7dad19)", () => {
-  it("an entry of an already-sanctioned tournament with no NAF answer cannot submit; its coach is told once", async () => {
+describe("NAF owed is derived on reads; settled once at startup (review P2 on a7dad19 / 1c506f7)", () => {
+  it("an unanswered entry of a sanctioned tournament cannot submit and reads as pending, with no write and no notice", async () => {
     const h = harness();
     const t = await createTournament(h, true);
     // An entry written without any NAF fields (older data, or another writer): no nafNumber, notNafMember or nafPending.
     h.store.registerEntrant(t.id, { coachId: "Alice", ffbCoachId: "Alice", verifiedAt: NOW.toISOString() }, "team-alice", NOW);
-    const entry = h.store.entrants(t.id)[0]!;
-    expect(entry.nafPending).toBeUndefined();
     const before = h.inbox.length;
     expect(await h.call("POST", `/api/tournaments/${t.id}/submissions`, player("Alice"), { saveId: "save:x" })).toMatchObject({ status: 400, body: { error: NAF_REQUIRED_MESSAGE } });
-    expect(h.store.entrants(t.id)[0]!.nafPending).toBe(true);
-    expect(await h.call("POST", `/api/tournaments/${t.id}/submissions`, player("Alice"), { saveId: "save:x" })).toMatchObject({ status: 400 });
-    await h.call("GET", `/api/tournaments/${t.id}`, player("Alice"));
-    expect(h.inbox.slice(before).map((n) => [n.coach, n.type])).toEqual([["Alice", "naf-request"]]); // once
-    const view = await h.call("GET", `/api/tournaments/${t.id}`, co);
-    expect((view!.body as { entrants: Array<{ nafPending?: boolean }> }).entrants[0]!.nafPending).toBe(true);
+    await h.call("GET", `/api/tournaments/${t.id}`, undefined); // an anonymous read changes nothing
+    for (const viewer of [player("Alice"), co]) {
+      const view = await h.call("GET", `/api/tournaments/${t.id}`, viewer);
+      expect((view!.body as { entrants: Array<{ nafPending?: boolean }> }).entrants[0]!.nafPending).toBe(true); // derived for the coach and the managers
+    }
+    expect(h.store.entrants(t.id)[0]!.nafPending).toBeUndefined(); // reads never write
+    expect(h.inbox.length).toBe(before); // and never notify
   });
 
-  it("the tournament page marks unanswered entries the first time it is read", async () => {
+  it("the startup settle marks unanswered entries once, one notice per coach; a restart notifies nobody again", async () => {
+    const { settleNafOwedEntries } = await import("../src/tournaments/api.js");
     const h = harness();
     const t = await createTournament(h, true);
-    h.store.registerEntrant(t.id, { coachId: "Bob", ffbCoachId: "Bob", verifiedAt: NOW.toISOString() }, "team-bob", NOW);
-    await h.call("GET", `/api/tournaments/${t.id}`, undefined);
-    expect(h.store.entrants(t.id)[0]!.nafPending).toBe(true);
-    expect(h.inbox.filter((n) => n.coach === "Bob" && n.type === "naf-request")).toHaveLength(1);
+    h.store.registerEntrant(t.id, { coachId: "Alice", ffbCoachId: "Alice", verifiedAt: NOW.toISOString() }, "team-alice", NOW);
+    h.store.registerEntrant(t.id, { coachId: "Bob", ffbCoachId: "Bob", verifiedAt: NOW.toISOString() }, "team-bob", NOW, { nafNumber: "12" });
+    const plain = await createTournament(h);
+    h.store.registerEntrant(plain.id, { coachId: "Carol", ffbCoachId: "Carol", verifiedAt: NOW.toISOString() }, "team-carol", NOW);
+    const notify = createTournamentNotifier({ add: (coach, input) => { h.inbox.push({ coach, ...input }); return undefined as never; } }, h.store, () => {});
+    const before = h.inbox.length;
+    expect(settleNafOwedEntries({ store: h.store, notify })).toBe(1);
+    expect(h.store.entrants(t.id).map((e) => [e.coach.ffbCoachId, e.nafPending === true])).toEqual([["Alice", true], ["Bob", false]]);
+    expect(h.inbox.slice(before).map((n) => [n.coach, n.type])).toEqual([["Alice", "naf-request"]]);
+    expect(settleNafOwedEntries({ store: h.store, notify })).toBe(0); // restart
+    expect(h.inbox.length).toBe(before + 1);
   });
 });

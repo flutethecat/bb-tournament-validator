@@ -323,7 +323,7 @@ import { FileTabletopRepository } from "./tabletop/store.js";
 import { createRecorderWebhook, recorderAnnouncement } from "./tabletop/discord.js";
 import { isAdminTestingPath, testingApi } from "./tabletop/testing.js";
 import { parseTeamRef, saveCaptainError, teamFileFromLibraryDetail, teamFileFromSave } from "./tabletop/teamFile.js";
-import { tournamentApi } from "./tournaments/api.js";
+import { settleNafOwedEntries, tournamentApi } from "./tournaments/api.js";
 import { tournamentBannerApi, tournamentBannerPath } from "./tournaments/page.js";
 import { leagueApi, leaguePath } from "./leagues/api.js";
 import { LeagueStore } from "./leagues/store.js";
@@ -650,6 +650,8 @@ if (forkAdminCfg) {
   }, 2 * 60 * 1000).unref();
 }
 setActiveNotifier(tournamentNotifier);
+// NAF-sanctioned entries that owe their NAF answer but are not marked yet: marked once, one notice per coach (idempotent).
+try { settleNafOwedEntries({ store: tournamentStore, notify: tournamentNotifier }); } catch (e) { console.error(`[naf] startup settle failed: ${(e as Error).message}`); }
 const messageLimiter = new SenderRateLimiter(30, 60_000);
 
 /** PUBLIC_BASE_URL, validated once at startup (http/https origin, no userinfo / path); unset or invalid = none. */

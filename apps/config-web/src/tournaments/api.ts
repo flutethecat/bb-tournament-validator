@@ -201,8 +201,9 @@ function submissionView(entrant: TournamentEntrantRecord, private_: boolean) {
 }
 
 /** An entrant for the page; `private_` (the coach themselves or a manager) adds flags, manual seed and problems. */
-/** shared: the coach's granted fields, for a manager's view only (sharedContactFor). */
-function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentApiDeps, "teamBuild">, private_: boolean, shared?: SharedContact) {
+/** shared: the coach's granted fields, for a manager's view only (sharedContactFor). tournament: when given, nafPending is
+ *  derived (an unanswered entry of a sanctioned tournament shows pending even before it is marked). */
+function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentApiDeps, "teamBuild">, private_: boolean, shared?: SharedContact, tournament?: TournamentRecord) {
   const { coach, submission: _submission, flags, rosterVerifiedOverride, manualSeed, nafNumber, notNafMember, nafPending, ...rest } = entrant;
   const team = deps.teamBuild(entrant.teamId);
   const submission = submissionView(entrant, private_);
@@ -221,7 +222,7 @@ function clientEntrant(entrant: TournamentEntrantRecord, deps: Pick<TournamentAp
       ...(manualSeed === undefined ? {} : { manualSeed }),
       ...(nafNumber ? { nafNumber } : {}),
       ...(notNafMember ? { notNafMember } : {}),
-      ...(nafPending ? { nafPending } : {}),
+      ...(nafPending || (tournament && nafOwed(tournament, entrant)) ? { nafPending: true as const } : {}),
     } : {}),
     ...(shared ? { shared } : {}),
   };
@@ -580,17 +581,22 @@ export function nafOwed(tournament: Pick<TournamentRecord, "nafSanctioned">, ent
 }
 
 /**
- * The first time an owed answer is seen (an entry from before the tournament was sanctioned, written by any path), the
- * entry is marked nafPending and its coach gets the naf-request notice once; later evaluations find it marked. Returns
- * the entrants as they stand after marking.
+ * Startup migration (idempotent): entries of draft / active NAF-sanctioned tournaments that owe their NAF answer but are
+ * not marked yet (written before nafPending existed, or by another writer) are marked nafPending and each coach gets the
+ * naf-request notice once. The mark is the guard: a restart finds them marked and notifies nobody again. Reads never
+ * write; they derive (nafOwed). Returns how many entries were marked.
  */
-function settleNafOwed(deps: TournamentApiDeps, tournament: TournamentRecord, entrants: TournamentEntrantRecord[], actor: string): TournamentEntrantRecord[] {
-  const unmarked = entrants.filter((e) => nafOwed(tournament, e) && !e.nafPending);
-  if (!unmarked.length) return entrants;
-  let marked: string[] = [];
-  try { marked = deps.store.markNafPending(tournament.id, unmarked.map((e) => e.id)); } catch { return entrants; }
-  for (const e of unmarked) if (marked.includes(e.id)) notifyNafRequest(deps, tournament, e.coach.ffbCoachId, actor, false);
-  return deps.store.entrants(tournament.id);
+export function settleNafOwedEntries(deps: Pick<TournamentApiDeps, "store" | "notify">): number {
+  let count = 0;
+  for (const tournament of deps.store.tournaments(["draft", "active"])) {
+    if (!tournament.nafSanctioned) continue;
+    const unmarked = deps.store.entrants(tournament.id).filter((e) => nafOwed(tournament, e) && !e.nafPending);
+    if (!unmarked.length) continue;
+    const marked = deps.store.markNafPending(tournament.id, unmarked.map((e) => e.id));
+    for (const e of unmarked) if (marked.includes(e.id)) notifyNafRequest(deps as TournamentApiDeps, tournament, e.coach.ffbCoachId, "", false);
+    count += marked.length;
+  }
+  return count;
 }
 
 function notifyFixtures(deps: TournamentApiDeps, tournament: TournamentRecord, matches: readonly ScheduledMatchRecord[], actor: string): void {
@@ -763,10 +769,7 @@ export async function tournamentApi(
       const entrant = entrantByCoach(deps.store.entrants(tournament.id), identity.coach);
       if (!entrant || entrant.droppedAt) return { status: 403, body: { error: "You are not entered in this tournament." } };
       // NAF stays non-optional (owner 10-31): an entry still owing its NAF answer cannot submit a roster.
-      if (nafOwed(tournament, entrant)) {
-        settleNafOwed(deps, tournament, [entrant], "");
-        return { status: 400, body: { error: NAF_REQUIRED_MESSAGE } };
-      }
+      if (nafOwed(tournament, entrant)) return { status: 400, body: { error: NAF_REQUIRED_MESSAGE } };
       if (tournament.rostersLockedAt || entrant.flags?.frozen)
         return { status: 409, body: { error: "Rosters are locked; ask an organiser to unlock them before resubmitting." } };
       if (!deps.validateSubmission) return { status: 503, body: { error: "Team validation is unavailable on this host." } };
@@ -1184,8 +1187,7 @@ export async function tournamentApi(
       const tournamentId = decoded(detailMatch[1]!);
       const tournament = tournamentId ? deps.store.tournament(tournamentId) : undefined;
       if (!tournament) return { status: 404, body: { error: "Tournament not found." } };
-      // An unanswered entry of a sanctioned tournament is marked (and its coach told) the first time it is seen.
-      const entrants = settleNafOwed(deps, tournament, deps.store.entrants(tournament.id), "");
+      const entrants = deps.store.entrants(tournament.id);
       const manager = canManage(tournament, auth);
       const shared = manager && auth ? sharedMap(deps, auth, entrants.filter((e) => e.droppedAt === undefined), tournament.id) : new Map<string, SharedContact>();
       // Fixtures: organisers and this tournament's managers see all; an entrant sees every fixture of the event
@@ -1207,6 +1209,7 @@ export async function tournamentApi(
             deps,
             manager || (auth !== undefined && coachKey(auth.coach) === coachKey(entrant.coach.ffbCoachId)),
             shared.get(entrant.id),
+            tournament,
           )),
           rounds: deps.store.rounds(tournament.id),
           standings: deps.store.standings(tournament.id),
