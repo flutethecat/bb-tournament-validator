@@ -142,6 +142,20 @@ export function zonedInstant(dayKey: string, minutes: number, zone: string): num
   return t;
 }
 
+/** Quarter-hour starts the propose picker offers (the server takes any quarter hour). */
+export const START_MINUTES = [0, 15, 30, 45] as const;
+
+/** The 2-hour slot starts of a local day at HH:<minute> for each hour (a DST gap's duplicate instant is kept once;
+ *  an instant that falls on another local day, in a DST overlap, is dropped). */
+export function dayStarts(dayKey: string, minute: number, zone: string): number[] {
+  const out: number[] = [];
+  for (let h = 0; h < 24; h++) {
+    const t = zonedInstant(dayKey, h * 60 + minute, zone);
+    if (!out.includes(t) && dayKeyIn(t, zone) === dayKey) out.push(t);
+  }
+  return out;
+}
+
 export function addDays(dayKey: string, n: number): string {
   const [y, mo, d] = dayKey.split("-").map(Number) as [number, number, number];
   const x = new Date(Date.UTC(y, mo - 1, d + n));

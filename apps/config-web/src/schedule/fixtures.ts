@@ -5,7 +5,7 @@
 //   tournament:<matchId>                       an open scheduled match of an ACTIVE tournament (tournaments/store.ts)
 //
 // A coach is a participant when they hold one side's seat: for a league fixture the seat owner rule of the sidebar
-// (myLeagues.ts seatOwners: an organiser's assignment, else the team's account, else the coach aliases), for a tournament
+// (seatAccounts below = myLeagues.ts seatOwners with the identity store's key: an organiser's assignment, else the team's account, else the coach aliases), for a tournament
 // match the side's verified coach. The agreed time is written onto the fixture record itself (`scheduledTime`); nothing
 // here ever creates, deletes or re-pairs a fixture.
 //
@@ -14,12 +14,13 @@
 
 import { buildCoachAliases, seasonCoachFacets } from "../leagues/identity.js";
 import { effectiveDeadline, fixtureOpenForDeadline } from "../leagues/deadlines.js";
-import { INDEX_TTL_MS, seatOwners } from "../leagues/myLeagues.js";
+import { INDEX_TTL_MS } from "../leagues/myLeagues.js";
+import type { CoachAliases } from "../leagues/identity.js";
 import type { LeagueStore } from "../leagues/store.js";
 import type { FixtureSide, LeagueFixture, LeagueTeam, SeasonRecord } from "../leagues/types.js";
 import type { TournamentStore } from "../tournaments/store.js";
 import type { ScheduledMatchRecord } from "../tournaments/types.js";
-import { SLOT_MS } from "./store.js";
+import { scheduleKey, SLOT_MS } from "./store.js";
 
 /** The agreed time written onto a fixture record by an accepted proposal. */
 export interface AgreedTime { start: string; end: string; agreedAt: string }
@@ -51,7 +52,27 @@ export interface FixtureSource {
 }
 
 const enc = encodeURIComponent;
-export const fixtureKey = (v: string | undefined): string => (v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+/** Team-name matching only (fixture side -> season team): inner whitespace folded. Never used for coach accounts. */
+const teamKey = (v: string | undefined): string => (v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+/** Coach accounts: EXACTLY the identity store's key (scheduleKey = privacy/fence coachKey = normalizeFfbCoachId). */
+export const accountKey = (v: string | undefined): string => scheduleKey(v ?? "");
+
+/**
+ * Who holds a league team's seat, keyed by the identity store's key (the sidebar's seatOwners rule, myLeagues.ts, without
+ * its whitespace folding, so "A B" never stands in for "A  B"): an organiser's assignment decides alone (cleared = nobody);
+ * else the team's account; only a team with neither falls back to the coach aliases over the accounts seen in the league.
+ */
+export function seatAccounts(team: LeagueTeam, aliases: CoachAliases, observedIds: Iterable<string>): string[] {
+  if (team.coachAssigned) return team.coachAssigned.cleared || !accountKey(team.coachId) ? [] : [accountKey(team.coachId)];
+  if (accountKey(team.coachId)) return [accountKey(team.coachId)];
+  if (!accountKey(team.coach)) return [];
+  const key = aliases.key({ coach: team.coach, ...(team.nafUser ? { nafUser: team.nafUser } : {}) });
+  const owners = new Set<string>();
+  for (const id of observedIds) if (aliases.key({ coachId: id }) === key) owners.add(accountKey(id));
+  // An account whose id is the unlinked display name itself (exact identity key only).
+  if (key === `name:${teamKey(team.coach)}`) owners.add(accountKey(team.coach));
+  return [...owners];
+}
 
 export function leagueRef(leagueId: string, seasonId: string, fixtureId: string): string { return `league:${leagueId}:${seasonId}:${fixtureId}`; }
 export function tournamentRef(matchId: string): string { return `tournament:${matchId}`; }
@@ -88,8 +109,8 @@ function agreed(v: unknown): AgreedTime | undefined {
 
 function teamOf(season: SeasonRecord, side: FixtureSide): LeagueTeam | undefined {
   if (side.teamId) return season.teams.find((t) => t.id === side.teamId);
-  const name = fixtureKey(side.team);
-  return name ? season.teams.find((t) => fixtureKey(t.name) === name) : undefined;
+  const name = teamKey(side.team);
+  return name ? season.teams.find((t) => teamKey(t.name) === name) : undefined;
 }
 
 interface LeagueIndex { version: number; at: number; byCoach: Map<string, FixtureEntry[]>; byRef: Map<string, FixtureEntry> }
@@ -103,10 +124,10 @@ function buildLeagueIndex(store: LeagueStore): Pick<LeagueIndex, "byCoach" | "by
     if (!active.length) continue;
     const aliases = buildCoachAliases((function* () { for (const s of active) yield* seasonCoachFacets(s); })());
     const observed = new Set<string>();
-    for (const s of active) for (const f of seasonCoachFacets(s)) if (fixtureKey(f.coachId)) observed.add(f.coachId!.trim());
+    for (const s of active) for (const f of seasonCoachFacets(s)) if (accountKey(f.coachId)) observed.add(f.coachId!.trim());
     for (const season of active) {
       const owners = new Map<string, string[]>();
-      for (const t of season.teams) owners.set(t.id, seatOwners(t, aliases, observed));
+      for (const t of season.teams) owners.set(t.id, seatAccounts(t, aliases, observed));
       for (const f of season.fixtures) {
         if (!fixtureOpenForDeadline(f)) continue;
         const home = teamOf(season, f.home);
@@ -157,7 +178,9 @@ function tournamentEntries(store: TournamentStore): FixtureEntry[] {
     const t = snap.tournaments[m.tournamentId];
     if (!t || t.status !== "active") continue;
     const teamName = (entrantId: string) => snap.entrants[entrantId]?.submission?.teamName ?? "";
-    const side = (s: NonNullable<ScheduledMatchRecord["away"]>) => ({ team: teamName(s.entrantId), coach: s.coach.ffbCoachId, owners: fixtureKey(s.coach.ffbCoachId) ? [fixtureKey(s.coach.ffbCoachId)] : [] });
+    // A dropped entrant loses the seat (and with it any say over the time): the match is not offered to either side.
+    if (snap.entrants[m.home.entrantId]?.droppedAt || snap.entrants[m.away.entrantId]?.droppedAt) continue;
+    const side = (s: NonNullable<ScheduledMatchRecord["away"]>) => ({ team: teamName(s.entrantId), coach: s.coach.ffbCoachId, owners: accountKey(s.coach.ffbCoachId) ? [accountKey(s.coach.ffbCoachId)] : [] });
     const deadline = validIso((m as ScheduledMatchRecord & { deadline?: unknown }).deadline);
     const scheduled = agreed(m.scheduledTime);
     out.push({
@@ -183,7 +206,7 @@ export function createFixtureSource(deps: { leagues: LeagueStore; tournaments: T
   const safeLeague = (): LeagueIndex | undefined => { try { return leagueIndex(deps.leagues, now()); } catch { return undefined; } };
   return {
     forCoach(coach) {
-      const key = fixtureKey(coach);
+      const key = accountKey(coach);
       if (!key) return [];
       const league = safeLeague()?.byCoach.get(key) ?? [];
       const tour = safeTournaments().filter((e) => e.sides.home.owners.includes(key) || e.sides.away.owners.includes(key));
@@ -214,6 +237,7 @@ export function createFixtureSource(deps: { leagues: LeagueStore; tournaments: T
       const m = data.scheduledMatches[parsed.matchId];
       const t = m ? data.tournaments[m.tournamentId] : undefined;
       if (!m || !t || t.status !== "active" || !m.away || m.result || MATCH_CLOSED.has(m.status)) throw new Error("The fixture is no longer open.");
+      if (data.entrants[m.home.entrantId]?.droppedAt || data.entrants[m.away.entrantId]?.droppedAt) throw new Error("The fixture is no longer open.");
       m.scheduledTime = { start: time.start, end: time.end, agreedAt: time.agreedAt };
       deps.tournaments.writeSnapshot(data);
     },

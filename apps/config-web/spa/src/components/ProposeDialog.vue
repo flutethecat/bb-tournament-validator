@@ -9,8 +9,8 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import LeagueDialog from "./LeagueDialog.vue";
 import { monthGrid, monthLabel, shiftMonth, WEEKDAY_LABELS, type YearMonth } from "../account/calendar";
 import {
-  addDays, clockIn, dayKeyIn, dayLabel, inAvailability, MAX_SLOTS, myBusy, slotRange, slotState, socialSlot, toggleSlot, validZone, warningsFor,
-  whenIn, zonedInstant, type Interval, type ScheduleFixture, type ScheduleProposal, type ScheduleView,
+  addDays, clockIn, dayKeyIn, dayLabel, dayStarts, START_MINUTES, inAvailability, MAX_SLOTS, myBusy, slotRange, slotState, socialSlot, toggleSlot, validZone, warningsFor,
+  whenIn, type Interval, type ScheduleFixture, type ScheduleProposal, type ScheduleView,
 } from "../schedule/schedule";
 
 const props = defineProps<{ fixture: ScheduleFixture; view: ScheduleView; zone: string; now: number; counter?: ScheduleProposal; busy?: boolean; error?: string }>();
@@ -30,10 +30,10 @@ const busyDays = computed(() => {
   for (const b of busyList.value) set.add(dayKeyIn(Date.parse(b.start), props.zone));
   return set;
 });
-const hours = computed(() => Array.from({ length: 24 }, (_, h) => zonedInstant(day.value, h * 60, props.zone))
-  // a DST gap maps two wall hours onto one instant: keep it once
-  .filter((start, i, all) => all.indexOf(start) === i).map((start) => {
-  const state = dayKeyIn(start, props.zone) === day.value ? slotState(start, busyList.value, props.now) : "past";
+// Start minute (quarter hours): every hour row starts at HH:<minute>.
+const minute = ref<number>(0);
+const hours = computed(() => dayStarts(day.value, minute.value, props.zone).map((start) => {
+  const state = slotState(start, busyList.value, props.now);
   return {
     start,
     state,
@@ -56,7 +56,7 @@ async function scrollHours(): Promise<void> {
   const item = el?.children[8] as HTMLElement | undefined;
   if (el && item) el.scrollTop = item.offsetTop - el.offsetTop;
 }
-watch(day, () => { void scrollHours(); });
+watch([day, minute], () => { void scrollHours(); });
 onMounted(() => { void scrollHours(); });
 const stepDay = (by: number) => {
   const next = addDays(day.value, by);
@@ -102,6 +102,12 @@ const stepDay = (by: number) => {
           <button type="button" class="sf-btn small" aria-label="Previous day" :disabled="day <= todayKey" @click="stepDay(-1)">‹</button>
           <h3 id="sc-pd-day-h" class="sc-pd-label">{{ dayLabel(day) }}</h3>
           <button type="button" class="sf-btn small" aria-label="Next day" @click="stepDay(1)">›</button>
+        </div>
+        <div class="sf-tabs small sc-minutes" role="group" aria-label="Start minute">
+          <button
+            v-for="m in START_MINUTES" :key="m" type="button" class="sf-tab" :aria-pressed="minute === m ? 'true' : 'false'" :data-minute="m"
+            @click="minute = m"
+          >:{{ String(m).padStart(2, "0") }}</button>
         </div>
         <ul ref="hourList" class="sc-hours">
           <li v-for="h in hours" :key="h.start">

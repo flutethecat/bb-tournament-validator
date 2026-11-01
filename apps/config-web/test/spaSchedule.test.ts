@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  calendarEvents, dayBox, dayKeyIn, inAvailability, listGroups, myBusy, refFromLobbyPath, slotState, socialSlot, toggleSlot, warningsFor, weekOf, zonedInstant,
+  calendarEvents, dayBox, dayKeyIn, dayStarts, START_MINUTES, inAvailability, listGroups, myBusy, refFromLobbyPath, slotState, socialSlot, toggleSlot, warningsFor, weekOf, zonedInstant,
   createScheduleStore, type ScheduleView,
 } from "../spa/src/schedule/schedule";
 import { proposedTimesFrom, loadProposals } from "../spa/src/account/calendar";
@@ -30,6 +30,16 @@ describe("zone maths", () => {
     expect(new Date(zonedInstant("2026-07-12", 19 * 60, "Europe/London")).toISOString()).toBe("2026-07-12T18:00:00.000Z");
     expect(new Date(zonedInstant("2026-11-12", 9 * 60, "Asia/Tokyo")).toISOString()).toBe("2026-11-12T00:00:00.000Z");
     expect(dayKeyIn(Date.parse("2026-11-12T23:30:00Z"), "Asia/Tokyo")).toBe("2026-11-13");
+  });
+  it("the picker's quarter-hour starts: 24 per day at :00/:15/:30/:45; a DST gap or overlap never duplicates", () => {
+    expect(START_MINUTES).toEqual([0, 15, 30, 45]);
+    const q = dayStarts("2026-11-12", 45, "Europe/London");
+    expect(q).toHaveLength(24);
+    expect(new Date(q[19]!).toISOString()).toBe("2026-11-12T19:45:00.000Z");
+    const spring = dayStarts("2026-03-29", 30, "Europe/London"); // 01:30 does not exist
+    expect(spring).toHaveLength(23);
+    expect(new Set(spring).size).toBe(spring.length);
+    for (const t of spring) expect(dayKeyIn(t, "Europe/London")).toBe("2026-03-29");
   });
   it("Monday-first weeks", () => {
     expect(weekOf("2026-11-12")).toEqual(["2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13", "2026-11-14", "2026-11-15"]);

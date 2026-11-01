@@ -23,7 +23,7 @@
 import type { NotificationInput } from "../notifications.js";
 import type { SenderRateLimiter } from "../notifications.js";
 import { DeletionFenceError, isReservedCoachName } from "../privacy/fence.js";
-import { fixtureKey, parseRef, slotOf, type AgreedTime, type FixtureEntry, type FixtureSource } from "./fixtures.js";
+import { accountKey, parseRef, slotOf, type AgreedTime, type FixtureEntry, type FixtureSource } from "./fixtures.js";
 import {
   isExpired, MAX_SLOTS, PROPOSAL_ID, ProposalStore, sameCoach, ScheduleStoreError, SLOT_MS, type ProposalRecord,
 } from "./store.js";
@@ -140,17 +140,18 @@ export function slotWarnings(slots: readonly string[], opponentZone: string | un
 
 // ---- views ----------------------------------------------------------------------------------------------------------
 
-interface Seat { mine: "home" | "away"; opponentKey?: string; opponentTeam: string; myTeam: string; opponentLabel: string }
+interface Seat { mine: "home" | "away"; /** More than one account holds the coach's own seat. */ shared: boolean; opponentKey?: string; opponentTeam: string; myTeam: string; opponentLabel: string }
 
-/** The coach's seat on a fixture, and the single coach holding the other seat (undefined = none or ambiguous). */
+/** The coach's seat on a fixture, and the single coach holding the other seat (undefined = none or ambiguous). The same
+ *  "exactly one account holds the seat" rule applies to the coach's own seat (`shared`). */
 function seatOf(e: FixtureEntry, coach: string): Seat | undefined {
-  const key = fixtureKey(coach);
+  const key = accountKey(coach);
   const mine = e.sides.home.owners.includes(key) ? "home" : e.sides.away.owners.includes(key) ? "away" : undefined;
   if (!mine) return undefined;
   const other = mine === "home" ? e.sides.away : e.sides.home;
   const own = mine === "home" ? e.sides.home : e.sides.away;
   const opp = other.owners.filter((o) => o !== key);
-  return { mine, ...(opp.length === 1 ? { opponentKey: opp[0] } : {}), opponentTeam: other.team, myTeam: own.team, opponentLabel: other.team || other.coach };
+  return { mine, shared: own.owners.length !== 1, ...(opp.length === 1 ? { opponentKey: opp[0] } : {}), opponentTeam: other.team, myTeam: own.team, opponentLabel: other.team || other.coach };
 }
 
 function fixtureTitle(e: FixtureEntry, seat: Seat): string {
@@ -159,6 +160,7 @@ function fixtureTitle(e: FixtureEntry, seat: Seat): string {
 
 /** Why the coach cannot propose on this fixture (undefined = they can), and the opponent's identity spelling. */
 function proposeBlocker(deps: ScheduleApiDeps, me: string, seat: Seat): { reason?: string; status?: number; opponent?: string } {
+  if (seat.shared) return { status: 409, reason: "More than one account is linked to your team on this fixture. Ask the organiser to assign the coach account." };
   if (!seat.opponentKey) return { status: 409, reason: "Your opponent has no Super FUMBBL account linked to this fixture yet. Ask the organiser." };
   if (isReservedCoachName(seat.opponentKey)) return { status: 410, reason: "This coach's account was deleted." };
   const opponent = deps.coach(seat.opponentKey);

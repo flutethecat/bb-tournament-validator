@@ -322,6 +322,52 @@ describe("who may propose", () => {
   });
 });
 
+describe("Sol review: seat keys, dropped entrants, shared seats", () => {
+  it("coach accounts use the identity store's exact key: 'Dee Dee' never acts for 'Dee  Dee'", () => {
+    const s = h.leagues.season("tabbl", "season-1")!;
+    s.teams = s.teams.map((t) => (t.id === "dwarfs" ? { ...t, coach: "Dee  Dee", coachId: "Dee  Dee" } : t));
+    h.leagues.putSeason(s);
+    const F2 = leagueRef("tabbl", "season-1", "f2");
+    expect(h.deps.fixtures.forCoach("Dee Dee").map((e) => e.ref)).toEqual([]);
+    expect(h.deps.fixtures.forCoach("dee  dee").map((e) => e.ref)).toEqual([F2]);
+    h.deps.coach = (name) => [...ACCOUNTS, "Dee Dee", "Dee  Dee"].find((a) => a.toLowerCase() === name.trim().toLowerCase());
+    expect(h.propose("Dee Dee", F2, [S1]).status).toBe(403);
+    expect(h.propose("Dee  Dee", F2, [S1]).status).toBe(201);
+  });
+
+  it("a dropped tournament entrant loses the match: not listed, propose refused, a pending accept refused", () => {
+    const p = h.propose("Ann", M1, [S1]).body.proposal;
+    const snap = h.tournaments.snapshot();
+    (snap.entrants.e2 as { droppedAt?: string }).droppedAt = at(0);
+    h.tournaments.writeSnapshot(snap);
+    expect(h.mine("Eve").fixtures).toEqual([]);
+    expect(h.mine("Ann").fixtures.map((f: { ref: string }) => f.ref)).not.toContain(M1);
+    expect(h.respond("Eve", { proposalId: p.id, action: "accept", slot: S1 }).status).toBe(409);
+    expect(h.propose("Ann", M1, [S2]).status).toBe(409);
+    expect(h.tournaments.snapshot().scheduledMatches.m1!.scheduledTime).toBeUndefined();
+    // and setTime refuses directly, too
+    expect(() => h.deps.fixtures.setTime(M1, { start: S1, end: S2, agreedAt: at(0) })).toThrow();
+  });
+
+  it("the sender's own seat must be held by exactly one account (same rule as the opponent's)", () => {
+    const entry = { ...h.deps.fixtures.byRef(F1)! };
+    entry.sides = { home: { ...entry.sides.home, owners: ["ann", "zed"] }, away: entry.sides.away };
+    const real = h.deps.fixtures;
+    h.deps.fixtures = { ...real, byRef: (r) => (r === F1 ? entry : real.byRef(r)), forCoach: (c) => real.forCoach(c).map((e) => (e.ref === F1 ? entry : e)) };
+    const r = h.propose("Ann", F1, [S1]);
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatch(/More than one account/);
+    expect(h.mine("Ann").fixtures.find((f: { ref: string }) => f.ref === F1)).toMatchObject({ canPropose: false });
+    // Bob's opposing seat is ambiguous from his side too
+    expect(h.propose("Bob", F1, [S1]).status).toBe(409);
+    expect(h.store.all()).toEqual([]);
+  });
+
+  it("quarter-hour starts are accepted", () => {
+    expect(h.propose("Ann", F1, ["2026-11-12T18:45:00.000Z"]).status).toBe(201);
+  });
+});
+
 describe("timezone checks and conflict suppression", () => {
   it("warns about unsocial hours in the opponent's zone and a missing zone, but still sends", () => {
     h.zones.set("bob", { timezone: "Asia/Tokyo", availability: [] });

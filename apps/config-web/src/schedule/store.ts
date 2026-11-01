@@ -16,7 +16,7 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
-import { assertNotFenced } from "../privacy/fence.js";
+import { assertNotFenced, coachKey } from "../privacy/fence.js";
 
 export const SLOT_HOURS = 2;
 export const SLOT_MS = SLOT_HOURS * 3_600_000;
@@ -56,7 +56,8 @@ export class ScheduleStoreError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
-export const scheduleKey = (coach: string): string => coach.trim().toLowerCase();
+/** The identity store's own key (normalizeFfbCoachId: trim + lower case, inner spaces kept), via privacy/fence.ts. */
+export const scheduleKey = (coach: string): string => coachKey(coach);
 export const sameCoach = (a: string | undefined, b: string | undefined): boolean => scheduleKey(a ?? "") !== "" && scheduleKey(a ?? "") === scheduleKey(b ?? "");
 
 type Obj = Record<string, unknown>;

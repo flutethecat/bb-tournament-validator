@@ -156,3 +156,4 @@
   .sc-nav { width: 100%; justify-content: space-between; }
   .sc-hours { max-height: none; }
 }
+.sc-minutes { margin-bottom: 6px; }
