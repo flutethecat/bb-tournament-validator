@@ -357,6 +357,6 @@ export async function deleteCoachAvatarData(dir: string, coach: string, proxyKey
   await avatarStoreFor(dir).remove(coachAvatarKey(coach));
   for (const key of proxyKeys) {
     if (!/^[a-f0-9]{64}$/.test(key)) continue;
-    for (const ext of ["png", "jpg", "webp"]) await fsp.unlink(join(dir, "proxy-cache", `${key}.${ext}`)).catch(() => undefined);
+    for (const ext of ["png", "jpg", "webp"]) await fsp.unlink(join(dir, "proxy-cache", `${key}.${ext}`)).catch((e: NodeJS.ErrnoException) => { if (e.code !== "ENOENT") throw e; });
   }
 }

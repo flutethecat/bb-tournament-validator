@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { BANNED_ACCOUNT_MESSAGE, isBanned } from "./access.js";
+import { isReservedCoachName, RESERVED_NAME_MESSAGE } from "../privacy/fence.js";
 import {
   buildClearSessionCookie,
   buildSessionCookie,
@@ -157,6 +158,10 @@ export async function handleAuthPortal(
     }
     const username = body && typeof body === "object" && "username" in body ? (body as { username?: unknown }).username : undefined;
     const password = body && typeof body === "object" && "password" in body ? (body as { password?: unknown }).password : undefined;
+    if (isReservedCoachName(username)) {
+      sendJson(res, 403, { error: RESERVED_NAME_MESSAGE });
+      return true;
+    }
     if (typeof username !== "string" || !username.trim() || typeof password !== "string" || !password) {
       sendJson(res, 400, { error: "Coach name and password are required." });
       return true;

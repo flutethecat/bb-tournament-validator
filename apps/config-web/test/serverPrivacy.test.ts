@@ -123,8 +123,32 @@ describe("POST /api/me/delete", () => {
     expect(res.headers.get("set-cookie")).toMatch(/cw_session=;/);
     expect(readIdentities().coaches.alice).toBeUndefined();
     expect((await fetch(`${origin}/api/me/profile`, { headers: bearer(t) })).status).toBe(401);
-    expect((await post("/api/me/delete", bearer(token("Alice")), { confirm: "Alice" })).status).toBe(429);
+    // the coach is fenced now (no new session can be made for them); a second delete for the same coach, here through
+    // the admin route, meets the one-a-day limit
+    expect(() => token("Alice")).toThrow(/being deleted/);
+    expect((await post("/api/admin/coaches/Alice/delete", bearer(token("Root")), { confirm: "Alice" })).status).toBe(429);
     expect(filesContaining(root, new RegExp(ALICE_EMAIL))).toEqual([]);
+  });
+});
+
+describe("reserved pseudonym names on every account path (P1-5)", () => {
+  it("fork register, password login and the admin identity editor refuse 'Deleted coach' names", async () => {
+    expect((await fetch(`${origin}/api/fork/register?coach=${encodeURIComponent("deleted  Coach #1")}`)).status).toBe(400);
+    const login = await post("/api/fork/login", {}, { coach: "Deleted coach #1", passwordMd5: "0".repeat(32) });
+    expect(login.status).toBe(403);
+    expect((await login.json() as { error: string }).error).toMatch(/reserved/);
+    const admin = await post("/api/admin/identities", bearer(token("Root")), { ffbCoachId: "Deleted Coach #4", level: "player" });
+    expect(admin.status).toBe(400);
+    expect((await admin.json() as { error: string }).error).toMatch(/reserved/);
+  });
+});
+
+describe("GET /api/admin/privacy/jobs", () => {
+  it("is admin only and lists jobs by pseudonym", async () => {
+    expect((await fetch(`${origin}/api/admin/privacy/jobs`, { headers: bearer(token("Bob")) })).status).toBe(403);
+    const res = await fetch(`${origin}/api/admin/privacy/jobs`, { headers: bearer(token("Root")) });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ open: [], failed: [] });
   });
 });
 
@@ -138,7 +162,7 @@ describe("POST /api/admin/coaches/:coach/delete", () => {
     expect(await res.json()).toEqual({ ok: true, pending: [], pseudonym: "Deleted coach #2" });
     expect(readIdentities().coaches.carol).toBeUndefined();
     const audit = readAudit(depsFor(root).stateDir);
-    expect(audit.at(-1)).toEqual({ at: expect.any(String), actor: "admin:Root", pseudonym: "Deleted coach #2" });
+    expect(audit.at(-1)).toEqual({ at: expect.any(String), actor: "admin:Root", pseudonym: "Deleted coach #2", jobId: expect.stringMatching(/^[a-f0-9]{24}$/) });
     expect(JSON.stringify(audit)).not.toMatch(/carol|alice/i);
   });
 });

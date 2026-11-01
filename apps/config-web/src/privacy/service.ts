@@ -1,23 +1,32 @@
 /**
  * Data export and account deletion (privacy spec 2026-10-31 §2, §3).
  *
- * Deletion is one journaled job (src/privacy/state.ts): the plan line first, then one line per step in DELETE_STEPS order.
- * A step that throws (the fork unreachable) is journaled "failed" and the job carries on with the others; the job stays
- * open and its pending steps run again on the next retry (startup and a timer). When every step is done the job is
- * audited (pseudonym only) and its journal removed. Jobs run one at a time in this process.
+ * Deletion is one journaled job (src/privacy/state.ts): the plan line first (names sealed with a per-job key), then one
+ * line per step in DELETE_STEPS order. A step that throws (the fork unreachable, a file the OS will not delete) is
+ * journaled "failed" and the job carries on with the others; the job stays open and its pending steps run again on the
+ * next retry (startup and a timer). When every step is done the audit line is written (idempotent by job id), then the
+ * complete marker, then the job key and the journal are removed. A job still open after JOB_RETRY_DAYS is abandoned:
+ * its key (and with it the sealed names) is destroyed, it is listed for the admin, and the journal is removed.
+ *
+ * While a job runs, the coach is fenced (src/privacy/fence.ts): identity, save, avatar, library and notification writes
+ * for them are refused. Jobs run one at a time in this process.
  */
 import type { ServerResponse } from "node:http";
 import { crc32 } from "../leagues/exportZip.js";
 import { discordAvatarUrl } from "../auth/discordSso.js";
 import { normalizeFfbCoachId, readIdentities } from "../auth/identitiesStore.js";
 import {
-  buildPlan, collectExport, deleteContext, DELETE_STEPS, EXPORT_MAX_BYTES, ownedItems,
-  type DeletePlan, type ExportFile, type OwnedItem, type PrivacyDeps,
+  buildPlan, collectExport, deleteContext, DELETE_STEPS, EXPORT_MAX_BYTES, ownedItems, splitPlan,
+  type DeletePlan, type ExportFile, type OwnedItem, type PlanSecrets, type PrivacyDeps, type StoredPlan,
 } from "./collectors.js";
 import { nameKey } from "./anonymise.js";
+import { fenceCoachHash, releaseCoachHash } from "./fence.js";
 import {
-  allocatePseudonym, appendAudit, appendJournal, blocklistHash, listJobs, newJobId, readJournal, removeJournal,
+  allocatePseudonym, appendAudit, appendFailedJob, appendJournal, blocklistHash, destroyJobKey, listJobs, newJobId,
+  readFailedJobs, readJournal, removeJournal, sealForJob, unsealForJob, type FailedJob,
 } from "./state.js";
+
+export const JOB_RETRY_DAYS = 7;
 
 export interface DeleteOutcome {
   status: "deleted" | "blocked" | "mismatch";
@@ -27,10 +36,12 @@ export interface DeleteOutcome {
   pseudonym?: string;
 }
 
+export interface OpenJob { jobId: string; pseudonym: string; pending: string[]; startedAt: string }
+
 export class PrivacyService {
   private chain: Promise<unknown> = Promise.resolve();
 
-  constructor(readonly deps: PrivacyDeps) {}
+  constructor(readonly deps: PrivacyDeps, private readonly now: () => number = Date.now) {}
 
   private serial<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.chain.then(fn, fn);
@@ -51,11 +62,24 @@ export class PrivacyService {
     return collectExport(this.deps, coach);
   }
 
+  /** Open jobs (pending steps) and abandoned ones, for the admin card. Names never appear. */
+  jobs(): { open: OpenJob[]; failed: FailedJob[] } {
+    const open: OpenJob[] = [];
+    for (const jobId of listJobs(this.deps.stateDir)) {
+      const lines = readJournal(this.deps.stateDir, jobId);
+      const plan = lines[0]?.type === "plan" ? (lines[0] as unknown as StoredPlan) : undefined;
+      if (!plan) continue;
+      const done = new Set(lines.flatMap((l) => (l.type === "step" && l.status !== "failed" ? [l.step] : [])));
+      open.push({ jobId, pseudonym: plan.pseudonym, startedAt: plan.at, pending: DELETE_STEPS.map((s) => s.id).filter((id) => !done.has(id)) });
+    }
+    return { open, failed: readFailedJobs(this.deps.stateDir) };
+  }
+
   /**
-   * Delete a coach (self-service or admin). `confirm` must equal the coach name (case-insensitive, trimmed). Blocked while
-   * the coach owns a draft/active tournament or any league.
+   * Delete a coach (self-service or admin). `confirm` must equal the coach name (identity-store key). Blocked while the
+   * coach owns a draft/active tournament or any league.
    */
-  deleteCoach(coach: string, confirm: unknown, actor: string, now = new Date()): Promise<DeleteOutcome> {
+  deleteCoach(coach: string, confirm: unknown, actor: string, now = new Date(this.now())): Promise<DeleteOutcome> {
     return this.serial(async () => {
       const canonical = this.canonicalCoach(coach);
       if (typeof confirm !== "string" || !confirm.trim() || (nameKey(confirm) !== nameKey(canonical) && nameKey(confirm) !== nameKey(coach)))
@@ -72,7 +96,10 @@ export class PrivacyService {
         blockHashOf: (id) => blocklistHash(this.deps.stateDir, id, this.deps.env),
         discordAvatarUrl,
       });
-      appendJournal(this.deps.stateDir, jobId, { type: "plan", ...plan });
+      fenceCoachHash(plan.coachHash);
+      const { stored, secrets } = splitPlan(plan);
+      const line: StoredPlan = { ...stored, sealed: sealForJob(this.deps.stateDir, jobId, secrets) };
+      appendJournal(this.deps.stateDir, jobId, { type: "plan", ...line });
       const pending = await this.runSteps(plan);
       return { status: "deleted", pending, pseudonym: plan.pseudonym };
     });
@@ -85,14 +112,35 @@ export class PrivacyService {
       for (const jobId of listJobs(this.deps.stateDir)) {
         const lines = readJournal(this.deps.stateDir, jobId);
         const first = lines[0];
-        if (!first || first.type !== "plan") { removeJournal(this.deps.stateDir, jobId); continue; } // never got past the plan write
-        if (lines.some((l) => l.type === "complete")) { removeJournal(this.deps.stateDir, jobId); continue; }
-        const { type: _t, ...plan } = first;
-        const pending = await this.runSteps(plan as unknown as DeletePlan);
+        if (!first || first.type !== "plan") { removeJournal(this.deps.stateDir, jobId); destroyJobKey(this.deps.stateDir, jobId); continue; }
+        const { type: _t, sealed, ...stored } = first as unknown as StoredPlan & { type: string };
+        if (lines.some((l) => l.type === "complete" || l.type === "abandoned")) {
+          destroyJobKey(this.deps.stateDir, jobId);
+          removeJournal(this.deps.stateDir, jobId);
+          continue;
+        }
+        fenceCoachHash(stored.coachHash);
+        const secrets = unsealForJob<PlanSecrets>(this.deps.stateDir, jobId, sealed);
+        const expired = this.now() - Date.parse(stored.at) > JOB_RETRY_DAYS * 24 * 60 * 60_000;
+        if (!secrets || expired) { this.abandon(stored, lines); continue; }
+        const pending = await this.runSteps({ ...stored, ...secrets });
         if (pending.length) open.push(jobId);
       }
       return open;
     });
+  }
+
+  /** Out of retries (or the key is gone): destroy the sealed names, list the job for the admin, drop the journal. */
+  private abandon(stored: Omit<StoredPlan, "sealed">, lines: ReturnType<typeof readJournal>): void {
+    const dir = this.deps.stateDir;
+    const done = new Set(lines.flatMap((l) => (l.type === "step" && l.status !== "failed" ? [l.step] : [])));
+    const pending = DELETE_STEPS.map((s) => s.id).filter((id) => !done.has(id));
+    const at = new Date(this.now()).toISOString();
+    appendFailedJob(dir, { jobId: stored.jobId, pseudonym: stored.pseudonym, pending, startedAt: stored.at, abandonedAt: at });
+    appendJournal(dir, stored.jobId, { type: "abandoned", at, pending });
+    destroyJobKey(dir, stored.jobId);
+    removeJournal(dir, stored.jobId);
+    releaseCoachHash(stored.coachHash, this.now());
   }
 
   private async runSteps(plan: DeletePlan): Promise<string[]> {
@@ -104,17 +152,22 @@ export class PrivacyService {
       if (finished.has(step.id)) continue;
       try {
         const status = await step.run(ctx);
-        appendJournal(dir, plan.jobId, { type: "step", step: step.id, status, at: new Date().toISOString() });
+        appendJournal(dir, plan.jobId, { type: "step", step: step.id, status, at: new Date(this.now()).toISOString() });
       } catch (error) {
         pending.push(step.id);
-        // the message never carries the coach name into a log line here: steps throw transport errors only
-        appendJournal(dir, plan.jobId, { type: "step", step: step.id, status: "failed", at: new Date().toISOString(), error: String((error as Error).message ?? error).slice(0, 200) });
+        // error codes / transport messages only (a path could name a file; keep it short and never the coach)
+        const e = error as NodeJS.ErrnoException;
+        appendJournal(dir, plan.jobId, { type: "step", step: step.id, status: "failed", at: new Date(this.now()).toISOString(), error: (e.code ?? String(e.message ?? e)).slice(0, 120) });
       }
     }
     if (pending.length === 0) {
-      appendJournal(dir, plan.jobId, { type: "complete", at: new Date().toISOString() });
-      appendAudit(dir, { at: new Date().toISOString(), actor: plan.actor, pseudonym: plan.pseudonym });
+      // audit first (idempotent by job id), then the complete marker: a crash in between never loses the audit
+      appendAudit(dir, { at: new Date(this.now()).toISOString(), actor: plan.actor, pseudonym: plan.pseudonym, jobId: plan.jobId });
+      appendJournal(dir, plan.jobId, { type: "complete", at: new Date(this.now()).toISOString() });
+      destroyJobKey(dir, plan.jobId);
       removeJournal(dir, plan.jobId);
+      releaseCoachHash(plan.coachHash, this.now());
+      this.deps.onCoachDeleted?.();
     }
     return pending;
   }

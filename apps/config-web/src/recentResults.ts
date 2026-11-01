@@ -214,7 +214,7 @@ type TabletopRow = RecentInputs["tabletop"][number];
  */
 export function createTabletopGatherer(cap = RECENT_RESULTS_MAX) {
   let cache = new Map<string, { stamp: string; row: TabletopRow }>();
-  return async function gather(reader: TabletopReader): Promise<TabletopRow[]> {
+  return Object.assign(async function gather(reader: TabletopReader): Promise<TabletopRow[]> {
     const candidates = (await reader.listMatches())
       .filter((m) => !m.test && TABLETOP_LISTED.has(m.state))
       .sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")) || a.id.localeCompare(b.id))
@@ -253,5 +253,8 @@ export function createTabletopGatherer(cap = RECENT_RESULTS_MAX) {
     }
     cache = next; // only the current candidates stay cached
     return rows;
-  };
+  }, {
+    /** Drop every cached row (account deletion rewrote names under unchanged match stamps). */
+    clear(): void { cache = new Map(); },
+  });
 }

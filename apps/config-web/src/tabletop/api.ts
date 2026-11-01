@@ -360,6 +360,14 @@ const SNAPSHOT_MAX = 200;
 /** Per repository (tests each bring their own), per match: the revision key and the (shared, coalesced) build. */
 const snapshotCache = new WeakMap<TabletopRepository, Map<string, { key: string; value: Promise<MatchSnapshot> }>>();
 const snapshotRepos = new Set<WeakRef<TabletopRepository>>();
+/** Drop every cached match snapshot (account deletion rewrote match records and event logs). */
+export function dropAllSnapshots(): void {
+  for (const ref of snapshotRepos) {
+    const repo = ref.deref();
+    if (!repo) { snapshotRepos.delete(ref); continue; }
+    snapshotCache.get(repo)?.clear();
+  }
+}
 function dropSnapshot(matchId: string): void {
   for (const ref of snapshotRepos) {
     const repo = ref.deref();

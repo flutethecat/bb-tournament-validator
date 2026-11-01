@@ -187,8 +187,10 @@ export class TournamentResultStore {
     return true;
   }
 
-  put(input: StoredTournamentResult): StoredTournamentResult {
-    if (!input.gameId.trim()) throw new Error("gameId is required for tournament result metadata.");
+  put(raw: StoredTournamentResult): StoredTournamentResult {
+    if (!raw.gameId.trim()) throw new Error("gameId is required for tournament result metadata.");
+    // A deleted coach's name re-pulled from the fork (or any writer) is stored as their pseudonym (src/privacy).
+    const input = resultCoachFilter ? { ...raw, home: filteredSide(raw.home), away: filteredSide(raw.away) } : raw;
     // Every importer (refreshFinishedResults, the single pull, the tabletop recorder) gets the test marker here.
     const result = this.testGames.has(input.gameId) && input.test !== true ? { ...input, test: true } : input;
     const current = this.readStore();
@@ -203,6 +205,14 @@ export class TournamentResultStore {
     }
     return result;
   }
+}
+
+let resultCoachFilter: ((coach: string) => string | undefined) | undefined;
+/** Account deletion: a coach name -> its pseudonym (deleted coaches only), applied to every row this store writes. */
+export function setResultCoachFilter(fn: ((coach: string) => string | undefined) | undefined): void { resultCoachFilter = fn; }
+function filteredSide(side: ResultSide): ResultSide {
+  const swapped = side && typeof side.coach === "string" ? resultCoachFilter?.(side.coach) : undefined;
+  return swapped ? { ...side, coach: swapped } : side;
 }
 
 const resultStoredListeners = new Set<(row: StoredTournamentResult) => void>();

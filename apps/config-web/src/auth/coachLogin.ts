@@ -18,6 +18,7 @@
  * NEVER log the password OR the digest (SR-257). Failures log neither credential.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { isReservedCoachName, RESERVED_NAME_MESSAGE } from "../privacy/fence.js";
 import { coachSecretDigest } from "@bb/fork-ops";
 import { BANNED_ACCOUNT_MESSAGE, isBanned } from "./access.js";
 import { noteLegacyPasswordAuth } from "./deprecation.js";
@@ -63,6 +64,9 @@ export async function coachLogin(
   options: CoachLoginOptions,
   now = Date.now(),
 ): Promise<CoachLoginResult> {
+  // A reserved pseudonym name is refused before anything else (never a sign-in as "Deleted coach #n").
+  if (isReservedCoachName(field(options.body, "coach") ?? field(options.body, "username")))
+    return { status: 403, body: { error: RESERVED_NAME_MESSAGE } };
   if (!options.authenticationAvailable)
     return { status: 503, body: { error: "Login is unavailable: fork DB is not configured on this host." } };
 

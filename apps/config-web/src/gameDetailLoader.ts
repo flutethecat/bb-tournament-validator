@@ -179,6 +179,8 @@ export function createGameDetailLoader(stores: GameStores, opts: GameLoaderOptio
     },
     /** Entries held (tests). */
     size: () => cache.size,
+    /** Drop every cached answer (account deletion anonymised names the stamp may not see). */
+    clear: (): void => { cache.clear(); },
   };
 }
 

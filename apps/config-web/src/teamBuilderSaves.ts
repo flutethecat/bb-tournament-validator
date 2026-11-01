@@ -12,6 +12,7 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
+import { assertNotFenced } from "./privacy/fence.js";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { acquireFileWriteLock, atomicWriteTextFile } from "@bb/fork-ops";
@@ -68,6 +69,7 @@ export function readSaves(dir: string, coach: string): TeamBuilderSave[] {
 }
 
 function withSaves<T>(dir: string, coach: string, fn: (saves: TeamBuilderSave[]) => { saves?: TeamBuilderSave[]; out: T }): T {
+  assertNotFenced(coach); // a delete is running for this coach: never recreate their saves
   const lock = acquireFileWriteLock(lockFor(dir, coach));
   if (!lock) throw new Error("Another save is in progress; try again.");
   try {

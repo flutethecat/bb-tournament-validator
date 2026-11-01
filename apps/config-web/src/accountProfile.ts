@@ -13,7 +13,7 @@
 // - avatar       -> the coach's own upload (PUT/DELETE /api/me/avatar, src/coachAvatars.ts), else record.profile.avatar
 //                   (set by an admin), else the Discord avatar. Not part of the PATCH body.
 
-import { connectionsAfterIdentityEdit, isNafId, ownIdentityRecord, upsertIdentity, normalizeFfbCoachId, withConnections, type CoachIdentityRecord } from "./auth/identitiesStore.js";
+import { connectionsAfterIdentityEdit, isNafId, ownIdentityRecord, readIdentities, upsertIdentity, normalizeFfbCoachId, withConnections, type CoachIdentityRecord } from "./auth/identitiesStore.js";
 import { connectionsView, type ConnectionView } from "./auth/connections.js";
 import { resolveCoachAvatar, type CoachAvatarSource } from "./coachAvatars.js";
 
@@ -116,6 +116,7 @@ export function parseProfilePatch(body: unknown): ProfilePatch {
  *  through the identities store. */
 export function updateOwnProfile(coach: string, body: unknown, deps: ProfileDeps, now = new Date()): ProfileView {
   const patch = parseProfilePatch(body);
+  if (!readIdentities().coaches[normalizeFfbCoachId(coach)]) throw new ProfileError("No account record to update; sign in with Discord first.");
   const previous = ownIdentityRecord(coach);
   const linked = deps.linkedFumbblName(previous.ffbCoachId, previous.identities.discordUserId ?? "");
   if (patch.fumbblName !== undefined && linked && patch.fumbblName !== linked)

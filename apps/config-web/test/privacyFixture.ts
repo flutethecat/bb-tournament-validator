@@ -14,6 +14,8 @@ export const BOB_DISCORD = "900000000000000002";
 export const ALICE_EMAIL = "alice@example.test";
 export const BOB_EMAIL = "bob@example.test";
 export const SHARE = "a".repeat(32);
+export const JOSE_NFC = "Jos\u00e9";
+export const JOSE_NFD = "Jose\u0301";
 
 /** A minimal PNG header the avatar store accepts (64 x 64). */
 export function png(): Buffer {
@@ -49,15 +51,15 @@ export function depsFor(root: string): PrivacyDeps {
   };
 }
 
-export interface SeedOptions { aliceBanned?: boolean; aliceOwnsActiveTournament?: boolean; aliceOwnsLeague?: boolean; extraCoaches?: Record<string, unknown> }
+export interface SeedOptions { aliceBanned?: boolean; aliceOwnsActiveTournament?: boolean; aliceOwnsLeague?: boolean; aliceDisplayName?: string; aliceNafName?: string; extraCoaches?: Record<string, unknown> }
 
 /** Write the fixture. IDENTITIES_FILE must already point at <root>/identities.json. */
 export async function seed(root: string, opts: SeedOptions = {}): Promise<void> {
   const d = depsFor(root);
   const aliceRecord = rec("Alice", {
     banned: opts.aliceBanned === true,
-    profile: { displayName: "Ally Example" },
-    identities: { discordUserId: ALICE_DISCORD, discordUsername: "ally_dc", discordAvatarHash: "abc123", email: ALICE_EMAIL, nafId: "1001", nafName: "AliceNaf" },
+    profile: { displayName: opts.aliceDisplayName ?? "Ally Example" },
+    identities: { discordUserId: ALICE_DISCORD, discordUsername: "ally_dc", discordAvatarHash: "abc123", email: ALICE_EMAIL, nafId: "1001", nafName: opts.aliceNafName ?? "AliceNaf" },
     // onboarding-lane fields (may not exist on this base): exported as stored, removed with the record
     contact: { email: ALICE_EMAIL, emailSource: "discord", emailVerified: true, phones: ["+00 0000 0001"] },
     consent: { leagueContact: { granted: true, at: "2026-10-01T00:00:00Z", version: "1" }, privacy: { acceptedVersion: "1", at: "2026-10-01T00:00:00Z" } },
@@ -67,6 +69,9 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
     bob: rec("Bob", { identities: { discordUserId: BOB_DISCORD, discordUsername: "bob_dc", email: BOB_EMAIL, nafId: "2002", nafName: "BobNaf" } }),
     carol: rec("Carol", { identities: { discordUserId: "900000000000000003" } }),
     root: rec("Root", { level: "admin" }),
+    a_b: rec("A_B"),
+    [JOSE_NFC.toLowerCase()]: rec(JOSE_NFC),
+    [JOSE_NFD.toLowerCase()]: rec(JOSE_NFD),
     ...(opts.extraCoaches ?? {}),
   } });
   w(join(root, "organizers.json"), { organizers: ["Alice", "Bob"] });
@@ -83,9 +88,11 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
   w(join(d.builderSavesDir, `${coachSaveKey("Alice")}.json`), { coach: "Alice", saves: [{ id: "s1", name: "Green Orcs", shareToken: SHARE, sharedAt: "2026-10-01T00:00:00Z", body: {} }] });
   w(join(d.builderSavesDir, "shares", `${SHARE}.json`), { coach: "Alice", id: "s1" });
   w(join(d.builderSavesDir, `${coachSaveKey("Bob")}.json`), { coach: "Bob", saves: [{ id: "b1", name: "Blue Elves", body: {} }] });
+  w(join(d.builderSavesDir, `${coachSaveKey("Dave")}.json`), { coach: "Dave", saves: [{ id: "d1", name: "Grey Dwarfs", body: {} }] });
 
   // library
   w(join(d.libraryDir, "alice.json"), [{ teamId: "t1", teamName: "Green Orcs", race: "Orc", coach: "Alice", teamValue: 1000, gold: 0, forkLoadable: true, ingestedAt: "" }]);
+  w(join(d.libraryDir, "a_b.json"), [{ teamId: "t9", teamName: "Spaced Out", race: "Human", coach: "A B", teamValue: 1000, gold: 0, forkLoadable: true, ingestedAt: "" }]);
   w(join(d.libraryDir, "bob.json"), [{ teamId: "t2", teamName: "Blue Elves", race: "Elf", coach: "Bob", teamValue: 1000, gold: 0, forkLoadable: true, ingestedAt: "" }]);
 
   // tournaments
@@ -93,7 +100,7 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
   w(join(d.tournamentsDir, "tournaments.json"), {
     version: 4,
     tournaments: {
-      t1: { id: "t1", name: "Autumn Open", status: "active", ownerCoachId: "Bob", organizerCoachId: "Bob", organizerCoachIds: ["Alice"] },
+      t1: { id: "t1", name: "Autumn Open", status: "active", ownerCoachId: "Bob", organizerCoachId: "Bob", organizerCoachIds: ["Alice"], news: [{ id: "p1", title: "Round 1", body: "Alice wins the opener; well played Alicent.", by: "Bob", at: "", pinned: false }] },
       t2: { id: "t2", name: "Old Cup", status: opts.aliceOwnsActiveTournament ? "draft" : "completed", ownerCoachId: "Alice", organizerCoachId: "Alice" },
     },
     entrants: {
@@ -105,7 +112,7 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
     scheduledMatches: {
       m1: { id: "m1", tournamentId: "t1", home: { entrantId: "e1", coach: id("Alice", ALICE_DISCORD), teamId: "save:s1" }, away: { entrantId: "e2", coach: id("Bob", BOB_DISCORD), teamId: "save:b1" }, status: "completed" },
     },
-    waitingPresence: {},
+    waitingPresence: { "m1\u0000alice": { scheduledMatchId: "m1", coachId: "Alice", renewedAt: "", expiresAt: "" }, "m1\u0000bob": { scheduledMatchId: "m1", coachId: "Bob", renewedAt: "", expiresAt: "" } },
   });
 
   // leagues
@@ -115,14 +122,18 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
   w(join(lg, "seasons", "s1.json"), {
     id: "s1", leagueId: "l1", number: 1, name: "Season 1",
     teams: [
-      { id: "green-orcs", name: "Green Orcs", race: "Orc", coach: "AliceNaf", coachId: "Alice", nafUser: "AliceNaf", players: [] },
+      { id: "green-orcs", name: "Green Orcs", race: "Orc", coach: "Alice Smith", coachId: "Alice", nafUser: "AliceNaf", players: [] },
       { id: "blue-elves", name: "Blue Elves", race: "Elf", coach: "BobNaf", coachId: "Bob", nafUser: "BobNaf", players: [] },
     ],
     fixtures: [{ id: "f1", home: { team: "Green Orcs", coach: "AliceNaf", coachId: "Alice", race: "Orc", score: 2 }, away: { team: "Blue Elves", coach: "BobNaf", coachId: "Bob", race: "Elf", score: 1 } }],
     participants: [{ coach: "AliceNaf", nafUser: "AliceNaf", team: "Green Orcs" }, { coach: "BobNaf", nafUser: "BobNaf", team: "Blue Elves" }],
-    phases: [{ name: "Regular", standings: [{ rank: 1, team: "Green Orcs", coach: "AliceNaf" }, { rank: 2, team: "Blue Elves", coach: "BobNaf" }] }],
-    honours: [{ category: "c", stat: "td", rows: [{ rank: 1, name: "Grub", team: "Green Orcs", coach: "AliceNaf" }] }],
+    phases: [{ name: "Regular", standings: [{ rank: 1, team: "Green Orcs", coach: "Alice Smith" }, { rank: 2, team: "Blue Elves", coach: "BobNaf" }] }],
+    honours: [
+      { category: "c", stat: "td", kind: "player", rows: [{ rank: 1, name: "Grub", team: "Green Orcs", coach: "Alice Smith" }] },
+      { category: "c", stat: "wins", kind: "coach", rows: [{ rank: 1, name: "Alice Smith", team: "", coach: "" }, { rank: 2, name: "BobNaf", team: "", coach: "" }] },
+    ],
     awards: [], news: [{ id: "n1", title: "Welcome", body: "Hello all", by: "Alice", at: "" }],
+    log: [{ at: "", by: "Bob", kind: "team-coach", text: "Bob assigned Alice Smith to Green Orcs" }],
   });
 
   // tabletop
@@ -134,6 +145,7 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
   // results, ratings, NAF, replays
   w(join(d.stateDir, "tournament-results.json"), { version: 1, results: {
     g1: { gameId: "g1", pulledAt: "", home: { teamId: "t1", teamName: "Green Orcs", coach: "Alice" }, away: { teamId: "t2", teamName: "Blue Elves", coach: "Bob" }, teams: [] },
+    g3: { gameId: "g3", pulledAt: "", home: { teamId: "t4", teamName: "Pale Elves", coach: JOSE_NFC }, away: { teamId: "t5", teamName: "Dark Elves", coach: JOSE_NFD }, teams: [] },
     g2: { gameId: "g2", pulledAt: "", home: { teamId: "t2", teamName: "Blue Elves", coach: "Bob" }, away: { teamId: "t3", teamName: "Red Men", coach: "Carol" }, teams: [] },
   } });
   w(join(d.stateDir, "tournament-matches.json"), { version: 1, matches: { g1: { home: { teamId: "t1", ffbCoachId: "Alice" }, away: { teamId: "t2", ffbCoachId: "Bob" } } } });

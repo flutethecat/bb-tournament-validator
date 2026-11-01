@@ -6,6 +6,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteTextFile } from "@bb/fork-ops";
+import { assertNotFenced } from "./privacy/fence.js";
 import { isTournamentManager, tournamentOwner } from "./tournaments/store.js";
 import type { TournamentEntrantRecord, TournamentRecord } from "./tournaments/types.js";
 
@@ -171,6 +172,7 @@ export class NotificationStore {
   add(coach: string, input: NotificationInput): NotificationRecord {
     const key = notificationCoachKey(coach);
     if (!key) throw new Error("A coach is required.");
+    assertNotFenced(coach);
     if (!isType(input.type)) throw new Error("Unknown notification type.");
     const data = this.read(key);
     const seq = data.seq + 1;

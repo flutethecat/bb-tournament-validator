@@ -240,7 +240,7 @@ import {
   teamSpecialRulesFromXml,
   type TournamentMatchMetadata,
 } from "./tournamentMatch.js";
-import {
+import { setResultCoachFilter,
   TournamentResultStore,
   type StoredTournamentResult,
   aggregateStandings,
@@ -309,8 +309,9 @@ import { privacyContact } from "./privacy/contact.js";
 import { startLogRotation } from "./privacy/logRotation.js";
 import { organizersFile } from "./auth/organizers.js";
 import { PrivacyService, streamZip, ExportTooLargeError } from "./privacy/service.js";
-import { isDiscordBlocked } from "./privacy/state.js";
-import { clockView, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
+import { deletedPseudonymFor, isDiscordBlocked } from "./privacy/state.js";
+import { assertNotFenced, DeletionFenceError, isReservedCoachName, RESERVED_NAME_MESSAGE, ReservedNameError } from "./privacy/fence.js";
+import { dropAllSnapshots, clockView, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
 import { createRecorderWebhook, recorderAnnouncement } from "./tabletop/discord.js";
 import { isAdminTestingPath, testingApi } from "./tabletop/testing.js";
@@ -683,8 +684,18 @@ const privacyService = new PrivacyService({
         if (await coachExists(dbCfg, coach)) await createForkAccountDigest(dbCfg, coach, randomBytes(16).toString("hex"));
       }
     : undefined,
-  afterAnonymise: () => { coachTitles.reload(); recentCache = undefined; },
+  // The "coach deleted" event: every derived cache that could still hold the old name is dropped.
+  onCoachDeleted: () => {
+    coachTitles.reload();
+    recentCache = undefined;
+    gatherRecentTabletop.clear();
+    gameLoader.clear();
+    dropAllSnapshots();
+    leagueStore.invalidate();
+    void coachAvatars.identitiesWritten(readIdentities());
+  },
 });
+setResultCoachFilter((coach) => deletedPseudonymFor(FORK_STATE_DIR, normalizeFfbCoachId(coach)));
 const exportLimiter = new RateLimiter({ maxRequests: 3, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60 * 60_000, maxKeys: 5_000 });
 const deleteLimiter = new RateLimiter({ maxRequests: 1, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 24 * 60 * 60_000, maxKeys: 5_000 });
 const ADMIN_COACH_DELETE_PATH = /^\/api\/admin\/coaches\/([^/]+)\/delete$/;
@@ -2171,8 +2182,8 @@ async function handleApi(
       return sendJson(res, 403, { error: BANNED_ACCOUNT_MESSAGE });
     }
     // "Deleted coach #<n>" names the anonymised history of deleted accounts: never a new coach name.
-    if (typeof (rawBody as { ffbCoachId?: unknown }).ffbCoachId === "string" && /^\s*deleted\s+coach\b/i.test((rawBody as { ffbCoachId: string }).ffbCoachId))
-      return sendJson(res, 400, { error: "That coach name is reserved." });
+    if (isReservedCoachName((rawBody as { ffbCoachId?: unknown }).ffbCoachId))
+      return sendJson(res, 400, { error: RESERVED_NAME_MESSAGE });
     const existingFfbCoachId = ffbCoachIdForDiscordId(pending.discordId);
     const requiredFfbCoachId = pending.desktopFlowId
       ? desktopClaims.expectedCoach(pending.desktopFlowId)
@@ -2329,6 +2340,13 @@ async function handleApi(
     try { rawBody = await readBody(req, 4 * 1024); } catch { return sendJson(res, 400, { error: "Invalid JSON request body." }); }
     const confirm = rawBody && typeof rawBody === "object" ? (rawBody as { confirm?: unknown }).confirm : undefined;
     return runCoachDelete(req, res, auth.coach, confirm, "self", true);
+  }
+
+  // Admin: delete jobs still open (pending steps, retried) and abandoned ones (out of retries). Pseudonyms only.
+  if (path === "/api/admin/privacy/jobs" && method === "GET") {
+    const adminOk = auth?.admin === true || (!AUTH_SIDECAR && isAdminAuthed(req));
+    if (!adminOk) return sendJson(res, auth ? 403 : 401, { error: auth ? "Admin access required." : "Authentication required." });
+    return sendJson(res, 200, privacyService.jobs());
   }
 
   // Admin: the same delete for a named coach (email requests). Site admins only; audited with the pseudonym only.
@@ -2545,6 +2563,7 @@ async function handleApi(
     const body = rawBody as Record<string, unknown>;
     const ffbCoachId = typeof body.ffbCoachId === "string" ? body.ffbCoachId.trim() : "";
     if (!ffbCoachId) return sendJson(res, 400, { error: "ffbCoachId is required." });
+    if (isReservedCoachName(ffbCoachId)) return sendJson(res, 400, { error: RESERVED_NAME_MESSAGE });
     const levels: CoachLevel[] = ["player", "organizer", "admin"];
     if (body.level !== undefined && !levels.includes(body.level as CoachLevel))
       return sendJson(res, 400, { error: "level must be player, organizer, or admin." });
@@ -2875,6 +2894,7 @@ async function handleApi(
   if (path === "/api/fork/register" && method === "GET") {
     const coach = query.get("coach")?.trim();
     if (!coach) return sendJson(res, 400, { error: "coach is required." });
+    if (isReservedCoachName(coach)) return sendJson(res, 400, { error: RESERVED_NAME_MESSAGE });
     const cfg = forkDbConfigFromEnv();
     if (!cfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
     try {
@@ -3008,6 +3028,7 @@ async function handleApi(
       try {
         const dupError = duplicateTeamNameError(peek.teamName, peek.teamId);
         if (dupError) return sendJson(res, 409, { error: dupError });
+        assertNotFenced(coach); // the library row would outlive a running account deletion
         const result = await ingestForkTeam(cfg, LIBRARY_DIR, coach, team, FORK_STATE_DIR, {
           allowReplaceProgressed: allowRecovery,
           fetchedTeam: peek,
@@ -4016,6 +4037,7 @@ async function handleApi(
           atomicWriteTextFile(file, composed.xml);
           if (await targetIsActive()) throw new Error("A game started during the team edit; the replacement was rolled back.");
           const reload = await reloadFork(cfg, FORK_STATE_DIR);
+          assertNotFenced(composed.roster.coach);
           registerBuiltTeam(LIBRARY_DIR, composed.roster, composed.teamId, composed.roster.summary!.total, ingestedAt, reload.reloaded);
           updateTeamXmlTransactionLibraryTeam(
             transaction,
@@ -4225,6 +4247,7 @@ async function handleApi(
     if (!dbCfg) return sendJson(res, 503, { error: "Fork DB not configured on this host (set FORK_DB_HOST)." });
     const body = (await readBody(req)) as { username?: string; password?: string };
     if (!body.username?.trim()) return sendJson(res, 400, { error: "username is required." });
+    if (isReservedCoachName(body.username)) return sendJson(res, 400, { error: RESERVED_NAME_MESSAGE });
     try {
       await createForkAccount(dbCfg, body.username, body.password);
       return sendJson(res, 200, { ok: true });
@@ -4510,6 +4533,7 @@ export const server = createServer((req, res) => {
           isTabletopApiPath(url.pathname) ||
           isAdminTestingPath(url.pathname) ||
           ADMIN_COACH_DELETE_PATH.test(url.pathname) ||
+          url.pathname === "/api/admin/privacy/jobs" ||
           tournamentInstructionsGameId(url.pathname) !== undefined ||
           tournamentResultGameId(url.pathname) !== undefined ||
           leaguePath(url.pathname) !== undefined
@@ -4538,6 +4562,7 @@ export const server = createServer((req, res) => {
       await serveStatic(res, url.pathname);
     } catch (e) {
       if (e instanceof JsonBodyError) return sendJson(res, e.status, { error: e.message });
+      if (e instanceof DeletionFenceError || e instanceof ReservedNameError) return sendJson(res, e.status, { error: e.message });
       sendJson(res, 500, { error: (e as Error).message });
     }
   })();

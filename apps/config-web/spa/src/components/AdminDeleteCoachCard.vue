@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // "Delete a coach" (site admins, Testing area): the account deletion of privacy spec §3 for an email request.
 // POST /api/admin/coaches/:coach/delete { confirm: <coach name> }; the server audits it with the pseudonym only.
-import { computed, inject, ref } from "vue";
+import { computed, inject, onMounted, ref } from "vue";
 import { API_KEY } from "../app";
 import { SESSION_KEY } from "../session";
 import { confirmMatches } from "../account/privacy";
@@ -16,6 +16,15 @@ const step = ref<"name" | "confirm">("name");
 const busy = ref(false);
 const error = ref("");
 const notice = ref("");
+
+// Delete jobs still retrying (a pending step) and jobs that ran out of retries: pseudonyms only, never names.
+interface JobRow { jobId: string; pseudonym: string; pending: string[]; startedAt: string; abandonedAt?: string }
+const jobs = ref<{ open: JobRow[]; failed: JobRow[] }>({ open: [], failed: [] });
+async function loadJobs(): Promise<void> {
+  if (!visible.value) return;
+  try { jobs.value = await fetcher<{ open: JobRow[]; failed: JobRow[] }>("/api/admin/privacy/jobs"); } catch { /* keep the last list */ }
+}
+onMounted(() => void loadJobs());
 
 function next(): void {
   error.value = "";
@@ -37,6 +46,7 @@ async function remove(): Promise<void> {
     coach.value = "";
     typed.value = "";
     step.value = "name";
+    void loadJobs();
   } catch (e) {
     error.value = (e as Error).message;
   } finally {
@@ -61,6 +71,13 @@ async function remove(): Promise<void> {
       <button class="lobby-btn" type="submit" :disabled="busy || !typed">Delete coach</button>
     </form>
     <p v-if="notice" class="muted" role="status">{{ notice }}</p>
+    <div v-if="jobs.open.length || jobs.failed.length" class="adc-jobs">
+      <h3>Delete jobs needing attention</h3>
+      <ul>
+        <li v-for="j in jobs.open" :key="j.jobId">{{ j.pseudonym }}: retrying {{ j.pending.join(", ") }} (since {{ j.startedAt.slice(0, 10) }})</li>
+        <li v-for="j in jobs.failed" :key="j.jobId" class="lobby-error">{{ j.pseudonym }}: failed, admin attention ({{ j.pending.join(", ") }}; gave up {{ (j.abandonedAt ?? "").slice(0, 10) }})</li>
+      </ul>
+    </div>
     <p v-if="error" class="lobby-error" role="alert">{{ error }}</p>
   </section>
 </template>

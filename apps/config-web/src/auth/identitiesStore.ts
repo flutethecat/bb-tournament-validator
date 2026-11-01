@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizedConsent, normalizedContact, type CoachConsent, type CoachContact } from "./contactSchema.js";
+import { assertNotFenced, isReservedCoachName, ReservedNameError } from "../privacy/fence.js";
 
 export type { CoachConsent, CoachContact, CoachPhone } from "./contactSchema.js";
 
@@ -141,6 +142,7 @@ export function readProvisionalSignup(discordUserId: string): ProvisionalSignup 
  * record (same operation id) removed together, so there is never a moment with neither.
  */
 export function confirmProvisionalSignup(record: CoachIdentityRecord, discordUserId: string, operationId: string): void {
+  assertWritable(record.ffbCoachId);
   const current = readIdentities();
   const stored = current.coaches[normalizeFfbCoachId(record.ffbCoachId)];
   // Like upsertIdentity: a record built without contact / consent keeps what the coach stored.
@@ -481,7 +483,14 @@ export function organizerUpdateIdentity(
  * identities route, test sign-in) keeps the stored connections, minus a NAF verification whose nafId/nafName pair the
  * new identities no longer carry. A writer that means to set or remove them passes the key (withConnections).
  */
+/** Write-time guards (privacy): never (re)create a coach whose deletion is running, never a reserved pseudonym name. */
+function assertWritable(ffbCoachId: string): void {
+  if (isReservedCoachName(ffbCoachId)) throw new ReservedNameError();
+  assertNotFenced(ffbCoachId);
+}
+
 export function upsertIdentity(record: CoachIdentityRecord): IdentityStore {
+  assertWritable(record.ffbCoachId);
   const key = normalizeFfbCoachId(record.ffbCoachId);
   const current = readIdentities();
   const stored = current.coaches[key];
@@ -601,6 +610,7 @@ export function mergeIdentityRecords(
     updatedAt: now.toISOString(),
     updatedBy: actingCoach,
   });
+  assertWritable(coach.ffbCoachId);
   const coaches = { ...current.coaches, [targetKey]: coach };
   delete coaches[sourceKey];
   writeIdentityStore({ version: 1, coaches });

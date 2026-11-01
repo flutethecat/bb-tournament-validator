@@ -15,6 +15,7 @@ import { promises as fsp } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { parseTeamRef } from "./tabletop/teamFile.js";
+import { assertNotFenced } from "./privacy/fence.js";
 
 export const AVATAR_MAX_BYTES = 512 * 1024;
 export const AVATAR_MIN_PX = 64;
@@ -161,15 +162,22 @@ export class AvatarStore {
     return key && found ? `/api/fork/teams/${encodeURIComponent(key)}/avatar?v=${Math.floor(found.mtimeMs)}` : undefined;
   }
 
+  /** Delete every copy; a copy that cannot be deleted (anything but "already gone") stays indexed and the call throws. */
   private async prune(hash: string): Promise<void> {
+    const left: Array<FoundAvatar & { folder: string }> = [];
+    let failure: unknown;
     for (const copy of this.copies.get(hash) ?? []) {
-      try { await fsp.unlink(copy.path); } catch { /* already gone */ }
+      try { await fsp.unlink(copy.path); } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT") { left.push(copy); failure ??= e; }
+      }
     }
-    this.copies.delete(hash);
+    if (left.length) this.copies.set(hash, left); else this.copies.delete(hash);
+    if (failure) throw failure;
   }
 
   /** Store (atomically) as the caller's copy, replacing every other copy of this team in any folder or extension. */
   async save(coach: string, teamKey: string, bytes: Buffer, ext: AvatarExt): Promise<void> {
+    assertNotFenced(coach);
     await this.ready;
     const hash = sha(teamKey);
     const folder = sha(coach);

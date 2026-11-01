@@ -166,6 +166,12 @@ export class LeagueStore {
   /** Parsed files keyed by path, reused while size + mtime are unchanged (season files run to a few hundred KB). */
   private cache = new Map<string, { stamp: string; value: unknown }>();
 
+  /** Drop the parsed-file cache and the fork-game index (account deletion rewrote league files). */
+  invalidate(): void {
+    this.cache.clear();
+    this.forkIndex = undefined;
+  }
+
   private readJson<T>(path: string): T | undefined {
     try {
       const st = statSync(path);

@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { assertNotFenced, isReservedCoachName, ReservedNameError } from "../privacy/fence.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, join, resolve } from "node:path";
@@ -149,6 +150,8 @@ export function createSession(
   method: SessionMethod = "password",
   options: { test?: boolean } = {},
 ): { token: string; session: Session } {
+  if (isReservedCoachName(coach)) throw new ReservedNameError();
+  assertNotFenced(coach);
   pruneExpired(now);
   const token = randomBytes(TOKEN_BYTES).toString("hex");
   const hash = hashToken(token);
