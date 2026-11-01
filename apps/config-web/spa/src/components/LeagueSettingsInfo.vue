@@ -40,54 +40,56 @@ function save(): void {
 
 <template>
   <form class="lg-stack" novalidate @submit.prevent="save">
-    <section class="hm-panel" aria-labelledby="ls-info-h">
-      <header class="hm-band"><h2 id="ls-info-h">League</h2><span class="hm-cap">Shown on the league page</span></header>
-      <div class="ls-grid">
-        <label class="ls-field" :data-invalid="nameError ? 'true' : undefined">
-          <span>Name</span>
-          <input v-model="form.name" type="text" maxlength="40" required :aria-invalid="nameError ? 'true' : undefined" />
-          <small v-if="nameError" class="ls-field-error">{{ nameError }}</small>
-        </label>
-        <label class="ls-field"><span>Full name</span><input v-model="form.fullName" type="text" maxlength="120" /></label>
-        <label class="ls-field ls-wide"><span>Description</span><textarea v-model="form.description" maxlength="2000" rows="4"></textarea></label>
-        <label class="ls-field">
-          <span>Ruleset</span>
-          <select v-model="form.ruleset"><option v-for="r in view.rulesets" :key="r" :value="r">{{ r }}</option></select>
-        </label>
-        <label class="ls-field">
-          <span>Mode</span>
-          <select disabled><option>Individual</option></select>
-        </label>
-      </div>
-    </section>
+    <div class="ls-pair">
+      <section class="hm-panel" aria-labelledby="ls-info-h">
+        <header class="hm-band"><h2 id="ls-info-h">League</h2><span class="hm-cap">Shown on the league page</span></header>
+        <div class="ls-grid">
+          <label class="ls-field" :data-invalid="nameError ? 'true' : undefined">
+            <span>Name</span>
+            <input v-model="form.name" type="text" maxlength="40" required :aria-invalid="nameError ? 'true' : undefined" />
+            <small v-if="nameError" class="ls-field-error">{{ nameError }}</small>
+          </label>
+          <label class="ls-field"><span>Full name</span><input v-model="form.fullName" type="text" maxlength="120" /></label>
+          <label class="ls-field ls-wide"><span>Description</span><textarea v-model="form.description" maxlength="2000" rows="4"></textarea></label>
+          <label class="ls-field">
+            <span>Ruleset</span>
+            <select v-model="form.ruleset"><option v-for="r in view.rulesets" :key="r" :value="r">{{ r }}</option></select>
+          </label>
+          <label class="ls-field">
+            <span>Mode</span>
+            <select disabled><option>Individual</option></select>
+          </label>
+        </div>
+      </section>
 
-    <section class="hm-panel" aria-labelledby="ls-place-h">
-      <header class="hm-band"><h2 id="ls-place-h">Place</h2><span class="hm-cap">United States or Canada</span></header>
-      <div class="ls-grid">
-        <label class="ls-field">
-          <span>Country</span>
-          <select v-model="form.country"><option v-for="(label, code) in COUNTRY_LABEL" :key="code" :value="code">{{ label }}</option></select>
-        </label>
-        <label class="ls-field">
-          <span>{{ REGION_LABEL[form.country] }}</span>
-          <select v-model="form.region">
-            <option value="">Not set</option>
-            <option v-for="r in regions" :key="r.code" :value="r.code">{{ r.name }}</option>
-          </select>
-        </label>
-        <label class="ls-field" :data-invalid="postError ? 'true' : undefined">
-          <span>{{ POSTCODE_LABEL[form.country] }}</span>
-          <input v-model="form.postcode" type="text" maxlength="12" autocomplete="postal-code" :placeholder="form.country === 'US' ? '12345' : 'A1A 1A1'" :aria-invalid="postError ? 'true' : undefined" />
-          <small v-if="postError" class="ls-field-error">{{ postError }}</small>
-        </label>
-        <label class="ls-field"><span>City</span><input v-model="form.locality" type="text" maxlength="80" autocomplete="address-level2" /></label>
-        <label class="ls-field ls-wide"><span>Street</span><input v-model="form.street" type="text" maxlength="120" autocomplete="street-address" /></label>
-      </div>
-    </section>
+      <section class="hm-panel" aria-labelledby="ls-place-h">
+        <header class="hm-band"><h2 id="ls-place-h">Place</h2><span class="hm-cap">United States or Canada</span></header>
+        <div class="ls-grid">
+          <label class="ls-field">
+            <span>Country</span>
+            <select v-model="form.country"><option v-for="(label, code) in COUNTRY_LABEL" :key="code" :value="code">{{ label }}</option></select>
+          </label>
+          <label class="ls-field">
+            <span>{{ REGION_LABEL[form.country] }}</span>
+            <select v-model="form.region">
+              <option value="">Not set</option>
+              <option v-for="r in regions" :key="r.code" :value="r.code">{{ r.name }}</option>
+            </select>
+          </label>
+          <label class="ls-field" :data-invalid="postError ? 'true' : undefined">
+            <span>{{ POSTCODE_LABEL[form.country] }}</span>
+            <input v-model="form.postcode" type="text" maxlength="12" autocomplete="postal-code" :placeholder="form.country === 'US' ? '12345' : 'A1A 1A1'" :aria-invalid="postError ? 'true' : undefined" />
+            <small v-if="postError" class="ls-field-error">{{ postError }}</small>
+          </label>
+          <label class="ls-field"><span>City</span><input v-model="form.locality" type="text" maxlength="80" autocomplete="address-level2" /></label>
+          <label class="ls-field ls-wide"><span>Street</span><input v-model="form.street" type="text" maxlength="120" autocomplete="street-address" /></label>
+        </div>
+      </section>
+    </div>
 
-    <div class="ls-actions">
-      <button class="lobby-btn primary" type="submit" :disabled="!valid || state.busy === 'information'">Save information</button>
-      <p v-if="state.errors.information" class="lobby-error" role="alert">{{ state.errors.information }}</p>
+    <div class="ls-actions ls-savebar">
+      <button class="ls-btn primary" type="submit" :disabled="!valid || state.busy === 'information'">Save information</button>
+      <p v-if="state.errors.information" class="ls-error" role="alert">{{ state.errors.information }}</p>
       <p v-else-if="state.notices.information" class="hm-notice" role="status">{{ state.notices.information }}</p>
     </div>
   </form>

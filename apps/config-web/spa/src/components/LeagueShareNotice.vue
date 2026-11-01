@@ -5,6 +5,7 @@
 // boxes (default off) with it; "Don't share" keeps the coach on the team (organisers then see public fields only).
 import { computed, inject } from "vue";
 import "../account/onboarding.css";
+import "../leagues/leagues.css";
 import { LEAGUE_SHARING_KEY } from "../account/leagueSharing";
 import ShareFieldsPicker from "./ShareFieldsPicker.vue";
 
@@ -14,9 +15,9 @@ const league = computed(() => sharing.pending());
 </script>
 
 <template>
-  <section v-if="league" class="tn-panel ls-notice" role="region" aria-labelledby="ls-notice-h" :aria-busy="state.busy ? 'true' : undefined">
-    <h2 id="ls-notice-h" class="tn-band">Your profile and {{ league.name }}</h2>
-    <div class="tn-panel-body">
+  <section v-if="league" class="hm-panel ls-notice" role="region" aria-labelledby="ls-notice-h" :aria-busy="state.busy ? 'true' : undefined">
+    <header class="hm-band" data-tone="info"><h2 id="ls-notice-h">Your profile and {{ league.name }}</h2><span class="hm-cap">League sharing</span></header>
+    <div class="ls-notice-body">
       <p class="ls-notice-text">{{ league.text }}</p>
       <label class="ob-check">
         <input
@@ -30,10 +31,10 @@ const league = computed(() => sharing.pending());
         :legend="`What else the organisers of ${league.name} can see`" @update:model-value="(v) => sharing.setFields(league!.id, v)"
       />
       <p class="muted hm-small ls-notice-help">If you don't share, you stay on your team; the organisers see only your coach name and NAF details. You can change this on your Account page.</p>
-      <p v-if="state.error" class="lobby-error hm-small" role="alert">{{ state.error }}</p>
+      <p v-if="state.error" class="ls-error hm-small" role="alert">{{ state.error }}</p>
       <div class="ob-actions">
-        <button class="lobby-btn primary" type="button" :disabled="state.ticked !== league.id || Boolean(state.busy)" @click="sharing.share(league.id)">{{ state.busy === league.id ? "Saving…" : "Share" }}</button>
-        <button class="lobby-btn" type="button" :disabled="Boolean(state.busy)" @click="sharing.decline(league.id)">Don't share</button>
+        <button class="ls-btn primary" type="button" :disabled="state.ticked !== league.id || Boolean(state.busy)" @click="sharing.share(league.id)">{{ state.busy === league.id ? "Saving…" : "Share" }}</button>
+        <button class="ls-btn" type="button" :disabled="Boolean(state.busy)" @click="sharing.decline(league.id)">Don't share</button>
       </div>
     </div>
   </section>

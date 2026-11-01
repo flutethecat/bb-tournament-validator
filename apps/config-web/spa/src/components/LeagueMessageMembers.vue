@@ -85,7 +85,7 @@ onMounted(refresh);
       <label class="ls-field"><span>Subject</span><input v-model="draft.subject" type="text" :maxlength="LEAGUE_SUBJECT_MAX" autocomplete="off" /></label>
       <label class="ls-field"><span>Message</span><textarea v-model="draft.body" rows="6" :maxlength="LEAGUE_BODY_MAX" /></label>
       <div class="ls-actions">
-        <button class="lobby-btn primary" type="submit" :disabled="!ready || busy">{{ busy ? "Sending..." : "Send message" }}</button>
+        <button class="ls-btn primary" type="submit" :disabled="!ready || busy">{{ busy ? "Sending..." : "Send message" }}</button>
         <span class="hm-small hm-empty">{{ bodyLength }} / {{ LEAGUE_BODY_MAX }}</span>
       </div>
       <p class="hm-small hm-empty">
@@ -94,7 +94,7 @@ onMounted(refresh);
         <template v-else>Email is not set up on this site yet.</template>
       </p>
     </form>
-    <p v-if="error" class="lobby-error" role="alert">{{ error }}</p>
+    <p v-if="error" class="ls-error" role="alert">{{ error }}</p>
     <p v-else-if="notice" class="hm-notice" role="status">{{ notice }}</p>
     <details v-if="recent.length" class="lg-message-recent">
       <summary>Recent messages</summary>

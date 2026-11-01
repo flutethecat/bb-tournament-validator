@@ -110,7 +110,7 @@
 .lg-desc { margin-top: 10px; margin-bottom: 0; }
 
 /* ---- tables */
-.lg-scroll { overflow-x: auto; min-width: 0; }
+.lg-scroll { position: relative; overflow-x: auto; min-width: 0; } /* relative: the visually hidden column labels (.tn-sr) stay inside the scroll box, not past the phone viewport */
 /* .lg-table base rules: shared with .sf-table in home/home.css */
 .lg-table .lg-num { text-align: right; white-space: nowrap; }
 .lg-table small { color: var(--ui-muted); font-size: 12px; }
@@ -173,8 +173,8 @@
 
 /* ---- artwork editor */
 .lg-art-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
-.lg-art-item { display: grid; gap: 8px; align-content: start; justify-items: start; min-width: 0; }
-.lg-art-item h3 { margin: 0; font: 12px var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; }
+.lg-art-item { justify-items: start; }
+.lg-art-item .ls-actions { margin: 0; }
 .lg-art-logo { width: 96px; height: 96px; object-fit: contain; }
 .lg-art-banner { width: 100%; max-width: 480px; aspect-ratio: 5 / 1; object-fit: cover; border: 1px solid var(--sf-panel-line); }
 .lg-file { position: relative; min-height: 44px; display: inline-flex; align-items: center; cursor: pointer; }
@@ -205,83 +205,190 @@
 .lg-fork-switch input { width: 20px; height: 20px; accent-color: var(--ui-primary); }
 .lg-fx-table .lg-fork-switch { min-height: 32px; margin-left: 4px; }
 
+/* ==== League organiser primitives (settings, fixtures editor, redraft, news, messages, advancement dialog) ====
+   design.md §5 in the league's own namespace so the tournament and account lanes' classes stay theirs:
+   .ls-btn (secondary) / .ls-btn.primary / .ls-btn.danger / .ls-btn.small, .ls-error, .ls-sub (a nested section with a
+   small band), and the dialog frame .ls-dialog-backdrop > .ls-dialog > .hm-band + .ls-dialog-body + .ls-dialog-foot.
+   Tokens only. */
+.ls-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; box-sizing: border-box; margin: 0; padding: 0 16px;
+  font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; text-decoration: none; text-align: center; white-space: nowrap; cursor: pointer;
+  color: var(--ui-text); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
+}
+.ls-btn.small { min-height: 36px; padding: 0 10px; font-size: 11px; letter-spacing: .08em; }
+.ls-btn:hover:not(:disabled) { border-color: var(--ui-heading); }
+.ls-btn:active:not(:disabled) { transform: translateY(1px); box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 1px 0 var(--sf-panel-drop); }
+.ls-btn:focus-visible, .ls-btn:has(input:focus-visible) { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.ls-btn.primary {
+  color: var(--ui-text-on-primary); background: var(--ui-primary);
+  border-color: color-mix(in srgb, var(--ui-primary) 60%, var(--sf-panel-drop)); box-shadow: var(--sf-bevel), 0 3px 0 color-mix(in srgb, var(--ui-primary) 45%, var(--sf-panel-drop));
+}
+.ls-btn.primary:hover:not(:disabled) { border-color: var(--ui-heading); }
+.ls-btn.danger {
+  color: var(--ui-on-danger); background: var(--ui-danger);
+  border-color: color-mix(in srgb, var(--ui-danger) 60%, var(--sf-panel-drop)); box-shadow: var(--sf-bevel), 0 3px 0 color-mix(in srgb, var(--ui-danger) 40%, var(--sf-panel-drop));
+}
+.ls-btn.danger:hover:not(:disabled) { border-color: var(--ui-text); }
+/* Disabled: flat and readable (muted ink on the field fill, dashed edge), never a dark blob. */
+.ls-btn:disabled, .ls-btn.primary:disabled, .ls-btn.danger:disabled, .ls-btn:has(input:disabled) {
+  cursor: not-allowed; transform: none; color: var(--ui-muted); background: var(--ui-surface-2); border: 2px dashed var(--sf-panel-line); box-shadow: none;
+}
+.ls-error { margin: 0; color: var(--ui-danger); font-size: 14px; }
+.hm-panel > .ls-error, .hm-panel > .hm-notice { margin-top: 10px; margin-bottom: 0; }
+
+/* Nested section inside a panel: field fill, line border, 4px edge, small band-font title. */
+.ls-sub {
+  display: grid; gap: 8px; align-content: start; min-width: 0; padding: 10px 12px 12px;
+  background: color-mix(in srgb, var(--ui-surface-2) 70%, transparent); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-panel-line); border-radius: 2px;
+  box-shadow: inset 0 1px 0 var(--sf-panel-hi);
+}
+.ls-sub-h {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; margin: 0;
+  font: 12px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading);
+}
+.ls-sub > p, .ls-sub > ul, .ls-sub > ol { margin: 0; }
+
+/* Dialog: panel frame with a band title, grouped body, footer row (secondary left, primary right). A sheet on phones. */
+.ls-dialog-backdrop {
+  position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 16px;
+  background: color-mix(in srgb, var(--ui-secondary) 78%, transparent);
+}
+.ls-dialog {
+  display: flex; flex-direction: column; width: min(520px, 100%); max-height: calc(100dvh - 32px); min-width: 0; overflow: hidden; color: var(--ui-text);
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-radius: 2px;
+  box-shadow: 0 4px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi);
+}
+.ls-dialog:focus { outline: none; }
+.ls-dialog.wide { width: min(980px, 100%); }
+.ls-dialog > .hm-band .hm-cap { margin-left: auto; }
+.ls-dialog > .hm-band { flex: none; align-items: center; margin: 0; padding-top: 4px; padding-bottom: 4px; min-height: 44px; box-sizing: border-box; }
+.ls-dialog-x {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; margin-right: -6px; padding: 0;
+  font: 20px/1 var(--font-body, sans-serif); color: var(--ui-muted); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); cursor: pointer;
+}
+.ls-dialog-x:hover:not(:disabled) { color: var(--ui-text); border-color: var(--ui-heading); }
+.ls-dialog-x:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.ls-dialog-x:disabled { cursor: not-allowed; opacity: .6; }
+.ls-dialog-body { flex: 1 1 auto; display: grid; gap: 12px; align-content: start; min-height: 0; padding: 12px; overflow-y: auto; }
+.ls-dialog-body > p { margin: 0; }
+.ls-dialog-foot {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px 13px;
+  border-top: 2px solid var(--sf-panel-line); background: color-mix(in srgb, var(--ui-surface-2) 55%, transparent);
+}
+.ls-dialog-foot > .primary, .ls-dialog-foot > .danger { margin-left: auto; }
+.ls-dialog-foot .ls-foot-note { flex: 1 1 260px; min-width: 0; font-size: 14px; color: var(--ui-muted); }
+.ls-dialog-foot .ls-foot-note + .primary { margin-left: 0; }
+@media (max-width: 640px) {
+  .ls-dialog-backdrop { padding: 0; place-items: stretch; }
+  .ls-dialog, .ls-dialog.wide { width: 100%; max-height: none; height: 100dvh; border-width: 0; border-radius: 0; }
+  .ls-dialog-foot .ls-btn { flex: 1 1 auto; }
+}
+/* ==== end of the league organiser primitives ==== */
+
 /* ---- League settings (/app/leagues/:id/settings) */
-.ls-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.ls-head .lg-card-logo { width: 40px; height: 40px; }
-/* Wraps (no inner scrollbar) when the five tabs do not fit on one row. */
-.ls-tabs { display: flex; flex-wrap: wrap; justify-self: start; max-width: 100%; height: auto; min-height: 44px; }
-.ls-tabs .tl-seg-btn { flex: 1 0 auto; min-height: 44px; height: auto; }
+/* League identity strip over the tabs: crest (or monogram) and the full name in the Nuffle face. */
+.ls-head {
+  display: flex; align-items: center; gap: 12px; min-width: 0; padding: 8px 12px;
+  background: linear-gradient(115deg, var(--lg-home), var(--ui-surface-2) 50%, var(--lg-away)); border: 2px solid var(--sf-panel-line); border-radius: 2px;
+  box-shadow: 0 3px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi);
+}
+.ls-head-logo { flex: none; width: 48px; height: 48px; object-fit: contain; }
+.ls-head .lg-logo-blank { font-size: 16px; }
+.ls-head-text { display: grid; gap: 2px; min-width: 0; }
+.ls-head-name { margin: 0; font-family: var(--font-heading, sans-serif); font-weight: 500; font-size: 1.3rem; line-height: 1.15; letter-spacing: .04em; color: var(--ui-text); overflow-wrap: anywhere; }
+.ls-head-cap { font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-muted); }
+/* Tabs: the league page's segmented strip (.lg-tabs), wrapping (no inner scrollbar) when the tabs do not fit. */
+.ls-tabs { flex-wrap: wrap; overflow: visible; }
+.ls-tabs .lg-tab { flex: 1 0 auto; justify-content: center; }
+.ls-tabs button.lg-tab { font: 12px/1 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; background: transparent; border-top: 0; border-right: 0; border-bottom: 0; cursor: pointer; }
+.ls-tabs button.lg-tab:first-child { border-left: 0; }
+.ls-tabs .lg-tab[aria-selected="true"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
+/* Administration: permissions at the left, seasons and redraft stacked at the right (one column below 1100 px). */
+/* Two panels side by side on wide screens (Information, External connections). */
+.ls-pair { display: grid; gap: 16px; align-items: start; grid-template-columns: repeat(auto-fit, minmax(min(560px, 100%), 1fr)); }
+.ls-cols { display: grid; gap: 16px; align-items: start; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1100px) { .ls-cols { grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); } }
 .ls-form { display: grid; gap: 12px; }
 .ls-grid { display: grid; gap: 12px 16px; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }
-.ls-field { display: grid; gap: 4px; min-width: 0; }
+.ls-field { display: grid; gap: 4px; align-content: start; min-width: 0; margin: 0; padding: 0; border: 0; }
 .ls-field > span, .ls-k { font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.ls-k { margin: 0; }
 .ls-field input, .ls-field select, .ls-field textarea, .ls-table input, .ls-table select {
-  min-height: 44px; max-width: 100%; box-sizing: border-box; padding: 0 8px; color: var(--ui-text); background: var(--ui-surface-2);
-  border: 2px solid var(--sf-panel-line); border-radius: 2px; font: inherit;
+  min-height: 44px; max-width: 100%; box-sizing: border-box; padding: 0 10px; color: var(--ui-text); background: var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; font: 16px/1.3 var(--font-body, sans-serif);
 }
-.ls-field textarea { min-height: 96px; padding: 8px; resize: vertical; }
+.ls-field input:hover:not(:disabled), .ls-field select:hover:not(:disabled), .ls-field textarea:hover:not(:disabled) { border-color: color-mix(in srgb, var(--ui-heading) 45%, var(--sf-panel-line)); }
+.ls-field input:focus-visible, .ls-field select:focus-visible, .ls-field textarea:focus-visible, .ls-table input:focus-visible, .ls-table select:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.ls-field :disabled { color: var(--ui-muted); }
+.ls-field textarea { min-height: 96px; padding: 8px 10px; resize: vertical; line-height: 1.45; }
 .ls-field[data-invalid="true"] input, .ls-field[data-invalid="true"] select { border-color: var(--ui-danger); }
-.ls-field-error { margin: 0; color: var(--ui-danger); font-size: 13px; }
+.ls-field-error { margin: 0; color: var(--ui-danger); font-size: 14px; }
 .ls-wide { grid-column: 1 / -1; }
-.ls-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.ls-toggles { display: grid; gap: 4px; margin: 0; padding: 0; border: 0; }
+.ls-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ls-actions > p { margin: 0; }
+/* The save row under a tab's panels: a slim bar of its own. */
+.ls-savebar {
+  padding: 10px 12px 13px; background: color-mix(in srgb, var(--ui-surface-2) 60%, transparent); border: 2px solid var(--sf-panel-line); border-radius: 2px;
+  box-shadow: inset 0 1px 0 var(--sf-panel-hi);
+}
+.ls-toggles { display: grid; gap: 2px; align-content: start; margin: 0; padding: 0; border: 0; min-width: 0; }
 .ls-toggles legend { padding: 0; margin-bottom: 4px; }
-.ls-check { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
-.ls-check input { width: 20px; height: 20px; accent-color: var(--ui-primary); }
-.ls-perm { width: 100%; border-collapse: collapse; font-size: 14px; }
-.ls-perm th, .ls-perm td { padding: 6px; text-align: left; border-bottom: 1px solid var(--sf-panel-line); vertical-align: middle; }
+.ls-check { display: inline-flex; align-items: center; gap: 10px; min-height: 40px; cursor: pointer; line-height: 1.35; }
+.ls-check input { flex: none; width: 18px; height: 18px; margin: 0; accent-color: var(--ui-primary); }
+.ls-perm { width: 100%; border-collapse: collapse; font-size: 15px; }
+.ls-perm th, .ls-perm td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--sf-panel-line); vertical-align: middle; }
+.ls-perm td:last-child { text-align: right; white-space: nowrap; }
 .ls-perm thead th { font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
-.ls-inline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
-.ls-inline .ls-field { flex: 1 1 200px; }
-.ls-table td input, .ls-table td select { width: 72px; min-height: 40px; }
+.ls-perm tbody tr:nth-child(even) { background: color-mix(in srgb, var(--ui-surface-2) 50%, transparent); }
+.ls-inline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.ls-inline .ls-field { flex: 1 1 220px; max-width: 420px; }
+.ls-inline + .ls-inline, .lg-scroll + .ls-inline { margin-top: 12px; }
+.ls-table td input, .ls-table td select { width: 72px; min-height: 40px; padding: 0 6px; font-size: 15px; }
 .ls-table td.ls-roster { font-weight: 600; white-space: nowrap; }
 .ls-placeholder { padding: 12px; border: 2px dashed var(--sf-panel-line); border-radius: 2px; color: var(--ui-muted); }
 .ls-masked { font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
-.ls-disabled { opacity: .7; }
-.ls-modal { width: min(460px, 100%); }
+.ls-disabled { opacity: .78; }
 @media (max-width: 640px) {
   .ls-tabs { justify-self: stretch; }
-  .ls-tabs .tl-seg-btn { padding: 0 10px; }
+  .ls-tabs .lg-tab { padding: 0 10px; }
+  .ls-inline .ls-field { max-width: none; }
+  .ls-inline > .ls-btn { flex: 1 1 auto; }
   .lg-cog { margin-left: 0; }
 }
-.ls-tabs .tl-seg-btn { text-decoration: none; }
-.ls-tabs .tl-seg-btn[aria-current="page"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
-.ls-tabs .tl-seg-btn:focus-visible { outline-offset: -2px; }
 
 /* ---- Redraft (/app/leagues/:id/redraft) */
-.rd-tabs { display: flex; flex-wrap: wrap; height: auto; min-height: 44px; }
-.rd-tabs .tl-seg-btn { min-height: 44px; height: auto; }
-.rd-tabs .tl-seg-btn[aria-selected="true"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
 .rd-cap { align-items: center; }
 .rd-cap-amount input { width: 96px; }
 .rd-table th[scope="row"] { text-align: left; font-weight: 600; white-space: nowrap; }
 .rd-table input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--ui-primary); }
 .rd-sub { display: block; color: var(--ui-muted); font-size: 12px; font-weight: 400; white-space: normal; }
-.rd-status, .rd-badge { display: inline-block; padding: 2px 8px; border-radius: 2px; font: 11px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .06em; border: 1px solid var(--sf-panel-line); }
-.rd-status[data-status="pending"], .rd-badge[data-status="pending"] { background: color-mix(in srgb, var(--ui-primary) 25%, transparent); }
-.rd-status[data-status="submitted"], .rd-badge[data-status="submitted"] { background: color-mix(in srgb, var(--ui-success) 30%, transparent); }
-.rd-status[data-status="skipped"] { color: var(--ui-muted); }
-.rd-edit-row td { background: var(--ui-surface-2); }
+.rd-badge { display: inline-block; padding: 2px 8px; border-radius: 2px; font: 11px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .06em; border: 1px solid var(--sf-panel-line); }
+.rd-badge[data-status="pending"] { background: color-mix(in srgb, var(--ui-primary) 25%, transparent); }
+.rd-badge[data-status="submitted"] { background: color-mix(in srgb, var(--ui-success) 30%, transparent); }
+.rd-edit-row td { padding: 10px 12px 12px; background: var(--ui-surface-2); box-shadow: inset 4px 0 0 var(--ui-heading); }
 .rd-log, .rd-list, .rd-problems { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
 .rd-log time { color: var(--ui-muted); font-size: 12px; margin-right: 6px; }
 .rd-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .rd-problems { color: var(--ui-danger); }
-.rd-modal { width: min(860px, 100%); }
-.rd-body { display: grid; gap: 14px; }
-.rd-h { margin: 0 0 6px; font: 12px var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading); }
+.rd-sum { margin: 0; color: var(--ui-muted); font-size: 14px; }
+.rd-budget { display: grid; gap: 8px; }
+.rd-budget > p { margin: 0; }
+.rd-staff .ls-check { align-self: end; min-height: 44px; }
+.rd-totals { font-variant-numeric: tabular-nums; }
 .rd-terms { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 0; }
 .rd-terms > div { display: grid; gap: 2px; padding: 8px 10px; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); }
 .rd-terms dt { font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
 .rd-terms dd { margin: 0; font: 20px/1.1 var(--sf-band-font); color: var(--ui-heading); font-variant-numeric: tabular-nums; }
-.rd-bar { height: 12px; margin-top: 10px; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; overflow: hidden; }
+.rd-bar { height: 12px; background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-radius: 2px; overflow: hidden; }
 .rd-bar span { display: block; height: 100%; background: var(--ui-success); }
 .rd-bar[data-over="true"] span { background: var(--ui-danger); width: 100% !important; }
-.rd-remaining { margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+.rd-remaining { margin: 0; font-variant-numeric: tabular-nums; }
 .rd-dice { display: inline-flex; gap: 6px; }
 .rd-dice input { width: 56px; min-height: 40px; padding: 0 6px; color: var(--ui-text); background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; font: inherit; }
 .rd-roll { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 2px; }
 .rd-roll[data-ok="true"] { background: color-mix(in srgb, var(--ui-success) 30%, transparent); }
-.rd-staff input { width: 100%; }
+.rd-staff .ls-field input { width: 100%; }
 .rd-panel p { margin: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
 /* Fixture summary + Play on Super FUMBBL (LeagueFixtureSummary.vue) */
@@ -292,16 +399,22 @@
 .lg-fixture-side[data-outcome="win"] .lg-team-name { color: var(--ui-success); }
 .lg-fixture-score { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 20px; }
 .lg-fixture-score small { font-size: 12px; color: var(--ui-muted); }
-.lg-fork-panel { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--ui-border, var(--ui-muted)); display: flex; flex-direction: column; gap: 8px; }
+.lg-fork-panel { margin-top: 12px; }
+.lg-fork-panel[data-status="launch_failed"] { border-left-color: var(--ui-danger); }
+.lg-fork-panel[data-status="finished"] { border-left-color: var(--ui-success); }
 .lg-fork-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
 .lg-fork-steps li[data-done="true"] { color: var(--ui-success); }
 .lg-fork-steps li[data-done="false"] { color: var(--ui-muted); }
 .lg-fork-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.lg-fork-admin { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; }
+.lg-fork-admin { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding-top: 8px; border-top: 2px solid var(--sf-panel-line); }
 .lg-fork-reset { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.lg-fork-log summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
 .lg-fork-log ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
 .lg-fork-result { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
-.lg-fork-result caption { text-align: left; font-weight: 600; padding: 4px 0; }
+.lg-fork-result caption { text-align: left; padding: 4px 0 6px; font: 11px/1.3 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-heading); }
+.lg-fixture-score strong { font: 26px/1 var(--sf-band-font); font-variant-numeric: tabular-nums; }
+.lg-fixture-side .lg-team-name { font-family: var(--font-heading, sans-serif); font-weight: 500; font-size: 1.1rem; letter-spacing: .03em; }
+.lg-fixture-side small { color: var(--ui-muted); }
 @media (max-width: 560px) {
   .lg-fixture-match { grid-template-columns: 1fr; text-align: center; }
   .lg-fixture-side, .lg-fixture-side.lg-fx-away { text-align: center; }
@@ -309,16 +422,26 @@
 
 /* League news (Overview) and the fixtures editor (Fixtures, organisers). */
 .lg-news { margin-bottom: 16px; }
-.lg-news-body { display: grid; gap: 12px; padding: 12px 16px 16px; }
+.lg-news-body { display: grid; gap: 12px; padding: 0; }
 .lg-news-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-.lg-news-item { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--ui-border); border-radius: 6px; }
-.lg-news-item[data-pinned="true"] { border-color: var(--ui-primary); }
+.lg-news-item {
+  display: grid; gap: 6px; padding: 10px 12px 12px; background: color-mix(in srgb, var(--ui-surface-2) 70%, transparent);
+  border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi);
+}
+.lg-news-item[data-pinned="true"] { border-left-color: var(--sf-gold); }
+.lg-news-item .ls-actions { margin-top: 4px; }
 .lg-news-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.lg-news-title { margin: 0; font-size: 16px; color: var(--ui-text); }
+.lg-news-title { margin: 0; font-family: var(--font-heading, sans-serif); font-weight: 500; font-size: 1.1rem; letter-spacing: .03em; color: var(--ui-text); }
 .lg-news-meta { margin: 0; color: var(--ui-muted); }
-.lg-fx-editor .ls-form, .lg-fx-editor > .lobby-error, .lg-fx-editor > .hm-notice { padding: 12px 16px; }
+.lg-fx-editor .lg-fx-add { padding: 10px 12px 12px; }
+.lg-fx-editor .lg-toolbar { margin-top: 14px; }
+.lg-fx-date { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.lg-fx-date input { width: auto; min-width: 150px; }
+.lg-fx-edit-table td.ls-actions { display: table-cell; white-space: nowrap; text-align: right; }
+.lg-fx-edit-table td.ls-actions .ls-btn + .ls-btn { margin-left: 6px; }
 .lg-fx-score-edit { white-space: nowrap; }
 .lg-fx-score-edit input { width: 56px; }
+.lg-fx-score-edit span { padding: 0 4px; color: var(--ui-muted); }
 .lg-fx-edit-table td { vertical-align: middle; }
 
 /* Assign coach account (Teams tab roster header, organisers) */
@@ -365,3 +488,31 @@
   .lg-spot { flex: 0 0 min(78%, 280px); scroll-snap-align: start; }
 }
 .lg-member-contact { margin: 0 0 10px; overflow-wrap: anywhere; }
+
+.hm-panel > .ls-actions + p, .lg-stack > .hm-panel .ls-actions + .hm-small { margin-top: 10px; }
+.lg-fx-add .ls-field:has(input[type="number"]) { flex: 0 1 140px; }
+.ls-tabs { gap: 2px; background: var(--sf-panel-line); }
+.ls-tabs .lg-tab { background: var(--ui-surface-2); }
+.ls-tabs .lg-tab + .lg-tab, .ls-tabs button.lg-tab { border-left: 0; }
+.ls-tabs .lg-tab:hover { background: var(--ui-hover); }
+.ls-tabs .lg-tab[aria-current="page"], .ls-tabs .lg-tab[aria-selected="true"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
+
+/* ---- Organiser tools: save bars, fixture summary band, Message members, the league sharing notice, advancement dialog */
+.ls-savebar:empty { display: none; }
+.lg-fixture > .hm-band { align-items: center; padding-top: 4px; padding-bottom: 4px; }
+.lg-message-recent summary, .lg-board-more summary { cursor: pointer; }
+.lg-message-recent summary { min-height: 36px; display: flex; align-items: center; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.lg-message-recent summary:focus-visible, .lg-fork-log summary:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.lg-message-recent ul { margin: 4px 0 0; padding-left: 18px; }
+.lg-message-scope .ls-actions { gap: 4px 18px; }
+.ls-notice-body { display: grid; gap: 10px; }
+.ls-notice-body > p { margin: 0; }
+.tm-adv-option[data-off="true"] { opacity: .72; }
+.tm-adv-option p { margin: 0; }
+.tm-adv-option .ls-sub-h .hm-cap { font-size: 10px; }
+.ls-dialog .tm-choices { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ls-dialog .tm-choices select {
+  min-height: 40px; max-width: 100%; box-sizing: border-box; padding: 0 10px; color: var(--ui-text); background: var(--ui-surface-2);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; font: 15px/1.3 var(--font-body, sans-serif);
+}
+.ls-dialog .tm-choices select:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }

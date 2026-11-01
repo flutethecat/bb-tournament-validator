@@ -53,9 +53,9 @@ const checked = (e: Event): boolean => (e.target as HTMLInputElement).checked;
   <section class="hm-panel lg-fixture" aria-labelledby="lg-fixture-h">
     <header class="hm-band">
       <h2 id="lg-fixture-h">Fixture summary</h2>
-      <RouterLink class="tl-action" :to="{ query: back }" replace>All fixtures</RouterLink>
+      <RouterLink class="ls-btn small" :to="{ query: back }" replace>All fixtures</RouterLink>
     </header>
-    <p v-if="state.error && state.key === key" class="lobby-error" role="alert">{{ state.error }}</p>
+    <p v-if="state.error && state.key === key" class="ls-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!f" class="hm-empty" role="status">Loading fixture...</p>
     <template v-else>
       <div class="lg-fixture-match" :aria-label="`${f.home.team} against ${f.away.team}`">
@@ -76,8 +76,8 @@ const checked = (e: Event): boolean => (e.target as HTMLInputElement).checked;
       <p v-if="f.home.conceded || f.away.conceded" class="hm-small" data-concession>{{ f.home.conceded ? f.home.team : f.away.team }} conceded{{ legal(f.home.conceded ? "home" : "away") }}.</p>
       <p v-if="anySuffered" class="hm-small" data-cas-suffered>Casualties suffered: {{ f.home.team }} {{ sufferedText("home") }} · {{ f.away.team }} {{ sufferedText("away") }}</p>
 
-      <section v-if="showFork && fork" class="lg-fork-panel" aria-labelledby="lg-fork-h" :data-status="fork.status">
-        <h3 id="lg-fork-h" class="lg-round-h">
+      <section v-if="showFork && fork" class="ls-sub lg-fork-panel" aria-labelledby="lg-fork-h" :data-status="fork.status">
+        <h3 id="lg-fork-h" class="ls-sub-h">
           Super FUMBBL
           <span class="sf-chip" :data-tone="FORK_STATUS_TONE[fork.status]" data-fork-status>{{ fork.statusLabel }}</span>
         </h3>
@@ -85,22 +85,22 @@ const checked = (e: Event): boolean => (e.target as HTMLInputElement).checked;
         <ol v-if="fork.status !== 'none'" class="lg-fork-steps">
           <li v-for="st in steps" :key="st.label" :data-done="st.done ? 'true' : 'false'">{{ st.label }}</li>
         </ol>
-        <p v-if="fork.status === 'launch_failed' && fork.error" class="lobby-error" role="alert">Failed: {{ fork.error }}</p>
+        <p v-if="fork.status === 'launch_failed' && fork.error" class="ls-error" role="alert">Failed: {{ fork.error }}</p>
         <p v-else-if="fork.error" class="hm-small">{{ fork.error }}</p>
         <p v-if="fork.cancelled" class="hm-small">Super FUMBBL play is cancelled for this fixture.</p>
         <p v-if="!s!.forkAvailable && fork.enabled" class="hm-small">Super FUMBBL is not connected right now.</p>
 
         <div class="lg-fork-actions">
-          <button v-if="fork.canGenerate" class="lobby-btn primary" type="button" :disabled="Boolean(state.busy) || !s!.forkAvailable" @click="ctl.generate()">
+          <button v-if="fork.canGenerate" class="ls-btn primary" type="button" :disabled="Boolean(state.busy) || !s!.forkAvailable" @click="ctl.generate()">
             {{ state.busy === "generate" ? "Generating..." : "Generate fixture on Super FUMBBL" }}
           </button>
-          <button v-if="fork.canStart" class="lobby-btn primary" type="button" :disabled="Boolean(state.busy)" @click="ctl.start()">
+          <button v-if="fork.canStart" class="ls-btn primary" type="button" :disabled="Boolean(state.busy)" @click="ctl.start()">
             {{ state.busy === "start" ? "Starting..." : "Start Game on Super FUMBBL" }}
           </button>
         </div>
         <p v-if="fork.blocker && fork.status === 'none'" class="hm-small" data-blocker>{{ fork.blocker }}</p>
         <p v-if="fork.mySide && fork.launched?.[fork.mySide]" class="hm-small">You took your launch file {{ when(fork.launched[fork.mySide]) }}.</p>
-        <p v-if="state.actionError" class="lobby-error" role="alert">{{ state.actionError }}</p>
+        <p v-if="state.actionError" class="ls-error" role="alert">{{ state.actionError }}</p>
         <p v-else-if="state.notice" class="hm-small" role="status">{{ state.notice }}</p>
 
         <div v-if="fork.canConfigure" class="lg-fork-admin" aria-label="Super FUMBBL settings for this fixture">
@@ -117,13 +117,13 @@ const checked = (e: Event): boolean => (e.target as HTMLInputElement).checked;
             <span>Cancel Super FUMBBL play</span>
           </label>
           <div class="lg-fork-actions">
-            <button v-if="fork.status === 'scheduled' || fork.status === 'in_progress'" class="lobby-btn" type="button" :disabled="Boolean(state.busy)" @click="ctl.sync()">Check for result</button>
-            <button v-if="fork.canReset && !resetOpen" class="lobby-btn" type="button" :disabled="Boolean(state.busy)" @click="resetOpen = true">Reset fork game</button>
+            <button v-if="fork.status === 'scheduled' || fork.status === 'in_progress'" class="ls-btn" type="button" :disabled="Boolean(state.busy)" @click="ctl.sync()">Check for result</button>
+            <button v-if="fork.canReset && !resetOpen" class="ls-btn" type="button" :disabled="Boolean(state.busy)" @click="resetOpen = true">Reset fork game</button>
           </div>
           <form v-if="fork.canReset && resetOpen" class="lg-fork-reset" @submit.prevent="doReset">
             <label class="ls-field"><span>Reason for the reset</span><input v-model="reason" type="text" maxlength="300" required /></label>
-            <button class="lobby-btn primary" type="submit" :disabled="!reason.trim() || Boolean(state.busy)">Reset fork game</button>
-            <button class="lobby-btn" type="button" @click="resetOpen = false">Cancel</button>
+            <button class="ls-btn" type="button" @click="resetOpen = false">Cancel</button>
+            <button class="ls-btn danger" type="submit" :disabled="!reason.trim() || Boolean(state.busy)">Reset fork game</button>
           </form>
           <details v-if="fork.log?.length" class="lg-fork-log">
             <summary>History</summary>

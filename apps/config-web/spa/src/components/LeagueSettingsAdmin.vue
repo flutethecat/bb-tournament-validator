@@ -5,6 +5,7 @@
 import { computed, inject, nextTick, ref } from "vue";
 import { useRouter } from "vue-router";
 import { LEAGUE_SETTINGS_KEY, nextSeasonDefaults, openSeason, openSeasons } from "../leagues/settings";
+import LeagueDialog from "./LeagueDialog.vue";
 
 const settings = inject(LEAGUE_SETTINGS_KEY)!;
 const { state } = settings;
@@ -53,7 +54,7 @@ const openRedraft = (): void => { void router.push({ name: "league-redraft", par
 </script>
 
 <template>
-  <div class="lg-stack">
+  <div class="ls-cols">
     <section class="hm-panel" aria-labelledby="ls-perm-h">
       <header class="hm-band"><h2 id="ls-perm-h">League permissions</h2><span class="hm-cap">Who runs the league</span></header>
       <div class="lg-scroll">
@@ -63,7 +64,7 @@ const openRedraft = (): void => { void router.push({ name: "league-redraft", par
             <tr data-role="owner"><td><strong>{{ perms.owner || "None" }}</strong></td><td>Owner</td><td></td></tr>
             <tr v-for="c in perms.organisers" :key="c" data-role="organiser">
               <td>{{ c }}</td><td>Organiser</td>
-              <td><button v-if="perms.canEditOrganisers" class="lobby-btn small" type="button" :disabled="busy" :aria-label="`Remove organiser ${c}`" @click="removeOrganiser(c)">Remove</button></td>
+              <td><button v-if="perms.canEditOrganisers" class="ls-btn small danger" type="button" :disabled="busy" :aria-label="`Remove organiser ${c}`" @click="removeOrganiser(c)">Remove</button></td>
             </tr>
             <tr v-for="c in perms.admins" :key="`admin-${c}`" data-role="admin"><td>{{ c }}</td><td>Site admin</td><td><span class="hm-small">Read-only</span></td></tr>
           </tbody>
@@ -74,74 +75,67 @@ const openRedraft = (): void => { void router.push({ name: "league-redraft", par
           <span>Add organiser</span>
           <input v-model="newOrganiser" type="text" maxlength="40" autocomplete="off" placeholder="Coach name" list="ls-coach-hits" @input="lookup(newOrganiser)" />
         </label>
-        <button class="lobby-btn" type="submit" :disabled="!newOrganiser.trim() || busy">Add</button>
+        <button class="ls-btn" type="submit" :disabled="!newOrganiser.trim() || busy">Add</button>
       </form>
       <form v-if="perms.canChangeOwner" class="ls-inline" @submit.prevent="setOwner">
         <label class="ls-field">
           <span>New owner</span>
           <input v-model="newOwner" type="text" maxlength="40" autocomplete="off" placeholder="Coach name" list="ls-coach-hits" @input="lookup(newOwner)" />
         </label>
-        <button class="lobby-btn" type="submit" :disabled="!newOwner.trim() || busy">Set owner</button>
+        <button class="ls-btn" type="submit" :disabled="!newOwner.trim() || busy">Set owner</button>
       </form>
       <datalist id="ls-coach-hits"><option v-for="h in hits" :key="h" :value="h" /></datalist>
       <p v-if="!perms.canEditOrganisers" class="hm-small hm-empty">Only the owner or a site admin can change the organisers.</p>
-      <p v-if="state.errors.permissions" class="lobby-error" role="alert">{{ state.errors.permissions }}</p>
+      <p v-if="state.errors.permissions" class="ls-error" role="alert">{{ state.errors.permissions }}</p>
       <p v-else-if="state.notices.permissions" class="hm-notice" role="status">{{ state.notices.permissions }}</p>
     </section>
 
-    <section class="hm-panel" aria-labelledby="ls-season-h">
-      <header class="hm-band"><h2 id="ls-season-h">Seasons</h2><span class="hm-cap">{{ openList.length > 1 ? `${openList.length} seasons in progress` : open ? `${open.name} in progress` : "No season in progress" }}</span></header>
-      <div class="ls-actions">
-        <button class="lobby-btn primary" type="button" :disabled="busy" aria-haspopup="dialog" @click="showDialog">Start a new season</button>
-        <template v-if="finishing">
-          <label v-if="openList.length > 1" class="lg-select">
-            <span>Season to finish</span>
-            <select v-model="finishId" :disabled="busy || confirmFinish">
-              <option value="">{{ open!.name }}</option>
-              <option v-for="s in openList.slice(1)" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </select>
-          </label>
-          <button v-if="!confirmFinish" class="lobby-btn" type="button" :disabled="busy" @click="confirmFinish = true">Finish season</button>
-          <template v-else>
-            <span>Finish {{ finishing.name }}? Its standings and honours are kept.</span>
-            <button class="lobby-btn primary" type="button" :disabled="busy" @click="finish">Yes, finish it</button>
-            <button class="lobby-btn" type="button" @click="confirmFinish = false">Cancel</button>
+    <div class="lg-stack">
+      <section class="hm-panel" aria-labelledby="ls-season-h">
+        <header class="hm-band"><h2 id="ls-season-h">Seasons</h2><span class="hm-cap">{{ openList.length > 1 ? `${openList.length} seasons in progress` : open ? `${open.name} in progress` : "No season in progress" }}</span></header>
+        <div class="ls-actions">
+          <button class="ls-btn primary" type="button" :disabled="busy" aria-haspopup="dialog" @click="showDialog">Start a new season</button>
+          <template v-if="finishing">
+            <label v-if="openList.length > 1" class="lg-select">
+              <span>Season to finish</span>
+              <select v-model="finishId" :disabled="busy || confirmFinish">
+                <option value="">{{ open!.name }}</option>
+                <option v-for="s in openList.slice(1)" :key="s.id" :value="s.id">{{ s.name }}</option>
+              </select>
+            </label>
+            <button v-if="!confirmFinish" class="ls-btn" type="button" :disabled="busy" @click="confirmFinish = true">Finish season</button>
+            <template v-else>
+              <span>Finish {{ finishing.name }}? Its standings and honours are kept.</span>
+              <button class="ls-btn" type="button" @click="confirmFinish = false">Cancel</button>
+              <button class="ls-btn primary" type="button" :disabled="busy" @click="finish">Yes, finish it</button>
+            </template>
           </template>
-        </template>
-      </div>
-      <p v-if="open" class="hm-small hm-empty">Seasons may overlap: a new season starts while {{ open.name }} is still in progress and becomes the current season.</p>
-      <p v-if="state.errors.finish" class="lobby-error" role="alert">{{ state.errors.finish }}</p>
-      <p v-else-if="state.notices.finish" class="hm-notice" role="status">{{ state.notices.finish }}</p>
-      <p v-if="state.notices.season && !dialog" class="hm-notice" role="status">{{ state.notices.season }}</p>
-    </section>
+        </div>
+        <p v-if="open" class="hm-small hm-empty">Seasons may overlap: a new season starts while {{ open.name }} is still in progress and becomes the current season.</p>
+        <p v-if="state.errors.finish" class="ls-error" role="alert">{{ state.errors.finish }}</p>
+        <p v-else-if="state.notices.finish" class="hm-notice" role="status">{{ state.notices.finish }}</p>
+        <p v-if="state.notices.season && !dialog" class="hm-notice" role="status">{{ state.notices.season }}</p>
+      </section>
 
-    <section class="hm-panel" aria-labelledby="ls-redraft-h">
-      <header class="hm-band"><h2 id="ls-redraft-h">Redraft</h2><span class="hm-cap">Off-season</span></header>
-      <p class="hm-small">Between seasons, coaches re-hire players and staff on a budget and build next season's roster.</p>
-      <div class="ls-actions"><button class="lobby-btn" type="button" @click="openRedraft">Start redraft</button></div>
-    </section>
-
-    <div v-if="dialog" class="tn-modal-backdrop" @click.self="dialog = false" @keydown.esc="dialog = false">
-      <div class="tn-modal tn-panel ls-modal" role="dialog" aria-modal="true" aria-labelledby="ls-new-season-h">
-        <h3 id="ls-new-season-h" class="tn-band">
-          Start a new season
-          <button type="button" class="tn-modal-x" aria-label="Close" @click="dialog = false">×</button>
-        </h3>
-        <form class="tn-panel-body ls-form" @submit.prevent="startSeason">
-          <p class="ls-k">Season {{ defaults.number }}</p>
-          <label class="ls-field"><span>Name</span><input ref="nameInput" v-model="form.name" type="text" maxlength="60" required /></label>
-          <label class="ls-field">
-            <span>Ruleset</span>
-            <select v-model="form.ruleset"><option v-for="r in view.rulesets" :key="r" :value="r">{{ r }}</option></select>
-          </label>
-          <p class="hm-small hm-empty">The team building rules of the latest season are copied; change them on the Team building tab.</p>
-          <p v-if="state.errors.season" class="lobby-error" role="alert">{{ state.errors.season }}</p>
-          <div class="tn-actions">
-            <button class="lobby-btn primary" type="submit" :disabled="busy || !form.name.trim()">Start season</button>
-            <button class="lobby-btn" type="button" @click="dialog = false">Cancel</button>
-          </div>
-        </form>
-      </div>
+      <section class="hm-panel" aria-labelledby="ls-redraft-h">
+        <header class="hm-band"><h2 id="ls-redraft-h">Redraft</h2><span class="hm-cap">Off-season</span></header>
+        <p class="hm-small">Between seasons, coaches re-hire players and staff on a budget and build next season's roster.</p>
+        <div class="ls-actions"><button class="ls-btn" type="button" @click="openRedraft">Start redraft</button></div>
+      </section>
     </div>
+
+    <LeagueDialog v-if="dialog" id="ls-new-season-h" title="Start a new season" :cap="`Season ${defaults.number}`" tag="form" @close="dialog = false" @submit="startSeason">
+      <label class="ls-field"><span>Name</span><input ref="nameInput" v-model="form.name" type="text" maxlength="60" required data-autofocus /></label>
+      <label class="ls-field">
+        <span>Ruleset</span>
+        <select v-model="form.ruleset"><option v-for="r in view.rulesets" :key="r" :value="r">{{ r }}</option></select>
+      </label>
+      <p class="hm-small hm-empty">The team building rules of the latest season are copied; change them on the Team building tab.</p>
+      <p v-if="state.errors.season" class="ls-error" role="alert">{{ state.errors.season }}</p>
+      <template #foot>
+        <button class="ls-btn" type="button" @click="dialog = false">Cancel</button>
+        <button class="ls-btn primary" type="submit" :disabled="busy || !form.name.trim()">Start season</button>
+      </template>
+    </LeagueDialog>
   </div>
 </template>

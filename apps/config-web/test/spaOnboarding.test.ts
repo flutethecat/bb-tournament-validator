@@ -297,7 +297,7 @@ describe("views (server-rendered against a mocked API)", () => {
 
   it("league data-sharing notice: non-blocking panel above the page for a pending league; the shell stays usable", async () => {
     const html = await render("/home", { "/api/me/onboarding": INFO(false), ...SHARING([ROW("lg", "pending"), ROW("other", "pending")]) });
-    const panel = html.slice(html.indexOf('class="tn-panel ls-notice"'));
+    const panel = html.slice(html.indexOf('class="hm-panel ls-notice"'));
     expect(panel).toContain('role="region" aria-labelledby="ls-notice-h"');
     expect(panel).toContain("Your profile and Test League");
     expect(panel).toContain("You are joining Test League. Its organisers can see your coach name and your teams.");
@@ -307,7 +307,7 @@ describe("views (server-rendered against a mocked API)", () => {
     expect(boxes).toHaveLength(4);
     expect(boxes.some((c) => /\schecked/.test(c))).toBe(false);
     for (const label of ["Preferred name", "Email", "Phone"]) expect(panel).toContain(`<span>${label}`);
-    expect(panel).toMatch(/<button class="lobby-btn primary" type="button" disabled[^>]*>Share<\/button>/);
+    expect(panel).toMatch(/<button class="ls-btn primary" type="button" disabled[^>]*>Share<\/button>/);
     expect(panel).toContain(">Don&#39;t share</button>");
     expect(html).not.toContain('aria-modal="true"');
     expect(html).not.toMatch(/<header class="shell-header[^"]*"[^>]*inert/);

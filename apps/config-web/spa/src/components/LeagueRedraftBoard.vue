@@ -91,9 +91,9 @@ const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US
         </p>
 
         <div class="lg-toolbar">
-          <div class="tl-seg rd-tabs" role="tablist" aria-label="Teams">
-            <button type="button" role="tab" class="tl-seg-btn" :aria-selected="tab === 'active' ? 'true' : 'false'" @click="tab = 'active'">Active teams ({{ view.active.length }})</button>
-            <button type="button" role="tab" class="tl-seg-btn" :aria-selected="tab === 'inactive' ? 'true' : 'false'" @click="tab = 'inactive'">Inactive ({{ view.inactive.length }})</button>
+          <div class="lg-tabs ls-tabs rd-tabs" role="tablist" aria-label="Teams">
+            <button type="button" role="tab" class="lg-tab" :aria-selected="tab === 'active' ? 'true' : 'false'" @click="tab = 'active'">Active teams ({{ view.active.length }})</button>
+            <button type="button" role="tab" class="lg-tab" :aria-selected="tab === 'inactive' ? 'true' : 'false'" @click="tab = 'inactive'">Inactive ({{ view.inactive.length }})</button>
           </div>
           <label v-if="!started && tab === 'active'" class="ls-check">
             <input type="checkbox" :checked="allChecked" @change="board.checkAll(view.active, ($event.target as HTMLInputElement).checked)" /> Check all
@@ -128,11 +128,11 @@ const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US
                   <td class="lg-num">{{ r.wins }}-{{ r.draws }}-{{ r.losses }}</td>
                   <td class="lg-num">{{ goldK(r.treasury) }}</td>
                   <td class="lg-num"><b>{{ goldK(shownBudget(r)) }}</b><small v-if="shownNote(r)" class="rd-sub">{{ shownNote(r) }}</small></td>
-                  <td v-if="started"><span class="rd-status" :data-status="r.status ?? 'skipped'">{{ r.selected ? STATUS_LABEL[r.status ?? "pending"] : "Not selected" }}</span></td>
+                  <td v-if="started"><span class="sf-chip rd-status" :data-status="r.status ?? 'skipped'" :data-tone="!r.selected ? 'muted' : r.status === 'submitted' ? 'ok' : r.status === 'pending' ? 'soon' : 'muted'">{{ r.selected ? STATUS_LABEL[r.status ?? "pending"] : "Not selected" }}</span></td>
                   <td>
                     <template v-if="!closed && (started ? r.selected && r.status === 'pending' : state.picked[r.teamId])">
-                      <button type="button" class="lobby-btn small" :aria-expanded="editing === r.teamId ? 'true' : 'false'" @click="edit(r)">Override</button>
-                      <button v-if="started" type="button" class="lobby-btn small" :disabled="busy" @click="board.skip(r.teamId)">Skip</button>
+                      <button type="button" class="ls-btn small" :aria-expanded="editing === r.teamId ? 'true' : 'false'" @click="edit(r)">Override</button>
+                      <button v-if="started" type="button" class="ls-btn small" :disabled="busy" @click="board.skip(r.teamId)">Skip</button>
                     </template>
                   </td>
                 </tr>
@@ -141,9 +141,9 @@ const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US
                     <form class="ls-inline" @submit.prevent="saveOverride(r)">
                       <label class="ls-field rd-cap-amount"><span>Budget (k)</span><input v-model.number="draft.budgetK" type="number" min="0" max="5000" step="10" inputmode="numeric" /></label>
                       <label class="ls-field"><span>Reason</span><input v-model="draft.reason" type="text" maxlength="200" placeholder="Shown to the coach" /></label>
-                      <button class="lobby-btn primary" type="submit" :disabled="!draftOk || busy">Save override</button>
-                      <button v-if="started ? r.override : state.overrides[r.teamId]" class="lobby-btn" type="button" :disabled="busy" @click="clearOverride(r)">Clear</button>
-                      <button class="lobby-btn" type="button" @click="editing = ''">Cancel</button>
+                      <button class="ls-btn" type="button" @click="editing = ''">Cancel</button>
+                      <button v-if="started ? r.override : state.overrides[r.teamId]" class="ls-btn" type="button" :disabled="busy" @click="clearOverride(r)">Clear</button>
+                      <button class="ls-btn primary" type="submit" :disabled="!draftOk || busy">Save override</button>
                     </form>
                   </td>
                 </tr>
@@ -153,21 +153,21 @@ const fmtDate = (iso: string): string => new Date(iso).toLocaleDateString("en-US
           </table>
         </div>
 
-        <div class="ls-actions">
+        <div class="ls-actions ls-savebar">
           <template v-if="!started">
-            <button class="lobby-btn primary" type="button" :disabled="busy || board.selectedCount() === 0" @click="board.confirm()">Confirm redraft ({{ board.selectedCount() }})</button>
+            <button class="ls-btn primary" type="button" :disabled="busy || board.selectedCount() === 0" @click="board.confirm()">Confirm redraft ({{ board.selectedCount() }})</button>
             <span class="hm-small">Each selected coach gets a redraft task on their team page.</span>
           </template>
           <template v-else-if="!closed">
-            <button v-if="!confirmClose" class="lobby-btn" type="button" :disabled="busy" @click="confirmClose = true">Close redraft</button>
+            <button v-if="!confirmClose" class="ls-btn" type="button" :disabled="busy" @click="confirmClose = true">Close redraft</button>
             <template v-else>
               <span>Close the redraft? Teams still drafting are skipped.</span>
-              <button class="lobby-btn primary" type="button" :disabled="busy" @click="close">Yes, close it</button>
-              <button class="lobby-btn" type="button" @click="confirmClose = false">Cancel</button>
+              <button class="ls-btn" type="button" @click="confirmClose = false">Cancel</button>
+              <button class="ls-btn primary" type="button" :disabled="busy" @click="close">Yes, close it</button>
             </template>
           </template>
         </div>
-        <p v-if="state.message" class="lobby-error" role="alert">{{ state.message }}</p>
+        <p v-if="state.message" class="ls-error" role="alert">{{ state.message }}</p>
         <p v-else-if="state.notice" class="hm-notice" role="status">{{ state.notice }}</p>
       </template>
     </section>

@@ -439,7 +439,7 @@ describe("team management + My teams pages (server-rendered)", () => {
     await spa.router.isReady();
     const html = (await mods.renderer.renderToString(spa.app)) as string;
     expect(html).toMatch(/<div class="tm-content" inert aria-hidden="true">/);
-    expect(html).toMatch(/<div class="tn-modal tn-panel tm-modal" role="dialog" aria-modal="true" aria-labelledby="tm-adv-h" tabindex="-1" data-step="choose">/);
+    expect(html).toMatch(/<div class="ls-dialog tm-modal" role="dialog" aria-modal="true" aria-labelledby="tm-adv-h" tabindex="-1" data-step="choose">/);
     // the dialog sits outside the inert content
     expect(html.indexOf('role="dialog"')).toBeGreaterThan(html.lastIndexOf('class="team-view tm-sheet"'));
     const closed = await render("/teams/library%3A77", { "/api/me/teams/library%3A77": libraryModel() });

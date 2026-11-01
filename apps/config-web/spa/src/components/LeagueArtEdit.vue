@@ -20,24 +20,28 @@ function pick(kind: "logo" | "banner", e: Event): void {
   <section class="hm-panel lg-art" aria-labelledby="lg-art-h">
     <header class="hm-band" data-tone="admin"><h2 id="lg-art-h">League artwork</h2><span class="hm-cap">Organisers</span></header>
     <div class="lg-art-grid">
-      <div class="lg-art-item">
-        <h3>Logo</h3>
+      <div class="ls-sub lg-art-item">
+        <h3 class="ls-sub-h">Logo</h3>
         <img v-if="logo" class="lg-art-logo" :src="logo" alt="Current logo" />
         <p v-else class="hm-empty hm-small">No logo yet.</p>
-        <label class="lobby-btn small lg-file">Upload logo<input type="file" accept="image/png,image/jpeg,image/webp" :disabled="Boolean(state.artBusy)" @change="pick('logo', $event)" /></label>
-        <button v-if="logo" class="lobby-btn small" type="button" :disabled="Boolean(state.artBusy)" @click="detail.removeArt('logo')">Remove logo</button>
+        <div class="ls-actions">
+          <label class="ls-btn small lg-file">Upload logo<input type="file" accept="image/png,image/jpeg,image/webp" :disabled="Boolean(state.artBusy)" @change="pick('logo', $event)" /></label>
+          <button v-if="logo" class="ls-btn small danger" type="button" :disabled="Boolean(state.artBusy)" @click="detail.removeArt('logo')">Remove logo</button>
+        </div>
         <p class="hm-empty hm-small">PNG, JPEG or WebP, up to 1 MB, 64 to 2048 pixels a side.</p>
       </div>
-      <div class="lg-art-item">
-        <h3>Header bar</h3>
+      <div class="ls-sub lg-art-item">
+        <h3 class="ls-sub-h">Header bar</h3>
         <img v-if="banner" class="lg-art-banner" :src="banner" alt="Current header bar" />
         <p v-else class="hm-empty hm-small">No header bar yet.</p>
-        <label class="lobby-btn small lg-file">Upload header bar<input type="file" accept="image/png,image/jpeg,image/webp" :disabled="Boolean(state.artBusy)" @change="pick('banner', $event)" /></label>
-        <button v-if="banner" class="lobby-btn small" type="button" :disabled="Boolean(state.artBusy)" @click="detail.removeArt('banner')">Remove header bar</button>
+        <div class="ls-actions">
+          <label class="ls-btn small lg-file">Upload header bar<input type="file" accept="image/png,image/jpeg,image/webp" :disabled="Boolean(state.artBusy)" @change="pick('banner', $event)" /></label>
+          <button v-if="banner" class="ls-btn small danger" type="button" :disabled="Boolean(state.artBusy)" @click="detail.removeArt('banner')">Remove header bar</button>
+        </div>
         <p class="hm-empty hm-small">PNG, JPEG or WebP, up to 2 MB, 600 to 4000 pixels wide, wider than tall.</p>
       </div>
     </div>
-    <p v-if="state.artError" class="lobby-error" role="alert">{{ state.artError }}</p>
+    <p v-if="state.artError" class="ls-error" role="alert">{{ state.artError }}</p>
     <p v-else-if="state.artNotice" class="hm-notice" role="status">{{ state.artNotice }}</p>
   </section>
 </template>

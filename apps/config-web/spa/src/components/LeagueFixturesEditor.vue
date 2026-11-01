@@ -63,7 +63,8 @@ async function remove(f: LeagueFixture): Promise<void> {
 <template>
   <section class="hm-panel lg-fx-editor" aria-labelledby="lg-fx-ed-h">
     <header class="hm-band"><h2 id="lg-fx-ed-h">Fixtures editor</h2><span class="hm-cap">Organisers</span></header>
-    <form class="ls-form lg-fx-add" novalidate @submit.prevent="add">
+    <form class="ls-sub ls-form lg-fx-add" novalidate aria-labelledby="lg-fx-add-h" @submit.prevent="add">
+      <h3 id="lg-fx-add-h" class="ls-sub-h">Add a fixture</h3>
       <p v-if="!teams.length" class="hm-empty">This season has no teams yet: fixtures pair two season teams.</p>
       <div class="ls-inline">
         <label class="ls-field"><span>Home</span>
@@ -82,9 +83,9 @@ async function remove(f: LeagueFixture): Promise<void> {
         <label class="ls-check"><input v-model="form.test" type="checkbox" /> Test fixture</label>
       </div>
       <p v-if="problem && (form.home || form.away)" class="ls-field-error" role="alert">{{ problem }}</p>
-      <div class="ls-actions"><button class="lobby-btn primary" type="submit" :disabled="Boolean(problem) || busy">Add fixture</button></div>
+      <div class="ls-actions"><button class="ls-btn primary" type="submit" :disabled="Boolean(problem) || busy">Add fixture</button></div>
     </form>
-    <p v-if="mine && state.editError" class="lobby-error" role="alert">{{ state.editError }}</p>
+    <p v-if="mine && state.editError" class="ls-error" role="alert">{{ state.editError }}</p>
     <p v-else-if="mine && state.editNotice" class="hm-notice" role="status">{{ state.editNotice }}</p>
     <template v-if="season.fixtures.length">
       <div class="lg-toolbar">
@@ -100,8 +101,10 @@ async function remove(f: LeagueFixture): Promise<void> {
               <td class="lg-num">{{ f.round }}</td>
               <td>{{ f.home.team }} vs {{ f.away.team }}<span v-if="f.test" class="sf-chip" data-tone="muted"> Test</span></td>
               <td>
-                <input v-model="rowOf(f).date" type="date" :aria-label="`Date of ${f.home.team} vs ${f.away.team}`" />
-                <button class="lobby-btn small" type="button" :disabled="busy || rowOf(f).date === (f.date ?? '')" @click="saveDate(f)">Save date</button>
+                <div class="lg-fx-date">
+                  <input v-model="rowOf(f).date" type="date" :aria-label="`Date of ${f.home.team} vs ${f.away.team}`" />
+                  <button class="ls-btn small" type="button" :disabled="busy || rowOf(f).date === (f.date ?? '')" @click="saveDate(f)">Save date</button>
+                </div>
               </td>
               <td class="lg-fx-score-edit">
                 <input v-model="rowOf(f).home" type="number" min="0" max="99" inputmode="numeric" :aria-label="`${f.home.team} score`" />
@@ -114,13 +117,13 @@ async function remove(f: LeagueFixture): Promise<void> {
                 <input v-model="rowOf(f).awayCas" type="number" min="0" max="99" inputmode="numeric" :aria-label="`${f.away.team} casualties`" />
               </td>
               <td class="ls-actions">
-                <button class="lobby-btn small" type="button" :disabled="busy" @click="saveResult(f)">Save result</button>
-                <button v-if="fixturePlayed(f)" class="lobby-btn small" type="button" :disabled="busy" @click="clearResult(f)">Clear result</button>
+                <button class="ls-btn small" type="button" :disabled="busy" @click="saveResult(f)">Save result</button>
+                <button v-if="fixturePlayed(f)" class="ls-btn small danger" type="button" :disabled="busy" @click="clearResult(f)">Clear result</button>
                 <template v-else>
-                  <button v-if="confirming !== f.id" class="lobby-btn small" type="button" :disabled="busy" :aria-label="`Delete ${f.home.team} vs ${f.away.team}`" @click="confirming = f.id">Delete</button>
+                  <button v-if="confirming !== f.id" class="ls-btn small" type="button" :disabled="busy" :aria-label="`Delete ${f.home.team} vs ${f.away.team}`" @click="confirming = f.id">Delete</button>
                   <template v-else>
-                    <button class="lobby-btn small" type="button" :disabled="busy" @click="remove(f)">Confirm delete</button>
-                    <button class="lobby-btn small" type="button" @click="confirming = ''">Keep</button>
+                    <button class="ls-btn small" type="button" @click="confirming = ''">Keep</button>
+                    <button class="ls-btn small danger" type="button" :disabled="busy" @click="remove(f)">Confirm delete</button>
                   </template>
                 </template>
               </td>
