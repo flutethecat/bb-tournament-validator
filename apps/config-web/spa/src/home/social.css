@@ -1,0 +1,88 @@
+/* Friends, private messages and the block list (landing spec §4.3-4.5): coach rows with actions, the coach page
+   Friends / Messages panels, and the Messages page (thread list + thread). Built on the shared panel, band, button and
+   field classes in home.css (design.md §5). Tokens only. Prefix so-. */
+
+/* ---- coach rows (the coach card: avatar, LED name, sub line, actions) ---- */
+.so-list { display: grid; gap: 2px; margin-top: 0; margin-bottom: 0; padding: 0; list-style: none; }
+.so-list > li:nth-child(even) > .so-row { background: color-mix(in srgb, var(--ui-surface-2) 55%, transparent); }
+.so-group { margin: 10px 0 4px; font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-muted); }
+.so-group:first-of-type { margin-top: 0; }
+.so-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 48px; padding: 4px 6px; border-radius: 2px; }
+.so-who { display: grid; min-width: 0; }
+.so-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sf-led); font-weight: 600; text-decoration: none; }
+a.so-name:hover { text-decoration: underline; }
+.so-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-muted); font-size: 13px; }
+.so-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; }
+.so-acts .sf-btn.small { min-height: 32px; padding: 0 8px; }
+.so-pic { width: 36px; height: 36px; flex: none; box-sizing: border-box; border-radius: 2px; object-fit: cover; border: 2px solid var(--sf-panel-line); box-shadow: 0 2px 0 var(--sf-panel-drop); }
+.so-pic.big { width: 44px; height: 44px; }
+.so-badge { display: inline-grid; place-items: center; font: 14px/1 var(--sf-band-font); color: var(--ui-text); background: var(--ui-surface-2); }
+.so-badge[data-deleted="true"] { color: var(--ui-muted); border-style: dashed; }
+
+/* the "more" menu on a row (Remove, Block, Message) */
+.so-more { position: relative; }
+.so-more > summary { list-style: none; }
+.so-more > summary::-webkit-details-marker { display: none; }
+.so-more-list { position: absolute; z-index: 20; right: 0; top: calc(100% + 4px); display: grid; min-width: 150px; padding: 4px; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: 0 3px 0 var(--sf-panel-drop), inset 0 1px 0 var(--sf-panel-hi); }
+.so-more-list button { min-height: 36px; padding: 0 10px; font: 11px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; text-align: left; color: var(--ui-text); background: transparent; border: 0; border-radius: 2px; cursor: pointer; }
+.so-more-list button:hover { background: var(--ui-hover); }
+.so-more-list button:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
+.so-more-list button[data-danger="true"] { color: var(--ui-danger); }
+
+/* ---- coach page panels ---- */
+.so-panel-scroll { max-height: 420px; overflow-y: auto; scrollbar-width: thin; }
+.so-status { margin: 6px 0 0; }
+.so-threads { display: grid; gap: 2px; margin-top: 0; margin-bottom: 0; padding: 0; list-style: none; }
+.so-thread { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 6px 8px; color: var(--ui-text); text-decoration: none; border: 2px solid transparent; border-radius: 2px; }
+.so-threads > li:nth-child(even) > .so-thread { background: color-mix(in srgb, var(--ui-surface-2) 55%, transparent); }
+.so-thread:hover { background: var(--ui-hover); }
+.so-thread:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.so-thread[aria-current="page"] { border-color: var(--sf-seat-home); background: color-mix(in srgb, var(--sf-seat-home) 14%, transparent); }
+.so-thread .so-who strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sf-led); }
+.so-thread[data-deleted="true"] .so-who strong { color: var(--ui-muted); }
+.so-thread[data-unread="true"] .so-sub { color: var(--ui-text); font-weight: 600; }
+.so-meta { display: grid; justify-items: end; gap: 4px; color: var(--ui-muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.so-dot { min-width: 18px; padding: 0 5px; font: 10px/18px var(--sf-band-font); text-align: center; color: var(--ui-scarlet-contrast); background: var(--ui-scarlet); border-radius: 2px; box-shadow: var(--sf-bevel); }
+.sf-chip.so-chip-org { color: var(--ui-text); border-color: var(--ui-admin); background: color-mix(in srgb, var(--ui-admin) 26%, var(--ui-surface-2)); }
+
+/* ---- Messages page ---- */
+.so-page { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.so-side { display: grid; gap: 16px; min-width: 0; }
+@media (min-width: 900px) {
+  .so-page { grid-template-columns: 340px minmax(0, 1fr); }
+}
+.so-new { display: grid; gap: 6px; margin-bottom: 12px; }
+.so-new-row { display: flex; gap: 8px; }
+.so-new-row .sf-input { flex: 1 1 auto; min-width: 0; }
+.so-convo { display: flex; flex-direction: column; min-height: 520px; }
+.so-convo > .hm-band { align-items: center; flex-wrap: wrap; }
+.so-convo-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.so-convo-head .so-name { font-family: var(--font-heading, sans-serif); font-weight: 500; font-size: 1.15rem; letter-spacing: .02em; }
+.so-convo-head .so-acts { margin-left: auto; }
+.so-back { display: none; }
+@media (max-width: 899px) {
+  .so-back { display: inline-flex; }
+  .so-page[data-open="true"] .so-side { display: none; }
+  .so-page[data-open="false"] .so-convo { display: none; }
+  .so-convo { min-height: 0; }
+}
+.so-bubbles { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; max-height: min(62vh, 640px); overflow-y: auto; margin-top: 0; margin-bottom: 0; padding: 4px 2px 8px; list-style: none; scrollbar-width: thin; }
+.so-bubble { max-width: min(78%, 560px); align-self: flex-start; padding: 8px 10px; color: var(--ui-text); background: color-mix(in srgb, var(--sf-seat-away) 16%, var(--ui-surface-2)); border: 1px solid color-mix(in srgb, var(--sf-seat-away) 55%, var(--sf-panel-line)); border-left: 4px solid var(--sf-seat-away); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop); }
+.so-bubble[data-mine="true"] { align-self: flex-end; background: color-mix(in srgb, var(--sf-seat-home) 16%, var(--ui-surface-2)); border-color: color-mix(in srgb, var(--sf-seat-home) 55%, var(--sf-panel-line)); border-left-width: 1px; border-right: 4px solid var(--sf-seat-home); }
+.so-bubble[data-organiser="true"] { border-left-color: var(--ui-admin); background: color-mix(in srgb, var(--ui-admin) 14%, var(--ui-surface-2)); }
+.so-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.45; }
+.so-when { display: block; margin-top: 4px; color: var(--ui-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.so-org { display: block; margin-bottom: 4px; font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-text); }
+.so-compose { display: grid; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 2px solid var(--sf-panel-line); }
+.so-compose textarea { width: 100%; min-height: 76px; resize: vertical; box-sizing: border-box; }
+.so-compose-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.so-count { color: var(--ui-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.so-count[data-over="true"] { color: var(--ui-danger); }
+.so-reason { margin: 0; color: var(--ui-muted); font-size: 14px; }
+.so-more-older { align-self: center; }
+.so-dialog-text { margin: 0 0 8px; }
+.so-dialog-text:last-child { margin-bottom: 0; }
+
+/* band icons for this page's panels (same pixel set and placement as home.css's panel icons) */
+:is(#so-threads-h, #so-thread-h, #so-new-h)::before { content: ""; background-image: url(/icons/panel/messages.png); }
+#so-blocked-h::before { content: ""; background-image: url(/icons/panel/account.png); }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Organiser "Message coach" modal (Participants row menu): a 2000-character message that lands in the coach's
-// notifications (and, once the Messages lane exists, their organiser thread).
+// notifications and in their Messages, in the conversation with the organiser (flagged ORGANISER).
 import { computed, inject, onMounted, onUnmounted, ref } from "vue";
 import { API_KEY } from "../app";
 import { api } from "../shared/api";
@@ -39,8 +39,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         <button type="button" class="tn-modal-x" aria-label="Close" @click="emit('close')">×</button>
       </h3>
       <form class="tn-panel-body nf-msg-form" @submit.prevent="send">
-        <p v-if="teamName" class="muted">{{ teamName }}. The message shows in the coach's notifications.</p>
-        <p v-else class="muted">The message shows in the coach's notifications.</p>
+        <p v-if="teamName" class="muted">{{ teamName }}. The message shows in the coach's notifications and Messages.</p>
+        <p v-else class="muted">The message shows in the coach's notifications and Messages.</p>
         <label class="tn-sr" for="nf-msg-text">Message</label>
         <textarea id="nf-msg-text" v-model="text" :maxlength="MESSAGE_MAX_CHARS" rows="6" placeholder="Write your message" :disabled="busy"></textarea>
         <span class="nf-count" :data-over="over ? 'true' : undefined">{{ length }} / {{ MESSAGE_MAX_CHARS }}</span>

@@ -3,7 +3,7 @@
 // Resources, and Testing for site admins only. Each top-level item is an uppercase band-font label with an
 // original pixel icon (/icons/nav/). Children keep the 16 px row style, indented 14 px per level; the active item is seat
 // blue with a 3 px left bar. Collapsed (56 px rail) only the icons show; a category icon expands the rail and opens it.
-import { computed, inject, reactive } from "vue";
+import { computed, inject, onMounted, reactive, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import Crest from "./Crest.vue";
 import { COACH_TREE_KEY, pickActive, type ChipTone } from "../home/tree";
@@ -11,6 +11,7 @@ import { rememberRail, SHELL_UI_KEY } from "../home/shell";
 import { SESSION_KEY } from "../session";
 import { creatorAllowed } from "../tournaments/creator";
 import { NOTIFICATIONS_KEY, homeBadgeCount, unreadBadge } from "../home/notifications";
+import { MESSAGES_KEY } from "../home/social";
 import {
   HOME_LINK, LEAGUES_TO, NAV_ICON, railIntercepts, readNavOpen, rememberNavOpen, RESOURCES, TESTING_TOOLS,
   type ExternalLink, type NavCategoryId,
@@ -19,6 +20,7 @@ import {
 const session = inject(SESSION_KEY)!;
 const tree = inject(COACH_TREE_KEY)!;
 const notifications = inject(NOTIFICATIONS_KEY)!;
+const messages = inject(MESSAGES_KEY, undefined);
 const ui = inject(SHELL_UI_KEY)!;
 const route = useRoute();
 const open = reactive(readNavOpen());
@@ -67,9 +69,13 @@ const linkRows = (prefix: string, links: { label: string; to: string }[]): Row[]
 // the session on navigation and focus, so a revoked flag hides the category); everyone else never sees it.
 const isAdmin = computed(() => session.admin());
 
-// Home carries the coach page's unread badge (notifications + messages + proposed times; the last two are wired to 0
-// until their stores land). Hidden at 0 and when signed out.
-const homeBadge = computed(() => !session.signedIn() ? 0 : homeBadgeCount({ unread: notifications.unread.value, messages: 0, proposals: 0 }));
+// Home carries the coach page's unread badge (notifications + unread private messages + proposed times; proposals are
+// wired to 0 until their store lands). Hidden at 0 and when signed out. The message count is re-read on sign-in and
+// whenever the notification count moves (a new message burst raises one notification).
+const homeBadge = computed(() => !session.signedIn() ? 0 : homeBadgeCount({ unread: notifications.unread.value, messages: messages?.unread.value ?? 0, proposals: 0 }));
+const refreshMessages = () => { if (messages && session.signedIn()) void messages.load(); else messages?.set(0); };
+onMounted(refreshMessages);
+watch(() => [session.signedIn(), notifications.unread.value], refreshMessages);
 
 const categories = computed<Category[]>(() => [
   // Action buttons under the rows (owner 10-31): Browse Leagues; Build a team (Roster Builder) and Browse Tournaments.

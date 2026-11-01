@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-11-01",
+    "title": "Friends, private messages and blocking",
+    "body": "Your coach page now has a Friends list (send, accept or decline friend requests, plus People you know: coaches you have played) and a Messages preview. The new Messages page holds private one-to-one conversations with other coaches, on the site only, with unread counts on Home. You can block a coach from their row or a conversation: they can't message you or send you friend requests, and you can unblock them under Messages.",
+    "links": [
+      {
+        "label": "Messages",
+        "href": "/app/messages"
+      },
+      {
+        "label": "Coach page",
+        "href": "/app/home"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "Tournament Series",
     "body": "Organisers and admins can now group tournaments into a series with its own page: the tournaments with dates and status, and combined standings across them (every event counts, or each coach's best N). A series also sets the starting pairing (Dutch, Monrad or Elo seeded) for new tournaments created in it, and the tournament page's Series chip links to the series.",
     "links": [

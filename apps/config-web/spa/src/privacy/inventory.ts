@@ -158,6 +158,26 @@ export const INVENTORY: readonly InventoryRow[] = [
     public: "no", retention: ACCOUNT_LIFETIME,
   },
   {
+    id: "friends", store: "data-store/friends/",
+    data: "Your friends and the friend requests you sent or received (coach names and dates).",
+    purpose: "The Friends list on your coach page. People you know is worked out from public game results and is not stored.",
+    public: "no", publicNote: "A friend request shows your coach name to the coach you sent it to.",
+    retention: ACCOUNT_LIFETIME,
+  },
+  {
+    id: "messages", store: "data-store/messages/",
+    data: "Private messages between you and another coach (the text, who sent it and when), and your conversation list with unread counts.",
+    purpose: "Private messages between coaches on the site. They are not sent by email or Discord.",
+    public: "no", publicNote: "Only you and the other coach in the conversation. A tournament organiser's message to you also appears in your conversation with them.",
+    retention: "While your account exists. The other coach in a conversation keeps their copy of it.",
+  },
+  {
+    id: "blocks", store: "data-store/blocks/",
+    data: "The coaches you blocked, and when.",
+    purpose: "Stopping blocked coaches from messaging you or sending you friend requests.",
+    public: "no", retention: ACCOUNT_LIFETIME,
+  },
+  {
     id: "mail", store: "data-store/mail/ (outbox/journal.jsonl, prefs.json, suppression.json, audit.jsonl)",
     data: "Emails waiting to be sent or recently sent (your address and the message), the address you confirmed for league emails and any open confirmation request, whether you turned league emails off, a one-way hash of addresses that bounced or reported spam, and a log of league messages (league, sender, how many recipients; no addresses).",
     purpose: "Sending confirmation links and league messages without showing your address to organisers; not sending to addresses that bounced.",
@@ -225,6 +245,7 @@ export const COLLECT_GROUPS: readonly CollectGroup[] = [
   { title: "What you create", text: "Rosters, teams, logos, avatars, match records, and league and tournament entries.", ids: ["coach-avatars", "team-avatars", "builder-saves", "team-library", "tournaments", "leagues", "tabletop", "tabletop-teams"] },
   { title: "Game results and ratings", text: "Who played, who won, and the ratings and titles that follow.", ids: ["results", "tournament-matches", "fork-db", "fork-teams-xml"] },
   { title: "Notifications, email, chat and bug reports", text: "Notices we send you on the site, emails we send you (only if you opt in and confirm an address), lobby chat messages, and the bug reports you choose to send.", ids: ["notifications", "mail", "bug-reports", "lobby-chat"] },
+  { title: "Friends, private messages and blocks", text: "Your friends and friend requests, the private messages you send and receive on the site, and the coaches you blocked.", ids: ["friends", "messages", "blocks"] },
   { title: "Technical data", text: "A session cookie, and your IP address held in memory only, for abuse limits.", ids: ["logs", "desktop-claims", "translation-cache"] },
 ];
 

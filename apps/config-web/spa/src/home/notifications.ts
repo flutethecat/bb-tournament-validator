@@ -8,7 +8,8 @@ import type { Fetcher } from "../session";
 export type NotificationType =
   | "organiser-message" | "entrant-flag" | "roster-problems" | "withdrawal" | "award"
   | "fixture-created" | "fixture-rescheduled" | "proposal-received" | "proposal-accepted" | "proposal-countered"
-  | "result-confirmed" | "tournament-news" | "league-broadcast" | "registration" | "share-request" | "naf-request";
+  | "result-confirmed" | "tournament-news" | "league-broadcast" | "registration" | "share-request" | "naf-request"
+  | "private-message" | "friend-request";
 
 export interface NotificationRow {
   id: string;
@@ -45,6 +46,8 @@ export const NOTIFICATION_ICONS: Record<NotificationType, string> = {
   registration: "/icons/ui/football-helmet.png",
   "share-request": "/icons/ui/action-pass.png",
   "naf-request": "/icons/ui/football-helmet.png",
+  "private-message": "/icons/panel/messages.png",
+  "friend-request": "/icons/panel/friends.png",
 };
 export const notificationIcon = (type: string): string => NOTIFICATION_ICONS[type as NotificationType] ?? "/icons/ui/football-helmet.png";
 

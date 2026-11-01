@@ -1,13 +1,15 @@
 <script setup lang="ts">
 // Coach page (/app/home, spec §4.7): two columns at >= 1280 (fluid / 380 px), one column on a phone. Left:
 // Notifications (the shared store, NotificationsPanel), Deadlines (GET /api/me/deadlines, via the nav tree), Recent games (GET /api/recent-results). The availability editor lives on the Account page (owner 10-30).
-// Right: Friends and Messages (empty until their lanes land), My teams strip, Honours (league awards, GET /api/leagues?awards=mine), Account shortcut, What's new.
+// Right: Friends (GET /api/me/friends) and the Messages preview (GET /api/me/threads), My teams strip, Honours (league awards, GET /api/leagues?awards=mine), Account shortcut, What's new.
 import { computed, inject, onBeforeUnmount, onMounted, onServerPrefetch, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { API_KEY } from "../app";
 import MiniCalendar from "../components/MiniCalendar.vue";
 import NotificationsPanel from "../components/NotificationsPanel.vue";
 import HomeHonours from "../components/HomeHonours.vue";
+import HomeFriends from "../components/HomeFriends.vue";
+import HomeMessages from "../components/HomeMessages.vue";
 import RecentGames from "../components/RecentGames.vue";
 import { SESSION_KEY, writesAllowed } from "../session";
 import { NOTIFICATIONS_KEY } from "../home/notifications";
@@ -111,15 +113,9 @@ onServerPrefetch(() => Promise.all([loadTeams(), loadLog()]));
       </div>
 
       <div class="hm-col hm-col-side">
-        <section id="friends" class="hm-panel" aria-labelledby="hm-friends-h">
-          <header class="hm-band"><h2 id="hm-friends-h">Friends</h2><span class="hm-cap">0</span></header>
-          <p class="hm-empty">No friends yet. Coaches you play will show up here.</p>
-        </section>
+        <HomeFriends />
 
-        <section id="messages" class="hm-panel" aria-labelledby="hm-messages-h">
-          <header class="hm-band"><h2 id="hm-messages-h">Messages</h2><span class="hm-cap">0 unread</span></header>
-          <p class="hm-empty">No messages yet.</p>
-        </section>
+        <HomeMessages />
 
         <section id="mini-calendar" class="hm-panel" aria-labelledby="hm-minical-h">
           <header class="hm-band"><h2 id="hm-minical-h">Mini calendar</h2><RouterLink class="hm-cap" to="/account#calendar">Full calendar</RouterLink></header>

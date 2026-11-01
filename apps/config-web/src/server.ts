@@ -307,7 +307,9 @@ import { sharedTeamView, type SharedViewInput } from "./teamShareView.js";
 import { TournamentStore } from "./tournaments/store.js";
 import { DEFAULT_TOURNAMENT_TURN_TIMER } from "./tournaments/types.js";
 import { RateLimiter } from "./translate/guards.js";
-import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier } from "./notifications.js";
+import { createTournamentNotifier, isNotificationApiPath, NotificationStore, notificationsApi, SenderRateLimiter, setActiveNotifier, setOrganiserThreadSink } from "./notifications.js";
+import { appendOrganiserMessage, createSocialLimiters, isSocialApiPath, socialApi, type SocialApiDeps } from "./social/api.js";
+import { SocialStore } from "./social/store.js";
 import { clientIp } from "./translate/route.js";
 import { privacyContact } from "./privacy/contact.js";
 import { startLogRotation } from "./privacy/logRotation.js";
@@ -655,6 +657,34 @@ setActiveNotifier(tournamentNotifier);
 // NAF-sanctioned entries that owe their NAF answer but are not marked yet: marked once, one notice per coach (idempotent).
 try { settleNafOwedEntries({ store: tournamentStore, notify: tournamentNotifier, identityRecords: (coachIds) => { const all = readIdentities().coaches; return coachIds.map((c) => all[normalizeFfbCoachId(c)]); } }); } catch (e) { console.error(`[naf] startup settle failed: ${(e as Error).message}`); }
 const messageLimiter = new SenderRateLimiter(30, 60_000);
+// ---- Friends, private messages and blocks (landing spec §4.3-4.5, src/social/) ----------------------------------------
+// <FORK_STATE_DIR>/friends, /blocks, /messages. Coach names only: no contact field is read or answered. A new message
+// burst raises one notification (the Super socket push carries it); organiser tournament messages join the thread too.
+const socialStore = new SocialStore(FORK_STATE_DIR);
+const socialDeps: SocialApiDeps = {
+  store: socialStore,
+  coach: (name) => {
+    const record = readIdentities().coaches[normalizeFfbCoachId(name)];
+    return record && !record.banned && !isReservedCoachName(record.ffbCoachId) ? record.ffbCoachId : undefined;
+  },
+  played: () => { try { return tournamentResults.listAll(); } catch { return []; } },
+  avatarFor: (coach) => coachAvatars.avatarFor(coach) ?? undefined,
+  notify: leagueNotify,
+  isFenced: (coach) => isCoachFenced(coach),
+  limiters: createSocialLimiters(),
+};
+setOrganiserThreadSink((organiser, coach, text, context) => appendOrganiserMessage(socialStore, organiser, coach, text, context));
+async function handleSocialRequest(req: IncomingMessage, res: ServerResponse, method: string, path: string, query: URLSearchParams, auth?: SessionIdentity): Promise<boolean> {
+  const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
+  // A bad or oversized body throws JsonBodyError: the request handler answers 400 / 413.
+  const body = method === "POST" ? await readBody(req, 16 * 1024) : undefined;
+  const result = socialApi(method, path, query, auth ? { coach: auth.coach, ...(testSession ? { test: true } : {}) } : undefined, body, socialDeps);
+  if (!result) return false;
+  res.setHeader("cache-control", "private, no-store");
+  sendJson(res, result.status, result.body);
+  return true;
+}
+// ---- end Friends / messages / blocks --------------------------------------------------------------------------------
 
 /** PUBLIC_BASE_URL, validated once at startup (http/https origin, no userinfo / path); unset or invalid = none. */
 const PUBLIC_BASE_ORIGIN = ((): string | undefined => {
@@ -1600,6 +1630,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === OWN_AVATAR_PATH ||
     pathname === NAF_CONNECTION_ENDPOINT ||
     pathname === "/api/me/notifications/read" ||
+    isSocialApiPath(pathname) ||
     pathname === ONBOARDING_PATH ||
     pathname === CONTACT_PATH ||
     pathname === LEAGUE_SHARING_PATH ||
@@ -1908,6 +1939,8 @@ async function handleApi(
     });
     if (result) return sendJson(res, result.status, result.body);
   }
+
+  if (isSocialApiPath(path) && await handleSocialRequest(req, res, method, path, query, auth)) return;
 
   if (mail.isMeMailPath(path)) {
     const testSession = getSession(sessionTokenFromRequest(req))?.test === true;

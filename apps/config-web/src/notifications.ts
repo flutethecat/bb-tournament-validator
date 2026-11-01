@@ -27,6 +27,8 @@ export const NOTIFICATION_TYPES = [
   "registration",
   "share-request",
   "naf-request",
+  "private-message",
+  "friend-request",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -293,6 +295,13 @@ export function notifyEntrants(tournamentId: string, type: NotificationType, tit
   activeNotifier?.entrants(tournamentId, type, title, body, link, from);
 }
 
+// The organiser <-> coach thread writer (src/social; server.ts registers it). Unset = no Messages store on this host.
+export type OrganiserThreadSink = (organiser: string, coach: string, text: string, context: { kind: "tournament"; id: string; name: string }) => void;
+let organiserThreadSink: OrganiserThreadSink | undefined;
+export function setOrganiserThreadSink(sink: OrganiserThreadSink | undefined): void {
+  organiserThreadSink = sink;
+}
+
 // ---- HTTP routes ---------------------------------------------------------------------------------------------------
 
 export interface NotificationAuth {
@@ -398,7 +407,8 @@ export function notificationsApi(
       link: tournamentLink(tournament.id, "overview"),
       from: auth.coach,
     });
-    // Messages lane (§4.4): also append this to the organiser <-> coach thread once the Messages store exists.
+    // Messages (§4.4): the same text lands in the organiser <-> coach thread, flagged ORGANISER (blocks do not apply).
+    try { organiserThreadSink?.(auth.coach, entrant.coach.ffbCoachId, text, { kind: "tournament", id: tournament.id, name: tournament.name }); } catch { /* fire-and-forget */ }
     return { status: 201, body: { notification: { id: record.id, at: record.at } } };
   }
 

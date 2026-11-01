@@ -22,8 +22,9 @@ import { deleteSessionsForCoach, sessionsForCoach } from "../auth/session.js";
 import { coachAvatarId, coachAvatarKey, coachProxyCacheKeys, deleteCoachAvatarData } from "../coachAvatars.js";
 import { avatarStoreFor } from "../teamAvatars.js";
 import { notificationCoachKey, notificationFileName } from "../notifications.js";
+import { socialFileName } from "../social/store.js";
 import { createAnonymiser, createTextReplacer, nameKey, textAliases, type Anonymiser, type TextReplacer } from "./anonymise.js";
-import { coachKeyHash } from "./fence.js";
+import { coachKeyHash, isReservedCoachName } from "./fence.js";
 import { addToBlocklist, mapHash, markRecentDeletion, recordDeletedCoach, type StepStatus } from "./state.js";
 
 // ---- deps / contexts --------------------------------------------------------------------------------------------
@@ -508,6 +509,43 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     },
     erase: ["notifications", "anonymise-notifications", "final-sweep"],
   },
+  // Friends, private messages and blocks (landing spec §4.3-4.5, src/social/store.ts). A file only when the coach has data.
+  {
+    id: "friends",
+    location: "FORK_STATE_DIR/friends/<coach>.json",
+    export: (ctx) => {
+      const f = readJsonLoose<Obj>(join(ctx.deps.stateDir, "friends", socialFileName(ctx.coach)));
+      if (!f) return [];
+      return [{ name: "friends.json", content: json({ friends: objs(f.friends), incoming: objs(f.incoming), outgoing: objs(f.outgoing) }) }];
+    },
+    erase: ["social", "final-sweep"],
+  },
+  {
+    id: "blocks",
+    location: "FORK_STATE_DIR/blocks/<coach>.json",
+    export: (ctx) => {
+      const b = readJsonLoose<Obj>(join(ctx.deps.stateDir, "blocks", socialFileName(ctx.coach)));
+      return b ? [{ name: "blocks.json", content: json({ blocked: objs(b.blocked) }) }] : [];
+    },
+    erase: ["social", "final-sweep"],
+  },
+  {
+    id: "messages",
+    location: "FORK_STATE_DIR/messages/threads/<id>.json, FORK_STATE_DIR/messages/index/<coach>.json",
+    export: (ctx) => {
+      // Every thread the coach is one of the two coaches of (by identity key), with both coaches' messages.
+      let paths: string[] = [];
+      try { paths = listFiles(join(ctx.deps.stateDir, "messages", "threads"), ".json"); } catch { paths = []; }
+      const threads = paths
+        .map((p) => readJsonLoose<Obj>(p))
+        .filter((t): t is Obj => Boolean(t) && Array.isArray(t!.coaches) && (t!.coaches as unknown[]).some((c) => isMine(ctx.keys, c)))
+        .map((t) => ({ id: t.id, coaches: t.coaches, organiser: t.organiser === true, createdAt: t.createdAt, messages: objs(t.messages) }));
+      const index = readJsonLoose<Obj>(join(ctx.deps.stateDir, "messages", "index", socialFileName(ctx.coach)));
+      if (!threads.length && !index) return [];
+      return [{ name: "messages.json", content: json({ threads, inbox: objs(index?.threads) }) }];
+    },
+    erase: ["social", "anonymise-messages", "final-sweep"],
+  },
   {
     id: "bug-reports",
     location: "BUG_REPORTS_DIR",
@@ -555,7 +593,7 @@ export const KNOWN_STORES = [
   "identities", "contact-details", "consents", "sessions", "discord-sso", "organizers", "coach-avatars", "team-avatars", "builder-saves",
   "team-library", "fork-db", "tournaments", "leagues", "tabletop", "tabletop-teams", "tournament-results", "tournament-matches", "naf-games",
   "coach-titles", "replay-moments", "notifications", "bug-reports", "test-games", "logs", "fork-teams-xml", "bot-registry",
-  "privacy-blocklist", "lobby-chat", "desktop-claims", "translation-cache", "mail",
+  "privacy-blocklist", "lobby-chat", "desktop-claims", "translation-cache", "mail", "friends", "blocks", "messages",
 ] as const;
 
 /**
@@ -570,7 +608,7 @@ export const INVENTORY_ROWS: Record<(typeof KNOWN_STORES)[number], string[]> = {
   "tournament-matches": ["tournament-matches"], "naf-games": ["results"], "coach-titles": ["results"], "replay-moments": ["results"],
   notifications: ["notifications"], "bug-reports": ["bug-reports"], "test-games": [], logs: ["logs"], "fork-teams-xml": ["fork-teams-xml"],
   "bot-registry": ["bot-registry"], "privacy-blocklist": [], "lobby-chat": ["lobby-chat"], "desktop-claims": ["desktop-claims"],
-  "translation-cache": ["translation-cache"], mail: ["mail"],
+  "translation-cache": ["translation-cache"], mail: ["mail"], friends: ["friends"], blocks: ["blocks"], messages: ["messages"],
 };
 
 /** Team keys whose logos belong to the coach: their builder saves and library teams. */
@@ -609,6 +647,9 @@ tabletop-matches.json   Tabletop matches you played or recorded, with their even
 results.json            Game results with you as home or away coach, your rating title, and your cached NAF games
                         (when your NAF link is verified).
 notifications.json      Your notifications.
+friends.json            Your friends and friend requests (coach names only).
+blocks.json             The coaches you blocked.
+messages.json           Your private conversations (both coaches' messages) and your conversation list.
 mail.json               Your email settings (confirmed address, an open confirmation, league email choice) and the
                         emails queued or recently sent to you.
 bug-reports-index.json  The bug reports and feedback you sent (id, date, description).
@@ -857,6 +898,24 @@ const removeNotifications = (deps: PrivacyDeps, plan: DeletePlan): void => {
   for (const n of plan.coachNames) unlinkIfExists(join(deps.stateDir, "notifications", notificationFileName(notificationCoachKey(n))));
 };
 
+/** The coach's own friends / blocks / inbox files, and every other coach's friend and block rows naming them. */
+const removeSocial = (deps: PrivacyDeps, plan: DeletePlan, names: ReadonlySet<string>): void => {
+  for (const n of plan.coachNames) {
+    unlinkIfExists(join(deps.stateDir, "friends", socialFileName(n)));
+    unlinkIfExists(join(deps.stateDir, "blocks", socialFileName(n)));
+    unlinkIfExists(join(deps.stateDir, "messages", "index", socialFileName(n)));
+  }
+  const drop = (o: Obj, field: string): boolean => {
+    const rows = objs(o[field]);
+    const kept = rows.filter((r) => !isMine(names, r.coach));
+    if (kept.length === rows.length) return false;
+    o[field] = kept;
+    return true;
+  };
+  for (const p of listFiles(join(deps.stateDir, "friends"), ".json")) rewriteJson(p, (f) => [drop(f, "friends"), drop(f, "incoming"), drop(f, "outgoing")].some(Boolean));
+  for (const p of listFiles(join(deps.stateDir, "blocks"), ".json")) rewriteJson(p, (b) => drop(b, "blocked"));
+};
+
 const removeSsoPending = (deps: PrivacyDeps, plan: DeletePlan): StepStatus => {
   if (!plan.discordHash || !deps.pendingSso) return "skipped";
   deps.pendingSso.deleteWhere((id) => sha256(id) === plan.discordHash);
@@ -905,6 +964,24 @@ export const DELETE_STEPS: DeleteStep[] = [
   { id: "builder-saves", run: ({ deps, names }) => { removeSaves(deps, names); return "done"; } },
   { id: "library", run: ({ deps, names }) => { removeLibraryRows(deps, names); return "done"; } },
   { id: "notifications", run: ({ deps, plan }) => { removeNotifications(deps, plan); return "done"; } },
+  { id: "social", run: ({ deps, plan, names }) => { removeSocial(deps, plan, names); return "done"; } },
+  {
+    // Private threads stay for the other coach, with this coach shown as their pseudonym ("Deleted coach #n"); a thread
+    // whose two coaches are both deleted goes.
+    id: "anonymise-messages",
+    run: ({ deps, an, text }) => {
+      const tx = text();
+      for (const path of listFiles(join(deps.stateDir, "messages", "threads"), ".json")) {
+        rewriteJson(path, (t) => [an.list(t.coaches), ...objs(t.messages).map((m) => [an.fields(m, ["from"], []), tx.texts(m, ["text"])].some(Boolean))].some(Boolean));
+        const after = readJson<Obj>(path);
+        if (after && Array.isArray(after.coaches) && after.coaches.length > 0 && after.coaches.every((c) => isReservedCoachName(c))) unlinkIfExists(path);
+      }
+      for (const path of listFiles(join(deps.stateDir, "messages", "index"), ".json")) {
+        rewriteJson(path, (idx) => objs(idx.threads).map((e) => [an.fields(e, ["with", "lastFrom"], []), tx.texts(e, ["preview"])].some(Boolean)).some(Boolean));
+      }
+      return "done";
+    },
+  },
   {
     // Mail prefs and deliveries go; the league-message audit keeps its counts with the sender anonymised. Suppression
     // hashes of bounced / complaining addresses stay (they hold no name and only stop mail to that address).
@@ -1094,6 +1171,7 @@ export const DELETE_STEPS: DeleteStep[] = [
       removeSaves(deps, names);
       removeLibraryRows(deps, names);
       removeNotifications(deps, plan);
+      removeSocial(deps, plan, names);
       if (deps.mail) for (const n of plan.coachNames) deps.mail.forgetCoach(n);
       for (const n of plan.coachNames) await deleteCoachAvatarData(deps.coachAvatarsDir, n, plan.proxyKeys);
       return "done";
