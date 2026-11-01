@@ -43,6 +43,7 @@ const sourceCap = (s: string): string => (s === "imported" ? "TourPlay table" : 
             </tr>
           </thead>
           <tbody>
+            <tr v-if="!t.rows.length"><td :colspan="10 + t.columns.length" class="hm-empty">No teams scheduled in this division yet.</td></tr>
             <tr v-for="r in t.rows" :key="r.teamId ?? `${r.team}|${r.coach}`" :data-mine="r === t.mine ? 'true' : undefined" :aria-current="r === t.mine ? 'true' : undefined">
               <td class="lg-num">{{ r.rank }}</td>
               <th scope="row" class="lg-team-cell"><span class="lg-team-name">{{ r.team }}</span><small>{{ r.race }} · {{ r.coach }}</small></th>

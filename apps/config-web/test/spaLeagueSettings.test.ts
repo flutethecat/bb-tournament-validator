@@ -560,6 +560,12 @@ describe("standings and podium helpers (SPA side)", () => {
     const row = { group: "", rank: 1, team: "A", race: "Orc", coach: "Ann", coachId: "Ann", points: 3, played: 1, wins: 1, draws: 0, losses: 0, tdFor: 1, tdAgainst: 0, casFor: 0, casAgainst: 0 };
     const tables = standingsTables({ ...season6(), phases: [{ id: "p", category: "Season", name: "Regular", groups: [""], standings: [row], standingsSource: "computed", standingsStats: ["fouls"] }] });
     expect(tables[0]).toMatchObject({ source: "computed", stats: ["fouls"] });
+    // Live tables show at zero, and a division with no team scheduled still gets its table.
+    const zero = { ...row, group: "North", played: 0, wins: 0, points: 0 };
+    const live = standingsTables({ ...season6(), phases: [{ id: "p", category: "Season", name: "Regular", groups: ["North", "South"], standings: [zero], standingsSource: "computed", standingsGroups: ["North", "South"] }] });
+    expect(live.map((t) => [t.title, t.rows.length])).toEqual([["Regular · North", 1], ["Regular · South", 0]]);
+    const imported = standingsTables({ ...season6(), phases: [{ id: "p", category: "Season", name: "PreSeason", groups: [""], standings: [{ ...row, played: 0 }], standingsSource: "imported" }] });
+    expect(imported).toEqual([]);
     expect(isMyStanding(row, " ann ")).toBe(true);
     expect(isMyStanding(row, "")).toBe(false);
     expect(isMyStanding({ coachId: undefined }, "Ann")).toBe(false);

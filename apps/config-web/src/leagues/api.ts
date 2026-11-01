@@ -746,7 +746,7 @@ async function finishSeason(league: LeagueRecord, seasonId: string, who: LeagueA
     const final: Partial<Record<PodiumSlot, string>> = {};
     for (const slot of PODIUM_SLOTS) if (places[slot]) final[slot] = places[slot]!.ref;
     const overridden = PODIUM_SLOTS.some((slot) => (final[slot] ?? "") !== (proposed[slot] ?? ""));
-    const decidedBy = overridden ? "organiser" : proposal.decidedBy;
+    const decidedBy = overridden ? "organiser" : proposal.decidedBy === "pending" ? "none" : proposal.decidedBy;
     season.awards = [...season.awards.filter((a) => !a.podium), ...podiumAwards(places, decidedBy)];
     season.podium = { decidedBy, proposed, final, overridden, by: who.coach, at };
   }

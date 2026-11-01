@@ -188,6 +188,9 @@ export interface LeaguePhase {
   /** The table is the TourPlay export's ("imported") or computed from the results ("computed"). */
   standingsSource?: "computed" | "imported";
   standingsStats?: StandingsStat[];
+  /** The table's divisions in order, including ones with no team scheduled yet. */
+  standingsGroups?: string[];
+  format?: "table" | "knockout";
 }
 
 export interface PlayerSeasonStats {
@@ -292,7 +295,7 @@ export interface PodiumProposal {
   champion?: PodiumPlace;
   runnerUp?: PodiumPlace;
   consolation?: PodiumPlace;
-  decidedBy: "playoff" | "standings" | "imported" | "none";
+  decidedBy: "playoff" | "standings" | "imported" | "pending" | "none";
   note: string;
   candidates: PodiumPlace[];
 }

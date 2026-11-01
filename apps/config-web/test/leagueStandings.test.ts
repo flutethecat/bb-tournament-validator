@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { leagueApi, type LeagueApiDeps, type LeagueApiResult } from "../src/leagues/api";
-import { computePhaseStandings, deriveStandings, isKnockoutPhase, proposePodium } from "../src/leagues/standings";
+import { computePhaseStandings, deriveStandings, phaseFormat, proposePodium } from "../src/leagues/standings";
 import { LeagueStore } from "../src/leagues/store";
 import type { FixtureSide, LeagueFixture, LeaguePhase, LeagueTeam, SeasonRecord, StandingRow } from "../src/leagues/types";
 
@@ -107,8 +107,15 @@ describe("standings maths", () => {
     const rows = table(s);
     expect(rows.filter((r) => r.group === "North").map((r) => [r.teamId, r.rank, r.points, r.played])).toEqual([["b", 1, 3, 2], ["a", 2, 3, 1]]); // b: +2 TD with the interdivision win
     expect(rows.filter((r) => r.group === "South").map((r) => [r.teamId, r.rank])).toEqual([["c", 1], ["d", 2]]);
-    expect(isKnockoutPhase({ name: "PlayOffs", category: "Season" })).toBe(true);
-    expect(isKnockoutPhase({ name: "Regular", category: "Season" })).toBe(false);
+  });
+
+  it("[review P2] divided phases keep teams with no games, and empty divisions still appear", () => {
+    const s = manual([
+      game("a", "b", 1, 0, { group: "North" }), game("c", "d", null, null, { group: "South" }),
+    ], { phases: [regular({ groups: ["North", "South", "West"] })] });
+    const phase = deriveStandings(s)[0]!;
+    expect(phase.standings.filter((r) => r.group === "South").map((r) => [r.teamId, r.played, r.points])).toEqual([["c", 0, 0], ["d", 0, 0]]);
+    expect(phase.standingsGroups).toEqual(["North", "South", "West"]);
   });
 });
 
@@ -137,6 +144,68 @@ describe("podium proposal", () => {
     expect([noThird.champion?.ref, noThird.runnerUp?.ref, noThird.consolation?.ref]).toEqual(["c", "d", "a"]);
     // The knockout phase has no table of its own.
     expect(deriveStandings(withThird)[1]!.standings).toEqual([]);
+  });
+
+  const phase = (id: string, name: string, over: Partial<LeaguePhase> = {}): LeaguePhase => ({ id, category: "Season", name, groups: [], standings: [], ...over });
+  const inPhase = (id: string, name: string) => (h: string, a: string, hs: number | null, as: number | null, round: number): LeagueFixture =>
+    game(h, a, hs, as, { phaseId: id, phase: name, round });
+
+  it("[review P2] knockout by format or structure, never by name: a round-robin Finals week stays a table", () => {
+    const fw = inPhase("season-finals-week", "Finals week");
+    const roundRobin = [fw("a", "b", 1, 0, 1), fw("c", "d", 1, 0, 1), fw("a", "c", 0, 1, 2), fw("b", "d", 1, 0, 2), fw("a", "d", 2, 0, 3), fw("b", "c", 1, 1, 3)];
+    const s = manual([game("a", "b", 1, 0), ...roundRobin], { phases: [regular(), phase("season-finals-week", "Finals week")] });
+    expect(phaseFormat(s, s.phases[1]!)).toBe("table");
+    expect(deriveStandings(s)[1]!.standings.map((r) => r.teamId)).toEqual(["c", "a", "b", "d"]);
+    // A neutral name with a bracket structure is a knockout; an explicit format always wins.
+    const ko = inPhase("season-stage-2", "Stage 2");
+    const bracket = manual([game("a", "b", 1, 0), ko("a", "d", 1, 0, 1), ko("b", "c", 1, 0, 1), ko("a", "b", null, null, 2)], { phases: [regular(), phase("season-stage-2", "Stage 2")] });
+    expect(phaseFormat(bracket, bracket.phases[1]!)).toBe("knockout");
+    expect(phaseFormat(bracket, { ...bracket.phases[1]!, format: "table" })).toBe("table");
+    expect(phaseFormat(s, { ...s.phases[1]!, format: "knockout" })).toBe("knockout");
+    // A phase followed by a table phase with games (playoffs end a season), or the only phase of a season, is a table.
+    const early = manual([ko("a", "b", 1, 0, 1), ko("c", "d", 1, 0, 1), game("a", "c", 1, 0)], { phases: [phase("season-stage-2", "Stage 2"), regular()] });
+    expect(phaseFormat(early, early.phases[0]!)).toBe("table");
+    expect(phaseFormat(manual([game("a", "b", 1, 0)]), regular())).toBe("table");
+  });
+
+  it("[review P2] the standings podium uses the last table phase, not a pre-season", () => {
+    const pre = inPhase("season-pre", "PreSeason");
+    const s = manual([pre("d", "a", 3, 0, 1), pre("c", "b", 3, 0, 1), pre("d", "c", 1, 0, 2), pre("a", "b", 1, 0, 2),
+      game("a", "b", 2, 0), game("b", "c", 1, 0), game("a", "c", 1, 0), game("d", "c", 0, 1)], { phases: [phase("season-pre", "PreSeason"), regular()] });
+    expect(phaseFormat(s, s.phases[0]!)).toBe("table");
+    const p = proposePodium(s);
+    expect(p.decidedBy).toBe("standings");
+    expect(p.champion?.ref).toBe("a");
+  });
+
+  it("[review P2] a separate third-place phase sets only Consolation; the final decides the champion", () => {
+    const po = inPhase("season-playoffs", "PlayOffs");
+    const third = inPhase("season-third", "Third place");
+    const phases = [regular(), phase("season-playoffs", "PlayOffs"), phase("season-third", "Third place")];
+    const bracket = [game("a", "b", 1, 0), po("a", "d", 0, 1, 1), po("b", "c", 0, 1, 1), po("d", "c", 2, 1, 2)];
+    const s = manual([...bracket, third("a", "b", 0, 1, 1)], { phases });
+    expect(s.phases.map((p) => phaseFormat(s, p))).toEqual(["table", "knockout", "knockout"]);
+    const p = proposePodium(s);
+    expect([p.decidedBy, p.champion?.ref, p.runnerUp?.ref, p.consolation?.ref]).toEqual(["playoff", "d", "c", "b"]);
+    // An unplayed third-place game leaves Consolation empty; the final still crowns.
+    const open = proposePodium(manual([...bracket, third("a", "b", null, null, 1)], { phases }));
+    expect([open.champion?.ref, open.consolation]).toEqual(["d", undefined]);
+    expect(open.note).toContain("third-place game is not played yet");
+  });
+
+  it("[review P2] never proposes from an unfinished knockout", () => {
+    const po = inPhase("season-playoffs", "PlayOffs");
+    const phases = [regular(), phase("season-playoffs", "PlayOffs")];
+    const base = [game("a", "b", 3, 0), game("c", "d", 1, 0)];
+    const unplayed = proposePodium(manual([...base, po("a", "d", 0, 1, 1), po("b", "c", 0, 1, 1), po("d", "c", null, null, 2)], { phases }));
+    expect(unplayed).toMatchObject({ decidedBy: "pending" });
+    expect(unplayed.note).toContain("Final not played yet");
+    expect(unplayed.champion).toBeUndefined();
+    expect(unplayed.candidates.length).toBe(4);
+    // Semi-finals played, the final not scheduled: two games at the last stage.
+    const unscheduled = proposePodium(manual([...base, po("a", "d", 0, 1, 1), po("b", "c", 0, 1, 1)], { phases }));
+    expect(unscheduled.decidedBy).toBe("pending");
+    expect(unscheduled.note).toContain("not scheduled yet");
   });
 });
 

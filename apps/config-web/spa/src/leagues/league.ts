@@ -479,10 +479,12 @@ export interface StandingsTable { key: string; title: string; note: string; rows
 export function standingsTables(season: SeasonRecord): StandingsTable[] {
   const out: StandingsTable[] = [];
   for (const p of season.phases) {
-    if (!p.standings.length || p.standings.every((r) => r.played === 0)) continue;
+    const computed = p.standingsSource === "computed";
+    // An imported pre-season table of zeros stays hidden; a live table shows its scheduled teams (and empty divisions) at zero.
+    if (computed ? !p.standings.length && !(p.standingsGroups ?? []).length : !p.standings.length || p.standings.every((r) => r.played === 0)) continue;
     const includes = (p.includes ?? []).map((id) => season.phases.find((x) => x.id === id)).filter(Boolean).map((x) => phaseLabel(x!.name));
     const note = includes.length ? `Includes ${includes.join(" and ")} games.` : "";
-    const groups = [...new Set(p.standings.map((r) => r.group))];
+    const groups = [...new Set([...(computed ? p.standingsGroups ?? [] : []), ...p.standings.map((r) => r.group)])];
     const stats = p.standingsStats ?? [];
     for (const g of groups) out.push({ key: `${p.id}:${g}`, title: g ? `${phaseTitle(p)} · ${g}` : phaseTitle(p), note, rows: p.standings.filter((r) => r.group === g), stats, source: p.standingsSource ?? "" });
   }

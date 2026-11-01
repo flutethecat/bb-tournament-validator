@@ -304,6 +304,8 @@ export interface LeaguePhase {
   standings: StandingRow[];
   /** Fixture-only phases whose games count in this phase's standings (e.g. Interdivision in Regular). */
   includes?: string[];
+  /** Table (league games) or knockout (playoff bracket); absent = inferred from the fixtures (standings.ts phaseFormat). */
+  format?: "table" | "knockout";
   /** Points per result for computed standings (absent = W3 D1 L0, standings.ts DEFAULT_POINTS). */
   points?: { win: number; draw: number; loss: number };
   /** Tiebreak order for computed standings (absent = points, TD diff, CAS diff, head-to-head, name). */
@@ -312,6 +314,8 @@ export interface LeaguePhase {
   standingsSource?: "computed" | "imported";
   /** Read model only: the optional stat columns this table carries. */
   standingsStats?: StandingsStat[];
+  /** Read model only: the table's divisions in order, including ones with no team scheduled yet. */
+  standingsGroups?: string[];
 }
 
 export interface LeagueParticipant {
