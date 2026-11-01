@@ -9,7 +9,7 @@ import {
 } from "../src/auth/contactSchema.js";
 import { completeOnboarding, contactView, onboardingGateApplies, onboardingView, updateOwnContact } from "../src/auth/onboarding.js";
 import {
-  createMailerRecipientLookup, isLeagueRosterMember, isMemberOf, isTournamentMember, leaguesOf, organiserAccess, organiserMemberView, publicIdentityRecord, type MembershipSources,
+  createMailerRecipientLookup, isLeagueRosterMember, isMemberOf, isTournamentMember, leaguesOf, publicIdentityRecord, tournamentOrganiserOf, type MembershipSources,
 } from "../src/auth/contactFor.js";
 import { leagueSharingView, setLeagueSharing } from "../src/auth/leagueSharing.js";
 import { completeDiscordCoachAssociation } from "../src/auth/discordSso.js";
@@ -324,13 +324,23 @@ describe("league membership, data-sharing acknowledgement, organiser access and 
     expect(isMemberOf(record("Ivy"), "t1", sources)).toBe(true);
   });
 
-  it("organiser access: full for an acknowledged member of a league they organise, member without the ack, none otherwise", () => {
-    expect(organiserAccess("LeagueOrg", record("Kim", { consent: { leagues: { lg: ack } } }), sources)).toBe("full");
-    expect(organiserAccess("leagueorg", record("Kim"), sources)).toBe("member");
-    expect(organiserAccess("LeagueOrg", record("Kim", { consent: { leaguesDeclined: { lg: { at: "x" } } } }), sources)).toBe("member");
-    expect(organiserAccess("LeagueOrg", record("Ivy", { consent: { leagues: { lg: ack } } }), sources)).toBe("none"); // acked, not on the roster
-    expect(organiserAccess("OtherOwner", record("Kim", { consent: { leagues: { lg: ack } } }), sources)).toBe("member"); // owner of "other"; Kim acked lg only
-    expect(organiserAccess("Nobody", record("Kim", { consent: { leagues: { lg: ack } } }), sources)).toBe("none");
+  it("tournament organiser access: owner or organiser of a tournament with the coach as an active entrant; leagues grant nothing", () => {
+    const trn = {
+      tournaments: (statuses: readonly string[]) => [
+        { id: "t1", status: "active", ownerCoachId: "TOwner", organizerCoachIds: ["TCo"] },
+        { id: "t2", status: "cancelled", ownerCoachId: "Gone" },
+      ].filter((t) => statuses.includes(t.status)),
+      entrants: sources.tournaments.entrants,
+    };
+    const tsrc = { tournaments: trn } as never as Parameters<typeof tournamentOrganiserOf>[2];
+    expect(tournamentOrganiserOf("TOwner", "ivy", tsrc)).toBe(true);
+    expect(tournamentOrganiserOf("tco", "Ivy", tsrc)).toBe(true);
+    expect(tournamentOrganiserOf("TOwner", "Dropped", tsrc)).toBe(false); // withdrawn entry
+    expect(tournamentOrganiserOf("TOwner", "Kim", tsrc)).toBe(false); // not entered
+    expect(tournamentOrganiserOf("LeagueOrg", "Kim", tsrc)).toBe(false); // league organiser
+    expect(tournamentOrganiserOf("OtherOwner", "Ivy", tsrc)).toBe(false); // organises nothing
+    expect(tournamentOrganiserOf("Gone", "Ivy", tsrc)).toBe(false); // cancelled tournament
+    expect(tournamentOrganiserOf("", "Ivy", tsrc)).toBe(false);
     const full = record("Kim", {
       level: "organizer", note: "admin-only note", profile: { preferredName: "P", displayName: "D", avatar: "a" },
       identities: { email: "e@x.yz", discordUserId: "123", discordUsername: "kim_dc", discordAvatarHash: "h", nafName: "N", nafId: "7" },
@@ -341,13 +351,6 @@ describe("league membership, data-sharing acknowledgement, organiser access and 
     expect(publicIdentityRecord(full)).toEqual({
       ffbCoachId: "Kim", identities: { nafName: "N", nafId: "7" }, connections: { naf: { verifiedAt: "2026-10-01", source: "coachpage", nafId: "7", nafName: "N" } },
     });
-    // An acknowledged member: name, preferred name, public profile, NAF fields and the league-messages flag; never contact.
-    expect(organiserMemberView(full)).toEqual({
-      ffbCoachId: "Kim", preferredName: "P", profile: { displayName: "D" }, identities: { nafName: "N", nafId: "7" },
-      connections: { naf: { verifiedAt: "2026-10-01", source: "coachpage", nafId: "7", nafName: "N" } }, acceptsLeagueMessages: true,
-    });
-    const member = JSON.stringify(organiserMemberView(full));
-    for (const leaked of ["c@example.test", "+15551234567", "123", "kim_dc", "e@x.yz", "Europe/Oslo", "admin-only note", "\"consent\"", "\"contact\"", "\"avatar\""]) expect(member).not.toContain(leaked);
     const text = JSON.stringify(publicIdentityRecord(full));
     for (const leaked of ["123", "kim_dc", "Europe/Oslo", "18:00", "admin-only note", "e@x.yz", "organizer", "P", "\"D\""]) expect(text).not.toContain(leaked);
   });
@@ -388,7 +391,6 @@ describe("league membership, data-sharing acknowledgement, organiser access and 
     expect(stored("Kim").consent?.leaguesDeclined).toEqual({ lg: { at: LATER.toISOString() }, other: { at: NOW.toISOString() } });
     expect(stored("Kim").consent?.privacy?.acceptedVersion).toBe(PRIVACY_VERSION);
     expect(stored("Kim").consent?.leagueContact?.granted).toBe(true);
-    expect(organiserAccess("LeagueOrg", stored("Kim"), sources)).toBe("member");
     // Sharing again later clears the decline.
     setLeagueSharing("Kim", { leagueId: "lg", share: true, acknowledged: true }, sources, LATER);
     expect(leagueSharingView(stored("Kim"), sources).leagues[0]).toMatchObject({ status: "shared", at: LATER.toISOString() });

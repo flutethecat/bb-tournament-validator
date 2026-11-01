@@ -281,13 +281,13 @@ function renderUserRow(user) {
     <td><button type="button" class="flag-toggle banned${record.banned ? " active" : ""}" role="switch" aria-checked="${record.banned}" data-action="toggle-banned" data-fork-name="${forkName}"${pending}>${record.banned ? "Banned" : "Allowed"}</button></td>
     <td><button type="button" class="flag-toggle${record.silenced ? " active" : ""}" role="switch" aria-checked="${record.silenced}" data-action="toggle-silenced" data-fork-name="${forkName}"${pending}>${record.silenced ? "Silenced" : "Normal"}</button></td>
     <td class="actions-cell"><div class="row-actions">
-      <button type="button" class="btn compact" data-action="edit-identities" data-fork-name="${forkName}">Identities</button>
+      ${state.admin ? `<button type="button" class="btn compact" data-action="edit-identities" data-fork-name="${forkName}">Identities</button>` : ""}
       <button type="button" class="btn compact" data-action="merge-identities" data-fork-name="${forkName}"${state.identities[normalizeName(user.fumbblName)] ? pending : " disabled"}>Merge IDs</button>
       <button type="button" class="btn compact" data-action="reset-password" data-fork-name="${forkName}"${pending}>Reset PW</button>
       <button type="button" class="btn danger compact" data-action="clear-games" data-fork-name="${forkName}"${pending}>Clear</button>
     </div></td>
   </tr>`;
-  return row + (normalizeName(state.editingIdentity) === normalizeName(user.fumbblName) ? renderIdentityEditor(user, record) : "");
+  return row + (state.admin && normalizeName(state.editingIdentity) === normalizeName(user.fumbblName) ? renderIdentityEditor(user, record) : "");
 }
 
 function filteredUsers() {
@@ -801,7 +801,8 @@ async function saveIdentities(forkName) {
 
 async function saveNafIdentity(forkName) {
   const editor = [...document.querySelectorAll("[data-identity-editor]")].find((element) => normalizeName(element.dataset.identityEditor) === normalizeName(forkName));
-  if (!editor || !state.authed || state.busy) return;
+  // NAF editing: site admins here; tournament organisers use Manage > Participants on their own tournament (owner 10-31).
+  if (!editor || !state.authed || !state.admin || state.busy) return;
   const nafIdentity = {};
   editor.querySelectorAll("[data-naf-field]").forEach((input) => {
     nafIdentity[input.dataset.nafField] = input.value.trim();

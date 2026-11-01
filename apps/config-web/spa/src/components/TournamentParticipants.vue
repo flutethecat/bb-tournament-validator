@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // Organiser Participants table: seed (manual seed input), team + coach, roster chip (not submitted / valid / invalid,
 // "by hand" when an organiser verified it), the five status flags as toggles, and the next fixture. Filter chips pick
-// out the rows that need attention. Rows collapse to cards on a phone. The row menu has "Message coach" (notifications lane).
+// out the rows that need attention. Rows collapse to cards on a phone. The row menu has "Message coach" (notifications lane) and "NAF details" (organisers record a coach's NAF name and number).
 import { computed, inject, ref } from "vue";
 import type { TournamentEntrant, TournamentEntrantFlags } from "../shared/api";
 import Crest from "./Crest.vue";
 import MessageCoachModal from "./MessageCoachModal.vue";
+import NafEntrantModal from "./NafEntrantModal.vue";
 import { nextFixtureFor, ROSTER_LABEL, rosterState, TOURNAMENT_DETAIL_KEY } from "../tournaments/detail";
 import { SESSION_KEY, writesAllowed } from "../session";
 
@@ -51,6 +52,7 @@ const rows = computed(() => state.entrants.filter((e) => !e.droppedAt).filter(ke
 const dropped = computed(() => state.entrants.filter((e) => e.droppedAt).length);
 const busyRow = (_id: string): boolean => Boolean(state.busy);
 const messaging = ref<TournamentEntrant | null>(null);
+const nafEditing = ref<TournamentEntrant | null>(null);
 
 function toggle(e: TournamentEntrant, key: keyof TournamentEntrantFlags, value: boolean) {
   void detail.patchEntrant(e.id, { flags: { [key]: value } });
@@ -107,12 +109,14 @@ function seed(e: TournamentEntrant, raw: string) {
           </td>
           <td v-if="canWrite" data-label="Actions" class="tn-row-menu">
             <button v-if="r.e.coachId" type="button" class="lobby-btn small" :aria-label="`Message coach ${r.e.coachId}`" @click="messaging = r.e">Message coach</button>
+            <button v-if="r.e.coachId" type="button" class="lobby-btn small" :aria-label="`Record NAF details for ${r.e.coachId}`" @click="nafEditing = r.e">NAF details</button>
           </td>
         </tr>
       </tbody>
     </table>
   </div>
   <p v-if="dropped" class="muted">{{ dropped }} withdrawn {{ dropped === 1 ? "entry is" : "entries are" }} not listed.</p>
+  <NafEntrantModal v-if="nafEditing?.coachId" :coach-key="nafEditing.coachId" :team-name="nafEditing.submission?.teamName || nafEditing.teamName" @close="nafEditing = null" />
   <MessageCoachModal
     v-if="messaging?.coachId && state.tournament"
     :tournament-id="state.tournament.id" :coach-key="messaging.coachId ?? ''" :team-name="messaging.submission?.teamName || messaging.teamName"

@@ -7,18 +7,19 @@
 // they are treated as a non-member.
 //
 // ORGANISERS NEVER RECEIVE EMAIL ADDRESSES OR PHONE NUMBERS. A portal mailer sends league messages on their behalf.
-// - organiserAccess(caller, target): "full" when the target is an acknowledged member of a league the caller owns or
-//   organises; "member" when the target is on such a league but has not acknowledged; "none" otherwise (tournaments
-//   grant nothing). "full" answers organiserMemberView (name, preferred name, public profile, NAF fields, a boolean
-//   acceptsLeagueMessages); "member" answers publicIdentityRecord (coach name and NAF fields only).
+// - tournamentOrganiserOf(caller, target, sources): true when the target is an active (not dropped) entrant of a
+//   tournament the caller owns or organises (owner ruling 10-31). That is the ONLY organiser power over a coach's
+//   identity (setting NAF name/number, answered with publicIdentityRecord). League organisers have none here: they
+//   message members through the portal mailer and see names on league pages.
 // - mailerRecipientFor(coach, leagueOrTournamentId): MAILER-ONLY, server-internal. The address the league mailer sends
 //   to, only with the league-contact opt-in AND membership (an acknowledged league membership, or a tournament entry).
 //   Its result goes to the email delivery provider, NEVER into an HTTP response; no route may expose it.
 // Nothing public, and nothing an organiser receives, ever includes email or phones.
 
-import { contactOf, leagueContactGranted, preferredNameOf, sharesWithLeague, type CoachPhone } from "./contactSchema.js";
+import { contactOf, leagueContactGranted, sharesWithLeague, type CoachPhone } from "./contactSchema.js";
 import { normalizeFfbCoachId, readIdentities, type CoachIdentityRecord } from "./identitiesStore.js";
-import { isLeagueOrganiser } from "../leagues/store.js";
+import { isTournamentManager } from "../tournaments/store.js";
+import type { TournamentRecord } from "../tournaments/types.js";
 
 /** Mailer-only: where the league mailer sends a message (never returned by a route). */
 export interface MailerRecipient {
@@ -75,17 +76,21 @@ export function leaguesOf(coach: string, sources: MembershipSources): LeagueSumm
   return sources.leagues.list().filter((l) => isLeagueRosterMember(coach, l.id, sources));
 }
 
-export type OrganiserAccess = "full" | "member" | "none";
+/** Tournament sources for the organiser check (the live TournamentStore satisfies it; tests pass fakes). */
+export interface TournamentOrganiserSources {
+  tournaments: {
+    tournaments(statuses: readonly TournamentRecord["status"][]): ReadonlyArray<TournamentRecord>;
+    entrants(id: string): ReadonlyArray<{ coach: { ffbCoachId: string }; droppedAt?: string }>;
+  };
+}
 
-/** What a (non-admin) caller may see of the target coach's identity; see the header. */
-export function organiserAccess(caller: string, target: CoachIdentityRecord, sources: MembershipSources): OrganiserAccess {
-  let access: OrganiserAccess = "none";
-  for (const league of sources.leagues.list()) {
-    if (!isLeagueOrganiser(league, caller) || !isLeagueRosterMember(target.ffbCoachId, league.id, sources)) continue;
-    if (sharesWithLeague(target, league.id)) return "full";
-    access = "member";
-  }
-  return access;
+/** The caller owns or organises a tournament in which the target is an active (not dropped) entrant. */
+export function tournamentOrganiserOf(caller: string, target: string, sources: TournamentOrganiserSources): boolean {
+  const key = normalizeFfbCoachId(target);
+  if (!key || !normalizeFfbCoachId(caller)) return false;
+  return sources.tournaments.tournaments(["draft", "active", "completed"]).some((t) =>
+    isTournamentManager(t, caller)
+    && sources.tournaments.entrants(t.id).some((e) => !e.droppedAt && sameCoach(key)(e.coach.ffbCoachId)));
 }
 
 export interface PublicIdentityRecord {
@@ -94,31 +99,8 @@ export interface PublicIdentityRecord {
   connections?: { naf: NonNullable<CoachIdentityRecord["connections"]>["naf"] };
 }
 
-export interface OrganiserMemberView extends PublicIdentityRecord {
-  preferredName: string;
-  /** Public profile fields only (no avatar URL: a Discord avatar URL carries the Discord id). */
-  profile: { displayName?: string; fumbblName?: string };
-  /** The coach opted in to league messages (sent by Super FUMBBL; the organiser never sees the address). */
-  acceptsLeagueMessages: boolean;
-}
-
 /**
- * What an organiser sees of an ACKNOWLEDGED member of their league (owner 10-31): built from an allow-list, the coach
- * name, preferred name, public profile fields and NAF fields, plus whether they accept league messages. Never contact
- * details, Discord ids / username / email, consent internals, scheduling, level, flags or the admin note.
- */
-export function organiserMemberView(record: CoachIdentityRecord): OrganiserMemberView {
-  const { displayName, fumbblName } = record.profile;
-  return {
-    ...publicIdentityRecord(record),
-    preferredName: preferredNameOf(record),
-    profile: { ...(displayName ? { displayName } : {}), ...(fumbblName ? { fumbblName } : {}) },
-    acceptsLeagueMessages: leagueContactGranted(record),
-  };
-}
-
-/**
- * What an organiser sees of a coach who has NOT shared their data with the organiser's league: built from an explicit
+ * What a tournament organiser sees of an entrant after recording NAF details: built from an explicit
  * allow-list (the coach name, the NAF name and number they manage, and the NAF check over that pair). Nothing else: no
  * contact details, consent, profile, Discord ids or username, scheduling, level, flags or admin note.
  */

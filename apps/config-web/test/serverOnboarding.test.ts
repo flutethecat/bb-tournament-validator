@@ -68,7 +68,7 @@ beforeAll(async () => {
   // Leagues: lg (organised by Org) has Victim (acknowledged) and Quiet (not); other (Org2) has Victim too, unacknowledged.
   seedLeague(join(root, "state"), { id: "lg", name: "Test League", organisers: ["Org"], members: ["Victim", "Quiet"] });
   seedLeague(join(root, "state"), { id: "other", name: "Other League", organisers: ["Org2"], members: ["Victim"] });
-  // A tournament organised by TOrg with Victim entered (tournaments grant no identity access).
+  // A tournament organised by TOrg with Victim entered, and Quiet entered then withdrawn (the NAF route is open to a tournament organiser for active entrants only).
   const tournaments = new TournamentStore(join(root, "tournaments"));
   const t = tournaments.createTournament({ name: "Cup", packageName: "p", maxPlayers: 8, format: "swiss", organizerCoachId: "TOrg" });
   tournaments.registerEntrant(t.id, { coachId: "Victim", ffbCoachId: "Victim", discordUserId: "909909909909909909", verifiedAt: "2026-10-31T00:00:00.000Z" }, "team-v");
@@ -218,47 +218,41 @@ describe("all writes are gated while onboarding is needed", () => {
   });
 });
 
-describe("organiser identity access (owner ruling 10-31: full record only for acknowledged members of the caller's leagues)", () => {
+describe("organiser identity access (owner ruling 10-31: a tournament organiser records NAF details for their active entrants; league organisers have no power)", () => {
   const personal = ["victim@example.test", "victim-discord@example.test", "+15550001111", "Secret Pref"];
   const leaks = (text: string, values = personal) => [...values, "leagueContact", "\"contact\"", "\"consent\""].filter((t) => text.includes(t));
   const naf = (as: string, target: string) => call(as, "POST", "/api/admin/identities/naf", { ffbCoachId: target, nafName: `${target} NAF`, nafId: "4242" });
 
-  it("a league organiser sees an acknowledged member's name, preferred name, profile and NAF fields, never their email or phones", async () => {
-    const res = await naf("Org", "Victim");
+  it("a tournament organiser sets an active entrant's NAF details and gets the NAF allow-list only", async () => {
+    const res = await call("TOrg", "POST", "/api/admin/identities/naf", { ffbCoachId: "Victim", nafName: "Victim NAF 2", nafId: "5151" });
     expect(res.status).toBe(200);
     const text = await res.text();
-    expect(JSON.parse(text).coach).toEqual({
-      ffbCoachId: "Victim", preferredName: "Secret Pref", profile: {}, identities: { nafName: "Victim NAF", nafId: "4242" }, acceptsLeagueMessages: true,
-    });
-    for (const leaked of ["victim@example.test", "victim-discord@example.test", "+15550001111", "909909909909909909", "victim_dc", "\"consent\"", "\"contact\""]) expect(text, leaked).not.toContain(leaked);
+    expect(JSON.parse(text).coach).toEqual({ ffbCoachId: "Victim", identities: { nafName: "Victim NAF 2", nafId: "5151" } });
+    for (const leaked of [...personal, "909909909909909909", "victim_dc", "\"consent\"", "\"contact\"", "\"profile\"", "\"level\"", "\"note\"", "preferredName"]) expect(text, leaked).not.toContain(leaked);
+    expect(identities().coaches.victim).toMatchObject({ identities: { nafName: "Victim NAF 2", nafId: "5151" }, updatedBy: "TOrg" });
   });
 
-  it("the same organiser: a member who has not acknowledged gets the public record; a non-member is a 403 and nothing is written", async () => {
-    const res = await naf("Org", "Quiet");
-    expect(res.status).toBe(200);
-    const text = await res.text();
-    expect(leaks(text, ["quiet@example.test", "+15550002222", "Quiet Pref"])).toEqual([]);
-    // Allow-list only: no Discord id / username / email, scheduling, admin note, profile or level.
-    for (const leaked of ["777000", "quiet_dc", "quiet-discord@example.test", "Pacific/Auckland", "19:15", "quiet-admin-note", "Quiet Display", "\"level\"", "\"note\"", "\"scheduling\"", "\"profile\""])
-      expect(text, leaked).not.toContain(leaked);
-    expect(JSON.parse(text).coach).toEqual({ ffbCoachId: "Quiet", identities: { nafName: "Quiet NAF", nafId: "4242" } });
-    const before = JSON.stringify(identities().coaches.outsider);
-    const refused = await naf("Org", "Outsider");
-    expect(refused.status).toBe(403);
-    expect(await refused.json()).toEqual({ error: "That coach is not on a league you organise." });
-    expect(JSON.stringify(identities().coaches.outsider)).toBe(before);
+  it("a tournament organiser cannot touch a coach who is not entered or has withdrawn: 403 and nothing is written", async () => {
+    for (const target of ["Outsider", "Quiet"]) {
+      const before = JSON.stringify(identities().coaches[target.toLowerCase()]);
+      const refused = await naf("TOrg", target);
+      expect(refused.status, target).toBe(403);
+      expect(await refused.json()).toEqual({ error: "That coach is not entered in a tournament you organise." });
+      expect(JSON.stringify(identities().coaches[target.toLowerCase()]), target).toBe(before);
+    }
   });
 
-  it("a tournament-only organiser is NOT granted (the ruling covers leagues): 403 for their own entrant", async () => {
-    const res = await naf("TOrg", "Victim");
-    expect(res.status).toBe(403);
-    expect(leaks(await res.text())).toEqual([]);
-  });
-
-  it("an organiser of ANOTHER league the coach is on but did not share with gets the public record only", async () => {
-    const res = await naf("Org2", "Victim");
-    expect(res.status).toBe(200);
-    expect(leaks(await res.text())).toEqual([]);
+  it("a league organiser gets 403 for their own league's members, acknowledged or not, and nothing is written", async () => {
+    for (const target of ["Victim", "Quiet"]) {
+      const before = JSON.stringify(identities().coaches[target.toLowerCase()]);
+      const res = await naf("Org", target);
+      expect(res.status, target).toBe(403);
+      const text = await res.text();
+      expect(JSON.parse(text)).toEqual({ error: "That coach is not entered in a tournament you organise." });
+      expect(leaks(text)).toEqual([]);
+      expect(JSON.stringify(identities().coaches[target.toLowerCase()]), target).toBe(before);
+    }
+    expect((await naf("Org2", "Victim")).status).toBe(403);
   });
 
   it("a site admin is unchanged: the full record of anyone", async () => {
@@ -284,7 +278,7 @@ describe("organiser identity access (owner ruling 10-31: full record only for ac
 });
 
 describe("GET/POST /api/me/leagues/sharing", () => {
-  it("lists the coach's leagues with the notice; sharing needs the checkbox; stop sharing removes organiser access", async () => {
+  it("lists the coach's leagues with the notice; sharing needs the checkbox; stop sharing is recorded", async () => {
     const view = await (await call("Quiet", "GET", "/api/me/leagues/sharing")).json();
     expect(view.leagues).toEqual([expect.objectContaining({ id: "lg", name: "Test League", status: "pending", onRoster: true })]);
     expect(view.leagues[0].text).toBe("By joining Test League, its organisers can see your name and profile, and can send you league messages through Super FUMBBL (your email address is never shown to them).");
@@ -292,12 +286,10 @@ describe("GET/POST /api/me/leagues/sharing", () => {
     const shared = await call("Quiet", "POST", "/api/me/leagues/sharing", { leagueId: "lg", share: true, acknowledged: true });
     expect(shared.status).toBe(200);
     expect((await shared.json()).leagues[0]).toMatchObject({ status: "shared" });
-    expect((await (await call("Org", "POST", "/api/admin/identities/naf", { ffbCoachId: "Quiet", nafName: "Quiet NAF", nafId: "4242" })).json()).coach)
-      .toMatchObject({ preferredName: "Quiet Pref", acceptsLeagueMessages: false });
     const stopped = await call("Quiet", "POST", "/api/me/leagues/sharing", { leagueId: "lg", share: false });
     expect((await stopped.json()).leagues[0]).toMatchObject({ status: "declined" });
-    const after = await (await call("Org", "POST", "/api/admin/identities/naf", { ffbCoachId: "Quiet", nafName: "Quiet NAF", nafId: "4242" })).text();
-    expect(after).not.toContain("Quiet Pref");
+    // The league organiser has no identity route either way (the acknowledgement now gates the league mailer only).
+    expect((await call("Org", "POST", "/api/admin/identities/naf", { ffbCoachId: "Quiet", nafName: "Quiet NAF", nafId: "4242" })).status).toBe(403);
     // Cookie writes need X-CW-Auth; a not-onboarded coach is gated.
     expect((await fetch(`${origin}/api/me/leagues/sharing`, { method: "POST", headers: { cookie: cookie("Quiet"), "content-type": "application/json" }, body: "{}" })).status).toBe(403);
     expect((await call("Gated", "POST", "/api/me/leagues/sharing", { leagueId: "lg", share: false })).status).toBe(428);
@@ -305,7 +297,7 @@ describe("GET/POST /api/me/leagues/sharing", () => {
 });
 
 describe("no HTTP route returns another coach's contact email or phones to anyone but a site admin", () => {
-  it("every literal /api GET route in server.ts, as an organiser of the coach's league and as a plain coach", async () => {
+  it("every literal /api GET route in server.ts, as a league organiser and as a plain coach", async () => {
     const source = readFileSync(join(import.meta.dirname, "..", "src", "server.ts"), "utf8");
     const paths = [...new Set([...source.matchAll(/path === "(\/api\/[^"]+)"/g)].map((m) => m[1]!))]
       .filter((p) => !p.startsWith("/api/auth/discord/")); // the Discord sign-in redirects off-site
@@ -320,7 +312,7 @@ describe("no HTTP route returns another coach's contact email or phones to anyon
       }
     }
     // The organiser write that returns an identity: never the address either; the site admin does see it.
-    const org = await (await call("Org", "POST", "/api/admin/identities/naf", { ffbCoachId: "Victim", nafName: "Victim NAF", nafId: "4242" })).text();
+    const org = await (await call("TOrg", "POST", "/api/admin/identities/naf", { ffbCoachId: "Victim", nafName: "Victim NAF", nafId: "4242" })).text();
     expect(secrets.filter((t) => org.includes(t))).toEqual([]);
     const admin = await (await call("Boss", "POST", "/api/admin/identities/naf", { ffbCoachId: "Victim", nafName: "Victim NAF", nafId: "4242" })).text();
     expect(admin).toContain("victim@example.test");

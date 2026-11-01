@@ -6,7 +6,7 @@
 // answered (GET /api/me/leagues/sharing: status "pending"), non-blocking. Sharing needs the required checkbox
 // (acknowledged: true) and stores consent.leagues[<leagueId>] = { at, version }; declining or "Stop sharing" removes
 // the acknowledgement and records consent.leaguesDeclined[<leagueId>] (not asked again; the coach stays on the team).
-// Organisers see a coach's full record only with the acknowledgement (src/auth/contactFor.ts organiserAccess).
+// The acknowledgement gates the league mailer (src/auth/contactFor.ts mailerRecipientFor); league organisers have no identity route.
 // A future self-service join must ask the same notice at join time and store the same acknowledgement.
 
 import { LEAGUE_SHARE_VERSION, leagueShareText, sharesWithLeague } from "./contactSchema.js";

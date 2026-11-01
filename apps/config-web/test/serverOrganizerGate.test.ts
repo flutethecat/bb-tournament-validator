@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { TournamentStore } from "../src/tournaments/store.js";
 import { createSession, ONBOARDED_CONSENT, seedLeague } from "./onboardedFixture.js";
 
 const root = mkdtempSync(join(tmpdir(), "server-organizer-gate-"));
@@ -22,6 +23,7 @@ beforeAll(async () => {
     FORK_TEAMS_DIR: join(root, "teams"),
     FORK_ADMIN_PASSWORD: "",
     FORK_STATE_DIR: join(root, "state"),
+    TOURNAMENTS_DIR: join(root, "tournaments"),
   })) {
     previousEnv.set(name, process.env[name]);
     process.env[name] = value;
@@ -29,8 +31,12 @@ beforeAll(async () => {
   mkdirSync(join(root, "library"), { recursive: true });
   mkdirSync(join(root, "teams"), { recursive: true });
   mkdirSync(join(root, "log"), { recursive: true });
-  // Owner ruling 10-31: an organiser manages NAF fields only for coaches on a league they organise.
-  seedLeague(join(root, "state"), { id: "gate-league", name: "Gate League", organisers: ["OrganizerCoach"], members: ["TargetCoach"] });
+  // Owner ruling 10-31: a TOURNAMENT organiser manages NAF fields for their active entrants; a league organiser has no power.
+  seedLeague(join(root, "state"), { id: "gate-league", name: "Gate League", organisers: ["LeagueOnlyCoach"], members: ["TargetCoach"] });
+  mkdirSync(join(root, "tournaments"), { recursive: true });
+  const tournaments = new TournamentStore(join(root, "tournaments"));
+  const cup = tournaments.createTournament({ name: "Gate Cup", packageName: "p", maxPlayers: 8, format: "swiss", organizerCoachId: "OrganizerCoach" });
+  tournaments.registerEntrant(cup.id, { coachId: "TargetCoach", ffbCoachId: "TargetCoach", verifiedAt: "2026-10-31T00:00:00.000Z" }, "team-t");
   // Trip reloadFork's busy guard so this test never kills or spawns the fork process.
   writeFileSync(join(root, "log", "default.log"), "");
   writeFileSync(join(root, "identities.json"), JSON.stringify({
@@ -48,6 +54,7 @@ beforeAll(async () => {
         updatedBy: "RootAdmin",
       },
       // Onboarded (the new-user gate answers 428 to /api/account writes otherwise).
+      leagueonlycoach: { ffbCoachId: "LeagueOnlyCoach", level: "organizer", banned: false, silenced: false, note: "", profile: {}, identities: {}, consent: ONBOARDED_CONSENT, updatedAt: "", updatedBy: "" },
       plaincoach: { ffbCoachId: "PlainCoach", level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, consent: ONBOARDED_CONSENT, updatedAt: "", updatedBy: "" },
       admincoach: {
         ffbCoachId: "AdminCoach",
@@ -232,7 +239,7 @@ describe("control-panel landing", () => {
 });
 
 describe("NAF identity HTTP gates", () => {
-  it("allows an organizer on the NAF route and keeps the full identity route admin-only", async () => {
+  it("allows a tournament organizer on the NAF route for their entrant, refuses a league organizer, and keeps the full identity route admin-only", async () => {
     const { token } = createSession("OrganizerCoach");
     const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
     const nafResponse = await fetch(`${origin}/api/admin/identities/naf`, {
@@ -246,10 +253,17 @@ describe("NAF identity HTTP gates", () => {
       coach: {
         ffbCoachId: "TargetCoach",
         identities: { nafName: "Target NAF", nafId: "12345" },
-        // an organiser gets the coach name and NAF fields only (organizerIdentityView); the write itself is theirs
+        // a tournament organiser gets the coach name and NAF fields only; the write itself is theirs
       },
     });
     expect(JSON.parse(readFileSync(join(root, "identities.json"), "utf8")).coaches.targetcoach.updatedBy).toBe("OrganizerCoach");
+
+    const leagueHeaders = { authorization: `Bearer ${createSession("LeagueOnlyCoach").token}`, "content-type": "application/json" };
+    const leagueResponse = await fetch(`${origin}/api/admin/identities/naf`, {
+      method: "POST", headers: leagueHeaders, body: JSON.stringify({ ffbCoachId: "TargetCoach", nafName: "League edit" }),
+    });
+    expect(leagueResponse.status).toBe(403);
+    expect(JSON.parse(readFileSync(join(root, "identities.json"), "utf8")).coaches.targetcoach.identities.nafName).toBe("Target NAF");
 
     const forbiddenIdentityResponse = await fetch(`${origin}/api/admin/identities/naf`, {
       method: "POST",

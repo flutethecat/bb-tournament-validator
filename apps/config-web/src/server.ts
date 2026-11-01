@@ -162,7 +162,7 @@ import {
   onboardingGateApplies, onboardingView, updateOwnContact,
 } from "./auth/onboarding.js";
 import { onboardingNeeded } from "./auth/contactSchema.js";
-import { createMailerRecipientLookup, organiserAccess, organiserMemberView, publicIdentityRecord, type MembershipSources } from "./auth/contactFor.js";
+import { createMailerRecipientLookup, publicIdentityRecord, tournamentOrganiserOf, type MembershipSources } from "./auth/contactFor.js";
 import { LEAGUE_SHARING_PATH, leagueSharingView, setLeagueSharing } from "./auth/leagueSharing.js";
 import { attachSuper } from "./super/index.js";
 import {
@@ -2285,17 +2285,14 @@ async function handleApi(
     const body = rawBody as Record<string, unknown>;
     const ffbCoachId = typeof body.ffbCoachId === "string" ? body.ffbCoachId.trim() : "";
     if (!ffbCoachId) return sendJson(res, 400, { error: "ffbCoachId is required." });
-    // Owner rulings 10-31: a site admin (or the coach themself) gets the full record. An organiser manages only coaches on
-    // a league they own or organise (403 otherwise; tournaments do not count) and never receives email addresses or phone
-    // numbers: an acknowledged member answers organiserMemberView (name, preferred name, public profile, NAF fields,
-    // acceptsLeagueMessages), anyone else on their league the public allow-list (contactFor.ts).
+    // Owner ruling 10-31: a site admin (or the coach themself) gets the full record. A TOURNAMENT organiser (owner or
+    // organiser) may set NAF details only for an active entrant of a tournament they run, and gets the NAF allow-list
+    // back (publicIdentityRecord: coach name, NAF name, NAF number, NAF check). League organisers have no power here.
     const siteAdmin = auth?.admin === true || isAdminAuthed(req) || isTokenAuthed(req);
     const self = auth !== undefined && normalizeFfbCoachId(auth.coach) === normalizeFfbCoachId(ffbCoachId);
-    let access: "admin" | "full" | "member" | "none" = siteAdmin || self ? "admin" : "none";
-    if (access === "none" && auth) {
-      try { access = organiserAccess(auth.coach, ownIdentityRecord(ffbCoachId), membershipSources); } catch { access = "none"; }
-    }
-    if (access === "none") return sendJson(res, 403, { error: "That coach is not on a league you organise." });
+    let full = siteAdmin || self;
+    if (!full && !(auth && tournamentOrganiserOf(auth.coach, ffbCoachId, { tournaments: tournamentStore })))
+      return sendJson(res, 403, { error: "That coach is not entered in a tournament you organise." });
     try {
       const identityPatch = Object.fromEntries(
         Object.entries(body).filter(([field]) => field !== "ffbCoachId"),
@@ -2305,7 +2302,7 @@ async function handleApi(
         ffbCoachId,
         identityPatch,
       );
-      const view = access === "admin" ? coach : access === "full" ? organiserMemberView(coach) : publicIdentityRecord(coach);
+      const view = full ? coach : publicIdentityRecord(coach);
       return sendJson(res, 200, { ok: true, coach: view });
     } catch (error) {
       return sendJson(res, 400, { error: (error as Error).message });
