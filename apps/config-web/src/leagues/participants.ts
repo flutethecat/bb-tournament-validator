@@ -13,8 +13,10 @@
  *
  * Storage: the flags live on the team's season participant row (LeagueParticipant: `active` was already there, the
  * TourPlay export's value; paid / rosterVerified / frozen / checkedIn are added, absent = false), matched to the team
- * as Assign coach account matches it (team name, then coach). A team without a participant row gets one on its first
- * change (as a redraft does). `flagsUpdated` records who changed them last (anonymised on account deletion).
+ * by team id once pinned, else by team name AND coach (participantOf: never another coach's row). A team without a row
+ * gets one on its first change (`addedHere`), and a touched row is pinned (`teamId`). TourPlay exports mark every row
+ * inactive, so the imported `active` is ignored: a team is active until an organiser sets it here (`activeSet`).
+ * `flagsUpdated` records who changed them last (anonymised on account deletion).
  *
  * Privacy: a row carries the coach's contact only as the coach shared it with this league (sharedContactFor: preferred
  * name, email, phones), never otherwise and never Discord ids. The public season read drops the four new flags and
@@ -64,17 +66,43 @@ function gate(league: LeagueRecord | undefined, auth: LeagueApiIdentity | undefi
   return undefined;
 }
 
-/** The team's participant row: same team name and coach, else the only row with the team name. */
-export function participantOf(season: Pick<SeasonRecord, "participants">, team: Pick<LeagueTeam, "name" | "coach">): LeagueParticipant | undefined {
-  const named = season.participants.filter((p) => key(p.team) === key(team.name));
-  return named.find((p) => key(p.coach) === key(team.coach)) ?? (named.length === 1 ? named[0] : undefined);
+/** The team's coach account (an organiser-cleared assignment means none). */
+const teamAccount = (team: Pick<LeagueTeam, "coachId" | "coachAssigned">): string | undefined => (team.coachAssigned?.cleared ? undefined : team.coachId);
+
+/**
+ * The team's participant row, never another coach's: the row pinned to the team id (rows this tab touched or created),
+ * else the one unpinned row with the team's name whose coach is the team's coach (or blank) and whose account does not
+ * contradict the team's, provided no other team of the season has the same name and coach. Undefined otherwise (the
+ * caller creates a row for the team).
+ */
+export function participantOf(season: Pick<SeasonRecord, "participants" | "teams">, team: Pick<LeagueTeam, "id" | "name" | "coach" | "coachId" | "coachAssigned">): LeagueParticipant | undefined {
+  const pinned = season.participants.filter((p) => p.teamId === team.id);
+  if (pinned.length) return pinned.length === 1 ? pinned[0] : undefined;
+  const twins = season.teams.filter((t) => key(t.name) === key(team.name) && key(t.coach) === key(team.coach));
+  if (twins.length > 1) return undefined;
+  const account = teamAccount(team);
+  const named = season.participants.filter((p) => !p.teamId && key(p.team) === key(team.name)
+    && (!key(p.coach) || key(p.coach) === key(team.coach))
+    && !(account && p.coachId && key(p.coachId) !== key(account)));
+  return named.length === 1 ? named[0] : undefined;
 }
+
+/** The coach account a participant row stands for in `season`: its team's account, else the row's own. */
+function rowAccount(season: Pick<SeasonRecord, "participants" | "teams">, row: LeagueParticipant): string | undefined {
+  const team = season.teams.find((t) => (row.teamId ? t.id === row.teamId : participantOf(season, t) === row));
+  if (!team) return row.coachId || undefined;
+  if (team.coachAssigned?.cleared) return undefined;
+  return team.coachId ?? (row.coachId || undefined);
+}
+
+/** Active as the site knows it: the TourPlay export's value means nothing (it marks every row inactive), so a row is
+ *  active until an organiser moves it to standby here (activeSet). */
+export const effectiveActive = (p: LeagueParticipant | undefined): boolean => (p?.activeSet ? p.active !== false : true);
 
 export function flagsOf(p: LeagueParticipant | undefined): ParticipantFlags {
   return {
     paid: p?.paid === true, rosterVerified: p?.rosterVerified === true, frozen: p?.frozen === true, checkedIn: p?.checkedIn === true,
-    // A team without a row is active until an organiser says otherwise; a row keeps the export's value.
-    active: p ? p.active !== false : true,
+    active: effectiveActive(p),
   };
 }
 
@@ -120,22 +148,54 @@ export function participantRows(league: LeagueRecord, season: SeasonRecord, view
   });
 }
 
-/** The public season read: the organiser-only flags and who set them never leave the server. */
+/** The public season read: the organiser-only flags and bookkeeping never leave the server; active is the site's. */
 export function participantsForPublic(rows: LeagueParticipant[]): LeagueParticipant[] {
-  return rows.map(({ paid: _p, rosterVerified: _r, frozen: _f, checkedIn: _c, flagsUpdated: _u, ...rest }) => rest);
+  return rows.map((row) => {
+    const { paid: _p, rosterVerified: _r, frozen: _f, checkedIn: _c, flagsUpdated: _u, activeSet: _a, teamId: _t, addedHere: _h, ...rest } = row;
+    return { ...rest, active: effectiveActive(row) };
+  });
 }
 
-/** Re-import: the organiser's flags on `prior` go back on the matching rows of `next` (team name + coach). */
+const FLAG_FIELDS = ["paid", "rosterVerified", "frozen", "checkedIn"] as const;
+function copyFlags(from: LeagueParticipant, to: LeagueParticipant): void {
+  for (const f of FLAG_FIELDS) { if (from[f]) to[f] = true; else delete to[f]; }
+  if (from.activeSet) { to.active = from.active; to.activeSet = true; } else delete to.activeSet;
+  if (from.flagsUpdated) to.flagsUpdated = { ...from.flagsUpdated }; else delete to.flagsUpdated;
+}
+function stripFlags(row: LeagueParticipant): void {
+  for (const f of FLAG_FIELDS) delete row[f];
+  delete row.activeSet;
+  delete row.flagsUpdated;
+  row.active = true;
+}
+
+/**
+ * Re-import (after carryCoachAssignments): the organiser's flags on `prior` go back on the same team's row of `next`,
+ * only while the coach account behind it is unchanged (a different coach starts clean). Rows this tab created for
+ * roster teams the export does not list are kept while their team is still in the season. Returns the rows carried.
+ */
 export function carryParticipantFlags(prior: SeasonRecord | undefined, next: SeasonRecord): number {
   if (!prior) return 0;
   let carried = 0;
   for (const old of prior.participants) {
-    if (!old.flagsUpdated) continue;
-    const row = next.participants.find((p) => key(p.team) === key(old.team) && key(p.coach) === key(old.coach));
+    if (!old.flagsUpdated && !old.addedHere) continue;
+    const team = (old.teamId ? next.teams.find((t) => t.id === old.teamId) : undefined)
+      ?? next.teams.find((t) => key(t.name) === key(old.team) && key(t.coach) === key(old.coach));
+    const before = rowAccount(prior, old);
+    if (old.addedHere) {
+      if (!team || participantOf(next, team)) continue;
+      const row: LeagueParticipant = { ...structuredClone(old), teamId: team.id, coach: team.coach, team: team.name, race: team.race };
+      const account = teamAccount(team);
+      if (account) row.coachId = account; else delete row.coachId;
+      next.participants.push(row);
+      if (key(rowAccount(next, row)) !== key(before)) stripFlags(row); else carried++;
+      continue;
+    }
+    const row = team ? participantOf(next, team) : next.participants.find((p) => !p.teamId && key(p.team) === key(old.team) && key(p.coach) === key(old.coach));
     if (!row) continue;
-    for (const f of ["paid", "rosterVerified", "frozen", "checkedIn"] as const) { if (old[f]) row[f] = true; else delete row[f]; }
-    row.active = old.active;
-    row.flagsUpdated = { ...old.flagsUpdated };
+    if (team) row.teamId = team.id;
+    if (key(rowAccount(next, row)) !== key(before)) continue;
+    copyFlags(old, row);
     carried++;
   }
   return carried;
@@ -177,13 +237,15 @@ function applyFlags(season: SeasonRecord, teamIds: string[], set: Partial<Partic
     const lines = PARTICIPANT_FLAGS.filter((f) => set[f] !== undefined && set[f] !== before[f]).map((f) => FLAG_WORDS[f][set[f] ? 0 : 1]);
     if (!lines.length) continue;
     if (!row) {
-      row = { coach: team.coach, ...(team.coachId && !team.coachAssigned?.cleared ? { coachId: team.coachId } : {}), country: "", race: team.race, team: team.name, active: true };
+      const account = teamAccount(team);
+      row = { coach: team.coach, ...(account ? { coachId: account } : {}), country: "", race: team.race, team: team.name, active: true, teamId: team.id, addedHere: true };
       season.participants.push(row);
     }
+    row.teamId = team.id; // pinned: later reads and re-imports find it by id
     for (const f of PARTICIPANT_FLAGS) {
       const v = set[f];
       if (v === undefined) continue;
-      if (f === "active") row.active = v;
+      if (f === "active") { row.active = v; row.activeSet = true; }
       else if (v) row[f] = true;
       else delete row[f];
     }

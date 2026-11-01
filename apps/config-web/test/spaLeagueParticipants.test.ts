@@ -75,6 +75,28 @@ describe("participants helpers + controller", () => {
   });
 });
 
+describe("participants controller: season switch during a save", () => {
+  it("a switch resets busy and errors; the old season's answer is ignored", async () => {
+    let release!: (v: unknown) => void;
+    const f = mockFetcher({
+      [P]: { participants: ROWS, revision: 4 },
+      "/api/leagues/tabbl/seasons/season-5/participants": { participants: [], revision: 1 },
+      [`POST ${P}`]: () => new Promise((r) => { release = r; }),
+    });
+    const ctl = createLeagueParticipants({ api: f });
+    await ctl.load("tabbl", "season-6");
+    const saving = ctl.bulk("paid", true);
+    expect(ctl.state.busy).toBe("bulk:paid");
+    await ctl.load("tabbl", "season-5");
+    expect(ctl.state.busy).toBe("");
+    release({ ok: true, changed: 2, participants: ROWS, revision: 9 });
+    expect(await saving).toBe(false);
+    expect(ctl.state.rows).toEqual([]);
+    expect(ctl.state.revision).toBe(1);
+    expect(ctl.state.notice).toBe("");
+  });
+});
+
 describe("participants tab (server-rendered league page)", () => {
   let vite: ViteDevServer;
   let mods: {

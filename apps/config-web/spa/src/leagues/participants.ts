@@ -74,7 +74,8 @@ export function createLeagueParticipants(deps: ParticipantsDeps) {
   async function load(leagueId: string, seasonId: string, force = false): Promise<void> {
     const key = `${leagueId}/${seasonId}`;
     if (!force && state.key === key && state.loaded) return;
-    if (state.key !== key) { state.rows = []; state.loaded = false; state.writeError = ""; state.notice = ""; }
+    // A season switch drops the previous season's rows and its write state (a save still in flight is ignored on return).
+    if (state.key !== key) { state.rows = []; state.loaded = false; state.error = ""; state.writeError = ""; state.notice = ""; state.busy = ""; }
     state.key = key; state.leagueId = leagueId; state.seasonId = seasonId; state.loading = true;
     try {
       const res = await deps.api<{ participants?: ParticipantRow[]; revision?: number }>(path());

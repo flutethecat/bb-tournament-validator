@@ -6,6 +6,7 @@
  */
 import { fixtureOutcome } from "./identity.js";
 import type { HonourValue, LeagueRecord, SeasonRecord } from "./types.js";
+import { effectiveActive } from "./participants.js";
 
 type Cell = string | number | boolean | null | undefined;
 
@@ -45,7 +46,7 @@ export function leagueCsvFiles(league: LeagueRecord, seasons: SeasonRecord[]): R
       for (const r of p.standings)
         standings.push([...tag, p.category, p.name, r.group, r.rank, r.team, r.race, r.coach, r.points, r.played, r.wins, r.draws, r.losses, r.tdFor, r.tdAgainst, r.casFor, r.casAgainst]);
     for (const p of s.participants)
-      participants.push([...tag, p.coach, p.nafUser, p.country, p.race, p.team, p.registeredAt, p.active, p.paid === true, p.rosterVerified === true, p.frozen === true, p.checkedIn === true]);
+      participants.push([...tag, p.coach, p.nafUser, p.country, p.race, p.team, p.registeredAt, effectiveActive(p), p.paid === true, p.rosterVerified === true, p.frozen === true, p.checkedIn === true]);
     for (const h of s.honours)
       for (const r of h.rows) honours.push([...tag, h.category, h.stat, h.kind, r.rank, r.name, r.team, r.coach, r.position, honour(r.value)]);
     for (const a of s.awards) awards.push([...tag, a.category, a.type, a.name, a.description, a.coach, a.team, a.race, a.goldenStar]);

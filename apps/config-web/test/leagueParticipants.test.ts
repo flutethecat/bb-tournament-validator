@@ -96,10 +96,11 @@ describe("league participants", () => {
     expect(onboardingGateApplies("GET", base)).toBe(false);
   });
 
-  it("rows: one per team (name order), five flags (missing row = active, export value kept), coach account", async () => {
+  it("rows: one per team (name order), five flags (the export's active is ignored: active until set here), coach account", async () => {
     const r = await call("GET", base, JAY);
     expect(rows(r).map((x) => x.teamId)).toEqual(["dwarfs", "elves", "orcs", "rats"]);
-    expect(row(r, "orcs").flags).toEqual({ paid: false, rosterVerified: false, frozen: false, checkedIn: false, active: false });
+    // TourPlay marks every row inactive; that value means nothing here.
+    expect(row(r, "orcs").flags).toEqual({ paid: false, rosterVerified: false, frozen: false, checkedIn: false, active: true });
     expect(row(r, "rats").flags.active).toBe(true);
     expect(row(r, "rats").coachId).toBeUndefined();
     expect((r.body as { revision: number }).revision).toBe(rev());
@@ -178,8 +179,8 @@ describe("league participants", () => {
     expect(bob).toMatchObject({ type: "entrant-flag", title: "TABBL, Season 6: your entry was updated", link: "/app/leagues/tabbl?season=season-6", from: "Jay" });
     expect(bob.body).toBe("Elves: Marked as paid. Dwarfs: Marked as paid.");
     sent = [];
-    await call("PATCH", `${base}/orcs`, JAY, { revision: rev(), rosterVerified: false, active: true });
-    expect(sent).toEqual([{ coach: "Dee", input: expect.objectContaining({ body: "Orcs: Moved to active." }) }]); // verified was already off
+    await call("PATCH", `${base}/orcs`, JAY, { revision: rev(), rosterVerified: false, active: false });
+    expect(sent).toEqual([{ coach: "Dee", input: expect.objectContaining({ body: "Orcs: Moved to standby." }) }]); // verified was already off
     sent = [];
     await call("PATCH", `${base}/elves`, { coach: "Bob", admin: true }, { revision: rev(), frozen: true });
     expect(sent).toEqual([]); // an admin changing their own team is not told
@@ -195,7 +196,8 @@ describe("league participants", () => {
       const parts = (r.body as { season: SeasonRecord }).season.participants;
       expect(parts.length).toBe(4);
       expect(JSON.stringify(parts)).not.toMatch(/paid|rosterVerified|flagsUpdated/);
-      expect(parts[0]).toHaveProperty("active");
+      expect(parts.every((x) => x.active === true)).toBe(true); // the export's active:false is not the site's
+      expect(JSON.stringify(parts)).not.toMatch(/teamId|addedHere|activeSet/);
     }
     const org = await call("GET", "/api/leagues/tabbl/seasons/season-6", JAY);
     expect((org.body as { season: SeasonRecord }).season.participants[0]).toMatchObject({ paid: true, rosterVerified: true });
@@ -206,9 +208,70 @@ describe("league participants", () => {
     const s = store.season("tabbl", "season-6")!;
     const csv = String(Object.entries(leagueCsvFiles(store.league("tabbl")!, [s])).find(([k]) => k.endsWith("participants.csv"))![1]);
     expect(csv.split(/\r?\n/)[0]).toContain("paid,roster_verified,frozen,checked_in");
-    expect(csv).toContain("Orcs,,no,yes,no,no,yes");
+    expect(csv).toContain("Orcs,,yes,yes,no,no,yes"); // the export's active:false is not the site's
     const next = season();
     expect(carryParticipantFlags(s, next)).toBe(1);
-    expect(next.participants[0]).toMatchObject({ paid: true, checkedIn: true, active: false, flagsUpdated: { by: "Jay" } });
+    expect(next.participants[0]).toMatchObject({ paid: true, checkedIn: true, teamId: "orcs", flagsUpdated: { by: "Jay" } });
+    expect(next.participants[0]!.activeSet).toBeUndefined();
+  });
+
+  it("standby set here sticks, reads back, exports and survives a re-import", async () => {
+    const r = await call("PATCH", `${base}/orcs`, JAY, { revision: rev(), active: false });
+    expect(row(r, "orcs").flags.active).toBe(false);
+    const s = store.season("tabbl", "season-6")!;
+    expect(s.participants[0]).toMatchObject({ active: false, activeSet: true });
+    const csv = String(Object.entries(leagueCsvFiles(store.league("tabbl")!, [s])).find(([k]) => k.endsWith("participants.csv"))![1]);
+    expect(csv).toContain("Orcs,,no,");
+    expect(csv).toContain("Elves,,yes,");
+    const pub = await call("GET", "/api/leagues/tabbl/seasons/season-6", undefined);
+    expect((pub.body as { season: SeasonRecord }).season.participants.find((p) => p.team === "Orcs")!.active).toBe(false);
+    const next = season();
+    carryParticipantFlags(s, next);
+    expect(next.participants[0]).toMatchObject({ active: false, activeSet: true });
+  });
+
+  it("never another coach's row: same team name, different coach or account, gets its own row; the other coach is untouched", async () => {
+    const s = store.season("tabbl", "season-6")!;
+    // Bob's team is also called Orcs (no account mapped); Carol's team "Elves" is named like Bob's row but has its own account.
+    s.teams.push(team("orcs-bob", "Orcs", "Bob"), team("elves-carol", "Elves", "Bob", { coachId: "Carol" }));
+    store.putSeason(s);
+    const r = await call("PATCH", `${base}/orcs-bob`, JAY, { revision: rev(), paid: true });
+    expect(row(r, "orcs-bob").flags.paid).toBe(true);
+    expect(row(r, "orcs").flags.paid).toBe(false);
+    await call("PATCH", `${base}/elves-carol`, JAY, { revision: rev(), checkedIn: true });
+    const after = store.season("tabbl", "season-6")!;
+    expect(after.participants.find((p) => p.coach === "Dee Display")).not.toHaveProperty("paid");
+    // Bob's existing Elves row also matches Carol's team by name and coach, but its account (Bob) contradicts Carol's.
+    expect(after.participants.find((p) => p.coachId === "Bob")).not.toHaveProperty("checkedIn");
+    expect(after.participants.filter((p) => p.addedHere).map((p) => p.teamId).sort()).toEqual(["elves-carol", "orcs-bob"]);
+    expect(sent.map((x) => x.coach)).toEqual(["Carol"]); // Dee and Bob never hear about it
+    // Two teams with the same name AND coach: neither claims the unpinned row.
+    const twins = { ...season(), teams: [team("a", "Orcs", "Dee Display"), team("b", "Orcs", "Dee Display")] };
+    const { participantOf } = await import("../src/leagues/participants");
+    expect(participantOf(twins, twins.teams[0]!)).toBeUndefined();
+  });
+
+  it("re-import: a coach change drops the flags; rows created here for teams the export lacks are kept while the team exists", async () => {
+    await call("POST", base, JAY, { revision: rev(), set: { paid: true } });
+    const prior = store.season("tabbl", "season-6")!;
+    expect(prior.participants.find((p) => p.team === "Rats")).toMatchObject({ addedHere: true, teamId: "rats", paid: true });
+    // Orcs now belongs to another account; Elves keeps Bob; Rats is still on the roster but not in the export.
+    const next = season();
+    next.teams[0] = { ...next.teams[0]!, coachId: "Someone" };
+    next.participants[0] = { ...next.participants[0]!, coachId: "Someone" };
+    carryParticipantFlags(prior, next);
+    expect(next.participants.find((p) => p.team === "Orcs")).not.toHaveProperty("paid");
+    expect(next.participants.find((p) => p.team === "Elves")).toMatchObject({ paid: true });
+    expect(next.participants.find((p) => p.team === "Rats")).toMatchObject({ addedHere: true, teamId: "rats", paid: true });
+    expect(next.participants.find((p) => p.team === "Dwarfs")).toMatchObject({ addedHere: true, paid: true });
+    // A team gone from the season takes its created row with it; a created row whose team changed coach keeps no flags.
+    const gone = season();
+    gone.teams = gone.teams.filter((t) => t.id !== "rats");
+    gone.teams[2] = { ...gone.teams[2]!, coachId: "NewCoach" }; // dwarfs
+    carryParticipantFlags(prior, gone);
+    expect(gone.participants.some((p) => p.team === "Rats")).toBe(false);
+    const dwarfs = gone.participants.find((p) => p.team === "Dwarfs")!;
+    expect(dwarfs).toMatchObject({ coachId: "NewCoach", active: true });
+    expect(dwarfs).not.toHaveProperty("paid");
   });
 });

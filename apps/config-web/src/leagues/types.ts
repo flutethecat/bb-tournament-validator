@@ -337,6 +337,12 @@ export interface LeagueParticipant {
   checkedIn?: true;
   /** Who changed the participant flags last, and when (anonymised on account deletion). */
   flagsUpdated?: { by: string; at: string };
+  /** An organiser set active / standby on this site (the TourPlay export's value alone means nothing: it marks every row inactive). */
+  activeSet?: true;
+  /** The season team this row belongs to, pinned by the Participants tab (participants.ts participantOf). */
+  teamId?: string;
+  /** Created by the Participants tab for a roster team the export did not list (kept on re-import while the team exists). */
+  addedHere?: true;
 }
 
 /** Season totals for one player, from the TourPlay player honours (absent = 0). */
