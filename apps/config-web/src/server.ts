@@ -165,6 +165,10 @@ import { onboardingNeeded } from "./auth/contactSchema.js";
 import { createMailerRecipientLookup, publicIdentityRecord, tournamentOrganiserOf, type MembershipSources } from "./auth/contactFor.js";
 import { LEAGUE_SHARING_PATH, leagueSharingView, setLeagueSharing } from "./auth/leagueSharing.js";
 import { attachSuper } from "./super/index.js";
+import { mailConfigWarnings } from "./mail/config.js";
+import { LeagueMessageLimiter, leagueMessagesPath, leagueMessagesRoute } from "./mail/leagueMessages.js";
+import { createIdentityContactWriter } from "./mail/recipients.js";
+import { createMailService, type MailRouteResult } from "./mail/service.js";
 import {
   isLobbyApiPath,
   isLobbyGameStartOperation,
@@ -575,6 +579,30 @@ const leagueFork = createLeagueForkClient({
   overtime: () => overtimeEnabled, results: tournamentResults,
 });
 const leagueNotify = (coach: string, input: Parameters<typeof notificationStore.add>[1]): void => { try { notificationStore.add(coach, input); } catch { /* fire-and-forget */ } };
+// Portal mail (src/mail/, docs/mail/setup.md): outbox under <FORK_STATE_DIR>/mail/, Postmark when POSTMARK_SERVER_TOKEN is
+// set, else the log transport. Organisers message league members through it and never see an address.
+const mailIdentity = (coach: string): unknown => readIdentities().coaches[normalizeFfbCoachId(coach)];
+const mail = createMailService(FORK_STATE_DIR, process.env, {
+  identity: mailIdentity,
+  // Writes the onboarding lane's contact / consent fields only when the record has them (prefs.json holds the state otherwise).
+  contactWriter: createIdentityContactWriter({
+    identity: mailIdentity,
+    write: (_coach, record) => { upsertIdentity({ ...record, updatedAt: new Date().toISOString(), updatedBy: "mail" } as unknown as CoachIdentityRecord); },
+  }),
+});
+for (const warning of mailConfigWarnings(process.env, mail.config)) console.error(`[mail] ${warning}`);
+mail.worker.start();
+const leagueMessageLimiter = new LeagueMessageLimiter();
+
+function sendMailResult(res: ServerResponse, method: string, result: MailRouteResult): void {
+  for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);
+  if (result.html !== undefined) {
+    res.writeHead(result.status, { "content-type": "text/html; charset=utf-8", "x-content-type-options": "nosniff", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'" });
+    res.end(method === "HEAD" ? undefined : result.html);
+    return;
+  }
+  sendJson(res, result.status, result.json ?? {});
+}
 if (forkAdminCfg) {
   let leagueSyncing = false;
   setInterval(() => {
@@ -1472,6 +1500,7 @@ function isStateChangingApiWrite(method: string, pathname: string): boolean {
     pathname === ONBOARDING_PATH ||
     pathname === CONTACT_PATH ||
     pathname === LEAGUE_SHARING_PATH ||
+    pathname.startsWith("/api/me/email") ||
     isTeamMutationWritePath(pathname) ||
     pathname.startsWith("/api/tournaments/") ||
     pathname.startsWith("/api/fork/tournaments/") ||
@@ -1727,9 +1756,39 @@ async function handleApi(
     if (result) return sendJson(res, result.status, result.body);
   }
 
+  if (mail.isMeMailPath(path)) {
+    const testSession = getSession(sessionTokenFromRequest(req))?.test === true;
+    const body = method === "POST" ? await readBody(req, 16 * 1024) : undefined;
+    const result = mail.meRoute(method, path, auth ? { coach: auth.coach, ...(testSession ? { test: true } : {}) } : undefined, body);
+    if (result) return sendMailResult(res, method, result);
+  }
+
   if (leaguePath(path) !== undefined) {
     if (WRITE_METHODS.has(method) && getSession(sessionTokenFromRequest(req))?.test)
       return sendJson(res, 403, { error: "Test sign-in sessions cannot change league data." });
+    if (leagueMessagesPath(path) !== undefined) {
+      // League "Message members" (src/mail/leagueMessages.ts): organiser-gated in-handler; counts only in the response.
+      const body = method === "POST" ? await readBody(req, 64 * 1024) : undefined;
+      const result = leagueMessagesRoute(method, path, auth ? { coach: auth.coach, admin: auth.admin } : undefined, body, {
+        store: leagueStore,
+        resolver: mail.resolver,
+        isSuppressed: (address) => mail.suppression.isSuppressed(address),
+        enqueue: (items) => mail.enqueue(items),
+        leagueLoad: (leagueId) => mail.outbox.leagueLoad(leagueId),
+        leagueDailyCap: mail.worker.cap,
+        emailEnabled: mail.emailEnabled,
+        unsubscribeUrl: mail.unsubscribeUrl,
+        absolute: mail.absolute,
+        leagueStream: mail.config.leagueStream,
+        notify: leagueNotify,
+        audit: mail.audit,
+        limiter: leagueMessageLimiter,
+      });
+      if (result) {
+        for (const [name, value] of Object.entries(result.headers ?? {})) res.setHeader(name, value);
+        return sendJson(res, result.status, result.body);
+      }
+    }
     const league = await leagueApi(method, path, query, auth, {
       store: leagueStore,
       readBody: (max) => readRawCapped(req, max),
@@ -4175,6 +4234,20 @@ export const server = createServer((req, res) => {
       if (req.method === "OPTIONS" && (cors.kind === "allowed" || PUBLIC_PATHS.has(url.pathname))) {
         res.writeHead(204).end();
         return;
+      }
+      // Portal mail links + Postmark webhook (src/mail/service.ts): public in both deployment modes; the webhook checks its
+      // own Basic-auth secret, the link routes check their signed tokens.
+      if (mail.isPublicMailPath(url.pathname)) {
+        const method = req.method ?? "GET";
+        const result = await mail.publicRoute(method, url.pathname, url.searchParams,
+          { authorization: typeof req.headers.authorization === "string" ? req.headers.authorization : undefined },
+          async () => {
+            if (declaredTooLarge(req, 256 * 1024)) throw new JsonBodyError("Request too large.", 413);
+            const raw = await readRawCapped(req, 256 * 1024);
+            if (raw === undefined) throw new JsonBodyError("Request too large.", 413);
+            return raw.toString("utf8");
+          });
+        if (result) return sendMailResult(res, method, result);
       }
       // Chat translate relay: public in both deployment modes, dispatched before the auth sidecar.
       if (await translateHandler(req, res, url.pathname)) return;
