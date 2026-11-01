@@ -108,7 +108,10 @@ function isPublicRequest(method: string, pathname: string): boolean {
       /^\/api\/tabletop\/matches\/[\w-]{1,64}$/.test(pathname) ||
       // Leagues: every read is public (list, league, seasons, stats, logo / header bar); writes stay session-gated.
       pathname === "/api/leagues" ||
-      pathname.startsWith("/api/leagues/"))
+      pathname.startsWith("/api/leagues/") ||
+      // Tournament Series: list and series pages are public reads; writes stay session-gated in-handler.
+      pathname === "/api/series" ||
+      /^\/api\/series\/[^/]+$/.test(pathname))
   )
     return true;
   return PUBLIC_API_METHODS.get(pathname)?.has(method) === true;
