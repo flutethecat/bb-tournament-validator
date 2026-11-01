@@ -554,7 +554,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     expect(html).toContain("Roster not shared yet.");
     expect(html).toContain("Live chat is off on this server.");
     // Start game is enabled (canLaunch) and the creator sees no Close button on a ready game
-    expect(html).toMatch(/<button class="lobby-btn primary big" type="button">\s*Start game\s*<\/button>/);
+    expect(html).toMatch(/<button class="sf-btn primary big" type="button">\s*Start game\s*<\/button>/);
     expect(html).not.toContain("Close lobby");
   });
 
@@ -576,7 +576,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     expect(html).toContain("FUMBBL: BobF");
     expect(html).toContain("Rating unavailable right now.");
     expect(html).not.toContain("No FUMBBL rating linked.");
-    expect(html).toMatch(/<button class="lobby-btn primary big" type="button" disabled>/);
+    expect(html).toMatch(/<button class="sf-btn primary big" type="button" disabled>/);
   });
 
   it("lobby route: the opponent's Accept shows only with canAccept", async () => {
@@ -608,7 +608,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     expect(creatorHtml).not.toContain("Accept with this team");
     expect(creatorHtml).not.toContain("Confirm challenge");
     expect(creatorHtml).not.toContain("Close lobby");
-    expect(creatorHtml).toMatch(/<button class="lobby-btn primary big" type="button" disabled>/);
+    expect(creatorHtml).toMatch(/<button class="sf-btn primary big" type="button" disabled>/);
     const opponentHtml = await renderAs({ ...pending, me: "opponent" }, "Bob");
     expect(opponentHtml).toContain("Setting up the game on the server…");
     expect(opponentHtml).not.toContain("Accept with this team");
@@ -654,7 +654,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
     expect(html).toContain("Alice is here");
     expect(html).toContain("Bob is in the client");
     expect(html).toContain('class="presence-client"');
-    expect(html).toMatch(/<button class="lobby-btn primary big" type="button">\s*Start game\s*<\/button>/);
+    expect(html).toMatch(/<button class="sf-btn primary big" type="button">\s*Start game\s*<\/button>/);
   });
 
   it("lobby route: uncertain setup shows the copy and Check again / Start over for either coach, nothing else", async () => {
@@ -709,7 +709,7 @@ describe("SPA routes (server-rendered against a mocked API)", () => {
       spa.app.provide(mods.LOBBY_START_KEY, start);
     });
     for (const coach of names) expect(html, coach).toContain(`<strong>${coach}</strong> challenged you`);
-    const accepts = html.match(/<button class="lobby-btn primary" type="button"[^>]*>Accept<\/button>/g) ?? [];
+    const accepts = html.match(/<button class="sf-btn primary" type="button"[^>]*>Accept<\/button>/g) ?? [];
     expect(accepts).toHaveLength(names.length);
     for (const b of accepts) expect(b).not.toContain("disabled");
     expect(html).not.toContain('role="alert"');

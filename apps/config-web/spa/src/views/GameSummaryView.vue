@@ -61,13 +61,14 @@ usePageTitle(() => (game.value ? `${game.value.card.home.name} vs ${game.value.c
   <div v-else class="gs-page">
     <p class="gs-crumbs"><RouterLink :to="backTo">Past Games</RouterLink><span aria-hidden="true"> / </span><span>Game</span></p>
     <p v-if="!result" class="muted">Loading…</p>
-    <section v-else-if="result.status === 'missing'" class="lobby-card">
-      <h2>Game not found</h2>
+    <section v-else-if="result.status === 'missing'" class="hm-panel" aria-labelledby="gs-missing-h">
+      <header class="hm-band"><h2 id="gs-missing-h">Game not found</h2></header>
       <p>There is no finished game at this address.</p>
-      <RouterLink class="lobby-btn" to="/lobby">Go to the Lobby</RouterLink>
+      <div class="sf-actions"><RouterLink class="sf-btn" to="/lobby">Go to the Lobby</RouterLink></div>
     </section>
-    <section v-else-if="result.status === 'error'" class="lobby-card">
-      <p class="lobby-error" role="alert">{{ result.message }}</p>
+    <section v-else-if="result.status === 'error'" class="hm-panel" aria-labelledby="gs-error-h">
+      <header class="hm-band"><h2 id="gs-error-h">Game unavailable</h2></header>
+      <p class="sf-error" role="alert">{{ result.message }}</p>
     </section>
   </div>
 </template>

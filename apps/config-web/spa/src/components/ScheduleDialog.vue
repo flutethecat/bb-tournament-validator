@@ -41,7 +41,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey, true));
       <div class="tn-panel-body ac-sched-body">
         <HomeSchedule :editor="editor" />
         <div class="tn-actions">
-          <button type="button" class="lobby-btn" @click="dialog.close()">Close</button>
+          <button type="button" class="sf-btn" @click="dialog.close()">Close</button>
         </div>
       </div>
     </div>

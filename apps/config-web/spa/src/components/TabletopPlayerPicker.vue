@@ -81,6 +81,6 @@ const shown = computed(() => {
         <TabletopRosterRow v-for="p in shown" :key="p.id" variant="pick" :player="p" :side="side" :obscured="obscureNames" @select="choose(p)" />
       </ul>
     </div>
-    <button class="lobby-btn tt-tap" type="button" @click="emit('cancel')">Cancel</button>
+    <button class="sf-btn tt-tap" type="button" @click="emit('cancel')">Cancel</button>
   </div>
 </template>

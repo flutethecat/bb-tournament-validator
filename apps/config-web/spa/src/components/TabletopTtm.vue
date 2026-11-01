@@ -56,31 +56,31 @@ const filterOf = (groups: Groups) => (p: { id: string }, side: Side): boolean =>
     <template v-if="st.step === 'superb'">
       <p class="tt-coin-call">Was the pass superb?</p>
       <div class="tt-actions-row">
-        <button class="lobby-btn primary tt-tap" type="button" @click="answerSuperb(true)">Yes</button>
-        <button class="lobby-btn tt-tap" type="button" @click="answerSuperb(false)">No</button>
+        <button class="sf-btn primary tt-tap" type="button" @click="answerSuperb(true)">Yes</button>
+        <button class="sf-btn tt-tap" type="button" @click="answerSuperb(false)">No</button>
       </div>
     </template>
 
     <template v-else-if="st.step === 'thrower'">
       <p class="tt-coin-call">Who threw?</p>
       <p class="muted">No player here can throw a team-mate.</p>
-      <button class="lobby-btn tt-tap" type="button" @click="st.step = 'landed'">Continue</button>
+      <button class="sf-btn tt-tap" type="button" @click="st.step = 'landed'">Continue</button>
     </template>
 
     <template v-else-if="st.step === 'landed'">
       <p class="tt-coin-call">Did the thrown player land?</p>
       <div class="tt-actions-row">
-        <button class="lobby-btn primary tt-tap" type="button" @click="answerLanded(true)">Yes</button>
-        <button class="lobby-btn tt-tap" type="button" @click="answerLanded(false)">No</button>
+        <button class="sf-btn primary tt-tap" type="button" @click="answerLanded(true)">Yes</button>
+        <button class="sf-btn tt-tap" type="button" @click="answerLanded(false)">No</button>
       </div>
     </template>
 
     <template v-else>
       <p class="tt-coin-call">Who landed?</p>
       <p class="muted">No available player has Right Stuff.</p>
-      <button class="lobby-btn tt-tap" type="button" @click="finish(true)">Record without a name</button>
+      <button class="sf-btn tt-tap" type="button" @click="finish(true)">Record without a name</button>
     </template>
 
-    <button class="lobby-btn tt-tap" type="button" @click="emit('close')">Cancel</button>
+    <button class="sf-btn tt-tap" type="button" @click="emit('close')">Cancel</button>
   </div>
 </template>

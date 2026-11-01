@@ -88,28 +88,28 @@ onServerPrefetch(init);
 </script>
 
 <template>
-  <section v-if="visible" class="lobby-card" aria-label="Test match">
-    <h2>Test match</h2>
+  <section v-if="visible" class="hm-panel tt-testcard" aria-labelledby="tm-h">
+    <header class="hm-band" data-tone="admin"><h2 id="tm-h">Test match</h2><span class="hm-cap">Never counts</span></header>
     <p class="muted">{{ neverCounts }}</p>
-    <form class="lobby-form tt-form" @submit.prevent="create">
+    <form class="sf-form tt-form" @submit.prevent="create">
       <datalist id="tm-coaches"><option v-for="c in coachNames" :key="c" :value="c" /></datalist>
-      <label for="tm-hc">Home coach</label>
+      <label class="sf-k" for="tm-hc">Home coach</label>
       <input id="tm-hc" v-model="home.coach" list="tm-coaches" type="text" maxlength="40" autocomplete="off" @change="teams.load('home', home)" />
       <select v-model="home.team" aria-label="Home team">
         <option v-if="!loaded.home.length" value="">No teams found</option>
         <option v-for="t in loaded.home" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
       </select>
-      <label for="tm-ac">Away coach</label>
+      <label class="sf-k" for="tm-ac">Away coach</label>
       <input id="tm-ac" v-model="away.coach" list="tm-coaches" type="text" maxlength="40" autocomplete="off" @change="teams.load('away', away)" />
       <select v-model="away.team" aria-label="Away team">
         <option v-if="!loaded.away.length" value="">No teams found</option>
         <option v-for="t in loaded.away" :key="t.ref" :value="t.ref">{{ teamLabel(t) }}</option>
       </select>
       <label class="tt-check"><input v-model="skipPregame" type="checkbox" /> Skip pre-game (start at the kick-off)</label>
-      <button class="lobby-btn primary tt-tap" type="submit" :disabled="busy">Create test match</button>
+      <button class="sf-btn primary tt-tap" type="submit" :disabled="busy">Create test match</button>
     </form>
-    <button class="lobby-btn" type="button" @click="purge">Purge test matches</button>
+    <div class="sf-actions tt-testcard-foot"><button class="sf-btn danger" type="button" @click="purge">Purge test matches</button></div>
     <p v-if="notice" class="muted" role="status">{{ notice }}</p>
-    <p v-if="error" class="lobby-error" role="alert">{{ error }}</p>
+    <p v-if="error" class="sf-error" role="alert">{{ error }}</p>
   </section>
 </template>

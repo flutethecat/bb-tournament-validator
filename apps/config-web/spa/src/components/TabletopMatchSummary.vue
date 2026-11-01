@@ -18,7 +18,7 @@ const signed = (n: number): string => (n > 0 ? `+${n}` : String(n));
       <template v-else-if="summary.applied === false"> · post-match not applied</template>
       <template v-else><template v-if="summary.winnings !== undefined"> · winnings {{ money(summary.winnings) }}</template><template v-if="summary.fanFactor !== undefined"> · fan factor {{ summary.fanFactor }}</template><template v-if="summary.fansChange"> · dedicated fans {{ signed(summary.fansChange) }}</template></template>
     </p>
-    <p v-if="summary.deaths.length" class="lobby-error">Killed: {{ summary.deaths.join(", ") }}</p>
+    <p v-if="summary.deaths.length" class="sf-error">Killed: {{ summary.deaths.join(", ") }}</p>
     <ul class="tt-players">
       <li v-for="l in summary.players" :key="l.id" class="tt-player">
         <strong>{{ l.name }}</strong><small v-if="l.position" class="muted">{{ " " }}{{ l.position }}</small>

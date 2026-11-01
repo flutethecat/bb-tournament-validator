@@ -88,8 +88,8 @@ function openRosters(side?: Side): void { rostersSide.value = side; rosters.valu
         <p v-if="sourceNote" class="muted tt-final-note">{{ sourceNote }}</p>
         <p v-if="game.summary.note" class="muted tt-final-note">{{ game.summary.note }}</p>
         <p v-if="game.summary.tournament || recorderHref" class="tt-final-actions">
-          <RouterLink v-if="game.summary.tournament" class="lobby-btn" :to="spaPath(game.summary.tournament.href)">Tournament rounds</RouterLink>
-          <RouterLink v-if="recorderHref" class="lobby-btn" :to="spaPath(recorderHref)">Open in the recorder</RouterLink>
+          <RouterLink v-if="game.summary.tournament" class="sf-btn" :to="spaPath(game.summary.tournament.href)">Tournament rounds</RouterLink>
+          <RouterLink v-if="recorderHref" class="sf-btn" :to="spaPath(recorderHref)">Open in the recorder</RouterLink>
         </p>
         <p v-if="!model.hasLog" class="muted tt-final-note">{{ NO_LOG_NOTE }}</p>
         <TabletopFeed v-if="model.rows.length" :rows="model.rows" :can-undo="false" />

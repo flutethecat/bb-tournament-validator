@@ -96,18 +96,18 @@ function saveText(): void {
         <select id="inj-stat" v-model="stat"><option v-for="n in ['MA', 'ST', 'AG', 'PA', 'AV']" :key="n" :value="n">{{ n }}</option></select>
       </template>
       <label v-if="lasting" class="tt-check"><input v-model="apothecary" type="checkbox" /> Apothecary used</label>
-      <button class="lobby-btn primary tt-tap" type="button" @click="confirmingInjury = true">Save injury</button>
+      <button class="sf-btn primary tt-tap" type="button" @click="confirmingInjury = true">Save injury</button>
     </template>
     <template v-if="kind.needs === 'weather'">
       <label for="wx-result">New weather</label>
       <select id="wx-result" v-model="weather"><option v-for="w in WEATHER_RESULTS_UI" :key="w" :value="w">{{ w }}</option></select>
-      <button class="lobby-btn primary tt-tap" type="button" @click="saveWeather">Save weather</button>
+      <button class="sf-btn primary tt-tap" type="button" @click="saveWeather">Save weather</button>
     </template>
     <template v-if="kind.needs === 'team+text'">
       <label for="tt-text">Objective</label>
       <input id="tt-text" v-model="text" type="text" maxlength="120" autocomplete="off" />
-      <button class="lobby-btn primary tt-tap" type="button" :disabled="!text.trim()" @click="saveText">Save</button>
+      <button class="sf-btn primary tt-tap" type="button" :disabled="!text.trim()" @click="saveText">Save</button>
     </template>
-    <button class="lobby-btn tt-tap" type="button" @click="emit('close')">Cancel</button>
+    <button class="sf-btn tt-tap" type="button" @click="emit('close')">Cancel</button>
   </div>
 </template>

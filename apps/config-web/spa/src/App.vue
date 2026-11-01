@@ -173,7 +173,7 @@ async function signOut(): Promise<void> {
         <BellPopover />
         <div class="sf-avatar-menu">
           <button class="shell-me" type="button" aria-haspopup="menu" :aria-expanded="menuOpen ? 'true' : 'false'" @click="menuOpen = !menuOpen">
-            <img v-if="avatar" class="lobby-avatar small" :src="avatar" alt="" />
+            <img v-if="avatar" class="sf-avatar small" :src="avatar" alt="" />
             <span>{{ session.coach() }}</span>
             <span aria-hidden="true" class="sf-menu-caret">▾</span>
           </button>
@@ -224,12 +224,12 @@ async function signOut(): Promise<void> {
       :aria-label="ui.collapsed ? 'Expand navigation ([)' : 'Collapse navigation ([)'" @click="toggleRail"
     ><span aria-hidden="true">{{ ui.collapsed ? "»" : "«" }}</span></button>
     <main class="shell-main">
-      <p v-if="flash.message" class="sf-flash" role="status">{{ flash.message }} <button class="lobby-btn" type="button" @click="clearFlash()">Dismiss</button></p>
+      <p v-if="flash.message" class="sf-flash" role="status">{{ flash.message }} <button class="sf-btn small" type="button" @click="clearFlash()">Dismiss</button></p>
       <p v-if="gate === 'loading'" class="muted">Loading…</p>
-      <section v-else-if="gate === 'error'" class="lobby-card">
-        <h2>Can't check your sign-in</h2>
-        <p class="lobby-error" role="alert">{{ session.state.error }}</p>
-        <button class="lobby-btn" type="button" @click="session.load(true)">Try again</button>
+      <section v-else-if="gate === 'error'" class="hm-panel sf-solo" aria-labelledby="sf-gate-h">
+        <header class="hm-band"><h2 id="sf-gate-h">Can't check your sign-in</h2></header>
+        <p class="sf-error" role="alert">{{ session.state.error }}</p>
+        <div class="sf-actions"><button class="sf-btn" type="button" @click="session.load(true)">Try again</button></div>
       </section>
       <LandingWelcome v-else-if="gate === 'signin' && route.name === 'home' && !session.otherSession()" :href="loginHref" :sso-enabled="session.ssoEnabled()" />
       <template v-else-if="gate === 'signin'">

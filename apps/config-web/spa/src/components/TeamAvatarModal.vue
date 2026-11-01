@@ -97,15 +97,15 @@ onUnmounted(() => window.removeEventListener("keydown", onKey, true));
         <img v-else-if="crest" class="avatar-preview avatar-crest" :src="crest" width="256" height="256" :alt="`${teamName} crest`" />
         <span v-else class="avatar-preview avatar-crest" aria-hidden="true">{{ teamName.slice(0, 1) }}</span>
         <p class="muted">{{ previewUrl ? "New avatar (not uploaded yet)" : av.url ? "Current avatar" : "Race crest (no avatar yet)" }}</p>
-        <label for="tm-av-file">Choose an image</label>
+        <label class="sf-k" for="tm-av-file">Choose an image</label>
         <input id="tm-av-file" ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" :disabled="av.busy" data-autofocus @change="onPick" />
         <p class="muted tm-av-limit">{{ limitText }}</p>
-        <p v-if="error" class="lobby-error" role="alert">{{ error }}</p>
+        <p v-if="error" class="sf-error" role="alert">{{ error }}</p>
         <p v-if="av.busy" class="muted" role="status">Working...</p>
         <div class="tm-av-actions">
-          <button type="button" class="lobby-btn primary" :disabled="av.busy || !picked" @click="upload">Upload</button>
-          <button v-if="av.url" type="button" class="lobby-btn" :disabled="av.busy" @click="remove">Remove</button>
-          <button type="button" class="lobby-btn" :disabled="av.busy" @click="manage.closeAvatar()">Close</button>
+          <button type="button" class="sf-btn primary" :disabled="av.busy || !picked" @click="upload">Upload</button>
+          <button v-if="av.url" type="button" class="sf-btn" :disabled="av.busy" @click="remove">Remove</button>
+          <button type="button" class="sf-btn" :disabled="av.busy" @click="manage.closeAvatar()">Close</button>
         </div>
       </div>
     </div>

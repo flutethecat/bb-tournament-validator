@@ -110,7 +110,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey, true));
             <button type="button" class="tm-act" data-kind="skill" :disabled="!skillOn" :aria-disabled="skillOn ? undefined : 'true'" @click="manage.advanceFromSheet('skill')">Add Skill</button>
             <button type="button" class="tm-act" data-kind="characteristic" :disabled="!statOn" :aria-disabled="statOn ? undefined : 'true'" @click="manage.advanceFromSheet('characteristic')">Add Stat</button>
           </template>
-          <button type="button" class="lobby-btn" data-autofocus @click="manage.closeSheet()">Close</button>
+          <button type="button" class="sf-btn" data-autofocus @click="manage.closeSheet()">Close</button>
         </div>
       </div>
     </div>

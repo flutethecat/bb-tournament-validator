@@ -168,8 +168,8 @@ const weatherObj = computed(() => obj(props.pregame.weather));
   <section class="tt-pregame" aria-label="Pre-game">
     <div class="tt-pre-head">
       <h3 class="tt-pre-h">Pre-game</h3>
-      <button v-if="organiserTools && pregame.seatsSwappable === true" class="lobby-btn small tt-tap tt-pre-swap" type="button" :disabled="busy" @click="swapSeats">Swap home and away</button>
-      <button v-if="organiserTools" class="lobby-btn small tt-tap tt-pre-skip" type="button" :disabled="busy" @click="skipAll">Skip pre-game</button>
+      <button v-if="organiserTools && pregame.seatsSwappable === true" class="sf-btn small tt-tap tt-pre-swap" type="button" :disabled="busy" @click="swapSeats">Swap home and away</button>
+      <button v-if="organiserTools" class="sf-btn small tt-tap tt-pre-skip" type="button" :disabled="busy" @click="skipAll">Skip pre-game</button>
     </div>
     <p class="tt-pre-seats muted">Home: {{ team("home") }} ({{ coach("home") }}) · Away: {{ team("away") }} ({{ coach("away") }})</p>
     <ol class="tt-steps">
@@ -185,8 +185,8 @@ const weatherObj = computed(() => obj(props.pregame.weather));
       <p class="muted">{{ ROLL_STEPS[step]!.rule }}</p>
       <template v-if="canAct">
         <div v-if="!entering" class="tt-actions-row">
-          <button class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="emit('advance', { mode: 'site' })">Roll for me</button>
-          <button class="lobby-btn tt-tap" type="button" :disabled="busy" @click="entering = true">Enter result</button>
+          <button class="sf-btn primary tt-tap" type="button" :disabled="busy" @click="emit('advance', { mode: 'site' })">Roll for me</button>
+          <button class="sf-btn tt-tap" type="button" :disabled="busy" @click="entering = true">Enter result</button>
         </div>
         <div v-else class="tt-pre-entry">
           <template v-if="step === 'fans'">
@@ -211,8 +211,8 @@ const weatherObj = computed(() => obj(props.pregame.weather));
             </div>
           </template>
           <div class="tt-actions-row">
-            <button class="lobby-btn primary tt-tap" type="button" :disabled="busy || (step === 'fans' ? !fansReady : step === 'weather' ? !weatherReady : !prayersReady)" @click="sendHand">Record the result</button>
-            <button class="lobby-btn tt-tap" type="button" @click="entering = false">Back</button>
+            <button class="sf-btn primary tt-tap" type="button" :disabled="busy || (step === 'fans' ? !fansReady : step === 'weather' ? !weatherReady : !prayersReady)" @click="sendHand">Record the result</button>
+            <button class="sf-btn tt-tap" type="button" @click="entering = false">Back</button>
           </div>
         </div>
       </template>
@@ -226,7 +226,7 @@ const weatherObj = computed(() => obj(props.pregame.weather));
         <span v-for="s in sides" :key="s">{{ team(s) }} fans: {{ fansRow(s) }}</span>
         <span v-if="weatherObj">Weather: {{ String(weatherObj.result ?? "") }}. {{ WEATHER_EFFECTS[String(weatherObj.result ?? "")] ?? "" }}</span>
       </div>
-      <button v-if="canAct" class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="emit('advance', {})">Take on journeymen</button>
+      <button v-if="canAct" class="sf-btn primary tt-tap" type="button" :disabled="busy" @click="emit('advance', {})">Take on journeymen</button>
       <p v-else class="muted" role="status">Waiting for the coaches.</p>
     </div>
 
@@ -246,16 +246,16 @@ const weatherObj = computed(() => obj(props.pregame.weather));
         <template v-if="canAct">
           <p class="muted">Flip it at the table. What did the coin show?</p>
           <div class="tt-actions-row">
-            <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="emit('advance', { mode: 'hand', result: 'heads' })">Heads <span class="tt-coin-side heads">H</span></button>
-            <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="emit('advance', { mode: 'hand', result: 'tails' })">Tails <span class="tt-coin-side tails">T</span></button>
+            <button class="sf-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="emit('advance', { mode: 'hand', result: 'heads' })">Heads <span class="tt-coin-side heads">H</span></button>
+            <button class="sf-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="emit('advance', { mode: 'hand', result: 'tails' })">Tails <span class="tt-coin-side tails">T</span></button>
           </div>
         </template>
       </template>
       <template v-else-if="canCall">
         <p class="tt-coin-call">{{ callerPhrase(caller, names) }}<template v-if="hand"> (real coin)</template></p>
         <div class="tt-actions-row">
-          <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="call('heads')">Heads <span class="tt-coin-side heads">H</span></button>
-          <button class="lobby-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="call('tails')">Tails <span class="tt-coin-side tails">T</span></button>
+          <button class="sf-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="call('heads')">Heads <span class="tt-coin-side heads">H</span></button>
+          <button class="sf-btn primary tt-tap tt-coin-call-btn" type="button" :disabled="busy" @click="call('tails')">Tails <span class="tt-coin-side tails">T</span></button>
         </div>
         <p class="tt-hand-link"><a href="#" @click.prevent="hand = !hand">{{ hand ? "Let the site flip instead" : "Flipping a real coin? Call it here, then enter the result" }}</a></p>
       </template>
@@ -276,8 +276,8 @@ const weatherObj = computed(() => obj(props.pregame.weather));
           <div class="tt-kr-title">Kick or receive?</div>
           <p class="muted">{{ team(winner) }} won the toss.</p>
           <div class="tt-kr-actions">
-            <button class="lobby-btn primary tt-tap tt-kr-btn" type="button" :disabled="busy" @click="emit('advance', { choice: 'receive' })">Receive</button>
-            <button class="lobby-btn tt-tap tt-kr-btn" type="button" :disabled="busy" @click="emit('advance', { choice: 'kick' })">Kick</button>
+            <button class="sf-btn primary tt-tap tt-kr-btn" type="button" :disabled="busy" @click="emit('advance', { choice: 'receive' })">Receive</button>
+            <button class="sf-btn tt-tap tt-kr-btn" type="button" :disabled="busy" @click="emit('advance', { choice: 'kick' })">Kick</button>
           </div>
         </div>
       </div>
@@ -295,8 +295,8 @@ const weatherObj = computed(() => obj(props.pregame.weather));
       <template v-else>
         <p class="tt-coin-call">Use turn timers?</p>
         <div v-if="canAct" class="tt-actions-row">
-          <button class="lobby-btn tt-tap" type="button" :disabled="busy" @click="emit('advance', { agree: true })">Yes</button>
-          <button class="lobby-btn tt-tap" type="button" :disabled="busy" @click="emit('advance', { agree: false })">No</button>
+          <button class="sf-btn tt-tap" type="button" :disabled="busy" @click="emit('advance', { agree: true })">Yes</button>
+          <button class="sf-btn tt-tap" type="button" :disabled="busy" @click="emit('advance', { agree: false })">No</button>
         </div>
         <ul class="tt-pre-results">
           <li v-for="s in sides" :key="s"><b>{{ team(s) }}</b> {{ answerText(s) }}</li>
@@ -304,6 +304,6 @@ const weatherObj = computed(() => obj(props.pregame.weather));
         <p class="muted">Timers start only if both coaches say yes.</p>
       </template>
     </div>
-    <p v-if="error" class="lobby-error" role="alert">{{ error }}</p>
+    <p v-if="error" class="sf-error" role="alert">{{ error }}</p>
   </section>
 </template>

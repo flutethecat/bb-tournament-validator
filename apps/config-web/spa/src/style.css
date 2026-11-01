@@ -41,4 +41,4 @@ body { margin: 0; background: var(--ui-secondary, #000); color: var(--ui-text, #
 .shell-theme { min-height: 36px; }
 
 /* One-shot shell notice (e.g. "Your account was deleted."). */
-.sf-flash { margin: 0 0 12px; padding: 8px 12px; border: 2px solid var(--sf-panel-line); background: var(--ui-surface-2); color: var(--ui-text); }
+.sf-flash { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; padding: 8px 12px; border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-info); border-radius: 2px; background: var(--ui-surface-2); color: var(--ui-text); box-shadow: var(--sf-bevel); }

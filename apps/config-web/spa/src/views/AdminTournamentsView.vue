@@ -8,7 +8,8 @@ import { API_KEY } from "../app";
 import { SESSION_KEY, writesAllowed } from "../session";
 import { ADMIN_TOURNAMENTS_KEY, createAdminTournaments } from "../tournaments/admin";
 import { startDate } from "../tournaments/detail";
-import { FORMAT_LABEL, STATUS_LABEL } from "../tournaments/list";
+import { FORMAT_LABEL, STATUS_LABEL, STATUS_TONE } from "../tournaments/list";
+import "../shared/misc-pages.css";
 
 const fetcher = inject(API_KEY)!;
 const session = inject(SESSION_KEY)!;
@@ -33,59 +34,68 @@ async function addOrganizer(id: string) {
 </script>
 
 <template>
-  <section class="lobby-card tn-page">
-    <div class="tn-head">
-      <form v-if="isAdmin" class="tn-search" role="search" @submit.prevent="admin.search(query)">
-        <label class="tn-sr" for="tn-admin-q">Search tournaments</label>
+  <div class="hm-page">
+    <section class="hm-panel" aria-labelledby="ad-h">
+      <header class="hm-band"><h2 id="ad-h">All tournaments</h2><span v-if="isAdmin && state.loaded" class="hm-cap">Page {{ state.page }}</span></header>
+      <form v-if="isAdmin" class="ad-search" role="search" @submit.prevent="admin.search(query)">
+        <label class="sf-sr" for="tn-admin-q">Search tournaments</label>
         <input id="tn-admin-q" v-model="query" type="search" placeholder="Search by name" />
-        <button class="lobby-btn" type="submit">Search</button>
+        <button class="sf-btn" type="submit">Search</button>
       </form>
-    </div>
-    <p v-if="!isAdmin" class="muted" role="status">Admins only. Sign in with an admin account to manage tournament owners and organisers.</p>
-    <template v-else>
-      <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
+      <p v-if="!isAdmin" class="hm-empty" role="status">Admins only. Sign in with an admin account to manage tournament owners and organisers.</p>
+    </section>
+    <template v-if="isAdmin">
+      <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
       <p v-else-if="!state.loaded" class="muted" role="status">Loading tournaments...</p>
-      <p v-else-if="!state.items.length" class="muted">No tournaments.</p>
-      <ul v-else class="tn-admin-list">
-        <li v-for="t in state.items" :key="t.id" class="tn-panel">
-          <h3 class="tn-band tn-admin-name">
-            <RouterLink :to="{ name: 'tournament-detail', params: { id: t.id }, query: { tab: 'manage' } }">{{ t.name }}</RouterLink>
-            <span class="tn-chip" :data-status="t.status">{{ STATUS_LABEL[t.status] ?? t.status }}</span>
-          </h3>
-          <div class="tn-panel-body">
-            <p class="muted tn-card-meta">
-              {{ FORMAT_LABEL[t.format] ?? t.format }} · {{ t.rulesetPackName || t.packageName || "No ruleset" }}
-              {{ t.startsAt ? ` · starts ${startDate(t.startsAt)}` : "" }} · {{ t.entrantCount ?? 0 }} entrants
-            </p>
-            <p class="tn-role-line"><span class="tn-fact-k">Owner</span> <strong>{{ t.ownerCoachId || "None (admins only)" }}</strong></p>
-            <ul v-if="t.organizerCoachIds?.length" class="tn-role-list" :aria-label="`Organisers of ${t.name}`">
-              <li v-for="c in t.organizerCoachIds" :key="c">
-                <span>{{ c }}</span>
-                <button v-if="canWrite" class="lobby-btn small" type="button" :disabled="Boolean(state.busy)" :aria-label="`Remove organiser ${c}`" @click="admin.removeOrganizer(t.id, c)">Remove</button>
-              </li>
-            </ul>
-            <div v-if="canWrite" class="tn-admin-forms">
-              <form class="tn-inline-form" @submit.prevent="setOwner(t.id)">
-                <label :for="`own-${t.id}`">Owner</label>
-                <input :id="`own-${t.id}`" v-model="ownerInput[t.id]" type="text" maxlength="40" autocomplete="off" placeholder="Coach name" />
-                <button class="lobby-btn" type="submit" :disabled="!(ownerInput[t.id] ?? '').trim() || Boolean(state.busy)">Set owner</button>
-              </form>
-              <form class="tn-inline-form" @submit.prevent="addOrganizer(t.id)">
-                <label :for="`org-${t.id}`">Organiser</label>
-                <input :id="`org-${t.id}`" v-model="orgInput[t.id]" type="text" maxlength="40" autocomplete="off" placeholder="Coach name" />
-                <button class="lobby-btn" type="submit" :disabled="!(orgInput[t.id] ?? '').trim() || Boolean(state.busy)">Add organiser</button>
-              </form>
-            </div>
-            <p v-if="state.rowError[t.id]" class="lobby-error" role="alert">{{ state.rowError[t.id] }}</p>
-            <p v-else-if="state.rowNotice[t.id]" class="tn-notice" role="status">{{ state.rowNotice[t.id] }}</p>
+      <section v-else-if="!state.items.length" class="hm-panel"><p class="hm-empty">No tournaments.</p></section>
+      <ul v-else class="ad-list">
+        <li v-for="t in state.items" :key="t.id" class="ad-card">
+          <div class="ad-head">
+            <h3 class="ad-name">
+              <RouterLink :to="{ name: 'tournament-detail', params: { id: t.id }, query: { tab: 'manage' } }">{{ t.name }}</RouterLink>
+            </h3>
+            <span class="sf-chip" :data-tone="STATUS_TONE[t.status] ?? 'muted'">{{ STATUS_LABEL[t.status] ?? t.status }}</span>
           </div>
+          <p class="muted ad-meta">
+            {{ FORMAT_LABEL[t.format] ?? t.format }} · {{ t.rulesetPackName || t.packageName || "No ruleset" }}
+            {{ t.startsAt ? ` · starts ${startDate(t.startsAt)}` : "" }} · {{ t.entrantCount ?? 0 }} entrants
+          </p>
+          <dl class="ad-facts">
+            <dt>Owner</dt>
+            <dd><strong>{{ t.ownerCoachId || "None (admins only)" }}</strong></dd>
+            <template v-if="t.organizerCoachIds?.length">
+              <dt>Organisers</dt>
+              <dd>
+                <ul class="ad-orgs" :aria-label="`Organisers of ${t.name}`">
+                  <li v-for="c in t.organizerCoachIds" :key="c">
+                    <span>{{ c }}</span>
+                    <button v-if="canWrite" class="sf-btn small" type="button" :disabled="Boolean(state.busy)" :aria-label="`Remove organiser ${c}`" @click="admin.removeOrganizer(t.id, c)">Remove</button>
+                  </li>
+                </ul>
+              </dd>
+            </template>
+          </dl>
+          <div v-if="canWrite" class="ad-forms">
+            <form class="ad-form" @submit.prevent="setOwner(t.id)">
+              <label class="sf-k" :for="`own-${t.id}`">Owner</label>
+              <input :id="`own-${t.id}`" v-model="ownerInput[t.id]" type="text" maxlength="40" autocomplete="off" placeholder="Coach name" />
+              <button class="sf-btn" type="submit" :disabled="!(ownerInput[t.id] ?? '').trim() || Boolean(state.busy)">Set owner</button>
+            </form>
+            <form class="ad-form" @submit.prevent="addOrganizer(t.id)">
+              <label class="sf-k" :for="`org-${t.id}`">Organiser</label>
+              <input :id="`org-${t.id}`" v-model="orgInput[t.id]" type="text" maxlength="40" autocomplete="off" placeholder="Coach name" />
+              <button class="sf-btn" type="submit" :disabled="!(orgInput[t.id] ?? '').trim() || Boolean(state.busy)">Add organiser</button>
+            </form>
+          </div>
+          <p v-if="state.rowError[t.id]" class="sf-error" role="alert">{{ state.rowError[t.id] }}</p>
+          <p v-else-if="state.rowNotice[t.id]" class="ad-notice" role="status">{{ state.rowNotice[t.id] }}</p>
         </li>
       </ul>
-      <div v-if="state.page > 1 || state.hasMore" class="tn-pager">
-        <button class="lobby-btn" type="button" :disabled="state.page <= 1" @click="admin.goto(state.page - 1)">Previous</button>
-        <span class="muted">Page {{ state.page }}</span>
-        <button class="lobby-btn" type="button" :disabled="!state.hasMore" @click="admin.goto(state.page + 1)">Next</button>
+      <div v-if="state.page > 1 || state.hasMore" class="ad-pager">
+        <button class="sf-btn" type="button" :disabled="state.page <= 1" @click="admin.goto(state.page - 1)">Previous</button>
+        <span class="hm-cap">Page {{ state.page }}</span>
+        <button class="sf-btn" type="button" :disabled="!state.hasMore" @click="admin.goto(state.page + 1)">Next</button>
       </div>
     </template>
-  </section>
+  </div>
 </template>

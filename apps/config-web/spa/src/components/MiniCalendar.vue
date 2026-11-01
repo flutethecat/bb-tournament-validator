@@ -30,9 +30,9 @@ const dayLabel = (key: string, n: number) => `${key}: ${n} event${n === 1 ? "" :
 <template>
   <div class="mc">
     <div class="mc-nav">
-      <button class="lobby-btn small" type="button" aria-label="Previous month" @click="go(-1)">‹</button>
+      <button class="sf-btn small" type="button" aria-label="Previous month" @click="go(-1)">‹</button>
       <h3 class="mc-month" aria-live="polite">{{ monthLabel(ym) }}</h3>
-      <button class="lobby-btn small" type="button" aria-label="Next month" @click="go(1)">›</button>
+      <button class="sf-btn small" type="button" aria-label="Next month" @click="go(1)">›</button>
     </div>
 
     <div class="mc-grid" role="presentation">

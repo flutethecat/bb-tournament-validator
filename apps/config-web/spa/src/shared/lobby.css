@@ -8,12 +8,16 @@ h1, h2, h3 { color: var(--ui-heading, #ff3b3b); margin: 0 0 8px; font-family: va
 .lobby-error { color: var(--ui-danger, #ff4d4d); margin: 8px 0 0; }
 .lobby-form { display: grid; gap: 6px; max-width: 420px; }
 .lobby-form.inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: none; margin-top: 8px; }
-input, select { background: var(--ui-surface-2, #242424); color: var(--ui-text, #e6e9ef); border: 1px solid var(--ui-border, #3d0002); border-radius: 4px; padding: 6px 8px; font: inherit; max-width: 100%; }
+/* Base fields (design.md §5): surface-2 fill, 2 px panel-line border, radius 2 px, body font. The panel tokens come from the
+   SPA's home.css; the vanilla page falls back to the site border. */
+input, select, textarea { background: var(--ui-surface-2, #242424); color: var(--ui-text, #e6e9ef); border: 2px solid var(--sf-panel-line, var(--ui-border, #3d0002)); border-radius: 2px; padding: 6px 8px; font: inherit; max-width: 100%; }
+input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--sf-panel-hi, var(--ui-muted, #848689)); }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--ui-primary, #790004); }
 .lobby-btn { display: inline-block; background: var(--ui-surface-2, #242424); color: var(--ui-text, #e6e9ef); border: 1px solid var(--ui-border, #3d0002); border-radius: 4px; padding: 7px 14px; font: inherit; cursor: pointer; text-decoration: none; }
 .lobby-btn.primary { background: var(--ui-primary, #790004); color: var(--ui-text-on-primary, #fff); }
 .lobby-btn.big { font-size: 1.1rem; padding: 10px 24px; }
 .lobby-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.lobby-btn:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--ui-focus, #ff3b3b); outline-offset: 2px; }
+.lobby-btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--ui-focus, #ff3b3b); outline-offset: 2px; }
 a { color: var(--ui-accent, #a55456); }
 .lobby-list { display: grid; gap: 8px; }
 .lobby-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
@@ -32,7 +36,10 @@ a { color: var(--ui-accent, #a55456); }
 .chat-form { display: flex; gap: 8px; }
 .chat-form input { flex: 1; min-width: 0; }
 .table-wrap { overflow-x: auto; }
+/* Base tables (design.md §5 key/value language): Silkscreen muted column captions over a 2 px panel-line rule, 1 px row
+   rules. */
 table { border-collapse: collapse; width: 100%; font-size: 15px; }
-th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--ui-border, #3d0002); vertical-align: top; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--sf-panel-line, var(--ui-border, #3d0002)); vertical-align: top; }
 th { color: var(--ui-muted, #848689); font-weight: 600; white-space: nowrap; }
+thead th { font: 10px/1.6 var(--sf-band-font, inherit); text-transform: uppercase; letter-spacing: .08em; border-bottom-width: 2px; }
 .roster-head { margin: 0 0 4px; }

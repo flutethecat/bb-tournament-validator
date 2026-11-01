@@ -27,7 +27,7 @@ defineExpose({ editor });
 <template>
   <div class="hm-schedule">
     <div class="hm-tz">
-      <label for="hm-tz-select">Timezone</label>
+      <label class="sf-k" for="hm-tz-select">Timezone</label>
       <select id="hm-tz-select" @change="editor.setTimezone(($event.target as HTMLSelectElement).value)">
         <option v-for="z in zones" :key="z" :value="z" :selected="z === state.timezone">{{ z }}</option>
       </select>
@@ -50,17 +50,17 @@ defineExpose({ editor });
             <button class="hm-x" type="button" :aria-label="`Remove ${DAY_LABELS[day]} ${b.start} to ${b.end}`" @click="editor.removeBlock(b)">×</button>
           </li>
         </ul>
-        <button class="lobby-btn small hm-add" type="button" :disabled="!state.loaded || state.blocks.length >= MAX_BLOCKS" :aria-label="`Add a block on ${DAY_LABELS[day]}`" @click="editor.addBlock(day)">+ Add</button>
+        <button class="sf-btn small hm-add" type="button" :disabled="!state.loaded || state.blocks.length >= MAX_BLOCKS" :aria-label="`Add a block on ${DAY_LABELS[day]}`" @click="editor.addBlock(day)">+ Add</button>
       </div>
     </div>
     <div class="hm-actions">
-      <button class="lobby-btn primary small" type="button" :disabled="state.saving || !state.loaded" @click="editor.save()">{{ state.saving ? "Saving…" : "Save availability" }}</button>
+      <button class="sf-btn primary small" type="button" :disabled="state.saving || !state.loaded" @click="editor.save()">{{ state.saving ? "Saving…" : "Save availability" }}</button>
       <span v-if="state.notice" class="hm-notice" role="status">{{ state.notice }}</span>
       <span v-else-if="state.dirty" class="muted hm-small">Unsaved changes.</span>
     </div>
-    <p v-if="state.error" class="lobby-error hm-small">
+    <p v-if="state.error" class="sf-error hm-small">
       {{ state.error }}
-      <button v-if="state.loadFailed" class="lobby-btn small hm-retry" type="button" @click="editor.load()">Retry</button>
+      <button v-if="state.loadFailed" class="sf-btn small hm-retry" type="button" @click="editor.load()">Retry</button>
     </p>
   </div>
 </template>

@@ -10,6 +10,7 @@ import { LIBRARY_KEY } from "../lobby/library";
 import { controlFor, createLobbyRoom, LOBBY_ROOM_KEY, startLabel, statusLine, type Role } from "../lobby/room";
 import { SESSION_KEY } from "../session";
 import { presenceLine, renderEmoji } from "../shared/format";
+import "../shared/misc-pages.css";
 
 const props = defineProps<{ id: string }>();
 
@@ -109,103 +110,103 @@ usePageTitle(() => (view.value ? title.value : ""));
 </script>
 
 <template>
-  <section v-if="state.gone" class="lobby-card">
-    <p>{{ state.gone }}</p>
-    <RouterLink class="lobby-btn" :to="{ name: 'lobby' }">Back to Start Game</RouterLink>
-  </section>
-  <template v-else>
-    <p><RouterLink :to="{ name: 'lobby' }">← Start Game</RouterLink></p>
-    <section class="lobby-card">
-      <p class="lobby-status">{{ status }}</p>
-      <p class="muted">{{ state.expiry }}</p>
-      <ul v-if="view" class="presence">
-        <li v-for="s in [view.creator, view.opponent]" :key="s.role" :class="`presence-${s.state}`">{{ presenceLine(s.coach, s.state) }}</li>
-      </ul>
-      <div v-if="control === 'uncertain'">
-        <div class="lobby-form inline">
-          <button class="lobby-btn primary" type="button" @click="onUncertain('check')">Check again</button>
-          <button class="lobby-btn" type="button" @click="onUncertain('start-over')">Start over</button>
-        </div>
-        <p v-if="uncertainErr" class="lobby-error" role="alert">{{ uncertainErr }}</p>
-      </div>
-      <div v-else-if="control === 'accept' || control === 'renew'">
-        <div class="lobby-form inline">
-          <label for="join-team">Your team</label>
-          <TeamSelect id="join-team" v-model="joinTeam" :teams="teams" />
-          <button class="lobby-btn primary" type="button" :disabled="joining" @click="onJoin">
-            {{ control === "accept" ? "Accept with this team" : "Confirm challenge" }}
-          </button>
-          <button v-if="control === 'renew'" class="lobby-btn" type="button" @click="onClose">Close lobby</button>
-        </div>
-        <p v-if="joinErr" class="lobby-error" role="alert">{{ joinErr }}</p>
-      </div>
-      <div v-else-if="control === 'close'">
-        <button class="lobby-btn" type="button" @click="onClose">Close lobby</button>
-      </div>
-      <div class="launch">
-        <button class="lobby-btn primary big" type="button" :disabled="!view?.canLaunch || state.launching" @click="room.launch()">
-          {{ view ? startLabel(view) : "Start game" }}
-        </button>
-        <p class="muted">Downloads the game file for your seat. Open it with Super FUMBBL.</p>
-        <p v-if="state.launchError || closeErr" class="lobby-error" role="alert">{{ state.launchError || closeErr }}</p>
-      </div>
+  <div class="hm-page">
+    <section v-if="state.gone" class="hm-panel sf-solo" aria-labelledby="lb-gone-h">
+      <header class="hm-band"><h2 id="lb-gone-h">Lobby closed</h2></header>
+      <p>{{ state.gone }}</p>
+      <div class="sf-actions"><RouterLink class="sf-btn" :to="{ name: 'lobby' }">Back to Start Game</RouterLink></div>
     </section>
-
-    <section class="lobby-grid">
-      <div class="lobby-card">
-        <h3>Opponent</h3>
-        <div v-if="state.card" class="coach-card">
-          <img v-if="state.card.avatar" class="lobby-avatar" :src="state.card.avatar" alt="" />
-          <div class="coach-body">
-            <strong>{{ state.card.coach }}</strong>
-            <template v-if="state.card.status === 'ok' && state.card.fumbbl">
-              <p>
-                FUMBBL: {{ state.card.fumbbl.name }}
-                <span v-if="state.card.fumbbl.title" class="title-badge">{{ state.card.fumbbl.title }}</span>
-              </p>
-              <p class="muted">{{ state.card.fumbbl.parts.length ? state.card.fumbbl.parts.join(" · ") : "No FUMBBL record found." }}</p>
-            </template>
-            <template v-else-if="state.card.status === 'unavailable'">
-              <p v-if="state.card.linkedName">FUMBBL: {{ state.card.linkedName }}</p>
-              <p class="muted">Rating unavailable right now.</p>
-            </template>
-            <p v-else-if="state.card.status === 'unlinked'" class="muted">No FUMBBL rating linked.</p>
+    <template v-else>
+      <p class="lb-back"><RouterLink :to="{ name: 'lobby' }">← Start Game</RouterLink></p>
+      <section class="hm-panel" aria-labelledby="lb-room-h">
+        <header class="hm-band"><h2 id="lb-room-h">Lobby</h2><span v-if="state.expiry" class="hm-cap">{{ state.expiry }}</span></header>
+        <p class="lb-status">{{ status }}</p>
+        <ul v-if="view" class="presence">
+          <li v-for="s in [view.creator, view.opponent]" :key="s.role" :class="`presence-${s.state}`">{{ presenceLine(s.coach, s.state) }}</li>
+        </ul>
+        <div v-if="control === 'uncertain'">
+          <div class="sf-form inline">
+            <button class="sf-btn primary" type="button" @click="onUncertain('check')">Check again</button>
+            <button class="sf-btn" type="button" @click="onUncertain('start-over')">Start over</button>
           </div>
+          <p v-if="uncertainErr" class="sf-error" role="alert">{{ uncertainErr }}</p>
         </div>
-      </div>
-      <div class="lobby-card chat">
-        <h3>Chat</h3>
-        <p v-if="state.chatState" class="muted">{{ state.chatState }}</p>
-        <ol ref="chatLog" class="chat-log" aria-live="polite">
-          <li v-for="m in state.chat" :key="m.id" :class="room.isMine(m) ? 'mine' : ''">
-            <span class="chat-time">{{ chatTime(m.ts) }}</span> <strong>{{ m.coach }}</strong> <span>{{ renderEmoji(m.text) }}</span>
-          </li>
-        </ol>
-        <form class="chat-form" @submit.prevent="onSend">
-          <input
-            v-model="chatText"
-            type="text"
-            maxlength="500"
-            placeholder="Say something (:+1: works)"
-            aria-label="Chat message"
-            :disabled="!state.chatLive"
-          />
-          <button class="lobby-btn" type="submit">Send</button>
-        </form>
-      </div>
-    </section>
+        <div v-else-if="control === 'accept' || control === 'renew'">
+          <div class="sf-form inline">
+            <label class="sf-k" for="join-team">Your team</label>
+            <TeamSelect id="join-team" v-model="joinTeam" :teams="teams" />
+            <button class="sf-btn primary" type="button" :disabled="joining" @click="onJoin">
+              {{ control === "accept" ? "Accept with this team" : "Confirm challenge" }}
+            </button>
+            <button v-if="control === 'renew'" class="sf-btn" type="button" @click="onClose">Close lobby</button>
+          </div>
+          <p v-if="joinErr" class="sf-error" role="alert">{{ joinErr }}</p>
+        </div>
+        <div v-else-if="control === 'close'" class="sf-actions">
+          <button class="sf-btn" type="button" @click="onClose">Close lobby</button>
+        </div>
+        <div class="lb-launch">
+          <button class="sf-btn primary big" type="button" :disabled="!view?.canLaunch || state.launching" @click="room.launch()">
+            {{ view ? startLabel(view) : "Start game" }}
+          </button>
+          <p class="muted">Downloads the game file for your seat. Open it with Super FUMBBL.</p>
+          <p v-if="state.launchError || closeErr" class="sf-error" role="alert">{{ state.launchError || closeErr }}</p>
+        </div>
+      </section>
 
-    <section class="lobby-grid rosters">
-      <div v-for="role in roles" :key="role" class="lobby-card">
-        <div class="roster-col">
+      <section class="sf-split">
+        <section class="hm-panel" aria-labelledby="lb-opp-h">
+          <header class="hm-band"><h2 id="lb-opp-h">Opponent</h2></header>
+          <div v-if="state.card" class="lb-coach">
+            <img v-if="state.card.avatar" class="sf-avatar" :src="state.card.avatar" alt="" />
+            <div class="coach-body">
+              <strong class="lb-coach-name">{{ state.card.coach }}</strong>
+              <template v-if="state.card.status === 'ok' && state.card.fumbbl">
+                <p>
+                  FUMBBL: {{ state.card.fumbbl.name }}
+                  <span v-if="state.card.fumbbl.title" class="sf-chip" data-tone="info">{{ state.card.fumbbl.title }}</span>
+                </p>
+                <p class="muted">{{ state.card.fumbbl.parts.length ? state.card.fumbbl.parts.join(" · ") : "No FUMBBL record found." }}</p>
+              </template>
+              <template v-else-if="state.card.status === 'unavailable'">
+                <p v-if="state.card.linkedName">FUMBBL: {{ state.card.linkedName }}</p>
+                <p class="muted">Rating unavailable right now.</p>
+              </template>
+              <p v-else-if="state.card.status === 'unlinked'" class="muted">No FUMBBL rating linked.</p>
+            </div>
+          </div>
+        </section>
+        <section class="hm-panel lb-chat chat" aria-labelledby="lb-chat-h">
+          <header class="hm-band"><h2 id="lb-chat-h">Chat</h2><span v-if="state.chatState" class="hm-cap">{{ state.chatState }}</span></header>
+          <ol ref="chatLog" class="chat-log" aria-live="polite">
+            <li v-for="m in state.chat" :key="m.id" :class="room.isMine(m) ? 'mine' : ''">
+              <span class="chat-time">{{ chatTime(m.ts) }}</span> <strong>{{ m.coach }}</strong> <span>{{ renderEmoji(m.text) }}</span>
+            </li>
+          </ol>
+          <form class="chat-form" @submit.prevent="onSend">
+            <input
+              v-model="chatText"
+              type="text"
+              maxlength="500"
+              placeholder="Say something (:+1: works)"
+              aria-label="Chat message"
+              :disabled="!state.chatLive"
+            />
+            <button class="sf-btn" type="submit">Send</button>
+          </form>
+        </section>
+      </section>
+
+      <section class="sf-split even">
+        <section v-for="role in roles" :key="role" class="hm-panel" :aria-label="view ? rosterHeading(role) : undefined">
           <template v-if="view">
-            <h3>{{ rosterHeading(role) }}</h3>
-            <p v-if="state.rosters[role].status === 'error'" class="lobby-error" role="alert">{{ state.rosters[role].error }}</p>
+            <header class="hm-band"><h2>{{ rosterHeading(role) }}</h2></header>
+            <p v-if="state.rosters[role].status === 'error'" class="sf-error" role="alert">{{ state.rosters[role].error }}</p>
             <RosterTable v-else-if="state.rosters[role].roster" :roster="state.rosters[role].roster!" />
-            <p v-else-if="state.rosters[role].status !== 'loading'" class="muted">Roster not shared yet.</p>
+            <p v-else-if="state.rosters[role].status !== 'loading'" class="hm-empty">Roster not shared yet.</p>
           </template>
-        </div>
-      </div>
-    </section>
-  </template>
+        </section>
+      </section>
+    </template>
+  </div>
 </template>

@@ -28,12 +28,10 @@
 }
 .tt-rec[data-tt-theme="light"] { --tt-shadow: 2px 2px 0 var(--ui-border, #d9aba5); --tt-radius: 2px; }
 .tt-rec *, .tt-rec *::before, .tt-rec *::after { box-sizing: border-box; }
-.tt-rec .lobby-btn { background: var(--tt-btn); color: var(--tt-btn-ink); border: 2px solid var(--tt-line); border-radius: var(--tt-radius); box-shadow: var(--tt-shadow); }
-.tt-rec .lobby-btn.primary { background: var(--tt-accent); color: var(--tt-on-accent); }
 .tt-rec select, .tt-rec input[type="text"] { background: var(--tt-panel); color: var(--tt-ink); border: 2px solid var(--tt-line); border-radius: var(--tt-radius); }
 .tt-rec h2, .tt-rec h3, .tt-rec h4 { color: var(--tt-ink); font-family: var(--font-heading, sans-serif); margin: 0 0 6px; }
 .tt-rec .muted { color: var(--tt-muted); }
-.tt-rec .lobby-error { color: var(--ui-danger, #ff4d4d); }
+.tt-rec .sf-error { color: var(--ui-danger, #ff4d4d); }
 .tt-glyph { width: 1.4em; height: 1.4em; object-fit: contain; vertical-align: middle; image-rendering: auto; }
 .tt-glyph-text { display: inline-flex; align-items: center; justify-content: center; font-size: 1.2em; line-height: 1; font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif; }
 
@@ -253,7 +251,7 @@
 
 /* feed gutters: 16 px on a phone */
 .tt-feed { padding: 0 0 8px; }
-.tt-feed > .tt-strip, .tt-feed > .lobby-error, .tt-feed > .tt-edit-bar, .tt-feed > .tt-match-row { margin-left: 16px; margin-right: 16px; }
+.tt-feed > .tt-strip, .tt-feed > .sf-error, .tt-feed > .tt-edit-bar, .tt-feed > .tt-match-row { margin-left: 16px; margin-right: 16px; }
 .tt-panel { margin: 8px 16px; }
 .tt-events { --tt-icon: 32px; list-style: none; margin: 0; padding: 12px 16px; display: grid; gap: 8px; color: var(--tt-ink); }
 .tt-empty { padding: 14px 0; color: var(--tt-muted); }
@@ -397,7 +395,7 @@
   /* body: the log (two-column card grid) and the rail */
   .tt-feed { padding: 16px 0 24px 28px; }
   .tt-feed > *, .tt-events { max-width: none; margin-left: 0; margin-right: 0; }
-  .tt-feed > .tt-strip, .tt-feed > .lobby-error, .tt-feed > .tt-edit-bar, .tt-feed > .tt-match-row { margin-left: 0; margin-right: 0; }
+  .tt-feed > .tt-strip, .tt-feed > .sf-error, .tt-feed > .tt-edit-bar, .tt-feed > .tt-match-row { margin-left: 0; margin-right: 0; }
   .tt-panel { margin: 8px 0; }
   .tt-log-h { display: block; margin: 0 0 10px; }
   /* the log is a vertical timeline: a centre spine, home cards left, away cards right, both-team lines centred */
@@ -687,17 +685,17 @@
 .tt-rec .tt-team { text-shadow: var(--tt-name-shadow); letter-spacing: .06em; font-weight: 500; } /* the builder's h1: .06em, weight 500 */
 :root[data-theme="light"] .tt-rec .tt-team { color: var(--ui-text-on-primary, #ffffff); }
 .tt-rec .tt-rail-btn, .tt-rec .tt-rail-end, .tt-rec .tt-big, .tt-rec .tt-endturn, .tt-rec .tt-rosters-btn, .tt-rec .tt-cog, .tt-rec .tt-crumb-btn,
-.tt-rec .lobby-btn, .tt-rec .tt-close, .tt-rec .tt-seg-btn {
+.tt-rec .tt-close, .tt-rec .tt-seg-btn {
   border: 1px solid rgb(0 0 0 / .6); border-radius: 3px; box-shadow: var(--tt-bevel); text-shadow: var(--tt-btn-text-shadow);
   justify-content: center; text-align: center; transition: transform .06s ease;
 }
 .tt-rec .tt-rail-btn:active, .tt-rec .tt-rail-end:active, .tt-rec .tt-big:active, .tt-rec .tt-endturn:active, .tt-rec .tt-rosters-btn:active, .tt-rec .tt-cog:active,
-.tt-rec .tt-crumb-btn:active, .tt-rec .lobby-btn:active, .tt-rec .tt-close:active, .tt-rec .tt-seg-btn:active {
+.tt-rec .tt-crumb-btn:active, .tt-rec .tt-close:active, .tt-rec .tt-seg-btn:active {
   box-shadow: var(--tt-bevel-down); transform: translateY(2px);
 }
 /* a light face (light theme) takes a light legibility shadow instead */
 :root[data-theme="light"] .tt-rec .tt-rosters-btn, :root[data-theme="light"] .tt-rec .tt-cog, :root[data-theme="light"] .tt-rec .tt-crumb-btn,
-:root[data-theme="light"] .tt-rec .lobby-btn:not(.primary), :root[data-theme="light"] .tt-rec .tt-close, :root[data-theme="light"] .tt-rec .tt-seg-btn:not([aria-pressed="true"]) {
+:root[data-theme="light"] .tt-rec .tt-close, :root[data-theme="light"] .tt-rec .tt-seg-btn:not([aria-pressed="true"]) {
   text-shadow: 0 1px 0 rgb(255 255 255 / .6);
 }
 @media (min-width: 1024px) {
@@ -1685,3 +1683,71 @@
 .tt-newpill { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 3; padding: 6px 14px; border: 1px solid var(--tt-line, currentColor); border-radius: 999px; background: var(--ui-surface); color: var(--tt-ink, inherit); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: var(--tt-lift); }
 .tt-newpill:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .tt-rec .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* ==== modern-retro pass (11-01, design.md §5): the recorder's setup, pickers and dialogs on the site's panels, band
+   headings, segmented strips, chips and .sf-btn buttons. The live screen (coach corners, centre scoreboard, rail, feed)
+   and its deliberate colours (--ui-scarlet End Turn, --ui-warn Injury, --ui-admin organiser events) are untouched. ==== */
+.tt-rec { --tt-band-edge: 4px solid var(--ui-heading); --tt-hard-drop: 0 4px 0 var(--sf-panel-drop), 0 12px 28px color-mix(in srgb, var(--sf-panel-drop) 55%, transparent); }
+/* buttons: the site's .sf-btn; labels wrap in narrow sheets and keep the 44 px tap height */
+.tt-rec .sf-btn { white-space: normal; transform: none; }
+.tt-rec .sf-btn.tt-tap { min-height: 44px; }
+.tt-rec .sf-btn:hover:not(:disabled) { transform: none; }
+/* the queue status line: a square bevelled chip with a warn edge (was a 16 px pill) */
+.tt-chip { padding: 4px 10px; font-size: 13px; line-height: 1.35; color: var(--ui-text); background: var(--ui-surface-2); border: 1px solid var(--sf-panel-line); border-left: 4px solid var(--ui-warn); border-radius: 2px; box-shadow: var(--sf-bevel); }
+/* popups (Settings, pickers, TTM, Change turn, Other, CAS / Injury forms): panel face, 2 px panel line, hard drop */
+.tt-rec .tt-modal-box, .tt-rec .tt-sheet, .tt-rec .tt-other-box {
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi), var(--tt-hard-drop);
+}
+/* every popup title row is a band heading: 4 px red left edge, 2 px underline, Silkscreen title */
+.tt-rec .tt-sheet-head { padding: 6px 0 6px 10px; margin-bottom: 10px; border-left: var(--tt-band-edge); border-bottom: 2px solid var(--sf-panel-line); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-top)), var(--ui-surface); }
+.tt-rec .tt-sheet-head .tt-sheet-title { font: 14px/1.25 var(--sf-band-font); text-transform: uppercase; letter-spacing: .12em; color: var(--ui-heading); text-shadow: none; }
+/* Settings and Change turn: Silkscreen field captions, joined segmented strips (active = primary fill), themed checkboxes */
+.tt-rec .tt-set-label, .tt-rec .tt-settings .tt-set-label { margin: 10px 0 4px; font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); text-shadow: none; }
+.tt-rec .tt-seg, .tt-rec .tt-settings .tt-seg { gap: 0; max-width: min(520px, 100%); margin-bottom: 10px; background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); }
+.tt-rec .tt-seg-btn, .tt-rec .tt-settings .tt-seg-btn { position: relative; min-height: 44px; padding: 0 10px; font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-muted); background: transparent; border: 0; border-radius: 0; box-shadow: none; text-shadow: none; }
+.tt-rec .tt-seg-btn + .tt-seg-btn { border-left: 2px solid var(--sf-panel-line); }
+.tt-rec .tt-seg-btn:hover { color: var(--ui-text); background: var(--ui-hover); }
+.tt-rec .tt-seg-btn[aria-pressed="true"], :root[data-theme="light"] .tt-rec .tt-seg-btn[aria-pressed="true"] { color: var(--ui-text-on-primary); background: var(--ui-primary); text-shadow: none; }
+.tt-rec .tt-seg-btn:active { transform: none; box-shadow: none; }
+.tt-rec .tt-seg-btn:focus-visible { z-index: 1; outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.tt-rec .tt-settings .tt-changeturn, .tt-rec .tt-settings .tt-open-admin { font-family: var(--sf-band-font); letter-spacing: .1em; text-shadow: none; }
+.tt-rec .tt-settings .tt-open-admin { margin-right: 8px; }
+.tt-rec .tt-check input { width: 18px; height: 18px; accent-color: var(--ui-primary); }
+/* pre-game: band heading row, the step list as a joined segmented strip, results as a key/value strip, cards as panels */
+.tt-rec .tt-pre-head { padding: 7px 0 7px 12px; border-left: var(--tt-band-edge); border-bottom: 2px solid var(--sf-panel-line); }
+.tt-rec .tt-pre-h { font: 13px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .14em; color: var(--ui-heading); text-shadow: none; }
+.tt-rec .tt-pre-skip, .tt-rec .tt-pre-swap { font-size: 11px; }
+.tt-rec .tt-steps { display: flex; flex-wrap: nowrap; gap: 0; justify-self: start; max-width: 100%; overflow-x: auto; scrollbar-width: thin; background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); }
+.tt-rec .tt-steps li { flex: none; padding: 7px 12px; font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; white-space: nowrap; color: var(--ui-muted); border: 0; }
+.tt-rec .tt-steps li + li { border-left: 2px solid var(--sf-panel-line); }
+.tt-rec .tt-steps li[data-state="done"] { color: var(--ui-text); }
+.tt-rec .tt-steps li[data-state="now"] { color: var(--ui-text-on-primary); background: var(--ui-primary); font-weight: 400; }
+.tt-rec .tt-pre-results { padding: 8px 12px; background: color-mix(in srgb, var(--ui-surface-2) 55%, transparent); border: 1px solid var(--sf-panel-line); border-radius: 2px; }
+.tt-rec .tt-pre-results b { display: inline-block; min-width: 8em; margin-right: 6px; font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+.tt-rec .tt-pre-card, .tt-rec .tt-panel { padding: 0 12px 12px; background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop); }
+.tt-rec .tt-pre-card > h3, .tt-rec .tt-panel > h3 { margin: 0 -12px 10px; padding: 7px 12px; font: 13px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .14em; color: var(--ui-heading); text-shadow: none; border-left: var(--tt-band-edge); border-bottom: 2px solid var(--sf-panel-line); }
+.tt-rec .tt-pre-die { border-radius: 2px; box-shadow: var(--sf-bevel), 0 2px 0 var(--sf-panel-drop); }
+.tt-rec .tt-pre-die[aria-pressed="true"] { color: var(--ui-text-on-primary); background: var(--ui-primary); border-color: var(--ui-heading); box-shadow: 0 0 0 2px var(--ui-focus); }
+.tt-rec .tt-pre-dice-who { font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+/* inducement picker: a sub-panel in the site palette (gold for prices and the section caption) */
+.tt-rec .tt-ipk, .tt-rec[data-tt-theme="light"] .tt-ipk { padding: 10px 12px; color: var(--ui-text); background: color-mix(in srgb, var(--ui-surface-2) 55%, transparent); border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--sf-gold); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi); }
+.tt-rec .tt-ipk-title { font: 11px/1.3 var(--sf-band-font); letter-spacing: .12em; color: var(--sf-gold); }
+.tt-rec .tt-ipk-team { font-weight: 500; letter-spacing: .04em; }
+.tt-rec .tt-ipk-done { color: var(--ui-success); font: 10px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; }
+.tt-rec .tt-ipk-cost { color: var(--sf-gold); font-family: var(--sf-band-font); }
+.tt-rec .tt-ipk-row { border-radius: 2px; }
+.tt-rec .tt-ipk-row[data-picked="true"] { background: color-mix(in srgb, var(--sf-gold) 16%, transparent); }
+.tt-rec .tt-ipk-btn { color: var(--ui-text); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 2px 0 var(--sf-panel-drop); }
+.tt-rec .tt-ipk-btn:hover:not(:disabled) { border-color: var(--ui-heading); }
+.tt-rec .tt-ipk-btn:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.tt-rec .tt-ipk-cart { padding: 8px; background: color-mix(in srgb, var(--ui-surface) 50%, transparent); border: 1px solid var(--sf-panel-line); border-radius: 2px; }
+.tt-rec .tt-ipk-remote { border: 1px solid var(--sf-gold); border-radius: 2px; }
+/* kick or receive: a raised panel with a gold frame */
+.tt-rec .tt-kr-box, .tt-rec[data-tt-theme="light"] .tt-kr-box { color: var(--ui-text); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface); border: 2px solid var(--sf-gold); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi), var(--tt-hard-drop); }
+.tt-rec .tt-kr-title { font-weight: 500; letter-spacing: .06em; }
+.tt-rec .tt-kr-btn { font-size: 14px; }
+/* phones: popups are full-width sheets (square corners, no side frame) */
+@media (max-width: 759px) {
+  .tt-rec .tt-modal-box, .tt-rec .tt-sheet, .tt-rec .tt-other-box { border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0; box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 -6px 18px color-mix(in srgb, var(--sf-panel-drop) 55%, transparent); }
+}

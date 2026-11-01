@@ -96,12 +96,12 @@ const submit = (): void => emit("submit", props.side, cart.value.map((l) => ({ i
         </ul>
         <p v-if="remoteChanged" class="tt-ipk-remote" role="alert">
           The picks for {{ teamName }} changed on the other phone.
-          <button class="lobby-btn small tt-tap" type="button" @click="sync.reload()">Reload their picks</button>
+          <button class="sf-btn small tt-tap" type="button" @click="sync.reload()">Reload their picks</button>
         </p>
-        <p v-if="left < 0" class="lobby-error" role="alert">Over budget by {{ k(-left) }}.</p>
+        <p v-if="left < 0" class="sf-error" role="alert">Over budget by {{ k(-left) }}.</p>
         <div v-if="canEdit" class="tt-actions-row">
-          <button class="lobby-btn primary tt-tap" type="button" :disabled="busy || locked || remoteChanged || left < 0 || !cart.length" @click="submit">{{ submitted ? "Resubmit" : "Confirm" }} {{ teamName }}</button>
-          <button class="lobby-btn tt-tap" type="button" :disabled="busy || locked" @click="emit('skip', side)">No inducements</button>
+          <button class="sf-btn primary tt-tap" type="button" :disabled="busy || locked || remoteChanged || left < 0 || !cart.length" @click="submit">{{ submitted ? "Resubmit" : "Confirm" }} {{ teamName }}</button>
+          <button class="sf-btn tt-tap" type="button" :disabled="busy || locked" @click="emit('skip', side)">No inducements</button>
         </div>
       </aside>
     </div>

@@ -933,7 +933,7 @@ describe("shell nav + coach page (server-rendered against a mocked API)", () => 
     expect(d).toContain("2 / 21 blocks");
     expect(d).toContain("Opponents see this when they propose a time.");
     expect(d).toContain("Save availability");
-    expect(d).toMatch(/<button type="button" class="lobby-btn">Close<\/button>/);
+    expect(d).toMatch(/<button type="button" class="sf-btn">Close<\/button>/);
   });
 
   it("account page: landing on #schedule opens the dialog", async () => {

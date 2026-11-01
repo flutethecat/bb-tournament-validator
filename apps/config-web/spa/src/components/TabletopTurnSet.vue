@@ -35,8 +35,8 @@ const save = (): void => emit("save", { half: form.half === "OT" ? "OT" : Number
       <div class="tt-seg" role="group" aria-label="Team to play">
         <button v-for="s in sides" :key="s" type="button" class="tt-seg-btn" :aria-pressed="form.team === s" @click="form.team = s">{{ match[s].teamName }}</button>
       </div>
-      <p v-if="error" class="lobby-error" role="alert">{{ error }}</p>
-      <button class="lobby-btn primary tt-tap" type="button" :disabled="busy" @click="save">Set the clock</button>
+      <p v-if="error" class="sf-error" role="alert">{{ error }}</p>
+      <button class="sf-btn primary tt-tap" type="button" :disabled="busy" @click="save">Set the clock</button>
     </div>
   </div>
 </template>

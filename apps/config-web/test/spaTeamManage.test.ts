@@ -399,7 +399,7 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(html).toMatch(/type="file" accept="image\/png,image\/jpeg,image\/webp"/);
     expect(html).toContain("up to 512 KB");
     expect(html).toContain("Race crest (no avatar yet)");
-    expect(html).toMatch(/<button type="button" class="lobby-btn primary" disabled[^>]*>Upload<\/button>/);
+    expect(html).toMatch(/<button type="button" class="sf-btn primary" disabled[^>]*>Upload<\/button>/);
     expect(html).not.toContain(">Remove<");
     expect(html).toMatch(/>Close<\/button>/);
     expect(html.indexOf('role="dialog"')).toBeGreaterThan(html.lastIndexOf('class="team-view tm-sheet"'));
@@ -486,7 +486,7 @@ describe("team management + My teams pages (server-rendered)", () => {
     expect(html).toContain('Value <b>160k</b><span class="tm-ps-break" title="Position cost + added value">(80+80)k</span>');
     // Add Skill greyed (not affordable), Add Stat greyed, Close
     expect(html).toMatch(/<button type="button" class="tm-act" data-kind="skill" disabled aria-disabled="true">Add Skill<\/button>/);
-    expect(html).toMatch(/<button type="button" class="lobby-btn" data-autofocus>Close<\/button>/);
+    expect(html).toMatch(/<button type="button" class="sf-btn" data-autofocus>Close<\/button>/);
   });
 
   it("My teams: coach-page panels, tiles linking to the management page, Avatars and Build a team panels", async () => {

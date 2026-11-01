@@ -385,9 +385,10 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
 </script>
 
 <template>
-  <section v-if="state.error && !state.loaded" class="lobby-card">
-    <p class="lobby-error" role="alert">{{ state.error }}</p>
-    <RouterLink to="/tabletop">Back to Tabletop</RouterLink>
+  <section v-if="state.error && !state.loaded" class="hm-panel sf-solo" aria-labelledby="tt-err-h">
+    <header class="hm-band"><h2 id="tt-err-h">Match unavailable</h2></header>
+    <p class="sf-error" role="alert">{{ state.error }}</p>
+    <div class="sf-actions"><RouterLink class="sf-btn" to="/tabletop">Back to Tabletop</RouterLink></div>
   </section>
   <p v-else-if="!match" class="muted">Loading...</p>
   <div v-else ref="recRoot" class="tt-rec" :data-tt-theme="theme" @pointerover="onTipOver($event); onCardOver($event)" @pointerout="tipClear(); onCardOut($event)" @pointerdown="onTipTouch($event); onCardTouch($event)" @pointerup="pcardCancel()" @pointercancel="pcardCancel()" @focusin="onTipFocus($event); onCardFocus($event)" @focusout="tipClear(); pcardClose()">
@@ -428,11 +429,11 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
       </div>
       <p v-if="match.confirmedBy" class="tt-match-row tt-admin-line" role="status">Confirmed for both by {{ match.confirmedBy.by }}<b class="tt-ev-admintag">ADMIN</b></p>
       <p v-if="matchRow" class="tt-match-row" :data-state="match.state" role="status">{{ matchRow }}</p>
-      <p v-for="r in state.rejected" :key="r.event.id" class="lobby-error" role="alert">
+      <p v-for="r in state.rejected" :key="r.event.id" class="sf-error" role="alert">
         Not saved: {{ r.error }}
-        <button class="lobby-btn small tt-tap" type="button" @click="rec.dismissRejected(r.event.id)">Dismiss</button>
+        <button class="sf-btn small tt-tap" type="button" @click="rec.dismissRejected(r.event.id)">Dismiss</button>
       </p>
-      <p v-if="state.error" class="lobby-error" role="alert">{{ state.error }}</p>
+      <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
 
       <TabletopPregame
         v-if="inPregame" :match="match" :teams="state.teams" :phase="state.phase" :pregame="state.pregame"
@@ -446,8 +447,8 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
         <section v-if="match.state === 'submitted' && mySide && !hasMvp(mySide)" class="tt-panel tt-late-mvp">
           <h3>Your MVP</h3>
           <p class="muted">The match is submitted; you can still record your own team's MVP. Saving it clears the confirmations so both coaches confirm the final result.</p>
-          <button class="lobby-btn tt-tap tt-pickbtn" type="button" @click="mvpFor = mySide">{{ mvpPick[mySide] ? pickedLabel(mySide, mvpPick[mySide], false) : "Pick your MVP" }}</button>
-          <button class="lobby-btn primary tt-tap" type="button" :disabled="!mvpPick[mySide] || state.busy" @click="saveLateMvp">Save MVP</button>
+          <button class="sf-btn tt-tap tt-pickbtn" type="button" @click="mvpFor = mySide">{{ mvpPick[mySide] ? pickedLabel(mySide, mvpPick[mySide], false) : "Pick your MVP" }}</button>
+          <button class="sf-btn primary tt-tap" type="button" :disabled="!mvpPick[mySide] || state.busy" @click="saveLateMvp">Save MVP</button>
         </section>
 
         <section class="tt-panel tt-confirm">
@@ -457,11 +458,11 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
               <span>{{ match[s].coach }}: {{ confirmedAt(match[s].coach) ? `confirmed ${hhmm(confirmedAt(match[s].coach))}` : "not confirmed yet" }}</span>
             </li>
           </ul>
-          <button v-if="canConfirm" class="lobby-btn primary tt-tap" type="button" :disabled="state.busy" @click="rec.confirm()">{{ organiser && !isParticipant ? "Confirm for both coaches" : "Confirm" }}</button>
+          <button v-if="canConfirm" class="sf-btn primary tt-tap" type="button" :disabled="state.busy" @click="rec.confirm()">{{ organiser && !isParticipant ? "Confirm for both coaches" : "Confirm" }}</button>
           <p v-else-if="match.state === 'submitted' && iConfirmed" class="muted">Waiting for your opponent.</p>
           <p v-if="match.state === 'confirmed'" role="status">Both coaches confirmed. The result is saved.</p>
-          <button v-if="organiser && match.state === 'confirmed'" class="lobby-btn tt-tap" type="button" :disabled="state.busy" @click="rec.undoRevision()">Undo revision (reopen match)</button>
-          <p v-if="state.actionError" class="lobby-error" role="alert">{{ state.actionError }}</p>
+          <button v-if="organiser && match.state === 'confirmed'" class="sf-btn tt-tap" type="button" :disabled="state.busy" @click="rec.undoRevision()">Undo revision (reopen match)</button>
+          <p v-if="state.actionError" class="sf-error" role="alert">{{ state.actionError }}</p>
         </section>
       </template>
 
@@ -526,7 +527,7 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
     <div v-if="sheet.open" class="tt-sheet" role="dialog" aria-label="Casualty">
       <TabletopSheetHead :title="`Casualty by ${casualtyBy}`" @close="sheet.open = false" />
       <p class="tt-pick-head tt-caption">Opponent</p>
-      <button class="lobby-btn tt-tap tt-pickbtn" type="button" @click="victimOpen = true">{{ sheet.victim ? pickedLabel(otherSide(sheet.side), sheet.victim, !organiser) : "Pick the victim" }}</button>
+      <button class="sf-btn tt-tap tt-pickbtn" type="button" @click="victimOpen = true">{{ sheet.victim ? pickedLabel(otherSide(sheet.side), sheet.victim, !organiser) : "Pick the victim" }}</button>
       <label for="cas-result">Result</label>
       <select id="cas-result" v-model="sheet.result"><option v-for="r in CASUALTY_RESULTS_UI" :key="r" :value="r">{{ r }}</option></select>
       <template v-if="sheet.result === 'stat loss'">
@@ -540,10 +541,10 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
         <option value="other">Other</option>
       </select>
       <label class="tt-check"><input v-model="sheet.apothecary" type="checkbox" /> Apothecary used</label>
-      <p v-if="sheetErr" class="lobby-error" role="alert">{{ sheetErr }}</p>
+      <p v-if="sheetErr" class="sf-error" role="alert">{{ sheetErr }}</p>
       <div class="tt-actions">
-        <button class="lobby-btn primary tt-tap" type="button" @click="saveSheet">Save casualty</button>
-        <button class="lobby-btn tt-tap" type="button" @click="sheet.open = false">Cancel</button>
+        <button class="sf-btn primary tt-tap" type="button" @click="saveSheet">Save casualty</button>
+        <button class="sf-btn tt-tap" type="button" @click="sheet.open = false">Cancel</button>
       </div>
     </div>
 
@@ -554,15 +555,15 @@ usePageTitle(() => (match.value ? `${match.value.home.teamName} vs ${match.value
         <p class="tt-pick-head tt-caption">MVP<template v-if="mvpSides.length > 1">: {{ match[s].teamName }}</template></p>
         <p v-if="hasMvp(s)" class="muted">Already recorded.</p>
         <template v-else>
-          <button class="lobby-btn tt-tap tt-pickbtn" type="button" @click="mvpFor = s">{{ mvpPick[s] ? pickedLabel(s, mvpPick[s], false) : "Pick an MVP (optional)" }}</button>
-          <button v-if="mvpPick[s]" class="lobby-btn tt-tap" type="button" @click="mvpPick[s] = ''">No MVP</button>
+          <button class="sf-btn tt-tap tt-pickbtn" type="button" @click="mvpFor = s">{{ mvpPick[s] ? pickedLabel(s, mvpPick[s], false) : "Pick an MVP (optional)" }}</button>
+          <button v-if="mvpPick[s]" class="sf-btn tt-tap" type="button" @click="mvpPick[s] = ''">No MVP</button>
         </template>
       </div>
       <div class="tt-actions">
-        <button class="lobby-btn primary tt-tap" type="button" :disabled="state.busy" @click="endAndSubmit">End and submit</button>
-        <button class="lobby-btn tt-tap" type="button" @click="endSheet = false">Keep recording</button>
+        <button class="sf-btn primary tt-tap" type="button" :disabled="state.busy" @click="endAndSubmit">End and submit</button>
+        <button class="sf-btn tt-tap" type="button" @click="endSheet = false">Keep recording</button>
       </div>
-      <p v-if="state.actionError" class="lobby-error" role="alert">{{ state.actionError }}</p>
+      <p v-if="state.actionError" class="sf-error" role="alert">{{ state.actionError }}</p>
     </div>
   </div>
 </template>

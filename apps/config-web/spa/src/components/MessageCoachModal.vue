@@ -44,11 +44,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
         <label class="tn-sr" for="nf-msg-text">Message</label>
         <textarea id="nf-msg-text" v-model="text" :maxlength="MESSAGE_MAX_CHARS" rows="6" placeholder="Write your message" :disabled="busy"></textarea>
         <span class="nf-count" :data-over="over ? 'true' : undefined">{{ length }} / {{ MESSAGE_MAX_CHARS }}</span>
-        <p v-if="error" class="lobby-error" role="alert">{{ error }}</p>
+        <p v-if="error" class="sf-error" role="alert">{{ error }}</p>
         <p v-if="sent" class="nf-sent" role="status">Sent.</p>
         <div class="tn-actions">
-          <button type="submit" class="lobby-btn primary" :disabled="busy || !text.trim() || over">{{ busy ? "Sending..." : "Send" }}</button>
-          <button type="button" class="lobby-btn" @click="emit('close')">Close</button>
+          <button type="submit" class="sf-btn primary" :disabled="busy || !text.trim() || over">{{ busy ? "Sending..." : "Send" }}</button>
+          <button type="button" class="sf-btn" @click="emit('close')">Close</button>
         </div>
       </form>
     </div>

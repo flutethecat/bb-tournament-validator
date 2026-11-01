@@ -167,7 +167,7 @@ describe("game page (SSR)", () => {
     expect(p).not.toContain("treasury");
     expect(p).toContain("SI");
     expect(p).toContain("+7 SPP");
-    expect(p).toMatch(/<a href="\/app\/tabletop\/tm1" class="lobby-btn">Open in the recorder<\/a>/);
+    expect(p).toMatch(/<a href="\/app\/tabletop\/tm1" class="sf-btn">Open in the recorder<\/a>/);
   });
 
   it("unknown, unsupported and failing games: friendly notes, never a stack trace", async () => {
