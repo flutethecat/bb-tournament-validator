@@ -8,8 +8,8 @@
  *   - "imported": a TourPlay-imported season keeps its exported table while no result changed on this site after the
  *     import (season.resultsChangedAt <= importedAt, or unset). Fully imported, finished seasons stay exactly as exported.
  *   - "computed": every other phase with games (manual seasons; imported seasons with a newer result).
- *   - knockout phases get no table: their games decide the podium instead. A phase is a knockout only by its explicit
- *     `format` or by its fixture structure (phaseFormat), never by its name: a round-robin "Finals week" stays a table.
+ *   - knockout phases get no table: their games decide the podium instead. A phase is a knockout only when an
+ *     organiser marked it (`format: "knockout"`); nothing is inferred from names or fixture structure.
  *
  * Points: the phase's own `points` when set, else W3 D1 L0 (DEFAULT_POINTS; no league setting exists yet).
  * Tiebreaks: the phase's own `tiebreaks` when set, else PTS, TD difference, CAS difference, head-to-head, name.
@@ -29,48 +29,29 @@ export const PODIUM_AWARD: Record<PodiumSlot, string> = { champion: "Overall Cha
 export const PODIUM_SLOTS: readonly PodiumSlot[] = ["champion", "runnerUp", "consolation"];
 
 /**
- * A phase is a table or a knockout. Never judged by its name: the phase's explicit `format` wins; a phase with an
- * imported table, the only phase of a season, or its first phase with games, is a table; playoffs end a season, so a phase followed by a table phase
- * with games (a pre-season before the regular season) is a table; otherwise the structure decides (knockoutStructure).
+ * A phase is a knockout only when an organiser marked it (`format: "knockout"`, Fixtures editor, Phases); every other
+ * phase is a table. Nothing is inferred from names or fixture structure.
  */
-export function phaseFormat(season: Pick<SeasonRecord, "phases" | "fixtures">, phase: LeaguePhase): "table" | "knockout" {
-  if (phase.format) return phase.format;
-  if (phase.standings.length || season.phases.length < 2) return "table";
-  const at = season.phases.findIndex((p) => p.id === phase.id);
-  // The season's first phase with games is its league table (regular season) unless its format says otherwise.
-  const firstPlayed = season.phases.findIndex((p) => season.fixtures.some((f) => f.phaseId === p.id));
-  if (at <= firstPlayed) return "table";
-  const laterTable = season.phases.slice(at + 1).some((p) => season.fixtures.some((f) => f.phaseId === p.id) && phaseFormat(season, p) === "table");
-  if (laterTable) return "table";
-  return knockoutStructure(season.fixtures.filter((f) => f.phaseId === phase.id)) ? "knockout" : "table";
-}
+export const phaseFormat = (phase: Pick<LeaguePhase, "format">): "table" | "knockout" => (phase.format === "knockout" ? "knockout" : "table");
 
 /**
- * Knockout by structure (all fixtures, played or not): no team plays twice in a round, and a team that lost in a round
- * has no fixture in a later round of the phase, except a third-place game in the last round between two earlier
- * losers.
+ * Hint only (never changes a classification): the fixtures look like a bracket. At least two rounds, each with fewer
+ * games than the one before, no team twice in a round, and one or two games in the last round.
  */
-export function knockoutStructure(fixtures: LeagueFixture[]): boolean {
-  if (!fixtures.length) return false;
+export function looksBracketLike(fixtures: LeagueFixture[]): boolean {
   const rounds = [...new Set(fixtures.map((f) => f.round))].sort((a, b) => a - b);
-  const last = rounds[rounds.length - 1]!;
-  const lostBy = new Map<string, number>();
+  if (rounds.length < 2) return false;
+  let prev = Infinity;
   for (const r of rounds) {
     const games = fixtures.filter((f) => f.round === r);
-    const seen = new Set<string>();
-    for (const f of games) {
-      for (const s of [f.home, f.away]) {
-        const k = teamKey(s);
-        if (seen.has(k)) return false;
-        seen.add(k);
-      }
-      const earlier = [f.home, f.away].filter((s) => lostBy.has(teamKey(s)));
-      if (earlier.length && !(r === last && earlier.length === 2)) return false;
-    }
-    for (const f of games) { const d = decided(f); if (d) lostBy.set(teamKey(d.loser), r); }
+    const keys = games.flatMap((f) => [teamKey(f.home), teamKey(f.away)]);
+    if (new Set(keys).size !== keys.length || games.length >= prev) return false;
+    prev = games.length;
   }
-  return true;
+  return prev <= 2;
 }
+
+export const KNOCKOUT_HINT = "Is the last phase a knockout? Mark it in the Fixtures editor (Phases) to use the final.";
 
 /** A result changed on this site after the TourPlay import (edited, entered or cleared; Super FUMBBL applied). */
 export const resultsChangedSinceImport = (s: Pick<SeasonRecord, "source" | "resultsChangedAt" | "importedAt">): boolean =>
@@ -241,7 +222,7 @@ export function deriveStandings(season: SeasonRecord): LeaguePhase[] {
   const live = resultsChangedSinceImport(season);
   return season.phases.map((phase) => {
     const fixtures = phaseFixtures(season, phase);
-    if (phaseFormat(season, phase) === "knockout") return { ...phase, format: "knockout" as const, standings: [] };
+    if (phaseFormat(phase) === "knockout") return { ...phase, standings: [] };
     let rows: StandingRow[];
     let stats: StandingsStat[];
     let source: "computed" | "imported";
@@ -296,6 +277,8 @@ export interface PodiumProposal {
   note: string;
   /** Every team the organiser may pick instead (the season's teams and table rows). */
   candidates: PodiumPlace[];
+  /** Optional one-line hint: the last phase looks like a bracket but is not marked as a knockout. */
+  hint?: string;
 }
 
 const placeOf = (r: { team: string; teamId?: string; coach: string; coachId?: string; race: string }): PodiumPlace => ({
@@ -346,7 +329,7 @@ type Bracket =
  * more games there mean the final is not scheduled yet. An unplayed or undecided final proposes nothing.
  */
 function bracketOf(season: SeasonRecord): Bracket {
-  const phases = season.phases.filter((p) => phaseFormat(season, p) === "knockout");
+  const phases = season.phases.filter((p) => phaseFormat(p) === "knockout");
   const games: Array<{ f: LeagueFixture; stage: number }> = [];
   phases.forEach((p, i) => { for (const f of season.fixtures) if (f.phaseId === p.id) games.push({ f, stage: i * 1000 + f.round }); });
   if (!games.length) return { state: "none" };
@@ -375,6 +358,14 @@ function bracketOf(season: SeasonRecord): Bracket {
 
 /** What Finish season proposes (the organiser may change it in the confirm dialog). Pure. */
 export function proposePodium(input: SeasonRecord): PodiumProposal {
+  const proposal = proposeFrom(input);
+  const last = [...input.phases].reverse().find((p) => input.fixtures.some((f) => f.phaseId === p.id));
+  if (proposal.decidedBy !== "imported" && last && phaseFormat(last) === "table" && looksBracketLike(input.fixtures.filter((f) => f.phaseId === last.id)))
+    return { ...proposal, hint: KNOCKOUT_HINT };
+  return proposal;
+}
+
+function proposeFrom(input: SeasonRecord): PodiumProposal {
   const season: SeasonRecord = { ...input, phases: deriveStandings(input) };
   const candidates = candidatesOf(season, season.phases);
   const byRef = new Map(candidates.map((c) => [c.ref, c]));

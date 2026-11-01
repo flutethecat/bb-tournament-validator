@@ -304,7 +304,7 @@ export interface LeaguePhase {
   standings: StandingRow[];
   /** Fixture-only phases whose games count in this phase's standings (e.g. Interdivision in Regular). */
   includes?: string[];
-  /** Table (league games) or knockout (playoff bracket); absent = inferred from the fixtures (standings.ts phaseFormat). */
+  /** Table (league games, the default) or knockout (playoff bracket): set only by an organiser (PATCH .../phases/:phaseId). */
   format?: "table" | "knockout";
   /** Points per result for computed standings (absent = W3 D1 L0, standings.ts DEFAULT_POINTS). */
   points?: { win: number; draw: number; loss: number };

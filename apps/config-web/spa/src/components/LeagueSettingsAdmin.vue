@@ -167,6 +167,7 @@ const openRedraft = (): void => { void router.push({ name: "league-redraft", par
       describedby="ls-finish-note" @close="confirmFinish = false" @submit="finish"
     >
       <p id="ls-finish-note" class="hm-small">{{ proposal.note }} Standings, results and honours are kept.</p>
+      <p v-if="proposal.hint" class="hm-small ls-finish-hint" role="note">{{ proposal.hint }}</p>
       <ol class="ls-podium" aria-label="Podium">
         <li v-for="(s, i) in SLOTS" :key="s.id" :data-slot="s.id">
           <span class="ls-podium-place" aria-hidden="true">{{ i + 1 }}</span>

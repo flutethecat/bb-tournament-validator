@@ -17,6 +17,7 @@
  *   GET    /api/leagues/:id/seasons/:seasonId/podium              the podium Finish season proposes (standings.ts) + candidates
  *   POST   /api/leagues/:id/seasons/:seasonId/finish              { podium?: { champion?, runnerUp?, consolation? } (team refs) } status -> completed, crowns the podium
  *   POST   /api/leagues/:id/seasons/:seasonId/reopen              a season finished here goes back in progress; its podium is cleared
+ *   PATCH  /api/leagues/:id/seasons/:seasonId/phases/:phaseId     { revision, format: "table" | "knockout" } mark a phase (standings / podium)
  *   PATCH  /api/leagues/:id/seasons/:seasonId/teams/:teamId       { revision, coachId, allSeasons? } assign a coach account (teamCoach.ts)
  *   PATCH  /api/leagues/:id/seasons/:seasonId/fixtures/:fixtureId { forkEnabled?, forkAllowLate?, forkCancelled? } Super FUMBBL per fixture
  *                                                                 { date?, round?, result? } fixtures editor (events.ts)
@@ -410,7 +411,7 @@ function isSettingsRoute(method: string, rest: string[]): boolean {
   if (first !== "seasons" || more.length) return false;
   if (second === undefined) return method !== "GET" && method !== "HEAD";
   return ((third === "finish" || third === "podium" || third === "reopen") && fourth === undefined) || (third === "fixtures" && fourth !== undefined)
-    || (third === "teams" && fourth !== undefined && method !== "GET" && method !== "HEAD");
+    || ((third === "teams" || third === "phases") && fourth !== undefined && method !== "GET" && method !== "HEAD");
 }
 
 /** Anonymous 401, unknown league 404, neither organiser nor admin 403. */
@@ -536,6 +537,10 @@ async function settingsRoute(
       if (third === "reopen") {
         if (method !== "POST") return { status: 405, body: { error: "Use POST." } };
         return reopenSeason(lg, second, deps);
+      }
+      if (third === "phases" && fourth) {
+        if (method !== "PATCH") return { status: 405, body: { error: "Use PATCH." } };
+        return setPhaseFormat(lg, second, fourth, who, input, deps);
       }
       if (third === "teams" && fourth) {
         if (method !== "PATCH") return { status: 405, body: { error: "Use PATCH." } };
@@ -755,6 +760,27 @@ async function finishSeason(league: LeagueRecord, seasonId: string, who: LeagueA
   deps.store.putSeason(season);
   await postMilestone(league, deps, buildMilestonePost(league, "season-finished", season.name));
   return { status: 200, body: { ok: true, season: seasonSummary(season) } };
+}
+
+/**
+ * An organiser marks a phase Table or Knockout (the only way a phase becomes a knockout). `revision` (or If-Match) is the
+ * season's revision as last read: 428 missing, 409 stale. The write bumps the revision, which invalidates the derived
+ * standings (standings.ts withStandings keys on it). Answers the season as the organiser now sees it.
+ */
+function setPhaseFormat(league: LeagueRecord, seasonId: string, phaseId: string, who: LeagueApiIdentity, input: Record<string, unknown>, deps: LeagueApiDeps): LeagueApiResult {
+  const season = deps.store.season(league.id, seasonId);
+  if (!season) return { status: 404, body: { error: "Season not found." } };
+  const phase = season.phases.find((p) => p.id === phaseId);
+  if (!phase) return { status: 404, body: { error: "Phase not found." } };
+  const current = season.revision ?? 0;
+  const asked = requestRevision(input, deps.ifMatch);
+  if (asked === "missing") return { status: 428, body: { error: "Send the season revision you loaded (revision or If-Match).", revision: current } };
+  if (asked === "bad") return { status: 400, body: { error: "revision must be a whole number.", field: "revision" } };
+  if (asked !== current) return { status: 409, body: { error: "This season changed since you opened it. Reload to see the latest.", revision: current } };
+  if (input.format !== "table" && input.format !== "knockout") throw new SettingsError(400, "format must be table or knockout.", "format");
+  if (input.format === "knockout") phase.format = "knockout"; else delete phase.format;
+  deps.store.putSeason(season);
+  return { status: 200, body: { ok: true, season: seasonForViewer(league, season, who) } };
 }
 
 /** Reopen a season finished on this site (it has a podium record): back in progress, podium awards and record removed. */

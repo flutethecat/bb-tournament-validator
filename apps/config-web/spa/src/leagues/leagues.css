@@ -166,6 +166,7 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
 .ls-podium > li[data-slot="runnerUp"] { border-left-color: var(--sf-seat-home); }
 .ls-podium-place { font: 500 22px/1 var(--font-heading); color: var(--sf-gold); text-align: center; padding-bottom: 6px; }
 .ls-podium-was { grid-column: 2; color: var(--ui-muted); font-size: 13px; }
+.ls-finish-hint { padding: 6px 8px; border-left: 3px solid var(--ui-warn); background: color-mix(in srgb, var(--ui-surface-2) 70%, transparent); }
 
 /* ---- fixtures */
 .lg-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }

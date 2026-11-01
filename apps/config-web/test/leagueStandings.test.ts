@@ -132,7 +132,7 @@ describe("podium proposal", () => {
 
   it("from the playoff final (and the third-place game) when a knockout phase exists", () => {
     const po = (h: string, a: string, hs: number, as: number, round: number): LeagueFixture => game(h, a, hs, as, { phaseId: "season-playoffs", phase: "PlayOffs", round });
-    const phases = [regular(), { id: "season-playoffs", category: "Season", name: "PlayOffs", groups: [], standings: [] }];
+    const phases = [regular(), { id: "season-playoffs", category: "Season", name: "PlayOffs", groups: [], standings: [], format: "knockout" as const }];
     const regularGames = [game("a", "b", 3, 0), game("a", "c", 3, 0), game("a", "d", 3, 0), game("b", "c", 1, 0)];
     // Semis: d beats a, c beats b. Final d-c (c wins); third place a-b (b wins).
     const withThird = manual([...regularGames, po("a", "d", 0, 1, 1), po("b", "c", 0, 1, 1), po("d", "c", 0, 2, 2), po("a", "b", 0, 1, 2)], { phases });
@@ -150,29 +150,31 @@ describe("podium proposal", () => {
   const inPhase = (id: string, name: string) => (h: string, a: string, hs: number | null, as: number | null, round: number): LeagueFixture =>
     game(h, a, hs, as, { phaseId: id, phase: name, round });
 
-  it("[review P2] knockout by format or structure, never by name: a round-robin Finals week stays a table", () => {
-    const fw = inPhase("season-finals-week", "Finals week");
-    const roundRobin = [fw("a", "b", 1, 0, 1), fw("c", "d", 1, 0, 1), fw("a", "c", 0, 1, 2), fw("b", "d", 1, 0, 2), fw("a", "d", 2, 0, 3), fw("b", "c", 1, 1, 3)];
-    const s = manual([game("a", "b", 1, 0), ...roundRobin], { phases: [regular(), phase("season-finals-week", "Finals week")] });
-    expect(phaseFormat(s, s.phases[1]!)).toBe("table");
-    expect(deriveStandings(s)[1]!.standings.map((r) => r.teamId)).toEqual(["c", "a", "b", "d"]);
-    // A neutral name with a bracket structure is a knockout; an explicit format always wins.
-    const ko = inPhase("season-stage-2", "Stage 2");
-    const bracket = manual([game("a", "b", 1, 0), ko("a", "d", 1, 0, 1), ko("b", "c", 1, 0, 1), ko("a", "b", null, null, 2)], { phases: [regular(), phase("season-stage-2", "Stage 2")] });
-    expect(phaseFormat(bracket, bracket.phases[1]!)).toBe("knockout");
-    expect(phaseFormat(bracket, { ...bracket.phases[1]!, format: "table" })).toBe("table");
-    expect(phaseFormat(s, { ...s.phases[1]!, format: "knockout" })).toBe("knockout");
-    // A phase followed by a table phase with games (playoffs end a season), or the only phase of a season, is a table.
-    const early = manual([ko("a", "b", 1, 0, 1), ko("c", "d", 1, 0, 1), game("a", "c", 1, 0)], { phases: [phase("season-stage-2", "Stage 2"), regular()] });
-    expect(phaseFormat(early, early.phases[0]!)).toBe("table");
-    expect(phaseFormat(manual([game("a", "b", 1, 0)]), regular())).toBe("table");
+  it("[review P2] a phase is a knockout only when marked; an unmarked cup stays a table and the dialog gets a hint", () => {
+    const cup = inPhase("season-cup", "Cup");
+    const bracket = [game("a", "b", 1, 0), cup("a", "d", 1, 0, 1), cup("b", "c", 0, 1, 1), cup("a", "c", 2, 1, 2)];
+    const unmarked = manual(bracket, { phases: [regular(), phase("season-cup", "Cup")] });
+    expect(phaseFormat(unmarked.phases[1]!)).toBe("table");
+    expect(deriveStandings(unmarked)[1]!.standings.map((r) => r.teamId)).toEqual(["a", "c", "b", "d"]);
+    const p = proposePodium(unmarked);
+    expect(p.decidedBy).toBe("standings");
+    expect(p.hint).toContain("Is the last phase a knockout?");
+    // Marked: the final decides, no hint.
+    const marked = proposePodium(manual(bracket, { phases: [regular(), phase("season-cup", "Cup", { format: "knockout" })] }));
+    expect([marked.decidedBy, marked.champion?.ref, marked.runnerUp?.ref, marked.hint]).toEqual(["playoff", "a", "c", undefined]);
+    // A three-team round-robin with byes (one game a round) is a table, with no hint.
+    const rr = inPhase("season-finals-week", "Finals week");
+    const robin = manual([game("a", "b", 1, 0), rr("a", "b", 1, 0, 1), rr("b", "c", 0, 1, 2), rr("a", "c", 1, 1, 3)], { phases: [regular(), phase("season-finals-week", "Finals week")] });
+    expect(phaseFormat(robin.phases[1]!)).toBe("table");
+    expect(deriveStandings(robin)[1]!.standings.map((r) => [r.teamId, r.points])).toEqual([["a", 4], ["c", 4], ["b", 0]]);
+    expect(proposePodium(robin).hint).toBeUndefined();
   });
 
   it("[review P2] the standings podium uses the last table phase, not a pre-season", () => {
     const pre = inPhase("season-pre", "PreSeason");
     const s = manual([pre("d", "a", 3, 0, 1), pre("c", "b", 3, 0, 1), pre("d", "c", 1, 0, 2), pre("a", "b", 1, 0, 2),
       game("a", "b", 2, 0), game("b", "c", 1, 0), game("a", "c", 1, 0), game("d", "c", 0, 1)], { phases: [phase("season-pre", "PreSeason"), regular()] });
-    expect(phaseFormat(s, s.phases[0]!)).toBe("table");
+    expect(phaseFormat(s.phases[0]!)).toBe("table");
     const p = proposePodium(s);
     expect(p.decidedBy).toBe("standings");
     expect(p.champion?.ref).toBe("a");
@@ -181,10 +183,10 @@ describe("podium proposal", () => {
   it("[review P2] a separate third-place phase sets only Consolation; the final decides the champion", () => {
     const po = inPhase("season-playoffs", "PlayOffs");
     const third = inPhase("season-third", "Third place");
-    const phases = [regular(), phase("season-playoffs", "PlayOffs"), phase("season-third", "Third place")];
+    const phases = [regular(), phase("season-playoffs", "PlayOffs", { format: "knockout" }), phase("season-third", "Third place", { format: "knockout" })];
     const bracket = [game("a", "b", 1, 0), po("a", "d", 0, 1, 1), po("b", "c", 0, 1, 1), po("d", "c", 2, 1, 2)];
     const s = manual([...bracket, third("a", "b", 0, 1, 1)], { phases });
-    expect(s.phases.map((p) => phaseFormat(s, p))).toEqual(["table", "knockout", "knockout"]);
+
     const p = proposePodium(s);
     expect([p.decidedBy, p.champion?.ref, p.runnerUp?.ref, p.consolation?.ref]).toEqual(["playoff", "d", "c", "b"]);
     // An unplayed third-place game leaves Consolation empty; the final still crowns.
@@ -195,7 +197,7 @@ describe("podium proposal", () => {
 
   it("[review P2] never proposes from an unfinished knockout", () => {
     const po = inPhase("season-playoffs", "PlayOffs");
-    const phases = [regular(), phase("season-playoffs", "PlayOffs")];
+    const phases = [regular(), phase("season-playoffs", "PlayOffs", { format: "knockout" })];
     const base = [game("a", "b", 3, 0), game("c", "d", 1, 0)];
     const unplayed = proposePodium(manual([...base, po("a", "d", 0, 1, 1), po("b", "c", 0, 1, 1), po("d", "c", null, null, 2)], { phases }));
     expect(unplayed).toMatchObject({ decidedBy: "pending" });
@@ -299,6 +301,29 @@ describe("standings and Finish season through the league API", () => {
     await call("POST", "/api/leagues/tabbl/seasons/season-7/finish", JAY, {});
     expect(store.season("tabbl", "season-7")!.podium).toMatchObject({ decidedBy: "standings", overridden: false });
     expect(store.season("tabbl", "season-7")!.awards.map((a) => a.team)).toEqual(["Alpha", "Charlie", "Delta"]);
+  });
+
+  it("phase format: organiser only, revision required (428 / 409), re-derives the standings and the podium", async () => {
+    store.putSeason(manual([game("a", "b", 2, 0), game("c", "d", 1, 0), game("a", "c", 0, 1, { phaseId: "season-playoffs", phase: "PlayOffs", round: 1 })], {
+      id: "season-8", number: 8, sourceSlug: "season-8", phases: [regular(), { id: "season-playoffs", category: "Season", name: "PlayOffs", groups: [], standings: [] }],
+    }));
+    const path = "/api/leagues/tabbl/seasons/season-8/phases/season-playoffs";
+    const rev = () => store.season("tabbl", "season-8")!.revision!;
+    expect((await call("PATCH", path, undefined, { revision: rev(), format: "knockout" })).status).toBe(401);
+    expect((await call("PATCH", path, MALLORY, { revision: rev(), format: "knockout" })).status).toBe(403);
+    expect((await call("PATCH", path, JAY, { format: "knockout" })).status).toBe(428);
+    expect((await call("PATCH", path, JAY, { revision: rev() - 1, format: "knockout" })).status).toBe(409);
+    expect((await call("PATCH", path, JAY, { revision: rev(), format: "cup" })).status).toBe(400);
+    expect((await call("PATCH", "/api/leagues/tabbl/seasons/season-8/phases/nope", JAY, { revision: rev(), format: "knockout" })).status).toBe(404);
+    expect((await readSeason("season-8")).phases[1]!.standings.length).toBe(2); // unmarked: a table
+    const ok = await call("PATCH", path, JAY, { revision: rev(), format: "knockout" });
+    expect(ok.status).toBe(200);
+    expect((ok.body as { season: SeasonRecord }).season.phases[1]).toMatchObject({ format: "knockout", standings: [] });
+    expect((await readSeason("season-8")).phases[1]!.standings).toEqual([]);
+    const prop = (await call("GET", "/api/leagues/tabbl/seasons/season-8/podium", JAY)).body as { proposal: { decidedBy: string; champion?: { ref: string } } };
+    expect(prop.proposal).toMatchObject({ decidedBy: "playoff", champion: { ref: "c" } });
+    await call("PATCH", path, JAY, { revision: rev(), format: "table" });
+    expect(store.season("tabbl", "season-8")!.phases[1]!.format).toBeUndefined();
   });
 
   it("a season with an imported champion keeps it; an override is refused", async () => {

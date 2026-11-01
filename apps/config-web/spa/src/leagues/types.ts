@@ -298,6 +298,8 @@ export interface PodiumProposal {
   decidedBy: "playoff" | "standings" | "imported" | "pending" | "none";
   note: string;
   candidates: PodiumPlace[];
+  /** One-line hint: the last phase looks like a bracket but is not marked as a knockout. */
+  hint?: string;
 }
 
 export interface UnattributedStats { team: string; teamId?: string; name: string; position: string; stats: PlayerSeasonStats; reason: string; /** playerIds the total could belong to (absent on files imported before ids existed). */ candidates?: string[] }

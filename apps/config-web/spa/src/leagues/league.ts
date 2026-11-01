@@ -226,6 +226,11 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
         const s = state.season[seasonId];
         if (s) s.fixtures = s.fixtures.filter((f) => f.id !== id);
       }, "Fixture deleted."),
+    /** Organisers: mark a phase Table or Knockout (season revision sent; the server answers the re-derived season). */
+    setPhaseFormat: (seasonId: string, phaseId: string, format: "table" | "knockout") =>
+      edit(`phase:${phaseId}`, () => deps.api<{ season: SeasonRecord }>(`${seasonPath(seasonId)}/phases/${encodeURIComponent(phaseId)}`, {
+        method: "PATCH", body: { revision: state.season[seasonId]?.revision ?? 0, format },
+      }), (res) => { state.season[seasonId] = res.season; }, format === "knockout" ? "Phase marked as a knockout." : "Phase marked as a table."),
     /** Organisers: coach-name lookup against the identities (the Administration tab's lookup). */
     async lookupCoaches(q: string): Promise<string[]> {
       if (q.trim().length < 2) return [];

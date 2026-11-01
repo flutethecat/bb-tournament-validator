@@ -494,6 +494,30 @@ describe("league settings routes (server-rendered)", () => {
     expect(html).toContain('data-award="Runner-up"');
   });
 
+  it("Fixtures editor: a Phases control marks each phase Table or Knockout", async () => {
+    const twoPhases = () => ({ league: league(), season: { ...season6(), phases: [
+      { id: "season-regular", category: "Season", name: "Regular", groups: [""], standings: [] },
+      { id: "season-cup", category: "Season", name: "Cup", groups: [], standings: [], format: "knockout" },
+    ] } });
+    const { html } = await render("/leagues/tabbl?tab=fixtures", detail, ORGANISER, { "/api/leagues/tabbl/seasons/season-6": twoPhases });
+    expect(html).toContain(">Phases</h3>");
+    expect(html).toMatch(/data-phase="season-regular"><span>Regular<\/span><select[^>]*><option value="table" selected>Table<\/option><option value="knockout"/);
+    expect(html).toMatch(/data-phase="season-cup">[\s\S]*?<option value="knockout" selected>Knockout/);
+    expect((await render("/leagues/tabbl?tab=fixtures", detail, COACH)).html).not.toContain(">Phases</h3>");
+  });
+
+  it("league detail: setPhaseFormat sends the season revision and takes the re-derived season", async () => {
+    const fresh = { ...season6(), revision: 8, phases: [{ id: "season-regular", category: "Season", name: "Regular", groups: [""], standings: [], format: "knockout" }] };
+    const f = mockFetcher({ ...API, "PATCH /api/leagues/tabbl/seasons/season-6/phases/season-regular": { ok: true, season: fresh } });
+    const d = createLeagueDetail({ api: f });
+    await d.load("tabbl");
+    await d.ensureSeason("season-6");
+    expect(await d.setPhaseFormat("season-6", "season-regular", "knockout")).toBe(true);
+    expect(f.calls.at(-1)).toMatchObject({ method: "PATCH", body: { revision: 0, format: "knockout" } });
+    expect(d.state.season["season-6"]!.phases[0]!.format).toBe("knockout");
+    expect(d.state.editNotice).toBe("Phase marked as a knockout.");
+  });
+
   it("Administration: Reopen shows for a season finished here", async () => {
     const done: SeasonSummary = { ...s5, finishedHere: true };
     const { html } = await render("/leagues/tabbl/settings", loaded({ "/api/leagues/tabbl": { league: league(), seasons: [done, s6] } }), ORGANISER);

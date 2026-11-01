@@ -2,7 +2,8 @@
 // League page, Fixtures tab, organisers and site admins: the fixtures editor. Add a fixture (home / away from the
 // season's teams, round, phase, date, test flag), then per fixture: change the date, enter or clear the result
 // (score and casualties), delete one without a result. Creating a fixture posts "Fixture created" and a new result
-// posts "Match result" to the league's Discord channel when those events are on.
+// posts "Match result" to the league's Discord channel when those events are on. Phases: mark each phase Table (league
+// standings, the default) or Knockout (no table; its final decides the podium). Nothing is inferred.
 import { computed, inject, reactive, ref, watch } from "vue";
 import { createFixtureRows, fixturePlayed, LEAGUE_DETAIL_KEY, newFixtureError, type FixtureRowEdit, type NewFixtureForm } from "../leagues/league";
 import type { LeagueFixture, SeasonRecord } from "../leagues/types";
@@ -52,6 +53,12 @@ async function clearResult(f: LeagueFixture): Promise<void> {
   mine.value = true;
   if (await detail.editFixture(props.season.id, f.id, { result: null })) edits.drop(props.season.id, f.id);
 }
+// Phase format: the select shows the saved value; a change saves at once (the server answers the re-derived season).
+const phaseBusy = computed(() => state.editBusy.startsWith("phase:"));
+async function setFormat(phaseId: string, value: string): Promise<void> {
+  mine.value = true;
+  await detail.setPhaseFormat(props.season.id, phaseId, value === "knockout" ? "knockout" : "table");
+}
 const confirming = ref("");
 async function remove(f: LeagueFixture): Promise<void> {
   mine.value = true;
@@ -85,6 +92,17 @@ async function remove(f: LeagueFixture): Promise<void> {
       <p v-if="problem && (form.home || form.away)" class="ls-field-error" role="alert">{{ problem }}</p>
       <div class="ls-actions"><button class="sf-btn primary" type="submit" :disabled="Boolean(problem) || busy">Add fixture</button></div>
     </form>
+    <div v-if="season.phases.length" class="ls-sub" aria-labelledby="lg-fx-ph-h">
+      <h3 id="lg-fx-ph-h" class="ls-sub-h">Phases</h3>
+      <p class="hm-small hm-empty">A knockout phase has no table: its final decides Champion and Runner-up, a third-place game decides Consolation.</p>
+      <div class="ls-inline">
+        <label v-for="p in season.phases" :key="p.id" class="ls-field" :data-phase="p.id"><span>{{ p.name }}</span>
+          <select :disabled="phaseBusy" @change="setFormat(p.id, ($event.target as HTMLSelectElement).value)">
+            <option value="table" :selected="p.format !== 'knockout'">Table</option><option value="knockout" :selected="p.format === 'knockout'">Knockout</option>
+          </select>
+        </label>
+      </div>
+    </div>
     <p v-if="mine && state.editError" class="sf-error" role="alert">{{ state.editError }}</p>
     <p v-else-if="mine && state.editNotice" class="hm-notice" role="status">{{ state.editNotice }}</p>
     <template v-if="season.fixtures.length">
