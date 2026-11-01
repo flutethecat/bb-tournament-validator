@@ -77,8 +77,8 @@ function save(): void {
       <p class="hm-small hm-empty">Mark paid, validate and check in coaches from a season's Participants tab.</p>
     </section>
     <div class="ls-actions ls-savebar">
-      <button class="ls-btn primary" type="submit" :disabled="!valid || state.busy === 'registrations'">Save registrations</button>
-      <p v-if="state.errors.registrations" class="ls-error" role="alert">{{ state.errors.registrations }}</p>
+      <button class="sf-btn primary" type="submit" :disabled="!valid || state.busy === 'registrations'">Save registrations</button>
+      <p v-if="state.errors.registrations" class="sf-error" role="alert">{{ state.errors.registrations }}</p>
       <p v-else-if="state.notices.registrations" class="hm-notice" role="status">{{ state.notices.registrations }}</p>
     </div>
   </form>

@@ -30,7 +30,7 @@ const title = computed(() => (view.value ? `Redraft: ${view.value.name}` : "Redr
     <p v-if="state.denied === 'forbidden'" role="alert">This is not your team: only its coach and the league organisers can see its redraft.</p>
     <p v-else-if="state.denied === 'missing'" role="alert">There is no redraft for this team.</p>
     <p v-else-if="state.denied === 'signin'" role="alert">Sign in to see your redraft.</p>
-    <p v-else-if="state.error" class="ls-error" role="alert">{{ state.error }}</p>
+    <p v-else-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
     <p v-else-if="!view" class="hm-empty" role="status">Loading the redraft...</p>
     <template v-else>
       <p class="rd-sum">{{ view.race }} · from {{ view.sourceSeason.name }} · {{ view.targetSeason ? `next season: ${view.targetSeason.name}` : "kept until the next season starts" }}</p>
@@ -69,9 +69,9 @@ const title = computed(() => (view.value ? `Redraft: ${view.value.name}` : "Redr
           </li>
         </ul>
         <div class="ls-actions">
-          <button class="ls-btn primary" type="button" data-autofocus :disabled="busy" @click="team.rollForMe()">Roll for me</button>
-          <button v-if="!entering" class="ls-btn" type="button" :disabled="busy" @click="entering = true">Enter result</button>
-          <button v-else class="ls-btn" type="button" :disabled="busy || !team.enteredComplete()" @click="team.enterResults()">Save results</button>
+          <button class="sf-btn primary" type="button" data-autofocus :disabled="busy" @click="team.rollForMe()">Roll for me</button>
+          <button v-if="!entering" class="sf-btn" type="button" :disabled="busy" @click="entering = true">Enter result</button>
+          <button v-else class="sf-btn" type="button" :disabled="busy || !team.enteredComplete()" @click="team.enterResults()">Save results</button>
         </div>
       </section>
 
@@ -136,7 +136,7 @@ const title = computed(() => (view.value ? `Redraft: ${view.value.name}` : "Redr
         </ul>
         <div class="ls-actions ls-savebar">
           <span class="rd-totals">{{ totals.players }} players · {{ goldK(totals.keepCost) }} re-hires · {{ goldK(totals.hireCost) }} new · {{ goldK(totals.staffCost) }} staff</span>
-          <button class="ls-btn primary" type="button" :disabled="busy || totals.problems.length > 0" @click="team.submit()">Submit draft list</button>
+          <button class="sf-btn primary" type="button" :disabled="busy || totals.problems.length > 0" @click="team.submit()">Submit draft list</button>
         </div>
       </template>
 
@@ -151,7 +151,7 @@ const title = computed(() => (view.value ? `Redraft: ${view.value.name}` : "Redr
         </p>
       </section>
 
-      <p v-if="state.message" class="ls-error" role="alert">{{ state.message }}</p>
+      <p v-if="state.message" class="sf-error" role="alert">{{ state.message }}</p>
     </template>
   </LeagueDialog>
 </template>

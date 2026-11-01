@@ -42,8 +42,8 @@ async function clear(): Promise<void> {
       </label>
       <label class="ls-check"><input v-model="allSeasons" type="checkbox" :disabled="busy" /> All seasons of this team</label>
       <div class="ls-actions">
-        <button class="ls-btn primary" type="submit" :disabled="busy || !name.trim() || unchanged">Assign</button>
-        <button v-if="team.coachId" class="ls-btn" type="button" :disabled="busy" @click="clear">Clear</button>
+        <button class="sf-btn primary" type="submit" :disabled="busy || !name.trim() || unchanged">Assign</button>
+        <button v-if="team.coachId" class="sf-btn" type="button" :disabled="busy" @click="clear">Clear</button>
       </div>
     </div>
     <datalist :id="listId"><option v-for="h in hits" :key="h" :value="h" /></datalist>
@@ -52,7 +52,7 @@ async function clear(): Promise<void> {
       <template v-else>No Super FUMBBL account linked.</template>
       The account is seated on this team's fixtures without a result.
     </p>
-    <p v-if="mine && state.editError" class="ls-error" role="alert">{{ state.editError }}</p>
+    <p v-if="mine && state.editError" class="sf-error" role="alert">{{ state.editError }}</p>
     <p v-else-if="mine && state.editNotice" class="hm-notice" role="status">{{ state.editNotice }}</p>
   </form>
 </template>

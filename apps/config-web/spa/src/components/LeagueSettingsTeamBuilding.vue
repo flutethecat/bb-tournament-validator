@@ -80,7 +80,7 @@ function save(): void {
               <td><input v-model.number="r.startingSkills.secondary" type="number" min="0" max="6" inputmode="numeric" :aria-label="`${r.roster} secondary starting skills`" /></td>
               <td><input v-model.number="r.startingSkills.elite" type="number" min="0" max="6" inputmode="numeric" :aria-label="`${r.roster} elite starting skills`" /></td>
               <td>
-                <button class="ls-btn small" type="button" :disabled="Boolean(state.busy)" :title="`Copy ${r.roster}'s treasury and starting skills to every tier ${r.tier} roster`"
+                <button class="sf-btn small" type="button" :disabled="Boolean(state.busy)" :title="`Copy ${r.roster}'s treasury and starting skills to every tier ${r.tier} roster`"
                   :aria-label="`Apply ${r.roster}'s treasury and starting skills to all rosters in tier ${r.tier}`" @click="askFill(r.roster)">Apply to all rosters in this tier</button>
               </td>
             </tr>
@@ -90,17 +90,17 @@ function save(): void {
       <p v-if="problem" class="ls-field-error" role="alert">{{ problem }}</p>
       <p v-if="fillNotice" class="hm-notice" role="status">{{ fillNotice }}</p>
       <div class="ls-actions ls-savebar">
-        <button class="ls-btn primary" type="submit" :disabled="!dirty || Boolean(problem) || state.busy === 'teamBuilding'">Save team building</button>
-        <button class="ls-btn" type="button" :disabled="!dirty" @click="rows = fromView()">Reset</button>
-        <p v-if="state.errors.teamBuilding" class="ls-error" role="alert">{{ state.errors.teamBuilding }}</p>
+        <button class="sf-btn primary" type="submit" :disabled="!dirty || Boolean(problem) || state.busy === 'teamBuilding'">Save team building</button>
+        <button class="sf-btn" type="button" :disabled="!dirty" @click="rows = fromView()">Reset</button>
+        <p v-if="state.errors.teamBuilding" class="sf-error" role="alert">{{ state.errors.teamBuilding }}</p>
         <p v-else-if="state.notices.teamBuilding" class="hm-notice" role="status">{{ state.notices.teamBuilding }}</p>
       </div>
     </form>
     <LeagueDialog v-if="pendingFill" id="ls-fill-h" :title="`Apply to tier ${pendingFill.tier}`" role="alertdialog" describedby="ls-fill-d" @close="pendingFill = null">
       <p id="ls-fill-d">This overwrites values already set on {{ pendingFill.overwrites.join(", ") }} with {{ pendingFill.roster }}'s treasury and starting skills.</p>
       <template #foot>
-        <button class="ls-btn" type="button" @click="pendingFill = null">Cancel</button>
-        <button class="ls-btn danger" type="button" data-autofocus @click="doFill(pendingFill.roster)">Overwrite them</button>
+        <button class="sf-btn" type="button" @click="pendingFill = null">Cancel</button>
+        <button class="sf-btn danger" type="button" data-autofocus @click="doFill(pendingFill.roster)">Overwrite them</button>
       </template>
     </LeagueDialog>
   </section>

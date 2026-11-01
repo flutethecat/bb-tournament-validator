@@ -38,7 +38,7 @@ const setFork = (e: Event) => settings.save("connections", { playOnFork: (e.targ
     <section class="hm-panel ls-disabled" aria-labelledby="ls-naf-h" aria-disabled="true">
       <header class="hm-band"><h2 id="ls-naf-h">NAF results report</h2><span class="hm-cap">Tournaments only</span></header>
       <p>{{ c.naf.note }}</p>
-      <div class="ls-actions"><button class="ls-btn" type="button" disabled>Export NAF report</button></div>
+      <div class="ls-actions"><button class="sf-btn" type="button" disabled>Export NAF report</button></div>
     </section>
 
     <section class="hm-panel" aria-labelledby="ls-export-h">
@@ -52,7 +52,7 @@ const setFork = (e: Event) => settings.save("connections", { playOnFork: (e.targ
             <option v-for="s in state.seasons" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
         </label>
-        <a class="ls-btn primary" :href="exportHref" download>Download results</a>
+        <a class="sf-btn primary" :href="exportHref" download>Download results</a>
       </div>
     </section>
 
@@ -66,20 +66,20 @@ const setFork = (e: Event) => settings.save("connections", { playOnFork: (e.targ
           <input v-model="url" type="password" autocomplete="off" spellcheck="false" maxlength="300" placeholder="https://discord.com/api/webhooks/..." />
           <small v-if="urlError" class="ls-field-error">{{ urlError }}</small>
         </label>
-        <button class="ls-btn primary" type="submit" :disabled="!url.trim() || Boolean(urlError) || busy">Save webhook</button>
-        <button v-if="c.discord.configured" class="ls-btn danger" type="button" :disabled="busy" @click="clearUrl">Remove</button>
+        <button class="sf-btn primary" type="submit" :disabled="!url.trim() || Boolean(urlError) || busy">Save webhook</button>
+        <button v-if="c.discord.configured" class="sf-btn danger" type="button" :disabled="busy" @click="clearUrl">Remove</button>
       </form>
-      <p v-if="state.errors.discord" class="ls-error" role="alert">{{ state.errors.discord }}</p>
+      <p v-if="state.errors.discord" class="sf-error" role="alert">{{ state.errors.discord }}</p>
       <p v-else-if="state.notices.discord" class="hm-notice" role="status">{{ state.notices.discord }}</p>
       <fieldset class="ls-toggles">
         <legend class="ls-k">Post when</legend>
         <label v-for="k in eventKeys" :key="k" class="ls-check"><input v-model="events[k]" type="checkbox" /> {{ DISCORD_EVENT_LABEL[k] }}</label>
       </fieldset>
       <div class="ls-actions">
-        <button class="ls-btn" type="button" :disabled="!eventsDirty || busy" @click="saveEvents">Save events</button>
-        <button class="ls-btn" type="button" :disabled="!c.discord.configured || busy" @click="settings.testDiscord()">Send test post</button>
+        <button class="sf-btn" type="button" :disabled="!eventsDirty || busy" @click="saveEvents">Save events</button>
+        <button class="sf-btn" type="button" :disabled="!c.discord.configured || busy" @click="settings.testDiscord()">Send test post</button>
       </div>
-      <p v-if="state.errors['discord-events'] || state.errors['discord-test']" class="ls-error" role="alert">{{ state.errors['discord-events'] || state.errors['discord-test'] }}</p>
+      <p v-if="state.errors['discord-events'] || state.errors['discord-test']" class="sf-error" role="alert">{{ state.errors['discord-events'] || state.errors['discord-test'] }}</p>
       <p v-else-if="state.notices['discord-events'] || state.notices['discord-test']" class="hm-notice" role="status">{{ state.notices['discord-events'] || state.notices['discord-test'] }}</p>
     </section>
 
@@ -90,7 +90,7 @@ const setFork = (e: Event) => settings.save("connections", { playOnFork: (e.targ
         Let league games be played on Super FUMBBL
       </label>
       <p class="hm-small hm-empty">When on, league admins allow single fixtures on the Fixtures tab; both coaches and the organisers are notified.</p>
-      <p v-if="state.errors.fork" class="ls-error" role="alert">{{ state.errors.fork }}</p>
+      <p v-if="state.errors.fork" class="sf-error" role="alert">{{ state.errors.fork }}</p>
       <p v-else-if="state.notices.fork" class="hm-notice" role="status">{{ state.notices.fork }}</p>
     </section>
   </div>

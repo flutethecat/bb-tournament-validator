@@ -50,7 +50,7 @@ usePageTitle(() => (state.view?.leagueName ? `${state.view.leagueName} redraft` 
   <div class="hm-page lg-page ls-page">
     <RouterLink class="tn-back lg-back" :to="{ name: 'league-settings', params: { id } }">Back to League settings</RouterLink>
 
-    <p v-if="state.error" class="ls-error" role="alert">{{ state.error }}</p>
+    <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
     <section v-else-if="state.denied" class="hm-panel" aria-labelledby="rd-mine-h">
       <header class="hm-band"><h2 id="rd-mine-h">Your redraft</h2></header>
       <p v-if="state.denied === 'signin'">Sign in to see the redraft.</p>
@@ -61,7 +61,7 @@ usePageTitle(() => (state.view?.leagueName ? `${state.view.leagueName} redraft` 
           <li v-for="t in myHere" :key="t.teamId">
             <span class="rd-badge" :data-status="t.status">{{ STATUS_LABEL[t.status] }}</span>
             {{ t.teamName }} ({{ t.race }}) · budget {{ goldK(t.spendable) }}
-            <button type="button" class="ls-btn small" @click="openTeam(t.teamId)">{{ t.status === "pending" ? "Start redraft" : "View" }}</button>
+            <button type="button" class="sf-btn small" @click="openTeam(t.teamId)">{{ t.status === "pending" ? "Start redraft" : "View" }}</button>
           </li>
         </ul>
       </template>

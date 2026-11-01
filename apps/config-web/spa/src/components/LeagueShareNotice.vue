@@ -31,10 +31,10 @@ const league = computed(() => sharing.pending());
         :legend="`What else the organisers of ${league.name} can see`" @update:model-value="(v) => sharing.setFields(league!.id, v)"
       />
       <p class="muted hm-small ls-notice-help">If you don't share, you stay on your team; the organisers see only your coach name and NAF details. You can change this on your Account page.</p>
-      <p v-if="state.error" class="ls-error hm-small" role="alert">{{ state.error }}</p>
+      <p v-if="state.error" class="sf-error hm-small" role="alert">{{ state.error }}</p>
       <div class="ob-actions">
-        <button class="ls-btn primary" type="button" :disabled="state.ticked !== league.id || Boolean(state.busy)" @click="sharing.share(league.id)">{{ state.busy === league.id ? "Saving…" : "Share" }}</button>
-        <button class="ls-btn" type="button" :disabled="Boolean(state.busy)" @click="sharing.decline(league.id)">Don't share</button>
+        <button class="sf-btn primary" type="button" :disabled="state.ticked !== league.id || Boolean(state.busy)" @click="sharing.share(league.id)">{{ state.busy === league.id ? "Saving…" : "Share" }}</button>
+        <button class="sf-btn" type="button" :disabled="Boolean(state.busy)" @click="sharing.decline(league.id)">Don't share</button>
       </div>
     </div>
   </section>

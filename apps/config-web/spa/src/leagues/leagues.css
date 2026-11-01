@@ -206,36 +206,13 @@
 .lg-fx-table .lg-fork-switch { min-height: 32px; margin-left: 4px; }
 
 /* ==== League organiser primitives (settings, fixtures editor, redraft, news, messages, advancement dialog) ====
-   design.md §5 in the league's own namespace so the tournament and account lanes' classes stay theirs:
-   .ls-btn (secondary) / .ls-btn.primary / .ls-btn.danger / .ls-btn.small, .ls-error, .ls-sub (a nested section with a
-   small band), and the dialog frame .ls-dialog-backdrop > .ls-dialog > .hm-band + .ls-dialog-body + .ls-dialog-foot.
-   Tokens only. */
-.ls-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; box-sizing: border-box; margin: 0; padding: 0 16px;
-  font: 12px/1.2 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; text-decoration: none; text-align: center; white-space: nowrap; cursor: pointer;
-  color: var(--ui-text); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface-2);
-  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop);
-}
-.ls-btn.small { min-height: 36px; padding: 0 10px; font-size: 11px; letter-spacing: .08em; }
-.ls-btn:hover:not(:disabled) { border-color: var(--ui-heading); }
-.ls-btn:active:not(:disabled) { transform: translateY(1px); box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 1px 0 var(--sf-panel-drop); }
-.ls-btn:focus-visible, .ls-btn:has(input:focus-visible) { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
-.ls-btn.primary {
-  color: var(--ui-text-on-primary); background: var(--ui-primary);
-  border-color: color-mix(in srgb, var(--ui-primary) 60%, var(--sf-panel-drop)); box-shadow: var(--sf-bevel), 0 3px 0 color-mix(in srgb, var(--ui-primary) 45%, var(--sf-panel-drop));
-}
-.ls-btn.primary:hover:not(:disabled) { border-color: var(--ui-heading); }
-.ls-btn.danger {
-  color: var(--ui-on-danger); background: var(--ui-danger);
-  border-color: color-mix(in srgb, var(--ui-danger) 60%, var(--sf-panel-drop)); box-shadow: var(--sf-bevel), 0 3px 0 color-mix(in srgb, var(--ui-danger) 40%, var(--sf-panel-drop));
-}
-.ls-btn.danger:hover:not(:disabled) { border-color: var(--ui-text); }
-/* Disabled: flat and readable (muted ink on the field fill, dashed edge), never a dark blob. */
-.ls-btn:disabled, .ls-btn.primary:disabled, .ls-btn.danger:disabled, .ls-btn:has(input:disabled) {
-  cursor: not-allowed; transform: none; color: var(--ui-muted); background: var(--ui-surface-2); border: 2px dashed var(--sf-panel-line); box-shadow: none;
-}
-.ls-error { margin: 0; color: var(--ui-danger); font-size: 14px; }
-.hm-panel > .ls-error, .hm-panel > .hm-notice { margin-top: 10px; margin-bottom: 0; }
+   Buttons, errors, tabs and tables are the shared controls in home/home.css (.sf-btn / .sf-error / .lg-tabs / .lg-table).
+   Here, in the league's own namespace: .ls-sub (a nested section with a small band) and the dialog frame
+   .ls-dialog-backdrop > .ls-dialog > .hm-band + .ls-dialog-body + .ls-dialog-foot (LeagueDialog.vue). Tokens only. */
+/* A file input wrapped in a button label: focus ring and disabled look follow the input. */
+.sf-btn.lg-file:has(input:focus-visible) { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.sf-btn.lg-file:has(input:disabled) { cursor: not-allowed; transform: none; color: var(--ui-muted); background: var(--ui-surface-2); border: 2px dashed var(--sf-panel-line); box-shadow: none; }
+.hm-panel > .sf-error, .hm-panel > .hm-notice { margin-top: 10px; margin-bottom: 0; }
 
 /* Nested section inside a panel: field fill, line border, 4px edge, small band-font title. */
 .ls-sub {
@@ -282,7 +259,7 @@
 @media (max-width: 640px) {
   .ls-dialog-backdrop { padding: 0; place-items: stretch; }
   .ls-dialog, .ls-dialog.wide { width: 100%; max-height: none; height: 100dvh; border-width: 0; border-radius: 0; }
-  .ls-dialog-foot .ls-btn { flex: 1 1 auto; }
+  .ls-dialog-foot .sf-btn { flex: 1 1 auto; }
 }
 /* ==== end of the league organiser primitives ==== */
 
@@ -353,7 +330,7 @@
   .ls-tabs { justify-self: stretch; }
   .ls-tabs .lg-tab { padding: 0 10px; }
   .ls-inline .ls-field { max-width: none; }
-  .ls-inline > .ls-btn { flex: 1 1 auto; }
+  .ls-inline > .sf-btn { flex: 1 1 auto; }
   .lg-cog { margin-left: 0; }
 }
 
@@ -438,7 +415,7 @@
 .lg-fx-date { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .lg-fx-date input { width: auto; min-width: 150px; }
 .lg-fx-edit-table td.ls-actions { display: table-cell; white-space: nowrap; text-align: right; }
-.lg-fx-edit-table td.ls-actions .ls-btn + .ls-btn { margin-left: 6px; }
+.lg-fx-edit-table td.ls-actions .sf-btn + .sf-btn { margin-left: 6px; }
 .lg-fx-score-edit { white-space: nowrap; }
 .lg-fx-score-edit input { width: 56px; }
 .lg-fx-score-edit span { padding: 0 4px; color: var(--ui-muted); }

@@ -43,7 +43,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
       </div>
     </div>
 
-    <p v-if="state.error" class="ls-error" role="alert">{{ state.error }}</p>
+    <p v-if="state.error" class="sf-error" role="alert">{{ state.error }}</p>
     <section v-else-if="state.denied" class="hm-panel" aria-labelledby="ls-denied-h">
       <header class="hm-band"><h2 id="ls-denied-h">Not one of yours</h2></header>
       <p v-if="state.denied === 'forbidden'">This league is not one of yours: only its organisers and site admins can change its settings.</p>

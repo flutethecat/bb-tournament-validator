@@ -70,7 +70,7 @@ function keepFocus(): void {
               <template v-if="progress.methods.randomPrimary.available">
                 <p class="muted">Pick a category: two skills are rolled from it and you keep one. The SPP is spent when you roll.</p>
                 <div class="tm-choices">
-                  <button v-for="c in progress.primaryCategories" :key="c" type="button" class="ls-btn small" :disabled="flow.busy" @click="manage.rollRandomPrimary(c)">{{ c }}</button>
+                  <button v-for="c in progress.primaryCategories" :key="c" type="button" class="sf-btn small" :disabled="flow.busy" @click="manage.rollRandomPrimary(c)">{{ c }}</button>
                 </div>
               </template>
               <p v-else class="muted">{{ progress.methods.randomPrimary.reason }}</p>
@@ -83,7 +83,7 @@ function keepFocus(): void {
                   <option value="" disabled>Choose a skill</option>
                   <option v-for="s in progress.primarySkills" :key="s" :value="s">{{ s }}</option>
                 </select>
-                <button type="submit" class="ls-btn primary" :disabled="flow.busy || !chosen">Add skill</button>
+                <button type="submit" class="sf-btn primary" :disabled="flow.busy || !chosen">Add skill</button>
               </form>
               <p v-else class="muted">{{ progress.methods.chosenPrimary.reason }}</p>
             </section>
@@ -97,7 +97,7 @@ function keepFocus(): void {
         <template v-else-if="flow.step === 'choose'">
           <p>Roll a D8 for a characteristic improvement ({{ progress.costs?.characteristic }} SPP). The SPP is spent when you roll; then you pick one of the results the roll allows, or a Primary skill instead.</p>
           <div class="ls-actions">
-            <button type="button" class="ls-btn primary" :disabled="flow.busy" @click="manage.rollCharacteristic()">{{ flow.busy ? "Rolling..." : "Roll" }}</button>
+            <button type="button" class="sf-btn primary" :disabled="flow.busy" @click="manage.rollCharacteristic()">{{ flow.busy ? "Rolling..." : "Roll" }}</button>
           </div>
         </template>
 
@@ -105,13 +105,13 @@ function keepFocus(): void {
           <template v-if="flow.pending.method === 'randomPrimary'">
             <p>Keep one of the rolled skills:</p>
             <div class="tm-choices">
-              <button v-for="s in unique(flow.pending.choices)" :key="s" type="button" class="ls-btn small" :disabled="flow.busy" @click="manage.commit({ type: 'skill', skill: s })">{{ s }}</button>
+              <button v-for="s in unique(flow.pending.choices)" :key="s" type="button" class="sf-btn small" :disabled="flow.busy" @click="manage.commit({ type: 'skill', skill: s })">{{ s }}</button>
             </div>
           </template>
           <template v-else>
             <p>You rolled <strong>{{ flow.pending.roll }}</strong>.</p>
             <div v-if="flow.pending.choices.length" class="tm-choices" aria-label="Characteristics">
-              <button v-for="c in flow.pending.choices" :key="c" type="button" class="ls-btn small" :disabled="flow.busy" @click="manage.commit({ type: 'characteristic', characteristic: c })">+{{ c }}</button>
+              <button v-for="c in flow.pending.choices" :key="c" type="button" class="sf-btn small" :disabled="flow.busy" @click="manage.commit({ type: 'characteristic', characteristic: c })">+{{ c }}</button>
             </div>
             <p v-else class="muted">No characteristic this roll allows can be improved for this player.</p>
             <form v-if="flow.pending.primaryFallbacks.length" class="tm-choices" @submit.prevent="fallback && manage.commit({ type: 'skill', skill: fallback })">
@@ -120,7 +120,7 @@ function keepFocus(): void {
                 <option value="" disabled>Or a Primary skill instead</option>
                 <option v-for="s in flow.pending.primaryFallbacks" :key="s" :value="s">{{ s }}</option>
               </select>
-              <button type="submit" class="ls-btn" :disabled="flow.busy || !fallback">Take skill</button>
+              <button type="submit" class="sf-btn" :disabled="flow.busy || !fallback">Take skill</button>
             </form>
           </template>
           <p class="muted">This roll is saved on the team: closing keeps it for later.</p>
@@ -128,10 +128,10 @@ function keepFocus(): void {
 
         <p v-else-if="flow.step === 'done'" class="tm-result" role="status">{{ flow.result }}</p>
 
-        <p v-if="flow.error" class="ls-error" role="alert">{{ flow.error }}</p>
+        <p v-if="flow.error" class="sf-error" role="alert">{{ flow.error }}</p>
       </div>
       <footer v-if="progress" class="ls-dialog-foot">
-        <button type="button" class="ls-btn" :disabled="flow.busy" @click="manage.close()">{{ flow.step === "done" ? "Done" : "Close" }}</button>
+        <button type="button" class="sf-btn" :disabled="flow.busy" @click="manage.close()">{{ flow.step === "done" ? "Done" : "Close" }}</button>
       </footer>
     </div>
   </div>

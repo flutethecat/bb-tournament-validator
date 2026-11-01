@@ -25,8 +25,8 @@ function pick(kind: "logo" | "banner", e: Event): void {
         <img v-if="logo" class="lg-art-logo" :src="logo" alt="Current logo" />
         <p v-else class="hm-empty hm-small">No logo yet.</p>
         <div class="ls-actions">
-          <label class="ls-btn small lg-file">Upload logo<input type="file" accept="image/png,image/jpeg,image/webp" :disabled="Boolean(state.artBusy)" @change="pick('logo', $event)" /></label>
-          <button v-if="logo" class="ls-btn small danger" type="button" :disabled="Boolean(state.artBusy)" @click="detail.removeArt('logo')">Remove logo</button>
+          <label class="sf-btn small lg-file">Upload logo<input type="file" accept="image/png,image/jpeg,image/webp" :disabled="Boolean(state.artBusy)" @change="pick('logo', $event)" /></label>
+          <button v-if="logo" class="sf-btn small danger" type="button" :disabled="Boolean(state.artBusy)" @click="detail.removeArt('logo')">Remove logo</button>
         </div>
         <p class="hm-empty hm-small">PNG, JPEG or WebP, up to 1 MB, 64 to 2048 pixels a side.</p>
       </div>
@@ -35,13 +35,13 @@ function pick(kind: "logo" | "banner", e: Event): void {
         <img v-if="banner" class="lg-art-banner" :src="banner" alt="Current header bar" />
         <p v-else class="hm-empty hm-small">No header bar yet.</p>
         <div class="ls-actions">
-          <label class="ls-btn small lg-file">Upload header bar<input type="file" accept="image/png,image/jpeg,image/webp" :disabled="Boolean(state.artBusy)" @change="pick('banner', $event)" /></label>
-          <button v-if="banner" class="ls-btn small danger" type="button" :disabled="Boolean(state.artBusy)" @click="detail.removeArt('banner')">Remove header bar</button>
+          <label class="sf-btn small lg-file">Upload header bar<input type="file" accept="image/png,image/jpeg,image/webp" :disabled="Boolean(state.artBusy)" @change="pick('banner', $event)" /></label>
+          <button v-if="banner" class="sf-btn small danger" type="button" :disabled="Boolean(state.artBusy)" @click="detail.removeArt('banner')">Remove header bar</button>
         </div>
         <p class="hm-empty hm-small">PNG, JPEG or WebP, up to 2 MB, 600 to 4000 pixels wide, wider than tall.</p>
       </div>
     </div>
-    <p v-if="state.artError" class="ls-error" role="alert">{{ state.artError }}</p>
+    <p v-if="state.artError" class="sf-error" role="alert">{{ state.artError }}</p>
     <p v-else-if="state.artNotice" class="hm-notice" role="status">{{ state.artNotice }}</p>
   </section>
 </template>

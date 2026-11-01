@@ -88,8 +88,8 @@ function save(): void {
     </div>
 
     <div class="ls-actions ls-savebar">
-      <button class="ls-btn primary" type="submit" :disabled="!valid || state.busy === 'information'">Save information</button>
-      <p v-if="state.errors.information" class="ls-error" role="alert">{{ state.errors.information }}</p>
+      <button class="sf-btn primary" type="submit" :disabled="!valid || state.busy === 'information'">Save information</button>
+      <p v-if="state.errors.information" class="sf-error" role="alert">{{ state.errors.information }}</p>
       <p v-else-if="state.notices.information" class="hm-notice" role="status">{{ state.notices.information }}</p>
     </div>
   </form>

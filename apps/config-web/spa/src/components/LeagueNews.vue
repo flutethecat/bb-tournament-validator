@@ -50,11 +50,11 @@ async function saveEdit(): Promise<void> {
         <label class="ls-field"><span>Post</span><textarea v-model="draft.body" rows="4" maxlength="4000" /></label>
         <div class="ls-actions">
           <label class="ls-check"><input v-model="draft.pinned" type="checkbox" /> Pin to the top</label>
-          <button class="ls-btn primary" type="submit" :disabled="!draft.title.trim() || !draft.body.trim() || busy">Post news</button>
+          <button class="sf-btn primary" type="submit" :disabled="!draft.title.trim() || !draft.body.trim() || busy">Post news</button>
         </div>
         <p class="hm-small hm-empty">The season's coaches are notified; the post also goes to Discord when League news is on.</p>
       </form>
-      <p v-if="mine && state.editError" class="ls-error" role="alert">{{ state.editError }}</p>
+      <p v-if="mine && state.editError" class="sf-error" role="alert">{{ state.editError }}</p>
       <p v-else-if="mine && state.editNotice" class="hm-notice" role="status">{{ state.editNotice }}</p>
       <p v-if="!news.length" class="hm-empty">No news yet.</p>
       <ol v-else class="lg-news-list">
@@ -63,8 +63,8 @@ async function saveEdit(): Promise<void> {
             <label class="ls-field"><span>Title</span><input v-model="edit.title" type="text" maxlength="120" autocomplete="off" /></label>
             <label class="ls-field"><span>Post</span><textarea v-model="edit.body" rows="4" maxlength="4000" /></label>
             <div class="ls-actions">
-              <button class="ls-btn primary" type="submit" :disabled="!edit.title.trim() || !edit.body.trim() || busy">Save</button>
-              <button class="ls-btn" type="button" @click="editing = ''">Cancel</button>
+              <button class="sf-btn primary" type="submit" :disabled="!edit.title.trim() || !edit.body.trim() || busy">Save</button>
+              <button class="sf-btn" type="button" @click="editing = ''">Cancel</button>
             </div>
           </form>
           <template v-else>
@@ -75,12 +75,12 @@ async function saveEdit(): Promise<void> {
             <p class="hm-small lg-news-meta">{{ n.by }} · {{ day(n.at) }}{{ n.editedAt ? " · edited" : "" }}</p>
             <MarkdownLite :source="n.body" />
             <div v-if="manage" class="ls-actions">
-              <button class="ls-btn small" type="button" :disabled="busy" @click="pin(n.id, !n.pinned)">{{ n.pinned ? "Unpin" : "Pin" }}</button>
-              <button class="ls-btn small" type="button" :disabled="busy" @click="startEdit(n.id)">Edit</button>
-              <button v-if="confirming !== n.id" class="ls-btn small" type="button" :disabled="busy" :aria-label="`Delete news ${n.title}`" @click="confirming = n.id">Delete</button>
+              <button class="sf-btn small" type="button" :disabled="busy" @click="pin(n.id, !n.pinned)">{{ n.pinned ? "Unpin" : "Pin" }}</button>
+              <button class="sf-btn small" type="button" :disabled="busy" @click="startEdit(n.id)">Edit</button>
+              <button v-if="confirming !== n.id" class="sf-btn small" type="button" :disabled="busy" :aria-label="`Delete news ${n.title}`" @click="confirming = n.id">Delete</button>
               <template v-else>
-                <button class="ls-btn small" type="button" @click="confirming = ''">Keep</button>
-                <button class="ls-btn small danger" type="button" :disabled="busy" @click="remove(n.id)">Confirm delete</button>
+                <button class="sf-btn small" type="button" @click="confirming = ''">Keep</button>
+                <button class="sf-btn small danger" type="button" :disabled="busy" @click="remove(n.id)">Confirm delete</button>
               </template>
             </div>
           </template>

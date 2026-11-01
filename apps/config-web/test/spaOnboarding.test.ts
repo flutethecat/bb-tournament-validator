@@ -307,7 +307,7 @@ describe("views (server-rendered against a mocked API)", () => {
     expect(boxes).toHaveLength(4);
     expect(boxes.some((c) => /\schecked/.test(c))).toBe(false);
     for (const label of ["Preferred name", "Email", "Phone"]) expect(panel).toContain(`<span>${label}`);
-    expect(panel).toMatch(/<button class="ls-btn primary" type="button" disabled[^>]*>Share<\/button>/);
+    expect(panel).toMatch(/<button class="sf-btn primary" type="button" disabled[^>]*>Share<\/button>/);
     expect(panel).toContain(">Don&#39;t share</button>");
     expect(html).not.toContain('aria-modal="true"');
     expect(html).not.toMatch(/<header class="shell-header[^"]*"[^>]*inert/);

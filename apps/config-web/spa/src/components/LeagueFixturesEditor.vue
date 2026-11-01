@@ -83,9 +83,9 @@ async function remove(f: LeagueFixture): Promise<void> {
         <label class="ls-check"><input v-model="form.test" type="checkbox" /> Test fixture</label>
       </div>
       <p v-if="problem && (form.home || form.away)" class="ls-field-error" role="alert">{{ problem }}</p>
-      <div class="ls-actions"><button class="ls-btn primary" type="submit" :disabled="Boolean(problem) || busy">Add fixture</button></div>
+      <div class="ls-actions"><button class="sf-btn primary" type="submit" :disabled="Boolean(problem) || busy">Add fixture</button></div>
     </form>
-    <p v-if="mine && state.editError" class="ls-error" role="alert">{{ state.editError }}</p>
+    <p v-if="mine && state.editError" class="sf-error" role="alert">{{ state.editError }}</p>
     <p v-else-if="mine && state.editNotice" class="hm-notice" role="status">{{ state.editNotice }}</p>
     <template v-if="season.fixtures.length">
       <div class="lg-toolbar">
@@ -103,7 +103,7 @@ async function remove(f: LeagueFixture): Promise<void> {
               <td>
                 <div class="lg-fx-date">
                   <input v-model="rowOf(f).date" type="date" :aria-label="`Date of ${f.home.team} vs ${f.away.team}`" />
-                  <button class="ls-btn small" type="button" :disabled="busy || rowOf(f).date === (f.date ?? '')" @click="saveDate(f)">Save date</button>
+                  <button class="sf-btn small" type="button" :disabled="busy || rowOf(f).date === (f.date ?? '')" @click="saveDate(f)">Save date</button>
                 </div>
               </td>
               <td class="lg-fx-score-edit">
@@ -117,13 +117,13 @@ async function remove(f: LeagueFixture): Promise<void> {
                 <input v-model="rowOf(f).awayCas" type="number" min="0" max="99" inputmode="numeric" :aria-label="`${f.away.team} casualties`" />
               </td>
               <td class="ls-actions">
-                <button class="ls-btn small" type="button" :disabled="busy" @click="saveResult(f)">Save result</button>
-                <button v-if="fixturePlayed(f)" class="ls-btn small danger" type="button" :disabled="busy" @click="clearResult(f)">Clear result</button>
+                <button class="sf-btn small" type="button" :disabled="busy" @click="saveResult(f)">Save result</button>
+                <button v-if="fixturePlayed(f)" class="sf-btn small danger" type="button" :disabled="busy" @click="clearResult(f)">Clear result</button>
                 <template v-else>
-                  <button v-if="confirming !== f.id" class="ls-btn small" type="button" :disabled="busy" :aria-label="`Delete ${f.home.team} vs ${f.away.team}`" @click="confirming = f.id">Delete</button>
+                  <button v-if="confirming !== f.id" class="sf-btn small" type="button" :disabled="busy" :aria-label="`Delete ${f.home.team} vs ${f.away.team}`" @click="confirming = f.id">Delete</button>
                   <template v-else>
-                    <button class="ls-btn small" type="button" @click="confirming = ''">Keep</button>
-                    <button class="ls-btn small danger" type="button" :disabled="busy" @click="remove(f)">Confirm delete</button>
+                    <button class="sf-btn small" type="button" @click="confirming = ''">Keep</button>
+                    <button class="sf-btn small danger" type="button" :disabled="busy" @click="remove(f)">Confirm delete</button>
                   </template>
                 </template>
               </td>
