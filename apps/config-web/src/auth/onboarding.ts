@@ -3,7 +3,7 @@
 //
 // Gate: while onboardingNeeded (privacy notice never accepted, or an older version), every /api/me/* WRITE other than
 // the onboarding POST itself (and the data-deletion route, which a coach must always reach) answers 428 "Complete your
-// profile first." Reads stay open so the page renders behind the modal; sign-out is /api/auth/logout (never gated);
+// profile first." /api/account writes are gated the same way. Reads stay open so the page renders behind the modal; sign-out is /api/auth/logout (never gated);
 // public routes are unaffected.
 
 import {
@@ -24,7 +24,7 @@ const WRITES = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /** True for the requests the 428 gate covers (it applies only while the coach's onboarding is needed). */
 export function onboardingGateApplies(method: string, path: string): boolean {
-  return WRITES.has(method) && path.startsWith("/api/me/") && !GATE_EXEMPT.has(path);
+  return WRITES.has(method) && (path === "/api/account" || (path.startsWith("/api/me/") && !GATE_EXEMPT.has(path)));
 }
 
 export interface OnboardingView {

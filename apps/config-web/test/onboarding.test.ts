@@ -183,10 +183,10 @@ describe("onboarding and contact writers", () => {
     expect(() => updateOwnAccount("Di", { profile: { preferredName: "x".repeat(300) } })).toThrow(/\/api\/me\/contact/);
   });
 
-  it("the 428 gate covers /api/me writes except onboarding and data deletion; reads and other paths are never gated", () => {
-    for (const [m, p] of [["PATCH", "/api/me/profile"], ["PUT", "/api/me/scheduling"], ["PUT", "/api/me/avatar"], ["DELETE", "/api/me/avatar"], ["POST", "/api/me/connections/naf"], ["PATCH", "/api/me/contact"], ["POST", "/api/me/notifications/read"]])
+  it("the 428 gate covers /api/me and /api/account writes except onboarding and data deletion; reads and other paths are never gated", () => {
+    for (const [m, p] of [["PATCH", "/api/me/profile"], ["PUT", "/api/me/scheduling"], ["PUT", "/api/me/avatar"], ["DELETE", "/api/me/avatar"], ["POST", "/api/me/connections/naf"], ["PATCH", "/api/me/contact"], ["POST", "/api/me/notifications/read"], ["PATCH", "/api/account"]])
       expect(onboardingGateApplies(m!, p!)).toBe(true);
-    for (const [m, p] of [["POST", "/api/me/onboarding"], ["POST", "/api/me/delete"], ["GET", "/api/me/profile"], ["GET", "/api/me/contact"], ["POST", "/api/auth/logout"], ["POST", "/api/tournaments"], ["GET", "/api/me/export"]])
+    for (const [m, p] of [["POST", "/api/me/onboarding"], ["POST", "/api/me/delete"], ["GET", "/api/me/profile"], ["GET", "/api/me/contact"], ["POST", "/api/auth/logout"], ["POST", "/api/tournaments"], ["GET", "/api/me/export"], ["GET", "/api/account"]])
       expect(onboardingGateApplies(m!, p!)).toBe(false);
   });
 });

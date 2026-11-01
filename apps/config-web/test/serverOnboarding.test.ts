@@ -92,11 +92,13 @@ describe("428 gate while onboarding is needed", () => {
     expect((await call("Newbie", "PUT", "/api/me/scheduling", { timezone: "UTC" })).status).toBe(428);
     expect((await call("Newbie", "PATCH", "/api/me/contact", { preferredName: "X" })).status).toBe(428);
     expect((await call("Newbie", "DELETE", "/api/me/avatar")).status).toBe(428);
+    expect((await call("Newbie", "PATCH", "/api/account", { profile: { displayName: "Blocked" } })).status).toBe(428);
     // Bearer sessions (the desktop client) are gated the same way.
     const { token } = createSession("Newbie", Date.now(), "discord");
     expect((await fetch(`${origin}/api/me/profile`, { method: "PATCH", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: "{}" })).status).toBe(428);
     expect((await call("Newbie", "GET", "/api/me/profile")).status).toBe(200);
     expect((await call("Newbie", "GET", "/api/me/contact")).status).toBe(200);
+    expect((await call("Newbie", "GET", "/api/account")).status).toBe(200);
     expect((await call(undefined, "GET", "/api/build-log")).status).toBe(200);
     expect(identities().coaches.newbie!.profile.displayName).toBeUndefined();
   });

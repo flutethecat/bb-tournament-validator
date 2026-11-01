@@ -164,12 +164,12 @@ Environment:
 After a Discord sign-in the SPA reads `GET /api/me/onboarding`; while `needed` (the privacy notice was never accepted,
 or an older version was) a blocking "Welcome to Super FUMBBL" modal covers every route until `POST /api/me/onboarding`
 saves the preferred name, email, phones, league-contact consent (opt-in) and the privacy acceptance (required). Until
-then every `/api/me/*` write other than the onboarding POST (and `/api/me/delete`) answers **428** "Complete your
+then every `/api/me/*` and `/api/account` write other than the onboarding POST (and `/api/me/delete`) answers **428** "Complete your
 profile first."; reads, sign-out and public routes are untouched. The Account page edits the same fields later with
 `GET/PATCH /api/me/contact`.
 
-- Field schema, defaults for existing records and `PRIVACY_VERSION`: `src/auth/contactSchema.ts` (bump the version to
-  ask everyone again). Routes and gate: `src/auth/onboarding.ts`.
+- Field schema and defaults for existing records: `src/auth/contactSchema.ts`. `PRIVACY_VERSION` is the notice's single
+  constant in `spa/src/privacy/version.ts` (bump it to ask everyone again). Routes and gate: `src/auth/onboarding.ts`.
 - A Discord re-sign-in refreshes the contact email only while it is Discord-sourced; a coach-edited email or preferred
   name is never overwritten.
 - `contactFor(coach, leagueOrTournamentId)` (`src/auth/contactFor.ts`, exported from `server.ts`) gives organisers a

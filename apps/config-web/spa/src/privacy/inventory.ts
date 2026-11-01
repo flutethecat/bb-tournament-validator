@@ -17,7 +17,7 @@ export interface PrivacyFeatures {
   consentWithdrawal: boolean;
 }
 
-export const FEATURES: PrivacyFeatures = { export: false, delete: false, consentRecording: false, consentWithdrawal: false };
+export const FEATURES: PrivacyFeatures = { export: false, delete: false, consentRecording: true, consentWithdrawal: true };
 
 export type PublicVisibility = "no" | "yes" | "partly";
 

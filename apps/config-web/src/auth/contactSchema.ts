@@ -12,10 +12,11 @@
 // Personal data: email and phones are never sent on a public route; organisers reach them only through contactFor
 // (src/auth/contactFor.ts), which requires the league-contact consent and membership.
 
-/** The privacy notice version a coach must have accepted. Bump it when the notice changes: every coach sees the
- *  onboarding modal again at their next visit (accepted versions are ISO dates and compare as strings). Must equal the
- *  privacy notice page's version (the privacy lane's spa/src/privacy/version.ts): when both land, import one from the other. */
-export const PRIVACY_VERSION = "2026-10-31";
+/** The privacy notice version a coach must have accepted: the ONE constant the notice page shows as "Last updated"
+ *  (spa/src/privacy/version.ts). Bumping it there asks every coach again at their next visit (accepted versions are ISO
+ *  dates and compare as strings). */
+import { PRIVACY_VERSION } from "../../spa/src/privacy/version.js";
+export { PRIVACY_VERSION };
 /** The wording version of the league-contact consent. */
 export const LEAGUE_CONTACT_VERSION = "2026-10-31";
 export const LEAGUE_CONTACT_TEXT =

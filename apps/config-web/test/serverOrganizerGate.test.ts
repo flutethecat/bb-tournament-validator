@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSession } from "../src/auth/session.js";
+import { ONBOARDED_CONSENT } from "./onboardedFixture.js";
 
 const root = mkdtempSync(join(tmpdir(), "server-organizer-gate-"));
 const previousEnv = new Map<string, string | undefined>();
@@ -44,6 +45,8 @@ beforeAll(async () => {
         updatedAt: "2026-08-27T00:00:00.000Z",
         updatedBy: "RootAdmin",
       },
+      // Onboarded (the new-user gate answers 428 to /api/account writes otherwise).
+      plaincoach: { ffbCoachId: "PlainCoach", level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, consent: ONBOARDED_CONSENT, updatedAt: "", updatedBy: "" },
       admincoach: {
         ffbCoachId: "AdminCoach",
         level: "admin",

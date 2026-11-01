@@ -91,7 +91,8 @@ describe("privacy notice (server-rendered)", () => {
       consentWithdrawal: { on: ["withdraw it at any time on the"], off: ["withdrawing on the Account page is coming soon"] },
     };
     const saved = { ...FEATURES };
-    expect(Object.values(saved).every((v) => v === false)).toBe(true); // defaults: nothing claimed until the lanes land
+    // defaults: nothing claimed until its lane lands (the new-user flow records and withdraws league-contact consent)
+    expect(saved).toEqual({ export: false, delete: false, consentRecording: true, consentWithdrawal: true });
     try {
       for (const flag of Object.keys(claims)) {
         for (const k of Object.keys(saved)) FEATURES[k] = false;
