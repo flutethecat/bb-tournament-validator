@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // League page, Overview tab: the selected season's summary (rules, status, dates, games, champion and podium),
-// the organisers, and the latest results as result cards (most recent nine, newest first).
+// the organisers, the season's inducement table, and the latest results as result cards (most recent nine, newest first).
 import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
+import LeagueInducements from "./LeagueInducements.vue";
 import ResultCard from "./ResultCard.vue";
 import { latestResults, resultCardProps, RULESET_TONE, SEASON_STATUS_LABEL, seasonDates } from "../leagues/league";
 import type { LeagueSummary, SeasonRecord, SeasonSummary } from "../leagues/types";
@@ -56,6 +57,7 @@ const phases = computed(() => props.season.phases.filter((p) => props.season.fix
         </ul>
         <p v-if="league.description" class="lg-desc">{{ league.description }}</p>
       </section>
+      <LeagueInducements :league-id="league.id" :season-id="season.id" />
     </div>
   </div>
 </template>

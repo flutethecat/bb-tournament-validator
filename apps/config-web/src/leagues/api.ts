@@ -33,6 +33,9 @@
  *   GET|POST /api/leagues/:id/redraft, GET /api/leagues/:id/redraft/teams/:teamId, POST .../rest, POST .../submit,
  *   GET /api/leagues?redraft=mine
  *
+ * Inducement table per season (public read; organisers + admins write): see inducements.ts.
+ *   GET|PUT /api/leagues/:id/seasons/:seasonId/inducements
+ *
  * Awards and the Hall of Fame (public read; organisers + admins write): see awards.ts.
  *   GET /api/leagues/:id/honours, POST /api/leagues/:id/awards, DELETE /api/leagues/:id/awards/:awardId,
  *   POST /api/leagues/:id/hall-of-fame/pins, DELETE .../pins/:pinId, PUT /api/leagues/:id/hall-of-fame/order,
@@ -43,6 +46,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { leagueHonoursRoutes, myAwards } from "./awards.js";
+import { leagueInducementRoutes } from "./inducements.js";
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
 import { AVATAR_CONTENT_TYPE, avatarRateLimit, sniffImage, type AvatarExt, type SniffedImage } from "../teamAvatars.js";
@@ -315,6 +319,8 @@ export async function leagueApi(
     return artRoute(method, first, route.id, league, auth, deps);
   }
   if (first === "members") return memberContactRoute(method, league, second, extra, auth, deps);
+  const inducements = await leagueInducementRoutes(method, route.rest, league, auth, deps);
+  if (inducements) return inducements;
   const fork = await leagueForkRoutes(method, route.id, route.rest, auth, deps);
   if (fork) return fork;
   const redraft = await redraftRoutes(method, route.rest, league, auth, deps, query);
@@ -707,13 +713,18 @@ async function createSeason(league: LeagueRecord, who: LeagueApiIdentity, input:
   if (!SEASON_ID.test(id)) throw new SettingsError(400, "Bad season id.");
   const at = (deps.now?.() ?? new Date()).toISOString();
   const copied = newest?.rules?.teamBuilding;
+  const copiedInducements = newest?.rules?.inducements;
   const season: SeasonRecord = {
     id, leagueId: league.id, number, name, sourceSlug: id, ruleset, status: "active", startedAt: at,
     phases: [{ id: "season-regular", category: "Season", name: "Regular", groups: [""], standings: [] }],
     fixtures: [], participants: [], teams: [], honours: [], awards: [], unattributedStats: [],
     importedAt: at, source: "manual",
     // Team building rules carry over from the previous season (the organiser edits them on the Team building tab).
-    ...(copied ? { rules: { teamBuilding: { ...structuredClone(copied), updatedAt: at, updatedBy: who.coach } } } : {}),
+    // So does the inducement table (Inducements tab), with its revision started again.
+    ...(copied || copiedInducements ? { rules: {
+      ...(copied ? { teamBuilding: { ...structuredClone(copied), updatedAt: at, updatedBy: who.coach } } : {}),
+      ...(copiedInducements ? { inducements: { ...structuredClone(copiedInducements), revision: 0, updatedAt: at, updatedBy: who.coach } } : {}),
+    } } : {}),
   };
   // Draft lists submitted in a redraft before this season existed become its teams.
   const redrafted = applyPendingDrafts(seasons, season);

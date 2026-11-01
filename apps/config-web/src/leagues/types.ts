@@ -7,6 +7,8 @@
  * The read model (api.ts) exposes logoUrl / bannerUrl, never the stored file paths.
  */
 
+import type { SeasonInducements } from "./inducementRules.js";
+
 export type LeagueRuleset = "BB2020" | "BB2025";
 export const LEAGUE_RULESETS: readonly LeagueRuleset[] = ["BB2020", "BB2025"];
 export type SeasonStatus = "active" | "completed";
@@ -135,6 +137,8 @@ export interface TeamBuildingRules {
 
 export interface SeasonRules {
   teamBuilding?: TeamBuildingRules;
+  /** League settings, Inducements tab (inducements.ts): standard-table overrides + custom types, with their own revision. */
+  inducements?: SeasonInducements;
 }
 
 /** One side of a fixture. coachId is set when the coach maps to a fork identity (NAF name match). */

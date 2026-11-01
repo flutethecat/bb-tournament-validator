@@ -7,12 +7,13 @@ import { ApiError } from "../shared/api";
 import type { Fetcher } from "../session";
 import type { LeagueCountry, LeagueSettingsView, LeagueSummary, PodiumProposal, PodiumSlot, SeasonSummary, TeamBuildingRosterRule } from "./types";
 
-export type SettingsTab = "administration" | "information" | "registrations" | "team-building" | "connections";
+export type SettingsTab = "administration" | "information" | "registrations" | "team-building" | "inducements" | "connections";
 export const SETTINGS_TABS: ReadonlyArray<{ id: SettingsTab; label: string }> = [
   { id: "administration", label: "Administration" },
   { id: "information", label: "Information" },
   { id: "registrations", label: "Registrations" },
   { id: "team-building", label: "Team building" },
+  { id: "inducements", label: "Inducements" },
   { id: "connections", label: "External connections" },
 ];
 export const isSettingsTab = (v: unknown): v is SettingsTab => typeof v === "string" && SETTINGS_TABS.some((t) => t.id === v);

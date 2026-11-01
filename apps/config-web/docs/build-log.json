@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-01",
+    "title": "League inducements, including your own",
+    "body": "League organisers and admins have a new Inducements tab in league settings: turn each standard inducement on or off, set its cap and price per season, and add the league's own inducement types with an icon, a category and a short effect. Coaches see the season's table on the league page.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "League fixture deadlines",
     "body": "League organisers can now set a deadline for each round, and give any fixture its own. Every unplayed fixture shows its deadline (amber under 72 hours, red under 24 hours, then Overdue), and so do your next fixture in the sidebar and the Deadlines panel on your coach page. Organisers can also turn on auto-forfeit for a season (off by default): once a deadline passes, the fixture is marked for an organiser to decide, recorded as no result, or lost by both teams, and both coaches and the organisers are told.",
     "links": [

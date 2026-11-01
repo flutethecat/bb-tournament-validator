@@ -1,0 +1,92 @@
+/* League inducement table: League settings, Inducements tab (LeagueSettingsInducements.vue), the custom type dialog
+   (LeagueInducementDialog.vue) and the league page's Inducements panel (LeagueInducements.vue). Tokens only (design.md §3). */
+
+.ind-section { display: grid; gap: 8px; }
+.ind-section + .ind-section { margin-top: 8px; }
+.ind-sub {
+  display: flex; align-items: baseline; gap: 10px; margin: 0; padding-bottom: 4px; border-bottom: 2px solid var(--sf-panel-line);
+  font: 12px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .1em; color: var(--ui-heading);
+}
+.ind-sub .hm-cap { margin-left: auto; }
+.ind-icon { width: 32px; height: 32px; object-fit: contain; image-rendering: pixelated; flex: none; }
+.ind-name { font-weight: 600; }
+.ind-gold { font: 13px/1.3 var(--sf-band-font); color: var(--sf-gold); white-space: nowrap; }
+.ind-help { margin: 0; font-size: 13px; color: var(--ui-muted); }
+.ind-help[data-over="true"] { color: var(--ui-danger); }
+
+/* standard table */
+.ind-table td { vertical-align: middle; }
+.ind-table .ind-icon-cell { width: 40px; }
+.ind-name-cell { min-width: 220px; }
+.ind-name-cell .sf-chip { margin-left: 6px; vertical-align: 1px; }
+.ind-note { display: block; margin-top: 2px; color: var(--ui-muted); font-size: 12px; line-height: 1.35; }
+.ind-table tr[data-off="true"] .ind-name, .ind-table tr[data-off="true"] .ind-icon { opacity: .55; }
+.ind-table tr[data-changed="true"] td:first-child { box-shadow: inset 4px 0 0 var(--ui-warn); }
+.ind-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; cursor: pointer; }
+.ind-toggle-text { font-size: 14px; color: var(--ui-muted); min-width: 2.2em; }
+.ind-num { width: 72px; min-height: 40px; text-align: right; }
+.ind-num.wide { width: 88px; }
+.ind-was { display: block; color: var(--ui-muted); font-size: 12px; }
+.ind-fixed { color: var(--ui-muted); font-size: 13px; }
+
+/* custom list */
+.ind-custom-list { list-style: none; display: grid; gap: 8px; padding: 0; margin: 0; }
+.ind-custom {
+  display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 10px 12px;
+  background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
+  border: 2px solid var(--sf-panel-line); border-left: 4px solid var(--ui-info); border-radius: 2px; box-shadow: 0 2px 0 var(--sf-panel-drop);
+}
+.ind-custom[data-off="true"] { border-left-color: var(--ui-muted); }
+.ind-custom-main { display: grid; gap: 2px; min-width: 0; }
+.ind-custom-main p { margin: 0; }
+.ind-custom-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ind-custom-title .ind-name { font: 500 17px/1.25 var(--font-heading); letter-spacing: .02em; }
+.ind-custom-facts { font-size: 14px; color: var(--ui-muted); }
+.ind-effect { display: block; font-size: 14px; color: var(--ui-text); overflow-wrap: anywhere; white-space: pre-line; }
+.ind-custom-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+
+/* custom type dialog */
+.ind-form { display: grid; gap: 12px; }
+.ind-form .sf-field { display: grid; gap: 2px; }
+.ind-form .sf-field textarea { resize: vertical; }
+.ind-form-row { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.ind-form-row .sf-field input[type="number"] { width: 110px; }
+.ind-grow { flex: 1 1 220px; min-width: 0; }
+.ind-icon-field { min-width: 0; padding: 0; margin: 0; border: 0; }
+.ind-icon-field legend { padding: 0; margin-bottom: 4px; }
+.ind-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 6px; }
+.ind-icon-opt {
+  display: grid; place-items: center; width: 100%; aspect-ratio: 1; min-height: 44px; padding: 4px; cursor: pointer;
+  background: var(--ui-surface-2); border: 2px solid var(--sf-panel-line); border-radius: 2px;
+}
+.ind-icon-opt img { width: 32px; height: 32px; object-fit: contain; image-rendering: pixelated; }
+.ind-icon-opt:hover { border-color: var(--ui-heading); }
+.ind-icon-opt[aria-checked="true"] { border-color: var(--sf-seat-home); background: color-mix(in srgb, var(--sf-seat-home) 20%, var(--ui-surface-2)); }
+.ind-icon-opt:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+
+/* coaches' panel (league page, Overview) */
+.ind-coach-scroll { display: grid; gap: 10px; max-height: 460px; overflow-y: auto; padding-right: 4px; }
+.ind-coach-group { display: grid; gap: 4px; }
+.ind-coach-list { list-style: none; display: grid; padding: 0; margin: 0; }
+.ind-coach-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--sf-panel-line); }
+.ind-coach-row .ind-icon { width: 28px; height: 28px; }
+.ind-coach-row[data-source="custom"] { align-items: start; }
+.ind-coach-name { min-width: 0; font-size: 15px; }
+.ind-coach-name .sf-chip { margin-left: 4px; vertical-align: 1px; }
+.ind-coach-name .ind-effect { margin-top: 2px; font-size: 13px; color: var(--ui-muted); }
+.ind-coach-cap { font-size: 13px; color: var(--ui-muted); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 640px) {
+  /* the standard table becomes one card per row: icon + name over the controls */
+  .ind-table thead { display: none; }
+  .ind-table, .ind-table tbody { display: block; }
+  .ind-table tr { display: grid; grid-template-columns: 40px repeat(3, auto); gap: 4px 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--sf-panel-line); }
+  .ind-table td { border: 0; padding: 0; }
+  .ind-table .ind-name-cell { grid-column: 2 / -1; min-width: 0; }
+  .ind-table td.lg-num { text-align: left; }
+  .ind-table td[data-label]::before { display: block; content: attr(data-label); font: 10px/1.6 var(--sf-band-font); text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
+  .ind-table td:nth-child(3) { grid-column: 2; }
+  .ind-custom { grid-template-columns: 32px minmax(0, 1fr); }
+  .ind-custom-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
+.ind-coach-scroll + .ind-help { margin-top: 8px; }

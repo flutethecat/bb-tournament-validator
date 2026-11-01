@@ -58,6 +58,8 @@ export interface MatchRecord {
   venue?: string;
   /** Optional league id the result counts in (defaults to the fixture tournament's package name). */
   league?: string;
+  /** The league season the match is played in, when the creator named one: its inducement table prices the pre-game picker. */
+  leagueSeason?: { leagueId: string; seasonId: string };
   /** True when the fixture lists the two coaches in the opposite home/away order to this match. */
   fixtureSwap?: boolean;
   /** Set on publish when a fixture result was written: what to restore on undo. */

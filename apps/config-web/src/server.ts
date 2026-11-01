@@ -935,6 +935,11 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     forkMetadata: (gameId) => tournamentMatches.get(gameId),
     pointsFor: (league) =>
       tournamentStore.tournaments(["draft", "active", "completed", "cancelled"]).find((t) => t.packageName.toLowerCase() === league.toLowerCase())?.points,
+    // League settings, Inducements tab: a match that names a league season is priced by that season's table.
+    leagueInducements: (leagueId, seasonId) => {
+      const season = leagueStore.league(leagueId) ? leagueStore.season(leagueId, seasonId) : undefined;
+      return season ? { config: season.rules?.inducements, active: season.status === "active" } : undefined;
+    },
   };
   if (first) await recoverTabletop(deps);
   return deps;

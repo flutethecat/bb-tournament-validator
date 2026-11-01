@@ -1,14 +1,15 @@
 <script setup lang="ts">
 // League settings (/app/leagues/:id/settings?tab=), opened by the cog at the right end of the league header strip.
 // Organisers of the league and site admins; anyone else gets the friendly "not one of yours" note (the server answers
-// 403 and decides). Five tabs as a segmented control: Administration, Information, Registrations, Team building,
-// External connections; each tab is panels with their own Save (PATCH /api/leagues/:id/settings sections).
+// 403 and decides). Six tabs as a segmented control: Administration, Information, Registrations, Team building,
+// Inducements, External connections; each tab is panels with their own Save (PATCH /api/leagues/:id/settings sections).
 import { computed, inject, onMounted, provide } from "vue";
 import { usePageTitle } from "../shell/pageTitle";
 import { RouterLink, useRoute } from "vue-router";
 import { API_KEY } from "../app";
 import LeagueSettingsAdmin from "../components/LeagueSettingsAdmin.vue";
 import LeagueSettingsConnections from "../components/LeagueSettingsConnections.vue";
+import LeagueSettingsInducements from "../components/LeagueSettingsInducements.vue";
 import LeagueSettingsInfo from "../components/LeagueSettingsInfo.vue";
 import LeagueSettingsRegistrations from "../components/LeagueSettingsRegistrations.vue";
 import LeagueSettingsTeamBuilding from "../components/LeagueSettingsTeamBuilding.vue";
@@ -62,6 +63,7 @@ usePageTitle(() => (state.league?.name ? `${state.league.name} settings` : ""));
       <LeagueSettingsInfo v-else-if="tab === 'information'" />
       <LeagueSettingsRegistrations v-else-if="tab === 'registrations'" />
       <LeagueSettingsTeamBuilding v-else-if="tab === 'team-building'" />
+      <LeagueSettingsInducements v-else-if="tab === 'inducements'" />
       <LeagueSettingsConnections v-else />
     </template>
   </div>

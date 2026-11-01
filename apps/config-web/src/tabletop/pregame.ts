@@ -257,8 +257,10 @@ export interface InducementBudget {
   spent: number;
   submitted: boolean;
 }
+/** Display extras a league season's custom inducement carries into the picker (icon path, effect text). */
+export interface InducementOptionExtras { icon: string; effectText: string; custom: true }
 export interface InducementMenu {
-  inducementOptions: Record<Side, Array<{ id: string; name: string; price: number; max: number | null }>>;
+  inducementOptions: Record<Side, Array<{ id: string; name: string; price: number; max: number | null } & Partial<InducementOptionExtras>>>;
   budget: Record<Side, InducementBudget>;
   tv: Record<Side, number | null>;
 }
@@ -271,13 +273,16 @@ export function inducementMenu(input: {
   teams: Record<Side, TabletopTeamFile>;
   events: readonly TabletopEvent[];
   offers: InducementOffers;
+  /** The ids to offer (default: the shared dataset's); a league season adds its custom types. */
+  ids?: readonly string[];
+  extras?: Record<string, InducementOptionExtras>;
 }): InducementMenu {
   const jm = (s: Side) => input.events.filter((e) => e.type === "journeyman" && e.team === s).map((e) => asPlayer(e.payload.player)).filter((p): p is TabletopPlayer => !!p);
   const tv = { home: teamValueWithJourneymen(input.teams.home, jm("home")) ?? null, away: teamValueWithJourneymen(input.teams.away, jm("away")) ?? null };
   const latest = (s: Side) => input.events.filter((e) => e.type === "inducement" && e.team === s).at(-1);
-  const options = (s: Side) => Object.keys(bb2025.inducements).flatMap((id) => {
+  const options = (s: Side) => (input.ids ?? Object.keys(bb2025.inducements)).flatMap((id) => {
     const o = input.offers(input.teams[s], id);
-    return "error" in o ? [] : [{ id, name: o.name, price: o.price, max: o.max }];
+    return "error" in o ? [] : [{ id, name: o.name, price: o.price, max: o.max, ...(input.extras?.[id] ?? {}) }];
   });
   const budget = (s: Side): InducementBudget => {
     const other: Side = s === "home" ? "away" : "home";

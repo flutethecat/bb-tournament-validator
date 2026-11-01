@@ -6,7 +6,8 @@ import { computed, watch } from "vue";
 import { createCartSync, picksKey } from "../tabletop/inducementCart";
 import type { Side } from "../tabletop/recorder";
 
-export interface InducementOption { id: string; name: string; price?: number; cost?: number; max?: number | null }
+/** `icon` / `effectText` / `custom`: a league season's own inducement type (League settings, Inducements). */
+export interface InducementOption { id: string; name: string; price?: number; cost?: number; max?: number | null; icon?: string; effectText?: string; custom?: boolean }
 export interface InducementBudget { role: "favourite" | "underdog" | "equal"; pettyCash: number; treasury: number; topUpLimit: number; spent: number; submitted: boolean }
 
 const props = defineProps<{
@@ -34,6 +35,8 @@ watch(() => picksKey(props.initial), () => sync.server(props.initial));
 const picks = computed(() => sync.state.picks);
 const remoteChanged = computed(() => sync.state.remote !== null);
 const priceOf = (o: InducementOption): number => o.price ?? o.cost ?? 0;
+/** A custom type's icon is a site path; the standard ones come from the inducement manifest (relative paths). */
+const iconOf = (o: InducementOption): string | undefined => (o.icon && o.icon.startsWith("/icons/") ? o.icon : props.icons?.[o.id] ? `/${props.icons[o.id]}` : undefined);
 const k = (n: number): string => `${Math.round(n / 1000)}k`;
 const bump = (o: InducementOption, d: number): void => {
   const cap = o.max ?? 9;
@@ -72,9 +75,9 @@ const submit = (): void => emit("submit", props.side, cart.value.map((l) => ({ i
       <div class="tt-ipk-list" role="list">
         <p v-if="!options.length" class="muted">No inducements offered.</p>
         <div v-for="o in options" :key="o.id" class="tt-ipk-row" role="listitem" :data-picked="(picks[o.id] ?? 0) > 0">
-          <img v-if="icons?.[o.id]" class="tt-ipk-icon" :src="`/${icons[o.id]}`" alt="" />
+          <img v-if="iconOf(o)" class="tt-ipk-icon" :src="iconOf(o)" alt="" />
           <span v-else class="tt-ipk-icon tt-ipk-ph" aria-hidden="true">&#9733;</span>
-          <span class="tt-ipk-name">{{ o.name }}</span>
+          <span class="tt-ipk-name">{{ o.name }}<small v-if="o.custom && o.effectText" class="tt-ipk-effect">{{ o.effectText }}</small></span>
           <span class="tt-ipk-cost">{{ priceOf(o) ? k(priceOf(o)) : "-" }}</span>
           <span class="tt-ipk-stepper">
             <button type="button" class="tt-ipk-btn" :disabled="locked || (picks[o.id] ?? 0) <= 0" :aria-label="`Fewer ${o.name}`" @click="bump(o, -1)">&#8722;</button>

@@ -24,7 +24,7 @@ import {
 } from "./events.js";
 import {
   PRAYERS_TO_NUFFLE, coinCallerOf, inducementMenu, journeymenNeeded, makeJourneymen, overlayRosters, inducementOffersFor, planInducements, pregameStepOf, pregameSummary, seatsSwappable, teamValueWithJourneymen, weatherFor,
-  type MatchPhase,
+  type InducementOffers, type InducementOptionExtras, type MatchPhase,
 } from "./pregame.js";
 import type { AnnouncementKind, RecorderAnnouncement, ResultSummary } from "./discord.js";
 import {
@@ -34,6 +34,8 @@ import {
 import { decorateRoster } from "./eligibility.js";
 import { withRosterArt } from "./rosterArt.js";
 import { leagueStandings, type LeaguePoints } from "./standings.js";
+import { customOptionExtras, seasonInducementOffers } from "../leagues/inducements.js";
+import type { SeasonInducements } from "../leagues/inducementRules.js";
 import { computeGlicko } from "../coachGlicko.js";
 import { CoachTitleStore, type CoachRatingView } from "../coachRank.js";
 import type { NafSummary } from "../nafRecords.js";
@@ -174,6 +176,8 @@ export interface TabletopApiDeps {
   forkMetadata?: Parameters<typeof leagueStandings>[2];
   /** A league's points scheme when the tournaments store has one; default 3/1/0. */
   pointsFor?: (league: string) => LeaguePoints | undefined;
+  /** A league season's inducement table (League settings, Inducements tab); undefined when there is no such season. */
+  leagueInducements?: (leagueId: string, seasonId: string) => { config: SeasonInducements | undefined; active: boolean } | undefined;
   /** The coach's own saved team as a team file (baseline revision), or undefined if they have no such save. */
   /** The baseline team file; `{ error }` (client-safe) when the stored team can't be admitted (e.g. an invalid Team Captain). */
   loadTeamFile: (coach: string, teamSaveId: string) => TabletopTeamFile | { error: string } | undefined;
@@ -642,6 +646,17 @@ export async function createMatch(
   if (deps.isBanned(home.coach) || deps.isBanned(away.coach)) return err(403, "A banned account cannot play a recorded match.");
   if (b.league !== undefined && (typeof b.league !== "string" || b.league.length > 60)) return err(400, "league must be a short string.");
   let league: string | undefined = typeof b.league === "string" && b.league.trim() ? b.league.trim() : undefined;
+  // The league season whose inducement table prices the pre-game (League settings, Inducements tab): it must exist and be in progress.
+  let leagueSeason: MatchRecord["leagueSeason"];
+  if (b.leagueSeason !== undefined && b.leagueSeason !== null) {
+    const ls = b.leagueSeason as Record<string, unknown>;
+    const id = (v: unknown): v is string => typeof v === "string" && /^[\w-]{1,80}$/.test(v);
+    if (typeof ls !== "object" || !id(ls.leagueId) || !id(ls.seasonId)) return err(400, "leagueSeason must be { leagueId, seasonId }.");
+    const found = deps.leagueInducements?.(ls.leagueId, ls.seasonId);
+    if (!found) return err(409, "That league season does not exist.");
+    if (!found.active) return err(409, "That league season is finished.");
+    leagueSeason = { leagueId: ls.leagueId, seasonId: ls.seasonId };
+  }
   let fixtureSwap = false;
   if (b.fixtureRef) {
     const fixture = deps.fixtures?.get(b.fixtureRef);
@@ -674,6 +689,7 @@ export async function createMatch(
     ...(options.test ? { test: true as const } : {}),
     ...(b.allowOvertime === true ? { allowOvertime: true } : {}),
     ...(league ? { league } : {}),
+    ...(leagueSeason ? { leagueSeason } : {}),
     ...(fixtureSwap ? { fixtureSwap } : {}),
     postMatch: postMatch as PostMatchOption,
     createdBy: me,
@@ -1405,7 +1421,7 @@ async function pregameAdvance(
     const otherEvent = all().filter((e) => e.type === "inducement" && e.team === other).at(-1);
     if (role === "underdog" && !otherEvent) return err(409, `The higher-value team (${other}) goes first: its treasury spending feeds the petty cash.`);
     const plan = planInducements({
-      offers: inducementOffersFor(inducementOptInsFor(match, deps)),
+      offers: inducementSourceFor(match, deps).offers,
       file: baseTeams[side]!, picks, role, tvDifference: Math.abs(tvHome - tvAway),
       favouriteSpent: role === "underdog" ? Number((otherEvent!.payload as { treasury?: number }).treasury ?? 0) : 0,
     });
@@ -1562,7 +1578,7 @@ function pregameViewOf(match: MatchRecord, events: readonly TabletopEvent[], bas
     seatsSwappable: match.state === "recording" && phase === "pregame:fans" && seatsSwappable(events),
   };
   if (phase === "pregame:inducements" && baseTeams.home && baseTeams.away)
-    Object.assign(view, inducementMenu({ teams: { home: baseTeams.home, away: baseTeams.away }, events, offers: inducementOffersFor(inducementOptInsFor(match, deps)) }));
+    Object.assign(view, inducementMenu({ teams: { home: baseTeams.home, away: baseTeams.away }, events, ...inducementSourceFor(match, deps) }));
   return view;
 }
 
@@ -1597,6 +1613,20 @@ async function pregameSkip(match: MatchRecord, me: string, organiser: boolean, d
 function inducementOptInsFor(match: MatchRecord, deps: TabletopApiDeps): readonly string[] {
   const f = match.fixtureRef ? deps.fixtures?.get(match.fixtureRef) : undefined;
   return f?.inducementOptIns ?? [];
+}
+
+/**
+ * THE price source of a match's inducement phase: the league season's effective table when the match names one
+ * (src/leagues/inducements.ts: standard overrides + custom types), else the shared dataset with the fixture's opt-ins.
+ * Read live, so the picker and the submit always judge by the same (current) table.
+ */
+function inducementSourceFor(match: MatchRecord, deps: TabletopApiDeps): { offers: InducementOffers; ids?: readonly string[]; extras?: Record<string, InducementOptionExtras> } {
+  const optIns = inducementOptInsFor(match, deps);
+  const ls = match.leagueSeason;
+  const found = ls ? deps.leagueInducements?.(ls.leagueId, ls.seasonId) : undefined;
+  if (!found) return { offers: inducementOffersFor(optIns) };
+  const { offers, ids } = seasonInducementOffers(found.config, optIns);
+  return { offers, ids, extras: customOptionExtras(found.config) };
 }
 
 function timerPolicyFor(match: MatchRecord, deps: TabletopApiDeps): TurnTimerPolicy {
