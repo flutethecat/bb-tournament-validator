@@ -35,8 +35,11 @@ const w = (path: string, value: unknown): void => {
   writeFileSync(path, typeof value === "string" ? value : JSON.stringify(value, null, 2), "utf8");
 };
 
+// Every fixture coach has accepted the current privacy notice (otherwise the onboarding gate answers 428).
+export const ACCEPTED = "2026-10-31";
 const rec = (ffbCoachId: string, extra: Record<string, unknown> = {}) => ({
-  ffbCoachId, level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, updatedAt: "", updatedBy: "", ...extra,
+  ffbCoachId, level: "player", banned: false, silenced: false, note: "", profile: {}, identities: {}, updatedAt: "", updatedBy: "",
+  consent: { privacy: { acceptedVersion: ACCEPTED, at: "2026-10-31T00:00:00Z" } }, ...extra,
 });
 
 export function depsFor(root: string): PrivacyDeps {
@@ -67,11 +70,11 @@ export async function seed(root: string, opts: SeedOptions = {}): Promise<void> 
     ...(opts.aliceNafName ? {} : { connections: { naf: { verifiedAt: "2026-10-01T00:00:00Z", source: "coachpage", nafId: "1001", nafName: "AliceNaf" } } }),
     // onboarding-lane fields (may not exist on this base): exported as stored, removed with the record
     contact: { email: ALICE_EMAIL, emailSource: "discord", emailVerified: true, phones: ["+00 0000 0001"] },
-    consent: { leagueContact: { granted: true, at: "2026-10-01T00:00:00Z", version: "1" }, privacy: { acceptedVersion: "1", at: "2026-10-01T00:00:00Z" } },
+    consent: { leagueContact: { granted: true, at: "2026-10-01T00:00:00Z", version: "1" }, privacy: { acceptedVersion: ACCEPTED, at: "2026-10-01T00:00:00Z" } },
   });
   w(join(root, "identities.json"), { version: 1, coaches: {
     alice: aliceRecord,
-    bob: rec("Bob", { identities: { discordUserId: BOB_DISCORD, discordUsername: "bob_dc", email: BOB_EMAIL, nafId: "2002", nafName: "BobNaf" }, contact: { email: BOB_EMAIL, phones: ["+00 0000 0002"] }, consent: { privacy: { acceptedVersion: "1", at: "2026-10-01T00:00:00Z" } } }),
+    bob: rec("Bob", { identities: { discordUserId: BOB_DISCORD, discordUsername: "bob_dc", email: BOB_EMAIL, nafId: "2002", nafName: "BobNaf" }, contact: { email: BOB_EMAIL, phones: ["+00 0000 0002"] }, consent: { privacy: { acceptedVersion: ACCEPTED, at: "2026-10-01T00:00:00Z" } } }),
     carol: rec("Carol", { identities: { discordUserId: "900000000000000003" } }),
     root: rec("Root", { level: "admin" }),
     a_b: rec("A_B"),

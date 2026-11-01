@@ -148,7 +148,7 @@ describe("export", () => {
     const account = JSON.parse(text("account.json"));
     expect(account.identities.email).toBe(ALICE_EMAIL);
     expect(account.contact.phones).toEqual(["+00 0000 0001"]); // onboarding fields ride along (whole record)
-    expect(account.consent.privacy.acceptedVersion).toBe("1");
+    expect(account.consent.privacy.acceptedVersion).toBe("2026-10-31");
     expect(account.legacyOrganiser).toBe(true);
     expect(account.sessions.length).toBeGreaterThan(0);
     expect(JSON.stringify(account.sessions)).not.toMatch(/[a-f0-9]{64}/);
@@ -382,7 +382,7 @@ describe("delete", () => {
     const raw = readJ(join(root, "identities.json"));
     expect(raw.coaches.alice).toBeUndefined();
     expect(raw.coaches.bob.contact).toEqual({ email: BOB_EMAIL, phones: ["+00 0000 0002"] });
-    expect(raw.coaches.bob.consent.privacy.acceptedVersion).toBe("1");
+    expect(raw.coaches.bob.consent.privacy.acceptedVersion).toBe("2026-10-31");
   });
 
   it("a shared library file loses only the coach's rows; a corrupt file or an unwritable sessions store fails the step", async () => {

@@ -70,3 +70,8 @@ against the map and learn that coach's pseudonym (and so their anonymised histor
 state dir and rotate it only together with an emptied map (a rotated key stops the filters matching earlier deletions).
 The banned-coach blocklist uses its own salt (`PRIVACY_BLOCKLIST_SALT`, or a generated file in the state dir), so a
 copy of the state dir alone can test guessed Discord ids against it.
+
+Known residue (owner decision 10-31): league team ids are slugs of the team name. Where two teams in a season share a name,
+the id carries a suffix with the coach's account or NAF name. These pre-existing duplicate ids are accepted by the operator
+(the affected coaches are US-based) and are not rewritten on deletion (they are references between seasons, fixtures and
+standings); the coach and display-name fields around them are anonymised.
