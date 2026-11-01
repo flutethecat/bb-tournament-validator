@@ -262,7 +262,7 @@ describe("Free Create: Ignore in-game limits", () => {
     b.setTeamName("Sprinters");
     b.addPosition("hrun");
     expect(b.addStat(0, "MA")).toBe("MA can't go above 9.");
-    expect(b.statOptions(0).find((o) => o.stat === "MA")?.reason).toBe("MA can't go above 9.");
+    expect(b.statSteps(0).find((o) => o.stat === "MA")?.reason).toBe("MA can't go above 9.");
     await b.setIgnoreLimits(true);
     expect(b.addStat(0, "MA")).toBe("MA can't go above 9.");
     expect(b.addStat(0, "AG")).toBe(""); // 2+ -> 1+
@@ -297,6 +297,82 @@ describe("Free Create: Ignore in-game limits", () => {
     expect(b.state.ignoreLimits).toBe(false);
     await b.setIgnoreLimits(true);
     expect(b.state.ignoreLimits).toBe(false);
+  });
+});
+
+describe("Roster Builder: the single + and the Advance dialog's stat bar (owner 11-01)", () => {
+  it("+ shows on every non-star row (skills or stat increases); stars never get it", async () => {
+    const { b } = await freeHuman();
+    b.setTeamName("Advancers");
+    b.addPosition("hlin");
+    b.addStar(b.starChoices()[0]!.key);
+    expect(b.advanceLock(0)).toEqual({ offered: true, stats: true, reason: "" });
+    expect(b.advanceLock(1)).toMatchObject({ offered: false, stats: false });
+  });
+
+  it("+ on a ruleset without stat increases names skills only and closes when no skill can be added", async () => {
+    const b = make(mockFetcher(routes()));
+    await b.init({ packageName: "BB2025 Default", race: "human" });
+    b.setTeamName("Cup");
+    b.addPosition("hlin");
+    expect(b.slotLocks(0).statOffered).toBe(false);
+    expect(b.advanceLock(0)).toMatchObject({ offered: true, stats: false });
+  });
+
+  it("stat steps: cost per characteristic, AG / PA improve as targets (3+ -> 2+), MA / ST / AV rise, one per player in Free Create", async () => {
+    const { b } = await freeHuman();
+    b.setTeamName("Advancers");
+    b.addPosition("hlin");
+    const steps = b.statSteps(0);
+    expect(steps.map((o) => [o.stat, o.value, o.to, o.cost])).toEqual([
+      ["MA", "6", "7", `+${core.gold(CHARACTERISTIC_VALUE.MA)}`], ["ST", "3", "4", `+${core.gold(CHARACTERISTIC_VALUE.ST)}`],
+      ["AG", "3+", "2+", `+${core.gold(CHARACTERISTIC_VALUE.AG)}`], ["PA", "4+", "3+", `+${core.gold(CHARACTERISTIC_VALUE.PA)}`],
+      ["AV", "9+", "10+", `+${core.gold(CHARACTERISTIC_VALUE.AV)}`],
+    ]);
+    expect(steps.every((o) => !o.has && o.removeReason === `No ${o.stat} increase to remove.`)).toBe(true);
+    expect(b.addStat(0, "AG")).toBe("");
+    const after = b.statSteps(0);
+    expect(after.find((o) => o.stat === "AG")).toMatchObject({ has: true, value: "2+", up: true, removeReason: "", reason: "AG already has its increase." });
+    expect(after.find((o) => o.stat === "MA")?.reason).toBe("Max 1 per player."); // one increase per player with limits on
+    expect(b.totals().statCost).toBe(CHARACTERISTIC_VALUE.AG);
+    // the roster row shows the improved tile; the sheet carries the increase
+    expect(core.improvedStats(b.positionById("hlin"), b.slotLocks(0).liveStats).AG).toEqual({ value: "2+", improved: true });
+    const row = b.sheetModel().rows[0] as any;
+    expect(row.statIncreases).toEqual(["AG"]);
+    // removal floors at the printed value: a second removal changes nothing
+    b.removeStat(0, "AG");
+    b.removeStat(0, "AG");
+    expect(b.state.slots[0]!.chosenStatIncreases).toEqual([]);
+    expect(b.statSteps(0).find((o) => o.stat === "AG")).toMatchObject({ value: "3+", has: false });
+  });
+
+  it("caps hold on the + (MA 9 Sprinter, AG 1+ floor) with Ignore in-game limits", async () => {
+    const { b } = await freeHuman();
+    b.setTeamName("Sprinters");
+    await b.setIgnoreLimits(true);
+    b.addPosition("hrun");
+    expect(b.statSteps(0).find((o) => o.stat === "MA")).toMatchObject({ reason: "MA can't go above 9.", to: "9" });
+    expect(b.addStat(0, "AG")).toBe(""); // 2+ -> 1+
+    expect(b.statSteps(0).find((o) => o.stat === "AG")).toMatchObject({ value: "1+", has: true });
+    expect(b.addStat(0, "ST")).toBe(""); // several characteristics once each with the box ticked
+    expect(b.statSteps(0).filter((o) => o.has).map((o) => o.stat)).toEqual(["ST", "AG"]);
+  });
+
+  it("increases never count toward the 8-skill bound", async () => {
+    const { b } = await freeHuman();
+    b.setTeamName("Polymaths");
+    b.addPosition("hlin");
+    expect(b.addStat(0, "ST")).toBe("");
+    expect(b.slotLocks(0).canMoreSkills).toBe(true);
+    expect(b.advanceLock(0).reason).toBe("");
+  });
+
+  it("the elite diamond follows the dataset's elite flag", async () => {
+    const { b } = await freeHuman();
+    expect(b.eliteMark("Block")).toBe(true);
+    expect(b.eliteMark("Dodge")).toBe(true);
+    expect(b.eliteMark("Tackle")).toBe(false);
+    expect(b.eliteMark("Loner (4+)")).toBe(false);
   });
 });
 
@@ -441,6 +517,23 @@ describe("Free Create: page (server-rendered)", () => {
     const total = summary.slice(summary.indexOf('class="tv-total"'), summary.indexOf("</div>", summary.indexOf('class="tv-total"')));
     expect(total).toContain("<span>Total</span>");
     expect(total).not.toContain("<small>"); // no cap fraction on the total
+  });
+
+  it("the roster row: one + per non-star row (skill or stat increase), no + Skill / + Stat; elite chips wear the diamond", async () => {
+    const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Free Reavers"); b.addPosition("hlin"); b.addStar(b.starChoices()[0]!.key); b.addStat(0, "AG"); });
+    const roster = html.slice(html.indexOf('id="tb-roster-h"'), html.indexOf("tb-roster-foot"));
+    expect(roster.match(/class="tb-advance"/g)).toHaveLength(1);
+    expect(roster).toContain('aria-label="Add skill or stat increase for #1 Lineman"');
+    expect(roster).not.toMatch(/>\+ (Skill|Stat)<|data-kind="characteristic"/);
+    expect(roster).toMatch(/class="up tb-stat"[^>]*><b>2\+<\/b><small>AG<\/small>/); // the increase on the row's tile
+    expect(roster).toContain("> +AG<button"); // and its removable chip
+    expect(roster).toMatch(/class="skill skill-general tb-elite-chip" title="Elite skill"><img class="tb-elite-dot" src="\/icons\/builder\/elite-diamond.png" alt="Elite skill"/); // the star's Block
+    // the row layout: the + sits in line 2 beside the stats, never in the cost / fire-X cells
+    expect(roster).toMatch(/<span class="tb-row-line2"><span class="tb-stats tb-row-stats">.*?<\/span><span class="tb-row-actions"><button type="button" class="tb-advance"/s);
+    const css = readFileSync(new URL("../spa/src/teams/builder.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.tb-row > \.tb-cost \{ grid-area: cost;/);
+    expect(css).toContain("width: var(--tb-adv-size); height: var(--tb-adv-size);"); // a fixed square: never wider than its slot
+    expect(css).not.toMatch(/\.tb-advance[^}]*aspect-ratio/);
   });
 
   it("a tournament ruleset still shows the verdict and has no checkbox", async () => {

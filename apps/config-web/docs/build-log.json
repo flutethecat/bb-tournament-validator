@@ -1,6 +1,17 @@
 [
   {
     "date": "2026-11-01",
+    "title": "One + button for skills and stat increases",
+    "body": "Roster Builder rows now have a single + button. It opens an Advance dialog with the skill list and, where the ruleset allows stat increases (such as Free Create), the player's stat bar with + and − buttons for each characteristic. Elite skills now show a small diamond.",
+    "links": [
+      {
+        "label": "Roster Builder",
+        "href": "/app/tournament-team-builder"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "Propose a time for your fixtures",
     "body": "Agree when to play a league fixture or tournament match with your opponent: offer up to three 2-hour times, and they accept one, suggest others or decline. The agreed time is saved on the fixture and shows on your new Schedule page (month, week, day and list views), with warnings for late hours in your opponent's timezone.",
     "links": [

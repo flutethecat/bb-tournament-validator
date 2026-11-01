@@ -4,7 +4,7 @@
 // unnamed team gets the name gate (message in the save-line box, focus on the team name field). The panel's header bar is
 // the accordion's (TournamentBuilderAccordion.vue).
 import { computed, inject, ref } from "vue";
-import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
+import { ELITE_ICON, TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
 import { core, type BuilderPosition } from "../teams/builderCore";
 import { useRowWindow } from "../teams/hireWindow";
 import TournamentBuilderStats from "./TournamentBuilderStats.vue";
@@ -36,7 +36,7 @@ function add(positionId: string): void {
       </span>
       <TournamentBuilderStats :position="c.position" />
       <span class="row-skills tb-printed tb-skillband">
-        <span v-for="k in printed(c.position)" :key="k" :class="builder.skillClass(k)">{{ k }}</span>
+        <span v-for="k in printed(c.position)" :key="k" :class="[builder.skillClass(k), { 'tb-elite-chip': builder.eliteMark(k) }]" :title="builder.eliteMark(k) ? 'Elite skill' : undefined"><img v-if="builder.eliteMark(k)" class="tb-elite-dot" :src="ELITE_ICON" alt="" width="12" height="12" />{{ k }}</span>
         <span v-if="!printed(c.position).length" class="muted">No printed skills</span>
       </span>
     </button>

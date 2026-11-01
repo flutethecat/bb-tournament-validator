@@ -2,13 +2,15 @@
 // Tournament Builder, the Roster table (centre of the Roster pane, owner 10-30 / 10-31): the roster in builder order (drag
 // the slim gripper or Alt+Up / Alt+Down to reorder; numbers follow the order and the save keeps it). Each row is a player
 // card: top line = number, portrait, name, the Team Captain badge, cost and a red X that fires the player; second line = the
-// stat strip with Add Skill / Add Stat at its right end (the picker offers only what the shared core's gates allow; stars
-// never take either); then the skills. Added skills and stats wear a gold border and a red X badge that removes them. The
+// stat strip with one square "+" at its right end (owner 11-01: it opens the Advance dialog, skills plus the stat bar where
+// increases are allowed; stars never take either); then the skills (elite ones wear the diamond at their top-left corner).
+// Added skills and stats wear a gold border and a red X badge that removes them. The
 // skill key and the skill counts sit under the roster.
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { TOURNAMENT_BUILDER_KEY, TOURNAMENT_BUILDER_UI_KEY } from "../teams/builder";
 import { edgeStep, revealRow, REVEAL_FLASH_MS, rosterHeight, wideLayout } from "../teams/rosterReveal";
 import { core, type BuilderPosition, type Slot } from "../teams/builderCore";
+import { ELITE_ICON } from "../teams/builder";
 import TournamentBuilderStats from "./TournamentBuilderStats.vue";
 import TournamentBuilderSkillPicker from "./TournamentBuilderSkillPicker.vue";
 
@@ -57,10 +59,10 @@ watch(() => ui?.added, async (n, was) => {
 });
 onBeforeUnmount(() => { if (flashTimer) clearTimeout(flashTimer); });
 
-// ── Add Skill / Add Stat ──
+// ── the single "+" (owner 11-01): opens the Advance dialog (skills, and the stat bar where increases are allowed) ──
 const picker = ref<InstanceType<typeof TournamentBuilderSkillPicker> | null>(null);
-const openSkill = (i: number, e: MouseEvent): void => void picker.value?.openSkill(i, e.currentTarget as HTMLElement);
-const openStat = (i: number, e: MouseEvent): void => picker.value?.openStat(i, e.currentTarget as HTMLElement);
+const advance = (i: number) => builder.advanceLock(i);
+const openAdvance = (i: number, e: MouseEvent): void => void picker.value?.openSkill(i, e.currentTarget as HTMLElement);
 
 // ── reorder: pointer drag on the gripper (mouse, touch, pen) and Alt+Arrow on it ──
 const live = ref("");
@@ -178,20 +180,16 @@ function onGripKey(e: KeyboardEvent, index: number): void {
         <button type="button" class="tb-fire-x" :aria-label="`Fire ${position(s)?.name ?? 'player'} #${i + 1}`" title="Fire" @click="builder.removeSlot(i)"><span aria-hidden="true">×</span></button>
         <span class="tb-row-line2">
           <TournamentBuilderStats :position="position(s)" :increases="builder.slotLocks(i).liveStats" class="tb-row-stats" />
-          <span v-if="!position(s)?.isStar" class="tm-acts tb-row-actions">
-            <button type="button" class="tm-act" data-kind="skill" :disabled="builder.slotLocks(i).skillLocked || !builder.slotLocks(i).canMoreSkills"
-              :title="builder.slotLocks(i).skillLocked ? 'A player with a stat increase can\'t also have an added skill.' : !builder.slotLocks(i).canMoreSkills ? 'This player can\'t take another skill.' : undefined"
-              :aria-label="`Add skill to ${builder.shortName(position(s))} #${i + 1}`" aria-haspopup="dialog" @click="openSkill(i, $event)">+ Skill</button>
-            <button v-if="builder.slotLocks(i).statOffered" type="button" class="tm-act" data-kind="characteristic" :disabled="builder.slotLocks(i).statLocked || builder.slotLocks(i).statFull"
-              :title="builder.slotLocks(i).statLocked ? 'A player with an added skill can\'t also take a stat increase.' : builder.slotLocks(i).statFull ? `Max ${builder.slotLocks(i).maxStats} stat increase${builder.slotLocks(i).maxStats === 1 ? '' : 's'} per player.` : undefined"
-              :aria-label="`Add stat to ${builder.shortName(position(s))} #${i + 1}`" aria-haspopup="dialog" @click="openStat(i, $event)">+ Stat</button>
+          <span v-if="advance(i).offered" class="tb-row-actions">
+            <button type="button" class="tb-advance" :disabled="Boolean(advance(i).reason)" :title="advance(i).reason || (advance(i).stats ? 'Add a skill or a stat increase' : 'Add a skill')"
+              :aria-label="`${advance(i).stats ? 'Add skill or stat increase' : 'Add skill'} for #${i + 1} ${builder.shortName(position(s))}`" aria-haspopup="dialog" @click="openAdvance(i, $event)"><span aria-hidden="true">+</span></button>
           </span>
         </span>
         <span class="row-skills tb-row-skills">
-          <span v-for="k in printed(position(s))" :key="`p-${k}`" :class="builder.skillClass(k)">{{ k }}</span>
+          <span v-for="k in printed(position(s))" :key="`p-${k}`" :class="[builder.skillClass(k), { 'tb-elite-chip': builder.eliteMark(k) }]" :title="builder.eliteMark(k) ? 'Elite skill' : undefined"><img v-if="builder.eliteMark(k)" class="tb-elite-dot" :src="ELITE_ICON" alt="Elite skill" width="12" height="12" />{{ k }}</span>
           <template v-if="captainOn(s)"><span class="skill skill-trait tb-free" title="Team Captain: gains Pro for free">{{ core.TEAM_CAPTAIN }}</span><span class="skill skill-trait tb-free" title="Free with Team Captain">Pro</span></template>
-          <span v-for="k in s.chosenSkills" :key="`a-${k}`" :class="[builder.skillClass(k), 'tb-added', 'tb-bought', `access-${builder.accessOf(s.positionId, k)}`]">
-            {{ k }}<button type="button" class="tb-chip-x" :aria-label="`Remove ${k}`" @click="builder.removeSkill(i, k)"><span aria-hidden="true">×</span></button>
+          <span v-for="k in s.chosenSkills" :key="`a-${k}`" :class="[builder.skillClass(k), 'tb-added', 'tb-bought', `access-${builder.accessOf(s.positionId, k)}`, { 'tb-elite-chip': builder.eliteMark(k) }]" :title="builder.eliteMark(k) ? 'Elite skill' : undefined">
+            <img v-if="builder.eliteMark(k)" class="tb-elite-dot" :src="ELITE_ICON" alt="Elite skill" width="12" height="12" />{{ k }}<button type="button" class="tb-chip-x" :aria-label="`Remove ${k}`" @click="builder.removeSkill(i, k)"><span aria-hidden="true">×</span></button>
           </span>
           <span v-for="k in builder.slotLocks(i).liveStats" :key="`s-${k}`" class="skill tb-stat-chip tb-bought">
             +{{ k }}<button type="button" class="tb-chip-x" :aria-label="`Remove +${k}`" @click="builder.removeStat(i, k)"><span aria-hidden="true">×</span></button>

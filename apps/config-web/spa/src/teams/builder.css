@@ -241,7 +241,7 @@
 .tb-row > .tb-row-skills { grid-area: skills; align-self: stretch; align-content: center; min-height: 26px; box-sizing: border-box; margin-top: 4px; padding: 3px 8px; background: var(--tb-skillbar); border-radius: 0 0 2px 2px; }
 .tb-row-line2 { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; min-width: 0; }
 .tb-row-line2 > .tb-row-stats { flex: 1 1 0; min-width: 216px; max-width: 300px; }
-.tb-row-line2 > .tb-row-actions { flex: none; margin-left: auto; padding-bottom: 3px; }
+.tb-row-line2 > .tb-row-actions { flex: none; display: flex; align-items: center; margin-left: auto; }
 .tb-num { min-width: 22px; font: 16px/1 var(--sf-band-font); text-align: center; color: var(--ui-heading); text-shadow: 2px 2px 0 rgb(0 0 0 / 80%); }
 .tb-page .sprite-frame.tb-sprite.tb-row-sprite { width: 56px; height: 56px; }
 .tb-page .tb-row-sprite .sprite-image { image-rendering: pixelated; }
@@ -279,7 +279,22 @@
   .tb-bought .tb-chip-x { opacity: 0; transition: opacity 120ms linear; }
   .tb-bought:hover .tb-chip-x, .tb-bought:focus-within .tb-chip-x { opacity: 1; }
 }
-.tb-row-actions .tm-act { min-height: 34px; padding: 4px 10px; font-size: 12px; }
+/* the single "+" (owner 11-01): a square primary button as tall as the stat tiles beside it */
+.tb-advance {
+  /* as tall as a stat tile: the tile is its value (this font size) plus ~20 px of caption, gap, padding and border */
+  --tb-adv-size: calc(clamp(18px, 4.6cqi, 24px) + 20px);
+  display: grid; place-items: center; box-sizing: border-box; width: var(--tb-adv-size); height: var(--tb-adv-size); padding: 0;
+  color: var(--ui-text-on-primary); background: var(--ui-primary); border: 2px solid var(--sf-panel-line); border-radius: 2px;
+  box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 3px 0 var(--sf-panel-drop); font: 22px/1 var(--sf-band-font); text-shadow: 0 1px 0 var(--tb-badge-line);
+  cursor: pointer; transition: transform .06s ease, box-shadow .06s ease;
+}
+.tb-advance:hover:not(:disabled) { filter: brightness(1.12); transform: translateY(-1px); box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 4px 0 var(--sf-panel-drop); }
+.tb-advance:active:not(:disabled) { transform: translateY(1px); box-shadow: inset 0 1px 0 var(--sf-panel-hi), 0 1px 0 var(--sf-panel-drop); }
+.tb-advance:disabled { opacity: .55; cursor: not-allowed; }
+.tb-advance:focus-visible, .tb-adv-step:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+/* the elite diamond (owner 11-01): a small pixel badge over a skill chip's top-left corner; it never changes the chip's size */
+.tb-page .row-skills .tb-elite-chip { position: relative; }
+.tb-elite-dot { position: absolute; top: -5px; left: -5px; width: 12px; height: 12px; image-rendering: pixelated; pointer-events: none; z-index: 1; filter: drop-shadow(0 1px 0 var(--tb-badge-drop)) drop-shadow(0 0 1px var(--tb-badge-line)); }
 .tb-page .row-skills .skill { gap: 4px; }
 .tb-added { font-style: italic; }
 /* added skills: a 3 px bar along the bottom, heading red for Primary, white for Secondary (owner 10-31; the legend's swatches
@@ -389,9 +404,31 @@
 .tb-chip:disabled { opacity: .55; cursor: not-allowed; }
 .tb-chip.added { opacity: 1; border-color: currentColor; }
 .tb-chip .skill-icon { width: 22px; height: 22px; object-fit: contain; image-rendering: pixelated; }
-.tb-elite { font: 9px/1.4 var(--sf-band-font); text-transform: uppercase; letter-spacing: .06em; color: var(--ui-gold) !important; }
-.tb-stat-option { color: var(--ui-text); }
-.tb-stat-option b { font-family: var(--sf-band-font); color: var(--ui-skill-general); }
+.tb-elite { flex: none; width: 16px; height: 16px; image-rendering: pixelated; filter: drop-shadow(0 1px 0 var(--tb-badge-drop)); }
+/* the Advance dialog's top row (owner 11-01): skill blades left, the stat bar with +/− top right where increases are allowed */
+.tb-adv-top { display: grid; gap: 10px; }
+.tb-adv-top.with-stats { grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 16px; }
+.tb-adv-blades { display: grid; gap: 10px; min-width: 0; }
+.tb-adv-stats { display: grid; gap: 4px; justify-items: end; }
+.tb-adv-bar { display: grid; grid-template-columns: repeat(5, 48px); gap: 6px; }
+.tb-adv-col { display: grid; grid-template-rows: auto 26px auto 26px; gap: 3px; justify-items: stretch; }
+.tb-adv-cost { font: 10px/1.2 var(--sf-band-font); text-align: center; color: var(--ui-gold); white-space: nowrap; }
+.tb-adv-cost.off { color: var(--ui-muted); }
+.tb-adv-col .tb-stat { padding: 3px 2px 2px; }
+.tb-adv-col .tb-stat b { font-size: 22px; }
+.tb-adv-step {
+  display: grid; place-items: center; padding: 0; color: var(--ui-text); background: linear-gradient(var(--sf-panel-top), var(--sf-panel-bottom)), var(--ui-surface);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px; box-shadow: var(--sf-bevel); font: 700 18px/1 system-ui, sans-serif; cursor: pointer;
+}
+.tb-adv-step[data-dir="up"] { color: var(--ui-text-on-primary); background: var(--ui-primary); }
+.tb-adv-step:hover:not([aria-disabled="true"]) { border-color: var(--ui-heading); }
+.tb-adv-step[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.tb-adv-note { margin: 0; font-size: 14px; }
+@media (max-width: 640px) {
+  .tb-adv-top.with-stats { grid-template-columns: minmax(0, 1fr); }
+  .tb-adv-stats { order: -1; justify-items: stretch; }
+  .tb-adv-bar { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
 
 /* The save line (owner 10-31): the Team panel's footer box (in the skill-pack list's place on pack rulesets once a pack is
    picked); the verdict is its header, then the actions while valid, else the live issues list */
@@ -448,7 +485,7 @@
   .tb-row .tb-stat b { font-size: 22px; }
   .tb-row .tb-stat small { font-size: 10px; }
   .tb-row > .tb-row-skills { min-height: 24px; padding: 2px 8px; margin-top: 3px; }
-  .tb-row-actions .tm-act { min-height: 32px; }
+  .tb-row .tb-advance { --tb-adv-size: 39px; } /* the compact tiles: 22 px value + 17 px */
 }
 /* wide roster (660 px of panel and up, e.g. 1920): one line per player (name, captain, stats, Add Skill, cost, fire X) with
    the skills band beside the portrait under it, so more rows fit in the roster scroller */

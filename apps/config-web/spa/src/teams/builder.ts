@@ -133,6 +133,8 @@ export { FREE_CREATE_PACKAGE, FREE_CREATE_LABEL, FREE_CREATE_DESCRIPTION };
 /** Added skills one player may carry: the server's save and build bound (teamBuilderWire.ts skillsPerPick), which Free
  *  Create's open gates would otherwise run past. */
 export const MAX_SKILLS_PER_PLAYER = TEAM_BUILDER_BODY_BOUNDS.skillsPerPick;
+/** The elite-skill diamond (owner-supplied pixel art from the Super FUMBBL client; tools/art/elite-diamond/PROVENANCE.md). */
+export const ELITE_ICON = "/icons/builder/elite-diamond.png";
 export const HIDDEN_RULESET_CARDS: ReadonlySet<string> = new Set(["BB2025 Default"]);
 export interface RulesetCard { name: string; label: string; description: string; free: boolean }
 /** Free Create stat increases: one per player (each characteristic once while limits are ignored); skills and stats combine. */
@@ -783,6 +785,8 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     const [set, name] = STAFF_ICONS[key];
     return iconPath(set === "ui" ? state.art.uiIcons : state.art.icons, name);
   }
+  /** Whether a skill chip wears the elite diamond (owner 11-01): the package's elite list, else the dataset's flag. */
+  const eliteMark = (skill: string): boolean => isElite(bare(skill));
   function skillClass(skill: string): string {
     const meta = skillMeta(bare(skill));
     return `skill ${categoryClass(meta?.category)}`;
@@ -1230,17 +1234,26 @@ export function createTournamentBuilder(deps: BuilderDeps) {
   }
   const skillPrice = (access: "primary" | "secondary", elite: boolean): string =>
     `+${core.gold((access === "secondary" ? core.SKILL_GOLD.secondary : core.SKILL_GOLD.primary) + (elite ? core.SKILL_GOLD.elite : 0))}`;
-  function statOptions(index: number) {
+  /** The Advance dialog's stat bar (owner 11-01): per allowed characteristic, the current value and the "+" / "−" steps.
+   *  "+" runs the same gate as before (statBlock: the core's per-player and tier limits plus the BB2025 caps); "−" removes
+   *  an increase this player has (never below the printed value). AG / PA / AV improve as targets: 3+ → 2+. */
+  function statSteps(index: number) {
     const slot = state.slots[index];
     const position = slot ? positionById(slot.positionId) : null;
     if (!slot || !position) return [];
     const chosen = slot.chosenStatIncreases.filter((k) => allowedStats().includes(k));
     const now = core.improvedStats(position, chosen);
     return allowedStats().map((stat) => {
-      const reason = statBlock(slot, position, stat);
+      const has = chosen.includes(stat);
+      const block = statBlock(slot, position, stat);
+      const reason = has && block === "Already taken." ? `${stat} already has its increase.` : block;
       const next = core.improvedStats(position, [...chosen, stat]);
       const cost = core.statIncreaseCost(statRules(), stat);
-      return { stat, reason, from: String(now[stat as Stat].value), to: String(reason && /no /.test(reason) ? now[stat as Stat].value : next[stat as Stat].value), cost: cost != null ? `+${core.gold(cost)}` : "" };
+      return {
+        stat, reason, has, value: String(now[stat as Stat].value), up: now[stat as Stat].improved,
+        to: String(reason ? now[stat as Stat].value : next[stat as Stat].value), cost: cost != null ? `+${core.gold(cost)}` : "",
+        removeReason: has ? "" : `No ${stat} increase to remove.`,
+      };
     });
   }
   /** Row-level locks for the Skills tab buttons. */
@@ -1258,6 +1271,16 @@ export function createTournamentBuilder(deps: BuilderDeps) {
       statFull: liveStats.length >= maxStats,
       maxStats,
     };
+  }
+  /** The roster row's single "+" (owner 11-01: replaces + Skill / + Stat). Shown on every non-star row; open while the
+   *  player may take a skill, or stat increases are offered at all (the dialog's "−" can then free the player). */
+  function advanceLock(index: number): { offered: boolean; stats: boolean; reason: string } {
+    const slot = state.slots[index];
+    if (!slot || isStarSlot(slot)) return { offered: false, stats: false, reason: "Stars never take added skills or stat increases." };
+    const l = slotLocks(index);
+    const skillOpen = !l.skillLocked && l.canMoreSkills;
+    const reason = skillOpen || l.statOffered ? "" : l.skillLocked ? "A player with a stat increase can't also have an added skill." : "This player can't take another skill.";
+    return { offered: true, stats: l.statOffered, reason };
   }
 
   // ── restore / saves ───────────────────────────────────────────────────────────────────────────────────────────
@@ -1550,9 +1573,9 @@ export function createTournamentBuilder(deps: BuilderDeps) {
     state,
     // derived
     positionById, shortName, raceRules, tierRules, statRules, allowedStats, packSummary, captainAvailable, slotCanCaptain, leagueOptions,
-    leaguePresentation, activeLeague, selectedSpecialRule, accessOf, isElite, skillClass, totals, valueLines, validity, canExport, canBuild, canSave,
+    leaguePresentation, activeLeague, selectedSpecialRule, accessOf, isElite, eliteMark, skillClass, totals, valueLines, validity, canExport, canBuild, canSave,
     skillPoints, positionCards, starChoices, starRow, starCap, starPickCount, starsAllowed, starSpTable, inducementRows, rulesetLines, tierLabel, raceTable,
-    eligibleRosters, staffRows: () => staffRows(state.roster), staffIcon, skillIcon, spritePath, crestPath, pickerSections, skillPrice, statOptions,
+    eligibleRosters, staffRows: () => staffRows(state.roster), staffIcon, skillIcon, spritePath, crestPath, pickerSections, skillPrice, statSteps, advanceLock,
     captainIndex, skillAllowance, slotLocks, legalSet, requestBody, sheetModel, teamViewModel, gateCtx, named, signedIn: (): boolean => Boolean(deps.coach()),
     free, ignoring, capped, canShare, skillBlock, moreSkills, rulesetCards, rulesetLabel, freeRaces, canAddStar,
     // actions

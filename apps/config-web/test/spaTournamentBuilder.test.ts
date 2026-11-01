@@ -613,17 +613,17 @@ describe("tournament builder page (server-rendered)", () => {
   it("the roster rows carry Add Skill / Add Stat as on the team page; stars get neither; the validator lists the tier rules", async () => {
     const html = await render("/tournament-team-builder?tab=roster", mockFetcher(routes()), (b) => { b.setTeamName("Reavers"); b.addPosition("hbli"); b.addStar(b.starChoices()[0].key); });
     const roster = between(html, "tb-roster-h", "tb-team-name");
-    expect(roster.match(/>\+ Skill<\/button>/g)).toHaveLength(1); // "+ Skill" (owner 10-31), the full action in its name
-    expect(roster).toContain('aria-label="Add skill to Blitzer #1" aria-haspopup="dialog">+ Skill</button>');
-    expect(roster).not.toContain(">Add Skill<");
-    expect(roster).toContain('class="tm-act" data-kind="skill"');
+    // one square "+" (owner 11-01) replaces + Skill / + Stat; this tier has no stat increases, so it names skills only
+    expect(roster.match(/class="tb-advance"/g)).toHaveLength(1);
+    expect(roster).toContain('aria-label="Add skill for #1 Blitzer" aria-haspopup="dialog"><span aria-hidden="true">+</span></button>');
+    expect(roster).not.toMatch(/>\+ (Skill|Stat)<|data-kind="characteristic"|>Add Skill</);
     expect(roster).toContain("Star player: no added skills");
     // the Roster header carries the skill counts against the allowance (tier 1: no secondary); the player count sits bottom right
     expect(roster).toContain('id="tb-roster-h">Roster</h2><span class="hm-cap tb-skill-meta">Primary 0 · Secondary 0/0</span>');
     expect(roster).not.toContain("Primary skills <b>");
     expect(roster.indexOf('aria-label="Skill key"')).toBeLessThan(roster.indexOf('class="hm-cap tb-player-count">2 / 16 players</span>'));
     // Add Skill sits at the right end of the stat line (owner 10-31: where Fire was); no Fire button, a red X fires instead
-    expect(roster).toMatch(/<span class="tb-row-line2"><span class="tb-stats tb-row-stats">.*?<\/span><span class="tm-acts tb-row-actions"><button type="button" class="tm-act" data-kind="skill"/s);
+    expect(roster).toMatch(/<span class="tb-row-line2"><span class="tb-stats tb-row-stats">.*?<\/span><span class="tb-row-actions"><button type="button" class="tb-advance"/s);
     expect(roster).not.toMatch(/>Fire<\/button>/);
     expect(roster).not.toContain('class="tb-fire"');
     expect(roster).toContain('class="tb-fire-x" aria-label="Fire Human Blitzer #1"');
@@ -780,8 +780,8 @@ describe("tournament builder page (server-rendered)", () => {
     expect(rows).toContain('aria-pressed="true" title="Team captain. Remove to choose another player." aria-description="Team captain. Remove to choose another player."');
     expect(rows).not.toContain("tb-captain-slot");
     expect(rows).not.toMatch(/<small>Team Captain<\/small>/); // no captain subtitle either
-    expect(rows).toMatch(/class="skill skill-general tb-added tb-bought access-primary">\s*Tackle<button type="button" class="tb-chip-x" aria-label="Remove Tackle">/);
-    expect(rows).toMatch(/<span class="skill skill-general">Block<\/span>/); // the printed skill: no tb-bought, no X
+    expect(rows).toMatch(/class="skill skill-general tb-added tb-bought access-primary">\s*(<!---->)?Tackle<button type="button" class="tb-chip-x" aria-label="Remove Tackle">/);
+    expect(rows).toMatch(/<span class="skill skill-general tb-elite-chip" title="Elite skill"><img class="tb-elite-dot"[^>]*>Block<\/span>/); // the printed skill: no tb-bought, no X (the elite diamond only)
     expect(rows).not.toContain('aria-label="Remove Block"');
   });
 
@@ -1111,12 +1111,51 @@ describe("tournament builder page (client behaviour)", () => {
       const chipX = () => page.all().filter((e) => e.attrs.class === "tb-chip-x" && inRow(e));
       expect(chipX()).toEqual([]);
       // add Tackle through the skill picker
-      await page.fire(page.find((e) => e.attrs["aria-label"] === "Add skill to Lineman #1"), "click");
+      await page.fire(page.find((e) => e.attrs["aria-label"] === "Add skill for #1 Lineman"), "click");
       await page.fire(page.find((e) => e.tag === "button" && textOf(e).startsWith("Tackle")), "click");
       expect(chipX().map((e) => e.attrs["aria-label"])).toEqual(["Remove Tackle"]);
       await page.fire(chipX()[0]!, "click");
       expect(chipX()).toEqual([]);
     } finally { page.app.unmount(); }
+  });
+
+  it("the Advance dialog (owner 11-01): Free Create shows the stat bar with + / − per characteristic; a tier without increases keeps Add skill", async () => {
+    const free = await mount("/tournament-team-builder?package=free-create&race=human", mockFetcher(routes()));
+    try {
+      await free.fire(free.find((e) => e.attrs.id === "tb-team-name"), "input", { value: "Reavers" });
+      await free.fire(free.find((e) => String(e.attrs["aria-label"]).startsWith("Add Human Lineman,")), "click");
+      await free.fire(free.find((e) => e.attrs["aria-label"] === "Add skill or stat increase for #1 Lineman"), "click");
+      expect(textOf(free.find((e) => e.attrs.id === "tb-picker-h"))).toContain("Advance: #1 Lineman");
+      const step = (label: string) => free.find((e) => e.tag === "button" && String(e.attrs["aria-label"]).startsWith(label));
+      expect(free.all().filter((e) => e.attrs["data-step"]).length).toBe(10); // + and − for MA ST AG PA AV
+      expect(step("Improve AG to 2+").attrs["aria-disabled"]).toBeUndefined();
+      expect(step("Remove AG increase").attrs["aria-disabled"]).toBe("true");
+      expect(step("Remove AG increase").attrs.title).toBe("No AG increase to remove.");
+      expect(step("Increase AV to 10+")).toBeTruthy(); // AV rises (9+ -> 10+)
+      await free.fire(step("Improve AG to 2+"), "click");
+      expect(step("Remove AG increase").attrs["aria-disabled"]).toBeUndefined();
+      expect(step("Increase MA").attrs["aria-label"]).toBe("Increase MA: Max 1 per player.");
+      expect(step("Increase MA").attrs["aria-disabled"]).toBe("true");
+      await free.fire(step("Increase MA"), "click"); // disabled: no change
+      const inRow = (e: FakeEl): boolean => { for (let p = e.parent; p; p = p.parent) if (p.attrs["data-row"] !== undefined) return true; return false; };
+      expect(free.all().filter((e) => e.attrs["aria-label"] === "Remove +AG" && inRow(e))).toHaveLength(1); // on the roster row
+      await free.fire(step("Remove AG increase"), "click");
+      expect(free.all().filter((e) => e.attrs["aria-label"] === "Remove +AG")).toHaveLength(0);
+      expect(step("Remove AG increase").attrs["aria-disabled"]).toBe("true"); // floors at the printed value
+    } finally { free.app.unmount(); }
+    const cup = await mount("/tournament-team-builder?package=Test%20Cup&race=human", mockFetcher(routes()));
+    try {
+      await cup.fire(cup.find((e) => e.attrs.id === "tb-team-name"), "input", { value: "Reavers" });
+      await cup.fire(cup.find((e) => String(e.attrs["aria-label"]).startsWith("Add Human Lineman,")), "click");
+      await cup.fire(cup.find((e) => e.attrs["aria-label"] === "Add skill for #1 Lineman"), "click");
+      expect(textOf(cup.find((e) => e.attrs.id === "tb-picker-h"))).toContain("Add skill: #1 Lineman");
+      expect(cup.all().filter((e) => e.attrs["data-step"])).toEqual([]);
+      // the elite tag is the diamond (owner 11-01), not the word
+      const elite = cup.all().filter((e) => e.tag === "img" && e.attrs.class === "tb-elite");
+      expect(elite.length).toBeGreaterThan(0);
+      expect(elite[0]!.attrs).toMatchObject({ src: "/icons/builder/elite-diamond.png", alt: "Elite skill", title: "Elite skill" });
+      expect(cup.all().some((e) => e.tag === "#text" && e.text === "Elite")).toBe(false);
+    } finally { cup.app.unmount(); }
   });
 
   it("skill packs: picking collapses the list into the save line; Change skill pack re-opens it with focus on the chosen pack; re-picking the same pack keeps it", async () => {
