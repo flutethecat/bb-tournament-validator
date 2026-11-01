@@ -163,6 +163,8 @@ export interface MailAuditEntry {
   sender: string;
   at: string;
   scope: "all" | "team" | "coach";
+  /** Members the message was addressed to (the organiser-facing daily cap counts these); older rows: notified. */
+  addressed?: number;
   notified: number;
   queued: number;
   skipped: { noConsent: number; unverified: number; suppressed: number };
@@ -184,6 +186,23 @@ export class MailAuditLog {
 
   recordDrop(drop: Omit<MailAuditDrop, "kind">): void {
     appendFileSync(this.file, `${JSON.stringify({ kind: "drop", ...drop })}\n`, { mode: 0o600 });
+  }
+
+  /** Members addressed by a league's messages on the UTC day of `nowMs` (the organiser-facing daily cap). */
+  addressedOn(leagueId: string, nowMs: number): number {
+    if (!existsSync(this.file)) return 0;
+    const day = new Date(nowMs).toISOString().slice(0, 10);
+    let total = 0;
+    for (const line of readFileSync(this.file, "utf8").split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const e = JSON.parse(line) as Partial<MailAuditEntry> & { kind?: string };
+        if (e.kind === "drop" || e.leagueId !== leagueId || typeof e.at !== "string" || e.at.slice(0, 10) !== day) continue;
+        const n = typeof e.addressed === "number" ? e.addressed : e.notified;
+        if (typeof n === "number" && n > 0) total += n;
+      } catch { /* skip a torn line */ }
+    }
+    return total;
   }
 
   /** Newest first; send-time drops are folded in (queued down, skipped up). */

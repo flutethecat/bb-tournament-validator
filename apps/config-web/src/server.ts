@@ -1785,7 +1785,7 @@ async function handleApi(
         resolver: mail.resolver,
         isSuppressed: (address) => mail.suppression.isSuppressed(address),
         enqueue: (items) => mail.enqueue(items),
-        leagueLoad: (leagueId) => mail.outbox.leagueLoad(leagueId),
+        // Organiser-facing cap on members addressed per day; the worker's email cap stays server-side.
         leagueDailyCap: mail.worker.cap,
         emailEnabled: mail.emailEnabled,
         unsubscribeUrl: mail.unsubscribeUrl,

@@ -528,7 +528,7 @@ function leagueFixture(opts: { cap?: number; emailOn?: boolean } = {}) {
   const notifications = new NotificationStore(dir, { now: () => new Date(T0) });
   const deps: LeagueMessageDeps = {
     store, resolver: svc.resolver, isSuppressed: (a) => svc.suppression.isSuppressed(a), enqueue: (i) => svc.enqueue(i),
-    leagueLoad: (id) => svc.outbox.leagueLoad(id), leagueDailyCap: opts.cap ?? 500, emailEnabled: svc.emailEnabled,
+    leagueDailyCap: opts.cap ?? 500, emailEnabled: svc.emailEnabled,
     unsubscribeUrl: svc.unsubscribeUrl, absolute: svc.absolute, leagueStream: "broadcast",
     notify: (c, input) => { notifications.add(c, input); }, audit: svc.audit, limiter: new LeagueMessageLimiter(), now: () => T0,
   };
@@ -634,9 +634,26 @@ describe("league messages: recipients, email, notifications, audit", () => {
     expect(limited.headers?.["retry-after"]).toBeTruthy();
     expect(post(deps, { coach: "Root", admin: true }, ALL).status).toBe(201); // another sender has their own budget
 
-    const capped = leagueFixture({ cap: 1 });
-    expect(post(capped.deps, JAY, ALL).status).toBe(201);
-    expect(post(capped.deps, JAY, ALL).status).toBe(429);
+    const capped = leagueFixture({ cap: 6 }); // members addressed per day
+    expect(post(capped.deps, JAY, ALL).status).toBe(201); // 6 members
+    const over = post(capped.deps, JAY, { ...ALL, scope: "coach", coach: "Bob" });
+    expect(over.status).toBe(429);
+    expect((over.body as { error: string }).error).toMatch(/at most 6 members a day/);
+  });
+
+  it("the organiser-facing daily cap never varies with who gets email", () => {
+    const run = (allEligible: boolean) => {
+      const f = leagueFixture({ cap: 8 });
+      if (!allEligible) f.svc.suppression.suppress("ann@example.test", "complaint"); // nobody gets email now
+      return [
+        post(f.deps, JAY, ALL).status, // 6 addressed
+        post(f.deps, JAY, { ...ALL, scope: "coach", coach: "Ann" }).status, // 7
+        post(f.deps, JAY, { ...ALL, scope: "coach", coach: "Bob" }).status, // 8
+        post(f.deps, JAY, { ...ALL, scope: "coach", coach: "Ann" }).status, // 9: over
+      ];
+    };
+    expect(run(true)).toEqual([201, 201, 201, 429]);
+    expect(run(false)).toEqual(run(true));
   });
 
   it("disclosure rule: all-members with >= 5 recipients only, and then the notified count only (no email figure)", () => {

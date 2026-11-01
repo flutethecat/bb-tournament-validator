@@ -34,15 +34,18 @@ export interface LeagueMessageDeps {
   resolver: RecipientResolver;
   isSuppressed(address: string): boolean;
   enqueue(items: OutboxItem[]): { added: number; duplicates: number };
-  /** Today's sent + queued for the league (the daily cap). */
-  leagueLoad(leagueId: string): { sentToday: number; queued: number };
+  /**
+   * Organiser-facing daily cap: MEMBERS ADDRESSED per league per UTC day (every recipient counts, whatever their email
+   * status), so a 429 never depends on who gets email. The provider-volume cap is the worker's, server-side only
+   * (excess email stays queued for the next day).
+   */
   leagueDailyCap: number;
   emailEnabled(): boolean;
   unsubscribeUrl(coach: string, leagueId: string, address: string): string;
   absolute(path: string): string;
   leagueStream?: string;
   notify(coach: string, input: NotificationInput): void;
-  audit: Pick<MailAuditLog, "append" | "forLeague">;
+  audit: Pick<MailAuditLog, "append" | "forLeague" | "addressedOn">;
   limiter: LeagueMessageLimiter;
   now?: () => number;
 }
@@ -143,7 +146,7 @@ export function leagueMessagesRoute(
       status: 200, headers: NO_STORE,
       body: {
         emailEnabled: deps.emailEnabled(),
-        limits: { subject: LEAGUE_SUBJECT_MAX, body: LEAGUE_BODY_MAX, perHour: LEAGUE_MESSAGES_PER_HOUR, dailyEmails: deps.leagueDailyCap },
+        limits: { subject: LEAGUE_SUBJECT_MAX, body: LEAGUE_BODY_MAX, perHour: LEAGUE_MESSAGES_PER_HOUR, dailyMembers: deps.leagueDailyCap },
         recent: deps.audit.forLeague(lg.id, 20).map((e) => ({ id: e.id, sender: e.sender, at: e.at, scope: e.scope, counts: disclosedCounts(e.scope, e) })),
       },
     };
@@ -167,7 +170,11 @@ export function leagueMessagesRoute(
   if (!recipients.ok) return recipients.result;
   if (!recipients.coaches.length) return fail(409, "No other members have a coach account to message yet.");
 
-  // Who may get email (decided before anything is stored, so the cap check sees the real count).
+  // The daily cap counts members addressed (email eligibility plays no part, so the 429 reveals nothing about it).
+  if (deps.audit.addressedOn(lg.id, now) + recipients.coaches.length > deps.leagueDailyCap)
+    return fail(429, `This league can message at most ${deps.leagueDailyCap} members a day; try again tomorrow or message fewer members.`);
+
+  // Who may get email.
   const skipped = { noConsent: 0, unverified: 0, suppressed: 0 };
   const emailTo: Array<{ coach: string; address: string }> = [];
   const emailOn = deps.emailEnabled();
@@ -177,11 +184,6 @@ export function leagueMessagesRoute(
     if (!contact.email || !contact.verified) { skipped.unverified += 1; continue; }
     if (deps.isSuppressed(contact.email)) { skipped.suppressed += 1; continue; }
     emailTo.push({ coach, address: contact.email });
-  }
-  if (emailOn && emailTo.length) {
-    const load = deps.leagueLoad(lg.id);
-    if (load.sentToday + load.queued + emailTo.length > deps.leagueDailyCap)
-      return fail(429, `This league can send at most ${deps.leagueDailyCap} emails a day; try again tomorrow or message fewer members.`);
   }
   const wait = deps.limiter.take(who.coach, lg.id, now);
   if (wait > 0) return { ...fail(429, `At most ${LEAGUE_MESSAGES_PER_HOUR} messages an hour per league; try again later.`), headers: { ...NO_STORE, "retry-after": String(wait) } };
@@ -213,7 +215,7 @@ export function leagueMessagesRoute(
     try { deps.notify(coach, notice); notified += 1; } catch { /* fire-and-forget */ }
   }
 
-  const entry: MailAuditEntry = { id, leagueId: lg.id, sender: who.coach, at: new Date(now).toISOString(), scope: recipients.scope, notified, queued, skipped };
+  const entry: MailAuditEntry = { id, leagueId: lg.id, sender: who.coach, at: new Date(now).toISOString(), scope: recipients.scope, addressed: recipients.coaches.length, notified, queued, skipped };
   try { deps.audit.append(entry); } catch { /* the audit write must not fail the send */ }
   const counts = disclosedCounts(recipients.scope, { notified });
   const result: LeagueMessageResult = { status: 201, headers: NO_STORE, body: { id, emailEnabled: emailOn, counts, ...(counts ? {} : { summary: PRIVATE_SUMMARY }) } };
