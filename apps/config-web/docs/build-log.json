@@ -1,6 +1,21 @@
 [
   {
     "date": "2026-11-01",
+    "title": "League fixture deadlines",
+    "body": "League organisers can now set a deadline for each round, and give any fixture its own. Every unplayed fixture shows its deadline (amber under 72 hours, red under 24 hours, then Overdue), and so do your next fixture in the sidebar and the Deadlines panel on your coach page. Organisers can also turn on auto-forfeit for a season (off by default): once a deadline passes, the fixture is marked for an organiser to decide, recorded as no result, or lost by both teams, and both coaches and the organisers are told.",
+    "links": [
+      {
+        "label": "Leagues",
+        "href": "/app/leagues"
+      },
+      {
+        "label": "Coach page",
+        "href": "/app/home"
+      }
+    ]
+  },
+  {
+    "date": "2026-11-01",
     "title": "Friends, private messages and blocking",
     "body": "Your coach page now has a Friends list (send, accept or decline friend requests, plus People you know: coaches you have played) and a Messages preview. The new Messages page holds private one-to-one conversations with other coaches, on the site only, with unread counts on Home. You can block a coach from their row or a conversation: they can't message you or send you friend requests, and you can unblock them under Messages.",
     "links": [

@@ -7,6 +7,8 @@ import { computed, inject, onMounted, reactive, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import Crest from "./Crest.vue";
 import { COACH_TREE_KEY, pickActive, type ChipTone } from "../home/tree";
+import { browserTimeZone, timeLeft, validTimeZone } from "../home/deadlines";
+import { deadlineChip } from "../leagues/deadlines";
 import { rememberRail, SHELL_UI_KEY } from "../home/shell";
 import { SESSION_KEY } from "../session";
 import { creatorAllowed } from "../tournaments/creator";
@@ -48,7 +50,17 @@ const tournamentRows = computed<Row[]>(() => {
 });
 
 // Leagues (spec-main-landing-nav §2): one row per league where the coach holds a seat in an active season, their team
-// under it (crest, name, race, W-D-L record chip), then the next unplayed fixture. Signed out or none: one muted note.
+// under it (crest, name, race, W-D-L record chip), then the next unplayed fixture with its deadline chip (amber < 72 h,
+// scarlet < 24 h, "Overdue" after). Signed out or none: one muted note.
+const navZone = (): string => (validTimeZone(tree.state.timezone) ? tree.state.timezone : browserTimeZone());
+const fixtureChip = (f: { deadline?: string; needsDecision?: boolean }): { label: string; tone: ChipTone } | undefined => {
+  if (!f.deadline) return undefined;
+  const now = new Date();
+  const c = deadlineChip(f.deadline, now, navZone(), f.needsDecision === true);
+  // The sidebar is narrow: "Due in 5 d" (muted beyond 72 h); a fixture waiting for a decision reads "Overdue".
+  if (f.needsDecision) return { label: "Overdue", tone: "urgent" };
+  return { label: c.tone === "muted" ? `Due ${timeLeft(f.deadline, now)}` : c.label, tone: c.tone };
+};
 const leagueRows = computed<Row[]>(() => {
   const rows: Row[] = [];
   for (const l of session.signedIn() ? tree.state.leagues : []) {
@@ -56,7 +68,7 @@ const leagueRows = computed<Row[]>(() => {
     for (const t of l.teams) {
       rows.push({ key: `l:${t.key}:team`, to: t.to, label: t.name, level: 2, crest: t.crest || undefined, sub: t.race, chip: { label: t.record, tone: "muted" }, wrap: true });
       rows.push(t.fixture
-        ? { key: `l:${t.key}:fixture`, to: t.fixture.to, label: t.fixture.label, level: 3, wrap: true }
+        ? { key: `l:${t.key}:fixture`, to: t.fixture.to, label: t.fixture.label, level: 3, wrap: true, chip: fixtureChip(t.fixture) }
         : { key: `l:${t.key}:fixture`, to: `${l.to}${l.to.includes("?") ? "&" : "?"}tab=fixtures`, label: "No fixture yet", level: 3, muted: true });
     }
   }

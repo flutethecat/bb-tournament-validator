@@ -184,6 +184,40 @@ export interface LeagueFixture {
   forkCancelled?: boolean;
   /** Play on Super FUMBBL state (forkPlay.ts): the fork teams built for it, the scheduled game, the applied result. */
   fork?: FixtureForkState;
+  /** Organiser's per-fixture deadline (UTC ISO); unset = the round deadline (deadlines.ts effectiveDeadline). */
+  deadline?: string;
+  /** What happened at the deadline (deadlines.ts): the auto-forfeit job's outcome, or an organiser's decision. */
+  deadlineOutcome?: FixtureDeadlineOutcome;
+}
+
+// ---- Fixture deadlines (spec-main-landing-nav §2.2, ruling §6(d); deadlines.ts) ----
+
+/**
+ * review = "Overdue, needs organiser decision" (no score, the default); no-result = the fixture counts nowhere;
+ * both-lose = both sides take a loss (stored as a 0-0 with both sides conceded, so standings count it as they already do).
+ */
+export type DeadlineOutcome = "review" | "no-result" | "both-lose";
+
+/** A round's deadline, set by an organiser per phase and round (UTC ISO). */
+export interface RoundDeadline { phaseId: string; round: number; deadline: string }
+
+/** Season setting: auto-forfeit unplayed fixtures after their deadline (absent = off; ruling §6(d)). */
+export interface DeadlinePolicy {
+  autoForfeit: boolean;
+  outcome: DeadlineOutcome;
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
+export interface FixtureDeadlineOutcome {
+  outcome: DeadlineOutcome;
+  /** true = applied by the auto-forfeit job (an organiser extending the deadline lifts it); unset = an organiser's decision. */
+  auto?: true;
+  /** The organiser who decided (organiser decisions only). */
+  by?: string;
+  at: string;
+  /** The effective deadline that had passed (or was in force) when this was applied. */
+  deadline?: string;
 }
 
 // ---- Play on Super FUMBBL (spec-league-settings-2026-10-30 §3; forkPlay.ts) ----
@@ -602,6 +636,10 @@ export interface SeasonRecord {
   /** "manual" = started from League settings (Start a new season). */
   source: "tourplay-export" | "manual";
   rules?: SeasonRules;
+  /** Round deadlines (organiser, per phase and round): a fixture without its own deadline takes its round's. */
+  roundDeadlines?: RoundDeadline[];
+  /** Auto-forfeit after the deadline (absent = off). */
+  deadlinePolicy?: DeadlinePolicy;
   /** The off-season redraft run FROM this (finished) season: see redraft.ts. */
   redraft?: RedraftState;
   /** League news posted during this season (stored in posting order; reads sort pinned first, newest first). */
@@ -621,7 +659,7 @@ export interface LeagueNewsPost {
   editedAt?: string;
 }
 
-export type LeagueEventKind = "fixture-created" | "fixture-deleted" | "match-started" | "match-result" | "team-coach" | "team-value-diff" | "team-value-unresolved";
+export type LeagueEventKind = "fixture-created" | "fixture-deleted" | "match-started" | "match-result" | "team-coach" | "team-value-diff" | "team-value-unresolved" | "fixture-deadline";
 
 export interface LeagueEventEntry {
   at: string;

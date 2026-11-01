@@ -15,6 +15,7 @@
  */
 import { buildCoachAliases, fixtureOutcome, seasonCoachFacets, type CoachAliases } from "./identity.js";
 import { artUrl } from "./api.js";
+import { effectiveDeadline, fixtureOpenForDeadline } from "./deadlines.js";
 import type { LeagueStore } from "./store.js";
 import type { LeagueFixture, LeagueTeam, SeasonRecord } from "./types.js";
 
@@ -26,8 +27,21 @@ export interface MyLeagueFixture {
   home: boolean;
   /** Scheduled date (YYYY-MM-DD) when the organiser set one. */
   date?: string;
+  /** Effective deadline (UTC ISO: the fixture's own, else its round's; deadlines.ts) when one is set. */
+  deadline?: string;
+  /** The deadline passed and the fixture waits for an organiser's decision (auto-forfeit "review"). */
+  needsDecision?: true;
   /** SPA path of the fixture summary (the league Fixtures tab's own link). */
   to: string;
+}
+
+/** One league fixture deadline of the coach (coach page Deadlines panel, GET /api/me/deadlines; coachHome.ts). */
+export interface MyLeagueDeadline {
+  id: string;
+  title: string;
+  detail: string;
+  at: string;
+  link: string;
 }
 
 export interface MyLeagueTeam {
@@ -94,7 +108,7 @@ export function myLeagueTeam(leagueId: string, season: SeasonRecord, latestId: s
       if (mine === "win") record.wins++; else if (mine === "draw") record.draws++; else record.losses++;
       continue;
     }
-    if (f.suspended) continue;
+    if (!fixtureOpenForDeadline(f)) continue;
     if (!next || order(f, next) < 0) { next = f; nextHome = home; }
   }
   const base = `/leagues/${enc(leagueId)}`;
@@ -111,6 +125,8 @@ export function myLeagueTeam(leagueId: string, season: SeasonRecord, latestId: s
           opponent: (nextHome ? next.away : next.home).team ?? "",
           home: nextHome,
           ...(next.date ? { date: next.date } : {}),
+          ...(effectiveDeadline(season, next) ? { deadline: effectiveDeadline(season, next) } : {}),
+          ...(next.deadlineOutcome?.outcome === "review" ? { needsDecision: true as const } : {}),
           to: `${base}${seasonQuery(season.id, latestId, { tab: "fixtures", fixture: next.id })}`,
         }
       : null,
@@ -136,11 +152,33 @@ export function seatOwners(team: LeagueTeam, aliases: CoachAliases, observedIds:
   return [...owners];
 }
 
-interface SeatIndex { version: number; at: number; byCoach: Map<string, MyLeague[]> }
+/** Every open fixture of the team that has a deadline (coach page Deadlines panel). */
+export function myTeamDeadlines(leagueId: string, leagueName: string, season: SeasonRecord, latestId: string | undefined, team: LeagueTeam): MyLeagueDeadline[] {
+  const out: MyLeagueDeadline[] = [];
+  for (const f of season.fixtures) {
+    const home = isTeam(f.home, team);
+    if (!home && !isTeam(f.away, team)) continue;
+    if (!fixtureOpenForDeadline(f)) continue;
+    const at = effectiveDeadline(season, f);
+    if (!at) continue;
+    const opp = (home ? f.away : f.home).team;
+    out.push({
+      id: `league:${leagueId}:${season.id}:${f.id}`,
+      title: `${f.round ? `Round ${f.round} ` : ""}${opp ? `vs ${opp}` : "(bye)"}${f.deadlineOutcome?.outcome === "review" ? " · needs organiser decision" : ""}`,
+      detail: `${leagueName} · ${team.name}`,
+      at,
+      link: `/leagues/${enc(leagueId)}${seasonQuery(season.id, latestId, { tab: "fixtures", fixture: f.id })}`,
+    });
+  }
+  return out;
+}
+
+interface SeatIndex { version: number; at: number; byCoach: Map<string, MyLeague[]>; deadlines: Map<string, MyLeagueDeadline[]> }
 const indexes = new WeakMap<LeagueStore, SeatIndex>();
 
-function buildIndex(store: LeagueStore): Map<string, MyLeague[]> {
+function buildIndex(store: LeagueStore): Pick<SeatIndex, "byCoach" | "deadlines"> {
   const byCoach = new Map<string, MyLeague[]>();
+  const deadlines = new Map<string, MyLeagueDeadline[]>();
   for (const lg of store.list()) {
     const seasons = store.seasons(lg.id);
     const activeSeasons = seasons.filter((s) => s.status === "active");
@@ -156,7 +194,11 @@ function buildIndex(store: LeagueStore): Map<string, MyLeague[]> {
       const owners = seatOwners(t, aliases, observed);
       if (!owners.length) continue;
       const row = myLeagueTeam(lg.id, active, latestId, t);
-      for (const o of owners) perCoach.set(o, [...(perCoach.get(o) ?? []), row]);
+      const due = myTeamDeadlines(lg.id, lg.name, active, latestId, t);
+      for (const o of owners) {
+        perCoach.set(o, [...(perCoach.get(o) ?? []), row]);
+        if (due.length) deadlines.set(o, [...(deadlines.get(o) ?? []), ...due]);
+      }
     }
     for (const [coach, teams] of perCoach) {
       const list = byCoach.get(coach) ?? [];
@@ -172,21 +214,33 @@ function buildIndex(store: LeagueStore): Map<string, MyLeague[]> {
     }
   }
   for (const list of byCoach.values()) list.sort((a, b) => a.name.localeCompare(b.name));
-  return byCoach;
+  return { byCoach, deadlines };
 }
 
 /** Drop every cached seat index (tests; a caller that changed league files behind the store's back). */
 export function clearMyLeaguesIndex(store: LeagueStore): void { indexes.delete(store); }
 
 /** The coach's leagues: one row per league with a seat in an active season, league name order. */
+function seatIndex(store: LeagueStore, now: number): SeatIndex {
+  let idx = indexes.get(store);
+  if (!idx || idx.version !== store.version() || now - idx.at >= INDEX_TTL_MS) {
+    idx = { version: store.version(), at: now, ...buildIndex(store) };
+    indexes.set(store, idx);
+  }
+  return idx;
+}
+
 export function myLeagues(store: LeagueStore, coach: string, now = Date.now()): MyLeague[] {
   const key = norm(coach);
   if (!key) return [];
-  let idx = indexes.get(store);
-  if (!idx || idx.version !== store.version() || now - idx.at >= INDEX_TTL_MS) {
-    idx = { version: store.version(), at: now, byCoach: buildIndex(store) };
-    indexes.set(store, idx);
-  }
-  const hit = idx.byCoach.get(key);
+  const hit = seatIndex(store, now).byCoach.get(key);
+  return hit ? structuredClone(hit) : [];
+}
+
+/** The coach's league fixture deadlines (open fixtures with a deadline, in the coach's active-season seats). Unsorted. */
+export function myLeagueDeadlines(store: LeagueStore, coach: string, now = Date.now()): MyLeagueDeadline[] {
+  const key = norm(coach);
+  if (!key) return [];
+  const hit = seatIndex(store, now).deadlines.get(key);
   return hit ? structuredClone(hit) : [];
 }

@@ -331,7 +331,8 @@ import { tournamentBannerApi, tournamentBannerPath } from "./tournaments/page.js
 import { leagueApi, leaguePath } from "./leagues/api.js";
 import { seriesApi, seriesPath } from "./tournaments/series.js";
 import { LeagueStore } from "./leagues/store.js";
-import { myLeagues } from "./leagues/myLeagues.js";
+import { myLeagueDeadlines, myLeagues } from "./leagues/myLeagues.js";
+import { runDeadlineJob } from "./leagues/deadlines.js";
 import { createLeagueForkClient } from "./leagues/forkClient.js";
 import { syncLeagueForkResults } from "./leagues/forkPlay.js";
 import { registerLeagueEvents } from "./leagues/events.js";
@@ -654,6 +655,16 @@ if (forkAdminCfg) {
       .finally(() => { leagueSyncing = false; });
   }, 2 * 60 * 1000).unref();
 }
+// League fixture deadlines (src/leagues/deadlines.ts): seasons with auto-forfeit on get their outcome once the deadline
+// passes. At startup (a restart catches up) and every minute; the outcome is stored before anyone is notified.
+const leagueDeadlineTick = (): void => {
+  try {
+    const out = runDeadlineJob({ store: leagueStore, notify: leagueNotify });
+    if (out.applied.length) console.log(`[leagues] deadline outcomes applied: ${out.applied.map((a) => `${a.leagueId}/${a.seasonId}/${a.fixtureId}=${a.outcome}`).join(", ")}`);
+  } catch (e) { console.error(`[leagues] deadline job failed: ${(e as Error).message}`); }
+};
+setTimeout(leagueDeadlineTick, 5_000).unref();
+setInterval(leagueDeadlineTick, 60_000).unref();
 setActiveNotifier(tournamentNotifier);
 // NAF-sanctioned entries that owe their NAF answer but are not marked yet: marked once, one notice per coach (idempotent).
 try { settleNafOwedEntries({ store: tournamentStore, notify: tournamentNotifier, identityRecords: (coachIds) => { const all = readIdentities().coaches; return coachIds.map((c) => all[normalizeFfbCoachId(c)]); } }); } catch (e) { console.error(`[naf] startup settle failed: ${(e as Error).message}`); }
@@ -2570,6 +2581,7 @@ async function handleApi(
       matches: (id) => tournamentStore.matches(id),
       tabletop,
       endedAt: (id) => endedAt.get(id),
+      leagues: (() => { try { return myLeagueDeadlines(leagueStore, auth.coach); } catch { return []; } })(),
       now: new Date(),
     });
     return sendJson(res, 200, { timezone, deadlines });

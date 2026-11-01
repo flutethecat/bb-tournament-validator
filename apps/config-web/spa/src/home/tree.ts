@@ -41,7 +41,7 @@ export interface MyLeagueTeamView {
   race: string;
   record: { wins: number; draws: number; losses: number };
   to: string;
-  next: { id: string; round: number; opponent: string; home: boolean; date?: string; to: string } | null;
+  next: { id: string; round: number; opponent: string; home: boolean; date?: string; deadline?: string; needsDecision?: boolean; to: string } | null;
 }
 export interface MyLeagueView {
   id: string;
@@ -59,8 +59,8 @@ export interface TreeLeagueTeam {
   /** "W-D-L". */
   record: string;
   to: string;
-  /** null = no unplayed fixture. */
-  fixture: { label: string; to: string } | null;
+  /** null = no unplayed fixture. `deadline` = the effective deadline (UTC ISO); the row's chip is computed at render. */
+  fixture: { label: string; to: string; deadline?: string; needsDecision?: boolean } | null;
 }
 export interface TreeLeague {
   id: string;
@@ -93,7 +93,11 @@ export function treeLeagues(rows: unknown, art: ArtManifests): TreeLeague[] {
         record: `${count(r.wins)}-${count(r.draws)}-${count(r.losses)}`,
         to: t.to,
         // A no-break space keeps "Round N" together when the row wraps.
-        fixture: n ? { label: `${n.opponent ? `vs ${n.opponent}` : "Bye"} · Round${NBSP}${count(n.round)}`, to: n.to } : null,
+        fixture: n ? {
+          label: `${n.opponent ? `vs ${n.opponent}` : "Bye"} · Round${NBSP}${count(n.round)}`, to: n.to,
+          ...(typeof n.deadline === "string" && Number.isFinite(Date.parse(n.deadline)) ? { deadline: n.deadline } : {}),
+          ...(n.needsDecision === true ? { needsDecision: true } : {}),
+        } : null,
       });
     }
     out.push({ id: raw.id, name: raw.name, to: raw.to, teams });

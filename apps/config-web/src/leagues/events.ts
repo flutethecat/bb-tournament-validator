@@ -405,12 +405,16 @@ export async function editFixture(
     if (fixture.announced) { delete fixture.announced.result; if (!fixture.announced.started) delete fixture.announced; }
   } else if (result) {
     const before = fixturePlayed(fixture) ? resultSig(fixture) : "";
+    // A both-lose deadline placeholder is a double concession: the real result entered over it is not.
+    if (fixture.deadlineOutcome?.outcome === "both-lose") fixture.home.conceded = fixture.away.conceded = false;
     fixture.home.score = result.home;
     fixture.away.score = result.away;
     fixture.home.cas = result.homeCas;
     fixture.away.cas = result.awayCas;
     announce = resultSig(fixture) !== before;
   }
+  // A result entered or cleared here replaces any deadline outcome (deadlines.ts), including a both-lose placeholder.
+  if (result !== undefined) delete fixture.deadlineOutcome;
   // Standings are derived from the results (standings.ts); an imported season with a newer result is recomputed.
   if (result !== undefined) season.resultsChangedAt = (deps.now?.() ?? new Date()).toISOString();
   deps.store.putSeason(season);

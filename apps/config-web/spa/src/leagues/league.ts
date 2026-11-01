@@ -240,6 +240,14 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
       edit(`phase:${phaseId}`, () => deps.api<{ season: SeasonRecord }>(`${seasonPath(seasonId)}/phases/${encodeURIComponent(phaseId)}`, {
         method: "PATCH", body: { revision: state.season[seasonId]?.revision ?? 0, format },
       }), (res) => { state.season[seasonId] = res.season; }, format === "knockout" ? "Phase marked as a knockout." : "Phase marked as a table."),
+    /**
+     * Organisers: fixture deadlines (round deadlines, per-fixture overrides and decisions, the auto-forfeit setting).
+     * The season revision is sent; the server answers the season (with any outcome a passed deadline applied).
+     */
+    saveDeadlines: (seasonId: string, patch: DeadlinesPatch, notice: string) =>
+      edit("deadlines", () => deps.api<{ season: SeasonRecord }>(`${seasonPath(seasonId)}/deadlines`, {
+        method: "PATCH", body: { revision: state.season[seasonId]?.revision ?? 0, ...patch },
+      }), (res) => { state.season[seasonId] = res.season; }, notice),
     /** Organisers: coach-name lookup against the identities (the Administration tab's lookup). */
     async lookupCoaches(q: string): Promise<string[]> {
       if (q.trim().length < 2) return [];
@@ -279,6 +287,13 @@ export function createLeagueDetail(deps: { api: Fetcher; upload?: RawUploader })
       }
     },
   };
+}
+
+/** PATCH .../deadlines body (src/leagues/deadlines.ts) without the revision. */
+export interface DeadlinesPatch {
+  rounds?: Array<{ phaseId: string; round: number; deadline: string | null }>;
+  fixtures?: Array<{ id: string; deadline?: string | null; decision?: "no-result" | "both-lose" | null }>;
+  policy?: { autoForfeit?: boolean; outcome?: "review" | "no-result" | "both-lose" };
 }
 
 /** Organisers (trimmed, case-insensitive coach id) and admins may change the league artwork. */

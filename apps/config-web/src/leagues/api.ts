@@ -323,6 +323,9 @@ export async function leagueApi(
   if (events) return events;
   const participants = await leagueParticipantRoutes(method, route.rest, league, auth, deps);
   if (participants) return participants;
+  // Fixture deadlines + auto-forfeit policy (deadlines.ts; PATCH .../seasons/:seasonId/deadlines). Loaded on demand: one block.
+  const deadlines = await (await import("./deadlines.js")).leagueDeadlineRoutes(method, route.rest, league, auth, deps);
+  if (deadlines) return deadlines;
   const honours = await leagueHonoursRoutes(method, route.rest, league, auth, deps);
   if (honours) return honours;
   const managed = await settingsRoutes(method, route.rest, query, league, auth, deps);

@@ -8,6 +8,8 @@
 // (organisers, site admins) get the "Allow Super FUMBBL for this fixture" switch on each unplayed fixture, and the
 // fixtures editor (add fixtures, dates, results) under the list. Every fixture links to its summary (?fixture=<id>),
 // where it is generated and started on Super FUMBBL.
+// Deadlines: every fixture without a result shows its deadline chip (the fixture's own deadline, else its round's;
+// amber < 72 h, scarlet < 24 h, "Overdue" after, or the deadline outcome); organisers get the Deadlines editor.
 import { computed, inject, nextTick, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { fixtureQuery } from "../leagues/fixture";
@@ -15,7 +17,11 @@ import {
   currentRound, filterFixtures, fixtureRounds, fixtureStatus, fixtureTeams, keepPhase, keepTeam, parseRound, readFixturesView, roundSteps, scoreLinkLabel, writeFixturesView,
   type FixturesView, type RoundPick,
 } from "../leagues/fixtureNav";
+import LeagueDeadlinesEditor from "./LeagueDeadlinesEditor.vue";
 import LeagueFixturesEditor from "./LeagueFixturesEditor.vue";
+import { browserTimeZone, validTimeZone } from "../home/deadlines";
+import { COACH_TREE_KEY } from "../home/tree";
+import { fixtureDeadlineChip } from "../leagues/deadlines";
 import ResultCard from "./ResultCard.vue";
 import { crestFor, day, fixtureOutcome, fixturePlayed, fixturesByPhase, fixtureTime, initials, LEAGUE_DETAIL_KEY, resultCardProps } from "../leagues/league";
 import type { FixtureSide, LeagueFixture, LeagueSummary, SeasonRecord } from "../leagues/types";
@@ -56,6 +62,10 @@ const roundLink = (r: RoundPick) => {
   return { query: { ...rest, round: String(r) } };
 };
 const today = new Date().toISOString().slice(0, 10);
+const tree = inject(COACH_TREE_KEY, null);
+const zone = computed(() => (tree && validTimeZone(tree.state.timezone) ? tree.state.timezone : browserTimeZone()));
+const nowAt = new Date();
+const dl = (f: LeagueFixture) => fixtureDeadlineChip(props.season, f, nowAt, zone.value);
 const card = (f: LeagueFixture) => resultCardProps(props.league, props.season, f, props.crests);
 const crest = (s: FixtureSide): string => crestFor(props.crests, s.race);
 const marks = (f: LeagueFixture): string[] => [
@@ -137,6 +147,7 @@ watch(pick, placeStrip);
               </div>
               <div class="lg-fork-row">
                 <RouterLink class="tl-action lg-fx-link" :to="summaryLink(f)" :aria-label="`Fixture summary: ${f.home.team} against ${f.away.team}`">Summary</RouterLink>
+                <span v-if="dl(f)" class="sf-chip lg-dl-chip" :data-tone="dl(f)!.tone" :title="dl(f)!.title" data-deadline>{{ dl(f)!.label }}</span>
                 <span v-if="f.forkEnabled" class="sf-chip" data-tone="ok" data-fork="on">Super FUMBBL</span>
                 <span v-if="f.fork" class="sf-chip" data-tone="info" :data-fork-status="f.fork.status">{{ FORK_LABEL[f.fork.status] ?? f.fork.status }}</span>
                 <label v-if="forkSwitch(f)" class="lg-fork-switch">
@@ -172,7 +183,8 @@ watch(pick, placeStrip);
                 <span class="lg-fx-who"><span class="lg-team-name">{{ f.away.team }}</span><small>{{ f.away.coach }}</small></span>
               </td>
               <td class="lg-fx-status">
-                <span class="sf-chip" :data-tone="fixtureStatus(f, today).tone" :data-status="fixtureStatus(f, today).label.toLowerCase()">{{ fixtureStatus(f, today).label }}</span>
+                <span v-if="!(dl(f) && ['Scheduled', 'Overdue'].includes(fixtureStatus(f, today).label))" class="sf-chip" :data-tone="fixtureStatus(f, today).tone" :data-status="fixtureStatus(f, today).label.toLowerCase()">{{ fixtureStatus(f, today).label }}</span>
+                <span v-if="dl(f)" class="sf-chip lg-dl-chip" :data-tone="dl(f)!.tone" :title="dl(f)!.title" data-deadline>{{ dl(f)!.label }}</span>
                 <span v-if="f.forkEnabled" class="sf-chip" data-tone="ok" data-fork="on">Super FUMBBL</span>
                 <span v-if="f.fork" class="sf-chip" data-tone="info" :data-fork-status="f.fork.status">{{ FORK_LABEL[f.fork.status] ?? f.fork.status }}</span>
                 <small v-for="m in marks(f)" :key="m" class="lg-fx-mark">{{ m }}</small>
@@ -187,5 +199,6 @@ watch(pick, placeStrip);
       </table>
     </section>
     <LeagueFixturesEditor v-if="manage && detail" :season="season" />
+    <LeagueDeadlinesEditor v-if="manage && detail" :season="season" />
   </div>
 </template>

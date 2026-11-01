@@ -806,7 +806,10 @@ function anonymiseSeason(an: Anonymiser, tx: TextReplacer, displays: ReadonlySet
       mark(an.fields(f.fork, ["generatedBy"], []));
       for (const l of objs(f.fork.log)) { mark(an.fields(l, ["by"], [])); mark(tx.texts(l, ["text"])); }
     }
+    // Deadlines (deadlines.ts): the organiser who decided the fixture's deadline outcome.
+    if (isObj(f.deadlineOutcome)) mark(an.fields(f.deadlineOutcome, ["by"], []));
   }
+  if (isObj(s.deadlinePolicy)) mark(an.fields(s.deadlinePolicy, ["updatedBy"], []));
   for (const p of objs(s.participants)) {
     if (linked(p)) mark(LINKED_ROW(an, p));
     // Participants tab: the organiser who last changed the row's flags.

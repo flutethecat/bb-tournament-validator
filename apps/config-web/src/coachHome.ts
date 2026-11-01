@@ -11,7 +11,7 @@ import type { ScheduledMatchRecord, TournamentEntrantRecord, TournamentRecord } 
 
 /** Chip by horizon: green > 72 h, amber < 72 h, scarlet < 24 h, grey once passed. */
 export type DeadlineChip = "ok" | "soon" | "urgent" | "overdue";
-export type DeadlineKind = "registration" | "checkIn" | "round" | "report" | "confirm";
+export type DeadlineKind = "registration" | "checkIn" | "round" | "report" | "confirm" | "league";
 
 export interface DeadlineRow {
   id: string;
@@ -65,11 +65,13 @@ export interface DeadlineSources {
   tabletop: MatchRecord[];
   /** Immutable end time per tabletop match id (matchEndedAt over its events); the report-by window counts from it. */
   endedAt: (matchId: string) => string | undefined;
+  /** League fixture deadlines of the coach's seats (src/leagues/myLeagues.ts myLeagueDeadlines). */
+  leagues?: ReadonlyArray<{ id: string; title: string; detail: string; at: string; link: string }>;
   now: Date;
 }
 
 /** Every deadline the coach faces, nearest first: tournament registration / check-in (when the record carries them),
- *  fixture round deadlines (when the fixture carries one), and the report-by of played-but-unreported tabletop matches. */
+ *  fixture round deadlines (when the fixture carries one), league fixture deadlines, and the report-by of played-but-unreported tabletop matches. */
 export function deriveDeadlines(src: DeadlineSources): DeadlineRow[] {
   const { coach, now } = src;
   const rows: DeadlineRow[] = [];
@@ -116,6 +118,11 @@ export function deriveDeadlines(src: DeadlineSources): DeadlineRow[] {
     } else if (m.state === "submitted" && !Object.keys(m.confirmations ?? {}).some((c) => sameCoach(c, coach))) {
       push({ id: `confirm:${m.id}`, kind: "confirm", title: `Confirm the result vs ${opp}`, detail: `${m.home.teamName} v ${m.away.teamName}`, at, link });
     }
+  }
+
+  for (const l of src.leagues ?? []) {
+    const at = validIso(l.at);
+    if (at) push({ id: l.id, kind: "league", title: l.title, detail: l.detail, at, link: l.link });
   }
 
   rows.sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.id.localeCompare(b.id));

@@ -619,3 +619,25 @@ button.lg-cog { margin: 0; padding: 0; font: inherit; color: inherit; cursor: po
   .lg-fx-who { max-width: 100%; }
   .lg-fx-score { min-width: 52px; font-size: 16px; }
 }
+
+/* Fixture deadlines editor (LeagueDeadlinesEditor.vue) */
+.lg-dl-editor .ls-sub { padding: 10px 12px 12px; }
+.lg-dl-outcomes { display: grid; gap: 4px; margin: 4px 0 0; padding: 8px 10px; border: 2px solid var(--sf-panel-line); border-radius: 2px; min-width: 0; }
+.lg-dl-outcomes[disabled] { opacity: .6; }
+.lg-dl-outcomes legend { padding: 0 4px; }
+.lg-dl-outcome span { display: grid; gap: 2px; }
+.lg-dl-outcome small { color: var(--ui-muted); }
+.lg-dl-rounds, .lg-dl-fixtures { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.lg-dl-rounds li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lg-dl-round-name { min-width: 120px; font-weight: 600; }
+.lg-dl-input { width: auto; min-width: 0; max-width: 100%; }
+.lg-dl-fixture {
+  display: grid; gap: 6px; padding: 8px 10px; background: color-mix(in srgb, var(--ui-surface-2) 70%, transparent);
+  border: 2px solid var(--sf-panel-line); border-radius: 2px;
+}
+.lg-dl-fx-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lg-dl-fx-name { font-weight: 600; overflow-wrap: anywhere; }
+.lg-dl-fx-round { color: var(--ui-muted); }
+.lg-dl-fx-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lg-dl-fixtures { max-height: 560px; overflow-y: auto; }
+.lg-dl-chip { white-space: nowrap; }

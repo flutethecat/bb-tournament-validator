@@ -71,7 +71,16 @@ export interface LeagueFixture {
   forkCancelled?: boolean;
   /** Season reads carry the Super FUMBBL status only. */
   fork?: { status: FixtureForkStatus };
+  /** Organiser's per-fixture deadline (UTC ISO); unset = the round deadline. */
+  deadline?: string;
+  /** What happened at the deadline: the auto-forfeit outcome (auto) or an organiser's decision. */
+  deadlineOutcome?: { outcome: DeadlineOutcome; auto?: true; by?: string; at: string; deadline?: string };
 }
+
+/** review = overdue, needs an organiser's decision; no-result = counts nowhere; both-lose = a loss for each side. */
+export type DeadlineOutcome = "review" | "no-result" | "both-lose";
+export interface RoundDeadline { phaseId: string; round: number; deadline: string }
+export interface DeadlinePolicy { autoForfeit: boolean; outcome: DeadlineOutcome; updatedBy?: string; updatedAt?: string }
 
 // ---- Play on Super FUMBBL: fixture summary (server: src/leagues/forkPlay.ts) ----
 
@@ -326,6 +335,10 @@ export interface SeasonRecord {
   /** Bumped on every write; organiser season writes (Assign coach account) send the one they loaded. */
   revision?: number;
   news?: LeagueNewsPost[];
+  /** Round deadlines (per phase and round, UTC ISO). */
+  roundDeadlines?: RoundDeadline[];
+  /** Auto-forfeit after the deadline (absent = off). */
+  deadlinePolicy?: DeadlinePolicy;
 }
 
 export type StatsScope = "bb2020" | "bb2025" | "all";
