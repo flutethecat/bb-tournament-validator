@@ -32,6 +32,7 @@ export const WRITE_ROUTES: Array<[string, string]> = [
   ["POST", "/api/admin/identities/merge"],
   ["POST", "/api/bug-reports"],
   ["POST", "/api/translate"],
+  ["POST", "/api/leagues/L1/seasons/S1/fixtures/F1/lobby/chat"],
 ];
 
 export const GET_MUTATIONS: string[] = [

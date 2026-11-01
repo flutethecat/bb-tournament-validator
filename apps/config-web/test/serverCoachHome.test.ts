@@ -109,7 +109,7 @@ describe("coach home HTTP routes", () => {
     const body = await res.json() as { leagues: Array<{ id: string; teams: Array<{ name: string; next: { opponent: string; round: number; to: string } | null }> }> };
     expect(body.leagues.map((l) => l.id)).toEqual(["home-league"]);
     expect(body.leagues[0]!.teams).toHaveLength(1);
-    expect(body.leagues[0]!.teams[0]).toMatchObject({ name: "Mine", next: { opponent: "Theirs", round: 2, to: "/leagues/home-league?tab=fixtures&fixture=fx1" } });
+    expect(body.leagues[0]!.teams[0]).toMatchObject({ name: "Mine", next: { opponent: "Theirs", round: 2, to: "/leagues/home-league/seasons/season-1/fixtures/fx1/lobby" } });
     expect(JSON.stringify(body)).not.toContain("AwayCoach");
     // a coach with no seat gets an empty list
     const other = createSession("Stranger", Date.now(), "discord");

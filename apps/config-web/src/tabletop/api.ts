@@ -40,7 +40,7 @@ import { computeGlicko } from "../coachGlicko.js";
 import { CoachTitleStore, type CoachRatingView } from "../coachRank.js";
 import type { NafSummary } from "../nafRecords.js";
 import { applyPostMatch, sppCredits, sppForEvent, tallyMatch, type PostMatchOption, type PostMatchSummary, type TabletopPlayer, type TabletopTeamFile, SPP_VALUES } from "./postMatch.js";
-import { headRevision, type ChainChange, type CommitJournal, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
+import { headRevision, type ChainChange, type CommitJournal, type LobbyInducements, type MatchRecord, type TabletopRepository, type TeamChain } from "./store.js";
 import { duplicatePlayerId, parseTeamRef } from "./teamFile.js";
 import type { NotificationInput } from "../notifications.js";
 
@@ -608,7 +608,13 @@ async function listFixtures(me: string, all: boolean, deps: TabletopApiDeps): Pr
 }
 
 /** Options only the admin Testing Suite uses (same validation and store as a normal create). */
-export interface CreateMatchOptions { test?: boolean; timers?: MatchTimers }
+export interface CreateMatchOptions {
+  test?: boolean;
+  timers?: MatchTimers;
+  /** Fixture lobby START only (never from a request body): each coach's resolved inducements, keyed by lower-cased coach;
+   *  stored on the match by the drawn seats. */
+  inducementsByCoach?: Record<string, LobbyInducements>;
+}
 
 export async function createMatch(
   me: string, organiser: boolean, body: unknown, deps: TabletopApiDeps, now: () => Date, options: CreateMatchOptions = {},
@@ -697,6 +703,10 @@ export async function createMatch(
     ...(league ? { league } : {}),
     ...(leagueSeason ? { leagueSeason } : {}),
     ...(fixtureSwap ? { fixtureSwap } : {}),
+    ...(options.inducementsByCoach ? { inducements: {
+      home: options.inducementsByCoach[home.coach.trim().toLowerCase()] ?? { picks: [], total: 0, treasury: 0, pettyCash: 0 },
+      away: options.inducementsByCoach[away.coach.trim().toLowerCase()] ?? { picks: [], total: 0, treasury: 0, pettyCash: 0 },
+    } } : {}),
     postMatch: postMatch as PostMatchOption,
     createdBy: me,
     createdAt: at,

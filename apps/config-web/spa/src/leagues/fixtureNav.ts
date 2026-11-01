@@ -87,3 +87,11 @@ export function scoreLinkLabel(f: Pick<LeagueFixture, "home" | "away">): string 
   const mid = f.home.score !== null && f.away.score !== null ? `${f.home.score}–${f.away.score}` : "vs";
   return `Fixture summary: ${f.home.team} ${mid} ${f.away.team}`;
 }
+
+/** A pending fixture whose lobby is worth opening: no score yet, not suspended, both sides have a coach account, and no
+ *  deadline outcome other than "waiting for the organiser" (the server decides the rest; mirrors deadlines.ts). */
+export function fixtureOpenForLobby(f: LeagueFixture): boolean {
+  if (f.suspended || f.home.score !== null || f.away.score !== null) return false;
+  if (f.deadlineOutcome && f.deadlineOutcome.outcome !== "review") return false;
+  return Boolean(f.home.coachId && f.away.coachId);
+}

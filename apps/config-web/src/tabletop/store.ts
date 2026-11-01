@@ -20,6 +20,14 @@ import type { PostMatchOption, PostMatchSummary, TabletopTeamFile } from "./post
 
 export type MatchState = "recording" | "submitted" | "confirmed" | "published";
 
+/** One side's lobby inducements as the match keeps them (fixture lobby START). */
+export interface LobbyInducements {
+  picks: Array<{ id: string; name: string; qty: number; cost: number }>;
+  total: number;
+  treasury: number;
+  pettyCash: number;
+}
+
 export interface MatchSide {
   coach: string;
   teamSaveId: string;
@@ -60,6 +68,11 @@ export interface MatchRecord {
   league?: string;
   /** The league season the match is played in, when the creator named one: its inducement table prices the pre-game picker. */
   leagueSeason?: { leagueId: string; seasonId: string };
+  /**
+   * Pre-match inducements bought in the fixture lobby (src/fixtureLobby), seated after the seat draw: one-match items,
+   * never written back to the team file. Absent = none were bought before the match (the pre-game step still runs).
+   */
+  inducements?: Record<"home" | "away", LobbyInducements>;
   /** True when the fixture lists the two coaches in the opposite home/away order to this match. */
   fixtureSwap?: boolean;
   /** Set on publish when a fixture result was written: what to restore on undo. */

@@ -321,7 +321,11 @@ import { setReplayCoachFilter } from "./replay/store.js";
 import { setNafIdFilter } from "./nafRecords.js";
 import { clearLeagueStatsCache } from "./leagues/api.js";
 import { assertNotFenced, DeletionFenceError, isCoachFenced, isReservedCoachName, RESERVED_NAME_MESSAGE, ReservedNameError } from "./privacy/fence.js";
-import { dropAllSnapshots, clockView, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
+import { dropAllSnapshots, clockView, createMatch, isTabletopApiPath, recoverTabletop, tabletopApi, type TabletopApiDeps } from "./tabletop/api.js";
+import { FixtureLobbyStore } from "./fixtureLobby/store.js";
+import { LobbyPresence } from "./fixtureLobby/presence.js";
+import type { LeagueLobbyDeps } from "./fixtureLobby/league.js";
+import { LEAGUE_FIXTURE_REF, leagueFixtureView, recordLeagueFixture, retractLeagueFixture } from "./leagues/tabletopFixtures.js";
 import { FileTabletopRepository } from "./tabletop/store.js";
 import { createRecorderWebhook, recorderAnnouncement } from "./tabletop/discord.js";
 import { isAdminTestingPath, testingApi } from "./tabletop/testing.js";
@@ -481,6 +485,10 @@ const nafRecords = new NafRecordStore(FORK_STATE_DIR);
 const tournamentStore = new TournamentStore(TOURNAMENTS_DIR);
 // Leagues (TABBL and later): <FORK_STATE_DIR>/leagues/<id>/; public reads, organiser/admin artwork writes (src/leagues/api.ts).
 const leagueStore = new LeagueStore(FORK_STATE_DIR);
+// Fixture lobby (src/fixtureLobby): one file per fixture; presence in memory; chat 20 messages a minute per coach and lobby.
+const fixtureLobbyStore = new FixtureLobbyStore(FORK_STATE_DIR);
+const fixtureLobbyPresence = new LobbyPresence();
+const fixtureLobbyChatLimiter = new RateLimiter({ maxRequests: 20, maxChars: Number.MAX_SAFE_INTEGER, windowMs: 60_000, maxKeys: 10_000 });
 // recordLeagueFixtureEvent (match started / result from the fork and tabletop paths) posts through this store.
 /**
  * MAILER-ONLY recipient lookup for the league mailer (src/auth/contactFor.ts; src/mail/ resolves through it): a coach's address only with their
@@ -889,6 +897,8 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
     },
     fixtures: {
       get: (id) => {
+        // a league fixture played on the recorder (fixture lobby START): src/leagues/tabletopFixtures.ts
+        if (LEAGUE_FIXTURE_REF.test(id)) return leagueFixtureView(leagueStore, id);
         const m = tournamentStore.match(id);
         if (!m) return undefined;
         const t = tournamentStore.tournament(m.tournamentId);
@@ -925,8 +935,14 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
           ...(m.result?.opId ? { resultOpId: m.result.opId } : {}),
         }];
       }),
-      record: (id, input, at) => { tournamentStore.recordResult(id, input, at); },
-      retract: (id, input, at) => { tournamentStore.retractResult(id, { expectedRevision: input.expectedRevision, status: input.status as never }, at); },
+      record: (id, input, at) => {
+        if (LEAGUE_FIXTURE_REF.test(id)) return recordLeagueFixture(leagueStore, id, input, at);
+        tournamentStore.recordResult(id, input, at);
+      },
+      retract: (id, input, at) => {
+        if (LEAGUE_FIXTURE_REF.test(id)) return retractLeagueFixture(leagueStore, id, input, at);
+        tournamentStore.retractResult(id, { expectedRevision: input.expectedRevision, status: input.status as never }, at);
+      },
     },
     resolveFixtureTeam: (coach, teamId) => {
       const t = readLibrary(LIBRARY_DIR, coach).find((x) => x.teamId === teamId);
@@ -946,6 +962,35 @@ async function tabletopDeps(): Promise<TabletopApiDeps> {
 }
 // Startup recovery: replay unfinished commit journals when a tabletop store already exists.
 if (existsSync(TABLETOP_DIR)) void tabletopDeps().catch((e) => console.error(`[tabletop] recovery failed: ${(e as Error).message}`));
+
+/** Fixture lobby deps: START creates the recorder match through createMatch (same validation as POST /api/tabletop/matches). */
+function fixtureLobbyDeps(): LeagueLobbyDeps {
+  return {
+    store: fixtureLobbyStore,
+    presence: fixtureLobbyPresence,
+    chatLimiter: fixtureLobbyChatLimiter,
+    results: () => tournamentResults.list(),
+    resultsRevision: () => tournamentResults.revision(),
+    // the coach's recorder teams (the same refs POST /api/tabletop/matches takes): library teams and Roster Builder saves
+    recorderTeams: (coach) => {
+      try {
+        return [
+          ...readLibrary(LIBRARY_DIR, coach).filter((t) => t.retired !== true).map((t) => ({ ref: `library:${t.teamId}`, name: t.teamName, race: t.race, tv: typeof t.teamValue === "number" ? t.teamValue : null })),
+          ...readSaves(BUILDER_SAVES_DIR, coach).map((x) => ({ ref: x.id, name: x.name, race: x.raceName, tv: typeof x.lastPreview?.teamValue === "number" ? (x.lastPreview.teamValue as number) : null })),
+        ];
+      } catch { return []; }
+    },
+    startTabletop: async (input) => {
+      const deps = await tabletopDeps();
+      const body = { ...input.extra, fixtureRef: input.fixtureRef, home: input.home, away: input.away };
+      return createMatch(input.actor, input.organiser || deps.isOrganizer(input.actor), body, deps, () => new Date(), { inducementsByCoach: input.inducementsByCoach });
+    },
+    findMatchFor: async (fixtureRef) => {
+      const deps = await tabletopDeps();
+      return (await deps.repo.listMatches()).find((m) => m.fixtureRef === fixtureRef && (m.state === "recording" || m.state === "submitted"))?.id;
+    },
+  };
+}
 
 /** Admin Testing Suite gate: an organiser/admin session, or the legacy admin password. 403 for any other signed-in session. */
 function testingGate(req: IncomingMessage, res: ServerResponse, auth?: SessionIdentity): boolean {
@@ -1960,6 +2005,7 @@ async function handleApi(
       notify: leagueNotify,
       fork: leagueFork,
       ifMatch: typeof req.headers["if-match"] === "string" ? req.headers["if-match"] : undefined,
+      lobby: fixtureLobbyDeps(),
     });
     if (league) {
       for (const [name, value] of Object.entries(league.headers ?? {})) res.setHeader(name, value);

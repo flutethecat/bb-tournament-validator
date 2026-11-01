@@ -34,6 +34,9 @@
  *   GET|POST /api/leagues/:id/redraft, GET /api/leagues/:id/redraft/teams/:teamId, POST .../rest, POST .../submit,
  *   GET /api/leagues?redraft=mine
  *
+ * Fixture lobby (public read; the two coaches + organisers write): see src/fixtureLobby/league.ts.
+ *   GET .../seasons/:seasonId/fixtures/:fixtureId/lobby, POST .../lobby/presence|chat|roster|ready|inducements|start
+ *
  * Inducement table per season (public read; organisers + admins write): see inducements.ts.
  *   GET|PUT /api/leagues/:id/seasons/:seasonId/inducements
  *
@@ -49,6 +52,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { leagueHonoursRoutes, myAwards } from "./awards.js";
 import { leagueInducementRoutes } from "./inducements.js";
 import { leagueCaptainRoutes, withCaptainCandidates } from "./captainApi.js";
+import { leagueLobbyRoutes, type LeagueLobbyDeps } from "../fixtureLobby/league.js";
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
 import { AVATAR_CONTENT_TYPE, avatarRateLimit, sniffImage, type AvatarExt, type SniffedImage } from "../teamAvatars.js";
@@ -139,6 +143,8 @@ export interface LeagueApiDeps {
   readBody?(max: number): Promise<Buffer | undefined>;
   declaredTooLarge?(max: number): boolean;
   now?: () => Date;
+  /** Fixture lobby (src/fixtureLobby): store, presence, chat limiter, the recorder's createMatch; unset = 503 on lobby routes. */
+  lobby?: LeagueLobbyDeps;
 }
 
 export interface LeagueApiResult {
@@ -323,6 +329,8 @@ export async function leagueApi(
   if (first === "members") return memberContactRoute(method, league, second, extra, auth, deps);
   const captain = await leagueCaptainRoutes(method, route.rest, league, auth, deps);
   if (captain) return captain;
+  const lobby = await leagueLobbyRoutes(method, route.rest, league, auth, deps);
+  if (lobby) return lobby;
   const inducements = await leagueInducementRoutes(method, route.rest, league, auth, deps);
   if (inducements) return inducements;
   const fork = await leagueForkRoutes(method, route.id, route.rest, auth, deps);

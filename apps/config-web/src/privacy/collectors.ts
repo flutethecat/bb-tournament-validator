@@ -551,6 +551,22 @@ export const STORE_COLLECTORS: StoreCollector[] = [
     erase: ["social", "anonymise-messages", "final-sweep"],
   },
   {
+    // Fixture lobbies (src/fixtureLobby): the chat is kept with the fixture. Every lobby the coach is one of the two
+    // coaches of (by account) or wrote in, with its whole chat and both sides' lobby state.
+    id: "fixture-lobbies",
+    location: "FORK_STATE_DIR/fixture-lobbies/<sha256>.json",
+    export: (ctx) => {
+      let paths: string[] = [];
+      try { paths = listFiles(join(ctx.deps.stateDir, "fixture-lobbies"), ".json"); } catch { paths = []; }
+      const lobbies = paths
+        .map((p) => readJsonLoose<Obj>(p))
+        .filter((l): l is Obj => Boolean(l) && ((Array.isArray(l!.coaches) && (l!.coaches as unknown[]).some((c) => isMine(ctx.keys, c))) || objs(l!.chat).some((m) => isMine(ctx.keys, m.from))))
+        .map((l) => ({ key: l.key, coaches: l.coaches, sides: l.sides, hold: l.hold ?? null, started: l.started ?? null, chat: objs(l.chat) }));
+      return lobbies.length ? [{ name: "fixture-lobbies.json", content: json(lobbies) }] : [];
+    },
+    erase: ["anonymise-fixture-lobbies"],
+  },
+  {
     id: "bug-reports",
     location: "BUG_REPORTS_DIR",
     export: (ctx) => [{
@@ -598,6 +614,7 @@ export const KNOWN_STORES = [
   "team-library", "fork-db", "tournaments", "leagues", "tabletop", "tabletop-teams", "tournament-results", "tournament-matches", "naf-games",
   "coach-titles", "replay-moments", "notifications", "bug-reports", "test-games", "logs", "fork-teams-xml", "bot-registry",
   "privacy-blocklist", "lobby-chat", "desktop-claims", "translation-cache", "mail", "friends", "blocks", "messages",
+  "fixture-lobbies",
 ] as const;
 
 /**
@@ -613,6 +630,7 @@ export const INVENTORY_ROWS: Record<(typeof KNOWN_STORES)[number], string[]> = {
   notifications: ["notifications"], "bug-reports": ["bug-reports"], "test-games": [], logs: ["logs"], "fork-teams-xml": ["fork-teams-xml"],
   "bot-registry": ["bot-registry"], "privacy-blocklist": [], "lobby-chat": ["lobby-chat"], "desktop-claims": ["desktop-claims"],
   "translation-cache": ["translation-cache"], mail: ["mail"], friends: ["friends"], blocks: ["blocks"], messages: ["messages"],
+  "fixture-lobbies": ["fixture-lobbies"],
 };
 
 /** Team keys whose logos belong to the coach: their builder saves and library teams. */
@@ -654,6 +672,8 @@ notifications.json      Your notifications.
 friends.json            Your friends and friend requests (coach names only).
 blocks.json             The coaches you blocked.
 messages.json           Your private conversations (both coaches' messages) and your conversation list.
+fixture-lobbies.json    The fixture lobbies of your league fixtures: the lobby chat (both coaches' and organisers'
+                        messages), roster and inducement locks, and the start record.
 mail.json               Your email settings (confirmed address, an open confirmation, league email choice) and the
                         emails queued or recently sent to you.
 bug-reports-index.json  The bug reports and feedback you sent (id, date, description).
@@ -996,6 +1016,24 @@ export const DELETE_STEPS: DeleteStep[] = [
       }
       for (const path of listFiles(join(deps.stateDir, "messages", "index"), ".json")) {
         rewriteJson(path, (idx) => objs(idx.threads).map((e) => [an.fields(e, ["with", "lastFrom"], []), tx.texts(e, ["preview"])].some(Boolean)).some(Boolean));
+      }
+      return "done";
+    },
+  },
+  {
+    // Fixture lobby chats stay with the fixture (league history) with this coach shown as their pseudonym, in the
+    // coach list, as the writer, on side stamps and in the text.
+    id: "anonymise-fixture-lobbies",
+    run: ({ deps, an, text }) => {
+      const tx = text();
+      for (const path of listFiles(join(deps.stateDir, "fixture-lobbies"), ".json")) {
+        rewriteJson(path, (l) => [
+          an.list(l.coaches),
+          ...objs(l.chat).map((m) => [an.fields(m, ["from"], []), tx.texts(m, ["text"])].some(Boolean)),
+          ...vals(l.sides).map((st) => an.fields(st, ["by"], [])),
+          isObj(l.started) ? an.fields(l.started, ["by"], []) : false,
+          isObj(l.starting) ? an.fields(l.starting, ["by"], []) : false,
+        ].some(Boolean));
       }
       return "done";
     },

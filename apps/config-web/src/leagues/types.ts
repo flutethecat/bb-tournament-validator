@@ -194,6 +194,11 @@ export interface LeagueFixture {
   deadlineOutcome?: FixtureDeadlineOutcome;
   /** An organiser reopened the fixture after its deadline: auto-forfeit skips it while its effective deadline is still this one. */
   deadlineReopenedFor?: string;
+  /**
+   * Tabletop recorder link (tabletopFixtures.ts): bumped by every result the recorder writes or retracts here, and the
+   * op id / time of the recorded one (the recorder's publish journal checks them, like a tournament fixture's revision).
+   */
+  tabletop?: { revision: number; opId?: string; reportedAt?: string };
 }
 
 // ---- Fixture deadlines (spec-main-landing-nav §2.2, ruling §6(d); deadlines.ts) ----

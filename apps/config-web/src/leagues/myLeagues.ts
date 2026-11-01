@@ -31,7 +31,7 @@ export interface MyLeagueFixture {
   deadline?: string;
   /** The deadline passed and the fixture waits for an organiser's decision (auto-forfeit "review"). */
   needsDecision?: true;
-  /** SPA path of the fixture summary (the league Fixtures tab's own link). */
+  /** SPA path of the fixture lobby (spec-main-landing-nav §2: the sidebar's next-fixture row opens the lobby). */
   to: string;
 }
 
@@ -127,7 +127,7 @@ export function myLeagueTeam(leagueId: string, season: SeasonRecord, latestId: s
           ...(next.date ? { date: next.date } : {}),
           ...(effectiveDeadline(season, next) ? { deadline: effectiveDeadline(season, next) } : {}),
           ...(next.deadlineOutcome?.outcome === "review" ? { needsDecision: true as const } : {}),
-          to: `${base}${seasonQuery(season.id, latestId, { tab: "fixtures", fixture: next.id })}`,
+          to: `${base}/seasons/${enc(season.id)}/fixtures/${enc(next.id)}/lobby`,
         }
       : null,
   };

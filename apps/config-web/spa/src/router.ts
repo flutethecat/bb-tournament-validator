@@ -10,6 +10,7 @@ import HelpView from "./views/HelpView.vue";
 import GameSummaryView from "./views/GameSummaryView.vue";
 import HomeView from "./views/HomeView.vue";
 import LeaderboardsView from "./views/LeaderboardsView.vue";
+import FixtureLobbyView from "./views/FixtureLobbyView.vue";
 import LeagueDetailView from "./views/LeagueDetailView.vue";
 import LeagueRedraftView from "./views/LeagueRedraftView.vue";
 import LeagueListView from "./views/LeagueListView.vue";
@@ -117,6 +118,14 @@ export const routes: RouteRecordRaw[] = [
   { path: "/leagues", name: "leagues", component: LeagueListView, meta: { title: "Leagues" } },
   { path: "/leagues/:id([a-z0-9-]{1,64})", name: "league-detail", component: LeagueDetailView, props: true, meta: { title: "League" } },
   { path: "/leagues/:id([a-z0-9-]{1,64})/stats", name: "league-stats", component: LeagueStatsView, props: true, meta: { title: "League statistics" } },
+  // Fixture lobby (spec-landing-bubble-retro §8): public read; the two coaches and the organisers act (server-checked).
+  {
+    path: "/leagues/:id([a-z0-9-]{1,64})/seasons/:seasonId([a-z0-9-]{1,64})/fixtures/:fixtureId([^/]{1,80})/lobby",
+    name: "league-fixture-lobby",
+    component: FixtureLobbyView,
+    props: true,
+    meta: { title: "Fixture lobby" },
+  },
   // League settings (cog on the league page): organisers and site admins; others get the "not one of yours" note.
   { path: "/leagues/:id([a-z0-9-]{1,64})/settings", name: "league-settings", component: LeagueSettingsView, props: true, meta: { requiresAuth: true, title: "League settings" } },
   // Redraft: the organisers' board; a coach's own redraft (?team= opens the dialog from the notification link).

@@ -66,7 +66,7 @@ describe("myLeagues", () => {
       id: "alpha", name: "Alpha League", season: { id: "season-2", number: 2, name: "Season 2" }, to: "/leagues/alpha",
       teams: [{
         id: "orcs", name: "Orcs", race: "Orc", record: { wins: 1, draws: 1, losses: 1 }, to: "/leagues/alpha?tab=teams&team=orcs",
-        next: { id: "f4", round: 4, opponent: "Elves", home: false, date: "2026-11-05", to: "/leagues/alpha?tab=fixtures&fixture=f4" },
+        next: { id: "f4", round: 4, opponent: "Elves", home: false, date: "2026-11-05", to: "/leagues/alpha/seasons/season-2/fixtures/f4/lobby" },
       }],
     });
     // the seat's season is not the newest: every link names it

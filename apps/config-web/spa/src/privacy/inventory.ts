@@ -172,6 +172,13 @@ export const INVENTORY: readonly InventoryRow[] = [
     retention: "While your account exists. The other coach in a conversation keeps their copy of it.",
   },
   {
+    id: "fixture-lobbies", store: "data-store/fixture-lobbies/",
+    data: "The lobby of each of your league fixtures: chat messages (your coach name, the text and a timestamp), your roster and inducement choices and locks, Ready, and who started the match.",
+    purpose: "Agreeing and starting a league match with your opponent, including pre-match inducements.",
+    public: "partly", publicNote: "The chat is seen by the two coaches and the league organisers. Locks, Ready and (once both sides lock) the inducement picks are shown to anyone who opens the lobby.",
+    retention: HISTORY_RETENTION,
+  },
+  {
     id: "blocks", store: "data-store/blocks/",
     data: "The coaches you blocked, and when.",
     purpose: "Stopping blocked coaches from messaging you or sending you friend requests.",
